@@ -84,6 +84,7 @@ mod part_next_read_only;
 mod part_temp_rec_left_by_host;
 mod part_update_propagation;
 mod part_visible_new_host;
+mod part_visible_new_host_insert_fails;
 mod parts;
 mod procedure_bound_action;
 mod property_view_quoted_filter;

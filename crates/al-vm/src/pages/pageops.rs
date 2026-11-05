@@ -275,8 +275,10 @@ impl Session {
         }
     }
 
-    /// Only Close, OK and Cancel are pinned on a request page after New() (`request_new_blank_row`).
+    /// Only Close, OK and Cancel are pinned on a request page after New() (`request_new_blank_row`), and only Close and a part's
+    /// Visible() and Editable() after a swallowed insert of a new host (`refuse_after_swallowed_part_insert`).
     fn refuse_after_request_new(&self, st: &St, name: PageMethod) -> Result<PageMethod, Signal> {
+        self.refuse_after_swallowed_part_insert(st, Some(name))?;
         if st.borrow().request_new_blank && !matches!(name, PageMethod::Close | PageMethod::OK | PageMethod::Cancel) {
             return unsupported(format!(
                 "TestPage.{name} on a request page after New() (only Close, OK and Cancel are pinned)"
@@ -1254,7 +1256,7 @@ impl Session {
                     }
                 } =>
             {
-                Ok(Value::Null)
+                self.never_run_update(method, st, args)
             }
             PageMethod::Update | PageMethod::SaveRecord => {
                 self.require_open(st)?;

@@ -1646,7 +1646,7 @@ impl Session {
     }
 
     /// Whether the row with `rec`'s primary key is stored.
-    fn row_exists(&mut self, rec: &crate::records::Rec) -> Result<bool, Signal> {
+    pub(crate) fn row_exists(&mut self, rec: &crate::records::Rec) -> Result<bool, Signal> {
         let t = self.table(rec)?;
         let cx = self.cx_for(rec, &t)?;
         let pk: Vec<al_builtins::value::Value> = {

@@ -21,6 +21,7 @@ mod recipe_run;
 mod run;
 mod seed;
 mod serve;
+mod service_tier;
 mod sources;
 mod sources_report;
 mod stability;

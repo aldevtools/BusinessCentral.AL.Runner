@@ -44,6 +44,23 @@ pub struct SidecarConfig {
     /// Reuse of a clean process by the next session (ADR-014 amendment 2026-11-02); `None`: `ALRUNNER_DOTNET_REUSE`
     /// and `ALRUNNER_DOTNET_FRESH` decide, and without them it is on.
     pub reuse: Option<Reuse>,
+    /// Called with the simple name of each assembly a type names, before the sidecar first resolves it: fetches it
+    /// into a probe folder when it is missing (al-runner issue 6924, `al_deps::service_tier`). `None`: nothing is fetched.
+    pub fetch_assembly: Option<AssemblyFetch>,
+}
+
+/// See [`SidecarConfig::fetch_assembly`]. An error is reported once per name and the sidecar then says the assembly
+/// is missing, as it would without the fetch.
+#[derive(Clone)]
+pub struct AssemblyFetch(pub Arc<FetchFn>);
+
+/// The function of an [`AssemblyFetch`]: the simple name of an assembly in, why it could not be fetched out.
+pub type FetchFn = dyn Fn(&str) -> Result<(), String> + Send + Sync;
+
+impl std::fmt::Debug for AssemblyFetch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("AssemblyFetch")
+    }
 }
 
 impl Default for SidecarConfig {
@@ -58,6 +75,7 @@ impl Default for SidecarConfig {
             work_root: None,
             timeout: Duration::from_secs(60),
             reuse: None,
+            fetch_assembly: None,
         }
     }
 }
@@ -176,9 +194,30 @@ struct Shared {
     reuse: Reuse,
     /// Why `reset` found a process dirty, with how often (reported by `shutdown` unless reuse is off).
     dirty_reasons: Mutex<std::collections::BTreeMap<String, usize>>,
+    /// The assembly names handed to `cfg.fetch_assembly` so far (lower case).
+    fetched: Mutex<std::collections::HashSet<String>>,
 }
 
 impl Shared {
+    /// Hands the assembly of `ty` to `cfg.fetch_assembly`, once per name. A closed generic's inner assemblies are not
+    /// followed: the fetch follows an assembly's own references.
+    fn fetch_for(&self, ty: &DotNetType) {
+        let Some(fetch) = &self.cfg.fetch_assembly else { return };
+        let simple = ty.assembly.split(',').next().unwrap_or("").trim();
+        if simple.is_empty() || !lock(&self.fetched).insert(simple.to_ascii_lowercase()) {
+            return;
+        }
+        if let Err(why) = (fetch.0)(simple) {
+            eprintln!("warning: DotNet assembly {simple} was not fetched from the BC artifacts: {why}");
+        }
+    }
+
+    fn fetch_for_target(&self, target: &DotNetTarget) {
+        if let DotNetTarget::Static(ty) = target {
+            self.fetch_for(ty);
+        }
+    }
+
     fn resolve(&self) -> &Result<Resolved, String> {
         self.resolved.get_or_init(|| {
             let began = std::time::Instant::now();
@@ -268,10 +307,19 @@ fn wire_probe_dirs(dirs: &[PathBuf]) -> Vec<Value> {
 }
 
 /// The probe folders of a run: the user's `--dotnet-assembly-dir` folders first, then the default
-/// service-tier folder (see [`default_probe_dir`]) unless it is already listed.
-pub fn probe_dirs(user: &[PathBuf], sandbox: Option<&Path>, build: Option<&str>, major: u32) -> Vec<PathBuf> {
+/// service-tier folder (see [`default_probe_dir`]), then `fetched`, the folder al-runner fetches service-tier
+/// assemblies into from the platform artifact (`al_deps::service_tier`, al-runner issue 6924), each unless it is
+/// already listed. `fetched` is listed even before it exists: the fetch fills it during the run.
+pub fn probe_dirs(
+    user: &[PathBuf],
+    sandbox: Option<&Path>,
+    build: Option<&str>,
+    major: u32,
+    fetched: Option<&Path>,
+) -> Vec<PathBuf> {
     let mut dirs = user.to_vec();
-    if let Some(d) = sandbox.and_then(|s| default_probe_dir(s, build, major)) {
+    let default = sandbox.and_then(|s| default_probe_dir(s, build, major));
+    for d in default.into_iter().chain(fetched.map(Path::to_path_buf)) {
         if !dirs.contains(&d) {
             dirs.push(d);
         }
@@ -423,6 +471,7 @@ impl SidecarHost {
                 pool: Pool::default(),
                 reuse: cfg_reuse.unwrap_or_else(|| Reuse::from_env(&|k| std::env::var(k).ok())),
                 dirty_reasons: Mutex::new(Default::default()),
+                fetched: Mutex::new(Default::default()),
             }),
         }
     }
@@ -1274,6 +1323,7 @@ fn reply_of(v: Value) -> Result<DotNetReply, DotNetFailure> {
 
 impl DotNetSession for SidecarSession {
     fn construct(&mut self, ty: &DotNetType, args: Vec<DotNetArg>) -> Result<DotNetReply, DotNetFailure> {
+        self.shared.fetch_for(ty);
         self.request(json!({"op":"construct","type":type_json(ty),"args":args_json(&args)}))
             .and_then(reply_of)
     }
@@ -1283,6 +1333,7 @@ impl DotNetSession for SidecarSession {
         member: &str,
         args: Vec<DotNetArg>,
     ) -> Result<DotNetReply, DotNetFailure> {
+        self.shared.fetch_for_target(&target);
         self.request(json!({"op":"invoke","target":target_json(&target),"member":member,"args":args_json(&args)}))
             .and_then(reply_of)
     }
@@ -1293,10 +1344,13 @@ impl DotNetSession for SidecarSession {
         type_arg: &DotNetType,
         args: Vec<DotNetArg>,
     ) -> Result<DotNetReply, DotNetFailure> {
+        self.shared.fetch_for_target(&target);
+        self.shared.fetch_for(type_arg);
         self.request(json!({"op":"invoke","target":target_json(&target),"member":member,"generic":type_json(type_arg),"args":args_json(&args)}))
             .and_then(reply_of)
     }
     fn get_property(&mut self, target: DotNetTarget, name: &str) -> Result<DotNetReply, DotNetFailure> {
+        self.shared.fetch_for_target(&target);
         self.request(json!({"op":"get","target":target_json(&target),"member":name}))
             .and_then(reply_of)
     }
@@ -1306,6 +1360,7 @@ impl DotNetSession for SidecarSession {
         name: &str,
         value: DotNetValue,
     ) -> Result<DotNetReply, DotNetFailure> {
+        self.shared.fetch_for_target(&target);
         self.request(json!({"op":"set","target":target_json(&target),"member":name,"value":encode(&value)}))
             .and_then(reply_of)
     }
@@ -1549,14 +1604,46 @@ mod tests {
         let svc = fake_artifact(t.path(), "27.5.1.1", "270");
         let mine = PathBuf::from("/my/dlls");
         assert_eq!(
-            probe_dirs(std::slice::from_ref(&mine), Some(t.path()), Some("27.5.1.1"), 27),
+            probe_dirs(std::slice::from_ref(&mine), Some(t.path()), Some("27.5.1.1"), 27, None),
             vec![mine.clone(), svc.clone()]
         );
         assert_eq!(
-            probe_dirs(std::slice::from_ref(&svc), Some(t.path()), None, 27),
+            probe_dirs(std::slice::from_ref(&svc), Some(t.path()), None, 27, None),
             vec![svc]
         );
-        assert_eq!(probe_dirs(std::slice::from_ref(&mine), None, None, 27), vec![mine]);
+        assert_eq!(
+            probe_dirs(std::slice::from_ref(&mine), None, None, 27, None),
+            vec![mine]
+        );
+    }
+
+    /// al-runner issue 6924: the folder al-runner fetches service-tier assemblies into comes last, after the user's
+    /// folders and an extracted BcContainerHelper artifact, and is listed before it exists (the fetch fills it during
+    /// the run; the sidecar looks at a folder again on each miss).
+    #[test]
+    fn probe_dirs_search_the_fetched_service_folder_last() {
+        let t = tempfile::tempdir().unwrap();
+        let svc = fake_artifact(t.path(), "27.5.1.1", "270");
+        let mine = PathBuf::from("/my/dlls");
+        let fetched = t.path().join("cache/artifacts/27.5.1.1/service");
+        assert_eq!(
+            probe_dirs(
+                std::slice::from_ref(&mine),
+                Some(t.path()),
+                Some("27.5.1.1"),
+                27,
+                Some(&fetched)
+            ),
+            vec![mine.clone(), svc, fetched.clone()]
+        );
+        assert_eq!(
+            probe_dirs(std::slice::from_ref(&mine), None, None, 27, Some(&fetched)),
+            vec![mine.clone(), fetched.clone()]
+        );
+        assert_eq!(
+            probe_dirs(std::slice::from_ref(&fetched), None, None, 27, Some(&fetched)),
+            vec![fetched]
+        );
     }
 
     #[test]

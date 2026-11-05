@@ -195,13 +195,17 @@ impl Session {
     /// `ClearAll()` resets every global variable of the running object to its default;
     /// locals are untouched (docs/probes-needed.md "ClearAll"). In a codeunit with a TableNo,
     /// a table and a page the record stays as it is and so does the page itself
-    /// (session-system/TestClearAllTransactionTypeContracts.al:224-285, BC 27.5). Any other object
+    /// (session-system/TestClearAllTransactionTypeContracts.al:224-285, BC 27.5); a table extension too, with the base table
+    /// (`clear_all_other_table_instances`). Any other object
     /// kind is refused.
     pub(crate) fn clear_all(&mut self, f: &Frame) -> Result<Value, Signal> {
         let object = f.instance.borrow().object as usize;
         let o = &self.engine.program.objects[object];
         let keep: Vec<usize> = match o.kind {
             al_ir::ObjKind::Codeunit | al_ir::ObjKind::Table => o.rec_slot.into_iter().collect(),
+            // A table extension keeps its record, fields and filters, as a table does (pages/extensions/CyClearAllExtensions.al:
+            // 137-162, record/ProbeClearAllSetKeyHyperlink.al:358-385); the base table's globals are reset below.
+            al_ir::ObjKind::TableExtension => o.rec_slot.into_iter().chain(o.xrec_slot).collect(),
             al_ir::ObjKind::Page => o
                 .rec_slot
                 .into_iter()
@@ -217,8 +221,9 @@ impl Session {
                 return Err(Signal::Unsupported(format!("ClearAll in a {} (not pinned)", o.kind)));
             }
         };
-        self.alias_any(f)?;
+        let table_like = matches!(o.kind, al_ir::ObjKind::Table | al_ir::ObjKind::TableExtension);
         let tys: Vec<RtType> = o.globals.iter().map(|g| g.ty.clone()).collect();
+        self.alias_any(f)?;
         let fresh: Vec<Value> = tys.iter().map(|t| self.default_value(t)).collect();
         let mut inst = f.instance.borrow_mut();
         for (i, v) in fresh.into_iter().enumerate() {
@@ -236,6 +241,10 @@ impl Session {
                 }
                 inst.globals[i] = v;
             }
+        }
+        if table_like {
+            drop(inst);
+            return self.clear_all_other_table_instances(f);
         }
         // ClearAll in a page resets the globals of its page extensions too: a flag an extension set in its OnOpenPage reads
         // false in the extension's OnAfterGetRecord once the base page's OnAfterGetRecord called ClearAll, for a base page of the
@@ -276,6 +285,61 @@ impl Session {
                         ei.globals[i] = v;
                     }
                 }
+            }
+        }
+        Ok(Value::Null)
+    }
+
+    /// The rest of `ClearAll()` in a table or a table extension: the globals of the other instances of the record
+    /// variable are reset as well, except their `Rec` and `xRec`. In a table extension the base table's globals go
+    /// (pages/extensions/CyClearAllExtensions.al:137-153 `in ext: base glob` 0); in the base table the extension's
+    /// globals go (CyClearAllExtensions.al:154-162 `in base: ext glob` 0, record/ProbeClearAllSetKeyHyperlink.al:373-384).
+    /// Only one extension with globals is pinned: a second one, or a global temporary record there, is refused.
+    fn clear_all_other_table_instances(&mut self, f: &Frame) -> Result<Value, Signal> {
+        let own = f.instance.borrow().object as usize;
+        let engine = self.engine.clone();
+        let objects = &engine.program.objects;
+        let Some(Value::Record(rec)) = objects[own]
+            .rec_slot
+            .and_then(|s| f.instance.borrow().globals.get(s).cloned())
+        else {
+            return Ok(Value::Null);
+        };
+        let slots = |o: usize| -> Vec<usize> { objects[o].rec_slot.into_iter().chain(objects[o].xrec_slot).collect() };
+        let others: Vec<(usize, Rc<RefCell<Instance>>)> = rec
+            .borrow()
+            .globals
+            .instances()
+            .into_iter()
+            .filter(|(_, i)| !Rc::ptr_eq(i, &f.instance))
+            .map(|(o, i)| (o as usize, i))
+            .filter(|(o, _)| (0..objects[*o].globals.len()).any(|g| !slots(*o).contains(&g)))
+            .collect();
+        let exts = others
+            .iter()
+            .filter(|(o, _)| objects[*o].kind == al_ir::ObjKind::TableExtension)
+            .count();
+        let own_ext = objects[own].kind == al_ir::ObjKind::TableExtension;
+        if exts > usize::from(!own_ext) {
+            return Err(Signal::Unsupported(
+                "ClearAll in a table or table extension while a second extension of the table holds globals (not pinned)".into(),
+            ));
+        }
+        for (o, inst) in others {
+            let keep = slots(o);
+            let tys: Vec<RtType> = objects[o].globals.iter().map(|g| g.ty.clone()).collect();
+            let fresh: Vec<Value> = tys.iter().map(|t| self.default_value(t)).collect();
+            let mut i = inst.borrow_mut();
+            for (g, v) in fresh.into_iter().enumerate() {
+                if keep.contains(&g) {
+                    continue;
+                }
+                if matches!(&i.globals[g], Value::Record(r) if r.borrow().temporary) {
+                    return Err(Signal::Unsupported(
+                        "ClearAll in a table or table extension whose other part has a global temporary record (not pinned)".into(),
+                    ));
+                }
+                i.globals[g] = v;
             }
         }
         Ok(Value::Null)
@@ -1002,6 +1066,31 @@ impl Session {
         })
     }
 
+    /// The instance of table or table extension `object` on the record in place `base` (`Other.<protected var>` in a table
+    /// extension, al-runner issue 6984): the one the record's calls run on, made and kept in the record when it has none yet
+    /// (ADR-021 per-record instances; corpus PR 1126, table-objects/extensions/ProtectedVarCrossApp.al).
+    fn record_instance(
+        &mut self,
+        base: &ir::Place,
+        object: usize,
+        f: &mut Frame,
+    ) -> Result<Rc<RefCell<Instance>>, Signal> {
+        let Value::Record(rec) = self.read(base, f)? else {
+            return Err(Signal::Unsupported(
+                "internal error: a protected variable named through a record variable that holds no record".into(),
+            ));
+        };
+        let existing = rec.borrow().globals.instance(object as u32);
+        Ok(match existing {
+            Some(i) => i,
+            None => {
+                let i = self.table_instance(object);
+                rec.borrow().globals.set_instance(object as u32, i.clone());
+                i
+            }
+        })
+    }
+
     /// The declared type of a local, a global, or an element of an array of those, by reference.
     pub(crate) fn place_ty<'a>(&'a self, p: &ir::Place, f: &Frame) -> Option<&'a RtType> {
         match p {
@@ -1085,6 +1174,7 @@ impl Session {
                 Err(_) => RtType::Variant,
             },
             ir::Place::ExtGlobal(e, i) => self.engine.program.objects[*e].globals[*i].ty.clone(),
+            ir::Place::RecGlobal(_, o, i) => self.engine.program.objects[*o].globals[*i].ty.clone(),
             ir::Place::Index(base, _) => match self.place_type(base, f) {
                 RtType::Array(_, el) => *el,
                 other => other,
@@ -1159,6 +1249,11 @@ impl Session {
             ir::Place::ExtGlobal(e, i) => {
                 let ext = self.sibling_instance(f, *e)?;
                 let v = ext.borrow().globals.get(*i).cloned();
+                v.ok_or_else(|| base_slot_missing(*i))
+            }
+            ir::Place::RecGlobal(base, o, i) => {
+                let inst = self.record_instance(base, *o, f)?;
+                let v = inst.borrow().globals.get(*i).cloned();
                 v.ok_or_else(|| base_slot_missing(*i))
             }
             ir::Place::Index(base, idx) => {
@@ -1454,6 +1549,14 @@ impl Session {
             ir::Place::ExtGlobal(e, i) => {
                 let ext = self.sibling_instance(f, *e)?;
                 let mut b = ext.borrow_mut();
+                match b.globals.get_mut(*i) {
+                    Some(slot) => *slot = v,
+                    None => return Err(base_slot_missing(*i)),
+                }
+            }
+            ir::Place::RecGlobal(base, o, i) => {
+                let inst = self.record_instance(base, *o, f)?;
+                let mut b = inst.borrow_mut();
                 match b.globals.get_mut(*i) {
                     Some(slot) => *slot = v,
                     None => return Err(base_slot_missing(*i)),

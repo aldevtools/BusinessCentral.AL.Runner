@@ -228,7 +228,7 @@ fn place_children(p: &Place, f: &mut dyn FnMut(&Expr)) {
                 f(e);
             }
         }
-        Place::Field(base, _) => place_children(base, f),
+        Place::Field(base, _) | Place::RecGlobal(base, ..) => place_children(base, f),
     }
 }
 

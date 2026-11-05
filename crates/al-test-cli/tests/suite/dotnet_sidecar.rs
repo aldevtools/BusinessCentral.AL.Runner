@@ -9,10 +9,33 @@ use std::sync::Arc;
 use std::time::Duration;
 
 fn root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .unwrap()
+    without_verbatim_prefix(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .unwrap(),
+    )
+}
+
+/// On Windows `canonicalize` gives a verbatim path (`\\?\C:\...`), which MSBuild cannot use: it turns the `?` into `%3f`
+/// in `$(MSBuildProjectExtensionsPath)`, the restore output is not found, the sidecar build fails and every test here
+/// skipped (al-runner issue 7017). The plain form names the same folder.
+fn without_verbatim_prefix(p: PathBuf) -> PathBuf {
+    let text = p.to_string_lossy();
+    let plain = match text.strip_prefix(r"\\?\UNC\") {
+        Some(unc) => Some(PathBuf::from(format!(r"\\{unc}"))),
+        None => text.strip_prefix(r"\\?\").map(PathBuf::from),
+    };
+    plain.unwrap_or(p)
+}
+
+#[test]
+fn the_verbatim_prefix_of_a_windows_path_is_dropped_for_msbuild() {
+    let plain = |s: &str| without_verbatim_prefix(PathBuf::from(s));
+    assert_eq!(plain(r"\\?\C:\src\al-runner"), PathBuf::from(r"C:\src\al-runner"));
+    assert_eq!(plain(r"\\?\UNC\server\share\x"), PathBuf::from(r"\\server\share\x"));
+    assert_eq!(plain(r"C:\src"), PathBuf::from(r"C:\src"));
+    assert_eq!(plain("/home/u/al-runner"), PathBuf::from("/home/u/al-runner"));
 }
 
 fn config() -> SidecarConfig {
@@ -675,6 +698,75 @@ fn an_outstream_argument_becomes_a_bridge_and_what_dotnet_writes_comes_back_afte
     sess.close();
 }
 
+// al-runner issue 7016: after every call the sidecar looks for bytes .NET wrote into the session's OutStream bridges, and a
+// bridge lives as long as the session. That look copied each bridge's whole stream, so a session with many bridges over
+// large Blobs (a storage mock that saves one ZIP through a new OutStream per file) made every later call slower: one
+// codeunit took 17 minutes. A bridge nothing writes into must cost a later call (almost) nothing.
+#[test]
+fn idle_outstream_bridges_do_not_slow_down_later_calls() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let utf8 = handle_of(&sess.get_property(st("System.Text.Encoding"), "UTF8").unwrap());
+    let calls = |sess: &mut Box<dyn DotNetSession>| {
+        let t = std::time::Instant::now();
+        for _ in 0..100 {
+            let r = sess.get_property(DotNetTarget::Instance(utf8), "WebName").unwrap();
+            assert_eq!(text_of(&r), "utf-8");
+            assert!(r.streams.written.is_empty());
+        }
+        t.elapsed()
+    };
+    let before = calls(&mut sess);
+    let blob = vec![b'z'; 2 << 20];
+    let mut writers = Vec::new();
+    for _ in 0..50 {
+        let w = sess
+            .construct(
+                &ty("System.IO.StreamWriter"),
+                vec![arg(DotNetValue::OutStreamWith(blob.clone()))],
+            )
+            .unwrap();
+        writers.push((handle_of(&w), w.streams.bridges[0].1));
+    }
+    let after = calls(&mut sess);
+    eprintln!("100 calls: {before:?} before, {after:?} after 50 idle bridges of 2 MB");
+    assert!(
+        after < before * 3 + Duration::from_millis(250),
+        "100 calls took {before:?} before and {after:?} after 50 idle bridges of 2 MB"
+    );
+    // The idle bridges still carry what .NET writes into them, and only that.
+    let (writer, bridge) = writers[31];
+    sess.invoke(DotNetTarget::Instance(writer), "Write", vec![s("tail")])
+        .unwrap();
+    let r = sess.invoke(DotNetTarget::Instance(writer), "Flush", vec![]).unwrap();
+    assert_eq!(r.streams.written, vec![(bridge, b"tail".to_vec())]);
+    sess.close();
+}
+
+// al-runner issue 7016: a stream .NET closes (ZipArchive.Dispose writes its central directory, then closes the stream it
+// was given) hands back what it wrote with the call that closed it, once.
+#[test]
+fn bytes_written_while_closing_a_bridge_come_back_with_that_call_and_never_again() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let w = sess
+        .construct(&ty("System.IO.StreamWriter"), vec![arg(DotNetValue::OutStream)])
+        .unwrap();
+    let (_, bridge) = w.streams.bridges[0];
+    let writer = handle_of(&w);
+    let r = sess
+        .invoke(DotNetTarget::Instance(writer), "Write", vec![s("closing")])
+        .unwrap();
+    assert!(r.streams.written.is_empty(), "buffered until the close");
+    let r = sess.invoke(DotNetTarget::Instance(writer), "Dispose", vec![]).unwrap();
+    assert_eq!(r.streams.written, vec![(bridge, b"closing".to_vec())]);
+    for _ in 0..3 {
+        let r = sess.get_property(st("System.Text.Encoding"), "UTF8").unwrap();
+        assert!(r.streams.written.is_empty(), "{:?}", r.streams.written);
+    }
+    sess.close();
+}
+
 // al-runner issue 6317: an OutStream over bytes its Blob holds hands .NET a stream that starts with them, at their end.
 #[test]
 fn a_seeded_outstream_bridge_holds_the_bytes_appends_after_them_and_refuses_a_write_over_them() {
@@ -1172,6 +1264,7 @@ fn a_pool_kept_for_first_use_starts_nothing_until_a_session_calls_then_keeps_sta
     h.shutdown();
 }
 
+#[cfg(unix)]
 #[test]
 fn a_standby_that_cannot_start_leaves_the_session_to_report_the_reason() {
     let dir = tempfile::tempdir().unwrap();

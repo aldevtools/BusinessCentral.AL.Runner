@@ -337,7 +337,11 @@ pub fn format_with_field_places(
             match (v, text) {
                 (Value::Time(_), "Hours24,2" | "Hours12,2") => out.push_str(&part.replace(' ', "0")),
                 // `<Day,4>` and `<Month,4>` of a Date or DateTime pad with zeros already (AjScalars.al:266,272,282,295).
-                (Value::Date(..) | Value::DateTime(_), t) if t.starts_with("Day,") || t.starts_with("Month,") => {
+                // `<Year4,N>` and `<Year,N>` too (FormatDateCodeWidths.al Date_Format_IssueStrings, corpus branch
+                // al-runtime-rs-staging-r6963: `<Filler Character,0><Year4,6>` is 002016, `<Filler Character,0><Year,4>` 0016).
+                (Value::Date(..) | Value::DateTime(_), t)
+                    if ["Day,", "Month,", "Year4,", "Year,"].iter().any(|p| t.starts_with(p)) =>
+                {
                     out.push_str(&part)
                 }
                 // The other codes of a date or time pinned before a filler pad with zeros already.
@@ -525,15 +529,68 @@ fn comma_template(v: &Value, length: i32, template: &str, ctx: &dyn FormatCtx) -
             "<Integer Thousand><Comma,.>"
             | "<Integer Thousand><Comma,.><Decimals>"
             | "<Integer><Comma,,><Decimals>" => invalid(),
+            _ if matches!(v, Value::DateTime(_)) => time_comma(v, length, template, ctx),
             _ => Err(format!(
                 "format string `{template}`: the `<Comma` element is pinned for six strings only"
             )),
         },
+        Value::Time(_) => time_comma(v, length, template, ctx),
         _ => Err(format!(
             "format string `{template}`: the `<Comma` element is not pinned for {}",
             v.describe()
         )),
     }
+}
+
+/// `<Comma,x>` in a format string of a Time or a DateTime (types/date-time/FormatSecondDecComma.al, corpus branch
+/// al-runtime-rs-staging-r6963, Time_Format_SecondDecComma, _More, DateTime_Format_SecondDecComma): the element writes nothing.
+/// Right after `<Second dec>` or `<Second dec.>` (without a width) it sets the character that code writes before the fraction
+/// (`143059,123` for `<Comma,,>`); before it, after `<Seconds,2>`, or with `<Thousands>` it changes nothing. Pinned only with the
+/// `<Second dec>` and its `<Comma,x>` at the end of the string; other places of that pair, and `<Comma>` without a character,
+/// are refused.
+fn time_comma(v: &Value, length: i32, template: &str, ctx: &dyn FormatCtx) -> Result<String, String> {
+    let refuse = || {
+        Err(format!(
+            "format string `{template}`: this `<Comma` element is not pinned for {}",
+            v.describe()
+        ))
+    };
+    let mut stripped = String::new();
+    let mut point: Option<(char, &str)> = None;
+    let mut rest = template;
+    while let Some(at) = rest.find("<Comma,") {
+        let after = &rest[at + "<Comma,".len()..];
+        let mut chars = after.chars();
+        let (Some(c), Some('>')) = (chars.next(), chars.next()) else {
+            return refuse();
+        };
+        let before = &rest[..at];
+        stripped.push_str(before);
+        rest = &after[c.len_utf8() + 1..];
+        let dec = ["<Second dec>", "<Second dec.>"]
+            .into_iter()
+            .find(|d| before.ends_with(d));
+        if let Some(d) = dec {
+            if !rest.is_empty() || point.is_some() {
+                return refuse();
+            }
+            point = Some((c, d));
+        }
+    }
+    stripped.push_str(rest);
+    if stripped.contains("<Comma") {
+        return refuse();
+    }
+    let mut out = format_with_string(v, 0, &stripped, ctx)?;
+    if let Some((c, d)) = point {
+        let code = &d[1..d.len() - 1];
+        if let Some(Ok(part)) = second_dec::part(v, code) {
+            if let Some(head) = out.strip_suffix(part.as_str()) {
+                out = format!("{head}{}", part.replacen('.', &c.to_string(), 1));
+            }
+        }
+    }
+    Ok(crate::format::pad(out, length))
 }
 
 fn numeric_of(
@@ -953,6 +1010,9 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
     // invalid-format error (`<Day,2>` on a Time too: the template `<Filler Character,0><Day,2><Month,4><Year4>` raises,
     // AjScalars.al:302,317). Only these code, width and type triples are pinned; the others fall through to the arms below
     // (width 2) or are refused there.
+    if let Some(part) = date_number_width(v, code, date) {
+        return Ok(part);
+    }
     if let Some((base, w)) = code.split_once(',') {
         let w = w.trim().parse::<usize>().ok();
         match (v, base, w, date, clock) {
@@ -980,18 +1040,7 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
     }
     let part = match (code, date, clock) {
         ("Year4", Some((y, _, _)), _) => format!("{y:04}"),
-        // A two-digit year below 10 would print as one digit or two: not measured.
-        // Two digits for 1999 and for 2000 to 2030, four for 1905, 1929, 1930 and 2105
-        // (text/TestProbeTextDateFormatContracts.al:Format_FormatStrings_Date); other years are not measured.
-        ("Year", Some((y, _, _)), _) if y == 1999 || (2000..=2030).contains(&y) => format!("{:02}", y.rem_euclid(100)),
-        ("Year", Some((y, _, _)), _) if matches!(y, 1905 | 1929 | 1930 | 2105) => format!("{y}"),
-        // On a DateTime 1998 and 2031 have two digits, 2099 four (types/date-time/Format.al:1026-1060
-        // Y36_DateTime_Format_Hours_Year_NoWidth); other years outside the ones above are not measured.
-        ("Year", Some((y, _, _)), _) if matches!(v, Value::DateTime(_)) && matches!(y, 1998 | 2031) => {
-            format!("{:02}", y.rem_euclid(100))
-        }
-        ("Year", Some((y, _, _)), _) if matches!(v, Value::DateTime(_)) && y == 2099 => format!("{y}"),
-        ("Year,2", Some((y, _, _)), _) => format!("{:02}", y.rem_euclid(100)),
+        ("Year", Some((y, _, _)), _) => year_natural(y),
         ("Month", Some((_, m, _)), _) => format!("{m}"),
         ("Month,2", Some((_, m, _)), _) => format!("{m:02}"),
         ("Month Text", Some(_), _) => code_name("Month Text", date, day_no, ctx.language())?,
@@ -1168,6 +1217,48 @@ fn text_template(t: &str, pieces: &[(bool, &str)]) -> Result<Option<String>, Str
 }
 
 /// Whether the name of `code` is one of the codes of the Format documentation (or this module), whatever the value type.
+/// What `<Year>` shows without a width: two digits for the years 1950 to 2049, four for the others, on a Date and a DateTime
+/// (types/date-time/FormatDateCodeWidths.al Date_Format_YearWindow_*, corpus branch al-runtime-rs-staging-r6963: 1900, 1949,
+/// 2050, 2065, 2100 four, 1950, 1965, 1997, 2000, 2001, 2032, 2049 two; also the years 5, 999 and 9999 as `0005`: Date_Format_YearWidth_*).
+/// The years pinned before agree (text/TestProbeTextDateFormatContracts.al:Format_FormatStrings_Date, types/date-time/
+/// Format.al:1026-1060 Y36_DateTime_Format_Hours_Year_NoWidth).
+fn year_natural(y: i32) -> String {
+    if (1950..=2049).contains(&y) {
+        format!("{:02}", y.rem_euclid(100))
+    } else {
+        format!("{y:04}")
+    }
+}
+
+/// `<Day,N>`, `<Month,N>`, `<Year,N>` and `<Year4,N>` of a Date or DateTime (types/date-time/FormatDateCodeWidths.al, corpus
+/// branch al-runtime-rs-staging-r6963, every test; widths 0 to 6, years 5, 999, 2016 and 9999): the number the code shows
+/// without a width (`<Year4>` with four digits, `<Year>` as `year_natural`) padded with zeros on the left to N characters, or N
+/// stars when it has more characters than N; width 0 is the number as is. `None` for any other code, or a width that is not a
+/// number from 0 to 6.
+fn date_number_width(v: &Value, code: &str, date: Option<(i32, u32, u32)>) -> Option<String> {
+    let (base, w) = code.split_once(',')?;
+    // Widths above 6 are not measured.
+    let w = w.trim().parse::<usize>().ok().filter(|w| *w <= 6)?;
+    let (y, m, d) = date?;
+    if !matches!(v, Value::Date(..) | Value::DateTime(_)) {
+        return None;
+    }
+    let number = match base {
+        "Day" => d.to_string(),
+        "Month" => m.to_string(),
+        "Year4" => format!("{y:04}"),
+        "Year" => year_natural(y),
+        _ => return None,
+    };
+    Some(if w == 0 {
+        number
+    } else if number.len() > w {
+        "*".repeat(w)
+    } else {
+        format!("{number:0>w$}")
+    })
+}
+
 fn is_documented_code(code: &str) -> bool {
     let name = code.split_once(',').map_or(code, |(n, _)| n);
     CODE_NAMES.contains(&name)
@@ -1442,14 +1533,15 @@ mod tests {
         let day = Value::Date(day_from_civil(2024, 3, 7), false);
         for (v, f) in [
             (day.clone(), "<Seconds,2>"),
-            (day.clone(), "<Day,5>"),
+            (day.clone(), "<Day,7>"),
             (day.clone(), "<Year4"),
-            // Widths no corpus test pins (AjScalars.al:225-327 pins 3 and 4 for the day, 4 for the month, 5 and 4 for the hours).
+            // Widths no corpus test pins (AjScalars.al:225-327 and FormatDateCodeWidths.al pin 0 to 6 for the date numbers, 5 and 4
+            // for the hours).
             (day.clone(), "<Hours24,2>"),
             (day.clone(), "<Hours12,5>"),
-            (day.clone(), "<Month,3>"),
+            (day.clone(), "<Month,7>"),
             (day.clone(), "<Filler Character,x><Day,4>"),
-            (Value::DateTime(1), "<Day,3>"),
+            (Value::DateTime(1), "<Year,7>"),
             (Value::DateTime(1), "<Hours24,4>"),
             (Value::DateTime(1), "<Minutes,4>"),
             (Value::Time(1), "<Hours24,3>"),
@@ -1874,5 +1966,243 @@ mod tests {
             text(fmt(Value::Integer(1234567), "<Integer,10><Filler Character,0>")),
             "0001234567"
         );
+    }
+
+    /// The widths of the date numbers on a Date (types/date-time/FormatDateCodeWidths.al, corpus branch
+    /// al-runtime-rs-staging-r6963, Date_Format_*Width_* and Date_Format_ErrorText).
+    #[test]
+    fn date_number_widths() {
+        let widths = |y, m, dd, code: &str| -> Vec<String> {
+            let d = Value::Date(day_from_civil(y, m, dd), false);
+            std::iter::once(format!("<{code}>"))
+                .chain((0..=6).map(|w| format!("<{code},{w}>")))
+                .map(|t| match fmt(d.clone(), &t) {
+                    Ok(Value::Text(got)) => got.as_str().to_string(),
+                    other => panic!("{t}: {other:?}"),
+                })
+                .collect()
+        };
+        let cases: &[(i32, u32, u32, &str, [&str; 8])] = &[
+            (
+                5,
+                3,
+                5,
+                "Year4",
+                ["0005", "0005", "*", "**", "***", "0005", "00005", "000005"],
+            ),
+            (
+                999,
+                11,
+                25,
+                "Year4",
+                ["0999", "0999", "*", "**", "***", "0999", "00999", "000999"],
+            ),
+            (
+                2016,
+                12,
+                14,
+                "Year4",
+                ["2016", "2016", "*", "**", "***", "2016", "02016", "002016"],
+            ),
+            (
+                9999,
+                12,
+                31,
+                "Year4",
+                ["9999", "9999", "*", "**", "***", "9999", "09999", "009999"],
+            ),
+            (
+                5,
+                3,
+                5,
+                "Year",
+                ["0005", "0005", "*", "**", "***", "0005", "00005", "000005"],
+            ),
+            (
+                999,
+                11,
+                25,
+                "Year",
+                ["0999", "0999", "*", "**", "***", "0999", "00999", "000999"],
+            ),
+            (
+                2016,
+                12,
+                14,
+                "Year",
+                ["16", "16", "*", "16", "016", "0016", "00016", "000016"],
+            ),
+            (
+                9999,
+                12,
+                31,
+                "Year",
+                ["9999", "9999", "*", "**", "***", "9999", "09999", "009999"],
+            ),
+            (
+                5,
+                3,
+                5,
+                "Month",
+                ["3", "3", "3", "03", "003", "0003", "00003", "000003"],
+            ),
+            (
+                999,
+                11,
+                25,
+                "Month",
+                ["11", "11", "*", "11", "011", "0011", "00011", "000011"],
+            ),
+            (5, 3, 5, "Day", ["5", "5", "5", "05", "005", "0005", "00005", "000005"]),
+            (
+                9999,
+                12,
+                31,
+                "Day",
+                ["31", "31", "*", "31", "031", "0031", "00031", "000031"],
+            ),
+        ];
+        for (y, m, d, code, want) in cases {
+            assert_eq!(widths(*y, *m, *d, code), want.to_vec(), "{y}-{m}-{d} {code}");
+        }
+    }
+
+    /// The same widths on a DateTime (FormatDateCodeWidths.al DateTime_Format_*Width).
+    #[test]
+    fn date_time_number_widths() {
+        let dt = Value::DateTime((i64::from(day_from_civil(2016, 12, 14)) - 1) * 86_400_000 + 12 * 3_600_000 + 1);
+        for (t, want) in [
+            ("<Year4,2>", "**"),
+            ("<Year4,5>", "02016"),
+            ("<Year,3>", "016"),
+            ("<Month,1>", "*"),
+            ("<Day,6>", "000014"),
+        ] {
+            match fmt(dt.clone(), t) {
+                Ok(Value::Text(got)) => assert_eq!(got.as_str(), want, "{t}"),
+                other => panic!("{t}: {other:?}"),
+            }
+        }
+    }
+
+    /// AL Runner issue 7019: the window of two-digit years of `<Year>` (FormatDateCodeWidths.al Date_Format_YearWindow_*,
+    /// _IssueString).
+    #[test]
+    fn year_two_digit_window() {
+        for (y, want, two, four) in [
+            (1900, "1900", "**", "1900"),
+            (1949, "1949", "**", "1949"),
+            (1950, "50", "50", "0050"),
+            (1965, "65", "65", "0065"),
+            (2000, "00", "00", "0000"),
+            (2049, "49", "49", "0049"),
+            (2050, "2050", "**", "2050"),
+            (2100, "2100", "**", "2100"),
+        ] {
+            let d = Value::Date(day_from_civil(y, 1, 1), false);
+            let dt = Value::DateTime((i64::from(day_from_civil(y, 7, 1)) - 1) * 86_400_000 + 12 * 3_600_000 + 1);
+            for (v, t, w) in [
+                (&d, "<Year>", want),
+                (&d, "<Year,2>", two),
+                (&d, "<Year,4>", four),
+                (&dt, "<Year>", want),
+                (&dt, "<Year,2>", two),
+            ] {
+                match fmt(v.clone(), t) {
+                    Ok(Value::Text(got)) => assert_eq!(got.as_str(), w, "{y} {t}"),
+                    other => panic!("{y} {t}: {other:?}"),
+                }
+            }
+        }
+        let d = Value::Date(day_from_civil(1965, 1, 1), false);
+        match fmt(d, "<Month,2>/<Day,2>/<Year>") {
+            Ok(Value::Text(got)) => assert_eq!(got.as_str(), "01/01/65"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// AL Runner issue 6966: `<Year4,4>` in a date format string (FormatDateCodeWidths.al Date_Format_IssueStrings).
+    #[test]
+    fn year4_with_width_four() {
+        let d = Value::Date(day_from_civil(2016, 12, 14), false);
+        for (template, want) in [
+            ("<Year4,4><Month,2><Day,2>", "20161214"),
+            ("<Day,2>.<Month,2>.<Year4,4>", "14.12.2016"),
+            ("<year4,4>", "2016"),
+            ("<Filler Character,0><Year4,6>", "002016"),
+            ("<Filler Character,0><Year,4>", "0016"),
+        ] {
+            match fmt(d.clone(), template) {
+                Ok(Value::Text(got)) => assert_eq!(got.as_str(), want, "{template}"),
+                other => panic!("{template}: {other:?}"),
+            }
+        }
+    }
+
+    /// FormatSecondDecComma.al (corpus branch al-runtime-rs-staging-r6963) Time_Format_SecondDecComma, _More and
+    /// DateTime_Format_SecondDecComma.
+    #[test]
+    fn comma_with_second_dec_and_thousands() {
+        let strings = [
+            "<Seconds,2><Second dec.><Comma,,>",
+            "<Comma,;><Seconds,2><Second dec.>",
+            "<Seconds,2><Comma,.>",
+            "<Seconds,2><Second dec><Comma,,>",
+            "<Seconds,2>:<Thousands><Comma,,>",
+        ];
+        let time = |h: i64, m: i64, sec: i64, ms: i64| Value::Time((h * 3600 + m * 60 + sec) * 1000 + ms + 1);
+        let day = i64::from(day_from_civil(2024, 3, 5)) - 1;
+        let date_time = |h: i64, m: i64, sec: i64, ms: i64| {
+            Value::DateTime(day * 86_400_000 + (h * 3600 + m * 60 + sec) * 1000 + ms + 1)
+        };
+        let cases: [(Value, [&str; 5]); 7] = [
+            (time(14, 30, 59, 123), ["59,123", "59.123", "59", "59,123", "59:123"]),
+            (time(0, 0, 0, 0), ["00", "00", "00", "00", "00:0"]),
+            (time(9, 5, 0, 50), ["00,05", "00.05", "00", "00,05", "00:50"]),
+            (time(23, 59, 59, 999), ["59,999", "59.999", "59", "59,999", "59:999"]),
+            (
+                date_time(14, 30, 59, 123),
+                ["59,123", "59.123", "59", "59,123", "59:123"],
+            ),
+            (date_time(9, 5, 0, 50), ["00,05", "00.05", "00", "00,05", "00:50"]),
+            (date_time(14, 30, 59, 0), ["59", "59", "59", "59", "59:0"]),
+        ];
+        for (v, want) in cases {
+            for (t, w) in strings.iter().zip(want) {
+                match fmt(v.clone(), t) {
+                    Ok(Value::Text(got)) => assert_eq!(got.as_str(), w, "{t} {v:?}"),
+                    other => panic!("{t} {v:?}: {other:?}"),
+                }
+            }
+        }
+        let app = "<Hours24,2><Filler Character,0><Minutes,2><Seconds,2><Second dec.><Comma,.>";
+        for (v, want) in [
+            (time(0, 0, 0, 0), "000000"),
+            (time(9, 5, 0, 50), "090500.05"),
+            (date_time(14, 30, 59, 0), "143059"),
+        ] {
+            match fmt(v.clone(), app) {
+                Ok(Value::Text(got)) => assert_eq!(got.as_str(), want, "{v:?}"),
+                other => panic!("{v:?}: {other:?}"),
+            }
+        }
+        // Not measured: the pair in the middle of the string.
+        assert!(matches!(
+            fmt(time(1, 2, 3, 4), "<Second dec.><Comma,,>:<Seconds,2>"),
+            Err(Signal::Unsupported(_))
+        ));
+    }
+
+    /// AL Runner issue 7033: `<Comma,.>` after `<Second dec.>` in a format string of a Time.
+    #[test]
+    fn second_dec_with_comma_on_a_time() {
+        let time = Value::Time((14 * 3600 + 30 * 60 + 59) * 1000 + 123 + 1);
+        match fmt(
+            time,
+            "<Hours24,2><Filler Character,0><Minutes,2><Seconds,2><Second dec.><Comma,.>",
+        ) {
+            Ok(Value::Text(got)) => assert_eq!(got.as_str(), "143059.123"),
+            other => panic!("{other:?}"),
+        }
     }
 }
