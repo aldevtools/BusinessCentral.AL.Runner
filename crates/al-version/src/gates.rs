@@ -555,7 +555,8 @@ impl Gate {
             | Gate::GuidFieldRefEvaluateFalseClearsLastErrorFrom28
             | Gate::OtherRecordOptionCaptionFrom29
             | Gate::EmptyActionViewEveryRowFrom28
-            | Gate::EmptyActionViewOneRowAgainFrom29 => self.evidence_of_first_gates(),
+            | Gate::EmptyActionViewOneRowAgainFrom29
+            | Gate::ReportSaveAsXmlHeaderHasCompanyBlock => self.evidence_of_first_gates(),
             Gate::JpegMediaSetKeptFrom29 => &[Evidence {
                 file: "../al-language-onprem/streams/media/MediaFiles.al",
                 lines: "515",
@@ -614,20 +615,6 @@ impl Gate {
                 file: "session-system/TestEnvironmentUserTenantContracts.al",
                 lines: "169",
             }],
-            Gate::ReportSaveAsXmlHeaderHasCompanyBlock => &[
-                Evidence {
-                    file: "reports/runtime/BdRegionTests.al",
-                    lines: "125,142,159,176",
-                },
-                Evidence {
-                    file: "text/TestReportSaveAsDatasetContracts.al",
-                    lines: "243",
-                },
-                Evidence {
-                    file: "reports/W3ReportDataset.al",
-                    lines: "164,209",
-                },
-            ],
             Gate::PermissionObjectNameLongerFrom29 => &[Evidence {
                 file: "permissions/W6PermissionColumns.al",
                 lines: "122",
@@ -1003,6 +990,25 @@ impl Gate {
     /// The evidence of the first gates of `evidence` (split out to keep that function short).
     fn evidence_of_first_gates(self) -> &'static [Evidence] {
         match self {
+            Gate::ReportSaveAsXmlHeaderHasCompanyBlock => &[
+                Evidence {
+                    file: "reports/runtime/BdRegionTests.al",
+                    lines: "125,142,159,176",
+                },
+                Evidence {
+                    file: "text/TestReportSaveAsDatasetContracts.al",
+                    lines: "243",
+                },
+                Evidence {
+                    file: "reports/W3ReportDataset.al",
+                    lines: "164,209",
+                },
+                // Report.WordXmlPart: ReportCaption and CompanyMetadata in BCReportInformation from BC 29 (corpus PR 1145).
+                Evidence {
+                    file: "reports/WordXmlPartNames.al",
+                    lines: "647,663,679",
+                },
+            ],
             Gate::OtherRecordOptionCaptionFrom29 => &[
                 Evidence {
                     file: "pages/controls/SaOtherRecordControl.al",
