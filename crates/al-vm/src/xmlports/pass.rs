@@ -121,6 +121,17 @@ impl Session {
             usize::MAX
         };
         self.xp_rows_upto(inst, schema, node, &mut rows, cap)?;
+        // LinkTable naming the table element right before it: the lines of the header element's record as its loop left it (the
+        // last header) are written, and none without a header row (xmlports/shapes-properties/R6924eLinkSibling.al:224
+        // LinkSibling_Export_TwoHeaders, :240 LinkSibling_Export_NoHeader). A header record whose link fields hold their initial
+        // values cannot tell a header row with blank link values from no header row; with lines that match those values it is not
+        // pinned.
+        if !rows.is_empty() && link_sibling(schema, node) && self.xp_link_values_initial(inst, schema, node)? {
+            return unsupported(format!(
+                "XmlPort export of table element {} whose LinkTable is the table element before it, with that record's link fields blank and lines that match them (not pinned)",
+                n.name
+            ));
+        }
         let mut more = if lazy {
             rows.first().map(|r| self.xp_row_position(inst, n, r)).transpose()?
         } else {
@@ -409,6 +420,21 @@ impl Session {
         Ok(())
     }
 
+    /// Whether every link field of the LinkTable record of table element `node` holds its initial value.
+    fn xp_link_values_initial(&mut self, inst: &Inst, schema: &Schema, node: usize) -> Result<bool, Signal> {
+        let n = schema.node(node);
+        let Some(link) = n.link_node else { return Ok(false) };
+        let parent = self.xp_record(inst, schema.node(link))?;
+        let table = parent.borrow().table as usize;
+        let initial = self.initial_fields(table);
+        for &(_, other) in &n.link_fields {
+            if ops::compare(&parent.borrow().fields[other], &initial[other])? != std::cmp::Ordering::Equal {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
     /// The rows of table element `node` in export order.
     pub(super) fn xp_rows(
         &mut self,
@@ -500,6 +526,22 @@ pub(super) fn unlinked_below_table(schema: &Schema, node: usize) -> bool {
     n.kind == ir::XmlNodeKind::Table
         && n.link_node.is_none()
         && n.parent.is_some_and(|p| schema.node(p).kind == ir::XmlNodeKind::Table)
+}
+
+/// Whether table element `node` names in LinkTable a table element that is not above it: the one right before it under the same
+/// text element (al-sema `link_sibling_named`, xmlports/shapes-properties/R6924eLinkSibling.al).
+pub(super) fn link_sibling(schema: &Schema, node: usize) -> bool {
+    let Some(link) = schema.node(node).link_node else {
+        return false;
+    };
+    let mut cur = schema.node(node).parent;
+    while let Some(p) = cur {
+        if p == link {
+            return false;
+        }
+        cur = schema.node(p).parent;
+    }
+    true
 }
 
 /// Runs `body` once for every row of table element `node`, with the row loaded.

@@ -68,6 +68,7 @@ mod xmlport_import_encodings;
 mod xmlport_import_file;
 mod xmlport_legacy_evaluate_german;
 mod xmlport_link_in_key;
+mod xmlport_link_sibling;
 mod xmlport_linked_pass_key;
 mod xmlport_linked_zero_once;
 mod xmlport_max_once;
