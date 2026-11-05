@@ -25,7 +25,8 @@ use std::sync::Arc;
 pub struct BaselineRun {
     pub baseline: Baseline,
     /// Tables the roots that did not run (or stopped early) would have written rows to (a record
-    /// variable's Insert, Modify, Rename or ModifyAll in the root's own call closure), and that hold no row in the baseline: object
+    /// variable's Insert, Modify, Rename or ModifyAll in the root's own call closure), and that hold no row in the baseline or
+    /// belong to a root that was rolled back (al-runner issue 6973), unless the restored company holds their rows: object
     /// indexes.
     pub unseeded: BTreeSet<u32>,
     /// How many tables hold a row in the baseline.
@@ -285,7 +286,8 @@ pub fn run_traced(
     // So that a root that stops can say where (fault sites are noted only on an error or a refusal).
     session.trace_faults(true);
     let mut notes = Vec::new();
-    let mut touched = BTreeSet::new();
+    // Per root that stopped: the tables it writes, and whether its rows before the stop are kept.
+    let mut stopped: Vec<(BTreeSet<u32>, bool)> = Vec::new();
     let mut ran = 0;
     al_builtins::assumptions::clear_hits();
     let run_environment = session.environment();
@@ -423,7 +425,7 @@ pub fn run_traced(
                         }
                     ));
                 }
-                touched.extend(tables_written(lowered, oi, ri));
+                stopped.push((tables_written(lowered, oi, ri), keep_prefix));
             }
         }
     }
@@ -457,12 +459,7 @@ pub fn run_traced(
     baseline.workspace_installs = Some(workspace_installs);
     baseline.company_built = company_built;
     let filled = baseline.nonempty_tables();
-    // A table the restored company holds rows for is seeded, whether or not a root could write it.
-    let unseeded = touched
-        .difference(&filled)
-        .copied()
-        .filter(|&t| !session.backs_rows(t))
-        .collect();
+    let unseeded = unseeded_tables(&stopped, &filled, &session);
     Some(BaselineRun {
         baseline,
         unseeded,
@@ -507,6 +504,20 @@ pub fn demo_row_tables(lowered: &Lowered) -> std::collections::HashSet<usize> {
                         | (Some(2_000_000_182), "Media Resources")
                 )
         })
+        .collect()
+}
+
+/// The tables the roots that stopped would have written rows to, that the tests may not read as they are. A table the
+/// restored company holds rows for is seeded, whether or not a root could write it. A root that stopped and was rolled back
+/// wrote none of its rows, so a table it writes is unseeded even when other roots put rows in it: a read that finds no row,
+/// or a scan, is not BC's answer (al-runner issue 6973: another app's flags in the table, the stopped install's flag
+/// missing). A root whose rows before the stop are kept (`keep_prefix`) counts only for tables that hold no row.
+fn unseeded_tables(stopped: &[(BTreeSet<u32>, bool)], filled: &BTreeSet<u32>, session: &Session) -> BTreeSet<u32> {
+    stopped
+        .iter()
+        .flat_map(|(tables, kept)| tables.iter().filter(move |t| !kept || !filled.contains(t)))
+        .copied()
+        .filter(|&t| !session.backs_rows(t))
         .collect()
 }
 

@@ -634,6 +634,26 @@ fn run_version(
     Ok((r, kept_out))
 }
 
+/// The sidecar configuration of a corpus run of BC `major` (ADR-014).
+fn sidecar_config(args: &Args, root: &Path, major: u16) -> SidecarConfig {
+    SidecarConfig {
+        sidecar: args.dotnet_sidecar.clone(),
+        source_root: Some(root.to_path_buf()),
+        // Only the user's folders. ADR-014 section 3, step 2 (the service folder of the platform package the run
+        // selected) is skipped: the artifact cache holds no service folder, and BcContainerHelper's
+        // `~/.bcartifacts.cache/sandbox`, which `al-runner` reads, is a machine's own folder, often of another build
+        // of the major. Read here, it made a corpus case pass or be refused by what HOME held (99100
+        // AL_JsonTextWriter_SimpleObject needs Newtonsoft.Json from it), so one build gave two results
+        // (corpus_harness.rs `outcomes_do_not_depend_on_threads_or_home`). A missing assembly is refused, as on CI.
+        assembly_dirs: args.dotnet_assembly_dirs.clone(),
+        allow_roll_forward: args.dotnet_allow_roll_forward,
+        // BC 29 runs on .NET 10, 27 and 28 on .NET 8 (al_testrun::dotnet_runtime).
+        bc_major: Some(u32::from(major)),
+        timeout: Duration::from_secs(args.dotnet_timeout_secs.unwrap_or(60)),
+        ..Default::default()
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_version_inner(
     args: &Args,
@@ -947,20 +967,7 @@ fn run_version_inner(
         return Ok(VersionRun::empty(0));
     }
     // ADR-014: the sidecar starts lazily, at the first `DotNet` call that reaches it.
-    let host = Arc::new(SidecarHost::new(SidecarConfig {
-        sidecar: args.dotnet_sidecar.clone(),
-        source_root: Some(root.to_path_buf()),
-        // Only the user's folders. ADR-014 section 3, step 2 (the service folder of the platform package the run
-        // selected) is skipped: the artifact cache holds no service folder, and BcContainerHelper's
-        // `~/.bcartifacts.cache/sandbox`, which `al-runner` reads, is a machine's own folder, often of another build
-        // of the major. Read here, it made a corpus case pass or be refused by what HOME held (99100
-        // AL_JsonTextWriter_SimpleObject needs Newtonsoft.Json from it), so one build gave two results
-        // (corpus_harness.rs `outcomes_do_not_depend_on_threads_or_home`). A missing assembly is refused, as on CI.
-        assembly_dirs: args.dotnet_assembly_dirs.clone(),
-        allow_roll_forward: args.dotnet_allow_roll_forward,
-        timeout: Duration::from_secs(args.dotnet_timeout_secs.unwrap_or(60)),
-        ..Default::default()
-    }));
+    let host = Arc::new(SidecarHost::new(sidecar_config(args, root, version.major)));
     if args.require_dotnet {
         if let Err(why) = host.availability() {
             return Err(format!("--require-dotnet: DotNet {why}"));
@@ -1021,7 +1028,7 @@ fn run_version_inner(
         compile_cache,
         test_time_limit: None,
         lazy: Vec::new(),
-        isolation: None,
+        test_runner: args.test_runner.unwrap_or_default(),
         // The corpus CI runs a test codeunit without handlers through BC's TestRunnerHub, which takes its isolation from
         // the codeunit's RequiredTestIsolation, on BC 28 and later; on BC 27 it runs every codeunit under Microsoft's runner
         // 130450 (TestIsolation = Codeunit), where the property has no effect. A difference of the CI's harness, not of

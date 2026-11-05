@@ -290,6 +290,9 @@ pub struct Roots {
     /// Keep the whole demand state (`CheckResult::kept_demand`) for a later pass that grows the compile by apps
     /// (ADR-063). Changes nothing else.
     pub keep_demand: bool,
+    /// Dependency test runner codeunits (by id) a run goes through (ADR-066): their triggers and `Test Suite Mgt.`.RunNextTest
+    /// are roots. Empty: none.
+    pub test_runners: Vec<u32>,
 }
 
 /// Members that platform enums do not have, as the AL compiler says (corpus must-not-compile 0010
@@ -490,7 +493,7 @@ fn check_inner(
                 .into_iter()
                 .any(|(o, _)| !ws.is_dependency(o) && !skip(o));
             c.reach_install_events(roots.baseline, install_code);
-            c.reach_test_runner();
+            c.reach_test_runner(&roots.test_runners);
             c.reach_dependencies_on_workspace();
             if !roots.no_login_root {
                 c.reach_login_work_date();

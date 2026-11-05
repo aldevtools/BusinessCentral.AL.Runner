@@ -35,6 +35,9 @@ pub const COMPANY_INITIALIZE: u32 = 2;
 /// 130301 "Reset State Before Test Run" and 130302 "Set State Test Run" (ALTestRunnerResetEnvironment.Codeunit.al:42-63),
 /// 132553 "Block Changes to System Tables" (:65-75). They are found by id only, as the runner's `AllObj` check does.
 pub const TEST_RUNNER_CODEUNITS: [u32; 4] = [131006, 130301, 130302, 132553];
+/// Codeunit 130456 "Test Suite Mgt." of Microsoft's Test Runner app: its `RunNextTest` starts a run of runner
+/// codeunit 130450 the way BcContainerHelper does (ADR-066 decision 2).
+pub const TEST_SUITE_MGT: u32 = 130_456;
 
 /// Base Application's `LogInManagement`: when a session with a client opens the company, its `CompanyOpen` sets WorkDate to
 /// `GetDefaultWorkDate()` (al-testrun `install::login_work_date`).
@@ -579,7 +582,8 @@ impl Checker<'_> {
 
     /// The codeunits the test runner runs around every test method ([`TEST_RUNNER_CODEUNITS`]): their OnRun is a root
     /// whenever a dependency app holds them, as nothing in the apps names them.
-    pub(super) fn reach_test_runner(&self) {
+    pub(super) fn reach_test_runner(&self, runners: &[u32]) {
+        self.reach_test_runner_codeunits(runners);
         for i in 0..self.ws.objects.len() {
             let o = &self.ws.objects[i];
             if o.kind == ObjKind::Codeunit
@@ -587,6 +591,34 @@ impl Checker<'_> {
                 && o.id.is_some_and(|id| TEST_RUNNER_CODEUNITS.contains(&id))
             {
                 self.reach_run(i);
+            }
+        }
+    }
+
+    /// The roots of a run through the test runner codeunits `runners` of a dependency app (ADR-066): each one's
+    /// triggers (OnRun, OnBeforeTestRun, OnAfterTestRun, which the platform calls and nothing in the apps names), and
+    /// `Test Suite Mgt.`.RunNextTest of Microsoft's Test Runner app, which starts a runner that reads its tests from
+    /// rows (al-testrun `suite_rows.rs`).
+    fn reach_test_runner_codeunits(&self, runners: &[u32]) {
+        if runners.is_empty() || self.demand.borrow().is_none() {
+            return;
+        }
+        for i in 0..self.ws.objects.len() {
+            let o = &self.ws.objects[i];
+            if o.kind != ObjKind::Codeunit || !self.ws.is_dependency(i) {
+                continue;
+            }
+            let Some(id) = o.id else { continue };
+            if runners.contains(&id) && self.ws.usable(i) {
+                self.touch_full(i);
+                self.reach_triggers(i);
+            } else if id == TEST_SUITE_MGT && self.ws.usable(i) {
+                self.touch_full(i);
+                for r in self.routines_of(i).iter() {
+                    if !r.is_trigger() && r.name().eq_ignore_ascii_case("RunNextTest") {
+                        self.reach(i, usize::from(r.syntax().text_range().start()));
+                    }
+                }
             }
         }
     }

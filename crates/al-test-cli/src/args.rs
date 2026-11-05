@@ -6,6 +6,9 @@ use std::path::PathBuf;
 #[derive(Default)]
 pub struct Args {
     pub root: Option<PathBuf>,
+    /// `--test-runner builtin|microsoft|ID` (ADR-066): the runner the tests run through. `None`: al-runner's own
+    /// (ADR-066 decision 6: the harness keeps it until a zero-difference run).
+    pub test_runner: Option<al_testrun::runtime::TestRunner>,
     pub oracle: Option<PathBuf>,
     /// `--baseline FILE`: the not-passing list of the main app (ADR-065) instead of the one `oracle.toml` names.
     pub baseline: Option<PathBuf>,
@@ -40,7 +43,7 @@ pub struct Args {
     pub dotnet_sidecar: Option<PathBuf>,
     /// `--dotnet-assembly-dir DIR` (repeatable): where community assemblies are searched.
     pub dotnet_assembly_dirs: Vec<PathBuf>,
-    /// `--dotnet-allow-roll-forward`: run the sidecar on a newer .NET major than 8, with a warning.
+    /// `--dotnet-allow-roll-forward`: when the .NET major the BC version needs is missing, run the sidecar on a newer one, with a warning.
     pub dotnet_allow_roll_forward: bool,
     /// `--dotnet-timeout-secs N`: the deadline of one `DotNet` call (default 60).
     pub dotnet_timeout_secs: Option<u64>,
@@ -235,6 +238,17 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             "--no-ratchet" => a.no_ratchet = true,
             "--deps" | "--dep" => a.deps.push(text()?.into()),
             "--no-deps" => a.no_deps = true,
+            "--test-runner" => {
+                let v = text()?;
+                a.test_runner =
+                    Some(match v.to_ascii_lowercase().as_str() {
+                        "builtin" => al_testrun::runtime::TestRunner::Builtin,
+                        "microsoft" => al_testrun::runtime::TestRunner::Microsoft,
+                        n => al_testrun::runtime::TestRunner::Codeunit(n.parse().map_err(|_| {
+                            format!("--test-runner needs builtin, microsoft or a codeunit id, got `{v}`")
+                        })?),
+                    });
+            }
             "--all-versions" => a.all_versions = true,
             "--bc-version" => a.bc_version = Some(text()?),
             "--dotnet-sidecar" => a.dotnet_sidecar = Some(text()?.into()),
@@ -355,6 +369,8 @@ INPUT
   --all-versions              run every version in the oracle table, then compare them
   --deps DIR, --dep DIR       extra directory of .app packages for the dependencies (repeatable)
   --no-deps                   run the corpus alone, without Microsoft's apps
+  --test-runner R             builtin (default), microsoft (runner 130450 run as BcContainerHelper runs it;
+                              not on the TestRunnerHub path of the newer majors) or a runner codeunit id (ADR-066)
   --no-download               never fetch a dependency app from the artifact feed
   --environment ENV           the server Environment Information describes: saas (default, as probed) or
                               onprem (IsSaaS and IsSandbox No until a test library changes them;
@@ -437,7 +453,7 @@ NOT-PASSING LISTS (ADR-065) AND REPORTS
 DOTNET (ADR-014)
   --dotnet-sidecar PATH       the built sidecar (default: next to this binary)
   --dotnet-assembly-dir DIR   where community assemblies are searched (repeatable)
-  --dotnet-allow-roll-forward run the sidecar on a newer .NET major than 8, with a warning
+  --dotnet-allow-roll-forward when the .NET major the BC version needs is missing, run the sidecar on a newer one, with a warning
   --dotnet-timeout-secs N     the deadline of one DotNet call (default 60)
   --require-dotnet            a machine without .NET is an error, not a skip (CI)
 

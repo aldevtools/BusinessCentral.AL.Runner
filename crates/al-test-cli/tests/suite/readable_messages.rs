@@ -41,7 +41,7 @@ const KEPT: &[(&str, &str, &str)] = &[
     ),
     (
         "al-testrun/src/dotnet.rs",
-        r#""dotnet {} runtimes {} sidecar {} {:?} roll-forward {} assembly dirs {:?}","#,
+        r#""dotnet {} runtimes {} on {} sidecar {} {:?} roll-forward {} assembly dirs {:?}","#,
         "the .NET host's identity in the key of the cached install state, hashed, never shown",
     ),
     (

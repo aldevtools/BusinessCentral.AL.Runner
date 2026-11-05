@@ -38,6 +38,7 @@ pub(crate) use interp::constant;
 pub use platform::{FieldGetByKey, field_get_by_key_pairs};
 pub use profile::flush as profile_flush;
 pub use profile::frame_name as profile_frame_name;
+pub use test_runner_host::TestCodeunitHost;
 mod callstack;
 mod clear_all_page_ext;
 mod code_storage_check;
@@ -54,6 +55,7 @@ mod dispatch;
 pub mod dotnet;
 mod effects;
 mod empty_reads;
+pub use empty_reads::{InstallRows, KnownValue};
 mod errorcollect;
 pub mod events;
 mod ext_validate_order;
@@ -75,6 +77,7 @@ mod interfaces;
 mod isdirty;
 mod load_fields_request;
 mod media_orphans;
+mod native_rows;
 mod pages;
 mod partial;
 mod permission_shadow;
@@ -108,6 +111,7 @@ mod stale_own_modify;
 mod tasks;
 mod tenant_layout_cfg;
 mod tenant_layouts;
+mod test_runner_host;
 mod testdata;
 mod transactions;
 mod translations;
@@ -864,6 +868,8 @@ pub struct Session {
     /// Run", al-testrun `runner_reset.rs`): `PermissionTestHelper.AddEffectivePermissionSet` runs there on the assumption
     /// `runner-permission-sets-grant-all` instead of refusing.
     pub runner_permission_step: bool,
+    /// ADR-066 decision 1: the test codeunit run of a test runner codeunit (`test_runner_host.rs`).
+    pub(crate) runner_host: test_runner_host::RunnerHost,
     /// `al-runner test --ignore-permission-mock`: a test that assigns a permission set itself
     /// (`PermissionTestHelper.AddEffectivePermissionSet`) runs on with every access granted, on the assumption
     /// `permissions-not-enforced`, instead of being refused.
@@ -1229,6 +1235,7 @@ impl Session {
             iso_min_unpinned: false,
             hub_disabled: false,
             runner_permission_step: false,
+            runner_host: Default::default(),
             ignore_permission_mock: false,
             permissions_off: false,
             permission_roles: Vec::new(),
@@ -1310,6 +1317,7 @@ impl Session {
                 not_installed_apps: None,
                 order_unknown_apps: None,
                 install_written: None,
+                install_rows: None,
                 setup_no_ops: Default::default(),
                 global_setups: Default::default(),
             },
