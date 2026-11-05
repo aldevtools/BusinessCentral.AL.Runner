@@ -116,6 +116,7 @@ mod temp_refill_to_fewer_rows;
 mod temp_refill_to_one_row;
 mod test_filter_enum_range;
 mod trap_reopen;
+mod tree_expand_indented_leaf;
 mod tree_expand_twice;
 mod tree_refill_by_validate;
 mod tree_var_indent;
