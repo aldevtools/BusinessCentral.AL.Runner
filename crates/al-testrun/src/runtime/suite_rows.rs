@@ -39,6 +39,58 @@ pub(crate) fn reads_rows(program: &al_ir::Program, runner: usize) -> bool {
         == Some(TEST_METHOD_LINE)
 }
 
+/// The table objects (indices) of "Test Method Line" and "AL Test Suite" that the program holds.
+pub(crate) fn tables(program: &al_ir::Program) -> std::collections::BTreeSet<u32> {
+    [TEST_METHOD_LINE, AL_TEST_SUITE]
+        .into_iter()
+        .filter_map(|id| object_of(program, al_ir::ObjKind::Table, id))
+        .map(|o| o as u32)
+        .collect()
+}
+
+std::thread_local! {
+    /// Whether the rows the two tables held before [`write`] emptied them stayed unseen in every session of this thread
+    /// since [`take_unseen`] (`None`: no session wrote them).
+    static UNSEEN: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
+/// Notes whether what the two tables held before [`write`] emptied them stayed unseen in this session ([`take_unseen`]).
+pub(crate) fn note_unseen(unseen: bool) {
+    UNSEEN.with(|c| c.set(Some(c.get().unwrap_or(true) && unseen)));
+}
+
+/// Whether every session of this thread that wrote the rows since the last call ([`write`]) started without anything
+/// seeing what the two tables held before, and at least one did; then resets. A run ahead of the carry chain
+/// (`chain_walk.rs`) whose sessions all did may be taken from a start whose rows of the two tables differ: the run
+/// cannot tell (`al_vm::Baseline::fingerprint_apart`).
+pub(crate) fn take_unseen() -> bool {
+    UNSEEN.with(|c| c.take()).unwrap_or(false)
+}
+
+/// Starts watching the two tables in a new session whose codeunit `runner` will run, when it reads its tests from
+/// their rows, before the session runs any AL code (install code, the login code, Company Triggers): [`seen_before`]
+/// then says whether that code touched them. The value is that runner, if it reads rows. `al_runner_off`: the session
+/// runs its tests without the runner (a scratch run, or a codeunit with data-driven tests, `run.rs`).
+pub(crate) fn watch_before(session: &mut Session, runner: Option<usize>, al_runner_off: bool) -> Option<usize> {
+    let runner = runner.filter(|&r| !al_runner_off && reads_rows(&session.engine.program, r))?;
+    let tables = tables(&session.engine.program);
+    session.store_mut().watch(tables);
+    Some(runner)
+}
+
+/// Whether the AL code since [`watch_before`] (which gave `runner`) read or wrote the two tables; stops the watch. A
+/// touch makes the session's start depend on what they held ([`take_unseen`]).
+pub(crate) fn seen_before(session: &mut Session, runner: Option<usize>) {
+    if runner.is_none() {
+        return;
+    }
+    let seen = session.store_mut().watch_hit().is_some();
+    session.store_mut().watch(Default::default());
+    if seen {
+        note_unseen(false);
+    }
+}
+
 fn object_of(program: &al_ir::Program, kind: al_ir::ObjKind, id: u32) -> Option<usize> {
     program
         .objects
@@ -68,9 +120,32 @@ pub(crate) fn write(session: &mut Session, runner: usize, object: usize, selecte
     // A unit that starts from what an earlier codeunit left (Disabled isolation, an OnRun under runner 130450) finds
     // that codeunit's rows: the suite starts over, one codeunit per suite (what earlier codeunits' rows hold on BC is
     // ADR-066 probe P7).
+    //
+    // What they held before is unseen when nothing reads them before this (`watch_before`), and the reset itself shows
+    // nothing of them: no subscriber listens to an event of either table (a DeleteAll with delete events deletes row by
+    // row, `records/op_inner.rs`), the Global Triggers setup the reset asks first turns on no database event for them
+    // (and its subscribers do not read them), and the SQL counters do not count it: the reset runs before any AL code
+    // of the unit can read a counter, a read before it does not reach the unit, and AL sees only the difference of two
+    // reads (al-builtins `sqlcount.rs`: an absolute value is refused, two reads of different epochs subtract to
+    // `SqlForm::Unknown`), so no difference a test takes spans the reset. The commit below empties the insert buffer
+    // either way (al-vm `sqlcount.rs` `SqlCounters::committed`). The runner's own AL reads only the current codeunit's
+    // lines while its tests run, so it cannot see them either: Microsoft's Test Runner (BC 29, `Test Runner.Source.zip`)
+    // calls `PlatformBeforeTestRun`/`PlatformAfterTestRun` from runner 130450's OnBeforeTestRun/OnAfterTestRun with the
+    // suite and the codeunit's "Line No." filter (TestRunnerIsolCodeunit.Codeunit.al:28-40), and those read lines only
+    // through `GetTestCodeunit`, `GetTestFunction` and `UpdateCodeunitLine`, each filtered on "Test Suite", "Test
+    // Codeunit" and that filter (TestRunnerMgt.Codeunit.al:146-158, :215-241). The test's own code may not touch the
+    // tables at all (`al_runner.rs` `Steps::rows_touched`, ADR-066 decision 4).
+    let mut unseen = !(engine.events.any_subscriber_of(lines) || engine.events.any_subscriber_of(suites));
+    let both: std::collections::BTreeSet<u32> = [lines as u32, suites as u32].into();
     for t in [lines, suites] {
+        session.store_mut().watch(both.clone());
+        let on = session.database_triggers_on(t);
+        unseen &= session.store_mut().watch_hit().is_none();
+        session.store_mut().watch(Default::default());
+        unseen &= !on.map_err(refused)?;
         session.delete_all_rows(t).map_err(refused)?;
     }
+    note_unseen(unseen);
     session
         .insert_row(
             suites,
