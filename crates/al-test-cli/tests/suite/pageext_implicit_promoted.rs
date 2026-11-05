@@ -158,3 +158,27 @@ fn unpinned_uses_of_implicit_promoted_parts_stay_refused() {
         );
     }
 }
+
+/// A Caption- or ShowAs-only `modify` of a standard group the base page does not declare, with nothing added into it (the form
+/// the conversion of PromotedActionCategories writes; al-runner issue 6962): the group is an anchor, as for the numbered groups
+/// (corpus branch al-runtime-rs-staging-r6962, pages/extensions/StandardCategoryCaptionModify.al).
+#[test]
+fn issue_6962_caption_only_modify_of_an_undeclared_standard_group() {
+    for anchors in [
+        "modify(Category_New) { Caption = 'New', Comment = 'Generated from the PromotedActionCategories property index 0.'; } \
+         modify(Category_Process) { Caption = 'Process'; } modify(Category_Report) { Caption = 'Report'; }",
+        "modify(Category_New) { ShowAs = SplitButton; } modify(Category_Report) { ShowAs = Standard; }",
+    ] {
+        // The test invokes the extension's actionref: it goes into a numbered group (pinned above), not the modified ones.
+        let results = run(&format!("{anchors} addlast(Category_Category5) {REF}"));
+        assert!(!results.is_empty());
+        for (name, outcome) in &results {
+            assert_eq!(*outcome, Outcome::Pass, "{anchors}: {name}");
+        }
+    }
+    // Visible of an undeclared standard group: not pinned.
+    let results = run(&format!(
+        "modify(Category_New) {{ Visible = false; }} addlast(Category_Category5) {REF}"
+    ));
+    assert!(matches!(&results[..], [(_, Outcome::NotRun(_))]), "{results:?}");
+}
