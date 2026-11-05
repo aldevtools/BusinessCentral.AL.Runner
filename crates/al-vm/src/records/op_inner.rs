@@ -401,19 +401,9 @@ impl Session {
         }
         match method {
             RecordOp::Init => {
-                let mut fresh = self.initial_fields(t.object as usize);
-                if self.temp_never_stamps(&t, rec) {
-                    // Init of a temporary record keeps the SQLTimestamp fields and SystemRowVersion
-                    // (record/temporary/QrTempTimestamp.al:221-226, `shared copy insert`).
-                    let r = rec.borrow();
-                    let facts = &self.engine.table_facts[t.object as usize].sql_timestamp;
-                    for (i, f) in t.fields.iter().enumerate() {
-                        if f.id == 2_000_000_005 || facts.contains(&i) {
-                            fresh[i] = r.fields[i].clone();
-                        }
-                    }
-                }
+                let fresh = self.init_fields(&t, rec);
                 let mut r = rec.borrow_mut();
+                crate::partial::note_init(&mut r);
                 r.assigned = false;
                 r.inserted = false;
                 if matches!(r.is_dirty_base, al_builtins::value::DirtyBase::Synced) {
@@ -1168,7 +1158,7 @@ impl Session {
                 self.document_service_trigger_refused(&t, rec, run, "DeleteAll")?;
                 let (filters, flow_field_filters) = self.split_filters(rec);
                 if !flow_field_filters.is_empty() {
-                    return unsupported("DeleteAll with a filter on a FlowField");
+                    return self.delete_all_flow_filtered(&t, rec, run);
                 }
                 let temporary = rec.borrow().temporary;
                 self.coverage_cleared(&t, temporary, &filters);
@@ -1659,7 +1649,7 @@ impl Session {
                 let steps = match args.first() {
                     Some(Value::Integer(n)) => *n,
                     // A whole-number Decimal steps like the Integer (`Calendar.Next(12 / CountFrequency)`); one with a fraction
-                    // raises and leaves the row (errors/PnF11DateDecimalArithmetic.al:119-187,
+                    // raises and leaves the row (errors/PnF11DateDecimalArithmetic.al:107-175,
                     // Next_Decimal_Whole: 1, 2, -1, -2, 12 / 4, 0, 20 past the end; Next_Decimal_Fraction: 1.5, -1.5, 0.4, ...).
                     Some(Value::Decimal(d)) if d.fract().is_zero() && i32::try_from(d.trunc()).is_ok() => {
                         i32::try_from(d.trunc()).unwrap_or(0)
@@ -2537,5 +2527,21 @@ impl Session {
             | RecordOp::SetBaseLoadFields => self.load_fields_op(method, rec, &t, args),
             other => self.record_meta_op(other, rec, &t, args),
         }
+    }
+
+    /// The fields `Init` gives `rec`: the initial values, except that Init of a temporary record keeps the SQLTimestamp fields
+    /// and SystemRowVersion (record/temporary/QrTempTimestamp.al:221-226, `shared copy insert`).
+    fn init_fields(&mut self, t: &TableDef, rec: &Rec) -> Vec<Value> {
+        let mut fresh = self.initial_fields(t.object as usize);
+        if self.temp_never_stamps(t, rec) {
+            let r = rec.borrow();
+            let facts = &self.engine.table_facts[t.object as usize].sql_timestamp;
+            for (i, f) in t.fields.iter().enumerate() {
+                if f.id == 2_000_000_005 || facts.contains(&i) {
+                    fresh[i] = r.fields[i].clone();
+                }
+            }
+        }
+        fresh
     }
 }

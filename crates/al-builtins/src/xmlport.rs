@@ -296,7 +296,7 @@ pub fn line_ends_to_lf(e: &mut Elem) {
 
 /// A serialized document with every line feed that no carriage return comes before written as a carriage return and a line
 /// feed, as an XmlPort export writes a line end of a text value: LF, CR LF and a lone CR all become CR LF (corpus PR 896,
-/// streams/Np4XmlPort.al Y9_XmlPort_Export_LineFeed_Plain `n1\r\nn2\r\nn3\r\nn4`, 149 bytes; Np4XmlPort.al:280,
+/// streams/Np4XmlPort.al Y9_XmlPort_Export_LineFeed_Plain `n1\r\nn2\r\nn3\r\nn4`, 149 bytes; Np4XmlPort.al:264,
 /// :300, :320 `len=161`/`177`). The serializer writes only CR LF between elements, so a bare line feed comes from text
 /// ([`line_ends_to_lf`] first).
 pub fn line_feeds_to_crlf(text: &str) -> String {

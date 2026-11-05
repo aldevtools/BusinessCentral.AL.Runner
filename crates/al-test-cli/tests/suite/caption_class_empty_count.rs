@@ -398,3 +398,98 @@ fn the_shapes_writer_sx_pinned_run_the_counts_bc_gave() {
         assert_eq!(outcome(&outs, name), &Outcome::Pass, "{name}");
     }
 }
+
+/// al-runner issue 6987: an expression that fills a List local to the routine it calls (also handing it by `var` to an
+/// integration event no subscriber listens to) leaves nothing behind, whatever the number of runs; a List the routine takes
+/// from outside (a parameter, an assignment) may be shared and is still refused. The tables have three expression fields,
+/// so the empty-record count is not the pinned one.
+const LOCAL_LIST: &str = r#"
+table 50300 "Ll Hierarchy"
+{
+    fields { field(1; Code; Code[10]) { } }
+    keys { key(PK; Code) { } }
+    var Kept: List of [Text];
+    procedure LevelCaption(ForLevel: Integer): Text
+    var Captions: List of [Text];
+    begin
+        Captions.AddRange('One', 'Two', 'Three');
+        OnAfterLevelCaptions(Captions);
+        if (ForLevel > 0) and (ForLevel <= Captions.Count) then
+            exit('3,' + Captions.Get(ForLevel));
+    end;
+    procedure SharedCaption(ForLevel: Integer): Text
+    var Captions: List of [Text];
+    begin
+        Captions := Kept;
+        Captions.Add('x');
+        exit('3,' + Format(Captions.Count));
+    end;
+    [IntegrationEvent(false, false)]
+    local procedure OnAfterLevelCaptions(var Captions: List of [Text]) begin end;
+}
+table 50301 "Ll Row"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; L1; Code[20]) { CaptionClass = H.LevelCaption(1); }
+        field(3; L2; Code[20]) { CaptionClass = H.LevelCaption(2); }
+        field(4; L3; Code[20]) { CaptionClass = H.LevelCaption(3); }
+    }
+    keys { key(PK; Id) { } }
+    var H: Record "Ll Hierarchy";
+}
+page 50302 "Ll Card"
+{
+    PageType = Card; SourceTable = "Ll Row";
+    layout { area(Content) { field(Id; Rec.Id) { } field(L2; Rec.L2) { } } }
+}
+table 50303 "Ll Shared Row"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; L1; Code[20]) { CaptionClass = H.SharedCaption(1); }
+        field(3; L2; Code[20]) { CaptionClass = H.SharedCaption(2); }
+        field(4; L3; Code[20]) { CaptionClass = H.SharedCaption(3); }
+    }
+    keys { key(PK; Id) { } }
+    var H: Record "Ll Hierarchy";
+}
+page 50304 "Ll Shared Card"
+{
+    PageType = Card; SourceTable = "Ll Shared Row";
+    layout { area(Content) { field(Id; Rec.Id) { } field(L2; Rec.L2) { } } }
+}
+codeunit 50305 "Ll Tests"
+{
+    Subtype = Test;
+    [Test]
+    procedure LocalList()
+    var R: Record "Ll Row"; P: TestPage "Ll Card";
+    begin
+        R.Id := 1;
+        R.Insert();
+        P.OpenView();
+        if P.L2.Caption() <> 'Two' then Error('caption %1', P.L2.Caption());
+    end;
+    [Test]
+    procedure SharedList()
+    var R: Record "Ll Shared Row"; P: TestPage "Ll Shared Card";
+    begin
+        R.Id := 1;
+        R.Insert();
+        P.OpenView();
+    end;
+}
+"#;
+
+#[test]
+fn a_caption_expression_that_only_fills_a_local_list_still_runs() {
+    let outs = run(LOCAL_LIST, "Ll Tests");
+    assert_eq!(outcome(&outs, "LocalList"), &Outcome::Pass);
+    match outcome(&outs, "SharedList") {
+        Outcome::NotRun(why) => assert!(why.contains("List.Add") && why.contains("5870"), "{why}"),
+        other => panic!("SharedList: {other:?}"),
+    }
+}

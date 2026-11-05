@@ -18,6 +18,15 @@ pub(super) fn numbered_category(target: &str) -> bool {
         .is_some_and(|n| (4..=20).contains(&n))
 }
 
+/// Whether `target` is one of the standard groups `Category_New`, `Category_Process` and `Category_Report`. A Caption- or
+/// ShowAs-only `modify` of one the page does not declare makes it an anchor, as for the numbered groups: the page's actions and
+/// actionrefs run as before (al-runner issue 6962; corpus branch al-runtime-rs-staging-r6962,
+/// pages/extensions/StandardCategoryCaptionModify.al ModifyStandardCategoryCaption_DeclaredPromotedArea_ActionsRun,
+/// _LegacyPromoted_ActionsRun, ModifyStandardCategoryShowAs_PageWithoutActions_ExtensionActionRuns, BC 29).
+pub(super) fn standard_category(target: &str) -> bool {
+    ["category_new", "category_process", "category_report"].contains(&target.to_ascii_lowercase().as_str())
+}
+
 /// Whether a `modify` of an implicit group sets only what AL code cannot see: the group is an anchor and no control of the
 /// page, so its Caption and ShowAs reach no TestPage. Visible is left out: whether it hides the actionrefs in the group on
 /// real BC is not pinned.

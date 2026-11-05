@@ -4081,7 +4081,7 @@ fn the_artifact_license_gives_every_pinned_row() {
 
 /// The Published Function of a page action event is `<event> - <control id of the action>`, the id of the declaring object (a
 /// page extension for an action it adds) and the action name (corpus master, corpus PR 886:
-/// events/platform-triggers/ActionEventPublishedFunction.al:259-272; the ids there are those of objects
+/// events/platform-triggers/ActionEventPublishedFunction.al:244-257; the ids there are those of objects
 /// 91355 and 91357, so the test uses the same ids).
 #[test]
 fn a_page_action_event_names_the_control_id_of_the_action() {
