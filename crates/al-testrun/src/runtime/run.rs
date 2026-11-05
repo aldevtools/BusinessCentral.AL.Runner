@@ -443,16 +443,18 @@ fn run_codeunit_inner(
     // and its manual subscriber share its globals, and the second test sees what the first left
     // (codeunits/QiSingleInstanceTestCodeunit.al:57 QI_SI_1_OwnTypeVariableAndManualSubscriber, :98 QI_SI_2_SecondTestSeesTheFirst).
     // Taken after the install code and the company open, which drop the session's single instances.
-    let al_runner_object = scratch.runner;
+    // A codeunit with data-driven tests (ADR-059) stays on al-runner's own runner: their rows and the runner's answers for
+    // them are not built yet.
+    let al_runner_object = scratch.runner.filter(|_| data_driven.is_empty());
     // The test codeunit run: called here, or from the OnRun of the test runner codeunit `al_runner_object` when it runs
     // the test codeunit (ADR-066 decision 1, `al_runner.rs`). An error is a result that skips what follows below.
     let mut body = |session: &mut Session,
-                    al: Option<(usize, std::rc::Rc<std::cell::RefCell<al_builtins::value::Instance>>)>|
-     -> Result<Vec<(String, Outcome)>, Vec<(String, Outcome)>> {
+                    al: Option<super::al_runner::RunnerRef>|
+     -> Result<super::al_runner::Outcomes, super::al_runner::Outcomes> {
         let instance = session.codeunit_instance(object);
         // What BC's AL test runner does around each test method: al-runner's own steps (runner_reset.rs), or the triggers of
         // the test runner codeunit whose OnRun runs this codeunit (al_runner.rs). A scratch run has no runner.
-        let runner = super::al_runner::Steps::new(engine, execute, al);
+        let runner = super::al_runner::Steps::new(engine, execute, al, session);
         let on_run_rows = scratch.on_run_rows;
         // A refused OnRun: whether it would raise is not known, so neither is whether the tests run.
         let on_run_refused = |why: String| all(Outcome::NotRun(why));
@@ -579,7 +581,7 @@ fn run_codeunit_inner(
         let checkpoint = (isolation == TestIsolation::Function).then(|| Checkpoint::take(session));
         // TestIsolation = Codeunit keeps one transaction open for the tests: MinimumActiveRowVersion stays at its value now. When
         // OnRun wrote rows, whether they belong to that transaction is not pinned, and nothing is frozen.
-        if isolation == TestIsolation::Codeunit && !execute && session.row_versions_handed_out() == row_versions_from {
+        if isolation == TestIsolation::Codeunit && !execute && runner.none_handed_out(session, row_versions_from) {
             session.freeze_min_active_row_version();
         }
         if scratch.capture.any() {
@@ -1283,7 +1285,7 @@ fn run_codeunit_inner(
     };
     let ran = match al_runner_object {
         None => body(&mut session, None),
-        Some(runner) => super::al_runner::drive(&mut session, runner, object, &mut |s, al| body(s, Some(al)))
+        Some(runner) => super::al_runner::drive(&mut session, runner, object, &tests, &mut |s, al| body(s, Some(al)))
             .unwrap_or_else(|why| Err(all(Outcome::NotRun(why)))),
     };
     let out = match ran {

@@ -16,9 +16,50 @@ pub enum OnRunRows {
     TestRunner,
 }
 
+/// Which test runner runs the test codeunits (ADR-066 decision 5, `al-runner test --test-runner`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TestRunner {
+    /// Al-runner's own runner, which replays the Test Runner app's steps (`runner_reset.rs`). The corpus harness's
+    /// runner (ADR-066 decision 6) and `--test-runner builtin`.
+    #[default]
+    Builtin,
+    /// Microsoft's runner codeunit for the isolation: 130450 "Test Runner - Isol. Codeunit" under Codeunit isolation,
+    /// 130451 "Test Runner - Isol. Disabled" under Disabled, run as BcContainerHelper runs it; al-runner's own runner
+    /// under Function isolation, on the TestRunnerHub, and when the Test Runner app is not loaded. `al-runner`'s default.
+    Microsoft,
+    /// A runner codeunit of the compiled apps, by id, that reads its tests from "Test Method Line" rows.
+    Codeunit(u32),
+}
+
+impl TestRunner {
+    /// The runner codeunit's id of `--test-runner ID`.
+    pub fn codeunit(self) -> Option<u32> {
+        match self {
+            TestRunner::Codeunit(id) => Some(id),
+            _ => None,
+        }
+    }
+
+    /// The dependency runner codeunits whose triggers the compile must lower (`al_sema::check::Roots::test_runners`).
+    pub fn root_ids(self) -> Vec<u32> {
+        match self {
+            TestRunner::Builtin => Vec::new(),
+            TestRunner::Microsoft => vec![MICROSOFT_ISOL_CODEUNIT, MICROSOFT_ISOL_DISABLED],
+            TestRunner::Codeunit(id) => vec![id],
+        }
+    }
+}
+
+/// Codeunit 130450 "Test Runner - Isol. Codeunit" of Microsoft's Test Runner app.
+pub const MICROSOFT_ISOL_CODEUNIT: u32 = 130_450;
+/// Codeunit 130451 "Test Runner - Isol. Disabled".
+pub const MICROSOFT_ISOL_DISABLED: u32 = 130_451;
+
 /// What a run is asked to do beyond running everything.
 #[derive(Debug, Clone, Default)]
 pub struct RunOptions {
+    /// The test runner (ADR-066). Default: al-runner's own.
+    pub test_runner: TestRunner,
     /// Only these test codeunits (app index of the compile, object id) are roots of the compile
     /// and are run. `None`: all of them.
     pub only: Option<Vec<(usize, u32)>>,

@@ -550,6 +550,8 @@ pub(crate) struct Unit {
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
     run_seed: crate::seed::RunSeed,
+    /// See `Scratch::runner`.
+    runner: Option<usize>,
 }
 
 /// What a scratch run or a capture leaves besides outcomes, per test.
@@ -685,6 +687,7 @@ fn run_unit(
             report_unpinned_errors: u.report_unpinned_errors,
             perturb: u.perturb.clone(),
             run_seed: u.run_seed,
+            runner: u.runner,
             ..Default::default()
         };
         if u.coverage {
@@ -892,6 +895,7 @@ mod numbers_taken;
 mod run;
 mod runner_reset;
 mod session_flags;
+mod suite_rows;
 mod test_marks;
 #[cfg(test)]
 mod tests;
