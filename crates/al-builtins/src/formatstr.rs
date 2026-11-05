@@ -10,6 +10,7 @@
 //! Any other code, or one of these on another type or in another width, is refused.
 
 mod second_dec;
+mod std_comma;
 use crate::describe::Describe;
 use crate::format::{FormatCtx, civil_from_day, format_value};
 use crate::value::Value;
@@ -203,6 +204,9 @@ pub fn format_with_field_places(
         ));
     }
     if template.contains("<Comma") {
+        if let Some(r) = std_comma::standard_comma(v, length, template, ctx) {
+            return r;
+        }
         return comma_template(v, length, template, ctx);
     }
     let canon = canonical_template(template, matches!(v, Value::Decimal(_)));
