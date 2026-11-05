@@ -184,6 +184,7 @@ mod request_expr_params;
 pub(crate) mod request_options;
 pub(crate) use request::RequestClosed;
 mod access_by_permission;
+mod action_blob_change;
 mod actions;
 mod blank_key_retyped;
 mod caption_class;
