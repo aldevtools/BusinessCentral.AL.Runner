@@ -97,3 +97,65 @@ fn modify_in_try_function_raises_try_function_write_by_default() {
         other => panic!("expected TryFunctionWrite, got {other:?}"),
     }
 }
+
+const DENY: &str = r#"
+table 51710 "WD Row"
+{
+    fields { field(1; "No."; Integer) { } field(2; Description; Text[50]) { } }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+
+codeunit 51711 "WD Writer"
+{
+    procedure Setup()
+    var Row: Record "WD Row";
+    begin
+        Row."No." := 1;
+        Row.Insert();
+    end;
+
+    procedure Rows(): Integer
+    var Row: Record "WD Row";
+    begin
+        exit(Row.Count());
+    end;
+
+    procedure Run(Kind: Integer): Boolean
+    begin
+        exit(TryWrite(Kind));
+    end;
+
+    [TryFunction]
+    local procedure TryWrite(Kind: Integer)
+    var Row: Record "WD Row";
+    begin
+        case Kind of
+            1: begin Row.Get(1); Row.Delete(); end;
+            2: Row.DeleteAll();
+            3: Row.ModifyAll(Description, 'all');
+            4: begin Row.Get(1); Row.Rename(10); end;
+        end;
+    end;
+}
+"#;
+
+/// Delete, DeleteAll, ModifyAll and Rename in a TryFunction whose result is used raise TryFunctionWrite named after the
+/// method, and no row changes (corpus R7143TryWriteDeny.al:94-176).
+#[test]
+fn delete_deleteall_modifyall_and_rename_raise_try_function_write() {
+    for (kind, name) in [(1, "DELETE"), (2, "DELETEALL"), (3, "MODIFYALL"), (4, "RENAME")] {
+        let mut b = Built::new(compile(DENY));
+        b.run_in("WD Writer", "Setup").expect("setup");
+        let (oi, ri) = b.routine_in("WD Writer", "Run");
+        match b.call(oi, ri, vec![al_builtins::value::Value::Integer(kind)]) {
+            Err(Signal::Error(e)) => {
+                assert_eq!(e.code, "TryFunctionWrite", "{name}: {e:?}");
+                assert!(
+                    e.message.contains(&format!("'{name}'")) || e.message.is_empty() || e.message.contains(name),
+                    "{name}: {e:?}"
+                );
+            }
+            other => panic!("{name}: expected TryFunctionWrite, got {other:?}"),
+        }
+    }
+}

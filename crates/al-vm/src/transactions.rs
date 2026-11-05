@@ -546,6 +546,55 @@ impl Session {
         )))
     }
 
+    /// Delete, DeleteAll, ModifyAll and Rename of a database table inside a TryFunction whose result is used raise
+    /// TryFunctionWrite named DELETE, DELETEALL, MODIFYALL and RENAME, before any row changes; DeleteAll also on an empty
+    /// table (errors/lt-r7143-try-write/R7143TryWriteDeny.al:94-176, corpus PR 1156, measured on 27.5, 28.5 and 29.0; not
+    /// yet in the pin: assumption try-function-write-delete-rename; al-runner issue 7143). Whether the check comes before
+    /// the table's own triggers and the subscribers is not pinned: a table that has any is refused. Other writes keep
+    /// `refuse_used_try_write`.
+    pub(crate) fn gate_used_try_other_write(&mut self, t: &al_data::TableDef, method: RecordOp) -> Result<(), Signal> {
+        let (function, events, triggers): (&str, &[&str], &[&str]) = match method {
+            RecordOp::Delete | RecordOp::DeleteAll => (
+                if method == RecordOp::Delete {
+                    "DELETE"
+                } else {
+                    "DELETEALL"
+                },
+                &["onbeforedeleteevent", "onafterdeleteevent"],
+                &["OnBeforeDelete", "OnDelete", "OnAfterDelete"],
+            ),
+            RecordOp::ModifyAll => (
+                "MODIFYALL",
+                &["onbeforemodifyevent", "onaftermodifyevent"],
+                &["OnBeforeModify", "OnModify", "OnAfterModify"],
+            ),
+            RecordOp::Rename => (
+                "RENAME",
+                &["onbeforerenameevent", "onafterrenameevent"],
+                &["OnBeforeRename", "OnRename", "OnAfterRename"],
+            ),
+            _ => return self.refuse_used_try_write(method),
+        };
+        if !self.used_try_write_applies() || self.tx.xp_export_try_world == Some(self.tx.tx_world) {
+            return self.refuse_used_try_write(method);
+        }
+        let mut code = false;
+        for e in events {
+            code |= self.listened(t, e, None)?;
+        }
+        code |= triggers
+            .iter()
+            .any(|n| self.table_trigger(t, n).is_some() || !self.ext_triggers(t, n).is_empty());
+        if code {
+            return Err(Signal::Unsupported(format!(
+                "{} inside a TryFunction whose result is used, on a table with triggers or event subscribers for it (whether they run before the TryFunctionWrite error is not pinned)",
+                method.name()
+            )));
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TryFunctionWriteDeleteRename);
+        self.gate_used_try_write(function)
+    }
+
     /// Whether a write here is a write of a TryFunction whose result is used (`gate_used_try_write` would raise).
     pub(crate) fn used_try_write_applies(&self) -> bool {
         self.tx
