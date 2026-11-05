@@ -1389,6 +1389,13 @@ impl Parser<'_> {
                 if let Some(day) = self.day_alone(&lo) {
                     return Ok(FilterExpr::Range(Some(day_start(day)), Some(day_end(day))));
                 }
+                // A quoted empty text alone on a DateTime field is the blank DateTime as a range of one value: GetFilter(s) shows
+                // `''..''`, also next to `|`, while `=''`, a range end and the blank DateTime given as %1 show `''` (corpus master
+                // 3eb812ed, record/filters/TimeFilterEmptyText.al:160-172 `empty`, `eq empty`, `range from empty`, `empty or arg`;
+                // record/views/Y71SetViewDateTime.al:125-127 dt_empty_or).
+                if matches!(&lo, Tok::Quoted(q) if q.is_empty()) && matches!(self.ty, crate::value::RtType::DateTime) {
+                    return Ok(FilterExpr::RangeSame(Value::DateTime(0)));
+                }
                 self.single(lo, false)
             }
         }
