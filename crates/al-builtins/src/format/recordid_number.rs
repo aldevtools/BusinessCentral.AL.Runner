@@ -41,3 +41,22 @@ pub(super) fn bookmark_text(rid: &crate::value::LibraryValue, ctx: &dyn FormatCt
     let (size, data) = crate::bookmark::encode(*table_no, &shape, &values).map_err(FormatFail::Unsupported)?;
     Ok(format!("{size};{}", crate::platform_native::b64_encode(&data, false)))
 }
+
+/// The table name inside the brackets of `Format(RecordId, 0, 9)` for a table in a namespace: as it is when it holds only
+/// letters, digits, spaces, `_`, `-` and `/`; in double quotes when it also holds a dot (corpus branch al-runtime-rs-staging-r6985,
+/// language/namespaces/R7003RecordIdFormat9.al: Format9_NamespacedOwnTables `R7003_Under`, `R7003-Hyphen`, `R7003/Slash`,
+/// `"R7003.Dot"`; P69NsConsumers.al:214 a name with spaces). Other characters are not pinned.
+pub(super) fn namespaced_name(name: &str) -> Result<String, FormatFail> {
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '_' | '-' | '/' | '.'))
+    {
+        return Err(FormatFail::Unsupported(format!(
+            "Format(RecordId, 0, 9) of table {name} in a namespace, whose name holds a character other than letters, digits, space, _, -, / and . (not pinned)"
+        )));
+    }
+    if name.contains('.') {
+        return Ok(format!("\"{name}\""));
+    }
+    Ok(name.to_string())
+}
