@@ -3,16 +3,31 @@ use super::shared::with_field_guard;
 use super::*;
 
 impl Lowerer<'_> {
-    /// Whether `table` has a parameterless procedure `name`: in an extension, a control over `Rec.<name>` without parentheses
-    /// shows its value as the call does (pages/record-method-controls/TestRecordMethodControls.al:39
-    /// PageExtension_RecordMethod_NoParentheses_ReadsCalculatedValue, corpus pull request 1152; `pages::needed` made the routine).
-    fn parameterless_method(&self, table: Option<usize>, name: &str) -> bool {
-        table.is_some_and(|t| {
-            self.routine_nodes
-                .get(t)
-                .iter()
-                .any(|r| !r.is_trigger() && r.name().eq_ignore_ascii_case(name) && r.params().next().is_none())
-        })
+    /// The binding of a control over `Rec.<name>`: the field of that name, else, in an extension, the source routine
+    /// (`pages::needed` made it) when `name` is a parameterless procedure of the table: the control shows its value as the call
+    /// does (pages/record-method-controls/TestRecordMethodControls.al:39 PageExtension_RecordMethod_NoParentheses_ReadsCalculatedValue,
+    /// corpus pull request 1152, al-runner issue 7133).
+    fn rec_name_binding(
+        &self,
+        table: Option<usize>,
+        name: &str,
+        in_extension: bool,
+        source: impl FnOnce() -> Option<usize>,
+    ) -> Option<ir::Binding> {
+        let t = table?;
+        if let Some(p) = self.members[t]
+            .fields
+            .iter()
+            .position(|x| x.name.eq_ignore_ascii_case(name))
+        {
+            return Some(ir::Binding::Field(p));
+        }
+        let method = self
+            .routine_nodes
+            .get(t)
+            .iter()
+            .any(|r| !r.is_trigger() && r.name().eq_ignore_ascii_case(name) && r.params().next().is_none());
+        (in_extension && method).then(source).flatten().map(ir::Binding::Expr)
     }
 
     /// The control tree of page `oi` with its extensions merged in, with bindings and routine
@@ -265,23 +280,11 @@ impl Lowerer<'_> {
                 let raw_args = sec.args_raw();
                 match args.get(1).map(|a| crate::pages::classify_source(a, &ow.names)) {
                     Some(crate::pages::Source::RecField(f)) => {
-                        let pos = table.and_then(|t| {
-                            self.members[t]
-                                .fields
-                                .iter()
-                                .position(|x| x.name.eq_ignore_ascii_case(&f))
-                        });
-                        // No field of that name: an extension's source routine over a table method (`parameterless_method`).
                         let off = usize::from(sec.syntax().text_range().start()) - ow.base;
-                        let method = raw.owner.filter(|_| self.parameterless_method(table, &f));
-                        match pos {
-                            Some(p) => binding = ir::Binding::Field(p),
-                            None => match method
-                                .and_then(|_| routine_named(&ow, &crate::pages::synthetic_name("source", off)))
-                            {
-                                Some(r) => binding = ir::Binding::Expr(r),
-                                None => unsupported.push(format!("control {} is bound to unknown field {f}", raw.name)),
-                            },
+                        let source = || routine_named(&ow, &crate::pages::synthetic_name("source", off));
+                        match self.rec_name_binding(table, &f, raw.owner.is_some(), source) {
+                            Some(b) => binding = b,
+                            None => unsupported.push(format!("control {} is bound to unknown field {f}", raw.name)),
                         }
                     }
                     // A page variable with the name of a field of the source table: which one a bare name binds is not pinned.
