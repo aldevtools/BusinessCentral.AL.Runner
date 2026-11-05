@@ -536,6 +536,7 @@ impl CorpusRuntime {
                 .filter_map(|s| Some((s.codeunit, s.method?)))
                 .collect(),
             only_tests: only.clone(),
+            test_runners: opts.test_runner.root_ids(),
             tdd: opts.tdd,
             object_hashes: opts.object_hashes,
             app_contexts: app_contexts(&apps, &kinds, manifests, target),
@@ -657,7 +658,11 @@ impl CorpusRuntime {
                         continue;
                     }
                     weighed = true;
-                    baseline_note = observed.why;
+                    // A run through a runner codeunit of the Test Runner app (ADR-066): the runner's code raises events
+                    // whose subscribers can read anything the baseline wrote.
+                    baseline_note = observed
+                        .why
+                        .or_else(|| super::al_runner::runner_note(opts.test_runner, &lowered));
                     baseline = baseline_note.is_some();
                     if baseline {
                         // Back to the apps as they were; a file not read yet is read when the compile that
@@ -1387,11 +1392,13 @@ impl CorpusRuntime {
                             report_unpinned_errors: false,
                             perturb: Default::default(),
                             run_seed: opts.run_seed,
+                            runner: None,
                         });
                     }
                     continue;
                 }
-                let isolation = match suite.runner {
+                // `--test-runner ID` (ADR-066): the isolation is that runner's, as for a suite's runner.
+                let isolation = match suite.runner.or(opts.test_runner.codeunit()) {
                     None => Ok(TestIsolation::default()),
                     Some(r) => runner_isolation(lowered, r),
                 };
@@ -1410,8 +1417,10 @@ impl CorpusRuntime {
                         Ok(i) => Ok((opts.isolation.unwrap_or(*i), false)),
                         Err(why) => Err(why.clone()),
                     };
+                    // The runner codeunit the unit runs through (ADR-066), or al-runner's own.
+                    let this = super::al_runner::with_runner(this, opts.test_runner, &engine, hub_path);
                     match &this {
-                        Ok((i, hub)) => units.push(Unit {
+                        Ok((i, hub, runner)) => units.push(Unit {
                             si,
                             oi,
                             id,
@@ -1437,6 +1446,7 @@ impl CorpusRuntime {
                             report_unpinned_errors: opts.report_unpinned_errors,
                             perturb: opts.perturb.clone(),
                             run_seed: opts.run_seed,
+                            runner: *runner,
                         }),
                         Err(why) => {
                             if suite.runner.is_none()
@@ -1448,20 +1458,7 @@ impl CorpusRuntime {
                             for r in test_routines(&lowered.program.objects[oi]) {
                                 if refused.is_some() {
                                     if let Some(f) = &pass.hooks.on_test {
-                                        f(crate::events::TestEvent {
-                                            codeunit: id,
-                                            codeunit_name: o.name.clone(),
-                                            test: r.name.clone(),
-                                            outcome: Outcome::NotRun(why.clone()),
-                                            call_stack: String::new(),
-                                            time: std::time::Duration::ZERO,
-                                            slept_ms: 0,
-                                            coverage: Vec::new(),
-                                            captured: None,
-                                            stubs: Vec::new(),
-                                            ui_answered: Vec::new(),
-                                            entry: None,
-                                        });
+                                        f(crate::events::TestEvent::not_run(id, &o.name, &r.name, why));
                                     }
                                 }
                                 outcomes.insert((si, id, r.name.to_lowercase()), Outcome::NotRun(why.clone()));

@@ -87,6 +87,9 @@ pub struct TestArgs {
     /// `--isolation required`: each test codeunit runs under its own `RequiredTestIsolation`, as BC's TestRunnerHub runs
     /// it on BC 28 and later (`isolation` is then `None`).
     pub required_isolation: bool,
+    /// `--test-runner ID|builtin` (ADR-066): the test runner codeunit the tests run through. `None`: Microsoft's runner
+    /// for the isolation (130450, or 130451 under `--isolation disabled`) when the Test Runner app is loaded.
+    pub test_runner: Option<al_testrun::runtime::TestRunner>,
     /// `--exclude-test TEXT`: tests whose name matches are left out of the selection. Repeatable.
     pub excludes: Vec<String>,
     /// `--test-exact NAME`: the test whose method name or `Codeunit<ID>.<Method>` is exactly NAME. Repeatable.
@@ -833,6 +836,14 @@ MATRIX RUNS (ADR-052)
                          al-runner serve.
 
 ISOLATION
+    --test-runner ID|builtin
+                         The test runner codeunit the tests run through. Default: Microsoft's
+                         runner, 130450 \"Test Runner - Isol. Codeunit\" (130451 under
+                         `--isolation disabled`), run as BcContainerHelper runs it, so subscribers
+                         to the events of \"Test Runner - Mgt\" run; al-runner's own runner when the
+                         Test Runner app is not loaded and under `--isolation test` or `required`.
+                         ID: a runner codeunit with TableNo = \"Test Method Line\"; its TestIsolation
+                         is the isolation. `builtin`: al-runner's own runner.
     --isolation MODE     (`--test-isolation MODE` is the same) `codeunit` (default): the database
                          is rolled back when a test codeunit ends. `test` (also `function`, `method`): it is rolled back to its state after OnRun
                          after every test method; the codeunit's AL variables are kept, as BC's
@@ -1482,17 +1493,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
                     .map(String::from),
             ),
             "--auto-provision" => {}
-            "--isolation" | "--test-isolation" => {
-                let v = text()?;
-                a.required_isolation = v.eq_ignore_ascii_case("required");
-                a.isolation = match v.to_ascii_lowercase().as_str() {
-                    "codeunit" => Some(al_testrun::isolation::TestIsolation::Codeunit),
-                    "test" | "function" | "method" => Some(al_testrun::isolation::TestIsolation::Function),
-                    "disabled" => Some(al_testrun::isolation::TestIsolation::Disabled),
-                    "required" => None,
-                    _ => return Err(format!("{flag} needs codeunit, test, disabled or required, got `{v}`")),
-                };
-            }
+            "--isolation" | "--test-isolation" => parse_isolation(&mut a, &flag, &text()?)?,
+            "--test-runner" => a.test_runner = Some(parse_test_runner(&text()?)?),
             "--color" => {
                 let v = text()?;
                 a.color = crate::style::ColorMode::parse(&v)
@@ -2055,6 +2057,31 @@ fn impact_args(a: &TestArgs) -> Result<(), String> {
             ));
         }
     }
+    Ok(())
+}
+
+/// The value of `--test-runner` (serve: `testRunner`): `builtin`, or the id of a test runner codeunit (ADR-066).
+pub(crate) fn parse_test_runner(v: &str) -> Result<al_testrun::runtime::TestRunner, String> {
+    use al_testrun::runtime::TestRunner;
+    if v.eq_ignore_ascii_case("builtin") {
+        return Ok(TestRunner::Builtin);
+    }
+    v.trim()
+        .parse::<u32>()
+        .map(TestRunner::Codeunit)
+        .map_err(|_| format!("--test-runner needs a codeunit id or builtin, got `{v}`"))
+}
+
+/// `--isolation MODE` into `a`.
+fn parse_isolation(a: &mut TestArgs, flag: &str, v: &str) -> Result<(), String> {
+    a.required_isolation = v.eq_ignore_ascii_case("required");
+    a.isolation = match v.to_ascii_lowercase().as_str() {
+        "codeunit" => Some(al_testrun::isolation::TestIsolation::Codeunit),
+        "test" | "function" | "method" => Some(al_testrun::isolation::TestIsolation::Function),
+        "disabled" => Some(al_testrun::isolation::TestIsolation::Disabled),
+        "required" => None,
+        _ => return Err(format!("{flag} needs codeunit, test, disabled or required, got `{v}`")),
+    };
     Ok(())
 }
 

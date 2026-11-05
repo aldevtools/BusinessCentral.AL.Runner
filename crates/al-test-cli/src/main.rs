@@ -1028,7 +1028,7 @@ fn run_version_inner(
         compile_cache,
         test_time_limit: None,
         lazy: Vec::new(),
-        isolation: None,
+        test_runner: args.test_runner.unwrap_or_default(),
         // The corpus CI runs a test codeunit without handlers through BC's TestRunnerHub, which takes its isolation from
         // the codeunit's RequiredTestIsolation, on BC 28 and later; on BC 27 it runs every codeunit under Microsoft's runner
         // 130450 (TestIsolation = Codeunit), where the property has no effect. A difference of the CI's harness, not of

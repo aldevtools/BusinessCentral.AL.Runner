@@ -552,6 +552,8 @@ pub(crate) struct Unit {
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
     run_seed: crate::seed::RunSeed,
+    /// See `Scratch::runner`.
+    runner: Option<usize>,
 }
 
 /// What a scratch run or a capture leaves besides outcomes, per test.
@@ -600,6 +602,9 @@ pub(crate) struct Scratch {
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
     run_seed: crate::seed::RunSeed,
+    /// The test runner codeunit (object index) whose OnRun runs the test codeunit (ADR-066 decision 1, `al_runner.rs`);
+    /// `None`: al-runner's own runner.
+    pub(crate) runner: Option<usize>,
 }
 
 /// What a test codeunit left: each test's outcome, the call stack of each AL error that failed one, how long
@@ -684,6 +689,7 @@ fn run_unit(
             report_unpinned_errors: u.report_unpinned_errors,
             perturb: u.perturb.clone(),
             run_seed: u.run_seed,
+            runner: u.runner,
             ..Default::default()
         };
         if u.coverage {
@@ -876,6 +882,9 @@ impl<T: Send + 'static> Drop for Retiring<T> {
     }
 }
 
+mod al_runner;
+#[cfg(test)]
+mod al_runner_tests;
 mod apply_manifests;
 mod blocked;
 mod cache;
@@ -890,6 +899,7 @@ mod numbers_taken;
 mod run;
 mod runner_reset;
 mod session_flags;
+mod suite_rows;
 mod test_marks;
 #[cfg(test)]
 mod tests;
