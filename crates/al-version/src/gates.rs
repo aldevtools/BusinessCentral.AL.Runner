@@ -1215,6 +1215,19 @@ pub fn dev_endpoint_answers_unhandled_ui(bc_major: u16) -> Option<bool> {
     }
 }
 
+/// Which rows of the old view OnAfterGetRecord runs for after an action of a list with both row triggers filtered the view
+/// down to no row and called CurrPage.Update (al-runner issue 6945, `empty_view_after_action` in al-vm): `Some(true)` for every
+/// other row (BC 28.5), `Some(false)` for one row (BC 27.5 and 29.0), `None` for a major that was not measured. Measured on the
+/// corpus CI legs by pages/actions/ActionFilterEmptyView.al (corpus branch al-runtime-rs-staging-r6945, the `#if BC28PLUS and
+/// not BC29PLUS` guards). Not a [`Gate`]: the behaviour changes and changes back, which a gate's `since_bc` cannot say.
+pub fn empty_action_view_reads_every_row(bc_major: u16) -> Option<bool> {
+    match bc_major {
+        27 | 29 => Some(false),
+        28 => Some(true),
+        _ => None,
+    }
+}
+
 /// Whether the platform tables of System.app that are `Scope = OnPrem`, internal or removed are known for
 /// this BC major: corpus must-not-compile 0020 to 0024 hold the lists for the symbols of BC 27, and 1240
 /// (`@from 28`, no `@until`) the same 123 tables with the same AL0296 / AL0161 / AL0433 verdicts for BC 28 and

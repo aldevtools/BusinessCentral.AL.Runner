@@ -1059,6 +1059,9 @@ impl Session {
             s.marking_action = !marked_only_before || again_with_part;
             s.unmarking_action = marked_only_before && again_with_part;
             s.marked_rows_held = false;
+            if s.cursor != Cursor::None {
+                s.empty_after_action = false;
+            }
             s.action_ran = true;
         }
         let view_before = self.has_source(st).then(|| ListView::of(&self.page_rec(st).borrow()));
@@ -1864,14 +1867,16 @@ impl Session {
     /// (pages/list-order/AiListOrderTests.al QP_EmptyView_UpdateFalse_ShowAll_Nav, _ShowFromThree_Nav, _ShowAll_Plain,
     /// _ShowFromThree_Plain; pages 87158, 87159 in QpUpdateEmptyList.al; the traces equal the open traces of :105 and :265).
     /// Pinned for views of 4 and 6 rows that the window holds. A view of one row is `empty_page_after_action`'s; Update(true),
-    /// no Update, or Rec on a row of the view go on as before.
+    /// no Update, or Rec on a row of the view go on as before. On the blank row an earlier action left (`empty_after_action`)
+    /// Update(true) fills the page the same way, read as at open from the first row (pages/actions/ActionFilterEmptyView.al
+    /// Action_NoRowsLeft_ThenCleared_UpdateTrue `cleared` `[1|1]:a0;u0;R1;R2;R3;R4;R1;R1;C1`, as _UpdateFalse).
     fn update_on_empty_list_view(&mut self, st: &St) -> Result<bool, Signal> {
         {
             let s = st.borrow();
             if !(s.open
                 && s.refresh
                 && s.refresh_by_update
-                && s.refresh_update_false
+                && (s.refresh_update_false || s.empty_after_action)
                 && !s.dirty
                 && s.cursor == Cursor::None)
             {
@@ -1899,6 +1904,7 @@ impl Session {
             s.refresh = false;
             s.refresh_by_update = false;
             s.refresh_update_false = false;
+            s.empty_after_action = false;
         }
         self.page_first_row(st)?;
         Ok(true)
@@ -2502,30 +2508,6 @@ impl Session {
         Ok(())
     }
 
-    /// The row a list settles on when the action's filter left the stored row it stood on outside the view: the next row of the
-    /// view, else the one before it (pages/list-order/AiListOrderTests.al:335 DropCurrent_RowsAfter_Plain and :301 _FindOnly
-    /// read R1003 first, :501 DropCurrent_NoRowsAfter_Plain and :467 _FindOnly read R1005 first). `None` when the row is in the
-    /// view; a view left with no row is refused.
-    fn row_after_view_left(&mut self, rec: &Rec) -> Result<Option<Vec<Value>>, Signal> {
-        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
-        self.ret_used = true;
-        if matches!(
-            self.record_op(RecordOp::Find, &probe, &mut [Value::Text("=".into())])?,
-            Value::Boolean(true)
-        ) {
-            return Ok(None);
-        }
-        for step in [1, -1] {
-            let probe = Rc::new(RefCell::new(rec.borrow().clone()));
-            self.ret_used = true;
-            if matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(step)])?, Value::Integer(n) if n != 0)
-            {
-                return Ok(Some(probe.borrow().fields.clone()));
-            }
-        }
-        unsupported("an action left the list's view without rows (not pinned)")
-    }
-
     /// `CurrPage.Update` in a control's OnValidate that changed the filters of the page's record, on a list (a Worksheet or a
     /// List, no part) that reads its rows from the table and declares OnAfterGetRecord and OnAfterGetCurrRecord: the client reads
     /// the rows as after an action, without the read of the row before them (`read_list_again_from_row`). It stands on the row,
@@ -2722,6 +2704,9 @@ impl Session {
                 );
             }
             self.populate_current(st)?;
+        }
+        if self.view_row_count(st)? == 0 {
+            return self.empty_view_after_action(st, rec);
         }
         let view_left = match self.row_after_view_left(rec)? {
             Some(fields) => {
