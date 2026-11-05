@@ -377,11 +377,7 @@ impl Session {
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::Builtin { s, d } => {
-                    let site = &chunk.builtins[s as usize];
-                    let v = match (site.plain, site.native) {
-                        (true, Some(native)) => self.run_plain_builtin(site, native, f, nl)?,
-                        _ => self.run_builtin(site, f, nl)?,
-                    };
+                    let v = self.op_builtin(&chunk.builtins[s as usize], f, nl)?;
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::CharAt { d, a, b } => self.op_char_at(f, d, a, b, nl)?,
@@ -1016,6 +1012,17 @@ impl Session {
             }
         }
         Ok(())
+    }
+
+    /// `Op::Builtin`: runs the builtin on its short or full path, then lets the profiler book a pending tick to it.
+    #[inline(always)]
+    fn op_builtin(&mut self, site: &BuiltinSite, f: &mut Frame, nl: u16) -> Result<Value, Signal> {
+        let v = match (site.plain, site.native) {
+            (true, Some(native)) => self.run_plain_builtin(site, native, f, nl),
+            _ => self.run_builtin(site, f, nl),
+        };
+        self.profile_builtin(site.id);
+        v
     }
 
     fn run_builtin(&mut self, site: &BuiltinSite, f: &mut Frame, nl: u16) -> Result<Value, Signal> {

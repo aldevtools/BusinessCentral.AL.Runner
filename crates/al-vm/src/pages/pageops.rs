@@ -1156,14 +1156,10 @@ impl Session {
                 self.require_open(st)?;
                 self.bg_run_page_task(st, args)
             }
-            PageMethod::Run => {
-                let record = st.borrow().set_record.clone();
-                self.run_page_ui(st, record, false)
-            }
+            PageMethod::Run => self.run_page_var(st, false),
             PageMethod::RunModal => {
-                let record = st.borrow().set_record.clone();
                 st.borrow_mut().run_static = Some(false);
-                self.run_page_ui(st, record, true)
+                self.run_page_var(st, true)
             }
             // `CurrPage.Close()` in a procedure of a Page variable that never ran does nothing and the procedure goes on
             // (pages/currpage/ClosedPageVariableCurrPageClose.al:83-99, Close_NeverRun), and so does

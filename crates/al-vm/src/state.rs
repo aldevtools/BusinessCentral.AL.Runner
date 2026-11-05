@@ -251,6 +251,13 @@ pub(crate) struct PageClients {
 pub(crate) struct EventState {
     /// Manual event subscriptions made by `BindSubscription`.
     pub(crate) bindings: Vec<dispatch::Binding>,
+    /// Manual bindings whose bound instance the globals of a page reached when they were made (`page_held_bindings.rs`,
+    /// al-runner issue 6924).
+    pub(crate) page_held: Vec<crate::page_held_bindings::PageHeld>,
+    /// The pages that have an instance and may still run code (`page_held_bindings.rs`).
+    pub(crate) pages_with_instance: Vec<std::rc::Weak<RefCell<al_builtins::value::PageState>>>,
+    /// The pages a Page variable's non-modal `Run` showed last (`page_held_bindings.rs`).
+    pub(crate) page_var_runs: Vec<std::rc::Weak<RefCell<al_builtins::value::PageState>>>,
     /// What the Event Subscription table reports (calls handled, bound instances).
     pub(crate) event_stats: Rc<platform::EventStats>,
     /// `publish` is about to raise its event: the next `raise` has an event frame on the stack.

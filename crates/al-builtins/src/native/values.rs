@@ -138,15 +138,11 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
         // Clear in OnModify or in a table event): nothing pins what xRec shows after the Clear, so Rec gets a new buffer and xRec
         // keeps its content, as before issue 6791 (crates/al-vm/tests/store/blob_clear_shared_xrec.rs).
         Value::Blob(b) if !b.borrow().temp_inserted && !ctx.xrec_holds_blob(b) => {
-            crate::stream::note_assign_copied(b);
             let fresh = crate::stream::new_blob().borrow().clone();
             *b.borrow_mut() = fresh;
             Value::Blob(b.clone())
         }
-        Value::Blob(b) => {
-            crate::stream::note_assign_copied(b);
-            Value::Blob(crate::stream::new_blob())
-        }
+        Value::Blob(_) => Value::Blob(crate::stream::new_blob()),
         // A cleared TestPage or Page variable is a fresh, closed one (corpus
         // testpage/TestPageEditable_Tests.al:93 EditableBoundToPageVariable_FollowsTheRow). A page
         // that is open, waits for Trap(), or is a part is not cleared: nothing pins what follows.

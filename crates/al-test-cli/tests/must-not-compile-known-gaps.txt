@@ -380,3 +380,6 @@
 27 2952-tableext-protected-var-of-app-not-depended-on
 28 2952-tableext-protected-var-of-app-not-depended-on
 29 2952-tableext-protected-var-of-app-not-depended-on
+# corpus bump 1105n (pin f0596301, corpus PR 1152): a TestPage member of a Base Application page that BC 29 removed
+# (2972 wants AL0132 and gets none)
+29 2972-bc29-legacy-statistics-invoke
