@@ -1443,6 +1443,11 @@ impl Session {
             let Some(sp) = from.fields.iter().position(|f| f.id == df.id && f.stored) else {
                 continue;
             };
+            // Fields of one number declared by different apps count as fields of different apps, also on two tables of one app:
+            // a table extension's field against another app's extension field or against the table's own field
+            // (record/transferfields-cross-app/TransferFieldsFieldApps.al:131-163 on corpus branch al-runtime-rs-staging-r6792
+            // 0394701c, al-runner issue 6982).
+            let cross_app = cross_app || self.field_app(t, dp) != self.field_app(&from, sp);
             // An Enum field and an Option field with the same field number are the same kind of field to
             // TransferFields: Base Application's "Sales Order Entity Buffer" holds `Shipping Advice` as an
             // Option and `Sales Header` as an Enum, and its TransferFields from the header works in BC
@@ -1480,6 +1485,11 @@ impl Session {
                 (&from.fields[sp].ty, &df.ty, &src_fields[sp])
                 && Value::text_len(s) > *to_len as usize
             {
+                // Across apps it is skipped, with and without SkipFieldsWithoutCheck (TransferFieldsFieldApps.al:147-148,
+                // `mode 1 long text`, `mode 3 long text`).
+                if cross_app {
+                    continue;
+                }
                 return unsupported(format!(
                     "TransferFields of a Text too long for the Code field {} of {} (not pinned)",
                     df.name, t.name
@@ -1630,6 +1640,19 @@ impl Session {
     /// Transfer_DifferentPrimaryKey). Pinned for Decimal into Integer or BigInteger, Integer into Code, and Boolean and Text either way, between tables whose
     /// captions are their names; anything else gives `None` and stays refused. Between tables of different apps BC skips the field
     /// instead (Transfer_From_Another_Apps_Table_Type_Mismatch_BQ; `transfer_fields`).
+    /// The app that declares field `pos` of `t`: the app of the table or table extension that declares it, or the table's own
+    /// app for a field without one (a system field).
+    fn field_app(&self, t: &TableDef, pos: usize) -> u32 {
+        let objects = &self.engine.program.objects;
+        let declared = objects[t.object as usize]
+            .table
+            .as_ref()
+            .and_then(|schema| schema.fields.get(pos))
+            .and_then(|f| f.declared_in)
+            .map_or(t.object as usize, |o| o as usize);
+        objects[declared].app
+    }
+
     fn transfer_type_mismatch(
         &mut self,
         rec: &Rec,
@@ -1668,6 +1691,8 @@ impl Session {
                 | ("Integer", "Option")
                 | ("DateTime", "Date")
                 | ("Boolean", "Decimal")
+                // Two extension fields of one app: TransferFieldsFieldApps.al:204-205 (corpus branch al-runtime-rs-staging-r6792).
+                | ("Code", "Boolean")
         ) {
             return None;
         }
