@@ -379,7 +379,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
     // is inert.
     // An Xml export with PreserveWhiteSpace writes the same as without it, with Encoding = UTF8 or the default UTF16, white space
     // of a text element and a field element, a line end inside one included, with and without DefaultNamespace +
-    // UseDefaultNamespace (streams/Np4XmlPort.al:280 NP4_XmlPort_PreserveWhiteSpace_WithNamespace, :300
+    // UseDefaultNamespace (streams/Np4XmlPort.al:264 NP4_XmlPort_PreserveWhiteSpace_WithNamespace, :300
     // _DefaultWhiteSpace_WithNamespace, :320 _PreserveWhiteSpace_NoNamespace, corpus master; Y83XpNsTests.al:Ns_Pws, Ns_PwsPrefix,
     // Ns_PwsUdnDn for UTF16, needs the corpus bump).
     let utf8 = out.encoding.as_deref().is_some_and(|e| e.eq_ignore_ascii_case("utf8"));
@@ -821,7 +821,7 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
                 (Some("once"), Some("unbounded")) => Some((&["once"][..], &["unbounded"][..])),
                 (Some("zero"), Some("once")) => Some((&["zero"][..], &["once"][..])),
                 // MinOccurs = Once with MaxOccurs = Once: the first row of each pass, and a pass without rows writes the record as
-                // it stands (streams/Np4XmlPort.al:364 NP4_XmlPort_OnceOnce_ZeroAndOneRows, :381 _TwoRows, corpus
+                // it stands (streams/Np4XmlPort.al:348 NP4_XmlPort_OnceOnce_ZeroAndOneRows, :381 _TwoRows, corpus
                 // master; export only, the VM refuses the import as for the other unlinked pairs).
                 (Some("once"), Some("once")) => Some((&["once"][..], &["once"][..])),
                 _ => None,
@@ -1335,7 +1335,7 @@ mod tests {
         for ok in [
             "xmlport 1 X { Direction = Export; schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { MinOccurs = Once; MaxOccurs = Unbounded; fieldelement(N; L.X) { } } } } } }",
             "xmlport 1 X { Direction = Export; schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { MinOccurs = Zero; MaxOccurs = Once; fieldelement(N; L.X) { } } } } } }",
-            // Corpus master streams/Np4XmlPort.al:364, :381 (NP4_XmlPort_OnceOnce_*, xmlport 93416).
+            // Corpus master streams/Np4XmlPort.al:348, :381 (NP4_XmlPort_OnceOnce_*, xmlport 93416).
             "xmlport 1 X { Direction = Export; schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { MinOccurs = Once; MaxOccurs = Once; fieldelement(N; L.X) { } } } } } }",
         ] {
             assert!(layout_of(ok).run_reasons.is_empty(), "{ok}");

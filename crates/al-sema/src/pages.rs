@@ -1470,9 +1470,10 @@ impl Tree {
             };
             // `modify` of an implicit group, and `addafter`/`addbefore` of the implicit actionref of a legacy promoted action
             // (al-runner issues 6646, 6647; `promoted.rs`).
-            let implicit =
-                (kind == "modify" && promoted::numbered_category(&target) && promoted::inert_group_modify(&op.section))
-                    || (["addafter", "addbefore"].contains(&kind.as_str()) && self.legacy_promoted_ref(&target));
+            let implicit = (kind == "modify"
+                && (promoted::numbered_category(&target) || promoted::standard_category(&target))
+                && promoted::inert_group_modify(&op.section))
+                || (["addafter", "addbefore"].contains(&kind.as_str()) && self.legacy_promoted_ref(&target));
             if op.in_actions
                 && (process_after || legacy || added_into || implicit || other.is_some())
                 && self.find_node(&target).is_none()

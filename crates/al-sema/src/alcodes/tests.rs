@@ -2559,3 +2559,18 @@ fn an_object_permissions_property_takes_named_table_data_only() {
     let set = "permissionset 50002 \"S\" { Assignable = true; Permissions = tabledata * = RIMD, codeunit * = X; }";
     assert_eq!(codes(&[set]), Vec::<String>::new());
 }
+
+// Must-not-compile case 2970 (al-runner issue 6986, corpus branch al-runtime-rs-staging-r6961): count() into a Decimal FlowField is
+// AL0202; into an Integer or a BigInteger FlowField it compiles (record/flowfields/R6986BigIntegerCount.al).
+#[test]
+fn count_into_a_decimal_flowfield_is_al0202_and_into_a_biginteger_compiles() {
+    let doc = r#"table 50000 "MNC Count Doc" { fields { field(1; "No."; Code[20]) { } field(2; "Type No."; Code[20]) { } } keys { key(PK; "No.") { } } }"#;
+    let flow = |ty: &str| {
+        format!(
+            r#"table 50001 "MNC Count Type" {{ fields {{ field(1; "No."; Code[20]) {{ }} field(10; DocCount; {ty}) {{ FieldClass = FlowField; CalcFormula = count("MNC Count Doc" where("Type No." = field("No."))); }} }} keys {{ key(PK; "No.") {{ }} }} }}"#
+        )
+    };
+    assert_eq!(codes(&[doc, &flow("Decimal")]), vec!["AL0202".to_string()]);
+    assert!(codes(&[doc, &flow("BigInteger")]).is_empty());
+    assert!(codes(&[doc, &flow("Integer")]).is_empty());
+}
