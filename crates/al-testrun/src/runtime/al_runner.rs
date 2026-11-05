@@ -30,18 +30,41 @@ pub(crate) enum Steps {
     Al {
         runner: usize,
         instance: Rc<RefCell<Instance>>,
+        /// The row versions handed out once the runner's own writes before the tests were done: what OnRun and the
+        /// tests hand out counts from here (`Steps::row_versions_from`).
+        rows_from: std::cell::Cell<i64>,
     },
 }
 
 impl Steps {
     /// The steps of a unit: with `al` the runner whose OnRun runs the test codeunit; a scratch run (`execute`) has no
     /// runner.
-    pub(crate) fn new(engine: &Engine, execute: bool, al: Option<(usize, Rc<RefCell<Instance>>)>) -> Steps {
+    pub(crate) fn new(
+        engine: &Engine,
+        execute: bool,
+        al: Option<(usize, Rc<RefCell<Instance>>)>,
+        session: &Session,
+    ) -> Steps {
         match al {
-            Some((runner, instance)) => Steps::Al { runner, instance },
+            Some((runner, instance)) => Steps::Al {
+                runner,
+                instance,
+                rows_from: std::cell::Cell::new(session.row_versions_handed_out()),
+            },
             None if execute => Steps::Builtin(RunnerReset::default()),
             None => Steps::Builtin(RunnerReset::of(engine)),
         }
+    }
+
+    /// Whether OnRun handed out no row version, counted from `from` (taken before the run) for al-runner's own runner;
+    /// under a runner codeunit, after the runner's own writes (its rows and the triggers around OnRun commit them
+    /// before the tests). Under TestIsolation = Codeunit MinimumActiveRowVersion freezes when OnRun handed out none.
+    pub(crate) fn none_handed_out(&self, session: &Session, from: i64) -> bool {
+        let from = match self {
+            Steps::Builtin(_) => from,
+            Steps::Al { rows_from, .. } => rows_from.get(),
+        };
+        session.row_versions_handed_out() == from
     }
 
     pub(crate) fn is_al(&self) -> bool {
@@ -57,7 +80,7 @@ impl Steps {
     ) -> Result<bool, String> {
         match self {
             Steps::Builtin(reset) => reset.before(session, obj, routine).map(|()| true),
-            Steps::Al { runner, instance } => {
+            Steps::Al { runner, instance, .. } => {
                 let permissions = test_permissions(obj, routine);
                 before_test_run(session, *runner, instance, obj, &routine.name, &permissions)
             }
@@ -95,7 +118,7 @@ impl Steps {
         }
         match self {
             Steps::Builtin(reset) => reset.after(session),
-            Steps::Al { runner, instance } => {
+            Steps::Al { runner, instance, .. } => {
                 session.clear_stop();
                 let permissions = test_permissions(obj, routine);
                 after_test_run(session, *runner, instance, obj, &routine.name, &permissions, success)
@@ -107,12 +130,20 @@ impl Steps {
     /// `OnRun` (assumption `test-runner-trigger-calls`; `TestRunnerMgt.Codeunit.al:92-96` answers true for it). An
     /// answer of false is not probed and refuses the codeunit.
     pub(crate) fn before_on_run(&self, session: &mut Session, obj: &al_ir::Object) -> Result<(), String> {
-        let Steps::Al { runner, instance } = self else {
+        let Steps::Al {
+            runner,
+            instance,
+            rows_from,
+        } = self
+        else {
             return Ok(());
         };
         let permissions = codeunit_permissions(obj);
         match before_test_run(session, *runner, instance, obj, "OnRun", &permissions)? {
-            true => Ok(()),
+            true => {
+                rows_from.set(session.row_versions_handed_out());
+                Ok(())
+            }
             false => Err(format!(
                 "the test runner codeunit {} answered false from OnBeforeTestRun for the OnRun trigger: what the platform does then is not probed (ADR-066 P3)",
                 runner_name(session, *runner)
@@ -122,11 +153,21 @@ impl Steps {
 
     /// After the test codeunit's declared OnRun trigger, which ended without an error when `success`.
     pub(crate) fn after_on_run(&self, session: &mut Session, obj: &al_ir::Object, success: bool) -> Result<(), String> {
-        let Steps::Al { runner, instance } = self else {
+        let Steps::Al {
+            runner,
+            instance,
+            rows_from,
+        } = self
+        else {
             return Ok(());
         };
         let permissions = codeunit_permissions(obj);
-        after_test_run(session, *runner, instance, obj, "OnRun", &permissions, success)
+        let on_run_wrote = session.row_versions_handed_out() != rows_from.get();
+        after_test_run(session, *runner, instance, obj, "OnRun", &permissions, success)?;
+        if !on_run_wrote {
+            rows_from.set(session.row_versions_handed_out());
+        }
+        Ok(())
     }
 }
 
@@ -194,6 +235,7 @@ fn before_test_run(
     // NavTestExecution.BeforeTestRunAsync commits after the trigger (AL Runner v2 TestExecutor.cs; assumption
     // `test-runner-trigger-transactions`).
     session.commit_transaction();
+    session.refreeze_min_active_row_version();
     Ok(answer)
 }
 
@@ -267,17 +309,25 @@ impl<R> al_vm::TestCodeunitHost for Host<'_, R> {
     }
 }
 
-/// Runs the OnRun trigger of runner codeunit `runner` on `session`, with its `Codeunit.Run` of test codeunit `object`
-/// going to `body`. The value is what `body` returned; the error is why the unit's tests are not run.
+/// Runs runner codeunit `runner` on `session`, with its `Codeunit.Run` of test codeunit `object` going to `body`. A
+/// runner that reads "Test Method Line" rows gets them for the codeunit, its methods `selected` (routine indices) at
+/// `Run = true`, and is started through `Test Suite Mgt.`.RunNextTest (`suite_rows.rs`); any other runner's OnRun is
+/// run as `Codeunit.Run` runs it. The value is what `body` returned; the error is why the unit's tests are not run.
 pub(crate) fn drive<R>(
     session: &mut Session,
     runner: usize,
     object: usize,
+    selected: &[usize],
     body: &mut dyn FnMut(&mut Session, RunnerRef) -> R,
 ) -> Result<R, String> {
     let name = runner_name(session, runner);
     let Some(id) = session.engine.program.objects[runner].id else {
         return Err(format!("the test runner codeunit {name} has no id"));
+    };
+    let rows = if super::suite_rows::reads_rows(&session.engine.program, runner) {
+        Some(super::suite_rows::write(session, runner, object, selected)?)
+    } else {
+        None
     };
     let mut host = Host {
         object,
@@ -286,7 +336,10 @@ pub(crate) fn drive<R>(
     };
     // The runner's own code runs outside the test codeunit (the nesting check of `Codeunit.Run` holds only inside it).
     let in_test = std::mem::replace(&mut session.in_test_codeunit, false);
-    let result = session.with_test_codeunit_host(&mut host, |s| s.run_codeunit_by_id(id));
+    let result = session.with_test_codeunit_host(&mut host, |s| match rows {
+        Some(rec) => super::suite_rows::run_next_test(s, rec),
+        None => s.run_codeunit_by_id(id),
+    });
     session.in_test_codeunit = in_test;
     match (result, host.ran) {
         (Ok(()), Some(r)) => Ok(r),
@@ -303,4 +356,62 @@ pub(crate) fn drive<R>(
             other.describe()
         )),
     }
+}
+
+/// The runner codeunit (object index) a unit of test codeunits runs through, for `choice`, the unit's `isolation`, and
+/// whether it runs on the TestRunnerHub (`hub`, where BC runs no AL runner: ADR-066 decision 6). `None`: al-runner's
+/// own runner. The error is why the unit's tests are not run.
+pub(crate) fn choose(
+    choice: TestRunner,
+    engine: &Engine,
+    isolation: TestIsolation,
+    hub: bool,
+) -> Result<Option<usize>, String> {
+    let id = match choice {
+        TestRunner::Builtin => return Ok(None),
+        _ if hub => return Ok(None),
+        TestRunner::Microsoft => match isolation {
+            TestIsolation::Codeunit => MICROSOFT_ISOL_CODEUNIT,
+            TestIsolation::Disabled => MICROSOFT_ISOL_DISABLED,
+            // No Microsoft runner has it (ADR-066 owner decision 5): al-runner's own runner.
+            TestIsolation::Function => return Ok(None),
+        },
+        TestRunner::Codeunit(id) => id,
+    };
+    let Some(object) = engine.compiled_codeunit(Some(id)) else {
+        return match choice {
+            // Without the Test Runner app al-runner's own runner runs, as before ADR-066.
+            TestRunner::Microsoft => Ok(None),
+            _ => Err(format!("test runner codeunit {id} is not in the compiled apps")),
+        };
+    };
+    let obj = &engine.program.objects[object];
+    if !obj
+        .properties
+        .iter()
+        .any(|(k, v)| k.eq_ignore_ascii_case("Subtype") && v.trim().eq_ignore_ascii_case("TestRunner"))
+    {
+        return Err(format!(
+            "codeunit {id} {} is not a test runner (Subtype = TestRunner)",
+            obj.name
+        ));
+    }
+    if !super::suite_rows::reads_rows(&engine.program, object) {
+        return Err(format!(
+            "test runner codeunit {id} {} picks its own test codeunits in its OnRun (it has no TableNo = \"Test Method Line\"): such a runner is not supported yet (ADR-066 decision 5)",
+            obj.name
+        ));
+    }
+    Ok(Some(object))
+}
+
+/// A unit's isolation and hub flag, with the runner codeunit it runs through ([`choose`]; the whole TestRunnerHub path
+/// `hub_path` stays on al-runner's own runner).
+pub(crate) fn with_runner(
+    unit: Result<(TestIsolation, bool), String>,
+    choice: TestRunner,
+    engine: &Engine,
+    hub_path: bool,
+) -> Result<(TestIsolation, bool, Option<usize>), String> {
+    unit.and_then(|(i, hub)| choose(choice, engine, i, hub || hub_path).map(|r| (i, hub, r)))
 }

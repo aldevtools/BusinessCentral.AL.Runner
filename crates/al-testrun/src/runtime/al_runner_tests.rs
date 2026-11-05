@@ -231,3 +231,36 @@ fn a_runner_that_does_not_run_the_codeunit_leaves_its_tests_not_run() {
         "{got:?}"
     );
 }
+
+// ADR-066 decision 5: `--test-runner ID` takes a runner that reads its tests from "Test Method Line" rows; one that picks
+// its own codeunits in its OnRun is refused with a reason, and a codeunit that is no runner too.
+#[test]
+fn a_chosen_runner_must_read_its_tests_from_rows() {
+    let (ws, l) = al_sema::lower::compile(
+        vec![AppSource {
+            id: "a".into(),
+            name: "a".into(),
+            dependencies: vec![],
+            files: vec![("f.al".into(), STUB_RUNNER.into())],
+        }],
+        &Default::default(),
+    );
+    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+    let engine = Engine::new(l.program.clone(), Vec::new().into_iter().collect());
+    let choose = |r| al_runner::choose(r, &engine, TestIsolation::Codeunit, false);
+    let own = choose(TestRunner::Codeunit(60310)).unwrap_err();
+    assert!(own.contains("picks its own test codeunits"), "{own}");
+    let not_runner = choose(TestRunner::Codeunit(60311)).unwrap_err();
+    assert!(not_runner.contains("is not a test runner"), "{not_runner}");
+    assert!(
+        choose(TestRunner::Codeunit(1))
+            .unwrap_err()
+            .contains("not in the compiled apps")
+    );
+    // Without the Test Runner app Microsoft's runner falls back to al-runner's own, as on the TestRunnerHub path.
+    assert_eq!(choose(TestRunner::Microsoft), Ok(None));
+    assert_eq!(
+        al_runner::choose(TestRunner::Codeunit(60310), &engine, TestIsolation::Codeunit, true),
+        Ok(None)
+    );
+}

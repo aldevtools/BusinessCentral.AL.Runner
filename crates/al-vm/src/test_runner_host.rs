@@ -37,6 +37,8 @@ pub(crate) struct RunnerHost {
     /// The `Subtype = TestRunner` codeunits whose OnRun is running under the host, innermost last: object and the
     /// instance the run made.
     runners: Vec<(usize, Rc<RefCell<Instance>>)>,
+    /// The number of frames below the test codeunit while the host runs it: the runner's frames. 0 outside a host.
+    base: usize,
 }
 
 impl Session {
@@ -63,10 +65,26 @@ impl Session {
         }
     }
 
+    /// After a test runner's trigger wrote and committed (ADR-066): a MinimumActiveRowVersion that TestIsolation =
+    /// Codeunit froze moves to the state after the trigger, as the trigger's writes are not the tests' (BC passes the
+    /// corpus's MinimumActiveRowVersion cases, metadata/platform-tables/PlTRowVersionValue.al, through runner 130450,
+    /// whose triggers write rows before each test; assumption `test-runner-trigger-transactions`).
+    pub fn refreeze_min_active_row_version(&mut self) {
+        if self.iso_min_row_version.is_some() {
+            self.freeze_min_active_row_version();
+        }
+    }
+
     /// Whether a host is installed: a `Subtype = TestRunner` codeunit's OnRun is then noted
     /// ([`Session::enter_test_runner`]).
     pub(crate) fn has_test_codeunit_host(&self) -> bool {
         self.runner_host.host.is_some()
+    }
+
+    /// The frames below the test codeunit's: those of the test runner codeunit that runs it (ADR-066), else none.
+    /// Code that asks where the test method is on the call stack counts from here.
+    pub(crate) fn test_frame_base(&self) -> usize {
+        self.runner_host.base
     }
 
     pub(crate) fn enter_test_runner(&mut self, object: usize, inst: Rc<RefCell<Instance>>) {
@@ -92,8 +110,23 @@ impl Session {
                     .into(),
             ))
         } else {
+            // The test codeunit starts as the platform starts it, not as code inside the runner's `Codeunit.Run`: at the
+            // recursion depth and with the transaction state of al-runner's own runner, which the corpus oracle pins
+            // (codeunits/TestCodeunitRecursionDepth.al, codeunits/TestWriteTxTestBoundary.al: a TransactionModel None
+            // test has no transaction of a surrounding `Codeunit.Run`).
+            let depth = std::mem::take(&mut self.depth);
+            let world = std::mem::take(&mut self.tx.tx_world);
+            let tries = std::mem::take(&mut self.tx.used_tries);
+            let guarded = std::mem::take(&mut self.tx.guarded_runs);
+            let base = std::mem::replace(&mut self.runner_host.base, self.frames.len());
             // SAFETY: see `with_test_codeunit_host`; the pointer is live while the host is installed.
-            unsafe { (*ptr).run_test_codeunit(self, object, runner) }.map(|()| Value::Null)
+            let r = unsafe { (*ptr).run_test_codeunit(self, object, runner) }.map(|()| Value::Null);
+            self.depth = depth;
+            self.tx.tx_world = world;
+            self.tx.used_tries = tries;
+            self.tx.guarded_runs = guarded;
+            self.runner_host.base = base;
+            r
         };
         self.runner_host.host = Some(ptr);
         Some(result)
