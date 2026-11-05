@@ -13,6 +13,7 @@ mod http_content_get_headers;
 mod http_headers;
 mod http_request_cookies;
 mod instream_read_char;
+mod instream_read_length;
 mod key_vault;
 mod last_error_frames;
 mod last_error_object;

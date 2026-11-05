@@ -927,6 +927,16 @@ impl Session {
                 };
                 let mut copy = src.borrow().clone();
                 own_unloaded_blobs(&mut copy);
+                // A RecordRef copy of Rec in the OnOpenPage of a RunPageLink target holds Rec's view, the link included, and answers
+                // as any RecordRef: GetView, SetView, SetFilter, FindFirst (corpus
+                // testpage/RunPageLinkOpenSetView.al, RSV_LinkAndView_SameViewOfRecordRef, RSV_LinkAndView_ViewOfACopyWithItsOwnFilter).
+                if matches!(
+                    copy.unpinned_buffer,
+                    Some(crate::records::RUN_PAGE_LINK_OPEN | crate::records::RUN_PAGE_LINK_OPEN_FILLED)
+                ) {
+                    copy.unpinned_buffer = None;
+                    copy.run_page_link = None;
+                }
                 *lib.borrow_mut() = LibraryValue::RecordRef(Rc::new(RefCell::new(copy)));
                 return Ok(Value::Null);
             }

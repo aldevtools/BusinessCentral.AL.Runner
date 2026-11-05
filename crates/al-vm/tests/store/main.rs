@@ -15,6 +15,7 @@ mod count_into_biginteger;
 mod crm_connection;
 mod date_filter_short;
 mod date_formula_operator_date;
+mod datetime_filter_empty_text;
 mod delete_all_cascade;
 mod delete_all_flowfield_filter;
 mod dupkey_after_event;
