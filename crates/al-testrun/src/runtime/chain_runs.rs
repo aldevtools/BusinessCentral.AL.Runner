@@ -51,8 +51,11 @@ pub(super) struct Ahead {
     pub result: UnitResult,
     /// What it left, when the walk can hand it on; `None`: the walk runs the member itself.
     pub kept: Option<Kept>,
-    /// The fingerprint of the start it ran from (`Baseline::fingerprint`).
-    pub start: Option<Arc<Vec<u8>>>,
+    /// The fingerprint of the start it ran from, the Test Runner's rows apart (`Baseline::fingerprint_apart`).
+    pub start: Option<Arc<al_vm::Fingerprint>>,
+    /// Nothing in its run saw what the Test Runner's tables held at its start (`suite_rows::take_unseen`): it may be
+    /// taken from a start whose rows of those tables differ.
+    pub unseen: bool,
     pub events: Vec<HookEvent>,
 }
 
@@ -60,7 +63,7 @@ enum Slot {
     /// Not started; a helper may take it.
     Pending,
     /// A helper runs it from the start of this epoch of its suite with this delta applied, whose fingerprint is this.
-    Running(u32, al_vm::Delta, Option<Arc<Vec<u8>>>),
+    Running(u32, al_vm::Delta, Option<Arc<al_vm::Fingerprint>>),
     /// A helper ran it from there, or could not (`None`: the start could not be read back).
     Done(u32, al_vm::Delta, Option<Box<Ahead>>),
     /// The walk took it: no helper runs it.
@@ -263,7 +266,7 @@ impl Runs {
 
     /// A helper starts member `k` from the start whose fingerprint is `fingerprint` (the walk waits for such a run only
     /// when it is its own state's).
-    pub fn starting(&self, k: usize, fingerprint: Option<Arc<Vec<u8>>>) {
+    pub fn starting(&self, k: usize, fingerprint: Option<Arc<al_vm::Fingerprint>>) {
         if let Ok(mut s) = self.state.lock() {
             if let Slot::Running(_, _, fp) = &mut s.slots[k] {
                 *fp = fingerprint;
@@ -304,20 +307,22 @@ impl Runs {
     /// itself). The flag tells whether a run from another start was dropped that started from a prediction which knew
     /// what every member before it changes (a wrong prediction, not one made before that was known). No helper runs the
     /// member after this.
-    pub fn take(&self, k: usize, epoch: Option<u32>, actual: Option<&[u8]>) -> (Option<Ahead>, bool) {
+    pub fn take(&self, k: usize, epoch: Option<u32>, actual: Option<&al_vm::Fingerprint>) -> (Option<Ahead>, bool) {
         let Ok(mut s) = self.state.lock() else {
             return (None, false);
         };
+        // The same start but for the Test Runner's rows, and whether those are the same too.
+        let same = |e: &u32, fp: Option<&al_vm::Fingerprint>| match (fp, actual) {
+            (Some(fp), Some(actual)) if Some(*e) == epoch && fp.main == actual.main => Some(fp.rows == actual.rows),
+            _ => None,
+        };
         loop {
-            let wanted = |e: &u32, fp: Option<&[u8]>| Some(*e) == epoch && actual.is_some() && fp == actual;
             match std::mem::replace(&mut s.slots[k], Slot::Taken) {
-                Slot::Done(e, _, Some(a)) if wanted(&e, a.start.as_deref().map(|v| v.as_slice())) => {
+                Slot::Done(e, _, Some(a)) if same(&e, a.start.as_deref()).is_some_and(|rows| rows || a.unseen) => {
                     return (Some(*a), false);
                 }
-                // Its fingerprint is not known yet, or it is the walk's: wait.
-                Slot::Running(e, d, fp)
-                    if Some(e) == epoch && (fp.is_none() || wanted(&e, fp.as_deref().map(|v| v.as_slice()))) =>
-                {
+                // Its fingerprint is not known yet, or it is the walk's (but perhaps for those rows): wait.
+                Slot::Running(e, d, fp) if Some(e) == epoch && (fp.is_none() || same(&e, fp.as_deref()).is_some()) => {
                     s.slots[k] = Slot::Running(e, d, fp);
                     s = match self.ready.wait(s) {
                         Ok(g) => g,
@@ -388,8 +393,16 @@ mod tests {
                 sidecar_start: std::time::Duration::ZERO,
             },
             kept: Some(Kept::Nothing),
-            start: Some(Arc::new(start.to_vec())),
+            start: Some(Arc::new(fp(start, b""))),
+            unseen: false,
             events: Vec::new(),
+        }
+    }
+
+    fn fp(main: &[u8], rows: &[u8]) -> al_vm::Fingerprint {
+        al_vm::Fingerprint {
+            main: main.to_vec(),
+            rows: rows.to_vec(),
         }
     }
 
@@ -397,13 +410,16 @@ mod tests {
     #[test]
     fn a_run_ahead_is_taken_only_from_the_walks_own_state() {
         let runs = Runs::new(vec![0, 1, 2], vec![0, 0, 0], vec![0], 6);
-        assert!(runs.take(0, Some(0), Some(b"s0")).0.is_none(), "nothing ran yet");
+        assert!(
+            runs.take(0, Some(0), Some(&fp(b"s0", b""))).0.is_none(),
+            "nothing ran yet"
+        );
         runs.reached(0);
         runs.advance(0, 0, Default::default(), Some(Default::default()));
         let Claim::Run(1, 0, _, from) = runs.claim() else {
             panic!("member 1 first")
         };
-        runs.starting(1, Some(Arc::new(b"s1".to_vec())));
+        runs.starting(1, Some(Arc::new(fp(b"s1", b""))));
         assert!(runs.has_run(1, Some(0)));
         runs.finish(1, 0, from, Some(ahead(b"s1")));
         let Claim::Run(2, 0, _, from) = runs.claim() else {
@@ -411,12 +427,40 @@ mod tests {
         };
         runs.finish(2, 0, from, Some(ahead(b"s2")));
         assert!(
-            runs.take(1, Some(0), Some(b"s1")).0.is_some(),
+            runs.take(1, Some(0), Some(&fp(b"s1", b""))).0.is_some(),
             "member 1 started where the walk is"
         );
         runs.reached(1);
-        let (wrong, dropped) = runs.take(2, Some(0), Some(b"other"));
+        let (wrong, dropped) = runs.take(2, Some(0), Some(&fp(b"other", b"")));
         assert!(wrong.is_none() && dropped, "a run from another start is not taken");
-        assert!(runs.take(2, Some(0), Some(b"s2")).0.is_none(), "and it is gone");
+        assert!(
+            runs.take(2, Some(0), Some(&fp(b"s2", b""))).0.is_none(),
+            "and it is gone"
+        );
+    }
+
+    /// Another start only in the Test Runner's rows: taken when the run did not see them, else dropped.
+    #[test]
+    fn a_run_that_did_not_see_the_runner_rows_is_taken_from_a_start_that_differs_only_there() {
+        let runs = Runs::new(vec![0, 1, 2], vec![0, 0, 0], vec![0], 6);
+        runs.reached(0);
+        runs.advance(0, 0, Default::default(), Some(Default::default()));
+        let Claim::Run(1, 0, _, from) = runs.claim() else {
+            panic!("member 1 first")
+        };
+        let mut a = ahead(b"s1");
+        a.start = Some(Arc::new(fp(b"s1", b"rows of 1")));
+        a.unseen = true;
+        runs.finish(1, 0, from, Some(a));
+        let Claim::Run(2, 0, _, from) = runs.claim() else {
+            panic!("then member 2")
+        };
+        let mut a = ahead(b"s2");
+        a.start = Some(Arc::new(fp(b"s2", b"rows of 2")));
+        runs.finish(2, 0, from, Some(a));
+        assert!(runs.take(1, Some(0), Some(&fp(b"s1", b"other rows"))).0.is_some());
+        runs.reached(1);
+        let (seen, dropped) = runs.take(2, Some(0), Some(&fp(b"s2", b"other rows")));
+        assert!(seen.is_none() && dropped, "a run that saw the rows needs the same rows");
     }
 }

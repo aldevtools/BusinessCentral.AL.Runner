@@ -202,11 +202,12 @@ pub struct MemStore {
     watch: Option<std::rc::Rc<std::cell::RefCell<Watch>>>,
 }
 
-/// The tables [`MemStore::watch`] watches, and the first of them that was read or written.
+/// The tables [`MemStore::watch`] watches, and those of them that were read or written, in the order of their first
+/// access.
 #[derive(Debug, Default)]
 struct Watch {
     tables: std::collections::BTreeSet<u32>,
-    hit: Option<u32>,
+    hits: Vec<u32>,
 }
 
 /// One table of an exported store ([`MemStore::export_committed`]): its company (empty for a table that is not per
@@ -702,21 +703,44 @@ impl MemStore {
     /// Watches every read and write of the table objects `tables` (in any company) from now on, replacing what was watched;
     /// an empty set stops watching. [`MemStore::watch_hit`] says whether one was accessed.
     pub fn watch(&mut self, tables: std::collections::BTreeSet<u32>) {
-        self.watch =
-            (!tables.is_empty()).then(|| std::rc::Rc::new(std::cell::RefCell::new(Watch { tables, hit: None })));
+        self.watch = (!tables.is_empty()).then(|| {
+            std::rc::Rc::new(std::cell::RefCell::new(Watch {
+                tables,
+                hits: Vec::new(),
+            }))
+        });
     }
 
     /// The first watched table that was read or written since [`MemStore::watch`].
     pub fn watch_hit(&self) -> Option<u32> {
-        self.watch.as_ref().and_then(|w| w.borrow().hit)
+        self.watch.as_ref().and_then(|w| w.borrow().hits.first().copied())
+    }
+
+    /// Watches `tables` too from now on, keeping what is watched and what was accessed ([`MemStore::watch`]).
+    pub fn watch_add(&mut self, tables: &std::collections::BTreeSet<u32>) {
+        match &self.watch {
+            Some(w) => w.borrow_mut().tables.extend(tables.iter().copied()),
+            None => self.watch(tables.clone()),
+        }
+    }
+
+    /// Stops watching `tables` (added by [`MemStore::watch_add`]): the first of them that was read or written since,
+    /// if any. The other watched tables and their accesses stay.
+    pub fn watch_take(&mut self, tables: &std::collections::BTreeSet<u32>) -> Option<u32> {
+        let w = self.watch.as_ref()?;
+        let mut w = w.borrow_mut();
+        let first = w.hits.iter().copied().find(|t| tables.contains(t));
+        w.hits.retain(|t| !tables.contains(t));
+        w.tables.retain(|t| !tables.contains(t));
+        first
     }
 
     /// Notes an access to table `object` for the watch.
     fn seen(&self, object: u32) {
         if let Some(w) = &self.watch {
             let mut w = w.borrow_mut();
-            if w.hit.is_none() && w.tables.contains(&object) {
-                w.hit = Some(object);
+            if w.tables.contains(&object) && !w.hits.contains(&object) {
+                w.hits.push(object);
             }
         }
     }
@@ -725,9 +749,8 @@ impl MemStore {
     fn seen_all(&self) {
         if let Some(w) = &self.watch {
             let mut w = w.borrow_mut();
-            if w.hit.is_none() {
-                w.hit = w.tables.iter().next().copied();
-            }
+            let new: Vec<u32> = w.tables.iter().copied().filter(|t| !w.hits.contains(t)).collect();
+            w.hits.extend(new);
         }
     }
 
@@ -856,6 +879,19 @@ impl MemStore {
         }
         self.commit();
         self
+    }
+
+    /// The companies in which the committed store holds an entry for table `object` (sorted; empty for a table that is
+    /// not per company).
+    pub fn committed_companies_of(&self, object: u32) -> Vec<String> {
+        let mut out: Vec<String> = self
+            .committed
+            .keys()
+            .filter(|s| s.1 == object)
+            .map(|s| s.0.to_string())
+            .collect();
+        out.sort();
+        out
     }
 
     /// The marks of the committed store an export leaves out ([`MemStore::export_committed`]): the tables a DeleteAll
@@ -1712,6 +1748,16 @@ mod tests {
         s.watch(Default::default());
         s.count(&c, &t, &[]).unwrap();
         assert_eq!(s.watch_hit(), None);
+        // Tables watched for a while on top (`watch_add`): their accesses are taken apart, the others stay.
+        s.watch([8].into());
+        s.watch_add(&[7].into());
+        s.count(&c, &t, &[]).unwrap();
+        s.count(&c, &other, &[]).unwrap();
+        assert_eq!(s.watch_hit(), Some(7));
+        assert_eq!(s.watch_take(&[7].into()), Some(7));
+        assert_eq!(s.watch_hit(), Some(8), "the access of the other table stays");
+        s.count(&c, &t, &[]).unwrap();
+        assert_eq!(s.watch_take(&[7].into()), None, "no longer watched");
     }
 
     // ---- the key seek (ADR-035): a scan starts where the filters on the leading key fields start ----

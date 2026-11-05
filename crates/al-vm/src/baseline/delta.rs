@@ -6,6 +6,26 @@ use super::{Baseline, SequenceSteps};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+/// A baseline's [`Baseline::fingerprint`], with the rows of some tables apart ([`Baseline::fingerprint_apart`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Fingerprint {
+    /// Everything but the rows of the tables apart.
+    pub main: Vec<u8>,
+    /// The rows of the tables apart.
+    pub rows: Vec<u8>,
+}
+
+impl Fingerprint {
+    /// Both parts as one value: equal for two baselines exactly when both parts are.
+    pub fn whole(mut self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(self.main.len() + self.rows.len() + 4);
+        al_builtins::value_codec::put_u32(&mut out, self.main.len() as u32);
+        out.append(&mut self.main);
+        out.append(&mut self.rows);
+        out
+    }
+}
+
 /// The parts of a baseline a delta sets as they are, not by difference.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Marks {
@@ -166,10 +186,49 @@ impl Baseline {
     /// install rows as a session takes them, the tables a DeleteAll emptied and the company copies. `None` when a row is
     /// not a plain value.
     pub fn fingerprint(&self) -> Option<Vec<u8>> {
+        Some(self.fingerprint_apart(&[])?.whole())
+    }
+
+    /// The [`Baseline::fingerprint`] in two parts: everything but the committed rows of the table objects `apart` (in
+    /// any company), and those rows. Two baselines whose first parts are equal start a session the same way but for
+    /// the rows of `apart`: a run that empties those tables before anything reads them starts the same way from both
+    /// (al-testrun `suite_rows.rs`, the Test Runner's tables). `None` when a row is not a plain value.
+    pub fn fingerprint_apart(&self, apart: &[u32]) -> Option<Fingerprint> {
         use al_builtins::value_codec::*;
         let mut b = self.clone();
-        b.last_stamp = 0;
-        let mut out = b.to_bytes()?;
+        let mut rows = Vec::new();
+        let mut gone = Vec::new();
+        for &object in apart {
+            for company in self.store.committed_companies_of(object) {
+                let (t, emptied) = self.store.committed_table(&company, object)?;
+                put_str(&mut rows, &company);
+                put_u32(&mut rows, object);
+                rows.push(emptied as u8);
+                put_u32(&mut rows, t.rows.len() as u32);
+                for (key, row) in &t.rows {
+                    if !encode_row(key, &mut rows) || !encode_row(row, &mut rows) {
+                        return None;
+                    }
+                }
+                gone.push((company, object));
+            }
+        }
+        if !gone.is_empty() {
+            b.store = b.store.with_committed_tables(Vec::new(), &gone);
+            if let Some(set) = b.install_rows.as_mut() {
+                set.retain(|t| !apart.contains(t));
+            }
+        }
+        Some(Fingerprint {
+            main: b.fingerprint_bytes()?,
+            rows,
+        })
+    }
+
+    fn fingerprint_bytes(mut self) -> Option<Vec<u8>> {
+        use al_builtins::value_codec::*;
+        self.last_stamp = 0;
+        let mut out = self.to_bytes()?;
         let rows = self.install_rows.clone().unwrap_or_else(|| self.nonempty_tables());
         put_u32(&mut out, rows.len() as u32);
         for t in rows {
@@ -228,5 +287,36 @@ mod tests {
         let mut stored = later.clone();
         stored.isolated_storage.clear();
         assert!(stored.delta_from(&start).is_none());
+    }
+
+    #[test]
+    fn a_fingerprint_with_a_table_apart_compares_the_rest_alone() {
+        let start = sample();
+        let rows = |n: i32| {
+            vec![(
+                al_data::memory::ExportedTable {
+                    company: "CRONUS".into(),
+                    object: 130450,
+                    rows: vec![(vec![Value::Integer(n)], vec![Value::Integer(n), Value::Integer(5)])],
+                },
+                false,
+            )]
+        };
+        let mut a = start.with_delta(&Default::default()).unwrap();
+        a.store = a.store.clone().with_committed_tables(rows(1), &[]);
+        let mut b = start.clone();
+        b.store = b.store.clone().with_committed_tables(rows(2), &[]);
+        assert_ne!(a.fingerprint(), b.fingerprint());
+        let (fa, fb) = (
+            a.fingerprint_apart(&[130450]).unwrap(),
+            b.fingerprint_apart(&[130450]).unwrap(),
+        );
+        assert_eq!(fa.main, fb.main, "only the rows apart differ");
+        assert_ne!(fa.rows, fb.rows);
+        // Without the table at all the rest is the same too; another table's rows are not apart.
+        assert_eq!(start.fingerprint_apart(&[130450]).unwrap().main, fa.main);
+        assert_eq!(start.fingerprint_apart(&[130450]).unwrap().rows, Vec::<u8>::new());
+        assert_eq!(a.fingerprint_apart(&[]).unwrap().whole(), a.fingerprint().unwrap());
+        assert_ne!(start.fingerprint_apart(&[311]).unwrap().main, fa.main);
     }
 }

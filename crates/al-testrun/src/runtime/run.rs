@@ -211,6 +211,16 @@ fn data_driven_tests(lowered: &Lowered, object: usize) -> Vec<usize> {
 /// the `Message` calls it made kept in `messages` (a scratch run). Refuses the BC 29 test framework features the runner
 /// does not run yet; [`run_codeunit_inner`] runs the rest.
 #[allow(clippy::too_many_arguments)]
+/// Why a test that read or wrote a row of the Test Runner's table object `table` ("Test Method Line" or "AL Test Suite")
+/// is not run (ADR-066 decision 4).
+fn runner_rows_touched(program: &al_ir::Program, table: u32) -> String {
+    format!(
+        "the test reads or writes the Test Runner's table \"{}\": on BC it holds the lines and results of the other test \
+         codeunits of the run, which al-runner does not write (each test codeunit gets only its own lines; ADR-066 decision 4)",
+        program.objects[table as usize].name
+    )
+}
+
 pub(crate) fn run_codeunit_core(
     engine: &Arc<Engine>,
     lowered: &Lowered,
@@ -363,6 +373,14 @@ fn run_codeunit_inner(
             }
         }
     }
+    // The runner whose rows `suite_rows::write` writes for this codeunit (ADR-066 decision 2): from here until then any
+    // AL code that touches its two tables makes the session's start depend on what they held (`suite_rows::take_unseen`).
+    let rows_runner = scratch
+        .runner
+        .filter(|&r| !execute && data_driven.is_empty() && super::suite_rows::reads_rows(&engine.program, r));
+    if rows_runner.is_some() {
+        super::suite_rows::watch_before(&mut session);
+    }
     // What publishing the app does first: run its install codeunits, then commit.
     let skipped_installs = match baseline.and_then(|b| b.workspace_installs.clone()) {
         // Already run once for the whole run, with the baseline.
@@ -413,6 +431,9 @@ fn run_codeunit_inner(
             }
         }
     };
+    if rows_runner.is_some() {
+        super::suite_rows::seen_before(&mut session);
+    }
     // What a Disabled codeunit leaves for the later codeunits is its writes from here on ([`CARRIED`]). With
     // Company Triggers subscribers each session writes on its own when it opens the company, and how those writes
     // meet the ones carried over is not pinned.
@@ -446,6 +467,9 @@ fn run_codeunit_inner(
     // A codeunit with data-driven tests (ADR-059) stays on al-runner's own runner: their rows and the runner's answers for
     // them are not built yet.
     let al_runner_object = scratch.runner.filter(|_| data_driven.is_empty());
+    // The Test Runner's two tables, when the runner writes their rows for this codeunit (ADR-066 decision 4).
+    let runner_rows_tables = super::suite_rows::tables(&engine.program);
+    let runner_rows = rows_runner.map(|_| &runner_rows_tables);
     // The test codeunit run: called here, or from the OnRun of the test runner codeunit `al_runner_object` when it runs
     // the test codeunit (ADR-066 decision 1, `al_runner.rs`). An error is a result that skips what follows below.
     let mut body = |session: &mut Session,
@@ -483,7 +507,19 @@ fn run_codeunit_inner(
             if let Err(why) = runner.before_on_run(session, obj) {
                 return Err(on_run_refused(why));
             }
+            if let Some(t) = runner_rows.filter(|_| runner.is_al()) {
+                session.store_mut().watch_add(t);
+            }
             let ran = session.call(object, on_run, instance.clone(), Vec::new());
+            if let Some(t) = runner_rows
+                .filter(|_| runner.is_al())
+                .and_then(|t| session.store_mut().watch_take(t))
+            {
+                return Err(on_run_refused(format!(
+                    "OnRun: {}",
+                    runner_rows_touched(&engine.program, t)
+                )));
+            }
             if let Err(why) = runner.after_on_run(session, obj, ran.is_ok()) {
                 return Err(on_run_refused(why));
             }
@@ -778,6 +814,11 @@ fn run_codeunit_inner(
                             session.set_runner_frames(runner_frames(&lowered.program, engine));
                         }
                         session.start_sleep_budget(limit);
+                        // The test's own code may not touch the Test Runner's rows (ADR-066 decision 4).
+                        let rows_watched = runner_rows.filter(|_| runner.is_al());
+                        if let Some(t) = rows_watched {
+                            session.store_mut().watch_add(t);
+                        }
                         // A panic in the test is a runtime bug: it is caught here, so that it ends this codeunit and not
                         // the process (a server must outlive it). The session is not trusted after it.
                         let called = match reset {
@@ -815,6 +856,10 @@ fn run_codeunit_inner(
                                     .unwrap_or_default();
                                 Err(Signal::Unsupported(format!("runtime panic (bug): {msg}")))
                             }
+                        };
+                        let result = match rows_watched.and_then(|t| session.store_mut().watch_take(t)) {
+                            Some(t) if !panicked => Err(Signal::Unsupported(runner_rows_touched(&engine.program, t))),
+                            _ => result,
                         };
                         session.set_runner_frames(String::new());
                         let timed_out = watchdog.is_some_and(Watchdog::finish);

@@ -70,6 +70,8 @@ struct Helper<'a> {
     lowered: &'a Lowered,
     units: &'a [Unit],
     limit: Option<std::time::Duration>,
+    /// The Test Runner's tables, whose rows the fingerprints hold apart (`suite_rows::tables`).
+    apart: Vec<u32>,
 }
 
 impl Helper<'_> {
@@ -97,7 +99,10 @@ impl Helper<'_> {
                 .or_insert_with(|| self.own_start(&start, &install));
             // The predicted start: the epoch's start with what the members before it change applied.
             let predicted = own.as_ref().and_then(|own| own.with_delta(&from));
-            let fingerprint = predicted.as_ref().and_then(al_vm::Baseline::fingerprint).map(Arc::new);
+            let fingerprint = predicted
+                .as_ref()
+                .and_then(|p| p.fingerprint_apart(&self.apart))
+                .map(Arc::new);
             runs.starting(k, fingerprint.clone());
             let ahead = match (predicted, fingerprint) {
                 (Some(p), Some(fp)) => Some(self.run_ahead(k, &p, leak, fp)),
@@ -127,7 +132,7 @@ impl Helper<'_> {
         k: usize,
         start: &al_vm::Baseline,
         leak: Option<Arc<std::collections::BTreeSet<u32>>>,
-        fingerprint: Arc<Vec<u8>>,
+        fingerprint: Arc<al_vm::Fingerprint>,
     ) -> Ahead {
         let kept: Arc<Mutex<Vec<HookEvent>>> = Default::default();
         let mut u = self.units[k].clone();
@@ -149,13 +154,16 @@ impl Helper<'_> {
             });
             f
         });
+        super::suite_rows::take_unseen();
         let result = run_unit(self.engine, self.lowered, Some(start), &u, None, self.limit);
+        let unseen = super::suite_rows::take_unseen();
         let left = super::run::CARRIED.with(|c| c.borrow_mut().take());
         let events = std::mem::take(&mut *kept.lock().unwrap_or_else(|e| e.into_inner()));
         Ahead {
             result,
             kept: kept_of(left.as_ref(), start),
             start: Some(fingerprint),
+            unseen,
             events,
         }
     }
@@ -269,6 +277,7 @@ impl ChainWalk<'_> {
             lowered: self.lowered,
             units: self.units,
             limit: self.limit,
+            apart: self.apart(),
         };
         let thread_baseline = self.thread_baseline;
         std::thread::scope(|scope| {
@@ -286,6 +295,13 @@ impl ChainWalk<'_> {
             runs.close();
             out
         })
+    }
+
+    /// The tables whose rows a run's start may differ in when its run did not see them: the Test Runner's "Test Method
+    /// Line" and "AL Test Suite", which `suite_rows::write` empties before the unit's tests (`suite_rows::take_unseen`
+    /// says whether anything saw what they held).
+    fn apart(&self) -> Vec<u32> {
+        super::suite_rows::tables(&self.engine.program).into_iter().collect()
     }
 
     /// Tells member `k`'s hooks the events of its run ahead, in the order they happened.
@@ -316,6 +332,7 @@ impl ChainWalk<'_> {
         runs: Option<&Runs>,
     ) -> Vec<Carry> {
         let (engine, lowered, units) = (self.engine, self.lowered, self.units);
+        let apart = self.apart();
         let name_of = |oi: usize| lowered.program.objects[oi].name.clone();
         // Per suite, in id order: the codeunit id and what it left, with the tables of every one before it.
         let mut carried: Vec<Carry> = Vec::new();
@@ -349,8 +366,8 @@ impl ChainWalk<'_> {
                     let actual = runs
                         .filter(|r| r.has_run(k, epoch))
                         .and(start)
-                        .and_then(al_vm::Baseline::fingerprint);
-                    let (ahead, missed) = runs.map_or((None, false), |r| r.take(k, epoch, actual.as_deref()));
+                        .and_then(|b| b.fingerprint_apart(&apart));
+                    let (ahead, missed) = runs.map_or((None, false), |r| r.take(k, epoch, actual.as_ref()));
                     if missed {
                         *track.misses.entry(si).or_default() += 1;
                     }
