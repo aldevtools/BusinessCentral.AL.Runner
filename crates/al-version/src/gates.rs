@@ -1160,6 +1160,11 @@ impl Gate {
                     file: "recordref-fieldref/fieldref/Y67FieldRefValidateVariant.al",
                     lines: "368,383,388",
                 },
+                // Record.Validate with a Variant converts as FieldRef.Validate does: the same error texts per version.
+                Evidence {
+                    file: "record/validate/RecordValidateVariant.al",
+                    lines: "373,394,415",
+                },
             ],
             Gate::JsonSelectTokensListFrom28 => &[
                 Evidence {
