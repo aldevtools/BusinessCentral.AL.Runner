@@ -27,7 +27,7 @@ mod ctx;
 mod debug;
 mod exec;
 mod interp;
-pub use baseline::Baseline;
+pub use baseline::{Baseline, Delta, SequenceSteps};
 pub use capture::{CaptureConfig, Captured, ClosedBy, LoopRecord, MAX_RECORDS, MessageRecord, Rendered, ValueRecord};
 pub(crate) use ctx::base_slot_missing;
 pub use debug::{DebugFrame, DebugHook, DebugView, Resume};

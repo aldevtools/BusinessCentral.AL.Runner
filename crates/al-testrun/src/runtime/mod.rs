@@ -889,6 +889,7 @@ mod apply_manifests;
 mod blocked;
 mod cache;
 mod chain;
+mod chain_runs;
 mod chain_walk;
 mod compiled;
 mod corpus;
