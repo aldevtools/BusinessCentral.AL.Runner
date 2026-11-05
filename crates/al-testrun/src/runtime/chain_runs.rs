@@ -496,7 +496,9 @@ mod tests {
         let runs = Runs::new(vec![0, 1, 2], vec![0, 0, 0], vec![0], 6);
         runs.open(0);
         for (k, from) in [(0, g(0)), (1, g(1)), (2, g(2))] {
-            let Claim::Run(got, 0, _, d) = runs.claim() else { panic!("member {k}") };
+            let Claim::Run(got, 0, _, d) = runs.claim() else {
+                panic!("member {k}")
+            };
             assert_eq!((got, *d), (k, from.clone()));
             runs.finish(k, 0, from, changed(1));
         }
@@ -504,7 +506,9 @@ mod tests {
         runs.reached(0);
         runs.advance(0, 0, g(5), Some(g(5)));
         for (k, from) in [(1, g(5)), (2, g(6))] {
-            let Claim::Run(got, 0, _, d) = runs.claim() else { panic!("member {k} again") };
+            let Claim::Run(got, 0, _, d) = runs.claim() else {
+                panic!("member {k} again")
+            };
             assert_eq!((got, *d), (k, from.clone()));
             runs.finish(k, 0, from, changed(1));
         }

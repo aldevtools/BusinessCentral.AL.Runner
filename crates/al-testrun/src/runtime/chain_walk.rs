@@ -191,7 +191,11 @@ fn kept_of(left: Option<&super::run::Carried>, start: &al_vm::Baseline) -> Optio
 /// `kept` leaves: what that run left, with its baseline rebuilt on the walk's thread as `start` with the run's delta
 /// applied, with the AutoIncrement counters of the tables `apart` raised as the run from `start` would leave them
 /// when given (`Baseline::with_delta_apart`). `None` when the delta does not apply to `start`.
-fn left_of(kept: &Kept, start: Option<&al_vm::Baseline>, apart: Option<&[(u32, usize)]>) -> Option<super::run::Carried> {
+fn left_of(
+    kept: &Kept,
+    start: Option<&al_vm::Baseline>,
+    apart: Option<&[(u32, usize)]>,
+) -> Option<super::run::Carried> {
     match kept {
         Kept::Nothing => Some(super::run::Carried::nothing()),
         Kept::Left {

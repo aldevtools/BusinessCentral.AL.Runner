@@ -429,7 +429,11 @@ mod tests {
         ran.store = ran.store.clone().with_committed_tables(lines(&[10_000, 20_000]), &[]);
         let d = ran.delta_from(&predicted).unwrap();
         // From a start at 5000 the run leaves 20000; from one at 30000 it leaves 30000; from one without a counter 20000.
-        for (at, left) in [(Some(5_000), Some(20_000)), (Some(30_000), Some(30_000)), (None, Some(20_000))] {
+        for (at, left) in [
+            (Some(5_000), Some(20_000)),
+            (Some(30_000), Some(30_000)),
+            (None, Some(20_000)),
+        ] {
             let mut actual = start.clone();
             match at {
                 Some(v) => actual.autoinc.insert(slot.clone(), v),
