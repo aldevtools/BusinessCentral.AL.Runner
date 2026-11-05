@@ -59,6 +59,15 @@ pub struct Delta {
 }
 
 impl Delta {
+    /// A delta that only takes `n` new GUIDs: two such deltas differ when their counts do (tests of what is built on
+    /// deltas, such as the carry chain's predictions in al-testrun).
+    pub fn of_guids(n: u64) -> Delta {
+        Delta {
+            next_guid: n,
+            ..Default::default()
+        }
+    }
+
     /// This delta followed by `then`.
     pub fn then(&self, then: &Delta) -> Delta {
         let mut d = self.clone();

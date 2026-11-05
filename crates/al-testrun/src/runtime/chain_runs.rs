@@ -317,39 +317,6 @@ impl Runs {
             _ => None,
         };
         loop {
-            if std::env::var_os("AL_CHAIN_DEBUG").is_some() {
-                let d = |fp: Option<&al_vm::Fingerprint>| match (fp, actual) {
-                    (Some(fp), Some(a)) => {
-                        let first = fp.main.iter().zip(&a.main).position(|(x, y)| x != y);
-                        if let Some(i) = first {
-                            let show = |v: &[u8]| {
-                                let lo = i.saturating_sub(160);
-                                let hi = (i + 60).min(v.len());
-                                format!("{:?}", String::from_utf8_lossy(&v[lo..hi]))
-                            };
-                            eprintln!("DBG   pred: {}\nDBG   walk: {}", show(&fp.main), show(&a.main));
-                        }
-                        format!(
-                            "main_eq={} (len {} vs {}, first diff {:?}) rows_eq={}",
-                            fp.main == a.main,
-                            fp.main.len(),
-                            a.main.len(),
-                            first,
-                            fp.rows == a.rows
-                        )
-                    }
-                    _ => format!("fp={} actual={}", fp.is_some(), actual.is_some()),
-                };
-                match &s.slots[k] {
-                    Slot::Done(e, _, Some(a)) => {
-                        eprintln!("DBG take {k} epoch {epoch:?}/{e} done complete={} unseen={} {}", s.complete[k], a.unseen, d(a.start.as_deref()))
-                    }
-                    Slot::Done(e, _, None) => eprintln!("DBG take {k} epoch {epoch:?}/{e} done-none"),
-                    Slot::Running(e, _, fp) => eprintln!("DBG take {k} epoch {epoch:?}/{e} running complete={} {}", s.complete[k], d(fp.as_deref())),
-                    Slot::Pending => eprintln!("DBG take {k} pending"),
-                    Slot::Taken => eprintln!("DBG take {k} taken"),
-                }
-            }
             match std::mem::replace(&mut s.slots[k], Slot::Taken) {
                 Slot::Done(e, _, Some(a)) if same(&e, a.start.as_deref()).is_some_and(|rows| rows || a.unseen) => {
                     return (Some(*a), false);
@@ -383,6 +350,25 @@ impl Runs {
             s.at.insert(si, (p + 1, at));
             s.counts[k] = took;
             s.open.insert(si);
+            // The prediction of the next member is the walk's state now, and the later ones rest on fewer guesses: a
+            // later member that ran from another prediction gets one more run, whatever its tries, so one member whose
+            // change depends on its start does not leave all the members after it to the walk. Each pass of the walk
+            // gives at most one more run per member, and only within the window (`claim`).
+            let epoch = s.starts.get(&si).map(|(e, _)| *e);
+            let stale: Vec<usize> = self.order[(p + 1).min(self.order.len())..]
+                .iter()
+                .copied()
+                .filter(|&j| self.suite[j] == si)
+                .filter(|&j| match &s.slots[j] {
+                    Slot::Done(e, from, _) => {
+                        Some(*e) == epoch && self.guess(&s, j).is_some_and(|(d, complete)| complete && d != *from)
+                    }
+                    _ => false,
+                })
+                .collect();
+            for j in stale {
+                s.tries[j] = s.tries[j].min(TRIES - 1);
+            }
         }
         self.ready.notify_all();
     }
@@ -470,6 +456,62 @@ mod tests {
             runs.take(2, Some(0), Some(&fp(b"s2", b""))).0.is_none(),
             "and it is gone"
         );
+    }
+
+    fn changed(n: u64) -> Option<Ahead> {
+        let mut a = ahead(b"");
+        a.kept = Some(Kept::Left {
+            delta: Box::new(al_vm::Delta::of_guids(n)),
+            tables: Default::default(),
+            unfinished: None,
+            everything: false,
+            storage_why: None,
+            as_started: false,
+        });
+        Some(a)
+    }
+
+    /// The next claim within a second, or `None` when the helpers would wait (the runs are then closed).
+    fn claim_soon(runs: &Runs) -> Option<(usize, al_vm::Delta)> {
+        std::thread::scope(|scope| {
+            let (tx, rx) = std::sync::mpsc::channel();
+            scope.spawn(move || {
+                let _ = tx.send(match runs.claim() {
+                    Claim::Run(k, _, _, from) => Some((k, *from)),
+                    Claim::Done => None,
+                });
+            });
+            let got = rx.recv_timeout(std::time::Duration::from_secs(1)).ok().flatten();
+            runs.close();
+            got
+        })
+    }
+
+    /// Each time the walk passes a member, the prediction of a later member that ran from another start is exact up to
+    /// there: it is run again from the new prediction even when it already ran `TRIES` times, so one start-dependent
+    /// member does not leave the members after it to the walk.
+    #[test]
+    fn a_member_is_run_again_when_the_walk_passing_an_earlier_one_changes_its_prediction() {
+        let g = al_vm::Delta::of_guids;
+        let runs = Runs::new(vec![0, 1, 2], vec![0, 0, 0], vec![0], 6);
+        runs.open(0);
+        for (k, from) in [(0, g(0)), (1, g(1)), (2, g(2))] {
+            let Claim::Run(got, 0, _, d) = runs.claim() else { panic!("member {k}") };
+            assert_eq!((got, *d), (k, from.clone()));
+            runs.finish(k, 0, from, changed(1));
+        }
+        // Member 0 changed 5: members 1 and 2 run again (their second run).
+        runs.reached(0);
+        runs.advance(0, 0, g(5), Some(g(5)));
+        for (k, from) in [(1, g(5)), (2, g(6))] {
+            let Claim::Run(got, 0, _, d) = runs.claim() else { panic!("member {k} again") };
+            assert_eq!((got, *d), (k, from.clone()));
+            runs.finish(k, 0, from, changed(1));
+        }
+        // Member 1 changed 3, not 1: member 2's prediction is the walk's state now, so it runs a third time.
+        runs.reached(1);
+        runs.advance(0, 1, g(8), Some(g(3)));
+        assert_eq!(claim_soon(&runs), Some((2, g(8))));
     }
 
     /// Another start only in the Test Runner's rows: taken when the run did not see them, else dropped.
