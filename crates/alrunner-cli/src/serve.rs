@@ -285,6 +285,10 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
             }
         };
     }
+    if let Some(r) = fields.get("testRunner").and_then(Value::as_str) {
+        a.test_runner =
+            Some(crate::args::parse_test_runner(r).map_err(|e| e.replace("--test-runner", "`testRunner`"))?);
+    }
     a.coverage = flag(fields, "coverage")? || flag(fields, "perTestCoverage")?;
     a.capture = al_vm::CaptureConfig {
         values: flag(fields, "captureValues")?,
