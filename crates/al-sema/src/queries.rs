@@ -621,9 +621,9 @@ impl Builder<'_> {
         // (`Session::query_rows`), so a query like Base App's 1302 can be declared and used.
         // A plain column over a Sum or Count FlowField of a left-outer-joined child of the top dataitem is
         // calculated per joined row and is 0 for a parent without a matching child (errors/lt-ms-refusals-130/
-        // P130QueryOuterFlow.al:151-172, :198-217; al-runner issue 6174). Other FlowField kinds (Exist, Lookup,
-        // Average, Min, Max), a plain FlowField column beside a Method column, a ColumnFilter, a deeper dataitem or a right or full outer join in the
-        // query are not pinned.
+        // P130QueryOuterFlow.al:151-172, :198-217; al-runner issue 6174); the other kinds and the
+        // Method = Sum column are pinned below. A Method other than Sum, a plain FlowField column beside a Method column, a
+        // ColumnFilter, a deeper dataitem or a right or full outer join in the query are not pinned.
         let any_right = self.items.iter().any(|i| i.right_outer);
         let grouped = self.columns.iter().any(|c| c.method.is_some());
         for c in &self.columns {
@@ -632,15 +632,24 @@ impl Builder<'_> {
             if item.left_outer && item.parent.is_some() && item.table != usize::MAX {
                 let f = &self.members[item.table].fields[field];
                 let top_child = item.parent.is_some_and(|p| self.items[p].parent.is_none());
-                // A negative Sum (`- sum(...)`) is a Sum here too (QueryOuterFlowKinds.al OuterFlowField_SumNegSumCount_Rows and
-                // OuterFlowField_NegSumWithGrandchild_*, corpus branch al-runtime-rs-staging-r6988; issue 6988).
-                let sum_or_count = f.calc_formula.as_deref().is_some_and(|cf| {
+                // The kind of the FlowField; a negative Sum (`- sum(...)`) is a Sum here too (QueryOuterFlowKinds.al
+                // OuterFlowField_SumNegSumCount_Rows and OuterFlowField_NegSumWithGrandchild_*, corpus branch
+                // al-runtime-rs-staging-r6988; issue 6988).
+                let kind = f.calc_formula.as_deref().and_then(|cf| {
                     let cf = cf.trim_start().to_ascii_lowercase();
                     let cf = cf.strip_prefix('-').map_or(cf.as_str(), str::trim_start);
-                    ["sum", "count"]
-                        .iter()
-                        .any(|k| cf.strip_prefix(k).is_some_and(|r| r.trim_start().starts_with('(')))
+                    ["sum", "count", "exist", "min", "max", "average", "lookup"]
+                        .into_iter()
+                        .find(|k| cf.strip_prefix(k).is_some_and(|r| r.trim_start().starts_with('(')))
                 });
+                let sum_or_count = matches!(kind, Some("sum" | "count"));
+                // A plain column over an Exist, Min, Max, Average or Lookup FlowField is calculated per joined row as well: false,
+                // 0 or blank for a parent without a child, and blank when a Lookup finds no row (QueryOuterFlowKinds.al
+                // OuterFlowField_ExistMinMaxAverage_Rows, OuterFlowField_Lookup_Rows; issue 6989).
+                let kind_pinned = match c.method {
+                    None => kind.is_some(),
+                    Some(_) => sum_or_count,
+                };
                 // A Method = Sum column over such a FlowField, grouped by the parent, sums the per-row values and is 0 for a
                 // parent without a child (corpus branch al-runtime-rs-staging-r6988, queries/flowfields-filters/
                 // QueryOuterFlowFilters.al OuterFlowFilter_SumColumns_Rows; Base Application query 1319, issue 6991).
@@ -655,7 +664,7 @@ impl Builder<'_> {
                     continue;
                 }
                 let pinned = f.class == FieldClass::FlowField
-                    && sum_or_count
+                    && kind_pinned
                     && top_child
                     && !any_right
                     && plain_or_sum
