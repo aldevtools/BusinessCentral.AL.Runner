@@ -80,6 +80,7 @@ mod xmlport_obsolete_pending;
 mod xmlport_prefixed_import;
 mod xmlport_request_page_rec;
 mod xmlport_root_container_triggers;
+mod xmlport_root_min_occurs_zero;
 mod xmlport_root_table;
 mod xmlport_separator_assign;
 mod xmlport_source_table_view;
