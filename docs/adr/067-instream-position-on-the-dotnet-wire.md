@@ -1,6 +1,6 @@
 # ADR-067: An InStream handed to .NET carries its read position
 
-- Status: Proposed
+- Status: Accepted (owner, 2026-11-05)
 - Date: 2026-11-05
 
 ## Context
@@ -52,8 +52,7 @@ Each needs the start position on the wire, which ADR-014 does not carry.
 - A stream past its start costs one copy of all its bytes instead of the rest. This is the same copy cost class as today.
 - An older sidecar does not work with a newer host, as with every protocol bump.
 - A reference implementation with a red-then-green test (`crates/al-vm/tests/dotnet.rs`,
-  `an_instream_dotnet_already_read_is_sent_whole_with_its_position_and_the_position_follows_dotnet`) is on the branch
-  `rt-wp9-7134`. It is not merged and waits for this ADR.
+  `an_instream_dotnet_already_read_is_sent_whole_with_its_position_and_the_position_follows_dotnet`) lands with this ADR.
 
 ## Conformance
 
