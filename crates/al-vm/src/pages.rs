@@ -209,6 +209,7 @@ mod list_refresh;
 mod lookup_next;
 mod lookup_refresh;
 mod lookup_start;
+mod marked_refill_goto;
 mod modify_denied;
 mod moved_onto_deleted;
 mod never_run_update;
