@@ -1208,9 +1208,15 @@ impl Parser<'_> {
                 Ok(Some(FilterExpr::NotLike(p, ci)))
             }
             // On a Text field `<>@` before a value without a wildcard keeps the rows that do not equal it without regard to case,
-            // and `<>@` alone keeps none (WcInvalidFilterExpr.al:93-111 `<>@C-A`, `<>@c-b`, `<>@`).
-            Some(Tok::Raw(s)) if ci && matches!(self.ty, T::Text(_)) => {
-                let p = s.clone();
+            // and `<>@` alone keeps none (WcInvalidFilterExpr.al:93-111 `<>@C-A`, `<>@c-b`, `<>@`). A placeholder value that starts
+            // with `@` (`'<>%1', '@NO PRINT'`) is the same filter, and on a Code field the value is upper-cased first
+            // (record/filters/PlaceholderAtSignValue.al, staging r6980; al-runner issue 7034).
+            Some(Tok::Raw(s) | Tok::Arg(s)) if ci && matches!(self.ty, T::Text(_) | T::Code(_)) => {
+                let p = if matches!(self.ty, T::Code(_)) {
+                    filter_upper(s)?
+                } else {
+                    s.clone()
+                };
                 self.i = at + 1;
                 Ok(Some(FilterExpr::NotLike(p, true)))
             }
