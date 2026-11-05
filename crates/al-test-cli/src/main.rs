@@ -1171,19 +1171,9 @@ fn run_version_inner(
                 took.as_secs_f64()
             );
         }
-        let slowest: Vec<String> = p
-            .slowest
-            .iter()
-            .map(|c| {
-                let start = if c.sidecar_start.is_zero() {
-                    String::new()
-                } else {
-                    format!(" (sidecar start {:.2} s)", c.sidecar_start.as_secs_f64())
-                };
-                format!("{} {} {:.2} s{start}", c.id, c.name, c.took.as_secs_f64())
-            })
-            .collect();
-        eprintln!("slowest test codeunits: {}", slowest.join("; "));
+        for line in slowest_and_chain_lines(p) {
+            eprintln!("{line}");
+        }
         if let Some(d) = &timings.dotnet {
             eprintln!("dotnet: {}", d.line());
         }
@@ -1763,4 +1753,23 @@ fn git_head(repo: &Path) -> Result<String, String> {
         ));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// The `--timings` lines of the slowest test codeunits and of the carry chain (`al_testrun::runtime::ChainReport`).
+fn slowest_and_chain_lines(p: &al_testrun::runtime::Phases) -> Vec<String> {
+    let slowest: Vec<String> = p
+        .slowest
+        .iter()
+        .map(|c| {
+            let start = if c.sidecar_start.is_zero() {
+                String::new()
+            } else {
+                format!(" (sidecar start {:.2} s)", c.sidecar_start.as_secs_f64())
+            };
+            format!("{} {} {:.2} s{start}", c.id, c.name, c.took.as_secs_f64())
+        })
+        .collect();
+    let mut lines = vec![format!("slowest test codeunits: {}", slowest.join("; "))];
+    lines.extend(p.chain.lines());
+    lines
 }
