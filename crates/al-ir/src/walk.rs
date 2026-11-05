@@ -415,6 +415,10 @@ fn walk_place<V: RefVisitor>(p: &mut Place, v: &mut V) {
         Place::Local(_) | Place::Global(_) | Place::BaseGlobal(_) => {}
         // The extension's object index is an object reference like a call's (cross-app since al-runner issue 6983).
         Place::ExtGlobal(e, _) => obj(v, e),
+        Place::RecGlobal(base, o, _) => {
+            obj(v, o);
+            walk_place(base, v);
+        }
         Place::Index(base, idx) => {
             walk_place(base, v);
             for e in idx {

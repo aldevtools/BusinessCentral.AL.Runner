@@ -1072,6 +1072,8 @@ impl Lowerer<'_> {
                 // `CurrPage.<protected var>` read in a page extension: the base page's variable (pages/extensions/UpPageExt.al:62
                 // with :143-152, corpus PR 808 at branch commit 910da83e; al-runner issue 6219). Runs on the assumption
                 // `pageext-currpage-protected-var` until PR 808 is in the pinned corpus.
+                // `Other.<protected var>` read in a table extension (al-runner issue 6984; see `rec_global_place`).
+                Some(Res::RecGlobal { object, name }) => Ok(ir::Expr::Load(self.rec_global_place(n, object, &name)?)),
                 Some(Res::BaseGlobal(name)) if n.kind() == MemberExpr => {
                     let (slot, _, _) = self.base_var(&name)?;
                     // Pinned by pages/extensions/UpPageExt.al (was assumption `pageext-currpage-protected-var`).
