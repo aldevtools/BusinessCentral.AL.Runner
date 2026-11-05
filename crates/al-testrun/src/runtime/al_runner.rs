@@ -16,6 +16,12 @@ use al_builtins::value::{Instance, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 
+/// A test runner codeunit (object index) and the instance its OnRun runs on.
+pub(crate) type RunnerRef = (usize, Rc<RefCell<Instance>>);
+
+/// The outcome of each test of a codeunit, by name.
+pub(crate) type Outcomes = Vec<(String, Outcome)>;
+
 /// What runs around the OnRun trigger and each test method of a test codeunit.
 pub(crate) enum Steps {
     /// Al-runner's own runner: the steps of Microsoft's Test Runner app, replayed (`runner_reset.rs`).
@@ -227,7 +233,7 @@ struct Host<'a, R> {
     /// The unit's test codeunit.
     object: usize,
     /// The test codeunit run of `run.rs`, with the runner and its instance.
-    body: &'a mut dyn FnMut(&mut Session, (usize, Rc<RefCell<Instance>>)) -> R,
+    body: &'a mut dyn FnMut(&mut Session, RunnerRef) -> R,
     /// What `body` returned; `Some` once the runner ran the test codeunit.
     ran: Option<R>,
 }
@@ -263,7 +269,7 @@ pub(crate) fn drive<R>(
     session: &mut Session,
     runner: usize,
     object: usize,
-    body: &mut dyn FnMut(&mut Session, (usize, Rc<RefCell<Instance>>)) -> R,
+    body: &mut dyn FnMut(&mut Session, RunnerRef) -> R,
 ) -> Result<R, String> {
     let name = runner_name(session, runner);
     let Some(id) = session.engine.program.objects[runner].id else {

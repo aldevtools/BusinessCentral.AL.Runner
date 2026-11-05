@@ -447,8 +447,8 @@ fn run_codeunit_inner(
     // The test codeunit run: called here, or from the OnRun of the test runner codeunit `al_runner_object` when it runs
     // the test codeunit (ADR-066 decision 1, `al_runner.rs`). An error is a result that skips what follows below.
     let mut body = |session: &mut Session,
-                    al: Option<(usize, std::rc::Rc<std::cell::RefCell<al_builtins::value::Instance>>)>|
-     -> Result<Vec<(String, Outcome)>, Vec<(String, Outcome)>> {
+                    al: Option<super::al_runner::RunnerRef>|
+     -> Result<super::al_runner::Outcomes, super::al_runner::Outcomes> {
         let instance = session.codeunit_instance(object);
         // What BC's AL test runner does around each test method: al-runner's own steps (runner_reset.rs), or the triggers of
         // the test runner codeunit whose OnRun runs this codeunit (al_runner.rs). A scratch run has no runner.
