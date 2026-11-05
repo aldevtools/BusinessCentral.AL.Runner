@@ -108,6 +108,7 @@ mod outside_fb_repros;
 mod outside_rt_pages;
 mod outside_sc_pins;
 mod page_bare_run_modal;
+mod page_global_binding;
 mod page_object_id;
 mod page_open_record;
 mod page_run_field_arg;
