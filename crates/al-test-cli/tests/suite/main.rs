@@ -147,6 +147,7 @@ mod requestpage_close_and_parameters;
 mod rp1_worksheet_modal;
 mod run_page_link_list_reads;
 mod run_page_link_open_find;
+mod run_page_link_open_set_view;
 mod runmodal_lookup_shape;
 mod runmodal_record_first_row;
 mod runobject;
