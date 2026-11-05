@@ -264,7 +264,12 @@ fn format_unread(v: &Value, length: i32, standard: i32) -> Option<Result<String,
         Value::Unknown(why) => Some(Err(FormatFail::Unsupported(why.to_string()))),
         // `Format(x)` of a counter value gives digits only (SqlCounters.al P6924_Counters_Format_DigitsOnly), which digits
         // nothing pins: a marked text that may be passed on and logged, and that no text function reads (`Txt::has_marker`).
-        Value::SqlCount(_) if length == 0 && standard == 0 => Some(Ok(crate::native::SQL_COUNT_TEXT_MARK.to_string())),
+        // Standard format 9 of a whole number gives its digits too, with no error (format-evaluate/EvalDecimalEn.al:205
+        // `Format(1000, 0, 9)`, types/decimal-integer/ScT70052.al:123 `Format(0, 0, 9)`; al-runner issue 6924 logs
+        // `Format(x, 0, 9)` of a difference).
+        Value::SqlCount(_) if length == 0 && (standard == 0 || standard == 9) => {
+            Some(Ok(crate::native::SQL_COUNT_TEXT_MARK.to_string()))
+        }
         Value::SqlCount(_) => Some(Err(FormatFail::Unsupported(crate::sqlcount::refusal_text(
             "Format with a length or a standard format",
         )))),
