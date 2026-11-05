@@ -370,7 +370,7 @@ INPUT
   --deps DIR, --dep DIR       extra directory of .app packages for the dependencies (repeatable)
   --no-deps                   run the corpus alone, without Microsoft's apps
   --test-runner R             builtin (default), microsoft (runner 130450 run as BcContainerHelper runs it;
-                              not on the TestRunnerHub path of BC 28 and later) or a runner codeunit id (ADR-066)
+                              not on the TestRunnerHub path of the newer majors) or a runner codeunit id (ADR-066)
   --no-download               never fetch a dependency app from the artifact feed
   --environment ENV           the server Environment Information describes: saas (default, as probed) or
                               onprem (IsSaaS and IsSandbox No until a test library changes them;
