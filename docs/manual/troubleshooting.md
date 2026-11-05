@@ -54,7 +54,7 @@ build builds a new entry. `al-runner cache info` lists the entries, and
 
 Some tests reach `DotNet` code that needs the .NET 8 helper, and it could not be
 used. Install the .NET 8 SDK (the runtime alone is not enough to build the helper),
-or accept the result with `--allow-not-run`. See [What works](what-works.md#dotnet).
+and for BC 29 also the .NET 10 runtime (the helper runs on it), or accept the result with `--allow-not-run`. See [What works](what-works.md#dotnet).
 
 ## "A required dependency is missing" or "no AL source"
 

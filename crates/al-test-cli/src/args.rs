@@ -40,7 +40,7 @@ pub struct Args {
     pub dotnet_sidecar: Option<PathBuf>,
     /// `--dotnet-assembly-dir DIR` (repeatable): where community assemblies are searched.
     pub dotnet_assembly_dirs: Vec<PathBuf>,
-    /// `--dotnet-allow-roll-forward`: run the sidecar on a newer .NET major than 8, with a warning.
+    /// `--dotnet-allow-roll-forward`: when the .NET major the BC version needs (8 for BC 27-28, 10 for BC 29) is missing, run the sidecar on a newer one, with a warning.
     pub dotnet_allow_roll_forward: bool,
     /// `--dotnet-timeout-secs N`: the deadline of one `DotNet` call (default 60).
     pub dotnet_timeout_secs: Option<u64>,
@@ -437,7 +437,7 @@ NOT-PASSING LISTS (ADR-065) AND REPORTS
 DOTNET (ADR-014)
   --dotnet-sidecar PATH       the built sidecar (default: next to this binary)
   --dotnet-assembly-dir DIR   where community assemblies are searched (repeatable)
-  --dotnet-allow-roll-forward run the sidecar on a newer .NET major than 8, with a warning
+  --dotnet-allow-roll-forward when the .NET major the BC version needs (8 for BC 27-28, 10 for BC 29) is missing, run the sidecar on a newer one, with a warning
   --dotnet-timeout-secs N     the deadline of one DotNet call (default 60)
   --require-dotnet            a machine without .NET is an error, not a skip (CI)
 

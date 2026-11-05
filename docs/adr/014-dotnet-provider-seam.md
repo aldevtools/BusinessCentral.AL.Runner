@@ -360,6 +360,15 @@ before a request is sent. Every refusal names the type or member and the rule.
   can change between majors. `--dotnet-allow-roll-forward` switches it on and
   prints a warning. For later BC builds, the framework version follows the
   selected build's runtimeconfig.
+  Note (2026-11-05, al-runner issues 6924 and 5590): BC 29's service-tier
+  assemblies (`Microsoft.Dynamics.Nav.OpenXml`, `System.Drawing.Common`) target
+  .NET 10 and do not load into .NET 8. The sidecar stays built for `net8.0`
+  and is started with `dotnet exec --fx-version <newest installed patch>` of the
+  major the BC version needs: 8 for BC 27 and 28, 10 for BC 29
+  (`al-testrun/src/dotnet_runtime.rs`, which cites the measured target
+  frameworks). `--dotnet-allow-roll-forward` now picks the lowest newer major
+  only when that major is missing; `DOTNET_ROLL_FORWARD=Major`, used before,
+  never left .NET 8 while .NET 8 was installed. No protocol or packaging change.
 - BCL behaviour that depends on the host OS (`System.Drawing`, file paths,
   certificates) can differ from Windows. Known cases are refused by name.
 - The same sidecar and the same inputs give the same outputs, except where

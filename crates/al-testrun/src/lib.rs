@@ -18,6 +18,7 @@ pub mod disabled;
 pub mod discover;
 pub mod dotnet;
 pub mod dotnet_env;
+pub mod dotnet_runtime;
 pub mod events;
 pub mod explain;
 pub mod flagged;

@@ -106,7 +106,11 @@ The core needs no .NET. AL code that uses the `DotNet` type is served by an opti
 and MD5 hashes, and Base64 conversion.
 
 Tests that reach any other `DotNet` call need the .NET 8 SDK. The binary carries the
-helper sources and builds the helper into the cache on first use. Without .NET those
+helper sources and builds the helper into the cache on first use. The helper then runs on
+the .NET runtime of the BC version's service tier: .NET 8 for BC 27 and 28, .NET 10 for
+BC 29, whose service-tier DLLs (OpenXml, `System.Drawing.Common`) are built for .NET 10 and
+do not load into .NET 8. Install that runtime too. `--dotnet-allow-roll-forward` runs the
+helper on a newer major only when the one the BC version needs is not installed. Without .NET those
 tests are not run, with the reason, and the exit code is 8. `--require-dotnet` turns
 a missing helper into an error, for CI. Arbitrary .NET that reaches the machine
 (`System.IO.File`, `System.Net`, `Process`, the registry) is refused by a policy list.
@@ -116,7 +120,9 @@ a missing helper into an error, for CI. Arbitrary .NET that reaches the machine
 BC build in use. AL Runner looks for them in this order:
 
 1. The folders you pass with `--dotnet-assembly-dir DIR`.
-2. An artifact that BcContainerHelper extracted to `~/.bcartifacts.cache/sandbox`.
+2. An artifact that BcContainerHelper extracted to `~/.bcartifacts.cache/sandbox`, or on
+   Windows, when that folder does not exist, to `C:\bcartifacts.cache\sandbox` (BcContainerHelper's
+   default there).
 3. Its own artifact cache, `<cache>/artifacts/<build>/service`.
 
 When neither of the first two has the DLL, AL Runner downloads it into its cache the
