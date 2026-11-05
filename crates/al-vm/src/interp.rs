@@ -196,7 +196,7 @@ impl Session {
     /// locals are untouched (docs/probes-needed.md "ClearAll"). In a codeunit with a TableNo,
     /// a table and a page the record stays as it is and so does the page itself
     /// (session-system/TestClearAllTransactionTypeContracts.al:224-285, BC 27.5); a table extension too, with the base table
-    /// (`clear_all_other_table_instances`). Any other object
+    /// (`clear_all_other_table_instances`), and a page extension with the base page (`clear_all_base_page`). Any other object
     /// kind is refused.
     pub(crate) fn clear_all(&mut self, f: &Frame) -> Result<Value, Signal> {
         let object = f.instance.borrow().object as usize;
@@ -206,6 +206,14 @@ impl Session {
             // A table extension keeps its record, fields and filters, as a table does (pages/extensions/CyClearAllExtensions.al:
             // 137-162, record/ProbeClearAllSetKeyHyperlink.al:358-385); the base table's globals are reset below.
             al_ir::ObjKind::TableExtension => o.rec_slot.into_iter().chain(o.xrec_slot).collect(),
+            // A page extension keeps Rec, xRec and CurrPage, as a page does; the base page's globals are reset below
+            // (`clear_all_base_page`, pages/extensions/CyClearAllExtensions.al:166-193).
+            al_ir::ObjKind::PageExtension => o
+                .rec_slot
+                .into_iter()
+                .chain(o.xrec_slot)
+                .chain(o.globals.iter().position(|g| g.name == "CurrPage"))
+                .collect(),
             al_ir::ObjKind::Page => o
                 .rec_slot
                 .into_iter()
@@ -222,6 +230,7 @@ impl Session {
             }
         };
         let table_like = matches!(o.kind, al_ir::ObjKind::Table | al_ir::ObjKind::TableExtension);
+        let page_ext = o.kind == al_ir::ObjKind::PageExtension;
         let tys: Vec<RtType> = o.globals.iter().map(|g| g.ty.clone()).collect();
         self.alias_any(f)?;
         let fresh: Vec<Value> = tys.iter().map(|t| self.default_value(t)).collect();
@@ -245,6 +254,10 @@ impl Session {
         if table_like {
             drop(inst);
             return self.clear_all_other_table_instances(f);
+        }
+        if page_ext {
+            drop(inst);
+            return self.clear_all_base_page(f);
         }
         // ClearAll in a page resets the globals of its page extensions too: a flag an extension set in its OnOpenPage reads
         // false in the extension's OnAfterGetRecord once the base page's OnAfterGetRecord called ClearAll, for a base page of the
