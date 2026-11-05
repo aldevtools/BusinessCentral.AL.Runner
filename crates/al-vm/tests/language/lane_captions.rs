@@ -38,11 +38,27 @@ fn format_9_of_a_record_id_of_a_namespaced_table_names_it_qualified() {
     );
 }
 
-/// Only a namespaced table whose name holds a space is pinned for format 9: the brackets around a name without one are refused.
+/// Format 9 brackets every namespaced table name, a one-word name too; a name with a dot is quoted inside the brackets, a name
+/// with an underscore, a hyphen or a slash is not (corpus branch al-runtime-rs-staging-r6985,
+/// tests/al-language/language/namespaces/R7003RecordIdFormat9.al: Format9_NamespacedOwnTables, al-runner issue 7003).
 #[test]
-fn format_9_of_a_record_id_of_a_namespaced_table_without_a_space_is_refused() {
+fn format_9_of_a_record_id_of_a_namespaced_one_word_table_brackets_it() {
     let src = "namespace LT.Data; table 50100 LTRow { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } } \
-        codeunit 50100 C { procedure F(): Text var R: Record LTRow; begin R.Id := 2; exit(Format(R.RecordId(), 0, 9)); end; }";
+        table 50101 \"LT.Dot\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } } \
+        table 50102 \"LT_Under-Hy/Sl\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } } \
+        codeunit 50100 C { procedure F(): Text var R: Record LTRow; D: Record \"LT.Dot\"; U: Record \"LT_Under-Hy/Sl\"; begin R.Id := 2; D.Id := 3; U.Id := 4; \
+        exit(Format(R.RecordId(), 0, 9) + '|' + Format(D.RecordId(), 0, 9) + '|' + Format(U.RecordId(), 0, 9) + '|' + Format(D.RecordId())); end; }";
+    assert_eq!(
+        text(al_testkit::run_in(src, "C", "F")),
+        "[LT.Data.LTRow]: 2|[LT.Data.\"LT.Dot\"]: 3|[LT.Data.LT_Under-Hy/Sl]: 4|LT.Dot: 3"
+    );
+}
+
+/// A namespaced table name with a character R7003RecordIdFormat9.al does not cover is refused for format 9.
+#[test]
+fn format_9_of_a_record_id_of_a_namespaced_table_with_another_character_is_refused() {
+    let src = "namespace LT.Data; table 50100 \"LT&Row\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } } \
+        codeunit 50100 C { procedure F(): Text var R: Record \"LT&Row\"; begin R.Id := 2; exit(Format(R.RecordId(), 0, 9)); end; }";
     refused(al_testkit::run_in(src, "C", "F"), "namespace");
 }
 
