@@ -77,6 +77,9 @@ pub struct BlobBuf {
     /// ([`unread_content_blob`]): `Format` shows `*` (text/text-methods/Y49FieldRefIntoText.al:383) and a comparison
     /// sees a Blob with content (`blob_compare`). A copy does not keep it.
     pub unread_content: bool,
+    /// The buffer is one side of a Blob field assignment that copied it ([`copy_for_assignment`]): the source or the copy. A
+    /// Clear of it or a new stream on it relies on the copy (al-runner issue 7128, `Assumption::BlobFieldAssignCopies`).
+    pub assign_copied: bool,
 }
 
 thread_local! {
@@ -339,6 +342,7 @@ pub fn new_blob() -> BlobRef {
         file: false,
         dotnet_view: 0,
         unread_content: false,
+        assign_copied: false,
     }))
 }
 
@@ -378,7 +382,28 @@ pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
         file: false,
         dotnet_view: 0,
         unread_content: false,
+        assign_copied: false,
     }))
+}
+
+/// The value `Target.Field := Source` stores when the source Blob is held elsewhere too (a field of another record, a
+/// Variant): a buffer of its own with everything the source shows, so a later Clear of the source or a new write to it does
+/// not reach the target, and the reverse (al-runner issue 7128; `Assumption::BlobFieldAssignCopies`). A record assignment
+/// copies its Blobs as well (record/PnABlobAssignRename.al:35-66 Assign_Temporary `copy-after-source-change`).
+pub fn copy_for_assignment(b: &BlobRef) -> BlobRef {
+    let mut copy = b.borrow().clone();
+    copy.dotnet_view = 0;
+    copy.temp_inserted = false;
+    copy.assign_copied = true;
+    b.borrow_mut().assign_copied = true;
+    std::sync::Arc::new(BlobCell::new(copy))
+}
+
+/// Marks `Assumption::BlobFieldAssignCopies` when a Clear or a new stream changes a buffer a field assignment copied.
+pub(crate) fn note_assign_copied(b: &BlobRef) {
+    if b.borrow().assign_copied {
+        crate::assumptions::assume(crate::assumptions::Assumption::BlobFieldAssignCopies);
+    }
 }
 
 /// The unloaded copy a read of a database row hands out (`BlobBuf::db_row`).
@@ -680,6 +705,9 @@ pub struct InState {
     /// A stream that was never created, handed to a `Report.*Layout` call that found no layout (see
     /// [`mark_not_initialized`]): only `EOS` is pinned on it.
     pub not_initialized: bool,
+    /// A UTF-8 `Read(Text, 0)` at a byte order mark: the next read skips the mark, but the Position in between is not pinned
+    /// (see `stream_read_len::utf8`).
+    pub len0_over_mark: bool,
 }
 
 impl InState {
@@ -692,6 +720,7 @@ impl InState {
             handed_to_content: false,
             owner_gone: false,
             not_initialized: false,
+            len0_over_mark: false,
         }
     }
 
@@ -704,6 +733,7 @@ impl InState {
             handed_to_content: false,
             owner_gone: false,
             not_initialized: false,
+            len0_over_mark: false,
         }
     }
 
@@ -806,6 +836,7 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
     // row 1 written `A` and inserted, then written `C` under key 2 and inserted; Get(1) reads `A`). A Blob empty at the
     // Insert stays the row's own (streams/TestBlobUncommittedWriteIsolation.al:171).
     if let Some(Value::Blob(b)) = r.as_deref_mut() {
+        note_assign_copied(b);
         let shared = b.borrow().temp_inserted;
         if shared {
             b.borrow_mut().temp_inserted = false;
@@ -887,6 +918,7 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
         file: false,
         dotnet_view: 0,
         unread_content: false,
+        assign_copied: false,
     });
     set_stream(
         &a[0],
@@ -1260,7 +1292,12 @@ fn in_position(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
             Ok(Value::Null)
         });
     }
-    with_in(r, |s| Ok(Value::BigInteger(s.pos as i64 + 1)))
+    with_in(r, |s| {
+        if s.len0_over_mark && s.pos == 0 {
+            return unsupported("InStream.Position after Read(Text, 0) at a UTF-8 byte order mark (not pinned)");
+        }
+        Ok(Value::BigInteger(s.pos as i64 + 1))
+    })
 }
 
 /// Reads up to the next line feed or the end of the stream. The line feed is consumed and every
@@ -1329,11 +1366,25 @@ fn in_read_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NRes
             // character per call (xmlports/import/XpTExportBasic.al:Export_StaticWithRecordNoRows,
             // xmlports/PnC19XmlPort.al:Export_BothFormatEvaluates, streams/StTEncodings.al:CrossEncodingMsDosAndUtf16).
             let ends = |u: &[u8]| is_unit(u, b'\n') || u.iter().all(|b| *b == 0);
-            while end + unit <= rest.len() && end / unit < max_chars && !ends(&rest[end..end + unit]) {
-                end += unit;
+            // On UTF-8 the length counts characters, a surrogate pair once (streams/instream-outstream/StreamUtf8CharsRead.al:196-197
+            // Utf8_Euro_ReadVariants `ReadText(Text,1)`, :178-179, :214-215, :250-251 the other characters); a byte that starts no
+            // character steps one byte and raises below.
+            let step = |b: u8| match b {
+                0xC2..=0xDF if enc == Encoding::Utf8 => 2,
+                0xE0..=0xEF if enc == Encoding::Utf8 => 3,
+                0xF0..=0xF4 if enc == Encoding::Utf8 => 4,
+                _ => unit,
+            };
+            let mut chars = 0;
+            while end + unit <= rest.len() && chars < max_chars && !ends(&rest[end..end + unit]) {
+                end = (end + step(rest[end])).min(rest.len());
+                chars += 1;
             }
             // Stopping on the length leaves the line feed unread.
             let at_lf = end + unit <= rest.len() && ends(&rest[end..end + unit]);
+            // Stopping on the length before the end of the line after a non-ASCII character is pinned only for one character per
+            // stream (StreamUtf8CharsRead.al); with more text after it, it is not.
+            let cut_unpinned = enc == Encoding::Utf8 && end < rest.len() && !at_lf && !rest[..end].is_ascii();
             let line: Vec<u8> = rest[..end]
                 .chunks(unit)
                 .filter(|u| !is_unit(u, b'\r'))
@@ -1354,9 +1405,15 @@ fn in_read_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NRes
                 if invalid_utf8 { String::new() } else { enc.decode(&line) },
                 consumed,
                 invalid_utf8,
+                cut_unpinned,
             )
         });
-        let (text, consumed, invalid_utf8) = (text.0, text.1, text.2);
+        let (text, consumed, invalid_utf8, cut_unpinned) = text;
+        if cut_unpinned {
+            return unsupported(
+                "InStream.ReadText(Text, Length) on UTF-8 that stops on the length after a non-ASCII character (not pinned)",
+            );
+        }
         if invalid_utf8 {
             return Err(Signal::Error(Box::new(crate::native::AlError {
                 message: "Invalid data encountered in stream, unable to read text.".into(),
@@ -1393,11 +1450,10 @@ fn is_unit(u: &[u8], c: u8) -> bool {
 /// InOutStream_Write_Integer_ReadInteger) or a Byte (one byte: the HexOf helper of
 /// streams/TestStreamsRuntimeContracts.al reads a stream byte by byte). Other types are not pinned.
 fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    // `Read(Text, Length)` on a single-byte stream takes Length bytes as one character each
-    // (xml/TestXmlDocumentWriteToOutStreamContracts.al:LeadingBytes reads the bytes 239 187 191 of a
-    // byte order mark into a Text[3]); bytes 128 to 159, other encodings and a used result are not pinned.
+    // `Read(Text, Length)`: per encoding in `stream_read_len` (UTF-8 and the single-byte encodings); UTF-16 is not pinned beyond
+    // streams/W7StreamRead.al:375 ReadTextWithLength_Utf16_WhatIsConsumed and stays refused.
     if let (2, Value::Text(_) | Value::Code(_), Some(Value::Integer(n))) = (a.len(), &a[0], a.get(1)) {
-        let n = usize::try_from(*n).unwrap_or(0);
+        let n = *n;
         let used = c.ret_used();
         // A stream whose owner went out of scope reads nothing: 0, and the text is empty
         // (streams/instream-outstream/Y62GoneInStream.al:GoneStream_ReadAndPosition `step2` `0|[]`).
@@ -1406,28 +1462,14 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
             return Ok(Value::Integer(0));
         }
         let (text, count) = with_in(r, |s| {
-            if !matches!(s.enc, Encoding::Windows | Encoding::MsDos) {
-                return unsupported(
-                    "InStream.Read(Text, Length) on a stream that is neither Windows nor MS-DOS encoded (not pinned)",
-                );
-            }
-            let rest = s.rest();
-            let taken = &rest[..n.min(rest.len())];
-            if s.enc == Encoding::Windows && taken.iter().any(|b| (0x80..0xA0).contains(b)) {
-                return unsupported("InStream.Read(Text, Length) of bytes 128 to 159 (not pinned)");
-            }
-            if !s.enc.decode_pinned(taken) {
-                return unsupported("InStream.Read(Text, Length) of MS-DOS bytes whose character is not pinned");
-            }
-            // The result is the number of bytes read, pinned for ASCII text (al-language-onprem-dotnet/
-            // dotnet/blob-stream-position/Y51BlobStreamPosition.al:274, :283 `read_text_2` `ef|2`).
-            if used && (!taken.is_ascii() || taken.len() != n) {
-                return unsupported(
-                    "the result of InStream.Read(Text, Length) of non-ASCII bytes or past the end (not pinned)",
-                );
-            }
-            s.pos += taken.len();
-            Ok((s.enc.decode(taken), taken.len()))
+            let got = match s.enc {
+                Encoding::Utf8 => crate::stream_read_len::utf8(s, n)?,
+                Encoding::Windows | Encoding::MsDos => crate::stream_read_len::single_byte(s, n)?,
+                Encoding::Utf16 => {
+                    return unsupported("InStream.Read(Text, Length) on a UTF-16 stream (not pinned)");
+                }
+            };
+            Ok((got.text, got.count))
         })?;
         a[0] = Value::Text(text.into());
         return Ok(if used {
@@ -1472,9 +1514,10 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
         let used = c.ret_used();
         let (taken, count) = with_in(r, |s| {
             // A UTF-8 byte order mark at the start of a stream created as UTF-8 is skipped (streams/
-            // DdStreamLeads.al:502 Item68_Utf8Bom `read utf8` 3 [97,98,99]). The count Read returns over a mark is not pinned.
+            // DdStreamLeads.al:502 Item68_Utf8Bom `read utf8` 3 [97,98,99]). The count leaves the mark out when no zero byte
+            // follows (streams/instream-outstream/StreamReadMatrix.al:533 Matrix_Utf8Bom `u8 len -1` `2 [97]`); with one it is not pinned.
             if s.pos == 0 && s.enc == Encoding::Utf8 && s.with_data(|d| d.starts_with(&[0xEF, 0xBB, 0xBF])) {
-                if used {
+                if used && s.with_data(|d| d[3..].contains(&0)) {
                     return unsupported(
                         "the result of InStream.Read into a Text over a UTF-8 byte order mark (not pinned)",
                     );

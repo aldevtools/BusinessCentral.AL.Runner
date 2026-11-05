@@ -56,10 +56,10 @@ impl Session {
         // link alone (pages/W1RunObject.al:420 ViewTargetLink `id=0 filters=Grp: 2` on a Card with `where(Grp = const(1))`), and so
         // does a RunPageView beside the link in group 3 (testpage/Y41RunPageLinkOnOpen.al:553 `filters=Code: P1`).
         let link_read = match method {
-            RecordOp::GetFilters => {
-                let r = rec.borrow();
-                r.filter_group == 0 && r.filters.iter().all(|f| matches!(f.group, 0 | 2 | 3))
-            }
+            // In any filter group: the link in group 0, the SourceTableView in 2, a RunPageView filter in 3, the others empty
+            // (corpus testpage/RunPageLinkOpenSetView.al, RSV_*_Groups `groups before=0:...|`,
+            // `3:Information: <>HIDDEN|`, `2:Information: <>HIDDEN|`).
+            RecordOp::GetFilters => rec.borrow().filters.iter().all(|f| matches!(f.group, 0 | 2 | 3)),
             RecordOp::GetRangeMin | RecordOp::GetRangeMax => {
                 let pos = arg_pos(args, 0)?;
                 let r = rec.borrow();
@@ -95,6 +95,19 @@ impl Session {
                 RecordOp::Insert | RecordOp::Init => rec.borrow().temporary && args.is_empty(),
                 _ => false,
             };
+        // SetView replaces the view of group 0, the link included, and leaves the SourceTableView's group 2 and the RunPageView's
+        // group 3; the linked fields stay, and Rec then answers as any record of its new view (corpus
+        // testpage/RunPageLinkOpenSetView.al, corpus PR 1150: RSV_LinkAndView_SameView, _OtherFilter, _EmptyView,
+        // _SortingOnly, _LinkedFieldOtherValue, RSV_LinkOnly_*, RSV_LinkAndWhereView_EmptyView_Groups `groups after=3:...`,
+        // RSV_LinkToWhereList_EmptyView_Groups `groups after=2:...`).
+        if method == RecordOp::SetView && rec.borrow().filter_group == 0 {
+            let flag = rec.borrow_mut().unpinned_buffer.take();
+            let r = self.record_op_inner(method, rec, args);
+            if r.is_err() {
+                rec.borrow_mut().unpinned_buffer = flag;
+            }
+            return r;
+        }
         if !runs && !link_read && !find_read {
             let why = rec.borrow().unpinned_buffer.unwrap_or(RUN_PAGE_LINK_OPEN);
             return unsupported(format!("Rec.{}() {why}", method.name()));

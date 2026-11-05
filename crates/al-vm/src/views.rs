@@ -121,7 +121,12 @@ impl Session {
                 let standard = if iso { 9 } else { 1 };
                 return al_builtins::format::try_format(v, 0, standard, self).map_err(Signal::Unsupported);
             }
-            return unsupported("the filter text of an undefined Time (not pinned)");
+            // The undefined Time shows as `''` in GetFilter(s), given as `''`, as `%1` or by SetRange (corpus
+            // master 3eb812ed, record/filters/TimeFilterEmptyText.al:113-126). In a view it is not pinned.
+            if !iso {
+                return Ok("''".into());
+            }
+            return unsupported("the view text of an undefined Time (not pinned)");
         }
         // A DateTime with milliseconds shows its seconds and milliseconds, as standard format 1 writes them
         // (record/filters/P130DateFilters.al:211, `03/24/24 11:59:59.999 PM`; a whole minute stays `12:00 AM`).
@@ -176,6 +181,9 @@ impl Session {
             // SetFilterPercent1_WildcardTogetherWithOperators `star_alone`).
             FilterExpr::Eq(Value::Text(s) | Value::Code(s)) if &**s == "*" => "='*'".to_string(),
             FilterExpr::Eq(v) => self.filter_value_with(v, iso)?,
+            // The blank DateTime of a quoted empty text alone (see the parser) shows `''..''` in GetFilter(s) and in a view
+            // (record/filters/TimeFilterEmptyText.al:161 `empty`; record/views/Y71SetViewDateTime.al:125-127 dt_empty_or).
+            FilterExpr::RangeSame(Value::DateTime(0)) => "''..''".to_string(),
             FilterExpr::RangeSame(v) => {
                 let t = self.filter_value_with(v, iso)?;
                 format!("{t}..{t}")
@@ -198,15 +206,12 @@ impl Session {
             FilterExpr::AtSignAlone(negated) => if *negated { "<>@" } else { "@" }.to_string(),
             FilterExpr::EmptyViewValue => "==".to_string(),
             FilterExpr::NumCode(inner) => self.filter_text_with(inner, iso)?,
-            // The blank DateTime next to another alternative reads back as the range `''..''` (record/views/
-            // Y71SetViewDateTime.al:125-127 dt_empty_or, :207-209 sca_empty_or); a Date stays `''` (:289-291). Alone it is not pinned
-            // here and stays `''`.
+            // The parts of an OR list each show as alone: a quoted empty text on a DateTime field as `''..''` (record/views/
+            // Y71SetViewDateTime.al:125-127 dt_empty_or, :207-209 sca_empty_or), the blank DateTime given as %1 as `''`
+            // (record/filters/TimeFilterEmptyText.al:169 `empty or arg`); a Date stays `''` (Y71SetViewDateTime.al:289-291).
             FilterExpr::Or(xs) => xs
                 .iter()
-                .map(|x| match x {
-                    FilterExpr::Eq(Value::DateTime(0)) => Ok("''..''".to_string()),
-                    x => self.filter_text_with(x, iso),
-                })
+                .map(|x| self.filter_text_with(x, iso))
                 .collect::<Result<Vec<_>, _>>()?
                 .join("|"),
             FilterExpr::And(xs) => {

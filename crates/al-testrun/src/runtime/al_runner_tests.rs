@@ -264,3 +264,85 @@ fn a_chosen_runner_must_read_its_tests_from_rows() {
         Ok(None)
     );
 }
+
+const PERF_RUNNER: &str = "
+codeunit 60320 \"Perf Runner\"
+{
+    Subtype = TestRunner;
+
+    trigger OnRun()
+    var
+        Events: Codeunit \"Perf Events\";
+    begin
+        Events.OnBeforeCodeunitRun();
+        Codeunit.Run(60323);
+        Events.OnAfterCodeunitRun();
+    end;
+}
+
+codeunit 60321 \"Perf Events\"
+{
+    [IntegrationEvent(false, false)]
+    procedure OnBeforeCodeunitRun()
+    begin
+    end;
+
+    [IntegrationEvent(false, false)]
+    procedure OnAfterCodeunitRun()
+    begin
+    end;
+}
+
+codeunit 60322 \"Perf Subscriber\"
+{
+    SingleInstance = true;
+
+    var
+        StartTime: Dictionary of [Text, DateTime];
+        StartSql: Dictionary of [Text, BigInteger];
+        MsgTok: Label 'Test perf signal: %1 ms, %2 SQL executes', Locked = true;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Perf Events\", 'OnBeforeCodeunitRun', '', false, false)]
+    local procedure OnBeforeCodeunitRun()
+    begin
+        StartTime.Set('CU', CurrentDateTime());
+        StartSql.Set('CU', SessionInformation.SqlStatementsExecuted());
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Perf Events\", 'OnAfterCodeunitRun', '', false, false)]
+    local procedure OnAfterCodeunitRun()
+    var
+        DurationMs: Integer;
+        SqlExecutes: BigInteger;
+    begin
+        if not StartTime.ContainsKey('CU') then
+            exit;
+        DurationMs := CurrentDateTime() - StartTime.Get('CU');
+        SqlExecutes := SessionInformation.SqlStatementsExecuted() - StartSql.Get('CU');
+        Session.LogMessage('PX0001', StrSubstNo(MsgTok, DurationMs, SqlExecutes),
+            Verbosity::Normal, DataClassification::SystemMetadata, TelemetryScope::ExtensionPublisher, 'Category', 'PX');
+    end;
+}
+
+codeunit 60323 \"Perf Tests\"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure OnePlusOne()
+    begin
+        if 1 + 1 <> 2 then
+            Error('math');
+    end;
+}
+";
+
+// Al-runner issue 7129: a per-codeunit performance telemetry subscriber to the runner's events logs the change of a SQL
+// counter through StrSubstNo. The text only reaches Session.LogMessage, so the runner and the test run on.
+#[test]
+fn a_runner_subscriber_that_logs_a_sql_counter_change_through_strsubstno_runs() {
+    assert_eq!(
+        outcomes_through(PERF_RUNNER, 60323, Some(60320)),
+        vec![("OnePlusOne".to_string(), Outcome::Pass)]
+    );
+}

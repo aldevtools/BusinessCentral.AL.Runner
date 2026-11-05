@@ -624,10 +624,15 @@ fn read_into_a_text_of_a_utf8_stream_skips_a_byte_order_mark() {
     let body = "C := 65279; B.Data.CreateOutStream(O, TextEncoding::UTF8); O.WriteText(Format(C) + '<a/>');
         B.Data.CreateInStream(I, TextEncoding::UTF8); I.Read(T); exit(T);";
     assert_eq!(text(vars, body), "<a/>");
-    // The count it returns over a mark is not pinned.
+    // The count over a mark leaves the mark out when no zero byte follows: the 4 bytes of `<a/>` plus one
+    // (streams/instream-outstream/StreamReadMatrix.al:533 Matrix_Utf8Bom `u8 len -1` `2 [97]`).
     let used = "C := 65279; B.Data.CreateOutStream(O, TextEncoding::UTF8); O.WriteText(Format(C) + '<a/>');
         B.Data.CreateInStream(I, TextEncoding::UTF8); exit(Format(I.Read(T)));";
-    assert!(refused(vars, used));
+    assert_eq!(text(vars, used), "5");
+    // With a zero byte after the text it is not pinned.
+    let terminated = "C := 65279; B.Data.CreateOutStream(O, TextEncoding::UTF8); O.Write(Format(C) + '<a/>');
+        B.Data.CreateInStream(I, TextEncoding::UTF8); exit(Format(I.Read(T)));";
+    assert!(refused(vars, terminated));
 }
 
 /// A temporary row inserted and read back (Get, FindFirst, FindSet) without CalcFields: its Blob copied with `:=` (directly or

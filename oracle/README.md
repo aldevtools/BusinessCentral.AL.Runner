@@ -8,13 +8,13 @@ pass rate is measured against: every `<testcase>` in it passed on real BC.
 | Field | Value |
 |---|---|
 | Corpus repo | aldevtools/BusinessCentral.AL.Language.Tests (until 2026-10-21 StefanMaron/BusinessCentral.AL.Language.Tests), branch `master` (the default branch; until 2026-10-19 the side branch `al-runtime-rs`, whose commits are all on `master`) |
-| Corpus pin | `2057cbfeb04b31ea3fea1f75e3cdb7c76a0d7b7d` (the `corpus` submodule, master merge of corpus PR 706; must equal `corpus_commit` in `oracle.toml`) |
+| Corpus pin | `c13aab0302589f5428a50f43f7be67f78046daac` (the `corpus` submodule, master merge of corpus PR 706; must equal `corpus_commit` in `oracle.toml`) |
 
 | Major | Oracle leg | Corpus commit of the run | Workflow run | Artifact | Artifact id | Cases |
 |---|---|---|---|---|---|---|
-| 27 | 27.5 | `2057cbf` (the pin) | 42007341636 | `junit-test-results-27.5` | 13408953937 | 23787 |
-| 28 | 28.5 | `2057cbf` (the pin) | 42007341636 | `junit-test-results-28.5` | 13410093032 | 23928 (+26 `OnRun`) |
-| 29 | 29.0 | `2057cbf` (the pin) | 42007341636 | `junit-test-results-29.0` | 13409309712 | 24071 (+26 `OnRun`) |
+| 27 | 27.5 | `3eb812e` (full run; PR results on top, see below) | 42020731321 | `junit-test-results-27.5` | 13413412866 | 23862 |
+| 28 | 28.5 | `3eb812e` (full run; PR results on top, see below) | 42020731321 | `junit-test-results-28.5` | 13414067728 | 24003 (+26 `OnRun`) |
+| 29 | 29.0 | `3eb812e` (full run; PR results on top, see below) | 42020731321 | `junit-test-results-29.0` | 13414125766 | 24146 (+26 `OnRun`) |
 
 The files come from the green full run of corpus PR 706 ("full run: the pull request has the label full-run"), whose head `f64dfd8` has the same tree
 (`cff97a3c`) as the pin `2be1140`.
@@ -85,3 +85,14 @@ JUnit or XUnit file.
 The OnPrem DotNet app (`corpus/tests/al-language-onprem-dotnet`) is the suite `onprem-dotnet`. Its oracle is
 `oracle/<major>/junit-dotnet.xml` (the smallest of the three `junit-test-results-<leg>` artifacts of a run) and its
 not-passing list is `metrics/<major>/not-passing-dotnet.txt`.
+
+<!-- pr-results-bump:start -->
+## PR-results bumps since the last full run
+
+These pins came from `tools/corpus_bump.sh --from-pr` (owner decision 2026-11-05), not from a master run. Each
+replaced, in the JUnit files above, the codeunits that a corpus pull request's own CI run ran with that run's
+results. The table above still names the last full run. The next bump from a green master run removes this
+section.
+
+- pin `c13aab0` (was `3eb812e`): corpus PR 1150 (head `170c2c5`, merge `c13aab0`, run 42032218436: BC 27 4 codeunit(s) of junit.xml, BC 28 4 codeunit(s) of junit.xml, BC 29 4 codeunit(s) of junit.xml)
+<!-- pr-results-bump:end -->

@@ -996,6 +996,10 @@ impl Parser<'_> {
             // A quoted empty text on a DateTime field is the blank DateTime (types/P136Filter.al:361, corpus
             // master, TV_SetView_DateTime_LiteralTexts `empty` keeps only the row with no DateTime).
             Tok::Quoted(s) if s.is_empty() && matches!(self.ty, T::DateTime) => return Ok(Value::DateTime(0)),
+            // A quoted empty text on a Time field is the undefined Time, after every operator, as a range end and in an OR list
+            // (corpus master 3eb812ed, record/filters/TimeFilterEmptyText.al:104-128, al-runner
+            // issue 6900).
+            Tok::Quoted(s) if s.is_empty() && matches!(self.ty, T::Time) => return Ok(Value::Time(0)),
             // On a Media field a quoted empty text, alone or after `<>`, raises the Guid format error
             // (streams/media/SoMediaFilter.al:143-147, SO_MediaFilter_EmptyAndQuoted).
             Tok::Quoted(s)
@@ -1319,6 +1323,16 @@ impl Parser<'_> {
                     None if matches!(self.ty, crate::value::RtType::Text(_) | crate::value::RtType::Code(_)) => {
                         Value::Text(String::new().into())
                     }
+                    // `<>` alone on a Time, Date or DateTime field raises the filter error (corpus
+                    // master 3eb812ed, record/filters/TimeFilterEmptyText.al:124, :148, :171 `ne alone`).
+                    None if op == "<>"
+                        && matches!(
+                            self.ty,
+                            crate::value::RtType::Time | crate::value::RtType::Date | crate::value::RtType::DateTime
+                        ) =>
+                    {
+                        return Err(format!("{FILTER_SYNTAX}A value is expected after the '<>'."));
+                    }
                     None => return Err(format!("value expected after `{op}`")),
                 };
                 Ok(match op {
@@ -1374,6 +1388,13 @@ impl Parser<'_> {
                 }
                 if let Some(day) = self.day_alone(&lo) {
                     return Ok(FilterExpr::Range(Some(day_start(day)), Some(day_end(day))));
+                }
+                // A quoted empty text alone on a DateTime field is the blank DateTime as a range of one value: GetFilter(s) shows
+                // `''..''`, also next to `|`, while `=''`, a range end and the blank DateTime given as %1 show `''` (corpus master
+                // 3eb812ed, record/filters/TimeFilterEmptyText.al:160-172 `empty`, `eq empty`, `range from empty`, `empty or arg`;
+                // record/views/Y71SetViewDateTime.al:125-127 dt_empty_or).
+                if matches!(&lo, Tok::Quoted(q) if q.is_empty()) && matches!(self.ty, crate::value::RtType::DateTime) {
+                    return Ok(FilterExpr::RangeSame(Value::DateTime(0)));
                 }
                 self.single(lo, false)
             }
