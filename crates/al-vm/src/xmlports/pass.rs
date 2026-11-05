@@ -47,15 +47,38 @@ impl Session {
                 // The filters of the element's own SourceTableView are no filters of the code's own
                 // (streams/Y72XpEInvoiceShapes.al TableContainer_ItemAndPrice, _BreakAndSkipInInnerTable: the
                 // InvoiceLine element over Integer with `where(Number = filter(1 ..))` below the root table element, one pass).
-                // A second pass with a SourceTableView is still refused below.
+                // A later pass with a SourceTableView starts from the view again (below).
                 if rec.borrow().filters.iter().any(|f| f.group != XP_VIEW_GROUP) {
                     return refuse("filters");
                 }
+                let mut now = now;
+                now.view_start = n.source_view.is_some().then(|| ViewStart::of(&rec.borrow()));
                 self.xp_unlinked_passes.push((addr, node, now));
             }
             Some((_, _, last)) => {
                 if last.filters != now.filters {
                     return refuse("filters set between two passes");
+                }
+                if let Some(start) = last.view_start.clone() {
+                    // With a SourceTableView every pass starts from the view alone, as the first pass did: its filters, its key,
+                    // ascending, whatever OnPreXmlItem of an earlier pass set: a filter at every pass or at the first only, a
+                    // SetCurrentKey, Ascending(false) or a Reset (corpus branch al-runtime-rs-staging-r6924x, corpus PR 1144,
+                    // xmlports/shapes-properties/R6924xNestedView.al NestedView_Export_NoCode, _FilterEachPass, _FilterFirstPass,
+                    // _KeyFirstPass, _DescendingFirstPass, _ResetFirstPass, IntegerView_Export_OneEachPass, _GrowEachPass: `pre h2 f=
+                    // n=4 k=Kind a=Yes` at every later pass). Pinned for a view with a sorting and no ORDER, on the first export of
+                    // the instance (a later export keeps the record's key, `xp_apply_source_views`).
+                    let view = n.source_view.as_deref().unwrap_or("").to_ascii_lowercase();
+                    let again = inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_EXPORTED);
+                    if !view.contains("sorting") || view.contains("order") || again {
+                        return refuse(
+                            "a SourceTableView without a sorting, with an ORDER, or on a later export of the instance",
+                        );
+                    }
+                    if last.end_key.as_ref() != Some(&now.first_key) {
+                        return refuse("a key or direction set between two passes");
+                    }
+                    start.restore(&mut rec.borrow_mut());
+                    return Ok(());
                 }
                 if last.first_key != now.first_key {
                     return refuse("a key or direction other than at the first pass");
@@ -82,6 +105,7 @@ impl Session {
         {
             last.filters = now.filters;
             last.filter_group = now.filter_group;
+            last.end_key = Some(now.first_key);
         }
         Ok(())
     }
@@ -504,6 +528,44 @@ pub(crate) struct UnlinkedPass {
     pub(super) filter_group: i32,
     /// The key and direction at the start of the first pass.
     pub(super) first_key: String,
+    /// With a SourceTableView: the record's filters, key and direction at the start of the first pass (the view alone).
+    pub(super) view_start: Option<ViewStart>,
+    /// The key and direction at the end of the last pass.
+    pub(super) end_key: Option<String>,
+}
+
+/// The filters, key and direction of a table element record at the start of its first pass.
+#[derive(Clone)]
+pub(crate) struct ViewStart {
+    filters: Vec<al_builtins::filter::FieldFilter>,
+    filter_group: i32,
+    key: usize,
+    adhoc: Option<(usize, Vec<usize>)>,
+    ascending: bool,
+    field_descending: u32,
+}
+
+impl ViewStart {
+    fn of(r: &al_builtins::value::RecordState) -> ViewStart {
+        ViewStart {
+            filters: r.filters.clone(),
+            filter_group: r.filter_group,
+            key: r.key,
+            adhoc: r.adhoc.clone(),
+            ascending: r.ascending,
+            field_descending: r.field_descending,
+        }
+    }
+
+    fn restore(self, r: &mut al_builtins::value::RecordState) {
+        r.filters = self.filters;
+        r.filter_group = self.filter_group;
+        r.key = self.key;
+        r.adhoc = self.adhoc;
+        r.ascending = self.ascending;
+        r.field_descending = self.field_descending;
+        r.marked_only = false;
+    }
 }
 
 impl UnlinkedPass {
@@ -516,6 +578,8 @@ impl UnlinkedPass {
             },
             filter_group: r.filter_group,
             first_key: format!("{:?}", (r.key, &r.adhoc, r.ascending, r.field_descending)),
+            view_start: None,
+            end_key: None,
         }
     }
 }

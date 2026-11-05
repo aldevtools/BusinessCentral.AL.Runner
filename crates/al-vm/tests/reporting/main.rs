@@ -78,6 +78,7 @@ mod xmlport_nested_flow;
 mod xmlport_nested_import;
 mod xmlport_nested_text_in_table;
 mod xmlport_nested_unlinked;
+mod xmlport_nested_view_pass;
 mod xmlport_obsolete_pending;
 mod xmlport_prefixed_import;
 mod xmlport_request_page_rec;

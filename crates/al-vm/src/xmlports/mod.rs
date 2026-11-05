@@ -26,6 +26,7 @@ mod container_tree;
 mod einvoice_shapes;
 mod export_xml;
 mod import_record;
+mod import_view;
 mod import_xml;
 mod pass;
 mod run_request;
