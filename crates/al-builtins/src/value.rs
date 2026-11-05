@@ -835,6 +835,9 @@ pub struct PageState {
     /// A new host card or document that a first part access stored with its blank key (pages/new-host-key-entry/Y80NewHostKey.al
     /// Y80_NH_*): a key typed afterwards runs its OnValidate, then the page shows and stores the old key again.
     pub host_stored_blank_key: bool,
+    /// A new host whose insert, tried by the first Visible() or Editable() of a part, failed and was swallowed (pages/parts/
+    /// PartLineBeforeHostKey.al R7031_*): only Close and Visible() or Editable() of its parts are pinned afterwards.
+    pub part_insert_swallowed: bool,
     /// A field outside the key was typed on that host row: its parts read their rows again (once is pinned).
     pub blank_key_edit_reread: bool,
     /// `P.Editable(false)` or `P.Editable := false` on a Page variable before it runs: the page
@@ -1151,6 +1154,7 @@ impl PageState {
             new_host_part_rows: false,
             request_new_blank: false,
             host_stored_blank_key: false,
+            part_insert_swallowed: false,
             blank_key_edit_reread: false,
             editable_preset: None,
             caption: None,

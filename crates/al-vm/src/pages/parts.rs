@@ -2139,7 +2139,8 @@ impl Session {
             let h = host.borrow();
             h.open && h.host.is_none() && h.draft && !h.draft_stored && h.cursor != Cursor::None
         };
-        if !new_host || !self.has_source(host) {
+        // After a swallowed insert nothing tries again (`part_insert_swallowed.rs`; PartLineBeforeHostKey.al R7031_* `editable_log = []`).
+        if !new_host || !self.has_source(host) || host.borrow().part_insert_swallowed {
             return Ok(false);
         }
         let shows_rows = host.borrow().new_host_part_rows;
@@ -2177,10 +2178,20 @@ impl Session {
             return Ok(false);
         }
         let used = self.ret_used;
+        let writes = self.write_mark();
+        let fields = self.page_rec(host).borrow().fields.clone();
         host.borrow_mut().dirty = true;
         let r = self.save_row(host);
         self.ret_used = used;
-        r?;
+        match r {
+            // A failed insert that Visible() or Editable() tried is swallowed (`part_insert_swallowed.rs`; PartLineBeforeHostKey.al
+            // R7031_*).
+            Err(Signal::Error(e)) if matches!(m, PageMethod::Visible | PageMethod::Editable) => {
+                self.swallow_part_prop_insert(host, m, &e, writes, &fields)?;
+                return Ok(true);
+            }
+            r => r?,
+        }
         host.borrow_mut().new_host_part_rows = false;
         // Pages/lt-y80-new-host-key/Y80NewHostKey.al Y80_NH_{Card,Doc}_*: `read log at open` = `HI:|;LN:;LN:;LN:`.
         let stored = !host.borrow().draft;

@@ -60,19 +60,24 @@ public sealed class Marshaller
         NewBridges.Clear();
     }
 
-    /// Bytes written into any bridge since the last call, as [[id, base64], ...].
+    /// Bytes written into any bridge since the last call, as [[id, base64], ...]. This runs after every call and a session
+    /// can hold thousands of bridges (one per OutStream argument), so a bridge nothing wrote into must cost no copy: its
+    /// buffer is read in place (al-runner issue 7016; copying every bridge made one codeunit take 17 minutes). Both bridge
+    /// kinds are expandable MemoryStreams, whose buffer stays readable after Dispose. A bridge whose stream .NET closed hands
+    /// back its last bytes now and is then dropped: nothing can write into a closed MemoryStream any more.
     public JsonArray DrainBridges()
     {
         var arr = new JsonArray();
         foreach (var id in bridges.Keys.ToList())
         {
             var b = bridges[id];
-            var all = b.Stream.ToArray();
-            if (all.Length > b.Drained)
+            if (!b.Stream.TryGetBuffer(out var buf)) buf = new ArraySegment<byte>(b.Stream.ToArray());
+            if (buf.Count > b.Drained)
             {
-                arr.Add(new JsonArray(id, Convert.ToBase64String(all, b.Drained, all.Length - b.Drained)));
-                bridges[id] = (b.Stream, all.Length);
+                arr.Add(new JsonArray(id, Convert.ToBase64String(buf.Array!, buf.Offset + b.Drained, buf.Count - b.Drained)));
+                bridges[id] = (b.Stream, buf.Count);
             }
+            if (!b.Stream.CanRead) bridges.Remove(id);
         }
         return arr;
     }
