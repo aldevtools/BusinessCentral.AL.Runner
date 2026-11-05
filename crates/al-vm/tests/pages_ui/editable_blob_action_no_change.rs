@@ -1,9 +1,8 @@
 //! An editable List (Editable and ModifyAllowed left true) over a table with a Blob field: an action that changes the row through
 //! its own record variable and leaves Rec alone must not be overwritten by the page saving its stale Rec after the action
-//! (al-runner issue 7114). A Blob no stream wrote is no change of Rec (the page-action-unwritten-blob-no-change assumption);
-//! an action whose code commits is refused until the probe lands.
+//! (al-runner issue 7114). A Blob no stream wrote is no change of Rec, with and without a Commit in the action (corpus branch
+//! al-runtime-rs-staging-r6977, pages/actions/R7114EditableBlobAction.al PG7114_EditableList_ActionModifiesOwnVar_*).
 
-use al_builtins::native::Signal;
 use al_testkit::{run_in, text};
 
 const SRC: &str = r#"
@@ -95,9 +94,6 @@ fn the_same_page_over_a_table_without_a_blob_keeps_the_change() {
 }
 
 #[test]
-fn an_action_whose_code_commits_is_refused() {
-    match run_in(SRC, "C", "WithCommit") {
-        Err(Signal::Unsupported(why)) => assert!(why.contains("Blob") && why.contains("commit"), "{why}"),
-        other => panic!("expected a refusal, got {other:?}"),
-    }
+fn an_action_whose_code_commits_keeps_the_change() {
+    assert_eq!(text(run_in(SRC, "C", "WithCommit")), "Imported/DOC1 log Imported/DOC1");
 }

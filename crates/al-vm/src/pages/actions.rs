@@ -1406,7 +1406,6 @@ impl Session {
             let stored_before = !st.borrow().never_stored;
             st.borrow_mut().save_record_called = false;
             st.borrow_mut().refresh_update_false = false;
-            let commits_before = self.tx.commit_counter;
             let empty_view = self.empty_list_view(st)?;
             let empty = self.empty_page_shape(st)?;
             let held_before = (empty.is_none()
@@ -1581,7 +1580,7 @@ impl Session {
                     .is_some_and(|stored| Self::same_values(&rec.borrow().fields, stored));
                 // A deleted row and Blobs no stream wrote: `rec_changed_by_action` (pages/action_blob_change.rs).
                 let deleted_by_action = stored_before && !moved_other && stored_now.is_none();
-                if self.rec_changed_by_action(st, &before, deleted_by_action, was_dirty, commits_before)?
+                if self.rec_changed_by_action(st, &before, deleted_by_action, was_dirty)?
                     && !saved_by_action
                     && !deleted_by_action
                 {
