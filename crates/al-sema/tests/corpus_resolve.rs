@@ -151,6 +151,14 @@ const KNOWN_GAP_FILES: &[(&str, &str)] = &[
         "record/ProbePropertyAssignmentForms.al",
         "the checker does not resolve the assignment form of a call (`Sleep := 1`, `Target.SetCounter := 7`) (corpus bump to 92031e20)",
     ),
+    (
+        "R6983XbProtectedVars.al",
+        "the checker does not see protected variables of another app's extension of the same table (issues 6983, 6984; corpus bump to c9aac994)",
+    ),
+    (
+        "table-objects/extensions/ProtectedVarCrossApp.al",
+        "the checker does not see protected variables of another app's extension of the same table (issues 6983, 6984; corpus bump to c9aac994)",
+    ),
 ];
 
 /// Milestone 1: every name, member and call in every corpus body resolves,
