@@ -632,8 +632,11 @@ impl Builder<'_> {
             if item.left_outer && item.parent.is_some() && item.table != usize::MAX {
                 let f = &self.members[item.table].fields[field];
                 let top_child = item.parent.is_some_and(|p| self.items[p].parent.is_none());
+                // A negative Sum (`- sum(...)`) is a Sum here too (QueryOuterFlowKinds.al OuterFlowField_SumNegSumCount_Rows and
+                // OuterFlowField_NegSumWithGrandchild_*, corpus branch al-runtime-rs-staging-r6988; issue 6988).
                 let sum_or_count = f.calc_formula.as_deref().is_some_and(|cf| {
                     let cf = cf.trim_start().to_ascii_lowercase();
+                    let cf = cf.strip_prefix('-').map_or(cf.as_str(), str::trim_start);
                     ["sum", "count"]
                         .iter()
                         .any(|k| cf.strip_prefix(k).is_some_and(|r| r.trim_start().starts_with('(')))

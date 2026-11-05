@@ -256,3 +256,162 @@ codeunit 95725 T
 }
 "#);
 }
+
+/// Issue 6988: a negative-Sum FlowField column (`- sum(...)`) of a left-outer-joined child is calculated per joined row (0 for a
+/// parent without a child), also when the child has a left-outer-joined child of its own, a ColumnFilter on another column of the
+/// child (an inner join in effect) and a run time filter on a filter() element of the grandchild.
+/// Pins: QueryOuterFlowKinds.al OuterFlowField_SumNegSumCount_Rows, OuterFlowField_NegSumWithGrandchild_ColumnFilter and
+/// OuterFlowField_NegSumWithGrandchild_NoColumnFilter.
+#[test]
+fn issue_6988_negative_sum_column_of_outer_joined_item_with_a_child() {
+    run(r#"
+query 95714 "QOF Outer Sums"
+{
+    OrderBy = ascending(PId), ascending(CId);
+    elements
+    {
+        dataitem(Parent; "QOF Parent")
+        {
+            column(PId; Id) { }
+            dataitem(Child; "QOF Child")
+            {
+                DataItemLink = ParentId = Parent.Id;
+                SqlJoinType = LeftOuterJoin;
+                column(CId; Id) { }
+                column(Total; Total) { }
+                column(NegTotal; NegTotal) { }
+                column(Cnt; Cnt) { }
+            }
+        }
+    }
+}
+query 95716 "QOF Outer Grandchild"
+{
+    OrderBy = ascending(PId), ascending(CId), ascending(DId);
+    elements
+    {
+        dataitem(Parent; "QOF Parent")
+        {
+            column(PId; Id) { }
+            dataitem(Child; "QOF Child")
+            {
+                DataItemLink = ParentId = Parent.Id;
+                SqlJoinType = LeftOuterJoin;
+                column(Kind; Kind) { ColumnFilter = Kind = const('A'); }
+                column(CId; Id) { }
+                column(NegTotal; NegTotal) { }
+                dataitem(Detail; "QOF Detail")
+                {
+                    DataItemLink = ChildId = Child.Id;
+                    SqlJoinType = LeftOuterJoin;
+                    filter(DDay; Day) { }
+                    column(DId; Id) { }
+                }
+            }
+        }
+    }
+}
+query 95717 "QOF Outer Grandchild Open"
+{
+    OrderBy = ascending(PId), ascending(CId), ascending(DId);
+    elements
+    {
+        dataitem(Parent; "QOF Parent")
+        {
+            column(PId; Id) { }
+            dataitem(Child; "QOF Child")
+            {
+                DataItemLink = ParentId = Parent.Id;
+                SqlJoinType = LeftOuterJoin;
+                column(Kind; Kind) { }
+                column(CId; Id) { }
+                column(NegTotal; NegTotal) { }
+                dataitem(Detail; "QOF Detail")
+                {
+                    DataItemLink = ChildId = Child.Id;
+                    SqlJoinType = LeftOuterJoin;
+                    filter(DDay; Day) { }
+                    column(DId; Id) { }
+                }
+            }
+        }
+    }
+}
+codeunit 95724 T
+{
+    Subtype = Test;
+
+    local procedure Sums(var Q: Query "QOF Outer Sums") Rows: Text
+    begin
+        Q.Open();
+        while Q.Read() do
+            Rows += Format(Q.PId) + ':' + Format(Q.CId) + '=' + Format(Q.Total, 0, 9) + '/' + Format(Q.NegTotal, 0, 9) + '/' + Format(Q.Cnt) + ' ';
+        Q.Close();
+    end;
+
+    local procedure Grand(var Q: Query "QOF Outer Grandchild") Rows: Text
+    begin
+        Q.Open();
+        while Q.Read() do
+            Rows += Format(Q.PId) + ':' + Format(Q.CId) + ':' + Format(Q.DId) + '=' + Q.Kind + '/' + Format(Q.NegTotal, 0, 9) + ' ';
+        Q.Close();
+    end;
+
+    local procedure GrandOpen(var Q: Query "QOF Outer Grandchild Open") Rows: Text
+    begin
+        Q.Open();
+        while Q.Read() do
+            Rows += Format(Q.PId) + ':' + Format(Q.CId) + ':' + Format(Q.DId) + '=' + Q.Kind + '/' + Format(Q.NegTotal, 0, 9) + ' ';
+        Q.Close();
+    end;
+
+    local procedure Check(Name: Text; Got: Text; Expected: Text)
+    begin
+        if Got <> Expected then
+            Error('%1: got [%2], expected [%3]', Name, Got, Expected);
+    end;
+
+    [Test]
+    procedure SumNegSumCount()
+    var
+        Seeder: Codeunit "QOF Seed";
+        Q: Query "QOF Outer Sums";
+    begin
+        Seeder.Seed();
+        Check('rows', Sums(Q), '1:10=12.25/-12.25/2 1:11=1/-1/1 2:0=0/0/0 3:30=0/0/0 4:40=1/-1/2 ');
+        Clear(Q);
+        Q.SetRange(PId, 2, 3);
+        Check('parent 2..3', Sums(Q), '2:0=0/0/0 3:30=0/0/0 ');
+    end;
+
+    [Test]
+    procedure GrandchildColumnFilter()
+    var
+        Seeder: Codeunit "QOF Seed";
+        Q: Query "QOF Outer Grandchild";
+    begin
+        Seeder.Seed();
+        Check('rows', Grand(Q), '1:10:100=A/-12.25 1:10:101=A/-12.25 3:30:0=A/0 4:40:103=A/-1 4:40:104=A/-1 ');
+        Clear(Q);
+        Q.SetRange(DDay, 1);
+        Check('grandchild day 1', Grand(Q), '1:10:100=A/-12.25 4:40:104=A/-1 ');
+    end;
+
+    [Test]
+    procedure GrandchildNoColumnFilter()
+    var
+        Seeder: Codeunit "QOF Seed";
+        Q: Query "QOF Outer Grandchild Open";
+    begin
+        Seeder.Seed();
+        Check('rows', GrandOpen(Q), '1:10:100=A/-12.25 1:10:101=A/-12.25 1:11:102=B/-1 2:0:0=/0 3:30:0=A/0 4:40:103=A/-1 4:40:104=A/-1 ');
+        Clear(Q);
+        Q.SetRange(Kind, 'A');
+        Check('child kind A', GrandOpen(Q), '1:10:100=A/-12.25 1:10:101=A/-12.25 3:30:0=A/0 4:40:103=A/-1 4:40:104=A/-1 ');
+        Clear(Q);
+        Q.SetRange(DDay, 2);
+        Check('grandchild day 2', GrandOpen(Q), '1:10:101=A/-12.25 4:40:103=A/-1 ');
+    end;
+}
+"#);
+}
