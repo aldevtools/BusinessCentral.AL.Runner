@@ -890,8 +890,14 @@ impl Session {
         // The triggers table extensions attach to the field bracket its own OnValidate
         // (record/TestTriggerDispatchOrder.al:TriggerOrder_Validate_FieldPipeline_IsStable).
         let (before, after) = self.ext_validate_order(t, field)?;
+        // An error in an OnBeforeValidate or OnAfterValidate trigger a table extension adds to the field puts the whole record
+        // back too (al-runner issue 6978; corpus branch al-runtime-rs-staging-r6978 3682cab7,
+        // record/TestValidateRaisesAndHandlerAsserterrorContracts.al:167-274, ExtOnBeforeValidate_Raises_RecordAfterwards,
+        // ExtOnAfterValidate_Raises_RecordAfterwards, ExtOnAfterValidate_Raises_FieldOnValidateChangesUndone).
         for &(object, routine) in &before {
-            self.run_trigger(object, routine, rec, Some(xrec))?;
+            if let Err(e) = self.run_trigger(object, routine, rec, Some(xrec)) {
+                return Err(restore(rec, e, snapshot));
+            }
         }
         if let Some((object, routine)) = field.on_validate {
             if let Err(e) = self.run_trigger(object, routine, rec, Some(xrec)) {
@@ -908,7 +914,9 @@ impl Session {
             }
         }
         for &(object, routine) in &after {
-            self.run_trigger(object, routine, rec, Some(xrec))?;
+            if let Err(e) = self.run_trigger(object, routine, rec, Some(xrec)) {
+                return Err(restore(rec, e, snapshot));
+            }
         }
         self.table_event(t, "onaftervalidateevent", rec, Some(xrec), false, Some(&field.name))
             .map_err(|e| restore(rec, e, snapshot))
