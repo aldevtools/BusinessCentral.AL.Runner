@@ -127,6 +127,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `contract.rs` (220): The conformance suite every `Store` must pass (ADR-003). Entry: `table` 7, `cx` 36, `row` 43, `scan_all` 59.
 - `lib.rs` (153): The Store trait and table definitions (TableDef, Row, AccessContext). Entry: `Store` 120, `TableDef` 21, `FieldDef` 12, `AccessContext` 40, `InsertOutcome` 58.
 - `memory.rs` (640): In-memory store on persistent maps; a `Backing` gives untouched tables their restored rows (test data). Entry: `MemStore` 33, `with_virtual_tables` 63, `detached` 72, `attached` 83.
+- `memory/order_carry.rs`: Keeps a cached secondary-key order (`order_of`) through an Insert, a Delete or a Modify that moves a row, by a binary-search insert instead of a new sort (al-runner issue 6924). Entry: `carry_orders`, `carry_moved`.
 
 ### al-deps
 

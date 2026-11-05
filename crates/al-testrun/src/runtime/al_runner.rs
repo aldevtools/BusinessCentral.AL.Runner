@@ -33,6 +33,9 @@ pub(crate) enum Steps {
         /// The row versions handed out once the runner's own writes before the tests were done: what OnRun and the
         /// tests hand out counts from here (`Steps::row_versions_from`).
         rows_from: std::cell::Cell<i64>,
+        /// The Test Runner's tables when the runner reads its tests from their rows (`suite_rows.rs`): the test's own
+        /// code may not touch them (ADR-066 decision 4).
+        rows: std::collections::BTreeSet<u32>,
     },
 }
 
@@ -50,6 +53,10 @@ impl Steps {
                 runner,
                 instance,
                 rows_from: std::cell::Cell::new(session.row_versions_handed_out()),
+                rows: match super::suite_rows::reads_rows(&engine.program, runner) {
+                    true => super::suite_rows::tables(&engine.program),
+                    false => Default::default(),
+                },
             },
             None if execute => Steps::Builtin(RunnerReset::default()),
             None => Steps::Builtin(RunnerReset::of(engine)),
@@ -96,12 +103,51 @@ impl Steps {
         skipped: &mut bool,
     ) -> Result<(), String> {
         match self.before(session, obj, routine)? {
-            true => Ok(()),
+            true => {
+                self.watch_rows(session);
+                Ok(())
+            }
             false => {
                 *skipped = true;
                 Err("skipped by the test runner".into())
             }
         }
+    }
+
+    /// From here the test's own code runs: watch the Test Runner's tables ([`Steps::rows_touched`]).
+    fn watch_rows(&self, session: &mut Session) {
+        if let Steps::Al { rows, .. } = self {
+            if !rows.is_empty() {
+                session.store_mut().watch_window(rows.clone());
+            }
+        }
+    }
+
+    /// The test's own code ended with `result`: a refusal when it read or wrote the Test Runner's tables since
+    /// [`Steps::watch_rows`] (ADR-066 decision 4; on BC they hold the other test codeunits' lines and results, which
+    /// al-runner does not write). A refusal it ended with already stays.
+    pub(crate) fn rows_touched<T>(&self, session: &mut Session, result: Result<T, Signal>) -> Result<T, Signal> {
+        match self.take_rows(session) {
+            Some(why) if !matches!(result, Err(Signal::Unsupported(_))) => Err(Signal::Unsupported(why)),
+            _ => result,
+        }
+    }
+
+    /// Stops watching the Test Runner's tables: why the code since [`Steps::watch_rows`] may not run, if it touched them.
+    fn take_rows(&self, session: &mut Session) -> Option<String> {
+        if !matches!(self, Steps::Al { rows, .. } if !rows.is_empty()) {
+            return None;
+        }
+        let t = session.store_mut().watch_window_end()?;
+        // What the code did to the tables (an insert without a key reads their AutoIncrement counter) may depend on
+        // what they held at the unit's start: a run ahead of the carry chain is then taken only from the same rows.
+        super::suite_rows::note_unseen(false);
+        Some(format!(
+            "the test reads or writes the Test Runner's table \"{}\": on BC it holds the lines and results of the other \
+             test codeunits of the run, which al-runner does not write (each test codeunit gets only its own lines; ADR-066 \
+             decision 4)",
+            session.engine.program.objects[t as usize].name
+        ))
     }
 
     /// After test method `routine`, which passed when `success`; nothing for a method the runner `skipped`.
@@ -134,6 +180,7 @@ impl Steps {
             runner,
             instance,
             rows_from,
+            ..
         } = self
         else {
             return Ok(());
@@ -142,6 +189,7 @@ impl Steps {
         match before_test_run(session, *runner, instance, obj, "OnRun", &permissions)? {
             true => {
                 rows_from.set(session.row_versions_handed_out());
+                self.watch_rows(session);
                 Ok(())
             }
             false => Err(format!(
@@ -153,10 +201,14 @@ impl Steps {
 
     /// After the test codeunit's declared OnRun trigger, which ended without an error when `success`.
     pub(crate) fn after_on_run(&self, session: &mut Session, obj: &al_ir::Object, success: bool) -> Result<(), String> {
+        if let Some(why) = self.take_rows(session) {
+            return Err(format!("OnRun: {why}"));
+        }
         let Steps::Al {
             runner,
             instance,
             rows_from,
+            ..
         } = self
         else {
             return Ok(());

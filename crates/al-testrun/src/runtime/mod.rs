@@ -889,6 +889,7 @@ mod apply_manifests;
 mod blocked;
 mod cache;
 mod chain;
+mod chain_runs;
 mod chain_walk;
 mod compiled;
 mod corpus;
@@ -900,6 +901,8 @@ mod run;
 mod runner_reset;
 mod session_flags;
 mod suite_rows;
+#[cfg(test)]
+mod suite_rows_tests;
 mod test_marks;
 #[cfg(test)]
 mod tests;
