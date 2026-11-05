@@ -1018,7 +1018,7 @@ fn a_local_procedure_of_a_codeunit_does_not_hide_a_builtin_codeunit_method_of_it
     );
 }
 
-/// codeunits/interfaces/ScOverloadRecordInterface.al:50-107: with a `var Record` and an `Interface`
+/// codeunits/interfaces/ScOverloadRecordInterface.al:38-95: with a `var Record` and an `Interface`
 /// overload, an enum or a codeunit that implements the interface takes the Interface one, a record the Record one.
 #[test]
 fn an_enum_or_codeunit_that_implements_the_interface_takes_the_interface_overload() {

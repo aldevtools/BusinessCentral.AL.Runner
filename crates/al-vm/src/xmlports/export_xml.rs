@@ -183,7 +183,7 @@ impl Session {
                 root
             }) {
                 // A line end in a text value (LF, CR LF, a lone CR) is written as CR LF: pinned on an UTF8 export, with and without
-                // PreserveWhiteSpace and a default namespace (streams/Np4XmlPort.al:280, :300, :320, corpus PR 871;
+                // PreserveWhiteSpace and a default namespace (streams/Np4XmlPort.al:264, :300, :320, corpus PR 871;
                 // Y9_XmlPort_Export_LineFeed_Plain, corpus PR 896), and on an UTF16 export without either (FF FE, 302 bytes:
                 // Y9_XmlPort_Export_LineFeed_Utf16_RawStream, _Utf16Stream). UTF16 with PreserveWhiteSpace or a namespace is not.
                 Ok(root)

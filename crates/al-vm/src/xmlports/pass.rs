@@ -156,7 +156,7 @@ impl Session {
             }
         } else if n.max_unbounded == Some(false) && rows.len() > 1 {
             // Without export triggers, a table element without LinkTable below another one with MinOccurs = Once holds the second of
-            // two rows afterwards: the next pass without rows writes it (streams/Np4XmlPort.al:381
+            // two rows afterwards: the next pass without rows writes it (streams/Np4XmlPort.al:365
             // NP4_XmlPort_OnceOnce_TwoRows `<Child cid="12">` under head 2, corpus master), and the second of three as well (corpus
             // PR 896, Np4XmlPort.al Y9_XmlPort_OnceOnce_ThreeRowsThenNone `<Child cid="12">`). Of four or more it is not pinned.
             let once_once = unlinked_below_table(schema, node) && !n.min_zero && !export_triggers_below(schema, node);
