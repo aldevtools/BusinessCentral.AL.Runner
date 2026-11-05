@@ -21,12 +21,13 @@ command -v systemd-run >/dev/null && cap=(systemd-run --user --scope -q --slice=
 timed() {
   local label="$1"
   shift
-  local start end
-  start=$(date +%s.%N)
+  local start ms
+  start=$(date +%s%N)
   "$@" >"$dir/$label.log" 2>&1
   local status=$?
-  end=$(date +%s.%N)
-  printf '%s: %.1f s (exit %s)\n' "$label" "$(echo "$end - $start" | bc)" "$status"
+  ms=$((($(date +%s%N) - start) / 1000000))
+  printf '%s: %d.%03d s (exit %s; a run with failing tests exits 1)\n' "$label" $((ms / 1000)) $((ms % 1000)) "$status"
+  grep -E '^timings' "$dir/$label.log" || true
 }
 
 compare() {
