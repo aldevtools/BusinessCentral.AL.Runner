@@ -267,6 +267,7 @@ mod tests {
                 entry(3, ChainWhy::TestsTakeNumbers, 1000),
             ],
             reruns: vec![entry(7, RerunWhy::ReadCarriedTable, 250)],
+            starts: vec![],
         };
         assert_eq!(
             r.lines(),
