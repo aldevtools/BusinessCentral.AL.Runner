@@ -34,6 +34,7 @@ impl Session {
     /// Sets `open = false` on `st` and on the pages it shows as parts.
     pub(super) fn mark_closed(&mut self, st: &St) {
         st.borrow_mut().open = false;
+        self.prune_page_held();
         let parts = std::mem::take(&mut st.borrow_mut().parts);
         for (_, child) in &parts {
             self.mark_closed(child);
