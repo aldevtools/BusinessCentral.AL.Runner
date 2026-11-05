@@ -14,6 +14,7 @@ mod crm_connection;
 mod date_filter_short;
 mod date_formula_operator_date;
 mod delete_all_cascade;
+mod delete_all_flowfield_filter;
 mod dupkey_after_event;
 mod fieldref_blob_unloaded;
 mod fieldref_from_fieldref;

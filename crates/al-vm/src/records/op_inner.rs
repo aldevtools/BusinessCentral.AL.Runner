@@ -1168,7 +1168,7 @@ impl Session {
                 self.document_service_trigger_refused(&t, rec, run, "DeleteAll")?;
                 let (filters, flow_field_filters) = self.split_filters(rec);
                 if !flow_field_filters.is_empty() {
-                    return unsupported("DeleteAll with a filter on a FlowField");
+                    return self.delete_all_flow_filtered(&t, rec, run);
                 }
                 let temporary = rec.borrow().temporary;
                 self.coverage_cleared(&t, temporary, &filters);
