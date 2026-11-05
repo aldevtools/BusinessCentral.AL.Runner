@@ -1296,6 +1296,7 @@ impl CorpusRuntime {
         let mut details = std::collections::HashMap::new();
         let mut panics = 0;
         let mut codeunit_times: Vec<CodeunitTime> = Vec::new();
+        let mut chain_report = super::ChainReport::default();
         let order_arc: Arc<Vec<usize>> = Arc::new(order.clone());
         let mut list: Vec<TestResult> = Vec::new();
         let mut impact_keys = crate::impact_trace::Interner::default();
@@ -1379,7 +1380,7 @@ impl CorpusRuntime {
                             run_only: None,
                             hub: false,
                             hub_leg: false,
-                            onrun_carry: false,
+                            carry: None,
                             leak: None,
                             on_run_rows: OnRunRows::PerTest,
                             flags: Default::default(),
@@ -1418,9 +1419,9 @@ impl CorpusRuntime {
                             hub: *hub,
                             hub_leg: on_hub(lowered, oi, *hub, hub_path),
                             // Under Disabled isolation OnRun's writes are carried with the rest.
-                            onrun_carry: *i != TestIsolation::Disabled
-                                && !on_hub(lowered, oi, *hub, hub_path)
-                                && (onrun_writes(&engine, lowered, oi) || tests_take_numbers(&engine, lowered, oi)),
+                            carry: (*i != TestIsolation::Disabled && !on_hub(lowered, oi, *hub, hub_path))
+                                .then(|| super::chain::carry_why(&engine, lowered, oi))
+                                .flatten(),
                             leak: None,
                             without_baseline: false,
                             coverage: opts.coverage,
@@ -1519,18 +1520,22 @@ impl CorpusRuntime {
             // Codeunits with RequiredTestIsolation = Disabled under the TestRunnerHub run first, on this thread, in id order:
             // each starts from what the one before it in its suite left, and leaves everything for the later codeunits
             // (QuCommitIsolation.al:695-718 QU_D11_NextCodeunitSees; codeunits run in ascending id order, :18-20).
-            enum Link {
-                Run(usize),
-                Refused(usize, String),
-            }
-            // Codeunits runner 130450 runs whose OnRun can write (`Unit::onrun_carry`) join the chain after them: the hub runs
+            use super::chain_walk::Link;
+            // Codeunits runner 130450 runs whose OnRun can write (`Unit::carry`) join the chain after them: the hub runs
             // its codeunits first (RqIsolationModes.al:12), and each carries what its OnRun left (leg 1).
             let mut chain: Vec<(usize, u8, u32, Link)> = (0..units.len())
                 // A test runner's TestIsolation = Disabled (al-runner --isolation disabled, a runner codeunit of the suite)
                 // runs every codeunit this way, in id order: corpus PR 735, IsolProbeReader.Codeunit.al:82-89 and
                 // SdIsolCommitReader.Codeunit.al:3-4 (the reader, a higher id, runs after the writer and sees its rows).
-                .filter(|&k| units[k].isolation == TestIsolation::Disabled || units[k].onrun_carry)
-                .map(|k| (units[k].si, u8::from(units[k].onrun_carry), units[k].id, Link::Run(k)))
+                .filter(|&k| units[k].isolation == TestIsolation::Disabled || units[k].carry.is_some())
+                .map(|k| {
+                    (
+                        units[k].si,
+                        u8::from(units[k].carry.is_some()),
+                        units[k].id,
+                        Link::Run(k),
+                    )
+                })
                 .chain(
                     refused_disabled
                         .into_iter()
@@ -1564,66 +1569,52 @@ impl CorpusRuntime {
                 si == u.si && place(si, id) < place(u.si, u.id) && (leg == 0 || !u.hub_leg)
             };
             let mut slots: Vec<Option<UnitResult>> = (0..units.len()).map(|_| None).collect();
-            // Per suite, in id order: the codeunit id and what it left, with the tables of every one before it.
-            let mut carried: Vec<(usize, u32, u8, super::run::Carried)> = Vec::new();
-            for (si, leg, id, link) in chain {
-                let before = carried.iter().rev().find(|(s, _, _, _)| *s == si);
-                let mut left = match link {
-                    Link::Run(k) => {
-                        units[k].leak = before.map(|(_, _, _, c)| Arc::new(c.tables.clone()));
-                        let start = match before {
-                            Some((_, _, _, c)) => c.baseline.as_ref(),
-                            None => baseline.as_ref(),
-                        };
-                        // `--explain` names where a test of the chain failed too (al-runner issue 6924).
-                        let (si, id) = (units[k].si, units[k].id);
-                        let mut observe = |name: &str, _: &Outcome, seen: &Observed| {
-                            details.insert((si, id, name.to_lowercase()), observed_detail(lowered, seen));
-                        };
-                        let trace: Option<&mut Observer> = opts.trace.then_some(&mut observe);
-                        let mut r = run_unit(&engine, lowered, start, &units[k], trace, limit);
-                        let mut left = super::run::CARRIED.with(|c| c.borrow_mut().take());
-                        // A codeunit that left nothing new (`numbers_taken.rs`) leaves the state it was given, not the
-                        // session's: under the baseline rule check that session started on an empty store.
-                        if let Some(l) = left.as_mut().filter(|l| l.baseline.is_none()) {
-                            l.baseline = start.cloned();
-                        }
-                        if let (Some((_, _, _, b)), Ok(done)) = (before, &mut r.result) {
-                            let storage = b.everything && reaches_session_storage(&engine, lowered, units[k].oi);
-                            let why =
-                                if storage { b.storage_why.as_ref() } else { None }.or(if done.5.leak_hit || storage {
-                                    b.unfinished.as_ref()
-                                } else {
-                                    None
-                                });
-                            if let Some(why) = why {
-                                refuse_all(&mut done.0, why);
-                            }
-                        }
-                        slots[k] = Some(r);
-                        left.unwrap_or_else(|| {
-                            not_run_link(
-                                &engine,
-                                lowered,
-                                units[k].oi,
-                                units[k].isolation != TestIsolation::Disabled,
-                                "it was not run as a whole".into(),
-                            )
-                        })
-                    }
-                    Link::Refused(oi, why) => not_run_link(&engine, lowered, oi, false, why),
-                };
-                if let Some((_, _, _, b)) = before {
-                    left.tables.extend(b.tables.iter().copied());
-                    left.unfinished = left.unfinished.or_else(|| b.unfinished.clone());
-                    left.storage_why = left.storage_why.or_else(|| b.storage_why.clone());
-                    left.everything |= b.everything;
-                    if left.baseline.is_none() {
-                        left.baseline = b.baseline.clone();
-                    }
-                }
-                carried.push((si, id, leg, left));
+            chain_report.units += units.len() + chain.iter().filter(|c| matches!(c.3, Link::Refused(..))).count();
+            // Helper threads run the chain's codeunits ahead while the walk can still use their runs (`chain_walk.rs`).
+            let helpers = if workers > 1 && baseline_engine.is_some() {
+                workers - 1
+            } else {
+                0
+            };
+            let first_origin = baseline.as_ref().map(al_vm::Baseline::origin);
+            if helpers > 0 {
+                let encode_started = std::time::Instant::now();
+                snapshot_once.get_or_init(|| baseline.as_ref().and_then(al_vm::Baseline::to_bytes));
+                encode_time += encode_started.elapsed();
             }
+            // A test thread's own copy of the install baseline: the baseline the first run left, as its snapshot says (over
+            // the engine's test data, if it has any); only a baseline that has no snapshot is run again, once per thread.
+            let thread_baseline = |snapshot: Option<&[u8]>| {
+                let reset_started = std::time::Instant::now();
+                let own = baseline_engine.as_ref().and_then(|e| {
+                    snapshot
+                        .and_then(al_vm::Baseline::from_bytes)
+                        // The bytes are those of the first run's baseline.
+                        .map(|b| match first_origin {
+                            Some(origin) => b.backed_by(e).with_origin(origin),
+                            None => b.backed_by(e),
+                        })
+                        .or_else(|| {
+                            crate::baseline::run_traced(e, lowered, false, opts.company_data.as_ref(), &opts.perturb)
+                                .map(|b| b.baseline)
+                        })
+                });
+                let took = reset_started.elapsed().as_nanos().min(u64::MAX as u128) as u64;
+                reset_ns.fetch_max(took, std::sync::atomic::Ordering::Relaxed);
+                own
+            };
+            let ahead_snapshot: Option<&[u8]> = snapshot_once.get().and_then(|s| s.as_deref());
+            let carried = super::chain_walk::ChainWalk {
+                engine: &engine,
+                lowered,
+                baseline: baseline.as_ref(),
+                units: &units,
+                trace: opts.trace,
+                limit,
+                helpers,
+                thread_baseline: &|| thread_baseline(ahead_snapshot),
+            }
+            .walk(chain, &mut slots, &mut details, &mut chain_report);
             // The other codeunits run as before; one that comes after a Disabled codeunit notes whether it reads a table that
             // codeunit left rows in, and then runs again below, from what it left.
             for u in units.iter_mut() {
@@ -1656,8 +1647,7 @@ impl CorpusRuntime {
                         .then(|| baseline.as_ref().and_then(al_vm::Baseline::to_bytes))
                         .flatten()
                 });
-                encode_time = encode_started.elapsed();
-                let first_origin = baseline.as_ref().map(al_vm::Baseline::origin);
+                encode_time += encode_started.elapsed();
                 let next = std::sync::atomic::AtomicUsize::new(0);
                 let pull = |baseline: Option<&al_vm::Baseline>| {
                     let mut done = Vec::new();
@@ -1675,31 +1665,7 @@ impl CorpusRuntime {
                         let spawned = std::thread::Builder::new()
                             .stack_size(TEST_STACK)
                             .spawn_scoped(scope, || {
-                                // The baseline the first run left, as its snapshot says (over the engine's test data, if
-                                // it has any); only a baseline that has no snapshot is run again, once per thread.
-                                let reset_started = std::time::Instant::now();
-                                let own = baseline_engine.as_ref().and_then(|e| {
-                                    snapshot
-                                        .as_deref()
-                                        .and_then(al_vm::Baseline::from_bytes)
-                                        // The bytes are those of the first run's baseline.
-                                        .map(|b| match first_origin {
-                                            Some(origin) => b.backed_by(e).with_origin(origin),
-                                            None => b.backed_by(e),
-                                        })
-                                        .or_else(|| {
-                                            crate::baseline::run_traced(
-                                                e,
-                                                lowered,
-                                                false,
-                                                opts.company_data.as_ref(),
-                                                &opts.perturb,
-                                            )
-                                            .map(|b| b.baseline)
-                                        })
-                                });
-                                let took = reset_started.elapsed().as_nanos().min(u64::MAX as u128) as u64;
-                                reset_ns.fetch_max(took, std::sync::atomic::Ordering::Relaxed);
+                                let own = thread_baseline(snapshot.as_deref());
                                 pull(own.as_ref())
                             });
                         match spawned {
@@ -1759,6 +1725,18 @@ impl CorpusRuntime {
                             };
                             let trace: Option<&mut Observer> = opts.trace.then_some(&mut observe);
                             r = run_unit(&engine, lowered, c.baseline.as_ref(), &units[k], trace, limit);
+                            chain_report.reruns.push(super::ChainEntry {
+                                id,
+                                name: lowered.program.objects[units[k].oi].name.clone(),
+                                why: if storage {
+                                    super::RerunWhy::ReachesCarriedStorage
+                                } else {
+                                    super::RerunWhy::ReadCarriedTable
+                                },
+                                took: r.took,
+                                left: false,
+                                ahead: false,
+                            });
                         }
                     }
                 }
@@ -1969,6 +1947,7 @@ impl CorpusRuntime {
             suites,
             panics,
             phases: Phases {
+                chain: chain_report,
                 baseline_assumptions: baseline_ids,
                 baseline_roots,
                 compile: compile_time,
@@ -2431,31 +2410,6 @@ fn on_hub(lowered: &Lowered, oi: usize, hub: bool, hub_path: bool) -> bool {
             .any(|(k, v)| k.eq_ignore_ascii_case("TestPermissions") && v.trim().eq_ignore_ascii_case("Disabled")))
 }
 
-/// Whether the `OnRun` trigger of test codeunit `oi` can write a table. Under Microsoft's runner 130450 it runs outside the
-/// codeunit isolation: what it writes, committed or not, reaches the later codeunits (codeunits/run-onrun/
-/// RqIsolationModes.al:357-369, :493-505 and :616, the `#else` branches the BC 27 legs run), so such a codeunit carries
-/// what its OnRun left to them (`Unit::onrun_carry`). On the TestRunnerHub, Codeunit and Function isolation roll it back
-/// (:357-362, :493-498) and Disabled carries it with the rest. Isolated storage and number sequences OnRun changes,
-/// committed and open, carry the same way (testlibraries test-framework/onrun-storage/Y35OnRunStorage.al
-/// C301_B1_OnRunCommittedStorage, C301_B1_OnRunSequences, C301_B1_OnRunOpenWrites), so an OnRun whose reach can write
-/// them counts too. An OnRun whose reach is not fully known counts only through what it is known to write, as for tables
-/// (a refused OnRun that names nothing does not hold back the later codeunits).
-fn onrun_writes(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> bool {
-    use super::written::{ReachIndex, reach_facts, state};
-    let o = &lowered.program.objects[oi];
-    o.routines
-        .iter()
-        .position(|r| r.is_trigger && r.name.eq_ignore_ascii_case("OnRun"))
-        .is_some_and(|r| {
-            if !crate::baseline::tables_written(lowered, oi, r).is_empty() {
-                return true;
-            }
-            let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
-            let f = reach_facts(&engine.events, lowered, &index, oi, r);
-            f.state_writes & (state::ISOLATED_STORAGE | state::NUMBER_SEQUENCE) != 0
-        })
-}
-
 /// AL_CHECK_BASELINE_RULE=1 (`RunOptions::check_baseline_rule`): the verification of `observe.rs`. The baseline runs as
 /// usual, but each test codeunit the rule calls free of it starts on an empty store. A run compared with a normal one must
 /// show no outcome that differs (`tools/baseline_rule_check.sh`).
@@ -2474,7 +2428,7 @@ fn check_baseline_rule(lowered: &Lowered, units: &mut [Unit]) {
         // does.
         let o = &lowered.program.objects[u.oi];
         let hands_on = u.isolation == TestIsolation::Disabled
-            || (u.onrun_carry
+            || (u.carry.is_some()
                 && o.routines
                     .iter()
                     .any(|r| r.is_trigger && r.name.eq_ignore_ascii_case("OnRun")));
@@ -2487,34 +2441,10 @@ fn check_baseline_rule(lowered: &Lowered, units: &mut [Unit]) {
     );
 }
 
-/// Whether a test of test codeunit `oi` can take a number from a number sequence. Under runner 130450 the codeunit's rollback
-/// does not give it back (testlibraries test-framework/onrun-storage/Y35OnRunStorage.al:30-31, C302_B2_TestWritesStorage :457), so
-/// such a codeunit joins the carry chain as one whose OnRun writes (`numbers_taken.rs`). Counted only through what the
-/// tests are known to write, as for OnRun.
-fn tests_take_numbers(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> bool {
-    use super::written::{ReachIndex, state, union_reach_has};
-    let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
-    let o = &lowered.program.objects[oi];
-    // One walk of the tests' joined reach: a walk per test went over their shared reach once per test (11 % of the
-    // full corpus run with Microsoft's apps).
-    let tests: Vec<(usize, usize)> = (0..o.routines.len())
-        .filter(|&r| {
-            o.routines[r]
-                .attributes
-                .iter()
-                .any(|a| a.name.eq_ignore_ascii_case("Test"))
-        })
-        .map(|r| (oi, r))
-        .collect();
-    union_reach_has(&engine.events, lowered, &index, &tests, &|f| {
-        f.state_writes & state::NUMBER_SEQUENCE != 0
-    })
-}
-
 /// Whether the static reach of test codeunit `oi` (its tests and its `OnRun`) can read or change isolated storage or a
 /// number sequence, or is not fully known. Only such a codeunit can see what an earlier Disabled codeunit left there
 /// (`Carried::everything`); one that cannot reach them does not depend on it.
-fn reaches_session_storage(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> bool {
+pub(super) fn reaches_session_storage(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> bool {
     use super::written::{ReachIndex, state, union_reach_has};
     let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
     let bits = state::ISOLATED_STORAGE | state::NUMBER_SEQUENCE | state::OTHER;
@@ -2533,7 +2463,7 @@ fn reaches_session_storage(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: u
 }
 
 /// Every outcome of a codeunit becomes not run, for `why`.
-fn refuse_all(done: &mut [(String, Outcome)], why: &str) {
+pub(super) fn refuse_all(done: &mut [(String, Outcome)], why: &str) {
     for (_, o) in done.iter_mut() {
         *o = Outcome::NotRun(why.to_string());
     }
@@ -2550,12 +2480,12 @@ fn requires_disabled(o: &al_ir::Object) -> bool {
 /// it can write is not run.
 ///
 /// A codeunit with RequiredTestIsolation = Disabled carries what its tests and its OnRun write (QuCommitIsolation.al:695-718),
-/// so every table its tests name counts. One that is in the chain only for its OnRun (`onrun_only`, `Unit::onrun_carry`:
+/// so every table its tests name counts. One that is in the chain only for its OnRun (`onrun_only`, `Unit::carry`:
 /// runner 130450 under Codeunit isolation) carries only what OnRun writes: its tests' writes are rolled back with the
 /// codeunit (RqIsolationModes.al:357-369, the `#else` branches, and :396-472), so only the tables OnRun's reach writes
 /// count. When that reach is not fully known, or writes a table not known statically, every table its tests name counts,
 /// as for a Disabled codeunit, and so does every table OnRun's reach names.
-fn not_run_link(
+pub(super) fn not_run_link(
     engine: &Arc<al_vm::Engine>,
     lowered: &Lowered,
     oi: usize,
@@ -2615,6 +2545,7 @@ fn not_run_link(
         )),
         storage_why: None,
         everything: false,
+        as_started: false,
     }
 }
 
@@ -2655,7 +2586,7 @@ fn app_contexts(
 }
 
 /// What `--explain` keeps of a test that just ended: its error, and where it was raised or refused.
-fn observed_detail(lowered: &Lowered, seen: &Observed) -> explain::TestDetail {
+pub(super) fn observed_detail(lowered: &Lowered, seen: &Observed) -> explain::TestDetail {
     let mut d = explain::detail(
         &lowered.program,
         seen.session.fault_site(),

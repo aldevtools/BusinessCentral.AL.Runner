@@ -81,14 +81,18 @@ impl Steps {
         }
     }
 
-    /// After test method `routine`, which passed when `success`.
+    /// After test method `routine`, which passed when `success`; nothing for a method the runner `skipped`.
     pub(crate) fn after(
         &self,
         session: &mut Session,
         obj: &al_ir::Object,
         routine: &al_ir::Routine,
         success: bool,
+        skipped: bool,
     ) -> Result<(), String> {
+        if skipped {
+            return Ok(());
+        }
         match self {
             Steps::Builtin(reset) => reset.after(session),
             Steps::Al { runner, instance } => {

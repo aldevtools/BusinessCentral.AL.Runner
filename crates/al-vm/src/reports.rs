@@ -1062,104 +1062,6 @@ impl Session {
         }
     }
 
-    /// A fresh instance of the report with the id in `arg`.
-    /// `Report.WordXmlPart([Number,] [ExtendedFormat])`: the XML of the data set as text, from the report's
-    /// data items and columns alone (nothing runs). Pinned by the corpus staging branch (types/PZMisc.al:
-    /// WordXmlPart_BothOverloads_ReportWithoutWordLayout and WordXmlPart_Content_IncludesTheColumns, BC 29.0):
-    /// a report with only an RDLC layout answers a text that starts with `<` and holds the data item and
-    /// column names and `urn:microsoft-dynamics-nav`, with either flag; an unknown report id fails with the code
-    /// AL:MetadataNotFound and the missing-object text (P91Static.al:167-168). The rest follows what the owner's Pageworks code reads
-    /// (a `NavWordReportXmlPart` root, a `Labels` block, nested data items, `ElementType` DataItem / Column
-    /// with the flag): unprobed, docs/probes-needed.md "Report.WordXmlPart".
-    fn report_word_xml_part(
-        &mut self,
-        id: al_ir::BuiltinId,
-        receiver: Option<Value>,
-        args: &[Value],
-    ) -> Result<Value, Signal> {
-        let static_form = id == ids::REPORT_WORDXMLPART_2;
-        let (flag_at, schema) = if static_form {
-            let known = match args.first() {
-                Some(Value::Integer(n)) => self.engine.program.objects.heads().iter().any(|o| {
-                    (o.is_kind(al_ir::ObjKind::Report) || o.is_shell_of(al_ir::ObjKind::Report))
-                        && o.id == u32::try_from(*n).ok()
-                }),
-                _ => true,
-            };
-            if !known {
-                let n = match args.first() {
-                    Some(Value::Integer(n)) => i64::from(*n),
-                    _ => 0,
-                };
-                if let Some(why) = self.missing_may_be_skipped("Report", n) {
-                    return unsupported(why);
-                }
-                // The missing-object error (reports/request-page/P91Static.al:167-168, ids 0 and 71999).
-                // Only from a try function is it pinned: which object the text names elsewhere is not.
-                if self.tx.try_depth == 0 {
-                    return unsupported(
-                        "Report.WordXmlPart of an id no report has, called outside a try function (only from a try function is it pinned)",
-                    );
-                }
-                return Err(self.missing_object("Report", n));
-            }
-            (1, self.report_by_number(id, args.first())?.1)
-        } else {
-            let inst = self.report_instance(receiver, false)?.0;
-            (0, self.report_schema(&inst)?)
-        };
-        let extended = match args.get(flag_at) {
-            None => false,
-            Some(Value::Boolean(b)) => *b,
-            Some(other) => return unsupported(format!("{id} with the flag {}", other.describe())),
-        };
-        let report = schema.report();
-        if !report.extensions.is_empty() {
-            return unsupported("Report.WordXmlPart of a report that reportextensions change (not pinned)");
-        }
-        let tag = |name: &str| -> Result<String, Signal> {
-            if name
-                .chars()
-                .all(|c| c.is_alphanumeric() || matches!(c, ' ' | '_' | '-'))
-                && !name.is_empty()
-            {
-                Ok(name.replace(' ', "_"))
-            } else {
-                unsupported(format!(
-                    "Report.WordXmlPart of the name `{name}`: how BC legalizes it as an XML tag is not pinned"
-                ))
-            }
-        };
-        fn items(
-            report: &ir::Report,
-            parent: Option<usize>,
-            extended: bool,
-            tag: &dyn Fn(&str) -> Result<String, Signal>,
-            out: &mut String,
-        ) -> Result<(), Signal> {
-            for (i, item) in report.items.iter().enumerate().filter(|(_, it)| it.parent == parent) {
-                let name = tag(&item.name)?;
-                let kind = if extended { " ElementType=\"DataItem\"" } else { "" };
-                out.push_str(&format!("<{name}{kind}>"));
-                for c in &item.columns {
-                    let cn = tag(&c.name)?;
-                    let kind = if extended { " ElementType=\"Column\"" } else { "" };
-                    out.push_str(&format!("<{cn}{kind} />"));
-                }
-                items(report, Some(i), extended, tag, out)?;
-                out.push_str(&format!("</{name}>"));
-            }
-            Ok(())
-        }
-        let mut body = String::new();
-        items(report, None, extended, &tag, &mut body)?;
-        let number = self.object_id_of(schema.object as u32);
-        Ok(Value::Text(format!(
-            "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?><NavWordReportXmlPart xmlns=\"urn:microsoft-dynamics-nav/reports/{}/{number}/\"><Labels />{body}</NavWordReportXmlPart>",
-            tag(schema.name())?
-        ).into()))
-    }
-
     /// Report `arg` (a number) is processing-only and declares UseSystemPrinter: the shape whose `Print` is pinned.
     fn report_print_runs_as_execute(&self, arg: Option<&Value>) -> bool {
         let Some(Value::Integer(n)) = arg else { return false };
@@ -2640,14 +2542,47 @@ impl Run {
         out
     }
 
+    /// The items nested directly under `r`, in the order they run (`ItemTree::children`).
+    fn children(&self, r: ItemRef) -> Vec<ItemRef> {
+        self.tree().children(r)
+    }
+
+    /// The report and the extensions of the run as IR.
+    fn tree(&self) -> ItemTree<'_> {
+        ItemTree {
+            report: self.report(),
+            exts: (0..self.exts.len()).map(|k| self.ext_ir(k)).collect(),
+        }
+    }
+}
+
+/// A report and the reportextensions that change it (in object id order), as IR: the tree of data items a run walks and
+/// `Report.WordXmlPart` lists.
+pub(crate) struct ItemTree<'a> {
+    report: &'a ir::Report,
+    exts: Vec<Option<&'a ir::ReportExt>>,
+}
+
+impl<'a> ItemTree<'a> {
+    fn ext(&self, k: usize) -> Option<&'a ir::ReportExt> {
+        self.exts.get(k).copied().flatten()
+    }
+
+    fn item(&self, r: ItemRef) -> &'a ir::ReportItem {
+        match r {
+            ItemRef::Base(i) => &self.report.items[i],
+            ItemRef::Added(k, i) => &self.ext(k).expect("an added item has an extension").added[i].item,
+        }
+    }
+
     /// The items nested directly under `r`, in the order they run: a base item's own, then the
     /// ones the extension added under it.
     fn children(&self, r: ItemRef) -> Vec<ItemRef> {
         let mut out = Vec::new();
         if let ItemRef::Base(i) = r {
             out.extend(
-                (0..self.report().items.len())
-                    .filter(|&c| self.report().items[c].parent == Some(i))
+                (0..self.report.items.len())
+                    .filter(|&c| self.report.items[c].parent == Some(i))
                     .map(ItemRef::Base),
             );
         }
@@ -2655,7 +2590,7 @@ impl Run {
         // nearest it (corpus reports/extensions/TestReportExtensionSamePlaceContracts.al:251:
         // `addfirst` G1 F1 F2, `addbefore` X1 X2 Y1 ChildA, `addafter` ChildA Z2 Z1).
         for k in 0..self.exts.len() {
-            let Some(x) = self.ext_ir(k) else { continue };
+            let Some(x) = self.ext(k) else { continue };
             let mine: Vec<usize> = (0..x.added.len())
                 .filter(|&c| match r {
                     ItemRef::Base(i) => x.added[c].base_parent == Some(i),
@@ -4903,3 +4838,4 @@ mod format_region;
 mod header_tests;
 mod request_caption;
 mod running;
+mod word_xml_part;

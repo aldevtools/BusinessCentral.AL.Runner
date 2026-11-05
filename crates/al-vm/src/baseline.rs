@@ -341,6 +341,36 @@ impl Session {
         self.isolated_storage != start.isolated_storage || self.sequences != start.sequences
     }
 
+    /// Whether a session restored from a capture of this one now ([`Session::capture_baseline`]) would start exactly as one
+    /// restored from `start`, the baseline this session was restored from ([`Session::restore_baseline`] reads nothing
+    /// else): no table changed since that restore (the store is `start`'s), the counters, AutoIncrement values, isolated
+    /// storage, number sequences, last stamp, unknown company tables and full copies are `start`'s, and `start` holds no
+    /// built company (a capture does not keep that mark). The install rows a capture is given are those `start` gave
+    /// (`Session::install_rows`), and its workspace installs are the caller's to compare.
+    pub fn holds_what_it_started_from(&self, start: &Baseline) -> bool {
+        let unknown: std::collections::BTreeSet<(&str, u32, &str)> = self
+            .company_unknown
+            .iter()
+            .map(|((c, t), why)| (c.as_str(), *t, why.as_str()))
+            .collect();
+        let start_unknown: std::collections::BTreeSet<(&str, u32, &str)> = start
+            .company_unknown
+            .iter()
+            .map(|(c, t, why)| (c.as_str(), *t, why.as_str()))
+            .collect();
+        self.baseline_origin() == Some(start.origin)
+            && self.next_guid == start.next_guid
+            && self.next_row_version == start.next_row_version
+            && self.tx.committed_row_version == start.committed_row_version
+            && self.autoinc == start.autoinc
+            && self.isolated_storage == start.isolated_storage
+            && self.sequences == start.sequences
+            && self.last_stamp == start.last_stamp
+            && !start.company_built
+            && unknown == start_unknown
+            && self.full_copies.iter().eq(start.full_copies.iter())
+    }
+
     /// Puts into `b` the numbers the session took since `b` from the sequences `b` holds. Under runner 130450 a test's
     /// `NumberSequence.Next` is not given back when the codeunit's writes are rolled back, while its new sequences and its
     /// isolated storage writes are (testlibraries test-framework/onrun-storage/Y35OnRunStorage.al:30-31, C302_B2_TestWritesStorage

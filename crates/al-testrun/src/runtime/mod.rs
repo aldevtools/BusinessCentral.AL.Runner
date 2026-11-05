@@ -362,6 +362,8 @@ pub struct TestResult {
 /// Wall time of the phases of a run (`--timings`).
 #[derive(Debug, Clone, Default)]
 pub struct Phases {
+    /// The test codeunits that ran serially in the carry chain, and why (`--timings`).
+    pub chain: ChainReport,
     /// The ids of the assumptions the install baseline relied on (a JUnit suite-level property).
     pub baseline_assumptions: Vec<String>,
     /// Install roots that ran to their end, and how many there were; `None` when no baseline ran.
@@ -536,8 +538,8 @@ pub(crate) struct Unit {
     hub: bool,
     /// BC runs it on the TestRunnerHub (`corpus.rs` `on_hub`), before the codeunits runner 130450 runs.
     hub_leg: bool,
-    /// See `Scratch::onrun_carry`.
-    onrun_carry: bool,
+    /// Why runner 130450 carries what it leaves to the later codeunits (`chain::carry_why`); see `Scratch::onrun_carry`.
+    carry: Option<chain::ChainWhy>,
     /// See `Scratch::leak`.
     leak: Option<Arc<std::collections::BTreeSet<u32>>>,
     /// See `RunOptions::on_run_rows`.
@@ -679,7 +681,7 @@ fn run_unit(
             run_only: u.run_only.clone(),
             hub: u.hub,
             leak: u.leak.clone(),
-            onrun_carry: u.onrun_carry,
+            onrun_carry: u.carry.is_some(),
             on_run_rows: u.on_run_rows,
             flags: u.flags,
             report_unpinned_errors: u.report_unpinned_errors,
@@ -883,6 +885,8 @@ mod al_runner_tests;
 mod apply_manifests;
 mod blocked;
 mod cache;
+mod chain;
+mod chain_walk;
 mod compiled;
 mod corpus;
 mod data_driven;
@@ -899,6 +903,7 @@ pub(crate) mod written;
 
 pub use self::blocked::*;
 pub use self::cache::*;
+pub use self::chain::{ChainEntry, ChainReport, ChainWhy, RerunWhy};
 pub use self::compiled::*;
 use self::grow::{Grow, GrowKept};
 pub use self::grow::{KeptCompile, fresh_pass_compile};
