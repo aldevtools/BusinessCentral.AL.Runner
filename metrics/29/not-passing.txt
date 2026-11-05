@@ -1178,7 +1178,6 @@
 79450 An11_DeleteOnlyRow
 79450 An15_RelationLookup_NoPage_NoHandler
 79450 An16_DurationSpellings
-79450 An19_TableFieldCaptionClass_NonNumericArea
 79590 Bg_Commit
 79590 Bg_RunFailUnguarded
 79590 Bg_RunOkUnguarded
