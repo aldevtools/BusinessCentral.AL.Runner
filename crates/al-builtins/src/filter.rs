@@ -628,7 +628,27 @@ pub fn parse_filter_with(
     };
     let mut kept_placeholder = false;
     let mut at_placeholder = false;
-    let toks = tokenize(text, args, &mut kept_placeholder, &mut at_placeholder)?;
+    let mut missing_placeholder = None;
+    let toks = tokenize(
+        text,
+        args,
+        &mut kept_placeholder,
+        &mut at_placeholder,
+        &mut missing_placeholder,
+    )?;
+    // A placeholder without an argument: on a Code and a Text field it is the text `%n` (`<>%1` keeps the blank row and leaves out
+    // the row `%1`; record/filters/PlaceholderWithoutArgument.al:95-132, :155-168); on an Integer and a Decimal field BC raises
+    // `The variable "%1" was not understood.` (record/crud/RcAFilters.al:446,464; PlaceholderWithoutArgument.al:135-145). Other
+    // types are not pinned (on a Date field it reads back as a date of the session, :8-9).
+    if let Some(var) = missing_placeholder {
+        match ty {
+            crate::value::RtType::Text(_) | crate::value::RtType::Code(_) => {}
+            crate::value::RtType::Integer | crate::value::RtType::Decimal => {
+                return Err(format!("{VARIABLE_NOT_UNDERSTOOD}{var}"));
+            }
+            _ => return Err("filter placeholder without an argument".into()),
+        }
+    }
     if at_placeholder && !matches!(ty, crate::value::RtType::Text(_)) {
         return Err(format!(
             "`@` right before a placeholder on a {} field (only Text is pinned)",
@@ -707,6 +727,7 @@ fn tokenize(
     args: &[Value],
     kept_placeholder: &mut bool,
     at_placeholder: &mut bool,
+    missing_placeholder: &mut Option<String>,
 ) -> Result<Vec<Tok>, String> {
     let c: Vec<char> = text.chars().collect();
     let mut out = Vec::new();
@@ -828,10 +849,14 @@ fn tokenize(
                 continue;
             }
             flush(&mut raw, &mut out);
-            let arg = args
-                .get(n.wrapping_sub(1))
-                .cloned()
-                .ok_or("filter placeholder without an argument")?;
+            // A placeholder with no argument stays as written: on a Code and a Text field `<>%1` is the text `%1`
+            // (record/filters/PlaceholderWithoutArgument.al:95-132, staging r6980); the caller decides per field type.
+            let Some(arg) = args.get(n.wrapping_sub(1)).cloned() else {
+                missing_placeholder.get_or_insert_with(|| format!("%{n}"));
+                out.push(Tok::Raw(format!("%{n}")));
+                i += 2;
+                continue;
+            };
             // A text substituted for a placeholder is TEXT, not a filter, except that `*` and `?` stay
             // wildcards and a leading `@` ignores case. `&`, `|`, `(`, `)`, `<`, `=` and `..` in it make
             // BC quote the whole value (record/TestSetFilterSpecialTextContracts.al, BC 27.5);
