@@ -37,6 +37,32 @@ impl Session {
         self.engine.field_facts[table as usize][pos].class == ir::FieldClass::FlowFilter
     }
 
+    /// How many rows of the related table pass `filters` on stored fields and `flow_field_filters` on FlowFields, each FlowField
+    /// calculated for the row (stops at the first row that passes).
+    fn count_passing_flow_fields(
+        &mut self,
+        cx: &al_data::AccessContext,
+        related: &TableDef,
+        filters: &[FieldFilter],
+        flow_field_filters: &[FieldFilter],
+    ) -> Result<usize, Signal> {
+        let mut rows = Vec::new();
+        self.each_row_of(None, cx, related, filters, |row| {
+            rows.push(row.to_vec());
+            Ok(())
+        })?;
+        let Value::Record(probe) = self.default_value(&al_builtins::value::RtType::Record(related.object, false))
+        else {
+            return Err(Signal::Unsupported("a record of the related table".into()));
+        };
+        for row in rows {
+            if self.passes_flow_field_filters(&probe, &row, flow_field_filters)? {
+                return Ok(1);
+            }
+        }
+        Ok(0)
+    }
+
     /// The FlowFields of `t` that a condition of field `pos`'s relation names.
     fn flow_field_conditions(&self, t: &TableDef, pos: usize) -> Vec<usize> {
         let Some(schema) = self.engine.program.objects[t.object as usize].table.as_ref() else {
@@ -212,6 +238,7 @@ impl Session {
             .clone()
             .ok_or_else(|| Signal::Unsupported("relation to a table without a schema".into()))?;
         let rel_pos = arm.field.unwrap_or(related.keys[0][0]);
+        let mut flow_field_filters: Vec<FieldFilter> = Vec::new();
         let mut filters = vec![FieldFilter {
             field: rel_pos,
             expr: FilterExpr::Eq(ops::convert(value.clone(), &related.fields[rel_pos].ty)?),
@@ -229,7 +256,15 @@ impl Session {
                 // record/filters/RelationWhereFlowFilter.al:ValidateFlowFilterConstRelation, ValidateFlowFilterFieldRelation_ExistingValue.
                 continue;
             }
-            filters.push(match w {
+            // A condition on a FlowField of the related table compares each row's calculated value, not the stored one: a lookup,
+            // exist and count FlowField with const, filter and field() (al-runner issue 6979; corpus branch
+            // al-runtime-rs-staging-r6978 3682cab7, record/filters/RelationWhereFlowFilter.al:182-292, RelationOnRelatedFlowField_*).
+            let target = if self.is_flow_field(related.object, related_pos) {
+                &mut flow_field_filters
+            } else {
+                &mut filters
+            };
+            target.push(match w {
                 ir::RelationWhere::Value { related: p, text } => FieldFilter {
                     field: *p,
                     expr: self
@@ -263,10 +298,13 @@ impl Session {
             });
         }
         let cx = self.cx_for(rec, &related)?;
-        let found = self
-            .store
-            .count(&cx, &related, &filters)
-            .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+        let found = if flow_field_filters.is_empty() {
+            self.store
+                .count(&cx, &related, &filters)
+                .map_err(|e| Signal::Unsupported(format!("{e}")))?
+        } else {
+            self.count_passing_flow_fields(&cx, &related, &filters, &flow_field_filters)?
+        };
         if found > 0 {
             return Ok(());
         }
