@@ -55,6 +55,7 @@ mod dispatch;
 pub mod dotnet;
 mod effects;
 mod empty_reads;
+pub use empty_reads::{InstallRows, KnownValue};
 mod errorcollect;
 pub mod events;
 mod ext_validate_order;
@@ -1312,6 +1313,7 @@ impl Session {
                 not_installed_apps: None,
                 order_unknown_apps: None,
                 install_written: None,
+                install_rows: None,
                 setup_no_ops: Default::default(),
                 global_setups: Default::default(),
             },
