@@ -161,6 +161,11 @@ pub trait Ctx: FormatCtx {
     fn now_unix_millis(&self) -> Option<i64> {
         None
     }
+    /// Whether an xRec handle that AL code can still see holds the Blob buffer `b` (a `Clear` of it then gives Rec a new
+    /// buffer instead of emptying the shared one, `native::values::clear`).
+    fn xrec_holds_blob(&self, _b: &crate::stream::BlobRef) -> bool {
+        false
+    }
     /// `Format` of a record variable, a `RecordRef` or a `FieldRef` (standard format 0): needs the
     /// table's fields. `None` where the context has no program.
     fn format_composite(&mut self, _v: &Value) -> Option<Result<String, Signal>> {

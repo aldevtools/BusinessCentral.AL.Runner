@@ -134,8 +134,10 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
         // table that holds the same buffer sees what a stream writes after the Clear, also through a Get (corpus branch
         // al-runtime-rs-staging-r6978 3682cab7, streams/TestBlobCalcFieldsUncommittedWrite.al:183-222,
         // BlobRoundTrip_TemporaryVariable_Matrix and _TemporaryTable_Matrix, `clear+noget`, `clear+get`; al-runner issue 6791). A buffer an Insert stored while it held content (`BlobBuf::temp_inserted`) is
-        // replaced as before: what a Clear of it leaves on the row is not pinned.
-        Value::Blob(b) if !b.borrow().temp_inserted => {
+        // replaced as before: what a Clear of it leaves on the row is not pinned. So is a buffer a live xRec shares with Rec (a
+        // Clear in OnModify or in a table event): nothing pins what xRec shows after the Clear, so Rec gets a new buffer and xRec
+        // keeps its content, as before issue 6791 (crates/al-vm/tests/store/blob_clear_shared_xrec.rs).
+        Value::Blob(b) if !b.borrow().temp_inserted && !ctx.xrec_holds_blob(b) => {
             let fresh = crate::stream::new_blob().borrow().clone();
             *b.borrow_mut() = fresh;
             Value::Blob(b.clone())

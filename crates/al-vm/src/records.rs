@@ -849,6 +849,7 @@ impl Session {
             let Some(x) = xrec else {
                 return unsupported(format!("{event} without an xRec"));
             };
+            self.note_xrec(x);
             args.push(Value::Record(x.clone()));
         }
         args.push(tail);
@@ -1470,6 +1471,7 @@ impl Session {
         // carry the variable's xRec globals (ADR-021 decision 5).
         let xr = match (xrec, xs) {
             (Some(x), _) => {
+                self.note_xrec(x);
                 if x.borrow().globals.is_unset() {
                     let g = rec.borrow().globals.xrec();
                     x.borrow_mut().globals = g;

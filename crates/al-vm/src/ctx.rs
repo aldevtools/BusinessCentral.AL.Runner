@@ -124,6 +124,9 @@ impl al_builtins::native::Ctx for Session {
     fn work_date_day(&self) -> Option<i32> {
         Session::work_date_day(self)
     }
+    fn xrec_holds_blob(&self, b: &al_builtins::stream::BlobRef) -> bool {
+        Session::xrec_holds_blob(self, b)
+    }
     fn now_unix_millis(&self) -> Option<i64> {
         Some(self.now_millis())
     }
