@@ -126,6 +126,7 @@ mod time_filter_empty_text;
 mod time_key_rounding;
 mod transactions;
 mod transferfields_cross_app;
+mod transferfields_field_apps;
 mod transferfields_size;
 mod user_gaps_filters;
 mod userpersonalization;
