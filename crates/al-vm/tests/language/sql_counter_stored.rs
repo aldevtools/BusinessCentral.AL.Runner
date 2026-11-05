@@ -110,6 +110,42 @@ fn a_formatted_read_goes_to_telemetry() {
     assert!(boolean(run(&s, "F")));
 }
 
+/// Al-runner issue 7129: `StrSubstNo` fills `%n` and `#n` with `Format` of the value (format-evaluate/P86StrSubstNo.al), so a
+/// counter value or its formatted text gives a marked text that may be logged, as `Format` of it may (SqlCounters.al
+/// P6924_Counters_Format_DigitsOnly, P6924_Counters_FormattedInTelemetryDimension_NoError).
+#[test]
+fn a_counter_in_strsubstno_goes_to_telemetry() {
+    let s = src("procedure F(): Boolean var Id: Guid; Delta: BigInteger; T: Text;
+        begin
+            Id := CreateGuid();
+            Start(Id);
+            Delta := Spent(Id);
+            Session.LogMessage('0000ABE', StrSubstNo('%1 ms, %2 SQL executes', 5, Delta), Verbosity::Normal, DataClassification::SystemMetadata, TelemetryScope::ExtensionPublisher, 'Category', 'PX');
+            Session.LogMessage('0000ABF', StrSubstNo('rows #1####', SessionInformation.SqlRowsRead()), Verbosity::Normal, DataClassification::SystemMetadata, TelemetryScope::ExtensionPublisher, 'Category', 'PX');
+            T := StrSubstNo('%1 SQL', Format(Spent(Id)));
+            Session.LogMessage('0000ABG', 'done', Verbosity::Normal, DataClassification::SystemMetadata, TelemetryScope::ExtensionPublisher, 'SqlStatements', T);
+            exit(true);
+        end;");
+    assert!(boolean(run(&s, "F")));
+}
+
+/// The text `StrSubstNo` makes of a counter value keeps the digits unreadable: a read, a comparison or a message of it is
+/// refused.
+#[test]
+fn uses_that_show_the_digits_of_a_strsubstno_text_are_refused() {
+    for body in [
+        "procedure F(): Integer begin exit(StrLen(StrSubstNo('%1', SessionInformation.SqlStatementsExecuted()))); end;",
+        "procedure F(): Boolean begin exit(StrSubstNo('%1', SessionInformation.SqlStatementsExecuted()) = '5'); end;",
+        "procedure F(): Text begin Message(StrSubstNo('%1 SQL', SessionInformation.SqlStatementsExecuted())); end;",
+        "procedure F(): Text begin Error(StrSubstNo('%1 SQL', SessionInformation.SqlStatementsExecuted())); end;",
+        "procedure F(): Text var T: Text; begin T := CopyStr(StrSubstNo('#1###', SessionInformation.SqlRowsRead()), 1, 1); exit(T); end;",
+        "procedure F(): Text var Row: Record Row; begin Row.Name := StrSubstNo('%1', SessionInformation.SqlRowsRead()); end;",
+        "procedure F(): Text begin exit(StrSubstNo(Format(SessionInformation.SqlRowsRead()))); end;",
+    ] {
+        refused(run(&src(body), "F"), "");
+    }
+}
+
 /// The digits are not pinned: any use of the formatted text, or of the stored number, that shows them is refused.
 #[test]
 fn uses_that_show_the_digits_are_refused() {
