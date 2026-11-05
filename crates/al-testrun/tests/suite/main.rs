@@ -12,6 +12,7 @@ mod baseline_cache;
 mod baseline_rule_carry;
 mod baseline_skip;
 mod capture;
+mod chain_ahead;
 mod code_coverage_refresh;
 mod compile_cache;
 mod datatransfer_clear;

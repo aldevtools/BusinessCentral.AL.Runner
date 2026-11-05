@@ -40,6 +40,7 @@ pub use profile::flush as profile_flush;
 pub use profile::frame_name as profile_frame_name;
 pub use test_runner_host::TestCodeunitHost;
 mod callstack;
+mod clear_all_page_ext;
 mod code_storage_check;
 mod column_formatter;
 mod companies;
