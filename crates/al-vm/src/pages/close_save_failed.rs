@@ -78,6 +78,7 @@ impl Session {
     /// The check of `refuse_unpinned_state` for a control call: on a page whose save failed at Close, only a field read and a
     /// SetValue of a control that runs no validate trigger are pinned (Y67CloseSaveError.al:239, :256).
     pub(super) fn refuse_unpinned_control_state(&self, c: &ControlRef, method: PageOp) -> Result<(), Signal> {
+        self.refuse_after_swallowed_part_insert(&c.page, None)?;
         if c.page.borrow().close_save_failed {
             let ControlTarget::Control(idx) = c.target else {
                 return self.refuse_after_failed_close_save(&c.page);
