@@ -663,12 +663,16 @@ impl Builder<'_> {
                 if f.class == FieldClass::FlowFilter && c.filter_element && top_child && !any_right {
                     continue;
                 }
+                // A filter() element over a Count, Lookup or Exist FlowField filters the joined rows by the value calculated per
+                // row; a parent without a child meets it with the field's default (QueryOuterFlowFilters.al
+                // OuterFilterElem_Count_Rows, OuterFilterElem_LookupExist_Rows; issue 6990). Other kinds are not pinned.
+                let filter_pinned = c.method.is_none() && matches!(kind, Some("count" | "lookup" | "exist"));
                 let pinned = f.class == FieldClass::FlowField
                     && kind_pinned
                     && top_child
                     && !any_right
                     && plain_or_sum
-                    && !c.filter_element
+                    && (!c.filter_element || filter_pinned)
                     && !c.reverse_sign
                     && c.static_filter.is_none();
                 if f.class != FieldClass::Normal && !pinned {
