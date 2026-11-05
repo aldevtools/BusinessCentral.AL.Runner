@@ -548,8 +548,8 @@ impl Session {
 
     /// Delete, DeleteAll, ModifyAll and Rename of a database table inside a TryFunction whose result is used raise
     /// TryFunctionWrite named DELETE, DELETEALL, MODIFYALL and RENAME, before any row changes; DeleteAll also on an empty
-    /// table (errors/lt-r7143-try-write/R7143TryWriteDeny.al:94-176, corpus PR 1156, measured on 27.5, 28.5 and 29.0; not
-    /// yet in the pin: assumption try-function-write-delete-rename; al-runner issue 7143). Whether the check comes before
+    /// table (errors/lt-r7143-try-write/R7143TryWriteDeny.al:94-176, corpus PR 1156, measured on 27.5, 28.5 and 29.0;
+    /// al-runner issue 7143). Whether the check comes before
     /// the table's own triggers and the subscribers is not pinned: a table that has any is refused. Other writes keep
     /// `refuse_used_try_write`.
     pub(crate) fn gate_used_try_other_write(&mut self, t: &al_data::TableDef, method: RecordOp) -> Result<(), Signal> {
@@ -591,7 +591,6 @@ impl Session {
                 method.name()
             )));
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TryFunctionWriteDeleteRename);
         self.gate_used_try_write(function)
     }
 

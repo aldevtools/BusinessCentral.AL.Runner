@@ -1,6 +1,6 @@
 //! Compatibility Major to Revision (columns 9 to 12), Hash Algorithm (14) and Extension Type (15) of NAV App Installed App
-//! (al-runner issue 7142): 0, 0, 0, 0, 1 and 2 for an app under test and for a Microsoft dependency (corpus branch
-//! al-runtime-rs-staging-r7142, R7142InstalledAppCompat.al); Content Hash (13) stays refused. Against a fixture table with
+//! (al-runner issue 7142): 0, 0, 0, 0, 1 and 2 for an app under test and for a Microsoft dependency (corpus
+//! record/lt-r7142-installed-app/R7142InstalledAppCompat.al:25-63, :113-123); Content Hash (13) stays refused. Against a fixture table with
 //! the platform's id and field ids.
 
 const SRC: &str = r#"

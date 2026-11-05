@@ -3,8 +3,8 @@
 //! Modify_StampsOnlyWhenStoredFieldDiffers), and an action that changes nothing else in Rec saves nothing on a List with
 //! Editable = false and ModifyAllowed = false (testpage/RmReadOnlyBlob.al:316-470). Those pages keep the paths of `save_row`.
 //! An editable page (Editable and ModifyAllowed left true) saves nothing there either, with and without a Commit in the action's
-//! code, on a List and a Card: the action's own store stays and no OnModifyRecord runs (corpus branch al-runtime-rs-staging-r6977
-//! 5995d6b1, pages/actions/R7114EditableBlobAction.al PG7114_EditableList_ActionModifiesOwnVar_NoCommit and _Commit,
+//! code, on a List and a Card: the action's own store stays and no OnModifyRecord runs (corpus
+//! pages/actions/R7114EditableBlobAction.al:272-345 PG7114_EditableList_ActionModifiesOwnVar_NoCommit and _Commit,
 //! PG7114_EditableCard_ActionModifiesOwnVar_NoCommit and _Commit, BC 27.5, 28.5, 29.0; al-runner issue 7114). A Blob a stream wrote is
 //! a change and is saved after the action (_ActionWritesBlobOfRec `P.MODR(Open/);T.MOD(Open/)`).
 

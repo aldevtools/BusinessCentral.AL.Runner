@@ -1,7 +1,7 @@
 //! An editable List (Editable and ModifyAllowed left true) over a table with a Blob field: an action that changes the row through
 //! its own record variable and leaves Rec alone must not be overwritten by the page saving its stale Rec after the action
-//! (al-runner issue 7114). A Blob no stream wrote is no change of Rec, with and without a Commit in the action (corpus branch
-//! al-runtime-rs-staging-r6977, pages/actions/R7114EditableBlobAction.al PG7114_EditableList_ActionModifiesOwnVar_*).
+//! (al-runner issue 7114). A Blob no stream wrote is no change of Rec, with and without a Commit in the action (corpus
+//! pages/actions/R7114EditableBlobAction.al:272-300 PG7114_EditableList_ActionModifiesOwnVar_*).
 
 use al_testkit::{run_in, text};
 

@@ -1,7 +1,7 @@
 //! A ListPart that declares OnFindRecord (answering Rec.Find(Which), as Base Application's Sales Order Subform does), with
 //! UpdatePropagation = Both, on a row other than its first, after CurrPage.Update(false) in a control's OnValidate: it stays on
 //! its row; OnFindRecord runs with '=>' before the part's first read and with '=' before its last (al-runner issue 7099; corpus
-//! branch al-runtime-rs-staging-r6977, pages/parts/R7099PartFindRecordBoth.al).
+//! pages/parts/R7099PartFindRecordBoth.al:13-14, :472-639).
 
 use al_testkit::{run_in, text};
 

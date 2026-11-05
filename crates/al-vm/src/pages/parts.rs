@@ -1796,7 +1796,7 @@ impl Session {
             return Ok(None);
         }
         // A part with OnFindRecord (and no OnNextRecord) stays on its row too; its trigger runs with '=>' and '=' among the reads
-        // (`read_part_rows_around`; corpus branch al-runtime-rs-staging-r6977, pages/parts/R7099PartFindRecordBoth.al, al-runner
+        // (`read_part_rows_around`; corpus pages/parts/R7099PartFindRecordBoth.al:13-14, :472-639, al-runner
         // issue 7099). A part with OnNextRecord is not pinned.
         if !self.is_list(st) || self.declares(st, "onnextrecord") {
             return unsupported(

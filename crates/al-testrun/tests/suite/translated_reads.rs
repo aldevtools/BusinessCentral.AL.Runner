@@ -741,8 +741,8 @@ fn a_table_extension_field_caption_is_translated_from_the_apps_file() {
             "{test}: {outcome:?}"
         );
         assert!(
-            !assumed.is_empty(),
-            "{test}: a flagged pass until the corpus pin includes the probe"
+            assumed.is_empty(),
+            "{test}: a clean pass, R7144ExtFieldCaption.al:9-12, :80-83 and :99-103 pin it (corpus PR 1156)"
         );
     }
     // An extension of a table of its own app: BC kept the source caption with such a unit (R7144ExtFieldCaption.al:83);

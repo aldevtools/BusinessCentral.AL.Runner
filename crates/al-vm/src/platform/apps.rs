@@ -39,13 +39,18 @@ pub(super) fn nav_app_installed_app_rows(p: &Providers, t: &TableDef) -> Vec<Ent
             }
             // Compatibility Major to Revision are 0, Hash Algorithm 1 and Extension Type 2, for the apps under test and for
             // Microsoft's alike; the compatibility parts do not follow the version (System Application and Base Application,
-            // whose version parts are not 0). Content Hash (13) is not blank and stays unknown. Pinned on the 27.5, 28.5 and
-            // 29.0 legs by record/lt-r7142-installed-app/R7142InstalledAppCompat.al:25-63, :113-123 (corpus PR 1156, not yet
-            // in the pin: assumption nav-app-installed-compatibility-columns; al-runner issue 7142).
+            // whose version parts are not 0). Pinned on the 27.5, 28.5 and 29.0 legs by
+            // record/lt-r7142-installed-app/R7142InstalledAppCompat.al:25-63, :113-123 (corpus PR 1156; al-runner issue 7142).
             for (c, v) in [(9, 0), (10, 0), (11, 0), (12, 0), (14, 1), (15, 2)] {
                 if let Some(i) = t.fields.iter().position(|f| f.id == c) {
                     r[i] = Value::Integer(v);
                 }
+            }
+            // Content Hash (13) is not blank (R7142InstalledAppCompat.al:121 `content hash blank` = No), but its value is not
+            // pinned: unknown, so a read is refused. The column counts as pinned since the pin reads it, so the cell itself
+            // must refuse.
+            if t.fields.iter().any(|f| f.id == 13) {
+                r[pos(t, 13)] = super::unknown(t, 13, &format!("app '{}'", a.name));
             }
             // "Published As" follows how the app was published: an app under test, as the corpus apps through the development
             // endpoint, is Dev (2); Microsoft's apps are Global (0) (record/table-properties/Y12PublishedAs.al:31-80, al-runner

@@ -339,7 +339,6 @@ impl Session {
         {
             return Err(why);
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TableExtensionFieldCaptionTranslated);
         let xliff = format!(
             "{} - {} - {}",
             al_ir::xliff_part("TableExtension", &e.name),
