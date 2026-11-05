@@ -19,7 +19,7 @@
 //! run. The same check serves the setup event (setup_no_op.rs) and any other event (`Session::inert_in_either_order`).
 
 use crate::Session;
-use crate::empty_reads::{Answer, EmptyReads};
+use crate::empty_reads::{Answer, EmptyReads, KnownValue};
 use al_builtins::value::RtType;
 use al_ir as ir;
 use std::collections::BTreeSet;
@@ -70,7 +70,25 @@ impl Cx<'_> {
 
     /// What `e` gives when it reads an empty table of the subscriber's own app.
     fn read(&self, e: &ir::Expr) -> Option<Answer> {
-        self.reads.answer(self.routine, e, &|x| self.value_type(x))
+        self.reads
+            .answer(self.routine, e, &|x| self.value_type(x), &|x, ty| self.known(x, ty))
+    }
+
+    /// The value of key or filter value `e` of a field of type `ty`, when the table id decides it.
+    fn known(&self, e: &ir::Expr, ty: &RtType) -> Option<KnownValue> {
+        match ty {
+            RtType::Integer => self.num(e).map(KnownValue::Int),
+            RtType::Boolean => self.truth(e).map(KnownValue::Bool),
+            _ => None,
+        }
+    }
+
+    /// Runs `f` as a branch the table id does not decide: filters set there are not followed (empty_reads.rs).
+    fn undecided<T>(&self, f: impl FnOnce() -> T) -> T {
+        self.reads.undecided(true);
+        let out = f();
+        self.reads.undecided(false);
+        out
     }
 
     /// `Rec.IsTemporary()` of a record parameter (a table event's `Rec`): no effect, its answer not known here.
@@ -204,11 +222,17 @@ impl Cx<'_> {
                 ir::Stmt::Pos(_) => false,
                 ir::Stmt::Exit(None) => true,
                 ir::Stmt::Assign(ir::Place::Local(l), e) if self.assignable(*l) && self.pure(e) => false,
-                ir::Stmt::Expr(e) if self.reads.inert(self.routine, e, &|x| self.value_type(x)) => false,
+                ir::Stmt::Expr(e)
+                    if self
+                        .reads
+                        .inert(self.routine, e, &|x| self.value_type(x), &|x, ty| self.known(x, ty)) =>
+                {
+                    false
+                }
                 ir::Stmt::If(c, a, b) if self.pure(c) => match self.truth(c) {
                     Some(true) => self.run(a)?,
                     Some(false) => self.run(b)?,
-                    None => self.run(a)? & self.run(b)?,
+                    None => self.undecided(|| Some(self.run(a)? & self.run(b)?))?,
                 },
                 ir::Stmt::Case {
                     scrutinee,
@@ -233,11 +257,13 @@ impl Cx<'_> {
         otherwise: &[ir::Stmt],
     ) -> Option<bool> {
         let all = || {
-            let mut exited = self.run(otherwise)?;
-            for (_, body) in branches {
-                exited &= self.run(body)?;
-            }
-            Some(exited)
+            self.undecided(|| {
+                let mut exited = self.run(otherwise)?;
+                for (_, body) in branches {
+                    exited &= self.run(body)?;
+                }
+                Some(exited)
+            })
         };
         let Some(n) = self.num(scrutinee) else {
             return all();

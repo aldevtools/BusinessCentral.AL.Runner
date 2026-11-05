@@ -849,6 +849,19 @@ to one block of 65536 ids; that limit is gone.
    the table id against constants (`=`, `in [...]`) and sets flags only inside it is still shown to change nothing for the
    table asked about (`setup_no_op.rs`), so it does not stop an install of unknown order.
 
+9. **A subscriber that decides from its own app's table that only its own install code fills (al-runner issue 6971,
+   2026-11-05).** Item 8 also covers a table of the subscriber's own app that the install code of that app, and of no other
+   app, writes: in the order where the subscriber runs, the table holds what that code inserted. Where constants show
+   those rows (`al-testrun/src/install_rows.rs`: a record local whose fields are assigned constants and then inserted; a
+   field assigned anything else counts as any value; the table is left out when any of that code modifies or renames its
+   rows, inserts through a parameter, a global or `Validate`, or when its table events have a subscriber), a read is
+   answered as for an empty table when no such row matches the filters set on the record so far (`SetRange` with a value
+   the table id decides, `Reset`; `SetCurrentKey` on the first fields of a key changes nothing; a filter set in a branch
+   the table id does not decide stops the proof). When a row may match, the event stays refused (item 2). This assumes
+   nothing new: in the other order the subscriber does not run (Y79InstallUnrelated.al:6-12). Test:
+   `al-testrun/tests/suite/install_own_table_rows.rs`. Not covered: a subscriber that reads its table through another
+   routine or a SingleInstance cache (al-runner issue 6972).
+
 ### Still not pinned (probes wanted)
 
 - **Ids above 99999.** One app with install codeunits such as 60100, 70000 and 130000 (and one in the millions)
