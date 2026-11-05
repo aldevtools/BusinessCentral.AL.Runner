@@ -1,6 +1,6 @@
 # ADR-007: Oracle source, emulated version, and the passing-set ratchet
 
-- Status: Accepted. Amended by ADR-015: one oracle and one ratchet per BC major, under `oracle/<major>/` and `metrics/<major>/`. Amended below: an oracle may be recorded for an older corpus commit when the pin only adds tests. Amended by ADR-065 (2026-11-04): the ratchet is the list of the cases the runtime does not pass yet, `metrics/<major>/not-passing*.txt`.
+- Status: Accepted. Amended by ADR-015: one oracle and one ratchet per BC major, under `oracle/<major>/` and `metrics/<major>/`. Amended below: an oracle may be recorded for an older corpus commit when the pin only adds tests. Amended by ADR-065 (2026-11-04): the ratchet is the list of the cases the runtime does not pass yet, `metrics/<major>/not-passing*.txt`. Amended 2026-11-05 (owner): a bump may merge the JUnit of the codeunits a corpus pull request's own green CI run ran into the current oracle (`tools/corpus_bump.sh --from-pr`), without waiting for the master run; `oracle/README.md` lists such bumps, and the next bump from a master run replaces the oracle whole.
 - Date: 2026-10-13
 
 ## Context

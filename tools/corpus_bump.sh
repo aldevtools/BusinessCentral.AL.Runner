@@ -20,8 +20,13 @@
 # running it can strike the rows the new probes settle.
 #
 #   tools/corpus_bump.sh [--dry-run] RUN_ID
+#   tools/corpus_bump.sh [--dry-run] [--body FILE] --from-pr N[,N...]
 #
 # --dry-run checks the run and prints what it would do, changing nothing.
+# --from-pr (owner decision 2026-11-05) does not wait for the corpus master run: the pin moves to the merge commit of
+# the given corpus pull requests, and the oracle is the current oracle with the codeunits each pull request's own CI
+# run ran replaced by that run's results (tools/corpus_bump_pr.py lists when it refuses). Steps 6 and 7 are the same.
+# --body FILE writes the bump pull request body (which corpus runs the oracle came from) to FILE.
 # For tests: CORPUS_BUMP_GH (the gh to call), CORPUS_BUMP_CORPUS (the corpus repository),
 # CORPUS_BUMP_NO_FETCH=1 (do not fetch the corpus branch), CORPUS_BUMP_LISTS=0 (do not update the not-passing lists).
 set -euo pipefail
@@ -33,20 +38,112 @@ repo="aldevtools/BusinessCentral.AL.Language.Tests"
 branch="master"
 legs="27.5 28.5 29.0"
 
-usage() { echo "usage: tools/corpus_bump.sh [--dry-run] RUN_ID" >&2; exit 2; }
+usage() { echo "usage: tools/corpus_bump.sh [--dry-run] RUN_ID | [--dry-run] [--body FILE] --from-pr N[,N...]" >&2; exit 2; }
 die() { echo "corpus_bump: refused: $*" >&2; exit 1; }
 
 dry=0
 run=""
-for a in "$@"; do
-  case "$a" in
+prs=""
+body=""
+while [ $# -gt 0 ]; do
+  case "$1" in
     --dry-run) dry=1 ;;
+    --from-pr) [ $# -ge 2 ] || usage; prs="$2"; shift ;;
+    --from-pr=*) prs="${1#--from-pr=}" ;;
+    --body) [ $# -ge 2 ] || usage; body="$2"; shift ;;
     -*) usage ;;
-    *) [ -z "$run" ] || usage; run="$a" ;;
+    *) [ -z "$run" ] || usage; run="$1" ;;
   esac
+  shift
 done
-[ -n "$run" ] || usage
-[[ "$run" =~ ^[0-9]+$ ]] || usage
+if [ -n "$prs" ]; then
+  [ -z "$run" ] || usage
+  [[ "$prs" =~ ^[0-9]+(,[0-9]+)*$ ]] || usage
+else
+  [ -z "$body" ] || usage
+  [ -n "$run" ] || usage
+  [[ "$run" =~ ^[0-9]+$ ]] || usage
+fi
+
+probe_rows() { grep -c '^| ' "$root/docs/probes-needed.md" || true; }
+# The runtime's harness totals leave out the cases real BC skipped (BC 27 lists O_Database_CopyCompany as <skipped/>):
+# 14975 JUnit cases were 14974 runtime cases in bump 27. The oracle README keeps the JUnit count (cases()).
+run_cases() { python3 - "$1" <<'PY'
+import sys, xml.etree.ElementTree as ET
+n = sum(1 for c in ET.parse(sys.argv[1]).iter("testcase")
+        if c.get("name") != "OnRun" and c.find("skipped") is None)
+print(n)
+PY
+}
+# Steps 6 and 7, the same for both modes. Argument: where the oracle came from (for the last line).
+finish() {
+# 6. The not-passing lists (ADR-065). The base is HEAD, the commit before the bump: a line is added only for a case its
+# oracle did not have, and a case it had that does not pass is a regression (exit 1).
+cd "$root"
+cargo build --release -q
+# CORPUS_BUMP_LISTS=0 leaves the lists alone: the bump bot (tools/corpus_bump_bot.sh) updates them in its own run.
+if [ "${CORPUS_BUMP_LISTS:-1}" != 0 ]; then
+  for major in 27 28 29; do
+    ./target/release/al-test-cli --root . --list-new-cases HEAD --prune-not-passing --bc-version "$major" | grep -E "^BC [0-9.]+[: ]" || die "not-passing lists for BC $major"
+  done
+fi
+
+# 6b. The assumptions that waited for a corpus pin now in the corpus (Info::awaiting in
+# crates/al-builtins/src/assumptions.rs): each must go (the pin agrees) or its code be fixed (the pin disagrees).
+# The bump goes on; ./check.sh fails until they are dealt with.
+echo "assumptions waiting for a corpus pin:"
+./target/release/al-test-cli --root . --awaiting-assumptions 2>&1 | grep -E "^(assumption |warning: assumption |awaiting assumptions: )" || echo "  the check failed (lines above): remove each assumption whose pin landed, or fix its code, before ./check.sh"
+
+# 7. The harness counts: totals per major and the BC 29 area totals the harness asserts.
+dir="$(mktemp -d)"
+./target/release/al-test-cli --root . --all-versions --no-deps --json "$dir/pass-rate.json" >/dev/null 2>&1 || true
+hargs=()
+for leg in $legs; do
+  major="${leg%%.*}"
+  hargs+=("$major" 0 0 "$(run_cases "$root/oracle/$major/junit.xml")" "$(run_cases "$root/oracle/$major/junit-onprem.xml")")
+done
+python3 - "$root" "$dir" "$old" "$sha" "${hargs[@]}" <<'PY'
+import json, os, re, sys
+root, out, old, new, rest = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5:]
+legs = {rest[i]: rest[i + 3] for i in range(0, len(rest), 5)}
+onprem = {rest[i]: rest[i + 4] for i in range(0, len(rest), 5)}
+p = root + "/crates/al-test-cli/tests/corpus_harness.rs"
+t = open(p).read()
+t = re.sub(r'\[\("27", \d+\), \("28", \d+\), \("29", \d+\)\]',
+           f'[("27", {legs["27"]}), ("28", {legs["28"]}), ("29", {legs["29"]})]', t)
+# The BC 29 totals, and the BC 28 total of the test that reads the other test apps; the OnPrem total of BC 28.
+t = re.sub(r'(json\("29"\);\n\s*assert_eq!\(r\["overall"\]\["total"\], )\d+\);', rf'\g<1>{legs["29"]});', t)
+t = re.sub(r'(json\("28"\);\n\s*assert_eq!\(r\["overall"\]\["total"\], )\d+\);', rf'\g<1>{legs["28"]});', t)
+t = re.sub(r'(get\("onprem"\)\["counts"\]\["total"\], )\d+\);', rf'\g<1>{onprem["28"]});', t)
+if old != new:
+    t = t.replace(old, new)
+t = re.sub(r'( of )\d+( \()', rf'\g<1>{legs["29"]}\2', t)
+f = os.path.join(out, "pass-rate-29.json")
+if os.path.exists(f):
+    areas = json.load(open(f))["areas"]
+    for area in ("json", "record"):
+        t = re.sub(rf'(assert_eq!\(r\["areas"\]\["{area}"\]\["total"\], )\d+\);',
+                   rf'\g<1>{areas[area]["total"]});', t)
+open(p, "w").write(t)
+PY
+rm -rf "$dir"
+echo "docs/probes-needed.md table rows after: $(probe_rows) (strike the rows the new probes settle by hand)"
+echo "bumped to $sha from $1; review git diff and open the pull request (its CI is the gate)"
+}
+
+# The PR-results bump (--from-pr): tools/corpus_bump_pr.py checks, merges the oracle, moves the pin; then steps 6 and 7.
+if [ -n "$prs" ]; then
+  echo "docs/probes-needed.md table rows before: $(probe_rows)"
+  pargs=(--root "$root" --prs "$prs")
+  [ "$dry" = 0 ] || pargs+=(--dry-run)
+  [ -z "$body" ] || pargs+=(--body "$body")
+  python3 -I "$here/corpus_bump_pr.py" "${pargs[@]}" || exit $?
+  [ "$dry" = 0 ] || exit 0
+  old="$(git -C "$root" ls-tree HEAD corpus | awk '{print $3}')"
+  sha="$(git -C "$corpus" rev-parse HEAD)"
+  finish "corpus PR(s) $prs (a PR-results bump)"
+  exit 0
+fi
 
 # 1. The run.
 info="$("$gh" run view "$run" -R "$repo" --json status,conclusion,headSha)"
@@ -147,7 +244,6 @@ if git -C "$corpus" cat-file -e "$old^{commit}" 2>/dev/null; then
 else
   echo "the old pin ${old:0:7} is not in the corpus repository: no list of added files"
 fi
-probe_rows() { grep -c '^| ' "$root/docs/probes-needed.md" || true; }
 echo "docs/probes-needed.md table rows before: $(probe_rows)"
 
 if [ "$dry" = 1 ]; then
@@ -160,15 +256,6 @@ fi
 cases() { python3 - "$1" <<'PY'
 import sys, xml.etree.ElementTree as ET
 n = sum(1 for c in ET.parse(sys.argv[1]).iter("testcase") if c.get("name") != "OnRun")
-print(n)
-PY
-}
-# The runtime's harness totals leave out the cases real BC skipped (BC 27 lists O_Database_CopyCompany as <skipped/>):
-# 14975 JUnit cases were 14974 runtime cases in bump 27. The oracle README keeps the JUnit count (cases()).
-run_cases() { python3 - "$1" <<'PY'
-import sys, xml.etree.ElementTree as ET
-n = sum(1 for c in ET.parse(sys.argv[1]).iter("testcase")
-        if c.get("name") != "OnRun" and c.find("skipped") is None)
 print(n)
 PY
 }
@@ -226,55 +313,4 @@ DOTNET_IDS="27=${dotnet_id[27.5]} 28=${dotnet_id[28.5]} 29=${dotnet_id[29.0]}" \
   TESTLIB_IDS="27=${testlib_id[27.5]} 28=${testlib_id[28.5]} 29=${testlib_id[29.0]}" \
   ISOL_IDS="27=${isol_id[27.5]} 28=${isol_id[28.5]} 29=${isol_id[29.0]}" python3 "$here/corpus_bump_edit.py" "$root" "$sha" "$run" "${args[@]}"
 
-# 6. The not-passing lists (ADR-065). The base is HEAD, the commit before the bump: a line is added only for a case its
-# oracle did not have, and a case it had that does not pass is a regression (exit 1).
-cd "$root"
-cargo build --release -q
-# CORPUS_BUMP_LISTS=0 leaves the lists alone: the bump bot (tools/corpus_bump_bot.sh) updates them in its own run.
-if [ "${CORPUS_BUMP_LISTS:-1}" != 0 ]; then
-  for major in 27 28 29; do
-    ./target/release/al-test-cli --root . --list-new-cases HEAD --prune-not-passing --bc-version "$major" | grep -E "^BC [0-9.]+[: ]" || die "not-passing lists for BC $major"
-  done
-fi
-
-# 6b. The assumptions that waited for a corpus pin now in the corpus (Info::awaiting in
-# crates/al-builtins/src/assumptions.rs): each must go (the pin agrees) or its code be fixed (the pin disagrees).
-# The bump goes on; ./check.sh fails until they are dealt with.
-echo "assumptions waiting for a corpus pin:"
-./target/release/al-test-cli --root . --awaiting-assumptions 2>&1 | grep -E "^(assumption |warning: assumption |awaiting assumptions: )" || echo "  the check failed (lines above): remove each assumption whose pin landed, or fix its code, before ./check.sh"
-
-# 7. The harness counts: totals per major and the BC 29 area totals the harness asserts.
-dir="$(mktemp -d)"
-./target/release/al-test-cli --root . --all-versions --no-deps --json "$dir/pass-rate.json" >/dev/null 2>&1 || true
-hargs=()
-for leg in $legs; do
-  major="${leg%%.*}"
-  hargs+=("$major" "${oracle_id[$leg]}" "${onprem_id[$leg]}" "$(run_cases "$root/oracle/$major/junit.xml")" "$(run_cases "$root/oracle/$major/junit-onprem.xml")")
-done
-python3 - "$root" "$dir" "$old" "$sha" "${hargs[@]}" <<'PY'
-import json, os, re, sys
-root, out, old, new, rest = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5:]
-legs = {rest[i]: rest[i + 3] for i in range(0, len(rest), 5)}
-onprem = {rest[i]: rest[i + 4] for i in range(0, len(rest), 5)}
-p = root + "/crates/al-test-cli/tests/corpus_harness.rs"
-t = open(p).read()
-t = re.sub(r'\[\("27", \d+\), \("28", \d+\), \("29", \d+\)\]',
-           f'[("27", {legs["27"]}), ("28", {legs["28"]}), ("29", {legs["29"]})]', t)
-# The BC 29 totals, and the BC 28 total of the test that reads the other test apps; the OnPrem total of BC 28.
-t = re.sub(r'(json\("29"\);\n\s*assert_eq!\(r\["overall"\]\["total"\], )\d+\);', rf'\g<1>{legs["29"]});', t)
-t = re.sub(r'(json\("28"\);\n\s*assert_eq!\(r\["overall"\]\["total"\], )\d+\);', rf'\g<1>{legs["28"]});', t)
-t = re.sub(r'(get\("onprem"\)\["counts"\]\["total"\], )\d+\);', rf'\g<1>{onprem["28"]});', t)
-if old != new:
-    t = t.replace(old, new)
-t = re.sub(r'( of )\d+( \()', rf'\g<1>{legs["29"]}\2', t)
-f = os.path.join(out, "pass-rate-29.json")
-if os.path.exists(f):
-    areas = json.load(open(f))["areas"]
-    for area in ("json", "record"):
-        t = re.sub(rf'(assert_eq!\(r\["areas"\]\["{area}"\]\["total"\], )\d+\);',
-                   rf'\g<1>{areas[area]["total"]});', t)
-open(p, "w").write(t)
-PY
-rm -rf "$dir"
-echo "docs/probes-needed.md table rows after: $(probe_rows) (strike the rows the new probes settle by hand)"
-echo "bumped to $sha from run $run; review git diff, then run ./check.sh"
+finish "run $run"
