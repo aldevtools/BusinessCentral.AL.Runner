@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<testsuites name="hybrid" tests="24128" failures="0" errors="0" skipped="0" time="3637.916" timestamp="2026-11-05T12:14:43Z"><testsuite name="Codeunit 68422" tests="2" failures="0" errors="0" skipped="0" time="1.997" timestamp="2026-11-05T11:53:12Z">
+<testsuites name="hybrid" tests="24177" failures="0" errors="0" skipped="0" time="3033.597" timestamp="2026-11-05T13:16:30Z"><testsuite name="Codeunit 68422" tests="2" failures="0" errors="0" skipped="0" time="1.997" timestamp="2026-11-05T11:53:12Z">
     <testcase classname="Codeunit 68422" name="Label_IsATestPageMember_WithItsCaption" time="1.933" />
     <testcase classname="Codeunit 68422" name="ActionWithoutAnOnActionTrigger_IsNotOnTheTestPage" time="0.064" />
   </testsuite>
@@ -30147,10 +30147,10 @@
     <testcase classname="Codeunit 92981" name="SetView_DoubleEquals_TwoFields" time="0.020" />
     <testcase classname="Codeunit 92981" name="SetView_DoubleEquals_RoundTrip" time="0.057" />
   </testsuite>
-  <testsuite name="Codeunit 93011" tests="1" failures="0" errors="0" skipped="0" time="0.004" timestamp="2026-11-05T12:13:57Z">
-    <testcase classname="Codeunit 93011" name="RequestOptionsPage_InRequestPageCode_Compiles" time="0.004" />
+  <testsuite name="Codeunit 93011" tests="1" failures="0" errors="0" skipped="0" time="0.204" timestamp="2026-11-05T13:16:29Z">
+    <testcase classname="Codeunit 93011" name="RequestOptionsPage_InRequestPageCode_Compiles" time="0.204" />
   </testsuite>
-  <testsuite name="Codeunit 93241" tests="7" failures="0" errors="0" skipped="0" time="0.449" timestamp="2026-11-05T12:13:57Z">
+<testsuite name="Codeunit 93241" tests="7" failures="0" errors="0" skipped="0" time="0.449" timestamp="2026-11-05T12:13:57Z">
     <testcase classname="Codeunit 93241" name="G612_Composite_ViewIsDestination_SetRecordOk" time="0.110" />
     <testcase classname="Codeunit 93241" name="G612_Composite_OtherDestination" time="0.033" />
     <testcase classname="Codeunit 93241" name="G612_Composite_TestPageGoToOk" time="0.044" />
@@ -30754,5 +30754,60 @@
   <testsuite name="Codeunit 97538" tests="2" failures="0" errors="0" skipped="0" time="0.110" timestamp="2026-11-05T12:14:43Z">
     <testcase classname="Codeunit 97538" name="PageRunModal_NoHandler_RefusedBeforeOnOpenPage" time="0.093" />
     <testcase classname="Codeunit 97538" name="PageRun_NoHandler_RefusedBeforeOnOpenPage" time="0.017" />
+  </testsuite>
+<testsuite name="Codeunit 95876" tests="23" failures="0" errors="0" skipped="0" time="3.231" timestamp="2026-11-05T13:16:18Z">
+    <testcase classname="Codeunit 95876" name="RSV_LinkAndView_NoSetView" time="2.248" />
+    <testcase classname="Codeunit 95876" name="RSV_LinkAndView_NoSetView_Groups" time="0.050" />
+    <testcase classname="Codeunit 95876" name="RSV_LinkAndView_SameView" time="0.082" />
+    <testcase classname="Codeunit 95876" name="RSV_LinkAndView_SameView_Groups" time="0.045" />
+    <testcase classname="Codeunit 95876" name="RSV_LinkAndView_SameViewOfRecordRef" time="0.038" />
+    <testcase classname="Codeunit 95876" name="RSV_LinkAndView_OtherFilter" time="0.044" />
+    <testcase classname="Codeunit 95876" name="RSV_LinkAndView_OtherFilter_Groups" time="0.038" />
+    <testcase classname="Codeunit 95876" name="RSV_LinkAndView_EmptyView" time="0.040" />
+    <testcase classname="Codeunit 95876" name="RSV_LinkAndView_EmptyView_Groups" time="0.037" />
+    <testcase classname="Codeunit 95876" name="RSV_LinkAndView_SortingOnly" time="0.040" />
+    <testcase classname="Codeunit 95876" name="RSV_LinkAndView_LinkedFieldOtherValue" time="0.042" />
+    <testcase classname="Codeunit 95876" name="RSV_LinkAndView_ViewOfACopyWithItsOwnFilter" time="0.044" />
+    <testcase classname="Codeunit 95876" name="RSV_LinkOnly_NoSetView_Groups" time="0.037" />
+    <testcase classname="Codeunit 95876" name="RSV_LinkOnly_SameView" time="0.037" />
+    <testcase classname="Codeunit 95876" name="RSV_LinkOnly_OtherFilter" time="0.038" />
+    <testcase classname="Codeunit 95876" name="RSV_LinkOnly_EmptyView_Groups" time="0.045" />
+    <testcase classname="Codeunit 95876" name="RSV_LinkOnly_SortingOnly" time="0.040" />
+    <testcase classname="Codeunit 95876" name="RSV_LinkAndWhereView_NoSetView_Groups" time="0.041" />
+    <testcase classname="Codeunit 95876" name="RSV_LinkAndWhereView_SameView_Groups" time="0.041" />
+    <testcase classname="Codeunit 95876" name="RSV_LinkAndWhereView_EmptyView_Groups" time="0.051" />
+    <testcase classname="Codeunit 95876" name="RSV_LinkToWhereList_NoSetView_Groups" time="0.081" />
+    <testcase classname="Codeunit 95876" name="RSV_LinkToWhereList_SameView_Groups" time="0.036" />
+    <testcase classname="Codeunit 95876" name="RSV_LinkToWhereList_EmptyView_Groups" time="0.036" />
+  </testsuite>
+  <testsuite name="Codeunit 95887" tests="12" failures="0" errors="0" skipped="0" time="0.692" timestamp="2026-11-05T13:16:22Z">
+    <testcase classname="Codeunit 95887" name="XOM_TempOnce_OneParent_ZeroChildren" time="0.226" />
+    <testcase classname="Codeunit 95887" name="XOM_TempOnce_OneParent_OneChild" time="0.020" />
+    <testcase classname="Codeunit 95887" name="XOM_TempOnce_OneParent_TwoChildren" time="0.012" />
+    <testcase classname="Codeunit 95887" name="XOM_TempOnce_TwoParents" time="0.012" />
+    <testcase classname="Codeunit 95887" name="XOM_TempOnceUnbounded_ZeroOneTwoChildren" time="0.039" />
+    <testcase classname="Codeunit 95887" name="XOM_TempOnceUnbounded_TwoOneZeroChildren" time="0.012" />
+    <testcase classname="Codeunit 95887" name="XOM_RealOnce_ZeroOneTwoChildren" time="0.060" />
+    <testcase classname="Codeunit 95887" name="XOM_RealOnce_TwoOneZeroChildren" time="0.015" />
+    <testcase classname="Codeunit 95887" name="XOM_NoFieldsOnce_ZeroOneTwoChildren" time="0.043" />
+    <testcase classname="Codeunit 95887" name="XOM_ImportOnce_OneChild" time="0.222" />
+    <testcase classname="Codeunit 95887" name="XOM_ImportOnce_NoChild" time="0.016" />
+    <testcase classname="Codeunit 95887" name="XOM_ImportOnce_TwoChildren" time="0.015" />
+  </testsuite>
+  <testsuite name="Codeunit 95897" tests="14" failures="0" errors="0" skipped="0" time="0.642" timestamp="2026-11-05T13:16:23Z">
+    <testcase classname="Codeunit 95897" name="XUD_TableRoot_Export" time="0.097" />
+    <testcase classname="Codeunit 95897" name="XUD_TableRoot_Import" time="0.061" />
+    <testcase classname="Codeunit 95897" name="XUD_TextRoot_Export" time="0.045" />
+    <testcase classname="Codeunit 95897" name="XUD_TextRoot_Import" time="0.036" />
+    <testcase classname="Codeunit 95897" name="XUD_RootSecond_Export" time="0.020" />
+    <testcase classname="Codeunit 95897" name="XUD_RootSecond_Import" time="0.036" />
+    <testcase classname="Codeunit 95897" name="XUD_RootPlain_Export" time="0.039" />
+    <testcase classname="Codeunit 95897" name="XUD_RootPlain_Import" time="0.063" />
+    <testcase classname="Codeunit 95897" name="XUD_TextRootUtf16_Export" time="0.038" />
+    <testcase classname="Codeunit 95897" name="XUD_TextRootUtf16_Import" time="0.036" />
+    <testcase classname="Codeunit 95897" name="XUD_RootOnly_Export" time="0.048" />
+    <testcase classname="Codeunit 95897" name="XUD_RootOnly_Import" time="0.036" />
+    <testcase classname="Codeunit 95897" name="XUD_ItemPrefix_Export" time="0.051" />
+    <testcase classname="Codeunit 95897" name="XUD_ItemPrefix_Import" time="0.036" />
   </testsuite>
 </testsuites>
