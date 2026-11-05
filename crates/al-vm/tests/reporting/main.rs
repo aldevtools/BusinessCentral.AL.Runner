@@ -42,6 +42,7 @@ mod reportext_this;
 mod reports;
 mod request_page_oninit_first_use;
 mod user_gaps_xml_blob;
+mod word_xml_part;
 mod xmlport_attr_container;
 mod xmlport_attr_leaf_outside_table;
 mod xmlport_autoupdate_init_trigger;
