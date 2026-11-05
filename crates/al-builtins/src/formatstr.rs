@@ -831,8 +831,7 @@ const WIDE_PRECISIONS: [(u32, u32); 5] = [(2, 26), (0, 19), (0, 26), (0, 28), (2
 /// (FormatPrecStdEn.al:154-191). `<Precision,N>` acts as `N:N`: N = 2 under formats 0, 1, 2, 9 (AtPrecisionStandardFormat2.al
 /// QS_P2S0/1/2/9, `0` gives `0.00`) and N = 3 under format 9 (FormatPrecStdEn.al:161 `1234.500`); another N or format with a
 /// value of fewer decimals is refused. A precision after the standard format code changes nothing under format 9 (:163
-/// `1234.5`); under another format that is refused. A negative value that rounds to zero keeps its minus under `1:1` with formats
-/// 0 to 4; under another precision it is not pinned and is refused.
+/// `1234.5`); under another format that is refused. A negative value that rounds to zero is not pinned and is refused.
 fn precision_standard(
     n: &Numeric,
     (min, max): (u32, u32),
@@ -871,11 +870,7 @@ fn precision_standard(
     let rounded = n
         .value
         .round_dp_with_strategy(max, RoundingStrategy::MidpointAwayFromZero);
-    // A negative value that rounds to zero keeps its minus under `<Precision,1:1>` with formats 0 to 4 (`-0.0`, `0.0-`; corpus
-    // branch al-runtime-rs-staging-r6792 0394701c, format-evaluate/FormatCommaMore.al:571 `first_-0.04`, :446-503 `v_-0.04`).
-    let negative_zero = rounded.is_zero() && n.value.is_sign_negative() && !n.value.is_zero();
-    let keeps_minus = negative_zero && (min, max) == (1, 1) && (0..=4).contains(&std);
-    if negative_zero && !keeps_minus {
+    if rounded.is_zero() && n.value.is_sign_negative() && !n.value.is_zero() {
         return Err(format!(
             "code `<{code}>` with a precision on a negative {} that rounds to zero (not pinned)",
             v.describe()
@@ -901,13 +896,6 @@ fn precision_standard(
             text.push('.');
         }
         text.push_str(&"0".repeat((min - have) as usize));
-    }
-    if keeps_minus {
-        return Ok(if tail.is_some() {
-            format!("{text}-")
-        } else {
-            format!("-{text}")
-        });
     }
     text.extend(tail);
     Ok(text)

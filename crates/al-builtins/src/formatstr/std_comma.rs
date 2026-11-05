@@ -72,7 +72,28 @@ pub(super) fn standard_comma(
             (prefix, if std == 3 || std == 4 { None } else { Some(x) })
         }
     };
-    let out = match super::format_with_string(v, 0, prefix, ctx) {
+    // A negative value that rounds to zero under `<Precision,1:1>` keeps its minus: `-0,0` (formats 0, 1, 2), `0.0-` (3, 4)
+    // (:446-503 `v_-0.04`, :571 `first_-0.04`). Only this path writes it: without a `<Comma,x>` element no corpus case pins it,
+    // and the shared `<Precision,A:B><Standard Format,N>` path refuses it.
+    let negative_zero = match v {
+        Value::Decimal(d) => {
+            prefix.starts_with("<Precision,1:1>")
+                && d.is_sign_negative()
+                && !d.is_zero()
+                && d.abs() < rust_decimal::Decimal::new(5, 2)
+        }
+        _ => false,
+    };
+    let formatted = match (negative_zero, v) {
+        (true, Value::Decimal(d)) => {
+            super::format_with_string(&Value::Decimal(d.abs()), 0, prefix, ctx).map(|s| match s.strip_suffix(' ') {
+                Some(t) => format!("{t}-"),
+                None => format!("-{s}"),
+            })
+        }
+        _ => super::format_with_string(v, 0, prefix, ctx),
+    };
+    let out = match formatted {
         Ok(out) => out,
         Err(e) => return Some(Err(e)),
     };
@@ -179,6 +200,19 @@ mod tests {
         for (v, template, want) in cases {
             match fmt(v, 0, template) {
                 Ok(Value::Text(s)) => assert_eq!(s.as_str(), want, "{template}"),
+                other => panic!("{template}: {other:?}"),
+            }
+        }
+    }
+
+    /// Without a `<Comma,x>` element no corpus case pins a negative value that rounds to zero under `<Precision,1:1>`: it stays
+    /// refused, as before al-runner issue 6792.
+    #[test]
+    fn negative_zero_without_comma_is_refused() {
+        for std in 0..=4 {
+            let template = format!("<Precision,1:1><Standard Format,{std}>");
+            match fmt(Value::Decimal(Decimal::from_str("-0.04").unwrap()), 0, &template) {
+                Err(Signal::Unsupported(_)) => {}
                 other => panic!("{template}: {other:?}"),
             }
         }
