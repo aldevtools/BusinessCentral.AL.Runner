@@ -1,6 +1,6 @@
 //! The insert of a new host that the first `Visible()` or `Editable()` of a field-linked part tries (`new_host_on_part_access`)
-//! fails. Pinned by pages/parts/PartLineBeforeHostKey.al R7031_* (codeunit 67582, pages 95604-95606; corpus master 037baafe,
-//! corpus PR 1134, not yet the pin), the same on all three supported majors and for a part whose Visible is the constant true, a
+//! fails. Pinned by pages/parts/PartLineBeforeHostKey.al R7031_* (codeunit 67582, pages 95604-95606; corpus PR 1134, in the
+//! pin since c9aac994), the same on all three supported majors and for a part whose Visible is the constant true, a
 //! variable set to false in OnNewRecord or a variable set to true in OnOpenPage:
 //! - the page's OnInsertRecord runs, then the table's OnInsert; when either raises, no error reaches the test and Visible() and
 //!   Editable() answer their normal values (:4032 R7031_ConstTrue_TableError_VisibleFirst `visible = Yes`, `visible_log =
@@ -16,7 +16,6 @@
 //! error is not pinned.
 
 use super::*;
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::native::AlError;
 use al_builtins::page_op::PageMethod;
 
@@ -59,7 +58,6 @@ impl Session {
             ));
         }
         rec.borrow_mut().fields = fields.to_vec();
-        assume(Assumption::PartPropsInsertFails);
         let mut h = host.borrow_mut();
         h.dirty = false;
         h.part_insert_swallowed = true;
