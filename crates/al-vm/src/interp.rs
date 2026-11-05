@@ -521,11 +521,11 @@ impl Session {
     /// The statement at position `p` begins: the call stack, the profiler and coverage see it.
     #[inline(always)]
     pub(crate) fn at_pos(&mut self, p: u32) {
+        if profile::ON.load(std::sync::atomic::Ordering::Relaxed) {
+            self.profile_sample(None);
+        }
         if let Some(top) = self.call_stack.last_mut() {
             top.pos = p;
-        }
-        if profile::ON.load(std::sync::atomic::Ordering::Relaxed) {
-            self.profile_sample();
         }
         if self.coverage.code_coverage {
             self.coverage_hit(p);

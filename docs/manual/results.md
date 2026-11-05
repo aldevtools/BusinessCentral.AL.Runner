@@ -124,10 +124,15 @@ AL_PROFILE=profile.txt al-runner test ./MyApp ./MyApp.Test --codeunit 50100
 The run samples the AL call stack every 5 ms. It writes the file every 5 seconds
 and once more when the run ends. The first line has the sample count and the interval,
 for example `samples 1200 of 5 ms`: 1,200 samples are about 6 seconds of AL code. Then
-come two lists of the 60 routines with the most samples:
+come three lists of the 60 entries with the most samples:
 
 - `self`: samples where the routine was running its own statements.
 - `inclusive`: samples where the routine was anywhere on the call stack.
+- `self by statement`: the `self` samples split by the statement that was running,
+  as file and line. When the sample landed inside a built-in method, its name follows
+  in brackets, for example
+  `codeunit No. Series - Impl..GetNoSeriesLine  NoSeriesImpl.Codeunit.al:150  [Record.FindLast]`.
+  `(entry)` stands for the time between a call and the routine's first statement.
 
 Each line is the sample count, then the object type, the object name and the routine.
 A field trigger also names its field, as in `table Sales Line.Quantity.OnValidate`;
@@ -139,9 +144,11 @@ How to read the counts:
   threads, the samples add up to the time any AL statement ran, not to CPU time
   times the number of threads. Routines that run many statements get a larger share.
   Set `AL_TEST_THREADS=1` for a profile of one thread.
-- A sample is taken at the next AL statement. Time spent inside a built-in method
-  (for example `FindSet` or `Validate`) counts as `self` of the AL routine that
-  called it.
+- A sample is taken at the next AL statement or when a built-in method returns.
+  Time spent inside a built-in method (for example `FindSet` or `Validate`) counts
+  as `self` of the AL routine that called it; `self by statement` names the method
+  and the line. A built-in method that runs AL code (a trigger, an event subscriber)
+  books that code's time to the AL routines it runs.
 Two more variables help with short runs:
 
 - `AL_PROFILE_US=N`: sample every N microseconds instead of 5,000.

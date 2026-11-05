@@ -329,3 +329,49 @@ fn al_profile_writes_its_file_at_the_end_of_a_short_run() {
     let profile = std::fs::read_to_string(&file).unwrap_or_default();
     assert!(profile.starts_with("samples "), "no profile written: {profile:?}");
 }
+
+/// Issue 6924: the profile file splits the self samples by statement (file and line) and names the builtin a sample
+/// landed in, so the time inside FindLast or Insert is no longer only self time of the calling routine.
+#[test]
+fn al_profile_names_the_statement_and_builtin_of_a_sample() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("prof");
+    write(
+        &dir,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000006924", "Prof", &[]),
+    );
+    write(
+        &dir,
+        "src/Tests.al",
+        "table 50683 \"Prof Row\"\n{\n    fields\n    {\n        field(1; Id; Integer) { }\n        field(2; Grp; Integer) { }\n    }\n    keys\n    {\n        key(PK; Id) { }\n        key(G; Grp, Id) { }\n    }\n}\n\ncodeunit 50684 \"Prof Tests\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure Loop()\n    var\n        r: Record \"Prof Row\" temporary;\n        i: Integer;\n    begin\n        for i := 1 to 3000 do begin\n            r.Id := i;\n            r.Grp := i mod 7;\n            r.Insert();\n        end;\n        r.SetCurrentKey(Grp, Id);\n        for i := 1 to 3000 do begin\n            r.SetRange(Grp, i mod 7);\n            r.FindLast();\n        end;\n    end;\n}\n",
+    );
+    let file = d.path().join("profile.txt");
+    let o = Command::new(env!("CARGO_BIN_EXE_al-runner"))
+        .args([
+            "test",
+            dir.to_str().unwrap(),
+            "--no-download",
+            "--test-exact",
+            "Codeunit50684.Loop",
+            "--run-selected-only",
+        ])
+        .env("AL_CHECK_THREADS", "2")
+        .env("AL_LOWER_THREADS", "2")
+        .env("AL_TEST_THREADS", "2")
+        .env("ALRUNNER_NO_PATH_NOTE", "1")
+        .env("AL_PROFILE", &file)
+        .env("AL_PROFILE_US", "20")
+        .output()
+        .unwrap();
+    assert_eq!(code(&o), 0, "{}", text(&o));
+    let profile = std::fs::read_to_string(&file).unwrap_or_default();
+    let section = profile.split("\nself by statement").nth(1).unwrap_or_default();
+    assert!(section.contains("Tests.al:"), "no statement lines: {profile}");
+    assert!(
+        section.contains("[Record.FindLast]")
+            || section.contains("[Record.Insert]")
+            || section.contains("[Record.SetRange]"),
+        "no builtin named: {profile}"
+    );
+}
