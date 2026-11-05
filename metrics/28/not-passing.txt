@@ -13,7 +13,6 @@
 60133 TestField_AsTime_ReturnsTime
 60136 NavApp_GetCallerModuleInfo_IsCallable
 60136 NavApp_IsEntitled_IsCallable
-60146 GetUrl_WithDefaultClientType_ReturnsUrl
 60186 BN_ForLoop_BoundConvertedToControlType
 60193 QW_Ternary_EnumOptionPairs
 60193 QW_Ternary_LabelIntoVariant
@@ -841,7 +840,6 @@
 73909 This_PageExtension_Calls
 73973 Page_LiteralClasses
 73973 TableField_Captions
-73974 GetUrl_Default
 73975 GetUrl_Api
 73975 GetUrl_OData
 73975 GetUrl_ODataV4
