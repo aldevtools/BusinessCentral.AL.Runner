@@ -1925,33 +1925,23 @@ fn table_filter_value(f: &crate::native::TableFilterField, value: &str) -> Resul
             }
             refuse()
         }
-        RtType::Option(_) => {
+        // Option and Enum members, one or in a list, `<>` or a range (crate::evaluate_table_filter_member).
+        RtType::Option(_) | RtType::Enum(_) => {
             let members = match &f.options {
                 Ok(Some(m)) => m,
                 Ok(None) => return refuse(),
                 Err(why) => return unsupported(why.clone()),
             };
-            let upper = v.to_ascii_uppercase();
-            if upper.starts_with("FILTER(") || upper.starts_with("CONST(") {
-                return Ok(Err(
-                    "An error occurred while interpreting the filter: Did not expect '('.".into(),
-                ));
+            match crate::evaluate_table_filter_member::member_filter(members, v) {
+                Some(r) => {
+                    // One Option member is pinned on master (W4PlatformAndMeta.al); the rest waits for its probe file.
+                    if matches!(f.ty, RtType::Enum(_)) || v.contains(['|', '<', '.']) {
+                        crate::assumptions::assume(crate::assumptions::Assumption::TablefilterEnumMemberForms);
+                    }
+                    Ok(r)
+                }
+                None => refuse(),
             }
-            let hit = v
-                .parse::<usize>()
-                .ok()
-                .filter(|_| v.chars().all(|ch| ch.is_ascii_digit()))
-                .and_then(|i| members.get(i))
-                .or_else(|| members.iter().find(|(name, _)| name.eq_ignore_ascii_case(v)))
-                .or_else(|| members.iter().find(|(_, caption)| caption == v));
-            if let Some((_, caption)) = hit {
-                return Ok(Ok(caption.clone()));
-            }
-            if !v.is_empty() && v.chars().all(|ch| ch.is_ascii_alphabetic()) {
-                let list = members.iter().map(|(_, c)| c.as_str()).collect::<Vec<_>>().join(",");
-                return Ok(Err(format!("'{v}' is not an option. The existing options are: {list}")));
-            }
-            refuse()
         }
         _ => refuse(),
     }

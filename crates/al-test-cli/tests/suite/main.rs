@@ -163,6 +163,7 @@ mod this_in_objects;
 mod typed_handler_set_up_variable;
 mod unpinned_error_result;
 mod update_draft_row;
+mod update_never_run_new_record;
 mod user_name_filters;
 mod user_name_getfilter;
 mod user_reports;
