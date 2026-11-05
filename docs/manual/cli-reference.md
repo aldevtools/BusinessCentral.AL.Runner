@@ -179,6 +179,8 @@ and `al-runner impact-index`. See [Impact analysis](impact.md).
 
 `--dotnet-sidecar PATH`, `--dotnet-assembly-dir DIR`, `--dotnet-allow-roll-forward`,
 `--dotnet-timeout-secs N` and `--require-dotnet` control the optional .NET helper.
+`--dotnet-assembly-dir` folders are searched before the BC service-tier DLLs that AL Runner
+finds or downloads for the build in use.
 See [What works](what-works.md#dotnet).
 
 ## Test-microsoft
