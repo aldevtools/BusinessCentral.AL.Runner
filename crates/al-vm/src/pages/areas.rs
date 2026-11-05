@@ -86,7 +86,9 @@ impl Session {
         // A change of the session's areas while the page is open does not reach it: the page keeps the controls it opened with
         // (the areas it read then, `st.areas`) until it is closed and opened again (corpus branch al-runtime-rs-staging-r6962,
         // pages/application-area/AreasChangedWhilePageOpen.al AreasSetInPageTrigger_FewerTags_FieldsRead `after` `a;b;s;`,
-        // `reopened` `a;b;ERR(...)`, _OtherTags_, _FromEmpty_, AreasSetInTest_FewerTags_; issue 7001).
+        // `reopened` `a;b;ERR(...)`, _OtherTags_, _FromEmpty_, AreasSetInTest_FewerTags_; issue 7001). Pinned on master as well by
+        // pages/application-area/W2AppAreas.al:393 ChangeAfterOpen_OpenedBasic_ThenSuite (and its siblings) and
+        // testpage/AnAreaTests.al:51 An06_AreaRemovedAfterOpen_SetValue, :83 An06_AreaAddedAfterOpen_SetValue.
         let Some(areas) = enabled(&st.borrow().areas) else {
             return Ok(());
         };

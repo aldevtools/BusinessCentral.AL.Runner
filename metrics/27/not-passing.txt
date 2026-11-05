@@ -243,10 +243,6 @@
 68678 Validate_VariableControl
 68678 Validate_VariableControlWithoutOwnTrigger
 68692 OwnTriggerAndModifyBlockOnLookup
-68697 ChangeAfterOpen_Actions_OpenedBasic_ThenSuite
-68697 ChangeAfterOpen_OpenedBasic_ThenSuite
-68697 ChangeAfterOpen_OpenedBasic_ThenUnrestricted
-68697 ChangeAfterOpen_OpenedUnrestricted_ThenBasic
 68703 Worker_Commit
 68703 Worker_UnguardedRunFails
 68703 Worker_UnguardedRunSucceeds
@@ -1163,8 +1159,6 @@
 79450 An15_RelationLookup_NoPage_NoHandler
 79450 An16_DurationSpellings
 79450 An19_TableFieldCaptionClass_NonNumericArea
-79451 An06_AreaAddedAfterOpen_SetValue
-79451 An06_AreaRemovedAfterOpen_SetValue
 79590 AddinProcedureFromAction
 79590 Bg_Commit
 79590 Bg_RunFailUnguarded
