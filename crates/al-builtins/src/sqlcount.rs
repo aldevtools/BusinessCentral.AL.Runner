@@ -22,6 +22,8 @@
 //! P6924_Counters_StoredInDecimal_NotNegativeAndWhole, P6924_Counters_DictionaryOfGuidInteger_AddGetAndLaterDifference).
 //! `Format` gives a marked text ([`crate::native::SQL_COUNT_TEXT_MARK`]): it may be passed on and logged
 //! (P6924_Counters_FormattedInTelemetryDimension_NoError), and every text function that reads it refuses (`Txt::has_marker`).
+//! `StrSubstNo` with a counter value (or its formatted text) as a value fills it in through `Format`, so its text is marked
+//! the same way (al-runner issue 7129; al-vm `sqlcount::guard`).
 //!
 //! Two reads of one counter of different epochs (work no test pins ran between them) subtract to [`SqlForm::Unknown`]: it may
 //! be stored, formatted and logged like the rest, and no arithmetic or comparison takes it (al-runner issue 6924).

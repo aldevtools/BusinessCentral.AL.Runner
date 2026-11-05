@@ -131,12 +131,13 @@ fn a_single_read_compared_with_zero_other_than_not_negative_is_refused() {
     refused(run(&s, "F"), "SQL counter");
 }
 
-/// StrSubstNo, Format with a length, Message text, a record field, a key and a text concatenation would show the model's
-/// number: refused. (An Integer, a Decimal, a collection value and `Format(x)` hold it unread: sql_counter_stored.rs.)
+/// A message of the StrSubstNo text, Format with a length, Message text, a record field, a key and a text concatenation
+/// would show the model's number: refused. (An Integer, a Decimal, a collection value, `Format(x)` and `StrSubstNo` hold it
+/// unread: sql_counter_stored.rs.)
 #[test]
 fn other_uses_of_a_counter_are_refused() {
     for body in [
-        "procedure F(): Text begin exit(StrSubstNo('%1', SessionInformation.SqlStatementsExecuted())); end;",
+        "procedure F(): Text begin Message(StrSubstNo('%1', SessionInformation.SqlStatementsExecuted())); end;",
         "procedure F(): Text begin exit(Format(SessionInformation.SqlStatementsExecuted(), 5)); end;",
         "procedure F(): Text begin Message('%1', SessionInformation.SqlRowsRead()); end;",
         "procedure F(): Text var Row: Record Row; begin Row.Id := SessionInformation.SqlRowsRead(); end;",

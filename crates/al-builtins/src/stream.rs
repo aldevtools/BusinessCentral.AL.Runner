@@ -77,6 +77,9 @@ pub struct BlobBuf {
     /// ([`unread_content_blob`]): `Format` shows `*` (text/text-methods/Y49FieldRefIntoText.al:383) and a comparison
     /// sees a Blob with content (`blob_compare`). A copy does not keep it.
     pub unread_content: bool,
+    /// The buffer is one side of a Blob field assignment that copied it ([`copy_for_assignment`]): the source or the copy. A
+    /// Clear of it or a new stream on it relies on the copy (al-runner issue 7128, `Assumption::BlobFieldAssignCopies`).
+    pub assign_copied: bool,
 }
 
 thread_local! {
@@ -339,6 +342,7 @@ pub fn new_blob() -> BlobRef {
         file: false,
         dotnet_view: 0,
         unread_content: false,
+        assign_copied: false,
     }))
 }
 
@@ -378,7 +382,28 @@ pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
         file: false,
         dotnet_view: 0,
         unread_content: false,
+        assign_copied: false,
     }))
+}
+
+/// The value `Target.Field := Source` stores when the source Blob is held elsewhere too (a field of another record, a
+/// Variant): a buffer of its own with everything the source shows, so a later Clear of the source or a new write to it does
+/// not reach the target, and the reverse (al-runner issue 7128; `Assumption::BlobFieldAssignCopies`). A record assignment
+/// copies its Blobs as well (record/PnABlobAssignRename.al:35-66 Assign_Temporary `copy-after-source-change`).
+pub fn copy_for_assignment(b: &BlobRef) -> BlobRef {
+    let mut copy = b.borrow().clone();
+    copy.dotnet_view = 0;
+    copy.temp_inserted = false;
+    copy.assign_copied = true;
+    b.borrow_mut().assign_copied = true;
+    std::sync::Arc::new(BlobCell::new(copy))
+}
+
+/// Marks `Assumption::BlobFieldAssignCopies` when a Clear or a new stream changes a buffer a field assignment copied.
+pub(crate) fn note_assign_copied(b: &BlobRef) {
+    if b.borrow().assign_copied {
+        crate::assumptions::assume(crate::assumptions::Assumption::BlobFieldAssignCopies);
+    }
 }
 
 /// The unloaded copy a read of a database row hands out (`BlobBuf::db_row`).
@@ -811,6 +836,7 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
     // row 1 written `A` and inserted, then written `C` under key 2 and inserted; Get(1) reads `A`). A Blob empty at the
     // Insert stays the row's own (streams/TestBlobUncommittedWriteIsolation.al:171).
     if let Some(Value::Blob(b)) = r.as_deref_mut() {
+        note_assign_copied(b);
         let shared = b.borrow().temp_inserted;
         if shared {
             b.borrow_mut().temp_inserted = false;
@@ -892,6 +918,7 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
         file: false,
         dotnet_view: 0,
         unread_content: false,
+        assign_copied: false,
     });
     set_stream(
         &a[0],
