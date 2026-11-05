@@ -273,7 +273,7 @@ impl Session {
             }
             self.xp_save_record(inst, schema, node, &assigned, true)?;
         }
-        Ok(())
+        self.xp_import_view_after_row(inst, schema, node)
     }
 
     /// A text element right below a table element in a pinned shape (`text_in_table`): its attributes, then the elements below
