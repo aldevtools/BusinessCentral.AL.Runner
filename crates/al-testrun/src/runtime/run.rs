@@ -443,558 +443,584 @@ fn run_codeunit_inner(
     // and its manual subscriber share its globals, and the second test sees what the first left
     // (codeunits/QiSingleInstanceTestCodeunit.al:57 QI_SI_1_OwnTypeVariableAndManualSubscriber, :98 QI_SI_2_SecondTestSeesTheFirst).
     // Taken after the install code and the company open, which drop the session's single instances.
-    let instance = session.codeunit_instance(object);
-    // What BC's AL test runner does around each test method (runner_reset.rs). A scratch run has no runner.
-    let runner = if execute {
-        runner_reset::RunnerReset::default()
-    } else {
-        runner_reset::RunnerReset::of(engine)
-    };
-    let on_run_rows = scratch.on_run_rows;
-    // A refused OnRun: whether it would raise is not known, so neither is whether the tests run.
-    let on_run_refused = |why: String| all(Outcome::NotRun(why));
-    // Under `OnRunRows::TestRunner`, the tests of a codeunit with a declared OnRun that did not raise: their rows rest on
-    // the unprobed reporting of OnRun (ADR-055).
-    let mut on_run_shape_assumed = false;
-    if let Some(on_run) = (0..obj.routines.len())
-        .find(|&r| obj.routines[r].is_trigger && obj.routines[r].name.eq_ignore_ascii_case("OnRun"))
-        .filter(|_| !execute)
-    {
-        if let Some(reason) = blocked_reason(lowered, object, on_run) {
-            return on_run_refused(format!("OnRun: {reason}"));
-        }
-        if let Some(reason) = company_open_refuses(on_run) {
-            return on_run_refused(format!("OnRun: {reason}"));
-        }
-        session.store_mut().watch(leak.clone());
-        // Al-runner issue 5698: the time limit (CPU time, the wall backstop and the Sleep budget) applies to OnRun too,
-        // with a budget of its own: its time counts toward no test method. A limit is tooling (ADR-009), not something
-        // AL code observes.
-        session.clear_stop();
-        let watchdog = limit.map(|l| Watchdog::start_paused(session.stop_flag(), l, None, None));
-        session.start_sleep_budget(limit);
-        // What OnRun runs through does not count for the first test.
-        al_builtins::assumptions::clear_hits();
-        let ran = session.call(object, on_run, instance.clone(), Vec::new());
-        let timed_out = watchdog.is_some_and(Watchdog::finish);
-        let slept_out = session.sleep_budget_passed();
-        let slept_ms = session.slept_in_test_ms();
-        session.end_sleep_budget();
-        // The reasons start as a test method's do, so the outputs give the same timeout row (`Test exceeded <N>s
-        // timeout.`); the rest names the trigger.
-        let ran = match ran {
-            Err(Signal::Unsupported(_)) if slept_out => Err(Signal::Unsupported(format!(
-                "the test used more than the time limit of {} s and was stopped (--test-timeout-secs) in the test codeunit's OnRun trigger, before its tests: its Sleep calls asked to wait {slept_ms} ms in total (Sleep does not wait here; the time it asks for counts toward the limit)",
-                limit.map_or(0, |l| l.as_secs())
-            ))),
-            Err(Signal::Unsupported(_)) if timed_out => Err(Signal::Unsupported(format!(
-                "the test used more than the time limit of {} s of CPU time and was stopped (--test-timeout-secs) in the test codeunit's OnRun trigger, before its tests; BC may have ended it differently or not at all",
-                limit.map_or(0, |l| l.as_secs())
-            ))),
-            r => r,
-        };
-        if session.store_mut().watch_hit().is_some() {
-            scratch.leak_hit = true;
-        }
-        session.store_mut().watch(Default::default());
-        match ran {
-            // NavTestCodeunit.DoRunAsync commits after a declared OnRun
-            // (codeunits/TestTestCodeunitOnRun.al).
-            Ok(_) if session.inconsistent_table().is_some() => {
-                return on_run_refused(
-                    "OnRun: ends while Consistent(false) marks a table (the runner's commit is not pinned)".into(),
-                );
+    let al_runner_object = scratch.runner;
+    // The test codeunit run: called here, or from the OnRun of the test runner codeunit `al_runner_object` when it runs
+    // the test codeunit (ADR-066 decision 1, `al_runner.rs`). An error is a result that skips what follows below.
+    let mut body = |session: &mut Session,
+                    al: Option<super::al_runner::RunnerRef>|
+     -> Result<super::al_runner::Outcomes, super::al_runner::Outcomes> {
+        let instance = session.codeunit_instance(object);
+        // What BC's AL test runner does around each test method: al-runner's own steps (runner_reset.rs), or the triggers of
+        // the test runner codeunit whose OnRun runs this codeunit (al_runner.rs). A scratch run has no runner.
+        let runner = super::al_runner::Steps::new(engine, execute, al);
+        let on_run_rows = scratch.on_run_rows;
+        // A refused OnRun: whether it would raise is not known, so neither is whether the tests run.
+        let on_run_refused = |why: String| all(Outcome::NotRun(why));
+        // Under `OnRunRows::TestRunner`, the tests of a codeunit with a declared OnRun that did not raise: their rows rest on
+        // the unprobed reporting of OnRun (ADR-055).
+        let mut on_run_shape_assumed = false;
+        if let Some(on_run) = (0..obj.routines.len())
+            .find(|&r| obj.routines[r].is_trigger && obj.routines[r].name.eq_ignore_ascii_case("OnRun"))
+            .filter(|_| !execute)
+        {
+            if let Some(reason) = blocked_reason(lowered, object, on_run) {
+                return Err(on_run_refused(format!("OnRun: {reason}")));
             }
-            Ok(_) => {
-                session.commit_transaction();
-                // OnRun ran outside the codeunit isolation of runner 130450: the later codeunits start from what it left,
-                // committed and open, whatever the tests do (RqIsolationModes.al:357-369 #else).
-                if let Some(start) = &onrun_from {
-                    onrun_left = Some(super::numbers_taken::onrun_left(
-                        &mut session,
-                        start,
-                        baseline,
-                        &skipped_installs,
-                        changes_from,
+            if let Some(reason) = company_open_refuses(on_run) {
+                return Err(on_run_refused(format!("OnRun: {reason}")));
+            }
+            session.store_mut().watch(leak.clone());
+            // Al-runner issue 5698: the time limit (CPU time, the wall backstop and the Sleep budget) applies to OnRun too,
+            // with a budget of its own: its time counts toward no test method. A limit is tooling (ADR-009), not something
+            // AL code observes.
+            session.clear_stop();
+            let watchdog = limit.map(|l| Watchdog::start_paused(session.stop_flag(), l, None, None));
+            session.start_sleep_budget(limit);
+            // What OnRun runs through does not count for the first test.
+            al_builtins::assumptions::clear_hits();
+            if let Err(why) = runner.before_on_run(session, obj) {
+                return Err(on_run_refused(why));
+            }
+            let ran = session.call(object, on_run, instance.clone(), Vec::new());
+            if let Err(why) = runner.after_on_run(session, obj, ran.is_ok()) {
+                return Err(on_run_refused(why));
+            }
+            let timed_out = watchdog.is_some_and(Watchdog::finish);
+            let slept_out = session.sleep_budget_passed();
+            let slept_ms = session.slept_in_test_ms();
+            session.end_sleep_budget();
+            // The reasons start as a test method's do, so the outputs give the same timeout row (`Test exceeded <N>s
+            // timeout.`); the rest names the trigger.
+            let ran = match ran {
+                Err(Signal::Unsupported(_)) if slept_out => Err(Signal::Unsupported(format!(
+                    "the test used more than the time limit of {} s and was stopped (--test-timeout-secs) in the test codeunit's OnRun trigger, before its tests: its Sleep calls asked to wait {slept_ms} ms in total (Sleep does not wait here; the time it asks for counts toward the limit)",
+                    limit.map_or(0, |l| l.as_secs())
+                ))),
+                Err(Signal::Unsupported(_)) if timed_out => Err(Signal::Unsupported(format!(
+                    "the test used more than the time limit of {} s of CPU time and was stopped (--test-timeout-secs) in the test codeunit's OnRun trigger, before its tests; BC may have ended it differently or not at all",
+                    limit.map_or(0, |l| l.as_secs())
+                ))),
+                r => r,
+            };
+            if session.store_mut().watch_hit().is_some() {
+                scratch.leak_hit = true;
+            }
+            session.store_mut().watch(Default::default());
+            match ran {
+                // NavTestCodeunit.DoRunAsync commits after a declared OnRun
+                // (codeunits/TestTestCodeunitOnRun.al).
+                Ok(_) if session.inconsistent_table().is_some() => {
+                    return Err(on_run_refused(
+                        "OnRun: ends while Consistent(false) marks a table (the runner's commit is not pinned)".into(),
                     ));
                 }
-            }
-            Err(Signal::Unsupported(r)) if r.starts_with(TIME_LIMIT_REASON) => {
-                return on_run_refused(r);
-            }
-            Err(Signal::Unsupported(r)) => return on_run_refused(format!("OnRun: {r}")),
-            Err(Signal::Error(e)) => {
-                if on_run_rows == OnRunRows::PerTest {
-                    return all(Outcome::NotRun(format!(
-                        "OnRun failed (runner behaviour not pinned): {}",
-                        e.message
-                    )));
-                }
-                // The error may come from install data this run does not have: it is not trusted.
-                if let Some(why) = skipped_install_touching(&skipped_installs, lowered, object, on_run) {
-                    return on_run_refused(format!("OnRun failed after install code that did not run: {why}"));
-                }
-                let marks = al_builtins::assumptions::take_hits();
-                // Microsoft's Test Runner app (ADR-055): the codeunit is Skipped and has no rows, and the run stays
-                // green (al-runner issue 5859, BC 29.0; corpus writer RL's probe c69419f6, BC 27.5). Its text is not
-                // reported, so an unpinned one does not matter; an error reached through an unprobed assumption may not
-                // happen on BC, and then the tests would run.
-                if !marks.is_empty() {
-                    let ids: Vec<&str> = marks.iter().map(|a| a.info().id).collect();
-                    return all(Outcome::NotRun(format!(
-                        "OnRun failed through unprobed assumptions ({}), so whether the tests run is not known: {}",
-                        ids.join(", "),
-                        e.message
-                    )));
-                }
-                // No row carries the assumption here: the skipped codeunit has none (`test-codeunit-onrun-rows`).
-                return Vec::new();
-            }
-            Err(_) => {}
-        }
-        on_run_shape_assumed = on_run_rows == OnRunRows::TestRunner;
-    }
-    // Function isolation returns the database to its state after OnRun when each test ends
-    // (corpus isolation probe T5 and T6; oracle/28/xunit-isolation-function.xml).
-    let checkpoint = (isolation == TestIsolation::Function).then(|| Checkpoint::take(&mut session));
-    // TestIsolation = Codeunit keeps one transaction open for the tests: MinimumActiveRowVersion stays at its value now. When
-    // OnRun wrote rows, whether they belong to that transaction is not pinned, and nothing is frozen.
-    if isolation == TestIsolation::Codeunit && !execute && session.row_versions_handed_out() == row_versions_from {
-        session.freeze_min_active_row_version();
-    }
-    if scratch.capture.any() {
-        session.enable_capture(scratch.capture);
-    }
-    // `al-runner debug` (ADR-048): the tests run with the debugger; the install code above did not.
-    let paused = match crate::events::debugger() {
-        Some((hook, paused)) => {
-            session.attach_debugger(hook);
-            paused
-        }
-        None => None,
-    };
-    let mut out: Vec<(String, Outcome)> = Vec::new();
-    // Every earlier test of the codeunit that did not run to its end: refused before it started, refused while it ran,
-    // or failed. A later failure is not trusted when such a test could have changed what it reads (`written.rs`).
-    let mut unfinished: Vec<Unfinished> = Vec::new();
-    // Taken at the first failure that has an unfinished test before it; built once per engine, as it depends on the
-    // program only.
-    let mut reach_index: Option<Arc<ReachIndex>> = None;
-    let flags = settled_flags(lowered, object);
-    let mut panicked = false;
-    // Why the tests after one are not run: under a runner's TestIsolation = Function, that test changed an isolated
-    // storage key or a number sequence that was there before it, and what the rollback leaves of it is not measured.
-    let mut unmeasured_restore: Option<String> = None;
-    let mut queue = data_driven::queue(lowered, object, &tests, &data_driven);
-    // The rows of `out` that are results of data-driven procedures: BC reports none of them when it ends the session.
-    let mut data_driven_rows: Vec<usize> = Vec::new();
-    while let Some(item) = queue.pop_front() {
-        let r = item.routine;
-        let name = item.name;
-        if matches!(item.step, data_driven::Step::Source) {
-            match data_driven::list(&mut session, lowered, object, r, &name) {
-                data_driven::Listed::Items(items) => {
-                    for it in items.into_iter().rev() {
-                        queue.push_front(it);
+                Ok(_) => {
+                    session.commit_transaction();
+                    // OnRun ran outside the codeunit isolation of runner 130450: the later codeunits start from what it left,
+                    // committed and open, whatever the tests do (RqIsolationModes.al:357-369 #else).
+                    if let Some(start) = &onrun_from {
+                        onrun_left = Some(super::numbers_taken::onrun_left(
+                            session,
+                            start,
+                            baseline,
+                            &skipped_installs,
+                            changes_from,
+                        ));
                     }
                 }
-                data_driven::Listed::SessionEnds => {
-                    let why = || Outcome::NotRun(data_driven::SESSION_ENDS.into());
-                    for &row in &data_driven_rows {
-                        out[row].1 = why();
-                    }
-                    // Only data-driven procedures are left: the plain tests ran first.
-                    let rest: Vec<_> = std::iter::once(r).chain(queue.drain(..).map(|i| i.routine)).collect();
-                    let mut seen = BTreeSet::new();
-                    for p in rest.into_iter().filter(|p| seen.insert(*p)) {
-                        queue.push_back(data_driven::Item {
-                            routine: p,
-                            name: obj.routines[p].name.clone(),
-                            step: data_driven::Step::Decided(why()),
-                        });
-                    }
+                Err(Signal::Unsupported(r)) if r.starts_with(TIME_LIMIT_REASON) => {
+                    return Err(on_run_refused(r));
                 }
+                Err(Signal::Unsupported(r)) => return Err(on_run_refused(format!("OnRun: {r}"))),
+                Err(Signal::Error(e)) => {
+                    if on_run_rows == OnRunRows::PerTest {
+                        return Err(all(Outcome::NotRun(format!(
+                            "OnRun failed (runner behaviour not pinned): {}",
+                            e.message
+                        ))));
+                    }
+                    // The error may come from install data this run does not have: it is not trusted.
+                    if let Some(why) = skipped_install_touching(&skipped_installs, lowered, object, on_run) {
+                        return Err(on_run_refused(format!(
+                            "OnRun failed after install code that did not run: {why}"
+                        )));
+                    }
+                    let marks = al_builtins::assumptions::take_hits();
+                    // Microsoft's Test Runner app (ADR-055): the codeunit is Skipped and has no rows, and the run stays
+                    // green (al-runner issue 5859, BC 29.0; corpus writer RL's probe c69419f6, BC 27.5). Its text is not
+                    // reported, so an unpinned one does not matter; an error reached through an unprobed assumption may not
+                    // happen on BC, and then the tests would run.
+                    if !marks.is_empty() {
+                        let ids: Vec<&str> = marks.iter().map(|a| a.info().id).collect();
+                        return Err(all(Outcome::NotRun(format!(
+                            "OnRun failed through unprobed assumptions ({}), so whether the tests run is not known: {}",
+                            ids.join(", "),
+                            e.message
+                        ))));
+                    }
+                    // No row carries the assumption here: the skipped codeunit has none (`test-codeunit-onrun-rows`).
+                    return Err(Vec::new());
+                }
+                Err(_) => {}
             }
-            continue;
+            on_run_shape_assumed = on_run_rows == OnRunRows::TestRunner;
         }
-        let decided = match &item.step {
-            data_driven::Step::Decided(o) => Some(o.clone()),
-            _ => None,
+        // Function isolation returns the database to its state after OnRun when each test ends
+        // (corpus isolation probe T5 and T6; oracle/28/xunit-isolation-function.xml).
+        let checkpoint = (isolation == TestIsolation::Function).then(|| Checkpoint::take(session));
+        // TestIsolation = Codeunit keeps one transaction open for the tests: MinimumActiveRowVersion stays at its value now. When
+        // OnRun wrote rows, whether they belong to that transaction is not pinned, and nothing is frozen.
+        if isolation == TestIsolation::Codeunit && !execute && session.row_versions_handed_out() == row_versions_from {
+            session.freeze_min_active_row_version();
+        }
+        if scratch.capture.any() {
+            session.enable_capture(scratch.capture);
+        }
+        // `al-runner debug` (ADR-048): the tests run with the debugger; the install code above did not.
+        let paused = match crate::events::debugger() {
+            Some((hook, paused)) => {
+                session.attach_debugger(hook);
+                paused
+            }
+            None => None,
         };
-        let case = match item.step {
-            data_driven::Step::Case { source, index, id } => Some((source, index, id)),
-            _ => None,
-        };
-        if !matches!((&case, &decided), (None, None)) {
-            data_driven_rows.push(out.len());
-        }
-        // A cancelled run starts no further test (the one running finishes).
-        if crate::events::cancelled() {
-            break;
-        }
-        crate::events::starting(obj.id.unwrap_or(0), &obj.routines[r].name);
-        let test_started = std::time::Instant::now();
-        let draws_before = session.inherited_random_draws();
-        let carried_before = session.carried_random_draws();
-        let bound_before = session.bound_subscriptions();
-        // The flags of the codeunit that already hold their only value when this test starts.
-        let settled: BTreeSet<(usize, usize)> = {
-            let inst = instance.borrow();
-            flags
+        let mut out: Vec<(String, Outcome)> = Vec::new();
+        // Every earlier test of the codeunit that did not run to its end: refused before it started, refused while it ran,
+        // or failed. A later failure is not trusted when such a test could have changed what it reads (`written.rs`).
+        let mut unfinished: Vec<Unfinished> = Vec::new();
+        // Taken at the first failure that has an unfinished test before it; built once per engine, as it depends on the
+        // program only.
+        let mut reach_index: Option<Arc<ReachIndex>> = None;
+        let flags = settled_flags(lowered, object);
+        let mut panicked = false;
+        // Why the tests after one are not run: under a runner's TestIsolation = Function, that test changed an isolated
+        // storage key or a number sequence that was there before it, and what the rollback leaves of it is not measured.
+        let mut unmeasured_restore: Option<String> = None;
+        let mut queue = data_driven::queue(lowered, object, &tests, &data_driven);
+        // The rows of `out` that are results of data-driven procedures: BC reports none of them when it ends the session.
+        let mut data_driven_rows: Vec<usize> = Vec::new();
+        while let Some(item) = queue.pop_front() {
+            let r = item.routine;
+            let name = item.name;
+            if matches!(item.step, data_driven::Step::Source) {
+                match data_driven::list(session, lowered, object, r, &name) {
+                    data_driven::Listed::Items(items) => {
+                        for it in items.into_iter().rev() {
+                            queue.push_front(it);
+                        }
+                    }
+                    data_driven::Listed::SessionEnds => {
+                        let why = || Outcome::NotRun(data_driven::SESSION_ENDS.into());
+                        for &row in &data_driven_rows {
+                            out[row].1 = why();
+                        }
+                        // Only data-driven procedures are left: the plain tests ran first.
+                        let rest: Vec<_> = std::iter::once(r).chain(queue.drain(..).map(|i| i.routine)).collect();
+                        let mut seen = BTreeSet::new();
+                        for p in rest.into_iter().filter(|p| seen.insert(*p)) {
+                            queue.push_back(data_driven::Item {
+                                routine: p,
+                                name: obj.routines[p].name.clone(),
+                                step: data_driven::Step::Decided(why()),
+                            });
+                        }
+                    }
+                }
+                continue;
+            }
+            let decided = match &item.step {
+                data_driven::Step::Decided(o) => Some(o.clone()),
+                _ => None,
+            };
+            let case = match item.step {
+                data_driven::Step::Case { source, index, id } => Some((source, index, id)),
+                _ => None,
+            };
+            if !matches!((&case, &decided), (None, None)) {
+                data_driven_rows.push(out.len());
+            }
+            // A cancelled run starts no further test (the one running finishes).
+            if crate::events::cancelled() {
+                break;
+            }
+            crate::events::starting(obj.id.unwrap_or(0), &obj.routines[r].name);
+            let test_started = std::time::Instant::now();
+            let draws_before = session.inherited_random_draws();
+            let carried_before = session.carried_random_draws();
+            let bound_before = session.bound_subscriptions();
+            // The flags of the codeunit that already hold their only value when this test starts.
+            let settled: BTreeSet<(usize, usize)> =
+                {
+                    let inst = instance.borrow();
+                    flags
                 .iter()
                 .filter(|(g, v)| matches!(inst.globals.get(*g), Some(al_builtins::value::Value::Boolean(b)) if b == v))
                 .map(|(g, _)| (object, *g))
                 .collect()
-        };
-        let routine = &obj.routines[r];
-        let handlers = resolve_handlers(lowered, object, r);
-        let (mut failure, mut refused_in): (Option<AlError>, Option<(usize, usize)>) = (None, None);
-        // Why a step of the test runner around this test was refused or failed (runner_reset.rs): what it left is not
-        // known, so a later failure of the codeunit is not trusted.
-        let mut runner_refused: Option<String> = None;
-        // A refusal raised by a statement of the test method itself: the statement's index in the body and the tables
-        // the test wrote before the refusal (al-runner issue 5961), for the trust of later failures.
-        let mut refused_rest: Option<Rest> = None;
-        session.clear_fault_site();
-        session.report_refusal_after_denial = refusal_after_denial(engine, lowered, &mut reach_index, object, r);
-        al_builtins::assumptions::clear_hits();
-        session.take_tdd_reached();
-        let mut began = false;
-        let outcome = if let Some(o) = decided {
-            o
-        } else if let Some(why) = &unmeasured_restore {
-            Outcome::NotRun(why.clone())
-        } else if let Some(b) = case
-            .as_ref()
-            .and_then(|(src, ..)| blocked_site(lowered, src.object, src.get))
-        {
-            refused_in = Some((b.object, b.routine));
-            Outcome::NotRun(b.text)
-        } else if let Err(reason) = &handlers {
-            Outcome::NotRun(reason.clone())
-        } else if let Some(b) = blocked_site(lowered, object, r) {
-            refused_in = Some((b.object, b.routine));
-            Outcome::NotRun(b.text)
-        } else if let Some(reason) = skipped_install_touching(&skipped_installs, lowered, object, r) {
-            Outcome::NotRun(reason.clone())
-        } else if let Some(reason) = company_open_refuses(r) {
-            Outcome::NotRun(reason)
-        } else {
-            let bound = handlers.unwrap_or_default();
-            // A scratch run has no UI scope: its `Message` calls are kept, not handled.
-            let bound_ok = if execute {
-                Ok(())
+                };
+            let routine = &obj.routines[r];
+            let handlers = resolve_handlers(lowered, object, r);
+            let (mut failure, mut refused_in): (Option<AlError>, Option<(usize, usize)>) = (None, None);
+            // Why a step of the test runner around this test was refused or failed (runner_reset.rs): what it left is not
+            // known, so a later failure of the codeunit is not trusted.
+            let mut runner_refused: Option<String> = None;
+            // A refusal raised by a statement of the test method itself: the statement's index in the body and the tables
+            // the test wrote before the refusal (al-runner issue 5961), for the trust of later failures.
+            let mut refused_rest: Option<Rest> = None;
+            session.clear_fault_site();
+            session.report_refusal_after_denial = refusal_after_denial(engine, lowered, &mut reach_index, object, r);
+            al_builtins::assumptions::clear_hits();
+            session.take_tdd_reached();
+            let mut began = false;
+            let mut skipped = false;
+            let outcome = if let Some(o) = decided {
+                o
+            } else if let Some(why) = &unmeasured_restore {
+                Outcome::NotRun(why.clone())
+            } else if let Some(b) = case
+                .as_ref()
+                .and_then(|(src, ..)| blocked_site(lowered, src.object, src.get))
+            {
+                refused_in = Some((b.object, b.routine));
+                Outcome::NotRun(b.text)
+            } else if let Err(reason) = &handlers {
+                Outcome::NotRun(reason.clone())
+            } else if let Some(b) = blocked_site(lowered, object, r) {
+                refused_in = Some((b.object, b.routine));
+                Outcome::NotRun(b.text)
+            } else if let Some(reason) = skipped_install_touching(&skipped_installs, lowered, object, r) {
+                Outcome::NotRun(reason.clone())
+            } else if let Some(reason) = company_open_refuses(r) {
+                Outcome::NotRun(reason)
             } else {
-                bind_handlers(&mut session, &instance, &bound)
-            };
-            match bound_ok {
-                Err(reason) => Outcome::NotRun(reason),
-                Ok(()) => {
-                    began = true;
-                    session
-                        .store_mut()
-                        .watch(company_open.tables.union(&leak).copied().collect());
-                    session.last_error = Default::default();
-                    al_builtins::assumptions::clear_hits();
-                    if on_run_shape_assumed {
-                        al_builtins::assumptions::assume(Assumption::TestCodeunitOnRunRows);
-                    }
-                    // The runner's steps before the method (runner_reset.rs); what they rely on counts for the test.
-                    // Its `LibraryRandom.SetSeed(1)` reseeds the sequence, so draws after it are not inherited.
-                    session.start_random_scope();
-                    // The run seed (ADR-061): the method's `Random` and Guids derive from it and its own name, so
-                    // `--seed N --test X` gives X the values of the full run. A stability variant's own `random.hostSeed`
-                    // or `guid.seed` replaces the derived value for that variant.
-                    let codeunit_id = obj.id.unwrap_or(0);
-                    session.seed_test_method(
-                        codeunit_id,
-                        &routine.name,
-                        perturb.host_seed.is_none(),
-                        perturb.guid_seed.is_none(),
-                    );
-                    // What the test (and the runner's steps around it) writes counts from here.
-                    let changes_from = session.store_mut().change_counter();
-                    // The session language and WorkDate a refusal while the test runs puts back.
-                    let carried = session.carried_state();
-                    let mut reset = runner.before(&mut session, obj, routine);
-                    // `random.librarySeed` of a stability run (ADR-058, owner decision 2) or `--seed-library`
-                    // (ADR-061): after codeunit 130301, the runner calls Microsoft's own `LibraryRandom.SetSeed(n)` with
-                    // the variant's seed, else the one derived from the run seed.
-                    let library_seed = perturb.library_seed.or_else(|| {
-                        run_seed
-                            .library
-                            .then(|| al_host::seed::derive_library(run_seed.seed, codeunit_id, &routine.name))
-                    });
-                    if let (Ok(()), Some(seed)) = (&reset, library_seed) {
-                        reset = runner_reset::library_seed(&mut session, seed);
-                    }
-                    let reset_ok = reset.is_ok();
-                    if let Err(why) = &reset {
-                        runner_refused = Some(why.clone());
-                    }
-                    // The AL test runner enables every application area before each test method
-                    // (corpus session-system/TestSessionApplicationAreaTestBoundary.al:67552).
-                    session.start_test_method();
-                    let model = models.get(&r).copied().unwrap_or_default();
-                    // TransactionModel::None is handled before the method body: every active
-                    // transaction is ended on the way in (codeunits/TestWriteTxTestBoundary.al:
-                    // Test08). Nothing is pending here, because every earlier test ended its
-                    // transaction at its own boundary, so which way it ends is not observable.
-                    if model == al_vm::TxModel::None {
-                        session.commit_transaction();
-                    }
-                    session.tx_model = model;
-                    session.clear_stop();
-                    // A scratch run is stopped by `cancel` too, and has a watchdog for that even without a limit.
-                    let cancel = if execute { crate::events::cancel_flag() } else { None };
-                    let watchdog = match (limit, &cancel) {
-                        (None, None) => None,
-                        (l, _) => Some(Watchdog::start_paused(
-                            session.stop_flag(),
-                            l.unwrap_or(std::time::Duration::from_secs(u32::MAX.into())),
-                            cancel.clone(),
-                            paused.clone(),
-                        )),
-                    };
-                    session.set_runner_frames(runner_frames(&lowered.program, engine));
-                    session.start_sleep_budget(limit);
-                    // A panic in the test is a runtime bug: it is caught here, so that it ends this codeunit and not
-                    // the process (a server must outlive it). The session is not trusted after it.
-                    let called = match reset {
-                        // A refused or failed reset: the test does not run, and what the reset changed stays.
-                        Err(why) => Ok(Err(Signal::Unsupported(why))),
-                        Ok(()) => std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            // A debugging aid: the named test panics here, to show that a panic ends one codeunit and not the
-                            // process (tests of `al-runner serve`). Not documented for users.
-                            if std::env::var("ALRUNNER_DEBUG_PANIC_IN").is_ok_and(|n| n == routine.name) {
-                                panic!("requested by ALRUNNER_DEBUG_PANIC_IN");
-                            }
-                            match &case {
-                                None => session.call(object, r, instance.clone(), Vec::new()),
-                                Some((source, index, id)) => data_driven::run_case(
-                                    &mut session,
-                                    lowered,
-                                    object,
-                                    r,
-                                    instance.clone(),
-                                    source,
-                                    *index,
-                                    id,
-                                ),
-                            }
-                        })),
-                    };
-                    let result = match called {
-                        Ok(r) => r,
-                        Err(p) => {
-                            panicked = true;
-                            let msg = p
-                                .downcast_ref::<String>()
-                                .cloned()
-                                .or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()))
-                                .unwrap_or_default();
-                            Err(Signal::Unsupported(format!("runtime panic (bug): {msg}")))
+                let bound = handlers.unwrap_or_default();
+                // A scratch run has no UI scope: its `Message` calls are kept, not handled.
+                let bound_ok = if execute {
+                    Ok(())
+                } else {
+                    bind_handlers(session, &instance, &bound)
+                };
+                match bound_ok {
+                    Err(reason) => Outcome::NotRun(reason),
+                    Ok(()) => {
+                        began = true;
+                        session
+                            .store_mut()
+                            .watch(company_open.tables.union(&leak).copied().collect());
+                        session.last_error = Default::default();
+                        al_builtins::assumptions::clear_hits();
+                        if on_run_shape_assumed {
+                            al_builtins::assumptions::assume(Assumption::TestCodeunitOnRunRows);
                         }
-                    };
-                    session.set_runner_frames(String::new());
-                    let timed_out = watchdog.is_some_and(Watchdog::finish);
-                    let slept_out = session.sleep_budget_passed();
-                    // A refusal the method's call raised, whose innermost frame is the method: the statement it came
-                    // from. The writes are read before the rollback below undoes them.
-                    if reset_ok
-                        && !panicked
-                        && !timed_out
-                        && !slept_out
-                        && matches!(result, Err(Signal::Unsupported(_)))
-                    {
-                        refused_rest = session
-                            .refusal_site()
-                            .and_then(|site| site.last().copied())
-                            .filter(|f| f.object == object && f.routine == r)
-                            .and_then(|f| written::statement_at(lowered, object, r, f.pos))
-                            .map(|from| Rest {
-                                from,
-                                handlers: bound.iter().map(|&(_, h)| h).collect(),
-                                written: session.store_mut().tables_changed_since(changes_from),
-                            });
-                    }
-                    session.end_sleep_budget();
-                    // The reason names the limit; the VM only knows that it was stopped. Both reasons start with the
-                    // same words, which the outputs turn into the timeout row (`Test exceeded <N>s timeout.`).
-                    let result = match result {
-                        Err(Signal::Unsupported(_)) if slept_out => Err(Signal::Unsupported(format!(
-                            "the test used more than the time limit of {} s and was stopped (--test-timeout-secs): its Sleep calls asked to wait {} ms in total (Sleep does not wait here; the time it asks for counts toward the limit)",
-                            limit.map_or(0, |l| l.as_secs()),
-                            session.slept_in_test_ms()
-                        ))),
-                        Err(Signal::Unsupported(_)) if timed_out => Err(Signal::Unsupported(format!(
-                            "the test used more than the time limit of {} s of CPU time and was stopped (--test-timeout-secs); BC may have ended it differently or not at all",
-                            limit.map_or(0, |l| l.as_secs())
-                        ))),
-                        r => r,
-                    };
-                    // ADR-062: a test that lowered its permissions to sets that do not grant everything, and made no
-                    // access since that the gate refused, is not run either: no access kind is enforced yet.
-                    let result = match result {
-                        Ok(_) | Err(Signal::Error(_)) => match session.permissions_lowered_at_end() {
-                            Some(why) => Err(Signal::Unsupported(why)),
-                            None => result,
-                        },
-                        r => r,
-                    };
-                    session.tx_model = al_vm::TxModel::AutoCommit;
-                    let unexecuted = session.end_ui_scope();
-                    // The runner commits a test that passes: with a table still marked by Consistent(false) what BC does there
-                    // is not pinned (only Commit() is, errors/CuCommitTests.al:405-419), so the test is not run.
-                    let result = match result {
-                        Ok(_) if model != al_vm::TxModel::AutoRollback && unexecuted.is_empty() => {
-                            match session.inconsistent_table() {
+                        // The runner's steps before the method (runner_reset.rs); what they rely on counts for the test.
+                        // Its `LibraryRandom.SetSeed(1)` reseeds the sequence, so draws after it are not inherited.
+                        session.start_random_scope();
+                        // The run seed (ADR-061): the method's `Random` and Guids derive from it and its own name, so
+                        // `--seed N --test X` gives X the values of the full run. A stability variant's own `random.hostSeed`
+                        // or `guid.seed` replaces the derived value for that variant.
+                        let codeunit_id = obj.id.unwrap_or(0);
+                        session.seed_test_method(
+                            codeunit_id,
+                            &routine.name,
+                            perturb.host_seed.is_none(),
+                            perturb.guid_seed.is_none(),
+                        );
+                        // What the test (and the runner's steps around it) writes counts from here.
+                        let changes_from = session.store_mut().change_counter();
+                        // The session language and WorkDate a refusal while the test runs puts back.
+                        let carried = session.carried_state();
+                        // A runner codeunit's OnBeforeTestRun that answers false skips the method: no body, no row
+                        // (assumption `test-runner-trigger-calls`; ADR-059's Skipped outcome is not built yet).
+                        let mut reset = runner.before_or_skip(session, obj, routine, &mut skipped);
+                        // `random.librarySeed` of a stability run (ADR-058, owner decision 2) or `--seed-library`
+                        // (ADR-061): after codeunit 130301, the runner calls Microsoft's own `LibraryRandom.SetSeed(n)` with
+                        // the variant's seed, else the one derived from the run seed.
+                        let library_seed = perturb.library_seed.or_else(|| {
+                            run_seed
+                                .library
+                                .then(|| al_host::seed::derive_library(run_seed.seed, codeunit_id, &routine.name))
+                        });
+                        if let (Ok(()), Some(seed)) = (&reset, library_seed) {
+                            reset = runner_reset::library_seed(session, seed);
+                        }
+                        let reset_ok = reset.is_ok();
+                        if let (Err(why), false) = (&reset, skipped) {
+                            runner_refused = Some(why.clone());
+                        }
+                        // The AL test runner enables every application area before each test method
+                        // (corpus session-system/TestSessionApplicationAreaTestBoundary.al:67552).
+                        session.start_test_method();
+                        let model = models.get(&r).copied().unwrap_or_default();
+                        // TransactionModel::None is handled before the method body: every active
+                        // transaction is ended on the way in (codeunits/TestWriteTxTestBoundary.al:
+                        // Test08). Nothing is pending here, because every earlier test ended its
+                        // transaction at its own boundary, so which way it ends is not observable.
+                        if model == al_vm::TxModel::None {
+                            session.commit_transaction();
+                        }
+                        session.tx_model = model;
+                        session.clear_stop();
+                        // A scratch run is stopped by `cancel` too, and has a watchdog for that even without a limit.
+                        let cancel = if execute { crate::events::cancel_flag() } else { None };
+                        let watchdog = match (limit, &cancel) {
+                            (None, None) => None,
+                            (l, _) => Some(Watchdog::start_paused(
+                                session.stop_flag(),
+                                l.unwrap_or(std::time::Duration::from_secs(u32::MAX.into())),
+                                cancel.clone(),
+                                paused.clone(),
+                            )),
+                        };
+                        // Under a runner codeunit its own frames are on the call stack.
+                        if !runner.is_al() {
+                            session.set_runner_frames(runner_frames(&lowered.program, engine));
+                        }
+                        session.start_sleep_budget(limit);
+                        // A panic in the test is a runtime bug: it is caught here, so that it ends this codeunit and not
+                        // the process (a server must outlive it). The session is not trusted after it.
+                        let called = match reset {
+                            // A refused or failed reset: the test does not run, and what the reset changed stays.
+                            Err(why) => Ok(Err(Signal::Unsupported(why))),
+                            Ok(()) => std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                // A debugging aid: the named test panics here, to show that a panic ends one codeunit and not the
+                                // process (tests of `al-runner serve`). Not documented for users.
+                                if std::env::var("ALRUNNER_DEBUG_PANIC_IN").is_ok_and(|n| n == routine.name) {
+                                    panic!("requested by ALRUNNER_DEBUG_PANIC_IN");
+                                }
+                                match &case {
+                                    None => session.call(object, r, instance.clone(), Vec::new()),
+                                    Some((source, index, id)) => data_driven::run_case(
+                                        session,
+                                        lowered,
+                                        object,
+                                        r,
+                                        instance.clone(),
+                                        source,
+                                        *index,
+                                        id,
+                                    ),
+                                }
+                            })),
+                        };
+                        let result = match called {
+                            Ok(r) => r,
+                            Err(p) => {
+                                panicked = true;
+                                let msg = p
+                                    .downcast_ref::<String>()
+                                    .cloned()
+                                    .or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()))
+                                    .unwrap_or_default();
+                                Err(Signal::Unsupported(format!("runtime panic (bug): {msg}")))
+                            }
+                        };
+                        session.set_runner_frames(String::new());
+                        let timed_out = watchdog.is_some_and(Watchdog::finish);
+                        let slept_out = session.sleep_budget_passed();
+                        // A refusal the method's call raised, whose innermost frame is the method: the statement it came
+                        // from. The writes are read before the rollback below undoes them.
+                        if reset_ok
+                            && !panicked
+                            && !timed_out
+                            && !slept_out
+                            && matches!(result, Err(Signal::Unsupported(_)))
+                        {
+                            refused_rest = session
+                                .refusal_site()
+                                .and_then(|site| site.last().copied())
+                                .filter(|f| f.object == object && f.routine == r)
+                                .and_then(|f| written::statement_at(lowered, object, r, f.pos))
+                                .map(|from| Rest {
+                                    from,
+                                    handlers: bound.iter().map(|&(_, h)| h).collect(),
+                                    written: session.store_mut().tables_changed_since(changes_from),
+                                });
+                        }
+                        session.end_sleep_budget();
+                        // The reason names the limit; the VM only knows that it was stopped. Both reasons start with the
+                        // same words, which the outputs turn into the timeout row (`Test exceeded <N>s timeout.`).
+                        let result = match result {
+                            Err(Signal::Unsupported(_)) if slept_out => Err(Signal::Unsupported(format!(
+                                "the test used more than the time limit of {} s and was stopped (--test-timeout-secs): its Sleep calls asked to wait {} ms in total (Sleep does not wait here; the time it asks for counts toward the limit)",
+                                limit.map_or(0, |l| l.as_secs()),
+                                session.slept_in_test_ms()
+                            ))),
+                            Err(Signal::Unsupported(_)) if timed_out => Err(Signal::Unsupported(format!(
+                                "the test used more than the time limit of {} s of CPU time and was stopped (--test-timeout-secs); BC may have ended it differently or not at all",
+                                limit.map_or(0, |l| l.as_secs())
+                            ))),
+                            r => r,
+                        };
+                        // ADR-062: a test that lowered its permissions to sets that do not grant everything, and made no
+                        // access since that the gate refused, is not run either: no access kind is enforced yet.
+                        let result = match result {
+                            Ok(_) | Err(Signal::Error(_)) => match session.permissions_lowered_at_end() {
+                                Some(why) => Err(Signal::Unsupported(why)),
+                                None => result,
+                            },
+                            r => r,
+                        };
+                        session.tx_model = al_vm::TxModel::AutoCommit;
+                        let unexecuted = session.end_ui_scope();
+                        // The runner commits a test that passes: with a table still marked by Consistent(false) what BC does there
+                        // is not pinned (only Commit() is, errors/CuCommitTests.al:405-419), so the test is not run.
+                        let result = match result {
+                            Ok(_) if model != al_vm::TxModel::AutoRollback && unexecuted.is_empty() => {
+                                match session.inconsistent_table() {
+                                    Some(t) => Err(Signal::Unsupported(format!(
+                                        "the test ends while Consistent(false) marks table {t}: the runner's commit is not pinned"
+                                    ))),
+                                    None => result,
+                                }
+                            }
+                            r => r,
+                        };
+                        // A duplicate-key Insert whose error is still deferred when the test ends: the next access to the
+                        // table or a Commit raises it (record/TestRecordRuntimeTextsAndViews.al:180-209). At the end of the
+                        // test the runner raises it: the test fails with the error, whose AL call stack has no frame of the
+                        // test, and is rolled back (tests/al-language-isolation-probe/src/IsolProbeFixture.Codeunit.al:118-160,
+                        // T8-T11, under TestIsolation = Codeunit and Function, oracle of BC 28.5). A row committed before stays
+                        // under Codeunit; under Function the checkpoint restore removes it (T11). Measured for the default
+                        // TransactionModel only: AutoRollback is not run. TestIsolation = Disabled is refused before the run.
+                        let result = match result {
+                            Ok(_) if unexecuted.is_empty() => match session.deferred_insert_table() {
+                                Some(_) if model == al_vm::TxModel::AutoCommit => {
+                                    let mut e = session.take_deferred_insert_error().expect("checked");
+                                    e.call_stack.clear();
+                                    Err(Signal::Error(Box::new(e)))
+                                }
                                 Some(t) => Err(Signal::Unsupported(format!(
-                                    "the test ends while Consistent(false) marks table {t}: the runner's commit is not pinned"
+                                    "the test ends while the error of a duplicate-key Insert into table {t} is deferred: whether the test runner raises it at the end of the test is measured only for the default TransactionModel"
                                 ))),
                                 None => result,
+                            },
+                            r => r,
+                        };
+                        let outcome = match result {
+                            // AutoRollback rolls the test's work back the moment it finishes, pass
+                            // or fail (record/TestTransactionModelAutoRollback.al:Test01-Test03).
+                            Ok(_) if unexecuted.is_empty() && model == al_vm::TxModel::AutoRollback => {
+                                session.rollback_transaction();
+                                Outcome::Pass
                             }
-                        }
-                        r => r,
-                    };
-                    // A duplicate-key Insert whose error is still deferred when the test ends: the next access to the
-                    // table or a Commit raises it (record/TestRecordRuntimeTextsAndViews.al:180-209). At the end of the
-                    // test the runner raises it: the test fails with the error, whose AL call stack has no frame of the
-                    // test, and is rolled back (tests/al-language-isolation-probe/src/IsolProbeFixture.Codeunit.al:118-160,
-                    // T8-T11, under TestIsolation = Codeunit and Function, oracle of BC 28.5). A row committed before stays
-                    // under Codeunit; under Function the checkpoint restore removes it (T11). Measured for the default
-                    // TransactionModel only: AutoRollback is not run. TestIsolation = Disabled is refused before the run.
-                    let result = match result {
-                        Ok(_) if unexecuted.is_empty() => match session.deferred_insert_table() {
-                            Some(_) if model == al_vm::TxModel::AutoCommit => {
-                                let mut e = session.take_deferred_insert_error().expect("checked");
-                                e.call_stack.clear();
-                                Err(Signal::Error(Box::new(e)))
+                            // The default TransactionModel commits at the test boundary; a failed
+                            // test's transaction is rolled back (corpus codeunits/TestWriteTxTestBoundary.al:26).
+                            Ok(_) if unexecuted.is_empty() => {
+                                session.commit_transaction();
+                                Outcome::Pass
                             }
-                            Some(t) => Err(Signal::Unsupported(format!(
-                                "the test ends while the error of a duplicate-key Insert into table {t} is deferred: whether the test runner raises it at the end of the test is measured only for the default TransactionModel"
-                            ))),
-                            None => result,
-                        },
-                        r => r,
-                    };
-                    let outcome = match result {
-                        // AutoRollback rolls the test's work back the moment it finishes, pass
-                        // or fail (record/TestTransactionModelAutoRollback.al:Test01-Test03).
-                        Ok(_) if unexecuted.is_empty() && model == al_vm::TxModel::AutoRollback => {
+                            // corpus ui-handlers/TestPageQueryCloseMessageHandler_Tests.al:51: a declared
+                            // handler that never fires is a test failure. The text after the prefix
+                            // is not pinned (docs/probes-needed.md).
+                            Ok(_) => {
+                                session.rollback_transaction();
+                                Outcome::Fail(format!(
+                                    "The following UI handlers were not executed: {}",
+                                    unexecuted.join(", ")
+                                ))
+                            }
+                            // An uncaught error whose text is not pinned would put a made-up text in the result: the test is not run.
+                            // Opt-in (`RunOptions::report_unpinned_errors`, al-runner issue 6487): it fails, its message marked.
+                            Err(Signal::Error(e))
+                                if al_builtins::native::text_unpinned(&e) && scratch.report_unpinned_errors =>
+                            {
+                                session.rollback_transaction();
+                                let message = al_builtins::native::unpinned_failure_text(&e);
+                                failure = Some(*e);
+                                Outcome::Fail(message)
+                            }
+                            Err(Signal::Error(e)) if al_builtins::native::text_unpinned(&e) => {
+                                session.rollback_transaction();
+                                let Err(Signal::Unsupported(r)) =
+                                    al_builtins::native::refuse_unpinned_text(&e, "The test result")
+                                else {
+                                    unreachable!("an unpinned error is refused")
+                                };
+                                Outcome::NotRun(r)
+                            }
+                            Err(Signal::Error(e)) => {
+                                session.rollback_transaction();
+                                let message = e.message.clone();
+                                failure = Some(*e);
+                                Outcome::Fail(message)
+                            }
+                            // A refused test did not run: what it wrote before the refusal must not
+                            // reach the next test of the codeunit, nor the session language or WorkDate it set (the
+                            // BdSetterLanguage_* tests after BdSummaryML_1040 in reports/runtime/BdRegionTests.al
+                            // ran in 1040: the refusal came before that test's own `GlobalLanguage(Original)`).
+                            Err(Signal::Unsupported(_)) if execute && crate::events::cancelled() => {
+                                session.rollback_transaction();
+                                session.restore_carried(carried);
+                                Outcome::NotRun("cancelled".into())
+                            }
+                            Err(Signal::Unsupported(r)) => {
+                                session.rollback_transaction();
+                                session.restore_carried(carried);
+                                Outcome::NotRun(r)
+                            }
+                            Err(other) => Outcome::Fail(format!("unexpected signal {}", other.describe())),
+                        };
+                        // The runner's step after the method. It only changes what later tests of the codeunit start
+                        // from; if it cannot run, their failures are not trusted.
+                        // A skipped method gets no OnAfterTestRun (assumption `test-runner-trigger-calls`).
+                        if let Err(why) = runner.after(session, obj, routine, outcome == Outcome::Pass, skipped) {
                             session.rollback_transaction();
-                            Outcome::Pass
+                            runner_refused.get_or_insert(why);
                         }
-                        // The default TransactionModel commits at the test boundary; a failed
-                        // test's transaction is rolled back (corpus codeunits/TestWriteTxTestBoundary.al:26).
-                        Ok(_) if unexecuted.is_empty() => {
-                            session.commit_transaction();
-                            Outcome::Pass
-                        }
-                        // corpus ui-handlers/TestPageQueryCloseMessageHandler_Tests.al:51: a declared
-                        // handler that never fires is a test failure. The text after the prefix
-                        // is not pinned (docs/probes-needed.md).
-                        Ok(_) => {
-                            session.rollback_transaction();
-                            Outcome::Fail(format!(
-                                "The following UI handlers were not executed: {}",
-                                unexecuted.join(", ")
-                            ))
-                        }
-                        // An uncaught error whose text is not pinned would put a made-up text in the result: the test is not run.
-                        // Opt-in (`RunOptions::report_unpinned_errors`, al-runner issue 6487): it fails, its message marked.
-                        Err(Signal::Error(e))
-                            if al_builtins::native::text_unpinned(&e) && scratch.report_unpinned_errors =>
-                        {
-                            session.rollback_transaction();
-                            let message = al_builtins::native::unpinned_failure_text(&e);
-                            failure = Some(*e);
-                            Outcome::Fail(message)
-                        }
-                        Err(Signal::Error(e)) if al_builtins::native::text_unpinned(&e) => {
-                            session.rollback_transaction();
-                            let Err(Signal::Unsupported(r)) =
-                                al_builtins::native::refuse_unpinned_text(&e, "The test result")
-                            else {
-                                unreachable!("an unpinned error is refused")
-                            };
-                            Outcome::NotRun(r)
-                        }
-                        Err(Signal::Error(e)) => {
-                            session.rollback_transaction();
-                            let message = e.message.clone();
-                            failure = Some(*e);
-                            Outcome::Fail(message)
-                        }
-                        // A refused test did not run: what it wrote before the refusal must not
-                        // reach the next test of the codeunit, nor the session language or WorkDate it set (the
-                        // BdSetterLanguage_* tests after BdSummaryML_1040 in reports/runtime/BdRegionTests.al
-                        // ran in 1040: the refusal came before that test's own `GlobalLanguage(Original)`).
-                        Err(Signal::Unsupported(_)) if execute && crate::events::cancelled() => {
-                            session.rollback_transaction();
-                            session.restore_carried(carried);
-                            Outcome::NotRun("cancelled".into())
-                        }
-                        Err(Signal::Unsupported(r)) => {
-                            session.rollback_transaction();
-                            session.restore_carried(carried);
-                            Outcome::NotRun(r)
-                        }
-                        Err(other) => Outcome::Fail(format!("unexpected signal {}", other.describe())),
-                    };
-                    // The runner's step after the method. It only changes what later tests of the codeunit start
-                    // from; if it cannot run, their failures are not trusted.
-                    if let Err(why) = runner.after(&mut session) {
-                        session.rollback_transaction();
-                        runner_refused.get_or_insert(why);
+                        outcome
                     }
+                }
+            };
+            if skipped {
+                session.store_mut().watch(Default::default());
+                al_builtins::assumptions::take_hits();
+                continue;
+            }
+            // A test that did not run to its end (refused before it started, refused while it ran, failed) left the state the
+            // tests of the codeunit share other than BC did: the database (under TestIsolation = Codeunit), the globals of the
+            // codeunit and of the codeunits it holds, single-instance codeunits, and session state such as the `Random`
+            // sequence. A failure of a later test is not trusted when an unfinished test's static reach can change what the
+            // failing test reads (Tests-ERM "Discount Setup Notifications": the refused test would have reset the posting
+            // setups the test before it left blank). A refused test's partial run counts as its whole reach, except for one a
+            // statement of its own body refused: what it wrote before the refusal and the reach of the statements from that one
+            // on count (`remainder_reach_facts`, al-runner issue 5961). A failed test counts only through the `Random`
+            // sequence: its draws are not rolled back, while its database writes are, as they are in BC when the test fails
+            // there too.
+            // The numbers this test drew from a sequence it did not seed itself: they depend on what earlier tests drew
+            // (Tests-SCM-Planning CalcPlanReqWkshForTransferLFLItem: a random end date before a random receipt date).
+            let drew = session.inherited_random_draws() > draws_before;
+            // Of those, the numbers the run seed did not restart either (ADR-061): only they depend on an earlier test that
+            // cannot seed the sequence with `Randomize(n)`.
+            let drew_carried = session.carried_random_draws() > carried_before;
+            // A test that read or wrote, while it ran, a table a Company Triggers subscriber wrote before the first test
+            // (al-runner issue 5641): what it found there is not pinned.
+            let outcome = match session.store_mut().watch_hit() {
+                Some(t) if began && company_open.tables.contains(&t) => {
+                    Outcome::NotRun(company_open.touched(t, lowered))
+                }
+                Some(t) if began && leak.contains(&t) => {
+                    scratch.leak_hit = true;
                     outcome
                 }
-            }
-        };
-        // A test that did not run to its end (refused before it started, refused while it ran, failed) left the state the
-        // tests of the codeunit share other than BC did: the database (under TestIsolation = Codeunit), the globals of the
-        // codeunit and of the codeunits it holds, single-instance codeunits, and session state such as the `Random`
-        // sequence. A failure of a later test is not trusted when an unfinished test's static reach can change what the
-        // failing test reads (Tests-ERM "Discount Setup Notifications": the refused test would have reset the posting
-        // setups the test before it left blank). A refused test's partial run counts as its whole reach, except for one a
-        // statement of its own body refused: what it wrote before the refusal and the reach of the statements from that one
-        // on count (`remainder_reach_facts`, al-runner issue 5961). A failed test counts only through the `Random`
-        // sequence: its draws are not rolled back, while its database writes are, as they are in BC when the test fails
-        // there too.
-        // The numbers this test drew from a sequence it did not seed itself: they depend on what earlier tests drew
-        // (Tests-SCM-Planning CalcPlanReqWkshForTransferLFLItem: a random end date before a random receipt date).
-        let drew = session.inherited_random_draws() > draws_before;
-        // Of those, the numbers the run seed did not restart either (ADR-061): only they depend on an earlier test that
-        // cannot seed the sequence with `Randomize(n)`.
-        let drew_carried = session.carried_random_draws() > carried_before;
-        // A test that read or wrote, while it ran, a table a Company Triggers subscriber wrote before the first test
-        // (al-runner issue 5641): what it found there is not pinned.
-        let outcome = match session.store_mut().watch_hit() {
-            Some(t) if began && company_open.tables.contains(&t) => Outcome::NotRun(company_open.touched(t, lowered)),
-            Some(t) if began && leak.contains(&t) => {
-                scratch.leak_hit = true;
-                outcome
-            }
-            _ => outcome,
-        };
-        session.store_mut().watch(Default::default());
-        // A test the time limit stopped started from the same state as a failure does, so it is judged alike (al-runner
-        // issue 5776): `kind` names it in the reason.
-        let judged = match outcome {
-            Outcome::Fail(m) if !unfinished.is_empty() => Ok(("failure", m)),
-            Outcome::NotRun(m) if !unfinished.is_empty() && m.starts_with(TIME_LIMIT_REASON) => Ok(("timeout", m)),
-            o => Err(o),
-        };
-        let outcome = match judged {
-            Ok((kind, m)) => {
-                let engine = session.engine.clone();
-                let index: &ReachIndex =
-                    reach_index.get_or_insert_with(|| engine.derived(|| ReachIndex::new(&engine.events, lowered)));
-                // This test's reach is walked only when an unfinished test's reach is fully known: an unknown part
-                // decides alone (`changes_read_by`), and a walk costs about 150 ms with Microsoft's apps.
-                let mut mine: Option<ReachFacts> = None;
-                let found = unfinished.iter_mut().find_map(|u| {
+                _ => outcome,
+            };
+            session.store_mut().watch(Default::default());
+            // A test the time limit stopped started from the same state as a failure does, so it is judged alike (al-runner
+            // issue 5776): `kind` names it in the reason.
+            let judged = match outcome {
+                Outcome::Fail(m) if !unfinished.is_empty() => Ok(("failure", m)),
+                Outcome::NotRun(m) if !unfinished.is_empty() && m.starts_with(TIME_LIMIT_REASON) => Ok(("timeout", m)),
+                o => Err(o),
+            };
+            let outcome = match judged {
+                Ok((kind, m)) => {
+                    let engine = session.engine.clone();
+                    let index: &ReachIndex =
+                        reach_index.get_or_insert_with(|| engine.derived(|| ReachIndex::new(&engine.events, lowered)));
+                    // This test's reach is walked only when an unfinished test's reach is fully known: an unknown part
+                    // decides alone (`changes_read_by`), and a walk costs about 150 ms with Microsoft's apps.
+                    let mut mine: Option<ReachFacts> = None;
+                    let found = unfinished.iter_mut().find_map(|u| {
                     // A failed test counts through a manual binding it left that this test started with, and through the
                     // `Random` sequence, which matters only when this test drew.
                     if let Some(why) = u.left_binding_reason(&bound_before) {
@@ -1050,81 +1076,81 @@ fn run_codeunit_inner(
                         }
                     }
                 });
-                match found {
-                    Some(why) => Outcome::NotRun(format!("{why}; this {kind} is not trusted: {m}")),
-                    None if kind == "timeout" => Outcome::NotRun(m),
-                    None => Outcome::Fail(m),
+                    match found {
+                        Some(why) => Outcome::NotRun(format!("{why}; this {kind} is not trusted: {m}")),
+                        None if kind == "timeout" => Outcome::NotRun(m),
+                        None => Outcome::Fail(m),
+                    }
                 }
-            }
-            Err(o) => o,
-        };
-        let ended = match &outcome {
-            Outcome::NotRun(_) if !began => Some(Ended::RefusedBeforeStart),
-            Outcome::NotRun(why) if why.contains("this failure is not trusted") => Some(Ended::Failed),
-            Outcome::NotRun(_) => Some(Ended::RefusedMidRun),
-            Outcome::Fail(_) => Some(Ended::Failed),
-            _ => None,
-        };
-        if let (Some(ended), Outcome::NotRun(why) | Outcome::Fail(why)) = (ended, &outcome) {
-            let how = match ended {
-                Ended::RefusedBeforeStart => "not run",
-                Ended::RefusedMidRun => "did not run",
-                Ended::Failed => "failed",
+                Err(o) => o,
             };
-            unfinished.push(Unfinished {
-                routine: r,
-                what: format!("{}: {how} ({why})", routine.name).chars().take(120).collect(),
-                left_bindings: left_bindings(&session, &bound_before, ended),
-                ended,
-                facts: None,
-                rest: if ended == Ended::RefusedMidRun {
-                    refused_rest.take()
-                } else {
-                    None
-                },
-            });
-        }
-        // A runner step that did not run to its end may have left anything (decision 2026-10-19: a refused construct
-        // in an earlier test's reach counts as "may change anything").
-        if let Some(why) = runner_refused {
-            unfinished.push(Unfinished {
-                routine: r,
-                what: format!("{}: {why}", routine.name).chars().take(120).collect(),
-                ended: Ended::RefusedMidRun,
-                left_bindings: Vec::new(),
-                rest: None,
-                facts: Some(ReachFacts {
-                    unknown: Some("a step of the test runner around it did not run to its end".into()),
-                    ..Default::default()
-                }),
-            });
-        }
-        // A Commit() inside a test under Function isolation is rolled back with the rest of the test: under BC's
-        // TestRunnerHub with RequiredTestIsolation = Function (QuCommitIsolation.al:466-488 QU_F04_NextTestSees, :530-551
-        // QU_F09_LaterTestSeesCommittedRows), and under a runner codeunit's TestIsolation = Function, the part before the
-        // Commit() too, whether the test passes or fails (corpus PR 735, IsolProbeCommit.Codeunit.al C1-C3,
-        // SdIsolCommitError.Codeunit.al:24-25 E2-E5 under runner 61300, measured on real BC by writer SD).
-        // The checkpoint below restores it. A failed test after a Commit() is pinned by the nightly oracle (isolation
-        // probe T10 and T11 under runner 61300, IsolProbeFixture.Codeunit.al:118-160).
-        if let Some(observe) = observe.as_mut() {
-            observe(
-                &name,
-                &outcome,
-                &Observed {
-                    session: &session,
-                    error: failure.as_ref(),
-                    refused_in,
-                },
-            );
-        }
-        if let Some(cp) = &checkpoint {
-            if runner_function {
-                match cp.restore_for_runner(&mut session) {
-                    // A new key's IsolatedStorage.Set and a new NumberSequence.Insert are rolled back
-                    // (IsolProbeAfterRollback.Codeunit.al S1-S9 under runner 61300).
-                    None | Some(true) => {}
-                    Some(false) => {
-                        unmeasured_restore.get_or_insert_with(|| {
+            let ended = match &outcome {
+                Outcome::NotRun(_) if !began => Some(Ended::RefusedBeforeStart),
+                Outcome::NotRun(why) if why.contains("this failure is not trusted") => Some(Ended::Failed),
+                Outcome::NotRun(_) => Some(Ended::RefusedMidRun),
+                Outcome::Fail(_) => Some(Ended::Failed),
+                _ => None,
+            };
+            if let (Some(ended), Outcome::NotRun(why) | Outcome::Fail(why)) = (ended, &outcome) {
+                let how = match ended {
+                    Ended::RefusedBeforeStart => "not run",
+                    Ended::RefusedMidRun => "did not run",
+                    Ended::Failed => "failed",
+                };
+                unfinished.push(Unfinished {
+                    routine: r,
+                    what: format!("{}: {how} ({why})", routine.name).chars().take(120).collect(),
+                    left_bindings: left_bindings(session, &bound_before, ended),
+                    ended,
+                    facts: None,
+                    rest: if ended == Ended::RefusedMidRun {
+                        refused_rest.take()
+                    } else {
+                        None
+                    },
+                });
+            }
+            // A runner step that did not run to its end may have left anything (decision 2026-10-19: a refused construct
+            // in an earlier test's reach counts as "may change anything").
+            if let Some(why) = runner_refused {
+                unfinished.push(Unfinished {
+                    routine: r,
+                    what: format!("{}: {why}", routine.name).chars().take(120).collect(),
+                    ended: Ended::RefusedMidRun,
+                    left_bindings: Vec::new(),
+                    rest: None,
+                    facts: Some(ReachFacts {
+                        unknown: Some("a step of the test runner around it did not run to its end".into()),
+                        ..Default::default()
+                    }),
+                });
+            }
+            // A Commit() inside a test under Function isolation is rolled back with the rest of the test: under BC's
+            // TestRunnerHub with RequiredTestIsolation = Function (QuCommitIsolation.al:466-488 QU_F04_NextTestSees, :530-551
+            // QU_F09_LaterTestSeesCommittedRows), and under a runner codeunit's TestIsolation = Function, the part before the
+            // Commit() too, whether the test passes or fails (corpus PR 735, IsolProbeCommit.Codeunit.al C1-C3,
+            // SdIsolCommitError.Codeunit.al:24-25 E2-E5 under runner 61300, measured on real BC by writer SD).
+            // The checkpoint below restores it. A failed test after a Commit() is pinned by the nightly oracle (isolation
+            // probe T10 and T11 under runner 61300, IsolProbeFixture.Codeunit.al:118-160).
+            if let Some(observe) = observe.as_mut() {
+                observe(
+                    &name,
+                    &outcome,
+                    &Observed {
+                        session,
+                        error: failure.as_ref(),
+                        refused_in,
+                    },
+                );
+            }
+            if let Some(cp) = &checkpoint {
+                if runner_function {
+                    match cp.restore_for_runner(session) {
+                        // A new key's IsolatedStorage.Set and a new NumberSequence.Insert are rolled back
+                        // (IsolProbeAfterRollback.Codeunit.al S1-S9 under runner 61300).
+                        None | Some(true) => {}
+                        Some(false) => {
+                            unmeasured_restore.get_or_insert_with(|| {
                             format!(
                                 "an earlier test of this codeunit, {}, changed an isolated storage key or a number sequence \
                                  that existed before it: what the rollback of TestIsolation = Function leaves of it is not \
@@ -1132,171 +1158,209 @@ fn run_codeunit_inner(
                                 routine.name
                             )
                         });
+                        }
                     }
+                } else {
+                    cp.restore(session);
                 }
+            }
+            if let (Outcome::Fail(_), Some(e)) = (&outcome, &failure) {
+                if !e.call_stack.is_empty() {
+                    stacks.push((name.clone(), e.call_stack.clone()));
+                }
+            }
+            let marks = al_builtins::assumptions::take_hits();
+            if !marks.is_empty() {
+                hits.push((name.clone(), marks));
+            }
+            // `--tdd` (ADR-051 decision 5): the stubs that ran while the test ran, its handlers and subscribers included.
+            let (reached, ui_answered) = scratch.take_marks(&name, session);
+            let took = test_started.elapsed();
+            // The count starts with the test (`start_sleep_budget`): a test that did not start slept nothing.
+            let slept_ms = if began {
+                u64::try_from(session.slept_in_test_ms()).unwrap_or(0)
             } else {
-                cp.restore(&mut session);
+                0
+            };
+            if slept_ms > 0 {
+                scratch.slept.push((name.clone(), slept_ms));
             }
-        }
-        if let (Outcome::Fail(_), Some(e)) = (&outcome, &failure) {
-            if !e.call_stack.is_empty() {
-                stacks.push((name.clone(), e.call_stack.clone()));
+            if execute {
+                scratch.messages.push((name.clone(), session.take_messages()));
             }
-        }
-        let marks = al_builtins::assumptions::take_hits();
-        if !marks.is_empty() {
-            hits.push((name.clone(), marks));
-        }
-        // `--tdd` (ADR-051 decision 5): the stubs that ran while the test ran, its handlers and subscribers included.
-        let (reached, ui_answered) = scratch.take_marks(&name, &mut session);
-        let took = test_started.elapsed();
-        // The count starts with the test (`start_sleep_budget`): a test that did not start slept nothing.
-        let slept_ms = if began {
-            u64::try_from(session.slept_in_test_ms()).unwrap_or(0)
-        } else {
-            0
-        };
-        if slept_ms > 0 {
-            scratch.slept.push((name.clone(), slept_ms));
-        }
-        if execute {
-            scratch.messages.push((name.clone(), session.take_messages()));
-        }
-        let captured_at = scratch
-            .capture
-            .any()
-            .then(|| crate::capture::resolve(&lowered.program, &scratch.order, session.take_capture()));
-        if let Some(c) = &captured_at {
-            scratch.captured.push((name.clone(), c.clone()));
-        }
-        times.push((name.clone(), took));
-        let cov = if covering { session.take_coverage() } else { Vec::new() };
-        if scratch.trace {
-            let touched = session.take_impact_trace();
-            scratch.entered.push((
-                routine.name.clone(),
-                crate::affected::entered_keys(&lowered.program, &touched, &lowered.dependency),
-                touched.dotnet,
-            ));
-            scratch.traces.push((
-                routine.name.clone(),
-                crate::impact_trace::keys(&lowered.program, &touched),
-            ));
-        }
-        if crate::events::wants_events() {
-            crate::events::report(crate::events::TestEvent {
-                codeunit: obj.id.unwrap_or(0),
-                codeunit_name: obj.name.clone(),
-                test: name.clone(),
-                outcome: outcome.clone(),
-                call_stack: stacks
-                    .iter()
-                    .rev()
-                    .find(|(n, _)| *n == name)
-                    .map(|(_, s)| s.clone())
-                    .unwrap_or_default(),
-                time: took,
-                slept_ms,
-                coverage: cov.clone(),
-                captured: captured_at.clone(),
-                stubs: reached,
-                ui_answered,
-                entry: None,
-            });
-        }
-        if covering {
-            crate::coverage::push(&name, cov);
-        }
-        out.push((name.clone(), outcome));
-        // A panic in a test ends the codeunit: the session may be inconsistent.
-        if panicked {
-            break;
-        }
-        if crate::events::cancelled() {
-            break;
-        }
-    }
-    if panicked {
-        for name in queue.drain(..).map(|i| i.name) {
-            let outcome = Outcome::NotRun(
-                "an earlier test of this codeunit panicked (a runtime bug), so the rest of it was not run".into(),
-            );
+            let captured_at = scratch
+                .capture
+                .any()
+                .then(|| crate::capture::resolve(&lowered.program, &scratch.order, session.take_capture()));
+            if let Some(c) = &captured_at {
+                scratch.captured.push((name.clone(), c.clone()));
+            }
+            times.push((name.clone(), took));
+            let cov = if covering { session.take_coverage() } else { Vec::new() };
+            if scratch.trace {
+                let touched = session.take_impact_trace();
+                scratch.entered.push((
+                    routine.name.clone(),
+                    crate::affected::entered_keys(&lowered.program, &touched, &lowered.dependency),
+                    touched.dotnet,
+                ));
+                scratch.traces.push((
+                    routine.name.clone(),
+                    crate::impact_trace::keys(&lowered.program, &touched),
+                ));
+            }
             if crate::events::wants_events() {
                 crate::events::report(crate::events::TestEvent {
                     codeunit: obj.id.unwrap_or(0),
                     codeunit_name: obj.name.clone(),
                     test: name.clone(),
                     outcome: outcome.clone(),
-                    call_stack: String::new(),
-                    time: std::time::Duration::ZERO,
-                    slept_ms: 0,
-                    coverage: Vec::new(),
-                    captured: None,
-                    stubs: Vec::new(),
-                    ui_answered: Vec::new(),
+                    call_stack: stacks
+                        .iter()
+                        .rev()
+                        .find(|(n, _)| *n == name)
+                        .map(|(_, s)| s.clone())
+                        .unwrap_or_default(),
+                    time: took,
+                    slept_ms,
+                    coverage: cov.clone(),
+                    captured: captured_at.clone(),
+                    stubs: reached,
+                    ui_answered,
                     entry: None,
                 });
             }
-            out.push((name, outcome));
+            if covering {
+                crate::coverage::push(&name, cov);
+            }
+            out.push((name.clone(), outcome));
+            // A panic in a test ends the codeunit: the session may be inconsistent.
+            if panicked {
+                break;
+            }
+            if crate::events::cancelled() {
+                break;
+            }
         }
-    }
+        if panicked {
+            for name in queue.drain(..).map(|i| i.name) {
+                let outcome = Outcome::NotRun(
+                    "an earlier test of this codeunit panicked (a runtime bug), so the rest of it was not run".into(),
+                );
+                if crate::events::wants_events() {
+                    crate::events::report(crate::events::TestEvent {
+                        codeunit: obj.id.unwrap_or(0),
+                        codeunit_name: obj.name.clone(),
+                        test: name.clone(),
+                        outcome: outcome.clone(),
+                        call_stack: String::new(),
+                        time: std::time::Duration::ZERO,
+                        slept_ms: 0,
+                        coverage: Vec::new(),
+                        captured: None,
+                        stubs: Vec::new(),
+                        ui_answered: Vec::new(),
+                        entry: None,
+                    });
+                }
+                out.push((name, outcome));
+            }
+        }
+        Ok(out)
+    };
+    let ran = match al_runner_object {
+        None => body(&mut session, None),
+        Some(runner) => super::al_runner::drive(&mut session, runner, object, &mut |s, al| body(s, Some(al)))
+            .unwrap_or_else(|why| Err(all(Outcome::NotRun(why)))),
+    };
+    let out = match ran {
+        Ok(out) => out,
+        Err(early) => return early,
+    };
     // RequiredTestIsolation = Disabled under the TestRunnerHub: everything persists into the next codeunit, the write
     // still open when a test ended included, as the boundary commits it (QuCommitIsolation.al:695-718 QU_D11_NextCodeunitSees).
     // What a test that did not pass leaves is not pinned there (QuCommitIsolation.al:22). Under a runner's TestIsolation =
     // Disabled a failed test leaves what it committed and nothing else (corpus PR 735, SdIsolCommitReader.Codeunit.al:13-15,
     // IsolProbeReader.Codeunit.al:113-120 R3): only a test that was not run leaves something not known.
     if let Some(start) = carried_from {
-        let mode = if runner_disabled {
-            "a test runner's TestIsolation = Disabled"
-        } else {
-            "RequiredTestIsolation = Disabled"
-        };
-        let unfinished = out.iter().find(|(_, o)| match o {
-            Outcome::Pass => false,
-            Outcome::Fail(_) => !runner_disabled,
-            _ => true,
-        }).map(|(name, o)| {
-            let how = match o {
-                Outcome::Fail(_) => "failed",
-                _ => "was not run",
-            };
-            format!(
-                "an earlier codeunit under {mode}, {}, wrote a table this test reads, and its test {name} {how}: what it \
-                 left for the later codeunits is not pinned",
-                obj.name
-            )
-        });
-        let mut tables = session.store_mut().tables_changed_since(changes_from);
-        // A test that did not run to its end may have left out writes it would have made: the tables it names count too.
-        if unfinished.is_some() {
-            for &r in tests.iter().chain(&data_driven) {
-                tables.extend(tables_touched(lowered, object, r));
-            }
-        }
-        // Isolated storage and number sequences carry over as well, but who reads them later is not followed.
-        let everything = session.storage_or_sequences_differ(&start);
-        let storage_why = everything.then(|| {
-            format!(
-                "an earlier codeunit under {mode}, {}, changed isolated storage or a number sequence, which every \
-                     later codeunit sees: that is not followed",
-                obj.name
-            )
-        });
-        let mut baseline = session.capture_baseline();
-        // The install code already ran for what it left; the later codeunits must not run it again on top.
-        baseline.workspace_installs = Some(skipped_installs.clone());
-        let carried = Carried {
-            baseline: Some(baseline),
-            tables,
-            unfinished,
-            storage_why,
-            everything,
-            as_started: false,
-        };
-        CARRIED.with(|c| *c.borrow_mut() = Some(carried));
+        carry_disabled(
+            &mut session,
+            start,
+            runner_disabled,
+            &out,
+            lowered,
+            object,
+            tests.iter().chain(&data_driven).copied(),
+            changes_from,
+            &skipped_installs,
+        );
     }
     super::numbers_taken::carry_left(&session, obj, onrun_left, onrun_from, &skipped_installs);
     out
+}
+
+/// What a codeunit under Disabled isolation left for the later codeunits ([`CARRIED`]), from `start` on.
+#[allow(clippy::too_many_arguments)]
+fn carry_disabled(
+    session: &mut Session,
+    start: al_vm::Baseline,
+    runner_disabled: bool,
+    out: &[(String, Outcome)],
+    lowered: &Lowered,
+    object: usize,
+    routines: impl Iterator<Item = usize> + Clone,
+    changes_from: u64,
+    skipped_installs: &[(BTreeSet<u32>, String)],
+) {
+    let obj = &lowered.program.objects[object];
+    let mode = if runner_disabled {
+        "a test runner's TestIsolation = Disabled"
+    } else {
+        "RequiredTestIsolation = Disabled"
+    };
+    let unfinished = out.iter().find(|(_, o)| match o {
+        Outcome::Pass => false,
+        Outcome::Fail(_) => !runner_disabled,
+        _ => true,
+    }).map(|(name, o)| {
+        let how = match o {
+            Outcome::Fail(_) => "failed",
+            _ => "was not run",
+        };
+        format!(
+            "an earlier codeunit under {mode}, {}, wrote a table this test reads, and its test {name} {how}: what it \
+             left for the later codeunits is not pinned",
+            obj.name
+        )
+    });
+    let mut tables = session.store_mut().tables_changed_since(changes_from);
+    // A test that did not run to its end may have left out writes it would have made: the tables it names count too.
+    if unfinished.is_some() {
+        for r in routines.clone() {
+            tables.extend(tables_touched(lowered, object, r));
+        }
+    }
+    // Isolated storage and number sequences carry over as well, but who reads them later is not followed.
+    let everything = session.storage_or_sequences_differ(&start);
+    let storage_why = everything.then(|| {
+        format!(
+            "an earlier codeunit under {mode}, {}, changed isolated storage or a number sequence, which every \
+                 later codeunit sees: that is not followed",
+            obj.name
+        )
+    });
+    let mut baseline = session.capture_baseline();
+    // The install code already ran for what it left; the later codeunits must not run it again on top.
+    baseline.workspace_installs = Some(skipped_installs.to_vec());
+    let carried = Carried {
+        baseline: Some(baseline),
+        tables,
+        unfinished,
+        storage_why,
+        everything,
+        as_started: false,
+    };
+    CARRIED.with(|c| *c.borrow_mut() = Some(carried));
 }
 
 thread_local! {

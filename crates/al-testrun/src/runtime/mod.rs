@@ -600,6 +600,9 @@ pub(crate) struct Scratch {
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
     run_seed: crate::seed::RunSeed,
+    /// The test runner codeunit (object index) whose OnRun runs the test codeunit (ADR-066 decision 1, `al_runner.rs`);
+    /// `None`: al-runner's own runner.
+    pub(crate) runner: Option<usize>,
 }
 
 /// What a test codeunit left: each test's outcome, the call stack of each AL error that failed one, how long
@@ -876,6 +879,9 @@ impl<T: Send + 'static> Drop for Retiring<T> {
     }
 }
 
+mod al_runner;
+#[cfg(test)]
+mod al_runner_tests;
 mod apply_manifests;
 mod blocked;
 mod cache;

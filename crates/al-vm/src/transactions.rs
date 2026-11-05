@@ -648,6 +648,13 @@ impl Session {
         if is_test && self.in_test_codeunit {
             return Err(nested_test_codeunit(obj.id.unwrap_or(0), &obj.name));
         }
+        // ADR-066 decision 1: from a test runner codeunit's OnRun, the run of a test codeunit is the test runner's
+        // (al-testrun), when one is installed.
+        if is_test {
+            if let Some(result) = self.run_for_runner(object, guarded) {
+                return result;
+            }
+        }
         // Codeunit.Run of a codeunit with Subtype = Upgrade fails before it runs, with or without upgrade triggers
         // (events/platform-triggers/PUpgradeTriggers.al:PUpgrade_RunWithTriggers line 121, PUpgrade_RunWithoutTriggers line 134; both by id).
         if obj
@@ -770,7 +777,19 @@ impl Session {
         if guarded {
             self.tx.guarded_runs.push(self.call_stack.len());
         }
+        // A test runner codeunit's OnRun under an installed host: its test codeunit runs go to the host (ADR-066).
+        let runner = self.has_test_codeunit_host()
+            && obj
+                .properties
+                .iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case("Subtype") && v.trim().eq_ignore_ascii_case("TestRunner"));
+        if runner {
+            self.enter_test_runner(object, inst.clone());
+        }
         let result = self.call(object, on_run, inst, Vec::new());
+        if runner {
+            self.leave_test_runner();
+        }
         if guarded {
             self.tx.guarded_runs.pop();
         }
