@@ -1228,6 +1228,15 @@ pub fn empty_action_view_reads_every_row(bc_major: u16) -> Option<bool> {
     }
 }
 
+/// Whether the member names that a page control bound to an Option field of another record variable shows before
+/// [`Gate::OtherRecordOptionCaptionFrom29`] are confirmed on Windows for `bc_major`: BC 28.5 on a Windows OnPrem container
+/// (al-runner issue 7005, the reporter's run) shows `Short` as the Linux CI legs do (corpus pages/controls/
+/// OtherRecordOptionMembers.al, branch al-runtime-rs-staging-r6945; SaOtherRecordControl.al:13-15). BC 27 is measured on the
+/// Linux CI legs only, a Linux suspect: not confirmed.
+pub fn other_record_option_member_names_confirmed(bc_major: u16) -> bool {
+    bc_major == 28
+}
+
 /// Whether the platform tables of System.app that are `Scope = OnPrem`, internal or removed are known for
 /// this BC major: corpus must-not-compile 0020 to 0024 hold the lists for the symbols of BC 27, and 1240
 /// (`@from 28`, no `@until`) the same 123 tables with the same AL0296 / AL0161 / AL0433 verdicts for BC 28 and

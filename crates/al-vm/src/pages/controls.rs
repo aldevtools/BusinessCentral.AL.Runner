@@ -1584,7 +1584,7 @@ impl Session {
                 Ok(r)
             }
             PageMethod::Value => {
-                if self.value_reads_blank(st, idx) {
+                if self.value_reads_blank(st, idx) || self.reads_blank_without_row(st, idx) {
                     return Ok(Value::Text(String::new().into()));
                 }
                 let v = self.control_value(st, idx)?;
