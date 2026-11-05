@@ -1603,6 +1603,9 @@ pub struct Buffer {
     /// The row as it was fetched: a field that is not loaded and no longer holds its fetched value was changed by AL code
     /// (an assignment, Validate, TransferFields, ...), and a load of the missing fields keeps it.
     pub fetched: FetchedRow,
+    /// `Init` ran since the fetch: the fields that were not loaded hold their initial values, and neither a read nor a write
+    /// loads them from the row (record/load-fields/R7000InitAfterLoadFields.al, corpus branch al-runtime-rs-staging-r6961).
+    pub init: bool,
 }
 
 /// The fields of a row as it was fetched into a partial buffer (`Buffer::fetched`). Buffers compare equal whatever it holds.
