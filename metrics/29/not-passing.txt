@@ -2189,3 +2189,17 @@
 95626 SetView_Numeric_CommaAndDot
 95626 SetView_Numeric_DotInsideAValue
 95626 SetView_Numeric_DotVariants
+95786 RecordValidate_Into_Big_3
+95786 RecordValidate_Into_Bool_3
+95786 RecordValidate_Into_Cod_2
+95786 RecordValidate_Into_Cod_4
+95786 RecordValidate_Into_Dec_3
+95786 RecordValidate_Into_Dur_3
+95786 RecordValidate_Into_G_3
+95786 RecordValidate_Into_G_4
+95786 RecordValidate_Into_Int_3
+95786 RecordValidate_Into_Opt_2
+95786 RecordValidate_Into_Opt_3
+95786 RecordValidate_Into_Opt_4
+95786 RecordValidate_Into_Txt_2
+95786 RecordValidate_Into_Txt_4

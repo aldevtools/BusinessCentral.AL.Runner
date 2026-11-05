@@ -122,6 +122,7 @@ mod view_empty;
 mod view_unknown;
 mod views;
 mod xmlports;
+mod xrec_blobs;
 pub use transactions::TxModel;
 pub use ui::{UiHandler, UiKind};
 
@@ -785,6 +786,8 @@ pub struct Session {
     pub(crate) dirty_ops_open: u32,
     /// The writes with triggers that are running, innermost last (isdirty.rs `DirtyFrame`).
     pub(crate) dirty_frames: Vec<crate::isdirty::DirtyFrame>,
+    /// The xRec handles that triggers and table events were given, while they live (xrec_blobs.rs).
+    pub(crate) live_xrecs: Vec<std::rc::Weak<std::cell::RefCell<al_builtins::value::RecordState>>>,
     /// Whether the test running has reseeded the `Random` sequence (`Randomize`); see [`Session::inherited_random_draws`].
     pub(crate) reseeded_in_test: bool,
     /// How many numbers `Random` has drawn from a sequence the test running did not seed itself.
@@ -1174,6 +1177,7 @@ impl Session {
             sql: sqlcount::SqlCounters::new_session(),
             dirty_ops_open: 0,
             dirty_frames: Vec::new(),
+            live_xrecs: Vec::new(),
             reseeded_in_test: false,
             inherited_draws: 0,
             run_seeded_in_test: false,
