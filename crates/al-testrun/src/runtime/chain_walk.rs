@@ -125,6 +125,9 @@ struct RunsState {
     tainted: std::collections::HashSet<usize>,
     /// The members of `order` the walk has reached.
     walked: usize,
+    /// The suites in which a member left nothing since their last start: only their members are run ahead, so a suite
+    /// whose members all hand on numbers (Microsoft's legacy buckets) costs the helpers nothing.
+    open: std::collections::HashSet<usize>,
     closed: bool,
 }
 
@@ -138,14 +141,20 @@ impl Runs {
             if s.closed {
                 return Claim::Done;
             }
-            let open = |k: &usize| matches!(s.slots[*k], Slot::Pending) && !s.tainted.contains(&units[*k].si);
+            let open = |k: &usize| {
+                matches!(s.slots[*k], Slot::Pending)
+                    && !s.tainted.contains(&units[*k].si)
+                    && s.open.contains(&units[*k].si)
+            };
             let next = self.order[s.walked.min(self.order.len())..]
                 .iter()
                 .take(self.window)
                 .copied()
                 .filter(open)
                 .find_map(|k| Some((k, s.starts.get(&units[k].si)?.clone())));
-            let waiting = self.order[s.walked.min(self.order.len())..].iter().any(open);
+            let waiting = self.order[s.walked.min(self.order.len())..]
+                .iter()
+                .any(|k| matches!(s.slots[*k], Slot::Pending) && !s.tainted.contains(&units[*k].si));
             match next {
                 Some((k, (epoch, start))) => {
                     s.slots[k] = Slot::Running(epoch);
@@ -168,6 +177,7 @@ impl Runs {
             epoch = s.starts.get(&si).map_or(0, |(e, _)| e + 1);
             s.starts.insert(si, (epoch, start));
             s.tainted.remove(&si);
+            s.open.remove(&si);
             for &k in &self.order {
                 if units[k].si == si && matches!(s.slots[k], Slot::Done(..)) {
                     s.slots[k] = Slot::Pending;
@@ -212,6 +222,14 @@ impl Runs {
     fn reached(&self, k: usize) {
         if let (Some(p), Ok(mut s)) = (self.place[k], self.state.lock()) {
             s.walked = s.walked.max(p + 1);
+        }
+        self.ready.notify_all();
+    }
+
+    /// A member of suite `si` left nothing: the helpers may run its later members.
+    fn open(&self, si: usize) {
+        if let Ok(mut s) = self.state.lock() {
+            s.open.insert(si);
         }
         self.ready.notify_all();
     }
@@ -325,6 +343,7 @@ impl ChainWalk<'_> {
                     .collect(),
                 tainted: Default::default(),
                 walked: 0,
+                open: Default::default(),
                 closed: false,
             }),
             ready: Condvar::new(),
@@ -536,6 +555,9 @@ impl ChainWalk<'_> {
             carried.push((si, id, leg, left));
             // A member that left something: the later members start from what it left. The helpers are told that start,
             // while the runs ahead the walk took in the suite make up for the new starts (`RESTARTS`).
+            if let (Some(false), Some(r)) = (leg1_left, runs) {
+                r.open(si);
+            }
             if let (Some(true), Some(r)) = (leg1_left, runs) {
                 epochs.remove(&si);
                 let n = restarts.entry(si).or_default();
