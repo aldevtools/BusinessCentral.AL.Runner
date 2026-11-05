@@ -100,7 +100,8 @@ impl Session {
     pub(crate) fn coverage_enter(&mut self, object: usize, routine: usize) -> Option<TestScope> {
         let engine = self.engine.clone();
         let r = &engine.program.objects[object].routines[routine];
-        let from_al = !self.frames.is_empty();
+        // Under a test runner codeunit (ADR-066) its frames below the test do not count as AL calling the test.
+        let from_al = self.frames.len() > self.test_frame_base();
         let rec = &mut self.coverage.recorder;
         rec.entered.insert(object);
         rec.dirty = true;

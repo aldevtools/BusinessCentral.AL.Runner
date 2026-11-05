@@ -953,7 +953,7 @@ fn a_runtime_of_the_wrong_major_is_unavailable_and_names_what_was_found() {
     });
     let e = h.availability().unwrap_err();
     assert!(
-        e.0.contains("found 9.0.15") && e.0.contains("needs Microsoft.NETCore.App 8.x"),
+        e.0.contains("found 9.0.15") && e.0.contains("install Microsoft.NETCore.App 8.x"),
         "{e}"
     );
     // --dotnet-allow-roll-forward gets past this check (and then needs a sidecar build).
@@ -965,6 +965,89 @@ fn a_runtime_of_the_wrong_major_is_unavailable_and_names_what_was_found() {
     });
     let e = h.availability().unwrap_err();
     assert!(e.0.contains("sidecar not built"), "{e}");
+}
+
+/// al-runner issues 6924 and 5590: BC 29's service-tier assemblies target .NET 10, so a run of BC 29 needs .NET 10
+/// (crate al_testrun::dotnet_runtime), even when .NET 8 is installed too.
+#[cfg(unix)]
+#[test]
+fn bc_29_needs_the_net_10_runtime_and_names_it_when_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    let dotnet = fake_dotnet(dir.path(), "echo 'Microsoft.NETCore.App 8.0.33 [/x]'");
+    let h = SidecarHost::new(SidecarConfig {
+        dotnet: Some(dotnet),
+        bc_major: Some(29),
+        ..Default::default()
+    });
+    let e = h.availability().unwrap_err();
+    assert!(
+        e.0.starts_with("needs the .NET 10 runtime (BC 29's service tier runs on .NET 10); found 8.0.33"),
+        "{e}"
+    );
+}
+
+/// The process is started on the newest installed patch of the major the BC version needs, with `--fx-version`:
+/// `DOTNET_ROLL_FORWARD=Major` kept it on .NET 8 whenever .NET 8 was installed (al-runner issue 6924).
+#[cfg(unix)]
+#[test]
+fn the_sidecar_is_started_on_the_runtime_the_bc_version_needs() {
+    for (bc, version, major) in [(29, "10.0.13", 10), (28, "8.0.33", 8)] {
+        let dir = tempfile::tempdir().unwrap();
+        let dll = dir.path().join("AlDotNetSidecar.dll");
+        std::fs::write(&dll, b"").unwrap();
+        let args = dir.path().join("args.txt");
+        // A hello of protocol 99 ends the start right after the arguments were written down.
+        let reply = format!(r#"{{"id":1,"ok":true,"value":{{"protocol":99,"compatible":false,"major":{major}}}}}"#);
+        let len = reply.len();
+        let script = [
+            "if [ \"$1\" = \"--list-runtimes\" ]; then printf 'Microsoft.NETCore.App 8.0.33 [/x]\\nMicrosoft.NETCore.App 10.0.8 [/x]\\nMicrosoft.NETCore.App 10.0.13 [/x]\\n'; exit 0; fi".to_string(),
+            format!("echo \"$@\" > '{}'", args.display()),
+            format!("printf '\\{len:03o}\\000\\000\\000'"),
+            format!("printf '%s' '{reply}'"),
+            "sleep 5".to_string(),
+        ]
+        .join("\n");
+        let dotnet = fake_dotnet(dir.path(), &script);
+        let h = SidecarHost::new(SidecarConfig {
+            dotnet: Some(dotnet),
+            sidecar: Some(dll.clone()),
+            bc_major: Some(bc),
+            ..Default::default()
+        });
+        h.availability().expect("the runtime is installed");
+        let mut sess = h.open_session(&DotNetSessionConfig::default());
+        let why = refused(sess.invoke(st("System.Convert"), "ToInt32", vec![s("1")]));
+        assert!(why.contains("protocol mismatch"), "{why}");
+        sess.close();
+        let got = std::fs::read_to_string(&args).unwrap();
+        assert_eq!(
+            got.trim(),
+            format!("exec --fx-version {version} {}", dll.display()),
+            "BC {bc}"
+        );
+    }
+}
+
+/// A type the assembly defines but the runtime cannot load names the load error, so a missing or too new dependency
+/// shows (al-runner issue 6924: the inner FileNotFoundException of System.Runtime 10.0 was dropped).
+#[test]
+fn a_type_that_does_not_load_names_the_type_load_error() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let why = refused(sess.invoke(
+        DotNetTarget::Static(DotNetType {
+            assembly: "System.Runtime".into(),
+            name: "System.NoSuchTypeAnywhere".into(),
+            ..Default::default()
+        }),
+        "Foo",
+        vec![],
+    ));
+    assert!(
+        why.contains("type 'System.NoSuchTypeAnywhere' not found in assembly 'System.Runtime': TypeLoadException: Could not load type 'System.NoSuchTypeAnywhere'"),
+        "{why}"
+    );
+    sess.close();
 }
 
 #[cfg(unix)]

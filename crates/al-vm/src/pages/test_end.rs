@@ -17,7 +17,8 @@ impl Session {
         outcome: Result<(), Signal>,
     ) -> Result<(), Signal> {
         if outcome.is_err()
-            || !self.frames.is_empty()
+            // Under a test runner codeunit (ADR-066) its frames stay below the test method's.
+            || self.frames.len() != self.test_frame_base()
             || !routine.attributes.iter().any(|a| a.name.eq_ignore_ascii_case("Test"))
         {
             return outcome;

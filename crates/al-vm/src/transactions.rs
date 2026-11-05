@@ -167,9 +167,10 @@ impl Session {
         // The outermost running object is named, not the helper that issued the call: a test that calls a helper
         // codeunit that runs a missing codeunit reads "from the object <the test codeunit>" (errors/W5MissingObject.al:
         // MissingCodeunit_FromHelperCodeunit, BC 27.5 and 29.0).
+        // Under a test runner codeunit (ADR-066) its frames are below the test codeunit's and do not count.
         let caller = self
             .frames
-            .first()
+            .get(self.test_frame_base())
             .map(|&o| self.engine.program.objects[o].name.as_str())
             .unwrap_or_default();
         // A page is opened by the client side of the test runner, which is what the error names
@@ -196,8 +197,8 @@ impl Session {
     /// test codeunit.
     pub(crate) fn in_test_method_itself(&self) -> bool {
         self.tx.try_depth == 0
-            && self.frames.len() == 1
-            && self.frames.first().is_some_and(|&o| {
+            && self.frames.len() == self.test_frame_base() + 1
+            && self.frames.last().is_some_and(|&o| {
                 self.engine.program.objects[o]
                     .properties
                     .iter()
@@ -396,21 +397,22 @@ impl Session {
     /// classic runner on BC 27.5, 'RootMethodScope' under the TestRunnerHub runner on 28.5/29.0). Any other caller is not pinned:
     /// the error is raised with an unpinned text.
     pub(crate) fn enter_used_try(&mut self) {
-        let scope = match self.call_stack.len() {
+        let base = self.test_frame_base();
+        let scope = match self.call_stack.len() - base {
             // The runner's name per major (al_version::test_runner_root_scope, corpus commit ff42e3d3).
             0 | 1 => al_version::test_runner_root_scope(self.engine.target.as_ref()).map(str::to_string),
             // The OnRun of a guarded `Codeunit.Run` uses the result: what is named is the routine that called the run, when a
             // helper of the test method did (errors/Y68Small.al:191-201, 221-225 'RunMode'). The test method
             // calling the run itself is not pinned.
-            n if self.tx.guarded_runs.last() == Some(&(n - 1)) => {
-                let (o, r) = (self.frames[0], self.call_stack[0].routine);
+            n if self.tx.guarded_runs.last() == Some(&(base + n - 1)) => {
+                let (o, r) = (self.frames[base], self.call_stack[base].routine);
                 (n == 3 && self.is_test_method(o, r)).then(|| {
-                    let (o1, r1) = (self.frames[1], self.call_stack[1].routine);
+                    let (o1, r1) = (self.frames[base + 1], self.call_stack[base + 1].routine);
                     self.engine.program.objects[o1].routines[r1].name.clone()
                 })
             }
             2 => {
-                let (o, r) = (self.frames[0], self.call_stack[0].routine);
+                let (o, r) = (self.frames[base], self.call_stack[base].routine);
                 self.is_test_method(o, r)
                     .then(|| self.engine.program.objects[o].routines[r].name.clone())
             }
@@ -648,6 +650,13 @@ impl Session {
         if is_test && self.in_test_codeunit {
             return Err(nested_test_codeunit(obj.id.unwrap_or(0), &obj.name));
         }
+        // ADR-066 decision 1: from a test runner codeunit's OnRun, the run of a test codeunit is the test runner's
+        // (al-testrun), when one is installed.
+        if is_test {
+            if let Some(result) = self.run_for_runner(object, guarded) {
+                return result;
+            }
+        }
         // Codeunit.Run of a codeunit with Subtype = Upgrade fails before it runs, with or without upgrade triggers
         // (events/platform-triggers/PUpgradeTriggers.al:PUpgrade_RunWithTriggers line 121, PUpgrade_RunWithoutTriggers line 134; both by id).
         if obj
@@ -770,7 +779,19 @@ impl Session {
         if guarded {
             self.tx.guarded_runs.push(self.call_stack.len());
         }
+        // A test runner codeunit's OnRun under an installed host: its test codeunit runs go to the host (ADR-066).
+        let runner = self.has_test_codeunit_host()
+            && obj
+                .properties
+                .iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case("Subtype") && v.trim().eq_ignore_ascii_case("TestRunner"));
+        if runner {
+            self.enter_test_runner(object, inst.clone());
+        }
         let result = self.call(object, on_run, inst, Vec::new());
+        if runner {
+            self.leave_test_runner();
+        }
         if guarded {
             self.tx.guarded_runs.pop();
         }

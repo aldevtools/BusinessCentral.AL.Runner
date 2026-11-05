@@ -35,8 +35,12 @@ pub struct SidecarConfig {
     /// `--dotnet-assembly-dir DIR` (repeatable): searched for assemblies the runtime does not
     /// ship, after the platform package folders (ADR-014 section 3, step 3).
     pub assembly_dirs: Vec<PathBuf>,
-    /// `--dotnet-allow-roll-forward`: run on a newer major than 8, with a warning.
+    /// `--dotnet-allow-roll-forward`: when the .NET major the BC version needs is not installed, run on the lowest
+    /// newer one, with a warning (`crate::dotnet_runtime`).
     pub allow_roll_forward: bool,
+    /// The BC major in use: it picks the .NET major the sidecar runs on (`dotnet_runtime::runtime_major_for_bc`;
+    /// al-runner issues 6924 and 5590). `None`: .NET 8.
+    pub bc_major: Option<u32>,
     /// Where each process gets its working folders; default: `run/` under the helper's cache ([`work_root`]).
     pub work_root: Option<PathBuf>,
     /// Deadline of one call; on expiry the process is killed (ADR-014 section 10).
@@ -72,6 +76,7 @@ impl Default for SidecarConfig {
             cache_dir: None,
             assembly_dirs: Vec::new(),
             allow_roll_forward: false,
+            bc_major: None,
             work_root: None,
             timeout: Duration::from_secs(60),
             reuse: None,
@@ -85,8 +90,10 @@ impl Default for SidecarConfig {
 struct Resolved {
     dotnet: PathBuf,
     sidecar: PathBuf,
-    /// The `Microsoft.NETCore.App` versions `dotnet` reported: the sidecar runs on the newest 8.x of them.
+    /// The `Microsoft.NETCore.App` versions `dotnet` reported.
     versions: Vec<String>,
+    /// The one of them the sidecar runs on (`--fx-version`).
+    runtime: crate::dotnet_runtime::RuntimeChoice,
 }
 
 /// What the sidecars of one host cost, so start-up is reported apart from the calls
@@ -550,9 +557,10 @@ impl DotNetHost for SidecarHost {
         // helper given with `--dotnet-sidecar`.
         let modified = std::fs::metadata(&r.sidecar).and_then(|m| m.modified()).ok()?;
         Some(format!(
-            "dotnet {} runtimes {} sidecar {} {:?} roll-forward {} assembly dirs {:?}",
+            "dotnet {} runtimes {} on {} sidecar {} {:?} roll-forward {} assembly dirs {:?}",
             r.dotnet.display(),
             r.versions.join(","),
+            r.runtime.version,
             r.sidecar.display(),
             modified,
             cfg.allow_roll_forward,
@@ -628,7 +636,8 @@ fn resolve(cfg: &SidecarConfig) -> Result<Resolved, String> {
     if let Some(p) = &cfg.dotnet {
         if !p.is_file() {
             return Err(format!(
-                "needs the .NET 8 runtime; 'dotnet' not found ({} does not exist)",
+                "needs the .NET {} runtime; 'dotnet' not found ({} does not exist)",
+                crate::dotnet_runtime::runtime_major_for_bc(cfg.bc_major),
                 p.display()
             ));
         }
@@ -636,28 +645,18 @@ fn resolve(cfg: &SidecarConfig) -> Result<Resolved, String> {
     // An explicit path is a file, read against the runner's folder as the sidecar's path is (`find_sidecar`).
     let explicit = cfg.dotnet.clone().map(|p| std::path::absolute(&p).unwrap_or(p));
     let Some(dotnet) = explicit.or_else(locate_dotnet) else {
-        return Err(
-            "needs the .NET 8 runtime; 'dotnet' not found (looked in DOTNET_ROOT, PATH, /usr/share/dotnet, /usr/lib/dotnet, ~/.dotnet)"
-                .into(),
-        );
+        return Err(format!(
+            "needs the .NET {} runtime; 'dotnet' not found (looked in DOTNET_ROOT, PATH, /usr/share/dotnet, /usr/lib/dotnet, ~/.dotnet)",
+            crate::dotnet_runtime::runtime_major_for_bc(cfg.bc_major)
+        ));
     };
     let versions = runtimes(&dotnet);
-    let has8 = versions.iter().any(|v| major(v) == Some(8));
-    if !has8 {
-        let newer = versions.iter().any(|v| major(v).is_some_and(|m| m > 8));
-        if !(cfg.allow_roll_forward && newer) {
-            let found = if versions.is_empty() {
-                "no Microsoft.NETCore.App runtime".to_string()
-            } else {
-                format!("found {}", versions.join(", "))
-            };
-            return Err(format!(
-                "needs the .NET 8 runtime; {found}; the sidecar needs Microsoft.NETCore.App 8.x (--dotnet-allow-roll-forward runs it on a newer major)"
-            ));
-        }
+    let needed = crate::dotnet_runtime::runtime_major_for_bc(cfg.bc_major);
+    let runtime = crate::dotnet_runtime::pick_runtime(&versions, needed, cfg.bc_major, cfg.allow_roll_forward)?;
+    if runtime.rolled_forward {
         eprintln!(
-            "warning: running the .NET sidecar on {} instead of 8.x (--dotnet-allow-roll-forward); BCL behaviour can differ",
-            versions.join(", ")
+            "warning: running the .NET sidecar on {} instead of {needed}.x (--dotnet-allow-roll-forward); BCL behaviour can differ",
+            runtime.version
         );
     }
     let sidecar = find_sidecar(cfg, &dotnet)?;
@@ -665,6 +664,7 @@ fn resolve(cfg: &SidecarConfig) -> Result<Resolved, String> {
         dotnet,
         sidecar,
         versions,
+        runtime,
     })
 }
 
@@ -1021,7 +1021,13 @@ impl SidecarSession {
         }
         // A cleared environment, UTC, an empty working directory (ADR-014 section 9).
         let mut cmd = Command::new(&r.dotnet);
-        cmd.arg(&r.sidecar).env_clear();
+        // The runtime the BC version needs (crate::dotnet_runtime): the sidecar is built for net8.0, and its
+        // runtimeconfig alone would keep it on .NET 8 whenever .NET 8 is installed.
+        cmd.arg("exec")
+            .arg("--fx-version")
+            .arg(&r.runtime.version)
+            .arg(&r.sidecar)
+            .env_clear();
         for (k, v) in crate::dotnet_env::fixed(&home, &tmp) {
             cmd.env(k, v);
         }
@@ -1035,9 +1041,6 @@ impl SidecarSession {
         }
         if let Some(root) = r.dotnet.parent() {
             cmd.env("DOTNET_ROOT", root);
-        }
-        if self.shared.cfg.allow_roll_forward {
-            cmd.env("DOTNET_ROLL_FORWARD", "Major");
         }
         let mut child = cmd
             .spawn()
@@ -1087,10 +1090,12 @@ impl SidecarSession {
                 v["protocol"]
             ));
         }
-        if v["major"].as_u64() != Some(8) && !self.shared.cfg.allow_roll_forward {
+        let chosen = u64::from(major(&r.runtime.version).unwrap_or(r.runtime.needed));
+        if v["major"].as_u64() != Some(chosen) {
             return Err(format!(
-                "the sidecar runs on {}; it needs Microsoft.NETCore.App 8.x",
-                v["runtime"].as_str().unwrap_or("an unknown runtime")
+                "the sidecar runs on {}; it was started on Microsoft.NETCore.App {}",
+                v["runtime"].as_str().unwrap_or("an unknown runtime"),
+                r.runtime.version
             ));
         }
         // Where assemblies other than the standard library come from (ADR-014 section 3).

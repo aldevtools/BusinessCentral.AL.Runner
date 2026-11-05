@@ -36,6 +36,7 @@ or an `.app` that carries its source.
 
 Lookup order: `--dep`, `--package-cache`, each APP's `.alpackages`, then Microsoft's
 feed. A build named exactly (four numbers) that is in `~/.bcartifacts.cache/sandbox`
+(on Windows, when that folder does not exist, `C:\bcartifacts.cache\sandbox`)
 is read from there without the feed, and any matching build there is the fallback
 when the feed has none or is offline.
 
@@ -204,7 +205,7 @@ Protocol server. See [Editor and tool integration](editor-tools.md#debugging).
 | 3 | The apps do not compile: an error the AL compiler gives (its code, such as AL0118). No test ran. |
 | 6 | The selection matched no test. |
 | 7 | Some tests were not run (a refusal). `--allow-not-run` makes this 0. |
-| 8 | Some tests were not run because the .NET helper could not be used (not found, or no .NET 8 runtime). `--allow-not-run` makes this 0. |
+| 8 | Some tests were not run because the .NET helper could not be used (not found, or no .NET runtime of the major the BC version needs: 8 for BC 27-28, 10 for BC 29). `--allow-not-run` makes this 0. |
 
 Order when several apply: 2, 6, 1, 8, 7. Exit code 3 means no test ran; the errors are on stderr and in `compilationErrors` of `--output-json`. The check covers the AL compiler errors that the corpus has checked against the real compiler, not all of them. Source of an app under test that the parser does not accept also exits 3; that line has the parser's message and no AL code. A dependency app's file the parser does not accept is not judged: the tests that need it are not run (exit 7). An impact run has its own codes; see
 [Impact analysis](impact.md).
