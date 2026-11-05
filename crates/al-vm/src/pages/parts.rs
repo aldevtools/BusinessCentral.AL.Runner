@@ -1783,7 +1783,7 @@ impl Session {
     /// the first, the row twice and OnAfterGetCurrRecord, as without Both (corpus pages/lt-th-part-update-cursor/R6877PartBothLaterRow.al:375
     /// R_Doc_, R_Card_, R_Plus_Nav1..3_Ctl1..2, BC 28.5: `Q.V Q.V.end HR HC R2 R3 R2 R1 R2 R2 C2`; the next SetValue lands on the same
     /// row; al-runner issue 6877). A part that
-    /// serves its rows from OnFindRecord or OnNextRecord, one that is not a list, a row its view no longer holds and a view longer than
+    /// serves its rows from OnNextRecord, one that is not a list, a row its view no longer holds and a view longer than
     /// a window are refused. Returns the view and the part's place in it when the part stands on a later row (the caller reads the
     /// host, then calls `read_part_rows_around`), `None` on the first row.
     fn both_later_row(&mut self, st: &St) -> Result<Option<PartView>, Signal> {
@@ -1795,9 +1795,12 @@ impl Session {
         if at == Some(0) {
             return Ok(None);
         }
-        if !self.is_list(st) || self.declares(st, "onfindrecord") || self.declares(st, "onnextrecord") {
+        // A part with OnFindRecord (and no OnNextRecord) stays on its row too; its trigger runs with '=>' and '=' among the reads
+        // (`read_part_rows_around`; corpus branch al-runtime-rs-staging-r6977, pages/parts/R7099PartFindRecordBoth.al, al-runner
+        // issue 7099). A part with OnNextRecord is not pinned.
+        if !self.is_list(st) || self.declares(st, "onnextrecord") {
             return unsupported(
-                "a part with UpdatePropagation Both that runs CurrPage.Update on a row other than its first, other than a list part without OnFindRecord (which row it shows then is not pinned)",
+                "a part with UpdatePropagation Both that runs CurrPage.Update on a row other than its first, other than a list part without OnNextRecord (which row it shows then is not pinned)",
             );
         }
         let Some(at) = at else {
