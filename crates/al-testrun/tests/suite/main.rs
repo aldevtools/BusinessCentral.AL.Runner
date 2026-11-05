@@ -34,6 +34,7 @@ mod install_db_event_order;
 mod install_hold_back;
 mod install_load_package_data;
 mod install_own_table_guard;
+mod install_stopped_rows;
 mod install_trigger_setup_order;
 mod lean_selection;
 mod login_work_date_lean;
