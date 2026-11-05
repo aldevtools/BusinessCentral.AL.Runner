@@ -270,6 +270,9 @@ impl Session {
         let Some(o) = self.engine.program.objects.get(object) else {
             return Err(why);
         };
+        if let Some(ext) = self.declaring_extension(t, pos) {
+            return self.extension_field_caption_translation(t, pos, ext, why);
+        }
         if o.kind != al_ir::ObjKind::Table
             || self.extended(object)
             || self.field_property(t, pos, "CaptionML").is_some()
@@ -284,6 +287,65 @@ impl Session {
             al_ir::xliff_part("Property", "Caption")
         );
         self.app_translation(o.app as usize, &xliff, &|| {
+            format!("the caption of field {} of table {}", t.fields[pos].name, t.name)
+        })
+    }
+
+    /// The table extension that declares field `pos` of `t`, when one does (`al_ir::Field::declared_in`).
+    fn declaring_extension(&self, t: &al_data::TableDef, pos: usize) -> Option<usize> {
+        let objects = &self.engine.program.objects;
+        let declared = objects
+            .get(t.object as usize)?
+            .table
+            .as_ref()?
+            .fields
+            .get(pos)?
+            .declared_in? as usize;
+        (declared != t.object as usize && objects.get(declared)?.kind == al_ir::ObjKind::TableExtension)
+            .then_some(declared)
+    }
+
+    /// The caption of field `pos` of `t` that table extension `ext` declares, from the translation file of the extension's app:
+    /// the unit `TableExtension <ext> - Field <field> - Property Caption`, as for a field of the app's own table
+    /// (localization/app-xliff/lt-r7144-ext-caption/R7144ExtFieldCaption.al, al-runner issue 7144: a table extension of
+    /// Base Application's Sales Invoice Header, read with FieldCaption and FieldRef.Caption under 1043; the source caption
+    /// under 1031, which has no file, and 1033). Refused (`why`): an extension of a table of its own app, a field with
+    /// `CaptionML` or `CaptionClass`, and a table another extension in an app that translates into the language extends
+    /// (it could `modify` the caption; not pinned).
+    fn extension_field_caption_translation(
+        &self,
+        t: &al_data::TableDef,
+        pos: usize,
+        ext: usize,
+        why: String,
+    ) -> Result<Option<String>, String> {
+        let p = &self.engine.program;
+        let e = &p.objects[ext];
+        let language = al_builtins::format::FormatCtx::language(self);
+        let other_translating_extension = p.objects.iter().enumerate().any(|(i, o)| {
+            i != ext
+                && o.kind == al_ir::ObjKind::TableExtension
+                && o.extends_id == e.extends_id
+                && p.apps.get(o.app as usize).is_some_and(|a| translates_into(a, language))
+        });
+        // An extension of a table of its own app keeps the source caption on BC with such a unit
+        // (R7144ExtFieldCaption.al, own table extension field with unit = 'Extension code'); which unit id BC reads
+        // there is not pinned, so it stays refused.
+        let same_app = p.objects.get(t.object as usize).is_some_and(|b| b.app == e.app);
+        if same_app
+            || other_translating_extension
+            || self.field_property(t, pos, "CaptionML").is_some()
+            || self.field_property(t, pos, "CaptionClass").is_some()
+        {
+            return Err(why);
+        }
+        let xliff = format!(
+            "{} - {} - {}",
+            al_ir::xliff_part("TableExtension", &e.name),
+            al_ir::xliff_part("Field", &t.fields[pos].name),
+            al_ir::xliff_part("Property", "Caption")
+        );
+        self.app_translation(e.app as usize, &xliff, &|| {
             format!("the caption of field {} of table {}", t.fields[pos].name, t.name)
         })
     }
