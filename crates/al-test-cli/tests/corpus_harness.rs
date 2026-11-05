@@ -1018,7 +1018,10 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // Train 1105f makes it 36: the runtime pull request for issue 7005 shows the member names on BC 28 (confirmed on Windows)
     // and a blank control on a list without rows, so the three 95439 OtherRecordOption_* cases pass on BC 28 and 29; BC 27 is a
     // Linux suspect and stays refused.
-    assert!(out.contains("runtime: 36 case(s) differ between versions"), "{out}");
+    // Branch fix-6975-record-validate-variant makes it 37: 60670 TemporalSetValue_ValidateRefusesTextCarriedInAVariant
+    // (testpage/TestPageTemporalSetValue_Tests.al:303) passes on BC 27 only: Record.Validate with a Variant now converts as
+    // FieldRef.Validate does, whose error on 27 names the type for any text; from 28 a text into a Date field is not pinned.
+    assert!(out.contains("runtime: 37 case(s) differ between versions"), "{out}");
     assert!(out.contains("71500 Get_Uses_Primary_Key_Not_Current_Key: 27"), "{out}");
 }
 

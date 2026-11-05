@@ -73,6 +73,7 @@ mod record_is_dirty_shapes;
 mod record_ref_into_record;
 mod record_ref_lock_table_tx;
 mod record_ref_set_table_variant;
+mod record_validate_variant;
 mod recordref;
 mod recordref_copy_from_record;
 mod recordref_load_fields;

@@ -113,6 +113,11 @@ pub trait Ctx: FormatCtx {
         let _ = form;
         self.record(crate::record_op::RecordOp::FieldError, rec, args)
     }
+    /// `Record.Validate(Field, V)` with `V` written as a Variant (lowering picks `Record.ValidateVariant#1`): the value converts
+    /// into the field as `FieldRef.Validate` converts it.
+    fn record_validate_variant(&mut self, rec: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+        self.record(crate::record_op::RecordOp::Validate, rec, args)
+    }
     /// `TestPage` / `TestField` / `TestAction` methods: the VM's test client
     /// implements them (ADR-012). `method` is `Receiver.Name`.
     fn page(
