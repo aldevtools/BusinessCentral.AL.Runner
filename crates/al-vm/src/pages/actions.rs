@@ -1578,22 +1578,12 @@ impl Session {
                 let saved_by_action = stored_now
                     .as_ref()
                     .is_some_and(|stored| Self::same_values(&rec.borrow().fields, stored));
-                // A row the action changed and then deleted (a codeunit that modifies and deletes Rec: Make Order, Post) is not
-                // written again on a card: the card closes (`settle_after_action`) and nothing is re-inserted (corpus master 97c29f86,
-                // pages/save-deleted-row/Y17SaveRowGone.al:632 PgSave_ActionDeletesEditedRow_Card `stored` `B/b/No;`, :638
-                // without the edit). A list then moves on with reads the gone-row path does not model yet (:711
-                // PgSave_ActionDeletesEditedRow_List_Next `P.AGR:B;P.AGR:B;P.AGCR:B/b;` twice, the row edited before the action):
-                // refused. Without an edit before the action a list keeps the path it had (no corpus test pins its reads; Microsoft's
-                // Sales and Purchase Batch Document Posting tests post a row of a list this way).
-                let gone = stored_before && !moved_other && stored_now.is_none();
-                let changed = !Self::same_values(&rec.borrow().fields, &before);
-                if gone && changed && was_dirty && self.is_list(st) {
-                    return unsupported(
-                        "a list whose row an action changed and then deleted (the reads after the action are not pinned)",
-                    );
-                }
-                let deleted_by_action = gone;
-                if !Self::same_values(&rec.borrow().fields, &before) && !saved_by_action && !deleted_by_action {
+                // A deleted row and Blobs no stream wrote: `rec_changed_by_action` (pages/action_blob_change.rs).
+                let deleted_by_action = stored_before && !moved_other && stored_now.is_none();
+                if self.rec_changed_by_action(st, &before, deleted_by_action, was_dirty)?
+                    && !saved_by_action
+                    && !deleted_by_action
+                {
                     // Another row in Rec saves nothing on the pinned list (above; Tests-ERM 134918 Apply Customer Entries' Post
                     // Application `Rec := TempApplyingCustLedgEntry`). On another page that is not pinned.
                     if moved_other {

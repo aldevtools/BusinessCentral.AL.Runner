@@ -52,6 +52,7 @@ mod secondary_key_marked_refill;
 mod selection_new_line;
 
 mod dirty_save;
+mod editable_blob_action_no_change;
 mod editable_false_blob_release;
 mod empty_worksheet_filled_by_action;
 mod expr_refresh_points;
@@ -83,6 +84,7 @@ mod pageext;
 mod pageext_leads;
 mod pages;
 mod part_both_later_row;
+mod part_find_record_both_later_row;
 mod part_host_move;
 mod part_keeps_row_after_update;
 mod part_next_read_only;

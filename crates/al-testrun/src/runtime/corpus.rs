@@ -998,6 +998,7 @@ impl CorpusRuntime {
             if let Some(e) = Arc::get_mut(&mut engine) {
                 e.test_data = opts.test_data.clone();
                 e.license = opts.license.clone();
+                e.write_in_try_allowed = opts.allow_write_in_try_functions;
                 e.skipped_apps = opts.skipped_dependencies.clone();
             }
             engine
@@ -1009,6 +1010,7 @@ impl CorpusRuntime {
             if let Some(e) = Arc::get_mut(&mut sibling) {
                 e.test_data = opts.test_data.clone();
                 e.license = opts.license.clone();
+                e.write_in_try_allowed = opts.allow_write_in_try_functions;
                 e.skipped_apps = opts.skipped_dependencies.clone();
             }
             sibling
@@ -2176,11 +2178,12 @@ fn kept_engine_key(
     opts: &RunOptions,
 ) -> String {
     format!(
-        "target={target:?} dotnet={} test_data={:?} license={:?} skipped={:?}",
+        "target={target:?} dotnet={} test_data={:?} license={:?} skipped={:?} write_in_try={}",
         dotnet.host.availability().is_ok(),
         opts.test_data.as_ref().map(|td| td.provider.identity()),
         opts.license.as_ref().map(|l| &l.sha256),
         opts.skipped_dependencies,
+        opts.allow_write_in_try_functions,
     )
 }
 
@@ -2207,6 +2210,7 @@ fn take_kept_engines(
         e.dotnet = dotnet.clone();
         e.test_data = opts.test_data.clone();
         e.license = opts.license.clone();
+        e.write_in_try_allowed = opts.allow_write_in_try_functions;
         e.skipped_apps = opts.skipped_dependencies.clone();
         Some(engine)
     };
@@ -2326,6 +2330,11 @@ fn baseline_key(
         None => key.text("target", "none"),
     };
     key.text("environment", crate::host::environment_text());
+    // The install code's writes inside a TryFunction follow the setting DisableWriteInsideTryFunctions (al-runner issue 7143).
+    key.text(
+        "write_in_try_allowed",
+        if opts.allow_write_in_try_functions { "yes" } else { "no" },
+    );
     // GetUrl answers with it, and Company-Initialize stores that answer (ADR-042).
     key.text("server_url", &crate::host::server_url().0);
     // CompanyName() answers it, and Company-Initialize may store that answer.
