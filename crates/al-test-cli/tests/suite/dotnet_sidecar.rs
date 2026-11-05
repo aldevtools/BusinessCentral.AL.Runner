@@ -3,7 +3,7 @@
 //! `ALRT_REQUIRE_DOTNET=1` (CI) a missing .NET fails instead, so a skip never reads as a pass.
 
 use al_host::dotnet::*;
-use al_test_cli::dotnet::{SidecarConfig, SidecarHost};
+use al_test_cli::dotnet::{PROTOCOL, SidecarConfig, SidecarHost};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -592,7 +592,11 @@ fn assemblies_come_from_the_assembly_dir_by_simple_name() {
     t.culture = None;
     t.public_key_token = None;
     let r = sess.get_property(DotNetTarget::Static(t), "ProtocolVersion");
-    assert_eq!(r.unwrap().value, DotNetValue::Int32(4));
+    assert_eq!(
+        r.unwrap().value,
+        DotNetValue::Int32(PROTOCOL as i32),
+        "host and sidecar speak one protocol version"
+    );
     sess.close();
 }
 
@@ -1090,7 +1094,7 @@ fn a_protocol_mismatch_is_a_refusal_naming_both_versions() {
     let mut sess = h.open_session(&DotNetSessionConfig::default());
     let why = refused(sess.invoke(st("System.Convert"), "ToInt32", vec![s("1")]));
     assert!(
-        why.contains("protocol mismatch") && why.contains("99") && why.contains('4'),
+        why.contains("protocol mismatch") && why.contains("99") && why.contains(&PROTOCOL.to_string()),
         "{why}"
     );
     sess.close();

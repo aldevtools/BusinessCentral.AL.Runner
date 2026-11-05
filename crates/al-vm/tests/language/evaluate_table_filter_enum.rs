@@ -103,3 +103,50 @@ fn option_lists_not_equal_and_ranges_are_stored_by_caption() {
         );
     }
 }
+
+// A quoted blank filter: `''` on an Enum with a blank member and `<>''` on a Code field (al-runner issue 7132). Pinned by corpus
+// master format-evaluate/tablefilter-neutral/TableFilterEnumForms.al:468 TableFilter_Evaluate_QuotedBlankEnum_SelectsBlankMember
+// and :485 TableFilter_Evaluate_NotEqualQuotedBlankCode_SelectsNonemptyCode (corpus pull request 1152): the stored text, fed to
+// the Base Application page "Table Filter" (which hands each field filter to FieldRef.SetFilter as written), selects exactly the
+// one row. The test reads the filter after `=` as that page does and sets it on a RecordRef.
+const BLANK_OBJECTS: &str = "enum 69004 \"FMT Blank Member Choice\" { Extensible = false;
+        value(0; \" \") { Caption = ' '; } value(1; Marked) { Caption = 'Marked'; } }
+    table 69024 \"FMT Blank Filter Row\" { fields { field(1; Code; Code[20]) { } field(2; Choice; Enum \"FMT Blank Member Choice\") { } }
+        keys { key(PK; Code) { Clustered = true; } } }
+    table 95453 \"LT R6951 Holder\" { fields { field(1; Id; Integer) { } field(2; Flt; TableFilter) { } }
+        keys { key(PK; Id) { Clustered = true; } } }";
+
+/// Seeds two rows, evaluates `text`, sets the stored field filter on the field it names and answers
+/// `<Format of the field>|<count>|<first code>`.
+fn blank_filter_selects(seed: &str, text: &str, field_no: i32) -> String {
+    let s = format!(
+        "{BLANK_OBJECTS} codeunit 95460 C {{ procedure F(): Text var H: Record \"LT R6951 Holder\"; Row: Record \"FMT Blank Filter Row\";
+        Ref: RecordRef; Fld: FieldRef; T: Text; begin {seed}
+        Evaluate(H.Flt, '{}'); T := Format(H.Flt);
+        Ref.Open(Database::\"FMT Blank Filter Row\"); Fld := Ref.Field({field_no}); Fld.SetFilter(CopyStr(T, StrPos(T, '=') + 1));
+        Ref.FindFirst(); Fld := Ref.Field(1);
+        exit(T + '|' + Format(Ref.Count()) + '|' + Format(Fld.Value())); end; }}",
+        text.replace('\'', "''")
+    );
+    al_testkit::text(al_testkit::run_in(&s, "C", "F"))
+}
+
+#[test]
+fn a_quoted_blank_on_an_enum_with_a_blank_member_selects_the_blank_member() {
+    let got = blank_filter_selects(
+        "Row.Code := 'BLANK42'; Row.Insert(false); Row.Init(); Row.Code := 'MARKED42'; Row.Choice := Row.Choice::Marked; Row.Insert(false);",
+        "FMT Blank Filter Row: Choice=''",
+        2,
+    );
+    assert_eq!(got, "FMT Blank Filter Row: Choice=''|1|BLANK42");
+}
+
+#[test]
+fn not_equal_a_quoted_blank_on_a_code_field_selects_the_nonempty_code() {
+    let got = blank_filter_selects(
+        "Row.Code := ''; Row.Insert(false); Row.Init(); Row.Code := 'NEUTRAL42'; Row.Insert(false);",
+        "FMT Blank Filter Row: Code=<>''",
+        1,
+    );
+    assert_eq!(got, "FMT Blank Filter Row: Code=<>''|1|NEUTRAL42");
+}
