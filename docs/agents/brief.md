@@ -166,7 +166,8 @@ minutes. Do not iterate on either. `al-test-cli --help` lists every flag.
    codeunits compile and run, and only they are checked against the lists. Add
    `--no-deps` (about 0.5 s) when the test needs no Microsoft app. A selected
    codeunit runs whole, because its tests share state.
-4. Before you commit: one full run with `--baseline-diff`. It shows, by area,
+4. Before you commit: one run with `--baseline-diff` on the newest major only
+   (about 20 s; no `--all-versions` run locally). It shows, by area,
    the regressions (not listed, not passing), the stale lines (listed cases that
    pass, or left the oracle), the cases still listed and the cases without an
    outcome. Then `--prune-not-passing` deletes the stale lines.
@@ -243,6 +244,19 @@ and does not merge. Its pull request body lists what is left for a person
 assumptions, guards without a gate, harness counts, stale golden files). Fix
 those on its branch; the bot never pushes to a branch that exists.
 
+A bump need not wait for the corpus master run (about 55 minutes after a corpus
+pull request merges; owner, 2026-11-05): `tools/corpus_bump.sh --from-pr
+N[,N...]` moves the pin to the merge commit of those corpus pull requests and
+replaces, in the current oracle, only the codeunits their own CI runs ran (a
+subset run per BC version) with those runs' results. It refuses when a run is
+not green, a BC version is missing, a pull request changed a shared fixture
+(`_fixtures`, the xapp apps, an `app.json`) or deleted a test file, master has
+a commit since the pin that is not one of the listed pull requests, or it
+cannot show the run tested the merged files. `--dry-run` prints what it would take; `--body FILE` writes the pull
+request body, which names the corpus runs the oracle came from and says it is
+a PR-results bump. `oracle/README.md` keeps a list of these bumps until the
+next bump from a master run, which replaces every oracle file.
+
 These are still regenerated in the pull request, because the build or a
 reviewed list depends on them, and CI fails while they are stale:
 
@@ -256,19 +270,20 @@ reviewed list depends on them, and CI fails while they are stale:
 
 ## Finishing
 
-Run these in order. Do not skip any.
+Run these in order. Do not skip any. PR CI is the full gate (owner,
+2026-11-05): it runs the full corpus on every major in about 6 to 12 minutes.
+Do not run `./check.sh`, `cargo test --workspace` or an `--all-versions` corpus
+run locally; on the shared machine they cost up to an hour.
 
-1. Run `./target/release/al-test-cli --root . --baseline-diff` once over the
-   whole corpus: no regression and no case without an outcome. Then
+1. Run `./target/release/al-test-cli --root . --baseline-diff` once on the
+   newest major: no regression and no case without an outcome. Then
    `./target/release/al-test-cli --root . --prune-not-passing` deletes the lines
    of the cases your change makes pass; commit them (see "Generated files"
    above).
-2. `./check.sh` must be green. It runs fmt, clippy with `-D warnings`, all
-   tests and the not-passing lists. The two tests that run `al-test-cli` over the
-   whole corpus run against the release build, which step 1 has already made,
-   as in CI.
-3. Run the release-only tests. `check.sh` skips these `#[ignore]`d tests and CI
-   runs them:
+2. Run `cargo test -p <crate>` and `cargo clippy -p <crate> -- -D warnings`
+   for each crate you touched, and `cargo fmt --all`. PR CI runs the rest
+   (`check.sh`: all tests and the not-passing lists of every major).
+3. Run the release-only tests that cover your change. CI runs them nightly:
    `cargo test --release --no-fail-fast -p al-syntax --test perf_parse_throughput -p al-test-cli --test perf_budget --test perf_vm --test corpus_resolve_deps -p al-data --lib -- --ignored`
    If the golden list of unresolved items changes, review the change and
    justify it in your report before you regenerate it with `UPDATE_GOLDEN=1`.
@@ -303,8 +318,7 @@ Run these in order. Do not skip any.
    messages. The message says what changed and why, in plain American English.
 7. Merge current `origin/main` into your branch (`git fetch`, then
    `git merge origin/main`). Resolve conflicts. In a not-passing list take the
-   deletions of both sides, then run `--prune-not-passing`. Run `check.sh` again
-   and commit.
+   deletions of both sides, then run `--prune-not-passing`. Commit.
 8. Do not merge into `main`. Whether you push is set by your task: a local
    agent does not push, a remote worker pushes its own branch and nothing else.
 9. Before every push, also a push of a fix after review, run `tools/prepush.sh`.
@@ -313,15 +327,12 @@ Run these in order. Do not skip any.
    `al-version`, the assumption registry tests, the `builtin_ids_current` test, and
    clippy with `-D warnings` on the crates your branch changed. With a warm target
    folder it takes under a minute. Push only when it ends with "all checks passed".
-   It does not replace `check.sh`, and it installs no git hook; `tools/prepush.sh -h`
+   It does not replace PR CI, and it installs no git hook; `tools/prepush.sh -h`
    shows how to add one yourself.
-10. Open a feature pull request as a draft: `gh pr create --draft ...`. CI runs
-    no job on a draft (owner, 2026-11-01): the organisation's free plan runs at
-    most 20 Linux jobs at once, shared with the corpus repository, and a merge
-    train lands the feature pull requests later. Its pull request is opened
-    ready (no `--draft`), and that run is the full gate. To run CI on one
-    feature pull request anyway, mark it ready (`gh pr ready N`); a ready
-    pull request runs CI on every push, as before.
+10. Open the pull request ready, not as a draft, and without auto-merge
+    (owner, 2026-11-05): CI runs on it and is the gate. Wait for CI and fix what
+    it reports. The orchestrator reviews it and lands it, usually in a merge
+    train.
 
 ## Report
 
@@ -332,6 +343,6 @@ Your final message or issue comment has these parts:
   29). Confirm no regression against the not-passing lists, and name the lines you deleted.
 - What you implemented, with the corpus files that now pass.
 - What is still refused or failing in your area, with the reason and counts.
-- Gates run (`check.sh`, release-only tests, demand/eager) and their result.
+- Gates run (crate tests, release-only tests, demand/eager, PR CI) and their result.
 - Assumptions you added to `docs/probes-needed.md`, and the probes you want.
 - Decisions taken without the owner, and what a reviewer should look at first.
