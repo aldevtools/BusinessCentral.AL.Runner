@@ -416,13 +416,16 @@ impl<'a> Checker<'a> {
                         globals.insert(name.clone(), ty);
                         base_vars.insert(name);
                     }
-                    // The protected variables of another extension of the same table in the same app: one variable per
-                    // record variable, shared by both (al-runner issue 6485; corpus writer Y20,
-                    // table-objects/extensions/Y20TableExtSiblingGlobals.al, measured on BC; a plain `var` does
-                    // not compile, must-not-compile 2356). Another app's extension is not pinned.
+                    // The protected variables of another extension of the same table in the same app or in an app this one
+                    // depends on: one variable per record variable, shared by both (al-runner issue 6485; corpus writer Y20,
+                    // table-objects/extensions/Y20TableExtSiblingGlobals.al, measured on BC; a plain `var` does not compile,
+                    // must-not-compile 2356). Across apps (al-runner issue 6983): corpus PR 1126 (branch
+                    // al-runtime-rs-staging-r6983), table-objects/extensions/ProtectedVarCrossApp.al
+                    // ProtVar_OtherAppExtensionVar_ReadAndWrite with xapp-b/R6983XbProtectedVars.al; an app that does not
+                    // depend on the declaring one does not see it (must-not-compile 2952, AL0118).
                     for &s in self.ws.extensions_of(b) {
                         let so = &self.ws.objects[s];
-                        if s == oi || so.kind != ObjKind::TableExtension || so.app != o.app {
+                        if s == oi || so.kind != ObjKind::TableExtension || !self.ws.app_sees(o.app, so.app) {
                             continue;
                         }
                         for (name, decl) in crate::base_access::visible_vars(&self.ws.object_ast(s)) {
