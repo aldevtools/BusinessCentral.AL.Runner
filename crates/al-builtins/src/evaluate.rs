@@ -1834,6 +1834,13 @@ fn table_filter_value(f: &crate::native::TableFilterField, value: &str) -> Resul
             if v.is_empty() {
                 return Ok(Ok(String::new()));
             }
+            // `<>''`: the nonempty codes (format-evaluate/tablefilter-neutral/TableFilterEnumForms.al:485
+            // TableFilter_Evaluate_NotEqualQuotedBlankCode_SelectsNonemptyCode, pinned by corpus pull request 1152). The text is
+            // kept as written; that stored form is an assumption.
+            if v == "<>''" {
+                crate::assumptions::assume(crate::assumptions::Assumption::TablefilterQuotedBlankKept);
+                return Ok(Ok(v.to_string()));
+            }
             if let Some(inner) = v.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) {
                 if inner.contains('\'') {
                     return refuse();
@@ -1932,6 +1939,13 @@ fn table_filter_value(f: &crate::native::TableFilterField, value: &str) -> Resul
                 Ok(None) => return refuse(),
                 Err(why) => return unsupported(why.clone()),
             };
+            // `''` on an Enum with a blank member: that member (TableFilterEnumForms.al:468
+            // TableFilter_Evaluate_QuotedBlankEnum_SelectsBlankMember, pinned by corpus pull request 1152). Kept as written; that
+            // stored form is an assumption. An Option, or an Enum without a blank member, is not pinned.
+            if v == "''" && matches!(f.ty, RtType::Enum(_)) && members.iter().any(|m| m.1.trim().is_empty()) {
+                crate::assumptions::assume(crate::assumptions::Assumption::TablefilterQuotedBlankKept);
+                return Ok(Ok(v.to_string()));
+            }
             match crate::evaluate_table_filter_member::member_filter(members, v) {
                 // One Option member: W4PlatformAndMeta.al. Enum members by name, caption or ordinal, lists, `<>` and ranges of
                 // Option and Enum members: format-evaluate/tablefilter-neutral/TableFilterEnumForms.al:253

@@ -470,6 +470,15 @@ pub fn var_and_field(text: &str) -> Option<(String, String)> {
     Some((plain_name(&t[..dot])?, plain_name(&t[dot + 1..])?))
 }
 
+/// Whether `text` is `Rec.<name>` with an unquoted name: a field, or a parameterless method called without parentheses.
+fn unquoted_rec_name(text: &str) -> bool {
+    let t = text.trim();
+    t.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("rec."))
+        && !t[4..].is_empty()
+        && t[4..].chars().all(|c| c.is_alphanumeric() || c == '_')
+        && !t[4..].starts_with(|c: char| c.is_ascii_digit())
+}
+
 /// Global variable names (lower case) declared in `obj`.
 pub fn global_names(obj: &ast::Object) -> BTreeSet<String> {
     obj.var_decls()
@@ -518,7 +527,12 @@ fn needed(
         if let Some(src) = args.get(1) {
             let names_a_base_variable = extension_routines
                 .is_some_and(|routines| plain_name(src).is_some_and(|n| !routines.contains(&n.to_lowercase())));
-            if classify_source(src, globals) == Source::Expr && !names_a_base_variable {
+            // In an extension, `Rec.<name>` unquoted may name a parameterless method of the source table, called without
+            // parentheses (pages/record-method-controls/TestRecordMethodControls.al:39, al-runner issue 7133): it gets a routine
+            // too, which the lowering binds when the name is no field. Only extensions: a page's own controls would add a
+            // routine for every such field (thousands in Microsoft's apps, against 19 in their extensions).
+            let rec_name = extension_routines.is_some() && unquoted_rec_name(src);
+            if (classify_source(src, globals) == Source::Expr && !names_a_base_variable) || rec_name {
                 out.push((
                     "source".into(),
                     PropType::Variant,
