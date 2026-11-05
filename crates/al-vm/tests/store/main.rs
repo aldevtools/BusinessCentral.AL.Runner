@@ -36,6 +36,7 @@ mod get_variant_key_conversions;
 mod getview_option_ordinal;
 mod global_filter_group;
 mod hostvalues;
+mod init_after_load_fields;
 mod installed_app_published_as;
 mod isolated_delete_missing_tx;
 mod key_ties;

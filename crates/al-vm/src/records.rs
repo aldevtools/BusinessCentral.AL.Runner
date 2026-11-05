@@ -1802,6 +1802,7 @@ impl Session {
                 assigned: Vec::new(),
                 missing_loaded: false,
                 fetched: Default::default(),
+                init: false,
             });
             r.load.partial = false;
         }

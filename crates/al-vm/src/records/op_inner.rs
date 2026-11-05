@@ -401,19 +401,9 @@ impl Session {
         }
         match method {
             RecordOp::Init => {
-                let mut fresh = self.initial_fields(t.object as usize);
-                if self.temp_never_stamps(&t, rec) {
-                    // Init of a temporary record keeps the SQLTimestamp fields and SystemRowVersion
-                    // (record/temporary/QrTempTimestamp.al:221-226, `shared copy insert`).
-                    let r = rec.borrow();
-                    let facts = &self.engine.table_facts[t.object as usize].sql_timestamp;
-                    for (i, f) in t.fields.iter().enumerate() {
-                        if f.id == 2_000_000_005 || facts.contains(&i) {
-                            fresh[i] = r.fields[i].clone();
-                        }
-                    }
-                }
+                let fresh = self.init_fields(&t, rec);
                 let mut r = rec.borrow_mut();
+                crate::partial::note_init(&mut r);
                 r.assigned = false;
                 r.inserted = false;
                 if matches!(r.is_dirty_base, al_builtins::value::DirtyBase::Synced) {
@@ -2537,5 +2527,21 @@ impl Session {
             | RecordOp::SetBaseLoadFields => self.load_fields_op(method, rec, &t, args),
             other => self.record_meta_op(other, rec, &t, args),
         }
+    }
+
+    /// The fields `Init` gives `rec`: the initial values, except that Init of a temporary record keeps the SQLTimestamp fields
+    /// and SystemRowVersion (record/temporary/QrTempTimestamp.al:221-226, `shared copy insert`).
+    fn init_fields(&mut self, t: &TableDef, rec: &Rec) -> Vec<Value> {
+        let mut fresh = self.initial_fields(t.object as usize);
+        if self.temp_never_stamps(t, rec) {
+            let r = rec.borrow();
+            let facts = &self.engine.table_facts[t.object as usize].sql_timestamp;
+            for (i, f) in t.fields.iter().enumerate() {
+                if f.id == 2_000_000_005 || facts.contains(&i) {
+                    fresh[i] = r.fields[i].clone();
+                }
+            }
+        }
+        fresh
     }
 }
