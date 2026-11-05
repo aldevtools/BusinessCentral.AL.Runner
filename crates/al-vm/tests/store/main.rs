@@ -65,6 +65,7 @@ mod query_flowfield_filter_joined_item;
 mod query_read_state;
 mod quoted_enum_init_value;
 mod record_builtins;
+mod record_validate_variant;
 mod record_id_filter_text;
 mod record_into_recordref;
 mod record_is_dirty;

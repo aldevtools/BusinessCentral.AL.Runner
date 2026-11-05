@@ -173,6 +173,15 @@ impl al_builtins::native::Ctx for Session {
             ))),
         }
     }
+    fn record_validate_variant(&mut self, rec: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+        match rec {
+            Some(Value::Record(rc)) => {
+                let rc = rc.clone();
+                Session::record_validate_variant(self, &rc, args)
+            }
+            other => Err(Signal::Unsupported(format!("Record.Validate on {}", other.describe()))),
+        }
+    }
     fn page(
         &mut self,
         method: al_builtins::page_op::PageOp,
