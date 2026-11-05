@@ -108,6 +108,8 @@ pub trait Backing {
 #[derive(Clone)]
 struct OrderEntry {
     shape: u64,
+    /// The stamp of the last Modify that moved a row in this key (`MemStore::moves`), 0 for none.
+    moved: u64,
     rows: usize,
     /// The fields of the key the order is of: an ad-hoc key can take the slot of an earlier one.
     fields: Vec<usize>,
@@ -159,10 +161,16 @@ pub struct MemStore {
     versions: crate::pmap::PMap<Slot, u64>,
     committed_versions: crate::pmap::PMap<Slot, u64>,
     /// The value of `counter` when the *shape* of each table last changed: a row was inserted, deleted or
-    /// renamed, or a Modify changed a field some key is made of. It follows `tables` like `versions`, so
-    /// equal stamps mean the same rows in the same places in every key.
+    /// renamed (a Modify that moves a row in a secondary key stamps `moves` instead). It follows `tables` like
+    /// `versions`, so equal stamps (with equal `moves`) mean the same rows in the same places in every key.
     shapes: crate::pmap::PMap<Slot, u64>,
     committed_shapes: crate::pmap::PMap<Slot, u64>,
+    /// The value of `counter` when a Modify last moved a row in one secondary key of a table (it changed a field of that
+    /// key and of no key it leaves alone). It follows `tables` like `shapes`: with the same shape and the same stamp
+    /// here, a key holds the same rows in the same places, whatever the Modifies did to the other keys (al-runner issue
+    /// 6924: each number taken from a No. Series Line moves it in the key of "Last Date Used" only).
+    moves: crate::pmap::PMap<(Slot, usize), u64>,
+    committed_moves: crate::pmap::PMap<(Slot, usize), u64>,
     /// The tables a DeleteAll without filters emptied ([`MemStore::emptied`]). It follows `tables` through commit and
     /// rollback (and a snapshot), so it holds exactly while that DeleteAll stands.
     emptied: crate::pmap::PMap<Slot, ()>,
@@ -246,11 +254,9 @@ fn slot(cx: &AccessContext, t: &TableDef) -> Slot {
     )
 }
 
-/// Whether `new` differs from `old` in a field some key of `t` is made of (the primary key included).
-fn key_fields_differ(t: &TableDef, old: &[Value], new: &[Value]) -> bool {
-    t.keys
-        .iter()
-        .flatten()
+/// Whether `new` differs from `old` in a field of `key` (field positions).
+fn key_fields_differ(key: &[usize], old: &[Value], new: &[Value]) -> bool {
+    key.iter()
         .any(|&i| al_builtins::ops::compare_key_value(&old[i], &new[i]).map_or(true, |o| o != Ordering::Equal))
 }
 
@@ -950,7 +956,9 @@ impl MemStore {
     fn order_of(&self, slot: &Slot, key: usize, t: &TableDef, table: &Table) -> std::rc::Rc<Vec<Key>> {
         let shape = self.shapes.get(slot).copied().unwrap_or(0);
         let ck = (slot.clone(), key);
-        let fits = |e: &OrderEntry| e.shape == shape && e.rows == table.len() && e.fields == t.keys[key];
+        let moved = self.moves.get(&ck).copied().unwrap_or(0);
+        let fits =
+            |e: &OrderEntry| e.shape == shape && e.moved == moved && e.rows == table.len() && e.fields == t.keys[key];
         if let Some(kept) = self.order_cache.borrow_mut().get_mut(&ck) {
             if let Some(i) = kept.iter().position(fits) {
                 // The order used last goes first, so the snapshot's order stays while sessions write.
@@ -969,6 +977,7 @@ impl MemStore {
             0,
             OrderEntry {
                 shape,
+                moved,
                 rows: table.len(),
                 fields: t.keys[key].clone(),
                 order: order.clone(),
@@ -1298,13 +1307,18 @@ impl Store for MemStore {
         if !table.contains_key(&k) {
             return Ok(WriteOutcome::NotFound);
         }
-        // A key is made of fields; when a Modify changes one the row stands elsewhere in that key.
-        let moved = table.get(&k).is_some_and(|old| key_fields_differ(t, old, &row));
+        // A key is made of fields; when a Modify changes one the row stands elsewhere in that key, and only there (the
+        // primary key does not change: that is a Rename).
+        let moved: Vec<usize> = match table.get(&k) {
+            Some(old) => (1..t.keys.len())
+                .filter(|&j| key_fields_differ(&t.keys[j], old, &row))
+                .collect(),
+            None => Vec::new(),
+        };
         table.insert(k, row);
-        if moved {
-            self.touch_shape(cx, t);
-        } else {
-            self.touch(cx, t);
+        self.touch(cx, t);
+        for j in moved {
+            self.moves.insert((slot(cx, t), j), self.counter);
         }
         Ok(WriteOutcome::Done)
     }
@@ -1539,6 +1553,7 @@ impl Store for MemStore {
         self.committed = self.tables.clone();
         self.committed_versions = self.versions.clone();
         self.committed_shapes = self.shapes.clone();
+        self.committed_moves = self.moves.clone();
         self.committed_copies = self.copies.clone();
         self.committed_emptied = self.emptied.clone();
     }
@@ -1549,6 +1564,7 @@ impl Store for MemStore {
         self.tables = self.committed.clone();
         self.versions = self.committed_versions.clone();
         self.shapes = self.committed_shapes.clone();
+        self.moves = self.committed_moves.clone();
         self.copies = self.committed_copies.clone();
         self.emptied = self.committed_emptied.clone();
     }
@@ -2505,6 +2521,43 @@ mod tests {
         b2.modify(&cx, &t, crate::contract::row("0002", 2000, 6)).unwrap();
         assert_eq!(last_in_key_1(&a2).as_deref(), Some("Code(\"0001\")"));
         assert_eq!(last_in_key_1(&b2).as_deref(), Some("Code(\"0002\")"));
+    }
+
+    // Al-runner issue 6924: No. Series Line has the keys ("Series Code", "Starting Date", ...) and ("Last Date Used").
+    // Each number taken sets "Last Date Used", which moves the row in the second key only; the next read in the first
+    // key must not sort the table again.
+    #[test]
+    fn a_modify_that_moves_a_row_in_one_key_keeps_the_order_of_the_others() {
+        let mut t = crate::contract::table();
+        t.keys = vec![vec![0], vec![2], vec![1]];
+        let cx = crate::contract::cx("C");
+        let mut s = MemStore::default();
+        for i in 0..200 {
+            s.insert(&cx, &t, crate::contract::row(&format!("{i:04}"), i, i % 7))
+                .unwrap();
+        }
+        s.commit();
+        let last = |s: &MemStore, key: usize| {
+            let scan = Scan {
+                key,
+                filters: &[],
+                ascending: false,
+                after: None,
+            };
+            s.next(&cx, &t, &scan).unwrap().map(|r| format!("{:?}", r[0]))
+        };
+        assert_eq!(last(&s, 1).as_deref(), Some("Code(\"0195\")"));
+        assert_eq!(last(&s, 2).as_deref(), Some("Code(\"0199\")"));
+        // Amount (key 2) changes, Group (key 1) stays.
+        s.modify(&cx, &t, crate::contract::row("0003", 5000, 3)).unwrap();
+        let before = order_builds();
+        assert_eq!(last(&s, 1).as_deref(), Some("Code(\"0195\")"));
+        assert_eq!(order_builds() - before, 0, "key 1 keeps its order");
+        assert_eq!(last(&s, 2).as_deref(), Some("Code(\"0003\")"));
+        assert_eq!(order_builds() - before, 1, "key 2 is sorted again");
+        // A rollback brings back the order of key 2 from before the Modify.
+        s.rollback();
+        assert_eq!(last(&s, 2).as_deref(), Some("Code(\"0199\")"));
     }
 
     /// 201 rows of table 7 in company `C`, the last in key 1 named `last`.
