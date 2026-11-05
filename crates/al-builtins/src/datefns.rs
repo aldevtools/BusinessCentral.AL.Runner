@@ -109,8 +109,8 @@ fn plain_date(v: &Value, what: &str) -> Result<i32, Signal> {
 /// (types/P133DateEvaluateFormat.al:104-218); without a host clock the short forms are refused.
 /// One part outside the calendar raises the range error that names it (types/date-time/DateFuncs.al:243-302,
 /// DMY2Date_Invalid): the day against the length of its month (30 February 2024: 1 to 29), the month against 1 to 12, the year
-/// against 1 to 9999; a month out of range in year 0 raises the month's error. Year 0 is valid only as (1, 1, 0); which
-/// part BC names when two are out of range is not pinned: refused.
+/// against 1 to 9999. With several parts out of range the month is named first, then the year, then the day. Year 0 is
+/// valid only as (1, 1, 0).
 fn dmy2date(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     if let Some(message) = a.iter().take(3).find_map(|v| int_overflow(Some(v))) {
         return raise(message, "ConversionCast");
@@ -135,28 +135,25 @@ fn dmy2date(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
             "OutsidePermittedRange",
         )
     };
-    let year_ok = (1..=9999).contains(&y);
-    let month_ok = (1..=12).contains(&m);
-    // A day that every month has (1 to 28) is in range whatever the month and year are.
-    let day_any_month = (1..=28).contains(&d);
-    match (year_ok, month_ok) {
-        (true, true) if d < 1 || d as u32 > days_in_month(y, m as u32) => {
-            return range(1, d, days_in_month(y, m as u32));
-        }
-        (true, true) => {}
-        (true, false) if day_any_month => return range(2, m, 12),
-        (false, false) if y == 0 && day_any_month => return range(2, m, 12),
-        // The shortest length of the month: a day in range in every year.
-        // Year 0 is valid only as (1, 1, 0), which is (2, 1, 1); any other year 0 with a day and a month in range raises the
-        // year's error (types/Y81DMY2Date.al:41-64; needs corpus bump).
-        (false, true) if y == 0 && (d, m) == (1, 1) => return Ok(Value::Date(day_from_civil(1, 1, 2), false)),
-        (false, true) if y == 0 && (1..=31).contains(&d) => return range(3, y, 9999),
-        (false, true) if y != 0 && d >= 1 && d as u32 <= days_in_month(2023, m as u32) => return range(3, y, 9999),
-        _ => {
-            return unsupported(format!(
-                "DMY2Date({d}, {m}, {y}): year 0 with a day out of range, or more than one part out of range (not pinned)"
-            ));
-        }
+    // The parts are checked in a fixed order, and the first one out of range is named: the month, then the year, then the day
+    // (types/P133DateEvaluateFormat.al:608-629 P133_DMY2Date_ThreeArgs_SeveralPartsOutOfRange: 32.13.2024, 0.0.2024 and
+    // 57.52.0 name the month, 31.2.0 the year; :588-605 57.52.2076 the month). The day's range is the length of its month
+    // (types/date-time/DateFuncs.al:243-302 DMY2Date_Invalid; P133DateEvaluateFormat.al:599 31.2.2024: 1 to 29).
+    if !(1..=12).contains(&m) {
+        return range(2, m, 12);
+    }
+    // Year 0 is valid only as (1, 1, 0): a date with the parts 1, 1, 0 that formats as 0001-01-02, which is (2, 1, 1)
+    // (P133DateEvaluateFormat.al:667-718 P133_DMY2Date_YearZero_*; types/Y81DMY2Date.al:41-64). Any other day and month in year 0
+    // is the year's error (P133DateEvaluateFormat.al:674 15.6.0, :623 31.2.0).
+    if y == 0 && (d, m) == (1, 1) {
+        return Ok(Value::Date(day_from_civil(1, 1, 2), false));
+    }
+    if !(1..=9999).contains(&y) {
+        return range(3, y, 9999);
+    }
+    let last = days_in_month(y, m as u32);
+    if d < 1 || d as u32 > last {
+        return range(1, d, last);
     }
     // DMY2Date(1, 1, 1) is the undefined date, not the 00010101D literal (types/date-time/DateFuncs.al:213, :227: Format(.., 0, 9)
     // is ''; record/filters/P130DateFilters.al:261-262).
@@ -1526,11 +1523,6 @@ mod tests {
     #[test]
     fn dmy2date_refuses_what_the_corpus_does_not_pin() {
         let d = |args: Vec<i32>| call("System.DMY2Date#1", args.into_iter().map(Value::Integer).collect());
-        // Year 0 with a day and a month in range, other than (1, 1, 0), is a year error (types/Y81DMY2Date.al:41-64).
-        // Two parts out of range, other than a month out of range in year 0, are not pinned.
-        refused(d(vec![0, 0, 2024]));
-        refused(d(vec![32, 1, 0]));
-        refused(d(vec![1, 13, 10000]));
         refused(d(vec![1]));
         refused(d(vec![1, 1]));
     }
@@ -1568,6 +1560,16 @@ mod tests {
             ((1, 1, 10000), (3, 10000, 9999)),
             ((0, 5, 2024), (1, 0, 31)),
             ((1, 0, 0), (2, 0, 12)),
+            // Several parts out of range: the month is checked first, then the year, then the day
+            // (types/P133DateEvaluateFormat.al:608-629 P133_DMY2Date_ThreeArgs_SeveralPartsOutOfRange, :588-605).
+            ((57, 52, 2076), (2, 52, 12)),
+            ((32, 13, 2024), (2, 13, 12)),
+            ((0, 0, 2024), (2, 0, 12)),
+            ((57, 52, 0), (2, 52, 12)),
+            ((1, 13, 10000), (2, 13, 12)),
+            ((31, 2, 0), (3, 0, 9999)),
+            ((32, 1, 0), (3, 0, 9999)),
+            ((32, 1, 10000), (3, 10000, 9999)),
         ] {
             assert_eq!(text(d(a, b, c)), want(n, v, hi), "DMY2Date({a}, {b}, {c})");
         }

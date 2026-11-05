@@ -39,6 +39,7 @@ pub use platform::{FieldGetByKey, field_get_by_key_pairs};
 pub use profile::flush as profile_flush;
 pub use profile::frame_name as profile_frame_name;
 mod callstack;
+mod clear_all_page_ext;
 mod code_storage_check;
 mod column_formatter;
 mod companies;

@@ -162,7 +162,7 @@ fn expr_tag(vm: &crate::Session, object: usize, e: &al_ir::Expr) -> Option<&'sta
 
 /// The static type of `place` in a routine of `object`: a global of the object, an element of a global array, a field of a
 /// global record. Other places give `None`.
-fn place_type(vm: &crate::Session, object: usize, place: &al_ir::Place) -> Option<RtType> {
+pub(crate) fn place_type(vm: &crate::Session, object: usize, place: &al_ir::Place) -> Option<RtType> {
     match place {
         al_ir::Place::Global(s) => vm.engine.program.objects[object].globals.get(*s).map(|g| g.ty.clone()),
         al_ir::Place::Index(p, _) => match place_type(vm, object, p)? {
