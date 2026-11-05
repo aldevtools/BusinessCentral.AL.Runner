@@ -456,76 +456,81 @@ pub fn layout(obj: &ast::Object) -> Layout {
         }
     }
     if bc_namespace {
-        // With DefaultNamespace and a Namespaces list that holds the empty prefix, the default namespace takes the place of the
-        // uri of `""`, and prefixed elements are written with their prefixes (xmlports/shapes-properties/
-        // Y17XmlPortNamespacesTests.al:82, an UTF8 export).
-        let empty_prefix_replaced = own_namespace.is_some() && utf8 && out.namespaces.iter().any(|(p, _)| p.is_empty());
-        // Namespaces with named prefixes only, used by field elements only: the export declares them before the default
-        // namespace; an import finds no root outside the port's namespace (Y83XpNsTests.al:Ns_UdnPrefix, Ns_UdnDnPrefixUtf8,
-        // needs the corpus bump).
-        let named_prefixes_on_fields = !out.namespaces.is_empty()
-            && out.namespaces.iter().all(|(p, _)| !p.is_empty())
-            && (0..out.nodes.len()).any(|i| out.property(i, "NamespacePrefix").is_some())
-            && (0..out.nodes.len())
-                .all(|i| out.property(i, "NamespacePrefix").is_none() || out.nodes[i].kind == ir::XmlNodeKind::Field);
-        // Without DefaultNamespace, named prefixes only, and prefixes on any elements (no attributes): the export drops the root's
-        // prefix and takes its uri as the default namespace, an element without a prefix declares the port's namespace where the
-        // namespace in scope differs; every import fails (corpus branch al-runtime-rs-staging-r7089,
-        // xmlports/shapes-properties/XpUseDefaultNsPrefixes.al XUD_*_Export, XUD_*_Import, BC 27.5, 28.5 and 29.0). UseLax,
-        // InlineSchema, V11, PreserveWhiteSpace and attributes with it are not pinned; the import is refused.
-        let udn_root_prefix = own_namespace.is_none()
-            && !named_prefixes_on_fields
-            && !out.namespaces.is_empty()
-            && out.namespaces.iter().all(|(p, _)| !p.is_empty())
-            && !(out.use_lax || out.inline_schema || out.xml_v11 || out.preserve_whitespace)
-            && out
-                .nodes
-                .iter()
-                .all(|n| !matches!(n.kind, ir::XmlNodeKind::FieldAttr | ir::XmlNodeKind::TextAttr));
-        let unpinned = if out.format != ir::XmlFormat::Xml {
-            Some("a text format")
-        } else if named_prefixes_on_fields {
-            None
-        } else if udn_root_prefix && out.direction == ir::XmlDirection::Import {
-            Some("Namespaces on an import port")
-        } else if udn_root_prefix {
-            out.udn_root_prefix = true;
-            None
-        } else if !out.namespaces.is_empty() && !empty_prefix_replaced {
-            Some("Namespaces")
-        } else if own_namespace.is_some() && out.use_lax {
-            // UseLax, InlineSchema and V11 are pinned with BC's own namespace of the port (no DefaultNamespace): Y83XpNsTests.al:
-            // Ns_UdnLax, Ns_UdnInline, Ns_UdnV11, needs the corpus bump.
-            Some("UseLax")
-        } else if own_namespace.is_some() && out.inline_schema {
-            Some("InlineSchema")
-        } else if own_namespace.is_some() && out.xml_v11 {
-            Some("XmlVersionNo = V11")
-        } else if out.preserve_whitespace && own_namespace.is_none() {
-            // With DefaultNamespace on an UTF8 port it is pinned (above: export; corpus PR 896 Np4XmlPort.al Y9_XmlPort_Import_*: import).
-            Some("PreserveWhiteSpace")
-        } else if !empty_prefix_replaced && (0..out.nodes.len()).any(|i| out.property(i, "NamespacePrefix").is_some()) {
-            Some("a NamespacePrefix")
-        } else {
-            None
-        };
-        match (unpinned, obj.id()) {
-            (None, _) if own_namespace.is_some() => out.default_ns = own_namespace,
-            (None, Some(id)) => out.default_ns = Some(format!("urn:microsoft-dynamics-nav/xmlports/x{id}")),
-            (Some(what), _) => out.run_reasons.push(format!(
-                "xmlport property usedefaultnamespace = true{}, with {what} (not pinned)",
-                if own_namespace.is_some() {
-                    " with DefaultNamespace"
-                } else {
-                    " without DefaultNamespace"
-                }
-            )),
-            (None, None) => out
-                .run_reasons
-                .push("xmlport property usedefaultnamespace = true without an object id".into()),
-        }
+        bc_default_namespace(&mut out, own_namespace, utf8, obj.id());
     }
     out
+}
+
+/// `UseDefaultNamespace = true`: which namespace the port's elements are in (`out.default_ns`), or why that is not pinned.
+fn bc_default_namespace(out: &mut Layout, own_namespace: Option<String>, utf8: bool, id: Option<u32>) {
+    // With DefaultNamespace and a Namespaces list that holds the empty prefix, the default namespace takes the place of the
+    // uri of `""`, and prefixed elements are written with their prefixes (xmlports/shapes-properties/
+    // Y17XmlPortNamespacesTests.al:82, an UTF8 export).
+    let empty_prefix_replaced = own_namespace.is_some() && utf8 && out.namespaces.iter().any(|(p, _)| p.is_empty());
+    // Namespaces with named prefixes only, used by field elements only: the export declares them before the default
+    // namespace; an import finds no root outside the port's namespace (Y83XpNsTests.al:Ns_UdnPrefix, Ns_UdnDnPrefixUtf8,
+    // needs the corpus bump).
+    let named_prefixes_on_fields = !out.namespaces.is_empty()
+        && out.namespaces.iter().all(|(p, _)| !p.is_empty())
+        && (0..out.nodes.len()).any(|i| out.property(i, "NamespacePrefix").is_some())
+        && (0..out.nodes.len())
+            .all(|i| out.property(i, "NamespacePrefix").is_none() || out.nodes[i].kind == ir::XmlNodeKind::Field);
+    // Without DefaultNamespace, named prefixes only, and prefixes on any elements (no attributes): the export drops the root's
+    // prefix and takes its uri as the default namespace, an element without a prefix declares the port's namespace where the
+    // namespace in scope differs; every import fails (corpus branch al-runtime-rs-staging-r7089,
+    // xmlports/shapes-properties/XpUseDefaultNsPrefixes.al XUD_*_Export, XUD_*_Import, BC 27.5, 28.5 and 29.0). UseLax,
+    // InlineSchema, V11, PreserveWhiteSpace and attributes with it are not pinned; the import is refused.
+    let udn_root_prefix = own_namespace.is_none()
+        && !named_prefixes_on_fields
+        && !out.namespaces.is_empty()
+        && out.namespaces.iter().all(|(p, _)| !p.is_empty())
+        && !(out.use_lax || out.inline_schema || out.xml_v11 || out.preserve_whitespace)
+        && out
+            .nodes
+            .iter()
+            .all(|n| !matches!(n.kind, ir::XmlNodeKind::FieldAttr | ir::XmlNodeKind::TextAttr));
+    let unpinned = if out.format != ir::XmlFormat::Xml {
+        Some("a text format")
+    } else if named_prefixes_on_fields {
+        None
+    } else if udn_root_prefix && out.direction == ir::XmlDirection::Import {
+        Some("Namespaces on an import port")
+    } else if udn_root_prefix {
+        out.udn_root_prefix = true;
+        None
+    } else if !out.namespaces.is_empty() && !empty_prefix_replaced {
+        Some("Namespaces")
+    } else if own_namespace.is_some() && out.use_lax {
+        // UseLax, InlineSchema and V11 are pinned with BC's own namespace of the port (no DefaultNamespace): Y83XpNsTests.al:
+        // Ns_UdnLax, Ns_UdnInline, Ns_UdnV11, needs the corpus bump.
+        Some("UseLax")
+    } else if own_namespace.is_some() && out.inline_schema {
+        Some("InlineSchema")
+    } else if own_namespace.is_some() && out.xml_v11 {
+        Some("XmlVersionNo = V11")
+    } else if out.preserve_whitespace && own_namespace.is_none() {
+        // With DefaultNamespace on an UTF8 port it is pinned (above: export; corpus PR 896 Np4XmlPort.al Y9_XmlPort_Import_*: import).
+        Some("PreserveWhiteSpace")
+    } else if !empty_prefix_replaced && (0..out.nodes.len()).any(|i| out.property(i, "NamespacePrefix").is_some()) {
+        Some("a NamespacePrefix")
+    } else {
+        None
+    };
+    match (unpinned, id) {
+        (None, _) if own_namespace.is_some() => out.default_ns = own_namespace,
+        (None, Some(id)) => out.default_ns = Some(format!("urn:microsoft-dynamics-nav/xmlports/x{id}")),
+        (Some(what), _) => out.run_reasons.push(format!(
+            "xmlport property usedefaultnamespace = true{}, with {what} (not pinned)",
+            if own_namespace.is_some() {
+                " with DefaultNamespace"
+            } else {
+                " without DefaultNamespace"
+            }
+        )),
+        (None, None) => out
+            .run_reasons
+            .push("xmlport property usedefaultnamespace = true without an object id".into()),
+    }
 }
 
 fn section_is_bare(s: &ast::Section) -> bool {
