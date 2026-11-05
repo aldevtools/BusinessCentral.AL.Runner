@@ -84,6 +84,7 @@ impl Session {
         }
         st.borrow_mut().ext_instances = exts;
         st.borrow_mut().instance = Some(inst.clone());
+        self.note_page_instance(st);
         self.seed_unopened_rec(st);
         Ok(inst)
     }

@@ -55,6 +55,7 @@ mod dispatch;
 pub mod dotnet;
 mod effects;
 mod empty_reads;
+mod page_held_bindings;
 pub use empty_reads::{InstallRows, KnownValue};
 mod errorcollect;
 pub mod events;
@@ -1303,6 +1304,9 @@ impl Session {
             },
             events: EventState {
                 bindings: Vec::new(),
+                page_held: Vec::new(),
+                page_var_runs: Vec::new(),
+                pages_with_instance: Vec::new(),
                 event_stats,
                 publish_frame: false,
                 sender_refused: None,
