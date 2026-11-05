@@ -3,13 +3,12 @@
 //! filled, which `Update(true)` and `Update()` insert.
 
 use super::*;
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::page_op::PageOp;
 use al_builtins::record_op::RecordOp;
 
 impl Session {
     /// Never ran, `Update(true)` or `Update()` after the page's code set fields of a new record of its source table: BC inserts
-    /// the record, through OnInsertRecord and the table's OnInsert, numbered by AutoSplitKey (corpus PR 1133, merged on master,
+    /// the record, through OnInsertRecord and the table's OnInsert, numbered by AutoSplitKey (corpus PR 1133, in the pin since c9aac994,
     /// format-evaluate/tablefilter-neutral/TableFilterEnumForms.al:419 UpdateNeverRunPage_NewRecord_UpdateTrue, :443
     /// _UpdateNoArgument; issue 6951; the Base Application "Table Filter" page fills its lines this way). Update(false) inserts
     /// nothing (:431 _UpdateFalse). With the blank record it does nothing (pages/currpage/UnopenedCurrPage.al
@@ -34,7 +33,6 @@ impl Session {
     /// last of the view (that line + 10000, BelowxRec Yes): TableFilterEnumForms.al:424-426 `[P.OnInsertRecord:10000/1 below=No
     /// | T.OnInsert:10000/1]`, `[P.OnInsertRecord:20000/4 below=Yes | T.OnInsert:20000/4]`.
     fn never_run_insert(&mut self, st: &St, rec: &Rec, fresh: &[Value]) -> Result<(), Signal> {
-        assume(Assumption::NeverRunUpdateInsertsNewRecord);
         let refused = || {
             unsupported(
                 "CurrPage.Update(true) or Update() of a page variable that never ran, over a new record its code filled, in a shape \

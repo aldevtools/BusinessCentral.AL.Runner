@@ -1933,13 +1933,10 @@ fn table_filter_value(f: &crate::native::TableFilterField, value: &str) -> Resul
                 Err(why) => return unsupported(why.clone()),
             };
             match crate::evaluate_table_filter_member::member_filter(members, v) {
-                Some(r) => {
-                    // One Option member is pinned on master (W4PlatformAndMeta.al); the rest waits for its probe file.
-                    if matches!(f.ty, RtType::Enum(_)) || v.contains(['|', '<', '.']) {
-                        crate::assumptions::assume(crate::assumptions::Assumption::TablefilterEnumMemberForms);
-                    }
-                    Ok(r)
-                }
+                // One Option member: W4PlatformAndMeta.al. Enum members by name, caption or ordinal, lists, `<>` and ranges of
+                // Option and Enum members: format-evaluate/tablefilter-neutral/TableFilterEnumForms.al:253
+                // TableFilterEvaluate_EnumMemberForms, :277 _EnumExpressions, :301 _OptionExpressions, :317 _EnumRoundTrip.
+                Some(r) => Ok(r),
                 None => refuse(),
             }
         }
