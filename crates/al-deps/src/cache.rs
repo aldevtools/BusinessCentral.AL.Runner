@@ -55,15 +55,30 @@ pub fn cache_root_from_env(flag: Option<&Path>) -> PathBuf {
     cache_root(flag, &|k| std::env::var(k).ok())
 }
 
-/// BcContainerHelper's artifact folder, `~/.bcartifacts.cache/sandbox`, when it exists. The
-/// artifacts there are extracted: `<build>/platform/Applications/**` holds the same files as the
-/// platform archive the feed serves.
+/// BcContainerHelper's artifact folder, when one exists: the first of [`bcartifacts_candidates`] that is a folder
+/// (`~/.bcartifacts.cache/sandbox`, then on Windows `C:\bcartifacts.cache\sandbox`). The artifacts there are
+/// extracted: `<build>/platform/Applications/**` holds the same files as the platform archive the feed serves.
 pub fn bcartifacts_sandbox(env: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
-    let home = env("HOME")
+    bcartifacts_candidates(env, cfg!(windows))
+        .into_iter()
+        .find(|d| d.is_dir())
+}
+
+/// The folders BcContainerHelper keeps extracted artifacts in, in the order al-runner looks: `~/.bcartifacts.cache/
+/// sandbox` (HOME, else USERPROFILE), then, on Windows, `C:\bcartifacts.cache\sandbox`, BcContainerHelper's default
+/// `bcartifactsCacheFolder` there (al-runner issue 5590).
+pub fn bcartifacts_candidates(env: &dyn Fn(&str) -> Option<String>, windows: bool) -> Vec<PathBuf> {
+    let mut v = Vec::new();
+    if let Some(home) = env("HOME")
         .or_else(|| env("USERPROFILE"))
-        .filter(|v| !v.trim().is_empty())?;
-    let dir = PathBuf::from(home).join(".bcartifacts.cache").join("sandbox");
-    dir.is_dir().then_some(dir)
+        .filter(|v| !v.trim().is_empty())
+    {
+        v.push(PathBuf::from(home).join(".bcartifacts.cache").join("sandbox"));
+    }
+    if windows {
+        v.push(PathBuf::from(r"C:\bcartifacts.cache").join("sandbox"));
+    }
+    v
 }
 
 /// [`bcartifacts_sandbox`] over the process environment.
@@ -412,6 +427,26 @@ fn sidecar(file: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bcartifacts_is_looked_for_under_home_then_on_windows_under_c() {
+        // al-runner issue 5590: BcContainerHelper's default cache on Windows is C:\bcartifacts.cache.
+        let env = |k: &str| (k == "USERPROFILE").then(|| r"C:\Users\me".to_string());
+        let win = bcartifacts_candidates(&env, true);
+        assert_eq!(
+            win,
+            vec![
+                PathBuf::from(r"C:\Users\me").join(".bcartifacts.cache").join("sandbox"),
+                PathBuf::from(r"C:\bcartifacts.cache").join("sandbox"),
+            ]
+        );
+        let unix = bcartifacts_candidates(&|k| (k == "HOME").then(|| "/home/me".to_string()), false);
+        assert_eq!(unix, vec![PathBuf::from("/home/me/.bcartifacts.cache/sandbox")]);
+        assert_eq!(
+            bcartifacts_candidates(&|_| None, true),
+            vec![PathBuf::from(r"C:\bcartifacts.cache").join("sandbox")]
+        );
+    }
 
     fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
         move |k| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())
