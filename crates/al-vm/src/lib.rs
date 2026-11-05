@@ -1299,6 +1299,7 @@ impl Session {
                 ext_vetoed: false,
                 test_open: false,
                 run_page_link_open_moved: false,
+                run_page_link_opening: 0,
                 test_close: false,
                 close_save_error: false,
             },
@@ -2079,7 +2080,11 @@ impl Session {
                 .unpinned_buffer
                 .is_none_or(|w| w == crate::records::RUN_PAGE_LINK_OPEN_FILLED)
             {
-                st.unpinned_buffer = Some(crate::records::RUN_PAGE_LINK_COPY);
+                st.unpinned_buffer = Some(if self.pages.run_page_link_opening > 0 {
+                    crate::records::RUN_PAGE_LINK_OPEN_COPY
+                } else {
+                    crate::records::RUN_PAGE_LINK_COPY
+                });
             }
         }
         Value::Record(Rc::new(RefCell::new(st)))
@@ -2307,6 +2312,17 @@ impl Session {
                     st.filter_group = 0;
                     st.temporary = true;
                     st.temp_id = Some(self.new_temp_id());
+                    Value::Record(Rc::new(RefCell::new(st)))
+                }
+                // Rec of a page an action opened through RunPageLink handed to a Variant parameter keeps the link filter: a
+                // RecordRef.GetTable of the Variant carries it (testpage/R7138RunPageLinkCopyGet.al:117-134 `rr[Project Code: P2]
+                // n=2`); see `records::RUN_PAGE_LINK_VARIANT`.
+                (Value::Record(rc), false)
+                    if matches!(r.locals[i].ty, RtType::Variant) && rc.borrow().run_page_link.is_some() =>
+                {
+                    let mut st = rc.borrow().clone();
+                    st.run_page_link = None;
+                    st.unpinned_buffer = Some(crate::records::RUN_PAGE_LINK_VARIANT);
                     Value::Record(Rc::new(RefCell::new(st)))
                 }
                 // The copy keeps what Record.IsDirty compares with (record/Y8RecordIsDirtyShapes.al:321-324 `by_value_dirty` Yes,
