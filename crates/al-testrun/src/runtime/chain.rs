@@ -78,6 +78,8 @@ pub struct ChainReport {
     pub members: Vec<ChainEntry<ChainWhy>>,
     /// The codeunits that ran again after the parallel part, from what the chain left.
     pub reruns: Vec<ChainEntry<RerunWhy>>,
+    /// The time each new start for the helper threads took to write, after a member left something (`chain_walk.rs`).
+    pub starts: Vec<std::time::Duration>,
 }
 
 impl ChainReport {
@@ -96,6 +98,13 @@ impl ChainReport {
             self.reruns.len(),
             total(&mut self.reruns.iter().map(|m| &m.took)),
         )];
+        if !self.starts.is_empty() {
+            out.push(format!(
+                "carry chain: {} new starts written for the helper threads ({:.2} s)",
+                self.starts.len(),
+                total(&mut self.starts.iter())
+            ));
+        }
         let left: Vec<String> = self
             .members
             .iter()

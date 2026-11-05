@@ -19,10 +19,15 @@ use super::corpus::{not_run_link, observed_detail, reaches_session_storage, refu
 use super::*;
 use std::sync::{Condvar, Mutex};
 
-/// How many members of a suite may leave something in a row before the helpers stop running that suite's members
-/// ahead: each such member makes the runs ahead of the later ones useless and costs an encoding of its baseline on the
-/// walk's thread. Only the time of the run depends on it.
-const RESTARTS: u32 = 2;
+/// How many new starts the walk tells the helpers for a suite beyond the runs ahead it took there: each member that
+/// left something makes the runs ahead of the later ones useless and costs an encoding of its baseline on the walk's
+/// thread, so a suite whose members often leave something is not run ahead any more. Only the time of the run depends
+/// on it.
+const RESTARTS: usize = 2;
+
+/// How many members per helper thread the helpers run ahead of the walk at most: a new start makes their runs useless,
+/// and runs far ahead take the machine from the walk. Only the time of the run depends on it.
+const WINDOW_PER_HELPER: usize = 2;
 
 /// A member of the chain: a codeunit to run (an index into the units), or one with RequiredTestIsolation = Disabled
 /// that is not run (object, why).
@@ -79,6 +84,10 @@ enum Slot {
 struct Runs {
     /// The chain members a helper may run, as unit indices in chain order.
     order: Vec<usize>,
+    /// Per unit index: its place in `order`.
+    place: Vec<Option<usize>>,
+    /// How far ahead of the walk the helpers run (members of `order`).
+    window: usize,
     state: Mutex<RunsState>,
     ready: Condvar,
 }
@@ -114,6 +123,8 @@ struct RunsState {
     starts: std::collections::HashMap<usize, (u32, Start)>,
     /// The suites whose chain lost its pristine start: their members are not run ahead any more.
     tainted: std::collections::HashSet<usize>,
+    /// The members of `order` the walk has reached.
+    walked: usize,
     closed: bool,
 }
 
@@ -128,13 +139,13 @@ impl Runs {
                 return Claim::Done;
             }
             let open = |k: &usize| matches!(s.slots[*k], Slot::Pending) && !s.tainted.contains(&units[*k].si);
-            let next = self
-                .order
+            let next = self.order[s.walked.min(self.order.len())..]
                 .iter()
+                .take(self.window)
                 .copied()
                 .filter(open)
                 .find_map(|k| Some((k, s.starts.get(&units[k].si)?.clone())));
-            let waiting = self.order.iter().any(open);
+            let waiting = self.order[s.walked.min(self.order.len())..].iter().any(open);
             match next {
                 Some((k, (epoch, start))) => {
                     s.slots[k] = Slot::Running(epoch);
@@ -195,6 +206,14 @@ impl Runs {
                 _ => return None,
             }
         }
+    }
+
+    /// The walk reached member `k`: the helpers may run up to `window` members past it.
+    fn reached(&self, k: usize) {
+        if let (Some(p), Ok(mut s)) = (self.place[k], self.state.lock()) {
+            s.walked = s.walked.max(p + 1);
+        }
+        self.ready.notify_all();
     }
 
     fn taint(&self, si: usize) {
@@ -305,9 +324,18 @@ impl ChainWalk<'_> {
                     .map(|si| (si, (0, Start::Install)))
                     .collect(),
                 tainted: Default::default(),
+                walked: 0,
                 closed: false,
             }),
             ready: Condvar::new(),
+            place: {
+                let mut place = vec![None; self.units.len()];
+                for (p, &k) in order.iter().enumerate() {
+                    place[k] = Some(p);
+                }
+                place
+            },
+            window: self.helpers * WINDOW_PER_HELPER,
             order,
         };
         // What a helper thread needs (a baseline stays on its thread, so not the walk's).
@@ -397,8 +425,9 @@ impl ChainWalk<'_> {
                 |s| s.starts.iter().map(|(si, (e, _))| (*si, *e)).collect(),
             )
         });
-        // Per suite: how many members runner 130450 runs left something in a row (see `RESTARTS`).
-        let mut streak: std::collections::HashMap<usize, u32> = Default::default();
+        // Per suite: the new starts told after the first, and the runs ahead taken (see `RESTARTS`).
+        let mut restarts: std::collections::HashMap<usize, usize> = Default::default();
+        let mut taken: std::collections::HashMap<usize, usize> = Default::default();
         for (si, leg, id, link) in chain {
             let before = carried.iter().rev().find(|(s, _, _, _)| *s == si);
             // Whether this member, one runner 130450 runs, left something.
@@ -417,7 +446,13 @@ impl ChainWalk<'_> {
                         }
                     }
                     let ahead = runs.and_then(|r| r.take(k, epochs.get(&si).copied()));
+                    if let Some(r) = runs {
+                        r.reached(k);
+                    }
                     let took_ahead = ahead.as_ref().is_some_and(|a| a.nothing);
+                    if took_ahead {
+                        *taken.entry(si).or_default() += 1;
+                    }
                     let (mut r, mut left) = match ahead {
                         // Every member before it in its suite left nothing, so it started from `start` too
                         // (`self.baseline`, or a clone of it), and it hands on the state it was given.
@@ -500,21 +535,24 @@ impl ChainWalk<'_> {
             }
             carried.push((si, id, leg, left));
             // A member that left something: the later members start from what it left. The helpers are told that start,
-            // unless members left something too often in a row (the runs ahead were then wasted).
+            // while the runs ahead the walk took in the suite make up for the new starts (`RESTARTS`).
             if let (Some(true), Some(r)) = (leg1_left, runs) {
-                let n = streak.entry(si).or_default();
-                *n += 1;
                 epochs.remove(&si);
-                match carried.last().filter(|_| *n <= RESTARTS) {
+                let n = restarts.entry(si).or_default();
+                *n += 1;
+                match carried
+                    .last()
+                    .filter(|_| *n <= RESTARTS + taken.get(&si).copied().unwrap_or(0))
+                {
                     Some((_, _, _, c)) => {
+                        let started = std::time::Instant::now();
                         if let Some(e) = self.publish(r, si, c) {
                             epochs.insert(si, e);
                         }
+                        report.starts.push(started.elapsed());
                     }
                     None => r.taint(si),
                 }
-            } else if leg1_left == Some(false) {
-                streak.remove(&si);
             }
         }
         carried
