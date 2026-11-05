@@ -3,6 +3,18 @@ use super::shared::with_field_guard;
 use super::*;
 
 impl Lowerer<'_> {
+    /// Whether `table` has a parameterless procedure `name`: in an extension, a control over `Rec.<name>` without parentheses
+    /// shows its value as the call does (pages/record-method-controls/TestRecordMethodControls.al:39
+    /// PageExtension_RecordMethod_NoParentheses_ReadsCalculatedValue, corpus pull request 1152; `pages::needed` made the routine).
+    fn parameterless_method(&self, table: Option<usize>, name: &str) -> bool {
+        table.is_some_and(|t| {
+            self.routine_nodes
+                .get(t)
+                .iter()
+                .any(|r| !r.is_trigger() && r.name().eq_ignore_ascii_case(name) && r.params().next().is_none())
+        })
+    }
+
     /// The control tree of page `oi` with its extensions merged in, with bindings and routine
     /// indices resolved. A control an extension declares keeps the extension as its `owner`: its
     /// routines and variable slots are the extension's.
@@ -259,25 +271,14 @@ impl Lowerer<'_> {
                                 .iter()
                                 .position(|x| x.name.eq_ignore_ascii_case(&f))
                         });
-                        // No field of that name: in an extension, a parameterless method of the source table called without
-                        // parentheses shows its value as the call does (pages/record-method-controls/TestRecordMethodControls.al:39
-                        // PageExtension_RecordMethod_NoParentheses_ReadsCalculatedValue, corpus pull request 1152;
-                        // `pages::needed` made the routine).
-                        let method = || {
-                            let t = table?;
-                            self.routine_nodes
-                                .get(t)
-                                .iter()
-                                .any(|r| {
-                                    !r.is_trigger() && r.name().eq_ignore_ascii_case(&f) && r.params().next().is_none()
-                                })
-                                .then_some(())?;
-                            let off = usize::from(sec.syntax().text_range().start()) - ow.base;
-                            routine_named(&ow, &crate::pages::synthetic_name("source", off))
-                        };
+                        // No field of that name: an extension's source routine over a table method (`parameterless_method`).
+                        let off = usize::from(sec.syntax().text_range().start()) - ow.base;
+                        let method = raw.owner.filter(|_| self.parameterless_method(table, &f));
                         match pos {
                             Some(p) => binding = ir::Binding::Field(p),
-                            None => match raw.owner.and_then(|_| method()) {
+                            None => match method
+                                .and_then(|_| routine_named(&ow, &crate::pages::synthetic_name("source", off)))
+                            {
                                 Some(r) => binding = ir::Binding::Expr(r),
                                 None => unsupported.push(format!("control {} is bound to unknown field {f}", raw.name)),
                             },
