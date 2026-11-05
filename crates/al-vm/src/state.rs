@@ -287,6 +287,9 @@ pub(crate) struct EventState {
     /// The tables the install code of the apps under test may write (`Session::set_install_written_tables`); `None`: not
     /// known, so no table counts as empty in either install order (empty_reads.rs).
     pub(crate) install_written: Option<std::collections::BTreeSet<u32>>,
+    /// Tables of `install_written` that only their own app's install code writes, with the rows it may insert
+    /// (`Session::set_install_rows`, empty_reads.rs).
+    pub(crate) install_rows: Option<std::sync::Arc<crate::empty_reads::InstallRows>>,
     /// While the database trigger setup of one table is asked, or a database trigger event of one table is raised: the
     /// subscribers of `order_unknown_apps` that leave every flag unchanged for it (setup_no_op.rs), or do nothing for it
     /// (db_event_no_op.rs), which the raise leaves out instead of refusing.
