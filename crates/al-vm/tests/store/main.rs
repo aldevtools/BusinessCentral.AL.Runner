@@ -85,6 +85,7 @@ mod scm_round2;
 mod scm_service_41;
 mod set_view_adhoc;
 mod set_view_caption;
+mod set_view_dot_refused;
 mod set_view_retention_shapes;
 mod set_view_unknown_name;
 mod setfilter_guid_value;
