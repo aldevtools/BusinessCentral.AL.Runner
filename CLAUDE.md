@@ -79,17 +79,28 @@ before you open a source file.
      `--file SUFFIX` (repeatable, union). Only the selected test codeunits are compiled and run,
      and only the selected cases are checked against the lists. Add `--no-deps` for a run of about half a
      second when the test needs no Microsoft app.
-  4. Before committing, one full run: `--baseline-diff` lists, by area, the regressions, the stale
-     lines, the cases still listed and the cases without an outcome. Then `--prune-not-passing`
-     deletes the stale lines (it refuses while a selection is active).
+  4. Before committing, one run with `--baseline-diff` on the newest major only (about 20 s): it lists,
+     by area, the regressions, the stale lines, the cases still listed and the cases without an
+     outcome. Then `--prune-not-passing` deletes the stale lines (it refuses while a selection is active).
   5. `--timings` says where a run spent its time (load, compile, install baseline, tests).
   6. `AL_REACH_REPORT=1` prints, after the compile, how many routines each kind of root pulls in, which are refused,
      and how many only matter through a refused routine (slow on a bucket: it walks every test).
 - After adding a builtin to the catalog or a registry, or an invented id: `cargo run -p al-builtins --example gen_builtin_ids`
   (the test `builtin_ids_current` fails while `builtin_ids.rs` is stale).
-- `./check.sh` before every commit: fmt, clippy -D warnings, all tests (with the tests of the
-  not-passing rule, ADR-065). It fails on the first error. The full check of the lists is one run
-  with Microsoft's apps: `./target/release/al-test-cli --root . --all-versions`.
+- **PR CI is the gate** (owner, 2026-11-05). Do not run `./check.sh`, `cargo test --workspace` or an
+  `--all-versions` corpus run locally before a pull request: on this shared machine they cost up to an
+  hour, and PR CI runs the full corpus on every major in about 6 to 12 minutes. Locally run
+  `cargo test -p` and `cargo clippy -p ... -- -D warnings` for the crates you touched, and `cargo fmt --all`.
+  Open the pull request ready (not as a draft) and without auto-merge; the orchestrator reviews and
+  lands it. Fix what CI reports. `./check.sh` (fmt, clippy, all tests, the lists) stays for a person who
+  wants the full check on their own machine.
+- **Corpus bumps**: `tools/corpus_bump.sh RUN_ID` takes the oracle from a green corpus master run.
+  `tools/corpus_bump.sh --from-pr N[,N...]` (owner, 2026-11-05) does not wait for that run (about 55
+  minutes): the pin moves to the merge commit of the corpus pull requests, and only the codeunits their own
+  CI runs ran get those runs' results; every other case keeps the current oracle. It refuses when a run is
+  not green, a BC version is missing, a shared fixture changed, or it cannot show the run tested the merged
+  files. `--dry-run` shows what it would take, `--body FILE` writes the pull request body (which runs the
+  oracle came from). The next bump from a master run corrects anything only master shows.
 - Perf budgets (cold compile of the corpus ≤ 695 000 instructions per KiB of corpus source; the full corpus run with Microsoft's apps ≤ 83.2 G instructions for the Microsoft apps plus 4 210 000 per KiB of the corpus source it compiles; wall time printed for information only; parser ≥ 50 MB/s) are
   `#[ignore]`d tests that need release:
   `cargo test --release --no-fail-fast -p al-syntax --test perf_parse_throughput -p al-test-cli --test perf_budget -p al-test-cli --test perf_vm -p al-data --lib -- --ignored --nocapture`.
