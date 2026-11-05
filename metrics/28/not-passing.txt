@@ -1175,7 +1175,6 @@
 79750 ExcelLayout_Legacy_DefaultAndLayoutList
 79750 Language_OutOfRange_Run
 79750 Language_OutOfRange_SaveAs
-79750 WordXmlPart_ReportExtension
 79751 Seeded_UnknownOptionControl
 79752 SavedExt_1_SetAndOK
 79752 SavedExt_2_NextRunShows

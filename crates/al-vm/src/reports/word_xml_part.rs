@@ -9,6 +9,8 @@
 //! - in an item its columns sorted by name, then its nested items; a column's text is its name, a Blob column is an empty
 //!   element; with the flag a data item has `ElementType="DataItem"`, a column `ElementType="Column"` and its `DataType`, a
 //!   label `ElementType="Parameter"` and `DataType="String"`, each an `ElementId` (`element_id`);
+//! - the columns, data items and labels of the reportextensions that change the report join the report's (WordXmlPart_OneExtension_*,
+//!   WordXmlPart_TwoExtensions_*).
 
 use super::*;
 use al_builtins::library_kind::LibraryKind;
@@ -228,9 +230,6 @@ impl Session {
     fn word_xml_part_text(&self, schema: &Schema, extended: bool) -> Result<String, Signal> {
         let engine = self.engine.clone();
         let report = schema.report();
-        if !report.extensions.is_empty() {
-            return unsupported("Report.WordXmlPart of a report that reportextensions change (not pinned)");
-        }
         let tree = ItemTree {
             report,
             exts: report
