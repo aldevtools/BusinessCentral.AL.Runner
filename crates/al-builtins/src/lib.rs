@@ -9,6 +9,7 @@ pub mod library_kind;
 pub mod signature;
 pub mod stream;
 mod stream_cleared;
+mod stream_read_len;
 pub mod testcontexts;
 pub mod text;
 pub mod textfns;
