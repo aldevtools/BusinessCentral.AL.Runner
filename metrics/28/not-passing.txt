@@ -791,9 +791,7 @@
 73800 WD_Numbers
 73800 Weeks
 73801 ClosingNormal
-73801 DMY2Date_Valid
 73801 Date2DWY_Valid
-73801 UN_DMY2Date_YearZero_Value
 73802 Variant2Date_Time_Errors
 73803 RoundDateTime_Errors
 73805 BT_DottedShortDate_AsTimeAndDate
@@ -842,9 +840,6 @@
 74039 P133_ConfirmHandler_RaisesMessage_NoMessageHandlerDeclared
 74039 P133_StrMenuHandler_RaisesMessage
 74042 P133_PageVariable_SetSelectionFilter_IntoFilteredRecord
-74046 P133_DMY2Date_ThreeArgs_AssertError
-74046 P133_DMY2Date_ThreeArgs_OutOfRange
-74046 P133_DMY2Date_ThreeArgs_SeveralPartsOutOfRange
 74046 P133_FormatRecord_StandardFormats
 74053 P133_Lookup_ConstFilterWithTwoValues
 74053 P133_Lookup_SeveralArms_CancelKeepsTheValue
