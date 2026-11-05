@@ -127,6 +127,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `contract.rs` (220): The conformance suite every `Store` must pass (ADR-003). Entry: `table` 7, `cx` 36, `row` 43, `scan_all` 59.
 - `lib.rs` (153): The Store trait and table definitions (TableDef, Row, AccessContext). Entry: `Store` 120, `TableDef` 21, `FieldDef` 12, `AccessContext` 40, `InsertOutcome` 58.
 - `memory.rs` (640): In-memory store on persistent maps; a `Backing` gives untouched tables their restored rows (test data). Entry: `MemStore` 33, `with_virtual_tables` 63, `detached` 72, `attached` 83.
+- `memory/order_carry.rs`: Keeps a cached secondary-key order (`order_of`) through an Insert, a Delete or a Modify that moves a row, by a binary-search insert instead of a new sort (al-runner issue 6924). Entry: `carry_orders`, `carry_moved`.
 
 ### al-deps
 
@@ -336,6 +337,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `companies.rs` (147): The company a record works in, ChangeCompany, the Company table's rows per company. Under `--companies` (`Session::companies`), `cx_for` refuses a dependency app's per-company table in another declared company (ADR-046 decision 5) unless the database holds no row of it there (`starts_empty_in`, amendment 4), and the tables `company_unknown` marks (decision 6). Entry: `find_company`, `cx_for`, `change_company`.
 - `dataset.rs` (332): The dataset XML `Report.SaveAs(.., Xml, ..)` writes: header, `DataItem` rows, name and text escaping. Entry: `dataset_name` 23, `Header` 91, `Dataset` 217.
 - `dispatch.rs` (338): Event dispatch: publishers run their subscribers; EventCall; isolated events. Entry: `publish` 69, `raise` 117, `event_targets` 183, `has_listeners` 249, `subscription` 279.
+- `page_held_bindings.rs`: Manual bindings a page's globals hold (al-runner issue 6924; TestEventManualBinding.al Contract 11): the page values form a reference cycle, so the binding is ended here when the page instance is gone (a TestPage closed, a page no variable holds closed or left open, a Page variable gone); a page whose fate is not pinned (a Page variable after its non-modal Run) refuses the event. Entry: `note_page_instance` (called by `page_instance`), `note_page_binding` (by `subscription`), `prune_page_held` (by `mark_closed` and `event_targets`), `refuse_unpinned_page_binding`, `note_page_var_run` (by the Page variable's `Run`/`RunModal`).
 - `dotnet/mod.rs` (488): `DotNet` calls (ADR-014). Entry: `DotNetConfig` 33, `DotNetState` 58, `fit` 455.
 - `dotnet/blob_stream.rs` (495): An AL `OutStream` or `InStream` held by a `DotNet` System.IO.Stream variable (`NavBLOB+InternalStream`, Base Application `DotNet_Stream.FromOutStream`; SgDotNetStreams.al): the conversion in `Op::Convert`, the stream members, refusals of every unpinned shape. Entry: `Session::al_stream_into_dotnet` 62, `types` 471.
 - `dotnet/not_created.rs` (~55): The pinned error of a member of a `DotNet` variable that holds no object (`DotNetVariableNotCreated`). Entry: `Session::not_created`.

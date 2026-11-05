@@ -391,6 +391,8 @@ impl Session {
         let Some(subs) = engine.events.subscribers.get(&(object, event.to_string())) else {
             return Ok(Vec::new());
         };
+        // A binding only a gone page held ends before the event picks its targets (page_held_bindings.rs).
+        self.prune_page_held();
         let mut targets = Vec::new();
         for s in subs {
             if self
@@ -473,6 +475,7 @@ impl Session {
             }
             if s.manual {
                 for inst in self.bound_instances(s.object) {
+                    self.refuse_unpinned_page_binding(&inst)?;
                     targets.push((s.clone(), inst));
                 }
             } else {
@@ -674,7 +677,7 @@ impl Session {
     }
 
     /// The bound instances per manual subscriber codeunit, for the Event Subscription table.
-    fn sync_active_instances(&mut self) {
+    pub(crate) fn sync_active_instances(&mut self) {
         self.events.bindings.retain(|b| b.instance.strong_count() > 0);
         let mut active = std::collections::HashMap::new();
         for b in &self.events.bindings {
@@ -735,9 +738,11 @@ impl Session {
                 };
             }
             self.ensure_initialized(&inst);
+            self.forget_page_held(&inst);
             self.events.bindings.push(Binding {
                 instance: Rc::downgrade(&inst),
             });
+            self.note_page_binding(&inst);
             self.sync_active_instances();
             Ok(Value::Boolean(true))
         } else if manual {
@@ -745,6 +750,7 @@ impl Session {
             if let Some(i) = at {
                 self.events.bindings.remove(i);
             }
+            self.forget_page_held(&inst);
             self.sync_active_instances();
             Ok(Value::Boolean(true))
         } else if ret_used {

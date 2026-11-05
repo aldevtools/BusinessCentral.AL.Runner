@@ -5,6 +5,8 @@ use crate::*;
 use al_builtins::filter::{FieldFilter, key_cmp};
 use std::cmp::Ordering;
 
+mod order_carry;
+
 /// A primary-key tuple ordered field by field.
 #[derive(Clone, Debug)]
 struct Key(Vec<Value>, Option<std::sync::Arc<[CodeStorage]>>);
@@ -113,7 +115,9 @@ struct OrderEntry {
     rows: usize,
     /// The fields of the key the order is of: an ad-hoc key can take the slot of an earlier one.
     fields: Vec<usize>,
-    order: std::rc::Rc<Vec<Key>>,
+    order: std::rc::Rc<Vec<OrderKey>>,
+    /// A read used this order since it was cached, so a write carries it (`order_carry`).
+    used: bool,
 }
 
 /// What `alt_next` knows about one scan (a table, a key and a set of filters) as of a table version.
@@ -132,8 +136,12 @@ struct AltEntry {
 /// Where the band of one key is: the primary key's rows between two keys, or a slice of the cached order.
 enum Band {
     Pk,
-    Order(std::rc::Rc<Vec<Key>>, std::ops::Range<usize>),
+    Order(std::rc::Rc<Vec<OrderKey>>, std::ops::Range<usize>),
 }
+
+/// A primary key in a cached key order: shared, so a write that carries the order (`order_carry`) copies pointers,
+/// not keys.
+type OrderKey = std::rc::Rc<Key>;
 
 /// Tables with fewer rows than this are walked in a secondary key by looking at every row.
 const INDEX_MIN_ROWS: usize = 64;
@@ -1091,7 +1099,7 @@ impl MemStore {
     }
 
     /// The primary keys of `table` in the order of key `key`, kept while the shape of the table stays.
-    fn order_of(&self, slot: &Slot, key: usize, t: &TableDef, table: &Table) -> std::rc::Rc<Vec<Key>> {
+    fn order_of(&self, slot: &Slot, key: usize, t: &TableDef, table: &Table) -> std::rc::Rc<Vec<OrderKey>> {
         let shape = self.shapes.get(slot).copied().unwrap_or(0);
         let ck = (slot.clone(), key);
         let moved = self.moves.get(&ck).copied().unwrap_or(0);
@@ -1101,13 +1109,18 @@ impl MemStore {
             if let Some(i) = kept.iter().position(fits) {
                 // The order used last goes first, so the snapshot's order stays while sessions write.
                 kept[..=i].rotate_right(1);
+                kept[0].used = true;
                 return kept[0].order.clone();
             }
         }
         ORDER_BUILDS.with(|n| n.set(n.get() + 1));
         let mut rows: Vec<(&Key, &Row)> = table.iter().collect();
         rows.sort_by(|a, b| cmp_rows(t, key, a.1, b.1));
-        let order = std::rc::Rc::new(rows.into_iter().map(|(k, _)| k.clone()).collect::<Vec<_>>());
+        let order = std::rc::Rc::new(
+            rows.into_iter()
+                .map(|(k, _)| std::rc::Rc::new(k.clone()))
+                .collect::<Vec<_>>(),
+        );
         // The orders of each key used last: the snapshot's and those of the latest writes.
         let mut cache = self.order_cache.borrow_mut();
         let kept = cache.entry(ck).or_default();
@@ -1119,6 +1132,7 @@ impl MemStore {
                 rows: table.len(),
                 fields: t.keys[key].clone(),
                 order: order.clone(),
+                used: true,
             },
         );
         kept.truncate(ORDERS_PER_KEY);
@@ -1261,7 +1275,7 @@ impl MemStore {
         };
         let band_keys: Vec<Key> = match &band {
             Band::Pk => pk_band(table, t, scan.filters).map(|(k, _)| k.clone()).collect(),
-            Band::Order(order, range) => order[range.clone()].to_vec(),
+            Band::Order(order, range) => order[range.clone()].iter().map(|k| (**k).clone()).collect(),
         };
         if calls < 2 {
             // The first step: the best row of the band.
@@ -1387,12 +1401,18 @@ impl Store for MemStore {
         }
         self.note_unknown(t, &row);
         let k = Key::of(t, t.primary_key(&row));
+        let carry = self.has_orders(&slot(cx, t), t);
         let table = self.table_mut(cx, t);
         if table.contains_key(&k) {
             return Ok(InsertOutcome::AlreadyExists);
         }
+        let kept = carry.then(|| k.clone());
         table.insert(k, row);
+        let from = self.shapes.get(&slot(cx, t)).copied().unwrap_or(0);
         self.touch_shape(cx, t);
+        if let Some(k) = kept {
+            self.carry_orders(cx, t, &k, order_carry::Change::Insert, from);
+        }
         Ok(InsertOutcome::Inserted)
     }
 
@@ -1441,6 +1461,7 @@ impl Store for MemStore {
         self.note_unknown(t, &row);
         let k = Key::of(t, t.primary_key(&row));
         self.note_restored(cx, t, &k, "Modify", Some(&row));
+        let carry = self.has_orders(&slot(cx, t), t);
         let table = self.table_mut(cx, t);
         if !table.contains_key(&k) {
             return Ok(WriteOutcome::NotFound);
@@ -1453,10 +1474,17 @@ impl Store for MemStore {
                 .collect(),
             None => Vec::new(),
         };
-        table.insert(k, row);
+        // The row it replaces comes back from the map, so a cached order can be carried over the move (order_carry).
+        let kept = (carry && !moved.is_empty()).then(|| k.clone());
+        let old = table.insert(k, row);
         self.touch(cx, t);
+        let sl = slot(cx, t);
         for j in moved {
-            self.moves.insert((slot(cx, t), j), self.counter);
+            let from = self.moves.get(&(sl.clone(), j)).copied().unwrap_or(0);
+            self.moves.insert((sl.clone(), j), self.counter);
+            if let (Some(k), Some(old)) = (&kept, &old) {
+                self.carry_moved(&sl, j, t, k, old, from);
+            }
         }
         Ok(WriteOutcome::Done)
     }
@@ -1470,9 +1498,12 @@ impl Store for MemStore {
             }
         }
         self.note_restored(cx, t, &Key::of(t, pk.to_vec()), "Delete", None);
-        Ok(match self.table_mut(cx, t).remove(&Key::of(t, pk.to_vec())) {
-            Some(_) => {
+        let k = Key::of(t, pk.to_vec());
+        Ok(match self.table_mut(cx, t).remove(&k) {
+            Some(old) => {
+                let from = self.shapes.get(&slot(cx, t)).copied().unwrap_or(0);
                 self.touch_shape(cx, t);
+                self.carry_orders(cx, t, &k, order_carry::Change::Delete { old: &old }, from);
                 WriteOutcome::Done
             }
             None => WriteOutcome::NotFound,
@@ -1592,7 +1623,7 @@ impl Store for MemStore {
                     });
                     order[start.max(band.start).min(band.end)..band.end]
                         .iter()
-                        .filter_map(row_at)
+                        .filter_map(|k| row_at(k))
                         .find(|r| passes(r, scan.filters))
                 } else {
                     let end = scan.after.map_or(order.len(), |a| {
@@ -1603,7 +1634,7 @@ impl Store for MemStore {
                     order[band.start.min(end)..end.min(band.end)]
                         .iter()
                         .rev()
-                        .filter_map(row_at)
+                        .filter_map(|k| row_at(k))
                         .find(|r| passes(r, scan.filters))
                 };
                 return Ok(found.cloned());
@@ -2649,8 +2680,8 @@ mod tests {
         }
         assert_eq!(
             order_builds() - before,
-            11,
-            "the snapshot's order once, then one per session's write"
+            1,
+            "the snapshot's order once; each session's write carries it (order_carry)"
         );
     }
 
@@ -2704,7 +2735,11 @@ mod tests {
         assert_eq!(last(&s, 1).as_deref(), Some("Code(\"0195\")"));
         assert_eq!(order_builds() - before, 0, "key 1 keeps its order");
         assert_eq!(last(&s, 2).as_deref(), Some("Code(\"0003\")"));
-        assert_eq!(order_builds() - before, 1, "key 2 is sorted again");
+        assert_eq!(
+            order_builds() - before,
+            0,
+            "key 2 carries its order over the move (order_carry)"
+        );
         // A rollback brings back the order of key 2 from before the Modify.
         s.rollback();
         assert_eq!(last(&s, 2).as_deref(), Some("Code(\"0199\")"));
