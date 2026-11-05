@@ -251,7 +251,7 @@ impl Session {
         // Only the link's own filters and the view's: a handed record carries nothing else (no RunPageOnRec).
         let only_link_and_view = link_filters.len() + view_filters.len() == r.filters.len();
         // A RunPageView of a sorting alone fills the linked fields too, and so does one whose filter holds more than one value (its
-        // field stays blank): testpage/RunPageLinkOpenSetView.al on corpus branch al-runtime-rs-staging-r7089 (corpus PR 1150),
+        // field stays blank): corpus testpage/RunPageLinkOpenSetView.al (corpus PR 1150),
         // RSV_LinkAndView_NoSetView `rec=0/Inbound/T1/` with `sorting(RelationType, ID)`, RSV_LinkAndWhereView_NoSetView_Groups
         // `3:Information: <>HIDDEN|` and `rec=0/Inbound/T1/`.
         if !only_link_and_view

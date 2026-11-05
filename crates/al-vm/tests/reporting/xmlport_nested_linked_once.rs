@@ -1,5 +1,5 @@
 //! A table element nested in another one, linked with LinkTable and LinkFields, with MaxOccurs = Once and no MinOccurs (al-runner
-//! issue 7090; corpus xmlports/shapes-properties/XpNestedLinkedOnce.al on branch al-runtime-rs-staging-r7089): no MinOccurs is
+//! issue 7090; corpus xmlports/shapes-properties/XpNestedLinkedOnce.al): no MinOccurs is
 //! MinOccurs = Once. The reporter's shape has a temporary child the parent's OnAfterGetRecord fills.
 
 use al_testkit::{run_in, text};

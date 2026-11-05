@@ -1,5 +1,5 @@
 //! Rec.SetView() in the OnOpenPage of a list an action opens through RunPageLink (al-runner issue 7089, corpus issue 712). The AL
-//! below is corpus testpage/RunPageLinkOpenSetView.al (branch al-runtime-rs-staging-r7089, corpus PR 1150, BC 27.5, 28.5 and 29.0
+//! below is corpus testpage/RunPageLinkOpenSetView.al (corpus PR 1150, BC 27.5, 28.5 and 29.0
 //! alike) with each observation turned into a check of the value BC gave: before SetView Rec holds the link in filter group 0
 //! (a RunPageView where filter in group 3, the target's SourceTableView where filter in group 2), its linked fields are filled
 //! and the target's SourceTableView key stays; SetView replaces the view of group 0, the link included, and leaves the other

@@ -773,7 +773,7 @@ pub struct XmlPort {
     pub default_ns: Option<String>,
     /// `UseDefaultNamespace = true` with `Namespaces` and no `DefaultNamespace` (`default_ns` is then BC's namespace of the port):
     /// the export writes the root without its prefix, with the uri of that prefix as the default namespace, and an element without
-    /// a prefix declares the port's namespace where the namespace in scope differs (corpus branch al-runtime-rs-staging-r7089,
+    /// a prefix declares the port's namespace where the namespace in scope differs (corpus
     /// xmlports/shapes-properties/XpUseDefaultNsPrefixes.al). Its import is refused.
     #[serde(default)]
     pub udn_root_prefix: bool,

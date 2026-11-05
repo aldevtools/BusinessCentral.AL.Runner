@@ -29,7 +29,7 @@ impl Session {
         // refuses (records.rs `XP_VIEW_AFTER_EXPORT`, former assumption `xmlport-export-again` (pinned on corpus master since bump 1030)).
         for (i, n) in schema.xp().nodes.iter().enumerate() {
             // Without a SourceTableView the link filter of a linked MaxOccurs = Once element with LinkFields does not show either
-            // (corpus branch al-runtime-rs-staging-r7089, xmlports/shapes-properties/XpNestedLinkedOnce.al XOM_TempOnce_*,
+            // (corpus xmlports/shapes-properties/XpNestedLinkedOnce.al XOM_TempOnce_*,
             // XOM_RealOnce_* `held ...|filters=`; with a temporary child it counts, XOM_TempOnce_OneParent_TwoChildren `count=2`).
             let linked_once = n.max_unbounded == Some(false) && n.link_node.is_some() && !n.link_fields.is_empty();
             if n.source_view.is_none() && linked_once {
@@ -942,8 +942,8 @@ fn table_root_with_content(schema: &Schema, top: usize) -> bool {
 /// The namespaces of root `root` of a port with Namespaces, UseDefaultNamespace and no DefaultNamespace (`ir::XmlPort::udn_root_prefix`;
 /// `port_ns` is BC's namespace of the port): the root loses its prefix and its uri becomes the default namespace (the port's for a
 /// root without a prefix), declared after the named ones; an element without a prefix declares `port_ns` where the default namespace
-/// in scope differs, its children inherit it; a prefixed element keeps its prefix and the scope (corpus branch
-/// al-runtime-rs-staging-r7089, xmlports/shapes-properties/XpUseDefaultNsPrefixes.al XUD_TableRoot_Export, _TextRoot_Export,
+/// in scope differs, its children inherit it; a prefixed element keeps its prefix and the scope (corpus
+/// xmlports/shapes-properties/XpUseDefaultNsPrefixes.al XUD_TableRoot_Export, _TextRoot_Export,
 /// _RootSecond_Export, _RootPlain_Export, _TextRootUtf16_Export, _RootOnly_Export, _ItemPrefix_Export).
 pub(super) fn declare_udn_namespaces(root: &mut Elem, namespaces: &[(String, String)], port_ns: &str) {
     let default = match root.name.split_once(':') {

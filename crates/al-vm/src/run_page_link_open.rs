@@ -57,7 +57,7 @@ impl Session {
         // does a RunPageView beside the link in group 3 (testpage/Y41RunPageLinkOnOpen.al:553 `filters=Code: P1`).
         let link_read = match method {
             // In any filter group: the link in group 0, the SourceTableView in 2, a RunPageView filter in 3, the others empty
-            // (testpage/RunPageLinkOpenSetView.al on corpus branch al-runtime-rs-staging-r7089, RSV_*_Groups `groups before=0:...|`,
+            // (corpus testpage/RunPageLinkOpenSetView.al, RSV_*_Groups `groups before=0:...|`,
             // `3:Information: <>HIDDEN|`, `2:Information: <>HIDDEN|`).
             RecordOp::GetFilters => rec.borrow().filters.iter().all(|f| matches!(f.group, 0 | 2 | 3)),
             RecordOp::GetRangeMin | RecordOp::GetRangeMax => {
@@ -96,8 +96,8 @@ impl Session {
                 _ => false,
             };
         // SetView replaces the view of group 0, the link included, and leaves the SourceTableView's group 2 and the RunPageView's
-        // group 3; the linked fields stay, and Rec then answers as any record of its new view (testpage/RunPageLinkOpenSetView.al on
-        // corpus branch al-runtime-rs-staging-r7089, corpus PR 1150: RSV_LinkAndView_SameView, _OtherFilter, _EmptyView,
+        // group 3; the linked fields stay, and Rec then answers as any record of its new view (corpus
+        // testpage/RunPageLinkOpenSetView.al, corpus PR 1150: RSV_LinkAndView_SameView, _OtherFilter, _EmptyView,
         // _SortingOnly, _LinkedFieldOtherValue, RSV_LinkOnly_*, RSV_LinkAndWhereView_EmptyView_Groups `groups after=3:...`,
         // RSV_LinkToWhereList_EmptyView_Groups `groups after=2:...`).
         if method == RecordOp::SetView && rec.borrow().filter_group == 0 {

@@ -169,7 +169,7 @@ impl Session {
         }
 
         // With Namespaces, UseDefaultNamespace and no DefaultNamespace, BC failed every import the probe tried ("The prefix  is not
-        // defined in the Namespaces property of the XMLPort.", corpus branch al-runtime-rs-staging-r7089,
+        // defined in the Namespaces property of the XMLPort.", corpus
         // xmlports/shapes-properties/XpUseDefaultNsPrefixes.al XUD_*_Import); that it fails for every document is not pinned.
         if xp.udn_root_prefix {
             return unsupported(

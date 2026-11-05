@@ -477,7 +477,7 @@ fn bc_default_namespace(out: &mut Layout, own_namespace: Option<String>, utf8: b
             .all(|i| out.property(i, "NamespacePrefix").is_none() || out.nodes[i].kind == ir::XmlNodeKind::Field);
     // Without DefaultNamespace, named prefixes only, and prefixes on any elements (no attributes): the export drops the root's
     // prefix and takes its uri as the default namespace, an element without a prefix declares the port's namespace where the
-    // namespace in scope differs; every import fails (corpus branch al-runtime-rs-staging-r7089,
+    // namespace in scope differs; every import fails (corpus
     // xmlports/shapes-properties/XpUseDefaultNsPrefixes.al XUD_*_Export, XUD_*_Import, BC 27.5, 28.5 and 29.0). UseLax,
     // InlineSchema, V11, PreserveWhiteSpace and attributes with it are not pinned; the import is refused.
     let udn_root_prefix = own_namespace.is_none()
@@ -879,7 +879,7 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
             // view's order, a pass without rows writes the record as it stands (corpus PR 896, streams/Np4XmlPort.al
             // Y9_XmlPort_LinkedOnceOnce_ZeroOneTwoRows, _TwoRowsThenNone, _OneRowThenNone; the VM decides the row held after).
             // No MinOccurs is MinOccurs = Once there, also on a temporary child the parent's OnAfterGetRecord fills, and the import of
-            // a real-table child takes one element per parent (corpus branch al-runtime-rs-staging-r7089,
+            // a real-table child takes one element per parent (corpus
             // xmlports/shapes-properties/XpNestedLinkedOnce.al XOM_TempOnce_*, XOM_TempOnceUnbounded_*, XOM_RealOnce_* on an export
             // port; XOM_ImportOnce_OneChild, _NoChild, _TwoChildren on an import port). An explicit MinOccurs = Once on import, a
             // temporary child on import, and Direction = Both are not pinned.
@@ -1391,7 +1391,7 @@ mod tests {
 
     #[test]
     fn max_occurs_once_without_min_occurs_on_a_linked_nested_table_element_with_link_fields_runs() {
-        // Corpus branch al-runtime-rs-staging-r7089, XpNestedLinkedOnce.al XOM_TempOnce_*, XOM_RealOnce_* (export) and
+        // Corpus xmlports/shapes-properties/XpNestedLinkedOnce.al XOM_TempOnce_*, XOM_RealOnce_* (export) and
         // XOM_ImportOnce_* (import of a real table).
         let shape = |direction: &str, extra: &str| {
             format!(
@@ -1464,7 +1464,7 @@ mod tests {
 
     #[test]
     fn use_default_namespace_with_named_namespaces_on_elements_runs_on_export() {
-        // Corpus branch al-runtime-rs-staging-r7089, XpUseDefaultNsPrefixes.al XUD_*_Export; the import is refused.
+        // Corpus xmlports/shapes-properties/XpUseDefaultNsPrefixes.al XUD_*_Export; the import is refused.
         let port = |direction: &str, extra: &str| {
             layout_of(&format!(
                 "xmlport 7 X {{ Direction = {direction}; Encoding = UTF8; Namespaces = soap = 'urn:s', tem = 'urn:t'; UseDefaultNamespace = true; {extra} schema {{ textelement(Envelope) {{ NamespacePrefix = 'soap'; textelement(Body) {{ NamespacePrefix = 'soap'; tableelement(H; Cust) {{ fieldelement(N; H.X) {{ NamespacePrefix = 'tem'; }} fieldattribute(A; H.Y) {{ }} }} }} }} }} }}"
