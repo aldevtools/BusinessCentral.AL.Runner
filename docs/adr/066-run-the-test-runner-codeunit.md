@@ -1,6 +1,6 @@
 # ADR-066: Run the test runner codeunit's own AL
 
-- Status: Proposed
+- Status: Accepted (owner, 2026-11-05)
 - Date: 2026-11-05
 
 ## Context
@@ -200,3 +200,17 @@ tests need these steps) and a row in `docs/probes-needed.md`. When a probe lands
 - PR 3: `tools/runner_vs_builtin.sh` in CI on push to main.
 - `crates/alrunner-cli/tests/cli/`: a test app subscribing to `OnBeforeCodeunitRun` that enables a stub (the issue 6924
   shape) passes with the default runner.
+
+## Owner decisions (2026-11-05)
+
+1. **Build before the probes land:** yes. PRs 1-3 run unprobed steps under registered assumptions (hard rule 3
+   exception); probes P1-P8 go to the corpus the same day. When a probe lands, it wins.
+2. **Suite rows:** native rows (orchestrator's call, following the recommendation); discovery through 130452 only if P6
+   shows the extra OnRun is observable.
+3. **Default runner: 130450 is the default right away** (owner), not opt-in first. The built-in path stays reachable
+   with `--test-runner builtin` and stays the differential oracle (`tools/runner_vs_builtin.sh`) until PR 4 deletes
+   the replaced code; PR 4 still needs zero unexplained differences.
+4. **Custom runner that picks its own codeunits, with selection flags:** refuse the flags with a clear message.
+5. **`--isolation Function`:** stays the built-in override (orchestrator's call, following the recommendation).
+6. **ADR-055:** decision kept, context line amended (orchestrator's call, following the recommendation).
+
