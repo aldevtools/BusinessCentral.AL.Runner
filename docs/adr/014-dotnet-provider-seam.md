@@ -842,3 +842,17 @@ assembly outside the .NET shared framework, named a type in a namespace that can
 `System.AppContext`, `System.AppDomain`, `System.Security`, `System.GC`, timers), or left a timer running. The first full runs: of 53
 sessions that called .NET, 52 ended clean and 1 dirty (BC 28, 29); 74 and 1 on BC 27. The outcomes of the corpus runs with Microsoft's
 apps (all four suites of BC 27, 28 and 29) are identical with reuse on and off.
+
+## Decided without owner review (2026-11-05, branch `rt-wp9-7134`): an `InStream` past its start is sent whole
+
+- Section 4, streams, item 1 said Rust sends the unread bytes of an `InStream`. BC hands .NET the Blob's own seekable stream
+  (`SgDotNetStreams.al:106-126`), so .NET code can seek back before the AL position. Excel Buffer's `SelectSheetsNameStream` then
+  `OpenBookStream` on one `InStream` open the workbook twice (`WorkbookReader.Open`); the second open seeks back over the bytes
+  the first read. Real BC passes it on the three supported majors (al-runner issue 7134, corpus pull request 1152,
+  `TestExcelStream.Codeunit.al` `..._SameStream_PreservesCell`).
+- Now a stream at its start is sent as before (`ins`). A stream that stands further on is sent whole with its position
+  (`DotNetValue::InStreamAt`, wire tag `ins` with a `p`); the sidecar's `MemoryStream` starts at that position, and the AL position
+  afterwards is where .NET left that stream. A .NET reader that reads on from the position sees what it saw before. The path is
+  flagged (assumption `instream-dotnet-seek-back`, awaiting the corpus file `R7134ExcelStreamPosition.al`).
+- Still copy-in and copy-out. Additive: a new `DotNetValue` variant and an optional field on an existing wire tag; the protocol
+  version is 5 (host and sidecar change together).

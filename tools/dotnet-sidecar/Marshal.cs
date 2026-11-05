@@ -14,6 +14,7 @@
 //   {"t":"e","type":"System.X","v":"Name","o":1}   enum value by name and ordinal
 //   {"t":"h","v":12,"type":"System.IO.MemoryStream"}   object held here
 //   {"t":"ins","v":"<base64>"}             AL InStream: the unread bytes
+//   {"t":"ins","v":"<base64>","p":n}       AL InStream past its start: all its bytes, the stream at position n
 //   {"t":"outs"}                           AL OutStream: becomes a bridge stream
 //   {"t":"outs","v":"<base64>"}            AL OutStream over a Blob that holds these bytes: the bridge starts with them
 using System.Globalization;
@@ -106,6 +107,9 @@ public sealed class Marshaller
             case "ins":
             {
                 var ms = new MemoryStream(Convert.FromBase64String(o["v"]!.GetValue<string>()), writable: false);
+                // An InStream that stands further on: all its bytes, at its position ("p"), so .NET can seek back
+                // (al-runner issue 7134). The consumed count is the position in these bytes.
+                if (o["p"] is JsonNode at) ms.Position = at.GetValue<long>();
                 Ins.Add(new InArg { Index = index, Stream = ms });
                 return ms;
             }

@@ -1215,6 +1215,53 @@ fn an_instream_argument_sends_the_unread_bytes_and_the_read_position_follows_wha
     assert_eq!(text(r), "ef", "AL reads on from the byte after the four .NET consumed");
 }
 
+// BC hands .NET the Blob's own seekable stream (SgDotNetStreams.al:106-126): a second .NET call on an InStream that an earlier
+// .NET call read to its end can seek back and read the whole stream again. Excel Buffer's SelectSheetsNameStream then
+// OpenBookStream on one InStream read the workbook twice (al-runner issue 7134; corpus streams/excel-buffer-roundtrip/
+// TestExcelStream.Codeunit.al ExcelBuffer_SelectSheetThenRead_TempBlob_SameStream_PreservesCell).
+#[test]
+fn an_instream_dotnet_already_read_is_sent_whole_with_its_position_and_the_position_follows_dotnet() {
+    let host = Fake::new(|r| match r {
+        Req::Invoke(_, m, a) if m == "ReadAll" => {
+            assert_eq!(a[0].value, DotNetValue::InStream(b"abcdef".to_vec()));
+            Ok(DotNetReply {
+                value: DotNetValue::Null,
+                by_ref: vec![],
+                streams: StreamEffects {
+                    consumed: vec![(0, 6)],
+                    ..Default::default()
+                },
+            })
+        }
+        Req::Invoke(_, m, a) if m == "SeekBack" => {
+            assert_eq!(
+                a[0].value,
+                DotNetValue::InStreamAt {
+                    bytes: b"abcdef".to_vec(),
+                    at: 6
+                }
+            );
+            Ok(DotNetReply {
+                value: DotNetValue::Null,
+                by_ref: vec![],
+                streams: StreamEffects {
+                    consumed: vec![(0, 3)],
+                    ..Default::default()
+                },
+            })
+        }
+        other => panic!("{other:?}"),
+    });
+    let r = run(
+        &host,
+        "C: DotNet Convert; B: Record \"ALT Blob\"; O: OutStream; I: InStream; T: Text;",
+        "B.Code := 'S'; B.Data.CreateOutStream(O); O.WriteText('abcdef'); B.Insert(); B.Get('S'); B.CalcFields(Data);
+         B.Data.CreateInStream(I); C.ReadAll(I); C.SeekBack(I); I.ReadText(T); exit(T);",
+        ": Text",
+    );
+    assert_eq!(text(r), "def", "the position .NET left the whole stream at");
+}
+
 #[test]
 fn an_outstream_argument_is_bridged_and_the_bytes_dotnet_wrote_are_appended_to_the_blob() {
     let host = Fake::new(|r| match r {
