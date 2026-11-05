@@ -1,6 +1,7 @@
 //! `FieldRef.Validate(Value)`.
 
 use crate::Session;
+use al_builtins::describe::Describe;
 use al_builtins::native::{AlError, Signal};
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{RecordState, RtType, Value};
@@ -20,6 +21,39 @@ impl Session {
         pos: usize,
         args: &[Value],
     ) -> Result<Value, Signal> {
+        let mut a = self.variant_validate_args(t, pos, args)?;
+        self.record_op(RecordOp::Validate, rec, &mut a)
+    }
+
+    /// `Record.Validate(Field, V)` with `V` written as a Variant (lowering picks `Record.ValidateVariant#1`): the value converts
+    /// into the field as `FieldRef.Validate` converts it, in all 192 cells of the matrix of the field types and the kinds a Variant
+    /// holds (corpus record/validate/RecordValidateVariant.al, every test, against
+    /// recordref-fieldref/fieldref/Y67FieldRefValidateVariant.al;
+    /// al-runner issue 6975: a Variant holding an Enum goes into a Text field as its name).
+    pub(crate) fn record_validate_variant(
+        &mut self,
+        rec: &Rc<RefCell<RecordState>>,
+        args: &mut [Value],
+    ) -> Result<Value, Signal> {
+        let pos = match args.first() {
+            Some(Value::Integer(p)) => *p as usize,
+            other => {
+                return Err(Signal::Unsupported(format!(
+                    "Record.Validate field argument {}",
+                    other.map_or("none".into(), |v| v.describe())
+                )));
+            }
+        };
+        let table = rec.borrow().table as usize;
+        let t = self.engine.tables[table]
+            .clone()
+            .ok_or_else(|| Signal::Unsupported("Record.Validate of a table without a schema".into()))?;
+        let mut a = self.variant_validate_args(&t, pos, &args[1..])?;
+        self.record_op_from_al(RecordOp::Validate, rec, &mut a)
+    }
+
+    /// The arguments of a record Validate (field position first) for `FieldRef.Validate(args)` of the field at `pos`.
+    fn variant_validate_args(&mut self, t: &TableDef, pos: usize, args: &[Value]) -> Result<Vec<Value>, Signal> {
         if let (RtType::Enum(_), Some(Value::Text(s) | Value::Code(s))) = (&t.fields[pos].ty, args.first()) {
             let s = s.as_str();
             if let Some((_, members)) = self.members_of_field(t, pos)? {
@@ -46,7 +80,7 @@ impl Session {
             if let Some(r) = self.variant_into_field_cells(t, pos, v, true)? {
                 let mut a = vec![Value::Integer(pos as i32), r?];
                 a.extend(args.iter().skip(1).cloned());
-                return self.record_op(RecordOp::Validate, rec, &mut a);
+                return Ok(a);
             }
         }
         let mut a = vec![Value::Integer(pos as i32)];
@@ -63,7 +97,7 @@ impl Session {
             }
             None => a.extend(args.iter().cloned()),
         }
-        self.record_op(RecordOp::Validate, rec, &mut a)
+        Ok(a)
     }
 
     /// `al_builtins::fieldref_variant_cells` for the field at `pos`: `None` for a cell it does not pin, and for a text into an Option

@@ -124,6 +124,9 @@ impl al_builtins::native::Ctx for Session {
     fn work_date_day(&self) -> Option<i32> {
         Session::work_date_day(self)
     }
+    fn xrec_holds_blob(&self, b: &al_builtins::stream::BlobRef) -> bool {
+        Session::xrec_holds_blob(self, b)
+    }
     fn now_unix_millis(&self) -> Option<i64> {
         Some(self.now_millis())
     }
@@ -171,6 +174,15 @@ impl al_builtins::native::Ctx for Session {
                 "record method {method} on {}",
                 other.describe()
             ))),
+        }
+    }
+    fn record_validate_variant(&mut self, rec: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+        match rec {
+            Some(Value::Record(rc)) => {
+                let rc = rc.clone();
+                Session::record_validate_variant(self, &rc, args)
+            }
+            other => Err(Signal::Unsupported(format!("Record.Validate on {}", other.describe()))),
         }
     }
     fn page(

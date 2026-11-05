@@ -113,6 +113,11 @@ pub trait Ctx: FormatCtx {
         let _ = form;
         self.record(crate::record_op::RecordOp::FieldError, rec, args)
     }
+    /// `Record.Validate(Field, V)` with `V` written as a Variant (lowering picks `Record.ValidateVariant#1`): the value converts
+    /// into the field as `FieldRef.Validate` converts it.
+    fn record_validate_variant(&mut self, rec: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+        self.record(crate::record_op::RecordOp::Validate, rec, args)
+    }
     /// `TestPage` / `TestField` / `TestAction` methods: the VM's test client
     /// implements them (ADR-012). `method` is `Receiver.Name`.
     fn page(
@@ -155,6 +160,11 @@ pub trait Ctx: FormatCtx {
     /// The host clock in milliseconds since the Unix epoch; `None` where there is no host.
     fn now_unix_millis(&self) -> Option<i64> {
         None
+    }
+    /// Whether an xRec handle that AL code can still see holds the Blob buffer `b` (a `Clear` of it then gives Rec a new
+    /// buffer instead of emptying the shared one, `native::values::clear`).
+    fn xrec_holds_blob(&self, _b: &crate::stream::BlobRef) -> bool {
+        false
     }
     /// `Format` of a record variable, a `RecordRef` or a `FieldRef` (standard format 0): needs the
     /// table's fields. `None` where the context has no program.
