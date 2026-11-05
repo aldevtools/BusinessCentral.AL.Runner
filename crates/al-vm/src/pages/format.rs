@@ -196,7 +196,7 @@ impl Session {
                 ctl.prop("optioncaption").is_none() && ctl.prop("optioncaptionml").is_none() && self.has_source(st)
             }) {
                 // Before BC 29 such a control shows the member names (`Gate::OtherRecordOptionCaptionFrom29`), confirmed on Windows for
-                // BC 28 only (al-runner issue 7005; pages/controls/OtherRecordOptionMembers.al OtherRecordOption_OneRow_Values `[Short]`);
+                // BC 28 only (al-runner issue 7005; pages/controls/OtherRecordOptionMembers.al:146 OtherRecordOption_OneRow_Values `[Short]`);
                 // BC 27 is seen on the Linux CI legs only, a Linux suspect.
                 if !self.other_record_option_shown(st) {
                     return unsupported(format!(
@@ -206,8 +206,6 @@ impl Session {
                 }
                 if self.has(al_version::Gate::OtherRecordOptionCaptionFrom29) {
                     var_captions = Some(c);
-                } else {
-                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::OtherRecordOptionMembers);
                 }
             }
         }

@@ -15,7 +15,7 @@ impl Session {
 
     /// Whether control `idx` reads blank: a control bound to the page's record on a page that shows no row (`shows_no_row`), and on
     /// a page of type List that shows no row a control bound to a field of another record variable, in a group or in the repeater, whatever the
-    /// field's type (pages/controls/OtherRecordOptionMembers.al OtherRecordOption_NoRows_Values `[]` for an Option field with and
+    /// field's type (pages/controls/OtherRecordOptionMembers.al:174 OtherRecordOption_NoRows_Values `[]` for an Option field with and
     /// without OptionCaption and an Enum field, on the CI legs; the reporter's Windows BC 28.5 run agrees). Pinned on a List page
     /// where the Option control's text is known (`other_record_option_shown`); elsewhere (a Worksheet, BC 27) the control goes on
     /// as before.
@@ -25,13 +25,6 @@ impl Session {
         }
         let engine = self.engine();
         let var_bound = page_of(&engine, st).controls[idx].var_field.is_some();
-        let blank = var_bound
-            && st.borrow().cursor == Cursor::None
-            && self.is_list_page(st)
-            && self.other_record_option_shown(st);
-        if blank {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::OtherRecordOptionMembers);
-        }
-        blank
+        var_bound && st.borrow().cursor == Cursor::None && self.is_list_page(st) && self.other_record_option_shown(st)
     }
 }

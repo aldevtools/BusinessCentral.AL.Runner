@@ -1218,8 +1218,8 @@ pub fn dev_endpoint_answers_unhandled_ui(bc_major: u16) -> Option<bool> {
 /// Which rows of the old view OnAfterGetRecord runs for after an action of a list with both row triggers filtered the view
 /// down to no row and called CurrPage.Update (al-runner issue 6945, `empty_view_after_action` in al-vm): `Some(true)` for every
 /// other row (BC 28.5), `Some(false)` for one row (BC 27.5 and 29.0), `None` for a major that was not measured. Measured on the
-/// corpus CI legs by pages/actions/ActionFilterEmptyView.al (corpus branch al-runtime-rs-staging-r6945, the `#if BC28PLUS and
-/// not BC29PLUS` guards). Not a [`Gate`]: the behaviour changes and changes back, which a gate's `since_bc` cannot say.
+/// corpus CI legs by pages/actions/ActionFilterEmptyView.al:226 and :322 (corpus PR 1135, the `#if BC28PLUS and not
+/// BC29PLUS` guards). Not a [`Gate`]: the behaviour changes and changes back, which a gate's `since_bc` cannot say.
 pub fn empty_action_view_reads_every_row(bc_major: u16) -> Option<bool> {
     match bc_major {
         27 | 29 => Some(false),
@@ -1231,7 +1231,7 @@ pub fn empty_action_view_reads_every_row(bc_major: u16) -> Option<bool> {
 /// Whether the member names that a page control bound to an Option field of another record variable shows before
 /// [`Gate::OtherRecordOptionCaptionFrom29`] are confirmed on Windows for `bc_major`: BC 28.5 on a Windows OnPrem container
 /// (al-runner issue 7005, the reporter's run) shows `Short` as the Linux CI legs do (corpus pages/controls/
-/// OtherRecordOptionMembers.al, branch al-runtime-rs-staging-r6945; SaOtherRecordControl.al:13-15). BC 27 is measured on the
+/// OtherRecordOptionMembers.al:146, corpus PR 1135; SaOtherRecordControl.al:13-15). BC 27 is measured on the
 /// Linux CI legs only, a Linux suspect: not confirmed.
 pub fn other_record_option_member_names_confirmed(bc_major: u16) -> bool {
     bc_major == 28

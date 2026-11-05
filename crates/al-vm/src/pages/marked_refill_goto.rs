@@ -147,10 +147,10 @@ impl Session {
     /// The drilldown left Rec on a row the marked rows do not hold (al-runner issue 6946: the marking loop walked Rec itself and
     /// ended on the last row of the view, which is not marked). The refill settles on the nearest marked row before it and goes
     /// on as if Rec stood there; in a key other than the primary key the first read is still the row Rec was left on
-    /// (pages/onopenpage-moves-rec/DrillDownMarkedRecLeft.al Name_LeaveUnmarked_GoToMarkedThenUnmarked `goto 3`
-    /// `Yes[3]:R4;R3;R2;R3;R3;R3;C3`, Pk_LeaveUnmarked_GoToMarkedThenUnmarked `Yes[3]:R3;R2;R3;R3;C3`). Any other row then walks
-    /// the marked rows from the first and answers false on that row, in either key (:Name_LeaveUnmarked_GoToUnmarked,
-    /// :Pk_LeaveUnmarked_GoToFirstMarked `No[3]:R3;R2;R3;R3;C3;R2;R2;C2;R3;R3;C3`). Pinned with a part, the row Rec was left on the
+    /// (pages/onopenpage-moves-rec/DrillDownMarkedRecLeft.al:408 Name_LeaveUnmarked_GoToMarkedThenUnmarked `goto 3`
+    /// `Yes[3]:R4;R3;R2;R3;R3;R3;C3`, :646 Pk_LeaveUnmarked_GoToMarkedThenUnmarked `Yes[3]:R3;R2;R3;R3;C3`). Any other row then walks
+    /// the marked rows from the first and answers false on that row, in either key (:452 Name_LeaveUnmarked_GoToUnmarked,
+    /// :669 Pk_LeaveUnmarked_GoToFirstMarked `No[3]:R3;R2;R3;R3;C3;R2;R2;C2;R3;R3;C3`). Pinned with a part, the row Rec was left on the
     /// last of the view; marked rows after it, no marked row before it or no part are refused. `None` when Rec is on a marked row;
     /// else Rec is moved to that row and the row it was left on is answered.
     fn marked_refill_outside(&mut self, st: &St, rec: &Rec) -> Result<Option<Vec<Value>>, Signal> {
@@ -180,7 +180,6 @@ impl Session {
         if !matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(-1)])?, Value::Integer(n) if n != 0) {
             return refuse("with Rec left outside the marked rows, after no marked row");
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DrilldownMarkedRecOutside);
         let nearest = probe.borrow().fields.clone();
         Ok(Some(std::mem::replace(&mut rec.borrow_mut().fields, nearest)))
     }

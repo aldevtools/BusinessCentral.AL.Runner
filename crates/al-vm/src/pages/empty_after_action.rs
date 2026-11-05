@@ -2,10 +2,10 @@
 //! CurrPage.Update(false) or Update(true) (al-runner issue 6945). The page shows a blank row and runs no OnAfterGetCurrRecord.
 //! After the update OnAfterGetRecord runs for rows of the old view the new one no longer holds: on BC 27 and 29 once, for the row
 //! before the row the page stood on (the row after it when there is none); on BC 28 for every other row, from the row before it up
-//! to the first, then the rows after it (corpus pages/actions/ActionFilterEmptyView.al Action_NoRowsLeft_UpdateFalse_Moves
-//! `[|]:R1;a1;u1;R2`, 28.5 `R1;a1;u1;R2;R3;R4`; Action_NoRowsLeft_FromLaterRow_UpdateFalse `R3;a3;u3;R2`, 28.5
+//! to the first, then the rows after it (corpus pages/actions/ActionFilterEmptyView.al:226 Action_NoRowsLeft_UpdateFalse_Moves
+//! `[|]:R1;a1;u1;R2`, 28.5 `R1;a1;u1;R2;R3;R4`; :322 Action_NoRowsLeft_FromLaterRow_UpdateFalse `R3;a3;u3;R2`, 28.5
 //! `R3;a3;u3;R2;R1;R4`; _UpdateTrue alike). First, Next, Last, Previous, GoToRecord and GoToKey then answer false on the blank
-//! row (:_Moves, :_GoTo).
+//! row (:226, :251 _Moves, :276, :299 _GoTo).
 //!
 //! Pinned for a list whose view had no filter before the action, read from a row of fewer rows than a window; any other shape is
 //! refused.
@@ -16,7 +16,7 @@ use al_builtins::record_op::RecordOp;
 impl Session {
     /// Whether control `idx` reads blank: a control bound to the page's record on a page that shows no row (`shows_no_row`), and
     /// after an action left the view without rows any control in the repeater, a page variable too
-    /// (pages/actions/ActionFilterEmptyView.al Action_NoRowsLeft_UpdateFalse_Moves `[|]`).
+    /// (pages/actions/ActionFilterEmptyView.al:226 Action_NoRowsLeft_UpdateFalse_Moves `[|]`).
     pub(super) fn value_reads_blank(&self, st: &St, idx: usize) -> bool {
         let blank_row = st.borrow().empty_after_action && st.borrow().cursor == Cursor::None;
         (blank_row && self.in_repeater(st, idx)) || self.shows_no_row(st, idx)
@@ -66,7 +66,6 @@ impl Session {
         if reads.len() >= Self::WINDOW {
             return refuse();
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ActionEmptyView);
         for fields in reads {
             rec.borrow_mut().fields = fields;
             self.populate_current(st)?;
