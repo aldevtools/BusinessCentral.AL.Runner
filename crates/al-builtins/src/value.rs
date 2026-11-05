@@ -201,6 +201,10 @@ pub enum SqlForm {
     Delta,
     /// A difference known to be at least the number, its exact size not pinned.
     AtLeast,
+    /// The difference of two reads of one counter of different epochs: work whose change no test pins ran between them, so
+    /// neither its size nor its sign is known. It may be stored, passed on, formatted and logged; every use that reads it
+    /// is refused (`al_builtins::sqlcount`).
+    Unknown,
 }
 
 /// Which counter.

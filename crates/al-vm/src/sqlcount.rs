@@ -1182,6 +1182,10 @@ pub(crate) fn guard(
         "Variant.Into#1" | "Session.LogMessage#1" | "Session.LogMessage#2" => return Ok(()),
         "System.Round#1" | "System.Format#1" => &[0],
         "List.Add#1" => &[0],
+        // `List.Set(Index, Value)` and `List.Insert(Index, Value)` store it as a value the same way `List.Add` does, and
+        // `List.Set(Index, NewValue, var OldValue)` also hands the old value back unread.
+        "List.Set#1" | "List.Insert#1" => &[1],
+        "List.Set#2" => &[1, 2],
         "List.Get#2" | "Dictionary.Get#2" | "Dictionary.Add#1" | "Dictionary.Set#1" => &[1],
         "Dictionary.Set#2" => &[1, 2],
         _ => &[],
