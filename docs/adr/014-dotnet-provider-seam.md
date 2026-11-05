@@ -228,6 +228,7 @@ item 6). The wire carries a tagged value.
   1. Passing an `InStream`: Rust sends the unread bytes. The sidecar wraps them
      in a read-only `MemoryStream`. After the call, Rust moves the AL read
      position by the number of bytes .NET consumed.
+     Amended by ADR-067: a stream past its start is sent whole with its position.
   2. Passing an `OutStream`: the sidecar creates a writable stream (the
      **bridge**). After the call, and after every later call that could touch
      it, Rust appends the newly written bytes to the AL blob.
