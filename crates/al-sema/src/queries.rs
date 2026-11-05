@@ -622,7 +622,7 @@ impl Builder<'_> {
         // A plain column over a Sum or Count FlowField of a left-outer-joined child of the top dataitem is
         // calculated per joined row and is 0 for a parent without a matching child (errors/lt-ms-refusals-130/
         // P130QueryOuterFlow.al:151-172, :198-217; al-runner issue 6174). Other FlowField kinds (Exist, Lookup,
-        // Average, Min, Max), a Method column in the query, a ColumnFilter, a deeper dataitem or a right or full outer join in the
+        // Average, Min, Max), a plain FlowField column beside a Method column, a ColumnFilter, a deeper dataitem or a right or full outer join in the
         // query are not pinned.
         let any_right = self.items.iter().any(|i| i.right_outer);
         let grouped = self.columns.iter().any(|c| c.method.is_some());
@@ -638,11 +638,24 @@ impl Builder<'_> {
                         .iter()
                         .any(|k| cf.strip_prefix(k).is_some_and(|r| r.trim_start().starts_with('(')))
                 });
+                // A Method = Sum column over such a FlowField, grouped by the parent, sums the per-row values and is 0 for a
+                // parent without a child (corpus branch al-runtime-rs-staging-r6988, queries/flowfields-filters/
+                // QueryOuterFlowFilters.al OuterFlowFilter_SumColumns_Rows; Base Application query 1319, issue 6991).
+                let plain_or_sum = match c.method {
+                    None => !grouped,
+                    Some(m) => m == ir::QueryMethod::Sum,
+                };
+                // A filter() element over a FlowFilter field sets the flow filter of the FlowFields of its data item: it
+                // reads no column and drops no row (QueryOuterFlowFilters.al OuterFlowFilter_PlainColumns_Rows and
+                // OuterFlowFilter_SumColumns_Rows; issue 6991).
+                if f.class == FieldClass::FlowFilter && c.filter_element && top_child && !any_right {
+                    continue;
+                }
                 let pinned = f.class == FieldClass::FlowField
                     && sum_or_count
                     && top_child
                     && !any_right
-                    && !grouped
+                    && plain_or_sum
                     && !c.filter_element
                     && !c.reverse_sign
                     && c.static_filter.is_none();

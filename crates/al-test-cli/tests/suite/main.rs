@@ -122,6 +122,7 @@ mod perm_compose;
 mod prepush_script;
 mod printer_table;
 mod provider_factbox_edit;
+mod query_outer_flow;
 mod quoted_ident;
 mod r1b_page_moves;
 mod readable_messages;
