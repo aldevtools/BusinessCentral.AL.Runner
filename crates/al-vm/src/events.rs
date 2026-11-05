@@ -512,6 +512,12 @@ impl Registry {
         found.into_iter().next()
     }
 
+    /// Whether any subscriber (compiled or not) listens to an event of object `object`.
+    pub fn any_subscriber_of(&self, object: usize) -> bool {
+        self.subscribers.iter().any(|((o, _), v)| *o == object && !v.is_empty())
+            || self.missing.keys().any(|(o, _)| *o == object)
+    }
+
     pub fn is_subscribed(&self, object: usize, event: &str) -> bool {
         self.subscribers
             .get(&(object, event.to_string()))

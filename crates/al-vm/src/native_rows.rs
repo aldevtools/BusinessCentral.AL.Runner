@@ -30,6 +30,22 @@ impl Session {
         Ok(())
     }
 
+    /// Whether the subscribers of `Global Triggers` turn on any database event, or the Rename bit of the global trigger
+    /// mask, for table object `table`: they are asked now, as the first write to the table would ask them (once per
+    /// session, `globaltriggers.rs`), so a write that follows asks nothing more.
+    pub fn database_triggers_on(&mut self, table: usize) -> Result<bool, Signal> {
+        if !self.engine.events.has_global_triggers {
+            return Ok(false);
+        }
+        let rec = self.record_with(table, &[])?;
+        let Value::Record(r) = &rec else {
+            unreachable!("a record")
+        };
+        let t = self.table(r)?;
+        let s = self.global_setup(&t)?;
+        Ok(s.insert || s.modify || s.delete || s.rename || s.global_rename)
+    }
+
     /// A record variable of table object `table`, initialized, with the fields named by id in `values` set (converted
     /// to the field's type). Nothing is written.
     pub fn record_with(&mut self, table: usize, values: &[(u32, Value)]) -> Result<Value, Signal> {
