@@ -28,21 +28,22 @@ impl Session {
         // A table element record after an export under SourceTableView: what corpus writer TS pinned of it runs, the rest
         // refuses (records.rs `XP_VIEW_AFTER_EXPORT`, former assumption `xmlport-export-again` (pinned on corpus master since bump 1030)).
         for (i, n) in schema.xp().nodes.iter().enumerate() {
+            // Without a SourceTableView the link filter of a linked MaxOccurs = Once element with LinkFields does not show either
+            // (corpus branch al-runtime-rs-staging-r7089, xmlports/shapes-properties/XpNestedLinkedOnce.al XOM_TempOnce_*,
+            // XOM_RealOnce_* `held ...|filters=`; with a temporary child it counts, XOM_TempOnce_OneParent_TwoChildren `count=2`).
+            let linked_once = n.max_unbounded == Some(false) && n.link_node.is_some() && !n.link_fields.is_empty();
+            if n.source_view.is_none() && linked_once {
+                if let Ok(rec) = self.xp_record(inst, schema.node(i)) {
+                    self.xp_hide_link_filter(&rec, n);
+                }
+            }
             if n.source_view.is_some() {
                 if let Ok(rec) = self.xp_record(inst, schema.node(i)) {
                     // The link filter of a linked element with LinkFields does not show afterwards: GetFilters reads '' (corpus
                     // PR 896, streams/Np4XmlPort.al Y9_XmlPort_LinkedOnceOnce_* `held ...|filters=`). It is kept
                     // with the view's own filters, which count but do not show.
                     if !n.link_fields.is_empty() {
-                        for f in rec.borrow_mut().filters.iter_mut() {
-                            if f.group == 0 && n.link_fields.iter().any(|(own, _)| *own == f.field) {
-                                f.group = XP_VIEW_GROUP;
-                            }
-                        }
-                        let addr = Rc::as_ptr(&rec) as usize;
-                        if !self.xp_link_hidden.contains(&addr) {
-                            self.xp_link_hidden.push(addr);
-                        }
+                        self.xp_hide_link_filter(&rec, n);
                     }
                     if rec.borrow().unpinned_buffer != Some(crate::records::XP_ROW_AFTER_ONCE) {
                         rec.borrow_mut().unpinned_buffer = Some(crate::records::XP_VIEW_AFTER_EXPORT);
@@ -51,6 +52,19 @@ impl Session {
             }
         }
         result
+    }
+
+    /// Moves the link filter of linked table element `n` out of sight: it still counts, GetFilters no longer reads it.
+    fn xp_hide_link_filter(&mut self, rec: &Rec, n: &ir::XmlNode) {
+        for f in rec.borrow_mut().filters.iter_mut() {
+            if f.group == 0 && n.link_fields.iter().any(|(own, _)| *own == f.field) {
+                f.group = XP_VIEW_GROUP;
+            }
+        }
+        let addr = Rc::as_ptr(rec) as usize;
+        if !self.xp_link_hidden.contains(&addr) {
+            self.xp_link_hidden.push(addr);
+        }
     }
 
     /// The export that ends in OnPreXmlPort: the XML declaration alone (54 bytes, UTF-8), result true.

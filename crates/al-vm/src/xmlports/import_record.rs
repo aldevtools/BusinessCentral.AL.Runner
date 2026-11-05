@@ -23,7 +23,11 @@ impl Session {
                 "XmlPort import of a table element with MaxOccurs = Once and no LinkTable below another table element (not pinned)",
             );
         }
-        if n.max_unbounded == Some(false) && nested_table(schema, node) {
+        // Linked with LinkFields, no MinOccurs, a real table: one element per parent imports like an unbounded one (corpus branch
+        // al-runtime-rs-staging-r7089, xmlports/shapes-properties/XpNestedLinkedOnce.al XOM_ImportOnce_OneChild; none and two are
+        // schema errors, _NoChild and _TwoChildren). al-sema lets only that shape through on import.
+        let linked_once = n.link_node.is_some() && !n.link_fields.is_empty() && !n.min_zero && !n.use_temporary;
+        if n.max_unbounded == Some(false) && nested_table(schema, node) && !linked_once {
             return unsupported(
                 "XmlPort import of a table element with MaxOccurs = Once below another table element (not pinned)",
             );

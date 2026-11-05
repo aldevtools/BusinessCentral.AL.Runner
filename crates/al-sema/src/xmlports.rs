@@ -852,13 +852,20 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
             // Linked with LinkFields, MinOccurs = Once and MaxOccurs = Once, on an export port: the first row of each pass in the
             // view's order, a pass without rows writes the record as it stands (corpus PR 896, streams/Np4XmlPort.al
             // Y9_XmlPort_LinkedOnceOnce_ZeroOneTwoRows, _TwoRowsThenNone, _OneRowThenNone; the VM decides the row held after).
+            // No MinOccurs is MinOccurs = Once there, also on a temporary child the parent's OnAfterGetRecord fills, and the import of
+            // a real-table child takes one element per parent (corpus branch al-runtime-rs-staging-r7089,
+            // xmlports/shapes-properties/XpNestedLinkedOnce.al XOM_TempOnce_*, XOM_TempOnceUnbounded_*, XOM_RealOnce_* on an export
+            // port; XOM_ImportOnce_OneChild, _NoChild, _TwoChildren on an import port). An explicit MinOccurs = Once on import, a
+            // temporary child on import, and Direction = Both are not pinned.
+            let min_occurs = occurs("MinOccurs");
+            let import_default_min = layout.direction == ir::XmlDirection::Import
+                && min_occurs.is_none()
+                && layout.property(i, "UseTemporary").and_then(|v| bool_prop(&v)) != Some(true);
             let linked_once_once = linked
                 && layout.property(i, "LinkFields").is_some()
-                && layout.direction == ir::XmlDirection::Export
-                && matches!(
-                    (occurs("MinOccurs").as_deref(), occurs("MaxOccurs").as_deref()),
-                    (Some("once"), Some("once"))
-                );
+                && (layout.direction == ir::XmlDirection::Export || import_default_min)
+                && matches!(min_occurs.as_deref(), Some("once") | None)
+                && occurs("MaxOccurs").as_deref() == Some("once");
             if linked_once_once {
                 (&["once"][..], &["once"][..])
             } else if layout.direction == ir::XmlDirection::Export || saves {
@@ -1352,6 +1359,31 @@ mod tests {
             "xmlport 1 X { schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { LinkTable = H; MaxOccurs = Once; fieldelement(N; L.X) { } } } } } }",
         ] {
             assert!(!layout_of(refused).run_reasons.is_empty(), "{refused}");
+        }
+    }
+
+    #[test]
+    fn max_occurs_once_without_min_occurs_on_a_linked_nested_table_element_with_link_fields_runs() {
+        // Corpus branch al-runtime-rs-staging-r7089, XpNestedLinkedOnce.al XOM_TempOnce_*, XOM_RealOnce_* (export) and
+        // XOM_ImportOnce_* (import of a real table).
+        let shape = |direction: &str, extra: &str| {
+            format!(
+                "xmlport 1 X {{ Direction = {direction}; schema {{ textelement(R) {{ tableelement(H; Cust) {{ tableelement(L; Line) {{ LinkTable = H; LinkFields = A = field(B); MaxOccurs = Once; {extra} fieldelement(N; L.X) {{ }} }} }} }} }} }}"
+            )
+        };
+        for ok in [
+            shape("Export", ""),
+            shape("Export", "UseTemporary = true;"),
+            shape("Import", ""),
+        ] {
+            assert!(layout_of(&ok).run_reasons.is_empty(), "{ok}");
+        }
+        for refused in [
+            shape("Import", "UseTemporary = true;"),
+            shape("Import", "MinOccurs = Once;"),
+            shape("Both", ""),
+        ] {
+            assert!(!layout_of(&refused).run_reasons.is_empty(), "{refused}");
         }
     }
 
