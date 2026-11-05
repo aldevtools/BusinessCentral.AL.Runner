@@ -57,6 +57,7 @@ mod xmlport_empty_field_element_child;
 mod xmlport_empty_leaf_import;
 mod xmlport_empty_separator_token;
 mod xmlport_export_again;
+mod xmlport_field_max_unbounded;
 mod xmlport_field_validation;
 mod xmlport_field_wrap_more;
 mod xmlport_flowfield_import;
