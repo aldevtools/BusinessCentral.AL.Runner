@@ -521,22 +521,13 @@ fn run_codeunit_inner(
                     // OnRun ran outside the codeunit isolation of runner 130450: the later codeunits start from what it left,
                     // committed and open, whatever the tests do (RqIsolationModes.al:357-369 #else).
                     if let Some(start) = &onrun_from {
-                        let everything = session.storage_or_sequences_differ(start);
-                        let mut baseline = session.capture_baseline();
-                        baseline.workspace_installs = Some(skipped_installs.clone());
-                        // The rows OnRun wrote are in the session company only.
-                        baseline.install_rows = Some(session.install_rows());
-                        onrun_left = Some(Carried {
-                            baseline: Some(baseline),
-                            tables: session.store_mut().tables_changed_since(changes_from),
-                            unfinished: None,
-                            // Isolated storage and number sequences carry as the rows do, committed and open
-                            // (testlibraries test-framework/onrun-storage/Y35OnRunStorage.al C301_B1_OnRunCommittedStorage,
-                            // C301_B1_OnRunSequences, C301_B1_OnRunOpenWrites): a later codeunit whose reach can touch them
-                            // starts from this baseline (`corpus.rs`, `Carried::everything`).
-                            storage_why: None,
-                            everything,
-                        });
+                        onrun_left = Some(super::numbers_taken::onrun_left(
+                            session,
+                            start,
+                            baseline,
+                            &skipped_installs,
+                            changes_from,
+                        ));
                     }
                 }
                 Err(Signal::Unsupported(r)) if r.starts_with(TIME_LIMIT_REASON) => {
@@ -973,12 +964,8 @@ fn run_codeunit_inner(
                         };
                         // The runner's step after the method. It only changes what later tests of the codeunit start
                         // from; if it cannot run, their failures are not trusted.
-                        let after = if skipped {
-                            Ok(())
-                        } else {
-                            runner.after(session, obj, routine, outcome == Outcome::Pass)
-                        };
-                        if let Err(why) = after {
+                        // A skipped method gets no OnAfterTestRun (assumption `test-runner-trigger-calls`).
+                        if let Err(why) = runner.after(session, obj, routine, outcome == Outcome::Pass, skipped) {
                             session.rollback_transaction();
                             runner_refused.get_or_insert(why);
                         }
@@ -1373,6 +1360,7 @@ fn carry_disabled(
         unfinished,
         storage_why,
         everything,
+        as_started: false,
     };
     CARRIED.with(|c| *c.borrow_mut() = Some(carried));
 }
@@ -1397,6 +1385,24 @@ pub(crate) struct Carried {
     pub everything: bool,
     /// Why what it left there is not followed (set with `everything`): such a later codeunit is not run.
     pub storage_why: Option<String>,
+    /// What its `OnRun` left is exactly the state the codeunit started from (`Session::holds_what_it_started_from`, and
+    /// the same workspace installs): a session started from `baseline` starts as one started from that state.
+    pub as_started: bool,
+}
+
+impl Carried {
+    /// What a codeunit that left nothing new carries: the state it was given (`baseline: None`, which the chain fills
+    /// with that state, `chain_walk.rs`).
+    pub fn nothing() -> Carried {
+        Carried {
+            baseline: None,
+            tables: BTreeSet::new(),
+            unfinished: None,
+            everything: false,
+            storage_why: None,
+            as_started: false,
+        }
+    }
 }
 
 /// Sets a session's stop flag when a test has used more than its limit of CPU time. The time the

@@ -1967,6 +1967,9 @@ fn test_inner(
             })
             .collect();
         eprintln!("slowest test codeunits: {}", slowest.join("; "));
+        for line in p.chain.lines() {
+            eprintln!("{line}");
+        }
         if d.started > 0 {
             eprintln!(
                 "dotnet: {} .NET sidecar process(es) started: starting {} in total, {} at most; finding dotnet {}; sessions waited {} for theirs; {} request(s) {}",
