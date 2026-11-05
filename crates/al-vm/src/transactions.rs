@@ -448,6 +448,7 @@ impl Session {
         let Some(t) = self.tx.used_tries.last() else {
             return Ok(());
         };
+        self.refuse_allowed_try_write(function)?;
         // Install code has no test runner around it: a Commit in a TryFunction there commits and the code goes on
         // (metadata/CmInstallLeads.al:58-59, CmInstallObjects.al:69-70). Other writes there are not pinned.
         if self.install_without_client {
@@ -525,6 +526,75 @@ impl Session {
         self.gate_used_try_write(function)
     }
 
+    /// With DisableWriteInsideTryFunctions off (`Engine::write_in_try_allowed`, al-runner issue 7143) a write of a TryFunction
+    /// whose result is used is allowed on Business Central, but what it does then (whether the write stays, what an error
+    /// after it rolls back, what the TryFunction returns) has not been measured: the corpus CI runs BC containers with the
+    /// setting at its default. Refused until a probe pins it (docs/probes-needed.md; the probe app is corpus
+    /// tests/al-language-trywrite-allowed, measured on a server with the setting off). A write the try does not own (an
+    /// XmlPort import or a report the try started) is allowed in both modes and is not refused here.
+    fn refuse_allowed_try_write(&self, function: &str) -> Result<(), Signal> {
+        // A Commit in a TryFunction of install code commits in either mode (metadata/CmInstallLeads.al:58-59).
+        let install_commit = self.install_without_client && function == "COMMIT";
+        if !self.engine.write_in_try_allowed
+            || install_commit
+            || matches!(self.used_try_nested_world(), Ok(Some(Ok(()))))
+        {
+            return Ok(());
+        }
+        Err(Signal::Unsupported(format!(
+            "{function} inside a TryFunction whose result is used, with --allow-write-in-try-functions (DisableWriteInsideTryFunctions off): what Business Central does then is not pinned"
+        )))
+    }
+
+    /// Delete, DeleteAll, ModifyAll and Rename of a database table inside a TryFunction whose result is used raise
+    /// TryFunctionWrite named DELETE, DELETEALL, MODIFYALL and RENAME, before any row changes; DeleteAll also on an empty
+    /// table (errors/lt-r7143-try-write/R7143TryWriteDeny.al:94-176, corpus PR 1156, measured on 27.5, 28.5 and 29.0; not
+    /// yet in the pin: assumption try-function-write-delete-rename; al-runner issue 7143). Whether the check comes before
+    /// the table's own triggers and the subscribers is not pinned: a table that has any is refused. Other writes keep
+    /// `refuse_used_try_write`.
+    pub(crate) fn gate_used_try_other_write(&mut self, t: &al_data::TableDef, method: RecordOp) -> Result<(), Signal> {
+        let (function, events, triggers): (&str, &[&str], &[&str]) = match method {
+            RecordOp::Delete | RecordOp::DeleteAll => (
+                if method == RecordOp::Delete {
+                    "DELETE"
+                } else {
+                    "DELETEALL"
+                },
+                &["onbeforedeleteevent", "onafterdeleteevent"],
+                &["OnBeforeDelete", "OnDelete", "OnAfterDelete"],
+            ),
+            RecordOp::ModifyAll => (
+                "MODIFYALL",
+                &["onbeforemodifyevent", "onaftermodifyevent"],
+                &["OnBeforeModify", "OnModify", "OnAfterModify"],
+            ),
+            RecordOp::Rename => (
+                "RENAME",
+                &["onbeforerenameevent", "onafterrenameevent"],
+                &["OnBeforeRename", "OnRename", "OnAfterRename"],
+            ),
+            _ => return self.refuse_used_try_write(method),
+        };
+        if !self.used_try_write_applies() || self.tx.xp_export_try_world == Some(self.tx.tx_world) {
+            return self.refuse_used_try_write(method);
+        }
+        let mut code = false;
+        for e in events {
+            code |= self.listened(t, e, None)?;
+        }
+        code |= triggers
+            .iter()
+            .any(|n| self.table_trigger(t, n).is_some() || !self.ext_triggers(t, n).is_empty());
+        if code {
+            return Err(Signal::Unsupported(format!(
+                "{} inside a TryFunction whose result is used, on a table with triggers or event subscribers for it (whether they run before the TryFunctionWrite error is not pinned)",
+                method.name()
+            )));
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TryFunctionWriteDeleteRename);
+        self.gate_used_try_write(function)
+    }
+
     /// Whether a write here is a write of a TryFunction whose result is used (`gate_used_try_write` would raise).
     pub(crate) fn used_try_write_applies(&self) -> bool {
         self.tx
@@ -548,6 +618,7 @@ impl Session {
         if let Some(r) = self.used_try_nested_world()? {
             return r;
         }
+        self.refuse_allowed_try_write(&method.name().to_uppercase())?;
         Err(Signal::Unsupported(format!(
             "{} of a database table inside a TryFunction whose result is used (only Insert, Modify and Commit are pinned)",
             method.name()

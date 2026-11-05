@@ -176,6 +176,10 @@ pub struct Engine {
     /// The BC license of the run (ADR-060): License Permission answers from it. `None`: no license was available, and
     /// only the pinned rows are served.
     pub license: Option<Arc<al_host::license::License>>,
+    /// The service-tier setting DisableWriteInsideTryFunctions is off (`al-runner test --allow-write-in-try-functions`, al-runner
+    /// issue 7143), as on Business Central online. Default `false`: the setting at its default, as on a BC container and the
+    /// corpus CI, where a write inside a TryFunction whose result is used raises TryFunctionWrite.
+    pub write_in_try_allowed: bool,
     /// (table object, field position) -> the error BC raises when it evaluates the field's
     /// `InitValue` (`0DT` on a DateTime, a closing-date literal on a Date).
     pub unevaluable_init: Arc<std::collections::HashMap<(u32, usize), String>>,
@@ -449,6 +453,7 @@ impl Engine {
             dotnet_called: Default::default(),
             test_data: None,
             license: None,
+            write_in_try_allowed: false,
             unevaluable_init: Arc::new(unevaluable_init),
             table_facts: table_facts.into(),
             object_facts: object_facts.into(),
@@ -494,6 +499,7 @@ impl Engine {
             dotnet_called: Default::default(),
             test_data: None,
             license: None,
+            write_in_try_allowed: false,
             unevaluable_init: self.unevaluable_init.clone(),
             table_facts: self.table_facts.clone(),
             object_facts: self.object_facts.clone(),
@@ -554,6 +560,7 @@ impl Engine {
             dotnet_called,
             test_data,
             license,
+            write_in_try_allowed,
             // From the program and the config of `with_config` (and al-testrun's `global_triggers_find_unavailable`,
             // which reads only the compile): the same for every run over this program.
             program: _,
@@ -597,6 +604,7 @@ impl Engine {
         *dotnet_called.get_mut() = false;
         *test_data = None;
         *license = None;
+        *write_in_try_allowed = false;
     }
 
     /// The first compiled codeunit with this id, in program order: the object `Codeunit.Run(Id)` runs. Found in an index
