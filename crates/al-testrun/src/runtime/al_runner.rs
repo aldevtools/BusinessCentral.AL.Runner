@@ -411,3 +411,24 @@ pub(crate) fn with_runner(
 ) -> Result<(TestIsolation, bool, Option<usize>), String> {
     unit.and_then(|(i, hub)| choose(choice, engine, i, hub || hub_path).map(|r| (i, hub, r)))
 }
+
+/// Why the install baseline runs for `choice` (ADR-066): the compile lowered a runner codeunit of the run, whose code
+/// raises events whose subscribers may read what the baseline wrote. `None`: al-runner's own runner, or no such runner.
+pub(crate) fn runner_note(choice: TestRunner, lowered: &al_sema::lower::Lowered) -> Option<String> {
+    let objects = &lowered.program.objects;
+    let ids = choice.root_ids();
+    objects
+        .heads()
+        .iter()
+        .enumerate()
+        .find(|(o, h)| {
+            h.is_kind(al_ir::ObjKind::Codeunit) && h.id.is_some_and(|id| ids.contains(&id)) && !objects[*o].uncompiled
+        })
+        .map(|(_, h)| {
+            format!(
+                "the tests run through test runner codeunit {} {}, whose events reach subscribers that may read it (ADR-066)",
+                h.id.unwrap_or(0),
+                h.name
+            )
+        })
+}

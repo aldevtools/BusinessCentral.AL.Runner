@@ -387,9 +387,7 @@ impl CorpusRuntime {
             && !opts.execute
             // A company built by a codeunit in the baseline is the company every test runs in.
             && opts.company_data.is_none()
-            && suites.iter().all(|s| s.runner.is_none())
-            // A runner codeunit's code and the subscribers to its events can read anything the baseline wrote (ADR-066).
-            && opts.test_runner == TestRunner::Builtin;
+            && suites.iter().all(|s| s.runner.is_none());
         let compile_started = std::time::Instant::now();
         // The compile cache holds the dependency apps, which come first in the program (ADR-022).
         // The caller's order is kept in `order` (program app -> caller app) for what it gets back.
@@ -660,7 +658,11 @@ impl CorpusRuntime {
                         continue;
                     }
                     weighed = true;
-                    baseline_note = observed.why;
+                    // A run through a runner codeunit of the Test Runner app (ADR-066): the runner's code raises events
+                    // whose subscribers can read anything the baseline wrote.
+                    baseline_note = observed
+                        .why
+                        .or_else(|| super::al_runner::runner_note(opts.test_runner, &lowered));
                     baseline = baseline_note.is_some();
                     if baseline {
                         // Back to the apps as they were; a file not read yet is read when the compile that
