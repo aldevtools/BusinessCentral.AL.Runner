@@ -283,9 +283,13 @@ pub fn format_with_field_places(
     };
     if !undefined_codes.is_empty()
         && pieces.iter().any(|(is_code, _)| *is_code)
-        && pieces
-            .iter()
-            .all(|(is_code, text)| !is_code || undefined_codes.contains(text))
+        && pieces.iter().all(|(is_code, text)| {
+            !is_code
+                    || undefined_codes.contains(text)
+                    // `<Second dec>` and `<Thousands>` on 0DT (types/date-time/Format.al:1293, corpus branch
+                    // al-runtime-rs-staging-r6792 0394701c; al-runner issue 6976).
+                    || (matches!(v, Value::DateTime(0)) && (second_dec::is_plain_code(text) || *text == "Thousands"))
+        })
     {
         return Ok(crate::format::pad(String::new(), length));
     }
@@ -1649,12 +1653,10 @@ mod tests {
             )),
             "12:00 AM"
         );
-        // Codes the corpus does not pin on an undefined value stay refused.
-        for (v, f) in [
-            (Value::DateTime(0), "<Thousands>"),
-            (Value::Time(0), "<Thousands>"),
-            (Value::Date(0, false), "<Closing>"),
-        ] {
+        // `<Thousands>` on 0DT writes nothing (types/date-time/Format.al:1293 `0DT thousands`, corpus branch
+        // al-runtime-rs-staging-r6792 0394701c). Codes the corpus does not pin on an undefined value stay refused.
+        assert_eq!(text(fmt(Value::DateTime(0), "<Thousands>")), "");
+        for (v, f) in [(Value::Time(0), "<Thousands>"), (Value::Date(0, false), "<Closing>")] {
             assert!(matches!(fmt(v, f), Err(Signal::Unsupported(_))), "{f}");
         }
     }

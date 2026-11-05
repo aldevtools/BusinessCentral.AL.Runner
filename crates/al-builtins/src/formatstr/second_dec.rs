@@ -63,3 +63,16 @@ pub(super) fn without_width(code: &str) -> bool {
         "second dec" | "second dec."
     )
 }
+
+/// Whether `code` is `<Second dec>` or `<Second dec.>` in any case, alone or with a width from 1 to 5: on the undefined DateTime
+/// 0DT such a code writes nothing, as the other codes do (corpus branch al-runtime-rs-staging-r6792 0394701c,
+/// types/date-time/Format.al:1293 Y64_DateTime_Format_SecondDecPeriod_Undefined, al-runner issue 6976). `<Second dec..>` is
+/// no such code: it stays the invalid-format error there.
+pub(super) fn is_plain_code(code: &str) -> bool {
+    let (name, width) = match code.split_once(',') {
+        Some((n, w)) => (n, Some(w.trim())),
+        None => (code, None),
+    };
+    let lname = name.trim_end().to_ascii_lowercase();
+    matches!(lname.as_str(), "second dec" | "second dec.") && width.is_none_or(|w| matches!(w.parse::<u8>(), Ok(1..=5)))
+}
