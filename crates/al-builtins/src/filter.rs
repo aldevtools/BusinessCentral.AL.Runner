@@ -996,6 +996,10 @@ impl Parser<'_> {
             // A quoted empty text on a DateTime field is the blank DateTime (types/P136Filter.al:361, corpus
             // master, TV_SetView_DateTime_LiteralTexts `empty` keeps only the row with no DateTime).
             Tok::Quoted(s) if s.is_empty() && matches!(self.ty, T::DateTime) => return Ok(Value::DateTime(0)),
+            // A quoted empty text on a Time field is the undefined Time, after every operator, as a range end and in an OR list
+            // (corpus branch al-runtime-rs-staging-r6792 0394701c, record/filters/TimeFilterEmptyText.al:104-128, al-runner
+            // issue 6900).
+            Tok::Quoted(s) if s.is_empty() && matches!(self.ty, T::Time) => return Ok(Value::Time(0)),
             // On a Media field a quoted empty text, alone or after `<>`, raises the Guid format error
             // (streams/media/SoMediaFilter.al:143-147, SO_MediaFilter_EmptyAndQuoted).
             Tok::Quoted(s)
@@ -1318,6 +1322,16 @@ impl Parser<'_> {
                     Some(v) => self.typed(v)?,
                     None if matches!(self.ty, crate::value::RtType::Text(_) | crate::value::RtType::Code(_)) => {
                         Value::Text(String::new().into())
+                    }
+                    // `<>` alone on a Time, Date or DateTime field raises the filter error (corpus branch
+                    // al-runtime-rs-staging-r6792 0394701c, record/filters/TimeFilterEmptyText.al:124, :148, :171 `ne alone`).
+                    None if op == "<>"
+                        && matches!(
+                            self.ty,
+                            crate::value::RtType::Time | crate::value::RtType::Date | crate::value::RtType::DateTime
+                        ) =>
+                    {
+                        return Err(format!("{FILTER_SYNTAX}A value is expected after the '<>'."));
                     }
                     None => return Err(format!("value expected after `{op}`")),
                 };

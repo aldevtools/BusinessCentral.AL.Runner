@@ -122,6 +122,7 @@ mod temp_blob_rewrite_after_insert;
 mod temp_sums_by_ref;
 mod temp_tables;
 mod tenant_layout_cfg;
+mod time_filter_empty_text;
 mod time_key_rounding;
 mod transactions;
 mod transferfields_cross_app;

@@ -121,7 +121,12 @@ impl Session {
                 let standard = if iso { 9 } else { 1 };
                 return al_builtins::format::try_format(v, 0, standard, self).map_err(Signal::Unsupported);
             }
-            return unsupported("the filter text of an undefined Time (not pinned)");
+            // The undefined Time shows as `''` in GetFilter(s), given as `''`, as `%1` or by SetRange (corpus branch
+            // al-runtime-rs-staging-r6792 0394701c, record/filters/TimeFilterEmptyText.al:113-126). In a view it is not pinned.
+            if !iso {
+                return Ok("''".into());
+            }
+            return unsupported("the view text of an undefined Time (not pinned)");
         }
         // A DateTime with milliseconds shows its seconds and milliseconds, as standard format 1 writes them
         // (record/filters/P130DateFilters.al:211, `03/24/24 11:59:59.999 PM`; a whole minute stays `12:00 AM`).
