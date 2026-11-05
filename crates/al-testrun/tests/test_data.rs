@@ -116,6 +116,8 @@ table 50103 "Broken" { fields { field(1; K; Code[10]) { } } keys { key(PK; K) { 
 table 50104 "Odd" { fields { field(1; K; Code[10]) { } field(2; Ref; RecordId) { } } keys { key(PK; K) { } } }
 table 50106 "Log" { fields { field(1; "No."; Integer) { AutoIncrement = true; } field(2; What; Text[30]) { } } keys { key(PK; "No.") { } } }
 table 50107 "Dim Val" { fields { field(1; Code; Code[10]) { } field(2; "Value ID"; Integer) { AutoIncrement = true; } } keys { key(PK; Code) { } } }
+table 50110 "Err Msg" { fields { field(1; ID; Integer) { } field(2; "Context Record ID"; RecordId) { } } keys { key(PK; ID) { } } }
+table 50111 "Bad Ref" { fields { field(1; ID; Integer) { } field(2; "Ref"; RecordId) { } } keys { key(PK; ID) { } } }
 table 50105 "Shared" { DataPerCompany = false; fields { field(1; K; Code[10]) { } field(2; V; Integer) { } } keys { key(PK; K) { } } }
 "#;
 
@@ -753,4 +755,69 @@ codeunit 50001 "T" { Subtype = Test;
         Some(&fake),
     );
     assert_eq!(outcome(&rt, 50001, "CopyHasRestoredRows"), Outcome::Pass);
+}
+
+/// A stored RecordId as BC writes it to its varbinary column: the table number (4 bytes, little endian), then per key field
+/// `02 7b <marker>` and the UTF-16 characters of a Code ended by two zero bytes, and two zero bytes at the end (measured on a
+/// restored database, see `al-vm/src/testdata/recordid.rs`).
+fn customer_record_id(no: &str) -> Cell {
+    let mut b = 50100u32.to_le_bytes().to_vec();
+    let marker = if no.bytes().all(|c| c.is_ascii_digit()) {
+        no.len() as u8
+    } else {
+        0xff
+    };
+    b.extend([0x02, 0x7b, marker]);
+    for c in no.bytes() {
+        b.extend([c, 0]);
+    }
+    b.extend([0, 0, 0, 0]);
+    Cell::Binary(b)
+}
+
+#[test]
+fn a_stored_record_id_is_rebuilt_from_its_bytes() {
+    let mut unknown = 50199u32.to_le_bytes().to_vec();
+    unknown.extend([0x00, 0x87, 1, 0, 0, 0, 0, 0]);
+    let fake = Arc::new(
+        customers()
+            .table(
+                "Err Msg",
+                &["ID", "Context Record ID"],
+                vec![
+                    vec![Cell::Int(1), customer_record_id("10000")],
+                    vec![Cell::Int(2), Cell::Binary(vec![0; 6])],
+                ],
+            )
+            .table(
+                "Bad Ref",
+                &["ID", "Ref"],
+                vec![vec![Cell::Int(1), Cell::Binary(unknown)]],
+            ),
+    );
+    let (rt, data) = run(
+        r#"codeunit 50001 "T" { Subtype = Test;
+  [Test] procedure Rebuilt() var E: Record "Err Msg"; C: Record "Customer"; R: RecordRef; begin
+    E.Get(1);
+    C.Get('10000');
+    if E."Context Record ID" <> C.RecordId then Error('not the customer: %1', E."Context Record ID");
+    if Format(E."Context Record ID") <> 'Customer: 10000' then Error('format %1', E."Context Record ID");
+    R.Get(E."Context Record ID");
+    if R.Number <> 50100 then Error('number %1', R.Number);
+    E.Get(2);
+    if Format(E."Context Record ID") <> '' then Error('blank %1', E."Context Record ID");
+  end;
+  [Test] procedure UnknownTable() var B: Record "Bad Ref"; begin if B.Count() <> 0 then Error('rows'); end; }"#,
+        DEP,
+        Some(&fake),
+    );
+    assert_eq!(outcome(&rt, 50001, "Rebuilt"), Outcome::Pass);
+    assert_eq!(outcome(&rt, 50001, "UnknownTable"), Outcome::Pass);
+    let s = data.unwrap().stats.summary();
+    assert_eq!(s.unsupported.len(), 1, "{:?}", s.unsupported);
+    assert!(
+        s.unsupported[0].contains("Ref") && s.unsupported[0].contains("50199"),
+        "{:?}",
+        s.unsupported
+    );
 }
