@@ -53,6 +53,14 @@ impl Session {
         result
     }
 
+    /// The namespace declarations of an exported root (`declare_namespaces`, or `declare_udn_namespaces` for its shape).
+    fn xp_declare(root: &mut Elem, xp: &ir::XmlPort) {
+        match (xp.udn_root_prefix, xp.default_ns.as_deref()) {
+            (true, Some(port_ns)) => declare_udn_namespaces(root, &xp.namespaces, port_ns),
+            _ => declare_namespaces(root, &xp.namespaces, xp.default_ns.as_deref()),
+        }
+    }
+
     /// The export that ends in OnPreXmlPort: the XML declaration alone (54 bytes, UTF-8), result true.
     pub(super) fn xp_export_declaration_only(&mut self, inst: &Inst, schema: &Schema) -> Result<Value, Signal> {
         let blob = match inst.borrow().globals[schema.xp().destination_slot].clone() {
@@ -157,7 +165,7 @@ impl Session {
                                 "XmlPort export of a text value with a line end under a table element root with namespaces (not pinned)",
                             );
                         }
-                        declare_namespaces(root, &xp.namespaces, xp.default_ns.as_deref());
+                        Self::xp_declare(root, xp);
                     }
                 }
                 let encoding = if xp.xml_utf8 { "UTF-8" } else { "UTF-16" };
@@ -179,7 +187,7 @@ impl Session {
                 self.xp_export_root_trigger(inst, schema, top)?;
             }
             match self.xp_export_container(inst, schema, top).map(|mut root| {
-                declare_namespaces(&mut root, &xp.namespaces, xp.default_ns.as_deref());
+                Self::xp_declare(&mut root, xp);
                 root
             }) {
                 // A line end in a text value (LF, CR LF, a lone CR) is written as CR LF: pinned on an UTF8 export, with and without
@@ -917,6 +925,38 @@ fn table_root_with_content(schema: &Schema, top: usize) -> bool {
 /// DgXmlPortLeads.al:290; after the root's attributes: xmlports/shapes-properties/SgXmlPortOccurs.al TF_NsAttr_Export
 /// `<Root Ver="v1" xmlns="...">`), else the uri of the empty prefix `""`, whether `""` is listed first or last
 /// (xmlports/shapes-properties/Y17XmlPortNamespacesTests.al:60, :71); a used default namespace replaces that uri (:82).
+/// The namespaces of root `root` of a port with Namespaces, UseDefaultNamespace and no DefaultNamespace (`ir::XmlPort::udn_root_prefix`;
+/// `port_ns` is BC's namespace of the port): the root loses its prefix and its uri becomes the default namespace (the port's for a
+/// root without a prefix), declared after the named ones; an element without a prefix declares `port_ns` where the default namespace
+/// in scope differs, its children inherit it; a prefixed element keeps its prefix and the scope (corpus branch
+/// al-runtime-rs-staging-r7089, xmlports/shapes-properties/XpUseDefaultNsPrefixes.al XUD_TableRoot_Export, _TextRoot_Export,
+/// _RootSecond_Export, _RootPlain_Export, _TextRootUtf16_Export, _RootOnly_Export, _ItemPrefix_Export).
+pub(super) fn declare_udn_namespaces(root: &mut Elem, namespaces: &[(String, String)], port_ns: &str) {
+    let default = match root.name.split_once(':') {
+        Some((prefix, local)) => {
+            let uri = namespaces.iter().find(|(p, _)| p == prefix).map(|(_, u)| u.clone());
+            let local = local.to_string();
+            root.name = local;
+            uri.unwrap_or_else(|| port_ns.to_string())
+        }
+        None => port_ns.to_string(),
+    };
+    fn walk(e: &mut Elem, scope: &str, port_ns: &str) {
+        for c in e.children.iter_mut() {
+            if let al_builtins::xmlport::Node::Elem(c) = c {
+                let mut inner = scope;
+                if !c.name.contains(':') && scope != port_ns {
+                    c.attrs.push(("xmlns".into(), port_ns.to_string()));
+                    inner = port_ns;
+                }
+                walk(c, inner, port_ns);
+            }
+        }
+    }
+    walk(root, &default, port_ns);
+    declare_namespaces(root, namespaces, Some(&default));
+}
+
 pub(super) fn declare_namespaces(root: &mut Elem, namespaces: &[(String, String)], default_ns: Option<&str>) {
     for (at, (prefix, uri)) in namespaces.iter().filter(|(p, _)| !p.is_empty()).enumerate() {
         root.attrs.insert(at, (format!("xmlns:{prefix}"), uri.clone()));

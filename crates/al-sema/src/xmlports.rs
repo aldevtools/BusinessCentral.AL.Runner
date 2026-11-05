@@ -40,6 +40,7 @@ pub struct Layout {
     pub namespaces: Vec<(String, String)>,
     /// `UseDefaultNamespace = true` without `DefaultNamespace`: BC's own namespace of the port.
     pub default_ns: Option<String>,
+    pub udn_root_prefix: bool,
     pub inline_schema: bool,
     pub use_lax: bool,
     pub xml_v11: bool,
@@ -202,6 +203,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
         xml_utf8: false,
         namespaces: Vec::new(),
         default_ns: None,
+        udn_root_prefix: false,
         inline_schema: false,
         use_lax: false,
         xml_v11: false,
@@ -466,9 +468,28 @@ pub fn layout(obj: &ast::Object) -> Layout {
             && (0..out.nodes.len()).any(|i| out.property(i, "NamespacePrefix").is_some())
             && (0..out.nodes.len())
                 .all(|i| out.property(i, "NamespacePrefix").is_none() || out.nodes[i].kind == ir::XmlNodeKind::Field);
+        // Without DefaultNamespace, named prefixes only, and prefixes on any elements (no attributes): the export drops the root's
+        // prefix and takes its uri as the default namespace, an element without a prefix declares the port's namespace where the
+        // namespace in scope differs; every import fails (corpus branch al-runtime-rs-staging-r7089,
+        // xmlports/shapes-properties/XpUseDefaultNsPrefixes.al XUD_*_Export, XUD_*_Import, BC 27.5, 28.5 and 29.0). UseLax,
+        // InlineSchema, V11, PreserveWhiteSpace and attributes with it are not pinned; the import is refused.
+        let udn_root_prefix = own_namespace.is_none()
+            && !named_prefixes_on_fields
+            && !out.namespaces.is_empty()
+            && out.namespaces.iter().all(|(p, _)| !p.is_empty())
+            && !(out.use_lax || out.inline_schema || out.xml_v11 || out.preserve_whitespace)
+            && out
+                .nodes
+                .iter()
+                .all(|n| !matches!(n.kind, ir::XmlNodeKind::FieldAttr | ir::XmlNodeKind::TextAttr));
         let unpinned = if out.format != ir::XmlFormat::Xml {
             Some("a text format")
         } else if named_prefixes_on_fields {
+            None
+        } else if udn_root_prefix && out.direction == ir::XmlDirection::Import {
+            Some("Namespaces on an import port")
+        } else if udn_root_prefix {
+            out.udn_root_prefix = true;
             None
         } else if !out.namespaces.is_empty() && !empty_prefix_replaced {
             Some("Namespaces")
@@ -1220,6 +1241,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
         xml_utf8: layout.xml_utf8,
         namespaces: layout.namespaces.clone(),
         default_ns: layout.default_ns.clone(),
+        udn_root_prefix: layout.udn_root_prefix,
         inline_schema: layout.inline_schema,
         use_lax: layout.use_lax,
         xml_v11: layout.xml_v11,
@@ -1401,6 +1423,32 @@ mod tests {
         assert!(zero.run_reasons.is_empty(), "{:?}", zero.run_reasons);
         let leaf = layout_of("xmlport 1 X { schema { textelement(R) { MinOccurs = Zero; } } }");
         assert!(!leaf.run_reasons.is_empty());
+    }
+
+    #[test]
+    fn use_default_namespace_with_named_namespaces_on_elements_runs_on_export() {
+        // Corpus branch al-runtime-rs-staging-r7089, XpUseDefaultNsPrefixes.al XUD_*_Export; the import is refused.
+        let port = |direction: &str, extra: &str| {
+            layout_of(&format!(
+                "xmlport 7 X {{ Direction = {direction}; Encoding = UTF8; Namespaces = soap = 'urn:s', tem = 'urn:t'; UseDefaultNamespace = true; {extra} schema {{ textelement(Envelope) {{ NamespacePrefix = 'soap'; textelement(Body) {{ NamespacePrefix = 'soap'; tableelement(H; Cust) {{ fieldelement(N; H.X) {{ NamespacePrefix = 'tem'; }} fieldattribute(A; H.Y) {{ }} }} }} }} }} }}"
+            ))
+        };
+        // An attribute with it is not pinned.
+        assert!(!port("Both", "").run_reasons.is_empty());
+        let no_attr = |direction: &str, extra: &str| {
+            layout_of(&format!(
+                "xmlport 7 X {{ Direction = {direction}; Encoding = UTF8; Namespaces = soap = 'urn:s', tem = 'urn:t'; UseDefaultNamespace = true; {extra} schema {{ textelement(Envelope) {{ NamespacePrefix = 'soap'; textelement(Body) {{ NamespacePrefix = 'soap'; tableelement(H; Cust) {{ fieldelement(N; H.X) {{ NamespacePrefix = 'tem'; }} }} }} }} }} }}"
+            ))
+        };
+        let both = no_attr("Both", "");
+        assert!(both.run_reasons.is_empty(), "{:?}", both.run_reasons);
+        assert!(both.udn_root_prefix);
+        assert_eq!(
+            both.default_ns.as_deref(),
+            Some("urn:microsoft-dynamics-nav/xmlports/x7")
+        );
+        assert!(!no_attr("Import", "").run_reasons.is_empty());
+        assert!(!no_attr("Both", "UseLax = true;").run_reasons.is_empty());
     }
 
     #[test]
