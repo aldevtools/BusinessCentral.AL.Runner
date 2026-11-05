@@ -23,6 +23,9 @@
 //! `Format` gives a marked text ([`crate::native::SQL_COUNT_TEXT_MARK`]): it may be passed on and logged
 //! (P6924_Counters_FormattedInTelemetryDimension_NoError), and every text function that reads it refuses (`Txt::has_marker`).
 //!
+//! Two reads of one counter of different epochs (work no test pins ran between them) subtract to [`SqlForm::Unknown`]: it may
+//! be stored, formatted and logged like the rest, and no arithmetic or comparison takes it (al-runner issue 6924).
+//!
 //! Every other use (another number, the digits of the text, a record field, a key, `*`, `/`) would show the model's number,
 //! which nothing pins: it is refused.
 
@@ -73,6 +76,8 @@ fn opnd(v: &Value) -> Opnd {
             } => Opnd::Read(c.n, counter, epoch, chain, floor),
             SqlForm::Delta => Opnd::Delta(c.n),
             SqlForm::AtLeast => Opnd::AtLeast(c.n),
+            // Nothing is known of it: no arithmetic and no comparison takes it.
+            SqlForm::Unknown => Opnd::Other,
         },
         Value::Integer(0) | Value::BigInteger(0) => Opnd::Zero,
         Value::Decimal(d) if d.is_zero() => Opnd::Zero,
@@ -177,6 +182,15 @@ pub fn arith(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
         (Arith::Sub, Opnd::Read(a, ca, ea, ..), Opnd::Read(b, cb, eb, ..)) if ca == cb && ea == eb => {
             Some(delta(a - b, ty))
         }
+        // Across work whose change no test pins (another epoch): a difference of unknown size and sign, which may only be
+        // stored, formatted and logged (al-runner issue 6924, a telemetry helper that logs the statements a process ran;
+        // SqlCounters.al P6924_Counters_FormattedInTelemetryDimension_NoError pins that logging the formatted difference
+        // raises no error). Every use that reads it is refused ([`Opnd::Other`]).
+        (Arith::Sub, Opnd::Read(a, ca, ..), Opnd::Read(b, cb, ..)) if ca == cb => Some(Value::SqlCount(SqlCount {
+            n: a - b,
+            form: SqlForm::Unknown,
+            ty,
+        })),
         (Arith::Add | Arith::Sub, Opnd::Delta(a), Opnd::Delta(b)) => certain_sum(a, neg(b)).map(|n| delta(n, ty)),
         _ => None,
     };
@@ -304,7 +318,35 @@ mod tests {
             arith(Arith::Sub, &read_in(5, 1, 7), &read_in(2, 1, 8)).unwrap(),
             Value::SqlCount(_)
         ));
-        assert!(arith(Arith::Sub, &read_in(5, 2, 7), &read_in(2, 1, 7)).is_err());
+        assert!(matches!(
+            arith(Arith::Sub, &read_in(5, 2, 7), &read_in(2, 1, 7)).unwrap(),
+            Value::SqlCount(SqlCount {
+                form: SqlForm::Unknown,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn a_difference_across_epochs_takes_no_arithmetic_and_no_comparison() {
+        let d = arith(Arith::Sub, &read(3, 2), &read(2, 1)).unwrap();
+        assert!(arith(Arith::Add, &d, &Value::Integer(0)).is_err());
+        assert!(arith(Arith::Sub, &d, &d).is_err());
+        assert!(arith(Arith::Add, &d, &arith(Arith::Sub, &read(3, 1), &read(2, 1)).unwrap()).is_err());
+        assert!(compare(Cmp::Ge, &d, &Value::Integer(0)).is_err());
+        assert!(compare(Cmp::Eq, &d, &d).is_err());
+        assert!(order(&d, &Value::Integer(0)).is_err());
+        let other = Value::SqlCount(SqlCount {
+            n: 1,
+            form: SqlForm::Read {
+                counter: SqlCounter::RowsRead,
+                epoch: 1,
+                chain: 1,
+                floor: 0,
+            },
+            ty: SqlType::BigInteger,
+        });
+        assert!(arith(Arith::Sub, &read(3, 2), &other).is_err());
     }
 
     #[test]
@@ -314,7 +356,6 @@ mod tests {
         assert!(!compare(Cmp::Eq, &d, &Value::BigInteger(0)).unwrap());
         assert!(compare(Cmp::Gt, &read(3, 1), &read(2, 1)).unwrap());
         assert!(compare(Cmp::Gt, &d, &Value::Integer(1)).is_err());
-        assert!(arith(Arith::Sub, &read(3, 2), &read(2, 1)).is_err());
         assert!(compare(Cmp::Eq, &read(3, 2), &read(2, 1)).is_err());
     }
 
