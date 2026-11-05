@@ -37,14 +37,9 @@ impl Session {
             r.ascending = ascending;
             Rc::new(RefCell::new(r))
         };
-        let major = self
-            .engine
-            .target
-            .as_ref()
-            .map_or(al_version::MIN_BC_MAJOR, |t| t.bc.major);
-        let Some(every_row) = al_version::empty_action_view_reads_every_row(major) else {
-            return refuse();
-        };
+        // Every other row on BC 28, one row on BC 27 and from BC 29 (ActionFilterEmptyView.al:226, :322).
+        let every_row = self.has(al_version::Gate::EmptyActionViewEveryRowFrom28)
+            && !self.has(al_version::Gate::EmptyActionViewOneRowAgainFrom29);
         let mut reads = Vec::new();
         for step in [-1, 1] {
             let probe = old();
