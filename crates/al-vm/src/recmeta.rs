@@ -244,7 +244,12 @@ impl Session {
         // for the session (record/captions/QdCaptionClassAreas.al:233-258 Literals_FieldCaption: '2,0,x' reads
         // `x Excl. VAT`, '5,3,' `Bill-to County` through Base Application's subscribers; pages/triggers/
         // P84Captions.al: a text no subscriber resolves stays as written, and a second read raises no event). A non-numeric
-        // area is the platform's event and not pinned for FieldCaption: refused.
+        // area goes the same way: OnResolveCaptionClass with the area, the rest and the session language, the caption a
+        // subscriber resolves, else the whole text (also with a Caption property), kept for the session and shared with
+        // CaptionClassTranslate (corpus branch al-runtime-rs-staging-r6985, record/captions/R6985FieldCaptionArea.al:
+        // FieldCaption_ClaimedArea, _SecondRead, _UnclaimedArea, FieldRefCaption_ClaimedArea, FieldCaption_ThenCaptionClassTranslate,
+        // FieldCaption_InOnValidate; on master testpage/AnTestPageTests.al:583-589 An19_TableFieldCaptionClass_NonNumericArea,
+        // 'X,Y' unclaimed). A text with no comma is not pinned: refused.
         let declared = self.field_property(t, pos, "CaptionClass");
         if let Some(v) = declared.as_ref().filter(|v| string_literal(v).is_none()) {
             return Ok(WrittenCaption::Expr(v.clone()));
@@ -253,11 +258,9 @@ impl Session {
             return match class.split_once(',') {
                 Some(("3", "")) => Ok(WrittenCaption::Text(self.field_caption(t, pos))),
                 Some(("3", rest)) => Ok(WrittenCaption::Text(rest.to_string())),
-                Some((area, _)) if area.is_empty() || area.trim().parse::<u32>().is_ok() => {
-                    Ok(WrittenCaption::Class(class))
-                }
-                _ => unsupported(format!(
-                    "FieldCaption of a field whose CaptionClass `{class}` has an area no built-in resolver claims (not pinned)"
+                Some(_) => Ok(WrittenCaption::Class(class)),
+                None => unsupported(format!(
+                    "FieldCaption of a field whose CaptionClass `{class}` has no comma (not pinned)"
                 )),
             };
         }

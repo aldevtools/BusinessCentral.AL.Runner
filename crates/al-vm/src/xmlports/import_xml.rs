@@ -77,7 +77,9 @@ impl Session {
         // (codeunits/TestWriteTxTestBoundary.al:WriteTx_Test12_AnXmlPortImportMayWriteUnderNone).
         let began_world = self.no_transaction();
         self.tx.tx_world += 1;
-        let result = self.xp_import_document(inst, schema);
+        let result = self
+            .xp_import_view_keys(inst, schema)
+            .and_then(|()| self.xp_import_document(inst, schema));
         self.tx.tx_world -= 1;
         if result.is_err() && inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_IMPORTED) {
             inst.borrow_mut().xp_text.push((XP_IMPORT_FAILED, String::new()));

@@ -119,8 +119,9 @@ impl Session {
     /// object `runpage?page=N` or `runreport?report=N`, for a page with a record `&bookmark=...`. Pinned for an http address
     /// by session-system/session/GetUrlShape.al:270 (`default alone`) and metadata/session-system/TGetUrl.al:203-210
     /// (GetUrl_ClientDefault: a company with a space, the empty company, page 21, report 69367, a page with a record and
-    /// UseFilters false). Every other form is refused.
-    fn get_url_default(&mut self, args: &[Value]) -> Result<Value, Signal> {
+    /// UseFilters false). Any company the probes cover and a page with a record and UseFilters true are pinned for Default by
+    /// session-system/session/R7002GetUrlDefaultCompany.al (corpus branch al-runtime-rs-staging-r6985). Every other form is refused.
+    fn get_url_default(&mut self, args: &[Value], windows: bool) -> Result<Value, Signal> {
         let base = self.host.identity.server_base_url();
         if !base.starts_with("http://") {
             return unsupported(format!(
@@ -135,12 +136,23 @@ impl Session {
             None => String::new(),
             Some(Value::Text(t)) | Some(Value::Code(t)) if !t.has_marker() => {
                 let t = t.as_str();
-                if !t.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ') {
-                    return unsupported(
-                        "GetUrl(ClientType::Default) with a company name of other characters than letters, digits and space (not pinned)",
-                    );
+                // Default percent-encodes the company as the Web form's `?company=` does: letters, digits, `.`, `-` and `_`
+                // stay, a space and every other character probed is `%XX`, a non-ASCII letter its UTF-8 bytes (corpus branch
+                // al-runtime-rs-staging-r6985, session-system/session/R7002GetUrlDefaultCompany.al:
+                // Default_CompanyNames_Punctuation, `cronus` 'CRONUS%20International%20Ltd./'). Windows is not probed beyond
+                // letters, digits and space.
+                let probed = |c: char| {
+                    c.is_ascii_alphanumeric()
+                        || c == ' '
+                        || (!windows && (" .-_,&'/()+#%?=:".contains(c) || (!c.is_ascii() && c.is_alphabetic())))
+                };
+                if !t.chars().all(probed) {
+                    return unsupported(format!(
+                        "GetUrl(ClientType::{}) with a company name of characters the probes do not cover (not pinned)",
+                        if windows { "Windows" } else { "Default" }
+                    ));
                 }
-                t.replace(' ', "%20")
+                encode(t)?
             }
             other => return unsupported(format!("GetUrl with company {}", other.describe())),
         };
@@ -166,9 +178,23 @@ impl Session {
                         url.push_str(&part);
                     }
                 }
+                // UseFilters true: nothing without a filter, else `&$filter=` and the encoded filter text of the Web form
+                // (R7002GetUrlDefaultCompany.al: Default_Cronus_PageRecord_UseFilters `record true no filter`, `record true
+                // filter`, `empty company true filter`, `recordref true`). Not probed for Windows.
+                (Some("Page"), 6) if !windows && matches!(args.get(5), Some(Value::Boolean(true))) => {
+                    let rec = record_arg(args.get(4))?;
+                    url.push_str(&format!("runpage?page={id}"));
+                    if let Some(part) = self.url_record_part(&rec, true)? {
+                        let Some(filter) = part.strip_prefix("filter=") else {
+                            return unsupported("GetUrl(ClientType::Default) record part that is not a filter");
+                        };
+                        url.push_str("&$filter=");
+                        url.push_str(filter);
+                    }
+                }
                 (kind, n) => {
                     return unsupported(format!(
-                        "GetUrl(ClientType::Default) of object type {} with {n} arguments (only a page or a report, and a page with a record and UseFilters false, are pinned)",
+                        "GetUrl(ClientType::Default or Windows) of object type {} with {n} arguments (only a page or a report, and a page with a record and UseFilters false, or true for Default, are pinned)",
                         kind.unwrap_or("?")
                     ));
                 }
@@ -182,7 +208,10 @@ impl Session {
             // Windows gives the same text as Default for every form TGetUrl.al pins (GetUrl_ClientWindows,
             // TGetUrl.al:233-240, against GetUrl_ClientDefault, TGetUrl.al:203-210; also
             // session-system/server-system-functions/PGetUrl.al:71,75).
-            Some("Default") | Some("Windows") => return self.get_url_default(args),
+            Some(kind @ ("Default" | "Windows")) => {
+                let windows = kind == "Windows";
+                return self.get_url_default(args, windows);
+            }
             Some("Phone") | Some("Tablet") | Some("Desktop") => return self.get_url_mobile(args),
             // Background, Management and NAS have no address: the empty text, alone and with a company
             // (GetUrlCtBackground.al:69-73, GetUrlCtManagement.al:69-73, GetUrlCtNAS.al:69-73, all with

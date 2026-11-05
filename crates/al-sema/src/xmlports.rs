@@ -720,6 +720,29 @@ impl Layout {
             .map(|p| p.value_text())
     }
 
+    /// The table node named `name` that is the node right before node `i` under the same text element, when that text element
+    /// has no table element above it: `Root > Hdr, Line` with `LinkTable = Hdr` on `Line` (xmlports/shapes-properties/
+    /// R6924eLinkSibling.al:85-108, the shape BC 29 is measured with). Any other node a LinkTable could name stays refused.
+    fn link_sibling_named(&self, i: usize, name: &str) -> Option<usize> {
+        let parent = self.nodes[i].parent?;
+        if self.nodes[parent].kind != ir::XmlNodeKind::Text
+            || self.table_named(Some(parent), name).is_some()
+            || self.format != ir::XmlFormat::Xml
+        {
+            return None;
+        }
+        let mut above = self.nodes[parent].parent;
+        while let Some(a) = above {
+            if self.nodes[a].kind == ir::XmlNodeKind::Table {
+                return None;
+            }
+            above = self.nodes[a].parent;
+        }
+        let prev = (0..i).rev().find(|&j| self.nodes[j].parent == Some(parent))?;
+        (self.nodes[prev].kind == ir::XmlNodeKind::Table && self.nodes[prev].name.eq_ignore_ascii_case(name))
+            .then_some(prev)
+    }
+
     /// The nearest table node named `name` at or above node `from`.
     fn table_named(&self, from: Option<usize>, name: &str) -> Option<usize> {
         let mut cur = from;
@@ -1088,7 +1111,10 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                 let link_fields = link_fields.or_else(|| link_table.as_ref().map(|_| String::new()));
                 match (link_table, link_fields) {
                     (None, None) => {}
-                    (Some(t), Some(f)) => match layout.table_named(raw.parent, &t) {
+                    (Some(t), Some(f)) => match layout
+                        .table_named(raw.parent, &t)
+                        .or_else(|| layout.link_sibling_named(i, &t))
+                    {
                         Some(ln) => {
                             node.link_node = Some(ln);
                             for pair in crate::scan::split_double(&f, ',')
@@ -1737,6 +1763,28 @@ xmlport 50010 X
             why.contains("child node textelement of the field element Number"),
             "{why}"
         );
+    }
+
+    #[test]
+    fn link_table_may_name_the_table_element_right_before_it_under_a_text_element() {
+        // R6924eLinkSibling.al:85-108: `Root > Hdr, Line` with `LinkTable = Hdr` compiles on BC and is built.
+        let sibling = |schema: &str| {
+            SRC.replace(
+                "tableelement(P; Parent)",
+                &format!("{schema}\n            tableelement(P; Parent)"),
+            )
+            .replace("LinkTable = P;", "")
+            .replace("LinkFields = ParentNo = FIELD(No);", "")
+        };
+        let ok = sibling(
+            "tableelement(H; Parent) { fieldattribute(HNo; H.No) { } }\n            tableelement(L; Child) { LinkTable = H; LinkFields = ParentNo = FIELD(No); fieldattribute(LId; L.No) { } }",
+        );
+        assert_eq!(reasons_of(ok), "");
+        // A sibling that is not the node right before it stays refused.
+        let gap = sibling(
+            "tableelement(H; Parent) { fieldattribute(HNo; H.No) { } }\n            textelement(Gap) { }\n            tableelement(L; Child) { LinkTable = H; LinkFields = ParentNo = FIELD(No); fieldattribute(LId; L.No) { } }",
+        );
+        assert!(reasons_of(gap).contains("LinkTable H is not a table element above it"));
     }
 
     #[test]

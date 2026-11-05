@@ -1053,17 +1053,22 @@ impl Session {
                 // Y62QueryFlowFieldJoin.al for the top data item of an inner or a left outer join, with and without a Method
                 // column, writer Y62; queries/flowfields-filters/Y67QueryFlowFieldFilter.al:350-401 for the data item an
                 // inner join joins, static and at run time, writer Y67): `plan.post` filters the joined rows by it before
-                // `group_rows` groups them. Below an outer join, and with a right or full outer join, it is not pinned.
+                // `group_rows` groups them. On a left-outer-joined child of the top data item the compile lets a Count, Lookup or
+                // Exist FlowField through: a joined row without a match meets the filter with the field's default (`project`;
+                // corpus branch al-runtime-rs-staging-r6988, queries/flowfields-filters/QueryOuterFlowFilters.al
+                // OuterFilterElem_Count_Rows, OuterFilterElem_LookupExist_Rows). Below a deeper outer join, and with a right or
+                // full outer join, it is not pinned.
+                let outer_child = item.left_outer && item.parent.is_some_and(|p| def.items[p].parent.is_none());
                 let below_outer = std::iter::successors(Some(c.item), |&i| def.items[i].parent)
                     .any(|i| def.items[i].left_outer && def.items[i].parent.is_some());
-                if c.filter_element && (below_outer || has_right) {
+                if c.filter_element && ((below_outer && !outer_child) || has_right) {
                     return unsupported(
                         "a filter() element over a FlowField of a joined data item, or in a query with a right or full outer join (not pinned)",
                     );
                 }
                 // P130QueryOuterFlow.al filters only the parent: a filter on a FlowField column of an outer-joined
                 // dataitem, which a parent without a match would meet with 0, is not pinned.
-                if item.left_outer && item.parent.is_some() {
+                if !c.filter_element && item.left_outer && item.parent.is_some() {
                     return unsupported("a filter on a FlowField column of an outer-joined dataitem (not pinned)");
                 }
                 plan.post.push((ci, expr));
@@ -1223,8 +1228,10 @@ impl Session {
                 }
                 row[field].clone()
             } else if joined[c.item].is_empty() {
-                // A FlowField of a left-outer-joined dataitem with no matching row is the field's default (0 for the
-                // Sum and Count FlowFields the compile lets through: queries/P130QueryOuterFlow.al:167,225).
+                // A FlowField of a left-outer-joined dataitem with no matching row is the field's default: 0 for a Sum and a
+                // Count (queries/P130QueryOuterFlow.al:167,225), false, 0 and blank for an Exist, a Min, Max or Average and a
+                // Lookup (corpus branch al-runtime-rs-staging-r6988, queries/flowfields-filters/QueryOuterFlowKinds.al
+                // OuterFlowField_ExistMinMaxAverage_Rows, OuterFlowField_Lookup_Rows).
                 let t = engine.tables[item.table].clone().expect("table");
                 self.default_value(&t.fields[field].ty)
             } else {

@@ -366,11 +366,11 @@ pub enum Gate {
     /// CurrPage.Update, OnAfterGetRecord runs for every other row of the old view on BC 28, and once, for the row before the
     /// current one, on BC 27 and from BC 29 (pages/actions/ActionFilterEmptyView.al:226 Action_NoRowsLeft_UpdateFalse_Moves,
     /// :322 Action_NoRowsLeft_FromLaterRow_UpdateFalse, guarded `#if BC28PLUS and not BC29PLUS`; al-runner issue 6945). BC 28
-    /// only: [`Gate::EmptyActionViewOneRowAgainFrom29`] ends it. Not consumed yet: the runtime pull request for issue 6945
-    /// consumes it.
+    /// only: [`Gate::EmptyActionViewOneRowAgainFrom29`] ends it. Consumed by `al-vm` pages/empty_after_action.rs
+    /// (`empty_view_after_action`).
     EmptyActionViewEveryRowFrom28,
     /// The end of [`Gate::EmptyActionViewEveryRowFrom28`]: from BC 29 OnAfterGetRecord runs once again, as on BC 27
-    /// (pages/actions/ActionFilterEmptyView.al:226). Not consumed yet.
+    /// (pages/actions/ActionFilterEmptyView.al:226). Consumed with it.
     EmptyActionViewOneRowAgainFrom29,
     /// The SystemId of a row of the platform table Field is the Guid made of 2000000041, the table number and the field number
     /// from BC 28; on BC 27 it is the null Guid for every row, and `GetBySystemId` of the null Guid finds the row of table 3,
@@ -1241,6 +1241,15 @@ pub fn dev_endpoint_answers_unhandled_ui(bc_major: u16) -> Option<bool> {
         28 | 29 => Some(true),
         _ => None,
     }
+}
+
+/// Whether the member names that a page control bound to an Option field of another record variable shows before
+/// [`Gate::OtherRecordOptionCaptionFrom29`] are confirmed on Windows for `bc_major`: BC 28.5 on a Windows OnPrem container
+/// (al-runner issue 7005, the reporter's run) shows `Short` as the Linux CI legs do (corpus pages/controls/
+/// OtherRecordOptionMembers.al:146, corpus PR 1135; SaOtherRecordControl.al:13-15). BC 27 is measured on the
+/// Linux CI legs only, a Linux suspect: not confirmed.
+pub fn other_record_option_member_names_confirmed(bc_major: u16) -> bool {
+    bc_major == 28
 }
 
 /// Whether the platform tables of System.app that are `Scope = OnPrem`, internal or removed are known for

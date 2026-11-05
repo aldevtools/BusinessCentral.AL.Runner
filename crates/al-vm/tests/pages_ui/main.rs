@@ -1,6 +1,7 @@
 //! The tests of one area in one binary (ADR-037 item 5): fewer binaries to link. Each module is a file of pages_ui/.
 
 mod action_deleted_current_row;
+mod action_empty_view;
 mod action_moved_rec;
 mod after_get_record_event;
 mod assistedit_refresh;
@@ -22,6 +23,7 @@ mod curr_field_no_assign;
 mod draft_key_by_action;
 mod drilldown_marked_only_part;
 mod drilldown_marked_only_update;
+mod drilldown_marked_rec_left;
 mod drilldown_marked_refill_other_key;
 mod empty_list_action;
 mod filterpage;
@@ -71,6 +73,7 @@ mod open_moved_find_which;
 mod open_onopenpage_moves_rec;
 mod open_temp_worksheet_rec_row;
 mod option_count_values_allowed;
+mod other_record_option_members;
 mod page_inserts;
 mod page_run_fqn;
 mod page_var_validate_code_change;
@@ -114,6 +117,7 @@ mod temp_refill_to_fewer_rows;
 mod temp_refill_to_one_row;
 mod test_filter_enum_range;
 mod trap_reopen;
+mod tree_expand_indented_leaf;
 mod tree_expand_twice;
 mod tree_refill_by_validate;
 mod tree_var_indent;
