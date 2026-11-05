@@ -948,7 +948,7 @@ fn geturl_default_alone_is_the_dynamicsnav_form_of_the_address() {
             "exit(GetUrl(ClientType::Default));",
             Some("https://bc.example:7048/BC1"),
         ),
-        ("exit(GetUrl(ClientType::Default, 'A&B'));", None),
+        ("exit(GetUrl(ClientType::Windows, 'A&B'));", None),
         ("exit(GetUrl(ClientType::Default, 'C', ObjectType::Table, 18));", None),
         ("exit(GetUrl(ClientType::Default, 'C', ObjectType::Page, 0));", None),
         (
@@ -1533,4 +1533,45 @@ fn about_two_thirds_of_clock_reads_right_after_a_write_are_off_the_grid_and_the_
     assert!((0.62..0.71).contains(&share), "off the grid: {share}");
     assert_eq!(reads(4271833), one, "the same seed gives the same clock values");
     assert_ne!(reads(4271834), one, "another seed gives other clock values");
+}
+
+// Corpus branch al-runtime-rs-staging-r6985, session-system/session/R7002GetUrlDefaultCompany.al (al-runner issue 7002): the Default
+// form writes the company percent-encoded as the Web form does ('CRONUS International Ltd.' keeps its dot), and a page with a record
+// and UseFilters true adds `&$filter=` with the encoded filter text, or nothing without a filter. Windows is not probed for these forms.
+#[test]
+fn geturl_default_encodes_any_company_and_writes_the_filter_of_a_record() {
+    let src = r#"
+table 50101 "Gu Row" { fields { field(1; Id; Integer) { } field(2; Name; Text[30]) { } } keys { key(PK; Id) { } } }
+codeunit 50100 C
+{
+    procedure D(): Text
+    var Row: Record "Gu Row"; R: Text;
+    begin
+        Row.Id := 3; Row.Name := 'Alpha'; Row.Insert();
+        R := GetUrl(ClientType::Default, 'CRONUS International Ltd.');
+        R += '|' + GetUrl(ClientType::Default, 'O''Neil & Co.', ObjectType::Page, 21);
+        R += '|' + GetUrl(ClientType::Default, 'A,B/(C)+#%?=:Müller');
+        R += '|' + GetUrl(ClientType::Default, 'CRONUS International Ltd.', ObjectType::Page, 21, Row, true);
+        Row.SetRange(Name, 'Alpha');
+        exit(R + '|' + GetUrl(ClientType::Default, '', ObjectType::Page, 21, Row, true));
+    end;
+    procedure WindowsCompany(): Text begin exit(GetUrl(ClientType::Windows, 'A.B')); end;
+    procedure WindowsFilters(): Text var Row: Record "Gu Row"; begin exit(GetUrl(ClientType::Windows, '', ObjectType::Page, 21, Row, true)); end;
+}
+"#;
+    assert_eq!(
+        al_testkit::text(al_testkit::run(src, "D")),
+        "dynamicsnav://localhost:7085/BC/CRONUS%20International%20Ltd./\
+         |dynamicsnav://localhost:7085/BC/O%27Neil%20%26%20Co./runpage?page=21\
+         |dynamicsnav://localhost:7085/BC/A%2CB%2F%28C%29%2B%23%25%3F%3D%3AM%C3%BCller/\
+         |dynamicsnav://localhost:7085/BC/CRONUS%20International%20Ltd./runpage?page=21\
+         |dynamicsnav://localhost:7085/BC//runpage?page=21&$filter=%27Name%27%20IS%20%27Alpha%27"
+    );
+    for routine in ["WindowsCompany", "WindowsFilters"] {
+        let r = al_testkit::run(src, routine);
+        assert!(
+            matches!(&r, Err(Signal::Unsupported(w)) if w.contains("Windows")),
+            "{routine}: {r:?}"
+        );
+    }
 }
