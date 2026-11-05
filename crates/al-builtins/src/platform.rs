@@ -722,6 +722,38 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
 /// assumption (`assumption_of_column`). When the bump lands, each moves to `PINNED_ELSEWHERE` (or the generated list) and
 /// its assumption is deleted. As (table id, field id, assumption).
 pub const AWAITING_COLUMNS: &[(u32, u32, crate::assumptions::Assumption)] = &[
+    // NAV App Installed App: Compatibility Major to Revision, Hash Algorithm and Extension Type (al-vm apps.rs, al-runner
+    // issue 7142).
+    (
+        2_000_000_153,
+        9,
+        crate::assumptions::Assumption::NavAppInstalledCompatibilityColumns,
+    ),
+    (
+        2_000_000_153,
+        10,
+        crate::assumptions::Assumption::NavAppInstalledCompatibilityColumns,
+    ),
+    (
+        2_000_000_153,
+        11,
+        crate::assumptions::Assumption::NavAppInstalledCompatibilityColumns,
+    ),
+    (
+        2_000_000_153,
+        12,
+        crate::assumptions::Assumption::NavAppInstalledCompatibilityColumns,
+    ),
+    (
+        2_000_000_153,
+        14,
+        crate::assumptions::Assumption::NavAppInstalledCompatibilityColumns,
+    ),
+    (
+        2_000_000_153,
+        15,
+        crate::assumptions::Assumption::NavAppInstalledCompatibilityColumns,
+    ),
     // Published Application Logo: blank for an app whose manifest declares none, the logo file for a PNG logo, unknown for
     // any other app (al-vm apps.rs).
     (
