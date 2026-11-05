@@ -77,6 +77,7 @@ mod xmlport_namespace_root;
 mod xmlport_namespaces_several;
 mod xmlport_nested_flow;
 mod xmlport_nested_import;
+mod xmlport_nested_linked_once;
 mod xmlport_nested_text_in_table;
 mod xmlport_nested_unlinked;
 mod xmlport_nested_view_pass;
