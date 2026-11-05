@@ -156,7 +156,7 @@ fn an_empty_error_out_of_a_list_or_worksheet_control_validate_ends_set_value_qui
 
 // XmlPort export: a table element without LinkTable below another one, MinOccurs = Once and MaxOccurs = Once, writes the first
 // row of each pass; a pass without rows writes the record as it stands, which after a pass of two rows is the second row
-// (streams/Np4XmlPort.al:364 NP4_XmlPort_OnceOnce_ZeroAndOneRows, :381 _TwoRows). PreserveWhiteSpace changes nothing an
+// (streams/Np4XmlPort.al:348 NP4_XmlPort_OnceOnce_ZeroAndOneRows, :381 _TwoRows). PreserveWhiteSpace changes nothing an
 // export writes, with and without DefaultNamespace (:280 NP4_XmlPort_PreserveWhiteSpace_WithNamespace, :300 _DefaultWhiteSpace_WithNamespace, :320 _PreserveWhiteSpace_NoNamespace).
 const XMLPORT: &str = r#"
 table 50688 "N68 Head" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }

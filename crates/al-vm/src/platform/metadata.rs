@@ -287,7 +287,7 @@ fn subscription_row(
         // OnBeforeActionEvent, also as filters; corpus branch al-runtime-rs-staging-1030c, al-runner issue 6293). Its Published
         // Function is `<event> - <number>`, the number the id of the action's control: FNV-1a of the declaring object's id and the
         // action name (`pages::control_id`), the page extension's id for an action an extension adds, under the base page
-        // (corpus master, corpus PR 886: events/platform-triggers/ActionEventPublishedFunction.al:259-272, twelve
+        // (corpus master, corpus PR 886: events/platform-triggers/ActionEventPublishedFunction.al:244-257, twelve
         // numbers; EventSubscriptionTriggerRows.al:222). An action the runtime cannot find on the page leaves that column refused.
         None if kind == al_ir::ObjKind::Page && is_action_event(&event) => {
             r[pos(t, 3)] = option(t, 3, 0);

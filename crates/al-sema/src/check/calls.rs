@@ -94,7 +94,7 @@ impl<'a> Checker<'a> {
     }
 
     /// Whether an enum or codeunit argument implements the interface a procedure parameter is declared as: it then takes
-    /// that overload over a `var Record` one (codeunits/interfaces/ScOverloadRecordInterface.al:97-107,
+    /// that overload over a `var Record` one (codeunits/interfaces/ScOverloadRecordInterface.al:85-95,
     /// `enum plain`, `enum special`, `codeunit variable`).
     fn implements_param(&self, file: usize, arg: &Ty, param: &str) -> bool {
         let (kind, name) = match arg {

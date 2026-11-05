@@ -2157,3 +2157,8 @@
 95572 Order_Leading
 95572 Order_Trailing
 95578 SetFilter_DateFormula_OperatorAndFormula
+95626 RecordRef_SetView_Numeric_Dot
+95626 SetView_Named_Dot
+95626 SetView_Numeric_CommaAndDot
+95626 SetView_Numeric_DotInsideAValue
+95626 SetView_Numeric_DotVariants
