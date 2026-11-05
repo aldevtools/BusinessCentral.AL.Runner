@@ -1162,7 +1162,7 @@ fn one_step(seg: &[Event]) -> Option<()> {
 /// A builtin given a counter value (as receiver or argument) would read its number: refused, except the Variant type tests
 /// (`IsBigInteger`: SqlCounters.al:87-103), `Variant.Into#1`, which hands a counter on unread to the conversion after it
 /// (`al_builtins::conv::variant_into`), `Round(x, 1)` (`al_builtins::sqlcount::round_whole`), `Format(x)` (a marked text,
-/// `al_builtins::format`), and a Dictionary or List that
+/// `al_builtins::format`), the values of `StrSubstNo` (a marked text the same way), and a Dictionary or List that
 /// stores it as a value, not as a key: the value is not compared or read (SqlCounters.al
 /// P6924_Counters_DictionaryOfGuidInteger_AddGetAndLaterDifference, `Stored.Add(Key1, ...)`, `Stored.Get(Key1)`). Checked
 /// only while the counters are active.
@@ -1174,9 +1174,15 @@ pub(crate) fn guard(
     args: &[Value],
 ) -> Result<(), al_builtins::native::Signal> {
     // A text `Format` made of a counter value (`al_builtins::sqlcount::formatted`) is refused the same way: a text function
-    // refuses it anyway (`Txt::has_marker`), and Error, Message and StrSubstNo would show its digits. It may go to telemetry
+    // refuses it anyway (`Txt::has_marker`), and Error and Message would show its digits. It may go to telemetry
     // (SqlCounters.al P6924_Counters_FormattedInTelemetryDimension_NoError), where nothing reads it.
     let tainted = |v: &Value| matches!(v, Value::SqlCount(_)) || al_builtins::sqlcount::formatted(v);
+    // `StrSubstNo` fills each `%n` and `#n` with `Format` of value n (format-evaluate/P86StrSubstNo.al Sub_Percent,
+    // Sub_FieldWidth), and `Format` of a counter value raises no error (SqlCounters.al P6924_Counters_Format_DigitsOnly): a
+    // counter value or its formatted text as a value (never the template) gives a marked text, which may be passed on and
+    // logged and whose digits no text function reads, as `Format` gives (al-runner issue 7129). `Error` and `Message` stay
+    // refused: their text reaches the user and GetLastErrorText.
+    let embeds = id.name() == "Text.StrSubstNo#1";
     // The argument positions that hold a collection's value (never its key or index).
     let values: &[usize] = match id.name() {
         "Variant.Into#1" | "Session.LogMessage#1" | "Session.LogMessage#2" => return Ok(()),
@@ -1190,7 +1196,10 @@ pub(crate) fn guard(
         "Dictionary.Set#2" => &[1, 2],
         _ => &[],
     };
-    if args.iter().enumerate().any(|(i, v)| tainted(v) && !values.contains(&i))
+    if args
+        .iter()
+        .enumerate()
+        .any(|(i, v)| tainted(v) && !values.contains(&i) && !(embeds && i >= 1))
         || (recv.is_some_and(tainted) && !id.name().starts_with("Variant.Is"))
     {
         return Err(al_builtins::sqlcount::refusal(&format!(

@@ -363,6 +363,9 @@ fn run_codeunit_inner(
             }
         }
     }
+    // From here until the runner writes its rows for this codeunit (ADR-066 decision 2), AL code that touches the two
+    // tables makes the session's start depend on what they held (`suite_rows::take_unseen`).
+    let rows = super::suite_rows::watch_before(&mut session, scratch.runner, execute || !data_driven.is_empty());
     // What publishing the app does first: run its install codeunits, then commit.
     let skipped_installs = match baseline.and_then(|b| b.workspace_installs.clone()) {
         // Already run once for the whole run, with the baseline.
@@ -413,6 +416,7 @@ fn run_codeunit_inner(
             }
         }
     };
+    super::suite_rows::seen_before(&mut session, rows);
     // What a Disabled codeunit leaves for the later codeunits is its writes from here on ([`CARRIED`]). With
     // Company Triggers subscribers each session writes on its own when it opens the company, and how those writes
     // meet the ones carried over is not pinned.
@@ -816,6 +820,7 @@ fn run_codeunit_inner(
                                 Err(Signal::Unsupported(format!("runtime panic (bug): {msg}")))
                             }
                         };
+                        let result = runner.rows_touched(session, result);
                         session.set_runner_frames(String::new());
                         let timed_out = watchdog.is_some_and(Watchdog::finish);
                         let slept_out = session.sleep_budget_passed();
