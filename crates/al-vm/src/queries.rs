@@ -1223,8 +1223,10 @@ impl Session {
                 }
                 row[field].clone()
             } else if joined[c.item].is_empty() {
-                // A FlowField of a left-outer-joined dataitem with no matching row is the field's default (0 for the
-                // Sum and Count FlowFields the compile lets through: queries/P130QueryOuterFlow.al:167,225).
+                // A FlowField of a left-outer-joined dataitem with no matching row is the field's default: 0 for a Sum and a
+                // Count (queries/P130QueryOuterFlow.al:167,225), false, 0 and blank for an Exist, a Min, Max or Average and a
+                // Lookup (corpus branch al-runtime-rs-staging-r6988, queries/flowfields-filters/QueryOuterFlowKinds.al
+                // OuterFlowField_ExistMinMaxAverage_Rows, OuterFlowField_Lookup_Rows).
                 let t = engine.tables[item.table].clone().expect("table");
                 self.default_value(&t.fields[field].ty)
             } else {

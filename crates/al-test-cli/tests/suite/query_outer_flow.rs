@@ -415,3 +415,99 @@ codeunit 95724 T
 }
 "#);
 }
+
+/// Issue 6989: a Lookup FlowField column of a left-outer-joined child is the looked-up value per joined row, blank when no row
+/// matches and for a parent without a child; Exist, Min, Max and Average columns are calculated per joined row too (false and 0 for
+/// a parent without a child, 0 for a child without detail rows).
+/// Pins: QueryOuterFlowKinds.al OuterFlowField_Lookup_Rows, OuterFlowField_ExistMinMaxAverage_Rows, InnerFlowField_AllKinds_Rows.
+#[test]
+fn issue_6989_lookup_and_other_flowfield_kinds_of_outer_joined_item() {
+    let query = |id: u32, name: &str, join: &str| {
+        format!(
+            r#"
+query {id} "{name}"
+{{
+    OrderBy = ascending(PId), ascending(CId);
+    elements
+    {{
+        dataitem(Parent; "QOF Parent")
+        {{
+            column(PId; Id) {{ }}
+            dataitem(Child; "QOF Child")
+            {{
+                DataItemLink = ParentId = Parent.Id;
+                SqlJoinType = {join};
+                column(CId; Id) {{ }}
+                column(HasDetail; HasDetail) {{ }}
+                column(MinAmt; MinAmt) {{ }}
+                column(MaxAmt; MaxAmt) {{ }}
+                column(AvgAmt; AvgAmt) {{ }}
+                column(ParentName; ParentName) {{ }}
+                column(RefName; RefName) {{ }}
+            }}
+        }}
+    }}
+}}"#
+        )
+    };
+    let objects = format!(
+        "{}{}{}",
+        query(95714, "QOF Outer Kinds", "LeftOuterJoin"),
+        query(95715, "QOF Inner Kinds", "InnerJoin"),
+        r#"
+codeunit 95724 T
+{
+    Subtype = Test;
+
+    local procedure Check(Name: Text; Got: Text; Expected: Text)
+    begin
+        if Got <> Expected then
+            Error('%1: got [%2], expected [%3]', Name, Got, Expected);
+    end;
+
+    [Test]
+    procedure OuterLookup()
+    var
+        Seeder: Codeunit "QOF Seed";
+        Q: Query "QOF Outer Kinds";
+        Rows: Text;
+    begin
+        Seeder.Seed();
+        Q.Open();
+        while Q.Read() do
+            Rows += Format(Q.PId) + ':' + Format(Q.CId) + '=[' + Q.ParentName + ']/[' + Q.RefName + '] ';
+        Check('rows', Rows, '1:10=[P-One]/[Ref One] 1:11=[P-One]/[] 2:0=[]/[] 3:30=[P-Three]/[Ref Two] 4:40=[P-Four]/[] ');
+    end;
+
+    [Test]
+    procedure OuterExistMinMaxAverage()
+    var
+        Seeder: Codeunit "QOF Seed";
+        Q: Query "QOF Outer Kinds";
+        Rows: Text;
+    begin
+        Seeder.Seed();
+        Q.Open();
+        while Q.Read() do
+            Rows += Format(Q.PId) + ':' + Format(Q.CId) + '=' + Format(Q.HasDetail, 0, 9) + '/' + Format(Q.MinAmt, 0, 9) + '/' + Format(Q.MaxAmt, 0, 9) + '/' + Format(Q.AvgAmt, 0, 9) + ' ';
+        Check('rows', Rows, '1:10=true/5/7.25/6.125 1:11=true/1/1/1 2:0=false/0/0/0 3:30=false/0/0/0 4:40=true/-3/4/0.5 ');
+    end;
+
+    [Test]
+    procedure InnerAllKinds()
+    var
+        Seeder: Codeunit "QOF Seed";
+        Q: Query "QOF Inner Kinds";
+        Rows: Text;
+    begin
+        Seeder.Seed();
+        Q.Open();
+        while Q.Read() do
+            Rows += Format(Q.PId) + ':' + Format(Q.CId) + '=' + Format(Q.HasDetail, 0, 9) + '/' + Format(Q.MinAmt, 0, 9) + '/' + Format(Q.MaxAmt, 0, 9) + '/' + Format(Q.AvgAmt, 0, 9) + '/[' + Q.ParentName + ']/[' + Q.RefName + '] ';
+        Check('rows', Rows, '1:10=true/5/7.25/6.125/[P-One]/[Ref One] 1:11=true/1/1/1/[P-One]/[] 3:30=false/0/0/0/[P-Three]/[Ref Two] 4:40=true/-3/4/0.5/[P-Four]/[] ');
+    end;
+}
+"#
+    );
+    run(&objects);
+}
