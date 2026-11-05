@@ -20,15 +20,13 @@
 //! only when the requested major is missing, which is why `--dotnet-allow-roll-forward` changed nothing on a machine
 //! with .NET 8 and 10.
 
-/// The `Microsoft.NETCore.App` major the service tier of BC `bc_major` runs on; `None` (no BC version known, such as
-/// a run with no platform package) gives 8, the major of the sidecar's build.
+/// The `Microsoft.NETCore.App` major the service tier of BC `bc_major` runs on (`al_version::dotnet_major_for_bc`, which
+/// holds the measured table); `None` (no BC version known, such as a run with no platform package) gives 8, the major of
+/// the sidecar's build.
 pub fn runtime_major_for_bc(bc_major: Option<u32>) -> u32 {
-    match bc_major {
-        None => 8,
-        Some(m) if m <= 28 => 8,
-        // BC 29 and newer: see the module comment.
-        Some(_) => 10,
-    }
+    bc_major.map_or(8, |m| {
+        al_version::dotnet_major_for_bc(u16::try_from(m).unwrap_or(u16::MAX))
+    })
 }
 
 fn major(v: &str) -> Option<u32> {

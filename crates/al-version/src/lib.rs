@@ -221,6 +221,19 @@ fn numbers(s: &str, max: usize) -> Result<Vec<u16>, VersionError> {
         .collect()
 }
 
+/// The `Microsoft.NETCore.App` major the service tier of BC `major` runs on, measured on the platform artifacts
+/// (`TargetFrameworkAttribute` of the service-tier assemblies; `"tfm"` of `Microsoft.Dynamics.Nav.Server.runtimeconfig.json`
+/// where the artifact has it): 27.5.46862.48827 and 28.1.49838.50621 target `net8.0`; 29.0.54011.56307's
+/// `Microsoft.Dynamics.Nav.OpenXml.dll` and `System.Drawing.Common.dll` target `.NETCoreApp,Version=v10.0` and reference
+/// `System.Runtime 10.0.0.0` (al-runner issues 6924 and 5590). A newer major than the table knows gets the newest major
+/// it names: the .NET helper then says which assembly did not load, and the table gets its row.
+pub fn dotnet_major_for_bc(major: u16) -> u32 {
+    match major {
+        ..=28 => 8,
+        _ => 10,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -309,5 +322,13 @@ mod tests {
     fn corpus_symbols_below_the_floor_still_define_the_floor_symbol() {
         // The runtime never runs below BC 27; a lower major gets BC 27's set.
         assert_eq!(corpus_symbols(26), corpus_symbols(27));
+    }
+
+    #[test]
+    fn bc_27_and_28_run_on_net8_and_bc_29_on_net10() {
+        assert_eq!(dotnet_major_for_bc(27), 8);
+        assert_eq!(dotnet_major_for_bc(28), 8);
+        assert_eq!(dotnet_major_for_bc(29), 10);
+        assert_eq!(dotnet_major_for_bc(30), 10);
     }
 }
