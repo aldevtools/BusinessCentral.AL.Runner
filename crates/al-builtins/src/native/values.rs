@@ -131,8 +131,8 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
         Value::List(_) => Value::List(Default::default()),
         Value::Dictionary(_) => Value::Dictionary(Default::default()),
         // A cleared Blob is an empty buffer (streams/TestBlobCalcFieldsUncommittedWrite.al), emptied in place: the row of a temporary
-        // table that holds the same buffer sees what a stream writes after the Clear, also through a Get (corpus branch
-        // al-runtime-rs-staging-r6978 3682cab7, streams/TestBlobCalcFieldsUncommittedWrite.al:183-222,
+        // table that holds the same buffer sees what a stream writes after the Clear, also through a Get (corpus
+        // streams/TestBlobCalcFieldsUncommittedWrite.al:183-222,
         // BlobRoundTrip_TemporaryVariable_Matrix and _TemporaryTable_Matrix, `clear+noget`, `clear+get`; al-runner issue 6791). A buffer an Insert stored while it held content (`BlobBuf::temp_inserted`) is
         // replaced as before: what a Clear of it leaves on the row is not pinned. So is a buffer a live xRec shares with Rec (a
         // Clear in OnModify or in a table event): nothing pins what xRec shows after the Clear, so Rec gets a new buffer and xRec

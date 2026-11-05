@@ -257,8 +257,8 @@ impl Session {
                 continue;
             }
             // A condition on a FlowField of the related table compares each row's calculated value, not the stored one: a lookup,
-            // exist and count FlowField with const, filter and field() (al-runner issue 6979; corpus branch
-            // al-runtime-rs-staging-r6978 3682cab7, record/filters/RelationWhereFlowFilter.al:182-292, RelationOnRelatedFlowField_*).
+            // exist and count FlowField with const, filter and field() (al-runner issue 6979; corpus
+            // record/filters/RelationWhereFlowFilter.al:182-292, RelationOnRelatedFlowField_*).
             let target = if self.is_flow_field(related.object, related_pos) {
                 &mut flow_field_filters
             } else {

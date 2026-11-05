@@ -892,7 +892,7 @@ impl Session {
         // (record/TestTriggerDispatchOrder.al:TriggerOrder_Validate_FieldPipeline_IsStable).
         let (before, after) = self.ext_validate_order(t, field)?;
         // An error in an OnBeforeValidate or OnAfterValidate trigger a table extension adds to the field puts the whole record
-        // back too (al-runner issue 6978; corpus branch al-runtime-rs-staging-r6978 3682cab7,
+        // back too (al-runner issue 6978; corpus
         // record/TestValidateRaisesAndHandlerAsserterrorContracts.al:167-274, ExtOnBeforeValidate_Raises_RecordAfterwards,
         // ExtOnAfterValidate_Raises_RecordAfterwards, ExtOnAfterValidate_Raises_FieldOnValidateChangesUndone).
         for &(object, routine) in &before {

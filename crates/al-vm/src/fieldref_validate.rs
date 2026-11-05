@@ -27,7 +27,7 @@ impl Session {
 
     /// `Record.Validate(Field, V)` with `V` written as a Variant (lowering picks `Record.ValidateVariant#1`): the value converts
     /// into the field as `FieldRef.Validate` converts it, in all 192 cells of the matrix of the field types and the kinds a Variant
-    /// holds (corpus branch al-runtime-rs-staging-r6978 3682cab7, record/validate/RecordValidateVariant.al, every test, against
+    /// holds (corpus record/validate/RecordValidateVariant.al, every test, against
     /// recordref-fieldref/fieldref/Y67FieldRefValidateVariant.al;
     /// al-runner issue 6975: a Variant holding an Enum goes into a Text field as its name).
     pub(crate) fn record_validate_variant(

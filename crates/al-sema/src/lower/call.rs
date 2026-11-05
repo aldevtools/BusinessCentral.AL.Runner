@@ -98,8 +98,8 @@ impl Lowerer<'_> {
             // A record that reaches GetTable through a Variant loses its ChangeCompany (types/lt-cw-variant-leads/
             // CwVariantChangeCompany.al:CW_Variant_KeepsOrDropsChangeCompany `variant to recordref`).
             "RecordRef.GetTable#1" if variant(0) => Some("RecordRef.GetTableVariant#1"),
-            // A Variant converts into the field as through `FieldRef.Validate` (corpus branch al-runtime-rs-staging-r6978
-            // 3682cab7, record/validate/RecordValidateVariant.al; al-runner issue 6975).
+            // A Variant converts into the field as through `FieldRef.Validate` (corpus
+            // record/validate/RecordValidateVariant.al; al-runner issue 6975).
             "Record.Validate#1" if args.len() == 2 && variant(1) => Some("Record.ValidateVariant#1"),
             // A Text inside a Variant goes by ordinal digits on an Enum or Option control
             // (pages/enum-setvalue-blank/BeEnumSetValueBlank.al:532-597).
