@@ -259,9 +259,28 @@ impl Lowerer<'_> {
                                 .iter()
                                 .position(|x| x.name.eq_ignore_ascii_case(&f))
                         });
+                        // No field of that name: in an extension, a parameterless method of the source table called without
+                        // parentheses shows its value as the call does (pages/record-method-controls/TestRecordMethodControls.al:39
+                        // PageExtension_RecordMethod_NoParentheses_ReadsCalculatedValue, corpus pull request 1152;
+                        // `pages::needed` made the routine).
+                        let method = || {
+                            let t = table?;
+                            self.routine_nodes
+                                .get(t)
+                                .iter()
+                                .any(|r| {
+                                    !r.is_trigger() && r.name().eq_ignore_ascii_case(&f) && r.params().next().is_none()
+                                })
+                                .then_some(())?;
+                            let off = usize::from(sec.syntax().text_range().start()) - ow.base;
+                            routine_named(&ow, &crate::pages::synthetic_name("source", off))
+                        };
                         match pos {
                             Some(p) => binding = ir::Binding::Field(p),
-                            None => unsupported.push(format!("control {} is bound to unknown field {f}", raw.name)),
+                            None => match raw.owner.and_then(|_| method()) {
+                                Some(r) => binding = ir::Binding::Expr(r),
+                                None => unsupported.push(format!("control {} is bound to unknown field {f}", raw.name)),
+                            },
                         }
                     }
                     // A page variable with the name of a field of the source table: which one a bare name binds is not pinned.
