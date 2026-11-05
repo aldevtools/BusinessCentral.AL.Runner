@@ -297,7 +297,6 @@
 69451 Y29_Record_AssignForms
 69451 Y29_TextBuilder_AssignForms
 69451 Y29_XmlDocument_GetRoot_AssignForm
-69532 ClearAll_InPageExtension_WhatIsCleared
 69543 FilterElement_InQueryProcedure_NoFilter
 69584 PX_MaxLength_OptionCaptionAndToolTip
 69592 ApiPage_PartAndReadOnlyIntent
@@ -1434,7 +1433,6 @@
 85484 Ternary_WithVariantBranch
 85484 Variant_BlobToBlobField
 85484 Variant_XmlTypes_RoundTrip
-85545 CY_ClearAll_InPageExtension_OnAfterGetRecord
 85600 HttpContentCodeunit_CreateFromSecretText
 85601 GetAndDeleteWithBody
 85601 InternalAddresses
