@@ -21,7 +21,7 @@ pub(super) enum Kept {
     Nothing,
     /// Its start with `delta` applied (`Baseline::delta_from`), and the rest of what it carried (`run::Carried`).
     Left {
-        delta: al_vm::Delta,
+        delta: Box<al_vm::Delta>,
         tables: std::collections::BTreeSet<u32>,
         unfinished: Option<String>,
         everything: bool,
@@ -35,7 +35,7 @@ impl Kept {
     pub fn delta(&self) -> al_vm::Delta {
         match self {
             Kept::Nothing => Default::default(),
-            Kept::Left { delta, .. } => delta.clone(),
+            Kept::Left { delta, .. } => (**delta).clone(),
         }
     }
 }
@@ -90,7 +90,7 @@ pub(super) struct StartBytes {
 /// What a helper is told to do next.
 pub(super) enum Claim {
     /// Run this member from this start, of this epoch of its suite, with this delta applied.
-    Run(usize, u32, Start, al_vm::Delta),
+    Run(usize, u32, Start, Box<al_vm::Delta>),
     Done,
 }
 
@@ -230,7 +230,7 @@ impl Runs {
                     s.slots[k] = Slot::Running(epoch, delta.clone(), None);
                     s.complete[k] = complete;
                     s.tries[k] += 1;
-                    return Claim::Run(k, epoch, start, delta);
+                    return Claim::Run(k, epoch, start, Box::new(delta));
                 }
                 None if waiting => match self.ready.wait(s) {
                     Ok(g) => s = g,
@@ -421,11 +421,11 @@ mod tests {
         };
         runs.starting(1, Some(Arc::new(fp(b"s1", b""))));
         assert!(runs.has_run(1, Some(0)));
-        runs.finish(1, 0, from, Some(ahead(b"s1")));
+        runs.finish(1, 0, *from, Some(ahead(b"s1")));
         let Claim::Run(2, 0, _, from) = runs.claim() else {
             panic!("then member 2")
         };
-        runs.finish(2, 0, from, Some(ahead(b"s2")));
+        runs.finish(2, 0, *from, Some(ahead(b"s2")));
         assert!(
             runs.take(1, Some(0), Some(&fp(b"s1", b""))).0.is_some(),
             "member 1 started where the walk is"
@@ -451,13 +451,13 @@ mod tests {
         let mut a = ahead(b"s1");
         a.start = Some(Arc::new(fp(b"s1", b"rows of 1")));
         a.unseen = true;
-        runs.finish(1, 0, from, Some(a));
+        runs.finish(1, 0, *from, Some(a));
         let Claim::Run(2, 0, _, from) = runs.claim() else {
             panic!("then member 2")
         };
         let mut a = ahead(b"s2");
         a.start = Some(Arc::new(fp(b"s2", b"rows of 2")));
-        runs.finish(2, 0, from, Some(a));
+        runs.finish(2, 0, *from, Some(a));
         assert!(runs.take(1, Some(0), Some(&fp(b"s1", b"other rows"))).0.is_some());
         runs.reached(1);
         let (seen, dropped) = runs.take(2, Some(0), Some(&fp(b"s2", b"other rows")));

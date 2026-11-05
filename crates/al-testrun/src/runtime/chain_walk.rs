@@ -84,7 +84,7 @@ impl Helper<'_> {
         let mut copies: std::collections::HashMap<(usize, u32), Option<al_vm::Baseline>> = Default::default();
         loop {
             let (k, epoch, start, from) = match runs.claim() {
-                Claim::Run(k, epoch, start, from) => (k, epoch, start, from),
+                Claim::Run(k, epoch, start, from) => (k, epoch, start, *from),
                 Claim::Done => return,
             };
             let si = self.units[k].si;
@@ -178,7 +178,7 @@ fn kept_of(left: Option<&super::run::Carried>, start: &al_vm::Baseline) -> Optio
     }
     let l = left?;
     Some(Kept::Left {
-        delta: l.baseline.as_ref()?.delta_from(start)?,
+        delta: Box::new(l.baseline.as_ref()?.delta_from(start)?),
         tables: l.tables.clone(),
         unfinished: l.unfinished.clone(),
         everything: l.everything,

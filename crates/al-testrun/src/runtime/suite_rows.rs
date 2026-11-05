@@ -66,16 +66,23 @@ pub(crate) fn take_unseen() -> bool {
     UNSEEN.with(|c| c.take()).unwrap_or(false)
 }
 
-/// Starts watching the two tables in a new session that runner `runner` will run, before the session runs any AL code
-/// (install code, the login code, Company Triggers): [`seen_before`] then says whether that code touched them.
-pub(crate) fn watch_before(session: &mut Session) {
+/// Starts watching the two tables in a new session whose codeunit `runner` will run, when it reads its tests from
+/// their rows, before the session runs any AL code (install code, the login code, Company Triggers): [`seen_before`]
+/// then says whether that code touched them. The value is that runner, if it reads rows. `al_runner_off`: the session
+/// runs its tests without the runner (a scratch run, or a codeunit with data-driven tests, `run.rs`).
+pub(crate) fn watch_before(session: &mut Session, runner: Option<usize>, al_runner_off: bool) -> Option<usize> {
+    let runner = runner.filter(|&r| !al_runner_off && reads_rows(&session.engine.program, r))?;
     let tables = tables(&session.engine.program);
     session.store_mut().watch(tables);
+    Some(runner)
 }
 
-/// Whether the AL code since [`watch_before`] read or wrote the two tables; stops the watch. A touch makes the
-/// session's start depend on what they held ([`take_unseen`]).
-pub(crate) fn seen_before(session: &mut Session) {
+/// Whether the AL code since [`watch_before`] (which gave `runner`) read or wrote the two tables; stops the watch. A
+/// touch makes the session's start depend on what they held ([`take_unseen`]).
+pub(crate) fn seen_before(session: &mut Session, runner: Option<usize>) {
+    if runner.is_none() {
+        return;
+    }
     let seen = session.store_mut().watch_hit().is_some();
     session.store_mut().watch(Default::default());
     if seen {

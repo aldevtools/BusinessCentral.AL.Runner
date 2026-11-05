@@ -202,12 +202,13 @@ pub struct MemStore {
     watch: Option<std::rc::Rc<std::cell::RefCell<Watch>>>,
 }
 
-/// The tables [`MemStore::watch`] watches, and those of them that were read or written, in the order of their first
-/// access.
+/// The tables [`MemStore::watch`] watches and the first of them that was read or written, and the window open on top
+/// of it ([`MemStore::watch_window`]) with the first of its tables accessed while it is open.
 #[derive(Debug, Default)]
 struct Watch {
     tables: std::collections::BTreeSet<u32>,
-    hits: Vec<u32>,
+    hit: Option<u32>,
+    window: Option<(std::collections::BTreeSet<u32>, Option<u32>)>,
 }
 
 /// One table of an exported store ([`MemStore::export_committed`]): its company (empty for a table that is not per
@@ -706,41 +707,46 @@ impl MemStore {
         self.watch = (!tables.is_empty()).then(|| {
             std::rc::Rc::new(std::cell::RefCell::new(Watch {
                 tables,
-                hits: Vec::new(),
+                ..Default::default()
             }))
         });
     }
 
     /// The first watched table that was read or written since [`MemStore::watch`].
     pub fn watch_hit(&self) -> Option<u32> {
-        self.watch.as_ref().and_then(|w| w.borrow().hits.first().copied())
+        self.watch.as_ref().and_then(|w| w.borrow().hit)
     }
 
-    /// Watches `tables` too from now on, keeping what is watched and what was accessed ([`MemStore::watch`]).
-    pub fn watch_add(&mut self, tables: &std::collections::BTreeSet<u32>) {
+    /// Opens a window on `tables`: [`MemStore::watch_window_end`] says which of them was accessed first while it is
+    /// open. The watch ([`MemStore::watch`]) goes on as it was, and an access the watch noted before does not count.
+    pub fn watch_window(&mut self, tables: std::collections::BTreeSet<u32>) {
         match &self.watch {
-            Some(w) => w.borrow_mut().tables.extend(tables.iter().copied()),
-            None => self.watch(tables.clone()),
+            Some(w) => w.borrow_mut().window = Some((tables, None)),
+            None => {
+                self.watch = Some(std::rc::Rc::new(std::cell::RefCell::new(Watch {
+                    window: Some((tables, None)),
+                    ..Default::default()
+                })))
+            }
         }
     }
 
-    /// Stops watching `tables` (added by [`MemStore::watch_add`]): the first of them that was read or written since,
-    /// if any. The other watched tables and their accesses stay.
-    pub fn watch_take(&mut self, tables: &std::collections::BTreeSet<u32>) -> Option<u32> {
-        let w = self.watch.as_ref()?;
-        let mut w = w.borrow_mut();
-        let first = w.hits.iter().copied().find(|t| tables.contains(t));
-        w.hits.retain(|t| !tables.contains(t));
-        w.tables.retain(|t| !tables.contains(t));
-        first
+    /// Closes the window of [`MemStore::watch_window`]: the first of its tables accessed while it was open, if any.
+    pub fn watch_window_end(&mut self) -> Option<u32> {
+        self.watch.as_ref()?.borrow_mut().window.take()?.1
     }
 
     /// Notes an access to table `object` for the watch.
     fn seen(&self, object: u32) {
         if let Some(w) = &self.watch {
             let mut w = w.borrow_mut();
-            if w.tables.contains(&object) && !w.hits.contains(&object) {
-                w.hits.push(object);
+            if w.hit.is_none() && w.tables.contains(&object) {
+                w.hit = Some(object);
+            }
+            if let Some((tables, hit @ None)) = &mut w.window {
+                if tables.contains(&object) {
+                    *hit = Some(object);
+                }
             }
         }
     }
@@ -749,8 +755,12 @@ impl MemStore {
     fn seen_all(&self) {
         if let Some(w) = &self.watch {
             let mut w = w.borrow_mut();
-            let new: Vec<u32> = w.tables.iter().copied().filter(|t| !w.hits.contains(t)).collect();
-            w.hits.extend(new);
+            if w.hit.is_none() {
+                w.hit = w.tables.iter().next().copied();
+            }
+            if let Some((tables, hit @ None)) = &mut w.window {
+                *hit = tables.iter().next().copied();
+            }
         }
     }
 
@@ -1748,16 +1758,18 @@ mod tests {
         s.watch(Default::default());
         s.count(&c, &t, &[]).unwrap();
         assert_eq!(s.watch_hit(), None);
-        // Tables watched for a while on top (`watch_add`): their accesses are taken apart, the others stay.
-        s.watch([8].into());
-        s.watch_add(&[7].into());
+        // A window on top of the watch (`watch_window`): it notes only what is accessed while it is open, whatever the
+        // watch noted before, and the watch keeps its own.
+        s.watch([7, 8].into());
         s.count(&c, &t, &[]).unwrap();
+        s.watch_window([7].into());
         s.count(&c, &other, &[]).unwrap();
-        assert_eq!(s.watch_hit(), Some(7));
-        assert_eq!(s.watch_take(&[7].into()), Some(7));
-        assert_eq!(s.watch_hit(), Some(8), "the access of the other table stays");
+        assert_eq!(s.watch_window_end(), None, "7 was read before the window opened");
+        s.watch_window([7].into());
         s.count(&c, &t, &[]).unwrap();
-        assert_eq!(s.watch_take(&[7].into()), None, "no longer watched");
+        assert_eq!(s.watch_window_end(), Some(7));
+        assert_eq!(s.watch_hit(), Some(7), "the watch keeps its own");
+        assert_eq!(s.watch_window_end(), None, "closed");
     }
 
     // ---- the key seek (ADR-035): a scan starts where the filters on the leading key fields start ----

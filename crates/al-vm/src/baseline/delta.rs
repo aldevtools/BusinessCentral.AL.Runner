@@ -37,6 +37,9 @@ struct Marks {
     full_copies: Vec<String>,
 }
 
+/// A table's rows, encoded, and whether a DeleteAll emptied it.
+type EncodedTable = (Arc<Vec<u8>>, bool);
+
 /// What a run changed in the baseline it started from ([`Baseline::delta_from`]): the tables it wrote, as their rows
 /// after it (encoded, so a delta can go to another thread), the counters and number sequences by how far they moved on,
 /// and the AutoIncrement counters and the marks as they are after it. Applied to another baseline ([`Baseline::with_delta`]) it predicts what the run
@@ -44,7 +47,7 @@ struct Marks {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Delta {
     /// (company, object) -> the encoded rows and whether a DeleteAll emptied the table.
-    tables: BTreeMap<(String, u32), (Arc<Vec<u8>>, bool)>,
+    tables: BTreeMap<(String, u32), EncodedTable>,
     gone: BTreeSet<(String, u32)>,
     next_guid: u64,
     next_row_version: i64,
