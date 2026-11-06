@@ -298,9 +298,9 @@ What each session-relative part of a record means in the next session (each with
 
 | Part of `RecordState` | Meaning in the next session |
 |---|---|
-| `temp_id` | A new private table with the same rows (BC rolls back no temporary table). Refused: a table two carried handles share, a table with an AutoIncrement field (the counter is the session's), a Code key stored as a number. |
-| Row version (SystemRowVersion in the buffer, `row_origin.version`, `failed_insert`, `last_modify`) of a table that is not temporary | Kept when at or below the committed row version at the codeunit's start: every session of the run starts from the same committed rows. A higher one names a row BC rolled back with the earlier codeunit, while the next session hands out the same numbers again: refused. |
-| `row_origin` with `own_write` (table not temporary) | Refused: the row was rolled back. |
+| `temp_id` | A new private table with the same rows (BC rolls back no temporary table). Refused: a table two carried handles share, a table with an AutoIncrement field that has rows or whose counter the session moved (the counter is the session's), a Code key stored as a number. |
+| Row version (SystemRowVersion in the buffer, `row_origin.version`, `failed_insert`, `last_modify`) of a table that is not temporary | Kept when at or below the committed row version at the codeunit's start: every session of the run starts from the same committed rows. A higher one names a row BC rolled back with the earlier codeunit, while the next session hands out the same numbers again. |
+| A buffer of such a rolled-back row (a higher row version, or `row_origin` with `own_write`) | BC rolls back rows, not variables: the fields are carried; origin, versions and the IsDirty base are dropped and the record is marked (`records::ROLLED_BACK_ROW`). Field reads and writes, TestField, FieldCaption, FieldName and the view methods run; a Get or Find that finds a row fills it again and drops the mark; every other method is refused. A partly loaded buffer is refused. |
 | `row_origin.commits` | `RowOrigin::EARLIER_SESSION`: the origin's transaction ended with the earlier codeunit; no Commit-count rule of the stale-buffer code holds for it. |
 | `company` | Carried (every session has the same companies at its start). |
 | `crm`, `run_page_link` | Refused (the CRM connection and the page are the session's). |
@@ -308,9 +308,18 @@ What each session-relative part of a record means in the next session (each with
 | Fields, filters, filter group, marks, key, ad hoc key, order, position, auto-calc fields, load state, IsDirty snapshots, flags | Values of the variable: carried as they are. |
 
 Also carried: dictionaries, arrays, codeunit values (a SingleInstance codeunit's value stays its one instance), unopened
-and open RecordRefs, RecordIds, TextBuilders. A handle two carried variables share (a FieldRef into a carried
-RecordRef's buffer, one list in two globals) is refused: the copies would no longer share it. A .NET object of the
+and open RecordRefs, RecordIds, TextBuilders. The globals of one single instance are carried as one group: a handle two of them share
+(one list in two globals, a JsonToken inside another global's JSON tree as in the Test Runner's "Test Output") is
+written once and named at its other places, so the copies share it as the originals do. When any global of a group
+changes, the whole group is handed on, and when it shares handles, what its unread globals held at the start counts
+as read (the walk checks it). A handle two single instances share, a record two places hold (a FieldRef into a
+carried RecordRef's buffer) and a temporary table two records share are refused. A .NET object of the
 session's .NET process, streams and the other library values are refused where a later codeunit reads them first.
+
+**Chain members run again.** A chain member that runs again from the serial state and changes a subset of the
+tables its first run changed (it skips a setup, as an `isInitialized` flag makes Microsoft's tests do) relays its rows:
+every later codeunit that reads one of them read one of the first run's tables too and runs again from the new rows.
+A table only the run again changed stays refused.
 
 Temporary rows keep their row version numbers. A temporary record's row version is no database row version
 (`stale_verdict` treats a temporary record as fresh, and a temporary record of a table with SQLTimestamp never stamps,

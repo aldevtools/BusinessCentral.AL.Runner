@@ -9,16 +9,20 @@
 //! Each session-relative part of a record ([`RecordState`]) has one meaning in the next session:
 //! - `temp_id`: the temporary table goes with the record. The next session gets a new private table holding the same
 //!   rows (`MemStore::export_current`): BC rolls back no temporary table. A temporary table two carried handles share,
-//!   a table with an AutoIncrement field (its counter is the session's, `autoinc.rs`) and a table whose Code key is
-//!   stored as a number (its key order is not written with the rows) are refused.
+//!   a table with an AutoIncrement field that has rows or whose counter the session moved (the counter is the
+//!   session's, `autoinc.rs`) and a table whose Code key is stored as a number (its key order is not written with the
+//!   rows) are refused.
 //! - The row version (SystemRowVersion in the buffer, `row_origin.version`, `failed_insert`, the version in
 //!   `last_modify`) of a record that is not temporary: carried when it is at or below the session's committed row
 //!   version at the point it began to track the single instances. Such a row was committed before the test codeunit
 //!   began, and every session of the run starts from the same committed rows, so the number names the same row
-//!   version there. A higher number was given by the earlier session to a row that BC rolled back at the end of that
-//!   test codeunit (TestCuP7BReader.al:24-37: rows are rolled back per codeunit) while the next session hands out the
-//!   same numbers again: refused. Temporary rows keep their numbers with their rows (a temporary record's row
-//!   version is no database row version: `stale_verdict` returns Fresh for it first).
+//!   version there. A higher number, or a buffer of the variable's own write, names a row BC rolled back at the end of
+//!   that test codeunit (TestCuP7BReader.al:24-37: rows are rolled back per codeunit) while the next session hands out
+//!   the same numbers again. BC rolls back rows, not variables: such a buffer keeps its fields, and what it knew of the
+//!   row (origin, versions, IsDirty base) is dropped and marked (`records::ROLLED_BACK_ROW`): field reads and writes,
+//!   TestField, FieldCaption and the view methods run, a Get or Find that finds a row fills it again, and every other
+//!   method is refused. Temporary rows keep their numbers with their rows (a temporary record's row version is no
+//!   database row version: `stale_verdict` returns Fresh for it first).
 //! - `row_origin.commits`: [`RowOrigin::EARLIER_SESSION`]. The origin's transaction ended with the earlier test
 //!   codeunit, so no Commit count since it is a number the stale-buffer rules know; with that value none of them
 //!   (`o.commits + k == self.commits`, `o.commits == self.commits`) holds. An origin of the variable's own write on a

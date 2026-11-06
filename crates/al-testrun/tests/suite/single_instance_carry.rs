@@ -101,6 +101,7 @@ codeunit 50257 "Carry Handles"
     procedure NewRowKey(): Code[20] begin exit(NewRow."Key"); end;
     procedure ModifyNewRow() begin NewRow.Modify(); end;
     procedure NewRowCaption(): Text begin exit(NewRow.FieldCaption("Key")); end;
+    procedure ClearNewRow() begin Clear(NewRow); NewRow."Key" := 'X'; NewRow.Insert(); end;
     procedure ShareTemp() begin TempRows."No" := 1; TempRows.Insert(); TempShared.Copy(TempRows, true); end;
     procedure SharedCount(): Integer begin exit(TempShared.Count()); end;
     procedure FillCtx()
@@ -688,4 +689,10 @@ codeunit 60282 "Rolled Read 2"
     let results = run(src, &RunOptions::default());
     assert_eq!(outcome(&results, "ReadsOnce"), Outcome::Pass);
     assert_eq!(outcome(&results, "ReadsTwice"), Outcome::Pass);
+}
+
+#[test]
+fn clear_on_a_rolled_back_buffer_leaves_a_new_record() {
+    let results = run(&pair("KeepNewRow", "H.ClearNewRow();"), &RunOptions::default());
+    assert_eq!(outcome(&results, "Reads"), Outcome::Pass);
 }

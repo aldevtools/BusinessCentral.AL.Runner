@@ -2155,6 +2155,11 @@ impl Session {
                     | RecordOp::HasFilter
                     | RecordOp::SetView
             );
+        // Clear leaves a new record, which knows no row.
+        if why == ROLLED_BACK_ROW && method == RecordOp::Clear {
+            rec.borrow_mut().unpinned_buffer = None;
+            return self.record_op_inner(method, rec, args);
+        }
         // A rolled-back row's fields are the variable's own ([`ROLLED_BACK_ROW`]).
         let fields_only = why == ROLLED_BACK_ROW
             && matches!(
