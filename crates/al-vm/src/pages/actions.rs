@@ -205,31 +205,42 @@ impl Session {
             let object = owner.unwrap_or(st.borrow().object as usize);
             let inst = self.owner_instance(st, owner);
             let shown = self.lookup_start_text(st, idx, object, routine)?;
-            self.lookup_trigger_call(st, object, routine, inst, vec![Value::Text(shown.into())])
-                .and_then(|(v, finals)| match (v, finals.first()) {
-                    (Value::Boolean(true), Some(Value::Text(t))) => {
-                        // Written back as the client would type it. The OnLookup of a page extension's modify block
-                        // leaves a Code field in the case it wrote (`Text := 'FromExt'` reads back FromExt), the page's
-                        // own trigger does not (FROMCTL) (pages/lookups/W2Lookups.al:
-                        // ModifyBlockOnLookup_ReturnsTrue, BC 27.5 and 29.0).
-                        st.borrow_mut().lookup_setting_value = true;
-                        let r = self.control_set_value(st, idx, &mut [Value::Text(t.clone())]);
-                        st.borrow_mut().lookup_setting_value = false;
-                        let binding = page_of(&self.engine(), st).controls[idx].binding.clone();
-                        if let ir::Binding::Field(pos) = binding {
-                            let rec = self.page_rec(st);
-                            let is_code = matches!(rec.borrow().fields[pos], Value::Code(_));
-                            if is_code && owner.is_some() && r.is_ok() {
-                                rec.borrow_mut().fields[pos] = Value::Code(t.clone());
-                            }
+            let called = self.lookup_trigger_call(st, object, routine, inst, vec![Value::Text(shown.into())]);
+            let called = match called {
+                Err(e) => match self.lookup_error_outcome(Err(e)) {
+                    Some(Ok(_)) => {
+                        st.borrow_mut().refresh = false;
+                        return Ok(Value::Null);
+                    }
+                    Some(Err(e)) => Err(e),
+                    None => unreachable!("an Err always has an outcome"),
+                },
+                ok => ok,
+            };
+            called.and_then(|(v, finals)| match (v, finals.first()) {
+                (Value::Boolean(true), Some(Value::Text(t))) => {
+                    // Written back as the client would type it. The OnLookup of a page extension's modify block
+                    // leaves a Code field in the case it wrote (`Text := 'FromExt'` reads back FromExt), the page's
+                    // own trigger does not (FROMCTL) (pages/lookups/W2Lookups.al:
+                    // ModifyBlockOnLookup_ReturnsTrue, BC 27.5 and 29.0).
+                    st.borrow_mut().lookup_setting_value = true;
+                    let r = self.control_set_value(st, idx, &mut [Value::Text(t.clone())]);
+                    st.borrow_mut().lookup_setting_value = false;
+                    let binding = page_of(&self.engine(), st).controls[idx].binding.clone();
+                    if let ir::Binding::Field(pos) = binding {
+                        let rec = self.page_rec(st);
+                        let is_code = matches!(rec.borrow().fields[pos], Value::Code(_));
+                        if is_code && owner.is_some() && r.is_ok() {
+                            rec.borrow_mut().fields[pos] = Value::Code(t.clone());
                         }
-                        r
                     }
-                    (Value::Boolean(true), other) => {
-                        unsupported(format!("an OnLookup trigger whose Text is {}", other.describe()))
-                    }
-                    _ => Ok(Value::Null),
-                })
+                    r
+                }
+                (Value::Boolean(true), other) => {
+                    unsupported(format!("an OnLookup trigger whose Text is {}", other.describe()))
+                }
+                _ => Ok(Value::Null),
+            })
         } else {
             let r = self.owner_routine(st, owner, routine).map(|_| Value::Null);
             match r {
@@ -637,6 +648,31 @@ impl Session {
         Ok(r)
     }
 
+    /// What an error out of an OnLookup that `TestPage.<control>.Lookup()` started does. An error with an empty text (`Error('')`) ends
+    /// the call quietly: the test goes on, the error becomes the last error (empty text, code Dialog) and the rows the trigger wrote
+    /// before it stay (pages/empty-error-text/WcLookupEmptyError.al WcTableFieldLookup_CancelEmptyError_NoAsserterror,
+    /// WcControlLookup_CancelEmptyError_NoAsserterror, WcControlLookup_DirectEmptyError_NoAsserterror; BC 27.5). An error with a text
+    /// comes out with the code `TestWrapped:Dialog` (WcTableFieldLookup_CancelTextError_Asserterror; pinned for the table field's
+    /// trigger, the control's own trigger is assumed to match, docs/probes-needed.md). Returns None for a result that is not an error.
+    fn lookup_error_outcome(&mut self, r: Result<Value, Signal>) -> Option<Result<Value, Signal>> {
+        match r {
+            Err(Signal::Error(mut e)) if e.message.is_empty() => {
+                if let Some(own) = e.code.strip_prefix("TestWrapped:") {
+                    e.code = own.to_string();
+                }
+                self.error_finals = None;
+                self.last_error = *e;
+                Some(Ok(Value::Null))
+            }
+            Err(Signal::Error(mut e)) if e.code == "Dialog" => {
+                e.code = "TestWrapped:Dialog".into();
+                Some(Err(Signal::Error(e)))
+            }
+            Err(other) => Some(Err(other)),
+            Ok(_) => None,
+        }
+    }
+
     /// `Lookup()` on a control with no OnLookup trigger of its own: the source table field's
     /// OnLookup runs on the page's row (corpus testpage/TestPageFieldTableLookup.al:55
     /// Lookup_ControlWithoutTrigger_RunsTheTableFieldsOnLookup); else a field with a TableRelation
@@ -670,7 +706,10 @@ impl Session {
         if let Some((object, routine)) = field.on_lookup {
             let rec = self.page_rec(st);
             st.borrow_mut().refresh = false;
-            self.call_on_record(object, routine, rec, None, Vec::new())?;
+            let called = self.call_on_record(object, routine, rec, None, Vec::new());
+            if let Some(quiet) = self.lookup_error_outcome(called.map(|_| Value::Null)) {
+                return quiet;
+            }
             // The control now shows what the trigger wrote, as an edit of the row (assumed,
             // docs/probes-needed.md).
             st.borrow_mut().dirty = true;
