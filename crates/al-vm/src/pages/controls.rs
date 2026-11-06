@@ -1232,6 +1232,14 @@ impl Session {
             )
     }
 
+    /// The built-in Edit or View action switches the open page to `mode`; the parts follow the host (corpus
+    /// testpage/TestPageControlEditableRoutes.al: Part_HostOpenEdit_ThenViewAction).
+    pub(super) fn switch_mode(&mut self, st: &St, mode: PageMode) -> Result<Value, Signal> {
+        st.borrow_mut().mode = mode;
+        self.set_part_modes(st, mode);
+        Ok(Value::Null)
+    }
+
     /// Whether control `idx` sits inside a `cuegroup` with `CuegroupLayout = Wide`.
     fn in_wide_cue_group(&self, st: &St, idx: usize) -> bool {
         let engine = self.engine();
@@ -1395,6 +1403,8 @@ impl Session {
                     return match m {
                         PageMethod::Visible => Ok(Value::Boolean(true)),
                         PageMethod::Enabled => Ok(Value::Boolean(enabled)),
+                        // A list without a card switches its own mode (testpage/R6977ListViewNext.al, R6977ListAfterView.al).
+                        PageMethod::Invoke if enabled && card.is_none() => self.switch_list_without_card(st, edit),
                         PageMethod::Invoke if !enabled || card.is_none() => Ok(Value::Null),
                         PageMethod::Invoke => self.list_card_action(st, edit),
                         other => unsupported(format!(
@@ -1410,10 +1420,7 @@ impl Session {
                     PageMethod::Invoke => {
                         if applies {
                             let mode = if name == "Edit" { PageMode::Edit } else { PageMode::View };
-                            st.borrow_mut().mode = mode;
-                            // The parts follow the host (corpus testpage/TestPageControlEditableRoutes.al:
-                            // Part_HostOpenEdit_ThenViewAction).
-                            self.set_part_modes(st, mode);
+                            return self.switch_mode(st, mode);
                         }
                         Ok(Value::Null)
                     }
