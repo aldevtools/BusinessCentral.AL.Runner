@@ -1071,10 +1071,13 @@ impl Session {
                 .as_ref()
                 .map(|v| (v.filters.clone(), v.key.0, v.key.1.clone(), v.ascending)),
         );
+        // Refused once it ran (`part_tree_typed.rs`).
+        let empty_tree_part_in_key = self.empty_tree_part_in_key(st);
         let was_in_action = std::mem::replace(&mut st.borrow_mut().in_action, true);
         let r = self.action_invoke_body(st, idx);
         st.borrow_mut().view_before_action = outer_view;
         let r = match r {
+            Ok(_) if empty_tree_part_in_key && self.view_row_count(st)? > 0 => self.refuse_empty_tree_part_action(),
             Ok(v) => self.settle_rows_after_action(st, view_before).map(|()| v),
             e => e,
         };

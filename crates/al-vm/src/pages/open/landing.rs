@@ -405,6 +405,14 @@ impl Session {
                 self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
                 self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
                 rec.borrow_mut().fields = fresh;
+            } else if self.has_source(st) && st.borrow().host.is_some() && st.borrow().mode == PageMode::Edit {
+                // A part of a host that moved to a row without lines holds no row of the old link: Rec is blank, so the part's
+                // action sees no Line No. (pages/parts/R6889RealShape.al:1213 RunStep4, :1406 PG6889RS_Step4_ `ACT;CU;T.INS(10);...`,
+                // a host filtered to D2|D3 and moved there by GoToRecord from D1, whose part held D1's lines).
+                let rec = self.page_rec(st);
+                let table = rec.borrow().table as usize;
+                let fresh = self.initial_fields(table);
+                rec.borrow_mut().fields = fresh;
             }
             self.populate_expressions(st)
         }

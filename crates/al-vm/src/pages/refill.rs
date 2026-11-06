@@ -460,7 +460,16 @@ impl Session {
         let rows = self.view_rows(rec, Self::WINDOW + 1)?;
         let table = self.table(rec)?;
         let at = rows.iter().position(|r| Self::same_key(&table.primary_key(r), key));
-        Ok(at.is_some_and(|at| self.part_reads_once_more_at(st, rec, rows.len(), at)))
+        let once_more = at.is_some_and(|at| self.part_reads_once_more_at(st, rec, rows.len(), at));
+        // A tree part in another key whose action leaves it on another place of its view (or on none: R6889RealShape.al:1213
+        // RunStep4 starts on an empty part and the reads of :1406 `R20;R20;R20;R10;R20;R20;R20;C20;R10;R10;R10;C10` are a different
+        // walk) is not pinned.
+        if !once_more && at.is_some() && self.part_is_tree(st) {
+            return unsupported(
+                "an action of a tree part sorted by another key than the primary key, other than on the second of three rows or the first of two (the reads are not pinned)",
+            );
+        }
+        Ok(once_more)
     }
 
     /// OnFindRecord(`which`) of part `st` with Rec on `row`. Pinned for a trigger that finds the row it stands on

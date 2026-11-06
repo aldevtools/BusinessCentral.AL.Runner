@@ -8,6 +8,36 @@
 use super::*;
 
 impl Session {
+    /// A part over a table, standing on no row, whose repeater is a tree and whose view is sorted by another key than the primary
+    /// key. Its action that leaves rows is refused: pages/parts/R6889RealShape.al:1213 RunStep4, :1406 PG6889RS_Step4_ pin the reads
+    /// after it (`R20;R20;R20;R10;R20;R20;R20;C20;R10;R10;R10;C10`), a walk that is not modelled.
+    pub(super) fn empty_tree_part_in_key(&self, st: &St) -> bool {
+        if st.borrow().host.is_none() || st.borrow().cursor != Cursor::None || !self.has_source(st) {
+            return false;
+        }
+        let rec = self.page_rec(st);
+        let other_key = {
+            let r = rec.borrow();
+            r.key != 0 || r.adhoc.is_some()
+        };
+        other_key && self.part_is_tree(st)
+    }
+
+    pub(super) fn refuse_empty_tree_part_action(&self) -> Result<Value, Signal> {
+        unsupported(
+            "an action of a tree part in another key than the primary key that showed no row before it and left rows (the reads are not modelled)",
+        )
+    }
+
+    /// Whether the part's repeater is a tree (`ShowAsTree = true`).
+    pub(super) fn part_is_tree(&self, st: &St) -> bool {
+        let engine = self.engine();
+        page_of(&engine, st).controls.iter().any(|c| {
+            c.kind == ir::ControlKind::Repeater
+                && matches!(c.prop("showastree"), Some(ir::PropVal::Lit(v)) if unquote(v).eq_ignore_ascii_case("true"))
+        })
+    }
+
     /// The row `st` (a part) holds as typed, when its tree keeps it across the part's update: returns the stored row (xRec) the
     /// save compares with. `None`: the part drops the typed row as before (no typed row, or no tree).
     pub(super) fn tree_part_keeps_typed_row(&self, st: &St, both: bool) -> Result<Option<Vec<Value>>, Signal> {
@@ -53,7 +83,9 @@ impl Session {
         let held = self.row_key(&rec)?;
         match rows.iter().position(|r| Self::same_key(&table.primary_key(r), &held)) {
             Some(at) if rows.len() <= Self::WINDOW => Ok((rows, at)),
-            _ => unsupported("a tree part that saved its typed row and whose view no longer holds it or is longer than a window (not pinned)"),
+            _ => unsupported(
+                "a tree part that saved its typed row and whose view no longer holds it or is longer than a window (not pinned)",
+            ),
         }
     }
 }

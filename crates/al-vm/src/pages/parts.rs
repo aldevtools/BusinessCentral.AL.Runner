@@ -1841,7 +1841,9 @@ impl Session {
             // The typed row of a tree part is saved after the host read, before the part reads its rows (`part_tree_typed.rs`).
             (Some(_), Some(before)) => Some(self.save_typed_tree_row(st, before)?),
             (None, Some(_)) => {
-                return unsupported("a tree part on its first row whose code ran CurrPage.Update after a typed value (not pinned)")
+                return unsupported(
+                    "a tree part on its first row whose code ran CurrPage.Update after a typed value (not pinned)",
+                );
             }
             (later, None) => later,
         };
