@@ -98,13 +98,16 @@ pub struct CarryInst {
     pub globals: Vec<CarryVal>,
 }
 
+/// One table of a temporary record's private store: company, object, and each row's key and values (encoded).
+pub type CarryTable = (String, u32, Vec<(Vec<u8>, Vec<u8>)>);
+
 /// A record variable (see the module for the meaning of each session-relative part).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CarryRec {
     pub table: u32,
     pub temporary: bool,
     /// The rows of its temporary table (`None`: the record has no table of its own yet).
-    pub temp_rows: Option<Vec<(String, u32, Vec<(Vec<u8>, Vec<u8>)>)>>,
+    pub temp_rows: Option<Vec<CarryTable>>,
     pub company: Option<String>,
     pub fields: Vec<u8>,
     pub filters: Vec<u8>,
