@@ -1021,7 +1021,10 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // Branch fix-6975-record-validate-variant makes it 37: 60670 TemporalSetValue_ValidateRefusesTextCarriedInAVariant
     // (testpage/TestPageTemporalSetValue_Tests.al:303) passes on BC 27 only: Record.Validate with a Variant now converts as
     // FieldRef.Validate does, whose error on 27 names the type for any text; from 28 a text into a Date field is not pinned.
-    assert!(out.contains("runtime: 37 case(s) differ between versions"), "{out}");
+    // This branch makes it 38: 67605 N582_Evaluate_FieldRef_Guid_ResultUsedAndFormat9 (recordref-fieldref/N582EvalFieldRefUnused.al:
+    // :252-299, al-runner issue 6924) passes on BC 28 and 29; on 27 the last error stays set when Evaluate into a Guid FieldRef
+    // answers false (the `#else` arms), which the runtime does not do, so it stays listed there.
+    assert!(out.contains("runtime: 38 case(s) differ between versions"), "{out}");
     assert!(out.contains("71500 Get_Uses_Primary_Key_Not_Current_Key: 27"), "{out}");
 }
 
