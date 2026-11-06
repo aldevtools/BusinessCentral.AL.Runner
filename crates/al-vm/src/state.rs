@@ -233,6 +233,9 @@ pub(crate) struct PageClients {
     /// Set by a FindFirst or FindLast that found a row on Rec in the OnOpenPage of a page an action opened through
     /// RunPageLink (`records.rs`); taken by `open_page_as` into `PageState::run_page_link_open_moved`.
     pub(crate) run_page_link_open_moved: bool,
+    /// How many OnOpenPage triggers of pages an action opened through RunPageLink are running now: a by-value copy of Rec taken
+    /// in one is `records::RUN_PAGE_LINK_OPEN_COPY` (see `Session::record_by_value`).
+    pub(crate) run_page_link_opening: u32,
     /// The close that starts next is a TestPage's own Close() (taken by `close_with`).
     pub(crate) test_close: bool,
     /// The save of the close running now failed with an AL Error (`pages/close_save_failed.rs`).
