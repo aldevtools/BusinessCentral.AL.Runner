@@ -40,6 +40,18 @@ impl Kept {
     }
 }
 
+/// What [`Runs::take`] dropped when it had no run ahead from the walk's state.
+#[derive(Debug)]
+pub(super) enum Dropped {
+    /// Nothing: no helper ran the member in the epoch.
+    Nothing,
+    /// A run from a prediction made while some member before it had not run yet (counted as changing nothing).
+    Early,
+    /// A run from a prediction that knew what every member before it changes, and was wrong: the delta it started
+    /// from, on the epoch's start.
+    Wrong(Box<al_vm::Delta>),
+}
+
 /// An event a run ahead told its hooks, kept until the walk takes the run.
 pub(super) enum HookEvent {
     Start(u32, String),
@@ -304,12 +316,10 @@ impl Runs {
 
     /// The run ahead of member `k` from the start of `epoch` whose fingerprint is `actual`, the walk's state, waiting
     /// for it while a helper runs it; `None` when there is none (or `epoch` or `actual` is `None`: the walk runs it
-    /// itself). The flag tells whether a run from another start was dropped that started from a prediction which knew
-    /// what every member before it changes (a wrong prediction, not one made before that was known). No helper runs the
-    /// member after this.
-    pub fn take(&self, k: usize, epoch: Option<u32>, actual: Option<&al_vm::Fingerprint>) -> (Option<Ahead>, bool) {
+    /// itself). The second part says what was dropped instead ([`Dropped`]). No helper runs the member after this.
+    pub fn take(&self, k: usize, epoch: Option<u32>, actual: Option<&al_vm::Fingerprint>) -> (Option<Ahead>, Dropped) {
         let Ok(mut s) = self.state.lock() else {
-            return (None, false);
+            return (None, Dropped::Nothing);
         };
         // The same start but for the Test Runner's rows, and whether those are the same too.
         let same = |e: &u32, fp: Option<&al_vm::Fingerprint>| match (fp, actual) {
@@ -319,18 +329,21 @@ impl Runs {
         loop {
             match std::mem::replace(&mut s.slots[k], Slot::Taken) {
                 Slot::Done(e, _, Some(a)) if same(&e, a.start.as_deref()).is_some_and(|rows| rows || a.unseen) => {
-                    return (Some(*a), false);
+                    return (Some(*a), Dropped::Nothing);
                 }
                 // Its fingerprint is not known yet, or it is the walk's (but perhaps for those rows): wait.
                 Slot::Running(e, d, fp) if Some(e) == epoch && (fp.is_none() || same(&e, fp.as_deref()).is_some()) => {
                     s.slots[k] = Slot::Running(e, d, fp);
                     s = match self.ready.wait(s) {
                         Ok(g) => g,
-                        Err(_) => return (None, false),
+                        Err(_) => return (None, Dropped::Nothing),
                     };
                 }
-                Slot::Done(..) | Slot::Running(..) => return (None, s.complete[k]),
-                _ => return (None, false),
+                Slot::Done(_, from, _) | Slot::Running(_, from, _) if s.complete[k] => {
+                    return (None, Dropped::Wrong(Box::new(from)));
+                }
+                Slot::Done(..) | Slot::Running(..) => return (None, Dropped::Early),
+                _ => return (None, Dropped::Nothing),
             }
         }
     }
@@ -380,6 +393,16 @@ impl Runs {
             s.open.insert(si);
         }
         self.ready.notify_all();
+    }
+
+    /// Whether the helpers run suite `si`'s members (`open`; a new start closes it until one member ran from there).
+    pub fn is_open(&self, si: usize) -> bool {
+        self.state.lock().is_ok_and(|s| s.open.contains(&si))
+    }
+
+    /// Whether suite `si`'s members are not run ahead any more (`taint`).
+    pub fn tainted(&self, si: usize) -> bool {
+        self.state.lock().is_ok_and(|s| s.tainted.contains(&si))
     }
 
     pub fn taint(&self, si: usize) {
@@ -451,7 +474,10 @@ mod tests {
         );
         runs.reached(1);
         let (wrong, dropped) = runs.take(2, Some(0), Some(&fp(b"other", b"")));
-        assert!(wrong.is_none() && dropped, "a run from another start is not taken");
+        assert!(
+            wrong.is_none() && matches!(dropped, Dropped::Wrong(_)),
+            "a run from another start is not taken"
+        );
         assert!(
             runs.take(2, Some(0), Some(&fp(b"s2", b""))).0.is_none(),
             "and it is gone"
@@ -540,6 +566,9 @@ mod tests {
         assert!(runs.take(1, Some(0), Some(&fp(b"s1", b"other rows"))).0.is_some());
         runs.reached(1);
         let (seen, dropped) = runs.take(2, Some(0), Some(&fp(b"s2", b"other rows")));
-        assert!(seen.is_none() && dropped, "a run that saw the rows needs the same rows");
+        assert!(
+            seen.is_none() && matches!(dropped, Dropped::Wrong(_)),
+            "a run that saw the rows needs the same rows"
+        );
     }
 }
