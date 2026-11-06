@@ -211,6 +211,7 @@ mod list_view_switch;
 mod lookup_next;
 mod lookup_refresh;
 mod lookup_start;
+mod lookup_trigger;
 mod marked_refill_goto;
 mod modify_denied;
 mod moved_onto_deleted;
