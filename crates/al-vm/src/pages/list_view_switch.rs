@@ -19,7 +19,13 @@ impl Session {
                     && page_of(&self.engine(), &c.page).controls[*idx].kind == ir::ControlKind::Field
             }
             ControlTarget::BuiltIn(name) => {
-                matches!(name.as_str(), "Edit" | "View") && matches!(m, PageMethod::Enabled | PageMethod::Invoke)
+                // Edit().Invoke() after View is pinned: it opens nothing and raises nothing
+                // (testpage/TestPageModeSwitchAction_Tests.al:200, PlainListWithoutCardPageIdOffersBothActions...).
+                match name.as_str() {
+                    "Edit" => m == PageMethod::Enabled,
+                    "View" => matches!(m, PageMethod::Enabled | PageMethod::Invoke),
+                    _ => false,
+                }
             }
             _ => false,
         };

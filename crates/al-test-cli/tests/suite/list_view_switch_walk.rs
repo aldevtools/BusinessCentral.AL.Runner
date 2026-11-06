@@ -283,7 +283,16 @@ codeunit 95990 "TP R6977 After View"
     end;
 
     [Test]
-    procedure EditInvoke()
+    procedure ViewInvokeAgain()
+    var
+        Lines: TestPage "TP R6977 Lines";
+    begin
+        OpenSwitched(Lines);
+        Lines.View().Invoke();
+    end;
+
+    [Test]
+    procedure EditInvokeIsPinnedAsANoOp()
     var
         Lines: TestPage "TP R6977 Lines";
     begin
@@ -311,7 +320,7 @@ fn after_view_on_a_list_without_card_unpinned_steps_are_refused() {
     let o = outcomes_in(&src, "TP R6977 After View");
     for (name, outcome) in &o {
         match (name.as_str(), outcome) {
-            ("FieldValueStillRead", al_testrun::Outcome::Pass) => {}
+            ("FieldValueStillRead" | "EditInvokeIsPinnedAsANoOp", al_testrun::Outcome::Pass) => {}
             ("FieldValueStillRead", other) => panic!("FieldValueStillRead: {other:?}"),
             (_, al_testrun::Outcome::NotRun(why)) => assert!(
                 why.contains("after the built-in View switched a list without a card to view mode"),
@@ -320,5 +329,5 @@ fn after_view_on_a_list_without_card_unpinned_steps_are_refused() {
             (_, other) => panic!("{name}: expected a refusal, got {other:?}"),
         }
     }
-    assert_eq!(o.len(), 6, "{o:?}");
+    assert_eq!(o.len(), 7, "{o:?}");
 }
