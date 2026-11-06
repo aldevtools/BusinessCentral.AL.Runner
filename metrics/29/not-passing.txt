@@ -2220,8 +2220,6 @@
 96036 XDN_Item_Import
 96036 XDN_TableRoot_Import
 96036 XDN_TextLeaf_Import
-96062 TP6977B_View_EditViewActions
-96062 TP6977B_View_FieldEditable
 96073 R7169_DependencyInstall_ReadsPublishedAs
 96073 R7169_Test_ReadsPublishedAsOfDependency
 96101 SaveValues_CallerProcedureOnly_EditableFalse_SecondRun
