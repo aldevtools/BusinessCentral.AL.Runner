@@ -273,22 +273,8 @@ fn run_codeunit_inner(
     let obj = &lowered.program.objects[object];
     let perturb = scratch.perturb.clone();
     let run_seed = scratch.run_seed;
-    let mut host = crate::host::host_perturbed(scratch.clock_start, &perturb);
-    host.run_seed = run_seed.seed;
-    let mut session = Session::with_host(engine.clone(), host);
-    if let Some(b) = baseline {
-        session.restore_baseline(b);
-    }
-    // The serial check: the single instances of the codeunit before are moved in below; their temporary tables keep
-    // their ids.
-    let moved = if execute {
-        None
-    } else {
-        SERIAL_SINGLES.with(|c| c.borrow_mut().as_mut().and_then(Option::take))
-    };
-    if let Some(m) = &moved {
-        session.continue_temp_ids(m);
-    }
+    let mut session = new_session(engine, scratch.clock_start, &perturb, run_seed.seed, baseline);
+    let moved = singles_moved_in(&mut session, execute);
     session.trace_faults(observe.is_some());
     scratch.flags.apply(&mut session);
     let covering = crate::coverage::enabled();
@@ -431,15 +417,7 @@ fn run_codeunit_inner(
     // codeunits left are still there (al-language/codeunits/TestCuP7BReader.al:24-37, against TestCuP7ASetter.al:24-58).
     // Put back here, after the company open (which BC's session did once, before the first codeunit), and noted from
     // here on, so the run can be checked against the serial order (`single_carry.rs`, `corpus.rs`).
-    if !execute {
-        if let Some(m) = moved {
-            session.adopt_single_instances(m);
-        }
-        session.track_single_instances();
-        if let Some(state) = &scratch.singles_in {
-            session.restore_single_instances(state);
-        }
-    }
+    start_singles(&mut session, execute, moved, scratch.singles_in.as_deref());
     // What a Disabled codeunit leaves for the later codeunits is its writes from here on ([`CARRIED`]). With
     // Company Triggers subscribers each session writes on its own when it opens the company, and how those writes
     // meet the ones carried over is not pinned.
@@ -1303,14 +1281,7 @@ fn run_codeunit_inner(
         Some(runner) => super::al_runner::drive(&mut session, runner, object, &tests, &mut |s, al| body(s, Some(al)))
             .unwrap_or_else(|why| Err(all(Outcome::NotRun(why)))),
     };
-    scratch.singles_out = session.single_out();
-    if !execute {
-        SERIAL_SINGLES.with(|c| {
-            if let Some(slot) = c.borrow_mut().as_mut() {
-                *slot = Some(session.take_single_instances());
-            }
-        });
-    }
+    scratch.singles_out = singles_out(&mut session, execute);
     let out = match ran {
         Ok(out) => out,
         Err(early) => return early,
@@ -1399,6 +1370,70 @@ fn carry_disabled(
         as_started: false,
     };
     CARRIED.with(|c| *c.borrow_mut() = Some(carried));
+}
+
+/// The serial check: the single instances of the codeunit before, moved in later (`start_singles`); their temporary
+/// tables keep their ids.
+fn singles_moved_in(session: &mut Session, execute: bool) -> Option<al_vm::single_carry::MovedSingles> {
+    if execute {
+        return None;
+    }
+    let moved = SERIAL_SINGLES.with(|c| c.borrow_mut().as_mut().and_then(Option::take));
+    if let Some(m) = &moved {
+        session.continue_temp_ids(m);
+    }
+    moved
+}
+
+/// A codeunit's session on the perturbed host, from the install baseline.
+fn new_session(
+    engine: &Arc<Engine>,
+    clock_start: Option<i64>,
+    perturb: &crate::stability::Perturb,
+    seed: i32,
+    baseline: Option<&al_vm::Baseline>,
+) -> Session {
+    let mut host = crate::host::host_perturbed(clock_start, perturb);
+    host.run_seed = seed;
+    let mut session = Session::with_host(engine.clone(), host);
+    if let Some(b) = baseline {
+        session.restore_baseline(b);
+    }
+    session
+}
+
+/// Takes over the moved single instances, starts the notes and puts back what the earlier codeunits left (not for a
+/// codeunit the runner runs with Codeunit.Run: `execute`).
+fn start_singles(
+    session: &mut Session,
+    execute: bool,
+    moved: Option<al_vm::single_carry::MovedSingles>,
+    state: Option<&SingleState>,
+) {
+    if execute {
+        return;
+    }
+    if let Some(m) = moved {
+        session.adopt_single_instances(m);
+    }
+    session.track_single_instances();
+    if let Some(state) = state {
+        session.restore_single_instances(state);
+    }
+}
+
+/// What the session did with the single instances; for the serial check, hands them to the next codeunit of the session.
+fn singles_out(session: &mut Session, execute: bool) -> Option<al_vm::single_carry::SingleOut> {
+    let out = session.single_out();
+    if execute {
+        return out;
+    }
+    SERIAL_SINGLES.with(|c| {
+        if let Some(slot) = c.borrow_mut().as_mut() {
+            *slot = Some(session.take_single_instances());
+        }
+    });
+    out
 }
 
 thread_local! {

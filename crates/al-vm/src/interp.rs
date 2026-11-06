@@ -900,6 +900,13 @@ impl Session {
         any
     }
 
+    /// A read of global `i` of the frame's instance: the alias watch, then the single-instance notes.
+    #[inline]
+    pub(crate) fn global_read(&mut self, i: usize, f: &Frame) -> Result<(), Signal> {
+        self.alias_access(i, f)?;
+        self.single_read(&f.instance, i)
+    }
+
     /// Before a read or a write of global `i` of the frame's instance by its own name while a procedure that got the same
     /// global by `var` runs. In the frame of that procedure, when it is of the same instance, the parameter and the global
     /// are one variable (codeunits/procedures/VarGlobalAlias.al:96-110, :160-169): the parameter's value goes to the

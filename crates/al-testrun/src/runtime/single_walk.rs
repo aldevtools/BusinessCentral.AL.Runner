@@ -62,11 +62,34 @@ struct Stream {
 /// What a chain member run again left, against its first run (`SingleWalk::chain_left_other`).
 enum Left {
     Same,
-    Relay(super::run::Carried),
+    Relay(Box<super::run::Carried>),
     Broken(String),
 }
 
 impl SingleWalk<'_> {
+    /// Walks the runs ([`SingleWalk::walk`]), notes the codeunits run again in `report`, and runs the serial check of
+    /// the carrying when asked (ADR-066 amendment 1: the same outcomes with the codeunits of each BC session run in one
+    /// go, the single instances moved from session to session).
+    pub fn walk_and_check(&self, slots: &mut [Option<UnitResult>], opts: &RunOptions, report: &mut super::ChainReport) {
+        let again = self.walk(slots);
+        if opts.single_serial_check || std::env::var_os("AL_SINGLE_SERIAL_CHECK").is_some() {
+            let (ran, diffs) = self.serial_check(slots);
+            report.serial_checked += ran;
+            report.serial_mismatches.extend(diffs);
+            report.serial_check = true;
+        }
+        for k in again {
+            report.reruns.push(super::ChainEntry {
+                id: self.units[k].id,
+                name: self.lowered.program.objects[self.units[k].oi].name.clone(),
+                why: super::RerunWhy::ReadSingleInstance,
+                took: slots[k].as_ref().map_or(std::time::Duration::ZERO, |r| r.took),
+                left: false,
+                ahead: false,
+            });
+        }
+    }
+
     /// Checks every codeunit's run against the serial SingleInstance state and runs again those that saw another one.
     /// Returns the codeunits run again.
     pub fn walk(&self, slots: &mut [Option<UnitResult>]) -> Vec<usize> {
@@ -109,7 +132,7 @@ impl SingleWalk<'_> {
                     // Back on the first run's chain: the later codeunits keep what the first runs gave them.
                     Left::Same if relayed && self.is_member(k) => s.relay = None,
                     Left::Same => {}
-                    Left::Relay(c) => s.relay = Some((u.si, u.id, self.leg_of(k), c)),
+                    Left::Relay(c) => s.relay = Some((u.si, u.id, self.leg_of(k), *c)),
                     Left::Broken(why) => s.broken = Some(why),
                 }
                 slots[k] = Some(r);
@@ -322,7 +345,7 @@ impl SingleWalk<'_> {
                         if x.main == y.main {
                             Left::Same
                         } else {
-                            Left::Relay(b)
+                            Left::Relay(Box::new(b))
                         }
                     }
                     (None, None) if a.baseline.is_none() && b.baseline.is_none() => Left::Same,

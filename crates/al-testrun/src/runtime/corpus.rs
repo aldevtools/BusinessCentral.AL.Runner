@@ -1686,10 +1686,7 @@ impl CorpusRuntime {
             };
             let mut leak_reran = std::collections::HashSet::new();
             for (k, mut r) in rest.into_iter().zip(results) {
-                let before = carried
-                    .iter()
-                    .rev()
-                    .find(|(si, id, leg, _)| sees(*si, *id, *leg, &units[k]));
+                let before = last_seen(&carried, &sees, &units[k]);
                 let storage = before
                     .is_some_and(|(_, _, _, c)| c.everything && reaches_session_storage(&engine, lowered, units[k].oi));
                 let hit = r.result.as_ref().is_ok_and(|done| done.5.leak_hit) || storage;
@@ -1758,34 +1755,10 @@ impl CorpusRuntime {
                 limit,
                 leak_reran: &leak_reran,
             };
-            let again = single_walk.walk(&mut slots);
-            // The serial check of the carrying (ADR-066 amendment 1): the same outcomes with the codeunits of each BC
-            // session run in one go, the single instances moved from session to session.
-            if opts.single_serial_check || std::env::var_os("AL_SINGLE_SERIAL_CHECK").is_some() {
-                let (ran, diffs) = single_walk.serial_check(&slots);
-                chain_report.serial_checked += ran;
-                chain_report.serial_mismatches.extend(diffs);
-                chain_report.serial_check = true;
-            }
-            for k in again {
-                chain_report.reruns.push(super::ChainEntry {
-                    id: units[k].id,
-                    name: lowered.program.objects[units[k].oi].name.clone(),
-                    why: super::RerunWhy::ReadSingleInstance,
-                    took: slots[k].as_ref().map_or(std::time::Duration::ZERO, |r| r.took),
-                    left: false,
-                    ahead: false,
-                });
-            }
-            let results: Vec<UnitResult> = slots.into_iter().flatten().collect();
-            for r in results {
+            single_walk.walk_and_check(&mut slots, opts, &mut chain_report);
+            for r in slots.into_iter().flatten() {
                 suite_work.push((r.si, r.took));
-                codeunit_times.push(CodeunitTime {
-                    id: r.id,
-                    name: lowered.program.objects[r.oi].name.clone(),
-                    took: r.took,
-                    sidecar_start: r.sidecar_start,
-                });
+                codeunit_times.push(codeunit_time(lowered, &r));
                 let o = &lowered.program.objects[r.oi];
                 let push = |list: &mut Vec<TestResult>,
                             test: &str,
@@ -2640,4 +2613,22 @@ pub(super) fn observed_detail(lowered: &Lowered, seen: &Observed) -> explain::Te
     );
     d.refused_in = seen.refused_in.map(|(o, r)| explain::describe_refused(lowered, o, r));
     d
+}
+
+fn codeunit_time(lowered: &Lowered, r: &UnitResult) -> CodeunitTime {
+    CodeunitTime {
+        id: r.id,
+        name: lowered.program.objects[r.oi].name.clone(),
+        took: r.took,
+        sidecar_start: r.sidecar_start,
+    }
+}
+
+/// The last chain member whose state codeunit `u` sees (`sees`).
+fn last_seen<'c>(
+    carried: &'c [super::chain_walk::Carry],
+    sees: &dyn Fn(usize, u32, u8, &Unit) -> bool,
+    u: &Unit,
+) -> Option<&'c super::chain_walk::Carry> {
+    carried.iter().rev().find(|(si, id, leg, _)| sees(*si, *id, *leg, u))
 }

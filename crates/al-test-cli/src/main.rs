@@ -654,6 +654,28 @@ fn sidecar_config(args: &Args, root: &Path, major: u16) -> SidecarConfig {
     }
 }
 
+/// The exit code of one version's run. The serial check of the SingleInstance carrying (`AL_SINGLE_SERIAL_CHECK=1`,
+/// ADR-066 amendment 1) fails the run on any outcome that differs, the ratchet on or off; it prints what it found.
+fn version_code(serial: &al_testrun::runtime::ChainReport, no_ratchet: bool, code: u8) -> u8 {
+    if serial.serial_check {
+        eprintln!(
+            "SingleInstance serial check: {} test codeunits ran again in one session, {} outcomes differ",
+            serial.serial_checked,
+            serial.serial_mismatches.len()
+        );
+        for m in &serial.serial_mismatches {
+            eprintln!("SingleInstance serial check: {m}");
+        }
+    }
+    if !serial.serial_mismatches.is_empty() {
+        1
+    } else if no_ratchet {
+        0
+    } else {
+        code
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_version_inner(
     args: &Args,
@@ -1457,28 +1479,8 @@ fn run_version_inner(
     } else {
         check_lists(args, root, &targets)?
     };
-    // The serial check of the SingleInstance carrying (`AL_SINGLE_SERIAL_CHECK=1`, ADR-066 amendment 1): every outcome
-    // that differs fails the run, the ratchet on or off.
-    let serial = &rt.phases.chain;
-    if serial.serial_check {
-        eprintln!(
-            "SingleInstance serial check: {} test codeunits ran again in one session, {} outcomes differ",
-            serial.serial_checked,
-            serial.serial_mismatches.len()
-        );
-        for m in &serial.serial_mismatches {
-            eprintln!("SingleInstance serial check: {m}");
-        }
-    }
-    let serial_failed = !serial.serial_mismatches.is_empty();
     Ok(VersionRun {
-        code: if serial_failed {
-            1
-        } else if args.no_ratchet {
-            0
-        } else {
-            code
-        },
+        code: version_code(&rt.phases.chain, args.no_ratchet, code),
         oracle: oracle_ok,
         passing,
         rep: Some(rep),

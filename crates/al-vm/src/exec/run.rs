@@ -157,8 +157,7 @@ impl Session {
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::LoadGlobal { d, i } => {
-                    self.alias_access(i as usize, f)?;
-                    self.single_read(&f.instance, i as usize)?;
+                    self.global_read(i as usize, f)?;
                     let v = f.instance.borrow().globals[i as usize].clone();
                     set(&mut f.locals[d as usize], v);
                 }
