@@ -156,6 +156,7 @@ mod runmodal_record_first_row;
 mod runobject;
 mod save_row_gone;
 mod saveasxml_y67_columns;
+mod savevalues_open_page_order;
 mod selection_filter_linked_part_no_row;
 mod single_instance_test_codeunit;
 mod stale_delete_triggers;
