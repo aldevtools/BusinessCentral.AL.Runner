@@ -1,5 +1,5 @@
 //! An Xml port whose root is a table element with text elements below it that hold content (al-runner issue 7130; corpus
-//! xmlports/shapes-properties/XpTableRootNestedText.al on branch al-runtime-rs-staging-r7130, BC 27.5, 28.5, 29.0). BC writes the plain nested tree:
+//! xmlports/shapes-properties/XpTableRootNestedText.al from corpus PR 1158, BC 27.5, 28.5, 29.0). BC writes the plain nested tree:
 //! a text element inside the table element is written once per row, around its content.
 
 use al_testkit::{run_in, text};

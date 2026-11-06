@@ -1,5 +1,5 @@
-//! Text elements nested in each other below a table element, written as the plain tree (al-runner issue 7130; corpus branch
-//! al-runtime-rs-staging-r7130, xmlports/shapes-properties/XpTableRootNestedText.al, BC 27.5, 28.5 and 29.0 alike).
+//! Text elements nested in each other below a table element, written as the plain tree (al-runner issue 7130; corpus PR 1158,
+//! xmlports/shapes-properties/XpTableRootNestedText.al, BC 27.5, 28.5 and 29.0 alike).
 
 use super::*;
 
