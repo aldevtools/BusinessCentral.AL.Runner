@@ -61,7 +61,7 @@ const KEPT: &[(&str, &str, &str)] = &[
     ),
     (
         "al-testrun/src/runtime/corpus.rs",
-        r#""target={target:?} dotnet={} test_data={:?} license={:?} skipped={:?} write_in_try={}","#,
+        r#""target={target:?} dotnet={} test_data={:?} license={:?} skipped={:?} write_in_try={} deps_global={}","#,
         "the key of the engines kept between serve requests, compared for equality, never shown",
     ),
     (
