@@ -418,6 +418,25 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                 _ => return Err("Format of a BigText of this kind is not pinned".to_string().into()),
             }
         }
+        // A TextBuilder formats as the text it holds in the standard formats 0, 1, 2 and 9; the formats 3 and 10 do not exist
+        // for it (text/textbuilder-bigtext/TxCTextBuilderEdit.al:700-714 Format_TextBuilder_StandardFormats). The other numbers
+        // are not pinned.
+        Value::Library(crate::library_kind::LibraryKind::TextBuilder, l) => {
+            match standard {
+                0 | 1 | 2 | 9 => {}
+                3 | 10 => return Err(no_such_format(standard, "TextBuilder")),
+                _ => {
+                    return Err(
+                        format!("Format of a TextBuilder (standard format {standard}) is not pinned yet").into(),
+                    );
+                }
+            }
+            match &*l.borrow() {
+                crate::value::LibraryValue::Empty => String::new(),
+                crate::value::LibraryValue::Text(s) | crate::value::LibraryValue::TextCap(s, _) => s.clone(),
+                _ => return Err("Format of a TextBuilder of this kind is not pinned".to_string().into()),
+            }
+        }
         Value::Library(crate::library_kind::LibraryKind::Version, l) => match &*l.borrow() {
             crate::value::LibraryValue::Version(v) => format!("{}.{}.{}.{}", v[0], v[1], v[2], v[3]),
             _ => return Err("Format of a Version nobody set".to_string().into()),
@@ -635,6 +654,20 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         if n < length as usize {
             return Ok(format!("{s}{}", " ".repeat(length as usize - n)));
         }
+    }
+    // A TextBuilder cuts at a positive length and pads it on the right (TxCTextBuilderEdit.al:716-733 `length2` `[ab]`,
+    // `length8` `[abc def ]`). A negative length is not pinned.
+    if let (Value::Library(crate::library_kind::LibraryKind::TextBuilder, _), true) = (v, length != 0) {
+        if length < 0 {
+            return Err("Format of a TextBuilder with a negative length (not pinned yet)"
+                .to_string()
+                .into());
+        }
+        let cut: String = s.chars().take(length as usize).collect();
+        return Ok(format!(
+            "{cut}{}",
+            " ".repeat((length as usize).saturating_sub(cut.chars().count()))
+        ));
     }
     // A RecordId is padded on the right too (types/operators-expressions/P79RecordId.al:409,421 `len-30`).
     if let (Value::Library(crate::library_kind::LibraryKind::RecordId, _), true) = (v, length > 0) {

@@ -203,6 +203,11 @@ pub fn format_with_field_places(
             "{RAISE_MARK}InvalidStandardFormat{RAISE_MARK}Standard format number -1 does not exist for the type 'GUID'."
         ));
     }
+    // `<Text>` alone on a TextBuilder is its text, padded on the right to the length like a plain Format (TxCTextBuilderEdit.al:
+    // 716-733 `text_string`, `length8_text_string`). Other codes on it are not pinned.
+    if template == "<Text>" && matches!(v, Value::Library(crate::library_kind::LibraryKind::TextBuilder, _)) {
+        return format_value(v, length, 0, ctx).map_err(fail);
+    }
     if template.contains("<Comma") {
         if let Some(r) = std_comma::standard_comma(v, length, template, ctx) {
             return r;
