@@ -1395,6 +1395,7 @@ impl CorpusRuntime {
                             perturb: Default::default(),
                             run_seed: opts.run_seed,
                             runner: None,
+                            singletons: None,
                         });
                     }
                     continue;
@@ -1449,6 +1450,7 @@ impl CorpusRuntime {
                             perturb: opts.perturb.clone(),
                             run_seed: opts.run_seed,
                             runner: *runner,
+                            singletons: None,
                         }),
                         Err(why) => {
                             if suite.runner.is_none()
@@ -1740,6 +1742,29 @@ impl CorpusRuntime {
                     }
                 }
                 slots[k] = Some(r);
+            }
+            // SingleInstance state goes from each codeunit to the next in run order (probe P7 of ADR-066): codeunits
+            // that saw another state than the serial run gives them run again from it (`single_walk.rs`).
+            let again = super::single_walk::SingleWalk {
+                engine: &engine,
+                lowered,
+                baseline: baseline.as_ref(),
+                units: &units,
+                carried: &carried,
+                sees: &sees,
+                place: &place,
+                limit,
+            }
+            .walk(&mut slots);
+            for k in again {
+                chain_report.reruns.push(super::ChainEntry {
+                    id: units[k].id,
+                    name: lowered.program.objects[units[k].oi].name.clone(),
+                    why: super::RerunWhy::ReadSingleInstance,
+                    took: slots[k].as_ref().map_or(std::time::Duration::ZERO, |r| r.took),
+                    left: false,
+                    ahead: false,
+                });
             }
             let results: Vec<UnitResult> = slots.into_iter().flatten().collect();
             for r in results {

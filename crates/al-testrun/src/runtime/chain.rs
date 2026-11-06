@@ -44,6 +44,9 @@ pub enum RerunWhy {
     ReadCarriedTable,
     /// An earlier chain codeunit took numbers or changed isolated storage, and its reach can read them.
     ReachesCarriedStorage,
+    /// It read first a SingleInstance global that held another value at its start than the serial run gives it
+    /// (`single_walk.rs`).
+    ReadSingleInstance,
 }
 
 impl RerunWhy {
@@ -51,6 +54,7 @@ impl RerunWhy {
         match self {
             RerunWhy::ReadCarriedTable => "read a table a chain codeunit wrote",
             RerunWhy::ReachesCarriedStorage => "can read the numbers or storage a chain codeunit changed",
+            RerunWhy::ReadSingleInstance => "read SingleInstance state an earlier codeunit left",
         }
     }
 }

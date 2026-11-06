@@ -1002,6 +1002,7 @@ impl Session {
         }
         if !self.singletons.contains_key(&object) {
             let inst = self.instance(object);
+            self.single_made(object, &inst);
             self.singletons.insert(object, inst);
         }
         self.singletons[&object].clone()
@@ -1252,6 +1253,7 @@ impl Session {
             ir::Place::Local(i) => Ok(f.locals[*i].clone()),
             ir::Place::Global(i) => {
                 self.alias_access(*i, f)?;
+                self.single_read(&f.instance, *i)?;
                 Ok(f.instance.borrow().globals[*i].clone())
             }
             ir::Place::BaseGlobal(i) => {
@@ -1544,6 +1546,7 @@ impl Session {
             ir::Place::Local(i) => f.locals[*i] = v,
             ir::Place::Global(i) => {
                 self.alias_access(*i, f)?;
+                self.single_wrote(&f.instance, *i);
                 f.instance.borrow_mut().globals[*i] = v;
                 self.alias_wrote(*i, f);
             }

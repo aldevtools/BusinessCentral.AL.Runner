@@ -1,6 +1,6 @@
 # ADR-066: Run the test runner codeunit's own AL
 
-- Status: Accepted (owner, 2026-11-05)
+- Status: Accepted (owner, 2026-11-05); amendment 1 (P7, SingleInstance across test codeunits) Proposed (2026-11-06)
 - Date: 2026-11-05
 
 ## Context
@@ -214,3 +214,73 @@ tests need these steps) and a row in `docs/probes-needed.md`. When a probe lands
 5. **`--isolation Function`:** stays the built-in override (orchestrator's call, following the recommendation).
 6. **ADR-055:** decision kept, context line amended (orchestrator's call, following the recommendation).
 
+
+## Amendment 1 (Proposed, 2026-11-06): SingleInstance state from one test codeunit to the next (P7)
+
+- Status: Proposed. Nothing builds on it until the owner accepts it.
+
+### What BC does (P7 pinned)
+
+Corpus PR 1161 (corpus master `d05042df`; not yet in this repository's pin): within one test runner run, the globals
+of a SingleInstance codeunit that test codeunit A set, in a test and in A's OnRun, are still there in the next test
+codeunit B; table rows A wrote, committed or not, are rolled back per codeunit; inside one codeunit nothing is rolled
+back between tests. `al-language/codeunits/TestCuP7ASetter.al:24-58`, `TestCuP7BReader.al:24-37`, `TestCuP7State.al`;
+identical on BC 27.5, 28.5 and 29.0. This covers every SingleInstance codeunit of the session, those of Microsoft's
+apps too (the Test Runner's 130453, `Library - Random` 130440, `Reset State Before Test Run` 130301, `Backup
+Management`, System Application's `Server Setting`, Base Application's `Change Log Management`, ...).
+
+### What al-runner does today
+
+Each test codeunit runs on a new `Session` (`run.rs` `run_codeunit_inner`); the install `Baseline` has no single
+instances. B starts with fresh globals. This is issue 6924 (waldo: a SingleInstance codeunit holding a price set by an
+earlier test codeunit).
+
+### What was tried on branch `rt-p7` (built, not merged)
+
+1. al-vm notes, per session, the first use of each global of a single instance: read first (with the value then) or
+   written first (`single_carry.rs`; hooks next to `alias_access` in `read`, `write` and `Op::LoadGlobal`). Additive.
+2. A walk after all codeunits ran (`single_walk.rs`) goes through them in run order per BC session (suite, hub leg)
+   and keeps the serial state. A run counts when every global it read first held the serial value; otherwise the
+   codeunit runs again from the serial state. Exact by construction for what it can carry, and the parallel runs and
+   runs ahead stay (a codeunit that writes before it reads, as 130301 does with `Library - Random`, never runs again).
+3. Carried across sessions: simple values, codeunit values (with their globals), .NET enums and the .NET objects the
+   runtime serves itself. Anything else is refused where a later codeunit reads it first.
+
+Measured (Tests-Bank, BC 29, seed 12345, 679 tests): main 568 pass; the branch 16 pass, 663 not run.
+- 123 tests: `Backup Management` (Microsoft's test library) holds a **temporary record** (`BackupStorage`) that every
+  codeunit fills and the next one reads, through the runner's row writing.
+- 540 tests: under runner 130450 every codeunit is a carry-chain member (its OnRun rows); a member run again for
+  SingleInstance state must leave the same rows as its first run, and the comparison included the runner's clock
+  columns (fixable: compare with `fingerprint_apart(suite_rows::tables)`).
+- The small P7 app (the three corpus files) passes with `--test-runner builtin`; under 130450 B is refused for
+  `Change Log Management.ChangeLogSetup` (a **record**). Earlier rounds hit `Server Setting.ServerSettingImpl` (a
+  codeunit value) and `Server Setting Impl.ALConfigSettings` (a runtime .NET object); both are carried now.
+
+So carrying only what is cheap to carry refuses nearly every Microsoft test after the first codeunit of a bucket.
+Records, temporary records (with their rows) and lists must be carried too.
+
+### The decision to take (one of two)
+
+**A. Carry handles across sessions (keeps one session per codeunit and the parallel runs).** Extend the carry form of
+`single_carry.rs` to records (field values, filters, key, marks, load fields; the session-relative parts:
+`row_origin` versions and commit counts relative to the session's counters, `globals` (the table instance),
+`run_page_link`), temporary records with their private table's rows (`Session::temps`), lists and dictionaries. A
+.NET object of the session's .NET process stays refused (no form outside its process). Seams: additive (new public
+al-vm functions; `Instance::single`). Risk: every session-relative field of `RecordState` needs a pinned meaning in a
+new session; a missed one is a silent difference (mitigation: a round-trip test per field, and a debug check that
+carrying and not carrying give the same outcome on the corpus).
+
+**B. One session per BC session (serial).** Run the codeunits of one suite (and hub leg) on one `Session`, putting
+the install baseline's rows back between codeunits but keeping the single instances and their temporary tables, as BC
+does. Exact without a codec. Changes this ADR's consequence "One session per codeunit (P7)" and the parallel model of
+`corpus.rs` and `chain_walk.rs`: a suite runs on one thread (runs ahead with predicted single-instance state are not
+possible: handles cannot leave the thread). Cost: a Microsoft bucket's wall time becomes about its CPU time.
+
+Recommendation: **A**, with the validation walk of the branch (it keeps the parallel runs where the serial state does
+not differ, and it already handles selection: with `--codeunit`/`--test` the state comes only from the codeunits that
+ran before in that run, as on BC). B as the fallback if a record field turns out not to have a meaning outside its
+session.
+
+Also to decide: a SingleInstance codeunit still bound to manual subscribers at the end of a codeunit
+(`BindSubscription` without `UnbindSubscription`): whether BC keeps the binding for the next codeunit is not pinned
+(probe wanted). The branch treats it as "may have changed anything" for later failures.

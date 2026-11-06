@@ -417,6 +417,16 @@ fn run_codeunit_inner(
         }
     };
     super::suite_rows::seen_before(&mut session, rows);
+    // BC runs the test codeunits of a run in one session: the globals of SingleInstance codeunits that the earlier
+    // codeunits left are still there (al-language/codeunits/TestCuP7BReader.al:24-37, against TestCuP7ASetter.al:24-58).
+    // Put back here, after the company open (which BC's session did once, before the first codeunit), and noted from
+    // here on, so the run can be checked against the serial order (`single_carry.rs`, `corpus.rs`).
+    if !execute {
+        session.track_single_instances();
+        if let Some(state) = &scratch.singles_in {
+            session.restore_single_instances(state);
+        }
+    }
     // What a Disabled codeunit leaves for the later codeunits is its writes from here on ([`CARRIED`]). With
     // Company Triggers subscribers each session writes on its own when it opens the company, and how those writes
     // meet the ones carried over is not pinned.
@@ -1280,6 +1290,7 @@ fn run_codeunit_inner(
         Some(runner) => super::al_runner::drive(&mut session, runner, object, &tests, &mut |s, al| body(s, Some(al)))
             .unwrap_or_else(|why| Err(all(Outcome::NotRun(why)))),
     };
+    scratch.singles_out = session.single_out();
     let out = match ran {
         Ok(out) => out,
         Err(early) => return early,
