@@ -741,6 +741,9 @@ pub struct PageState {
     /// A list without the new-row line lost its only row to an action and stands on a blank Rec: a later action runs
     /// OnNewRecord and OnAfterGetCurrRecord again (testpage/RmWorksheetGoneRow.al:336).
     pub gone_blank_no_new_line: bool,
+    /// The built-in View switched this list without a card from edit to view (al-runner issue 6977): only the walk over its
+    /// rows is pinned (testpage/R6977ListViewNext.al:138); field Editable, SetValue and the Edit and View actions are refused.
+    pub list_view_switched: bool,
     /// A list with the new-row line lost its only row to an action and stands on that line: its fields show the blank Rec's
     /// values, an Integer key 0 (testpage/RmWorksheetGoneRow.al:436 `shown after action = 0|`).
     pub gone_blank_shows_line: bool,
@@ -1122,6 +1125,7 @@ impl PageState {
             empty_part_xrec: None,
             blank_after_empty_last: false,
             gone_blank_no_new_line: false,
+            list_view_switched: false,
             gone_blank_shows_line: false,
             gone_view_list: false,
             gone_temp_list: false,

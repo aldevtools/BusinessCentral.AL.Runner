@@ -1405,7 +1405,8 @@ impl Session {
                         PageMethod::Enabled => Ok(Value::Boolean(enabled)),
                         // View on a list without a card, opened for edit, switches the page to view: a First/Next walk then
                         // visits only the rows, no blank new-row line (testpage/R6977ListViewNext.al:138, :174, :191 `n=3`; :156
-                        // without View `0/; n=4`). What else the switch changes (Editable, SetValue) is assumed as on a card.
+                        // without View `0/; n=4`). What else the switch changes is not pinned and refused after it
+                        // (`refuse_after_list_view_switch`).
                         PageMethod::Invoke if enabled && card.is_none() && !edit => {
                             if st.borrow().cursor != Cursor::Row || st.borrow().draft {
                                 return unsupported(
@@ -1413,6 +1414,7 @@ impl Session {
                                 );
                             }
                             st.borrow_mut().new_line = false;
+                            st.borrow_mut().list_view_switched = true;
                             self.switch_mode(st, PageMode::View)
                         }
                         PageMethod::Invoke if !enabled || card.is_none() => Ok(Value::Null),

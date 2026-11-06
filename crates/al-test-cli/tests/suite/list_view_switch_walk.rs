@@ -224,3 +224,101 @@ fn probe_6977_view_on_a_list_without_card_drops_the_new_row_line() {
         r#"[("TP6977_PageRun_View_FirstNextWalk", Pass), ("TP6977_PageRun_NoView_FirstNextWalk", Pass), ("TP6977_PageRun_InsertNotAllowed_View_FirstNextWalk", Pass), ("TP6977_OpenEditFiltered_View_FirstNextWalk", Pass), ("TP6977_OpenViewFiltered_FirstNextWalk", Pass)]"#
     );
 }
+
+/// What the probe does not pin after View on such a list: each step is refused, never guessed. The walk stays pinned.
+const AFTER_VIEW: &str = r##"
+codeunit 95990 "TP R6977 After View"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    local procedure OpenSwitched(var Lines: TestPage "TP R6977 Lines")
+    var
+        Line: Record "TP R6977 Line";
+    begin
+        Line.DeleteAll();
+        Line."Header No." := 'H1';
+        Line."Line No." := 10000;
+        Line.Insert();
+        Lines.OpenEdit();
+        Lines.Filter.SetFilter("Header No.", 'H1');
+        Lines.First();
+        Lines.View().Invoke();
+    end;
+
+    [Test]
+    procedure FieldEditable()
+    var
+        Lines: TestPage "TP R6977 Lines";
+    begin
+        OpenSwitched(Lines);
+        if Lines.Description.Editable() then;
+    end;
+
+    [Test]
+    procedure FieldSetValue()
+    var
+        Lines: TestPage "TP R6977 Lines";
+    begin
+        OpenSwitched(Lines);
+        Lines.Description.SetValue('x');
+    end;
+
+    [Test]
+    procedure EditEnabled()
+    var
+        Lines: TestPage "TP R6977 Lines";
+    begin
+        OpenSwitched(Lines);
+        if Lines.Edit().Enabled() then;
+    end;
+
+    [Test]
+    procedure ViewEnabled()
+    var
+        Lines: TestPage "TP R6977 Lines";
+    begin
+        OpenSwitched(Lines);
+        if Lines.View().Enabled() then;
+    end;
+
+    [Test]
+    procedure EditInvoke()
+    var
+        Lines: TestPage "TP R6977 Lines";
+    begin
+        OpenSwitched(Lines);
+        Lines.Edit().Invoke();
+    end;
+
+    [Test]
+    procedure FieldValueStillRead()
+    var
+        Lines: TestPage "TP R6977 Lines";
+    begin
+        OpenSwitched(Lines);
+        if Lines."Line No.".Value() <> '10000' then
+            Error('read %1', Lines."Line No.".Value());
+        if not Lines.Description.Visible() then
+            Error('not visible');
+    end;
+}
+"##;
+
+#[test]
+fn after_view_on_a_list_without_card_unpinned_steps_are_refused() {
+    let src = format!("{PROBE}\n{AFTER_VIEW}");
+    let o = outcomes_in(&src, "TP R6977 After View");
+    for (name, outcome) in &o {
+        match (name.as_str(), outcome) {
+            ("FieldValueStillRead", al_testrun::Outcome::Pass) => {}
+            ("FieldValueStillRead", other) => panic!("FieldValueStillRead: {other:?}"),
+            (_, al_testrun::Outcome::NotRun(why)) => assert!(
+                why.contains("after the built-in View switched a list without a card to view mode"),
+                "{name}: {why}"
+            ),
+            (_, other) => panic!("{name}: expected a refusal, got {other:?}"),
+        }
+    }
+    assert_eq!(o.len(), 6, "{o:?}");
+}

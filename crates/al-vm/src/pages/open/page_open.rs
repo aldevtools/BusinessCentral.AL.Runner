@@ -320,9 +320,7 @@ impl Session {
             s.or_group_dropped = false;
             s.unpinned_filter_fields = Vec::new();
             s.placeholder_line = false;
-            s.gone_blank_no_new_line = false;
-            s.gone_blank_shows_line = false;
-            s.gone_view_list = false;
+            reset_row_line_flags(&mut s);
             s.parts = Vec::new();
             s.closed_parts = Vec::new();
             s.areas = self.application_areas.clone();
@@ -1468,6 +1466,14 @@ impl Session {
 }
 
 /// The flags a new host row, a first part access and New() on a request page set; a page that runs again starts without them.
+/// The flags a list's earlier run left about its rows and its new-row line.
+fn reset_row_line_flags(s: &mut al_builtins::value::PageState) {
+    s.gone_blank_no_new_line = false;
+    s.gone_blank_shows_line = false;
+    s.gone_view_list = false;
+    s.list_view_switched = false;
+}
+
 fn reset_host_row_flags(s: &mut al_builtins::value::PageState) {
     s.new_host_part_rows = false;
     s.host_stored_blank_key = false;
