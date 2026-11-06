@@ -11,6 +11,10 @@ const TEM: &str = "http://tempuri.org/";
 const DN: &str = "urn:lt:xdn:input";
 
 fn src(encoding: &str, schema: &str, call: &str) -> String {
+    src_with(encoding, &format!("DefaultNamespace = '{DN}';"), schema, call)
+}
+
+fn src_with(encoding: &str, default_ns: &str, schema: &str, call: &str) -> String {
     format!(
         r#"
 table 69980 "DN Blob" {{ fields {{ field(1; Code; Code[10]) {{ }} field(2; Data; Blob) {{ }} }} keys {{ key(PK; Code) {{ }} }} }}
@@ -18,7 +22,7 @@ table 69981 "DN Item" {{ fields {{ field(1; Id; Integer) {{ }} field(2; Name; Te
 xmlport 69982 "DN Port"
 {{
     Direction = Both; Format = Xml; {encoding} UseRequestPage = false;
-    DefaultNamespace = '{DN}';
+    {default_ns}
     Namespaces = soap = '{SOAP}', tem = '{TEM}';
     UseDefaultNamespace = true;
     schema {{ {schema} }}
@@ -133,9 +137,67 @@ fn a_table_root_drops_its_prefix() {
     );
 }
 
-// XDN_*_Import: the import is refused.
+// XDN_TableRoot_Import, XDN_TextLeaf_Import, XDN_Item_Import: every import fails the same way, whatever the document (corpus
+// PR 1158 and 1169, XpUseDefaultNsWithDefault.al, BC 27.5, 28.5, 29.0).
 #[test]
-fn the_import_stays_refused() {
-    let r = run_in(&src(UTF8, TABLE_ROOT, "Import()"), "C", "Go");
-    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
+fn every_import_fails_with_the_undefined_prefix_error() {
+    for schema in [TABLE_ROOT.to_string(), in_input_msg(ITEM)] {
+        let r = run_in(&src(UTF8, &schema, "Import()"), "C", "Go");
+        let Err(Signal::Error(e)) = r else { panic!("{r:?}") };
+        assert_eq!(
+            e.message,
+            "The prefix  is not defined in the Namespaces property of the XMLPort."
+        );
+        assert_eq!(e.code, "XmlPortNodeProcess");
+    }
+}
+
+const ATTR_ITEM: &str = "tableelement(Rm; \"DN Item\") { XmlName = 'Remark'; fieldattribute(Type; Rm.Id) { ATTRPREFIX } fieldelement(Text; Rm.Name) { } }";
+
+fn attr_in_input_msg(attr_prefix: &str) -> String {
+    in_input_msg(&ATTR_ITEM.replace("ATTRPREFIX", attr_prefix))
+}
+
+fn remarks(ns: &str, inner_ns: &str) -> String {
+    format!(
+        "{}  <soap:Body>|    <tem:ReceiveMessage>|      <InputMsg xmlns=\"{inner_ns}\">|        <Remark Type=\"1\">|          <Text>one</Text>|        </Remark>|        <Remark Type=\"2\">|          <Text>  two  </Text>|        </Remark>|      </InputMsg>|    </tem:ReceiveMessage>|  </soap:Body>|</Envelope>|",
+        head("UTF-8", ns)
+    )
+}
+
+// XDN_AttrDefault_Export: a field attribute on a table element does not change the namespaces.
+#[test]
+fn a_field_attribute_below_input_msg_keeps_the_namespaces() {
+    assert_eq!(export(UTF8, &attr_in_input_msg("")), remarks(SOAP, DN));
+}
+
+// XDN_AttrNoDefault_Export: without DefaultNamespace InputMsg takes the namespace of the port (issue 7091).
+#[test]
+fn without_a_default_namespace_input_msg_takes_the_namespace_of_the_port() {
+    let r = text(run_in(
+        &src_with(UTF8, "", &attr_in_input_msg(""), "Export(false)"),
+        "C",
+        "Go",
+    ));
+    assert_eq!(r, remarks(SOAP, "urn:microsoft-dynamics-nav/xmlports/x69982"));
+}
+
+// XDN_AttrPrefixed_Export: an attribute with NamespacePrefix is written without a prefix, a text attribute too.
+#[test]
+fn an_attribute_is_written_without_a_namespace_prefix() {
+    assert_eq!(
+        export(UTF8, &attr_in_input_msg("NamespacePrefix = 'soap';")),
+        remarks(SOAP, DN)
+    );
+    let schema = format!(
+        "textelement(Envelope) {{ NamespacePrefix = 'soap'; textelement(Body) {{ NamespacePrefix = 'soap'; textelement(InputMsg) {{ NamespacePrefix = 'tem'; textattribute(Ver) {{ trigger OnBeforePassVariable() begin Ver := 'v1'; end; }} {} }} }} }}",
+        ATTR_ITEM.replace("ATTRPREFIX", "NamespacePrefix = 'soap';")
+    );
+    assert_eq!(
+        export(UTF8, &schema),
+        format!(
+            "{}  <soap:Body>|    <tem:InputMsg Ver=\"v1\">|      <Remark Type=\"1\" xmlns=\"{DN}\">|        <Text>one</Text>|      </Remark>|      <Remark Type=\"2\" xmlns=\"{DN}\">|        <Text>  two  </Text>|      </Remark>|    </tem:InputMsg>|  </soap:Body>|</Envelope>|",
+            head("UTF-8", SOAP)
+        )
+    );
 }

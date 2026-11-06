@@ -461,6 +461,32 @@ pub fn layout(obj: &ast::Object) -> Layout {
     out
 }
 
+/// The attributes of a port with Namespaces and UseDefaultNamespace = true that BC's export is pinned for: a field attribute on a
+/// table element without a prefix, with or without a NamespacePrefix of its own, and a text attribute on a text element with a
+/// prefix, neither on the root. The attribute is written without a namespace and the namespaces stay as without it (corpus
+/// xmlports/shapes-properties/XpUseDefaultNsWithDefault.al XDN_AttrDefault_Export, XDN_AttrNoDefault_Export, XDN_AttrPrefixed_Export,
+/// BC 27.5, 28.5 and 29.0). An attribute elsewhere (on the root, on an element of another kind or prefix) is not pinned.
+fn udn_attributes_pinned(out: &Layout) -> bool {
+    (0..out.nodes.len()).all(|i| {
+        let n = &out.nodes[i];
+        if !matches!(n.kind, ir::XmlNodeKind::FieldAttr | ir::XmlNodeKind::TextAttr) {
+            return true;
+        }
+        let Some(owner) = n.parent else { return false };
+        let o = &out.nodes[owner];
+        o.parent.is_some()
+            && match (n.kind, o.kind) {
+                (ir::XmlNodeKind::FieldAttr, ir::XmlNodeKind::Table) => {
+                    out.property(owner, "NamespacePrefix").is_none()
+                }
+                (ir::XmlNodeKind::TextAttr, ir::XmlNodeKind::Text) => {
+                    out.property(owner, "NamespacePrefix").is_some() && out.property(i, "NamespacePrefix").is_none()
+                }
+                _ => false,
+            }
+    })
+}
+
 /// `UseDefaultNamespace = true`: which namespace the port's elements are in (`out.default_ns`), or why that is not pinned.
 fn bc_default_namespace(out: &mut Layout, own_namespace: Option<String>, utf8: bool, id: Option<u32>) {
     // With DefaultNamespace and a Namespaces list that holds the empty prefix, the default namespace takes the place of the
@@ -487,10 +513,7 @@ fn bc_default_namespace(out: &mut Layout, own_namespace: Option<String>, utf8: b
         && !out.namespaces.is_empty()
         && out.namespaces.iter().all(|(p, _)| !p.is_empty())
         && !(out.use_lax || out.inline_schema || out.xml_v11 || out.preserve_whitespace)
-        && out
-            .nodes
-            .iter()
-            .all(|n| !matches!(n.kind, ir::XmlNodeKind::FieldAttr | ir::XmlNodeKind::TextAttr));
+        && udn_attributes_pinned(out);
     let unpinned = if out.format != ir::XmlFormat::Xml {
         Some("a text format")
     } else if named_prefixes_on_fields {
@@ -1472,8 +1495,15 @@ mod tests {
                 "xmlport 7 X {{ Direction = {direction}; Encoding = UTF8; Namespaces = soap = 'urn:s', tem = 'urn:t'; UseDefaultNamespace = true; {extra} schema {{ textelement(Envelope) {{ NamespacePrefix = 'soap'; textelement(Body) {{ NamespacePrefix = 'soap'; tableelement(H; Cust) {{ fieldelement(N; H.X) {{ NamespacePrefix = 'tem'; }} fieldattribute(A; H.Y) {{ }} }} }} }} }} }}"
             ))
         };
-        // An attribute with it is not pinned.
-        assert!(!port("Both", "").run_reasons.is_empty());
+        // A field attribute on an unprefixed table element is pinned (XpUseDefaultNsWithDefault.al XDN_Attr*_Export); an
+        // attribute on the root is not.
+        let with_attr = port("Both", "");
+        assert!(with_attr.run_reasons.is_empty(), "{:?}", with_attr.run_reasons);
+        assert!(with_attr.udn_root_prefix);
+        let root_attr = layout_of(
+            "xmlport 7 X { Direction = Both; Encoding = UTF8; Namespaces = soap = 'urn:s', tem = 'urn:t'; UseDefaultNamespace = true; schema { textelement(Envelope) { NamespacePrefix = 'soap'; textattribute(V) { } textelement(Body) { NamespacePrefix = 'soap'; } } } }",
+        );
+        assert!(!root_attr.run_reasons.is_empty());
         let no_attr = |direction: &str, extra: &str| {
             layout_of(&format!(
                 "xmlport 7 X {{ Direction = {direction}; Encoding = UTF8; Namespaces = soap = 'urn:s', tem = 'urn:t'; UseDefaultNamespace = true; {extra} schema {{ textelement(Envelope) {{ NamespacePrefix = 'soap'; textelement(Body) {{ NamespacePrefix = 'soap'; tableelement(H; Cust) {{ fieldelement(N; H.X) {{ NamespacePrefix = 'tem'; }} }} }} }} }} }}"

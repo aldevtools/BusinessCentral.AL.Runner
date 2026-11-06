@@ -141,6 +141,16 @@ impl Session {
         let [top] = tops[..] else {
             return unsupported("XmlPort import with more than one top-level element (not pinned)");
         };
+        // With Namespaces and UseDefaultNamespace = true BC fails every import, whatever the document and the root of the port: the
+        // rows stay (corpus xmlports/shapes-properties/XpUseDefaultNsPrefixes.al XUD_*_Import; with a DefaultNamespace
+        // XpUseDefaultNsWithDefault.al XDN_TextLeaf_Import, XDN_Item_Import, XDN_TableRoot_Import, XDN_AttrDefault_Import,
+        // XDN_AttrNoDefault_Import; BC 27.5, 28.5 and 29.0 alike).
+        if xp.udn_root_prefix {
+            return Err(xerr(
+                "The prefix  is not defined in the Namespaces property of the XMLPort.",
+                "XmlPortNodeProcess",
+            ));
+        }
         if xp.text_encoding.as_deref() == Some("msdos") {
             return unsupported("XmlPort import into a VariableText port with TextEncoding = MSDOS (not pinned)");
         }
@@ -156,7 +166,12 @@ impl Session {
                 enc.to_ascii_uppercase()
             ));
         }
-        let table_root = root_table_element(schema, top);
+        let table_root = root_table_element(schema, top) || plain_tree_root(schema, top);
+        if table_root && !root_table_element(schema, top) && !plain_import_root(schema, top) {
+            return unsupported(
+                "XmlPort import of a root table element with a field element beside a text element, or without MaxOccurs = Once (not pinned)",
+            );
+        }
         Self::xp_root_triggers_pinned(schema, top)?;
         if !table_root && (xp.nodes[top].kind != ir::XmlNodeKind::Text || schema.children(top).is_empty()) {
             return unsupported("XmlPort import whose root is not a text element with content (not pinned)");
@@ -168,13 +183,6 @@ impl Session {
             return self.xp_import_text(inst, schema, top, &text);
         }
 
-        // With Namespaces, UseDefaultNamespace and no DefaultNamespace, BC failed every import the probe tried ("The prefix  is not
-        // defined in the Namespaces property of the XMLPort.", corpus
-        // xmlports/shapes-properties/XpUseDefaultNsPrefixes.al XUD_*_Import; with DefaultNamespace the same: corpus PR 1158,
-        // XpUseDefaultNsWithDefault.al XDN_*_Import); that it fails for every document is not pinned.
-        if xp.udn_root_prefix {
-            return unsupported("XmlPort import with Namespaces and UseDefaultNamespace = true (not pinned)");
-        }
         // PreserveWhiteSpace with a default namespace imports as without one (corpus PR 896, streams/Np4XmlPort.al
         // Y9_XmlPort_Import_PreserveWhiteSpace_WithNamespace).
         let parsed = match &xp.default_ns {

@@ -167,13 +167,18 @@ fn the_port_namespace_is_declared_on_the_first_unprefixed_element_of_each_branch
     );
 }
 
-// XUD_*_Import: every import of these ports fails with one error, whatever the document; the runtime refuses the import.
+// XUD_*_Import: every import of these ports fails with one error, whatever the document (XpUseDefaultNsPrefixes.al:249, :280, :311, :342).
 #[test]
-fn the_import_stays_refused() {
+fn every_import_fails_with_the_undefined_prefix_error() {
     let r = run_in(
         &src(UTF8, false, Some("soap"), Some("soap"), None, Some("tem"), "Import()"),
         "C",
         "Go",
     );
-    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
+    let Err(Signal::Error(e)) = r else { panic!("{r:?}") };
+    assert_eq!(
+        e.message,
+        "The prefix  is not defined in the Namespaces property of the XMLPort."
+    );
+    assert_eq!(e.code, "XmlPortNodeProcess");
 }
