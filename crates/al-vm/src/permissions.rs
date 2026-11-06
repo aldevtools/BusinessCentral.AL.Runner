@@ -48,7 +48,7 @@ pub(crate) fn kind_slot(code: i32) -> Option<usize> {
 
 /// The id of codeunit "Permissions Mock": its own code assigns sets one by one (`Set` is `Clear`, `Assign('All Objects')`,
 /// `Assign(RoleId)`), and each `Assign` reads the `Permission Set` table first.
-const PERMISSIONS_MOCK: u32 = 131_006;
+pub(crate) const PERMISSIONS_MOCK: u32 = 131_006;
 
 /// The system objects whose `GetEffectivePermission` answer the corpus measured (Y90PermSystem.al:217-241, Y93WildEffective.al):
 /// Execute follows `system * = X`, and with no set assigned every one has it. An id outside the list is not measured (id 0 has
@@ -483,7 +483,7 @@ impl SetModel {
     }
 
     /// The `Permissions` property of object `object` (read once per engine).
-    fn object_grants(&self, engine: &Engine, object: usize) -> Arc<Result<Content, String>> {
+    pub(crate) fn object_grants(&self, engine: &Engine, object: usize) -> Arc<Result<Content, String>> {
         let lock = || self.grants.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(g) = lock().get(&object) {
             return g.clone();
@@ -494,7 +494,7 @@ impl SetModel {
     }
 
     /// The `[InherentPermissions]` attributes of routine `routine` of object `object`.
-    fn inherent_of(&self, engine: &Engine, object: usize, routine: usize) -> InherentGrants {
+    pub(crate) fn inherent_of(&self, engine: &Engine, object: usize, routine: usize) -> InherentGrants {
         let lock = || self.inherent.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(g) = lock().get(&(object, routine)) {
             return g.clone();
@@ -667,7 +667,7 @@ const ALWAYS_READABLE: [u32; 3] = [2_000_000_038, 2_000_000_041, 2_000_000_192];
 const TENANT_MEDIA: u32 = 2_000_000_184;
 
 /// What the decision function says about one access of a restricted session.
-enum Verdict {
+pub(crate) enum Verdict {
     Allow,
     /// Denied by complete inputs: BC raises its permission error. `by` is the object whose code makes the access.
     Deny {
@@ -727,13 +727,28 @@ impl Session {
     /// (`Set('SUPER')` assigns All Objects first), and Microsoft's mock runs on BC under every list it builds
     /// (TestMockBasics.al:20-79, 143-163). Nor is a call the runner makes from outside AL code (its steps around the
     /// test method, al-testrun `runner_reset.rs`).
+    ///
+    /// The license caps what the sets allow (ADR-062 amendment 1 point 5): an access the sets allow goes on to
+    /// [`Session::license_verdict`] when the license limits some table (license_ceiling.rs).
     fn permission_verdict(&mut self, access: Access, target: Option<usize>, flowfield: bool) -> Verdict {
+        match self.sets_verdict(access, target, flowfield) {
+            Verdict::Allow if self.engine.license_caps() => self.license_verdict(access, target, flowfield),
+            v => v,
+        }
+    }
+
+    /// The permission sets' part of [`Session::permission_verdict`]: Allow in an unrestricted session.
+    fn sets_verdict(&mut self, access: Access, target: Option<usize>, flowfield: bool) -> Verdict {
         let Some(caller) = self.permission_caller.or_else(|| self.frames.last().copied()) else {
             return Verdict::Allow;
         };
         let engine = self.engine.clone();
         let o = &engine.program.objects.heads()[caller];
         if o.kind == al_ir::ObjKind::Codeunit && o.id == Some(PERMISSIONS_MOCK) {
+            return Verdict::Allow;
+        }
+        // An unrestricted session reaches the check only for the license (license_ceiling.rs): the sets allow everything.
+        if self.permissions.is_none() {
             return Verdict::Allow;
         }
         if self.ignore_permission_mock {
@@ -850,7 +865,7 @@ impl Session {
         rec: &crate::records::Rec,
         method: al_builtins::record_op::RecordOp,
     ) -> Result<al_builtins::value::Value, Signal> {
-        if self.permissions.is_none() {
+        if !self.permission_checks() {
             return Ok(al_builtins::value::Value::Boolean(true));
         }
         let write = method == al_builtins::record_op::RecordOp::WritePermission;
@@ -1636,13 +1651,14 @@ impl Session {
 
     /// `CountApprox` answers as `Count`. The gate ran for CountApprox, so `Count` passes it again with the same answer.
     pub(crate) fn count_approx(&mut self, rec: &crate::records::Rec) -> Result<al_builtins::value::Value, Signal> {
-        self.permission_from_al = self.permissions.is_some();
+        self.permission_from_al = self.permission_checks();
         self.record_op(al_builtins::record_op::RecordOp::Count, rec, &mut [])
     }
 
     /// The level the assigned sets give `access` before inherent permissions and object grants.
     fn session_read_level(&self, access: Access) -> u8 {
-        self.permissions.as_ref().map_or(0, |e| e.level(access))
+        // An unrestricted session (checked only for the license) holds Yes from its sets.
+        self.permissions.as_ref().map_or(1, |e| e.level(access))
     }
 
     /// Whether the row with `rec`'s primary key is stored.
@@ -1685,7 +1701,7 @@ fn unpinned_denial(access: Access, probe: &str) -> String {
 
 impl Access {
     /// The access in plain words, for messages.
-    fn describe(self) -> String {
+    pub(crate) fn describe(self) -> String {
         format!(
             "{} permission on object type {} id {}",
             self.op.describe(),

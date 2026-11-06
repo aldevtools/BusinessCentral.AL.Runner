@@ -60,16 +60,43 @@ With a license:
 When no license file is loaded, only the rows that are known from real Business Central are
 answered; any other read is not run, with the reason.
 
+Each permission is Yes, Indirect or blank, as Business Central shows it. A
+license that grants a permission only indirectly (for example Read Yes and
+Insert, Modify and Delete Indirect on a table) is read.
+
 Not run, with the reason: a negative object number, a filter on a permission
 column, a read across several object types, the Limited Usage column of a
-license other than the CRONUS demo license, and a range of the license that grants only
-some of Read, Insert, Modify and Delete. A license that grants permissions
-indirectly stops the run: its format is not read yet.
+license other than the CRONUS demo license, a MenuSuite range that grants only
+some permissions, and a range whose permission value has a part AL Runner does
+not know yet (Execute Indirect is the likely meaning, not confirmed). Such a
+range does not stop the run: only a test that reads it is not run.
+
+## The license as a limit on table data
+
+The license is an upper limit on what a user may do. A user with SUPER still
+cannot insert into a table that the license grants Insert only indirectly. AL
+Runner applies this to table data (Read, Insert, Modify, Delete) of objects
+below 2000000000, in every test, also when the test does not lower its
+permissions:
+
+- **Yes**: allowed, as far as the permission sets allow it.
+- **Indirect**: allowed only for code of an object whose `Permissions` property
+  grants the access on that table, for example
+  `Permissions = tabledata "My Table" = rimd;` on the codeunit that writes.
+  Code without such a property gets Business Central's error, for example
+  `Sorry, the current permissions prevented the action. (TableData 50100 My Table Insert: My App)`
+  with the error code `DB:ClientInsertDenied`. A FlowField that reads the table
+  counts as allowed.
+- **Blank**: the test is not run. Business Central denies the access, but its
+  error text for this case is not confirmed yet.
+
+Also not run: a denial where an `InherentPermissions` property or attribute names
+the table, a denial in code of a table or page extension, and the shapes the
+permission checks do not cover yet (see [Writing tests](writing-tests.md#permissions)).
+
+With the CRONUS demo license nothing changes: it grants everything directly.
 
 ## What a license does not change yet
 
-A loaded license changes only what License Permission answers. It does not limit
-what the permission checks allow. Those checks cover table data writes in a session
-that a test lowered; see [Writing tests](writing-tests.md#permissions). Checking your
-permission sets and the `Permissions` property of your objects against a
-customer's license is planned.
+The license does not limit `Execute` (running codeunits, reports and pages),
+and it is not applied to system objects (2000000000 and up).

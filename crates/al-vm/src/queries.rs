@@ -905,7 +905,7 @@ impl Session {
         def: &ir::Query,
         runtime: &[(usize, FilterExpr)],
     ) -> Result<(Vec<QueryRow>, Stamps), Signal> {
-        if self.permissions.is_some() {
+        if self.permission_checks() {
             let tables: Vec<usize> = def.items.iter().map(|i| i.table).collect();
             self.permission_gate_object_read(self.query_object, &tables)?;
         }
