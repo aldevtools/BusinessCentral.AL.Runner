@@ -23,6 +23,7 @@ impl Session {
                             // Area 3 raises no event, so '3,' with nothing after it (a matrix column whose caption nobody set)
                             // costs the open nothing; only reading that caption is refused.
                             if let Value::Text(t) | Value::Code(t) = &v {
+                                self.raise_control_area3_after_resolve(t)?;
                                 if !t.starts_with("3,") {
                                     // A text other than the one the control resolved before, at a fill other than the one after
                                     // SetValue (`refresh_caption_classes`, testpage/W2CaptionClass.al:174-178): whether BC resolves it
@@ -48,6 +49,7 @@ impl Session {
                     Some(ir::PropVal::Lit(l)) if name == "captionclass" => {
                         self.refuse_caption_class_translate()?;
                         let c = unquote(l);
+                        self.raise_control_area3_after_resolve(&c)?;
                         if !c.starts_with("3,") {
                             self.fill_caption_class(st, idx, &c)?;
                         }
@@ -206,9 +208,10 @@ impl Session {
                     continue;
                 };
                 let class = self.field_caption_class_value(t, *pos, Some(&rec), expr)?;
-                let caption = match crate::recmeta::expression_class(&t.fields[*pos].name, &class)? {
+                let kind = crate::recmeta::expression_class(&t.fields[*pos].name, &class)?;
+                let caption = match kind {
                     crate::recmeta::ExprCaption::FieldCaption => String::new(),
-                    crate::recmeta::ExprCaption::Text(c) => c,
+                    crate::recmeta::ExprCaption::Text(c) => self.expression_text_caption(&class, c)?,
                     crate::recmeta::ExprCaption::Translate => self.caption_class_translate(&class)?,
                 };
                 let mut s = st.borrow_mut();
