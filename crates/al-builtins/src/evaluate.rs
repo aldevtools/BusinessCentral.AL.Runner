@@ -2066,14 +2066,28 @@ fn into_field_ref(c: &mut dyn Ctx, a: &mut [Value], number: i64) -> Result<Value
     // With the result unused a text that is no value raises the error of the type and leaves the field, as for a variable
     // (format-evaluate/EvaluateRecordIdComposite.al:Evaluate_IntoFieldRef `invalidUnusedErr`, an Integer field;
     // recordref-fieldref/N582EvalFieldRefUnused.al:71-169: Decimal, Date, Boolean, Code, Text, an Option without an
-    // OptionCaption and Integer). The other types are not pinned.
+    // OptionCaption and Integer; :218-249 N582_Evaluate_FieldRef_Guid_Statement, a Guid: the spellings, `abc` and an empty
+    // text give InvalidGuidFormat and keep the field; :251-332 BigInteger, Time, DateTime, DateFormula and Duration; :334-364
+    // an Option with an OptionCaption and an Enum). Another type is not pinned.
     if !c.ret_used() {
         use crate::value::RtType as T;
-        let pinned = match &target.ty {
-            T::Integer | T::Decimal | T::Date | T::Boolean | T::Code(_) | T::Text(_) => true,
-            T::Option(_) => !target.option_caption,
-            _ => false,
-        };
+        let pinned = matches!(
+            &target.ty,
+            T::Integer
+                | T::BigInteger
+                | T::Decimal
+                | T::Date
+                | T::Time
+                | T::DateTime
+                | T::DateFormula
+                | T::Duration
+                | T::Boolean
+                | T::Code(_)
+                | T::Text(_)
+                | T::Guid
+                | T::Enum(_)
+                | T::Option(_)
+        );
         if !pinned {
             return unsupported(format!(
                 "Evaluate into a FieldRef of type {} with the result unused (not pinned)",

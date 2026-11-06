@@ -197,6 +197,9 @@ fn max_str_len_of_the_after_resolve_caption_is_the_publisher_length() {
         exit(CaptionClassTranslate('LTLEN,1'));
     end;"#);
     assert_eq!(got, "len 1024");
-    let hits: Vec<_> = al_builtins::assumptions::take_hits().iter().map(|a| a.info().id).collect();
+    let hits: Vec<_> = al_builtins::assumptions::take_hits()
+        .iter()
+        .map(|a| a.info().id)
+        .collect();
     assert!(hits.contains(&"caption-class-event-var-length"), "{hits:?}");
 }
