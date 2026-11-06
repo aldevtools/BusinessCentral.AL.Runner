@@ -102,6 +102,9 @@ pub struct TestArgs {
     pub tdd: bool,
     /// `--run-selected-only` (issue 5611): of a selected codeunit, only the selected tests run.
     pub run_selected_only: bool,
+    /// `serve` only (issue 7207): a selection that picks exactly one test runs that test alone, as an entry does.
+    /// The CLI `--test` has no such flag and keeps running whole codeunits.
+    pub single_test_alone: bool,
     /// `--ignore-permission-mock` (issue 5996): a test that lowers its own permissions runs with every access granted
     /// instead of being refused; its pass is flagged `permissions-not-enforced`.
     pub ignore_permission_mock: bool,

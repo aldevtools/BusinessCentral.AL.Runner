@@ -563,10 +563,11 @@ impl Session {
         }
         // One block per app in `order`; with a kept pair, each run of dependency apps none of which depends on
         // another is one block in codeunit id order.
-        let sorted = |order: &[usize], mut targets: Vec<(crate::events::Subscriber, Inst)>| {
+        let sorted = |order: &[usize], mut targets: Vec<(crate::events::Subscriber, Inst)>, merge: bool| {
             let mut blocks: Vec<(usize, usize)> = Vec::new();
             for (i, &app) in order.iter().enumerate() {
                 let merge = kept
+                    && merge
                     && i > 0
                     && dependency_app(app)
                     && blocks.last().is_some_and(|&(_, b)| {
@@ -591,8 +592,11 @@ impl Session {
             targets.sort_by_key(|(s, _)| (rank(s), id_of(s)));
             targets
         };
-        if !unrelated {
-            return Ok(sorted(&order, targets));
+        // Two dependency apps that do not depend on each other keep ascending codeunit id across them. That is not the
+        // order BC pins (a depth-first walk over the app ids, corpus issue 6924), so such an event is served only where
+        // the walk gives the same order (al-runner issue 6924, below).
+        if !unrelated && !kept {
+            return Ok(sorted(&order, targets, true));
         }
         // Apps under test that do not depend on each other. BC visits the apps in ascending app id and places each
         // app's dependencies before it (depth first, post-order), the dependencies themselves in ascending app id:
@@ -611,7 +615,7 @@ impl Session {
         // Measured pairs of apps that do not depend on each other, for one event (`MEASURED_PAIRS`): when they and the
         // dependencies order every pair of apps here, that order is served; anything else falls through to the readings.
         if let Some(measured) = measured_order(program, object, event, &order, &depends) {
-            return Ok(sorted(&measured, targets));
+            return Ok(sorted(&measured, targets, true));
         }
         // A subscriber whose guard exits for this raise has no effect wherever it runs: only the others need one order
         // under every reading (guard_exit.rs, al-runner issue 6924). All of them run, in the pinned reading's order.
@@ -625,10 +629,18 @@ impl Session {
             .collect();
         let models = visit_orders(&program.apps);
         let reading = |full: &[usize]| -> Vec<usize> { full.iter().copied().filter(|a| order.contains(a)).collect() };
-        let pinned = sorted(&reading(&models[0].1), targets.clone());
-        let mut results = models
+        let pinned = sorted(&reading(&models[0].1), targets.clone(), false);
+        let mut results: Vec<_> = models
             .iter()
-            .map(|(what, full)| (*what, sorted(&reading(full), live.clone())));
+            .map(|(what, full)| (*what, sorted(&reading(full), live.clone(), false)))
+            .collect();
+        if kept {
+            results.push((
+                "whether dependency apps that do not depend on each other run in ascending codeunit id",
+                sorted(&order, live.clone(), true),
+            ));
+        }
+        let mut results = results.into_iter();
         let (_, first) = results.next().expect("at least one reading");
         for (what, other) in results {
             let at = first

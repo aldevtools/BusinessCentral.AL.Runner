@@ -64,13 +64,20 @@ pub fn encode(table_id: u32, shape: &[&RtType], values: &[&Value]) -> Result<(us
                         0xff
                     }
                 } else if s.starts_with(|c: char| c.is_ascii_digit()) {
-                    if s.len() != 6 || !s.bytes().all(|b| b.is_ascii_digit()) {
+                    // Six digits `106001` 0x06 (GetUrlBookmarkEnumKey.al:149), seven digits `1234567` 0x07 (:175-189), digits
+                    // then letters `1A` 0xff (:191-206), all on Purchase Header (enum + Code). Other lengths and forms are
+                    // not pinned in a composite key.
+                    let digits = s.bytes().take_while(u8::is_ascii_digit).count();
+                    if digits == s.len() && (digits == 6 || digits == 7) {
+                        digits as u8
+                    } else if digits == 1 && s.bytes().skip(1).all(|b| b.is_ascii_alphabetic()) {
+                        0xff
+                    } else {
                         return Err(
-                            "GetUrl bookmark of a Code value that starts with a digit (pinned only for six digits)"
+                            "GetUrl bookmark of a Code value that starts with a digit (pinned for six and seven digits and one digit then letters)"
                                 .into(),
                         );
                     }
-                    0x06
                 } else {
                     0xff
                 };
