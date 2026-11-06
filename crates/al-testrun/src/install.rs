@@ -786,6 +786,7 @@ impl InstallView {
         let (not_installed, unknown) = self.of(installing, group, held);
         session.set_apps_not_installed(Some(not_installed));
         session.set_apps_install_order_unknown(Some(unknown));
+        session.set_installing_app(Some(installing));
     }
 }
 
