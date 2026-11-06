@@ -27,8 +27,8 @@ const SYSTEM_FIRST: u32 = 2_000_000_000;
 
 impl Engine {
     /// Whether the license gives some table of the program below the system range less than Yes on Read, Insert, Modify
-    /// or Delete (or a mask whose meaning is not pinned). False without a license and for the license of the BC artifacts,
-    /// which grants everything there: an unrestricted session then checks nothing.
+    /// or Delete (or a mask whose meaning is not pinned). False when the run has no license file, and for the license of
+    /// the BC artifacts, which grants everything there: an unrestricted session then checks nothing.
     pub(crate) fn license_caps(&self) -> bool {
         *self.license_caps.get_or_init(|| {
             let Some(lic) = self.license.as_deref() else {
@@ -48,7 +48,7 @@ impl Engine {
 }
 
 impl Session {
-    /// Whether record accesses go through the permission gates: a restricted session, or a license that limits a table.
+    /// Whether record accesses go through the permission gates: a restricted session, or a run whose license limits a table.
     #[inline]
     pub(crate) fn permission_checks(&self) -> bool {
         self.permissions.is_some() || self.engine.license_caps()
