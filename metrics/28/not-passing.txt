@@ -2196,17 +2196,9 @@
 95990 R7142_ThisApp_CompatibilityColumns
 95997 R7144_FieldCaption_Dutch
 95997 R7144_FieldRefCaption_Dutch
-96028 XNT_FieldTxt_Export
-96028 XNT_NsTxtField_Export
-96028 XNT_NsTxtTbl_Export
-96028 XNT_Rows_Export
-96028 XNT_TxtField_Export
 96028 XNT_TxtField_Import
-96028 XNT_TxtTbl_Export
 96028 XNT_TxtTbl_Import
-96028 XNT_TxtTxtField_Export
 96028 XNT_TxtTxtField_Import
-96028 XNT_TxtTxtTbl_Export
 96028 XNT_TxtTxtTbl_Import
 96036 XDN_ItemUtf16_Export
 96036 XDN_Item_Export
