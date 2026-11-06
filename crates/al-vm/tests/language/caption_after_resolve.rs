@@ -38,6 +38,8 @@ codeunit 50452 Subs
         Parts := CaptionExpression.Split(',');
         if Parts.Get(1) = 'LTWC' then
             Caption := 'WC table ' + Parts.Get(2) + ' field ' + Parts.Get(3);
+        if Parts.Get(1) = 'LTLEN' then
+            Caption := 'len ' + Format(MaxStrLen(Caption));
     end;
 }
 table 50450 WcBase
@@ -181,4 +183,20 @@ fn a_controls_own_area_3_caption_class_raises_the_event_at_page_open() {
         got,
         "after expr=3,WC ctl three caption=WC ctl three session=Yes || WC ctl three || "
     );
+}
+
+/// A subscriber reading MaxStrLen of its `var Caption` while the platform raises the event: the publisher declares
+/// `var Caption: Text[1024]` (BCApps System Application, Caption Class/src/CaptionClass.Codeunit.al:40). Not pinned by the corpus
+/// (probe wanted), so it is a registered assumption, not a refusal (al-runner issue 6924: seven tests had gone to not run).
+#[test]
+fn max_str_len_of_the_after_resolve_caption_is_the_publisher_length() {
+    al_builtins::assumptions::clear_hits();
+    let got = run(r#"
+    procedure F(): Text
+    begin
+        exit(CaptionClassTranslate('LTLEN,1'));
+    end;"#);
+    assert_eq!(got, "len 1024");
+    let hits: Vec<_> = al_builtins::assumptions::take_hits().iter().map(|a| a.info().id).collect();
+    assert!(hits.contains(&"caption-class-event-var-length"), "{hits:?}");
 }

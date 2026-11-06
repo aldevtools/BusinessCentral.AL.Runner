@@ -316,6 +316,9 @@ impl Session {
                 })
                 .collect();
             if engine.routine_facts(s.object, s.routine).var_lens {
+                if object == crate::events::CAPTION_CLASS {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::CaptionClassEventVarLength);
+                }
                 self.events.next_var_lens = map
                     .iter()
                     .map(|m| m.and_then(|j| lens.get(j).copied().flatten()))
