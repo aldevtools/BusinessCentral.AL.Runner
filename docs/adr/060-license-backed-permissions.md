@@ -298,3 +298,16 @@ owner review:
 - **No license loaded:** unchanged, only the rows pinned before.
 - The G/L Entry writes of `LicensePermissionIndirectWrite.al` pass because permissions are not enforced; nothing in the
   runtime changes for them.
+
+## Implementation notes (indirect entries, 2026-11-06)
+
+Open question 1 is answered by license facts measured on BC 28.5 with a customer license, 2026-11-06 (owner decision:
+the facts may be embedded in the runner as an exception to hard rule 3 for the license format only, since no corpus
+test can carry a license; nothing of that license is recorded here):
+
+- Mask bits 1, 2, 4, 8, 16 = Read, Insert, Modify, Delete, Execute at Yes; bits 32, 64, 128, 256 = Read, Insert, Modify,
+  Delete at Indirect. Letter k is Yes if bit k, Indirect if bit k << 5. The limited-usage list keeps its own meaning.
+- `al-host/src/license.rs` no longer stops the run on unknown bits. A range with bit 512 or higher, or with both bits of
+  one letter, and a MenuSuite range other than 0 or 31 (MenuSuite rows do not follow the mask), is refused where its
+  level is asked for (License Permission row, permission check).
+- Decision 6 for TableData at Indirect: see ADR-062, "Stage 5, part 1".

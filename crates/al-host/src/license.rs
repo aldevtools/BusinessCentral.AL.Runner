@@ -9,10 +9,13 @@
 //! `PermissionCollections` hold one list (`pl`, attribute `t` the object type) per object type, each with ranges (`p`:
 //! first number `f`, last number `t`, permission bit mask `pbm`). The XML signature is not verified (decision 7).
 //!
-//! The permission mask: Execute is the bit 16 (a System range of the Cronus license has only that bit, ADR-060). The
-//! bits 1, 2, 4 and 8 are Read, Insert, Modify and Delete; the Cronus license sets all four or none, so which of the
-//! four is which is not pinned, and a mask that sets only some of them is answered as not pinned ([`License::levels`]).
-//! Any other bit (the encoding of Indirect is not known, decision 1) stops the run: [`parse`] fails with the reason.
+//! The permission mask (license facts measured on BC 28.5 with a customer license, 2026-11-06, owner decision; ADR-060
+//! open question 1): the bits 1, 2, 4, 8 and 16 are Read, Insert, Modify, Delete and Execute at Yes; the bits 32, 64,
+//! 128 and 256 are Read, Insert, Modify and Delete at Indirect. So letter k is Yes if bit k is set and Indirect if bit
+//! k << 5 is set. Not pinned, so a level of such a range is refused where it is asked for ([`License::levels`]): the bit
+//! 512 (by the pattern Execute Indirect) and every higher bit, and a letter with both its bits set. The limited-usage
+//! list keeps its own meaning (32 Excluded, 64 Included) and is never read as levels. MenuSuite rows do not follow the
+//! mask (the same facts), so only a MenuSuite mask of all five or none is answered.
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
@@ -21,7 +24,7 @@ use std::collections::BTreeMap;
 pub enum Level {
     Blank,
     Yes,
-    /// Allowed only indirectly. No license read so far grants this (decision 1): the reader never answers it yet.
+    /// Allowed only indirectly: the code's object must grant it in its `Permissions` property (ADR-062 amendment 1).
     Indirect,
 }
 
@@ -69,10 +72,13 @@ pub struct License {
     pub sha256: String,
 }
 
-/// The bits of a mask whose meaning is known.
-const READ_INSERT_MODIFY_DELETE: u32 = 0b0_1111;
-const EXECUTE: u32 = 0b1_0000;
-const KNOWN_BITS: u32 = READ_INSERT_MODIFY_DELETE | EXECUTE;
+/// The bits of a mask whose meaning is known (license facts, see the module text): Yes for Read, Insert, Modify,
+/// Delete and Execute, and Indirect for Read, Insert, Modify and Delete, five places higher.
+const DIRECT_BITS: u32 = 0b1_1111;
+const INDIRECT_BITS: u32 = 0b1111 << 5;
+const KNOWN_BITS: u32 = DIRECT_BITS | INDIRECT_BITS;
+/// The list whose rows in License Permission do not follow the mask but for all or nothing.
+const MENUSUITE_LIST: &str = "MenuSuite";
 
 /// The list that holds the limited-usage tables.
 const LIMITED_USAGE_LIST: &str = "LimitedUsageTable";
@@ -228,14 +234,41 @@ fn parse_xml(xml: &str) -> Result<Lists, String> {
                 w[0].first, w[0].last, w[1].first, w[1].last
             ));
         }
-        if let Some(r) = ranges.iter().find(|r| r.mask & !KNOWN_BITS != 0) {
-            return Err(format!(
-                "the range {}..{} of `{name}` has the permission mask {}, with bits whose meaning is not known (only Read, Insert, Modify, Delete and Execute are, 31); a license that grants a permission indirectly is not read yet (ADR-060 open question 1)",
-                r.first, r.last, r.mask
-            ));
-        }
     }
     Ok((lists, limited_usage))
+}
+
+/// The five levels of `mask` (of `number` in `list`, for the message).
+fn levels_of_mask(list: &str, number: i64, mask: u32) -> Result<[Level; 5], String> {
+    let unknown = mask & !KNOWN_BITS;
+    if unknown != 0 {
+        return Err(format!(
+            "the license gives `{list}` {number} the permission mask {mask}, with the bits {unknown} whose meaning is not pinned (512 is probably Execute Indirect; the license facts of ADR-060 pin 1 to 256 only)"
+        ));
+    }
+    if list == MENUSUITE_LIST && mask != 0 && mask != DIRECT_BITS {
+        return Err(format!(
+            "the license gives `{list}` {number} the permission mask {mask}: MenuSuite rows do not follow the mask but for all or nothing"
+        ));
+    }
+    const NAMES: [&str; 5] = ["Read", "Insert", "Modify", "Delete", "Execute"];
+    let mut levels = [Level::Blank; 5];
+    for (k, level) in levels.iter_mut().enumerate() {
+        let yes = mask & (1 << k) != 0;
+        let indirect = k < 4 && mask & (1 << (k + 5)) != 0;
+        *level = match (yes, indirect) {
+            (true, true) => {
+                return Err(format!(
+                    "the license gives `{list}` {number} the permission mask {mask}, which sets both the direct and the indirect bit of {}: which one wins is not pinned",
+                    NAMES[k]
+                ));
+            }
+            (true, false) => Level::Yes,
+            (false, true) => Level::Indirect,
+            (false, false) => Level::Blank,
+        };
+    }
+    Ok(levels)
 }
 
 fn attr(e: &quick_xml::events::BytesStart, key: &[u8]) -> Result<Option<String>, String> {
@@ -280,24 +313,14 @@ impl License {
     }
 
     /// The level of Read, Insert, Modify, Delete and Execute for `number` in list `list`: every level blank for a
-    /// number outside every range. `Ok(None)` when the file has no such list. An error for a mask that sets only some of
-    /// Read, Insert, Modify and Delete: which bit is which of the four is not pinned (see the module text).
+    /// number outside every range. `Ok(None)` when the file has no such list. An error for a mask whose meaning is not
+    /// pinned (see the module text): the bit 512 or a higher one, a letter with both its direct and its indirect bit, a
+    /// MenuSuite mask other than all or nothing.
     pub fn levels(&self, list: &str, number: i64) -> Result<Option<[Level; 5]>, String> {
         let Some(mask) = self.mask(list, number) else {
             return Ok(None);
         };
-        let mask = mask.unwrap_or(0);
-        let rimd = match mask & READ_INSERT_MODIFY_DELETE {
-            0 => Level::Blank,
-            READ_INSERT_MODIFY_DELETE => Level::Yes,
-            m => {
-                return Err(format!(
-                    "the license gives `{list}` {number} the permission mask {mask} (bits {m} of Read, Insert, Modify and Delete): which bit is which of the four is not pinned"
-                ));
-            }
-        };
-        let x = if mask & EXECUTE != 0 { Level::Yes } else { Level::Blank };
-        Ok(Some([rimd, rimd, rimd, rimd, x]))
+        levels_of_mask(list, number, mask.unwrap_or(0)).map(Some)
     }
 
     /// The level of one operation (for the permission check of the enforcement phase, ADR-060 decision 6). Same
@@ -480,27 +503,99 @@ mod tests {
         assert!(!l.limited_usage_is_artifact_default());
     }
 
+    /// The masks the license facts give (measured on BC 28.5 with a customer license, 2026-11-06, owner decision): the
+    /// levels BC shows in License Permission for each mask. Synthetic ranges only.
     #[test]
-    fn a_mask_with_unknown_bits_stops_the_reader() {
-        let bytes = synthetic::file("X", "1/1/2040", &[("TableData", &[(1, 10, 31 | 32)])]);
-        let e = parse(&bytes).unwrap_err();
-        assert!(e.contains("permission mask 63") && e.contains("indirectly"), "{e}");
-        // The limited-usage list's masks are not checked: their meaning is not known.
-        assert!(
-            parse(&synthetic::file(
-                "X",
-                "1/1/2040",
-                &[("LimitedUsageTable", &[(1, 1, 64)])]
-            ))
-            .is_ok()
+    fn direct_and_indirect_bits_are_read_per_letter() {
+        use Level::{Blank as B, Indirect as N, Yes as Y};
+        let cases: &[(u32, [Level; 5])] = &[
+            (7, [Y, Y, Y, B, B]),
+            (15, [Y, Y, Y, Y, B]),
+            (31, [Y, Y, Y, Y, Y]),
+            (193, [Y, N, N, B, B]),
+            (201, [Y, N, N, Y, B]),
+            (325, [Y, N, Y, N, B]),
+            (387, [Y, Y, N, N, B]),
+            (449, [Y, N, N, N, B]),
+            (480, [N, N, N, N, B]),
+            (8, [B, B, B, Y, B]),
+            (12, [B, B, Y, Y, B]),
+            (26, [B, Y, B, Y, Y]),
+            (29, [Y, B, Y, Y, Y]),
+            (4, [B, B, Y, B, B]),
+            (14, [B, Y, Y, Y, B]),
+            (16, [B, B, B, B, Y]),
+            (93, [Y, N, Y, Y, Y]),
+        ];
+        let ranges: Vec<(i64, i64, u32)> = cases
+            .iter()
+            .enumerate()
+            .map(|(i, (m, _))| (i as i64 * 10 + 1, i as i64 * 10 + 9, *m))
+            .collect();
+        let l = parse(&synthetic::file(
+            "X",
+            "1/1/2040",
+            &[("TableData", &ranges), ("Codeunit", &ranges)],
+        ))
+        .unwrap();
+        for (i, (mask, want)) in cases.iter().enumerate() {
+            let n = i as i64 * 10 + 5;
+            assert_eq!(l.levels("TableData", n).unwrap(), Some(*want), "TableData mask {mask}");
+            assert_eq!(l.levels("Codeunit", n).unwrap(), Some(*want), "Codeunit mask {mask}");
+        }
+        assert_eq!(
+            l.level("TableData", 5 + 10 * 8, Op::Read).unwrap(),
+            Some(Level::Indirect)
         );
     }
 
+    /// Bit 512 (by the pattern Execute Indirect) and every higher bit are not pinned, and neither is a letter with both
+    /// its direct and its indirect bit: the reader reads the file, and a level of such a range is refused with the
+    /// reason, not guessed.
     #[test]
-    fn a_mask_that_sets_only_some_of_read_insert_modify_delete_is_not_answered() {
-        let l = parse(&synthetic::file("X", "1/1/2040", &[("TableData", &[(1, 10, 1 | 16)])])).unwrap();
+    fn unpinned_bits_are_refused_where_they_are_used() {
+        let l = parse(&synthetic::file(
+            "X",
+            "1/1/2040",
+            &[(
+                "TableData",
+                &[(1, 10, 512 | 31), (11, 20, 1 | 32), (21, 30, 1024 | 1), (31, 40, 31)],
+            )],
+        ))
+        .unwrap();
         let e = l.levels("TableData", 5).unwrap_err();
-        assert!(e.contains("not pinned"), "{e}");
+        assert!(
+            e.contains("mask 543") && e.contains("512") && e.contains("not pinned"),
+            "{e}"
+        );
+        let e = l.levels("TableData", 15).unwrap_err();
+        assert!(e.contains("both") && e.contains("Read"), "{e}");
+        assert!(l.levels("TableData", 25).unwrap_err().contains("1024"));
+        assert_eq!(l.levels("TableData", 35).unwrap(), Some([Level::Yes; 5]));
+        // The limited-usage list keeps its own meaning (32 Excluded, 64 Included): its bits are not Indirect.
+        let l = parse(&synthetic::file(
+            "X",
+            "1/1/2040",
+            &[("LimitedUsageTable", &[(1, 1, 64), (2, 2, 32)])],
+        ))
+        .unwrap();
+        assert_eq!(l.limited_usage().len(), 2);
+        assert_eq!(l.levels("LimitedUsageTable", 1).unwrap(), None);
+    }
+
+    /// MenuSuite rows in License Permission do not follow the mask (the license facts: Read shown for mask 24, Modify
+    /// dropped for mask 29), and MenuSuite has no AL object type: only all or nothing is answered.
+    #[test]
+    fn a_partial_menusuite_mask_is_refused() {
+        let l = parse(&synthetic::file(
+            "X",
+            "1/1/2040",
+            &[("MenuSuite", &[(1, 10, 31), (11, 20, 24), (21, 30, 0)])],
+        ))
+        .unwrap();
+        assert_eq!(l.levels("MenuSuite", 5).unwrap(), Some([Level::Yes; 5]));
+        assert_eq!(l.levels("MenuSuite", 25).unwrap(), Some([Level::Blank; 5]));
+        assert!(l.levels("MenuSuite", 15).unwrap_err().contains("MenuSuite"));
     }
 
     #[test]
