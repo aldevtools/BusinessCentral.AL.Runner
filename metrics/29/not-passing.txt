@@ -2222,12 +2222,6 @@
 96028 XNT_TxtTbl_Import
 96028 XNT_TxtTxtField_Import
 96028 XNT_TxtTxtTbl_Import
-96036 XDN_ItemUtf16_Export
-96036 XDN_Item_Export
 96036 XDN_Item_Import
-96036 XDN_RootPlain_Export
-96036 XDN_RootSecond_Export
-96036 XDN_TableRoot_Export
 96036 XDN_TableRoot_Import
-96036 XDN_TextLeaf_Export
 96036 XDN_TextLeaf_Import
