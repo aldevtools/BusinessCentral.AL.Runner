@@ -1527,16 +1527,18 @@ fn test_inner(
         dependencies_published_global: a.dependencies_published_global,                                 // issue 7169
         perturb: Default::default(),
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
-        run_only: (a.run_selected_only && selection.active() && !a.execute).then(|| {
-            Arc::new(
-                found
+        run_only: (selection.active() && !a.execute)
+            .then(|| {
+                let picked: std::collections::BTreeSet<(u32, String)> = found
                     .iter()
                     .flat_map(|f| f.tests.iter().map(move |t| (f.id, t)))
                     .filter(|(id, t)| selection.picks(*id, t))
                     .map(|(id, t)| (id, t.to_lowercase()))
-                    .collect(),
-            )
-        }),
+                    .collect();
+                // `serve` only (issue 7207): exactly one picked test runs alone, as an entry's does.
+                (a.run_selected_only || (a.single_test_alone && picked.len() == 1)).then(|| Arc::new(picked))
+            })
+            .flatten(),
         test_data: test_data.as_ref().map(|(d, _)| d.clone()),
         company_data: company_data.clone(),
         compile_cache: compile_cache_on.then(|| al_testrun::compile_cache::CompileCache {
