@@ -142,6 +142,37 @@ codeunit 50257 "Carry Handles"
         Other: Codeunit "Carry Other";
         RecRef: RecordRef;
 }
+codeunit 50260 "Carry Json Holder"
+{
+    procedure Init() begin J.ReadFrom('{}'); end;
+    procedure Add(Name: Text): Codeunit "Carry Json Holder"
+    var O: JsonObject; T: JsonToken; H: Codeunit "Carry Json Holder";
+    begin
+        O.ReadFrom('{}');
+        T := O.AsToken();
+        J.AsObject().Add(Name, T);
+        H.SetTok(T);
+        exit(H);
+    end;
+    procedure SetTok(var T: JsonToken) begin J := T; end;
+    procedure Put(Name: Text; Value: Text) begin J.AsObject().Add(Name, Value); end;
+    procedure AsText(): Text var Txt: Text; begin J.WriteTo(Txt); exit(Txt); end;
+    var J: JsonToken;
+}
+codeunit 50259 "Carry Json Pair"
+{
+    SingleInstance = true;
+    // As Microsoft's "Test Output" (Test Runner app): Cur holds a token inside Root's tree, and Cur comes first.
+    procedure Fill() begin Root.Init(); Cur := Root.Add('t'); Cur.Put('a', 'x'); end;
+    procedure AddMore(): Text begin Cur.Put('b', 'y'); exit(Root.AsText()); end;
+    procedure KeepList() begin L1.Add('x'); L2 := L1; end;
+    procedure ListShared(): Text begin L2.Add('y'); exit(Format(L1.Count())); end;
+    var
+        Cur: Codeunit "Carry Json Holder";
+        Root: Codeunit "Carry Json Holder";
+        L1: List of [Text];
+        L2: List of [Text];
+}
 "#;
 
 /// A writer test codeunit (60270) that runs `fill` on "Carry Handles", and a reader (60271) whose test fails with the
@@ -433,6 +464,8 @@ fn the_serial_check_runs_each_session_in_one_go_and_finds_the_same_outcomes() {
         source(),
         pair("Fill", "R := H.Check(); if R <> 'ok' then Error(R);"),
         HANDLE.to_string(),
+        pair_shared("Fill", "AddMore", r#"{"t":{"a":"x","b":"y"}}"#),
+        pair_shared("KeepList", "ListShared", "2"),
     ] {
         let rt = runtime(&src, &opts);
         let chain = &rt.phases.chain;
@@ -443,4 +476,47 @@ fn the_serial_check_runs_each_session_in_one_go_and_finds_the_same_outcomes() {
             assert_eq!(r.outcome, Outcome::Pass, "{}", r.test);
         }
     }
+}
+
+/// A writer (60272) that runs `fill` on "Carry Json Pair" and a reader (60273) whose test fails unless `check` returns
+/// `want`.
+fn pair_shared(fill: &str, check: &str, want: &str) -> String {
+    format!(
+        r#"
+codeunit 60272 "Shared Writer"
+{{
+    Subtype = Test;
+    [Test] procedure WritesShared() var P: Codeunit "Carry Json Pair"; begin P.{fill}(); end;
+}}
+codeunit 60273 "Shared Reader"
+{{
+    Subtype = Test;
+    [Test] procedure ReadsShared()
+    var P: Codeunit "Carry Json Pair"; R: Text;
+    begin
+        R := P.{check}();
+        if R <> '{want}' then Error(R);
+    end;
+}}
+"#
+    )
+}
+
+#[test]
+fn a_token_inside_another_global_s_json_tree_reaches_the_next_codeunit_still_inside_it() {
+    // The globals of one single instance are carried as one group: the token stays the node of the tree, so a value
+    // added through it is in the tree (Microsoft's "Test Output", TestOutput.Codeunit.al:125-127 of the Test Runner).
+    let results = run(
+        &pair_shared("Fill", "AddMore", r#"{"t":{"a":"x","b":"y"}}"#),
+        &RunOptions::default(),
+    );
+    assert_eq!(outcome(&results, "WritesShared"), Outcome::Pass);
+    assert_eq!(outcome(&results, "ReadsShared"), Outcome::Pass);
+}
+
+#[test]
+fn a_list_two_globals_share_reaches_the_next_codeunit_still_shared() {
+    let results = run(&pair_shared("KeepList", "ListShared", "2"), &RunOptions::default());
+    assert_eq!(outcome(&results, "WritesShared"), Outcome::Pass);
+    assert_eq!(outcome(&results, "ReadsShared"), Outcome::Pass);
 }

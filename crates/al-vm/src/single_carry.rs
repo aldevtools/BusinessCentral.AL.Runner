@@ -20,10 +20,11 @@
 //! (`Signal::Unsupported`).
 
 use crate::Session;
-use crate::single_codec::{CarryVal, Enc};
+use crate::single_codec::{CarryVal, Enc, IdUse, Ids};
+use al_builtins::describe::Describe;
 use al_builtins::value::{Instance, Value};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 
 /// A global of a single instance: (object index, slot).
@@ -82,6 +83,10 @@ pub(crate) struct Track {
     /// The session's committed row version when it began to track: a record buffer naming a higher one is not carried
     /// (`single_codec.rs`).
     bound: i64,
+    /// Each single instance's globals as one group (`single_codec.rs`), written at the first read of one of them: what
+    /// a global read first held at the start, also when a global of the same codeunit sharing a handle with it
+    /// changed the handle before.
+    group_start: HashMap<usize, Vec<Carry>>,
 }
 
 /// Whether `a` and `b` are the same value: equal simple values, or the same handle.
@@ -125,6 +130,8 @@ impl Session {
         objects.dedup();
         for object in objects {
             let inst = self.codeunit_instance(object);
+            // The globals of one single instance are one group: decoded in order, with one set of numbered handles.
+            let mut ids = Ids::new();
             let name = self.engine.program.objects[object].name.clone();
             for (&(o, g), carry) in state.range((object, 0)..=(object, usize::MAX)) {
                 debug_assert_eq!(o, object);
@@ -133,7 +140,7 @@ impl Session {
                 }
                 let bound = self.si_track.as_ref().map_or(0, |t| t.bound);
                 let refused = match carry {
-                    Carry::Val(c) => match self.carry_decode(c, bound) {
+                    Carry::Val(c) => match self.carry_decode(c, bound, &mut ids) {
                         Ok(v) => {
                             inst.borrow_mut().globals[g] = v;
                             None
@@ -171,23 +178,18 @@ impl Session {
             observed: t.observed.clone(),
             ..Default::default()
         };
-        let mut objects: Vec<&usize> = self.singletons.keys().collect();
-        objects.sort_unstable();
-        let roots: Vec<Value> = objects
-            .iter()
-            .flat_map(|o| self.singletons[*o].borrow().globals.clone())
-            .collect();
-        let enc = Enc::new(self, &roots, t.bound);
-        for &object in objects {
-            let inst = self.singletons[&object].borrow();
-            for (g, v) in inst.globals.iter().enumerate() {
+        let (objects, groups) = self.single_groups();
+        let enc = Enc::new(self, &groups, t.bound);
+        for (&object, globals) in objects.iter().zip(&groups) {
+            // A global of a group changed: the whole group is handed on, written together (its members may share
+            // handles, and one changed through another).
+            let changed = globals.iter().enumerate().any(|(g, v)| {
                 let key = (object, g);
-                let changed = match t.seen.get(&key) {
-                    Some(_) => true,
-                    None => t.start.get(&key).is_none_or(|s| !same(s, v)),
-                };
-                if changed {
-                    out.wrote.insert(key, carry(&enc, v));
+                t.seen.contains_key(&key) || t.start.get(&key).is_none_or(|s| !same(s, v))
+            });
+            if changed {
+                for (g, c) in carry_group(&enc, globals).into_iter().enumerate() {
+                    out.wrote.insert((object, g), c);
                 }
             }
             if self.events.bindings.iter().any(|b| {
@@ -223,14 +225,44 @@ impl Session {
             return Err(crate::Signal::Unsupported(why.clone()));
         }
         t.seen.insert(key, Seen::Read);
-        let (bound, v) = (t.bound, inst.borrow().globals.get(g).cloned());
-        if let Some(v) = v {
-            let c = carry(&Enc::new(self, [&v], bound), &v);
-            if let Some(t) = self.si_track.as_mut() {
-                t.observed.insert(key, c);
+        if !t.group_start.contains_key(&object) {
+            let bound = t.bound;
+            let (_, groups) = self.single_groups();
+            let globals = inst.borrow().globals.clone();
+            let mut carried = carry_group(&Enc::new(self, &groups, bound), &globals);
+            let Some(t) = self.si_track.as_mut() else { return Ok(()) };
+            // A global written before this first read: the handles it shares with the others are no longer those
+            // of the start, so what those others held at the start is not known.
+            let written = (0..globals.len())
+                .any(|j| j != g && t.seen.get(&(object, j)) == Some(&Seen::Written));
+            if written {
+                for (c, v) in carried.iter_mut().zip(&globals) {
+                    if matches!(c, Carry::Val(x) if IdUse::of(x).any()) {
+                        *c = Carry::Opaque(format!(
+                            "{} that shares a handle with a global the codeunit wrote before reading this one",
+                            v.describe()
+                        ));
+                    }
+                }
             }
+            t.group_start.insert(object, carried);
+        }
+        let Some(t) = self.si_track.as_mut() else { return Ok(()) };
+        if let Some(c) = t.group_start.get(&object).and_then(|c| c.get(g)).cloned() {
+            t.observed.insert(key, c);
         }
         Ok(())
+    }
+
+    /// The single instances in object order, each with its globals (one group each).
+    fn single_groups(&self) -> (Vec<usize>, Vec<Vec<Value>>) {
+        let mut objects: Vec<usize> = self.singletons.keys().copied().collect();
+        objects.sort_unstable();
+        let groups = objects
+            .iter()
+            .map(|o| self.singletons[o].borrow().globals.clone())
+            .collect();
+        (objects, groups)
     }
 
     /// A write of global `g` of `inst` (see [`Session::single_read`]).
@@ -297,11 +329,26 @@ impl Session {
     }
 }
 
-fn carry(enc: &Enc, v: &Value) -> Carry {
-    match enc.enc(v) {
-        Ok(c) => Carry::Val(c),
-        Err(what) => Carry::Opaque(what),
+/// The globals of one single instance, written as one group (`single_codec.rs`). A global that names a handle whose
+/// first place could not be written is not carried either.
+fn carry_group(enc: &Enc, globals: &[Value]) -> Vec<Carry> {
+    enc.begin_group();
+    let out: Vec<Result<CarryVal, String>> = globals.iter().map(|v| enc.enc(v)).collect();
+    let mut defs = HashSet::new();
+    for c in out.iter().flatten() {
+        defs.extend(IdUse::of(c).defs);
     }
+    out.into_iter()
+        .zip(globals)
+        .map(|(r, v)| match r {
+            Ok(c) if IdUse::of(&c).refs.is_subset(&defs) => Carry::Val(c),
+            Ok(_) => Carry::Opaque(format!(
+                "{} that shares a handle with another global of the codeunit that al-runner cannot hand on",
+                v.describe()
+            )),
+            Err(what) => Carry::Opaque(what),
+        })
+        .collect()
 }
 
 #[cfg(test)]

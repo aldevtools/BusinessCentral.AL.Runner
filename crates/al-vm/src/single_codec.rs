@@ -71,6 +71,11 @@ pub enum CarryVal {
     /// An unopened RecordRef or TextBuilder (`LibraryValue::Empty`), an open RecordRef, a RecordId, a TextBuilder's
     /// text.
     Library(LibraryKind, CarryLib),
+    /// The first place of a handle that other places of the same group (the globals of one single instance) also
+    /// hold; the number names it for them.
+    Def(u32, Box<CarryVal>),
+    /// A handle written earlier in the group ([`CarryVal::Def`]).
+    Ref(u32),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,6 +92,9 @@ pub enum CarryLib {
         name: String,
         key: Vec<u8>,
     },
+    /// A JSON handle written earlier in the group: a variable ([`CarryVal::Def`]) or a node of a tree
+    /// ([`CarryJson::def`]).
+    Ref(u32),
 }
 
 /// A JSON node: its children are new handles whose parent is the node (`json::JsonCell::parent`).
@@ -94,6 +102,8 @@ pub enum CarryLib {
 pub struct CarryJson {
     pub node: CarryJsonNode,
     pub unpinned: Option<&'static str>,
+    /// The number of a node that a variable of the group also holds.
+    pub def: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,6 +114,8 @@ pub enum CarryJsonNode {
     Undefined,
     Val(Vec<u8>),
     Raw(String),
+    /// A node a variable of the group holds, written there first; it gets this node as its parent.
+    Ref(u32),
 }
 
 fn json_kind(k: &LibraryKind) -> bool {
@@ -191,6 +203,13 @@ pub enum CarryDirty {
         dirty_only: bool,
         stale_store: bool,
     },
+}
+
+/// Where a handle stands in its group ([`Enc::place`]).
+enum Place {
+    Alone,
+    First(u32),
+    Again(u32),
 }
 
 /// How deep handles inside handles are carried.
@@ -404,15 +423,32 @@ fn filters_of(bytes: &[u8]) -> Option<Vec<FieldFilter>> {
     Some(fs)
 }
 
-/// Writes the values reachable from a set of roots (see the module). A handle reached twice (two globals sharing a
-/// list, a FieldRef into a carried RecordRef's buffer, two records sharing a temporary table) is refused: the copies
-/// would no longer share it.
+/// Writes the values reachable from groups of roots (see the module). A group is the globals of one single instance.
+/// A handle reached twice within one group (two globals sharing a list, a token inside another global's JSON tree)
+/// is written once ([`CarryVal::Def`]) and named at its other places ([`CarryVal::Ref`]), so the copies share it as
+/// the originals do; decode the members of a group in order with one [`Ids`]. A handle two groups reach, a record two
+/// places hold (a FieldRef into a carried RecordRef's buffer) and a temporary table two records share are refused.
 pub(crate) struct Enc<'s> {
     session: &'s Session,
+    /// Handles reached more than once within one group.
     shared: HashSet<usize>,
+    /// Handles reached from more than one group.
+    cross: HashSet<usize>,
+    /// JSON handles reached as a node of a tree.
+    in_tree: HashSet<usize>,
     shared_temps: HashSet<u64>,
+    /// The numbers given so far in the current group.
+    ids: RefCell<HashMap<usize, u32>>,
     /// The committed row version when the session began to track the single instances.
     bound: i64,
+}
+
+/// What [`count`] notes while it walks the roots of one group.
+#[derive(Default)]
+struct Counts {
+    seen: HashMap<usize, u32>,
+    temps: HashMap<u64, u32>,
+    in_tree: HashSet<usize>,
 }
 
 fn ptr<T>(rc: &Rc<T>) -> usize {
@@ -420,25 +456,84 @@ fn ptr<T>(rc: &Rc<T>) -> usize {
 }
 
 impl<'s> Enc<'s> {
-    pub(crate) fn new<'v>(session: &'s Session, roots: impl IntoIterator<Item = &'v Value>, bound: i64) -> Enc<'s> {
-        let mut seen: HashMap<usize, u32> = HashMap::new();
+    pub(crate) fn new(session: &'s Session, groups: &[Vec<Value>], bound: i64) -> Enc<'s> {
+        let mut reach: HashMap<usize, (u32, u32)> = HashMap::new();
         let mut temps: HashMap<u64, u32> = HashMap::new();
-        for v in roots {
-            count(v, &mut seen, &mut temps, 0);
+        let mut in_tree = HashSet::new();
+        for g in groups {
+            let mut c = Counts::default();
+            for v in g {
+                count(v, &mut c, 0);
+            }
+            for (p, n) in c.seen {
+                let e = reach.entry(p).or_default();
+                e.0 = e.0.max(n);
+                e.1 += 1;
+            }
+            for (t, n) in c.temps {
+                *temps.entry(t).or_default() += n;
+            }
+            in_tree.extend(c.in_tree);
         }
         Enc {
             session,
-            shared: seen.into_iter().filter(|&(_, n)| n > 1).map(|(p, _)| p).collect(),
+            shared: reach.iter().filter(|(_, (n, g))| *n > 1 && *g == 1).map(|(p, _)| *p).collect(),
+            cross: reach.iter().filter(|(_, (_, g))| *g > 1).map(|(p, _)| *p).collect(),
+            in_tree,
             shared_temps: temps.into_iter().filter(|&(_, n)| n > 1).map(|(p, _)| p).collect(),
+            ids: RefCell::default(),
             bound,
         }
     }
 
+    /// Starts a group: its numbers start again from 0.
+    pub(crate) fn begin_group(&self) {
+        self.ids.borrow_mut().clear();
+    }
+
+    /// Refuses a handle another place also holds (records: their sharing is not carried).
     fn unshared<T>(&self, rc: &Rc<T>, v: &Value) -> Result<(), String> {
-        if self.shared.contains(&ptr(rc)) {
+        let p = ptr(rc);
+        if self.cross.contains(&p) {
+            return Err(format!("{} that a variable of another SingleInstance codeunit shares", v.describe()));
+        }
+        if self.shared.contains(&p) {
             return Err(format!("{} that another carried variable shares", v.describe()));
         }
         Ok(())
+    }
+
+    /// Where a handle stands in the group, a new number for the first place of a shared one; `Err` for a handle two
+    /// groups reach.
+    fn place<T>(&self, rc: &Rc<T>, v: &Value) -> Result<Place, String> {
+        let p = ptr(rc);
+        if self.cross.contains(&p) {
+            return Err(format!("{} that a variable of another SingleInstance codeunit shares", v.describe()));
+        }
+        if !self.shared.contains(&p) {
+            return Ok(Place::Alone);
+        }
+        let mut ids = self.ids.borrow_mut();
+        if let Some(&id) = ids.get(&p) {
+            return Ok(Place::Again(id));
+        }
+        let id = u32::try_from(ids.len()).map_err(|_| v.describe())?;
+        ids.insert(p, id);
+        Ok(Place::First(id))
+    }
+
+    /// Writes a handle with `f`, or names it when the group holds it at more than one place.
+    fn handle<T>(
+        &self,
+        rc: &Rc<T>,
+        v: &Value,
+        f: impl FnOnce() -> Result<CarryVal, String>,
+    ) -> Result<CarryVal, String> {
+        Ok(match self.place(rc, v)? {
+            Place::Alone => f()?,
+            Place::Again(id) => CarryVal::Ref(id),
+            Place::First(id) => CarryVal::Def(id, Box::new(f()?)),
+        })
     }
 
     pub(crate) fn enc(&self, v: &Value) -> Result<CarryVal, String> {
@@ -457,8 +552,7 @@ impl<'s> Enc<'s> {
                     return Ok(CarryVal::Single(i.object));
                 }
                 drop(i);
-                self.unshared(inst, v)?;
-                CarryVal::Codeunit(Box::new(self.inst(inst, depth)?))
+                self.handle(inst, v, || Ok(CarryVal::Codeunit(Box::new(self.inst(inst, depth)?))))?
             }
             Value::DotNet(obj) => match &obj.kind {
                 DotNetKind::Enum {
@@ -470,79 +564,47 @@ impl<'s> Enc<'s> {
                     name: name.clone(),
                     ordinal: *ordinal,
                 },
-                DotNetKind::Internal { type_name, state } => {
-                    self.unshared(obj, v)?;
+                DotNetKind::Internal { type_name, state } => self.handle(obj, v, || {
                     let state = state.try_borrow().map_err(busy)?;
-                    CarryVal::DotNetInternal {
+                    Ok(CarryVal::DotNetInternal {
                         type_name: type_name.clone(),
                         state: state.iter().map(|x| self.val(x, depth + 1)).collect::<Result<_, _>>()?,
-                    }
-                }
+                    })
+                })?,
                 _ => return Err(v.describe()),
             },
-            Value::List(l) => {
-                self.unshared(l, v)?;
+            Value::List(l) => self.handle(l, v, || {
                 let l = l.try_borrow().map_err(busy)?;
-                CarryVal::List {
+                Ok(CarryVal::List {
                     items: l.iter().map(|x| self.val(x, depth + 1)).collect::<Result<_, _>>()?,
                     version: l.version,
                     read_only: l.read_only,
-                }
-            }
-            Value::Dictionary(d) => {
-                self.unshared(d, v)?;
+                })
+            })?,
+            Value::Dictionary(d) => self.handle(d, v, || {
                 let d = d.try_borrow().map_err(busy)?;
-                CarryVal::Dictionary(
+                Ok(CarryVal::Dictionary(
                     d.iter()
                         .map(|(k, x)| Ok((self.val(k, depth + 1)?, self.val(x, depth + 1)?)))
                         .collect::<Result<_, String>>()?,
-                )
-            }
-            Value::Array(a) => {
-                self.unshared(a, v)?;
+                ))
+            })?,
+            Value::Array(a) => self.handle(a, v, || {
                 let a = a.try_borrow().map_err(busy)?;
-                CarryVal::Array(a.iter().map(|x| self.val(x, depth + 1)).collect::<Result<_, _>>()?)
-            }
+                Ok(CarryVal::Array(
+                    a.iter().map(|x| self.val(x, depth + 1)).collect::<Result<_, _>>()?,
+                ))
+            })?,
             Value::Record(rc) => {
                 self.unshared(rc, v)?;
                 CarryVal::Record(Box::new(self.rec(rc, depth)?))
             }
-            Value::Library(kind, lv) => {
-                self.unshared(lv, v)?;
-                let lv = lv.try_borrow().map_err(busy)?;
-                let lib = match (kind, &*lv) {
-                    (LibraryKind::RecordRef | LibraryKind::TextBuilder, LibraryValue::Empty) => CarryLib::Empty,
-                    (k, LibraryValue::Empty) if json_kind(k) => CarryLib::Empty,
-                    (k, LibraryValue::Json(cell)) if json_kind(k) => {
-                        if cell.parent.as_ref().is_some_and(|p| p.upgrade().is_some()) {
-                            return Err(format!("{} inside a JSON tree no carried variable holds", v.describe()));
-                        }
-                        CarryLib::Json(Box::new(self.json(cell, v, depth)?))
-                    }
-                    (LibraryKind::TextBuilder, LibraryValue::Text(s)) => CarryLib::Text(s.clone()),
-                    (LibraryKind::TextBuilder, LibraryValue::TextCap(s, n)) => CarryLib::TextCap(s.clone(), *n),
-                    (LibraryKind::RecordRef, LibraryValue::RecordRef(rc)) => {
-                        self.unshared(rc, v)?;
-                        CarryLib::RecordRef(Box::new(self.rec(rc, depth)?))
-                    }
-                    (
-                        LibraryKind::RecordId,
-                        LibraryValue::RecordId {
-                            table,
-                            table_no,
-                            name,
-                            key,
-                        },
-                    ) => CarryLib::RecordId {
-                        table: *table,
-                        table_no: *table_no,
-                        name: name.clone(),
-                        key: row_bytes(key).ok_or_else(|| v.describe())?,
-                    },
-                    _ => return Err(v.describe()),
-                };
-                CarryVal::Library(kind.clone(), lib)
-            }
+            Value::Library(kind, lv) => match self.handle(lv, v, || {
+                Ok(CarryVal::Library(kind.clone(), self.lib(kind, lv, v, depth)?))
+            })? {
+                CarryVal::Ref(id) => CarryVal::Library(kind.clone(), CarryLib::Ref(id)),
+                c => c,
+            },
             _ => {
                 let mut out = Vec::new();
                 if !vc::encode(v, &mut out) {
@@ -553,16 +615,72 @@ impl<'s> Enc<'s> {
         })
     }
 
+    fn lib(
+        &self,
+        kind: &LibraryKind,
+        lv: &Rc<RefCell<LibraryValue>>,
+        v: &Value,
+        depth: usize,
+    ) -> Result<CarryLib, String> {
+        let me = ptr(lv);
+        let lv = lv.try_borrow().map_err(|_| v.describe())?;
+        Ok(match (kind, &*lv) {
+            (LibraryKind::RecordRef | LibraryKind::TextBuilder, LibraryValue::Empty) => CarryLib::Empty,
+            (k, LibraryValue::Empty) if json_kind(k) => CarryLib::Empty,
+            (k, LibraryValue::Json(cell)) if json_kind(k) => {
+                // A node of a tree: carried only with the tree, which a global of the same group holds.
+                if cell.parent.as_ref().is_some_and(|p| p.upgrade().is_some()) && !self.in_tree.contains(&me) {
+                    return Err(format!("{} inside a JSON tree no carried variable holds", v.describe()));
+                }
+                CarryLib::Json(Box::new(self.json(cell, v, depth)?))
+            }
+            (LibraryKind::TextBuilder, LibraryValue::Text(s)) => CarryLib::Text(s.clone()),
+            (LibraryKind::TextBuilder, LibraryValue::TextCap(s, n)) => CarryLib::TextCap(s.clone(), *n),
+            (LibraryKind::RecordRef, LibraryValue::RecordRef(rc)) => {
+                self.unshared(rc, v)?;
+                CarryLib::RecordRef(Box::new(self.rec(rc, depth)?))
+            }
+            (
+                LibraryKind::RecordId,
+                LibraryValue::RecordId {
+                    table,
+                    table_no,
+                    name,
+                    key,
+                },
+            ) => CarryLib::RecordId {
+                table: *table,
+                table_no: *table_no,
+                name: name.clone(),
+                key: row_bytes(key).ok_or_else(|| v.describe())?,
+            },
+            _ => return Err(v.describe()),
+        })
+    }
+
     fn json(&self, cell: &al_builtins::json::JsonCell, v: &Value, depth: usize) -> Result<CarryJson, String> {
         use al_builtins::json::{JsonNode, Scalar};
         if depth >= 64 {
             return Err(v.describe());
         }
         let child = |h: &al_builtins::json::Handle| -> Result<CarryJson, String> {
-            self.unshared(h, v)?;
+            let def = match self.place(h, v)? {
+                Place::Again(id) => {
+                    return Ok(CarryJson {
+                        node: CarryJsonNode::Ref(id),
+                        unpinned: None,
+                        def: None,
+                    });
+                }
+                Place::First(id) => Some(id),
+                Place::Alone => None,
+            };
             let lv = h.try_borrow().map_err(|_| v.describe())?;
             match &*lv {
-                LibraryValue::Json(c) => self.json(c, v, depth + 1),
+                LibraryValue::Json(c) => Ok(CarryJson {
+                    def,
+                    ..self.json(c, v, depth + 1)?
+                }),
                 _ => Err(v.describe()),
             }
         };
@@ -587,6 +705,7 @@ impl<'s> Enc<'s> {
         Ok(CarryJson {
             node,
             unpinned: cell.unpinned,
+            def: None,
         })
     }
 
@@ -816,12 +935,12 @@ impl<'s> Enc<'s> {
 }
 
 /// Counts how often each handle (and each temporary table) is reached from the roots; a handle is entered once.
-fn count(v: &Value, seen: &mut HashMap<usize, u32>, temps: &mut HashMap<u64, u32>, depth: usize) {
+fn count(v: &Value, c: &mut Counts, depth: usize) {
     if depth >= DEPTH {
         return;
     }
     let mut first = |p: usize| {
-        let n = seen.entry(p).or_default();
+        let n = c.seen.entry(p).or_default();
         *n += 1;
         *n == 1
     };
@@ -830,7 +949,7 @@ fn count(v: &Value, seen: &mut HashMap<usize, u32>, temps: &mut HashMap<u64, u32
             if inst.try_borrow().is_ok_and(|i| !i.single) && first(ptr(inst)) {
                 if let Ok(i) = inst.try_borrow() {
                     for g in &i.globals {
-                        count(g, seen, temps, depth + 1);
+                        count(g, c, depth + 1);
                     }
                 }
             }
@@ -841,33 +960,33 @@ fn count(v: &Value, seen: &mut HashMap<usize, u32>, temps: &mut HashMap<u64, u32
                 && let Ok(s) = state.try_borrow()
             {
                 for x in s.iter() {
-                    count(x, seen, temps, depth + 1);
+                    count(x, c, depth + 1);
                 }
             }
         }
         Value::List(l) if first(ptr(l)) => {
             if let Ok(l) = l.try_borrow() {
                 for x in l.iter() {
-                    count(x, seen, temps, depth + 1);
+                    count(x, c, depth + 1);
                 }
             }
         }
         Value::Dictionary(d) if first(ptr(d)) => {
             if let Ok(d) = d.try_borrow() {
                 for (k, x) in d.iter() {
-                    count(k, seen, temps, depth + 1);
-                    count(x, seen, temps, depth + 1);
+                    count(k, c, depth + 1);
+                    count(x, c, depth + 1);
                 }
             }
         }
         Value::Array(a) if first(ptr(a)) => {
             if let Ok(a) = a.try_borrow() {
                 for x in a.iter() {
-                    count(x, seen, temps, depth + 1);
+                    count(x, c, depth + 1);
                 }
             }
         }
-        Value::Record(rc) => count_rec(rc, seen, temps, depth),
+        Value::Record(rc) => count_rec(rc, c, depth),
         Value::Library(_, lv) if first(ptr(lv)) => {
             if let Ok(lv) = lv.try_borrow() {
                 match &*lv {
@@ -875,8 +994,8 @@ fn count(v: &Value, seen: &mut HashMap<usize, u32>, temps: &mut HashMap<u64, u32
                     | LibraryValue::FieldRef(rc, _)
                     | LibraryValue::KeyFieldRef(rc, _)
                     | LibraryValue::KeyRef(rc, _)
-                    | LibraryValue::UserNameFieldRef { rec: rc, .. } => count_rec(rc, seen, temps, depth),
-                    LibraryValue::Json(cell) => count_json(cell, seen, depth),
+                    | LibraryValue::UserNameFieldRef { rec: rc, .. } => count_rec(rc, c, depth),
+                    LibraryValue::Json(cell) => count_json(cell, c, depth),
                     _ => {}
                 }
             }
@@ -885,7 +1004,7 @@ fn count(v: &Value, seen: &mut HashMap<usize, u32>, temps: &mut HashMap<u64, u32
     }
 }
 
-fn count_json(cell: &al_builtins::json::JsonCell, seen: &mut HashMap<usize, u32>, depth: usize) {
+fn count_json(cell: &al_builtins::json::JsonCell, c: &mut Counts, depth: usize) {
     use al_builtins::json::JsonNode;
     if depth >= 64 {
         return;
@@ -896,62 +1015,77 @@ fn count_json(cell: &al_builtins::json::JsonCell, seen: &mut HashMap<usize, u32>
         JsonNode::Scalar(_) => Vec::new(),
     };
     for h in children {
-        let n = seen.entry(ptr(h)).or_default();
+        c.in_tree.insert(ptr(h));
+        let n = c.seen.entry(ptr(h)).or_default();
         *n += 1;
         if *n == 1
             && let Ok(lv) = h.try_borrow()
-            && let LibraryValue::Json(c) = &*lv
+            && let LibraryValue::Json(cell) = &*lv
         {
-            count_json(c, seen, depth + 1);
+            count_json(cell, c, depth + 1);
         }
     }
 }
 
-fn count_rec(
-    rc: &Rc<RefCell<RecordState>>,
-    seen: &mut HashMap<usize, u32>,
-    temps: &mut HashMap<u64, u32>,
-    depth: usize,
-) {
-    let n = seen.entry(ptr(rc)).or_default();
+fn count_rec(rc: &Rc<RefCell<RecordState>>, c: &mut Counts, depth: usize) {
+    let n = c.seen.entry(ptr(rc)).or_default();
     *n += 1;
     if *n > 1 {
         return;
     }
     let Ok(r) = rc.try_borrow() else { return };
     if let Some(id) = &r.temp_id {
-        *temps.entry(id.id()).or_default() += 1;
+        *c.temps.entry(id.id()).or_default() += 1;
     }
     let mut insts = r.globals.instances();
     if !r.globals.is_unset() {
         insts.extend(r.globals.xrec().instances());
     }
     for (_, i) in insts {
-        count(&Value::Codeunit(i), seen, temps, depth + 1);
+        count(&Value::Codeunit(i), c, depth + 1);
     }
 }
 
+/// The handles of a group decoded so far, by their number ([`CarryVal::Def`]).
+pub(crate) type Ids = HashMap<u32, Value>;
+
 /// The handle of a carried JSON node, its children pointing at it as their parent.
-fn json_handle(j: &CarryJson, parent: Option<&al_builtins::json::Handle>) -> Option<al_builtins::json::Handle> {
+fn json_handle(
+    j: &CarryJson,
+    parent: Option<&al_builtins::json::Handle>,
+    ids: &mut Ids,
+) -> Option<al_builtins::json::Handle> {
     use al_builtins::json::{JsonCell, JsonNode, Scalar};
+    if let CarryJsonNode::Ref(id) = &j.node {
+        let Some(Value::Library(_, h)) = ids.get(id) else { return None };
+        match &mut *h.try_borrow_mut().ok()? {
+            LibraryValue::Json(c) => c.parent = parent.map(Rc::downgrade),
+            _ => return None,
+        }
+        return Some(h.clone());
+    }
     let h: al_builtins::json::Handle = Rc::new(RefCell::new(LibraryValue::Json(JsonCell {
         node: JsonNode::Scalar(Scalar::Null),
         parent: parent.map(Rc::downgrade),
         unpinned: j.unpinned,
     })));
+    if let Some(id) = j.def {
+        ids.insert(id, Value::Library(LibraryKind::JsonToken, h.clone()));
+    }
     let node = match &j.node {
         CarryJsonNode::Object(kv) => JsonNode::Object(
             kv.iter()
-                .map(|(k, c)| Some((k.clone(), json_handle(c, Some(&h))?)))
+                .map(|(k, c)| Some((k.clone(), json_handle(c, Some(&h), ids)?)))
                 .collect::<Option<_>>()?,
         ),
         CarryJsonNode::Array(xs) => {
-            JsonNode::Array(xs.iter().map(|c| json_handle(c, Some(&h))).collect::<Option<_>>()?)
+            JsonNode::Array(xs.iter().map(|c| json_handle(c, Some(&h), ids)).collect::<Option<_>>()?)
         }
         CarryJsonNode::Null => JsonNode::Scalar(Scalar::Null),
         CarryJsonNode::Undefined => JsonNode::Scalar(Scalar::Undefined),
         CarryJsonNode::Raw(r) => JsonNode::Scalar(Scalar::Raw(r.clone())),
         CarryJsonNode::Val(b) => JsonNode::Scalar(Scalar::Val(vc::decode(&mut Reader::new(b))?)),
+        CarryJsonNode::Ref(_) => unreachable!("handled above"),
     };
     if let LibraryValue::Json(c) = &mut *h.borrow_mut() {
         c.node = node;
@@ -959,15 +1093,88 @@ fn json_handle(j: &CarryJson, parent: Option<&al_builtins::json::Handle>) -> Opt
     Some(h)
 }
 
+/// The numbers a carried value gives ([`CarryVal::Def`], [`CarryJson::def`]) and names ([`CarryVal::Ref`],
+/// [`CarryLib::Ref`], [`CarryJsonNode::Ref`]).
+#[derive(Default)]
+pub(crate) struct IdUse {
+    pub defs: HashSet<u32>,
+    pub refs: HashSet<u32>,
+}
+
+impl IdUse {
+    pub(crate) fn of(c: &CarryVal) -> IdUse {
+        let mut u = IdUse::default();
+        u.val(c);
+        u
+    }
+
+    pub(crate) fn any(&self) -> bool {
+        !self.defs.is_empty() || !self.refs.is_empty()
+    }
+
+    fn val(&mut self, c: &CarryVal) {
+        match c {
+            CarryVal::Def(id, x) => {
+                self.defs.insert(*id);
+                self.val(x);
+            }
+            CarryVal::Ref(id) => {
+                self.refs.insert(*id);
+            }
+            CarryVal::Codeunit(i) => self.inst(i),
+            CarryVal::DotNetInternal { state: xs, .. } | CarryVal::List { items: xs, .. } | CarryVal::Array(xs) => {
+                xs.iter().for_each(|x| self.val(x));
+            }
+            CarryVal::Dictionary(pairs) => pairs.iter().for_each(|(k, x)| {
+                self.val(k);
+                self.val(x);
+            }),
+            CarryVal::Record(r) | CarryVal::Library(_, CarryLib::RecordRef(r)) => {
+                r.globals.iter().chain(&r.xrec_globals).for_each(|(_, i)| self.inst(i));
+            }
+            CarryVal::Library(_, CarryLib::Ref(id)) => {
+                self.refs.insert(*id);
+            }
+            CarryVal::Library(_, CarryLib::Json(j)) => self.json(j),
+            CarryVal::Library(..) | CarryVal::Plain(_) | CarryVal::Single(_) | CarryVal::DotNetEnum { .. } => {}
+        }
+    }
+
+    fn inst(&mut self, i: &CarryInst) {
+        i.globals.iter().for_each(|g| self.val(g));
+    }
+
+    fn json(&mut self, j: &CarryJson) {
+        if let Some(id) = j.def {
+            self.defs.insert(id);
+        }
+        match &j.node {
+            CarryJsonNode::Ref(id) => {
+                self.refs.insert(*id);
+            }
+            CarryJsonNode::Object(kv) => kv.iter().for_each(|(_, c)| self.json(c)),
+            CarryJsonNode::Array(xs) => xs.iter().for_each(|c| self.json(c)),
+            _ => {}
+        }
+    }
+}
+
 impl Session {
     /// The value `c` stands for in this session (see the module); the reason when it has none here. `bound`: this
-    /// session's committed row version when it began to track the single instances.
-    pub(crate) fn carry_decode(&mut self, c: &CarryVal, bound: i64) -> Result<Value, String> {
+    /// session's committed row version when it began to track the single instances; `ids`: the handles of the group
+    /// decoded so far (decode the members of a group in order).
+    pub(crate) fn carry_decode(&mut self, c: &CarryVal, bound: i64, ids: &mut Ids) -> Result<Value, String> {
         let bad = || "a carried value that does not read back".to_string();
         Ok(match c {
+            CarryVal::Def(id, x) => {
+                let v = self.carry_decode(x, bound, ids)?;
+                ids.insert(*id, v.clone());
+                v
+            }
+            CarryVal::Ref(id) => ids.get(id).cloned().ok_or_else(bad)?,
             CarryVal::Plain(b) => vc::decode(&mut Reader::new(b)).ok_or_else(bad)?,
             CarryVal::Single(object) => Value::Codeunit(self.codeunit_instance(*object as usize)),
-            CarryVal::Codeunit(i) => Value::Codeunit(self.carry_inst(i, bound)?),
+            CarryVal::Codeunit(i) => Value::Codeunit(self.carry_inst(i, bound, ids)?),
             CarryVal::DotNetEnum {
                 clr_type,
                 name,
@@ -980,7 +1187,7 @@ impl Session {
             CarryVal::DotNetInternal { type_name, state } => {
                 let state = state
                     .iter()
-                    .map(|x| self.carry_decode(x, bound))
+                    .map(|x| self.carry_decode(x, bound, ids))
                     .collect::<Result<Vec<_>, _>>()?;
                 Value::DotNet(Rc::new(DotNetObject::new(DotNetKind::Internal {
                     type_name: type_name.clone(),
@@ -994,7 +1201,7 @@ impl Session {
             } => {
                 let items = items
                     .iter()
-                    .map(|x| self.carry_decode(x, bound))
+                    .map(|x| self.carry_decode(x, bound, ids))
                     .collect::<Result<Vec<_>, _>>()?;
                 let mut l = ListVec::from(items);
                 l.version = *version;
@@ -1004,28 +1211,35 @@ impl Session {
             CarryVal::Dictionary(pairs) => {
                 let mut out = Vec::with_capacity(pairs.len());
                 for (k, x) in pairs {
-                    out.push((self.carry_decode(k, bound)?, self.carry_decode(x, bound)?));
+                    out.push((self.carry_decode(k, bound, ids)?, self.carry_decode(x, bound, ids)?));
                 }
                 Value::Dictionary(Rc::new(RefCell::new(out)))
             }
             CarryVal::Array(xs) => {
                 let xs = xs
                     .iter()
-                    .map(|x| self.carry_decode(x, bound))
+                    .map(|x| self.carry_decode(x, bound, ids))
                     .collect::<Result<Vec<_>, _>>()?;
                 Value::Array(Rc::new(RefCell::new(xs)))
             }
-            CarryVal::Record(r) => Value::Record(self.carry_rec(r, bound)?),
+            CarryVal::Record(r) => Value::Record(self.carry_rec(r, bound, ids)?),
             CarryVal::Library(kind, lib) => {
-                if let CarryLib::Json(j) = lib {
-                    return Ok(Value::Library(kind.clone(), json_handle(j, None).ok_or_else(bad)?));
+                match lib {
+                    CarryLib::Json(j) => {
+                        return Ok(Value::Library(kind.clone(), json_handle(j, None, ids).ok_or_else(bad)?));
+                    }
+                    CarryLib::Ref(id) => {
+                        let Some(Value::Library(_, h)) = ids.get(id) else { return Err(bad()) };
+                        return Ok(Value::Library(kind.clone(), h.clone()));
+                    }
+                    _ => {}
                 }
                 let lv = match lib {
                     CarryLib::Empty => LibraryValue::Empty,
-                    CarryLib::Json(_) => unreachable!("handled above"),
+                    CarryLib::Json(_) | CarryLib::Ref(_) => unreachable!("handled above"),
                     CarryLib::Text(s) => LibraryValue::Text(s.clone()),
                     CarryLib::TextCap(s, n) => LibraryValue::TextCap(s.clone(), *n),
-                    CarryLib::RecordRef(r) => LibraryValue::RecordRef(self.carry_rec(r, bound)?),
+                    CarryLib::RecordRef(r) => LibraryValue::RecordRef(self.carry_rec(r, bound, ids)?),
                     CarryLib::RecordId {
                         table,
                         table_no,
@@ -1043,11 +1257,11 @@ impl Session {
         })
     }
 
-    fn carry_inst(&mut self, i: &CarryInst, bound: i64) -> Result<Rc<RefCell<Instance>>, String> {
+    fn carry_inst(&mut self, i: &CarryInst, bound: i64, ids: &mut Ids) -> Result<Rc<RefCell<Instance>>, String> {
         let globals = i
             .globals
             .iter()
-            .map(|g| self.carry_decode(g, bound))
+            .map(|g| self.carry_decode(g, bound, ids))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Rc::new(RefCell::new(Instance {
             object: i.object,
@@ -1062,7 +1276,7 @@ impl Session {
         })))
     }
 
-    fn carry_rec(&mut self, c: &CarryRec, bound: i64) -> Result<Rc<RefCell<RecordState>>, String> {
+    fn carry_rec(&mut self, c: &CarryRec, bound: i64, ids: &mut Ids) -> Result<Rc<RefCell<RecordState>>, String> {
         let bad = || "a carried record that does not read back".to_string();
         if c.max_version > bound {
             return Err(format!(
@@ -1092,13 +1306,13 @@ impl Session {
         };
         let globals = TableGlobals::default();
         for (o, i) in &c.globals {
-            let inst = self.carry_inst(i, bound)?;
+            let inst = self.carry_inst(i, bound, ids)?;
             globals.set_instance(*o, inst);
         }
         if !c.xrec_globals.is_empty() {
             let x = globals.xrec();
             for (o, i) in &c.xrec_globals {
-                let inst = self.carry_inst(i, bound)?;
+                let inst = self.carry_inst(i, bound, ids)?;
                 x.set_instance(*o, inst);
             }
         }
