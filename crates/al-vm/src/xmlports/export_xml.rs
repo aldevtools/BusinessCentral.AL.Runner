@@ -548,6 +548,13 @@ impl Session {
                     }
                     out.children.push(Node::Elem(e));
                 }
+                // A `plain_valued_leaf` (plain_tree.rs): its OnBeforePassVariable sets the text, written once where the schema has it
+                // (XpTableRootNestedText.al XNT_NsTblText_Export, XNT_TblText_Export, XNT_TextTbl_Export, XNT_PlainLeaf_Export).
+                // Skip, Break and Quit in that trigger are not pinned there.
+                ir::XmlNodeKind::Text if plain_valued_leaf(schema, child) => {
+                    let e = self.xp_export_valued_leaf(inst, schema, child)?;
+                    out.children.push(Node::Elem(e));
+                }
                 ir::XmlNodeKind::Text if schema.children(child).is_empty() => {
                     let v = got!(self.xp_pass_variable(inst, schema, child));
                     // currXMLport.Skip() in its OnBeforePassVariable leaves the element out (xmlports/shapes-properties/
