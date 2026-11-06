@@ -594,6 +594,7 @@ mod routine_lists;
 mod shared;
 mod stmt;
 mod tables;
+mod test_handlers;
 #[cfg(test)]
 mod tests;
 mod tys;

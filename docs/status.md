@@ -99,7 +99,8 @@ fixes that came with that work stay on. Details: [alrunner-buckets.md](alrunner-
 - **Company modes (ADR-046).** One company by default; `--companies LIST|all` runs the per-company install
   code in each declared company and models BC with several companies. User text: `docs/manual/writing-tests.md`.
 - **Test framework, BC 29 (ADR-059, Accepted).** Data-driven tests (`[TestDataSource]`) run with one result per
-  case, `Procedure[identifier]` (`al-testrun` `runtime/data_driven.rs`). `TestHandlers` are refused; the
+  case, `Procedure[identifier]` (`al-testrun` `runtime/data_driven.rs`). The ITestHandler callbacks of
+  `TestHandlers` and `DefaultTestHandler` run (`runtime/test_handlers.rs`); the
   `TestHandlerContext` and `DataSourceContext` members work on a fresh variable. A skipped outcome waits for a pin.
 - **License-backed permissions (ADR-060).** `--license FILE` and the license in the BC artifact answer License
   Permission (`docs/manual/license.md`). The license limits table data access below the system range (Indirect needs the

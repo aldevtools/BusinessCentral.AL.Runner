@@ -656,10 +656,35 @@ impl Lowerer<'_> {
                 name: a.name(),
                 args: a
                     .args()
-                    .map(|l| l.children().filter_map(|e| self.constant(&e).ok()).collect())
+                    .map(|l| {
+                        l.children()
+                            .filter_map(|e| {
+                                self.constant(&e).ok().or_else(|| {
+                                    a.name()
+                                        .eq_ignore_ascii_case("TestDataSource")
+                                        .then(|| self.object_id_arg(&e))
+                                        .flatten()
+                                })
+                            })
+                            .collect()
+                    })
                     .unwrap_or_default(),
             })
             .collect()
+    }
+
+    /// `Codeunit::"Name"` as an attribute argument: the object's id. `[TestDataSource(Codeunit::"Name", 'Set')]` and
+    /// `[TestDataSource(<id>, 'Set')]` name the same data source (corpus al-language-testlibraries/test-framework/
+    /// data-driven-tests-and-handlers/BiTestHandlerDefault.al:12-13, :264 and :274, observed on BC 29).
+    fn object_id_arg(&self, e: &SyntaxNode) -> Option<ir::Const> {
+        let text = e.text().to_string();
+        let (kind, name) = text.split_once("::")?;
+        let kind = ObjKind::from_type_name(kind.trim()).filter(|k| *k == ObjKind::Codeunit)?;
+        let parts = crate::members::name_parts(name.trim());
+        match self.ws.resolve_ref(self.file, kind, &parts) {
+            Resolution::Found(o) => self.ws.objects[o].id.map(|id| ir::Const::Integer(id as i32)),
+            _ => None,
+        }
     }
 
     /// A routine of a dependency app that nothing reached: its name and attributes (so event

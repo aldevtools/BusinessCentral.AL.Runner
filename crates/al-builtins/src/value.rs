@@ -2025,6 +2025,23 @@ impl Default for Born {
     }
 }
 
+/// What a `TestHandlerContext` handed to an ITestHandler callback holds (corpus al-language-testlibraries/test-framework/
+/// data-driven-tests-and-handlers/BiTestHandler.al:79-82, :125 and BiTestHandlerDefault.al:152-155, :286).
+#[derive(Debug, Default, Clone)]
+pub struct HandlerContext {
+    pub codeunit_id: i32,
+    /// The test codeunit's name, namespace first (BiTestHandlerBehaviorNs.al:26).
+    pub codeunit_name: String,
+    /// Empty in the codeunit callbacks.
+    pub procedure: String,
+    /// Empty except in the case callbacks.
+    pub case: String,
+    /// Whether the test passed, in the After callbacks; `None` in the Before callbacks (not pinned there).
+    pub success: Option<bool>,
+    /// The reason of a `Skip` call in this callback.
+    pub skip: Option<String>,
+}
+
 /// State behind a library-type handle; grows with the builtins that need it.
 #[derive(Debug, Default)]
 pub enum LibraryValue {
@@ -2033,6 +2050,9 @@ pub enum LibraryValue {
     /// A `DataSourceContext` or `TestHandlerContext` the test framework handed to a callback (ADR-059). Its members are
     /// refused there (`testcontexts.rs`).
     HandedContext,
+    /// A `TestHandlerContext` the test runner hands to an ITestHandler callback (BC 29): what its members return there, and
+    /// the reason of a `Skip` the callback made (`testcontexts.rs`, al-testrun `runtime/test_handlers.rs`).
+    HandlerContext(Box<HandlerContext>),
     Text(String),
     /// A TextBuilder whose capacity was set or has to be kept: the text and the capacity in characters.
     TextCap(String, i32),
