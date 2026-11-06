@@ -170,11 +170,10 @@ impl Session {
 
         // With Namespaces, UseDefaultNamespace and no DefaultNamespace, BC failed every import the probe tried ("The prefix  is not
         // defined in the Namespaces property of the XMLPort.", corpus
-        // xmlports/shapes-properties/XpUseDefaultNsPrefixes.al XUD_*_Import); that it fails for every document is not pinned.
+        // xmlports/shapes-properties/XpUseDefaultNsPrefixes.al XUD_*_Import; with DefaultNamespace the same: corpus PR 1158,
+        // XpUseDefaultNsWithDefault.al XDN_*_Import); that it fails for every document is not pinned.
         if xp.udn_root_prefix {
-            return unsupported(
-                "XmlPort import with Namespaces and UseDefaultNamespace = true without DefaultNamespace (not pinned)",
-            );
+            return unsupported("XmlPort import with Namespaces and UseDefaultNamespace = true (not pinned)");
         }
         // PreserveWhiteSpace with a default namespace imports as without one (corpus PR 896, streams/Np4XmlPort.al
         // Y9_XmlPort_Import_PreserveWhiteSpace_WithNamespace).
