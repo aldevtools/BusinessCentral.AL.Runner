@@ -243,8 +243,10 @@ impl SingleWalk<'_> {
                     let s = serial.0.iter().find(|(t, _)| t == test).map(|(_, o)| o);
                     if s != Some(o) {
                         diffs.push(format!(
-                            "codeunit {} test {test}: {o:?} with SingleInstance state carried, {s:?} in one session",
-                            self.units[k].id
+                            "codeunit {} test {test}: {} with SingleInstance state carried, {} in one session",
+                            self.units[k].id,
+                            outcome_text(Some(o)),
+                            outcome_text(s)
                         ));
                     }
                 }
@@ -498,6 +500,16 @@ pub(super) fn after_run(before: &SingleState, r: &UnitResult) -> (SingleState, O
         now.extend(w.iter().map(|(k, v)| (*k, v.clone())));
     }
     (now, wrote)
+}
+
+/// An outcome in words, for the serial check's lines.
+fn outcome_text(o: Option<&Outcome>) -> String {
+    match o {
+        Some(Outcome::Pass) => "passed".to_string(),
+        Some(Outcome::Fail(m)) => format!("failed ({m})"),
+        Some(Outcome::NotRun(why)) => format!("not run ({why})"),
+        None => "missing".to_string(),
+    }
 }
 
 /// Whether object `o` is a codeunit with `SingleInstance = true`.
