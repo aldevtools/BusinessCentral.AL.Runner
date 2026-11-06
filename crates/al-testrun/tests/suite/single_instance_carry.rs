@@ -139,6 +139,8 @@ codeunit 50257 "Carry Handles"
     end;
     procedure FillAuto() begin TempAuto.Insert(); end;
     procedure AutoCount(): Integer begin exit(TempAuto.Count()); end;
+    procedure ClearRecId() var R: RecordId; begin RecId := R; end;
+    procedure RecIdTable(): Integer begin exit(RecId.TableNo()); end;
     procedure FilterAuto() begin TempAuto.SetRange("No", 5); end;
     procedure AutoFilter(): Text begin exit(TempAuto.GetFilter("No")); end;
     var
@@ -147,6 +149,7 @@ codeunit 50257 "Carry Handles"
         TempAuto: Record "Carry Auto" temporary;
         TempCtx: Record "Carry Ctx" temporary;
         Json: JsonObject;
+        RecId: RecordId;
         Setup: Record "Carry Setup";
         NewRow: Record "Carry Row";
         Names: Dictionary of [Integer, Text];
@@ -592,4 +595,18 @@ codeunit 60276 "Group Read"
     let results = run(src, &RunOptions::default());
     assert_eq!(outcome(&results, "ChangesOther"), Outcome::Pass);
     refused(outcome(&results, "ReadsAuto"), "AutoIncrement field");
+}
+
+#[test]
+fn a_recordid_nothing_was_assigned_to_reaches_the_next_codeunit() {
+    // Microsoft's "Last Error Context Element" holds one in its "Error Context Element".
+    let results = run(
+        &pair(
+            "ClearRecId",
+            "if H.RecIdTable() <> 0 then Error('table %1', H.RecIdTable());",
+        ),
+        &RunOptions::default(),
+    );
+    assert_eq!(outcome(&results, "Writes"), Outcome::Pass);
+    assert_eq!(outcome(&results, "Reads"), Outcome::Pass);
 }

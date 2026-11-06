@@ -640,7 +640,9 @@ impl<'s> Enc<'s> {
         let me = ptr(lv);
         let lv = lv.try_borrow().map_err(|_| v.describe())?;
         Ok(match (kind, &*lv) {
-            (LibraryKind::RecordRef | LibraryKind::TextBuilder, LibraryValue::Empty) => CarryLib::Empty,
+            (LibraryKind::RecordRef | LibraryKind::TextBuilder | LibraryKind::RecordId, LibraryValue::Empty) => {
+                CarryLib::Empty
+            }
             (k, LibraryValue::Empty) if json_kind(k) => CarryLib::Empty,
             (k, LibraryValue::Json(cell)) if json_kind(k) => {
                 // A node of a tree: carried only with the tree, which a global of the same group holds.
@@ -866,10 +868,11 @@ impl<'s> Enc<'s> {
                 if load.partial {
                     return refuse("a partly loaded buffer of a row BC rolled back with an earlier test codeunit");
                 }
-                if unpinned_buffer.is_some() {
-                    return refuse(
-                        "a buffer that is not pinned, of a row BC rolled back with an earlier test codeunit",
-                    );
+                if let Some(why) = unpinned_buffer {
+                    return Err(format!(
+                        "{} (a buffer of a row BC rolled back with an earlier test codeunit, and not pinned: {why})",
+                        what()
+                    ));
                 }
                 max_version = 0;
             }

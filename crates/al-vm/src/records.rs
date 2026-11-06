@@ -2158,6 +2158,9 @@ impl Session {
         // A rolled-back row's fields are the variable's own ([`ROLLED_BACK_ROW`]).
         let fields_only = why == ROLLED_BACK_ROW && matches!(method, RecordOp::TestField);
         if !refill && !independent && !own_view && !fields_only {
+            if why == ROLLED_BACK_ROW {
+                return unsupported(format!("Record.{}(): {why}", method.name()));
+            }
             return unsupported(why);
         }
         let flag = rec.borrow_mut().unpinned_buffer.take();
