@@ -132,7 +132,8 @@ fn an_insert_inside_a_used_try_function_fails_with_try_function_write() {
 }
 
 /// errors/CuTryTests.al:56-70 and :153-171 (TryTemporaryWrites_ExpressionForm): writes to a temporary
-/// record are allowed. Writes other than Insert to a database table are not pinned and are refused.
+/// record are allowed. ModifyAll of a database table raises TryFunctionWrite (errors/lt-r7143-try-write/
+/// R7143TryWriteDeny.al:145-160, al-runner issue 7143).
 #[test]
 fn temporary_writes_are_allowed_and_other_writes_are_refused_in_a_used_try() {
     let body = r#"
@@ -148,7 +149,7 @@ fn temporary_writes_are_allowed_and_other_writes_are_refused_in_a_used_try() {
         procedure Modify(): Boolean begin exit(TryModify()); end;"#;
     assert_eq!(text(run(body, "Temp")), "Yes");
     match run(body, "Modify") {
-        Err(Signal::Unsupported(m)) => assert!(m.contains("TryFunction"), "{m}"),
+        Err(Signal::Error(e)) => assert_eq!(e.code, "TryFunctionWrite", "{e:?}"),
         other => panic!("{other:?}"),
     }
 }

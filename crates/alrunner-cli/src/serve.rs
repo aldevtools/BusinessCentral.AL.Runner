@@ -31,6 +31,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "runSelectedOnly",
     "ignorePermissionMock",
     "devEndpointUi",
+    "allowWriteInTryFunctions",
     "affectedOnly",
     "includeFailing",
     "strictEnvironment",
@@ -319,6 +320,8 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     a.ignore_permission_mock = flag(fields, "ignorePermissionMock")?;
     // Issue 3697: UI calls no handler takes get the dev-endpoint runner's answer, as `--dev-endpoint-ui`.
     a.dev_endpoint_ui = flag(fields, "devEndpointUi")?;
+    // Issue 7143: the service-tier setting DisableWriteInsideTryFunctions is off, as `--allow-write-in-try-functions`.
+    a.allow_write_in_try_functions = flag(fields, "allowWriteInTryFunctions")?;
     // ADR-062 section 5: `permissions: "off"` is `--permissions off`.
     a.permissions_off = match fields.get("permissions") {
         None | Some(Value::Null) => false,
