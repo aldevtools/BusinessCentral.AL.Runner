@@ -63,6 +63,9 @@ codeunit 51503 C
     procedure PostOtherBatchRowRemains(): Text begin exit(RunOther(0, 1, true)); end;
     procedure PostThreeLines(): Text begin exit(Run(0, 3)); end;
     procedure PostFourLines(): Text begin exit(Run(0, 4)); end;
+    procedure PostFiveLines(): Text begin exit(Run(0, 5)); end;
+    procedure PostSixLines(): Text begin exit(Run(0, 6)); end;
+    procedure PostSevenLines(): Text begin exit(Run(0, 7)); end;
     procedure PostTwoLines(): Text begin exit(Run(0, 2)); end;
     procedure PostNoUpdate(): Text begin exit(Run(1, 1)); end;
     procedure PostKeepKey(): Text begin exit(Run(2, 1)); end;
@@ -109,12 +112,19 @@ fn run_on(bc: &str, routine: &str) -> Result<al_builtins::value::Value, al_built
     s.call(oi, ri, inst, vec![]).map(|(v, _)| v)
 }
 
-/// Two and three deleted lines run OnNewRecord and OnAfterGetCurrRecord once on BC 28 and twice on BC 27 and from BC 29
+/// Two to six deleted lines run OnNewRecord and OnAfterGetCurrRecord once on BC 28 and twice on BC 27 and from BC 29
 /// (corpus RtFilteredGoneRow.al:656 TD_LeavesKey_Line1WithUpdate_ThreeLines and :679 _TwoLines, `#if BC28PLUS and not BC29PLUS`;
-/// testpage/Y1WorksheetPostLog.al:161 Y1_Post_TwoLines, :177 Y1_Post_ThreeLines; al-runner issue 6292).
+/// testpage/Y1WorksheetPostLog.al:161 Y1_Post_TwoLines, :177 Y1_Post_ThreeLines; al-runner issue 6292; four, five and six
+/// lines settle the same way: RtFilteredGoneRow.al:701 _FourLines, :724 _FiveLines, :747 _SixLines; al-runner issue 7197).
 #[test]
-fn two_and_three_deleted_lines_run_the_triggers_as_the_major_does() {
-    for routine in ["PostTwoLines", "PostThreeLines"] {
+fn two_to_six_deleted_lines_run_the_triggers_as_the_major_does() {
+    for routine in [
+        "PostTwoLines",
+        "PostThreeLines",
+        "PostFourLines",
+        "PostFiveLines",
+        "PostSixLines",
+    ] {
         assert_eq!(
             al_testkit::text(run_on("27.5", routine)),
             "N:B1;C:0:B1;N:B1;C:0:B1;|0",
@@ -129,10 +139,10 @@ fn two_and_three_deleted_lines_run_the_triggers_as_the_major_does() {
     }
 }
 
-/// Four and more lines are not pinned.
+/// Seven and more lines are not pinned.
 #[test]
 fn another_count_of_deleted_lines_is_refused() {
-    let r = run_on("28.5", "PostFourLines");
+    let r = run_on("28.5", "PostSevenLines");
     assert!(matches!(r, Err(al_builtins::native::Signal::Unsupported(_))), "{r:?}");
 }
 
