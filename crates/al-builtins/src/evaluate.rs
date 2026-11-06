@@ -1747,6 +1747,15 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
                 match (by_caption.next(), by_caption.next()) {
                     (Some(f), None) => Some(f),
                     (Some(_), Some(_)) => return refuse("a field caption two fields have"),
+                    // The declared Caption of a field with a CaptionClass is not pinned as a field of the text.
+                    (None, _)
+                        if def
+                            .fields
+                            .iter()
+                            .any(|f| f.class_caption.as_ref().is_some_and(|c| c.eq_ignore_ascii_case(field))) =>
+                    {
+                        return refuse("the declared caption of a field with a CaptionClass");
+                    }
                     (None, _) => None,
                 }
             }
@@ -1768,12 +1777,18 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
         };
         let Some(f) = found else {
             // The system fields' captions are refused; they are named as their names (SystemId, SystemCreatedAt, ...).
+            // A field with a literal CaptionClass is not found by the caption it resolves to: `Displayed Price`, which a bound
+            // OnResolveCaptionClass subscriber gives for `Nominal Price`, is an unknown field (format-evaluate/tablefilter-neutral/
+            // TableFilterEnumForms.al:551 TableFilter_Evaluate_ResolvedCaptionClass_RejectsUnknownField, pinned by corpus PR 1157).
             if def
                 .fields
                 .iter()
-                .any(|f| f.caption.is_err() && f.number < 2_000_000_000)
+                .any(|f| f.caption.is_err() && f.class_caption.is_none() && f.number < 2_000_000_000)
             {
                 return refuse("an unknown field of a table whose captions are refused");
+            }
+            if def.fields.iter().any(|f| f.class_caption.is_some()) {
+                crate::assumptions::assume(crate::assumptions::Assumption::TablefilterCaptionClassDeclared);
             }
             return reject(
                 c,
@@ -1784,9 +1799,17 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
                 "Evaluate:FieldNotFound",
             );
         };
-        let caption = match &f.caption {
-            Ok(caption) => caption.clone(),
-            Err(why) => return unsupported(why.clone()),
+        let caption = match (&f.caption, &f.class_caption) {
+            (Ok(caption), _) => caption.clone(),
+            // A field with a literal CaptionClass, named by its name, is found (format-evaluate/tablefilter-neutral/
+            // TableFilterEnumForms.al:539 TableFilter_Evaluate_CaptionClassFieldName_SelectsPricedRow, pinned by corpus PR 1157:
+            // `Nominal Price=>=40` selects the priced row through page Table Filter). It is stored by its declared caption,
+            // which the virtual Field table gives as "Field Caption"; that stored text is an assumption.
+            (Err(_), Some(declared)) => {
+                crate::assumptions::assume(crate::assumptions::Assumption::TablefilterCaptionClassDeclared);
+                declared.clone()
+            }
+            (Err(why), None) => return unsupported(why.clone()),
         };
         match table_filter_value(f, value)? {
             Ok(v) => conditions.push((f.number, format!("{caption}={v}"))),
@@ -1837,7 +1860,10 @@ fn table_filter_value(f: &crate::native::TableFilterField, value: &str) -> Resul
             // `<>''`: the nonempty codes (format-evaluate/tablefilter-neutral/TableFilterEnumForms.al:485
             // TableFilter_Evaluate_NotEqualQuotedBlankCode_SelectsNonemptyCode, pinned by corpus pull request 1152). The text is
             // kept as written; that stored form is an assumption.
-            if v == "<>''" {
+            // `''` alone and in a compound condition: the blank codes (TableFilterEnumForms.al:579
+            // TableFilter_Evaluate_QuotedBlankCode10_SelectsBlankService and :587 _CompoundQuotedBlankCode10_SelectsBlankService,
+            // pinned by corpus pull request 1157). Kept as written too.
+            if v == "<>''" || v == "''" {
                 crate::assumptions::assume(crate::assumptions::Assumption::TablefilterQuotedBlankKept);
                 return Ok(Ok(v.to_string()));
             }
@@ -1931,6 +1957,17 @@ fn table_filter_value(f: &crate::native::TableFilterField, value: &str) -> Resul
                 return Ok(Err(format!("The value \"{v}\" can't be evaluated into type Integer.")));
             }
             refuse()
+        }
+        // Decimal `>=<digits>`: the rows at or above it (format-evaluate/tablefilter-neutral/TableFilterEnumForms.al:539
+        // TableFilter_Evaluate_CaptionClassFieldName_SelectsPricedRow, pinned by corpus pull request 1157: `Nominal Price=>=40`
+        // selects 42.5, not 17.5, through page Table Filter). Kept as written; that stored form is an assumption. Every other
+        // Decimal filter is not pinned.
+        RtType::Decimal
+            if v.strip_prefix(">=")
+                .is_some_and(|d| !d.is_empty() && d.len() <= 9 && d.chars().all(|ch| ch.is_ascii_digit())) =>
+        {
+            crate::assumptions::assume(crate::assumptions::Assumption::TablefilterDecimalAtLeastKept);
+            Ok(Ok(v.to_string()))
         }
         // Option and Enum members, one or in a list, `<>` or a range (crate::evaluate_table_filter_member).
         RtType::Option(_) | RtType::Enum(_) => {
