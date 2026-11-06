@@ -20,6 +20,7 @@ mod blob_copy;
 mod get_key_value;
 mod package_data;
 pub mod single_carry;
+pub mod single_codec;
 mod state;
 pub(crate) use state::*;
 mod baseline;

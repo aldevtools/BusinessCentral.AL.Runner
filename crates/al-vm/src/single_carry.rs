@@ -12,14 +12,16 @@
 //! one. What it hands on ([`SingleOut::wrote`]) is the end value of every global it used, and of every other global
 //! whose value changed by a way the notes do not see.
 //!
-//! Carried are simple values ([`al_builtins::value_codec`]), codeunit values, .NET enum values and the .NET objects the
-//! runtime serves itself, each with what it holds: a global that holds another handle (a record, a list, a .NET object
-//! of the session's .NET process) is carried as [`Carry::Opaque`], and a later codeunit that reads it first is refused
-//! (`Signal::Unsupported`), as the handle belongs to another session.
+//! What is carried, and what each session-relative part of a value means in the next session, is in
+//! `single_codec.rs`: simple values, codeunit values, .NET enum values and the .NET objects the runtime serves itself,
+//! lists, dictionaries, arrays, records and temporary records with their rows, RecordRefs and RecordIds. A value that
+//! has no exact form in another session (a .NET object of the session's .NET process, a stream, a record buffer of a
+//! row BC rolled back, ...) is carried as [`Carry::Opaque`], and a later codeunit that reads it first is refused
+//! (`Signal::Unsupported`).
 
 use crate::Session;
-use al_builtins::describe::Describe;
-use al_builtins::value::{DotNetKind, DotNetObject, Instance, Value};
+use crate::single_codec::{CarryVal, Enc};
+use al_builtins::value::{Instance, Value};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
@@ -28,125 +30,23 @@ use std::rc::Rc;
 pub type GlobalKey = (usize, usize);
 
 /// The value of a global, in a form that can go to another thread and be compared.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum Carry {
-    /// A simple value or a codeunit value, as [`carry_encode`] writes it.
-    Plain(Vec<u8>),
-    /// A handle, described (`Value::describe`): not carried.
+    /// A value with what it holds (`single_codec.rs`).
+    Val(CarryVal),
+    /// A value that has no exact form in another session, described with the reason: not carried.
     Opaque(String),
 }
 
-impl Carry {
-    pub fn of(v: &Value) -> Carry {
-        let mut out = Vec::new();
-        match carry_encode(v, &mut out, 0) {
-            Ok(()) => Carry::Plain(out),
-            Err(what) => Carry::Opaque(what),
+/// Two carried values are the same state when both are carried and equal. A value that is not carried never equals
+/// anything, not even another one with the same description: a run that read it cannot be shown to have started
+/// from the serial state.
+impl PartialEq for Carry {
+    fn eq(&self, other: &Carry) -> bool {
+        match (self, other) {
+            (Carry::Val(a), Carry::Val(b)) => a == b,
+            _ => false,
         }
-    }
-}
-
-/// How deep codeunit values inside codeunit values are carried.
-const DEPTH: usize = 8;
-
-/// Writes `v`: a simple value (tag 0, then [`al_builtins::value_codec`]), or a codeunit value (tag 1: object, whether
-/// its globals were set up, then each global the same way). A codeunit value carries its instance's globals: a
-/// SingleInstance codeunit's facade often holds its implementation codeunit (System Application "Server Setting"
-/// holds "Server Setting Impl."). Anything else is described: it is not carried.
-fn carry_encode(v: &Value, out: &mut Vec<u8>, depth: usize) -> Result<(), String> {
-    use al_builtins::value_codec::{put_i64, put_str, put_u8, put_u32};
-    if let Value::Codeunit(inst) = v {
-        if depth >= DEPTH {
-            return Err(v.describe());
-        }
-        let inst = inst.try_borrow().map_err(|_| v.describe())?;
-        put_u8(out, 1);
-        put_u32(out, inst.object);
-        put_u8(out, u8::from(inst.initialized));
-        put_u32(out, inst.globals.len() as u32);
-        for g in &inst.globals {
-            carry_encode(g, out, depth + 1)?;
-        }
-        return Ok(());
-    }
-    // A .NET object the runtime serves itself (`dotnet/registry.rs`, such as `ALConfigSettings.Instance()`) or a .NET
-    // enum value lives in the runtime, not in a session's .NET process: its state is carried. A host object is not.
-    if let Value::DotNet(obj) = v {
-        match &obj.kind {
-            DotNetKind::Enum {
-                clr_type,
-                name,
-                ordinal,
-            } => {
-                put_u8(out, 2);
-                put_str(out, clr_type);
-                put_str(out, name);
-                put_i64(out, *ordinal);
-                return Ok(());
-            }
-            DotNetKind::Internal { type_name, state } if depth < DEPTH => {
-                let state = state.try_borrow().map_err(|_| v.describe())?;
-                put_u8(out, 3);
-                put_str(out, type_name);
-                put_u32(out, state.len() as u32);
-                for x in state.iter() {
-                    carry_encode(x, out, depth + 1)?;
-                }
-                return Ok(());
-            }
-            _ => return Err(v.describe()),
-        }
-    }
-    put_u8(out, 0);
-    if al_builtins::value_codec::encode(v, out) {
-        Ok(())
-    } else {
-        Err(v.describe())
-    }
-}
-
-/// Reads what [`carry_encode`] wrote.
-fn carry_decode(r: &mut al_builtins::value_codec::Reader) -> Option<Value> {
-    match r.u8()? {
-        0 => al_builtins::value_codec::decode(r),
-        1 => {
-            let object = r.u32()?;
-            let initialized = r.u8()? != 0;
-            let n = r.u32()? as usize;
-            let mut globals = Vec::with_capacity(n.min(1024));
-            for _ in 0..n {
-                globals.push(carry_decode(r)?);
-            }
-            Some(Value::Codeunit(Rc::new(RefCell::new(Instance {
-                object,
-                globals,
-                initialized,
-                ..Default::default()
-            }))))
-        }
-        2 => {
-            let clr_type = r.str()?;
-            let name = r.str()?;
-            let ordinal = r.i64()?;
-            Some(Value::DotNet(Rc::new(DotNetObject::new(DotNetKind::Enum {
-                clr_type,
-                name,
-                ordinal,
-            }))))
-        }
-        3 => {
-            let type_name = r.str()?;
-            let n = r.u32()? as usize;
-            let mut state = Vec::with_capacity(n.min(1024));
-            for _ in 0..n {
-                state.push(carry_decode(r)?);
-            }
-            Some(Value::DotNet(Rc::new(DotNetObject::new(DotNetKind::Internal {
-                type_name,
-                state: RefCell::new(state),
-            }))))
-        }
-        _ => None,
     }
 }
 
@@ -179,6 +79,9 @@ pub(crate) struct Track {
     /// Each global's value when the session started to track it (or when the instance was made): a global that was
     /// neither read nor written through the notes but no longer holds it was changed by another way.
     start: HashMap<GlobalKey, Value>,
+    /// The session's committed row version when it began to track: a record buffer naming a higher one is not carried
+    /// (`single_codec.rs`).
+    bound: i64,
 }
 
 /// Whether `a` and `b` are the same value: equal simple values, or the same handle.
@@ -193,10 +96,10 @@ fn same(a: &Value, b: &Value) -> bool {
         (Value::TestPage(x), Value::TestPage(y)) => Rc::ptr_eq(x, y),
         (Value::Query(x), Value::Query(y)) => Rc::ptr_eq(x, y),
         (Value::DotNet(x), Value::DotNet(y)) => Rc::ptr_eq(x, y),
-        _ => match (Carry::of(a), Carry::of(b)) {
-            (Carry::Plain(x), Carry::Plain(y)) => x == y,
-            _ => false,
-        },
+        _ => {
+            let (mut x, mut y) = (Vec::new(), Vec::new());
+            al_builtins::value_codec::encode(a, &mut x) && al_builtins::value_codec::encode(b, &mut y) && x == y
+        }
     }
 }
 
@@ -204,7 +107,10 @@ impl Session {
     /// Starts noting the use of the single instances' globals (see the module). The instances the session holds now
     /// (made by install code or the company open) count with the values they hold now.
     pub fn track_single_instances(&mut self) {
-        let mut track = Track::default();
+        let mut track = Track {
+            bound: self.tx.committed_row_version,
+            ..Track::default()
+        };
         for (&object, inst) in &self.singletons {
             snapshot(&mut track, object, inst);
         }
@@ -225,25 +131,28 @@ impl Session {
                 if g >= inst.borrow().globals.len() {
                     continue;
                 }
-                match carry {
-                    Carry::Plain(bytes) => {
-                        let mut r = al_builtins::value_codec::Reader::new(bytes);
-                        if let Some(v) = carry_decode(&mut r) {
+                let bound = self.si_track.as_ref().map_or(0, |t| t.bound);
+                let refused = match carry {
+                    Carry::Val(c) => match self.carry_decode(c, bound) {
+                        Ok(v) => {
                             inst.borrow_mut().globals[g] = v;
+                            None
                         }
-                    }
-                    Carry::Opaque(what) => {
-                        let var = self.engine.program.objects[object].globals[g].name.clone();
-                        if let Some(t) = self.si_track.as_mut() {
-                            t.poisoned.insert(
-                                (object, g),
-                                format!(
-                                    "variable {var} of SingleInstance codeunit {name}: an earlier test codeunit of the run \
-                                     left it holding {what}, and al-runner carries only simple values from one test \
-                                     codeunit to the next"
-                                ),
-                            );
-                        }
+                        Err(why) => Some(why),
+                    },
+                    Carry::Opaque(what) => Some(what.clone()),
+                };
+                if let Some(what) = refused {
+                    let var = self.engine.program.objects[object].globals[g].name.clone();
+                    if let Some(t) = self.si_track.as_mut() {
+                        t.poisoned.insert(
+                            (object, g),
+                            format!(
+                                "variable {var} of SingleInstance codeunit {name}: an earlier test codeunit of the run \
+                                 left it holding {what}, which al-runner cannot hand on to the next test codeunit \
+                                 exactly"
+                            ),
+                        );
                     }
                 }
                 let v = inst.borrow().globals[g].clone();
@@ -264,6 +173,11 @@ impl Session {
         };
         let mut objects: Vec<&usize> = self.singletons.keys().collect();
         objects.sort_unstable();
+        let roots: Vec<Value> = objects
+            .iter()
+            .flat_map(|o| self.singletons[*o].borrow().globals.clone())
+            .collect();
+        let enc = Enc::new(self, &roots, t.bound);
         for &object in objects {
             let inst = self.singletons[&object].borrow();
             for (g, v) in inst.globals.iter().enumerate() {
@@ -273,7 +187,7 @@ impl Session {
                     None => t.start.get(&key).is_none_or(|s| !same(s, v)),
                 };
                 if changed {
-                    out.wrote.insert(key, Carry::of(v));
+                    out.wrote.insert(key, carry(&enc, v));
                 }
             }
             if self.events.bindings.iter().any(|b| {
@@ -309,8 +223,12 @@ impl Session {
             return Err(crate::Signal::Unsupported(why.clone()));
         }
         t.seen.insert(key, Seen::Read);
-        if let Some(v) = inst.borrow().globals.get(g) {
-            t.observed.insert(key, Carry::of(v));
+        let (bound, v) = (t.bound, inst.borrow().globals.get(g).cloned());
+        if let Some(v) = v {
+            let c = carry(&Enc::new(self, [&v], bound), &v);
+            if let Some(t) = self.si_track.as_mut() {
+                t.observed.insert(key, c);
+            }
         }
         Ok(())
     }
@@ -340,5 +258,26 @@ impl Session {
 fn snapshot(t: &mut Track, object: usize, inst: &Rc<RefCell<Instance>>) {
     for (g, v) in inst.borrow().globals.iter().enumerate() {
         t.start.insert((object, g), v.clone());
+    }
+}
+
+fn carry(enc: &Enc, v: &Value) -> Carry {
+    match enc.enc(v) {
+        Ok(c) => Carry::Val(c),
+        Err(what) => Carry::Opaque(what),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_value_that_is_not_carried_equals_nothing() {
+        let o = Carry::Opaque("temporary Record of table object 1".into());
+        assert_ne!(o, o.clone());
+        let v = Carry::Val(CarryVal::Plain(vec![0]));
+        assert_eq!(v, v.clone());
+        assert_ne!(v, o);
     }
 }

@@ -24,7 +24,139 @@ codeunit 50251 "Carry State"
         Count: Integer;
         Held: List of [Text];
 }
+table 50252 "Carry Temp" { fields { field(1; "No"; Integer) { } field(2; "Name"; Text[30]) { } } keys { key(PK; "No") { } key(ByName; "Name") { } } }
+table 50253 "Carry Auto" { fields { field(1; "No"; Integer) { AutoIncrement = true; } } keys { key(PK; "No") { } } }
+table 50254 "Carry Setup" { fields { field(1; "Key"; Code[10]) { } field(2; "Value"; Integer) { } } keys { key(PK; "Key") { } } }
+codeunit 50255 "Carry Install"
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany()
+    var Setup: Record "Carry Setup";
+    begin
+        Setup."Key" := 'S';
+        Setup.Value := 7;
+        Setup.Insert();
+    end;
+}
+codeunit 50256 "Carry Other"
+{
+    SingleInstance = true;
+    procedure Set(V: Integer) begin Held := V; end;
+    procedure Get(): Integer begin exit(Held); end;
+    var Held: Integer;
+}
+codeunit 50257 "Carry Handles"
+{
+    SingleInstance = true;
+    procedure Fill()
+    begin
+        TempRows."No" := 1; TempRows.Name := 'B'; TempRows.Insert();
+        TempRows."No" := 2; TempRows.Name := 'A'; TempRows.Insert();
+        TempRows."No" := 3; TempRows.Name := 'C'; TempRows.Insert();
+        TempRows.SetCurrentKey(Name);
+        TempRows.SetFilter("No", '>1');
+        TempRows.FindFirst();
+        TempRows.Get(3);
+        TempRows.Mark(true);
+        Names.Set(1, 'one');
+        Slots[2] := 22;
+        Other.Set(5);
+        RecRef.Open(Database::"Carry Temp", true);
+        RecRef.Field(1).Value := 9;
+        RecRef.Insert();
+    end;
+    procedure Check(): Text
+    var Direct: Codeunit "Carry Other";
+    begin
+        if TempRows.GetFilters() <> 'No: >1' then exit('filters ' + TempRows.GetFilters());
+        if TempRows.CurrentKey() <> 'Name' then exit('key ' + TempRows.CurrentKey());
+        if TempRows."No" <> 3 then exit('buffer ' + Format(TempRows."No"));
+        if TempRows.Count() <> 2 then exit('count ' + Format(TempRows.Count()));
+        TempRows.FindFirst();
+        if TempRows.Name <> 'A' then exit('order ' + TempRows.Name);
+        TempRows.MarkedOnly(true);
+        if TempRows.Count() <> 1 then exit('marked ' + Format(TempRows.Count()));
+        TempRows.MarkedOnly(false);
+        TempRows.Reset();
+        if TempRows.Count() <> 3 then exit('rows ' + Format(TempRows.Count()));
+        if Names.Get(1) <> 'one' then exit('dictionary');
+        if Slots[2] <> 22 then exit('array');
+        if Other.Get() <> 5 then exit('codeunit value');
+        Direct.Set(6);
+        if Other.Get() <> 6 then exit('the codeunit value is not the single instance');
+        if RecRef.Count() <> 1 then exit('recordref ' + Format(RecRef.Count()));
+        exit('ok');
+    end;
+    procedure LoadSetup() begin Setup.Get('S'); end;
+    procedure SetupValue(): Integer begin exit(Setup.Value); end;
+    procedure ModifySetup(V: Integer) begin Setup.Value := V; Setup.Modify(); end;
+    procedure KeepNewRow() begin NewRow."Key" := 'NEW'; NewRow.Insert(); end;
+    procedure KeepCommittedRow()
+    var Other: Record "Carry Row";
+    begin
+        Other."Key" := 'NEW'; Other.Insert(); Commit();
+        NewRow.Get('NEW');
+    end;
+    procedure NewRowKey(): Code[20] begin exit(NewRow."Key"); end;
+    procedure ShareTemp() begin TempRows."No" := 1; TempRows.Insert(); TempShared.Copy(TempRows, true); end;
+    procedure SharedCount(): Integer begin exit(TempShared.Count()); end;
+    procedure FillAuto() begin TempAuto.Insert(); end;
+    procedure AutoCount(): Integer begin exit(TempAuto.Count()); end;
+    var
+        TempRows: Record "Carry Temp" temporary;
+        TempShared: Record "Carry Temp" temporary;
+        TempAuto: Record "Carry Auto" temporary;
+        Setup: Record "Carry Setup";
+        NewRow: Record "Carry Row";
+        Names: Dictionary of [Integer, Text];
+        Slots: array[3] of Integer;
+        Other: Codeunit "Carry Other";
+        RecRef: RecordRef;
+}
 "#;
+
+/// A writer test codeunit (60270) that runs `fill` on "Carry Handles", and a reader (60271) whose test fails with the
+/// text `check` returns unless it is `ok`, or (with `check` ending in a semicolon) runs those statements.
+fn pair(fill: &str, check: &str) -> String {
+    format!(
+        r#"
+codeunit 60270 "Carry Writer"
+{{
+    Subtype = Test;
+    [Test] procedure Writes()
+    var H: Codeunit "Carry Handles";
+    begin
+        H.{fill}();
+    end;
+}}
+codeunit 60271 "Carry Reader"
+{{
+    Subtype = Test;
+    [Test] procedure Reads()
+    var H: Codeunit "Carry Handles"; R: Text;
+    begin
+        {check}
+    end;
+}}
+"#
+    )
+}
+
+fn outcome(results: &[(String, Outcome)], test: &str) -> Outcome {
+    results
+        .iter()
+        .find(|(t, _)| t == test)
+        .unwrap_or_else(|| panic!("{test} ran: {results:?}"))
+        .1
+        .clone()
+}
+
+fn refused(o: Outcome, why: &str) {
+    match o {
+        Outcome::NotRun(m) => assert!(m.contains(why), "{m}"),
+        o => panic!("expected a refusal ({why}), got {o:?}"),
+    }
+}
 
 /// Test codeunits 60250.., in run order. The first sets the state in OnRun and in a test and inserts a committed row;
 /// each later one checks what all before it left and adds to it.
@@ -161,13 +293,72 @@ fn a_selected_codeunit_starts_from_what_the_codeunits_that_ran_before_it_left() 
 }
 
 #[test]
-fn a_handle_left_in_a_single_instance_is_refused_where_a_later_codeunit_reads_it() {
+fn a_list_left_in_a_single_instance_reaches_the_next_codeunit() {
     let results = run(HANDLE, &RunOptions::default());
-    let reader = results.iter().find(|(t, _)| t == "ReadsTheList").expect("reader ran");
-    match &reader.1 {
-        Outcome::NotRun(why) => assert!(why.contains("carries only simple values"), "{why}"),
-        o => panic!("expected a refusal, got {o:?}"),
-    }
-    let writer = results.iter().find(|(t, _)| t == "KeepsAValue").expect("writer ran");
-    assert_eq!(writer.1, Outcome::Pass);
+    assert_eq!(outcome(&results, "KeepsAValue"), Outcome::Pass);
+    assert_eq!(outcome(&results, "ReadsTheList"), Outcome::Pass);
+}
+
+#[test]
+fn temporary_rows_filters_key_marks_dictionaries_arrays_codeunits_and_recordrefs_reach_the_next_codeunit() {
+    // The temporary table goes with the record (BC rolls back no temporary table); the codeunit value of a
+    // SingleInstance codeunit stays that codeunit's one instance.
+    let results = run(
+        &pair("Fill", "R := H.Check(); if R <> 'ok' then Error(R);"),
+        &RunOptions::default(),
+    );
+    assert_eq!(outcome(&results, "Writes"), Outcome::Pass);
+    assert_eq!(outcome(&results, "Reads"), Outcome::Pass);
+}
+
+#[test]
+fn a_record_buffer_of_a_row_committed_before_the_codeunits_is_carried_and_can_be_written() {
+    // Its row version names the install row, the same in every session; its origin's Commit count is from an ended
+    // transaction (`RowOrigin::EARLIER_SESSION`): no stale rule applies to the unchanged row.
+    let results = run(
+        &pair(
+            "LoadSetup",
+            "if H.SetupValue() <> 7 then Error('value %1', H.SetupValue()); Commit(); Commit(); H.ModifySetup(8);",
+        ),
+        &RunOptions::default(),
+    );
+    assert_eq!(outcome(&results, "Writes"), Outcome::Pass);
+    assert_eq!(outcome(&results, "Reads"), Outcome::Pass);
+}
+
+#[test]
+fn a_record_buffer_of_a_row_an_earlier_codeunit_wrote_is_refused() {
+    // BC rolled the row back with the writer; the next session hands out the same row versions again.
+    let results = run(&pair("KeepNewRow", "R := H.NewRowKey();"), &RunOptions::default());
+    assert_eq!(outcome(&results, "Writes"), Outcome::Pass);
+    refused(outcome(&results, "Reads"), "rolled back");
+}
+
+#[test]
+fn a_record_buffer_read_from_a_row_an_earlier_codeunit_committed_is_refused() {
+    // Read by Get after the Commit: no own write, but a row version the earlier session handed out.
+    let results = run(&pair("KeepCommittedRow", "R := H.NewRowKey();"), &RunOptions::default());
+    assert_eq!(outcome(&results, "Writes"), Outcome::Pass);
+    refused(outcome(&results, "Reads"), "row version an earlier test codeunit wrote");
+}
+
+#[test]
+fn a_temporary_table_two_carried_records_share_is_refused() {
+    let results = run(
+        &pair("ShareTemp", "if H.SharedCount() <> 1 then Error('x');"),
+        &RunOptions::default(),
+    );
+    refused(
+        outcome(&results, "Reads"),
+        "temporary table another carried record shares",
+    );
+}
+
+#[test]
+fn a_temporary_table_with_an_autoincrement_field_is_refused() {
+    let results = run(
+        &pair("FillAuto", "if H.AutoCount() <> 1 then Error('x');"),
+        &RunOptions::default(),
+    );
+    refused(outcome(&results, "Reads"), "AutoIncrement field");
 }

@@ -1365,6 +1365,12 @@ pub struct RowOrigin {
 }
 
 impl RowOrigin {
+    /// `commits` of an origin a SingleInstance codeunit's record kept from an earlier test codeunit's session (al-vm
+    /// `single_codec.rs`): that transaction ended with the earlier codeunit, so no Commit count of this session is a
+    /// distance from it. The stale-buffer rules compare `commits + k` (k at most 4) and `commits` with the session's
+    /// count, which never comes near this value: none of them holds, and nothing overflows.
+    pub const EARLIER_SESSION: u64 = u64::MAX / 2;
+
     /// An origin at `version` with the session's `commits`, no Get in a write transaction, no lock rule and no own Modify.
     pub fn new(own_write: bool, version: i64, commits: u64) -> RowOrigin {
         RowOrigin {

@@ -22,6 +22,11 @@ use super::written::{ReachIndex, reach_facts};
 use super::*;
 use al_vm::single_carry::GlobalKey;
 
+std::thread_local! {
+    /// Whether the last run again kept the Test Runner's rows unseen (`suite_rows::take_unseen`).
+    static RERUN_UNSEEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 /// What a codeunit run again here is run with.
 pub(super) struct SingleWalk<'a> {
     pub engine: &'a Arc<Engine>,
@@ -115,7 +120,10 @@ impl SingleWalk<'_> {
             }
             None => (self.baseline, None),
         };
+        // Whether the run again saw what the Test Runner's tables held at its start (`chain_left_other`).
+        super::suite_rows::take_unseen();
         let mut r = run_unit(self.engine, self.lowered, base, &u, None, self.limit);
+        RERUN_UNSEEN.with(|c| c.set(super::suite_rows::take_unseen()));
         if let (Some(why), Ok(done)) = (unfinished, &mut r.result) {
             if done.5.leak_hit {
                 refuse_all(&mut done.0, &why);
@@ -137,9 +145,26 @@ impl SingleWalk<'_> {
             .iter()
             .find(|(si, id, _, _)| (*si, *id) == (u.si, u.id))
             .map(|c| &c.3);
-        let print = |c: Option<&super::run::Carried>| c.and_then(|c| c.baseline.as_ref()).and_then(|b| b.fingerprint());
+        // The Test Runner's rows ("Test Method Line", "AL Test Suite") hold the runner's clock columns, which differ from
+        // run to run: they are compared apart (`Baseline::fingerprint_apart`, as the chain walk does). `suite_rows::write`
+        // empties them before each codeunit's tests; when nothing of the run again saw what they held (no subscriber,
+        // no install or login code touching them: `suite_rows::take_unseen`), the same holds for the later codeunits,
+        // which start the same way, so they cannot see the difference either.
+        let apart: Vec<u32> = super::suite_rows::tables(&self.engine.program).into_iter().collect();
+        let print = |c: Option<&super::run::Carried>| {
+            c.and_then(|c| c.baseline.as_ref())
+                .and_then(|b| b.fingerprint_apart(&apart))
+        };
+        let unseen = RERUN_UNSEEN.with(std::cell::Cell::take);
         let same = match (first, left.as_ref()) {
-            (Some(a), Some(b)) => a.tables == b.tables && print(Some(a)) == print(Some(b)),
+            (Some(a), Some(b)) => {
+                a.tables == b.tables
+                    && match (print(Some(a)), print(Some(b))) {
+                        (Some(x), Some(y)) => x.main == y.main && (x.rows == y.rows || unseen),
+                        (None, None) => a.baseline.is_none() && b.baseline.is_none(),
+                        _ => false,
+                    }
+            }
             (None, None) => true,
             _ => false,
         };
