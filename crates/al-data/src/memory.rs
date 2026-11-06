@@ -302,6 +302,8 @@ pub struct Seek {
     hi: Vec<Value>,
     /// The fields of the position, as far as the bounds reach.
     fields: Vec<usize>,
+    /// Per place of the bounds: the filters hold the field to one value there (`point`).
+    points: Vec<bool>,
 }
 
 /// A filter value a bound can be made of: not a blank text (the filter reads a text of spaces as '', which the key
@@ -363,6 +365,9 @@ impl Seek {
                 (Some(l), Some(h)) => same_kind(l, h) && al_builtins::ops::compare(l, h).ok() == Some(Ordering::Equal),
                 _ => false,
             };
+            if !lo_open || !hi_open {
+                seek.points.push(point);
+            }
             if !lo_open {
                 match lo {
                     Some(l) => seek.lo.push(l.clone()),
@@ -388,9 +393,25 @@ impl Seek {
     /// How `row` stands to the bound `bound` (a prefix of a position): `None` when a value does not compare, in
     /// which case the caller does not trust the order and looks at the row.
     fn cmp_to(&self, row: &[Value], bound: &[Value]) -> Option<Ordering> {
-        for (&i, b) in self.fields.iter().zip(bound) {
+        for ((&i, b), &point) in self.fields.iter().zip(bound).zip(&self.points) {
             if !same_kind(&row[i], b) {
                 return None;
+            }
+            // A text field the filters hold to one value: the rows that pass are those byte-equal to it (`FilterExpr::matches`
+            // compares Eq by code point, or for two Codes with a hyphen by `code_key_order`; a blank bound is never taken,
+            // `usable_bound`), and those are equal to it in the key order too, so they sit together in that order: the
+            // store's own order bounds them, whatever the characters (al-runner issue 6924: "Series Code" = 'S-ORD').
+            if point {
+                if let (Value::Text(x) | Value::Code(x), Value::Text(y) | Value::Code(y)) = (&row[i], b) {
+                    if x.has_marker() || y.has_marker() {
+                        return None;
+                    }
+                    match al_builtins::ops::compare_key_value(&row[i], b) {
+                        Ok(Ordering::Equal) => continue,
+                        Ok(o) => return Some(o),
+                        Err(_) => return None,
+                    }
+                }
             }
             // The store orders text keys by `text_key_order`; the filters compare text by code points. The two agree
             // for upper-case letters and digits only: any other text is looked at row by row.
@@ -1960,6 +1981,40 @@ mod tests {
         );
     }
 
+    /// A point filter (`SetRange(F, X)`) on a Code key field whose values hold a hyphen ("No. Series Line" filtered on
+    /// "Series Code" = 'S-ORD', al-runner issue 6924): the rows that pass are those equal to X, which are next to each
+    /// other in the key's order whatever the characters, so the scan reads only the rows near them.
+    #[test]
+    fn a_point_filter_on_a_code_with_a_hyphen_makes_the_scan_read_only_the_rows_near_it() {
+        let t = seek_table(vec![vec![0, 1], vec![2, 3, 0, 1]]);
+        let mut s = MemStore::default();
+        for a in 0..300 {
+            let row = vec![
+                Value::Integer(a),
+                Value::Integer(0),
+                Value::Code(format!("S-{:03}", a % 150).into()),
+                Value::Integer(a / 150),
+            ];
+            s.insert(&cx(), &t, row).unwrap();
+        }
+        let looked = || ROWS_LOOKED_AT.with(|c| c.get());
+        let f = [
+            range(2, Some(Value::Code("S-077".into())), Some(Value::Code("S-077".into()))),
+            range(3, Some(Value::Integer(0)), Some(Value::Integer(5))),
+        ];
+        for ascending in [true, false] {
+            let before = looked();
+            let got = scan_all(&s, &t, 1, &f, ascending);
+            assert_eq!(format!("{got:?}"), format!("{:?}", reference(&s, &t, 1, &f, ascending)));
+            assert_eq!(got.len(), 2);
+            assert!(
+                looked() - before <= 6,
+                "ascending {ascending}: {} rows looked at",
+                looked() - before
+            );
+        }
+    }
+
     #[test]
     fn a_key_slot_that_names_another_key_later_is_ordered_again() {
         // An ad-hoc key (SetCurrentKey on other fields) takes a slot of the key list; the same slot number then
@@ -2104,6 +2159,22 @@ mod tests {
 
     #[test]
     fn a_seek_returns_the_rows_a_walk_returns_in_the_same_order() {
+        seek_matches_walk(&["", "A", "B", "ab", "C", " ", "  ", "Z"], 3);
+    }
+
+    /// The same with Codes that hold hyphens, plus signs and lower-case letters, whose key order is not the order a
+    /// filter compares them in (a point filter bounds them by the key order, `Seek::cmp_to`).
+    #[test]
+    fn a_seek_over_codes_with_hyphens_returns_the_rows_a_walk_returns() {
+        seek_matches_walk(
+            &["S-ORD", "S-INV", "-5", "5", "+5", "SORD", "s-ord", "A-", "A", "--5"],
+            2,
+        );
+    }
+
+    /// Random tables and filters: a scan in the primary key (A, C, B) and in a key that starts with `lead` returns what a
+    /// walk returns.
+    fn seek_matches_walk(codes: &[&str], lead: usize) {
         let mut seed = 0x9E37_79B9_7F4A_7C15u64;
         let mut rnd = move |n: u64| {
             seed ^= seed << 13;
@@ -2111,9 +2182,9 @@ mod tests {
             seed ^= seed << 17;
             seed % n
         };
-        let codes = ["", "A", "B", "ab", "C", " ", "  ", "Z"];
         for round in 0..60 {
-            let t = seek_table(vec![vec![0, 2, 1], vec![3, 2, 0, 1]]);
+            let second = if lead == 2 { vec![2, 3, 0, 1] } else { vec![3, 2, 0, 1] };
+            let t = seek_table(vec![vec![0, 2, 1], second]);
             let mut s = MemStore::default();
             let n = if round % 3 == 0 { 20 } else { 300 };
             for _ in 0..n {
