@@ -1711,7 +1711,7 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
     if rest == " " {
         return Ok(store_table_filter(a, &format!("{}: ", def.name)));
     }
-    let mut parts: Vec<&str> = rest.split(',').collect();
+    let mut parts: Vec<&str> = crate::evaluate_table_filter_forms::split_conditions(rest);
     // A trailing comma is dropped (TableFilterEvaluate_SrRejectedForms `trailing_comma`).
     if parts.len() > 1 && parts.last().is_some_and(|p| p.trim().is_empty()) {
         parts.pop();
@@ -1852,6 +1852,17 @@ fn table_filter_value(f: &crate::native::TableFilterField, value: &str) -> Resul
             && s.split(' ')
                 .all(|w| !w.is_empty() && w.chars().all(|ch| ch.is_ascii_alphanumeric()))
     };
+    // Forms kept as written (format-evaluate/tablefilter-neutral/TableFilterEnumForms.al:688-895, al-runner issue 7188).
+    let ordinals: Option<Vec<i32>> = match &f.options {
+        Ok(Some(m)) => Some(m.iter().map(|x| x.0).collect()),
+        _ => None,
+    };
+    if let Some(r) = crate::evaluate_table_filter_forms::kept_form(&f.ty, v, ordinals.as_deref()) {
+        if r.is_ok() {
+            crate::assumptions::assume(crate::assumptions::Assumption::TablefilterFormsKept);
+        }
+        return Ok(r);
+    }
     match &f.ty {
         RtType::Code(len) => {
             if v.is_empty() {

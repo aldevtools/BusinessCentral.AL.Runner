@@ -913,8 +913,18 @@ impl Lowerer<'_> {
         for c in &f.conds {
             let pos = src_pos(&c.field)?;
             let decl = src_fields[pos].declared_in.map_or(file, |d| self.ws.objects[d].file);
+            // `"ALT Status"::Active` on an enum field reads as the member (record/qualified-enum-filters/
+            // TestQualifiedEnumFilters.al, al-runner issue 7189).
+            let unqualified = |raw: &str| match &src_fields[pos].ty {
+                Ty::Enum(name) => {
+                    al_builtins::enum_qualifier::strip_enum_qualifier(raw, &crate::types::display_name(name))
+                        .to_string()
+                }
+                _ => raw.to_string(),
+            };
             let value = match &c.value {
                 CondValue::Const(raw) => {
+                    let raw = &unqualified(raw);
                     // `Database::"X"` names an object where the formula was written, not where the target
                     // field is declared (corpus record/TestCalcFormulaDatabaseConst.Codeunit.al:7-30; al-runner
                     // issue 6882). The members of an enum field are the target field's enum's.
@@ -922,6 +932,7 @@ impl Lowerer<'_> {
                     ir::CalcValue::Const(self.calc_const(scope, raw, &src_fields[pos].ty)?)
                 }
                 CondValue::Filter(raw) => {
+                    let raw = &unqualified(raw);
                     // One quoted literal is read as the filter its content spells (record/flowfields/W4CalcFields.al:396
                     // QZ_CalcFormula_QuotedLiteralFilters, fixtures QzCalcFormulaQuotedFilter.al): `'<>'''''` is `<>''`,
                     // `''''''` is `''`, `'''x|y'''` the literal x|y, `'x|y'` the union, `'<>''x'''` is `<>'x'`, and `*` stays a
