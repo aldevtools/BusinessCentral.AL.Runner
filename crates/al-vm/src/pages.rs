@@ -207,6 +207,7 @@ mod gotokey_find;
 mod host_follows;
 mod inserted_rows;
 mod list_refresh;
+mod list_view_switch;
 mod lookup_next;
 mod lookup_refresh;
 mod lookup_start;

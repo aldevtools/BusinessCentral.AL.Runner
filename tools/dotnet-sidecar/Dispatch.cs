@@ -21,6 +21,7 @@ public sealed class Server
     {
         marshal.BeginRequest();
         foldedCase = false;
+        textAsGuid = false;
         switch (req["op"]!.GetValue<string>())
         {
             case "hello":
@@ -114,7 +115,7 @@ public sealed class Server
                 if (type.IsGenericTypeDefinition)
                     type = type.MakeGenericType(type.GetGenericArguments().Select(_ => typeof(object)).ToArray());
                 var args = DecodeArgs(req);
-                var (best, coerced, _) = Pick(type.GetConstructors(BindingFlags.Public | BindingFlags.Instance), args, $"new {type.FullName}");
+                var (best, coerced, _) = Pick(type.GetConstructors(BindingFlags.Public | BindingFlags.Instance), args, $"new {type.FullName}", textAsGuidFallback: true);
                 object? obj = ((ConstructorInfo)best).Invoke(coerced);
                 return Done(obj, best, coerced, args);
             }
@@ -224,7 +225,7 @@ public sealed class Server
                     throw new Refusal(target == null && type.GetMethods(BindingFlags.Public | BindingFlags.Instance).Any(m => m.Name == name)
                         ? $"'{type.FullName}.{name}' is an instance member and the variable holds no object"
                         : $"member '{name}' not found on '{type.FullName}'");
-                var (best, coerced, _) = Pick(cands, args, $"{type.FullName}.{name}");
+                var (best, coerced, _) = Pick(cands, args, $"{type.FullName}.{name}", textAsGuidFallback: true);
                 object? result = ((MethodInfo)best).Invoke(((MethodInfo)best).IsStatic ? null : target, coerced);
                 return Done(result, best, coerced, args, ((MethodInfo)best).ReturnType);
             }
@@ -283,6 +284,8 @@ public sealed class Server
     // otherwise the one public name equal to it ignoring case is taken (and the reply says so, so the host marks the
     // assumption); two or more such names are refused, because which one BC binds is not pinned.
     bool foldedCase;
+    // The call bound an AL Text argument to a System.Guid parameter (see PickTextAsGuid); the host marks its assumption.
+    bool textAsGuid;
 
     string BindName(Type type, BindingFlags flags, string name)
     {
@@ -313,6 +316,7 @@ public sealed class Server
         // A null whose declared type is string is tagged "ns" (ADR-024): AL reads it as an empty text.
         var reply = Ok(result == null && declared == typeof(string) ? new JsonObject { ["t"] = "ns" } : marshal.Encode(result));
         if (foldedCase) reply["folded"] = true;
+        if (textAsGuid) reply["textAsGuid"] = true;
         // New values of by-reference parameters, by argument position.
         if (method != null && coerced != null)
         {
@@ -408,10 +412,27 @@ public sealed class Server
     /// The candidate whose parameters accept the runtime types of the arguments with the fewest
     /// conversions: exact type, assignable, enum from integer, numeric conversion. By-reference
     /// parameters need an argument the AL caller passed as a variable.
-    (MethodBase Best, object?[] Coerced, int Score) Pick(IEnumerable<MethodBase> cands, object?[] args, string what)
+    (MethodBase Best, object?[] Coerced, int Score) Pick(IEnumerable<MethodBase> cands, object?[] args, string what, bool textAsGuidFallback = false)
+    {
+        var all = cands as IReadOnlyCollection<MethodBase> ?? cands.ToList();
+        var r = PickBy(all, args, what, false);
+        if (r != null) return r.Value;
+        // BC binds an AL Text to a System.Guid parameter (System Application Image Impl. EncodeToImage,
+        // ImageImpl.Codeunit.al:347 `Encoder.Encoder(QualityEncodeGuidTxt)`; assumption dotnet-text-argument-as-guid). Only when no
+        // overload takes the arguments as they are, the text is a Guid in form D or B, and exactly one overload fits that way.
+        if (textAsGuidFallback && args.Any(a => a is string))
+        {
+            r = PickBy(all, args, what, true);
+            if (r != null) { textAsGuid = true; return r.Value; }
+        }
+        throw new Refusal($"{what} has no overload taking {args.Length} argument(s) of the given types ({string.Join(", ", args.Select(Describe))})");
+    }
+
+    (MethodBase Best, object?[] Coerced, int Score)? PickBy(IReadOnlyCollection<MethodBase> cands, object?[] args, string what, bool guidText)
     {
         MethodBase? best = null;
         var bestScore = int.MaxValue;
+        int fits = 0;
         foreach (var c in cands)
         {
             var ps = c.GetParameters();
@@ -427,20 +448,20 @@ public sealed class Server
                     pt = pt.GetElementType()!;
                     score += 1;
                 }
-                var s = Cost(args[i], pt);
+                var s = guidText && args[i] is string t && pt == typeof(Guid) ? (IsGuidText(t) ? 6 : -1) : Cost(args[i], pt);
                 if (s < 0) ok = false; else score += s;
             }
+            if (ok) fits++;
             if (ok && score < bestScore) { best = c; bestScore = score; }
         }
-        if (best == null)
-            throw new Refusal($"{what} has no overload taking {args.Length} argument(s) of the given types ({string.Join(", ", args.Select(Describe))})");
+        if (best == null || (guidText && fits != 1)) return null;
         var ps2 = best.GetParameters();
         var coerced = new object?[args.Length];
         for (int i = 0; i < args.Length; i++)
         {
             var pt = ps2[i].ParameterType;
             if (pt.IsByRef) pt = pt.GetElementType()!;
-            coerced[i] = Coerce(args[i], pt)?.Value;
+            coerced[i] = guidText && args[i] is string g && pt == typeof(Guid) ? Guid.Parse(g) : Coerce(args[i], pt)?.Value;
         }
         return (best, coerced, bestScore);
     }
@@ -454,6 +475,8 @@ public sealed class Server
         int required = ps.Count(p => !p.IsOptional) - (rest ? 1 : 0);
         return count >= required && (rest || count <= ps.Length);
     }
+
+    static bool IsGuidText(string t) => Guid.TryParseExact(t, "D", out _) || Guid.TryParseExact(t, "B", out _);
 
     static string Describe(object? a) => a == null ? "null" : a.GetType().Name;
 
@@ -506,4 +529,19 @@ public class CaseFixture
     public string Single = "single";
     public static string StaticMember = "static";
     public string Echo(string s) => s;
+}
+
+/// Test fixture for the AL Text to System.Guid argument conversion (assumption `dotnet-text-argument-as-guid`): the shapes
+/// of System.Drawing.Imaging.Encoder (one constructor taking a Guid) and of overload sets that make the conversion
+/// unnecessary or ambiguous. Reached by tests as assembly `AlDotNetSidecar`, type `AlDotNetSidecar.GuidFixture`.
+public class GuidFixture
+{
+    public string Got = "";
+    public GuidFixture(Guid g) { Got = "guid " + g.ToString("D"); }
+    public static string OnlyGuid(Guid g) => "guid " + g.ToString("D");
+    public static string Both(string s) => "string " + s;
+    public static string Both(Guid g) => "guid " + g.ToString("D");
+    public static string Amb(Guid g, int i) => "int";
+    public static string Amb(Guid g, long l) => "long";
+    public static string Nullable(Guid? g) => "nullable";
 }

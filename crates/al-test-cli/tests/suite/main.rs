@@ -71,6 +71,7 @@ mod legal_guard;
 mod list_read_order;
 mod list_refused_validate_close;
 mod list_update_without_current;
+mod list_view_switch_walk;
 mod long_list_moved_rec_open;
 mod lookup_cancel_getrecord_key;
 mod lookup_card_ok_no_row;

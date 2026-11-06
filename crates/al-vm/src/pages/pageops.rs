@@ -284,6 +284,7 @@ impl Session {
                 "TestPage.{name} on a request page after New() (only Close, OK and Cancel are pinned)"
             ));
         }
+        self.refuse_after_list_edit_back(st, name)?;
         Ok(name)
     }
 
