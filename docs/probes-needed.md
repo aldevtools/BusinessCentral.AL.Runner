@@ -1422,3 +1422,9 @@ text/textbuilder-bigtext, format-evaluate, format-evaluate, types/date-time).
 |---|---|---|
 | `--allow-write-in-try-functions` (serve: `allowWriteInTryFunctions`): Insert, Modify, Delete, DeleteAll, ModifyAll, Rename and Commit inside a TryFunction whose result is used, on a server with the setting off (BC online), also in install code (OnInstallAppPerDatabase through a TryFunction) | REFUSED in that mode (al-vm/src/transactions.rs `refuse_allowed_try_write`); the default mode raises TryFunctionWrite as pinned (errors/CuTryTests.al:83-150) | Corpus app tests/al-language-trywrite-allowed (branch al-runtime-rs-staging-r7143-allowed): run it on a server with the setting off. The corpus CI cannot: bc-linux's bc-test-from-source.yml has no input that changes CustomSettings.config, and the BC SaaS sandbox route (windows-remote run.sh 29.0-saas) needs an az login on the sandbox's tenant. Measure: what each call returns, whether the write stays, what an Error after the write inside the TryFunction rolls back, a Commit inside, a later caller error, and the install log rows |
 
+
+## Built-in View on a list without a card (al-runner issue 6977, 2026-11-05)
+
+| Shape | Status | Probe wanted |
+|---|---|---|
+| `View().Invoke()` on a List with no `CardPageId`, opened for edit (Page.Run, OpenEdit) | BUILT (al-vm/src/pages/controls.rs `switch_mode`): the page switches to view, as a card does, and drops the blank new-row line; the switch from the new-row line, a typed row or an empty list is REFUSED. Pinned: a First/Next walk then visits only the rows, no blank new-row line (testpage/R6977ListViewNext.al:138, :174, :191). ASSUMED, documentation only: the rest of the switch (control Editable, SetValue refused, the Edit and View Enabled after it) is as on a card. | After View().Invoke() on such a list: Editable of a field, SetValue of a field, Edit().Enabled() and View().Enabled(), and Edit().Invoke() back. |

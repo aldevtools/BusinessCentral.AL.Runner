@@ -1232,6 +1232,14 @@ impl Session {
             )
     }
 
+    /// The built-in Edit or View action switches the open page to `mode`; the parts follow the host (corpus
+    /// testpage/TestPageControlEditableRoutes.al: Part_HostOpenEdit_ThenViewAction).
+    fn switch_mode(&mut self, st: &St, mode: PageMode) -> Result<Value, Signal> {
+        st.borrow_mut().mode = mode;
+        self.set_part_modes(st, mode);
+        Ok(Value::Null)
+    }
+
     /// Whether control `idx` sits inside a `cuegroup` with `CuegroupLayout = Wide`.
     fn in_wide_cue_group(&self, st: &St, idx: usize) -> bool {
         let engine = self.engine();
@@ -1395,6 +1403,18 @@ impl Session {
                     return match m {
                         PageMethod::Visible => Ok(Value::Boolean(true)),
                         PageMethod::Enabled => Ok(Value::Boolean(enabled)),
+                        // View on a list without a card, opened for edit, switches the page to view: a First/Next walk then
+                        // visits only the rows, no blank new-row line (testpage/R6977ListViewNext.al:138, :174, :191 `n=3`; :156
+                        // without View `0/; n=4`). What else the switch changes (Editable, SetValue) is assumed as on a card.
+                        PageMethod::Invoke if enabled && card.is_none() && !edit => {
+                            if st.borrow().cursor != Cursor::Row || st.borrow().draft {
+                                return unsupported(
+                                    "TestAction View of a list without a card that stands on the new-row line, a typed row or no row",
+                                );
+                            }
+                            st.borrow_mut().new_line = false;
+                            self.switch_mode(st, PageMode::View)
+                        }
                         PageMethod::Invoke if !enabled || card.is_none() => Ok(Value::Null),
                         PageMethod::Invoke => self.list_card_action(st, edit),
                         other => unsupported(format!(
@@ -1410,10 +1430,7 @@ impl Session {
                     PageMethod::Invoke => {
                         if applies {
                             let mode = if name == "Edit" { PageMode::Edit } else { PageMode::View };
-                            st.borrow_mut().mode = mode;
-                            // The parts follow the host (corpus testpage/TestPageControlEditableRoutes.al:
-                            // Part_HostOpenEdit_ThenViewAction).
-                            self.set_part_modes(st, mode);
+                            return self.switch_mode(st, mode);
                         }
                         Ok(Value::Null)
                     }
