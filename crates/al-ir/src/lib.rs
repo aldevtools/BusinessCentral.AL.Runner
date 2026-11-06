@@ -771,10 +771,11 @@ pub struct XmlPort {
     /// `urn:microsoft-dynamics-nav/xmlports/x<id>` (corpus xmlports/shapes-properties/BdXmlPort.al:499).
     #[serde(default)]
     pub default_ns: Option<String>,
-    /// `UseDefaultNamespace = true` with `Namespaces` and no `DefaultNamespace` (`default_ns` is then BC's namespace of the port):
+    /// `UseDefaultNamespace = true` with `Namespaces` (`default_ns` is the `DefaultNamespace`, else BC's namespace of the port):
     /// the export writes the root without its prefix, with the uri of that prefix as the default namespace, and an element without
     /// a prefix declares the port's namespace where the namespace in scope differs (corpus
-    /// xmlports/shapes-properties/XpUseDefaultNsPrefixes.al). Its import is refused.
+    /// xmlports/shapes-properties/XpUseDefaultNsPrefixes.al; with DefaultNamespace: corpus branch al-runtime-rs-staging-r7130,
+    /// XpUseDefaultNsWithDefault.al). Its import is refused.
     #[serde(default)]
     pub udn_root_prefix: bool,
     /// A `TextEncoding` property other than UTF8 was declared (its value is not kept).
