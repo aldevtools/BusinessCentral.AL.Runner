@@ -2275,21 +2275,22 @@ codeunit 49 "GlobalTriggerManagement"
 }
 
 /// Dependency apps (Microsoft's) that depend on each other run in dependency order too, whatever their lowest subscriber
-/// ids (BwSubscriberOrderTests.al:150 pins dependency order over lower subscriber ids). Kept, not pinned: dependency apps
-/// that do not depend on each other keep the order the runtime had before the cross-app probe, ascending codeunit id
-/// across them. The apps under test keep their pinned place; an app under test in such a pair is still refused (above).
+/// ids (BwSubscriberOrderTests.al:150 pins dependency order over lower subscriber ids). Dependency apps that do not
+/// depend on each other were kept in ascending codeunit id across them, which is not the order BC pins (a depth-first
+/// walk over the app ids, al-runner issue 6924): such an event is refused unless the walk gives the same order.
 #[test]
-fn dependency_apps_run_in_dependency_order_and_unrelated_ones_keep_ascending_codeunit_id() {
+fn dependency_apps_run_in_dependency_order_and_unrelated_ones_are_refused_unless_the_walk_agrees() {
     use al_sema::workspace::AppKind;
-    let run = |apps: Vec<AppSource>| {
+    let run_result = |apps: Vec<AppSource>| {
         let n = apps.len();
         let mut kinds = vec![AppKind::Dependency; n - 1];
         kinds.push(AppKind::Workspace);
         let (ws, l) = al_sema::lower::compile_apps_with(apps, kinds, &Default::default(), None, Default::default());
         assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
         let mut b = al_testkit::Built::new(l);
-        text(b.run_in("T", "Run"))
+        b.run_in("T", "Run")
     };
+    let run = |apps: Vec<AppSource>| text(run_result(apps));
     let t = format!(
         "{}{}",
         r#"codeunit 50100 T { procedure Run(): Text var P: Codeunit "Order Pub"; begin exit(P.Raise()); end; }"#,
@@ -2313,7 +2314,22 @@ fn dependency_apps_run_in_dependency_order_and_unrelated_ones_keep_ascending_cod
         order_app("y", &["a"], &y),
         order_app("t", &["a", "x", "y"], &t),
     ];
-    assert_eq!(run(apps), "X2;Y;X1;T;");
+    // Ascending codeunit id across X and Y would give X2;Y;X1; the walk gives X2;X1;Y: not served.
+    let m = run_result(apps);
+    match m {
+        Err(Signal::Unsupported(m)) => assert!(m.contains("whose order BC does not pin"), "{m}"),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+    // The same two apps where the codeunit id order and the walk agree (X before Y by app id and by codeunit id).
+    let x = format!("{}{}", order_sub(61120, "X1"), order_sub(61125, "X2"));
+    let y = order_sub(61130, "Y");
+    let apps = vec![
+        order_app("a", &[], ORDER_PUBLISHER),
+        order_app("x", &["a"], &x),
+        order_app("y", &["a"], &y),
+        order_app("t", &["a", "x", "y"], &t),
+    ];
+    assert_eq!(run(apps), "X1;X2;Y;T;");
 }
 
 // A placeholder kept as written next to a wildcard (`%1*`) raises BC's error without subscribers (record/filters/W4Filters.al:694); whether
