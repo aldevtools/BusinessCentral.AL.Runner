@@ -1482,10 +1482,7 @@ fn test_inner(
             .chain(dependencies.lazy.iter().cloned())
             .collect(),
         trace: a.explain.is_some() || std::env::var_os("AL_STACK_OF").is_some(),
-        test_time_limit: match test_timeout {
-            0 => None,
-            n => Some(std::time::Duration::from_secs(n)),
-        },
+        test_time_limit: (test_timeout > 0).then(|| std::time::Duration::from_secs(test_timeout)),
         // ADR-066 (owner decision 3): Microsoft's runner by default; `--test-runner builtin` keeps al-runner's own.
         test_runner: a.test_runner.unwrap_or(al_testrun::runtime::TestRunner::Microsoft),
         single_serial_check: false,

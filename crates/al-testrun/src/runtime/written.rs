@@ -314,6 +314,17 @@ pub(crate) fn reach_facts(
     walk_reach(events, lowered, index, &[(object, routine)], &|_| false)
 }
 
+/// The reach facts of the joined reach of the routines `roots`: one walk of the union of their reaches, which visits
+/// the part they share once (the tests of a codeunit share most of theirs; [`union_reach_has`]).
+pub(crate) fn union_reach_facts(
+    events: &al_vm::events::Registry,
+    lowered: &Lowered,
+    index: &ReachIndex,
+    roots: &[(usize, usize)],
+) -> ReachFacts {
+    walk_reach(events, lowered, index, roots, &|_| false)
+}
+
 /// Whether `fact` holds of the joined reach of the routines `roots`: one walk of the union of their reaches, which
 /// stops as soon as `fact` holds. `fact` must be one that, once it holds of part of a reach, holds of all of it (a
 /// table, a state bit, a part not known); it then holds of the union exactly when it holds of the reach of one of the

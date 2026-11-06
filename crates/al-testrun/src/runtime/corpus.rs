@@ -1694,11 +1694,7 @@ impl CorpusRuntime {
                 let hit = r.result.as_ref().is_ok_and(|done| done.5.leak_hit) || storage;
                 if let (true, Some((_, _, leg, c))) = (hit, before) {
                     let o = &lowered.program.objects[units[k].oi];
-                    let handlers = o.routines.iter().any(|r| {
-                        r.attributes
-                            .iter()
-                            .any(|a| a.name.eq_ignore_ascii_case("HandlerFunctions"))
-                    });
+                    let handlers = has_handler_functions(o);
                     let unfinished = if storage { c.storage_why.as_ref() } else { None }.or(c.unfinished.as_ref());
                     let refused = match unfinished {
                         Some(why) => Some(why.clone()),
@@ -1746,7 +1742,7 @@ impl CorpusRuntime {
             }
             // SingleInstance state goes from each codeunit to the next in run order (probe P7 of ADR-066): codeunits
             // that saw another state than the serial run gives them run again from it (`single_walk.rs`).
-            let single_walk = super::single_walk::SingleWalk {
+            super::single_walk::SingleWalk {
                 engine: &engine,
                 lowered,
                 baseline: baseline.as_ref(),
@@ -1756,8 +1752,8 @@ impl CorpusRuntime {
                 place: &place,
                 limit,
                 leak_reran: &leak_reran,
-            };
-            single_walk.walk_and_check(&mut slots, opts, &mut chain_report);
+            }
+            .walk_and_check(&mut slots, opts, &mut chain_report);
             for r in slots.into_iter().flatten() {
                 suite_work.push((r.si, r.took));
                 codeunit_times.push(codeunit_time(lowered, &r));
@@ -2644,4 +2640,13 @@ fn last_seen<'c>(
     u: &Unit,
 ) -> Option<&'c super::chain_walk::Carry> {
     carried.iter().rev().find(|(si, id, leg, _)| sees(*si, *id, *leg, u))
+}
+
+/// Whether a routine of object `o` names handler functions (`[HandlerFunctions(..)]`).
+fn has_handler_functions(o: &al_ir::Object) -> bool {
+    o.routines.iter().any(|r| {
+        r.attributes
+            .iter()
+            .any(|a| a.name.eq_ignore_ascii_case("HandlerFunctions"))
+    })
 }

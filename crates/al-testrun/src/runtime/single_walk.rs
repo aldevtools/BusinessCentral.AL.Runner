@@ -18,7 +18,7 @@
 
 use super::chain_walk::Carry as ChainCarry;
 use super::corpus::refuse_all;
-use super::written::{ReachIndex, reach_facts};
+use super::written::{ReachIndex, union_reach_facts};
 use super::*;
 use al_vm::single_carry::{Carry, GlobalKey};
 
@@ -430,16 +430,26 @@ impl SingleWalk<'_> {
                     .filter(|&i| obj.routines[i].is_trigger && obj.routines[i].name.eq_ignore_ascii_case("OnRun")),
             );
         }
-        for routine in routines {
-            let facts = reach_facts(&self.engine.events, self.lowered, &index, r.oi, routine);
-            let what = format!("{}.{}", obj.name, obj.routines[routine].name);
-            if let Some(why) = &facts.unknown {
-                s.unknown_all.get_or_insert_with(|| format!("{what}: {why}"));
-            }
-            for &(o, g) in &facts.globals_written {
-                if single_instance(self.lowered, o) {
-                    s.unknown.entry((o, g)).or_insert_with(|| what.clone());
-                }
+        let Some(&first) = routines.first() else { return };
+        // One walk of the refused routines' joined reach: they share most of it, and a global any of them can write is
+        // not known from here on, whichever wrote it.
+        let roots: Vec<(usize, usize)> = routines.iter().map(|&i| (r.oi, i)).collect();
+        let facts = union_reach_facts(&self.engine.events, self.lowered, &index, &roots);
+        let what = match routines.len() {
+            1 => format!("{}.{}", obj.name, obj.routines[first].name),
+            n => format!(
+                "{}.{} and {} other refused routines",
+                obj.name,
+                obj.routines[first].name,
+                n - 1
+            ),
+        };
+        if let Some(why) = &facts.unknown {
+            s.unknown_all.get_or_insert_with(|| format!("{what}: {why}"));
+        }
+        for &(o, g) in &facts.globals_written {
+            if single_instance(self.lowered, o) {
+                s.unknown.entry((o, g)).or_insert_with(|| what.clone());
             }
         }
     }
