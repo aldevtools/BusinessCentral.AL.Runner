@@ -7,7 +7,7 @@
 
 use al_sema::workspace::AppSource;
 use al_testrun::Outcome;
-use al_testrun::runtime::{CorpusRuntime, Manifest, RunOptions, SuiteRun};
+use al_testrun::runtime::{CorpusRuntime, Manifest, RunOptions, SerialWhy, SuiteRun};
 
 const BASE: &str = r#"
 codeunit 50241 SpecInstaller
@@ -127,4 +127,38 @@ fn chain_codeunits_that_hand_on_numbers_run_ahead_from_a_predicted_start_with_th
             chain.members.iter().map(|m| (m.id, m.ahead)).collect::<Vec<_>>()
         );
     }
+}
+
+/// `--timings` says why each chain codeunit that ran on the walk's thread did not run ahead: one cause per serial
+/// codeunit, the first from the chain's start (which the helpers do not run) among them.
+#[test]
+fn each_chain_codeunit_that_ran_serially_has_a_cause() {
+    let rt = CorpusRuntime::try_run_suites_with(
+        vec![app("main", &["base"], &source()), app("base", &[], BASE)],
+        vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
+        &[manifest("Me"), manifest("Microsoft")],
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &RunOptions::default(),
+    )
+    .expect("the run starts");
+    let chain = &rt.phases.chain;
+    let serial: Vec<u32> = chain.members.iter().filter(|m| !m.ahead).map(|m| m.id).collect();
+    let caused: Vec<u32> = chain.not_ahead.iter().map(|m| m.id).collect();
+    assert_eq!(caused, serial, "{:?}", chain.not_ahead);
+    if workers() > 2 {
+        assert_eq!(
+            chain.not_ahead.first().map(|m| (m.id, m.why)),
+            Some((chain.members[0].id, SerialWhy::Closed)),
+            "{:?}",
+            chain.not_ahead
+        );
+    }
+    let lines = chain.lines();
+    assert!(
+        lines.iter().any(|l| l.starts_with("serial carry chain by cause: ")),
+        "{lines:?}"
+    );
 }

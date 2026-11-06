@@ -8,7 +8,7 @@
 use crate::Session;
 
 mod delta;
-pub use delta::{Delta, Fingerprint};
+pub use delta::{Delta, DeltaPart, Fingerprint};
 
 /// What a session keeps of the baseline run; see the module comment.
 #[derive(Clone)]
