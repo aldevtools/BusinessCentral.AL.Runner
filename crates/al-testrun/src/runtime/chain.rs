@@ -74,6 +74,9 @@ pub enum SerialWhy {
     NotRun,
     /// Its run ahead started from a prediction made before a member before it had run, and was not run again in time.
     Early,
+    /// Its run ahead started from a prediction that rested on an earlier member's own run ahead, which turned out wrong
+    /// (that member's change depends on its start); not counted against `MISSES`.
+    Guessed,
     /// Its run ahead started from another state than the walk's (a wrong prediction).
     Missed,
     /// Its run ahead started from the walk's state, but what it left cannot be rebuilt on the walk's thread.
@@ -89,6 +92,7 @@ impl SerialWhy {
             SerialWhy::GaveUp => "its suite was not run ahead any more (too many wrong predictions or new starts)",
             SerialWhy::Closed => "first member from its suite's start, which the helpers do not run",
             SerialWhy::NotRun => "no helper had run it yet",
+            SerialWhy::Guessed => "its run ahead rested on an earlier member's run ahead, which was wrong",
             SerialWhy::Early => {
                 "its run ahead started before the members before it had run, and was not run again in time"
             }

@@ -422,6 +422,7 @@ impl ChainWalk<'_> {
                         Some(_) if ahead.is_some() => Some(SerialWhy::NotRebuilt),
                         Some(_) if matches!(dropped, Dropped::Wrong(_)) => Some(SerialWhy::Missed),
                         Some(_) if matches!(dropped, Dropped::Early) => Some(SerialWhy::Early),
+                        Some(_) if matches!(dropped, Dropped::Guessed) => Some(SerialWhy::Guessed),
                         Some(r) if r.tainted(si) => Some(SerialWhy::GaveUp),
                         Some(_) if epoch.is_none() => Some(SerialWhy::NoStart),
                         Some(_) if !open => Some(SerialWhy::Closed),
