@@ -49,6 +49,7 @@ mod permission_abp;
 mod permission_abp_shapes;
 mod permission_execute;
 mod permission_execute_triggers;
+mod permission_license;
 mod permission_open_page_named_grant;
 mod permission_read_write;
 mod permission_report_after_denial;
