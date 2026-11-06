@@ -367,6 +367,15 @@ impl Session {
         Ok(())
     }
 
+    /// Whether raising `event` of `object` now would reach a subscriber (a static one, or a manual one with a bound instance),
+    /// or would be refused for one.
+    pub(crate) fn event_reaches_any(&mut self, object: usize, event: &str) -> bool {
+        if !self.engine.events.is_subscribed(object, event) {
+            return false;
+        }
+        !matches!(self.event_targets(object, event, None, None), Ok(v) if v.is_empty())
+    }
+
     /// The subscribers an event reaches right now, each with the instance it
     /// runs on: static subscribers always, manual ones once per bound instance.
     /// `element` filters field events by field name.

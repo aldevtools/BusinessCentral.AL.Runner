@@ -205,18 +205,40 @@ impl Session {
         pos: usize,
         rec: Option<&Rc<RefCell<RecordState>>>,
     ) -> Result<String, Signal> {
-        match self.field_caption_written(t, pos)? {
+        let written = self.field_caption_written(t, pos)?;
+        // With an OnAfterCaptionClassResolve subscriber an area 3 CaptionClass is translated as well, which raises the event
+        // (Y71CaptionClassEvents.al:168-170; FieldCaption: record/captions/WcExtFieldAfterResolve.al
+        // WcExtField_Area3_FieldCaption). `3,` alone raises nothing and gives the Caption (WcExtField_ThreeAlone_FieldCaption).
+        if matches!(written, WrittenCaption::Text(_)) && self.after_resolve_subscribed() {
+            if let Some(class) = self
+                .field_property(t, pos, "CaptionClass")
+                .and_then(|v| string_literal(&v))
+            {
+                if class.len() > 2 && class.starts_with("3,") {
+                    return self.caption_class_translate(&class);
+                }
+            }
+        }
+        match written {
             WrittenCaption::Text(caption) => Ok(caption),
-            WrittenCaption::Class(class) => self.caption_class_translate(&class),
+            WrittenCaption::Class(class) => {
+                if !class.contains(',') && !self.after_resolve_subscribed() {
+                    return unsupported(format!(
+                        "FieldCaption of a field whose CaptionClass `{class}` has no comma (not pinned)"
+                    ));
+                }
+                self.caption_class_translate(&class)
+            }
             // A CaptionClass that is an expression runs once per read, with the record that reads it (record/lt-qd-captionclass-
             // areas/QdCaptionClassAreas.al:323-347 Expression_PerRead_CallCount, :350-372 Expression_ChangesRec), and its
             // result goes through the same resolvers as a literal (:262-296 Expressions_FieldCaption, :376-418
             // Expressions_FieldRefCaption).
             WrittenCaption::Expr(expr) => {
                 let class = self.field_caption_class_value(t, pos, rec, &expr)?;
-                match expression_class(&t.fields[pos].name, &class)? {
+                let kind = expression_class(&t.fields[pos].name, &class)?;
+                match kind {
                     ExprCaption::FieldCaption => Ok(self.field_caption(t, pos)),
-                    ExprCaption::Text(c) => Ok(c),
+                    ExprCaption::Text(c) => self.expression_text_caption(&class, c),
                     ExprCaption::Translate => self.caption_class_translate(&class),
                 }
             }
@@ -249,7 +271,7 @@ impl Session {
         // CaptionClassTranslate (corpus branch al-runtime-rs-staging-r6985, record/captions/R6985FieldCaptionArea.al:
         // FieldCaption_ClaimedArea, _SecondRead, _UnclaimedArea, FieldRefCaption_ClaimedArea, FieldCaption_ThenCaptionClassTranslate,
         // FieldCaption_InOnValidate; on master testpage/AnTestPageTests.al:583-589 An19_TableFieldCaptionClass_NonNumericArea,
-        // 'X,Y' unclaimed). A text with no comma is not pinned: refused.
+        // 'X,Y' unclaimed). A text with no comma is pinned only with an OnAfterCaptionClassResolve subscriber: refused otherwise.
         let declared = self.field_property(t, pos, "CaptionClass");
         if let Some(v) = declared.as_ref().filter(|v| string_literal(v).is_none()) {
             return Ok(WrittenCaption::Expr(v.clone()));
@@ -259,9 +281,9 @@ impl Session {
                 Some(("3", "")) => Ok(WrittenCaption::Text(self.field_caption(t, pos))),
                 Some(("3", rest)) => Ok(WrittenCaption::Text(rest.to_string())),
                 Some(_) => Ok(WrittenCaption::Class(class)),
-                None => unsupported(format!(
-                    "FieldCaption of a field whose CaptionClass `{class}` has no comma (not pinned)"
-                )),
+                // With an OnAfterCaptionClassResolve subscriber the read raises the event (`FieldCaption`'s Class arm;
+                // WcExtField_NoComma_FieldCaption); without one the shape stays refused.
+                None => Ok(WrittenCaption::Class(class)),
             };
         }
         Ok(WrittenCaption::Text(self.field_caption(t, pos)))
