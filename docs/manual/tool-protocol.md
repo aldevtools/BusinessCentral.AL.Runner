@@ -227,6 +227,9 @@ Differences a client must adapt to:
    IsolatedStorage, NumberSequence, SingleInstance codeunits (also those of dependency apps), event bindings, handlers,
    and session settings such as WorkDate and GlobalLanguage. Not reset: files a `--files-dir` folder holds on disk,
    and the state of the .NET helper processes, which the codeunits of one request share.
+   An entry whose selection picks exactly one test runs that test alone (the codeunit's `OnRun`, then that test), as
+   one runner call per method does in BC, so a sibling that sets WorkDate does not run before it (al-runner issue 7207).
+   The plain `test` field keeps running whole codeunits (section 3).
 5. A request that cannot run answers one `{"error": "<reason>"}` line instead of a summary with exit code 2 or 3:
    for example `{"error":"/x: no such file or folder"}`, ``{"error":"unknown field `cobertura` for runTests"}``,
    ``{"error":"`sourcePaths` needs at least one app folder"}``. A `test` or `excludeTests` that matches no test is not
