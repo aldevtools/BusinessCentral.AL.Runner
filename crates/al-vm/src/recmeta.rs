@@ -205,7 +205,27 @@ impl Session {
         pos: usize,
         rec: Option<&Rc<RefCell<RecordState>>>,
     ) -> Result<String, Signal> {
-        match self.field_caption_written(t, pos)? {
+        let written = self.field_caption_written(t, pos)?;
+        // With an OnAfterCaptionClassResolve subscriber an area 3 CaptionClass is translated as well, which raises the event
+        // (Y71CaptionClassEvents.al:168-170; FieldCaption: corpus branch al-runtime-rs-staging-rwcap
+        // record/captions/WcExtFieldAfterResolve.al WcExtField_Area3_FieldCaption).
+        if matches!(written, WrittenCaption::Text(_)) && self.after_resolve_subscribed() {
+            if let Some(class) = self
+                .field_property(t, pos, "CaptionClass")
+                .and_then(|v| string_literal(&v))
+            {
+                if class == "3," {
+                    return unsupported(format!(
+                        "the caption of field {} whose CaptionClass is `3,` while a subscriber listens to OnAfterCaptionClassResolve (not pinned)",
+                        t.fields[pos].name
+                    ));
+                }
+                if class.starts_with("3,") {
+                    return self.caption_class_translate(&class);
+                }
+            }
+        }
+        match written {
             WrittenCaption::Text(caption) => Ok(caption),
             WrittenCaption::Class(class) => self.caption_class_translate(&class),
             // A CaptionClass that is an expression runs once per read, with the record that reads it (record/lt-qd-captionclass-
@@ -214,7 +234,11 @@ impl Session {
             // Expressions_FieldRefCaption).
             WrittenCaption::Expr(expr) => {
                 let class = self.field_caption_class_value(t, pos, rec, &expr)?;
-                match expression_class(&t.fields[pos].name, &class)? {
+                let kind = expression_class(&t.fields[pos].name, &class)?;
+                if !matches!(kind, ExprCaption::Translate) {
+                    self.refuse_unraised_after_resolve(&format!("a CaptionClass expression that gives `{class}`"))?;
+                }
+                match kind {
                     ExprCaption::FieldCaption => Ok(self.field_caption(t, pos)),
                     ExprCaption::Text(c) => Ok(c),
                     ExprCaption::Translate => self.caption_class_translate(&class),
