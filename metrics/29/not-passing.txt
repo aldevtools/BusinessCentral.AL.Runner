@@ -1672,6 +1672,7 @@
 92150 Y21_LicenseInformation_ReadFails
 92150 Y21_SessionEvent_OwnSession
 92150 Y21_WindowsLanguage_Flags
+92279 R7168_ActionGetChildWithoutRefresh
 92357 C305_UserNameFieldRows_Customer
 92357 C305_UserNameFieldRows_OwnTable
 92425 Variant_To_Byte_2
@@ -2221,3 +2222,10 @@
 96036 XDN_Item_Import
 96036 XDN_TableRoot_Import
 96036 XDN_TextLeaf_Import
+96062 TP6977B_View_EditViewActions
+96062 TP6977B_View_FieldEditable
+96073 R7169_DependencyInstall_ReadsPublishedAs
+96073 R7169_Test_ReadsPublishedAsOfDependency
+96101 SaveValues_CallerProcedureOnly_EditableFalse_SecondRun
+96101 SaveValues_OpenPageRecompute_SecondRunOrder
+96123 P7B_ReadsWhatThePreviousTestCodeunitLeft
