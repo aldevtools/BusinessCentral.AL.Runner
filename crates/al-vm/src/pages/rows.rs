@@ -25,20 +25,7 @@ impl Session {
                             if let Value::Text(t) | Value::Code(t) = &v {
                                 self.raise_control_area3_after_resolve(t)?;
                                 if !t.starts_with("3,") {
-                                    // A text other than the one the control resolved before, at a fill other than the one after
-                                    // SetValue (`refresh_caption_classes`, testpage/W2CaptionClass.al:174-178): whether BC resolves it
-                                    // there (after an action, on the next row) is not pinned.
-                                    if super::format::raises_resolve(t)
-                                        && st
-                                            .borrow()
-                                            .control_captions
-                                            .iter()
-                                            .any(|(i, old, _)| *i == idx && old != t.as_str())
-                                    {
-                                        return unsupported(
-                                            "a CaptionClass expression that gives another text at a fill other than after SetValue (whether BC resolves it again there is not pinned)",
-                                        );
-                                    }
+                                    Self::refuse_caption_class_changed_at_fill(st, idx, t)?;
                                     self.fill_caption_class(st, idx, t)?;
                                 }
                             }

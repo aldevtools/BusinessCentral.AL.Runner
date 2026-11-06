@@ -636,17 +636,7 @@ impl Session {
             ));
         }
         if let Some((object, routine)) = field.on_lookup {
-            let rec = self.page_rec(st);
-            st.borrow_mut().refresh = false;
-            let called = self.call_on_record(object, routine, rec, None, Vec::new());
-            if let Some(done) = self.lookup_error_outcome(called.map(|_| Value::Null)) {
-                return done;
-            }
-            // The control now shows what the trigger wrote, as an edit of the row (assumed,
-            // docs/probes-needed.md).
-            st.borrow_mut().dirty = true;
-            self.run_refresh(st)?;
-            return Ok(Value::Null);
+            return self.field_on_lookup(st, object, routine);
         }
         if !field.relation {
             return Ok(Value::Null);

@@ -52,6 +52,21 @@ impl Session {
         })
     }
 
+    /// The table field's OnLookup that `TestPage.<control>.Lookup()` starts on the page's record.
+    pub(super) fn field_on_lookup(&mut self, st: &St, object: usize, routine: usize) -> Result<Value, Signal> {
+        let rec = self.page_rec(st);
+        st.borrow_mut().refresh = false;
+        let called = self.call_on_record(object, routine, rec, None, Vec::new());
+        if let Some(done) = self.lookup_error_outcome(called.map(|_| Value::Null)) {
+            return done;
+        }
+        // The control now shows what the trigger wrote, as an edit of the row (assumed,
+        // docs/probes-needed.md).
+        st.borrow_mut().dirty = true;
+        self.run_refresh(st)?;
+        Ok(Value::Null)
+    }
+
     /// What an error out of an OnLookup that `TestPage.<control>.Lookup()` started does. An error with an empty text (`Error('')`) ends
     /// the call quietly: the test goes on, the error becomes the last error (empty text, code Dialog) and the rows the trigger wrote
     /// before it stay (pages/empty-error-text/WcLookupEmptyError.al WcTableFieldLookup_CancelEmptyError_NoAsserterror,

@@ -294,6 +294,24 @@ impl Session {
         Ok(text)
     }
 
+    /// A text other than the one the control resolved before, at a fill other than the one after SetValue
+    /// (`refresh_caption_classes`, testpage/W2CaptionClass.al:174-178): whether BC resolves it there (after an action, on
+    /// the next row) is not pinned.
+    pub(super) fn refuse_caption_class_changed_at_fill(st: &St, idx: usize, t: &str) -> Result<(), Signal> {
+        if super::format::raises_resolve(t)
+            && st
+                .borrow()
+                .control_captions
+                .iter()
+                .any(|(i, old, _)| *i == idx && old != t)
+        {
+            return unsupported(
+                "a CaptionClass expression that gives another text at a fill other than after SetValue (whether BC resolves it again there is not pinned)",
+            );
+        }
+        Ok(())
+    }
+
     /// A page control's own CaptionClass `3,<text>` while a subscriber listens to OnAfterCaptionClassResolve: opening the page
     /// raises the event once with the text after the comma as the caption, and the control reads that caption; later reads
     /// raise nothing (corpus record/captions/WcExtFieldAfterResolve.al WcControl_OwnArea3_TestPageCaption: `log-open`
