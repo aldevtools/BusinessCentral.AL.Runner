@@ -521,9 +521,15 @@ impl al_builtins::native::Ctx for Session {
         let fields = (0..def.fields.len())
             .map(|pos| {
                 let f = &def.fields[pos];
+                let mut class_caption = None;
                 let caption = match self.field_caption_written(&def, pos) {
                     Ok(crate::recmeta::WrittenCaption::Text(c)) => Ok(c),
-                    Ok(_) => Err(format!("the caption of field {} is a CaptionClass", f.name)),
+                    Ok(written) => {
+                        if matches!(written, crate::recmeta::WrittenCaption::Class(_)) {
+                            class_caption = Some(self.field_caption(&def, pos));
+                        }
+                        Err(format!("the caption of field {} is a CaptionClass", f.name))
+                    }
                     Err(Signal::Unsupported(why)) => Err(why),
                     Err(_) => Err(format!("the caption of field {}", f.name)),
                 };
@@ -542,6 +548,7 @@ impl al_builtins::native::Ctx for Session {
                     number: f.id,
                     name: f.name.clone(),
                     caption,
+                    class_caption,
                     ty: f.ty.clone(),
                     options,
                 }
