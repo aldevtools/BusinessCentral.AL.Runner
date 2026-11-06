@@ -3,6 +3,7 @@
 use super::*;
 
 mod caller_slots;
+pub(crate) use caller_slots::written_by_routine;
 mod close;
 mod landing;
 mod or_group;

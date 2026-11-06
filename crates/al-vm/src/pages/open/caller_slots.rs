@@ -3,17 +3,17 @@
 use al_ir::{Arg, Expr, Place, Stmt};
 use std::collections::HashSet;
 
-fn root(p: &Place, out: &mut HashSet<usize>) {
+fn root(p: &Place, out: &mut Scan) {
     match p {
         Place::Global(n) => {
-            out.insert(*n);
+            out.slots.insert(*n);
         }
         Place::Index(base, _) | Place::Field(base, _) => root(base, out),
         Place::Local(_) | Place::BaseGlobal(_) | Place::ExtGlobal(..) | Place::RecGlobal(..) => {}
     }
 }
 
-fn stmts(body: &[Stmt], out: &mut HashSet<usize>) {
+fn stmts(body: &[Stmt], out: &mut Scan) {
     for s in body {
         match s {
             Stmt::Assign(p, e) => {
@@ -57,9 +57,18 @@ fn stmts(body: &[Stmt], out: &mut HashSet<usize>) {
     }
 }
 
-fn expr(e: &Expr, out: &mut HashSet<usize>) {
+fn expr(e: &Expr, out: &mut Scan) {
     al_ir::types::children(e, &mut |c| expr(c, out));
-    if let Expr::Call { args, .. } = e {
+    if let Expr::InterfaceCall { .. } = e {
+        out.unknown = true;
+    }
+    if let Expr::Call {
+        args, object, routine, ..
+    } = e
+    {
+        if *object == out.object {
+            out.follow.push(*routine);
+        }
         for a in args {
             if let Arg::Ref(p) = a {
                 root(p, out);
@@ -68,12 +77,30 @@ fn expr(e: &Expr, out: &mut HashSet<usize>) {
     }
 }
 
-/// The global slots the procedures (not the triggers) of `routines` assign or pass to a `var` parameter. A call another procedure
-/// makes is not followed: its own body is in the set already, as every procedure of the object is scanned.
-pub(super) fn written_by_procedures(routines: &[al_ir::Routine]) -> HashSet<usize> {
-    let mut out = HashSet::new();
-    for r in routines.iter().filter(|r| !r.is_trigger) {
-        stmts(r.body.stmts(), &mut out);
+/// What a scan of routines found: the slots written, and the routines of the same object that are called.
+pub(super) struct Scan {
+    object: usize,
+    pub(super) slots: HashSet<usize>,
+    follow: Vec<usize>,
+    unknown: bool,
+}
+
+/// The global slots routine `start` of `object` assigns or passes to a `var` parameter, with those of the procedures of the
+/// same object it calls. `None` when a call through an interface makes the writes unattributable.
+pub(crate) fn written_by_routine(routines: &[al_ir::Routine], object: usize, start: usize) -> Option<HashSet<usize>> {
+    let mut scan = Scan {
+        object,
+        slots: HashSet::new(),
+        follow: vec![start],
+        unknown: false,
+    };
+    let mut seen = HashSet::new();
+    while let Some(r) = scan.follow.pop() {
+        if seen.insert(r) {
+            if let Some(r) = routines.get(r) {
+                stmts(r.body.stmts(), &mut scan);
+            }
+        }
     }
-    out
+    (!scan.unknown).then_some(scan.slots)
 }

@@ -215,6 +215,7 @@ mod modify_denied;
 mod moved_onto_deleted;
 mod never_run_update;
 mod open;
+pub(crate) use open::written_by_routine;
 mod other_record_no_row;
 mod page_get_record;
 mod page_var_view;

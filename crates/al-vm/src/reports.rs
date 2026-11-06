@@ -1186,6 +1186,39 @@ impl Session {
         Ok(())
     }
 
+    /// A procedure the caller runs on a report variable before its run: the globals it can write win over the saved request page
+    /// values (`restore_page_values`). A write that cannot be followed is refused rather than guessed.
+    pub(crate) fn note_caller_writes(&mut self, inst: &Inst, object: usize, routine: usize) -> Result<(), Signal> {
+        let engine = self.engine.clone();
+        let o = &engine.program.objects[object];
+        if o.report.is_none() || o.routines[routine].is_trigger || self.report.report_trigger.is_some() {
+            return Ok(());
+        }
+        if !self
+            .report
+            .prepared
+            .iter()
+            .any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
+        {
+            return Ok(());
+        }
+        let Some(slots) = crate::pages::written_by_routine(&o.routines, object, routine) else {
+            return unsupported(
+                "a report procedure that writes a variable through an interface call, run before a SaveValues request page (not pinned)",
+            );
+        };
+        match self
+            .report
+            .caller_writes
+            .iter_mut()
+            .find(|(w, _)| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
+        {
+            Some((_, have)) => have.extend(slots),
+            None => self.report.caller_writes.push((Rc::downgrade(inst), slots)),
+        }
+        Ok(())
+    }
+
     /// The request page's OnInit of a report that a procedure uses first (see `first_use`): it runs right after OnInitReport and
     /// before the procedure's body, and the run does not run it again, with or without the request page
     /// (reports/request-page/RequestPageOnInitFirstUse.al:104-185). An OnInit a reportextension adds is left to the run,

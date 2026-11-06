@@ -385,3 +385,49 @@ fn data_item_table_view_where_is_not_part_of_get_filters_or_get_view() {
         Outcome::Pass
     );
 }
+
+/// The caller runs `SetX` only: the variable `SetLoc` writes was not set by the caller, so its saved value restores
+/// (SaveValuesOpenPageOrder.al case 2, `run3 no SetLoc`, which shows the saved value when the caller did not set it).
+#[test]
+fn a_variable_a_procedure_the_caller_did_not_run_writes_restores_the_saved_value() {
+    let src = r#"
+report 97200 "SV Two Setters"
+{
+    ProcessingOnly = true;
+    requestpage
+    {
+        SaveValues = true;
+        layout { area(Content) { field(Loc; LocTxt) { ApplicationArea = All; } field(Inp; InputTxt) { ApplicationArea = All; } } }
+    }
+    procedure SetX(V: Text[30]) begin InputTxt := V; end;
+    procedure SetLoc(V: Text[30]) begin LocTxt := V; end;
+    trigger OnPreReport() begin Seen := 'loc=[' + LocTxt + '] inp=[' + InputTxt + ']'; end;
+    var LocTxt: Text[30]; InputTxt: Text[30];
+    procedure GetSeen(): Text begin exit(Seen); end;
+    var Seen: Text;
+}
+codeunit 97201 "SV Two Setters Tests"
+{
+    Subtype = Test;
+    var Mode: Integer;
+    [Test] [HandlerFunctions('H')] procedure Run()
+    var R1: Report "SV Two Setters"; R2: Report "SV Two Setters"; R3: Report "SV Two Setters";
+    begin
+        Mode := 1;
+        R1.SetLoc('saved'); R1.SetX('one'); R1.RunModal();
+        Mode := 2;
+        R2.SetX('two'); R2.RunModal();
+        Mode := 3;
+        R3.RunModal();
+    end;
+    [RequestPageHandler] procedure H(var P: TestRequestPage "SV Two Setters")
+    begin
+        case Mode of
+            2: if (P.Loc.Value <> 'saved') or (P.Inp.Value <> 'two') then Error('run2 loc=%1 inp=%2', P.Loc.Value, P.Inp.Value);
+            3: if (P.Loc.Value <> 'saved') or (P.Inp.Value <> 'two') then Error('run3 loc=%1 inp=%2', P.Loc.Value, P.Inp.Value);
+        end;
+        P.OK().Invoke();
+    end;
+}"#;
+    assert_eq!(al_testkit::outcomes_in(src, "SV Two Setters Tests")[0].1, Outcome::Pass);
+}
