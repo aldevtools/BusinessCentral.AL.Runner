@@ -18,7 +18,8 @@
 //! and a run ahead that is not taken is dropped. The events of a run ahead (`Hooks::on_start`, `Hooks::on_test`) are
 //! kept and told when the walk takes it, so a test is told once, in chain order.
 
-use super::chain_runs::{Ahead, Claim, HookEvent, Kept, Runs, Start, StartBytes};
+use super::SerialWhy;
+use super::chain_runs::{Ahead, Claim, Dropped, HookEvent, Kept, Runs, Start, StartBytes};
 use super::corpus::{not_run_link, observed_detail, reaches_session_storage, refuse_all};
 use super::*;
 use std::sync::Mutex;
@@ -387,9 +388,12 @@ impl ChainWalk<'_> {
                         .filter(|r| r.has_run(k, epoch))
                         .and(start)
                         .and_then(|b| b.fingerprint_apart(&apart));
-                    let (ahead, missed) = runs.map_or((None, false), |r| r.take(k, epoch, actual.as_ref()));
-                    if missed {
+                    // Whether the helpers ran the suite when the walk reached the member (`SerialWhy::Closed`).
+                    let open = runs.is_some_and(|r| r.is_open(si));
+                    let (ahead, dropped) = runs.map_or((None, Dropped::Nothing), |r| r.take(k, epoch, actual.as_ref()));
+                    if let Dropped::Wrong(predicted) = &dropped {
                         *track.misses.entry(si).or_default() += 1;
+                        self.note_miss(predicted, start, track.bases.get(&si), report);
                     }
                     if let Some(r) = runs {
                         r.reached(k);
@@ -411,6 +415,19 @@ impl ChainWalk<'_> {
                     if took_ahead {
                         *track.taken.entry(si).or_default() += 1;
                     }
+                    let serial = match runs {
+                        _ if took_ahead => None,
+                        _ if units[k].carry.is_none() || units[k].without_baseline => Some(SerialWhy::NeverAhead),
+                        None => Some(SerialWhy::NoHelpers),
+                        Some(_) if ahead.is_some() => Some(SerialWhy::NotRebuilt),
+                        Some(_) if matches!(dropped, Dropped::Wrong(_)) => Some(SerialWhy::Missed),
+                        Some(_) if matches!(dropped, Dropped::Early) => Some(SerialWhy::Early),
+                        Some(_) if matches!(dropped, Dropped::Guessed) => Some(SerialWhy::Guessed),
+                        Some(r) if r.tainted(si) => Some(SerialWhy::GaveUp),
+                        Some(_) if epoch.is_none() => Some(SerialWhy::NoStart),
+                        Some(_) if !open => Some(SerialWhy::Closed),
+                        Some(_) => Some(SerialWhy::NotRun),
+                    };
                     let (mut r, mut left) = match (ahead, kept) {
                         (Some(a), Some(kept)) => {
                             self.replay(k, a.events);
@@ -436,6 +453,16 @@ impl ChainWalk<'_> {
                         left: super::chain::left_something(left.as_ref()),
                         ahead: took_ahead,
                     });
+                    if let Some(why) = serial {
+                        report.not_ahead.push(super::ChainEntry {
+                            id,
+                            name: name_of(units[k].oi),
+                            why,
+                            took: r.took,
+                            left: false,
+                            ahead: false,
+                        });
+                    }
                     // A codeunit that left nothing new (`numbers_taken.rs`) leaves the state it was given, not the
                     // session's: under the baseline rule check that session started on an empty store.
                     if let Some(l) = left.as_mut().filter(|l| l.baseline.is_none()) {
@@ -491,6 +518,45 @@ impl ChainWalk<'_> {
             }
         }
         carried
+    }
+
+    /// A run ahead from the prediction `predicted` (a delta on the suite's epoch start `base`) was dropped because the
+    /// walk's state `start` differs from it: `report` notes what differed (`--timings`; only the time of the run depends
+    /// on predictions).
+    fn note_miss(
+        &self,
+        predicted: &al_vm::Delta,
+        start: Option<&al_vm::Baseline>,
+        base: Option<&al_vm::Baseline>,
+        report: &mut super::ChainReport,
+    ) {
+        let Some(actual) = delta_from(start, base) else {
+            report.missed_by("the walk's state is not its start with a change");
+            return;
+        };
+        let parts = predicted.differences(&actual);
+        if parts.is_empty() {
+            report.missed_by("no part of the change (the Test Runner's rows the run saw, or the start)");
+        }
+        let table = |o: u32| {
+            let name = self
+                .engine
+                .program
+                .objects
+                .get(o as usize)
+                .map_or("", |x| x.name.as_str());
+            format!("{o} {name}")
+        };
+        for part in parts {
+            report.missed_by(&match part {
+                al_vm::DeltaPart::Table(o) => format!("table {}", table(o)),
+                al_vm::DeltaPart::AutoIncrement(o) => format!("AutoIncrement of table {}", table(o)),
+                al_vm::DeltaPart::Sequence(name) => format!("number sequence {name}"),
+                al_vm::DeltaPart::GuidCounter => "GUID counter".into(),
+                al_vm::DeltaPart::RowVersion => "row version counter".into(),
+                al_vm::DeltaPart::Marks => "baseline marks".into(),
+            });
+        }
     }
 
     /// What the helpers are told after leg-1 member `leg1` of suite `si` ran and the suite's chain is at `c`. While

@@ -27,7 +27,7 @@ mod ctx;
 mod debug;
 mod exec;
 mod interp;
-pub use baseline::{Baseline, Delta, Fingerprint, SequenceSteps};
+pub use baseline::{Baseline, Delta, DeltaPart, Fingerprint, SequenceSteps};
 pub use capture::{CaptureConfig, Captured, ClosedBy, LoopRecord, MAX_RECORDS, MessageRecord, Rendered, ValueRecord};
 pub(crate) use ctx::base_slot_missing;
 pub use debug::{DebugFrame, DebugHook, DebugView, Resume};
@@ -76,6 +76,7 @@ mod http;
 pub mod impact;
 mod interfaces;
 mod isdirty;
+mod license_ceiling;
 mod load_fields_request;
 mod media_orphans;
 mod native_rows;
@@ -176,6 +177,9 @@ pub struct Engine {
     /// The BC license of the run (ADR-060): License Permission answers from it. `None`: no license was available, and
     /// only the pinned rows are served.
     pub license: Option<Arc<al_host::license::License>>,
+    /// Whether the license gives some table of the program less than Yes on Read, Insert, Modify or Delete, so that
+    /// record accesses check it also in an unrestricted session (license_ceiling.rs). Worked out on first use.
+    pub(crate) license_caps: std::sync::OnceLock<bool>,
     /// The service-tier setting DisableWriteInsideTryFunctions is off (`al-runner test --allow-write-in-try-functions`, al-runner
     /// issue 7143), as on Business Central online. Default `false`: the setting at its default, as on a BC container and the
     /// corpus CI, where a write inside a TryFunction whose result is used raises TryFunctionWrite.
@@ -453,6 +457,7 @@ impl Engine {
             dotnet_called: Default::default(),
             test_data: None,
             license: None,
+            license_caps: Default::default(),
             write_in_try_allowed: false,
             unevaluable_init: Arc::new(unevaluable_init),
             table_facts: table_facts.into(),
@@ -499,6 +504,7 @@ impl Engine {
             dotnet_called: Default::default(),
             test_data: None,
             license: None,
+            license_caps: Default::default(),
             write_in_try_allowed: false,
             unevaluable_init: self.unevaluable_init.clone(),
             table_facts: self.table_facts.clone(),
@@ -560,6 +566,7 @@ impl Engine {
             dotnet_called,
             test_data,
             license,
+            license_caps,
             write_in_try_allowed,
             // From the program and the config of `with_config` (and al-testrun's `global_triggers_find_unavailable`,
             // which reads only the compile): the same for every run over this program.
@@ -604,6 +611,7 @@ impl Engine {
         *dotnet_called.get_mut() = false;
         *test_data = None;
         *license = None;
+        *license_caps = Default::default();
         *write_in_try_allowed = false;
     }
 
@@ -1307,6 +1315,7 @@ impl Session {
                 ext_vetoed: false,
                 test_open: false,
                 run_page_link_open_moved: false,
+                run_page_link_opening: 0,
                 test_close: false,
                 close_save_error: false,
             },
@@ -2087,7 +2096,11 @@ impl Session {
                 .unpinned_buffer
                 .is_none_or(|w| w == crate::records::RUN_PAGE_LINK_OPEN_FILLED)
             {
-                st.unpinned_buffer = Some(crate::records::RUN_PAGE_LINK_COPY);
+                st.unpinned_buffer = Some(if self.pages.run_page_link_opening > 0 {
+                    crate::records::RUN_PAGE_LINK_OPEN_COPY
+                } else {
+                    crate::records::RUN_PAGE_LINK_COPY
+                });
             }
         }
         Value::Record(Rc::new(RefCell::new(st)))
@@ -2315,6 +2328,17 @@ impl Session {
                     st.filter_group = 0;
                     st.temporary = true;
                     st.temp_id = Some(self.new_temp_id());
+                    Value::Record(Rc::new(RefCell::new(st)))
+                }
+                // Rec of a page an action opened through RunPageLink handed to a Variant parameter keeps the link filter: a
+                // RecordRef.GetTable of the Variant carries it (testpage/R7138RunPageLinkCopyGet.al:117-134 `rr[Project Code: P2]
+                // n=2`); see `records::RUN_PAGE_LINK_VARIANT`.
+                (Value::Record(rc), false)
+                    if matches!(r.locals[i].ty, RtType::Variant) && rc.borrow().run_page_link.is_some() =>
+                {
+                    let mut st = rc.borrow().clone();
+                    st.run_page_link = None;
+                    st.unpinned_buffer = Some(crate::records::RUN_PAGE_LINK_VARIANT);
                     Value::Record(Rc::new(RefCell::new(st)))
                 }
                 // The copy keeps what Record.IsDirty compares with (record/Y8RecordIsDirtyShapes.al:321-324 `by_value_dirty` Yes,

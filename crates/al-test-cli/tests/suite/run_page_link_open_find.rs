@@ -226,18 +226,15 @@ fn find_findfirst_findlast_and_count_in_onopenpage_of_a_run_page_link_target() {
     }
 }
 
-/// A RunPageLink list with no OnOpenPage: whether First() on the row it opened on runs OnAfterGetCurrRecord is not pinned (the
-/// corpus pins it only where OnOpenPage moved Rec, SjRunPageLinkOpenFind.al:337-410), so the case is refused.
+/// A RunPageLink list with no OnOpenPage: First() on the row it opened on runs no OnAfterGetCurrRecord, as for one whose
+/// OnOpenPage did not move Rec (testpage/R7138RunPageLinkCopyGet.al:210, :218 `agcr O3;...;handler;agcr O4`).
 #[test]
-fn first_on_a_run_page_link_list_whose_onopenpage_did_not_move_rec_is_refused() {
+fn first_on_a_run_page_link_list_whose_onopenpage_did_not_move_rec_runs_no_trigger() {
     let out = run(SRC, "Open Find Tests");
     let o = out
         .iter()
         .find(|(n, _)| n == "PlainHandlerT")
         .map(|(_, o)| o.clone())
         .unwrap();
-    match o {
-        Outcome::NotRun(why) => assert!(why.contains("did not move Rec"), "{why}"),
-        other => panic!("PlainHandlerT: {other:?}"),
-    }
+    assert_eq!(o, Outcome::Pass);
 }

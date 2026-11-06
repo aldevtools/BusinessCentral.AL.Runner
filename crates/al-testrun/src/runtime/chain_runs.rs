@@ -40,6 +40,21 @@ impl Kept {
     }
 }
 
+/// What [`Runs::take`] dropped when it had no run ahead from the walk's state.
+#[derive(Debug)]
+pub(super) enum Dropped {
+    /// Nothing: no helper ran the member in the epoch.
+    Nothing,
+    /// A run from a prediction made while some member before it had not run yet (counted as changing nothing).
+    Early,
+    /// A run from a prediction that knew what every member before it changes, but some of that from a member's own run
+    /// ahead, which turned out wrong (that member's change depends on its start).
+    Guessed,
+    /// A run from a prediction that knew what every member before it changes, and was wrong: the delta it started
+    /// from, on the epoch's start.
+    Wrong(Box<al_vm::Delta>),
+}
+
 /// An event a run ahead told its hooks, kept until the walk takes the run.
 pub(super) enum HookEvent {
     Start(u32, String),
@@ -101,6 +116,9 @@ struct RunsState {
     tries: Vec<u8>,
     /// Per unit index: its last run ahead started from a prediction that knew what every member before it changes.
     complete: Vec<bool>,
+    /// Per unit index: that prediction was the walk's own state: no member between the walk and it (whose change is
+    /// only known from its own run ahead, which may have started elsewhere).
+    sure: Vec<bool>,
     /// Per unit index: what it changes, as far as known: what its last run ahead changed, or once the walk passed it,
     /// what it changed there.
     counts: Vec<Option<al_vm::Delta>>,
@@ -148,6 +166,7 @@ impl Runs {
                 slots: (0..n).map(|_| Slot::Pending).collect(),
                 tries: vec![0; n],
                 complete: vec![false; n],
+                sure: vec![false; n],
                 counts: vec![None; n],
                 starts: install.iter().map(|&si| (si, (0, Start::Install))).collect(),
                 at: install.iter().map(|&si| (si, (0, Default::default()))).collect(),
@@ -180,21 +199,27 @@ impl Runs {
     /// Where member `k` is predicted to start: its epoch's start with the delta the walk is at and the deltas of the
     /// members between applied, and whether every one of those is known (`false`: the unknown ones count as none).
     fn guess(&self, s: &RunsState, k: usize) -> Option<(al_vm::Delta, bool)> {
+        self.guess_sure(s, k).map(|(d, complete, _)| (d, complete))
+    }
+
+    /// [`Runs::guess`], and whether the prediction is the walk's own state (no member between).
+    fn guess_sure(&self, s: &RunsState, k: usize) -> Option<(al_vm::Delta, bool, bool)> {
         let si = self.suite[k];
         let (from, base) = s.at.get(&si)?;
         let to = self.place[k]?;
         let mut delta = base.clone();
-        let mut complete = true;
+        let (mut complete, mut sure) = (true, true);
         for &j in self.order.get(*from..to).unwrap_or_default() {
             if self.suite[j] != si {
                 continue;
             }
+            sure = false;
             match &s.counts[j] {
                 Some(c) => delta = delta.then(c),
                 None => complete = false,
             }
         }
-        Some((delta, complete))
+        Some((delta, complete, sure))
     }
 
     /// The next member a helper should run, marked as running, where it starts and the delta applied there.
@@ -213,22 +238,23 @@ impl Runs {
                     return None;
                 }
                 let (epoch, start) = s.starts.get(&si)?;
-                let (delta, complete) = self.guess(&s, k)?;
+                let (delta, complete, sure) = self.guess_sure(&s, k)?;
                 let run = match &s.slots[k] {
                     Slot::Pending => true,
                     // Run again from a better prediction: every count before it is known now, and it differs.
                     Slot::Done(e, from, _) => e == epoch && complete && *from != delta,
                     _ => false,
                 };
-                run.then(|| (k, *epoch, start.clone(), delta, complete))
+                run.then(|| (k, *epoch, start.clone(), delta, complete, sure))
             });
             let waiting = rest
                 .iter()
                 .any(|k| !matches!(s.slots[*k], Slot::Taken) && !s.tainted.contains(&self.suite[*k]));
             match next {
-                Some((k, epoch, start, delta, complete)) => {
+                Some((k, epoch, start, delta, complete, sure)) => {
                     s.slots[k] = Slot::Running(epoch, delta.clone(), None);
                     s.complete[k] = complete;
+                    s.sure[k] = sure;
                     s.tries[k] += 1;
                     return Claim::Run(k, epoch, start, Box::new(delta));
                 }
@@ -304,12 +330,10 @@ impl Runs {
 
     /// The run ahead of member `k` from the start of `epoch` whose fingerprint is `actual`, the walk's state, waiting
     /// for it while a helper runs it; `None` when there is none (or `epoch` or `actual` is `None`: the walk runs it
-    /// itself). The flag tells whether a run from another start was dropped that started from a prediction which knew
-    /// what every member before it changes (a wrong prediction, not one made before that was known). No helper runs the
-    /// member after this.
-    pub fn take(&self, k: usize, epoch: Option<u32>, actual: Option<&al_vm::Fingerprint>) -> (Option<Ahead>, bool) {
+    /// itself). The second part says what was dropped instead ([`Dropped`]). No helper runs the member after this.
+    pub fn take(&self, k: usize, epoch: Option<u32>, actual: Option<&al_vm::Fingerprint>) -> (Option<Ahead>, Dropped) {
         let Ok(mut s) = self.state.lock() else {
-            return (None, false);
+            return (None, Dropped::Nothing);
         };
         // The same start but for the Test Runner's rows, and whether those are the same too.
         let same = |e: &u32, fp: Option<&al_vm::Fingerprint>| match (fp, actual) {
@@ -319,18 +343,22 @@ impl Runs {
         loop {
             match std::mem::replace(&mut s.slots[k], Slot::Taken) {
                 Slot::Done(e, _, Some(a)) if same(&e, a.start.as_deref()).is_some_and(|rows| rows || a.unseen) => {
-                    return (Some(*a), false);
+                    return (Some(*a), Dropped::Nothing);
                 }
                 // Its fingerprint is not known yet, or it is the walk's (but perhaps for those rows): wait.
                 Slot::Running(e, d, fp) if Some(e) == epoch && (fp.is_none() || same(&e, fp.as_deref()).is_some()) => {
                     s.slots[k] = Slot::Running(e, d, fp);
                     s = match self.ready.wait(s) {
                         Ok(g) => g,
-                        Err(_) => return (None, false),
+                        Err(_) => return (None, Dropped::Nothing),
                     };
                 }
-                Slot::Done(..) | Slot::Running(..) => return (None, s.complete[k]),
-                _ => return (None, false),
+                Slot::Done(_, from, _) | Slot::Running(_, from, _) if s.complete[k] && s.sure[k] => {
+                    return (None, Dropped::Wrong(Box::new(from)));
+                }
+                Slot::Done(..) | Slot::Running(..) if s.complete[k] => return (None, Dropped::Guessed),
+                Slot::Done(..) | Slot::Running(..) => return (None, Dropped::Early),
+                _ => return (None, Dropped::Nothing),
             }
         }
     }
@@ -380,6 +408,16 @@ impl Runs {
             s.open.insert(si);
         }
         self.ready.notify_all();
+    }
+
+    /// Whether the helpers run suite `si`'s members (`open`; a new start closes it until one member ran from there).
+    pub fn is_open(&self, si: usize) -> bool {
+        self.state.lock().is_ok_and(|s| s.open.contains(&si))
+    }
+
+    /// Whether suite `si`'s members are not run ahead any more (`taint`).
+    pub fn tainted(&self, si: usize) -> bool {
+        self.state.lock().is_ok_and(|s| s.tainted.contains(&si))
     }
 
     pub fn taint(&self, si: usize) {
@@ -451,7 +489,10 @@ mod tests {
         );
         runs.reached(1);
         let (wrong, dropped) = runs.take(2, Some(0), Some(&fp(b"other", b"")));
-        assert!(wrong.is_none() && dropped, "a run from another start is not taken");
+        assert!(
+            wrong.is_none() && matches!(dropped, Dropped::Wrong(_) | Dropped::Guessed),
+            "a run from another start is not taken"
+        );
         assert!(
             runs.take(2, Some(0), Some(&fp(b"s2", b""))).0.is_none(),
             "and it is gone"
@@ -518,6 +559,37 @@ mod tests {
         assert_eq!(claim_soon(&runs), Some((2, g(8))));
     }
 
+    /// A prediction that rests on what an earlier member changed in its own run ahead is not counted as a wrong
+    /// prediction when that run ahead turns out wrong (the earlier member's change depends on its start): only a
+    /// prediction made from what the walk saw is (`Dropped::Wrong`, which `MISSES` counts). One start-dependent member
+    /// must not use up the misses of every member after it.
+    #[test]
+    fn a_prediction_resting_on_another_run_ahead_is_not_a_wrong_prediction() {
+        let g = al_vm::Delta::of_guids;
+        let runs = Runs::new(vec![0, 1, 2], vec![0, 0, 0], vec![0], 6);
+        runs.reached(0);
+        runs.advance(0, 0, g(0), Some(g(0)));
+        // Member 1 runs from the walk's state and changes 1; member 2 then runs from that prediction (complete).
+        let Claim::Run(1, 0, _, from) = runs.claim() else {
+            panic!("member 1 first")
+        };
+        runs.finish(1, 0, *from, changed(1));
+        let Claim::Run(2, 0, _, from) = runs.claim() else {
+            panic!("then member 2")
+        };
+        assert_eq!(*from, g(1));
+        let mut a = ahead(b"s2");
+        a.start = Some(Arc::new(fp(b"after 1", b"")));
+        runs.finish(2, 0, *from, Some(a));
+        // On the walk member 1 changed 3: member 2's run ahead started elsewhere, but its prediction rested on member
+        // 1's run ahead.
+        runs.reached(1);
+        runs.advance(0, 1, g(3), Some(g(3)));
+        let (got, dropped) = runs.take(2, Some(0), Some(&fp(b"after 3", b"")));
+        assert!(got.is_none());
+        assert!(matches!(dropped, Dropped::Guessed), "{dropped:?}");
+    }
+
     /// Another start only in the Test Runner's rows: taken when the run did not see them, else dropped.
     #[test]
     fn a_run_that_did_not_see_the_runner_rows_is_taken_from_a_start_that_differs_only_there() {
@@ -540,6 +612,9 @@ mod tests {
         assert!(runs.take(1, Some(0), Some(&fp(b"s1", b"other rows"))).0.is_some());
         runs.reached(1);
         let (seen, dropped) = runs.take(2, Some(0), Some(&fp(b"s2", b"other rows")));
-        assert!(seen.is_none() && dropped, "a run that saw the rows needs the same rows");
+        assert!(
+            seen.is_none() && matches!(dropped, Dropped::Wrong(_) | Dropped::Guessed),
+            "a run that saw the rows needs the same rows"
+        );
     }
 }

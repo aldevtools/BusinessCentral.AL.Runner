@@ -1515,7 +1515,8 @@ impl Session {
     /// answers Yes and runs no OnAfterGetCurrRecord (testpage/SjRunPageLinkOpenFind.al:337-350, :368-410
     /// `agcr row=4;agcr row=3;...`: the handler's First() on the row the page opened on adds no `agcr`; :412-425 from another row
     /// it does). Pinned for a list that declares OnAfterGetCurrRecord and no other row trigger, not a part, whose OnOpenPage
-    /// moved Rec with FindFirst or FindLast; refused when OnOpenPage did not move Rec.
+    /// moved Rec with FindFirst or FindLast, and for one whose OnOpenPage did not move Rec (testpage/R7138RunPageLinkCopyGet.al:210,
+    /// :218 `agcr O3;...;handler;agcr O4`: OnAfterGetCurrRecord runs once at the open, First() on O3 runs it not again).
     fn first_on_first_row_of_a_linked_list(&mut self, st: &St) -> Result<bool, Signal> {
         let shape = {
             let s = st.borrow();
@@ -1545,17 +1546,6 @@ impl Session {
         }
         if !Self::same_key(&self.row_key(&probe)?, &self.row_key(&rec)?) {
             return Ok(false);
-        }
-        // Pinned only where OnOpenPage moved Rec with FindFirst or FindLast (SjRunPageLinkOpenFind.al:337-410); First on the
-        // first row of a linked list whose OnOpenPage did not move Rec is not pinned either way.
-        if !st.borrow().run_page_link_open_moved {
-            // Without OnAfterGetCurrRecord nothing tells the two apart: the usual First() runs.
-            if !self.declares(st, "onaftergetcurrrecord") {
-                return Ok(false);
-            }
-            return unsupported(
-                "TestPage.First() on the first row of a list an action opened through RunPageLink whose OnOpenPage did not move Rec: whether OnAfterGetCurrRecord runs is not pinned",
-            );
         }
         Ok(true)
     }

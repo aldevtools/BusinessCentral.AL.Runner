@@ -234,6 +234,15 @@ impl Session {
         Ok(())
     }
 
+    /// The page's OnOpenPage trigger; `linked` when an action opened the page through RunPageLink, counted in
+    /// `PagesState::run_page_link_opening` while the trigger runs.
+    fn on_open_page(&mut self, st: &St, linked: bool) -> Result<Option<Value>, Signal> {
+        self.pages.run_page_link_opening += u32::from(linked);
+        let opened = self.page_trigger(st, "onopenpage", vec![]);
+        self.pages.run_page_link_opening -= u32::from(linked);
+        opened
+    }
+
     /// `open_page`, or with `as_part` the opening of a part's page: everything up to and including
     /// the page's OnOpenPage, leaving its rows to the host (`sync_part`), which knows the link.
     pub(in crate::pages) fn open_page_as(
@@ -533,7 +542,7 @@ impl Session {
             }
             self.pages.run_page_link_open_moved = false;
             self.drop_handed_or_group(st, has_source);
-            let opened = self.page_trigger(st, "onopenpage", vec![]);
+            let opened = self.on_open_page(st, has_source && rec_fill.is_some());
             st.borrow_mut().opening = false;
             st.borrow_mut().run_page_link_open_moved = std::mem::take(&mut self.pages.run_page_link_open_moved);
             if rec_unpinned.is_some() && has_source {

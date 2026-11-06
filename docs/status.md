@@ -102,7 +102,8 @@ fixes that came with that work stay on. Details: [alrunner-buckets.md](alrunner-
   case, `Procedure[identifier]` (`al-testrun` `runtime/data_driven.rs`). `TestHandlers` are refused; the
   `TestHandlerContext` and `DataSourceContext` members work on a fresh variable. A skipped outcome waits for a pin.
 - **License-backed permissions (ADR-060).** `--license FILE` and the license in the BC artifact answer License
-  Permission (`docs/manual/license.md`). The license is not yet a limit on the permission checks (ADR-062 stage 5).
+  Permission (`docs/manual/license.md`). The license limits table data access below the system range (Indirect needs the
+  code's `Permissions` property; `al-vm/src/license_ceiling.rs`); a blank level refuses; Execute is not limited yet.
 - **Permission enforcement (ADR-062, Accepted).** Stage 1 is on by default: table data writes in a session a test
   lowered are checked (`al-vm/src/permissions.rs`); other denials refuse the test. Reads, `Execute` and the runner
   sets (stages 2 to 4) wait for probes. `--permissions off` restores the refusal.

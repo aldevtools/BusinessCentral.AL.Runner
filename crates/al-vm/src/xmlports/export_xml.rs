@@ -130,7 +130,10 @@ impl Session {
         // shape (xmlports/shapes-properties/Y17XmlPortNamespaces.al, an Integer root with MaxOccurs = Once, an OnAfterGetRecord,
         // text and table elements below; Y17XmlPortNamespacesTests.al:60-93). Without namespaces it is not pinned.
         let declares = !xp.namespaces.is_empty() || xp.default_ns.is_some();
-        let table_root = root_table_element(schema, top) || (declares && table_root_with_content(schema, top));
+        // Without namespaces, a table element root whose text elements below it hold content (`plain_tree_root`, plain_tree.rs).
+        let table_root = root_table_element(schema, top)
+            || (declares && table_root_with_content(schema, top))
+            || plain_tree_root(schema, top);
         if !table_top && !table_root && (xp.nodes[top].kind != ir::XmlNodeKind::Text || schema.children(top).is_empty())
         {
             return unsupported("XmlPort export whose root is not a text element with content (not pinned)");
@@ -727,8 +730,10 @@ impl Session {
                         return Ok(());
                     }
                 }
+                // A `plain_text_tree` (plain_tree.rs) is written as any container, below.
                 ir::XmlNodeKind::Text
                     if schema.node(node).kind == ir::XmlNodeKind::Table
+                        && !plain_text_tree(schema, child)
                         && !linked_container(schema, child, node)
                         && !attr_container(schema, child)
                         && !plain_container(schema, child) =>
@@ -939,8 +944,9 @@ fn table_root_with_content(schema: &Schema, top: usize) -> bool {
 /// DgXmlPortLeads.al:290; after the root's attributes: xmlports/shapes-properties/SgXmlPortOccurs.al TF_NsAttr_Export
 /// `<Root Ver="v1" xmlns="...">`), else the uri of the empty prefix `""`, whether `""` is listed first or last
 /// (xmlports/shapes-properties/Y17XmlPortNamespacesTests.al:60, :71); a used default namespace replaces that uri (:82).
-/// The namespaces of root `root` of a port with Namespaces, UseDefaultNamespace and no DefaultNamespace (`ir::XmlPort::udn_root_prefix`;
-/// `port_ns` is BC's namespace of the port): the root loses its prefix and its uri becomes the default namespace (the port's for a
+/// The namespaces of root `root` of a port with Namespaces and UseDefaultNamespace (`ir::XmlPort::udn_root_prefix`; `port_ns` is
+/// the DefaultNamespace, else BC's namespace of the port: corpus PR 1158, XpUseDefaultNsWithDefault.al
+/// XDN_TextLeaf_Export, _Item_Export, _RootPlain_Export, _RootSecond_Export, _TableRoot_Export, _ItemUtf16_Export): the root loses its prefix and its uri becomes the default namespace (the port's for a
 /// root without a prefix), declared after the named ones; an element without a prefix declares `port_ns` where the default namespace
 /// in scope differs, its children inherit it; a prefixed element keeps its prefix and the scope (corpus
 /// xmlports/shapes-properties/XpUseDefaultNsPrefixes.al XUD_TableRoot_Export, _TextRoot_Export,
