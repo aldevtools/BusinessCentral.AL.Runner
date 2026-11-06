@@ -86,6 +86,18 @@ pub(crate) const RUN_PAGE_LINK_OPEN_FILLED: &str = "in the OnOpenPage of a page 
 /// (testpage/TestActionRunPageLinkFilterGroup.al:292-369, `Describe(Child: Record ...)` in QzRunPageLinkOnOpen.al).
 pub(crate) const RUN_PAGE_LINK_COPY: &str = "a by-value copy of Rec of a page an action opened through RunPageLink: real BC hands it Rec's fields and no link filter, whether it reads rows without the link is not pinned";
 
+/// [`RUN_PAGE_LINK_COPY`] for a copy taken in the OnOpenPage of the page: it holds Rec's fields and no link filter
+/// (TestActionRunPageLinkFilterGroup.al:292-369), but whether it reads rows without the link was probed only after the page opened
+/// (R7138RunPageLinkCopyGet.al, OnAfterGetCurrRecord), so its `Count` and `Get` stay refused.
+pub(crate) const RUN_PAGE_LINK_OPEN_COPY: &str = "a by-value copy of Rec in the OnOpenPage of a page an action opened through RunPageLink: real BC hands it Rec's fields and no link filter, whether it reads rows without the link is not pinned";
+
+/// The `RecordState::unpinned_buffer` reason of Rec of a page an action opened through `RunPageLink` handed to a Variant parameter:
+/// the Variant holds Rec with the link filter. Only `RecordRef.GetTable` of it is pinned (the RecordRef carries the link filter and
+/// answers as any RecordRef, corpus testpage/R7138RunPageLinkCopyGet.al:117-134 `rr[Project Code: P2] n=2`); every record
+/// method and field read on it refuses.
+pub(crate) const RUN_PAGE_LINK_VARIANT: &str =
+    "Rec of a page an action opened through RunPageLink handed to a Variant: only RecordRef.GetTable of it is pinned";
+
 /// The `RecordState::unpinned_buffer` reason of a record after `SetCurrentKey` on Media or MediaSet fields that no key holds, and
 /// of a by-value copy of it. Only `CurrentKey` is pinned: the record answers the fields (streams/ArRecordProbes.al:198-229
 /// SetCurrentKey_Media `Pic`, SetCurrentKey_MediaSet `Pics`), a by-value copy answers the primary key (record/W4SortKeys.al:440-471
@@ -108,6 +120,7 @@ pub(crate) fn media_key_marked(rec: &Rec) -> bool {
 pub(crate) fn run_page_link_fields_read(why: &str) -> bool {
     why == RUN_PAGE_LINK_OPEN_FILLED
         || why == RUN_PAGE_LINK_COPY
+        || why == RUN_PAGE_LINK_OPEN_COPY
         || why == MEDIA_KEY
         || why == FLOWFIELD_KEY
         || why == XP_VIEW_AFTER_EXPORT
@@ -2079,8 +2092,11 @@ impl Session {
         if why == XP_VIEW_AFTER_EXPORT {
             return self.xp_view_after_export_op(method, rec, args);
         }
-        if why == RUN_PAGE_LINK_COPY {
-            return self.run_page_link_copy_op(method, rec, args);
+        if why == RUN_PAGE_LINK_COPY || why == RUN_PAGE_LINK_OPEN_COPY {
+            return self.run_page_link_copy_op(method, rec, args, why);
+        }
+        if why == RUN_PAGE_LINK_VARIANT {
+            return unsupported(format!("Record.{}(): {RUN_PAGE_LINK_VARIANT}", method.name()));
         }
         if why == MEDIA_KEY || why == FLOWFIELD_KEY {
             return self.media_key_op(method, rec, args, why);
@@ -2201,15 +2217,24 @@ impl Session {
 
     /// A record method on a by-value copy of Rec of a page an action opened through `RunPageLink` ([`RUN_PAGE_LINK_COPY`]):
     /// `GetFilters` of a copy that holds no filter reads '' (testpage/TestActionRunPageLinkFilterGroup.al:292-369, `filters=`),
-    /// the names of its table run, and every other method refuses.
-    fn run_page_link_copy_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
+    /// the names of its table run. On such a copy `Count` counts every row of the table and `Get` finds the current row and a
+    /// row outside the link (testpage/R7138RunPageLinkCopyGet.al:136-151, :218 `copy[] n=4;copy.get own O3;copy.get O1 O1`, in
+    /// OnAfterGetCurrRecord; not for a copy taken in OnOpenPage, [`RUN_PAGE_LINK_OPEN_COPY`]). Every other method refuses.
+    fn run_page_link_copy_op(
+        &mut self,
+        method: RecordOp,
+        rec: &Rec,
+        args: &mut [Value],
+        why: &'static str,
+    ) -> Result<Value, Signal> {
         let runs = match method {
             RecordOp::GetFilters => rec.borrow().filters.is_empty(),
+            RecordOp::Count | RecordOp::Get => why == RUN_PAGE_LINK_COPY && rec.borrow().filters.is_empty(),
             RecordOp::FieldNo | RecordOp::IsTemporary | RecordOp::TableName | RecordOp::TableCaption => true,
             _ => false,
         };
         if !runs {
-            return unsupported(format!("Rec.{}() on {RUN_PAGE_LINK_COPY}", method.name()));
+            return unsupported(format!("Rec.{}() on {why}", method.name()));
         }
         let flag = rec.borrow_mut().unpinned_buffer.take();
         let r = self.record_op_inner(method, rec, args);
