@@ -1465,7 +1465,6 @@
 85907 WriteToOutStream_Iso88591_WindowsAndMSDosStreams
 85907 WriteToOutStream_LoadedIso88591Document
 86030 Item108_NamespaceRules
-86030 Item109_SoapEnvelopeExport
 86030 Item110_LongTextElement
 86030 Item111_ImportFromStreamNeverCreated
 86097 RequestPagePermissions_WithPermissions_IndirectOnlyUser
