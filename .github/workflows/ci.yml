@@ -353,7 +353,12 @@ jobs:
           status=0
           # Its output also goes to normal.log, which the comparison of the passes below and the job summary read
           # (ADR-063; the failures of the not-passing lists, ADR-065).
-          ./target/release/al-test-cli --all-versions --require-dotnet \
+          # AL_SINGLE_SERIAL_CHECK (ADR-066 amendment 1, owner 2026-11-06): the codeunits of each BC session in which a
+          # codeunit read SingleInstance state an earlier codeunit left run once more, in one go, the single instances
+          # moved from session to session instead of copied; every outcome must equal the normal run's (exit 1
+          # otherwise, the lines start with "SingleInstance serial check"). Only those sessions run again, so it
+          # costs the job little.
+          AL_SINGLE_SERIAL_CHECK=1 ./target/release/al-test-cli --all-versions --require-dotnet \
             --json pass-rate.json --markdown pass-rate.md --junit runtime-junit.xml 2>&1 | tee normal.log
           [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
           normal_end=$(date +%s)

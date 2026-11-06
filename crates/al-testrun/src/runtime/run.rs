@@ -279,6 +279,16 @@ fn run_codeunit_inner(
     if let Some(b) = baseline {
         session.restore_baseline(b);
     }
+    // The serial check: the single instances of the codeunit before are moved in below; their temporary tables keep
+    // their ids.
+    let moved = if execute {
+        None
+    } else {
+        SERIAL_SINGLES.with(|c| c.borrow_mut().as_mut().and_then(Option::take))
+    };
+    if let Some(m) = &moved {
+        session.continue_temp_ids(m);
+    }
     session.trace_faults(observe.is_some());
     scratch.flags.apply(&mut session);
     let covering = crate::coverage::enabled();
@@ -422,6 +432,9 @@ fn run_codeunit_inner(
     // Put back here, after the company open (which BC's session did once, before the first codeunit), and noted from
     // here on, so the run can be checked against the serial order (`single_carry.rs`, `corpus.rs`).
     if !execute {
+        if let Some(m) = moved {
+            session.adopt_single_instances(m);
+        }
         session.track_single_instances();
         if let Some(state) = &scratch.singles_in {
             session.restore_single_instances(state);
@@ -1291,6 +1304,13 @@ fn run_codeunit_inner(
             .unwrap_or_else(|why| Err(all(Outcome::NotRun(why)))),
     };
     scratch.singles_out = session.single_out();
+    if !execute {
+        SERIAL_SINGLES.with(|c| {
+            if let Some(slot) = c.borrow_mut().as_mut() {
+                *slot = Some(session.take_single_instances());
+            }
+        });
+    }
     let out = match ran {
         Ok(out) => out,
         Err(early) => return early,
@@ -1385,6 +1405,14 @@ thread_local! {
     /// What the last codeunit with RequiredTestIsolation = Disabled that ran on this thread left. A baseline holds `Rc`s
     /// and stays on its thread: the codeunits that start from it run on the same one (`corpus.rs`).
     pub(crate) static CARRIED: std::cell::RefCell<Option<Carried>> = const { std::cell::RefCell::new(None) };
+}
+
+std::thread_local! {
+    /// While the serial check runs a BC session's codeunits on this thread (`single_walk.rs` `serial_check`): the single
+    /// instances the last codeunit left, moved into the next codeunit's session instead of being carried in their
+    /// copied form (`al_vm::single_carry::MovedSingles`). `None`: no serial check.
+    pub(crate) static SERIAL_SINGLES: std::cell::RefCell<Option<Option<al_vm::single_carry::MovedSingles>>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// What a codeunit with RequiredTestIsolation = Disabled left for the codeunits after it ([`CARRIED`]).

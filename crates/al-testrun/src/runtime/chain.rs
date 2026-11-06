@@ -136,6 +136,12 @@ pub struct ChainReport {
     /// For the runs ahead dropped because they started elsewhere: what differed between the predicted start and the
     /// walk's state (a sequence, a table, a counter), and how often.
     pub differed: std::collections::BTreeMap<String, usize>,
+    /// The serial check of the SingleInstance carrying ran (`RunOptions::single_serial_check`, `single_walk.rs`).
+    pub serial_check: bool,
+    /// The codeunits it ran again in one session.
+    pub serial_checked: usize,
+    /// The tests whose outcome differed there: a failure of the check.
+    pub serial_mismatches: Vec<String>,
 }
 
 impl ChainReport {
@@ -197,6 +203,18 @@ impl ChainReport {
         }
         if let Some(line) = by_reason("serial carry chain by cause", &self.not_ahead, SerialWhy::text) {
             out.push(line);
+        }
+        if self.serial_check {
+            out.push(format!(
+                "SingleInstance serial check: {} test codeunits ran again in one session, {} outcomes differ",
+                self.serial_checked,
+                self.serial_mismatches.len()
+            ));
+            out.extend(
+                self.serial_mismatches
+                    .iter()
+                    .map(|m| format!("SingleInstance serial check: {m}")),
+            );
         }
         if !self.differed.is_empty() {
             let mut rows: Vec<(&String, &usize)> = self.differed.iter().collect();

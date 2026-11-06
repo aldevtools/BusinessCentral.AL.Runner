@@ -1745,7 +1745,7 @@ impl CorpusRuntime {
             }
             // SingleInstance state goes from each codeunit to the next in run order (probe P7 of ADR-066): codeunits
             // that saw another state than the serial run gives them run again from it (`single_walk.rs`).
-            let again = super::single_walk::SingleWalk {
+            let single_walk = super::single_walk::SingleWalk {
                 engine: &engine,
                 lowered,
                 baseline: baseline.as_ref(),
@@ -1754,8 +1754,16 @@ impl CorpusRuntime {
                 sees: &sees,
                 place: &place,
                 limit,
+            };
+            let again = single_walk.walk(&mut slots);
+            // The serial check of the carrying (ADR-066 amendment 1): the same outcomes with the codeunits of each BC
+            // session run in one go, the single instances moved from session to session.
+            if opts.single_serial_check || std::env::var_os("AL_SINGLE_SERIAL_CHECK").is_some() {
+                let (ran, diffs) = single_walk.serial_check(&slots);
+                chain_report.serial_checked += ran;
+                chain_report.serial_mismatches.extend(diffs);
+                chain_report.serial_check = true;
             }
-            .walk(&mut slots);
             for k in again {
                 chain_report.reruns.push(super::ChainEntry {
                     id: units[k].id,

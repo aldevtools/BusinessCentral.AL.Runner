@@ -215,9 +215,9 @@ tests need these steps) and a row in `docs/probes-needed.md`. When a probe lands
 6. **ADR-055:** decision kept, context line amended (orchestrator's call, following the recommendation).
 
 
-## Amendment 1 (Proposed, 2026-11-06): SingleInstance state from one test codeunit to the next (P7)
+## Amendment 1 (Accepted, 2026-11-06): SingleInstance state from one test codeunit to the next (P7)
 
-- Status: Proposed. Nothing builds on it until the owner accepts it.
+- Status: Accepted by the owner on 2026-11-06: option A below, with a serial check mode that CI runs (see "Decision").
 
 ### What BC does (P7 pinned)
 
@@ -284,3 +284,54 @@ session.
 Also to decide: a SingleInstance codeunit still bound to manual subscribers at the end of a codeunit
 (`BindSubscription` without `UnbindSubscription`): whether BC keeps the binding for the next codeunit is not pinned
 (probe wanted). The branch treats it as "may have changed anything" for later failures.
+
+### Decision (owner, 2026-11-06)
+
+**A.** One session per test codeunit and the parallel runs stay. The single instances' globals are carried to the
+next session in run order, records, temporary records with their rows and lists included (`al-vm/src/single_codec.rs`).
+The walk of the branch checks every run against the serial state and runs a codeunit again when it read another
+value (`al-testrun/src/runtime/single_walk.rs`). A value that is not carried never counts as equal to anything, so a
+run that read one is never taken as the serial run.
+
+What each session-relative part of a record means in the next session (each with a test in
+`crates/al-testrun/tests/suite/single_instance_carry.rs` or `single_codec.rs`):
+
+| Part of `RecordState` | Meaning in the next session |
+|---|---|
+| `temp_id` | A new private table with the same rows (BC rolls back no temporary table). Refused: a table two carried handles share, a table with an AutoIncrement field (the counter is the session's), a Code key stored as a number. |
+| Row version (SystemRowVersion in the buffer, `row_origin.version`, `failed_insert`, `last_modify`) of a table that is not temporary | Kept when at or below the committed row version at the codeunit's start: every session of the run starts from the same committed rows. A higher one names a row BC rolled back with the earlier codeunit, while the next session hands out the same numbers again: refused. |
+| `row_origin` with `own_write` (table not temporary) | Refused: the row was rolled back. |
+| `row_origin.commits` | `RowOrigin::EARLIER_SESSION`: the origin's transaction ended with the earlier codeunit; no Commit-count rule of the stale-buffer code holds for it. |
+| `company` | Carried (every session has the same companies at its start). |
+| `crm`, `run_page_link` | Refused (the CRM connection and the page are the session's). |
+| `globals` (table and `xRec` instances) | Carried as codeunit instances. |
+| Fields, filters, filter group, marks, key, ad hoc key, order, position, auto-calc fields, load state, IsDirty snapshots, flags | Values of the variable: carried as they are. |
+
+Also carried: dictionaries, arrays, codeunit values (a SingleInstance codeunit's value stays its one instance), unopened
+and open RecordRefs, RecordIds, TextBuilders. A handle two carried variables share (a FieldRef into a carried
+RecordRef's buffer, one list in two globals) is refused: the copies would no longer share it. A .NET object of the
+session's .NET process, streams and the other library values are refused where a later codeunit reads them first.
+
+Temporary rows keep their row version numbers. A temporary record's row version is no database row version
+(`stale_verdict` treats a temporary record as fresh, and a temporary record of a table with SQLTimestamp never stamps,
+record/temporary/QrTempTimestamp.al); what other numbers BC gives temporary rows is not pinned, within one session as
+before this amendment.
+
+**Serial check (owner requirement).** `AL_SINGLE_SERIAL_CHECK=1` (or `RunOptions::single_serial_check`): after the
+run, the codeunits of each BC session (a suite, and a TestRunnerHub leg) in which a codeunit read state an earlier one
+left run once more, one after the other on one thread, each session taking over the very single instances and
+temporary tables of the one before (`Session::take_single_instances` / `adopt_single_instances`), nothing copied.
+Every test the run passed or failed must come out the same; a difference fails the run (al-test-cli exit 1, lines
+"SingleInstance serial check: ..."). Tests the run refused are not compared. CI sets it on the normal corpus run of
+every pull request (all three majors): only the sessions that depend on the carrying run again, so it costs the job
+little.
+
+**Bound subscriptions stay refused.** A single instance still bound to manual subscribers at the end of a codeunit
+makes the later failures not trusted, as on the branch. Probe wanted: corpus codeunit A binds a SingleInstance
+subscriber codeunit (`EventSubscriberInstance = Manual`) and does not unbind it; codeunit B raises the event and
+asserts whether the subscriber ran, on all three majors.
+
+**Bug fixed with it.** The check that a carry-chain member run again left the same rows compared the Test Runner's
+rows, whose clock columns differ from run to run. It now compares them apart (`fingerprint_apart` of
+`suite_rows::tables`) and accepts different runner rows only when the run again did not see them
+(`suite_rows::take_unseen`).

@@ -261,6 +261,42 @@ fn snapshot(t: &mut Track, object: usize, inst: &Rc<RefCell<Instance>>) {
     }
 }
 
+/// The single instances of a finished session, moved (not copied) to the next session on the same thread: the
+/// serial check (ADR-066 amendment 1), which runs the codeunits of a BC session one after the other and hands the very
+/// same objects on, as BC's one session keeps them. Holds `Rc`s: it never leaves its thread.
+pub struct MovedSingles {
+    singletons: std::collections::HashMap<usize, Rc<RefCell<Instance>>>,
+    temps: std::collections::HashMap<u64, al_data::memory::MemStore>,
+    next_temp: u64,
+    temp_release: Rc<RefCell<Vec<u64>>>,
+}
+
+impl Session {
+    /// Moves the single instances and the temporary tables out of this finished session (see [`MovedSingles`]).
+    pub fn take_single_instances(&mut self) -> MovedSingles {
+        MovedSingles {
+            singletons: std::mem::take(&mut self.singletons),
+            temps: std::mem::take(&mut self.temps),
+            next_temp: self.next_temp,
+            temp_release: self.temp_release.clone(),
+        }
+    }
+
+    /// Call on a new session before it makes any temporary record: its temporary table ids continue those of the
+    /// session `moved` came from, so the moved records' tables keep their ids.
+    pub fn continue_temp_ids(&mut self, moved: &MovedSingles) {
+        self.next_temp = self.next_temp.max(moved.next_temp);
+        self.temp_release = moved.temp_release.clone();
+    }
+
+    /// Takes over the single instances and temporary tables of the session before (see [`MovedSingles`]).
+    pub fn adopt_single_instances(&mut self, moved: MovedSingles) {
+        self.next_temp = self.next_temp.max(moved.next_temp);
+        self.temps.extend(moved.temps);
+        self.singletons.extend(moved.singletons);
+    }
+}
+
 fn carry(enc: &Enc, v: &Value) -> Carry {
     match enc.enc(v) {
         Ok(c) => Carry::Val(c),

@@ -1457,8 +1457,28 @@ fn run_version_inner(
     } else {
         check_lists(args, root, &targets)?
     };
+    // The serial check of the SingleInstance carrying (`AL_SINGLE_SERIAL_CHECK=1`, ADR-066 amendment 1): every outcome
+    // that differs fails the run, the ratchet on or off.
+    let serial = &rt.phases.chain;
+    if serial.serial_check {
+        eprintln!(
+            "SingleInstance serial check: {} test codeunits ran again in one session, {} outcomes differ",
+            serial.serial_checked,
+            serial.serial_mismatches.len()
+        );
+        for m in &serial.serial_mismatches {
+            eprintln!("SingleInstance serial check: {m}");
+        }
+    }
+    let serial_failed = !serial.serial_mismatches.is_empty();
     Ok(VersionRun {
-        code: if args.no_ratchet { 0 } else { code },
+        code: if serial_failed {
+            1
+        } else if args.no_ratchet {
+            0
+        } else {
+            code
+        },
         oracle: oracle_ok,
         passing,
         rep: Some(rep),

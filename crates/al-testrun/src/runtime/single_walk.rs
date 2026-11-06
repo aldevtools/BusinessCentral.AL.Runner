@@ -85,7 +85,7 @@ impl SingleWalk<'_> {
                 _ => true,
             };
             if !matches {
-                let r = self.run_again(k, &s.state);
+                let r = self.run_again(k, Some(&s.state));
                 if let Some(why) = self.chain_left_other(k, &r) {
                     s.broken = Some(why);
                 }
@@ -101,9 +101,9 @@ impl SingleWalk<'_> {
 
     /// Runs codeunit `k` again from the serial state `state`, on the database state the serial run gives it: what the
     /// last chain member before it left (non-chain codeunits leave no rows).
-    fn run_again(&self, k: usize, state: &SingleState) -> UnitResult {
+    fn run_again(&self, k: usize, state: Option<&SingleState>) -> UnitResult {
         let mut u = self.units[k].clone();
-        u.singletons = Some(Arc::new(state.clone()));
+        u.singletons = state.map(|s| Arc::new(s.clone()));
         let before = self
             .carried
             .iter()
@@ -130,6 +130,72 @@ impl SingleWalk<'_> {
             }
         }
         r
+    }
+
+    /// The serial check (ADR-066 amendment 1, owner 2026-11-06): runs the codeunits of each BC session in which a
+    /// codeunit read SingleInstance state an earlier codeunit left once more, one after the other on this thread, each
+    /// starting from the very single instances (and temporary tables) the codeunit before it left, moved from session
+    /// to session, nothing copied (`run.rs` `SERIAL_SINGLES`). Every test the run above ran (passed or failed) must
+    /// come out the same; the differences are returned. The database start of each codeunit is the one the run above
+    /// gave it (`run_again`). Returns the codeunits run and the differences.
+    pub fn serial_check(&self, slots: &[Option<UnitResult>]) -> (usize, Vec<String>) {
+        let mut order: Vec<usize> = (0..self.units.len())
+            .filter(|&k| !self.units[k].execute && slots[k].is_some())
+            .collect();
+        order.sort_by_key(|&k| {
+            let u = &self.units[k];
+            (u.si, u.hub_leg, (self.place)(u.si, u.id), k)
+        });
+        let mut streams: Vec<((usize, bool), Vec<usize>)> = Vec::new();
+        for k in order {
+            let key = (self.units[k].si, self.units[k].hub_leg);
+            match streams.last_mut() {
+                Some((s, ks)) if *s == key => ks.push(k),
+                _ => streams.push((key, vec![k])),
+            }
+        }
+        let out_of = |k: usize| match slots[k].as_ref().map(|r| &r.result) {
+            Some(Ok(done)) => done.5.singles_out.as_ref(),
+            _ => None,
+        };
+        let (mut ran, mut diffs) = (0, Vec::new());
+        for (_, ks) in streams {
+            // Only a session in which some codeunit read a global an earlier one wrote depends on the carrying.
+            let mut written = std::collections::BTreeSet::new();
+            let mut depends = false;
+            for &k in &ks {
+                if let Some(out) = out_of(k) {
+                    depends |= out.observed.keys().any(|key| written.contains(key));
+                    written.extend(out.wrote.keys().copied());
+                }
+            }
+            if !depends {
+                continue;
+            }
+            super::run::SERIAL_SINGLES.with(|c| *c.borrow_mut() = Some(None));
+            for &k in &ks {
+                let r = self.run_again(k, None);
+                super::run::CARRIED.with(|c| c.borrow_mut().take());
+                ran += 1;
+                let (Some(Ok(first)), Ok(serial)) = (slots[k].as_ref().map(|r| &r.result), &r.result) else {
+                    continue;
+                };
+                for (test, o) in &first.0 {
+                    if !matches!(o, Outcome::Pass | Outcome::Fail(_)) {
+                        continue;
+                    }
+                    let s = serial.0.iter().find(|(t, _)| t == test).map(|(_, o)| o);
+                    if s != Some(o) {
+                        diffs.push(format!(
+                            "codeunit {} test {test}: {o:?} with SingleInstance state carried, {s:?} in one session",
+                            self.units[k].id
+                        ));
+                    }
+                }
+            }
+            super::run::SERIAL_SINGLES.with(|c| *c.borrow_mut() = None);
+        }
+        (ran, diffs)
     }
 
     /// For a chain member run again: why the later codeunits cannot use what the chain walk handed on, when the run

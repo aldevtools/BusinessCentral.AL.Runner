@@ -251,7 +251,15 @@ fn manifest(p: &str) -> Manifest {
 }
 
 fn run(src: &str, opts: &RunOptions) -> Vec<(String, Outcome)> {
-    let rt = CorpusRuntime::try_run_suites_with(
+    let rt = runtime(src, opts);
+    rt.results()
+        .iter()
+        .map(|r| (r.test.clone(), r.outcome.clone()))
+        .collect()
+}
+
+fn runtime(src: &str, opts: &RunOptions) -> CorpusRuntime {
+    CorpusRuntime::try_run_suites_with(
         vec![app("main", &["base"], src), app("base", &[], BASE)],
         vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
         &[manifest("Me"), manifest("Microsoft")],
@@ -261,11 +269,7 @@ fn run(src: &str, opts: &RunOptions) -> Vec<(String, Outcome)> {
         &[SuiteRun::everything()],
         opts,
     )
-    .expect("the run starts");
-    rt.results()
-        .iter()
-        .map(|r| (r.test.clone(), r.outcome.clone()))
-        .collect()
+    .expect("the run starts")
 }
 
 #[test]
@@ -361,4 +365,28 @@ fn a_temporary_table_with_an_autoincrement_field_is_refused() {
         &RunOptions::default(),
     );
     refused(outcome(&results, "Reads"), "AutoIncrement field");
+}
+
+#[test]
+fn the_serial_check_runs_each_session_in_one_go_and_finds_the_same_outcomes() {
+    // Owner requirement (2026-11-06): the codeunits of a BC session run one after the other, the single instances
+    // moved from session to session (nothing copied), must give every outcome the carrying gave.
+    let opts = RunOptions {
+        single_serial_check: true,
+        ..Default::default()
+    };
+    for src in [
+        source(),
+        pair("Fill", "R := H.Check(); if R <> 'ok' then Error(R);"),
+        HANDLE.to_string(),
+    ] {
+        let rt = runtime(&src, &opts);
+        let chain = &rt.phases.chain;
+        assert!(chain.serial_check);
+        assert!(chain.serial_checked >= 2, "{}", chain.serial_checked);
+        assert!(chain.serial_mismatches.is_empty(), "{:?}", chain.serial_mismatches);
+        for r in rt.results() {
+            assert_eq!(r.outcome, Outcome::Pass, "{}", r.test);
+        }
+    }
 }
