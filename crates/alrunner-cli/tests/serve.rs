@@ -1829,6 +1829,52 @@ fn every_entry_and_request_starts_without_the_state_an_earlier_one_set() {
     assert_eq!(s.line(), json!({"status": "shutting down"}));
 }
 
+const WORK_DATE_PAIR: &str = r#"
+codeunit 50100 "Dates"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure SetsIt()
+    begin
+        WorkDate(20200315D);
+    end;
+
+    [Test]
+    procedure ReadsIt()
+    begin
+        if WorkDate() = 20200315D then
+            Error('WorkDate leaked');
+    end;
+}
+"#;
+
+/// Al-runner issue 7207: an entry that names one method starts from the same fresh session as a whole-codeunit entry,
+/// so a work date an earlier request or entry set is gone (docs/manual/tool-protocol.md, issue 5862).
+#[test]
+fn a_single_method_entry_starts_without_the_work_date_an_earlier_one_set() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "workdatepair", WORK_DATE_PAIR);
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    let requests = [
+        vec![json!({"id": "s", "test": "Codeunit50100.SetsIt"})],
+        vec![json!({"id": "r", "test": "Codeunit50100.ReadsIt"})],
+        vec![
+            json!({"id": "s", "test": "Codeunit50100.SetsIt"}),
+            json!({"id": "r", "test": "Codeunit50100.ReadsIt"}),
+        ],
+    ];
+    for entries in requests {
+        s.send(json!({"command": "runTests", "sourcePaths": [a], "entries": entries, "testIsolation": "test"}));
+        let lines = s.until_summary();
+        let tests: Vec<&Value> = lines.iter().filter(|l| l["type"] == "test").collect();
+        assert!(tests.iter().all(|t| t["status"] == "pass"), "{lines:?}");
+    }
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
 const DRAWS: &str = r#"
 codeunit 50310 "Draw Tests"
 {
