@@ -57,6 +57,7 @@ mod effects;
 mod empty_reads;
 mod page_held_bindings;
 pub use empty_reads::{InstallRows, KnownValue};
+mod caller_writes;
 mod errorcollect;
 pub mod events;
 mod ext_validate_order;
@@ -2252,6 +2253,7 @@ impl Session {
         self.events.next_is_subscriber = false;
         self.note_routine(object, routine);
         self.first_use(&instance)?;
+        self.note_caller_writes(&instance, object, routine)?;
         let engine = self.engine.clone();
         let r = &engine.program.objects[object].routines[routine];
         // The bytecode, if the mode asks for it. Whether a capture watches the routine is only known once its frame is
