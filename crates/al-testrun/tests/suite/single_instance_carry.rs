@@ -99,6 +99,7 @@ codeunit 50257 "Carry Handles"
         NewRow.Get('NEW');
     end;
     procedure NewRowKey(): Code[20] begin exit(NewRow."Key"); end;
+    procedure ModifyNewRow() begin NewRow.Modify(); end;
     procedure ShareTemp() begin TempRows."No" := 1; TempRows.Insert(); TempShared.Copy(TempRows, true); end;
     procedure SharedCount(): Integer begin exit(TempShared.Count()); end;
     procedure FillCtx()
@@ -108,6 +109,15 @@ codeunit 50257 "Carry Handles"
         TempCtx."No" := 1; TempCtx.Rec := Setup2.RecordId(); TempCtx.Insert();
     end;
     procedure CtxTable(): Integer begin TempCtx.FindFirst(); exit(TempCtx.Rec.TableNo()); end;
+    procedure FilterCtx()
+    var Setup2: Record "Carry Setup";
+    begin
+        FillCtx();
+        TempCtx.Init(); TempCtx."No" := 2; TempCtx.Insert();
+        Setup2.Get('S');
+        TempCtx.SetRange(Rec, Setup2.RecordId());
+    end;
+    procedure CtxFiltered(): Integer begin exit(TempCtx.Count()); end;
     procedure FillJson()
     var Inner: JsonObject;
     begin
@@ -129,6 +139,8 @@ codeunit 50257 "Carry Handles"
     end;
     procedure FillAuto() begin TempAuto.Insert(); end;
     procedure AutoCount(): Integer begin exit(TempAuto.Count()); end;
+    procedure FilterAuto() begin TempAuto.SetRange("No", 5); end;
+    procedure AutoFilter(): Text begin exit(TempAuto.GetFilter("No")); end;
     var
         TempRows: Record "Carry Temp" temporary;
         TempShared: Record "Carry Temp" temporary;
@@ -391,19 +403,26 @@ fn a_record_buffer_of_a_row_committed_before_the_codeunits_is_carried_and_can_be
 }
 
 #[test]
-fn a_record_buffer_of_a_row_an_earlier_codeunit_wrote_is_refused() {
-    // BC rolled the row back with the writer; the next session hands out the same row versions again.
-    let results = run(&pair("KeepNewRow", "R := H.NewRowKey();"), &RunOptions::default());
-    assert_eq!(outcome(&results, "Writes"), Outcome::Pass);
-    refused(outcome(&results, "Reads"), "rolled back");
+fn the_fields_of_a_record_buffer_of_a_row_an_earlier_codeunit_wrote_reach_the_next_codeunit() {
+    // BC rolled the row back with the writer, not the variable's buffer (Microsoft's "Unit of Measure Management"
+    // keeps such a buffer as a cache). The row version is not handed on: the next session hands out the same numbers.
+    for fill in ["KeepNewRow", "KeepCommittedRow"] {
+        let results = run(
+            &pair(fill, "if H.NewRowKey() <> 'NEW' then Error('key %1', H.NewRowKey());"),
+            &RunOptions::default(),
+        );
+        assert_eq!(outcome(&results, "Writes"), Outcome::Pass, "{fill}");
+        assert_eq!(outcome(&results, "Reads"), Outcome::Pass, "{fill}");
+    }
 }
 
 #[test]
-fn a_record_buffer_read_from_a_row_an_earlier_codeunit_committed_is_refused() {
-    // Read by Get after the Commit: no own write, but a row version the earlier session handed out.
-    let results = run(&pair("KeepCommittedRow", "R := H.NewRowKey();"), &RunOptions::default());
-    assert_eq!(outcome(&results, "Writes"), Outcome::Pass);
-    refused(outcome(&results, "Reads"), "row version an earlier test codeunit wrote");
+fn a_write_through_a_record_buffer_of_a_row_an_earlier_codeunit_wrote_is_refused() {
+    for fill in ["KeepNewRow", "KeepCommittedRow"] {
+        let results = run(&pair(fill, "H.ModifyNewRow();"), &RunOptions::default());
+        assert_eq!(outcome(&results, "Writes"), Outcome::Pass, "{fill}");
+        refused(outcome(&results, "Reads"), "rolled back");
+    }
 }
 
 #[test]
@@ -519,4 +538,58 @@ fn a_list_two_globals_share_reaches_the_next_codeunit_still_shared() {
     let results = run(&pair_shared("KeepList", "ListShared", "2"), &RunOptions::default());
     assert_eq!(outcome(&results, "WritesShared"), Outcome::Pass);
     assert_eq!(outcome(&results, "ReadsShared"), Outcome::Pass);
+}
+
+#[test]
+fn a_temporary_record_filtered_on_a_recordid_reaches_the_next_codeunit() {
+    // Microsoft's "Notification Lifecycle Mgt." leaves TempNotificationContext filtered on "Record ID".
+    let results = run(
+        &pair(
+            "FilterCtx",
+            "if H.CtxFiltered() <> 1 then Error('count %1', H.CtxFiltered());",
+        ),
+        &RunOptions::default(),
+    );
+    assert_eq!(outcome(&results, "Writes"), Outcome::Pass);
+    assert_eq!(outcome(&results, "Reads"), Outcome::Pass);
+}
+
+#[test]
+fn an_empty_temporary_table_with_an_autoincrement_field_whose_counter_never_moved_reaches_the_next_codeunit() {
+    // Microsoft's "Serv. Sales-Post" holds ServItemManagement, whose temporary tables are empty between postings.
+    let results = run(
+        &pair(
+            "FilterAuto",
+            "if H.AutoFilter() <> '5' then Error('filter %1', H.AutoFilter());",
+        ),
+        &RunOptions::default(),
+    );
+    assert_eq!(outcome(&results, "Writes"), Outcome::Pass);
+    assert_eq!(outcome(&results, "Reads"), Outcome::Pass);
+}
+
+#[test]
+fn a_global_that_did_not_read_back_stays_refused_when_another_global_of_its_codeunit_changes() {
+    // The group is handed on whole when one member changes; a member that did not read back still stands for what the
+    // first codeunit left, not for the fresh value it holds.
+    let src = r#"
+codeunit 60274 "Group Fill"
+{
+    Subtype = Test;
+    [Test] procedure FillsAuto() var H: Codeunit "Carry Handles"; begin H.FillAuto(); end;
+}
+codeunit 60275 "Group Other"
+{
+    Subtype = Test;
+    [Test] procedure ChangesOther() var H: Codeunit "Carry Handles"; begin H.FillJson(); end;
+}
+codeunit 60276 "Group Read"
+{
+    Subtype = Test;
+    [Test] procedure ReadsAuto() var H: Codeunit "Carry Handles"; begin if H.AutoCount() <> 1 then Error('x'); end;
+}
+"#;
+    let results = run(src, &RunOptions::default());
+    assert_eq!(outcome(&results, "ChangesOther"), Outcome::Pass);
+    refused(outcome(&results, "ReadsAuto"), "AutoIncrement field");
 }

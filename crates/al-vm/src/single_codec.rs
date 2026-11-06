@@ -216,10 +216,14 @@ enum Place {
 const DEPTH: usize = 12;
 
 /// A row of a record (its fields, a key, a stored row): plain values, and RecordIds (a RecordID field holds one).
-fn row_bytes(row: &[Value]) -> Option<Vec<u8>> {
+/// `Err`: the value that cannot be written.
+fn row_bytes(row: &[Value]) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
     vc::put_u32(&mut out, row.len() as u32);
-    row.iter().all(|v| put_cell(v, &mut out)).then_some(out)
+    match row.iter().find(|v| !put_cell(v, &mut out)) {
+        Some(v) => Err(v.describe()),
+        None => Ok(out),
+    }
 }
 
 fn put_cell(v: &Value, out: &mut Vec<u8>) -> bool {
@@ -292,9 +296,10 @@ fn row_of(bytes: &[u8]) -> Option<Vec<Value>> {
 
 fn put_filter(e: &FilterExpr, out: &mut Vec<u8>) -> bool {
     use vc::{put_str, put_u8, put_u32};
+    // A filter value is written as a cell of a row: a RecordID field is filtered on a RecordId.
     let one = |tag: u8, v: &Value, out: &mut Vec<u8>| {
         put_u8(out, tag);
-        vc::encode(v, out)
+        put_cell(v, out)
     };
     match e {
         FilterExpr::Range(a, b) => {
@@ -304,7 +309,7 @@ fn put_filter(e: &FilterExpr, out: &mut Vec<u8>) -> bool {
                     None => put_u8(out, 0),
                     Some(v) => {
                         put_u8(out, 1);
-                        if !vc::encode(v, out) {
+                        if !put_cell(v, out) {
                             return false;
                         }
                     }
@@ -352,19 +357,19 @@ fn get_filter(r: &mut Reader) -> Option<FilterExpr> {
             let mut ends = [None, None];
             for end in &mut ends {
                 if r.u8()? == 1 {
-                    *end = Some(vc::decode(r)?);
+                    *end = Some(get_cell(r)?);
                 }
             }
             let [a, b] = ends;
             FilterExpr::Range(a, b)
         }
-        1 => FilterExpr::Eq(vc::decode(r)?),
-        2 => FilterExpr::RangeSame(vc::decode(r)?),
-        3 => FilterExpr::Ne(vc::decode(r)?),
-        4 => FilterExpr::Lt(vc::decode(r)?),
-        5 => FilterExpr::Le(vc::decode(r)?),
-        6 => FilterExpr::Gt(vc::decode(r)?),
-        7 => FilterExpr::Ge(vc::decode(r)?),
+        1 => FilterExpr::Eq(get_cell(r)?),
+        2 => FilterExpr::RangeSame(get_cell(r)?),
+        3 => FilterExpr::Ne(get_cell(r)?),
+        4 => FilterExpr::Lt(get_cell(r)?),
+        5 => FilterExpr::Le(get_cell(r)?),
+        6 => FilterExpr::Gt(get_cell(r)?),
+        7 => FilterExpr::Ge(get_cell(r)?),
         t @ (8 | 9) => {
             let n = r.u32()? as usize;
             let mut xs = Vec::with_capacity(n.min(1024));
@@ -477,7 +482,11 @@ impl<'s> Enc<'s> {
         }
         Enc {
             session,
-            shared: reach.iter().filter(|(_, (n, g))| *n > 1 && *g == 1).map(|(p, _)| *p).collect(),
+            shared: reach
+                .iter()
+                .filter(|(_, (n, g))| *n > 1 && *g == 1)
+                .map(|(p, _)| *p)
+                .collect(),
             cross: reach.iter().filter(|(_, (_, g))| *g > 1).map(|(p, _)| *p).collect(),
             in_tree,
             shared_temps: temps.into_iter().filter(|&(_, n)| n > 1).map(|(p, _)| p).collect(),
@@ -495,7 +504,10 @@ impl<'s> Enc<'s> {
     fn unshared<T>(&self, rc: &Rc<T>, v: &Value) -> Result<(), String> {
         let p = ptr(rc);
         if self.cross.contains(&p) {
-            return Err(format!("{} that a variable of another SingleInstance codeunit shares", v.describe()));
+            return Err(format!(
+                "{} that a variable of another SingleInstance codeunit shares",
+                v.describe()
+            ));
         }
         if self.shared.contains(&p) {
             return Err(format!("{} that another carried variable shares", v.describe()));
@@ -508,7 +520,10 @@ impl<'s> Enc<'s> {
     fn place<T>(&self, rc: &Rc<T>, v: &Value) -> Result<Place, String> {
         let p = ptr(rc);
         if self.cross.contains(&p) {
-            return Err(format!("{} that a variable of another SingleInstance codeunit shares", v.describe()));
+            return Err(format!(
+                "{} that a variable of another SingleInstance codeunit shares",
+                v.describe()
+            ));
         }
         if !self.shared.contains(&p) {
             return Ok(Place::Alone);
@@ -652,7 +667,7 @@ impl<'s> Enc<'s> {
                 table: *table,
                 table_no: *table_no,
                 name: name.clone(),
-                key: row_bytes(key).ok_or_else(|| v.describe())?,
+                key: row_bytes(key).map_err(|_| v.describe())?,
             },
             _ => return Err(v.describe()),
         })
@@ -784,7 +799,12 @@ impl<'s> Enc<'s> {
             run_page_link,
         } = &*r;
         let refuse = |why: &str| Err(format!("{} ({why})", what()));
-        let unrow = || format!("{} (a value in its rows or buffer that cannot be carried)", what());
+        let unrow = |cell: String| {
+            format!(
+                "{} (a value in its rows or buffer that cannot be carried: {cell})",
+                what()
+            )
+        };
         if *crm {
             return refuse("a CRM table, whose connection is the session's");
         }
@@ -798,10 +818,14 @@ impl<'s> Enc<'s> {
         };
         let mut max_version = 0;
         let mut temp_rows = None;
+        // A buffer of a row BC rolled back with the test codeunit (the variable's own write, or a row version the
+        // earlier session handed out, which the next session hands out again): its fields go, what it knew of the row
+        // does not (`records::ROLLED_BACK_ROW`).
+        let mut rolled_back = false;
         if *temporary {
-            if self.session.auto_increment_field(&t).map_or(true, |a| a.is_some()) {
+            let Ok(auto) = self.session.auto_increment_field(&t) else {
                 return refuse("a temporary table with an AutoIncrement field, whose counter is the session's");
-            }
+            };
             if let Some(id) = temp_id {
                 if self.shared_temps.contains(&id.id()) {
                     return refuse("a temporary table another carried record shares");
@@ -810,32 +834,44 @@ impl<'s> Enc<'s> {
                     return refuse("a temporary table whose Code key is stored as a number");
                 }
                 let tables = match self.session.temps.get(&id.id()) {
-                    Some(store) => store.export_current().ok_or_else(unrow)?,
+                    Some(store) => store
+                        .export_current()
+                        .ok_or_else(|| unrow("a table with a backing or virtual tables".into()))?,
                     None => Vec::new(),
                 };
                 let mut out = Vec::new();
                 for x in tables {
                     let mut rows = Vec::with_capacity(x.rows.len());
                     for (k, row) in &x.rows {
-                        rows.push((row_bytes(k).ok_or_else(unrow)?, row_bytes(row).ok_or_else(unrow)?));
+                        rows.push((row_bytes(k).map_err(unrow)?, row_bytes(row).map_err(unrow)?));
                     }
                     out.push((x.company, x.object, rows));
                 }
                 temp_rows = Some(out);
             }
-        } else {
-            if row_origin.is_some_and(|o| o.own_write) {
-                return refuse("a buffer of the variable's own write, which BC rolled back with the test codeunit");
+            // An AutoIncrement counter is the session's (`autoinc.rs`): carried only an empty table whose counter the
+            // session never moved, which starts the next session as it started this one.
+            let empty = temp_rows.as_ref().is_none_or(|ts| ts.iter().all(|x| x.2.is_empty()));
+            let used = self.session.autoinc.keys().any(|(_, o)| *o == t.object);
+            if auto.is_some() && (!empty || used) {
+                return refuse("a temporary table with an AutoIncrement field, whose counter is the session's");
             }
+        } else {
             max_version = version_of(fields)
                 .max(row_origin.map_or(0, |o| o.version))
                 .max(failed_insert.unwrap_or(0))
                 .max(last_modify.as_deref().map_or(0, version_of));
-            if max_version > self.bound {
-                return refuse(
-                    "a row version an earlier test codeunit wrote: BC rolled that row back, and the next session \
-                     hands out the same row versions again",
-                );
+            rolled_back = row_origin.is_some_and(|o| o.own_write) || max_version > self.bound;
+            if rolled_back {
+                if load.partial {
+                    return refuse("a partly loaded buffer of a row BC rolled back with an earlier test codeunit");
+                }
+                if unpinned_buffer.is_some() {
+                    return refuse(
+                        "a buffer that is not pinned, of a row BC rolled back with an earlier test codeunit",
+                    );
+                }
+                max_version = 0;
             }
         }
         let LoadState {
@@ -863,13 +899,13 @@ impl<'s> Enc<'s> {
                 missing_loaded: *missing_loaded,
                 fetched: match &fetched.0 {
                     None => None,
-                    Some(row) => Some(row_bytes(row).ok_or_else(unrow)?),
+                    Some(row) => Some(row_bytes(row).map_err(unrow)?),
                 },
                 init: *init,
             }),
         };
         let opt_row = |r: &Option<Vec<Value>>| -> Result<Option<Vec<u8>>, String> {
-            r.as_deref().map(|r| row_bytes(r).ok_or_else(unrow)).transpose()
+            r.as_deref().map(|r| row_bytes(r).map_err(unrow)).transpose()
         };
         let xrec = if globals.is_unset() {
             Vec::new()
@@ -881,12 +917,12 @@ impl<'s> Enc<'s> {
             temporary: *temporary,
             temp_rows,
             company: company.clone(),
-            fields: row_bytes(fields).ok_or_else(unrow)?,
-            filters: filters_bytes(filters).ok_or_else(unrow)?,
+            fields: row_bytes(fields).map_err(unrow)?,
+            filters: filters_bytes(filters).ok_or_else(|| unrow("a filter".into()))?,
             filter_group: *filter_group,
             marks: marks
                 .iter()
-                .map(|m| row_bytes(m).ok_or_else(unrow))
+                .map(|m| row_bytes(m).map_err(unrow))
                 .collect::<Result<_, _>>()?,
             marked_only: *marked_only,
             read_isolation: *read_isolation,
@@ -903,8 +939,9 @@ impl<'s> Enc<'s> {
             touched: *touched,
             assigned: *assigned,
             inserted: *inserted,
-            dirty_base: opt_row(dirty_base)?,
+            dirty_base: if rolled_back { None } else { opt_row(dirty_base)? },
             is_dirty_base: match is_dirty_base {
+                _ if rolled_back => CarryDirty::Unknown(crate::records::ROLLED_BACK_ROW),
                 DirtyBase::Unknown(s) => CarryDirty::Unknown(s),
                 DirtyBase::Fresh => CarryDirty::Fresh,
                 DirtyBase::Synced => CarryDirty::Synced,
@@ -914,21 +951,25 @@ impl<'s> Enc<'s> {
                     dirty_only,
                     stale_store,
                 } => CarryDirty::Row {
-                    base: row_bytes(base).ok_or_else(unrow)?,
+                    base: row_bytes(base).map_err(unrow)?,
                     alt: opt_row(alt)?,
                     dirty_only: *dirty_only,
                     stale_store: *stale_store,
                 },
             },
-            last_modify: opt_row(last_modify)?,
-            failed_insert: *failed_insert,
-            row_origin: row_origin.map(|o| RowOrigin {
+            last_modify: if rolled_back { None } else { opt_row(last_modify)? },
+            failed_insert: if rolled_back { None } else { *failed_insert },
+            row_origin: row_origin.filter(|_| !rolled_back).map(|o| RowOrigin {
                 commits: RowOrigin::EARLIER_SESSION,
                 ..o
             }),
             globals: self.table_globals(globals, depth)?,
             xrec_globals: xrec,
-            unpinned_buffer: *unpinned_buffer,
+            unpinned_buffer: if rolled_back {
+                Some(crate::records::ROLLED_BACK_ROW)
+            } else {
+                *unpinned_buffer
+            },
             max_version,
         })
     }
@@ -1057,7 +1098,9 @@ fn json_handle(
 ) -> Option<al_builtins::json::Handle> {
     use al_builtins::json::{JsonCell, JsonNode, Scalar};
     if let CarryJsonNode::Ref(id) = &j.node {
-        let Some(Value::Library(_, h)) = ids.get(id) else { return None };
+        let Some(Value::Library(_, h)) = ids.get(id) else {
+            return None;
+        };
         match &mut *h.try_borrow_mut().ok()? {
             LibraryValue::Json(c) => c.parent = parent.map(Rc::downgrade),
             _ => return None,
@@ -1078,9 +1121,11 @@ fn json_handle(
                 .map(|(k, c)| Some((k.clone(), json_handle(c, Some(&h), ids)?)))
                 .collect::<Option<_>>()?,
         ),
-        CarryJsonNode::Array(xs) => {
-            JsonNode::Array(xs.iter().map(|c| json_handle(c, Some(&h), ids)).collect::<Option<_>>()?)
-        }
+        CarryJsonNode::Array(xs) => JsonNode::Array(
+            xs.iter()
+                .map(|c| json_handle(c, Some(&h), ids))
+                .collect::<Option<_>>()?,
+        ),
         CarryJsonNode::Null => JsonNode::Scalar(Scalar::Null),
         CarryJsonNode::Undefined => JsonNode::Scalar(Scalar::Undefined),
         CarryJsonNode::Raw(r) => JsonNode::Scalar(Scalar::Raw(r.clone())),
@@ -1229,7 +1274,9 @@ impl Session {
                         return Ok(Value::Library(kind.clone(), json_handle(j, None, ids).ok_or_else(bad)?));
                     }
                     CarryLib::Ref(id) => {
-                        let Some(Value::Library(_, h)) = ids.get(id) else { return Err(bad()) };
+                        let Some(Value::Library(_, h)) = ids.get(id) else {
+                            return Err(bad());
+                        };
                         return Ok(Value::Library(kind.clone(), h.clone()));
                     }
                     _ => {}

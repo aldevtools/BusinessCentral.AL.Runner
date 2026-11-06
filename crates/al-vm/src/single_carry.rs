@@ -181,16 +181,44 @@ impl Session {
         let (objects, groups) = self.single_groups();
         let enc = Enc::new(self, &groups, t.bound);
         for (&object, globals) in objects.iter().zip(&groups) {
-            // A global of a group changed: the whole group is handed on, written together (its members may share
-            // handles, and one changed through another).
-            let changed = globals.iter().enumerate().any(|(g, v)| {
+            let changed: Vec<bool> = (0..globals.len())
+                .map(|g| {
+                    let key = (object, g);
+                    t.seen.contains_key(&key) || t.start.get(&key).is_none_or(|s| !same(s, &globals[g]))
+                })
+                .collect();
+            if !changed.contains(&true) {
+                continue;
+            }
+            let carried = carry_group(&enc, globals);
+            // Globals that share a handle are handed on together (one may have changed through another). What the
+            // others held at the start then counts as read: the walk checks it against the serial state, as what
+            // they hand on rests on it.
+            let shares = carried.iter().any(|c| matches!(c, Carry::Val(x) if IdUse::of(x).any()));
+            let start = (shares && !t.group_start.contains_key(&object)).then(|| self.start_group(t, object, globals));
+            for (g, c) in carried.into_iter().enumerate() {
                 let key = (object, g);
-                t.seen.contains_key(&key) || t.start.get(&key).is_none_or(|s| !same(s, v))
-            });
-            if changed {
-                for (g, c) in carry_group(&enc, globals).into_iter().enumerate() {
-                    out.wrote.insert((object, g), c);
+                if !shares && !changed[g] {
+                    continue;
                 }
+                if shares && !t.seen.contains_key(&key) {
+                    let at_start = t
+                        .group_start
+                        .get(&object)
+                        .or(start.as_ref())
+                        .and_then(|s| s.get(g))
+                        .cloned();
+                    if let Some(c) = at_start {
+                        out.observed.entry(key).or_insert(c);
+                    }
+                }
+                // A global whose carried value did not read back here and that the codeunit did not write since
+                // still stands for what the earlier codeunit left: not carried.
+                let c = match t.poisoned.get(&key) {
+                    Some(why) => Carry::Opaque(why.clone()),
+                    None => c,
+                };
+                out.wrote.insert(key, c);
             }
             if self.events.bindings.iter().any(|b| {
                 b.instance
@@ -233,8 +261,7 @@ impl Session {
             let Some(t) = self.si_track.as_mut() else { return Ok(()) };
             // A global written before this first read: the handles it shares with the others are no longer those
             // of the start, so what those others held at the start is not known.
-            let written = (0..globals.len())
-                .any(|j| j != g && t.seen.get(&(object, j)) == Some(&Seen::Written));
+            let written = (0..globals.len()).any(|j| j != g && t.seen.get(&(object, j)) == Some(&Seen::Written));
             if written {
                 for (c, v) in carried.iter_mut().zip(&globals) {
                     if matches!(c, Carry::Val(x) if IdUse::of(x).any()) {
@@ -252,6 +279,16 @@ impl Session {
             t.observed.insert(key, c);
         }
         Ok(())
+    }
+
+    /// What the globals of single instance `object` held when the session began to track them, written as a group
+    /// (for those the session used, the values then; a global it never used still holds it).
+    fn start_group(&self, t: &Track, object: usize, globals: &[Value]) -> Vec<Carry> {
+        let start: Vec<Value> = (0..globals.len())
+            .map(|g| t.start.get(&(object, g)).cloned().unwrap_or_else(|| globals[g].clone()))
+            .collect();
+        let group = vec![start];
+        carry_group(&Enc::new(self, &group, t.bound), &group[0])
     }
 
     /// The single instances in object order, each with its globals (one group each).
