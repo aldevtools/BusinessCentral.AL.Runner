@@ -302,6 +302,8 @@ pub struct Seek {
     hi: Vec<Value>,
     /// The fields of the position, as far as the bounds reach.
     fields: Vec<usize>,
+    /// Per place of the bounds: the filters hold the field to one value there (`point`).
+    points: Vec<bool>,
 }
 
 /// A filter value a bound can be made of: not a blank text (the filter reads a text of spaces as '', which the key
@@ -363,6 +365,9 @@ impl Seek {
                 (Some(l), Some(h)) => same_kind(l, h) && al_builtins::ops::compare(l, h).ok() == Some(Ordering::Equal),
                 _ => false,
             };
+            if !lo_open || !hi_open {
+                seek.points.push(point);
+            }
             if !lo_open {
                 match lo {
                     Some(l) => seek.lo.push(l.clone()),
@@ -388,9 +393,25 @@ impl Seek {
     /// How `row` stands to the bound `bound` (a prefix of a position): `None` when a value does not compare, in
     /// which case the caller does not trust the order and looks at the row.
     fn cmp_to(&self, row: &[Value], bound: &[Value]) -> Option<Ordering> {
-        for (&i, b) in self.fields.iter().zip(bound) {
+        for ((&i, b), &point) in self.fields.iter().zip(bound).zip(&self.points) {
             if !same_kind(&row[i], b) {
                 return None;
+            }
+            // A text field the filters hold to one value: the rows that pass are those byte-equal to it (`FilterExpr::matches`
+            // compares Eq by code point, or for two Codes with a hyphen by `code_key_order`; a blank bound is never taken,
+            // `usable_bound`), and those are equal to it in the key order too, so they sit together in that order: the
+            // store's own order bounds them, whatever the characters (al-runner issue 6924: "Series Code" = 'S-ORD').
+            if point {
+                if let (Value::Text(x) | Value::Code(x), Value::Text(y) | Value::Code(y)) = (&row[i], b) {
+                    if x.has_marker() || y.has_marker() {
+                        return None;
+                    }
+                    match al_builtins::ops::compare_key_value(&row[i], b) {
+                        Ok(Ordering::Equal) => continue,
+                        Ok(o) => return Some(o),
+                        Err(_) => return None,
+                    }
+                }
             }
             // The store orders text keys by `text_key_order`; the filters compare text by code points. The two agree
             // for upper-case letters and digits only: any other text is looked at row by row.
@@ -1895,277 +1916,7 @@ mod tests {
         rows
     }
 
-    #[test]
-    fn a_filter_on_the_leading_key_fields_makes_the_scan_read_only_the_rows_near_it() {
-        let t = seek_table(vec![vec![0, 1], vec![3, 0, 1]]);
-        let mut s = MemStore::default();
-        for a in 0..200 {
-            for b in 0..100 {
-                let row = vec![
-                    Value::Integer(a),
-                    Value::Integer(b),
-                    Value::Code("X".into()),
-                    Value::Integer(b % 7),
-                ];
-                s.insert(&cx(), &t, row).unwrap();
-            }
-        }
-        let looked = || ROWS_LOOKED_AT.with(|c| c.get());
-        // Primary key: A = 150 is the 150th hundred of 20000 rows.
-        let f = [range(0, Some(Value::Integer(150)), Some(Value::Integer(150)))];
-        let before = looked();
-        let first = s
-            .next(
-                &cx(),
-                &t,
-                &Scan {
-                    key: 0,
-                    filters: &f,
-                    ascending: true,
-                    after: None,
-                },
-            )
-            .unwrap()
-            .unwrap();
-        assert_eq!(format!("{:?}", first[0]), "Integer(150)");
-        assert!(
-            looked() - before <= 5,
-            "primary key: {} rows looked at",
-            looked() - before
-        );
-        // Another key (D, A, B): D = 6 holds one row in seven, and the scan has to find the first of them.
-        let f = [
-            range(3, Some(Value::Integer(6)), Some(Value::Integer(6))),
-            range(0, Some(Value::Integer(190)), None),
-        ];
-        let before = looked();
-        let first = s
-            .next(
-                &cx(),
-                &t,
-                &Scan {
-                    key: 1,
-                    filters: &f,
-                    ascending: true,
-                    after: None,
-                },
-            )
-            .unwrap()
-            .unwrap();
-        assert_eq!(format!("{:?} {:?}", first[3], first[0]), "Integer(6) Integer(190)");
-        assert!(
-            looked() - before <= 5,
-            "other key: {} rows looked at",
-            looked() - before
-        );
-    }
-
-    #[test]
-    fn a_key_slot_that_names_another_key_later_is_ordered_again() {
-        // An ad-hoc key (SetCurrentKey on other fields) takes a slot of the key list; the same slot number then
-        // stands for different fields, and the cached order of the first has to be left (found in Tests-ERM,
-        // codeunit 138025: a seek on a stale order found no Value Entry).
-        let by_b = seek_table(vec![vec![0], vec![1, 0]]);
-        let by_d = seek_table(vec![vec![0], vec![3, 0]]);
-        let mut s = MemStore::default();
-        for a in 0..100 {
-            let row = vec![
-                Value::Integer(a),
-                Value::Integer(a % 10),
-                Value::Code("X".into()),
-                Value::Integer(99 - a),
-            ];
-            s.insert(&cx(), &by_b, row).unwrap();
-        }
-        let f = [range(3, Some(Value::Integer(5)), Some(Value::Integer(5)))];
-        assert_eq!(scan_all(&s, &by_b, 1, &[], true).len(), 100);
-        assert_eq!(
-            format!("{:?}", scan_all(&s, &by_d, 1, &f, true)),
-            format!("{:?}", reference(&s, &by_d, 1, &f, true))
-        );
-        assert_eq!(scan_all(&s, &by_d, 1, &f, true).len(), 1);
-        assert_eq!(
-            format!("{:?}", scan_all(&s, &by_d, 1, &f, false)),
-            format!("{:?}", reference(&s, &by_d, 1, &f, false))
-        );
-    }
-
-    #[test]
-    fn a_scan_in_one_key_uses_the_band_of_another_key_the_filters_bound() {
-        // Filters on D, the leading field of key 1, while the scan runs in the primary key (A, B): the walk reads
-        // every row of the table for each step; the band of key 1 holds the 400 rows that can pass.
-        let t = seek_table(vec![vec![0, 1], vec![3, 0, 1]]);
-        let mut s = MemStore::default();
-        for a in 0..200 {
-            for b in 0..100 {
-                let row = vec![
-                    Value::Integer(a),
-                    Value::Integer(b),
-                    Value::Code("X".into()),
-                    Value::Integer(b % 50),
-                ];
-                s.insert(&cx(), &t, row).unwrap();
-            }
-        }
-        let f = [range(3, Some(Value::Integer(6)), Some(Value::Integer(6)))];
-        let before = ROWS_LOOKED_AT.with(|c| c.get());
-        let got = scan_all(&s, &t, 0, &f, true);
-        let looked = ROWS_LOOKED_AT.with(|c| c.get()) - before;
-        assert_eq!(got.len(), 400);
-        assert!(looked <= 1500, "{looked} rows looked at for a scan of 400 rows");
-        assert_eq!(format!("{got:?}"), format!("{:?}", reference(&s, &t, 0, &f, true)));
-    }
-
-    #[test]
-    fn a_scan_through_another_keys_band_follows_writes_between_the_steps() {
-        let mut seed = 0xD1B5_4A32_D192_ED03u64;
-        let mut rnd = move |n: u64| {
-            seed ^= seed << 13;
-            seed ^= seed >> 7;
-            seed ^= seed << 17;
-            seed % n
-        };
-        for round in 0..30 {
-            let t = seek_table(vec![vec![0, 1], vec![3, 0, 1], vec![2, 3, 0, 1]]);
-            let mut s = MemStore::default();
-            for _ in 0..400 {
-                let row = vec![
-                    Value::Integer(rnd(30) as i32),
-                    Value::Integer(rnd(30) as i32),
-                    Value::Code(["A", "B", "ab", ""][rnd(4) as usize].into()),
-                    Value::Integer(rnd(40) as i32),
-                ];
-                let _ = s.insert(&cx(), &t, row);
-            }
-            let key = (round % 3) as usize;
-            let ascending = round % 2 == 0;
-            let lo = rnd(40) as i32;
-            let filters = vec![
-                range(3, Some(Value::Integer(lo)), Some(Value::Integer(lo + (round % 4)))),
-                FieldFilter {
-                    field: 1,
-                    expr: FilterExpr::Ne(Value::Integer(7)),
-                    group: 0,
-                },
-            ];
-            let mut after: Option<Vec<Value>> = None;
-            for step in 0..300 {
-                // A write between some steps; several reads in a row between others.
-                if rnd(4) == 0 {
-                    let row = vec![
-                        Value::Integer(rnd(30) as i32),
-                        Value::Integer(rnd(30) as i32),
-                        Value::Code(["A", "B", "ab", ""][rnd(4) as usize].into()),
-                        Value::Integer(rnd(40) as i32),
-                    ];
-                    match rnd(3) {
-                        0 => {
-                            let _ = s.insert(&cx(), &t, row);
-                        }
-                        1 => {
-                            let _ = s.modify(&cx(), &t, row);
-                        }
-                        _ => {
-                            let _ = s.delete(&cx(), &t, &[row[0].clone(), row[1].clone()]);
-                        }
-                    }
-                }
-                let got = s
-                    .next(
-                        &cx(),
-                        &t,
-                        &Scan {
-                            key,
-                            filters: &filters,
-                            ascending,
-                            after: after.as_deref(),
-                        },
-                    )
-                    .unwrap();
-                let expect = reference(&s, &t, key, &filters, ascending).into_iter().find(|r| {
-                    after.as_ref().is_none_or(|a| {
-                        let o = key_cmp(&crate::position(&t, key, r), a);
-                        if ascending {
-                            o == Ordering::Greater
-                        } else {
-                            o == Ordering::Less
-                        }
-                    })
-                });
-                assert_eq!(
-                    format!("{got:?}"),
-                    format!("{expect:?}"),
-                    "round {round} step {step} key {key} ascending {ascending}"
-                );
-                after = got.map(|r| crate::position(&t, key, &r));
-            }
-        }
-    }
-
-    #[test]
-    fn a_seek_returns_the_rows_a_walk_returns_in_the_same_order() {
-        let mut seed = 0x9E37_79B9_7F4A_7C15u64;
-        let mut rnd = move |n: u64| {
-            seed ^= seed << 13;
-            seed ^= seed >> 7;
-            seed ^= seed << 17;
-            seed % n
-        };
-        let codes = ["", "A", "B", "ab", "C", " ", "  ", "Z"];
-        for round in 0..60 {
-            let t = seek_table(vec![vec![0, 2, 1], vec![3, 2, 0, 1]]);
-            let mut s = MemStore::default();
-            let n = if round % 3 == 0 { 20 } else { 300 };
-            for _ in 0..n {
-                let row = vec![
-                    Value::Integer(rnd(6) as i32),
-                    Value::Integer(rnd(6) as i32),
-                    Value::Code(codes[rnd(codes.len() as u64) as usize].into()),
-                    Value::Integer(rnd(4) as i32),
-                ];
-                let _ = s.insert(&cx(), &t, row);
-            }
-            for _ in 0..40 {
-                let mut filters = Vec::new();
-                for _ in 0..rnd(4) {
-                    let field = rnd(4) as usize;
-                    let v = |r: u64| -> Value {
-                        if field == 2 {
-                            Value::Code(codes[(r % codes.len() as u64) as usize].into())
-                        } else {
-                            Value::Integer((r % 7) as i32)
-                        }
-                    };
-                    let expr = match rnd(9) {
-                        0 => FilterExpr::Eq(v(rnd(100))),
-                        1 => FilterExpr::Range(Some(v(rnd(100))), None),
-                        2 => FilterExpr::Range(None, Some(v(rnd(100)))),
-                        3 => FilterExpr::Range(Some(v(rnd(100))), Some(v(rnd(100)))),
-                        4 => FilterExpr::Gt(v(rnd(100))),
-                        5 => FilterExpr::Lt(v(rnd(100))),
-                        6 => FilterExpr::Ne(v(rnd(100))),
-                        7 => FilterExpr::Or(vec![FilterExpr::Eq(v(rnd(100))), FilterExpr::Eq(v(rnd(100)))]),
-                        _ => FilterExpr::Le(v(rnd(100))),
-                    };
-                    let group = [0, 0, 0, 2, -1][rnd(5) as usize];
-                    filters.push(FieldFilter { field, expr, group });
-                }
-                for key in 0..2 {
-                    for ascending in [true, false] {
-                        assert_eq!(
-                            format!("{:?}", scan_all(&s, &t, key, &filters, ascending)),
-                            format!("{:?}", reference(&s, &t, key, &filters, ascending)),
-                            "key {key} ascending {ascending} filters {filters:?}"
-                        );
-                    }
-                }
-                assert_eq!(
-                    s.count(&cx(), &t, &filters).unwrap(),
-                    reference(&s, &t, 0, &filters, true).len()
-                );
-            }
-        }
-    }
+    mod seek_tests;
 
     #[test]
     fn passes_the_store_contract() {
