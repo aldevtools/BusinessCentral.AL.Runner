@@ -1057,9 +1057,9 @@ impl Checker<'_> {
 
     fn reach_caption_class_subscribers(&self) {
         for (o, k) in self.ws.caption_class_subscribers() {
-            if self.ws.objects[o].subscribers[k]
-                .event
-                .eq_ignore_ascii_case("OnResolveCaptionClass")
+            if al_ir::RAISED_CAPTION_CLASS_EVENTS
+                .iter()
+                .any(|e| self.ws.objects[o].subscribers[k].event.eq_ignore_ascii_case(e))
             {
                 self.reach_subscriber(o, k);
             }
@@ -1866,9 +1866,9 @@ pub fn uncompiled_subscriber_sites(ws: &Workspace, active: &dyn Fn(usize) -> boo
         add(None, ir::PlatformPublisher::GlobalTriggers, so, si);
     }
     for (so, si) in ws.caption_class_subscribers() {
-        if ws.objects[so].subscribers[si]
-            .event
-            .eq_ignore_ascii_case("OnResolveCaptionClass")
+        if al_ir::RAISED_CAPTION_CLASS_EVENTS
+            .iter()
+            .any(|e| ws.objects[so].subscribers[si].event.eq_ignore_ascii_case(e))
         {
             add(None, ir::PlatformPublisher::CaptionClass, so, si);
         }
