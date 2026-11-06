@@ -1440,6 +1440,35 @@ codeunit 50100 C
     assert_eq!(al_testkit::text(al_testkit::run(src, "Only")), "bookmark=12%3bgWQBAACL");
 }
 
+// metadata/platform-tables/GetUrlBookmarkEnumKey.al:175-206 (Purchase Header, enum + Code key): a Code of seven digits
+// is marked 0x07 (`1234567`), a digit followed by a letter 0xff (`1A`). Other digit-leading forms stay refused.
+#[test]
+fn geturl_composite_enum_code_key_marks_seven_digits_and_digit_then_letter() {
+    let src = r#"
+enum 91310 "LT Z7 Url Kind" { value(0; Quote) { } value(1; Order) { } }
+table 91311 "LT Z7 Url Row" { fields { field(1; Kind; Enum "LT Z7 Url Kind") { } field(2; Code; Code[20]) { } } keys { key(PK; Kind, Code) { } } }
+codeunit 50100 C
+{
+    local procedure Tail(Url: Text): Text begin exit(CopyStr(Url, StrPos(Url, 'bookmark='))); end;
+    local procedure Url(No: Code[20]): Text
+    var Row: Record "LT Z7 Url Row";
+    begin
+        Row.Kind := Row.Kind::Order; Row.Code := No;
+        exit(Tail(GetUrl(ClientType::Web, 'My Company', ObjectType::Page, 22, Row, false)));
+    end;
+    procedure Pinned(): Text begin exit(Url('1234567') + ' ' + Url('1A')); end;
+    procedure Seven() begin Url('12345678'); end;
+    procedure Mixed() begin Url('1A2'); end;
+}
+"#;
+    assert_eq!(
+        al_testkit::text(al_testkit::run(src, "Pinned")),
+        "bookmark=31%3br2QBAACLAQAAAAJ7BzEAMgAzADQANQA2ADc%3d bookmark=21%3br2QBAACLAQAAAAJ7%2fzEAQQ%3d%3d"
+    );
+    assert!(matches!(al_testkit::run(src, "Seven"), Err(Signal::Unsupported(_))));
+    assert!(matches!(al_testkit::run(src, "Mixed"), Err(Signal::Unsupported(_))));
+}
+
 // metadata/platform-tables/GetUrlBookmarkDigitCode.al:117-184 (corpus master): the bookmark of a key of one Code[20]
 // field that starts with a digit. All digits: the marker byte is the digit count (`1` 01, `12345` 05, `007` 03), then the UTF-16
 // text. Digits followed by other characters: 0xff, as for a Code that starts with a letter. An Enum as the only key field: the

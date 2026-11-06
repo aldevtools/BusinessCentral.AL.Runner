@@ -556,6 +556,16 @@ impl Session {
                             return unsupported(format!("view condition `{item}`"));
                         }
                         let ty = t.fields[pos].ty.clone();
+                        // `const("ALT Status"::Active)` in an object property reads as the member
+                        // (record/qualified-enum-filters/TestQualifiedEnumFilters.al:SourceTableView_QualifiedEnumConst_OpensActiveRow,
+                        // al-runner issue 7189). A view given to SetView is text, not AL: no qualifier there.
+                        let value = match &ty {
+                            al_builtins::value::RtType::Enum(id) if !runtime => {
+                                let name = &self.engine.program.objects[*id as usize].name;
+                                al_builtins::enum_qualifier::strip_enum_qualifier(value, name)
+                            }
+                            _ => value,
+                        };
                         // `filter('>10')` is an AL text literal: the filter is what it holds, operators included
                         // (testpage/PnGFixtures.al:666 `SubPageView = where("Line No." = filter('>10'))`, opened by
                         // PnGPartTriggers.al:DisabledPartControlEnabled). A literal with a quote inside is not stripped.

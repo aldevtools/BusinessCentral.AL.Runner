@@ -1875,6 +1875,25 @@ fn a_single_method_entry_starts_without_the_work_date_an_earlier_one_set() {
     assert_eq!(s.line(), json!({"status": "shutting down"}));
 }
 
+/// Al-runner issue 7207, owner decision 2026-11-06: the plain `test` field of a request that picks exactly one test
+/// runs that test alone, as an entry does; a sibling that sets WorkDate does not run before it.
+#[test]
+fn a_plain_test_field_picking_one_test_runs_it_without_its_siblings() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "workdatepair", WORK_DATE_PAIR);
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    s.send(
+        json!({"command": "runTests", "sourcePaths": [a], "test": "Codeunit50100.ReadsIt", "testIsolation": "test"}),
+    );
+    let lines = s.until_summary();
+    let tests: Vec<&Value> = lines.iter().filter(|l| l["type"] == "test").collect();
+    assert_eq!(tests.len(), 1, "{lines:?}");
+    assert!(tests.iter().all(|t| t["status"] == "pass"), "{lines:?}");
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
 const DRAWS: &str = r#"
 codeunit 50310 "Draw Tests"
 {
