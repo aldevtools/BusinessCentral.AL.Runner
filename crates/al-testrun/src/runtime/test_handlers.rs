@@ -156,6 +156,15 @@ impl Handlers {
             .map(|_| ())
     }
 
+    /// [`Handlers::end`] and its refusal: the passing tests of the codeunit are reported as not run (not pinned).
+    pub(crate) fn end_codeunit(&self, session: &mut Session, lowered: &Lowered, out: &mut [(String, Outcome)]) {
+        if let Err(why) = self.end(session, lowered, out) {
+            for (_, o) in out.iter_mut().filter(|(_, o)| *o == Outcome::Pass) {
+                *o = Outcome::NotRun(why.clone());
+            }
+        }
+    }
+
     /// Marks the unprobed assumption of OnAfterTestCodeunitRun when a handler implements it (a test of the codeunit
     /// then relies on its effects staying invisible to, or visible to, later codeunits: not pinned).
     pub(crate) fn mark_after_codeunit(&self, lowered: &Lowered) {
