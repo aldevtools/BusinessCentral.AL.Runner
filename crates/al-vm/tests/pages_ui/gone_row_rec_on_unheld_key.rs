@@ -118,7 +118,13 @@ fn run_on(bc: &str, routine: &str) -> Result<al_builtins::value::Value, al_built
 /// lines settle the same way: RtFilteredGoneRow.al:701 _FourLines, :724 _FiveLines, :747 _SixLines; al-runner issue 7197).
 #[test]
 fn two_to_six_deleted_lines_run_the_triggers_as_the_major_does() {
-    for routine in ["PostTwoLines", "PostThreeLines", "PostFourLines", "PostFiveLines", "PostSixLines"] {
+    for routine in [
+        "PostTwoLines",
+        "PostThreeLines",
+        "PostFourLines",
+        "PostFiveLines",
+        "PostSixLines",
+    ] {
         assert_eq!(
             al_testkit::text(run_on("27.5", routine)),
             "N:B1;C:0:B1;N:B1;C:0:B1;|0",
