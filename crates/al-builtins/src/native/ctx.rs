@@ -54,6 +54,9 @@ pub struct TableFilterField {
     pub name: String,
     /// Its caption, or why reading it is refused.
     pub caption: Result<String, String>,
+    /// For a field whose caption is a literal CaptionClass (`caption` is refused): its declared caption (the Caption property,
+    /// else the English CaptionML, else its name), which the virtual Field table gives as its "Field Caption".
+    pub class_caption: Option<String>,
     pub ty: crate::value::RtType,
     /// An Option or Enum field's members as (ordinal, name, caption), or why reading them is refused; `Ok(None)` for other
     /// fields.
