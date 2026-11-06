@@ -119,6 +119,12 @@ impl Session {
                 .prepared
                 .iter()
                 .any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, &inst)));
+        let caller_written = if caller_set {
+            let object = st.borrow().object as usize;
+            super::caller_slots::written_by_procedures(&self.engine.program.objects[object].routines)
+        } else {
+            Default::default()
+        };
         for (owner, slot, v) in saved {
             // A page extension's variable, or the page's protected one an extension binds: restored as the page's own
             // (pages/PnF02SaveValuesExt.al:157-205).
@@ -138,9 +144,13 @@ impl Session {
                     }
                 }
             }
-            if caller_set && !matches!(v, Value::Record(_)) {
+            if caller_set && !matches!(v, Value::Record(_)) && caller_written.contains(&slot) {
                 // The caller's value stays over the stored one (reports/request-page/P147SaveValuesText.al:
                 // P147_Text_StoredVsCaller_Ok, P147_Boolean_CallerFalseOverStoredTrue, P147_Option_CallerSelectedOverStoredAll).
+                // A control whose variable no procedure of the report writes keeps the stored value, and the stored values are restored
+                // before the request page's OnOpenPage (reports/request-page/SaveValuesOpenPageOrder.al:
+                // SaveValues_OpenPageRecompute_SecondRunOrder, SaveValues_CallerProcedureOnly_EditableFalse_SecondRun `other=[o1]`).
+                // Which procedure the caller ran is not tracked: any variable a procedure of the report writes counts as set (assumed).
                 continue;
             }
             // A stored data item record is copied into the record the instance holds: a reportextension's triggers reach the base
