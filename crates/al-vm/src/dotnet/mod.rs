@@ -1318,6 +1318,9 @@ impl Session {
         shown: &str,
         f: &mut Frame,
     ) -> Result<Value, Signal> {
+        if reply.streams.text_converted_to_guid {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DotNetTextArgumentAsGuid);
+        }
         // Streams first: the bytes .NET read, the new bridges, the bytes written into any bridge.
         for (idx, n) in &reply.streams.consumed {
             if let Some((_, h, base)) = book.ins.iter().find(|(i, _, _)| i == idx) {
