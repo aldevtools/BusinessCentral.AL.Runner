@@ -1916,7 +1916,7 @@ mod tests {
         rows
     }
 
-    mod seek;
+    mod seek_tests;
 
     #[test]
     fn passes_the_store_contract() {
