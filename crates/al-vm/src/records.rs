@@ -118,7 +118,9 @@ pub(crate) fn media_key_marked(rec: &Rec) -> bool {
 
 /// The buffer of a record carried into the next test codeunit's session that holds a row BC rolled back with an earlier
 /// test codeunit (`single_codec.rs`): BC rolls back rows, not variables, so its fields are the variable's and are read
-/// and written as they are; what it knew of the row (its row version, origin and IsDirty base) is not handed on, so a
+/// and written as they are (a rollback leaves the variable's field values: record/crud/RcBTestField.al:449-458 and
+/// :474-478 for an asserterror rollback of an Insert and of a Modify; the globals of a single instance outlive the test
+/// codeunit's rollback: codeunits/TestCuP7BReader.al:24-37); what it knew of the row (its row version, origin and IsDirty base) is not handed on, so a
 /// method that uses those refuses. A Get or Find that finds a row fills it again and the mark goes.
 pub(crate) const ROLLED_BACK_ROW: &str = "the record's buffer holds a row BC rolled back with an earlier test codeunit \
      (al-runner hands on its fields, not what it knew of the row): this method on it is not pinned";

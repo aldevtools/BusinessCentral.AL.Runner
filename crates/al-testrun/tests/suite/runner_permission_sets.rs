@@ -397,9 +397,15 @@ fn a_list_that_does_not_grant_everything_is_checked() {
 
 /// SUPER assigned on top of the runner's sets (`Library - Lower Permissions.AddPermissionSet('SUPER')`): the runner's
 /// sets keep their assumption, and the test's own SUPER adds the unrestricted one.
+/// Runs alone: the mock is a single instance and keeps its state from one test codeunit to the next, as on BC (P7,
+/// al-language/codeunits/TestCuP7BReader.al:24-37). After "Perm Sets Super" the stand-in mock is left started, so
+/// the runner's toggle before this test would stop it.
 #[test]
 fn super_added_to_the_runners_sets_passes_under_the_two_permission_assumptions() {
-    let rt = run();
+    let rt = run_with(&RunOptions {
+        only: Some(vec![(0, 50933)]),
+        ..Default::default()
+    });
     let r = result(&rt, "AddSuperToTheRunnersSets");
     assert_eq!(r.outcome, Outcome::Pass);
     let mut got = r.assumptions.clone();

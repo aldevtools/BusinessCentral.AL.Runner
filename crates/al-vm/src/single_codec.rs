@@ -826,7 +826,7 @@ impl<'s> Enc<'s> {
         let mut temp_rows = None;
         // A buffer of a row BC rolled back with the test codeunit (the variable's own write, or a row version the
         // earlier session handed out, which the next session hands out again): its fields go, what it knew of the row
-        // does not (`records::ROLLED_BACK_ROW`).
+        // does not (`records::ROLLED_BACK_ROW`; pinned by record/crud/RcBTestField.al:449-458, :474-478).
         let mut rolled_back = false;
         if *temporary {
             let Ok(auto) = self.session.auto_increment_field(&t) else {
