@@ -89,6 +89,7 @@ mod xmlport_root_min_occurs_zero;
 mod xmlport_root_table;
 mod xmlport_separator_assign;
 mod xmlport_source_table_view;
+mod xmlport_table_root_nested;
 mod xmlport_table_unbound;
 mod xmlport_tablefilter_field;
 mod xmlport_text_content_optional;
