@@ -1566,16 +1566,18 @@ fn test_inner(
                     v.dedup();
                     v
                 };
-                let run_only = (a.run_selected_only && sel.active()).then(|| {
-                    Arc::new(
-                        found
-                            .iter()
-                            .flat_map(|f| f.tests.iter().map(move |t| (f.id, t)))
-                            .filter(|(id, t)| sel.picks(*id, t))
-                            .map(|(id, t)| (id, t.to_lowercase()))
-                            .collect(),
-                    )
-                });
+                // An entry that selects exactly one test runs that test alone, on a session of its own, as one
+                // runner call per method does in BC (issue 7207; BC 28.4 measured by the reporter): the siblings that
+                // would run first do not leave their WorkDate or other state behind. Entries are not in v2, so the
+                // "selection runs whole codeunits" rule of the plain `test` field stays as it is.
+                let picked: std::collections::BTreeSet<(u32, String)> = found
+                    .iter()
+                    .flat_map(|f| f.tests.iter().map(move |t| (f.id, t)))
+                    .filter(|(id, t)| sel.picks(*id, t))
+                    .map(|(id, t)| (id, t.to_lowercase()))
+                    .collect();
+                let single_method = picked.len() == 1 && sel.active() && !a.execute;
+                let run_only = ((a.run_selected_only && sel.active()) || single_method).then(|| Arc::new(picked));
                 // The entry's resource texts, in each app under test that has a resource of that name (the request
                 // checked that one has).
                 let resources: Vec<(usize, al_testrun::runtime::ResourceFiles)> = inputs

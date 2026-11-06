@@ -1058,6 +1058,11 @@ impl Gate {
                 lines: "1677,1715,1785,1854,1922,1960,1998,2068,2137,2205",
             }],
             Gate::PlatformMetadataColumnsFrom29 => &[
+                // The Tenant Report Layout columns "Layout Status" and "Layout Subtype" (corpus bump to bbfbf855).
+                Evidence {
+                    file: "reports/runtime/Y6TenantReportLayoutRows.al",
+                    lines: "157,249,311",
+                },
                 Evidence {
                     file: "metadata/platform-tables/Y35UserNameFieldRows.al",
                     lines: "86,104,144",

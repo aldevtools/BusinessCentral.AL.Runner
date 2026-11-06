@@ -197,39 +197,7 @@ impl Session {
         let rec_before = (method == PageMethod::AssistEdit && self.has_source(st))
             .then(|| (self.page_rec(st).borrow().fields.clone(), st.borrow().dirty));
         let result = if method == PageMethod::Lookup {
-            // OnLookup(var Text): Boolean. The text it writes back replaces the field's value, and
-            // the Boolean says whether the user picked anything (corpus
-            // testpage/TestPageFieldTableLookup.al:72 Lookup_ControlWithTrigger_WinsOverTheTableFieldsOnLookup,
-            // testpage/TestPageModalHandler_Tests.al:132). The text the trigger starts with is the
-            // control's current text (assumed, docs/probes-needed.md).
-            let object = owner.unwrap_or(st.borrow().object as usize);
-            let inst = self.owner_instance(st, owner);
-            let shown = self.lookup_start_text(st, idx, object, routine)?;
-            self.lookup_trigger_call(st, object, routine, inst, vec![Value::Text(shown.into())])
-                .and_then(|(v, finals)| match (v, finals.first()) {
-                    (Value::Boolean(true), Some(Value::Text(t))) => {
-                        // Written back as the client would type it. The OnLookup of a page extension's modify block
-                        // leaves a Code field in the case it wrote (`Text := 'FromExt'` reads back FromExt), the page's
-                        // own trigger does not (FROMCTL) (pages/lookups/W2Lookups.al:
-                        // ModifyBlockOnLookup_ReturnsTrue, BC 27.5 and 29.0).
-                        st.borrow_mut().lookup_setting_value = true;
-                        let r = self.control_set_value(st, idx, &mut [Value::Text(t.clone())]);
-                        st.borrow_mut().lookup_setting_value = false;
-                        let binding = page_of(&self.engine(), st).controls[idx].binding.clone();
-                        if let ir::Binding::Field(pos) = binding {
-                            let rec = self.page_rec(st);
-                            let is_code = matches!(rec.borrow().fields[pos], Value::Code(_));
-                            if is_code && owner.is_some() && r.is_ok() {
-                                rec.borrow_mut().fields[pos] = Value::Code(t.clone());
-                            }
-                        }
-                        r
-                    }
-                    (Value::Boolean(true), other) => {
-                        unsupported(format!("an OnLookup trigger whose Text is {}", other.describe()))
-                    }
-                    _ => Ok(Value::Null),
-                })
+            self.on_lookup_trigger(st, idx, owner, routine)
         } else {
             let r = self.owner_routine(st, owner, routine).map(|_| Value::Null);
             match r {
@@ -668,14 +636,7 @@ impl Session {
             ));
         }
         if let Some((object, routine)) = field.on_lookup {
-            let rec = self.page_rec(st);
-            st.borrow_mut().refresh = false;
-            self.call_on_record(object, routine, rec, None, Vec::new())?;
-            // The control now shows what the trigger wrote, as an edit of the row (assumed,
-            // docs/probes-needed.md).
-            st.borrow_mut().dirty = true;
-            self.run_refresh(st)?;
-            return Ok(Value::Null);
+            return self.field_on_lookup(st, object, routine);
         }
         if !field.relation {
             return Ok(Value::Null);
@@ -1071,10 +1032,13 @@ impl Session {
                 .as_ref()
                 .map(|v| (v.filters.clone(), v.key.0, v.key.1.clone(), v.ascending)),
         );
+        // Refused once it ran (`part_tree_typed.rs`).
+        let empty_tree_part_in_key = self.empty_tree_part_in_key(st);
         let was_in_action = std::mem::replace(&mut st.borrow_mut().in_action, true);
         let r = self.action_invoke_body(st, idx);
         st.borrow_mut().view_before_action = outer_view;
         let r = match r {
+            Ok(_) if empty_tree_part_in_key && self.view_row_count(st)? > 0 => self.refuse_empty_tree_part_action(),
             Ok(v) => self.settle_rows_after_action(st, view_before).map(|()| v),
             e => e,
         };
@@ -1689,14 +1653,14 @@ impl Session {
                 // An action that emptied the view of a list without the new-row line and left Rec, with CurrPage.Update(false), on
                 // a primary key no row has: the list stands on the blank Rec as when Rec keeps the deleted row's key
                 // (`settle_on_blank_rec`; pages/RtFilteredGoneRow.al:640 TD_LeavesKey_Line1WithUpdate_OneLine
-                // `R:10000;N:B1:0;C:B1:0;`, :700 _OtherBatchRowRemains; al-runner issue 6027). With two or three rows shown before
+                // `R:10000;N:B1:0;C:B1:0;`, :700 _OtherBatchRowRemains; al-runner issue 6027). With two to six rows shown before
                 // the action BC 28 runs OnNewRecord and OnAfterGetCurrRecord once, BC 27 and BC 29 twice (:656
-                // TD_LeavesKey_Line1WithUpdate_ThreeLines, :679 _TwoLines, `#if BC28PLUS and not BC29PLUS`; the reporter's page
-                // testpage/Y1WorksheetPostLog.al:161 Y1_Post_TwoLines, :177 Y1_Post_ThreeLines; al-runner issue 6292).
-                // Rows left in the view, another count of rows shown before (four and more are not pinned) or no
-                // CurrPage.Update(false) are not built.
+                // TD_LeavesKey_Line1WithUpdate_ThreeLines, :679 _TwoLines, :701 _FourLines, :724 _FiveLines, :747 _SixLines,
+                // `#if BC28PLUS and not BC29PLUS`; the reporter's page testpage/Y1WorksheetPostLog.al:161 Y1_Post_TwoLines,
+                // :177 Y1_Post_ThreeLines; al-runner issues 6292, 7197). Rows left in the view, seven or more rows shown
+                // before (not pinned) or no CurrPage.Update(false) are not built.
                 let rows_before = held_before.as_ref().map_or(0, Vec::len);
-                let on_blank = (1..=3).contains(&rows_before) && {
+                let on_blank = (1..=6).contains(&rows_before) && {
                     let s = st.borrow();
                     s.gone_blank_no_new_line && s.open && s.cursor == Cursor::None && !s.draft
                 };
@@ -2673,7 +2637,7 @@ impl Session {
         // first, and once more before the refresh's own read (pages/list-key-navigation/SgListKeyMovesTests.al SG_Key_FourRows_Moves
         // `update` `R:C;U;R:C;R:C;R:C;R:B;R:A;R:C;R:D;R:C;R:C;R:C;C:C;` against SG_Pk_FourRows_Moves, and the same in
         // SG_Key_OneRow_Open and SG_Key_ThirtyRows_Moves; corpus bump PR 738).
-        let once_more = self.still_reads_once_more(st);
+        let once_more = self.still_reads_once_more(st) || self.part_reads_once_more(st, rec, key)?;
         let by_action_update_false = {
             let s = st.borrow();
             s.marking_action && s.refresh && s.refresh_by_update && s.refresh_update_false && s.host.is_none()
