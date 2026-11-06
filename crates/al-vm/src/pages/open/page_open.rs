@@ -1472,6 +1472,7 @@ fn reset_row_line_flags(s: &mut al_builtins::value::PageState) {
     s.gone_blank_shows_line = false;
     s.gone_view_list = false;
     s.list_view_switched = false;
+    s.list_edit_back = false;
 }
 
 fn reset_host_row_flags(s: &mut al_builtins::value::PageState) {

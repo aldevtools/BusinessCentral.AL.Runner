@@ -225,109 +225,258 @@ fn probe_6977_view_on_a_list_without_card_drops_the_new_row_line() {
     );
 }
 
-/// What the probe does not pin after View on such a list: each step is refused, never guessed. The walk stays pinned.
+/// The objects of testpage/R6977ListAfterView.al with Assert.AreEqual replaced by Error on a difference.
 const AFTER_VIEW: &str = r##"
-codeunit 95990 "TP R6977 After View"
+table 96060 "TP R6977B Line"
+{
+    DataClassification = SystemMetadata;
+
+    fields
+    {
+        field(1; "Line No."; Integer) { }
+        field(2; Description; Text[30]) { }
+    }
+
+    keys
+    {
+        key(PK; "Line No.") { Clustered = true; }
+    }
+}
+
+page 96061 "TP R6977B Lines"
+{
+    PageType = List;
+    SourceTable = "TP R6977B Line";
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Rows)
+            {
+                field("Line No."; Rec."Line No.") { ApplicationArea = All; }
+                field(Description; Rec.Description) { ApplicationArea = All; }
+            }
+        }
+    }
+}
+
+codeunit 96062 "TP R6977B After View"
 {
     Subtype = Test;
     TestPermissions = Disabled;
 
-    local procedure OpenSwitched(var Lines: TestPage "TP R6977 Lines")
+    local procedure Initialize()
     var
-        Line: Record "TP R6977 Line";
+        Line: Record "TP R6977B Line";
     begin
         Line.DeleteAll();
-        Line."Header No." := 'H1';
+        Line."Line No." := 10000;
+        Line.Description := 'a';
+        Line.Insert();
+        Line."Line No." := 20000;
+        Line.Description := 'b';
+        Line.Insert();
+    end;
+
+    local procedure AreEqual(Expected: Text; Actual: Text)
+    begin
+        if Expected <> Actual then
+            Error('expected %1 got %2', Expected, Actual);
+    end;
+
+    local procedure Stored(LineNo: Integer): Text
+    var
+        Line: Record "TP R6977B Line";
+    begin
+        if not Line.Get(LineNo) then
+            exit('<none>');
+        exit(Line.Description);
+    end;
+
+    local procedure StoredCount(): Text
+    var
+        Line: Record "TP R6977B Line";
+    begin
+        exit(Format(Line.Count()));
+    end;
+
+    local procedure Observe(Name: Text; Shown: Text): Text
+    begin
+        exit(Name + '=' + Shown + ';');
+    end;
+
+    local procedure OpenOnFirst(var Lines: TestPage "TP R6977B Lines")
+    begin
+        Lines.OpenEdit();
+        Lines.First();
+    end;
+
+    local procedure TypeDescription(var Lines: TestPage "TP R6977B Lines"; var Log: Text; Prefix: Text)
+    begin
+        ClearLastError();
+        Lines.Description.SetValue('x');
+        Log += Observe(Prefix + 'err', GetLastErrorText());
+        Log += Observe(Prefix + 'valErrs', Format(Lines.ValidationErrorCount()));
+        Log += Observe(Prefix + 'shown', Lines.Description.Value());
+        Log += Observe(Prefix + 'now', Stored(10000));
+    end;
+
+    [Test]
+    procedure TP6977B_View_FieldEditable()
+    var
+        Lines: TestPage "TP R6977B Lines";
+        Log: Text;
+    begin
+        Initialize();
+        OpenOnFirst(Lines);
+        Log += Observe('before|page', Format(Lines.Editable()));
+        Log += Observe('before|description', Format(Lines.Description.Editable()));
+        Log += Observe('before|lineNo', Format(Lines."Line No.".Editable()));
+        Lines.View().Invoke();
+        Log += Observe('after|page', Format(Lines.Editable()));
+        Log += Observe('after|description', Format(Lines.Description.Editable()));
+        Log += Observe('after|lineNo', Format(Lines."Line No.".Editable()));
+        Log += Observe('after|row', Lines."Line No.".Value());
+        Lines.Close();
+        AreEqual('before|page=Yes;before|description=Yes;before|lineNo=Yes;after|page=No;after|description=No;after|lineNo=No;after|row=10000;', Log);
+    end;
+
+    [Test]
+    procedure TP6977B_View_SetValue()
+    var
+        Lines: TestPage "TP R6977B Lines";
+        Log: Text;
+    begin
+        Initialize();
+        OpenOnFirst(Lines);
+        Lines.View().Invoke();
+        TypeDescription(Lines, Log, 'after|');
+        Lines.Close();
+        Log += Observe('closed', Stored(10000));
+        Log += Observe('stored', StoredCount());
+        AreEqual('after|err=;after|valErrs=0;after|shown=x;after|now=a;closed=x;stored=2;', Log);
+    end;
+
+    [Test]
+    procedure TP6977B_View_EditViewActions()
+    var
+        Lines: TestPage "TP R6977B Lines";
+        Log: Text;
+    begin
+        Initialize();
+        OpenOnFirst(Lines);
+        Log += Observe('before|editVisible', Format(Lines.Edit().Visible()));
+        Log += Observe('before|editEnabled', Format(Lines.Edit().Enabled()));
+        Log += Observe('before|viewVisible', Format(Lines.View().Visible()));
+        Log += Observe('before|viewEnabled', Format(Lines.View().Enabled()));
+        Lines.View().Invoke();
+        Log += Observe('after|editVisible', Format(Lines.Edit().Visible()));
+        Log += Observe('after|editEnabled', Format(Lines.Edit().Enabled()));
+        Log += Observe('after|viewVisible', Format(Lines.View().Visible()));
+        Log += Observe('after|viewEnabled', Format(Lines.View().Enabled()));
+        Lines.Close();
+        AreEqual('before|editVisible=Yes;before|editEnabled=No;before|viewVisible=Yes;before|viewEnabled=Yes;after|editVisible=Yes;after|editEnabled=Yes;after|viewVisible=Yes;after|viewEnabled=No;', Log);
+    end;
+
+    [Test]
+    procedure TP6977B_View_ThenEditInvoke()
+    var
+        Lines: TestPage "TP R6977B Lines";
+        Log: Text;
+    begin
+        Initialize();
+        OpenOnFirst(Lines);
+        Lines.View().Invoke();
+        Lines.Edit().Invoke();
+        Log += Observe('back|page', Format(Lines.Editable()));
+        Log += Observe('back|description', Format(Lines.Description.Editable()));
+        Log += Observe('back|editEnabled', Format(Lines.Edit().Enabled()));
+        Log += Observe('back|viewEnabled', Format(Lines.View().Enabled()));
+        Log += Observe('back|row', Lines."Line No.".Value());
+        TypeDescription(Lines, Log, 'back|');
+        Lines.Close();
+        Log += Observe('closed', Stored(10000));
+        Log += Observe('stored', StoredCount());
+        AreEqual('back|page=Yes;back|description=Yes;back|editEnabled=No;back|viewEnabled=Yes;back|row=10000;back|err=;back|valErrs=0;back|shown=x;back|now=a;closed=x;stored=2;', Log);
+    end;
+}
+"##;
+
+/// R6977ListAfterView.al:125, :142, :164, :187: Editable, SetValue and the Edit and View actions after View, and Edit back.
+#[test]
+fn probe_6977b_after_view_on_a_list_without_card() {
+    let o = outcomes_in(AFTER_VIEW, "TP R6977B After View");
+    assert_eq!(
+        format!("{o:?}"),
+        r#"[("TP6977B_View_FieldEditable", Pass), ("TP6977B_View_SetValue", Pass), ("TP6977B_View_EditViewActions", Pass), ("TP6977B_View_ThenEditInvoke", Pass)]"#
+    );
+}
+
+/// What no probe pins after View and then Edit on such a list: whether the new-row line comes back for a walk, and a second
+/// switch. Each is refused, never guessed.
+const AFTER_EDIT_BACK: &str = r##"
+codeunit 96063 "TP R6977B After Edit Back"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    local procedure OpenBack(var Lines: TestPage "TP R6977B Lines")
+    var
+        Line: Record "TP R6977B Line";
+    begin
+        Line.DeleteAll();
         Line."Line No." := 10000;
         Line.Insert();
         Lines.OpenEdit();
-        Lines.Filter.SetFilter("Header No.", 'H1');
         Lines.First();
         Lines.View().Invoke();
-    end;
-
-    [Test]
-    procedure FieldEditable()
-    var
-        Lines: TestPage "TP R6977 Lines";
-    begin
-        OpenSwitched(Lines);
-        if Lines.Description.Editable() then;
-    end;
-
-    [Test]
-    procedure FieldSetValue()
-    var
-        Lines: TestPage "TP R6977 Lines";
-    begin
-        OpenSwitched(Lines);
-        Lines.Description.SetValue('x');
-    end;
-
-    [Test]
-    procedure EditEnabled()
-    var
-        Lines: TestPage "TP R6977 Lines";
-    begin
-        OpenSwitched(Lines);
-        if Lines.Edit().Enabled() then;
-    end;
-
-    [Test]
-    procedure ViewEnabled()
-    var
-        Lines: TestPage "TP R6977 Lines";
-    begin
-        OpenSwitched(Lines);
-        if Lines.View().Enabled() then;
-    end;
-
-    [Test]
-    procedure ViewInvokeAgain()
-    var
-        Lines: TestPage "TP R6977 Lines";
-    begin
-        OpenSwitched(Lines);
-        Lines.View().Invoke();
-    end;
-
-    [Test]
-    procedure EditInvokeIsPinnedAsANoOp()
-    var
-        Lines: TestPage "TP R6977 Lines";
-    begin
-        OpenSwitched(Lines);
         Lines.Edit().Invoke();
     end;
 
     [Test]
-    procedure FieldValueStillRead()
+    procedure WalkNext()
     var
-        Lines: TestPage "TP R6977 Lines";
+        Lines: TestPage "TP R6977B Lines";
     begin
-        OpenSwitched(Lines);
-        if Lines."Line No.".Value() <> '10000' then
-            Error('read %1', Lines."Line No.".Value());
-        if not Lines.Description.Visible() then
-            Error('not visible');
+        OpenBack(Lines);
+        if Lines.Next() then;
+    end;
+
+    [Test]
+    procedure ViewAgain()
+    var
+        Lines: TestPage "TP R6977B Lines";
+    begin
+        OpenBack(Lines);
+        Lines.View().Invoke();
+    end;
+
+    [Test]
+    procedure NewRow()
+    var
+        Lines: TestPage "TP R6977B Lines";
+    begin
+        OpenBack(Lines);
+        Lines.New();
     end;
 }
 "##;
 
 #[test]
-fn after_view_on_a_list_without_card_unpinned_steps_are_refused() {
-    let src = format!("{PROBE}\n{AFTER_VIEW}");
-    let o = outcomes_in(&src, "TP R6977 After View");
+fn after_view_then_edit_on_a_list_without_card_unpinned_steps_are_refused() {
+    let src = format!("{AFTER_VIEW}\n{AFTER_EDIT_BACK}");
+    let o = outcomes_in(&src, "TP R6977B After Edit Back");
     for (name, outcome) in &o {
-        match (name.as_str(), outcome) {
-            ("FieldValueStillRead" | "EditInvokeIsPinnedAsANoOp", al_testrun::Outcome::Pass) => {}
-            ("FieldValueStillRead", other) => panic!("FieldValueStillRead: {other:?}"),
-            (_, al_testrun::Outcome::NotRun(why)) => assert!(
-                why.contains("after the built-in View switched a list without a card to view mode"),
+        match outcome {
+            al_testrun::Outcome::NotRun(why) => assert!(
+                why.contains("after the built-in View and then Edit switched a list without a card"),
                 "{name}: {why}"
             ),
-            (_, other) => panic!("{name}: expected a refusal, got {other:?}"),
+            other => panic!("{name}: expected a refusal, got {other:?}"),
         }
     }
-    assert_eq!(o.len(), 7, "{o:?}");
+    assert_eq!(o.len(), 3, "{o:?}");
 }
