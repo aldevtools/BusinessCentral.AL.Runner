@@ -20,7 +20,7 @@ use super::chain_walk::Carry as ChainCarry;
 use super::corpus::refuse_all;
 use super::written::{ReachIndex, union_reach_facts};
 use super::*;
-use al_vm::single_carry::{Carry, GlobalKey};
+use al_vm::single_carry::{BINDINGS_KEY, Carry, GlobalKey};
 
 std::thread_local! {
     /// Whether the last run again kept the Test Runner's rows unseen (`suite_rows::take_unseen`).
@@ -363,12 +363,20 @@ impl SingleWalk<'_> {
     fn distrust(&self, s: &Stream, r: &mut UnitResult) {
         let Ok(done) = &mut r.result else { return };
         let Some(out) = done.5.singles_out.as_ref() else { return };
-        let why = out.observed.keys().find_map(|key| s.unknown.get(key).map(|why| (key, why))).map(|((o, g), why)| {
-            let obj = &self.lowered.program.objects[*o];
+        let why = out.observed.keys().find_map(|key| s.unknown.get(key).map(|why| (key, why))).map(|(&key, why)| {
+            if key == BINDINGS_KEY {
+                return format!(
+                    "an earlier test codeunit of the run was refused ({why}): it can bind or unbind event subscribers, \
+                     and this codeunit raises an event with a manual subscriber, so the state it would have left is not \
+                     BC's"
+                );
+            }
+            let (o, g) = key;
+            let obj = &self.lowered.program.objects[o];
             format!(
                 "an earlier test codeunit of the run was refused ({why}): it can change variable {} of SingleInstance \
                  codeunit {}, which this codeunit reads, so the state it would have left is not BC's",
-                obj.globals.get(*g).map_or("?", |s| s.name.as_str()),
+                obj.globals.get(g).map_or("?", |s| s.name.as_str()),
                 obj.name
             )
         });
@@ -403,17 +411,6 @@ impl SingleWalk<'_> {
                 if !out.observed.contains_key(key) {
                     s.unknown.remove(key);
                 }
-            }
-            if let Some(&o) = out.bound.first() {
-                // Whether BC keeps a manual binding of a single instance for the next test codeunit is not pinned
-                // (docs/probes-needed.md).
-                s.unknown_all.get_or_insert_with(|| {
-                    format!(
-                        "SingleInstance codeunit {} was still bound to its manual subscribers when test codeunit {} \
-                         ended, and whether that binding reaches the next test codeunit is not pinned",
-                        self.lowered.program.objects[o].name, r.id
-                    )
-                });
             }
         }
         let refused: Vec<&str> = done
@@ -455,6 +452,10 @@ impl SingleWalk<'_> {
         };
         if let Some(why) = &facts.unknown {
             s.unknown_all.get_or_insert_with(|| format!("{what}: {why}"));
+        }
+        // A refused test that may bind or unbind: which bindings reach the next codeunit is not known.
+        if facts.state_writes & super::written::state::BINDING != 0 {
+            s.unknown.entry(BINDINGS_KEY).or_insert_with(|| what.clone());
         }
         for &(o, g) in &facts.globals_written {
             if single_instance(self.lowered, o) {

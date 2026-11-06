@@ -474,6 +474,8 @@ impl Session {
                 continue;
             }
             if s.manual {
+                // Which instances are bound may come from an earlier test codeunit (single_carry.rs BINDINGS_KEY).
+                self.single_bindings_read()?;
                 for inst in self.bound_instances(s.object) {
                     self.refuse_unpinned_page_binding(&inst)?;
                     targets.push((s.clone(), inst));
@@ -742,6 +744,7 @@ impl Session {
             self.events.bindings.push(Binding {
                 instance: Rc::downgrade(&inst),
             });
+            self.single_bindings_changed();
             self.note_page_binding(&inst);
             self.sync_active_instances();
             Ok(Value::Boolean(true))
@@ -749,6 +752,7 @@ impl Session {
             // True even when it was never bound (Contract 6, "container-verified").
             if let Some(i) = at {
                 self.events.bindings.remove(i);
+                self.single_bindings_changed();
             }
             self.forget_page_held(&inst);
             self.sync_active_instances();

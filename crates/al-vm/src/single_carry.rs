@@ -20,7 +20,7 @@
 //! (`Signal::Unsupported`).
 
 use crate::Session;
-use crate::single_codec::{CarryVal, Enc, IdUse, Ids};
+use crate::single_codec::{BindingRanks, CarryVal, Enc, IdUse, Ids, binding_ranks, bound_in};
 use al_builtins::describe::Describe;
 use al_builtins::value::{Instance, Value};
 use std::cell::RefCell;
@@ -29,6 +29,12 @@ use std::rc::Rc;
 
 /// A global of a single instance: (object index, slot).
 pub type GlobalKey = (usize, usize);
+
+/// Not a global: the manual bindings that reach the next test codeunit (BC keeps them,
+/// TestEventSingleInstanceBindingBoundary.al:98-99). Its value names the bound single instances and the globals that
+/// hold a bound instance, each with its place among the bindings; an event with a manual subscriber reads it. A bound
+/// instance held where the codec cannot write it makes it a value that is not carried (refused where it is read).
+pub const BINDINGS_KEY: GlobalKey = (usize::MAX, 0);
 
 /// The value of a global, in a form that can go to another thread and be compared.
 #[derive(Debug, Clone)]
@@ -51,16 +57,50 @@ impl PartialEq for Carry {
     }
 }
 
+/// The value of [`BINDINGS_KEY`] for bindings `b`, the globals' carried values in `held`.
+fn bindings_carry(b: &BindingRanks, held: &[(GlobalKey, &Carry)]) -> Carry {
+    let mut lines: Vec<(u32, String)> = b.singles.iter().map(|&(o, r)| (r, format!("s {o} {r}"))).collect();
+    let mut found = HashSet::new();
+    for &((o, g), c) in held {
+        if let Carry::Val(v) = c {
+            let mut ranks = Vec::new();
+            bound_in(v, &mut ranks);
+            for r in ranks {
+                if found.insert(r) {
+                    lines.push((r, format!("h {o} {g} {r}")));
+                }
+            }
+        }
+    }
+    if b.deep {
+        return Carry::Opaque("a manual binding of a codeunit instance held deeper than al-runner hands on".into());
+    }
+    if let Some(r) = b.ranks.values().find(|r| !found.contains(r)) {
+        let _ = r;
+        let what = held
+            .iter()
+            .find_map(|(_, c)| match c {
+                Carry::Opaque(why) => Some(why.as_str()),
+                Carry::Val(_) => None,
+            })
+            .unwrap_or("a value al-runner cannot hand on");
+        return Carry::Opaque(format!(
+            "a manual binding of a codeunit instance that a SingleInstance codeunit holds in {what}"
+        ));
+    }
+    lines.sort();
+    Carry::Val(CarryVal::Plain(
+        lines.into_iter().map(|(_, l)| l).collect::<Vec<_>>().join("\n").into_bytes(),
+    ))
+}
+
 /// What one test codeunit's session did with the single instances, from the point the session began to track them.
 #[derive(Debug, Clone, Default)]
 pub struct SingleOut {
     /// The globals it read before writing them, with the value each held then.
     pub observed: BTreeMap<GlobalKey, Carry>,
-    /// The end value of each global it used or changed.
+    /// The end value of each global it used or changed, and of [`BINDINGS_KEY`] when the bindings changed.
     pub wrote: BTreeMap<GlobalKey, Carry>,
-    /// Single instances with a manual subscription still bound at the end (`BindSubscription` without
-    /// `UnbindSubscription`): whether BC keeps such a binding for the next test codeunit is not pinned.
-    pub bound: Vec<usize>,
 }
 
 /// How a global was first used in this session.
@@ -87,6 +127,14 @@ pub(crate) struct Track {
     /// a global read first held at the start, also when a global of the same codeunit sharing a handle with it
     /// changed the handle before.
     group_start: HashMap<usize, Vec<Carry>>,
+    /// The value of [`BINDINGS_KEY`] when the session began to track (after the restore).
+    bind_start: Option<Carry>,
+    /// A `BindSubscription` or `UnbindSubscription` ran: what the globals hold may be bound otherwise now.
+    bindings_changed: bool,
+    /// The restored globals that hold a bound instance: an event with a manual subscriber reads them.
+    held: Vec<GlobalKey>,
+    /// Bindings of the restore, bound once it is done: (place, instance).
+    pending: Vec<(u32, Rc<RefCell<Instance>>)>,
 }
 
 /// Whether `a` and `b` are the same value: equal simple values, or the same handle.
@@ -120,14 +168,126 @@ impl Session {
             snapshot(&mut track, object, inst);
         }
         self.si_track = Some(Box::new(track));
+        let b = self.binding_carry();
+        if let Some(t) = self.si_track.as_mut() {
+            t.bind_start = Some(b);
+        }
+    }
+
+    /// The value of [`BINDINGS_KEY`] now.
+    fn binding_carry(&self) -> Carry {
+        let b = binding_ranks(self);
+        if b.singles.is_empty() && b.ranks.is_empty() && !b.deep {
+            return Carry::Val(CarryVal::Plain(Vec::new()));
+        }
+        let bound = self.si_track.as_ref().map_or(0, |t| t.bound);
+        let (objects, groups) = self.single_groups();
+        let enc = Enc::new(self, &groups, bound);
+        let carried: Vec<(GlobalKey, Carry)> = objects
+            .iter()
+            .zip(&groups)
+            .flat_map(|(&o, globals)| {
+                carry_group(&enc, globals)
+                    .into_iter()
+                    .enumerate()
+                    .map(move |(g, c)| ((o, g), c))
+            })
+            .collect();
+        let held: Vec<(GlobalKey, &Carry)> = carried.iter().map(|(k, c)| (*k, c)).collect();
+        bindings_carry(&b, &held)
+    }
+
+    /// A carried instance bound at the end of the codeunit before, at place `rank` (`single_codec.rs`).
+    pub(crate) fn carried_binding(&mut self, rank: u32, inst: &Rc<RefCell<Instance>>) {
+        if let Some(t) = self.si_track.as_mut() {
+            t.pending.push((rank, inst.clone()));
+        }
+    }
+
+    /// Binds what the restore carried, in the order of the session before and before any binding of this one.
+    fn bind_carried(&mut self) {
+        let Some(t) = self.si_track.as_mut() else { return };
+        let mut pending = std::mem::take(&mut t.pending);
+        if pending.is_empty() {
+            return;
+        }
+        pending.sort_by_key(|(r, _)| *r);
+        pending.dedup_by(|a, b| Rc::ptr_eq(&a.1, &b.1));
+        let carried: Vec<crate::dispatch::Binding> = pending
+            .iter()
+            .map(|(_, i)| crate::dispatch::Binding {
+                instance: Rc::downgrade(i),
+            })
+            .collect();
+        self.events.bindings.splice(0..0, carried);
+        self.sync_active_instances();
+    }
+
+    /// A `BindSubscription` or `UnbindSubscription` changed the bindings.
+    pub(crate) fn single_bindings_changed(&mut self) {
+        if let Some(t) = self.si_track.as_mut() {
+            t.bindings_changed = true;
+        }
+    }
+
+    /// An event picks its manual subscribers: it reads which carried bindings there are ([`BINDINGS_KEY`]) and the
+    /// globals that hold a carried bound instance.
+    pub(crate) fn single_bindings_read(&mut self) -> Result<(), crate::Signal> {
+        let Some(t) = self.si_track.as_mut() else { return Ok(()) };
+        if t.seen.contains_key(&BINDINGS_KEY) {
+            return Ok(());
+        }
+        if let Some(why) = t.poisoned.get(&BINDINGS_KEY) {
+            return Err(crate::Signal::Unsupported(why.clone()));
+        }
+        t.seen.insert(BINDINGS_KEY, Seen::Read);
+        if let Some(c) = t.bind_start.clone() {
+            t.observed.insert(BINDINGS_KEY, c);
+        }
+        for (o, g) in t.held.clone() {
+            if let Some(inst) = self.singletons.get(&o).cloned() {
+                self.single_read(&inst, g)?;
+            }
+        }
+        Ok(())
     }
 
     /// Puts back what earlier test codeunits left in the single instances: each global of `state` gets its value; a
     /// handle (`Carry::Opaque`) is refused when the codeunit reads it before writing it. Call after
     /// [`Session::track_single_instances`].
     pub fn restore_single_instances(&mut self, state: &BTreeMap<GlobalKey, Carry>) {
-        let mut objects: Vec<usize> = state.keys().map(|k| k.0).collect();
+        let mut objects: Vec<usize> = state.keys().map(|k| k.0).filter(|&o| o != BINDINGS_KEY.0).collect();
         objects.dedup();
+        match state.get(&BINDINGS_KEY) {
+            Some(Carry::Val(CarryVal::Plain(text))) => {
+                for line in String::from_utf8_lossy(text).lines() {
+                    let f: Vec<usize> = line.split(' ').skip(1).filter_map(|x| x.parse().ok()).collect();
+                    if line.starts_with("s ")
+                        && let [object, rank] = f[..]
+                    {
+                        let inst = self.codeunit_instance(object);
+                        self.ensure_initialized(&inst);
+                        self.carried_binding(rank as u32, &inst);
+                    }
+                }
+            }
+            Some(c) => {
+                let why = match c {
+                    Carry::Opaque(why) => why.clone(),
+                    Carry::Val(_) => "a value that does not read back".into(),
+                };
+                if let Some(t) = self.si_track.as_mut() {
+                    t.poisoned.insert(
+                        BINDINGS_KEY,
+                        format!(
+                            "an event with a manual subscriber: an earlier test codeunit of the run left {why} bound, \
+                             which al-runner cannot hand on to the next test codeunit exactly"
+                        ),
+                    );
+                }
+            }
+            None => {}
+        }
         for object in objects {
             let inst = self.codeunit_instance(object);
             // The globals of one single instance are one group: decoded in order, with one set of numbered handles.
@@ -139,13 +299,34 @@ impl Session {
                     continue;
                 }
                 let bound = self.si_track.as_ref().map_or(0, |t| t.bound);
+                let pending = self.si_track.as_ref().map_or(0, |t| t.pending.len());
                 let refused = match carry {
                     Carry::Val(c) => match self.carry_decode(c, bound, &mut ids) {
                         Ok(v) => {
                             inst.borrow_mut().globals[g] = v;
+                            if let Some(t) = self.si_track.as_mut()
+                                && t.pending.len() > pending
+                            {
+                                t.held.push((object, g));
+                            }
                             None
                         }
-                        Err(why) => Some(why),
+                        Err(why) => {
+                            // A bound instance inside a value that does not read back: its binding is not carried.
+                            if let Some(t) = self.si_track.as_mut()
+                                && t.pending.len() > pending
+                            {
+                                t.pending.truncate(pending);
+                                t.poisoned.entry(BINDINGS_KEY).or_insert_with(|| {
+                                    format!(
+                                        "an event with a manual subscriber: an earlier test codeunit of the run left a \
+                                         codeunit instance bound in {why}, which al-runner cannot hand on to the next \
+                                         test codeunit exactly"
+                                    )
+                                });
+                            }
+                            Some(why)
+                        }
                     },
                     Carry::Opaque(what) => Some(what.clone()),
                 };
@@ -168,6 +349,11 @@ impl Session {
                 }
             }
         }
+        self.bind_carried();
+        let b = self.binding_carry();
+        if let Some(t) = self.si_track.as_mut() {
+            t.bind_start = Some(b);
+        }
     }
 
     /// What the session did with the single instances since [`Session::track_single_instances`]; `None` when it did not
@@ -181,10 +367,22 @@ impl Session {
         let (objects, groups) = self.single_groups();
         let enc = Enc::new(self, &groups, t.bound);
         for (&object, globals) in objects.iter().zip(&groups) {
+            // After a BindSubscription or UnbindSubscription, a global that holds a bound instance, or held one at the
+            // start, may stand for another binding although it holds the same handle.
+            let rebound = t.bindings_changed
+                && (t.held.iter().any(|k| k.0 == object) || {
+                    let mut ranks = Vec::new();
+                    carry_group(&enc, globals).iter().for_each(|c| {
+                        if let Carry::Val(v) = c {
+                            bound_in(v, &mut ranks)
+                        }
+                    });
+                    !ranks.is_empty()
+                });
             let changed: Vec<bool> = (0..globals.len())
                 .map(|g| {
                     let key = (object, g);
-                    t.seen.contains_key(&key) || t.start.get(&key).is_none_or(|s| !same(s, &globals[g]))
+                    rebound || t.seen.contains_key(&key) || t.start.get(&key).is_none_or(|s| !same(s, &globals[g]))
                 })
                 .collect();
             if !changed.contains(&true) {
@@ -220,13 +418,13 @@ impl Session {
                 };
                 out.wrote.insert(key, c);
             }
-            if self.events.bindings.iter().any(|b| {
-                b.instance
-                    .upgrade()
-                    .is_some_and(|i| Rc::ptr_eq(&i, &self.singletons[&object]))
-            }) {
-                out.bound.push(object);
-            }
+        }
+        let bindings = match t.poisoned.get(&BINDINGS_KEY) {
+            Some(why) => Carry::Opaque(why.clone()),
+            None => self.binding_carry(),
+        };
+        if t.bindings_changed || t.bind_start.as_ref() != Some(&bindings) {
+            out.wrote.insert(BINDINGS_KEY, bindings);
         }
         Some(out)
     }
@@ -338,12 +536,30 @@ pub struct MovedSingles {
     temps: std::collections::HashMap<u64, al_data::memory::MemStore>,
     next_temp: u64,
     temp_release: Rc<RefCell<Vec<u64>>>,
+    /// The manual bindings BC keeps for the next test codeunit (`single_codec::binding_ranks`), oldest first.
+    bindings: Vec<crate::dispatch::Binding>,
 }
 
 impl Session {
     /// Moves the single instances and the temporary tables out of this finished session (see [`MovedSingles`]).
     pub fn take_single_instances(&mut self) -> MovedSingles {
+        let kept = binding_ranks(self);
+        let mut bindings: Vec<(u32, crate::dispatch::Binding)> = Vec::new();
+        for b in &self.events.bindings {
+            let Some(i) = b.instance.upgrade() else { continue };
+            let object = i.borrow().object as usize;
+            let rank = kept
+                .ranks
+                .get(&(Rc::as_ptr(&i) as *const () as usize))
+                .copied()
+                .or_else(|| kept.singles.iter().find(|s| s.0 == object && i.borrow().single).map(|s| s.1));
+            if let Some(r) = rank {
+                bindings.push((r, crate::dispatch::Binding { instance: Rc::downgrade(&i) }));
+            }
+        }
+        bindings.sort_by_key(|b| b.0);
         MovedSingles {
+            bindings: bindings.into_iter().map(|b| b.1).collect(),
             singletons: std::mem::take(&mut self.singletons),
             temps: std::mem::take(&mut self.temps),
             next_temp: self.next_temp,
@@ -363,6 +579,8 @@ impl Session {
         self.next_temp = self.next_temp.max(moved.next_temp);
         self.temps.extend(moved.temps);
         self.singletons.extend(moved.singletons);
+        self.events.bindings.splice(0..0, moved.bindings);
+        self.sync_active_instances();
     }
 }
 

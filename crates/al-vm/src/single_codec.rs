@@ -138,6 +138,10 @@ pub struct CarryInst {
     pub born: bool,
     pub xp_text: Vec<(u8, String)>,
     pub globals: Vec<CarryVal>,
+    /// Bound by `BindSubscription` at the end of the codeunit: its place among the bindings that reach the next
+    /// session ([`binding_ranks`]). BC keeps the binding of an instance a single instance's global holds
+    /// (TestEventSingleInstanceBindingBoundary.al:99), so the next session binds it again.
+    pub bound: Option<u32>,
 }
 
 /// One table of a temporary record's private store: company, object, and each row's key and values (encoded).
@@ -450,6 +454,8 @@ pub(crate) struct Enc<'s> {
     ids: RefCell<HashMap<usize, u32>>,
     /// The committed row version when the session began to track the single instances.
     bound: i64,
+    /// Each bound instance whose binding reaches the next session, with its place ([`binding_ranks`]).
+    bind_ranks: HashMap<usize, u32>,
 }
 
 /// What [`count`] notes while it walks the roots of one group.
@@ -458,6 +464,8 @@ struct Counts {
     seen: HashMap<usize, u32>,
     temps: HashMap<u64, u32>,
     in_tree: HashSet<usize>,
+    /// The walk stopped at [`DEPTH`] somewhere: a handle below it was not seen.
+    deep: bool,
 }
 
 fn ptr<T>(rc: &Rc<T>) -> usize {
@@ -496,6 +504,7 @@ impl<'s> Enc<'s> {
             shared_temps: temps.into_iter().filter(|&(_, n)| n > 1).map(|(p, _)| p).collect(),
             ids: RefCell::default(),
             bound,
+            bind_ranks: binding_ranks(session).ranks,
         }
     }
 
@@ -758,6 +767,7 @@ impl<'s> Enc<'s> {
                 .iter()
                 .map(|g| self.val(g, depth + 1))
                 .collect::<Result<_, _>>()?,
+            bound: self.bind_ranks.get(&ptr(inst)).copied(),
         })
     }
 
@@ -986,6 +996,7 @@ impl<'s> Enc<'s> {
 /// Counts how often each handle (and each temporary table) is reached from the roots; a handle is entered once.
 fn count(v: &Value, c: &mut Counts, depth: usize) {
     if depth >= DEPTH {
+        c.deep = true;
         return;
     }
     let mut first = |p: usize| {
@@ -1092,6 +1103,84 @@ fn count_rec(rc: &Rc<RefCell<RecordState>>, c: &mut Counts, depth: usize) {
     }
     for (_, i) in insts {
         count(&Value::Codeunit(i), c, depth + 1);
+    }
+}
+
+/// The manual bindings that reach the next test codeunit's session. BC keeps, across the test codeunit boundary, the
+/// binding of a SingleInstance subscriber and of an ordinary subscriber held in a SingleInstance codeunit's global, and
+/// drops that of an ordinary subscriber the test codeunit held (TestEventSingleInstanceBindingBoundary.al:91, :98-99):
+/// the binding lives as long as its instance, and only the single instances and what their globals hold outlive the
+/// test codeunit.
+#[derive(Default)]
+pub(crate) struct BindingRanks {
+    /// Each bound instance a single instance's globals hold, with its place among the bindings that reach the next
+    /// session (oldest first, counted from 0).
+    pub ranks: HashMap<usize, u32>,
+    /// The single instances that are bound (object index), with their place.
+    pub singles: Vec<(usize, u32)>,
+    /// The walk of the single instances' globals stopped at [`DEPTH`] while an ordinary instance was bound: whether a
+    /// global holds it is not known.
+    pub deep: bool,
+}
+
+pub(crate) fn binding_ranks(session: &Session) -> BindingRanks {
+    let mut out = BindingRanks::default();
+    let live: Vec<Rc<RefCell<Instance>>> = session
+        .events
+        .bindings
+        .iter()
+        .filter_map(|b| b.instance.upgrade())
+        .collect();
+    if live.is_empty() {
+        return out;
+    }
+    let mut c = Counts::default();
+    if live.iter().any(|i| i.try_borrow().is_ok_and(|i| !i.single)) {
+        for inst in session.singletons.values() {
+            if let Ok(i) = inst.try_borrow() {
+                for g in &i.globals {
+                    count(g, &mut c, 0);
+                }
+            }
+        }
+        out.deep = c.deep;
+    }
+    let mut rank = 0;
+    for inst in &live {
+        let single = inst.try_borrow().map_or(None, |i| i.single.then_some(i.object as usize));
+        if let Some(object) = single {
+            if session.singletons.get(&object).is_some_and(|s| Rc::ptr_eq(s, inst)) {
+                out.singles.push((object, rank));
+                rank += 1;
+            }
+        } else if c.seen.contains_key(&ptr(inst)) && !out.ranks.contains_key(&ptr(inst)) {
+            out.ranks.insert(ptr(inst), rank);
+            rank += 1;
+        }
+    }
+    out
+}
+
+/// The places of the bound instances carried value `c` holds ([`CarryInst::bound`]).
+pub(crate) fn bound_in(c: &CarryVal, out: &mut Vec<u32>) {
+    let inst = |i: &CarryInst, out: &mut Vec<u32>| {
+        out.extend(i.bound);
+        i.globals.iter().for_each(|g| bound_in(g, out));
+    };
+    match c {
+        CarryVal::Codeunit(i) => inst(i, out),
+        CarryVal::DotNetInternal { state: xs, .. } | CarryVal::List { items: xs, .. } | CarryVal::Array(xs) => {
+            xs.iter().for_each(|x| bound_in(x, out))
+        }
+        CarryVal::Dictionary(kv) => kv.iter().for_each(|(k, x)| {
+            bound_in(k, out);
+            bound_in(x, out);
+        }),
+        CarryVal::Record(r) | CarryVal::Library(_, CarryLib::RecordRef(r)) => {
+            r.globals.iter().chain(&r.xrec_globals).for_each(|(_, i)| inst(i, out))
+        }
+        CarryVal::Def(_, x) => bound_in(x, out),
+        _ => {}
     }
 }
 
@@ -1318,7 +1407,7 @@ impl Session {
             .iter()
             .map(|g| self.carry_decode(g, bound, ids))
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(Rc::new(RefCell::new(Instance {
+        let inst = Rc::new(RefCell::new(Instance {
             object: i.object,
             globals,
             initialized: i.initialized,
@@ -1328,7 +1417,12 @@ impl Session {
             xp_text: i.xp_text.clone(),
             born: al_builtins::value::Born(i.born),
             single: false,
-        })))
+        }));
+        if let Some(rank) = i.bound {
+            // Bound again once every global is back, in the order of the session before (`restore_single_instances`).
+            self.carried_binding(rank, &inst);
+        }
+        Ok(inst)
     }
 
     fn carry_rec(&mut self, c: &CarryRec, bound: i64, ids: &mut Ids) -> Result<Rc<RefCell<RecordState>>, String> {

@@ -733,3 +733,146 @@ fn clear_on_a_rolled_back_buffer_leaves_a_new_record() {
     let results = run(&pair("KeepNewRow", "H.ClearNewRow();"), &RunOptions::default());
     assert_eq!(outcome(&results, "Reads"), Outcome::Pass);
 }
+
+/// Bindings across the test codeunit boundary: BC keeps the binding of a SingleInstance subscriber and of an ordinary
+/// subscriber a SingleInstance codeunit's global holds, and drops that of a subscriber the test codeunit held
+/// (corpus al-language/codeunits/TestEventSingleInstanceBindingBoundary.al:91, :98-99).
+const BINDINGS: &str = r#"
+codeunit 60280 "Bind Pub"
+{
+    [IntegrationEvent(false, false)] procedure OnPing(var Hits: Text) begin end;
+    procedure Raise(): Text var Hits: Text; begin OnPing(Hits); exit(Hits); end;
+}
+codeunit 60281 "Bind SI Sub"
+{
+    SingleInstance = true;
+    EventSubscriberInstance = Manual;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Bind Pub", 'OnPing', '', false, false)]
+    local procedure Ping(var Hits: Text) begin Hits += 'S'; end;
+}
+codeunit 60282 "Bind Plain Sub"
+{
+    EventSubscriberInstance = Manual;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Bind Pub", 'OnPing', '', false, false)]
+    local procedure Ping(var Hits: Text) begin Hits += 'P'; end;
+}
+codeunit 60283 "Bind Held Sub"
+{
+    EventSubscriberInstance = Manual;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Bind Pub", 'OnPing', '', false, false)]
+    local procedure Ping(var Hits: Text) begin Hits += 'H'; end;
+}
+codeunit 60284 "Bind Holder"
+{
+    SingleInstance = true;
+    var Held: Codeunit "Bind Held Sub";
+    procedure BindHeld(): Boolean begin exit(BindSubscription(Held)); end;
+    procedure UnbindHeld() begin UnbindSubscription(Held); end;
+}
+codeunit 60285 "Bind 1 Setup"
+{
+    Subtype = Test;
+    var Plain: Codeunit "Bind Plain Sub";
+    [Test] procedure Binds()
+    var Pub: Codeunit "Bind Pub"; Si: Codeunit "Bind SI Sub"; Holder: Codeunit "Bind Holder";
+    begin
+        BindSubscription(Si);
+        BindSubscription(Plain);
+        if not Holder.BindHeld() then Error('not bound');
+        if Pub.Raise() <> 'SPH' then Error('setup %1', Pub.Raise());
+    end;
+}
+codeunit 60286 "Bind 2 Check"
+{
+    Subtype = Test;
+    [Test] procedure SeesTheKeptBindings()
+    var Pub: Codeunit "Bind Pub";
+    begin
+        if Pub.Raise() <> 'SH' then Error('check %1', Pub.Raise());
+    end;
+}
+codeunit 60287 "Bind 3 Unbind"
+{
+    Subtype = Test;
+    [Test] procedure UnbindsTheHeldOne()
+    var Pub: Codeunit "Bind Pub"; Holder: Codeunit "Bind Holder";
+    begin
+        Holder.UnbindHeld();
+        if Pub.Raise() <> 'S' then Error('unbind %1', Pub.Raise());
+    end;
+}
+codeunit 60288 "Bind 4 Check"
+{
+    Subtype = Test;
+    [Test] procedure SeesOnlyTheSingleInstance()
+    var Pub: Codeunit "Bind Pub";
+    begin
+        if Pub.Raise() <> 'S' then Error('last %1', Pub.Raise());
+    end;
+}
+"#;
+
+#[test]
+fn bindings_a_single_instance_keeps_alive_reach_the_next_codeunit_and_others_do_not() {
+    for serial in [false, true] {
+        let opts = RunOptions {
+            single_serial_check: serial,
+            ..Default::default()
+        };
+        let rt = runtime(BINDINGS, &opts);
+        assert!(rt.phases.chain.serial_mismatches.is_empty(), "{:?}", rt.phases.chain.serial_mismatches);
+        for r in rt.results() {
+            assert_eq!(r.outcome, Outcome::Pass, "{} (serial check {serial})", r.test);
+        }
+    }
+}
+
+/// A bound subscriber held in a SingleInstance global that cannot be handed on (its own temporary table has an
+/// AutoIncrement field with rows): its binding is not dropped silently; an event with a manual subscriber in the next
+/// codeunit is refused.
+const BINDING_NOT_CARRIED: &str = r#"
+codeunit 60290 "Bind Pub2"
+{
+    [IntegrationEvent(false, false)] procedure OnPing(var Hits: Text) begin end;
+    procedure Raise(): Text var Hits: Text; begin OnPing(Hits); exit(Hits); end;
+}
+codeunit 60291 "Bind Auto Sub"
+{
+    EventSubscriberInstance = Manual;
+    var Rows: Record "Carry Auto" temporary;
+    procedure Fill() begin Rows.Insert(); end;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Bind Pub2", 'OnPing', '', false, false)]
+    local procedure Ping(var Hits: Text) begin Hits += 'A'; end;
+}
+codeunit 60292 "Bind Auto Holder"
+{
+    SingleInstance = true;
+    var Held: Codeunit "Bind Auto Sub";
+    procedure BindHeld() begin Held.Fill(); BindSubscription(Held); end;
+}
+codeunit 60293 "Bind Auto Setup"
+{
+    Subtype = Test;
+    [Test] procedure Binds()
+    var Holder: Codeunit "Bind Auto Holder";
+    begin
+        Holder.BindHeld();
+    end;
+}
+codeunit 60294 "Bind Auto Check"
+{
+    Subtype = Test;
+    [Test] procedure Raises()
+    var Pub: Codeunit "Bind Pub2";
+    begin
+        if Pub.Raise() <> 'A' then Error('raise %1', Pub.Raise());
+    end;
+}
+"#;
+
+#[test]
+fn a_binding_held_where_it_cannot_be_handed_on_is_refused_not_dropped() {
+    let results = run(BINDING_NOT_CARRIED, &RunOptions::default());
+    assert_eq!(outcome(&results, "Binds"), Outcome::Pass);
+    refused(outcome(&results, "Raises"), "an event with a manual subscriber");
+}
