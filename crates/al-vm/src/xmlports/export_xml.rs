@@ -940,7 +940,7 @@ fn table_root_with_content(schema: &Schema, top: usize) -> bool {
 /// `<Root Ver="v1" xmlns="...">`), else the uri of the empty prefix `""`, whether `""` is listed first or last
 /// (xmlports/shapes-properties/Y17XmlPortNamespacesTests.al:60, :71); a used default namespace replaces that uri (:82).
 /// The namespaces of root `root` of a port with Namespaces and UseDefaultNamespace (`ir::XmlPort::udn_root_prefix`; `port_ns` is
-/// the DefaultNamespace, else BC's namespace of the port: corpus branch al-runtime-rs-staging-r7130, XpUseDefaultNsWithDefault.al
+/// the DefaultNamespace, else BC's namespace of the port: corpus PR 1158, XpUseDefaultNsWithDefault.al
 /// XDN_TextLeaf_Export, _Item_Export, _RootPlain_Export, _RootSecond_Export, _TableRoot_Export, _ItemUtf16_Export): the root loses its prefix and its uri becomes the default namespace (the port's for a
 /// root without a prefix), declared after the named ones; an element without a prefix declares `port_ns` where the default namespace
 /// in scope differs, its children inherit it; a prefixed element keeps its prefix and the scope (corpus

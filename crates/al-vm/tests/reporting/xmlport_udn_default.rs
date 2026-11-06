@@ -1,5 +1,5 @@
 //! An Xml port with `Namespaces`, `DefaultNamespace` and `UseDefaultNamespace = true` (al-runner issue 7131; corpus
-//! xmlports/shapes-properties/XpUseDefaultNsWithDefault.al on branch al-runtime-rs-staging-r7130). The export writes the root
+//! xmlports/shapes-properties/XpUseDefaultNsWithDefault.al from corpus PR 1158). The export writes the root
 //! without its prefix, with `xmlns` set to the uri of that prefix (the DefaultNamespace for a root without a prefix); an element
 //! without a prefix is in the DefaultNamespace and declares it where the namespace in scope differs.
 

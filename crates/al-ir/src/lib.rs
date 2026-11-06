@@ -774,7 +774,7 @@ pub struct XmlPort {
     /// `UseDefaultNamespace = true` with `Namespaces` (`default_ns` is the `DefaultNamespace`, else BC's namespace of the port):
     /// the export writes the root without its prefix, with the uri of that prefix as the default namespace, and an element without
     /// a prefix declares the port's namespace where the namespace in scope differs (corpus
-    /// xmlports/shapes-properties/XpUseDefaultNsPrefixes.al; with DefaultNamespace: corpus branch al-runtime-rs-staging-r7130,
+    /// xmlports/shapes-properties/XpUseDefaultNsPrefixes.al; with DefaultNamespace: corpus PR 1158,
     /// XpUseDefaultNsWithDefault.al). Its import is refused.
     #[serde(default)]
     pub udn_root_prefix: bool,
