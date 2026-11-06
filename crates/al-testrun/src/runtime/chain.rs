@@ -83,6 +83,9 @@ pub enum SerialWhy {
     Guessed,
     /// Its run ahead started from another state than the walk's (a wrong prediction).
     Missed,
+    /// Its run ahead started from the walk's rows, but read a SingleInstance global that held another value there than
+    /// in the walk's state (ADR-066 amendment 1, `single_walk.rs`).
+    SingleState,
     /// Its run ahead started from the walk's state, but what it left cannot be rebuilt on the walk's thread.
     NotRebuilt,
 }
@@ -101,6 +104,7 @@ impl SerialWhy {
                 "its run ahead started before the members before it had run, and was not run again in time"
             }
             SerialWhy::Missed => "its run ahead started from another state than the walk's",
+            SerialWhy::SingleState => "its run ahead read SingleInstance state other than the walk's",
             SerialWhy::NotRebuilt => "what its run ahead left could not be rebuilt",
         }
     }

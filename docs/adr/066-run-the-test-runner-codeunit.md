@@ -316,6 +316,15 @@ as read (the walk checks it). A handle two single instances share, a record two 
 carried RecordRef's buffer) and a temporary table two records share are refused. A .NET object of the
 session's .NET process, streams and the other library values are refused where a later codeunit reads them first.
 
+**Predicted starts (speed).** The carry chain's walk (`chain_walk.rs`) goes through its members in run order, so it
+keeps the SingleInstance state of each BC session as it goes and runs a member on its own thread from that state. The
+helper threads run members ahead from a predicted state: the walk's state with what the members between wrote in their
+last runs applied (`chain_runs.rs` `Runs::guess_singles`). The walk takes a run ahead only when every global it read
+first held the walk's value (`single_walk::fits`; a global the walk's state does not hold must not have been given to
+the run either). A helper does not start a member while a member before it runs on the walk's thread (its change is
+not known), and the walk waits for an idle helper instead of running the next member itself. `single_walk.rs` still
+checks every run against the serial state, so a wrong prediction costs time, never an outcome.
+
 **Chain members run again.** A chain member that runs again from the serial state and changes a subset of the
 tables its first run changed (it skips a setup, as an `isInitialized` flag makes Microsoft's tests do) relays its rows:
 every later codeunit that reads one of them read one of the first run's tables too and runs again from the new rows.

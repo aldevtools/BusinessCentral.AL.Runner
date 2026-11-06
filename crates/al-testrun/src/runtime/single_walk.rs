@@ -20,7 +20,7 @@ use super::chain_walk::Carry as ChainCarry;
 use super::corpus::refuse_all;
 use super::written::{ReachIndex, reach_facts};
 use super::*;
-use al_vm::single_carry::GlobalKey;
+use al_vm::single_carry::{Carry, GlobalKey};
 
 std::thread_local! {
     /// Whether the last run again kept the Test Runner's rows unseen (`suite_rows::take_unseen`).
@@ -111,14 +111,7 @@ impl SingleWalk<'_> {
                 }
                 continue;
             }
-            let matches = match slots[k].as_ref().map(|r| &r.result) {
-                Some(Ok(done)) => done.5.singles_out.as_ref().is_none_or(|out| {
-                    out.observed
-                        .iter()
-                        .all(|(key, seen)| s.state.get(key).is_none_or(|v| v == seen))
-                }),
-                _ => true,
-            };
+            let matches = slots[k].as_ref().is_none_or(|r| fits(r, &s.state));
             // A chain member before it ran again and left something else than its first run: the chain members after
             // it, and the codeunits that read what the chain left, start from that.
             let relayed = s
@@ -452,10 +445,115 @@ impl SingleWalk<'_> {
     }
 }
 
+/// Whether run `r` saw, of every SingleInstance global it read before writing it, what the state `serial` gives it: the
+/// value `serial` holds (or it was given that very value), or, for a global `serial` does not hold (no earlier codeunit wrote it), the value of a new instance, which the run saw when it did not start with that global given (`Unit::singletons`: none, the serial
+/// state of `walk`, or a prediction of the carry chain's walk, `chain_walk.rs`). A run that did not track them fits.
+pub(super) fn fits(r: &UnitResult, serial: &SingleState) -> bool {
+    let Ok(done) = &r.result else { return true };
+    let Some(out) = done.5.singles_out.as_ref() else {
+        return true;
+    };
+    let start = done.5.singles_in.as_deref();
+    out.observed
+        .iter()
+        .all(|(key, seen)| match (serial.get(key), start.and_then(|s| s.get(key))) {
+            // The run was given the very value `serial` holds: it restored it as the run from `serial` does
+            // (`Session::restore_single_instances`), whatever its first read encodes it as (a record buffer of a
+            // rolled-back row reads back without its row version), and a value that is not carried (the same
+            // description) was refused where it read it, as there.
+            (Some(v), Some(given)) if same_given(v, given) => true,
+            (Some(v), _) => v == seen,
+            (None, given) => given.is_none(),
+        })
+}
+
+/// Whether two carried values restore the same: equal carried values, or values that are not carried with the same
+/// description.
+fn same_given(a: &Carry, b: &Carry) -> bool {
+    match (a, b) {
+        (Carry::Opaque(x), Carry::Opaque(y)) => x == y,
+        _ => a == b,
+    }
+}
+
+/// The state `before` with what run `r` wrote applied (`walk`'s `take`, without what refused tests may have changed);
+/// also what it wrote. Predictions only (`chain_walk.rs`): `fits` checks every run against the state of `walk`.
+pub(super) fn after_run(before: &SingleState, r: &UnitResult) -> (SingleState, Option<Arc<SingleState>>) {
+    let wrote = match &r.result {
+        Ok(done) => done.5.singles_out.as_ref().map(|out| Arc::new(out.wrote.clone())),
+        Err(_) => None,
+    };
+    let mut now = before.clone();
+    if let Some(w) = &wrote {
+        now.extend(w.iter().map(|(k, v)| (*k, v.clone())));
+    }
+    (now, wrote)
+}
+
 /// Whether object `o` is a codeunit with `SingleInstance = true`.
 fn single_instance(lowered: &Lowered, o: usize) -> bool {
     lowered.program.objects[o]
         .properties
         .iter()
         .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use al_vm::single_codec::CarryVal;
+
+    fn val(b: u8) -> Carry {
+        Carry::Val(CarryVal::Plain(vec![b]))
+    }
+
+    /// A run that read global (1, 0) first and saw `seen` there, started from `start`.
+    fn run(start: Option<SingleState>, seen: Carry) -> UnitResult {
+        let mut scratch = Scratch {
+            singles_in: start.map(Arc::new),
+            ..Default::default()
+        };
+        scratch.singles_out = Some(al_vm::single_carry::SingleOut {
+            observed: [((1, 0), seen)].into_iter().collect(),
+            ..Default::default()
+        });
+        UnitResult {
+            si: 0,
+            oi: 0,
+            id: 1,
+            result: Ok((Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), scratch)),
+            took: std::time::Duration::ZERO,
+            sidecar_start: std::time::Duration::ZERO,
+        }
+    }
+
+    fn state(c: Carry) -> SingleState {
+        [((1, 0), c)].into_iter().collect()
+    }
+
+    /// A run given the very value the serial state holds fits, even when its first read encodes it otherwise (a
+    /// record buffer of a rolled-back row reads back without its row version, Tests-Dimension 134485), and so does a
+    /// value that is not carried with the same description.
+    #[test]
+    fn a_run_given_the_serial_value_fits_whatever_its_first_read_encodes() {
+        assert!(fits(&run(Some(state(val(1))), val(2)), &state(val(1))));
+        let opaque = || Carry::Opaque("a stream".into());
+        assert!(fits(&run(Some(state(opaque())), opaque()), &state(opaque())));
+        assert!(!fits(
+            &run(Some(state(Carry::Opaque("other".into()))), opaque()),
+            &state(opaque())
+        ));
+    }
+
+    /// A run given another value, or none, fits only when it saw the serial value; a run given a value for a global
+    /// the serial state does not hold never fits.
+    #[test]
+    fn a_run_given_another_value_fits_only_when_it_saw_the_serial_one() {
+        assert!(fits(&run(Some(state(val(3))), val(1)), &state(val(1))));
+        assert!(!fits(&run(Some(state(val(3))), val(3)), &state(val(1))));
+        assert!(fits(&run(None, val(1)), &state(val(1))));
+        assert!(!fits(&run(None, val(0)), &state(val(1))));
+        assert!(fits(&run(None, val(0)), &SingleState::new()));
+        assert!(!fits(&run(Some(state(val(0))), val(0)), &SingleState::new()));
+    }
 }
