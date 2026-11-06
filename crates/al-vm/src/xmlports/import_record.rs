@@ -272,10 +272,10 @@ impl Session {
                 ir::XmlNodeKind::Text if attributed_leaves(schema, child) => {
                     self.xp_import_attributed_leaves(inst, schema, child, ce, &mut assigned)?;
                 }
-                ir::XmlNodeKind::Text if plain_text_tree(schema, child) => {
+                ir::XmlNodeKind::Text if plain_import_tree(schema, node, child) => {
                     self.xp_import_plain_tree(inst, schema, child, ce, &mut assigned)?;
                 }
-                ir::XmlNodeKind::Text if plain_valued_leaf(schema, child) => {
+                ir::XmlNodeKind::Text if plain_import_leaf(schema, node, child) => {
                     self.xp_assign_leaf_text(inst, schema, child, ce)?;
                 }
                 _ => return unsupported("XmlPort import of a text element with content inside a table element"),

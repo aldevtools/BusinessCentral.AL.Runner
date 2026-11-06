@@ -95,6 +95,16 @@ pub(super) fn plain_import_root(schema: &Schema, top: usize) -> bool {
             .all(|&k| schema.node(k).kind != ir::XmlNodeKind::Field)
 }
 
+/// A `plain_text_tree` below the root table element `table` (its import is pinned there only; below another table element it is not).
+pub(super) fn plain_import_tree(schema: &Schema, table: usize, c: usize) -> bool {
+    is_root_table(schema, Some(table)) && plain_text_tree(schema, c)
+}
+
+/// A `plain_valued_leaf` right below the root table element `table`.
+pub(super) fn plain_import_leaf(schema: &Schema, table: usize, c: usize) -> bool {
+    is_root_table(schema, Some(table)) && plain_valued_leaf(schema, c)
+}
+
 impl Session {
     /// The import of a `plain_text_tree` below the root table element: its field elements assign the root's record (`assigned`), its
     /// table elements insert their rows, its leaf text elements are read as any text element; the root's row is saved by the caller
