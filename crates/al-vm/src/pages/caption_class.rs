@@ -21,6 +21,7 @@ impl Session {
     /// after a move and after a SetValue; `CtlLit`, `CtlExpr`, `CtlAlone`, `CtlAloneExpr`, `CtlVar`). The literal and the
     /// expression forms behave the same. Needs a corpus bump for the Y80 file.
     pub(super) fn caption_class_text_for(&mut self, st: &St, idx: usize, text: &str) -> Result<String, Signal> {
+        self.raise_control_area3_after_resolve(text)?;
         if text != "3," {
             return self.caption_class_text(st, text);
         }
@@ -81,6 +82,12 @@ impl Session {
                     "CaptionClass '3,' with nothing after the comma on a page control: which caption BC reads is not pinned",
                 );
             }
+            // With an OnAfterCaptionClassResolve subscriber an area 3 caption of a field goes through the translation that
+            // raises it, once per session and language (Y71CaptionClassEvents.al:168-170 `lang_1030|log` `after ... expr=3,Lit cap`,
+            // :198-200 `lang_1031_third|log` empty).
+            if self.after_resolve_subscribed() {
+                return self.caption_class_translate_deferring(text);
+            }
             return Ok((rest.to_string(), None));
         }
         let (area, expr) = text.split_once(',').unwrap_or(("", text));
@@ -115,11 +122,34 @@ impl Session {
     /// `caption_class_translate` with the refusal of `setup_caption_refusal` returned beside the caption.
     pub(crate) fn caption_class_translate_deferring(&mut self, text: &str) -> Result<(String, Option<String>), Signal> {
         self.refuse_caption_class_translate()?;
+        let after = self.after_resolve_subscribed();
         let Some((area, expr)) = text.split_once(',') else {
+            if after {
+                return self.raise_unclaimed_after_resolve(text);
+            }
             return Ok((text.to_string(), None));
         };
-        if area == "3" {
+        if area == "3" && !after {
             return Ok((expr.to_string(), None));
+        }
+        if area.is_empty() && after {
+            return self.raise_unclaimed_after_resolve(text);
+        }
+        // An area 3 text is kept per language: a language that has not translated it yet raises the event again
+        // (Y71CaptionClassEvents.al CaptionClass_LanguageChangedBetweenOpens: `lang_1036_second|log`, `lang_1031_third|log` empty).
+        if area == "3" {
+            let language = self.global_language;
+            if let Some((_, _, caption)) = self
+                .caption_translations
+                .iter()
+                .find(|(t, l, _)| t == text && *l == language)
+            {
+                return Ok((caption.clone(), None));
+            }
+            let caption = self.raise_after_caption_class_resolve(text, expr.to_string())?;
+            self.caption_translations
+                .push((text.to_string(), language, caption.clone()));
+            return Ok((caption, None));
         }
         if let Some((_, language, caption)) = self.caption_translations.iter().find(|(t, _, _)| t == text) {
             if *language != self.global_language {
@@ -134,11 +164,39 @@ impl Session {
         if matches!(area.trim(), "1" | "101") && !self.gl_setup_written {
             self.setup_caption_read_early = true;
         }
+        // Area 3 raises only OnAfterCaptionClassResolve, with the text after the comma (Y71CaptionClassEvents.al:243-246
+        // `area3_x3|log`, kept for the session: `area3_x3_again|log` empty).
         let caption = self.raise_resolve_caption_class(area, expr, text)?;
         self.caption_translations
             .push((text.to_string(), self.global_language, caption.clone()));
         let why = self.setup_caption_refusal(area, text, &caption);
         Ok((caption, why))
+    }
+
+    /// A table field's CaptionClass with no comma, or with an empty area, while a subscriber listens to OnAfterCaptionClassResolve:
+    /// the first read raises the event once with the expression as both the expression and the caption, and the caption is
+    /// what the subscribers leave (corpus record/captions/WcExtFieldAfterResolve.al WcExtField_NoComma_FieldCaption `WCNOCOMMA`,
+    /// WcExtField_EmptyArea_FieldCaption `,WC empty area`; BC 27.5, 28.5, 29.0). OnResolveCaptionClass is not raised for an
+    /// empty area (pages/triggers/P84Captions.al c14 `,x`); for no comma the probe cannot tell (its OnResolve subscribers
+    /// claim only their own areas), so none is raised there either.
+    fn raise_unclaimed_after_resolve(&mut self, text: &str) -> Result<(String, Option<String>), Signal> {
+        if text.is_empty() {
+            // The empty text comes back unchanged (types/PSCaptionClass.al:5-8); that it raises no event is an assumption
+            // (docs/probes-needed.md).
+            return Ok((String::new(), None));
+        }
+        if let Some((_, language, caption)) = self.caption_translations.iter().find(|(t, _, _)| t == text) {
+            if *language != self.global_language {
+                return unsupported(
+                    "CaptionClassTranslate of a text translated before GlobalLanguage changed (whether BC translates it again is not pinned)",
+                );
+            }
+            return Ok((caption.clone(), None));
+        }
+        let caption = self.raise_after_caption_class_resolve(text, text.to_string())?;
+        self.caption_translations
+            .push((text.to_string(), self.global_language, caption.clone()));
+        Ok((caption, None))
     }
 
     /// Base Application resolves areas 1 (dimensions) and 101 (currencies) from General Ledger Setup. The corpus database
@@ -211,7 +269,80 @@ impl Session {
         }
     }
 
+    /// OnResolveCaptionClass, then OnAfterCaptionClassResolve with the caption it gave (a claimed one, else the whole text):
+    /// the System Application's Caption Class codeunit raises both for every translation (Y71CaptionClassEvents.al:235-236
+    /// `x1_1033|log` 'resolve area=LTY71 expr=x1 ... | after ... expr=LTY71,x1 caption=res 1033').
     pub(super) fn raise_resolve_caption_class(&mut self, area: &str, expr: &str, text: &str) -> Result<String, Signal> {
+        let caption = self.raise_on_resolve_caption_class(area, expr, text)?;
+        self.raise_after_caption_class_resolve(text, caption)
+    }
+
+    /// Whether OnAfterCaptionClassResolve of the Caption Class codeunit would reach a subscriber now (a manual one only while
+    /// bound, as Y71CaptionClassEvents.al binds its own).
+    pub(crate) fn after_resolve_subscribed(&mut self) -> bool {
+        self.event_reaches_any(crate::events::CAPTION_CLASS, "onaftercaptionclassresolve")
+    }
+
+    /// A CaptionClass expression whose result is `3,<text>`: with an OnAfterCaptionClassResolve subscriber it is translated like
+    /// the literal `3,<text>` (the event once per text and language), else it is `<text>` (pages/extensions/
+    /// TableExtCaptionClass.al:124-149). That an expression result raises the event as a literal does is an assumption
+    /// (docs/probes-needed.md); only a subscriber's log can tell.
+    pub(crate) fn expression_text_caption(&mut self, class: &str, text: String) -> Result<String, Signal> {
+        if self.after_resolve_subscribed() {
+            return self.caption_class_translate(class);
+        }
+        Ok(text)
+    }
+
+    /// A page control's own CaptionClass `3,<text>` while a subscriber listens to OnAfterCaptionClassResolve: opening the page
+    /// raises the event once with the text after the comma as the caption, and the control reads that caption; later reads
+    /// raise nothing (corpus record/captions/WcExtFieldAfterResolve.al WcControl_OwnArea3_TestPageCaption: `log-open`
+    /// `after expr=3,WC ctl three in=WC ctl three`, `control-caption` `WC ctl three`, `log-after-control` empty). `3,` alone
+    /// raises nothing, as on a field (WcExtField_ThreeAlone_FieldCaption); for a control that is an assumption, only a
+    /// subscriber's log can tell (docs/probes-needed.md).
+    pub(super) fn raise_control_area3_after_resolve(&mut self, text: &str) -> Result<(), Signal> {
+        if text.len() > 2 && text.starts_with("3,") && self.after_resolve_subscribed() {
+            self.caption_class_translate_deferring(text)?;
+        }
+        Ok(())
+    }
+
+    /// OnAfterCaptionClassResolve(Language, CaptionExpression, var Caption) with the session language; the caption its
+    /// subscribers leave is the translation (Y71CaptionClassEvents.al:115-120, :235-246; al-runner issue 6924, a subscriber that
+    /// resolves its own area there).
+    pub(super) fn raise_after_caption_class_resolve(&mut self, text: &str, caption: String) -> Result<String, Signal> {
+        self.note_event(crate::events::CAPTION_CLASS, "onaftercaptionclassresolve", None);
+        if !self.after_resolve_subscribed() {
+            return Ok(caption);
+        }
+        let names: Vec<String> = ["Language", "CaptionExpression", "Caption"]
+            .iter()
+            .map(|n| n.to_string())
+            .collect();
+        let mut args = vec![
+            Value::Integer(self.global_language),
+            Value::Text(text.to_string().into()),
+            Value::Text(caption.into()),
+        ];
+        let call = crate::dispatch::EventCall {
+            object: crate::events::CAPTION_CLASS,
+            event: "onaftercaptionclassresolve",
+            element: None,
+            isolated: false,
+            names: &names,
+            sender: None,
+        };
+        self.raise(&call, &mut args)?;
+        match &args[2] {
+            Value::Text(t) | Value::Code(t) => Ok(t.to_string()),
+            other => unsupported(format!(
+                "an OnAfterCaptionClassResolve subscriber left Caption as {}",
+                other.describe()
+            )),
+        }
+    }
+
+    fn raise_on_resolve_caption_class(&mut self, area: &str, expr: &str, text: &str) -> Result<String, Signal> {
         self.note_event(crate::events::CAPTION_CLASS, "onresolvecaptionclass", None);
         if !self
             .engine
