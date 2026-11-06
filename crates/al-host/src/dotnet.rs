@@ -102,6 +102,8 @@ pub struct StreamEffects {
     pub bridges: Vec<(usize, u64)>,
     /// Bytes written into any live bridge since the last reply, by bridge id.
     pub written: Vec<(u64, Vec<u8>)>,
+    /// The helper bound an AL Text argument to a `System.Guid` parameter (assumption `dotnet-text-argument-as-guid`); the VM marks it.
+    pub text_converted_to_guid: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -95,6 +95,7 @@ impl Session {
                 ));
             }
         }
+        self.refuse_after_list_edit_back_control(c, method.method())?;
         self.refuse_unpinned_state_only(&c.page)
     }
 }

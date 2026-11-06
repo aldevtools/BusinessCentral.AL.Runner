@@ -1306,7 +1306,10 @@ fn reply_of(v: Value) -> Result<DotNetReply, DotNetFailure> {
         }
     }
     let s = &v["streams"];
-    let mut fx = StreamEffects::default();
+    let mut fx = StreamEffects {
+        text_converted_to_guid: v["textAsGuid"].as_bool().unwrap_or(false),
+        ..Default::default()
+    };
     for e in s["consumed"].as_array().into_iter().flatten() {
         fx.consumed
             .push((e[0].as_u64().unwrap_or(0) as usize, e[1].as_u64().unwrap_or(0) as usize));

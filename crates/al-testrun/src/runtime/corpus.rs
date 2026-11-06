@@ -999,6 +999,7 @@ impl CorpusRuntime {
                 e.test_data = opts.test_data.clone();
                 e.license = opts.license.clone();
                 e.write_in_try_allowed = opts.allow_write_in_try_functions;
+                e.dependencies_published_global = opts.dependencies_published_global;
                 e.skipped_apps = opts.skipped_dependencies.clone();
             }
             engine
@@ -1011,6 +1012,7 @@ impl CorpusRuntime {
                 e.test_data = opts.test_data.clone();
                 e.license = opts.license.clone();
                 e.write_in_try_allowed = opts.allow_write_in_try_functions;
+                e.dependencies_published_global = opts.dependencies_published_global;
                 e.skipped_apps = opts.skipped_dependencies.clone();
             }
             sibling
@@ -2187,12 +2189,13 @@ fn kept_engine_key(
     opts: &RunOptions,
 ) -> String {
     format!(
-        "target={target:?} dotnet={} test_data={:?} license={:?} skipped={:?} write_in_try={}",
+        "target={target:?} dotnet={} test_data={:?} license={:?} skipped={:?} write_in_try={} deps_global={}",
         dotnet.host.availability().is_ok(),
         opts.test_data.as_ref().map(|td| td.provider.identity()),
         opts.license.as_ref().map(|l| &l.sha256),
         opts.skipped_dependencies,
         opts.allow_write_in_try_functions,
+        opts.dependencies_published_global,
     )
 }
 
@@ -2220,6 +2223,7 @@ fn take_kept_engines(
         e.test_data = opts.test_data.clone();
         e.license = opts.license.clone();
         e.write_in_try_allowed = opts.allow_write_in_try_functions;
+        e.dependencies_published_global = opts.dependencies_published_global;
         e.skipped_apps = opts.skipped_dependencies.clone();
         Some(engine)
     };
@@ -2343,6 +2347,15 @@ fn baseline_key(
     key.text(
         "write_in_try_allowed",
         if opts.allow_write_in_try_functions { "yes" } else { "no" },
+    );
+    // The install code reads "Published As" of the dependency apps (al-runner issue 7169).
+    key.text(
+        "dependencies_published_global",
+        if opts.dependencies_published_global {
+            "yes"
+        } else {
+            "no"
+        },
     );
     // GetUrl answers with it, and Company-Initialize stores that answer (ADR-042).
     key.text("server_url", &crate::host::server_url().0);
