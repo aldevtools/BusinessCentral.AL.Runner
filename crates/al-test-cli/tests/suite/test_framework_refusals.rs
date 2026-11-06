@@ -1,7 +1,8 @@
 //! BC 29 test framework features the runner does not run yet are refused, never run as if they were not there.
 //!
 //! * A test codeunit with `TestHandlers` has its ITestHandler callbacks run around it and each test
-//!   (BiTestHandler.al:98, :125). Its tests used to run without the callbacks.
+//!   (BiTestHandler.al:98, :125). Its tests used to run without the callbacks; a handler that cannot be resolved (here no
+//!   System.app declares the enum TestHandler) refuses them (`test_handlers.rs` has the callbacks that run).
 
 use al_test_cli::report::Outcome;
 use al_testkit::outcomes_in;
@@ -46,11 +47,11 @@ fn not_run(o: &Outcome) -> Option<&str> {
 }
 
 #[test]
-fn a_codeunit_with_test_handlers_is_not_run() {
+fn a_codeunit_with_unresolved_test_handlers_is_not_run() {
     let got = outcomes_in(SRC, "TH Tests");
     assert_eq!(got.len(), 1, "{got:?}");
     assert!(
-        not_run(&got[0].1).is_some_and(|w| w.contains("TestHandlers")),
+        not_run(&got[0].1).is_some_and(|w| w.contains("test handlers") && w.contains("TestHandler")),
         "{got:?}"
     );
 }

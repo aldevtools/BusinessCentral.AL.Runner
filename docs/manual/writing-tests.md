@@ -389,11 +389,29 @@ Business Central 29 adds two test framework features: test handlers and data-dri
 
 ### Test handlers
 
-A test codeunit with the `TestHandlers` property, or an extension of the enum
-`DefaultTestHandler`, is not run yet. Every test of the codeunit is reported as not run,
-and the reason says that `ITestHandler` callbacks are not supported yet. A handler can
-skip a test with `TestHandlerContext.Skip`; a skipped test needs a result of its own
-(ADR-059, `docs/adr/059-test-framework-results.md`).
+The runner calls the `ITestHandler` callbacks of the handlers in the enum extensions of
+`DefaultTestHandler` and of the handlers the `TestHandlers` property names, in the order BC
+uses:
+
+1. `OnBeforeTestCodeunitRun`, then the codeunit's `OnRun` trigger.
+2. For each test procedure: `OnBeforeTestProcedureRun`; for each case of a data-driven
+   procedure `OnBeforeTestCaseRun`, the case and `OnAfterTestCaseRun`; then
+   `OnAfterTestProcedureRun`.
+3. `OnAfterTestCodeunitRun` after the last test.
+
+In every callback the default handlers run first, then the `TestHandlers` handlers in the
+order listed. Each handler codeunit is one instance for the run of a test codeunit, so its
+variables keep their values between callbacks. `TestHandlerContext` returns the codeunit id
+and name, the procedure name, the case name in the case callbacks, and `Success` in the After
+callbacks.
+
+`TestHandlerContext.Skip` in `OnBeforeTestProcedureRun` skips the test: its body and
+`OnAfterTestProcedureRun` do not run. BC reports such a test as skipped; the runner reports
+it as not run, with the skip reason, until it has a skipped result (ADR-059).
+
+These cases are not run yet, because BC's behavior is not measured: an error or `Skip` in a
+default handler, an error or `Skip` in the case callbacks, a callback that writes to the
+database, more than one `DefaultTestHandler` value, and a default handler of another app.
 
 ### Data-driven tests
 

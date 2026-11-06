@@ -153,11 +153,6 @@ pub fn run_codeunit_full(
     )
 }
 
-/// Why the BC 29 test framework features of a test codeunit keep it from running (`None`: it runs). A codeunit with
-/// `TestHandlers` has ITestHandler callbacks run around it and around each test on BC
-/// (al-language-testlibraries/test-framework/data-driven-tests-and-handlers/BiTestHandler.al:98, :125); the runner does not call them yet.
-/// An extension of the system enum DefaultTestHandler (2000000024) adds a handler to every test codeunit
-/// (System.app `DefaultTestHandler.Enum.al`); what it does is not probed.
 /// The reason of the first skipped install that wrote a table `routine` can reach. The tables the routine reaches are
 /// found once, and only when an install was skipped: the walk of its calls cost as much as the test for every skipped install.
 fn skipped_install_touching<'a>(
@@ -174,25 +169,6 @@ fn skipped_install_touching<'a>(
         .iter()
         .find(|(tables, _)| !tables.is_disjoint(&touched))
         .map(|(_, why)| why)
-}
-
-fn test_handlers_refusal(lowered: &Lowered, object: usize) -> Option<String> {
-    let obj = &lowered.program.objects[object];
-    if obj
-        .properties
-        .iter()
-        .any(|(k, _)| k.eq_ignore_ascii_case("TestHandlers"))
-    {
-        return Some("a test codeunit with TestHandlers (ITestHandler callbacks) is not supported yet".into());
-    }
-    let default_handler = lowered
-        .program
-        .objects
-        .heads()
-        .iter()
-        // The heads only: reading every object would decode all of a lazy compile.
-        .any(|o| o.kind == al_ir::ObjKind::EnumExtension && o.extends_id == Some(2000000024));
-    default_handler.then(|| "an extension of the enum DefaultTestHandler (ITestHandler callbacks for every test codeunit) is not supported yet".into())
 }
 
 /// The data-driven tests of a codeunit: procedures with `[TestDataSource(Codeunit, DataSet)]` and no `[Test]`.
@@ -230,7 +206,7 @@ pub(crate) fn run_codeunit_core(
             engine, lowered, object, baseline, isolation, observe, stacks, times, hits, scratch, limit, execute,
         );
     }
-    match test_handlers_refusal(lowered, object) {
+    match super::test_handlers::refusal(lowered, object) {
         Some(why) => {
             let obj = &lowered.program.objects[object];
             obj.routines
@@ -459,6 +435,9 @@ fn run_codeunit_inner(
         // What BC's AL test runner does around each test method: al-runner's own steps (runner_reset.rs), or the triggers of
         // the test runner codeunit whose OnRun runs this codeunit (al_runner.rs). A scratch run has no runner.
         let runner = super::al_runner::Steps::new(engine, execute, al, session);
+        // The ITestHandler callbacks (BC 29): OnBeforeTestCodeunitRun comes before OnRun (BiTestHandlerDefault.al:15, :329).
+        let th = super::test_handlers::Handlers::begin(session, lowered, object, execute)
+            .map_err(|w| all(Outcome::NotRun(w)))?;
         let on_run_rows = scratch.on_run_rows;
         // A refused OnRun: whether it would raise is not known, so neither is whether the tests run.
         let on_run_refused = |why: String| all(Outcome::NotRun(why));
@@ -605,6 +584,7 @@ fn run_codeunit_inner(
         let mut queue = data_driven::queue(lowered, object, &tests, &data_driven);
         // The rows of `out` that are results of data-driven procedures: BC reports none of them when it ends the session.
         let mut data_driven_rows: Vec<usize> = Vec::new();
+        let mut cases_ok = true;
         while let Some(item) = queue.pop_front() {
             let r = item.routine;
             let name = item.name;
@@ -645,6 +625,8 @@ fn run_codeunit_inner(
             if !matches!((&case, &decided), (None, None)) {
                 data_driven_rows.push(out.len());
             }
+            let last_case =
+                !matches!(queue.front(), Some(n) if n.routine == r && matches!(n.step, data_driven::Step::Case { .. }));
             // A cancelled run starts no further test (the one running finishes).
             if crate::events::cancelled() {
                 break;
@@ -793,19 +775,30 @@ fn run_codeunit_inner(
                                 if std::env::var("ALRUNNER_DEBUG_PANIC_IN").is_ok_and(|n| n == routine.name) {
                                     panic!("requested by ALRUNNER_DEBUG_PANIC_IN");
                                 }
-                                match &case {
-                                    None => session.call(object, r, instance.clone(), Vec::new()),
-                                    Some((source, index, id)) => data_driven::run_case(
-                                        session,
-                                        lowered,
-                                        object,
-                                        r,
-                                        instance.clone(),
-                                        source,
-                                        *index,
-                                        id,
-                                    ),
-                                }
+                                let at = case
+                                    .as_ref()
+                                    .map(|(_, index, id)| (id.as_str(), *index == 1, last_case));
+                                super::test_handlers::around(
+                                    session,
+                                    lowered,
+                                    &th,
+                                    &routine.name,
+                                    at,
+                                    &mut cases_ok,
+                                    |session| match &case {
+                                        None => session.call(object, r, instance.clone(), Vec::new()),
+                                        Some((source, index, id)) => data_driven::run_case(
+                                            session,
+                                            lowered,
+                                            object,
+                                            r,
+                                            instance.clone(),
+                                            source,
+                                            *index,
+                                            id,
+                                        ),
+                                    },
+                                )
                             })),
                         };
                         let result = match called {
@@ -1250,29 +1243,9 @@ fn run_codeunit_inner(
             }
         }
         if panicked {
-            for name in queue.drain(..).map(|i| i.name) {
-                let outcome = Outcome::NotRun(
-                    "an earlier test of this codeunit panicked (a runtime bug), so the rest of it was not run".into(),
-                );
-                if crate::events::wants_events() {
-                    crate::events::report(crate::events::TestEvent {
-                        codeunit: obj.id.unwrap_or(0),
-                        codeunit_name: obj.name.clone(),
-                        test: name.clone(),
-                        outcome: outcome.clone(),
-                        call_stack: String::new(),
-                        time: std::time::Duration::ZERO,
-                        slept_ms: 0,
-                        coverage: Vec::new(),
-                        captured: None,
-                        stubs: Vec::new(),
-                        ui_answered: Vec::new(),
-                        entry: None,
-                    });
-                }
-                out.push((name, outcome));
-            }
+            not_run_after_panic(obj, &mut queue, &mut out);
         }
+        th.end_codeunit(session, lowered, &mut out);
         Ok(out)
     };
     let ran = match al_runner_object {
@@ -1304,6 +1277,36 @@ fn run_codeunit_inner(
     }
     super::numbers_taken::carry_left(&session, obj, onrun_left, onrun_from, &skipped_installs);
     out
+}
+
+/// The rest of a codeunit after a test panicked: every test left is not run.
+fn not_run_after_panic(
+    obj: &al_ir::Object,
+    queue: &mut std::collections::VecDeque<data_driven::Item>,
+    out: &mut Vec<(String, Outcome)>,
+) {
+    for name in queue.drain(..).map(|i| i.name) {
+        let outcome = Outcome::NotRun(
+            "an earlier test of this codeunit panicked (a runtime bug), so the rest of it was not run".into(),
+        );
+        if crate::events::wants_events() {
+            crate::events::report(crate::events::TestEvent {
+                codeunit: obj.id.unwrap_or(0),
+                codeunit_name: obj.name.clone(),
+                test: name.clone(),
+                outcome: outcome.clone(),
+                call_stack: String::new(),
+                time: std::time::Duration::ZERO,
+                slept_ms: 0,
+                coverage: Vec::new(),
+                captured: None,
+                stubs: Vec::new(),
+                ui_answered: Vec::new(),
+                entry: None,
+            });
+        }
+        out.push((name, outcome));
+    }
 }
 
 /// What a codeunit under Disabled isolation left for the later codeunits ([`CARRIED`]), from `start` on.
