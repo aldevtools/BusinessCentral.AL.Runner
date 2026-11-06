@@ -57,6 +57,7 @@ mod effects;
 mod empty_reads;
 mod page_held_bindings;
 pub use empty_reads::{InstallRows, KnownValue};
+mod caller_writes;
 mod errorcollect;
 pub mod events;
 mod ext_validate_order;
