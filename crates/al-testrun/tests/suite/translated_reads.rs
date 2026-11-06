@@ -612,3 +612,144 @@ fn an_app_folder_gives_its_parsed_translation_files() {
     assert_eq!(m.translation_files[0].target_language, "nl-BE");
     assert_eq!(m.translation_files[0].target("X 1"), Some("b"));
 }
+
+/// al-runner issue 7144: a table of another app (a stand-in for Base Application's Sales Invoice Header) and a table
+/// extension of it in the app that ships the translation file.
+const EXT_BASE: &str = r#"
+table 50810 "ALR Sales Header"
+{
+    fields
+    {
+        field(1; "No."; Code[20]) { Caption = 'No.'; }
+    }
+    keys { key(PK; "No.") { } }
+}
+"#;
+
+const EXT_APP: &str = r#"
+tableextension 50811 "ALR Sales Header Ext" extends "ALR Sales Header"
+{
+    fields
+    {
+        field(50811; "ALR Payment ID"; Text[30]) { Caption = 'Payment ID'; }
+        field(50812; "ALR Plain"; Text[30]) { Caption = 'Plain caption'; }
+    }
+}
+table 50813 "ALR Own Row"
+{
+    fields { field(1; "No."; Integer) { } }
+    keys { key(PK; "No.") { } }
+}
+tableextension 50814 "ALR Own Row Ext" extends "ALR Own Row"
+{
+    fields { field(50814; "ALR Own Ext"; Text[30]) { Caption = 'Own extension'; } }
+}
+"#;
+
+const EXT_TESTS: &str = r#"
+codeunit 50812 "ALR Ext Caption Repro"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure ExtensionFieldCaptionInDutch()
+    var
+        H: Record "ALR Sales Header";
+        Observed: Text;
+    begin
+        GlobalLanguage(1043);
+        Observed := H.FieldCaption("ALR Payment ID") + '|' + H.FieldCaption("ALR Plain");
+        GlobalLanguage(1033);
+        Error('%1', Observed);
+    end;
+
+    [Test]
+    procedure ExtensionFieldRefCaptionInDutch()
+    var
+        RecRef: RecordRef;
+        Observed: Text;
+    begin
+        RecRef.Open(50810);
+        GlobalLanguage(1043);
+        Observed := RecRef.Field(50811).Caption();
+        GlobalLanguage(1033);
+        Error('%1', Observed);
+    end;
+
+    [Test]
+    procedure OwnTableExtensionFieldCaptionInDutch()
+    var
+        R: Record "ALR Own Row";
+        Observed: Text;
+    begin
+        GlobalLanguage(1043);
+        Observed := R.FieldCaption("ALR Own Ext");
+        GlobalLanguage(1033);
+        Error('%1', Observed);
+    end;
+}
+"#;
+
+fn run_extension_captions() -> Vec<(String, Outcome, Vec<al_testrun::assumptions::Assumption>)> {
+    let mut m = manifest(true);
+    m.translation_files = vec![al_ir::TranslationFile {
+        name: "Translations/App.nl-NL.xlf".into(),
+        target_language: "nl-NL".into(),
+        units: vec![(
+            unit(&[
+                ("TableExtension", "ALR Sales Header Ext"),
+                ("Field", "ALR Payment ID"),
+                ("Property", "Caption"),
+            ]),
+            "Betalings-ID".to_string(),
+        )],
+        error: None,
+    }];
+    let rt = CorpusRuntime::try_run_suites_with(
+        vec![
+            app("tests", &["app", "base"], EXT_TESTS),
+            app("app", &["base"], EXT_APP),
+            app("base", &[], EXT_BASE),
+        ],
+        vec![al_sema::AppKind::Workspace; 3],
+        &[manifest(false), m, manifest(false)],
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &RunOptions::default(),
+    )
+    .expect("the run starts");
+    rt.results()
+        .iter()
+        .map(|r| (r.test.clone(), r.outcome.clone(), r.assumptions.clone()))
+        .collect()
+}
+
+/// A field a table extension adds takes its caption from the extension's unit of the app's translation file, as a field of
+/// the app's own table does; a field without a unit keeps the source.
+#[test]
+fn a_table_extension_field_caption_is_translated_from_the_apps_file() {
+    let got = run_extension_captions();
+    for (test, want) in [
+        ("ExtensionFieldCaptionInDutch", "Betalings-ID|Plain caption"),
+        ("ExtensionFieldRefCaptionInDutch", "Betalings-ID"),
+    ] {
+        let (_, outcome, assumed) = find(&got, test);
+        assert!(
+            matches!(outcome, Outcome::Fail(m) if m.contains(want)),
+            "{test}: {outcome:?}"
+        );
+        assert!(
+            assumed.is_empty(),
+            "{test}: a clean pass, R7144ExtFieldCaption.al:9-12, :80-83 and :99-103 pin it (corpus PR 1156)"
+        );
+    }
+    // An extension of a table of its own app: BC kept the source caption with such a unit (R7144ExtFieldCaption.al:83);
+    // which unit it reads is not pinned.
+    let (_, outcome, _) = find(&got, "OwnTableExtensionFieldCaptionInDutch");
+    assert!(
+        matches!(outcome, Outcome::NotRun(why) if why.contains("translations are not supported")),
+        "{outcome:?}"
+    );
+}

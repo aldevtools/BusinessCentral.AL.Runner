@@ -371,6 +371,13 @@ impl Session {
         let rec = self.page_rec(st);
         let before = self.xrec_before_move(st);
         let window_end = rows.len().min(at + Self::WINDOW);
+        // A part with OnFindRecord runs it with '=>' before its first read and with '=' before its last (R7099PartFindRecordBoth.al
+        // PG7099_Doc_Line2_Note `F(=>);R2;R3;R2;R1;R2;F(=);R2;C2`, _Line3_ `F(=>);R3;R2;R1;R3;F(=);R3;C3`, on Document, Card and
+        // ListPlus hosts; `both_later_row` is the only caller with such a part).
+        let find = part && self.declares(st, "onfindrecord");
+        if find {
+            self.part_find_on_row(st, &rec, &rows[at], "=>")?;
+        }
         let mut held = Vec::new();
         if at > 0 && !part {
             self.read_refilled_row(st, &rec, &rows[at])?;
@@ -393,6 +400,9 @@ impl Session {
         if !(part && at == 0 && window_end == 1) {
             self.read_refilled_row(st, &rec, &rows[at])?;
         }
+        if find {
+            self.part_find_on_row(st, &rec, &rows[at], "=")?;
+        }
         let current = self.read_refilled_row(st, &rec, &rows[at])?;
         let whole = rows.len() <= Self::WINDOW && held.len() == rows.len();
         {
@@ -414,5 +424,19 @@ impl Session {
             s.cursor = Cursor::Row;
         }
         self.current_record_trigger(st, before)
+    }
+
+    /// OnFindRecord(`which`) of part `st` with Rec on `row`. Pinned for a trigger that finds the row it stands on
+    /// (R7099PartFindRecordBoth.al: `exit(Rec.Find(Which))`); one that answers false or moves Rec to another row is refused.
+    fn part_find_on_row(&mut self, st: &St, rec: &Rec, row: &[Value], which: &str) -> Result<(), Signal> {
+        rec.borrow_mut().fields = row.to_vec();
+        let held = self.row_key(rec)?;
+        let found = self.nav_find(st, which)?;
+        if !found || !Self::same_key(&self.row_key(rec)?, &held) {
+            return unsupported(
+                "a part's OnFindRecord that does not find the row the part stands on, among the reads after CurrPage.Update (not pinned)",
+            );
+        }
+        Ok(())
     }
 }

@@ -266,7 +266,7 @@ impl Session {
             } else if matches!(method, RecordOp::Insert | RecordOp::Modify) {
                 self.gate_used_try_row_write(&t, method)?;
             } else {
-                self.refuse_used_try_write(method)?;
+                self.gate_used_try_other_write(&t, method)?;
             }
             self.user_bulk_refusal(&t, rec.borrow().temporary, method)?;
             // A write call starts the transaction, also a DeleteAll that finds no row

@@ -175,6 +175,10 @@ pub struct RunOptions {
     /// "Unhandled UI". Each such test hits the assumption `dev-endpoint-ui` (a flagged pass), and its answered calls are in
     /// `TestResult::ui_answered`. Default `false`: the TestRunner codeunit mode, as the corpus runs.
     pub dev_endpoint_ui: bool,
+    /// `al-runner test --allow-write-in-try-functions` (al-runner issue 7143): the service-tier setting
+    /// DisableWriteInsideTryFunctions is off, as on Business Central online (`al_vm::Engine::write_in_try_allowed`). Default
+    /// `false`: the setting's default, as the corpus CI runs.
+    pub allow_write_in_try_functions: bool,
     /// A variant of a stability run (ADR-058): what the runner changes in its steps around each test and in the
     /// session's host values. The default is a normal run.
     pub perturb: crate::stability::Perturb,

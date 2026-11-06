@@ -440,7 +440,7 @@ impl Session {
     }
 
     /// `same_values`, where a Blob of `rec` that no stream wrote since it was read counts as unchanged.
-    fn same_but_unwritten_blobs(rec: &[Value], xrec: &[Value]) -> bool {
+    pub(super) fn same_but_unwritten_blobs(rec: &[Value], xrec: &[Value]) -> bool {
         rec.len() == xrec.len()
             && rec.iter().zip(xrec).all(|(x, y)| match (x, y) {
                 (Value::Blob(a), Value::Blob(_)) => !a.borrow().written,
