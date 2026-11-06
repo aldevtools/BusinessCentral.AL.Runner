@@ -2197,6 +2197,4 @@
 96036 XDN_TableRoot_Import
 96036 XDN_TextLeaf_Import
 96073 R7169_Test_ReadsPublishedAsOfDependency
-96101 SaveValues_CallerProcedureOnly_EditableFalse_SecondRun
-96101 SaveValues_OpenPageRecompute_SecondRunOrder
 96123 P7B_ReadsWhatThePreviousTestCodeunitLeft
