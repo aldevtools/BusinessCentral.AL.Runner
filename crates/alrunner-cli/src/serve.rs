@@ -317,6 +317,8 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     if !matches!(fields.get("runSelectedOnly"), None | Some(Value::Null)) {
         a.run_selected_only = flag(fields, "runSelectedOnly")?;
     }
+    // Issue 7207: a plain `test` that picks one test runs it alone, as an entry does (not in v2, not in the CLI).
+    a.single_test_alone = true;
     // Issue 5996: tests that lower their own permissions run with every access granted, as `--ignore-permission-mock`.
     a.ignore_permission_mock = flag(fields, "ignorePermissionMock")?;
     // Issue 3697: UI calls no handler takes get the dev-endpoint runner's answer, as `--dev-endpoint-ui`.
