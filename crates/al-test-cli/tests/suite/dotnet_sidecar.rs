@@ -1694,3 +1694,60 @@ fn two_members_that_differ_only_in_case_keep_an_exact_call_and_refuse_another_ca
     assert_eq!(text_of(&sess.get_property(o(), "SINGLE").unwrap()), "single");
     sess.close();
 }
+
+// ---- AL Text bound to a System.Guid parameter (al-runner issue 5590; assumption dotnet-text-argument-as-guid) ----
+
+fn guid_fixture() -> DotNetType {
+    DotNetType {
+        assembly: "AlDotNetSidecar".into(),
+        name: "AlDotNetSidecar.GuidFixture".into(),
+        ..Default::default()
+    }
+}
+
+const GUID_TEXT: &str = "1d5be4b5-fa4a-452d-9cdd-5db35e0599d6";
+
+#[test]
+fn a_text_that_parses_as_a_guid_binds_to_a_constructor_or_method_taking_only_a_guid() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    // System Application Image Impl. EncodeToImage: `Encoder.Encoder(QualityEncodeGuidTxt)`.
+    let made = sess.construct(&guid_fixture(), vec![s(GUID_TEXT)]).unwrap();
+    assert!(
+        made.streams.text_converted_to_guid,
+        "the conversion is reported so the runner marks the assumption"
+    );
+    let got = sess
+        .invoke(DotNetTarget::Instance(handle_of(&made)), "Got", vec![])
+        .unwrap();
+    assert_eq!(text_of(&got), format!("guid {GUID_TEXT}"));
+    let r = sess
+        .invoke(
+            DotNetTarget::Static(guid_fixture()),
+            "OnlyGuid",
+            vec![s(&format!("{{{}}}", GUID_TEXT.to_uppercase()))],
+        )
+        .unwrap();
+    assert_eq!(text_of(&r), format!("guid {GUID_TEXT}"));
+    sess.close();
+}
+
+#[test]
+fn a_text_that_is_no_guid_or_an_overload_set_that_is_not_one_guid_stays_refused() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let g = || DotNetTarget::Static(guid_fixture());
+    let why = refused(sess.construct(&guid_fixture(), vec![s("not a guid")]));
+    assert!(why.contains("no overload taking 1 argument"), "{why}");
+    // A String overload exists: the text goes there, nothing is converted.
+    let r = sess.invoke(g(), "Both", vec![s(GUID_TEXT)]).unwrap();
+    assert_eq!(text_of(&r), format!("string {GUID_TEXT}"));
+    assert!(!r.streams.text_converted_to_guid);
+    // Two overloads would take the Guid.
+    let why = refused(sess.invoke(g(), "Amb", vec![s(GUID_TEXT), arg(DotNetValue::Int32(1))]));
+    assert!(why.contains("no overload taking 2 argument"), "{why}");
+    // Only a parameter of exactly System.Guid converts.
+    let why = refused(sess.invoke(g(), "Nullable", vec![s(GUID_TEXT)]));
+    assert!(why.contains("no overload taking 1 argument"), "{why}");
+    sess.close();
+}
