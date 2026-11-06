@@ -1938,7 +1938,18 @@ impl Session {
             }
             // A row this variable inserted and that is gone (an error inside ASSERTERROR rolled the Insert back) leaves the Blob empty, whatever a
             // stream wrote since (recordref-fieldref/PnE08RecordMisc.al:TestField_Blob `af219`).
-            if keeps_content && (stored.is_some() || !rec.borrow().inserted) {
+            // A buffer that holds no unsaved write and differs from the stored row was left behind by another variable's
+            // Modify (Copy Document's report writes the new order's Work Description through its own copy of the header;
+            // Tests-ERM ERM Copy Purch/Sales Doc.CopyWorkDescriptionSalesArchiveShipment reads it back through the caller's
+            // record). CalcFields then reads the row. Not pinned: assumption calcfields-blob-stale-buffer-refetch.
+            let stale = keeps_content
+                && !buf.borrow().written
+                && matches!(stored.as_ref().map(|row| &row[pos]), Some(Value::Blob(src)) if src.borrow().bytes != buf.borrow().bytes);
+            if stale {
+                al_builtins::assumptions::assume(
+                    al_builtins::assumptions::Assumption::CalcfieldsBlobStaleBufferRefetch,
+                );
+            } else if keeps_content && (stored.is_some() || !rec.borrow().inserted) {
                 continue;
             }
             // A row that is not stored (a copy of a record never inserted) leaves the Blob empty: the buffer
