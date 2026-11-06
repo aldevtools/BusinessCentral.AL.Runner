@@ -1499,13 +1499,10 @@ impl Session {
                         // (`apply_tree_cut`; Y28CollapsedTreeTests.al:190 Y28_ActionGetChildAndUpdate: current 2, walk 1,2,3,4).
                         // A page with row triggers reads the rows again from that row in the refresh that follows
                         // (`read_list_again_from_row_as`, `agr2;agr2;agr3;agr4;agr5;agr2;agr1;agr2;agr2;agcr2`); without a
-                        // refresh it is not pinned.
+                        // refresh the page reads them again the same way (R7168_ActionGetChildWithoutRefresh, Y28CollapsedTreeTests.al:321:
+                        // the trigger log, current row and shown rows equal those of R7168_ActionGetChildAndRefresh, :349).
                         if self.declares(st, "onaftergetrecord") || self.declares(st, "onaftergetcurrrecord") {
-                            if !st.borrow().refresh {
-                                return unsupported(
-                                    "an action that left a tree page with row triggers on a row it did not show, without a refresh (not pinned)",
-                                );
-                            }
+                            st.borrow_mut().refresh = true;
                         } else {
                             st.borrow_mut().window = Vec::new();
                             self.arrive(st)?;

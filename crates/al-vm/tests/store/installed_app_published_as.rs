@@ -48,6 +48,22 @@ codeunit 50100 C
         exit(Format(R."Published As", 0, 2));
     end;
 
+    procedure Total(): Integer
+    var
+        R: Record "NAV App Installed App";
+    begin
+        exit(R.Count());
+    end;
+
+    procedure OwnRow(): Text
+    var
+        R: Record "NAV App Installed App";
+        Id: Guid;
+    begin
+        Evaluate(Id, '{aa006438-a411-4309-b899-92353cc12b05}');
+        exit(Format(R.Get(Id)));
+    end;
+
     procedure PlatformRow(): Text
     var
         R: Record "NAV App Installed App";
@@ -70,7 +86,7 @@ fn app(id: &str, publisher: &str, dependency: bool) -> al_ir::AppInfo {
     }
 }
 
-fn run(routine: &str) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
+fn built(global: bool) -> al_testkit::Built {
     let mut l = al_testkit::compile(SRC);
     std::sync::Arc::make_mut(&mut l.program).apps = vec![
         app("aa006438-a411-4309-b899-92353cc12b05", "Repro", false),
@@ -78,7 +94,18 @@ fn run(routine: &str) -> Result<al_builtins::value::Value, al_builtins::native::
         app("bb006438-a411-4309-b899-92353cc12b05", "Partner", true),
         app("8874ed3a-0643-4247-9ced-7a7002f7135d", "Microsoft", true),
     ];
-    al_testkit::Built::new(l).run_in("C", routine)
+    let mut engine = al_testkit::engine(&l);
+    std::sync::Arc::get_mut(&mut engine)
+        .unwrap()
+        .dependencies_published_global = global;
+    al_testkit::Built {
+        session: al_vm::Session::new(engine),
+        lowered: l,
+    }
+}
+
+fn run(routine: &str) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
+    built(false).run_in("C", routine)
 }
 
 #[test]
@@ -86,9 +113,41 @@ fn an_app_under_test_is_dev_and_a_microsoft_dependency_global() {
     assert_eq!(al_testkit::text(run("F")), "2|Yes|No|0");
 }
 
+/// R7169DepInstallPublishedAs.al:70 (`AL Language| Dev|2` for a dependency published through the development endpoint).
 #[test]
-fn another_publishers_dependency_is_refused() {
-    assert!(matches!(run("Other"), Err(al_builtins::native::Signal::Unsupported(_))));
+fn another_publishers_dependency_is_dev() {
+    assert_eq!(al_testkit::text(run("Other")), "2");
+}
+
+/// `--dependencies-published-global`: a documented setting for a pipeline that publishes dependencies as compiled apps.
+#[test]
+fn another_publishers_dependency_is_global_under_the_option() {
+    use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+    let mut b = built(true);
+    clear_hits();
+    assert_eq!(al_testkit::text(b.run_in("C", "Other")), "0");
+    assert!(take_hits().contains(&Assumption::DependencyPublishedAsGlobal));
+    clear_hits();
+    assert_eq!(al_testkit::text(run("Other")), "2");
+    assert!(!take_hits().contains(&Assumption::DependencyPublishedAsGlobal));
+    // The app under test stays Dev, Microsoft's apps stay Global.
+    assert_eq!(al_testkit::text(b.run_in("C", "F")), "2|Yes|No|0");
+}
+
+/// During an app's install its own row does not exist and the apps its install has not reached are not listed
+/// (R7169DepInstallPublishedAs.al:36-45: `install_own` = `no row`; the filter counts of the install time).
+#[test]
+fn during_an_install_the_own_app_and_the_apps_after_it_have_no_row() {
+    let mut b = built(false);
+    let all = al_testkit::int(b.run_in("C", "Total"));
+    assert_eq!(all, 3);
+    b.session.set_apps_not_installed(Some([2].into()));
+    b.session.set_installing_app(Some(0));
+    assert_eq!(al_testkit::int(b.run_in("C", "Total")), 1);
+    assert_eq!(al_testkit::text(b.run_in("C", "OwnRow")), "No");
+    b.session.set_apps_install_order_unknown(None);
+    b.session.set_apps_not_installed(None);
+    assert_eq!(al_testkit::int(b.run_in("C", "Total")), 3);
 }
 
 /// The platform's System app (8874ed3a-...) has no NAV App Installed App row (Y12PublishedAs.al:41, :46 `no row`).
