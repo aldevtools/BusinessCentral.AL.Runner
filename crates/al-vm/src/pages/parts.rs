@@ -1679,6 +1679,7 @@ impl Session {
         if !part_stored {
             return self.new_part_row_update_both(st, &host);
         }
+        let kept = self.tree_part_keeps_typed_row(st, both)?;
         {
             let mut p = st.borrow_mut();
             p.refresh = false;
@@ -1690,7 +1691,7 @@ impl Session {
             self.sync_part(&host, c, st)?;
         }
         // The host's triggers still see the row it read before as xRec (`H.AGR(t=5 ... x.t=1)`); the next read sees the new one.
-        self.refresh_host_after_part(st, &host, !both, later)?;
+        self.refresh_host_after_part(st, &host, !both, later, kept)?;
         Ok(true)
     }
 
@@ -1760,6 +1761,7 @@ impl Session {
                 "a part's CurrPage.Update on a new part row when the host row did not change, on a Card host with UpdatePropagation Both or a ListPlus host without it (not pinned)",
             );
         }
+        let kept = self.tree_part_keeps_typed_row(st, both)?;
         {
             let mut p = st.borrow_mut();
             p.refresh = false;
@@ -1773,7 +1775,7 @@ impl Session {
             }
             return Ok(true);
         }
-        self.refresh_host_after_part(st, host, false, later)?;
+        self.refresh_host_after_part(st, host, false, later, kept)?;
         Ok(true)
     }
 
@@ -1824,6 +1826,7 @@ impl Session {
         host: &St,
         without_parts: bool,
         later: Option<PartView>,
+        kept: Option<Vec<Value>>,
     ) -> Result<(), Signal> {
         let mut h = host.borrow_mut();
         h.refresh = true;
@@ -1834,6 +1837,16 @@ impl Session {
         let r = self.run_refresh(host);
         host.borrow_mut().read_keeps_xrec = false;
         r?;
+        let later = match (later, kept) {
+            // The typed row of a tree part is saved after the host read, before the part reads its rows (`part_tree_typed.rs`).
+            (Some(_), Some(before)) => Some(self.save_typed_tree_row(st, before)?),
+            (None, Some(_)) => {
+                return unsupported(
+                    "a tree part on its first row whose code ran CurrPage.Update after a typed value (not pinned)",
+                );
+            }
+            (later, None) => later,
+        };
         if let Some((rows, at)) = later {
             self.read_part_rows_around(st, &rows, at)?;
         }
