@@ -1245,7 +1245,12 @@ fn run_codeunit_inner(
         if panicked {
             not_run_after_panic(obj, &mut queue, &mut out);
         }
-        th.end(session, lowered, &out);
+        if let Err(why) = th.end(session, lowered, &out) {
+            // Not pinned (test_handlers.rs): a result that depends on it is not reported as a pass.
+            for (_, o) in out.iter_mut().filter(|(_, o)| *o == Outcome::Pass) {
+                *o = Outcome::NotRun(why.clone());
+            }
+        }
         Ok(out)
     };
     let ran = match al_runner_object {

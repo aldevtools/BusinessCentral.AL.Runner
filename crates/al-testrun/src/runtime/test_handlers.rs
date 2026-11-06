@@ -143,9 +143,31 @@ impl Handlers {
 
     /// OnAfterTestCodeunitRun, after the last test, where no test of the codeunit sees it (BiTestHandler.al:11-12): its
     /// result changes no row.
-    pub(crate) fn end(&self, session: &mut Session, lowered: &Lowered, out: &[(String, Outcome)]) {
+    /// `Err(reason)`: the callback raised an error, skipped or wrote to the database, which is not pinned; the caller
+    /// reports the passing tests as not run.
+    pub(crate) fn end(
+        &self,
+        session: &mut Session,
+        lowered: &Lowered,
+        out: &[(String, Outcome)],
+    ) -> Result<(), String> {
         let passed = out.iter().all(|(_, o)| *o == Outcome::Pass);
-        let _ = self.call(session, lowered, Callback::AfterCodeunit, "", "", Some(passed));
+        self.call(session, lowered, Callback::AfterCodeunit, "", "", Some(passed))
+            .map(|_| ())
+    }
+
+    /// Marks the unprobed assumption of OnAfterTestCodeunitRun when a handler implements it (a test of the codeunit
+    /// then relies on its effects staying invisible to, or visible to, later codeunits: not pinned).
+    pub(crate) fn mark_after_codeunit(&self, lowered: &Lowered) {
+        let declares = self.list.iter().any(|h| {
+            lowered.program.objects[h.object]
+                .routines
+                .iter()
+                .any(|r| !r.is_trigger && r.name.eq_ignore_ascii_case(Callback::AfterCodeunit.name()))
+        });
+        if declares {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TestHandlerAfterCodeunitEffects);
+        }
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -293,6 +315,7 @@ pub(crate) fn around(
         return body(session);
     }
     let refuse = |why: String| Err(Signal::Unsupported(why));
+    handlers.mark_after_codeunit(lowered);
     match case {
         None => {
             let name = procedure;

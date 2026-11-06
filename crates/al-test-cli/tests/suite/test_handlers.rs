@@ -410,3 +410,42 @@ codeunit 50124 "TH Skips"
     );
     assert_eq!(got[2].1, Outcome::Pass, "{got:?}");
 }
+
+// OnAfterTestCodeunitRun is not pinned for an error (BiTestHandler.al:11-12 only says its effects were not seen by a later
+// codeunit): an error there makes the passing tests of the codeunit not run, never a silent pass.
+#[test]
+fn an_error_in_on_after_test_codeunit_run_is_refused_not_ignored() {
+    let got = outcomes(
+        r#"
+codeunit 50130 "TH After Fails" implements ITestHandler
+{
+    procedure OnAfterTestCodeunitRun(Context: TestHandlerContext)
+    begin
+        Error('after codeunit failed');
+    end;
+}
+
+codeunit 50131 "TH After"
+{
+    Subtype = Test;
+    TestHandlers = "TH After Fails";
+
+    [Test]
+    procedure One()
+    begin
+    end;
+}
+
+enumextension 50132 "TH After Ext" extends TestHandler
+{
+    value(50132; "TH After Fails") { Implementation = ITestHandler = "TH After Fails"; }
+}
+"#,
+        "TH After",
+    );
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert!(
+        matches!(&got[0].1, Outcome::NotRun(w) if w.contains("OnAfterTestCodeunitRun")),
+        "{got:?}"
+    );
+}
