@@ -171,6 +171,13 @@ impl SingleWalk<'_> {
         super::suite_rows::take_unseen();
         let mut r = run_unit(self.engine, self.lowered, base, &u, None, self.limit);
         RERUN_UNSEEN.with(|c| c.set(super::suite_rows::take_unseen()));
+        // A codeunit that left nothing new leaves the state it was given (`baseline: None`, `numbers_taken.rs`): that is
+        // `base`, as the chain walk fills it in (`chain_walk.rs`).
+        super::run::CARRIED.with(|c| {
+            if let Some(left) = c.borrow_mut().as_mut().filter(|l| l.baseline.is_none()) {
+                left.baseline = base.cloned();
+            }
+        });
         if let (Some(why), Ok(done)) = (unfinished, &mut r.result) {
             if done.5.leak_hit {
                 refuse_all(&mut done.0, &why);

@@ -663,6 +663,43 @@ codeunit 60279 "Chain Reads"
 }
 
 #[test]
+fn a_chain_member_that_takes_no_number_from_the_carried_state_hands_on_the_state_it_was_given() {
+    // Run from the serial state, the middle codeunit skips the number its first run (from a fresh state) took: it
+    // leaves the state it was given (`baseline: None`, numbers_taken.rs). Corpus P119ReportColumn.al's codeunit, run
+    // again after the Probe Observer's state, did this on every major, and every later codeunit was refused.
+    let src = r#"
+codeunit 60277 "Chain Sets"
+{
+    Subtype = Test;
+    [Test] procedure SetsFlag() var S: Codeunit "Carry State"; begin S.Bump(); end;
+}
+codeunit 60278 "Chain Middle"
+{
+    Subtype = Test;
+    [Test] procedure TakesOnce()
+    var S: Codeunit "Carry State";
+    begin
+        if S.GetCount() = 0 then begin
+            if not NumberSequence.Exists('CARRYSEQ') then NumberSequence.Insert('CARRYSEQ');
+            NumberSequence.Next('CARRYSEQ');
+        end;
+    end;
+}
+codeunit 60279 "Chain Reads"
+{
+    Subtype = Test;
+    [Test] procedure SeesNoSequence()
+    begin
+        if NumberSequence.Exists('CARRYSEQ') then Error('the sequence exists');
+    end;
+}
+"#;
+    let results = run(src, &RunOptions::default());
+    assert_eq!(outcome(&results, "TakesOnce"), Outcome::Pass);
+    assert_eq!(outcome(&results, "SeesNoSequence"), Outcome::Pass);
+}
+
+#[test]
 fn a_rolled_back_buffer_is_handed_on_again_and_answers_its_field_captions() {
     let src = r#"
 codeunit 60280 "Rolled Keep"
