@@ -1659,7 +1659,6 @@
 92150 Y21_LicenseInformation_ReadFails
 92150 Y21_SessionEvent_OwnSession
 92150 Y21_WindowsLanguage_Flags
-92279 R7168_ActionGetChildWithoutRefresh
 92425 Variant_To_Byte_2
 92425 Variant_To_Code10
 92425 Variant_To_Code10_2
@@ -2197,7 +2196,6 @@
 96036 XDN_Item_Import
 96036 XDN_TableRoot_Import
 96036 XDN_TextLeaf_Import
-96073 R7169_DependencyInstall_ReadsPublishedAs
 96073 R7169_Test_ReadsPublishedAsOfDependency
 96123 P7B_ReadsWhatThePreviousTestCodeunitLeft
 96140 PG6889RS_Step2_OrderKeyTreeAutoSplitKeyInlineRenumber

@@ -32,6 +32,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "ignorePermissionMock",
     "devEndpointUi",
     "allowWriteInTryFunctions",
+    "dependenciesPublishedGlobal",
     "affectedOnly",
     "includeFailing",
     "strictEnvironment",
@@ -322,6 +323,8 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     a.dev_endpoint_ui = flag(fields, "devEndpointUi")?;
     // Issue 7143: the service-tier setting DisableWriteInsideTryFunctions is off, as `--allow-write-in-try-functions`.
     a.allow_write_in_try_functions = flag(fields, "allowWriteInTryFunctions")?;
+    // Issue 7169: "Published As" of a dependency by another publisher is Global, as `--dependencies-published-global`.
+    a.dependencies_published_global = flag(fields, "dependenciesPublishedGlobal")?;
     // ADR-062 section 5: `permissions: "off"` is `--permissions off`.
     a.permissions_off = match fields.get("permissions") {
         None | Some(Value::Null) => false,
@@ -993,6 +996,19 @@ mod tests {
                 .dev_endpoint_ui
         );
         assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.dev_endpoint_ui);
+        // Issue 7169: `dependenciesPublishedGlobal` is `--dependencies-published-global` for one request.
+        assert!(
+            run(json!({"sourcePaths": ["/a"], "dependenciesPublishedGlobal": true}))
+                .unwrap()
+                .0
+                .dependencies_published_global
+        );
+        assert!(
+            !run(json!({"sourcePaths": ["/a"]}))
+                .unwrap()
+                .0
+                .dependencies_published_global
+        );
         // ADR-062 section 5: `permissions: "off"` is `--permissions off` for one request.
         assert!(
             run(json!({"sourcePaths": ["/a"], "permissions": "off"}))

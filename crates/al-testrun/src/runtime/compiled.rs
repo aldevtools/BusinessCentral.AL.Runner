@@ -179,6 +179,9 @@ pub struct RunOptions {
     /// DisableWriteInsideTryFunctions is off, as on Business Central online (`al_vm::Engine::write_in_try_allowed`). Default
     /// `false`: the setting's default, as the corpus CI runs.
     pub allow_write_in_try_functions: bool,
+    /// `al-runner test --dependencies-published-global`: "Published As" of "NAV App Installed App" is Global for a dependency
+    /// app by another publisher than Microsoft (`al_vm::Engine::dependencies_published_global`). Default `false`: Dev.
+    pub dependencies_published_global: bool,
     /// A variant of a stability run (ADR-058): what the runner changes in its steps around each test and in the
     /// session's host values. The default is a normal run.
     pub perturb: crate::stability::Perturb,
