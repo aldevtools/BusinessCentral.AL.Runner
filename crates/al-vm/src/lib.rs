@@ -786,6 +786,10 @@ pub struct Session {
     singletons: std::collections::HashMap<usize, Rc<RefCell<Instance>>>,
     /// The notes on the single instances' globals while the session carries SingleInstance state (`single_carry.rs`).
     si_track: Option<Box<single_carry::Track>>,
+    /// The single instances an earlier test codeunit left (restored or moved in) that this session has not used yet: the
+    /// first use decides whether the instance counts as made under lowered permissions (`single_carry.rs`
+    /// `claim_carried_single`).
+    singles_unclaimed: std::collections::HashSet<usize>,
     pub(crate) store: al_data::memory::MemStore,
     /// Private tables of temporary records, by temp id.
     pub(crate) temps: std::collections::HashMap<u64, al_data::memory::MemStore>,
@@ -1192,6 +1196,7 @@ impl Session {
             xp_pass_views: Vec::new(),
             singletons: Default::default(),
             si_track: None,
+            singles_unclaimed: Default::default(),
             xp_unlinked_passes: Vec::new(),
             xp_link_hidden: Vec::new(),
             store,

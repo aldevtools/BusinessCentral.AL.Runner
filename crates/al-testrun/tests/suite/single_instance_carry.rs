@@ -820,7 +820,11 @@ fn bindings_a_single_instance_keeps_alive_reach_the_next_codeunit_and_others_do_
             ..Default::default()
         };
         let rt = runtime(BINDINGS, &opts);
-        assert!(rt.phases.chain.serial_mismatches.is_empty(), "{:?}", rt.phases.chain.serial_mismatches);
+        assert!(
+            rt.phases.chain.serial_mismatches.is_empty(),
+            "{:?}",
+            rt.phases.chain.serial_mismatches
+        );
         for r in rt.results() {
             assert_eq!(r.outcome, Outcome::Pass, "{} (serial check {serial})", r.test);
         }

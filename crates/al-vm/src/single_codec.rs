@@ -1147,7 +1147,9 @@ pub(crate) fn binding_ranks(session: &Session) -> BindingRanks {
     }
     let mut rank = 0;
     for inst in &live {
-        let single = inst.try_borrow().map_or(None, |i| i.single.then_some(i.object as usize));
+        let single = inst
+            .try_borrow()
+            .map_or(None, |i| i.single.then_some(i.object as usize));
         if let Some(object) = single {
             if session.singletons.get(&object).is_some_and(|s| Rc::ptr_eq(s, inst)) {
                 out.singles.push((object, rank));

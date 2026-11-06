@@ -90,7 +90,12 @@ fn bindings_carry(b: &BindingRanks, held: &[(GlobalKey, &Carry)]) -> Carry {
     }
     lines.sort();
     Carry::Val(CarryVal::Plain(
-        lines.into_iter().map(|(_, l)| l).collect::<Vec<_>>().join("\n").into_bytes(),
+        lines
+            .into_iter()
+            .map(|(_, l)| l)
+            .collect::<Vec<_>>()
+            .join("\n")
+            .into_bytes(),
     ))
 }
 
@@ -354,6 +359,22 @@ impl Session {
         if let Some(t) = self.si_track.as_mut() {
             t.bind_start = Some(b);
         }
+        self.singles_unclaimed.extend(self.singletons.keys().copied());
+    }
+
+    /// The first use in this session of a single instance an earlier test codeunit left: it counts as made now for the
+    /// Execute check (`Instance::born`), as in a session that starts without it. BC checks Execute on Format Address
+    /// (SingleInstance) called through a local variable under a narrow set (permissions/wildcard-scope/
+    /// Y93WildScope.al:439, :446-447) although codeunit 86504 (record/captions/QdCaptionClassAreas.al), which runs before
+    /// it in the same session on BC 28.5 and 29.0 (corpus .github/ci-shards.json), made it through its General Ledger
+    /// Setup subscriber; the Permissions Mock that a test codeunit's global holds stays unchecked, as in one codeunit
+    /// (Y24PermExecute.al:35, :107). Assumed for the other shapes (docs/probes-needed.md, "SingleInstance carry").
+    pub(crate) fn claim_carried_single(&mut self, object: usize) {
+        if self.singles_unclaimed.remove(&object)
+            && let Some(inst) = self.singletons.get(&object)
+        {
+            inst.borrow_mut().born = al_builtins::value::Born::default();
+        }
     }
 
     /// What the session did with the single instances since [`Session::track_single_instances`]; `None` when it did not
@@ -552,9 +573,19 @@ impl Session {
                 .ranks
                 .get(&(Rc::as_ptr(&i) as *const () as usize))
                 .copied()
-                .or_else(|| kept.singles.iter().find(|s| s.0 == object && i.borrow().single).map(|s| s.1));
+                .or_else(|| {
+                    kept.singles
+                        .iter()
+                        .find(|s| s.0 == object && i.borrow().single)
+                        .map(|s| s.1)
+                });
             if let Some(r) = rank {
-                bindings.push((r, crate::dispatch::Binding { instance: Rc::downgrade(&i) }));
+                bindings.push((
+                    r,
+                    crate::dispatch::Binding {
+                        instance: Rc::downgrade(&i),
+                    },
+                ));
             }
         }
         bindings.sort_by_key(|b| b.0);
@@ -578,6 +609,7 @@ impl Session {
     pub fn adopt_single_instances(&mut self, moved: MovedSingles) {
         self.next_temp = self.next_temp.max(moved.next_temp);
         self.temps.extend(moved.temps);
+        self.singles_unclaimed.extend(moved.singletons.keys().copied());
         self.singletons.extend(moved.singletons);
         self.events.bindings.splice(0..0, moved.bindings);
         self.sync_active_instances();

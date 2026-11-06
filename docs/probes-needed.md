@@ -244,6 +244,12 @@ wanted on real BC.
 |---|---|---|---|
 | Companies | Nothing assumed. Pinned now: CRM Connection Setup holds no row in either company (record/BfInstallTests.al:317-318, corpus issue 811), so under `--companies` without test data it starts empty in "My Company", and the corpus takes the `companies` key (27, 28, 29 each +13, 0 lost). Every other dependency table there that holds rows stays refused (decision 5). | Microsoft's demo database: 0 rows in both companies | `al-vm/src/companies.rs` |
 
+## SingleInstance carry (ADR-066 amendment 1)
+
+| Area | What is assumed | Source today | Code |
+|---|---|---|---|
+| Execute check of a carried single instance | A SingleInstance codeunit that an earlier test codeunit of the session made counts, for the Execute check, as made at its first use in the next test codeunit (as in a session that starts without it). Seen, not probed: Format Address, made by codeunit 86504's General Ledger Setup subscriber, is denied in 94998 through a local variable under a narrow set (permissions/wildcard-scope/Y93WildScope.al:439, :446-447; both in one shard on BC 28.5 and 29.0). Probe wanted: codeunit A calls a SingleInstance codeunit unrestricted; codeunit B calls it under `SetExactPermissionSet` without Execute, once through a local variable and once through a global of B made before the set; observe the error or none. | Y93WildScope.al (oracle run order) | `al-vm/src/single_carry.rs` `claim_carried_single` |
+
 ## Probe batch 4 (from Microsoft buckets)
 
 Gaps found by running Microsoft's BaseApp test buckets under `alrunner test` (2026-10-14, branch

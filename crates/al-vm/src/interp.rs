@@ -1011,6 +1011,8 @@ impl Session {
             let inst = self.instance(object);
             self.single_made(object, &inst);
             self.singletons.insert(object, inst);
+        } else if !self.singles_unclaimed.is_empty() {
+            self.claim_carried_single(object);
         }
         self.singletons[&object].clone()
     }
