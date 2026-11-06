@@ -2263,8 +2263,8 @@ impl Session {
     /// A record method: [`Session::record_op_inner`], with what it does to the snapshot `Record.IsDirty` compares with
     /// (isdirty.rs).
     pub(crate) fn record_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
-        // ADR-062: a record method of a restricted session; an unrestricted session pays one branch.
-        if self.permissions.is_some() {
+        // ADR-062: a record method of a restricted session, or of any session when the license limits a table (license_ceiling.rs).
+        if self.permission_checks() {
             let from_al = std::mem::take(&mut self.permission_from_al);
             self.permission_gate_record(method, rec, args, from_al)?;
         }
@@ -2564,7 +2564,7 @@ impl Session {
             self.global_group_check(rec, table, method.name())?;
         }
         // ADR-062: a denial of a method AL code calls raises BC's error where its shape is pinned.
-        if self.permissions.is_some() {
+        if self.permission_checks() {
             self.permission_from_al = true;
         }
         self.record_op(method, rec, args)

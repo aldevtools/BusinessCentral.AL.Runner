@@ -3612,9 +3612,12 @@ fn synthetic_license() -> Vec<u8> {
                 "Codeunit",
                 &[(1, 999, 31), (5000, 5999, 16), (2000000000, 2000000300, 31)],
             ),
-            ("TableData", &[(1, 50, 31), (2000000000, 2000000300, 31)]),
+            ("TableData", &[(1, 50, 31), (60, 70, 449), (2000000000, 2000000300, 31)]),
             ("TableDescription", &[(1, 999, 31), (2000000000, 2000000300, 31)]),
-            ("Page", &[(1, 999, 31), (2000000000, 2000000300, 31)]),
+            (
+                "Page",
+                &[(1, 999, 31), (1000, 1999, 512 | 31), (2000000000, 2000000300, 31)],
+            ),
             ("Report", &[(1, 999, 3)]),
             ("XMLPort", &[(1, 999, 31)]),
             ("Query", &[(1, 999, 31)]),
@@ -3728,7 +3731,25 @@ codeunit 50000 \"T\" {
     var
         ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
     begin
-        Describe(ObjType::Report, 5);
+        if Describe(ObjType::Report, 5) <> '11000' then
+            Error('partial mask: %1', Describe(ObjType::Report, 5));
+    end;
+
+    [Test]
+    procedure IndirectMask()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+    begin
+        if Describe(ObjType::TableData, 65) <> '12220' then
+            Error('indirect mask: %1', Describe(ObjType::TableData, 65));
+    end;
+
+    [Test]
+    procedure UnpinnedBit()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+    begin
+        Describe(ObjType::Page, 1500);
     end;
 
     [Test]
@@ -3791,12 +3812,16 @@ fn license_permission_answers_from_the_loaded_license() {
         "NegativeNumber",
         "FieldNumberType",
         "FilterOnAPermission",
+        // The license facts of ADR-060 (BC 28.5, a customer license, 2026-11-06, owner decision): one bit per letter,
+        // Indirect five places higher.
+        "PartialMask",
+        "IndirectMask",
     ] {
         passes(&o, t);
     }
     for (t, why_has) in [
         ("UnpinnedSystemNumber", "system object range"),
-        ("PartialMask", "which bit is which"),
+        ("UnpinnedBit", "not pinned"),
         ("LimitedUsageOfAnotherLicense", "limited-usage list"),
         ("RangeIntoTheSystemRange", "system object range"),
     ] {

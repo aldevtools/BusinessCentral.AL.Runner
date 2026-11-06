@@ -523,7 +523,7 @@ impl Session {
         }
         let filters = self.calc_filters(rec, calc, &mut Vec::new())?;
         let src_t = self.engine.tables[calc.table].clone().expect("table");
-        if self.permissions.is_some() {
+        if self.permission_checks() {
             self.permission_gate_flowfield(rec, calc.table)?;
         }
         let cx = self.cx_for(rec, &src_t)?;
@@ -567,7 +567,7 @@ impl Session {
         let src_t = self.engine.tables[calc.table].clone().expect("table");
         self.unseeded_read(&src_t, rec.borrow().temporary, "a FlowField")?;
         // ADR-062: a FlowField reads its source table indirectly (CpPermLeads.al:29-63).
-        if self.permissions.is_some() {
+        if self.permission_checks() {
             self.permission_gate_flowfield(rec, calc.table)?;
         }
         let cx = self.cx_for(rec, &src_t)?;

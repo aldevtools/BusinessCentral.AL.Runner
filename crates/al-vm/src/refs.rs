@@ -1146,7 +1146,7 @@ impl Session {
             "IsEmpty" | "Count" | "Init" | "Insert" | "Modify" | "Delete" | "DeleteAll" | "Find" | "FindFirst"
             | "FindLast" | "FindSet" | "Next" | "Reset" | "Rename" => {
                 // ADR-062: a RecordRef write is checked like a record write (Y19PermWrites.al Y19_P6_RecordRef).
-                if self.permissions.is_some() {
+                if self.permission_checks() {
                     self.permission_from_al = true;
                 }
                 self.record_op(record_method(method), &rec, args)

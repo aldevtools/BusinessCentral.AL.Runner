@@ -619,3 +619,19 @@ a grant. Each line of FILE is `codeunit id`, `test`, `would deny` or `unknown`, 
 `execute`, `call`, `page open`, `permission query`, `accessbypermission`), the BC error text and code (or the reason it is unknown), the
 sets, and `lower bound` when a set was not composed in full. A test that assigns a set of its own ends the evaluation (probe P25).
 `permission_shadow.rs` in `al-vm` wraps the gates of `permissions.rs`; test outcomes are the same with the switch on.
+
+## Stage 5, part 1: the license caps table data (2026-11-06)
+
+`al-vm/src/license_ceiling.rs`. Amendment 1 point 5 for TableData below 2000000000: an access the sets allow (in an
+unrestricted session too) is checked against the license level.
+
+- Yes: allowed. Indirect: allowed when the code's object grants the access in its `Permissions` property (a FlowField
+  counts as granted); otherwise the denial of the existing paths with the operation word without `Indirect`. The Insert
+  denial is a license fact (BC 28.5, a customer license, SUPER user, 2026-11-06, owner decision): text
+  `Sorry, the current permissions prevented the action. (TableData <id> <name> Insert: <app>)`, code `DB:ClientInsertDenied`.
+  Read, Modify and Delete reuse the user-level indirect pins (CpPermLeads.al:91-103, Y19PermWrites.al:172); the shapes
+  those paths do not pin (CalcSums, empty dependency tables, runtime-made writes) stay refused.
+- Refused: a blank license level (ADR-060 decision 6), an unpinned mask, an inherent permission on the accessed table or
+  on the stack meeting a level below Yes, an extension object's code, `--permissions off`.
+- Not applied: Execute, system objects. With the license of the BC artifacts nothing is checked in an unrestricted
+  session (`Engine::license_caps` is false when every table of the program is licensed Yes on all four).

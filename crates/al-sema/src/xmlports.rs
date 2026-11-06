@@ -480,8 +480,10 @@ fn bc_default_namespace(out: &mut Layout, own_namespace: Option<String>, utf8: b
     // namespace in scope differs; every import fails (corpus
     // xmlports/shapes-properties/XpUseDefaultNsPrefixes.al XUD_*_Export, XUD_*_Import, BC 27.5, 28.5 and 29.0). UseLax,
     // InlineSchema, V11, PreserveWhiteSpace and attributes with it are not pinned; the import is refused.
-    let udn_root_prefix = own_namespace.is_none()
-        && !named_prefixes_on_fields
+    // With DefaultNamespace the same, with the DefaultNamespace in place of the port's namespace (corpus PR 1158,
+    // xmlports/shapes-properties/XpUseDefaultNsWithDefault.al XDN_*_Export, XDN_*_Import, BC 27.5,
+    // 28.5 and 29.0).
+    let udn_root_prefix = !named_prefixes_on_fields
         && !out.namespaces.is_empty()
         && out.namespaces.iter().all(|(p, _)| !p.is_empty())
         && !(out.use_lax || out.inline_schema || out.xml_v11 || out.preserve_whitespace)

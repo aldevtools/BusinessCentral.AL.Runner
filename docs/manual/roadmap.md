@@ -32,7 +32,8 @@ reported as not run, with the reason.
 - **Permission checks against a license** (ADR-060 and ADR-062, planned). `License Permission`
   already answers from the license file (see [BC license](license.md)). Table data writes in
   a session that a test lowered are checked. Planned: reads, `Execute` permission, the
-  permission sets of the runner, and the license as a limit on what a permission set grants.
+  permission sets of the runner, and the license as a limit on `Execute`. The license already
+  limits table data access (see [BC license](license.md)).
 
 ## Waiting on a change in the Linux test setup
 

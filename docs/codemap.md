@@ -153,7 +153,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `dotnet.rs` (238): The `DotNet` provider seam (ADR-014 section 2). Entry: `DotNetType` 10, `DotNetHandle` 26, `DotNetValue` 30, `DotNetArg` 65.
 - `lib.rs` (350): The host seam: clock, identity, client type, file system (ADR-006). Entry: `Clock` 21, `Identity` 70, `ClientType` 54, `Host` 258.
 - `testdata.rs` (330): Test data capability (ADR-020): `TableProvider`, `Cell`, `TestData` (reads each table once for all threads) and `LoadStats` (the counts behind the summary line). Entry: `TableProvider`, `TestData`, `LoadStats`, `Summary`.
-- `license.rs` (~400): A BC license file (`.bclicense`, ADR-060): `parse` (UTF-16 header, XML permission lists, no signature check), `License::levels`/`level` per list and number, the limited-usage list, `synthetic::file` for tests. Entry: `parse`, `License`, `Level`.
+- `license.rs` (~400): A BC license file (`.bclicense`, ADR-060): `parse` (UTF-16 header, XML permission lists, no signature check), `License::levels`/`level` per list and number (Yes bits 1-16, Indirect bits 32-256), the limited-usage list, `synthetic::file` for tests. Entry: `parse`, `License`, `Level`.
 - `random.rs` (112): .NET's seeded `System.Random` for `Random` and `Randomize`. Entry: `NetRandom` 15.
 - `seed.rs`: the run seed's derivations per test method (ADR-061): `derive` (v2's FNV-1a), `derive_library`, `guid_key`.
 
@@ -381,6 +381,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `pages/format_type11.rs` (30): the format string of an AutoFormatType 11 field, evaluated once per `Format`. Entry: `auto_format_type11_string`.
 - `pages/areas.rs` (104): Application areas on the test client.
 - `permissions.rs` (330): The session's permission sets (ADR-062): `SetModel` composes the Role IDs `PermissionTestHelper.AddEffectivePermissionSet` assigned from the permission set objects' source (`platform::raw_sets`: wildcards, IncludedPermissionSets), once per engine and set list; a list that grants everything (SUPER) leaves `Session::permissions` at `None` (unrestricted). A restricted session is refused at its next routine call (`Session::call_with_facts`) or record method (`records::record_op`) outside codeunit 131006, or at the end of the test (al-testrun `run.rs`). Entry: `SetModel::compose`, `Session::assign_permission_set`, `permission_gate`, `permissions_lowered_at_end`.
+- `license_ceiling.rs` (~170): The license as a ceiling of the permission check (ADR-062 amendment 1 point 5, stage 5 part 1): TableData below the system range; Indirect needs the code's `Permissions` property, blank refuses. `Engine::license_caps` says whether an unrestricted session must check at all. Entry: `Session::license_verdict`, `Session::permission_checks`.
 - `pages/background.rs` (257): Page background tasks under the test client. Entry: `BgWorker` 11.
 - `pages/filter.rs` (135): `TestPage.Filter` / `TestPart.Filter` (the `TestFilter` handle).
 - `pages/parts.rs` (324): Page parts (ADR-012 follow-up).

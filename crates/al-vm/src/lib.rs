@@ -76,6 +76,7 @@ mod http;
 pub mod impact;
 mod interfaces;
 mod isdirty;
+mod license_ceiling;
 mod load_fields_request;
 mod media_orphans;
 mod native_rows;
@@ -176,6 +177,9 @@ pub struct Engine {
     /// The BC license of the run (ADR-060): License Permission answers from it. `None`: no license was available, and
     /// only the pinned rows are served.
     pub license: Option<Arc<al_host::license::License>>,
+    /// Whether the license gives some table of the program less than Yes on Read, Insert, Modify or Delete, so that
+    /// record accesses check it also in an unrestricted session (license_ceiling.rs). Worked out on first use.
+    pub(crate) license_caps: std::sync::OnceLock<bool>,
     /// The service-tier setting DisableWriteInsideTryFunctions is off (`al-runner test --allow-write-in-try-functions`, al-runner
     /// issue 7143), as on Business Central online. Default `false`: the setting at its default, as on a BC container and the
     /// corpus CI, where a write inside a TryFunction whose result is used raises TryFunctionWrite.
@@ -453,6 +457,7 @@ impl Engine {
             dotnet_called: Default::default(),
             test_data: None,
             license: None,
+            license_caps: Default::default(),
             write_in_try_allowed: false,
             unevaluable_init: Arc::new(unevaluable_init),
             table_facts: table_facts.into(),
@@ -499,6 +504,7 @@ impl Engine {
             dotnet_called: Default::default(),
             test_data: None,
             license: None,
+            license_caps: Default::default(),
             write_in_try_allowed: false,
             unevaluable_init: self.unevaluable_init.clone(),
             table_facts: self.table_facts.clone(),
@@ -560,6 +566,7 @@ impl Engine {
             dotnet_called,
             test_data,
             license,
+            license_caps,
             write_in_try_allowed,
             // From the program and the config of `with_config` (and al-testrun's `global_triggers_find_unavailable`,
             // which reads only the compile): the same for every run over this program.
@@ -604,6 +611,7 @@ impl Engine {
         *dotnet_called.get_mut() = false;
         *test_data = None;
         *license = None;
+        *license_caps = Default::default();
         *write_in_try_allowed = false;
     }
 
