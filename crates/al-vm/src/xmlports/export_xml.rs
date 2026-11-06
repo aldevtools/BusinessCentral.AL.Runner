@@ -130,7 +130,10 @@ impl Session {
         // shape (xmlports/shapes-properties/Y17XmlPortNamespaces.al, an Integer root with MaxOccurs = Once, an OnAfterGetRecord,
         // text and table elements below; Y17XmlPortNamespacesTests.al:60-93). Without namespaces it is not pinned.
         let declares = !xp.namespaces.is_empty() || xp.default_ns.is_some();
-        let table_root = root_table_element(schema, top) || (declares && table_root_with_content(schema, top));
+        // Without namespaces, a table element root whose text elements below it hold content (`plain_tree_root`, plain_tree.rs).
+        let table_root = root_table_element(schema, top)
+            || (declares && table_root_with_content(schema, top))
+            || plain_tree_root(schema, top);
         if !table_top && !table_root && (xp.nodes[top].kind != ir::XmlNodeKind::Text || schema.children(top).is_empty())
         {
             return unsupported("XmlPort export whose root is not a text element with content (not pinned)");
@@ -727,8 +730,10 @@ impl Session {
                         return Ok(());
                     }
                 }
+                // A `plain_text_tree` (plain_tree.rs) is written as any container, below.
                 ir::XmlNodeKind::Text
                     if schema.node(node).kind == ir::XmlNodeKind::Table
+                        && !plain_text_tree(schema, child)
                         && !linked_container(schema, child, node)
                         && !attr_container(schema, child)
                         && !plain_container(schema, child) =>
