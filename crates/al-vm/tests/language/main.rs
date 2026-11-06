@@ -114,6 +114,7 @@ mod json_digit_text_getters;
 mod json_marked_call_stack;
 mod json_remove_statement;
 mod json_select_token_filter;
+mod json_select_token_paths;
 mod json_select_tokens;
 mod json_temporal_cross_reads;
 mod json_text_as_decimal;
