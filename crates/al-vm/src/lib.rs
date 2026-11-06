@@ -185,6 +185,10 @@ pub struct Engine {
     /// issue 7143), as on Business Central online. Default `false`: the setting at its default, as on a BC container and the
     /// corpus CI, where a write inside a TryFunction whose result is used raises TryFunctionWrite.
     pub write_in_try_allowed: bool,
+    /// `al-runner test --dependencies-published-global`: "Published As" of "NAV App Installed App" is Global for a dependency app
+    /// by another publisher than Microsoft (a documented setting, assumption `dependency-published-as-global`). Default
+    /// `false`: Dev, as published through the development endpoint (al-runner issue 7169).
+    pub dependencies_published_global: bool,
     /// (table object, field position) -> the error BC raises when it evaluates the field's
     /// `InitValue` (`0DT` on a DateTime, a closing-date literal on a Date).
     pub unevaluable_init: Arc<std::collections::HashMap<(u32, usize), String>>,
@@ -460,6 +464,7 @@ impl Engine {
             license: None,
             license_caps: Default::default(),
             write_in_try_allowed: false,
+            dependencies_published_global: false,
             unevaluable_init: Arc::new(unevaluable_init),
             table_facts: table_facts.into(),
             object_facts: object_facts.into(),
@@ -507,6 +512,7 @@ impl Engine {
             license: None,
             license_caps: Default::default(),
             write_in_try_allowed: false,
+            dependencies_published_global: false,
             unevaluable_init: self.unevaluable_init.clone(),
             table_facts: self.table_facts.clone(),
             object_facts: self.object_facts.clone(),
@@ -569,6 +575,7 @@ impl Engine {
             license,
             license_caps,
             write_in_try_allowed,
+            dependencies_published_global,
             // From the program and the config of `with_config` (and al-testrun's `global_triggers_find_unavailable`,
             // which reads only the compile): the same for every run over this program.
             program: _,
@@ -614,6 +621,7 @@ impl Engine {
         *license = None;
         *license_caps = Default::default();
         *write_in_try_allowed = false;
+        *dependencies_published_global = false;
     }
 
     /// The first compiled codeunit with this id, in program order: the object `Codeunit.Run(Id)` runs. Found in an index
@@ -1711,13 +1719,27 @@ impl Session {
     /// after it (BCApps build/scripts/ImportTestDataInBcContainer.ps1:907-923), so the install baseline holds the others
     /// back while the company is built.
     pub fn set_apps_not_installed(&mut self, apps: Option<std::collections::BTreeSet<u32>>) {
+        self.events.event_stats.install_view.borrow_mut().not_installed = apps.clone().unwrap_or_default();
         self.events.not_installed_apps = apps;
+    }
+
+    /// The app (index in `Program::apps`) whose install code runs: its own row of "NAV App Installed App" does not exist yet.
+    /// `set_apps_install_order_unknown(None)`, which ends an install, clears it.
+    pub fn set_installing_app(&mut self, app: Option<u32>) {
+        self.events.event_stats.install_view.borrow_mut().installing = app;
     }
 
     /// The apps (indexes in `Program::apps`) with no dependency path to the app whose install code runs: whether BC installs
     /// them before or after it is not known, so an event the install code raises that one of their subscribers would
     /// receive, and `NavApp.GetModuleInfo` of one of them, are refused. `None`: no install runs.
     pub fn set_apps_install_order_unknown(&mut self, apps: Option<std::collections::BTreeSet<u32>>) {
+        {
+            let mut view = self.events.event_stats.install_view.borrow_mut();
+            view.order_unknown = apps.clone().unwrap_or_default();
+            if apps.is_none() {
+                view.installing = None;
+            }
+        }
         self.events.order_unknown_apps = apps;
     }
 

@@ -111,6 +111,10 @@ pub struct TestArgs {
     /// `--allow-write-in-try-functions` (al-runner issue 7143): run as a service tier whose setting DisableWriteInsideTryFunctions
     /// is off (Business Central online). Default: the setting's default, as a BC container: such a write raises TryFunctionWrite.
     pub allow_write_in_try_functions: bool,
+    /// `--dependencies-published-global` (al-runner issue 7169): "Published As" of "NAV App Installed App" is Global for a dependency
+    /// app by another publisher than Microsoft, for a pipeline that publishes dependencies as compiled apps. Default: Dev, as
+    /// published through the development endpoint.
+    pub dependencies_published_global: bool,
     /// `--permissions off` (ADR-062 section 5): no access kind is enforced, whatever stage is on by default. `on`,
     /// the default, enforces the stages that are on; none is yet.
     pub permissions_off: bool,
@@ -621,6 +625,13 @@ selects only the tests both match)
                          measured on Business Central are answered; the others still fail. Each
                          answer prints a warning with the test, the call and the answer, and such a
                          test is a flagged pass, `dev-endpoint-ui`.
+    --dependencies-published-global
+                         Show Published As of NAV App Installed App as Global, not Dev, for a
+                         dependency app of a publisher other than Microsoft. Use it when your
+                         pipeline publishes dependencies as compiled apps. The Global value is a
+                         setting, not measured on Business Central: a pass that reads it is a
+                         flagged pass, `dependency-published-as-global`. In `serve`: the runTests
+                         field `dependenciesPublishedGlobal`.
     --permissions on|off Whether AL Runner enforces permissions where a stage of its permission
                          checks is on (default on). Stage 1 is on: table data writes of a session a test
                          lowered are checked. Other denials are not run. `off` checks nothing.
@@ -1234,6 +1245,7 @@ fn parse_serve(args: Vec<String>) -> Result<Command, String> {
         || t.ignore_permission_mock
         || t.dev_endpoint_ui
         || t.allow_write_in_try_functions
+        || t.dependencies_published_global
         || t.permissions_off
         || t.affected_store.is_some()
     {
@@ -1610,6 +1622,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--ignore-permission-mock" => a.ignore_permission_mock = true,
             "--dev-endpoint-ui" => a.dev_endpoint_ui = true,
             "--allow-write-in-try-functions" => a.allow_write_in_try_functions = true,
+            "--dependencies-published-global" => a.dependencies_published_global = true,
             "--permissions" => a.permissions_off = permissions_off(&text()?)?,
             "--affected" => a.affected = true,
             "--affected-store" => a.affected_store = Some(text()?.into()),
@@ -2117,6 +2130,14 @@ mod tests {
     fn allow_write_in_try_functions_is_opt_in() {
         assert!(!test_args("test A").allow_write_in_try_functions);
         assert!(test_args("test A --allow-write-in-try-functions").allow_write_in_try_functions);
+    }
+
+    /// Issue 7169: `--dependencies-published-global` is off unless given.
+    #[test]
+    fn dependencies_published_global_is_opt_in() {
+        assert!(!test_args("test A").dependencies_published_global);
+        assert!(test_args("test A --dependencies-published-global").dependencies_published_global);
+        assert!(parse(["serve".to_string(), "--dependencies-published-global".to_string()]).is_err());
     }
 
     /// Issue 3697: `--dev-endpoint-ui` is off unless given, and `serve` takes it only per request.
