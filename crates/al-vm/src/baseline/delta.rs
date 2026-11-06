@@ -58,7 +58,64 @@ pub struct Delta {
     marks: Option<Marks>,
 }
 
+/// A part of the state two deltas can differ in ([`Delta::differences`]).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum DeltaPart {
+    /// The rows of a table object (in any company), or whether it is gone.
+    Table(u32),
+    /// The AutoIncrement counter of a table object.
+    AutoIncrement(u32),
+    /// How far a number sequence moved on.
+    Sequence(String),
+    GuidCounter,
+    RowVersion,
+    /// The marks (installs, company build, install rows, unknown company rows, copies), the clock stamp apart.
+    Marks,
+}
+
 impl Delta {
+    /// The parts of the state in which `self` and `other` would leave the same start differently, each once, in order
+    /// (the carry chain's `--timings` names what a wrong prediction got wrong). The marks' clock stamp does not count:
+    /// [`Baseline::fingerprint`] leaves it out.
+    pub fn differences(&self, other: &Delta) -> Vec<DeltaPart> {
+        let mut out = std::collections::BTreeSet::new();
+        for k in self.tables.keys().chain(other.tables.keys()) {
+            if self.tables.get(k) != other.tables.get(k) {
+                out.insert(DeltaPart::Table(k.1));
+            }
+        }
+        for k in self.gone.symmetric_difference(&other.gone) {
+            out.insert(DeltaPart::Table(k.1));
+        }
+        for k in self.autoinc.keys().chain(other.autoinc.keys()) {
+            if self.autoinc.get(k) != other.autoinc.get(k) {
+                out.insert(DeltaPart::AutoIncrement(k.1));
+            }
+        }
+        for k in self.steps.keys().chain(other.steps.keys()) {
+            if self.steps.get(k).copied().unwrap_or(0) != other.steps.get(k).copied().unwrap_or(0) {
+                out.insert(DeltaPart::Sequence(k.1.clone()));
+            }
+        }
+        if self.next_guid != other.next_guid {
+            out.insert(DeltaPart::GuidCounter);
+        }
+        if (self.next_row_version, self.committed_row_version) != (other.next_row_version, other.committed_row_version)
+        {
+            out.insert(DeltaPart::RowVersion);
+        }
+        let unstamped = |m: &Option<Marks>| {
+            m.clone().map(|mut m| {
+                m.last_stamp = 0;
+                m
+            })
+        };
+        if unstamped(&self.marks) != unstamped(&other.marks) {
+            out.insert(DeltaPart::Marks);
+        }
+        out.into_iter().collect()
+    }
+
     /// A delta that only takes `n` new GUIDs: two such deltas differ when their counts do (tests of what is built on
     /// deltas, such as the carry chain's predictions in al-testrun).
     pub fn of_guids(n: u64) -> Delta {
@@ -322,7 +379,44 @@ impl Baseline {
 #[cfg(test)]
 mod tests {
     use super::super::tests::sample;
+    use super::DeltaPart;
     use al_builtins::value::Value;
+
+    /// Two deltas name the parts they differ in: a number sequence moved on by another count, a table with other rows,
+    /// the GUID counter; the marks' clock stamp does not count (the fingerprint leaves it out).
+    #[test]
+    fn two_deltas_name_the_parts_they_differ_in() {
+        let start = sample();
+        let key = ("".to_string(), "Seq".to_string());
+        let one = start.stepped(&[(key.clone(), 1)].into_iter().collect()).unwrap();
+        let mut three = start.stepped(&[(key.clone(), 3)].into_iter().collect()).unwrap();
+        three.next_guid += 1;
+        three.last_stamp += 7;
+        three.store = three.store.clone().with_committed_tables(
+            vec![(
+                al_data::memory::ExportedTable {
+                    company: "CRONUS".into(),
+                    object: 18,
+                    rows: vec![(vec![Value::Integer(1)], vec![Value::Integer(1)])],
+                },
+                false,
+            )],
+            &[],
+        );
+        let (a, b) = (one.delta_from(&start).unwrap(), three.delta_from(&start).unwrap());
+        assert_eq!(
+            a.differences(&b),
+            vec![
+                DeltaPart::Table(18),
+                DeltaPart::Sequence("Seq".into()),
+                DeltaPart::GuidCounter
+            ]
+        );
+        assert!(a.differences(&a).is_empty());
+        let mut later = one.clone();
+        later.last_stamp += 9;
+        assert!(a.differences(&later.delta_from(&start).unwrap()).is_empty());
+    }
 
     #[test]
     fn a_delta_applied_to_its_start_gives_the_same_fingerprint_and_predicts_a_later_start() {
