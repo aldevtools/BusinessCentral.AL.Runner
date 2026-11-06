@@ -903,6 +903,7 @@ mod session_flags;
 mod suite_rows;
 #[cfg(test)]
 mod suite_rows_tests;
+mod test_handlers;
 mod test_marks;
 #[cfg(test)]
 mod tests;

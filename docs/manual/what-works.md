@@ -96,7 +96,7 @@ Application tests do not run yet; see [Running Microsoft's tests](microsoft-test
 - The `logo` of `app.json` (a PNG) is served as the Logo of the app's Published
   Application row. A logo that is not a PNG is refused.
 - Data-driven tests (`[TestDataSource]`) run with one result per case.
-  `TestHandlers` codeunits are refused as not run. See [Writing tests](writing-tests.md#test-framework-features-of-bc-29).
+  `TestHandlers` and `DefaultTestHandler` callbacks run around the tests. See [Writing tests](writing-tests.md#test-framework-features-of-bc-29).
 
 ## DotNet
 

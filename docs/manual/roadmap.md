@@ -27,8 +27,8 @@ reported as not run, with the reason.
   Tests that resize an image are refused.
 
 - **Test handlers (BC 29)**
-  (ADR-059). Codeunits with `TestHandlers` are not run. Planned: a "skipped" result
-  for tests that a handler skips.
+  (ADR-059). The handler callbacks run. Planned: a "skipped" result for tests that a
+  handler skips (they are reported as not run now).
 - **Permission checks against a license** (ADR-060 and ADR-062, planned). `License Permission`
   already answers from the license file (see [BC license](license.md)). Table data writes in
   a session that a test lowered are checked. Planned: reads, `Execute` permission, the

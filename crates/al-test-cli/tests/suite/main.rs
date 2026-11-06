@@ -168,6 +168,7 @@ mod sub_page_link_quoted_option_member;
 mod subpagelink_field_filter;
 mod temp_list_key_open;
 mod test_framework_refusals;
+mod test_handlers;
 mod testpage_action_without_parentheses;
 mod this_in_objects;
 mod typed_handler_set_up_variable;
