@@ -868,7 +868,8 @@ impl<'s> Enc<'s> {
                 if load.partial {
                     return refuse("a partly loaded buffer of a row BC rolled back with an earlier test codeunit");
                 }
-                if let Some(why) = unpinned_buffer {
+                // A buffer carried in already marked goes on with the mark.
+                if let Some(why) = unpinned_buffer.filter(|w| *w != crate::records::ROLLED_BACK_ROW) {
                     return Err(format!(
                         "{} (a buffer of a row BC rolled back with an earlier test codeunit, and not pinned: {why})",
                         what()

@@ -303,8 +303,19 @@ impl SingleWalk<'_> {
                 // what differs. What differs otherwise (number sequences, counters, the rows of those tables) reaches
                 // the chain members after it and the codeunits that read what it left: they run again from what this
                 // run left (`walk`).
-                if a.tables != b.tables {
-                    return broken("it changed other tables");
+                // Fewer tables (a setup the serial state makes it skip): every later codeunit that reads one of
+                // them read one of the first run's tables too, so it is run again from this run's rows as well. A
+                // table only this run changed was read by codeunits the first run's tables do not name: refused.
+                if !b.tables.is_subset(&a.tables) {
+                    let only = |x: &super::run::Carried, y: &super::run::Carried| {
+                        let v: Vec<String> = x.tables.difference(&y.tables).map(u32::to_string).collect();
+                        v.join(", ")
+                    };
+                    return broken(&format!(
+                        "it changed other tables: only the first run {}; only the run again {}",
+                        only(a, &b),
+                        only(&b, a)
+                    ));
                 }
                 match (print(Some(a)), print(Some(&b))) {
                     (Some(x), Some(y)) if x.rows == y.rows || unseen => {

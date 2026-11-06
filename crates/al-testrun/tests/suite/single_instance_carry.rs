@@ -100,6 +100,7 @@ codeunit 50257 "Carry Handles"
     end;
     procedure NewRowKey(): Code[20] begin exit(NewRow."Key"); end;
     procedure ModifyNewRow() begin NewRow.Modify(); end;
+    procedure NewRowCaption(): Text begin exit(NewRow.FieldCaption("Key")); end;
     procedure ShareTemp() begin TempRows."No" := 1; TempRows.Insert(); TempShared.Copy(TempRows, true); end;
     procedure SharedCount(): Integer begin exit(TempShared.Count()); end;
     procedure FillCtx()
@@ -609,4 +610,82 @@ fn a_recordid_nothing_was_assigned_to_reaches_the_next_codeunit() {
     );
     assert_eq!(outcome(&results, "Writes"), Outcome::Pass);
     assert_eq!(outcome(&results, "Reads"), Outcome::Pass);
+}
+
+#[test]
+fn a_chain_member_that_changes_fewer_tables_from_the_carried_state_hands_its_rows_on() {
+    // Run from the serial state, the middle codeunit skips a setup its first run (from a fresh state) did, as an
+    // `isInitialized` flag in a single instance makes Microsoft's tests do: it changes a subset of the tables.
+    let src = r#"
+codeunit 60277 "Chain Sets"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure SetsFlag() var S: Codeunit "Carry State"; begin S.Bump(); end;
+}
+codeunit 60278 "Chain Middle"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure SetsUpOnce()
+    var S: Codeunit "Carry State"; R: Record "Carry Row"; T: Record "Carry Temp";
+    begin
+        if S.GetCount() = 0 then begin
+            T."No" := 1; T.Insert();
+            R."Key" := 'FRESH'; R.Insert();
+        end else begin
+            R."Key" := 'SERIAL'; R.Insert();
+        end;
+    end;
+}
+codeunit 60279 "Chain Reads"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure SeesTheSerialRows()
+    var R: Record "Carry Row"; T: Record "Carry Temp";
+    begin
+        if not R.Get('SERIAL') then Error('no SERIAL row');
+        if R.Get('FRESH') then Error('a FRESH row');
+        if not T.IsEmpty() then Error('Carry Temp has rows');
+    end;
+}
+"#;
+    // On the TestRunnerHub, where a codeunit with RequiredTestIsolation = Disabled hands its rows on.
+    let opts = RunOptions {
+        required_isolation: true,
+        ..Default::default()
+    };
+    let results = run(src, &opts);
+    assert_eq!(outcome(&results, "SetsUpOnce"), Outcome::Pass);
+    assert_eq!(outcome(&results, "SeesTheSerialRows"), Outcome::Pass);
+}
+
+#[test]
+fn a_rolled_back_buffer_is_handed_on_again_and_answers_its_field_captions() {
+    let src = r#"
+codeunit 60280 "Rolled Keep"
+{
+    Subtype = Test;
+    [Test] procedure KeepsRow() var H: Codeunit "Carry Handles"; begin H.KeepNewRow(); end;
+}
+codeunit 60281 "Rolled Read 1"
+{
+    Subtype = Test;
+    [Test] procedure ReadsOnce() var H: Codeunit "Carry Handles"; begin if H.NewRowKey() <> 'NEW' then Error('1'); end;
+}
+codeunit 60282 "Rolled Read 2"
+{
+    Subtype = Test;
+    [Test] procedure ReadsTwice()
+    var H: Codeunit "Carry Handles";
+    begin
+        if H.NewRowKey() <> 'NEW' then Error('2');
+        if H.NewRowCaption() <> 'Key' then Error(H.NewRowCaption());
+    end;
+}
+"#;
+    let results = run(src, &RunOptions::default());
+    assert_eq!(outcome(&results, "ReadsOnce"), Outcome::Pass);
+    assert_eq!(outcome(&results, "ReadsTwice"), Outcome::Pass);
 }

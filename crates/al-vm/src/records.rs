@@ -2156,7 +2156,11 @@ impl Session {
                     | RecordOp::SetView
             );
         // A rolled-back row's fields are the variable's own ([`ROLLED_BACK_ROW`]).
-        let fields_only = why == ROLLED_BACK_ROW && matches!(method, RecordOp::TestField);
+        let fields_only = why == ROLLED_BACK_ROW
+            && matches!(
+                method,
+                RecordOp::TestField | RecordOp::FieldCaption | RecordOp::FieldName
+            );
         if !refill && !independent && !own_view && !fields_only {
             if why == ROLLED_BACK_ROW {
                 return unsupported(format!("Record.{}(): {why}", method.name()));
