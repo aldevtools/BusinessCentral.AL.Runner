@@ -197,39 +197,7 @@ impl Session {
         let rec_before = (method == PageMethod::AssistEdit && self.has_source(st))
             .then(|| (self.page_rec(st).borrow().fields.clone(), st.borrow().dirty));
         let result = if method == PageMethod::Lookup {
-            // OnLookup(var Text): Boolean. The text it writes back replaces the field's value, and
-            // the Boolean says whether the user picked anything (corpus
-            // testpage/TestPageFieldTableLookup.al:72 Lookup_ControlWithTrigger_WinsOverTheTableFieldsOnLookup,
-            // testpage/TestPageModalHandler_Tests.al:132). The text the trigger starts with is the
-            // control's current text (assumed, docs/probes-needed.md).
-            let object = owner.unwrap_or(st.borrow().object as usize);
-            let inst = self.owner_instance(st, owner);
-            let shown = self.lookup_start_text(st, idx, object, routine)?;
-            self.lookup_trigger_call(st, object, routine, inst, vec![Value::Text(shown.into())])
-                .and_then(|(v, finals)| match (v, finals.first()) {
-                    (Value::Boolean(true), Some(Value::Text(t))) => {
-                        // Written back as the client would type it. The OnLookup of a page extension's modify block
-                        // leaves a Code field in the case it wrote (`Text := 'FromExt'` reads back FromExt), the page's
-                        // own trigger does not (FROMCTL) (pages/lookups/W2Lookups.al:
-                        // ModifyBlockOnLookup_ReturnsTrue, BC 27.5 and 29.0).
-                        st.borrow_mut().lookup_setting_value = true;
-                        let r = self.control_set_value(st, idx, &mut [Value::Text(t.clone())]);
-                        st.borrow_mut().lookup_setting_value = false;
-                        let binding = page_of(&self.engine(), st).controls[idx].binding.clone();
-                        if let ir::Binding::Field(pos) = binding {
-                            let rec = self.page_rec(st);
-                            let is_code = matches!(rec.borrow().fields[pos], Value::Code(_));
-                            if is_code && owner.is_some() && r.is_ok() {
-                                rec.borrow_mut().fields[pos] = Value::Code(t.clone());
-                            }
-                        }
-                        r
-                    }
-                    (Value::Boolean(true), other) => {
-                        unsupported(format!("an OnLookup trigger whose Text is {}", other.describe()))
-                    }
-                    _ => Ok(Value::Null),
-                })
+            self.on_lookup_trigger(st, idx, owner, routine)
         } else {
             let r = self.owner_routine(st, owner, routine).map(|_| Value::Null);
             match r {
@@ -670,7 +638,10 @@ impl Session {
         if let Some((object, routine)) = field.on_lookup {
             let rec = self.page_rec(st);
             st.borrow_mut().refresh = false;
-            self.call_on_record(object, routine, rec, None, Vec::new())?;
+            let called = self.call_on_record(object, routine, rec, None, Vec::new());
+            if let Some(done) = self.lookup_error_outcome(called.map(|_| Value::Null)) {
+                return done;
+            }
             // The control now shows what the trigger wrote, as an edit of the row (assumed,
             // docs/probes-needed.md).
             st.borrow_mut().dirty = true;
