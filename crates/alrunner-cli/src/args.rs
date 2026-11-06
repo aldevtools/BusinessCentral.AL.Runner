@@ -108,6 +108,9 @@ pub struct TestArgs {
     /// `--dev-endpoint-ui` (issue 3697): a UI call no handler takes gets the answer of Business Central's dev-endpoint
     /// test runner, for the measured shapes, with a warning per call; such a pass is flagged `dev-endpoint-ui`.
     pub dev_endpoint_ui: bool,
+    /// `--allow-write-in-try-functions` (al-runner issue 7143): run as a service tier whose setting DisableWriteInsideTryFunctions
+    /// is off (Business Central online). Default: the setting's default, as a BC container: such a write raises TryFunctionWrite.
+    pub allow_write_in_try_functions: bool,
     /// `--permissions off` (ADR-062 section 5): no access kind is enforced, whatever stage is on by default. `on`,
     /// the default, enforces the stages that are on; none is yet.
     pub permissions_off: bool,
@@ -1230,6 +1233,7 @@ fn parse_serve(args: Vec<String>) -> Result<Command, String> {
         || t.strict_environment
         || t.ignore_permission_mock
         || t.dev_endpoint_ui
+        || t.allow_write_in_try_functions
         || t.permissions_off
         || t.affected_store.is_some()
     {
@@ -1605,6 +1609,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--run-selected-only" => a.run_selected_only = true,
             "--ignore-permission-mock" => a.ignore_permission_mock = true,
             "--dev-endpoint-ui" => a.dev_endpoint_ui = true,
+            "--allow-write-in-try-functions" => a.allow_write_in_try_functions = true,
             "--permissions" => a.permissions_off = permissions_off(&text()?)?,
             "--affected" => a.affected = true,
             "--affected-store" => a.affected_store = Some(text()?.into()),
@@ -2105,6 +2110,13 @@ mod tests {
     fn ignore_permission_mock_is_opt_in() {
         assert!(!test_args("test A").ignore_permission_mock);
         assert!(test_args("test A --ignore-permission-mock").ignore_permission_mock);
+    }
+
+    /// Issue 7143: `--allow-write-in-try-functions` is off unless given.
+    #[test]
+    fn allow_write_in_try_functions_is_opt_in() {
+        assert!(!test_args("test A").allow_write_in_try_functions);
+        assert!(test_args("test A --allow-write-in-try-functions").allow_write_in_try_functions);
     }
 
     /// Issue 3697: `--dev-endpoint-ui` is off unless given, and `serve` takes it only per request.
