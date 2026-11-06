@@ -1684,6 +1684,7 @@ impl CorpusRuntime {
                     done.into_iter().map(|(_, r)| r).collect()
                 })
             };
+            let mut leak_reran = std::collections::HashSet::new();
             for (k, mut r) in rest.into_iter().zip(results) {
                 let before = carried
                     .iter()
@@ -1726,6 +1727,7 @@ impl CorpusRuntime {
                             };
                             let trace: Option<&mut Observer> = opts.trace.then_some(&mut observe);
                             r = run_unit(&engine, lowered, c.baseline.as_ref(), &units[k], trace, limit);
+                            leak_reran.insert(k);
                             chain_report.reruns.push(super::ChainEntry {
                                 id,
                                 name: lowered.program.objects[units[k].oi].name.clone(),
@@ -1754,6 +1756,7 @@ impl CorpusRuntime {
                 sees: &sees,
                 place: &place,
                 limit,
+                leak_reran: &leak_reran,
             };
             let again = single_walk.walk(&mut slots);
             // The serial check of the carrying (ADR-066 amendment 1): the same outcomes with the codeunits of each BC

@@ -40,6 +40,8 @@ pub(super) struct SingleWalk<'a> {
     /// The place of a codeunit in its suite's run order (`corpus.rs`).
     pub place: &'a dyn Fn(usize, u32) -> u32,
     pub limit: Option<std::time::Duration>,
+    /// The codeunits the run reran from what a chain member left because they read it (`corpus.rs`).
+    pub leak_reran: &'a std::collections::HashSet<usize>,
 }
 
 /// The serial state of one session of BC.
@@ -52,6 +54,16 @@ struct Stream {
     unknown_all: Option<String>,
     /// A run again of a chain member left other rows than its first run: why the later codeunits are not run.
     broken: Option<String>,
+    /// The last chain member run again whose run left something else than its first run, with what it left (suite,
+    /// id, leg, state): the later chain members and the codeunits that read what the chain left run again from it.
+    relay: Option<(usize, u32, u8, super::run::Carried)>,
+}
+
+/// What a chain member run again left, against its first run (`SingleWalk::chain_left_other`).
+enum Left {
+    Same,
+    Relay(super::run::Carried),
+    Broken(String),
 }
 
 impl SingleWalk<'_> {
@@ -84,10 +96,21 @@ impl SingleWalk<'_> {
                 }),
                 _ => true,
             };
-            if !matches {
-                let r = self.run_again(k, Some(&s.state));
-                if let Some(why) = self.chain_left_other(k, &r) {
-                    s.broken = Some(why);
+            // A chain member before it ran again and left something else than its first run: the chain members after
+            // it, and the codeunits that read what the chain left, start from that.
+            let relayed = s
+                .relay
+                .as_ref()
+                .is_some_and(|(si, id, leg, _)| (self.sees)(*si, *id, *leg, u))
+                && self.reads_relay(k, s.relay.as_ref());
+            if !matches || relayed {
+                let r = self.run_again(k, Some(&s.state), s.relay.as_ref());
+                match self.chain_left_other(k) {
+                    // Back on the first run's chain: the later codeunits keep what the first runs gave them.
+                    Left::Same if relayed && self.is_member(k) => s.relay = None,
+                    Left::Same => {}
+                    Left::Relay(c) => s.relay = Some((u.si, u.id, self.leg_of(k), c)),
+                    Left::Broken(why) => s.broken = Some(why),
                 }
                 slots[k] = Some(r);
                 again.push(k);
@@ -101,14 +124,22 @@ impl SingleWalk<'_> {
 
     /// Runs codeunit `k` again from the serial state `state`, on the database state the serial run gives it: what the
     /// last chain member before it left (non-chain codeunits leave no rows).
-    fn run_again(&self, k: usize, state: Option<&SingleState>) -> UnitResult {
+    fn run_again(
+        &self,
+        k: usize,
+        state: Option<&SingleState>,
+        relay: Option<&(usize, u32, u8, super::run::Carried)>,
+    ) -> UnitResult {
         let mut u = self.units[k].clone();
         u.singletons = state.map(|s| Arc::new(s.clone()));
-        let before = self
-            .carried
-            .iter()
-            .rev()
-            .find(|(si, id, leg, _)| (si, id) != (&u.si, &u.id) && (self.sees)(*si, *id, *leg, &u));
+        let before = relay
+            .filter(|(si, id, leg, _)| (si, id) != (&u.si, &u.id) && (self.sees)(*si, *id, *leg, &u))
+            .or_else(|| {
+                self.carried
+                    .iter()
+                    .rev()
+                    .find(|(si, id, leg, _)| (si, id) != (&u.si, &u.id) && (self.sees)(*si, *id, *leg, &u))
+            });
         let (base, unfinished) = match before {
             Some((_, _, _, c)) if c.unfinished.is_none() && c.storage_why.is_none() => {
                 (c.baseline.as_ref().or(self.baseline), None)
@@ -173,9 +204,18 @@ impl SingleWalk<'_> {
                 continue;
             }
             super::run::SERIAL_SINGLES.with(|c| *c.borrow_mut() = Some(None));
+            // What the last chain member of this check left: the later members, and the codeunits that read what the
+            // chain left, start from it.
+            let mut relay: Option<(usize, u32, u8, super::run::Carried)> = None;
             for &k in &ks {
-                let r = self.run_again(k, None);
-                super::run::CARRIED.with(|c| c.borrow_mut().take());
+                let from = relay.as_ref().filter(|_| self.reads_relay(k, relay.as_ref()));
+                let r = self.run_again(k, None, from);
+                let left = super::run::CARRIED.with(|c| c.borrow_mut().take());
+                if self.is_member(k) {
+                    if let Some(c) = left {
+                        relay = Some((self.units[k].si, self.units[k].id, self.leg_of(k), c));
+                    }
+                }
                 ran += 1;
                 let (Some(Ok(first)), Ok(serial)) = (slots[k].as_ref().map(|r| &r.result), &r.result) else {
                     continue;
@@ -198,13 +238,39 @@ impl SingleWalk<'_> {
         (ran, diffs)
     }
 
+    /// Whether codeunit `k` starts from what a relayed chain member left: a chain member does, and so does a codeunit
+    /// the run reran from what the chain left (it read it) or that can reach session storage the member changed
+    /// (`corpus.rs` `reaches_session_storage`).
+    fn reads_relay(&self, k: usize, relay: Option<&(usize, u32, u8, super::run::Carried)>) -> bool {
+        self.is_member(k)
+            || self.leak_reran.contains(&k)
+            || relay.is_some_and(|r| {
+                r.3.everything && super::corpus::reaches_session_storage(self.engine, self.lowered, self.units[k].oi)
+            })
+    }
+
+    /// The leg of chain member `k` in the chain walk's notes (`chain_walk::Carry`).
+    fn leg_of(&self, k: usize) -> u8 {
+        let u = &self.units[k];
+        self.carried
+            .iter()
+            .find(|(si, id, _, _)| (*si, *id) == (u.si, u.id))
+            .map_or(0, |c| c.2)
+    }
+
+    /// Whether codeunit `k` is a member of the carry chain (what it leaves reaches the later codeunits).
+    fn is_member(&self, k: usize) -> bool {
+        let u = &self.units[k];
+        u.carry.is_some() || u.isolation == TestIsolation::Disabled
+    }
+
     /// For a chain member run again: why the later codeunits cannot use what the chain walk handed on, when the run
     /// again left other rows than the run the walk took.
-    fn chain_left_other(&self, k: usize, _r: &UnitResult) -> Option<String> {
+    fn chain_left_other(&self, k: usize) -> Left {
         let u = &self.units[k];
         let left = super::run::CARRIED.with(|c| c.borrow_mut().take());
-        if u.carry.is_none() && u.isolation != TestIsolation::Disabled {
-            return None;
+        if !self.is_member(k) {
+            return Left::Same;
         }
         let first = self
             .carried
@@ -222,25 +288,39 @@ impl SingleWalk<'_> {
                 .and_then(|b| b.fingerprint_apart(&apart))
         };
         let unseen = RERUN_UNSEEN.with(std::cell::Cell::take);
-        let same = match (first, left.as_ref()) {
-            (Some(a), Some(b)) => {
-                a.tables == b.tables
-                    && match (print(Some(a)), print(Some(b))) {
-                        (Some(x), Some(y)) => x.main == y.main && (x.rows == y.rows || unseen),
-                        (None, None) => a.baseline.is_none() && b.baseline.is_none(),
-                        _ => false,
-                    }
-            }
-            (None, None) => true,
-            _ => false,
-        };
-        (!same).then(|| {
-            format!(
+        let broken = |what: &str| {
+            Left::Broken(format!(
                 "test codeunit {} read SingleInstance state an earlier test codeunit left, and with it left other rows \
-                 for the later codeunits than al-runner's first run of it: carrying both is not supported",
+                 for the later codeunits than al-runner's first run of it ({what}): carrying both is not supported",
                 u.id
-            )
-        })
+            ))
+        };
+        match (first, left) {
+            (None, None) => Left::Same,
+            (Some(a), Some(b)) => {
+                // The same tables, the same session storage and the same Test Runner's rows (or unseen ones): the
+                // codeunits after it that read none of them (and so ran from the install baseline) are not touched by
+                // what differs. What differs otherwise (number sequences, counters, the rows of those tables) reaches
+                // the chain members after it and the codeunits that read what it left: they run again from what this
+                // run left (`walk`).
+                if a.tables != b.tables {
+                    return broken("it changed other tables");
+                }
+                match (print(Some(a)), print(Some(&b))) {
+                    (Some(x), Some(y)) if x.rows == y.rows || unseen => {
+                        if x.main == y.main {
+                            Left::Same
+                        } else {
+                            Left::Relay(b)
+                        }
+                    }
+                    (None, None) if a.baseline.is_none() && b.baseline.is_none() => Left::Same,
+                    (Some(_), Some(_)) => broken("the Test Runner's rows differ, and the run saw them"),
+                    _ => broken("what it left has no fingerprint"),
+                }
+            }
+            _ => broken("one of the runs left nothing"),
+        }
     }
 
     /// Marks as not trusted the failures of a codeunit that read a global a refused test before it may have changed.

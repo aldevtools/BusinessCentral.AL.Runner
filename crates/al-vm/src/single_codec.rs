@@ -76,6 +76,8 @@ pub enum CarryVal {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CarryLib {
     Empty,
+    /// A JsonObject, JsonArray, JsonToken or JsonValue that is the root of its tree, with the tree.
+    Json(Box<CarryJson>),
     Text(String),
     TextCap(String, i32),
     RecordRef(Box<CarryRec>),
@@ -85,6 +87,30 @@ pub enum CarryLib {
         name: String,
         key: Vec<u8>,
     },
+}
+
+/// A JSON node: its children are new handles whose parent is the node (`json::JsonCell::parent`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CarryJson {
+    pub node: CarryJsonNode,
+    pub unpinned: Option<&'static str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CarryJsonNode {
+    Object(Vec<(String, CarryJson)>),
+    Array(Vec<CarryJson>),
+    Null,
+    Undefined,
+    Val(Vec<u8>),
+    Raw(String),
+}
+
+fn json_kind(k: &LibraryKind) -> bool {
+    matches!(
+        k,
+        LibraryKind::JsonObject | LibraryKind::JsonArray | LibraryKind::JsonToken | LibraryKind::JsonValue
+    )
 }
 
 /// A codeunit (or table) instance.
@@ -170,13 +196,79 @@ pub enum CarryDirty {
 /// How deep handles inside handles are carried.
 const DEPTH: usize = 12;
 
+/// A row of a record (its fields, a key, a stored row): plain values, and RecordIds (a RecordID field holds one).
 fn row_bytes(row: &[Value]) -> Option<Vec<u8>> {
     let mut out = Vec::new();
-    vc::encode_row(row, &mut out).then_some(out)
+    vc::put_u32(&mut out, row.len() as u32);
+    row.iter().all(|v| put_cell(v, &mut out)).then_some(out)
+}
+
+fn put_cell(v: &Value, out: &mut Vec<u8>) -> bool {
+    if let Value::Library(LibraryKind::RecordId, lv) = v {
+        let Ok(lv) = lv.try_borrow() else { return false };
+        // A RecordID field nothing was assigned to.
+        if matches!(&*lv, LibraryValue::Empty) {
+            vc::put_u8(out, 2);
+            return true;
+        }
+        let LibraryValue::RecordId {
+            table,
+            table_no,
+            name,
+            key,
+        } = &*lv
+        else {
+            return false;
+        };
+        vc::put_u8(out, 1);
+        vc::put_u32(out, *table);
+        vc::put_u32(out, *table_no);
+        vc::put_str(out, name);
+        vc::put_u32(out, key.len() as u32);
+        return key.iter().all(|k| put_cell(k, out));
+    }
+    vc::put_u8(out, 0);
+    vc::encode(v, out)
+}
+
+fn get_cell(r: &mut Reader) -> Option<Value> {
+    match r.u8()? {
+        0 => vc::decode(r),
+        1 => {
+            let table = r.u32()?;
+            let table_no = r.u32()?;
+            let name = r.str()?;
+            let n = r.u32()? as usize;
+            let mut key = Vec::with_capacity(n.min(64));
+            for _ in 0..n {
+                key.push(get_cell(r)?);
+            }
+            Some(Value::Library(
+                LibraryKind::RecordId,
+                Rc::new(RefCell::new(LibraryValue::RecordId {
+                    table,
+                    table_no,
+                    name,
+                    key,
+                })),
+            ))
+        }
+        2 => Some(Value::Library(
+            LibraryKind::RecordId,
+            Rc::new(RefCell::new(LibraryValue::Empty)),
+        )),
+        _ => None,
+    }
 }
 
 fn row_of(bytes: &[u8]) -> Option<Vec<Value>> {
-    vc::decode_row(&mut Reader::new(bytes))
+    let mut r = Reader::new(bytes);
+    let n = r.u32()? as usize;
+    let mut row = Vec::with_capacity(n.min(4096));
+    for _ in 0..n {
+        row.push(get_cell(&mut r)?);
+    }
+    Some(row)
 }
 
 fn put_filter(e: &FilterExpr, out: &mut Vec<u8>) -> bool {
@@ -420,6 +512,13 @@ impl<'s> Enc<'s> {
                 let lv = lv.try_borrow().map_err(busy)?;
                 let lib = match (kind, &*lv) {
                     (LibraryKind::RecordRef | LibraryKind::TextBuilder, LibraryValue::Empty) => CarryLib::Empty,
+                    (k, LibraryValue::Empty) if json_kind(k) => CarryLib::Empty,
+                    (k, LibraryValue::Json(cell)) if json_kind(k) => {
+                        if cell.parent.as_ref().is_some_and(|p| p.upgrade().is_some()) {
+                            return Err(format!("{} inside a JSON tree no carried variable holds", v.describe()));
+                        }
+                        CarryLib::Json(Box::new(self.json(cell, v, depth)?))
+                    }
                     (LibraryKind::TextBuilder, LibraryValue::Text(s)) => CarryLib::Text(s.clone()),
                     (LibraryKind::TextBuilder, LibraryValue::TextCap(s, n)) => CarryLib::TextCap(s.clone(), *n),
                     (LibraryKind::RecordRef, LibraryValue::RecordRef(rc)) => {
@@ -451,6 +550,43 @@ impl<'s> Enc<'s> {
                 }
                 CarryVal::Plain(out)
             }
+        })
+    }
+
+    fn json(&self, cell: &al_builtins::json::JsonCell, v: &Value, depth: usize) -> Result<CarryJson, String> {
+        use al_builtins::json::{JsonNode, Scalar};
+        if depth >= 64 {
+            return Err(v.describe());
+        }
+        let child = |h: &al_builtins::json::Handle| -> Result<CarryJson, String> {
+            self.unshared(h, v)?;
+            let lv = h.try_borrow().map_err(|_| v.describe())?;
+            match &*lv {
+                LibraryValue::Json(c) => self.json(c, v, depth + 1),
+                _ => Err(v.describe()),
+            }
+        };
+        let node = match &cell.node {
+            JsonNode::Object(kv) => CarryJsonNode::Object(
+                kv.iter()
+                    .map(|(k, h)| Ok((k.clone(), child(h)?)))
+                    .collect::<Result<_, String>>()?,
+            ),
+            JsonNode::Array(xs) => CarryJsonNode::Array(xs.iter().map(child).collect::<Result<_, _>>()?),
+            JsonNode::Scalar(Scalar::Null) => CarryJsonNode::Null,
+            JsonNode::Scalar(Scalar::Undefined) => CarryJsonNode::Undefined,
+            JsonNode::Scalar(Scalar::Raw(r)) => CarryJsonNode::Raw(r.clone()),
+            JsonNode::Scalar(Scalar::Val(x)) => {
+                let mut out = Vec::new();
+                if !vc::encode(x, &mut out) {
+                    return Err(v.describe());
+                }
+                CarryJsonNode::Val(out)
+            }
+        };
+        Ok(CarryJson {
+            node,
+            unpinned: cell.unpinned,
         })
     }
 
@@ -529,6 +665,7 @@ impl<'s> Enc<'s> {
             run_page_link,
         } = &*r;
         let refuse = |why: &str| Err(format!("{} ({why})", what()));
+        let unrow = || format!("{} (a value in its rows or buffer that cannot be carried)", what());
         if *crm {
             return refuse("a CRM table, whose connection is the session's");
         }
@@ -554,14 +691,14 @@ impl<'s> Enc<'s> {
                     return refuse("a temporary table whose Code key is stored as a number");
                 }
                 let tables = match self.session.temps.get(&id.id()) {
-                    Some(store) => store.export_current().ok_or_else(what)?,
+                    Some(store) => store.export_current().ok_or_else(unrow)?,
                     None => Vec::new(),
                 };
                 let mut out = Vec::new();
                 for x in tables {
                     let mut rows = Vec::with_capacity(x.rows.len());
                     for (k, row) in &x.rows {
-                        rows.push((row_bytes(k).ok_or_else(what)?, row_bytes(row).ok_or_else(what)?));
+                        rows.push((row_bytes(k).ok_or_else(unrow)?, row_bytes(row).ok_or_else(unrow)?));
                     }
                     out.push((x.company, x.object, rows));
                 }
@@ -607,13 +744,13 @@ impl<'s> Enc<'s> {
                 missing_loaded: *missing_loaded,
                 fetched: match &fetched.0 {
                     None => None,
-                    Some(row) => Some(row_bytes(row).ok_or_else(what)?),
+                    Some(row) => Some(row_bytes(row).ok_or_else(unrow)?),
                 },
                 init: *init,
             }),
         };
         let opt_row = |r: &Option<Vec<Value>>| -> Result<Option<Vec<u8>>, String> {
-            r.as_deref().map(|r| row_bytes(r).ok_or_else(what)).transpose()
+            r.as_deref().map(|r| row_bytes(r).ok_or_else(unrow)).transpose()
         };
         let xrec = if globals.is_unset() {
             Vec::new()
@@ -625,12 +762,12 @@ impl<'s> Enc<'s> {
             temporary: *temporary,
             temp_rows,
             company: company.clone(),
-            fields: row_bytes(fields).ok_or_else(what)?,
-            filters: filters_bytes(filters).ok_or_else(what)?,
+            fields: row_bytes(fields).ok_or_else(unrow)?,
+            filters: filters_bytes(filters).ok_or_else(unrow)?,
             filter_group: *filter_group,
             marks: marks
                 .iter()
-                .map(|m| row_bytes(m).ok_or_else(what))
+                .map(|m| row_bytes(m).ok_or_else(unrow))
                 .collect::<Result<_, _>>()?,
             marked_only: *marked_only,
             read_isolation: *read_isolation,
@@ -658,7 +795,7 @@ impl<'s> Enc<'s> {
                     dirty_only,
                     stale_store,
                 } => CarryDirty::Row {
-                    base: row_bytes(base).ok_or_else(what)?,
+                    base: row_bytes(base).ok_or_else(unrow)?,
                     alt: opt_row(alt)?,
                     dirty_only: *dirty_only,
                     stale_store: *stale_store,
@@ -739,11 +876,34 @@ fn count(v: &Value, seen: &mut HashMap<usize, u32>, temps: &mut HashMap<u64, u32
                     | LibraryValue::KeyFieldRef(rc, _)
                     | LibraryValue::KeyRef(rc, _)
                     | LibraryValue::UserNameFieldRef { rec: rc, .. } => count_rec(rc, seen, temps, depth),
+                    LibraryValue::Json(cell) => count_json(cell, seen, depth),
                     _ => {}
                 }
             }
         }
         _ => {}
+    }
+}
+
+fn count_json(cell: &al_builtins::json::JsonCell, seen: &mut HashMap<usize, u32>, depth: usize) {
+    use al_builtins::json::JsonNode;
+    if depth >= 64 {
+        return;
+    }
+    let children: Vec<&al_builtins::json::Handle> = match &cell.node {
+        JsonNode::Object(kv) => kv.iter().map(|(_, h)| h).collect(),
+        JsonNode::Array(xs) => xs.iter().collect(),
+        JsonNode::Scalar(_) => Vec::new(),
+    };
+    for h in children {
+        let n = seen.entry(ptr(h)).or_default();
+        *n += 1;
+        if *n == 1
+            && let Ok(lv) = h.try_borrow()
+            && let LibraryValue::Json(c) = &*lv
+        {
+            count_json(c, seen, depth + 1);
+        }
     }
 }
 
@@ -769,6 +929,34 @@ fn count_rec(
     for (_, i) in insts {
         count(&Value::Codeunit(i), seen, temps, depth + 1);
     }
+}
+
+/// The handle of a carried JSON node, its children pointing at it as their parent.
+fn json_handle(j: &CarryJson, parent: Option<&al_builtins::json::Handle>) -> Option<al_builtins::json::Handle> {
+    use al_builtins::json::{JsonCell, JsonNode, Scalar};
+    let h: al_builtins::json::Handle = Rc::new(RefCell::new(LibraryValue::Json(JsonCell {
+        node: JsonNode::Scalar(Scalar::Null),
+        parent: parent.map(Rc::downgrade),
+        unpinned: j.unpinned,
+    })));
+    let node = match &j.node {
+        CarryJsonNode::Object(kv) => JsonNode::Object(
+            kv.iter()
+                .map(|(k, c)| Some((k.clone(), json_handle(c, Some(&h))?)))
+                .collect::<Option<_>>()?,
+        ),
+        CarryJsonNode::Array(xs) => {
+            JsonNode::Array(xs.iter().map(|c| json_handle(c, Some(&h))).collect::<Option<_>>()?)
+        }
+        CarryJsonNode::Null => JsonNode::Scalar(Scalar::Null),
+        CarryJsonNode::Undefined => JsonNode::Scalar(Scalar::Undefined),
+        CarryJsonNode::Raw(r) => JsonNode::Scalar(Scalar::Raw(r.clone())),
+        CarryJsonNode::Val(b) => JsonNode::Scalar(Scalar::Val(vc::decode(&mut Reader::new(b))?)),
+    };
+    if let LibraryValue::Json(c) = &mut *h.borrow_mut() {
+        c.node = node;
+    }
+    Some(h)
 }
 
 impl Session {
@@ -829,8 +1017,12 @@ impl Session {
             }
             CarryVal::Record(r) => Value::Record(self.carry_rec(r, bound)?),
             CarryVal::Library(kind, lib) => {
+                if let CarryLib::Json(j) = lib {
+                    return Ok(Value::Library(kind.clone(), json_handle(j, None).ok_or_else(bad)?));
+                }
                 let lv = match lib {
                     CarryLib::Empty => LibraryValue::Empty,
+                    CarryLib::Json(_) => unreachable!("handled above"),
                     CarryLib::Text(s) => LibraryValue::Text(s.clone()),
                     CarryLib::TextCap(s, n) => LibraryValue::TextCap(s.clone(), *n),
                     CarryLib::RecordRef(r) => LibraryValue::RecordRef(self.carry_rec(r, bound)?),

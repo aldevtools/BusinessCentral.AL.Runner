@@ -26,6 +26,7 @@ codeunit 50251 "Carry State"
 }
 table 50252 "Carry Temp" { fields { field(1; "No"; Integer) { } field(2; "Name"; Text[30]) { } } keys { key(PK; "No") { } key(ByName; "Name") { } } }
 table 50253 "Carry Auto" { fields { field(1; "No"; Integer) { AutoIncrement = true; } } keys { key(PK; "No") { } } }
+table 50258 "Carry Ctx" { fields { field(1; "No"; Integer) { } field(2; "Rec"; RecordId) { } } keys { key(PK; "No") { } } }
 table 50254 "Carry Setup" { fields { field(1; "Key"; Code[10]) { } field(2; "Value"; Integer) { } } keys { key(PK; "Key") { } } }
 codeunit 50255 "Carry Install"
 {
@@ -100,12 +101,40 @@ codeunit 50257 "Carry Handles"
     procedure NewRowKey(): Code[20] begin exit(NewRow."Key"); end;
     procedure ShareTemp() begin TempRows."No" := 1; TempRows.Insert(); TempShared.Copy(TempRows, true); end;
     procedure SharedCount(): Integer begin exit(TempShared.Count()); end;
+    procedure FillCtx()
+    var Setup2: Record "Carry Setup";
+    begin
+        Setup2.Get('S');
+        TempCtx."No" := 1; TempCtx.Rec := Setup2.RecordId(); TempCtx.Insert();
+    end;
+    procedure CtxTable(): Integer begin TempCtx.FindFirst(); exit(TempCtx.Rec.TableNo()); end;
+    procedure FillJson()
+    var Inner: JsonObject;
+    begin
+        Inner.Add('b', 'x');
+        Json.Add('a', 1);
+        Json.Add('o', Inner);
+    end;
+    procedure CheckJson(): Text
+    var T: JsonToken; Txt: Text;
+    begin
+        Json.SelectToken('o.b', T);
+        if T.AsValue().AsText() <> 'x' then exit('o.b');
+        if T.Path() <> 'o.b' then exit('path ' + T.Path());
+        Json.Get('a', T);
+        if T.AsValue().AsInteger() <> 1 then exit('a');
+        Json.WriteTo(Txt);
+        if Txt <> '{"a":1,"o":{"b":"x"}}' then exit(Txt);
+        exit('ok');
+    end;
     procedure FillAuto() begin TempAuto.Insert(); end;
     procedure AutoCount(): Integer begin exit(TempAuto.Count()); end;
     var
         TempRows: Record "Carry Temp" temporary;
         TempShared: Record "Carry Temp" temporary;
         TempAuto: Record "Carry Auto" temporary;
+        TempCtx: Record "Carry Ctx" temporary;
+        Json: JsonObject;
         Setup: Record "Carry Setup";
         NewRow: Record "Carry Row";
         Names: Dictionary of [Integer, Text];
@@ -356,6 +385,31 @@ fn a_temporary_table_two_carried_records_share_is_refused() {
         outcome(&results, "Reads"),
         "temporary table another carried record shares",
     );
+}
+
+#[test]
+fn temporary_rows_with_a_recordid_field_reach_the_next_codeunit() {
+    // Microsoft's "Notification Lifecycle Mgt." holds such a table ("Notification Context").
+    let results = run(
+        &pair(
+            "FillCtx",
+            "if H.CtxTable() <> 50254 then Error('table %1', H.CtxTable());",
+        ),
+        &RunOptions::default(),
+    );
+    assert_eq!(outcome(&results, "Writes"), Outcome::Pass);
+    assert_eq!(outcome(&results, "Reads"), Outcome::Pass);
+}
+
+#[test]
+fn a_json_tree_reaches_the_next_codeunit() {
+    // Microsoft's "Test Output" holds a JSON value.
+    let results = run(
+        &pair("FillJson", "R := H.CheckJson(); if R <> 'ok' then Error(R);"),
+        &RunOptions::default(),
+    );
+    assert_eq!(outcome(&results, "Writes"), Outcome::Pass);
+    assert_eq!(outcome(&results, "Reads"), Outcome::Pass);
 }
 
 #[test]
