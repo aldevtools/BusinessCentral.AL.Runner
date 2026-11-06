@@ -80,6 +80,18 @@ pub enum PlatformPublisher {
     FilterHelperTriggers,
 }
 
+/// The events of the `Caption Class` codeunit (42) the runtime raises for a caption class translation: `OnResolveCaptionClass`
+/// for an area no built-in resolver claims, then `OnAfterCaptionClassResolve` with the caption the translation gave
+/// (types/caption-class-events/Y71CaptionClassEvents.al:235-246).
+pub const RAISED_CAPTION_CLASS_EVENTS: [&str; 2] = ["OnResolveCaptionClass", "OnAfterCaptionClassResolve"];
+
+/// Whether `event` (any case) is one of [`RAISED_CAPTION_CLASS_EVENTS`].
+pub fn is_raised_caption_class_event(event: &str) -> bool {
+    RAISED_CAPTION_CLASS_EVENTS
+        .iter()
+        .any(|e| e.eq_ignore_ascii_case(event))
+}
+
 /// The events of `Reporting Triggers` the runtime raises: `CustomDocumentMergerEx` for a custom layout, and
 /// `SubstituteReport` and `OnDocumentReady` around an Xml `SaveAs` (events/platform-triggers/PeVTests.al:432), and
 /// `SetupPrinters` for the static `Report.RunRequestPage` (PeVTests.al:450).

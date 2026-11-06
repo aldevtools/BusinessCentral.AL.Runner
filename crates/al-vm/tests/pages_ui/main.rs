@@ -64,6 +64,7 @@ mod gone_row_key_filter_relation;
 mod gone_row_rec_on_unheld_key;
 mod journal_batch_switch;
 mod listpart_table_validate_empty_error;
+mod lookup_empty_error;
 mod marked_view_changed_by_page_code;
 mod masked_short_text;
 mod modify_denied_code_modify;

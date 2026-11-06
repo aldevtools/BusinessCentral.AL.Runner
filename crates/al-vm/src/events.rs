@@ -292,7 +292,7 @@ impl Registry {
                             // whether or not the codeunit is compiled.
                             if kind == ObjKind::Codeunit
                                 && (target.eq_ignore_ascii_case("Caption Class") || target == "42")
-                                && event == "onresolvecaptionclass"
+                                && al_ir::is_raised_caption_class_event(&event)
                             {
                                 reg.subscribers
                                     .entry((CAPTION_CLASS, event.clone()))
