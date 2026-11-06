@@ -378,14 +378,17 @@ impl Session {
         if find {
             self.part_find_on_row(st, &rec, &rows[at], "=>")?;
         }
+        // A part whose view is sorted by a key other than the primary key reads the row once more at the start, once more after the
+        // rows below it (also on its first row) and once more before the last pair (pinned for the two shapes below).
+        let by_order_key = part && self.part_reads_once_more_at(st, &rec, rows.len(), at);
         let mut held = Vec::new();
-        if at > 0 && !part {
+        if (at > 0 && !part) || by_order_key {
             self.read_refilled_row(st, &rec, &rows[at])?;
         }
         for r in &rows[at..window_end] {
             held.push(self.read_refilled_row(st, &rec, r)?);
         }
-        if at > 0 {
+        if at > 0 || by_order_key {
             if window_end > at + 1 {
                 self.read_refilled_row(st, &rec, &rows[at])?;
             }
@@ -398,6 +401,9 @@ impl Session {
             held = above;
         }
         if !(part && at == 0 && window_end == 1) {
+            self.read_refilled_row(st, &rec, &rows[at])?;
+        }
+        if by_order_key {
             self.read_refilled_row(st, &rec, &rows[at])?;
         }
         if find {
@@ -424,6 +430,37 @@ impl Session {
             s.cursor = Cursor::Row;
         }
         self.current_record_trigger(st, before)
+    }
+
+    /// A part sorted by a key other than the primary key reads its row once more (see `read_refilled_rows_as`): pinned for a view
+    /// of three rows on its second row and one of two rows on its first, on a part with both row triggers and without OnFindRecord
+    /// or OnNextRecord (pages/parts/R6889RealShape.al:1364 PG6889RS_Step2_ and :1420 _Step2a_, rows 10000, 30000, 20000 in key
+    /// order, standing on 30000: `R30;R30;R20;R30;R10;R30;R30;R30;C30` after the action's own read; :1400 _Step4_, rows 10000,
+    /// 20000 standing on 10000: `R10;R10;R20;R10;R10;R10;C10`). Another place keeps the reads of the primary key (not pinned).
+    pub(super) fn part_reads_once_more_at(&self, st: &St, rec: &Rec, len: usize, at: usize) -> bool {
+        let other_key = {
+            let r = rec.borrow();
+            r.key != 0 || r.adhoc.is_some()
+        };
+        other_key
+            && st.borrow().host.is_some()
+            && self.is_list(st)
+            && matches!((len, at), (3, 1) | (2, 0))
+            && !self.declares(st, "onfindrecord")
+            && !self.declares(st, "onnextrecord")
+            && self.declares(st, "onaftergetrecord")
+            && self.declares(st, "onaftergetcurrrecord")
+    }
+
+    /// [`Self::part_reads_once_more_at`] for the row `key` the part stands on, read from the table.
+    pub(super) fn part_reads_once_more(&mut self, st: &St, rec: &Rec, key: &[Value]) -> Result<bool, Signal> {
+        if st.borrow().host.is_none() || rec.borrow().key == 0 && rec.borrow().adhoc.is_none() {
+            return Ok(false);
+        }
+        let rows = self.view_rows(rec, Self::WINDOW + 1)?;
+        let table = self.table(rec)?;
+        let at = rows.iter().position(|r| Self::same_key(&table.primary_key(r), key));
+        Ok(at.is_some_and(|at| self.part_reads_once_more_at(st, rec, rows.len(), at)))
     }
 
     /// OnFindRecord(`which`) of part `st` with Rec on `row`. Pinned for a trigger that finds the row it stands on

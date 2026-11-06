@@ -2676,7 +2676,7 @@ impl Session {
         // first, and once more before the refresh's own read (pages/list-key-navigation/SgListKeyMovesTests.al SG_Key_FourRows_Moves
         // `update` `R:C;U;R:C;R:C;R:C;R:B;R:A;R:C;R:D;R:C;R:C;R:C;C:C;` against SG_Pk_FourRows_Moves, and the same in
         // SG_Key_OneRow_Open and SG_Key_ThirtyRows_Moves; corpus bump PR 738).
-        let once_more = self.still_reads_once_more(st);
+        let once_more = self.still_reads_once_more(st) || self.part_reads_once_more(st, rec, key)?;
         let by_action_update_false = {
             let s = st.borrow();
             s.marking_action && s.refresh && s.refresh_by_update && s.refresh_update_false && s.host.is_none()
