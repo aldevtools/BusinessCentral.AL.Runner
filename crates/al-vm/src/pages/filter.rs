@@ -224,7 +224,13 @@ impl Session {
         // Y28_TestPageFilterOnChildren, `walk-indent-1` 2,3,5 and `walk-id-2-4` 2,3,4; `apply_tree_cut`).
         let r = self.apply_tree_cut(st);
         self.torn_down_on_error(st, r)?;
-        let r = self.page_first_row(st);
+        // A card with OnFindRecord asks `-` after a TestPage filter, not `=><` as it opens (pages/properties/DataCaptionExprOrder.al:395
+        // DCE_TestPage_OpenView_Rows `OnFindRecord(-)`, DCE_TestPage_OpenEdit_Rows, DCE_TestPage_OpenView_Empty); a list keeps `=><`.
+        let r = if !self.is_list(st) && self.declares(st, "onfindrecord") {
+            self.page_first_row_from(st, "-", false)
+        } else {
+            self.page_first_row(st)
+        };
         self.torn_down_on_error(st, r)?;
         // A page the filter left without a row shows a blank one, its key pre-filled from a
         // single-valued filter (corpus pages/currpage/TestPageUpdateGoneRow.al:

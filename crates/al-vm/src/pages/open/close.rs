@@ -383,6 +383,7 @@ impl Session {
             }
             self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
         }
+        self.modal_card_empty_read_at_close(st)?;
         // An AL error raised in OnQueryClosePage is shown as a message and refuses the close
         // (corpus text/TestPageQueryCloseError_Tests.al:1-25).
         let veto = match self.query_close_answer(st, vec![Value::Option(ordinal, members)]) {

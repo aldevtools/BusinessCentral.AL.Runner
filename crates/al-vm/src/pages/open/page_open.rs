@@ -238,8 +238,10 @@ impl Session {
     /// `PagesState::run_page_link_opening` while the trigger runs.
     fn on_open_page(&mut self, st: &St, linked: bool) -> Result<Option<Value>, Signal> {
         self.pages.run_page_link_opening += u32::from(linked);
+        let before = self.rec_key_before_open(st)?;
         let opened = self.page_trigger(st, "onopenpage", vec![]);
         self.pages.run_page_link_opening -= u32::from(linked);
+        self.note_handed_rec_moved(st, before)?;
         opened
     }
 
@@ -946,6 +948,9 @@ impl Session {
                 }
                 return self.open_on_rec_moved_by_onopenpage(st);
             }
+            if self.handed_rec_list_opens_on_moved_row(st)? {
+                return self.open_on_rec_moved_by_onopenpage(st);
+            }
             if self.stored_row(&rec)?.is_some() {
                 self.ret_used = true;
                 let mut pk = self.table(&rec)?.primary_key(&rec.borrow().fields);
@@ -991,6 +996,7 @@ impl Session {
                     }
                 }
             }
+            self.modal_card_asks_find_equals(st)?;
             // A record that names no row of the view (a blank one, a SetTableView, a row outside the view or not in the table)
             // opens the page `=><` from the record's own values: the row itself, else the next one in the view's direction, else
             // the one before. A descending view opened on a blank record lands on its last row (ui-handlers/W2PageProperties.al:234
