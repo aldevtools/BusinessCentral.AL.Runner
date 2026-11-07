@@ -21,6 +21,24 @@ impl Session {
     /// list adds ` (Select Refresh to discard errors)` (testpage/TestPageErrTeardown_Tests.al, TestPageBooleanSpelling_Tests.al:210;
     /// a list adds none, testpage/PnC07TestPage.al). A NavigatePage adds none (Y65ValuesAllowedTableField.al:243,
     /// :262, :282, :296) for a control over a table field with ValuesAllowed.
+    /// Whether control `idx` shows an Integer field of the primary key on a draft row (a card opened with OpenNew): the
+    /// SetValue of a text it cannot take then gives the bare message, with no Refresh hint (localization/app-xliff/
+    /// lt-r7144-ext-caption/R7187PageCaption.al:107-122 and :166-175, both languages, al-runner issue 7187). Other draft shapes
+    /// are not pinned and keep the hint.
+    pub(super) fn draft_integer_key(&self, st: &St, idx: usize) -> bool {
+        if !st.borrow().draft || !self.has_source(st) {
+            return false;
+        }
+        let engine = self.engine();
+        let ir::Binding::Field(pos) = page_of(&engine, st).controls[idx].binding else {
+            return false;
+        };
+        let table = self.page_rec(st).borrow().table as usize;
+        engine.program.objects[table].table.as_ref().is_some_and(|t| {
+            matches!(t.fields[pos].ty, RtType::Integer) && t.keys.first().is_some_and(|k| k.contains(&pos))
+        })
+    }
+
     pub(super) fn validation_suffix(&self, st: &St, idx: usize, rec_bound: bool) -> &'static str {
         let object = st.borrow().object as usize;
         // Only measured for a control over a table field with ValuesAllowed: other NavigatePage controls keep the hint.

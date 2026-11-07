@@ -29,7 +29,8 @@ or an `.app` that carries its source.
 | `--dep PATH` | A package file (`.app`, `*.Source.zip`), an app folder or a folder of packages. Repeatable. |
 | `--package-cache DIR` | A folder of `.app` files. Repeatable. |
 | `--bc-version V` | A Business Central major, major.minor, or an exact build (four numbers). An exact build also fills Microsoft's `$(app_...)` variables in source archives outside a folder named for their build. |
-| `--no-download` | Never fetch from the artifact feed (apps, `System.app`, demo data). |
+| `--no-download` | Never fetch from the artifact feed (apps, `System.app`, demo data). A dependency app that is then not found (not in `--dep`, `.alpackages` or the cache) stops the run with exit 2; the message names its id, name and declared version. |
+| `--allow-missing-dependencies` | With `--no-download`: skip a dependency that cannot be found with a warning on stderr, as before. The run may then differ from one that has the app. `--output-json` and the `serve` summary list it in `skippedDependencies`. |
 | `--cache-dir DIR` | Where downloads and the compile cache live. Else `$ALRUNNER_CACHE`, else `$XDG_CACHE_HOME/al-runtime`, else `~/.cache/al-runtime` (on Windows `%USERPROFILE%\.cache\al-runtime`). |
 | `--country CODE` | The Business Central country version (`us`, `gb`, `de`, ...). Default `w1`. See [Test data](test-data.md). |
 | `--define SYMBOL` | A preprocessor symbol for `#if SYMBOL`. Repeatable. `--preprocessor-symbols A,B` names several. Like the AL compiler, AL Runner predefines no symbol (no `CLEANSCHEMA<n>`, no `BC<n>PLUS`). |

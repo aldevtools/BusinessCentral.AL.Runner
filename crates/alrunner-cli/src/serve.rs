@@ -527,6 +527,7 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
                 "seed",
                 "seedSource",
                 "license",
+                "skippedDependencies",
             ] {
                 if let Some(v) = doc.get(key) {
                     summary[key] = v.clone();

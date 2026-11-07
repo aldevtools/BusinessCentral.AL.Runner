@@ -449,3 +449,30 @@ enumextension 50132 "TH After Ext" extends TestHandler
         "{got:?}"
     );
 }
+
+// A DefaultTestHandler value declared in a dependency app, with the test codeunit in the app that depends on it (al-runner
+// 7181, the reporter's shape with the handler in another app). BiTestHandlerDefault.al pins handler and test codeunit in ONE
+// app only, so this shape stays refused until a corpus probe pins it (docs/probes-needed.md, "DefaultTestHandler of another app").
+#[test]
+fn a_default_handler_of_a_dependency_app_is_refused_not_skipped() {
+    let dep = format!("{SYSTEM}\n{}{DEFAULT_EXT}", handler(50112, "TH Default Handler", "D"));
+    let got = crate::user_reports::run_with_deps(
+        &[&dep],
+        r#"
+codeunit 50140 T
+{
+    Subtype = Test;
+
+    [Test]
+    procedure One()
+    begin
+    end;
+}
+"#,
+    );
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert!(
+        matches!(&got[0].1, Outcome::NotRun(w) if w.contains("default test handler") && w.contains("another app")),
+        "{got:?}"
+    );
+}

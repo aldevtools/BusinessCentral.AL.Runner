@@ -362,6 +362,8 @@ fn a_codeunit_of_a_contoso_lane_whose_company_is_not_built_is_not_verified_with_
             "--dep",
             &lib,
             "--experimental-company-builds",
+            // The fake artifact lacks a dependency app; under --no-download that now stops the run (issue 7139).
+            "--allow-missing-dependencies",
         ],
     );
     let out = text(&o);
