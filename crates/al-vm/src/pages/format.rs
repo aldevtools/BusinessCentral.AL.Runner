@@ -977,23 +977,14 @@ impl Session {
     pub(super) fn control_caption(&mut self, st: &St, idx: usize) -> Result<String, Signal> {
         let engine = self.engine();
         let ctl = &page_of(&engine, st).controls[idx];
-        // A caption a translation file of the page's app, or of the source field's, could change in the language in force
-        // (ADR-053 step 1).
-        let page = st.borrow().object as usize;
-        let what = || {
-            format!(
-                "the caption of control {} of page {}",
-                ctl.name, engine.program.objects[page].name
-            )
-        };
-        if let Some(why) = self.translated_read_refusal(page, what).or_else(|| {
-            if al_builtins::format::FormatCtx::language(self) == 1033 {
-                return None;
+        match self.control_caption_translation(st, idx)? {
+            super::caption_translation::ControlCaption::Text(t) => return Ok(t),
+            super::caption_translation::ControlCaption::Source => {}
+            super::caption_translation::ControlCaption::Legacy => {
+                if let Some(why) = self.control_caption_refusal(st, idx) {
+                    return unsupported(why);
+                }
             }
-            let table = self.control_field(st, idx)?.declared_in?;
-            self.translated_read_refusal(table as usize, what)
-        }) {
-            return unsupported(why);
         }
         // CaptionClass `3,<text>` is a caption the platform resolves to <text>
         // (corpus format-evaluate/autoformat/TestAutoFormatExpressionTiming.al, WorkingCaptionClass_OpensAndReadsItsCaption).
@@ -1029,6 +1020,27 @@ impl Session {
             return self.caption_class_text_for(st, idx, &c);
         }
         self.control_caption_plain(st, idx)
+    }
+
+    /// A caption a translation file of the page's app, or of the source field's, could change in the language in force
+    /// (ADR-053 step 1).
+    fn control_caption_refusal(&mut self, st: &St, idx: usize) -> Option<String> {
+        let engine = self.engine();
+        let ctl = &page_of(&engine, st).controls[idx];
+        let page = st.borrow().object as usize;
+        let what = || {
+            format!(
+                "the caption of control {} of page {}",
+                ctl.name, engine.program.objects[page].name
+            )
+        };
+        self.translated_read_refusal(page, what).or_else(|| {
+            if al_builtins::format::FormatCtx::language(self) == 1033 {
+                return None;
+            }
+            let table = self.control_field(st, idx)?.declared_in?;
+            self.translated_read_refusal(table as usize, what)
+        })
     }
 
     /// The control's caption with no CaptionClass of its own: its `Caption`, else the source field's `CaptionClass` or
