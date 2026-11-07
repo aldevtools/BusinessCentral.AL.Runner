@@ -195,9 +195,11 @@ pub fn ml_text_in_language(ml: &str, language: i32) -> Result<String, String> {
         1030 => "DAN",
         1043 => "NLD",
         2067 => "NLB",
+        // format-evaluate/EvalLanguageBoolean.al:1063-1318 (WA_BlankEnum*_ES_1034: `Primero` is the ESP caption of member First).
+        1034 => "ESP",
         n => {
             return Err(format!(
-                "`{ml}` in language {n} (only 1033, 1031, 1036, 1030, 1043 and 2067 are pinned)"
+                "`{ml}` in language {n} (only 1033, 1031, 1036, 1030, 1034, 1043 and 2067 are pinned)"
             ));
         }
     };
@@ -282,6 +284,17 @@ fn format_unread(v: &Value, length: i32, standard: i32) -> Option<Result<String,
             "Format with a length or a standard format",
         )))),
         _ => None,
+    }
+}
+
+/// A first member with an empty name formats as its ordinal `0`
+/// (format-evaluate/EvalLanguageBoolean.al:1233 WA_BlankEnum3_ES_1034, `Format blank` is `[0]`). Another member with an
+/// empty name is not pinned.
+fn enum_member_text(name: String, ordinal: i32) -> String {
+    if name.is_empty() && ordinal == 0 {
+        "0".to_string()
+    } else {
+        name
     }
 }
 
@@ -384,7 +397,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                 if let Some(why) = ctx.enum_caption_refused(*id, Some(*o)) {
                     return Err(FormatFail::Unsupported(why));
                 }
-                ctx.enum_name(*id, *o)
+                enum_member_text(ctx.enum_name(*id, *o), *o)
             }
         },
         // Numbers 0, 1, 2 and 9 are the braced form; 3 has neither braces nor dashes, 4 only the dashes (metadata/platform-tables/
@@ -1798,5 +1811,14 @@ mod tests {
         assert_eq!(f(1033, 7), "Sep 1, 2024");
         assert_eq!(duration_format(172_800_000, false, 1031).ok().unwrap(), "2 Tage");
         assert_eq!(duration_format(1, false, 1036).ok().unwrap(), "1 milliseconde");
+    }
+
+    // format-evaluate/EvalLanguageBoolean.al:1063 WA_BlankEnum1_ES_1034: `Primero` is the ESP entry, read under 1034.
+    #[test]
+    fn spanish_caption_is_read_under_1034() {
+        assert_eq!(
+            ml_text_in_language("ENU = 'First', ESP = 'Primero'", 1034).unwrap(),
+            "Primero"
+        );
     }
 }
