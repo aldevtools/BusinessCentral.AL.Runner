@@ -96,6 +96,7 @@ mod format_fieldref_standard;
 mod format_json_value;
 mod format_precision_standard;
 mod format_precision_strings;
+mod format_precision_vq;
 mod format_record_length;
 mod format_recordid_number;
 mod format_second_dec;

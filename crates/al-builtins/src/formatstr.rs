@@ -72,7 +72,7 @@ struct Numeric {
     /// The precision code comes after a `<Standard Format,N>` code.
     precision_after_std: bool,
     /// A negative number `<Precision,0:3>` rounded to zero: `<Sign>` still shows `-` (FormatPrecision03Comma.al:59 `-0.0004` is
-    /// `-0`). Pinned for 0:3 only.
+    /// `-0`). Pinned for 0:3 and 2:5 (FormatCommaFormatString.al:Vq_Precision25_SignPositions_Integer, `-0.000001` is `-0.00`).
     negative_zero: bool,
 }
 
@@ -711,13 +711,21 @@ fn numeric_of(
             // 1.23456 is `1.2346`, 99999.99999 is `100000.00`, -3.5 is `3.50`, -0.00001 is `0.00`; every field and a Decimal variable alike).
             let precision_2_4 =
                 (min, max) == (2, 4) && !pieces.iter().any(|(is_code, t)| *is_code && t.starts_with("Sign"));
-            if !precision_2_4 && !matches!((min, max), (0, 0) | (0, 3) | (1, 3) | (2, 2) | (3, 3)) {
+            // 2:5 (with and without `<Sign>`) and, without `<Sign>`, 0:5, 1:5 and 4:6: format-evaluate/FormatCommaFormatString.al:717-1105
+            // (Vq_Precision25_IntegerDecimals :779, _Precision05 :805, _Precision15 :831, _Precision46 :857, _SignPositions_Integer :883,
+            // _SignPositions_IntegerThousand :918, the VariableAndFields tests :995 on). Other pairs stay refused.
+            let has_sign = pieces.iter().any(|(is_code, t)| *is_code && t.starts_with("Sign"));
+            let vq_pinned = (min, max) == (2, 5) || (!has_sign && matches!((min, max), (0, 5) | (1, 5) | (4, 6)));
+            if !precision_2_4 && !vq_pinned && !matches!((min, max), (0, 0) | (0, 3) | (1, 3) | (2, 2) | (3, 3)) {
                 return Err(format!(
                     "code `<Precision,{min}:{max}>` first without a standard format (not pinned)"
                 ));
             }
         }
-        n.negative_zero = (min, max) == (0, 3) && rounded.is_zero() && n.value.is_sign_negative() && !n.value.is_zero();
+        n.negative_zero = matches!((min, max), (0, 3) | (2, 5))
+            && rounded.is_zero()
+            && n.value.is_sign_negative()
+            && !n.value.is_zero();
         n.value = rounded;
         n.min_decimals = n.min_decimals.max(min);
     }
