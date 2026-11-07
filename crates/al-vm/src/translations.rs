@@ -185,6 +185,10 @@ impl Session {
 
     /// Whether an extension of object `object` exists: the texts it adds or changes (`modify`) are the extension's units, or
     /// texts of an app with no file, which are not looked up; such reads keep the step 1 refusal.
+    pub(crate) fn page_extended(&self, object: usize) -> bool {
+        self.extended(object)
+    }
+
     fn extended(&self, object: usize) -> bool {
         let p = &self.engine.program;
         let Some(base) = p.objects.get(object) else {
@@ -212,6 +216,9 @@ impl Session {
         else {
             return Err(why);
         };
+        if o.kind == al_ir::ObjKind::Enum && self.only_foreign_translating_extensions_enum(id as usize) {
+            return Ok(None);
+        }
         if o.kind != al_ir::ObjKind::Enum || self.extended(id as usize) {
             return Err(why);
         }
@@ -238,6 +245,9 @@ impl Session {
             .apps
             .get(o.app as usize)
             .is_none_or(|a| a.translation_files.is_empty());
+        if o.kind == al_ir::ObjKind::Enum && self.only_foreign_translating_extensions_enum(id as usize) {
+            return Ok(None);
+        }
         if o.kind != al_ir::ObjKind::Enum || self.extended(id as usize) || no_files {
             return Err(why);
         }
@@ -273,8 +283,19 @@ impl Session {
         if let Some(ext) = self.declaring_extension(t, pos) {
             return self.extension_field_caption_translation(t, pos, ext, why);
         }
+        if o.kind == al_ir::ObjKind::Table && self.only_foreign_translating_extensions(object) {
+            return Ok(None);
+        }
+        // An extension that does not `modify` the caption leaves the table's unit in force
+        // (localization/app-xliff/lt-r7144-ext-caption/R7187PageCaption.al:56-72: "LT R7144 Row"."No." is read as `Rijnummer`
+        // while an extension of the same app adds a field); one that does is not pinned.
+        let modified = o
+            .table
+            .as_ref()
+            .and_then(|tb| tb.fields.get(pos))
+            .is_some_and(|f| f.caption_modified);
         if o.kind != al_ir::ObjKind::Table
-            || self.extended(object)
+            || modified
             || self.field_property(t, pos, "CaptionML").is_some()
             || self.field_property(t, pos, "CaptionClass").is_some()
         {
@@ -289,6 +310,68 @@ impl Session {
         self.app_translation(o.app as usize, &xliff, &|| {
             format!("the caption of field {} of table {}", t.fields[pos].name, t.name)
         })
+    }
+
+    /// Whether object `object` (a table or enum of an app that does not translate into the language in force, such as Base
+    /// Application) is extended by apps that do translate into it, and none of those extensions can change what a caption
+    /// read of it gives: BC then leaves the object's captions alone, `modify`d ones included. Pinned for the table Item and
+    /// the enum Sales Document Type, extended by an app with an nl-NL file under 1043: fields the extension does not touch,
+    /// fields it modifies with a `Caption` (with a unit of the extension's own id, of the original table's id, or of the
+    /// wrong kind in the file, all ignored), and enum values (localization/app-xliff/lt-r7144-ext-caption/
+    /// R7184BaseAppCaption.al:91-122, :145-165 and Sales Line in R7187PageCaption.al, al-runner issue 7184). Not decided
+    /// here (stays refused): an extension app whose files are not read (a package, a file that could not be read) or are
+    /// of the same language for another culture.
+    fn only_foreign_translating_extensions(&self, object: usize) -> bool {
+        let p = &self.engine.program;
+        let language = al_builtins::format::FormatCtx::language(self);
+        let Some(base) = p.objects.get(object) else {
+            return false;
+        };
+        let Some(culture) = crate::platform::culture_name(language) else {
+            return false;
+        };
+        if base.id.is_none()
+            || p.apps
+                .get(base.app as usize)
+                .is_none_or(|a| translates_into(a, language))
+        {
+            return false;
+        }
+        let family = |c: &str| c.split('-').next().unwrap_or(c).to_ascii_lowercase();
+        p.objects
+            .iter()
+            .filter(|o| o.kind.extended() == Some(base.kind) && o.extends_id == base.id)
+            .all(|o| {
+                let Some(a) = p.apps.get(o.app as usize) else {
+                    return false;
+                };
+                !translates_into(a, language)
+                    || (!a.translation_files.is_empty()
+                        && a.translation_files.iter().all(|f| {
+                            f.error.is_none()
+                                && (family(&f.target_language) != family(culture)
+                                    || f.target_language.eq_ignore_ascii_case(culture))
+                        }))
+            })
+    }
+
+    /// [`Self::only_foreign_translating_extensions`] for an enum. Values an enum extension adds read their source caption
+    /// when no unit of the file names an enum extension (none does in R7184BaseAppCaption.al); a file with such a unit keeps
+    /// the refusal, since which unit BC reads for an extension's value is not pinned.
+    fn only_foreign_translating_extensions_enum(&self, id: usize) -> bool {
+        if !self.only_foreign_translating_extensions(id) {
+            return false;
+        }
+        let p = &self.engine.program;
+        let Some(base) = p.objects.get(id) else {
+            return false;
+        };
+        !p.objects
+            .iter()
+            .filter(|o| o.kind.extended() == Some(base.kind) && o.extends_id == base.id)
+            .filter_map(|o| p.apps.get(o.app as usize))
+            .flat_map(|a| a.translation_files.iter())
+            .any(|f| f.units.iter().any(|(k, _)| k.starts_with("EnumExtension ")))
     }
 
     /// The table extension that declares field `pos` of `t`, when one does (`al_ir::Field::declared_in`).
@@ -333,7 +416,6 @@ impl Session {
         // there is not pinned, so it stays refused.
         let same_app = p.objects.get(t.object as usize).is_some_and(|b| b.app == e.app);
         if same_app
-            || other_translating_extension
             || self.field_property(t, pos, "CaptionML").is_some()
             || self.field_property(t, pos, "CaptionClass").is_some()
         {
@@ -345,9 +427,17 @@ impl Session {
             al_ir::xliff_part("Field", &t.fields[pos].name),
             al_ir::xliff_part("Property", "Caption")
         );
-        self.app_translation(e.app as usize, &xliff, &|| {
+        let unit = self.app_translation(e.app as usize, &xliff, &|| {
             format!("the caption of field {} of table {}", t.fields[pos].name, t.name)
-        })
+        })?;
+        // Another extension of an app that translates into the language could `modify` the caption (not pinned for a
+        // field an extension declares). With no unit for the field in the file the source caption is read either way
+        // (localization/app-xliff/lt-r7144-ext-caption/R7184BaseAppCaption.al:98-100, :145 and R7187PageCaption.al:219,
+        // al-runner issue 7184: extension fields of Item and Sales Line, no unit); with a unit it stays refused.
+        if other_translating_extension && unit.is_some() {
+            return Err(why);
+        }
+        Ok(unit)
     }
 
     /// A Label of app `app` whose XLIFF unit is `xliff`, in the language in force (`System.TranslatedText#1` with an id).

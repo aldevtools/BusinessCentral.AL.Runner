@@ -31,6 +31,12 @@ impl Session {
         if navigate && rec_bound {
             return "";
         }
+        // A card opened with OpenNew (a draft row, not yet inserted) adds none: the SetValue of a text an Integer control
+        // cannot take, on the key field of a table, gives the bare message (localization/app-xliff/lt-r7144-ext-caption/
+        // R7187PageCaption.al:107-122 and :166-175, both languages, al-runner issue 7187). Other draft shapes: not pinned.
+        if st.borrow().draft {
+            return "";
+        }
         if rec_bound && !self.shows_no_row(st, idx) && !self.is_list(st) {
             " (Select Refresh to discard errors)"
         } else {

@@ -675,6 +675,7 @@ fn walk_field<V: RefVisitor>(f: &mut Field, v: &mut V) {
         on_lookup,
         caption_class,
         caption_class_refusal: _,
+        caption_modified: _,
         auto_format_expression,
         auto_format_refusal: _,
         properties: _,

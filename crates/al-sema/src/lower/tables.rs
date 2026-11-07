@@ -811,6 +811,7 @@ impl Lowerer<'_> {
                     calc,
                     calc_refusal: refusal,
                     declared_in: f.declared_in.map(|o| o as u32),
+                    caption_modified: f.caption_modified,
                 }
             })
             .collect();

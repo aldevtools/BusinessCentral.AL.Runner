@@ -584,7 +584,35 @@ impl Session {
         // A list shows no Refresh hint (testpage/PnC07TestPage.al:GetValidationError_AfterFailedValidation, ValueAssign_Number_FromText_And_Decimal);
         // a card does (testpage/TestPageErrTeardown_Tests.al, TestPageBooleanSpelling_Tests.al:210).
         let suffix = self.validation_suffix(st, idx, rec_bound);
+        let language = al_builtins::format::FormatCtx::language(self);
         let refuse_code = |msg: String, code: &str| -> Signal {
+            // Under 1043 the platform's own words are Dutch: the frame of the error and the reason an Integer entry could not be
+            // read (localization/app-xliff/lt-r7144-ext-caption/R7187PageCaption.al:107-122, :152-166, al-runner issue 7187);
+            // the sentence in front, built from the caption, stays English. Any other text under 1043 is not pinned.
+            if language == 1043 {
+                let Some((head, tail)) = msg.split_once(" The value \"") else {
+                    return Signal::Unsupported(format!(
+                        "a page validation error under GlobalLanguage 1043 (the platform's Dutch text for '{msg}' is not pinned)"
+                    ));
+                };
+                let Some(entry) = tail.strip_suffix("\" can't be evaluated into type Integer.") else {
+                    return Signal::Unsupported(format!(
+                        "a page validation error under GlobalLanguage 1043 (the platform's Dutch text for '{msg}' is not pinned)"
+                    ));
+                };
+                let stored =
+                    format!("{head} De waarde \"{entry}\" kan niet worden geëvalueerd tot type Integer.{suffix}");
+                if let Err(why) = note_refusal(st, idx, stored.clone()) {
+                    return why;
+                }
+                return error_code(
+                    format!(
+                        "Validatiefout voor veld: {}, bericht = '{stored}'",
+                        page_of(&engine, st).controls[idx].name
+                    ),
+                    code,
+                );
+            }
             let stored = format!("{msg}{suffix}");
             if let Err(why) = note_refusal(st, idx, stored.clone()) {
                 return why;

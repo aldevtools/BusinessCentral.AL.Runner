@@ -192,6 +192,7 @@ mod caption_class;
 mod caption_expr_list;
 mod caption_relation;
 mod caption_runs;
+mod caption_translation;
 mod close_save_failed;
 mod controls;
 mod dev_endpoint;
