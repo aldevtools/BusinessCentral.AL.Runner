@@ -2184,12 +2184,6 @@
 96123 P7B_ReadsWhatThePreviousTestCodeunitLeft
 96140 PG6889RS_Step4_EmptyPartFilteredHostTypeResetsFields
 96205 WcPageOpen_UndisplayedFieldOfTheSameTable
-96231 WF3_BaseApp_French
-96231 WF3_BaseApp_German
-96231 WF3_RoundTrip_French
-96231 WF3_RoundTrip_German
-96231 WF3_Words_French
-96231 WF3_Words_German
 96249 WF3_Card_Line2_Action
 96249 WF3_Card_Line2_FieldUpdateFalse
 96249 WF3_Card_Line2_FieldUpdateTrue

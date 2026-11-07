@@ -1926,22 +1926,7 @@ impl Session {
                     // BT_Evaluate_Boolean_LeadingBlank `filter [ Da]`); a trailing one is not pinned.
                     Err(e) if e.starts_with(al_builtins::filter::INVALID_BOOLEAN) => {
                         let word = &e[al_builtins::filter::INVALID_BOOLEAN.len()..];
-                        if text.ends_with(char::is_whitespace) {
-                            return unsupported(
-                                "the error of a Boolean filter with a trailing blank (its quoted filter is not pinned)",
-                            );
-                        }
-                        return Err(Signal::Error(Box::new(AlError {
-                            message: format!(
-                                "The filter \"{}\" is not valid for the {} field on the {} table. The value \"{word}\" can't be evaluated into type Boolean.",
-                                text,
-                                self.field_caption(&t, pos),
-                                self.caption(&t)
-                            ),
-                            code: "Filter:CSide".into(),
-                            call_stack: String::new(),
-                            ..Default::default()
-                        })));
+                        return Err(self.boolean_filter_error(&t, pos, &text, word));
                     }
                     // types/date-time/P143Guid_Filters.al:P143_GuidInvalid, P143Date_FieldRef.al:P143_FieldRefGuid.
                     Err(e) if e.starts_with(al_builtins::filter::INVALID_GUID) => {
