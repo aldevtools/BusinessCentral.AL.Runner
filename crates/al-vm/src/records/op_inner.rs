@@ -941,7 +941,8 @@ impl Session {
                 // and stays as it is.
                 // What it writes: the loaded and the assigned fields; a field never loaded or assigned keeps the stored value
                 // (record/load-fields/P81LoadFields.al:1127-1243, al-runner issue 5764).
-                if !rec.borrow().temporary {
+                // A row that is gone fails below as RecordNotFound, partial or not (P170JitLoadGone.al:550-600 PG_Modify_*).
+                if !rec.borrow().temporary && stored.is_some() {
                     self.load_missing_fields(rec, None)?;
                 }
                 if let Some(b) = &mut rec.borrow_mut().load.buffer {
@@ -2176,6 +2177,14 @@ impl Session {
                 let engine = self.engine.clone();
                 let schema = engine.program.objects[t.object as usize].table.as_ref().expect("table");
                 let field = &schema.fields[pos];
+                // A field with an OnValidate trigger is left to the trigger: PG_Validate_TriggerReadsUnloadedField names the field the
+                // trigger reads, not the validated one (P170JitLoadGone.al:634-651).
+                if !rec.borrow().temporary && field.on_validate.is_none() {
+                    let (before, after) = self.ext_validate_order(&t, field)?;
+                    if before.is_empty() && after.is_empty() {
+                        self.validate_jit_gone(rec, pos)?;
+                    }
+                }
                 // A FlowField (record/flowfields/DiFwWriteTests.al): flowfields.rs `validate_flowfield` raises or refuses
                 // what is not a Decimal Sum; for that one the value goes in, OnValidate runs, then `write_sum_difference`.
                 let sum_flowfield = !field.stored && !field.flow_filter && field.id < 2_000_000_000;
@@ -2255,6 +2264,9 @@ impl Session {
             RecordOp::Rename => {
                 let rename_note = (self.tx.writes.len(), self.store.change_counter());
                 self.note_other_write(rec, &t);
+                if !rec.borrow().temporary {
+                    self.rename_jit_gone(rec)?;
+                }
                 // Fields that relate to this table follow the rename; a temporary record has none.
                 let refs = if rec.borrow().temporary {
                     Vec::new()
