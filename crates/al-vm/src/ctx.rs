@@ -499,7 +499,7 @@ impl al_builtins::native::Ctx for Session {
         Some(if number == 10 {
             self.evaluate_record_id_bookmark(text)
         } else {
-            self.evaluate_record_id_text(text, number)
+            self.evaluate_record_id_text(text, number, true)
         })
     }
     fn table_filter_table(

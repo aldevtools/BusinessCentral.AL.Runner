@@ -850,7 +850,8 @@ pub(crate) fn build_shared<'a>(
 
 /// The first field control of reportextension `e`'s request page that is bound to none of what a reportextension that changes
 /// the run may bind (reports/extensions/W3RpExtRequestPage.al:325-490): its own variable (`own`), a variable of the base report
-/// `base`, or a field of one of the report's data items `items`.
+/// `base`, a field of one of the report's data items `items`, or a field of its own record variable (W3RpExtRequestPage.al:1250
+/// Run_OwnRecordControls_ReachOnBeforePreDataItemAndPreReport, corpus PR 1202, al-runner issue 6924).
 fn foreign_request_control<'a>(
     request: &'a crate::pages::Layout,
     e: usize,
@@ -875,7 +876,12 @@ fn foreign_request_control<'a>(
             .as_deref()
             .and_then(crate::pages::var_and_field)
             .is_some_and(|(i, _)| items.iter().any(|x| x.name.eq_ignore_ascii_case(&i)));
+        let own_record_field = source
+            .as_deref()
+            .and_then(crate::pages::var_and_field)
+            .is_some_and(|(v, _)| own.contains(&v.to_lowercase()));
         c.owner == Some(e)
+            && !own_record_field
             && c.kind == ir::ControlKind::Field
             && !c.section.name().eq_ignore_ascii_case("label")
             && !named(own)

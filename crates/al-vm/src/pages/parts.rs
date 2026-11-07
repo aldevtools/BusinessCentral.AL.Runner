@@ -405,6 +405,32 @@ impl Session {
                         "a part of a page that is not open, reached by the code of that page (what it does then is not pinned)",
                     );
                 }
+                // A page that closed itself with CurrPage.Close in a trigger or an action, opened by a TestPage, and whose code
+                // goes on to call a procedure of a part it showed: the part answers, its globals as its OnClosePage left them
+                // (pages/parts/Y37PartAfterClose.al:652 CLP_AGCR_CloseAllowed_PartAccess_Observe, :668
+                // CLP_Action_CloseAllowed_PartAccess_Observe: `PART.CLOSE;PARENT.CLOSE;AFTER.CLOSE;BEFORE.PART;PART.TOUCH:1042:1`,
+                // corpus PR 1205).
+                Err(Signal::Error(e))
+                    if runtime
+                        && e.code == "TestPageNotOpened"
+                        && st.borrow().ran
+                        && st.borrow().last_run_modal != Some(true) =>
+                {
+                    let kept = st
+                        .borrow()
+                        .closed_parts
+                        .iter()
+                        .find(|(i, _)| *i == control)
+                        .map(|(_, c)| c.clone());
+                    match kept {
+                        Some(c) => return Ok(c),
+                        None => {
+                            return unsupported(
+                                "a part of a page that is not open, reached by the code of that page (what it does then is not pinned)",
+                            );
+                        }
+                    }
+                }
                 Err(Signal::Error(e)) if runtime && e.code == "TestPageNotOpened" => {
                     return unsupported(
                         "a part of a page that is not open, reached by the code of that page (what it does then is not pinned)",
