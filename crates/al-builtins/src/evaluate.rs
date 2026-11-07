@@ -685,21 +685,41 @@ fn boolean(text: &str, number: i64) -> Result<Parsed, Signal> {
     }
 }
 
-/// A Boolean text under language 1031 (errors/WcUnpinnedSingles.al:79-113 WC_Evaluate_Boolean_German): `Ja` is true,
-/// `Nein` false, and `Yes` and `vielleicht` are rejected. Other texts are not pinned in German (a rule for "any word that is no
-/// Boolean" would decide words such as `J` or `Wahr` that may be Boolean words there).
-fn german_boolean(text: &str) -> Result<Parsed, Signal> {
-    match text {
-        "Ja" => Ok(Parsed::Value(Value::Boolean(true))),
-        "Nein" => Ok(Parsed::Value(Value::Boolean(false))),
-        "Yes" | "vielleicht" => Ok(Parsed::Rejected),
-        // xmlports/shapes-properties/Y83XpMiscTests.al:Boolean_VT_German, Boolean_XML_German (needs the corpus bump): under
-        // language 1031 the texts `true`, `false`, `TRUE`, `1` and `0` read as in English, and `No`, `Wahr`, `Falsch` and `x`
-        // are rejected.
-        t if matches!(t.to_ascii_lowercase().as_str(), "true" | "1") => Ok(Parsed::Value(Value::Boolean(true))),
-        t if matches!(t.to_ascii_lowercase().as_str(), "false" | "0") => Ok(Parsed::Value(Value::Boolean(false))),
-        "No" | "Wahr" | "Falsch" | "x" => Ok(Parsed::Rejected),
-        _ => unsupported(format!("Evaluate of the Boolean text `{text}` in German (not pinned)")),
+/// A Boolean text under a language other than English (see [`crate::filter_boolean_words::evaluate_boolean_word`]).
+/// German texts that are no word of the table are pinned too (xmlports/shapes-properties/Y83XpMiscTests.al:Boolean_VT_German,
+/// Boolean_XML_German: `TRUE` reads as in English). Other texts are not pinned and are refused.
+fn language_boolean(language: i32, text: &str) -> Option<Result<Parsed, Signal>> {
+    use crate::filter_boolean_words::{EvaluateWord, evaluate_boolean_word};
+    Some(match evaluate_boolean_word(language, text)? {
+        EvaluateWord::Value(b) => Ok(Parsed::Value(Value::Boolean(b))),
+        EvaluateWord::Rejected => Ok(Parsed::Rejected),
+        EvaluateWord::NotPinned => unsupported(format!(
+            "Evaluate of the Boolean text `{text}` under GlobalLanguage {language} (not pinned)"
+        )),
+    })
+}
+
+/// [`boolean`] with the words of the session language when it has pinned ones (number 0 only).
+fn boolean_in_language(language: Option<i32>, text: &str, number: i64) -> Result<Parsed, Signal> {
+    match language.filter(|_| number == 0).and_then(|l| language_boolean(l, text)) {
+        Some(r) => r,
+        None => boolean(text, number),
+    }
+}
+
+fn raise_boolean_error(language: i32, text: &str) -> Result<Value, Signal> {
+    crate::native::raise(boolean_error(language, text), "Evaluate")
+}
+
+/// The error text of a rejected Boolean under Danish, French or Dutch (the quotes of the French text are \u{ab} and \u{bb}
+/// with a no-break space inside; format-evaluate/EvalLanguageBoolean.al EL_Errors_NLB_2067, _NLD_1043, _FRA_1036, _DAN_1030).
+fn boolean_error(language: i32, text: &str) -> String {
+    match language {
+        1036 => {
+            format!("La valeur \u{ab}\u{a0}{text}\u{a0}\u{bb} ne peut pas \u{ea}tre \u{e9}valu\u{e9}e en type Boolean.")
+        }
+        1030 => format!("V\u{e6}rdien \"{text}\" kan ikke evalueres til typen Boolean."),
+        _ => format!("De waarde \"{text}\" kan niet worden ge\u{eb}valueerd tot type Boolean."),
     }
 }
 
@@ -1098,6 +1118,29 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
     if let Some((day, rest)) = text.split_once(". Dezember ") {
         if digits(day, 1..=2) && digits(rest, 4..=4) {
             return Ok(Parsed::Rejected);
+        }
+    }
+    // A day, a month word and a year, in every session language (format-evaluate/EvalLanguageBoolean.al EL_Date_*, the same on the
+    // three supported majors and under 1030, 1031, 1033, 1036, 1043 and 2067): `31 december 2026` reads as 2026-12-31, while
+    // `31 Dezember 2026` and `Dec 31 2026` are rejected. Other month words and days are not pinned.
+    {
+        let words: Vec<&str> = text.split(' ').collect();
+        if let [d, m, y] = words.as_slice() {
+            if digits(d, 1..=2) && digits(y, 4..=4) {
+                if *m == "december" {
+                    if let (Ok(day), Ok(year)) = (d.parse::<u32>(), y.parse::<i32>()) {
+                        if (1..=31).contains(&day) {
+                            return Ok(Parsed::Value(Value::Date(day_from_civil(year, 12, day), false)));
+                        }
+                    }
+                }
+                if *m == "Dezember" {
+                    return Ok(Parsed::Rejected);
+                }
+            }
+            if *d == "Dec" && digits(m, 1..=2) && digits(y, 4..=4) {
+                return Ok(Parsed::Rejected);
+            }
         }
     }
     unsupported(format!(
@@ -2219,8 +2262,7 @@ fn evaluate_with_max(
         Value::BigInteger(_) => big_integer(&text, number)?,
         Value::Decimal(_) => decimal(&text, number)?,
         Value::Duration(_) => duration(&text, number)?,
-        Value::Boolean(_) if number == 0 && c.session_locale().map(|l| l.0) == Some(1031) => german_boolean(&text)?,
-        Value::Boolean(_) => boolean(&text, number)?,
+        Value::Boolean(_) => boolean_in_language(c.session_locale().map(|l| l.0), &text, number)?,
         Value::Guid(_) => guid(&text)?,
         Value::Byte(_) | Value::Char(_) if number == 0 => byte_or_char(&a[0], &text)?,
         // Every number but 9 reads a Date as the default does (types/date-time/Evaluate.al:Date_Other_Formats `fmt 1` to `fmt 8`,
@@ -2502,6 +2544,9 @@ fn evaluate_with_max(
                     "Evaluate",
                 ),
                 (Some(1031), _) => unsupported(format!("the Evaluate error of {ty} in German (not pinned)")),
+                // format-evaluate/EvalLanguageBoolean.al EL_Errors_NLB_2067, _NLD_1043, _FRA_1036, _DAN_1030 (the quotes of the
+                // French text are « and » with a no-break space inside).
+                (Some(n @ (1030 | 1036 | 1043 | 2067)), "Boolean") => raise_boolean_error(n, &text),
                 // The flag hides the text (errors/last-error/P70_02LastErrFlag.al:Flag_EvaluateAndOverflow
                 // `eval_int|true`, `eval_int_var|true`); for the other types it is not pinned.
                 (_, "Integer") => crate::native::raise_redacted(

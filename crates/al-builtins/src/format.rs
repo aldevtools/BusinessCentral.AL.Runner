@@ -191,7 +191,15 @@ pub fn ml_text_in_language(ml: &str, language: i32) -> Result<String, String> {
         1033 => "ENU",
         1031 => "DEU",
         1036 => "FRA",
-        n => return Err(format!("`{ml}` in language {n} (only 1033, 1031 and 1036 are pinned)")),
+        // format-evaluate/EvalLanguageBoolean.al EL_Option_* (a list with an entry for each of these languages).
+        1030 => "DAN",
+        1043 => "NLD",
+        2067 => "NLB",
+        n => {
+            return Err(format!(
+                "`{ml}` in language {n} (only 1033, 1031, 1036, 1030, 1043 and 2067 are pinned)"
+            ));
+        }
     };
     let mut entries = Vec::new();
     let (mut start, mut quoted) = (0, false);
@@ -1234,6 +1242,9 @@ fn format_date(day: i32, closing: bool, standard: i32, lang: i32) -> Result<Stri
         (1036, 7) => MONTHS_FR_SHORT[m as usize - 1],
         (3082, 4) => MONTHS_ES[m as usize - 1],
         (3082, 7) => MONTHS_ES_SHORT[m as usize - 1],
+        // Danish and Dutch December, format 4 only (format-evaluate/EvalLanguageBoolean.al EL_Date_DAN_1030, EL_Date_NLD_1043,
+        // EL_Date_NLB_2067: `december 31, 2026`); the other months are not pinned.
+        (1030 | 1043 | 2067, 4) if m == 12 => "december",
         (_, 4 | 7) => {
             return Err(FormatFail::Unsupported(format!(
                 "Format {standard} of a Date in language {lang}, month {m}: the month name is not pinned (docs/probes-needed.md)"

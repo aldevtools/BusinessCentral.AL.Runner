@@ -199,7 +199,8 @@ impl Session {
     /// refused with nothing in between (:481, Delete :662), after a plain Get (:551), and after a further Commit (:586). A
     /// buffer read by Get, with no own write since, is refused whatever the new transaction did (:604, :623, :642). Not pinned, refused: other contact
     /// with the table in the new transaction (another write, another lock, a rollback), an Insert buffer older than one
-    /// Commit that the new transaction touched. A stale buffer of another origin whose row the new transaction wrote is written
+    /// Commit that the new transaction touched, except the two-Commit shapes of `stale_own_insert_new_tx_shape`
+    /// (record/crud/Y27StaleOwnInsertMore.al, al-runner issue 6924). A stale buffer of another origin whose row the new transaction wrote is written
     /// under the assumption stale-buffer-other-origin-written. The three shapes of al-runner issue 6028 (`stale_6028_shape`) are
     /// pinned by record/crud/SbStaleOwnModify.al TE_*.
     pub(crate) fn stale_verdict(
@@ -263,6 +264,12 @@ impl Session {
             || (self.tx.lock_tx && !read_of_others_only)
             || (self.tx.lock_unpinned.is_some() && !read_of_others_only)
             || self.store_for(rec).written_since_commit(cx, t);
+        let own_insert_shape = origin
+            .filter(|o| o.version == mine && o.own_write && !o.own_modified && o.commits + 2 == self.commits)
+            .and_then(|_| {
+                let newer = committed.is_some_and(|c| c > self.tx.prior_committed_row_version);
+                self.stale_own_insert_new_tx_shape(t, &company, pk, newer)
+            });
         match origin.filter(|o| o.version == mine) {
             Some(o) if o.unpinned_read => Err(Self::stale_unpinned_find(t)),
             // A buffer that only got TransferFields from a record (Y76StaleBuffers.al Y76_Part1_Copy_TransferFromRecord).
@@ -354,6 +361,9 @@ impl Session {
             {
                 Ok(StaleVerdict::Written)
             }
+            // Two Commits after the buffer's own Insert, and the new transaction's writes follow one of the shapes of
+            // record/crud/Y27StaleOwnInsertMore.al (see `stale_own_insert_new_tx_shape`; al-runner issue 6924).
+            Some(_) if own_insert_shape.is_some() => Ok(own_insert_shape.expect("checked")),
             Some(o) if o.own_write && contact => unsupported(format!(
                 "a stale {} buffer from an Insert older than the last Commit but one, written after the new transaction touched the table",
                 t.name

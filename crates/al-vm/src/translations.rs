@@ -90,6 +90,24 @@ impl Session {
         Ok(())
     }
 
+    /// [`Self::translated_app_read`] for a text whose XLIFF unit is `xliff`: the read passes when the app ships readable
+    /// translation files and none of them has that unit, because the source text stays whichever file BC picks (the option
+    /// captions of format-evaluate/EvalLanguageBoolean.al EL_Option_NLB_2067 and EL_Option_NLD_1043: the app's only file is
+    /// nl-NL and has no unit of the table).
+    pub(crate) fn translated_app_read_unit(&self, app: &str, what: &str, xliff: &str) -> Result<(), Signal> {
+        let apps = &self.engine.program.apps;
+        let absent = apps.iter().find(|a| a.id.eq_ignore_ascii_case(app)).is_some_and(|a| {
+            !a.translation_files.is_empty()
+                && a.translation_files
+                    .iter()
+                    .all(|f| f.error.is_none() && f.units.iter().all(|(k, _)| k != xliff))
+        });
+        if absent {
+            return Ok(());
+        }
+        self.translated_app_read(app, what)
+    }
+
     /// The refusal of a read of the captions of enum `id` (`ordinal`: of that value only; `None`: of any value), when the
     /// enum declares a caption the read can see.
     pub(crate) fn enum_caption_refusal(&self, id: u32, ordinal: Option<i32>) -> Option<String> {
@@ -169,9 +187,12 @@ impl Session {
             }
             (None, None) => {
                 let family = |c: &str| c.split('-').next().unwrap_or(c).to_ascii_lowercase();
+                // A file of the same language for another culture matters only when it has the unit: without one the source
+                // text stays whichever file BC picks (format-evaluate/EvalLanguageBoolean.al EL_Enum_NLB_2067: the enum
+                // has no unit in the app's nl-NL file; read under nl-BE).
                 if a.translation_files
                     .iter()
-                    .any(|f| family(&f.target_language) == family(culture))
+                    .any(|f| family(&f.target_language) == family(culture) && f.target(xliff).is_some())
                 {
                     return refuse(&format!(
                         "the app ships a translation file of the same language for another culture than {culture}"

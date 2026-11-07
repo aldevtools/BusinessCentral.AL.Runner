@@ -6,20 +6,18 @@ use crate::format::FormatFail;
 /// after GlobalLanguage(1031) `Ja` / `Nein` (misc/lt-probes-needed-3/PnC*: Identity_GlobalLanguage_SetsAndRestores `set_ok = Ja`,
 /// ObjectId_WithAnotherGlobalLanguage `set 1031 ok = Ja`, P142_Date_Language); French after GlobalLanguage(1036) `Oui` / `Non`
 /// (types/operators-expressions/P142ToTextLang.al:153); Danish after GlobalLanguage(1030) `Ja` for true
-/// (format-evaluate/Y62DateFormulaFormat.al:DateFormulaFormat_Std1_Danish_EvaluateBack `da:Ja`), false is not
-/// pinned there. The words of other languages are English, as before.
+/// (format-evaluate/Y62DateFormulaFormat.al:DateFormulaFormat_Std1_Danish_EvaluateBack `da:Ja`), false `Nej`; Dutch (1043, 2067)
+/// `Ja` / `Nee` (format-evaluate/EvalLanguageBoolean.al EL_Errors_*). The words of other languages are English, as before.
 pub(crate) fn boolean_text(b: bool, standard: i32, language: i32) -> Result<String, FormatFail> {
     Ok(match (standard, b) {
         (2, true) => "1".into(),
         (2, false) => "0".into(),
         (9, b) => b.to_string(),
-        (_, true) if language == 1031 || language == 1030 => "Ja".into(),
+        (_, true) if matches!(language, 1031 | 1030 | 1043 | 2067) => "Ja".into(),
         (_, false) if language == 1031 => "Nein".into(),
-        (_, false) if language == 1030 => {
-            return Err(FormatFail::Unsupported(
-                "Format of false in the language 1030 (not pinned)".into(),
-            ));
-        }
+        // format-evaluate/EvalLanguageBoolean.al EL_Errors_DAN_1030, EL_Errors_NLD_1043, EL_Errors_NLB_2067.
+        (_, false) if language == 1030 => "Nej".into(),
+        (_, false) if matches!(language, 1043 | 2067) => "Nee".into(),
         (_, true) if language == 1036 => "Oui".into(),
         (_, false) if language == 1036 => "Non".into(),
         (_, true) => "Yes".into(),
