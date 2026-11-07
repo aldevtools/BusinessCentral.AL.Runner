@@ -173,11 +173,18 @@ codeunit 69966 C
     refused(al_testkit::run_in(src, "C", "F"), "TableRelation");
 }
 
-/// events/platform-triggers/P114GlobalTriggerEvents.al:301, :323: every caption class translation raises
-/// CaptionClassTranslate of UI Helper Triggers. The runtime does not raise it and refuses while a subscriber listens.
+/// events/platform-triggers/P114GlobalTriggerEvents.al:301: a TestPage control's caption class translation raises
+/// CaptionClassTranslate of UI Helper Triggers. The runtime raises it only for the statement (ui_caption_translate.rs), so a
+/// page open with a control caption class refuses while a subscriber listens.
 #[test]
-fn a_caption_class_translation_with_a_ui_helper_subscriber_is_refused() {
+fn a_page_caption_class_translation_with_a_ui_helper_subscriber_is_refused() {
     let src = r#"
+table 69969 CR { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+page 69970 CP
+{
+    PageType = Card; SourceTable = CR;
+    layout { area(Content) { field(Id; Rec.Id) { CaptionClass = '3,Foo'; } } }
+}
 codeunit 69967 Subs
 {
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"UI Helper Triggers", 'CaptionClassTranslate', '', false, false)]
@@ -185,7 +192,7 @@ codeunit 69967 Subs
 }
 codeunit 69968 C
 {
-    procedure F(): Text begin exit(CaptionClassTranslate('3,Foo')); end;
+    procedure F(): Text var P: TestPage CP; begin P.OpenNew(); exit(P.Id.Caption()); end;
 }
 "#;
     refused(al_testkit::run_in(src, "C", "F"), "CaptionClassTranslate");
