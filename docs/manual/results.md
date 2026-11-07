@@ -65,6 +65,37 @@ is a **flagged pass**, counted apart:
 - `--top-assumptions [N]` ranks the assumptions a run went through.
 - `al-runner --list-assumptions` describes all of them, with the counts of the last run.
 
+### Flagged: relies on SingleInstance state another test codeunit left
+
+Business Central runs all test codeunits of a run in one session. The globals of a
+`SingleInstance` codeunit that one test codeunit left are still there when the
+next test codeunit starts. AL Runner runs test codeunits in parallel, each on a
+session of its own, so a test codeunit starts with fresh globals.
+
+When a test codeunit reads such a global before it writes it, and an earlier test
+codeunit left another value there, AL Runner runs that codeunit again, together
+with the codeunits that wrote the state, in one session in Business Central's
+order. The tests then give the result Business Central gives. Each of them is a
+flagged pass (or a flagged failure) with the assumption `single-instance-order`.
+`--timings` names the codeunit whose state the test relies on.
+
+What the flag means: the test passes only because of the order in which Business
+Central runs the test codeunits. Run alone, or in another order, it can fail on
+Business Central too. The stability mode lists these tests apart.
+
+How to fix such a test:
+
+1. Make the test set up what it reads. Call the setup procedure in the test, or
+   in `Initialize()`, and do not rely on an earlier codeunit having done it.
+2. Reset the state a test changes. Add a procedure to the `SingleInstance`
+   codeunit that clears its globals and call it at the end of the test.
+3. A lazy cache (a flag that guards a fill) is not flagged when the test fills it
+   with the same values as the earlier codeunit did.
+
+A test codeunit that also hands rows on to later codeunits (`RequiredTestIsolation =
+Disabled`, or an `OnRun` that writes under runner 130450) runs again like the others.
+The later codeunits keep the rows its first run left.
+
 ## Errors whose text is not pinned
 
 Some errors are known to happen, but the corpus does not pin the exact text

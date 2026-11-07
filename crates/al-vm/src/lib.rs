@@ -20,6 +20,7 @@ mod blob_copy;
 mod get_key_value;
 mod package_data;
 mod partial_gone;
+pub mod single_track;
 mod state;
 pub(crate) use state::*;
 mod baseline;
@@ -783,6 +784,10 @@ pub struct Session {
     pub(crate) sequences_changed: std::collections::HashMap<(String, String), sessionops::SequenceChange>,
     /// The one instance of each `SingleInstance = true` codeunit in this session.
     singletons: std::collections::HashMap<usize, Rc<RefCell<Instance>>>,
+    /// The notes on the watched single instances' globals (`single_track.rs`).
+    si_track: Option<Box<single_track::Track>>,
+    /// Single instances moved in from an earlier test codeunit's session that this session has not used yet.
+    singles_unclaimed: std::collections::HashSet<usize>,
     pub(crate) store: al_data::memory::MemStore,
     /// Private tables of temporary records, by temp id.
     pub(crate) temps: std::collections::HashMap<u64, al_data::memory::MemStore>,
@@ -1193,6 +1198,8 @@ impl Session {
             spare_vecs: Vec::new(),
             xp_pass_views: Vec::new(),
             singletons: Default::default(),
+            si_track: None,
+            singles_unclaimed: Default::default(),
             xp_unlinked_passes: Vec::new(),
             xp_link_hidden: Vec::new(),
             store,
@@ -2000,6 +2007,7 @@ impl Session {
             exts: Vec::new(),
             xp_text: Vec::new(),
             born: Default::default(),
+            single: false,
         }))
     }
 
@@ -2044,6 +2052,7 @@ impl Session {
             exts: Vec::new(),
             xp_text: Vec::new(),
             born: Default::default(),
+            single: false,
         }))
     }
 
