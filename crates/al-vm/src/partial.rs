@@ -195,25 +195,20 @@ impl Session {
     }
 
     /// A read of field `p`, which is not loaded, of a partial record whose row another variable deleted: the JustInTimeFieldLoad
-    /// error, naming the field, the table and the key (record/load-fields/LoadFieldsFetched.al:232-268, a normal and a
-    /// table extension field). Pinned for a table whose primary key is one Integer field and whose caption is its name; `None`
-    /// otherwise.
-    fn jit_row_gone(&self, t: &TableDef, fields: &[Value], p: usize) -> Option<Signal> {
-        let [k] = t.keys[0][..] else { return None };
-        let Value::Integer(n) = fields[k] else { return None };
-        let obj = &self.engine.program.objects[t.object as usize];
-        let caption_is_name = obj
-            .properties
+    /// error, naming the field, the table's caption and the key (record/load-fields/P170JitLoadGone.al header and PG_CodeKey_ReadName
+    /// onward; LoadFieldsFetched.al:232-268 for the table extension field). The key lists every primary key part in
+    /// key order with its caption and its Format text, whatever was loaded (PG_Composite_*, PG_TypedKey_*).
+    pub(crate) fn jit_row_gone(&self, t: &TableDef, fields: &[Value], names: &[usize]) -> Result<Signal, Signal> {
+        let key = self.identification(t, fields)?;
+        let list = names
             .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case("Caption"))
-            .is_none_or(|(_, v)| v.trim().trim_matches('\'') == obj.name);
-        if !caption_is_name || self.field_caption(t, k) != t.fields[k].name {
-            return None;
-        }
-        Some(crate::transactions::al_error_code(
+            .map(|&p| t.fields[p].name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        Ok(crate::transactions::al_error_code(
             &format!(
-                "JIT loading of field(s): '{}' failed for table: '{}' identification values: '{}='{n}''",
-                t.fields[p].name, t.name, t.fields[k].name
+                "JIT loading of field(s): '{list}' failed for table: '{}' identification values: '{key}'",
+                self.caption(t)
             ),
             "JustInTimeFieldLoad",
         ))
@@ -256,12 +251,20 @@ impl Session {
             .map_err(|e| Signal::Unsupported(format!("{e}")))?;
         let Some(stored) = stored else {
             if let Some(p) = read {
-                if let Some(e) = self.jit_row_gone(&t, &fields, p) {
-                    return Err(e);
-                }
+                return Err(self.jit_row_gone(&t, &fields, &[p]).unwrap_or_else(|e| e));
+            }
+            // LoadFields on a row that is gone raises nothing and loads nothing (P170JitLoadGone.al:689-711
+            // PG_LoadFieldsStatement_AfterGone, :713 _TwoFields_).
+            if only.is_some() {
+                return Ok(());
             }
             return unsupported("a load of the missing fields of a partial record whose row is gone (not pinned)");
         };
+        if let Some(p) = read {
+            if let Some(e) = self.jit_inconsistent_read(&t, &fields, &stored, p)? {
+                return Err(e);
+            }
+        }
         let mut merged = fields;
         for p in 0..t.fields.len() {
             if !t.fields[p].stored || have.contains(p) || assigned.contains(&p) || only.is_some_and(|o| !o.contains(&p))
