@@ -557,6 +557,12 @@ impl Session {
                         let kind = cond[..open].trim().to_ascii_uppercase();
                         let (value, tail) = balanced(&cond[open..])
                             .ok_or_else(|| Signal::Unsupported(format!("view condition `{item}`")))?;
+                        // Conditions joined by a dot instead of a comma make the view invalid, in the numeric and the named form
+                        // (record/views/R6969SetViewDot.al on corpus branch al-runtime-rs-staging-r6961, al-runner issue 6969; every
+                        // test of the file, RecordRef.SetView too). Only SetView is measured.
+                        if runtime && tail.trim_start().starts_with('.') {
+                            return Err(invalid_view(view));
+                        }
                         if !tail.trim().is_empty() || !matches!(kind.as_str(), "FILTER" | "CONST" | "0" | "1") {
                             return unsupported(format!("view condition `{item}`"));
                         }
