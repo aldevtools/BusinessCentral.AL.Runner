@@ -104,6 +104,11 @@ pub const MEDIA_SET_FILE_REENCODED: &str = "MediaSet.ExportFile";
 /// does not pin (`Gate::DocxMediaRezippedFrom29`).
 pub const MEDIA_DOCX_REZIPPED: &str = "Media.ImportFile of a .docx";
 
+/// The mark on the Layout media of a Tenant Report Layout row of format RDLC, Word or Excel: BC rewrites the stored bytes
+/// (reports/runtime/TrlResourceRows.al `length equals the file` No for all three, version-dependent lengths), so any look at
+/// them is refused.
+pub const TENANT_LAYOUT_STORED: &str = "the stored Layout of a Tenant Report Layout row";
+
 /// The mark on the Tenant Media Content of an imported PNG: BC stores the picture re-encoded (the Guided Experience Icon an
 /// app's logo is imported into, onprem session-system/UsAppLogo.al:7; an exported PNG, types/W7Media.al:141-145), bytes not pinned.
 pub const MEDIA_PNG_STORED_REENCODED: &str = "the Tenant Media Content of an imported PNG";
@@ -249,6 +254,11 @@ pub fn render_pending_error(report: &str) -> Signal {
             "the bytes of the Metadata Blob of Application Object Metadata (not pinned; only QueryMetadataReader.FromStream \
              reads it)"
                 .into(),
+        );
+    }
+    if report == TENANT_LAYOUT_STORED {
+        return Signal::Unsupported(
+            "the stored layout bytes of a Tenant Report Layout row (BC rewrites them; not pinned)".into(),
         );
     }
     if report == MEDIA_DOCX_REZIPPED {

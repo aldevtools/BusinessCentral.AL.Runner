@@ -903,39 +903,6 @@ impl Session {
         Ok(object)
     }
 
-    /// The bytes of the RDLC layout file report `object` names with `DefaultRenderingLayout`, when it declares no
-    /// `RDLCLayout`, `WordLayout`, `ExcelLayout` or `DefaultLayout` property and the app holds the file.
-    pub(crate) fn default_rdlc_layout_file(&self, object: usize) -> Option<Vec<u8>> {
-        let o = &self.engine.program.objects[object];
-        let r = o.report.as_ref()?;
-        let prop = |name: &str| {
-            o.properties
-                .iter()
-                .find(|(k, _)| k.eq_ignore_ascii_case(name))
-                .map(|(_, v)| v.trim().trim_matches('"').to_string())
-        };
-        if ["RDLCLayout", "WordLayout", "ExcelLayout", "DefaultLayout"]
-            .iter()
-            .any(|p| prop(p).is_some())
-        {
-            return None;
-        }
-        let default = prop("DefaultRenderingLayout")?;
-        let layout = r
-            .rendering_layouts
-            .iter()
-            .find(|l| l.name.eq_ignore_ascii_case(&default))
-            .filter(|l| l.kind == "rdlc")?;
-        self.engine
-            .program
-            .apps
-            .get(o.app as usize)?
-            .layout_files
-            .iter()
-            .find(|(p, _)| *p == layout.path)
-            .map(|(_, b)| b.clone())
-    }
-
     /// `Report.RdlcLayout`, `WordLayout` and `ExcelLayout` (static with an id that names a report, or on a variable) of a
     /// report that declares no layout file: no rendering layout, none of the RDLCLayout, WordLayout and ExcelLayout
     /// properties and no reportextension.
@@ -987,6 +954,9 @@ impl Session {
                 }
                 return Ok(Value::Boolean(true));
             }
+        }
+        if let Some(done) = self.rendering_layout_stream(object, kind, stream) {
+            return done;
         }
         if declares_file {
             return unsupported(format!(
