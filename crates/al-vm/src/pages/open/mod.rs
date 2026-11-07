@@ -5,6 +5,7 @@ use super::*;
 mod caller_slots;
 pub(crate) use caller_slots::written_by_routine;
 mod close;
+mod handed_moved;
 mod landing;
 mod or_group;
 mod page_open;

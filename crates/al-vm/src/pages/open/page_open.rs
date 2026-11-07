@@ -524,6 +524,11 @@ impl Session {
             self.check_page_events(st)?;
             // A temporary source: Rec as it stands before OnOpenPage, to tell a row set before the open from one OnOpenPage set.
             let before_open = if has_source { self.temp_rec_position(st)? } else { None };
+            let handed_key_before = if has_source && record.is_some() {
+                Some(self.row_key(&self.page_rec(st))?)
+            } else {
+                None
+            };
             if let (Some(why), true) = (rec_unpinned, has_source) {
                 self.page_rec(st).borrow_mut().unpinned_buffer = Some(why);
             }
@@ -565,6 +570,7 @@ impl Session {
                 });
                 st.borrow_mut().onopenpage_kept_rec = kept;
             }
+            self.note_handed_rec_moved(st, handed_key_before)?;
             self.page_event(st, "onopenpageevent", None, None)?;
             self.cut_rec_after_onopenpage(st, has_source)?;
             if unattended {
@@ -944,6 +950,9 @@ impl Session {
                 if st.borrow().lookup_held_row {
                     self.lead_read_of_held_row(st)?;
                 }
+                return self.open_on_rec_moved_by_onopenpage(st);
+            }
+            if self.handed_rec_list_opens_on_moved_row(st)? {
                 return self.open_on_rec_moved_by_onopenpage(st);
             }
             if self.stored_row(&rec)?.is_some() {
