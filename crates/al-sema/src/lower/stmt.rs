@@ -313,8 +313,8 @@ impl Lowerer<'_> {
     pub(crate) fn format_option_field(&mut self, plain: bool, number9: bool, arg: &SyntaxNode) -> L<ir::Expr> {
         let mut value = self.expr(arg)?;
         // Its captions are refused where a translation file could change them (ADR-053 step 1).
-        if let Some((object, what)) = self.option_caption_owner(arg) {
-            value = self.translated_text(value, object, what)?;
+        if let Some(owner) = self.option_caption_owner(arg) {
+            value = self.translated_option_text(value, owner)?;
         }
         let member = arg.kind() == SyntaxKind::ScopeExpr;
         let field_node = if member {

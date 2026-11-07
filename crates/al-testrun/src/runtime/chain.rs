@@ -44,6 +44,9 @@ pub enum RerunWhy {
     ReadCarriedTable,
     /// An earlier chain codeunit took numbers or changed isolated storage, and its reach can read them.
     ReachesCarriedStorage,
+    /// It read first a SingleInstance global that held another value at its start than the serial run gives it
+    /// (`single_walk.rs`).
+    ReadSingleInstance,
 }
 
 impl RerunWhy {
@@ -51,6 +54,7 @@ impl RerunWhy {
         match self {
             RerunWhy::ReadCarriedTable => "read a table a chain codeunit wrote",
             RerunWhy::ReachesCarriedStorage => "can read the numbers or storage a chain codeunit changed",
+            RerunWhy::ReadSingleInstance => "read SingleInstance state an earlier codeunit left",
         }
     }
 }
@@ -79,6 +83,9 @@ pub enum SerialWhy {
     Guessed,
     /// Its run ahead started from another state than the walk's (a wrong prediction).
     Missed,
+    /// Its run ahead started from the walk's rows, but read a SingleInstance global that held another value there than
+    /// in the walk's state (ADR-066 amendment 1, `single_walk.rs`).
+    SingleState,
     /// Its run ahead started from the walk's state, but what it left cannot be rebuilt on the walk's thread.
     NotRebuilt,
 }
@@ -97,6 +104,7 @@ impl SerialWhy {
                 "its run ahead started before the members before it had run, and was not run again in time"
             }
             SerialWhy::Missed => "its run ahead started from another state than the walk's",
+            SerialWhy::SingleState => "its run ahead read SingleInstance state other than the walk's",
             SerialWhy::NotRebuilt => "what its run ahead left could not be rebuilt",
         }
     }
@@ -132,6 +140,12 @@ pub struct ChainReport {
     /// For the runs ahead dropped because they started elsewhere: what differed between the predicted start and the
     /// walk's state (a sequence, a table, a counter), and how often.
     pub differed: std::collections::BTreeMap<String, usize>,
+    /// The serial check of the SingleInstance carrying ran (`RunOptions::single_serial_check`, `single_walk.rs`).
+    pub serial_check: bool,
+    /// The codeunits it ran again in one session.
+    pub serial_checked: usize,
+    /// The tests whose outcome differed there: a failure of the check.
+    pub serial_mismatches: Vec<String>,
 }
 
 impl ChainReport {
@@ -193,6 +207,18 @@ impl ChainReport {
         }
         if let Some(line) = by_reason("serial carry chain by cause", &self.not_ahead, SerialWhy::text) {
             out.push(line);
+        }
+        if self.serial_check {
+            out.push(format!(
+                "SingleInstance serial check: {} test codeunits ran again in one session, {} outcomes differ",
+                self.serial_checked,
+                self.serial_mismatches.len()
+            ));
+            out.extend(
+                self.serial_mismatches
+                    .iter()
+                    .map(|m| format!("SingleInstance serial check: {m}")),
+            );
         }
         if !self.differed.is_empty() {
             let mut rows: Vec<(&String, &usize)> = self.differed.iter().collect();
