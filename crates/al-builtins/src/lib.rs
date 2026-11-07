@@ -8,6 +8,7 @@ mod format_boolean;
 pub mod library_kind;
 pub mod signature;
 pub mod stream;
+mod stream_call_stack;
 mod stream_cleared;
 mod stream_read_len;
 pub mod testcontexts;
