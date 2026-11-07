@@ -505,3 +505,14 @@ impl Session {
         Ok(())
     }
 }
+
+impl Session {
+    /// The page is a Worksheet over a temporary source.
+    pub(in crate::pages) fn is_temp_worksheet(&self, st: &St) -> bool {
+        self.page_rec(st).borrow().temporary
+            && matches!(
+                self.engine.object_facts[st.borrow().object as usize].page_type,
+                Some(al_ir::PageType::Worksheet)
+            )
+    }
+}

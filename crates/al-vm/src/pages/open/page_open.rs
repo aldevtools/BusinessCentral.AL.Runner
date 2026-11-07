@@ -1039,7 +1039,10 @@ impl Session {
             // The base page's or a page extension's OnOpenPage: a base without the trigger and an extension with it opens on the
             // row the extension left Rec on, as the pinned cases with both do (pages/onopenpage-moves-rec/OnOpenPageGetChain.al:587
             // Og_ExtList_OpenView_Base0Ext1; al-runner issue 6924).
-            && self.declares_or_ext_declares(st, "onopenpage")
+            // A temporary Worksheet counts only its own OnOpenPage: with the trigger in an extension alone it keeps the first row
+            // it always had (al-runner issue 6924, SalesPriceShipmentTypeActivateLinesDuplicatesShowOK/ShowCancel).
+            && (self.declares(st, "onopenpage")
+                || (self.declares_or_ext_declares(st, "onopenpage") && !self.is_temp_worksheet(st)))
             && (!self.declares(st, "onfindrecord") || self.temp_worksheet_set_before_open(st))
             && !self.is_request_page(st)
         {
