@@ -74,7 +74,7 @@ impl Selection {
 
     /// A pattern with a dot is matched against the qualified name, one without against the method name; any case,
     /// as a substring.
-    fn matches(pattern: &str, codeunit: u32, test: &str) -> bool {
+    pub(crate) fn matches(pattern: &str, codeunit: u32, test: &str) -> bool {
         let p = pattern.to_lowercase();
         if p.contains('.') {
             qualified(codeunit, test).to_lowercase().contains(&p)
@@ -2527,7 +2527,7 @@ fn explain(
     target: &str,
 ) -> Result<u8, String> {
     // `--codeunit` narrows the candidates here; elsewhere it selects the whole codeunit.
-    let named = |r: &&&TestResult| r.test.to_lowercase().contains(&pattern.to_lowercase());
+    let named = |r: &&&TestResult| Selection::matches(pattern, r.codeunit, &r.test);
     let narrowed: Vec<&&TestResult> = results
         .iter()
         .filter(|r| codeunits.is_empty() || codeunits.contains(&r.codeunit))
@@ -2536,7 +2536,9 @@ fn explain(
     let exact: Vec<&&TestResult> = narrowed
         .iter()
         .copied()
-        .filter(|r| r.test.eq_ignore_ascii_case(pattern))
+        .filter(|r| {
+            r.test.eq_ignore_ascii_case(pattern) || qualified(r.codeunit, &r.test).eq_ignore_ascii_case(pattern)
+        })
         .collect();
     let candidates = if exact.len() == 1 { exact } else { narrowed };
     let [r] = candidates.as_slice() else {
@@ -2547,10 +2549,10 @@ fn explain(
         let list: Vec<String> = candidates
             .iter()
             .take(10)
-            .map(|r| format!("  {} {}.{}", r.codeunit, r.codeunit_name, r.test))
+            .map(|r| format!("  {} ({})", qualified(r.codeunit, &r.test), r.codeunit_name))
             .collect();
         return Err(format!(
-            "--explain `{pattern}` matches {} tests; give a longer name or add --codeunit ID:\n{}",
+            "--explain `{pattern}` matches {} tests; give a longer name, `Codeunit<ID>.<Method>` or add --codeunit ID:\n{}",
             candidates.len(),
             list.join("\n")
         ));

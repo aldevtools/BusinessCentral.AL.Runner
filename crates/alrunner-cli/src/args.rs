@@ -586,7 +586,8 @@ selects only the tests both match)
                          written, without quotes (`Codeunit50100.Space Step`).
     --exclude-test TEXT  Leave out the tests TEXT matches (matched like --filter). Wins over
                          every selecting option. Repeatable.
-    --explain TEST       Run one test (its name, or a part of it that only one test has) and print
+    --explain TEST       Run one test (its name, `Codeunit<ID>.<Method>`, or a part of either that only
+                         one test has) and print
                          its outcome and, for a failure or a refusal, the routines and source
                          lines it left from. Selects that test like --filter.
     A selected test's codeunit runs whole (tests of a codeunit share state); only the selected

@@ -374,3 +374,31 @@ fn a_quoted_test_name_is_selected_by_its_al_name() {
     assert_eq!(code(&o), 0, "{}", text(&o));
     assert!(text(&o).contains("Space Step"), "{}", text(&o));
 }
+
+/// Issue 6924: --explain takes every form --filter takes, including `Codeunit<ID>.<Method>`, so a method name
+/// used in two codeunits can be explained alone; a bare name that matches both lists them in that form.
+#[test]
+fn explain_accepts_the_qualified_name_like_filter() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("explainq");
+    write(
+        &dir,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000000073", "ExplainQ", &[]),
+    );
+    let body = |id: u32| {
+        format!(
+            "codeunit {id} \"T{id}\"\n{{\n    Subtype = Test;\n\n    [Test]\n    procedure SameName()\n    begin\n    end;\n}}\n"
+        )
+    };
+    write(&dir, "src/A.al", &body(50661));
+    write(&dir, "src/B.al", &body(50662));
+    let a = dir.to_str().unwrap();
+    let o = alrunner(&["test", a, "--no-download", "--explain", "Codeunit50662.SameName"]);
+    assert_eq!(code(&o), 0, "{}", text(&o));
+    assert!(text(&o).contains("codeunit 50662"), "{}", text(&o));
+    let o = alrunner(&["test", a, "--no-download", "--explain", "SameName"]);
+    assert_ne!(code(&o), 0, "{}", text(&o));
+    assert!(text(&o).contains("Codeunit50661.SameName"), "{}", text(&o));
+    assert!(text(&o).contains("Codeunit50662.SameName"), "{}", text(&o));
+}
