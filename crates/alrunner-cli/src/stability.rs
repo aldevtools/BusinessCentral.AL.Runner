@@ -292,6 +292,9 @@ pub fn seen(results: &[&TestResult]) -> Vec<Seen> {
                 al_testrun::Outcome::Fail(m) | al_testrun::Outcome::NotRun(m) => m.clone(),
             },
             assumption: !r.assumptions.is_empty(),
+            order: r
+                .assumptions
+                .contains(&al_builtins::assumptions::Assumption::SingleInstanceOrder),
         })
         .collect()
 }
@@ -410,6 +413,18 @@ pub fn compare(plan: &Plan, per_variant: &[Vec<Seen>]) -> Outcome {
             ));
         }
     }
+    // Tests that rely on SingleInstance state an earlier test codeunit left (ADR-066 amendment 2), in a list of their own.
+    let order = order_dependent(plan, per_variant);
+    if !order.is_empty() {
+        lines.push(String::new());
+        lines.push(
+            "Tests that rely on SingleInstance state an earlier test codeunit left (order-dependent; fix the test):"
+                .into(),
+        );
+        for (t, ids) in &order {
+            lines.push(format!("  {t}  in {}", ids.join(", ")));
+        }
+    }
     // The variants with the most flips.
     let mut per: Vec<(usize, usize)> = (0..plan.variants.len())
         .filter(|&i| plan.variants[i].index > 0)
@@ -461,6 +476,17 @@ pub fn compare(plan: &Plan, per_variant: &[Vec<Seen>]) -> Outcome {
         plan.master_seed, plan.config_hash
     ));
     Outcome { lines, changes, flips }
+}
+
+/// The tests flagged as order-dependent (`Assumption::SingleInstanceOrder`) and the variants in which each was.
+pub fn order_dependent(plan: &Plan, per_variant: &[Vec<Seen>]) -> std::collections::BTreeMap<String, Vec<String>> {
+    let mut out: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+    for (i, seen) in per_variant.iter().enumerate() {
+        for s in seen.iter().filter(|s| s.order) {
+            out.entry(s.test.clone()).or_default().push(plan.id_at(i));
+        }
+    }
+    out
 }
 
 fn first_line(s: &str) -> &str {
@@ -544,6 +570,10 @@ pub fn json(plan: &Plan, out: &Outcome, per_variant: &[Vec<Seen>]) -> serde_json
         "variants": variants,
         "cells": cells,
         "flips": flips,
+        "orderDependent": order_dependent(plan, per_variant)
+            .into_iter()
+            .map(|(test, variants)| serde_json::json!({ "test": test, "variants": variants }))
+            .collect::<Vec<_>>(),
         "summary": {
             "variants": plan.variants.len(),
             "tests": tests,
@@ -667,6 +697,7 @@ mod tests {
             kind: k,
             message: if k == Kind::Fail { "boom".into() } else { String::new() },
             assumption: false,
+            order: false,
         }
     }
 
@@ -754,6 +785,29 @@ mod tests {
         assert_eq!((c.companies, c.environment), (None, None));
         assert!(parse_cell("29.0").is_none());
         assert!(parse_cell("29.0-w1-nonsense").is_none());
+    }
+
+    #[test]
+    fn order_dependent_tests_are_listed_in_a_list_of_their_own() {
+        let plan = plan_of(r#"{"format":1,"dimensions":{"order.methods":["reverse"]}}"#);
+        let flagged = |t: &str| Seen {
+            order: true,
+            ..seen(t, Kind::Pass)
+        };
+        let runs = vec![
+            vec![flagged("Codeunit2.Reads"), seen("Codeunit1.Sets", Kind::Pass)],
+            vec![flagged("Codeunit2.Reads"), seen("Codeunit1.Sets", Kind::Pass)],
+        ];
+        let out = compare(&plan, &runs);
+        let text = out.lines.join("\n");
+        assert!(text.contains("rely on SingleInstance state"), "{text}");
+        assert!(text.contains("Codeunit2.Reads  in "), "{text}");
+        assert!(!text.contains("Codeunit1.Sets  in "), "{text}");
+        let j = json(&plan, &out, &runs);
+        assert_eq!(j["orderDependent"][0]["test"], "Codeunit2.Reads");
+        // Without a flagged test there is no such list.
+        let none = compare(&plan, &[vec![seen("A", Kind::Pass)], vec![seen("A", Kind::Pass)]]);
+        assert!(!none.lines.join("\n").contains("SingleInstance"));
     }
 
     #[test]

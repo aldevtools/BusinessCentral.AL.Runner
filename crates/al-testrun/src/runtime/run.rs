@@ -251,10 +251,7 @@ fn run_codeunit_inner(
     let run_seed = scratch.run_seed;
     let mut host = crate::host::host_perturbed(scratch.clock_start, &perturb);
     host.run_seed = run_seed.seed;
-    let mut session = Session::with_host(engine.clone(), host);
-    if let Some(b) = baseline {
-        session.restore_baseline(b);
-    }
+    let (mut session, moved) = new_session(engine, host, baseline, execute);
     session.trace_faults(observe.is_some());
     scratch.flags.apply(&mut session);
     let covering = crate::coverage::enabled();
@@ -393,6 +390,9 @@ fn run_codeunit_inner(
         }
     };
     super::suite_rows::seen_before(&mut session, rows);
+    // SingleInstance state an earlier test codeunit left (ADR-066 amendment 2): notes from here on, and in the lane the
+    // single instances of the codeunit before are moved in.
+    start_singles(&mut session, execute, moved, scratch.watch);
     // What a Disabled codeunit leaves for the later codeunits is its writes from here on ([`CARRIED`]). With
     // Company Triggers subscribers each session writes on its own when it opens the company, and how those writes
     // meet the ones carried over is not pinned.
@@ -1253,6 +1253,7 @@ fn run_codeunit_inner(
         Some(runner) => super::al_runner::drive(&mut session, runner, object, &tests, &mut |s, al| body(s, Some(al)))
             .unwrap_or_else(|why| Err(all(Outcome::NotRun(why)))),
     };
+    scratch.singles_out = singles_out(&mut session, execute);
     let out = match ran {
         Ok(out) => out,
         Err(early) => return early,
@@ -1371,6 +1372,69 @@ fn carry_disabled(
         as_started: false,
     };
     CARRIED.with(|c| *c.borrow_mut() = Some(carried));
+}
+
+/// A codeunit's session from the install baseline; in the lane with the single instances of the codeunit before.
+fn new_session(
+    engine: &Arc<Engine>,
+    host: al_host::Host,
+    baseline: Option<&al_vm::Baseline>,
+    execute: bool,
+) -> (Session, Option<al_vm::single_track::MovedSingles>) {
+    let mut session = Session::with_host(engine.clone(), host);
+    if let Some(b) = baseline {
+        session.restore_baseline(b);
+    }
+    let moved = singles_moved_in(&mut session, execute);
+    (session, moved)
+}
+
+/// The lane: the single instances of the codeunit before, moved in later (`start_singles`); their temporary tables
+/// keep their ids.
+fn singles_moved_in(session: &mut Session, execute: bool) -> Option<al_vm::single_track::MovedSingles> {
+    if execute {
+        return None;
+    }
+    let moved = LANE_SINGLES.with(|c| c.borrow_mut().as_mut().and_then(Option::take));
+    if let Some(m) = &moved {
+        session.continue_temp_ids(m);
+    }
+    moved
+}
+
+/// Takes over the moved single instances and starts the notes (not for a codeunit the runner runs with
+/// Codeunit.Run: `execute`). Without a watch and without moved instances nothing is noted.
+fn start_singles(session: &mut Session, execute: bool, moved: Option<al_vm::single_track::MovedSingles>, watch: bool) {
+    if execute {
+        return;
+    }
+    if let Some(m) = moved {
+        session.adopt_single_instances(m);
+    }
+    if watch {
+        session.track_single_instances();
+    }
+}
+
+/// What the session did with the watched single instances; in the lane, hands the instances to the next codeunit.
+fn singles_out(session: &mut Session, execute: bool) -> Option<al_vm::single_track::SingleOut> {
+    let out = session.single_out();
+    if execute {
+        return out;
+    }
+    LANE_SINGLES.with(|c| {
+        if let Some(slot) = c.borrow_mut().as_mut() {
+            *slot = Some(session.take_single_instances());
+        }
+    });
+    out
+}
+
+std::thread_local! {
+    /// While the lane runs a BC session's codeunits on this thread (`single_lane.rs`): the single instances the last
+    /// codeunit left, moved into the next codeunit's session (`al_vm::single_track::MovedSingles`). `None`: no lane.
+    pub(crate) static LANE_SINGLES: std::cell::RefCell<Option<Option<al_vm::single_track::MovedSingles>>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 thread_local! {

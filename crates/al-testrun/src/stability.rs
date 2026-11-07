@@ -1284,6 +1284,8 @@ pub struct Seen {
     pub kind: Kind,
     pub message: String,
     pub assumption: bool,
+    /// The test relies on SingleInstance state an earlier test codeunit left (`Assumption::SingleInstanceOrder`).
+    pub order: bool,
 }
 
 /// The changes of each variant against the base variant (`per_variant[0]`). A test missing from a variant is not
@@ -1613,6 +1615,7 @@ mod tests {
             kind: k,
             message: String::new(),
             assumption: a,
+            order: false,
         };
         let runs = vec![
             vec![
