@@ -173,7 +173,7 @@ impl SingleWalk<'_> {
             self.distrust(s, r);
             self.take(s, r);
         }
-        eprintln!("TIMES walk {:.2}s of which reruns {:.2}s; single_out {:.2}s restore {:.2}s", t_walk.elapsed().as_secs_f64(), t_rerun.as_secs_f64(), al_vm::single_carry::TIME_OUT.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e9, al_vm::single_carry::TIME_IN.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e9);
+        eprintln!("TIMES walk {:.2}s of which reruns {:.2}s; single_out {:.2}s restore {:.2}s enc {:.2}s grp {:.2}s bindcarry {:.2}s", t_walk.elapsed().as_secs_f64(), t_rerun.as_secs_f64(), al_vm::single_carry::TIME_OUT.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e9, al_vm::single_carry::TIME_IN.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e9, al_vm::single_carry::TIME_ENC.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e9, al_vm::single_carry::TIME_GRP.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e9, al_vm::single_carry::TIME_RK.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e9);
         again
     }
 

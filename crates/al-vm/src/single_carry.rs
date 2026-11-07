@@ -20,7 +20,7 @@
 //! (`Signal::Unsupported`).
 
 use crate::Session;
-use crate::single_codec::{BindingRanks, CarryVal, Enc, IdUse, Ids, binding_ranks, bound_in};
+use crate::single_codec::{BindingRanks, reaches_any, CarryVal, Enc, IdUse, Ids, binding_ranks, bound_in};
 use al_builtins::describe::Describe;
 use al_builtins::value::{Instance, Value};
 use std::cell::RefCell;
@@ -154,6 +154,17 @@ fn same(a: &Value, b: &Value) -> bool {
         (Value::TestPage(x), Value::TestPage(y)) => Rc::ptr_eq(x, y),
         (Value::Query(x), Value::Query(y)) => Rc::ptr_eq(x, y),
         (Value::DotNet(x), Value::DotNet(y)) => Rc::ptr_eq(x, y),
+        // The simple values most globals hold: compared as they are, without writing both out.
+        (Value::Null, Value::Null) => true,
+        (Value::Boolean(x), Value::Boolean(y)) => x == y,
+        (Value::Integer(x), Value::Integer(y)) => x == y,
+        (Value::BigInteger(x), Value::BigInteger(y)) => x == y,
+        (Value::Byte(x), Value::Byte(y)) => x == y,
+        (Value::Char(x), Value::Char(y)) => x == y,
+        (Value::Date(x, c), Value::Date(y, d)) => x == y && c == d,
+        (Value::Time(x), Value::Time(y)) | (Value::DateTime(x), Value::DateTime(y)) | (Value::Duration(x), Value::Duration(y)) => x == y,
+        (Value::Enum(x, m), Value::Enum(y, n)) => x == y && m == n,
+        (Value::Text(x), Value::Text(y)) | (Value::Code(x), Value::Code(y)) => x == y,
         _ => {
             let (mut x, mut y) = (Vec::new(), Vec::new());
             al_builtins::value_codec::encode(a, &mut x) && al_builtins::value_codec::encode(b, &mut y) && x == y
@@ -181,25 +192,44 @@ impl Session {
 
     /// The value of [`BINDINGS_KEY`] now.
     fn binding_carry(&self) -> Carry {
-        let b = binding_ranks(self);
+        self.binding_carry_with(binding_ranks(self))
+    }
+
+    /// [`Session::binding_carry`] for the bindings `b` ([`binding_ranks`] walks the single instances' globals, so it is
+    /// made once per question).
+    fn binding_carry_with(&self, b: BindingRanks) -> Carry {
         if b.singles.is_empty() && b.ranks.is_empty() && !b.deep {
             return Carry::Val(std::sync::Arc::new(CarryVal::Plain(Vec::new())));
         }
+        // Only an ordinary instance a single instance's global holds has a place among the bindings in the encoding
+        // (`Enc::bind_ranks`), so the globals' values name no bound instance when there is none: nothing to encode.
+        if b.ranks.is_empty() {
+            return bindings_carry(&b, &[]);
+        }
         let bound = self.si_track.as_ref().map_or(0, |t| t.bound);
         let (objects, groups) = self.single_groups();
-        let enc = Enc::new(self, &groups, bound);
-        let carried: Vec<(GlobalKey, Carry)> = objects
-            .iter()
-            .zip(&groups)
-            .flat_map(|(&o, globals)| {
-                carry_group(&enc, globals)
-                    .into_iter()
-                    .enumerate()
-                    .map(move |(g, c)| ((o, g), c))
-            })
-            .collect();
-        let held: Vec<(GlobalKey, &Carry)> = carried.iter().map(|(k, c)| (*k, c)).collect();
-        bindings_carry(&b, &held)
+        let enc = Enc::new(self, &groups, bound, b.ranks.clone());
+        let carry_of = |only_holders: bool| -> Carry {
+            let carried: Vec<(GlobalKey, Carry)> = objects
+                .iter()
+                .zip(&groups)
+                .filter(|(_, globals)| !only_holders || reaches_any(globals, &b.ranks))
+                .flat_map(|(&o, globals)| {
+                    carry_group(&enc, globals)
+                        .into_iter()
+                        .enumerate()
+                        .map(move |(g, c)| ((o, g), c))
+                })
+                .collect();
+            let held: Vec<(GlobalKey, &Carry)> = carried.iter().map(|(k, c)| (*k, c)).collect();
+            bindings_carry(&b, &held)
+        };
+        // Only the globals that hold a bound instance name one. When that does not give the whole answer (a handle
+        // could not be carried), the reason text is made from all the groups, as before.
+        match carry_of(true) {
+            Carry::Val(v) => Carry::Val(v),
+            Carry::Opaque(_) => carry_of(false),
+        }
     }
 
     /// A carried instance bound at the end of the codeunit before, at place `rank` (`single_codec.rs`).
@@ -424,10 +454,15 @@ impl Session {
             observed: t.observed.clone(),
             ..Default::default()
         };
+        let t1 = std::time::Instant::now();
+        let ranks = binding_ranks(self);
+        TIME_IN.fetch_add(t1.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+        let t0 = std::time::Instant::now();
         let (objects, groups) = self.single_groups();
+        TIME_GRP.fetch_add(t0.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
         // Counting what the groups share costs a walk of all their values: only when a group needs writing.
         let enc_cell = std::cell::OnceCell::new();
-        let enc = || enc_cell.get_or_init(|| Enc::new(self, &groups, t.bound));
+        let enc = || enc_cell.get_or_init(|| { let t0 = std::time::Instant::now(); let e = Enc::new(self, &groups, t.bound, ranks.ranks.clone()); TIME_ENC.fetch_add(t0.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed); e });
         for (&object, globals) in objects.iter().zip(&groups) {
             // After a BindSubscription or UnbindSubscription, a global that holds a bound instance, or held one at the
             // start, may stand for another binding although it holds the same handle.
@@ -450,7 +485,9 @@ impl Session {
             if !changed.contains(&true) {
                 continue;
             }
+            let t0 = std::time::Instant::now();
             let carried = carry_group(enc(), globals);
+            TIME_GRP.fetch_add(t0.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
             // Globals that share a handle are handed on together (one may have changed through another). What the
             // others held at the start then counts as read: the walk checks it against the serial state, as what
             // they hand on rests on it.
@@ -483,7 +520,7 @@ impl Session {
         }
         let bindings = match t.poisoned.get(&BINDINGS_KEY) {
             Some(why) => Carry::Opaque(why.clone()),
-            None => self.binding_carry(),
+            None => { let t0 = std::time::Instant::now(); let b = self.binding_carry_with(ranks); TIME_RK.fetch_add(t0.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed); b }
         };
         if t.bindings_changed || t.bind_start.as_ref() != Some(&bindings) {
             out.wrote.insert(BINDINGS_KEY, bindings);
@@ -521,7 +558,7 @@ impl Session {
             let bound = t.bound;
             let (_, groups) = self.single_groups();
             let globals = inst.borrow().globals.clone();
-            let mut carried = carry_group(&Enc::new(self, &groups, bound), &globals);
+            let mut carried = carry_group(&Enc::new(self, &groups, bound, binding_ranks(self).ranks), &globals);
             let Some(t) = self.si_track.as_mut() else { return Ok(()) };
             // A global written before this first read: the handles it shares with the others are no longer those
             // of the start, so what those others held at the start is not known.
@@ -552,7 +589,7 @@ impl Session {
             .map(|g| t.start.get(&(object, g)).cloned().unwrap_or_else(|| globals[g].clone()))
             .collect();
         let group = vec![start];
-        carry_group(&Enc::new(self, &group, t.bound), &group[0])
+        carry_group(&Enc::new(self, &group, t.bound, binding_ranks(self).ranks), &group[0])
     }
 
     /// The single instances in object order, each with its globals (one group each).
@@ -699,3 +736,6 @@ mod tests {
 
 pub static TIME_OUT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 pub static TIME_IN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static TIME_ENC: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static TIME_GRP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static TIME_RK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);

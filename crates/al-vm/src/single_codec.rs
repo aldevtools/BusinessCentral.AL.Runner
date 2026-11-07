@@ -501,7 +501,12 @@ fn ptr<T>(rc: &Rc<T>) -> usize {
 }
 
 impl<'s> Enc<'s> {
-    pub(crate) fn new(session: &'s Session, groups: &[Vec<Value>], bound: i64) -> Enc<'s> {
+    pub(crate) fn new(
+        session: &'s Session,
+        groups: &[Vec<Value>],
+        bound: i64,
+        bind_ranks: HashMap<usize, u32>,
+    ) -> Enc<'s> {
         let mut reach: PtrMap<usize, (u32, u32)> = PtrMap::default();
         let mut temps: PtrMap<u64, u32> = PtrMap::default();
         let mut in_tree = PtrSet::default();
@@ -532,7 +537,7 @@ impl<'s> Enc<'s> {
             shared_temps: temps.into_iter().filter(|&(_, n)| n > 1).map(|(p, _)| p).collect(),
             ids: RefCell::default(),
             bound,
-            bind_ranks: binding_ranks(session).ranks,
+            bind_ranks,
         }
     }
 
@@ -1019,6 +1024,15 @@ impl<'s> Enc<'s> {
             max_version,
         })
     }
+}
+
+/// Whether any of the handles `ptrs` (addresses of instances) is reached from `globals`.
+pub(crate) fn reaches_any(globals: &[Value], ptrs: &HashMap<usize, u32>) -> bool {
+    let mut c = Counts::default();
+    for v in globals {
+        count(v, &mut c, 0);
+    }
+    ptrs.keys().any(|p| c.seen.contains_key(p))
 }
 
 /// Counts how often each handle (and each temporary table) is reached from the roots; a handle is entered once.
