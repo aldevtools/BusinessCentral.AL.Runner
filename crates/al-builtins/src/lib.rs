@@ -46,6 +46,7 @@ pub mod filter;
 mod filter_boolean_words;
 pub mod format;
 mod format_json;
+mod format_textbuilder;
 pub mod formatstr;
 pub mod http;
 pub mod iso;

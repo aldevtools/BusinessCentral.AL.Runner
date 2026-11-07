@@ -418,6 +418,9 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                 _ => return Err("Format of a BigText of this kind is not pinned".to_string().into()),
             }
         }
+        Value::Library(crate::library_kind::LibraryKind::TextBuilder, l) => {
+            crate::format_textbuilder::text(&l.borrow(), standard)?
+        }
         Value::Library(crate::library_kind::LibraryKind::Version, l) => match &*l.borrow() {
             crate::value::LibraryValue::Version(v) => format!("{}.{}.{}.{}", v[0], v[1], v[2], v[3]),
             _ => return Err("Format of a Version nobody set".to_string().into()),
@@ -635,6 +638,9 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         if n < length as usize {
             return Ok(format!("{s}{}", " ".repeat(length as usize - n)));
         }
+    }
+    if let (Value::Library(crate::library_kind::LibraryKind::TextBuilder, _), true) = (v, length != 0) {
+        return crate::format_textbuilder::with_length(&s, length);
     }
     // A RecordId is padded on the right too (types/operators-expressions/P79RecordId.al:409,421 `len-30`).
     if let (Value::Library(crate::library_kind::LibraryKind::RecordId, _), true) = (v, length > 0) {
