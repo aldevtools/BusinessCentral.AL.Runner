@@ -715,6 +715,9 @@ pub struct PageState {
     /// The refresh after an action that changed the view of a list with OnFindRecord read more rows than a window holds: a
     /// move is refused (al-runner issue 6469).
     pub action_refresh_unheld: bool,
+    /// The fields the page's server-side Rec still has after the test client moved onto a row it holds without running a read
+    /// trigger (`Session::note_server_row_lag`): a procedure called through a held `Page` variable reads this row.
+    pub server_lag: Option<Vec<Value>>,
     /// The page was run by the static `Page.RunModal` with its return value used (lookup mode set by the call, not by
     /// `LookupMode(true)` on a page variable).
     pub static_lookup: bool,
@@ -1131,6 +1134,7 @@ impl PageState {
             action_landed_on_new_row: false,
             validate_refresh_unheld: false,
             action_refresh_unheld: false,
+            server_lag: None,
             static_lookup: false,
             lookup_page_from_table: false,
             triggers_run: 0,
