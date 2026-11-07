@@ -350,7 +350,11 @@ impl Session {
             names: &names,
             sender: None,
         };
-        self.raise(&call, &mut args)?;
+        // The publisher declares `var Caption: Text[1024]` (BCApps Caption Class/src/CaptionClass.Codeunit.al:40).
+        self.events.publisher_var_lens = vec![None, None, Some(1024)];
+        let raised = self.raise(&call, &mut args);
+        self.events.publisher_var_lens.clear();
+        raised?;
         match &args[2] {
             Value::Text(t) | Value::Code(t) => Ok(t.to_string()),
             other => unsupported(format!(
@@ -388,7 +392,11 @@ impl Session {
             names: &names,
             sender: None,
         };
-        self.raise(&call, &mut args)?;
+        // `var Caption: Text` (CaptionClass.Codeunit.al:29): no length.
+        self.events.publisher_var_lens = vec![None, None, None, Some(i32::MAX), None];
+        let raised = self.raise(&call, &mut args);
+        self.events.publisher_var_lens.clear();
+        raised?;
         Ok(match (&args[4], &args[3]) {
             (Value::Boolean(true), Value::Text(t) | Value::Code(t)) => t.to_string(),
             _ => text.to_string(),
