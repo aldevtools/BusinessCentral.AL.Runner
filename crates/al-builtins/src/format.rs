@@ -287,6 +287,17 @@ fn format_unread(v: &Value, length: i32, standard: i32) -> Option<Result<String,
     }
 }
 
+/// A first member with an empty name formats as its ordinal `0`
+/// (format-evaluate/EvalLanguageBoolean.al:1233 WA_BlankEnum3_ES_1034, `Format blank` is `[0]`). Another member with an
+/// empty name is not pinned.
+fn enum_member_text(name: String, ordinal: i32) -> String {
+    if name.is_empty() && ordinal == 0 {
+        "0".to_string()
+    } else {
+        name
+    }
+}
+
 /// `Format(Value, Length, Standard)` with BC's own errors kept apart from refusals.
 pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) -> Result<String, FormatFail> {
     if let Some(r) = format_unread(v, length, standard) {
@@ -386,15 +397,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                 if let Some(why) = ctx.enum_caption_refused(*id, Some(*o)) {
                     return Err(FormatFail::Unsupported(why));
                 }
-                let name = ctx.enum_name(*id, *o);
-                // A first member with an empty name formats as its ordinal `0`
-                // (format-evaluate/EvalLanguageBoolean.al:1233 WA_BlankEnum3_ES_1034, `Format blank` is `[0]`). Another member with an
-                // empty name is not pinned.
-                if name.is_empty() && *o == 0 {
-                    "0".to_string()
-                } else {
-                    name
-                }
+                enum_member_text(ctx.enum_name(*id, *o), *o)
             }
         },
         // Numbers 0, 1, 2 and 9 are the braced form; 3 has neither braces nor dashes, 4 only the dashes (metadata/platform-tables/
