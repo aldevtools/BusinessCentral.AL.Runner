@@ -831,25 +831,6 @@ impl MemStore {
         )
     }
 
-    /// The current rows of every table the store holds an entry for, committed or not, in the form of
-    /// [`MemStore::export_committed`]: a temporary table's store, whose rows no transaction rolls back, handed to another
-    /// session (al-vm `single_codec.rs`). A store with a backing or virtual tables gives `None`.
-    pub fn export_current(&self) -> Option<Vec<ExportedTable>> {
-        if self.backing.is_some() || self.virtuals.is_some() {
-            return None;
-        }
-        Some(
-            self.tables
-                .iter()
-                .map(|((company, object), table)| ExportedTable {
-                    company: company.to_string(),
-                    object: *object,
-                    rows: table.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
-                })
-                .collect(),
-        )
-    }
-
     /// A store whose committed (and current) data is `tables`, with no provider and no backing. Its stamps are new
     /// ones: a stamp only says whether a table changed, and no cache of this store knows an older one.
     pub fn from_exported(tables: Vec<ExportedTable>) -> MemStore {
