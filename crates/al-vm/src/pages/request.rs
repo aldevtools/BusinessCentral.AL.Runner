@@ -882,6 +882,24 @@ impl Session {
         let mut items = String::new();
         for c in &page.controls {
             match (&c.kind, &c.binding) {
+                // A control of a reportextension on a variable of the base report that the base's own control shows too: the
+                // variable is in the text once (W3RpExtRequestPage.al Bind_RunRequestPage_ParametersText_AllBindings). With no
+                // base control on that variable what BC writes is not pinned.
+                (ir::ControlKind::Field, ir::Binding::BaseVar(slot))
+                    if c.props.iter().any(|(n, _)| n == ir::EXT_MIRROR_PROPERTY) =>
+                {
+                    let shown = page.controls.iter().any(|b| {
+                        b.owner.is_none()
+                            && b.kind == ir::ControlKind::Field
+                            && matches!(b.binding, ir::Binding::Var(s) if s == *slot)
+                    });
+                    if !shown {
+                        return unsupported(format!(
+                            "the parameters text for request page control {} of a report extension on a variable of the base report that no control of the base shows (not pinned)",
+                            c.name
+                        ));
+                    }
+                }
                 (ir::ControlKind::Field, b) if b.var_slot(c.owner).is_some() => {
                     let (slot, who) = b.var_slot(c.owner).expect("a variable binding");
                     let owner = owner_inst(inst, exts, who);
@@ -921,8 +939,11 @@ impl Session {
                 // A field bound to a place written as an expression (`BufArr[1].Name`): named by its source as written
                 // (`request_expr_params`).
                 (ir::ControlKind::Field, ir::Binding::Expr(_)) => {
-                    let (name, read, _) = self.request_expr_place(c)?;
-                    let v = self.request_expr_read(object, inst, read)?;
+                    let (name, read, _, who) = self.request_expr_place(c)?;
+                    let v = match who {
+                        None => self.request_expr_read(object, inst, read)?,
+                        Some(e) => self.request_expr_read(e, &owner_inst(inst, exts, Some(e)), read)?,
+                    };
                     let text = self.request_option_text(&v)?;
                     options.push_str(&option_field(&name, &text));
                 }
@@ -1028,7 +1049,13 @@ impl Session {
                     && c.source_text.as_deref() == Some(name.as_str())
             });
             if let Some(c) = expr {
-                let (_, read, write) = self.request_expr_place(c)?;
+                let (_, read, write, who) = self.request_expr_place(c)?;
+                if who.is_some() {
+                    return unsupported(format!(
+                        "a parameters text that sets the control {} of a report extension bound to an expression (not pinned)",
+                        c.name
+                    ));
+                }
                 self.request_expr_write(object, inst, &name, &text, (read, write))?;
                 continue;
             }

@@ -1079,6 +1079,10 @@ impl Binding {
     }
 }
 
+/// The property that marks a control of a reportextension that changes the run, bound to a variable of the base report: a
+/// value set through the control is dropped.
+pub const EXT_MIRROR_PROPERTY: &str = "__ext_mirror";
+
 /// The property under which a report's `properties` keep its request page's own `Caption` as written (the report's `Caption`,
 /// when it declares one, wins under `Caption`). `RequestOptionsPage.Caption` reads it (al-vm `reports.rs`).
 pub const REQUEST_PAGE_CAPTION_PROPERTY: &str = "RequestPage.Caption";

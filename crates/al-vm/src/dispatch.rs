@@ -122,6 +122,16 @@ impl Session {
                         }
                     }
                 }
+                // The sender of a page extension's event: the corpus pins no sender for it (events/extension-events pins a table
+                // extension's and a reportextension's), so a subscriber that asks for it is refused. Handing it the extension's Rec
+                // failed later as "conversion of Record ... to Page" (al-runner issue 6924).
+                (al_ir::ObjKind::PageExtension, _) => {
+                    sender_refused = Some(format!(
+                        "{}: IncludeSender on a pageextension (what BC passes as the sender is not pinned)",
+                        r.name
+                    ));
+                    None
+                }
                 (al_ir::ObjKind::Codeunit, _) => Some(Value::Codeunit(instance)),
                 // The sender of a page's event is the page (a `Page` variable), not its Rec: Item Tracking Lines
                 // publishes with IncludeSender and Asm. Item Tracking Mgt. takes `var sender: Page "Item Tracking

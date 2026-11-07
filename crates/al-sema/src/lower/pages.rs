@@ -499,12 +499,22 @@ impl Lowerer<'_> {
             // An action that declares both RunObject and OnAction runs only the RunObject
             // (testpage/TestPageRunObjectContracts.al:371-390).
             let run_object = self.run_object(oi, file, sec);
+            // A control of a reportextension that changes the run, bound to a variable of the base report: it shows the
+            // variable but a value set through it is dropped (reports/extensions/W3RpExtRequestPage.al:359-364
+            // Bind_ExtControlOnBaseVariable_SetAlone, :381-383 and :402-404 for the two orders with the base's own control).
+            if matches!(binding, ir::Binding::BaseVar(_)) && self.in_run_changing_report_ext(raw.owner) {
+                props.push((ir::EXT_MIRROR_PROPERTY.to_string(), ir::PropVal::Lit("true".into())));
+            }
             controls.push(ir::Control {
                 name: raw.name.clone(),
                 kind: raw.kind.clone(),
                 parent: raw.parent,
                 props: with_field_guard(self.members, table, &binding, raw.owner, props),
-                source_text: expr_source_text(&binding, raw.owner, sec),
+                source_text: expr_source_text(
+                    &binding,
+                    raw.owner.is_none() || self.in_run_changing_report_ext(raw.owner),
+                    sec,
+                ),
                 binding,
                 triggers,
                 part_page,
@@ -812,10 +822,20 @@ impl Lowerer<'_> {
     }
 }
 
+impl Lowerer<'_> {
+    /// Whether `owner` is a reportextension that changes the run.
+    fn in_run_changing_report_ext(&self, owner: Option<usize>) -> bool {
+        owner.is_some_and(|e| {
+            self.ws.objects[e].kind == ObjKind::ReportExtension && crate::reports::changes_a_run(&self.ws.object_ast(e))
+        })
+    }
+}
+
 /// The control of a data item of a request page: the test client reads and writes the filters of its record (`binding`).
-/// The source of a page's or report's own control bound to an expression, as written and trimmed (`ir::Control::source_text`).
-fn expr_source_text(binding: &ir::Binding, owner: Option<usize>, sec: &ast::Section) -> Option<String> {
-    let own_expr = owner.is_none() && matches!(binding, ir::Binding::Expr(_));
+/// The source of a page's or report's own control, or of a control of a reportextension that changes the run (`listed`), bound to an
+/// expression, as written and trimmed (`ir::Control::source_text`).
+fn expr_source_text(binding: &ir::Binding, listed: bool, sec: &ast::Section) -> Option<String> {
+    let own_expr = listed && matches!(binding, ir::Binding::Expr(_));
     own_expr
         .then(|| sec.args_raw().get(1).map(|a| a.trim().to_string()))
         .flatten()

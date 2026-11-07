@@ -4289,6 +4289,11 @@ codeunit 50000 "T" { Subtype = Test;
   [Test] procedure Unfiltered() var L: Record "Tenant Report Layout"; begin if L.Count() = 0 then; end;
   [Test] procedure OtherLayout() var L: Record "Tenant Report Layout"; begin
     L.Init(); L."Report ID" := 50001; L.Name := 'N'; L."Layout Format" := L."Layout Format"::RDLC; L.Insert(); end;
+  [Test] procedure WordRow() var L: Record "Tenant Report Layout"; begin
+    L.Init(); L."Report ID" := 50001; L.Name := 'N'; L."Layout Format" := L."Layout Format"::Word; L.Insert(); end;
+  [Test] procedure OtherReport() var L: Record "Tenant Report Layout"; InS: InStream; begin
+    L.Init(); L."Report ID" := 1306; L.Name := 'N'; L."Layout Format" := L."Layout Format"::RDLC;
+    Report.RdlcLayout(50001, InS); L.Layout.ImportStream(InS, 'x'); L.Insert(); end;
 }"#;
     let rdlc = b"<?xml version=\"1.0\"?><Report xmlns=\"http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition\"></Report>".to_vec();
     let (engine, l) = engine_with_layouts(
@@ -4311,6 +4316,17 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "Insert");
     assert!(not_run(&o, "Unfiltered").contains("Tenant Report Layout"));
     assert!(not_run(&o, "OtherLayout").contains("Tenant Report Layout"));
+    // The refusal names which part of the row is not pinned (al-runner issue 6924: waldo's 173 tests insert Word rows).
+    assert!(
+        not_run(&o, "WordRow").contains("Layout Format Word"),
+        "{}",
+        not_run(&o, "WordRow")
+    );
+    assert!(
+        not_run(&o, "OtherReport").contains("a report that is not one of the app under test"),
+        "{}",
+        not_run(&o, "OtherReport")
+    );
 }
 
 // Gap cycle G9: a user-defined layout (a Tenant Report Layout row) is a row of Report Layout List: Caption the layout's name,
