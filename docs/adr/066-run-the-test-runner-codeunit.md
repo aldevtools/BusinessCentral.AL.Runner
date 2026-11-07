@@ -254,6 +254,18 @@ values that differ.
    in the lane like any other. Its outcome is the lane's; the later codeunits keep the rows of its first run, as the
    chain walk gave them. That the lane's run leaves the same rows is assumed (registered with the flag).
 
+6. **Clarification (2026-11-07): state a refused codeunit left is not BC's state.** When a test of a codeunit is
+   refused while it ran, it stopped early: on BC it would have run to its end, and its remaining code may have undone
+   what it wrote. So a codeunit that has such a test is an untrusted writer. Its writes do not make a later codeunit
+   dependent and do not pull it into the lane (no flagged lane run on a state BC never had). A later codeunit that reads
+   a global only such a writer changed keeps its own parallel result, because the runtime cannot know the state BC
+   would show. A failure of that codeunit is not trusted (reported as not run: "an earlier test codeunit of the run was
+   refused while it ran (...) and left SingleInstance state (...) that BC's run to the end would not have left"), the
+   same way a failure after a refused test inside one codeunit is not trusted. A pass stands, as it does there. The
+   test is per codeunit, not per test, so a codeunit with one refused test is untrusted for all its writes (a
+   conservative choice). A later trusted writer makes the global trusted again. Measured on the BC 29 corpus: 631
+   dependent codeunits before, 377 after (254 were readers of the state left by refused tests of two codeunits).
+
 ### Cost control
 
 - **Watch only what is used.** The SingleInstance codeunits that have globals are watched in each BC session of two

@@ -73,12 +73,15 @@ pub(super) struct Found {
     pub dependent: BTreeMap<usize, (usize, GlobalKey)>,
     /// Positions of the codeunits to run in the lane: the dependent ones and the writers they need.
     pub lane: BTreeSet<usize>,
+    /// Position of a codeunit that read state only a refused codeunit left (a test of it was refused while it ran, so BC
+    /// would have left other values), with that codeunit's position. Not in the lane: its failures are not trusted.
+    pub distrusted: BTreeMap<usize, (usize, GlobalKey)>,
 }
 
 /// Step 3, the decision: from what each codeunit of a BC session (in order) noted, which depend on state an earlier one
 /// left. `None`: no notes (the codeunit was not watched, or it did not run).
 pub(super) fn analyse(outs: &[Option<&SingleOut>]) -> Found {
-    let mut state: BTreeMap<GlobalKey, (al_vm::single_track::Fp, usize)> = BTreeMap::new();
+    let mut state: BTreeMap<GlobalKey, (al_vm::single_track::Fp, usize, bool)> = BTreeMap::new();
     let mut found = Found::default();
     // The writes that changed a global: the first, and each that left another value than the one before it.
     let mut effective: BTreeMap<GlobalKey, Vec<usize>> = BTreeMap::new();
@@ -86,7 +89,7 @@ pub(super) fn analyse(outs: &[Option<&SingleOut>]) -> Found {
         let Some(o) = out else { continue };
         let mut diff: Vec<(GlobalKey, usize)> = Vec::new();
         for (k, seen) in &o.observed {
-            if let Some((fp, w)) = state.get(k) {
+            if let Some((fp, w, _)) = state.get(k) {
                 if fp != seen {
                     diff.push((*k, *w));
                 }
@@ -96,7 +99,7 @@ pub(super) fn analyse(outs: &[Option<&SingleOut>]) -> Found {
             // A lazy cache the codeunit filled itself with the very values the earlier codeunit left is no
             // dependence: whether it skipped the fill or did it, the state and what it reads are the same.
             let same_end = |k: &GlobalKey| match state.get(k) {
-                Some((fp, _)) => o.ends.get(k).is_some_and(|e| e == fp || e.same_kind(fp)),
+                Some((fp, _, _)) => o.ends.get(k).is_some_and(|e| e == fp || e.same_kind(fp)),
                 None => true,
             };
             // The global that gives the dependence away: the first one the codeunit did not end with as it was left.
@@ -105,15 +108,21 @@ pub(super) fn analyse(outs: &[Option<&SingleOut>]) -> Found {
                 .map(|(k, _)| k)
                 .chain(o.wrote.iter())
                 .find(|k| !same_end(k))
-                .and_then(|k| state.get(k).map(|(_, w)| (*w, *k)));
-            if let Some(c) = culprit {
-                found.dependent.insert(p, c);
+                .and_then(|k| state.get(k).map(|(_, w, refused)| (*w, *k, *refused)));
+            if let Some((w, k, refused)) = culprit {
+                // State a refused codeunit left is not BC's (it stopped early): it makes no order dependence, the reader
+                // keeps its own run, and a failure of it is not trusted.
+                if refused {
+                    found.distrusted.insert(p, (w, k));
+                } else {
+                    found.dependent.insert(p, (w, k));
+                }
             }
         }
         for k in &o.wrote {
             if let Some(end) = o.ends.get(k) {
-                let before = state.insert(*k, (end.clone(), p));
-                if before.is_none_or(|(b, _)| !(b == *end || b.same_kind(end))) {
+                let before = state.insert(*k, (end.clone(), p, o.refused));
+                if !o.refused && before.is_none_or(|(b, _, _)| !(b == *end || b.same_kind(end))) {
                     effective.entry(*k).or_default().push(p);
                 }
             }
@@ -204,11 +213,35 @@ impl Lane<'_> {
                     .collect();
                 analyse(&outs)
             };
+            self.distrust(&ks, &found, slots);
             if found.dependent.is_empty() {
                 continue;
             }
             report.sessions += 1;
             self.run_stream(&ks, &found, slots, report);
+        }
+    }
+
+    /// A codeunit that read state only a refused codeunit left: BC's run to the end would have left other values, so a
+    /// failure here is not trusted (the wording of the runtime's other refused-test distrust). A pass stands, as it does
+    /// there.
+    fn distrust(&self, ks: &[usize], found: &Found, slots: &mut [Option<UnitResult>]) {
+        for (&p, &(w, (o, g))) in &found.distrusted {
+            let Some(Ok(done)) = slots[ks[p]].as_mut().map(|r| &mut r.result) else {
+                continue;
+            };
+            let obj = &self.lowered.program.objects[o];
+            let why = format!(
+                "an earlier test codeunit of the run was refused while it ran ({}) and left SingleInstance state (variable {} of codeunit {}) that BC's run to the end would not have left",
+                self.name(ks[w]),
+                obj.globals.get(g).map_or("?", |s| s.name.as_str()),
+                obj.name
+            );
+            for (_, outcome) in &mut done.0 {
+                if let Outcome::Fail(m) = outcome {
+                    *outcome = Outcome::NotRun(format!("{why}; this failure is not trusted: {m}"));
+                }
+            }
         }
     }
 
@@ -309,6 +342,7 @@ mod tests {
             observed: observed.iter().map(|&(k, v)| (k, fp(v))).collect(),
             ends: ends.iter().map(|&(k, v)| (k, fp(v))).collect(),
             wrote: wrote.iter().copied().collect(),
+            refused: false,
         }
     }
 
@@ -321,6 +355,39 @@ mod tests {
         let found = analyse(&[Some(&a), Some(&b), Some(&c)]);
         assert_eq!(found.dependent, BTreeMap::from([(1, (0, flag))]));
         assert_eq!(found.lane, BTreeSet::from([0, 1]));
+    }
+
+    #[test]
+    fn a_refused_writer_makes_no_reader_dependent_but_distrusts_it() {
+        let flag = (1, 0);
+        // The writer set the flag, then a test of it was refused before it could reset the flag (as BC's run would).
+        let mut a = out(&[], &[(flag, 7)], &[flag]);
+        a.refused = true;
+        let b = out(&[(flag, 0)], &[(flag, 0)], &[]);
+        let found = analyse(&[Some(&a), Some(&b)]);
+        assert!(found.dependent.is_empty());
+        assert!(found.lane.is_empty());
+        assert_eq!(found.distrusted, BTreeMap::from([(1, (0, flag))]));
+    }
+
+    #[test]
+    fn a_reader_that_ends_with_the_refused_writers_value_is_not_distrusted() {
+        let flag = (1, 0);
+        let mut a = out(&[], &[(flag, 7)], &[flag]);
+        a.refused = true;
+        let b = out(&[(flag, 0)], &[(flag, 7)], &[flag]);
+        assert!(analyse(&[Some(&a), Some(&b)]).distrusted.is_empty());
+    }
+
+    #[test]
+    fn a_writer_after_a_refused_one_is_trusted_again() {
+        let flag = (1, 0);
+        let mut a = out(&[], &[(flag, 7)], &[flag]);
+        a.refused = true;
+        let b = out(&[(flag, 0)], &[(flag, 5)], &[flag]);
+        let c = out(&[(flag, 0)], &[(flag, 0)], &[]);
+        let found = analyse(&[Some(&a), Some(&b), Some(&c)]);
+        assert_eq!(found.dependent, BTreeMap::from([(2, (1, flag))]));
     }
 
     #[test]
@@ -354,6 +421,7 @@ mod tests {
             observed: BTreeMap::from([(g, observed)]),
             ends: BTreeMap::from([(g, end)]),
             wrote: BTreeSet::from([g]),
+            refused: false,
         };
         let first = SingleOut {
             ends: BTreeMap::from([(g, opaque("a DotNet object"))]),

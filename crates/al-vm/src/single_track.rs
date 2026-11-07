@@ -60,6 +60,9 @@ pub struct SingleOut {
     pub ends: BTreeMap<GlobalKey, Fp>,
     /// The globals it left other than it was given: written first, or read first and ended unlike it started.
     pub wrote: BTreeSet<GlobalKey>,
+    /// A test of the codeunit was refused while it ran (it stopped early): what the codeunit left is not what BC's
+    /// run to the end would have left (ADR-066 amendment 2). Set by the test runner, not by the session.
+    pub refused: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
