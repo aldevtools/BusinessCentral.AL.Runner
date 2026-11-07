@@ -113,6 +113,7 @@ last `{` in column 0 to the end" still works). Null and empty fields are left ou
 | `passed`, `failed`, `total`, `wallSeconds` | present | present | none |
 | `errors` | tests that errored | **the tests not run** (the same number as `notRun`) | Read `notRun` for the meaning. |
 | `skipped` | present | always 0 | none |
+| `skippedDependencies` | absent | always present: a list (empty when none) of the dependency apps the run did not load, each `{id, name, publisher, version, reason}`; `version` is the declared minimum. Without `--allow-missing-dependencies` and with `--no-download` such a dependency stops the run (exit 2) and the list stays empty; `serve` summaries carry the same field | New (al-runner issue 7139). A tool that compares runs across machines can refuse a run whose list is not empty. |
 | `seed` | present | absent | v3 has no random seed in the document. |
 | `exitCode` | present | present | See section 5. |
 | `warnings` | absent | only when the selection matches no test (exit 6): the document has no rows, all counts 0, and `warnings` says why, as the `serve` summary does | none: v2 wrote the same empty document |
@@ -168,7 +169,7 @@ stdout line `{"ready":true}`; command names are case insensitive; `[server] requ
 request except `cancel` and a line that is not a JSON object. Each request also prints the human `Tests:` and `Result:`
 lines on stderr. Start options are the request-independent options of `al-runner test`
 (`--package-cache`, `--dep`, `--define`, `--preprocessor-symbols`, `--test-timeout`, `--bc-version`, `--cache-dir`,
-`--no-download`, `--test-data`, `--no-test-data`, `--allow-not-run`, `--server-url`, `--environment` and the like);
+`--no-download`, `--allow-missing-dependencies`, `--test-data`, `--no-test-data`, `--allow-not-run`, `--server-url`, `--environment` and the like);
 `--protocol 2` is accepted. An APP and the options that select tests or write reports (`--filter`, `--test`,
 `--codeunit`, `--test-exact`, `--exclude-test`, `--isolation`, `--junit`, `--output-json`, `--coverage*`, `--explain`)
 are an error at start-up (exit 2). So are `--recipe microsoft` and `--impact-of`: a request runs the tests once, the
@@ -248,7 +249,7 @@ Differences a client must adapt to:
 |---|---|---|
 | 0 | all passed | all selected tests passed |
 | 1 | a test failed or errored | a test failed |
-| 2 | bundle could not execute, bad flag | bad invocation or the run could not start |
+| 2 | bundle could not execute, bad flag | bad invocation or the run could not start, also a dependency app that cannot be found under `--no-download` (add `--allow-missing-dependencies` to skip it with a warning) |
 | 3 | bundle could not compile, or suite error | the APPs do not compile: an AL compiler error that the corpus has checked against the real compiler, or source of an app under test that AL Runner's parser does not accept (no AL code on that line); no test ran (`compilationErrors` in `--output-json`). Other code AL Runner cannot compile gives `notRun` rows and exit 7. |
 | 6 | `--test` matched nothing | the selection matched nothing |
 | 7 | (none) | some tests were not run. `--allow-not-run` makes it 0. |
