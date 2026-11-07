@@ -35,7 +35,7 @@ fn passes(tests: &str) {
 }
 
 // The reporter's repro (al-runner issue 6381), run in a modal handler as reported and on a TestPage opened directly. Values
-// measured on real BC by corpus writer Y5 (branch al-runtime-rs-staging-y5, pages/lt-y5/Y5GoToKeyAfterActionFilter.al,
+// measured on real BC by corpus writer Y5 (branch al-runtime-rs-staging-y5, testpage/Y5GoToKeyAfterActionFilter.al,
 // codeunit 90985): after the action the row is 2/1; GoToKey(2,50) Yes; Next 2/51, Previous twice 2/49, GoToKey(2,10) Yes,
 // First 2/1, Last 2/60; GoToKey(1,50) after the action No, the row stays 2/1; an action with only SetRange: row 2/1,
 // GoToKey(2,50) Yes, GoToKey(1,40) No with the row staying 2/50.
@@ -75,7 +75,7 @@ fn goto_key_after_an_action_changed_the_filter_finds_the_row_of_the_new_view() {
     );
 }
 
-// Rec.Ascending(false) in an action turns the list's order at once (handlers/TestPageViewRoundTripRoutes.al:411): the rows
+// Rec.Ascending(false) in an action turns the list's order at once (testpage/TestPageViewRoundTripRoutes.al:411): the rows
 // read before leave the window, and GoToKey walks the new order.
 #[test]
 fn goto_key_after_an_action_turned_the_order_descending_finds_the_row() {
@@ -89,7 +89,7 @@ fn goto_key_after_an_action_turned_the_order_descending_finds_the_row() {
 }
 
 // A filter that leaves no row of the view after the one the page stood on: the page goes to the nearest row before it
-// (pages/lt-y15/Y15ActionNarrowsBelowLast.al on branch al-runtime-rs-staging-y15, al-runner issue 6468).
+// (testpage/Y15ActionNarrowsBelowLast.al on branch al-runtime-rs-staging-y15, al-runner issue 6468).
 #[test]
 fn a_filter_change_with_no_row_after_the_current_one_goes_to_the_row_before() {
     passes(
@@ -142,7 +142,7 @@ fn keys_pass(tests: &str) {
     assert!(bad.is_empty(), "{bad:?}");
 }
 
-// Corpus writer Y5, branch al-runtime-rs-staging-y5b, pages/lt-y5/Y5GoToKeyAfterActionKeyAndTriggers.al:199-231: an action that only
+// Corpus writer Y5, branch al-runtime-rs-staging-y5b, testpage/Y5GoToKeyAfterActionKeyAndTriggers.al:199-231: an action that only
 // calls SetCurrentKey keeps the row (1/51); GoToKey(1,50) Yes; Next follows the new key at once (2/50); First 1/1, Next 2/1.
 // :236-268: SetAscending(No, false) has no visible effect: the row stays 1/50; GoToKey(2,10), Next 2/11, First 1/1, Next 1/2,
 // Last 2/60.

@@ -11,7 +11,7 @@ fn refused(r: Result<Value, Signal>, needle: &str) {
     }
 }
 
-/// pageext/lt-page-ext-properties/PageFieldValuesAllowed.al:64-73: a value outside the control's ValuesAllowed is rejected with
+/// pages/extensions/PageFieldValuesAllowed.al:64-73: a value outside the control's ValuesAllowed is rejected with
 /// a TestValidation error that names the entry (and the card's Refresh hint).
 #[test]
 fn set_value_on_a_control_with_values_allowed_rejects_a_value_outside_it() {
@@ -48,7 +48,7 @@ codeunit 69992 C
     assert_eq!(al_testkit::text(al_testkit::run_in(src, "C", "G")), "Open");
 }
 
-/// pages/lt-page-presentation-properties/P119LabelHideValue.al:74: `HideValue = <variable>` hides the value, so HideValue is
+/// pages/properties/P119LabelHideValue.al:74: `HideValue = <variable>` hides the value, so HideValue is
 /// evaluated like Visible, Editable and Enabled. Another boolean property written as an expression is refused, not read as false.
 #[test]
 fn a_boolean_control_property_written_as_an_expression_is_evaluated_or_refused() {
@@ -91,7 +91,7 @@ codeunit 69995 C
     refused(al_testkit::run_in(src, "C", "H"), "showmandatory");
 }
 
-/// record/lt-x-table-props/XTablePropsTests.al:229-230: a page control shows the session language's entry of its table
+/// record/table-properties/XTablePropsTests.al:229-230: a page control shows the session language's entry of its table
 /// field's OptionCaptionML (`deu_page_op` is `Zwei`). A session language other than 1033, 1031 and 1036 is not pinned and
 /// refused (the pinned languages: al-vm/tests/language/option_caption_ml.rs).
 #[test]
@@ -118,8 +118,8 @@ codeunit 69998 C
     refused(al_testkit::run_in(src, "C", "F"), "OptionCaptionML");
 }
 
-/// pages/lt-ah-pages/AhPageTests.al:986-989: Expand on a tree shows the rows below the current one. That is pinned for a
-/// page without row triggers and with OnAfterGetRecord (pages/lt-y72-page-probes/Y72TreeDefaultState.al); which rows a page with
+/// testpage/AhPageTests.al:986-989: Expand on a tree shows the rows below the current one. That is pinned for a
+/// page without row triggers and with OnAfterGetRecord (testpage/Y72TreeDefaultState.al); which rows a page with
 /// OnFindRecord reads again is not, so Expand there is refused.
 #[test]
 fn expand_on_a_tree_page_with_row_triggers_is_refused() {
@@ -146,7 +146,7 @@ codeunit 69962 C
     refused(al_testkit::run_in(src, "C", "F"), "row triggers");
 }
 
-/// pages/lt-page-editability-width-lookups/P115Lookups.al:120-122: Lookup on a control with its own TableRelation opens the
+/// pages/controls/P115Lookups.al:120-122: Lookup on a control with its own TableRelation opens the
 /// lookup page of that relation. The client reads only the table field's relation and refuses.
 #[test]
 fn lookup_through_a_control_level_table_relation_is_refused() {
@@ -173,11 +173,18 @@ codeunit 69966 C
     refused(al_testkit::run_in(src, "C", "F"), "TableRelation");
 }
 
-/// events/lt-global-triggers-statements/P114GlobalTriggerEvents.al:301, :323: every caption class translation raises
-/// CaptionClassTranslate of UI Helper Triggers. The runtime does not raise it and refuses while a subscriber listens.
+/// events/platform-triggers/P114GlobalTriggerEvents.al:301: a TestPage control's caption class translation raises
+/// CaptionClassTranslate of UI Helper Triggers. The runtime raises it only for the statement (ui_caption_translate.rs), so a
+/// page open with a control caption class refuses while a subscriber listens.
 #[test]
-fn a_caption_class_translation_with_a_ui_helper_subscriber_is_refused() {
+fn a_page_caption_class_translation_with_a_ui_helper_subscriber_is_refused() {
     let src = r#"
+table 69969 CR { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+page 69970 CP
+{
+    PageType = Card; SourceTable = CR;
+    layout { area(Content) { field(Id; Rec.Id) { CaptionClass = '3,Foo'; } } }
+}
 codeunit 69967 Subs
 {
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"UI Helper Triggers", 'CaptionClassTranslate', '', false, false)]
@@ -185,7 +192,7 @@ codeunit 69967 Subs
 }
 codeunit 69968 C
 {
-    procedure F(): Text begin exit(CaptionClassTranslate('3,Foo')); end;
+    procedure F(): Text var P: TestPage CP; begin P.OpenNew(); exit(P.Id.Caption()); end;
 }
 "#;
     refused(al_testkit::run_in(src, "C", "F"), "CaptionClassTranslate");
@@ -228,7 +235,7 @@ codeunit 69952 C
 }
 "#;
 
-/// misc/lt-probes-needed-6/PnF06FindListMoves.al:304, :318: a descending OnFindRecord list with OnAfterGetCurrRecord opens on
+/// testpage/PnF06FindListMoves.al:304, :318: a descending OnFindRecord list with OnAfterGetCurrRecord opens on
 /// the last row of its view (the row Find('=><') finds) and steps back over the rows above it (the reads: pages_ui/row_window.rs).
 #[test]
 fn opening_a_descending_find_list_with_on_after_get_curr_record_stands_on_the_last_row() {
@@ -240,9 +247,9 @@ fn opening_a_descending_find_list_with_on_after_get_curr_record_stands_on_the_la
 }
 
 /// GoToKey on an OnFindRecord list with OnAfterGetCurrRecord past its first window of 20 rows is pinned when the rest of the view
-/// is read in one block that ends it (pages/lt-y41-page-probes/Y41GoToKeyFindListCurr.al, 30 rows). With 45 rows the client reads
-/// a second full block, pinned since (pages/lt-y61-page-probes/Y61GoToKeyEdges.al:212; later blocks
-/// pages/lt-y72-page-probes/Y72FindPagesEdges.al:498), so it runs.
+/// is read in one block that ends it (testpage/Y41GoToKeyFindListCurr.al, 30 rows). With 45 rows the client reads
+/// a second full block, pinned since (testpage/Y61GoToKeyEdges.al:212; later blocks
+/// testpage/Y72FindPagesEdges.al:498), so it runs.
 #[test]
 fn go_to_key_on_a_find_list_past_a_second_full_block_runs() {
     let r = al_testkit::run_in(FIND_LIST, "C", "GoToKeyFar");
@@ -251,7 +258,7 @@ fn go_to_key_on_a_find_list_past_a_second_full_block_runs() {
 
 /// An error with an empty text out of a TestPage action's Invoke ends the Invoke quietly: the test goes on, the last error
 /// has an empty text and code Dialog, and the rows the action wrote before the error stay
-/// (pages/lt-qi-empty-error/QiEmptyErrorPages.al:192 QI_EE_EmptyAction_NoAsserterror). An error with a text still raises.
+/// (pages/empty-error-text/QiEmptyErrorPages.al:192 QI_EE_EmptyAction_NoAsserterror). An error with a text still raises.
 #[test]
 fn an_empty_error_out_of_an_action_ends_the_invoke_quietly() {
     let src = r#"
@@ -290,7 +297,7 @@ codeunit 69997 C
 }
 
 /// A list's repeater control over a page variable that OnAfterGetRecord computes: BC's client shows each row's own value
-/// (pages/lt-qi-row-page-var/QiRowPageVar.al:223 QI_RV_List_Navigation; Tests-ERM 134760 Empl. Ledger Entries Preview AmountFCY
+/// (pages/row-page-variable/QiRowPageVar.al:208 QI_RV_List_Navigation; Tests-ERM 134760 Empl. Ledger Entries Preview AmountFCY
 /// after First()).
 #[test]
 fn a_page_variable_control_on_another_row_shows_that_rows_value() {
@@ -320,7 +327,7 @@ codeunit 69989 C
     assert_eq!(al_testkit::text(al_testkit::run_in(src, "C", "F")), "20.00");
 }
 
-/// pages/lt-qi-empty-error/QiEmptyErrorPages.al:253 QI_EE_EmptyValidate_NoAsserterror: an error with an empty text out of a card
+/// pages/empty-error-text/QiEmptyErrorPages.al:253 QI_EE_EmptyValidate_NoAsserterror: an error with an empty text out of a card
 /// control's own OnValidate ends the SetValue quietly; the entry does not stay, the last error is empty with code
 /// NSValidateField:Dialog, and what the trigger wrote stays.
 #[test]

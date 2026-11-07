@@ -1,9 +1,9 @@
 //! A TestPage local to the test method that is still open when the test method returns closes then, as `Close()` closes
 //! it: OnQueryClosePage with the action OK, then OnClosePage; an unsaved SetValue is saved first; a Confirm in the trigger
 //! goes to the test's ConfirmHandler; a veto (the trigger answers false) leaves the test passing. OpenEdit and OpenView are
-//! measured for a page with OnQueryClosePage; a global TestPage is not closed (testpageclose/Y47CloseAtTestEnd.al:127-321;
-//! al-runner issue 6587). The file leaves one page open per test: two or more close in the order of their declaration,
-//! assumption test-end-close-order.
+//! measured for a page with OnQueryClosePage; a global TestPage is not closed (testpage/lifecycle/Y47CloseAtTestEnd.al:127-321;
+//! al-runner issue 6587). Two or more close in reverse order of their declaration, whatever order they were opened in
+//! (testpageclose/lt-y86-close-order/Y86CloseOrderAtTestEnd.al).
 
 use super::*;
 
@@ -17,7 +17,8 @@ impl Session {
         outcome: Result<(), Signal>,
     ) -> Result<(), Signal> {
         if outcome.is_err()
-            || !self.frames.is_empty()
+            // Under a test runner codeunit (ADR-066) its frames stay below the test method's.
+            || self.frames.len() != self.test_frame_base()
             || !routine.attributes.iter().any(|a| a.name.eq_ignore_ascii_case("Test"))
         {
             return outcome;
@@ -37,15 +38,13 @@ impl Session {
                 pages.push(st.clone());
             }
         }
-        if pages.len() > 1 {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TestEndCloseOrder);
-        }
+        pages.reverse();
         for st in pages {
             match self.page_close(&st) {
                 Ok(_) => {}
                 // An error of OnQueryClosePage (a Confirm with no ConfirmHandler, an AL Error with no MessageHandler) stops the
                 // close and the test passes; OnClosePage does not run (corpus CI of branch al-runtime-rs-staging-y65,
-                // testpageclose/lt-y65-close-page-types/Y65ClosePageTypes.al:853 Y65_Open07, :907 Y65_Open10, :977 Y65_Open12,
+                // testpage/lifecycle/Y65ClosePageTypes.al:853 Y65_Open07, :907 Y65_Open10, :977 Y65_Open12,
                 // :996 Y65_Open13 and their _Read tests `open card;qc card OK;`; al-runner issue 6673). Not on the pinned corpus
                 // yet: assumption test-page-close-query-close-unhandled.
                 Err(Signal::Error(_)) if st.borrow().close_error => {}

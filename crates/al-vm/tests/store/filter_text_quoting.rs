@@ -1,4 +1,4 @@
-//! `GetFilter` after `SetFilter(F, '%1', Value)` with a text that holds filter characters (filters/W4Filters.al
+//! `GetFilter` after `SetFilter(F, '%1', Value)` with a text that holds filter characters (record/filters/W4Filters.al
 //! SetFilterPercent1_GreaterThanAndDoubleQuote and _WildcardTogetherWithOperators): a value with `| & < > = ( )` or `..` is
 //! quoted, also when it holds `*` or `?`; a double quote stays as it is; a lone `*` shows as `='*'`.
 

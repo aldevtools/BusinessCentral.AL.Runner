@@ -94,7 +94,7 @@ impl<'a> Checker<'a> {
     }
 
     /// Whether an enum or codeunit argument implements the interface a procedure parameter is declared as: it then takes
-    /// that overload over a `var Record` one (codeunit/lt-sc-overload-record-interface/ScOverloadRecordInterface.al:97-107,
+    /// that overload over a `var Record` one (codeunits/interfaces/ScOverloadRecordInterface.al:85-95,
     /// `enum plain`, `enum special`, `codeunit variable`).
     fn implements_param(&self, file: usize, arg: &Ty, param: &str) -> bool {
         let (kind, name) = match arg {
@@ -177,7 +177,7 @@ impl<'a> Checker<'a> {
                     0
                 };
                 // RecordRef.Open with a Variant: the compiler warns AL0916 and takes Open(Integer), not the Text overload
-                // that comes first (misc/lt-open-overloads-collections-isolated/P107RecRefNames.al:255-305
+                // that comes first (recordref-fieldref/P107RecRefNames.al:255-305
                 // BM_OpenVariantArgument). Other builtins with a Variant argument are not pinned and keep the catalog order.
                 let variant_open = matches!(&c.target, Res::Builtin(id) if id == "RecordRef.Open#2")
                     && matches!(args.first(), Some(Ty::Variant));
@@ -242,7 +242,7 @@ impl<'a> Checker<'a> {
             Some((c, _)) => {
                 let (mut ret, target, with) = (c.ret.clone(), c.target.clone(), c.with_off);
                 // `Abs` of a Duration is a BigInteger, not the Decimal the catalog declares: Format(Abs(D)) reads `1500` and a Decimal
-                // variable assigned from it reads `1,500` (misc/lt-protected-var-abs-query-views/P146AbsDuration.al:P146_Abs_Duration_ResultFormats).
+                // variable assigned from it reads `1,500` (types/P146AbsDuration.al:P146_Abs_Duration_ResultFormats).
                 if name.eq_ignore_ascii_case("abs")
                     && !matches!(target, Res::Proc { .. })
                     && args.len() == 1
@@ -269,7 +269,7 @@ impl<'a> Checker<'a> {
     /// call `UserSecurityId()` means the function even in a table with a
     /// field of that name.
     pub(crate) fn lookup_callable(&mut self, sc: &mut Scope, node: &SyntaxNode, n: &str) -> Option<Vec<Cand>> {
-        // The record of a `with` statement first (corpus events/lt-with-statement-scopes/WithStatementAmbiguous.al:
+        // The record of a `with` statement first (corpus events/binding-senders/WithStatementAmbiguous.al:
         // P195_With_ProcedureSameNameAsTableProcedure, P195_With_BuiltInMethodSameNameAsCodeunitProcedure).
         for (t, w) in sc.withs.clone().iter().rev() {
             if let Some(E::Callable(mut cs)) = self.member(sc, t, n) {
@@ -292,7 +292,7 @@ impl<'a> Checker<'a> {
             }
         }
         // In a report data item's trigger or column source, a procedure of the data item's table runs before the report's of
-        // the same name; in a report trigger the report's runs (report/lt-cj-report-leads/CjDataset.al:215-241,
+        // the same name; in a report trigger the report's runs (streams/CjDataset.al:215-241,
         // SameNameProcedure_ExtensionField_SaveAsXml: `FooCol = table 1,..`, `row 1 foo=table 1`, `prereport foo=report`).
         // Pinned only for one procedure on each side, declared by the table itself, with the same parameters. Any other
         // shape (other parameters, more overloads, a procedure of a table extension) is not pinned: AR1006 here, and the
@@ -335,7 +335,7 @@ impl<'a> Checker<'a> {
         }
         self.same_signature_in_two_objects(sc, node, n, &mut c);
         // In the OnRun of a codeunit with TableNo a bare IsDirty() is Record.IsDirty (runtime 18.0), not the codeunit's own
-        // IsDirty (events/lt-with-statement-scopes/WithStatementAmbiguous.al:277-279, codeunit 82156 at :412-434; on runtime
+        // IsDirty (events/binding-senders/WithStatementAmbiguous.al:277-279, codeunit 82156 at :412-434; on runtime
         // 16.1 and 17.1 BC refuses the call, must-not-compile case 1407). Only IsDirty and only OnRun are pinned: another
         // procedure of the codeunit is refused by the lowering (`Lowerer::bare_is_dirty_unpinned`).
         if !c.is_empty() && sc.codeunit_on_run && sc.rec_unqualified && n.eq_ignore_ascii_case("isdirty") {
@@ -348,8 +348,8 @@ impl<'a> Checker<'a> {
         }
         // A bare call in a table that declares a procedure of a built-in Record method's name is the built-in on Rec when it does
         // not fit the procedure, as `Rec.` is (`member`): bare `Insert()` and `Get(1)` next to own Insert(Integer; Text; Boolean)
-        // and Get(Record; Record) (record/lt-bm-builtin-name-procedures/Y36BuiltinNameSameArity.al:46-56, :253-271), bare `Init()`
-        // next to Init(A; B) (record/lt-record-write/RcBInit.al:445, :475, fixtures QzInitOverload.al). The procedures come
+        // and Get(Record; Record) (record/builtin-name-procedures/Y36BuiltinNameSameArity.al:46-56, :238-256), bare `Init()`
+        // next to Init(A; B) (record/crud/RcBInit.al:445, :475, fixtures QzInitOverload.al). The procedures come
         // first, so they win a call both fit. Table extension code is not pinned.
         if !c.is_empty()
             && sc.rec_unqualified
@@ -376,7 +376,7 @@ impl<'a> Checker<'a> {
             }
         }
         // A procedure of the extension next to procedures of its base with the same name: the base's
-        // are overloads of it (corpus pageext/POPageExtOverload.al on corpus branch al-runtime-rs-staging:
+        // are overloads of it (corpus pages/extensions/POPageExtOverload.al on corpus branch al-runtime-rs-staging:
         // `Describe(5)` calls the base's Integer procedure, `Describe('t')` the extension's Text one).
         let base = self.base_proc_cands(sc, n);
         if c.is_empty() {
@@ -392,11 +392,11 @@ impl<'a> Checker<'a> {
             all.extend(c);
             c = all;
         }
-        // A bare `RunModal(Page::X[, Rec])` in a page's code is the static Page.RunModal (pages/lt-uf-unqualified-runmodal/
-        // UfUnqualifiedRunModal.al:71-117, a field's OnDrillDown and two actions' OnAction; al-runner issue 6162). The other
+        // A bare `RunModal(Page::X[, Rec])` in a page's code is the static Page.RunModal (pages/run-modal/
+        // UfUnqualifiedRunModal.al:58-104, a field's OnDrillDown and two actions' OnAction; al-runner issue 6162). The other
         // static Page methods and a page extension are not pinned.
         // The bare `RunModal()` without arguments in a page procedure runs the page instance the procedure belongs to, as
-        // `CurrPage.RunModal()` (pages/lt-wb-6283/WbBareRunModal.al:35-43, PageProcedureRunsItselfModal, corpus branch
+        // `CurrPage.RunModal()` (ui-handlers/WbBareRunModal.al:35-43, PageProcedureRunsItselfModal, corpus branch
         // al-runtime-rs-staging-wb at a07787b2, not yet on master; al-runner issue
         // 6283; the lowering hands it `CurrPage` as the receiver).
         if c.is_empty() && n.eq_ignore_ascii_case("runmodal") && self.ws.objects[sc.oi].kind == ObjKind::Page {
@@ -412,7 +412,7 @@ impl<'a> Checker<'a> {
                 })
                 .collect();
         }
-        // A bare `Run(Page::X[, Rec[, FieldNo]])` in a page's code is the static Page.Run (pages/lt-uf-unqualified-runmodal/
+        // A bare `Run(Page::X[, Rec[, FieldNo]])` in a page's code is the static Page.Run (pages/run-modal/
         // Y47UnqualifiedRun.al:237-325; al-runner issue 6590). The bare `Run()` is the page's own instance, which raises; it stays unresolved.
         if c.is_empty() && n.eq_ignore_ascii_case("run") && self.ws.objects[sc.oi].kind == ObjKind::Page {
             c = (self.catalog.overloads("Page", n).into_iter())
@@ -421,10 +421,10 @@ impl<'a> Checker<'a> {
                 .collect();
         }
         // A bare report method in a report's or report extension's code is the method of the report itself, as the
-        // `CurrReport.` form (report/lt-y36-bare-report-member/Y36BareReportMember.al:4-17, 96-166: UseRequestPage getter
+        // `CurrReport.` form (reports/bare-report-member/Y36BareReportMember.al:4-17, 96-166: UseRequestPage getter
         // and setter, ObjectId, IsReadOnly, Language, FormatRegion, PrintOnlyIfDetail, SetTableView; the lowering hands
         // them the receiver `CurrReport` gets). The bare `RunModal()` and `Run()` run the report's own instance
-        // (report/lt-y40-bare-report-run/Y40BareReportRun.al:214-377, corpus master ac3499d6). Bare Preview, Skip, Quit, PageNo, TotalsCausedBy, ShowOutput, NewPage and
+        // (reports/runtime/Y40BareReportRun.al:214-377, corpus master ac3499d6). Bare Preview, Skip, Quit, PageNo, TotalsCausedBy, ShowOutput, NewPage and
         // CreateTotals are AL0161 (must-not-compile 2505-2509). Execute and RunRequestPage compile bare too (:7-8), what
         // they do is not pinned: they are not resolved here, and the lowering refuses the call.
         if c.is_empty()
@@ -467,7 +467,7 @@ impl<'a> Checker<'a> {
 
     /// A table and a table extension of another app may declare a procedure with the same name and parameter types (BC
     /// compiles it with warning AL0523). A bare call in the code of one of them runs that object's own procedure: the
-    /// table's in the table's code, the extension's in the extension's (tableextension/lt-bw-cross-app/BwCrossAppTests.al:34-39,
+    /// table's in the table's code, the extension's in the extension's (table-objects/extensions/BwCrossAppTests.al:34-39,
     /// fixtures tests/al-language-xapp-a/BwXaObjects.al:19-37 and tests/al-language-xapp-b/BwXbSameNames.al). In any other
     /// object's code (a third extension) which one runs is not pinned: AR1006, and the lowering refuses the call.
     fn same_signature_in_two_objects(&mut self, sc: &Scope, node: &SyntaxNode, n: &str, c: &mut Vec<Cand>) {
@@ -527,7 +527,7 @@ impl<'a> Checker<'a> {
     /// Of two objects that declare a procedure with the same name and parameters (a table and a table extension of
     /// another app), the one a call in a third table extension runs when that extension is in the app of the extension
     /// twin: app B's 61114, next to its twin 61113, the other twin table 61101 of app A, runs B's extension body, bare
-    /// and through `Rec` (tableextension/lt-bw-cross-app/BwCrossAppTests.al:214, fixture
+    /// and through `Rec` (table-objects/extensions/BwCrossAppTests.al:214, fixture
     /// tests/al-language-xapp-b/QyXbObjects.al:38). From a third app the same calls do not compile (AL0196,
     /// must-not-compile 2071). Any other shape: `None`.
     pub(crate) fn same_app_ext_twin(&self, sc: &Scope, objects: &[usize]) -> Option<usize> {
@@ -588,7 +588,7 @@ impl<'a> Checker<'a> {
             return Some(E::Val(t));
         }
         // `this.Field`, `this.Validate(..)` or `this.Proc()` in a table or table extension: the current record's member, as
-        // the bare name is (misc/lt-probes-needed-6/PnF18ThisInTable.al:35-61, This_Table_Proc_Var_Field and
+        // the bare name is (record/PnF18ThisInTable.al:35-61, This_Table_Proc_Var_Field and
         // This_Table_InsertTrigger; al-runner issue 6211: alc compiles `this.ETag := ..` and `this."Set Codes".Split('|')`).
         if matches!(self.ws.objects[sc.oi].kind, ObjKind::Table | ObjKind::TableExtension)
             && let Some(rec) = sc.rec.clone()
@@ -600,7 +600,7 @@ impl<'a> Checker<'a> {
             }
             return Some(e);
         }
-        // `this.Id` in a query's own code: the running query's column (corpus query/PRQueryOpenColumn.al `PeekThis`).
+        // `this.Id` in a query's own code: the running query's column (corpus queries/PRQueryOpenColumn.al `PeekThis`).
         if let Some(rec) = sc.rec.clone() {
             if matches!(rec, Ty::Object(ObjKind::Query, _)) && sc.self_obj == sc.oi {
                 if let Some(r) = self.field_res(sc, &rec, &n) {
@@ -707,6 +707,15 @@ impl<'a> Checker<'a> {
                     self.ws.objects[sc.oi].name.as_str().into(),
                 )));
             }
+            // In the default body of an interface procedure (runtime 18.0), `this` is the implementing instance seen as
+            // the interface (Microsoft's PEPPOL Tax Info Provider: `this.GetTaxExemptionReason(..)`;
+            // codeunits/interfaces/R6924dThisInDefaultBody.al:72, :93).
+            if self.ws.objects[sc.oi].kind == ObjKind::Interface && sc.self_obj == sc.oi {
+                return Some(E::Val(Ty::Object(
+                    ObjKind::Interface,
+                    self.ws.objects[sc.oi].name.as_str().into(),
+                )));
+            }
             if matches!(self.ws.objects[sc.oi].kind, ObjKind::Table | ObjKind::TableExtension)
                 && let Some(t @ Ty::Record { .. }) = sc.globals.get("rec").cloned()
             {
@@ -721,7 +730,7 @@ impl<'a> Checker<'a> {
             return Some(E::Val(t));
         }
         // In a report data item's code and in a page, a field of the current record wins over a global variable of the same
-        // name; in a table the global wins (types/lt-y71-value-conversions/Y71ValueConversions.al:574-618).
+        // name; in a table the global wins (types/operators-expressions/Y71ValueConversions.al:574-618).
         if sc.globals.contains_key(&key)
             && (sc.report_item || matches!(self.ws.objects[sc.oi].kind, ObjKind::Page | ObjKind::PageExtension))
             && !matches!(
@@ -747,7 +756,7 @@ impl<'a> Checker<'a> {
             )));
         }
         // A bare `this` in a table or table extension is the current record, as `Rec` is: passed on by value it hands over
-        // the current values (misc/lt-probes-needed-6/PnF18ThisInTable.al:64-67, This_Table_PassedOn). The lowering refuses
+        // the current values (record/PnF18ThisInTable.al:64-67, This_Table_PassedOn). The lowering refuses
         // it as an assignment target or a `var` argument (not pinned).
         if key == "this"
             && matches!(self.ws.objects[sc.oi].kind, ObjKind::Table | ObjKind::TableExtension)
@@ -798,7 +807,7 @@ impl<'a> Checker<'a> {
             return Some(E::Callable(base));
         }
         // A bare `Run()` / `Run(Rec)` in a codeunit's own code is `this.Run()`: the instance method on the running
-        // codeunit (xmlport/lt-aj-xmlport/AjRunAndXmlPort.al:170,194,215, fixtures QzBareRun.al). An own procedure
+        // codeunit (xmlports/shapes-properties/AjRunAndXmlPort.al:170,194,215, fixtures QzBareRun.al). An own procedure
         // or variable named Run resolved above.
         if key == "run" && self.ws.objects[sc.oi].kind == ObjKind::Codeunit && sc.self_obj == sc.oi {
             let me = Ty::Object(ObjKind::Codeunit, self.ws.objects[sc.oi].name.as_str().into());
@@ -916,7 +925,7 @@ pub(crate) const BARE_REPORT_MEMBERS: &[&str] = &[
     "PrintOnlyIfDetail",
     "SetTableView",
     "RunModal",
-    // Runs the report's own instance, as RunModal does (report/lt-y40-bare-report-run/Y40BareReportRun.al:269, corpus master
+    // Runs the report's own instance, as RunModal does (reports/runtime/Y40BareReportRun.al:269, corpus master
     // ac3499d6).
     "Run",
 ];

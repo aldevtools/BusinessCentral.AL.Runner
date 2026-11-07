@@ -6,11 +6,11 @@
 #
 # `bc_build` pins the Microsoft build the runtime loads for that major (Base Application, test
 # libraries, demo data): local runs and CI load the same apps, and a build Microsoft publishes later
-# changes no result until the pin is moved on purpose (the ratchet baselines are recorded against it).
+# changes no result until the pin is moved on purpose (the not-passing lists are recorded against it).
 # The artifact cache key of CI follows the pin (`--print-builds`).
 corpus_repo = "corpus"
 corpus_app = "corpus/tests/al-language"
-corpus_commit = "78f6c60b39b20524e8f2d7301a77727d2616b7a0"
+corpus_commit = "6c89e542ff6d54d4cb404d6da8940a7d9b276db2"
 # ADR-046 amendment 4: the corpus CI database has two companies, the session company first
 # (install/lt-bf-install-probes/BfInstallTests.al:60-62).
 companies = ["CRONUS International Ltd.", "My Company"]
@@ -20,26 +20,26 @@ major = 27
 app_runtime = "16.1"
 bc_version = "27.5"
 bc_build = "27.5.46862.56249"
-workflow_run = 41570761605
-artifact_id = 13204526122
+workflow_run = 42389409955
+artifact_id = 13581562525
 junit = "27/junit.xml"
-baseline = "metrics/27/passing.txt"
+baseline = "metrics/27/not-passing.txt"
 
 [[version.suite]]
 name = "onprem"
 app = "corpus/tests/al-language-onprem"
-workflow_run = 41570761605
-artifact_id = 13202799778
+workflow_run = 42389409955
+artifact_id = 13581690505
 oracle = "27/junit-onprem.xml"
-baseline = "metrics/27/passing-onprem.txt"
+baseline = "metrics/27/not-passing-onprem.txt"
 
 [[version.suite]]
 name = "onprem-dotnet"
 app = "corpus/tests/al-language-onprem-dotnet"
-workflow_run = 41570761605
-artifact_id = 13202414645
+workflow_run = 42389409955
+artifact_id = 13581630840
 oracle = "27/junit-dotnet.xml"
-baseline = "metrics/27/passing-dotnet.txt"
+baseline = "metrics/27/not-passing-dotnet.txt"
 
 # The corpus job "BC TestLibraries <ver> / test" installs Microsoft's Tests-TestLibraries and Data Archive apps
 # (corpus .github/workflows/ci.yml, job test-testlibraries, `extra_apps`). The suite runs in an environment of its own
@@ -47,13 +47,20 @@ baseline = "metrics/27/passing-dotnet.txt"
 [[version.suite]]
 name = "testlibraries"
 app = "corpus/tests/al-language-testlibraries"
-workflow_run = 41570761605
-artifact_id = 13204217108
+workflow_run = 42389409955
+artifact_id = 13581349674
 oracle = "27/junit-testlibraries.xml"
-baseline = "metrics/27/passing-testlibraries.txt"
+baseline = "metrics/27/not-passing-testlibraries.txt"
 extra_apps = [
   { id = "5d86850b-0d76-4eca-bd7b-951ad998e997", name = "Tests-TestLibraries" },
   { id = "7819d79d-feea-4f09-bbed-5bbaca4bf323", name = "Data Archive" },
+]
+# The cross-app default test handler fixtures (corpus PR 1193): CI publishes them in this job only.
+extra_dirs = [
+  "corpus/tests/al-language-xhandler-lib",
+  "corpus/tests/al-language-xhandler-a",
+  "corpus/tests/al-language-xhandler-c",
+  "corpus/tests/al-language-xhandler-d",
 ]
 
 [[version]]
@@ -61,26 +68,26 @@ major = 28
 app_runtime = "17.1"
 bc_version = "28.5"
 bc_build = "28.5.54151.56267"
-workflow_run = 41570761605
-artifact_id = 13203892320
+workflow_run = 42389409955
+artifact_id = 13581682718
 junit = "28/junit.xml"
-baseline = "metrics/28/passing.txt"
+baseline = "metrics/28/not-passing.txt"
 
 [[version.suite]]
 name = "onprem"
 app = "corpus/tests/al-language-onprem"
-workflow_run = 41570761605
-artifact_id = 13203475436
+workflow_run = 42389409955
+artifact_id = 13581442143
 oracle = "28/junit-onprem.xml"
-baseline = "metrics/28/passing-onprem.txt"
+baseline = "metrics/28/not-passing-onprem.txt"
 
 [[version.suite]]
 name = "onprem-dotnet"
 app = "corpus/tests/al-language-onprem-dotnet"
-workflow_run = 41570761605
-artifact_id = 13202539377
+workflow_run = 42389409955
+artifact_id = 13580869557
 oracle = "28/junit-dotnet.xml"
-baseline = "metrics/28/passing-dotnet.txt"
+baseline = "metrics/28/not-passing-dotnet.txt"
 
 # The corpus job "BC TestLibraries <ver> / test" installs Microsoft's Tests-TestLibraries and Data Archive apps
 # (corpus .github/workflows/ci.yml, job test-testlibraries, `extra_apps`). The suite runs in an environment of its own
@@ -88,13 +95,20 @@ baseline = "metrics/28/passing-dotnet.txt"
 [[version.suite]]
 name = "testlibraries"
 app = "corpus/tests/al-language-testlibraries"
-workflow_run = 41570761605
-artifact_id = 13204423236
+workflow_run = 42389409955
+artifact_id = 13582117896
 oracle = "28/junit-testlibraries.xml"
-baseline = "metrics/28/passing-testlibraries.txt"
+baseline = "metrics/28/not-passing-testlibraries.txt"
 extra_apps = [
   { id = "5d86850b-0d76-4eca-bd7b-951ad998e997", name = "Tests-TestLibraries" },
   { id = "7819d79d-feea-4f09-bbed-5bbaca4bf323", name = "Data Archive" },
+]
+# The cross-app default test handler fixtures (corpus PR 1193): CI publishes them in this job only.
+extra_dirs = [
+  "corpus/tests/al-language-xhandler-lib",
+  "corpus/tests/al-language-xhandler-a",
+  "corpus/tests/al-language-xhandler-c",
+  "corpus/tests/al-language-xhandler-d",
 ]
 
 # The isolation probe runs only in the corpus's Windows nightly (workflow "Nightly Windows", never
@@ -111,7 +125,7 @@ corpus_commit = "ccb6e72f8bb3d4146ddc89100b7094da713df8dd"
 workflow_run = 40168383221
 artifact_id = 12591974942
 oracle = "28/xunit-isolation-function.xml"
-baseline = "metrics/28/passing-isolation-function.txt"
+baseline = "metrics/28/not-passing-isolation-function.txt"
 
 # The control: the identical runner with TestIsolation = Codeunit. Real BC fails the probe's T5
 # here, and the runtime must fail it too.
@@ -125,33 +139,33 @@ corpus_commit = "ccb6e72f8bb3d4146ddc89100b7094da713df8dd"
 workflow_run = 40168383221
 artifact_id = 12591974942
 oracle = "28/xunit-isolation-codeunit.xml"
-baseline = "metrics/28/passing-isolation-codeunit.txt"
+baseline = "metrics/28/not-passing-isolation-codeunit.txt"
 
 [[version]]
 major = 29
 app_runtime = "18.0"
 bc_version = "29.0"
 bc_build = "29.0.54011.56262"
-workflow_run = 41570761605
-artifact_id = 13203799183
+workflow_run = 42389409955
+artifact_id = 13582366433
 junit = "29/junit.xml"
-baseline = "metrics/29/passing.txt"
+baseline = "metrics/29/not-passing.txt"
 
 [[version.suite]]
 name = "onprem"
 app = "corpus/tests/al-language-onprem"
-workflow_run = 41570761605
-artifact_id = 13202808502
+workflow_run = 42389409955
+artifact_id = 13581800379
 oracle = "29/junit-onprem.xml"
-baseline = "metrics/29/passing-onprem.txt"
+baseline = "metrics/29/not-passing-onprem.txt"
 
 [[version.suite]]
 name = "onprem-dotnet"
 app = "corpus/tests/al-language-onprem-dotnet"
-workflow_run = 41570761605
-artifact_id = 13203960351
+workflow_run = 42389409955
+artifact_id = 13580474215
 oracle = "29/junit-dotnet.xml"
-baseline = "metrics/29/passing-dotnet.txt"
+baseline = "metrics/29/not-passing-dotnet.txt"
 
 # The corpus job "BC TestLibraries <ver> / test" installs Microsoft's Tests-TestLibraries and Data Archive apps
 # (corpus .github/workflows/ci.yml, job test-testlibraries, `extra_apps`). The suite runs in an environment of its own
@@ -159,11 +173,18 @@ baseline = "metrics/29/passing-dotnet.txt"
 [[version.suite]]
 name = "testlibraries"
 app = "corpus/tests/al-language-testlibraries"
-workflow_run = 41570761605
-artifact_id = 13204672059
+workflow_run = 42389409955
+artifact_id = 13582406724
 oracle = "29/junit-testlibraries.xml"
-baseline = "metrics/29/passing-testlibraries.txt"
+baseline = "metrics/29/not-passing-testlibraries.txt"
 extra_apps = [
   { id = "5d86850b-0d76-4eca-bd7b-951ad998e997", name = "Tests-TestLibraries" },
   { id = "7819d79d-feea-4f09-bbed-5bbaca4bf323", name = "Data Archive" },
+]
+# The cross-app default test handler fixtures (corpus PR 1193): CI publishes them in this job only.
+extra_dirs = [
+  "corpus/tests/al-language-xhandler-lib",
+  "corpus/tests/al-language-xhandler-a",
+  "corpus/tests/al-language-xhandler-c",
+  "corpus/tests/al-language-xhandler-d",
 ]

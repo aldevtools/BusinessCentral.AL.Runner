@@ -3,10 +3,10 @@
 //!
 //! BC's test runner binds the handler functions named in a test's
 //! `[HandlerFunctions]` for the duration of that test method. A UI call goes to
-//! the bound handler of its kind (corpus handlers/TestMessageHandler.al); with
-//! none bound it raises "Unhandled UI" (handlers/TestConfirmNoHandler.al); a
+//! the bound handler of its kind (corpus ui-handlers/TestMessageHandler.al); with
+//! none bound it raises "Unhandled UI" (ui-handlers/TestConfirmNoHandler.al); a
 //! declared handler that never fired fails the test
-//! (handlers/TestPageQueryCloseMessageHandler_Tests.al:51).
+//! (ui-handlers/TestPageQueryCloseMessageHandler_Tests.al:51).
 
 use crate::Session;
 use al_builtins::describe::Describe;
@@ -28,24 +28,24 @@ pub enum UiKind {
     /// its `TestRequestPage` parameter.
     RequestPage,
     /// `[SessionSettingsHandler]`: answers `SessionSettings.RequestSessionUpdate` (corpus
-    /// session/TestSessionSettings.al:464-545).
+    /// session-system/TestSessionSettings.al:464-545).
     SessionSettings,
     /// `[SendNotificationHandler]`: answers `Notification.Send` (corpus
-    /// handlers/TestNotificationHandler.al:15-26,74-85).
+    /// ui-handlers/TestNotificationHandler.al:15-26,74-85).
     SendNotification,
     /// `[RecallNotificationHandler]`: runs on `Notification.Recall` of a sent notification (corpus
-    /// handlers/TestNotificationSendRecallContracts.al:95-109).
+    /// ui-handlers/TestNotificationSendRecallContracts.al:95-109).
     RecallNotification,
     /// `[ReportHandler]`: answers the run of a report that would show its request page, instead of the page. Bound by the
-    /// report of its `var Report` parameter (report/lt-ae-reporthandler/AeReportHandler.al).
+    /// report of its `var Report` parameter (reports/reporthandler/AeReportHandler.al).
     Report,
     /// `[HttpClientHandler]`: answers an `HttpClient` call (ADR-027 section 5; the probe
-    /// session/PZHttpHandler.al on the corpus staging branch).
+    /// session-system/PZHttpHandler.al on the corpus staging branch).
     HttpClient,
-    /// `[FilterPageHandler]`: answers `FilterPageBuilder.RunModal` (filterpage/W3FilterPageBuilder.al:159-212,
-    /// platform/lt-platform-members/PlTFilterPageBuilder.al:16-44,262-325).
+    /// `[FilterPageHandler]`: answers `FilterPageBuilder.RunModal` (pages/filterpagebuilder/W3FilterPageBuilder.al:159-212,
+    /// metadata/platform-tables/PlTFilterPageBuilder.al:16-44,262-325).
     FilterPage,
-    /// `[HyperlinkHandler]`: answers `Hyperlink(Url)` with the URL (handlers/W3Hyperlink.al:24-63).
+    /// `[HyperlinkHandler]`: answers `Hyperlink(Url)` with the URL (ui-handlers/W3Hyperlink.al:24-63).
     Hyperlink,
 }
 
@@ -89,7 +89,7 @@ impl UiKind {
     }
 }
 
-/// `ModalPageHandler(var P: Page "X"; var Response: Action)` (handlers/PSModalPageHandlerTyped.al).
+/// `ModalPageHandler(var P: Page "X"; var Response: Action)` (ui-handlers/PSModalPageHandlerTyped.al).
 fn typed_modal(kind: UiKind, params: usize, by_var: &[bool], p: Option<&RtType>, response: Option<&RtType>) -> bool {
     kind == UiKind::ModalPage
         && params == 2
@@ -98,7 +98,7 @@ fn typed_modal(kind: UiKind, params: usize, by_var: &[bool], p: Option<&RtType>,
         && matches!(response, Some(RtType::Option(_)) | Some(RtType::Enum(_)))
 }
 
-/// A `[PageHandler]` whose only parameter is `var P: Page X` (misc/lt-y14-triage/Y14PageTriage.al:383, corpus master).
+/// A `[PageHandler]` whose only parameter is `var P: Page X` (testpage/Y14PageTriage.al:383, corpus master).
 fn typed_page(kind: UiKind, params: usize, by_var: &[bool], p: Option<&RtType>) -> bool {
     kind == UiKind::Page && params == 1 && by_var == [true] && matches!(p, Some(RtType::Page(_)))
 }
@@ -142,7 +142,7 @@ impl Session {
         let ty = |i: usize| r.locals.get(i).map(|s| &s.ty);
         let ok = match kind {
             UiKind::Message => r.params == 1 && r.by_var == [false],
-            // HyperlinkHandler(Link: Text[1024]) (handlers/W3Hyperlink.al:19-23).
+            // HyperlinkHandler(Link: Text[1024]) (ui-handlers/W3Hyperlink.al:19-23).
             UiKind::Hyperlink => r.params == 1 && r.by_var == [false],
             UiKind::Confirm => r.params == 2 && r.by_var == [false, true] && matches!(ty(1), Some(RtType::Boolean)),
             UiKind::StrMenu => {
@@ -153,11 +153,11 @@ impl Session {
                     || (typed_modal(kind, r.params, &r.by_var, ty(0), ty(1)))
                     || typed_page(kind, r.params, &r.by_var, ty(0))
             }
-            // ReportHandler(var R: Report "X") (report/lt-ae-reporthandler/AeReportHandler.al:43; must-not-compile 0985 rejects
+            // ReportHandler(var R: Report "X") (reports/reporthandler/AeReportHandler.al:43; must-not-compile 0985 rejects
             // any other shape).
             UiKind::Report => r.params == 1 && r.by_var == [true] && self.is_report_type(ty(0)),
             // SessionSettingsHandler(var SessionSettings: SessionSettings): Boolean
-            // (session/TestSessionSettings.al:546-552, error AL0244 names the shape).
+            // (session-system/TestSessionSettings.al:546-552, error AL0244 names the shape).
             UiKind::SessionSettings => {
                 r.params == 1
                     && r.by_var == [true]
@@ -167,7 +167,7 @@ impl Session {
                     )
             }
             // SendNotificationHandler(var Notification: Notification): Boolean
-            // (handlers/TestNotificationHandler.al:74-85).
+            // (ui-handlers/TestNotificationHandler.al:74-85).
             UiKind::SendNotification | UiKind::RecallNotification => {
                 r.params == 1
                     && r.by_var == [true]
@@ -176,8 +176,8 @@ impl Session {
                         Some(RtType::Library(al_builtins::library_kind::LibraryKind::Notification))
                     )
             }
-            // FilterPageHandler(var Rec: RecordRef): Boolean (filterpage/W3FilterPageBuilder.al:160,
-            // platform/lt-platform-members/PlTFilterPageBuilder.al:17).
+            // FilterPageHandler(var Rec: RecordRef): Boolean (pages/filterpagebuilder/W3FilterPageBuilder.al:160,
+            // metadata/platform-tables/PlTFilterPageBuilder.al:17).
             UiKind::FilterPage => {
                 r.params == 1
                     && r.by_var == [true]
@@ -187,7 +187,7 @@ impl Session {
                     )
             }
             // HttpClientHandler(Request: TestHttpRequestMessage; var Response: TestHttpResponseMessage): Boolean
-            // (session/PZHttpHandler.al).
+            // (session-system/PZHttpHandler.al).
             UiKind::HttpClient => {
                 r.params == 2
                     && r.by_var == [false, true]
@@ -219,7 +219,7 @@ impl Session {
             _ => None,
         };
         // A ModalPageHandler whose parameter is a `Page` and a `var Response: Action` is pinned by
-        // handlers/PSModalPageHandlerTyped.al, a PageHandler with only `var P: Page` by misc/lt-y14-triage/Y14PageTriage.al:383.
+        // ui-handlers/PSModalPageHandlerTyped.al, a PageHandler with only `var P: Page` by testpage/Y14PageTriage.al:383.
         // Any other page handler of a `Page` is a shape BC accepts that no corpus test has, so what it is handed is not pinned
         // (docs/probes-needed.md, "Page handlers").
         if !ok && matches!(kind, UiKind::Page | UiKind::ModalPage) && matches!(ty(0), Some(RtType::Page(_))) {
@@ -237,7 +237,7 @@ impl Session {
             ));
         }
         // `[SendNotificationHandler(true)]` and `[RecallNotificationHandler(true)]` are optional: one that never runs does not fail
-        // the test (al-language/pages/lt-ca-odd-667/CaNotificationTests.al:14-38, handlers at :61 and :70).
+        // the test (al-language/testpage/notifications-and-control-values/CaNotificationTests.al:14-38, handlers at :61 and :70).
         let optional = matches!(kind, UiKind::SendNotification | UiKind::RecallNotification)
             && r.attributes.iter().any(|a| {
                 UiKind::from_attribute(&a.name) == Some(kind) && a.args.as_slice() == [al_ir::Const::Boolean(true)]
@@ -307,7 +307,7 @@ impl Session {
             if let Some(finals) = self.dev_endpoint_answer(kind, shown, &args) {
                 return Ok((Value::Boolean(true), finals));
             }
-            // Text and code: corpus handlers/TestUnhandledUiAndDialogDefaults.al:68-107 (ONE space
+            // Text and code: corpus errors/TestUnhandledUiAndDialogDefaults.al:68-107 (ONE space
             // after the kind; Confirm quotes the question, StrMenu the options only).
             return Err(Signal::Error(Box::new(AlError {
                 message: format!("Unhandled UI: {} {shown}", kind.label()),
@@ -320,7 +320,7 @@ impl Session {
         let (object, routine, instance) = (h.object, h.routine, h.instance.clone());
         scope.in_handler = true;
         // A value too long for the handler's parameter fails before the handler runs, with the error of the conversion and no
-        // prefix (handlers/... misc/lt-system-functions/ErrorMessage.al:Message_Long `af235`).
+        // prefix (handlers/... errors/error-texts/ErrorMessage.al:Message_Long `af235`).
         let bound: Result<Vec<Value>, Signal> = {
             let r = &self.engine.program.objects[object].routines[routine];
             args.into_iter()
@@ -347,8 +347,8 @@ impl Session {
             scope.in_handler = false;
         }
         // An error raised inside a Message or Confirm handler comes out of the dialog call with the test framework's prefix
-        // on its code (handlers/TestUnhandledUiAndDialogDefaults.al:147-156: text as raised, code TestWrapped:Dialog). A StrMenu
-        // handler's error keeps its own code (misc/lt-probes-needed-3/PnC09UnhandledUi.al:Handler_Error_StrMenu `Dialog`).
+        // on its code (errors/TestUnhandledUiAndDialogDefaults.al:147-156: text as raised, code TestWrapped:Dialog). A StrMenu
+        // handler's error keeps its own code (ui-handlers/PnC09UnhandledUi.al:Handler_Error_StrMenu `Dialog`).
         match result {
             Err(Signal::Error(mut e))
                 if matches!(kind, UiKind::Message | UiKind::Confirm) && !e.code.starts_with("TestWrapped") =>
@@ -364,12 +364,12 @@ impl Session {
     ///
     /// With a bound `[FilterPageHandler]`, the handler gets a RecordRef on the control's record: the view it sees is the
     /// builder's, the filters it sets are the builder's view afterwards whatever it answers, and its answer is the result
-    /// (filterpage/W3FilterPageBuilder.al:159-212: FieldRef.SetFilter, answers true and false;
-    /// platform/lt-platform-members/PlTFilterPageBuilder.al:262-311: the view handed over, SetView kept on cancel).
+    /// (pages/filterpagebuilder/W3FilterPageBuilder.al:159-212: FieldRef.SetFilter, answers true and false;
+    /// metadata/platform-tables/PlTFilterPageBuilder.al:262-311: the view handed over, SetView kept on cancel).
     ///
     /// Without one, in a test method, nothing is raised: the result is false and the last error is "Unhandled UI:
-    /// FilterPage 9598" with code MissingUIHandler (handlers/lt-az-handlers/AzHandlerTests.al:262-275,
-    /// misc/lt-cb-odd-leads/CbHandlerTests.al:45-61, both a TryFunction that answers true).
+    /// FilterPage 9598" with code MissingUIHandler (ui-handlers/AzHandlerTests.al:262-275,
+    /// ui-handlers/CbHandlerTests.al:45-61, both a TryFunction that answers true).
     pub(crate) fn ui_filter_page(&mut self, record: &crate::records::Rec) -> Result<bool, Signal> {
         let Some(scope) = self.ui_state.scope.as_ref() else {
             return Err(Signal::Unsupported(
@@ -430,7 +430,7 @@ impl Session {
 
     /// Counts the bound `[HttpClientHandler]`s as run, so the end of the test does not report them unexecuted: a relative path
     /// with no base address raises before the handler runs and the test still passes
-    /// (al-language-onprem/network/lt-ay-http-handler/AyHttpHandler.al:NoBaseAddress_RelativePaths_1 and _2, BC 29).
+    /// (al-language-onprem/http/client/AyHttpHandler.al:NoBaseAddress_RelativePaths_1 and _2, BC 29).
     pub(crate) fn http_handlers_count_as_run(&mut self) {
         if let Some(scope) = self.ui_state.scope.as_mut() {
             for h in scope.handlers.iter_mut().filter(|h| h.kind == UiKind::HttpClient) {
@@ -469,7 +469,7 @@ impl Session {
             .as_ref()
             .is_some_and(|s| s.handlers.iter().any(|h| h.kind == UiKind::SessionSettings));
         // In a test method without a handler: "Unhandled UI: SessionSettings " (one space, nothing after it) with the
-        // code MissingUIHandler (platform/lt-platform-members/PlTSessionSettings.al:159-178 RequestSessionUpdate_False, the
+        // code MissingUIHandler (metadata/platform-tables/PlTSessionSettings.al:159-178 RequestSessionUpdate_False, the
         // same text and code as the other kinds). Outside a test method it is not pinned.
         if !bound && self.ui_state.scope.is_none() {
             return Err(Signal::Unsupported(
@@ -492,7 +492,7 @@ impl Session {
     /// `Notification.Send()`: the bound `[SendNotificationHandler]` gets a copy; with none bound
     /// nothing is shown and nothing is raised. `Send` answers true in every case, also when the
     /// handler answers false, and the sender sees what the handler changed in its `var Notification`
-    /// (handlers/TestNotificationSendRecallContracts.al:59-93, BC 27.5). Returns the notification
+    /// (ui-handlers/TestNotificationSendRecallContracts.al:59-93, BC 27.5). Returns the notification
     /// as the handler left it.
     pub(crate) fn ui_send_notification(&mut self, notification: Value, id: [u8; 16]) -> Result<Option<Value>, Signal> {
         if !self.ui_state.sent_notifications.contains(&id) {
@@ -510,20 +510,25 @@ impl Session {
         Ok(finals.pop())
     }
 
-    /// `Notification.Recall()`: true for a notification that was sent, false for one never sent (the recall
-    /// handler does not run then). A bound `[RecallNotificationHandler]` runs with the sender's current
+    /// `Notification.Recall()`: true for a notification that was sent. A bound `[RecallNotificationHandler]` runs with the sender's current
     /// notification, at every Recall, and what it answers does not matter; with none bound nothing happens
-    /// (handlers/TestNotificationSendRecallContracts.al:95-131, handlers/ProbeNotificationRecallEdges.al,
+    /// (ui-handlers/TestNotificationSendRecallContracts.al:95-131, ui-handlers/ProbeNotificationRecallEdges.al,
     /// BC 27.5).
+    ///
+    /// A notification never sent (al-runner issue 6924 item 3.3; ui-handlers/NotificationRecallNeverSent.al,
+    /// BC 27.5): one given an Id answers true and runs the bound handler at every Recall
+    /// (Recall_IdSetNeverSent_HandlerBound :41, _IdOnlyNeverSent_HandlerBound :62, _IdSetNeverSent_NoHandler :93); one with no Id
+    /// answers false and does not run it (Recall_NoIdNeverSent_HandlerBound). Microsoft's Tests-SCM "SCM Orders IV"
+    /// PurchaseLineBlankTypeDifferentPayToVendorNo relies on it (Purchase Header.RecallModifyAddressNotification).
     pub(crate) fn ui_recall_notification(&mut self, notification: Value, id: [u8; 16]) -> Result<bool, Signal> {
-        if !self.ui_state.sent_notifications.contains(&id) {
-            return Ok(false);
-        }
         let bound = self
             .ui_state
             .scope
             .as_ref()
             .is_some_and(|s| s.handlers.iter().any(|h| h.kind == UiKind::RecallNotification));
+        if id == [0; 16] && !self.ui_state.sent_notifications.contains(&id) {
+            return Ok(false);
+        }
         if bound {
             self.dispatch_ui_returning(UiKind::RecallNotification, "", vec![notification])?;
         }
@@ -541,11 +546,11 @@ impl Session {
     }
 
     /// The bound handler of `kind` for `page`, marked as used: `Unhandled UI` when there is none
-    /// (corpus handlers/TestPageModalHandler_Tests.al:105, TestPageRunHandler_Tests.al:
+    /// (corpus testpage/TestPageModalHandler_Tests.al:105, TestPageRunHandler_Tests.al:
     /// NonModalPageRunWithoutAHandlerIsRefused). BC looks the handler up before the page opens, so
-    /// a refused page never ran its OnOpenPage (handlers/TestPageActionRunObjectNoHandler_Tests.al) and a
+    /// a refused page never ran its OnOpenPage (testpage/TestPageActionRunObjectNoHandler_Tests.al) and a
     /// handler whose page then fails to open still counts as executed
-    /// (autoformat/TestAutoFormatExpressionTiming.al, FailingFormat_RunModal_RaisesBeforeAnyHandler).
+    /// (format-evaluate/autoformat/TestAutoFormatExpressionTiming.al, FailingFormat_RunModal_RaisesBeforeAnyHandler).
     pub(crate) fn bind_page_handler(
         &mut self,
         kind: UiKind,
@@ -563,8 +568,8 @@ impl Session {
             .iter_mut()
             .find(|h| h.kind == kind && h.page == Some(page))
         else {
-            // handlers/TestUnhandledUiAndDialogDefaults.al:97-104 ("ModalPage 68124", "Page 68124");
-            // RequestPage names the report's request page id (handlers/TestReportRuntimeContracts.al:425).
+            // errors/TestUnhandledUiAndDialogDefaults.al:97-104 ("ModalPage 68124", "Page 68124");
+            // RequestPage names the report's request page id (reports/TestReportRuntimeContracts.al:425).
             return Err(Signal::Error(Box::new(AlError {
                 message: format!("Unhandled UI: {} {}", kind.label(), shown_id),
                 code: "MissingUIHandler".into(),
@@ -596,7 +601,7 @@ impl Session {
 
     /// Whether the test bound a handler of `kind` for `page`.
     /// The refusal for a page of `kind` that the test bound no handler for. Code and text:
-    /// handlers/TestUnhandledUiAndDialogDefaults.al:97-104, handlers/TestReportRuntimeContracts.al:425-426.
+    /// errors/TestUnhandledUiAndDialogDefaults.al:97-104, reports/TestReportRuntimeContracts.al:425-426.
     pub(crate) fn unhandled_page(&self, kind: UiKind, object: u32) -> Signal {
         Signal::Error(Box::new(AlError {
             message: format!("Unhandled UI: {} {}", kind.label(), self.object_id_of(object)),
@@ -624,7 +629,7 @@ impl Session {
 
     /// The bound handler of `kind` for `page`, marked as used, or `None` when the test bound
     /// none. A `RunObject` action looks the handler up after the page opened and treats a missing
-    /// one differently from `Page.Run` (corpus handlers/TestPageActionRunObjectNoHandler_Tests.al).
+    /// one differently from `Page.Run` (corpus testpage/TestPageActionRunObjectNoHandler_Tests.al).
     pub(crate) fn try_bind_page_handler(&mut self, kind: UiKind, page: u32) -> Result<Option<BoundHandler>, Signal> {
         let Some(scope) = self.ui_state.scope.as_mut() else {
             return Err(Signal::Unsupported(format!(
@@ -659,10 +664,10 @@ impl Session {
     }
 
     /// The error BC raises when code without a client asks the client for `what`: the innermost routine's codeunit is named
-    /// after the text (install/lt-outside-install-ui/RlInstallUi.al:219; CmInstallLeads.al:54). Only a codeunit with no
+    /// after the text (errors/RlInstallUi.al:219; CmInstallLeads.al:54). Only a codeunit with no
     /// Caption is pinned there; any other caller is refused.
     /// A page background task worker has no client either; its texts name the `Server` instead of `Data Services`
-    /// (bgtasks/lt-bj-no-gui/BjNoGuiDialogs.al:204, EnqueueBackgroundTask_WithHandlers `completion log`).
+    /// (pages/background-tasks/BjNoGuiDialogs.al:204, EnqueueBackgroundTask_WithHandlers `completion log`).
     fn callback_not_allowed(&self, what: &str, named: bool) -> Signal {
         let product = if self.pages.bg_worker.is_some() {
             "Microsoft Dynamics 365 Business Central Server"
@@ -693,8 +698,8 @@ impl Session {
     }
 
     /// `Page.Run` or `Page.RunModal` of `page` in install code. `Page.Run` raises CallbackNotAllowed
-    /// (install/lt-outside-install-ui/RlInstallUi.al:223); `Page.RunModal` with a write open raises the generic DB:Ok error
-    /// (install/lt-cm-install-leads/CmInstallLeads.al:56, the rows written before it at CmInstallObjects.al:62). Both are
+    /// (errors/RlInstallUi.al:223); `Page.RunModal` with a write open raises the generic DB:Ok error
+    /// (metadata/CmInstallLeads.al:56, the rows written before it at CmInstallObjects.al:62). Both are
     /// pinned for a page with no triggers and no extensions; whether a page's own triggers run before the error, and what
     /// RunModal does with no write open, are not: refused. `None`: not install code, the page runs as elsewhere.
     pub(crate) fn install_page_run(&self, page: usize, modal: bool) -> Option<Signal> {
@@ -724,12 +729,12 @@ impl Session {
 
     pub(crate) fn ui_message(&mut self, text: String) -> Result<(), Signal> {
         // Install code has no client: a Message does not stop it, and leaves no last error
-        // (install/lt-outside-install-ui/RlInstallUi.al:214-217, :241).
+        // (errors/RlInstallUi.al:214-217, :241).
         if self.ui_state.scope.is_none() && self.install_without_client {
             return Ok(());
         }
         // Nor does it stop a page background task worker, and no MessageHandler of the test sees it
-        // (bgtasks/lt-bj-no-gui/BjNoGuiDialogs.al:204-205, `message=returned` and the handler log).
+        // (pages/background-tasks/BjNoGuiDialogs.al:204-205, `message=returned` and the handler log).
         if self.pages.bg_worker.is_some() {
             return Ok(());
         }
@@ -744,7 +749,7 @@ impl Session {
             .map(|_| ())
     }
 
-    /// `Hyperlink(url)`: a bound `[HyperlinkHandler]` gets the URL (handlers/W3Hyperlink.al:24-63). False when no such
+    /// `Hyperlink(url)`: a bound `[HyperlinkHandler]` gets the URL (ui-handlers/W3Hyperlink.al:24-63). False when no such
     /// handler is bound, for the caller's `Unhandled UI` error.
     pub(crate) fn ui_hyperlink(&mut self, url: String) -> Result<bool, Signal> {
         let bound = self
@@ -761,7 +766,7 @@ impl Session {
 
     pub(crate) fn ui_confirm(&mut self, question: String, default: bool) -> Result<bool, Signal> {
         // A page background task worker raises it too, whatever the default, and no ConfirmHandler sees it
-        // (bgtasks/lt-bj-no-gui/BjNoGuiDialogs.al:204-205).
+        // (pages/background-tasks/BjNoGuiDialogs.al:204-205).
         if (self.ui_state.scope.is_none() && self.install_without_client) || self.pages.bg_worker.is_some() {
             return Err(self.callback_not_allowed(&format!("show a confirmation dialog box: {question}"), true));
         }

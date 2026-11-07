@@ -1,10 +1,10 @@
 //! `Media.ExportStream` of the Layout of a Report Layout List row (`Report.LayoutListExportStream#1`, al-sema call.rs).
 //!
 //! The bytes are those of the layout's file as the app's folder holds it, the answer true, the row unchanged (HasValue stays
-//! No), the same bytes on a second export (report/lt-y17-layout-export/Y17LayoutExportTests.al:70 RDLC, :88 Word, :129 Excel,
+//! No), the same bytes on a second export (reports/layouts-saveas/Y17LayoutExportTests.al:70 RDLC, :88 Word, :129 Excel,
 //! :146 twice). The layout is one of the report's rendering section, one of its legacy RDLCLayout, WordLayout and ExcelLayout
 //! properties (Y17LayoutExportTests.al:105), or one a reportextension declares in its rendering section: a Word, RDLC or Excel
-//! layout, a name with a dot in it, on an own report and on Base Application's report 1306 (report/lt-y67-layout-ext/
+//! layout, a name with a dot in it, on an own report and on Base Application's report 1306 (reports/layouts-saveas/
 //! Y67LayoutExtExport.al:134 Export_ExtensionLayouts_OwnReport, :187 Export_ExtensionLayout_BaseApplicationReport).
 //!
 //! The compiler writes the data set part of a layout into the app's folder at build (Y17LayoutExportTests.al:5-9): the folder

@@ -1,7 +1,7 @@
 //! `TableRelation`: which table a field relates to (`FieldRef.Relation`) and whether a value
 //! exists there (`Validate`).
 //!
-//! Pinned by corpus fieldref/TestFieldRefRelation.al and TestFieldRefRelationFieldClass.al: the
+//! Pinned by corpus recordref-fieldref/fieldref/TestFieldRefRelation.al and TestFieldRefRelationFieldClass.al: the
 //! first arm whose conditions hold applies, an else arm has none, a condition on a FlowFilter
 //! field is not evaluated, `where(A = field(B))` reads B off the referencing row, and a value the
 //! related table lacks is refused with "... cannot be found in the related table".
@@ -35,6 +35,32 @@ impl Session {
 
     fn is_flow_filter(&self, table: u32, pos: usize) -> bool {
         self.engine.field_facts[table as usize][pos].class == ir::FieldClass::FlowFilter
+    }
+
+    /// How many rows of the related table pass `filters` on stored fields and `flow_field_filters` on FlowFields, each FlowField
+    /// calculated for the row (stops at the first row that passes).
+    fn count_passing_flow_fields(
+        &mut self,
+        cx: &al_data::AccessContext,
+        related: &TableDef,
+        filters: &[FieldFilter],
+        flow_field_filters: &[FieldFilter],
+    ) -> Result<usize, Signal> {
+        let mut rows = Vec::new();
+        self.each_row_of(None, cx, related, filters, |row| {
+            rows.push(row.to_vec());
+            Ok(())
+        })?;
+        let Value::Record(probe) = self.default_value(&al_builtins::value::RtType::Record(related.object, false))
+        else {
+            return Err(Signal::Unsupported("a record of the related table".into()));
+        };
+        for row in rows {
+            if self.passes_flow_field_filters(&probe, &row, flow_field_filters)? {
+                return Ok(1);
+            }
+        }
+        Ok(0)
     }
 
     /// The FlowFields of `t` that a condition of field `pos`'s relation names.
@@ -81,7 +107,7 @@ impl Session {
             let mut holds = true;
             for c in &arm.conditions {
                 // BC evaluates conditions on Normal fields and FlowFields only
-                // (corpus fieldref/TestFieldRefRelationFieldClass.al:106-145).
+                // (corpus recordref-fieldref/fieldref/TestFieldRefRelationFieldClass.al:106-145).
                 if self.is_flow_filter(t.object, c.field) {
                     continue;
                 }
@@ -111,7 +137,7 @@ impl Session {
         value: &Value,
     ) -> Result<bool, Signal> {
         if !c.filter {
-            return Ok(ops::compare(value, &crate::constant(&c.value)).ok() == Some(Ordering::Equal));
+            return const_cond_holds(value, &c.value, || format!("{}.{field_name}", t.name));
         }
         // `Field = filter(x)`: the arm applies when the field's value passes the filter, which reads
         // like a SetFilter text (`filter('')` the blank value, `filter(<> '')` any other; corpus types/
@@ -120,7 +146,7 @@ impl Session {
             return unsupported("a filter condition of a TableRelation without its text");
         };
         // The AL string of `filter('A|B')` is the filter text `A|B`; the blank `filter('')` stays the blank value
-        // (query/lt-query-links-relations-httpstream/RelArms.al:P100_ZoneFilterArms).
+        // (queries/joins-links/RelArms.al:P100_ZoneFilterArms).
         let unquoted;
         let text = match text.strip_prefix('\'').and_then(|r| r.strip_suffix('\'')) {
             Some(inner) if !inner.is_empty() && !inner.replace("''", "").contains('\'') => {
@@ -137,6 +163,11 @@ impl Session {
                 t.name
             ))
         })?;
+        // A value the filter cannot compare does not count as failing it: that would apply the next or the else arm (hard
+        // rule 4; issue 6924).
+        if let Some(e) = expr.compare_error(value) {
+            return cond_refusal(e, &format!("{}.{field_name}", t.name));
+        }
         Ok(expr.matches(value))
     }
 
@@ -144,7 +175,7 @@ impl Session {
     pub(crate) fn field_relation(&self, rec: &Rec, t: &TableDef, pos: usize) -> Result<i32, Signal> {
         let id = t.fields[pos].id;
         // SystemId, SystemCreatedAt and SystemModifiedAt relate to nothing, SystemCreatedBy and SystemModifiedBy to the User table, on
-        // an own and on a Base Application table (fieldref/lt-y67-system-field-relation/Y67SystemFieldRelation.al:71-126).
+        // an own and on a Base Application table (recordref-fieldref/fieldref/Y67SystemFieldRelation.al:71-126).
         if id >= 2_000_000_000 {
             return match id {
                 SYSTEM_CREATED_BY | SYSTEM_MODIFIED_BY => Ok(USER_TABLE),
@@ -179,7 +210,7 @@ impl Session {
             return Ok(());
         }
         // The check calculates a FlowField that an if condition of the relation names, without a CalcFields first
-        // (misc/lt-probes-needed-6/PnF29RelationByFlowField.al:242-260, FlowRelation_Condition_NoCalcFields). Like the
+        // (record/PnF29RelationByFlowField.al:242-260, FlowRelation_Condition_NoCalcFields). Like the
         // where() case below, whether the calculated value stays on the record is not observed.
         let flow_conds = self.flow_field_conditions(t, pos);
         if !flow_conds.is_empty() {
@@ -207,6 +238,7 @@ impl Session {
             .clone()
             .ok_or_else(|| Signal::Unsupported("relation to a table without a schema".into()))?;
         let rel_pos = arm.field.unwrap_or(related.keys[0][0]);
+        let mut flow_field_filters: Vec<FieldFilter> = Vec::new();
         let mut filters = vec![FieldFilter {
             field: rel_pos,
             expr: FilterExpr::Eq(ops::convert(value.clone(), &related.fields[rel_pos].ty)?),
@@ -221,10 +253,18 @@ impl Session {
                 ir::RelationWhere::Value { related, .. } | ir::RelationWhere::Field { related, .. } => *related,
             };
             if self.is_flow_filter(related.object, related_pos) {
-                // record/lt-relation-where-flowfilter/RelationWhereFlowFilter.al:ValidateFlowFilterConstRelation, ValidateFlowFilterFieldRelation_ExistingValue.
+                // record/filters/RelationWhereFlowFilter.al:ValidateFlowFilterConstRelation, ValidateFlowFilterFieldRelation_ExistingValue.
                 continue;
             }
-            filters.push(match w {
+            // A condition on a FlowField of the related table compares each row's calculated value, not the stored one: a lookup,
+            // exist and count FlowField with const, filter and field() (al-runner issue 6979; corpus
+            // record/filters/RelationWhereFlowFilter.al:182-292, RelationOnRelatedFlowField_*).
+            let target = if self.is_flow_field(related.object, related_pos) {
+                &mut flow_field_filters
+            } else {
+                &mut filters
+            };
+            target.push(match w {
                 ir::RelationWhere::Value { related: p, text } => FieldFilter {
                     field: *p,
                     expr: self
@@ -244,7 +284,7 @@ impl Session {
                         // A condition that names the validated field itself (`Item Variant.Code where("Item No." =
                         // field("Item No."), Code = field("Variant Code"))` on Prod. Order Line, Assembly Header and
                         // Assembly Line "Variant Code") reads the value being validated, not the old one; the old
-                        // blank value would make the filter contradict the key. Pinned by record/lt-relation-where-validated/
+                        // blank value would make the filter contradict the key. Pinned by record/table-relation/
                         // RelationWhereValidated.al (Validate_OldBlank_ExistingAndMissing, Validate_OldNonBlank_NewExisting).
                         let own_value = if *own == pos {
                             value.clone()
@@ -258,10 +298,13 @@ impl Session {
             });
         }
         let cx = self.cx_for(rec, &related)?;
-        let found = self
-            .store
-            .count(&cx, &related, &filters)
-            .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+        let found = if flow_field_filters.is_empty() {
+            self.store
+                .count(&cx, &related, &filters)
+                .map_err(|e| Signal::Unsupported(format!("{e}")))?
+        } else {
+            self.count_passing_flow_fields(&cx, &related, &filters, &flow_field_filters)?
+        };
         if found > 0 {
             return Ok(());
         }
@@ -278,15 +321,15 @@ impl Session {
             // The related table "Field" (2000000041) answers DB:RecordNotFound (staging types/PZMisc.al:
             // Validate_TableRelation_MissingFieldNumber, BC 29.0); other tables DB:PrimRecordNotFound.
             // A relation with a where() filter answers DB:NothingInsideFilter, whether the value is missing or fails the filter
-            // (query/lt-query-links-relations-httpstream/RelQuotedEnum.al:P100_Validate_EachKind).
+            // (queries/joins-links/RelQuotedEnum.al:P100_Validate_EachKind).
             code: if self.engine.program.objects[related.object as usize].id == Some(2_000_000_041) {
                 "DB:RecordNotFound".into()
             } else if let [ir::RelationWhere::Value { related: w, .. } | ir::RelationWhere::Field { related: w, .. }] =
                 wheres.as_slice()
             {
                 // A single where() on a field of the related table's primary key answers DB:RecordNotFound (corpus
-                // misc/lt-probes-needed-6/PnF13RelationFilterConditions.al:122-126, 144-149, 166-169, primary key (Code, Zone)); on
-                // another field DB:NothingInsideFilter (record/lt-relation-where-empty-term/RelationWhereEmptyTerm.al:173-177). Several conditions are refused.
+                // record/table-relation/PnF13RelationFilterConditions.al:122-126, 144-149, 166-169, primary key (Code, Zone)); on
+                // another field DB:NothingInsideFilter (record/table-relation/RelationWhereEmptyTerm.al:173-177). Several conditions are refused.
                 if related.keys[0].contains(w) {
                     "DB:RecordNotFound".into()
                 } else {
@@ -295,12 +338,12 @@ impl Session {
             } else if wheres.len() > 1 && covers_primary_key(&related, rel_pos, wheres) {
                 // Conditions on primary key fields only, which with the related field name the whole key, answer RecordNotFound:
                 // `Item Variant.Code where("Item No." = field("Item No."), Code = field("Variant Code"))`
-                // (record/lt-relation-where-validated/RelationWhereValidated.al:Validate_OldBlank_ExistingAndMissing,
+                // (record/table-relation/RelationWhereValidated.al:Validate_OldBlank_ExistingAndMissing,
                 // Validate_OldNonBlank_NewMissing, Validate_OtherItemNo_SameValue). Any other set of several conditions is refused below.
                 "DB:RecordNotFound".into()
             } else if wheres.len() > 1 && !wheres.iter().any(|w| related.keys[0].contains(&where_field(w))) {
                 // Several conditions, none on a primary key field: the code of the one-condition form on a non-key field
-                // (record/lt-relation-where-empty-term/RelationWhereEmptyTerm.al:173-177), on an assumption.
+                // (record/table-relation/RelationWhereEmptyTerm.al:173-177), on an assumption.
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TableRelationSeveralWhereNonKey);
                 "DB:NothingInsideFilter".into()
             } else if !wheres.is_empty() {
@@ -317,6 +360,30 @@ impl Session {
     }
 }
 
+/// Whether a `Field = const(x)` condition holds for `value` (`relation` names the field with the relation, for the
+/// refusal).
+/// A comparison that cannot be answered is refused: counting it as "does not hold" would apply the next or the else arm
+/// (hard rule 4).
+fn const_cond_holds(value: &Value, c: &ir::Const, relation: impl Fn() -> String) -> Result<bool, Signal> {
+    match ops::compare(value, &crate::constant(c)) {
+        Ok(o) => Ok(o == Ordering::Equal),
+        // An error of the comparison itself (a Text that reads as no Guid) is not pinned for a relation either.
+        Err(e) => cond_refusal(e, &relation()),
+    }
+}
+
+/// The refusal of a TableRelation condition of `relation` (table.field) whose comparison failed with `e`.
+fn cond_refusal<T>(e: Signal, relation: &str) -> Result<T, Signal> {
+    let why = match e {
+        Signal::Unsupported(why) => why,
+        Signal::Error(e) => e.message,
+        _ => "the comparison did not give an order".to_string(),
+    };
+    unsupported(format!(
+        "a condition of the TableRelation of {relation} cannot be evaluated: {why}"
+    ))
+}
+
 /// Whether every condition of a relation's `where()` is on a primary key field of the related table and, with the related field
 /// itself, they name the whole key.
 fn where_field(w: &ir::RelationWhere) -> usize {
@@ -331,4 +398,30 @@ fn covers_primary_key(related: &TableDef, rel_pos: usize, wheres: &[ir::Relation
         ir::RelationWhere::Value { related, .. } | ir::RelationWhere::Field { related, .. } => *related,
     };
     wheres.iter().all(|w| pk.contains(&on(w))) && pk.iter().all(|k| *k == rel_pos || wheres.iter().any(|w| on(w) == *k))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A condition whose comparison cannot be answered must refuse the relation, not count as "does not hold" and let the
+    // next or the else arm apply (hard rule 4; issue 6924, a Validate checked against the else arm's table).
+    #[test]
+    fn a_condition_that_cannot_be_compared_refuses() {
+        let unknown = Value::Unknown("the value is not known".into());
+        match const_cond_holds(&unknown, &ir::Const::Text("A".into()), || "T.F".into()) {
+            Err(Signal::Unsupported(why)) => {
+                assert!(why.contains("TableRelation of T.F"), "{why}");
+                assert!(why.contains("the value is not known"), "{why}");
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_condition_that_compares_answers() {
+        let c = ir::Const::Enum(7, 1);
+        assert!(const_cond_holds(&Value::Enum(7, 1), &c, String::new).unwrap());
+        assert!(!const_cond_holds(&Value::Enum(7, 2), &c, String::new).unwrap());
+    }
 }

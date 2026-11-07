@@ -1,5 +1,5 @@
 //! `TestPage.Close()` of a Card whose save of the changed row fails with an AL Error (an error of the table's OnModify or of the
-//! page's OnModifyRecord), pinned by testpageclose/lt-y67-close-save-error/Y67CloseSaveError.al:239-428:
+//! page's OnModifyRecord), pinned by testpage/lifecycle/Y67CloseSaveError.al:239-428:
 //! - the Close raises the error with its own text and the code TestWrapped; OnQueryClosePage and OnClosePage do not run, and
 //!   the row stays as stored (:239 R1_TableModifyError_SecondClose, :336 R1_PageModifyError_SecondClose, :409
 //!   R1_NoCloseTriggers_TableModifyError on a Card without close triggers);
@@ -78,6 +78,7 @@ impl Session {
     /// The check of `refuse_unpinned_state` for a control call: on a page whose save failed at Close, only a field read and a
     /// SetValue of a control that runs no validate trigger are pinned (Y67CloseSaveError.al:239, :256).
     pub(super) fn refuse_unpinned_control_state(&self, c: &ControlRef, method: PageOp) -> Result<(), Signal> {
+        self.refuse_after_swallowed_part_insert(&c.page, None)?;
         if c.page.borrow().close_save_failed {
             let ControlTarget::Control(idx) = c.target else {
                 return self.refuse_after_failed_close_save(&c.page);
@@ -94,6 +95,7 @@ impl Session {
                 ));
             }
         }
+        self.refuse_after_list_edit_back_control(c, method.method())?;
         self.refuse_unpinned_state_only(&c.page)
     }
 }

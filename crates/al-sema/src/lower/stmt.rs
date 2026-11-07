@@ -143,7 +143,7 @@ impl Lowerer<'_> {
             }
         }
         // An InStream handed back (the named return value or a `var` parameter) that the routine created with the Blob or Temp
-        // Blob CreateInStream on a local variable reads as empty once the local is out of scope (streams/lt-dc-stream-leads/
+        // Blob CreateInStream on a local variable reads as empty once the local is out of scope (streams/
         // DcInStreamScope.al:107-126, :128-166). The pinned shapes read as empty; the others are refused when the call runs
         // (`stream_of_a_local_handed_back`). A procedure of another codeunit named CreateInStream is no such call.
         let is_instream = |t: Option<al_syntax::ast::TypeRef>| {
@@ -212,7 +212,7 @@ impl Lowerer<'_> {
         locals.append(&mut self.hidden_locals);
         if qcp {
             // A Boolean OnQueryClosePage that reaches its end without a value lets the page close
-            // (pages/lt-query-close-page-result/QcrNamedBranches.al:OnQueryClosePage_NamedTrueIfFlagFlagFalseHandlerOk_Observed and its siblings).
+            // (pages/triggers/QcrNamedBranches.al:OnQueryClosePage_NamedTrueIfFlagFlagFalseHandlerOk_Observed and its siblings).
             let yes = ir::Expr::Const(ir::Const::Boolean(true));
             match self.qcp_ret.take() {
                 Some((l, flag)) => {
@@ -303,7 +303,7 @@ impl Lowerer<'_> {
     }
 
     /// The first argument of `Format`. An Option field with an `OptionCaption` formats as the
-    /// caption, not the member name (corpus fieldref/TestPrecompiledFieldOptionCaption.al:47-55,
+    /// caption, not the member name (corpus recordref-fieldref/fieldref/TestPrecompiledFieldOptionCaption.al:47-55,
     /// a Base Application table whose caption differs from its member). The value keeps its
     /// ordinal and takes the caption list. Other Format forms on such a field are not pinned.
     /// `number9`: the call is `Format(x, 0, 9)`.
@@ -313,8 +313,8 @@ impl Lowerer<'_> {
     pub(crate) fn format_option_field(&mut self, plain: bool, number9: bool, arg: &SyntaxNode) -> L<ir::Expr> {
         let mut value = self.expr(arg)?;
         // Its captions are refused where a translation file could change them (ADR-053 step 1).
-        if let Some((object, what)) = self.option_caption_owner(arg) {
-            value = self.translated_text(value, object, what)?;
+        if let Some(owner) = self.option_caption_owner(arg) {
+            value = self.translated_option_text(value, owner)?;
         }
         let member = arg.kind() == SyntaxKind::ScopeExpr;
         let field_node = if member {
@@ -331,7 +331,7 @@ impl Lowerer<'_> {
         let Some(f) = self.members[table].fields.iter().find(|f| f.id == field) else {
             return Ok(value);
         };
-        // OptionCaptionML gives the captions of the session language (record/lt-x-table-props/XTablePropsTests.al:219-228):
+        // OptionCaptionML gives the captions of the session language (record/table-properties/XTablePropsTests.al:219-228):
         // the value takes them when it runs.
         if let (Ty::Option(_), Some((_, ml))) = (
             &f.ty,
@@ -381,7 +381,7 @@ impl Lowerer<'_> {
         // Every form of Format reads the caption list (text/TestProbeTextDateFormatContracts.al:
         // Format_OptionFieldAndOptionVariable): standard formats 2 and 9 the ordinal, a length cuts or pads the caption.
         // A member named through the field is pinned in the plain form (PnBRecordMisc.al:96) and with format number 9, which
-        // gives the ordinal (misc/lt-probes-needed-5/PnE10Formats.al:96-97, :127).
+        // gives the ordinal (json/PnE10Formats.al:96-97, :127).
         if member && !plain && !number9 {
             return Err(format!(
                 "Format of member {} of option field {} with a length or format number (only the plain form and `0, 9` are pinned)",
@@ -390,12 +390,12 @@ impl Lowerer<'_> {
             ));
         }
         // A caption list shorter than the members shows the member names past its end, a longer one is cut to the members
-        // (an ordinal past the members shows its number): types/lt-format-option-field/FormatOptionFieldCaptions.al:82-177
+        // (an ordinal past the members shows its number): format-evaluate/FormatOptionFieldCaptions.al:82-177
         // (`Uno,Dos` for One,Two,Three: `Three`; `Uno,Dos,Tres,Quatro` for One,Two: ordinal 2 is `2`).
         let mut captions = captions;
         captions.truncate(names.len());
         captions.extend(names[captions.len()..].iter().cloned());
-        Ok(ir::Expr::Convert(RtType::Option(captions), Box::new(value)))
+        Ok(ir::Expr::Convert(RtType::Option(captions.into()), Box::new(value)))
     }
 
     /// Evaluate into an Option field whose OptionCaption is longer than its MaxLength is not pinned, so it is refused.
@@ -421,7 +421,7 @@ impl Lowerer<'_> {
 
     /// The OptionCaption entries of an Option table field passed as `arg`, as a comma list, when the field has a literal
     /// OptionCaption of as many entries as members that differs from them; for a field with OptionCaptionML, the property text
-    /// and `true` (the captions of the session language are taken when it runs, types/lt-option-evaluate-captions/
+    /// and `true` (the captions of the session language are taken when it runs, format-evaluate/
     /// OptionEvaluateCaptions.al:236 CaptionML_ByLanguage). `None` for any other argument.
     pub(crate) fn option_field_captions(&mut self, arg: &SyntaxNode) -> Option<(String, bool)> {
         let Some(Res::Field { table, id: field }) = self.res(arg).cloned() else {
@@ -471,7 +471,7 @@ impl Lowerer<'_> {
     }
 
     /// Whether the Decimal table field `arg` declares only `AutoFormatType = 0`: it formats as a plain Decimal
-    /// (misc/lt-outside-format-json-list/RwDecimalFieldPlaces.al:83 `Amt0`: `70`).
+    /// (text/text-methods/RwDecimalFieldPlaces.al:83 `Amt0`: `70`).
     pub(crate) fn decimal_field_is_plain(&mut self, arg: &SyntaxNode) -> bool {
         let Some(Res::Field { table, id: field }) = self.res(arg).cloned() else {
             return false;
@@ -492,7 +492,7 @@ impl Lowerer<'_> {
 
     /// Why `Format`, StrSubstNo, Message or Error of the Decimal table field `arg` is not pinned: the field declares
     /// `DecimalPlaces` and an AutoFormat beside it. Only `DecimalPlaces` with `AutoFormatType = 1` and a blank
-    /// `AutoFormatExpression` is pinned (the AutoFormat wins: misc/lt-outside-format-json-list/RwDecimalFieldPlaces.al:83
+    /// `AutoFormatExpression` is pinned (the AutoFormat wins: text/text-methods/RwDecimalFieldPlaces.al:83
     /// `Dp33Amt1` gives `70.00`). `AutoFormatType = 0` is the default and keeps the places.
     pub(crate) fn decimal_field_format_unpinned(&mut self, arg: &SyntaxNode) -> Option<String> {
         let Some(Res::Field { table, id: field }) = self.res(arg).cloned() else {
@@ -512,11 +512,11 @@ impl Lowerer<'_> {
         let (aft, expr) = (prop("AutoFormatType"), prop("AutoFormatExpression"));
         match (aft.as_deref(), expr.as_deref()) {
             (None | Some("0"), None) | (Some("1"), Some("''")) => None,
-            // A unit amount whose expression is no text: the AutoFormat wins (misc/lt-sa-unit-amount-subst/SaUnitAmountSubst.al
+            // A unit amount whose expression is no text: the AutoFormat wins (text/text-methods/SaUnitAmountSubst.al
             // `A2Dp`, DecimalPlaces 0:1: `1,234.5000` with a currency of 4:4 unit-amount places).
             (Some("2"), Some(e)) if !e.starts_with('\'') => None,
             // The same for an amount whose expression is a field of the row or a procedure: `DecimalPlaces = 2 : 5` or `0 : 5`
-            // beside it, the currency's places win (types/lt-auto-format-currency/Y17AfProcedure.al:405 AF_DecimalPlaces_T1_FieldOfRow
+            // beside it, the currency's places win (format-evaluate/Y17AfProcedure.al:405 AF_DecimalPlaces_T1_FieldOfRow
             // `0.010` with a currency of 3:3, `0.00` without one; :441 AF_DecimalPlaces_T1_Procedure).
             (Some("1"), Some(e)) if !e.starts_with('\'') => None,
             _ => Some(format!(
@@ -529,9 +529,9 @@ impl Lowerer<'_> {
 
     /// The places `min:max` a Decimal table field declares for `Format`: its `DecimalPlaces`, else the precision of its
     /// `AutoFormatExpression` (type 10), else the 2:2 of a blank-expression amount (type 1) or 2:5 of a unit amount (type 2)
-    /// (pages/lt-page-autoformat-lookups/P113AutoFormat.al:P113_AF_TableFieldFormatIsPlain, pages/lt-page-presentation-properties/
+    /// (pages/run-modal/P113AutoFormat.al:P113_AF_TableFieldFormatIsPlain, pages/properties/
     /// P119Table.al:P119_DecimalPlaces). An amount (type 1) without an `AutoFormatExpression` gives 2:2 from BC 28 only (the
-    /// mode 1 beside it: `Gate::AutoFormatAmountFieldRoundsFrom28`, types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al:
+    /// mode 1 beside it: `Gate::AutoFormatAmountFieldRoundsFrom28`, format-evaluate/AtPrecisionStandardFormat2.al:
     /// 684-723); a unit amount (type 2) without one keeps every digit (:684 `1,234.5678`), except under the format strings measured
     /// on fields, where it has 2:5 places on every BC version (mode 2: `.00` for `<Decimals>` of 5, :883-967 RO_FieldFormatStrings_
     /// AutoFormatFields_*). Mode 0: the places always hold. `None` for any other argument or field.
@@ -583,7 +583,7 @@ impl Lowerer<'_> {
 
     /// `arg` as a Decimal table field with AutoFormatType 2, 4 or 5, no AutoFormatExpression and no DecimalPlaces: the place of its
     /// record, its number and its AutoFormatType. `Format` of it (without a length or format) and StrSubstNo, Message and Error `%n`
-    /// take the places of General Ledger Setup when it runs (misc/lt-sa-unit-amount-subst/SaUnitAmountSubst.al `A2No`, `A4No`,
+    /// take the places of General Ledger Setup when it runs (text/text-methods/SaUnitAmountSubst.al `A2No`, `A4No`,
     /// `A5No`).
     pub(crate) fn auto_format_field_without_expression(&mut self, arg: &SyntaxNode) -> Option<(ir::Place, usize, i32)> {
         let Some(Res::Field { table, id: field }) = self.res(arg).cloned() else {
@@ -612,10 +612,10 @@ impl Lowerer<'_> {
     }
 
     /// Whether `arg` is a Decimal table field whose AutoFormatExpression is an expression (not a text): `Format` of it in
-    /// code applies the field's AutoFormat, evaluated with the record when it runs (types/lt-auto-format-currency/
+    /// code applies the field's AutoFormat, evaluated with the record when it runs (format-evaluate/
     /// QiTableFieldAutoFormat.al:400-418 QI_TableFieldExpression_FormatInCode). Gives the place of the record and the
     /// field's number, and 11 for AutoFormatType 11 (else 0): its expression, a text literal too, is the format string
-    /// (types/lt-y43-auto-format-11/Y43AfType11.al).
+    /// (format-evaluate/Y43AfType11.al).
     pub(crate) fn auto_format_expression_field(&mut self, arg: &SyntaxNode) -> Option<(ir::Place, usize, i32)> {
         let Some(Res::Field { table, id: field }) = self.res(arg).cloned() else {
             return None;
@@ -632,7 +632,7 @@ impl Lowerer<'_> {
         };
         let expr = prop("AutoFormatExpression")?;
         // A constant currency code is pinned for an amount and a unit amount (SaUnitAmountSubst.al `A1Lit`, `A2Lit`: the
-        // currency's places), and for types 4 and 5 with a code that is no currency (types/lt-ax-text-format-dates/
+        // currency's places), and for types 4 and 5 with a code that is no currency (format-evaluate/
         // AxFillerBuilderAutoFormat.al:193-260, checked when it runs); a blank text keeps its fixed places (`decimal_field_places`).
         let constant_code = matches!(prop("AutoFormatType").as_deref(), Some("1" | "2" | "4" | "5")) && expr.len() > 2;
         let kind = if prop("AutoFormatType").as_deref() == Some("11") {
@@ -656,10 +656,35 @@ impl Lowerer<'_> {
                 name: a.name(),
                 args: a
                     .args()
-                    .map(|l| l.children().filter_map(|e| self.constant(&e).ok()).collect())
+                    .map(|l| {
+                        l.children()
+                            .filter_map(|e| {
+                                self.constant(&e).ok().or_else(|| {
+                                    a.name()
+                                        .eq_ignore_ascii_case("TestDataSource")
+                                        .then(|| self.object_id_arg(&e))
+                                        .flatten()
+                                })
+                            })
+                            .collect()
+                    })
                     .unwrap_or_default(),
             })
             .collect()
+    }
+
+    /// `Codeunit::"Name"` as an attribute argument: the object's id. `[TestDataSource(Codeunit::"Name", 'Set')]` and
+    /// `[TestDataSource(<id>, 'Set')]` name the same data source (corpus al-language-testlibraries/test-framework/
+    /// data-driven-tests-and-handlers/BiTestHandlerDefault.al:12-13, :264 and :274, observed on BC 29).
+    fn object_id_arg(&self, e: &SyntaxNode) -> Option<ir::Const> {
+        let text = e.text().to_string();
+        let (kind, name) = text.split_once("::")?;
+        let kind = ObjKind::from_type_name(kind.trim()).filter(|k| *k == ObjKind::Codeunit)?;
+        let parts = crate::members::name_parts(name.trim());
+        match self.ws.resolve_ref(self.file, kind, &parts) {
+            Resolution::Found(o) => self.ws.objects[o].id.map(|id| ir::Const::Integer(id as i32)),
+            _ => None,
+        }
     }
 
     /// A routine of a dependency app that nothing reached: its name and attributes (so event
@@ -940,7 +965,7 @@ impl Lowerer<'_> {
             _ if kids.len() < parts => Err(format!("{what} without its parts (the parser did not accept it)")),
             ExprStmt => {
                 // A call that passes `CurrFieldNo` to a `var` parameter: the callee works on a local that holds its value, and
-                // what the local holds afterwards becomes the record's CurrFieldNo (record/lt-curr-field-no/CurrFieldNoVarParam.al:
+                // what the local holds afterwards becomes the record's CurrFieldNo (record/curr-field-no/CurrFieldNoVarParam.al:
                 // 103-106, :117; a copy of it is not the property, :128).
                 let outer = self.curr_field_args.replace(Vec::new());
                 let lowered = self.expr_stmt(&kids[0]);
@@ -1087,8 +1112,8 @@ impl Lowerer<'_> {
             }
             CaseStmt => self.case(&kids),
             // `with Rec do Stmt`: the names the checker took from the record read and write that record
-            // (corpus events/lt-global-triggers-statements/P114WithStatement.al,
-            // events/lt-with-statement-scopes/WithStatementNested.al). The record is read as a place each time.
+            // (corpus events/platform-triggers/P114WithStatement.al,
+            // events/binding-senders/WithStatementNested.al). The record is read as a place each time.
             WithStmt => {
                 let start = usize::from(n.text_range().start());
                 let place = match self.ty_ref(&kids[0]) {
@@ -1114,7 +1139,7 @@ impl Lowerer<'_> {
                     }
                     // A DotNet result must fit the return type exactly (ADR-014). An interface
                     // result takes what an interface variable takes: a codeunit that implements
-                    // it, an enum, or an interface it extends (codeunit/TestInterfaceRuntimeContracts.al:
+                    // it, an enum, or an interface it extends (codeunits/TestInterfaceRuntimeContracts.al:
                     // Interface_VarParameterAndReturnValue_CarryTheReference, `exit(Impl)`).
                     if let Some(decl @ Ty::Object(ObjKind::Interface, _)) = self.ret_decl.clone() {
                         return self
@@ -1206,7 +1231,7 @@ impl Lowerer<'_> {
         }
         // `CurrFieldNo := FieldNo(X)` in table code sets the field number of the implicit Rec. Base Application's
         // `SelltoContactLookup` does it before it validates a field. The corpus pins reading CurrFieldNo
-        // (handlers/TestPageCurrFieldNo_Tests.al); the assignment is not pinned (docs/probes-needed.md).
+        // (testpage/TestPageCurrFieldNo_Tests.al); the assignment is not pinned (docs/probes-needed.md).
         if kids[0].kind() == SyntaxKind::NameRef
             && matches!(self.res(&kids[0]), Some(Res::Global(g)) if g == "currfieldno")
             && !self.globals.contains_key("currfieldno")
@@ -1318,7 +1343,7 @@ impl Lowerer<'_> {
             return self.call(&kids[0], &kids[0], &kids[1..2]).map(unused_result);
         }
         // `Proc := value` calls a procedure of this object that takes one value parameter (Base Application's Service
-        // Line writes `SetHideWarrantyWarning := true`; corpus codeunit/lt-procedure-assignment/ProcedureAssignmentOneParameter.al). The checker leaves the
+        // Line writes `SetHideWarrantyWarning := true`; corpus codeunits/procedures/ProcedureAssignmentOneParameter.al). The checker leaves the
         // name unresolved (it looks for a call with no arguments), so the procedure is found here by its name.
         if kids[0].kind() == SyntaxKind::NameRef
             && self.res(&kids[0]).is_none()
@@ -1355,7 +1380,7 @@ impl Lowerer<'_> {
             }
         }
         // `FieldRef.Value := x` is the setter form of the `Value` method
-        // (corpus recordref/TestRecordRefCRUD.al:20-23): not a place, a builtin call.
+        // (corpus recordref-fieldref/recordref/TestRecordRefCRUD.al:20-23): not a place, a builtin call.
         if let Some(Res::Builtin(id)) = self.res(&kids[0]).cloned() {
             let sig = self
                 .catalog
@@ -1433,11 +1458,9 @@ impl Lowerer<'_> {
                             self.ws.objects[self.oi].kind,
                             ObjKind::Report | ObjKind::ReportExtension
                         )
-                        && recv
-                            .text()
-                            .to_string()
-                            .trim()
-                            .eq_ignore_ascii_case("RequestOptionsPage");
+                        && ["RequestOptionsPage", "CurrReport.RequestOptionsPage"]
+                            .iter()
+                            .any(|n| recv.text().to_string().trim().eq_ignore_ascii_case(n));
                     if !sig.instance || current_report || request_page {
                         None
                     } else {
@@ -1468,7 +1491,7 @@ impl Lowerer<'_> {
         }
         // `GlobalLanguage := Id` is the other spelling of `GlobalLanguage(Id)` (System Application's
         // "Reten. Pol. Telemetry Impl." writes it so; the setter is pinned by
-        // session/TestSessionSettings.al:534): a builtin call, not a place.
+        // session-system/TestSessionSettings.al:534): a builtin call, not a place.
         if let Some(Res::Builtin(id)) = self.res(&kids[0]).cloned() {
             if id == "System.GlobalLanguage#1" && kids[0].kind() != SyntaxKind::MemberExpr {
                 if sig_tokens(n).iter().any(|t| {
@@ -1531,12 +1554,12 @@ impl Lowerer<'_> {
         let variant_into_text_field = matches!(place, ir::Place::Field(..))
             && matches!(target_ty, Ty::Text(_) | Ty::Code(_))
             // `FieldRef.Value()` is typed Unknown by the checker: its number goes into the field as its Format text
-            // (types/lt-variant-to-text-fields/VariantFieldRefBigIntToText.al:TextField_FromFieldRefValue_Numbers), where a Variant holding
+            // (types/variant/VariantFieldRefBigIntToText.al:TextField_FromFieldRefValue_Numbers), where a Variant holding
             // a number raises TypeConversion (VariantNumberToField.al:TextField_FromVariantInteger_Result and siblings).
             && matches!(self.ty_ref(&kids[1]), Ty::Unknown)
             && matches!(op_kind, Some(SyntaxKind::Assign) | None);
         // A Variant holding an Integer or a Date assigned to a Text variable raises TypeConversion (corpus
-        // types/lt-variant/VaTCompare.al:Concat_After_Conversion, af117 and af121); the conversion into a field, a parameter
+        // types/variant/VaTCompare.al:Concat_After_Conversion, af117 and af121); the conversion into a field, a parameter
         // or a returned value is another path (VariantNumberToField.al; assumption date-to-text-is-format).
         let variant_into_text_variable = matches!(
             place,
@@ -1564,7 +1587,7 @@ impl Lowerer<'_> {
             return Ok(ir::Stmt::Assign(place, guarded));
         }
         // A Variant variable holding an Integer, a BigInteger or a Decimal assigned to a Text or Code field raises the same
-        // TypeConversion as into a variable (types/lt-variant-to-text-fields/VariantNumberToField.al:TextField_FromVariantInteger_Result,
+        // TypeConversion as into a variable (types/variant/VariantNumberToField.al:TextField_FromVariantInteger_Result,
         // _BigInteger_, _Decimal_, CodeField_FromVariantNumbers_Result, TextField_FromVariantNumber_TooLong); a call result such as
         // `FieldRef.Value()` converts to its Format text (VariantFieldRefBigIntToText.al:TextField_FromFieldRefValue_Numbers).
         // Other contents of the Variant keep the unconverted path.
@@ -1591,8 +1614,8 @@ impl Lowerer<'_> {
                     or(is("Variant.IsInteger#1")?, is("Variant.IsBigInteger#1")?),
                     is("Variant.IsDecimal#1")?,
                 ),
-                // An Enum or Option in a Variant raises too (types/lt-variant-to-text-fields/VariantEnumOptionToText.al: `text field`, `code field`).
-                // A Date as well, as into a Text parameter (report/lt-requestpage-savevalues-date-text-setvalue/P147DateToText.al:89-105).
+                // An Enum or Option in a Variant raises too (types/variant/VariantEnumOptionToText.al: `text field`, `code field`).
+                // A Date as well, as into a Text parameter (reports/request-page/P147DateToText.al:89-105).
                 or(is("Variant.IsOption#1")?, is("Variant.IsDate#1")?),
             );
             let kind = if matches!(target_ty, Ty::Code(_)) {
@@ -1612,9 +1635,9 @@ impl Lowerer<'_> {
             );
             return Ok(ir::Stmt::Assign(place, guarded));
         }
-        // `B := A` of two interface variables raises when A holds no implementation (codeunit/lt-enums-interfaces/OjT71047.al:
+        // `B := A` of two interface variables raises when A holds no implementation (codeunits/interfaces/OjT71047.al:
         // 250-251). A Variant into an Integer raises TypeConversion:Overflow for a BigInteger or Duration beyond its range
-        // (types/lt-variant/VaTConvert.al:183-184; types/lt-filter-enum-relation-duration-guid/D_Duration.al:226).
+        // (types/variant/VaTConvert.al:183-184; types/duration/D_Duration.al:226).
         if matches!(op_kind, Some(SyntaxKind::Assign) | None) && !variant_into_text_field {
             let checked = match (&target_ty, self.ty_ref(&kids[1])) {
                 (Ty::Object(ObjKind::Interface, _), Ty::Object(ObjKind::Interface, _)) => {
@@ -1622,7 +1645,7 @@ impl Lowerer<'_> {
                 }
                 (Ty::Integer, Ty::Variant) => Some("Variant.IntoInteger#1"),
                 // A Variant into an Option variable or field: a BigInteger beyond Integer raises TypeConversion:Overflow
-                // (types/lt-bigint-enum-option/BigIntToEnumOption.al:353-383 QO_Variant_ToOptionVariable,
+                // (types/enum-option/BigIntToEnumOption.al:353-383 QO_Variant_ToOptionVariable,
                 // QO_Variant_ToOptionField_Assign); the value then converts as any value does.
                 (Ty::Option(_), Ty::Variant) => Some("Variant.IntoOption#1"),
                 _ => None,
@@ -1726,7 +1749,7 @@ impl Lowerer<'_> {
             }
         }
         // `case <Variant> of <label>:` raises when the first label is compared, whatever the Variant holds and whatever the label is
-        // (types/lt-variant-unassigned/VariantUnassignedEnum.al: Unassigned_Variant_CaseMatches, EnumZero_, EnumOne_, IntegerZero_,
+        // (types/variant/VariantUnassignedEnum.al: Unassigned_Variant_CaseMatches, EnumZero_, EnumOne_, IntegerZero_,
         // ClearedVariant_CaseMatches, Unassigned_Variant_CaseMatches_InsideProcedure). The scrutinee is evaluated first. The corpus asserts the text only (GetLastErrorText),
         // so the error code is left empty.
         if matches!(self.ty_of(&kids[0]), Ty::Variant) && branches.iter().any(|(labels, _)| !labels.is_empty()) {
@@ -1762,7 +1785,7 @@ impl Lowerer<'_> {
                 (Ty::Code(_), Ty::Code(None)) => Ok(e),
                 // A longer Code label is converted to the selector's Code as a Text label is: a value that fits compares as it is,
                 // a longer one raises StringLengthExceeded when the label is reached (al-runner issue 6491; corpus writer Y20,
-                // types/lt-y20-case-code-label/Y20CaseCodeLabel.al:18).
+                // types/text-code-char/Y20CaseCodeLabel.al:18).
                 (t @ Ty::Code(_), Ty::Code(Some(_))) => this.convert_to(code, &t, e),
                 (t @ Ty::Code(_), _) => Err(format!(
                     "a case label of type {t} with a selector of type {code}: whether the label is converted to the selector's length is not pinned"
@@ -1818,7 +1841,7 @@ impl Lowerer<'_> {
     /// The argument for a `var` parameter: the variable it names. Base Application passes the implicit
     /// `CurrFieldNo` to event publishers that declare `var CallingFieldNo: Integer` (`Sales Header`,
     /// `OnBeforeShouldSearchForCustomerByName`). `CurrFieldNo` is no variable: in a call statement the callee gets a
-    /// local that holds its value, and what it assigns comes back to `CurrFieldNo` after the call (record/lt-curr-field-no/
+    /// local that holds its value, and what it assigns comes back to `CurrFieldNo` after the call (record/curr-field-no/
     /// CurrFieldNoVarParam.al:103-106, :117). In a call inside an expression it is refused.
     pub(crate) fn by_var_arg(&mut self, a: &SyntaxNode) -> L<ir::Arg> {
         // `this` in a report, passed to a `var` parameter of the report's type: the parameter holds the running
@@ -1857,7 +1880,7 @@ impl Lowerer<'_> {
     }
 
     /// A local record declared with `[SecurityFiltering(x)]` starts with x: `Rec.SecurityFiltering()` answers it
-    /// (al-language/lt-ac/ACAttributes.al:176-179, :187-190) and, with no security filter in force, it reads the same
+    /// (al-language/reports/runtime/ACAttributes.al:176-179, :187-190) and, with no security filter in force, it reads the same
     /// rows (:184-186). The routine starts by setting it. What `Clear`, `ClearAll` or an assignment of the whole
     /// variable leaves is not pinned: for a variable the routine names that way (`cleared_or_assigned`), and on anything
     /// but a record, the read of the value stays refused (`security_filtering_read_refusal`).
@@ -1902,7 +1925,7 @@ impl Lowerer<'_> {
     }
 
     /// Why a use of the variable `name` is refused for an attribute of its declaration: `[RunOnClient]` (BC raises
-    /// DotNetFromAlNotSupported, al-language-onprem-dotnet/lt-ac/AcDnAttributes.al:145-146) and `[WithEvents]` (the
+    /// DotNetFromAlNotSupported, al-language-onprem-dotnet/dotnet/ac/AcDnAttributes.al:145-146) and `[WithEvents]` (the
     /// `trigger Variable::Event` handlers run when the object raises the event, AcDnAttributes.al:50, :86) are not
     /// implemented, and running the variable without them would be silently wrong.
     pub(crate) fn var_attr_refusal(&self, name: &str, local: bool) -> Option<String> {
@@ -1927,7 +1950,7 @@ impl Lowerer<'_> {
             SyntaxKind::ParenExpr => self.place(&n.children().next().ok_or("empty parentheses")?),
             SyntaxKind::IndexExpr => {
                 let kids: Vec<SyntaxNode> = n.children().collect();
-                // `A[x] [y]` on a multi-dimensional array is `A[x, y]`: the chain becomes one index (misc/lt-chained-array-index/
+                // `A[x] [y]` on a multi-dimensional array is `A[x, y]`: the chain becomes one index (types/arrays/
                 // ChainedArrayIndex.al:P168_Chained_TwoDimensions_ReadWrite, P168_Chained_ThreeDimensionsAndText).
                 if kids[0].kind() == SyntaxKind::IndexExpr && matches!(self.ty_ref(&kids[0]), Ty::Array(..)) {
                     if let ir::Place::Index(root, mut idx) = self.place(&kids[0])? {
@@ -1955,7 +1978,7 @@ impl Lowerer<'_> {
                     self.run_refusals.insert(why.clone());
                     Err(why)
                 }
-                // The request page's Rec in OnInitReport: reading it raises (report/lt-y-request-page/YRequestPageTests.al:551,
+                // The request page's Rec in OnInitReport: reading it raises (reports/request-page/YRequestPageTests.al:551,
                 // RS_RequestPageRec_ReadInOnInitReport_Raises; report 88566 in RsRequestPageRec.al:224). xRec is not pinned.
                 Some(Res::Global(name))
                     if self.in_report_init_with_rec.is_some() && (name == "rec" || name == "xrec") =>
@@ -1982,7 +2005,7 @@ impl Lowerer<'_> {
                     .map(|i| ir::Place::Local(*i))
                     .ok_or_else(|| format!("local `{name}`")),
                 // An extension variable named like a base variable is its own (corpus
-                // handlers/TestPageExtensionBaseAccessContracts.al:20, Shadow).
+                // pages/extensions/TestPageExtensionBaseAccessContracts.al:20, Shadow).
                 Some(Res::Global(name)) => self
                     .in_request_page
                     .then(|| self.request_page_globals.get(name))
@@ -2006,6 +2029,21 @@ impl Lowerer<'_> {
                     let slot = self.ext_var(ext, &name)?;
                     Ok(ir::Place::ExtGlobal(ext, slot))
                 }
+                // `Other.<protected var> := ...` (or passed by var) in a table extension. Declared in another app it writes Other's
+                // variable (corpus PR 1126, branch al-runtime-rs-staging-r6983, table-objects/extensions/ProtectedVarCrossApp.al
+                // ProtVar_OtherRecordVariable_MemberForm_OtherApp, ProtVar_SalesLineStatusCheckSuspended_MemberForm; al-runner
+                // issue 6984). Declared in the same app, alc compiles it but real BC fails to compile the extension's C# (CS0131;
+                // ProtectedVarCrossApp.al, the comments at tables 95533 and 95535), so it is refused.
+                Some(Res::RecGlobal { object, name }) => {
+                    let (object, name) = (*object, name.clone());
+                    if self.ws.objects[object].app == self.ws.objects[self.oi].app {
+                        return Err(format!(
+                            "`{}` written through another record variable, for a protected variable declared in the same app: real BC fails to compile the extension's C# (CS0131)",
+                            n.text_string().trim()
+                        ));
+                    }
+                    self.rec_global_place(n, object, &name)
+                }
                 Some(Res::Field { table, id }) => {
                     let (table, id) = (*table, *id);
                     // A temporary record of a platform table is an ordinary temporary table: the
@@ -2025,7 +2063,7 @@ impl Lowerer<'_> {
                     let field = self.field_ref(table, id);
                     let base = match n.kind() {
                         // `this.Field` in a table or table extension is the field of the current record, as the bare
-                        // name is (misc/lt-probes-needed-6/PnF18ThisInTable.al:48-51; al-runner issue 6211).
+                        // name is (record/PnF18ThisInTable.al:48-51; al-runner issue 6211).
                         SyntaxKind::MemberExpr if self.this_is_current_record(n) => self.implicit_rec(n)?,
                         SyntaxKind::MemberExpr => self.place(&n.children().next().ok_or("member base")?)?,
                         _ => self.implicit_rec(n)?,
@@ -2042,6 +2080,27 @@ impl Lowerer<'_> {
                     .unwrap_or_else(|| format!("`{}` is not assignable", n.text()))),
             },
         }
+    }
+}
+
+impl Lowerer<'_> {
+    /// `Other.<protected var>` in a table extension as a place: the slot of the table's or the extension's variable on the
+    /// record in `Other` (al-runner issue 6984; corpus PR 1126, table-objects/extensions/ProtectedVarCrossApp.al, read in the
+    /// same app by ProtVar_OtherRecordVariable_MemberFormRead_SameAppTable and _SameAppSibling).
+    pub(crate) fn rec_global_place(&mut self, n: &SyntaxNode, object: usize, name: &str) -> L<ir::Place> {
+        let slot = if self.ws.objects[object].kind == ObjKind::Table {
+            let (slot, _, label) = self.base_var(name)?;
+            if label.is_some() {
+                return Err(format!(
+                    "`{name}`, a Label of the table, through another record variable (not pinned)"
+                ));
+            }
+            slot
+        } else {
+            self.ext_var(object, name)?
+        };
+        let base = self.place(&n.children().next().ok_or("member base")?)?;
+        Ok(ir::Place::RecGlobal(Box::new(base), object, slot))
     }
 }
 
@@ -2188,7 +2247,7 @@ impl Lowerer<'_> {
     /// The calls `<receiver>.CreateInStream(<name>, ...)` of a routine body (calls in the syntax tree, so comments and
     /// strings never match) with `<name>` resolving to one of `handed` (an InStream the caller gets back), the receiver a
     /// Blob or the Temp Blob codeunit and its root name resolving to one of `locals` (a variable of the routine's own `var`
-    /// section). Pinned (streams/lt-dc-stream-leads/DcInStreamScope.al): the call is the last statement of the body, the
+    /// section). Pinned (streams/DcInStreamScope.al): the call is the last statement of the body, the
     /// receiver is a local `Codeunit "Temp Blob"` (:18-26, :50-58, :128-166) or the Blob field of a local `temporary` record
     /// (:60-80), and the body uses the local only as the root of a member (`TempBlob.CreateOutStream`, `TempRec.Id := 1`).
     /// Those read as empty after the call; any other such call is refused when it runs.
@@ -2323,8 +2382,8 @@ fn variant_into_text_guard(src_place: &ir::Place, target_ty: &Ty) -> L<(ir::Expr
         })
     };
     // A Date, Time or DateTime in a Variant raises into a Text and a Code variable alike
-    // (report/lt-requestpage-savevalues-date-text-setvalue/P147DateToText.al:297-399, QO_*Variant_EachConversion; the
-    // NavCode text: types/lt-variant-to-text-fields/VariantNumberToField.al). Into a Code variable nothing else is settled.
+    // (reports/request-page/P147DateToText.al:297-399, QO_*Variant_EachConversion; the
+    // NavCode text: types/variant/VariantNumberToField.al). Into a Code variable nothing else is settled.
     let or = |a: ir::Expr, b: ir::Expr| ir::Expr::Binary(ir::BinOp::Or, Box::new(a), Box::new(b));
     let dates = or(
         or(is("Variant.IsDate#1")?, is("Variant.IsTime#1")?),
@@ -2334,7 +2393,7 @@ fn variant_into_text_guard(src_place: &ir::Place, target_ty: &Ty) -> L<(ir::Expr
         (dates, "NavCode")
     } else {
         // An Enum or Option in a Variant raises too (VariantEnumOptionToText.al: `text variable`), a Boolean as well
-        // (types/lt-y67-variant-numeric/Y67VariantNumeric.al:288-317 Variant_Numbers_B `boolean true`).
+        // (types/variant/Y67VariantNumeric.al:288-317 Variant_Numbers_B `boolean true`).
         let cond = or(
             or(or(is("Variant.IsInteger#1")?, is("Variant.IsBoolean#1")?), dates),
             is("Variant.IsOption#1")?,

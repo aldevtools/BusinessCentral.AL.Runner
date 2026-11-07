@@ -4,7 +4,7 @@ use super::*;
 impl<'a> Lowerer<'a> {
     /// A by-var argument `a` (position `i`) of builtin `id`. CopyArray writes into its destination in place, so its destination
     /// and source are places too. Its source may also be the array a procedure returns, which compiles (alc 30, BC 27 and 29) and
-    /// is only read: the copy then takes that array's elements as any source (misc/lt-system-functions/Arrays.al:CopyArray_Forms).
+    /// is only read: the copy then takes that array's elements as any source (collections/Arrays.al:CopyArray_Forms).
     /// A procedure result as the destination compiles too; what the copy into it does is not pinned, so it is refused.
     pub(crate) fn ref_arg(&mut self, id: &str, i: usize, a: &SyntaxNode) -> L<ir::Arg> {
         if id != "System.CopyArray#1" || a.kind() != SyntaxKind::CallExpr {

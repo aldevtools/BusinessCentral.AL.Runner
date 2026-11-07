@@ -29,6 +29,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+mod recordid;
+
 /// The first object id of the platform's tables (`Company`, `Field`, ...): the runtime keeps
 /// their state itself.
 const PLATFORM_FIRST: u32 = 2_000_000_000;
@@ -92,6 +94,9 @@ enum Kind {
     Blob {
         compressed: bool,
     },
+    /// A RecordId, stored as the table number and the key values (`recordid`); built by
+    /// [`TestBacking::stored_record_id`], which knows the compiled tables.
+    RecordId,
     /// A type whose stored form the runtime does not rebuild; only an empty cell is accepted.
     Unsupported(String),
 }
@@ -106,7 +111,7 @@ fn kind_of_field(ty: &RtType, compressed: bool) -> Kind {
         RtType::Integer => Kind::Int,
         RtType::BigInteger => Kind::BigInt,
         RtType::Byte => Kind::Byte,
-        RtType::Option(names) => Kind::Option(std::sync::Arc::from(names.as_slice())),
+        RtType::Option(names) => Kind::Option(names.clone()),
         RtType::Enum(id) => Kind::Enum(*id),
         RtType::Decimal => Kind::Decimal,
         RtType::Date => Kind::Date,
@@ -117,6 +122,7 @@ fn kind_of_field(ty: &RtType, compressed: bool) -> Kind {
         RtType::Library(
             al_builtins::library_kind::LibraryKind::Media | al_builtins::library_kind::LibraryKind::MediaSet,
         ) => Kind::Guid,
+        RtType::Library(al_builtins::library_kind::LibraryKind::RecordId) => Kind::RecordId,
         other => Kind::Unsupported(other.describe()),
     }
 }
@@ -329,13 +335,14 @@ fn convert(cell: &Cell, kind: &Kind, default: &Value) -> Result<Value, String> {
             }
             _ => return bad("binary data"),
         },
+        Kind::RecordId if is_blank_binary(cell) => blank(),
+        // Only a backup's binary cell is rebuilt (`TestBacking::stored_record_id`); a configuration package's text is not.
+        Kind::RecordId => return Err("a stored RecordId value is not rebuilt yet".into()),
         Kind::Unsupported(ty) => {
             // The blank of a type is what an empty cell means in every case.
             let empty = match cell {
                 Cell::Text(s) => s.is_empty(),
-                // A binary column BC reads into a zero-padded buffer (RecordId, TableFilter) holds
-                // the blank value as zeros: its parser stops at the first zero.
-                Cell::Binary(b) => b.iter().all(|&x| x == 0),
+                Cell::Binary(_) => is_blank_binary(cell),
                 _ => false,
             };
             if empty {
@@ -346,11 +353,17 @@ fn convert(cell: &Cell, kind: &Kind, default: &Value) -> Result<Value, String> {
     })
 }
 
+/// A binary column BC reads into a zero-padded buffer (RecordId, TableFilter) holds the blank value as zeros: its parser
+/// stops at the first zero.
+fn is_blank_binary(cell: &Cell) -> bool {
+    matches!(cell, Cell::Binary(b) if b.iter().all(|&x| x == 0))
+}
+
 /// A DateFormula column as the formula text the runtime keeps (`<1M+CM>`). BC stores each of the
 /// seven quantors as one control character, `C D WD W M Q Y` as 1 to 7, and the rest as written: the
 /// demo database shows it (Payment Terms "10 DAYS" holds `10` and 2, Company Information's `1Y` holds
 /// `1` and 7). The table is not pinned by a corpus test (docs/probes-needed.md, "Test data"); AL code
-/// reads a stored DateFormula field without brackets (recordref/lt-refs/RfTValues.al QP_DateFormula_*).
+/// reads a stored DateFormula field without brackets (recordref-fieldref/recordref/RfTValues.al QP_DateFormula_*).
 fn date_formula_text(stored: &str) -> String {
     const QUANTORS: [&str; 7] = ["C", "D", "WD", "W", "M", "Q", "Y"];
     let mut out = String::from("<");
@@ -572,7 +585,11 @@ impl TestBacking {
             }
             for m in &plan.mapped {
                 let cell = r.get(m.column).unwrap_or(&Cell::Null);
-                row[m.field] = convert(cell, &m.kind, &defaults[m.field]).map_err(|why| {
+                let value = match (&m.kind, cell) {
+                    (Kind::RecordId, Cell::Binary(b)) if !is_blank_binary(cell) => self.stored_record_id(b),
+                    _ => convert(cell, &m.kind, &defaults[m.field]),
+                };
+                row[m.field] = value.map_err(|why| {
                     format!(
                         "column '{}' (field '{}'): {why}",
                         rows.columns[m.column], t.fields[m.field].name
@@ -605,6 +622,47 @@ impl TestBacking {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PackageAutoIncrementFromOne);
         }
         Ok(out)
+    }
+
+    /// The RecordId a backup's binary cell holds (`recordid`). The table number must name one compiled table.
+    fn stored_record_id(&self, stored: &[u8]) -> Result<Value, String> {
+        recordid::decode(stored, |table_no| {
+            let not_rebuilt = |why: &str| format!("a stored RecordId value of table {table_no} is not rebuilt: {why}");
+            let objects: Vec<usize> = (self.program.objects.heads().iter().enumerate())
+                .filter(|(_, o)| o.table.is_some() && o.id == Some(table_no))
+                .map(|(i, _)| i)
+                .collect();
+            let [object] = objects.as_slice() else {
+                return Err(not_rebuilt("no single table of the run has that number"));
+            };
+            let Some(t) = self.tables.get(*object).and_then(|t| t.as_deref()) else {
+                return Err(not_rebuilt("the table has no compiled schema"));
+            };
+            let schema = self.program.objects[*object].table.as_ref();
+            let pk = t.keys.first().map(Vec::as_slice).unwrap_or_default();
+            Ok(recordid::Target {
+                object: *object as u32,
+                name: &t.name,
+                key: pk.iter().map(|&p| &t.fields[p].ty).collect(),
+                option_caption: pk
+                    .iter()
+                    .map(|&p| {
+                        schema.and_then(|s| s.fields.get(p)).is_some_and(|f| {
+                            f.properties
+                                .iter()
+                                .any(|(k, _)| k.eq_ignore_ascii_case("OptionCaption"))
+                        })
+                    })
+                    .collect(),
+            })
+        })
+        .map_err(|why| {
+            if why.starts_with("a stored RecordId") {
+                why
+            } else {
+                format!("a stored RecordId value is not rebuilt: {why}")
+            }
+        })
     }
 
     /// The rows of the restored database's Company table, as rows of the compiled Company table `t` (al-runtime issue

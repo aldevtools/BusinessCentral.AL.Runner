@@ -31,7 +31,7 @@ fn a_report_with_obsolete_properties_runs() {
 }
 
 /// A data item, a request page, a query column and a query filter that carry ObsoleteState = Pending, ObsoleteReason and
-/// ObsoleteTag still run (al-runner issue 6652; corpus pages/lt-x-obsolete-pending/XObsoletePending.al:255-311, :589-612,
+/// ObsoleteTag still run (al-runner issue 6652; corpus language/obsolete-pending/XObsoletePending.al:255-311, :589-612,
 /// the tests at :478-566).
 const ELEMENTS: &str = r#"
 table 69963 "ROP Src" { fields { field(1; Id; Integer) { } field(2; Amount; Decimal) { } } keys { key(PK; Id) { } } }

@@ -194,7 +194,7 @@ fn only_unpinned_lengths_mark_the_assumption() {
     assert!(!marked("Lbl: Label 'abc def'; C250: Code[250];", "Lbl", "C250"));
 }
 
-// types/lt-y31-conversion-matrix/Y31ConvCd.al Text10_Label (:3187-3212, Try7 :3258-3264) and Code10_Label (:3660-3700,
+// types/operators-expressions/Y31ConvCd.al Text10_Label (:3187-3212, Try7 :3258-3264) and Code10_Label (:3660-3700,
 // Try7 :3747-3753): `V := Res ? vText10 : vLabel` and `V := Res ? vCode10 : vLabel` into a Variant. The Label false
 // branch takes the true branch's type: `Text|abc` and `Code|ABC` whichever branch is taken.
 #[test]

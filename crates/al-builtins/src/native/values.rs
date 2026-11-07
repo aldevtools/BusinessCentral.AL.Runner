@@ -4,10 +4,10 @@ pub(super) fn abs(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) ->
     Ok(match &args[0] {
         Value::Decimal(d) => Value::Decimal(d.abs()),
         // Abs keeps the type of its argument: `V := Abs(I)` holds an Integer and `Abs(Bi)` a BigInteger
-        // (types/lt-variant-is-text-streams/LTP89IsMisc.al:NearTypes_TextVsCode_IntegerVsBigInteger `abs_int`, `abs_bigint`).
+        // (types/variant/LTP89IsMisc.al:NearTypes_TextVsCode_IntegerVsBigInteger `abs_int`, `abs_bigint`).
         Value::Integer(i) => match i.checked_abs() {
             Some(n) => Value::Integer(n),
-            // types/lt-scalars/ScT70056.al:Integer_Overflow `abs_min`.
+            // types/decimal-integer/ScT70056.al:Integer_Overflow `abs_min`.
             None => {
                 return raise(
                     "Negating the minimum value of a twos complement number is invalid.",
@@ -19,14 +19,14 @@ pub(super) fn abs(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) ->
             Some(n) => Value::BigInteger(n),
             None => return unsupported("Abs of the smallest BigInteger (the overflow error is not pinned)"),
         },
-        // A Duration takes the BigInteger overload: its milliseconds (misc/lt-protected-var-abs-query-views/P146AbsDuration.al,
+        // A Duration takes the BigInteger overload: its milliseconds (types/P146AbsDuration.al,
         // P146AbsDurationBigInt.al).
         other => return abs_other(other),
     })
 }
 
 /// `Abs` of a Duration is the BigInteger of its milliseconds: `Format(Abs(D))` is `1500`, assigned to a Decimal it is `1,500`
-/// (misc/lt-protected-var-abs-query-views/P146AbsDuration.al:P146_Abs_Duration_ResultFormats, P146AbsDurationBigInt.al).
+/// (types/P146AbsDuration.al:P146_Abs_Duration_ResultFormats, P146AbsDurationBigInt.al).
 #[cold]
 #[inline(never)]
 pub(super) fn abs_other(v: &Value) -> Result<Value, Signal> {
@@ -36,7 +36,7 @@ pub(super) fn abs_other(v: &Value) -> Result<Value, Signal> {
     }
 }
 
-/// `Variant2Date(Variant)`: the Date a Variant holds (session/TestFinalCoverage.al:79-88). Another
+/// `Variant2Date(Variant)`: the Date a Variant holds (session-system/TestFinalCoverage.al:79-88). Another
 /// content raises a conversion error whose text is not pinned: refused.
 pub(super) fn variant_2_date(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
     match args.first() {
@@ -48,7 +48,7 @@ pub(super) fn variant_2_date(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut 
     }
 }
 
-/// `Variant2Time(Variant)`: the Time a Variant holds (session/TestFinalCoverage.al:91-100).
+/// `Variant2Time(Variant)`: the Time a Variant holds (session-system/TestFinalCoverage.al:91-100).
 pub(super) fn variant_2_time(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
     match args.first() {
         Some(t @ Value::Time(_)) => Ok(t.clone()),
@@ -75,7 +75,7 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
                     | "WebServiceActionContext"
                     | "SessionSettings"
                     | "Notification"
-                    // A cleared XML document, document type or declaration is an unassigned one (xml/lt-xml-doctype-declaration/
+                    // A cleared XML document, document type or declaration is an unassigned one (xml/xml/
                     // DocTypeErrors.al:Uninitialised_*, DocTypeRead.al: `Clear(Doc)`).
                     | "XmlDocument"
                     | "XmlDocumentType"
@@ -92,7 +92,7 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
             Value::Library(name.clone(), Default::default())
         }
         // Clear empties the controls and leaves an assigned page caption alone
-        // (filterpage/TestFilterPageBuilder.al:FilterPageBuilder_Clear_KeepsTheAssignedCaption).
+        // (pages/filterpagebuilder/TestFilterPageBuilder.al:FilterPageBuilder_Clear_KeepsTheAssignedCaption).
         Value::Library(crate::library_kind::LibraryKind::FilterPageBuilder, cell) => {
             let caption = match &*cell.borrow() {
                 crate::value::LibraryValue::FilterPageBuilder(s) => s.caption.clone(),
@@ -130,10 +130,21 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
         // collections/TestListByRefContracts.al:155 through a `var` parameter).
         Value::List(_) => Value::List(Default::default()),
         Value::Dictionary(_) => Value::Dictionary(Default::default()),
-        // A cleared Blob is a new, empty buffer (streams/TestBlobCalcFieldsUncommittedWrite.al).
+        // A cleared Blob is an empty buffer (streams/TestBlobCalcFieldsUncommittedWrite.al), emptied in place: the row of a temporary
+        // table that holds the same buffer sees what a stream writes after the Clear, also through a Get (corpus
+        // streams/TestBlobCalcFieldsUncommittedWrite.al:183-222,
+        // BlobRoundTrip_TemporaryVariable_Matrix and _TemporaryTable_Matrix, `clear+noget`, `clear+get`; al-runner issue 6791). A buffer an Insert stored while it held content (`BlobBuf::temp_inserted`) is
+        // replaced as before: what a Clear of it leaves on the row is not pinned. So is a buffer a live xRec shares with Rec (a
+        // Clear in OnModify or in a table event): nothing pins what xRec shows after the Clear, so Rec gets a new buffer and xRec
+        // keeps its content, as before issue 6791 (crates/al-vm/tests/store/blob_clear_shared_xrec.rs).
+        Value::Blob(b) if !b.borrow().temp_inserted && !ctx.xrec_holds_blob(b) => {
+            let fresh = crate::stream::new_blob().borrow().clone();
+            *b.borrow_mut() = fresh;
+            Value::Blob(b.clone())
+        }
         Value::Blob(_) => Value::Blob(crate::stream::new_blob()),
         // A cleared TestPage or Page variable is a fresh, closed one (corpus
-        // handlers/TestPageEditable_Tests.al:93 EditableBoundToPageVariable_FollowsTheRow). A page
+        // testpage/TestPageEditable_Tests.al:93 EditableBoundToPageVariable_FollowsTheRow). A page
         // that is open, waits for Trap(), or is a part is not cleared: nothing pins what follows.
         Value::TestPage(st) => {
             let object = {
@@ -148,7 +159,7 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
             )))
         }
         // A cleared Query is a fresh one: no filters, no row cap, not open
-        // (query/TestQueryRuntimeContracts.al:Query_GetFilters_ThreeFilters_OrderIsNotColumnOrder).
+        // (queries/TestQueryRuntimeContracts.al:Query_GetFilters_ThreeFilters_OrderIsNotColumnOrder).
         Value::Query(q) => {
             let object = q.borrow().object;
             Value::Query(Rc::new(std::cell::RefCell::new(crate::value::QueryState {
@@ -164,7 +175,7 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
             })))
         }
         // A codeunit or report variable nothing has used yet has no instance to release, so
-        // clearing it changes nothing (handlers/TestReportRunWithRequestPage.al: `Clear(Probe)`
+        // clearing it changes nothing (reports/TestReportRunWithRequestPage.al: `Clear(Probe)`
         // before `Probe.Run()`). Clearing one in use gives a fresh instance: after `Clear(TempBlob)` the
         // blob is empty again (streams/TestStreamsRuntimeContracts.al:WriteText_ExplicitEncodings_Bytes).
         Value::Codeunit(rc) if !rc.borrow().initialized => return Ok(Value::Null),
@@ -177,10 +188,10 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
         }
         // An array goes back to its initial value element by element, in place: a `var` parameter
         // that shares it sees the change (docs/probes-needed.md; the oracle runs
-        // pageupdate/PageUpdateFacts.Page.al:58 `Clear(Derived)` on an array of Decimal).
+        // pages/currpage/PageUpdateFacts.Page.al:58 `Clear(Derived)` on an array of Decimal).
         Value::Array(a) => {
             let a = a.clone();
-            // An array of JsonObject keeps every element as it was (json/lt-db-json-leads/DbJsonLeads.al:150-164). An array
+            // An array of JsonObject keeps every element as it was (json/DbJsonLeads.al:150-164). An array
             // of another JSON type is not pinned.
             match a.borrow().first() {
                 Some(Value::Library(name, _)) if name.as_str() == "JsonObject" => return Ok(Value::Null),
@@ -238,15 +249,17 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
         }
         // A cleared stream is one that was never created again (streams/TestProbeStreamContracts.al:RecordAssign_CopiesBlobBytes).
         // A cleared SecretText is an empty one and a copy taken before keeps its content
-        // (fieldref/lt-fieldref-testfield-types/SystemClearArraySecret.al:69-90, errorinfo/lt-errnotif/EnTSecret.al:15-26).
-        // A cleared ModuleInfo reads as one nobody filled (platform/lt-platform-members/PlTNavApp.al:69-81).
+        // (recordref-fieldref/fieldref/SystemClearArraySecret.al:69-90, errors/errorinfo/EnTSecret.al:15-26).
+        // A cleared ModuleInfo reads as one nobody filled (metadata/platform-tables/PlTNavApp.al:69-81).
         // A cleared BigText is empty (streams/StTBigText.al:ClearBigText `len-after-clear` 0, `len-after-add` 1).
+        // A cleared DataTransfer is a new one: what was staged before is dropped, and a call before the next SetTables asks for
+        // it (install-upgrade/AsDtInstallRead.al:166-180 C1, :198-208 C3).
         // A cleared HttpClient is a new one: no base address, the default timeout, no default headers; the next call
-        // starts it fresh (network/lt-http-relative-request/HttpRelativeRequestPath.al:NewClient clears, then sets the base address).
+        // starts it fresh (http/client/HttpRelativeRequestPath.al:NewClient clears, then sets the base address).
         // A cleared ErrorInfo is a fresh one, and so is every variable assigned from it, which shares it: `Error` of it raises ''
-        // with code Dialog (misc/lt-system-functions/ErrorMessage.al:184-206), its SystemId is the empty Guid
-        // (errorinfo/lt-bc-errorinfo-systemid/BcErrorInfoSystemId.al:55-66), TestField given it raises the plain text
-        // (record/lt-testfield-value-types/RecordTestFieldGroupA.al:59-72), and `B := A; Clear(A)` empties B's Message too
+        // with code Dialog (errors/error-texts/ErrorMessage.al:184-206), its SystemId is the empty Guid
+        // (errors/errorinfo/BcErrorInfoSystemId.al:55-66), TestField given it raises the plain text
+        // (record/testfield/RecordTestFieldGroupA.al:59-72), and `B := A; Clear(A)` empties B's Message too
         // (errorinfo Copy_Semantics, codeunit 73026).
         Value::Library(name, cell) if name.as_str() == "ErrorInfo" => {
             *cell.borrow_mut() = crate::value::LibraryValue::Empty;
@@ -254,7 +267,7 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
         }
         // A cleared HttpRequestMessage, HttpContent or HttpResponseMessage is a new one, and a value assigned from it before keeps
         // what it held: the request is GET with no URI, no headers and no content (NotInitialized on ReadAs); the content is empty,
-        // with only the Content-Type text/plain; the response is 200 OK with an empty body (network/lt-uf-http-clear/UfHttpClear.al:
+        // with only the Content-Type text/plain; the response is 200 OK with an empty body (http/client/UfHttpClear.al:
         // 14-62, :64-114, :116-145; al-runner issues 6170, 6171).
         Value::Library(name, _)
             if matches!(
@@ -268,7 +281,7 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
             )
         }
         // A cleared TableFilter field is the empty filter, as on a fresh record; the other fields keep their values and the stored
-        // row changes only with Modify (record/lt-wc/WcClearTableFilter.al:36-90, al-runner issue 6318).
+        // row changes only with Modify (record/WcClearTableFilter.al:36-90, al-runner issue 6318).
         Value::Library(name, _) if name.as_str() == "TableFilter" => Value::Library(
             name.clone(),
             std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::Empty)),
@@ -284,6 +297,7 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
                     | "SecretText"
                     | "ModuleInfo"
                     | "BigText"
+                    | "DataTransfer"
             ) =>
         {
             Value::Library(
@@ -293,18 +307,25 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
         }
         // A cleared XmlElement is an unassigned one and a cleared XmlNode an empty one; another variable that holds the same
         // node keeps it, and the node stays in its document (corpus branch al-runtime-rs-staging-ul b753d3fb7a,
-        // xml/lt-ul-clear-ref/UlClearXmlRef.al:53-86 ClearXmlElement_SecondVariable, :106-142 ClearXmlNode_SecondVariable).
+        // xml/xml/UlClearXmlRef.al:53-86 ClearXmlElement_SecondVariable, :106-142 ClearXmlNode_SecondVariable).
         Value::Library(name, _) if matches!(name.as_str(), "XmlElement" | "XmlNode") => {
             Value::Library(name.clone(), Default::default())
         }
         // A cleared XmlNodeList is an empty one, a copy taken before keeps its nodes, and SelectNodes fills it again
         // (xml/XmlNodes.al TP_NodeList_Clear).
+        // Clear of an XmlAttribute that was never assigned (a failed Create) changes nothing
+        // (xml/xml/XmlNsPrefixes.al:129,139,147,150,153 Decl_EmptyPrefixOrNamespace). One that holds an attribute is not pinned.
+        Value::Library(name, h)
+            if name.as_str() == "XmlAttribute" && matches!(&*h.borrow(), crate::value::LibraryValue::Empty) =>
+        {
+            Value::Library(name.clone(), Default::default())
+        }
         Value::Library(name, _) if name.as_str() == "XmlNodeList" => Value::Library(
             name.clone(),
             std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::XmlList(Vec::new()))),
         ),
         Value::Library(name, _) if name.as_str() == "Dialog" => dialog::cleared(name),
-        // A cleared Version reads 0.0.0.0 (types/lt-y64-clear-types/Y64ClearTypes.al:112,137 Y64_Clear_Scalars).
+        // A cleared Version reads 0.0.0.0 (types/clear/Y64ClearTypes.al:112,137 Y64_Clear_Scalars).
         Value::Library(name, _) if name.as_str() == "Version" => Value::Library(
             name.clone(),
             std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::Version([0; 4]))),
@@ -340,7 +361,7 @@ pub(crate) fn simple_upper(s: &str) -> String {
 }
 
 /// `Text.ToUpper()` / `ToLower()`: one character to one, and a character the mapping would turn into several stays (`ß`, `ﬁ`, the dotted
-/// capital `İ`), the dotless `ı` stays too (text/lt-text-instance/CaseTrim1.Codeunit.al:ToLower_ToUpper_Unicode; unlike `UpperCase`/`LowerCase`).
+/// capital `İ`), the dotless `ı` stays too (text/text-methods/CaseTrim1.Codeunit.al:ToLower_ToUpper_Unicode; unlike `UpperCase`/`LowerCase`).
 pub(crate) fn method_upper(s: &str) -> String {
     s.chars()
         .map(|c| {
@@ -397,7 +418,7 @@ pub(super) fn primitive_to_text(
 ) -> Result<Value, Signal> {
     match r.as_deref() {
         // `Date.ToText(true)` is the round-trip form `yyyy-mm-dd`, `ToText(false)` the default one; the first of January 1 has
-        // no text (types/lt-totext-bigtext-codeunit-run/P93Date.al:ToText_Normal, ToText_Closing).
+        // no text (format-evaluate/P93Date.al:ToText_Normal, ToText_Closing).
         Some(v @ Value::Date(..)) => {
             let iso = matches!(a.first(), Some(Value::Boolean(true)));
             if matches!(v, Value::Date(1, _)) {
@@ -410,7 +431,7 @@ pub(super) fn primitive_to_text(
         }
         // The text of a Time, DateTime, Duration, Boolean and Decimal is `Format` with the default format, and with `true` the
         // round-trip form (Format standard 9): `13:45:01`, `2024-03-15T13:45:01Z`, `true`, `1234567.891`, and the Duration words
-        // `1 hour 2 minutes 3 seconds` (types/lt-conversions-hidden-parts-doctype/P142ToTextLang.al:131-135, 156-160, 175-190,
+        // `1 hour 2 minutes 3 seconds` (types/operators-expressions/P142ToTextLang.al:131-135, 156-160, 175-190,
         // 237-253).
         Some(
             v @ (Value::Time(_) | Value::DateTime(_) | Value::Duration(_) | Value::Boolean(_) | Value::Decimal(_)),

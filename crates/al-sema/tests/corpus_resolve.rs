@@ -104,56 +104,48 @@ fn every_corpus_table_field_has_a_known_type() {
 /// not a pass. A file with no gap left fails the test below, so the list only shrinks (ADR-007).
 const KNOWN_GAP_FILES: &[(&str, &str)] = &[
     (
-        "pages/lt-uf-unqualified-runmodal/Y47UnqualifiedRun.al",
+        "pages/run-modal/Y47UnqualifiedRun.al",
         "the checker does not resolve a bare `Run()` with no arguments in a page (the page's own instance; corpus bump to 7f7cdc2a)",
     ),
     (
-        "pages/lt-ap-testpage-642/ApTestPageTests.al",
+        "testpage/ApTestPageTests.al",
         "the checker takes a part control named `Page` (Host.PartF.\"Page\") for the page of the part (corpus bump 27)",
     ),
     (
-        "misc/lt-inferred-behaviors/P69PartPageControl.al",
+        "pages/parts/P69PartPageControl.al",
         "the checker does not resolve a member of a part page's control (corpus bump 11)",
     ),
     (
-        "codeunit/lt-procedure-assignment/ProcedureAssignmentOneParameter.al",
+        "codeunits/procedures/ProcedureAssignmentOneParameter.al",
         "the checker takes an assignment to a one-parameter procedure for a call without arguments (corpus bump 14)",
     ),
     (
-        "report/lt-report-this-passed-on/P141ThisEvent.al",
+        "reports/runtime/P141ThisEvent.al",
         "the checker does not resolve `this` in a report (corpus bump 14)",
     ),
     (
-        "report/lt-report-this-passed-on/P141ThisStored.al",
+        "reports/runtime/P141ThisStored.al",
         "the checker does not resolve `this` in a report (corpus bump 14)",
     ),
     (
-        "report/lt-report-this-passed-on/P141ThisValueParam.al",
+        "reports/runtime/P141ThisValueParam.al",
         "the checker does not resolve `this` in a report (corpus bump 14)",
     ),
     (
-        "report/lt-requestpage-savevalues-date-text-setvalue/P147SetValueAssign.al",
+        "reports/request-page/P147SetValueAssign.al",
         "the checker does not read `SetValue :=` on a request page control as an assignment (corpus bump 14)",
     ),
     (
-        "report/lt-report-this-passed-on/P141ThisManual.al",
+        "reports/runtime/P141ThisManual.al",
         "the checker does not resolve `this` in a report (corpus bump 14)",
     ),
     (
-        "report/lt-report-this-passed-on/P141ThisReportExt.al",
+        "reports/runtime/P141ThisReportExt.al",
         "the checker does not resolve `this` in a report extension (corpus bump 14)",
     ),
     (
-        "report/lt-ch-report-leads/ChReportPart.al",
+        "reports/ChReportPart.al",
         "the checker does not know a part of a report's request page (RequestOptionsPage.ChPart.Page) (corpus bump 29)",
-    ),
-    (
-        "report/lt-request-options-page-access/RequestOptionsPageAccess.al",
-        "the checker does not know the `RequestOptionsPage` member of a report (RequestOptionsPageAccess.al:39, corpus bump to 2c42c8aa)",
-    ),
-    (
-        "report/lt-y86-request-page/Y86RequestCaption.al",
-        "the checker does not know the `RequestOptionsPage` member of CurrReport (Y86RequestCaption.al:36; PR 6836 adds it: delete this row there) (corpus bump to 78f6c60b)",
     ),
     (
         "record/ProbePropertyAssignmentForms.al",

@@ -17,6 +17,7 @@ use std::rc::{Rc, Weak};
 
 mod filter;
 mod text_number;
+mod walk;
 
 pub type Handle = Rc<RefCell<LibraryValue>>;
 
@@ -258,7 +259,7 @@ fn path_of(h: &Handle) -> String {
     while let Some(p) = parent_of(&cur) {
         let seg = with_node(&p, |n| match n {
             JsonNode::Object(kids) => kids.iter().find(|(_, c)| Rc::ptr_eq(c, &cur)).map(|(k, _)| {
-                // An empty key adds nothing to the path (json/lt-json-overloads/P88ObjectPathYaml.al:Path_SpecialKeys).
+                // An empty key adds nothing to the path (json/json/P88ObjectPathYaml.al:Path_SpecialKeys).
                 if k.is_empty() {
                     String::new()
                 } else if k.chars().all(|c| c.is_alphanumeric() || c == '_') {
@@ -519,7 +520,7 @@ impl Parser<'_> {
         if int_len == 0 {
             return Err(ParseError::Invalid);
         }
-        // `007` reads as 7 (json/lt-json-overloads/P88ValueReadFrom.al:ReadFrom_Invalid `leading_zero`); what a leading zero
+        // `007` reads as 7 (json/json/P88ValueReadFrom.al:ReadFrom_Invalid `leading_zero`); what a leading zero
         // does in front of a fraction or an exponent is not pinned.
         if int_len > 1 && self.s[int_start] == b'0' && matches!(self.s.get(self.i), Some(b'.' | b'e' | b'E')) {
             return Err(ParseError::Unsupported(
@@ -725,14 +726,14 @@ fn write(h: &Handle, out: &mut String) -> Result<(), Signal> {
                 } else {
                     d.to_string()
                 };
-                // A whole decimal is written with `.0` (json/lt-json-typed-overloads/P101ArrayAdd.al:P101_Add_Decimal: 0 is `0.0`).
+                // A whole decimal is written with `.0` (json/json/P101ArrayAdd.al:P101_Add_Decimal: 0 is `0.0`).
                 out.push_str(&text);
                 if !text.contains('.') {
                     out.push_str(".0");
                 }
             }
             // An undefined Date, Time and DateTime are written as the first day, midnight and the first day at midnight, the
-            // date-time without the `Z` (json/lt-json-typed-overloads/P101ArrayAdd.al:P101_Add_Date `0001-01-01`, P101_Add_Time
+            // date-time without the `Z` (json/json/P101ArrayAdd.al:P101_Add_Date `0001-01-01`, P101_Add_Time
             // `00:00:00`, P101_Add_DateTime `0001-01-01T00:00:00.0000000`).
             Value::Date(0, _) => write_string(out, "0001-01-01"),
             Value::Time(0) => write_string(out, "00:00:00"),
@@ -743,7 +744,7 @@ fn write(h: &Handle, out: &mut String) -> Result<(), Signal> {
             }
             // A time with milliseconds adds them without trailing zeros, as `Format(T, 0, 9)`; a date-time adds seven digits
             // (json/TestProbeJsonContracts.al:ValueTypes_DurationTimeDateTime: `10:00:00.123`, `2024-01-15T10:20:30.0450000Z`;
-            // misc/lt-outside-format-json-list/RwJsonTimeMs.al:116 RW_JsonTime_InMemory_Milliseconds: `.001`, `.01`, `.12`, `.5`).
+            // json/RwJsonTimeMs.al:116 RW_JsonTime_InMemory_Milliseconds: `.001`, `.01`, `.12`, `.5`).
             Value::Time(t) if t > 0 => {
                 let ms = (t - 1) % 1000;
                 let s = (t - 1) / 1000;
@@ -837,7 +838,7 @@ fn as_boolean(s: &Scalar) -> Result<Value, Signal> {
         }
         // An empty text and a text of digits raise the same error (json/JsonValueGetters.al UN_BooleanTextGetters_2 "0",
         // UN_BooleanTextGetters_3 "1", UN_BooleanTextGetters_4 ""), and so does any other text: blanks inside, punctuation,
-        // a mix of letters and digits ('not a boolean', 'a1', '-', 'true!': misc/lt-y70-assumptions/Y70Probes.al:557-596,
+        // a mix of letters and digits ('not a boolean', 'a1', '-', 'true!': record/Y70Probes.al:557-596,
         // JsonValue_AsBooleanOtherText, JsonValue_OtherGettersOtherText).
         Scalar::Val(Value::Text(_) | Value::Code(_)) => Err(conversion(NAV_JSON_VALUE, "System.Boolean")),
         // A JSON number 0 reads No and 1 reads Yes (json/JsonValueGetters.al UN_BooleanTextGetters_5, same branch and
@@ -861,7 +862,7 @@ fn as_integer(s: &Scalar) -> Result<Value, Signal> {
     if matches!(s, Scalar::Null) {
         return Err(conversion(NAV_JSON_VALUE, "System.Int32"));
     }
-    // A JSON `true` read as an Integer is 1 (misc/lt-probes-needed-1/PnAJsonGetters.al:191-210, ArrayWrongKindAtIndex
+    // A JSON `true` read as an Integer is 1 (json/PnAJsonGetters.al:191-210, ArrayWrongKindAtIndex
     // `int-of-bool`); `false` is not pinned.
     if let Scalar::Val(Value::Boolean(true)) = s {
         return Ok(Value::Integer(1));
@@ -872,12 +873,12 @@ fn as_integer(s: &Scalar) -> Result<Value, Signal> {
             Err(_) => return Err(conversion(NAV_JSON_VALUE, "System.Int32")),
         }
     }
-    // A Char is a number in JSON: its code (json/lt-json-typed-readback/JsonTypedCharRead.al:48 `int` 65, :52 0, :55 65535).
+    // A Char is a number in JSON: its code (json/json/JsonTypedCharRead.al:48 `int` 65, :52 0, :55 65535).
     if let Scalar::Val(Value::Char(n)) = s {
         return Ok(Value::Integer(i32::from(*n)));
     }
     // A number with a fraction rounds to the nearest whole number, a tie to the even one (corpus master, corpus PR 871:
-    // misc/lt-np4-probes/Np4FormatJson.al NP4_JsonValue_AsInteger_SetValueDecimal, _FromText: 1324.55 1325, 2.5 2, 1.5 2,
+    // json/Np4FormatJson.al NP4_JsonValue_AsInteger_SetValueDecimal, _FromText: 1324.55 1325, 2.5 2, 1.5 2,
     // 0.5 0, -0.5 0, -1.5 -2, -2.5 -2, 3.4999 3).
     if let Scalar::Val(Value::Decimal(d)) = s
         && !d.fract().is_zero()
@@ -1016,7 +1017,7 @@ fn as_text(s: &Scalar) -> Result<Value, Signal> {
         Scalar::Val(Value::Integer(n)) => Ok(Value::Text(n.to_string().into())),
         Scalar::Val(Value::BigInteger(n)) => Ok(Value::Text(n.to_string().into())),
         // A whole number read as a double keeps the one decimal place only in the written JSON, not in its text
-        // (json/lt-json-overloads/P88ValueReadFrom.al:ReadFrom_Scalars `exp`: text 1000, json 1000.0).
+        // (json/json/P88ValueReadFrom.al:ReadFrom_Scalars `exp`: text 1000, json 1000.0).
         Scalar::Val(Value::Decimal(d)) if d.scale() == 1 && d.fract().is_zero() => {
             Ok(Value::Text(d.trunc().to_string().into()))
         }
@@ -1024,9 +1025,9 @@ fn as_text(s: &Scalar) -> Result<Value, Signal> {
         Scalar::Val(Value::Boolean(b)) => Ok(Value::Text(if *b { "True" } else { "False" }.into())),
         Scalar::Raw(t) => Ok(Value::Text(t.clone().into())),
         // A Byte, an Option, a Duration, a Date, a Time and a DateTime read as the text they are written as, without the quotes
-        // (json/lt-json-typed-overloads/P101ValueSetValue.al: P101_SetValue_Byte :120-125, _Option :268-271, _Date :299-304,
+        // (json/json/P101ValueSetValue.al: P101_SetValue_Byte :120-125, _Option :268-271, _Date :299-304,
         // _Time :332-337, _DateTime :360-363, _Duration :391-396). A Time or DateTime with milliseconds reads as written too
-        // (json/lt-json-overloads/P88DateTimeReadback.al:121-210: `14:30:15.123`, `2024-03-15T14:30:15.1230000Z`).
+        // (json/json/P88DateTimeReadback.al:121-210: `14:30:15.123`, `2024-03-15T14:30:15.1230000Z`).
         Scalar::Val(
             v @ (Value::Byte(_)
             | Value::Option(..)
@@ -1061,7 +1062,7 @@ fn as_char(s: &Scalar) -> Result<Value, Signal> {
             let u: Vec<u16> = t.encode_utf16().collect();
             match u.as_slice() {
                 [c] => Ok(Value::Char(*c)),
-                // A text of three or four characters does not convert (json/lt-json-typed-overloads/P101PathValues.al:164
+                // A text of three or four characters does not convert (json/json/P101PathValues.al:164
                 // `text_as_char` 'xyz', :203 'text'), and neither do an empty text and texts of 5 and 36 characters
                 // (json/JsonValueGetters.al:169 `text_aschar` 'hello', NumericTextGetters `empty_aschar`, `long_aschar`).
                 _ if matches!(u.len(), 0 | 3 | 4 | 5 | 36) => Err(conversion(NAV_JSON_VALUE, "System.Char")),
@@ -1069,7 +1070,7 @@ fn as_char(s: &Scalar) -> Result<Value, Signal> {
             }
         }
         // A whole number is the character of that code (P101PathValues.al:162 `int_as_char` 8364 is €, :170 0, :202 5;
-        // json/lt-json-overloads/P88ObjectGetCharValues.al:28 7). Codes from the surrogates up are not pinned.
+        // json/json/P88ObjectGetCharValues.al:28 7). Codes from the surrogates up are not pinned.
         Scalar::Val(Value::Integer(n)) if (0..0xD800).contains(n) => Ok(Value::Char(*n as u16)),
         Scalar::Val(Value::BigInteger(n)) if (0..0xD800).contains(n) => Ok(Value::Char(*n as u16)),
         // P101PathValues.al:167 `bool_as_char`.
@@ -1090,7 +1091,7 @@ fn as_date(s: &Scalar) -> Result<Value, Signal> {
             Some(d) => Ok(Value::Date(d, false)),
             None => Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.NavDate")),
         },
-        // A Time or DateTime held reads as no Date (json/lt-json-overloads/P88DateTimeReadback.al:121-210, Time_Readback and
+        // A Time or DateTime held reads as no Date (json/json/P88DateTimeReadback.al:121-210, Time_Readback and
         // DateTime_Readback `_asdate`).
         Scalar::Val(
             Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_) | Value::Time(_) | Value::DateTime(_),
@@ -1122,7 +1123,7 @@ fn as_datetime(s: &Scalar) -> Result<Value, Signal> {
 
 fn as_time(s: &Scalar) -> Result<Value, Signal> {
     match s {
-        // An undefined Time is written `"00:00:00"` and reads back as midnight (json/lt-json-overloads/P88DateTimeReadback.al:
+        // An undefined Time is written `"00:00:00"` and reads back as midnight (json/json/P88DateTimeReadback.al:
         // 121-163 Time_Readback `time_blank_astime`).
         Scalar::Val(Value::Time(0)) => Ok(Value::Time(1)),
         Scalar::Val(Value::Time(t)) => Ok(Value::Time(*t)),
@@ -1231,8 +1232,8 @@ fn object_keys(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Resul
     Ok(Value::List(Rc::new(std::cell::RefCell::new(keys.into()))))
 }
 
-/// `Values()`: the values as tokens, in order, as the object was at the call (json/lt-json-typed-overloads/P101PathValues.al:
-/// P101_Values `count` 6 and `count_after_add_snapshot`; json/lt-json-overloads/P88ObjectGetCharValues.al:50-58).
+/// `Values()`: the values as tokens, in order, as the object was at the call (json/json/P101PathValues.al:
+/// P101_Values `count` 6 and `count_after_add_snapshot`; json/json/P88ObjectGetCharValues.al:50-58).
 fn object_values(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Result<Value, Signal> {
     let h = recv(r)?;
     let values = with_node(&h, |n| match n {
@@ -1245,7 +1246,7 @@ fn object_values(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Res
     Ok(Value::List(Rc::new(std::cell::RefCell::new(values.into()))))
 }
 
-/// `RemoveAt(Index)`: the element goes, the rest moves up (json/JsonArrayBasics.al:182-193 `text` [1,3,2]; json/lt-json-overloads/
+/// `RemoveAt(Index)`: the element goes, the rest moves up (json/JsonArrayBasics.al:182-193 `text` [1,3,2]; json/json/
 /// P88ArrayIndex.al:126 answers true). An index outside the array raises "Index out of bounds." (JsonArrayBasics.al:186-195),
 /// pinned in statement form only.
 fn array_remove_at(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
@@ -1282,7 +1283,7 @@ fn object_get(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result
         }
         None if c.ret_used() => Ok(Value::Boolean(false)),
         // As a statement a missing key raises JsonPropertyNotFound and leaves the token as it was
-        // (misc/lt-y14-triage/Y14Small.al:389, corpus master).
+        // (format-evaluate/Y14Small.al:389, corpus master).
         None => Err(missing_key(&a[0])),
     }
 }
@@ -1382,7 +1383,7 @@ fn array_typed(r: Option<&mut Value>, a: &mut [Value], coerce: Coerce) -> Result
 }
 
 /// A failed conversion of a typed getter in the language in force: the .NET text of [`conversion`] in 1033; in 1031 the
-/// German text, pinned for a Date (misc/lt-system-functions/EvalLastError.al:463-481, BT_Evaluate_DottedDate_Language1031
+/// German text, pinned for a Date (format-evaluate/EvalLastError.al:463-481, BT_Evaluate_DottedDate_Language1031
 /// `1031 json`). Any other conversion error in another language is not pinned and is refused.
 fn in_language(language: i32, result: Result<Value, Signal>) -> Result<Value, Signal> {
     match result {
@@ -1437,7 +1438,7 @@ typed_getters! {
 }
 
 /// `JsonValue.AsText` of a Boolean is `true` or `false`, where `GetText` of a property or an element says `True`
-/// (json/lt-json-typed-overloads/P101ValueSetValue.al:P101_SetValue_Boolean against TestProbeJsonContracts.al:TypedGetters_WrongKinds).
+/// (json/json/P101ValueSetValue.al:P101_SetValue_Boolean against TestProbeJsonContracts.al:TypedGetters_WrongKinds).
 fn val_text_json(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Result<Value, Signal> {
     match scalar_of(&recv(r)?)? {
         Scalar::Val(Value::Boolean(b)) => Ok(Value::Text((if b { "true" } else { "false" }).into())),
@@ -1537,7 +1538,7 @@ fn array_index(v: &Value) -> Result<i64, Signal> {
 }
 
 /// `Insert(Index, Value)`: the value goes in before that index; an index from 0 to the count is allowed, another raises
-/// `Index out of bounds.` / IndexOutOfBounds (json/lt-json-typed-overloads/P101ArrayInsert.al:P101_Insert_Boolean `ins_oob`, and the
+/// `Index out of bounds.` / IndexOutOfBounds (json/json/P101ArrayInsert.al:P101_Insert_Boolean `ins_oob`, and the
 /// same for every other type).
 fn array_insert(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
     let h = recv(r)?;
@@ -1607,7 +1608,7 @@ fn array_index_of(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Re
             let same = with_node(k, |n| match n {
                 JsonNode::Scalar(Scalar::Val(v)) => {
                     // A Text against a Code element and the other way round: texts that differ also when the case is
-                    // ignored do not match (json/lt-json-typed-overloads/P101CodeLabel.al:115-120, `indexof_label` 1 and
+                    // ignored do not match (json/json/P101CodeLabel.al:115-120, `indexof_label` 1 and
                     // `indexof_text10` 2 pass the Code "ABC" at 0). Texts that differ only in case, or are equal, are not pinned.
                     let strings = matches!(
                         (&*v, needle),
@@ -1624,7 +1625,7 @@ fn array_index_of(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Re
                     } else if std::mem::discriminant(v) == std::mem::discriminant(needle) {
                         Some(crate::ops::compare(v, needle).is_ok_and(|o| o == std::cmp::Ordering::Equal))
                     } else {
-                        // json/lt-json-typed-readback/JsonTypedIndexOfCross.al: a stored Integer or Byte matches an Integer,
+                        // json/json/JsonTypedIndexOfCross.al: a stored Integer or Byte matches an Integer,
                         // Byte or BigInteger of the same number (:37-38 `byte_7`, `big_7`; :98-100 `int_255`, `byte_0`); an Integer
                         // never matches a Decimal or a Text (:36 `dec_7`, :39 `text_7`), nor a Decimal an Integer, Byte or
                         // BigInteger (:67-69). Other pairs are not pinned.
@@ -1636,7 +1637,7 @@ fn array_index_of(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Re
                             _ => None,
                         };
                         match (&*v, needle) {
-                            // A stored Char and an Integer compare as numbers (json/lt-json-typed-readback/JsonTypedCharRead.al:
+                            // A stored Char and an Integer compare as numbers (json/json/JsonTypedCharRead.al:
                             // 132 `idx_int_70` 0, :134 `idx_missing` passes the Integer 2 for Char 72).
                             (Value::Char(_), Value::Integer(_)) | (Value::Integer(_), Value::Char(_)) => {
                                 Some(whole(v) == whole(needle))
@@ -1719,7 +1720,7 @@ fn read_from(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value], want: Opti
         let text = crate::stream::read_serialised_text(&mut a[0])?;
         // A stream whose first token is a string (what is left after a partial read of `{"a":2}`)
         // is refused by the token reader (streams/ProbeJsonAndInStreamBytes.al:ReadFrom_InStream_AfterPartialRead_ReadsTheRest).
-        // A JsonToken reads a stream that holds one whole string as that value (json/lt-json-typed-overloads/P101Streams.al:166-167,
+        // A JsonToken reads a stream that holds one whole string as that value (json/json/P101Streams.al:166-167,
         // `text_ok` Yes and `text_isvalue` Yes for `"text"`).
         let whole_string_into_token = want.is_none() && c.ret_used() && parse(&text)?.is_some();
         if text.trim_start().starts_with('"') && !whole_string_into_token {
@@ -1794,11 +1795,11 @@ fn marks_only_in_string_values(text: &str) -> bool {
 
 /// `Evaluate(JsonArray, Text)`: the text is read as `ReadFrom` reads it, and a text that is no array leaves the array as it was
 /// and fails with ReadFrom's statement error, which the form with a used result leaves as the last error and answers false
-/// (types/lt-uf-evaluate-json-rfc1123/UfEvaluateJsonRfc.al:88-176: an array, an empty one and one with blanks around it are
+/// (format-evaluate/UfEvaluateJsonRfc.al:88-176: an array, an empty one and one with blanks around it are
 /// read; an object, a number, a string and null fail InvalidJsonType, `[1,`, the empty text and `not json` InvalidJsonData;
 /// :178-194 the array is usable afterwards; al-runner issue 6175).
 pub fn evaluate_array(c: &mut dyn Ctx, slot: &mut Value, text: &str) -> Result<Value, Signal> {
-    // Pinned by types/lt-uf-evaluate-json-rfc1123/UfEvaluateJsonRfc.al JsonArray_Texts, JsonArray_UsedAfterEvaluate (was assumption `evaluate-json-array`).
+    // Pinned by format-evaluate/UfEvaluateJsonRfc.al JsonArray_Texts, JsonArray_UsedAfterEvaluate (was assumption `evaluate-json-array`).
     match read_text_into(false, Some(slot), text, Some("array")) {
         Err(Signal::Error(e)) if c.ret_used() => {
             c.set_last_error(*e);
@@ -1814,7 +1815,7 @@ fn read_text_into(ret_used: bool, r: Option<&mut Value>, text: &str, want: Optio
     let mut r = r;
     let mut h = recv(r.as_deref_mut())?;
     // A variable whose node sits inside a container (it was added) reads into a new node of its own: the container keeps what it
-    // holds (json/lt-json-typed-overloads/P101ArrayAdd.al:P101_Add_JsonToken, `Tk.ReadFrom(..)` after `A.Add(Tk)` leaves `A` as it was).
+    // holds (json/json/P101ArrayAdd.al:P101_Add_JsonToken, `Tk.ReadFrom(..)` after `A.Add(Tk)` leaves `A` as it was).
     if parent_link(&h).and_then(|w| w.upgrade()).is_some() {
         if let Some(slot @ Value::Library(..)) = r {
             let Value::Library(name, _) = &*slot else {
@@ -1848,7 +1849,7 @@ fn read_text_into(ret_used: bool, r: Option<&mut Value>, text: &str, want: Optio
             ))
         } else {
             // json/TestProbeJsonContracts.al:ReadFrom_ArrayIntoObject_Statement, ReadFrom_ObjectIntoArray_Statement.
-            // A scalar names its own type (misc/lt-probes-needed-1/PnAJsonReadKinds.al:StatementForm_WrongKind: Integer, String,
+            // A scalar names its own type (json/PnAJsonReadKinds.al:StatementForm_WrongKind: Integer, String,
             // Null, Boolean); a fractional number is not pinned.
             let kind = syntax.as_ref().map(|p| {
                 with_node(p, |n| match n {
@@ -2156,14 +2157,22 @@ fn value_set_undefined(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) 
 
 enum Seg {
     Key(String),
-    /// `[n]`; a negative index matches nothing (json/JsonObjectBasics.al:323 `select_neg`).
+    /// `[n]`; a negative index raises ArgumentOutOfRange (json/DbJPathLeads.al:154 `LastArrayElement` `index_minus_1`).
     Index(i64),
     /// `[*]`.
     Wild,
-    /// `[a:b]`.
-    Slice(usize, usize),
+    /// `.*` or a bare `*` (json/DbJPathLeads.al:465 `P6924_SelectToken_WildcardAndEmptyNames`).
+    ObjectWild,
+    /// `[start:end:step]`; any part may be left out (:585 `P6924_SelectToken_Slices`, :154 `slice_minus_1`).
+    Slice(Option<i64>, Option<i64>, Option<i64>),
+    /// `['a','b']`: the children that exist (:85 `Union_OfKeys`).
+    Union(Vec<String>),
     /// `..name`: every descendant named `name`.
     Descent(String),
+    /// `..*`: every descendant (:505 `descent_star`; used form only).
+    DescentAny,
+    /// `..[n]`: element n of every array below (:505 `descent_index`; used form only).
+    DescentIndex(i64),
     /// `[?(@.name == x)]` (`filter`).
     Filter(filter::Filter),
 }
@@ -2175,12 +2184,82 @@ enum PathErr {
     BadIndex,
     /// A filter the platform cannot read (`filter::FilterErr::Invalid`).
     InvalidFilter,
-    /// A name in double quotes, `["a"]`: false when the result is used (json/lt-dc-json-leads/DcJsonLeads.al:306, :340).
+    /// A name in double quotes, `["a"]`: false when the result is used (json/DcJsonLeads.al:306, :340).
     DoubleQuoted,
     Refused(Signal),
 }
 
-/// Dotted names, `[n]` / `['name']` / `[*]` / `[a:b]` indexers and `..name`, with an optional leading `$`.
+/// The end of the indexer that opens at `open`: the first `]` outside single quotes (a backslash escapes a character in
+/// quotes). A stray quote falls back to the first `]`.
+fn bracket_end(p: &str, open: usize) -> Option<usize> {
+    let mut quoted = false;
+    let mut skip = false;
+    for (k, ch) in p[open + 1..].char_indices() {
+        match (skip, ch) {
+            (true, _) => skip = false,
+            (false, '\\') if quoted => skip = true,
+            (false, '\'') => quoted = !quoted,
+            (false, ']') if !quoted => return Some(open + 1 + k),
+            _ => {}
+        }
+    }
+    p[open..].find(']').map(|c| c + open)
+}
+
+/// `'a'` or `'a','b'`: single-quoted names, `\'` and `\\` escaped (json/DbJPathLeads.al:545 `quoted_escaped_quote`). None when
+/// the text is anything else.
+fn quoted_names(inner: &str) -> Option<Vec<String>> {
+    let mut names = Vec::new();
+    let mut chars = inner.chars().peekable();
+    loop {
+        if chars.next()? != '\'' {
+            return None;
+        }
+        let mut name = String::new();
+        loop {
+            match chars.next()? {
+                '\'' => break,
+                '\\' => match chars.next()? {
+                    c @ ('\'' | '\\') => name.push(c),
+                    _ => return None,
+                },
+                c => name.push(c),
+            }
+        }
+        names.push(name);
+        match chars.next() {
+            None => return Some(names),
+            Some(',') => {}
+            Some(_) => return None,
+        }
+    }
+}
+
+/// `a:b:c` with every part a whole number or empty.
+fn slice_parts(inner: &str) -> Option<Seg> {
+    let parts: Vec<&str> = inner.split(':').collect();
+    if !(2..=3).contains(&parts.len()) {
+        return None;
+    }
+    let mut n = parts.iter().map(|t| match t.trim() {
+        "" => Some(None),
+        t => t.parse::<i64>().ok().map(Some),
+    });
+    let (a, z, step) = (n.next()??, n.next()??, n.next().unwrap_or(Some(None))?);
+    Some(Seg::Slice(a, z, step))
+}
+
+/// A whole number as AL reads it in an indexer: digits with an optional `-`, blanks around (`[ 1 ]`, `[01]`; not `[+1]`,
+/// `[1.0]`: json/DbJPathLeads.al:665 `P6924_SelectToken_IndexerForms`).
+fn index_number(inner: &str) -> Option<i64> {
+    let t = inner.trim();
+    let digits = t.strip_prefix('-').unwrap_or(t);
+    (!digits.is_empty() && digits.bytes().all(|c| c.is_ascii_digit()))
+        .then(|| t.parse().ok())
+        .flatten()
+}
+
+/// Dotted names, `[n]` / `['name']` / `['a','b']` / `[*]` / `[a:b:c]` indexers and `..name`, with an optional leading `$`.
 /// Filters as `filter` reads them.
 fn parse_path(p: &str) -> Result<Vec<Seg>, PathErr> {
     let refuse = |what: &str| PathErr::Refused(Signal::Unsupported(what.into()));
@@ -2193,32 +2272,8 @@ fn parse_path(p: &str) -> Result<Vec<Seg>, PathErr> {
     while i < b.len() {
         match b[i] {
             b'[' => {
-                let close = p[i..].find(']').map(|c| c + i).ok_or(PathErr::Unclosed)?;
-                let inner = &p[i + 1..close];
-                if let Some(q) = inner.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) {
-                    segs.push(Seg::Key(q.to_string()));
-                } else if let Ok(n) = inner.parse::<i64>() {
-                    segs.push(Seg::Index(n));
-                } else if inner == "*" {
-                    segs.push(Seg::Wild);
-                } else if let Some((a, z)) = inner.split_once(':') {
-                    match (a.parse::<usize>(), z.parse::<usize>()) {
-                        (Ok(a), Ok(z)) => segs.push(Seg::Slice(a, z)),
-                        _ => return Err(refuse("SelectToken slice form not pinned by the corpus")),
-                    }
-                } else if inner.len() >= 2 && inner.starts_with('"') && inner.ends_with('"') {
-                    return Err(PathErr::DoubleQuoted);
-                } else if inner.starts_with('?') {
-                    match filter::parse(inner) {
-                        Ok(f) => segs.push(Seg::Filter(f)),
-                        Err(filter::FilterErr::Invalid) => return Err(PathErr::InvalidFilter),
-                        Err(filter::FilterErr::Refused(why)) => return Err(refuse(why)),
-                    }
-                } else if inner.starts_with('(') || inner.contains(',') {
-                    return Err(refuse("SelectToken indexer form not pinned by the corpus"));
-                } else {
-                    return Err(PathErr::BadIndex);
-                }
+                let close = bracket_end(p, i).ok_or(PathErr::Unclosed)?;
+                segs.push(parse_indexer(&p[i + 1..close])?);
                 i = close + 1;
             }
             c => {
@@ -2228,9 +2283,25 @@ fn parse_path(p: &str) -> Result<Vec<Seg>, PathErr> {
                     if b.get(i) == Some(&b'.') {
                         descent = true;
                         i += 1;
-                    } else if b.get(i) == Some(&b'[') && b.get(i + 1) == Some(&b'?') {
-                        // `$.[?(@.id==2)]` (al-runner issue 6588): the dot before a filter is skipped
-                        // (json/lt-db-json-leads/DbJPathLeads.al:249 `dot` and :353 `tok_dot`).
+                        if b.get(i) == Some(&b'[') {
+                            let close = bracket_end(p, i).ok_or(PathErr::Unclosed)?;
+                            let Some(n) = index_number(&p[i + 1..close]) else {
+                                return Err(refuse(
+                                    "SelectToken `..` before an indexer that is not a number (not pinned)",
+                                ));
+                            };
+                            segs.push(Seg::DescentIndex(n));
+                            i = close + 1;
+                            continue;
+                        }
+                        if b.get(i) == Some(&b'*') && matches!(b.get(i + 1), None | Some(b'.' | b'[')) {
+                            segs.push(Seg::DescentAny);
+                            i += 1;
+                            continue;
+                        }
+                    } else if b.get(i) == Some(&b'[') {
+                        // `$.[?(@.id==2)]` (al-runner issue 6588), `$.[A,B]` (json/DbJPathLeads.al:85 `Union_OfKeys`): the
+                        // dot before an indexer is skipped (:249 `dot`, :353 `tok_dot`).
                         continue;
                     }
                 }
@@ -2239,17 +2310,60 @@ fn parse_path(p: &str) -> Result<Vec<Seg>, PathErr> {
                     i += 1;
                 }
                 let name = &p[s..i];
-                if name.is_empty() || name.contains(['*', '?', '@']) {
+                // A dot that ends the path, or a blank inside a name, is a path the platform cannot read
+                // (json/DbJPathLeads.al:465 `trailing_dot`, `root_dot`; :705 `blank_around_dot`; :545 `dotted_blank`).
+                if !descent && i >= b.len() && name.is_empty() && c == b'.' || name.contains(char::is_whitespace) {
+                    return Err(PathErr::BadIndex);
+                }
+                if name.is_empty() || name.contains(['?']) || (name.contains('*') && name != "*") {
                     return Err(refuse("SelectToken path form not pinned by the corpus"));
                 }
-                segs.push(match descent {
-                    true => Seg::Descent(name.to_string()),
-                    false => Seg::Key(name.to_string()),
+                segs.push(match (descent, name) {
+                    (true, n) => Seg::Descent(n.to_string()),
+                    (false, "*") => Seg::ObjectWild,
+                    (false, n) => Seg::Key(n.to_string()),
                 });
             }
         }
     }
     Ok(segs)
+}
+
+/// The step of a path for the text `inner` between `[` and `]`.
+fn parse_indexer(inner: &str) -> Result<Seg, PathErr> {
+    let refuse = |what: &str| PathErr::Refused(Signal::Unsupported(what.into()));
+    if inner.starts_with('\'') {
+        return match quoted_names(inner) {
+            Some(mut v) if v.len() == 1 => Ok(Seg::Key(v.remove(0))),
+            Some(v) => Ok(Seg::Union(v)),
+            None => Err(refuse("SelectToken quoted name form not pinned by the corpus")),
+        };
+    }
+    if let Some(n) = index_number(inner) {
+        return Ok(Seg::Index(n));
+    }
+    if inner == "*" {
+        return Ok(Seg::Wild);
+    }
+    if inner.contains(':') && !inner.starts_with('?') {
+        return slice_parts(inner).ok_or_else(|| refuse("SelectToken slice form not pinned by the corpus"));
+    }
+    if inner.len() >= 2 && inner.starts_with('"') && inner.ends_with('"') {
+        return Err(PathErr::DoubleQuoted);
+    }
+    if inner.starts_with('?') {
+        return match filter::parse(inner) {
+            Ok(f) => Ok(Seg::Filter(f)),
+            Err(filter::FilterErr::Invalid) => Err(PathErr::InvalidFilter),
+            Err(filter::FilterErr::Refused(why)) => Err(refuse(why)),
+        };
+    }
+    // `[(@.length-1)]` and unquoted names, `[A,B]`, are paths the platform cannot read (json/DbJPathLeads.al:85, :154).
+    // Whole numbers in a union are not pinned.
+    if inner.contains(',') && inner.split(',').any(|t| index_number(t).is_some()) {
+        return Err(refuse("SelectToken indexer form not pinned by the corpus"));
+    }
+    Err(PathErr::BadIndex)
 }
 
 /// The descendants of `h` named `name`, in document order.
@@ -2275,91 +2389,37 @@ fn select_token(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Resu
     let used = c.ret_used();
     // A path the platform cannot read answers false when the result is used (json/JsonObjectBasics.al:329 `select_bad`, an
     // unclosed indexer) and raises "The requested operation cannot be performed in this context." (InvalidOperation) as a
-    // statement (:369-380). A bad index with the result used is not pinned.
+    // statement (:369-380). A bad index, a trailing dot or a blank in a name with the result used: false and the same last
+    // error without raising (json/DbJPathLeads.al:665 `index_letters_used`, :465 `trailing_dot`).
+    let invalid_op = || {
+        error(
+            "The requested operation cannot be performed in this context.",
+            "InvalidOperation",
+        )
+    };
     let segs = match parse_path(&p) {
         Ok(s) => s,
         Err(PathErr::Unclosed) if used => return Ok(Value::Boolean(false)),
-        Err(PathErr::BadIndex) if used => return unsupported("SelectToken with a bad index, result used (not pinned)"),
+        Err(PathErr::BadIndex) if used => return Ok(filter::invalid(c)),
         Err(PathErr::InvalidFilter) if used => return Ok(filter::invalid(c)),
         Err(PathErr::DoubleQuoted) if used => return Ok(Value::Boolean(false)),
-        Err(PathErr::DoubleQuoted) => {
-            return unsupported("SelectToken with a double-quoted name as a statement (not pinned)");
-        }
+        // A name in double quotes as a statement raises the same error (DbJPathLeads.al:785 `stmt_double_quoted`).
+        Err(PathErr::DoubleQuoted | PathErr::Unclosed | PathErr::BadIndex) => return Err(invalid_op()),
         Err(PathErr::InvalidFilter) => {
             return unsupported("SelectToken with a double-quoted filter text as a statement (not pinned)");
-        }
-        Err(PathErr::Unclosed | PathErr::BadIndex) => {
-            return Err(error(
-                "The requested operation cannot be performed in this context.",
-                "InvalidOperation",
-            ));
         }
         Err(PathErr::Refused(e)) => return Err(e),
     };
     if segs.iter().any(|s| matches!(s, Seg::Filter(_))) {
         return filter::select(h, &segs, &p, used, &mut a[1]);
     }
-    let last = segs.len().saturating_sub(1);
-    let mut cur = h;
-    for (n, seg) in segs.iter().enumerate() {
-        let found: Vec<Handle> = match seg {
-            Seg::Descent(name) => {
-                let mut out = Vec::new();
-                descendants_named(&cur, name, &mut out);
-                out
-            }
-            _ => with_node(&cur, |node| match (node, seg) {
-                (JsonNode::Object(kids), Seg::Key(k)) => {
-                    kids.iter().filter(|(e, _)| e == k).map(|(_, c)| c.clone()).collect()
-                }
-                (JsonNode::Array(kids), Seg::Index(i)) => usize::try_from(*i)
-                    .ok()
-                    .and_then(|i| kids.get(i).cloned())
-                    .into_iter()
-                    .collect(),
-                (JsonNode::Array(kids), Seg::Wild) => kids.clone(),
-                (JsonNode::Array(kids), Seg::Slice(s, z)) => {
-                    kids.iter().skip(*s).take(z.saturating_sub(*s)).cloned().collect()
-                }
-                _ => Vec::new(),
-            }),
-        };
-        let plain = matches!(seg, Seg::Key(_) | Seg::Index(_));
-        match found.len() {
-            1 => cur = found.into_iter().next().expect("one"),
-            // A name or an index that matches nothing (json/JsonObjectBasics.al:316 `select_missing`, :320 `select_arr_oob`,
-            // :323 `select_neg`).
-            0 if plain && used => return Ok(Value::Boolean(false)),
-            0 if plain => {
-                return unsupported("SelectToken without a match, result unused (error text not pinned yet)");
-            }
-            // `[*]` that ends the path and matches more than one token: false when the result is used (:324 `select_wild`),
-            // else "The set of tokens matching the JSON path '<path>' contains more than one element."
-            // (InvalidJsonPathSelection, :363 and :373-374).
-            m if m > 1 && matches!(seg, Seg::Wild) && n == last => {
-                if used {
-                    return Ok(Value::Boolean(false));
-                }
-                return Err(error(
-                    format!("The set of tokens matching the JSON path '{p}' contains more than one element."),
-                    "InvalidJsonPathSelection",
-                ));
-            }
-            _ => {
-                return unsupported(
-                    "SelectToken with a wildcard, a slice or `..` that matches no token, or more than one (not pinned)",
-                );
-            }
-        }
-    }
-    a[1] = tagged("JsonToken", cur);
-    Ok(Value::Boolean(true))
+    walk::select(c, h, &segs, &p, used, &mut a[1])
 }
 
 // ----------------------------------------------------------- SelectTokens
 
-/// One step of a `SelectTokens` path. Only the forms json/lt-json-selecttokens/SelectTokensList.al,
-/// json/lt-ay-json/AyJsonTokenSelectTokens.al and json/lt-dc-json-leads/DcJsonLeads.al:412-442 pin.
+/// One step of a `SelectTokens` path. Only the forms json/json/SelectTokensList.al,
+/// json/AyJsonTokenSelectTokens.al and json/DcJsonLeads.al:412-442 pin.
 enum ManySeg {
     Key(String),
     Index(i64),
@@ -2580,7 +2640,7 @@ fn select_tokens(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Res
 
 // ---------------------------------------------------- WriteWithSecretsTo
 
-/// The text of a SecretText argument: a cleared one is empty (json/lt-json-select-secrets/WriteWithSecrets.al:63
+/// The text of a SecretText argument: a cleared one is empty (json/json/WriteWithSecrets.al:63
 /// `empty_secret`).
 fn secret_text(v: &Value) -> Result<String, Signal> {
     match v {
@@ -2594,7 +2654,7 @@ fn secret_text(v: &Value) -> Result<String, Signal> {
 }
 
 /// Puts `secret` at `path` in the copy `root`: `Ok(false)` when the platform answers false. Pinned by
-/// json/lt-json-select-secrets/WriteWithSecrets.al: a dotted name with or without `$.` that names a string is replaced
+/// json/json/WriteWithSecrets.al: a dotted name with or without `$.` that names a string is replaced
 /// (:40-45); a number, an object or an array element that is a number (:46-51, :126 `$.n`), a missing name (:52), an empty
 /// path (:55), an unclosed indexer (:70) and `a..b` on a missing `a` (:73) answer false.
 fn put_secret(root: &Handle, path: &str, secret: &str) -> Result<bool, Signal> {
@@ -2685,7 +2745,7 @@ fn write_with_secrets(
     Ok(Value::Boolean(true))
 }
 
-/// `WriteWithSecretsTo(Path, Secret, var Result)` (json/lt-json-select-secrets/WriteWithSecrets.al:30-90).
+/// `WriteWithSecretsTo(Path, Secret, var Result)` (json/json/WriteWithSecrets.al:30-90).
 fn write_with_secret_path(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
     let Some(path) = crate::native::text_of(&a[0]) else {
         return unsupported("WriteWithSecretsTo path that is not text");
@@ -2695,7 +2755,7 @@ fn write_with_secret_path(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value
 }
 
 /// `WriteWithSecretsTo(Secrets: Dictionary of [Text, SecretText], var Result)`: every key is a path; an empty dictionary
-/// writes the object as it is (json/lt-json-select-secrets/WriteWithSecrets.al:92-138). Microsoft's Shopify Connector
+/// writes the object as it is (json/json/WriteWithSecrets.al:92-138). Microsoft's Shopify Connector
 /// calls it with `$.name` keys (Shpfy Authentication Mgt. ExecuteTokenRequest), the form :40-43 and :112-115 pin.
 fn write_with_secret_dictionary(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
     let Value::Dictionary(d) = &a[0] else {

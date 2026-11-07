@@ -1,14 +1,20 @@
 //! The platform table Tenant Report Layout (2000000232), a stored table with these pinned limits
-//! (report/lt-sc-report-metadata-views/Y6TenantReportLayoutRows.al, corpus master, BC 27, 28 and 29):
+//! (reports/runtime/Y6TenantReportLayoutRows.al and TrlResourceRows.al, corpus master, BC 27, 28 and 29):
 //!
-//! - A fresh tenant holds rows here that nothing pins (12 on the SaaS Dev tenant), none of a report of the app under test
-//!   (:16-33: Count 0, also for the current company, FindFirst No). So a read, `DeleteAll` or `ModifyAll` is answered only
-//!   when a filter keeps the `Report ID` of one report of an app that is not Microsoft's; any other is refused.
-//! - Insert of a row of such a report whose `Layout Format` is RDLC and whose Layout holds the report's own RDLC layout
-//!   (Report.RdlcLayout) is stored as given: true, Company Name and MIME Type blank, the App ID null (:35-89). A second
-//!   Insert of the key answers false (an ordinary duplicate). Every other Insert is refused: a blank row and one with an empty
-//!   RDLC layout raise errors whose text the corpus pins only in part (ScReportMetadataViews.al:95-134).
-//! - Get, Modify, Delete and Rename are not pinned: refused.
+//! - A fresh tenant holds no row (TrlResourceRows.al:84-97 FreshTenant_AllRows: Count 0 and an empty FindSet, no filter), so
+//!   the reads (Find*, Next, Count, IsEmpty, Get) and Delete or DeleteAll answer from the rows the session inserted.
+//!   ModifyAll stays limited to a filter on the Report ID of one report of an app that is not Microsoft's; Modify, Rename and
+//!   the other writes are not pinned: refused.
+//! - Insert of a row whose Layout holds a stream, for a report that has layouts, with Layout Format RDLC, Word, Excel or
+//!   Custom: true for Microsoft report 1305 and own reports (TrlResourceRows.al:228-388, Insert_*); the row reads back with
+//!   a blank Company Name, MIME Type and Description, the null App ID, and Layout.HasValue Yes. A second Insert of the key
+//!   answers false (Y6TenantReportLayoutRows.al:76). Custom with an empty or unknown Custom Type reads back as Layout Format
+//!   External (the table's own name for the option's fourth member) with the bytes unchanged (:360-388); RDLC, Word and Excel store bytes BC rewrites (the length differs from
+//!   the file and by version, :243-343): the Layout media is marked and any look at its bytes is refused.
+//! - Every other Insert is refused: a blank row and one with an empty layout raise errors whose text the corpus pins only in
+//!   part (ScReportMetadataViews.al:95-134, Y6TenantReportLayoutRows.al:457-467), a processing-only or unknown report
+//!   (:474-509), and layout bytes that are no XML (RDLC) or no zip package (Word, Excel), which BC answers with an uncatchable
+//!   exception (Y6TenantReportLayoutRows.al:11-13).
 
 use crate::Session;
 use al_builtins::native::Signal;
@@ -23,6 +29,9 @@ type Rec = Rc<RefCell<RecordState>>;
 const TENANT_REPORT_LAYOUT: u32 = 2_000_000_232;
 /// The `Layout Format` option of an RDLC layout (the System app's table: `RDLC,Word,Excel,Custom`).
 const RDLC: i32 = 0;
+const WORD: i32 = 1;
+const EXCEL: i32 = 2;
+const CUSTOM: i32 = 3;
 
 fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
     Err(Signal::Unsupported(what.into()))
@@ -54,8 +63,10 @@ impl Session {
             | RecordOp::Next
             | RecordOp::Count
             | RecordOp::IsEmpty
-            | RecordOp::DeleteAll
-            | RecordOp::ModifyAll => {
+            | RecordOp::Get
+            | RecordOp::Delete
+            | RecordOp::DeleteAll => Ok(()),
+            RecordOp::ModifyAll => {
                 if self.own_report_filter(t, rec).is_some() {
                     Ok(())
                 } else {
@@ -63,12 +74,7 @@ impl Session {
                 }
             }
             RecordOp::Insert => self.tenant_report_layout_insert(t, rec),
-            m if m.writes()
-                || matches!(
-                    m,
-                    RecordOp::Get | RecordOp::GetBySystemId | RecordOp::CalcSums | RecordOp::CountApprox
-                ) =>
-            {
+            m if m.writes() || matches!(m, RecordOp::GetBySystemId | RecordOp::CalcSums | RecordOp::CountApprox) => {
                 refuse(m.name())
             }
             _ => Ok(()),
@@ -104,14 +110,11 @@ impl Session {
     }
 
     fn tenant_report_layout_insert(&mut self, t: &TableDef, rec: &Rec) -> Result<(), Signal> {
-        let refuse = || {
-            unsupported(
-                "Insert on Tenant Report Layout of another row than one of a report of the app under test whose Layout is the report's own RDLC layout (not pinned)",
-            )
-        };
+        const WHAT: &str = "Insert on Tenant Report Layout of";
+        let refuse = |why: &str| unsupported(format!("{WHAT} {why} (not pinned)"));
         let field = |id: u32| t.fields.iter().position(|f| f.id == id);
         let (Some(report), Some(layout), Some(format)) = (field(1), field(7), field(8)) else {
-            return refuse();
+            return refuse("a table without the pinned fields");
         };
         let (report_id, media, format) = {
             let r = rec.borrow();
@@ -121,21 +124,49 @@ impl Session {
                 r.fields[format].clone(),
             )
         };
-        let (Value::Integer(report_id), Value::Option(RDLC, _)) = (report_id, format) else {
-            return refuse();
+        let (Value::Integer(report_id), Value::Option(format, _)) = (report_id, format) else {
+            return refuse("a row without a report id or layout format");
         };
-        let Some(object) = self.own_report(report_id) else {
-            return refuse();
-        };
-        let Some(file) = self.default_rdlc_layout_file(object) else {
-            return refuse();
-        };
+        if !(RDLC..=CUSTOM).contains(&format) {
+            return refuse("a row with a Layout Format other than RDLC, Word, Excel and Custom");
+        }
+        let program = &self.engine.program;
+        let known = program
+            .objects
+            .iter()
+            .find(|o| o.report.is_some() && o.id == u32::try_from(report_id).ok());
+        match known.and_then(|o| o.report.as_ref()) {
+            Some(r) if !r.processing_only => {}
+            Some(_) => return refuse("a processing-only report"),
+            None => return refuse("a report the app and its dependencies do not declare"),
+        }
         let Value::Guid(id) = media else {
-            return refuse();
+            return refuse("a row without a Layout");
         };
-        let same = self.media.objects.borrow().get(&id).is_some_and(|m| m.bytes == file);
-        if !same {
-            return refuse();
+        if id == [0; 16] {
+            return refuse("a row without a Layout");
+        }
+        let mut objects = self.media.objects.borrow_mut();
+        let Some(object) = objects.get_mut(&id) else {
+            return refuse("a Layout the session does not hold");
+        };
+        // A second Insert of the same row finds the mark the first one put on the media.
+        let marked = object.pending.as_deref() == Some(al_builtins::stream::TENANT_LAYOUT_STORED);
+        if (object.pending.is_some() && !marked) || object.bytes.is_empty() {
+            return refuse("an empty Layout, or one whose content was never produced");
+        }
+        let bytes = &object.bytes;
+        let text_start = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF][..]).unwrap_or(bytes);
+        let shaped = match format {
+            RDLC => text_start.first() == Some(&b'<'),
+            WORD | EXCEL => bytes.starts_with(b"PK"),
+            _ => true,
+        };
+        if !shaped {
+            return refuse("a Layout whose bytes do not match its format (BC raises an uncatchable exception there)");
+        }
+        if format != CUSTOM {
+            object.pending = Some(al_builtins::stream::TENANT_LAYOUT_STORED.into());
         }
         Ok(())
     }

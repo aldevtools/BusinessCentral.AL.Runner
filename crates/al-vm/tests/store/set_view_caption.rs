@@ -1,5 +1,5 @@
 //! SetView of a view GetView wrote when a field's caption differs from its name (pinned by
-//! record/lt-setview-caption/SetViewByCaption.al; Tests-ERM ERM Purchase Payables PurchaseInvoiceAmountExclVATWithInheritFromParentAllocationAccount
+//! record/views/SetViewByCaption.al; Tests-ERM ERM Purchase Payables PurchaseInvoiceAmountExclVATWithInheritFromParentAllocationAccount
 //! runs Purchase Alloc. Acc. Mgt. ReplaceInheritFromParent: `SetView(GetView())` on a table whose "Line No." has Caption 'Primary Key').
 
 use al_testkit::text;

@@ -7,7 +7,7 @@
 #   1. both branches add an entry in the same area (ids next to each other);
 #   2. one branch removes the last entry, the other adds one.
 # Each pair is merged with plain git (no merge drivers: GitHub's merges ignore .gitattributes). The table in
-# docs/probes-needed.md is not part of it: feature branches leave it to the regen bot.
+# docs/probes-needed.md is not part of it: the pull request that changes the registry regenerates its table (ADR-065).
 # Exit 0 when every merge is clean, 1 otherwise.
 #
 # Usage: tools/assumption_merge_check.sh [ROOT]   (ROOT defaults to the checkout this script is in)

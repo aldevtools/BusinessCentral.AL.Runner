@@ -1,5 +1,5 @@
 //! `Format(Variant, 0, N)` with a standard format number 3 to 8 raises an error that names the type 'Variant', whatever the
-//! variant holds (corpus types/lt-scalars/ScT70052.al:Integer_Numbers, n3 to n8; 0 to 2 and 9 format the value).
+//! variant holds (corpus types/decimal-integer/ScT70052.al:Integer_Numbers, n3 to n8; 0 to 2 and 9 format the value).
 
 use al_testkit::text;
 

@@ -13,9 +13,8 @@ Read `docs/agents/brief.md` first. It holds the rules for the work itself.
 - **.NET 8 SDK.** The runtime starts a .NET 8 helper for AL code that uses the
   `DotNet` type. The helper builds itself on first use when the SDK is present.
   Without .NET, tests that reach a `DotNet` call are refused, and
-  `--update-baseline` is refused too (the new baseline would be incomplete).
-  You cannot finish a task that changes the passing set without .NET. Install
-  it.
+  a run fails with regressions for them and `--list-new-cases` is refused.
+  You cannot finish a task without .NET. Install it.
 - **git, `gh`, `python3`.** `gh auth status` must show a login with push
   rights to `aldevtools/BusinessCentral.AL.Runner`. `python3` is needed by
   `tools/demand_vs_eager.sh`.
@@ -199,7 +198,8 @@ write and measure the probes locally until green on BC 29; merge
 matrix on it; comment the report (topic, members pinned with file names, members
 left and why, findings that surprised you, the CI run) and label `ready-for-review`.
 The publisher (a local agent) merges your branch into staging. When no topic issue is
-left, take the next type from `docs/corpus-coverage.md` (pinned X of Y per type),
+left, take the next type from `docs/corpus-coverage.md` (pinned X of Y per type; make it with
+`al-test-cli --root . --coverage-map`, it is not committed),
 open a `corpus-topic` issue for it labelled `found-by-agent`, and take it.
 
 Starting prompt for this mode:

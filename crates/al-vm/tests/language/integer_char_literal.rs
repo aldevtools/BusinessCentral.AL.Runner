@@ -1,5 +1,5 @@
 //! An Integer next to a one-character text literal under `+`, `-`, `=` and `>`: the literal is a Char, so the two add, subtract
-//! and compare as numbers (types/lt-wc/WcIntegerCharLiteral.al, al-runner issue 6300).
+//! and compare as numbers (types/text-code-char/WcIntegerCharLiteral.al, al-runner issue 6300).
 
 use al_testkit::text;
 

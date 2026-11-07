@@ -143,6 +143,7 @@ impl Describe for LibraryValue {
         match self {
             LibraryValue::Empty => "an untouched handle".into(),
             LibraryValue::HandedContext => "a context the test framework handed over".into(),
+            LibraryValue::HandlerContext(_) => "a TestHandlerContext the test runner handed over".into(),
             LibraryValue::Text(_) | LibraryValue::TextCap(..) => "a text handle".into(),
             LibraryValue::RecordRef(_) => "RecordRef".into(),
             LibraryValue::FieldRef(..) | LibraryValue::KeyFieldRef(..) | LibraryValue::UserNameFieldRef { .. } => {
@@ -415,6 +416,6 @@ mod tests {
         assert_eq!(RtType::List(Box::new(RtType::Integer)).describe(), "List of [Integer]");
         assert_eq!(RtType::Record(4, true).describe(), "temporary Record");
         assert_eq!(RtType::Library("JsonArray".into()).describe(), "JsonArray");
-        assert_eq!(RtType::Option(vec!["A".into()]).describe(), "Option");
+        assert_eq!(RtType::Option(vec!["A".into()].into()).describe(), "Option");
     }
 }

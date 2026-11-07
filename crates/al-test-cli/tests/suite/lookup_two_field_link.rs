@@ -1,7 +1,7 @@
 //! TestField.Lookup through OnLookup on a page whose ListPart has a SubPageLink of two `field(..)` entries shows the picked
-//! value (pages/lt-wb-6290/WbLookupListPartTests.al:21-31 OnePartWithTwoLinkedFieldsShowsThePickedResource; one entry:
-//! pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al; al-runner issue 6290). Three entries on a host without row triggers:
-//! al-runner issue 6466 (corpus writer Y15, pages/lt-y15/Y15LookupThreeFieldLink.al:194).
+//! value (testpage/WbLookupListPartTests.al:21-31 OnePartWithTwoLinkedFieldsShowsThePickedResource; one entry:
+//! testpage/ScLookupGlobalRecordField.al; al-runner issue 6290). Three entries on a host without row triggers:
+//! al-runner issue 6466 (corpus writer Y15, testpage/Y15LookupThreeFieldLink.al:194).
 
 use al_testkit::outcomes_in;
 

@@ -1,6 +1,6 @@
 //! A ModalPageHandler that raised an error left a modal page with an open part: the platform asks the part (None), then the
 //! page (its own action); when both allow the close, the page closes and RunModal raises the handler's error
-//! (pages/lt-wb-6291/WbModalHandlerCloseTests.al:9-39, al-runner issue 6291). Outside lookup mode it is not pinned.
+//! (ui-handlers/WbModalHandlerCloseTests.al:9-39, al-runner issue 6291). Outside lookup mode it is not pinned.
 
 use al_testkit::outcomes_in;
 

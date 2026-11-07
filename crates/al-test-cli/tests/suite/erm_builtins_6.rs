@@ -36,7 +36,7 @@ fn not_run(o: &(String, Outcome)) -> String {
 }
 
 // An Integer key for an Enum field is named as the key's enum value in the not-found error
-// (corpus errors/lt-ms-refusals-138/P138EnumGetNotFound.al:126-130).
+// (corpus errors/P138EnumGetNotFound.al:126-130).
 #[test]
 fn an_integer_key_for_an_enum_field_names_the_enum_value_when_not_found() {
     let o =
@@ -64,7 +64,7 @@ fn get_by_record_id_on_a_closed_record_ref_opens_the_table_of_the_record_id() {
 }
 
 /// `Database.SID()` without a user name: the probe (corpus branch al-runtime-rs-staging, ae3fe88,
-/// tests/al-language-onprem/session/PXDatabaseSid.al) passes a name every time, so whose SID the
+/// tests/al-language-onprem/session-system/PXDatabaseSid.al) passes a name every time, so whose SID the
 /// call without one answers is not pinned. Refused when it runs, with its reason.
 #[test]
 fn database_sid_without_a_user_name_is_refused_with_its_reason() {

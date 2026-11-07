@@ -21,9 +21,9 @@ impl Session {
 
     /// The variables a SaveValues page stores: (owner, global slot) of every control bound to a variable. On a page that
     /// includes the variables of its page extensions, their own and the base page's protected ones they bind
-    /// (misc/lt-probes-needed-6/PnF02SaveValuesExt.al:157-205, SaveValues_Ext_OkThenReopen `second_B`, `second_D`,
+    /// (pages/PnF02SaveValuesExt.al:157-205, SaveValues_Ext_OkThenReopen `second_B`, `second_D`,
     /// `second_E`); a request page keeps its own, and the own ones of a reportextension that changes the run
-    /// (al-language-onprem/report/lt-y60-reportext-saveasxml/Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun:
+    /// (al-language-onprem/reports/layouts-saveas/Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun:
     /// `basis=Details showall=Yes`); another report extension's is not pinned.
     pub(in crate::pages) fn var_slots(&self, st: &St) -> Vec<(Option<usize>, usize)> {
         let engine = self.engine();
@@ -56,7 +56,7 @@ impl Session {
     }
 
     /// A SaveValues request page that a reportextension changing the run extends: the close by SaveAsXml stores the values of the
-    /// base and the extension, and the close by Cancel stores nothing (al-language-onprem/report/lt-y60-reportext-saveasxml/
+    /// base and the extension, and the close by Cancel stores nothing (al-language-onprem/reports/layouts-saveas/
     /// Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun). The close by `close` (OK, an error) is not pinned.
     pub(in crate::pages) fn refuse_ext_save_values_close(&self, st: &St, close: &str) -> Result<(), Signal> {
         let object = st.borrow().object as usize;
@@ -95,44 +95,13 @@ impl Session {
         self.pages.saved_values.insert(object, saved);
     }
 
-    /// A SaveValues request page closed by Cancel: whether a data item's filters the page changed are kept. The stored record
-    /// is a copy (`detached`), so they are not; that a Cancel does not store the page's variables is pinned
-    /// (handlers/TestReportRequestPageSaveValues.al, misc/lt-probes-needed-6/PnF02SaveValuesExt.al), for a data item's
-    /// filters it is assumed (request-page-cancel-keeps-saved-filters, al-runner issue 6065).
-    pub(in crate::pages) fn note_cancelled_saved_filters(&mut self, st: &St) {
-        if !self.is_request_page(st) || !self.save_values(st) {
-            return;
-        }
-        let object = st.borrow().object;
-        let Some(saved) = self.pages.saved_values.get(&object) else {
-            return;
-        };
-        let Some(inst) = st.borrow().instance.clone() else {
-            return;
-        };
-        let filters = |r: &Rc<RefCell<RecordState>>| -> Vec<(usize, i32, Option<String>)> {
-            r.borrow()
-                .filters
-                .iter()
-                .map(|f| (f.field, f.group, self.filter_text(&f.expr).ok()))
-                .collect()
-        };
-        let changed = saved
-            .iter()
-            .filter(|(owner, _, _)| owner.is_none())
-            .any(|(_, slot, v)| {
-                let cur = inst.borrow().globals[*slot].clone();
-                match (v, &cur) {
-                    (Value::Record(s), Value::Record(c)) => filters(s) != filters(c),
-                    _ => false,
-                }
-            });
-        if changed {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RequestPageCancelKeepsSavedFilters);
-        }
-    }
-
     pub(in crate::pages) fn restore_page_values(&mut self, st: &St) {
+        // The page `RunRequestPage` opens shows the defaults, not what an earlier OK stored
+        // (reports/request-page/Y42RequestLeftOpen.al:723 RqOpen_RunRequestPage_SetValue `rrp log` `rp open text=init` after a
+        // run that stored `prime`).
+        if st.borrow().parameters_wanted {
+            return;
+        }
         let object = st.borrow().object;
         let Some(saved) = self.pages.saved_values.get(&object).cloned() else {
             return;
@@ -141,7 +110,7 @@ impl Session {
             return;
         };
         // A request page's variables that the caller set before the run (`SetParameters`) keep those values: corpus
-        // reportextensiontrigger/TestPrecompiledReportExtensionDataItems.al (Base Application's "Get Demand To Reserve"
+        // reports/extensions/TestPrecompiledReportExtensionDataItems.al (Base Application's "Get Demand To Reserve"
         // has SaveValues and an earlier run confirmed another demand type; the later run still goes by the one
         // `SetParameters` gave, `All` included). Which one wins in BC is assumed.
         let caller_set = self.is_request_page(st)
@@ -150,32 +119,39 @@ impl Session {
                 .prepared
                 .iter()
                 .any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, &inst)));
+        let caller_written = self
+            .report
+            .caller_writes
+            .iter()
+            .find(|(w, _)| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, &inst)))
+            .map(|(_, slots)| slots.clone())
+            .unwrap_or_default();
         for (owner, slot, v) in saved {
             // A page extension's variable, or the page's protected one an extension binds: restored as the page's own
-            // (misc/lt-probes-needed-6/PnF02SaveValuesExt.al:157-205).
+            // (pages/PnF02SaveValuesExt.al:157-205).
             if owner.is_some() {
                 let ext = self.owner_instance(st, owner);
                 ext.borrow_mut().globals[slot] = detached(&v);
                 continue;
             }
             // A data item the caller gave a view (`SetTableView`, or the record of `Report.Run`/`RunModal`) keeps that view over the
-            // filters stored from an earlier run. Which of the two a request page shows is not pinned: the corpus pins that an OK
-            // stores the view's filters (report/lt-requestpage-savevalues-date-text-setvalue/P147SaveValuesFilter.al:
-            // P147_Filter_SetTableViewVsStored `plain after OK on the SetTableView run`), not what a later view does against them.
+            // filters stored from an earlier run. The view wins on the page and an OK stores it (reports/request-page/Y86RequestFilters.al Y86_StoredFilter_*;
+            // reports/request-page/P147SaveValuesFilter.al:P147_Filter_SetTableViewVsStored).
             // Microsoft's "Suggest Fin. Charge Memo Lines" (SaveValues) is run once per memo with that memo as the record.
             if self.is_request_page(st) && matches!(&v, Value::Record(_)) {
                 if let Value::Record(cur) = &inst.borrow().globals[slot] {
                     if !cur.borrow().filters.is_empty() && self.report.view_filters_of(cur).is_some() {
-                        al_builtins::assumptions::assume(
-                            al_builtins::assumptions::Assumption::ReportViewOverStoredRequestFilters,
-                        );
                         continue;
                     }
                 }
             }
-            if caller_set && !matches!(v, Value::Record(_)) {
-                // The caller's value stays over the stored one (report/lt-requestpage-savevalues-date-text-setvalue/P147SaveValuesText.al:
+            if caller_set && !matches!(v, Value::Record(_)) && caller_written.contains(&slot) {
+                // The caller's value stays over the stored one (reports/request-page/P147SaveValuesText.al:
                 // P147_Text_StoredVsCaller_Ok, P147_Boolean_CallerFalseOverStoredTrue, P147_Option_CallerSelectedOverStoredAll).
+                // A control whose variable no procedure of the report writes keeps the stored value, and the stored values are restored
+                // before the request page's OnOpenPage (reports/request-page/SaveValuesOpenPageOrder.al:
+                // SaveValues_OpenPageRecompute_SecondRunOrder, SaveValues_CallerProcedureOnly_EditableFalse_SecondRun `other=[o1]`).
+                // Only the writes of the procedures the caller ran count (`Session::note_caller_writes`; reports/request-page/SaveValuesOpenPageOrder.al case 2, `run3 no SetLoc`).
                 continue;
             }
             // A stored data item record is copied into the record the instance holds: a reportextension's triggers reach the base

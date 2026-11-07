@@ -33,7 +33,7 @@ const SYSTEM_FIELD_BASE: u32 = 2_000_000_000;
 
 /// The field number AL code sees for a field. SystemRowVersion is field 0 there: the corpus pins that
 /// `KeyRef.FieldIndex(n).Number()` equals `FieldNo(SystemRowVersion)`
-/// (recordref/TestKeyMetadataRowVersionRemoved.al:51, :85) and that the rowversion "sits at field id 0"
+/// (recordref-fieldref/recordref/TestKeyMetadataRowVersionRemoved.al:51, :85) and that the rowversion "sits at field id 0"
 /// (record/TestCalcFormulaSystemFieldsTests.Codeunit.al:213-215); a real project reads
 /// `KeyRef.FieldIndex(1).Number = 0` for a key that starts with it ("FieldRef 0 is rowversion").
 /// No corpus test names the number itself: docs/probes-needed.md, batch 7. The other system fields
@@ -70,7 +70,7 @@ pub(crate) fn record_ref_value(rec: &crate::records::Rec) -> Value {
 }
 
 /// A `RecordRef` handle on the record `rec` itself: a change the subscriber makes reaches the row being written and the caller's
-/// variable (events/lt-platform-events-v/PeVTests.al:170 GlobalTriggers_SubscriberChangesTheRecordItIsHanded_RowI: `dbmut` and `dbmod`).
+/// variable (events/platform-triggers/PeVTests.al:170 GlobalTriggers_SubscriberChangesTheRecordItIsHanded_RowI: `dbmut` and `dbmod`).
 pub(crate) fn record_ref_shared(rec: &crate::records::Rec) -> Value {
     handle("RecordRef", LibraryValue::RecordRef(rec.clone()))
 }
@@ -93,7 +93,7 @@ fn int_arg(args: &[Value], i: usize) -> Result<i64, Signal> {
 }
 
 /// The fields of key `k` of a RecordRef: a declared key, or the implicit key on `SystemId` that
-/// follows them (corpus recordref/TestRecordRefRuntimeContracts.al:KeyRefAndFieldRef_Active_AreTrue_KeyCount
+/// follows them (corpus recordref-fieldref/recordref/TestRecordRefRuntimeContracts.al:KeyRefAndFieldRef_Active_AreTrue_KeyCount
 /// pins two keys for a table that declares only its primary key; tableextension/
 /// TestTableExtKeysAndInitValue.al names it the implicit SystemId key).
 fn key_fields(t: &TableDef, k: usize) -> Option<Vec<usize>> {
@@ -109,8 +109,8 @@ fn key_fields(t: &TableDef, k: usize) -> Option<Vec<usize>> {
 /// The table as the program declares it: without the ad hoc key a record may have appended.
 impl Session {
     /// A lock through a RecordRef: whether it starts the write transaction is pinned for Record only
-    /// (codeunit/TestCodeunitRunWriteTransaction.al:211-278), so a lock it started is marked as not pinned.
-    /// `RecordRef.SetTable(V)` with a RecordRef in the Variant V (recordref/lt-wc/WcSetTableVariant.al).
+    /// (codeunits/TestCodeunitRunWriteTransaction.al:211-278), so a lock it started is marked as not pinned.
+    /// `RecordRef.SetTable(V)` with a RecordRef in the Variant V (types/WcSetTableVariant.al).
     fn set_table_into_recordref(
         &mut self,
         rec: &Rc<RefCell<RecordState>>,
@@ -191,10 +191,10 @@ fn enumerable_fields_of(s: &Session, t: &TableDef) -> Vec<usize> {
         .collect();
     v.sort_by_key(|&i| t.fields[i].id);
     // A platform table lists its primary key fields first: Active Session is `2, 3, 1, 4, ...` and Time Zone
-    // `3, 1, 2` (session/W6SessionTimeZone.al:ColumnNames_*, BC 27.5 and 29.0). The order of a table of an app
+    // `3, 1, 2` (session-system/W6SessionTimeZone.al:ColumnNames_*, BC 27.5 and 29.0). The order of a table of an app
     // is by number, as before.
     // The FlowFields come after the other fields: Custom Report Layout lists 1, 2, 4, ..., 15 and then its FlowField 3
-    // (metadata/lt-custom-report-layout-columns/CustomReportLayoutColumns.al:33-44). The FlowFilters come between the normal
+    // (metadata/platform-tables/CustomReportLayoutColumns.al:33-44). The FlowFilters come between the normal
     // fields and the FlowFields (the same file, PW_FieldIndex_FlowFilterAmongNormalFields: `1, 3, 5, 7, 20`, then `2, 6`, then `4, 8`).
     let class = |i: usize| match s.field_property(t, i, "FieldClass") {
         Some(c) if c.trim().eq_ignore_ascii_case("FlowField") => 2,
@@ -228,7 +228,7 @@ impl Session {
     /// A field without `Enabled = false` (record/TestRowVersionFieldNumberFieldActiveContracts.al:
     /// a disabled field is not counted, not listed, not `FieldExist` and not `FieldActive`).
     /// A field with `ObsoleteState = Removed`: RecordRef does not count it, list it or find it
-    /// (recordref/PWRecordMisc.al:109-167, BC 27.5).
+    /// (recordref-fieldref/recordref/PWRecordMisc.al:109-167, BC 27.5).
     pub(crate) fn field_removed(&self, t: &TableDef, pos: usize) -> bool {
         self.field_property(t, pos, "ObsoleteState")
             .is_some_and(|v| v.trim().eq_ignore_ascii_case("Removed"))
@@ -295,7 +295,7 @@ impl Session {
     }
 
     /// The text of a `SetFilter` on a RecordId field, `<table name>: <key values>` as `Format(RecordId)` writes it, alone or after
-    /// `<>` (filters/lt-wc/WcRecordIdFilter.al, al-runner issue 6309): it filters on that RecordId, and `GetFilter` writes it back
+    /// `<>` (record/WcRecordIdFilter.al, al-runner issue 6309): it filters on that RecordId, and `GetFilter` writes it back
     /// (:118-137 WC_RecordIdFilter_FormatText, :166-186 WC_RecordIdFilter_PlaceholderAndRange `not equal`). The table is named by
     /// its name, not its caption; a text that names no table raises the evaluate error (:139-164 WC_RecordIdFilter_EmptyAndWrongText);
     /// a two-field key with one value given is accepted and keeps no row (`missing key part`). `None`: another filter text
@@ -338,7 +338,7 @@ impl Session {
             None => (text.trim(), None),
         };
         // `[<namespace>.<name>]` is what Format(RecordId, 0, 9) writes for a table in a namespace, and Evaluate reads it back
-        // (misc/lt-inferred-behaviors/P69NsConsumers.al:198, :215, a name with spaces); the same text without the brackets
+        // (language/namespaces/P69NsConsumers.al:198, :215, a name with spaces); the same text without the brackets
         // names no table (:202, :216).
         let qualified = name.strip_prefix('[').and_then(|n| n.strip_suffix(']'));
         let tables: Vec<usize> = self
@@ -363,7 +363,7 @@ impl Session {
             })
             .map(|(i, _)| i)
             .collect();
-        // `Table <number>` names the table by its id when no table has that name (misc/lt-y14-triage/Y14Small.al:205
+        // `Table <number>` names the table by its id when no table has that name (format-evaluate/Y14Small.al:205
         // `eval table id`: `Table 91690: a b` reads back `LT Y14 SM Key: a b`, corpus master).
         let tables = match (
             tables.is_empty(),
@@ -412,8 +412,8 @@ impl Session {
                 let Some(t) = self.engine.tables.get(object).cloned().flatten() else {
                     return unsupported("Evaluate into a RecordId of a table without a compiled schema");
                 };
-                // No values after the colon: a RecordId with no key (types/lt-evaluate-recordid/EvaluateRecordIdComposite.al:
-                // Evaluate_WrongNumberOfValues `noValues`, a two-field key; misc/lt-y14-triage/Y14Small.al:205 `eval empty key`,
+                // No values after the colon: a RecordId with no key (format-evaluate/EvaluateRecordIdComposite.al:
+                // Evaluate_WrongNumberOfValues `noValues`, a two-field key; format-evaluate/Y14Small.al:205 `eval empty key`,
                 // a one-field Text key, corpus master).
                 if k.is_empty() {
                     Vec::new()
@@ -443,7 +443,7 @@ impl Session {
                 "{what} on a RecordRef opened on system table {n} (the platform's system tables are not modelled)"
             )),
             // The methods below raise "The record is not open." on a RecordRef never opened or closed
-            // (recordref/lt-refs/RfTOpen.al:Closed_Errors, lt-recordref-fieldref-members/P92Position.al:GetPosition_UnopenedAndNotFound,
+            // (recordref-fieldref/recordref/RfTOpen.al:Closed_Errors, lt-recordref-fieldref-members/P92Position.al:GetPosition_UnopenedAndNotFound,
             // P92Counts.al:CountApprox_Unopened, P92ReadIsolation.al:ReadIsolation_Unopened, P92Fields.al:FieldExist).
             LibraryValue::Empty
                 if what.strip_prefix("RecordRef.").is_some_and(|m| {
@@ -472,15 +472,15 @@ impl Session {
                             | "CountApprox"
                             | "ReadIsolation"
                             | "FieldExist"
-                            // recordref/lt-recordref-fieldref-members/P92Counts.al:189-199 (Truncate_Unopened).
+                            // recordref-fieldref/recordref/P92Counts.al:189-199 (Truncate_Unopened).
                             | "Truncate"
-                            // P92SetTable.al:84-101 (never opened and closed), record/lt-loadfields-pagesource-validate/
+                            // P92SetTable.al:84-101 (never opened and closed), record/load-fields/
                             // P81RecordRefTables.al:137-150 SetTable_ClosedRecordRef_Error; P92Locking.al:38-49.
                             | "SetTable"
                             | "RecordLevelLocking"
-                            // Never opened, Open(0) and closed (recordref/lt-wc/WcRecordRefLockTable.al:89-137), with and without Wait.
+                            // Never opened, Open(0) and closed (recordref-fieldref/WcRecordRefLockTable.al:89-137), with and without Wait.
                             | "LockTable"
-                            // Cleared (misc/lt-y70-assumptions/Y70Probes.al:964-1018, RecordRefIsDirty_Shapes `after_clear`).
+                            // Cleared (record/Y70Probes.al:964-1018, RecordRefIsDirty_Shapes `after_clear`).
                             | "IsDirty"
                     )
                 }) =>
@@ -502,7 +502,7 @@ impl Session {
     }
 
     /// The table object with number `no`. A table declared `ObsoleteState = Moved` is not in the runtime app
-    /// (platform/lt-aw-fresh-tenant/AwTests.al:426-442), so it is never the answer.
+    /// (metadata/platform-tables/AwTests.al:426-442), so it is never the answer.
     pub(crate) fn table_object(&self, no: i64) -> Option<usize> {
         let no = u32::try_from(no).ok()?;
         self.engine
@@ -536,7 +536,7 @@ impl Session {
 
     /// `RecordRef.Open(No, Temp, CompanyName)`.
     fn rr_open(&mut self, lib: &Lib, args: &[Value]) -> Result<Value, Signal> {
-        // Open on a RecordRef that holds a table raises (types/lt-variant/VaTIsChecks.al:Is_Record_RecordRef_FieldRef `af137`,
+        // Open on a RecordRef that holds a table raises (types/variant/VaTIsChecks.al:Is_Record_RecordRef_FieldRef `af137`,
         // after GetTable).
         if matches!(&*lib.borrow(), LibraryValue::RecordRef(_)) {
             return Err(Signal::Error(Box::new(al_builtins::native::AlError {
@@ -585,7 +585,7 @@ impl Session {
         self.recordref_open_target_check(no)?;
         let Some(table) = self.table_object(no) else {
             // A moved table: the open fails with AL:MetadataNotFound (AwTests.al:440). Opened by the test method itself, the
-            // text names the test runner (platform/lt-aw-fresh-tenant/AwTests.al:434-438 MovedTable_OwnApp_ReadAndWrite).
+            // text names the test runner (metadata/platform-tables/AwTests.al:434-438 MovedTable_OwnApp_ReadAndWrite).
             // Opened from a helper or inside a try function it is not pinned.
             if self.only_moved_table(no) {
                 if self.in_test_method_itself() {
@@ -602,7 +602,7 @@ impl Session {
                     *lib.borrow_mut() = LibraryValue::SystemTable(no);
                     Ok(Value::Null)
                 }
-                // recordref/lt-recordref-open-system-tables/RecordRefOpenSystemTables.al:RecordRef_Open_SystemTables_ByNumber: no
+                // recordref-fieldref/recordref/RecordRefOpenSystemTables.al:RecordRef_Open_SystemTables_ByNumber: no
                 // table has these numbers (t2000000999, t2000000000); other numbers in the system range are not pinned.
                 2_000_000_999 | 2_000_000_000 => Err(self.missing_object("Table", no)),
                 n if n >= i64::from(SYSTEM_FIELD_BASE) => unsupported(format!(
@@ -621,15 +621,15 @@ impl Session {
                         "RecordRef.Open on table {n}, which belongs to a dependency app and was not compiled (no code the workspace reaches uses it)"
                     ))
                 }
-                // corpus recordref/TestRecordRefOpenMissingTable.al:31-49 pins both halves; the full
-                // text and the code AL:MetadataNotFound: recordref/TestRecordRefRuntimeContracts.al:30.
-                // Table 0 opens nothing and raises nothing (recordref/lt-refs/RfTOpen.al:Open_InvalidTableNumbers `zero`).
+                // corpus recordref-fieldref/recordref/TestRecordRefOpenMissingTable.al:31-49 pins both halves; the full
+                // text and the code AL:MetadataNotFound: recordref-fieldref/recordref/TestRecordRefRuntimeContracts.al:30.
+                // Table 0 opens nothing and raises nothing (recordref-fieldref/recordref/RfTOpen.al:Open_InvalidTableNumbers `zero`).
                 0 => Ok(Value::Null),
                 n => Err(self.missing_object("Table", n)),
             };
         };
         // A table of TableType CRM can only be opened through a registered table connection; with none
-        // registered the open fails (session/TestCrmTableNoConnectionContracts.al:111-118, BC 27.5).
+        // registered the open fails (session-system/TestCrmTableNoConnectionContracts.al:111-118, BC 27.5).
         // With one registered, what the open does is not pinned. Other table types are not pinned.
         let table_type = self.engine.object_facts[table].table_type.as_ref();
         match table_type {
@@ -662,8 +662,8 @@ impl Session {
 
     /// `RecordRef.Get(RecordId)` where the RecordRef is not open or is open on another table than the RecordId's. Pinned:
     /// a found row opens the RecordRef on the RecordId's table, from a never opened or closed ref and from one open on another table
-    /// (errors/lt-ms-refusals-131/P131RecordRefGet.al:P131_Get_Unopened_ExistingRow, P131_Get_Closed_RecordRef, P131_Get_OpenOnAnotherTable
-    /// `A existing`; errors/lt-ms-refusals-135/P135RecordRefGet.al:P135_Get_RecordId_OtherTable_ThenOwn). A missing row leaves a ref that was
+    /// (recordref-fieldref/P131RecordRefGet.al:P131_Get_Unopened_ExistingRow, P131_Get_Closed_RecordRef, P131_Get_OpenOnAnotherTable
+    /// `A existing`; recordref-fieldref/P135RecordRefGet.al:P135_Get_RecordId_OtherTable_ThenOwn). A missing row leaves a ref that was
     /// not open closed, answering No (P131_Get_Unopened_MissingRow, P135 `get deleted`) or, with the result unused, raising "does not
     /// exist" (P131_Get_Unopened_ResultUnused `missing`). A blank RecordId answers No and changes nothing (P131_Get_EmptyRecordId).
     /// Returns `None` when the ref is open on the RecordId's table (the ordinary Get applies).
@@ -718,7 +718,7 @@ impl Session {
 
     /// Whether the buffer differs from what the ref last read or wrote (`dirty_base`); a buffer that came from elsewhere
     /// (GetTable, Init) is compared with the row stored under its primary key, or with a fresh buffer when there is none
-    /// (misc/lt-y70-assumptions/Y70Probes.al:964-1018, RecordRefIsDirty_Shapes: after GetTable of a read row No, changed,
+    /// (record/Y70Probes.al:964-1018, RecordRefIsDirty_Shapes: after GetTable of a read row No, changed,
     /// Init'd or with only the key set Yes, a key with no stored row Yes, a blank buffer with no stored row No). Stored fields only (a FlowField is not part of the row). On a
     /// partial load a field that was written without being loaded is dirty whatever it holds, and one that was never
     /// loaded is not compared (RecordRefIsDirtyEdges.al:IsDirty_SetLoadFields_*). A value that cannot be compared (a Blob)
@@ -736,7 +736,7 @@ impl Session {
                     .map_err(|e| Signal::Unsupported(format!("{e}")))?;
                 match stored {
                     // A row stored again since the record read it: BC compares with what the record read, not with the stored
-                    // row (record/lt-as-records/AsGetTableIsDirty.al:87-107 StoredRowChangedAfterRead `dirty_unchanged` No), and
+                    // row (recordref-fieldref/AsGetTableIsDirty.al:87-107 StoredRowChangedAfterRead `dirty_unchanged` No), and
                     // the runtime does not keep that; refused.
                     Some(row)
                         if t.fields
@@ -778,8 +778,8 @@ impl Session {
                     continue;
                 }
             }
-            // A Blob field nothing wrote to on either side is not a change (record/lt-as-records/AsGetTableIsDirty.al: ReadUnchanged,
-            // ReadChangedAndSetBack, StoredRowChangedAfterRead, NeverRead; recordref/lt-recordref-fieldref-members/P92DirtyRef.al:
+            // A Blob field nothing wrote to on either side is not a change (recordref-fieldref/AsGetTableIsDirty.al: ReadUnchanged,
+            // ReadChangedAndSetBack, StoredRowChangedAfterRead, NeverRead; recordref-fieldref/recordref/P92DirtyRef.al:
             // IsDirty_FieldChanges, with a Blob field the tests never touch). A Blob with content on either side is not pinned.
             if let (Value::Blob(a), Value::Blob(b)) = (&fields[i], &base[i]) {
                 let blank = |x: &al_builtins::stream::BlobRef| {
@@ -805,7 +805,7 @@ impl Session {
     }
 
     /// `The supplied field number '<supplied>' cannot be found in the '<table caption>' table.`, code FieldNotFound
-    /// (recordref/lt-refs/RfTMeta.al:114-123 names the table by its caption; P107RecRefNames.al:52-60 by a name given as text).
+    /// (recordref-fieldref/recordref/RfTMeta.al:114-123 names the table by its caption; P107RecRefNames.al:52-60 by a name given as text).
     pub(crate) fn field_not_found(&self, t: &TableDef, supplied: &str) -> Signal {
         crate::transactions::al_error_code(
             &format!(
@@ -888,7 +888,7 @@ impl Session {
             }
             // Doc (RecordRef.GetTable): the ref takes the record variable's table, buffer and
             // filters. The corpus pins the other half: the Record is left alone
-            // (recordref/TestRecordRefGetSetTableContracts.al:30-60).
+            // (recordref-fieldref/recordref/TestRecordRefGetSetTableContracts.al:30-60).
             // A ref that was never opened takes its table from the record (Assert.RecordIsEmpty does this).
             "GetTable" => {
                 let from_variant = std::mem::take(&mut self.get_table_from_variant);
@@ -897,19 +897,13 @@ impl Session {
                 }
                 let src = match args.first() {
                     // Through a Variant the record keeps its filters and loses its ChangeCompany
-                    // (types/lt-cw-variant-leads/CwVariantChangeCompany.al:CW_Variant_KeepsOrDropsChangeCompany `variant to recordref`,
+                    // (recordref-fieldref/CwVariantChangeCompany.al:CW_Variant_KeepsOrDropsChangeCompany `variant to recordref`,
                     // record/TestChangeCompanyFiltersCopyDeleteContracts.al:248 `variantGetTableCompany`).
-                    Some(Value::Record(src)) if from_variant => {
-                        let mut copy = src.borrow().clone();
-                        copy.company = None;
-                        own_unloaded_blobs(&mut copy);
-                        *lib.borrow_mut() = LibraryValue::RecordRef(Rc::new(RefCell::new(copy)));
-                        return Ok(Value::Null);
-                    }
+                    Some(Value::Record(src)) if from_variant => return variant_record_into_ref(lib, src),
                     Some(Value::Record(src)) => src.clone(),
                     // A RecordRef as the source (only through a Variant: B.GetTable(A) does not compile, must-not-compile
                     // case 1140): a copy of its table, buffer, filters and current row, not shared afterwards
-                    // (record/lt-as-records/AsRecRefGetTable.al:35-106). A ref that is not open is a Conversion error and
+                    // (recordref-fieldref/AsRecRefGetTable.al:35-106). A ref that is not open is a Conversion error and
                     // leaves the target unopened (AsRecRefGetTable.al:110 FromNotOpen).
                     Some(Value::Library(name, other)) => match &*other.borrow() {
                         LibraryValue::RecordRef(r) => r.clone(),
@@ -927,6 +921,16 @@ impl Session {
                 };
                 let mut copy = src.borrow().clone();
                 own_unloaded_blobs(&mut copy);
+                // A RecordRef copy of Rec in the OnOpenPage of a RunPageLink target holds Rec's view, the link included, and answers
+                // as any RecordRef: GetView, SetView, SetFilter, FindFirst (corpus
+                // testpage/RunPageLinkOpenSetView.al, RSV_LinkAndView_SameViewOfRecordRef, RSV_LinkAndView_ViewOfACopyWithItsOwnFilter).
+                if matches!(
+                    copy.unpinned_buffer,
+                    Some(crate::records::RUN_PAGE_LINK_OPEN | crate::records::RUN_PAGE_LINK_OPEN_FILLED)
+                ) {
+                    copy.unpinned_buffer = None;
+                    copy.run_page_link = None;
+                }
                 *lib.borrow_mut() = LibraryValue::RecordRef(Rc::new(RefCell::new(copy)));
                 return Ok(Value::Null);
             }
@@ -934,7 +938,7 @@ impl Session {
             // RecordRef.Copy(FromRecordRef [, ShareTable]): the opened target takes the source's buffer, filters, key,
             // direction and current row as Record.Copy does; a target that was never opened raises "The record is
             // not open." (RecordNotOpened); ShareTable is accepted only for two temporary records, which then share
-            // the table (types/PWMisc.al:RecordRef_Copy_*, records/W4SortKeys.al:RecordRef_Ascending, BC 27.5 and
+            // the table (types/PWMisc.al:RecordRef_Copy_*, record/W4SortKeys.al:RecordRef_Ascending, BC 27.5 and
             // 29.0). A Record as the source: `recordref_copy::copy_source_record`.
             "Copy" => {
                 let dst = match &*lib.borrow() {
@@ -1027,17 +1031,17 @@ impl Session {
             )),
             "Name" => Ok(Value::Text(t.name.clone().into())),
             "Caption" => self.caption_checked(&t).map(|c| Value::Text(c.into())),
-            // corpus recordref/TestRecordRefGetSet.al:16-30 pins only that it is not empty.
+            // corpus recordref-fieldref/recordref/TestRecordRefGetSet.al:16-30 pins only that it is not empty.
             "CurrentCompany" => Ok(Value::Text(self.current_company_of(&rec).into())),
             "ChangeCompany" => self.change_company(&rec, args),
             "IsTemporary" => Ok(Value::Boolean(rec.borrow().temporary)),
             "HasFilter" => Ok(Value::Boolean(Self::has_filter(&rec))),
-            // Pinned: corpus misc/lt-open-overloads-collections-isolated/P107RecRefNames.al:101-135 and
-            // recordref/lt-recordref-fieldref-members/P92DirtyRef.al:21-95 (a fresh ref, a found row, a written
+            // Pinned: corpus recordref-fieldref/P107RecRefNames.al:101-135 and
+            // recordref-fieldref/recordref/P92DirtyRef.al:21-95 (a fresh ref, a found row, a written
             // field with the same and with another value, after Modify, after Find, after Init, after Validate).
             "IsDirty" => self.rr_is_dirty(&rec, &t),
             "FilterGroup" => {
-                // The getter and the setter for any group are pinned (filters/W4Filters.al:RecordRef_FilterGroup_*,
+                // The getter and the setter for any group are pinned (record/filters/W4Filters.al:RecordRef_FilterGroup_*,
                 // record/PWFilterGroupOr.al:OrGroup_RecordRef).
                 Self::filter_group(&rec, args)
             }
@@ -1060,12 +1064,12 @@ impl Session {
             // Doc (RecordRef.Duplicate): a new ref with the same table, buffer and filters, independent of the original.
             "RecordId" => Ok(self.record_id(&rec, &t)),
             "LockTable" => {
-                // RecordRef.LockTable(true, true) raises the Wait = FALSE error (recordref/lt-refs/RfTViews.al:314-322).
+                // RecordRef.LockTable(true, true) raises the Wait = FALSE error (recordref-fieldref/recordref/RfTViews.al:314-322).
                 if matches!(args, [Value::Boolean(true), Value::Boolean(true)]) {
                     return Err(crate::recmeta::lock_table_bad_parm(&t));
                 }
                 // What a RecordRef's LockTable does to its ReadIsolation is not pinned (only Record's is,
-                // misc/lt-cv-odd-leads/CvReadIsolationState.al:47-48).
+                // record/CvReadIsolationState.al:47-48).
                 if rec.borrow().read_isolation != 0 && !matches!(args.first(), Some(Value::Boolean(false))) {
                     return unsupported("RecordRef.LockTable after a ReadIsolation was set (not pinned)");
                 }
@@ -1073,7 +1077,7 @@ impl Session {
                 let locked = self.tx.lock_tx;
                 let r = self.record_meta_op(RecordOp::LockTable, &rec, &t, &mut a);
                 // On an open database table it starts the write transaction, a read keeps it and a Commit ends it; on a
-                // temporary table it starts none (recordref/lt-wc/WcRecordRefLockTable.al:28-87). What else follows from it
+                // temporary table it starts none (recordref-fieldref/WcRecordRefLockTable.al:28-87). What else follows from it
                 // (the stale-buffer shapes and the rest that read `lock_tx`) is pinned for Record.LockTable only.
                 let started = !locked && self.tx.lock_tx;
                 self.lock_through_recordref(locked, "a RecordRef.LockTable");
@@ -1131,7 +1135,7 @@ impl Session {
                 }
             }
             // A RecordRef write inside a TryFunction whose result is used is not pinned (only Record.Insert is,
-            // misc/lt-cu-odd-leads/CuTryTests.al:83-150).
+            // errors/CuTryTests.al:83-150).
             "Insert" | "Modify" | "Delete" | "DeleteAll" | "Rename"
                 if !self.tx.used_tries.is_empty() && !rec.borrow().temporary =>
             {
@@ -1142,18 +1146,18 @@ impl Session {
             "IsEmpty" | "Count" | "Init" | "Insert" | "Modify" | "Delete" | "DeleteAll" | "Find" | "FindFirst"
             | "FindLast" | "FindSet" | "Next" | "Reset" | "Rename" => {
                 // ADR-062: a RecordRef write is checked like a record write (Y19PermWrites.al Y19_P6_RecordRef).
-                if self.permissions.is_some() {
+                if self.permission_checks() {
                     self.permission_from_al = true;
                 }
                 self.record_op(record_method(method), &rec, args)
             }
             // As Record.Truncate: every row the filters select goes, with or without the argument
-            // (recordref/lt-recordref-fieldref-members/P92Counts.al:124-186, Truncate_Unfiltered, Truncate_WithFilter,
+            // (recordref-fieldref/recordref/P92Counts.al:124-186, Truncate_Unfiltered, Truncate_WithFilter,
             // Truncate_WithoutTriggerArgument).
             "Truncate" => self.record_op(RecordOp::Truncate, &rec, args),
             // Field(FieldName): the name is matched case-insensitively and as given, never trimmed, and a caption is not a
             // name; an unknown name raises FieldNotFound with the supplied text
-            // (misc/lt-open-overloads-collections-isolated/P107RecRefNames.al:25-60).
+            // (recordref-fieldref/P107RecRefNames.al:25-60).
             "Field" if !matches!(args.first(), Some(Value::Integer(_) | Value::BigInteger(_))) => {
                 let pos = self.field_by_name(&t, args, "Field")?;
                 match pos {
@@ -1175,7 +1179,7 @@ impl Session {
                     return Ok(r);
                 }
                 match t.fields.iter().position(|f| i64::from(al_field_no(f.id)) == no) {
-                    // A removed field raises the obsolete error with its reason (recordref/PWRecordMisc.al:128-167).
+                    // A removed field raises the obsolete error with its reason (recordref-fieldref/recordref/PWRecordMisc.al:128-167).
                     Some(pos) if self.field_removed(&t, pos) => {
                         let Some(reason) = self
                             .field_property(&t, pos, "ObsoleteReason")
@@ -1196,7 +1200,7 @@ impl Session {
                     }
                     Some(pos) => Ok(handle("FieldRef", LibraryValue::FieldRef(rec, pos))),
                     // A number no field has: -1, a gap, 99999, the largest Integer and 10000 raise FieldNotFound
-                    // (recordref/lt-refs/RfTMeta.al:100-123). The rest of the system range is not pinned.
+                    // (recordref-fieldref/recordref/RfTMeta.al:100-123). The rest of the system range is not pinned.
                     None if no < i64::from(SYSTEM_FIELD_BASE) || no == i64::from(i32::MAX) => {
                         Err(self.field_not_found(&t, &no.to_string()))
                     }
@@ -1209,8 +1213,8 @@ impl Session {
             "FieldExist" => {
                 let no = int_arg(args, 0)?;
                 // 2000000005 (the rowversion) and the user-name fields 2000000006 to 2000000008 exist on BC 29 for every table
-                // kind and not before (fieldref/lt-y80-user-name-fields/Y80UserNameFieldExist.al:55-57, :74-78, :99-105, :131-141;
-                // recordref/lt-recordref-fieldref-members/P92Fields.al:72, `#if BC29PLUS`).
+                // kind and not before (recordref-fieldref/fieldref/Y80UserNameFieldExist.al:55-57, :74-78, :99-105, :131-141;
+                // recordref-fieldref/recordref/P92Fields.al:72, `#if BC29PLUS`).
                 if (i64::from(SYSTEM_ROW_VERSION_ID)..=i64::from(SYSTEM_ROW_VERSION_ID) + 3).contains(&no) {
                     return Ok(Value::Boolean(
                         self.has(al_version::Gate::PlatformMetadataColumnsFrom29),
@@ -1230,7 +1234,7 @@ impl Session {
                 let i = int_arg(args, 0)?;
                 // Past the count the index reaches the system fields in number order: $systemId,
                 // SystemCreatedAt, SystemCreatedBy, SystemModifiedAt, SystemModifiedBy (corpus
-                // recordref/TestRecordRefRuntimeContracts.al:RecordRef_FieldCount_ExcludesSystemFields_...);
+                // recordref-fieldref/recordref/TestRecordRefRuntimeContracts.al:RecordRef_FieldCount_ExcludesSystemFields_...);
                 // what follows them is not pinned.
                 // Index 0 is the timestamp field, number 0, on every major (misc/lt-probes-needed-4/
                 // PnD12_RemovedFieldRecordRef.al:120-136 FieldByIndex `index0`).
@@ -1262,7 +1266,7 @@ impl Session {
             }
             "KeyCount" => Ok(Value::Integer(key_count(&self.base_table(&t)) as i32)),
             "CurrentKey" => self.record_meta_op(RecordOp::CurrentKey, &rec, &t, args),
-            // recordref/TestRecordRefKeyIndexSetRecFilterContracts.al:75-176. Keys number from 1 in
+            // recordref-fieldref/recordref/TestRecordRefKeyIndexSetRecFilterContracts.al:75-176. Keys number from 1 in
             // declaration order and the hidden SystemId key is last; an index outside them raises
             // DB:KeyNotFound; a current key of fields no declared key starts with reports -1.
             "CurrentKeyIndex" => {
@@ -1311,9 +1315,9 @@ impl Session {
             }
             // Doc (RecordRef.SetTable): the record variable takes the ref's buffer and
             // filters. The corpus pins that the Record's old buffer does not flow into the
-            // ref (recordref/TestRecordRefGetSetTableContracts.al:78-104).
+            // ref (recordref-fieldref/recordref/TestRecordRefGetSetTableContracts.al:78-104).
             "SetTable" => {
-                // A Variant argument (recordref/lt-wc/WcSetTableVariant.al): an empty Variant and a RecordRef in it.
+                // A Variant argument (types/WcSetTableVariant.al): an empty Variant and a RecordRef in it.
                 if args.len() == 1 {
                     match args.first() {
                         Some(Value::Null) => {
@@ -1334,7 +1338,7 @@ impl Session {
                 };
                 let same_table = rec.borrow().table == dst.borrow().table;
                 // Into a record of another table: the error, and the record keeps its buffer
-                // (record/lt-loadfields-pagesource-validate/P81RecordRefTables.al:86-167, SetTable_OtherTable_Error,
+                // (record/load-fields/P81RecordRefTables.al:86-167, SetTable_OtherTable_Error,
                 // SetTable_OpenedOtherTable_Error, :430-450 GetTable_Variant_OfOtherTable_ThenSetTable).
                 if !same_table {
                     return Err(crate::transactions::al_error_code(
@@ -1342,7 +1346,7 @@ impl Session {
                         "TableIdMismatch",
                     ));
                 }
-                // SetTable(Rec, ShareTable) (misc/lt-open-overloads-collections-isolated/P107RecRefNames.al:175-253): another
+                // SetTable(Rec, ShareTable) (recordref-fieldref/P107RecRefNames.al:175-253): another
                 // table raises TableIdMismatch whatever ShareTable is (:243-251); with ShareTable true two records that are
                 // not temporary raise the Copy error and the record keeps its buffer (:190-200); two temporary records share
                 // the table (:219-221); with false it is SetTable(Rec) (:187-189, :223-225). One temporary and one not is
@@ -1368,14 +1372,14 @@ impl Session {
                 };
                 // The record variable keeps its own rows and its own kind: a temporary RecordRef set into a permanent record leaves it
                 // permanent on the table's rows, a permanent one set into a temporary record leaves it temporary and empty of them; only the
-                // current record and the filters pass (recordref/lt-settable-temporary/SetTableTemporaryToPermanent.al:
+                // current record and the filters pass (recordref-fieldref/recordref/SetTableTemporaryToPermanent.al:
                 // SetTable_TempIntoPermanent_State, _Insert, _ModifyDelete, _FilteredSource, SetTable_PermanentIntoTemporary_State).
                 if !Rc::ptr_eq(&rec, dst) {
                     let s = rec.borrow();
                     // SetTable does not move the target either (:123-127); GetTable takes the company.
                     let mut d = dst.borrow_mut();
                     d.field_descending = s.field_descending;
-                    // The ReadIsolation passes too (recordref/lt-recordref-fieldref-members/P92ReadIsolation.al:ReadIsolation_FromRecordAndToRecord).
+                    // The ReadIsolation passes too (recordref-fieldref/recordref/P92ReadIsolation.al:ReadIsolation_FromRecordAndToRecord).
                     d.read_isolation = s.read_isolation;
                     d.fields = s.fields.clone();
                     d.filters = s.filters.clone();
@@ -1386,7 +1390,7 @@ impl Session {
                     d.load.buffer = s.load.buffer.clone();
                     d.load.partial = s.load.partial;
                     // Record.IsDirty of the record compares with what the RecordRef last read or wrote
-                    // (lt-ac/Y8RecordIsDirtyShapes.al:325-331 `settable_read_row` No, `settable_changed_row` Yes).
+                    // (record/Y8RecordIsDirtyShapes.al:325-331 `settable_read_row` No, `settable_changed_row` Yes).
                     d.is_dirty_base = match &s.dirty_base {
                         Some(base) => al_builtins::value::DirtyBase::Row {
                             base: base.clone(),
@@ -1428,7 +1432,7 @@ impl Session {
                 {
                     Some(pos) => Ok(handle("FieldRef", LibraryValue::KeyFieldRef(rec, pos))),
                     // types/TestTypeSystemContracts.al:261 pins the fragment "Index out of bounds"
-                    // (recordref/TestBCSumIndexFieldContracts.al:188-198 pins that it throws).
+                    // (recordref-fieldref/recordref/TestBCSumIndexFieldContracts.al:188-198 pins that it throws).
                     None => Err(Signal::Error(Box::new(AlError {
                         message: "Index out of bounds".into(),
                         code: String::new(),
@@ -1469,7 +1473,7 @@ impl Session {
         let field = &t.fields[pos];
         match method {
             "Value" => match args.first() {
-                // An Option field reads with its OptionCaption, which Format shows (recordref/lt-refs/RfTWrite.al:Init_ClearsFields
+                // An Option field reads with its OptionCaption, which Format shows (recordref-fieldref/recordref/RfTWrite.al:Init_ClearsFields
                 // `after_opt` = Erste, recordref/lt-refs/RfTValue*.al:Value_Get_Defaults).
                 None => {
                     let v = rec.borrow().fields[pos].clone();
@@ -1494,7 +1498,7 @@ impl Session {
                     // nothing (streams/TestInOutStream.al InOutStream_WriteText_BlobHasValue, streams/TestBlob.al
                     // Blob_Get_WithoutCalcFields_InStreamReadsEmpty), and the value FieldRef.Value hands out is an empty Blob:
                     // HasValue No, Length 0, an empty text (Format `*`), after Get + RecordRef.GetTable and after RecordRef.Open + FindFirst
-                    // (recordref/lt-refs/RfTValues.al:QP_Blob_GetTable_ValueWithoutCalcFields, QP_Blob_OpenFind_ValueWithoutCalcFields).
+                    // (recordref-fieldref/recordref/RfTValues.al:QP_Blob_GetTable_ValueWithoutCalcFields, QP_Blob_OpenFind_ValueWithoutCalcFields).
                     // Microsoft's Temp Blob Impl.FromFieldRef relies on it (it asks HasValue, then CalcField).
                     if let Value::Blob(b) = &v {
                         let unloaded = {
@@ -1518,11 +1522,11 @@ impl Session {
                 }
                 Some(v) => {
                     // Assigning Value does not run OnValidate (that is `Validate`). An Enum value goes into a Text or Code field as its caption
-                    // (Code in upper case): types/lt-enum-to-text-fieldref/EnumToTextFieldRef.al:FieldRefValue_EnumToTextField_PerMember,
+                    // (Code in upper case): types/enum-option/EnumToTextFieldRef.al:FieldRefValue_EnumToTextField_PerMember,
                     // FieldRefValue_EnumToCodeField. A number goes in as its Format text; one longer than the field raises and leaves
-                    // the field as it was (types/lt-number-to-text/NumberToTextIsFormat.al:239-246, FieldRefSetValue_NumberOnCodeAndText_Result).
+                    // the field as it was (format-evaluate/NumberToTextIsFormat.al:239-246, FieldRefSetValue_NumberOnCodeAndText_Result).
                     // A BigInteger beyond Integer into an Option or an Enum field raises Overflow, where an assignment to a
-                    // variable raises TypeConversion (types/lt-bigint-enum-option/BigIntToEnumOption.al:401-413
+                    // variable raises TypeConversion (types/enum-option/BigIntToEnumOption.al:401-413
                     // QO_Variant_ToOptionFieldRef_Value, :433-447 QO_Variant_ToEnumFieldRef_Value).
                     if let Value::BigInteger(n) = v {
                         if i32::try_from(*n).is_err() && matches!(field.ty, RtType::Option(_) | RtType::Enum(_)) {
@@ -1534,7 +1538,7 @@ impl Session {
                     }
                     // A text into a TableFilter field raises, whatever the text, and the field keeps its value: from BC 28 the Evaluate
                     // error with code Evaluate:Argument, before `The supplied value is not valid.` with code Argument
-                    // (records/W4PlatformAndMeta.al TableFilterField_SetFromText: a WHERE text, `Id: 1` and the empty text;
+                    // (record/W4PlatformAndMeta.al TableFilterField_SetFromText: a WHERE text, `Id: 1` and the empty text;
                     // TableFilterEvaluate_StoredValue `roundtrip_fieldref`: the text Format gives back).
                     if let (Value::Text(s) | Value::Code(s), RtType::Library(k)) = (v, &field.ty) {
                         if k.as_str() == "TableFilter" {
@@ -1591,7 +1595,7 @@ impl Session {
             }
             "Relation" => self.field_relation(&rec, &t, pos).map(Value::Integer),
             "GetFilter" => self.field_filter_text(&rec, pos).map(|s| Value::Text(s.into())),
-            // recordref/lt-refs/RfTFieldFilters.al:183 (GetRangeMinMax); the rules are the Record ones.
+            // recordref-fieldref/recordref/RfTFieldFilters.al:183 (GetRangeMinMax); the rules are the Record ones.
             "GetRangeMin" | "GetRangeMax" => {
                 let op = if method == "GetRangeMin" {
                     RecordOp::GetRangeMin
@@ -1601,12 +1605,12 @@ impl Session {
                 self.record_meta_op(op, &rec, &t, &mut [Value::Integer(pos as i32)])
             }
             "Record" => Ok(handle("RecordRef", LibraryValue::RecordRef(rec))),
-            // fieldref/TestRelationTargetNamespaceScope.al:63-75. Record.CalcFields raises a pinned
+            // recordref-fieldref/fieldref/TestRelationTargetNamespaceScope.al:63-75. Record.CalcFields raises a pinned
             // error for a field that is not a FlowField (record/TestCalcFieldsFieldClass.Codeunit.al);
             // whether FieldRef.CalcField says the same is not pinned, so it is refused.
             "CalcField" => {
                 // FieldRef.CalcField of a Blob of a row read without CalcFields loads the blob, as Record.CalcFields
-                // does (record/lt-as-records/AsFieldRefCalcField.al:41 Blob_ReadWithoutCalcFields_ThenCalcField).
+                // does (recordref-fieldref/AsFieldRefCalcField.al:41 Blob_ReadWithoutCalcFields_ThenCalcField).
                 let blob = self.engine.program.objects[t.object as usize]
                     .table
                     .as_ref()
@@ -1628,10 +1632,10 @@ impl Session {
             }
             // FieldRef.CalcSum sums a stored Decimal or Integer field over the rows the RecordRef's filters pass, a field in
             // no SumIndexFields list as well, puts the sum into the field and answers Yes
-            // (recordref/lt-fieldref-calcsum-filters/FieldRefCalcSumFilters.al:P184_FieldRefCalcSum_Decimal_NoFilter_And_GroupFilter,
+            // (recordref-fieldref/recordref/FieldRefCalcSumFilters.al:P184_FieldRefCalcSum_Decimal_NoFilter_And_GroupFilter,
             // _Integer_And_TwiceAndEmpty, _DecimalNotInSumIndex). A Text or Code field and a FlowField raise
             // `Cannot calculate a sum of the values in the <field> field in the <table> table because one or more values are not
-            // normal numeric fields.` (code DB:Ok; same file P184_FieldRefCalcSum_TextField_Errors, recordref/lt-refs/RfTFieldFilters.al:
+            // normal numeric fields.` (code DB:Ok; same file P184_FieldRefCalcSum_TextField_Errors, recordref-fieldref/recordref/RfTFieldFilters.al:
             // CalcSum_Variants for a Sum and a Count FlowField). Other types are not pinned.
             "CalcSum" => {
                 let (stored, flow_filter, ty) = {
@@ -1717,7 +1721,7 @@ impl Session {
     /// TestFieldRefEnumKeywordCase.al:95-106).
     /// A FieldRef to a user-name system FlowField (SystemCreatedByUserName 2000000005, SystemCreatedByFullName 2000000006,
     /// SystemModifiedByUserName 2000000007, SystemModifiedByFullName 2000000008). Pinned by
-    /// system-fields/W6SystemFieldStamps.al:216-248 (UserNameSystemFields_NormalAndTemporaryRecord, BC 29): Number, Class
+    /// record/system-fields/W6SystemFieldStamps.al:216-248 (UserNameSystemFields_NormalAndTemporaryRecord, BC 29): Number, Class
     /// FlowField, Type Text, Length 50 (user name) or 80 (full name), and the value after `CalcField`. On a normal record
     /// the user name fields equal `UserId()` and the full name fields the session user's User."Full Name" (not blank,
     /// not the user name); on a temporary record all four are blank. Everything else is refused: the value before
@@ -1740,8 +1744,8 @@ impl Session {
                 Ok(Value::Option(ord, members.into()))
             }
             "Length" => Ok(Value::Integer(len)),
-            // fieldref/lt-y66-fieldref-length-types/Y66FieldRefLengthTypes.al:99-108 (BC 29): SystemCreatedByUserName; all four in
-            // system-fields/lt-y64-username-filters/Y64UserNameFilters.al:Y64_UserNameFields_FieldRefGetFilter_NoFilter.
+            // recordref-fieldref/fieldref/Y66FieldRefLengthTypes.al:99-108 (BC 29): SystemCreatedByUserName; all four in
+            // record/system-fields/Y64UserNameFilters.al:Y64_UserNameFields_FieldRefGetFilter_NoFilter.
             "Name" if args.is_empty() => Ok(Value::Text(name.into())),
             "CalcField" if args.is_empty() => {
                 let v = self.user_name_field_value(&rec, no, name)?;
@@ -1752,7 +1756,7 @@ impl Session {
             }
             // No filter on these fields can be set (SetFilter and SetRange on the FieldRef are refused below, a view that names one
             // is refused in `view_where_field`), so GetFilter is the empty text, as BC gives it with no filter (al-runner issue
-            // 6645; corpus branch al-runtime-rs-staging-y64 85d86e7b, system-fields/lt-y64-username-filters/Y64UserNameFilters.al:
+            // 6645; corpus branch al-runtime-rs-staging-y64 85d86e7b, record/system-fields/Y64UserNameFilters.al:
             // 85-108).
             "GetFilter" if args.is_empty() => Ok(Value::Text("".into())),
             "Value" if args.is_empty() => match value {
@@ -1853,7 +1857,7 @@ impl Session {
             RtType::Guid => "GUID",
             RtType::DateFormula => "DateFormula",
             RtType::Option(_) | RtType::Enum(_) => "Option",
-            // The names are those of recordref/TestPlatformOptionsLockingContracts.al:46-63 (13 is
+            // The names are those of recordref-fieldref/recordref/TestPlatformOptionsLockingContracts.al:46-63 (13 is
             // BLOB) and :66-76 (RecordID, TableFilter, MediaSet name themselves).
             RtType::Library(n) => match n.to_ascii_lowercase().as_str() {
                 "blob" => "BLOB",
@@ -1889,7 +1893,7 @@ impl Session {
     }
 
     /// [`Self::members_of_field`]; with `session_language`, a field with OptionCaptionML takes the captions of the session
-    /// language (record/lt-x-table-props/XTablePropsTests.al:175-232, `FieldRef.OptionCaption`), else it is refused: what the
+    /// language (record/table-properties/XTablePropsTests.al:175-232, `FieldRef.OptionCaption`), else it is refused: what the
     /// other readers (reports, XMLports, filters, TestField) show for it is not pinned.
     pub(crate) fn members_of_field_in(
         &self,
@@ -1901,6 +1905,9 @@ impl Session {
             RtType::Enum(id) => {
                 self.note_enum(*id);
                 if let Some(why) = self.enum_caption_refusal(*id, None) {
+                    return unsupported(why);
+                }
+                if let Some(why) = self.enum_ml_unpinned(*id, None, "the members of an enum field") {
                     return unsupported(why);
                 }
                 let o = &self.engine.program.objects[*id as usize];
@@ -1919,7 +1926,7 @@ impl Session {
                 Ok(Some((true, members)))
             }
             RtType::Option(names) => {
-                // A table field's OptionCaptionML gives the captions of the session language (record/lt-x-table-props/
+                // A table field's OptionCaptionML gives the captions of the session language (record/table-properties/
                 // XTablePropsTests.al:219-232).
                 let ml = self.field_property(t, pos, "OptionCaptionML");
                 // An OptionCaption a translation file of its app could change in the language in force (ADR-053 step 1).
@@ -1949,7 +1956,7 @@ impl Session {
                         Some(list) => list.split(',').map(str::to_string).collect(),
                         None => return unsupported(format!("OptionCaption `{v}`")),
                     },
-                    (None, None) => names.clone(),
+                    (None, None) => names.to_vec(),
                 };
                 if captions.len() != names.len() {
                     return unsupported(
@@ -1969,7 +1976,7 @@ impl Session {
     }
 
     /// `IsEnum`, `EnumValueCount`, `GetEnumValue*`, `OptionCaption/Members/String` of a FieldRef.
-    /// Corpus: fieldref/TestFieldRefEnumOrdinalByIndex.al (index is a 1-based position, out of range
+    /// Corpus: recordref-fieldref/fieldref/TestFieldRefEnumOrdinalByIndex.al (index is a 1-based position, out of range
     /// answers -1 / ''), TestFieldRefEnum.al, TestPrecompiledFieldOptionCaption.al:34-48.
     fn enum_metadata(&self, method: &str, t: &TableDef, pos: usize, args: &[Value]) -> Result<Value, Signal> {
         // OptionCaption and OptionMembers of a field with OptionCaptionML are pinned (XTablePropsTests.al:192-196); the other methods
@@ -1979,7 +1986,7 @@ impl Session {
             return match method {
                 "IsEnum" => Ok(Value::Boolean(false)),
                 "EnumValueCount" => Ok(Value::Integer(0)),
-                // An empty text, not an error (corpus recordref/TestRecordRefRuntimeContracts.al:
+                // An empty text, not an error (corpus recordref-fieldref/recordref/TestRecordRefRuntimeContracts.al:
                 // FieldRef_EnumMetadata_OnEnumOptionAndOtherFields).
                 "OptionCaption" | "OptionMembers" | "OptionString" => Ok(Value::Text(String::new().into())),
                 other => unsupported(format!("FieldRef.{other} on a field that is neither Option nor Enum")),
@@ -1991,7 +1998,7 @@ impl Session {
         };
         // GetEnumValue{Caption,Name}FromOrdinalValue of an Option field: an Option value (FieldRef.Value of the field) is the ordinal
         // it holds, and an ordinal the field has no member for answers the number as its caption and an empty name (al-runner issue
-        // 5987: fieldref/TestFieldRefEnumOrdinalByIndex.al SO_OptionField_ValueAsOrdinalArgument_ReproShape,
+        // 5987: recordref-fieldref/fieldref/TestFieldRefEnumOrdinalByIndex.al SO_OptionField_ValueAsOrdinalArgument_ReproShape,
         // SO_OptionField_IntegerOrdinalArguments `-1`, `2`, `5`, SO_OptionField_IntegerAssigned `fieldref value 5 caption`).
         // An Enum value, and an ordinal an Enum field lacks, stay refused.
         type Member = (i32, String, String);
@@ -2047,16 +2054,37 @@ fn record_method(method: &str) -> RecordOp {
     RecordOp::from_name(method).expect("a RecordRef method that forwards to the record")
 }
 
+/// `RecordRef.GetTable` of a Variant that holds a record: the RecordRef takes a copy of the record with its filters and without its
+/// ChangeCompany (recordref-fieldref/CwVariantChangeCompany.al:CW_Variant_KeepsOrDropsChangeCompany `variant to recordref`,
+/// record/TestChangeCompanyFiltersCopyDeleteContracts.al:248 `variantGetTableCompany`). Rec of a page an action opened through
+/// RunPageLink, handed to a Variant parameter: the RecordRef carries the link filter and answers as any RecordRef: GetFilters, Count,
+/// Get of the current row and of a row outside the link (testpage/R7138RunPageLinkCopyGet.al:117-134, :218 `rr[Project Code: P2]
+/// n=2;rr.get own O3;rr.get O1 O1`). A by-value copy of that Rec put into a Variant some other way is not pinned.
+fn variant_record_into_ref(lib: &Lib, src: &Rc<RefCell<RecordState>>) -> Result<Value, Signal> {
+    let mut copy = src.borrow().clone();
+    match copy.unpinned_buffer {
+        Some(crate::records::RUN_PAGE_LINK_VARIANT) => copy.unpinned_buffer = None,
+        Some(w @ (crate::records::RUN_PAGE_LINK_COPY | crate::records::RUN_PAGE_LINK_OPEN_COPY)) => {
+            return unsupported(format!("RecordRef.GetTable of a Variant that holds {w}"));
+        }
+        _ => {}
+    }
+    copy.company = None;
+    own_unloaded_blobs(&mut copy);
+    *lib.borrow_mut() = LibraryValue::RecordRef(Rc::new(RefCell::new(copy)));
+    Ok(Value::Null)
+}
+
 /// The copy `RecordRef.GetTable` takes holds its own buffer of each Blob the record read from the database without
 /// `CalcFields`: a `CalcField` through the ref loads that copy and leaves the record's Blob unloaded
-/// (record/lt-blob-calcfields-length/BlobCalcFieldsLength.al:369, `Temp Blob`.FromRecord, 'row after from record').
+/// (record/flowfields/BlobCalcFieldsLength.al:369, `Temp Blob`.FromRecord, 'row after from record').
 fn own_unloaded_blobs(copy: &mut al_builtins::value::RecordState) {
     al_builtins::record_into_recordref::own_unloaded_blobs(copy);
 }
 
 /// The field numbers a RecordRef that is not open (never opened, closed, cleared) answers without an error: SystemIdNo is
-/// 2000000000 (recordref/W4RecordRefGetUnopened.al:178-194, Y30_SystemIdNo_NotOpen), the audit fields 2000000001-2000000004,
-/// as when it is open (corpus master ac3499d6, recordref/W4RecordRefGetUnopened.al:317, Y40_SystemAuditFieldNos_NotOpen;
+/// 2000000000 (recordref-fieldref/recordref/W4RecordRefGetUnopened.al:178-194, Y30_SystemIdNo_NotOpen), the audit fields 2000000001-2000000004,
+/// as when it is open (corpus master ac3499d6, recordref-fieldref/recordref/W4RecordRefGetUnopened.al:317, Y40_SystemAuditFieldNos_NotOpen;
 /// BC 27.5/28.5/29.0).
 fn unopened_system_field_no(lib: &Lib, method: &str) -> Option<i32> {
     if !matches!(&*lib.borrow(), LibraryValue::Empty) {

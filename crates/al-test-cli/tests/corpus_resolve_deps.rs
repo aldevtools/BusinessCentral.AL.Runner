@@ -8,10 +8,7 @@
 //! `cargo test --release -p al-test-cli --test corpus_resolve_deps -- --ignored`.
 
 /// Same files as KNOWN_UNPARSED in al-syntax/tests/corpus_parse.rs.
-const KNOWN_UNPARSED: &[&str] = &[
-    "types/lt-variant/VaTTextConst.al",
-    "types/lt-variant-is-text-streams/LTP89TextConst.al",
-];
+const KNOWN_UNPARSED: &[&str] = &["types/variant/VaTTextConst.al", "types/variant/LTP89TextConst.al"];
 
 use al_test_cli::{deps, runtime};
 use std::collections::BTreeMap;
@@ -83,15 +80,9 @@ fn unresolved_references_are_exactly_what_no_dependency_supplies() {
     );
 }
 
-/// `docs/corpus-coverage.md` and `.json` are what `al-test-cli --coverage-map` writes for the pinned
-/// corpus (which builtin overloads some corpus test calls). They are committed; the regen bot on main
-/// rewrites them after each green push, so a pull request leaves them alone. This test checks that
-/// the map can be built. Regenerate locally with `al-test-cli --root . --coverage-map` (or
-/// `UPDATE_GOLDEN=1` on this test).
-#[test]
-#[ignore = "slow unoptimised: cargo test --release -p al-test-cli --test corpus_resolve_deps -- --ignored"]
-fn corpus_coverage_map_is_current() {
-    let commit = String::from_utf8(
+/// The corpus HEAD commit, which the coverage maps name.
+fn corpus_head() -> String {
+    String::from_utf8(
         std::process::Command::new("git")
             .arg("-C")
             .arg(root().join("corpus"))
@@ -102,70 +93,32 @@ fn corpus_coverage_map_is_current() {
     )
     .unwrap()
     .trim()
-    .to_string();
-    let map = al_test_cli::coverage::corpus_coverage(&root(), &commit).unwrap();
-    for (name, text) in [
-        ("docs/corpus-coverage.md", al_test_cli::coverage::to_markdown(&map)),
-        ("docs/corpus-coverage.json", al_test_cli::coverage::to_json(&map)),
-    ] {
-        let path = root().join(name);
-        if std::env::var_os("UPDATE_GOLDEN").is_some() {
-            std::fs::write(&path, &text).unwrap();
-        }
-        let committed = std::fs::read_to_string(&path).unwrap_or_default();
-        // Generated docs: the regen bot rewrites them on main after the merge (ci.yml, job
-        // `regen-bot`), so a pull request does not regenerate them and a stale file is only noted.
-        if committed != text {
-            eprintln!(
-                "note: {name} is out of date; the regen bot updates it on main (locally: al-test-cli --root . --coverage-map)"
-            );
-        }
-    }
+    .to_string()
 }
 
-/// `docs/corpus-behavior-coverage.md` and `.json`: which triggers, properties, platform events,
-/// syntax kinds and runtime error sites some corpus test pins. Kept current by the regen bot on main,
-/// like the map above. Regenerate locally with `al-test-cli --root . --behavior-coverage-map` (or
-/// `UPDATE_GOLDEN=1` on this test).
+/// `docs/corpus-coverage.md` and `.json`: which builtin overloads some corpus test calls. ADR-065: they are not
+/// committed; CI on main uploads them as an artifact, and `al-test-cli --root . --coverage-map` writes them locally.
+/// This test checks that the map can be built and says something.
 #[test]
 #[ignore = "slow unoptimised: cargo test --release -p al-test-cli --test corpus_resolve_deps -- --ignored"]
-fn corpus_behavior_coverage_is_current() {
-    let commit = String::from_utf8(
-        std::process::Command::new("git")
-            .arg("-C")
-            .arg(root().join("corpus"))
-            .args(["rev-parse", "HEAD"])
-            .output()
-            .unwrap()
-            .stdout,
-    )
-    .unwrap()
-    .trim()
-    .to_string();
-    let map = al_test_cli::behavior_coverage::corpus_behavior_coverage(&root(), &commit).unwrap();
-    for (name, text) in [
-        (
-            "docs/corpus-behavior-coverage.md",
-            al_test_cli::behavior_coverage::to_markdown(&map),
-        ),
-        (
-            "docs/corpus-behavior-coverage.json",
-            al_test_cli::behavior_coverage::to_json(&map),
-        ),
-    ] {
-        let path = root().join(name);
-        if std::env::var_os("UPDATE_GOLDEN").is_some() {
-            std::fs::write(&path, &text).unwrap();
-        }
-        let committed = std::fs::read_to_string(&path).unwrap_or_default();
-        // Generated docs: the regen bot rewrites them on main after the merge (ci.yml, job
-        // `regen-bot`), so a pull request does not regenerate them and a stale file is only noted.
-        if committed != text {
-            eprintln!(
-                "note: {name} is out of date; the regen bot updates it on main (locally: al-test-cli --root . --behavior-coverage-map)"
-            );
-        }
-    }
+fn corpus_coverage_map_builds() {
+    let map = al_test_cli::coverage::corpus_coverage(&root(), &corpus_head()).unwrap();
+    let md = al_test_cli::coverage::to_markdown(&map);
+    let json = al_test_cli::coverage::to_json(&map);
+    assert!(md.lines().count() > 10, "{md}");
+    serde_json::from_str::<serde_json::Value>(&json).expect("the JSON map parses");
+}
+
+/// `docs/corpus-behavior-coverage.md` and `.json`: which triggers, properties, platform events, syntax kinds and
+/// runtime error sites some corpus test pins. Not committed, like the map above (`--behavior-coverage-map`).
+#[test]
+#[ignore = "slow unoptimised: cargo test --release -p al-test-cli --test corpus_resolve_deps -- --ignored"]
+fn corpus_behavior_coverage_builds() {
+    let map = al_test_cli::behavior_coverage::corpus_behavior_coverage(&root(), &corpus_head()).unwrap();
+    let md = al_test_cli::behavior_coverage::to_markdown(&map);
+    let json = al_test_cli::behavior_coverage::to_json(&map);
+    assert!(md.lines().count() > 10, "{md}");
+    serde_json::from_str::<serde_json::Value>(&json).expect("the JSON map parses");
 }
 
 /// `crates/al-builtins/src/pinned_columns.rs`: the columns of platform tables the corpus pins

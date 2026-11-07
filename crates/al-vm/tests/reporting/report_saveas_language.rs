@@ -1,4 +1,4 @@
-//! `CurrReport.Language` and `CurrReport.FormatRegion` in a report run by `SaveAs` (report/W3ReportObjectIdPreviewLanguage.al:
+//! `CurrReport.Language` and `CurrReport.FormatRegion` in a report run by `SaveAs` (reports/W3ReportObjectIdPreviewLanguage.al:
 //! 513-583): each run starts with no language set; the formats of another language or region are not built there and refused.
 
 use al_builtins::native::Signal;
@@ -333,8 +333,8 @@ fn assert_refused(routine: &str, needle: &str) {
 }
 
 /// W3ReportObjectIdPreviewLanguage.al:546-570: a SaveAs in another language changes its formats and dataset, which is not built
-/// and stays refused. The region setter in a SaveAs is built (report/lt-bd-format-region/BdRegionTests.al:582-925 BdSetter_*): the
-/// run goes on and the log reads `before=1033`. The language itself is kept (handlers/TestReportCurrReportLanguage.al:44-69 reads
+/// and stays refused. The region setter in a SaveAs is built (reports/runtime/BdRegionTests.al:582-925 BdSetter_*): the
+/// run goes on and the log reads `before=1033`. The language itself is kept (streams/TestReportCurrReportLanguage.al:44-69 reads
 /// 1031 back).
 #[test]
 fn another_language_in_a_saveas_is_refused_and_a_region_is_accepted() {
@@ -442,7 +442,7 @@ fn a_language_a_trigger_sets_is_the_language_of_the_dataset() {
     }
 }
 
-/// handlers/TestReportCurrReportLanguage.al:44: the same language set again in every row changes nothing; another language after
+/// streams/TestReportCurrReportLanguage.al:44: the same language set again in every row changes nothing; another language after
 /// the first data item was written is refused when the dataset is written.
 #[test]
 fn the_same_language_set_in_every_row_keeps_the_dataset() {

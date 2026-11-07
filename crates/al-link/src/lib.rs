@@ -424,6 +424,14 @@ impl<'a, S: Space + ?Sized> Tables<'a, S> {
         })
     }
 
+    /// The routine of interface `iface` that declares procedure `name` with these parameters: its default body when a
+    /// codeunit does not declare the member (codeunits/CwDefaultInterfaceMethods.al:20-33). A member without a body is
+    /// a declaration alc makes every implementer declare, so only a default body is ever reached here.
+    fn default_body(&self, iface: usize, name: &str, params: &[String]) -> Option<usize> {
+        let keys = self.space.routines(iface);
+        (0..keys.len()).find(|&r| !keys[r].trigger && keys[r].name == name && keys[r].params == params)
+    }
+
     /// The codeunits that implement interface `iface`, in program order.
     fn implementers(&self, iface: usize) -> &[usize] {
         let all = self.implementers.get_or_init(|| {
@@ -469,6 +477,20 @@ impl<'a, S: Space + ?Sized> Tables<'a, S> {
                     let same: Vec<usize> = (0..keys.len()).filter(|&r| shape(&keys[r])).collect();
                     let exact = same.iter().copied().find(|&r| keys[r].params == *params);
                     let Some(r) = exact.or(same.first().copied()) else {
+                        // The interface's default body, for a codeunit that does not declare the member and has
+                        // no local procedure of its name (what lowering lists, `Lowerer::interface_call`).
+                        // A local procedure of the name beside the default leaves the codeunit off the targets.
+                        let own_local = keys.iter().any(|k| k.local && !k.trigger && k.name == *name);
+                        if let Some(d) = self.default_body(i, name, params) {
+                            if own_local {
+                                continue;
+                            }
+                            targets.push((cu, al_ir::walk::DEFAULT_BODY));
+                            if !targets.contains(&(i, d)) {
+                                targets.push((i, d));
+                            }
+                            continue;
+                        }
                         return Err(Box::new(LinkError::NoImplementation {
                             from: from.clone(),
                             codeunit: self.space.key(cu).clone(),
@@ -931,7 +953,10 @@ impl Merges {
             for j in &s.joins {
                 m.lists.push((base, j.list, j.order, i));
             }
-            if !s.contribution.enum_values.is_empty() || !s.contribution.enum_captions.is_empty() {
+            if !s.contribution.enum_values.is_empty()
+                || !s.contribution.enum_captions.is_empty()
+                || !s.contribution.enum_captions_ml.is_empty()
+            {
                 m.enums.push((base, i));
             }
             if s.contribution.table.is_some() {
@@ -975,6 +1000,9 @@ impl Merges {
                 obj_at(objects, base)
                     .enum_captions
                     .extend(c.enum_captions.iter().cloned());
+                obj_at(objects, base)
+                    .enum_captions_ml
+                    .extend(c.enum_captions_ml.iter().cloned());
             }
         }
         Ok(())
@@ -1054,15 +1082,15 @@ impl Merges {
             for (pos, x) in order.iter().enumerate() {
                 if x.0 == BASE {
                     let mut c = base_slots[x.1].take().expect("a control is placed once");
-                    c.parent = c.parent.map(&pure).transpose()?;
+                    c.parent = c.parent.map(pure).transpose()?;
                     if let Some(al_ir::ActionRef::Target(t)) = &mut c.action_ref {
                         *t = pure(*t)?;
                     }
                     if let Some(l) = c.part_link.as_mut() {
-                        l.provider = l.provider.map(&pure).transpose()?;
+                        l.provider = l.provider.map(pure).transpose()?;
                     }
                     if let Some(l) = c.run_object.as_mut().and_then(|r| r.link.as_mut()) {
-                        l.provider = l.provider.map(&pure).transpose()?;
+                        l.provider = l.provider.map(pure).transpose()?;
                     }
                     controls.push(c);
                 } else {
@@ -1246,6 +1274,7 @@ pub fn relink<'k>(
                 let old = &program.objects[oi];
                 object.enum_values = old.enum_values.clone();
                 object.enum_captions = old.enum_captions.clone();
+                object.enum_captions_ml = old.enum_captions_ml.clone();
                 if let (Some(n), Some(o)) = (object.table.as_mut(), old.table.as_ref()) {
                     n.extensions = o.extensions.clone();
                 }
@@ -1855,6 +1884,7 @@ mod tests {
                 expr_source: None,
                 expr_call: false,
                 array_element: None,
+                source_text: None,
                 bare_quoted_ext_source: false,
                 factbox: false,
             },

@@ -1,5 +1,5 @@
 //! A Modify of a buffer that still holds what its own last Modify wrote, after a rollback undid that write
-//! (corpus record/lt-record-conversion-assumptions/StaleBuffer.al).
+//! (corpus record/StaleBuffer.al).
 
 use al_builtins::native::Signal;
 use al_testkit::text;
@@ -103,7 +103,7 @@ codeunit 69989 M
 }
 "#;
 
-// record/lt-ar-records/ArRecordProbes.al:141-143: the Modify that stores the field's new media removes the Tenant Media row of
+// streams/ArRecordProbes.al:141-143: the Modify that stores the field's new media removes the Tenant Media row of
 // the old one.
 #[test]
 fn modify_that_replaces_a_media_removes_the_old_media() {
@@ -241,15 +241,13 @@ codeunit 69996 RU
         InsertRow(Row); ChangeAndCommit(); Two.Id := 6; Two.Insert(); exit(Write(Row));
     end;
 
-    // Not pinned (assumption stale-buffer-other-origin-written): a buffer read by FindFirst, stale after a Commit, whose row
-    // the new transaction wrote.
+    // Pinned (Y76StaleBuffers.al Y76_Part1_FindFirst_FindLast `find/committed_modify_changed`): a buffer read by FindFirst in the
+    // transaction before the Commit behaves as a Get buffer and is refused.
     procedure FindBufferWritten(): Text
-    var Row: Record "RU Row"; Later: Record "RU Row"; Stored: Record "RU Row";
+    var Row: Record "RU Row"; Later: Record "RU Row";
     begin
         InsertRow(Row); Commit(); Row.FindFirst(); ChangeAndCommit(); Later.Get(5); Later.Note := 'later'; Later.Modify(false);
-        Row.Qty := 5; Row.Modify(false);
-        Stored.Get(5);
-        exit(Stored.Note + '|' + Format(Stored.Qty));
+        exit(Refused(Row));
     end;
 
     // Not pinned: a second Commit between the Insert and the transaction that modified the row.
@@ -292,14 +290,18 @@ fn a_stale_delete_follows_the_same_rule() {
     assert_eq!(run("DeleteAfterUnchanged"), "ok|No");
 }
 
-// Microsoft's No. Series batch writes such a buffer (Tests-ERM, 110 tests): the last writer wins under the assumption.
+// A buffer read by FindFirst is stale like one read by Get (Y76StaleBuffers.al, find/*): the assumption
+// stale-buffer-other-origin-written now covers only the origins no test pins (Next).
 #[test]
-fn a_stale_buffer_of_another_origin_whose_row_the_transaction_wrote_is_written() {
-    assert_eq!(text(al_testkit::run_in(RU, "RU", "FindBufferWritten")), "start|5");
+fn a_stale_find_buffer_is_refused_like_a_get_buffer() {
+    assert_eq!(
+        text(al_testkit::run_in(RU, "RU", "FindBufferWritten")),
+        "DB:RecordChanged|other|0"
+    );
 }
 
 // An Insert of another row of the table after the Commit writes the stale buffer (corpus branch al-runtime-rs-staging-sh,
-// record/lt-sb-stale-own-modify/SbStaleOwnModify.al:692 SH_OwnModify_OneCommit_AnotherRowInsert; al-runner issue 5954).
+// record/crud/SbStaleOwnModify.al:692 SH_OwnModify_OneCommit_AnotherRowInsert; al-runner issue 5954).
 #[test]
 fn a_stale_insert_buffer_after_an_insert_of_another_row_is_written() {
     assert_eq!(text(al_testkit::run_in(RU, "RU", "InsertOtherRowWritten")), "ok");
@@ -312,7 +314,7 @@ fn a_stale_insert_buffer_after_unpinned_steps_is_refused() {
 }
 
 // al-runner issue 5823: the variable's own writes after its own Insert or Get, in the transaction the last Commit closed
-// (record/lt-sb-stale-own-modify/SbStaleOwnModify.al).
+// (record/crud/SbStaleOwnModify.al).
 const OWN: &str = r#"
 table 50110 "Repro Stale Row"
 {
@@ -471,7 +473,7 @@ codeunit 50111 T
 
 #[test]
 fn a_stale_buffer_whose_version_came_from_its_own_write_follows_the_insert_rule() {
-    // record/lt-sb-stale-own-modify/SbStaleOwnModify.al (al-runner issue 5823): the variable's own write in the transaction the last
+    // record/crud/SbStaleOwnModify.al (al-runner issue 5823): the variable's own write in the transaction the last
     // Commit closed (Modify(false) :132-178, Modify(true) :181-213, two Modifies :216-248, Rename :268-298, after another
     // variable's change :301-319, and a Get buffer's own Modify :410-448) makes the stale buffer follow the Insert-buffer rule.
     let run = |p: &str| text(al_testkit::run_in(OWN, "T", p));
@@ -606,7 +608,7 @@ codeunit 50121 T
 
 #[test]
 fn a_stale_buffer_read_by_get_in_the_writing_transaction_follows_the_insert_rule() {
-    // Pinned by record/lt-sb-stale-own-modify/SbStaleOwnModify.al:467-640 (the SF_ tests).
+    // Pinned by record/crud/SbStaleOwnModify.al:467-640 (the SF_ tests).
     let run = |p: &str| text(al_testkit::run_in(GET_TX, "T", p));
     for p in [
         "GetOtherWrite",

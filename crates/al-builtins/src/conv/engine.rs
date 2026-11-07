@@ -123,7 +123,7 @@ fn cast(d: Decimal, from: &str, to: &str, min: i128, max: i128, t: &RtType) -> R
         RtType::Duration => Value::Duration(n as i64),
         RtType::Char => Value::Char(n as u16),
         RtType::Byte => Value::Byte(n as u8),
-        RtType::Option(m) => Value::Option(n as i32, m.clone().into()),
+        RtType::Option(m) => Value::Option(n as i32, m.clone()),
         _ => unreachable!("a number target"),
     })
 }
@@ -140,7 +140,7 @@ fn byte_to_char(b: u8) -> Result<Value, Signal> {
     byte_as_char(b).map(Value::Char)
 }
 
-/// The character a Byte converts to (types/lt-byte-char-high/ByteCharHigh.al, see `super::byte_char`).
+/// The character a Byte converts to (types/text-code-char/ByteCharHigh.al, see `super::byte_char`).
 pub(super) fn byte_as_char(b: u8) -> Result<u16, Signal> {
     Ok(super::byte_char::byte_to_char(b))
 }

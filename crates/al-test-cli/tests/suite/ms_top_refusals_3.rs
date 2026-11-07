@@ -20,8 +20,8 @@ fn outcomes(tests: &str) -> Vec<(String, Outcome)> {
     run_codeunit(&engine, &l, oi)
 }
 
-// The sequence of corpus misc/lt-open-overloads-collections-isolated/P107RecRefNames.al:101-135 (P107_IsDirty) and
-// recordref/lt-recordref-fieldref-members/P92DirtyRef.al:21-50 (IsDirty_FieldChanges): the expected answers are theirs.
+// The sequence of corpus recordref-fieldref/P107RecRefNames.al:101-135 (P107_IsDirty) and
+// recordref-fieldref/recordref/P92DirtyRef.al:21-50 (IsDirty_FieldChanges): the expected answers are theirs.
 #[test]
 fn record_ref_is_dirty_follows_the_pinned_sequence() {
     let o = outcomes(

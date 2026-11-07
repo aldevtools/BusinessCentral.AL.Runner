@@ -9,7 +9,8 @@ awaiting (--awaiting-assumptions), gates (al-version gate_completeness), harness
 (corpus_resolve_deps, the generated pinned_columns.rs), and the
 JUnit files of the old pin (before/) and the new pin (after/).
 
-The body lists what is left for a person and decides none of it: a lost baseline case, a case that fails on the
+The body lists what is left for a person and decides none of it: a regression (ADR-065: a case not in the
+not-passing lists that does not pass), a case that fails on the
 new pin and did not on the old one, an assumption whose corpus pin landed, a corpus guard without a gate, a
 harness count, a stale golden file. Each list is cut to stay under GitHub's limit of 65536 characters, with the full count.
 """
@@ -75,14 +76,14 @@ def quote(text):
 
 
 def regressions(diff):
-    """The lines of each 'no longer passing' section of the baseline diff, with its version."""
+    """The lines of each regressions section of the baseline diff (ADR-065), with its version."""
     out, version, inside = [], None, False
     for line in diff.splitlines():
         m = re.match(r"Baseline diff, (BC [^:]+):", line)
         if m:
             version, inside = m.group(1), False
             continue
-        if line.startswith("In the baseline but no longer passing"):
+        if line.startswith("Regressions: not listed and not passing"):
             inside = True
             continue
         if inside and line and not line.startswith(" "):
@@ -99,15 +100,17 @@ def main(d):
     body.append(f"Corpus bump to master `{sha[:12]}` from `{old[:12]}`, made by the corpus bump bot from corpus run "
                 f"[{run}](https://github.com/{repo}/actions/runs/{run}).")
     body.append("")
-    body.append("The bot does not merge. It changed only the corpus pin, `oracle/` and the harness counts in "
-                "`crates/al-test-cli/tests/corpus_harness.rs`. It never removes a baseline line and writes no "
-                "baseline: the regen bot adds the new passes after the merge.")
+    body.append("The bot does not merge. It changed only the corpus pin, `oracle/`, the harness counts in "
+                "`crates/al-test-cli/tests/corpus_harness.rs` and the not-passing lists `metrics/*/not-passing*.txt` "
+                "(ADR-065): lines for new oracle cases that do not pass, and the deletion of stale lines. It never "
+                "adds a line for a case the old oracle had.")
 
     left = []
     lost = regressions(read(d, "diff.txt"))
     if lost or code(d, "diff") != 0:
-        left.append(("Baseline cases that no longer pass. Fix the code, or show in the commit that the case "
-                     "passed by accident (CLAUDE.md hard rule 2)", capped(lost) or ["(see the baseline diff output below)"]))
+        left.append(("Regressions: cases the old oracle had, not in the not-passing lists, that do not pass. Fix the "
+                     "code; listing one needs the owner's OK (CLAUDE.md hard rule 2)",
+                     capped(lost) or ["(see the baseline diff output below)"]))
     before, after = fails(os.path.join(d, "before")), fails(os.path.join(d, "after"))
     new = sorted(c for f, cases in after.items() for c in cases - before.get(f, set()))
     if new:

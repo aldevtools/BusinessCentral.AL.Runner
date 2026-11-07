@@ -40,11 +40,13 @@ pub(crate) mod profile_settings;
 pub(crate) mod profiles;
 pub(crate) mod ranges;
 mod reports;
-mod seed;
+pub(crate) mod seed;
 mod tenant_compose;
 mod tenant_media_row;
 mod windows_language_rows;
-pub(crate) use permissions::{RawSet, inherent_attribute, object_grants, parse_guard, raw_sets, table_inherent};
+pub(crate) use permissions::{
+    RawSet, inherent_attribute, object_grants, parse_guard, raw_sets, system_entry_level, table_inherent,
+};
 pub(crate) use seed::SESSION_USER_FULL_NAME;
 
 use crate::Engine;
@@ -74,6 +76,27 @@ pub(crate) struct EventStats {
     pub active: RefCell<HashMap<usize, i64>>,
     /// The session's `GlobalLanguage` when it is not 1033 (0: 1033). The Report Layout List's Description follows it.
     pub language: std::cell::Cell<i32>,
+    /// What the install of an app lets the "NAV App Installed App" list show ([`InstallView`]).
+    pub install_view: RefCell<InstallView>,
+}
+
+/// The apps an install has not reached, and the app whose install runs: the "NAV App Installed App" list leaves them out
+/// (record/lt-r7142-installed-app/R7169DepInstallPublishedAs.al: during XApp A's install `install_own` is `no row`, the
+/// fixture app installed before it is listed, B and the main app are not yet).
+#[derive(Default, Clone)]
+pub(crate) struct InstallView {
+    /// Apps (indexes in `Program::apps`) not installed yet.
+    pub not_installed: std::collections::BTreeSet<u32>,
+    /// The app whose install code runs; its own row does not exist yet.
+    pub installing: Option<u32>,
+    /// Apps with no dependency path to the installing one and no known install order: whether their row exists is not known.
+    pub order_unknown: std::collections::BTreeSet<u32>,
+}
+
+impl InstallView {
+    pub(crate) fn active(&self) -> bool {
+        !self.not_installed.is_empty() || self.installing.is_some() || !self.order_unknown.is_empty()
+    }
 }
 
 /// What the host says about the session, read once when the session starts.
@@ -96,6 +119,8 @@ pub(crate) struct Ident {
     /// The companies the run declared (ADR-046 decision 2, `--companies`), the session company first; empty for the
     /// default of one company. `Companies::All` is resolved against the test data in [`Ident::resolve_companies`].
     pub companies: Vec<String>,
+    /// The kind of server the session runs on (`--environment`).
+    pub environment: al_host::Environment,
 }
 
 impl Ident {
@@ -114,6 +139,7 @@ impl Ident {
             login_millis: host.clock.now_utc_millis(),
             time_zones: id.time_zones(),
             companies: Vec::new(),
+            environment: id.environment(),
         }
     }
 
@@ -303,6 +329,11 @@ impl Providers {
 
     /// An Event Subscription row with "Number of Calls" (8) and "Active Manual Instances" (13) as
     /// the session has them now.
+    /// What the install in progress lets the list of installed apps show.
+    pub(super) fn install_view(&self) -> InstallView {
+        self.events.install_view.borrow().clone()
+    }
+
     /// The session's `GlobalLanguage`.
     pub(super) fn language(&self) -> i32 {
         match self.events.language.get() {
@@ -403,7 +434,7 @@ impl Providers {
 
     /// One `Tenant Media` row per imported media object, in id order: ID, Description, Content, Mime
     /// Type, Height, Width and File Name, as the importing methods leave them (corpus
-    /// media/PXMediaFileName.al, media/TestMediaSetPersistence.al:180-207; `tenant_media_row::columns`).
+    /// streams/media/PXMediaFileName.al, streams/media/TestMediaSetPersistence.al:180-207; `tenant_media_row::columns`).
     fn tenant_media_rows(&self, t: &TableDef) -> Vec<mat::Entry> {
         let objects = self.media.objects.borrow();
         let mut ids: Vec<_> = objects.keys().copied().collect();
@@ -439,7 +470,7 @@ impl Providers {
                 if al_builtins::media::jpg_holding_png(o) {
                     blob.borrow_mut().render_pending = Some(al_builtins::stream::MEDIA_JPG_HOLDING_PNG.into());
                 } else if al_builtins::media::png_size(&o.bytes).is_some() {
-                    // BC stores an imported PNG re-encoded (onprem session/UsAppLogo.al:7, the Icon of an app's logo; types/W7Media.al:141-145):
+                    // BC stores an imported PNG re-encoded (onprem session-system/UsAppLogo.al:7, the Icon of an app's logo; types/W7Media.al:141-145):
                     // a look at the bytes is refused.
                     blob.borrow_mut().render_pending = Some(al_builtins::stream::MEDIA_PNG_STORED_REENCODED.into());
                 }
@@ -462,7 +493,7 @@ impl Providers {
                 {
                     row[p] = Value::Text(file_name.into());
                 }
-                // The row names the session company (platform/W6TenantMedia.al:TenantMedia_RowAfterImportStream).
+                // The row names the session company (metadata/W6TenantMedia.al:TenantMedia_RowAfterImportStream).
                 if let Some(p) = t
                     .fields
                     .iter()
@@ -562,6 +593,12 @@ impl Providers {
                 self.language()
             )));
         }
+        // The list of installed apps follows the install in progress and the run's setting for dependency apps: listed per read.
+        if kind == Virtual::NavAppInstalledApp
+            && (self.events.install_view.borrow().active() || self.engine().dependencies_published_global)
+        {
+            return Ok(Listed::Own(Rc::new(mat::Mat::new(t, self.list_rows(t, kind)))));
+        }
         if let Some(m) = self.listed.borrow().get(&kind) {
             return Ok(m.clone());
         }
@@ -578,6 +615,13 @@ impl Providers {
                     t.name,
                     self.engine().program.objects[t.object as usize].id.unwrap_or(0)
                 )));
+            }
+            // "No rows" is pinned for the Cloud suite only (metadata/platform-tables/Y21EnvColumns.al:30-40); an OnPrem
+            // server can list real printers and no OnPrem corpus test pins the table.
+            Virtual::Printer if self.ident.environment == al_host::Environment::OnPrem => {
+                return Err(refused(
+                    "Printer (2000000039): the rows of an OnPrem server's printers are not pinned (only the Cloud suite pins no rows)",
+                ));
             }
             // The media the session imported, read fresh each time (they change between reads).
             Virtual::TenantMedia => return Ok(Listed::Own(Rc::new(mat::Mat::new(t, self.tenant_media_rows(t))))),
@@ -625,6 +669,8 @@ impl Providers {
             Virtual::ApiWebhookEntity | Virtual::TenantMedia | Virtual::Media | Virtual::Unprovided => {
                 unreachable!("refused or listed before")
             }
+            // No rows (metadata/platform-tables/Y21EnvColumns.al:30-40 Y21_Printer_NoRows).
+            Virtual::Printer => Vec::new(),
             Virtual::XmlPortMetadata => metadata::xmlport_metadata_rows(self, t),
             Virtual::EventSubscription => metadata::event_subscription_rows(self, t),
             Virtual::PageAction => metadata::page_action_rows(self, t),
@@ -792,7 +838,7 @@ impl VirtualTables for Providers {
         }
     }
 
-    /// Active Session keeps the rows an Insert adds (platform/lt-outside-platform/RvActiveSessionWrites.al, AL Runner issue 5807).
+    /// Active Session keeps the rows an Insert adds (metadata/platform-tables/RvActiveSessionWrites.al, AL Runner issue 5807).
     fn takes_inserts(&self, t: &TableDef) -> bool {
         self.served.get(t.object as usize) == Some(&Some(Virtual::ActiveSession))
     }
@@ -976,9 +1022,9 @@ impl VirtualTables for Providers {
 
 impl Providers {
     /// Media (2000000181) read by one ID. No row has the null ID: Guided Experience Impl looks up the Logo of an app whose
-    /// app.json declares none by its null MediaId and finds nothing (onprem session/PZPublishedApplicationColumns.al
+    /// app.json declares none by its null MediaId and finds nothing (onprem session-system/PZPublishedApplicationColumns.al
     /// Logo_GuidedExperienceSequence_OfThisAppAndMicrosoftApps, `media row=none`). The id of an app's PNG logo finds its row
-    /// ([`apps::logo_media_rows`], onprem session/UsAppLogo.al). The other rows (media AL imports, other ids) are not
+    /// ([`apps::logo_media_rows`], onprem session-system/UsAppLogo.al). The other rows (media AL imports, other ids) are not
     /// pinned: any other read is refused.
     fn media_of_id(&self, t: &TableDef, id: Option<&Value>) -> Result<mat::Mat, StoreError> {
         match id {

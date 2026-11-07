@@ -7,7 +7,7 @@ use al_vm::Engine;
 
 /// Runs the test codeunit `T` of the workspace app `objects`. `apps` are dependency apps in order, each one
 /// depending on the ones before it; the workspace app depends on all of them.
-fn run_with_deps(apps: &[&str], objects: &str) -> Vec<(String, Outcome)> {
+pub(crate) fn run_with_deps(apps: &[&str], objects: &str) -> Vec<(String, Outcome)> {
     let mut sources = Vec::new();
     let mut kinds = Vec::new();
     let mut ids: Vec<String> = Vec::new();
@@ -38,7 +38,7 @@ fn run_with_deps(apps: &[&str], objects: &str) -> Vec<(String, Outcome)> {
     run_codeunit(&engine, &l, oi)
 }
 
-fn all_pass(results: Vec<(String, Outcome)>) {
+pub(crate) fn all_pass(results: Vec<(String, Outcome)>) {
     assert!(!results.is_empty());
     for (name, outcome) in results {
         assert_eq!(outcome, Outcome::Pass, "{name}");
@@ -73,7 +73,7 @@ codeunit 69502 T { Subtype = Test;
 }
 
 /// Issue 255: `Info.SystemId(Value)` in method form sets the SystemId and `Info.SystemId()` reads it back.
-/// Pin: errorinfo/lt-errnotif/EnTErrorInfoProps.al:106-115 and :259-262 (a SystemId round-trips).
+/// Pin: errors/errorinfo/EnTErrorInfoProps.al:106-115 and :259-262 (a SystemId round-trips).
 #[test]
 fn issue_255_error_info_system_id_method_form_round_trips() {
     let main = "
@@ -89,7 +89,7 @@ codeunit 69511 T { Subtype = Test;
 }
 
 /// Issue 292: a procedure of a Page variable that never ran calls `CurrPage.Update(false)`; the call does nothing and the
-/// procedure goes on. Pin: pages/lt-closed-page-variable-currpage/ClosedPageVariableCurrPageUpdate.al:98-114 (Update_NeverRun).
+/// procedure goes on. Pin: pages/currpage/ClosedPageVariableCurrPageUpdate.al:83-99 (Update_NeverRun).
 #[test]
 fn issue_292_currpage_update_false_on_a_page_variable_that_never_ran_returns() {
     let main = "
@@ -104,8 +104,8 @@ codeunit 69521 T { Subtype = Test;
     all_pass(run_with_deps(&[], main));
 }
 
-/// Issues 293 and 5580: `SessionInformation.SqlStatementsExecuted()` answers whether it is negative (no: session/TestMiscTypes.al:96-114,
-/// session/lt-bl-sql-counters/SqlCounters.al:74-84); an exact count is not pinned and refuses the test.
+/// Issues 293 and 5580: `SessionInformation.SqlStatementsExecuted()` answers whether it is negative (no: session-system/TestMiscTypes.al:96-114,
+/// session-system/session/SqlCounters.al:74-84); an exact count is not pinned and refuses the test.
 #[test]
 fn issue_293_sql_statements_executed_answers_only_the_pinned_comparisons() {
     let main = "
@@ -124,7 +124,7 @@ codeunit 69522 T { Subtype = Test;
 }
 
 /// al-runner issue 5761: the reporter's statement budget, 10 inserts and a Count right after a Commit, within (0, 100].
-/// Pin: session/lt-bl-sql-counters/SqlCounters.al:282-305 (RO_Counters_StatementBudget_Repro, 3 statements); 11 inserts
+/// Pin: session-system/session/SqlCounters.al:282-305 (RO_Counters_StatementBudget_Repro, 3 statements); 11 inserts
 /// are not measured and refuse.
 #[test]
 fn issue_5761_statement_budget_of_inserts_and_count() {
@@ -173,7 +173,7 @@ codeunit 69525 T { Subtype = Test;
 }
 
 /// Found next to issue 292: `CurrPage.Close()` in a procedure of a Page variable that never ran does nothing either.
-/// Pin: pages/lt-closed-page-variable-currpage/ClosedPageVariableCurrPageClose.al:98-114 (Close_NeverRun).
+/// Pin: pages/currpage/ClosedPageVariableCurrPageClose.al:83-99 (Close_NeverRun).
 #[test]
 fn issue_292_currpage_close_on_a_page_variable_that_never_ran_returns() {
     let main = "
@@ -208,7 +208,7 @@ codeunit 50301 T { Subtype = Test; [Test] procedure Compiles() begin end; }";
 /// base page's code the base page's protected one; a call from outside on a page variable runs the base page's public
 /// procedure, as the extension's local one is not visible there. alc binds the calls that way (a probe with alc: the extension's
 /// local `F(): Text` next to the base's protected `F(): Integer` makes `I := F()` in the extension a Text-to-Integer
-/// error); corpus pageext/lt-ext-local-same-name/ExtLocalSameNameTests.al:48-72 pins it on real BC.
+/// error); corpus pages/extensions/ExtLocalSameNameTests.al:48-72 pins it on real BC.
 #[test]
 fn issue_6043_a_bare_call_runs_the_procedure_of_the_calling_object() {
     let base = "table 50200 \"Repro Rec\" { fields { field(1; \"No.\"; Code[10]) { } } keys { key(PK; \"No.\") { Clustered = true; } } }
@@ -292,7 +292,7 @@ report 50203 \"Repro Rep\" {{ ProcessingOnly = true; dataset {{ dataitem(R; \"Re
 /// - the same app, `internal` on either side: the declarations compile, a bare call in the extension is AL0196.
 ///
 /// Which body a call runs is pinned only for an internal extension procedure beside a public or protected page procedure
-/// of another app (pageext/lt-wd/WdPageExtInternalTwin.al); in the other shapes that compile every call of the name
+/// of another app (permissions/WdPageExtInternalTwin.al); in the other shapes that compile every call of the name
 /// refuses: a bare call in the base and in the extension, and a call on a page variable from outside.
 #[test]
 fn issue_6043_extension_procedure_named_like_a_base_procedure_compiles_as_alc_does_and_its_calls_refuse() {
@@ -349,7 +349,7 @@ fn issue_6043_extension_procedure_named_like_a_base_procedure_compiles_as_alc_do
         let (codes, r) = codes_and_outcomes(&[&twin_base(base)], &format!("{page_ext}\n{tests}"));
         assert!(codes.is_empty(), "{label}: {codes:?}");
         // An internal extension procedure beside a public or protected page procedure: the base's own call runs the base's,
-        // the extension's own call its own (pageext/lt-wd/WdPageExtInternalTwin.al, al-runner issue 6294). A Page variable
+        // the extension's own call its own (permissions/WdPageExtInternalTwin.al, al-runner issue 6294). A Page variable
         // call from the extension's own app is not pinned.
         if ext == "internal" && base != "internal" {
             passes(&r, "Base");
@@ -416,7 +416,7 @@ fn repro_outcomes(file: &str, codeunit: &str) -> Vec<(String, Outcome)> {
 /// Issue 6139: on a worksheet in its primary key with a ListPart and the row triggers, a second marking (from the OnDrillDown
 /// or from an action, both with CurrPage.Update(false)) after row 2 lost its flag: GoToRecord of row 2 answers false and the
 /// page shows row 1, the row the marking left Rec on. Measured by the reporter on BC 29; pinned by corpus writer UD
-/// (pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:722, :753, :784 on branch al-runtime-rs-staging-ud).
+/// (pages/onopenpage-moves-rec/SuRefillKey.al:722, :753, :784 on branch al-runtime-rs-staging-ud).
 #[test]
 fn issue_6139_second_marking_after_the_row_lost_its_flag() {
     all_pass(repro_outcomes(
@@ -427,7 +427,7 @@ fn issue_6139_second_marking_after_the_row_lost_its_flag() {
 
 /// Issue 6141: on a worksheet in the key ByName with a ListPart and the row triggers, GoToRecord of an unmarked row after a
 /// marking OnDrillDown answers false and the page stays on row 1, the row the drilldown left Rec on, after a walk over the
-/// marked rows (corpus pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:541 TW_NameKeyWithPart_GoToRecordOfUnmarkedRow on
+/// marked rows (corpus pages/onopenpage-moves-rec/SuRefillKey.al:541 TW_NameKeyWithPart_GoToRecordOfUnmarkedRow on
 /// corpus master). The control, GoToRecord of Rec's row, answers true.
 #[test]
 fn issue_6141_goto_record_of_an_unmarked_row_with_a_part() {
@@ -438,7 +438,7 @@ fn issue_6141_goto_record_of_an_unmarked_row_with_a_part() {
 }
 
 /// Issue 6116: the reporter's repro (fixtures/outside-fb/Issue6116.al, with a stand-in for Library Assert) and a second test
-/// codeunit that checks the exact differences BC gave the reporter. Pins: session/lt-bl-sql-counters/SkSqlBudget.al, writer TW
+/// codeunit that checks the exact differences BC gave the reporter. Pins: session-system/session/SkSqlBudget.al, writer TW
 /// (TW_*_Counts: 1/1, 1/11, 10/10, 11/5 for the reporter's shapes) and writer TX (TX_*: the cost of each record method alone).
 fn issue_6116_outcomes(exact: &str) -> Vec<(String, Outcome)> {
     let src = format!(
@@ -607,7 +607,7 @@ fn issue_6116_find_set_after_the_same_query_found_nothing_stays_refused() {
 }
 
 /// Issue 6129: `X::Value` where the implicit Rec has a field `X` and an enum type `X` exists too. The objects of the
-/// corpus pin tests/al-language/types/lt-enum-type-before-rec-field/EnumTypeBeforeRecField.al (corpus branch
+/// corpus pin tests/al-language/types/enum-option/EnumTypeBeforeRecField.al (corpus branch
 /// al-runtime-rs-staging-ub, bump PR 793; not in the pinned corpus yet): `body` goes into the test procedure.
 fn issue_6129_objects(body: &str) -> String {
     format!(
@@ -741,7 +741,7 @@ table 50002 \"MNC UB Rec\" { fields { field(1; Id; Integer) { } field(2; \"MNC U
 }
 
 /// Issue 6129: corpus master now pins the reading in a procedure of a TableNo codeunit
-/// (types/lt-enum-type-before-rec-field/EnumTypeBeforeRecField.al:142-149), so the assumption is retired and no
+/// (types/enum-option/EnumTypeBeforeRecField.al:142-149), so the assumption is retired and no
 /// reading marks it any more; the field readings stay unflagged as before.
 #[test]
 fn issue_6129_no_reading_is_flagged_once_pinned() {
@@ -755,8 +755,8 @@ fn issue_6129_no_reading_is_flagged_once_pinned() {
 
 /// Issue 6168: `FilterPageBuilder.RunModal` reaches the bound `[FilterPageHandler]`, which gets a RecordRef on the
 /// builder's table; the filters it sets come back through `GetView`, and its answer is the result of `RunModal`.
-/// Pins: filterpage/W3FilterPageBuilder.al:159-212 (FieldRef.SetFilter in the handler, answer true and false),
-/// platform/lt-platform-members/PlTFilterPageBuilder.al:293-311 (Record.SetView of the builder's view).
+/// Pins: pages/filterpagebuilder/W3FilterPageBuilder.al:159-212 (FieldRef.SetFilter in the handler, answer true and false),
+/// metadata/platform-tables/PlTFilterPageBuilder.al:293-311 (Record.SetView of the builder's view).
 #[test]
 fn issue_6168_filter_page_handler_answers_run_modal() {
     let objects = "
@@ -814,7 +814,7 @@ codeunit 69622 T {
 }
 
 /// al-runner issue 6179: a generic field-by-field copy compares `FieldRef.Length` of every field, a Media and a MediaSet field
-/// included. Pin: record/lt-media-length-find-empty/MediaLengthFindEmpty.al:56-75 (Media 16, MediaSet 16).
+/// included. Pin: record/crud/MediaLengthFindEmpty.al:43-62 (Media 16, MediaSet 16).
 #[test]
 fn issue_6179_fieldref_length_of_media_and_mediaset() {
     let main = "
@@ -832,7 +832,7 @@ codeunit 69541 T { Subtype = Test;
 
 /// al-runner issue 6176: robust JSON parsing reads a property of the wrong type with `AsBoolean` inside a TryFunction; the
 /// conversion error is caught and the TryFunction returns false. Pin: json/JsonValueGetters.al:172 (`text_asboolean`, a text of
-/// letters raises "Unable to convert ... System.Boolean."); the reporter's text with blanks: misc/lt-y70-assumptions/
+/// letters raises "Unable to convert ... System.Boolean."); the reporter's text with blanks: record/
 /// Y70Probes.al:557-579 (JsonValue_AsBooleanOtherText).
 #[test]
 fn issue_6176_json_text_as_boolean_in_a_try_function() {
@@ -854,7 +854,7 @@ codeunit 69542 T { Subtype = Test;
 }
 
 /// al-runner issue 6178: Microsoft's retention policy code calls `Dialog.HideSubsequentDialogs(true)` before it opens a progress
-/// dialog (only under GuiAllowed); the call changes nothing a test sees. Pin: errorinfo/lt-errnotif/EnTDialogSession.al
+/// dialog (only under GuiAllowed); the call changes nothing a test sees. Pin: errors/errorinfo/EnTDialogSession.al
 /// UJ_Dialog_HideSubsequent_OpenUpdateClose (corpus branch al-runtime-rs-staging-uj 1dc037a8; assumption
 /// `dialog-hide-subsequent-dialogs-no-headless-effect` until the bump).
 #[test]
@@ -872,7 +872,7 @@ codeunit 69543 T { Subtype = Test;
 }
 
 /// al-runner issue 6181: a part's `SubPageLink` with `const("Enum"::Value)` compiles and filters the part on that value.
-/// Pin: pages/lt-uj-outside-leads/UjSubPageLink.al UJ_SubPageLink_ConstEnum_Rows (corpus branch al-runtime-rs-staging-uj
+/// Pin: testpage/UjSubPageLink.al UJ_SubPageLink_ConstEnum_Rows (corpus branch al-runtime-rs-staging-uj
 /// 1dc037a8; former assumption `subpagelink-const-qualified-enum-value` (pinned on corpus master since bump 1030) until the bump).
 #[test]
 fn issue_6181_subpagelink_const_with_a_qualified_enum_value() {
@@ -901,7 +901,7 @@ codeunit 69549 T { Subtype = Test;
 }
 
 /// al-runner issue 6182: a page extension declares OnPageBackgroundTaskCompleted (Microsoft's User Card Perf. Factboxes); the
-/// TestPage opens and the page's trigger runs before the extension's. Pin: pages/lt-uj-outside-leads/UjPageExtBgTask.al
+/// TestPage opens and the page's trigger runs before the extension's. Pin: collections/UjPageExtBgTask.al
 /// UJ_PageExt_BgTask_Completed (corpus branch al-runtime-rs-staging-uj 1dc037a8; former assumption `pageext-background-task-triggers` (pinned on corpus master since bump 1030)).
 #[test]
 fn issue_6182_page_extension_background_task_completed() {
@@ -928,7 +928,7 @@ codeunit 69555 T { Subtype = Test;
 }
 
 /// al-runner issue 6180: a history list over a temporary table without the new-row line, run modally; its action rebuilds the rows,
-/// then the handler filters, goes to the first row and reads it. Pin: pages/lt-uj-outside-leads/UjTempList.al
+/// then the handler filters, goes to the first row and reads it. Pin: testpage/UjTempList.al
 /// UJ_Temp_List_Modal_FilterAfterRebuild (corpus branch al-runtime-rs-staging-uj 1dc037a8; former assumption `list-action-rebuilds-rows` (pinned on corpus master since bump 1030)).
 #[test]
 fn issue_6180_history_list_action_rebuilds_temporary_rows() {
@@ -964,7 +964,7 @@ codeunit 69558 T { Subtype = Test; var Seen: Text;
 /// Issue 6173: reading a query `filter()` element (not a column) before a row is read raises the error a column
 /// read without a row raises, before Open and after Open without a Read. After a Read BC returns the value of
 /// another column or crashes, so that form stays refused. Pins: corpus branch al-runtime-rs-staging-uh (commit
-/// ab6c6eb2, corpus PR 799) errors/lt-ms-refusals-131/P131QueryOuterFilter.al UH_Query_ReadFilter_BeforeOpen,
+/// ab6c6eb2, corpus PR 799) queries/P131QueryOuterFilter.al UH_Query_ReadFilter_BeforeOpen,
 /// UH_Query_ReadFilter_OpenNoRead (assumption query-filter-element-read-without-row until that is pinned).
 const ISSUE_6173_OBJECTS: &str = "
 table 69630 \"UR Qf Addr\" { fields { field(1; \"No.\"; Code[20]) { } field(2; Country; Code[10]) { } field(3; \"Post Box\"; Text[30]) { } } keys { key(PK; \"No.\") { Clustered = true; } } }
@@ -1056,7 +1056,7 @@ fn issue_6173_filter_element_read_without_a_row_raises() {
 
 /// Issue 6174: a query column over a Sum or Count FlowField of a LeftOuterJoin dataitem is calculated per joined
 /// row, and is 0 for a parent row without a matching child. Pins:
-/// errors/lt-ms-refusals-130/P130QueryOuterFlow.al:163-184 (P130_Query_FlowFieldOfOuterJoinedItem) and :210-229.
+/// queries/P130QueryOuterFlow.al:151-172 (P130_Query_FlowFieldOfOuterJoinedItem) and :210-229.
 #[test]
 fn issue_6174_flowfield_column_of_outer_joined_item() {
     let objects = "
@@ -1125,7 +1125,7 @@ codeunit 69644 T {
 /// SystemCreatedByFullName 2000000006, SystemModifiedByUserName 2000000007, SystemModifiedByFullName 2000000008):
 /// class FlowField, and after `CalcField` the user name fields hold `UserId()` and the full name fields the User row's
 /// Full Name (not blank, not the user name) on a normal record; all four are blank on a temporary record. Pin:
-/// system-fields/W6SystemFieldStamps.al:216-248 (UserNameSystemFields_NormalAndTemporaryRecord).
+/// record/system-fields/W6SystemFieldStamps.al:216-248 (UserNameSystemFields_NormalAndTemporaryRecord).
 const ISSUE_6177_OBJECTS: &str = "
 table 69650 \"UR Un Row\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { Clustered = true; } } }
 codeunit 69651 T {
@@ -1186,7 +1186,7 @@ fn issue_6177_user_name_system_flow_fields_through_record_ref() {
 }
 
 /// Issue 6220: a bound `[HyperlinkHandler]` receives the URL `Hyperlink` opens; without one the call raises
-/// `Unhandled UI: Hyperlink <url>`. Pins: handlers/W3Hyperlink.al:24-38 (Hyperlink_WithHandler), :40-63 (empty and mailto
+/// `Unhandled UI: Hyperlink <url>`. Pins: ui-handlers/W3Hyperlink.al:24-38 (Hyperlink_WithHandler), :40-63 (empty and mailto
 /// URLs), :65-83 (Hyperlink_WithoutHandler).
 #[test]
 fn issue_6220_hyperlink_handler_gets_the_url() {
@@ -1240,7 +1240,7 @@ codeunit 69661 T {
 /// Issue 6216: a page extension's `OnBeforeAction` in `modify(<action>)` runs before the action's `OnAction`, its
 /// `OnAfterAction` after; an error in `OnBeforeAction` runs neither and reaches `Invoke` as `TestWrapped:Dialog`; opening
 /// the page runs none. Pins (corpus branch al-runtime-rs-staging-uq at d651ec93, bump PR 809):
-/// pages/lt-pageext-action-after/PageExtensionActionOnAfterAction.al UQ_OpenWithoutInvoke_NoBeforeOrAfter,
+/// pages/extensions/PageExtensionActionOnAfterAction.al UQ_OpenWithoutInvoke_NoBeforeOrAfter,
 /// UQ_BeforeAndAfterInOneModify_Order, UQ_BeforeActionRaises_OnActionAndAfterSkipped.
 #[test]
 fn issue_6216_pageext_on_before_action_runs_before_on_action() {
@@ -1363,7 +1363,7 @@ codeunit 69666 T {
 
 /// Issue 6221: a SaveValues page that a page extension extends with a control bound to the extension's own variable opens;
 /// nothing is stored before the first close, and the next open restores the extension's variable as it does the page's.
-/// Pin: misc/lt-probes-needed-6/PnF02SaveValuesExt.al:157-205 (SaveValues_Ext_OkThenReopen: first open all blank, after OK
+/// Pin: pages/PnF02SaveValuesExt.al:157-205 (SaveValues_Ext_OkThenReopen: first open all blank, after OK
 /// `second_A` and `second_B`, `second_E` restored) and :207-234 (a Cancel stores nothing).
 #[test]
 fn issue_6221_savevalues_page_with_extension_variable() {
@@ -1682,7 +1682,7 @@ const MAIN_ID: &str = "5d86850b-0d76-4eca-bd7b-951ad998e997";
 
 /// al-runner issue 6148, cause 3: install code asks AllObj for the TableData row of a Base Application table (Contact)
 /// before it seeds setup rows. The row exists with the Table row's name and package ids; a table that does not exist
-/// has none. Pin: metadata/lt-all-obj-namespace/AllObjNamespace.al UG_AllObj_TableDataRow_OfContact_AllColumns and
+/// has none. Pin: metadata/session-system/AllObjNamespace.al UG_AllObj_TableDataRow_OfContact_AllColumns and
 /// UG_AllObj_TableDataRow_OfMissingTable_EveryAccessForm (corpus branch al-runtime-rs-staging-ug eff7eb2a; assumption
 /// `allobj-tabledata-row-of-dependency-table` until the bump).
 #[test]
@@ -1709,7 +1709,7 @@ codeunit 50000 T { Subtype = Test;
 /// al-runner issue 6148, cause 2: Company-Initialize reaches Guided Experience Impl.GetExtensionLogo for an app that
 /// registers assisted setup: the Published Application row's Logo, then the Media row by its MediaId. An app whose
 /// app.json declares no logo has a blank Logo and no Media row; an app whose manifest was not read stays refused.
-/// Pin: onprem session/PZPublishedApplicationColumns.al Logo_GuidedExperienceSequence_OfThisAppAndMicrosoftApps
+/// Pin: onprem session-system/PZPublishedApplicationColumns.al Logo_GuidedExperienceSequence_OfThisAppAndMicrosoftApps
 /// (corpus branch al-runtime-rs-staging-ug eff7eb2a).
 #[test]
 fn issue_6148_extension_logo_of_an_app_without_a_logo() {
@@ -1730,7 +1730,7 @@ codeunit 50000 T {{ Subtype = Test;
     assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")), "{o:?}");
 }
 
-/// The 67-byte 1 x 1 gray PNG of cross-app fixture D (onprem session/UsAppLogo.al:15).
+/// The 67-byte 1 x 1 gray PNG of cross-app fixture D (onprem session-system/UsAppLogo.al:15).
 const TINY_PNG: [u8; 67] = [
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00,
     0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x00, 0x00, 0x00, 0x00, 0x3a, 0x7e, 0x9b, 0x55, 0x00, 0x00, 0x00, 0x0a, 0x49,
@@ -1740,7 +1740,7 @@ const TINY_PNG: [u8; 67] = [
 
 /// al-runner issue 6148, the rest of cause 2: the Published Application Logo of an app whose manifest declares a logo is a
 /// media with a value, the same id on every read, and a Media row that holds the logo file's bytes unchanged: image/png, the
-/// picture's height and width, every other column empty, Prohibit Cache No. Pin: onprem session/UsAppLogo.al:79-117
+/// picture's height and width, every other column empty, Prohibit Cache No. Pin: onprem session-system/UsAppLogo.al:79-117
 /// UsLogo_TinyPng_AppD and :120-148 UsLogo_BigPng_AppC (corpus PR 816; assumption `published-application-logo-is-the-logo-file`
 /// until the pin includes it). A logo that is no PNG stays refused.
 #[test]
@@ -1790,7 +1790,7 @@ codeunit 50000 T {{ Subtype = Test;
 /// al-runner issue 6148: Guided Experience Impl.InsertGuidedExperienceItem imports the app's logo with the extension id (a
 /// Guid) as the description: `Icon.ImportStream(IconInStream, ExtensionId)`. The Tenant Media row's Description is the
 /// Guid's text form in braces and upper case, MIME type image/png, the picture's size, no file name. Pin: onprem
-/// session/UsAppLogo.al:170-186 UsLogo_GuidedExperienceIcon_CallerD (corpus PR 816). Its bytes (re-encoded) stay refused.
+/// session-system/UsAppLogo.al:170-186 UsLogo_GuidedExperienceIcon_CallerD (corpus PR 816). Its bytes (re-encoded) stay refused.
 #[test]
 fn issue_6148_media_import_stream_with_a_guid_description() {
     let main = format!(
@@ -1844,7 +1844,7 @@ codeunit 50000 T { Subtype = Test;
 
 /// al-runner issue 6191: ForNAV's GetBuiltInLayout reads "User Defined" (column 14) of the Report Layout List rows of a
 /// report while an app installs. A built-in RDLC or Word layout is not user defined; a report without layouts has no
-/// rows. Pin: platform/lt-ug-report-layout-list/UgReportLayoutList.al:112, :146.
+/// rows. Pin: metadata/platform-tables/UgReportLayoutList.al:112, :146.
 #[test]
 fn issue_6191_built_in_layout_is_not_user_defined() {
     let main = r#"
@@ -1867,7 +1867,7 @@ codeunit 50000 T { Subtype = Test;
 
 /// Issue 6213: a conditional expression with a Text[N] true branch and an unbounded Text false branch (a Text variable or a
 /// StrSubstNo result). A false value that fits is returned unchanged; a longer one raises StringLengthExceeded with the value
-/// in the message cut to its first 200 characters plus `...`. Pins: types/lt-up-ternary/UpTernary.al (corpus PR 808, branch
+/// in the message cut to its first 200 characters plus `...`. Pins: types/operators-expressions/UpTernary.al (corpus PR 808, branch
 /// commit 910da83e) UP_Ternary_Text250TrueUnboundedTextFalse and _Length; types/TestTernaryContracts.al PYC_Ternary_MoreBranchPairs
 /// (Text[10] against a 12-character Text).
 const ISSUE_6213_OBJECTS: &str = "
@@ -1970,7 +1970,7 @@ codeunit 50101 T
 #[test]
 fn issue_6213_text_n_true_branch_and_unbounded_text_false_branch() {
     // Another length than 10 and 250 (here Text[30]) runs too: the false branch converts to the true branch's Text[N] for
-    // every length (types/lt-y31-conversion-matrix/Y31ConvCd.al:3015 Text10_Text).
+    // every length (types/operators-expressions/Y31ConvCd.al:3015 Text10_Text).
     for (name, outcome) in run_with_deps(&[], ISSUE_6213_OBJECTS) {
         assert_eq!(outcome, Outcome::Pass, "{name}");
     }
@@ -1978,10 +1978,10 @@ fn issue_6213_text_n_true_branch_and_unbounded_text_false_branch() {
 
 /// Issue 6213 (reopened): a Text[50] true branch and a built-in function returning Text as false branch (CompanyName(),
 /// UserId(), Format(x)) compiles; a false value that fits is returned unchanged, and the result assigned to a shorter Text
-/// fails as that assignment does. Pins: lt-ss1030/SsTernaryBuiltinText.al (corpus branch al-runtime-rs-staging-ss1030 at
+/// fails as that assignment does. Pins: session-system/SsTernaryBuiltinText.al (corpus branch al-runtime-rs-staging-ss1030 at
 /// c36d14ea, not yet on master): Ternary_TextNTrue_BuiltinFalse_ValuesAndLengths (:47-69) and _IntoShorterTarget (:71-98).
 /// A false value longer than 50 raises StringLengthExceeded when the branch is taken, as a false branch longer than the true
-/// branch's Text[N] does (types/lt-y31-conversion-matrix/Y31ConvCd.al:3015 Text10_Text, `eleven` and `guidlow`).
+/// branch's Text[N] does (types/operators-expressions/Y31ConvCd.al:3015 Text10_Text, `eleven` and `guidlow`).
 const ISSUE_6213B_OBJECTS: &str = "
 codeunit 50100 \"TB Holder\"
 {
@@ -2086,7 +2086,7 @@ fn issue_6213_text_50_true_branch_and_builtin_text_false_branch() {
 }
 
 /// Issue 6215: an interface true branch and a codeunit false branch that implements it compiles and the false branch calls
-/// the codeunit's implementation. Pin: types/lt-up-ternary/UpTernary.al (corpus PR 808, branch commit 910da83e)
+/// the codeunit's implementation. Pin: types/operators-expressions/UpTernary.al (corpus PR 808, branch commit 910da83e)
 /// UP_Ternary_InterfaceTrueCodeunitFalse.
 const ISSUE_6215_OBJECTS: &str = "
 interface \"TI Preview\" { procedure GetPreview(): Text; }
@@ -2155,7 +2155,7 @@ fn issue_6215_interface_true_branch_and_implementing_codeunit_false_branch() {
 
 /// Issue 6217: addafter/addlast of a promoted category group the page does not declare (Category_Category7,
 /// Category_Category12, Category_New) compiles and the extension's action and actionref run from a TestPage. Pin:
-/// pages/lt-up-page-ext/UpPromotedCategories.al (corpus PR 808, branch commit 910da83e).
+/// pages/extensions/UpPromotedCategories.al (corpus PR 808, branch commit 910da83e).
 fn issue_6217_objects(anchor: &str) -> String {
     format!(
         "
@@ -2257,7 +2257,7 @@ fn issue_6217_unpinned_promoted_category_forms_stay_refused() {
 }
 
 /// Issue 6219: a page extension reads its base page's protected var through `CurrPage.` and assigns the plain name. Pin:
-/// pages/lt-up-page-ext/UpPageExt.al (corpus PR 808, branch commit 910da83e) UP_PageExt_ReadsProtectedVarThroughCurrPage.
+/// pages/extensions/UpPageExt.al (corpus PR 808, branch commit 910da83e) UP_PageExt_ReadsProtectedVarThroughCurrPage.
 /// Assigning through `CurrPage.<var>` is not pinned (real BC failed to open the page in the writer's probe) and stays refused.
 fn issue_6219_objects(trigger_body: &str) -> String {
     format!(
@@ -2326,7 +2326,7 @@ fn issue_6219_assigning_through_currpage_stays_refused() {
 }
 
 /// al-runner #6412: MaxIteration on a data item over a record table stops it after that many rows, a skipped row counting
-/// toward them, and the record stands on the next row in OnPostDataItem (report/lt-maxiteration-zero/
+/// toward them, and the record stands on the next row in OnPostDataItem (reports/dataset/
 /// SgMaxIterationTable.al with MaxIterationZero.al:153-199; corpus branch al-runtime-rs-staging-y11
 /// Y11MaxIterationRecord.al).
 #[test]
@@ -2357,7 +2357,7 @@ codeunit 69644 T { Subtype = Test;
 }
 
 /// Gap cycle G8: OnPrem platform tables that a fresh tenant leaves empty and that take every write
-/// (al-language-onprem/platform/PtOnPremTables.al:57-78, :80-101, :149-170, :192-213), and Device, whose Insert raises the
+/// (al-language-onprem/metadata/PtOnPremTables.al:57-78, :80-101, :149-170, :192-213), and Device, whose Insert raises the
 /// license error and stores nothing (:172-190).
 #[test]
 fn empty_writable_onprem_platform_tables() {
@@ -2403,7 +2403,7 @@ codeunit 50000 T { Subtype = Test;
 }
 
 /// Gap cycle G8: a guarded Codeunit.Run does not trap the license error of a Device Insert: it reaches the asserterror
-/// around the call (al-language-onprem/platform/PtOnPremTables.al:177-185).
+/// around the call (al-language-onprem/metadata/PtOnPremTables.al:177-185).
 #[test]
 fn device_license_error_passes_a_guarded_codeunit_run() {
     let main = r#"
@@ -2416,7 +2416,7 @@ codeunit 50000 T { Subtype = Test;
     all_pass(run_over_system(MAIN_ID, None, None, main));
 }
 
-/// Gap cycle G8: Power BI Blob takes every write and keeps its Blob File (al-language-onprem/platform/PtOnPremTables.al
+/// Gap cycle G8: Power BI Blob takes every write and keeps its Blob File (al-language-onprem/metadata/PtOnPremTables.al
 /// Y17_PowerBIBlob_InsertModifyDelete, Y17_PowerBIBlob_BlobRoundTrip, corpus master 97c29f86). A fresh tenant holds demo rows
 /// nothing pins: a read is refused until the test's own DeleteAll without filters has emptied the table, as Microsoft's Power
 /// BI tests do before they insert (Tests-Integration PowerBIEmbeddedReportTests, PowerBISynchronizerTests SetupSystemBlob).

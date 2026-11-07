@@ -1,6 +1,6 @@
 //! A test codeunit with SingleInstance = true runs its test methods on the session's single instance: a variable of its own
 //! type and its manual event subscriber see and set the globals the test methods use, and the second test method sees what
-//! the first one left (codeunit/QiSingleInstanceTestCodeunit.al:57 QI_SI_1_OwnTypeVariableAndManualSubscriber, :98
+//! the first one left (codeunits/QiSingleInstanceTestCodeunit.al:57 QI_SI_1_OwnTypeVariableAndManualSubscriber, :98
 //! QI_SI_2_SecondTestSeesTheFirst).
 
 use al_sema::workspace::AppSource;

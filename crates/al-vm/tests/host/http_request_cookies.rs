@@ -1,4 +1,4 @@
-//! The cookies of an `HttpRequestMessage` (xml/lt-xml-attr-doc-http-members/P97ReqCookie.al, P97ReqCookieObj.al).
+//! The cookies of an `HttpRequestMessage` (xml/xml/P97ReqCookie.al, P97ReqCookieObj.al).
 
 use al_testkit::{run, text};
 

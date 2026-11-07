@@ -40,7 +40,7 @@ instructions by 30 % over the six benchmarks.
 2. **Fast paths are internals (ADR-009) and need no further ADR**, one per commit, each with a red/green unit
    test, citing the corpus test that pins the behaviour it must keep:
    1. Integer and Integer arithmetic and comparison in native `i32` with the same overflow and division-by-zero
-      errors (`session/TestProbeSessionMiscContracts.al:Arithmetic_ErrorTexts`).
+      errors (`session-system/TestProbeSessionMiscContracts.al:Arithmetic_ErrorTexts`).
    2. Identity conversions return the value; lowering emits no `Convert` when source and target `RtType` are
       equal.
    3. Builtin lookup by a `HashMap` built once; the VM's own builtins (`Codeunit.Run`, `Report.*`,

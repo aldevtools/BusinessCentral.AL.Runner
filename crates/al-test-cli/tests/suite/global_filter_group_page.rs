@@ -1,5 +1,5 @@
 //! A list page opened without code of its own on a table whose filter group 1 (the global group) another record set: BC
-//! shows the page with that filter (types/lt-code-digits-page-run-view/P145PageRunView.al:232-235; SF_B_NoRecordArgument
+//! shows the page with that filter (types/text-code-char/P145PageRunView.al:232-235; SF_B_NoRecordArgument
 //! :273-289 reads `g1=[Qty: >=3]` on the page), the runtime would list every row, so the page's read is refused.
 
 use al_test_cli::report::Outcome;

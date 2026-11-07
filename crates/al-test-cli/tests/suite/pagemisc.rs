@@ -321,7 +321,7 @@ fn passes(tests: &str) {
 
 const HELPERS: &str = "procedure Check(Expected: Text; Actual: Text) begin if Expected <> Actual then Error('expected <%1> got <%2>', Expected, Actual); end;";
 
-// handlers/TestPageOnInit_Tests.al:188 POI_SetterBeforeRunModal_RunsAfterOnInitAndSurvives
+// testpage/TestPageOnInit_Tests.al:188 POI_SetterBeforeRunModal_RunsAfterOnInitAndSurvives
 #[test]
 fn a_procedure_on_a_page_variable_runs_after_on_init_and_before_the_open() {
     passes(&format!(
@@ -334,7 +334,7 @@ fn a_procedure_on_a_page_variable_runs_after_on_init_and_before_the_open() {
     ));
 }
 
-// handlers/TestPageOnInit_Tests.al:206 POI_SetterBeforeRun_RunsAfterOnInitAndSurvives
+// testpage/TestPageOnInit_Tests.al:206 POI_SetterBeforeRun_RunsAfterOnInitAndSurvives
 #[test]
 fn the_non_modal_run_of_a_page_variable_keeps_what_the_setter_chose() {
     passes(&format!(
@@ -347,7 +347,7 @@ fn the_non_modal_run_of_a_page_variable_keeps_what_the_setter_chose() {
     ));
 }
 
-// handlers/TestPageOnInit_Tests.al:223 POI_SetterBeforeTrappedRun_RunsAfterOnInitAndSurvives
+// testpage/TestPageOnInit_Tests.al:223 POI_SetterBeforeTrappedRun_RunsAfterOnInitAndSurvives
 #[test]
 fn a_trapped_run_receives_the_page_variables_instance() {
     passes(&format!(
@@ -374,7 +374,7 @@ fn two_traps_wait_at_once_one_per_page() {
     ));
 }
 
-// handlers/TestPageOnInit_Tests.al GetSelectedKindOrdinal_WithoutRunModal_ReadsTheDeclaredDefault (handlers/TestPageEnumGlobal*)
+// testpage/TestPageOnInit_Tests.al GetSelectedKindOrdinal_WithoutRunModal_ReadsTheDeclaredDefault (handlers/TestPageEnumGlobal*)
 #[test]
 fn a_getter_on_a_page_variable_that_never_ran_reads_the_declared_default() {
     passes(&format!(
@@ -385,7 +385,7 @@ fn a_getter_on_a_page_variable_that_never_ran_reads_the_declared_default() {
     ));
 }
 
-// handlers/TestPageModalQueryClose_Tests.al:186 PersistInQueryClosePage_HandlerOk_WriteReachesTheTable
+// ui-handlers/TestPageModalQueryClose_Tests.al:186 PersistInQueryClosePage_HandlerOk_WriteReachesTheTable
 #[test]
 fn a_page_variable_handed_a_record_writes_it_back_in_on_query_close_page() {
     passes(&format!(
@@ -399,7 +399,7 @@ fn a_page_variable_handed_a_record_writes_it_back_in_on_query_close_page() {
     ));
 }
 
-// handlers/TestPageEditable_Tests.al:93 EditableBoundToPageVariable_FollowsTheRow
+// testpage/TestPageEditable_Tests.al:93 EditableBoundToPageVariable_FollowsTheRow
 #[test]
 fn clear_of_a_closed_test_page_gives_a_fresh_variable() {
     passes(&format!(
@@ -418,7 +418,7 @@ const EIGHT: &str = "procedure Seed(Alternate: Boolean) var R: Record \"PM Row\"
     for I := 1 to 8 do begin R.Init(); R.\"No.\" := 'L000' + Format(I); R.Descr := 'Row'; if Alternate then if I mod 2 = 1 then R.Descr := 'Included' else R.Descr := 'Excluded'; R.Insert(); end;
 end;";
 
-// pagefindrecord/TestPageFindRecord.al:112 OnFindRecord_FirstAnswersTheFirstRowOfTheTriggerRowset,
+// pages/triggers/TestPageFindRecord.al:112 OnFindRecord_FirstAnswersTheFirstRowOfTheTriggerRowset,
 // :129 OnNextRecord_NextWalksTheTriggerRowsetAndStopsAtItsEnd
 #[test]
 fn first_and_next_walk_the_rows_the_triggers_serve() {
@@ -477,7 +477,7 @@ fn a_manual_filter_narrows_the_trigger_rowset_and_both_triggers_are_reached() {
 }
 
 // A control read straight after a refresh of a rowset page shows a row the re-anchoring picks, which
-// the corpus does not pin beyond the Which strings of a deleted row (pageupdate/TestPageUpdateGoneRow.al).
+// the corpus does not pin beyond the Which strings of a deleted row (pages/currpage/TestPageUpdateGoneRow.al).
 #[test]
 fn reading_a_rec_bound_control_after_a_refresh_of_a_rowset_page_is_refused() {
     let o = outcomes(&format!(
@@ -499,7 +499,7 @@ const LOOK: &str = "procedure OpenOn(var C: TestPage \"PM Look Card\") var L: Re
     X.DeleteAll(); X.Code := 'PL-A'; X.Insert();
     C.OpenEdit(); C.GoToRecord(L); end;";
 
-// handlers/TestPageFieldTableLookup.al:55 Lookup_ControlWithoutTrigger_RunsTheTableFieldsOnLookup,
+// testpage/TestPageFieldTableLookup.al:55 Lookup_ControlWithoutTrigger_RunsTheTableFieldsOnLookup,
 // :72 Lookup_ControlWithTrigger_WinsOverTheTableFieldsOnLookup
 #[test]
 fn lookup_runs_the_controls_trigger_else_the_table_fields() {
@@ -514,7 +514,7 @@ fn lookup_runs_the_controls_trigger_else_the_table_fields() {
     ));
 }
 
-// handlers/TestPageFieldRelationLookup_Tests.al:104 ...OpensTheRelatedTablesLookupPage, :122 ...WritesTheSelectedRowBack,
+// testpage/TestPageFieldRelationLookup_Tests.al:104 ...OpensTheRelatedTablesLookupPage, :122 ...WritesTheSelectedRowBack,
 // :142 ...CancelLeavesTheFieldUnchanged, :168 Lookup_NoTriggerAndNoTableRelation_DoesNothing
 #[test]
 fn lookup_over_a_table_relation_opens_the_related_lookup_page_and_writes_the_pick_back() {
@@ -534,7 +534,7 @@ fn lookup_over_a_table_relation_opens_the_related_lookup_page_and_writes_the_pic
     ));
 }
 
-// handlers/TestPageFieldRelationLookup_Tests.al:253 Lookup_RelationToTableWithNoLookupPage_RaisesTheUnhandledUiSignal,
+// testpage/TestPageFieldRelationLookup_Tests.al:253 Lookup_RelationToTableWithNoLookupPage_RaisesTheUnhandledUiSignal,
 // :273 ..._LeavesTheFieldUnchanged
 #[test]
 fn lookup_over_a_relation_to_a_table_without_a_lookup_page_raises_unhandled_ui() {
@@ -567,7 +567,7 @@ fn an_unhandled_lookup_with_writes_pending_is_refused() {
 const BG: &str = "procedure SeedBg() var R: Record \"PM Row\"; begin R.DeleteAll();
     R.\"No.\" := 'A'; R.Insert(); R.\"No.\" := 'FAIL-H'; R.Descr := 'handled'; R.Insert(); R.\"No.\" := 'FAIL-U'; R.Descr := ''; R.Insert(); end;";
 
-// handlers/TestPageBgTask_Tests.al:61 EnqueueBackgroundTask_CompletesBeforeOpenViewReturns, :146 ..._HandledErrorDoesNotPropagate
+// testpage/TestPageBgTask_Tests.al:61 EnqueueBackgroundTask_CompletesBeforeOpenViewReturns, :146 ..._HandledErrorDoesNotPropagate
 #[test]
 fn an_enqueued_task_has_completed_when_the_call_returns_and_a_handled_error_is_swallowed() {
     passes(&format!(
@@ -582,7 +582,7 @@ fn an_enqueued_task_has_completed_when_the_call_returns_and_a_handled_error_is_s
     ));
 }
 
-// handlers/TestPageBgTask_Tests.al:170 EnqueueBackgroundTask_UnhandledErrorPropagates
+// testpage/TestPageBgTask_Tests.al:170 EnqueueBackgroundTask_UnhandledErrorPropagates
 #[test]
 fn an_unhandled_task_error_tears_the_page_down() {
     passes(&format!(
@@ -595,7 +595,7 @@ fn an_unhandled_task_error_tears_the_page_down() {
     ));
 }
 
-// handlers/TestPageBgTask_Tests.al:104 RunPageBackgroundTask_ReturnsWorkerResult, :210 ..._WorkerInsert_RefusedByReadOnlySession
+// testpage/TestPageBgTask_Tests.al:104 RunPageBackgroundTask_ReturnsWorkerResult, :210 ..._WorkerInsert_RefusedByReadOnlySession
 #[test]
 fn run_page_background_task_returns_the_result_and_the_worker_cannot_write() {
     passes(&format!(
@@ -615,7 +615,7 @@ fn run_page_background_task_returns_the_result_and_the_worker_cannot_write() {
     ));
 }
 
-// session/lt-cn-session-leads/CnIsolatedStorageLeads.al:104-134: IsolatedStorage.Set and Delete in a worker are refused like a
+// session-system/CnIsolatedStorageLeads.al:104-134: IsolatedStorage.Set and Delete in a worker are refused like a
 // table write, on table 2000000107.
 #[test]
 fn a_worker_cannot_write_to_isolated_storage() {
@@ -641,7 +641,7 @@ fn a_worker_cannot_write_to_isolated_storage() {
     ));
 }
 
-// session/lt-cn-session-leads/CnIsolatedStorageLeads.al:445-522: a worker's Get of a key the caller wrote and has not committed
+// session-system/CnIsolatedStorageLeads.al:445-522: a worker's Get of a key the caller wrote and has not committed
 // reads no key; after a Commit of the caller it fails with the lock timeout of the Isolated Storage table.
 #[test]
 fn a_worker_get_of_a_key_the_caller_wrote_misses_it_or_waits_on_the_lock() {
@@ -702,8 +702,8 @@ fn an_asserterror_in_a_modal_handler_rolls_back_to_the_last_commit() {
     ));
 }
 
-// handlers/TestPagePlatformPageSourceTable_Tests.al:77, handlers/TestReportRunFromPrecompiledCaller.al:31,
-// handlers/TestPrecompiledOptionCaption.al:81, pageextensioncontrol/TestPageExtensionModifyPrecompiled_Tests.al:69:
+// testpage/TestPagePlatformPageSourceTable_Tests.al:77, reports/TestReportRunFromPrecompiledCaller.al:31,
+// reports/TestPrecompiledOptionCaption.al:81, pages/extensions/TestPageExtensionModifyPrecompiled_Tests.al:69:
 // a page with a systempart, a label and a customaction opens, and its other controls work.
 #[test]
 fn a_page_with_a_systempart_a_label_and_a_customaction_opens() {
@@ -740,7 +740,7 @@ fn naming_a_systempart_on_a_test_page_is_refused() {
     assert!(matches!(&o[0].1, Outcome::NotRun(_)), "{o:?}");
 }
 
-// handlers/TestPrecompiledOptionCaption.al:81: a page whose action names a report with AllowScheduling opens.
+// reports/TestPrecompiledOptionCaption.al:81: a page whose action names a report with AllowScheduling opens.
 #[test]
 fn a_page_naming_a_report_with_allow_scheduling_opens() {
     passes(&format!(
@@ -751,7 +751,7 @@ fn a_page_naming_a_report_with_allow_scheduling_opens() {
     ));
 }
 
-// Running a processing-only report with AllowScheduling is an ordinary run (report/TestProbeReportContracts.al:
+// Running a processing-only report with AllowScheduling is an ordinary run (reports/TestProbeReportContracts.al:
 // AllowScheduling_TrueAndFalse_Run).
 #[test]
 fn running_a_report_with_allow_scheduling_runs_it() {
@@ -763,7 +763,7 @@ fn running_a_report_with_allow_scheduling_runs_it() {
 }
 
 // SetSelectionFilter and GetRecord are in no corpus test: a page that declares a routine calling them
-// opens (handlers/TestPrecompiledOptionCaption.al:81 over Base App's Item Tracing, pageapplicationarea/
+// opens (reports/TestPrecompiledOptionCaption.al:81 over Base App's Item Tracing, pageapplicationarea/
 // TestPageApplicationAreaPrecompiledActionRemoval.al:39 over Package No. Information List), reaching them is refused.
 #[test]
 fn a_page_declaring_selection_routines_opens() {
@@ -783,8 +783,8 @@ fn set_selection_filter_of_a_page_that_never_ran_runs_and_get_record_is_refused(
         [Test]
         procedure Gets() var P: Page \"PM Selection\"; R: Record \"PM Row\"; begin P.Picked(R); end;"
     ));
-    // A Page variable that never ran and has no OnInit filters the record on its blank key (pages/lt-page-runtime/P82PageVar.al:86,
-    // pages/lt-bl-unopened-currpage/UnopenedCurrPage.al:159).
+    // A Page variable that never ran and has no OnInit filters the record on its blank key (pages/run-modal/P82PageVar.al:86,
+    // pages/currpage/UnopenedCurrPage.al:159).
     assert!(matches!(&o[0].1, Outcome::Pass), "{o:?}");
     assert!(
         matches!(&o[1].1, Outcome::NotRun(why) if why.contains("GetRecord")),
@@ -793,7 +793,7 @@ fn set_selection_filter_of_a_page_that_never_ran_runs_and_get_record_is_refused(
 }
 
 // `P.Editable := false` and `P.Editable(false)` on a Page variable that has not run are accepted without an error; the
-// variable reads what it was set to, and true before (handlers/TestPageVariableEditableContracts.al:
+// variable reads what it was set to, and true before (pages/run-modal/TestPageVariableEditableContracts.al:
 // EditableBeforeRun_IsTrue_AndAssignmentIsAccepted).
 #[test]
 fn editable_on_a_page_variable_that_has_not_run_is_accepted_and_read_back() {
@@ -806,7 +806,7 @@ fn editable_on_a_page_variable_that_has_not_run_is_accepted_and_read_back() {
     ));
 }
 
-// The value set before the run is what the page opens with, for RunModal (handlers/TestPageVariableEditableContracts.al:
+// The value set before the run is what the page opens with, for RunModal (pages/run-modal/TestPageVariableEditableContracts.al:
 // RunModal_AfterEditableFalse_OpensANonEditablePage, :RunModal_AfterAssigningEditableTrue_OpensAnEditablePage).
 #[test]
 fn a_page_variable_set_non_editable_opens_the_page_non_editable() {
@@ -825,7 +825,7 @@ fn a_page_variable_set_non_editable_opens_the_page_non_editable() {
 }
 
 // A control bound to a variable with its own MinValue/MaxValue: a value inside the bounds is written, one outside raises
-// the TestValidation error with the pinned text and keeps the old value (handlers/TestPageVariableMinMaxContracts.al:
+// the TestValidation error with the pinned text and keeps the old value (errors/TestPageVariableMinMaxContracts.al:
 // IntegerVariable_OutsideTheBounds_RaisesATestValidationError, DecimalVariable_OutsideTheBounds_...).
 #[test]
 fn a_variable_control_with_bounds_takes_inside_values_and_raises_a_validation_error_for_the_others() {
@@ -844,7 +844,7 @@ fn a_variable_control_with_bounds_takes_inside_values_and_raises_a_validation_er
     ));
 }
 
-// handlers/TestPageCloseActionByPageTypeContracts.al:TestPageClose_IsOk_ForEveryPageType: TestPage.Close() reports OK to
+// testpage/TestPageCloseActionByPageTypeContracts.al:TestPageClose_IsOk_ForEveryPageType: TestPage.Close() reports OK to
 // OnQueryClosePage for a list and a document, not only a card; a dialog still reports Cancel.
 #[test]
 fn test_page_close_reports_ok_for_list_and_document_pages() {
@@ -861,7 +861,7 @@ fn test_page_close_reports_ok_for_list_and_document_pages() {
 // Response: Action)` (22 tests). No corpus test has a handler whose parameter is a Page rather than a
 // TestPage, and none has a page with triggers. Microsoft's `PaymentToleranceWarning` handler (page 591, whose OnOpenPage and
 // OnQueryClosePage overwrite what `InitializeOption` sets) needs the page's triggers not to run: pinned by
-// errors/lt-ms-refusals-136/P136PageTyped.al (OnInit runs before the handler, nothing else does).
+// ui-handlers/P136PageTyped.al (OnInit runs before the handler, nothing else does).
 #[test]
 fn a_modal_page_handler_with_a_page_parameter_stands_in_for_the_page_and_runs_only_its_oninit() {
     passes(&format!(
@@ -874,7 +874,7 @@ fn a_modal_page_handler_with_a_page_parameter_stands_in_for_the_page_and_runs_on
 
 // Base Application's Financial Report sets `RequestOptionsPage.Caption := Description` while its request page opens
 // (86 Tests-ERM tests were refused with "is not assignable"). The corpus pins `CurrPage.Caption := x` on a page
-// (handlers/TestPageCaption_Page.al:44); for a request page the assignment is accepted and not shown to the handler
+// (testpage/TestPageCaption_Page.al:44); for a request page the assignment is accepted and not shown to the handler
 // (request-page-caption-set, docs/probes-needed.md).
 #[test]
 fn a_request_page_caption_can_be_set_from_the_code_of_the_report() {
@@ -904,7 +904,7 @@ codeunit 62201 T {{ Subtype = Test;
 }
 
 // Base Application's document pages declare OnFindRecord and OnAfterGetCurrRecord and call CurrPage.Update (88 Tests-ERM tests
-// were refused). The corpus pins the Which strings only for a deleted row (pageupdate/TestPageUpdateGoneRow.al:390); that
+// were refused). The corpus pins the Which strings only for a deleted row (pages/currpage/TestPageUpdateGoneRow.al:390); that
 // the refresh asks OnFindRecord for the current row with `=` and then raises the row triggers is assumed
 // (update-refresh-onfindrecord, docs/probes-needed.md).
 #[test]
@@ -919,7 +919,7 @@ fn current_page_update_on_a_page_with_on_find_record_and_row_triggers_finds_the_
     ));
 }
 
-// record/lt-loadfields-pagesource-validate/P81PageValidateEvents.al: SetValue on a control raises the page's
+// record/load-fields/P81PageValidateEvents.al: SetValue on a control raises the page's
 // OnBeforeValidateEvent and OnAfterValidateEvent for that control around the control's own OnValidate (80 Tests-ERM tests
 // were refused).
 #[test]
@@ -937,7 +937,7 @@ fn set_value_raises_the_page_validate_events_around_the_control_trigger() {
 // Base Application's VendEntry-Apply Posted Entries hands "Apply Vendor Entries" `SetRecord(Entry)` and then `SetTableView(Entry)`;
 // the page reads `Rec."Vendor No."` in OnOpenPage (39 Tests-ERM tests failed with "The Vendor does not exist ... No.=''").
 // SetRecord gives the position and SetTableView the filters, so the second does not blank the record of the first
-// (handlers/TestPageModalNewRowLine_Tests.al pins SetTableView alone: no position; docs/probes-needed.md for the pair).
+// (ui-handlers/TestPageModalNewRowLine_Tests.al pins SetTableView alone: no position; docs/probes-needed.md for the pair).
 #[test]
 fn set_table_view_after_set_record_keeps_the_record_the_page_opens_on() {
     passes(&format!(
@@ -955,7 +955,7 @@ fn set_table_view_after_set_record_keeps_the_record_the_page_opens_on() {
 // Base Application's Allocation Account page is a ListPlus card with a part linked on its key. A test opens it with OpenNew and types the
 // key: while the host row is not saved, the part's blank line links to a blank value, so its table relation finds nothing to
 // refuse (34 Tests-ERM tests failed with "contains a value that cannot be found in the related table"). Pinned by
-// pages/lt-part-line-before-host-key/PartLineBeforeHostKey.al:398, :400.
+// pages/parts/PartLineBeforeHostKey.al:398, :400.
 #[test]
 fn a_part_linked_to_a_new_unsaved_host_links_to_a_blank_value_when_the_key_is_typed() {
     passes(&format!(
@@ -969,7 +969,7 @@ fn a_part_linked_to_a_new_unsaved_host_links_to_a_blank_value_when_the_key_is_ty
 
 // Base Application's lookups run `Page.RunModal(0, Rec) = Action::LookupOK` and read the record afterwards (Gen. Journal
 // Management's template selection: 10 Tests-ERM tests failed with an empty template name). On LookupOK the record holds
-// the row the page was left on. Pinned by pages/lt-page-runmodal-rec/PageRunModalRecAfterClose.al.
+// the row the page was left on. Pinned by pages/run-modal/PageRunModalRecAfterClose.al.
 #[test]
 fn page_run_modal_with_a_record_hands_back_the_selected_row_on_lookup_ok() {
     passes(&format!(
@@ -984,9 +984,9 @@ fn page_run_modal_with_a_record_hands_back_the_selected_row_on_lookup_ok() {
 
 // Microsoft's "Item Vendor Catalog" tests open a list with OpenNew, set a filter on the first key field and type the other key
 // field: the list shows the blank line and the filter value is on it (2 Tests-ERM tests failed with "The row does not exist on the
-// TestPage"). The corpus pins the blank line of an editable list (handlers/TestPageNewRowLine_Tests.al) and that a new row takes
-// a single-valued filter (handlers/TestPageNewRowFilters_Tests.al); that a filter change brings the blank line back is pinned by
-// pages/lt-filter-change-new-line/FilterChangeNewLine.al.
+// TestPage"). The corpus pins the blank line of an editable list (testpage/TestPageNewRowLine_Tests.al) and that a new row takes
+// a single-valued filter (testpage/TestPageNewRowFilters_Tests.al); that a filter change brings the blank line back is pinned by
+// pages/triggers/FilterChangeNewLine.al.
 #[test]
 fn a_filter_that_leaves_an_editable_list_empty_lands_on_the_blank_line_carrying_the_filter_value() {
     passes(&format!(
@@ -1016,7 +1016,7 @@ fn a_page_procedure_named_like_a_platform_method_leaves_the_other_overload_to_th
 
 // Base Application's Sales Invoice calls `CurrPage.ApprovalFactBox.PAGE.UpdateApprovalEntriesFromSourceRecord(Rec.RecordId)` in OnAfterGetCurrRecord
 // behind `Visible = false`; that procedure ends in `CurrPage.Update(false)` on the part page, which is created and not opened. 926 Tests-ERM
-// tests failed with "The TestPage is not open." CurrPage.Update on such a part does nothing (pages/lt-hidden-part-currpage/HiddenPartCurrPageUpdateFalse.al:UpdateFalse_LiteralInvisible_OpenEdit).
+// tests failed with "The TestPage is not open." CurrPage.Update on such a part does nothing (pages/parts/HiddenPartCurrPageUpdateFalse.al:UpdateFalse_LiteralInvisible_OpenEdit).
 #[test]
 fn current_page_update_inside_a_procedure_of_a_hidden_part_does_nothing() {
     passes(&format!(
@@ -1030,8 +1030,8 @@ fn current_page_update_inside_a_procedure_of_a_hidden_part_does_nothing() {
 
 // A procedure of a `Page` variable that uses `CurrPage` after the page closed with OK does nothing and raises no error
 // (Posted Sales Document Lines.CopyLineToDoc after RunModal: 35 Tests-ERM, SCM and SMB tests). `Update(false)` is pinned by
-// pages/lt-closed-page-variable-currpage/ClosedPageVariableCurrPageUpdate.al:70, `Update(true)` by
-// pages/lt-y37-part-after-close/Y37PartAfterClose.al:416-441 (LT_C314_AfterRunModalOK_UpdateAndSave).
+// pages/currpage/ClosedPageVariableCurrPageUpdate.al:55, `Update(true)` by
+// pages/parts/Y37PartAfterClose.al:416-441 (LT_C314_AfterRunModalOK_UpdateAndSave).
 #[test]
 fn a_page_variable_procedure_using_curr_page_after_the_page_closed_with_ok_does_nothing() {
     let o = outcomes(&format!(
@@ -1055,8 +1055,8 @@ fn a_control_editable_expression_follows_a_variable_set_by_another_controls_on_v
     ));
 }
 
-// handlers/TestPageCreateModeNewRecordArgs.al:OpenNew_TableWithRows pins xRec `B` in OnNewRecord; a table procedure the page's code calls
-// on Rec sees that xRec (Sales Invoice Subform.OnNewRecord -> Rec.InitType; pinned by pages/lt-xrec-table-procedure/XRecTableProcedure.al).
+// testpage/TestPageCreateModeNewRecordArgs.al:OpenNew_TableWithRows pins xRec `B` in OnNewRecord; a table procedure the page's code calls
+// on Rec sees that xRec (Sales Invoice Subform.OnNewRecord -> Rec.InitType; pinned by pages/xrec-in-table-procedure/XRecTableProcedure.al).
 #[test]
 fn a_table_procedure_called_on_rec_in_a_page_trigger_sees_the_pages_xrec() {
     passes(&format!(
@@ -1068,10 +1068,10 @@ fn a_table_procedure_called_on_rec_in_a_page_trigger_sees_the_pages_xrec() {
     ));
 }
 
-// misc/W2FindRecordUpdate.al:Update_False_OnOpenedPage, Update_True_OnOpenedPage (3 rows, the cursor on the middle one): a list refresh
+// testpage/W2FindRecordUpdate.al:Update_False_OnOpenedPage, Update_True_OnOpenedPage (3 rows, the cursor on the middle one): a list refresh
 // re-reads the row, asks `=>`, reads on to the end, steps back to the start and asks `=` (Base Application's sales subforms have
 // OnFindRecord alone; there Next moves the record: assumption update-refresh-list-onfindrecord, docs/probes-needed.md).
-// Without OnAfterGetCurrRecord the refresh ends after the step back and `=` is not asked (pages/lt-ai-list-order/
+// Without OnAfterGetCurrRecord the refresh ends after the step back and `=` is not asked (pages/list-order/
 // AiListOrderTests.al:301 DropCurrent_RowsAfter_FindOnly, :467 DropCurrent_NoRowsAfter_FindOnly); the row is read twice before
 // the action after a GoToKey (:39).
 #[test]
@@ -1111,7 +1111,7 @@ fn a_page_variable_reads_its_caption_before_it_runs() {
 }
 
 // Check Credit Limit.PopulateDataOnNotification reaches `CurrPage.CreditLimitDetails.PAGE` on a Page variable that never ran
-// (pages/lt-part-never-ran/NeverRanReadRec.al); after the page ran and closed, the same reach stays refused.
+// (pages/parts/NeverRanReadRec.al); after the page ran and closed, the same reach stays refused.
 #[test]
 fn a_page_variable_reaches_the_part_of_a_page_that_never_ran() {
     passes(&format!(
@@ -1122,7 +1122,7 @@ fn a_page_variable_reaches_the_part_of_a_page_that_never_ran() {
 }
 
 // Posted Purchase Document Lines.CopyLineToDoc reads a part after RunModal returned: the page's code reaches the part of its
-// last run (pages/lt-wd/WdPartAfterRunModal.al, al-runner issue 6321).
+// last run (pages/parts/WdPartAfterRunModal.al, al-runner issue 6321).
 #[test]
 fn a_page_variable_reaching_a_part_after_run_modal_returned_reads_it() {
     let o = outcomes(&format!(
@@ -1255,7 +1255,7 @@ fn a_new_document_with_a_part_linked_on_its_number_opens_activates_a_field_and_c
 
 // Microsoft's Service Credit Memo, Invoice and Order pages declare OnFindRecord, and their tests open them with OpenNew
 // (Tests-SCM-Service ServiceCreditMemoByPage and about 30 more were refused). The page is opened as one without the trigger.
-// Pinned by pages/lt-opennew-findrecord/OpenNewFindRecord.al:150-230.
+// Pinned by pages/opennew-findrecord/OpenNewFindRecord.al:150-230.
 #[test]
 fn open_new_on_a_page_with_on_find_record_gets_to_the_new_row() {
     passes(&format!(
@@ -1268,7 +1268,7 @@ fn open_new_on_a_page_with_on_find_record_gets_to_the_new_row() {
     ));
 }
 
-// pages/lt-testpage-assertequals-option/TestPageAssertEqualsOption.al:AssertEquals_TextControl_NumbersAndText,
+// testpage/TestPageAssertEqualsOption.al:AssertEquals_TextControl_NumbersAndText,
 // AssertEquals_CodeControl_NumbersAndText: an Integer, a BigInteger and a Decimal compare with the control's text.
 #[test]
 fn assert_equals_of_numbers_on_a_code_control() {
@@ -1284,7 +1284,7 @@ fn assert_equals_of_numbers_on_a_code_control() {
     ));
 }
 
-// pages/lt-testpage-assertequals-option/TestPageAssertEqualsOption.al:SetValue_BlankOption_AsSpaceText: a text of spaces selects the
+// testpage/TestPageAssertEqualsOption.al:SetValue_BlankOption_AsSpaceText: a text of spaces selects the
 // blank member of an option control with an OptionCaption.
 #[test]
 fn set_value_of_a_space_on_an_option_control_selects_the_blank_member() {

@@ -1,7 +1,7 @@
 //! An action deletes the only row of a List with Editable = false opened for view, or empties a temporary Worksheet that shows
-//! its rows as a tree (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:481 SH_ListViewNotEditable_OpenView_DeleteCurrentUpdate,
+//! its rows as a tree (testpage/RmWorksheetGoneRow.al:465 SH_ListViewNotEditable_OpenView_DeleteCurrentUpdate,
 //! :509 and :535 SH_TreeWorksheetTemp_*, pages with InsertAllowed, DeleteAllowed and ModifyAllowed false). With DeleteAllowed
-//! left out they are the registered assumptions `read-only-view-list-gone-only-row` and `tree-worksheet-gone-only-row-blank-rec`.
+//! left out the tree is the registered assumption `tree-worksheet-gone-only-row-blank-rec`.
 
 use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
 
@@ -72,15 +72,17 @@ fn a_read_only_list_opened_for_view_raises_nothing_and_shows_no_row() {
         al_testkit::text(al_testkit::run_in(SRC, "C", "ViewList")),
         "R:10000;|||0|No||X;"
     );
-    assert!(!take_hits().contains(&Assumption::ReadOnlyViewListGoneOnlyRow));
+    // With DeleteAllowed left out the list does the same (pages/deleted-rows/Y80GoneRows.al Y80_Gone_ReadOnly_OpenView_*),
+    // no longer an assumption.
     let src = SRC.replacen(
         "Editable = false; InsertAllowed = false; DeleteAllowed = false;",
         "Editable = false; InsertAllowed = false;",
         1,
     );
-    clear_hits();
-    al_testkit::run_in(&src, "C", "ViewList").ok();
-    assert!(take_hits().contains(&Assumption::ReadOnlyViewListGoneOnlyRow));
+    assert_eq!(
+        al_testkit::text(al_testkit::run_in(&src, "C", "ViewList")),
+        "R:10000;|||0|No||X;"
+    );
 }
 
 #[test]

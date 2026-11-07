@@ -1,4 +1,4 @@
-//! The refresh after `TestField.AssistEdit` (pages/lt-sn-assistedit-refresh/SnAssistEditRefresh.al, writer SN): on a card and on a
+//! The refresh after `TestField.AssistEdit` (pages/assistedit-refresh/SnAssistEditRefresh.al, writer SN): on a card and on a
 //! list whose row holds no edit, OnAfterGetRecord and OnAfterGetCurrRecord run again after the trigger, unless the trigger changed
 //! Rec (`set = OnAssistEdit(Set)`).
 

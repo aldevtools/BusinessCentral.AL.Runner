@@ -147,22 +147,32 @@ pub struct ObjectSym {
     pub manual_subscribers: bool,
 }
 
-/// Whether the bytes hold `maxlength` in any case. Looks at a window only where its first byte is an `m`: the text of
-/// every file of every app is searched once, so the cost per byte counts.
-fn names_max_length_in(b: &[u8]) -> bool {
-    let Some(last) = b.len().checked_sub(9) else {
-        return false;
-    };
-    (0..=last).any(|i| b[i] | 0x20 == b'm' && b[i..i + 9].eq_ignore_ascii_case(b"maxlength"))
+/// Whether the bytes hold `word` (lower case ASCII) in any case. The text of every file of every app is searched once, so
+/// the cost per byte counts: the search runs a vector scan for the case pairs of one letter of the word that is rare in
+/// source (`pivot`, an index into `word`) and compares the whole word only around those.
+fn names_word_in(b: &[u8], word: &[u8], pivot: usize) -> bool {
+    let (lower, upper) = (word[pivot], word[pivot].to_ascii_uppercase());
+    let mut from = pivot;
+    while let Some(at) = memchr::memchr2(lower, upper, b.get(from..).unwrap_or_default()) {
+        let start = from + at - pivot;
+        if b.get(start..start + word.len())
+            .is_some_and(|w| w.eq_ignore_ascii_case(word))
+        {
+            return true;
+        }
+        from += at + 1;
+    }
+    false
 }
 
-/// Whether the bytes hold `accessbypermission` in any case. Looks at a window only where its first byte is an `a`.
+/// Whether the bytes hold `maxlength` in any case. Scans for `x`.
+fn names_max_length_in(b: &[u8]) -> bool {
+    names_word_in(b, b"maxlength", 2)
+}
+
+/// Whether the bytes hold `accessbypermission` in any case. Scans for `b`.
 fn names_access_by_permission_in(b: &[u8]) -> bool {
-    const WORD: &[u8] = b"accessbypermission";
-    let Some(last) = b.len().checked_sub(WORD.len()) else {
-        return false;
-    };
-    (0..=last).any(|i| b[i] | 0x20 == b'a' && b[i..i + WORD.len()].eq_ignore_ascii_case(WORD))
+    names_word_in(b, b"accessbypermission", 6)
 }
 
 /// A byte range of a parsed text.
@@ -714,7 +724,7 @@ impl Workspace {
     }
 
     /// The interfaces interface `i` extends, nearest first (`interface I extends J`, and J's own
-    /// base after it). A cycle ends the list. Pinned by codeunit/TestInterfaceRuntimeContracts.al:
+    /// base after it). A cycle ends the list. Pinned by codeunits/TestInterfaceRuntimeContracts.al:
     /// `Probe IBar extends Probe IFoo` (:19).
     pub fn interface_bases(&self, i: usize) -> Vec<usize> {
         let mut out = Vec::new();
@@ -1066,7 +1076,7 @@ impl Workspace {
     /// alias `C` declared in namespace `A.B`, never a .NET full type name (Microsoft's System
     /// Application declares `type("System.DateTime"; "DateTime")` in `namespace System;` and its AFS
     /// Format Helper `DotNet System.DateTime`; al-runner issue 6488, corpus writer Y20,
-    /// al-language-onprem-dotnet/lt-y20-dotnet-fullname/Y20DotNetFullTypeName.al, must-not-compile 2357, 2358).
+    /// al-language-onprem-dotnet/dotnet/dotnet-fullname/Y20DotNetFullTypeName.al, must-not-compile 2357, 2358).
     pub fn resolve_dotnet(&self, file: usize, alias: &str) -> Option<usize> {
         let app = self.files[file].app;
         let (namespace, name) = match alias.rsplit_once(crate::types::QUAL_SEP) {
@@ -1234,7 +1244,7 @@ impl Workspace {
 
     /// A `TableRelation` target. The file of a dependency app resolves it among the apps that app
     /// saw (`visible`), as BC fixed it when the app compiled: a same-named table of a dependent app
-    /// is not a candidate (corpus fieldref/TestRelationTargetNameCollision.al). The file of the
+    /// is not a candidate (corpus recordref-fieldref/fieldref/TestRelationTargetNameCollision.al). The file of the
     /// workspace resolves it as `resolve_ref_certain` does, unless it sees Base Application.
     pub fn resolve_relation_target(&self, file: usize, kind: ObjKind, parts: &[String]) -> Resolution {
         if self.kinds[self.files[file].app] == AppKind::Dependency || self.sees_base_application(self.files[file].app) {
@@ -1653,6 +1663,30 @@ fn visible_from(apps: &[&AppSource], start: usize) -> BTreeSet<usize> {
 mod tests {
     use super::*;
 
+    /// The search finds a word that starts, ends or sits alone in the text, and does not run past either end when the
+    /// letter it scans for is near an end.
+    #[test]
+    fn the_word_search_handles_the_ends_of_the_text() {
+        for text in [
+            "",
+            "x",
+            "xx",
+            "maxlength",
+            "MAXLENGTH",
+            "axlength",
+            "maxlengt",
+            "xmaxlength",
+            "maxlengthx",
+            "xxmaxlengthxx",
+        ] {
+            let naive = text.as_bytes().windows(9).any(|w| w.eq_ignore_ascii_case(b"maxlength"));
+            assert_eq!(names_max_length_in(text.as_bytes()), naive, "{text:?}");
+        }
+        assert!(names_access_by_permission_in(b"AccessByPermission"));
+        assert!(!names_access_by_permission_in(b"ccessByPermission"));
+        assert!(!names_access_by_permission_in(b"b"));
+    }
+
     /// The search for `maxlength` finds it in any case and anywhere, as the plain window search did.
     #[test]
     fn max_length_is_found_in_any_case_anywhere() {
@@ -1804,7 +1838,7 @@ mod tests {
 
     #[test]
     fn run_time_resolution_only_trusts_tiers_no_absent_app_could_shadow() {
-        // corpus fieldref/TestRelationOwnNamespaceDependency.al, TestRelationTargetNamespaceScope.al:
+        // corpus recordref-fieldref/fieldref/TestRelationOwnNamespaceDependency.al, TestRelationTargetNamespaceScope.al:
         // a workspace table must not stand in for a Base Application one that is not here.
         let ws = load(vec![app(
             "a",
@@ -1864,7 +1898,7 @@ mod tests {
 
     #[test]
     fn with_base_application_loaded_a_using_resolves_a_relation_target() {
-        // corpus fieldref/TestRelationTargetNamespaceScope.al RelationScope_Usings_*: a table in a
+        // corpus recordref-fieldref/fieldref/TestRelationTargetNamespaceScope.al RelationScope_Usings_*: a table in a
         // file with a namespace, naming "Shipping Agent" with `using Microsoft.Foundation.Shipping`,
         // relates to Base Application's table 291. Base Application is here, so the tiers above the
         // using can be told to hold nothing (the same holds for the name written in Base

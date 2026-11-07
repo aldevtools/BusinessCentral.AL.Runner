@@ -25,7 +25,8 @@ use std::sync::Arc;
 pub struct BaselineRun {
     pub baseline: Baseline,
     /// Tables the roots that did not run (or stopped early) would have written rows to (a record
-    /// variable's Insert, Modify, Rename or ModifyAll in the root's own call closure), and that hold no row in the baseline: object
+    /// variable's Insert, Modify, Rename or ModifyAll in the root's own call closure), and that hold no row in the baseline or
+    /// belong to a root that was rolled back (al-runner issue 6973), unless the restored company holds their rows: object
     /// indexes.
     pub unseeded: BTreeSet<u32>,
     /// How many tables hold a row in the baseline.
@@ -178,7 +179,7 @@ pub fn run_traced(
     // Per dependency app, in dependency order: its install code (install codeunit triggers and "Extension Triggers"
     // subscribers, ADR-046 decision 1), every per-company routine, then every per-database routine, which runs last and
     // with CompanyName() empty. Measured on real BC 27.5 (a fresh install with two companies, a scratch app;
-    // docs/probes-needed.md) and pinned by install/lt-bf-install-probes/BfInstallTests.al:138-140, :239.
+    // docs/probes-needed.md) and pinned by record/BfInstallTests.al:138-140, :239.
     //
     // With a company data codeunit whose recipe installs only some apps first (`CompanyData::installed_first`; Microsoft's
     // Legacy lane, BCApps build/scripts/ImportTestDataInBcContainer.ps1:907-923: `Install-BaseAppsForDemoTool`,
@@ -285,7 +286,8 @@ pub fn run_traced(
     // So that a root that stops can say where (fault sites are noted only on an error or a refusal).
     session.trace_faults(true);
     let mut notes = Vec::new();
-    let mut touched = BTreeSet::new();
+    // Per root that stopped: the tables it writes, and whether its rows before the stop are kept.
+    let mut stopped: Vec<(BTreeSet<u32>, bool)> = Vec::new();
     let mut ran = 0;
     al_builtins::assumptions::clear_hits();
     let run_environment = session.environment();
@@ -300,7 +302,7 @@ pub fn run_traced(
     // company build run, they are not installed, so none of their subscribers runs there (no `OnCompanyInitialize`
     // subscriber, no `OnGetPerCompanyUpgradeTags` subscriber answering `SetAllUpgradeTags`). Their per-company install code
     // then sees `HasUpgradeTag` = No for its own tag and no row its `OnCompanyInitialize` subscriber writes
-    // (install/lt-bf-install-probes/BfUpgradeTagInstallTests.al:42-43).
+    // (install-upgrade/BfUpgradeTagInstallTests.al:42-43).
     let under_test = crate::install::apps_under_test(lowered);
     let mut held = late_apps.clone().unwrap_or_default();
     held.extend(under_test.iter().copied());
@@ -423,7 +425,7 @@ pub fn run_traced(
                         }
                     ));
                 }
-                touched.extend(tables_written(lowered, oi, ri));
+                stopped.push((tables_written(lowered, oi, ri), keep_prefix));
             }
         }
     }
@@ -440,9 +442,9 @@ pub fn run_traced(
         ));
     }
     // ADR-046 amendment 4: under `--companies`, a run without test data models the corpus CI database, whose session
-    // company is an evaluation company (install/lt-bf-install-probes/BfInstallTests.al:61). Its Company-Initialize ran
+    // company is an evaluation company (record/BfInstallTests.al:61). Its Company-Initialize ran
     // with the row of the default mode, which gives Experience Tier Essential there
-    // (session/lt-company-setup-rows/CompanySetupRows.al:50-66); from here on the apps under test and the tests see the
+    // (session-system/company/CompanySetupRows.al:50-66); from here on the apps under test and the tests see the
     // flag. With test data, or with a company the run builds, the row stays as it is.
     if company.is_none() && engine.test_data.is_none() && session.companies().len() > 1 {
         session.mark_evaluation_company();
@@ -457,12 +459,7 @@ pub fn run_traced(
     baseline.workspace_installs = Some(workspace_installs);
     baseline.company_built = company_built;
     let filled = baseline.nonempty_tables();
-    // A table the restored company holds rows for is seeded, whether or not a root could write it.
-    let unseeded = touched
-        .difference(&filled)
-        .copied()
-        .filter(|&t| !session.backs_rows(t))
-        .collect();
+    let unseeded = unseeded_tables(&stopped, &filled, &session);
     Some(BaselineRun {
         baseline,
         unseeded,
@@ -481,15 +478,15 @@ pub fn run_traced(
 /// bodies of everything it calls (not of event subscribers). Temporary
 /// records are left out. Writes through a `RecordRef` have no static table and are not counted.
 /// The Base Application tables whose rows the corpus database's company holds and the runtime does not: Accounting Period
-/// (36 rows, 2025-01-01 to 2027-12-01) and Company Information (one row) (session/lt-company-information/
+/// (36 rows, 2025-01-01 to 2027-12-01) and Company Information (one row) (session-system/company/
 /// CompanyInformationValues.al:45 QG_CompanyInformation_CorpusRow `count` 1, :89 QG_AccountingPeriod_CorpusRows `count` 36).
 /// ADR-047 (seed them) is rejected, so without test data a `Count` or `IsEmpty` of one of them before the test's own code
 /// wrote to it is refused, the shape those two tests read (install code may have written a row with other values). Other reads stay answered: refusing every read of those tables lost 116 BC 29
 /// baseline cases (reports and pages that read Company Information without asserting its values). General Ledger Setup holds
-/// one demo row there too (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:804 QF_GLSetup_CorpusRow `count` 1, :815).
-/// G/L Entry holds demo entries there (session/lt-outside-workdate/RlWorkDateAtStart.al:48 `G/L entries exist` Yes, a company
+/// one demo row there too (record/captions/QdCaptionClassAreas.al:804 QF_GLSetup_CorpusRow `count` 1, :815).
+/// G/L Entry holds demo entries there (test-framework/RlWorkDateAtStart.al:48 `G/L entries exist` Yes, a company
 /// whose Company Information says Demo Company = Yes, :47); the runtime's has none.
-/// The platform table Media Resources holds 46 rows there (platform/lt-platform-tables/PtCloudTables.al:269
+/// The platform table Media Resources holds 46 rows there (metadata/platform-tables/PtCloudTables.al:269
 /// QX_MediaResources_FreshTenantCodes); al-vm records.rs refuses every read of it, not only Count and IsEmpty.
 /// Object indexes of the dependency tables 17, 50, 79, 98 and 2000000182.
 pub fn demo_row_tables(lowered: &Lowered) -> std::collections::HashSet<usize> {
@@ -510,6 +507,20 @@ pub fn demo_row_tables(lowered: &Lowered) -> std::collections::HashSet<usize> {
         .collect()
 }
 
+/// The tables the roots that stopped would have written rows to, that the tests may not read as they are. A table the
+/// restored company holds rows for is seeded, whether or not a root could write it. A root that stopped and was rolled back
+/// wrote none of its rows, so a table it writes is unseeded even when other roots put rows in it: a read that finds no row,
+/// or a scan, is not BC's answer (al-runner issue 6973: another app's flags in the table, the stopped install's flag
+/// missing). A root whose rows before the stop are kept (`keep_prefix`) counts only for tables that hold no row.
+fn unseeded_tables(stopped: &[(BTreeSet<u32>, bool)], filled: &BTreeSet<u32>, session: &Session) -> BTreeSet<u32> {
+    stopped
+        .iter()
+        .flat_map(|(tables, kept)| tables.iter().filter(move |t| !kept || !filled.contains(t)))
+        .copied()
+        .filter(|&t| !session.backs_rows(t))
+        .collect()
+}
+
 pub(crate) fn tables_written(lowered: &Lowered, object: usize, routine: usize) -> BTreeSet<u32> {
     use al_builtins::value::RtType;
     use al_ir::{Arg, Expr, Place, Stmt};
@@ -526,7 +537,7 @@ pub(crate) fn tables_written(lowered: &Lowered, object: usize, routine: usize) -
                 Place::Index(inner, _) => Self::root(inner),
                 // The base object's variable (ADR-023): page and report extension code, which no
                 // install routine runs.
-                Place::Field(..) | Place::BaseGlobal(_) | Place::ExtGlobal(..) => None,
+                Place::Field(..) | Place::BaseGlobal(_) | Place::ExtGlobal(..) | Place::RecGlobal(..) => None,
             }
         }
         fn record_of(&self, p: &Place) -> Option<u32> {

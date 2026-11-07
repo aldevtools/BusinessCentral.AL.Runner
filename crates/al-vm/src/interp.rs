@@ -86,7 +86,7 @@ impl Session {
         let drain_pending = self.pages.bg_drain_after_call.is_some();
         let ret = native(self, recv.as_mut(), &mut values)?;
         if let (Some(ir::Arg::Ref(p)), Some(v)) = (receiver, recv) {
-            self.write(p, v, f)?;
+            self.write_native_back(p, v, f)?;
         }
         for (a, v) in args.iter().zip(values.drain(..)) {
             if let ir::Arg::Ref(p) = a {
@@ -95,7 +95,7 @@ impl Session {
                 } else {
                     self.fit_ref_number(p, v, f)?
                 };
-                self.write(p, v, f)?;
+                self.write_native_back(p, v, f)?;
             }
         }
         self.return_vec(values);
@@ -195,13 +195,25 @@ impl Session {
     /// `ClearAll()` resets every global variable of the running object to its default;
     /// locals are untouched (docs/probes-needed.md "ClearAll"). In a codeunit with a TableNo,
     /// a table and a page the record stays as it is and so does the page itself
-    /// (session/TestClearAllTransactionTypeContracts.al:224-285, BC 27.5). Any other object
+    /// (session-system/TestClearAllTransactionTypeContracts.al:224-285, BC 27.5); a table extension too, with the base table
+    /// (`clear_all_other_table_instances`), and a page extension with the base page (`clear_all_base_page`). Any other object
     /// kind is refused.
     pub(crate) fn clear_all(&mut self, f: &Frame) -> Result<Value, Signal> {
         let object = f.instance.borrow().object as usize;
         let o = &self.engine.program.objects[object];
         let keep: Vec<usize> = match o.kind {
             al_ir::ObjKind::Codeunit | al_ir::ObjKind::Table => o.rec_slot.into_iter().collect(),
+            // A table extension keeps its record, fields and filters, as a table does (pages/extensions/CyClearAllExtensions.al:
+            // 137-162, record/ProbeClearAllSetKeyHyperlink.al:358-385); the base table's globals are reset below.
+            al_ir::ObjKind::TableExtension => o.rec_slot.into_iter().chain(o.xrec_slot).collect(),
+            // A page extension keeps Rec, xRec and CurrPage, as a page does; the base page's globals are reset below
+            // (`clear_all_base_page`, pages/extensions/CyClearAllExtensions.al:166-193).
+            al_ir::ObjKind::PageExtension => o
+                .rec_slot
+                .into_iter()
+                .chain(o.xrec_slot)
+                .chain(o.globals.iter().position(|g| g.name == "CurrPage"))
+                .collect(),
             al_ir::ObjKind::Page => o
                 .rec_slot
                 .into_iter()
@@ -211,14 +223,16 @@ impl Session {
             // plain codeunit variables; a SingleInstance codeunit keeps its state. Called in OnInitReport, OnPreReport,
             // OnPreDataItem, OnAfterGetRecord, OnPostReport or a procedure they call (corpus
             // report/lt-clearall-report/ClearAllReport{Init,Pre,Post}Report.al and ...Procedure.al,
-            // errors/lt-ms-refusals-128/P128ClearAllReport.al, errors/lt-ms-refusals-135/P135ClearAllReport.al).
+            // reports/runtime/P128ClearAllReport.al, reports/runtime/P135ClearAllReport.al).
             al_ir::ObjKind::Report => Vec::new(),
             _ => {
                 return Err(Signal::Unsupported(format!("ClearAll in a {} (not pinned)", o.kind)));
             }
         };
-        self.alias_any(f)?;
+        let table_like = matches!(o.kind, al_ir::ObjKind::Table | al_ir::ObjKind::TableExtension);
+        let page_ext = o.kind == al_ir::ObjKind::PageExtension;
         let tys: Vec<RtType> = o.globals.iter().map(|g| g.ty.clone()).collect();
+        self.alias_any(f)?;
         let fresh: Vec<Value> = tys.iter().map(|t| self.default_value(t)).collect();
         let mut inst = f.instance.borrow_mut();
         for (i, v) in fresh.into_iter().enumerate() {
@@ -226,7 +240,7 @@ impl Session {
                 // A global temporary record keeps its rows, as Clear leaves them
                 // (types/ProbeTypeFormsAndFilters.al:Clear_TemporaryRecordWithRows_ThenCount); ClearAll does the same: real BC 29
                 // keeps both rows of a codeunit's global temporary record and drops its filter, called directly and through
-                // Codeunit.Run (record/lt-priority-assumptions/PriorityAssumptions.al:247-281, ClearAll_TemporaryGlobalRecord_*).
+                // Codeunit.Run (record/PriorityAssumptions.al:247-281, ClearAll_TemporaryGlobalRecord_*).
                 // Pinned for a codeunit's global; the same for a report, a page or a record shared through Copy is not.
                 if let (Value::Record(old), Value::Record(new)) = (&inst.globals[i], &v) {
                     let id = old.borrow().temp_id.clone();
@@ -237,9 +251,17 @@ impl Session {
                 inst.globals[i] = v;
             }
         }
+        if table_like {
+            drop(inst);
+            return self.clear_all_other_table_instances(f);
+        }
+        if page_ext {
+            drop(inst);
+            return self.clear_all_base_page(f);
+        }
         // ClearAll in a page resets the globals of its page extensions too: a flag an extension set in its OnOpenPage reads
         // false in the extension's OnAfterGetRecord once the base page's OnAfterGetRecord called ClearAll, for a base page of the
-        // same app and of another (corpus pages/lt-ce-page-run/CePageExt.al:27-41 ClearAll_InOwnBasePage_ExtensionGlobal, :43-69
+        // same app and of another (corpus pages/run-modal/CePageExt.al:27-41 ClearAll_InOwnBasePage_ExtensionGlobal, :43-69
         // ClearAll_InBaseAppPage_ExtensionGlobal). The extension's Rec, xRec and CurrPage stay, as the page's own do.
         let engine = self.engine.clone();
         let o = &engine.program.objects[object];
@@ -281,13 +303,68 @@ impl Session {
         Ok(Value::Null)
     }
 
+    /// The rest of `ClearAll()` in a table or a table extension: the globals of the other instances of the record
+    /// variable are reset as well, except their `Rec` and `xRec`. In a table extension the base table's globals go
+    /// (pages/extensions/CyClearAllExtensions.al:137-153 `in ext: base glob` 0); in the base table the extension's
+    /// globals go (CyClearAllExtensions.al:154-162 `in base: ext glob` 0, record/ProbeClearAllSetKeyHyperlink.al:373-384).
+    /// Only one extension with globals is pinned: a second one, or a global temporary record there, is refused.
+    fn clear_all_other_table_instances(&mut self, f: &Frame) -> Result<Value, Signal> {
+        let own = f.instance.borrow().object as usize;
+        let engine = self.engine.clone();
+        let objects = &engine.program.objects;
+        let Some(Value::Record(rec)) = objects[own]
+            .rec_slot
+            .and_then(|s| f.instance.borrow().globals.get(s).cloned())
+        else {
+            return Ok(Value::Null);
+        };
+        let slots = |o: usize| -> Vec<usize> { objects[o].rec_slot.into_iter().chain(objects[o].xrec_slot).collect() };
+        let others: Vec<(usize, Rc<RefCell<Instance>>)> = rec
+            .borrow()
+            .globals
+            .instances()
+            .into_iter()
+            .filter(|(_, i)| !Rc::ptr_eq(i, &f.instance))
+            .map(|(o, i)| (o as usize, i))
+            .filter(|(o, _)| (0..objects[*o].globals.len()).any(|g| !slots(*o).contains(&g)))
+            .collect();
+        let exts = others
+            .iter()
+            .filter(|(o, _)| objects[*o].kind == al_ir::ObjKind::TableExtension)
+            .count();
+        let own_ext = objects[own].kind == al_ir::ObjKind::TableExtension;
+        if exts > usize::from(!own_ext) {
+            return Err(Signal::Unsupported(
+                "ClearAll in a table or table extension while a second extension of the table holds globals (not pinned)".into(),
+            ));
+        }
+        for (o, inst) in others {
+            let keep = slots(o);
+            let tys: Vec<RtType> = objects[o].globals.iter().map(|g| g.ty.clone()).collect();
+            let fresh: Vec<Value> = tys.iter().map(|t| self.default_value(t)).collect();
+            let mut i = inst.borrow_mut();
+            for (g, v) in fresh.into_iter().enumerate() {
+                if keep.contains(&g) {
+                    continue;
+                }
+                if matches!(&i.globals[g], Value::Record(r) if r.borrow().temporary) {
+                    return Err(Signal::Unsupported(
+                        "ClearAll in a table or table extension whose other part has a global temporary record (not pinned)".into(),
+                    ));
+                }
+                i.globals[g] = v;
+            }
+        }
+        Ok(Value::Null)
+    }
+
     /// `ApplicationArea()` reads the session's areas, `ApplicationArea(Text)` sets them
-    /// (corpus pageapplicationarea/TestPageApplicationAreaControlRemoval.al).
+    /// (corpus pages/application-area/TestPageApplicationAreaControlRemoval.al).
     pub(crate) fn application_area(&mut self, set: Option<Value>) -> Result<Value, Signal> {
         match set {
             None => Ok(Value::Text(self.application_areas.clone().into())),
             Some(Value::Text(t) | Value::Code(t)) => {
-                // Tags are `#` and letters or digits, separated by commas (platform/lt-platform-members/PlTSession.al:
+                // Tags are `#` and letters or digits, separated by commas (metadata/platform-tables/PlTSession.al:
                 // ApplicationArea_SetTwiceAndInvalid); whether a well-formed tag exists is not pinned.
                 let well_formed = t.split(',').all(|tag| {
                     let tag = tag.trim();
@@ -312,7 +389,7 @@ impl Session {
     }
 
     /// What `CurrFieldNo` reads on `rec`: the field number a TestPage write is validating on this
-    /// record, 0 anywhere else (handlers/TestPageCurrFieldNo_Tests.al:36-123).
+    /// record, 0 anywhere else (testpage/TestPageCurrFieldNo_Tests.al:36-123).
     pub(crate) fn curr_field_of(&self, rec: &Rc<RefCell<RecordState>>) -> i32 {
         self.pages
             .curr_field_no
@@ -326,7 +403,7 @@ impl Session {
     #[inline]
     pub(crate) fn char_at(t: &al_builtins::text::Txt, i: i64) -> Result<Value, Signal> {
         // types/TestProbeScalarContracts.al:TextChar_AssignByIndex: position 0 and below raise, a position after
-        // the last character reads as the character 0, however far past it is (text/lt-text-instance/Index1.Codeunit.al
+        // the last character reads as the character 0, however far past it is (text/text-methods/Index1.Codeunit.al
         // Index_Read_Variable: `T[7]`, `T[100]`, `E[1]`).
         if i < 1 {
             return al_builtins::native::raise(
@@ -355,10 +432,10 @@ impl Session {
         Ok(match coll {
             Value::List(l) => l.borrow().to_vec(),
             // A Text or Code visits its UTF-16 code units, one Char each, in order; the text is read once, so an assignment
-            // inside the loop changes nothing about the visits (text/lt-foreach-text/ForeachText.al:Foreach_Text_Char_Order,
+            // inside the loop changes nothing about the visits (text/text-methods/ForeachText.al:Foreach_Text_Char_Order,
             // Foreach_Text_Char_Sources, Foreach_Text_ModifyDuringLoop; a Text[1] variable: Foreach_Text_Text1_Variable).
             Value::Text(t) | Value::Code(t) if !t.has_marker() => t.encode_utf16().map(Value::Char).collect(),
-            // The nodes an XPath query found (corpus handlers/TestReportFlowFieldColumnAutoCalc.al).
+            // The nodes an XPath query found (corpus xml/TestReportFlowFieldColumnAutoCalc.al).
             other => match al_builtins::json::array_items(&other).or_else(|| al_builtins::xml::node_list_items(&other))
             {
                 Some(items) => items,
@@ -444,11 +521,11 @@ impl Session {
     /// The statement at position `p` begins: the call stack, the profiler and coverage see it.
     #[inline(always)]
     pub(crate) fn at_pos(&mut self, p: u32) {
+        if profile::ON.load(std::sync::atomic::Ordering::Relaxed) {
+            self.profile_sample(None);
+        }
         if let Some(top) = self.call_stack.last_mut() {
             top.pos = p;
-        }
-        if profile::ON.load(std::sync::atomic::Ordering::Relaxed) {
-            self.profile_sample();
         }
         if self.coverage.code_coverage {
             self.coverage_hit(p);
@@ -512,7 +589,7 @@ impl Session {
             Ok(Value::Integer(n))
         } else if let (Ok(o), RtType::Option(_) | RtType::Enum(_)) = (i32::try_from(i), slot_ty) {
             // An Option or Enum counter holds the ordinal of each round, a member the type lacks included (an enum with a gap
-            // shows Red,Green,2,3,4,Blue), as variable or field, up or downto (types/lt-for-option-time-decimal/
+            // shows Red,Green,2,3,4,Blue), as variable or field, up or downto (types/date-time/
             // ForLoopOptionVariable.al:31-54, :221-237; ForOptionEnum_risky.al:39-104).
             Ok(match slot_ty {
                 RtType::Enum(id) => Value::Enum(*id, o),
@@ -537,12 +614,13 @@ impl Session {
         try_call: bool,
         f: &mut Frame,
     ) -> Result<Value, Signal> {
+        let mut lagged = None;
         let inst = match instance {
             None => f.instance.clone(),
             Some(v) => match v {
                 // A procedure of a reportextension called through the report variable runs on the extension's
                 // instance of that variable, which keeps the extension's globals and added data items
-                // (reportext/W3RpExtProcedures.al:ExtensionProcedure_*).
+                // (reports/extensions/W3RpExtProcedures.al:ExtensionProcedure_*).
                 Value::Codeunit(i)
                     if self.engine.program.objects[object].report_ext.is_some()
                         && i.borrow().object as usize != object =>
@@ -554,7 +632,7 @@ impl Session {
                 // variable's own globals (ADR-021).
                 Value::Record(rc) => {
                     // `Rec.InitType()` in a page's code: the table procedure's xRec is the page's own xRec, as the page's triggers see it
-                    // (Sales Invoice Subform.OnNewRecord calls Rec.InitType, which copies xRec.Type; pages/lt-xrec-table-procedure/
+                    // (Sales Invoice Subform.OnNewRecord calls Rec.InitType, which copies xRec.Type; pages/xrec-in-table-procedure/
                     // XRecTableProcedure.al `proc xRec=2/22/two`).
                     let page_xrec = {
                         let fi = f.instance.borrow();
@@ -596,6 +674,7 @@ impl Session {
                 // is constructed at first use.
                 Value::TestPage(st) => {
                     let i = self.construct_page(&st)?;
+                    lagged = self.enter_server_row(&st);
                     // A procedure a page extension declares runs on the extension's instance.
                     let ext = st
                         .borrow()
@@ -613,7 +692,11 @@ impl Session {
                 }
             },
         };
-        self.finish_call(object, routine, inst, args, values, try_call, f)
+        let result = self.finish_call(object, routine, inst, args, values, try_call, f);
+        if let Some((rec, now)) = lagged {
+            rec.borrow_mut().fields = now;
+        }
+        result
     }
 
     /// Evaluates the arguments of a resolved call and runs it on `inst`, writing back the
@@ -630,7 +713,7 @@ impl Session {
         f: &mut Frame,
     ) -> Result<Value, Signal> {
         // A publisher's `var` argument that is a global of the caller's instance is that variable itself for its subscribers
-        // (events/lt-event-var-through-sender/EventVarThroughSender.al): they alias it, see `Frame::aliases`.
+        // (events/binding-senders/EventVarThroughSender.al): they alias it, see `Frame::aliases`.
         let facts = self.engine.routine_facts(object, routine);
         if facts.publisher {
             let by_var = &self.engine.program.objects[object].routines[routine].by_var;
@@ -648,7 +731,11 @@ impl Session {
         // The variables the frame's event parameters stand for: the parameter's value goes to the variable before the call and
         // the variable's value comes back after it, because the callee (the sender) may read or change either.
         for (slot, inst, g) in &f.aliases {
+            // The global a `var` parameter of this frame stands for gets the parameter's value: a write (ADR-066
+            // amendment 3, R1).
+            self.single_wrote(inst, *g);
             inst.borrow_mut().globals[*g] = f.locals[*slot].clone();
+            self.single_written(inst, *g);
         }
         // While the call runs, the global is the current value of a parameter of this frame that aliases it.
         let own_aliases = self.set_alias_live(f, false);
@@ -702,7 +789,7 @@ impl Session {
             }
         }
         let (ret, finals) = match (result, try_call) {
-            // A write the try was not allowed to make is not trapped by it (misc/lt-cu-odd-leads/CuTryTests.al:83-150).
+            // A write the try was not allowed to make is not trapped by it (errors/CuTryTests.al:83-150).
             (Err(Signal::Error(e)), true) if e.code == crate::transactions::TRY_FUNCTION_WRITE => {
                 return Err(Signal::Error(e));
             }
@@ -726,7 +813,7 @@ impl Session {
 
     /// Starts watching the scalar globals of the caller's instance that `args` pass by `var`; returns how many were added.
     /// To a procedure of the caller's own instance the parameter and the global are one variable
-    /// (codeunit/lt-var-global-alias/VarGlobalAlias.al:12-118, tests :120-170): the callee's frame aliases the global (`Frame::aliases`),
+    /// (codeunits/procedures/VarGlobalAlias.al:12-118, tests :120-170): the callee's frame aliases the global (`Frame::aliases`),
     /// also when the argument is a parameter of the caller that aliases it. To another instance only the copy is made, and
     /// reaching the global by its name while the call runs is refused (not pinned).
     fn watch_var_globals(
@@ -747,7 +834,7 @@ impl Session {
                 .copied()
                 .unwrap_or(false);
             // A subscriber's parameter that is a global of the publisher's instance (`dispatch`), handed on by `var`: to a
-            // procedure of the subscriber's own instance it stays that global, at any depth (events/lt-event-var-through-sender/
+            // procedure of the subscriber's own instance it stays that global, at any depth (events/binding-senders/
             // EventVarThroughSender.al:284-306, modes 2-5 and 7; :308-330). To another instance it is not measured: reaching the
             // global by its name while the call runs is refused.
             if let ir::Arg::Ref(ir::Place::Local(slot)) = a {
@@ -823,9 +910,17 @@ impl Session {
         any
     }
 
+    /// A read of global `i` of the frame's instance: the alias watch, then the single-instance notes.
+    #[inline]
+    pub(crate) fn global_read(&mut self, i: usize, f: &Frame) -> Result<(), Signal> {
+        self.alias_access(i, f)?;
+        self.single_read(&f.instance, i);
+        Ok(())
+    }
+
     /// Before a read or a write of global `i` of the frame's instance by its own name while a procedure that got the same
     /// global by `var` runs. In the frame of that procedure, when it is of the same instance, the parameter and the global
-    /// are one variable (codeunit/lt-var-global-alias/VarGlobalAlias.al:96-110, :160-169): the parameter's value goes to the
+    /// are one variable (codeunits/procedures/VarGlobalAlias.al:96-110, :160-169): the parameter's value goes to the
     /// global first. Refused: a procedure of another instance got it (not pinned), or code that the procedure did not call
     /// (a trigger a builtin runs) reaches it while the parameter holds the value.
     #[inline]
@@ -925,7 +1020,10 @@ impl Session {
         }
         if !self.singletons.contains_key(&object) {
             let inst = self.instance(object);
+            self.single_made(object, &inst);
             self.singletons.insert(object, inst);
+        } else if !self.singles_unclaimed.is_empty() {
+            self.claim_carried_single(object);
         }
         self.singletons[&object].clone()
     }
@@ -1002,6 +1100,31 @@ impl Session {
         })
     }
 
+    /// The instance of table or table extension `object` on the record in place `base` (`Other.<protected var>` in a table
+    /// extension, al-runner issue 6984): the one the record's calls run on, made and kept in the record when it has none yet
+    /// (ADR-021 per-record instances; corpus PR 1126, table-objects/extensions/ProtectedVarCrossApp.al).
+    fn record_instance(
+        &mut self,
+        base: &ir::Place,
+        object: usize,
+        f: &mut Frame,
+    ) -> Result<Rc<RefCell<Instance>>, Signal> {
+        let Value::Record(rec) = self.read(base, f)? else {
+            return Err(Signal::Unsupported(
+                "internal error: a protected variable named through a record variable that holds no record".into(),
+            ));
+        };
+        let existing = rec.borrow().globals.instance(object as u32);
+        Ok(match existing {
+            Some(i) => i,
+            None => {
+                let i = self.table_instance(object);
+                rec.borrow().globals.set_instance(object as u32, i.clone());
+                i
+            }
+        })
+    }
+
     /// The declared type of a local, a global, or an element of an array of those, by reference.
     pub(crate) fn place_ty<'a>(&'a self, p: &ir::Place, f: &Frame) -> Option<&'a RtType> {
         match p {
@@ -1019,7 +1142,7 @@ impl Session {
     }
 
     /// For each `var` Text or Code parameter of the callee: the declared length of the variable or field the argument names
-    /// (text/lt-text-functions/MaxStrLen.Codeunit.al:91-151, LT_BU_MaxStrLen_TextParameters), `i32::MAX` for one without a
+    /// (text/text-methods/MaxStrLen.Codeunit.al:91-151, LT_BU_MaxStrLen_TextParameters), `i32::MAX` for one without a
     /// length. A `var` parameter of the caller handed on keeps the length the caller got for it, through any number of hops
     /// and whatever length the parameter on the way declares (:146-170, PYC_MaxStrLen_VarParameterHops: `three hops text30`
     /// = 30, `hop through text30 param field` = 100); `None` when the caller did not get one. Empty when no such parameter
@@ -1085,6 +1208,7 @@ impl Session {
                 Err(_) => RtType::Variant,
             },
             ir::Place::ExtGlobal(e, i) => self.engine.program.objects[*e].globals[*i].ty.clone(),
+            ir::Place::RecGlobal(_, o, i) => self.engine.program.objects[*o].globals[*i].ty.clone(),
             ir::Place::Index(base, _) => match self.place_type(base, f) {
                 RtType::Array(_, el) => *el,
                 other => other,
@@ -1149,6 +1273,7 @@ impl Session {
             ir::Place::Local(i) => Ok(f.locals[*i].clone()),
             ir::Place::Global(i) => {
                 self.alias_access(*i, f)?;
+                self.single_read(&f.instance, *i);
                 Ok(f.instance.borrow().globals[*i].clone())
             }
             ir::Place::BaseGlobal(i) => {
@@ -1159,6 +1284,11 @@ impl Session {
             ir::Place::ExtGlobal(e, i) => {
                 let ext = self.sibling_instance(f, *e)?;
                 let v = ext.borrow().globals.get(*i).cloned();
+                v.ok_or_else(|| base_slot_missing(*i))
+            }
+            ir::Place::RecGlobal(base, o, i) => {
+                let inst = self.record_instance(base, *o, f)?;
+                let v = inst.borrow().globals.get(*i).cloned();
                 v.ok_or_else(|| base_slot_missing(*i))
             }
             ir::Place::Index(base, idx) => {
@@ -1204,7 +1334,7 @@ impl Session {
                 }
                 // The buffer of a table element record after an export under SourceTableView is the last row the export read
                 // (QrXpContainerOccurs.al TS_Again_SameData on branch al-runtime-rs-staging-pub-ts).
-                // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Again_SameData, TS_Again_AssignBetween, TS_Again_TransferFieldsBetween, TS_Again_InitBetween, TS_Again_KeyBetween, TS_Again_LineFilter, TS_View_SecondExport, TS_Again_TrBooking, TS_Again_TrMember (was assumption `xmlport-export-again`).
+                // Pinned by xmlports/shapes-properties/QrXpContainerOccurs.al TS_Again_SameData, TS_Again_AssignBetween, TS_Again_TransferFieldsBetween, TS_Again_InitBetween, TS_Again_KeyBetween, TS_Again_LineFilter, TS_View_SecondExport, TS_Again_TrBooking, TS_Again_TrMember (was assumption `xmlport-export-again`).
                 let r = rc.borrow();
                 if !self.engine.unevaluable_init.is_empty() && !r.touched {
                     // The buffer of a record nothing has written is built by this read, which
@@ -1267,6 +1397,17 @@ impl Session {
     }
 
     pub(crate) fn write(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<(), Signal> {
+        self.write_as(p, v, f, true)
+    }
+
+    /// The write-back of a builtin's by-reference receiver or argument (`run_native`): a Blob it hands back is stored as the
+    /// buffer it is, never copied (a stream `CreateOutStream` created on it writes there; `field_blob`).
+    fn write_native_back(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<(), Signal> {
+        self.write_as(p, v, f, false)
+    }
+
+    /// [`Self::write`]; `assign` is false for a builtin's write-back.
+    fn write_as(&mut self, p: &ir::Place, v: Value, f: &mut Frame, assign: bool) -> Result<(), Signal> {
         // A column a platform row leaves unknown never reaches a variable: every read of one is refused where it happens; this
         // catches a reader that missed it.
         if let Value::Unknown(why) = &v {
@@ -1276,8 +1417,13 @@ impl Session {
         if let (Value::SqlCount(_), ir::Place::Field(..)) = (&v, p) {
             return Err(al_builtins::sqlcount::refusal("storing in a record field"));
         }
+        if self.sql.active && matches!(p, ir::Place::Field(..)) && al_builtins::sqlcount::formatted(&v) {
+            return Err(al_builtins::sqlcount::refusal(
+                "storing the formatted value in a record field",
+            ));
+        }
         // `:=` between FilterPageBuilders copies the control collection and shares the records
-        // (corpus filterpage/TestFilterPageBuilder.al:FilterPageBuilder_Assignment_*).
+        // (corpus pages/filterpagebuilder/TestFilterPageBuilder.al:FilterPageBuilder_Assignment_*).
         let v = match v {
             Value::Library(al_builtins::library_kind::LibraryKind::FilterPageBuilder, cell) => Value::Library(
                 al_builtins::library_kind::LibraryKind::FilterPageBuilder,
@@ -1291,7 +1437,7 @@ impl Session {
             // (Library - Variable Storage.Dequeue into one `RecVar` that held a Contact, then a Segment Header; Tests-Marketing).
             // A Variant holding another record is replaced (by the by-value copy below), so it holds the new record whole, as a
             // Variant that held nothing would: a RecordRef.GetTable of it takes the new filters, also with a temporary record on
-            // either side (al-runner issue 6503; recordref/lt-y23-variant-view/Y23VariantRecordView.al, Y23_SecondRecordTemporary
+            // either side (al-runner issue 6503; recordref-fieldref/recordref/Y23VariantRecordView.al, Y23_SecondRecordTemporary
             // :289-303). A Variant given the very record it holds keeps it, and with it the table a Variant parameter was bound
             // to (a temporary record's rows): replacing that gave the callee an empty table (Find Record
             // Management.GetLastEntryIntFieldValue, called from "Price Asset".OnInsert; Tests-ERM Price Calculation - V16).
@@ -1301,9 +1447,18 @@ impl Session {
                     _ => false,
                 };
             if !matches!(p, ir::Place::Field(..)) && !replaces_variant {
-                if let Ok(Value::Record(dst)) = self.read(p, f) {
+                // `:=` into a global record is a write in place: it replaces what an earlier test codeunit left in a
+                // SingleInstance global, it reads nothing of it (ADR-066 amendment 3, R1).
+                let dst = match p {
+                    ir::Place::Global(i) => {
+                        self.alias_access(*i, f)?;
+                        Ok(f.instance.borrow().globals[*i].clone())
+                    }
+                    _ => self.read(p, f),
+                };
+                if let Ok(Value::Record(dst)) = dst {
                     // A record variable takes no record of another table; that only happens through a Variant
-                    // (types/lt-variant-record-reassign/VariantRecordReassign.al:130 Variant_Reassign_ReadBack).
+                    // (types/variant/VariantRecordReassign.al:130 Variant_Reassign_ReadBack).
                     if dst.borrow().table != src.borrow().table && !matches!(self.place_type(p, f), RtType::Variant) {
                         return Err(Signal::Error(Box::new(AlError {
                             message: "The requested operation is not supported.".into(),
@@ -1313,6 +1468,9 @@ impl Session {
                         })));
                     }
                     if !Rc::ptr_eq(src, &dst) {
+                        if let ir::Place::Global(i) = p {
+                            self.single_replaced(&f.instance, *i);
+                        }
                         // The source's buffer after an export under SourceTableView is not pinned (records.rs
                         // `XP_VIEW_AFTER_EXPORT`).
                         if let Some(why) = crate::records::xp_export_marked(src) {
@@ -1337,13 +1495,15 @@ impl Session {
                                             // fetches the Blob from the stored row again (types/ProbeTypeFormsAndFilters.al:
                                             // FormatRecord_AssignmentCopiesBlobBytes, BC 27.5).
                                             // A source whose content was not fetched (a Get without CalcFields) gives a copy that reads
-                                            // empty (misc/lt-probes-needed-1/PnABlobAssignRename.al:Assign_Stored `copy-content-notloaded`).
+                                            // empty (record/PnABlobAssignRename.al:Assign_Stored `copy-content-notloaded`).
                                             loaded: b.loaded,
                                             fetched: b.fetched,
                                             refetch: true,
                                             persisted: false,
                                             temp_row: b.temp_row,
+                                            uncompressed: b.uncompressed,
                                             written: false,
+                                            written_base: None,
                                             render_pending: b.render_pending.clone(),
                                             inserted: b.inserted,
                                             temp_inserted: false,
@@ -1360,14 +1520,21 @@ impl Session {
                             })
                             .collect();
                         let load = src.borrow().load.clone();
-                        // `:=` copies what Record.IsDirty compares with (lt-ac/ACRecordIsDirty.al:63-64 `copy_dirty`).
+                        // `:=` copies what Record.IsDirty compares with (record/ACRecordIsDirty.al:63-64 `copy_dirty`).
                         let dirty_base = src.borrow().is_dirty_base.copy();
+                        // The row version comes over with the fields, and where it came from (record/crud/
+                        // Y76StaleBuffers.al Y76_Part1_FindSet_Assign, `assign/*`).
+                        let row_origin = src.borrow().row_origin;
                         let mut d = dst.borrow_mut();
                         d.fields = fields;
+                        d.row_origin = row_origin;
                         d.is_dirty_base = dirty_base;
                         // The copy holds what the source's buffer held, if that is known.
                         d.load.buffer = load.buffer;
                         d.load.partial = load.partial;
+                    }
+                    if let ir::Place::Global(i) = p {
+                        self.single_written(&f.instance, *i);
                     }
                     return Ok(());
                 }
@@ -1392,22 +1559,7 @@ impl Session {
                 Value::Record(rc) => {
                     self.connection_check(&rc)?;
                     let mut r = rc.borrow_mut();
-                    // A Blob of a record read from the database without CalcFields holds none of its content: assigned to
-                    // another field it gives an empty Blob (record/lt-blob-calcfields-length/BlobCalcFieldsLength.al:404,
-                    // 'target after assign' has=No|len=0, and the Modify after it stores nothing). The write-back of a
-                    // method call on the field itself keeps the buffer. A temporary row read back (Get, FindFirst, FindSet)
-                    // without CalcFields gives the same empty copy (record/lt-temporary-blob/TemporaryBlobAutoCalc.al:174-310,
-                    // corpus branch al-runtime-rs-staging-y12, al-runner issue 6434).
-                    let v = match v {
-                        Value::Blob(b)
-                            if (b.borrow().db_row || b.borrow().temp_row)
-                                && !b.borrow().loaded
-                                && !matches!(&r.fields[*pos], Value::Blob(cur) if std::sync::Arc::ptr_eq(cur, &b)) =>
-                        {
-                            Value::Blob(al_builtins::stream::new_blob())
-                        }
-                        v => v,
-                    };
+                    let v = field_blob(&r.fields[*pos], v, assign);
                     r.before_field_write();
                     r.fields[*pos] = v;
                     r.touched = true;
@@ -1421,7 +1573,7 @@ impl Session {
             };
         }
         // A record assigned to a Variant is a by-value copy: a temporary record's copy is an empty table of its own
-        // (recordref/PWRecordMisc.al:TempRecord_AssignedToVariantVariable and :TempRecord_VariantModifiedAfterAssign).
+        // (recordref-fieldref/recordref/PWRecordMisc.al:TempRecord_AssignedToVariantVariable and :TempRecord_VariantModifiedAfterAssign).
         let v = match &v {
             Value::Record(rc) if matches!(self.place_type(p, f), RtType::Variant) => self.record_by_value(rc),
             _ => v,
@@ -1430,7 +1582,17 @@ impl Session {
             ir::Place::Local(i) => f.locals[*i] = v,
             ir::Place::Global(i) => {
                 self.alias_access(*i, f)?;
+                // A builtin's write-back of the value the global holds is no write (`D.ContainsKey(K)` on a global).
+                let noted = if assign {
+                    self.single_wrote(&f.instance, *i);
+                    true
+                } else {
+                    self.single_wrote_back(&f.instance, *i, &v)
+                };
                 f.instance.borrow_mut().globals[*i] = v;
+                if noted {
+                    self.single_written(&f.instance, *i);
+                }
                 self.alias_wrote(*i, f);
             }
             ir::Place::BaseGlobal(i) => {
@@ -1444,6 +1606,14 @@ impl Session {
             ir::Place::ExtGlobal(e, i) => {
                 let ext = self.sibling_instance(f, *e)?;
                 let mut b = ext.borrow_mut();
+                match b.globals.get_mut(*i) {
+                    Some(slot) => *slot = v,
+                    None => return Err(base_slot_missing(*i)),
+                }
+            }
+            ir::Place::RecGlobal(base, o, i) => {
+                let inst = self.record_instance(base, *o, f)?;
+                let mut b = inst.borrow_mut();
                 match b.globals.get_mut(*i) {
                     Some(slot) => *slot = v,
                     None => return Err(base_slot_missing(*i)),
@@ -1479,7 +1649,7 @@ impl Session {
     }
 
     /// `Text[i] := c`: sets one character of a text or code, at a position inside it or the next one within
-    /// the declared length (handlers/TestPageFieldFormats_Tests.al:58-66,
+    /// the declared length (testpage/TestPageFieldFormats_Tests.al:58-66,
     /// types/TestCharIndexAssignContracts.al:CharacterAssignedIntoAPosition); a position outside that and a value
     /// that is not one UTF-16 character are refused.
     pub(crate) fn write_char(
@@ -1501,7 +1671,7 @@ impl Session {
         };
         let i = int(&Self::index_value(e, f)?)?;
         // A Byte from 0x80 up goes in as the character Format shows for it: 128 is `Ç` (199), 239 is `Ù` (217)
-        // (al-language-onprem/types/ByteFormat.al:13-31 `_text1_code`, report/lt-report-dataset-header/
+        // (al-language-onprem/types/ByteFormat.al:13-31 `_text1_code`, reports/dataset/
         // ReportDatasetHeaderRaw.al:Lines_Window1, the byte order mark read byte by byte); a byte whose character is not
         // pinned is refused.
         let unit = match &v {
@@ -1576,7 +1746,7 @@ impl Session {
             .map_err(|_| Signal::Unsupported("a text that ends up with a lone surrogate".into()))?;
         if is_code {
             // A blank written at the last position is cut off like any trailing blank of a Code value: `C[3] := ' '` on 'abc'
-            // gives `AB` of length 2 (text/lt-text-instance/Index1.Codeunit.al LT_BU_Index_Write_Code `code blank last`).
+            // gives `AB` of length 2 (text/text-methods/Index1.Codeunit.al LT_BU_Index_Write_Code `code blank last`).
             let text = text.trim_end_matches(' ');
             return self.write(base, Value::Code(ops::upper_code_checked(text)?.into()), f);
         }
@@ -1586,7 +1756,7 @@ impl Session {
     /// The cells of row `idx` of the two-dimensional array behind `base`, as (cells, first position, length): `None` for an
     /// array of another number of dimensions or an index that is not one position. A row passed as an argument is a copy for a
     /// value parameter, and for a `var` parameter it is written back into the row when the call returns (corpus
-    /// errors/lt-ms-refusals-128/P128ArrayRow.al:P128_ArrayRow_ByValue, P128_ArrayRow_ByVar, P128_ArrayRow_TextRowByVar). What
+    /// permissions/P128ArrayRow.al:P128_ArrayRow_ByValue, P128_ArrayRow_ByVar, P128_ArrayRow_TextRowByVar). What
     /// BC does with a row assigned or cleared is not pinned here.
     pub(crate) fn row_range(
         &mut self,
@@ -1598,7 +1768,7 @@ impl Session {
             return Ok(None);
         };
         // A row is what is left of the array after fixing its first indexes: one of two (`A[2]` of `array[3, 4]`), or one or two of
-        // three (collections/lt-array-rows/ArrayRows.al:ThreeDim_Rows, ThreeDim_RowToShorterParameter). More dimensions are not pinned.
+        // three (collections/multi-dimension-array-rows/ArrayRows.al:ThreeDim_Rows, ThreeDim_RowToShorterParameter). More dimensions are not pinned.
         if dims.len() < 2 || dims.len() > 3 || idx.is_empty() || idx.len() >= dims.len() {
             return Ok(None);
         }
@@ -1681,8 +1851,8 @@ impl Session {
             // array of any length and indexes within it (types/W7VarArray.al; Tests-Bank, Tests-Cash Flow and Tests-SCM-Manufacturing
             // index a parameter within the argument's length), so the check against the length follows below.
             if i < 1 || (dims.len() > 1 && i > i64::from(*d)) {
-                // Index out of bounds.: collections/lt-array-rows/ArrayRows.al, errors/lt-error-handling/ErTRuntimeErrors.al:179-184
-                // (zero, negative and too high), errors/lt-ms-refusals-129/P129ArrayIndex.al.
+                // Index out of bounds.: collections/multi-dimension-array-rows/ArrayRows.al, errors/error-texts/ErTRuntimeErrors.al:179-184
+                // (zero, negative and too high), errors/P129ArrayIndex.al.
                 return al_builtins::native::raise("Index out of bounds.", "IndexOutOfBounds");
             }
             flat = flat * (*d as usize) + (i as usize - 1);
@@ -1691,7 +1861,7 @@ impl Session {
         // an `array[2]` to `var DimensionValue: array[9]`): the stored cells are the argument's. What BC does
         // is not pinned by the corpus, so it is refused rather than indexed out of range.
         // A one-dimensional array passed to a parameter declared with more elements: reading or writing past the argument's
-        // elements is an index error (misc/lt-probes-needed-5/PnE01Arrays.al:SmallerArray_VarParameter, SmallerArray_ByValue).
+        // elements is an index error (types/arrays/PnE01Arrays.al:SmallerArray_VarParameter, SmallerArray_ByValue).
         if flat >= arr.borrow().len() && dims.len() == 1 {
             return al_builtins::native::raise("Index out of bounds.", "IndexOutOfBounds");
         }
@@ -1737,7 +1907,7 @@ pub(crate) fn constant(c: &ir::Const) -> Value {
         ir::Const::Integer(i) => Value::Integer(*i),
         ir::Const::BigInteger(i) => Value::BigInteger(*i),
         ir::Const::Decimal(s) => {
-            // A literal keeps 18 significant digits (types/lt-expression-operators-literals/ExpressionLiteralsRisky.al:
+            // A literal keeps 18 significant digits (types/operators-expressions/ExpressionLiteralsRisky.al:
             // P195_Literal_DecimalTwentyDigits: `123456789012345.12345 * 2` is `246913578024690.246`).
             let d: rust_decimal::Decimal = s.parse().expect("decimal literal from the lowerer");
             Value::Decimal(if d.abs().mantissa() > 999_999_999_999_999_999 {
@@ -1816,7 +1986,7 @@ fn is_alias_scalar(v: &Value) -> bool {
     )
 }
 
-/// The counter of a `for` loop over Dates (misc/lt-system-functions/ControlFlow.al:607, QX_ForLoop_DateControlVariable): the
+/// The counter of a `for` loop over Dates (language/ControlFlow.al:607, QX_ForLoop_DateControlVariable): the
 /// day number twice, plus one for a closing date, so that a closing date sorts after its day and before the next one
 /// (`to ClosingDate(31.12.2023)` visits 30.12 and 31.12).
 pub(crate) fn date_key(v: &Value) -> i64 {
@@ -1829,4 +1999,29 @@ pub(crate) fn date_key(v: &Value) -> i64 {
 /// The Date a [`date_key`] stands for.
 pub(crate) fn date_of_key(k: i64) -> Value {
     Value::Date((k.div_euclid(2)) as i32, k.rem_euclid(2) == 1)
+}
+
+/// The Blob value a field write stores. A Blob of a record read from the database without CalcFields holds none of its
+/// content: assigned to another field it gives an empty Blob (record/flowfields/BlobCalcFieldsLength.al:404, 'target after
+/// assign' has=No|len=0, and the Modify after it stores nothing). A temporary row read back (Get, FindFirst, FindSet) without
+/// CalcFields gives the same empty copy (record/temporary/TemporaryBlobAutoCalc.al:174-310, al-runner issue 6434). Any other
+/// Blob that another holder still has (the source field, a Variant) is copied: the field gets a value of its own, which a later
+/// Clear of the source or a new write to it does not change, nor the reverse (al-runner issue 7128). The field's own buffer
+/// written back, and a builtin's write-back (`assign` false, `Session::write_native_back`: Clear, CreateOutStream), keep the buffer.
+fn field_blob(cur: &Value, v: Value, assign: bool) -> Value {
+    let Value::Blob(b) = &v else { return v };
+    if matches!(cur, Value::Blob(c) if std::sync::Arc::ptr_eq(c, b)) {
+        return v;
+    }
+    let unloaded = {
+        let buf = b.borrow();
+        (buf.db_row || buf.temp_row) && !buf.loaded
+    };
+    if unloaded {
+        Value::Blob(al_builtins::stream::new_blob())
+    } else if assign && std::sync::Arc::strong_count(b) > 1 {
+        Value::Blob(al_builtins::stream::copy_for_assignment(b))
+    } else {
+        v
+    }
 }

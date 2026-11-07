@@ -1,5 +1,5 @@
 //! `Format`, StrSubstNo, Message and Error `%n` in code of a Decimal table field with AutoFormatType 11
-//! (types/lt-y43-auto-format-11/Y43AfType11.al, corpus PR 966, en-US, BC 27.5, 28.5, 29.0 and SaaS): the
+//! (format-evaluate/Y43AfType11.al, corpus PR 966, en-US, BC 27.5, 28.5, 29.0 and SaaS): the
 //! AutoFormatExpression, evaluated at each call, is the format string of `Format(Value, 0, Expression)`. Pinned:
 //! - format number 0 without a length: a literal (`Lit11`), a procedure of a global record of a table extension (`Ext11`,
 //!   once per call: `Ext11_CallCount`), a procedure of the row (`Own11`) and a string without a Precision code (`Ext11Int`);

@@ -288,9 +288,10 @@ pub(crate) fn lower_object<'a>(
                 routines: Vec::new(),
                 // What the declaration scan read of the object body, so the metadata tables can
                 // answer for an object nothing compiled.
-                properties: o.scanned_properties.clone(),
+                properties: with_profile_target(ws, oi, o.scanned_properties.clone()),
                 enum_values: Vec::new(),
                 enum_captions: Vec::new(),
+                enum_captions_ml: Vec::new(),
                 table: None,
                 rec_slot: None,
                 xrec_slot: None,
@@ -360,8 +361,8 @@ pub(crate) fn lower_object<'a>(
     if let Some(l) = seq.xml(oi) {
         for n in &l.nodes {
             let (ty, table) = match n.kind {
-                // xmlport/lt-xmlport-bigtext/XmlPortBigText.al:54: `TextType = BigText` makes the variable a BigText; on a
-                // text attribute too (report/lt-u-report-props/UPropertyTests.al:311-330).
+                // xmlports/shapes-properties/XmlPortBigText.al:54: `TextType = BigText` makes the variable a BigText; on a
+                // text attribute too (reports/runtime/UPropertyTests.al:311-330).
                 ir::XmlNodeKind::Text | ir::XmlNodeKind::TextAttr
                     if n.section.properties().any(|p| {
                         p.name().eq_ignore_ascii_case("TextType")
@@ -519,7 +520,7 @@ pub(crate) fn lower_object<'a>(
         }
     }
     // The variables of the request page (`var` in a `requestpage` section) are slots of their own, seen by the
-    // triggers of that request page only (corpus report/lt-ab-request-page-triggers/ABRequestPageExt.al:63).
+    // triggers of that request page only (corpus reports/request-page/ABRequestPageExt.al:63).
     for v in obj.request_page_var_decls() {
         let ty = v.type_ref().map(|t| Ty::from_type_ref(&t)).unwrap_or(Ty::Unknown);
         for n in v.names() {
@@ -555,7 +556,7 @@ pub(crate) fn lower_object<'a>(
     if o.kind == ObjKind::Query {
         rec_slot = Some(globals.len());
         // `CurrQuery` in the query's triggers and procedures
-        // (query/TestQueryOnBeforeOpenVariablesContracts.al:75-77).
+        // (queries/TestQueryOnBeforeOpenVariablesContracts.al:75-77).
         lw.globals.insert("currquery".into(), globals.len());
         globals.push(ir::Slot {
             name: "__query".into(),
@@ -705,53 +706,16 @@ pub(crate) fn lower_object<'a>(
         .map(|l| lw.page(oi, (&obj, request_section.as_ref()), l, &globals, &page_reasons[oi]));
     // A report's request page properties (`SaveValues`, `Caption`) read like a page's: the
     // report's own `Caption` wins over the request page's
-    // (corpus handlers/TestReportRequestPageCaption.al).
-    let mut properties = object_properties(&obj, request_section.as_ref());
-    // A tableextension's Caption is the caption of a table that declares none (tableextension/TestTableExtFieldModify.al:
-    // 168-178: TableCaption, RecordRef.Caption and AllObjWithCaption of the table). With a Caption on the table too, or on
-    // two extensions, which one wins is not pinned: the reads of the caption refuse (`CAPTION_REFUSED`). One extension's Caption
-    // over the table's own is the caption the runtime reads (`EXT_CAPTION_OVER_OWN`; corpus writer Y5, branch
-    // al-runtime-rs-staging-y5, tableextension/lt-y5/Y5TestFieldExtCaption.al); AllObjWithCaption of it stays refused.
-    if o.kind == ObjKind::Table {
-        let ext_captions: Vec<(String, String)> = extensions
-            .get(&oi)
-            .into_iter()
-            .flatten()
-            .flat_map(|&e| {
-                ws.object_ast(e)
-                    .properties()
-                    .filter(|p| p.name().eq_ignore_ascii_case("Caption") || p.name().eq_ignore_ascii_case("CaptionML"))
-                    .map(move |p| (p.name(), p.value_text()))
-                    .collect::<Vec<_>>()
-            })
-            .collect();
-        let own = properties
-            .iter()
-            .any(|(k, _)| k.eq_ignore_ascii_case("Caption") || k.eq_ignore_ascii_case("CaptionML"));
-        match ext_captions.as_slice() {
-            [] => {}
-            [(k, v)] if !own && k.eq_ignore_ascii_case("Caption") => properties.push((k.clone(), v.clone())),
-            _ => {
-                if let [(k, v)] = ext_captions.as_slice() {
-                    if k.eq_ignore_ascii_case("Caption") {
-                        properties.push((ir::EXT_CAPTION_OVER_OWN.into(), v.clone()));
-                    }
-                }
-                properties.push((
-                ir::CAPTION_REFUSED.into(),
-                format!(
-                    "the caption of table {}, which a tableextension sets {} (which caption BC shows is not pinned)",
-                    o.name,
-                    if own {
-                        "over its own"
-                    } else {
-                        "with CaptionML or more than once"
-                    }
-                ),
-            ))
-            }
-        }
-    }
+    // (corpus reports/TestReportRequestPageCaption.al).
+    let mut properties = with_profile_target(ws, oi, object_properties(&obj, request_section.as_ref()));
+    let handler_props = super::test_handlers::properties(ws, members, oi, &properties);
+    properties.extend(handler_props);
+    ext_caption_properties(
+        ws,
+        extensions.get(&oi).map(Vec::as_slice).unwrap_or_default(),
+        &o.name,
+        &mut properties,
+    );
     let (table, key_owners) = if o.kind == ObjKind::Table && ws.usable(oi) {
         let (t, owners) = lw.table_schema(oi, &obj, extensions.get(&oi).cloned().unwrap_or_default(), routine_at);
         (Some(t), owners)
@@ -766,16 +730,9 @@ pub(crate) fn lower_object<'a>(
         globals,
         routines,
         properties,
-        enum_values: members[oi]
-            .enum_values
-            .iter()
-            .map(|(v, n)| (*v as i32, n.clone()))
-            .collect(),
-        enum_captions: members[oi]
-            .enum_captions
-            .iter()
-            .map(|(v, c)| (*v as i32, c.clone()))
-            .collect(),
+        enum_values: enum_pairs(&members[oi].enum_values),
+        enum_captions: enum_pairs(&members[oi].enum_captions),
+        enum_captions_ml: enum_pairs(&members[oi].enum_captions_ml),
         // A table whose source cannot be used (a platform table nothing provides, a dependency
         // file that does not parse) has no members, so it has no schema: the Field and Key
         // tables report it as not compiled instead of reading fields it does not have.
@@ -820,6 +777,55 @@ pub(crate) fn lower_object<'a>(
     }
 }
 
+/// A tableextension's Caption is the caption of a table that declares none (table-objects/extensions/TestTableExtFieldModify.al:
+/// 168-178: TableCaption, RecordRef.Caption and AllObjWithCaption of the table). With a Caption on the table too, or on
+/// two extensions, which one wins is not pinned: the reads of the caption refuse (`CAPTION_REFUSED`). One extension's Caption
+/// over the table's own is the caption the runtime reads (`EXT_CAPTION_OVER_OWN`; corpus writer Y5, branch
+/// al-runtime-rs-staging-y5, recordref-fieldref/Y5TestFieldExtCaption.al); AllObjWithCaption of it stays refused.
+fn ext_caption_properties(ws: &Workspace, exts: &[usize], name: &str, properties: &mut Vec<(String, String)>) {
+    if exts.is_empty() {
+        return;
+    }
+    {
+        let ext_captions: Vec<(String, String)> = exts
+            .iter()
+            .flat_map(|&e| {
+                ws.object_ast(e)
+                    .properties()
+                    .filter(|p| p.name().eq_ignore_ascii_case("Caption") || p.name().eq_ignore_ascii_case("CaptionML"))
+                    .map(move |p| (p.name(), p.value_text()))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        let own = properties
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case("Caption") || k.eq_ignore_ascii_case("CaptionML"));
+        match ext_captions.as_slice() {
+            [] => {}
+            [(k, v)] if !own && k.eq_ignore_ascii_case("Caption") => properties.push((k.clone(), v.clone())),
+            _ => {
+                if let [(k, v)] = ext_captions.as_slice() {
+                    if k.eq_ignore_ascii_case("Caption") {
+                        properties.push((ir::EXT_CAPTION_OVER_OWN.into(), v.clone()));
+                    }
+                }
+                properties.push((
+                ir::CAPTION_REFUSED.into(),
+                format!(
+                    "the caption of table {}, which a tableextension sets {} (which caption BC shows is not pinned)",
+                    name,
+                    if own {
+                        "over its own"
+                    } else {
+                        "with CaptionML or more than once"
+                    }
+                ),
+            ))
+            }
+        }
+    }
+}
+
 /// The page triggers an extension can declare that the client runs after the page's own trigger.
 /// The others answer a Boolean or serve rows, and how an extension's answer combines with the
 /// page's is not pinned. OnInit, OnFindRecord and OnNextRecord are page-only in BC: an extension
@@ -832,11 +838,11 @@ pub(crate) const EXTENSION_PAGE_TRIGGERS: &[&str] = &[
     "onaftergetcurrrecord",
     "onnewrecord",
     // Both the page's and the extensions' answers count, and both must be true to close
-    // (handlers/TestPageCloseTriggersSelectionCardPageContracts.al:
+    // (testpage/TestPageCloseTriggersSelectionCardPageContracts.al:
     // OnQueryClosePage_PageAndExtension_BothRun_AndBothMustAgreeToClose).
     "onqueryclosepage",
     // The test client has no delete operation, and a page action's `Rec.Delete(true)` runs neither the page's nor the
-    // extension's trigger (pageext/lt-pageext-ondeleterecord/PageExtOnDeleteRecord.al:121-206, all four result
+    // extension's trigger (pages/extensions/PageExtOnDeleteRecord.al:108-193, all four result
     // combinations). A client delete is not available, so the trigger never runs here.
     "ondeleterecord",
     // All of them run, the page's first, and an extension's false answer vetoes the insert or the modify (pageext/
@@ -844,7 +850,7 @@ pub(crate) const EXTENSION_PAGE_TRIGGERS: &[&str] = &[
     "oninsertrecord",
     "onmodifyrecord",
     // The page's trigger runs first, then the extension's, for every task, whoever enqueued it; the error trigger hands its
-    // IsHandled on to the next one (pages/lt-uj-outside-leads/UjPageExtBgTask.al, corpus branch al-runtime-rs-staging-uj
+    // IsHandled on to the next one (collections/UjPageExtBgTask.al, corpus branch al-runtime-rs-staging-uj
     // 1dc037a8, al-runner issue 6182; assumption pageext-background-task-triggers until the pin lands).
     "onpagebackgroundtaskcompleted",
     "onpagebackgroundtaskerror",
@@ -880,8 +886,8 @@ pub(crate) fn extension_reasons(exts: &[(usize, ast::Object)]) -> Vec<String> {
                 continue;
             }
             for t in sec.triggers() {
-                // OnAfterAction of a modified action runs after its OnAction, OnBeforeAction before it (pages/lt-pageext-action-after/
-                // PageExtensionActionOnAfterAction.al; OnBeforeAction: pages/lt-ab-tests/ABTests.al:979-1018 and UQ_* on the corpus
+                // OnAfterAction of a modified action runs after its OnAction, OnBeforeAction before it (pages/extensions/
+                // PageExtensionActionOnAfterAction.al; OnBeforeAction: testpage/ABTests.al:979-1018 and UQ_* on the corpus
                 // branch al-runtime-rs-staging-uq at d651ec93; the VM refuses the shapes that file does not pin when the action is invoked).
                 let name = t.name().to_ascii_lowercase();
                 if !MODIFY_TRIGGERS.contains(&name.as_str()) && name != "onafteraction" && name != "onbeforeaction" {
@@ -1022,7 +1028,7 @@ pub(crate) fn scalar_rt(ws: &Workspace, file: usize, t: &Ty) -> Option<L<RtType>
         Ty::DateFormula => RtType::DateFormula,
         Ty::Guid => RtType::Guid,
         Ty::Variant => RtType::Variant,
-        Ty::Option(m) => RtType::Option(m.clone()),
+        Ty::Option(m) => RtType::Option(m.as_slice().into()),
         Ty::Enum(n) => match ws.resolve_ref(file, ObjKind::Enum, &crate::types::qualified_parts(n)) {
             Resolution::Found(i) => RtType::Enum(i as u32),
             _ => {
@@ -1071,7 +1077,7 @@ pub(crate) fn time_literal(text: &str) -> Option<i64> {
 }
 
 /// The text of a `Label '...'` declaration, quotes undoubled; of a `TextConst ENU = '...', DEU = '...'` declaration, the
-/// text of the language `ENU` (types/lt-variant/VaTTextConst.al:TextConst_To_Text_Basics: `multi` with DEU, ENU and FRA reads
+/// text of the language `ENU` (types/variant/VaTTextConst.al:TextConst_To_Text_Basics: `multi` with DEU, ENU and FRA reads
 /// as the ENU text), else its first text.
 pub(crate) fn label_text(t: &ast::TypeRef) -> Option<String> {
     let unquote = |text: &str| text[1..text.len() - 1].replace("''", "'");
@@ -1083,7 +1089,7 @@ pub(crate) fn label_text(t: &ast::TypeRef) -> Option<String> {
             .filter_map(|e| e.into_token())
             .find(|k| k.kind() == SyntaxKind::StringLit)?;
         let text = unquote(tok.text());
-        // `MaxLength = n` cuts the text to n characters (text/lt-label-textbuilder/TxCLabel.al:Label_MaxLength).
+        // `MaxLength = n` cuts the text to n characters (text/textbuilder-bigtext/TxCLabel.al:Label_MaxLength).
         let toks: Vec<_> = t
             .syntax()
             .descendants_with_tokens()
@@ -1129,7 +1135,7 @@ fn textconst_entries(t: &ast::TypeRef) -> Vec<(String, String)> {
 
 /// The texts of a `TextConst` whose read depends on the language in force (several languages, or none of them ENU), by
 /// language code in declaration order; `None` for a Label or a TextConst with only an ENU text. A read lowers to
-/// `System.TextConstText#1`, which picks the text when it runs (misc/lt-probe-requests-140/P140TextConstLang.al,
+/// `System.TextConstText#1`, which picks the text when it runs (text/textconst-label/P140TextConstLang.al,
 /// P140TextConstNoEnu.al).
 pub(crate) fn textconst_languages(t: &ast::TypeRef) -> Option<Vec<(String, String)>> {
     if !t.type_name().eq_ignore_ascii_case("textconst") {
@@ -1242,8 +1248,8 @@ pub(crate) fn over_max_length_of(ws: &crate::workspace::Workspace, oi: usize) ->
 }
 
 /// The text properties of `obj` (its controls, fields, columns and actions included) whose text is longer than their
-/// `MaxLength`, as refusal reasons. Only a `Caption` and a Label are pinned (they are cut: record/lt-u-table-field-props/
-/// UTableTextSearch.al:41-44, text/lt-label-textbuilder/TxCLabel.al:282); on any other property whether BC cuts the text is
+/// `MaxLength`, as refusal reasons. Only a `Caption` and a Label are pinned (they are cut: record/table-properties/
+/// UTableTextSearch.al:41-44, text/textbuilder-bigtext/TxCLabel.al:282); on any other property whether BC cuts the text is
 /// not pinned, so the object that holds it is refused where it is used.
 pub(crate) fn over_max_length(obj: &ast::Object) -> Vec<String> {
     obj.syntax()
@@ -1261,6 +1267,17 @@ pub(crate) fn over_max_length(obj: &ast::Object) -> Vec<String> {
 }
 
 /// An object's properties, and for a report its request page's ones (see `lower_object`).
+/// A `profileextension` is an object of kind `Other`; the property [`ir::EXTENDS_PROFILE`] names the profile it extends.
+fn with_profile_target(ws: &Workspace, oi: usize, mut properties: Vec<(String, String)>) -> Vec<(String, String)> {
+    let o = &ws.objects[oi];
+    if let (ObjKind::Other, Some(name)) = (o.kind, o.extends.as_ref().and_then(|e| e.last())) {
+        if ws.object_ast(oi).kind() == "profileextension" {
+            properties.push((ir::EXTENDS_PROFILE.to_string(), name.clone()));
+        }
+    }
+    properties
+}
+
 fn object_properties(obj: &ast::Object, request_section: Option<&ast::Section>) -> Vec<(String, String)> {
     let mut properties: Vec<(String, String)> = obj.properties().map(|p| (p.name(), p.value_text())).collect();
     if let Some(sec) = request_section {
@@ -1279,11 +1296,14 @@ fn object_properties(obj: &ast::Object, request_section: Option<&ast::Section>) 
     properties
 }
 
-/// Why a restricted session (permission sets a test lowered) refuses to open the page of `obj`. A field or action of the page's own
-/// layout with an AccessByPermission property is decided when it is used (Y24PermExecute.al Y24_P21_*: BC leaves it off the page
-/// when the sets do not grant the permission; `Session::access_by_permission_hidden` reads the shapes that are pinned). Any other
-/// mention is not pinned and refuses: a group, part or page-level property, an action reference to a guarded action. Read from the
-/// object's text, so a mention in a comment refuses too: only a restricted session is affected.
+/// Why a restricted session (permission sets a test lowered) refuses to open the page of `obj`. A field, action or part of the page's
+/// own layout with an AccessByPermission property is decided when it is used (Y24PermExecute.al Y24_P21_*, Y84PermAbp.al: BC leaves
+/// it off the page when the sets do not grant the permission; `Session::access_by_permission_hidden_decided` reads the guards). So
+/// is a control over a table field that carries the property (the control takes the field's guard, see `inherited`), and the
+/// property on the page or report object itself, which has no effect on a run (Y84_Abp_PageAndReportLevel). Any other mention is not
+/// pinned and refuses: a group (it does not compile), an action reference to a guarded action, a control with a guard of its own over a
+/// guarded field. Read from the object's text, so a mention in a comment refuses too: only a restricted session is affected.
+/// The controls that took the guard of their table field carry the marker property [`FIELD_GUARD`].
 pub(crate) fn access_by_permission_refusals(
     ws: &crate::workspace::Workspace,
     oi: usize,
@@ -1295,6 +1315,8 @@ pub(crate) fn access_by_permission_refusals(
     if !ws.names_access_by_permission(ws.objects[oi].file) {
         return Vec::new();
     }
+    let marked = |c: &ir::Control, m: &str| c.props.iter().any(|(n, _)| n == m);
+    let inherited = controls.iter().filter(|c| marked(c, FIELD_GUARD)).count();
     let mentions = obj
         .syntax()
         .text()
@@ -1302,16 +1324,30 @@ pub(crate) fn access_by_permission_refusals(
         .to_ascii_lowercase()
         .matches("accessbypermission")
         .count();
-    if mentions == 0 {
+    if mentions == 0 && inherited == 0 {
         return Vec::new();
     }
     let guarded = |c: &ir::Control| c.prop("accessbypermission").is_some();
-    let pinned = controls
-        .iter()
-        .filter(|c| {
-            c.owner.is_none() && guarded(c) && matches!(c.kind, ir::ControlKind::Field | ir::ControlKind::Action)
-        })
+    let object_level = obj
+        .properties()
+        .filter(|p| p.name().eq_ignore_ascii_case("accessbypermission"))
         .count();
+    let pinned = object_level
+        + controls
+            .iter()
+            .filter(|c| {
+                c.owner.is_none()
+                    && guarded(c)
+                    && matches!(
+                        c.kind,
+                        ir::ControlKind::Field | ir::ControlKind::Action | ir::ControlKind::Part
+                    )
+            })
+            .count()
+        - inherited;
+    if controls.iter().any(|c| marked(c, FIELD_GUARD_CONFLICT)) {
+        return vec!["a control states AccessByPermission over a table field that states one too (which one BC applies is not pinned, ADR-062 probe P21)".into()];
+    }
     let via_reference = controls
         .iter()
         .any(|c| matches!(&c.action_ref, Some(ir::ActionRef::Target(t)) if guarded(&controls[*t])));
@@ -1320,4 +1356,56 @@ pub(crate) fn access_by_permission_refusals(
     } else {
         vec!["the page has AccessByPermission on something other than a field or action of its own layout, which BC applies to the permissions of a restricted session (ADR-062 probe P21)".into()]
     }
+}
+
+/// Marker property of a page control that took the AccessByPermission guard of its table field (`with_field_guard`).
+const FIELD_GUARD: &str = "__abp_from_field";
+/// Marker property of a page control that states a guard over a table field that states one too.
+const FIELD_GUARD_CONFLICT: &str = "__abp_conflict";
+
+/// The properties of a page control bound to a field of the source table: a field with an AccessByPermission property gives its guard
+/// to the control (Y84PermAbp.al Y84_Abp_LettersA `TF`: every control over the field is left off the page when the sets do not
+/// grant it). A control that states a guard of its own over such a field is marked for refusal: which one BC applies is not pinned.
+pub(crate) fn with_field_guard(
+    members: &crate::members::MemberTable<'_>,
+    table: Option<usize>,
+    binding: &ir::Binding,
+    owner: Option<usize>,
+    mut props: Vec<(String, ir::PropVal)>,
+) -> Vec<(String, ir::PropVal)> {
+    let (Some(table), ir::Binding::Field(pos), None) = (table, binding, owner) else {
+        return props;
+    };
+    let Some((_, guard)) = members[table].fields[*pos]
+        .properties
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("AccessByPermission"))
+    else {
+        return props;
+    };
+    let own = props.iter().find(|(n, _)| n == "accessbypermission");
+    // The same guard on the control and on its field says what either says alone (Microsoft's pages state both).
+    if own.is_some_and(|(_, v)| matches!(v, ir::PropVal::Lit(t) if t.trim().eq_ignore_ascii_case(guard.trim()))) {
+        // nothing to add
+    } else if own.is_some() {
+        props.push((FIELD_GUARD_CONFLICT.into(), ir::PropVal::Lit(String::new())));
+    } else {
+        props.push(("accessbypermission".into(), ir::PropVal::Lit(guard.clone())));
+        props.push((FIELD_GUARD.into(), ir::PropVal::Lit(String::new())));
+    }
+    props
+}
+
+/// An enum's ordinal and text pairs as the IR keeps them.
+pub(crate) fn enum_pairs(list: &[(u32, String)]) -> Vec<(i32, String)> {
+    list.iter().map(|(v, n)| (*v as i32, n.clone())).collect()
+}
+
+/// The own enum values, captions and `CaptionML` lists of an object's members.
+pub(crate) fn enum_own(m: &crate::members::Members) -> super::localize::EnumOwn {
+    (
+        enum_pairs(&m.enum_values),
+        enum_pairs(&m.enum_captions),
+        enum_pairs(&m.enum_captions_ml),
+    )
 }

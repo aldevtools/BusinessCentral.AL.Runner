@@ -1,5 +1,5 @@
 //! A table procedure named like a built-in Record method hides the built-in only for a call that fits the procedure
-//! (record/lt-bm-builtin-name-procedures/Y36BuiltinNameSameArity.al:146-298): `Row.Delete(true)` next to own `Delete(Text)`,
+//! (record/builtin-name-procedures/Y36BuiltinNameSameArity.al:131-283): `Row.Delete(true)` next to own `Delete(Text)`,
 //! `Row.Get(2)` next to own `Get(Record; Record)`, `Row.Validate(Note, 'x')` next to own `Validate(Text; Text)` and a bare
 //! `Insert()` in table code next to own `Insert(Integer; Text; Boolean)` are the built-ins; `Delete('why')` and
 //! `Validate('Note', 'y')` run the procedures. Microsoft's E-Document tests call `EDocImportedLine.Insert()` next to a table

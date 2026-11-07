@@ -1544,7 +1544,7 @@ codeunit 50672 \"Res Install Tests\" { Subtype = Test; [Test] procedure Installe
 
 /// Issues 5607 and 5609 with RequiredTestIsolation on the test codeunit: `testIsolation: "required"` runs each test
 /// codeunit under its own RequiredTestIsolation, as BC's TestRunnerHub does on BC 28 and later (corpus
-/// codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:10-16, 25-39).
+/// codeunits/run-onrun/QuCommitIsolation.al:10-16, 25-39).
 const REQUIRED: &str = r#"
 table 50680 "Req Row" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
 codeunit 50680 "Req Function"
@@ -1829,6 +1829,71 @@ fn every_entry_and_request_starts_without_the_state_an_earlier_one_set() {
     assert_eq!(s.line(), json!({"status": "shutting down"}));
 }
 
+const WORK_DATE_PAIR: &str = r#"
+codeunit 50100 "Dates"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure SetsIt()
+    begin
+        WorkDate(20200315D);
+    end;
+
+    [Test]
+    procedure ReadsIt()
+    begin
+        if WorkDate() = 20200315D then
+            Error('WorkDate leaked');
+    end;
+}
+"#;
+
+/// Al-runner issue 7207: an entry that names one method starts from the same fresh session as a whole-codeunit entry,
+/// so a work date an earlier request or entry set is gone (docs/manual/tool-protocol.md, issue 5862).
+#[test]
+fn a_single_method_entry_starts_without_the_work_date_an_earlier_one_set() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "workdatepair", WORK_DATE_PAIR);
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    let requests = [
+        vec![json!({"id": "s", "test": "Codeunit50100.SetsIt"})],
+        vec![json!({"id": "r", "test": "Codeunit50100.ReadsIt"})],
+        vec![
+            json!({"id": "s", "test": "Codeunit50100.SetsIt"}),
+            json!({"id": "r", "test": "Codeunit50100.ReadsIt"}),
+        ],
+    ];
+    for entries in requests {
+        s.send(json!({"command": "runTests", "sourcePaths": [a], "entries": entries, "testIsolation": "test"}));
+        let lines = s.until_summary();
+        let tests: Vec<&Value> = lines.iter().filter(|l| l["type"] == "test").collect();
+        assert!(tests.iter().all(|t| t["status"] == "pass"), "{lines:?}");
+    }
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
+/// Al-runner issue 7207, owner decision 2026-11-06: the plain `test` field of a request that picks exactly one test
+/// runs that test alone, as an entry does; a sibling that sets WorkDate does not run before it.
+#[test]
+fn a_plain_test_field_picking_one_test_runs_it_without_its_siblings() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "workdatepair", WORK_DATE_PAIR);
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    s.send(
+        json!({"command": "runTests", "sourcePaths": [a], "test": "Codeunit50100.ReadsIt", "testIsolation": "test"}),
+    );
+    let lines = s.until_summary();
+    let tests: Vec<&Value> = lines.iter().filter(|l| l["type"] == "test").collect();
+    assert_eq!(tests.len(), 1, "{lines:?}");
+    assert!(tests.iter().all(|t| t["status"] == "pass"), "{lines:?}");
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
 const DRAWS: &str = r#"
 codeunit 50310 "Draw Tests"
 {
@@ -1875,4 +1940,73 @@ fn a_request_may_set_the_run_seed_and_the_summary_names_it() {
     assert_ne!(other, first);
     let (_, summary) = run(None);
     assert_eq!(summary["seedSource"], "fresh", "{summary}");
+}
+
+fn app_needing_missing_lib(root: &Path) -> PathBuf {
+    let a = app(root, "needslib", MIXED);
+    write(
+        &a,
+        "app.json",
+        r#"{"id":"71390000-0000-0000-0000-000000000002","name":"needslib","publisher":"Test","version":"1.0.0.0","dependencies":[{"id":"71390000-0000-0000-0000-0000000000aa","name":"Contoso Lib","publisher":"Contoso","version":"2.1.0.0"}]}"#,
+    );
+    a
+}
+
+/// al-runner issue 7139: a dependency that is not found under --no-download is an error line by default.
+#[test]
+fn a_missing_dependency_under_no_download_is_an_error_line() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app_needing_missing_lib(d.path());
+    let cache = d.path().join("cache");
+    let mut s = Server::start(&[
+        "--no-download",
+        "--no-test-data",
+        "--cache-dir",
+        cache.to_str().unwrap(),
+    ]);
+    assert_eq!(s.line(), json!({"ready": true}));
+    s.send(json!({"command": "runTests", "sourcePaths": [a]}));
+    let lines = s.until_summary();
+    let e = lines.last().unwrap()["error"].as_str().unwrap_or_default().to_string();
+    assert!(
+        e.contains("Contoso Lib") && e.contains("--allow-missing-dependencies"),
+        "{lines:?}"
+    );
+}
+
+/// With the flag the run goes on and the summary names the skipped dependency; a run without one has an empty list.
+#[test]
+fn the_summary_lists_skipped_dependencies() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app_needing_missing_lib(d.path());
+    let ok = app(d.path(), "plain", MIXED);
+    let cache = d.path().join("cache");
+    let mut s = Server::start(&[
+        "--no-download",
+        "--no-test-data",
+        "--allow-missing-dependencies",
+        "--cache-dir",
+        cache.to_str().unwrap(),
+    ]);
+    assert_eq!(s.line(), json!({"ready": true}));
+    s.send(json!({"command": "runTests", "sourcePaths": [a]}));
+    let summary = s.until_summary().pop().unwrap();
+    assert_eq!(summary["type"], "summary", "{summary}");
+    let list = summary["skippedDependencies"].as_array().expect("skippedDependencies");
+    assert_eq!(list.len(), 1, "{summary}");
+    assert_eq!(
+        (
+            list[0]["id"].as_str(),
+            list[0]["name"].as_str(),
+            list[0]["version"].as_str()
+        ),
+        (
+            Some("71390000-0000-0000-0000-0000000000aa"),
+            Some("Contoso Lib"),
+            Some("2.1.0.0")
+        )
+    );
+    s.send(json!({"command": "runTests", "sourcePaths": [ok]}));
+    let summary = s.until_summary().pop().unwrap();
+    assert_eq!(summary["skippedDependencies"], json!([]), "{summary}");
 }

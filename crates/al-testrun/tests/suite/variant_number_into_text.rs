@@ -1,7 +1,7 @@
-//! A Variant variable holding a number into a record's Text or Code field raises TypeConversion (corpus types/lt-variant-to-text-fields/
+//! A Variant variable holding a number into a record's Text or Code field raises TypeConversion (corpus types/variant/
 //! VariantNumberToField.al); a call result as below, into a record's Text field it becomes its Format text (assumption number-to-text-is-format; Base
 //! Application's Workflow Table Relation Value.CreateNew, `Value := FieldRef.Value()`); into a Text variable an Integer raises
-//! TypeConversion (corpus types/lt-variant/VaTCompare.al:Concat_After_Conversion, af117).
+//! TypeConversion (corpus types/variant/VaTCompare.al:Concat_After_Conversion, af117).
 
 use al_sema::workspace::AppSource;
 use al_testrun::runtime::{CorpusRuntime, RunOptions, SuiteRun};

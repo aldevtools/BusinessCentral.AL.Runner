@@ -6,7 +6,7 @@ use crate::native::Signal;
 use crate::stream::BlobRef;
 use std::cmp::Ordering;
 
-/// What a comparison sees of a Blob in a record variable (recordref/lt-y49-blob-compare/Y49BlobCompare.al, corpus master):
+/// What a comparison sees of a Blob in a record variable (recordref-fieldref/recordref/Y49BlobCompare.al, corpus master):
 /// - not loaded (read with Get, or the copy a record assignment made; `FieldRef.Value` of such a Blob with content is the
 ///   `unread_content` stand-in): only whether the row has content. Rows `abc` and `xyz`
 ///   are equal, `abc` and none differ (:189-233 `1-3`, `1-4`, `4-4`; :120-149 `copy`; :152-187 `temp vs stored`).

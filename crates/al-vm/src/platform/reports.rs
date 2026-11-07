@@ -1,9 +1,9 @@
 //! The report tables: Report Layout List, Report Metadata and Report Data Items.
 //!
-//! Pinned by corpus handlers/TestSourceReportLayoutFlags.al and TestPrecompiledReportLayouts.al (the
+//! Pinned by corpus permissions/TestSourceReportLayoutFlags.al and TestPrecompiledReportLayouts.al (the
 //! layouts of a report, from its `rendering` section: their format, `ObsoleteState = Pending` as
 //! IsObsolete, `ExcelLayoutMultipleDataSheets` as Default / Single / Multiple) and
-//! handlers/TestReportMetadataColumns.al (`ProcessingOnly`, `UseRequestPage`, `WordMergeDataItem`, the
+//! record/TestReportMetadataColumns.al (`ProcessingOnly`, `UseRequestPage`, `WordMergeDataItem`, the
 //! table of the first data item; and per data item: name, related table, indentation, the field numbers
 //! of `RequestFilterFields` and of the sorting key, and a view that ends the sort direction with
 //! `ORDER(1)` when it is descending).
@@ -30,7 +30,7 @@ const FORMATS: &[&str] = &["RDLC", "Word", "Excel", "Custom"];
 
 /// Report Layout List: "Report ID" (1), Name (2), "Layout Format" (7), IsObsolete (16),
 /// ExcelLayoutMultipleDataSheets (17), and the columns `layout_row` cites; the key also holds "Runtime Package ID" (5):
-/// a non-null guid other than the app id (platform/lt-ug-report-layout-list/UgReportLayoutList.al:101, :135).
+/// a non-null guid other than the app id (metadata/platform-tables/UgReportLayoutList.al:101, :135).
 pub(super) fn layout_list_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
     let c = Catalog::new(&engine);
@@ -53,7 +53,7 @@ pub(super) fn layout_list_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
         let Some(id) = id else { continue };
         let pkg = ids::package_id(c.owner(o));
         // A layout of the legacy RDLCLayout, WordLayout or ExcelLayout property is a row named with the LayoutFile as written
-        // (report/lt-y17-layout-export/Y17LayoutExportTests.al:105 Export_LegacyProperties, corpus master: `rows 1`, layout name
+        // (reports/layouts-saveas/Y17LayoutExportTests.al:105 Export_LegacyProperties, corpus master: `rows 1`, layout name
         // `./report/lt-y17-layout-export/Y17LayR2.rdl`, HasValue of Layout No). Its other columns are not pinned.
         if o.kind == al_ir::ObjKind::Report {
             for (property, format) in [("RDLCLayout", 0), ("WordLayout", 1), ("ExcelLayout", 2)] {
@@ -162,7 +162,7 @@ fn report_name(t: &TableDef, o: &Object, what: &str) -> Value {
 }
 
 /// The Report Layout List rows of the user-defined layouts: one per stored Tenant Report Layout row (`tenant`, its schema;
-/// `stored`, its rows). Pinned for an RDLC layout of a report (platform/lt-ug-report-layout-list/UgReportLayoutList.al
+/// `stored`, its rows). Pinned for an RDLC layout of a report (metadata/platform-tables/UgReportLayoutList.al
 /// Y17_ReportLayoutList_UserDefinedRow, corpus master 97c29f86): Caption the layout's name, CaptionML blank, Runtime Package
 /// ID and Application ID the null guid, Custom Type the null guid, MIME Type blank, Description as stored, Report Name as
 /// for a declared layout, Layout Publisher blank, User Defined Yes, ReportIsInstalled Yes, IsObsolete No,
@@ -247,12 +247,12 @@ fn layout_row(
 ) -> Result<(), String> {
     let what = || format!("layout '{}' of report '{}'", l.name, o.name);
     // BC 29: "Layout Subtype" (19), HeaderFooterPart (20), ThemePart (21)
-    // (report/lt-y-report-props/YReportParts.al:75-80). The enum is HeaderFooter 1, Theme 2, Body 3; the parts a layout
+    // (reports/runtime/YReportParts.al:75-80). The enum is HeaderFooter 1, Theme 2, Body 3; the parts a layout
     // does not declare are blank. The corpus pins only layouts that declare a Subtype: for one that declares none the
     // three columns stay unknown (a read through a RecordRef is refused, the rest of the row reads), and static reads of
     // them are refused where they are lowered (not in PINNED_COLUMNS).
-    // A layout that declares no Subtype reads Default with blank parts (platform/lt-ug-report-layout-list/UgReportLayoutList.al:
-    // 119-121, :153-155; platform/lt-aw-fresh-tenant/AwTests.al:228, all RDLC, Word or Excel layouts of a report).
+    // A layout that declares no Subtype reads Default with blank parts (metadata/platform-tables/UgReportLayoutList.al:
+    // 119-121, :153-155; metadata/platform-tables/AwTests.al:228, all RDLC, Word or Excel layouts of a report).
     if t.fields.iter().any(|f| f.id == 19) {
         'subtype: {
             let subtype = match lprop(l, "Subtype").map(ident) {
@@ -302,8 +302,8 @@ fn layout_row(
         .position(|f| f.eq_ignore_ascii_case(&ident(format)))
         .ok_or_else(|| format!("{}: Type `{format}` is not pinned", what()))?;
     r[pos(t, 7)] = option(t, 7, format as i32);
-    // "User Defined" (14): No for an RDLC, a Word and an Excel layout declared in AL (platform/lt-ug-report-layout-list/
-    // UgReportLayoutList.al:112, :146; platform/lt-aw-fresh-tenant/AwTests.al:228). A Custom layout is not pinned.
+    // "User Defined" (14): No for an RDLC, a Word and an Excel layout declared in AL (metadata/platform-tables/
+    // UgReportLayoutList.al:112, :146; metadata/platform-tables/AwTests.al:228). A Custom layout is not pinned.
     let pinned_format = format <= 2;
     r[pos(t, 14)] = if pinned_format {
         Value::Boolean(false)
@@ -367,7 +367,7 @@ fn layout_row(
             .map(|v| string_lit(v).ok_or_else(|| format!("{}: {name} `{v}` is not a literal", what())))
             .transpose()
     };
-    // A layout without a Caption reads its name (session/PWPlatformTables.al:126-139).
+    // A layout without a Caption reads its name (session-system/PWPlatformTables.al:126-139).
     r[pos(t, 3)] = Value::Text(
         literal("Caption")?
             .unwrap_or_else(|| l.name.clone())
@@ -375,7 +375,7 @@ fn layout_row(
             .take(250)
             .collect(),
     );
-    // `SummaryML`: the entry of the session's language, ENU when it has none (report/lt-y-report-props/YReportPropsTests.al:
+    // `SummaryML`: the entry of the session's language, ENU when it has none (reports/runtime/YReportPropsTests.al:
     // SummaryML_English, SummaryML_German, SummaryML_FrenchFallsBack); other languages are not pinned.
     let summary_ml = match lprop(l, "SummaryML") {
         None => None,
@@ -461,7 +461,7 @@ pub(super) fn report_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
         };
         let mut r = key.clone();
         r[pos(t, 2)] = Value::Text(o.name.clone().into());
-        // Caption: the Caption literal, else the English CaptionML, else the name (metadata/lt-report-metadata-columns/
+        // Caption: the Caption literal, else the English CaptionML, else the name (metadata/platform-tables/
         // ReportMetadata.al:P175_Meta_Rdlc_Part1, _Multi_, _ProcessingOnly_ and _Word_).
         match super::objects::declared_caption(prop(o, "Caption"), prop(o, "CaptionML"), &o.name) {
             Ok(c) => r[pos(t, 3)] = Value::Text(c.chars().take(250).collect()),
@@ -475,7 +475,7 @@ pub(super) fn report_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
         r[pos(t, 9)] = Value::Boolean(prop(o, "ProcessingOnly").is_some_and(truthy));
         r[pos(t, 17)] = Value::Text(prop(o, "WordMergeDataItem").map(ident).unwrap_or_default().into());
         // DefaultLayoutName: the layout `DefaultRenderingLayout` names, else the file the Word, RDLC or Excel layout property gives, as
-        // written (metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al:ReportMetadata_DefaultLayoutName_OwnAndBase:
+        // written (metadata/platform-tables/PlatformMetadataColumnValues.al:ReportMetadata_DefaultLayoutName_OwnAndBase:
         // `RdlcFixture`, `StandardSalesInvoice.docx`, `./System/Notifications/NotificationEmail.docx`, blank for a report with neither).
         // DefaultLayout: the kind the property names (`Word` for report 1306), RDLC when it names none.
         let rendering_kind = rep
@@ -504,7 +504,7 @@ pub(super) fn report_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             r[col] = Value::Text(name.into());
         }
         // EnableExternalImages (6), the paper sources (12-14), FormatRegion (24) and ExcelLayoutMultipleDataSheets (25) are the
-        // properties as declared (report/lt-y-report-props/YReportPropsTests.al:34-160: `EnableExternalImages=Yes`, `PaperSourceFirstPage=1`
+        // properties as declared (reports/runtime/YReportPropsTests.al:34-160: `EnableExternalImages=Yes`, `PaperSourceFirstPage=1`
         // for Upper, 2 for Lower, 3 for Middle, `FormatRegion=de-DE`, `ExcelLayoutMultipleDataSheets=Yes`; 0, No and blank when not declared).
         // Another paper source is not pinned: the row is refused.
         let mut unpinned = None;
@@ -555,7 +555,7 @@ pub(super) fn report_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             continue;
         }
         // EnableHyperLinks (7) No, ShowPrintStatus (10) Yes and PreviewMode (15) Normal for a report that declares none of
-        // them (metadata/lt-report-metadata-columns/ReportMetadata.al:206, :209, :214; ReportMetadataWord.al:66, :69, :74).
+        // them (metadata/platform-tables/ReportMetadata.al:206, :209, :214; ReportMetadataWord.al:66, :69, :74).
         // No corpus test pins a declared one: unknown, so a read of it is refused.
         for (col, name, default) in [
             (7, "EnableHyperlinks", "No"),
@@ -583,7 +583,7 @@ pub(super) fn report_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                 ),
             };
         }
-        // TransactionType (11): UpdateNoLocks for a report that declares none (metadata/lt-report-metadata-columns/
+        // TransactionType (11): UpdateNoLocks for a report that declares none (metadata/platform-tables/
         // ReportMetadata.al:210, :236, :262; ReportMetadataWord.al:70). No corpus test pins the column for a declared
         // TransactionType: it stays unknown there, and a read of it is refused.
         if let Some(col) = t.fields.iter().position(|f| f.id == 11) {
@@ -610,7 +610,7 @@ pub(super) fn report_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                 ),
             };
         }
-        // EnableExternalAssemblies (8): No for a report that declares none (report/lt-y-report-props/YReportPropsTests.al:45,
+        // EnableExternalAssemblies (8): No for a report that declares none (reports/runtime/YReportPropsTests.al:45,
         // YHelper.al:226). A declared one (OnPrem only) is pinned by no corpus test: unknown, so a read of it is refused.
         if let (Some(col), Some(v)) = (
             t.fields.iter().position(|f| f.id == 8),
@@ -626,8 +626,8 @@ pub(super) fn report_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                 ),
             );
         }
-        // UseSystemPrinter (5): the property as declared, Yes for true and No for false (misc/lt-y13-triage/Y13ReportSystemPrinter.al:
-        // 530-543, corpus master); No for a report that does not declare it (metadata/lt-report-metadata-columns/
+        // UseSystemPrinter (5): the property as declared, Yes for true and No for false (reports/Y13ReportSystemPrinter.al:
+        // 530-543, corpus master); No for a report that does not declare it (metadata/platform-tables/
         // ReportMetadata.al:204, :230).
         if let Some(col) = t.fields.iter().position(|f| f.id == 5) {
             r[col] = match prop(o, "UseSystemPrinter") {
@@ -642,7 +642,7 @@ pub(super) fn report_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             };
         }
         // BC 29: DefaultHeaderFooterPartName (30) and DefaultThemePartName (31) are the layout names the properties give
-        // (report/lt-y-report-props/YReportParts.al:65); blank when the report declares none.
+        // (reports/runtime/YReportParts.al:65); blank when the report declares none.
         for (col, name) in [(30, "DefaultHeaderFooterPart"), (31, "DefaultThemePart")] {
             if t.fields.iter().any(|f| f.id == col) {
                 r[pos(t, col)] = Value::Text(prop(o, name).map(ident).unwrap_or_default().into());
@@ -738,8 +738,8 @@ fn join(ids: &[u32]) -> String {
 /// Report Data Items: "Report ID" (1), "Data Item ID" (2), Name (3), "Request Filter Fields" (4),
 /// "Related Table ID" (5), "Indentation Level" (6), "Sorting Fields" (7), "Data Item Table View" (8).
 /// The id is the absolute value of the 32-bit FNV-1a hash of the item's name in UTF-16 (little endian), read as a signed
-/// number: `A` 1792377636, `D` 120712215 (|-120712215|), `Kid` 1167510851, `Src` 1369927887 (misc/lt-probes-needed-3/PnC21Metadata.al:
-/// 201-249), and the rows come in the order of the ids: Rw, Rw3, Rw2 (report/lt-y-report-props/YReportPropsTests.al:272).
+/// number: `A` 1792377636, `D` 120712215 (|-120712215|), `Kid` 1167510851, `Src` 1369927887 (recordref-fieldref/PnC21Metadata.al:
+/// 201-249), and the rows come in the order of the ids: Rw, Rw3, Rw2 (reports/runtime/YReportPropsTests.al:272).
 pub(super) fn report_data_item_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
     let c = Catalog::new(&engine);
@@ -779,7 +779,7 @@ pub(super) fn report_data_item_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             key[pos(t, 2)] = Value::Integer(item_id);
             let mut r = key.clone();
             // `modify(Item) { RequestFilterFields = ...; }` of a reportextension adds to the item's list
-            // (report/lt-y-report-props/YReportExt.al:231). Two extensions that do so is not pinned.
+            // (reports/runtime/YReportExt.al:231). Two extensions that do so is not pinned.
             let ext_fields: Vec<&String> = c
                 .objects
                 .iter()
@@ -903,8 +903,8 @@ fn data_item_row(
 
 /// `WHERE(Field1=0(1))` for the single `field = const(value)` condition of an Integer field: the Report Data Items
 /// table writes the filter type number (0 for a const) in front of the value, unlike a page's source table view
-/// (report/lt-y-report-props/YReportExt.al:231, misc/lt-probes-needed-3/PnC21Metadata.al:206, :218). On a Code field
-/// `const('')` is `0()` and `filter('A*|B')` is `1(A*|B)` (report/lt-sc-report-metadata-views/ScReportMetadataViews.al:88,
+/// (reports/runtime/YReportExt.al:231, recordref-fieldref/PnC21Metadata.al:206, :218). On a Code field
+/// `const('')` is `0()` and `filter('A*|B')` is `1(A*|B)` (reports/runtime/ScReportMetadataViews.al:88,
 /// :90). Other values and field types are not pinned for this table (an option member's ordinal or name, an enum, text).
 fn where_const(table: &Table, _objects: &al_ir::Objects, inner: &str) -> Result<String, String> {
     let (field, rest) = inner.split_once('=').ok_or("not a field = const(value)")?;
@@ -967,7 +967,7 @@ mod tests {
 
 #[cfg(test)]
 mod data_item_id_tests {
-    // misc/lt-probes-needed-3/PnC21Metadata.al:204-249.
+    // recordref-fieldref/PnC21Metadata.al:204-249.
     #[test]
     fn the_data_item_id_is_the_fnv_hash_of_the_name() {
         let ids: Vec<i32> = ["A", "B", "C", "D", "E", "Kid", "Src"]
@@ -987,7 +987,7 @@ mod data_item_id_tests {
 mod view_tests {
     use al_builtins::value::RtType;
 
-    // report/lt-sc-report-metadata-views/ScReportMetadataViews.al:86-90.
+    // reports/runtime/ScReportMetadataViews.al:86-90.
     #[test]
     fn the_where_of_a_code_field_writes_const_blank_and_a_filter_literal() {
         assert_eq!(

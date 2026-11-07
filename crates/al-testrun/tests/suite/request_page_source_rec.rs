@@ -1,5 +1,5 @@
 //! The Rec of a report request page that states SourceTable (al-runner issue 5756), pinned by corpus
-//! report/lt-y-request-page/YRequestPageTests.al:443 RS_RequestPageRec_ModifyAndInsert_InOnOpenPage (OnOpenPage modifies and inserts
+//! reports/request-page/YRequestPageTests.al:443 RS_RequestPageRec_ModifyAndInsert_InOnOpenPage (OnOpenPage modifies and inserts
 //! through Rec: both are stored, and the page opens on the row Rec was left on, `docno = N`) and :471
 //! RS_RequestPageRec_ReadInReportTriggers (OnOpenPage moves Rec to the second row, the page opens on it, a value typed into a control
 //! bound to Rec is written to the row at OK and the report triggers read it). What the corpus does not pin stays refused: a Rec left on

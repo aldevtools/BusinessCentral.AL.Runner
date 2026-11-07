@@ -1,7 +1,7 @@
 //! The reader of a table data file of a package (`TAB<id>.navxdata`, `NavApp.LoadPackageData`). Pure: bytes in, rows out
 //! (ADR-006). The layout is pinned by what the platform reads back in the corpus fixtures
 //! tests/al-language-xapp-a/Y85XaPackageData.al (file layout and value encodings in its head comment) and the tests of
-//! tests/al-language/install/lt-y85-package-data/Y85PackageData.al:
+//! tests/al-language/install-upgrade/install-triggers/Y85PackageData.al:
 //!
 //! - header: u32 0xDA7A, u32 1, u32 table id, u32 field count, then that many field names (BinaryWriter strings, ignored);
 //! - per row: byte 0x01, one value per stored column, 16 bytes SystemId (`Guid.ToByteArray`); the file ends with byte 0x00;
@@ -151,7 +151,7 @@ fn value(c: &mut Cursor, col: &Column) -> R<Value> {
         RtType::Option(names) => {
             let n = c.i32()?;
             if usize::try_from(n).is_ok_and(|n| n < names.len()) {
-                Ok(Value::Option(n, names.to_vec().into()))
+                Ok(Value::Option(n, names.clone()))
             } else {
                 Err(format!(
                     "the Option ordinal {n}, which the field does not define (not pinned)"

@@ -1,5 +1,5 @@
 //! `Update()` without an argument on a Page variable that never ran does nothing, from its own procedure (also on a page
-//! with no source table) and from outside. corpus pages/lt-y50-update-never-run/Y50UpdateNeverRun.al (G5-16).
+//! with no source table) and from outside. corpus pages/currpage/Y50UpdateNeverRun.al (G5-16).
 
 use al_testkit::text;
 

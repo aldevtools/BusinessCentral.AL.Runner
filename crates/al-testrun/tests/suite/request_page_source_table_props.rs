@@ -1,4 +1,4 @@
-//! Properties of a report request page that has a source table (corpus report/lt-y-request-page/YRequestPageTests.al):
+//! Properties of a report request page that has a source table (corpus reports/request-page/YRequestPageTests.al):
 //! SourceTableView, SourceTableTemporary, ModifyAllowed/InsertAllowed/DeleteAllowed, DataCaptionFields/DataCaptionExpression,
 //! CardPageId, LinksAllowed, PopulateAllFields and HelpLink. What the corpus does not pin stays refused.
 

@@ -6,7 +6,7 @@ use super::*;
 
 /// Separator `kind` (0 delimiter, 1 field, 2 record, 3 table) as an export or import uses it. A value the program set is
 /// used as it is: a token such as `<TAB>`, `<None>` or `<CR/LF>` is written literally, an empty text leaves the
-/// separator out (xmlport/lt-y67-xmlport-separators/Y67XpSeparators.al:314-366 m8, m9, m13; :367-391 m16, m18; :393-418
+/// separator out (xmlports/shapes-properties/Y67XpSeparators.al:314-366 m8, m9, m13; :367-391 m16, m18; :393-418
 /// m26; :441-471 Assign_Import `record sep crlf token`). A declared one reads its tokens (`text_separator`).
 pub(super) fn separator(inst: &Inst, kind: u8, declared: Option<&str>, default: &str) -> Result<String, Signal> {
     let set = inst
@@ -43,7 +43,7 @@ pub(super) fn mark_run_start(inst: &Inst) {
 }
 
 /// The encoding the port's triggers set during this run (in OnPreXmlPort or OnAfterGetRecord: Y67XpSeparators.al:393-439).
-/// One set on the variable before Export() keeps the handling it had: platform/lt-xmlport-session-navapp-cookie/
+/// One set on the variable before Export() keeps the handling it had: metadata/session-system/
 /// P94XpEncoding.al observes no byte of it, so its effect is not pinned.
 pub(super) fn set_in_run(inst: &Inst) -> Option<i64> {
     let start = inst

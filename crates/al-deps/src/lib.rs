@@ -6,15 +6,18 @@
 //! without files or a network.
 
 pub mod artifact;
+pub mod assembly_refs;
 pub mod build;
 pub mod cache;
 pub mod demo;
+pub mod empty;
 pub mod lazy;
 pub mod license;
 pub mod load;
 pub mod package;
 pub mod remote;
 pub mod select;
+pub mod service_tier;
 pub mod test_apps;
 pub mod version;
 pub mod xliff;

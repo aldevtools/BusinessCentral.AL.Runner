@@ -1,5 +1,5 @@
 //! A guarded Insert that fails on an existing key leaves the variable's SystemId null, and the Modify after it gives the variable
-//! the stored row's SystemId (al-runner issue 6153; corpus events/lt-uf-failed-insert-sysid/UfFailedInsertSystemId.al, writer UF
+//! the stored row's SystemId (al-runner issue 6153; corpus events/table-events/UfFailedInsertSystemId.al, writer UF
 //! branch al-runtime-rs-staging-uf, commit 3d7d7b66).
 
 use al_testkit::text;

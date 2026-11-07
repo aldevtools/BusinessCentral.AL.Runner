@@ -1,6 +1,6 @@
 //! `<Second dec>` and `<Second dec.>` (with the period, as the test libraries' unique-code builders write it), their widths and
 //! case, on a Time and a DateTime (al-runner issue 6650). Every value below is real BC's: corpus writer Y64, branch
-//! al-runtime-rs-staging-y64 85d86e7b, types/lt-datetime/Format.al:1066-1300 (Y64_Time_Format_SecondDecPeriod, _More, _Edges,
+//! al-runtime-rs-staging-y64 85d86e7b, types/date-time/Format.al:1066-1300 (Y64_Time_Format_SecondDecPeriod, _More, _Edges,
 //! Y64_DateTime_Format_SecondDecPeriod, Y64_SecondDecPeriod_ReporterCode).
 
 use al_testkit::text;
@@ -65,6 +65,24 @@ codeunit 69803 C
         T := 'X-' + DelChr(CurrTime, '=', '.,:');
         CurrTime := Format(090507T, 0, '<Hours24,2><Filler Character,0><Minutes,2><Seconds,2><Second dec.>');
         exit(T + ';X-' + DelChr(CurrTime, '=', '.,:'));
+    end;
+
+    procedure Undefined(): Text
+    var R: Text; T: Text;
+    begin
+        T := OfDateTime(0DT);
+        if TryLen(0DT, 5, '<Second dec.>', R) then T += '|[' + R + ']' else T += '|error';
+        if TryDT(0DT, '<Thousands>', R) then T += '|[' + R + ']' else T += '|error';
+        exit(T + '|[' + Iso(0DT) + ']|[' + Iso(CreateDateTime(20240305D, 134506.078T)) + ']|[' + Iso(CreateDateTime(20240305D, 090507T)) + ']');
+    end;
+
+    [TryFunction] local procedure TryLen(V: DateTime; L: Integer; S: Text; var R: Text) begin R := Format(V, L, S); end;
+
+    local procedure Iso(DT: DateTime) Result: Text[50]
+    var MilliSec: Text[20];
+    begin
+        MilliSec := CopyStr(Format(DT, 0, '<Second dec.>'), 2, MaxStrLen(MilliSec));
+        Result := Format(DT, 0, '<Year4>-<Month,2>-<Day,2>T<Hours24,2>:<Minutes,2>:<Seconds,2>') + '.' + MilliSec;
     end;
 
     procedure ErrorText(): Text
@@ -185,5 +203,18 @@ fn the_reporters_unique_code_and_the_error_text() {
     assert_eq!(
         text(al_testkit::run_in(SRC, "C", "ErrorText")),
         "An invalid field or attribute has been specified for the 'Format' property.\\\\<Second dec..>"
+    );
+}
+
+/// The undefined DateTime 0DT writes nothing for every string of Y64Strings but `<Second dec..>`, which stays the invalid-format
+/// error, also not the literal period after `<Second dec>`; a Length pads the empty text (al-runner issue 6976). Corpus
+/// master 3eb812ed, types/date-time/Format.al:1293-1349 (Y64_DateTime_Format_SecondDecPeriod_Undefined,
+/// Y64_DateTime_SecondDecPeriod_IsoHelper, _IsoHelperUndefined).
+#[test]
+fn second_dec_on_the_undefined_datetime_and_the_iso_helper() {
+    let strings = row(["", "", "", "", "", "", "", "", "", "", "", "", "", E, ""]);
+    assert_eq!(
+        text(al_testkit::run_in(SRC, "C", "Undefined")),
+        format!("{strings}|[     ]|[]|[.]|[2024-03-05T13:45:06.078]|[2024-03-05T09:05:07.]")
     );
 }

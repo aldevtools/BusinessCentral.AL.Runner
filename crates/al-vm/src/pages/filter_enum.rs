@@ -1,4 +1,4 @@
-//! TestFilter.GetFilter of an Enum field, the forms a typed filter takes (corpus master pages/lt-y76-view-filters/
+//! TestFilter.GetFilter of an Enum field, the forms a typed filter takes (corpus master pages/view-filters/
 //! Y76TestFilterEnum.al, enum with ordinals 0, 1, 2, 4, 7):
 //! - a range reads as its ordinals, open ends too (`Second..` = `1..`, `..Fifth` = `..4`, :122 and :147);
 //! - `>`, `>=`, `<`, `<=` read as the list of the members they keep, by name (`>Second` = `Third|Fifth|Eighth`, :147);

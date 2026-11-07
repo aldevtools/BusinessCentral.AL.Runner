@@ -40,8 +40,8 @@ pub(crate) enum Flow {
 
 /// Which kind of report trigger is running: what `CurrReport.Skip`, `Break` and `Quit` may do there.
 ///
-/// Pinned by handlers/TestReportRuntimeContracts.al:322-368 (a data item's `OnAfterGetRecord`) and
-/// report/W3ReportSkipBreakQuit.al (the others, also from a procedure the trigger calls):
+/// Pinned by reports/TestReportRuntimeContracts.al:322-368 (a data item's `OnAfterGetRecord`) and
+/// reports/W3ReportSkipBreakQuit.al (the others, also from a procedure the trigger calls):
 ///
 /// | trigger | Skip | Break | Quit |
 /// |---|---|---|---|
@@ -62,12 +62,12 @@ pub(crate) enum TrigKind {
 }
 
 /// The filter group a `DataItemLink` filter lives in. `GetFilters` reads group 0 and does not show
-/// it (handlers/TestReportRuntimeContracts.al:62-90, :279-290: `Child.GetFilters()` is empty in the
+/// it (reports/TestReportRuntimeContracts.al:62-90, :279-290: `Child.GetFilters()` is empty in the
 /// child's triggers and after the parent). Group 4 is where a part's `SubPageLink` lives.
 const LINK_GROUP: i32 = 4;
 
 /// The group of the filters a `DataItemTableView` gives its item. They stay in force next to the link filter (group `LINK_GROUP`),
-/// on the link field too: the child shows the rows that satisfy both (report/lt-f3-reports/F3ReportTests.al:68 `LinkFilter_InItemView`
+/// on the link field too: the child shows the rows that satisfy both (reports/F3ReportTests.al:68 `LinkFilter_InItemView`
 /// and :116 `LinkFilter_CallerViewOverItemView`). Not pinned: which group number BC gives them (nothing reads it).
 pub(crate) const ITEM_VIEW_GROUP: i32 = 5;
 
@@ -111,7 +111,7 @@ impl Session {
         running: Inst,
     ) -> Result<Value, Signal> {
         // In a report extension's code the running instance is the extension's; its report is the base it belongs to
-        // (`CurrReport.` and the bare form there: report/lt-y36-bare-report-member/Y36BareReportMember.al:206-317,
+        // (`CurrReport.` and the bare form there: reports/bare-report-member/Y36BareReportMember.al:191-302,
         // ExtGetUseRp, ExtCurrUseRp, ExtSetUseRpFalse).
         let report_of_running = || -> Inst {
             running
@@ -123,7 +123,7 @@ impl Session {
         };
         match id {
             // `IsReadOnly()` of the running report is No, in a procedure of a variable never run and in OnPreReport
-            // (Y36BareReportMember.al:206-262 `readonly=No/No`, a processing-only report). A report variable is not pinned.
+            // (Y36BareReportMember.al:191-247 `readonly=No/No`, a processing-only report). A report variable is not pinned.
             ids::REPORT_ISREADONLY_1 if receiver.is_none() => Ok(Value::Boolean(false)),
             ids::REPORT_LAYOUTLISTEXPORTSTREAM_1 => self.report_layout_list_export(receiver, args),
             ids::REPORT_QUIT_1 => self.report_quit_builtin(&running),
@@ -140,7 +140,7 @@ impl Session {
             ids::REPORT_BREAK_1 => self.report_flow_builtin(&running, Flow::Break),
             ids::REPORT_SETTABLEVIEW_1 => {
                 // Without a receiver (`SetTableView(R)` bare in a procedure of the report) it is the report whose code runs: the
-                // next run reads only the filtered rows (Y36BareReportMember.al:343-357 Y36_BareSetTableView_ThenRun).
+                // next run reads only the filtered rows (Y36BareReportMember.al:328-342 Y36_BareSetTableView_ThenRun).
                 let receiver = receiver.or_else(|| Some(Value::Codeunit(report_of_running())));
                 let inst = self.report_instance(receiver, false)?.0;
                 let schema = self.report_schema(&inst)?;
@@ -148,14 +148,14 @@ impl Session {
                 Ok(Value::Null)
             }
             // `CurrReport.Language := n` and `CurrReport.Language` read it back at once
-            // (handlers/TestReportCurrReportLanguage.al:58-84). Language 0 is rejected by BC with an error
+            // (streams/TestReportCurrReportLanguage.al:58-84). Language 0 is rejected by BC with an error
             // that names the language: `Invalid language ID supplied: 0.` / Argument, and the language stays as it
             // was (record/ProbeClearAllSetKeyHyperlink.al:341-353, BC 27.5); another language that is not
             // positive is not pinned. A language nobody set reads as the session's, 1033. The runtime's culture
             // is fixed (en-US): the language is kept and changes no formatting (dates and decimals read
             // the same after 1031, ibid.).
             // `Language` of a report variable outside a run: kept with the variable, read back, and the language of its SaveAs
-            // (report/W3ReportObjectIdPreviewLanguage.al:893 RB_SaveAs_ReportVariableLanguage1031, `read before run=1031`).
+            // (reports/W3ReportObjectIdPreviewLanguage.al:893 RB_SaveAs_ReportVariableLanguage1031, `read before run=1031`).
             ids::REPORT_LANGUAGE_1 if self.variable_outside_run(&receiver).is_some() => {
                 let inst = self.variable_outside_run(&receiver).expect("checked");
                 let i = self.variable_culture(&inst)?;
@@ -187,7 +187,7 @@ impl Session {
                     self.saveas_language_set(*n, &running)?;
                     Ok(Value::Null)
                 }
-                // Only 99999 is pinned as an unsupported language (misc/lt-probes-needed-3/PnC06ReportLanguage.al:Language_Invalid);
+                // Only 99999 is pinned as an unsupported language (reports/PnC06ReportLanguage.al:Language_Invalid);
                 // the rest of the range above 65535 is refused (docs/probes-needed.md).
                 Some(Value::Integer(n @ 99999)) => Err(crate::transactions::al_error_code(
                     &format!(
@@ -213,8 +213,8 @@ impl Session {
                 Some(other) => unsupported(format!("CurrReport.Language with {}", other.describe())),
             },
             // The kind a report names with `DefaultLayout`, else the kind of the layout `DefaultRenderingLayout` picks, else RDLC;
-            // a processing-only report that names none is None (metadata/lt-report-metadata-columns/ReportMetadata.al:272
-            // P175_DefaultLayout_PerReport; report/lt-y-report-props/YReportPropsTests.al:236 and YReportExt.al:152: the Word or
+            // a processing-only report that names none is None (metadata/platform-tables/ReportMetadata.al:272
+            // P175_DefaultLayout_PerReport; reports/runtime/YReportPropsTests.al:236 and YReportExt.al:152: the Word or
             // RDLC layout properties alone leave RDLC). Not pinned: a processing-only report that names a kind, a kind other than
             // RDLC, Word and Excel, a number no report declares.
             // `DefaultLayout` on a report variable answers as the static form with its id (report/lt-report-requestpage-query-
@@ -264,7 +264,7 @@ impl Session {
                             // P105LytExcel.al:105, id 72399).
                             Ok(Value::Boolean(false))
                         } else {
-                            // As a statement: the missing-object error (report/lt-report-members-testrequestpage/P91Static.al:
+                            // As a statement: the missing-object error (reports/request-page/P91Static.al:
                             // 127-128, :140-141, :153-154, ids 0 and 71999).
                             if self.tx.try_depth == 0 {
                                 return unsupported(format!(
@@ -277,7 +277,7 @@ impl Session {
                 }
             }
             // Without a subscriber to SubstituteReport the id itself, also for 0 and an id no report has, with no error
-            // (report/lt-report-members-testrequestpage/P91Unsure.al:80 GetSubstituteReportId_Values `own` Yes, `zero` 0,
+            // (reports/request-page/P91Unsure.al:80 GetSubstituteReportId_Values `own` Yes, `zero` 0,
             // `unknown` 71999). With one, SubstituteReport is raised with RunMode Normal, RequestPageXml '', an unopened RecordRef
             // and NewReportId -1, and a NewReportId a subscriber set is the answer, -1 left as it was the id itself
             // (P91Unsure.al:112-170 Sq_GetSubstituteReportId_LoggingSubscriber, _PlatformSubscriberChanges, _Unbound).
@@ -313,7 +313,7 @@ impl Session {
                     })
                     .map(|i| &objects[i])
                 else {
-                    // The missing-object error, its result used or not (report/lt-report-members-testrequestpage/
+                    // The missing-object error, its result used or not (reports/request-page/
                     // P91Static.al:113-115, ids 0, 71999 and -1).
                     if let Some(why) = self.missing_may_be_skipped("Report", i64::from(*n)) {
                         return unsupported(why);
@@ -373,12 +373,12 @@ impl Session {
             }
             // `FormatRegion` only takes effect when a Word or Excel layout renders; a run that writes the
             // dataset (an Xml export) never does, and the property reads back empty
-            // (handlers/TestReportCurrReportLanguage.al:12-18, :76-83). In a report started by `Run` the region is kept,
-            // reads back, and `Format` of a date and a decimal follows it (misc/lt-probes-needed-3/PnC06ReportLanguage.al:
+            // (streams/TestReportCurrReportLanguage.al:12-18, :76-83). In a report started by `Run` the region is kept,
+            // reads back, and `Format` of a date and a decimal follows it (reports/PnC06ReportLanguage.al:
             // Language_SetAndRead, `region0:|region1:de-DE|date2:05.03.24|num2:1.234,5`).
             // A report whose FormatRegion property is set: neither the getter nor the setter is measured there.
             // `FormatRegion` of a report variable outside a run: `de-DE` is kept with the variable, read back, and the region of its
-            // SaveAs (report/W3ReportObjectIdPreviewLanguage.al:912 RB_SaveAs_ReportVariableFormatRegionDeDE). Another region is
+            // SaveAs (reports/W3ReportObjectIdPreviewLanguage.al:912 RB_SaveAs_ReportVariableFormatRegionDeDE). Another region is
             // not pinned there.
             ids::REPORT_FORMATREGION_1 if self.variable_outside_run(&receiver).is_some() => {
                 let inst = self.variable_outside_run(&receiver).expect("checked");
@@ -405,14 +405,14 @@ impl Session {
                 }
             }
             // Reading it in a report with the property is pinned: empty in OnInitReport, the property's region in OnPreReport and
-            // OnAfterGetRecord (report/lt-bd-format-region/BdRegionTests.al:120-415 `init=... region=[];pre=... region=[de-DE]`).
+            // OnAfterGetRecord (reports/runtime/BdRegionTests.al:120-415 `init=... region=[];pre=... region=[de-DE]`).
             ids::REPORT_FORMATREGION_1 => self.report_format_region(args),
             // `ObjectId(UseNames)`: `Report 69730`, or with names (the default) `Report <Caption>`, the object name
-            // when the report has no Caption (handlers/PWRefusedBuiltins.al:78-107, BC 27.5; also through a Report
+            // when the report has no Caption (recordref-fieldref/PWRefusedBuiltins.al:78-107, BC 27.5; also through a Report
             // variable).
             ids::REPORT_OBJECTID_1 => {
                 // `CurrReport.ObjectId` has no receiver value: it is the running report
-                // (handlers/PWRefusedBuiltins.al:ReportObjectId_CurrReportInCaptionedReport).
+                // (recordref-fieldref/PWRefusedBuiltins.al:ReportObjectId_CurrReportInCaptionedReport).
                 let receiver = receiver.or_else(|| Some(Value::Codeunit(report_of_running())));
                 let inst = self.report_instance(receiver, false)?.0;
                 let schema = self.report_schema(&inst)?;
@@ -435,9 +435,9 @@ impl Session {
                 Ok(Value::Text(format!("Report {caption}").into()))
             }
             // `CurrReport.Preview()` is false in a report run by `Report.Run` (with and without the request
-            // page) and `RunModal` (handlers/TestReportRequestPageUpdateObjectIdContracts.al:
+            // page) and `RunModal` (reports/TestReportRequestPageUpdateObjectIdContracts.al:
             // RequestPageUpdate_RefreshesTheOtherControls, ObjectIdAndPreview_WithoutTheRequestPage_AndWithRunModal).
-            // It is false in every trigger of a report run by `SaveAs`, as Xml and as Pdf (report/W3ReportObjectIdPreviewLanguage.al:
+            // It is false in every trigger of a report run by `SaveAs`, as Xml and as Pdf (reports/W3ReportObjectIdPreviewLanguage.al:
             // 626-673 QV_Preview_SaveAsXml_Column, QV_Preview_SaveAsPdf; AL Runner issue 5666). The request page's
             // preview action is refused.
             ids::REPORT_PREVIEW_1 => match self.report.report_preview_pinned.last() {
@@ -462,13 +462,13 @@ impl Session {
             ids::REPORT_USEREQUESTPAGE_1 => {
                 // `CurrReport.UseRequestPage()` has no receiver value: it is the running report, as for ObjectId (Copy Sales
                 // Document OnPreReport, 186 Tests-ERM tests; the getter of a report run by Run is pinned by
-                // handlers/TestReportRuntimeContracts.al:416-440 for a variable).
+                // reports/TestReportRuntimeContracts.al:416-440 for a variable).
                 let receiver = receiver.or_else(|| Some(Value::Codeunit(report_of_running())));
                 let inst = self.report_instance(receiver, false)?.0;
                 let schema = self.report_schema(&inst)?;
                 let slot = schema.report().request_flag_slot;
                 // The getter answers what the next Run does; the setter overrides the report's own
-                // property in both directions (handlers/TestReportRuntimeContracts.al:416-440).
+                // property in both directions (reports/TestReportRuntimeContracts.al:416-440).
                 let Some(Value::Boolean(b)) = args.first() else {
                     return Ok(Value::Boolean(Self::report_shows_page(&inst, &schema)?));
                 };
@@ -479,7 +479,7 @@ impl Session {
                 let (inst, quit) = self.report_instance(receiver, true)?;
                 self.run_of_running_instance(id, &inst)?;
                 // An instance that already ran (one a variable gave up after its Run) cannot run again, and the attempt resets it
-                // (report/lt-report-this-passed-on/P141ThisStored.al:P141_StoredAfterRun_RunAgain: the error, then a blank marker).
+                // (reports/runtime/P141ThisStored.al:P141_StoredAfterRun_RunAgain: the error, then a blank marker).
                 if id == ids::REPORT_RUN_1
                     && self
                         .report
@@ -494,13 +494,13 @@ impl Session {
                     ));
                 }
                 // A variable whose RunModal ran to its end cannot RunModal again: the error, and nothing runs
-                // (report/lt-report-requestpage-query-members/P105TotArray.al:97-105). A Run after it is not pinned.
+                // (reports/request-page/P105TotArray.al:97-105). A Run after it is not pinned.
                 // The refused RunModal resets the instance: its globals and data item filters read as fresh
-                // (report/lt-tn-savevalues-body-filters/TnSaveValuesBodyFilters.al:251-272, `ran=No parent=[] child=[]`).
+                // (reports/layouts-saveas/TnSaveValuesBodyFilters.al:251-272, `ran=No parent=[] child=[]`).
                 if self.report_run_modal_done_on(&inst) {
                     if id == ids::REPORT_RUNMODAL_1 {
                         // The bare `RunModal()` in a procedure of the instance leaves it as it is: its globals read back
-                        // after the error (report/lt-y40-bare-report-run/Y40BareReportRun.al:252,
+                        // after the error (reports/runtime/Y40BareReportRun.al:252,
                         // Y40_BareRunModal_SecondCallOnSameVariable, corpus master ac3499d6: `found=Yes visited=2`).
                         if !Rc::ptr_eq(&running, &inst) {
                             self.report_clear(&inst);
@@ -526,7 +526,7 @@ impl Session {
                         }
                         // A RunModal whose request page the platform refuses to open (a pending write) leaves the
                         // variable reset: the next Execute runs OnInitReport again
-                        // (misc/lt-probes-needed-8/PnH2UseRp.al:388, WithRP_UseFalse_Run_RunModal_Execute). An error a
+                        // (reports/PnH2UseRp.al:388, WithRP_UseFalse_Run_RunModal_Execute). An error a
                         // trigger raises is not pinned and leaves the variable as it is.
                         Err(e) => {
                             if id == ids::REPORT_RUNMODAL_1 && matches!(e, Signal::Error(_)) {
@@ -537,14 +537,14 @@ impl Session {
                     }
                 };
                 // "With the Run method, the variable is automatically cleared after the method is
-                // run" (handlers/TestReportSetTableView.al:17-22); a global read afterwards belongs
-                // to a new instance (handlers/TestReportRunWithRequestPage.al:32-36,
-                // handlers/TestReportOnInitReportTimingFixtures.al:3-5).
+                // run" (reports/TestReportSetTableView.al:17-22); a global read afterwards belongs
+                // to a new instance (reports/TestReportRunWithRequestPage.al:32-36,
+                // reports/TestReportOnInitReportTimingFixtures.al:3-5).
                 // `RunModal` does not clear it: a getter called after it reads what the run collected (corpus
-                // reportextensiontrigger/TestPrecompiledReportExtensionDataItems.al: "Run frees the variable's report
+                // reports/extensions/TestPrecompiledReportExtensionDataItems.al: "Run frees the variable's report
                 // instance when it ends ... RunModal keeps it", as Base Application's Reservation Worksheet relies on).
                 // The bare `Run()` in a procedure of the instance keeps it: the procedure and the variable read the globals
-                // the run set (report/lt-y40-bare-report-run/Y40BareReportRun.al:269, Y40_BareRun_InProcedure, corpus
+                // the run set (reports/runtime/Y40BareReportRun.al:269, Y40_BareRun_InProcedure, corpus
                 // master ac3499d6: `found=Yes visited=2 userp=No`).
                 if id == ids::REPORT_RUN_1 && !self.report.rebind_after_run && !Rc::ptr_eq(&running, &inst) {
                     self.report_clear(&inst);
@@ -558,15 +558,15 @@ impl Session {
             // The static forms run a fresh instance of the report with that id.
             ids::REPORT_RUN_3 | ids::REPORT_RUNMODAL_3 => {
                 // SubstituteReport is raised first, RunMode Normal or RunModal, RequestPageXml empty; a report a subscriber
-                // sets runs instead, with its own request page and handler (misc/lt-y14-triage/Y14ReportSubstitute.al:371
+                // sets runs instead, with its own request page and handler (reports/Y14ReportSubstitute.al:371
                 // Run_Swap_HandlerB `Sub(91650,Normal,xmlLen=0,in=-1)`, `Sub(91650,RunModal,...)`, corpus master).
                 let mode = if id == ids::REPORT_RUN_3 { 0 } else { 5 };
                 let number = self.substitute_static(args.first(), mode, "")?;
                 let (inst, schema) = self.report_by_number(id, number.as_ref().or(args.first()))?;
                 // An explicit RequestWindow decides, in both directions, as UseRequestPage does on a variable: `true` shows the
-                // page of a report declaring `UseRequestPage = false` (misc/lt-probes-needed-8/PnH2UseRp.al:347-355), `false`
+                // page of a report declaring `UseRequestPage = false` (reports/PnH2UseRp.al:347-355), `false`
                 // hides it and `CurrReport.UseRequestPage()` answers false
-                // (report/lt-requestpage-savevalues-date-text-setvalue/P147UseRequestPagePreGet.al:79,
+                // (reports/request-page/P147UseRequestPagePreGet.al:79,
                 // P147UseRequestPageProcGet.al:83). Without it the report's own property decides.
                 let explicit = match args.get(1) {
                     None => None,
@@ -574,13 +574,13 @@ impl Session {
                     Some(other) => return unsupported(format!("{id} with RequestWindow {}", other.describe())),
                 };
                 // SystemPrinter `true` runs as `false`: the request page with its handler, OK, Cancel, a ReportHandler, SaveAsXml
-                // (report/lt-report-run-system-printer/Y43SystemPrinterRequestPage.al, ReportRunSystemPrinter.al:110-150; onprem
-                // report/lt-y43-sp-saveasxml/Y43SystemPrinterSaveAsXml.al).
+                // (reports/layouts-saveas/Y43SystemPrinterRequestPage.al, ReportRunSystemPrinter.al:110-150; onprem
+                // reports/layouts-saveas/Y43SystemPrinterSaveAsXml.al).
                 if let Some(other) = args.get(2).filter(|v| !matches!(v, Value::Boolean(_))) {
                     return unsupported(format!("{id} with SystemPrinter {}", other.describe()));
                 }
                 // For the static RunModal only `true` on a report that shows its page, and `false` hiding the page, are
-                // pinned (handlers/TestReportRequestPageSaveValues.al:211, handlers/TestReportRunExecution.al:152). `true` on a
+                // pinned (reports/TestReportRequestPageSaveValues.al:211, reports/runtime/TestReportRunExecution.al:152). `true` on a
                 // report declaring `UseRequestPage = false` is refused, and what `CurrReport.UseRequestPage()` answers in a
                 // run of `RunModal(id, false)` is not pinned: the getter is refused there.
                 if id == ids::REPORT_RUNMODAL_3
@@ -624,9 +624,9 @@ impl Session {
                 let is = |list: &Vec<std::rc::Weak<RefCell<Instance>>>| {
                     list.iter().any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, &inst)))
                 };
-                // handlers/TestReportRuntimeContracts.al:395-414: Execute keeps the globals, and a second Execute on the same
+                // reports/TestReportRuntimeContracts.al:395-414: Execute keeps the globals, and a second Execute on the same
                 // variable raises, with or without a parameters string in either call, and runs nothing; after Clear it runs
-                // again (corpus master, corpus PR 886: report/lt-report-requestpage/ExecuteParamsTwiceAndViews.al:146-183).
+                // again (corpus master, corpus PR 886: reports/request-page/ExecuteParamsTwiceAndViews.al:146-183).
                 if is(&self.report.report_executed) {
                     return Err(crate::transactions::al_error_code(
                         "The object has been run. Use the function CLEAR(Report).",
@@ -644,7 +644,7 @@ impl Session {
                     ran
                 };
                 // After an Execute the getter of a variable whose UseRequestPage was never set answers false
-                // (misc/lt-probes-needed-8/PnH2UseRp.al:389, WithRP_UseFalse_Run_RunModal_Execute `getter`). What the triggers
+                // (reports/PnH2UseRp.al:389, WithRP_UseFalse_Run_RunModal_Execute `getter`). What the triggers
                 // read during the Execute, and the getter after an explicit UseRequestPage(true), are not pinned.
                 // After an explicit UseRequestPage the getter is refused.
                 let slot = schema.report().request_flag_slot;
@@ -661,8 +661,8 @@ impl Session {
                 let parameters = self.report_execute_args(id, args.get(1), args.get(2))?;
                 // With parameters, SubstituteReport is raised first, RunMode Execute, the parameters as RequestPageXml; a
                 // report a subscriber sets runs instead and the parameters of the other report set nothing on it
-                // (misc/lt-y14-triage/Y14ReportSubstitute.al:389 Execute_SaveAs_Swap `Sub(91650,Execute,xmlLen=155,in=-1)`,
-                // corpus master), and without parameters as well (events/lt-platform-events-v/PeVTests.al:665
+                // (reports/Y14ReportSubstitute.al:389 Execute_SaveAs_Swap `Sub(91650,Execute,xmlLen=155,in=-1)`,
+                // corpus master), and without parameters as well (events/platform-triggers/PeVTests.al:665
                 // PW_RaisedEvents_ProcessingOnlyRuns `SubstituteReport(86147,Execute,in=-1)`).
                 let number = self.substitute_static(args.first(), 2, parameters.as_deref().unwrap_or(""))?;
                 let (inst, schema) = self.report_by_number(id, number.as_ref().or(args.first()))?;
@@ -677,7 +677,7 @@ impl Session {
             }
             // `Report.Print(Id, '')` of a processing-only report that declares UseSystemPrinter runs it as `Report.Execute(Id, '')`:
             // OnInitReport, OnPreReport, the data items and OnPostReport, no request page, with UseSystemPrinter true and false
-            // (misc/lt-y13-triage/Y13ReportSystemPrinter.al:357-358, :505-514, corpus master).
+            // (reports/Y13ReportSystemPrinter.al:357-358, :505-514, corpus master).
             ids::REPORT_PRINT_2
                 if args.len() == 2
                     && matches!(&args[1], Value::Text(t) if t.is_empty())
@@ -719,7 +719,7 @@ impl Session {
                 let (inst, schema, seed) = if id == ids::REPORT_RUNREQUESTPAGE_1 {
                     let inst = self.report_instance(receiver, false)?.0;
                     // After a RunModal of the variable: the error, and no page opens
-                    // (report/lt-report-requestpage/RptRequestPage.al:990-1009 UseRequestPageFalse_RunModalAndRunRequestPage).
+                    // (reports/request-page/RptRequestPage.al:990-1009 UseRequestPageFalse_RunModalAndRunRequestPage).
                     if self.report_run_modal_done_on(&inst) {
                         return Err(crate::transactions::al_error_code(
                             "The object has been run. Use the function CLEAR(Report).",
@@ -730,18 +730,18 @@ impl Session {
                     (inst, schema, args.first())
                 } else {
                     // The static form raises SubstituteReport with RunMode ParametersOnly first, once, with an empty
-                    // RequestPageXml also when old parameters are given (events/lt-platform-events-v/PeVTests.al:465, :660:
-                    // `SubstituteReport(69860,ParametersOnly,in=-1)`; misc/lt-y14-triage/Y14ReportSubstitute.al:276, :447).
+                    // RequestPageXml also when old parameters are given (events/platform-triggers/PeVTests.al:465, :660:
+                    // `SubstituteReport(69860,ParametersOnly,in=-1)`; reports/Y14ReportSubstitute.al:276, :447).
                     // A subscriber that sets another report swaps it: that report's request page opens, its handler runs and
                     // the parameters are that report's (Y14ReportSubstitute.al:225 platform event, :261 OnAfterSubstituteReport,
                     // :447 with old parameters; corpus master).
                     let number = self.substitute_static(args.first(), 1, "")?;
-                    // SetupPrinters follows, once, with an empty Printers (events/lt-platform-events-v/PeVTests.al:450
+                    // SetupPrinters follows, once, with an empty Printers (events/platform-triggers/PeVTests.al:450
                     // RunRequestPage_RaisedEvents `SubstituteReport(69860,ParametersOnly,in=-1);SetupPrinters(in=0);`, :651).
                     self.raise_setup_printers()?;
                     let (inst, schema) = self.report_by_number(id, number.as_ref().or(args.first()))?;
                     // OnInitReport runs first, so the views the data items get next are what the handler sees
-                    // (report/W3ReportRequestPageRun.al:280, RunRequestPage_OrderOfReportAndRequestPageTriggers: `view=[1..3]`).
+                    // (reports/W3ReportRequestPageRun.al:280, RunRequestPage_OrderOfReportAndRequestPageTriggers: `view=[1..3]`).
                     if self.report_init(&inst)? {
                         return unsupported("CurrReport.Quit in OnInitReport of a RunRequestPage (not pinned)");
                     }
@@ -749,7 +749,7 @@ impl Session {
                 };
                 // Only the empty string and the text this runtime produced are understood; how BC
                 // loads a parameters string into the page is pinned only by its result
-                // (handlers/TestReportInstanceRunReqPage.al:SeededWithParameters_StillRunsTheHandler).
+                // (reports/TestReportInstanceRunReqPage.al:SeededWithParameters_StillRunsTheHandler).
                 let seed = match seed {
                     None => None,
                     Some(Value::Text(s)) if s.is_empty() => None,
@@ -767,8 +767,8 @@ impl Session {
     }
 
     /// `CurrReport.Language := n` in a trigger of a SaveAs: the dataset names the language, `de-DE` for 1031, on its top data items
-    /// and in its header (report/W3ReportObjectIdPreviewLanguage.al:605 Language_Set1031_FormatAndColumns `item language=de-DE`;
-    /// report/lt-bd-format-region/BdRegionTests.al:928 the header). Another language, another language set after the first data
+    /// and in its header (reports/W3ReportObjectIdPreviewLanguage.al:605 Language_Set1031_FormatAndColumns `item language=de-DE`;
+    /// reports/runtime/BdRegionTests.al:928 the header). Another language, another language set after the first data
     /// item was written, and the Labels block in German are not pinned: the dataset is refused when it is written.
     fn saveas_language_set(&mut self, n: i32, running: &Inst) -> Result<(), Signal> {
         if self.report.report_preview_pinned.last() != Some(&crate::state::ReportStart::SaveAs) {
@@ -795,14 +795,14 @@ impl Session {
             }
         };
         let why = if ds.rows > 0 {
-            // The same language again, row after row (handlers/TestReportCurrReportLanguage.al:44 sets 1031 in every
+            // The same language again, row after row (streams/TestReportCurrReportLanguage.al:44 sets 1031 in every
             // OnAfterGetRecord), changes nothing.
             (ds.language.as_deref() != target)
                 .then(|| format!("CurrReport.Language := {n} after the dataset's first data item was written"))
         } else {
             ds.language = target.map(str::to_string);
             // Kept, not pinned: on BC 29 the company captions of the header stay en-US (refusing them would lose
-            // handlers/TestReportCurrReportLanguage.al:44 TestReport_SettingCurrReportLanguage_RunsAndIsReadableBack, which does
+            // streams/TestReportCurrReportLanguage.al:44 TestReport_SettingCurrReportLanguage_RunsAndIsReadableBack, which does
             // not read the dataset).
             (labels && target.is_some()).then(|| {
                 "CurrReport.Language := 1031 with a Labels block (its texts in German are not pinned)".to_string()
@@ -862,14 +862,14 @@ impl Session {
     }
 
     /// The report instance behind a receiver, initialised: the first use of a report variable
-    /// runs `OnInitReport` (handlers/TestReportOnInitReportTiming.al:50-60).
+    /// runs `OnInitReport` (reports/TestReportOnInitReportTiming.al:50-60).
     /// Returns whether that trigger quit the report; a caller that cannot stop refuses it.
     fn report_instance(&mut self, receiver: Option<Value>, can_stop: bool) -> Result<(Inst, bool), Signal> {
         match receiver {
             Some(Value::Codeunit(rc)) => {
                 // Used again after a Run, it is a new instance: OnInitReport runs.
-                // A second Run on one variable runs OnInitReport again (report/lt-report-requestpage/RptTriggerOrder.al:353
-                // VariableRun_Twice_InitReportEachTime; misc/lt-probes-needed-8/PnH5aExt.al:396).
+                // A second Run on one variable runs OnInitReport again (reports/request-page/RptTriggerOrder.al:353
+                // VariableRun_Twice_InitReportEachTime; reports/PnH5aExt.al:396).
                 if std::mem::take(&mut rc.borrow_mut().rerun) {
                     rc.borrow_mut().initialized = false;
                 }
@@ -903,46 +903,13 @@ impl Session {
         Ok(object)
     }
 
-    /// The bytes of the RDLC layout file report `object` names with `DefaultRenderingLayout`, when it declares no
-    /// `RDLCLayout`, `WordLayout`, `ExcelLayout` or `DefaultLayout` property and the app holds the file.
-    pub(crate) fn default_rdlc_layout_file(&self, object: usize) -> Option<Vec<u8>> {
-        let o = &self.engine.program.objects[object];
-        let r = o.report.as_ref()?;
-        let prop = |name: &str| {
-            o.properties
-                .iter()
-                .find(|(k, _)| k.eq_ignore_ascii_case(name))
-                .map(|(_, v)| v.trim().trim_matches('"').to_string())
-        };
-        if ["RDLCLayout", "WordLayout", "ExcelLayout", "DefaultLayout"]
-            .iter()
-            .any(|p| prop(p).is_some())
-        {
-            return None;
-        }
-        let default = prop("DefaultRenderingLayout")?;
-        let layout = r
-            .rendering_layouts
-            .iter()
-            .find(|l| l.name.eq_ignore_ascii_case(&default))
-            .filter(|l| l.kind == "rdlc")?;
-        self.engine
-            .program
-            .apps
-            .get(o.app as usize)?
-            .layout_files
-            .iter()
-            .find(|(p, _)| *p == layout.path)
-            .map(|(_, b)| b.clone())
-    }
-
     /// `Report.RdlcLayout`, `WordLayout` and `ExcelLayout` (static with an id that names a report, or on a variable) of a
     /// report that declares no layout file: no rendering layout, none of the RDLCLayout, WordLayout and ExcelLayout
     /// properties and no reportextension.
     /// - The result used, on a processing-only report: No, and a stream that was never created stays so; EOS of it then
-    ///   raises NotInitialized (report/lt-report-requestpage-query-members/P105LytRdlc.al:63-92, P105LytWord.al,
+    ///   raises NotInitialized (reports/request-page/P105LytRdlc.al:63-92, P105LytWord.al,
     ///   P105LytExcel.al: instance and static).
-    /// - As a statement on a processing-only report: ReportNoLayout for each kind (report/lt-report-members-testrequestpage/
+    /// - As a statement on a processing-only report: ReportNoLayout for each kind (reports/request-page/
     ///   P91Static.al:126, :139, :152 `proconly`).
     /// - As a statement on a report that is not processing-only and names `DefaultLayout = RDLC`: RdlcLayout gives an empty
     ///   stream (:125 `nolayout eos=Yes`), WordLayout and ExcelLayout raise ReportNoLayout (:138, :151).
@@ -973,21 +940,23 @@ impl Session {
                 .iter()
                 .any(|p| prop(p).is_some());
         // As a statement, RdlcLayout of a report whose DefaultRenderingLayout is an RDLC layout with a file gives the file
-        // (report/lt-sc-report-metadata-views/Y6TenantReportLayoutRows.al:35-89, corpus master: Layout.ImportStream of it has a
+        // (reports/runtime/Y6TenantReportLayoutRows.al:35-89, corpus master: Layout.ImportStream of it has a
         // value, and Tenant Report Layout takes it as the report's layout).
         if kind == "RDLC" && !self.ret_used && r.extensions.is_empty() {
             if let Some(bytes) = self.default_rdlc_layout_file(object) {
                 let Some(stream) = stream else {
                     return unsupported("Report.RdlcLayout without a stream");
                 };
-                if !al_builtins::stream::create_in_of(stream, bytes) {
+                if !al_builtins::stream::create_in_of(stream, self.rdlc_layout_stream(object, bytes)?) {
                     return unsupported(
                         "Report.RdlcLayout into a stream that was created (what it does to the stream is not pinned)",
                     );
                 }
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RdlcLayoutStreamIsTheLayoutFile);
                 return Ok(Value::Boolean(true));
             }
+        }
+        if let Some(done) = self.rendering_layout_stream(object, kind, stream) {
+            return done;
         }
         if declares_file {
             return unsupported(format!(
@@ -1034,7 +1003,7 @@ impl Session {
 
     /// The instance of reportextension `ext` that belongs to report variable `base`: made at first use and kept
     /// with the variable, so the extension's globals and added data items keep their state across calls, `SaveAs`
-    /// and `Execute`; a `Run` and a `Clear` drop it (reportext/W3RpExtProcedures.al:ExtensionProcedure_*).
+    /// and `Execute`; a `Run` and a `Clear` drop it (reports/extensions/W3RpExtProcedures.al:ExtensionProcedure_*).
     /// The first use of the variable runs `OnInitReport`, as a call of any of its procedures does.
     pub(crate) fn report_extension_instance(&mut self, base: &Inst, ext: usize) -> Result<Inst, Signal> {
         let (base, _) = self.report_instance(Some(Value::Codeunit(base.clone())), false)?;
@@ -1061,104 +1030,6 @@ impl Session {
             },
             None => unsupported(format!("object {object} is not a report")),
         }
-    }
-
-    /// A fresh instance of the report with the id in `arg`.
-    /// `Report.WordXmlPart([Number,] [ExtendedFormat])`: the XML of the data set as text, from the report's
-    /// data items and columns alone (nothing runs). Pinned by the corpus staging branch (types/PZMisc.al:
-    /// WordXmlPart_BothOverloads_ReportWithoutWordLayout and WordXmlPart_Content_IncludesTheColumns, BC 29.0):
-    /// a report with only an RDLC layout answers a text that starts with `<` and holds the data item and
-    /// column names and `urn:microsoft-dynamics-nav`, with either flag; an unknown report id fails with the code
-    /// AL:MetadataNotFound and the missing-object text (P91Static.al:167-168). The rest follows what the owner's Pageworks code reads
-    /// (a `NavWordReportXmlPart` root, a `Labels` block, nested data items, `ElementType` DataItem / Column
-    /// with the flag): unprobed, docs/probes-needed.md "Report.WordXmlPart".
-    fn report_word_xml_part(
-        &mut self,
-        id: al_ir::BuiltinId,
-        receiver: Option<Value>,
-        args: &[Value],
-    ) -> Result<Value, Signal> {
-        let static_form = id == ids::REPORT_WORDXMLPART_2;
-        let (flag_at, schema) = if static_form {
-            let known = match args.first() {
-                Some(Value::Integer(n)) => self.engine.program.objects.heads().iter().any(|o| {
-                    (o.is_kind(al_ir::ObjKind::Report) || o.is_shell_of(al_ir::ObjKind::Report))
-                        && o.id == u32::try_from(*n).ok()
-                }),
-                _ => true,
-            };
-            if !known {
-                let n = match args.first() {
-                    Some(Value::Integer(n)) => i64::from(*n),
-                    _ => 0,
-                };
-                if let Some(why) = self.missing_may_be_skipped("Report", n) {
-                    return unsupported(why);
-                }
-                // The missing-object error (report/lt-report-members-testrequestpage/P91Static.al:167-168, ids 0 and 71999).
-                // Only from a try function is it pinned: which object the text names elsewhere is not.
-                if self.tx.try_depth == 0 {
-                    return unsupported(
-                        "Report.WordXmlPart of an id no report has, called outside a try function (only from a try function is it pinned)",
-                    );
-                }
-                return Err(self.missing_object("Report", n));
-            }
-            (1, self.report_by_number(id, args.first())?.1)
-        } else {
-            let inst = self.report_instance(receiver, false)?.0;
-            (0, self.report_schema(&inst)?)
-        };
-        let extended = match args.get(flag_at) {
-            None => false,
-            Some(Value::Boolean(b)) => *b,
-            Some(other) => return unsupported(format!("{id} with the flag {}", other.describe())),
-        };
-        let report = schema.report();
-        if !report.extensions.is_empty() {
-            return unsupported("Report.WordXmlPart of a report that reportextensions change (not pinned)");
-        }
-        let tag = |name: &str| -> Result<String, Signal> {
-            if name
-                .chars()
-                .all(|c| c.is_alphanumeric() || matches!(c, ' ' | '_' | '-'))
-                && !name.is_empty()
-            {
-                Ok(name.replace(' ', "_"))
-            } else {
-                unsupported(format!(
-                    "Report.WordXmlPart of the name `{name}`: how BC legalizes it as an XML tag is not pinned"
-                ))
-            }
-        };
-        fn items(
-            report: &ir::Report,
-            parent: Option<usize>,
-            extended: bool,
-            tag: &dyn Fn(&str) -> Result<String, Signal>,
-            out: &mut String,
-        ) -> Result<(), Signal> {
-            for (i, item) in report.items.iter().enumerate().filter(|(_, it)| it.parent == parent) {
-                let name = tag(&item.name)?;
-                let kind = if extended { " ElementType=\"DataItem\"" } else { "" };
-                out.push_str(&format!("<{name}{kind}>"));
-                for c in &item.columns {
-                    let cn = tag(&c.name)?;
-                    let kind = if extended { " ElementType=\"Column\"" } else { "" };
-                    out.push_str(&format!("<{cn}{kind} />"));
-                }
-                items(report, Some(i), extended, tag, out)?;
-                out.push_str(&format!("</{name}>"));
-            }
-            Ok(())
-        }
-        let mut body = String::new();
-        items(report, None, extended, &tag, &mut body)?;
-        let number = self.object_id_of(schema.object as u32);
-        Ok(Value::Text(format!(
-            "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?><NavWordReportXmlPart xmlns=\"urn:microsoft-dynamics-nav/reports/{}/{number}/\"><Labels />{body}</NavWordReportXmlPart>",
-            tag(schema.name())?
-        ).into()))
     }
 
     /// Report `arg` (a number) is processing-only and declares UseSystemPrinter: the shape whose `Print` is pinned.
@@ -1201,8 +1072,8 @@ impl Session {
                 ));
             }
             // Run and RunModal raise the missing-object error, from the test method itself (naming Test Runner - Mgt,
-            // report/lt-report-members-testrequestpage/P91Run.al:117-139 Run_InvalidIds) and from a try function (naming the
-            // test codeunit, misc/W5MissingObject.al:49); Execute only from the test method itself is pinned (P91Run.al:154-165).
+            // reports/request-page/P91Run.al:117-139 Run_InvalidIds) and from a try function (naming the
+            // test codeunit, errors/W5MissingObject.al:49); Execute only from the test method itself is pinned (P91Run.al:154-165).
             let pinned = matches!(id, ids::REPORT_RUN_3 | ids::REPORT_RUNMODAL_3)
                 || (id == ids::REPORT_EXECUTE_3 && self.in_test_method_itself());
             if pinned {
@@ -1228,14 +1099,14 @@ impl Session {
         record_ref: Option<&Value>,
     ) -> Result<Option<String>, Signal> {
         // A parameters string with `<Options><Field name=..>` sets the request page's Text, Boolean and Integer variables
-        // before OnPreReport, and a field name no control has is skipped (report/lt-wd/WdReportExecuteParams.al:50-77, corpus
+        // before OnPreReport, and a field name no control has is skipped (reports/WdReportExecuteParams.al:50-77, corpus
         // branch al-runtime-rs-staging-1030c, al-runner issue 6306). Only the form `RunRequestPage` writes is read
         // (`apply_request_parameters`).
         let parameters = match parameters {
             Some(Value::Text(s)) if s.is_empty() => None,
             // A `<DataItem name="..">VIEW</DataItem>` replaces the item's view for this run only, over a SetTableView; an
             // unknown item name is skipped and an empty view clears it (corpus master, corpus PR 886:
-            // report/lt-report-requestpage/ExecuteParamsTwiceAndViews.al:185-235; `apply_request_parameters`).
+            // reports/request-page/ExecuteParamsTwiceAndViews.al:185-235; `apply_request_parameters`).
             Some(Value::Text(s)) => Some(s.to_string()),
             other => {
                 return unsupported(format!(
@@ -1256,8 +1127,8 @@ impl Session {
     pub(crate) fn first_use(&mut self, inst: &Inst) -> Result<(), Signal> {
         // A report variable a `Run` just reset starts again with its next call of anything but `Run`: `OnInitReport`
         // runs again, so a procedure called after a Run sees what OnInitReport set (corpus
-        // pages/lt-page-report-events/P84ReportSender.al:Triggers_Run_SenderInEachTrigger: `GetMarker()` after `Run()` is
-        // `init`; report/TestProbeReportContracts.al:ReportVariable_RunTwice_GlobalsReset for the builtins).
+        // pages/triggers/P84ReportSender.al:Triggers_Run_SenderInEachTrigger: `GetMarker()` after `Run()` is
+        // `init`; reports/TestProbeReportContracts.al:ReportVariable_RunTwice_GlobalsReset for the builtins).
         if std::mem::take(&mut inst.borrow_mut().rerun) {
             inst.borrow_mut().initialized = false;
         }
@@ -1271,7 +1142,7 @@ impl Session {
         // survives the run. Assumed (request-page-oninit-at-first-use) for Microsoft's tests: Library - Manufacturing
         // RefreshProdOrder calls Refresh Production Order's InitializeRequest(CalcLines = false), whose request page OnInit sets
         // CalcLines := true (Tests-SCM 137402 CapacityCostPostedToGLForTwoItemsInOneProductionOrder). A page variable's procedure
-        // before its open runs OnInit first in the same way (handlers/TestPageOnInit_Tests.al:188).
+        // before its open runs OnInit first in the same way (testpage/TestPageOnInit_Tests.al:188).
         self.request_page_init_at_first_use(inst)?;
         // A procedure the caller runs on the variable before the run (`SetParameters`) may set what the request page
         // shows (`restore_page_values`).
@@ -1287,7 +1158,7 @@ impl Session {
 
     /// The request page's OnInit of a report that a procedure uses first (see `first_use`): it runs right after OnInitReport and
     /// before the procedure's body, and the run does not run it again, with or without the request page
-    /// (report/lt-request-page-oninit/RequestPageOnInitFirstUse.al:104-185). An OnInit a reportextension adds is left to the run,
+    /// (reports/request-page/RequestPageOnInitFirstUse.al:104-185). An OnInit a reportextension adds is left to the run,
     /// which refuses it.
     fn request_page_init_at_first_use(&mut self, inst: &Inst) -> Result<(), Signal> {
         let object = inst.borrow().object as usize;
@@ -1348,7 +1219,7 @@ impl Session {
             return Ok(false);
         };
         // CurrReport.Quit in OnInitReport stops OnPreReport and the body
-        // (handlers/TestReportOnInitReportTiming.al:88-98, QuitInOnInitReport_StopsPreReportAndBody).
+        // (reports/TestReportOnInitReportTiming.al:88-98, QuitInOnInitReport_StopsPreReportAndBody).
         let saved = self.report.report_init_depth.replace(self.depth + 1);
         self.report.report_quit = false;
         let region = o.report.as_ref().and_then(|r| r.format_region.clone());
@@ -1363,8 +1234,8 @@ impl Session {
         Ok(quit)
     }
 
-    /// `CurrReport.Quit`: from `OnInitReport` (handlers/TestReportOnInitReportTiming.al:88-98),
-    /// `OnPreReport` and `OnAfterGetRecord` (handlers/TestReportRuntimeContracts.al:355-368); it is
+    /// `CurrReport.Quit`: from `OnInitReport` (reports/TestReportOnInitReportTiming.al:88-98),
+    /// `OnPreReport` and `OnAfterGetRecord` (reports/TestReportRuntimeContracts.al:355-368); it is
     /// not pinned anywhere else.
     fn report_quit_builtin(&mut self, running: &Inst) -> Result<Value, Signal> {
         let object = running.borrow().object as usize;
@@ -1381,7 +1252,7 @@ impl Session {
     /// `CurrReport.Skip`, `Break` and `Quit` called straight from a report trigger: the trigger
     /// ends and the run reads the request (`report_trigger_call`).
     /// `CurrReport.ShowOutput`, `TotalsCausedBy` and `CreateTotals` in a processing-only report, which prints no
-    /// section: ShowOutput reads No and ShowOutput(Boolean) changes nothing (report/lt-report-requestpage-query-members/
+    /// section: ShowOutput reads No and ShowOutput(Boolean) changes nothing (reports/request-page/
     /// P105ShowOutput.al:94-130, in OnPreDataItem, OnAfterGetRecord and OnPostDataItem; report/lt-report-members-
     /// testrequestpage/P91Inst.al:89-90 and :186 in OnPreReport), TotalsCausedBy is 0 (P91Inst.al:46, :51, :118, in
     /// OnAfterGetRecord and OnPostDataItem; P105TotScalar.al:60), and CreateTotals in OnPreDataItem leaves the variables as
@@ -1422,14 +1293,14 @@ impl Session {
                 // second Run of the variable); PrintOnlyIfDetail reads No, and back what OnPreReport set (:89-94, :186).
                 ("NewPage", Some(TrigKind::Row)) => true,
                 // PaperSource(Bin) and PaperSource(Bin, Page) in OnPreDataItem change nothing, for bins 1, 2, 0 and -1
-                // (report/lt-report-requestpage-query-members/P105Paper.al:33-45, :86-121).
+                // (reports/request-page/P105Paper.al:33-45, :86-121).
                 ("PaperSource", Some(TrigKind::PreItem)) => args.iter().all(|a| matches!(a, Value::Integer(_))),
                 ("PageNo", Some(TrigKind::Row)) => !setter,
                 ("PrintOnlyIfDetail", Some(TrigKind::Pre)) => {
                     args.is_empty() || matches!(args.first(), Some(Value::Boolean(_)))
                 }
                 // The getter outside a run (a procedure of a report variable never run) reads No
-                // (report/lt-y36-bare-report-member/Y36BareReportMember.al:206-233 `onlyifdetail=No/No`).
+                // (reports/bare-report-member/Y36BareReportMember.al:191-218 `onlyifdetail=No/No`).
                 ("PrintOnlyIfDetail", None) => args.is_empty() && self.report.report_trigger.is_none(),
                 _ => false,
             }
@@ -1466,7 +1337,7 @@ impl Session {
             let o = &self.engine.program.objects[object];
             o.is_kind(al_ir::ObjKind::Report) || o.is_kind(al_ir::ObjKind::ReportExtension)
         };
-        // From the trigger itself or from a procedure it calls (report/W3ReportSkipBreakQuit.al:
+        // From the trigger itself or from a procedure it calls (reports/W3ReportSkipBreakQuit.al:
         // *_InProcedureCalledFromOnAfterGetRecord); every other trigger kind is not pinned.
         let allowed = match self.report.report_trigger {
             Some((depth, kind)) if on_report && self.depth >= depth => kind != TrigKind::Other,
@@ -1505,7 +1376,7 @@ impl Session {
 
     /// Whether a `Run` of `inst` opens the request page: the variable's own `UseRequestPage(..)`
     /// first, else the report's property, which is true when it is not declared
-    /// (handlers/TestReportRuntimeContracts.al:416-440).
+    /// (reports/TestReportRuntimeContracts.al:416-440).
     fn report_shows_page(inst: &Inst, schema: &Schema) -> Result<bool, Signal> {
         match inst.borrow().globals[schema.report().request_flag_slot] {
             Value::Integer(REQUEST_PAGE_ON) => Ok(true),
@@ -1520,11 +1391,11 @@ impl Session {
     }
 
     /// The variable is reset after `Run`: its globals go back to their defaults, and
-    /// `OnInitReport` does not run again (handlers/TestReportRuntimeContracts.al:395-414; a global
-    /// read afterwards is a default: handlers/TestReportSetTableView.al:17-22,
-    /// handlers/TestReportRunWithRequestPage.al:32-36).
+    /// `OnInitReport` does not run again (reports/TestReportRuntimeContracts.al:395-414; a global
+    /// read afterwards is a default: reports/TestReportSetTableView.al:17-22,
+    /// reports/TestReportRunWithRequestPage.al:32-36).
     /// A variable after `Run` holds a new instance; whoever kept the instance that ran (a SingleInstance codeunit that stored `this`) still
-    /// reads its state (report/lt-report-this-passed-on/P141ThisStored.al:P141_StoredAfterRun_ReadAndChange `ok:post`, _SecondRunReplaces).
+    /// reads its state (reports/runtime/P141ThisStored.al:P141_StoredAfterRun_ReadAndChange `ok:post`, _SecondRunReplaces).
     pub(crate) fn report_fresh_instance(&mut self, old: &Inst) -> Inst {
         let object = old.borrow().object as usize;
         let fresh = self.instance(object);
@@ -1545,7 +1416,7 @@ impl Session {
         inst.borrow_mut().exts.clear();
         self.report
             .request_captions
-            .retain(|(w, _)| w.upgrade().is_some_and(|i| !Rc::ptr_eq(&i, inst)));
+            .retain(|(w, ..)| w.upgrade().is_some_and(|i| !Rc::ptr_eq(&i, inst)));
     }
 
     // ------------------------------------------------------------------ table views
@@ -1561,7 +1432,7 @@ impl Session {
         }
     }
 
-    /// "The <report> report does not have a DataItem that uses the table ..." (errors/lt-ms-refusals-136/P136Report.al:
+    /// "The <report> report does not have a DataItem that uses the table ..." (record/P136Report.al:
     /// P136_Report_ViewOverTableWithoutDataItem).
     fn report_no_data_item(&self, schema: &Schema, table: u32) -> Signal {
         let (id, name) = {
@@ -1581,10 +1452,10 @@ impl Session {
 
     /// `SetTableView` and the record parameter of the static `Run`: the filters of the given record
     /// go to the one data item over its table
-    /// (handlers/TestReportSetTableView.al:72-86, handlers/TestReportGetFilterInTriggers.al:58-89).
+    /// (reports/TestReportSetTableView.al:72-86, reports/TestReportGetFilterInTriggers.al:58-89).
     fn report_set_view(&mut self, inst: &Inst, schema: &Schema, view: Option<&Value>) -> Result<(), Signal> {
         // A RecordRef handed to `SaveAs` filters the data item over its table the way a view does
-        // (handlers/TestReportSaveAsRecordRefFilter.al:TestReport_SaveAs_FilteredRecordRef_LimitsDatasetToThatRecord).
+        // (streams/TestReportSaveAsRecordRefFilter.al:TestReport_SaveAs_FilteredRecordRef_LimitsDatasetToThatRecord).
         let view = match view {
             Some(Value::Record(view)) => view.clone(),
             Some(Value::Library(_, h)) => match &*h.borrow() {
@@ -1601,13 +1472,13 @@ impl Session {
             .filter(|i| i.table == Some(table as usize))
             .collect();
         // No data item over the table is an error; with several the view filters the first
-        // (corpus errors/lt-ms-refusals-136/P136Report.al:P136_Report_ViewOverTableWithoutDataItem and
+        // (corpus record/P136Report.al:P136_Report_ViewOverTableWithoutDataItem and
         // P136_Report_ViewWithTwoDataItemsOverTheTable: `A:a;A:b;B:a;B:b;B:c;`).
         let target = if let Some(&item) = items.first() {
             self.base_item_record(inst, item)?
         } else {
             // A data item a reportextension adds over the table: the view reaches it as it reaches a base item
-            // (report/lt-y17-ext-settableview/Y17ExtSetTableViewTests.al:83, corpus master; Microsoft's Get Source Documents,
+            // (reports/extension-settableview/Y17ExtSetTableViewTests.al:83, corpus master; Microsoft's Get Source Documents,
             // whose Serv. Get Source Documents extension adds the Service Header and Service Line items).
             let engine = self.engine.clone();
             let added: Vec<(usize, &ir::ReportItem)> = schema
@@ -1671,12 +1542,12 @@ impl Session {
         let v = view.borrow();
 
         // The data item reads the table itself, so a temporary record's rows do not count, only its filters do; the marks of a
-        // marked-only record, its key and its direction carry over (corpus errors/lt-ms-refusals-136/P136Report.al:
+        // marked-only record, its key and its direction carry over (corpus record/P136Report.al:
         // temporary, temporaryFiltered, markedOnly, markedNotOnly, keyQty, keyQtyDescending, descendingPrimary, keyQtyFiltered).
         // A view handed to SetTableView stays in force over a DataItemTableView that only sorts
-        // (handlers/TestReportRuntimeContracts.al:393-410 "Probe Rep Order"). Over one that filters, both apply
+        // (reports/TestReportRuntimeContracts.al:393-410 "Probe Rep Order"). Over one that filters, both apply
         // (the item's filters live in the report's own filter group); GetFilters in OnPreDataItem shows only the SetTableView
-        // filter (report/lt-dataitem-view/DataItemTableView.al:117-205, real BC 29: F 1..2 view and F 2..3 given: count 1, row 2).
+        // filter (reports/dataset/DataItemTableView.al:117-205, real BC 29: F 1..2 view and F 2..3 given: count 1, row 2).
         let mut t = target.borrow_mut();
         let origin: Vec<crate::state::ViewFilterKey> = v
             .filters
@@ -1709,7 +1580,7 @@ impl Session {
         let differs = match schema.report().transaction_type.as_deref() {
             None => false,
             Some("update") => true,
-            // Snapshot runs when no write is pending (handlers/TestReportRuntimeContracts.al:
+            // Snapshot runs when no write is pending (reports/TestReportRuntimeContracts.al:
             // 468-482); with a pending write what BC does is not pinned.
             Some("snapshot") => {
                 if self.in_write_transaction()? {
@@ -1741,8 +1612,8 @@ impl Session {
             }
             return Ok(false);
         }
-        // A run with the request page after an uncommitted insert raises before the page opens (report/lt-y36-bare-report-member/
-        // Y36BareReportMember.al:251-264, Report.Run(Id, true) in a test; the handler is not called).
+        // A run with the request page after an uncommitted insert raises before the page opens (reports/bare-report-member/
+        // Y36BareReportMember.al:236-249, Report.Run(Id, true) in a test; the handler is not called).
         if self.in_write_transaction()? {
             return Err(crate::transactions::transaction_stopped());
         }
@@ -1763,7 +1634,7 @@ impl Session {
         // `window` says whether the request page opens: the instance's UseRequestPage, which falls
         // back on the report's property (record/TestTxModelReportRun.al:11, :60-61: a report with a
         // request page "defaults to true"), or a static call's RequestWindow. A report without a
-        // requestpage section opens its page as well (handlers/TestReportRuntimeContracts.al:416-440).
+        // requestpage section opens its page as well (reports/TestReportRuntimeContracts.al:416-440).
         let shows_page = entry == Entry::Run && window;
         let enters = self.report_enter_world(schema, shows_page)?;
         self.report_run_entered(inst, schema, entry, window, enters)
@@ -1779,7 +1650,7 @@ impl Session {
         enters: bool,
     ) -> Result<(), Signal> {
         self.report.print_only_if_detail = false;
-        // Only a SaveAs of a variable with a language or region is pinned (report/W3ReportObjectIdPreviewLanguage.al:893, :912).
+        // Only a SaveAs of a variable with a language or region is pinned (reports/W3ReportObjectIdPreviewLanguage.al:893, :912).
         if let Some((_, language, region)) = self.variable_culture_of(inst) {
             if language.is_some() || region.is_some() {
                 return unsupported(
@@ -1798,7 +1669,7 @@ impl Session {
         let outer_property = std::mem::take(&mut self.report.region_property);
         let outer_language = self.report.curr_report_language.take();
         // A report without output (a processing-only one) with `FormatRegion = 'de-DE'` formats in that region in its triggers when
-        // Run, RunModal or Execute starts it, as a SaveAs does (report/lt-bd-format-region/BdRegionTests.al:432-459
+        // Run, RunModal or Execute starts it, as a SaveAs does (reports/runtime/BdRegionTests.al:432-459
         // BdProperty_De_RunRunModalExecute); no other region is pinned for a run.
         if let Some(r) = schema
             .report()
@@ -1827,7 +1698,7 @@ impl Session {
 
     /// Runs `body` as the platform runs a report: a run that enters no world still begins a
     /// transaction of its own under TransactionModel::None, which ends with the run
-    /// (codeunit/TestWriteTxTestBoundary.al:259-279, Test11).
+    /// (codeunits/TestWriteTxTestBoundary.al:259-279, Test11).
     fn report_in_world<T>(
         &mut self,
         enters: bool,
@@ -1864,12 +1735,12 @@ impl Session {
     }
 
     /// `RunRequestPage`: the request page and nothing else. A cancelled page returns no parameters
-    /// (handlers/TestReportRunRequestPage.al:TestReport_RunRequestPage_CancelledHandlerReturnsNoParameters);
+    /// (reports/TestReportRunRequestPage.al:TestReport_RunRequestPage_CancelledHandlerReturnsNoParameters);
     /// confirming it is not a run, so a `SaveValues` page does not remember what was confirmed
-    /// (handlers/TestReportRequestPageSaveValues.al:SourceReport_SaveValues_RunRequestPageReturnsTheValueWithoutSavingIt).
+    /// (reports/TestReportRequestPageSaveValues.al:SourceReport_SaveValues_RunRequestPageReturnsTheValueWithoutSavingIt).
     fn report_request_only(&mut self, inst: &Inst, schema: &Schema, seed: Option<&str>) -> Result<String, Signal> {
         // A [ReportHandler] answers RunRequestPage as well, and the parameters are empty
-        // (report/lt-ae-reporthandler/AeReportHandler.al:146-158 RunRequestPage_WithReportHandler).
+        // (reports/reporthandler/AeReportHandler.al:146-158 RunRequestPage_WithReportHandler).
         if seed.is_none() && self.report_handler_answers(inst, schema)? {
             return Ok(String::new());
         }
@@ -1904,9 +1775,9 @@ impl Session {
 
     /// The instances a run executes (the report, and the reportextension that changes it) with
     /// every data item's own view in force. The views are in force before the request page opens
-    /// (handlers/TestReportMultiLineDataItemView.al: "the request page applies those views to the
+    /// (reports/TestReportMultiLineDataItemView.al: "the request page applies those views to the
     /// data items before the handler runs") and before OnPreReport, which may refine them
-    /// (handlers/TestReportGetFilterInTriggers.al:43-52 reads the view there).
+    /// (reports/TestReportGetFilterInTriggers.al:43-52 reads the view there).
     /// The `Schema` of the report `inst` is an instance of.
     pub(crate) fn report_schema_of(&self, inst: &Inst) -> Result<Schema, Signal> {
         self.report_schema(inst)
@@ -1945,8 +1816,8 @@ impl Session {
     fn report_prepare(&mut self, inst: &Inst, schema: &Schema, zero_date_pinned: bool) -> Result<Run, Signal> {
         self.report.zero_date_view_failed = false;
         // ShowPrintStatus is inert (al-sema reports.rs `INERT_OBJECT_PROPERTIES`): `false` with Report.Run
-        // (pages/lt-report-page-properties/03-report-showprint.al:9, :43-45), and true, false and unset with Run, RunModal,
-        // Execute and SaveAs (report/lt-tk-showprintstatus/LtTkShowPrintStatus.al).
+        // (pages/properties/03-report-showprint.al:9, :43-45), and true, false and unset with Run, RunModal,
+        // Execute and SaveAs (reports/runtime/LtTkShowPrintStatus.al).
         let report = schema.report();
         // A reportextension that changes the run gets an instance of its own for this run, whose
         // names for the base items point at the report's own records.
@@ -1980,8 +1851,8 @@ impl Session {
             let blank_dates = crate::views::blank_date_conditions(&t, &view);
             if !blank_dates.is_empty() {
                 // `where(Date field = const(0D))` compiles, but the run fails before OnPreReport and before any data item
-                // trigger: Evaluate of the date '' (report/lt-cj-report-leads/CjDataset.al:190-211,
-                // ZeroDateView_ConstZeroDate_SaveAsXml; errors/lt-ms-refusals-136/P136Report.al:331-351,
+                // trigger: Evaluate of the date '' (streams/CjDataset.al:190-211,
+                // ZeroDateView_ConstZeroDate_SaveAsXml; record/P136Report.al:331-351,
                 // BN3_Report_DataItemTableViewConstZeroDate). Pinned for a report with no request page and no
                 // OnInitReport; where the error falls against those, and `filter(0D)`, are not pinned.
                 if blank_dates.iter().any(|(_, kind)| kind != "CONST") {
@@ -2000,18 +1871,18 @@ impl Session {
                 })));
             }
             // A view that only sorts leaves the filters a SetTableView gave the item in force
-            // (handlers/TestReportRuntimeContracts.al:393-410).
+            // (reports/TestReportRuntimeContracts.al:393-410).
             let kept = Some(rec.borrow().filters.clone());
             let filtering = view.to_ascii_lowercase().contains("where");
             // A view that only filters keeps the key and direction a SetTableView gave the item (corpus
-            // report/lt-report-set-table/ReportSetTableViewOverWhere.al:P163_SetTableView_OverWhere_KeyOfTheView: key Txt, 4|3|2).
+            // reports/dataset/ReportSetTableViewOverWhere.al:P163_SetTableView_OverWhere_KeyOfTheView: key Txt, 4|3|2).
             let kept_order = {
                 let r = rec.borrow();
                 (r.key, r.adhoc.clone(), r.ascending, r.field_descending)
             };
             let sorts = view.to_ascii_lowercase().contains("sorting");
             // The filters of a DataItemTableView are the report's, not the record's: GetFilters does not show them, in
-            // OnPostReport either (report/TestProbeReportContracts.al:TriggerOrder_NestedAndSecondItem).
+            // OnPostReport either (reports/TestProbeReportContracts.al:TriggerOrder_NestedAndSecondItem).
             self.set_view_in(&rec, &t, &view, Some(ITEM_VIEW_GROUP), false, false, false)?;
             if !sorts {
                 let mut r = rec.borrow_mut();
@@ -2035,11 +1906,10 @@ impl Session {
     }
 
     /// A filter a procedure of the report set on a data item (`RowDi.SetFilter`) before the request page opens is not on the page: the
-    /// page shows the filters of a `SetTableView` and what was stored (report/lt-requestpage-savevalues-date-text-setvalue/
+    /// page shows the filters of a `SetTableView` and what was stored (reports/request-page/
     /// P147SaveValuesFilter.al:P147_Filter_ProcedureFilterVsStored, `procedure filter B* code filter = []`; the view of
     /// P147_Filter_SetTableViewVsStored is shown). The page's own filters replace the item's user filters when it closes with OK, so what a
-    /// procedure set is gone for that run; with a cancelled page there is no run. Whether the run keeps it is not pinned (registry entry
-    /// report-procedure-filter-under-request-page).
+    /// procedure set is gone for that run (Y86RequestFilters.al Y86_ProcedureFilter_*); with a cancelled page there is no run.
     fn hide_procedure_filters(&mut self, run: &Run) -> Result<bool, Signal> {
         let mut any = false;
         for r in run.all_items() {
@@ -2081,7 +1951,7 @@ impl Session {
                 "Report {} does not have a valid layout. Valid layout types are: Word, RDLC, Excel, and Custom.",
                 self.object_id_of(schema.object as u32)
             ),
-            // The code is ReportNoLayout (pages/lt-obsolete-layout-parts/P117NoLayout.al:57, misc/lt-probes-needed-8/PnH6SaveAs.al:254, :389).
+            // The code is ReportNoLayout (pages/parts/P117NoLayout.al:57, streams/PnH6SaveAs.al:254, :389).
             code: "ReportNoLayout".into(),
             call_stack: String::new(),
             ..Default::default()
@@ -2111,6 +1981,12 @@ impl Session {
         run.dataset = save_as.is_some();
         if !shows_page {
             self.request_page_init_unshown(inst, schema)?;
+            // A plain run without the page ignores the filters a procedure set on a data item too (reports/request-page/
+            // Y86RequestFilters.al Y86_ProcedureFilter_NoRequestPage: UseRequestPage(false), RunModal, all rows). Execute and SaveAs
+            // apply parameters of their own and are left as they were.
+            if save_as.is_none() && execute_parameters.is_none() {
+                self.hide_procedure_filters(&run)?;
+            }
         }
         if let Some(xml) = save_as.filter(|x| !x.is_empty()) {
             self.apply_run_parameters(inst, schema, &run, xml, false)?;
@@ -2118,25 +1994,25 @@ impl Session {
             // An Execute skips a field name no control has (WdReportExecuteParams.al:69-77 WD_ReportExecute_UnknownField).
             self.apply_run_parameters(inst, schema, &run, xml, true)?;
             // The values land after the request page's OnInit; its OnOpenPage and OnClosePage follow (no OnQueryClosePage), and a
-            // control the parameters do not name keeps OnInit's value (report/lt-report-requestpage/Y12ExecuteOnInit.al:117-143,
+            // control the parameters do not name keeps OnInit's value (reports/request-page/Y12ExecuteOnInit.al:117-143,
             // corpus branch al-runtime-rs-staging-y12, al-runner issue 6446; RptRequestPage.al:878-893). An empty string runs
             // neither (Y12ExecuteOnInit.al:145-156): `execute_parameters` holds no empty string. A page without OnInit runs its
-            // OnOpenPage too, also for the parameters of another report (misc/lt-y14-triage/Y14ReportSubstitute.al:389
+            // OnOpenPage too, also for the parameters of another report (reports/Y14ReportSubstitute.al:389
             // `B-rp-open`, `A-rp-open`, corpus master).
             self.request_page_open_close_unshown(inst, schema)?;
             crate::report_no_layout_file::execute_check(self, schema)?;
         }
         // The request page opens once the items' views are in force; what the handler filters is
         // what the run reads, so the views are not applied again afterwards. A cancelled page ends
-        // the run without an error (handlers/TestReportRunWithRequestPage.al:
+        // the run without an error (reports/TestReportRunWithRequestPage.al:
         // Report_Run_CancelledRequestPageRunsNothingAndRaisesNoError).
         if shows_page {
-            let hidden = self.hide_procedure_filters(&run)?;
+            self.hide_procedure_filters(&run)?;
             let ext: Vec<(usize, Inst)> = run.exts.iter().map(|(i, e)| (*e, i.clone())).collect();
             match self.run_request_page(inst, schema.object, None, ext, false)?.0 {
                 RequestClosed::Cancel => return Ok(false),
                 // The handler's `SaveAsXml` ran the report there and then
-                // (al-language-onprem/handlers/TestRequestPageSaveAsXmlContracts.al:
+                // (al-language-onprem/reports/TestRequestPageSaveAsXmlContracts.al:
                 // SaveAsXml_RunsTheReportOnce_AndClosesTheRequestPage): it does not run a second time.
                 RequestClosed::SavedAsXml => return Ok(true),
                 // After the Preview action a report without a valid layout fails as after OK (W3ReportObjectIdPreviewLanguage.al:
@@ -2160,13 +2036,7 @@ impl Session {
                         }
                     }
                 }
-                RequestClosed::Ok => {
-                    if hidden {
-                        al_builtins::assumptions::assume(
-                            al_builtins::assumptions::Assumption::ReportProcedureFilterUnderRequestPage,
-                        );
-                    }
-                }
+                RequestClosed::Ok => {}
             }
         }
         self.report_after_page(&run, schema)
@@ -2175,7 +2045,7 @@ impl Session {
     /// A run that would show the request page calls the test's `[ReportHandler]` for the report instead, when it bound one:
     /// the request page's OnInit runs (not its OnOpenPage), then the handler gets the report, and the run ends there; what
     /// the handler does with the report (Run, RunModal, SetTableView, SaveAs, UseRequestPage, an error) is its own
-    /// (report/lt-ae-reporthandler/AeReportHandler.al:31-158, AeReportHandlerCalls.al). Execute, SaveAs and a run without
+    /// (reports/reporthandler/AeReportHandler.al:31-158, AeReportHandlerCalls.al). Execute, SaveAs and a run without
     /// the page do not call it (AeReportHandler.al:85, :121, :133). Pinned for a processing-only report with a request page
     /// only; another report, and a test that binds a [RequestPageHandler] for the same report too, are refused.
     fn report_handler_answers(&mut self, inst: &Inst, schema: &Schema) -> Result<bool, Signal> {
@@ -2208,10 +2078,10 @@ impl Session {
     }
 
     /// The request page's `OnInit` runs although the page is not shown, after OnInitReport and before OnPreReport, and
-    /// OnOpenPage does not: a SaveAs (misc/lt-probes-needed-2/PnBReportSaveAs.al:348 TriggerOrder, :262 Rows_SkipAndBreak),
-    /// an Execute and a Run with UseRequestPage(false) (report/lt-ae-reporthandler/AeReportHandler.al:85, :121). The values of
+    /// OnOpenPage does not: a SaveAs (text/PnBReportSaveAs.al:348 TriggerOrder, :262 Rows_SkipAndBreak),
+    /// an Execute and a Run with UseRequestPage(false) (reports/reporthandler/AeReportHandler.al:85, :121). The values of
     /// an Execute's or a SaveAs's parameters land after it (`report_body`). Not pinned, and refused: an OnInit a reportextension
-    /// adds to the page. The values of a SaveAs's parameters landing after it: report/lt-y68-selfclosing-params/
+    /// adds to the page. The values of a SaveAs's parameters landing after it: reports/runtime/
     /// Y68SelfClosingParams.al:420-444 (Q1_SaveAs_SelfClosing_DataReport, a control they do not name keeps OnInit's value).
     /// Returns whether the trigger ran here.
     fn request_page_init_unshown(&mut self, inst: &Inst, schema: &Schema) -> Result<bool, Signal> {
@@ -2238,7 +2108,7 @@ impl Session {
             return Ok(false);
         }
         // It ran at the procedure that used the variable first and does not run again
-        // (report/lt-request-page-oninit/RequestPageOnInitFirstUse.al:104-185).
+        // (reports/request-page/RequestPageOnInitFirstUse.al:104-185).
         if self.request_page_init_done(inst) {
             return Ok(false);
         }
@@ -2272,8 +2142,8 @@ impl Session {
     pub(crate) fn report_after_page(&mut self, run: &Run, schema: &Schema) -> Result<bool, Signal> {
         let report = schema.report();
         // A report that renders and declares no layout at all stops after OnInitReport and the request page with an error: no
-        // OnPreReport, no data item (report/lt-report-pre-rendering/ReportPreRenderingRun.al: P195_ReportRun_PreRenderingOrder,
-        // P195_ReportExecute_PreRenderingOrder; a cancelled request page ends the run first, pages/lt-page-presentation-properties/
+        // OnPreReport, no data item (reports/layouts-saveas/ReportPreRenderingRun.al: P195_ReportRun_PreRenderingOrder,
+        // P195_ReportExecute_PreRenderingOrder; a cancelled request page ends the run first, pages/properties/
         // P119ReportColumn.al).
         if !run.dataset {
             if let Some(e) = self.no_valid_layout(schema)? {
@@ -2296,7 +2166,7 @@ impl Session {
             ));
         }
         // A filter an item gets in OnPreReport is discarded: OnPreDataItem sees the view the item
-        // had before it (handlers/TestReportRuntimeContracts.al:371-390).
+        // had before it (reports/TestReportRuntimeContracts.al:371-390).
         let mut kept = Vec::new();
         for r in run.all_items() {
             let rec = self.report_item_record(run, r)?;
@@ -2327,7 +2197,7 @@ impl Session {
             }
         }
         // OnPreRendering runs once the data items are done and before OnPostReport, with an empty payload, in a run that writes the dataset
-        // (report/lt-report-pre-rendering/ReportPreRenderingSaveAsXml.al: P195_SaveAsXml_PreRenderingOrder `OnPreRendering keys=0`). A
+        // (reports/layouts-saveas/ReportPreRenderingSaveAsXml.al: P195_SaveAsXml_PreRenderingOrder `OnPreRendering keys=0`). A
         // run that renders is refused above or stops on its missing layout; the trigger of such a run is not pinned.
         if let Some(r) = report.on_pre_rendering {
             let payload = Value::Library(
@@ -2365,14 +2235,14 @@ impl Session {
     /// each row, `OnPostDataItem`. A nested item runs again for every row of its parent, over the
     /// rows its `DataItemLink` joins to that row
     /// (reportextension/TestReportExtensionTriggers.al:253-259 for the repetition,
-    /// handlers/TestReportNestedLinkImplicitParent.al:113-134 for the link). A reportextension's
+    /// reports/dataset/TestReportNestedLinkImplicitParent.al:113-134 for the link). A reportextension's
     /// `modify` triggers bracket the base item's `OnAfterGetRecord`, row by row (:262-268), and
     /// the items it adds run after the item's own nested items.
     ///
     /// Returns whether the report was quit. `CurrReport.Skip` in `OnAfterGetRecord` leaves out the
     /// nested items of that row, `Break` ends this item (its `OnPostDataItem` and the later items
     /// still run), `Quit` ends the whole report without `OnPostDataItem` and `OnPostReport`
-    /// (handlers/TestReportRuntimeContracts.al:322-368).
+    /// (reports/TestReportRuntimeContracts.al:322-368).
     fn report_item(
         &mut self,
         run: &Run,
@@ -2393,13 +2263,13 @@ impl Session {
             None => parent_rec,
         };
         if let Some(parent) = parent_rec {
-            // The link filter is hidden from GetFilters (handlers/TestReportRuntimeContracts.al:62-90).
+            // The link filter is hidden from GetFilters (reports/TestReportRuntimeContracts.al:62-90).
             let table = self.table(&rec)?;
             let engine = self.engine.clone();
             let parent_def = engine.program.objects[parent.borrow().table as usize].table.as_ref();
             for &(own, other) in &item.link {
                 // A link from a FlowFilter of the parent: the child's field gets the parent's filter on the FlowFilter, hidden from
-                // the child's GetFilter like any link filter; with no filter on it, no filter (report/lt-report-requestpage/
+                // the child's GetFilter like any link filter; with no filter on it, no filter (reports/request-page/
                 // RptFilters.al QP_DataItemLink_FlowFilter_NoFilter, _SingleValue, _Range, _OrFilter, _ReportRunPlain). Pinned for
                 // one filter on a field of the same type (Code[10]); several filter groups or another type are refused.
                 // Tests-ERM 134404 and 134429 reach it (report 1200 links "Currency Code" = field("Currency Filter")).
@@ -2457,7 +2327,7 @@ impl Session {
             ItemRef::Added(..) => Vec::new(),
         };
         // `OnPreDataItem` of the base, with the extensions' OnBefore/OnAfterPreDataItem around it,
-        // each in object id order (corpus reportextensiontrigger/TestReportExtensionBaseMembersContracts.al:
+        // each in object id order (corpus reports/extensions/TestReportExtensionBaseMembersContracts.al:
         // "for every trigger the base runs first, then the extensions").
         for &(k, m) in &modifies {
             if let Some(t) = m.before_pre {
@@ -2480,7 +2350,7 @@ impl Session {
             }
         }
         // A `ClearAll` in `OnPreDataItem` gave the item a fresh record, with no filters; the rows are read into that one
-        // (corpus errors/lt-ms-refusals-135/P135ClearAllReport.al:P135_ClearAll_In_OnPreDataItem: `row 1`, `row 2`).
+        // (corpus reports/runtime/P135ClearAllReport.al:P135_ClearAll_In_OnPreDataItem: `row 1`, `row 2`).
         rec = self.report_item_record(run, r)?;
         self.ret_used = true;
         let mut more = !no_rows && matches!(self.record_op(RecordOp::FindSet, &rec, &mut [])?, Value::Boolean(true));
@@ -2494,8 +2364,8 @@ impl Session {
         'rows: while more {
             iterations += 1;
             // The CalcFields property: the listed FlowFields of the row, before its triggers. Pinned for one field of a
-            // top-level item (misc/lt-probes-needed-8/PnH3Link.al:CalcFields_Property_CalculatesTheFlowField) and for two
-            // fields of a nested item a report extension adds (report/lt-aq/AqTests.al:184 CalcFields_ExtensionDataItem_Values);
+            // top-level item (reports/PnH3Link.al:CalcFields_Property_CalculatesTheFlowField) and for two
+            // fields of a nested item a report extension adds (reports/AqTests.al:184 CalcFields_ExtensionDataItem_Values);
             // a listed field that is not a FlowField fails the run (AqTests.al:197 CalcFields_NormalField_Run).
             if !item.calc_fields.is_empty() {
                 self.calc_fields(&rec, &item.calc_fields)?;
@@ -2544,7 +2414,7 @@ impl Session {
                 }
             }
             // MaxIteration stops the item after that many rows, a skipped row counting (misc/lt-probes-needed-8/
-            // PnH3Link.al:MaxIteration_* for an Integer item; report/lt-maxiteration-zero/MaxIterationZero.al:153-199 for a
+            // PnH3Link.al:MaxIteration_* for an Integer item; reports/dataset/MaxIterationZero.al:153-199 for a
             // record item). A record item moves to the next row first: OnPostDataItem reads row 3 after two rows
             // (MaxIterationZero.al:160 `post at 3`). Where an Integer item stands then is not pinned; it stays.
             if item.max_iteration.is_some_and(|m| iterations >= m) {
@@ -2562,7 +2432,7 @@ impl Session {
             d.item_done(since, read_any);
         }
         // `OnPostDataItem` of the base, with the extensions' OnBefore/OnAfterPostDataItem around it
-        // (reportext/W3RpExtProcedures.al:SaveAs_AddedItem_RunsAfterTheParentsNestedItems_Order, BC 27.5 and 29.0).
+        // (reports/extensions/W3RpExtProcedures.al:SaveAs_AddedItem_RunsAfterTheParentsNestedItems_Order, BC 27.5 and 29.0).
         for &(k, m) in &modifies {
             if let Some(t) = m.before_post {
                 let (ext_inst, e) = &run.exts[k];
@@ -2642,29 +2512,62 @@ impl Run {
         out
     }
 
+    /// The items nested directly under `r`, in the order they run (`ItemTree::children`).
+    fn children(&self, r: ItemRef) -> Vec<ItemRef> {
+        self.tree().children(r)
+    }
+
+    /// The report and the extensions of the run as IR.
+    fn tree(&self) -> ItemTree<'_> {
+        ItemTree {
+            report: self.report(),
+            exts: (0..self.exts.len()).map(|k| self.ext_ir(k)).collect(),
+        }
+    }
+}
+
+/// A report and the reportextensions that change it (in object id order), as IR: the tree of data items a run walks and
+/// `Report.WordXmlPart` lists.
+pub(crate) struct ItemTree<'a> {
+    report: &'a ir::Report,
+    exts: Vec<Option<&'a ir::ReportExt>>,
+}
+
+impl<'a> ItemTree<'a> {
+    fn ext(&self, k: usize) -> Option<&'a ir::ReportExt> {
+        self.exts.get(k).copied().flatten()
+    }
+
+    fn item(&self, r: ItemRef) -> &'a ir::ReportItem {
+        match r {
+            ItemRef::Base(i) => &self.report.items[i],
+            ItemRef::Added(k, i) => &self.ext(k).expect("an added item has an extension").added[i].item,
+        }
+    }
+
     /// The items nested directly under `r`, in the order they run: a base item's own, then the
     /// ones the extension added under it.
     fn children(&self, r: ItemRef) -> Vec<ItemRef> {
         let mut out = Vec::new();
         if let ItemRef::Base(i) = r {
             out.extend(
-                (0..self.report().items.len())
-                    .filter(|&c| self.report().items[c].parent == Some(i))
+                (0..self.report.items.len())
+                    .filter(|&c| self.report.items[c].parent == Some(i))
                     .map(ItemRef::Base),
             );
         }
         // Each extension in object id order inserts next to its anchor, so the later extension ends
-        // nearest it (corpus reportextensiontrigger/TestReportExtensionSamePlaceContracts.al:251:
+        // nearest it (corpus reports/extensions/TestReportExtensionSamePlaceContracts.al:251:
         // `addfirst` G1 F1 F2, `addbefore` X1 X2 Y1 ChildA, `addafter` ChildA Z2 Z1).
         for k in 0..self.exts.len() {
-            let Some(x) = self.ext_ir(k) else { continue };
+            let Some(x) = self.ext(k) else { continue };
             let mine: Vec<usize> = (0..x.added.len())
                 .filter(|&c| match r {
                     ItemRef::Base(i) => x.added[c].base_parent == Some(i),
                     ItemRef::Added(kk, j) => kk == k && x.added[c].item.parent == Some(j),
                 })
                 .collect();
-            // Position order (reportextensiontrigger/TestReportExtensionDataItemPlacementContracts.al):
+            // Position order (reports/extensions/TestReportExtensionDataItemPlacementContracts.al):
             // the items added first, those before a sibling, the sibling, those after it, the items
             // added last. Items next to an item the extension added are placed once that is.
             let at = |out: &[ItemRef], a: ir::ItemAnchor| {
@@ -2692,7 +2595,7 @@ impl Run {
                             // Items one extension adds after the same anchor keep their declaration
                             // order (ChildA, Z1, Z1b), so a later one goes behind those already
                             // placed there; the later extension's items still stand nearest the
-                            // anchor (corpus reportextensiontrigger/TestReportExtensionSamePlaceContracts.al:251).
+                            // anchor (corpus reports/extensions/TestReportExtensionSamePlaceContracts.al:251).
                             let mut q = p + usize::from(after);
                             if after {
                                 while let Some(ItemRef::Added(kk, cc)) = out.get(q) {
@@ -2732,7 +2635,7 @@ impl Run {
 // ---------------------------------------------------------------------- Report.SaveAs
 
 /// The text BC raises when the default layout cannot produce the format asked for
-/// (handlers/TestReportSaveAsDatasetContracts.al:SaveAs_Html_WithAnRdlcLayout_IsRefused).
+/// (text/TestReportSaveAsDatasetContracts.al:SaveAs_Html_WithAnRdlcLayout_IsRefused).
 const FORMAT_NOT_SUPPORTED_BY_LAYOUT: &str =
     "The Html output format is not supported by the current report layout format.";
 
@@ -2878,7 +2781,7 @@ impl Session {
             let (inst, quit) = self.report_instance(receiver, true)?;
             let schema = self.report_schema(&inst)?;
             // A SaveAs on a variable that already ran (an earlier SaveAs that wrote its dataset or stopped at the missing
-            // layout) answers false with this text (misc/lt-probes-needed-2/PnBReportSaveAs.al:387-391 OtherFormats_NoLayout;
+            // layout) answers false with this text (text/PnBReportSaveAs.al:387-391 OtherFormats_NoLayout;
             // :436 SecondSaveAs_OnOneVariable). With the answer dropped, and after an earlier SaveAs that ended any other
             // way, it is not pinned.
             let ran = |list: &Vec<std::rc::Weak<std::cell::RefCell<Instance>>>| {
@@ -2907,7 +2810,7 @@ impl Session {
             self.report.report_save_tried.retain(|w| w.strong_count() > 0);
             self.report.report_save_tried.push(Rc::downgrade(&inst));
             // An Xml SaveAs on a variable raises OnDocumentReady after the dataset and no SubstituteReport
-            // (events/lt-platform-events-v/PeVTests.al:688 PW_RaisedEvents_SaveAsForms `saveas var xml`
+            // (events/platform-triggers/PeVTests.al:688 PW_RaisedEvents_SaveAsForms `saveas var xml`
             // `OnDocumentReady(69860,in=No);`).
             if self.save_as_raises_events(&schema, &format, &parameters, record_ref, &target, false) {
                 document_ready = true;
@@ -2917,9 +2820,9 @@ impl Session {
             let (mut inst, mut schema) = self.report_by_number(id, args.first())?;
             // An Xml SaveAs to a stream of a processing-only report raises SubstituteReport (RunMode SaveAs, the
             // parameters as RequestPageXml), and a report a subscriber sets is the one that runs and fails as processing-only
-            // (misc/lt-y14-triage/Y14ReportSubstitute.al:389 Execute_SaveAs_Swap `saveas xmlA`: `Sub(91650,SaveAs,xmlLen=155,
+            // (reports/Y14ReportSubstitute.al:389 Execute_SaveAs_Swap `saveas xmlA`: `Sub(91650,SaveAs,xmlLen=155,
             // in=-1);B-init;` and `Report 91651 is a processing-only report.`, corpus master); without parameters too
-            // (events/lt-platform-events-v/PeVTests.al:688 `procOnly saveas xml` `SubstituteReport(86147,SaveAs,in=-1);`).
+            // (events/platform-triggers/PeVTests.al:688 `procOnly saveas xml` `SubstituteReport(86147,SaveAs,in=-1);`).
             if format == "Xml"
                 && record_ref.is_none()
                 && matches!(target, SaveTarget::Stream(_))
@@ -2930,7 +2833,7 @@ impl Session {
                 }
             }
             // An Html SaveAs of a report with an RDLC layout raises SubstituteReport with the parameters as RequestPageXml before it
-            // fails for the layout, and nothing after (report/lt-am-rdlc-output/AMRdlcOutput.al:TextRdlc_SaveAsHtml_IsRefused,
+            // fails for the layout, and nothing after (reports/layouts-saveas/AMRdlcOutput.al:TextRdlc_SaveAsHtml_IsRefused,
             // `SubstituteReport(79256,SaveAs,req=Yes);`). Only that RequestPageXml contains the parameters is pinned, not its
             // text: the subscriber gets an unknown value, so a subscriber that reads it is refused where it reads it. A subscriber
             // that substitutes another report is not pinned.
@@ -2956,7 +2859,7 @@ impl Session {
                 return unsupported("SubstituteReport set another report for an Html SaveAs (not pinned)");
             }
             // With parameters or a record as well (PeVTests.al:688 `saveas static params xml`, `saveas static record xml`); the
-            // parameters are the RequestPageXml (misc/lt-y14-triage/Y14ReportSubstitute.al:389 `xmlLen=155`, corpus master).
+            // parameters are the RequestPageXml (reports/Y14ReportSubstitute.al:389 `xmlLen=155`, corpus master).
             if self.save_as_raises_events(&schema, &format, &parameters, record_ref, &target, true) {
                 let xml = Value::Text(parameters.to_string().into());
                 if let Some(new_id) = self.raise_substitute_report(&schema, xml)? {
@@ -2984,7 +2887,7 @@ impl Session {
             None => Ok("[]".into()),
         };
         // A report with columns and no layout at all: the rendering formats stop after OnInitReport with the error, which a used result
-        // turns into false (report/lt-report-pre-rendering/ReportPreRenderingSaveAsPdf.al: P195_SaveAsPdf_PreRenderingOrder and its
+        // turns into false (reports/layouts-saveas/ReportPreRenderingSaveAsPdf.al: P195_SaveAsPdf_PreRenderingOrder and its
         // Word, Excel and Html siblings, the call in a TryFunction).
         if matches!(format.as_str(), "Pdf" | "Html" | "Word" | "Excel") {
             if let Some(e) = self.no_valid_layout(&schema)? {
@@ -3003,10 +2906,10 @@ impl Session {
         }
         match format.as_str() {
             "Xml" => {}
-            // handlers/TestReportSaveAsDatasetContracts.al:SaveAs_Html_WithAnRdlcLayout_IsRefused: false, the
+            // text/TestReportSaveAsDatasetContracts.al:SaveAs_Html_WithAnRdlcLayout_IsRefused: false, the
             // text in GetLastErrorText, nothing written. Whether the report's triggers run first is not pinned,
             // so none does.
-            // report/PRSaveAsFormats.al SaveAs_Formats_OfReportWithoutLayoutFile: Pdf, Html, Word and Excel of a report
+            // reports/PRSaveAsFormats.al SaveAs_Formats_OfReportWithoutLayoutFile: Pdf, Html, Word and Excel of a report
             // with `DefaultLayout` and no layout file answer false, write nothing and set this text. With the answer
             // dropped BC's behaviour is not pinned.
             "Pdf" | "Html" | "Word" | "Excel" if schema.report().layout_file_missing && result_used => {
@@ -3026,7 +2929,7 @@ impl Session {
             "Pdf" | "Word" | "Excel" | "Html" if custom.is_some() => {}
             "Html" if schema.report().layout == ir::ReportLayout::Rdlc => {
                 // As a statement BC raises ReportUnsupportedFormat after the layout events SelectReportLayoutCode,
-                // HasCustomLayout, SelectedBuiltinLayoutType and ApplicationReportMergeStrategy (events/lt-platform-events-v/
+                // HasCustomLayout, SelectedBuiltinLayoutType and ApplicationReportMergeStrategy (events/platform-triggers/
                 // PeVTests.al:713 PW_RaisedEvents_HtmlFormat), which this runtime does not raise.
                 if !result_used {
                     return unsupported(
@@ -3055,19 +2958,19 @@ impl Session {
                 ));
             }
         }
-        // handlers/TestReportSaveAsColumnTypesContracts.al:372-388: false with the text and the code
+        // reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:372-388: false with the text and the code
         // `ReportProcessingOnly`, no trigger runs and nothing is written. With the answer dropped
         // BC's behaviour is not pinned.
         if schema.report().processing_only {
             // The Xml SaveAs of a processing-only report runs OnInitReport before it answers false
-            // (report/lt-report-requestpage/RptTriggerOrder.al:308,:324 SaveAs_NestedItems_Order, SaveAs_Siblings_Order;
-            // misc/lt-probes-needed-8/PnH5aExt.al:380). For the other formats that is not pinned and no trigger runs.
+            // (reports/request-page/RptTriggerOrder.al:308,:324 SaveAs_NestedItems_Order, SaveAs_Siblings_Order;
+            // reports/PnH5aExt.al:380). For the other formats that is not pinned and no trigger runs.
             if format == "Xml" && at != 0 && self.report_init(&inst)? {
                 return unsupported(
                     "CurrReport.Quit in OnInitReport of a SaveAs of a processing-only report (not pinned)",
                 );
             }
-            // The request page's OnInit follows, as in a run without the page (report/lt-ae-reporthandler/AeReportHandler.al:
+            // The request page's OnInit follows, as in a run without the page (reports/reporthandler/AeReportHandler.al:
             // 133-145 SaveAs_WithReportHandler `OnInitReport;RP OnInit ...;` with an empty parameters string; with parameters the
             // same error follows and OnPreReport does not run, Y68SelfClosingParams.al:407-418).
             if format == "Xml" && at != 0 {
@@ -3087,8 +2990,8 @@ impl Session {
                 call_stack: String::new(),
                 ..Default::default()
             };
-            // The statement form raises the same error (handlers/TestReportSaveAsColumnDetailsContracts.al:
-            // ProcessingOnlyReport_StatementFormRaises, handlers/PWReportSaveAsColumns.al:
+            // The statement form raises the same error (streams/TestReportSaveAsColumnDetailsContracts.al:
+            // ProcessingOnlyReport_StatementFormRaises, streams/PWReportSaveAsColumns.al:
             // ProcessingOnly_AnswerDropped_AsserterrorForm); with the answer used it is returned as false.
             if !result_used {
                 return Err(Signal::Error(Box::new(error)));
@@ -3105,7 +3008,7 @@ impl Session {
                 schema.name()
             ));
         }
-        // The language and region of the run: the session's, or what the variable set (report/W3ReportObjectIdPreviewLanguage.al:
+        // The language and region of the run: the session's, or what the variable set (reports/W3ReportObjectIdPreviewLanguage.al:
         // 854-930, writer RB). Pinned: en-US; GlobalLanguage 1031 (:870); Language := 1031 on the variable (:893); FormatRegion :=
         // 'de-DE' on the variable (:912). The language changes the dataset's language and Format, not the column values; the
         // region changes both. Every other combination is refused.
@@ -3173,7 +3076,7 @@ impl Session {
             }
         }
         // The FormatRegion property sets the culture of the Xml dataset and of Format in the triggers that write it, for the
-        // regions report/lt-y-report-props/YReportPropsTests.al:34-148 and report/lt-bd-format-region/BdRegionTests.al measure;
+        // regions reports/runtime/YReportPropsTests.al:34-148 and reports/runtime/BdRegionTests.al measure;
         // any other region is refused. What a region writes on a version that did not measure it is refused where the text is
         // made (`al_builtins::format::Region`).
         let region = match schema.report().format_region.as_deref() {
@@ -3223,9 +3126,9 @@ impl Session {
             &mut self.report.region_property,
             schema.report().format_region.is_some(),
         );
-        // Each SaveAs starts with no language set, whatever an earlier run set (report/W3ReportObjectIdPreviewLanguage.al:572-583
+        // Each SaveAs starts with no language set, whatever an earlier run set (reports/W3ReportObjectIdPreviewLanguage.al:572-583
         // LanguageAndFormatRegion_BothSet_Columns `language before set equals GlobalLanguage=Yes` after the run of :546-557;
-        // report/lt-bd-format-region/BdRegionTests.al:1045-1056 BdSetterLanguage_1033_EnUS `before=... language=1033`).
+        // reports/runtime/BdRegionTests.al:1045-1056 BdSetterLanguage_1033_EnUS `before=... language=1033`).
         let outer_language = self.report.curr_report_language.take();
         let outer_run_language = std::mem::replace(&mut self.report.run_language, variable_language);
         let outer_variable_region = std::mem::replace(&mut self.report.variable_region, variable_region.is_some());
@@ -3277,7 +3180,7 @@ impl Session {
             // An error a trigger raises: with no layout it reaches the caller
             // (reportextension/TestReportExtensionTriggers.al:SaveAsXml_ExtPreReportError_FailsTheSave); in a
             // report with an RDLC layout SaveAs answers false and leaves the stream alone
-            // (handlers/TestReportSaveAsRecordRefFilter.al:TestReport_SaveAs_NoRecordRef_LeavesDataItemUnfiltered).
+            // (streams/TestReportSaveAsRecordRefFilter.al:TestReport_SaveAs_NoRecordRef_LeavesDataItemUnfiltered).
             // That GetLastErrorText then holds the error is not pinned.
             Err(Signal::Error(e)) => {
                 let layout = schema.report().layout;
@@ -3285,10 +3188,10 @@ impl Session {
                 match (layout, extended) {
                     (ir::ReportLayout::None, _) if !result_used => Err(Signal::Error(e)),
                     // With the answer used, a report without a layout answers false and raises nothing
-                    // (misc/lt-probes-needed-2/PnBReportSaveAs.al:412-413, TriggerError_InPreReport). What the last error
+                    // (text/PnBReportSaveAs.al:412-413, TriggerError_InPreReport). What the last error
                     // holds then is not pinned: GetLastErrorText and GetLastErrorCode are refused.
                     // The error of a DataItemTableView `const(0D)` stays the last error
-                    // (report/lt-cj-report-leads/CjDataset.al:190-211: `save err|code` Evaluate).
+                    // (streams/CjDataset.al:190-211: `save err|code` Evaluate).
                     (ir::ReportLayout::None, false) => {
                         self.last_error = if std::mem::take(&mut self.report.zero_date_view_failed) {
                             *e
@@ -3298,7 +3201,7 @@ impl Session {
                         Ok(Value::Boolean(false))
                     }
                     // An error of a trigger reaches a SaveAs whose result is not used, also with a layout
-                    // (handlers/TestReportCurrReportLanguage.al:TestReport_SettingCurrReportLanguageToZero_IsRejectedAsInvalid:
+                    // (streams/TestReportCurrReportLanguage.al:TestReport_SettingCurrReportLanguageToZero_IsRejectedAsInvalid:
                     // `asserterror Probe.SaveAs(..)` on a report with an RDLC layout).
                     (ir::ReportLayout::Rdlc, false) if !result_used => Err(Signal::Error(e)),
                     (ir::ReportLayout::Rdlc, false) => {
@@ -3319,7 +3222,7 @@ impl Session {
 
     /// Whether this `SaveAs` raises the platform's `SubstituteReport` before the run (static form only) and `OnDocumentReady`
     /// after it. Pinned for Xml to a stream of a report with an RDLC layout: the static form also with parameters or a record,
-    /// the variable form without them (events/lt-platform-events-v/PeVTests.al:432, :483, :513, :688, reports 69860 and 69861 of
+    /// the variable form without them (events/platform-triggers/PeVTests.al:432, :483, :513, :688, reports 69860 and 69861 of
     /// PeVFixtures.al). For any other SaveAs whether the events are raised is not pinned, and they are not
     /// (docs/probes-needed.md).
     fn save_as_raises_events(
@@ -3539,7 +3442,7 @@ impl Session {
 
     /// The `filterviews` of the ObjectPayload of a rendered `SaveAs` with a custom layout, as JSON text, or why it is not pinned
     /// (the payload is then refused on use; the merger still runs). It is `[]` for a SaveAs with no view the caller gave: no
-    /// request parameters (report/lt-report-layout-merger/ReportMergerPayload.al:37-38), parameters with options only and a
+    /// request parameters (reports/layouts-saveas/ReportMergerPayload.al:37-38), parameters with options only and a
     /// report whose only filter is its DataItemTableView (ReportMergerUnmasked.al:336-396). With a view from SetTableView, a
     /// RecordRef or a data item element of the request parameters it holds one object per data item, `{"name","tableid","view"}`,
     /// the view written as the request parameters write it (ReportMergerUnmasked.al:262-334). Pinned only for a report with one
@@ -3655,7 +3558,7 @@ impl Session {
     }
 
     /// The ObjectPayload the platform hands a custom layout merger: 19 keys in this order, the same for every format but
-    /// `documenttype` (report/lt-report-layout-merger/ReportMergerPayload.al:37-38 Pdf, :54-55 Word, :71-72 Excel, :88-89 Html,
+    /// `documenttype` (reports/layouts-saveas/ReportMergerPayload.al:37-38 Pdf, :54-55 Word, :71-72 Excel, :88-89 Html,
     /// :172-175 the keys of all four, :199-200 a second report; ReportMergerLayoutChoice.al:30-31, :94-95 the layout's name
     /// and mime type; ReportMergerStatic.al:93-95 the static form). `objectname` is the report's caption (`LT Merger Main`),
     /// or its object name when it has no Caption (ReportMergerUnmasked.al:398-425, Payload_ReportWithoutCaption).
@@ -3828,8 +3731,8 @@ impl Session {
             sender: None,
         };
         // A SaveAs inside a TryFunction whose result is used: the merger's subscribers write without TryFunctionWrite (the
-        // static subscriber of handlers/TestReportLayoutByNameMergerCapture.al:47-75 inserts a row on every render, and the
-        // SaveAs of report/lt-report-layout-merger/ReportMergerLabelsSM.al:54-75 and :76-95 runs inside the used TrySaveAs,
+        // static subscriber of streams/TestReportLayoutByNameMergerCapture.al:47-75 inserts a row on every render, and the
+        // SaveAs of reports/layouts-saveas/ReportMergerLabelsSM.al:54-75 and :76-95 runs inside the used TrySaveAs,
         // ReportMergerFixtures.al:367-380, and passes on BC).
         let used_tries = std::mem::take(&mut self.tx.used_tries);
         let raised = self.raise(&call, &mut args);
@@ -3847,7 +3750,7 @@ impl Session {
     }
 
     /// `RequestPage.Editable`, `LookupMode`, `ObjectId` and `Activate` from the code of an open request page
-    /// (report/lt-report-requestpage-query-members/P105RpMembers.al:44-75, from a control's OnValidate):
+    /// (reports/request-page/P105RpMembers.al:44-75, from a control's OnValidate):
     /// Editable reads Yes and back what was set (:117), LookupMode reads No and back what was set (:138), ObjectId is
     /// `Page <report name>` with no argument or true and `Page <report id>` with false (:159), and Activate raises
     /// `Unhandled UI: Page <report id>` (:181-182). While Editable is false or LookupMode true, what the page does is not
@@ -3937,7 +3840,7 @@ impl Session {
     pub(crate) fn request_page_update(&mut self, args: &[Value]) -> Result<Value, Signal> {
         match args.first() {
             // `true` shows the same: the handler reads the variables the trigger set, and the run sees them
-            // (handlers/PRRequestPageUpdate.al:RequestPage_OnValidate_UpdateTrue).
+            // (reports/PRRequestPageUpdate.al:RequestPage_OnValidate_UpdateTrue).
             Some(Value::Boolean(_)) => Ok(Value::Null),
             other => unsupported(format!(
                 "RequestPage.Update with SaveRecord {}",
@@ -3947,7 +3850,7 @@ impl Session {
     }
 
     /// Loads the parameters string of a `SaveAs` into the data items' records, the way a request
-    /// page does before the run (handlers/TestReportRunRequestPage.al:TestReport_CapturedParameters_
+    /// page does before the run (reports/TestReportRunRequestPage.al:TestReport_CapturedParameters_
     /// ReplayThroughSaveAs_FilterTheDataset). Only the text this runtime's `RunRequestPage` hands out
     /// is understood (`apply_request_parameters`).
     fn apply_run_parameters(
@@ -3981,7 +3884,7 @@ impl Session {
 
     /// A column bound to a FlowField of the data item's table is calculated for every row before
     /// `OnAfterGetRecord`, because a column's AutoCalcField property defaults to true
-    /// (handlers/TestReportFlowFieldColumnAutoCalc.al).
+    /// (xml/TestReportFlowFieldColumnAutoCalc.al).
     fn dataset_autocalc(&mut self, run: &Run, r: ItemRef, rec: &Rec) -> Result<(), Signal> {
         let table = rec.borrow().table as usize;
         let engine = self.engine.clone();
@@ -4031,7 +3934,7 @@ impl Session {
 
     /// The data items of a run as a SaveAsXml data file declares them: depth first in run order (the base's nested items, then
     /// those extensions add), each with its columns and the extensions' columns on it, as `dataset_begin` writes them
-    /// (al-language-onprem/handlers/Y17SaveAsXmlTrees.al:644 C1 lists the nested item's columns before the second top item's). A
+    /// (al-language-onprem/reports/Y17SaveAsXmlTrees.al:644 C1 lists the nested item's columns before the second top item's). A
     /// column's type without a row is known for a table field of a type `data_file_types::declared` knows (:726 D2, :685 D1).
     pub(crate) fn data_file_items(&self, run: &Run) -> Result<Vec<dataset::DeclaredItem>, Signal> {
         fn walk(vm: &Session, run: &Run, r: ItemRef, out: &mut Vec<dataset::DeclaredItem>) -> Result<(), Signal> {
@@ -4098,7 +4001,7 @@ impl Session {
             }
         }
         // From BC 28 each DataItem names its table and a GUID that differs per element
-        // (handlers/TestReportSaveAsDatasetContracts.al:253-300, `#if BC28PLUS`). Whether the GUID is the
+        // (text/TestReportSaveAsDatasetContracts.al:253-300, `#if BC28PLUS`). Whether the GUID is the
         // record's SystemId is not pinned; the record's own is used, which is distinct per row.
         let identity = if al_version::gate_on(
             self.engine.target.as_ref(),
@@ -4109,7 +4012,7 @@ impl Session {
             None
         };
         // An item that declares nested items writes its `DataItems` element even when no row reaches them
-        // (report/W3ReportDataset.al:Rows_ParentsWithoutChildRows, Rows_ParentsWithChildRowsAndSiblingItem).
+        // (reports/W3ReportDataset.al:Rows_ParentsWithoutChildRows, Rows_ParentsWithChildRowsAndSiblingItem).
         let declares_children = match r {
             ItemRef::Base(i) => run.report().items.iter().any(|it| it.parent == Some(i)),
             ItemRef::Added(..) => false,
@@ -4126,17 +4029,17 @@ impl Session {
     }
 
     /// The Labels block of every data item, nested ones too, is written even when no row reaches the column
-    /// (handlers/TestReportSaveAsColumnDetailsContracts.al:LabelsAreWrittenForAnEmptyDataItem,
-    /// handlers/PWReportSaveAsColumns.al:Labels_NoRowAtAll, report/PTSaveAsEmpty.al:SaveAs_NoRowAtAll_ExactLines
+    /// (streams/TestReportSaveAsColumnDetailsContracts.al:LabelsAreWrittenForAnEmptyDataItem,
+    /// streams/PWReportSaveAsColumns.al:Labels_NoRowAtAll, reports/PTSaveAsEmpty.al:SaveAs_NoRowAtAll_ExactLines
     /// `ParentIdColCaption` then `ChildIdColCaption`).
     fn dataset_labels(&mut self, schema: &Schema) -> Result<(), Signal> {
         let engine = self.engine.clone();
         // The Labels block: the caption labels of the base report's IncludeCaption columns, data items in declaration order
         // (nested ones where they stand), then the labels it declares, then for an extension the caption labels of its columns in
-        // the order of its `add` blocks and then its labels (types/lt-format-codes-textbuilder-pagerun-labels/
+        // the order of its `add` blocks and then its labels (format-evaluate/
         // P144ReportLabelsCaption.al:154 Sq_TwoDataItems_Labels_Order, :173 Sq_TwoDataItems_ExtensionLabels_Order: Head, nested
-        // Line, Tail; `add(Line)` before `add(Head)`; report/lt-report-layout-merger/ReportMergerLabelsSM.al:33-93 for one data
-        // item; report/PZReportLabels.al: Labels_AreWrittenIntoTheDataset). Two extensions that add captions or labels are not
+        // Line, Tail; `add(Line)` before `add(Head)`; reports/layouts-saveas/ReportMergerLabelsSM.al:33-93 for one data
+        // item; reports/PZReportLabels.al: Labels_AreWrittenIntoTheDataset). Two extensions that add captions or labels are not
         // pinned (their order) and are refused when the dataset is written.
         // (label, is a caption label): a caption label is written once, a declared one as often as it is declared.
         let mut labels: Vec<((String, String), bool)> = Vec::new();
@@ -4228,15 +4131,15 @@ impl Session {
     }
 
     /// One column of a row: the value of its source, as the dataset writes it
-    /// (handlers/TestReportSaveAsColumnTypesContracts.al:12-22 and :167-248, probed on BC 27.5): digits for
+    /// (reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:12-22 and :167-248, probed on BC 27.5): digits for
     /// Integer, BigInteger and Code, escaped text, `True`/`False`, `m/d/yyyy` for a Date (blank when
     /// undefined), `h:mm:ss` plus a space plus AM/PM for a Time, both for a DateTime, an Option and an Enum
     /// as their captions, a Duration as words, a Guid without braces, and a Decimal in full with a
     /// `decimalformatter` attribute from `DecimalPlaces` of the column, else of the field. Every other
     /// type is refused. A column that asks for its caption adds to the Labels block.
     /// The `decimalformatter` of a Decimal column: from `DecimalPlaces` of the column, else of the field (`dataset::decimal_formatter`).
-    /// Without either it is `#,##0.00` on every version (report/lt-y-report-props/YReportPropsTests.al:40, 1234567.891;
-    /// report/W3ReportObjectIdPreviewLanguage.al:448). BC follows General Ledger Setup "Amount Decimal Places" as the
+    /// Without either it is `#,##0.00` on every version (reports/runtime/YReportPropsTests.al:40, 1234567.891;
+    /// reports/W3ReportObjectIdPreviewLanguage.al:448). BC follows General Ledger Setup "Amount Decimal Places" as the
     /// session first read it; the corpus tests read it at the default 2:2 after SelectLatestVersion (corpus bump 28: the
     /// earlier BC 28 `#,##0.00###` was a value left by an earlier test).
     fn decimal_column_formatter(
@@ -4265,7 +4168,7 @@ impl Session {
         }
         let routine = c.routine.expect("a column without a routine is unsupported");
         // An error in the source expression is wrapped with the column's name, code ReportSourceExpression
-        // (report/lt-qw-ternary-columns/QwTernaryColumns.al:506-516: a Decimal that does not convert to Integer). Only that
+        // (reports/dataset/QwTernaryColumns.al:506-516: a Decimal that does not convert to Integer). Only that
         // conversion error is pinned; any other error there is refused.
         let (value, _) = match self.call(object, routine, owner.clone(), Vec::new()) {
             Err(Signal::Error(mut e)) if e.code == "ConversionCast" => {
@@ -4287,7 +4190,7 @@ impl Session {
         let t = self.engine.tables[table].clone();
         if c.include_caption {
             // The caption of the field the column reads (the corpus label is the field's Caption), also of a field written
-            // with a data item's name (`IncludeCaption` sources: errors/lt-ms-refusals-138/P138ColCaptionQualified.al).
+            // with a data item's name (`IncludeCaption` sources: streams/P138ColCaptionQualified.al).
             let caption_table = c
                 .caption_table
                 .and_then(|t| self.engine.tables.get(t).cloned().flatten());
@@ -4309,8 +4212,8 @@ impl Session {
         let region = self.report.dataset.as_ref().and_then(|d| d.region.clone());
         let (regional, media) = (region.is_some(), Self::media_field(&t, c));
         // In German the values of a Decimal, Date, Time, DateTime, Integer, Boolean and text column read as in en-US
-        // (report/W3ReportObjectIdPreviewLanguage.al:870, :893); an Option or Enum column is not pinned there.
-        // An Option column of a German session shows the DEU caption (record/lt-x-table-props/XTablePropsTests.al:783); in a
+        // (reports/W3ReportObjectIdPreviewLanguage.al:870, :893); an Option or Enum column is not pinned there.
+        // An Option column of a German session shows the DEU caption (record/table-properties/XTablePropsTests.al:783); in a
         // language only the report has (its variable or a trigger set it) that is not pinned.
         let report_language = self.report.curr_report_language.or(self.report.run_language);
         if let Some(l) = self.report.dataset.as_ref().and_then(|d| d.language.clone()) {
@@ -4356,7 +4259,7 @@ impl Session {
                 dataset::escape(s)?
             }
             // A SaveAsXml data file writes a Boolean as `xs:boolean`, `true` or `false`, and a Date as `xs:dateTime` at midnight
-            // UTC, leaving out a blank one (al-language-onprem/report/lt-aq/AqSaveAsXml.al:247 SaveAsXml_ColumnTypes_DataFile).
+            // UTC, leaving out a blank one (al-language-onprem/reports/AqSaveAsXml.al:247 SaveAsXml_ColumnTypes_DataFile).
             Value::Boolean(b) => {
                 schema_type = Some("xs:boolean");
                 data = dataset::DataFileText::Text(b.to_string());
@@ -4386,19 +4289,19 @@ impl Session {
                 )
             }
             Value::Decimal(_) => {
-                // A DataSet column of type xs:decimal (dataset.rs `finish_data_set`; al-language-onprem/report/lt-aq/
+                // A DataSet column of type xs:decimal (dataset.rs `finish_data_set`; al-language-onprem/reports/
                 // AqSaveAsXml.al:257 `AmountC`).
                 schema_type = Some("xs:decimal");
                 attribute = Some(("decimalformatter", self.decimal_column_formatter(&t, c)?));
                 // The decimal as it is, scale and all: `12.345678 * 1.5` is `18.5185170`
-                // (handlers/TestReportSaveAsColumnTypesContracts.al:174-180); Format would trim the zero.
+                // (reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:174-180); Format would trim the zero.
                 let Value::Decimal(d) = &value else {
                     unreachable!("matched a Decimal")
                 };
                 d.to_string()
             }
             // The column's OptionCaptionML: the caption of the session language, ENU where it has none
-            // (record/lt-x-table-props/XTablePropsTests.al:741-785, `EnuOnly` shows `Only B` in 1031).
+            // (record/table-properties/XTablePropsTests.al:741-785, `EnuOnly` shows `Only B` in 1031).
             Value::Option(n, _) if c.option_caption_ml.is_some() => {
                 let ml = c.option_caption_ml.as_deref().expect("checked");
                 let list =
@@ -4432,7 +4335,7 @@ impl Session {
                 dataset::escape(&al_builtins::format::try_format(&value, 0, 0, self).map_err(Signal::Unsupported)?)?
             }
             Value::Blob(b) => self.blob_column_text(c, rec, b)?,
-            // An empty Media or MediaSet field is an empty element (report/lt-bc-xml-blob/BcXmlBlob.al:102); one with content holds a
+            // An empty Media or MediaSet field is an empty element (reports/layouts-saveas/BcXmlBlob.al:102); one with content holds a
             // re-encoded picture whose bytes the runtime cannot make (:220), and is refused.
             Value::Guid(g) if media => {
                 if g.iter().any(|b| *b != 0) {
@@ -4445,8 +4348,8 @@ impl Session {
             }
             Value::Guid(_) => {
                 let g = al_builtins::format::try_format(&value, 0, 0, self).map_err(Signal::Unsupported)?;
-                // Lower case, braces dropped (handlers/TestReportSaveAsColumnDetailsContracts.al:
-                // UndefinedTimesGuidsHoursAndDecimalPlaces, handlers/PWReportSaveAsColumns.al:
+                // Lower case, braces dropped (streams/TestReportSaveAsColumnDetailsContracts.al:
+                // UndefinedTimesGuidsHoursAndDecimalPlaces, streams/PWReportSaveAsColumns.al:
                 // Undefined_TimeDateTime_SingleDigitHour_GuidWithHexLetters); the null Guid is zeros, not blank.
                 g.trim_matches(|ch| ch == '{' || ch == '}').to_ascii_lowercase()
             }
@@ -4487,7 +4390,7 @@ impl Session {
         }
     }
 
-    /// The text of a Blob column: the Base64 text of the content, an empty element when there is none (report/lt-bc-xml-blob/
+    /// The text of a Blob column: the Base64 text of the content, an empty element when there is none (reports/layouts-saveas/
     /// BcXmlBlob.al:93-154, `Hello BC` is `SGVsbG8gQkM=`, the bytes 0, 255, 65 are `AP9B`). A field of the data item that the report
     /// did not calculate shows what the row stores (:102, report 80976 has no CalcFields). A Blob a stream wrote after it was read,
     /// and one that was not calculated and is not a field of the data item, are not pinned.
@@ -4548,7 +4451,7 @@ impl Session {
 
     /// The CompanyAddressLine elements of the BC 29 dataset header for the Company Information row `rec`: Name, Name 2,
     /// Address, Address 2, the city line, County and the name of the country, each empty one left out; the Contact Person is
-    /// never written (report/lt-ah-dataset-header/AhDatasetHeader.al:98-151, writer RB :260-460).
+    /// never written (reports/dataset/AhDatasetHeader.al:98-151, writer RB :260-460).
     ///
     /// The city line follows the address format: of the Country/Region row, of the General Ledger Setup's Local Address Format
     /// without a country (:390-430, no country line then), and City+Post Code for a code without a row, whose country line is the
@@ -4791,7 +4694,7 @@ impl Session {
             )
         };
         // BC 29 and later: the company address lines of the header, all empty while Company Information has no row
-        // (report/W3ReportDataset.al:174 Header_CompanyInformation_NameAndAddress); see `company_address_lines`.
+        // (reports/W3ReportDataset.al:174 Header_CompanyInformation_NameAndAddress); see `company_address_lines`.
         let mut company_lines = Vec::new();
         let mut company_values: Vec<(&'static str, String)> = Vec::new();
         if self.has(al_version::Gate::ReportSaveAsXmlHeaderHasCompanyBlock) {
@@ -4804,9 +4707,9 @@ impl Session {
                         if al_builtins::ops::truthy(&self.record_op(RecordOp::FindFirst, &rec, &mut [])?)? {
                             company_lines = self.company_address_lines(&rec, &t)?;
                             let value = |i: usize| al_builtins::native::text_of(&rec.borrow().fields[i]);
-                            // The other elements write the value of their field (misc/lt-probes-needed-2/PnBReportSaveAs.al:568-592).
+                            // The other elements write the value of their field (text/PnBReportSaveAs.al:568-592).
                             // The logo is the Picture field's bytes in base64 as they were written, a PNG and bytes that are no
-                            // picture alike, with no line breaks; empty without a picture (report/lt-ah-dataset-header/
+                            // picture alike, with no line breaks; empty without a picture (reports/dataset/
                             // AhDatasetHeader.al:218-248 QV_Header_CompanyLogo_PictureVariants, BC 29; AL Runner issue 5681).
                             for (element, field) in dataset::COMPANY_FIELDS {
                                 let Some(i) = t.fields.iter().position(|f| f.name.eq_ignore_ascii_case(field)) else {
@@ -4865,7 +4768,7 @@ impl Session {
             about_title: report.about_title.clone().unwrap_or_default(),
             about_text: report.about_text.clone().unwrap_or_default(),
             // The manifest of both apps the corpus measured states no contextSensitiveHelpUrl, and the
-            // page then states none either (handlers/TestReportDatasetHelpLink.al).
+            // page then states none either (xml/TestReportDatasetHelpLink.al).
             help_link: String::new(),
             company_name: self.cx.company.to_string(),
             company_id: id,
@@ -4886,11 +4789,11 @@ const REQUEST_PAGE_OFF: i32 = 2;
 /// The page is hidden, but what the getter answers is not pinned (a static `RunModal(id, false)`): the getter is refused.
 const REQUEST_PAGE_OFF_UNPINNED_GETTER: i32 = 3;
 /// After an `Execute` of a variable whose `UseRequestPage` was set: what the getter answers is not pinned
-/// (misc/lt-probes-needed-8/PnH2UseRp.al:389 pins only the variable never set), so it is refused.
+/// (reports/PnH2UseRp.al:389 pins only the variable never set), so it is refused.
 const REQUEST_PAGE_UNPINNED_GETTER: i32 = 4;
 
-/// The ExtensionName of the dataset header: the app's name, " by " and its publisher (report/lt-report-dataset-header/
-/// ReportDatasetHeaderRaw.al:174, misc/lt-probes-needed-2/PnBReportSaveAs.al:162). An app without a publisher (only the
+/// The ExtensionName of the dataset header: the app's name, " by " and its publisher (reports/dataset/
+/// ReportDatasetHeaderRaw.al:174, text/PnBReportSaveAs.al:162). An app without a publisher (only the
 /// runtime's own tests build one) keeps the bare name.
 fn header_extension_name(name: &str, publisher: &str) -> String {
     if publisher.is_empty() {
@@ -4905,3 +4808,4 @@ mod format_region;
 mod header_tests;
 mod request_caption;
 mod running;
+mod word_xml_part;

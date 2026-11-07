@@ -14,7 +14,7 @@
 //! test codeunit's `RequiredTestIsolation` instead (`RunOptions::required_isolation`). There a `Commit()` inside a test
 //! is an inner commit: Function still returns the next test to the start, Codeunit still undoes everything when the
 //! codeunit ends, and Disabled keeps everything for the later codeunits (corpus
-//! codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:25-39).
+//! codeunits/run-onrun/QuCommitIsolation.al:25-39).
 //!
 //! Under every value the test codeunit's instance is reused across its methods: AL globals and
 //! single-instance codeunits keep their values from one test to the next (probe `T2` to `T4`), and

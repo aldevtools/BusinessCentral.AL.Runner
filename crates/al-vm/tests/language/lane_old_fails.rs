@@ -20,7 +20,7 @@ fn text(vars: &str, body: &str) -> String {
     out(al_testkit::run_in(&src, "C", "F"))
 }
 
-/// `Clear` of an array of JsonObject leaves every element as it was (json/lt-db-json-leads/DbJsonLeads.al:150-164).
+/// `Clear` of an array of JsonObject leaves every element as it was (json/DbJsonLeads.al:150-164).
 #[test]
 fn clear_of_an_array_of_json_object_leaves_the_elements() {
     let r = text(
@@ -51,7 +51,7 @@ fn http_content_read_as_text_after_a_stream_was_taken() {
         "R.Content().WriteFrom('body'); R.Content().ReadAs(S); S.ReadText(Line); R.Content().ReadAs(T); exit(Line + '|' + T);",
     );
     assert_eq!(r, "body|body");
-    // A variable written from a text reads the body again (xml/lt-xml-attr-doc-http-members/P97ContentRead.al:89).
+    // A variable written from a text reads the body again (xml/xml/P97ContentRead.al:89).
     let r = text(
         "C: HttpContent; S: InStream; T: Text; Line: Text;",
         "C.WriteFrom('body'); C.ReadAs(S); S.ReadText(Line); C.ReadAs(T); exit(Line + '|' + T);",
@@ -60,10 +60,10 @@ fn http_content_read_as_text_after_a_stream_was_taken() {
 }
 
 /// `WriteFrom(InStream)` leaves the source stream where it was: it is not at its end
-/// (network/lt-db-http-leads/DbHttpContentLeads.al:310). Any other use of the source afterwards is not pinned.
+/// (http/content/DbHttpContentLeads.al:310). Any other use of the source afterwards is not pinned.
 /// `ReadAs(var Text)` after a stream of the body that was read only in part, or not at all: the response's own content and a
 /// content written from a text still read the whole body; a copy of a content reads an empty text
-/// (network/lt-db-http-leads/DbHttpContentLeads.al:384-480 QG_RespContent_*, QG_RespContentCopy_*, :506-550 QG_TextContent_*).
+/// (http/content/DbHttpContentLeads.al:384-480 QG_RespContent_*, QG_RespContentCopy_*, :506-550 QG_TextContent_*).
 #[test]
 fn http_content_read_as_text_after_a_partly_read_or_unread_stream() {
     for (vars, body, want) in [
@@ -100,7 +100,7 @@ codeunit 50100 C {
 }
 
 /// `Clear` on the content of a request that has none gives it a body and content headers: `GetHeaders` then hands out the
-/// content's headers with `text/plain; charset=utf-8` (network/lt-db-http-leads/DbHttpContentLeads.al:176-219).
+/// content's headers with `text/plain; charset=utf-8` (http/content/DbHttpContentLeads.al:176-219).
 #[test]
 fn http_request_content_clear_then_get_headers() {
     let src = r#"codeunit 50100 C {
@@ -126,7 +126,7 @@ fn http_request_content_clear_then_get_headers() {
 }
 
 /// An InStream handed back from a routine whose local temporary record owns its bytes reads as empty on BC once the local
-/// is out of scope: Length 0, EOS Yes, ReadText gives '' (streams/lt-dc-stream-leads/DcInStreamScope.al:107-112, :125-126).
+/// is out of scope: Length 0, EOS Yes, ReadText gives '' (streams/DcInStreamScope.al:107-112, :125-126).
 /// A stream of a global keeps its bytes.
 #[test]
 fn an_instream_of_a_local_handed_back_reads_empty() {
@@ -156,7 +156,7 @@ codeunit 4100 "Temp Blob" {
 
 /// al-runner issue 5688: a var InStream filled by a procedure of another codeunit named CreateInstream (as Http Web Request
 /// Mgt. has) that creates it on its own local Temp Blob, directly and through two levels, empty or with text: Length 0, EOS
-/// Yes, ReadText '' (streams/lt-dc-stream-leads/DcInStreamScope.al:128-166). The procedure named CreateInstream of a codeunit
+/// Yes, ReadText '' (streams/DcInStreamScope.al:128-166). The procedure named CreateInstream of a codeunit
 /// is no Blob method: the caller that hands its stream on is not refused.
 #[test]
 fn an_instream_of_a_local_temp_blob_of_another_codeunit_reads_empty() {
@@ -180,7 +180,7 @@ codeunit 50100 C {{
 }
 
 /// A stream whose owner went out of scope is an empty stream for the other uses too: Position is 1
-/// (streams/lt-y62-gone-instream/Y62GoneInStream.al:GoneStream_ReadAndPosition `step3`).
+/// (streams/instream-outstream/Y62GoneInStream.al:GoneStream_ReadAndPosition `step3`).
 #[test]
 fn an_instream_of_a_local_out_of_scope_is_an_empty_stream() {
     let src = r#"table 50101 B { fields { field(1; Id; Integer) { } field(2; Data; Blob) { } } }

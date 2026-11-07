@@ -1,5 +1,5 @@
 //! The `CalcFields` property of a report data item: the FlowFields it lists are calculated for each row before the row's
-//! triggers (corpus misc/lt-probes-needed-8/PnH3Link.al:CalcFields_Property_CalculatesTheFlowField, a top-level item with one field).
+//! triggers (corpus reports/PnH3Link.al:CalcFields_Property_CalculatesTheFlowField, a top-level item with one field).
 //! Nested items and lists of several fields are read the same way on an assumption (report-dataitem-calcfields-nested-or-list).
 
 use al_testkit::text;

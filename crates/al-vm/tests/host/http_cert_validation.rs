@@ -1,6 +1,6 @@
-//! `HttpClient.UseServerCertificateValidation`. Pinned by network/lt-cz-http-leads/CzHttpNoNetwork.al (codeunit 85600,
+//! `HttpClient.UseServerCertificateValidation`. Pinned by http/CzHttpNoNetwork.al (codeunit 85600,
 //! BC 27, 28, 29): `false` detaches an HttpHeaders taken earlier from DefaultRequestHeaders, `true` keeps the link.
-//! network/lt-httpclient-property-assign/Y6HttpSettingChanges.al (codeunit 91311, corpus master): the first call that leaves
+//! http/client/Y6HttpSettingChanges.al (codeunit 91311, corpus master): the first call that leaves
 //! the defaults (validation `false`, cookies `true`) rebuilds the client: default timeout, no base address, new default headers;
 //! a call that keeps a default and every later call change nothing; the call answers its argument.
 //! What is not pinned is refused: a setting call on a client cleared after its rebuild, and a request of such a client that
@@ -85,7 +85,7 @@ codeunit 50191 C
         exit(Format(Client.DefaultRequestHeaders().Contains('X-Test')));
     end;
 
-    // network/lt-httpclient-property-assign/HttpClientPropertyAssign.al:24-32, :51-55: the property-assign form; the call
+    // http/client/HttpClientPropertyAssign.al:24-32, :51-55: the property-assign form; the call
     // form answers its argument when that is the setting already made.
     procedure PropertyAssign(): Text
     var

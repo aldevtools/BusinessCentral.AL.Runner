@@ -1,5 +1,5 @@
 //! ADR-062 stage 3: AccessByPermission on page controls under a restricted session. Values: corpus
-//! `tests/al-language/permissions/lt-y19-perm-probes/Y24PermExecute.al` Y24_P21_AccessByPermissionPage (BC 27.5, 28.5, 29.0): a field
+//! `tests/al-language/permissions/permission-sets/Y24PermExecute.al` Y24_P21_AccessByPermissionPage (BC 27.5, 28.5, 29.0): a field
 //! guarded by `tabledata T = R` or `= I` and an action guarded by `codeunit C = X` are left off the page when the session does not
 //! grant the permission (`The field with ID = n is not found on the page.`), and are there when it does.
 
@@ -216,21 +216,24 @@ codeunit 51521 "AB Tests"
         Expect(Got, '1|10|Yes|Yes|Yes|Yes');
     end;
 
-    // Modify on a guard is not pinned: the page is refused in a restricted session, run freely without one.
+    // Every letter is pinned (Y84PermAbp.al Y84_Abp_LettersA): a guard on Modify leaves the field off under a set without it.
     [Test]
-    procedure AnUnpinnedGuardLetterRefuses()
+    procedure AModifyGuardLeavesTheFieldOff()
     var
         P: TestPage "AB Odd Card";
+        Got: Text;
     begin
         Mock.Start();
         Seed();
         Mock.Set('AB Row Only');
         P.OpenView();
         P.First();
-        if P.GuardMCtl.Value() = '' then;
+        asserterror Got := P.GuardMCtl.Value();
+        Got := GetLastErrorText();
         P.Close();
         Mock.ClearAssignments();
         Mock.Stop();
+        Expect(Norm(Got), 'The field with ID = n is not found on the page.');
     end;
 }
 "#;
@@ -271,10 +274,6 @@ fn without_a_set_everything_is_shown() {
     assert_eq!(outcome("NoSetShowsEverything"), Outcome::Pass);
 }
 #[test]
-fn an_unpinned_guard_letter_refuses_the_test() {
-    assert!(
-        matches!(outcome("AnUnpinnedGuardLetterRefuses"), Outcome::NotRun(_)),
-        "{:?}",
-        outcome("AnUnpinnedGuardLetterRefuses")
-    );
+fn a_modify_guard_leaves_the_field_off() {
+    assert_eq!(outcome("AModifyGuardLeavesTheFieldOff"), Outcome::Pass);
 }

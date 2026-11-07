@@ -173,7 +173,7 @@ impl Parser<'_> {
             }
             let v = u32::from_str_radix(&digits, if hex { 16 } else { 10 }).unwrap_or(u32::MAX);
             let valid = matches!(v, 0x9 | 0xA | 0xD | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF);
-            // An XmlPort import does not check characters (xmlport/lt-xmlport-query-datatransfer/XpTEncoding.al:
+            // An XmlPort import does not check characters (xmlports/import/XpTEncoding.al:
             // Encoding_ImportControlCharacterEntity: `&#1;` reads).
             if !valid && self.dom {
                 // A value past the last code point is reported as the high surrogate .NET computes for it.
@@ -457,7 +457,7 @@ impl Parser<'_> {
                     // xml/TestProbeXmlContracts.al:ReadFrom_Invalid_Statement (`<a>`): worded as an error at the root.
                     return self.fail_at("Data at the root level is invalid.", self.root_at);
                 } else if self.peek().is_none() {
-                    // Pinned for an XmlPort import (xmlport/TestXmlPortExportImportContracts.al:
+                    // Pinned for an XmlPort import (xmlports/TestXmlPortExportImportContracts.al:
                     // XmlPortImport_MalformedXml_Throws).
                     let (line, pos) = self.line_pos(self.s.len());
                     let names: Vec<&str> = self.open.iter().rev().map(String::as_str).collect();
@@ -501,7 +501,7 @@ impl Parser<'_> {
     /// `<!DOCTYPE name ... [ internal subset ] >`.
     fn skip_doctype(&mut self) -> PResult<()> {
         // `<!DOCTYPE name`, then white space and an external id, a `[` or a `>`: the errors are .NET's, with their places
-        // (xml/lt-xml-doctype-declaration/DocTypeRead.al:Read_Malformed).
+        // (xml/xml/DocTypeRead.al:Read_Malformed).
         let start = self.i;
         let after_keyword = start + "<!DOCTYPE".len();
         let mut at = after_keyword;
@@ -614,7 +614,7 @@ impl Parser<'_> {
                 root_seen = true;
             } else if !self.starts("<") && root_seen && self.peek() == Some('\0') {
                 // The zero byte `OutStream.Write(Text)` adds after the text, read back after the root element: .NET names the
-                // character `.` (xml/lt-de-xml-leads/DeXmlWriteLeads.al:85-89, positions 155 and 32).
+                // character `.` (xml/DeXmlWriteLeads.al:85-89, positions 155 and 32).
                 return self.fail_at("'.', hexadecimal value 0x00, is an invalid character.", self.i);
             } else if !self.starts("<") {
                 return self.fail_at("Data at the root level is invalid.", self.i);

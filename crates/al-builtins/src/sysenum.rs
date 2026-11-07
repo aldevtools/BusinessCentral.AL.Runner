@@ -11,7 +11,7 @@ pub fn members(name: &str) -> Option<&'static [&'static str]> {
         "fieldclass" => Some(&["Normal", "FlowField", "FlowFilter"]),
         // SecurityFilter ordinals are measured on BC 27.5: Validated 0, Filtered 1, Ignored 2,
         // Disallowed 3, read with Format(x, 0, 2) and Evaluate from a number
-        // (recordref/TestPlatformOptionsLockingContracts.al:36-43).
+        // (recordref-fieldref/recordref/TestPlatformOptionsLockingContracts.al:36-43).
         "securityfilter" => Some(&["Validated", "Filtered", "Ignored", "Disallowed"]),
         "isolationlevel" => Some(&[
             "Default",
@@ -21,7 +21,7 @@ pub fn members(name: &str) -> Option<&'static [&'static str]> {
             "UpdLock",
         ]),
         // The platform's object type option: AL names seven of these members (corpus
-        // session/TestWebServiceActionContext.al:176-190 lists exactly Table, Page, Report,
+        // session-system/TestWebServiceActionContext.al:176-190 lists exactly Table, Page, Report,
         // Codeunit, XmlPort, Query and MenuSuite), the zero value `TableData` is not one of them
         // (the fresh value of `WebServiceActionContext.GetObjectType`). The ordinals are the C/AL
         // object type option's (docs/probes-needed.md); blank names are ordinals AL cannot name.
@@ -38,9 +38,9 @@ pub fn members(name: &str) -> Option<&'static [&'static str]> {
             "Query",
         ]),
         // Five members over four values: Get and Updated are both 200
-        // (session/TestWebServiceActionContext.al:100-110).
+        // (session-system/TestWebServiceActionContext.al:100-110).
         // Declaration order of the platform's Verbosity: Critical first, so Error is not the zero
-        // value (errorinfo/TestErrorInfoType.al:30-34).
+        // value (errors/errorinfo/TestErrorInfoType.al:30-34).
         "verbosity" => Some(&["Critical", "Error", "Warning", "Normal", "Verbose"]),
         // Microsoft docs, TelemetryScope: ExtensionPublisher, then All. Only passed to
         // Session.LogMessage, which changes nothing AL can see, so the ordinals are not pinned.
@@ -68,7 +68,7 @@ pub fn members(name: &str) -> Option<&'static [&'static str]> {
             "SystemMetadata",
             "AnonymousData",
         ]),
-        // The platform's members and ordinals, probed (misc/W5TableConnections.al:`members`, `crm_format_2`,
+        // The platform's members and ordinals, probed (format-evaluate/W5TableConnections.al:`members`, `crm_format_2`,
         // `externalsql_format_2`): CRM 0, ExternalSQL 1, Exchange 2, MicrosoftGraph 3, Query 4.
         "tableconnectiontype" => Some(&["CRM", "ExternalSQL", "Exchange", "MicrosoftGraph", "Query"]),
         // The members in the order the documentation lists them (TransactionType option type); the
@@ -78,12 +78,12 @@ pub fn members(name: &str) -> Option<&'static [&'static str]> {
         // test names the members or pins an ordinal, so nothing may print the number (docs/probes-needed.md,
         // "ReportLayoutType"). Base Application compares it with `ReportLayoutType::Word` and `::RDLC`.
         "reportlayouttype" => Some(&["RDLC", "Word", "Excel", "Custom"]),
-        // The platform's ordinals (misc/lt-probes-needed-2/PnBReportSaveAs.al:392-396 OtherFormats_NoLayout): Excel 1, Pdf 2,
+        // The platform's ordinals (text/PnBReportSaveAs.al:392-396 OtherFormats_NoLayout): Excel 1, Pdf 2,
         // Word 3, Xml 4, Html 5. Ordinal 0 has no name AL can use.
         "reportformat" => Some(&["", "Excel", "Pdf", "Word", "Xml", "Html"]),
         "errortype" => Some(&["Client", "Internal"]),
         // The members in the documentation's order (HttpRequestType option type). A handler formats the value
-        // (`Get`, `Head`: session/PZHttpHandler.al on the staging branch); the ordinals are not pinned and nothing may
+        // (`Get`, `Head`: session-system/PZHttpHandler.al on the staging branch); the ordinals are not pinned and nothing may
         // print them.
         "httprequesttype" => Some(&[
             "Unknown", "Get", "Delete", "Post", "Put", "Patch", "Options", "Head", "Connect", "Trace",
@@ -110,24 +110,24 @@ pub fn members(name: &str) -> Option<&'static [&'static str]> {
             "ChildSession",
         ]),
         // The report's default layout and a test codeunit's TestPermissions, in the documentation's order. The corpus only
-        // formats and tests the type of them (types/lt-variant-is-text-streams/LTP89IsEnumsA.al, LTP89IsEnumsB.al); the
+        // formats and tests the type of them (types/variant/LTP89IsEnumsA.al, LTP89IsEnumsB.al); the
         // ordinals are not pinned and nothing may print them. Report.DefaultLayout(Number) formats RDLC, Word, Excel and None
-        // (metadata/lt-report-metadata-columns/ReportMetadata.al:272, report/lt-y-report-props/YReportPropsTests.al:236); Custom
+        // (metadata/platform-tables/ReportMetadata.al:272, reports/runtime/YReportPropsTests.al:236); Custom
         // is the fourth member of the Report Metadata column.
         "defaultlayout" => Some(&["RDLC", "Word", "Excel", "Custom", "None"]),
         "testpermissions" => Some(&["Disabled", "Restrictive", "NonRestrictive", "InheritFromTestCodeunit"]),
         "datascope" => Some(&["Module", "Company", "User", "CompanyAndUser"]),
-        // Normal and Install are pinned (install/TestInstallEnvVisible_Tests.al:90-127).
+        // Normal and Install are pinned (install-upgrade/TestInstallEnvVisible_Tests.al:90-127).
         "executioncontext" => Some(&["Normal", "Install", "Upgrade"]),
         // Standard and Debug only (corpus must-not-compile 0010 to 0013 and 0019: Install, Uninstall, Upgrade,
         // Report and Profile do not exist). A test run formats as `Standard`
-        // (session/TestEnvironmentUserTenantContracts.al:247); the ordinals are not pinned.
+        // (session-system/TestEnvironmentUserTenantContracts.al:247); the ordinals are not pinned.
         "executionmode" => Some(&["Standard", "Debug"]),
         // Only `LocalScope` is named by the corpus; the ordinals are not pinned.
         "notificationscope" => Some(&["LocalScope", "GlobalScope"]),
         "webserviceactionresultcode" => Some(&["None", "Get", "Created", "Updated", "Deleted"]),
         // The StyleExpr member type. The ordinals (None 1 to Subordinate 11) and the value 0 of a variable never assigned or cleared,
-        // which has no member and formats as `0`, are read with Format(x, 0, 2) and Format(x) (types/lt-page-style/PageStyle.al:
+        // which has no member and formats as `0`, are read with Format(x, 0, 2) and Format(x) (types/page-style/PageStyle.al:
         // PageStyle_FormatNumber2_AllMembers, PageStyle_Variable_Clear). The empty name at 0 formats as its number.
         "pagestyle" => Some(&[
             "",
@@ -144,7 +144,7 @@ pub fn members(name: &str) -> Option<&'static [&'static str]> {
             "Subordinate",
         ]),
         // The ErrorLevel of `CurrPage.EnqueueBackgroundTask`. Error is the zero value; the platform's ordinals are 0, 10 and 20
-        // (`platform_ordinal`), and Format(x, 0, 1) prints the name (lt-ac/ACPageBackgroundTaskErrorLevel.al).
+        // (`platform_ordinal`), and Format(x, 0, 1) prints the name (format-evaluate/ACPageBackgroundTaskErrorLevel.al).
         "pagebackgroundtaskerrorlevel" => Some(&["Error", "Warning", "Ignore"]),
         "fieldtype" => Some(&[
             "TableFilter",
@@ -225,12 +225,12 @@ pub fn is_field_table_type(members: &[String]) -> bool {
 }
 
 /// Whether `members` is the `FieldType` option. AL cannot read its ordinals, so `Format(x, 0, 2)`
-/// prints the member name like any other format (recordref/TestPlatformOptionsLockingContracts.al:
+/// prints the member name like any other format (recordref-fieldref/recordref/TestPlatformOptionsLockingContracts.al:
 /// 76, "format 2 prints the name too, not an ordinal").
 pub fn ordinals_hidden(members: &[String]) -> bool {
     let known = members_static("fieldtype");
     let same = |known: &[&str]| members.len() == known.len() && members.iter().zip(known).all(|(a, b)| a == b);
-    // The Action option too: `Format(Action::OK, 0, 2)` is `OK` (misc/lt-probes-needed-7/PnGActionOrdinals.al:MemberOrdinals).
+    // The Action option too: `Format(Action::OK, 0, 2)` is `OK` (ui-handlers/PnGActionOrdinals.al:MemberOrdinals).
     same(known) || same(&crate::value::ACTION_MEMBERS)
 }
 
@@ -241,7 +241,7 @@ pub fn is_page_background_task_error_level(members: &[String]) -> bool {
 }
 
 /// Whether `members` is the `SecurityFilter` option, the one platform option an ordinal can be
-/// evaluated into (recordref/TestPlatformOptionsLockingContracts.al:42).
+/// evaluated into (recordref-fieldref/recordref/TestPlatformOptionsLockingContracts.al:42).
 pub fn is_security_filter(members: &[String]) -> bool {
     let known = members_static("securityfilter");
     members.len() == known.len() && members.iter().zip(known).all(|(a, b)| a == b)
@@ -257,7 +257,7 @@ pub fn option_members(name: &str) -> Option<Vec<String>> {
 }
 
 /// The platform enum a value of option type with these members belongs to, when it is one the `Is<Type>` tests of a Variant
-/// tell apart (types/lt-variant-is-text-streams/LTP89IsEnumsA.al and LTP89IsEnumsB.al: such a value is `IsAction`, say, and
+/// tell apart (types/variant/LTP89IsEnumsA.al and LTP89IsEnumsB.al: such a value is `IsAction`, say, and
 /// not `IsOption`). The members decide, so a user option with exactly these members counts as the platform one.
 pub fn kind_of(members: &[String]) -> Option<&'static str> {
     let same = |known: &[&str]| members.len() == known.len() && members.iter().zip(known).all(|(a, b)| a == b);
@@ -324,7 +324,7 @@ pub fn is_platform(members: &[String]) -> bool {
 
 /// The ordinal the platform gives member `position` of a platform option whose ordinals are not its positions, shown by
 /// `Format(x, 0, 2)`: Verbosity and TelemetryScope count from 1, the web service result codes are the HTTP codes
-/// (misc/lt-probes-needed-2/PnBErrorsCollections.al:VerbosityAndDataClassification_Ordinals,
+/// (errors/PnBErrorsCollections.al:VerbosityAndDataClassification_Ordinals,
 /// WebServiceActionContext_Ordinals_AndDuplicateKey; session/TestLogMessage... `enum_ints`).
 pub fn platform_ordinal(members: &[String], position: i32) -> Option<i32> {
     let same = |name: &str| {
@@ -334,7 +334,7 @@ pub fn platform_ordinal(members: &[String], position: i32) -> Option<i32> {
     if same("verbosity") || same("telemetryscope") {
         return Some(position + 1);
     }
-    // Error 0, Warning 10, Ignore 20 (lt-ac/ACPageBackgroundTaskErrorLevel.al:AC_PageBackgroundTaskErrorLevel_Format `ordinal_*`).
+    // Error 0, Warning 10, Ignore 20 (format-evaluate/ACPageBackgroundTaskErrorLevel.al:AC_PageBackgroundTaskErrorLevel_Format `ordinal_*`).
     if same("pagebackgroundtaskerrorlevel") {
         return Some(position * 10);
     }

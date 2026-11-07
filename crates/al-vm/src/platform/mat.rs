@@ -579,10 +579,11 @@ impl Mat {
     ///
     /// An equality on the name finds the row, with or without a filter on the table number, and next to filters on
     /// its other columns, which apply as on any row: ObsoleteState `No` and `<>Removed`, Type, Class, Enabled, a
-    /// TableNo range of one table and an alternative of two tables (types/lt-aj-probes/AjMisc.al:689-731
+    /// TableNo range of one table and an alternative of two tables (types/AjMisc.al:689-731
     /// SG_FieldTable_RowVersion_NameWithOtherFilters, :733-748 _NameAlone; Data Type Management.FindFieldByName
     /// :750-772). A case-insensitive (`@TIMESTAMP`), wildcard (`times*`) or alternative (`timestamp|No.`) filter on
-    /// the name does not see it (:712-717); another form of name filter, and a filter in the OR group, refuse.
+    /// the name does not see it (:712-717), nor does a not-equal, an `&` of not-equals, a comparison or a range
+    /// (metadata/FieldNameNotEqualFilter.al:57-120); another form of name filter, and a filter in the OR group, refuse.
     fn found_by_name(&self, t: &TableDef, i: usize, filters: &[FieldFilter], key: usize) -> Result<bool, StoreError> {
         use al_builtins::filter::FilterExpr;
         let r = &self.rows[i];
@@ -612,10 +613,20 @@ impl Mat {
                     e if single_value(e) => !e.matches(&r[col]),
                     FilterExpr::Like(..) => true,
                     FilterExpr::Or(alts) => alts.iter().all(|a| matches!(a, FilterExpr::Eq(_))),
+                    // A not-equal, an `&` of not-equals, a comparison and a range of two names do not see it either, with or
+                    // without the Class, Enabled and ObsoleteState filters (metadata/FieldNameNotEqualFilter.al:57-120, staging
+                    // r6980; al-runner issue 6995).
+                    FilterExpr::Ne(_)
+                    | FilterExpr::Lt(_)
+                    | FilterExpr::Le(_)
+                    | FilterExpr::Gt(_)
+                    | FilterExpr::Ge(_)
+                    | FilterExpr::Range(..) => true,
+                    FilterExpr::And(parts) if parts.iter().all(|a| matches!(a, FilterExpr::Ne(_))) => true,
                     _ => {
                         return Err(refusal(
                             t,
-                            "a row only a lookup by name finds (the Field row of the rowversion, timestamp): only an equality, a case-insensitive, a wildcard and an alternative filter on the name are pinned (types/lt-aj-probes/AjMisc.al:689-731)",
+                            "a row only a lookup by name finds (the Field row of the rowversion, timestamp): only an equality, a case-insensitive, a wildcard and an alternative filter on the name are pinned (types/AjMisc.al:689-731)",
                         ));
                     }
                 };
@@ -638,7 +649,7 @@ impl Mat {
         if or_group {
             return Err(refusal(
                 t,
-                "a row only a lookup by name finds (the Field row of the rowversion, timestamp): a filter in the OR group is not pinned (types/lt-aj-probes/AjMisc.al:689-731)",
+                "a row only a lookup by name finds (the Field row of the rowversion, timestamp): a filter in the OR group is not pinned (types/AjMisc.al:689-731)",
             ));
         }
         if let Some(why) = unknown_filtered(r, filters) {

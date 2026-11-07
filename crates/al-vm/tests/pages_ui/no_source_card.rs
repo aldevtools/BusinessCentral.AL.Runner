@@ -1,5 +1,5 @@
 //! A card without a source table (pages/open.rs, pages/actions.rs). Each test names the corpus test of
-//! misc/lt-protected-var-abs-query-views/P146PageExprSetValue.al that pins what BC does.
+//! testpage/P146PageExprSetValue.al that pins what BC does.
 
 const SRC: &str = r#"
 codeunit 69970 "NS Log"

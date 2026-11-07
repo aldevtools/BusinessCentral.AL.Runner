@@ -14,6 +14,7 @@
 //   {"t":"e","type":"System.X","v":"Name","o":1}   enum value by name and ordinal
 //   {"t":"h","v":12,"type":"System.IO.MemoryStream"}   object held here
 //   {"t":"ins","v":"<base64>"}             AL InStream: the unread bytes
+//   {"t":"ins","v":"<base64>","p":n}       AL InStream past its start: all its bytes, the stream at position n
 //   {"t":"outs"}                           AL OutStream: becomes a bridge stream
 //   {"t":"outs","v":"<base64>"}            AL OutStream over a Blob that holds these bytes: the bridge starts with them
 using System.Globalization;
@@ -60,19 +61,24 @@ public sealed class Marshaller
         NewBridges.Clear();
     }
 
-    /// Bytes written into any bridge since the last call, as [[id, base64], ...].
+    /// Bytes written into any bridge since the last call, as [[id, base64], ...]. This runs after every call and a session
+    /// can hold thousands of bridges (one per OutStream argument), so a bridge nothing wrote into must cost no copy: its
+    /// buffer is read in place (al-runner issue 7016; copying every bridge made one codeunit take 17 minutes). Both bridge
+    /// kinds are expandable MemoryStreams, whose buffer stays readable after Dispose. A bridge whose stream .NET closed hands
+    /// back its last bytes now and is then dropped: nothing can write into a closed MemoryStream any more.
     public JsonArray DrainBridges()
     {
         var arr = new JsonArray();
         foreach (var id in bridges.Keys.ToList())
         {
             var b = bridges[id];
-            var all = b.Stream.ToArray();
-            if (all.Length > b.Drained)
+            if (!b.Stream.TryGetBuffer(out var buf)) buf = new ArraySegment<byte>(b.Stream.ToArray());
+            if (buf.Count > b.Drained)
             {
-                arr.Add(new JsonArray(id, Convert.ToBase64String(all, b.Drained, all.Length - b.Drained)));
-                bridges[id] = (b.Stream, all.Length);
+                arr.Add(new JsonArray(id, Convert.ToBase64String(buf.Array!, buf.Offset + b.Drained, buf.Count - b.Drained)));
+                bridges[id] = (b.Stream, buf.Count);
             }
+            if (!b.Stream.CanRead) bridges.Remove(id);
         }
         return arr;
     }
@@ -101,13 +107,16 @@ public sealed class Marshaller
             case "ins":
             {
                 var ms = new MemoryStream(Convert.FromBase64String(o["v"]!.GetValue<string>()), writable: false);
+                // An InStream that stands further on: all its bytes, at its position ("p"), so .NET can seek back
+                // (al-runner issue 7134). The consumed count is the position in these bytes.
+                if (o["p"] is JsonNode at) ms.Position = at.GetValue<long>();
                 Ins.Add(new InArg { Index = index, Stream = ms });
                 return ms;
             }
             case "outs":
             {
                 // An OutStream over bytes AL already wrote: BC hands .NET the Blob's own stream, which reads, writes and
-                // seeks, standing at the end of the bytes (al-runner issue 6317, corpus lt-wd-dotnet/WdZipArchiveOverOutStream.al).
+                // seeks, standing at the end of the bytes (al-runner issue 6317, corpus dotnet/dotnet/WdZipArchiveOverOutStream.al).
                 var seed = o["v"] is JsonNode sv ? Convert.FromBase64String(sv.GetValue<string>()) : Array.Empty<byte>();
                 var ms = seed.Length == 0 ? new MemoryStream() : new SeededBridge(seed);
                 long id = nextBridge++;

@@ -1,6 +1,6 @@
 //! `this.Run()` inside a codeunit runs the codeunit's own instance: its globals count the runs, an error in OnRun is
 //! returned when the result is used, and the record form hands the record to OnRun
-//! (xmlport/lt-aj-xmlport/AjRunAndXmlPort.al:6-140, ThisRun_* tests).
+//! (xmlports/shapes-properties/AjRunAndXmlPort.al:6-140, ThisRun_* tests).
 
 use al_testkit::{run_in, text};
 

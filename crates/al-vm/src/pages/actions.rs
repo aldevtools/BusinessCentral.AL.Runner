@@ -4,7 +4,7 @@ use al_builtins::record_op::RecordOp;
 
 impl Session {
     /// An action with no `OnAction` trigger (its own or a page extension's) and no `RunObject` is not
-    /// on the TestPage: naming it raises TestActionNotFound (handlers/TestPageLabelControlContracts.al:
+    /// on the TestPage: naming it raises TestActionNotFound (testpage/TestPageLabelControlContracts.al:
     /// 131-145, BC 27.5). Whether other behaviour (a `RunPageLink` without a `RunObject`, a report
     /// action) also counts is not pinned.
     pub(super) fn action_without_behaviour(&self, st: &St, idx: usize) -> bool {
@@ -38,7 +38,7 @@ impl Session {
     }
 
     /// Runs the extensions' `OnAfterAction` triggers of action `idx` after its own trigger ran without an error: each in turn, in
-    /// the order the extensions apply; an error in the action runs none (pages/lt-pageext-action-after/
+    /// the order the extensions apply; an error in the action runs none (pages/extensions/
     /// PageExtensionActionOnAfterAction.al:149 P195_ActionWithOnAction_RunsBaseThenExtensions, :176
     /// P195_ActionWithoutBaseOnAction_RunsOnAfterAction, :199 P195_BaseOnActionRaises_OnAfterActionSkipped, :227 _InvokedTwice).
     fn run_ext_after_action(&mut self, st: &St, after: &[(usize, usize)]) -> Result<(), Signal> {
@@ -68,7 +68,7 @@ impl Session {
         let engine = self.engine();
         let page = page_of(&engine, st);
         // Actions are not eliminated, whatever their Visible says (corpus
-        // handlers/TestPageActionReachability_Tests.al:100-122).
+        // testpage/TestPageActionReachability_Tests.al:100-122).
         if matches!(
             page.controls[idx].kind,
             ir::ControlKind::Action | ir::ControlKind::ActionGroup
@@ -88,10 +88,10 @@ impl Session {
 
     /// `TestField.DrillDown`, `AssistEdit` and `Lookup`: run the control's trigger of that name, the
     /// one it states itself or the one a page extension's `modify` block adds (corpus
-    /// pageextensiontrigger/TestModifiedControlValidateTriggers_Tests.al: AModifyBlocksOnDrillDownRunsForTheModifiedControl,
+    /// pages/extensions/TestModifiedControlValidateTriggers_Tests.al: AModifyBlocksOnDrillDownRunsForTheModifiedControl,
     /// AModifyBlocksOnLookupRunsForTheModifiedControl, ABaseControlsOwnOnAssistEditRuns,
     /// AModifyBlocksOnAssistEditRunsForTheModifiedControl, OnAssistEditIsRaisedOnlyForTheControlItWasCalledOn).
-    /// A DrillDown or AssistEdit on a control with no trigger raises a fixed platform error (handlers/TestPageFieldDrillDown_Tests.al:
+    /// A DrillDown or AssistEdit on a control with no trigger raises a fixed platform error (testpage/TestPageFieldDrillDown_Tests.al:
     /// FieldDrillDownWithNoTriggerIsRefused), unless a DrillDown has a `DrillDownPageId` to open; a Lookup without a
     /// trigger goes to [`field_lookup`](Self::field_lookup).
     pub(super) fn control_navigate(&mut self, st: &St, idx: usize, method: PageMethod) -> Result<Value, Signal> {
@@ -120,7 +120,7 @@ impl Session {
         let drill_page = lit("drilldownpageid");
         if method == PageMethod::DrillDown {
             // `DrillDown = false` refuses the drill-down before any trigger runs, for a control of the page and of a page
-            // extension alike (pageext/lt-u-page-props/UPageProps.al:113-127, `base_off`, `ext_off`).
+            // extension alike (pages/extensions/UPageProps.al:113-127, `base_off`, `ext_off`).
             if lit("drilldown").is_some_and(|v| v.eq_ignore_ascii_case("false")) {
                 // Pinned on pages only; on a request page it waits for a probe (docs/probes-needed.md).
                 if self.is_request_page(st) {
@@ -142,7 +142,7 @@ impl Session {
             }
         }
         // `Lookup = false` on a control over a field with a TableRelation, with no OnLookup: Lookup() opens no page and raises
-        // nothing (pageext/lt-u-page-props/UPageProps.al:147-154 PageExt_LookupOnAndOff `ext_off_pages_opened = 0`, a page
+        // nothing (pages/extensions/UPageProps.al:147-154 PageExt_LookupOnAndOff `ext_off_pages_opened = 0`, a page
         // extension's control). With an OnLookup, or on a request page, it is not pinned.
         if method == PageMethod::Lookup && lit("lookup").is_some_and(|v| v.eq_ignore_ascii_case("false")) {
             if !found.is_empty() || self.is_request_page(st) {
@@ -159,7 +159,7 @@ impl Session {
                 if let Some(target) = drill_page {
                     return self.drill_down_page(st, idx, &target);
                 }
-                // A FlowField opens the DrillDownPageId of its CalcFormula's table (record/lt-x-table-props/XTablePropsTests.al:
+                // A FlowField opens the DrillDownPageId of its CalcFormula's table (record/table-properties/XTablePropsTests.al:
                 // 646-658); the view that page gets is not pinned, so it is refused.
                 if self.control_field(st, idx).is_some_and(|f| !f.stored) {
                     return unsupported(format!(
@@ -168,7 +168,7 @@ impl Session {
                     ));
                 }
                 // No trigger and no page: a fixed platform error with the code MethodNotSupported
-                // (report/lt-bj-request-drilldown/BjRequestDrillDown.al:226-227, UPageProps.al:122-123).
+                // (reports/request-page/BjRequestDrillDown.al:226-227, UPageProps.al:122-123).
                 return Err(error_code(
                     "The NavDrilldownAction method is not supported.",
                     "MethodNotSupported",
@@ -176,7 +176,7 @@ impl Session {
             }
             [] if method == PageMethod::Lookup => return self.field_lookup(st, idx),
             // AssistEdit with no trigger: a fixed platform error, also on a control with a LookupPageId or over a table
-            // relation (pages/lt-page-editability-width-lookups/P115Lookups.al:182-190, lookups/W2Lookups.al:569, :593).
+            // relation (pages/controls/P115Lookups.al:182-190, pages/lookups/W2Lookups.al:569, :593).
             [] if method == PageMethod::AssistEdit => {
                 return Err(error_code(
                     "The NavAssistEditAction method is not supported.",
@@ -197,39 +197,7 @@ impl Session {
         let rec_before = (method == PageMethod::AssistEdit && self.has_source(st))
             .then(|| (self.page_rec(st).borrow().fields.clone(), st.borrow().dirty));
         let result = if method == PageMethod::Lookup {
-            // OnLookup(var Text): Boolean. The text it writes back replaces the field's value, and
-            // the Boolean says whether the user picked anything (corpus
-            // handlers/TestPageFieldTableLookup.al:72 Lookup_ControlWithTrigger_WinsOverTheTableFieldsOnLookup,
-            // handlers/TestPageModalHandler_Tests.al:132). The text the trigger starts with is the
-            // control's current text (assumed, docs/probes-needed.md).
-            let object = owner.unwrap_or(st.borrow().object as usize);
-            let inst = self.owner_instance(st, owner);
-            let shown = self.lookup_start_text(st, idx, object, routine)?;
-            self.lookup_trigger_call(st, object, routine, inst, vec![Value::Text(shown.into())])
-                .and_then(|(v, finals)| match (v, finals.first()) {
-                    (Value::Boolean(true), Some(Value::Text(t))) => {
-                        // Written back as the client would type it. The OnLookup of a page extension's modify block
-                        // leaves a Code field in the case it wrote (`Text := 'FromExt'` reads back FromExt), the page's
-                        // own trigger does not (FROMCTL) (lookups/W2Lookups.al:
-                        // ModifyBlockOnLookup_ReturnsTrue, BC 27.5 and 29.0).
-                        st.borrow_mut().lookup_setting_value = true;
-                        let r = self.control_set_value(st, idx, &mut [Value::Text(t.clone())]);
-                        st.borrow_mut().lookup_setting_value = false;
-                        let binding = page_of(&self.engine(), st).controls[idx].binding.clone();
-                        if let ir::Binding::Field(pos) = binding {
-                            let rec = self.page_rec(st);
-                            let is_code = matches!(rec.borrow().fields[pos], Value::Code(_));
-                            if is_code && owner.is_some() && r.is_ok() {
-                                rec.borrow_mut().fields[pos] = Value::Code(t.clone());
-                            }
-                        }
-                        r
-                    }
-                    (Value::Boolean(true), other) => {
-                        unsupported(format!("an OnLookup trigger whose Text is {}", other.describe()))
-                    }
-                    _ => Ok(Value::Null),
-                })
+            self.on_lookup_trigger(st, idx, owner, routine)
         } else {
             let r = self.owner_routine(st, owner, routine).map(|_| Value::Null);
             match r {
@@ -249,10 +217,10 @@ impl Session {
         let v = result?;
         let pk_shown = self.drilldown_marked_only_refresh(st, method, marked_only_before, shown_before);
         // The client refreshes the page after an AssistEdit trigger: OnAfterGetRecord runs again
-        // (pages/lt-page-runtime/P82Lookups.al:AssistEdit_Trigger, `OnAssistEdit;OnAfterGetRecord(L1)`). A DrillDown and a Lookup are not pinned to.
-        // The row is not read again: a field the trigger set on the record stays (pages/lt-page-editability-width-lookups/
+        // (pages/run-modal/P82Lookups.al:AssistEdit_Trigger, `OnAssistEdit;OnAfterGetRecord(L1)`). A DrillDown and a Lookup are not pinned to.
+        // The row is not read again: a field the trigger set on the record stays (pages/controls/
         // P115Lookups.al:P115_AssistEdit_Trigger `after = assisted`).
-        // A trigger that changed Rec gets no refresh: OnAfterGetRecord does not run (pages/lt-sn-assistedit-refresh/
+        // A trigger that changed Rec gets no refresh: OnAfterGetRecord does not run (pages/assistedit-refresh/
         // SnAssistEditRefresh.al:207 and :235 `set = OnAssistEdit(Set)`, on a card and on a list).
         let changed_by_trigger = rec_before
             .as_ref()
@@ -269,7 +237,7 @@ impl Session {
         {
             // On a List page whose row holds no edit of the client the refresh reads the row as on a card
             // (SnAssistEditRefresh.al:233-234 in edit mode, :257-258 in view mode). After the client edited the row BC logs no
-            // OnAfterGetRecord (errors/lt-ms-refusals-129/P129CallstackPageControls.al:252, no `assistedit 2`, after SetValue)
+            // OnAfterGetRecord (testpage/P129CallstackPageControls.al:252, no `assistedit 2`, after SetValue)
             // under conditions this runtime does not tell apart yet: refused.
             let edited = rec_before.as_ref().is_some_and(|(_, dirty)| *dirty);
             if edited && self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::List)
@@ -299,7 +267,7 @@ impl Session {
 
     /// After an OnDrillDown that turned MarkedOnly on for Rec and called `CurrPage.Update(false)`, a list with OnAfterGetRecord or
     /// OnAfterGetCurrRecord drops the rows it held, so its moves read the marked rows from the table, as a list without those
-    /// triggers does (pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al, codeunit 89016). With CurrPage.Update(false) and the row
+    /// triggers does (testpage/ScDrillDownMarkedOnly.al, codeunit 89016). With CurrPage.Update(false) and the row
     /// triggers, a page with a part in the content or FactBoxes area does the same (al-runner issue 5886, the reporter's run on
     /// real BC; assumption drilldown-marked-only-with-part until writer SF's pins SF_WithPart_* and SF_WithFactBox_* land); the
     /// other shapes of a page with parts stay as they were.
@@ -318,7 +286,7 @@ impl Session {
             )
         };
         // A second marking OnDrillDown, with MarkedOnly already on, refills as the first on a page with a part (corpus writer UD,
-        // branch al-runtime-rs-staging-ud, pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:630 UD_NameKeyWithPart_*, :722
+        // branch al-runtime-rs-staging-ud, pages/onopenpage-moves-rec/SuRefillKey.al:630 UD_NameKeyWithPart_*, :722
         // UD_IdKeyWithPart_*; al-runner issue 6139); without a part it is not pinned and stays as it was.
         let again_with_part = marked_only_before && with_parts && self.has_source(st);
         if !shape
@@ -337,7 +305,7 @@ impl Session {
             s.refresh && s.refresh_by_update && s.refresh_update_false
         };
         // Without CurrPage.Update the page keeps showing the rows without MarkedOnly (`marked_only_unshown_call`). Pinned for a
-        // page without the row triggers only (corpus pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al:422
+        // page without the row triggers only (corpus testpage/ScDrillDownMarkedOnly.al:408
         // DrilldownWithoutUpdateListAndGoTo); with them the later TestPage calls are refused.
         if !st.borrow().refresh {
             if with_parts {
@@ -352,7 +320,7 @@ impl Session {
         }
         // Without the row triggers, with a part, in a key other than the primary key: the page still shows the row it showed
         // before the drilldown until the next call other than a field read; the rest reads as without that (corpus writer Y1,
-        // branch al-runtime-rs-staging-y1, pages/lt-y1-6289/Y1ClearMarkedOnly.al:446 Y1_Clear_NameKeyWithPartNoTriggers
+        // branch al-runtime-rs-staging-y1, pages/Y1ClearMarkedOnly.al:446 Y1_Clear_NameKeyWithPartNoTriggers
         // `after drilldown` `4` with Rec left on row 1, then `goto 2 filtered` `false/1`; al-runner issue 6289). In the primary key
         // it is not pinned and stays as it was.
         if update_false && !row_triggers && with_parts && self.page_rec(st).borrow().key != 0 {
@@ -371,7 +339,7 @@ impl Session {
         }
         // In a key other than the primary key, on a page without parts standing on a stored row: the drilldown reads nothing
         // and the page keeps showing the row it stood on; the next GoToRecord refills the rows around the row Rec was left on
-        // (`go_to_record_after_marked_refill`; corpus pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:269
+        // (`go_to_record_after_marked_refill`; corpus pages/onopenpage-moves-rec/SuRefillKey.al:269
         // Name_DrillDown_GoToRecord `drilldown` `4:` with an empty log while Rec was left on row 3). Every other call until then
         // is refused (`marked_only_unshown_call`).
         // In the primary key, when the drilldown left Rec on another row than the one shown, the page refills as
@@ -386,7 +354,7 @@ impl Session {
         // In the primary key, when the drilldown left Rec on another row, the page still shows its row there too (SuRefillKey.al:379
         // Id_DrillDown_GoToRecord `drilldown` `1:`, Rec left on row 5) and a GoToRecord refills around Rec's row first
         // (`go_to_record_after_marked_refill`); any other call puts Rec back where the drilldown left it and moves as below.
-        // With a part (al-runner issue 6115; corpus writer TW, branch al-runtime-rs-staging-tw, pages/lt-qr-onopenpage-moves-rec/
+        // With a part (al-runner issue 6115; corpus writer TW, branch al-runtime-rs-staging-tw, pages/onopenpage-moves-rec/
         // SuRefillKey.al:518 TW_NameKeyWithPart_*, :562 TW_IdKeyWithPart_*) the drilldown reads nothing and the page keeps its row
         // in either key, as without one; `go_to_record_after_marked_refill` answers the GoToRecord of Rec's row only.
         let in_pk = rec_moved && !in_its_key && st.borrow().cursor == Cursor::Row;
@@ -398,8 +366,8 @@ impl Session {
         if pk_shown.is_some() {
             st.borrow_mut().refresh = false;
         }
-        // Pinned by pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al TW_NameKeyWithPart_GoToRecordOfRecsRow, TW_IdKeyWithPart_GoToRecordOfRecsRow (was assumption `drilldown-marked-refill-with-part`).
-        // Pinned by pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al UD_NameKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_NameKeyWithPart_ActionAfterRowLostFlag, UD_IdKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_IdKeyWithPart_ActionAfterRowLostFlag (was assumption `marked-again-with-part`).
+        // Pinned by pages/onopenpage-moves-rec/SuRefillKey.al TW_NameKeyWithPart_GoToRecordOfRecsRow, TW_IdKeyWithPart_GoToRecordOfRecsRow (was assumption `drilldown-marked-refill-with-part`).
+        // Pinned by pages/onopenpage-moves-rec/SuRefillKey.al UD_NameKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_NameKeyWithPart_ActionAfterRowLostFlag, UD_IdKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_IdKeyWithPart_ActionAfterRowLostFlag (was assumption `marked-again-with-part`).
         if in_its_key && let Some(shown) = shown_before {
             let rec = self.page_rec(st);
             let left = std::mem::replace(&mut rec.borrow_mut().fields, shown);
@@ -416,7 +384,7 @@ impl Session {
             }
             return None;
         }
-        // Pinned: pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al (codeunit 89016); with a part in the content area or in the
+        // Pinned: testpage/ScDrillDownMarkedOnly.al (codeunit 89016); with a part in the content area or in the
         // FactBoxes area by :460 SF_WithPart_ListAndGoTo, :480 SF_WithPart_GoToRecordMissesTheUnmarkedRow, :494
         // SF_WithFactBox_ListAndGoTo and :514 SF_WithFactBox_GoToRecordMissesTheUnmarkedRow (al-runner issue 5886).
         let mut s = st.borrow_mut();
@@ -429,7 +397,7 @@ impl Session {
 
     /// After an OnDrillDown that turned MarkedOnly on for Rec without `CurrPage.Update`, on a list without OnFindRecord,
     /// OnNextRecord and the row triggers: the client still shows the rows of the view without MarkedOnly, so First, Next and
-    /// GoToRecord walk them (al-runner issue 5844, corpus writer's probe pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al
+    /// GoToRecord walk them (al-runner issue 5844, corpus writer's probe testpage/ScDrillDownMarkedOnly.al
     /// DrilldownWithoutUpdateListAndGoTo `listed=[ 10 20] goto20=Yes`). Close ends it; any
     /// other TestPage call before that is not pinned and is refused.
     pub(super) fn marked_only_unshown_call(
@@ -459,7 +427,7 @@ impl Session {
             && !self.still_reads_once_more(st)
         {
             // In the primary key the other moves read the marked rows from the table, from Rec where the drilldown left it
-            // (pages/lt-sc-outside-pages/ScDrillDownMarkedOnly.al:344 BothTriggersListAndGoTo).
+            // (testpage/ScDrillDownMarkedOnly.al:330 BothTriggersListAndGoTo).
             let left = st.borrow_mut().marked_refill_in_key.take();
             if let Some(left) = left {
                 self.page_rec(st).borrow_mut().fields = left;
@@ -532,11 +500,11 @@ impl Session {
     /// After a TestPage First or GoToRecord on a list with a part, OnAfterGetCurrRecord of the row it reached marked the rows again
     /// with MarkedOnly on and called CurrPage.Update(false): the client holds the marked rows of the new view and stays on the row
     /// Rec was left on; a GoToRecord of a row outside the new view is false (corpus writer Y1, branch al-runtime-rs-staging-y1,
-    /// pages/lt-y1-6288/Y1ExternalReapplyMarks.al:223 Y1_Reapply_FirstAfterExternalRefresh `first` `true/1`, `goto 2 after`
+    /// testpage/Y1ExternalReapplyMarks.al:207 Y1_Reapply_FirstAfterExternalRefresh `first` `true/1`, `goto 2 after`
     /// `false/1`, `next after` `false/1`, `goto 1 after` `true/1`; :278 Y1_Reapply_GoToRecordAfterRefreshWithoutFirst `goto 2`
     /// `false/1`, `goto 2 again` `false/1`; al-runner issue 6288). Which row triggers run while the client reads the new view is
     /// not pinned: none run here. Pinned for a list whose marked rows fit a window and hold Rec's row (another key:
-    /// pages/lt-y15/Y15ReapplyMarksSecondaryKey.al:269, al-runner issue 6467; a GoToRecord first in another key is assumed).
+    /// testpage/Y15ReapplyMarksSecondaryKey.al:269, al-runner issue 6467; a GoToRecord first in another key is assumed).
     fn marked_view_changed_by_move(
         &mut self,
         st: &St,
@@ -567,7 +535,7 @@ impl Session {
             return Ok(r);
         }
         // In a key other than the primary key the client holds the marked rows in that key's order and stays on Rec's row too
-        // (al-runner issue 6467; pages/lt-y15/Y15ReapplyMarksSecondaryKey.al:269 Y15_SK_FirstAfterExternalRefresh `goto 2 after`
+        // (al-runner issue 6467; testpage/Y15ReapplyMarksSecondaryKey.al:269 Y15_SK_FirstAfterExternalRefresh `goto 2 after`
         // `false/1/1`, `next after` `false/1/1`, `last after` `true/1/1`). A GoToRecord as the first move after the refresh
         // (:354 Y15_SK_GoToRecordAfterRefreshWithoutFirst) does not run here yet: an earlier test of its codeunit is refused, so
         // that move stays the assumption `reapply-marks-other-key`.
@@ -622,7 +590,7 @@ impl Session {
         self.ret_used = true;
         self.record_op(RecordOp::Get, &rec, &mut pk)?;
         // In another key, when the trigger left Rec on another row than the move reached, the refresh runs OnAfterGetCurrRecord
-        // on Rec's row; on the same row it runs no trigger (pages/lt-y15/Y15ReapplyMarksSecondaryKey.al:269 `first`
+        // on Rec's row; on the same row it runs no trigger (testpage/Y15ReapplyMarksSecondaryKey.al:269 `first`
         // `true/1/1 agcr2;agcr1`, :354 `goto 1` `true/1/1 agcr1`, which does not run here yet). In the primary key
         // which triggers run is not pinned: none run.
         let started = st.borrow().agcr_started.clone();
@@ -638,10 +606,10 @@ impl Session {
     }
 
     /// `Lookup()` on a control with no OnLookup trigger of its own: the source table field's
-    /// OnLookup runs on the page's row (corpus handlers/TestPageFieldTableLookup.al:55
+    /// OnLookup runs on the page's row (corpus testpage/TestPageFieldTableLookup.al:55
     /// Lookup_ControlWithoutTrigger_RunsTheTableFieldsOnLookup); else a field with a TableRelation
     /// opens the related table's lookup page modally, and a confirmed pick is written back
-    /// (handlers/TestPageFieldRelationLookup_Tests.al:104, :122, :142); a field with neither does
+    /// (testpage/TestPageFieldRelationLookup_Tests.al:104, :122, :142); a field with neither does
     /// nothing (:168).
     pub(super) fn field_lookup(&mut self, st: &St, idx: usize) -> Result<Value, Signal> {
         let Some(field) = self.control_field(st, idx) else {
@@ -660,7 +628,7 @@ impl Session {
             return self.control_relation_lookup(st, idx, &field, &text, ctl_page.as_deref());
         }
         // A control LookupPageId over a field with no relation: the Lookup raises nothing, needs no handler and leaves the
-        // value (pageext/lt-z-modify-controls/ZModifyControls.al:435-452, the property set by a modify block). Over a
+        // value (pages/extensions/ZModifyControls.al:435-452, the property set by a modify block). Over a
         // field with a TableRelation, which page opens is not pinned.
         if ctl_page.is_some() && field.relation {
             return unsupported(format!(
@@ -668,14 +636,7 @@ impl Session {
             ));
         }
         if let Some((object, routine)) = field.on_lookup {
-            let rec = self.page_rec(st);
-            st.borrow_mut().refresh = false;
-            self.call_on_record(object, routine, rec, None, Vec::new())?;
-            // The control now shows what the trigger wrote, as an edit of the row (assumed,
-            // docs/probes-needed.md).
-            st.borrow_mut().dirty = true;
-            self.run_refresh(st)?;
-            return Ok(Value::Null);
+            return self.field_on_lookup(st, object, routine);
         }
         if !field.relation {
             return Ok(Value::Null);
@@ -688,7 +649,7 @@ impl Session {
             return unsupported("Lookup over a conditional TableRelation or one into a table outside the workspace");
         };
         // The page is the related table's LookupPageId, else its DrillDownPageId; a table with
-        // neither still shows a form, which nobody can answer (handlers/TestPageFieldRelationLookup_Tests.al:253).
+        // neither still shows a form, which nobody can answer (testpage/TestPageFieldRelationLookup_Tests.al:253).
         let table_obj = &engine.program.objects[table];
         let page_of_table = ["LookupPageId", "DrillDownPageId"].iter().find_map(|prop| {
             let name = table_obj
@@ -722,7 +683,7 @@ impl Session {
             // An `asserterror` around this call is the only way a test sees the error. How far it
             // rolls back when the page's operation, not the test, raised it is not pinned: with
             // writes pending from before the call the run is refused (the corpus test seeds its
-            // host row without a Commit, handlers/TestPageFieldRelationLookup_Tests.al:253).
+            // host row without a Commit, testpage/TestPageFieldRelationLookup_Tests.al:253).
             if self.store.has_uncommitted() {
                 return unsupported(
                     "Lookup over a relation to a table with no lookup page, with writes pending (the extent of an asserterror rollback around a TestPage call is not pinned)",
@@ -739,9 +700,9 @@ impl Session {
     }
 
     /// `Lookup()` on a control with its own `TableRelation` (and no OnLookup): the lookup page opens modally and the pick
-    /// writes the relation's field. The page is the control's `LookupPageId` (pages/lt-page-editability-width-lookups/
+    /// writes the relation's field. The page is the control's `LookupPageId` (pages/controls/
     /// P115Lookups.al:108-124 P115_Lookup_PageIdAndRelation_OK: the related table has none; a pick writes `Descr`, the
-    /// relation's field) or else the related table's `LookupPageId` (pages/lt-page-autoformat-lookups/P113Lookups.al:253-270
+    /// relation's field) or else the related table's `LookupPageId` (pages/run-modal/P113Lookups.al:253-270
     /// P113_LK_LookupWithPageRelation). Not pinned, so refused: a where() or conditional relation, a control relation over
     /// a field with its own relation or OnLookup, two different pages, a table with only a DrillDownPageId or no page.
     fn control_relation_lookup(
@@ -842,7 +803,7 @@ impl Session {
 
     /// The lookup page of a relation opens modally on a blank field and a confirmed pick is written back through the
     /// control: `pos` is the related field (`None`: the first primary key field). Pinned for a table field's relation
-    /// (handlers/TestPageFieldRelationLookup_Tests.al:104, :122, :142) and a control's own relation (P115Lookups.al:108-124,
+    /// (testpage/TestPageFieldRelationLookup_Tests.al:104, :122, :142) and a control's own relation (P115Lookups.al:108-124,
     /// P113Lookups.al:253-270).
     fn lookup_through_page(
         &mut self,
@@ -861,7 +822,7 @@ impl Session {
         related.borrow_mut().lookup = true;
         self.page_instance(&related)?;
         // A field that holds a value: the lookup page opens on the related row that holds it, a value that is no row opens on the
-        // first row like a blank field (pages/lt-y80-lookup-holds-value/Y80LookupHoldsValue.al Y80_LK_Card_HoldsMiddle, _HoldsNoRow,
+        // first row like a blank field (pages/run-modal/Y80LookupHoldsValue.al Y80_LK_Card_HoldsMiddle, _HoldsNoRow,
         // _HoldsBlank, _HoldsLowerCase, _AltHoldsMiddle; P82Lookups.al:247 Lookup_TableRelation_Ok for the first row). Pinned for a
         // related table of up to four rows; a larger table is refused (how much of it the page reads around the row is not pinned).
         let start = if holds_value {
@@ -883,7 +844,7 @@ impl Session {
         let value = picked.borrow().fields[pos].clone();
         st.borrow_mut().refresh = false;
         // The control's OnAfterLookup(Selected: RecordRef) runs with the picked row before the value is written, so Rec still holds
-        // the old value (pages/lt-pages-xmlport-upload-members/P112Pages.al:P112_Lookup_BasePageField_OK `base afterLookup sel=B rec=[]`,
+        // the old value (pages/pages-xmlports-upload-members/P112Pages.al:P112_Lookup_BasePageField_OK `base afterLookup sel=B rec=[]`,
         // P112_Lookup_ExtensionField_OK, P112_Lookup_ViewMode).
         {
             let engine = self.engine();
@@ -912,10 +873,10 @@ impl Session {
     }
 
     /// `TestField.DrillDown` on a control with a `DrillDownPageId` and no OnDrillDown trigger: that page opens non-modally
-    /// and a `PageHandler` answers it; the control keeps its value (pages/lt-page-autoformat-lookups/P113Lookups.al:300-314
-    /// P113_LK_DrilldownNonModal, a page of another table; pageext/lt-page-ext-properties/PageExtDrillDownPageId.al:64-79,
+    /// and a `PageHandler` answers it; the control keeps its value (pages/run-modal/P113Lookups.al:300-314
+    /// P113_LK_DrilldownNonModal, a page of another table; pages/extensions/PageExtDrillDownPageId.al:64-79,
     /// the property set by a page extension's modify block). On a request page nothing opens and nothing is raised
-    /// (report/lt-bj-request-drilldown/BjRequestDrillDown.al:7-9, :223-231). Which rows the page shows and the row it
+    /// (reports/request-page/BjRequestDrillDown.al:7-9, :223-231). Which rows the page shows and the row it
     /// opens on are not pinned (both probes have one row in the target table), so a target table with more rows, or a
     /// field with a relation, is refused.
     fn drill_down_page(&mut self, st: &St, idx: usize, target: &str) -> Result<Value, Signal> {
@@ -984,7 +945,7 @@ impl Session {
     }
 
     /// Whether the card a list's Edit action would open can be edited. Only `Editable = false`
-    /// is pinned (corpus handlers/TestPageModeSwitchAction_Tests.al:
+    /// is pinned (corpus testpage/TestPageModeSwitchAction_Tests.al:
     /// ListWhoseCardIsReadOnlyLeavesTheEditActionVisibleButNotEnabled); any other restriction is refused.
     pub(super) fn card_allows_edit(&self, card: usize) -> Result<bool, Signal> {
         let engine = self.engine();
@@ -1035,9 +996,8 @@ impl Session {
         Ok(Value::Null)
     }
 
-    /// `TestAction.Invoke`: runs the action's OnAction when it is enabled; a disabled action
-    /// does nothing and raises nothing (corpus handlers/TestPageActionEnabledSourceField_Tests.al,
-    /// TPAE_ActionEnabledBoolField_FalseRow_IsDisabledAndItsTriggerIsSkipped).
+    /// `TestAction.Invoke`: runs the action's OnAction when it is enabled; a disabled action does nothing and raises nothing
+    /// (corpus testpage/TestPageActionEnabledSourceField_Tests.al, TPAE_ActionEnabledBoolField_FalseRow_IsDisabledAndItsTriggerIsSkipped).
     pub(super) fn action_invoke(&mut self, st: &St, idx: usize) -> Result<Value, Signal> {
         if st.borrow().expr_set_no_source {
             return unsupported(
@@ -1045,13 +1005,13 @@ impl Session {
             );
         }
         // A duplicate-key Insert the action made comes out at the page's next read of the table, still inside Invoke, with the
-        // wrapped code (errors/lt-az-error-texts/AzErrorTexts.al:167-185 PageAction_DuplicateInsert: `TestWrapped:CSideDuplicateKey`).
+        // wrapped code (errors/error-texts/AzErrorTexts.al:167-185 PageAction_DuplicateInsert: `TestWrapped:CSideDuplicateKey`).
         // One that was pending before the action is not pinned and keeps its code.
         let pending_before = self.tx.deferred_insert.is_some();
         let raised_before = self.tx.deferred_raised;
         let marked_only_before = !self.has_source(st) || self.page_rec(st).borrow().marked_only;
         // A second marking action, with MarkedOnly already on, on a list with a part: the refresh holds the marked rows it read
-        // as after the first (corpus writer UD, branch al-runtime-rs-staging-ud, pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:661
+        // as after the first (corpus writer UD, branch al-runtime-rs-staging-ud, pages/onopenpage-moves-rec/SuRefillKey.al:661
         // UD_NameKeyWithPart_ActionAfterRowLostFlag, :753 UD_IdKeyWithPart_ActionAfterRowLostFlag `second marking` `1`,
         // `goto 2 again` `No/1`; al-runner issue 6139). Without a part it is not pinned and stays as it was.
         let again_with_part = marked_only_before && self.has_source(st) && !st.borrow().parts.is_empty();
@@ -1060,6 +1020,10 @@ impl Session {
             s.marking_action = !marked_only_before || again_with_part;
             s.unmarking_action = marked_only_before && again_with_part;
             s.marked_rows_held = false;
+            if s.cursor != Cursor::None {
+                s.empty_after_action = false;
+            }
+            s.action_ran = true;
         }
         let view_before = self.has_source(st).then(|| ListView::of(&self.page_rec(st).borrow()));
         let outer_view = std::mem::replace(
@@ -1068,10 +1032,13 @@ impl Session {
                 .as_ref()
                 .map(|v| (v.filters.clone(), v.key.0, v.key.1.clone(), v.ascending)),
         );
+        // Refused once it ran (`part_tree_typed.rs`).
+        let empty_tree_part_in_key = self.empty_tree_part_in_key(st);
         let was_in_action = std::mem::replace(&mut st.borrow_mut().in_action, true);
         let r = self.action_invoke_body(st, idx);
         st.borrow_mut().view_before_action = outer_view;
         let r = match r {
+            Ok(_) if empty_tree_part_in_key && self.view_row_count(st)? > 0 => self.refuse_empty_tree_part_action(),
             Ok(v) => self.settle_rows_after_action(st, view_before).map(|()| v),
             e => e,
         };
@@ -1083,9 +1050,9 @@ impl Session {
             s.unmarking_action = false;
             std::mem::take(&mut s.marked_rows_held)
         };
-        // Pinned by pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al UD_NameKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_NameKeyWithPart_ActionAfterRowLostFlag, UD_IdKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_IdKeyWithPart_ActionAfterRowLostFlag (was assumption `marked-again-with-part`).
+        // Pinned by pages/onopenpage-moves-rec/SuRefillKey.al UD_NameKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_NameKeyWithPart_ActionAfterRowLostFlag, UD_IdKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_IdKeyWithPart_ActionAfterRowLostFlag (was assumption `marked-again-with-part`).
         // An action that turned MarkedOnly on for a list with row triggers: the moves after it walk only the marked rows
-        // (pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:353 Name_Action_Mark, :463 Id_Action_Mark `goto 3`). With
+        // (pages/onopenpage-moves-rec/SuRefillKey.al:353 Name_Action_Mark, :463 Id_Action_Mark `goto 3`). With
         // CurrPage.Update(false) the refresh holds the marked rows it read (`read_list_again_from_row_as`); in any other shape the
         // client rows kept here still hold every row, so every call but Close after it is refused.
         if r.is_ok()
@@ -1108,7 +1075,7 @@ impl Session {
             }
             // An error with an empty text (`Error('')`, Gen. Jnl.-Post Preview ends every preview with one) out of the action
             // ends the Invoke quietly: the test goes on, the error becomes the last error (empty text, code Dialog) and the
-            // rows the action wrote before it stay (pages/lt-qi-empty-error/QiEmptyErrorPages.al:192
+            // rows the action wrote before it stay (pages/empty-error-text/QiEmptyErrorPages.al:192
             // QI_EE_EmptyAction_NoAsserterror `went-on` yes, `after-invoke|code` Dialog, `rows` 1=seed;100=empty action ran;).
             // The code is the error's own, not wrapped as the test client wraps an error it raises.
             Err(Signal::Error(mut e)) if e.message.is_empty() => {
@@ -1136,9 +1103,9 @@ impl Session {
         let engine = self.engine();
         self.save_before_action(st, idx)?;
         // A client sends the row it stands on to the server before it runs an action (corpus
-        // handlers/TestPageAutoSplitKey_Tests.al:TestPage_ActionInvoke_OnANewSubpageRow_*).
+        // testpage/TestPageAutoSplitKey_Tests.al:TestPage_ActionInvoke_OnANewSubpageRow_*).
         let was_dirty = st.borrow().dirty;
-        // A new row of a card whose key a SetValue typed is stored before the next action's trigger (pages/lt-table-globals-page/
+        // A new row of a card whose key a SetValue typed is stored before the next action's trigger (pages/table-globals-page/
         // TableGlobalsPageWithoutValidation.al:318 QG_NewDraft_KeyTyped_ThenBumpAction: `stored after the SetValue` No, `stored
         // after BumpOnly` Yes, `Seen after BumpOnly` I0, `LastCount after ReadCount` 2).
         // Pinned for an action with OnAction only; before a RunObject action it is not pinned and stays as it was.
@@ -1154,14 +1121,14 @@ impl Session {
         st.borrow_mut().refresh = false;
         // An edit the client sends before the action (a control SetValue left the page dirty) is
         // saved, and the saved row is read again: OnAfterGetRecord of the base runs before the
-        // action (corpus handlers/TestPageExtensionBaseAccessContracts.al:338-342, where the base
+        // action (corpus pages/extensions/TestPageExtensionBaseAccessContracts.al:338-342, where the base
         // copies a variable an extension control set into a variable the action logs).
         // A page with OnAfterGetRecord reads that row as a clean page does, and nothing more
-        // (pageext/PCCurrRecordReads.al:Card_DirtyPage_ReadsAfterEachAction and
+        // (pages/extensions/PCCurrRecordReads.al:Card_DirtyPage_ReadsAfterEachAction and
         // List_DirtyPage_ReadsAfterEachAction: one OnAfterGetRecord before the action body, no
         // OnAfterGetCurrRecord); the reads after it follow below.
         // After a GoToKey that moved a list without OnAfterGetCurrRecord a SetValue before the action changes nothing in what it
-        // reads, also on a list with OnFindRecord and OnNextRecord (pages/lt-ai-list-order/QgGoToKeyNextCall.al:477
+        // reads, also on a list with OnFindRecord and OnNextRecord (pages/list-order/QgGoToKeyNextCall.al:477
         // Nav_GoToKey_ThenSetValue_ThenAction `action_log` as in Nav_GoToKey_ThenActionWithoutUpdate_Twice).
         let goto_nav = st.borrow().read_after_goto
             && self.is_list(st)
@@ -1185,7 +1152,7 @@ impl Session {
             self.save_row(st)?;
         }
         // A top-level card with OnAfterGetCurrRecord and without OnAfterGetRecord saves the edit before the action and reads
-        // nothing before its trigger (corpus master 97c29f86, pages/lt-y17-save-row-gone/Y17SaveRowGone.al:632
+        // nothing before its trigger (corpus master 97c29f86, pages/save-deleted-row/Y17SaveRowGone.al:632
         // PgSave_ActionDeletesEditedRow_Card `invoke log` `P.OnModifyRecord:A/edited;T.OnModify:A/edited/No;P.Finish:A/edited;...`).
         let card_saves_first = was_dirty
             && !dirty_reread_only
@@ -1225,17 +1192,17 @@ impl Session {
             st.borrow_mut().refresh = false;
         }
         // The client reads the row it stands on before an action runs (corpus
-        // pageext/PCCurrRecordReads.al:Card_ReadsAfterEachAction and List_ReadsAfterEachAction: one
+        // pages/extensions/PCCurrRecordReads.al:Card_ReadsAfterEachAction and List_ReadsAfterEachAction: one
         // OnAfterGetRecord before the action's own trigger, only when the row is not dirty, which has
         // its re-read above).
-        // A list that serves its rows from OnFindRecord and OnNextRecord does the same (misc/W2FindRecordUpdate.al: during_action
+        // A list that serves its rows from OnFindRecord and OnNextRecord does the same (testpage/W2FindRecordUpdate.al: during_action
         // `AGR(20);ActionBegin;ActionEnd;`).
-        // (misc/W2FindRecordUpdate.al for a list; pages/lt-update-on-find/UpdateOnFindRecord.al for a card and a list that
+        // (testpage/W2FindRecordUpdate.al for a list; pages/currpage/UpdateOnFindRecord.al for a card and a list that
         // declare OnAfterGetCurrRecord: `AGR:2;act:Update(false)` first.)
         let find_list =
             self.declares(st, "onfindrecord") && (self.is_list(st) || self.declares(st, "onaftergetcurrrecord"));
         // A card with OnFindRecord and no OnNextRecord reads its row before the action, again after it, then asks `=` and reads
-        // it once more (pages/lt-be-card-onfindrecord/BeCardOnFindRecord.al:292 CardTempFind_PageRun_TempRec `action`
+        // it once more (pages/triggers/BeCardOnFindRecord.al:292 CardTempFind_PageRun_TempRec `action`
         // `R;A;R;F:=;R`, and the CardTempFind_* and CardDbFind_* tests).
         let find_card = self.declares(st, "onfindrecord") && !self.declares(st, "onnextrecord") && !self.is_list(st);
         let reads_rows = (!was_dirty || dirty_reread_only)
@@ -1248,7 +1215,7 @@ impl Session {
             && page_of(&engine, st).controls[idx].run_object.is_none()
             && page_of(&engine, st).controls[idx].trigger("onaction").is_some();
         // Every action after such a GoToKey reads the row twice before its trigger: the second action too, and an action after
-        // a Value read, a SetValue, a Previous or a RunObject action (pages/lt-ai-list-order/QgGoToKeyNextCall.al:236, :254, :278,
+        // a Value read, a SetValue, a Previous or a RunObject action (pages/list-order/QgGoToKeyNextCall.al:236, :254, :278,
         // :297, :317, :336 and the Nav_ tests, `action_log` `R:R1003;R:R1003;A:act=R1003`). So the mark stays until a move clears
         // it (`pageops.rs`). A RunObject action reads nothing (:278 `runobject_log` `T:open;H:target`). After a call that is not
         // pinned (a property read) between them the action is refused.
@@ -1267,7 +1234,7 @@ impl Session {
             let rec = self.page_rec(st);
             if self.stored_row(&rec)?.is_some() {
                 // A GoToKey that moved a list without OnAfterGetCurrRecord: the row is read once more first
-                // (pages/lt-ai-list-order/AiListOrderTests.al:39, :233, :301, :335 `R:R1002;R:R1002;A:...`; QgGoToKeyNextCall.al).
+                // (pages/list-order/AiListOrderTests.al:39, :233, :301, :335 `R:R1002;R:R1002;A:...`; QgGoToKeyNextCall.al).
                 if read_after_goto {
                     self.populate_current(st)?;
                 }
@@ -1280,10 +1247,10 @@ impl Session {
         // table, are not pinned.
         let after = self.ext_after_action(st, idx);
         // OnBeforeAction of a page extension runs before the action's OnAction, and an error in it stops the action with the
-        // test framework's prefix on its code, on a card with a source table (pages/lt-ab-tests/ABTests.al:979-1018,
+        // test framework's prefix on its code, on a card with a source table (testpage/ABTests.al:979-1018,
         // ActionAddInErrorInBeforeActionStopsOnAction, ActionAddInBeforeActionRunsBeforeOnAction); also on an action without
         // OnAction, and an error in it runs neither OnAction nor OnAfterAction (corpus branch al-runtime-rs-staging-uq at d651ec93, bump PR 809:
-        // pages/lt-pageext-action-after/PageExtensionActionOnAfterAction.al UQ_BeforeAndAfterInOneModify_Order,
+        // pages/extensions/PageExtensionActionOnAfterAction.al UQ_BeforeAndAfterInOneModify_Order,
         // UQ_BeforeActionWithoutBaseOnAction, UQ_BeforeActionRaises_OnActionAndAfterSkipped, UQ_BeforeAction_InvokedTwice_EachTime;
         // opening the page runs none, UQ_OpenWithoutInvoke_NoBeforeOrAfter). Pinned for one extension with both triggers in one
         // modify block; the order of two extensions' OnBeforeAction, an OnBeforeAction without an OnAfterAction on an action
@@ -1345,10 +1312,10 @@ impl Session {
                 };
             }
         }
-        // RunObject wins over OnAction when an action declares both (handlers/TestPageRunObjectContracts.al:371-390).
+        // RunObject wins over OnAction when an action declares both (testpage/TestPageRunObjectContracts.al:371-390).
         if let Some(ro) = page_of(&engine, st).controls[idx].run_object.clone() {
             // RunObject = Page raises neither event; RunObject = Codeunit raises only OnAfterActionEvent, after the codeunit ran,
-            // and an error in it reaches Invoke (events/lt-page-action-subscriber-errors/PageActionSubscriberErrors.al:
+            // and an error in it reaches Invoke (events/page-events/PageActionSubscriberErrors.al:
             // RunPage_EventOrder, RunPage_AfterSubscriberConfiguredToRaise, RunCodeunit_EventOrder,
             // RunCodeunit_BeforeSubscriberConfiguredToRaise, RunCodeunit_AfterSubscriberRaises). The events around the other kinds
             // are not pinned: a subscriber to them makes the action refused.
@@ -1418,7 +1385,7 @@ impl Session {
             }
             // Subscribers to the action's events: before the trigger (what they write to Rec the trigger reads and the
             // page saves, because `before` was taken first), after it when it did not fail
-            // (events/lt-global-triggers-statements/P114PageActionEvents.al).
+            // (events/platform-triggers/P114PageActionEvents.al).
             let element = page_of(&engine, st).controls[idx].name.clone();
             let shown_outer = {
                 let shown = if self.is_list(st) && st.borrow().host.is_none() {
@@ -1496,13 +1463,10 @@ impl Session {
                         // (`apply_tree_cut`; Y28CollapsedTreeTests.al:190 Y28_ActionGetChildAndUpdate: current 2, walk 1,2,3,4).
                         // A page with row triggers reads the rows again from that row in the refresh that follows
                         // (`read_list_again_from_row_as`, `agr2;agr2;agr3;agr4;agr5;agr2;agr1;agr2;agr2;agcr2`); without a
-                        // refresh it is not pinned.
+                        // refresh the page reads them again the same way (R7168_ActionGetChildWithoutRefresh, Y28CollapsedTreeTests.al:321:
+                        // the trigger log, current row and shown rows equal those of R7168_ActionGetChildAndRefresh, :349).
                         if self.declares(st, "onaftergetrecord") || self.declares(st, "onaftergetcurrrecord") {
-                            if !st.borrow().refresh {
-                                return unsupported(
-                                    "an action that left a tree page with row triggers on a row it did not show, without a refresh (not pinned)",
-                                );
-                            }
+                            st.borrow_mut().refresh = true;
                         } else {
                             st.borrow_mut().window = Vec::new();
                             self.arrive(st)?;
@@ -1513,7 +1477,7 @@ impl Session {
                 }
             }
             // A new row of a card whose key the action set is stored right after the action, on fresh table globals: its
-            // OnInsert and the next action see none of what the action set in them (pages/lt-table-globals-page/
+            // OnInsert and the next action see none of what the action set in them (pages/table-globals-page/
             // TableGlobalsPageWithoutValidation.al:235 QG_NewDraft_KeySetByAction_WhenStored `stored after the action` Yes, `Seen
             // read` I0, `LastCount after the second action` 0; :272 _ThenCloseAtOnce; :293 _ThenBumpAction; :187
             // Card_NewDraft_KeySetByActionThenClose). An action that changes nothing leaves it as it is (:348
@@ -1533,7 +1497,7 @@ impl Session {
             }
             // An action that put another row (another primary key) into Rec on a list: the client saves nothing, now, on Next or
             // on Close (no OnModifyRecord, no OnModify), reads the list again from that row with its stored values, and the next
-            // OnAfterGetCurrRecord sees the row shown before as xRec (misc/lt-probes-needed-7/PnGRefresh.al:387
+            // OnAfterGetCurrRecord sees the row shown before as xRec (testpage/PnGRefresh.al:387
             // QL_RecAssign_OtherChanged_ThenClose, :416 _OtherChangedUpdate_ThenClose with CurrPage.Update(false), :445
             // _TempChanged_ThenClose from a temporary record, :532 _OtherChanged_StaysOpen_Next, :570 _TempChanged_StaysOpen_Next).
             // Pinned for a top-level list with OnAfterGetRecord and OnAfterGetCurrRecord and without OnFindRecord/OnNextRecord;
@@ -1570,27 +1534,17 @@ impl Session {
             {
                 let rec = self.page_rec(st);
                 // A change the action saved itself (`Rec.Modify()` in the action) is not saved again: the
-                // page runs no OnModify for it (misc/W2TableGlobals.al:Modify_ActionCallsModifyItself).
+                // page runs no OnModify for it (testpage/W2TableGlobals.al:Modify_ActionCallsModifyItself).
                 let stored_now = self.stored_row(&rec)?;
                 let saved_by_action = stored_now
                     .as_ref()
                     .is_some_and(|stored| Self::same_values(&rec.borrow().fields, stored));
-                // A row the action changed and then deleted (a codeunit that modifies and deletes Rec: Make Order, Post) is not
-                // written again on a card: the card closes (`settle_after_action`) and nothing is re-inserted (corpus master 97c29f86,
-                // pages/lt-y17-save-row-gone/Y17SaveRowGone.al:632 PgSave_ActionDeletesEditedRow_Card `stored` `B/b/No;`, :638
-                // without the edit). A list then moves on with reads the gone-row path does not model yet (:711
-                // PgSave_ActionDeletesEditedRow_List_Next `P.AGR:B;P.AGR:B;P.AGCR:B/b;` twice, the row edited before the action):
-                // refused. Without an edit before the action a list keeps the path it had (no corpus test pins its reads; Microsoft's
-                // Sales and Purchase Batch Document Posting tests post a row of a list this way).
-                let gone = stored_before && !moved_other && stored_now.is_none();
-                let changed = !Self::same_values(&rec.borrow().fields, &before);
-                if gone && changed && was_dirty && self.is_list(st) {
-                    return unsupported(
-                        "a list whose row an action changed and then deleted (the reads after the action are not pinned)",
-                    );
-                }
-                let deleted_by_action = gone;
-                if !Self::same_values(&rec.borrow().fields, &before) && !saved_by_action && !deleted_by_action {
+                // A deleted row and Blobs no stream wrote: `rec_changed_by_action` (pages/action_blob_change.rs).
+                let deleted_by_action = stored_before && !moved_other && stored_now.is_none();
+                if self.rec_changed_by_action(st, &before, deleted_by_action, was_dirty)?
+                    && !saved_by_action
+                    && !deleted_by_action
+                {
                     // Another row in Rec saves nothing on the pinned list (above; Tests-ERM 134918 Apply Customer Entries' Post
                     // Application `Rec := TempApplyingCustLedgEntry`). On another page that is not pinned.
                     if moved_other {
@@ -1630,7 +1584,7 @@ impl Session {
             }
             // The client reads the current row again after every action, so OnAfterGetCurrRecord of
             // the page and of its extensions runs again (corpus
-            // handlers/TestPageExtensionBaseMembersContracts.al:195-218: "ext AfterGetCurrRecord"
+            // pages/TestPageExtensionBaseMembersContracts.al:195-218: "ext AfterGetCurrRecord"
             // after the extension's action and after the base's). A page that serves its rows from
             // OnFindRecord is left as `CurrPage.Update` alone re-reads it (re-anchoring not pinned).
             let refresh_asked = st.borrow().refresh;
@@ -1641,10 +1595,11 @@ impl Session {
                 && !self.is_list(st)
                 && (self.declares(st, "onaftergetcurrrecord") || find_card);
             if find_pinned {
-                // pages/lt-update-on-find/UpdateOnFindRecord.al:P168_List_Update*, P168_Card_Update*: the reads come before
+                // pages/currpage/UpdateOnFindRecord.al:P168_List_Update*, P168_Card_Update*: the reads come before
                 // the refresh's `Find:=`. Without CurrPage.Update and without OnAfterGetCurrRecord the refresh is pinned
                 // by BeCardOnFindRecord.al (above), not assumed.
                 self.read_page_again(st)?;
+                self.modal_card_blank_read_after_update(st)?;
                 let pinned = !refresh_asked && !self.declares(st, "onaftergetcurrrecord");
                 st.borrow_mut().refresh = true;
                 st.borrow_mut().refresh_by_update = false;
@@ -1655,22 +1610,22 @@ impl Session {
             } else if !find_page {
                 // The reads the page does when it opens come first, then the refresh's own: a card
                 // reads its row twice, a list the rows of its window as it opens plus one (corpus
-                // pageext/PCCurrRecordReads.al:Card_ReadsAfterEachAction, List_ReadsAfterEachAction,
+                // pages/extensions/PCCurrRecordReads.al:Card_ReadsAfterEachAction, List_ReadsAfterEachAction,
                 // pinned for a card and a list of 3 rows with the cursor on the first).
                 // An action that called CurrPage.SaveRecord (and no Update) is followed by one read of the row, not two
-                // (pages/lt-page-runtime/P82CurrPage.al:SaveRecord_StoresPendingEdit and SaveRecord_InViewMode:
+                // (pages/run-modal/P82CurrPage.al:SaveRecord_StoresPendingEdit and SaveRecord_InViewMode:
                 // `...;saved;OnAfterGetRecord(A)`). With an Update in the same action it is not pinned and stays as it was.
                 let saved = std::mem::take(&mut st.borrow_mut().save_record_called) && !refresh_asked;
                 if reads_rows && !saved {
-                    self.read_page_again(st)?;
+                    self.read_page_again_after_gone(st)?;
                 }
                 // On a Document card that read is OnAfterGetRecord alone, no OnAfterGetCurrRecord, then the parts read their rows
-                // (pages/lt-qj-part-propagation/QjPartPropagation.al:511 QJ_Both_PartModifiesHost_ThenHostSave
+                // (pages/parts/QjPartPropagation.al:511 QJ_Both_PartModifiesHost_ThenHostSave
                 // `H.ACT.end(...) H.AGR(...) L.AGR(...) L.AGR(...) L.AGCR(...)`, also :548, :585, :627, :665, :703).
                 if saved && !self.is_list(st) && !st.borrow().parts.is_empty() {
                     st.borrow_mut().refresh_without_curr = true;
                 }
-                // On a list without parts too: `Act:Save:after;AGR:R1:7;QueryClose` (pages/lt-tc-bare-page-methods/
+                // On a list without parts too: `Act:Save:after;AGR:R1:7;QueryClose` (pages/bare-page-methods/
                 // TcBarePageMethodsTests.al:209 SaveRecordAction_BareMatchesCurrPage).
                 if saved && self.is_list(st) && st.borrow().parts.is_empty() && st.borrow().host.is_none() {
                     st.borrow_mut().refresh_without_curr = true;
@@ -1679,7 +1634,7 @@ impl Session {
                 st.borrow_mut().refresh_by_update = false;
             } else if read_after_goto && reads_rows && self.is_list(st) && !self.declares(st, "onaftergetcurrrecord") {
                 // After such a GoToKey an action without CurrPage.Update on a list with OnFindRecord and OnNextRecord is followed by
-                // the same refresh as one with it (pages/lt-ai-list-order/QgGoToKeyNextCall.al:566 Nav_GoToKey_ThenActionWithoutUpdate_Twice
+                // the same refresh as one with it (pages/list-order/QgGoToKeyNextCall.al:566 Nav_GoToKey_ThenActionWithoutUpdate_Twice
                 // `R:R1003;R:R1003;A:act=R1003;R:R1003;F:=>=Yes;R:R1003;N:1=1;...` against :607 Nav_GoToKey_ThenValueRead_ThenUpdateAction).
                 // Without that GoToKey it is not pinned and stays as it was.
                 st.borrow_mut().refresh = true;
@@ -1698,15 +1653,15 @@ impl Session {
             if std::mem::take(&mut st.borrow_mut().rec_moved_other) {
                 // An action that emptied the view of a list without the new-row line and left Rec, with CurrPage.Update(false), on
                 // a primary key no row has: the list stands on the blank Rec as when Rec keeps the deleted row's key
-                // (`settle_on_blank_rec`; pages/lt-outside-worksheet-2/RtFilteredGoneRow.al:640 TD_LeavesKey_Line1WithUpdate_OneLine
-                // `R:10000;N:B1:0;C:B1:0;`, :700 _OtherBatchRowRemains; al-runner issue 6027). With two or three rows shown before
+                // (`settle_on_blank_rec`; pages/RtFilteredGoneRow.al:640 TD_LeavesKey_Line1WithUpdate_OneLine
+                // `R:10000;N:B1:0;C:B1:0;`, :700 _OtherBatchRowRemains; al-runner issue 6027). With two to six rows shown before
                 // the action BC 28 runs OnNewRecord and OnAfterGetCurrRecord once, BC 27 and BC 29 twice (:656
-                // TD_LeavesKey_Line1WithUpdate_ThreeLines, :679 _TwoLines, `#if BC28PLUS and not BC29PLUS`; the reporter's page
-                // pages/lt-y1-6292/Y1WorksheetPostLog.al:161 Y1_Post_TwoLines, :177 Y1_Post_ThreeLines; al-runner issue 6292).
-                // Rows left in the view, another count of rows shown before (four and more are not pinned) or no
-                // CurrPage.Update(false) are not built.
+                // TD_LeavesKey_Line1WithUpdate_ThreeLines, :679 _TwoLines, :701 _FourLines, :724 _FiveLines, :747 _SixLines,
+                // `#if BC28PLUS and not BC29PLUS`; the reporter's page testpage/Y1WorksheetPostLog.al:161 Y1_Post_TwoLines,
+                // :177 Y1_Post_ThreeLines; al-runner issues 6292, 7197). Rows left in the view, seven or more rows shown
+                // before (not pinned) or no CurrPage.Update(false) are not built.
                 let rows_before = held_before.as_ref().map_or(0, Vec::len);
-                let on_blank = (1..=3).contains(&rows_before) && {
+                let on_blank = (1..=6).contains(&rows_before) && {
                     let s = st.borrow();
                     s.gone_blank_no_new_line && s.open && s.cursor == Cursor::None && !s.draft
                 };
@@ -1725,7 +1680,7 @@ impl Session {
                 }
             }
             // A card without a source table runs OnAfterGetCurrRecord once after each action, also after one that called
-            // CurrPage.Update(false) (misc/lt-protected-var-abs-query-views/P146PageExprSetValue.al:351
+            // CurrPage.Update(false) (testpage/P146PageExprSetValue.al:351
             // P146_NoSourceTable_SetValue_And_Action `log after bump`, :420 QG_NoSource_OpenEdit_StepLog `qg action;qg agcr;`,
             // `qg update;qg update done;qg agcr;`). Another page type is not pinned.
             if !self.has_source(st) && st.borrow().open && !self.is_request_page(st) {
@@ -1740,10 +1695,10 @@ impl Session {
                     self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
                 }
             }
-            // An action that closed the page: the client still reads the row once more (pages/lt-page-runtime/P82PageRun.al:
+            // An action that closed the page: the client still reads the row once more (pages/run-modal/P82PageRun.al:
             // RunModal_CurrPageClose_Action `...;OnClosePage;OnAfterGetRecord(A)`).
             // A list whose action put another row into Rec and closed the page: CurrPage.Close() read the shown row back into Rec,
-            // and the client reads it once more after the action (misc/lt-probes-needed-7/PnGRefresh.al:608
+            // and the client reads it once more after the action (testpage/PnGRefresh.al:608
             // QL_RecAssign_OtherChanged_CloseInAction `P.AGR(A,orig A);P.AGR(A,orig A);ACT.end(A,orig A x=A,orig A);P.AGR(A,orig A)`).
             if std::mem::take(&mut st.borrow_mut().close_restored_row) {
                 self.populate_current(st)?;
@@ -1759,7 +1714,7 @@ impl Session {
     }
 
     /// After an action failed on a control add-in call (the add-in is never created in a test session), a card reads its row
-    /// again, OnAfterGetRecord then OnAfterGetCurrRecord, and the page stays usable (lt-ac/ACControlAddIn.al
+    /// again, OnAfterGetRecord then OnAfterGetCurrRecord, and the page stays usable (testpage/ACControlAddIn.al
     /// TZ_TwoProceduresFromActions_PageStaysUsable `log`, BC28PLUS: `CallAct before | OnAfterGetRecord 1 | OnAfterGetCurrRecord
     /// 1 | OnAfterGetRecord 1 | CountAct before`). The read is not there yet when the test reads the log right after the
     /// failed Invoke (TZ_HiddenUserControl_CallFromAction, TZ_PageExtensionUserControl_CallFromExtAction: the log ends with
@@ -1797,7 +1752,7 @@ impl Session {
             );
         }
         st.borrow_mut().add_in_reread = false;
-        // Pinned by lt-ac/ACControlAddIn.al TZ_CallInOnAfterGetRecord_TestPageOpen, TZ_CallInOnAfterGetCurrRecord_TestPageOpen, TZ_CallInOnClosePage_TestPageClose, TZ_TwoProceduresFromActions_PageStaysUsable (was assumption `control-add-in-call-trigger-contexts`).
+        // Pinned by testpage/ACControlAddIn.al TZ_CallInOnAfterGetRecord_TestPageOpen, TZ_CallInOnAfterGetCurrRecord_TestPageOpen, TZ_CallInOnClosePage_TestPageClose, TZ_TwoProceduresFromActions_PageStaysUsable (was assumption `control-add-in-call-trigger-contexts`).
         self.populate_current(st)?;
         self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
         self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
@@ -1805,7 +1760,7 @@ impl Session {
     }
 
     /// A page over a table that shows no stored row when an action with OnAction runs: a list opened for edit that stands on its
-    /// new-row line, a list or a card opened for view that shows nothing (misc/lt-probes-needed-7/PnGShowRow.al, pages/W1ShowRow.al).
+    /// new-row line, a list or a card opened for view that shows nothing (testpage/PnGShowRow.al, pages/W1ShowRow.al).
     /// A page with OnFindRecord or OnNextRecord, a part, a host of parts, and a page with an edit pending are not this shape.
     fn empty_page_shape(&mut self, st: &St) -> Result<Option<EmptyShape>, Signal> {
         let shape = {
@@ -1861,17 +1816,19 @@ impl Session {
     /// After an action on a list opened for view that showed no row, which changed the filters so the view has rows and
     /// called `CurrPage.Update(false)`, while Rec stands on no row of the view: the client fills the page as when it opens,
     /// from the first row of the new view, which becomes current; a page with OnFindRecord asks `=><` and then `=`
-    /// (pages/lt-ai-list-order/AiListOrderTests.al QP_EmptyView_UpdateFalse_ShowAll_Nav, _ShowFromThree_Nav, _ShowAll_Plain,
+    /// (pages/list-order/AiListOrderTests.al QP_EmptyView_UpdateFalse_ShowAll_Nav, _ShowFromThree_Nav, _ShowAll_Plain,
     /// _ShowFromThree_Plain; pages 87158, 87159 in QpUpdateEmptyList.al; the traces equal the open traces of :105 and :265).
     /// Pinned for views of 4 and 6 rows that the window holds. A view of one row is `empty_page_after_action`'s; Update(true),
-    /// no Update, or Rec on a row of the view go on as before.
+    /// no Update, or Rec on a row of the view go on as before. On the blank row an earlier action left (`empty_after_action`)
+    /// Update(true) fills the page the same way, read as at open from the first row (pages/actions/ActionFilterEmptyView.al
+    /// Action_NoRowsLeft_ThenCleared_UpdateTrue `cleared` `[1|1]:a0;u0;R1;R2;R3;R4;R1;R1;C1`, as _UpdateFalse).
     fn update_on_empty_list_view(&mut self, st: &St) -> Result<bool, Signal> {
         {
             let s = st.borrow();
             if !(s.open
                 && s.refresh
                 && s.refresh_by_update
-                && s.refresh_update_false
+                && (s.refresh_update_false || s.empty_after_action)
                 && !s.dirty
                 && s.cursor == Cursor::None)
             {
@@ -1899,6 +1856,7 @@ impl Session {
             s.refresh = false;
             s.refresh_by_update = false;
             s.refresh_update_false = false;
+            s.empty_after_action = false;
         }
         self.page_first_row(st)?;
         Ok(true)
@@ -1907,14 +1865,14 @@ impl Session {
     /// After an action on a list opened for view that stands on the draft row New() started, untouched: the client drops the
     /// draft and stores nothing.
     /// - `CurrPage.Update(false)`: it goes back to the row New() was started from, which it reads as when it opens
-    ///   (pages/lt-sc-update-empty-row/ScUpdateEmptyRow.al:215-241 OpenView_NewDraftRow_ActionUpdate `agcr id=1 count=2 ;
+    ///   (pages/currpage/ScUpdateEmptyRow.al:202-228 OpenView_NewDraftRow_ActionUpdate `agcr id=1 count=2 ;
     ///   agcr id=0 count=2 ; before id=0 ; after id=0 ; agcr id=1 count=2`, `rows after` 2; from the second and the last of three
-    ///   rows Y6UpdateDraftRow.al:200-242, corpus master).
-    /// - `CurrPage.Update(true)`: back to the first row, from the first and from the last row (Y6UpdateDraftRow.al:158-177,
+    ///   rows Y6UpdateDraftRow.al:187-229, corpus master).
+    /// - `CurrPage.Update(true)`: back to the first row, from the first and from the last row (Y6UpdateDraftRow.al:145-164,
     ///   :244-264, corpus master). From another row it is not pinned: refused.
-    /// - An action without Update: as Update(false), from the first row (Y6UpdateDraftRow.al:179-198, corpus master). From
+    /// - An action without Update: as Update(false), from the first row (Y6UpdateDraftRow.al:166-185, corpus master). From
     ///   another row it is not pinned: refused.
-    /// - Over an empty view `CurrPage.Update(true)` leaves the page on no row, with no trigger (Y6UpdateDraftRow.al:326-342,
+    /// - Over an empty view `CurrPage.Update(true)` leaves the page on no row, with no trigger (Y6UpdateDraftRow.al:313-329,
     ///   corpus master); the other actions there go on as before.
     ///
     /// Pinned for a top-level list without OnFindRecord/OnNextRecord.
@@ -2021,7 +1979,7 @@ impl Session {
     }
 
     /// Before the action's trigger. A list opened for view over an empty table reads its blank record once when the test stored
-    /// a row of the view since (misc/lt-probes-needed-7/PnGShowRow.al:459 QG_ViewEmptyList_RowStoredByTest_ThenReads `action_log`
+    /// a row of the view since (testpage/PnGShowRow.al:459 QG_ViewEmptyList_RowStoredByTest_ThenReads `action_log`
     /// `List.AGR(,);ReadTable(,No);...`), and nothing when the view is still empty (:364 QG_ViewEmptyList_InsertViaRec_StepLog).
     /// Rows stored before the action are pinned for no other shape.
     fn empty_page_before_action(&mut self, st: &St, shape: EmptyShape) -> Result<(), Signal> {
@@ -2036,7 +1994,7 @@ impl Session {
             }
             // A Worksheet with the new-row line opened for edit on an empty view, left on that line by an action that inserted
             // rows through another record variable: the next action first reads the line, OnAfterGetRecord on the blank Rec
-            // (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:573 SH_WsWithNew_EmptyOpen_FillThenDeleteAllUpdate, two rows).
+            // (testpage/RmWorksheetGoneRow.al:557 SH_WsWithNew_EmptyOpen_FillThenDeleteAllUpdate, two rows).
             // Another number of rows is the registered assumption `empty-worksheet-filled-by-action`.
             (EmptyShape::EditList, _)
                 if self.engine.object_facts[st.borrow().object as usize].page_type
@@ -2059,7 +2017,7 @@ impl Session {
     }
 
     /// After the action's trigger on a page that showed no stored row (`empty_page_shape`). Pinned for a view of none or one row
-    /// after the action (misc/lt-probes-needed-7/PnGShowRow.al, writer QG):
+    /// after the action (testpage/PnGShowRow.al, writer QG):
     /// - Rec is that row (the action inserted it through Rec): the client reads it three times, then OnAfterGetCurrRecord, with
     ///   xRec on the row in edit mode and blank in view mode, and stays on it (:176 QG_EmptyList_InsertViaRec_StepLog
     ///   `List.AGR(NEW1,Created)` three times `;List.AGCR(NEW1,NEW1)`, :270 _InsertViaRecAndUpdate, :364
@@ -2074,7 +2032,7 @@ impl Session {
     /// opened for view, are not pinned.
     /// Answers whether it handled the action; the other cases go on as any action does: a view of more rows (testpart/
     /// BnrBlankPart.al:491 NoRow_Action_TempListTwoInsertsAndFindLast_ShowsTheLastRow) and an empty view of a page with row triggers
-    /// opened for view (pages/lt-ap-testpage-642/ApTestPageTests.al:602 Ap10_SetSelectionFilter_FilterHidesAll_TestPageFilter) are pinned
+    /// opened for view (testpage/ApTestPageTests.al:602 Ap10_SetSelectionFilter_FilterHidesAll_TestPageFilter) are pinned
     /// there.
     fn empty_page_after_action(&mut self, st: &St, shape: EmptyShape) -> Result<bool, Signal> {
         if !st.borrow().open {
@@ -2086,7 +2044,7 @@ impl Session {
         if n > 1 {
             // A Worksheet with the new-row line opened for edit on an empty view whose action stored rows through another record
             // variable: the client reads the rows of the view once each, then the first one twice, runs OnAfterGetCurrRecord on
-            // it with a blank xRec and goes back to its new-row line (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:573
+            // it with a blank xRec and goes back to its new-row line (testpage/RmWorksheetGoneRow.al:557
             // SH_WsWithNew_EmptyOpen_FillThenDeleteAllUpdate, :601 _FillThenWalk `calculate log =
             // R:10000;R:20000;R:10000;R:10000;C:10000;N:0;C:0;`). Pinned with two rows; more rows up to a window are the
             // registered assumption `empty-worksheet-filled-by-action`; a view longer than a window is refused.
@@ -2281,7 +2239,7 @@ impl Session {
     }
 
     /// The new row of an open card over a table, not a part, without DelayedInsert, extensions or a view of its own: the shape
-    /// pages/lt-table-globals-page/TableGlobalsPageWithoutValidation.al pins for when an action stores it.
+    /// pages/table-globals-page/TableGlobalsPageWithoutValidation.al pins for when an action stores it.
     fn plain_card_draft(&self, st: &St) -> Result<bool, Signal> {
         if !st.borrow().open || !st.borrow().draft || st.borrow().host.is_some() || !st.borrow().parts.is_empty() {
             return Ok(false);
@@ -2297,7 +2255,7 @@ impl Session {
             .page
             .as_ref()
             .is_some_and(|p| !p.extensions.is_empty());
-        // A filtered view stamps the new row (misc/W2TableGlobals.al FilterStamp_*): not this shape.
+        // A filtered view stamps the new row (testpage/W2TableGlobals.al FilterStamp_*): not this shape.
         let own_props_pinned = ["SourceTableView", "SourceTableTemporary", "Editable", "InsertAllowed"]
             .iter()
             .all(|p| effective_prop(&engine, object, p).ok().flatten().is_none());
@@ -2318,19 +2276,19 @@ impl Session {
     /// An action that changed the view of a list's record (its filters, its key or its sort order): the rows the client read
     /// under the old view are not the rows of the new one, so they leave the window and the next move reads the new view from
     /// its first row. Pinned by (
-    /// pages/lt-y5/Y5GoToKeyAfterActionFilter.al:115-141 NextGroup: after the action the row is 2/1, GoToKey(2,50) Yes, Next,
+    /// testpage/Y5GoToKeyAfterActionFilter.al:115-141 NextGroup: after the action the row is 2/1, GoToKey(2,50) Yes, Next,
     /// Previous, GoToKey(2,10), First and Last walk the new view; :143-156 GoToKey(1,50) No and the row stays; :158-174 an
     /// action with only `Rec.SetRange`: the row is 2/1; al-runner issue 6381).
     /// A key change (SetCurrentKey) keeps the row and
     /// the next move follows the new key at once (
-    /// pages/lt-y5/Y5GoToKeyAfterActionKeyAndTriggers.al:199-231): it drops the window too.
+    /// testpage/Y5GoToKeyAfterActionKeyAndTriggers.al:199-231): it drops the window too.
     ///
     /// Done only on a list without OnAfterGetRecord, OnFindRecord and OnNextRecord; with those triggers the refresh after the
     /// action decides what the client holds (`read_list_again_from_row_as`).
     ///
     /// A row Rec stands on that the new filters leave out moves to the next row of the new view after it (Y5:158-174, the row
     /// 1/50 moves to 2/1). Without a next row the page goes to the row before it, and a view left without rows shows a blank
-    /// row (pages/lt-y15/Y15ActionNarrowsBelowLast.al, al-runner issue 6468).
+    /// row (testpage/Y15ActionNarrowsBelowLast.al, al-runner issue 6468).
     ///
     /// The probe Find and Next below are record methods: SessionInformation's SQL counters log them as reads of the table.
     /// A counter read across this action is classified by `sqlcount.rs`, which treats any order of reads no test pins as
@@ -2383,7 +2341,7 @@ impl Session {
         let now = ListView::of(&rec.borrow());
         let same_filters = self.same_filters(&before, &now);
         // A key change applies at once (Y5GoToKeyAfterActionKeyAndTriggers.al:199-231 on branch al-runtime-rs-staging-y5b), and
-        // so does `Rec.Ascending(false)` (handlers/TestPageViewRoundTripRoutes.al:411, :469: the list shows the rows
+        // so does `Rec.Ascending(false)` (testpage/TestPageViewRoundTripRoutes.al:411, :469: the list shows the rows
         // descending). `SetAscending` of one field has no visible effect on the list (Y5GoToKeyAfterActionKeyAndTriggers.al:
         // 236-268: Next, First and Last stay ascending), so it is not compared.
         if same_filters && before.key == now.key && before.ascending == now.ascending {
@@ -2414,7 +2372,7 @@ impl Session {
             return Ok(());
         }
         // No row of the new view follows: the page stands on the nearest row before it, and moves go on from there
-        // (pages/lt-y15/Y15ActionNarrowsBelowLast.al:237 Y15_NV_ReporterShape `after show included` `2/Yes`, `next end`
+        // (testpage/Y15ActionNarrowsBelowLast.al:237 Y15_NV_ReporterShape `after show included` `2/Yes`, `next end`
         // `false/2`; :269 Next `false/2`, Previous `true/1`; :294 GoToRecord and GoToKey; :320 the same without
         // CurrPage.Update). A view left without rows shows a blank row, and First and Last answer false (:345
         // `after none` `[]`, `none first` `false/[]`; al-runner issue 6468).
@@ -2483,7 +2441,7 @@ impl Session {
             return self.read_list_again_from_row(st, &rec, &key);
         }
         // The row the list stood on was the first of the old view; an action that changed the view can put rows before it, and
-        // then the list reads as on a later row (al-runner issue 6470: pages/lt-y15/Y15ActionWidensView.al:199
+        // then the list reads as on a later row (al-runner issue 6470: testpage/Y15ActionWidensView.al:199
         // `after action` `A20/6 28:A20-A01`).
         let first = {
             let s = st.borrow();
@@ -2502,30 +2460,6 @@ impl Session {
         Ok(())
     }
 
-    /// The row a list settles on when the action's filter left the stored row it stood on outside the view: the next row of the
-    /// view, else the one before it (pages/lt-ai-list-order/AiListOrderTests.al:335 DropCurrent_RowsAfter_Plain and :301 _FindOnly
-    /// read R1003 first, :501 DropCurrent_NoRowsAfter_Plain and :467 _FindOnly read R1005 first). `None` when the row is in the
-    /// view; a view left with no row is refused.
-    fn row_after_view_left(&mut self, rec: &Rec) -> Result<Option<Vec<Value>>, Signal> {
-        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
-        self.ret_used = true;
-        if matches!(
-            self.record_op(RecordOp::Find, &probe, &mut [Value::Text("=".into())])?,
-            Value::Boolean(true)
-        ) {
-            return Ok(None);
-        }
-        for step in [1, -1] {
-            let probe = Rc::new(RefCell::new(rec.borrow().clone()));
-            self.ret_used = true;
-            if matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(step)])?, Value::Integer(n) if n != 0)
-            {
-                return Ok(Some(probe.borrow().fields.clone()));
-            }
-        }
-        unsupported("an action left the list's view without rows (not pinned)")
-    }
-
     /// `CurrPage.Update` in a control's OnValidate that changed the filters of the page's record, on a list (a Worksheet or a
     /// List, no part) that reads its rows from the table and declares OnAfterGetRecord and OnAfterGetCurrRecord: the client reads
     /// the rows as after an action, without the read of the row before them (`read_list_again_from_row`). It stands on the row,
@@ -2535,7 +2469,7 @@ impl Session {
     /// RZ_PlainList_* the List: `R:C;R:E;R:C;R:A;R:C;R:C;C:C`). A page that offers the new-row line reads the same (an
     /// insert-allowed Worksheet with AutoSplitKey and DelayedInsert whose OnValidate calls SaveRecord, sets the filter in filter
     /// group 2 and moves Rec with Find('-') before the Update, the General Journal batch switch: corpus master 97c29f86,
-    /// pages/lt-y17-journal-batch/Y17JournalBatchSwitch.al:466 UpdWs_BatchSwitch_ToBatchWithRows `V:done 10000;R:B2/10000;
+    /// pages/journal-batch-switch/Y17JournalBatchSwitch.al:466 UpdWs_BatchSwitch_ToBatchWithRows `V:done 10000;R:B2/10000;
     /// R:B2/20000;R:B2/10000;R:B2/10000;C:B2/10000`, :653 back to an earlier batch, :667 the same without the Find, which stands on
     /// the previous row B1/30000). `false` for every other page or call: the refresh runs as before.
     fn refresh_after_validate_filter(
@@ -2606,7 +2540,7 @@ impl Session {
             }
             // A page that offers the new-row line (an insert-allowed Worksheet with AutoSplitKey and DelayedInsert, the journal
             // batch switch) shows that line instead: OnNewRecord and OnAfterGetCurrRecord run twice, the key from the filters,
-            // nothing is inserted (corpus master 97c29f86, pages/lt-y17-journal-batch/Y17JournalBatchSwitch.al:485
+            // nothing is inserted (corpus master 97c29f86, pages/journal-batch-switch/Y17JournalBatchSwitch.al:485
             // UpdWs_BatchSwitch_ToEmptyBatch `V:done 20000;N:B3/0 below=Yes;C:B3/0;N:B3/0 below=Yes;C:B3/0`, :560 without the Find in
             // code).
             if st.borrow().new_line {
@@ -2676,13 +2610,13 @@ impl Session {
 
     /// The reads of an action on a list whose cursor is not on the first row: the row again, the rows from it on (up to 20),
     /// the row again when the view goes on past it, the rows back to the first one, and the row twice more before the refresh's
-    /// own read. Pinned by misc/lt-probes-needed-6/PnF05ActionReads.al:Action_List_LaterRow (row 2 and 3 of 3 rows: 7 and 6
+    /// own read. Pinned by pages/PnF05ActionReads.al:Action_List_LaterRow (row 2 and 3 of 3 rows: 7 and 6
     /// reads after the action) and :Action_List_ManyRows (row 6 of 25: 29 reads), and, with the row identities, by
-    /// misc/lt-probes-needed-7/PnGNewRecord.al:ListPendingNewRowSavedBeforeAction (last row of three: `P1;P1;N2;N1;P1;P1;C`)
+    /// testpage/PnGNewRecord.al:ListPendingNewRowSavedBeforeAction (last row of three: `P1;P1;N2;N1;P1;P1;C`)
     /// and misc/lt-probes-needed-7/PnGListUpdate.al:ListModifyWithAndWithoutUpdate (`U2;U2;U3;U2;U1;U2;U2;C`). Only a page that declares both row triggers and serves its rows from the table is
     /// pinned; the identities of the rows beyond the window held are the table order.
     fn read_list_again_from_row(&mut self, st: &St, rec: &Rec, key: &[Value]) -> Result<(), Signal> {
-        self.read_list_again_from_row_as(st, rec, key, true)
+        self.read_list_again_from_row_as(st, rec, key, self.reads_row_first(st))
     }
 
     pub(super) fn read_list_again_from_row_in_view(
@@ -2701,10 +2635,10 @@ impl Session {
         let with_current = self.declares(st, "onaftergetcurrrecord");
         let mut pk = key.to_vec();
         // A list that reads each row once more in its key (`reads_once_more_in_its_key`) reads the row it starts from once more
-        // first, and once more before the refresh's own read (pages/lt-sg-list-key-moves/SgListKeyMovesTests.al SG_Key_FourRows_Moves
+        // first, and once more before the refresh's own read (pages/list-key-navigation/SgListKeyMovesTests.al SG_Key_FourRows_Moves
         // `update` `R:C;U;R:C;R:C;R:C;R:B;R:A;R:C;R:D;R:C;R:C;R:C;C:C;` against SG_Pk_FourRows_Moves, and the same in
         // SG_Key_OneRow_Open and SG_Key_ThirtyRows_Moves; corpus bump PR 738).
-        let once_more = self.still_reads_once_more(st);
+        let once_more = self.still_reads_once_more(st) || self.part_reads_once_more(st, rec, key)?;
         let by_action_update_false = {
             let s = st.borrow();
             s.marking_action && s.refresh && s.refresh_by_update && s.refresh_update_false && s.host.is_none()
@@ -2714,7 +2648,7 @@ impl Session {
         let unmarked_by_action = by_action_update_false && !rec.borrow().marked_only && st.borrow().unmarking_action;
         if once_more && !read_first {
             // After a control's OnValidate the first read is the row the page stood on, also when the new filter excludes it
-            // (pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al:496 SF_Key_FilterDropsRow_Next_Clear_GoToRecord, :476
+            // (testpage/RzUpdateFromValidate.al:496 SF_Key_FilterDropsRow_Next_Clear_GoToRecord, :476
             // SF_Key_FilterKeepsRow_Next; al-runner issue 5888). Pinned on a Worksheet only: on another page type it is refused.
             if !self.is_worksheet(st) {
                 return unsupported(
@@ -2722,6 +2656,9 @@ impl Session {
                 );
             }
             self.populate_current(st)?;
+        }
+        if self.view_row_count(st)? == 0 {
+            return self.empty_view_after_action(st, rec);
         }
         let view_left = match self.row_after_view_left(rec)? {
             Some(fields) => {
@@ -2747,14 +2684,14 @@ impl Session {
             st.borrow_mut().agcr_xrec = Some(saved);
         }
         // An action left another row in Rec: that first read sees Rec as the action left it, the rows after it are read from the
-        // table (misc/lt-probes-needed-7/PnGRefresh.al:387 `P.AGR(B,changed B);P.AGR(B,orig B)`).
+        // table (testpage/PnGRefresh.al:387 `P.AGR(B,changed B);P.AGR(B,orig B)`).
         if std::mem::take(&mut st.borrow_mut().rec_moved_other) {
             let mut at = pk.clone();
             self.ret_used = true;
             self.record_op(RecordOp::Get, rec, &mut at)?;
         }
         if find {
-            // The forward reads start with `=>` (pages/lt-update-on-find/UpdateOnFindRecord.al:P168_List_UpdateFalse).
+            // The forward reads start with `=>` (pages/currpage/UpdateOnFindRecord.al:P168_List_UpdateFalse).
             self.nav_find(st, "=>")?;
         }
         let row = |this: &mut Self| -> Result<al_builtins::value::WindowRow, Signal> {
@@ -2805,7 +2742,7 @@ impl Session {
         let mut back = Vec::new();
         if has_before || find {
             // The way back is read in blocks of 20 rows: after a block the client reads the row it started from, then goes on from the
-            // last row of the block again (pages/lt-testpage-list-rows/ListRowsActionNew.al:NewRowThenAction_Ping30Rows_ReadsLogged:
+            // last row of the block again (testpage/ListRowsActionNew.al:NewRowThenAction_Ping30Rows_ReadsLogged:
             // `G100;G30;...;G11;G100;G11;G10;...;G1;G100;G100;C100`).
             let mut block = 0;
             while self.nav_next(st, -1)? {
@@ -2869,7 +2806,7 @@ impl Session {
             s.settled_first_row = true;
         } else if read_first && marked_by_action {
             // An action marked rows, turned MarkedOnly on and called CurrPage.Update(false): the client holds the marked rows this
-            // refresh read, from the first of them, and a GoToRecord steps from the first (pages/lt-qr-onopenpage-moves-rec/
+            // refresh read, from the first of them, and a GoToRecord steps from the first (pages/onopenpage-moves-rec/
             // SuRefillKey.al:353 Name_Action_Mark `goto 3` `Yes/3:R2;R2;R2;C2;R5;R5;R5;C5;R3;R3;R3;C3;`, :463 Id_Action_Mark
             // `goto 3` `Yes/3:R2;R2;C2;R3;R3;C3;`). Pinned for marked rows that fit a window.
             if back.len() + rows.len() > Self::WINDOW || view_left {
@@ -2887,7 +2824,7 @@ impl Session {
         } else if read_first && unmarked_by_action {
             // The client holds the rows of the view without MarkedOnly this refresh read: a GoToRecord finds a row that was not
             // marked, and First goes to the first row of the page's key (corpus writer Y1, branch al-runtime-rs-staging-y1,
-            // pages/lt-y1-6289/Y1ClearMarkedOnly.al:362 Y1_Clear_NameKeyWithPartAndTriggers `goto 2 cleared` `true/2`, `first
+            // pages/Y1ClearMarkedOnly.al:362 Y1_Clear_NameKeyWithPartAndTriggers `goto 2 cleared` `true/2`, `first
             // cleared` `true/4`; :390 _Row4; :418 Y1_Clear_PrimaryKeyWithPartAndTriggers `true/4`, `true/1`; al-runner issue 6289).
             // Pinned for a view that fits a window.
             if back.len() + rows.len() > Self::WINDOW || view_left {
@@ -2904,12 +2841,12 @@ impl Session {
         } else if read_first && self.view_changed_by_action(st) {
             // An action that changed the filters or the key: the client holds the rows of the new view this refresh read, from
             // the row it settled on, and the rows before it; the rows of the old view are gone (
-            // pages/lt-y5/Y5GoToKeyAfterActionKeyAndTriggers.al:273-303 with OnAfterGetRecord,
+            // testpage/Y5GoToKeyAfterActionKeyAndTriggers.al:273-303 with OnAfterGetRecord,
             // :308-342 with OnAfterGetCurrRecord too: GoToKey(2,50) and Next after the filter change show their rows; al-runner
             // issue 6381). With more rows
             // than a window, a page that reads its rows from the table holds what the refresh read: the way back reached the
             // first row of the view, so the rows are the new view's from its start (al-runner issue 6469:
-            // pages/lt-y15/Y15ActionWidensView.al:365 Y15_WV_FromLast25 `first` `true/A01 0:-`, `count` `25/A25`, `next`
+            // testpage/Y15ActionWidensView.al:365 Y15_WV_FromLast25 `first` `true/A01 0:-`, `count` `25/A25`, `next`
             // `true/A03`, `last after` `true/A25`). With OnFindRecord the rows are not pinned: the next move is refused.
             let held = back.len() + rows.len() > Self::WINDOW;
             let mut s = st.borrow_mut();
@@ -2926,7 +2863,7 @@ impl Session {
         } else if !read_first {
             // After a control's OnValidate the client holds the rows of the new view this refresh read, from the first row of the
             // view to the window after the row it settled on: the next move reads as on a page without a refresh, and a GoToRecord
-            // from a later row steps from the first row (pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al:358
+            // from a later row steps from the first row (testpage/RzUpdateFromValidate.al:358
             // SF_PlainWs_FilterKeepsRow_Next, :378 SF_PlainWs_FilterDropsRow_Next_Clear_GoToRecord, :406
             // SF_PlainWs_FilterKeepsRow_GoToRecord, :476-544 the same in another key and in the primary key; al-runner issues 5914,
             // 5888). The rows the client held before are those of the old filters (RZ_PlainWs_B_G1 `next` `Yes|E`, `rows`
@@ -2980,14 +2917,14 @@ impl Session {
             return Ok(());
         }
         // The call reads nothing itself: the second read before `OnlyBig done` is the one after the GoToKey (no read between
-        // `A:filter` and `A:done` in pages/lt-ai-list-order/AiListOrderTests.al:403 DropCurrent_NoRowsAfter_Nav).
+        // `A:filter` and `A:done` in pages/list-order/AiListOrderTests.al:403 DropCurrent_NoRowsAfter_Nav).
         st.borrow_mut().view_left = true;
         Ok(())
     }
 
     /// The re-read `CurrPage.Update` asked for, once the call that made it has returned: the
     /// stored current row loads again and raises OnAfterGetRecord and OnAfterGetCurrRecord; a new
-    /// row nobody has saved has nothing to re-read (corpus pageupdate/TestPageUpdateNewRow.al:1-30,
+    /// row nobody has saved has nothing to re-read (corpus pages/currpage/TestPageUpdateNewRow.al:1-30,
     /// TestPageUpdateGoneRow.al StoredRow_OnValidateUpdateFalse_Trace). The row is read from the
     /// table unless the client holds edits of it that are not saved yet.
     /// The end of an action that saved a SetValue of a Document page before its trigger: without a CurrPage.Update in the
@@ -3013,7 +2950,7 @@ impl Session {
         }
         // A page that shows no stored row (an empty view, or a list on its new line) whose view now has rows, for example
         // after the page changed its filters: which row the client lands on and which row triggers run is not pinned
-        // (pageupdate/TestPageUpdateNewRow.al pins only a card's unsaved new row). Tests-ERM 134022
+        // (pages/currpage/TestPageUpdateNewRow.al pins only a card's unsaved new row). Tests-ERM 134022
         // PurchasePaymentAppliedWithToleranceAmount reaches it when General Journal (page 39), opened for view on an empty
         // batch, switches to the batch that holds the test's line.
         if by_update
@@ -3030,7 +2967,7 @@ impl Session {
             );
         }
         // A page without a source table refreshes its parts on CurrPage.Update: an unlinked ListPart reads its rows again and
-        // shows what its OnAfterGetRecord computes now (pages/lt-y15/Y15WorksheetPartRefresh.al:226 the Worksheet of al-runner
+        // shows what its OnAfterGetRecord computes now (pages/Y15WorksheetPartRefresh.al:226 the Worksheet of al-runner
         // issue 6465: SetValue runs the part's `AGR1;AGR1;AGCR1` and the part shows `(A)`; :287 two rows, the part stays on its
         // row, `setvalue log` `AGR1;AGR2;AGR1;AGR1;AGCR1`; :320 without CurrPage.Update no part trigger runs).
         if by_update && st.borrow().open && !self.has_source(st) && !without_parts && !st.borrow().parts.is_empty() {
@@ -3041,7 +2978,7 @@ impl Session {
             return Ok(());
         }
         // A page that serves its rows from OnFindRecord asks the trigger to settle the client on a row
-        // again (corpus pageupdate/TestPageUpdateGoneRow.al:390 pins the Which strings of a deleted
+        // again (corpus pages/currpage/TestPageUpdateGoneRow.al:390 pins the Which strings of a deleted
         // row only). Which row that is, is not modelled: nothing that shows it may be read before the
         // cursor moves, and the page's row triggers must not matter.
         if self.declares(st, "onfindrecord") || self.declares(st, "onnextrecord") {
@@ -3049,7 +2986,7 @@ impl Session {
                 // The client asks OnFindRecord for the current row (`=`), then reads it as it does after
                 // any move. Assumed (update-refresh-onfindrecord): Base Application's document pages do this
                 // under Microsoft's tests; a page that holds edits or has only OnNextRecord stays refused.
-                // A list refills its window around the row (misc/W2FindRecordUpdate.al:Update_True_OnOpenedPage pins that
+                // A list refills its window around the row (testpage/W2FindRecordUpdate.al:Update_True_OnOpenedPage pins that
                 // trace); only a card, which has the one row, is served.
                 if self.is_list(st) && self.declares(st, "onfindrecord") {
                     return self.refresh_list_with_find(st);
@@ -3089,7 +3026,7 @@ impl Session {
             s.window.clear();
             s.window_from_start = false;
             // The rows above the open read went with the window: the next move asks the triggers again, as after any Update
-            // (pagefindrecord/TestPageFindRecord.al:113 OnFindRecord_FirstAnswersTheFirstRowOfTheTriggerRowset, a descending find
+            // (pages/triggers/TestPageFindRecord.al:113 OnFindRecord_FirstAnswersTheFirstRowOfTheTriggerRowset, a descending find
             // list). Left set, First indexed the empty window (al-runner issue 5802).
             s.window_top_unread = false;
             s.read_up_from_last = None;
@@ -3101,11 +3038,11 @@ impl Session {
         }
         // A list whose filters no longer hold the row it stands on, when CurrPage.Update asked for the refresh: which row it
         // settles on, and what a move reads then, is pinned only after an action (`read_list_again_from_row`,
-        // pages/lt-ai-list-order/AiListOrderTests.al:335 DropCurrent_RowsAfter_Plain). Tests-SCM 137831
+        // pages/list-order/AiListOrderTests.al:335 DropCurrent_RowsAfter_Plain). Tests-SCM 137831
         // BinContentsPage_CanSwitchLocationFilterWithoutRenamingRecord reaches it: Bin Contents (page 7374) filters to a location
         // without rows in a control's OnValidate.
         // On a page without the row triggers, the list settles on the next row of the view after the old key, else the one
-        // before it, as after an action (pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al:9-12: the same row on the Worksheet
+        // before it, as after an action (testpage/RzUpdateFromValidate.al:9-12: the same row on the Worksheet
         // and the List, with and without OnFindRecord and OnNextRecord; without the row triggers nothing else is seen). The pages
         // with the row triggers go through `refresh_after_validate_filter`; there, or with a view left without rows, it stays refused.
         if by_update && self.is_list(st) && !st.borrow().dirty {
@@ -3159,15 +3096,15 @@ impl Session {
         self.torn_down_on_error(st, r)?;
         st.borrow_mut().refresh = false;
         // The parts read their rows again after the host's own triggers (corpus
-        // testpart/TestPartTriggerOrderAndRefresh.al:HostCurrPageUpdate_ReReadsThePart:
+        // testpage/parts/TestPartTriggerOrderAndRefresh.al:HostCurrPageUpdate_ReReadsThePart:
         // "host.Action;host.AGCR(2);part.AGCR(2);", and no part OnOpenPage).
-        if !without_parts {
+        if !without_parts && !(by_update && self.host_update_keeps_part_row(st)?) {
             self.sync_parts(st)?;
         }
         Ok(())
     }
 
-    /// `CurrPage.Update` on a list that serves its rows from OnFindRecord, with or without OnNextRecord (corpus misc/W2FindRecordUpdate.al:
+    /// `CurrPage.Update` on a list that serves its rows from OnFindRecord, with or without OnNextRecord (corpus testpage/W2FindRecordUpdate.al:
     /// Update_False_OnOpenedPage, Update_True_OnOpenedPage, Update_StoredRowChangedBehindThePage, Update_True_AfterRecChangedInMemory,
     /// all one trace for a table of 3 rows with the cursor on the middle one): the row is read again, `=>` finds the row to
     /// start from, the client reads on to the end of the view, puts the first of those rows back, steps back to the start of
@@ -3180,7 +3117,7 @@ impl Session {
     }
 
     /// [`Self::refresh_list_with_find`]; `after_validate`: the refresh after a control's OnValidate changed the filters, on a list
-    /// with OnFindRecord, OnNextRecord and both row triggers. Pinned there (pages/lt-rz-outside-page-moves/RzUpdateFromValidate.al
+    /// with OnFindRecord, OnNextRecord and both row triggers. Pinned there (testpage/RzUpdateFromValidate.al
     /// RZ_LoggedWs_B_G1 `A:done B;F:=>=Yes;R:C;N:1=1;R:E;N:1=0;R:C;N:-1=-1;R:A;N:-1=0;R:C;F:==Yes;R:C;C:C`, RZ_LoggedWs_A_G2, the
     /// Update(true) case): no read of the row first, and `=><` when `=>` finds nothing (RZ_LoggedWs_F_G1 `F:=>=No;F:=><=Yes;R:E`).
     fn refresh_list_with_find_as(&mut self, st: &St, after_validate: bool) -> Result<(), Signal> {
@@ -3192,7 +3129,7 @@ impl Session {
         let with_current = self.declares(st, "onaftergetcurrrecord");
         if view_left {
             // The row the cursor stands on is stored but the view no longer holds it: the client asks OnNextRecord(1) for the
-            // row to settle on and reads it, where it would read the row again (pages/lt-f3-pages/F3ListTests.al:72
+            // row to settle on and reads it, where it would read the row again (testpage/F3ListTests.al:72
             // Nav_ActionChangesViewThenUpdate `after_update`: `Next(1)=1 | AGR(R1008) | Find(=>)=Yes`). Pinned only when that step
             // lands on the first row of the view (nothing before it), and for a list without OnAfterGetCurrRecord.
             if with_current || !self.declares(st, "onnextrecord") {
@@ -3240,7 +3177,7 @@ impl Session {
         }
         let first = forward[0].clone();
         rec.borrow_mut().fields = first.stored.clone();
-        // On the last row the client has not moved, so it puts nothing back (pages/lt-update-on-find/UpdateOnFindRecord.al:
+        // On the last row the client has not moved, so it puts nothing back (pages/currpage/UpdateOnFindRecord.al:
         // P168_List_UpdateOnLastRow: `Next:1;Next:-1;AGR:2`).
         if forward.len() > 1 {
             self.page_trigger(st, "onaftergetrecord", vec![])?;
@@ -3278,7 +3215,7 @@ impl Session {
         rec.borrow_mut().fields = first.stored.clone();
         if !with_current {
             // Without OnAfterGetCurrRecord the refresh ends after the step back: no row is put back and `=` is not asked
-            // (pages/lt-ai-list-order/AiListOrderTests.al:39 Keep_Nav, :73 Same_Nav, :170 Same_Nav_OnOpenRow).
+            // (pages/list-order/AiListOrderTests.al:39 Keep_Nav, :73 Same_Nav, :170 Same_Nav_OnOpenRow).
             // AiListOrderTests.al:174 Same_Nav_OnOpenRow: a First right after this on the first row reads nothing (see `rows.rs`).
             st.borrow_mut().settled_first_row = before.is_empty() && self.declares(st, "onnextrecord");
             before.extend(forward);
@@ -3312,7 +3249,7 @@ impl Session {
     }
 
     /// `CurrPage.Close()` in an action of a list that put another row (another primary key) into Rec: the row the list showed is
-    /// read back into Rec, with OnAfterGetRecord (misc/lt-probes-needed-7/PnGRefresh.al:608 QL_RecAssign_OtherChanged_CloseInAction
+    /// read back into Rec, with OnAfterGetRecord (testpage/PnGRefresh.al:608 QL_RecAssign_OtherChanged_CloseInAction
     /// `P.AGR(A,orig A);ACT.end(A,orig A x=A,orig A)`: the action's code after the call sees the shown row). Rec still on the shown
     /// row is left as it is.
     ///
@@ -3359,13 +3296,16 @@ impl Session {
 
     /// What the page does once an action returns: a page that showed no row may show the one the
     /// action inserted; a row the action deleted closes a card, and moves a list to the next row,
-    /// else the previous one, else none (corpus pageupdate/TestPageUpdateGoneRow.al:1-30).
+    /// else the previous one, else none (corpus pages/currpage/TestPageUpdateGoneRow.al:1-30).
     pub(super) fn settle_after_action(&mut self, st: &St) -> Result<(), Signal> {
         if !self.has_source(st) {
             return Ok(());
         }
         if st.borrow().gone_view_list && st.borrow().open && st.borrow().cursor == Cursor::None {
             return self.settle_gone_view_list_again(st);
+        }
+        if self.gone_blank_line_second_action(st)? {
+            return Ok(());
         }
         self.show_row_page_code_positioned(st)?;
         let again = {
@@ -3374,7 +3314,7 @@ impl Session {
         };
         if again {
             // A second action on the blank Rec runs OnNewRecord and OnAfterGetCurrRecord once more and reads no row
-            // (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:352 RM_Ws_OpenEdit_DeleteAllUpdate_Twice `N:0;C:0;`, an action
+            // (testpage/RmWorksheetGoneRow.al:336 RM_Ws_OpenEdit_DeleteAllUpdate_Twice `N:0;C:0;`, an action
             // that leaves the table empty). One that leaves rows in the view is not pinned.
             let rec = self.page_rec(st);
             let probe = Rc::new(RefCell::new(rec.borrow().clone()));
@@ -3409,10 +3349,11 @@ impl Session {
             {
                 return unsupported("a card closed by a deleted row whose parts declare close triggers (not pinned)");
             }
+            self.card_query_close_before_forced_close(st)?;
             self.page_trigger(st, "onclosepage", vec![])?;
             self.mark_closed(st);
             // The close is left as the last error, code PageCloseRequest with no text; Invoke itself returns (corpus master
-            // 97c29f86, pages/lt-y17-save-row-gone/Y17SaveRowGone.al:632 PgSave_ActionDeletesEditedRow_Card `invoke|code`).
+            // 97c29f86, pages/save-deleted-row/Y17SaveRowGone.al:632 PgSave_ActionDeletesEditedRow_Card `invoke|code`).
             self.last_error = al_builtins::native::AlError {
                 message: String::new(),
                 code: "PageCloseRequest".into(),
@@ -3432,12 +3373,12 @@ impl Session {
             Value::Integer(-1)
         );
         if moved {
-            let r = self.arrive(st);
+            let r = self.arrive_after_gone_row(st);
             self.torn_down_on_error(st, r)?;
         } else {
             // No stored row is left, whether or not the action called CurrPage.Update. A list opened for editing shows
             // its blank line: OnNewRecord and OnAfterGetCurrRecord on a blank Rec and xRec, three times (misc/
-            // lt-probes-needed-7/PnGRefresh.al:120, :142; pageupdate/TestPageUpdateGoneRow.al:List_DeletedByAction_OnlyRow_ShowsNoStoredRow,
+            // lt-probes-needed-7/PnGRefresh.al:120, :142; pages/currpage/TestPageUpdateGoneRow.al:List_DeletedByAction_OnlyRow_ShowsNoStoredRow,
             // a list without OnNewRecord). A list opened for viewing raises nothing (pages/W1Update.al:534, :556). A list in
             // another state (an edit list without the new-row line) is not pinned.
             let new_line = self.offers_new_line(st)?;
@@ -3511,7 +3452,7 @@ impl Session {
 
     /// Whether a list without the new-row line that lost its only row to an action stands on a blank Rec: pinned for a page whose
     /// InsertAllowed is false, a Worksheet opened for edit, for view or run modally and a List opened for edit
-    /// (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:291, :327, :373, :397, :429). A List opened for view without the line
+    /// (testpage/RmWorksheetGoneRow.al:275, :311, :357, :381, :413). A List opened for view without the line
     /// is not pinned (with the line, pages/W1Update.al:534 pins that it raises nothing), nor is a list without the line for
     /// another reason (Editable = false, lookup mode, a tree).
     fn blank_rec_without_new_line(&mut self, st: &St) -> Result<bool, Signal> {
@@ -3530,7 +3471,7 @@ impl Session {
         }
         let worksheet = engine.object_facts[object].page_type == Some(al_ir::PageType::Worksheet);
         // A Worksheet that shows its rows as a tree, opened for edit, stands on the blank Rec the same way, at the action and at a
-        // later one (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:509 SH_TreeWorksheetTemp_OpenEdit_EmptyRecNoUpdate
+        // later one (testpage/RmWorksheetGoneRow.al:493 SH_TreeWorksheetTemp_OpenEdit_EmptyRecNoUpdate
         // `R:10000;N:0;C:0;`, :535 _EmptyRecTwice `N:0;C:0;`, a page with InsertAllowed, DeleteAllowed and ModifyAllowed false).
         // Another combination is the registered assumption `tree-worksheet-gone-only-row-blank-rec`. A tree list whose blank Rec
         // would take a filter value is not pinned (`settle_on_blank_rec`).
@@ -3552,61 +3493,11 @@ impl Session {
         })
     }
 
-    /// A List with Editable = false opened for view, without the new-row line, that lost its only row to an action raises nothing
-    /// and shows no row, as a List with the line opened for view does (pages/W1Update.al:534;
-    /// pages/lt-outside-worksheet/RmWorksheetGoneRow.al:481 SH_ListViewNotEditable_OpenView_DeleteCurrentUpdate `R:10000;`, shown
-    /// blank, First No). A List opened for view that is editable, and a non-editable one opened for edit, are not pinned.
-    fn read_only_view_list_shows_nothing(&mut self, st: &St) -> bool {
-        let engine = self.engine();
-        let object = st.borrow().object as usize;
-        let read_only = engine.program.objects[object]
-            .properties
-            .iter()
-            .any(|(k, v)| k.eq_ignore_ascii_case("Editable") && v.trim().eq_ignore_ascii_case("false"));
-        let lookup = st.borrow().lookup_set && st.borrow().lookup;
-        let denied = |p: &str| {
-            engine.program.objects[object]
-                .properties
-                .iter()
-                .any(|(k, v)| k.eq_ignore_ascii_case(p) && v.trim().eq_ignore_ascii_case("false"))
-        };
-        // An editable List with InsertAllowed, ModifyAllowed and DeleteAllowed false does the same (pages/lt-uj-outside-leads/
-        // UjTempList.al UJ_Temp_List_EmptyAll `view no update` and `view update`: `invoke;R:1;`, shown blank, First No; corpus
-        // branch al-runtime-rs-staging-uj 1dc037a8, former assumption `list-action-rebuilds-rows` (pinned on corpus master since bump 1030) until the bump).
-        let all_denied_editable = !read_only
-            && ["InsertAllowed", "ModifyAllowed", "DeleteAllowed"]
-                .iter()
-                .all(|p| denied(p));
-        let pinned = (read_only || all_denied_editable)
-            && !lookup
-            && st.borrow().mode == PageMode::View
-            && engine.object_facts[object].page_type == Some(al_ir::PageType::List)
-            && self.tree_indentation(st).is_none();
-        if pinned && all_denied_editable {
-            // Pinned by pages/lt-uj-outside-leads/UjTempList.al (was assumption `list-action-rebuilds-rows`).
-            st.borrow_mut().gone_view_list = true;
-        } else if pinned {
-            // Pinned with InsertAllowed, DeleteAllowed and ModifyAllowed false (RmWorksheetGoneRow.al:707-716); another
-            // combination is the registered assumption `read-only-view-list-gone-only-row`.
-            let all_denied = ["DeleteAllowed", "ModifyAllowed"].iter().all(|p| {
-                engine.program.objects[object]
-                    .properties
-                    .iter()
-                    .any(|(k, v)| k.eq_ignore_ascii_case(p) && v.trim().eq_ignore_ascii_case("false"))
-            });
-            if !all_denied {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReadOnlyViewListGoneOnlyRow);
-            }
-            st.borrow_mut().gone_view_list = true;
-        }
-        pinned
-    }
-
     /// The list stands on a blank Rec: OnNewRecord and OnAfterGetCurrRecord once, no row shown, First/Last/Next answer No
-    /// (pages/lt-outside-worksheet/RmWorksheetGoneRow.al:291 `R:10000;N:0;C:0;`, blank controls, `first log` empty). The blank
+    /// (testpage/RmWorksheetGoneRow.al:275 `R:10000;N:0;C:0;`, blank controls, `first log` empty). The blank
     /// Rec takes a single-value filter of a primary-key field set in filter group 0 or 2, before OnNewRecord; a filter on a field
     /// outside the key or a range is not taken
-    /// (pages/lt-outside-worksheet-2/RtFilteredGoneRow.al:355 RT_UfWs_KeyFieldGroup2 `R:5;N:Yes:0:;C:Yes:0:;`, :372 filter group
+    /// (pages/RtFilteredGoneRow.al:355 RT_UfWs_KeyFieldGroup2 `R:5;N:Yes:0:;C:Yes:0:;`, :372 filter group
     /// 0, :389 a field outside the key, :406 both key fields `N:Yes:5:`, :423 a range, :466 a List). Another filter group, a
     /// value from several filters, PopulateAllFields or a stamped field that validates are not pinned.
     pub(super) fn settle_on_blank_rec(&mut self, st: &St, rec: &Rec) -> Result<(), Signal> {
@@ -3630,7 +3521,7 @@ impl Session {
             rec.borrow_mut().fields = stamped.clone();
             // A stamped key field with a TableRelation: the value is checked against the related table. With the related row
             // there the blank Rec takes it as without the relation; without it nothing runs
-            // (pages/lt-outside-worksheet-2/RtFilteredGoneRow.al:533 SH_RelWs_KeyFieldWithTableRelationGroup2_BatchExists, :550
+            // (pages/RtFilteredGoneRow.al:533 SH_RelWs_KeyFieldWithTableRelationGroup2_BatchExists, :550
             // _BatchMissing).
             for pos in related {
                 self.ret_used = false;
@@ -3758,7 +3649,7 @@ impl Session {
     }
 
     /// A list that serves its rows from OnFindRecord lost its current row to an action. The client asks
-    /// the trigger again (corpus pageupdate/TestPageUpdateGoneRow.al:390 List_DeletedByAction_OnFindRecord_PicksTheRow,
+    /// the trigger again (corpus pages/currpage/TestPageUpdateGoneRow.al:390 List_DeletedByAction_OnFindRecord_PicksTheRow,
     /// :423 List_DeletedByAction_PassThroughFind_MiddleRow, :456 _LastRow, :483 _OnlyRow):
     /// * when it knows other rows of the list: `=` (the gone row), `=>` (from there on), and `=` again for
     ///   the row it settled on, which is the one `=>` answered, else the row before the gone one;
@@ -3826,7 +3717,7 @@ impl Session {
     /// A page that showed no row shows one again once page code has inserted a row the view
     /// admits and left Rec on it; code that only changes the buffer, sets a key it never
     /// inserts, or reads a row the view hides shows nothing (corpus
-    /// testpart/BnrBlankPart.al:1-30, NoRow_Action_* arms).
+    /// testpage/parts/BnrBlankPart.al:1-30, NoRow_Action_* arms).
     pub(super) fn show_row_page_code_positioned(&mut self, st: &St) -> Result<(), Signal> {
         if !st.borrow().open || st.borrow().cursor != Cursor::None {
             return Ok(());
@@ -3852,7 +3743,7 @@ impl Session {
             let fields = probe.borrow().fields.clone();
             // The probe replaced the view's filters on key fields with the key; the row must still
             // pass the filters the page has (a Get of a row the view hides shows nothing:
-            // testpart/BnrBlankPart.al NoRow_Action_GetOfARowTheFilterHides_StaysBlank).
+            // testpage/parts/BnrBlankPart.al NoRow_Action_GetOfARowTheFilterHides_StaysBlank).
             if !rec.borrow().filters.iter().all(|f| f.expr.matches(&fields[f.field])) {
                 return Ok(());
             }
@@ -3898,8 +3789,8 @@ fn simple_relation(text: &str) -> Option<(String, Option<String>)> {
 }
 
 /// The code an error of an action's OnAction carries after the test page's Invoke. Pinned:
-/// - `Dialog` (Error()): pages/lt-page-runtime/P82CurrPage.al:431 ActionError_Surfaces, errors/lt-az-error-texts/AzErrorTexts.al:162.
-/// - `MissingUIHandler`: errors/lt-ms-refusals-133/P133MessageInHandlers.al:241.
+/// - `Dialog` (Error()): pages/run-modal/P82CurrPage.al:431 ActionError_Surfaces, errors/error-texts/AzErrorTexts.al:162.
+/// - `MissingUIHandler`: ui-handlers/P133MessageInHandlers.al:241.
 /// - `TestField`: AzErrorTexts.al:160 (`TestWrapped:TestField`).
 /// - `DB:RecordNotFound` (Get): AzErrorTexts.al:158 (`TestWrapped:CSideRecordNotFound`).
 /// - `DB:RecordExists` of an Insert of a duplicate primary key ("The record in table ... already exists."): AzErrorTexts.al:181
@@ -3910,9 +3801,9 @@ fn simple_relation(text: &str) -> Option<(String, Option<String>)> {
 fn action_error_code(code: &str, message: &str) -> String {
     match code {
         "Dialog" | "MissingUIHandler" | "TestField" => format!("TestWrapped:{code}"),
-        // A call of a control add-in procedure (lt-ac/ACControlAddIn.al TZ_TwoProceduresFromActions_PageStaysUsable,
-        // pages/lt-ao-testpage/AoTests.al:794 AddinProcedureFromAction).
+        // A control add-in procedure call (testpage/ACControlAddIn.al TZ_TwoProceduresFromActions_PageStaysUsable, AoTests.al:794).
         crate::control_add_in::NOT_CREATED => format!("TestWrapped:{code}"),
+        c if crate::permission_triggers::wraps_as_permission(c, message) => "TestWrapped:Permission".into(),
         "DB:RecordNotFound" => "TestWrapped:CSideRecordNotFound".into(),
         "DB:RecordExists" if message.starts_with("The record in table ") => "TestWrapped:CSideDuplicateKey".into(),
         c if c.starts_with("TestWrapped") || c == al_builtins::native::UNPINNED_ERROR => c.into(),

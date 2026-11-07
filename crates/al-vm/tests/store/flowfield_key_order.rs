@@ -1,5 +1,5 @@
 //! The order of the rows after SetCurrentKey on a FlowField whose value depends on the row: by the FlowField's value, ties
-//! by the primary key, `SetAscending(FlowField, false)` reversing the FlowField only (record/lt-set-current-key/
+//! by the primary key, `SetAscending(FlowField, false)` reversing the FlowField only (record/keys-sorting/
 //! Y43SetAscendingFlowField.al, corpus PR 966; SetCurrentKeyFlowFieldOrder.al:85-180 for a count FlowField).
 
 use al_testkit::text;
@@ -20,6 +20,7 @@ table 69961 "FK Header"
         field(4; Amount; Decimal) { FieldClass = FlowField; CalcFormula = sum("FK Line".Amount where(DocType = field(DocType), DocNo = field("No."))); }
         field(5; Lines; Integer) { FieldClass = FlowField; CalcFormula = count("FK Line" where(DocType = field(DocType), DocNo = field("No."))); }
         field(6; Any; Boolean) { FieldClass = FlowField; CalcFormula = exist("FK Line" where(DocType = field(DocType), DocNo = field("No."))); }
+        field(7; FirstAmount; Decimal) { FieldClass = FlowField; CalcFormula = lookup("FK Line".Amount where(DocType = field(DocType), DocNo = field("No."))); }
     }
     keys { key(PK; DocType, "No.") { } }
 }
@@ -133,12 +134,26 @@ codeunit 69962 "FK Probe"
         exit(R.Find('='));
     end;
 
-    // Only a sum and a count are pinned.
-    procedure ExistKey(): Boolean
+    // An exist is pinned (record/keys-sorting/PwFlowFieldKeyRule.al:172: false before true, ties by primary key).
+    procedure ExistKey(): Text
+    var R: Record "FK Header"; T: Text;
+    begin
+        Seed();
+        Filter(R);
+        R.SetCurrentKey(Any);
+        if R.FindSet() then
+            repeat
+                T += R."No." + ':' + Format(R.Any) + ' ';
+            until R.Next() = 0;
+        exit(T);
+    end;
+
+    // A lookup, min, max and average are not pinned.
+    procedure LookupKey(): Boolean
     var R: Record "FK Header";
     begin
         Seed();
-        R.SetCurrentKey(Any);
+        R.SetCurrentKey(FirstAmount);
         exit(R.FindFirst());
     end;
 }
@@ -166,8 +181,16 @@ fn a_count_flowfield_key() {
 }
 
 #[test]
+fn an_exist_flowfield_key() {
+    assert_eq!(
+        text(al_testkit::run_in(SRC, "FK Probe", "ExistKey")),
+        "H3:No H1:Yes H2:Yes H4:Yes H5:Yes "
+    );
+}
+
+#[test]
 fn another_flowfield_kind_stays_refused() {
-    let r = al_testkit::run_in(SRC, "FK Probe", "ExistKey");
+    let r = al_testkit::run_in(SRC, "FK Probe", "LookupKey");
     assert!(matches!(r, Err(al_builtins::native::Signal::Unsupported(_))), "{r:?}");
 }
 

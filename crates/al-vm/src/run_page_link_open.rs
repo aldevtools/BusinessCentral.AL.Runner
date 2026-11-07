@@ -16,8 +16,8 @@ impl Session {
     /// A record method on Rec in the OnOpenPage of a page an action opens through `RunPageLink`. Real BC fills the linked fields
     /// there and `GetFilters()` of a copy of Rec reads '' (corpus issue 712, writer QZ), while the runtime holds the link as a
     /// filter: every read of the buffer, the filters, the view or the rows refuses. What runs: `GetFilter` of one field and
-    /// `FilterGroup` (pinned per filter group, handlers/TestActionRunPageLinkFilterGroup.al:119-131), `CurrentKey` and `Ascending`
-    /// (pinned with a RunPageView sorting, handlers/TestPageActionRunPageView.al:121-134, asserted at :341), the filter and key
+    /// `FilterGroup` (pinned per filter group, testpage/TestActionRunPageLinkFilterGroup.al:119-131), `CurrentKey` and `Ascending`
+    /// (pinned with a RunPageView sorting, testpage/TestPageActionRunPageView.al:121-134, asserted at :341), the filter and key
     /// setters, the table's names, and a `Get`, which ignores the filters and fills the buffer again.
     pub(crate) fn run_page_link_open_op(
         &mut self,
@@ -54,12 +54,12 @@ impl Session {
         // link, :354 const, :373 a filter(..) range `Min:H1;Max:H2`). Filters in another group, or several on the field, are not
         // pinned. The target's SourceTableView puts its filters in group 2 beside the link, and GetFilters in group 0 reads the
         // link alone (pages/W1RunObject.al:420 ViewTargetLink `id=0 filters=Grp: 2` on a Card with `where(Grp = const(1))`), and so
-        // does a RunPageView beside the link in group 3 (pages/lt-y41-page-probes/Y41RunPageLinkOnOpen.al:553 `filters=Code: P1`).
+        // does a RunPageView beside the link in group 3 (testpage/Y41RunPageLinkOnOpen.al:553 `filters=Code: P1`).
         let link_read = match method {
-            RecordOp::GetFilters => {
-                let r = rec.borrow();
-                r.filter_group == 0 && r.filters.iter().all(|f| matches!(f.group, 0 | 2 | 3))
-            }
+            // In any filter group: the link in group 0, the SourceTableView in 2, a RunPageView filter in 3, the others empty
+            // (corpus testpage/RunPageLinkOpenSetView.al, RSV_*_Groups `groups before=0:...|`,
+            // `3:Information: <>HIDDEN|`, `2:Information: <>HIDDEN|`).
+            RecordOp::GetFilters => rec.borrow().filters.iter().all(|f| matches!(f.group, 0 | 2 | 3)),
             RecordOp::GetRangeMin | RecordOp::GetRangeMax => {
                 let pos = arg_pos(args, 0)?;
                 let r = rec.borrow();
@@ -72,7 +72,7 @@ impl Session {
         // Count() counts the linked rows of the view, Find() looks for the buffer's primary key (No for a List whose key is
         // blank, Yes on a Card linked on its own key, reading the row), FindFirst() and FindLast() move Rec to the first or
         // last linked row of the view, and leave the buffer as it was when there is none
-        // (pages/lt-rz-outside-page-moves/SjRunPageLinkOpenFind.al:14-21, :314-334, :353-365, :397-425, :427-450).
+        // (testpage/SjRunPageLinkOpenFind.al:14-21, :314-334, :353-365, :397-425, :427-450).
         let filled = rec.borrow().unpinned_buffer == Some(RUN_PAGE_LINK_OPEN_FILLED);
         let find_read = filled
             && match method {
@@ -82,19 +82,32 @@ impl Session {
                     [Value::Text(w)] => w.as_str() == "=",
                     _ => false,
                 },
-                // CalcFields uses the FlowFilter the link set (pages/lt-y41-page-probes/Y41RunPageLinkOnOpen.al:458
+                // CalcFields uses the FlowFilter the link set (testpage/Y41RunPageLinkOnOpen.al:458
                 // RPL_List_FlowFilterLink `cf=P1 hostcount=1`), and a temporary Rec inserts a row, also one outside the link
                 // (:476 RPL_TempList_InsertInOpen `insert blank=Yes`, then `count=1` inside the link), with Init between the inserts.
                 RecordOp::CalcFields => true,
                 // Rec answers the link filter like any record: HasFilter, GetView, and CopyFilter of the linked field or of a FlowFilter
                 // (the target's own filter is replaced, by nothing for a FlowFilter the link does not set), also through a var parameter
-                // of a part's procedure (pages/lt-y61-page-probes/Y61RunPageLinkCopyFilter.al:302 G616_CopyFilter_LinkedField_ToOther
+                // of a part's procedure (testpage/Y61RunPageLinkCopyFilter.al:302 G616_CopyFilter_LinkedField_ToOther
                 // `after=P1`, :315 _FlowFilterNotLinked_ToOther `after= hasfilter=No`, :328 G616_PartUpdateForm_VarRec, :394
                 // `hasfilter=Yes;...;view=VERSION(1) SORTING(Field1) WHERE(Field1=1(P1))`, :407 G616_FlowFilterLink_CopyFilter).
                 RecordOp::HasFilter | RecordOp::GetView | RecordOp::CopyFilter => true,
                 RecordOp::Insert | RecordOp::Init => rec.borrow().temporary && args.is_empty(),
                 _ => false,
             };
+        // SetView replaces the view of group 0, the link included, and leaves the SourceTableView's group 2 and the RunPageView's
+        // group 3; the linked fields stay, and Rec then answers as any record of its new view (corpus
+        // testpage/RunPageLinkOpenSetView.al, corpus PR 1150: RSV_LinkAndView_SameView, _OtherFilter, _EmptyView,
+        // _SortingOnly, _LinkedFieldOtherValue, RSV_LinkOnly_*, RSV_LinkAndWhereView_EmptyView_Groups `groups after=3:...`,
+        // RSV_LinkToWhereList_EmptyView_Groups `groups after=2:...`).
+        if method == RecordOp::SetView && rec.borrow().filter_group == 0 {
+            let flag = rec.borrow_mut().unpinned_buffer.take();
+            let r = self.record_op_inner(method, rec, args);
+            if r.is_err() {
+                rec.borrow_mut().unpinned_buffer = flag;
+            }
+            return r;
+        }
         if !runs && !link_read && !find_read {
             let why = rec.borrow().unpinned_buffer.unwrap_or(RUN_PAGE_LINK_OPEN);
             return unsupported(format!("Rec.{}() {why}", method.name()));

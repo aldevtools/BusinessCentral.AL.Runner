@@ -1,5 +1,5 @@
 //! 0DT - 0DT is a 0 Duration, also for the system fields of a record never inserted; one undefined side raises DateInvalid
-//! (types/lt-y62-undefined-date/Y62UndefinedDate.al: DateTimeSub_BothUndefined, DateTimeSub_OneUndefined_AndDefinedPair;
+//! (types/date-time/Y62UndefinedDate.al: DateTimeSub_BothUndefined, DateTimeSub_OneUndefined_AndDefinedPair;
 //! al-runner issue 6678).
 
 use al_testkit::{error_message, text};
@@ -58,7 +58,7 @@ fn one_undefined_datetime_side_raises_date_invalid() {
     );
 }
 
-// types/lt-y65-undefined-arith/Y65UndefinedArith.al (writer Y65): 0DT moved by a number or a Duration raises DateInvalid; 0T moved
+// types/decimal-integer/Y65UndefinedArith.al (writer Y65): 0DT moved by a number or a Duration raises DateInvalid; 0T moved
 // either way raises "Adding to an undefined (0T) time."; 0DT - 0DT goes into the numbers as 0; CreateDateTime(0D, 0T) is 0DT,
 // CreateDateTime(0D, T) raises DateInvalid; DT2Date/DT2Time of 0DT are 0D/0T.
 const MORE: &str = r#"

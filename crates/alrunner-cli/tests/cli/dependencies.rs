@@ -111,7 +111,7 @@ fn a_source_archive_runs_with_its_dependency_given_by_dep() {
 
 #[test]
 fn a_dependency_app_reads_its_own_packaged_resources() {
-    // session/W5NavAppResources.al:GetResourceAsText_NameMatching: the name is matched exactly, relative to the
+    // session-system/W5NavAppResources.al:GetResourceAsText_NameMatching: the name is matched exactly, relative to the
     // resource folder. The library's own code asks; the folder comes from the `resourceFolders` of its app.json.
     let d = tempfile::tempdir().unwrap();
     let lib_id = "22222222-0000-0000-0000-000000000011";
@@ -219,7 +219,12 @@ fn a_compiled_dependency_app_is_compiled_with_the_preprocessor_symbols_of_its_ma
 fn a_missing_dependency_refuses_the_tests_that_need_it_instead_of_failing_the_run() {
     let d = tempfile::tempdir().unwrap();
     let (app, _lib) = archives(d.path());
-    let o = alrunner(&["test", app.to_str().unwrap(), "--no-download"]);
+    let o = alrunner(&[
+        "test",
+        app.to_str().unwrap(),
+        "--no-download",
+        "--allow-missing-dependencies",
+    ]);
     let t = text(&o);
     assert_eq!(code(&o), 7, "{t}");
     assert!(t.contains("1 not run"), "{t}");
@@ -270,7 +275,13 @@ fn a_lookup_by_id_into_a_skipped_dependency_refuses_the_test_and_names_the_app()
         ]),
     )
     .unwrap();
-    let o = alrunner(&["test", app.to_str().unwrap(), "--no-download", "--output-json"]);
+    let o = alrunner(&[
+        "test",
+        app.to_str().unwrap(),
+        "--no-download",
+        "--allow-missing-dependencies",
+        "--output-json",
+    ]);
     let v = json_of(&o);
     assert_eq!(
         row(&v, "Codeunit50321.ByIdNotReached")["status"],
@@ -339,6 +350,7 @@ fn an_app_folder_may_be_given_as_a_dependency_and_a_build_fills_microsoft_variab
         "--dep",
         lib.to_str().unwrap(),
         "--no-download",
+        "--allow-missing-dependencies",
     ]);
     assert!(text(&o).contains("$(app_"), "{}", text(&o));
     // An exact build fills it.

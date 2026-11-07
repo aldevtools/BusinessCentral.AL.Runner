@@ -1,7 +1,7 @@
 //! `HttpClient` calls answered by the running test's `[HttpClientHandler]` (ADR-027 section 5). Nothing here opens a
 //! connection: a request is given to the handler, raises the policy error, or is refused.
 //!
-//! Pinned by the staging probes tests/al-language-onprem/session/PZHttpHandler.al (codeunit 61297) and
+//! Pinned by the staging probes tests/al-language-onprem/session-system/PZHttpHandler.al (codeunit 61297) and
 //! PZHttpBlock.al (61298), BC 29.0.54011.55816.
 
 use crate::Session;
@@ -64,10 +64,10 @@ impl Session {
 
     pub(crate) fn http_send_impl(&mut self, request: HttpOutgoing) -> Result<TestHttpResponseState, Signal> {
         let policy = self.http_policy;
-        // After UseServerCertificateValidation only a request a handler answers is pinned (al-language-onprem/network/
+        // After UseServerCertificateValidation only a request a handler answers is pinned (al-language-onprem/http/
         // HttpClientAuthConfig.al:117-126): with no handler, or a relative path the handler never sees, it is refused.
         // A request no handler answers, after `false` or `true`, under BlockOutboundRequests with an absolute uri is blocked as
-        // any other (network/lt-httpclient-property-assign/HttpClientPropertyAssign.al:33-35,40-41; Y6HttpSettingChanges.al:134-163,
+        // any other (http/client/HttpClientPropertyAssign.al:33-35,40-41; Y6HttpSettingChanges.al:134-163,
         // corpus master, also a relative uri joined to a base address).
         let blocked_after_off =
             !self.has_http_handler() && policy == Some("BlockOutboundRequests") && request.url.contains("://");
@@ -85,8 +85,8 @@ impl Session {
                 "a request of an HttpClient after UseServerCertificateValidation that no [HttpClientHandler] answers (not pinned)",
             );
         }
-        // A bound handler is called under every policy, on every major: BC 29 asserted (al-language-onprem/session/PZHttpBlock.al:50,
-        // :106; network/lt-ay-http-handler/AyHttpHandler.al and PyHttpPolicy.al, the BC29PLUS legs). Windows BC 27.5 and 28.5 give the
+        // A bound handler is called under every policy, on every major: BC 29 asserted (al-language-onprem/session-system/PZHttpBlock.al:50,
+        // :106; http/client/AyHttpHandler.al and PyHttpPolicy.al, the BC29PLUS legs). Windows BC 27.5 and 28.5 give the
         // same values (Windows check 2026-10-22); the Linux images of 27 and 28 never call the handler (bc-linux issue 192), so the
         // corpus asserts nothing on 27 and 28 (al-runner issue 5777).
         if !self.has_http_handler() {
@@ -97,7 +97,7 @@ impl Session {
                     ),
                     "TestCodeunitUnhandledHttpRequest",
                 ),
-                // The request goes out for real, with no approval prompt (corpus bump 43: network/TestHttpClient.al and
+                // The request goes out for real, with no approval prompt (corpus bump 43: http/TestHttpClient.al and
                 // lt-cz-http-leads/CzHttpOutbound.al bind no StrMenuHandler).
                 _ => real_request(&request.url),
             };

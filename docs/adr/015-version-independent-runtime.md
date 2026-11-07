@@ -213,8 +213,8 @@ authors write a `#if BCnnPLUS` guard wherever a leg disagrees.
   uses of `BC27PLUS` or `BC28PLUS` in test code
   (`grep -rn "BC2[789]PLUS" corpus/tests --include=*.al`).
 - **Many comments record "identical on 27.0 through 28.4"** (for example
-  `handlers/TestPageActionRunObjectNoHandler_Tests.al:16`,
-  `filterpage/TestFilterPageBuilder.al:679`, `autoformat/TestAutoFormat.al:52`).
+  `testpage/TestPageActionRunObjectNoHandler_Tests.al:16`,
+  `pages/filterpagebuilder/TestFilterPageBuilder.al:679`, `format-evaluate/autoformat/TestAutoFormat.al:52`).
 - **The three known BC 29 differences:**
 
 | Change in BC 29 | Corpus guard | Runtime code today |

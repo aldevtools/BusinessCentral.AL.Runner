@@ -45,10 +45,10 @@ fn positions(args: &[Arg]) -> Vec<Value> {
 impl Session {
     /// A number no field has is an error that names it (record/TestRecordPartialLoad.al
     /// PartialLoad_SetLoadFields_UnknownFieldNo_Throws). `LoadFields` reads the fields of the row the ref holds as
-    /// `Record.LoadFields` does (fieldref/lt-fieldref-testfield-types/RecordRefLoadFieldsList.al:13-50); its unknown number
+    /// `Record.LoadFields` does (recordref-fieldref/fieldref/RecordRefLoadFieldsList.al:13-50); its unknown number
     /// is not pinned.
     ///
-    /// Field number 0 (recordref/lt-y71-loadfields/Y71RecRefLoadFields.al:293-525): SetLoadFields and AddLoadFields skip it
+    /// Field number 0 (recordref-fieldref/recordref/Y71RecRefLoadFields.al:293-525): SetLoadFields and AddLoadFields skip it
     /// silently, alone or among other numbers (SetLoadFields(0) loads the primary key only), and AreFieldsLoaded counts it as
     /// loaded. An unknown number among several raises FieldNotFound naming the first unknown one in SetLoadFields and
     /// AddLoadFields (:347-403), and makes AreFieldsLoaded answer No without an error (:486-525). The result of SetLoadFields or
@@ -91,7 +91,7 @@ impl Session {
                 if zero || unknown.is_some() {
                     return Err(Signal::Error(Box::new(al_builtins::native::unpinned_error())));
                 }
-                // Record.LoadFields with a FlowField or a FlowFilter field is pinned (record/lt-r6795-loadfields-flow); the RecordRef
+                // Record.LoadFields with a FlowField or a FlowFilter field is pinned (record/load-fields); the RecordRef
                 // form is not (docs/probes-needed.md).
                 let engine = self.engine.clone();
                 let schema = engine.program.objects[t.object as usize].table.as_ref();
@@ -120,7 +120,7 @@ impl Session {
                     return Ok(Value::Null);
                 }
                 // AddLoadFields(0) adds nothing; it is not the call without fields, which goes back to the full load
-                // (recordref/lt-y71-loadfields/Y71RecRefLoadFields.al:180-184, :380-382 `add_zero|loaded`).
+                // (recordref-fieldref/recordref/Y71RecRefLoadFields.al:180-184, :380-382 `add_zero|loaded`).
                 if zero && positions.is_empty() {
                     return Ok(Value::Null);
                 }
@@ -136,7 +136,7 @@ impl Session {
 
     /// `RecordRef.SetAutoCalcFields`: a read then calculates the fields as for a Record (record/TestSetAutoCalcFieldsOnGet.Codeunit.al:
     /// 112-124 RecordRef_SetAutoCalcFields_ThenGet_Calculates pins Get with one FlowField; the other reads share the Record rule).
-    /// The numbers are checked in order (recordref/lt-y71-loadfields/Y71RecRefLoadFields.al:405-484): 0 names the timestamp field
+    /// The numbers are checked in order (recordref-fieldref/recordref/Y71RecRefLoadFields.al:405-484): 0 names the timestamp field
     /// and raises `The timestamp field in the <table> table must be a FlowField.` (DB:Ok), an unknown number raises FieldNotFound,
     /// and a normal field the FlowField error that names it.
     pub(crate) fn recordref_set_auto_calc_fields(

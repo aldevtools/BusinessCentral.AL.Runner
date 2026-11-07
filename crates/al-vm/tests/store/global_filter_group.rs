@@ -1,6 +1,6 @@
 //! A filter set in filter group 1 (the global group) stays on every record of the table for the rest of the
 //! session: a later record of the table counts and deletes with it, also after Reset and Clear
-//! (types/lt-code-digits-page-run-view/P145PageRunView.al:232-235, SfSeed, and the SF_ tests from :271 on).
+//! (types/text-code-char/P145PageRunView.al:232-235, SfSeed, and the SF_ tests from :271 on).
 //! The runtime keeps filters on the variable that set them, so a record of the table whose group 1 differs
 //! from the session's is refused (hard rule 4) until the global group is modelled.
 
@@ -87,7 +87,7 @@ fn a_later_record_of_the_table_is_refused_while_the_global_filter_stands() {
 
 #[test]
 fn a_global_filter_cleared_again_leaves_later_records_answered() {
-    // record/lt-record-read/RcAFilterInfo.al:186-208 clears its group 1 filter before the test ends.
+    // record/crud/RcAFilterInfo.al:186-208 clears its group 1 filter before the test ends.
     let mut b = Built::from_source(SRC);
     b.run_in("C", "Seed").unwrap();
     assert_eq!(int(b.run_in("C", "SetAndClearGlobal")), 6);

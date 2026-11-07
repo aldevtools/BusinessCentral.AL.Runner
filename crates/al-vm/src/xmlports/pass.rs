@@ -5,7 +5,7 @@ use super::*;
 impl Session {
     /// One element per row of the table element, in the order of the table view (primary key
     /// order by default), after the table view and the link to the record above
-    /// (xmlport/TestXmlPortAdvanced.al:XmlPort_NestedTableElements_ExportIncludesChildRecordsAndAttribute).
+    /// (xmlports/TestXmlPortAdvanced.al:XmlPort_NestedTableElements_ExportIncludesChildRecordsAndAttribute).
     pub(super) fn xp_export_table(&mut self, inst: &Inst, schema: &Schema, node: usize) -> Result<Vec<Elem>, Signal> {
         let unlinked = unlinked_below_table(schema, node);
         if unlinked {
@@ -45,22 +45,45 @@ impl Session {
         {
             None => {
                 // The filters of the element's own SourceTableView are no filters of the code's own
-                // (xmlport/lt-y72-xmlport-probes/Y72XpEInvoiceShapes.al TableContainer_ItemAndPrice, _BreakAndSkipInInnerTable: the
+                // (streams/Y72XpEInvoiceShapes.al TableContainer_ItemAndPrice, _BreakAndSkipInInnerTable: the
                 // InvoiceLine element over Integer with `where(Number = filter(1 ..))` below the root table element, one pass).
-                // A second pass with a SourceTableView is still refused below.
+                // A later pass with a SourceTableView starts from the view again (below).
                 if rec.borrow().filters.iter().any(|f| f.group != XP_VIEW_GROUP) {
                     return refuse("filters");
                 }
+                let mut now = now;
+                now.view_start = n.source_view.is_some().then(|| ViewStart::of(&rec.borrow()));
                 self.xp_unlinked_passes.push((addr, node, now));
             }
             Some((_, _, last)) => {
                 if last.filters != now.filters {
                     return refuse("filters set between two passes");
                 }
+                if let Some(start) = last.view_start.clone() {
+                    // With a SourceTableView every pass starts from the view alone, as the first pass did: its filters, its key,
+                    // ascending, whatever OnPreXmlItem of an earlier pass set: a filter at every pass or at the first only, a
+                    // SetCurrentKey, Ascending(false) or a Reset (corpus branch al-runtime-rs-staging-r6924x, corpus PR 1144,
+                    // xmlports/shapes-properties/R6924xNestedView.al NestedView_Export_NoCode, _FilterEachPass, _FilterFirstPass,
+                    // _KeyFirstPass, _DescendingFirstPass, _ResetFirstPass, IntegerView_Export_OneEachPass, _GrowEachPass: `pre h2 f=
+                    // n=4 k=Kind a=Yes` at every later pass). Pinned for a view with a sorting and no ORDER, on the first export of
+                    // the instance (a later export keeps the record's key, `xp_apply_source_views`).
+                    let view = n.source_view.as_deref().unwrap_or("").to_ascii_lowercase();
+                    let again = inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_EXPORTED);
+                    if !view.contains("sorting") || view.contains("order") || again {
+                        return refuse(
+                            "a SourceTableView without a sorting, with an ORDER, or on a later export of the instance",
+                        );
+                    }
+                    if last.end_key.as_ref() != Some(&now.first_key) {
+                        return refuse("a key or direction set between two passes");
+                    }
+                    start.restore(&mut rec.borrow_mut());
+                    return Ok(());
+                }
                 if last.first_key != now.first_key {
                     return refuse("a key or direction other than at the first pass");
                 }
-                // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TU_NestedReal_ItemFilterFirstPass, TU_NestedReal_SlotNoFilter, TU_NestedTemp_TwoTwoNoneFiltered (was assumption `xmlport-nested-unlinked`).
+                // Pinned by xmlports/shapes-properties/QrXpContainerOccurs.al TU_NestedReal_ItemFilterFirstPass, TU_NestedReal_SlotNoFilter, TU_NestedTemp_TwoTwoNoneFiltered (was assumption `xmlport-nested-unlinked`).
                 if n.source_view.is_some() || rec.borrow().filters.iter().any(|f| f.group == XP_VIEW_GROUP) {
                     return refuse("a SourceTableView");
                 }
@@ -82,6 +105,7 @@ impl Session {
         {
             last.filters = now.filters;
             last.filter_group = now.filter_group;
+            last.end_key = Some(now.first_key);
         }
         Ok(())
     }
@@ -97,7 +121,7 @@ impl Session {
         let mut rows = Vec::new();
         self.xp_pass_start(inst, schema, node)?;
         // A linked element is filtered to its parent's row before OnPreXmlItem: it counts the parent's rows only
-        // (xmlport/lt-xmlport-trigger-flow/XmlPortTriggerFlow.al:325 `Chi.PreXmlItem count=2`, then `count=1`).
+        // (xmlports/shapes-properties/XmlPortTriggerFlow.al:325 `Chi.PreXmlItem count=2`, then `count=1`).
         self.xp_link_filter(inst, schema, node)?;
         // A Break in OnPreXmlItem leaves the element without rows and without the empty pass (P112_Export_Break, preItem1); a Quit
         // leaves what was written so far.
@@ -109,7 +133,7 @@ impl Session {
             }
         }
         // MaxOccurs = Once keeps the first row and below tells two, three and more rows apart: four are enough to read, which
-        // also ends the read of an Integer root over `Number = filter(1 ..)` (xmlport/lt-y17-xmlport-ns/Y17XmlPortNamespaces.al).
+        // also ends the read of an Integer root over `Number = filter(1 ..)` (xmlports/shapes-properties/Y17XmlPortNamespaces.al).
         // The Integer table holds two billion rows, and its element ends at a Break of OnAfterGetRecord (Y72XpEInvoiceShapes.al
         // `subloop`, `Number = filter(1 ..)`): its rows are read one at a time, as the loop below needs them.
         let lazy = n.max_unbounded != Some(false) && self.xp_integer_table(inst, n)?;
@@ -121,12 +145,23 @@ impl Session {
             usize::MAX
         };
         self.xp_rows_upto(inst, schema, node, &mut rows, cap)?;
+        // LinkTable naming the table element right before it: the lines of the header element's record as its loop left it (the
+        // last header) are written, and none without a header row (xmlports/shapes-properties/R6924eLinkSibling.al:224
+        // LinkSibling_Export_TwoHeaders, :240 LinkSibling_Export_NoHeader). A header record whose link fields hold their initial
+        // values cannot tell a header row with blank link values from no header row; with lines that match those values it is not
+        // pinned.
+        if !rows.is_empty() && link_sibling(schema, node) && self.xp_link_values_initial(inst, schema, node)? {
+            return unsupported(format!(
+                "XmlPort export of table element {} whose LinkTable is the table element before it, with that record's link fields blank and lines that match them (not pinned)",
+                n.name
+            ));
+        }
         let mut more = if lazy {
             rows.first().map(|r| self.xp_row_position(inst, n, r)).transpose()?
         } else {
             None
         };
-        // MaxOccurs = Once writes the first row only (xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al:259 SG_OnceTemp_Export_TwoRowsEach,
+        // MaxOccurs = Once writes the first row only (xmlports/shapes-properties/SgXmlPortOccurs.al:259 SG_OnceTemp_Export_TwoRowsEach,
         // :390 SG_OnceReal_Export `two`). Pinned without export triggers; whether a trigger sees the rows after the first is not.
         // With export triggers and two rows (QrXpContainerOccurs.al TR_Booking_TwoReplyRows on branch al-runtime-rs-staging-tr):
         // only the first row's OnAfterGetRecord runs and the record holds the second row afterwards. With three rows only the
@@ -140,10 +175,10 @@ impl Session {
             // A linked one below another table element (writer TT's branch al-runtime-rs-staging-tt, QrXpContainerOccurs.al
             // TT_Confirm_Export_NoPreFilter: five rows, `get detail 1` only): the first row of each pass, one OnAfterGetRecord; the row
             // the record holds afterwards is not pinned.
-            // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_Confirm_Export_NpFilters, TT_Confirm_Export_NoKindFilter, TT_Confirm_Export_NoPreFilter (was assumption `xmlport-linked-once`).
+            // Pinned by xmlports/shapes-properties/QrXpContainerOccurs.al TT_Confirm_Export_NpFilters, TT_Confirm_Export_NoKindFilter, TT_Confirm_Export_NoPreFilter (was assumption `xmlport-linked-once`).
             // With LinkFields, MinOccurs = Once and no export triggers, the record holds the second of two rows afterwards and a
             // later pass without rows writes it; a first pass without rows writes the record blank (corpus PR 896,
-            // misc/lt-np4-probes/Np4XmlPort.al Y9_XmlPort_LinkedOnceOnce_ZeroOneTwoRows `held 3/10/A/h3l10`,
+            // streams/Np4XmlPort.al Y9_XmlPort_LinkedOnceOnce_ZeroOneTwoRows `held 3/10/A/h3l10`,
             // _TwoRowsThenNone `<Line head="1" no="10">` under heads 2 and 3, _OneRowThenNone). Of three or more rows it is not
             // pinned.
             let pinned_two =
@@ -156,7 +191,7 @@ impl Session {
             }
         } else if n.max_unbounded == Some(false) && rows.len() > 1 {
             // Without export triggers, a table element without LinkTable below another one with MinOccurs = Once holds the second of
-            // two rows afterwards: the next pass without rows writes it (misc/lt-np4-probes/Np4XmlPort.al:381
+            // two rows afterwards: the next pass without rows writes it (streams/Np4XmlPort.al:365
             // NP4_XmlPort_OnceOnce_TwoRows `<Child cid="12">` under head 2, corpus master), and the second of three as well (corpus
             // PR 896, Np4XmlPort.al Y9_XmlPort_OnceOnce_ThreeRowsThenNone `<Child cid="12">`). Of four or more it is not pinned.
             let once_once = unlinked_below_table(schema, node) && !n.min_zero && !export_triggers_below(schema, node);
@@ -169,10 +204,10 @@ impl Session {
                     // Below another table element without LinkTable the record holds the second row afterwards, also of six
                     // (QrXpContainerOccurs.al TU_NestedReal_SlotNoFilter on writer TU's branch: `get slot 101;get item 12;pre slot
                     // f= at=102`).
-                    // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TU_NestedReal_ItemFilterFirstPass, TU_NestedReal_SlotNoFilter, TU_NestedTemp_TwoTwoNoneFiltered (was assumption `xmlport-nested-unlinked`).
+                    // Pinned by xmlports/shapes-properties/QrXpContainerOccurs.al TU_NestedReal_ItemFilterFirstPass, TU_NestedReal_SlotNoFilter, TU_NestedTemp_TwoTwoNoneFiltered (was assumption `xmlport-nested-unlinked`).
                     ends_on = Some(rows[1].clone());
                 } else if rows.len() > 2 {
-                    // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Again_SameData, TS_Again_AssignBetween, TS_Again_TransferFieldsBetween, TS_Again_InitBetween, TS_Again_KeyBetween, TS_Again_LineFilter, TS_View_SecondExport, TS_Again_TrBooking, TS_Again_TrMember (was assumption `xmlport-export-again`).
+                    // Pinned by xmlports/shapes-properties/QrXpContainerOccurs.al TS_Again_SameData, TS_Again_AssignBetween, TS_Again_TransferFieldsBetween, TS_Again_InitBetween, TS_Again_KeyBetween, TS_Again_LineFilter, TS_View_SecondExport, TS_Again_TrBooking, TS_Again_TrMember (was assumption `xmlport-export-again`).
                     ends_unpinned = true;
                 } else {
                     ends_on = rows.pop();
@@ -189,7 +224,7 @@ impl Session {
         }
         // A table element without rows still passes its fields once, without a row: OnBeforePassField runs and no
         // OnAfterGetRecord (P94XpPathFlow.al:Export_PathsNoRows). Unless it is optional, the element is written once with the
-        // values of the record as it stands (xmlport/lt-xmlport-query-datatransfer/XpTExportBasic.al:Export_StaticWithRecordNoRows,
+        // values of the record as it stands (xmlports/import/XpTExportBasic.al:Export_StaticWithRecordNoRows,
         // Export_EmptyTable: 462 bytes, a row of `0`, empty text, `0.00`, `No`).
         if rows.is_empty() && !n.min_zero {
             let mut e = Elem::new(&doc_name(schema, node));
@@ -206,7 +241,7 @@ impl Session {
             // An optional element that is not linked and not below another table element runs no trigger of its nodes without rows:
             // only its OnPreXmlItem ran (corpus writer TT's branch al-runtime-rs-staging-tt, QrXpContainerOccurs.al
             // TT_Optional_Unlinked_NoRows: `pre opt;` and no `pass opt no;`; former assumption `xmlport-optional-no-rows` (pinned on corpus master since bump 1030)).
-            // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_Optional_Unlinked_NoRows (was assumption `xmlport-optional-no-rows`).
+            // Pinned by xmlports/shapes-properties/QrXpContainerOccurs.al TT_Optional_Unlinked_NoRows (was assumption `xmlport-optional-no-rows`).
         } else if rows.is_empty() {
             // P94XpPathFlow.al:Export_PathsNoRows pins the empty pass for an element that is not optional only; for an optional
             // element below another table element that is not linked, whether its fields are passed is not pinned.
@@ -356,7 +391,7 @@ impl Session {
         };
         let v = self.xp_pass_views[pos].2.clone();
         if v.started {
-            // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TT_Confirm_Export_NpFilters, TT_Confirm_Export_NoKindFilter, TT_Confirm_Export_TwoReplies, TU_LinkedKey_KeyAtFirstPass, TU_LinkedKey_DescendingAtFirstPass (was assumption `xmlport-link-pass-reset`).
+            // Pinned by xmlports/shapes-properties/QrXpContainerOccurs.al TT_Confirm_Export_NpFilters, TT_Confirm_Export_NoKindFilter, TT_Confirm_Export_TwoReplies, TU_LinkedKey_KeyAtFirstPass, TU_LinkedKey_DescendingAtFirstPass (was assumption `xmlport-link-pass-reset`).
             let mut r = rec.borrow_mut();
             r.filters = v.filters;
             r.filter_group = v.filter_group;
@@ -407,6 +442,21 @@ impl Session {
             self.record_op(RecordOp::SetRange, &rec, &mut [Value::Integer(own as i32), v])?;
         }
         Ok(())
+    }
+
+    /// Whether every link field of the LinkTable record of table element `node` holds its initial value.
+    fn xp_link_values_initial(&mut self, inst: &Inst, schema: &Schema, node: usize) -> Result<bool, Signal> {
+        let n = schema.node(node);
+        let Some(link) = n.link_node else { return Ok(false) };
+        let parent = self.xp_record(inst, schema.node(link))?;
+        let table = parent.borrow().table as usize;
+        let initial = self.initial_fields(table);
+        for &(_, other) in &n.link_fields {
+            if ops::compare(&parent.borrow().fields[other], &initial[other])? != std::cmp::Ordering::Equal {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// The rows of table element `node` in export order.
@@ -478,6 +528,44 @@ pub(crate) struct UnlinkedPass {
     pub(super) filter_group: i32,
     /// The key and direction at the start of the first pass.
     pub(super) first_key: String,
+    /// With a SourceTableView: the record's filters, key and direction at the start of the first pass (the view alone).
+    pub(super) view_start: Option<ViewStart>,
+    /// The key and direction at the end of the last pass.
+    pub(super) end_key: Option<String>,
+}
+
+/// The filters, key and direction of a table element record at the start of its first pass.
+#[derive(Clone)]
+pub(crate) struct ViewStart {
+    filters: Vec<al_builtins::filter::FieldFilter>,
+    filter_group: i32,
+    key: usize,
+    adhoc: Option<(usize, Vec<usize>)>,
+    ascending: bool,
+    field_descending: u32,
+}
+
+impl ViewStart {
+    fn of(r: &al_builtins::value::RecordState) -> ViewStart {
+        ViewStart {
+            filters: r.filters.clone(),
+            filter_group: r.filter_group,
+            key: r.key,
+            adhoc: r.adhoc.clone(),
+            ascending: r.ascending,
+            field_descending: r.field_descending,
+        }
+    }
+
+    fn restore(self, r: &mut al_builtins::value::RecordState) {
+        r.filters = self.filters;
+        r.filter_group = self.filter_group;
+        r.key = self.key;
+        r.adhoc = self.adhoc;
+        r.ascending = self.ascending;
+        r.field_descending = self.field_descending;
+        r.marked_only = false;
+    }
 }
 
 impl UnlinkedPass {
@@ -490,6 +578,8 @@ impl UnlinkedPass {
             },
             filter_group: r.filter_group,
             first_key: format!("{:?}", (r.key, &r.adhoc, r.ascending, r.field_descending)),
+            view_start: None,
+            end_key: None,
         }
     }
 }
@@ -500,6 +590,22 @@ pub(super) fn unlinked_below_table(schema: &Schema, node: usize) -> bool {
     n.kind == ir::XmlNodeKind::Table
         && n.link_node.is_none()
         && n.parent.is_some_and(|p| schema.node(p).kind == ir::XmlNodeKind::Table)
+}
+
+/// Whether table element `node` names in LinkTable a table element that is not above it: the one right before it under the same
+/// text element (al-sema `link_sibling_named`, xmlports/shapes-properties/R6924eLinkSibling.al).
+pub(super) fn link_sibling(schema: &Schema, node: usize) -> bool {
+    let Some(link) = schema.node(node).link_node else {
+        return false;
+    };
+    let mut cur = schema.node(node).parent;
+    while let Some(p) = cur {
+        if p == link {
+            return false;
+        }
+        cur = schema.node(p).parent;
+    }
+    true
 }
 
 /// Runs `body` once for every row of table element `node`, with the row loaded.
@@ -573,7 +679,7 @@ pub(super) fn export_triggers_below(schema: &Schema, node: usize) -> bool {
 
 impl Session {
     /// The FlowFields a table element's `CalcFields` lists, calculated on the row an export just read, before its
-    /// OnAfterGetRecord (xmlport/lt-y68-xmlport-shapes/Y68XmlPortShapes.al:567-621: `CalcFields = Total` gives `total=3.5
+    /// OnAfterGetRecord (xmlports/shapes-properties/Y68XmlPortShapes.al:567-621: `CalcFields = Total` gives `total=3.5
     /// cnt=0` there, also on a temporary table element whose rows OnPreXmlItem copied).
     fn xp_calc_listed_fields(&mut self, schema: &Schema, node: usize, rec: &Rec) -> Result<(), Signal> {
         let listed = &schema.node(node).calc_fields;

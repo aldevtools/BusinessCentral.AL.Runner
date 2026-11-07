@@ -1,6 +1,6 @@
 //! The .NET types and texts of the column types of a TestRequestPage.SaveAsXml data file beyond those of
-//! al-language-onprem/report/lt-aq/AqSaveAsXml.al:247 (gap G5-13), pinned by
-//! al-language-onprem/report/lt-y51-saveasxml-time/Y51SaveAsXmlTime.al (BC 27.5, 28.5, 29.0):
+//! al-language-onprem/reports/AqSaveAsXml.al:247 (gap G5-13), pinned by
+//! al-language-onprem/reports/layouts-saveas/Y51SaveAsXmlTime.al (BC 27.5, 28.5, 29.0):
 //! - a Time is `xs:dateTime` (`msdata:DateTimeMode="Local"`) on 1899-12-30, whole seconds, `+00:00`
 //!   (`1899-12-30T14:30:15+00:00` for 14:30:15.123), the element left out for 0T (:257-258, :276-277);
 //! - a DateTime the same type, with its milliseconds (`2024-03-15T14:30:15.123+00:00`), left out for 0DT (:277);
@@ -43,7 +43,7 @@ pub(crate) fn declared(ty: &RtType, major: u16) -> Option<&'static str> {
         RtType::Guid => guid_type(major),
         // An Option or Enum field: the member name (Y60SaveAsXmlNoRow.al Columns_TableFields_NoRow `KindC`, `CatC`).
         RtType::Option(_) | RtType::Enum(_) => Some("xs:string"),
-        // A Media or MediaSet field: the Guid type (al-language-onprem/report/lt-y67-saveasxml-columns/Y67SaveAsXmlColumns.al:388
+        // A Media or MediaSet field: the Guid type (al-language-onprem/reports/dataset/Y67SaveAsXmlColumns.al:388
         // Columns_MediaAndMediaSet `PicC`, `PicsC`, with no row and with a row).
         RtType::Library(LibraryKind::Media | LibraryKind::MediaSet) => guid_type(major),
         _ => None,
@@ -52,7 +52,7 @@ pub(crate) fn declared(ty: &RtType, major: u16) -> Option<&'static str> {
 
 /// The type tag of an expression column (a global, an array element, a field read through a record variable) of static type
 /// `ty` when no row is written: the type of its AL type, pinned for Code, Text, Integer, Decimal, Boolean, Date, Option and Enum
-/// (al-language-onprem/report/lt-y60-saveasxml-norow/Y60SaveAsXmlNoRow.al Columns_Expressions_NoRow, the same as with rows:
+/// (al-language-onprem/reports/layouts-saveas/Y60SaveAsXmlNoRow.al Columns_Expressions_NoRow, the same as with rows:
 /// Columns_Expressions_WithRow). Other types are not pinned for an expression.
 pub(crate) fn expression(ty: &RtType) -> Option<&'static str> {
     match ty {
@@ -162,7 +162,7 @@ fn expr_tag(vm: &crate::Session, object: usize, e: &al_ir::Expr) -> Option<&'sta
 
 /// The static type of `place` in a routine of `object`: a global of the object, an element of a global array, a field of a
 /// global record. Other places give `None`.
-fn place_type(vm: &crate::Session, object: usize, place: &al_ir::Place) -> Option<RtType> {
+pub(crate) fn place_type(vm: &crate::Session, object: usize, place: &al_ir::Place) -> Option<RtType> {
     match place {
         al_ir::Place::Global(s) => vm.engine.program.objects[object].globals.get(*s).map(|g| g.ty.clone()),
         al_ir::Place::Index(p, _) => match place_type(vm, object, p)? {
@@ -275,11 +275,14 @@ mod tests {
         assert_eq!(text(&Value::Duration(5)), "<same>");
     }
 
-    // al-language-onprem/report/lt-y60-saveasxml-norow/Y60SaveAsXmlNoRow.al Columns_TableFields_NoRow,
+    // al-language-onprem/reports/layouts-saveas/Y60SaveAsXmlNoRow.al Columns_TableFields_NoRow,
     // Columns_Expressions_NoRow: Option and Enum fields are xs:string; an expression column has the type of its AL type.
     #[test]
     fn option_enum_fields_and_expression_columns_have_their_type_without_a_row() {
-        assert_eq!(declared(&RtType::Option(vec!["A".into()]), 29), Some("xs:string"));
+        assert_eq!(
+            declared(&RtType::Option(vec!["A".into()].into()), 29),
+            Some("xs:string")
+        );
         assert_eq!(declared(&RtType::Enum(5), 27), Some("xs:string"));
         let want = [
             (RtType::Code(Some(10)), Some("xs:string")),
@@ -288,7 +291,7 @@ mod tests {
             (RtType::Decimal, Some("xs:decimal")),
             (RtType::Boolean, Some("xs:boolean")),
             (RtType::Date, Some("xs:dateTime")),
-            (RtType::Option(vec!["A".into()]), Some("xs:string")),
+            (RtType::Option(vec!["A".into()].into()), Some("xs:string")),
             (RtType::Enum(3), Some("xs:string")),
             (RtType::Time, None),
             (RtType::Guid, None),

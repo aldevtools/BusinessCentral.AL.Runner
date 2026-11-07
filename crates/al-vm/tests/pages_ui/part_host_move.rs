@@ -1,6 +1,6 @@
 //! What the parts of a host read when the host moves to another row (lane L3).
-//! Mirrors pages/lt-part-reads/PartReadsOpen.al (Next_SixParts_ReadsPerPartAfterHostMove,
-//! LastPrevious_SixParts_ReadsPerPartAfterHostMove) and pages/lt-part-subpageview-filter/PartViewFilter.al:381.
+//! Mirrors pages/parts/PartReadsOpen.al (Next_SixParts_ReadsPerPartAfterHostMove,
+//! LastPrevious_SixParts_ReadsPerPartAfterHostMove) and pages/parts/PartViewFilter.al:381.
 
 use al_testkit::text;
 
@@ -149,7 +149,7 @@ codeunit 51414 "UP Test"
 "#;
 
 /// A part hidden by a Visible expression whose procedure, called from the host's OnAfterGetCurrRecord, runs
-/// `CurrPage.Update`: the part fills its rows again after the host's code (pages/lt-hidden-part-currpage/
+/// `CurrPage.Update`: the part fills its rows again after the host's code (pages/parts/
 /// HiddenPartCurrPageUpdateFalse.al:196-198).
 #[test]
 fn a_part_update_asked_by_host_code_refills_the_part() {
@@ -270,7 +270,7 @@ codeunit 51435 "UH Test"
 "#;
 
 /// While the host row is not stored, the part's blank line takes a blank link value and validates it, also after the host's
-/// key was typed (pages/lt-part-line-before-host-key/PartLineBeforeHostKey.al:398, :400: `L.OnValidate(Document No.):`).
+/// key was typed (pages/parts/PartLineBeforeHostKey.al:398, :400: `L.OnValidate(Document No.):`).
 #[test]
 fn a_part_of_an_unsaved_host_validates_a_blank_link() {
     let r = text(al_testkit::run_in(UNSAVED_SRC, "UH Test", "Run"));
@@ -281,7 +281,7 @@ fn a_part_of_an_unsaved_host_validates_a_blank_link() {
 
 /// A write into the part of a host row that is not stored saves the host first and links the line to it: the line's link
 /// is validated with the typed key (PartLineBeforeHostKey.al:406 `HP.OnInsertRecord:D2 | H.OnInsert:D2 |
-/// L.OnValidate(Document No.):D2 ...` for New(); handlers/TestPageOpenNewPartLink.al:100 for a write).
+/// L.OnValidate(Document No.):D2 ...` for New(); testpage/TestPageOpenNewPartLink.al:100 for a write).
 #[test]
 fn a_part_write_saves_the_unsaved_host_first() {
     let r = text(al_testkit::run_in(UNSAVED_SRC, "UH Test", "Write"));
@@ -318,7 +318,7 @@ codeunit 51444 "TP Test"
 }
 "#;
 
-/// A new Card row whose key is typed while two parts link on it, one through a relation to another table, is stored at once (pages/lt-part-link-unsaved-host/
+/// A new Card row whose key is typed while two parts link on it, one through a relation to another table, is stored at once (pages/parts/
 /// PagePartLinkUnsavedHost.al:178, :218); what the page shows afterwards is refused.
 #[test]
 fn a_new_card_with_two_parts_linked_on_its_key_stores_the_row_when_the_key_is_typed() {
@@ -353,7 +353,7 @@ codeunit 51454 "SB Test"
 }
 "#;
 
-/// A write into one part saves the row typed into its sibling part (pages/lt-part-link-unsaved-host/
+/// A write into one part saves the row typed into its sibling part (pages/parts/
 /// PagePartLinkUnsavedHost.al:242: `a_lines_g = 1`, `a_lines_h = 0`).
 #[test]
 fn a_write_into_a_part_saves_the_sibling_parts_row() {

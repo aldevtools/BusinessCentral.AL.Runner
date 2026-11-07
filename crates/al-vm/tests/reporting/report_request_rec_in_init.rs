@@ -1,5 +1,5 @@
 //! The `Rec` of a report request page that states `SourceTable`, read in OnInitReport (al-runner issue 5756): it raises
-//! ReportRequestPageNotInitialized before the rest of the trigger runs (report/lt-y-request-page/YRequestPageTests.al:551,
+//! ReportRequestPageNotInitialized before the rest of the trigger runs (reports/request-page/YRequestPageTests.al:551,
 //! RS_RequestPageRec_ReadInOnInitReport_Raises; report 88566 in RsRequestPageRec.al:224). Through a procedure it is not
 //! pinned and refused.
 

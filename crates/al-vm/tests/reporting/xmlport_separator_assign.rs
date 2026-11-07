@@ -1,5 +1,5 @@
 //! `currXMLport.FieldSeparator := v` and the other separator and encoding members set by assignment in a VariableText port
-//! (corpus xmlport/lt-y67-xmlport-separators/Y67XpSeparators.al:314-472). The assignment is the setter: a Text, a Char or a
+//! (corpus xmlports/shapes-properties/Y67XpSeparators.al:314-472). The assignment is the setter: a Text, a Char or a
 //! Code value is used as it is, a token such as `<TAB>` or `<CR/LF>` is written literally, an empty text leaves the
 //! separator out. TextEncoding set so changes the bytes of the export. The getter reads back what was assigned.
 
@@ -63,23 +63,23 @@ fn an_assigned_field_separator_is_used_as_it_is() {
     // Y67XpSeparators.al:314 FieldSeparator_AssignForms_Export: m1 text, m5 Char, m6 Code[1], m4 Tab char, m2 several chars.
     assert_eq!(
         export("currXMLport.FieldSeparator := ';';"),
-        "18 \"1\";\"a\"{10}\"2\";\"b\" [;|\"|\\n]"
+        "18 \"1\";\"a\"{10}\"2\";\"b\" [;|\"|\n]"
     );
     assert_eq!(
         export("currXMLport.FieldSeparator := Hash;"),
-        "18 \"1\"#\"a\"{10}\"2\"#\"b\" [#|\"|\\n]"
+        "18 \"1\"#\"a\"{10}\"2\"#\"b\" [#|\"|\n]"
     );
     assert_eq!(
         export("currXMLport.FieldSeparator := Code1;"),
-        "18 \"1\"Z\"a\"{10}\"2\"Z\"b\" [Z|\"|\\n]"
+        "18 \"1\"Z\"a\"{10}\"2\"Z\"b\" [Z|\"|\n]"
     );
     assert_eq!(
         export("currXMLport.FieldSeparator := Tab[1];"),
-        "18 \"1\"{9}\"a\"{10}\"2\"{9}\"b\" [\t|\"|\\n]"
+        "18 \"1\"{9}\"a\"{10}\"2\"{9}\"b\" [\t|\"|\n]"
     );
     assert_eq!(
         export("currXMLport.FieldSeparator := '::';"),
-        "20 \"1\"::\"a\"{10}\"2\"::\"b\" [::|\"|\\n]"
+        "20 \"1\"::\"a\"{10}\"2\"::\"b\" [::|\"|\n]"
     );
 }
 
@@ -88,15 +88,15 @@ fn an_assigned_token_is_written_literally_and_an_empty_one_leaves_the_separator_
     // m8 '<TAB>', m9 '', m13 FieldDelimiter '<None>', m16 RecordSeparator '<None>', m18 '<CR/LF>'.
     assert_eq!(
         export("currXMLport.FieldSeparator := '<TAB>';"),
-        "26 \"1\"<TAB>\"a\"{10}\"2\"<TAB>\"b\" [<TAB>|\"|\\n]"
+        "26 \"1\"<TAB>\"a\"{10}\"2\"<TAB>\"b\" [<TAB>|\"|\n]"
     );
     assert_eq!(
         export("currXMLport.FieldSeparator := '';"),
-        "16 \"1\"\"a\"{10}\"2\"\"b\" [|\"|\\n]"
+        "16 \"1\"\"a\"{10}\"2\"\"b\" [|\"|\n]"
     );
     assert_eq!(
         export("currXMLport.FieldDelimiter := '<None>';"),
-        "58 <None>1<None>,<None>a<None>{10}<None>2<None>,<None>b<None> [,|<None>|\\n]"
+        "58 <None>1<None>,<None>a<None>{10}<None>2<None>,<None>b<None> [,|<None>|\n]"
     );
     assert_eq!(
         export("currXMLport.RecordSeparator := '<None>';"),
@@ -106,7 +106,7 @@ fn an_assigned_token_is_written_literally_and_an_empty_one_leaves_the_separator_
         export("currXMLport.RecordSeparator := '<CR/LF>';"),
         "24 \"1\",\"a\"<CR/LF>\"2\",\"b\" [,|\"|<CR/LF>]"
     );
-    assert_eq!(export("currXMLport.FieldDelimiter := '';"), "10 1,a{10}2,b [,||\\n]");
+    assert_eq!(export("currXMLport.FieldDelimiter := '';"), "10 1,a{10}2,b [,||\n]");
 }
 
 #[test]

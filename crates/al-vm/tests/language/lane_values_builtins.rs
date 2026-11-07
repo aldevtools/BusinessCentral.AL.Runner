@@ -21,7 +21,7 @@ fn text(vars: &str, body: &str) -> String {
 
 #[test]
 fn last_index_of_on_an_empty_text_takes_start_zero_and_one() {
-    // text/lt-text-instance/Search1.Codeunit.al:351,353,355 (LastIndexOf_StartIndex_Empty).
+    // text/text-methods/Search1.Codeunit.al:351,353,355 (LastIndexOf_StartIndex_Empty).
     let r = text(
         "E: Text;",
         "exit(Format(E.LastIndexOf('', 1)) + ',' + Format(E.LastIndexOf('a', 1)) + ',' + Format(E.LastIndexOf('a', 0)));",
@@ -70,13 +70,13 @@ codeunit 50111 C
 
 #[test]
 fn fieldref_value_takes_a_number_into_a_code_or_text_field_as_its_format() {
-    // types/lt-number-to-text/NumberToTextIsFormat.al:239-246 (FieldRefSetValue_NumberOnCodeAndText_Result).
+    // format-evaluate/NumberToTextIsFormat.al:239-246 (FieldRefSetValue_NumberOnCodeAndText_Result).
     assert_eq!(out(al_testkit::run_in(NUM_ROW, "C", "F")), "Yes:10,Yes:2.5,Yes:-3,No:");
 }
 
 #[test]
 fn session_settings_of_a_fresh_instance_formats_every_property() {
-    // session/lt-session-settings-fresh/SessionSettingsFreshReads.al:57 (P161_FreshInstance_FormatText).
+    // session-system/session/SessionSettingsFreshReads.al:57 (P161_FreshInstance_FormatText).
     let r = text("S: SessionSettings;", "exit(Format(S));");
     assert_eq!(
         r,
@@ -109,7 +109,7 @@ codeunit 50120 C
 
 #[test]
 fn read_as_of_an_uninitialized_content_as_a_statement_raises() {
-    // misc/W4XmlJsonHttp.al:343 (RequestWithoutContent_ReadAs).
+    // json/W4XmlJsonHttp.al:343 (RequestWithoutContent_ReadAs).
     assert_eq!(
         out(al_testkit::run_in(READ_AS, "C", "F")),
         "error:Microsoft.Dynamics.Nav.Runtime.NavHttpContent variable not initialized.|NotInitialized"
@@ -118,7 +118,7 @@ fn read_as_of_an_uninitialized_content_as_a_statement_raises() {
 
 #[test]
 fn an_interface_assigned_from_an_unassigned_one_raises() {
-    // codeunit/lt-enums-interfaces/OjT71047.al:250-251 (Uninitialized_AssignedFromUninitialized, af224).
+    // codeunits/interfaces/OjT71047.al:250-251 (Uninitialized_AssignedFromUninitialized, af224).
     let src = r#"
 interface IShape { procedure GetArea(): Integer; }
 codeunit 50130 Sq implements IShape { procedure GetArea(): Integer begin exit(4); end; }
@@ -142,7 +142,7 @@ codeunit 50131 C
 
 #[test]
 fn a_variant_beyond_integer_into_an_integer_raises_a_type_conversion_overflow() {
-    // types/lt-filter-enum-relation-duration-guid/D_Duration.al:226 (a Duration); types/lt-variant/VaTConvert.al:183-184
+    // types/duration/D_Duration.al:226 (a Duration); types/variant/VaTConvert.al:183-184
     // (a BigInteger).
     let msg = "error:The expression Variant cannot be type-converted to a Integer value.|TypeConversion:Overflow";
     let r = text(
@@ -262,7 +262,7 @@ codeunit 50141 C
 
 #[test]
 fn curr_field_no_passed_to_a_var_parameter_takes_what_the_callee_assigns() {
-    // record/lt-curr-field-no/CurrFieldNoVarParam.al:103-106 (CalleeAssigns), :117 (InValidate), :128 (CopyIsNotTheProperty).
+    // record/curr-field-no/CurrFieldNoVarParam.al:103-106 (CalleeAssigns), :117 (InValidate), :128 (CopyIsNotTheProperty).
     let mut b = al_testkit::Built::from_source(CURR);
     assert_eq!(out(b.run_in("C", "Pass")), "0>99,99>99");
     assert_eq!(out(b.run_in("C", "TwoLevels")), "99");
@@ -272,7 +272,7 @@ fn curr_field_no_passed_to_a_var_parameter_takes_what_the_callee_assigns() {
 
 #[test]
 fn field_index_lists_flowfields_after_the_other_fields() {
-    // metadata/lt-custom-report-layout-columns/CustomReportLayoutColumns.al:33-44 (Columns_Schema: field 3, a FlowField,
+    // metadata/platform-tables/CustomReportLayoutColumns.al:33-44 (Columns_Schema: field 3, a FlowField,
     // comes after field 15).
     let src = r#"
 table 50150 "Ff Row"
@@ -379,7 +379,7 @@ codeunit 50161 C
 
 #[test]
 fn reading_text_on_a_utf8_stream_counts_one_more_than_the_bytes_and_one_at_the_end() {
-    // misc/lt-probes-needed-5/PnE04Streams.al:86-89 (ReadText_Utf8_WithTerminator), :111-113 (ReadText_Utf8_NoTerminator).
+    // streams/PnE04Streams.al:86-89 (ReadText_Utf8_WithTerminator), :111-113 (ReadText_Utf8_NoTerminator).
     let mut b = al_testkit::Built::from_source(STREAM);
     assert_eq!(out(b.run_in("C", "Terminated")), "6|hello,6|world,1|");
     assert_eq!(out(b.run_in("C", "Unterminated")), "6|hello,1|");
@@ -414,7 +414,7 @@ fn run_on(bc: &str, src: &str, routine: &str) -> Result<Value, Signal> {
 
 #[test]
 fn a_header_name_of_blanks_is_an_argument_error_on_bc_28_and_a_format_error_from_29() {
-    // network/lt-http/HttpHeaders.al:304-308 (InvalidNames, `blankName`); the test is BC 28 and later (:282).
+    // http/HttpHeaders.al:304-308 (InvalidNames, `blankName`); the test is BC 28 and later (:282).
     let src = "codeunit 50170 C { procedure F(): Text var H: HttpHeaders; R: HttpRequestMessage; begin R.GetHeaders(H); H.Add(' ', 'v'); end; }";
     let code = |bc: &str| match run_on(bc, src, "F") {
         Err(Signal::Error(e)) => e.code,
@@ -499,7 +499,7 @@ fn the_bytes_of_an_exported_media_are_refused_on_every_major() {
     // to 99 bytes on 27, 28 and 29 (bc-linux #161), bytes the corpus does not pin. The export itself succeeds
     // (streams/StTMedia.al:170, MediaExportStream), so only a look at the exported bytes is refused.
     // ExportLengthNoPng imports control bytes, no picture: they export unchanged on every major
-    // (streams/lt-y44-media-export/Y44MediaExportStream.al Media_Binary_ExportStream, corpus PR 962).
+    // (streams/media/Y44MediaExportStream.al Media_Binary_ExportStream, corpus PR 962).
     let r = |bc: &str, routine: &str| out(run_on(bc, MEDIA_EXPORT, routine));
     for bc in ["27.5", "28.5", "29.0"] {
         assert_eq!(r(bc, "ExportOnly"), "exported", "{bc}");
@@ -546,13 +546,13 @@ codeunit 50191 C
 
 #[test]
 fn the_stored_length_of_a_blob_is_given_only_for_the_pinned_sizes() {
-    // misc/lt-probes-needed-1/PnABlobLength.al:49-60 (Length_ByStoredSize, BC 29 only): 1 and 2 bytes are n + 6, 100 bytes and more
+    // record/PnABlobLength.al:49-60 (Length_ByStoredSize, BC 29 only): 1 and 2 bytes are n + 6, 100 bytes and more
     // are compressed. streams/TestStreamsRuntimeContracts.al:264: 5 bytes are 11 on every major.
     let r = |bc: &str, routine: &str| out(run_on(bc, BLOB_LENGTH, routine));
     assert_eq!(r("29.0", "One"), "7");
     assert_eq!(r("29.0", "Five"), "11");
     assert_eq!(r("27.5", "Five"), "11");
-    // record/lt-blob-calcfields-length/BlobCalcFieldsLength.al:222 ('new' 9, every major).
+    // record/flowfields/BlobCalcFieldsLength.al:222 ('new' 9, every major).
     assert_eq!(r("27.5", "Three"), "9");
     // Six bytes are pinned only as the text 'stored' (:350): six repeated bytes compress.
     for (bc, routine) in [("27.5", "One"), ("28.5", "One"), ("29.0", "Six"), ("29.0", "Hundred")] {
@@ -566,7 +566,7 @@ fn the_stored_length_of_a_blob_is_given_only_for_the_pinned_sizes() {
 
 #[test]
 fn a_textconst_going_into_a_variant_is_refused() {
-    // types/lt-variant/VaTTextConst.al:144-151 (TextConst_In_Variant): the Variant then answers no Is... test while Format reads the
+    // types/variant/VaTTextConst.al:144-151 (TextConst_In_Variant): the Variant then answers no Is... test while Format reads the
     // text. That value kind is not built, so the conversion is refused. A Label goes into a Variant as a Text, as before.
     let src = |decl: &str, body: &str| {
         format!(
@@ -666,11 +666,11 @@ codeunit 50211 C
 
 #[test]
 fn a_media_imported_from_a_blob_of_its_own_record_is_refused() {
-    // misc/lt-probes-needed-5/PnE06Media.al:66-84 (ImportStream_ThreeArguments_ForComparison): a stream on the record's own Blob
+    // streams/PnE06Media.al:66-84 (ImportStream_ThreeArguments_ForComparison): a stream on the record's own Blob
     // field leaves the Media field without a value and writes no Tenant Media row. Why is not pinned, so that import is refused.
     let r = out(al_testkit::run_in(MEDIA_OWN_BLOB, "C", "OwnBlob"));
     assert!(r.starts_with("refused:"), "{r}");
-    // The row inserted first, the Blob written and the row modified: the import works (streams/lt-stream-read-write-media/P102Media.al:24-41).
+    // The row inserted first, the Blob written and the row modified: the import works (streams/media/P102Media.al:24-41).
     assert_eq!(
         out(al_testkit::run_in(MEDIA_OWN_BLOB, "C", "OwnBlobAfterModify")),
         "Yes"
@@ -722,8 +722,8 @@ codeunit 50220 C
 
 #[test]
 fn read_as_of_an_uninitialized_content_runs_only_the_two_pinned_shapes() {
-    // network/lt-http/HttpRequest.al:220 (FreshRequestContent): `Req.Content.ReadAs(Txt)` with its result used answers No and leaves
-    // the text. misc/lt-probes-needed-5/PnE12HttpContent.al:205: the same call as a statement raises. misc/W4XmlJsonHttp.al:342-343
+    // http/HttpRequest.al:220 (FreshRequestContent): `Req.Content.ReadAs(Txt)` with its result used answers No and leaves
+    // the text. http/PnE12HttpContent.al:192: the same call as a statement raises. json/W4XmlJsonHttp.al:342-343
     // (RequestWithoutContent_ReadAs): a copy in a variable, called as a statement, raises
     // (read_as_of_an_uninitialized_content_as_a_statement_raises). A copy with the result used is pinned by none, so it is refused.
     let r = |routine: &str| out(al_testkit::run_in(READ_AS_SHAPES, "C", routine));

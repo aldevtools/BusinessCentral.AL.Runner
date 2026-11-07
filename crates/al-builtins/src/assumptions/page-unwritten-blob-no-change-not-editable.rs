@@ -1,0 +1,6 @@
+PageUnwrittenBlobNoChangeNotEditable => {
+    id: "page-unwritten-blob-no-change-not-editable",
+    assumed: "On a page with Editable = false and ModifyAllowed left true, a Blob of Rec that no stream wrote since it was read (also after a CalcFields loaded it) is no change of the row, so the page saves nothing after an action: the action's own release of the row stays. Pinned only with Editable = false and ModifyAllowed = false on a List (testpage/RmReadOnlyBlob.al:316-:470); a row whose other fields changed is saved as before.",
+    tests: "Tests-ERM-Sales Sales Batch Document Posting (codeunit 134891) ReleaseSelectedQuotes, ReleaseSelectedOrders, ReleaseSelectedInvoices, ReleaseSelectedCreditMemos, ReleaseSelectedReturnOrders, ReleaseSelectedBlanketOrders and the Reopen siblings; they pass in Microsoft's CI (Sales Quotes, Sales Order List, ... have Editable = false and the Work Description Blob).",
+    probe: "RmReadOnlyBlob.al's list with Editable = false and ModifyAllowed left true, and an action that modifies the same row through its own record variable (Modify of a field, not the Blob): the log of OnModifyRecord and the table's OnModify, and the stored row after the action.",
+}

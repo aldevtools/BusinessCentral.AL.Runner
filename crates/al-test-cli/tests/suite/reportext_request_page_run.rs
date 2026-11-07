@@ -1,5 +1,5 @@
 //! A reportextension that changes the run (a modified data item trigger) and adds a field to the request page (al-runner issue
-//! 6302): the value a request page handler sets reaches the extension's trigger. Mirrors corpus report/lt-wd/
+//! 6302): the value a request page handler sets reaches the extension's trigger. Mirrors corpus reports/
 //! WdReportExtRequestPage.al. SaveValues, a field bound to a report variable and a trigger on the extension's request page are
 //! not pinned with such an extension and stay refused.
 
@@ -209,4 +209,74 @@ codeunit 62790 T
 }"#;
     let o = al_testkit::outcomes_in(src, "T");
     assert_eq!(o[0].1, Outcome::Pass);
+}
+
+// reports/extensions/W3RpExtRequestPage.al:325-490 (Bind_*, al-runner issue 6924 item 2.15): a control of an extension that changes
+// the run, bound to a protected variable of the base, shows the variable but drops a value set through it; bound to a field of the
+// base's data item or to the extension's own variable, it sets the place the run reads; RunRequestPage lists the controls.
+const BIND_OBJECTS: &str = r#"
+table 62710 "RB Row" { fields { field(1; Id; Integer) { } field(2; Name; Text[20]) { } } keys { key(PK; Id) { Clustered = true; } } }
+codeunit 62711 "RB Log"
+{
+    SingleInstance = true;
+    var Text: Text;
+    procedure Add(T: Text) begin Text += T + ';'; end;
+    procedure Take(): Text var R: Text; begin R := Text; Text := ''; exit(R); end;
+}
+report 62712 "RB Base"
+{
+    ProcessingOnly = true;
+    dataset { dataitem(BindRow; "RB Row") { } }
+    requestpage { layout { area(Content) { group(Opts) { field(BaseCtl; BaseVal) { } } } } }
+    protected var BaseVal: Integer;
+    trigger OnPreReport() var L: Codeunit "RB Log"; begin L.Add('base ' + Format(BaseVal) + ' ' + BindRow.Name); end;
+}
+reportextension 62713 "RB Ext" extends "RB Base"
+{
+    requestpage { layout { addlast(Opts) { field(ExtBaseCtl; BaseVal) { } field(ExtRowCtl; BindRow.Name) { } field(ExtOwnCtl; OwnVal) { } } } }
+    var OwnVal: Integer;
+    trigger OnPreReport() var L: Codeunit "RB Log"; begin L.Add('ext ' + Format(OwnVal)); end;
+}
+"#;
+
+fn bind_run(handler: &str, body: &str) -> (Outcome, String) {
+    let src = format!(
+        r#"{BIND_OBJECTS}
+codeunit 62790 T
+{{
+    Subtype = Test;
+    var Log: Codeunit "RB Log";
+    [Test] [HandlerFunctions('H')] procedure Run()
+    var P: Text;
+    begin
+        Log.Take();
+        Report.Run(Report::"RB Base");
+        P := Log.Take();
+        if P <> '{handler}' then Error('%1', P);
+    end;
+    [RequestPageHandler] procedure H(var RP: TestRequestPage "RB Base")
+    begin
+        {body}
+        RP.OK().Invoke();
+    end;
+}}"#
+    );
+    let o = al_testkit::outcomes_in(&src, "T");
+    (o[0].1.clone(), String::new())
+}
+
+#[test]
+fn an_extension_control_on_a_base_variable_drops_a_value_set_through_it() {
+    let (o, _) = bind_run("base 0 ;ext 0;", "RP.ExtBaseCtl.SetValue(4);");
+    assert_eq!(o, Outcome::Pass, "{o:?}");
+    let (o, _) = bind_run("base 8 ;ext 0;", "RP.ExtBaseCtl.SetValue(4); RP.BaseCtl.SetValue(8);");
+    assert_eq!(o, Outcome::Pass, "{o:?}");
+}
+
+#[test]
+fn an_extension_control_on_a_data_item_field_or_its_own_variable_reaches_the_run() {
+    let (o, _) = bind_run("base 0 typed;ext 0;", "RP.ExtRowCtl.SetValue('typed');");
+    assert_eq!(o, Outcome::Pass, "{o:?}");
+    let (o, _) = bind_run("base 0 ;ext 7;", "RP.ExtOwnCtl.SetValue(7);");
+    assert_eq!(o, Outcome::Pass, "{o:?}");
 }

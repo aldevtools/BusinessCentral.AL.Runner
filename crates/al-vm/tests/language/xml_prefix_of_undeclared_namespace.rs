@@ -1,5 +1,5 @@
 //! XmlElement.GetPrefixOfNamespace of a namespace no element in scope declares answers Yes with an empty prefix, and the
-//! reserved namespaces answer `xml` and `xmlns` (xml/lt-tf-xml-ns/XmlNsPrefixes.al:55-108 Prefix_OfUndeclaredNamespace).
+//! reserved namespaces answer `xml` and `xmlns` (xml/xml/XmlNsPrefixes.al:55-108 Prefix_OfUndeclaredNamespace).
 
 use al_testkit::text;
 

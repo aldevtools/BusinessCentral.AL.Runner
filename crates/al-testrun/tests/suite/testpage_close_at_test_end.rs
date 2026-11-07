@@ -1,8 +1,7 @@
 //! A TestPage local to the test method that is still open when the test ends closes then: OnQueryClosePage runs with the
 //! action OK and then OnClosePage, a Confirm in it goes to the test's ConfirmHandler, and a veto (the trigger answers false)
-//! does not fail the test; a global TestPage is not closed (testpageclose/Y47CloseAtTestEnd.al;
-//! al-runner issue 6587). Two pages left open close in declaration order:
-//! assumption test-end-close-order.
+//! does not fail the test; a global TestPage is not closed (testpage/lifecycle/Y47CloseAtTestEnd.al;
+//! al-runner issue 6587). Two pages left open close in reverse order of their declaration.
 
 use al_sema::workspace::AppSource;
 use al_testrun::runtime::{CorpusRuntime, RunOptions, SuiteRun};
@@ -102,13 +101,20 @@ codeunit 50570 "TEC Test"
     end;
 
     [Test]
-    procedure F_TwoOpenPagesAtTheEndCloseAndMarkTheOrder()
+    procedure F_TwoOpenPagesAtTheEndCloseInReverseDeclarationOrder()
     var R: Record "TEC Card"; P: TestPage "TEC Card"; Q: TestPage "TEC Card Two";
     begin
         R."Code" := 'F'; R.Enabled := true; R.Insert();
         P.OpenView();
         P.GoToRecord(R);
         Q.OpenView();
+    end;
+
+    [Test]
+    procedure G_TheTwoPagesClosedInReverseOrderOfDeclaration()
+    var L: Codeunit "TEC Log";
+    begin
+        if not L.Get().EndsWith('close2;qcp:OK;close;') then Error('log %1', L.Get());
     end;
 
     [ConfirmHandler]
@@ -149,13 +155,17 @@ fn an_open_local_testpage_closes_when_the_test_ends() {
         });
         assert_eq!(o, Outcome::Pass, "{name}: {o:?}");
     }
-    // The order in which two pages left open close is not pinned (Y47CloseAtTestEnd.al leaves one page open per test):
-    // they close, and the test is a flagged pass.
-    let f = CaseId {
-        codeunit: 50570,
-        name: "F_TwoOpenPagesAtTheEndCloseAndMarkTheOrder".into(),
-    };
-    assert_eq!(rt.first_outcome(&f), Outcome::Pass);
-    let marks: Vec<&str> = rt.assumptions_in("", &f).iter().map(|a| a.info().id).collect();
-    assert!(marks.contains(&"test-end-close-order"), "{marks:?}");
+    // Two pages left open close in reverse order of their declaration (testpageclose/lt-y86-close-order/Y86CloseOrderAtTestEnd.al
+    // Y86_T01..): the test is a clean pass and the next test reads the log.
+    for name in [
+        "F_TwoOpenPagesAtTheEndCloseInReverseDeclarationOrder",
+        "G_TheTwoPagesClosedInReverseOrderOfDeclaration",
+    ] {
+        let f = CaseId {
+            codeunit: 50570,
+            name: name.into(),
+        };
+        assert_eq!(rt.first_outcome(&f), Outcome::Pass, "{name}");
+        assert!(rt.assumptions_in("", &f).is_empty(), "{name}");
+    }
 }

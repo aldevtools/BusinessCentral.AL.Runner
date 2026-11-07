@@ -4,7 +4,7 @@ use al_builtins::record_op::RecordOp;
 impl Session {
     /// Whether the page carries the blank line past its data: an editable,
     /// insert-allowed repeater opened with OpenEdit (corpus
-    /// handlers/TestPageNewRowLine_Tests.al:1-30, gating arms).
+    /// testpage/TestPageNewRowLine_Tests.al:1-30, gating arms).
     pub(in crate::pages) fn offers_new_line(&mut self, st: &St) -> Result<bool, Signal> {
         let engine = self.engine();
         let object = st.borrow().object as usize;
@@ -16,11 +16,11 @@ impl Session {
                 .iter()
                 .any(|(k, v)| k.eq_ignore_ascii_case(n) && v.trim().eq_ignore_ascii_case("false"))
         };
-        // A tree shows no blank line, opened by Page.Run, Page.RunModal or a Page variable (pages/lt-ah-pages/AhPageTests.al:986,
+        // A tree shows no blank line, opened by Page.Run, Page.RunModal or a Page variable (testpage/AhPageTests.al:986,
         // :1006, :1026, :1044 `rows_initial = T1 T5`).
         let tree = self.tree_indentation(st).is_some();
         // A Worksheet over a temporary source carries it opened with OpenView too: Next from its last row answers true on the
-        // blank line (pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al QR_TempWs_OpenView_NoMove `next` `Yes|`, `next log`
+        // blank line (pages/onopenpage-moves-rec/QrMovedTests.al QR_TempWs_OpenView_NoMove `next` `Yes|`, `next log`
         // `C:;`, _FindLast, _RangeFindLast, _GetOutsideRange, QR_TempWsNext_OpenView_NoMove, writer Y57).
         let temp_worksheet_view = st.borrow().mode == PageMode::View
             && engine.object_facts[object].page_type == Some(al_ir::PageType::Worksheet)
@@ -29,9 +29,9 @@ impl Session {
             && !tree
             && (st.borrow().mode == PageMode::Edit || temp_worksheet_view)
             // A list handed over in lookup mode has no new-row line (corpus
-            // handlers/TestPageModalNewRowLine_Tests.al:209 Plain_LookupModeTrue_HasNoNewRowLine). A LookupMode(true) call
+            // ui-handlers/TestPageModalNewRowLine_Tests.al:209 Plain_LookupModeTrue_HasNoNewRowLine). A LookupMode(true) call
             // does that, and so does Page.RunModal(id, Rec) whose return value is used; called as a statement it keeps the
-            // line (:180; pages/lt-be-runmodal-onlookup/BeRunModalOnLookup.al:616, :916).
+            // line (:180; pages/triggers/BeRunModalOnLookup.al:616, :916).
             && !(st.borrow().lookup_set && st.borrow().lookup && self.is_list_page(st))
             && !prop_false("Editable")
             && !flag_denied(&engine, object, "InsertAllowed")?;
@@ -72,6 +72,14 @@ impl Session {
         self.page_var_not_shown(st) && !st.borrow().ran
     }
 
+    /// Whether the page or one of its page extensions declares trigger `name` (lower case). The extension's trigger runs
+    /// after the page's (`page_trigger`), so an open that asks whether OnOpenPage ran code counts both.
+    pub(in crate::pages) fn declares_or_ext_declares(&self, st: &St, name: &str) -> bool {
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        page.triggers.iter().any(|(n, _)| n == name) || page.ext_triggers.iter().any(|(n, _, _)| n == name)
+    }
+
     /// Whether the page declares trigger `name` (lower case) of its own.
     pub(in crate::pages) fn declares(&self, st: &St, name: &str) -> bool {
         let engine = self.engine();
@@ -80,9 +88,9 @@ impl Session {
 
     /// FindFirst (`which` "-") or FindLast ("+") of the page's rowset. A page that declares
     /// OnFindRecord serves its rows from the trigger, which receives `Which` and answers whether it
-    /// found a row (corpus pagefindrecord/TestPageFindRecord.al:112, :160). The strings the client
+    /// found a row (corpus pages/triggers/TestPageFindRecord.al:112, :160). The strings the client
     /// really passes are `=`, `=>` and `=><` forms the corpus pins only for a deleted row
-    /// (pageupdate/TestPageUpdateGoneRow.al:390); `-` and `+` are assumed (docs/probes-needed.md).
+    /// (pages/currpage/TestPageUpdateGoneRow.al:390); `-` and `+` are assumed (docs/probes-needed.md).
     pub(in crate::pages) fn nav_find(&mut self, st: &St, which: &str) -> Result<bool, Signal> {
         if self.declares(st, "onfindrecord") {
             let v = self.page_trigger(st, "onfindrecord", vec![Value::Text(which.into())])?;
@@ -101,7 +109,7 @@ impl Session {
     }
 
     /// Next(steps) of the page's rowset: OnNextRecord when the page declares it, which answers how
-    /// many rows it moved (corpus pagefindrecord/TestPageFindRecord.al:129).
+    /// many rows it moved (corpus pages/triggers/TestPageFindRecord.al:129).
     pub(in crate::pages) fn nav_next(&mut self, st: &St, steps: i32) -> Result<bool, Signal> {
         if self.declares(st, "onnextrecord") {
             let v = self.page_trigger(st, "onnextrecord", vec![Value::Integer(steps)])?;
@@ -115,7 +123,7 @@ impl Session {
 
     /// Lands on the first row of the view when the page opens: a stored row, else
     /// the new-row line, else nothing. The expressions of the controls are evaluated for
-    /// an empty view too (corpus autoformat/TestAutoFormatExpressionTiming.al:5-12).
+    /// an empty view too (corpus format-evaluate/autoformat/TestAutoFormatExpressionTiming.al:5-12).
     /// Whether `rec` stands on the first row of its view (found on a copy, so `rec` does not move).
     pub(in crate::pages) fn on_first_row_of_view(&mut self, rec: &Rec) -> Result<bool, Signal> {
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
@@ -158,30 +166,27 @@ impl Session {
 
     pub(in crate::pages) fn page_first_row(&mut self, st: &St) -> Result<(), Signal> {
         // A page that serves its rows from OnFindRecord is asked `=><` when it opens (corpus
-        // pageext/PCCurrRecordReads.al:FindList_OnFindRecordAndOnNextRecord, `open`).
-        // A SourceTableView that sorts descending asks the same (pages/lt-ce-page-run/CePageRun.al
+        // pages/extensions/PCCurrRecordReads.al:FindList_OnFindRecordAndOnNextRecord, `open`).
+        // A SourceTableView that sorts descending asks the same (pages/run-modal/CePageRun.al
         // OpenView_DescendingWithOnFindRecord_CurrentRow `find(=><)=1`).
         let which = if self.declares(st, "onfindrecord") {
             // A view that filters asks the same `=><` once, list, card and list part alike
-            // (pagefindrecord/QcFindViewTests.al:78 ViewList_OpenView_FindStringAndRow, :361 ViewCard_OpenView_FindStringAndRow,
+            // (pages/triggers/QcFindViewTests.al:78 ViewList_OpenView_FindStringAndRow, :361 ViewCard_OpenView_FindStringAndRow,
             // :505 DocPart_OpenEdit_LinesOfH1).
-            // A list page variable run in lookup mode (LookupMode(true)) with no record is asked `=>` (pages/lt-ai-list-order/
-            // QgGoToKeyNextCall.al:629 Nav_LookupHandler_GoToKey_ThenOK `log` `F:=>=Yes;R:R1001;N:1=1;...`). The static RunModal
-            // in lookup mode is not pinned; a TableRelation lookup keeps `=><` as before.
+            // A list page variable run in lookup mode (LookupMode(true)) with no record is asked `=>` (pages/list-order/
+            // QgGoToKeyNextCall.al:629 Nav_LookupHandler_GoToKey_ThenOK `log` `F:=>=Yes;R:R1001;N:1=1;...`). So is a list the
+            // static Page.RunModal(0 or Id, Rec) runs in lookup mode, positioned or not (corpus branch al-runtime-rs-staging-r6962,
+            // pages/run-modal/StaticRunModalFindRecordLookup.al StaticRunModalZero_FilteredNotPositioned_FirstThenOK `F:=>=Yes;R:V2;...`,
+            // _FilteredOnRow_, _NoFilterNotPositioned_, StaticRunModalPageId_; issue 6992). A TableRelation lookup keeps `=><`.
             let (lookup, lookup_set, static_lookup) = {
                 let s = st.borrow();
                 (s.lookup, s.lookup_set, s.static_lookup)
             };
-            if lookup && static_lookup && self.is_list(st) {
-                return unsupported(
-                    "a list with OnFindRecord run in lookup mode by the static Page.RunModal without a record (which Find it is asked is not pinned)",
-                );
-            }
-            if lookup && lookup_set && self.is_list(st) {
+            if lookup && (lookup_set || static_lookup) && self.is_list(st) {
                 "=>"
             } else if !lookup && self.is_list(st) && self.onopenpage_left_rec_past_the_first_row(st)? {
                 // A list whose OnOpenPage left Rec on a row that is not the first of its view is asked `=>`
-                // (pages/lt-ai-list-order/AiListOrderTests.al:851 OpenOnRow_SetPositionInOnOpenPage_LastRow_OpenLog
+                // (pages/list-order/AiListOrderTests.al:851 OpenOnRow_SetPositionInOnOpenPage_LastRow_OpenLog
                 // `F:=>=Yes;R:R1006;...`, :871 _SecondLastRow_OpenLog `F:=>=Yes;R:R1005;...`). On the first row it is not pinned
                 // and keeps `=><`.
                 "=>"
@@ -214,26 +219,49 @@ impl Session {
             None
         };
         // A part of a Document or Card host opened for view on no row shows no row, though rows of the blank key exist
-        // (pages/lt-part-line-before-host-key/PartLineBeforeHostKey.al:1578 QH_OpenView_NoRow_BlankKeyLinesExist
-        // `part_description=[]`).
-        let host_shows_no_row = st
-            .borrow()
-            .host
-            .as_ref()
-            .and_then(|(h, _)| h.upgrade())
-            .is_some_and(|h| {
-                let hb = h.borrow();
-                hb.host.is_none()
-                    && hb.mode == PageMode::View
-                    && hb.cursor == Cursor::None
-                    && matches!(
-                        self.engine.object_facts[hb.object as usize].page_type,
-                        Some(al_ir::PageType::Document | al_ir::PageType::Card)
-                    )
-            });
+        // (pages/parts/PartLineBeforeHostKey.al:1797 QH_OpenView_NoRow_BlankKeyLinesExist
+        // `part_description=[]`). So does the part of such a host opened for edit over an empty table, which shows no row
+        // (`runs_on_blank_record`): :2720 R6920_DocAfterGet_BlankRows_OpenEdit_VisibleFirst, :3578
+        // R6920_CardOpenPage_BlankRows_OpenEdit_EditableFirst and the other R6920_*_BlankRows_OpenEdit_* tests `description=[]`,
+        // `open=[] fired at least once: LP.OnNewRecord` as without rows (:2727, :2733).
+        let engine = self.engine();
+        let part_temporary = self.page_rec(st).borrow().temporary;
+        let host_shows_no_row_as = |view: bool| {
+            st.borrow()
+                .host
+                .as_ref()
+                .and_then(|(h, c)| h.upgrade().map(|h| (h, *c)))
+                .is_some_and(|(h, c)| {
+                    let hb = h.borrow();
+                    let mode_ok = if view {
+                        hb.mode == PageMode::View
+                    } else {
+                        // Pinned for a part linked by a field to the host's table, over a table of its own (the R6920 pages);
+                        // an unlinked or temporary part of such a host keeps what it was handed, as before.
+                        hb.blank_on_open
+                            && !part_temporary
+                            && page_of(&engine, &h).controls[c]
+                                .part_link
+                                .as_ref()
+                                .is_some_and(|l| l.entries.iter().any(|e| matches!(e, ir::LinkEntry::Field(..))))
+                    };
+                    hb.host.is_none()
+                        && mode_ok
+                        && hb.cursor == Cursor::None
+                        && match self.engine.object_facts[hb.object as usize].page_type {
+                            Some(al_ir::PageType::Document | al_ir::PageType::Card) => true,
+                            // Opened for view, a ListPlus host behaves the same (pages/parts/PartListPlusHostNoRow.al:288-295
+                            // _PartTriggers, _PartInGroup, :314 _PartFirst `No`, :336 _HiddenPart; issue 6953).
+                            Some(al_ir::PageType::ListPlus) => view,
+                            _ => false,
+                        }
+                })
+        };
+        let edit_host_no_row = host_shows_no_row_as(false);
+        let host_shows_no_row = host_shows_no_row_as(true) || edit_host_no_row;
         if !host_shows_no_row && self.nav_find(st, which)? {
             // A part linked by a field that shows rows of a host that is a new, unsaved record: BC inserts the host at Close although
-            // nothing was typed (PartLineBeforeHostKey.al:838 PYB_OpenNew_LinkedPart_BlankKeyRowsExist `close =
+            // nothing was typed (PartLineBeforeHostKey.al:1057 PYB_OpenNew_LinkedPart_BlankKeyRowsExist `close =
             // [HP.OnInsertRecord: | H.OnInsert:]`). Not modelled: refused.
             let new_host_link = st
                 .borrow()
@@ -296,7 +324,7 @@ impl Session {
             // A list with no row but the blank line reads it twice, as a list of one row reads its row (misc/lt-probes-needed-3/
             // PnC07TestPage.al:New_OnEmptyPage `OnNewRecord` three times with the New() call, misc/lt-probes-needed-7/
             // PnGNewRecord.al:HandedRecordKeyFieldFilter `OnNewRecord;AGCR(FILTERED,FILTERED)` twice).
-            // xRec is blank again at the second OnNewRecord (misc/lt-probes-needed-7/PnGRefresh.al:792 QL_Jnl_SheetFG2_OpenOnNoRow
+            // xRec is blank again at the second OnNewRecord (testpage/PnGRefresh.al:792 QL_Jnl_SheetFG2_OpenOnNoRow
             // `P.NEW(T1/B1/0 x=//0 below=Yes);P.AGCR(T1/B1/0 x=T1/B1/0)` twice).
             if self.is_list(st) && st.borrow().host.is_none() {
                 let table = self.page_rec(st).borrow().table as usize;
@@ -310,7 +338,7 @@ impl Session {
         } else if self.runs_on_blank_record(st) || self.list_without_line_on_empty_view(st)? {
             // A Card, a Document or a ListPlus page without a repeater, opened for edit over an empty view, runs OnNewRecord and
             // OnAfterGetCurrRecord on a blank record after OnOpenPage (no OnAfterGetRecord), and shows no row afterwards: the controls
-            // read blank and are not editable (pages/lt-page-types-empty-table/PageTypesEmptyTable.al:Card_OpenEdit_EmptyTable,
+            // read blank and are not editable (pages/properties/PageTypesEmptyTable.al:Card_OpenEdit_EmptyTable,
             // Document_OpenEdit_EmptyTable, ListPlus_OpenEdit_EmptyTable; the same pages opened with OpenView run OnOpenPage only,
             // *_OpenView_EmptyTable).
             self.land_on_new_line(st)?;
@@ -328,7 +356,7 @@ impl Session {
             self.populate_expressions(st)
         } else {
             // A list part that shows no row of a host opened for view runs its OnNewRecord once, the link value set without
-            // validation, and then shows no row (pages/lt-part-line-before-host-key/PartLineBeforeHostKey.al:883
+            // validation, and then shows no row (pages/parts/PartLineBeforeHostKey.al:1102
             // PYB_OpenView_ExistingHost `[LP.OnNewRecord:D6]`). What the part's fields read afterwards is kept as before (blank).
             // Only a host that shows a stored row is pinned.
             let host_on_row = st
@@ -345,10 +373,11 @@ impl Session {
                     .iter()
                     .any(|c| c.kind == ir::ControlKind::Repeater);
             // A host over no row: the part runs OnNewRecord once too, with the blank link value and no validation, and
-            // OnAfterGetCurrRecord once; the host runs neither (PartLineBeforeHostKey.al:1503 QH_OpenView_NoRow_Document
+            // OnAfterGetCurrRecord once; the host runs neither (PartLineBeforeHostKey.al:1722 QH_OpenView_NoRow_Document
             // `[LP.OnNewRecord:]`, :1530 _TraceHost `[TH.OnOpenPage | CP.OnOpenPage | CP.OnNewRecord: below=Yes |
             // CP.OnAfterGetCurrRecord:/0]`, :1562 _UnlinkedPart, :1602 QH_OpenView_RowFilteredAway after the host's filter
-            // left no row). Pinned for a Document or Card host (`host_shows_no_row`); another host is refused.
+            // left no row). Pinned for a Document or Card host, and measured for a ListPlus host (`host_shows_no_row`); another
+            // host is refused.
             let view_part_no_host_row = self.has_source(st)
                 && !host_on_row
                 && !host_shows_no_row
@@ -376,6 +405,21 @@ impl Session {
                 self.stamp_from_filters(st, false)?;
                 self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
                 self.page_event(st, "onnewrecordevent", None, Some(true))?;
+                // The part then runs OnAfterGetCurrRecord and its event subscribers once on the blank row, after OnNewRecord and
+                // with the link value in place (PartLineBeforeHostKey.al:1813 QH_OpenView_NoRow_TraceHost `CP.OnNewRecord: below=Yes |
+                // CP.OnAfterGetCurrRecord:/0`, :1610 _CurrRecordOnlyPart `OP.OnAfterGetCurrRecord:/0`, :1642 _BlankKeyLinesExist,
+                // :1666 _RowFilteredAway `CP.OnNewRecord:D6 below=Yes | CP.OnAfterGetCurrRecord:D6/0` on a host that stands on a row).
+                self.populate_expressions(st)?;
+                self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
+                self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
+                rec.borrow_mut().fields = fresh;
+            } else if self.has_source(st) && st.borrow().host.is_some() && st.borrow().mode == PageMode::Edit {
+                // A part of a host that moved to a row without lines holds no row of the old link: Rec is blank, so the part's
+                // action sees no Line No. (pages/parts/R6889RealShape.al:1213 RunStep4, :1406 PG6889RS_Step4_ `ACT;CU;T.INS(10);...`,
+                // a host filtered to D2|D3 and moved there by GoToRecord from D1, whose part held D1's lines).
+                let rec = self.page_rec(st);
+                let table = rec.borrow().table as usize;
+                let fresh = self.initial_fields(table);
                 rec.borrow_mut().fields = fresh;
             }
             self.populate_expressions(st)
@@ -396,7 +440,7 @@ impl Session {
     }
 
     /// A Worksheet with `InsertAllowed = false`, opened for edit over an empty view, runs OnNewRecord and OnAfterGetCurrRecord
-    /// once on a blank record, as a Card does, and shows no row (pages/lt-y50-update-from-new-line/Y50UpdateFromNewLine.al:628
+    /// once on a blank record, as a Card does, and shows no row (pages/triggers/Y50UpdateFromNewLine.al:628
     /// G520_NoNewLine_EmptyView_ToBatchWithRows `open` = `/:N:B3/0 below=Yes;C:B3/0`). A List, a tree and a repeater that says
     /// Editable are not pinned: they open as before (Tests-SCM-Warehouse SCM Warehouse VII
     /// PickWithUnreservedQuantityWithAlwaysCreatePickLine opens such a page).
@@ -412,7 +456,7 @@ impl Session {
 
     pub(in crate::pages) fn land_on_new_line(&mut self, st: &St) -> Result<(), Signal> {
         // A repeater whose Editable is false or true by its value is pinned (`repeater_line`; New() on a repeater that says
-        // false lands on a blank row and raises nothing, pages/lt-y65-readonly-repeater/Y65ReadOnlyRepeater.al:255 `new=ok:`).
+        // false lands on a blank row and raises nothing, pages/readonly-repeater/Y65ReadOnlyRepeater.al:255 `new=ok:`).
         // Another expression is not pinned: Tests-ERM 139846 ShouldOpenJobQueueEntriesForCreatedJobQueuesIfOptionSelected walks
         // a list that must show no blank line, so landing on it is refused rather than run.
         if self.repeater_line(st)? == RepeaterLine::Unknown {
@@ -441,23 +485,34 @@ impl Session {
             None
         };
         // The blank line of a part is a started record: the client runs NewRecord when it becomes
-        // current (corpus handlers/TestPagePartDraftLineLink.al:LinkedPart_DraftLine_*,
-        // handlers/TestPagePartOnNewRecordCount.al). A top-level list does the same, and both then
-        // run OnAfterGetCurrRecord on the blank row (corpus testpart/TestPartTriggerOrderAndRefresh.al:
+        // current (corpus testpage/TestPagePartDraftLineLink.al:LinkedPart_DraftLine_*,
+        // testpage/TestPagePartOnNewRecordCount.al). A top-level list does the same, and both then
+        // run OnAfterGetCurrRecord on the blank row (corpus testpage/parts/TestPartTriggerOrderAndRefresh.al:
         // 258-273 TopLevelList_BlankLine_RunsOnNewRecord, Part_BlankLine_RunsOnNewRecord).
         // A part whose host record is not saved yet links to a blank value, which is validated like any other
-        // (pages/lt-part-line-before-host-key/PartLineBeforeHostKey.al:398, :400; see `sync_part`).
+        // (pages/parts/PartLineBeforeHostKey.al:398, :400; see `sync_part`).
         match blank_held {
             Some(before) => self.stamp_from_filters_seen_as(st, before)?,
             None => self.stamp_from_filters(st, true)?,
         }
         self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
         self.page_event(st, "onnewrecordevent", None, Some(true))?;
-        // xRec is the new record itself there (misc/lt-probes-needed-7/PnGNewRecord.al:HandedRecordNoFilters `AGCR(,)`,
+        // xRec is the new record itself there (testpage/PnGNewRecord.al:HandedRecordNoFilters `AGCR(,)`,
         // PnGHandedRecord `AGCR(FILTERED,FILTERED)`).
         self.set_xrec(st);
         self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
         self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
         Ok(())
+    }
+}
+
+impl Session {
+    /// The page is a Worksheet over a temporary source.
+    pub(in crate::pages) fn is_temp_worksheet(&self, st: &St) -> bool {
+        self.page_rec(st).borrow().temporary
+            && matches!(
+                self.engine.object_facts[st.borrow().object as usize].page_type,
+                Some(al_ir::PageType::Worksheet)
+            )
     }
 }

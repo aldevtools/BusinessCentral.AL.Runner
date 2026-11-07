@@ -1,5 +1,5 @@
 //! Text methods on a Label or TextConst, `Text.Remove`, and `IndexOfAny` with a start index
-//! (corpus types/lt-variant-is-text-streams/LTP89TextConst.al, text/lt-label-textbuilder).
+//! (corpus types/variant/LTP89TextConst.al, text/textbuilder-bigtext).
 
 use al_testkit::text;
 
@@ -43,7 +43,7 @@ fn index_of_any_takes_a_one_based_start_index() {
 
 #[test]
 fn variant_knows_in_streams_out_streams_and_never_binary() {
-    // types/lt-variant/VaTHelper.al Flags (InStream, OutStream) and lt-variant-is-text-streams/LTP89IsMisc.al:Binary_OnManyVariants
+    // types/variant/VaTHelper.al Flags (InStream, OutStream) and lt-variant-is-text-streams/LTP89IsMisc.al:Binary_OnManyVariants
     // (IsBinary is No for every value, a stream and a Blob field's value included).
     let src = "table 50101 T { fields { field(1; Id; Integer) { } field(2; Data; Blob) { } } keys { key(PK; Id) { } } }
         codeunit 50100 C { procedure F(): Text var R: Record T; Ins: InStream; Outs: OutStream; V: Variant; S: Text; begin
@@ -60,7 +60,7 @@ fn variant_knows_in_streams_out_streams_and_never_binary() {
 
 #[test]
 fn a_placeholder_without_an_argument_stays_as_written() {
-    // types/lt-variant/VaTTextConst.al:TextConst_StrSubstNo.
+    // types/variant/VaTTextConst.al:TextConst_StrSubstNo.
     let src = "codeunit 50100 C { procedure F(): Text var W: Text; begin W := 'Value %1 and %2';
         exit(StrSubstNo(W, 'a') + '|' + StrSubstNo(W) + '|' + StrSubstNo('%10 and %1', 'a') + '|' + StrSubstNo('%0 and %1', 'a') + '|' + StrSubstNo('%5', 'a') + '|' + StrSubstNo('end%', 'a') + '|' + StrSubstNo(W, '%2', 'x') + '|' + StrSubstNo('%01', 'a') + '|' + StrSubstNo('%%1', 'a')); end; }";
     assert_eq!(
@@ -71,7 +71,7 @@ fn a_placeholder_without_an_argument_stays_as_written() {
 
 #[test]
 fn a_hash_field_is_filled_by_strsubstno_and_refused_in_error() {
-    // BC reads `#1####` as a field of width six (text/lt-text-functions/StrSubstNo.Codeunit.al:SubstNoHash,
+    // BC reads `#1####` as a field of width six (text/text-methods/StrSubstNo.Codeunit.al:SubstNoHash,
     // P86StrSubstNo.al:Sub_FieldWidth). Only StrSubstNo is pinned: Error with such a field stays refused.
     let src = "codeunit 50100 C { procedure F(): Text begin exit(StrSubstNo('[#1####]', 'a')); end; }";
     assert_eq!(
@@ -87,8 +87,8 @@ fn a_hash_field_is_filled_by_strsubstno_and_refused_in_error() {
 
 #[test]
 fn data_transfer_update_audit_fields_is_accepted_after_set_tables_outside_install_code() {
-    // misc/W5DataTransferOutside.al:SetTables_Twice_AndUpdateAuditFields (`DT.UpdateAuditFields := false`),
-    // misc/lt-probes-needed-2/PnBErrorsCollections.al:DataTransfer_OutsideInstall op6 (`UpdateAuditFields(true)`).
+    // install-upgrade/W5DataTransferOutside.al:SetTables_Twice_AndUpdateAuditFields (`DT.UpdateAuditFields := false`),
+    // errors/PnBErrorsCollections.al:DataTransfer_OutsideInstall op6 (`UpdateAuditFields(true)`).
     let src = "table 50101 T { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
         codeunit 50100 C { procedure F(): Text var DT: DataTransfer; begin DT.SetTables(Database::T, Database::T); DT.UpdateAuditFields := false; DT.UpdateAuditFields(true); exit('ok'); end; }";
     assert_eq!(text(al_testkit::run_with(src, "C", "F", vec![]).map(|(v, _)| v)), "ok");
@@ -113,7 +113,7 @@ fn a_one_character_literal_in_a_variant_is_a_char_and_clear_empties_a_variant() 
 
 #[test]
 fn a_text_builder_has_a_capacity_of_16_that_can_be_set_and_that_clear_keeps() {
-    // text/lt-label-textbuilder/TxCTextBuilderBasics.al:Capacity_Defaults, Capacity_Setter, Clear_Basics.
+    // text/textbuilder-bigtext/TxCTextBuilderBasics.al:Capacity_Defaults, Capacity_Setter, Clear_Basics.
     let src = "codeunit 50100 C { procedure F(): Text var TB: TextBuilder; S: Text; begin
         S += Format(TB.Capacity()); TB.Append('abc'); S += '|' + Format(TB.Capacity());
         TB.Capacity(100); S += '|' + Format(TB.Capacity()); TB.Clear(); S += '|' + Format(TB.Capacity()) + '|' + TB.ToText() + '|' + Format(TB.Length());
@@ -126,7 +126,7 @@ fn a_text_builder_has_a_capacity_of_16_that_can_be_set_and_that_clear_keeps() {
 
 #[test]
 fn data_transfer_errors_carry_their_code_and_ensure_capacity_grows() {
-    // misc/W5DataTransferOutside.al (DB:Ok), text/lt-label-textbuilder/TxCTextBuilderBasics.al:EnsureCapacity_Basics.
+    // install-upgrade/W5DataTransferOutside.al (DB:Ok), text/textbuilder-bigtext/TxCTextBuilderBasics.al:EnsureCapacity_Basics.
     let src = "table 50101 T { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
         codeunit 50100 C { procedure F(): Text var DT: DataTransfer; TB: TextBuilder; S: Text; begin
         DT.SetTables(Database::T, Database::T); asserterror DT.CopyRows(); S := GetLastErrorCode();
@@ -142,7 +142,7 @@ fn data_transfer_errors_carry_their_code_and_ensure_capacity_grows() {
 
 #[test]
 fn ensure_capacity_of_a_negative_number_answers_false_when_the_answer_is_used() {
-    // types/lt-ax-text-format-dates/AxFillerBuilderAutoFormat.al:156-185; P144TextBuilderCapacity.al:160-173 (a statement on a
+    // format-evaluate/AxFillerBuilderAutoFormat.al:156-185; P144TextBuilderCapacity.al:160-173 (a statement on a
     // builder that holds text raises).
     let src = "codeunit 50100 C { procedure F(): Text var Empty: TextBuilder; Abc: TextBuilder; B1: Boolean; B2: Boolean; S: Text; begin
         Abc.Append('abc'); B1 := Empty.EnsureCapacity(-1); B2 := Abc.EnsureCapacity(-1);
@@ -156,7 +156,7 @@ fn ensure_capacity_of_a_negative_number_answers_false_when_the_answer_is_used() 
 
 #[test]
 fn remove_and_pad_outside_the_text_raise_the_dotnet_argument_errors() {
-    // text/lt-text-instance/Edit1.Codeunit.al:41-63, 216-330.
+    // text/text-methods/Edit1.Codeunit.al:41-63, 216-330.
     let src = r#"codeunit 50100 C {
         procedure E(T: Text; S: Integer; N: Integer; Two: Boolean): Text var R: Text; begin
             if Two then R := T.Remove(S, N) else R := T.Remove(S); exit(R); end;
@@ -185,7 +185,7 @@ fn remove_and_pad_outside_the_text_raise_the_dotnet_argument_errors() {
 
 #[test]
 fn text_builder_length_setter_replace_in_a_range_and_to_text_from_zero() {
-    // text/lt-label-textbuilder/TxCTextBuilderBasics.al:230-257; TxCTextBuilderEdit.al:235-330.
+    // text/textbuilder-bigtext/TxCTextBuilderBasics.al:230-257; TxCTextBuilderEdit.al:235-330.
     let src = r#"codeunit 50100 C { procedure F(): Text var TB: TextBuilder; S: Text; Z: Text; begin
         TB.Append('abcdef'); TB.Length(3); S := TB.ToText(); TB.Length(5); Z := TB.ToText();
         S += '|' + Format(StrLen(Z)) + '|' + Format(Z[4] = 0);
@@ -202,7 +202,7 @@ fn text_builder_length_setter_replace_in_a_range_and_to_text_from_zero() {
 
 #[test]
 fn incstr_below_zero_and_padstr_ranges_raise() {
-    // text/lt-text-functions/IncStr.Codeunit.al:141-174; PadStr.Codeunit.al:37-73.
+    // text/text-methods/IncStr.Codeunit.al:141-174; PadStr.Codeunit.al:37-73.
     let src = r#"codeunit 50100 C { procedure F(): Text var S: Text; begin
         asserterror S := IncStr('5', -6); S := GetLastErrorText() + '|' + GetLastErrorCode();
         asserterror S += PadStr('abc', 6, 'xy'); S += '#' + GetLastErrorText();
@@ -218,7 +218,7 @@ fn incstr_below_zero_and_padstr_ranges_raise() {
 
 #[test]
 fn to_text_of_integers_guids_and_bytes() {
-    // types/lt-totext-bigtext-codeunit-run/P93ScalarToText.al:180-300, P93Guid.al:28-102.
+    // format-evaluate/P93ScalarToText.al:180-300, P93Guid.al:28-102.
     let src = r#"codeunit 50100 C { procedure F(): Text var I: Integer; B: BigInteger; G: Guid; Y: Byte; begin
         I := 1000; B := -9223372036854775807L; B := B - 1; Y := 65;
         Evaluate(G, 'e6c0bda3-5b0a-4a7e-9a5e-0123456789ab');
@@ -231,7 +231,7 @@ fn to_text_of_integers_guids_and_bytes() {
 
 #[test]
 fn evaluate_reads_a_guid_source_as_its_text() {
-    // types/lt-filter-enum-relation-duration-guid/E_Guid.al:224-311.
+    // types/duration/E_Guid.al:224-311.
     let src = r#"codeunit 50100 C { procedure F(): Text var G: Guid; G2: Guid; T: Text; Ok: Boolean; begin
         Evaluate(G, '{ab12cd34-ef56-4a78-9b01-23456789abcd}'); Ok := Evaluate(T, G);
         exit(Format(Ok) + '|' + T + '|' + Format(Evaluate(G2, G)) + '|' + Format(G2 = G)); end; }"#;
@@ -243,7 +243,7 @@ fn evaluate_reads_a_guid_source_as_its_text() {
 
 #[test]
 fn format_of_an_option_field_whose_caption_list_is_shorter_or_longer() {
-    // types/lt-format-option-field/FormatOptionFieldCaptions.al:82-177.
+    // format-evaluate/FormatOptionFieldCaptions.al:82-177.
     let src = r#"table 50101 T { fields { field(1; Id; Integer) { }
             field(4; Short; Option) { OptionMembers = One,Two,Three; OptionCaption = 'Uno,Dos'; }
             field(5; Long; Option) { OptionMembers = One,Two; OptionCaption = 'Uno,Dos,Tres,Quatro'; } } keys { key(PK; Id) { } } }
@@ -259,7 +259,7 @@ fn format_of_an_option_field_whose_caption_list_is_shorter_or_longer() {
 
 #[test]
 fn big_text_add_text_at_a_position_and_get_sub_text_bounds() {
-    // types/lt-totext-bigtext-codeunit-run/P93BigText.al:95-388.
+    // format-evaluate/P93BigText.al:95-388.
     let src = r#"codeunit 50100 C { procedure F(): Text var B: BigText; O: BigText; T: Text; S: Text; N: Integer; begin
         B.AddText('abcdef'); B.AddText('XY', 3); B.GetSubText(T, 1); S := T;
         B.AddText(B, 100); B.GetSubText(T, 1); S += '|' + T;
@@ -276,7 +276,7 @@ fn big_text_add_text_at_a_position_and_get_sub_text_bounds() {
 
 #[test]
 fn last_index_of_the_empty_text_and_index_of_any_one_past_the_end() {
-    // text/lt-text-instance/Search1.Codeunit.al:418-487.
+    // text/text-methods/Search1.Codeunit.al:418-487.
     let src = r#"codeunit 50100 C { procedure F(): Text var T: Text; E: Text; L: List of [Char]; C: Char; begin
         T := 'hello'; C := 'o'; L.Add(C);
         exit(Format(E.LastIndexOf('', 0)) + Format(T.LastIndexOf('', 5)) + Format(T.LastIndexOf('', 6)) + Format(T.IndexOfAny(L, 6))); end; }"#;
@@ -288,7 +288,7 @@ fn last_index_of_the_empty_text_and_index_of_any_one_past_the_end() {
 
 #[test]
 fn a_big_integer_in_a_set_of_integers_and_time_plus_a_long_duration() {
-    // types/lt-implicit-conversions/P79BigOption.al:401, 511-529; D_Duration.al:463-474.
+    // types/operators-expressions/P79BigOption.al:401, 511-529; D_Duration.al:463-474.
     let src = r#"codeunit 50100 C { procedure F(): Text var B: BigInteger; T: Time; D: Duration; S: Text; begin
         B := 2; S := Format(B in [0, 1, 2]);
         B := 4294967296L; asserterror S += Format(B in [0, 1, 2]); S += '|' + GetLastErrorText();

@@ -369,7 +369,7 @@ fn array_helpers() {
     // streams/TestStreamsRuntimeContracts.al:ArrayLen_MultiDimensional_WithAndWithoutDimension: the total.
     let t = text("A: array[2, 3] of Integer;", "exit(Format(ArrayLen(A)));");
     assert_eq!(t, "6");
-    // A dimension outside the array raises when the call runs (misc/lt-system-functions/Arrays.al:ArrayLen_Values).
+    // A dimension outside the array raises when the call runs (collections/Arrays.al:ArrayLen_Values).
     assert!(matches!(
         run("A: array[3, 4] of Integer;", "exit(Format(ArrayLen(A, 3)));"),
         Err(Signal::Error(_))
@@ -503,7 +503,7 @@ fn json_write_to_an_out_stream_writes_the_compact_text_the_text_overload_gives()
 
 #[test]
 fn json_write_to_an_out_stream_does_not_move_the_stream_and_is_refused_after_other_writes() {
-    // misc/lt-probes-needed-3/PnC20JsonStreams.al:WriteTo_DefaultStream_And_Appending: a second WriteTo writes over the
+    // streams/PnC20JsonStreams.al:WriteTo_DefaultStream_And_Appending: a second WriteTo writes over the
     // first one's bytes, the blob is not emptied (`[1,2]1}`). After other writes the place is not pinned.
     let t = text(
         base!("A: JsonArray; J: JsonObject;"),
@@ -520,7 +520,7 @@ fn json_write_to_an_out_stream_does_not_move_the_stream_and_is_refused_after_oth
 #[test]
 fn json_read_from_an_in_stream_parses_what_the_stream_holds() {
     // The same parse as ReadFrom(Text) (json/TestJsonObject.al, TestJsonArray.al); the stream's
-    // rest is read and the position does not move (misc/lt-probes-needed-3/PnC20JsonStreams.al:ReadFrom_RestOfStream). The bytes are taken as UTF-8 only where that
+    // rest is read and the position does not move (streams/PnC20JsonStreams.al:ReadFrom_RestOfStream). The bytes are taken as UTF-8 only where that
     // equals the stream's own reading (docs/probes-needed.md).
     let vars = base!("A: JsonArray; J: JsonObject; Ok: Boolean;");
     assert_eq!(
@@ -595,7 +595,7 @@ fn read_into_a_text_reads_back_what_write_of_a_text_wrote() {
     );
 }
 
-// misc/lt-probes-needed-5/PnE04Streams.al:118 ReadText_Utf8_NonAscii (`7|wörld` with a zero byte after it) and, on corpus branch
+// streams/PnE04Streams.al:118 ReadText_Utf8_NonAscii (`7|wörld` with a zero byte after it) and, on corpus branch
 // al-runtime-rs-staging-pub-to, TO_ReadText_NonAscii_NoTerminator (`7|wörld` without one, assumption
 // utf-eight-read-non-ascii-unterminated). A UTF-16 stream with non-ASCII characters stays refused.
 #[test]
@@ -616,7 +616,7 @@ fn read_into_a_text_takes_non_ascii_characters_on_a_utf8_stream() {
     ));
 }
 
-// streams/lt-dd-stream-leads/DdStreamLeads.al:502 (Item68_Utf8Bom `read utf8`): Read(Text) of a UTF-8 stream skips the mark.
+// streams/DdStreamLeads.al:502 (Item68_Utf8Bom `read utf8`): Read(Text) of a UTF-8 stream skips the mark.
 // File Management.GetFileContents reads a report's SaveAsXml file (EF BB BF first) this way for Library - Report Dataset.
 #[test]
 fn read_into_a_text_of_a_utf8_stream_skips_a_byte_order_mark() {
@@ -624,15 +624,20 @@ fn read_into_a_text_of_a_utf8_stream_skips_a_byte_order_mark() {
     let body = "C := 65279; B.Data.CreateOutStream(O, TextEncoding::UTF8); O.WriteText(Format(C) + '<a/>');
         B.Data.CreateInStream(I, TextEncoding::UTF8); I.Read(T); exit(T);";
     assert_eq!(text(vars, body), "<a/>");
-    // The count it returns over a mark is not pinned.
+    // The count over a mark leaves the mark out when no zero byte follows: the 4 bytes of `<a/>` plus one
+    // (streams/instream-outstream/StreamReadMatrix.al:533 Matrix_Utf8Bom `u8 len -1` `2 [97]`).
     let used = "C := 65279; B.Data.CreateOutStream(O, TextEncoding::UTF8); O.WriteText(Format(C) + '<a/>');
         B.Data.CreateInStream(I, TextEncoding::UTF8); exit(Format(I.Read(T)));";
-    assert!(refused(vars, used));
+    assert_eq!(text(vars, used), "5");
+    // With a zero byte after the text it is not pinned.
+    let terminated = "C := 65279; B.Data.CreateOutStream(O, TextEncoding::UTF8); O.Write(Format(C) + '<a/>');
+        B.Data.CreateInStream(I, TextEncoding::UTF8); exit(Format(I.Read(T)));";
+    assert!(refused(vars, terminated));
 }
 
 /// A temporary row inserted and read back (Get, FindFirst, FindSet) without CalcFields: its Blob copied with `:=` (directly or
 /// through FieldRef.Value) is empty and has no value; after CalcFields, or before any read, the copy has the content
-/// (record/lt-temporary-blob/TemporaryBlobAutoCalc.al:174-310, corpus branch al-runtime-rs-staging-y12; al-runner issue 6434).
+/// (record/temporary/TemporaryBlobAutoCalc.al:174-310, corpus branch al-runtime-rs-staging-y12; al-runner issue 6434).
 #[test]
 fn a_blob_copied_from_an_unloaded_temporary_row_is_empty() {
     const VARS: &str = "B: Record \"ALT Blob\" temporary; X: Record \"ALT Blob\" temporary; O: OutStream; I: InStream; T: Text; R: RecordRef;";
@@ -669,7 +674,7 @@ fn a_blob_copied_from_an_unloaded_temporary_row_is_empty() {
 }
 
 // Gap C3-18: Write(Text) of Cyrillic and Japanese text: UTF-8 and UTF-16 bytes with the zero terminator, '?' for each character on a
-// Windows, MS-DOS or default stream (streams/lt-y38-utf8-write/Y38Utf8Write.al N1, N2, N3; errors/lt-ms-refusals-132/
+// Windows, MS-DOS or default stream (streams/instream-outstream/Y38Utf8Write.al N1, N2, N3; errors/lt-ms-refusals-132/
 // P132OutStreamUnicode.al:81-83, :127-134); Read(Text) on UTF-8 gives the text back and 1 at the end.
 #[test]
 fn write_text_of_cyrillic_writes_the_bytes_of_the_encoding() {

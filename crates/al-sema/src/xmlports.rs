@@ -40,6 +40,7 @@ pub struct Layout {
     pub namespaces: Vec<(String, String)>,
     /// `UseDefaultNamespace = true` without `DefaultNamespace`: BC's own namespace of the port.
     pub default_ns: Option<String>,
+    pub udn_root_prefix: bool,
     pub inline_schema: bool,
     pub use_lax: bool,
     pub xml_v11: bool,
@@ -85,7 +86,7 @@ fn bool_prop(value: &str) -> Option<bool> {
 }
 
 /// The triggers each element kind may declare. Anything else is refused: only these are pinned
-/// by the corpus (xmlport/TestXmlPortAdvanced.al).
+/// by the corpus (xmlports/TestXmlPortAdvanced.al).
 fn allowed_triggers(kind: ir::XmlNodeKind) -> &'static [&'static str] {
     use ir::XmlNodeKind as K;
     match kind {
@@ -113,7 +114,7 @@ fn is_big_text(layout: &Layout, i: usize) -> bool {
 
 fn allowed_properties(kind: ir::XmlNodeKind) -> &'static [&'static str] {
     match kind {
-        // `NamespacePrefix` on a table or text element: exported with the prefix (xmlport/lt-y17-xmlport-ns/
+        // `NamespacePrefix` on a table or text element: exported with the prefix (xmlports/shapes-properties/
         // Y17XmlPortNamespacesTests.al:60, `<a:Party>`, `<a:Line>`); the import of such a port is refused when it runs.
         ir::XmlNodeKind::Table => &[
             "xmlname",
@@ -121,7 +122,7 @@ fn allowed_properties(kind: ir::XmlNodeKind) -> &'static [&'static str] {
             "linktable",
             "linkfields",
             // Inert for Export and Import from code, a UseRequestPage = true port included: they never open the request page
-            // (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:RequestFilterFields_Export, _Import, needs the corpus bump).
+            // (xmlports/shapes-properties/Y83XpMiscTests.al:RequestFilterFields_Export, _Import, needs the corpus bump).
             // Xmlport.Run of such a port is refused (no request page with content).
             "requestfilterfields",
             "requestfilterheading",
@@ -136,7 +137,7 @@ fn allowed_properties(kind: ir::XmlNodeKind) -> &'static [&'static str] {
             "linktableforceinsert",
         ],
         // `Unbound = true` on a field or text node changes neither the import nor the export of a field or text attribute
-        // (xmlport/lt-y-xmlport-props/YXmlPortProps.al:682-722); the export of an unbound field element is refused when it runs.
+        // (xmlports/shapes-properties/YXmlPortProps.al:682-722); the export of an unbound field element is refused when it runs.
         ir::XmlNodeKind::Field => &[
             "xmlname",
             "minoccurs",
@@ -148,8 +149,8 @@ fn allowed_properties(kind: ir::XmlNodeKind) -> &'static [&'static str] {
             "fieldvalidate",
         ],
         // `occurrence` is checked in `visit`: Required or Optional on a field attribute of a table element.
-        // `FieldValidate` on a field attribute: Yes validates, No does not (pages/lt-report-page-properties/06-xmlport-fvat.al:118).
-        // `Width` on a field attribute: a column of a FixedText port (xmlport/lt-ay-xmlport/AyXmlPortAttributeWidth.al:163-260).
+        // `FieldValidate` on a field attribute: Yes validates, No does not (pages/properties/06-xmlport-fvat.al:118).
+        // `Width` on a field attribute: a column of a FixedText port (xmlports/shapes-properties/AyXmlPortAttributeWidth.al:163-260).
         // On another format it is refused in `layout_ir`.
         ir::XmlNodeKind::FieldAttr => &[
             "xmlname",
@@ -169,12 +170,12 @@ fn allowed_properties(kind: ir::XmlNodeKind) -> &'static [&'static str] {
             "unbound",
             "occurrence",
             "texttype",
-            // Documentation only: xmlport/lt-y72-xmlport-probes/Y72XpTextTypeBlankEnum.al TextTypeText_OnTextAttribute_ExportImport
+            // Documentation only: streams/Y72XpTextTypeBlankEnum.al TextTypeText_OnTextAttribute_ExportImport
             // (`textattribute(Version) { TextType = Text; Description = 'Version'; }`, export and import as without it).
             "description",
         ],
         // `texttype` is checked in `visit`: BigText or Text on a text element without children. `unbound` too, on one without
-        // children (xmlport/lt-y60-xmlport-unbound-text/Y60XpUnboundText.al; the VM reads its columns and refuses its export).
+        // children (xmlports/shapes-properties/Y60XpUnboundText.al; the VM reads its columns and refuses its export).
         ir::XmlNodeKind::Text => &[
             "xmlname",
             "namespaceprefix",
@@ -202,6 +203,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
         xml_utf8: false,
         namespaces: Vec::new(),
         default_ns: None,
+        udn_root_prefix: false,
         inline_schema: false,
         use_lax: false,
         xml_v11: false,
@@ -233,21 +235,21 @@ pub fn layout(obj: &ast::Object) -> Layout {
                 other => out.reasons.push(format!("Format = {other} is not supported")),
             },
             // An XmlPort marked obsolete with Pending still exports as before; the reason and the tag are compile-time notes
-            // (misc/lt-u-obsolete-pending/UObsoleteObjects.al:221-240, UObsoletePending.al:103-140). Another state is not pinned.
+            // (streams/UObsoleteObjects.al:221-240, UObsoletePending.al:103-140). Another state is not pinned.
             "obsoletestate" if value.trim().eq_ignore_ascii_case("pending") => {}
             // UseRequestPage: Export and Import never open the request page; for Xmlport.Run the property is not pinned (al-vm
             // xmlports/run_request.rs refuses a Run of a port that declares it).
             "obsoletereason" | "obsoletetag" | "userequestpage" => {}
-            // xmlport/TestXmlPortTextFormatsContracts.al: VariableText and FixedText pin these; an Xml port's encoding is not pinned.
+            // xmlports/TestXmlPortTextFormatsContracts.al: VariableText and FixedText pin these; an Xml port's encoding is not pinned.
             "textencoding" if value.trim().eq_ignore_ascii_case("utf8") => out.utf8 = true,
             // Checked after the loop: MSDOS, WINDOWS and UTF16 are pinned for a VariableText export.
             "textencoding" => {
                 out.text_encoding_declared = true;
                 out.text_encoding = Some(value.trim().to_ascii_lowercase());
             }
-            // xmlport/lt-af-xmlport/AfXmlPortEncoding.al: UTF8 and UTF16 on a Format = Xml port; any other value is refused below.
+            // xmlports/shapes-properties/AfXmlPortEncoding.al: UTF8 and UTF16 on a Format = Xml port; any other value is refused below.
             "encoding" => out.encoding = Some(value.trim().to_string()),
-            // xmlport/lt-y-xmlport-props/YXmlPortProps.al:52, 563: true writes the schema inside the root (the export refuses shapes it does not pin).
+            // xmlports/shapes-properties/YXmlPortProps.al:52, 563: true writes the schema inside the root (the export refuses shapes it does not pin).
             "inlineschema" => match value.trim().to_ascii_lowercase().as_str() {
                 "true" => out.inline_schema = true,
                 "false" => {}
@@ -255,7 +257,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
                     .run_reasons
                     .push(format!("xmlport property inlineschema = {other} is not pinned")),
             },
-            // xmlport/lt-y-xmlport-props/YXmlPortProps.al:582 (UseLax_Import_AcceptsUnknownElements): the import skips an element of
+            // xmlports/shapes-properties/YXmlPortProps.al:582 (UseLax_Import_AcceptsUnknownElements): the import skips an element of
             // another namespace at the end of a sequence; the run checks the shapes it pins.
             "uselax" => match value.trim().to_ascii_lowercase().as_str() {
                 "true" => out.use_lax = true,
@@ -279,9 +281,9 @@ pub fn layout(obj: &ast::Object) -> Layout {
             // YXmlPortProps.al:641: grant permissions the runtime does not enforce; an export runs as without them. The values
             // read back through the XmlPort Metadata row (platform/objects.rs).
             "inherentpermissions" | "inherententitlements" => {}
-            // xmlport/lt-y-xmlport-props/YXmlPortProps.al:213: one `prefix = 'uri'` pair; several in declaration order
-            // (xmlport/lt-bd-xmlport/BdXmlPort.al:407), among them the empty prefix `""` written as the default namespace
-            // (xmlport/lt-y17-xmlport-ns/Y17XmlPortNamespacesTests.al:60, :71; kept here with the prefix "").
+            // xmlports/shapes-properties/YXmlPortProps.al:213: one `prefix = 'uri'` pair; several in declaration order
+            // (xmlports/shapes-properties/BdXmlPort.al:407), among them the empty prefix `""` written as the default namespace
+            // (xmlports/shapes-properties/Y17XmlPortNamespacesTests.al:60, :71; kept here with the prefix "").
             "namespaces" => {
                 let mut pairs: Vec<(String, String)> = Vec::new();
                 for one in crate::scan::split_double(&value, ',') {
@@ -318,7 +320,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
                 // A single table is assumed unaffected (docs/probes-needed.md, tableseparator).
                 out.table_separator = Some(crate::scan::unquote_xmlport(&value));
             }
-            // xmlport/TestXmlPortFormatEvaluateContracts.al: Legacy is the display text, Xml the XML forms.
+            // xmlports/TestXmlPortFormatEvaluateContracts.al: Legacy is the display text, Xml the XML forms.
             "formatevaluate" => match value.trim().to_ascii_lowercase().as_str() {
                 "legacy" => out.format_evaluate_declared = Some(false),
                 "xml" => {
@@ -329,7 +331,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
                     .run_reasons
                     .push(format!("xmlport property formatevaluate = {other} is not pinned")),
             },
-            // xmlport/lt-bj-xmlport-default-validation/BjXmlPortDefaultValidation.al:255-334: true and left out validate the
+            // xmlports/import/BjXmlPortDefaultValidation.al:255-334: true and left out validate the
             // same; false validates only FieldValidate = Yes. Pinned for Format = Xml; the import refuses another format where
             // validation would be seen (al-vm xmlports.rs).
             "defaultfieldsvalidation" => match bool_prop(&value) {
@@ -339,7 +341,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
                     value.trim()
                 )),
             },
-            // xmlport/lt-xmlport-query-datatransfer/XpTImportOptions.al:406 Import_PreserveWhitespace: an Xml import keeps the
+            // xmlports/import/XpTImportOptions.al:406 Import_PreserveWhitespace: an Xml import keeps the
             // white space around a Text value (al-vm xmlports.rs). What an export writes is not pinned (:420 reads only that the
             // UTF-16 output is no UTF-8); another format is not pinned.
             "preservewhitespace" => match bool_prop(&value) {
@@ -359,7 +361,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
                 .push(format!("xmlport property {other} is not supported yet")),
         }
     }
-    // xmlport/W7XmlPortTests.al:345 XmlPortExport_BytesPerDeclaredEncoding and xmlport/lt-xmlport-query-datatransfer/
+    // xmlports/W7XmlPortTests.al:345 XmlPortExport_BytesPerDeclaredEncoding and xmlports/import/
     // XpTEncoding.al:90-160: the bytes a VariableText export writes for MSDOS, WINDOWS and UTF16. Another format or value is
     // not pinned.
     if let Some(enc) = out.text_encoding.clone() {
@@ -373,13 +375,13 @@ pub fn layout(obj: &ast::Object) -> Layout {
     }
     // A DefaultNamespace that UseDefaultNamespace does not use changes nothing: an export writes no `xmlns` for it and an import
     // does not find a root in a namespace, one without is imported, with Namespaces, UseLax, PreserveWhiteSpace, InlineSchema and
-    // XmlVersionNo = V11 alike (xmlport/lt-xmlport-query-datatransfer/XpTNamespaces.al:Import_DefaultNs*, xmlport 73418;
-    // pages/lt-report-page-properties/06-xmlport-dnsfalse.al:45-49; xmlport/lt-y83-xmlport-shapes/Y83XpNsTests.al:Ns_DnOnly,
+    // XmlVersionNo = V11 alike (xmlports/import/XpTNamespaces.al:Import_DefaultNs*, xmlport 73418;
+    // pages/properties/06-xmlport-dnsfalse.al:45-49; xmlports/shapes-properties/Y83XpNsTests.al:Ns_DnOnly,
     // Ns_DnFalseUtf8, Ns_DnNsprefix, Ns_DnLax, Ns_DnPws, Ns_DnInline, Ns_DnV11, needs the corpus bump). Without DefaultNamespace it
     // is inert.
     // An Xml export with PreserveWhiteSpace writes the same as without it, with Encoding = UTF8 or the default UTF16, white space
     // of a text element and a field element, a line end inside one included, with and without DefaultNamespace +
-    // UseDefaultNamespace (misc/lt-np4-probes/Np4XmlPort.al:280 NP4_XmlPort_PreserveWhiteSpace_WithNamespace, :300
+    // UseDefaultNamespace (streams/Np4XmlPort.al:264 NP4_XmlPort_PreserveWhiteSpace_WithNamespace, :300
     // _DefaultWhiteSpace_WithNamespace, :320 _PreserveWhiteSpace_NoNamespace, corpus master; Y83XpNsTests.al:Ns_Pws, Ns_PwsPrefix,
     // Ns_PwsUdnDn for UTF16, needs the corpus bump).
     let utf8 = out.encoding.as_deref().is_some_and(|e| e.eq_ignore_ascii_case("utf8"));
@@ -392,7 +394,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
             .push("xmlport property preservewhitespace = true of a FixedText port is not pinned".into());
     }
     // With UseDefaultNamespace = true every element is in DefaultNamespace: the export writes `xmlns="<namespace>"` on the root
-    // and an import finds a root in that namespace only (xmlport/lt-bd-xmlport/BdXmlPort.al:353-370
+    // and an import finds a root in that namespace only (xmlports/shapes-properties/BdXmlPort.al:353-370
     // BdDefaultNamespace_PortWithDefaultNamespace, xmlport 81085: a text root, a table element and field elements). The other
     // properties are pinned with it as for BC's own namespace below; a namespace text with a quote is not.
     let mut own_namespace = None;
@@ -409,9 +411,9 @@ pub fn layout(obj: &ast::Object) -> Layout {
         }
     } else if use_default_namespace == Some(true) {
         // Without DefaultNamespace the port uses BC's own namespace `urn:microsoft-dynamics-nav/xmlports/x<id>` for every element
-        // (xmlport/lt-bd-xmlport/BdXmlPort.al:499 SqUseDefaultNamespace_NoDefaultNamespace, xmlport 89580: a text root, a table
-        // element and field elements, no Namespaces; also the export of xmlport/lt-dg-xmlport-leads/DgXmlPortLeads.al:290) and
-        // xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al:469-531 SG_DefaultNs_* (xmlport 89364: Encoding = UTF8, a field attribute
+        // (xmlports/shapes-properties/BdXmlPort.al:499 SqUseDefaultNamespace_NoDefaultNamespace, xmlport 89580: a text root, a table
+        // element and field elements, no Namespaces; also the export of streams/DgXmlPortLeads.al:290) and
+        // xmlports/shapes-properties/SgXmlPortOccurs.al:469-531 SG_DefaultNs_* (xmlport 89364: Encoding = UTF8, a field attribute
         // in no namespace). Text attributes, prefixes, Namespaces, UseLax, InlineSchema, XmlVersionNo = V11, PreserveWhiteSpace and
         // the text formats are not pinned with it.
         bc_namespace = true;
@@ -428,11 +430,11 @@ pub fn layout(obj: &ast::Object) -> Layout {
     for top in obj.sections() {
         match top.name().to_ascii_lowercase().as_str() {
             "schema" => visit(&top, None, &mut out),
-            // platform/lt-ag-contoso/AgXmlPortImport.al:94-96 (xmlport 78422), :312-327: a `requestpage { }` with
+            // metadata/platform-tables/AgXmlPortImport.al:94-96 (xmlport 78422), :312-327: a `requestpage { }` with
             // nothing in it changes nothing for Import and Export. The same holds with empty `layout` and `actions`
             // sections inside it, both or one alone (xmlports 87564-87566 at :835-912, imported and exported at
             // :476-512; the DemoTool's xmlport 101899 has this shape).
-            // xmlport/lt-ra-xmlport/RaXmlPortExport.al:356 (xmlport 87744): a Caption, with empty layout and actions,
+            // xmlports/shapes-properties/RaXmlPortExport.al:356 (xmlport 87744): a Caption, with empty layout and actions,
             // changes nothing either (static and instance Import and Export).
             "requestpage"
                 if request_page_is_empty(&top)
@@ -440,7 +442,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
                     || request_page_is_caption_with_empty_layout_and_actions(&top)
                     || request_page_is_source_table_only(&top) => {}
             // A request page with content never opens for Export and Import from code (instance or static), which run with
-            // the globals as code set them; Xmlport.Run with the request window opens it (xmlport/lt-y40-xmlport-request-page/
+            // the globals as code set them; Xmlport.Run with the request window opens it (xmlports/shapes-properties/
             // Y40XmlPortRequestPage.al:283-423, corpus master ac3499d6; al-vm xmlports.rs).
             "requestpage" => out.request_page = true,
             other => out
@@ -454,57 +456,106 @@ pub fn layout(obj: &ast::Object) -> Layout {
         }
     }
     if bc_namespace {
-        // With DefaultNamespace and a Namespaces list that holds the empty prefix, the default namespace takes the place of the
-        // uri of `""`, and prefixed elements are written with their prefixes (xmlport/lt-y17-xmlport-ns/
-        // Y17XmlPortNamespacesTests.al:82, an UTF8 export).
-        let empty_prefix_replaced = own_namespace.is_some() && utf8 && out.namespaces.iter().any(|(p, _)| p.is_empty());
-        // Namespaces with named prefixes only, used by field elements only: the export declares them before the default
-        // namespace; an import finds no root outside the port's namespace (Y83XpNsTests.al:Ns_UdnPrefix, Ns_UdnDnPrefixUtf8,
-        // needs the corpus bump).
-        let named_prefixes_on_fields = !out.namespaces.is_empty()
-            && out.namespaces.iter().all(|(p, _)| !p.is_empty())
-            && (0..out.nodes.len()).any(|i| out.property(i, "NamespacePrefix").is_some())
-            && (0..out.nodes.len())
-                .all(|i| out.property(i, "NamespacePrefix").is_none() || out.nodes[i].kind == ir::XmlNodeKind::Field);
-        let unpinned = if out.format != ir::XmlFormat::Xml {
-            Some("a text format")
-        } else if named_prefixes_on_fields {
-            None
-        } else if !out.namespaces.is_empty() && !empty_prefix_replaced {
-            Some("Namespaces")
-        } else if own_namespace.is_some() && out.use_lax {
-            // UseLax, InlineSchema and V11 are pinned with BC's own namespace of the port (no DefaultNamespace): Y83XpNsTests.al:
-            // Ns_UdnLax, Ns_UdnInline, Ns_UdnV11, needs the corpus bump.
-            Some("UseLax")
-        } else if own_namespace.is_some() && out.inline_schema {
-            Some("InlineSchema")
-        } else if own_namespace.is_some() && out.xml_v11 {
-            Some("XmlVersionNo = V11")
-        } else if out.preserve_whitespace && own_namespace.is_none() {
-            // With DefaultNamespace on an UTF8 port it is pinned (above: export; corpus PR 896 Np4XmlPort.al Y9_XmlPort_Import_*: import).
-            Some("PreserveWhiteSpace")
-        } else if !empty_prefix_replaced && (0..out.nodes.len()).any(|i| out.property(i, "NamespacePrefix").is_some()) {
-            Some("a NamespacePrefix")
-        } else {
-            None
-        };
-        match (unpinned, obj.id()) {
-            (None, _) if own_namespace.is_some() => out.default_ns = own_namespace,
-            (None, Some(id)) => out.default_ns = Some(format!("urn:microsoft-dynamics-nav/xmlports/x{id}")),
-            (Some(what), _) => out.run_reasons.push(format!(
-                "xmlport property usedefaultnamespace = true{}, with {what} (not pinned)",
-                if own_namespace.is_some() {
-                    " with DefaultNamespace"
-                } else {
-                    " without DefaultNamespace"
-                }
-            )),
-            (None, None) => out
-                .run_reasons
-                .push("xmlport property usedefaultnamespace = true without an object id".into()),
-        }
+        bc_default_namespace(&mut out, own_namespace, utf8, obj.id());
     }
     out
+}
+
+/// The attributes of a port with Namespaces and UseDefaultNamespace = true that BC's export is pinned for: a field attribute on a
+/// table element without a prefix, with or without a NamespacePrefix of its own, and a text attribute on a text element with a
+/// prefix, neither on the root. The attribute is written without a namespace and the namespaces stay as without it (corpus
+/// xmlports/shapes-properties/XpUseDefaultNsWithDefault.al XDN_AttrDefault_Export, XDN_AttrNoDefault_Export, XDN_AttrPrefixed_Export,
+/// BC 27.5, 28.5 and 29.0). An attribute elsewhere (on the root, on an element of another kind or prefix) is not pinned.
+fn udn_attributes_pinned(out: &Layout) -> bool {
+    (0..out.nodes.len()).all(|i| {
+        let n = &out.nodes[i];
+        if !matches!(n.kind, ir::XmlNodeKind::FieldAttr | ir::XmlNodeKind::TextAttr) {
+            return true;
+        }
+        let Some(owner) = n.parent else { return false };
+        let o = &out.nodes[owner];
+        o.parent.is_some()
+            && match (n.kind, o.kind) {
+                (ir::XmlNodeKind::FieldAttr, ir::XmlNodeKind::Table) => {
+                    out.property(owner, "NamespacePrefix").is_none()
+                }
+                (ir::XmlNodeKind::TextAttr, ir::XmlNodeKind::Text) => {
+                    out.property(owner, "NamespacePrefix").is_some() && out.property(i, "NamespacePrefix").is_none()
+                }
+                _ => false,
+            }
+    })
+}
+
+/// `UseDefaultNamespace = true`: which namespace the port's elements are in (`out.default_ns`), or why that is not pinned.
+fn bc_default_namespace(out: &mut Layout, own_namespace: Option<String>, utf8: bool, id: Option<u32>) {
+    // With DefaultNamespace and a Namespaces list that holds the empty prefix, the default namespace takes the place of the
+    // uri of `""`, and prefixed elements are written with their prefixes (xmlports/shapes-properties/
+    // Y17XmlPortNamespacesTests.al:82, an UTF8 export).
+    let empty_prefix_replaced = own_namespace.is_some() && utf8 && out.namespaces.iter().any(|(p, _)| p.is_empty());
+    // Namespaces with named prefixes only, used by field elements only: the export declares them before the default
+    // namespace; an import finds no root outside the port's namespace (Y83XpNsTests.al:Ns_UdnPrefix, Ns_UdnDnPrefixUtf8,
+    // needs the corpus bump).
+    let named_prefixes_on_fields = !out.namespaces.is_empty()
+        && out.namespaces.iter().all(|(p, _)| !p.is_empty())
+        && (0..out.nodes.len()).any(|i| out.property(i, "NamespacePrefix").is_some())
+        && (0..out.nodes.len())
+            .all(|i| out.property(i, "NamespacePrefix").is_none() || out.nodes[i].kind == ir::XmlNodeKind::Field);
+    // Without DefaultNamespace, named prefixes only, and prefixes on any elements (no attributes): the export drops the root's
+    // prefix and takes its uri as the default namespace, an element without a prefix declares the port's namespace where the
+    // namespace in scope differs; every import fails (corpus
+    // xmlports/shapes-properties/XpUseDefaultNsPrefixes.al XUD_*_Export, XUD_*_Import, BC 27.5, 28.5 and 29.0). UseLax,
+    // InlineSchema, V11, PreserveWhiteSpace and attributes with it are not pinned; the import is refused.
+    // With DefaultNamespace the same, with the DefaultNamespace in place of the port's namespace (corpus PR 1158,
+    // xmlports/shapes-properties/XpUseDefaultNsWithDefault.al XDN_*_Export, XDN_*_Import, BC 27.5,
+    // 28.5 and 29.0).
+    let udn_root_prefix = !named_prefixes_on_fields
+        && !out.namespaces.is_empty()
+        && out.namespaces.iter().all(|(p, _)| !p.is_empty())
+        && !(out.use_lax || out.inline_schema || out.xml_v11 || out.preserve_whitespace)
+        && udn_attributes_pinned(out);
+    let unpinned = if out.format != ir::XmlFormat::Xml {
+        Some("a text format")
+    } else if named_prefixes_on_fields {
+        None
+    } else if udn_root_prefix && out.direction == ir::XmlDirection::Import {
+        Some("Namespaces on an import port")
+    } else if udn_root_prefix {
+        out.udn_root_prefix = true;
+        None
+    } else if !out.namespaces.is_empty() && !empty_prefix_replaced {
+        Some("Namespaces")
+    } else if own_namespace.is_some() && out.use_lax {
+        // UseLax, InlineSchema and V11 are pinned with BC's own namespace of the port (no DefaultNamespace): Y83XpNsTests.al:
+        // Ns_UdnLax, Ns_UdnInline, Ns_UdnV11, needs the corpus bump.
+        Some("UseLax")
+    } else if own_namespace.is_some() && out.inline_schema {
+        Some("InlineSchema")
+    } else if own_namespace.is_some() && out.xml_v11 {
+        Some("XmlVersionNo = V11")
+    } else if out.preserve_whitespace && own_namespace.is_none() {
+        // With DefaultNamespace on an UTF8 port it is pinned (above: export; corpus PR 896 Np4XmlPort.al Y9_XmlPort_Import_*: import).
+        Some("PreserveWhiteSpace")
+    } else if !empty_prefix_replaced && (0..out.nodes.len()).any(|i| out.property(i, "NamespacePrefix").is_some()) {
+        Some("a NamespacePrefix")
+    } else {
+        None
+    };
+    match (unpinned, id) {
+        (None, _) if own_namespace.is_some() => out.default_ns = own_namespace,
+        (None, Some(id)) => out.default_ns = Some(format!("urn:microsoft-dynamics-nav/xmlports/x{id}")),
+        (Some(what), _) => out.run_reasons.push(format!(
+            "xmlport property usedefaultnamespace = true{}, with {what} (not pinned)",
+            if own_namespace.is_some() {
+                " with DefaultNamespace"
+            } else {
+                " without DefaultNamespace"
+            }
+        )),
+        (None, None) => out
+            .run_reasons
+            .push("xmlport property usedefaultnamespace = true without an object id".into()),
+    }
 }
 
 fn section_is_bare(s: &ast::Section) -> bool {
@@ -544,7 +595,7 @@ fn request_page_is_caption_with_empty_layout_and_actions(rp: &ast::Section) -> b
 
 /// A `requestpage` that declares `SourceTable` (and maybe `SourceTableTemporary = true`) and holds nothing else but an
 /// `OnOpenPage` trigger. Its `Rec` is a record of the table in the xmlport's own code; on Export and Import no request
-/// page opens and OnOpenPage does not run (xmlport/lt-y-xmlport-props/YXmlPortProps.al:861-923, xmlports 88570 and 88571
+/// page opens and OnOpenPage does not run (xmlports/shapes-properties/YXmlPortProps.al:861-923, xmlports 88570 and 88571
 /// at :421 and :477; al-runner issue 5756). Any other property, trigger, variable or section is not pinned.
 fn request_page_is_source_table_only(rp: &ast::Section) -> bool {
     let mut has_source = false;
@@ -583,20 +634,20 @@ fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {
         for p in s.properties() {
             let pn = p.name().to_ascii_lowercase();
             if pn == "sourcetableview" && kind == K::Table {
-                // An import ignores the view: a row its filter leaves out is imported as any other (platform/lt-ag-contoso/
+                // An import ignores the view: a row its filter leaves out is imported as any other (metadata/platform-tables/
                 // AgXmlPortImport.al:62-80, :298-309, an element without a link); a filtered view on a linked element is refused
                 // on import when the port runs (not pinned). An export reads the rows in the view's order and through its
-                // filter: sorting and order on an element that is not linked (xmlport/lt-ra-xmlport/RaXmlPortExport.al:622,
+                // filter: sorting and order on an element that is not linked (xmlports/shapes-properties/RaXmlPortExport.al:622,
                 // :654), sorting and where on a linked one (:680, :781, :793, :805). A filter on an element that is not linked
                 // runs under former assumption `xmlport-view-filter-unlinked` (pinned on corpus master since bump 1030) (al-vm xmlports.rs `xp_apply_source_views`).
             } else if kind == K::Table && matches!(pn.as_str(), "unbound" | "width") && out.format == ir::XmlFormat::Xml
             {
-                // Neither changes an Xml port's export or import of a table element (xmlport/lt-y-xmlport-props/YXmlPortProps.al:390
+                // Neither changes an Xml port's export or import of a table element (xmlports/shapes-properties/YXmlPortProps.al:390
                 // BdUnbound_TableElement_ExportAndImport).
             } else if !allowed_properties(kind).contains(&pn.as_str()) {
                 // Refused when the port runs, not when it is declared: Base App's xmlport 1 sets
                 // MinOccurs, MaxOccurs, Occurrence and SourceTableView, and tests reach it only
-                // through a request page they cancel (handlers/TestReqPageBoundVisibility.al:172).
+                // through a request page they cancel (reports/TestReqPageBoundVisibility.al:172).
                 out.run_reasons
                     .push(format!("property {pn} of {section_name} {name} is not supported yet"));
             } else if pn == "fieldvalidate" && bool_prop(&p.value_text()).is_none() {
@@ -611,12 +662,12 @@ fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {
             } else if pn == "xmlname" {
                 xml_name = crate::scan::unquote_xmlport(&p.value_text());
             } else if pn == "texttype" {
-                // xmlport/lt-xmlport-bigtext/XmlPortBigText.al:178-266: BigText on a text element without children, on export
+                // xmlports/shapes-properties/XmlPortBigText.al:178-266: BigText on a text element without children, on export
                 // and import. Text is the default. A BigText element with children, or another value, is not pinned.
-                // On a text attribute: BigText, of a table element (report/lt-u-report-props/UReportObjects.al:150,
+                // On a text attribute: BigText, of a table element (reports/runtime/UReportObjects.al:150,
                 // UPropertyTests.al:311-330 import, :399-400 export); Text and BigText on a text attribute of the root text element
                 // and of a table element, export and import, and Text on a container text element
-                // (xmlport/lt-y72-xmlport-probes/Y72XpTextTypeBlankEnum.al header, TextTypeText_OnTextAttribute_ExportImport,
+                // (streams/Y72XpTextTypeBlankEnum.al header, TextTypeText_OnTextAttribute_ExportImport,
                 // TextTypeBigText_RootAttribute, TextType_OnContainerTextElement). BigText on a container is not pinned.
                 let value = p.value_text().trim().to_ascii_lowercase();
                 let refused = if kind == K::TextAttr {
@@ -635,15 +686,15 @@ fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {
                 }
             } else if pn == "occurrence" {
                 // Pinned for a text attribute of the root, of a container text element and of a table element below it
-                // (xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:441-560, QS_TextAttr_*; earlier on a table
-                // element below the root: report/lt-u-report-props/UPropertyTests.al:336). Below a field element of a table element: below.
-                // On a field attribute it is pinned for one of a table element, on import (platform/lt-ag-contoso/
+                // (xmlports/shapes-properties/QrXpContainerOccurs.al:441-560, QS_TextAttr_*; earlier on a table
+                // element below the root: reports/runtime/UPropertyTests.al:336). Below a field element of a table element: below.
+                // On a field attribute it is pinned for one of a table element, on import (metadata/platform-tables/
                 // AgXmlPortImport.al:27-53, :248 FieldAttribute_Occurrence_RequiredAndOptional_Import).
                 let value = p.value_text().trim().to_ascii_lowercase();
-                // A field attribute of a text element directly below a table element: xmlport/lt-sg-xmlport-occurs/
+                // A field attribute of a text element directly below a table element: xmlports/shapes-properties/
                 // SgXmlPortOccurs.al:78-175 SG_AttrBelowText_* (xmlport 89361), export and import.
                 // A field attribute and a text attribute of a field element of a table element: import and export
-                // (xmlport/lt-y68-xmlport-shapes/Y68XmlPortShapes.al:642-713 Q6_FieldElement_Attributes_*, corpus master 0d01b0cc).
+                // (xmlports/shapes-properties/Y68XmlPortShapes.al:642-713 Q6_FieldElement_Attributes_*, corpus master 0d01b0cc).
                 let below_table_field = |i: usize| {
                     out.nodes[i].kind == K::Field && out.nodes[i].parent.is_some_and(|g| out.nodes[g].kind == K::Table)
                 };
@@ -671,7 +722,7 @@ fn visit(section: &ast::Section, parent: Option<usize>, out: &mut Layout) {
             }
         }
         // A field element may hold a field attribute, a text attribute, a text element and a field element, each without nodes of
-        // its own (xmlport/lt-af-xmlport/AfXmlPortAttrChildren.al:36-41, 71-75, 107-109). Other nodes below it are not pinned.
+        // its own (xmlports/shapes-properties/AfXmlPortAttrChildren.al:36-41, 71-75, 107-109). Other nodes below it are not pinned.
         if kind == K::Field {
             for c in s.sections() {
                 let ck = c.name().to_ascii_lowercase();
@@ -720,6 +771,31 @@ impl Layout {
             .map(|p| p.value_text())
     }
 
+    /// The table node named `name` that precedes node `i` under the same parent, when no table element named `name` is above it:
+    /// `Root > Hdr, Line` with `LinkTable = Hdr` on `Line`, in Xml, VariableText and FixedText, with a table element between the two
+    /// and with the pair below another table element (xmlports/shapes-properties/R6924eLinkSibling.al: the xmlports 95355 (VT),
+    /// 95356 (FT), 95357 (a table element between), 95358 (below another table element), 95359 (two pairs); BC 29 is measured with
+    /// them). Any other node a LinkTable could name, a text element between the two for one, stays refused.
+    fn link_sibling_named(&self, i: usize, name: &str) -> Option<usize> {
+        let parent = self.nodes[i].parent?;
+        if !matches!(self.nodes[parent].kind, ir::XmlNodeKind::Text | ir::XmlNodeKind::Table)
+            || self.table_named(Some(parent), name).is_some()
+        {
+            return None;
+        }
+        let mut prev = None;
+        for j in (0..i).rev().filter(|&j| self.nodes[j].parent == Some(parent)) {
+            if self.nodes[j].kind != ir::XmlNodeKind::Table {
+                return None;
+            }
+            if self.nodes[j].name.eq_ignore_ascii_case(name) {
+                prev = Some(j);
+                break;
+            }
+        }
+        prev
+    }
+
     /// The nearest table node named `name` at or above node `from`.
     fn table_named(&self, from: Option<usize>, name: &str) -> Option<usize> {
         let mut cur = from;
@@ -762,10 +838,10 @@ fn table_object(cx: &Context, name: &str) -> Option<usize> {
 /// element variables already found.
 /// The `MinOccurs` and `MaxOccurs` values the corpus pins, per kind of node; any other value, or either property on another kind of node,
 /// refuses running the port (not declaring it). Pinned:
-/// - a leaf text element: MinOccurs Zero or Once, MaxOccurs Once or Unbounded (xmlport/W7XmlPortTests.al:111-149,
-///   misc/lt-probes-needed-3/PnC19XmlPort.al:526-540);
+/// - a leaf text element: MinOccurs Zero or Once, MaxOccurs Once or Unbounded (xmlports/W7XmlPortTests.al:111-149,
+///   xmlports/PnC19XmlPort.al:526-540);
 /// - a container text element below the root: MinOccurs Zero or Once, MaxOccurs Once; the root: MaxOccurs Once
-///   (xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:67-122, QR_Export_*, QR_Import_*);
+///   (xmlports/shapes-properties/QrXpContainerOccurs.al:67-122, QR_Export_*, QR_Import_*);
 /// - a table element below a text element: MinOccurs Zero, MaxOccurs Unbounded; a field element: MaxOccurs Once (the same file,
 ///   :78-88, :97-99).
 fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
@@ -776,18 +852,23 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
     let (min_ok, max_ok): (&[&str], &[&str]) = match raw.kind {
         // An explicit MinOccurs = Once on the root is the default (writer TS's branch al-runtime-rs-staging-pub-ts,
         // QrXpContainerOccurs.al TS_RootOnce_*; `build` registers `xmlport-root-min-occurs-once`).
-        // MinOccurs = Zero on the root of a VariableText import port (xmlport/lt-y60-xmlport-unbound-text/Y60XpUnboundText.al,
+        // MinOccurs = Zero on the root of a VariableText import port (xmlports/shapes-properties/Y60XpUnboundText.al,
         // xmlports 93220-93222: the lines import as without it).
         K::Text
             if root && layout.format == ir::XmlFormat::VariableText && layout.direction == ir::XmlDirection::Import =>
         {
             (&["zero", "once"], &["once"])
         }
+        // MinOccurs = Zero on a root that holds elements runs as the default, on an Xml port both ways and on a VariableText export
+        // (xmlports/shapes-properties/XpRootMinOccursZero.al, corpus branch al-runtime-rs-staging-r6963: export writes the root
+        // without rows, import takes it with or without content and fails as for the default on no root, another root or two
+        // roots; RootMinOccursZero_*_Export, _Import, _Import2).
+        K::Text if root && !leaf => (&["zero", "once"], &["once"]),
         K::Text if root => (&["once"], &["once"]),
         K::Text if leaf => (&["zero", "once"], &["once", "unbounded"]),
         K::Text => (&["zero", "once"], &["once"]),
         // Below a table element (a nested table element) MinOccurs = Zero is pinned on export, and on import below a parent that
-        // saves (AutoSave not false), with AutoReplace = true (xmlport/lt-xmlport-trigger-flow/XmlPortTriggerFlow.al:93, :188, tests
+        // saves (AutoSave not false), with AutoReplace = true (xmlports/shapes-properties/XmlPortTriggerFlow.al:93, :188, tests
         // :293-399) or without AutoReplace and AutoUpdate, on two and three levels (RcXmlPortNestedImport.al, tests
         // XmlPortTriggerFlow.al:452-566). Below a parent with AutoUpdate on import, and MaxOccurs, are not pinned.
         K::Table if raw.parent.is_some_and(|p| layout.nodes[p].kind == K::Table) => {
@@ -802,7 +883,7 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
             // pass (writer TT's branch al-runtime-rs-staging-tt, QrXpContainerOccurs.al TT_Confirm_Export_*; the VM registers
             // `xmlport-linked-once` and refuses its import).
             // With LinkFields the same pair runs on an export port: the lowest key of each pass, a pass without rows writes no
-            // element (misc/lt-y14-triage/Y14XmlPortLink.al:136 LinkedZeroOnce_ZeroOneTwoChildren, corpus master).
+            // element (streams/Y14XmlPortLink.al:136 LinkedZeroOnce_ZeroOneTwoChildren, corpus master).
             let once_ok = linked
                 && (layout.property(i, "LinkFields").is_none() || layout.direction == ir::XmlDirection::Export)
                 && layout
@@ -816,21 +897,28 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
                 (Some("once"), Some("unbounded")) => Some((&["once"][..], &["unbounded"][..])),
                 (Some("zero"), Some("once")) => Some((&["zero"][..], &["once"][..])),
                 // MinOccurs = Once with MaxOccurs = Once: the first row of each pass, and a pass without rows writes the record as
-                // it stands (misc/lt-np4-probes/Np4XmlPort.al:364 NP4_XmlPort_OnceOnce_ZeroAndOneRows, :381 _TwoRows, corpus
+                // it stands (streams/Np4XmlPort.al:348 NP4_XmlPort_OnceOnce_ZeroAndOneRows, :381 _TwoRows, corpus
                 // master; export only, the VM refuses the import as for the other unlinked pairs).
                 (Some("once"), Some("once")) => Some((&["once"][..], &["once"][..])),
                 _ => None,
             };
             // Linked with LinkFields, MinOccurs = Once and MaxOccurs = Once, on an export port: the first row of each pass in the
-            // view's order, a pass without rows writes the record as it stands (corpus PR 896, misc/lt-np4-probes/Np4XmlPort.al
+            // view's order, a pass without rows writes the record as it stands (corpus PR 896, streams/Np4XmlPort.al
             // Y9_XmlPort_LinkedOnceOnce_ZeroOneTwoRows, _TwoRowsThenNone, _OneRowThenNone; the VM decides the row held after).
+            // No MinOccurs is MinOccurs = Once there, also on a temporary child the parent's OnAfterGetRecord fills, and the import of
+            // a real-table child takes one element per parent (corpus
+            // xmlports/shapes-properties/XpNestedLinkedOnce.al XOM_TempOnce_*, XOM_TempOnceUnbounded_*, XOM_RealOnce_* on an export
+            // port; XOM_ImportOnce_OneChild, _NoChild, _TwoChildren on an import port). An explicit MinOccurs = Once on import, a
+            // temporary child on import, and Direction = Both are not pinned.
+            let min_occurs = occurs("MinOccurs");
+            let import_default_min = layout.direction == ir::XmlDirection::Import
+                && min_occurs.is_none()
+                && layout.property(i, "UseTemporary").and_then(|v| bool_prop(&v)) != Some(true);
             let linked_once_once = linked
                 && layout.property(i, "LinkFields").is_some()
-                && layout.direction == ir::XmlDirection::Export
-                && matches!(
-                    (occurs("MinOccurs").as_deref(), occurs("MaxOccurs").as_deref()),
-                    (Some("once"), Some("once"))
-                );
+                && (layout.direction == ir::XmlDirection::Export || import_default_min)
+                && matches!(min_occurs.as_deref(), Some("once") | None)
+                && occurs("MaxOccurs").as_deref() == Some("once");
             if linked_once_once {
                 (&["once"][..], &["once"][..])
             } else if layout.direction == ir::XmlDirection::Export || saves {
@@ -849,15 +937,17 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
                 (&[], &[])
             }
         }
-        // MaxOccurs = Once on a table element that is not below another one: xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al:229-445
+        // MaxOccurs = Once on a table element that is not below another one: xmlports/shapes-properties/SgXmlPortOccurs.al:229-445
         // (SG_OnceTemp_*: below the root and below a container text element, temporary, MinOccurs = Zero; SG_OnceReal_*: a real
         // table with the default MinOccurs), export and import.
         // An explicit MinOccurs = Once on such a table element is the default: export writes the record as it stands when there
         // are no rows, import of none fails the schema
-        // (xmlport/lt-sg-xmlport-occurs/SgXmlPortOccurs.al TF_MinOnce_*, TF_MinMaxOnce_*, TF_MinMaxOnceReal_*).
+        // (xmlports/shapes-properties/SgXmlPortOccurs.al TF_MinOnce_*, TF_MinMaxOnce_*, TF_MinMaxOnceReal_*).
         K::Table => (&["zero", "once"], &["unbounded", "once"]),
-        // MinOccurs of a field element was already read before these pins (any value).
-        K::Field => (&["zero", "once"], &["once"]),
+        // MinOccurs of a field element was already read before these pins (any value). MaxOccurs = Unbounded: export writes the
+        // element once per row, import takes it several times, runs OnAfterAssignField for each and keeps the last value
+        // (xmlports/shapes-properties/XpRootMinOccursZero.al ElementOccurs_FieldMaxUnbounded_*, corpus branch al-runtime-rs-staging-r6963).
+        K::Field => (&["zero", "once"], &["once", "unbounded"]),
         _ => return None,
     };
     let kind = match raw.kind {
@@ -890,7 +980,7 @@ fn text_in_table_shape(layout: &Layout, i: usize) -> bool {
         .filter(|&k| layout.nodes[k].parent == Some(i))
         .collect();
     // One text element further down (below a text element right below a table element) with only text attributes below it
-    // (xmlport/lt-y17-xmlport-ns/Y17XmlPortNamespacesTests.al:60, `<b:EndpointID schemeID="0088">E1</b:EndpointID>`).
+    // (xmlports/shapes-properties/Y17XmlPortNamespacesTests.al:60, `<b:EndpointID schemeID="0088">E1</b:EndpointID>`).
     let below_text_in_table = layout.nodes[i].parent.is_some_and(|p| {
         layout.nodes[p].kind == K::Text && layout.nodes[p].parent.is_some_and(|g| layout.nodes[g].kind == K::Table)
     });
@@ -1015,9 +1105,9 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                 // A trigger on a container text element (one with child elements) outside the shapes below refuses running the
                 // port, not declaring it (Base App's xmlport 1 has OnAfterAssignVariable on one).
                 // Pinned: a container whose nodes are text attributes and text elements without table or field nodes below
-                // (`containers::container_tree_shape`, xmlport/lt-y60-xmlport-container-skip/Y60XpContainerSkip.al).
+                // (`containers::container_tree_shape`, xmlports/shapes-properties/Y60XpContainerSkip.al).
                 // Pinned (
-                // xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TO_AttrItem_*, TO_TextContent_*): right below a
+                // xmlports/shapes-properties/QrXpContainerOccurs.al TO_AttrItem_*, TO_TextContent_*): right below a
                 // table element, a text element whose nodes are only text attributes, or text attributes and leaf text and
                 // field elements; the runtime (al-vm xmlports.rs `text_in_table`) runs its triggers. The same for a text element
                 // with field and text attributes and one text element of only text attributes below it, and for that inner
@@ -1032,6 +1122,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                     && !containers::wrap_shape(layout, i)
                     && !containers::attributed_leaf_shape(layout, i)
                     && !containers::table_container_shape(layout, i)
+                    && !containers::root_table_shape(layout, i)
                 {
                     run_reasons.push(format!(
                         "triggers of the container text element {} are not supported (not pinned)",
@@ -1050,7 +1141,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                     ));
                 }
                 // UseTemporary with AutoSave = false: the triggers run as for a saved row and see the imported values, the temporary
-                // table holds only what a trigger inserts, the database is unchanged (xmlport/lt-aj-xmlport/AjRunAndXmlPort.al:519-600,
+                // table holds only what a trigger inserts, the database is unchanged (xmlports/shapes-properties/AjRunAndXmlPort.al:519-600,
                 // QS_*_AutoSaveFalse*, and :447 XmlPort_UseTemporary_AutoSaveFalse_Import). Pinned for a table element right below the
                 // root, Xml and VariableText, without AutoUpdate or AutoReplace.
                 let below_root = raw
@@ -1074,13 +1165,16 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                     .map(|v| crate::scan::unquote_xmlport(&v));
                 let link_fields = layout.property(i, "LinkFields");
                 // LinkTable without LinkFields links nothing: an export shows every row under every parent, an import saves the parent
-                // before the elements below it (xmlport/lt-xmlport-linktable/XmlPortLinkTableNoLinkFields.al: BothTemporary_Export,
+                // before the elements below it (xmlports/import/XmlPortLinkTableNoLinkFields.al: BothTemporary_Export,
                 // PersistentChild_Export, BothTemporary_Import_*, PersistentChild_Import_*, PersistentBoth_Import_*). LinkFields without
                 // LinkTable stays refused.
                 let link_fields = link_fields.or_else(|| link_table.as_ref().map(|_| String::new()));
                 match (link_table, link_fields) {
                     (None, None) => {}
-                    (Some(t), Some(f)) => match layout.table_named(raw.parent, &t) {
+                    (Some(t), Some(f)) => match layout
+                        .table_named(raw.parent, &t)
+                        .or_else(|| layout.link_sibling_named(i, &t))
+                    {
                         Some(ln) => {
                             node.link_node = Some(ln);
                             for pair in crate::scan::split_double(&f, ',')
@@ -1145,7 +1239,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                                 let t = nodes[tn].table.expect("a position implies a table");
                                 // A FlowField exports its calculated value (assumption xmlport-exports-flowfield-calculated). An
                                 // Xml import skips a FlowFilter element (al-vm xmlports.rs). An Xml export writes the field's own
-                                // value, its type's default, whatever filter the view holds (xmlport/lt-xmlport-flowfield-sum-count/
+                                // value, its type's default, whatever filter the view holds (xmlports/shapes-properties/
                                 // XmlPortFlowFieldSumCount.al:390-442 `<SeqFilter>0</SeqFilter>`); a text format is not pinned.
                                 if !matches!(
                                     cx.members[t].fields[p].class,
@@ -1186,6 +1280,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
         xml_utf8: layout.xml_utf8,
         namespaces: layout.namespaces.clone(),
         default_ns: layout.default_ns.clone(),
+        udn_root_prefix: layout.udn_root_prefix,
         inline_schema: layout.inline_schema,
         use_lax: layout.use_lax,
         xml_v11: layout.xml_v11,
@@ -1200,7 +1295,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
         run_unsupported: run_reasons,
         export_unsupported: export_reasons,
         // A linked table element with MaxOccurs = Unbounded and a root text element with MinOccurs = Once are pinned by
-        // xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Linked_Unbounded_* and TS_RootOnce_* (were assumptions
+        // xmlports/shapes-properties/QrXpContainerOccurs.al TS_Linked_Unbounded_* and TS_RootOnce_* (were assumptions
         // `xmlport-linked-max-unbounded`, `xmlport-root-min-occurs-once`); no layout rests on an assumption now.
         assumes: Vec::new(),
         request_page: layout.request_page,
@@ -1209,9 +1304,9 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
 
 /// Pinned: one declared namespace that a field element of the port uses (YXmlPortProps.al:
 /// NodeProperties_Export_NamesPrefixesAutoCalc); beside a used one or the empty prefix `""`, also a namespace no element uses:
-/// the root still declares it (xmlport/lt-bd-xmlport/BdXmlPort.al:407 `q`; xmlport/lt-y17-xmlport-ns/
+/// the root still declares it (xmlports/shapes-properties/BdXmlPort.al:407 `q`; xmlports/shapes-properties/
 /// Y17XmlPortNamespacesTests.al:60 `u`). A prefix that is not declared and every namespace unused are not pinned. A prefix on a
-/// field attribute alone is pinned (xmlport/lt-y83-xmlport-shapes/Y83XpNsTests.al:Ns_PrefixAttrOnly, needs the corpus bump).
+/// field attribute alone is pinned (xmlports/shapes-properties/Y83XpNsTests.al:Ns_PrefixAttrOnly, needs the corpus bump).
 fn namespace_reasons(layout: &Layout, nodes: &[ir::XmlNode], run_reasons: &mut Vec<String>) {
     let used: Vec<&str> = nodes.iter().filter_map(|n| n.ns_prefix.as_deref()).collect();
     let element_uses = |prefix: &str| {
@@ -1263,11 +1358,11 @@ mod tests {
         );
     }
 
-    // platform/lt-ag-contoso/AgXmlPortImport.al:94-96 (xmlport 78422, RequestPage_EmptySection_ImportAndExport at
+    // metadata/platform-tables/AgXmlPortImport.al:94-96 (xmlport 78422, RequestPage_EmptySection_ImportAndExport at
     // :312-327): a `requestpage { }` with nothing in it changes nothing for Xmlport.Import and Export. The same holds
     // with empty `layout` and `actions` sections, both or one alone (xmlports 87564-87566 at :835-912,
     // QX_RequestPage_EmptyLayoutAndActions_ImportAndExport at :476). One with content never opens for Export and Import
-    // either (xmlport/lt-y40-xmlport-request-page/Y40XmlPortRequestPage.al:283-345, corpus master ac3499d6): it only marks
+    // either (xmlports/shapes-properties/Y40XmlPortRequestPage.al:283-345, corpus master ac3499d6): it only marks
     // the port as having a request page, which a Run with the request window opens.
     #[test]
     fn a_request_page_never_refuses_export_and_import() {
@@ -1294,7 +1389,7 @@ mod tests {
         }
     }
 
-    // xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:67-122 and xmlport/W7XmlPortTests.al:111-149 pin these values;
+    // xmlports/shapes-properties/QrXpContainerOccurs.al:67-122 and xmlports/W7XmlPortTests.al:111-149 pin these values;
     // a nested table element's MinOccurs below an AutoUpdate parent and a container's MaxOccurs = Unbounded are not pinned.
     #[test]
     fn an_explicit_min_occurs_once_on_a_table_element_runs() {
@@ -1322,12 +1417,37 @@ mod tests {
     }
 
     #[test]
+    fn max_occurs_once_without_min_occurs_on_a_linked_nested_table_element_with_link_fields_runs() {
+        // Corpus xmlports/shapes-properties/XpNestedLinkedOnce.al XOM_TempOnce_*, XOM_RealOnce_* (export) and
+        // XOM_ImportOnce_* (import of a real table).
+        let shape = |direction: &str, extra: &str| {
+            format!(
+                "xmlport 1 X {{ Direction = {direction}; schema {{ textelement(R) {{ tableelement(H; Cust) {{ tableelement(L; Line) {{ LinkTable = H; LinkFields = A = field(B); MaxOccurs = Once; {extra} fieldelement(N; L.X) {{ }} }} }} }} }} }}"
+            )
+        };
+        for ok in [
+            shape("Export", ""),
+            shape("Export", "UseTemporary = true;"),
+            shape("Import", ""),
+        ] {
+            assert!(layout_of(&ok).run_reasons.is_empty(), "{ok}");
+        }
+        for refused in [
+            shape("Import", "UseTemporary = true;"),
+            shape("Import", "MinOccurs = Once;"),
+            shape("Both", ""),
+        ] {
+            assert!(!layout_of(&refused).run_reasons.is_empty(), "{refused}");
+        }
+    }
+
+    #[test]
     fn min_once_unbounded_and_min_zero_once_run_on_an_unlinked_nested_table_element() {
         // Writer TU's branch al-runtime-rs-staging-tu, QrXpContainerOccurs.al TU_NestedTemp_* (xmlport 90129).
         for ok in [
             "xmlport 1 X { Direction = Export; schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { MinOccurs = Once; MaxOccurs = Unbounded; fieldelement(N; L.X) { } } } } } }",
             "xmlport 1 X { Direction = Export; schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { MinOccurs = Zero; MaxOccurs = Once; fieldelement(N; L.X) { } } } } } }",
-            // Corpus master misc/lt-np4-probes/Np4XmlPort.al:364, :381 (NP4_XmlPort_OnceOnce_*, xmlport 93416).
+            // Corpus master streams/Np4XmlPort.al:348, :381 (NP4_XmlPort_OnceOnce_*, xmlport 93416).
             "xmlport 1 X { Direction = Export; schema { textelement(R) { tableelement(H; Cust) { tableelement(L; Line) { MinOccurs = Once; MaxOccurs = Once; fieldelement(N; L.X) { } } } } } }",
         ] {
             assert!(layout_of(ok).run_reasons.is_empty(), "{ok}");
@@ -1359,10 +1479,47 @@ mod tests {
             "xmlport 1 X { schema { textelement(R) { MinOccurs = Once; tableelement(H; Cust) { fieldelement(N; H.X) { } } } } }",
         );
         assert!(l.run_reasons.is_empty(), "{:?}", l.run_reasons);
+        // MinOccurs = Zero on the root runs too (XpRootMinOccursZero.al, corpus branch al-runtime-rs-staging-r6963), on a root that
+        // holds elements; on a root without children it is not pinned.
         let zero = layout_of(
             "xmlport 1 X { schema { textelement(R) { MinOccurs = Zero; tableelement(H; Cust) { fieldelement(N; H.X) { } } } } }",
         );
-        assert!(!zero.run_reasons.is_empty());
+        assert!(zero.run_reasons.is_empty(), "{:?}", zero.run_reasons);
+        let leaf = layout_of("xmlport 1 X { schema { textelement(R) { MinOccurs = Zero; } } }");
+        assert!(!leaf.run_reasons.is_empty());
+    }
+
+    #[test]
+    fn use_default_namespace_with_named_namespaces_on_elements_runs_on_export() {
+        // Corpus xmlports/shapes-properties/XpUseDefaultNsPrefixes.al XUD_*_Export; the import is refused.
+        let port = |direction: &str, extra: &str| {
+            layout_of(&format!(
+                "xmlport 7 X {{ Direction = {direction}; Encoding = UTF8; Namespaces = soap = 'urn:s', tem = 'urn:t'; UseDefaultNamespace = true; {extra} schema {{ textelement(Envelope) {{ NamespacePrefix = 'soap'; textelement(Body) {{ NamespacePrefix = 'soap'; tableelement(H; Cust) {{ fieldelement(N; H.X) {{ NamespacePrefix = 'tem'; }} fieldattribute(A; H.Y) {{ }} }} }} }} }} }}"
+            ))
+        };
+        // A field attribute on an unprefixed table element is pinned (XpUseDefaultNsWithDefault.al XDN_Attr*_Export); an
+        // attribute on the root is not.
+        let with_attr = port("Both", "");
+        assert!(with_attr.run_reasons.is_empty(), "{:?}", with_attr.run_reasons);
+        assert!(with_attr.udn_root_prefix);
+        let root_attr = layout_of(
+            "xmlport 7 X { Direction = Both; Encoding = UTF8; Namespaces = soap = 'urn:s', tem = 'urn:t'; UseDefaultNamespace = true; schema { textelement(Envelope) { NamespacePrefix = 'soap'; textattribute(V) { } textelement(Body) { NamespacePrefix = 'soap'; } } } }",
+        );
+        assert!(!root_attr.run_reasons.is_empty());
+        let no_attr = |direction: &str, extra: &str| {
+            layout_of(&format!(
+                "xmlport 7 X {{ Direction = {direction}; Encoding = UTF8; Namespaces = soap = 'urn:s', tem = 'urn:t'; UseDefaultNamespace = true; {extra} schema {{ textelement(Envelope) {{ NamespacePrefix = 'soap'; textelement(Body) {{ NamespacePrefix = 'soap'; tableelement(H; Cust) {{ fieldelement(N; H.X) {{ NamespacePrefix = 'tem'; }} }} }} }} }} }}"
+            ))
+        };
+        let both = no_attr("Both", "");
+        assert!(both.run_reasons.is_empty(), "{:?}", both.run_reasons);
+        assert!(both.udn_root_prefix);
+        assert_eq!(
+            both.default_ns.as_deref(),
+            Some("urn:microsoft-dynamics-nav/xmlports/x7")
+        );
+        assert!(!no_attr("Import", "").run_reasons.is_empty());
+        assert!(!no_attr("Both", "UseLax = true;").run_reasons.is_empty());
     }
 
     #[test]
@@ -1377,7 +1534,7 @@ mod tests {
 
     #[test]
     fn default_namespace_with_use_default_namespace_names_the_namespace() {
-        // xmlport/lt-bd-xmlport/BdXmlPort.al:353-370 BdDefaultNamespace_PortWithDefaultNamespace (xmlport 81085).
+        // xmlports/shapes-properties/BdXmlPort.al:353-370 BdDefaultNamespace_PortWithDefaultNamespace (xmlport 81085).
         let l = layout_of(
             "xmlport 7 X { DefaultNamespace = 'urn:bd-default'; UseDefaultNamespace = true; schema { textelement(R) { tableelement(H; Cust) { fieldelement(N; H.X) { } } } } }",
         );
@@ -1401,8 +1558,8 @@ mod tests {
                 "maxoccurs = unbounded of container textelement Q",
             ),
             (
-                "textelement(R) { MinOccurs = Zero; textelement(L) { } }",
-                "minoccurs = zero of container textelement R",
+                "textelement(R) { MaxOccurs = Unbounded; textelement(L) { } }",
+                "maxoccurs = unbounded of container textelement R",
             ),
             (
                 "textelement(R) { tableelement(H; Cust) { tableelement(C; Cust) { MinOccurs = Once; } } }",
@@ -1413,8 +1570,8 @@ mod tests {
                 "minoccurs = zero of tableelement C",
             ),
             (
-                "textelement(R) { tableelement(H; Cust) { fieldelement(N; H.X) { MaxOccurs = Unbounded; } } }",
-                "maxoccurs = unbounded of fieldelement N",
+                "textelement(R) { tableelement(H; Cust) { fieldelement(N; H.X) { MinOccurs = Unbounded; } } }",
+                "minoccurs = unbounded of fieldelement N",
             ),
         ] {
             let l = layout_of(&format!("xmlport 1 X {{ schema {{ {src} }} }}"));
@@ -1728,6 +1885,59 @@ xmlport 50010 X
     }
 
     #[test]
+    fn link_table_may_name_the_table_element_right_before_it_under_a_text_element() {
+        // R6924eLinkSibling.al:85-108: `Root > Hdr, Line` with `LinkTable = Hdr` compiles on BC and is built.
+        let sibling = |schema: &str| {
+            SRC.replace(
+                "tableelement(P; Parent)",
+                &format!("{schema}\n            tableelement(P; Parent)"),
+            )
+            .replace("LinkTable = P;", "")
+            .replace("LinkFields = ParentNo = FIELD(No);", "")
+        };
+        let ok = sibling(
+            "tableelement(H; Parent) { fieldattribute(HNo; H.No) { } }\n            tableelement(L; Child) { LinkTable = H; LinkFields = ParentNo = FIELD(No); fieldattribute(LId; L.No) { } }",
+        );
+        assert_eq!(reasons_of(ok), "");
+        // A sibling that is not the node right before it stays refused.
+        let gap = sibling(
+            "tableelement(H; Parent) { fieldattribute(HNo; H.No) { } }\n            textelement(Gap) { }\n            tableelement(L; Child) { LinkTable = H; LinkFields = ParentNo = FIELD(No); fieldattribute(LId; L.No) { } }",
+        );
+        assert!(reasons_of(gap).contains("LinkTable H is not a table element above it"));
+        // A table element between the two is pinned (R6924eLinkSibling.al xmlport 95357), and so is the pair below another table
+        // element (xmlport 95358) and in the text formats (xmlports 95355, 95356).
+        let between = sibling(
+            "tableelement(H; Parent) { fieldattribute(HNo; H.No) { } }\n            tableelement(B; Parent) { fieldattribute(BNo; B.No) { } }\n            tableelement(L; Child) { LinkTable = H; LinkFields = ParentNo = FIELD(No); fieldattribute(LId; L.No) { } }",
+        );
+        assert_eq!(reasons_of(between), "");
+        let below = SRC
+            .replace("LinkTable = P;", "")
+            .replace("LinkFields = ParentNo = FIELD(No);", "")
+            .replace(
+                "tableelement(C; Child)",
+                "tableelement(H; Parent) { fieldattribute(HNo; H.No) { } }\n                tableelement(C; Child)",
+            )
+            .replace(
+                "fieldattribute(Id; C.No) { }",
+                "LinkTable = H; LinkFields = ParentNo = FIELD(No); fieldattribute(Id; C.No) { }",
+            );
+        assert_eq!(reasons_of(below), "");
+        let text = |format: &str| {
+            format!(
+                "table 50003 Hdr {{ fields {{ field(1; No; Code[10]) {{ }} }} keys {{ key(PK; No) {{ }} }} }}
+                 table 50004 Ln {{ fields {{ field(1; Doc; Code[10]) {{ }} field(2; Nr; Integer) {{ }} }} keys {{ key(PK; Doc, Nr) {{ }} }} }}
+                 xmlport 50011 T {{ Direction = Export; Format = {format}; UseRequestPage = false;
+                   schema {{ textelement(Root) {{
+                     tableelement(H; Hdr) {{ fieldelement(No; H.No) {{ Width = 4; }} }}
+                     tableelement(L; Ln) {{ LinkTable = H; LinkFields = Doc = field(No); fieldelement(Doc; L.Doc) {{ Width = 4; }} fieldelement(Nr; L.Nr) {{ Width = 3; }} }}
+                   }} }} }}"
+            )
+        };
+        assert_eq!(reasons_of(text("VariableText")), "");
+        assert_eq!(reasons_of(text("FixedText")), "");
+    }
+
+    #[test]
     fn link_table_must_name_a_table_element_above() {
         for name in ["Root", "Q", "C"] {
             let why = reasons_of(SRC.replace("LinkTable = P;", &format!("LinkTable = {name};")));
@@ -1748,19 +1958,31 @@ xmlport 50010 X
         // holds the port stays runnable.
         let why = reasons_of(SRC.replace(
             "XmlName = 'Docs';",
-            "XmlName = 'Docs'; trigger OnBeforePassVariable() begin end;",
+            "XmlName = 'Docs'; textelement(Leaf) { } trigger OnBeforePassVariable() begin end;",
         ));
         assert!(!why.contains("container text element"), "{why}");
-        let run = run_reasons_of(SRC.replace(
+        // A root beside a table element is a pinned shape (Y83XpMiscTests.al ContainerTriggers_Nested): no reason to refuse.
+        let pinned = run_reasons_of(SRC.replace(
             "XmlName = 'Docs';",
             "XmlName = 'Docs'; trigger OnBeforePassVariable() begin end;",
         ));
+        assert!(!pinned.contains("container text element"), "{pinned}");
+        // Without a table element it is not.
+        let src = SRC.replace(
+            "XmlName = 'Docs';",
+            "XmlName = 'Docs'; textelement(Leaf) { } trigger OnBeforePassVariable() begin end;",
+        );
+        let src = src
+            .replace("tableelement(P; Parent)", "textelement(P)")
+            .replace("fieldelement(Number; P.No) { }", "");
+        let src = src.replace("tableelement(C; Child)\n                {\n                    LinkTable = P;\n                    LinkFields = ParentNo = FIELD(No);\n                    fieldattribute(Id; C.No) { }\n                }", "");
+        let run = run_reasons_of(src);
         assert!(run.contains("triggers of the container text element Root"), "{run}");
     }
 
     #[test]
     fn format_evaluate_xml_and_legacy_are_understood_and_others_are_run_reasons() {
-        // xmlport/TestXmlPortFormatEvaluateContracts.al
+        // xmlports/TestXmlPortFormatEvaluateContracts.al
         for v in ["Xml", "Legacy"] {
             let src = SRC.replace(
                 "Direction = Export;",

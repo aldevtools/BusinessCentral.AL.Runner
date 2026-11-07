@@ -21,7 +21,7 @@ app = "corpus/tests/al-language-isolation-disabled"
 workflow_run = {run}
 artifact_id = {artifact}
 oracle = "{major}/junit-isolation-disabled.xml"
-baseline = "metrics/{major}/passing-isolation-disabled.txt"
+baseline = "metrics/{major}/not-passing-isolation-disabled.txt"
 runner = 130451
 '''
 legs = [rest[i:i + 5] for i in range(0, len(rest), 5)]
@@ -65,7 +65,9 @@ t = open(p).read()
 t = re.sub(r'(\| Corpus pin \| `)[0-9a-f]{40}(`)', rf'\g<1>{sha}\2', t)
 for major, oracle, onprem, n, n_onprem in legs:
     t = re.sub(
-        rf'^\| {major} \| ([0-9.]+) \| `[0-9a-f]+` \(the pin\) \| \d+ \| (`[^`]+`) \| \d+ \| \d+',
+        rf'^\| {major} \| ([0-9.]+) \| `[0-9a-f]+` \([^)]*\) \| \d+ \| (`[^`]+`) \| \d+ \| \d+',
         rf'| {major} | \1 | `{sha[:7]}` (the pin) | {run} | \2 | {oracle} | {n}',
         t, flags=re.M)
+# A bump from a master run replaces every file: the record of PR-results bumps (tools/corpus_bump_pr.py) goes.
+t = re.sub(r'\n*<!-- pr-results-bump:start -->.*?<!-- pr-results-bump:end -->\n?', '\n', t, flags=re.S)
 open(p, "w").write(t)

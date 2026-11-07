@@ -16,7 +16,7 @@ use al_data::{AccessContext, Store, TableDef};
 /// The object id of the platform's Company table.
 pub(crate) const COMPANY_TABLE: u32 = 2_000_000_006;
 
-/// The company of the corpus CI database other than the session company (install/lt-bf-install-probes/BfInstallTests.al:47-64).
+/// The company of the corpus CI database other than the session company (record/BfInstallTests.al:47-64).
 const CORPUS_OTHER_COMPANY: &str = "My Company";
 
 /// Base Application's app id.
@@ -92,7 +92,7 @@ impl Session {
         // ADR-046 decision 5, under the `--companies` opt-in: in a declared company other than the session company only
         // the per-company tables of the apps under test are answered (new at that app's install, so they hold what install
         // code and tests wrote there). What a dependency app, Company-Initialize or the platform put into a per-company
-        // table of that company is not known: install/lt-bf-install-probes/BfInstallTests.al:74-95 counts rows there that
+        // table of that company is not known: record/BfInstallTests.al:74-95 counts rows there that
         // the runtime does not make (P3).
         if !self.companies.is_empty() && t.per_company && !r.temporary {
             let company = r.company.as_deref().unwrap_or(&self.cx.company);
@@ -135,7 +135,7 @@ impl Session {
             return Ok(self.cx.clone());
         };
         // A company `Database.CopyCompany` made from the session company holds its rows as they were
-        // (session/lt-y22-copy-company/Y22CopyCompany.al:Y22_CopyCompany_CopiesCompanyAndRows), install rows included,
+        // (session-system/company/Y22CopyCompany.al:Y22_CopyCompany_CopiesCompanyAndRows), install rows included,
         // and the rows of the restored database (test data) too: the store serves the source's there (al-runner issue 6507).
         let full_copy = self.full_copies.contains(company.as_str());
         if t.per_company
@@ -163,7 +163,7 @@ impl Session {
     /// - With test data, the restored database says (`TableProvider::holds_rows_in`): BC has what that database holds.
     /// - Without test data the run models the corpus CI database, whose "My Company" holds no row of these Base
     ///   Application tables, the same on the three supported majors: CDS Connection Setup
-    ///   (install/lt-bf-install-probes/BfInstallTests.al `SecondCompany_CdsConnectionSetup_ComparedWithSessionCompany`,
+    ///   (record/BfInstallTests.al `SecondCompany_CdsConnectionSetup_ComparedWithSessionCompany`,
     ///   corpus PR 804), CRM Connection Setup (the same file, `SecondCompany_CrmConnectionSetup_ComparedWithSessionCompany` at :317-318,
     ///   corpus issue 811), General Ledger Setup, Sales & Receivables Setup and Company Information (the same file,
     ///   `SecondCompany_SetupTablesReadByCompanyInitialize_ComparedWithSessionCompany`), Source Code Setup
@@ -194,7 +194,7 @@ impl Session {
     /// Whether `company` is one AL code made in this run (a Company row the run did not declare, or a copy of one; ADR-046:
     /// the run's own companies are the session company and the declared ones) and `t` a table pinned to hold no row in
     /// such a company as it is made: Company Information, whose primary-key row a test inserts in the company it made
-    /// with `Company.Insert` (session/lt-y22-copy-company/Y22CopyCompany.al:90-94; the copy holds that row as it is, :132,
+    /// with `Company.Insert` (session-system/company/Y22CopyCompany.al:90-94; the copy holds that row as it is, :132,
     /// :154). Its rows there are then what AL code wrote; a copy of the company holds them as the source did.
     fn starts_empty_in_made(&self, company: &str, t: &TableDef) -> bool {
         let program = &self.engine.program;
@@ -261,8 +261,8 @@ impl Session {
 
     /// `Database.CopyCompany(SourceName, DestinationName)`. The errors: a source that is not a company is RecordNotFound
     /// on the Company table and makes no destination, also when the result is used; the source as its own destination is
-    /// RecordExists (lt-o-small-builtins/OSmallBuiltins.al:92-112). The destination names that fail, and the result `true`
-    /// of a copy: session/lt-y22-copy-company/Y22CopyCompany.al (corpus pin 92031e20, BC 27-29). Every other shape is
+    /// RecordExists (types/variant/OSmallBuiltins.al:92-112). The destination names that fail, and the result `true`
+    /// of a copy: session-system/company/Y22CopyCompany.al (corpus pin 92031e20, BC 27-29). Every other shape is
     /// refused.
     pub(crate) fn copy_company(&mut self, args: &[Value]) -> Result<Value, Signal> {
         let (Some(source), Some(destination)) = (
@@ -345,17 +345,17 @@ impl Session {
         }
     }
 
-    /// The copy of `Database.CopyCompany` (session/lt-y22-copy-company/Y22CopyCompany.al:Y22_CopyCompany_CopiesCompanyAndRows,
+    /// The copy of `Database.CopyCompany` (session-system/company/Y22CopyCompany.al:Y22_CopyCompany_CopiesCompanyAndRows,
     /// corpus pin 92031e20): a new Company row with the destination's name, `Evaluation Company` as the source's,
     /// `Display Name` and `Business Profile Id` empty, a new `Id` and `SystemId`; every per-company row of the source as it
     /// is (system fields included); tables that are not per company unchanged. No trigger or table event of a copied row
     /// and no database trigger runs; the Company's `OnAfterInsertEvent` runs once for the new row.
     fn copy_company_rows(&mut self, source: &str, destination: &str) -> Result<Value, Signal> {
         // Copying the session company inside a test meets the test runner's own row on BC
-        // (lt-o-small-builtins/OSmallBuiltins.al:87-90).
+        // (types/variant/OSmallBuiltins.al:87-90).
         if self.in_test_codeunit && source == &*self.cx.company {
             return unsupported(
-                "Database.CopyCompany of the session company while a test runs: on BC it meets the test runner's own row in Test Method Line (lt-o-small-builtins/OSmallBuiltins.al:87-90; the error is not pinned)",
+                "Database.CopyCompany of the session company while a test runs: on BC it meets the test runner's own row in Test Method Line (types/variant/OSmallBuiltins.al:87-90; the error is not pinned)",
             );
         }
         // The copy is part of the session's transaction (Y22CopyCompany.al Y22_CopyCompany_InWriteTransaction: a rollback

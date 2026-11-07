@@ -52,7 +52,7 @@ const CONTROL_SECTIONS: &[&str] = &[
 /// The type a property evaluates to, when it is one the client evaluates.
 pub fn dynamic_type(prop: &str) -> Option<PropType> {
     match prop.to_ascii_lowercase().as_str() {
-        // HideValue may name a variable (pages/lt-page-presentation-properties/P119LabelHideValue.al:74).
+        // HideValue may name a variable (pages/properties/P119LabelHideValue.al:74).
         "visible" | "editable" | "enabled" | "hidevalue" => Some(PropType::Boolean),
         "autoformatexpression" | "captionclass" => Some(PropType::Text),
         _ => None,
@@ -76,7 +76,7 @@ pub enum ClientExpr {
     /// The client compile fails on every measured BC version: the page is refused.
     Refused(String),
     /// A BigInteger literal (`0L`): the client compile fails on BC 27 (`Not a valid number`) and runs from BC 28
-    /// (pages/lt-cc-page-leads/CcPageLeads.al:801-808, Expr_BigIntegerLiteral_Enabled, `#if BC28PLUS`).
+    /// (testpage/CcPageLeads.al:801-808, Expr_BigIntegerLiteral_Enabled, `#if BC28PLUS`).
     BigIntegerLiteral(String),
 }
 
@@ -95,7 +95,7 @@ pub fn bare_call_name(value: &str) -> Option<String> {
 
 /// What the client compile of Boolean control expression `value` does that the runtime cannot follow, or `None`.
 ///
-/// Pinned failures (pages/lt-cc-page-leads/CcPageLeads.al): a member of a procedure's result (`GetRow().Flag`, :764,
+/// Pinned failures (testpage/CcPageLeads.al): a member of a procedure's result (`GetRow().Flag`, :764,
 /// "The type of function 'GetRow' is unknown."), a date literal (`Rec.D = 0D`, :846, "Not a valid number."), a member of a
 /// global record (`GlobalRow.Grp = 2`, :880, "The identifier 'GlobalRow.Grp' could not be found."). The error texts carry an
 /// index and a rewritten expression whose rule is not pinned, so these are refused, not raised. A call, a time or datetime
@@ -152,7 +152,7 @@ pub fn client_expression(value: &str) -> Option<ClientExpr> {
             if lit.ends_with('l') {
                 big = Some(ClientExpr::BigIntegerLiteral(format!(
                     "a BigInteger literal in the dynamic control expression `{}`: a BC version without gate BigIntegerLiteralInControlExpressionFrom28 fails to compile it when the page opens \
-                     (pages/lt-cc-page-leads/CcPageLeads.al:801-808; the error text's index rule is not pinned)",
+                     (testpage/CcPageLeads.al:801-808; the error text's index rule is not pinned)",
                     value.trim()
                 )));
             }
@@ -347,7 +347,7 @@ pub fn array_element(text: &str) -> Option<(String, String)> {
 
 /// Text that is a single call of a member, written as plain names joined by dots and one argument list that closes at the
 /// end (`Rec.DisplayCode()`, `Names.NameOf(Rec."No.")`, `Names.Fixed()`): a control bound to it has no source field
-/// (record/lt-x3-6368/X3PageControlCalls.al:142-147, al-runner issue 6368). A member access with no argument list
+/// (record/X3PageControlCalls.al:142-147, al-runner issue 6368). A member access with no argument list
 /// (`Rec.Name`) is not one.
 pub fn member_call_shape(text: &str) -> bool {
     let t = text.trim();
@@ -367,7 +367,7 @@ pub fn member_call_shape(text: &str) -> bool {
 
 /// Text of a call control whose SourceExpression is pinned as written: a call ([`call_shape`] or [`member_call_shape`])
 /// with an empty argument list or one argument that is a field of `Rec`, with no white space. BC keeps the text as
-/// written, `Rec.` included (record/lt-x3-6368/X3PageControlCalls.al:142-147: `Format(Rec.Kind)`, `Rec.DisplayCode()`,
+/// written, `Rec.` included (record/X3PageControlCalls.al:142-147: `Format(Rec.Kind)`, `Rec.DisplayCode()`,
 /// `Names.NameOf(Rec."No.")`, `Names.Fixed()`). Other arguments, white space and a bare name are not pinned.
 pub fn call_source_pinned(text: &str) -> bool {
     let t = text.trim();
@@ -388,7 +388,7 @@ pub fn call_source_pinned(text: &str) -> bool {
 }
 
 /// Text that is a single call written as a plain name, with or without one argument list that closes at the end
-/// (`CompanyName`, `CompanyName()`, `Format(Costs[1])`): a control bound to it has no source field (record/lt-wb-6284/
+/// (`CompanyName`, `CompanyName()`, `Format(Costs[1])`): a control bound to it has no source field (record/
 /// WbPageControlBuiltIn.al, al-runner issue 6284). A member access (`Rec.Name`), an operator or a second call is not one.
 pub fn call_shape(text: &str) -> bool {
     let t = text.trim();
@@ -430,7 +430,7 @@ pub fn plain_spacing(text: &str) -> bool {
 
 /// Source text of an expression-bound control that its Page Control Field row names as written: plain text with single spaces
 /// (`plain_spacing`), and for a field of a record variable also double quotes around names, kept as written (`Contact."Phone No."`,
-/// `Contact."Plain"`: pages/lt-y72-page-probes/Y72PageActionControlRows.al PageControl_RecVarQuotedSpacedField).
+/// `Contact."Plain"`: record/Y72PageActionControlRows.al PageControl_RecVarQuotedSpacedField).
 pub fn source_text_pinned(text: &str, var_field: bool) -> bool {
     let t = text.trim();
     plain_spacing(t) || (var_field && !t.contains(['\'', '\t', '\n', '\r']) && !t.contains("  "))
@@ -470,6 +470,15 @@ pub fn var_and_field(text: &str) -> Option<(String, String)> {
     Some((plain_name(&t[..dot])?, plain_name(&t[dot + 1..])?))
 }
 
+/// Whether `text` is `Rec.<name>` with an unquoted name: a field, or a parameterless method called without parentheses.
+fn unquoted_rec_name(text: &str) -> bool {
+    let t = text.trim();
+    t.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("rec."))
+        && !t[4..].is_empty()
+        && t[4..].chars().all(|c| c.is_alphanumeric() || c == '_')
+        && !t[4..].starts_with(|c: char| c.is_ascii_digit())
+}
+
 /// Global variable names (lower case) declared in `obj`.
 pub fn global_names(obj: &ast::Object) -> BTreeSet<String> {
     obj.var_decls()
@@ -483,7 +492,7 @@ pub fn global_names(obj: &ast::Object) -> BTreeSet<String> {
 ///
 /// `extension_routines` are the routines of an extension object (empty for any other object): a field of an extension
 /// whose source is a bare name that is none of them and no global of the extension gets no routine, because it
-/// names a variable of the base object (corpus handlers/TestRequestPageControlErrorName.al, Ext5803Handler:
+/// names a variable of the base object (corpus reports/TestRequestPageControlErrorName.al, Ext5803Handler:
 /// `field(...; ResetProdOrderCosting)` in Base App's "Mfg. Reset Cost Is Adjusted"). Lowering binds it there or refuses.
 fn needed(
     section: &ast::Section,
@@ -493,7 +502,7 @@ fn needed(
 ) -> Vec<(String, PropType, usize, String)> {
     let mut out = Vec::new();
     // A cuegroup, fixed or grid control gets a routine for Visible only: what its other expression properties do is not pinned
-    // (pages/lt-ab-group-properties: a fixed control's Editable expression), so they stay without one and the page is refused.
+    // (pages/properties: a fixed control's Editable expression), so they stay without one and the page is refused.
     let holder = ["cuegroup", "fixed", "grid"]
         .iter()
         .any(|k| section.name().eq_ignore_ascii_case(k));
@@ -518,7 +527,12 @@ fn needed(
         if let Some(src) = args.get(1) {
             let names_a_base_variable = extension_routines
                 .is_some_and(|routines| plain_name(src).is_some_and(|n| !routines.contains(&n.to_lowercase())));
-            if classify_source(src, globals) == Source::Expr && !names_a_base_variable {
+            // In an extension, `Rec.<name>` unquoted may name a parameterless method of the source table, called without
+            // parentheses (pages/record-method-controls/TestRecordMethodControls.al:39, al-runner issue 7133): it gets a routine
+            // too, which the lowering binds when the name is no field. Only extensions: a page's own controls would add a
+            // routine for every such field (thousands in Microsoft's apps, against 19 in their extensions).
+            let rec_name = extension_routines.is_some() && unquoted_rec_name(src);
+            if (classify_source(src, globals) == Source::Expr && !names_a_base_variable) || rec_name {
                 out.push((
                     "source".into(),
                     PropType::Variant,
@@ -534,14 +548,14 @@ fn needed(
 /// The table field sections of a table or table extension whose `CaptionClass` is an expression: (field name as written
 /// in the section, the name of the synthetic routine that evaluates it). A `field` section names its field second, a
 /// `modify` block first. The routine returns Text and runs with the record as Rec (FieldCaption, a page control's caption;
-/// pageext/lt-page-ext-properties/TableExtCaptionClass.al:56-74).
+/// pages/extensions/TableExtCaptionClass.al:56-74).
 pub fn field_caption_class_routines(obj: &ast::Object) -> Vec<(String, String, String)> {
     field_expression_routines(obj, "CaptionClass")
 }
 
 /// The table field sections of a table or table extension whose `AutoFormatExpression` is an expression, as
 /// [`field_caption_class_routines`]. A page control over the field that names no expression of its own formats its value
-/// with the routine's result, run with the control's row as Rec (a field of the row: types/lt-auto-format-currency/QiTableFieldAutoFormat.al).
+/// with the routine's result, run with the control's row as Rec (a field of the row: format-evaluate/QiTableFieldAutoFormat.al).
 pub fn field_auto_format_routines(obj: &ast::Object) -> Vec<(String, String, String)> {
     field_expression_routines(obj, "AutoFormatExpression")
 }
@@ -689,7 +703,7 @@ fn expansion(src: &str, parse: &al_syntax::Parse) -> Option<Vec<(usize, String)>
     let root = ast::SourceFile::cast(parse.syntax())?;
     let mut inserts: Vec<(usize, String)> = Vec::new();
     for obj in root.objects() {
-        // A report's request page has the same controls (corpus handlers/TestReportRequestPageControl.al).
+        // A report's request page has the same controls (corpus reports/TestReportRequestPageControl.al).
         let kind = obj.kind().to_ascii_lowercase();
         let Some(close) = obj.close_brace_offset() else {
             continue;
@@ -753,7 +767,7 @@ fn expansion(src: &str, parse: &al_syntax::Parse) -> Option<Vec<(usize, String)>
                     .sum::<usize>()
         };
         // A page's DataCaptionExpression becomes a routine of the page; the caption a TestPage shows evaluates it
-        // (pages/lt-page-autoformat-lookups/P113DataCaption.al:88, al-runner issue 6320; `data_caption_routine`).
+        // (pages/run-modal/P113DataCaption.al:88, al-runner issue 6320; `data_caption_routine`).
         if kind == "page"
             && let Some(p) = obj
                 .properties()
@@ -877,7 +891,7 @@ struct Area {
 /// Reporting: pages/W1ActionAreas.al:44-115 and :137-157 (ExtensionActions_InImplicitAreas_Run adds to all five on a page
 /// with no actions, and each added action runs). The order of the areas among themselves is not pinned.
 /// Promoted: an extension's addfirst and addlast into area(Promoted) of a page that declares none, or no actions section at all
-/// (pageext/lt-ue-pageext-leads/UePromotedTests.al Promoted_BaseDeclaresNoPromotedArea, Promoted_BaseDeclaresNoActions; al-runner
+/// (testpage/UePromotedTests.al Promoted_BaseDeclaresNoPromotedArea, Promoted_BaseDeclaresNoActions; al-runner
 /// issues 6150 and 6158; assumption pageext-implicit-promoted until the pin lands).
 const IMPLICIT_ACTION_AREAS: &[&str] = &[
     "Processing",
@@ -889,7 +903,7 @@ const IMPLICIT_ACTION_AREAS: &[&str] = &[
 ];
 
 /// Promoted category groups an extension may add actionrefs into (addfirst, addlast) although the page declares none: the
-/// actionrefs are on the page and run their actions (pageext/lt-ue-pageext-leads/UePromotedTests.al
+/// actionrefs are on the page and run their actions (testpage/UePromotedTests.al
 /// CategoryNew_BaseDeclaresOnlyCategoryProcess, CategoryNew_BaseDeclaresNoActions; al-runner issue 6150).
 const IMPLICIT_PROMOTED_CATEGORIES_ADD: &[&str] = &["Category_New", "Category_Process", "Category_Report"];
 
@@ -898,7 +912,7 @@ const IMPLICIT_PROMOTED_CATEGORIES: &[&str] = &["Category_Process"];
 
 /// How a page extension may use a promoted category group the page does not declare, beyond the lists above, and what that
 /// rests on. `addafter` and `addlast` of `Category_Category7`, `Category_Category12` and `Category_New` compile and the
-/// extension's action and actionref run from a TestPage (pages/lt-up-page-ext/UpPromotedCategories.al:99, :176, :249, :326,
+/// extension's action and actionref run from a TestPage (pages/extensions/UpPromotedCategories.al:99, :176, :249, :326,
 /// :399, corpus PR 808 at branch commit 910da83e; al-runner issue 6217): the former assumption `pageext-implicit-promoted-category` (pinned on corpus master since bump 1030)
 /// until PR 808 is in the pinned corpus. `addafter` of `Category_New` and `Category_Report` is pinned on master
 /// (pages/W1ActionAreasPromoted.al:82, :89). Every other group name and position is not pinned and stays refused (alc rejects
@@ -912,9 +926,9 @@ fn implicit_promoted_category(kind: &str, target: &str) -> Option<Option<al_buil
     if !["addafter", "addlast"].contains(&kind) {
         return None;
     }
-    // Pinned by pages/lt-up-page-ext/UpPromotedCategories.al (was assumption `pageext-implicit-promoted-category`) for
+    // Pinned by pages/extensions/UpPromotedCategories.al (was assumption `pageext-implicit-promoted-category`) for
     // `Category_New`, `Category_Category7` and `Category_Category12`, and for `Category_Category5` and 6 by corpus branch
-    // al-runtime-rs-staging-y64 85d86e7b, pages/lt-up-page-ext/Y64PromotedImplicit.al:229-308; every group from 4 to 20 is the
+    // al-runtime-rs-staging-y64 85d86e7b, pages/extensions/Y64PromotedImplicit.al:217-296; every group from 4 to 20 is the
     // same implicit group (`promoted.rs`).
     (lower == "category_new" || promoted::numbered_category(target)).then_some(None)
 }
@@ -949,16 +963,16 @@ struct Tree {
     assumes: Vec<al_builtins::assumptions::Assumption>,
 }
 
-/// Areas of `layout` a page extension may add to on a Card page that declares none: pageext/lt-bc-implicit-areas/BcImplicitAreas.al
+/// Areas of `layout` a page extension may add to on a Card page that declares none: pages/extensions/BcImplicitAreas.al
 /// (FactBoxes on a card with only Content, :31-67; Content and FactBoxes on a card with no layout, :69-88).
 const IMPLICIT_CARD_AREAS: &[&str] = &["Content", "FactBoxes"];
 
 /// Areas of `layout` a page extension may add to on a List page that declares none: FactBoxes on a list with only Content
-/// (pageext/lt-bc-implicit-areas/BcImplicitAreas.al:93-136, AL Runner issue 5674). Content on a List without a layout is not pinned.
+/// (pages/extensions/BcImplicitAreas.al:93-136, AL Runner issue 5674). Content on a List without a layout is not pinned.
 const IMPLICIT_LIST_AREAS: &[&str] = &["FactBoxes"];
 
 /// The implicit `layout` areas of a page of type `page_type`; other page types are not pinned. A Worksheet, a Document and a
-/// ListPlus take FactBoxes as a List does (al-runner issue 6490; corpus writer Y20, pageext/lt-bc-implicit-areas/Y20ImplicitFactBoxes.al);
+/// ListPlus take FactBoxes as a List does (al-runner issue 6490; corpus writer Y20, pages/extensions/Y20ImplicitFactBoxes.al);
 /// a part page does not (must-not-compile 2351, 2352). On a StandardDialog, a ConfirmationDialog and a NavigatePage the extension
 /// compiles but the part is not on the page, which is not modeled: refused. The assumption that comes back, none at present,
 /// is marked when an extension adds to the area.
@@ -1071,12 +1085,12 @@ impl Tree {
             }
             "field" => K::Field,
             // A label IS a member of the TestPage: Visible, Enabled, Caption and Value (its caption), and not
-            // Editable (handlers/TestPageLabelControlContracts.al:Label_IsATestPageMember_WithItsCaption).
+            // Editable (testpage/TestPageLabelControlContracts.al:Label_IsATestPageMember_WithItsCaption).
             "label" => K::Field,
             "group" if in_actions => K::ActionGroup,
             "group" => K::Group,
             // The TestPage has no member for a cuegroup, fixed or grid control itself, but its fields and a
-            // cuegroup's actions are members of the page (handlers/TestPageCueGroupFixedGridContracts.al:
+            // cuegroup's actions are members of the page (testpage/TestPageCueGroupFixedGridContracts.al:
             // CueGroup_Fields_ReadAndTheActionRuns, FixedAndGrid_Fields_ReadAndTakeSetValueLikeListFields,
             // FixedWithRepeater_MovesBetweenRowsLikeAList). They are groups that hold the controls.
             "cuegroup" => K::CueGroup,
@@ -1088,17 +1102,17 @@ impl Tree {
             }
             "repeater" => K::Repeater,
             // An actionref is a control that delegates to its action (corpus
-            // handlers/TestPageActionRunObject_Tests.al:ActionrefToARunObjectActionOpensTheSameTarget,
-            // handlers/TestPagePromotedActionref_Tests.al).
+            // testpage/TestPageActionRunObject_Tests.al:ActionrefToARunObjectActionOpensTheSameTarget,
+            // testpage/TestPagePromotedActionref_Tests.al).
             "action" | "actionref" => K::Action,
             "systemaction" => K::SystemAction,
             "part" => K::Part,
             // The TestPage has no member for a system part (Notes, Links, MyNotes, ...), and the corpus
             // tests that open Base App pages declaring one (for example
-            // handlers/TestPagePlatformPageSourceTable_Tests.al:77, handlers/TestReportRunFromPrecompiledCaller.al:31)
+            // testpage/TestPagePlatformPageSourceTable_Tests.al:77, reports/TestReportRunFromPrecompiledCaller.al:31)
             // never reach it. A customaction (Power Automate;
-            // pageextensioncontrol/TestPageExtensionModifyPrecompiled_Tests.al:69) and a usercontrol (a control add-in; likewise a fileuploadaction:
-            // pageapplicationarea/TestPageApplicationAreaPrecompiledActionRemoval.al:39 opens Item List, which hosts one in a part) are treated the same way:
+            // pages/extensions/TestPageExtensionModifyPrecompiled_Tests.al:69) and a usercontrol (a control add-in; likewise a fileuploadaction:
+            // pages/application-area/TestPageApplicationAreaPrecompiledActionRemoval.al:39 opens Item List, which hosts one in a part) are treated the same way:
             // docs/probes-needed.md says what is not pinned. They stay in the tree so that `addafter`/
             // `modify` can name them, and are dropped from the controls the page lowers, so a TestPage
             // reference to one is refused ("control ... is not in the page layout"), never answered.
@@ -1276,7 +1290,7 @@ impl Tree {
             // issue 6483): a test page names an action and never lists them, and no table reports their order, so the order a
             // move gives them is not observable (ADR-009); each one stays in the tree with what it holds. Several controls of
             // the layout in one move keep the order they are written in, which "Page Control Field" reports (corpus writer Y20,
-            // pageext/lt-y20-moves/Y20PageExtMoves.al:178, measured on BC; assumption until it is pinned). A move of the layout
+            // pages/extensions/Y20PageExtMoves.al:178, measured on BC; assumption until it is pinned). A move of the layout
             // into an area is not pinned.
             "movefirst" | "movelast" | "moveafter" | "movebefore" => {
                 let args = op.section.args();
@@ -1302,12 +1316,15 @@ impl Tree {
                     return Err(format!("{kind}({target}) of no control"));
                 }
                 // Several layout controls in one move keep the order written (al-runner issue 6483;
-                // pageext/lt-y20-moves/Y20PageExtMoves.al).
+                // pages/extensions/Y20PageExtMoves.al).
                 let first_last = kind == "movefirst" || kind == "movelast";
-                let area = if op.in_actions && first_last {
+                // movefirst/movelast into an area: of actions, and of the layout (`movefirst(FactBoxes; Details)`,
+                // `movelast(Content; Data)`: pages/extension-layout-containers/TestFactboxMove.Codeunit.al:21,
+                // TestContentMove.Codeunit.al:21; issue 6952).
+                let area = if first_last {
                     self.areas
                         .iter()
-                        .position(|a| a.in_actions && a.name.eq_ignore_ascii_case(&target))
+                        .position(|a| a.in_actions == op.in_actions && a.name.eq_ignore_ascii_case(&target))
                 } else {
                     None
                 };
@@ -1333,6 +1350,12 @@ impl Tree {
                             let group = match self.nodes[a].kind {
                                 al_ir::ControlKind::Group => !op.in_actions,
                                 al_ir::ControlKind::ActionGroup => op.in_actions,
+                                // Fields into a repeater (`movefirst(General; Description)`: pages/extension-layout-containers/
+                                // TestRepeaterMove.Codeunit.al:21; issue 6952).
+                                al_ir::ControlKind::Repeater => {
+                                    !op.in_actions
+                                        && ms.iter().all(|&m| self.nodes[m].kind == al_ir::ControlKind::Field)
+                                }
                                 _ => false,
                             };
                             if !group {
@@ -1406,7 +1429,7 @@ impl Tree {
                     .iter()
                     .any(|a| a.in_actions && a.name.eq_ignore_ascii_case(&target))
             {
-                // `Promoted`: pinned by pageext/lt-ue-pageext-leads/UePromotedTests.al (was assumption `pageext-implicit-promoted`).
+                // `Promoted`: pinned by testpage/UePromotedTests.al (was assumption `pageext-implicit-promoted`).
                 self.areas.push(Area {
                     name: target,
                     in_actions: true,
@@ -1461,14 +1484,15 @@ impl Tree {
             };
             // `modify` of an implicit group, and `addafter`/`addbefore` of the implicit actionref of a legacy promoted action
             // (al-runner issues 6646, 6647; `promoted.rs`).
-            let implicit =
-                (kind == "modify" && promoted::numbered_category(&target) && promoted::inert_group_modify(&op.section))
-                    || (["addafter", "addbefore"].contains(&kind.as_str()) && self.legacy_promoted_ref(&target));
+            let implicit = (kind == "modify"
+                && (promoted::numbered_category(&target) || promoted::standard_category(&target))
+                && promoted::inert_group_modify(&op.section))
+                || (["addafter", "addbefore"].contains(&kind.as_str()) && self.legacy_promoted_ref(&target));
             if op.in_actions
                 && (process_after || legacy || added_into || implicit || other.is_some())
                 && self.find_node(&target).is_none()
             {
-                // `added_into`: pinned by pageext/lt-ue-pageext-leads/UePromotedTests.al (was assumption `pageext-implicit-promoted`).
+                // `added_into`: pinned by testpage/UePromotedTests.al (was assumption `pageext-implicit-promoted`).
                 if let Some(Some(a)) = other {
                     self.assumes.push(a);
                 }
@@ -1593,7 +1617,7 @@ impl Tree {
             controls,
             reasons,
             action_areas,
-            // addlast/addfirst on the implicit group of a legacy promoted category: pages/lt-page-ext-promoted/PageExtPromotedCategoryRisky.al.
+            // addlast/addfirst on the implicit group of a legacy promoted category: pages/extensions/PageExtPromotedCategoryRisky.al.
             assumes,
         }
     }
@@ -1604,13 +1628,13 @@ impl Tree {
 pub enum LinkRhs {
     /// `field(Name)`
     Field(String),
-    /// `field(filter(Name))`: the host field's value is read as a filter text (pages/lt-y37-link-filter/Y37LinkFilterTests.al).
+    /// `field(filter(Name))`: the host field's value is read as a filter text (pages/link-filter/Y37LinkFilterTests.al).
     FieldFilter(String),
     /// `const(x)` / `filter(x)`: the filter text; quotes of a single-quoted literal are removed.
     Filter(String),
     /// `const(Database::"Name")`: the id of the named table.
     TableId(String),
-    /// `const("Enum Name"::Member)`: a value of the named enum (pages/lt-uj-outside-leads/UjSubPageLink.al, corpus branch
+    /// `const("Enum Name"::Member)`: a value of the named enum (testpage/UjSubPageLink.al, corpus branch
     /// al-runtime-rs-staging-uj 1dc037a8). The names are unquoted.
     EnumValue(String, String),
 }
@@ -1781,7 +1805,7 @@ fn parse_link_kinds(text: &str) -> Result<Vec<(String, LinkRhs, bool)>, String> 
 }
 
 /// The text Page Control Field reports for a Visible, Enabled or Editable expression `value` of a control the page `page_id`
-/// itself declares, when its form is pinned (errors/lt-ms-refusals-132/P132PageControlVisible.al:134-264, AL Runner issue 5786):
+/// itself declares, when its form is pinned (pages/controls/P132PageControlVisible.al:134-264, AL Runner issue 5786):
 /// a page variable as `p<id>p<id><Name>`, `Rec.<Field>` as the field's name, in double quotes only when it is not a plain
 /// identifier; `not <operand>`, `<operand> > <whole number>` and `<operand> and <operand>`, written with single spaces. `globals`
 /// are the page's variables as declared, `fields` the source table's field names. Any other form is `None`.
@@ -1941,7 +1965,7 @@ mod tests {
             .collect()
     }
 
-    // Corpus handlers/TestPageControlPropertyLiveness_Tests.al: `Visible = not HideIt`
+    // Corpus testpage/TestPageControlPropertyLiveness_Tests.al: `Visible = not HideIt`
     // style properties are expressions over page state.
     #[test]
     fn expression_properties_become_synthetic_routines() {
@@ -1984,7 +2008,7 @@ mod tests {
     fn client_compiled_control_expressions_that_bc_fails_on_are_named() {
         use super::{ClientExpr, client_expression};
         let refused = |e: &str| matches!(client_expression(e), Some(ClientExpr::Refused(_)));
-        // pages/lt-cc-page-leads/CcPageLeads.al:764, :846, :880.
+        // testpage/CcPageLeads.al:764, :846, :880.
         assert!(refused("GetRow().Flag"));
         assert!(refused("Rec.D = 0D"));
         assert!(refused("GlobalRow.Grp = 2"));
@@ -2053,8 +2077,8 @@ mod tests {
             .collect()
     }
 
-    // Corpus pageextensioncontrol/TestPageExtensionControlTrapped_Page.al (`addafter("Rec Text")`),
-    // handlers/TestPageExtensionActionWithPart_Page.al (`addfirst(FactBoxes)`), handlers/TestPageExtensionActionInvoke_Page.al
+    // Corpus pages/extensions/TestPageExtensionControlTrapped_Page.al (`addafter("Rec Text")`),
+    // testpage/TestPageExtensionActionWithPart_Page.al (`addfirst(FactBoxes)`), testpage/TestPageExtensionActionInvoke_Page.al
     // (`addlast(Processing)`): extension controls land where the section names them.
     #[test]
     fn extension_sections_place_controls_first_last_after_and_before() {
@@ -2166,7 +2190,7 @@ mod tests {
         assert!(l.reasons.iter().any(|r| r.contains("movefirst")));
     }
 
-    // Corpus handlers/TestPagePlatformPageSourceTable_Tests.al:77 (ReadsTheWholePositionedRow) and the other tests that open a
+    // Corpus testpage/TestPagePlatformPageSourceTable_Tests.al:77 (ReadsTheWholePositionedRow) and the other tests that open a
     // Base App page declaring `systempart(Control; Notes)`: the TestPage has no member for a system part, so
     // it is not a control of the page. An extension can still anchor on it.
     #[test]
@@ -2175,13 +2199,13 @@ mod tests {
         let ext = "pageextension 50101 E extends P { layout { addafter(Control1) { field(AfterNotes; Rec.F) { } } } }";
         let l = merged(base, &[ext]);
         assert!(l.reasons.is_empty(), "{:?}", l.reasons);
-        // A label is a control (handlers/TestPageLabelControlContracts.al); the others are not.
+        // A label is a control (testpage/TestPageLabelControlContracts.al); the others are not.
         assert_eq!(names(&l), ["A", "Hint", "AfterNotes", "Flow"]);
     }
 
     // A customaction (or a label, a systempart, a usercontrol) stays in the tree as an anchor and is no control
     // of the page, so it is no root of an action area either. A root past the controls panicked the Page Action
-    // table over handlers/TestPageLabelControlContracts.al: page "Probe Label Kinds" (`action(Plain)` then
+    // table over testpage/TestPageLabelControlContracts.al: page "Probe Label Kinds" (`action(Plain)` then
     // `customaction(Cust)` in area(Processing)).
     #[test]
     fn an_action_area_has_no_root_for_a_customaction() {
@@ -2194,12 +2218,12 @@ mod tests {
 
     // A page that declares no `actions` still has the area an extension adds to. Microsoft's own extensions of
     // Base App pages do it and compile in real BC; the corpus tests that open them pass there
-    // (handlers/TestPageModalHandler_PrecompiledPage.al:31 RunModalOnErrorMessages_HandlerInvokesOk_ReturnsActionOk
+    // (ui-handlers/TestPageModalHandler_PrecompiledPage.al:31 RunModalOnErrorMessages_HandlerInvokesOk_ReturnsActionOk
     // over "Error Messages" + `addfirst(Processing)`, RunModalOnNoSeries_HandlerInvokesOk_ReturnsActionOk over
     // "No. Series" + `addfirst(Prompting)`).
     #[test]
     fn an_extension_adds_to_the_factboxes_and_content_of_a_card_that_declares_neither() {
-        // pageext/lt-bc-implicit-areas/BcImplicitAreaObjects.al: pages 80965 (Content only) and 80969 (no layout).
+        // pages/extensions/BcImplicitAreaObjects.al: pages 80965 (Content only) and 80969 (no layout).
         let card = "page 50100 P { PageType = Card; layout { area(Content) { group(General) { field(Number; Rec.Number) { } } } } }";
         let links =
             "pageextension 50101 E extends P { layout { addfirst(FactBoxes) { systempart(BCLinks; Links) { } } } }";
@@ -2219,7 +2243,7 @@ mod tests {
         let l = merged(list, &[part]);
         assert!(l.reasons.is_empty(), "{:?}", l.reasons);
         // Worksheet, Document and ListPlus take FactBoxes too (al-runner issue 6490; corpus writer Y20,
-        // pageext/lt-bc-implicit-areas/Y20ImplicitFactBoxes.al). A part page does not (must-not-compile 2351, 2352).
+        // pages/extensions/Y20ImplicitFactBoxes.al). A part page does not (must-not-compile 2351, 2352).
         for ty in ["Worksheet", "Document", "ListPlus"] {
             let page = format!(
                 "page 50100 P {{ PageType = {ty}; layout {{ area(Content) {{ field(Number; Rec.Number) {{ }} }} }} }}"
@@ -2250,7 +2274,7 @@ mod tests {
 
     // Every page has the promoted category groups, declared or not: the same Microsoft extension of "Error Messages"
     // does `addafter(Category_Process) { actionref(...) }` on a page with no actions
-    // (handlers/TestPageModalHandler_PrecompiledPage.al:31, pageextensioncontrol/TestPageExtensionModifyPrecompiled_Tests.al:69).
+    // (ui-handlers/TestPageModalHandler_PrecompiledPage.al:31, pages/extensions/TestPageExtensionModifyPrecompiled_Tests.al:69).
     #[test]
     fn an_extension_adds_after_the_process_category_of_a_page_that_declares_none() {
         let base = "page 50100 P { layout { area(Content) { field(A; Rec.A) { } } } }";
@@ -2270,7 +2294,7 @@ mod tests {
         let l = merged(base, &[ext]);
         assert!(l.reasons.is_empty(), "{:?}", l.reasons);
         assert_eq!(names(&l), ["A", "Act", "Act_Promoted"]);
-        // A standard category no action of the page is promoted to is an implicit group too (pages/lt-up-page-ext/
+        // A standard category no action of the page is promoted to is an implicit group too (pages/extensions/
         // UpPromotedCategories.al:176, corpus PR 808; al-runner issue 6217), on an assumption until the corpus bump.
         let ext = "pageextension 50101 E extends P { actions { addlast(Category_Category7) { actionref(Act_Promoted; Act) { } } } }";
         let l = merged(base, &[ext]);
@@ -2296,7 +2320,7 @@ mod tests {
         assert_eq!(l.reasons.len(), 1, "{:?}", l.reasons);
     }
 
-    // handlers/TestPageCueGroupFixedGridContracts.al: cuegroup, fixed and grid hold controls; a cuegroup's
+    // testpage/TestPageCueGroupFixedGridContracts.al: cuegroup, fixed and grid hold controls; a cuegroup's
     // `actions` hold its actions; a repeater may sit inside a fixed control.
     #[test]
     fn cuegroup_fixed_and_grid_hold_their_controls() {
@@ -2323,7 +2347,7 @@ mod tests {
         assert_eq!(l.controls[0].kind, al_ir::ControlKind::CueGroup);
     }
 
-    // Corpus handlers/TestPagePromotedActionref_Page.al: an actionref is a control that names its target.
+    // Corpus testpage/TestPagePromotedActionref_Page.al: an actionref is a control that names its target.
     #[test]
     fn an_actionref_is_a_control() {
         let base = "page 50100 P { actions { area(Processing) { action(Act) { } } area(Promoted) { actionref(Act_Promoted; Act) { } } } }";
@@ -2337,7 +2361,7 @@ mod tests {
     // A page field whose source is a lone quoted name with spaces or punctuation
     // (`field("Assign-to No."; "Assign-to No.")` in Base Application) keeps its quotes in the routine
     // that reads it; unquoted, `exit(Assign-to No.)` parses as a subtraction. The quotes of the
-    // control's name are not part of the name (handlers/TestPageActionRunPageView.al names controls
+    // control's name are not part of the name (testpage/TestPageActionRunPageView.al names controls
     // the same way).
     #[test]
     fn a_lone_quoted_field_source_keeps_its_quotes_in_the_routine() {
@@ -2347,7 +2371,7 @@ mod tests {
         assert!(!out.contains("exit(Assign-to"), "{out}");
     }
 
-    // Corpus pageextensioncontrol/TestPageExtensionModifyEditable_Tests.al: `Editable = not PXMSLocked;` in a
+    // Corpus pages/extensions/TestPageExtensionModifyEditable_Tests.al: `Editable = not PXMSLocked;` in a
     // `modify` block of a page extension is an expression over the extension's variables.
     #[test]
     fn expression_properties_of_page_extensions_and_modify_blocks_become_routines_of_the_extension() {
@@ -2371,7 +2395,7 @@ mod tests {
         );
     }
 
-    // Corpus handlers/TestPageSubpagePartConstFilter.al, TestPagePartLinkFilterGroup.al:
+    // Corpus testpage/TestPageSubpagePartConstFilter.al, TestPagePartLinkFilterGroup.al:
     // SubPageLink forms field(...), const(...), filter(...).
     #[test]
     fn sub_page_link_entries_parse() {
@@ -2392,7 +2416,7 @@ mod tests {
         assert!(parse_sub_page_link("A = bogus(B)").is_err());
     }
 
-    // Corpus handlers/TestPageActionRunPageLink.al:ActionRunPageLink_Filter_AppliesTheFilterExpression:
+    // Corpus testpage/TestPageActionRunPageLink.al:ActionRunPageLink_Filter_AppliesTheFilterExpression:
     // `filter('H1' | 'H3')` selects both values.
     #[test]
     fn quoted_literals_in_a_filter_lose_their_quotes_one_by_one() {
@@ -2411,7 +2435,7 @@ mod tests {
         );
     }
 
-    // Corpus handlers/TestPageActionRunObject_Objects.al: `RunObject = Page "TPARO Card Target"`.
+    // Corpus testpage/TestPageActionRunObject_Objects.al: `RunObject = Page "TPARO Card Target"`.
     #[test]
     fn run_object_names_a_kind_and_an_object() {
         use al_ir::RunKind;

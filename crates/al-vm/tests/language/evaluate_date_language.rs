@@ -1,5 +1,5 @@
 //! The error of a rejected Date text follows the language in force
-//! (misc/lt-system-functions/EvalLastError.al:463-481, BT_Evaluate_DottedDate_Language1031).
+//! (format-evaluate/EvalLastError.al:463-481, BT_Evaluate_DottedDate_Language1031).
 
 use al_builtins::native::Signal;
 
@@ -23,7 +23,7 @@ fn the_date_error_is_german_in_language_1031() {
 
 #[test]
 fn the_json_date_conversion_error_is_german_in_language_1031() {
-    // misc/lt-system-functions/EvalLastError.al:463-481 (`1031 json`).
+    // format-evaluate/EvalLastError.al:463-481 (`1031 json`).
     let src = "codeunit 50100 C { [TryFunction] local procedure TryJ(T: Text; var D: Date) var J: JsonValue; begin \
                J.SetValue(T); D := J.AsDate(); end; procedure F(): Text var D: Date; begin GlobalLanguage(1031); \
                if TryJ('29.05.2018', D) then exit('ok'); exit(GetLastErrorText()); end; }";

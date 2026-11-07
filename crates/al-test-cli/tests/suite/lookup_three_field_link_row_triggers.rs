@@ -2,7 +2,7 @@
 //! whose ListPart has a SubPageLink of three `field(..)` entries shows the picked value (al-runner issue 6519, the reporter's
 //! repro; real BC shows `R2`). BC leaves the refresh of the Update for later: the Lookup and the reads after it run no row
 //! trigger, the globals the triggers set and the part keep their values (corpus writer Y26, branch al-runtime-rs-staging-y26,
-//! pages/lt-y15/Y15LookupThreeFieldLink.al:314 Y26_ThreeLinkCurr_LookupRefresh). The calls that run that refresh are refused.
+//! testpage/Y15LookupThreeFieldLink.al:314 Y26_ThreeLinkCurr_LookupRefresh). The calls that run that refresh are refused.
 
 use al_testkit::outcomes_in;
 
@@ -233,8 +233,8 @@ fn a_lookup_on_a_host_with_row_triggers_whose_part_links_three_fields_shows_the_
 }
 
 /// The reporter's tests run clean: the Lookup writes the field of the page's global record (`Setting."Resource No."`) and runs
-/// the control's OnValidate, which the corpus pins (pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al: the control shows
-/// R2 and the saved setting row holds it), so assumption `page-expression-control-setvalue` is not marked.
+/// the control's OnValidate, which the corpus pins (testpage/ScLookupGlobalRecordField.al: the control shows
+/// R2 and the saved setting row holds it), so no assumption is marked.
 #[test]
 fn the_reporters_lookups_mark_no_assumption() {
     let l = al_testkit::compile(SRC);

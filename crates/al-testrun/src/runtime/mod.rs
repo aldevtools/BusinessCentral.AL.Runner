@@ -362,6 +362,8 @@ pub struct TestResult {
 /// Wall time of the phases of a run (`--timings`).
 #[derive(Debug, Clone, Default)]
 pub struct Phases {
+    /// The test codeunits that ran serially in the carry chain, and why (`--timings`).
+    pub chain: ChainReport,
     /// The ids of the assumptions the install baseline relied on (a JUnit suite-level property).
     pub baseline_assumptions: Vec<String>,
     /// Install roots that ran to their end, and how many there were; `None` when no baseline ran.
@@ -536,8 +538,8 @@ pub(crate) struct Unit {
     hub: bool,
     /// BC runs it on the TestRunnerHub (`corpus.rs` `on_hub`), before the codeunits runner 130450 runs.
     hub_leg: bool,
-    /// See `Scratch::onrun_carry`.
-    onrun_carry: bool,
+    /// Why runner 130450 carries what it leaves to the later codeunits (`chain::carry_why`); see `Scratch::onrun_carry`.
+    carry: Option<chain::ChainWhy>,
     /// See `Scratch::leak`.
     leak: Option<Arc<std::collections::BTreeSet<u32>>>,
     /// See `RunOptions::on_run_rows`.
@@ -550,6 +552,10 @@ pub(crate) struct Unit {
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
     run_seed: crate::seed::RunSeed,
+    /// See `Scratch::runner`.
+    runner: Option<usize>,
+    /// The session watches the single instances it makes (`single_lane.rs`).
+    watch: bool,
 }
 
 /// What a scratch run or a capture leaves besides outcomes, per test.
@@ -598,6 +604,13 @@ pub(crate) struct Scratch {
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
     run_seed: crate::seed::RunSeed,
+    /// The test runner codeunit (object index) whose OnRun runs the test codeunit (ADR-066 decision 1, `al_runner.rs`);
+    /// `None`: al-runner's own runner.
+    pub(crate) runner: Option<usize>,
+    /// See `Unit::watch`.
+    watch: bool,
+    /// What this codeunit did with the watched single instances (`al_vm::single_track`).
+    pub(crate) singles_out: Option<al_vm::single_track::SingleOut>,
 }
 
 /// What a test codeunit left: each test's outcome, the call stack of each AL error that failed one, how long
@@ -676,12 +689,14 @@ fn run_unit(
             run_only: u.run_only.clone(),
             hub: u.hub,
             leak: u.leak.clone(),
-            onrun_carry: u.onrun_carry,
+            onrun_carry: u.carry.is_some(),
             on_run_rows: u.on_run_rows,
             flags: u.flags,
             report_unpinned_errors: u.report_unpinned_errors,
             perturb: u.perturb.clone(),
             run_seed: u.run_seed,
+            runner: u.runner,
+            watch: u.watch,
             ..Default::default()
         };
         if u.coverage {
@@ -874,9 +889,15 @@ impl<T: Send + 'static> Drop for Retiring<T> {
     }
 }
 
+mod al_runner;
+#[cfg(test)]
+mod al_runner_tests;
 mod apply_manifests;
 mod blocked;
 mod cache;
+mod chain;
+mod chain_runs;
+mod chain_walk;
 mod compiled;
 mod corpus;
 mod data_driven;
@@ -886,6 +907,11 @@ mod numbers_taken;
 mod run;
 mod runner_reset;
 mod session_flags;
+mod single_lane;
+mod suite_rows;
+#[cfg(test)]
+mod suite_rows_tests;
+mod test_handlers;
 mod test_marks;
 #[cfg(test)]
 mod tests;
@@ -893,11 +919,13 @@ pub(crate) mod written;
 
 pub use self::blocked::*;
 pub use self::cache::*;
+pub use self::chain::{ChainEntry, ChainReport, ChainWhy, RerunWhy, SerialWhy};
 pub use self::compiled::*;
 use self::grow::{Grow, GrowKept};
 pub use self::grow::{KeptCompile, fresh_pass_compile};
 use self::handlers::*;
 pub use self::run::*;
+pub use self::single_lane::LaneReport;
 
 /// The translation files of the app folder `dir`, as the IR keeps them (ADR-053 step 2). A file that cannot be read keeps its
 /// reason, and its language refuses every translated read.

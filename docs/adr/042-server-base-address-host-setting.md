@@ -32,7 +32,7 @@ Owner decision 2026-10-17: "host setting + probe".
    without company and without object returns the base address; every form with a company, an object, a record or
    another client type stays refused with the reason "not pinned (docs/probes-needed.md)". The base address is
    returned verbatim, so code that cuts the path (`OAuth2Impl.GetDefaultRedirectUrl`) works on a value the user chose.
-5. **Marked as an assumption.** The path through `GetUrl` is the registered assumption `geturl-web-base-address`
+5. **Marked as an assumption.** The path through `GetUrl` is the registered assumption `geturl-web-base-address` (split on 2026-11-04, see below)
    (`al-builtins/src/assumptions.rs`), so a test that passes through it is a flagged pass.
 
 ## Pinned and to be probed
@@ -70,7 +70,7 @@ Tests: `al-host` (default, wrappers, check), `al-vm/tests/store/hostvalues.rs` (
 
 ## Decided without owner review (2026-10-18)
 
-Corpus bump 22 pins the forms with a company, an object, a record and its filters (session/lt-geturl-shape/GetUrlShape.al,
+Corpus bump 22 pins the forms with a company, an object, a record and its filters (session-system/session/GetUrlShape.al,
 platform/lt-system-database-members/GetUrl*.al). They build `<base>/?query`, where `<base>` is `GetUrl(ClientType::Web)` cut at
 its first `?` and has no trailing slash. So the default is now `http://localhost:8080/BC` (no trailing slash), and the forms
 with arguments cut a trailing slash of a user-set address before adding `/?`. `GetUrl(ClientType::Web)` alone still returns the
@@ -79,8 +79,24 @@ address as set. Other client types stay refused: their host part is not pinned (
 ## Decided without owner review (2026-10-20)
 
 Corpus bump 32 pins `GetUrl(ClientType::Web)` alone with a host part that is not `localhost`
-(session/lt-geturl-shape/GetUrlShape.al:283), and `GetUrl(ClientType::Default)` alone as `dynamicsnav://<host>/BC//`
+(session-system/session/GetUrlShape.al:283), and `GetUrl(ClientType::Default)` alone as `dynamicsnav://<host>/BC//`
 (GetUrlShape.al:270). So `al-test-cli` (the corpus tool) now sets the server address `http://bcserver:8080/BC`
 (`CORPUS_SERVER_URL` in `crates/al-test-cli/src/main.rs`) instead of the default. It is a host setting, as this ADR
 decides; `alrunner` keeps the default `http://localhost:8080/BC`. The host name itself stays under the assumption
 `geturl-web-base-address`: no corpus test pins which host BC reports, only that it is not `localhost`.
+
+## Owner decision (2026-11-04, al-runner issue 6924)
+
+`GetUrl(ClientType::Web)` and `ClientType::Current` carry no assumption mark: the value is the user's own `--server-url`
+input, not a BC rule. The assumption `geturl-web-base-address` is split. The service forms (SOAP, OData, ODataV4, Api)
+are marked `geturl-service-host-port` until corpus branch al-runtime-rs-staging-p6924c (GetUrlShape.al, BC 27.5, 28.5,
+29.0: same scheme, host and instance as Web, port 7047 for SOAP and 7048 for the others) is in the pinned corpus. Current
+is marked `geturl-current-is-web` until the same file pins that it answers as Web (that equality is a BC fact, the host
+value is not). Default, Windows, Phone, Tablet and Desktop are marked `geturl-client-host-port`: the probe shows that
+Default has the Web host with another port than Web, 7047 and 7048, so Default now uses 7046 (BC's default client
+services port); the port value itself is not pinned.
+
+Note (2026-11-04, corpus pin e89f0e53): GetUrlShape.al is now in the pinned corpus. The service forms (`:374-405`) and
+Current alone and with a page (`:424`, `:429`) carry no mark any more; `geturl-service-host-port` is gone. Default and
+Windows use port 7085, not 7046 (`:465-468`), with no mark. `geturl-client-host-port` now covers only Phone, Tablet and
+Desktop, and `geturl-current-is-web` only Current with a company or a record.

@@ -1,7 +1,7 @@
 //! `--dev-endpoint-ui` (al-runner issue 3697) for `Page.Run(Id)` and `Page.RunModal(Id)` with no handler bound.
 //!
 //! Measured through the dev endpoint (TestRunnerHub) on a BC 28.5 container (corpus branch al-runtime-rs-staging-y53,
-//! handlers/lt-ui-handler-modes/UiHandlerModes.al:138-139, DevEndpointTestRunner_MeasuredValues), on a card with no
+//! pages/UiHandlerModes.al:138-139, DevEndpointTestRunner_MeasuredValues), on a card with no
 //! source table, no OnInit and no part: `Page.RunModal(Id)` returns `Action::None`, `Page.Run(Id)` returns, and neither
 //! runs a page trigger (OnOpenPage, OnQueryClosePage, OnClosePage). Only that shape is answered: a record argument, a
 //! source table, an OnInit trigger (page or extension), a part, a pending Trap() or a handler of the kind bound for any

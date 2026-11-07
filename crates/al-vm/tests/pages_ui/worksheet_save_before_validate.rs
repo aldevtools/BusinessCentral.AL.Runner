@@ -1,6 +1,6 @@
 //! al-runner issue 6629: a Worksheet row edited with SetValue, then a page-variable field whose OnValidate reads the row back
 //! with Get. The fixture is the reporter's repro, with the test procedure in a plain codeunit that returns the outcome. A page
-//! variable in a header group outside the repeater saves nothing first (pages/lt-y17-journal-batch/Y17JournalBatchSwitch.al:522).
+//! variable in a header group outside the repeater saves nothing first (pages/journal-batch-switch/Y17JournalBatchSwitch.al:522).
 
 use al_testkit::{run_in, text};
 

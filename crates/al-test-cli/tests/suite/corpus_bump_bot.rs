@@ -1,13 +1,14 @@
 //! The corpus bump bot (`.github/workflows/corpus-bump-bot.yml`, `tools/corpus_bump_bot.sh`,
 //! `tools/corpus_bump_report.py`): on a schedule it looks for a green corpus CI run newer than the pin, makes
-//! the mechanical part of the bump (pin, oracle, harness counts) on a branch `corpus-bump/<commit>` and opens a
+//! the mechanical part of the bump (pin, oracle, harness counts, not-passing lists) on a branch `corpus-bump/<commit>` and opens a
 //! pull request whose body lists what is left for a person. Its safety properties:
 //!
 //! - it never merges, never turns on auto-merge and never force-pushes; it pushes only its own branches;
-//! - it never writes a baseline (`metrics/`): the regen bot adds new passes after the merge, and a removal stays
-//!   a human decision (CLAUDE.md hard rule 2);
-//! - no workflow token gets `contents: write`: the push uses the deploy key of the regen bot;
-//! - what needs judgment (a lost baseline case, a new failure, a landed awaiting assumption, a corpus guard
+//! - under `metrics/` it writes only the not-passing lists (ADR-065), and there only lines for cases the base oracle
+//!   lacks and deletions: a line for a case the base oracle had is a regression, the owner's decision (CLAUDE.md
+//!   hard rule 2);
+//! - no workflow token gets `contents: write`: the push uses a deploy key (secret `REGEN_BOT_DEPLOY_KEY`);
+//! - what needs judgment (a regression, a new failure, a landed awaiting assumption, a corpus guard
 //!   without a gate, a harness count) is listed in the pull request, never decided by the bot.
 
 use std::path::{Path, PathBuf};
@@ -118,8 +119,8 @@ fn the_workflow_never_merges_and_never_force_pushes() {
     assert!(w.contains("--base main"), "{w}");
 }
 
-/// Least privilege, as for the regen bot: nothing is granted at the top, the job reads contents and writes only
-/// pull requests, and the branch is pushed over SSH with the regen bot's deploy key. No other secret is used.
+/// Least privilege: nothing is granted at the top, the job reads contents and writes only pull requests, and the
+/// branch is pushed over SSH with a deploy key (still named after the retired regen bot). No other secret is used.
 #[test]
 fn no_workflow_token_gets_contents_write() {
     let w = workflow();
@@ -318,7 +319,7 @@ fn find_prints_nothing_when_no_green_run_is_newer_than_the_pin() {
 // ---------------------------------------------------------------------------------------------------
 // `tools/corpus_bump_bot.sh commit REPO SHA RUN`.
 
-/// A runner repository with a corpus submodule at the old commit, an oracle, a baseline, the harness and code.
+/// A runner repository with a corpus submodule at the old commit, an oracle, a not-passing list, the harness and code.
 struct Runner {
     dir: tempfile::TempDir,
     corpus: Corpus,
@@ -336,7 +337,8 @@ fn runner() -> Runner {
     git(&r.join("corpus"), &["checkout", "-q", &c.pin]);
     put(r, "oracle/oracle.toml", &format!("corpus_commit = \"{}\"\n", c.pin));
     put(r, "oracle/29/junit.xml", "<testsuites/>\n");
-    put(r, "metrics/29/passing.txt", BASE);
+    put(r, "metrics/29/not-passing.txt", BASE);
+    put(r, "metrics/29/work.json", "{}\n");
     put(r, "crates/al-test-cli/tests/corpus_harness.rs", "// 10\n");
     put(r, "src/main.rs", "fn main() {}\n");
     git(r, &["add", "-A"]);
@@ -358,12 +360,26 @@ fn bump_files(r: &Runner) {
 }
 
 fn commit(r: &Runner, sha: &str) -> Output {
+    commit_with(r, sha, 0)
+}
+
+/// `commit`, with a stand-in for `al-test-cli --list-changes HEAD` that exits with `cli_code` (1: a list gained a
+/// line for a case the base oracle had).
+fn commit_with(r: &Runner, sha: &str, cli_code: i32) -> Output {
+    // Inside .git, so the status of the repository does not see it.
+    let cli = r.dir.path().join(".git/fake-cli.sh");
+    std::fs::write(&cli, format!("#!/bin/sh\necho \"list changes $*\"\nexit {cli_code}\n")).unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
     run(|| {
         let mut cmd = Command::new("bash");
         cmd.arg(root().join("tools/corpus_bump_bot.sh"))
             .args(["commit"])
             .arg(r.dir.path())
             .args([sha, "77"])
+            .env("CORPUS_BUMP_BOT_CLI", &cli)
             .env("CORPUS_BUMP_BOT_NAME", "t")
             .env("CORPUS_BUMP_BOT_EMAIL", "t@t")
             .env("GIT_CONFIG_COUNT", "1")
@@ -403,31 +419,49 @@ fn commit_makes_one_commit_of_the_pin_oracle_and_harness() {
     assert!(git(r.dir.path(), &["status", "--porcelain"]).is_empty());
 }
 
+/// ADR-065: the bump's list changes (lines for new cases, deleted stale lines) are committed with it, once
+/// `al-test-cli --list-changes HEAD` finds no line for a case the base oracle had.
 #[test]
-fn commit_refuses_a_removed_baseline_line() {
-    let r = runner();
-    bump_files(&r);
-    put(r.dir.path(), "metrics/29/passing.txt", "# header\n100 A\n");
-    let o = commit(&r, &r.corpus.c.clone());
-    assert!(!o.status.success());
-    let t = text(&o);
-    assert!(t.contains("metrics/29/passing.txt"), "{t}");
-    assert_eq!(commits(&r), 1, "nothing committed");
-}
-
-/// The regen bot adds new passes after the merge (CLAUDE.md, Workflow): the bump bot writes no baseline at all.
-#[test]
-fn commit_refuses_any_baseline_change() {
+fn commit_takes_the_list_changes_of_the_bump() {
     let r = runner();
     bump_files(&r);
     put(
         r.dir.path(),
-        "metrics/29/passing.txt",
-        "# header\n100 A\n100 B\n100 C\n",
+        "metrics/29/not-passing.txt",
+        "# header\n100 A\n200 NewCase\n",
     );
     let o = commit(&r, &r.corpus.c.clone());
+    assert!(o.status.success(), "{}", text(&o));
+    let files = git(r.dir.path(), &["show", "--name-only", "--format=", "HEAD"]);
+    assert!(files.lines().any(|l| l == "metrics/29/not-passing.txt"), "{files}");
+}
+
+/// A list line for a case the base oracle had hides a regression: the bot never commits one.
+#[test]
+fn commit_refuses_a_list_line_for_a_case_the_base_oracle_had() {
+    let r = runner();
+    bump_files(&r);
+    put(
+        r.dir.path(),
+        "metrics/29/not-passing.txt",
+        "# header\n100 A\n100 B\n100 C\n",
+    );
+    let o = commit_with(&r, &r.corpus.c.clone(), 1);
     assert!(!o.status.success());
-    assert!(text(&o).contains("metrics/29/passing.txt"), "{}", text(&o));
+    let t = text(&o);
+    assert!(t.contains("regression") && t.contains("list changes --root"), "{t}");
+    assert_eq!(commits(&r), 1, "nothing committed");
+}
+
+/// Under `metrics/` a bump writes the not-passing lists only.
+#[test]
+fn commit_refuses_any_other_metrics_change() {
+    let r = runner();
+    bump_files(&r);
+    put(r.dir.path(), "metrics/29/work.json", "{\"more\": 1}\n");
+    let o = commit(&r, &r.corpus.c.clone());
+    assert!(!o.status.success());
+    assert!(text(&o).contains("metrics/29/work.json"), "{}", text(&o));
     assert_eq!(commits(&r), 1);
 }
 
@@ -509,7 +543,7 @@ fn clean_inputs() -> tempfile::TempDir {
     put(
         p,
         "diff.txt",
-        "Baseline diff, BC 29: 2 newly pass, 1 fail and are not in the baseline, 0 baseline cases no longer pass\n",
+        "Baseline diff, BC 29: 0 regressions, 2 stale lines to delete, 1 cases still listed, 0 cases without an outcome\n",
     );
     put(p, "diff.code", "0\n");
     put(
@@ -572,7 +606,7 @@ fn report_lists_each_judgment_item_left_for_a_person() {
     put(
         p,
         "diff.txt",
-        "Baseline diff, BC 29: 0 newly pass, 0 fail and are not in the baseline, 1 baseline cases no longer pass\n\nIn the baseline but no longer passing (regressions) (1):\n  record (1):\n    100 B  [fail: boom]\n",
+        "Baseline diff, BC 29: 1 regressions, 0 stale lines to delete, 0 cases still listed, 0 cases without an outcome\n\nRegressions: not listed and not passing (1):\n  record (1):\n    100 B  [fail: boom]\n",
     );
     put(p, "diff.code", "1\n");
     put(
@@ -611,15 +645,15 @@ fn report_lists_each_judgment_item_left_for_a_person() {
     let body = report(p);
     assert!(!body.contains("Nothing is left"), "{body}");
     assert!(body.contains("Left for a person"), "{body}");
-    assert!(body.contains("100 B"), "the lost baseline case: {body}");
+    assert!(body.contains("100 B"), "the regression: {body}");
     assert!(body.contains("Codeunit 200 NewOne"), "the new failure: {body}");
     assert!(body.contains("some-id"), "the landed assumption: {body}");
     assert!(body.contains("tests/y.al BC29PLUS"), "the guard without a gate: {body}");
     assert!(body.contains("left: 5"), "the harness count: {body}");
     assert!(body.contains("pinned_columns.rs is stale"), "the golden files: {body}");
     assert!(
-        body.contains("never removes"),
-        "says the bot removed no baseline line: {body}"
+        body.contains("never adds a line for a case the old oracle had"),
+        "says the bot added no regression line: {body}"
     );
 }
 

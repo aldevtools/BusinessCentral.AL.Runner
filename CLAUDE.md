@@ -12,10 +12,11 @@ before you open a source file.
    the green one. Nothing merges with `cargo test` red. Corpus cases that are
    not yet implemented are tracked by the pass-rate report, not by tests.
 2. **Never weaken an oracle.** Never edit the corpus submodule or `oracle/`,
-   and never remove lines from `metrics/<major>/passing.txt` to make CI green. If real
-   BC and the corpus disagree, open an issue on the corpus repo. The only
-   legitimate removal is a case shown to have passed by accident (for example
-   against an unseeded store). Say so explicitly in the commit message.
+   and never add a line to `metrics/<major>/not-passing*.txt` for a case the oracle
+   already had to make CI green (ADR-065). If real BC and the corpus disagree, open an
+   issue on the corpus repo. The only legitimate addition is a case shown to have passed
+   by accident (for example against an unseeded store), with the owner's OK. Say so
+   explicitly in the commit message.
 3. **No guessing at semantics.** Cite the corpus test (file:line) that pins a
    behaviour in a code comment. If nothing pins it, write a probe test on a
    branch of the corpus repo and read the result from its CI (ADR-007), get it
@@ -56,11 +57,17 @@ before you open a source file.
 - Build once in release and use the binary: `cargo build --release`, then
   `./target/release/al-test-cli --root .` (add `--junit FILE` for per-test
   outcomes and refusal reasons).
-- Do not regenerate `metrics/<major>/passing*.txt`, the coverage maps (`docs/corpus-coverage.*`,
-  `docs/corpus-behavior-coverage.*`) or the table in `docs/probes-needed.md` in a feature PR: after
-  each merge to `main`, the regen bot (`.github/workflows/regen-bot.yml`) adds the new passes from
-  main's CI run and pushes them. PR CI still fails a PR that loses a baseline case. Baseline lines
-  are only ever added by the bot; removing one stays a human decision (hard rule 2).
+- **Not-passing lists** (ADR-065): `metrics/<major>/not-passing*.txt` list, per BC major and test app, the
+  oracle cases real BC passes and the runtime does not pass yet. CI fails when a case that is not listed does
+  not pass (a regression), when a listed case passes or left the oracle (a stale line), and when an oracle
+  case gets no outcome. A PR deletes the lines of the cases it makes pass, in the same PR:
+  `./target/release/al-test-cli --root . --prune-not-passing` (it only deletes). A corpus bump adds lines
+  for new cases with `--list-new-cases HEAD`. Adding a line for a case the oracle already had needs the
+  owner's OK; CI shows it in the job summary. No bot pushes to `main`.
+- The table in `docs/probes-needed.md` is regenerated in the PR that changes the assumption registry
+  (`al-test-cli --root . --assumptions-doc`); a test fails while it is stale. The coverage maps
+  (`docs/corpus-coverage.*`, `docs/corpus-behavior-coverage.*`) are not committed: `--coverage-map` and
+  `--behavior-coverage-map` write them locally, and CI on `main` uploads them as an artifact.
 - **Fast loop** (a full run takes about 20 s with Microsoft's apps and `check.sh` minutes; do not
   iterate on either). `./target/release/al-test-cli --help` lists every flag.
   1. Rank what is refused: `al-test-cli --root . --top-refusals 15` (add `--top-refusals-area record`
@@ -70,21 +77,34 @@ before you open a source file.
      stack. Add `--codeunit ID` when the name is not unique.
   3. Iterate on one codeunit, area or file: `--codeunit ID`, `--test SUBSTR`, `--area FOLDER`,
      `--file SUFFIX` (repeatable, union). Only the selected test codeunits are compiled and run,
-     and only the selected baseline cases are ratcheted. Add `--no-deps` for a run of about half a
+     and only the selected cases are checked against the lists. Add `--no-deps` for a run of about half a
      second when the test needs no Microsoft app.
-  4. Before committing, one full run: `--baseline-diff` lists, by area, what newly passes and which
-     baseline cases stopped passing. `--update-baseline` refuses while a selection is active.
+  4. Before committing, one run with `--baseline-diff` on the newest major only (about 20 s): it lists,
+     by area, the regressions, the stale lines, the cases still listed and the cases without an
+     outcome. Then `--prune-not-passing` deletes the stale lines (it refuses while a selection is active).
   5. `--timings` says where a run spent its time (load, compile, install baseline, tests).
   6. `AL_REACH_REPORT=1` prints, after the compile, how many routines each kind of root pulls in, which are refused,
      and how many only matter through a refused routine (slow on a bucket: it walks every test).
 - After adding a builtin to the catalog or a registry, or an invented id: `cargo run -p al-builtins --example gen_builtin_ids`
   (the test `builtin_ids_current` fails while `builtin_ids.rs` is stale).
-- `./check.sh` before every commit: fmt, clippy -D warnings, all tests, and the
-  corpus ratchet. It fails on the first error.
+- **PR CI is the gate** (owner, 2026-11-05). Do not run `./check.sh`, `cargo test --workspace` or an
+  `--all-versions` corpus run locally before a pull request: on this shared machine they cost up to an
+  hour, and PR CI runs the full corpus on every major in about 6 to 12 minutes. Locally run
+  `cargo test -p` and `cargo clippy -p ... -- -D warnings` for the crates you touched, and `cargo fmt --all`.
+  Open the pull request ready (not as a draft) and without auto-merge; the orchestrator reviews and
+  lands it. Fix what CI reports. `./check.sh` (fmt, clippy, all tests, the lists) stays for a person who
+  wants the full check on their own machine.
+- **Corpus bumps**: `tools/corpus_bump.sh RUN_ID` takes the oracle from a green corpus master run.
+  `tools/corpus_bump.sh --from-pr N[,N...]` (owner, 2026-11-05) does not wait for that run (about 55
+  minutes): the pin moves to the merge commit of the corpus pull requests, and only the codeunits their own
+  CI runs ran get those runs' results; every other case keeps the current oracle. It refuses when a run is
+  not green, a BC version is missing, a shared fixture changed, or it cannot show the run tested the merged
+  files. `--dry-run` shows what it would take, `--body FILE` writes the pull request body (which runs the
+  oracle came from). The next bump from a master run corrects anything only master shows.
 - Perf budgets (cold compile of the corpus ≤ 695 000 instructions per KiB of corpus source; the full corpus run with Microsoft's apps ≤ 83.2 G instructions for the Microsoft apps plus 4 210 000 per KiB of the corpus source it compiles; wall time printed for information only; parser ≥ 50 MB/s) are
   `#[ignore]`d tests that need release:
   `cargo test --release --no-fail-fast -p al-syntax --test perf_parse_throughput -p al-test-cli --test perf_budget -p al-test-cli --test perf_vm -p al-data --lib -- --ignored --nocapture`.
-  CI runs them on a push to main and nightly, not on a pull request (owner, 2026-10-31). CI has no instruction counter, so there the CPU-time fallback only warns; with a counter (locally) the instruction budgets fail as before. `cargo run --release -p al-test-cli --example phases` prints
+  CI runs them nightly (and on manual dispatch and before a numbered release), not on a pull request or a push to main (owner, 2026-11-04; from 2026-10-31 they also ran on every push to main). CI has no instruction counter, so there the CPU-time fallback only warns; with a counter (locally) the instruction budgets fail as before. `cargo run --release -p al-test-cli --example phases` prints
   timings per phase. `--example compile_dump` dumps every compile output, to
   diff before and after a performance change.
 - Work ratchet: the full corpus run compares what each pass compiled and ran (routines lowered, objects loaded,
@@ -94,7 +114,7 @@ before you open a source file.
   `./target/release/al-test-cli --root . --all-versions --update-work` and commits the file in the same PR.
 - The install baseline is skipped when no selected test can observe it (ADR-013 note): after a change to `al-testrun/src/observe.rs`
   or the baseline, `tools/baseline_rule_check.sh run` must show 0 differences (`AL_FORCE_BASELINE=1` turns the skip off).
-- Demand-driven against eager compile of the Microsoft apps (ADR-013; CI runs it on a push to main and nightly, not on a pull request): `tools/demand_vs_eager.sh run`
+- Demand-driven against eager compile of the Microsoft apps (ADR-013; CI runs it nightly, not on a pull request or a push to main, owner 2026-11-04): `tools/demand_vs_eager.sh run`
   (about 3 min, release binary needed) compares the main app and the OnPrem and isolation suites for BC 27, 28, 29.
 - Core crates do no OS access (ADR-006).
 - **File size ratchet** (`crates/al-test-cli/tests/file_size_ratchet.rs`): a Rust file under `crates/*/src` may
@@ -112,8 +132,8 @@ before you open a source file.
   checkout (`/.worktrees/` is git-ignored): from the main checkout run
   `git worktree add .worktrees/<area> -b <area> origin/main`. Never create a
   worktree next to the repository (`../wt-<area>`). Merge `main` into the branch
-  before handing it back, and regenerate the baseline after merging; never
-  hand-merge `metrics/<major>/passing.txt`.
+  before handing it back. A conflict in a not-passing list: take both sides'
+  deletions, then run `--prune-not-passing`.
 - Logs and scratch files go to your session's scratch folder or under
   `~/.cache/al-runtime/`, never into the worktree root or
   `/home/stefan/Documents/Repos/community`.

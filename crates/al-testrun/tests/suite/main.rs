@@ -3,16 +3,20 @@
 //! (tests/<name>.rs) when CI, a doc or a message runs it by name (`--test NAME`), when it re-runs its own
 //! executable, or when it declares modules of its own. `baseline_cache_files_dir` stays apart because it
 //! changes what the kept baseline of other tests in the same process reads (`baseline_cache`, `warm_kept`,
-//! `warm_baseline_edit` then fail).
+//! `warm_baseline_edit` then fail). `companies_opt_in` stays apart because it sets the company list of the process
+//! (`host::set_companies`), which is part of the kept baseline's key: a run of another test between its own two runs
+//! got another key (`baseline_cache` then failed now and then).
 mod action_trigger_lazy_refusal;
 mod affected_run;
 mod baseline_cache;
 mod baseline_rule_carry;
 mod baseline_skip;
 mod capture;
+mod chain_ahead;
+mod chain_speculate;
 mod code_coverage_refresh;
-mod companies_opt_in;
 mod compile_cache;
+mod datatransfer_clear;
 mod datatransfer_install;
 mod datatransfer_other_app_ext;
 mod demo_row_tables;
@@ -27,8 +31,12 @@ mod filter_page_caption_assign;
 mod impact_static;
 mod impact_trace;
 mod incremental;
+mod install_db_event_order;
 mod install_hold_back;
 mod install_load_package_data;
+mod install_own_table_guard;
+mod install_own_table_rows;
+mod install_stopped_rows;
 mod install_trigger_setup_order;
 mod lean_selection;
 mod login_work_date_lean;
@@ -38,9 +46,15 @@ mod page_insert_by_code;
 mod page_run_view;
 mod page_variable_control_no_insert;
 mod permission_abp;
+mod permission_abp_shapes;
 mod permission_execute;
+mod permission_execute_triggers;
+mod permission_license;
+mod permission_open_page_named_grant;
 mod permission_read_write;
 mod permission_report_after_denial;
+mod permission_unguarded_part;
+mod permission_wildcard_scope;
 mod permission_writes;
 mod query_after_last_row;
 mod query_close_fall_through;
@@ -64,6 +78,7 @@ mod run_request_page_static_view;
 mod runner_isolation;
 mod runner_permission_sets;
 mod runner_reset;
+mod single_instance_lane;
 mod single_instance_test_codeunit;
 mod start_session_record;
 mod testfilter_qualified_field;
@@ -101,3 +116,32 @@ fn every_file_of_the_suite_is_a_module() {
         "add `mod NAME;` to tests/suite/main.rs for: {missing:?}"
     );
 }
+
+/// A module of this binary may not change a setting of the process (`al_testrun::host::set_*`): the tests of the
+/// binary run side by side, and a setting such as the company list is part of the kept baseline's key
+/// (`runtime::corpus::baseline_key`), so a test that ran between two runs of another one gave the second run another
+/// key and another baseline (`baseline_cache` then failed now and then). Such a test is a binary of its own.
+#[test]
+fn no_module_of_the_suite_changes_a_setting_of_the_process() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/suite");
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.file_name().is_some_and(|n| n == "main.rs") || path.extension().is_none_or(|x| x != "rs") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).unwrap();
+        for (i, line) in text.lines().enumerate() {
+            let code = line.split("//").next().unwrap_or("");
+            if code.contains("host::set_") {
+                found.push(format!("{}:{}", path.file_name().unwrap().to_string_lossy(), i + 1));
+            }
+        }
+    }
+    found.sort();
+    assert!(
+        found.is_empty(),
+        "move these tests to a binary of their own (tests/<name>.rs): {found:?}"
+    );
+}
+mod enum_caption_ml_readers;

@@ -7,7 +7,7 @@ pub fn node_list_items(v: &Value) -> Option<Vec<Value>> {
     let Value::Library(name, h) = v else { return None };
     match &*h.borrow() {
         // A never-assigned XmlNodeList (also the unassigned named return value of a procedure, called directly or through an
-        // interface) runs zero times (xml/lt-y44-fresh-nodelist/Y44ForeachFreshNodeList.al:76-77 ForeachNodeList_NeverAssigned,
+        // interface) runs zero times (xml/xml/Y44ForeachFreshNodeList.al:76-77 ForeachNodeList_NeverAssigned,
         // :95-96 ForeachNodeList_InterfaceEmptyReturn, :126-129 ForeachNodeList_LocalEmptyReturn).
         LibraryValue::Empty if name.eq_ignore_ascii_case("XmlNodeList") => Some(Vec::new()),
         LibraryValue::XmlList(items) => Some(items.iter().map(|n| tagged("XmlNode", n.clone())).collect()),
@@ -54,7 +54,7 @@ pub(super) fn list_get(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) 
 
 // ---------------------------------------------------------- Variant.Is*
 
-/// A Variant holding an `XmlNode` reports the kind of the node it holds, never `XmlNode` itself (types/lt-variant-is-text-streams/
+/// A Variant holding an `XmlNode` reports the kind of the node it holds, never `XmlNode` itself (types/variant/
 /// LTP89IsXmlNodes.al:Node_FromEachKind, NodeVsSpecific_Casting: `IsXmlDocument` for a document node, `IsXmlNode` No).
 pub(super) fn variant_has(v: &Value, tag: &str) -> bool {
     match v {

@@ -1,5 +1,5 @@
 //! OnBeforeValidate and OnAfterValidate of table extensions in several apps for one field (al-runner issue 6486). Measured on
-//! BC by corpus writer Y20 (tableextension/lt-bw-cross-app/Y20CrossAppValidateOrder.al:36, fixtures xapp-a to xapp-d): the
+//! BC by corpus writer Y20 (table-objects/extensions/Y20CrossAppValidateOrder.al:36, fixtures xapp-a to xapp-d): the
 //! extension of an app runs before that of an app that depends on it, before and after the field's OnValidate. Two apps that
 //! do not depend on each other run in ascending app id (Y20CrossAppValidateOrder.al:44-45: B before D).
 

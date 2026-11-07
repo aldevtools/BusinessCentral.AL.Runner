@@ -7,7 +7,7 @@ fn outcome(o: &[(String, al_testrun::Outcome)], n: &str) -> String {
     format!("{:?}", o.iter().find(|(name, _)| name == n).map(|(_, x)| x))
 }
 
-// A read under ReadIsolation RepeatableRead starts the write transaction (misc/lt-np4-probes/Np4Misc.al:219
+// A read under ReadIsolation RepeatableRead starts the write transaction (format-evaluate/Np4Misc.al:219
 // NP4_ReadIsolation_RepeatableRead_Reads: `findset Yes|1|Yes` as the first read). The assignment alone opens it (corpus PR 896,
 // Np4Misc.al Y9_RepeatableRead_SetAfterCommit_FirstRead `before=Yes`).
 const ISOLATION: &str = r#"
@@ -61,7 +61,7 @@ fn a_find_set_under_repeatable_read_opens_the_write_transaction() {
 
 // Error('') out of a control's own OnValidate during SetValue on a List and a Worksheet page: the test goes on, the last error has
 // the empty text and code NSValidateField:Dialog, the control shows the old value and the row keeps it
-// (misc/lt-np4-probes/Np4EmptyError.al:200 NP4_EE_ControlValidate_List, :224 _Worksheet).
+// (testpage/Np4EmptyError.al:200 NP4_EE_ControlValidate_List, :224 _Worksheet).
 const EMPTY_ERROR: &str = r#"
 table 50682 "N68 Line" { fields { field(1; Id; Integer) { } field(2; Name; Text[30]) { } } keys { key(PK; Id) { } } }
 page 50683 "N68 List"
@@ -156,7 +156,7 @@ fn an_empty_error_out_of_a_list_or_worksheet_control_validate_ends_set_value_qui
 
 // XmlPort export: a table element without LinkTable below another one, MinOccurs = Once and MaxOccurs = Once, writes the first
 // row of each pass; a pass without rows writes the record as it stands, which after a pass of two rows is the second row
-// (misc/lt-np4-probes/Np4XmlPort.al:364 NP4_XmlPort_OnceOnce_ZeroAndOneRows, :381 _TwoRows). PreserveWhiteSpace changes nothing an
+// (streams/Np4XmlPort.al:348 NP4_XmlPort_OnceOnce_ZeroAndOneRows, :381 _TwoRows). PreserveWhiteSpace changes nothing an
 // export writes, with and without DefaultNamespace (:280 NP4_XmlPort_PreserveWhiteSpace_WithNamespace, :300 _DefaultWhiteSpace_WithNamespace, :320 _PreserveWhiteSpace_NoNamespace).
 const XMLPORT: &str = r#"
 table 50688 "N68 Head" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }

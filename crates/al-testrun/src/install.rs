@@ -1,11 +1,11 @@
 //! The install code of an app (ADR-046 step A): its `Subtype = Install` codeunits' `OnInstallAppPerCompany` and
 //! `OnInstallAppPerDatabase` triggers, and its subscribers to the same two events of `Extension Triggers` (decision 1;
-//! events/lt-platform-events-v/PeVFixtures.al:395-407, PeVTests.al:284). [`plan`] lists them per app and part,
+//! events/platform-triggers/PeVFixtures.al:395-407, PeVTests.al:284). [`plan`] lists them per app and part,
 //! [`facts`] works out which tables a test may not read because the runtime cannot know their install rows, and
 //! [`run_apps_under_test`] runs the apps under test one after the other.
 //!
 //! What BC does (amendment 1, A1): one app's whole install ends before the next app's begins
-//! (install/lt-bf-install-probes/BfInstallTests.al:239); each app installs in a session of its own, not the test
+//! (record/BfInstallTests.al:239); each app installs in a session of its own, not the test
 //! session (`:142-144`, `:168`); per company the install session raises Company Triggers OnCompanyOpen and
 //! OnCompanyOpenCompleted (to every installed app's subscribers, see [`company_open`]), then runs the routines (`:125-140`,
 //! `company open calls`); SingleInstance state starts again in
@@ -70,6 +70,95 @@ fn is_install(o: &al_ir::ObjectHead) -> bool {
         && o.properties
             .iter()
             .any(|(k, v)| k.eq_ignore_ascii_case("Subtype") && v.trim().eq_ignore_ascii_case("Install"))
+}
+
+fn is_upgrade(o: &al_ir::ObjectHead) -> bool {
+    o.is_kind(al_ir::ObjKind::Codeunit)
+        && o.properties
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case("Subtype") && v.trim().eq_ignore_ascii_case("Upgrade"))
+}
+
+/// The tables (object indexes) the install and upgrade code of the apps under test may write: every routine of their
+/// Install and Upgrade codeunits, their install subscribers and Company Triggers subscribers, what those call and the
+/// subscribers they reach. A subscriber whose install order is not known and that stops unless it finds a row of an empty
+/// table of its own app outside this set does nothing in either order (al-vm empty_reads.rs; al-runner issue 6924).
+/// `None` when that code holds a RecordRef or a DataTransfer, which may write any table.
+pub(crate) fn tables_install_code_may_write(lowered: &Lowered, engine: &Engine) -> Option<BTreeSet<u32>> {
+    use al_builtins::library_kind::LibraryKind;
+    use al_builtins::value::RtType;
+    let objs = &lowered.program.objects;
+    let all = install_roots_and_subscribers(lowered, engine, |o| !lowered.dependency[o]);
+    // Every routine those reach through calls, for the slots that may write any table.
+    let mut seen = BTreeSet::new();
+    let mut stack: Vec<(usize, usize)> = all.iter().copied().collect();
+    while let Some((o, r)) = stack.pop() {
+        if !seen.insert((o, r)) {
+            continue;
+        }
+        let obj = &objs[o];
+        let dynamic = |t: &RtType| matches!(t, RtType::Library(LibraryKind::RecordRef | LibraryKind::DataTransfer));
+        if obj
+            .routines
+            .get(r)
+            .is_none_or(|rt| rt.locals.iter().chain(&obj.globals).any(|s| dynamic(&s.ty)))
+        {
+            return None;
+        }
+        lowered.calls_into(o, r, &mut stack);
+    }
+    let mut out = BTreeSet::new();
+    for &(o, r) in &all {
+        out.extend(crate::baseline::tables_written(lowered, o, r));
+    }
+    Some(out)
+}
+
+/// The Install and Upgrade codeunit routines of the objects `of` accepts, their install and Company Triggers subscribers,
+/// and the subscribers those reach.
+fn install_roots_and_subscribers(
+    lowered: &Lowered,
+    engine: &Engine,
+    of: impl Fn(usize) -> bool + Copy,
+) -> BTreeSet<(usize, usize)> {
+    let objs = &lowered.program.objects;
+    let mut roots: Vec<(usize, usize)> = Vec::new();
+    for (oi, o) in objs.heads().iter().enumerate() {
+        if of(oi) && (is_install(o) || is_upgrade(o)) {
+            roots.extend((0..objs[oi].routines.len()).map(|ri| (oi, ri)));
+        }
+    }
+    roots.extend(
+        engine
+            .events
+            .install_subscribers
+            .iter()
+            .filter(|(so, _, _)| of(*so))
+            .map(|&(so, sr, _)| (so, sr)),
+    );
+    roots.extend(company_open_subscribers(lowered, &engine.events, of));
+    let mut all: BTreeSet<(usize, usize)> = roots.iter().copied().collect();
+    for &(o, r) in &roots {
+        all.extend(crate::runtime::subscribers_reached(engine, lowered, o, r));
+    }
+    all
+}
+
+/// Every routine the install code of the objects `of` accepts can run (`install_roots_and_subscribers` and what those call;
+/// install_rows.rs).
+pub(crate) fn install_code_of(
+    lowered: &Lowered,
+    engine: &Engine,
+    of: impl Fn(usize) -> bool + Copy,
+) -> BTreeSet<(usize, usize)> {
+    let mut seen = BTreeSet::new();
+    let mut stack: Vec<(usize, usize)> = install_roots_and_subscribers(lowered, engine, of).into_iter().collect();
+    while let Some((o, r)) = stack.pop() {
+        if seen.insert((o, r)) {
+            lowered.calls_into(o, r, &mut stack);
+        }
+    }
+    seen
 }
 
 fn is_single_instance(o: &al_ir::ObjectHead) -> bool {
@@ -190,19 +279,19 @@ fn object_id(lowered: &Lowered, o: usize) -> u32 {
 }
 
 /// The highest codeunit id the order probes could publish: the sandbox refused 120000 (corpus PR 810, writer UR,
-/// install/lt-ur-block-order/UrBlockOrderTests.al:9-11).
+/// install-upgrade/install-order/UrBlockOrderTests.al:9-11).
 const HIGHEST_PROBED_ID: u32 = 99_999;
 
 /// What is known of BC's order of the install routines `a` and `b` of one app and part (ADR-046 amendment 3).
 ///
 /// Install codeunit triggers and Extension Triggers subscribers of one app run as one sequence in ascending codeunit id,
-/// in each company and in the per-database part, across the 65536 id boundary (install/lt-ur-block-order/
+/// in each company and in the per-database part, across the 65536 id boundary (install-upgrade/install-order/
 /// UrBlockOrderTests.al:59-81, 50300 50301 50302 before 90511 90512 90515, corpus PR 810, writer UR, branch
-/// al-runtime-rs-staging-ur 1ac158e1; inside one block install/lt-um-install-order/UmInstallOrder.al:120-125, corpus PR
+/// al-runtime-rs-staging-ur 1ac158e1; inside one block install-upgrade/install-order/UmInstallOrder.al:120-125, corpus PR
 /// 807). Both are in the pinned corpus. Ids above 99999 could not be published there: the same integer comparison is an
 /// assumption. Two subscribers of one codeunit are not
 /// pinned (every pin has one routine per codeunit and event). The earlier contradiction,
-/// install/lt-bf-install-probes/BfInstallTests.al:239, is SystemRowVersion of buffered plain Inserts (UrBlockOrderTests.al:99-115),
+/// record/BfInstallTests.al:239, is SystemRowVersion of buffered plain Inserts (UrBlockOrderTests.al:99-115),
 /// not the run order.
 fn order_of(lowered: &Lowered, a: (usize, usize), b: (usize, usize)) -> Order {
     if a.0 == b.0 {
@@ -310,7 +399,7 @@ pub fn facts_of(lowered: &Lowered, events: &al_vm::events::Registry, dependency:
                 };
                 // A2 d, kept by amendment 3: BC gives a row a plain Insert wrote its SystemRowVersion only when it writes
                 // its insert buffer, later than rows of routines that ran after it
-                // (install/lt-ur-block-order/UrBlockOrderTests.al:99-115, the cause of BfInstallTests.al:239); this
+                // (install-upgrade/install-order/UrBlockOrderTests.al:99-115, the cause of BfInstallTests.al:239); this
                 // runtime stamps at the Insert. So the row versions of install rows do not follow the run order.
                 let rows = format!(
                     "{name} has {} install routines in the {} part, and BC gives a row a plain Insert wrote its SystemRowVersion only when it writes its insert buffer, which this runtime does not model, so the row versions of their rows are not pinned (ADR-046 amendment 3)",
@@ -436,6 +525,14 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
     session.set_install_without_client(true);
     let view = InstallView::new(lowered, crate::host::publish_order_known());
     let under_test = apps_under_test(lowered);
+    if under_test.len() > 1 {
+        let written = tables_install_code_may_write(lowered, &engine);
+        // A table only its own app's install code writes, with the rows constants show (al-runner issue 6971).
+        if written.is_some() {
+            session.set_install_rows(Some(crate::install_rows::install_rows(lowered, &engine)));
+        }
+        session.set_install_written_tables(written);
+    }
     for (k, app) in plan(lowered, &engine.events, false).into_iter().enumerate() {
         if app.company.is_empty() && app.database.is_empty() {
             continue;
@@ -450,8 +547,8 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
                 continue;
             }
             // Decision 3, step 4a: the per-company part once in each declared company, in list order (the session
-            // company first: install/lt-bf-install-probes/BfInstallTests.al:125-137, rows #1-#6, and
-            // install/lt-av-install-order/AvInstallOrder.al:56-67, `first per-company run`); one company completes
+            // company first: record/BfInstallTests.al:125-137, rows #1-#6, and
+            // install-upgrade/install-order/AvInstallOrder.al:56-67, `first per-company run`); one company completes
             // before the next starts (BfInstallTests.al:239). Without `--companies`, the session company only.
             let companies: Vec<String> = match part {
                 Part::Database => vec![String::new()],
@@ -548,6 +645,8 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
     session.set_install_session_id(None);
     session.set_apps_not_installed(None);
     session.set_apps_install_order_unknown(None);
+    session.set_install_written_tables(None);
+    session.set_install_rows(None);
     session.set_install_without_client(false);
     // The test session does not see the SingleInstance state of the install run (PeVTests.al:297, fact 6).
     session.reset_single_instances();
@@ -636,7 +735,7 @@ fn depends_on(lowered: &Lowered) -> Vec<BTreeSet<u32>> {
 /// app at a time in dependency order and an app's install code sees only the apps installed before it and itself: during
 /// XApp A's install no subscriber of XApp B (which depends on A) or of the main app ran and `NavApp.GetModuleInfo` of B
 /// was false; during B's install A's and B's subscribers ran, the main app's did not (corpus branch
-/// al-runtime-rs-staging-y3: install/lt-install-order-subscribers/InstallOrderSubscriberTests.al:66-79 (A's install), :90-91
+/// al-runtime-rs-staging-y3: install-upgrade/install-order/InstallOrderSubscriberTests.al:66-79 (A's install), :90-91
 /// (GetModuleInfo of B), :104-117 (B's install), :139-144 (test time); fixtures tests/al-language-xapp-a/Y3XaInstallEvents.al,
 /// tests/al-language-xapp-b/Y3XbInstallEvents.al). Nothing pins the order of two apps with no
 /// dependency path between them, so what one of them could see of the other is refused (`Session::set_apps_install_order_unknown`).
@@ -687,6 +786,7 @@ impl InstallView {
         let (not_installed, unknown) = self.of(installing, group, held);
         session.set_apps_not_installed(Some(not_installed));
         session.set_apps_install_order_unknown(Some(unknown));
+        session.set_installing_app(Some(installing));
     }
 }
 
@@ -762,8 +862,8 @@ fn company_open_subscribers(
 }
 
 /// Runs the Company Triggers OnCompanyOpen and OnCompanyOpenCompleted subscribers in the install session of app `app`, as
-/// BC does in each company before the per-company install routines (install/lt-bf-install-probes/BfInstallTests.al:125-140,
-/// subscribers at events/lt-bf-company-open/BfCompanyOpenFixtures.al:51-71). Pinned for the app's own subscribers; the owner
+/// BC does in each company before the per-company install routines (record/BfInstallTests.al:125-140,
+/// subscribers at events/platform-triggers/BfCompanyOpenFixtures.al:51-71). Pinned for the app's own subscribers; the owner
 /// decided that every installed app's subscribers get them (ADR-046 amendment 1, A4 item 4, 2026-10-19), an assumption until
 /// probe Q3: the tables that relies on mark the tests that touch them (`facts`, `InstallFacts::assumed`). A subscriber of
 /// any app that cannot run here stops the app's per-company install routines, and what it and they touch is refused.
@@ -809,8 +909,8 @@ fn run_subscribers(lowered: &Lowered, session: &mut Session, subs: &[(usize, usi
 }
 
 /// The test session raises Company Triggers OnCompanyOpen, then OnCompanyOpenCompleted, once, before the first test of a
-/// codeunit, and not again for later tests (ADR-046 amendment 1, A4 item 10; events/lt-bf-company-open/BfCompanyOpenTests.al:19-38,
-/// :40-50; events/lt-platform-events-v/PeVTests.al:297). Here the subscribers of the apps under test run. What the runner
+/// codeunit, and not again for later tests (ADR-046 amendment 1, A4 item 10; events/platform-triggers/BfCompanyOpenTests.al:19-38,
+/// :40-50; events/platform-triggers/PeVTests.al:297). Here the subscribers of the apps under test run. What the runner
 /// does with the database writes of a subscriber is not pinned: the tables they wrote while they ran are returned, and a
 /// test that can read one is not run (`CompanyOpenWrites::refuses` before it starts, `CompanyOpenWrites::touched` after it
 /// ran; al-runner issues 5606, 5641). A subscriber that did not run to its end refuses the codeunit. The subscribers of
@@ -923,8 +1023,8 @@ pub(crate) fn test_session_company_open(lowered: &Lowered, session: &mut Session
 /// What the login code does to WorkDate when the test session opens the company: Base Application's `LogInManagement`
 /// (codeunit 40) sets it to `GetDefaultWorkDate()`, the date of the last G/L entry in a demo company, else the WorkDate it
 /// had. Pinned: WorkDate in the test codeunit's OnRun and in its first test is that date in a demo company with G/L
-/// entries (session/lt-outside-workdate/RlWorkDateAtStart.al:47-52, al-runner issue 5743); install code still sees today
-/// (install/lt-outside-install-ui/RlInstallUi.al:212, :240). The rest of the login code (language, user personalization,
+/// entries (test-framework/RlWorkDateAtStart.al:47-52, al-runner issue 5743); install code still sees today
+/// (errors/RlInstallUi.al:212, :240). The rest of the login code (language, user personalization,
 /// application areas) does not run here, as before. Without the codeunit, or in a session without a client, nothing changes.
 pub(crate) fn login_work_date(engine: &Engine, lowered: &Lowered, session: &mut Session) -> Result<(), String> {
     if !session.has_interactive_client() {

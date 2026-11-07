@@ -35,6 +35,9 @@ pub const COMPANY_INITIALIZE: u32 = 2;
 /// 130301 "Reset State Before Test Run" and 130302 "Set State Test Run" (ALTestRunnerResetEnvironment.Codeunit.al:42-63),
 /// 132553 "Block Changes to System Tables" (:65-75). They are found by id only, as the runner's `AllObj` check does.
 pub const TEST_RUNNER_CODEUNITS: [u32; 4] = [131006, 130301, 130302, 132553];
+/// Codeunit 130456 "Test Suite Mgt." of Microsoft's Test Runner app: its `RunNextTest` starts a run of runner
+/// codeunit 130450 the way BcContainerHelper does (ADR-066 decision 2).
+pub const TEST_SUITE_MGT: u32 = 130_456;
 
 /// Base Application's `LogInManagement`: when a session with a client opens the company, its `CompanyOpen` sets WorkDate to
 /// `GetDefaultWorkDate()` (al-testrun `install::login_work_date`).
@@ -233,7 +236,7 @@ pub(super) const SET_FILTER: u8 = 16;
 /// `Report.GetSubstituteReportId` raises `SubstituteReport` when it has a subscriber (P91Unsure.al:112).
 pub(super) const SUBSTITUTE: u8 = 32;
 /// The static `Report.Run`, `RunModal`, `Execute` and `RunRequestPage` raise `SubstituteReport`, and `RunRequestPage`
-/// `SetupPrinters` (misc/lt-y14-triage/Y14ReportSubstitute.al, events/lt-platform-events-v/PeVTests.al:450, :665).
+/// `SetupPrinters` (reports/Y14ReportSubstitute.al, events/platform-triggers/PeVTests.al:450, :665).
 pub(super) const REPORT: u8 = 64;
 /// The object's text has been searched.
 const SCANNED: u8 = 128;
@@ -470,7 +473,7 @@ impl Checker<'_> {
             V::PageAction => &[ObjKind::Page, ObjKind::Table, ObjKind::Codeunit],
             V::EventSubscription => &[ObjKind::Codeunit],
             // The Metadata of a query's row feeds Microsoft's QueryMetadataReader, which reads the query's columns and
-            // their tables (lt-re-dotnet/ReQueryMetadataShapes.al:171, Base Application's query 51 by id).
+            // their tables (dotnet/dotnet/ReQueryMetadataShapes.al:171, Base Application's query 51 by id).
             V::ApplicationObjectMetadata => &[ObjKind::Query],
             _ => return,
         };
@@ -579,7 +582,8 @@ impl Checker<'_> {
 
     /// The codeunits the test runner runs around every test method ([`TEST_RUNNER_CODEUNITS`]): their OnRun is a root
     /// whenever a dependency app holds them, as nothing in the apps names them.
-    pub(super) fn reach_test_runner(&self) {
+    pub(super) fn reach_test_runner(&self, runners: &[u32]) {
+        self.reach_test_runner_codeunits(runners);
         for i in 0..self.ws.objects.len() {
             let o = &self.ws.objects[i];
             if o.kind == ObjKind::Codeunit
@@ -587,6 +591,34 @@ impl Checker<'_> {
                 && o.id.is_some_and(|id| TEST_RUNNER_CODEUNITS.contains(&id))
             {
                 self.reach_run(i);
+            }
+        }
+    }
+
+    /// The roots of a run through the test runner codeunits `runners` of a dependency app (ADR-066): each one's
+    /// triggers (OnRun, OnBeforeTestRun, OnAfterTestRun, which the platform calls and nothing in the apps names), and
+    /// `Test Suite Mgt.`.RunNextTest of Microsoft's Test Runner app, which starts a runner that reads its tests from
+    /// rows (al-testrun `suite_rows.rs`).
+    fn reach_test_runner_codeunits(&self, runners: &[u32]) {
+        if runners.is_empty() || self.demand.borrow().is_none() {
+            return;
+        }
+        for i in 0..self.ws.objects.len() {
+            let o = &self.ws.objects[i];
+            if o.kind != ObjKind::Codeunit || !self.ws.is_dependency(i) {
+                continue;
+            }
+            let Some(id) = o.id else { continue };
+            if runners.contains(&id) && self.ws.usable(i) {
+                self.touch_full(i);
+                self.reach_triggers(i);
+            } else if id == TEST_SUITE_MGT && self.ws.usable(i) {
+                self.touch_full(i);
+                for r in self.routines_of(i).iter() {
+                    if !r.is_trigger() && r.name().eq_ignore_ascii_case("RunNextTest") {
+                        self.reach(i, usize::from(r.syntax().text_range().start()));
+                    }
+                }
             }
         }
     }
@@ -739,7 +771,7 @@ impl Checker<'_> {
         match kind {
             // A field's CaptionClass expression runs when code reads the field's caption (FieldCaption, a FieldRef's
             // Caption, a page control over the field): `pages::expand` made it a `__captionclass_N` routine of the table or
-            // table extension that writes it (pageext/lt-page-ext-properties/TableExtCaptionClass.al:56-74).
+            // table extension that writes it (pages/extensions/TableExtCaptionClass.al:56-74).
             ObjKind::Table => {
                 self.activate_table(i, level);
                 if level >= READ {
@@ -1025,9 +1057,9 @@ impl Checker<'_> {
 
     fn reach_caption_class_subscribers(&self) {
         for (o, k) in self.ws.caption_class_subscribers() {
-            if self.ws.objects[o].subscribers[k]
-                .event
-                .eq_ignore_ascii_case("OnResolveCaptionClass")
+            if al_ir::RAISED_CAPTION_CLASS_EVENTS
+                .iter()
+                .any(|e| self.ws.objects[o].subscribers[k].event.eq_ignore_ascii_case(e))
             {
                 self.reach_subscriber(o, k);
             }
@@ -1065,8 +1097,8 @@ impl Checker<'_> {
     }
 
     /// Object `i` calls `SaveAs`: an Xml `SaveAs` raises the platform's `SubstituteReport` and `OnDocumentReady`
-    /// (events/lt-platform-events-v/PeVTests.al:432), so their subscribers are reached. So does `Report.GetSubstituteReportId`,
-    /// which raises `SubstituteReport` (report/lt-report-members-testrequestpage/P91Unsure.al:112).
+    /// (events/platform-triggers/PeVTests.al:432), so their subscribers are reached. So does `Report.GetSubstituteReportId`,
+    /// which raises `SubstituteReport` (reports/request-page/P91Unsure.al:112).
     pub(super) fn reach_save_as_events_if_used(&self, i: usize) {
         if !self.pending(|st| st.save_as_events) || self.mentions(i) & (SAVE_AS | SUBSTITUTE | REPORT) == 0 {
             return;
@@ -1094,7 +1126,7 @@ impl Checker<'_> {
     }
 
     /// Object `i` sets filters from text: a Date text with a piece that does not read raises the platform's
-    /// `MakeDateFilter`, so its subscribers are reached (events/lt-platform-triggers/PtObserve.al:157).
+    /// `MakeDateFilter`, so its subscribers are reached (events/platform-triggers/PtObserve.al:157).
     pub(super) fn reach_filter_helper_if_used(&self, i: usize) {
         if !self.pending(|st| st.filter_helper) || self.mentions(i) & SET_FILTER == 0 {
             return;
@@ -1128,7 +1160,7 @@ impl Checker<'_> {
         let source = obj
             .properties()
             .find(|p| p.name().eq_ignore_ascii_case("SourceTable"))
-            .map(|p| p.value_text().trim().trim_matches('"').to_string());
+            .map(|p| crate::types::property_object_name(&p.value_text()));
         if let Some(t) = source.and_then(|name| self.resolve_quiet(file, ObjKind::Table, &name)) {
             self.touch_schema(t);
         }
@@ -1152,13 +1184,13 @@ impl Checker<'_> {
         let source = obj
             .properties()
             .find(|p| p.name().eq_ignore_ascii_case("SourceTable"))
-            .map(|p| p.value_text().trim().trim_matches('"').to_string());
+            .map(|p| crate::types::property_object_name(&p.value_text()));
         if let Some(name) = source {
             if let Some(t) = self.resolve_at(file, ObjKind::Table, &name) {
                 if matches!(self.ws.objects[i].kind, ObjKind::Page | ObjKind::PageExtension) {
                     self.touch_ops(t, ALL_OPS);
                     // A lookup on a control the page gives no OnLookup runs the table field's
-                    // (corpus handlers/TestPageFieldTableLookup.al:55).
+                    // (corpus testpage/TestPageFieldTableLookup.al:55).
                     if self.ws.is_dependency(t) && self.ws.usable(t) {
                         for o in std::iter::once(t).chain(self.ws.extensions_of(t).iter().copied()) {
                             if !self.ws.usable(o) {
@@ -1834,9 +1866,9 @@ pub fn uncompiled_subscriber_sites(ws: &Workspace, active: &dyn Fn(usize) -> boo
         add(None, ir::PlatformPublisher::GlobalTriggers, so, si);
     }
     for (so, si) in ws.caption_class_subscribers() {
-        if ws.objects[so].subscribers[si]
-            .event
-            .eq_ignore_ascii_case("OnResolveCaptionClass")
+        if al_ir::RAISED_CAPTION_CLASS_EVENTS
+            .iter()
+            .any(|e| ws.objects[so].subscribers[si].event.eq_ignore_ascii_case(e))
         {
             add(None, ir::PlatformPublisher::CaptionClass, so, si);
         }
@@ -2030,7 +2062,7 @@ mod tests {
 
     #[test]
     fn a_dependency_report_request_page_expression_is_reached_by_a_test_request_page() {
-        // handlers/TestReqPageBoundVisibility.al:172-188: the handler reads `.Visible()` of a control
+        // reports/TestReqPageBoundVisibility.al:172-188: the handler reads `.Visible()` of a control
         // whose `Visible = FlagVisible;` is a synthetic `__visible_N` routine of Base App's report.
         let (_, l) = compile(
             "codeunit 1 Main { procedure Go() var R: TestRequestPage \"Lib Rep\"; begin end; }",
@@ -2184,7 +2216,7 @@ mod tests {
 
     /// A trigger of a page in a dependency app calls a procedure of the page its part shows
     /// (`CurrPage.PurchLines.Page.ForceTotalsCalculation()` in Base Application's Purchase Invoice): the part's
-    /// page is reached with the page that names it. Pinned in the workspace by handlers/TestPageTempPart_Host.al
+    /// page is reached with the page that names it. Pinned in the workspace by testpage/TestPageTempPart_Host.al
     /// (`CurrPage.Lines.Page.SetRows`). The part's page has a group named `Page` (Base Application's Purch.
     /// Invoice Subform does): `.Page` is still the part's page, not that control.
     #[test]
@@ -2493,8 +2525,8 @@ mod tests {
                 "codeunit 30 Subs {\n\
                  [EventSubscriber(ObjectType::Page, Page::P, 'OnOpenPageEvent', '', false, false)]\n\
                  local procedure Opened() begin end;\n\
-                 [EventSubscriber(ObjectType::Page, Page::P, 'OnAfterGetRecordEvent', '', false, false)]\n\
-                 local procedure Row() begin end; }",
+                 [EventSubscriber(ObjectType::Page, Page::P, 'OnDeleteRecordEvent', '', false, false)]\n\
+                 local procedure Row(var Rec: Record T; var AllowDelete: Boolean) begin end; }",
             ),
         ];
         let (_, l) = compile(
@@ -2615,7 +2647,7 @@ mod tests {
         );
         assert!(!compiled(&named, "Rep", "OnPreReport"));
         // Handed to a procedure as an argument, workspace code may run it there
-        // (corpus handlers/TestReportDatasetHelpLink.al: `RenderDataset(Report::"G/L Register")`).
+        // (corpus xml/TestReportDatasetHelpLink.al: `RenderDataset(Report::"G/L Register")`).
         let (_, passed) = compile(
             "codeunit 1 Main { procedure Go() begin Show(Report::Rep); end; procedure Show(Id: Integer) begin end; }",
             &dep,

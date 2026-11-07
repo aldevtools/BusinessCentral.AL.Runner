@@ -166,14 +166,14 @@ fn a_new_row_takes_every_equality_filter_of_the_record_the_page_was_run_with() {
 
 /// `GenJnlManagement.OpenJnl` reads `GenJnlLine.GetRangeMax("Journal Template Name")` in filter group 0 right after
 /// `TemplateSelection` set the template in filter group 2 (34 tests of Tests-General Journal; Microsoft's own
-/// code, so BC's GetRangeMax sees the other group; corpus record/lt-get-range-filter/GetRangeFilterGroups.al).
+/// code, so BC's GetRangeMax sees the other group; corpus record/filters/GetRangeFilterGroups.al).
 #[test]
 fn get_range_max_sees_a_filter_of_another_group_and_still_fails_with_none() {
     let ok = text(run_src(
         "table 50120 \"GJ T\" { fields { field(1; K; Code[10]) { } } keys { key(PK; K) { } } }\ncodeunit 50100 C { procedure F(): Text var R: Record \"GJ T\"; begin R.FilterGroup(2); R.SetRange(K, 'T'); R.FilterGroup(0); exit(R.GetRangeMax(K) + '/' + R.GetRangeMin(K)); end; }",
     ));
     assert_eq!(ok, "T/T");
-    // No filter at all: DB:NoFilter (corpus record/lt-get-range-filter/GetRangeFilterGroups.al: P168_GetRange_FilterOnlyInGroup2).
+    // No filter at all: DB:NoFilter (corpus record/filters/GetRangeFilterGroups.al: P168_GetRange_FilterOnlyInGroup2).
     match run_src(
         "table 50120 \"GJ T\" { fields { field(1; K; Code[10]) { } } keys { key(PK; K) { } } }\ncodeunit 50100 C { procedure F(): Text var R: Record \"GJ T\"; begin exit(R.GetRangeMax(K)); end; }",
     ) {

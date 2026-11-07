@@ -1,7 +1,7 @@
 //! XmlPort Metadata and Query Metadata: one row per xmlport or query object, from the object's own
 //! declaration (shells included), keyed by object id.
 //!
-//! Pinned by xmlport/TestXmlPortMetadataVirtualTable.al and query/TestQueryMetadataVirtualTable.al.
+//! Pinned by xmlports/TestXmlPortMetadataVirtualTable.al and queries/TestQueryMetadataVirtualTable.al.
 //! A property the object does not declare reads its documented default; those defaults are not
 //! pinned by the corpus and are recorded in docs/probes-needed.md.
 
@@ -53,7 +53,7 @@ pub(super) fn xmlport_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             r[pos(t, 4)] = Value::Boolean(prop(o, "UseRequestPage").is_none_or(truthy));
             r[pos(t, 5)] = option(t, 5, ordinal(o, "TransactionType", TRANSACTION_TYPES, 0)?);
             r[pos(t, 6)] = option(t, 6, ordinal(o, "Direction", DIRECTIONS, 2)?);
-            // A left-out `Encoding` reads UTF16 (xmlport/TestPlatformMetadataDefaultsContracts.al:93). A
+            // A left-out `Encoding` reads UTF16 (xmlports/TestPlatformMetadataDefaultsContracts.al:93). A
             // declared one reads the member of the column that it names; a name the column lacks is not
             // pinned.
             let Value::Option(_, members) = option(t, 7, 0) else {
@@ -74,7 +74,7 @@ pub(super) fn xmlport_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             r[pos(t, 9)] = option(t, 9, ordinal(o, "Format", FORMATS, 0)?);
             r[pos(t, 10)] = Value::Guid(c.owner(o));
             // InherentPermissions and InherentEntitlements as declared, blank when not
-            // (xmlport/lt-y-xmlport-props/YXmlPortProps.al:736-740: `X` for `X`).
+            // (xmlports/shapes-properties/YXmlPortProps.al:736-740: `X` for `X`).
             for name in ["InherentPermissions", "InherentEntitlements"] {
                 if let Some(col) = t.fields.iter().position(|f| f.name == name) {
                     let v = prop(o, name).map(ident).unwrap_or_default();
@@ -91,7 +91,7 @@ pub(super) fn xmlport_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
 
 /// Query Metadata: ID (1), Name (2), Caption (3), APIPublisher (4), APIGroup (5), APIVersion (6),
 /// EntitySetName (7), EntityName (8), "App ID" (10). A query that is not an API query leaves the
-/// API columns blank, but for APIVersion, which reads `beta` (TestQueryMetadataVirtualTable.al:107-115, query/W7QueryFilters.al). An API query that declares no
+/// API columns blank, but for APIVersion, which reads `beta` (TestQueryMetadataVirtualTable.al:107-115, queries/W7QueryFilters.al). An API query that declares no
 /// version is not pinned and is refused.
 pub(super) fn query_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
@@ -115,7 +115,7 @@ pub(super) fn query_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             r[pos(t, 3)] = Value::Text(truncate(&caption(o), 80).into());
             r[pos(t, 4)] = Value::Text(text(o, "APIPublisher", 40).into());
             r[pos(t, 5)] = Value::Text(text(o, "APIGroup", 40).into());
-            // A query that declares no APIVersion reads `beta` (query/W7QueryFilters.al:
+            // A query that declares no APIVersion reads `beta` (queries/W7QueryFilters.al:
             // QueryMetadata_NormalQuery_ApiColumnsAreBlank; pages read the same, TestPageMetadataProperties.al:94-97).
             r[pos(t, 6)] = Value::Text(
                 match prop(o, "APIVersion") {
@@ -204,7 +204,7 @@ fn subscription_row(
     // TestEventSubscriptionColumnsReportLayoutListContracts.al:98-107). "Number of Calls" and
     // "Active Manual Instances" are the session's, added when a row is read.
     r[pos(t, 12)] = Value::Text(if manual { "Manual" } else { "Static-Automatic" }.into());
-    // "Originating App Name" is the name of the app that declares the subscriber (events/lt-event-subscription-trigger-rows/
+    // "Originating App Name" is the name of the app that declares the subscriber (events/platform-triggers/
     // EventSubscriptionTriggerRows.al:187-190 and the rows after it, `AL Language Coverage Tests`).
     r[pos(t, 11)] = Value::Text(
         truncate(
@@ -214,7 +214,7 @@ fn subscription_row(
         .into(),
     );
     // "Originating Package ID": a Guid that changes with every publish of the subscriber's app, so the corpus scrubs it
-    // (misc/lt-probes-needed-5/PnE11EventSub.al:99, :128, :130; _fixtures/ProbeObserver.Codeunit.al:88). The runtime gives
+    // (recordref-fieldref/PnE11EventSub.al:99, :128, :130; _fixtures/ProbeObserver.Codeunit.al:88). The runtime gives
     // the package id it gives the app's objects in AllObj (`ids::package_id`).
     if let Some(col) = t.fields.iter().position(|f| f.id == 10) {
         r[col] = Value::Guid(super::objects::package_ids(c, o).0);
@@ -261,7 +261,7 @@ fn subscription_row(
         })
     });
     // A table trigger event bound to a field is published as `<event> - <field>`
-    // (xmlport/TestPlatformMetadataDefaultsContracts.al:113-124, `OnBeforeValidateEvent` with `'Txt'`).
+    // (xmlports/TestPlatformMetadataDefaultsContracts.al:113-124, `OnBeforeValidateEvent` with `'Txt'`).
     // For another trigger event the element is not pinned.
     let element = args.get(3).map(|e| crate::events::unquote(e)).unwrap_or_default();
     let (published, event_type) = match declared {
@@ -282,12 +282,12 @@ fn subscription_row(
                 known,
             ));
         }
-        // A page action event's row has Event Type = Trigger and Active = Yes (events/lt-event-subscription-trigger-rows/
-        // EventSubscriptionTriggerRows.al:222 for OnAfterActionEvent; events/lt-wd/WdActionEventRow.al:76-85 and :106-110 for
+        // A page action event's row has Event Type = Trigger and Active = Yes (events/platform-triggers/
+        // EventSubscriptionTriggerRows.al:222 for OnAfterActionEvent; record/WdActionEventRow.al:61-70 and :106-110 for
         // OnBeforeActionEvent, also as filters; corpus branch al-runtime-rs-staging-1030c, al-runner issue 6293). Its Published
         // Function is `<event> - <number>`, the number the id of the action's control: FNV-1a of the declaring object's id and the
         // action name (`pages::control_id`), the page extension's id for an action an extension adds, under the base page
-        // (corpus master, corpus PR 886: events/lt-event-subscription-trigger-rows/ActionEventPublishedFunction.al:259-272, twelve
+        // (corpus master, corpus PR 886: events/platform-triggers/ActionEventPublishedFunction.al:244-257, twelve
         // numbers; EventSubscriptionTriggerRows.al:222). An action the runtime cannot find on the page leaves that column refused.
         None if kind == al_ir::ObjKind::Page && is_action_event(&event) => {
             r[pos(t, 3)] = option(t, 3, 0);
@@ -307,8 +307,8 @@ fn subscription_row(
         // A page trigger event's row has Event Type = Trigger and Active = Yes. A field's validate event publishes as
         // `<event> - <number>`, the number the id of the field's control as for an action (`pages::control_id` of the declaring
         // object, the page extension's for a field it adds, and the control name), the same for Before and After
-        // (events/lt-event-subscription-trigger-rows/PageTriggerEventRows.al:241-259; events/lt-page-event-numbers/
-        // PageEventNumbers.al; misc/lt-probes-needed-5/PnE11EventSub.al:99). A page-level trigger event publishes under its
+        // (events/platform-triggers/PageTriggerEventRows.al:241-259; events/page-events/
+        // PageEventNumbers.al; recordref-fieldref/PnE11EventSub.al:99). A page-level trigger event publishes under its
         // own name (PageTriggerEventRows.al:271-303; PnE11EventSub.al:130). A field the runtime cannot find on the page leaves
         // that column refused.
         None if kind == al_ir::ObjKind::Page && page_trigger_event(&event).is_some() => {
@@ -569,7 +569,7 @@ pub(super) fn table_relations_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                 r[pos(t, 5)] = Value::Integer(2_000_000_120);
                 r[pos(t, 6)] = Value::Integer(1);
                 r[pos(t, 10)] = Value::Boolean(true);
-                // The names of these rows are not pinned (misc/lt-probes-needed-5/PnE09Platform.al pins own relations only).
+                // The names of these rows are not pinned (json/PnE09Platform.al pins own relations only).
                 for col in 12..=15 {
                     if t.fields.iter().any(|x| x.id == col) {
                         r[pos(t, col)] = super::unknown(t, col, &format!("the {} row of table '{}'", f.name, o.name));
@@ -725,7 +725,7 @@ fn field_relations(
         row[pos(t, 5)] = Value::Integer(arm.related_table as i32);
         row[pos(t, 6)] = Value::Integer(arm.related_field as i32);
         row[pos(t, 11)] = Value::Boolean(validate);
-        // The declared names of the own table and field and of the related ones (misc/lt-probes-needed-5/PnE09Platform.al:
+        // The declared names of the own table and field and of the related ones (json/PnE09Platform.al:
         // 122-125, `Table Name=LT PnE Rel Source;Field Name=Ref;Related Table Name=LT PnE Rel Target;Related Field Name=Code`).
         let related = c
             .objects
@@ -761,7 +761,7 @@ fn field_relations(
                 r[pos(t, 9)] = Value::Text(v.clone().into());
             }
             if filter {
-                // Condition Type: CONST is the first member, FILTER the second (session/PWPlatformTables.al:109-123).
+                // Condition Type: CONST is the first member, FILTER the second (session-system/PWPlatformTables.al:109-123).
                 r[pos(t, 7)] = option(t, 7, 1);
             }
             rows.push(r);

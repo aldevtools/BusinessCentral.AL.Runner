@@ -80,6 +80,7 @@ public sealed class Resolver
         if (types.TryGetValue(key, out var cached)) { used.Add(cached); return cached; }
         Type? t = null;
         Exception? loadError = null;
+        Exception? typeError = null;
         try
         {
             if (name.Contains('['))
@@ -89,7 +90,12 @@ public sealed class Resolver
             }
             else
             {
-                t = LoadAssembly(new AssemblyName(assembly)).GetType(name, false);
+                var asm = LoadAssembly(new AssemblyName(assembly));
+                t = asm.GetType(name, false);
+                // GetType(name, false) also answers null for a type the assembly defines but the runtime cannot load (a
+                // base type or a referenced assembly that is missing or too new: BC 29's Microsoft.Dynamics.Nav.OpenXml
+                // references System.Runtime 10.0, al-runner issue 6924). Ask again with the exception, for the message.
+                if (t == null) typeError = TypeLoadError(asm, name);
             }
         }
         catch (Exception ex) when (ex is FileNotFoundException or FileLoadException or BadImageFormatException)
@@ -107,11 +113,51 @@ public sealed class Resolver
         }
         if (t == null)
             throw new Refusal(loadError != null
-                ? $"assembly '{assembly}' could not be loaded: {loadError.Message}"
-                : $"type '{name}' not found in assembly '{assembly}'");
+                ? $"assembly '{assembly}' could not be loaded: {Chain(loadError)} {Searched(assembly)}"
+                : $"type '{name}' not found in assembly '{assembly}'{Because(typeError)}");
         types[key] = t;
         used.Add(t);
         return t;
+    }
+
+    /// Why `asm` does not give the type `name`: the exception GetType raises when asked to throw, `null` when it raises none.
+    static Exception? TypeLoadError(Assembly asm, string name)
+    {
+        try
+        {
+            asm.GetType(name, true);
+            return null;
+        }
+        catch (Exception ex) when (ex is TypeLoadException or FileNotFoundException or FileLoadException
+            or BadImageFormatException or ReflectionTypeLoadException)
+        {
+            return ex;
+        }
+    }
+
+    /// The text after "type ... not found": the type-load exception and its inner exceptions, when there is one.
+    static string Because(Exception? ex) => ex == null ? "" : ": " + Chain(ex);
+
+    /// An exception's type and message, then each inner exception's, so a missing dependency names itself.
+    public static string Chain(Exception ex)
+    {
+        var parts = new List<string>();
+        for (var e = ex; e != null; e = e.InnerException)
+            parts.Add($"{e.GetType().Name}: {e.Message.Trim()}");
+        return string.Join(" <- ", parts);
+    }
+
+    /// Where an assembly that did not load was looked for, and how to add a folder (al-runner issues 6924, 6927).
+    string Searched(string assembly)
+    {
+        string simple = assembly;
+        try { simple = new AssemblyName(assembly).Name ?? assembly; }
+        catch (Exception ex) when (ex is ArgumentException or FileLoadException) { }
+        string where = dirs.Count == 0
+            ? "Besides the .NET runtime's own assemblies, no folder was searched."
+            : "Searched the .NET runtime's own assemblies, then: "
+              + string.Join(", ", dirs.Select(d => d.Recursive ? d.Path + " (with subfolders)" : d.Path)) + ".";
+        return $"{where} To use it, pass a folder that holds {simple}.dll with --dotnet-assembly-dir.";
     }
 
     /// A type named only by its full name, as it arrives inside an enum value.

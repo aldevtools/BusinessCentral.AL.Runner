@@ -1,7 +1,7 @@
 //! The host's Next as the first call after a TestField.Lookup that left the refresh of `CurrPage.Update(false)` for later, on a
 //! host with function controls and one linked ListPart (al-runner issue 6639). The Next moves as it does without a pending
 //! refresh and runs the refresh with it: the host reads a window that starts at the row it moved to, then the row above, then
-//! its current row again, before the part follows (pages/lt-y15/Y15LookupThreeFieldLink.al:337 Y26_ThreeLinkCurr_LookupRefresh
+//! its current row again, before the part follows (testpage/Y15LookupThreeFieldLink.al:337 Y26_ThreeLinkCurr_LookupRefresh
 //! `next log`, :402 Y26_TwoLinkCurr_LookupRefresh, :467 Y26_ThreeLinkPlain_LookupRefresh, :532 Y26_TwoLinkPlain_LookupRefresh,
 //! :597 Y26_ThreeLinkCurr_RegionsSet, :662 Y26_ThreeLinkCurr_LookupTwice). This is the read of a list that opens on a row
 //! other than its first (`open_reads_above`).
@@ -57,7 +57,7 @@ impl Session {
     }
 
     /// The second TestField.Lookup while the first one's refresh is pending: the host reads its rows as when the page opens, the
-    /// parts read nothing (pages/lt-y15/Y15LookupThreeFieldLink.al:662 Y26_ThreeLinkCurr_LookupTwice `second lookup log`).
+    /// parts read nothing (testpage/Y15LookupThreeFieldLink.al:662 Y26_ThreeLinkCurr_LookupTwice `second lookup log`).
     pub(super) fn replay_open_reads_host(&mut self, root: &St) -> Result<(), Signal> {
         {
             let mut s = root.borrow_mut();

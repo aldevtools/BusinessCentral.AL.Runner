@@ -1,5 +1,5 @@
-//! A VariableText port whose table element holds another table element (corpus xmlport/lt-df-xmlport-leads/DfXmlPortLeads.al:
-//! VariableText_Nested_Export and _Import; the staged probe xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:VariableText_Nested).
+//! A VariableText port whose table element holds another table element (corpus streams/DfXmlPortLeads.al:
+//! VariableText_Nested_Export and _Import; the staged probe xmlports/shapes-properties/Y83XpMiscTests.al:VariableText_Nested).
 //! Export: the first child record follows the parent's values on its line, the other child records follow on lines of their own,
 //! the table separator ends the children of a parent, and a record separator joins the parents. Import: every line is a record of
 //! the parent table; a required child table is then missing, an empty line is an unexpected child.

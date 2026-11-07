@@ -38,11 +38,11 @@ const INERT_OBJECT_PROPERTIES: &[&str] = &[
     // (docs/probes-needed.md, "Report properties Extensible and EnableHyperlinks").
     "extensible",
     // Whether the client shows the print-status window. Run, RunModal, Execute and SaveAs give the same triggers, order,
-    // results and handler needs with it true, false and unset (report/lt-tk-showprintstatus/
-    // LtTkShowPrintStatus.al; al-runner issue 6056); `false` with Report.Run is pinned (pages/lt-report-page-properties/03-report-showprint.al:9, :43-45).
+    // results and handler needs with it true, false and unset (reports/runtime/
+    // LtTkShowPrintStatus.al; al-runner issue 6056); `false` with Report.Run is pinned (pages/properties/03-report-showprint.al:9, :43-45).
     "showprintstatus",
     // Whether the client prints to the system printer. Run, RunModal, RunRequestPage, SaveAs, Execute and Print give the same
-    // triggers in the same order with it true and false (misc/lt-y13-triage/Y13ReportSystemPrinter.al:289-528, corpus master,
+    // triggers in the same order with it true and false (reports/Y13ReportSystemPrinter.al:289-528, corpus master,
     // BC 27.5, 28.5 and 29.0); Report Metadata shows it (al-vm platform/reports.rs).
     "usesystemprinter",
 ];
@@ -59,7 +59,7 @@ const INERT_ITEM_PROPERTIES: &[&str] = &[
 ];
 
 /// Compile-time obsolescence notes on a data item, a request page, a query column or a query filter: the element still
-/// runs as one without them (al-runner issue 6652; corpus pages/lt-x-obsolete-pending/XObsoletePending.al:255-311,
+/// runs as one without them (al-runner issue 6652; corpus language/obsolete-pending/XObsoletePending.al:255-311,
 /// :589-612, the tests at :478-566). `Removed` is no value for them (must-not-compile case 0798).
 pub(crate) const OBSOLETE_PROPERTIES: &[&str] = &["obsoletestate", "obsoletereason", "obsoletetag"];
 
@@ -75,9 +75,9 @@ const FORMAT_ONLY_COLUMN_PROPERTIES: &[&str] = &[
     "autoformatexpression",
     "decimalplaces",
     "includecaption",
-    // An Option column shows the caption of the session language (record/lt-x-table-props/XTablePropsTests.al:741-785).
+    // An Option column shows the caption of the session language (record/table-properties/XTablePropsTests.al:741-785).
     "optioncaptionml",
-    // A pending-obsolete column is written to the dataset like any other (corpus errors/lt-ms-refusals-138/P138ColObsolete.al).
+    // A pending-obsolete column is written to the dataset like any other (corpus streams/P138ColObsolete.al).
     "obsoletestate",
     "obsoletereason",
     "obsoletetag",
@@ -144,7 +144,7 @@ pub struct Layout {
 }
 
 /// The entries of a `labels` section: `Name = 'text'` with optional `Comment`, `MaxLength` and `Locked` after a comma,
-/// none of which reaches the dataset; an empty text reads as the name (corpus report/PZReportLabels.al:
+/// none of which reaches the dataset; an empty text reads as the name (corpus reports/PZReportLabels.al:
 /// Labels_AreWrittenIntoTheDataset). `Err` names an entry whose text is not one plain literal.
 fn label_entries(section: &ast::Section) -> Result<Vec<(String, String)>, String> {
     let mut out = Vec::new();
@@ -242,7 +242,7 @@ fn default_layout(obj: &ast::Object) -> ir::ReportLayout {
     }
 }
 
-/// A report with `DefaultLayout = ...` and no layout file at all (report/PRSaveAsFormats.al: `DefaultLayout = RDLC`
+/// A report with `DefaultLayout = ...` and no layout file at all (reports/PRSaveAsFormats.al: `DefaultLayout = RDLC`
 /// and nothing else).
 fn layout_file_missing(obj: &ast::Object) -> bool {
     let has = |n: &str| obj.properties().any(|p| p.name().eq_ignore_ascii_case(n));
@@ -341,7 +341,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
             },
             "transactiontype" => out.transaction_type = Some(value.trim().to_ascii_lowercase()),
             // The culture of the dataset a SaveAs Xml writes and of `Format` in its triggers
-            // (report/lt-y-report-props/YReportPropsTests.al:34-148); the run checks which regions are pinned.
+            // (reports/runtime/YReportPropsTests.al:34-148); the run checks which regions are pinned.
             "formatregion" => match text_literal(&value) {
                 Some(r) => out.format_region = Some(r),
                 None => out
@@ -350,7 +350,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
             },
             n if INERT_OBJECT_PROPERTIES.contains(&n) => {}
             // Rendering-only: how the report prints. `PreviewMode` belongs to the Base Application's
-            // G/L Register (handlers/TestReportDatasetHelpLink.al runs its SaveAs).
+            // G/L Register (xml/TestReportDatasetHelpLink.al runs its SaveAs).
             "defaultlayout"
             | "defaultrenderinglayout"
             | "rdlclayout"
@@ -363,7 +363,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
                 .output
                 .push(format!("report property {name} (a layout) is not supported yet")),
             // The Schedule button of the request page: a run through `Report.Run` ignores it, true or false
-            // (report/TestProbeReportContracts.al:AllowScheduling_TrueAndFalse_Run).
+            // (reports/TestProbeReportContracts.al:AllowScheduling_TrueAndFalse_Run).
             "allowscheduling" => {}
             // The data item a Word layout is merged per record of: rendering only, by the
             // documentation (docs/probes-needed.md). Base Application's "Reference No Label" is named
@@ -402,7 +402,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
                     }
                 }
             }
-            // Labels feed the layouts and the dataset a SaveAs writes (report/PZReportLabels.al); a run renders
+            // Labels feed the layouts and the dataset a SaveAs writes (reports/PZReportLabels.al); a run renders
             // nothing from them.
             "labels" => match label_entries(&top) {
                 Ok(l) => out.labels.extend(l),
@@ -431,7 +431,7 @@ const INERT_REQUEST_PAGE_PROPERTIES: &[&str] = &[
     "contextsensitivehelppage",
 ];
 
-/// Request page properties of a page with a source table that the runtime handles (report/lt-y-request-page/YRequestPageTests.al:
+/// Request page properties of a page with a source table that the runtime handles (reports/request-page/YRequestPageTests.al:
 /// 72-390; the parts the corpus does not pin are refused at run time, see `al-vm/src/pages/request.rs`). AutoSplitKey and
 /// MultipleNewLines stay refused: the keys and rows they give are not settled by the corpus.
 const SOURCE_TABLE_REQUEST_PAGE_PROPERTIES: &[&str] = &[
@@ -457,6 +457,8 @@ const REQUEST_PAGE_TRIGGERS: &[&str] = &[
     "onclosepage",
     "onaftergetcurrrecord",
     "onaftergetrecord",
+    "onnewrecord",
+    "onmodifyrecord",
 ];
 
 /// What a reportextension can add to a request page that the client runs: the void page triggers
@@ -470,7 +472,17 @@ fn request_extension_reasons(exts: &[(usize, ast::Object)]) -> Vec<String> {
             // A procedure of the request page runs when its code calls it (al-runner issue 6651, `Lowerer::request_proc_refusal`).
             for t in sec.triggers().filter(|t| t.syntax().kind() != SyntaxKind::Procedure) {
                 let n = t.name().to_ascii_lowercase();
-                if !["onopenpage", "onclosepage"].contains(&n.as_str()) {
+                if ![
+                    "onopenpage",
+                    "onclosepage",
+                    "onaftergetrecord",
+                    "onaftergetcurrrecord",
+                    "onnewrecord",
+                    "onmodifyrecord",
+                    "onqueryclosepage",
+                ]
+                .contains(&n.as_str())
+                {
                     out.push(format!(
                         "reportextension `{ename}`: request page trigger {} is not supported yet",
                         t.name()
@@ -536,7 +548,7 @@ pub fn request_layout(
             // has them is not pinned, so a literal value passes here and the test client refuses to touch a
             // data item of a page that says `false` (docs/probes-needed.md).
             let show_filter = name == "showfilter" && bool_prop(&p.value_text()).is_some();
-            // `Editable = false` makes the page and its fields read Editable No (handlers/PSRequestPageEditable.al).
+            // `Editable = false` makes the page and its fields read Editable No (reports/PSRequestPageEditable.al).
             let editable = name == "editable" && bool_prop(&p.value_text()).is_some();
             if !["caption", "savevalues", "sourcetable"].contains(&name.as_str())
                 && !SOURCE_TABLE_REQUEST_PAGE_PROPERTIES.contains(&name.as_str())
@@ -626,12 +638,12 @@ fn visit(
             let temporary_ok =
                 pn == "usetemporary" && matches!(p.value_text().trim().to_ascii_lowercase().as_str(), "true" | "false");
             if pn == "calcfields" {
-                // Read by `item_ir` (corpus misc/lt-probes-needed-8/PnH3Link.al:CalcFields_Property_CalculatesTheFlowField).
+                // Read by `item_ir` (corpus reports/PnH3Link.al:CalcFields_Property_CalculatesTheFlowField).
             } else if pn == "dataitemlinkreference" {
-                // Read by `item_ir` (corpus handlers/TestReportDataItemLinkReferenceContracts.al).
+                // Read by `item_ir` (corpus streams/TestReportDataItemLinkReferenceContracts.al).
             } else if pn == "maxiteration" {
                 // Read by `item_ir`; a positive number is pinned for an Integer item (misc/lt-probes-needed-8/
-                // PnH3Link.al:MaxIteration_*) and a record item (report/lt-maxiteration-zero/SgMaxIterationTable.al with
+                // PnH3Link.al:MaxIteration_*) and a record item (reports/dataset/SgMaxIterationTable.al with
                 // MaxIterationZero.al:153-199, al-runner #6412).
                 let positive = p.value_text().trim().parse::<u32>().is_ok_and(|n| n > 0);
                 if !positive {
@@ -688,8 +700,16 @@ pub struct ExtLayout {
     /// The `labels` section of the extension.
     pub labels: Vec<(String, String)>,
     /// Why a run that renders output cannot run: the layouts of a `rendering` section. They change no dataset, so a
-    /// Report.SaveAs as Xml runs (report/lt-reportext-rendering/ReportExtensionSaveAs.al:194-201, :252-260).
+    /// Report.SaveAs as Xml runs (reports/layouts-saveas/ReportExtensionSaveAs.al:194-201, :252-260).
     pub output: Vec<String>,
+}
+
+/// Whether a reportextension changes the run: a routine or trigger of its own, or a section other than `requestpage`. The
+/// routines `pages::expand` adds for expression-valued control properties and sources are not the author's.
+pub fn changes_a_run(ext: &ast::Object) -> bool {
+    ext.routines().any(|r| !crate::pages::is_synthetic(&r.name()))
+        || ext.triggers().next().is_some()
+        || ext.sections().any(|s| !s.name().eq_ignore_ascii_case("requestpage"))
 }
 
 /// Walks reportextension `obj`. Only what the corpus pins is understood
@@ -728,7 +748,7 @@ pub fn ext_layout(obj: &ast::Object) -> ExtLayout {
                     match kind.as_str() {
                         "modify" => {
                             for p in s.properties() {
-                                // Pinned: report/lt-y-report-props/YReportExt.al:231 (the field joins the data item's
+                                // Pinned: reports/runtime/YReportExt.al:231 (the field joins the data item's
                                 // request filter fields, which the Report Data Items table shows).
                                 if p.name().eq_ignore_ascii_case("RequestFilterFields") {
                                     continue;
@@ -761,7 +781,7 @@ pub fn ext_layout(obj: &ast::Object) -> ExtLayout {
                             out.adds.push((target, s.clone()));
                         }
                         // The compiler allows addbefore and addafter on a nested data item only; addfirst and
-                        // addlast name the parent (reportextensiontrigger/TestReportExtensionDataItemPlacementContracts.al).
+                        // addlast name the parent (reports/extensions/TestReportExtensionDataItemPlacementContracts.al).
                         "addlast" | "addfirst" | "addbefore" | "addafter" => {
                             if s.properties().next().is_some() || s.triggers().next().is_some() {
                                 out.reasons.push(format!(
@@ -791,7 +811,7 @@ pub fn ext_layout(obj: &ast::Object) -> ExtLayout {
                 }
             }
             "requestpage" => {}
-            // Written after the base report's labels (report/PZReportLabels.al: Labels_AreWrittenIntoTheDataset).
+            // Written after the base report's labels (reports/PZReportLabels.al: Labels_AreWrittenIntoTheDataset).
             "labels" => match label_entries(&top) {
                 Ok(l) => out.labels.extend(l),
                 Err(why) => out.reasons.push(format!("reportextension {why}")),
@@ -901,7 +921,7 @@ impl<'a> Owner<'a> {
                 for p in c.properties() {
                     let value = p.value_text();
                     match p.name().to_ascii_lowercase().as_str() {
-                        // handlers/TestReportSaveAsColumnTypesContracts.al:222-248: `true` adds the label.
+                        // reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:222-248: `true` adds the label.
                         "includecaption" => match value.trim().to_ascii_lowercase().as_str() {
                             "true" => include_caption = true,
                             "false" => {}
@@ -941,7 +961,7 @@ impl<'a> Owner<'a> {
                         .iter()
                         .position(|f| f.name.eq_ignore_ascii_case(&source))
                 });
-                // `Item.Field` on the item's own table (report/lt-bc-xml-blob/BcXmlBlobObjects.al: `Row.Data`).
+                // `Item.Field` on the item's own table (reports/layouts-saveas/BcXmlBlobObjects.al: `Row.Data`).
                 let item_field = table.and_then(|t| {
                     let item = crate::scan::unquote_double(sec.args().first()?);
                     let source = args.get(1)?;
@@ -1012,7 +1032,7 @@ fn item_ir(
     };
     let mut link = Vec::new();
     // `DataItemLinkReference = Name` links the fields to the named enclosing data item's row, not the
-    // parent's (corpus handlers/TestReportDataItemLinkReferenceContracts.al).
+    // parent's (corpus streams/TestReportDataItemLinkReferenceContracts.al).
     let mut link_item = None;
     let mut parent_table = parent_table;
     if let Some(name) = prop("DataItemLinkReference") {
@@ -1068,7 +1088,7 @@ fn item_ir(
             }
         }
     }
-    // `CalcFields = A, "B C"`: the FlowFields to calculate for each row (misc/lt-probes-needed-8/PnH3Link.al:
+    // `CalcFields = A, "B C"`: the FlowFields to calculate for each row (reports/PnH3Link.al:
     // CalcFields_Property_CalculatesTheFlowField pins one field of a top-level item).
     let mut calc_fields = Vec::new();
     if let Some(text) = prop("CalcFields") {
@@ -1111,7 +1131,7 @@ fn item_ir(
 }
 
 /// The field whose Caption an `IncludeCaption` column shows when its source is `Item.Field` of another data item: the parent, a
-/// child, or an earlier top-level item when both are top-level (errors/lt-ms-refusals-138/P138ColCaptionQualified.al:113-137,
+/// child, or an earlier top-level item when both are top-level (streams/P138ColCaptionQualified.al:113-137,
 /// QS_Labels_DataItemNamedLikeTable, QS_Labels_WhenNoRows; P138_Labels_OfQualifiedSources for the parent). Any other item (a
 /// grandparent, a later sibling, a nested sibling) is not pinned and keeps the column refused.
 fn caption_sources(members: &crate::members::MemberTable, raw: &[RawItem], items: &mut [ir::ReportItem]) {
@@ -1559,7 +1579,7 @@ mod tests {
 
     #[test]
     fn procedures_next_to_added_data_items_and_variables_are_accepted() {
-        // Pinned by reportext/W3RpExtProcedures.al: a procedure called through a report variable runs on the
+        // Pinned by reports/extensions/W3RpExtProcedures.al: a procedure called through a report variable runs on the
         // extension's instance of that variable.
         let l = ext_layout_of(
             "reportextension 1 E extends R { dataset { addlast(A) { dataitem(B; Ledger) { } } } var G: Integer; procedure P() begin end; }",
@@ -1572,7 +1592,7 @@ mod tests {
         // Where `addafter` puts a column is pinned by no corpus test.
         let l = ext_layout_of("reportextension 1 E extends R { dataset { addafter(A) { column(X; No) { } } } }");
         assert!(l.reasons.join(";").contains("addafter(A)"), "{:?}", l.reasons);
-        // A data item is placed (reportextensiontrigger/TestReportExtensionDataItemPlacementContracts.al).
+        // A data item is placed (reports/extensions/TestReportExtensionDataItemPlacementContracts.al).
         for kind in ["addfirst", "addlast", "addbefore", "addafter"] {
             let l = ext_layout_of(&format!(
                 "reportextension 1 E extends R {{ dataset {{ {kind}(A) {{ dataitem(B; Ledger) {{ }} }} }} }}"

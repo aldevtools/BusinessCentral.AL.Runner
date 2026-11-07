@@ -1,6 +1,6 @@
 //! A Delete through a stale own-Insert buffer, seven Commits later, after the new transaction deleted another row of the
 //! table: the row is deleted and the table's OnDelete trigger and the delete events run as for a fresh buffer
-//! (al-language-testlibraries/lt-wb-6286/WbStaleDeleteTests.al:13-53, al-runner issue 6286). With other writes in the new
+//! (al-language-testlibraries/test-framework/stale-delete-triggers/WbStaleDeleteTests.al:13-53, al-runner issue 6286). With other writes in the new
 //! transaction (a Modify of another row) the triggers are not pinned and the Delete stays refused.
 
 use al_testkit::outcomes_in;

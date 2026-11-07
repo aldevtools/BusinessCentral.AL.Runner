@@ -1,5 +1,5 @@
 //! The "Page Action" rows of a page's `area(Promoted)`. Pinned: no row is named after an actionref or after the area, and the
-//! action an actionref names has its one row in the area that declares it (pages/lt-y72-page-probes/Y72PageActionControlRows.al
+//! action an actionref names has its one row in the area that declares it (record/Y72PageActionControlRows.al
 //! header, PageAction_FilterByName_ActionRef `Tools` 1, `Tools_Promoted` empty, `Promoted` empty; PageAction_ActionRef_Rows `rows
 //! named *_Promoted` 0). Which other rows the area adds is not pinned: a page that declares no group there lists the groups
 //! Category_New to Category_Category20 and rows without a name (record/TestPageActionVirtualTable.al QZ_PageAction_CaptionColumn),

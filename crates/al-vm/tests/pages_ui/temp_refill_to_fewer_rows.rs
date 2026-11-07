@@ -1,6 +1,6 @@
 //! An action refills a temporary Worksheet of 3 or 25 rows with two rows and leaves Rec on the first (al-runner issue 6029, the
 //! reporter's repro green on real BC: a First/Next walk lists only `R1 R2`). With OnAfterGetCurrRecord the reads are pinned
-//! (corpus pages/lt-outside-worksheet/RmTempRefill.al:616 TD_RefillFewer_WithCurrRecord_3To2): Rec's row, each row of the view
+//! (corpus testpage/RmTempRefill.al:616 TD_RefillFewer_WithCurrRecord_3To2): Rec's row, each row of the view
 //! once, then the first row twice and OnAfterGetCurrRecord. Without that trigger (the stood-on row is read once more when it
 //! is not the first, :772), Rec left on another row, and a refill to more rows than a window, are refused.
 

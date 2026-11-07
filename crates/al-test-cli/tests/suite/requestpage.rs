@@ -34,7 +34,7 @@ codeunit 61202 "RQ Trace"
     procedure Add(T: Text) begin Trail += T + ','; end;
     procedure Text(): Text begin exit(Trail); end;
 }
-// handlers/TestReportRunRequestPageReport.al
+// reports/TestReportRunRequestPageReport.al
 report 61210 "RQ Report"
 {
     ProcessingOnly = true;
@@ -61,7 +61,7 @@ report 61210 "RQ Report"
     var EchoText: Text[50];
     procedure GetEchoText(): Text[50] begin exit(EchoText); end;
 }
-// handlers/TestReportRequestPageControlReport.al
+// reports/TestReportRequestPageControlReport.al
 report 61211 "RQ Ctrl"
 {
     ProcessingOnly = true;
@@ -87,7 +87,7 @@ report 61211 "RQ Ctrl"
     trigger OnInitReport() begin EchoText := 'from-report'; IncludeAll := false; end;
     var EchoText: Text[50]; IncludeAll: Boolean;
 }
-// handlers/TestReportRequestPageActionReport.al
+// reports/TestReportRequestPageActionReport.al
 report 61212 "RQ Action"
 {
     ProcessingOnly = true;
@@ -118,7 +118,7 @@ report 61212 "RQ Action"
     trigger OnInitReport() begin EchoText := 'from-report'; ActionRuns := 0; end;
     var EchoText: Text[50]; ActionRuns: Integer;
 }
-// handlers/TestRequestPageOnInitReport.al
+// reports/TestRequestPageOnInitReport.al
 report 61213 "RQ Init"
 {
     ProcessingOnly = true;
@@ -136,7 +136,7 @@ report 61213 "RQ Init"
     trigger OnInitReport() begin RptInitVar := 'rpt-oninitreport'; end;
     var ReqInitVar: Text[30]; ReqOpenVar: Text[30]; RptInitVar: Text[30];
 }
-// handlers/TestReportRequestPageSaveValues.al
+// reports/TestReportRequestPageSaveValues.al
 report 61214 "RQ Saved"
 {
     ProcessingOnly = true;
@@ -157,7 +157,7 @@ report 61215 "RQ Unsaved"
     trigger OnPreReport() var T: Codeunit "RQ Trace"; begin T.Add('ran:' + RememberedTxt); end;
     var RememberedTxt: Text[30];
 }
-// handlers/TestReportRequestPageCaption.al
+// reports/TestReportRequestPageCaption.al
 report 61216 "RQ Both Captions"
 {
     Caption = 'RQ Report Caption'; ProcessingOnly = true;
@@ -170,7 +170,7 @@ report 61217 "RQ Request Caption Only"
     requestpage { Caption = 'RQ Only Request Page Caption'; layout { area(Content) { field(Dummy; DummyTxt) { ApplicationArea = All; } } } }
     var DummyTxt: Text[30];
 }
-// handlers/TestReqPageBoundVisibilityObjects.al
+// reports/TestReqPageBoundVisibilityObjects.al
 report 61218 "RQ Visible"
 {
     ProcessingOnly = true;
@@ -185,7 +185,7 @@ report 61218 "RQ Visible"
     procedure Flags(NewShowField: Boolean; NewEditField: Boolean; NewShowGroup: Boolean) begin ShowField := NewShowField; EditField := NewEditField; ShowGroup := NewShowGroup; end;
     var BoundValue: Text[30]; InGroupValue: Text[30]; ShowFieldGlobal: Boolean; EditFieldGlobal: Boolean; ShowGroupGlobal: Boolean; ShowField: Boolean; EditField: Boolean; ShowGroup: Boolean;
 }
-// testpageclose/TestPageClosingActions.al: report 69650 "TPC Report"
+// testpage/lifecycle/TestPageClosingActions.al: report 69650 "TPC Report"
 report 61219 "RQ Closing"
 {
     ProcessingOnly = true;
@@ -199,7 +199,7 @@ report 61219 "RQ Closing"
     }
     var QtyOption: Integer;
 }
-// handlers/TestRequestPageControlErrorName.al:Ext5803Handler (cases 21-24): a reportextension that only adds request
+// reports/TestRequestPageControlErrorName.al:Ext5803Handler (cases 21-24): a reportextension that only adds request
 // page controls bound to the PROTECTED variables of the base report (Base App's "Mfg. Reset Cost Is Adjusted").
 report 61240 "RQ Protected Base"
 {
@@ -234,7 +234,7 @@ report 61220 "RQ Default Page"
     ProcessingOnly = true;
     dataset { dataitem(Rows; "RQ Row") { trigger OnAfterGetRecord() var LogRec: Record "RQ Log"; begin LogRec.Log('default-row'); end; } }
 }
-// handlers/TestRequestPageControlErrorName.al: report 68660 and its reportextension
+// reports/TestRequestPageControlErrorName.al: report 68660 and its reportextension
 report 61223 "RQ Ext Base"
 {
     ProcessingOnly = true;
@@ -271,7 +271,7 @@ reportextension 61223 "RQ Ext Base Ext" extends "RQ Ext Base"
     }
     var RpnExtVar: Text[30]; ExtValidatedValue: Text[30]; ExtDerivedValue: Text[30];
 }
-// handlers/TestReportRunRequestPageDatasetReport.al: not ProcessingOnly, with a rendering layout
+// reports/TestReportRunRequestPageDatasetReport.al: not ProcessingOnly, with a rendering layout
 report 61224 "RQ Dataset"
 {
     DefaultRenderingLayout = RqLayout;
@@ -359,7 +359,7 @@ end;
 local procedure Count(M: Text[50]): Integer var L: Record \"RQ Log\"; begin exit(L.MarkerCount(M)); end;
 local procedure Check(Expected: Text; Actual: Text) begin if Expected <> Actual then Error('expected <%1> got <%2>', Expected, Actual); end;";
 
-// handlers/TestReportRunWithRequestPage.al:Report_Run_OpensTheRequestPageAndRunsTheBodyWhenTheHandlerConfirms
+// reports/TestReportRunWithRequestPage.al:Report_Run_OpensTheRequestPageAndRunsTheBodyWhenTheHandlerConfirms
 #[test]
 fn run_opens_the_request_page_and_confirming_runs_the_body() {
     passes(&format!(
@@ -373,7 +373,7 @@ fn run_opens_the_request_page_and_confirming_runs_the_body() {
     ));
 }
 
-// handlers/TestReportRunWithRequestPage.al:Report_Run_CancelledRequestPageRunsNothingAndRaisesNoError
+// reports/TestReportRunWithRequestPage.al:Report_Run_CancelledRequestPageRunsNothingAndRaisesNoError
 #[test]
 fn a_cancelled_request_page_stops_the_run_without_an_error() {
     passes(&format!(
@@ -387,7 +387,7 @@ fn a_cancelled_request_page_stops_the_run_without_an_error() {
     ));
 }
 
-// handlers/TestReportRunRequestPage.al:TestReport_RunRequestPage_RunsTheHandlerAndReturnsTheFilterItSet,
+// reports/TestReportRunRequestPage.al:TestReport_RunRequestPage_RunsTheHandlerAndReturnsTheFilterItSet,
 // ..._CancelledHandlerReturnsNoParameters
 #[test]
 fn run_request_page_returns_the_parameters_with_the_filter_the_handler_set() {
@@ -411,7 +411,7 @@ fn run_request_page_returns_the_parameters_with_the_filter_the_handler_set() {
     ));
 }
 
-// handlers/TestReportRunWithRequestPage.al: what the handler filters is what the run reads
+// reports/TestReportRunWithRequestPage.al: what the handler filters is what the run reads
 #[test]
 fn a_filter_the_handler_sets_narrows_the_run() {
     passes(&format!(
@@ -424,7 +424,7 @@ fn a_filter_the_handler_sets_narrows_the_run() {
     ));
 }
 
-// handlers/TestReportRequestPageControl.al (four tests)
+// reports/TestReportRequestPageControl.al (four tests)
 #[test]
 fn request_page_controls_are_the_reports_variables() {
     passes(&format!(
@@ -455,7 +455,7 @@ fn request_page_controls_are_the_reports_variables() {
     ));
 }
 
-// handlers/TestRequestPageControlErrorName.al:SourceReport_BooleanControl_SetValue_Refusal_NamesTheControlAndTheCaption,
+// reports/TestRequestPageControlErrorName.al:SourceReport_BooleanControl_SetValue_Refusal_NamesTheControlAndTheCaption,
 // ..._AssertEquals_Mismatch_NamesTheControl
 #[test]
 fn control_errors_name_the_control_and_its_caption() {
@@ -473,7 +473,7 @@ fn control_errors_name_the_control_and_its_caption() {
     ));
 }
 
-// handlers/TestReportInstanceRunReqPage.al: the instance form leaves the control value on the instance
+// reports/TestReportInstanceRunReqPage.al: the instance form leaves the control value on the instance
 #[test]
 fn instance_run_request_page_leaves_the_control_value_on_the_instance() {
     passes(&format!(
@@ -488,7 +488,7 @@ fn instance_run_request_page_leaves_the_control_value_on_the_instance() {
     ));
 }
 
-// handlers/TestRequestPageOnInit.al
+// reports/TestRequestPageOnInit.al
 #[test]
 fn the_request_pages_init_and_open_triggers_run_before_the_handler() {
     passes(&format!(
@@ -502,7 +502,7 @@ fn the_request_pages_init_and_open_triggers_run_before_the_handler() {
     ));
 }
 
-// handlers/TestReportRequestPageAction.al (the three tests)
+// reports/TestReportRequestPageAction.al (the three tests)
 #[test]
 fn invoking_a_request_page_action_is_refused_with_its_id() {
     passes(&format!(
@@ -520,7 +520,7 @@ fn invoking_a_request_page_action_is_refused_with_its_id() {
     ));
 }
 
-// handlers/TestReportRequestPageSaveValues.al:SourceReport_SaveValues_NextRunShowsTheConfirmedValue,
+// reports/TestReportRequestPageSaveValues.al:SourceReport_SaveValues_NextRunShowsTheConfirmedValue,
 // ..._NoSaveValues_NextRunShowsTheDefault, ..._RunRequestPageReturnsTheValueWithoutSavingIt
 #[test]
 fn save_values_reopens_on_the_confirmed_value() {
@@ -563,7 +563,7 @@ fn save_values_reopens_on_the_confirmed_value() {
     ));
 }
 
-// handlers/TestReportRequestPageCaption.al
+// reports/TestReportRequestPageCaption.al
 #[test]
 fn the_reports_caption_wins_over_the_request_pages() {
     passes(&format!(
@@ -577,7 +577,7 @@ fn the_reports_caption_wins_over_the_request_pages() {
     ));
 }
 
-// handlers/TestReqPageBoundVisibility.al:OwnReport_*
+// reports/TestReqPageBoundVisibility.al:OwnReport_*
 #[test]
 fn visible_and_editable_follow_the_reports_variables() {
     passes(&format!(
@@ -596,7 +596,7 @@ fn visible_and_editable_follow_the_reports_variables() {
     ));
 }
 
-// testpageclose/TestPageClosingActions.al:RequestPage_OK_ClosesThePage_AndASecondActionCannotChangeTheResult
+// testpage/lifecycle/TestPageClosingActions.al:RequestPage_OK_ClosesThePage_AndASecondActionCannotChangeTheResult
 #[test]
 fn a_request_page_closes_at_its_first_action() {
     passes(&format!(
@@ -650,7 +650,7 @@ fn a_report_that_does_not_use_its_request_page_runs_without_one() {
 }
 
 // A run that opens its request page where the test declares no handler raises the Unhandled UI
-// error (handlers/TestReportRuntimeContracts.al:416-430: text and code).
+// error (reports/TestReportRuntimeContracts.al:416-430: text and code).
 #[test]
 fn a_request_page_with_no_handler_raises_unhandled_ui() {
     passes(&format!(
@@ -661,7 +661,7 @@ fn a_request_page_with_no_handler_raises_unhandled_ui() {
     ));
 }
 
-// handlers/TestReportInstanceRunReqPage.al:TestReport_InstanceRunRequestPage_SeededWithParameters_StillRunsTheHandler
+// reports/TestReportInstanceRunReqPage.al:TestReport_InstanceRunRequestPage_SeededWithParameters_StillRunsTheHandler
 // (the corpus pins that the handler runs and the filter comes back; that the page opens on the
 // seed is this runtime's reading, docs/probes-needed.md)
 #[test]
@@ -697,10 +697,10 @@ fn a_foreign_seed_is_refused() {
     assert!(why.contains("did not produce"), "{why}");
 }
 
-// handlers/TestRequestPageControlErrorName.al:SourceReportExtension_Control_AssertEquals_*,
-// pageapplicationarea/TestReqPageApplicationAreaReportExtension.al:ExtField_SetValue_RunsItsOnValidate,
-// handlers/TestPageExtensionModifyCaption_Tests.al:SameAppReport_ModifiedRequestPageCaptions;
-// the parameters name a field by its variable, not by its control (report/TestProbeReportContracts.al)
+// reports/TestRequestPageControlErrorName.al:SourceReportExtension_Control_AssertEquals_*,
+// pages/application-area/TestReqPageApplicationAreaReportExtension.al:ExtField_SetValue_RunsItsOnValidate,
+// pages/extensions/TestPageExtensionModifyCaption_Tests.al:SameAppReport_ModifiedRequestPageCaptions;
+// the parameters name a field by its variable, not by its control (reports/TestProbeReportContracts.al)
 #[test]
 fn a_reportextension_adds_controls_and_modifies_captions_of_the_request_page() {
     passes(&format!(
@@ -724,7 +724,7 @@ fn a_reportextension_adds_controls_and_modifies_captions_of_the_request_page() {
     ));
 }
 
-// handlers/TestReportRunWithRequestPage.al:Report_Run_NonProcessingOnlyRequestPageHasNoOKAction:
+// reports/TestReportRunWithRequestPage.al:Report_Run_NonProcessingOnlyRequestPageHasNoOKAction:
 // a report that is not ProcessingOnly offers no plain OK, and Cancel stops its run
 #[test]
 fn the_request_page_of_a_report_that_renders_has_no_ok_action() {
@@ -802,7 +802,7 @@ fn a_report_that_shows_its_request_page_follows_the_transaction_rules() {
     ));
 }
 
-// handlers/TestRequestPageControlErrorName.al:PrecompiledReportExtension_BooleanControl_AssertEquals_Mismatch_NamesTheControl,
+// reports/TestRequestPageControlErrorName.al:PrecompiledReportExtension_BooleanControl_AssertEquals_Mismatch_NamesTheControl,
 // _TextControl_AssertEquals_Mismatch_..., _BooleanControl_SetValue_Refusal_..., _AssertEquals_Match_RaisesNothing
 #[test]
 fn a_reportextension_that_only_adds_controls_bound_to_protected_base_variables_opens() {
@@ -845,7 +845,7 @@ fn a_request_page_with_show_filter_false_opens_but_its_data_items_are_refused() 
     assert!(why.contains("ShowFilter"), "{why}");
 }
 
-// al-language-onprem/handlers/TestRequestPageSaveAsXmlContracts.al:SaveAsXml_ParametersFile_RawForm and
+// al-language-onprem/reports/TestRequestPageSaveAsXmlContracts.al:SaveAsXml_ParametersFile_RawForm and
 // :TemporaryPath_EndsWithTheTempFolderAndABackslash: CR LF line ends, no line end after the last element, the parameter names
 // followed by their fixed GUIDs, an execution time with seven fraction digits and +00:00.
 #[test]
@@ -875,7 +875,7 @@ fn save_as_xml_writes_the_parameters_file_in_its_raw_form() {
 }
 
 /// Lane T8: a request page with two actions out of reach, a seeded control and a caption set in OnOpenPage
-/// (report/lt-aq/AqFixtures.al:172-205, :550-610).
+/// (reports/AqFixtures.al:172-205, :550-610).
 const LANE_T8: &str = r#"
 table 61404 "T8 Row" { fields { field(1; Number; Integer) { } } keys { key(PK; Number) { } } }
 codeunit 61400 "T8 Log"
@@ -978,7 +978,7 @@ codeunit 61403 T
 }
 "#;
 
-// report/lt-aq/AqTests.al:313-330 (caption set in OnOpenPage), :334-358 (actions out of reach), :362-381 (seed after OnInit).
+// reports/AqTests.al:313-330 (caption set in OnOpenPage), :334-358 (actions out of reach), :362-381 (seed after OnInit).
 #[test]
 fn lane_t8_request_page_caption_actions_and_seed() {
     let o = al_testkit::outcomes_in(LANE_T8, "T");
@@ -989,7 +989,7 @@ fn lane_t8_request_page_caption_actions_and_seed() {
 }
 
 // Review of lane T8: a parameters string that sets a data item view, on a report whose request page has OnInit (or
-// whose report has OnInitReport). The view now loads after OnInit (report/lt-aq/AqTests.al:362-381 pins only a control
+// whose report has OnInitReport). The view now loads after OnInit (reports/AqTests.al:362-381 pins only a control
 // value); whether a view set in OnInit is replaced by the seed is not pinned: refused.
 #[test]
 fn a_seeded_data_item_view_on_a_request_page_with_on_init_is_refused() {
@@ -1072,7 +1072,7 @@ local procedure Check(Expected: Text; Actual: Text) begin if Expected <> Actual 
     if Mode = 'ok' then RP.OK().Invoke() else RP.Cancel().Invoke();
 end;";
 
-// report/lt-report-requestpage/RptRequestPage.al:1243 RI_HandlerSetValue_OnValidateError_ReachesRun and :1264
+// reports/request-page/RptRequestPage.al:1243 RI_HandlerSetValue_OnValidateError_ReachesRun and :1264
 // RI_HandlerSetValue_NotEvaluable_ReachesRun: the error leaves Report.Run as the TestValidation error, the page closes with
 // Cancel (the refused value is not kept), OnPreReport does not run, and the next run is a normal one.
 #[test]
@@ -1136,8 +1136,8 @@ codeunit 61301 "RQ Substitute"
 }
 "#;
 
-// events/lt-platform-events-v/PeVTests.al:465, :660: the static Report.RunRequestPage raises SubstituteReport with RunMode
-// ParametersOnly before the page opens. A subscriber that sets another report swaps it (misc/lt-y14-triage/Y14ReportSubstitute.al,
+// events/platform-triggers/PeVTests.al:465, :660: the static Report.RunRequestPage raises SubstituteReport with RunMode
+// ParametersOnly before the page opens. A subscriber that sets another report swaps it (reports/Y14ReportSubstitute.al,
 // corpus master; `y14_pins.rs`); an id no report has is refused, as the error text for it is not pinned.
 #[test]
 fn static_run_request_page_raises_substitute_report_and_refuses_another_report() {

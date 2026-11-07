@@ -25,7 +25,7 @@ impl Session {
             return r;
         }
         // A text that is no number into an Integer, BigInteger, Decimal or Boolean field raises the Evaluate error from BC 28 and
-        // `The type Nav<Type> is unknown.` before; the field keeps its value (fieldref/TestFieldRefValue.al:202
+        // `The type Nav<Type> is unknown.` before; the field keeps its value (recordref-fieldref/fieldref/TestFieldRefValue.al:202
         // FieldRef_Value_TextIntoInteger_ErrorText, :229 FieldRef_Value_TextIntoNumberTypes): `abc` into each type, an
         // empty text into an Integer.
         if let Value::Text(s) | Value::Code(s) = v {
@@ -39,7 +39,7 @@ impl Session {
                 // FieldRef_Value_TextIntoBooleanDateGuidOption).
                 RtType::Boolean => ("Boolean", "NavBoolean", false),
                 // `abc` into an Option field that has no such member (same test; the split by version is
-                // record/lt-u-table-field-props/UTableCdsOrdinals.al:170,175).
+                // record/table-properties/UTableCdsOrdinals.al:170,175).
                 RtType::Option(m) if !m.iter().any(|x| x.eq_ignore_ascii_case(s)) => ("Option", "NavOption", false),
                 _ => ("", "", false),
             };

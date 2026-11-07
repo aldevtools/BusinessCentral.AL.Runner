@@ -1,4 +1,4 @@
-//! E-invoice export shapes (xmlport/lt-y72-xmlport-probes/Y72XpEInvoiceShapes.al): an attributed leaf with Skip two containers
+//! E-invoice export shapes (streams/Y72XpEInvoiceShapes.al): an attributed leaf with Skip two containers
 //! below a table element (EndpointID), a container right below a table element that holds an inner table element (TaxTotal), and
 //! a blank attribute imported into an Enum field with OnValidate (Y72XpTextTypeBlankEnum.al).
 

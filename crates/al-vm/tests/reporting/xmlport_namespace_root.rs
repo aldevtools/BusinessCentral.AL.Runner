@@ -1,5 +1,5 @@
 //! The import of a port without namespaces: a root element in a namespace is not found, a prefix the root declares and no
-//! element uses is ignored (corpus xmlport/lt-xmlport-query-datatransfer/XpTNamespaces.al:Import_NoNamespaceXmlportWithNamespacedInput,
+//! element uses is ignored (corpus xmlports/import/XpTNamespaces.al:Import_NoNamespaceXmlportWithNamespacedInput,
 //! Import_NoNamespaceXmlportWithUnusedPrefixDecl, Import_DefaultNs*). A DefaultNamespace without UseDefaultNamespace changes
 //! nothing on import; its export is refused.
 
@@ -74,10 +74,10 @@ fn an_unused_default_namespace_changes_nothing_on_import() {
         import(p, "<Root xmlns=\"urn:x\"><R><Id>1</Id></R></Root>"),
         Err(NOT_FOUND.into())
     );
-    // An export writes no namespace for it (xmlport/lt-y83-xmlport-shapes/Y83XpNsTests.al:Ns_DnOnly, needs the corpus bump).
+    // An export writes no namespace for it (xmlports/shapes-properties/Y83XpNsTests.al:Ns_DnOnly, needs the corpus bump).
     assert!(!matches!(run(&src(p, ""), "Export"), Err(Signal::Unsupported(_))));
     // Used, it is the namespace of every element: a root in it is imported, one without is not found
-    // (xmlport/lt-bd-xmlport/BdXmlPort.al:353-370 BdDefaultNamespace_PortWithDefaultNamespace).
+    // (xmlports/shapes-properties/BdXmlPort.al:353-370 BdDefaultNamespace_PortWithDefaultNamespace).
     let used = "DefaultNamespace = 'urn:x'; UseDefaultNamespace = true;";
     assert_eq!(
         import(used, "<Root xmlns=\"urn:x\"><R><Id>1</Id></R></Root>"),
@@ -87,7 +87,7 @@ fn an_unused_default_namespace_changes_nothing_on_import() {
 }
 
 /// UseDefaultNamespace = true without DefaultNamespace puts the port in BC's own default namespace
-/// `urn:microsoft-dynamics-nav/xmlports/x<id>` (xmlport/lt-bd-xmlport/BdXmlPort.al:499 SqUseDefaultNamespace_NoDefaultNamespace,
+/// `urn:microsoft-dynamics-nav/xmlports/x<id>` (xmlports/shapes-properties/BdXmlPort.al:499 SqUseDefaultNamespace_NoDefaultNamespace,
 /// xmlport 89580). The import takes a root in that namespace, by default or by prefix; a root in another namespace or in none
 /// is not found; a child reset to no namespace fails the schema check.
 const UDN: &str = "UseDefaultNamespace = true;";

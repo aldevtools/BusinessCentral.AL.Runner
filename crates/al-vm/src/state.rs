@@ -68,25 +68,27 @@ pub(crate) struct TxState {
     /// The TryFunction calls on the call stack whose result is used, innermost last: a write inside one fails with
     /// TryFunctionWrite (`transactions::try_write_error`).
     pub(crate) used_tries: Vec<transactions::UsedTry>,
+    /// For each guarded `Codeunit.Run` running: the call stack depth of its OnRun frame.
+    pub(crate) guarded_runs: Vec<usize>,
     /// What `Database.LastUsedRowVersion` reports inside the open transaction (`Session::last_used_row_version`): the
     /// database tables an Insert wrote rows of that nothing has sent to the database yet (table, company, highest row
     /// version), the highest row version a sent write holds, how many database row versions were handed out and how
     /// many of them an Insert or Modify accounts for, and why the value is not pinned.
     pub(crate) row_versions: RowVersionTx,
     /// The transaction world of an XmlPort export started inside a TryFunction whose result is used: its triggers' Insert and
-    /// Modify are not writes of the try (xmlport/lt-y-xmlport-props/YXmlPortProps.al:861); other writes there are refused.
+    /// Modify are not writes of the try (xmlports/shapes-properties/YXmlPortProps.al:861); other writes there are refused.
     pub(crate) xp_export_try_world: Option<usize>,
     /// The tables (object indexes) `Consistent(false)` marked in the open transaction: `Commit` fails while one is marked.
     pub(crate) inconsistent: Vec<u32>,
     /// A lock started the open write transaction: `LockTable` on a database table, `ReadIsolation := UpdLock`, or a FindFirst
-    /// under RepeatableRead or UpdLock (codeunit/TestCodeunitRunWriteTransaction.al:211-278). A Commit ends it.
+    /// under RepeatableRead or UpdLock (codeunits/TestCodeunitRunWriteTransaction.al:211-278). A Commit ends it.
     pub(crate) lock_tx: bool,
     /// A lock whose effect on the write transaction is not pinned ran since the last Commit (a RecordRef.LockTable, a
     /// RepeatableRead set without a read, another read than FindFirst under a locking ReadIsolation): while no pinned write
     /// or lock opened the transaction, what depends on it is refused (`Session::in_write_transaction`).
     pub(crate) lock_unpinned: Option<&'static str>,
     /// A `RecordRef.LockTable` on a database table ran since the last Commit: the write transaction is open
-    /// (recordref/lt-wc/WcRecordRefLockTable.al:28-51), while what else it changes stays refused through `lock_unpinned`.
+    /// (recordref-fieldref/WcRecordRefLockTable.al:28-51), while what else it changes stays refused through `lock_unpinned`.
     pub(crate) recref_lock_tx: bool,
     /// The tables (object index, company) a locking ReadIsolation locked since the last Commit: UpdLock set on a database
     /// table, or a read under RepeatableRead or UpdLock.
@@ -163,6 +165,7 @@ impl TxState {
             immediate_errors: false,
             try_depth: 0,
             used_tries: Vec::new(),
+            guarded_runs: Vec::new(),
             row_versions: RowVersionTx::default(),
             xp_export_try_world: None,
             inconsistent: Vec::new(),
@@ -208,7 +211,7 @@ pub(crate) struct PageClients {
     pub(crate) bg_drain_after_call: Option<Rc<RefCell<al_builtins::value::PageState>>>,
     /// The xRec fields the next `Modify` hands the table's triggers instead of the stored row: a
     /// page saving a row passes its own xRec (corpus
-    /// handlers/TestPageActionRunObjectPageRec_Tests.al:HostSaveAfterTheTargetEditedTheRowCarriesXRec).
+    /// testpage/TestPageActionRunObjectPageRec_Tests.al:HostSaveAfterTheTargetEditedTheRowCarriesXRec).
     pub(crate) page_xrec: Option<Vec<Value>>,
     /// Records whose `CurrFieldNo` is set (a TestPage write validating a field, or an assignment in table
     /// code), with the field's number: what `CurrFieldNo` reads. Held weakly: the entry keeps the record's
@@ -230,6 +233,9 @@ pub(crate) struct PageClients {
     /// Set by a FindFirst or FindLast that found a row on Rec in the OnOpenPage of a page an action opened through
     /// RunPageLink (`records.rs`); taken by `open_page_as` into `PageState::run_page_link_open_moved`.
     pub(crate) run_page_link_open_moved: bool,
+    /// How many OnOpenPage triggers of pages an action opened through RunPageLink are running now: a by-value copy of Rec taken
+    /// in one is `records::RUN_PAGE_LINK_OPEN_COPY` (see `Session::record_by_value`).
+    pub(crate) run_page_link_opening: u32,
     /// The close that starts next is a TestPage's own Close() (taken by `close_with`).
     pub(crate) test_close: bool,
     /// The save of the close running now failed with an AL Error (`pages/close_save_failed.rs`).
@@ -248,6 +254,13 @@ pub(crate) struct PageClients {
 pub(crate) struct EventState {
     /// Manual event subscriptions made by `BindSubscription`.
     pub(crate) bindings: Vec<dispatch::Binding>,
+    /// Manual bindings whose bound instance the globals of a page reached when they were made (`page_held_bindings.rs`,
+    /// al-runner issue 6924).
+    pub(crate) page_held: Vec<crate::page_held_bindings::PageHeld>,
+    /// The pages that have an instance and may still run code (`page_held_bindings.rs`).
+    pub(crate) pages_with_instance: Vec<std::rc::Weak<RefCell<al_builtins::value::PageState>>>,
+    /// The pages a Page variable's non-modal `Run` showed last (`page_held_bindings.rs`).
+    pub(crate) page_var_runs: Vec<std::rc::Weak<RefCell<al_builtins::value::PageState>>>,
     /// What the Event Subscription table reports (calls handled, bound instances).
     pub(crate) event_stats: Rc<platform::EventStats>,
     /// `publish` is about to raise its event: the next `raise` has an event frame on the stack.
@@ -281,8 +294,15 @@ pub(crate) struct EventState {
     /// Apps with no dependency path to the app whose install code runs (`Session::set_apps_install_order_unknown`): BC's
     /// order between them is not known, so a subscriber of one of them that the install code reaches is refused.
     pub(crate) order_unknown_apps: Option<std::collections::BTreeSet<u32>>,
-    /// While the database trigger setup of one table is asked: the subscribers of `order_unknown_apps` that leave every flag
-    /// unchanged for it, which the raise leaves out instead of refusing (setup_no_op.rs).
+    /// The tables the install code of the apps under test may write (`Session::set_install_written_tables`); `None`: not
+    /// known, so no table counts as empty in either install order (empty_reads.rs).
+    pub(crate) install_written: Option<std::collections::BTreeSet<u32>>,
+    /// Tables of `install_written` that only their own app's install code writes, with the rows it may insert
+    /// (`Session::set_install_rows`, empty_reads.rs).
+    pub(crate) install_rows: Option<std::sync::Arc<crate::empty_reads::InstallRows>>,
+    /// While the database trigger setup of one table is asked, or a database trigger event of one table is raised: the
+    /// subscribers of `order_unknown_apps` that leave every flag unchanged for it (setup_no_op.rs), or do nothing for it
+    /// (db_event_no_op.rs), which the raise leaves out instead of refusing.
     pub(crate) setup_no_ops: std::collections::BTreeSet<(usize, usize)>,
     /// What the subscribers of `Global Triggers` answered, per table object (globaltriggers.rs).
     pub(crate) global_setups: std::collections::HashMap<usize, globaltriggers::GlobalSetup>,
@@ -348,10 +368,10 @@ pub(crate) struct ReportState {
     /// A `CurrReport.Skip`, `Break` or `Quit` is leaving the procedures down to the report trigger at this depth.
     pub(crate) flow_unwind: Option<usize>,
     /// The request page of a `RunRequestPage` is open: a table write in its handler finds no transaction
-    /// (report/TestProbeReportContracts.al:RequestPage_TableWriteInsideHandler).
+    /// (reports/TestProbeReportContracts.al:RequestPage_TableWriteInsideHandler).
     pub(crate) request_only_page: bool,
     /// The run failed on a DataItemTableView `const(0D)` (`report_prepare`): a SaveAs whose answer is used keeps that error
-    /// as the last error (report/lt-cj-report-leads/CjDataset.al:190-211).
+    /// as the last error (streams/CjDataset.al:190-211).
     pub(crate) zero_date_view_failed: bool,
     pub(crate) report_executed: Vec<std::rc::Weak<RefCell<Instance>>>,
     /// The parameters string of the `Execute` about to run (taken by `report_body`).
@@ -364,7 +384,7 @@ pub(crate) struct ReportState {
     pub(crate) report_running: Vec<std::rc::Weak<RefCell<Instance>>>,
     /// `RequestOptionsPage.Caption` set by the code of a report outside its request page's OnOpenPage, by report instance: the
     /// getter reads it back (see `reports.rs`, `request_page_caption`).
-    pub(crate) request_captions: Vec<(std::rc::Weak<RefCell<Instance>>, String)>,
+    pub(crate) request_captions: Vec<(std::rc::Weak<RefCell<Instance>>, String, Option<String>)>,
     /// `CurrReport.PrintOnlyIfDetail` of the running processing-only report: set by its setter, cleared when a run starts.
     pub(crate) print_only_if_detail: bool,
     /// The Blob buffer the last `Query.SaveAsCsv` wrote, and its length then (see `queries.rs`, `query_save_csv`).
@@ -374,11 +394,13 @@ pub(crate) struct ReportState {
     pub(crate) report_save_tried: Vec<std::rc::Weak<RefCell<Instance>>>,
     /// Report variables a procedure of the caller initialized before their run (`SetParameters` and the like).
     pub(crate) prepared: Vec<std::rc::Weak<RefCell<Instance>>>,
+    /// For each of those: the global slots the procedures the caller ran on it can write (`Session::note_caller_writes`).
+    pub(crate) caller_writes: Vec<(std::rc::Weak<RefCell<Instance>>, std::collections::HashSet<usize>)>,
     /// Report variables whose request page OnInit ran at a procedure's first use (`Session::first_use`): the run does not
     /// run it again.
     pub(crate) rp_init_done: Vec<std::rc::Weak<RefCell<Instance>>>,
     /// The report instances whose request page OnInit ran before their `[ReportHandler]` was called: a run the handler starts
-    /// does not run it again (report/lt-ae-reporthandler/AeReportHandlerCalls.al:83 Handler_RunsReport).
+    /// does not run it again (reports/reporthandler/AeReportHandlerCalls.al:83 Handler_RunsReport).
     pub(crate) rp_init_by_handler: Vec<std::rc::Weak<RefCell<Instance>>>,
     /// For each report body running, innermost last: how it was started, which says what `CurrReport.Preview()` answers.
     pub(crate) report_preview_pinned: Vec<ReportStart>,
@@ -386,7 +408,7 @@ pub(crate) struct ReportState {
     pub(crate) run_modal: bool,
     /// The filters each data item record got from a `SetTableView`: the request page shows those and not the filters a procedure
     /// of the report set on the item. Held by a `Weak` of the record and not by its address: a `Weak` keeps the allocation, so no
-    /// later record can get the address of one that is gone and read its view (al-runner CI flake of report/lt-report-requestpage/
+    /// later record can get the address of one that is gone and read its view (al-runner CI flake of reports/request-page/
     /// RptFilters.al:510 RequestFilterFields_Handler_SetsFilters). The entries of dropped records go on each new SetTableView.
     pub(crate) set_view_filters: Vec<(std::rc::Weak<RefCell<RecordState>>, Vec<ViewFilterKey>)>,
     /// The dataset a `Report.SaveAs(.., Xml, ..)` run is writing (al-vm reports.rs).

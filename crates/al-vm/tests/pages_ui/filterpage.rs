@@ -1,5 +1,5 @@
 //! `FilterPageBuilder`: an in-memory builder of named filter controls. Each test names the corpus
-//! test (filterpage/TestFilterPageBuilder.al) that pins it.
+//! test (pages/filterpagebuilder/TestFilterPageBuilder.al) that pins it.
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
@@ -161,7 +161,7 @@ fn get_view_and_set_view_differ_on_an_unknown_name() {
 }
 
 // :GetView_CaptionsFlag_RendersAnOptionFilterDifferently; without names the filter takes the numeric form `FieldN=1(...)`
-// (platform/lt-platform-members/PlTFilterPageBuilder.al:177-180 GetSetView_RoundTrip).
+// (metadata/platform-tables/PlTFilterPageBuilder.al:177-180 GetSetView_RoundTrip).
 #[test]
 fn use_names_spells_an_option_filter_as_a_name_or_an_ordinal() {
     assert_eq!(

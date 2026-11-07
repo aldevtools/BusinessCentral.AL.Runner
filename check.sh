@@ -9,6 +9,10 @@
 # `cargo build --release`, so it reuses the release build the workflow has already made
 # (`-p al-test-cli` would select other features and build al-vm and the crates below it again).
 # Issue #45 has the measurements.
+#
+# The not-passing lists (ADR-065, metrics/<major>/not-passing*.txt): corpus_harness and dev_tooling test the rule on
+# fixtures and selections. The full check of the lists needs Microsoft's apps and is one run of its own, before the
+# commit as in CI's corpus job: ./target/release/al-test-cli --root . --all-versions (then --prune-not-passing).
 set -euo pipefail
 tools/legal_guard.sh
 cargo fmt --all --check

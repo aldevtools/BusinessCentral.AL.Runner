@@ -1,5 +1,5 @@
 //! Writes to platform tables whose stored rows BC changes or guards (corpus master onprem
-//! platform/lt-y35-stored-tables/Y35StoredTables.al).
+//! metadata/platform-tables/Y35StoredTables.al).
 
 use super::*;
 
@@ -22,7 +22,7 @@ impl Session {
     }
 
     /// The platform table Webhook Subscription (2000000199): an Insert stores a blank "Application ID" (field 7) as 'NAV'
-    /// (corpus master onprem platform/lt-y35-stored-tables/Y35StoredTables.al C303_Webhook_RowsAndWrites, the rows read back).
+    /// (corpus master onprem metadata/platform-tables/Y35StoredTables.al C303_Webhook_RowsAndWrites, the rows read back).
     /// Another value AL set is not pinned: refused. What the variable holds afterwards is not pinned either: only the stored row changes.
     pub(super) fn webhook_application_id(&self, t: &TableDef, rec: &Rec, stored: &mut [Value]) -> Result<(), Signal> {
         if rec.borrow().temporary || self.engine.program.objects[t.object as usize].id != Some(2000000199) {
@@ -46,7 +46,7 @@ impl Session {
 
     /// A Delete or DeleteAll of the platform table MCP Configuration (2000000292) while MCP Configuration Tool (2000000293)
     /// holds rows: BC 27.5 deletes the configuration's tools with it, BC 28.5 and 29.0 keep them (corpus master onprem
-    /// platform/lt-y35-stored-tables/Y35StoredTables.al C303_McpTool_ParentChecks). The BC 27 table set is the one whose tool
+    /// metadata/platform-tables/Y35StoredTables.al C303_McpTool_ParentChecks). The BC 27 table set is the one whose tool
     /// table has no "API Version" field (BC 28 and later); there the delete is refused, as the cascade is not followed.
     pub(super) fn mcp_configuration_delete_check(
         &self,

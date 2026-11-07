@@ -1,6 +1,6 @@
-//! `SessionSettings` and `Notification`: in-memory value objects (corpus session/TestSessionSettings.al,
-//! handlers/TestNotificationHandler.al, session/TestCalcDateNotificationContracts.al,
-//! session/TestMiscTypes.al).
+//! `SessionSettings` and `Notification`: in-memory value objects (corpus session-system/TestSessionSettings.al,
+//! ui-handlers/TestNotificationHandler.al, session-system/TestCalcDateNotificationContracts.al,
+//! session-system/TestMiscTypes.al).
 
 use crate::describe::Describe;
 use crate::native::{Ctx, NativeFn, Signal};
@@ -67,7 +67,7 @@ fn int(a: &[Value], i: usize) -> Result<i32, Signal> {
 /// is refused on read (see [`SessionSettingsState`]).
 fn language_id(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     if a.is_empty() {
-        // Untouched settings read as 0, empty and the null Guid (session/TestProbeSessionMiscContracts.al:
+        // Untouched settings read as 0, empty and the null Guid (session-system/TestProbeSessionMiscContracts.al:
         // SessionSettings_PristineProperties).
         return with_settings(r, |s| s.language_id.unwrap_or(0)).map(Value::Integer);
     }
@@ -109,7 +109,7 @@ fn profile_app_id(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Ou
     with_settings(r, |s| s.profile_app_id = Some(g)).map(|()| Value::Null)
 }
 
-/// An untouched instance is the empty company (session/TestSessionSettings.al:575-595).
+/// An untouched instance is the empty company (session-system/TestSessionSettings.al:575-595).
 fn company(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     if a.is_empty() {
         return with_settings(r, |s| Value::Text(s.company.clone().into()));
@@ -119,7 +119,7 @@ fn company(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
 }
 
 /// System profiles are deprecated: the setter discards its argument and the property stays false
-/// (session/TestSessionSettings.al:172-215).
+/// (session-system/TestSessionSettings.al:172-215).
 fn profile_system_scope(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     if a.is_empty() {
         Ok(Value::Boolean(false))
@@ -129,7 +129,7 @@ fn profile_system_scope(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value])
 }
 
 /// `Init()` loads the language, locale and time zone of the running session and replaces what
-/// the instance held (session/TestSessionSettings.al:371-455). The company stays empty, as BC 27.5
+/// the instance held (session-system/TestSessionSettings.al:371-455). The company stays empty, as BC 27.5
 /// leaves it (the same test, "MEASURED"). The profile properties are not pinned: they go back to
 /// "nobody set", which a read refuses.
 fn init(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
@@ -156,7 +156,7 @@ fn init(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
 
 /// `RequestSessionUpdate(false)` asks the client for a new session and is routed to the test's
 /// `[SessionSettingsHandler]`, which gets the assigned settings; the instance stays as it was and
-/// so does the running session (session/TestSessionSettings.al:464-545). `true` also writes the
+/// so does the running session (session-system/TestSessionSettings.al:464-545). `true` also writes the
 /// settings to "User Personalization", which the corpus does not exercise: refused.
 fn request_update(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     match a.first() {
@@ -184,7 +184,7 @@ fn request_update(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Ou
     );
     let copy = c.ui_session_settings(copy.clone())?.unwrap_or(copy);
     // The handler's `var` parameter is the sender's variable: what it changed is there afterwards, whatever it
-    // answers (session/W5SessionSettings.al:SessionSettings_Update_*, BC 27.5 and 29.0: the handler sets the language
+    // answers (session-system/W5SessionSettings.al:SessionSettings_Update_*, BC 27.5 and 29.0: the handler sets the language
     // to 1031 and the sender reads 1031; a second call sees 1031).
     let after = match &copy {
         Value::Library(_, cell) => match &*cell.borrow() {
@@ -201,8 +201,8 @@ fn request_update(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Ou
 
 // ---- Notification ------------------------------------------------------------------------
 
-/// `Message(text)` sets, `Message()` reads (handlers/TestNotificationHandler.al:28-35). A message
-/// nobody set is empty (handlers/TestNotificationSendRecallContracts.al:65).
+/// `Message(text)` sets, `Message()` reads (ui-handlers/TestNotificationHandler.al:28-35). A message
+/// nobody set is empty (ui-handlers/TestNotificationSendRecallContracts.al:65).
 fn n_message(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     if a.is_empty() {
         return with_notification(r, |n| n.message.clone().unwrap_or_default()).map(|s| Value::Text(s.into()));
@@ -211,9 +211,9 @@ fn n_message(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     with_notification(r, |n| n.message = Some(t)).map(|()| Value::Null)
 }
 
-/// `Id := guid` sets, `Id` reads (handlers/TestNotificationHandler.al:55-56). The id of a
+/// `Id := guid` sets, `Id` reads (ui-handlers/TestNotificationHandler.al:55-56). The id of a
 /// notification nobody gave one, and that was not sent, is the null Guid
-/// (handlers/TestNotificationSendRecallContracts.al:69).
+/// (ui-handlers/TestNotificationSendRecallContracts.al:69).
 fn n_id(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     match a.first() {
         Some(Value::Guid(g)) => {
@@ -233,7 +233,7 @@ fn n_id(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     }
 }
 
-/// Setting a scope must not throw (session/TestCalcDateNotificationContracts.al:182-188); reading one
+/// Setting a scope must not throw (session-system/TestCalcDateNotificationContracts.al:182-188); reading one
 /// back is not pinned.
 fn n_scope(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     match a.first() {
@@ -241,7 +241,7 @@ fn n_scope(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
             let o = *o;
             with_notification(r, |n| n.scope = Some(o)).map(|()| Value::Null)
         }
-        // A notification nobody set a scope on is LocalScope (handlers/TestNotificationSendRecallContracts.al:66).
+        // A notification nobody set a scope on is LocalScope (ui-handlers/TestNotificationSendRecallContracts.al:66).
         None => with_notification(r, |n| n.scope.unwrap_or(0)).map(|o| {
             let members: std::sync::Arc<[String]> = crate::sysenum::option_members("NotificationScope")
                 .expect("a system option")
@@ -253,9 +253,9 @@ fn n_scope(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
 }
 
 /// Data is a text map: a second `SetData` of a name replaces its value
-/// (session/TestCalcDateNotificationContracts.al:142-180).
+/// (session-system/TestCalcDateNotificationContracts.al:142-180).
 fn n_set_data(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
-    // A Guid value is its text form: types/lt-guid-as-text-argument/GuidAsTextArgument.al:66
+    // A Guid value is its text form: types/guid/GuidAsTextArgument.al:66
     // Guid_AsTextArgument_NotificationData (SetData with a Guid, GetData reads `{XXXXXXXX-...}`).
     let v = match a.get(1) {
         Some(Value::Guid(g)) => crate::format::format_guid(g),
@@ -274,7 +274,7 @@ fn n_has_data(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     with_notification(r, |n| Value::Boolean(n.data.iter().any(|(name, _)| *name == k)))
 }
 
-/// A name nobody set reads empty (handlers/TestNotificationSendRecallContracts.al:68).
+/// A name nobody set reads empty (ui-handlers/TestNotificationSendRecallContracts.al:68).
 fn n_get_data(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let k = text(a, 0)?;
     with_notification(r, |n| {
@@ -288,14 +288,14 @@ fn n_get_data(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
 }
 
 /// Stored, never run: an action only matters when the notification is sent to a client
-/// (session/TestSystemExtended.al:553-575, TestMiscComplete.al:106-119 pin that it does not throw).
+/// (session-system/TestSystemExtended.al:553-575, TestMiscComplete.al:106-119 pin that it does not throw).
 fn n_add_action(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let (caption, codeunit, method) = (text(a, 0)?, int(a, 1)?, text(a, 2)?);
     let description = if a.len() > 3 { Some(text(a, 3)?) } else { None };
     with_notification(r, |n| n.actions.push((caption, codeunit, method, description))).map(|()| Value::Null)
 }
 
-/// A copy of the notification for a handler, which gets its own (handlers/TestNotificationHandler.al:
+/// A copy of the notification for a handler, which gets its own (ui-handlers/TestNotificationHandler.al:
 /// 74-79 read the message from the parameter).
 fn notification_copy(r: Option<&mut Value>) -> Result<Value, Signal> {
     let state = with_notification(r, |n| n.clone())?;
@@ -307,12 +307,12 @@ fn notification_copy(r: Option<&mut Value>) -> Result<Value, Signal> {
 
 /// `Send()` gives a notification without one an Id, goes to the test's `[SendNotificationHandler]`
 /// if there is one, and answers true whatever the handler answers. What the handler changed in its
-/// `var Notification` is seen by the sender (handlers/TestNotificationSendRecallContracts.al:59-93).
+/// `var Notification` is seen by the sender (ui-handlers/TestNotificationSendRecallContracts.al:59-93).
 fn n_send(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     let Some(recv) = r else {
         return unsupported("Notification.Send without a receiver");
     };
-    // A notification with no message cannot be sent (errorinfo/lt-errnotif/EnTNotification.al:Send_EmptyMessage); no handler runs.
+    // A notification with no message cannot be sent (errors/errorinfo/EnTNotification.al:Send_EmptyMessage); no handler runs.
     if with_notification(Some(&mut *recv), |n| n.message.is_none())? {
         return Err(Signal::Error(Box::new(crate::native::AlError {
             message: "Message cannot be empty when sending a Notification.".into(),
@@ -342,15 +342,13 @@ fn n_send(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
 }
 
 /// `Recall()` of a sent notification is true, of one never sent false
-/// (handlers/TestNotificationSendRecallContracts.al:95-131).
+/// (ui-handlers/TestNotificationSendRecallContracts.al:95-131). A notification with no Id goes to the UI as the null
+/// Guid: `Ctx::ui_recall_notification` decides what a never-sent one does with a recall handler bound.
 fn n_recall(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     let Some(recv) = r else {
         return unsupported("Notification.Recall without a receiver");
     };
-    let id = with_notification(Some(&mut *recv), |n| n.id)?;
-    let Some(id) = id else {
-        return Ok(Value::Boolean(false));
-    };
+    let id = with_notification(Some(&mut *recv), |n| n.id)?.unwrap_or([0; 16]);
     let copy = notification_copy(Some(recv))?;
     c.ui_recall_notification(copy, id).map(Value::Boolean)
 }

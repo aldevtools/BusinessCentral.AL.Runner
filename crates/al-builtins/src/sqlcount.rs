@@ -1,13 +1,13 @@
 //! The values of `SessionInformation.SqlStatementsExecuted()` and `SqlRowsRead()` (issue 5580).
 //!
-//! BC counts real SQL work; the corpus pins properties of the count (session/lt-bl-sql-counters/SqlCounters.al:4: "only
+//! BC counts real SQL work; the corpus pins properties of the count (session-system/session/SqlCounters.al:4: "only
 //! properties are observed (sign of a difference, equal or not)"), and the size of the change only for the shapes
 //! SqlCounters.al:204-395 measured (issue 5761). The runtime's counters are a model: the VM adds one for each pinned increase between two reads
 //! (`al-vm/src/sqlcount.rs`). So a value read from a counter is tainted ([`Value::SqlCount`]): it may be stored in a
 //! BigInteger or a Variant, passed on, and subtracted from another read of the same counter, and it may reach a comparison
 //! only where the pins decide the answer:
 //!
-//! - a read against 0 with `>=` / `<` (not negative: SqlCounters.al:74-84, session/TestMiscTypes.al:97-114);
+//! - a read against 0 with `>=` / `<` (not negative: SqlCounters.al:74-84, session-system/TestMiscTypes.al:97-114);
 //! - two reads of the same counter with only classified segments between them (the same epoch), or a difference of two such
 //!   reads against 0 or against another difference whose sign makes the answer certain (the sign of a change:
 //!   SqlCounters.al:51-58, :105-202).
@@ -17,12 +17,23 @@
 //! (the first Insert into a table whose Global Triggers setup enables OnDatabaseInsert, SkSqlBudget.al:396-449), the
 //! difference across it is [`SqlForm::AtLeast`]: it answers a comparison with a number only where the bound decides it.
 //!
-//! Every other use (another number, Format, a text, a record field, a list, a Decimal, `*`, `/`) would show the model's
-//! number, which nothing pins: it is refused.
+//! An Integer or a Decimal holds a read as a BigInteger does, and a Dictionary or List holds it as a value (not a key), with
+//! the type of its slot kept (al-runner issue 6924; SqlCounters.al P6924_Counters_StoredInInteger_NotNegative,
+//! P6924_Counters_StoredInDecimal_NotNegativeAndWhole, P6924_Counters_DictionaryOfGuidInteger_AddGetAndLaterDifference).
+//! `Format` gives a marked text ([`crate::native::SQL_COUNT_TEXT_MARK`]): it may be passed on and logged
+//! (P6924_Counters_FormattedInTelemetryDimension_NoError), and every text function that reads it refuses (`Txt::has_marker`).
+//! `StrSubstNo` with a counter value (or its formatted text) as a value fills it in through `Format`, so its text is marked
+//! the same way (al-runner issue 7129; al-vm `sqlcount::guard`).
+//!
+//! Two reads of one counter of different epochs (work no test pins ran between them) subtract to [`SqlForm::Unknown`]: it may
+//! be stored, formatted and logged like the rest, and no arithmetic or comparison takes it (al-runner issue 6924).
+//!
+//! Every other use (another number, the digits of the text, a record field, a key, `*`, `/`) would show the model's number,
+//! which nothing pins: it is refused.
 
 use crate::native::Signal;
 use crate::ops::Arith;
-use crate::value::{SqlCount, SqlCounter, SqlForm, Value};
+use crate::value::{SqlCount, SqlCounter, SqlForm, SqlType, Value};
 use std::cmp::Ordering;
 
 /// The refusal for a use the pins do not decide.
@@ -36,6 +47,14 @@ pub fn refusal_text(what: &str) -> String {
         "{what} of a SQL counter value (SessionInformation.SqlStatementsExecuted or SqlRowsRead): the corpus pins only that a \
          counter is not negative and the sign of its change around pinned operations, never a count"
     )
+}
+
+/// Whether `v` is a text that holds a formatted counter value (`Format` of one, [`crate::native::SQL_COUNT_TEXT_MARK`]).
+pub fn formatted(v: &Value) -> bool {
+    match v {
+        Value::Text(t) | Value::Code(t) => t.has_marker() && t.as_str().contains(crate::native::SQL_COUNT_TEXT_MARK),
+        _ => false,
+    }
 }
 
 /// An operand of a tainted operation.
@@ -59,6 +78,8 @@ fn opnd(v: &Value) -> Opnd {
             } => Opnd::Read(c.n, counter, epoch, chain, floor),
             SqlForm::Delta => Opnd::Delta(c.n),
             SqlForm::AtLeast => Opnd::AtLeast(c.n),
+            // Nothing is known of it: no arithmetic and no comparison takes it.
+            SqlForm::Unknown => Opnd::Other,
         },
         Value::Integer(0) | Value::BigInteger(0) => Opnd::Zero,
         Value::Decimal(d) if d.is_zero() => Opnd::Zero,
@@ -68,11 +89,61 @@ fn opnd(v: &Value) -> Opnd {
     }
 }
 
-fn delta(n: i64) -> Value {
+fn delta(n: i64, ty: SqlType) -> Value {
     Value::SqlCount(SqlCount {
         n,
         form: SqlForm::Delta,
+        ty,
     })
+}
+
+/// The number type of an operand: a counter value's slot, or the plain number's own type.
+fn ty_of(v: &Value) -> SqlType {
+    match v {
+        Value::SqlCount(c) => c.ty,
+        Value::Integer(_) => SqlType::Integer,
+        Value::Decimal(_) => SqlType::Decimal,
+        _ => SqlType::BigInteger,
+    }
+}
+
+/// A plain number of type `ty` (a difference whose size the corpus pins).
+fn number(n: i64, ty: SqlType) -> Value {
+    match ty {
+        SqlType::Integer => i32::try_from(n).map_or(Value::BigInteger(n), Value::Integer),
+        SqlType::BigInteger => Value::BigInteger(n),
+        SqlType::Decimal => Value::Decimal(n.into()),
+    }
+}
+
+/// `v` with the type of its slot set to `ty`.
+fn retyped(v: &Value, ty: SqlType) -> Value {
+    match v {
+        Value::SqlCount(c) => Value::SqlCount(SqlCount { ty, ..*c }),
+        other => other.clone(),
+    }
+}
+
+/// A counter value converted to a number type: it stays tainted, with the type of the slot (an Integer or Decimal slot,
+/// SqlCounters.al P6924_Counters_StoredInInteger_NotNegative and P6924_Counters_StoredInDecimal_NotNegativeAndWhole);
+/// `None` for any other type.
+pub fn into_number(c: SqlCount, ty: SqlType) -> Value {
+    Value::SqlCount(SqlCount { ty, ..c })
+}
+
+/// `Round(x, 1)` of a counter value: a count is whole, so it rounds to itself, a Decimal (SqlCounters.al
+/// P6924_Counters_StoredInDecimal_NotNegativeAndWhole `Stmt = Round(Stmt, 1)`). `None` for any other precision.
+pub fn round_whole(v: &Value, precision: Option<&Value>) -> Option<Value> {
+    let one = match precision? {
+        Value::Integer(n) => *n == 1,
+        Value::BigInteger(n) => *n == 1,
+        Value::Decimal(d) => *d == rust_decimal::Decimal::ONE,
+        _ => false,
+    };
+    match v {
+        Value::SqlCount(_) if one => Some(retyped(v, SqlType::Decimal)),
+        _ => None,
+    }
 }
 
 /// The sum of two differences, when its sign follows from theirs (both the same sign, or one of them 0).
@@ -87,14 +158,18 @@ pub fn arith(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
         _ => "multiplication or division",
     };
     let neg = |b: i64| if op == Arith::Sub { -b } else { b };
+    // The result has the wider of the two types, as AL arithmetic does (Integer, BigInteger, Decimal).
+    let ty = ty_of(l).max(ty_of(r));
     let out = match (op, opnd(l), opnd(r)) {
-        (Arith::Add | Arith::Sub, Opnd::Read(..) | Opnd::Delta(_) | Opnd::AtLeast(_), Opnd::Zero) => Some(l.clone()),
-        (Arith::Add, Opnd::Zero, Opnd::Read(..) | Opnd::Delta(_) | Opnd::AtLeast(_)) => Some(r.clone()),
-        (Arith::Sub, Opnd::Zero, Opnd::Delta(b)) => Some(delta(-b)),
+        (Arith::Add | Arith::Sub, Opnd::Read(..) | Opnd::Delta(_) | Opnd::AtLeast(_), Opnd::Zero) => {
+            Some(retyped(l, ty))
+        }
+        (Arith::Add, Opnd::Zero, Opnd::Read(..) | Opnd::Delta(_) | Opnd::AtLeast(_)) => Some(retyped(r, ty)),
+        (Arith::Sub, Opnd::Zero, Opnd::Delta(b)) => Some(delta(-b, ty)),
         (Arith::Sub, Opnd::Read(a, ca, ea, ha, _), Opnd::Read(b, cb, eb, hb, _))
             if ca == cb && ea == eb && ha == hb =>
         {
-            Some(Value::BigInteger(a - b))
+            Some(number(a - b, ty))
         }
         // Across a change whose lower bound alone is pinned: at least the model's difference.
         (Arith::Sub, Opnd::Read(a, ca, ea, _, fa), Opnd::Read(b, cb, eb, hb, _))
@@ -103,12 +178,22 @@ pub fn arith(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
             Some(Value::SqlCount(SqlCount {
                 n: a - b,
                 form: SqlForm::AtLeast,
+                ty,
             }))
         }
         (Arith::Sub, Opnd::Read(a, ca, ea, ..), Opnd::Read(b, cb, eb, ..)) if ca == cb && ea == eb => {
-            Some(delta(a - b))
+            Some(delta(a - b, ty))
         }
-        (Arith::Add | Arith::Sub, Opnd::Delta(a), Opnd::Delta(b)) => certain_sum(a, neg(b)).map(delta),
+        // Across work whose change no test pins (another epoch): a difference of unknown size and sign, which may only be
+        // stored, formatted and logged (al-runner issue 6924, a telemetry helper that logs the statements a process ran;
+        // SqlCounters.al P6924_Counters_FormattedInTelemetryDimension_NoError pins that logging the formatted difference
+        // raises no error). Every use that reads it is refused ([`Opnd::Other`]).
+        (Arith::Sub, Opnd::Read(a, ca, ..), Opnd::Read(b, cb, ..)) if ca == cb => Some(Value::SqlCount(SqlCount {
+            n: a - b,
+            form: SqlForm::Unknown,
+            ty,
+        })),
+        (Arith::Add | Arith::Sub, Opnd::Delta(a), Opnd::Delta(b)) => certain_sum(a, neg(b)).map(|n| delta(n, ty)),
         _ => None,
     };
     out.ok_or_else(|| refusal(what))
@@ -216,6 +301,7 @@ mod tests {
                 chain,
                 floor: 0,
             },
+            ty: SqlType::BigInteger,
         })
     }
 
@@ -234,7 +320,35 @@ mod tests {
             arith(Arith::Sub, &read_in(5, 1, 7), &read_in(2, 1, 8)).unwrap(),
             Value::SqlCount(_)
         ));
-        assert!(arith(Arith::Sub, &read_in(5, 2, 7), &read_in(2, 1, 7)).is_err());
+        assert!(matches!(
+            arith(Arith::Sub, &read_in(5, 2, 7), &read_in(2, 1, 7)).unwrap(),
+            Value::SqlCount(SqlCount {
+                form: SqlForm::Unknown,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn a_difference_across_epochs_takes_no_arithmetic_and_no_comparison() {
+        let d = arith(Arith::Sub, &read(3, 2), &read(2, 1)).unwrap();
+        assert!(arith(Arith::Add, &d, &Value::Integer(0)).is_err());
+        assert!(arith(Arith::Sub, &d, &d).is_err());
+        assert!(arith(Arith::Add, &d, &arith(Arith::Sub, &read(3, 1), &read(2, 1)).unwrap()).is_err());
+        assert!(compare(Cmp::Ge, &d, &Value::Integer(0)).is_err());
+        assert!(compare(Cmp::Eq, &d, &d).is_err());
+        assert!(order(&d, &Value::Integer(0)).is_err());
+        let other = Value::SqlCount(SqlCount {
+            n: 1,
+            form: SqlForm::Read {
+                counter: SqlCounter::RowsRead,
+                epoch: 1,
+                chain: 1,
+                floor: 0,
+            },
+            ty: SqlType::BigInteger,
+        });
+        assert!(arith(Arith::Sub, &read(3, 2), &other).is_err());
     }
 
     #[test]
@@ -244,7 +358,6 @@ mod tests {
         assert!(!compare(Cmp::Eq, &d, &Value::BigInteger(0)).unwrap());
         assert!(compare(Cmp::Gt, &read(3, 1), &read(2, 1)).unwrap());
         assert!(compare(Cmp::Gt, &d, &Value::Integer(1)).is_err());
-        assert!(arith(Arith::Sub, &read(3, 2), &read(2, 1)).is_err());
         assert!(compare(Cmp::Eq, &read(3, 2), &read(2, 1)).is_err());
     }
 
@@ -282,6 +395,7 @@ mod tests {
                     chain,
                     floor,
                 },
+                ty: SqlType::BigInteger,
             })
         };
         let d = arith(Arith::Sub, &floor(7, 9, 4), &read_in(5, 1, 4)).unwrap();

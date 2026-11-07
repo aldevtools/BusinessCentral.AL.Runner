@@ -546,6 +546,7 @@ impl Walk<'_> {
             Place::Field(..) => Err("reads or writes a record field".into()),
             Place::BaseGlobal(_) => Err("uses a variable of a base page or report".into()),
             Place::ExtGlobal(..) => Err("uses a variable of another extension of a page".into()),
+            Place::RecGlobal(..) => Err("uses a protected variable of a table through a record variable".into()),
         }
     }
 
@@ -596,7 +597,7 @@ impl Walk<'_> {
                 targets,
                 args,
             } => {
-                for &(o, r) in targets {
+                for (o, r) in al_ir::walk::interface_routines(targets) {
                     self.enter(o, r)?;
                 }
                 self.expr(receiver)?;

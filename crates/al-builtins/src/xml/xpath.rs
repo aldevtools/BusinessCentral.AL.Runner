@@ -480,7 +480,7 @@ impl XParser<'_> {
                         return malformed("a prefixed name needs a namespace manager");
                     }
                     // A prefix the manager does not know is an error whether or not a node is tested against it
-                    // (xml/lt-xml-remaining-node-methods/P104SelCData.al:P104_Nodes_WithManager `zz:r` answers No).
+                    // (xml/xml/P104SelCData.al:P104_Nodes_WithManager `zz:r` answers No).
                     if let (Some(p), Some(m)) = (&pre, self.prefixes) {
                         if !m.iter().any(|(q, _)| q == p) {
                             return malformed(format!("prefix {p} is not declared"));

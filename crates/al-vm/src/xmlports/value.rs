@@ -4,14 +4,14 @@ use super::*;
 
 impl Session {
     /// The value an imported text becomes in a field of type `ty`. An empty text is the type's
-    /// default (xmlport/TestXmlPortExportImportContracts.al:XmlPortImport_EmptyIntegerElement_ImportsZero,
+    /// default (xmlports/TestXmlPortExportImportContracts.al:XmlPortImport_EmptyIntegerElement_ImportsZero,
     /// and an export writes a blank date as an empty element).
     pub(super) fn xp_value(&mut self, text: &str, ty: &RtType, xml: bool) -> Result<Value, Signal> {
         if xml {
             return self.xp_value_xml(text, ty, None);
         }
         // A Legacy port reads the display text only: the XML date is refused and nothing is stored
-        // (xmlport/TestXmlPortFormatEvaluateContracts.al:Import_LegacyXmlPort_TakesTheDisplayText_AndRefusesTheXmlDate).
+        // (xmlports/TestXmlPortFormatEvaluateContracts.al:Import_LegacyXmlPort_TakesTheDisplayText_AndRefusesTheXmlDate).
         if matches!(ty, RtType::Date)
             && al_builtins::iso::parse_date(text).is_some()
             && text.as_bytes().get(4) == Some(&b'-')
@@ -22,7 +22,7 @@ impl Session {
             RtType::Text(len) | RtType::Code(len) => {
                 let n = text.encode_utf16().count();
                 if let Some(m) = len.filter(|m| n > *m as usize) {
-                    // xmlport/TestXmlPortExportImportContracts.al:XmlPortImport_ValueTooLongForField_Throws
+                    // xmlports/TestXmlPortExportImportContracts.al:XmlPortImport_ValueTooLongForField_Throws
                     return Err(xerr(
                         format!(
                             "The length of the string is {n}, but it must be less than or equal to {m} characters. Value: {}",
@@ -54,7 +54,7 @@ impl Session {
             }
             RtType::DateTime if text.ends_with(" AM") || text.ends_with(" PM") => {
                 // The display text an export writes: `03/05/24 02:30 PM`
-                // (xmlport/TestXmlPortExportImportContracts.al:XmlPortImport_AcceptsTheTextItExports).
+                // (xmlports/TestXmlPortExportImportContracts.al:XmlPortImport_AcceptsTheTextItExports).
                 let Some((date, clock)) = text.split_once(' ') else {
                     return Err(evaluate_error(text, "DateTime"));
                 };
@@ -63,7 +63,7 @@ impl Session {
                 };
                 let (hm, ampm) = clock.rsplit_once(' ').unwrap_or((clock, ""));
                 // The display text of a DateTime with or without seconds (`03/05/24 12:34:56 PM` is what the
-                // Legacy probe imports, xmlport/TestXmlPortFormatEvaluateContracts.al:167).
+                // Legacy probe imports, xmlports/TestXmlPortFormatEvaluateContracts.al:167).
                 let clock = if hm.matches(':').count() == 2 {
                     format!("{hm} {ampm}")
                 } else {
@@ -89,14 +89,14 @@ impl Session {
                     Ok(args[0].clone())
                 } else if self.global_language == 1031 {
                     // Under language 1031 the text is German; pinned for Boolean and Decimal only (dg-xmlport-leads/DgXmlPortLeads.al:
-                    // Item107_BoolImportByLanguage `legacy_1031_yes`; the text as Evaluate gives it: types/lt-evaluate-decimal-text/EvalDecimalDe.al).
+                    // Item107_BoolImportByLanguage `legacy_1031_yes`; the text as Evaluate gives it: format-evaluate/EvalDecimalDe.al).
                     match name {
                         "Boolean" | "Decimal" => Err(xerr(
                             format!("Der Wert „{text}“ kann nicht in Typ {name} ausgewertet werden."),
                             "Evaluate",
                         )),
-                        // A Date: the text Evaluate gives in German (misc/lt-system-functions/EvalLastError.al:463-481;
-                        // xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:DateDecimal_VT_German, needs the corpus bump).
+                        // A Date: the text Evaluate gives in German (format-evaluate/EvalLastError.al:463-481;
+                        // xmlports/shapes-properties/Y83XpMiscTests.al:DateDecimal_VT_German, needs the corpus bump).
                         "Date" => {
                             let mut again = [self.default_value(ty), Value::Text(text.to_string().into())];
                             self.ret_used = false;
@@ -131,8 +131,8 @@ impl Session {
                 let t = text.trim();
                 let found = members.iter().position(|m| m.eq_ignore_ascii_case(t));
                 match found {
-                    Some(i) => Ok(Value::Option(i as i32, members.clone().into())),
-                    None if t.is_empty() => Ok(Value::Option(0, members.clone().into())),
+                    Some(i) => Ok(Value::Option(i as i32, members.clone())),
+                    None if t.is_empty() => Ok(Value::Option(0, members.clone())),
                     None => Err(evaluate_error(text, "Option")),
                 }
             }
@@ -147,7 +147,7 @@ impl Session {
                 }
             }
             // A TableFilter field reads its text as Evaluate does: the table-qualified text, another table's, the empty text
-            // (xmlport/lt-y67-xmlport-tablefilter/Y67XpTableFilter.al:140-171 TableFilterField_Import). A text Evaluate rejects
+            // (xmlports/shapes-properties/Y67XpTableFilter.al:140-171 TableFilterField_Import). A text Evaluate rejects
             // is not pinned: BC's error for an unknown table (`Id: 1..9`) is pinned only in part.
             RtType::Library(k) if k.as_str() == "TableFilter" => {
                 let mut args = [self.default_value(ty), Value::Text(text.to_string().into())];
@@ -169,7 +169,7 @@ impl Session {
     }
 
     /// The value an imported text becomes under `FormatEvaluate = Xml`: the XML forms only
-    /// (xmlport/TestXmlPortFormatEvaluateContracts.al:Import_XmlPort_TakesTheXmlForms_AndRefusesTheDisplayText).
+    /// (xmlports/TestXmlPortFormatEvaluateContracts.al:Import_XmlPort_TakesTheXmlForms_AndRefusesTheDisplayText).
     /// A Date that is not `yyyy-mm-dd` fails with the beginning of BC's text; the rest of that text is not
     /// pinned (docs/probes-needed.md). Display text for another type, and the types the probe does not
     /// cover, are refused.
@@ -180,7 +180,7 @@ impl Session {
         members: Option<Vec<(i32, String, String)>>,
     ) -> Result<Value, Signal> {
         match ty {
-            // corpus xmlport/PWXmlPortFormatEvaluate.al:Import_Xml_Time: `hh:mm:ss` with optional
+            // corpus xmlports/PWXmlPortFormatEvaluate.al:Import_Xml_Time: `hh:mm:ss` with optional
             // milliseconds; the 12-hour display text is refused.
             RtType::Time if text.is_empty() => Ok(Value::Time(0)),
             RtType::Time => al_builtins::iso::parse_time(text)
@@ -195,7 +195,7 @@ impl Session {
             RtType::Option(names) => {
                 let t = text.trim();
                 if t.is_empty() {
-                    return Ok(Value::Option(0, names.clone().into()));
+                    return Ok(Value::Option(0, names.clone()));
                 }
                 let by_name = names.iter().position(|m| m.eq_ignore_ascii_case(t));
                 let by_caption = members
@@ -203,7 +203,7 @@ impl Session {
                     .and_then(|m| m.iter().position(|(_, _, c)| c.eq_ignore_ascii_case(t)));
                 let by_ordinal = t.parse::<usize>().ok().filter(|i| *i < names.len());
                 match by_name.or(by_ordinal).or(by_caption) {
-                    Some(i) => Ok(Value::Option(i as i32, names.clone().into())),
+                    Some(i) => Ok(Value::Option(i as i32, names.clone())),
                     None => Err(evaluate_error(text, "Option")),
                 }
             }
@@ -230,7 +230,7 @@ impl Session {
                 match by_name.or(by_ordinal).or(by_caption) {
                     Some((o, _, _)) => Ok(Value::Enum(*id, *o)),
                     // An ordinal the enum does not declare is imported as it is; a text that names no member raises with the
-                    // captions of the members (xmlport/PWXmlPortFormatEvaluate.al:Import_Xml_Enum_Invalid, `7` and `Two`).
+                    // captions of the members (xmlports/PWXmlPortFormatEvaluate.al:Import_Xml_Enum_Invalid, `7` and `Two`).
                     None if !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()) => match t.parse::<i32>() {
                         Ok(o) => Ok(Value::Enum(*id, o)),
                         Err(_) => unsupported(format!("XmlPort import of the ordinal {t} into an Enum (not pinned)")),
@@ -277,7 +277,7 @@ impl Session {
                 };
                 // More than 15 whole or 18 fractional digits are no Decimal of the XML form: a port without FormatEvaluate reads the
                 // text as Evaluate does first and, when that fails, here; 20 whole digits fail with Evaluate's error
-                // (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:Decimal_Import_Xml, needs the corpus bump).
+                // (xmlports/shapes-properties/Y83XpMiscTests.al:Decimal_Import_Xml, needs the corpus bump).
                 let short = {
                     let digits = text.strip_prefix('-').unwrap_or(text);
                     let (int, frac) = digits.split_once('.').unwrap_or((digits, ""));
@@ -296,7 +296,7 @@ impl Session {
             },
             // QrXpContainerOccurs.al TS_Guid_Import_* on branch al-runtime-rs-staging-pub-ts (former assumption `xmlport-guid-xml` (pinned on corpus master since bump 1030)).
             RtType::Guid => {
-                // Pinned by xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TS_Guid_Import_Element, TS_Guid_Import_Attribute, TS_Guid_Export (was assumption `xmlport-guid-xml`).
+                // Pinned by xmlports/shapes-properties/QrXpContainerOccurs.al TS_Guid_Import_Element, TS_Guid_Import_Attribute, TS_Guid_Export (was assumption `xmlport-guid-xml`).
                 match xml_guid(text) {
                     XmlGuid::Value(g) => Ok(Value::Guid(g)),
                     XmlGuid::Invalid => Err(xerr(
@@ -308,7 +308,7 @@ impl Session {
                     )),
                 }
             }
-            // A TableFilter field reads and fails as with FormatEvaluate = Legacy (xmlport/lt-y83-xmlport-shapes/Y83XpMiscTests.al:
+            // A TableFilter field reads and fails as with FormatEvaluate = Legacy (xmlports/shapes-properties/Y83XpMiscTests.al:
             // TableFilter_Import, the port keeps the default; needs the corpus bump).
             RtType::Library(k) if k.as_str() == "TableFilter" => self.xp_value(text, ty, false),
             other => unsupported(format!(
@@ -400,7 +400,7 @@ pub(super) fn iso_duration(ms: i64) -> String {
 }
 
 /// The white space characters of a field element's text: XML's four, and a vertical tab, a form feed, NEL and the line separator,
-/// which an import reads as a space too (a character reference to one of them gives a space: xmlport/lt-y83-xmlport-shapes/
+/// which an import reads as a space too (a character reference to one of them gives a space: xmlports/shapes-properties/
 /// Y83XpMiscTests.al:Xml_ControlChar_Import_1..3, needs the corpus bump).
 pub(super) const XML_SPACE: [char; 8] = [' ', '\t', '\n', '\r', '\u{b}', '\u{c}', '\u{85}', '\u{2028}'];
 

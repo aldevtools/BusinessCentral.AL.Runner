@@ -270,7 +270,7 @@ fn issue_6044_dependency_apps_on_a_workspace_app_through_other_dependency_apps_w
 
 /// al-runner issue 6367: during an app's first install, `ModuleInfo.DataVersion()` of that app is 0.0.0.0 whoever
 /// reads it, also a helper in a dependency app that calls `NavApp.GetModuleInfo(<installing app id>)`
-/// (install/lt-x3-first-install/X3FirstInstallVersions.al:76-85, corpus PR 874).
+/// (install-upgrade/install-order/X3FirstInstallVersions.al:76-85, corpus PR 874).
 #[test]
 fn issue_6367_data_version_of_the_app_being_installed_is_zero_from_a_dependency_app() {
     let d = tempfile::tempdir().unwrap();
@@ -378,4 +378,63 @@ codeunit 50101 "PX Tests"
     assert!(t.contains("Tests: 2 total, 2 passed"), "{t}");
     assert!(!t.contains("flagged"), "{t}");
     assert_eq!(o.status.code(), Some(0), "{t}");
+}
+
+/// al-runner issue 7139: a workspace app whose one dependency (Contoso Lib, not in any package folder) cannot be found.
+fn missing_dependency_app(root: &Path) -> Vec<String> {
+    let app = root.join("app");
+    write(
+        &app,
+        "app.json",
+        r#"{"id":"71390000-0000-0000-0000-000000000001","name":"Needs Lib","publisher":"Test","version":"1.0.0.0","runtime":"14.0","dependencies":[{"id":"71390000-0000-0000-0000-0000000000aa","name":"Contoso Lib","publisher":"Contoso","version":"2.1.0.0"}]}"#,
+    );
+    write(
+        &app,
+        "src/T.al",
+        r#"codeunit 71390 "Needs Lib Tests" { Subtype = Test; [Test] procedure Ok() begin end; }"#,
+    );
+    vec![
+        "test".into(),
+        app.to_str().unwrap().into(),
+        "--no-download".into(),
+        "--cache-dir".into(),
+        root.join("cache").to_str().unwrap().into(),
+    ]
+}
+
+#[test]
+fn issue_7139_a_missing_dependency_under_no_download_stops_the_run() {
+    let d = tempfile::tempdir().unwrap();
+    let args = missing_dependency_app(d.path());
+    let all: Vec<&str> = args.iter().map(String::as_str).collect();
+    let o = alrunner(&all);
+    let t = text(&o);
+    assert_eq!(o.status.code(), Some(2), "{t}");
+    assert!(
+        t.contains("Contoso Lib") && t.contains("71390000-0000-0000-0000-0000000000aa") && t.contains("2.1.0.0"),
+        "{t}"
+    );
+    assert!(t.contains("--allow-missing-dependencies"), "{t}");
+}
+
+#[test]
+fn issue_7139_the_flag_keeps_the_warning_and_the_json_names_the_skipped_dependency() {
+    let d = tempfile::tempdir().unwrap();
+    let mut args = missing_dependency_app(d.path());
+    let json = d.path().join("out.json");
+    args.extend([
+        "--allow-missing-dependencies".into(),
+        "--output-json".into(),
+        json.to_str().unwrap().into(),
+    ]);
+    let all: Vec<&str> = args.iter().map(String::as_str).collect();
+    let o = alrunner(&all);
+    let t = text(&o);
+    assert_eq!(o.status.code(), Some(0), "{t}");
+    let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&json).unwrap()).unwrap();
+    let s = &doc["skippedDependencies"][0];
+    assert_eq!(s["name"], "Contoso Lib", "{doc}");
+    assert_eq!(s["id"], "71390000-0000-0000-0000-0000000000aa", "{doc}");
+    assert_eq!(s["version"], "2.1.0.0", "{doc}");
+    assert_eq!(s["publisher"], "Contoso", "{doc}");
 }

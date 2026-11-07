@@ -5,12 +5,12 @@ use al_builtins::record_op::RecordOp;
 type TempRecPosition = (usize, bool, String, Vec<Value>);
 impl Session {
     pub(in crate::pages) fn page_open(&mut self, st: &St, mode: PageMode) -> Result<Value, Signal> {
-        // corpus testpageclose/TestPageClosingActions.al:19-24: an open variable cannot be opened; the code is
-        // TestPageAlreadyOpen (codeunit/lt-qu-commit-isolation/BlankKeyRowNextTest.al:274, F2_Read_CloseLeftOpen).
+        // corpus testpage/lifecycle/TestPageClosingActions.al:19-24: an open variable cannot be opened; the code is
+        // TestPageAlreadyOpen (codeunits/run-onrun/BlankKeyRowNextTest.al:274, F2_Read_CloseLeftOpen).
         if st.borrow().open {
             return Err(error_code(ALREADY_OPEN, "TestPageAlreadyOpen"));
         }
-        // OpenNew of a Worksheet fails with NotSupportedPageViewMode (corpus pageext/lt-bl-implicit-creation/
+        // OpenNew of a Worksheet fails with NotSupportedPageViewMode (corpus pages/extensions/
         // ImplicitCreation.al:308-318 Worksheet_OpenNew), before OnInit or OnOpenPage run (Y8OpenNewPageTypes.al:306-317,
         // `log=` empty for a worksheet that declares both).
         let mode = self.open_new_mode(st, mode);
@@ -84,12 +84,13 @@ impl Session {
         }
         st.borrow_mut().ext_instances = exts;
         st.borrow_mut().instance = Some(inst.clone());
+        self.note_page_instance(st);
         self.seed_unopened_rec(st);
         Ok(inst)
     }
 
     /// The Rec of a Page variable that never ran holds what SetRecord and SetTableView handed it: its own procedures read the
-    /// row SetRecord gave (pages/lt-bl-unopened-currpage/UnopenedCurrPage.al:214 SetRecord_Then_Update_List `[2] []`) and the
+    /// row SetRecord gave (pages/currpage/UnopenedCurrPage.al:214 SetRecord_Then_Update_List `[2] []`) and the
     /// filters SetTableView gave, on the blank row (:233 SetTableView_Then_Update_Card `[0] [Id: 2]`).
     pub(in crate::pages) fn seed_unopened_rec(&mut self, st: &St) {
         if !self.never_ran_page_var(st) {
@@ -121,14 +122,14 @@ impl Session {
     }
 
     /// A call on a `Page` variable constructs the page on first use: its instance, and OnInit once
-    /// (handlers/TestPageOnInit_Tests.al:188 POI_SetterBeforeRunModal_RunsAfterOnInitAndSurvives,
+    /// (testpage/TestPageOnInit_Tests.al:188 POI_SetterBeforeRunModal_RunsAfterOnInitAndSurvives,
     /// handlers/TestPageEnumGlobal*: a getter on a variable that never ran reads the declared default).
     pub(crate) fn construct_page(&mut self, st: &St) -> Result<Rc<RefCell<al_builtins::value::Instance>>, Signal> {
         let inst = self.page_instance(st)?;
         if st.borrow().host.is_none() && !st.borrow().inited {
             st.borrow_mut().inited = true;
-            // OnInit reads the page's own Editable, not what the variable was set to before (handlers/PWPageVariableEditable.al:221-240;
-            // misc/lt-probes-needed-4/PnD13_PageEditableViewMode.al:197 ViewModePage_GivenEditableTrue `onInit = No` with SetRecord
+            // OnInit reads the page's own Editable, not what the variable was set to before (pages/PWPageVariableEditable.al:221-240;
+            // testpage/PnD13_PageEditableViewMode.al:181 ViewModePage_GivenEditableTrue `onInit = No` with SetRecord
             // after the Editable call).
             let preset = st.borrow_mut().editable_preset.take();
             let r = self.page_trigger(st, "oninit", vec![]);
@@ -187,7 +188,7 @@ impl Session {
     /// page's view.
     ///
     /// With `bind`, the UI handler for the page is looked up after OnInit and before OnOpenPage
-    /// (corpus handlers/TestPageOnInit_Tests.al: an OnInit error surfaces as itself even where no
+    /// (corpus testpage/TestPageOnInit_Tests.al: an OnInit error surfaces as itself even where no
     /// handler is declared).
     pub(in crate::pages) fn open_page(
         &mut self,
@@ -231,6 +232,17 @@ impl Session {
             return unsupported(why.clone());
         }
         Ok(())
+    }
+
+    /// The page's OnOpenPage trigger; `linked` when an action opened the page through RunPageLink, counted in
+    /// `PagesState::run_page_link_opening` while the trigger runs.
+    fn on_open_page(&mut self, st: &St, linked: bool) -> Result<Option<Value>, Signal> {
+        self.pages.run_page_link_opening += u32::from(linked);
+        let before = self.rec_key_before_open(st)?;
+        let opened = self.page_trigger(st, "onopenpage", vec![]);
+        self.pages.run_page_link_opening -= u32::from(linked);
+        self.note_handed_rec_moved(st, before)?;
+        opened
     }
 
     /// `open_page`, or with `as_part` the opening of a part's page: everything up to and including
@@ -306,7 +318,7 @@ impl Session {
             s.row_prop_vars = Vec::new();
             s.agcr_after_new = false;
             s.part_accessed = false;
-            s.new_host_part_rows = false;
+            reset_host_row_flags(&mut s);
             s.expanded = Vec::new();
             s.tree_shown = Vec::new();
             // A caption assigned to the variable before its first run stays.
@@ -319,9 +331,7 @@ impl Session {
             s.or_group_dropped = false;
             s.unpinned_filter_fields = Vec::new();
             s.placeholder_line = false;
-            s.gone_blank_no_new_line = false;
-            s.gone_blank_shows_line = false;
-            s.gone_view_list = false;
+            reset_row_line_flags(&mut s);
             s.parts = Vec::new();
             s.closed_parts = Vec::new();
             s.areas = self.application_areas.clone();
@@ -332,7 +342,7 @@ impl Session {
         }
         let has_source = self.has_source(st);
         // SourceTableView is the page's own view of its table (corpus
-        // pagefindrecord/TestPageFindRecord.al:192 PlainPage_WithoutTheTriggers_WalksTheTableDescending);
+        // pages/triggers/TestPageFindRecord.al:192 PlainPage_WithoutTheTriggers_WalksTheTableDescending);
         // how it combines with the view of a record handed to Page.Run is pinned by P145PageRunView.al.
         let source_view = engine.program.objects[st.borrow().object as usize]
             .properties
@@ -340,7 +350,7 @@ impl Session {
             .find(|(k, _)| k.eq_ignore_ascii_case("SourceTableView"))
             .map(|(_, v)| crate::views::property_view(v.trim()));
         // A request page's SourceTableView leaves its `Rec` without the view's filter: OnOpenPage reads `VERSION(1)
-        // SORTING(DocNo,LineNo)`, no filters and every row (report/lt-y-request-page/YRequestPageTests.al:72-87, a view that sorts by
+        // SORTING(DocNo,LineNo)`, no filters and every row (reports/request-page/YRequestPageTests.al:72-87, a view that sorts by
         // the primary key and filters with a CONST). Another sorting or another kind of filter is not pinned.
         let source_view = match source_view {
             Some(view) if self.is_request_page(st) && has_source => {
@@ -351,7 +361,7 @@ impl Session {
         };
         // The part control's SubPageView comes first: its filters land in the link group, its
         // sorting and order set the key and direction. The part page's own SourceTableView then
-        // sets only the halves it names (corpus handlers/TestPartOwnSortVsSubPageView.al:1-45).
+        // sets only the halves it names (corpus testpage/TestPartOwnSortVsSubPageView.al:1-45).
         let sub_view = self.sub_page_view(st).map(|v| crate::views::sub_page_view_text(&v));
         if let (Some(view), true) = (&sub_view, has_source) {
             let rec = self.page_rec(st);
@@ -360,11 +370,11 @@ impl Session {
         }
         // A record handed to Page.Run brings its own filters, key and order; they come first and the page's
         // SourceTableView then adds to them: the record's filters stay in their groups, the view's land in group 2 beside the
-        // record's own group 2, the view's SORTING replaces the record's key and the record's direction stays (types/lt-code-digits-page-run-view/
+        // record's own group 2, the view's SORTING replaces the record's key and the record's direction stays (types/text-code-char/
         // P145PageRunView.al:P145_A_RecFilterSameFieldAsView, _RecFilterOverlappingView, _RecFilterOtherField, _RecKeyDescending,
         // _RecKeyPrimary, _RecFilterInGroup1, _RecFilterInGroup2). A view that names an ORDER is an assumption (page-run-record-view-order-applies).
         // A stored record handed to a card whose source table is temporary: BC shows the row (OnAfterGetRecord reads it,
-        // pages/lt-be-card-onfindrecord/BeCardOnFindRecord.al:374 CardTemp_PageRun_StoredRec `O:1/stored/;R:1/stored/`), but
+        // pages/triggers/BeCardOnFindRecord.al:374 CardTemp_PageRun_StoredRec `O:1/stored/;R:1/stored/`), but
         // whether the row is copied into the page's temporary table or read from the database (which decides what the page
         // writes, counts and steps to) is not pinned: refused (docs/probes-needed.md).
         // A record keyed on a row-dependent FlowField: refused (`page_record_refusal`).
@@ -378,7 +388,7 @@ impl Session {
             dst.key = src.key;
             dst.adhoc = src.adhoc.clone();
             // The marks and MarkedOnly come along: the page shows the marked rows only, of a real and of a temporary record
-            // (misc/lt-protected-var-abs-query-views/P146ViewMarkedTemp.al:304 P146_PageRunModal_MarkedOnly_Real, :362
+            // (record/P146ViewMarkedTemp.al:304 P146_PageRunModal_MarkedOnly_Real, :362
             // P146_PageRunModal_Temporary). A page variable's SetRecord or SetTableView with marks is refused there (not pinned).
             dst.marks = src.marks.clone();
             dst.marked_only = src.marked_only;
@@ -391,12 +401,12 @@ impl Session {
         }
         if let (Some(view), true) = (source_view, has_source) {
             // A view that names an ORDER on a page run on a record: the view's direction wins over the record's, whatever
-            // the record's key and direction (types/lt-code-digits-page-run-view/P145PageRunView.al:228-467, SF_B_*, SF_C_*).
+            // the record's key and direction (types/text-code-char/P145PageRunView.al:228-467, SF_B_*, SF_C_*).
             // A record an action's RunObject hands it has its own assumption (run-page-link-target-view, runobject.rs).
             let rec = self.page_rec(st);
             let table = self.table(&rec)?;
             // The platform applies the view in filter group 2: the page's own AL reads it with
-            // FilterGroup(2) and finds group 0 empty (corpus handlers/TestPageSourceTableView.al:
+            // FilterGroup(2) and finds group 0 empty (corpus testpage/TestPageSourceTableView.al:
             // FiltersAreInFilterGroup2WhenOnOpenPageRuns).
             // The filters the handed record carries in group 2 (Bank Acc. Reconciliation.OpenWorksheet sets the statement there) stay: the view
             // adds its own to the group instead of replacing it (P145PageRunView.al:P145_A_RecFilterInGroup2).
@@ -467,14 +477,14 @@ impl Session {
         }
         let result = (|| {
             // A `Page` variable whose procedure ran before this open was constructed then, and its
-            // OnInit has run (handlers/TestPageOnInit_Tests.al:188).
-            // A second run of the same variable does not run OnInit again (controls/W2PageVariableInit.al:
+            // OnInit has run (testpage/TestPageOnInit_Tests.al:188).
+            // A second run of the same variable does not run OnInit again (pages/controls/W2PageVariableInit.al:
             // PageVariable_RunModalTwice, BC 27.5 and 29.0); a reopened TestPage is a fresh page (`page_open`).
             if !std::mem::replace(&mut st.borrow_mut().inited, true) {
                 self.page_trigger(st, "oninit", vec![])?;
             }
             // `Editable(false)` on the variable before it runs applies after OnInit: OnInit still
-            // reads Yes (corpus handlers/PWPageVariableEditable.al:221-240).
+            // reads Yes (corpus pages/PWPageVariableEditable.al:221-240).
             {
                 let mut s = st.borrow_mut();
                 s.editable_off = s.editable_preset == Some(false);
@@ -482,15 +492,15 @@ impl Session {
                 s.editable_set_later = None;
             }
             // The parts' OnInit runs between the host's OnInit and its OnOpenPage (corpus
-            // testpart/TestPartTriggerOrderAndRefresh.al:236-247).
+            // testpage/parts/TestPartTriggerOrderAndRefresh.al:236-247).
             self.init_parts(st)?;
             let mut unattended = false;
             if let Some(kind) = bind {
                 if self.pages.lenient_bind {
                     // A RunObject action opens the page, runs OnInit and OnOpenPage, and only then
                     // looks for a handler; with none it goes no further, so the first row is never
-                    // read (handlers/TestPageRunObjectContracts.al:330-346: "card.OnInit;card.OnOpenPage;").
-                    // A page opened in Create mode reads its new row first (:handlers/TestPageCreateModeNewRecordArgs.al:304-327).
+                    // read (testpage/TestPageRunObjectContracts.al:330-346: "card.OnInit;card.OnOpenPage;").
+                    // A page opened in Create mode reads its new row first (:testpage/TestPageCreateModeNewRecordArgs.al:273-296).
                     let object = st.borrow().object;
                     handler = self.try_bind_page_handler(kind, object)?;
                     unattended = handler.is_none() && mode != PageMode::New;
@@ -520,7 +530,7 @@ impl Session {
                 self.page_rec(st).borrow_mut().unpinned_buffer = Some(why);
             }
             // The linked fields of an action's `RunPageLink`, filled into Rec before OnOpenPage; the others stay blank
-            // (handlers/TestActionRunPageLinkFilterGroup.al:292-369, see `run_page_link_fill`).
+            // (testpage/TestActionRunPageLinkFilterGroup.al:292-369, see `run_page_link_fill`).
             if has_source {
                 let rec = self.page_rec(st);
                 let mut r = rec.borrow_mut();
@@ -534,14 +544,14 @@ impl Session {
             }
             self.pages.run_page_link_open_moved = false;
             self.drop_handed_or_group(st, has_source);
-            let opened = self.page_trigger(st, "onopenpage", vec![]);
+            let opened = self.on_open_page(st, has_source && rec_fill.is_some());
             st.borrow_mut().opening = false;
             st.borrow_mut().run_page_link_open_moved = std::mem::take(&mut self.pages.run_page_link_open_moved);
             if rec_unpinned.is_some() && has_source {
                 self.page_rec(st).borrow_mut().unpinned_buffer = None;
             }
             // An error out of the OnOpenPage of a request page with a source table, with its handler bound, is not pinned: it could
-            // leave the handler queued for a later codeunit (corpus report/lt-y-request-page/RsRequestPageRec.al:153, report 88563;
+            // leave the handler queued for a later codeunit (corpus reports/request-page/RsRequestPageRec.al:153, report 88563;
             // al-runner issue 5756). Without a handler the run fails before OnOpenPage (YRequestPageTests.al:509).
             if let Err(Signal::Error(_)) = &opened {
                 if has_source && self.is_request_page(st) {
@@ -564,8 +574,8 @@ impl Session {
             }
             let mut new_line = has_source && self.offers_new_line(st)?;
             // A record handed to the page filtered to one Enum or Option value the blank row does not hold: no blank line shows
-            // (pages/lt-ce-page-run/CePageRun.al RunModal_EnumFilter_RowsAndNewRowDefault, RunModal_OptionFilter_RowsAndNewRowDefault,
-            // `[2][5]`; a Boolean filter the blank row matches keeps it, handlers/TestPageModalNewRowLine_Tests.al:180).
+            // (pages/run-modal/CePageRun.al RunModal_EnumFilter_RowsAndNewRowDefault, RunModal_OptionFilter_RowsAndNewRowDefault,
+            // `[2][5]`; a Boolean filter the blank row matches keeps it, ui-handlers/TestPageModalNewRowLine_Tests.al:180).
             if new_line {
                 if let Some(r) = &record {
                     if self.enum_filter_excludes_blank(st, r)? {
@@ -581,7 +591,7 @@ impl Session {
             }
             st.borrow_mut().frozen_visible = frozen;
             // The parts open right after the host's own OnOpenPage, before its first row is read
-            // (corpus handlers/TestPagePartAgcr_Tests.al:PartFiresOnHostOpen_NoTouch).
+            // (corpus testpage/TestPagePartAgcr_Tests.al:PartFiresOnHostOpen_NoTouch).
             self.open_parts(st)?;
             if as_part {
                 return Ok(());
@@ -604,12 +614,12 @@ impl Session {
         })();
         if let Err(e) = result {
             // The open raises the error itself and leaves the variable closed
-            // (corpus testpageteardown/TestPageTeardown.al:3-24).
+            // (corpus testpage/lifecycle/TestPageTeardown.al:3-24).
             self.mark_closed(st);
             return Err(e);
         }
-        // A Worksheet run modally: First right after the open, on the row it opened on, reads nothing (pages/lt-outside-worksheet/
-        // RmWorksheetGoneRow.al:397 RM_Ws_RunModal_DeleteAllUpdate `handler first = Yes`, `handler open log` only the open's reads).
+        // A Worksheet run modally: First right after the open, on the row it opened on, reads nothing (testpage/
+        // RmWorksheetGoneRow.al:381 RM_Ws_RunModal_DeleteAllUpdate `handler first = Yes`, `handler open log` only the open's reads).
         // Opened by OpenEdit, OpenView or Page.Run, or another page type, First keeps reading the row as before (not pinned).
         if st.borrow().modal
             && engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::Worksheet)
@@ -629,7 +639,7 @@ impl Session {
     }
 
     /// Whether the page declares OnFindRecord and its SourceTableView has a WHERE part: the shape
-    /// pagefindrecord/QcFindViewTests.al pins (corpus bump 33).
+    /// pages/triggers/QcFindViewTests.al pins (corpus bump 33).
     pub(in crate::pages) fn find_page_filtered_view(&self, st: &St) -> bool {
         self.declares(st, "onfindrecord")
             && self.engine.object_facts[st.borrow().object as usize].has_source_table_view
@@ -641,7 +651,7 @@ impl Session {
     /// Pinned for an ascending view and for a descending one on a List page; a descending part is refused by
     /// `refuse_descending_filtered_find_move`.
     /// Also a List page (not a part) with Editable = false whose SourceTableView only sorts, ascending or descending: it moves as
-    /// the filtered view does (misc/lt-probes-needed-6/PnF06FindListMoves.al:1521-1934 RK_Desc_* and RK_Asc_*, pages 88070-88073;
+    /// the filtered view does (testpage/PnF06FindListMoves.al:1521-1934 RK_Desc_* and RK_Asc_*, pages 88070-88073;
     /// `sorted_find_list_pinned`).
     pub(in crate::pages) fn filtered_find_list_without_row_triggers(&self, st: &St) -> bool {
         (self.find_page_filtered_view(st) || self.sorted_find_list_pinned(st))
@@ -669,7 +679,7 @@ impl Session {
     }
 
     /// A List page (not a part) with OnFindRecord, a descending filtered SourceTableView and no row trigger: its moves ask the
-    /// page nothing, as on an ascending view (misc/lt-probes-needed-6/PnF06FindListMoves.al:825-908 QV_DescKind_FindOnly_Moves
+    /// page nothing, as on an ascending view (testpage/PnF06FindListMoves.al:825-908 QV_DescKind_FindOnly_Moves
     /// and QV_DescKind_FindNext_Moves, every move's log empty; AL Runner issue 5682). A part is not pinned.
     pub(super) fn descending_find_list_pinned(&self, st: &St) -> bool {
         st.borrow().host.is_none()
@@ -739,7 +749,7 @@ impl Session {
                 hidden = true;
                 continue;
             }
-            // Any other filter the blank row fails keeps the blank line: a Boolean (pages/lt-modal-list-new-row/
+            // Any other filter the blank row fails keeps the blank line: a Boolean (pages/triggers/
             // ModalListNewRowKeyFilters.al P157_NonKeyFilter `[0///No/]` with Active = true), and the Text, Code and range shapes
             // 63 baseline cases walk past (pages/W1Navigation.al, ModalListNewRowKeyFilters.al, P197, P157 and others; the
             // lane-page-views PR lists them).
@@ -764,7 +774,7 @@ impl Session {
     }
 
     /// Filters OnOpenPage left in `FilterGroup(-1)` do not limit the rows the page shows: the record counts the OR rows inside the
-    /// trigger, the page shows every row (pages/lt-cd-testpage-leads/CdTestPageLeads.al:776 Item63_FilterGroupMinus1_InOnOpenPage).
+    /// trigger, the page shows every row (testpage/CdTestPageLeads.al:776 Item63_FilterGroupMinus1_InOnOpenPage).
     /// Later code reads Rec without them (`or_group_drop_pinned` says which shapes are pinned; the others are refused on a page
     /// with code that could read Rec later). A TestPage `Filter` read is pinned with MarkedOnly only (see `test_filter_op`).
     pub(super) fn drop_or_group(&mut self, st: &St) -> Result<(), Signal> {
@@ -791,10 +801,10 @@ impl Session {
     }
 
     /// An AL error escaping the first row a TestPage reads when it opens. OpenEdit of a card turns an error of OnFindRecord,
-    /// OnAfterGetRecord or OnAfterGetCurrRecord into "Page <caption> has to close." (corpus pages/lt-cc-page-leads/
+    /// OnAfterGetRecord or OnAfterGetCurrRecord into "Page <caption> has to close." (corpus testpage/
     /// CcPageLeads.al:520-557, TriggerError_OnFindRecord, _OnAfterGetRecord, _OnAfterGetCurrRecord). OpenView raises the error
-    /// itself (testpageteardown/TestPageTeardown.al:1130-1156, CardTrigger_FailedOpen_*), and an error of a control
-    /// expression comes out as it is at OpenEdit too (autoformat/TestAutoFormatExpressionTiming.al:499-506
+    /// itself (testpage/lifecycle/TestPageTeardown.al:1130-1156, CardTrigger_FailedOpen_*), and an error of a control
+    /// expression comes out as it is at OpenEdit too (format-evaluate/autoformat/TestAutoFormatExpressionTiming.al:499-506
     /// FailingFormat_OpenEditRaisesTheExpressionError). What OpenEdit of another page type raises for such a trigger error is
     /// not pinned: its text and code cannot be read. Pages opened any other way keep their own rules.
     pub(super) fn open_row_error(
@@ -815,10 +825,10 @@ impl Session {
         };
         // A control add-in call (the add-in is never created in a test session) does not close the page: OpenEdit of a card
         // raises the add-in's error itself, out of OnAfterGetRecord with its own code and out of OnAfterGetCurrRecord with
-        // `:TargetInvocation` added (corpus lt-ac/ACControlAddIn.al TZ_CallInOnAfterGetRecord_TestPageOpen,
+        // `:TargetInvocation` added (corpus testpage/ACControlAddIn.al TZ_CallInOnAfterGetRecord_TestPageOpen,
         // TZ_CallInOnAfterGetCurrRecord_TestPageOpen, BC28PLUS). Out of OnFindRecord it is not pinned.
         if e.code == crate::control_add_in::NOT_CREATED {
-            // Pinned by lt-ac/ACControlAddIn.al TZ_CallInOnAfterGetRecord_TestPageOpen, TZ_CallInOnAfterGetCurrRecord_TestPageOpen, TZ_CallInOnClosePage_TestPageClose, TZ_TwoProceduresFromActions_PageStaysUsable (was assumption `control-add-in-call-trigger-contexts`).
+            // Pinned by testpage/ACControlAddIn.al TZ_CallInOnAfterGetRecord_TestPageOpen, TZ_CallInOnAfterGetCurrRecord_TestPageOpen, TZ_CallInOnClosePage_TestPageClose, TZ_TwoProceduresFromActions_PageStaysUsable (was assumption `control-add-in-call-trigger-contexts`).
             let mut e = e;
             match origin.as_deref() {
                 Some("onaftergetrecord") if self.is_card(st) && self.has_source(st) => return Err(Signal::Error(e)),
@@ -846,7 +856,7 @@ impl Session {
         let has_source = self.has_source(st);
         if !has_source {
             // A card over no table: OpenNew fails with DB:ClientInsertDenied after OnOpenPage, and no other trigger runs
-            // (misc/lt-protected-var-abs-query-views/P146PageExprSetValue.al:460 QG_NoSource_OpenNew_StepLog `qg open;`). Another
+            // (testpage/P146PageExprSetValue.al:460 QG_NoSource_OpenNew_StepLog `qg open;`). Another
             // page type is not pinned.
             if mode == PageMode::New && !self.is_request_page(st) {
                 if !self.is_card(st) {
@@ -867,10 +877,10 @@ impl Session {
             return Ok(());
         }
         if mode == PageMode::New {
-            // corpus handlers/TestPageCreateModeNewRecordArgs.al:243-270: OnOpenPage, then
+            // corpus testpage/TestPageCreateModeNewRecordArgs.al:212-239: OnOpenPage, then
             // OnNewRecord with BelowxRec true and xRec on the last row.
             // A page with an OnFindRecord trigger is opened the same way: the trigger is not asked, xRec is the last row
-            // (pages/lt-opennew-findrecord/OpenNewFindRecord.al:150-230, a card and a list, empty and with rows).
+            // (pages/opennew-findrecord/OpenNewFindRecord.al:150-230, a card and a list, empty and with rows).
             self.ret_used = true;
             let rec = self.page_rec(st);
             self.record_op(RecordOp::FindLast, &rec, &mut [])?;
@@ -878,24 +888,24 @@ impl Session {
         }
         if with_record {
             // The page opens on the record the caller handed it, when that row exists
-            // (corpus handlers/TestPageRunHandler_Tests.al:PageHandlerReceivesTheRecordPassedToPageRun).
+            // (corpus ui-handlers/TestPageRunHandler_Tests.al:PageHandlerReceivesTheRecordPassedToPageRun).
             let rec = self.page_rec(st);
             // A list that serves its rows from OnFindRecord is asked `=>` for the record it was handed, as the page holds it,
-            // and reads on from there as when it opens (pages/lt-ai-list-order/AiListOrderTests.al:871 PageRun_RecordOnFifthRow
+            // and reads on from there as when it opens (pages/list-order/AiListOrderTests.al:871 PageRun_RecordOnFifthRow
             // `F:=>=Yes;R:R1005;...;R:R1012;N:1=0;R:R1005;N:-1=-1;R:R1004;...;R:R1001;N:-1=0`, :890 PageRun_RecordWithFilterOnFifthRow).
             // A card is asked `=` once, after OnOpenPage, with Rec as OnOpenPage left it, over a temporary or a database
-            // table (pages/lt-be-card-onfindrecord/BeCardOnFindRecord.al:292 CardTempFind_PageRun_TempRec `F:=:1/passed/in memory`,
+            // table (pages/triggers/BeCardOnFindRecord.al:292 CardTempFind_PageRun_TempRec `F:=:1/passed/in memory`,
             // :309 CardTempFind_PageRun_StoredRec, and the CardDbFind_* tests).
             if self.declares(st, "onfindrecord") && self.stored_row(&rec)?.is_some() {
                 let which = if self.is_list(st) { "=>" } else { "=" };
-                // A filtered view is asked the same (pagefindrecord/QcFindViewTests.al:157 ViewList_PageRunOnFilteredOutRow,
+                // A filtered view is asked the same (pages/triggers/QcFindViewTests.al:157 ViewList_PageRunOnFilteredOutRow,
                 // :412 ViewCard_PageRunOnFilteredOutRow).
                 let filtered_view = self.find_page_filtered_view(st);
                 let handed = rec.borrow().clone();
                 let handed_row = self.row_key(&rec)?;
                 if !self.nav_find(st, which)? {
                     // A card whose filtered view leaves out the handed row is asked `=` and then `=><`, and opens on what that
-                    // finds (corpus branch al-runtime-rs-staging-qc eca98051, pagefindrecord/QcFindViewTests.al:412
+                    // finds (corpus branch al-runtime-rs-staging-qc eca98051, pages/triggers/QcFindViewTests.al:412
                     // ViewCard_PageRunOnFilteredOutRow `find(=)=No:4;find(=><)=Yes:5;`, :457 FallbackCard_KeyFilterOnFilteredOutRow).
                     // A list whose `=>` fails, a card that finds nothing with `=><` either, and a page without a filtered view are
                     // not pinned.
@@ -938,19 +948,22 @@ impl Session {
                 }
                 return self.open_on_rec_moved_by_onopenpage(st);
             }
+            if self.handed_rec_list_opens_on_moved_row(st)? {
+                return self.open_on_rec_moved_by_onopenpage(st);
+            }
             if self.stored_row(&rec)?.is_some() {
                 self.ret_used = true;
                 let mut pk = self.table(&rec)?.primary_key(&rec.borrow().fields);
                 if matches!(self.record_op(RecordOp::Get, &rec, &mut pk)?, Value::Boolean(true)) {
                     // A row the view does not admit is not the page's: it opens on the first row at or after it in the view
-                    // (pages/lt-page-setrecord-settableview/PageVarSetRecordTableView.al:P157_List_SetRecordThenSetTableView_RecordOutsideView
+                    // (pages/currpage/PageVarSetRecordTableView.al:P157_List_SetRecordThenSetTableView_RecordOutsideView
                     // `B` over `Grp = 1` opens on `C`, P157_Card_SetRecordOutsideView).
                     if !rec.borrow().filters.is_empty() {
                         if self.nav_find(st, "=>")? {
                             st.borrow_mut().cursor = Cursor::Row;
                             // A list that lands on the first row of its view reads it as a list opened on its first row does:
                             // the window, the row once more, then OnAfterGetCurrRecord, and First afterwards reads nothing
-                            // (misc/lt-probes-needed-7/PnGRunObjectOptions.al:130 LinkAndViewOnAList `link`, an action's
+                            // (testpage/PnGRunObjectOptions.al:130 LinkAndViewOnAList `link`, an action's
                             // RunPageLink on the key handing the list the host's row: `List.AGR(RP2,Two);List.AGR(RP2,Two);
                             // List.AGCR(RP2,RP2)`, the same reads as a handed record that names no row, PnGNewRecord.al:50
                             // HandedRecordNonKeyFilters). Landing on another row of the view keeps the reads it had before.
@@ -968,7 +981,7 @@ impl Session {
                         st.borrow_mut().cursor = Cursor::Row;
                         // A modal list handed a record that names the first row of its unfiltered view reads it as a list
                         // opened on its first row does (the window, the row once more, then OnAfterGetCurrRecord), and a GoToKey
-                        // then reads the new row twice (pages/lt-ai-list-order/LookupGoToKeyTypedReads.al:204-221
+                        // then reads the new row twice (pages/list-order/LookupGoToKeyTypedReads.al:204-221
                         // Y7_PageRunModalRecord_GoToKey_TypedReads_OK `open=R:A,R:B,R:C,R:A,R:A,C:A;goto=Yes;after goto=R:B,R:B,C:B`).
                         // A page run without modal keeps the reads it had before (not pinned).
                         if self.is_list(st) && st.borrow().modal && self.on_first_row_of_view(&rec)? {
@@ -983,19 +996,20 @@ impl Session {
                     }
                 }
             }
+            self.modal_card_asks_find_equals(st)?;
             // A record that names no row of the view (a blank one, a SetTableView, a row outside the view or not in the table)
             // opens the page `=><` from the record's own values: the row itself, else the next one in the view's direction, else
-            // the one before. A descending view opened on a blank record lands on its last row (misc/W2PageProperties.al:234
-            // SetTableView_DescendingOrder `[A]`; pages/lt-page-sourceview-current-row/PageSourceViewCurrentRow.al:140
+            // the one before. A descending view opened on a blank record lands on its last row (ui-handlers/W2PageProperties.al:234
+            // SetTableView_DescendingOrder `[A]`; pages/currpage/PageSourceViewCurrentRow.al:140
             // P184_RunModal_NoRecord_DescendingView `1`, :192 P184_RunModal_RecordWithOwnFilterAndKey `1`), a record past the
-            // last row on the last row (platform/lt-xmlport-session-navapp-cookie/P94PageRun.al:88 Run_WithRecordNotInTable
-            // `id=3`, record/lt-loadfields-pagesource-validate/P81PageTempSource.al:358 PageVar_SetRecord_TempRecord `D2`).
-            // An action's RunPageView opens on the first row of its view instead (handlers/TestPageActionRunPageView.al:296
+            // last row on the last row (metadata/session-system/P94PageRun.al:88 Run_WithRecordNotInTable
+            // `id=3`, record/load-fields/P81PageTempSource.al:358 PageVar_SetRecord_TempRecord `D2`).
+            // An action's RunPageView opens on the first row of its view instead (testpage/TestPageActionRunPageView.al:296
             // RunPageView_OrderDescending_ReversesTheOpenedPage `cur=4`); `lenient_bind` marks that open (run_object_page).
             if !self.declares(st, "onfindrecord") && !self.pages.lenient_bind {
                 // A List run with Page.Run (not modal) on a record that is still blank, whose view is descending, enters on the first
                 // row of the view, not where `=><` lands (al-runner issue 6114; corpus writer TW, branch al-runtime-rs-staging-tw,
-                // pages/lt-page-sourceview-current-row/TwPageRunDescView.al:161 DescViewAscRecPageRun, :188 DescViewDescRecPageRun
+                // pages/currpage/TwPageRunDescView.al:161 DescViewAscRecPageRun, :188 DescViewDescRecPageRun
                 // `entry=E3S30`, against :120 DescViewAscRec, RunModal, `entry=E2S10`).
                 if self.is_list(st)
                     && st.borrow().last_run_modal == Some(false)
@@ -1015,14 +1029,20 @@ impl Session {
                     let table = rec.borrow().table as usize;
                     let initial = self.initial_fields(table);
                     if Self::same_values(&rec.borrow().fields, &initial) {
-                        // Pinned by pages/lt-page-sourceview-current-row/TwPageRunDescView.al (was assumption `page-run-blank-record-descending-view-first-row`).
+                        // Pinned by pages/currpage/TwPageRunDescView.al (was assumption `page-run-blank-record-descending-view-first-row`).
                         return self.page_first_row(st);
                     }
                 }
                 return self.page_first_row_from(st, "=><", true);
             }
         } else if st.borrow().host.is_none()
-            && self.declares(st, "onopenpage")
+            // The base page's or a page extension's OnOpenPage: a base without the trigger and an extension with it opens on the
+            // row the extension left Rec on, as the pinned cases with both do (pages/onopenpage-moves-rec/OnOpenPageGetChain.al:587
+            // Og_ExtList_OpenView_Base0Ext1; al-runner issue 6924).
+            // A temporary Worksheet counts only its own OnOpenPage: with the trigger in an extension alone it keeps the first row
+            // it always had (al-runner issue 6924, SalesPriceShipmentTypeActivateLinesDuplicatesShowOK/ShowCancel).
+            && (self.declares(st, "onopenpage")
+                || (self.declares_or_ext_declares(st, "onopenpage") && !self.is_temp_worksheet(st)))
             && (!self.declares(st, "onfindrecord") || self.temp_worksheet_set_before_open(st))
             && !self.is_request_page(st)
         {
@@ -1051,7 +1071,7 @@ impl Session {
     }
 
     /// A report request page with a source table whose OnOpenPage left Rec on a stored row other than the first of its view: true
-    /// when the page opens on that row. Pinned by corpus report/lt-y-request-page/YRequestPageTests.al:443
+    /// when the page opens on that row. Pinned by corpus reports/request-page/YRequestPageTests.al:443
     /// RS_RequestPageRec_ModifyAndInsert_InOnOpenPage (Rec inserted on `N/1`, the handler reads `docno = N`, `descr = inserted`) and
     /// :471 RS_RequestPageRec_ReadInReportTriggers (FindFirst then Next, the handler reads `A` and `second`). A blank key or Rec on the
     /// first row opens on the first row, as before. A temporary source, another key, a filter, Rec on a key no row has or holding
@@ -1110,7 +1130,7 @@ impl Session {
 
     /// A Card or List over a database table opened without a record, in a key other than the primary key, whose Rec is still the
     /// initial record (OnOpenPage left it alone) and stands on a primary key no row has because a key field has an InitValue.
-    /// `Some(true)` for a List run modally, which opens `=><` from Rec (pages/lt-outside-worksheet/RmInitValueKey.al:290
+    /// `Some(true)` for a List run modally, which opens `=><` from Rec (testpage/RmInitValueKey.al:290
     /// RM_List_RunModal opens on Line 2, `R:2;R:1;R:3;R:2;R:4;R:2;R:2;R:2;C:2;`); `Some(false)` otherwise, which opens on the first
     /// row of the view (:231 RM_List_OpenEdit, :250 _OpenView, :269 _PageRun on Line 4, :330 RM_ListDesc_OpenEdit on 3, :349
     /// RM_Card_OpenEdit and :369 RM_Card_RunModal on 4). A filtered view, lookup mode or OnNextRecord are not pinned and go on
@@ -1145,7 +1165,7 @@ impl Session {
     /// A Card or List over a database table opened without a record, whose OnOpenPage left Rec on a row in a key other than the
     /// primary key (a SourceTableView sorting or a SetCurrentKey): before the page finds its row, it reads the row of Rec's
     /// primary key, filters aside, and runs OnAfterGetRecord on it; it then finds from that row in Rec's key.
-    /// Pinned by corpus pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al:228 QR_Card_OpenView_SetCurrentKeyGet `O:B;R:B;R:B;C:B;`,
+    /// Pinned by corpus pages/onopenpage-moves-rec/QrMovedTests.al:228 QR_Card_OpenView_SetCurrentKeyGet `O:B;R:B;R:B;C:B;`,
     /// :345 QR_List_OpenView_SetCurrentKeyGet, and the QS_KeyAsc_*, QS_KeyDesc_* and QS_KeyWhere_* tests from :856: QS_KeyAsc_Card_GetC
     /// `O:C;R:C;R:C;C:C;`, QS_KeyAsc_Card_FindFirst `O:D;R:D;R:D;C:D;` (on the first row of the view too), QS_KeyAsc_Card_KeyAssigned
     /// (`"No." := 'C'` without a read opens on `C|bravo`: the stored row's Name is what the key finds from),
@@ -1159,7 +1179,7 @@ impl Session {
         }
         let page_type = &self.engine.object_facts[st.borrow().object as usize].page_type;
         // A Worksheet over a database table reads the row first by every route, run modally and in lookup mode too
-        // (pages/lt-rz-outside-page-moves/RzWorksheetSecondaryKeyOpen.al RZ_Lookup_RecBeforeView `O:HDR;R:HDR;R:X;...`,
+        // (pages/run-modal/RzWorksheetSecondaryKeyOpen.al RZ_Lookup_RecBeforeView `O:HDR;R:HDR;R:X;...`,
         // RZ_RunModal_*, RZ_OpenEdit_*, RZ_OpenView_*, also when Rec is the first row of the view, RZ_Lookup_RecFirstOfView).
         let worksheet = matches!(page_type, Some(al_ir::PageType::Worksheet)) && !self.declares(st, "onnextrecord");
         if !worksheet
@@ -1202,14 +1222,14 @@ impl Session {
     /// first row of the view: true when the page opens `=><` from Rec as OnOpenPage left it. A Card or List page, opened by
     /// TestPage OpenView/OpenEdit, Page.Run or Page.RunModal, opens on the row Rec was left on, in the view OnOpenPage set, and
     /// on the nearest row of the view when Rec is outside the filter it set (corpus
-    /// pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al:175 QR_Card_OpenView_Get `C|bravo`, :188 _FindLast, :201 _FindFirstNext,
+    /// pages/onopenpage-moves-rec/QrMovedTests.al:175 QR_Card_OpenView_Get `C|bravo`, :188 _FindLast, :201 _FindFirstNext,
     /// :214 _SetRangeFindLast, :227 _SetCurrentKeyGet, :240 _KeyAssigned `C` without a read, :253 _GetThenFilterExcludes `B` for
     /// C with filter A..B, :279 QR_Card_OpenEdit_Get, :292-396 the same for a List, :540 QR_Card_PageRun_Get, :555
     /// QR_List_PageRun_Get, :600 QR_Card_RunModal_Get, :615 QR_List_RunModal_FindLast). A temporary source OnOpenPage fills opens
     /// on the row Rec was left on too (:409 QR_TempCard_OpenView_NoMove `D` after the inserts, :474 QR_TempList_OpenView_NoMove,
     /// :422-526, :570, :585, :630). Another page type, a page in lookup mode or with OnNextRecord are not pinned: refused (a
-    /// temporary source of another page type keeps the first row, as before: handlers/TestTempIntegerListPart.al:92,
-    /// handlers/TestPageVariableControlCaption_Tests.al:120, testpart/BnrBlankPart.al:596 do not tell the two apart). A part is
+    /// temporary source of another page type keeps the first row, as before: testpage/TestTempIntegerListPart.al:92,
+    /// testpage/TestPageVariableControlCaption_Tests.al:120, testpage/parts/BnrBlankPart.al:596 do not tell the two apart). A part is
     /// not asked (the caller checks). Tests-ERM 134710 EmptySetup reaches it (Payment Registration Setup inserts the user's row
     /// in OnOpenPage while another user's row sorts first).
     pub(super) fn rec_moved_by_onopenpage(&mut self, st: &St) -> Result<bool, Signal> {
@@ -1249,7 +1269,7 @@ impl Session {
         if set_before {
             // A temporary Worksheet whose row was set before the open (a procedure of the page variable filled it and left Rec
             // on a row; OnOpenPage left Rec as it was) opens on that row as a List does, `=><` from Rec (corpus
-            // pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al:2410 QT_TempWs_RunModal_B `O:B;R:B;R:C;R:D;R:B;R:A;R:B;R:B;C:B;`,
+            // pages/onopenpage-moves-rec/QrMovedTests.al:2410 QT_TempWs_RunModal_B `O:B;R:B;R:C;R:D;R:B;R:A;R:B;R:B;C:B;`,
             // :2426 _BB_Between `C`, :2442 _E_PastLast `D`, :2490 QT_TempWs_Lookup_B, :2506 _Lookup_BB_Between, :2665
             // QT_TempWs_Run_B, :2679 _Run_BB_Between). With OnNextRecord it opens there too, run modally, in lookup mode or not
             // (:2538 QT_TempWsNext_RunModal_B, :2554 _BB_Between, :2570 QT_TempWsNext_Lookup_B); with OnFindRecord and
@@ -1284,7 +1304,7 @@ impl Session {
             // A temporary Worksheet (not a tree) whose OnOpenPage filled it and moved Rec opens on the row Rec was left on, the
             // nearest of the view in key order when Rec is outside it, as the temporary List does: in the primary key and
             // another, by OpenView, OpenEdit, Page.Run, RunModal and in lookup mode, with OnNextRecord too
-            // (pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al QR_TempWs_* and QR_TempWsNext_*, writer Y57).
+            // (pages/onopenpage-moves-rec/QrMovedTests.al QR_TempWs_* and QR_TempWsNext_*, writer Y57).
             return Ok(true);
         }
         if temp_worksheet {
@@ -1326,7 +1346,7 @@ impl Session {
         // A Worksheet over a database table in the primary key, without OnNextRecord (OnFindRecord the caller rules out), opens
         // on the row OnOpenPage left Rec on by every route, in lookup mode too; so does a List in lookup mode whose Rec is on
         // the last row of its view
-        // (pages/lt-outside-worksheet-2/RtFillOnOpen.al:263 RT_FillWs_Lookup_ABC_OK `O:C;R:C;R:B;R:A;R:C;R:C;C:C;`, :278 _ACB_OK on
+        // (testpage/RtFillOnOpen.al:263 RT_FillWs_Lookup_ABC_OK `O:C;R:C;R:B;R:A;R:C;R:C;C:C;`, :278 _ACB_OK on
         // B, :293 RunModal, :314 lookup RunModal, :336 Page.Run, :353 and :374 OpenEdit, :395 OpenView, :417 RT_FillList_Lookup_ABC_OK).
         // A List in lookup mode on another row, another key or OnNextRecord are not pinned.
         if !rec.borrow().temporary && rec.borrow().key == 0 && !self.declares(st, "onnextrecord") {
@@ -1343,7 +1363,7 @@ impl Session {
             }
         }
         // The same Worksheet in another key opens on the row `=><` from Rec reaches in that key, by every route, in lookup mode
-        // too, with the row triggers reading as in the primary key (pages/lt-rz-outside-page-moves/RzWorksheetSecondaryKeyOpen.al:
+        // too, with the row triggers reading as in the primary key (pages/run-modal/RzWorksheetSecondaryKeyOpen.al:
         // RZ_Lookup_RecBeforeView `O:HDR;R:HDR;R:X;R:Y;R:X;R:X;R:X;C:X`, RecInsideView, RecAfterView, RecBetweenViewRows,
         // RecBeforeBySecondaryAfterByPrimary, RecFirstOfView, and the RunModal, OpenEdit and OpenView routes). OnNextRecord is not
         // pinned.
@@ -1464,4 +1484,22 @@ impl Session {
         st.borrow_mut().opened_on_moved_rec = list;
         Ok(())
     }
+}
+
+/// The flags a new host row, a first part access and New() on a request page set; a page that runs again starts without them.
+/// The flags a list's earlier run left about its rows and its new-row line.
+fn reset_row_line_flags(s: &mut al_builtins::value::PageState) {
+    s.gone_blank_no_new_line = false;
+    s.gone_blank_shows_line = false;
+    s.gone_view_list = false;
+    s.list_view_switched = false;
+    s.list_edit_back = false;
+}
+
+fn reset_host_row_flags(s: &mut al_builtins::value::PageState) {
+    s.new_host_part_rows = false;
+    s.host_stored_blank_key = false;
+    s.part_insert_swallowed = false;
+    s.blank_key_edit_reread = false;
+    s.request_new_blank = false;
 }

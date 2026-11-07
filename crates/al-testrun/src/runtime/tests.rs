@@ -161,7 +161,7 @@ fn a_failure_after_a_test_that_was_refused_mid_run_is_not_trusted() {
 }
 
 /// A test refused while it ran leaves the session language and WorkDate as they were when it started, as its database
-/// writes are rolled back: corpus report/lt-bd-format-region/BdRegionTests.al BdSummaryML_1040 sets GlobalLanguage(1040) and
+/// writes are rolled back: corpus reports/runtime/BdRegionTests.al BdSummaryML_1040 sets GlobalLanguage(1040) and
 /// is refused before its own `GlobalLanguage(Original)`; the BdSetterLanguage_* tests after it must not run in 1040.
 #[test]
 fn a_test_refused_while_it_ran_leaves_no_session_language_or_work_date_behind() {
@@ -271,7 +271,7 @@ fn commit_behavior_ignore_exempts_the_auto_rollback_refusal_and_error_does_not_o
     );
 }
 
-// codeunit/TestWriteTxTestBoundary.al:Test02-Test06: no write transaction crosses a test
+// codeunits/TestWriteTxTestBoundary.al:Test02-Test06: no write transaction crosses a test
 // boundary, and a guarded Codeunit.Run is allowed at the start of the next test.
 #[test]
 fn no_write_transaction_survives_a_test_boundary() {
@@ -286,7 +286,7 @@ fn no_write_transaction_survives_a_test_boundary() {
                     if not Ok then Error('guarded run refused'); end;
                 [Test] procedure DefaultWrites() var R: Record S; begin
                     // The guarded run of NextStartsClean committed its row 'RUN': it survives an
-                    // AutoRollback test (codeunit/TestCodeunitRunErrorTextsAndModels.al:259,
+                    // AutoRollback test (codeunits/TestCodeunitRunErrorTextsAndModels.al:259,
                     // AutoRollback_Test04_SuccessfulGuardedRun_RowSurvivesTheTestBoundary).
                     R.DeleteAll();
                     R.K := 'D'; R.Insert();
@@ -303,7 +303,7 @@ fn no_write_transaction_survives_a_test_boundary() {
     );
 }
 
-// codeunit/TestWriteTxTestBoundary.al:Test08-Test10: a None test starts with no
+// codeunits/TestWriteTxTestBoundary.al:Test08-Test10: a None test starts with no
 // transaction, cannot write directly, and can write inside a Codeunit.Run.
 #[test]
 fn a_none_test_has_no_transaction_until_it_runs_a_codeunit() {
@@ -330,7 +330,7 @@ fn a_none_test_has_no_transaction_until_it_runs_a_codeunit() {
     assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
     assert_eq!(o[2].1, Outcome::Pass, "{o:?}");
     // DeleteAll under None is refused with the Insert text
-    // (codeunit/TestWriteTxNoneModelContracts.al:91, NoneModel_Test04_DeleteAll_IsRefused).
+    // (codeunits/TestWriteTxNoneModelContracts.al:91, NoneModel_Test04_DeleteAll_IsRefused).
     assert_eq!(
         o[3].1,
         Outcome::Fail("A transaction must be started before changes can be made to the database.".into()),
@@ -338,7 +338,7 @@ fn a_none_test_has_no_transaction_until_it_runs_a_codeunit() {
     );
 }
 
-// codeunit/TestWriteTxTestBoundary.al:Test10_ARunCodeunitMayWriteUnderNone
+// codeunits/TestWriteTxTestBoundary.al:Test10_ARunCodeunitMayWriteUnderNone
 #[test]
 fn a_codeunit_run_from_a_none_test_may_write_and_its_transaction_ends_with_it() {
     let o = outcomes(&with_rows(
@@ -351,7 +351,7 @@ fn a_codeunit_run_from_a_none_test_may_write_and_its_transaction_ends_with_it() 
     assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
 }
 
-// codeunit/TestCodeunitRunNestedTestCodeunit.al: Codeunit.Run of a test codeunit from a
+// codeunits/TestCodeunitRunNestedTestCodeunit.al: Codeunit.Run of a test codeunit from a
 // running test raises, guarded or not, in the static and the instance form, and runs nothing.
 #[test]
 fn running_a_test_codeunit_from_a_test_is_refused() {
@@ -385,7 +385,7 @@ fn running_a_test_codeunit_from_a_test_is_refused() {
 }
 
 // The default TransactionModel commits a test's work at the test boundary (corpus
-// codeunit/TestWriteTxTestBoundary.al:26; record/TestCalcFormulaFlowFieldValueTests.Codeunit.al:182,
+// codeunits/TestWriteTxTestBoundary.al:26; record/TestCalcFormulaFlowFieldValueTests.Codeunit.al:182,
 // whose asserterror rolls back to "whatever the previous test committed").
 #[test]
 fn a_passing_test_commits_so_a_later_asserterror_rolls_back_only_to_that_point() {
@@ -442,8 +442,8 @@ fn outcomes_of_apps(apps: &[(&str, &[&str], &str)], codeunit: &str) -> Vec<(Stri
 }
 
 // ADR-046 decision 1: an ordinary codeunit's subscribers to "Extension Triggers" run at its app's install
-// (events/lt-platform-events-v/PeVFixtures.al:395-407, PeVTests.al:284-285): the per-company one in the session company,
-// the per-database one with CompanyName() empty (install/lt-bf-install-probes/BfInstallTests.al:138-140, `blank`).
+// (events/platform-triggers/PeVFixtures.al:395-407, PeVTests.al:284-285): the per-company one in the session company,
+// the per-database one with CompanyName() empty (record/BfInstallTests.al:138-140, `blank`).
 #[test]
 fn an_extension_triggers_subscriber_of_the_app_runs_per_company_then_per_database() {
     let o = outcomes(
@@ -484,7 +484,7 @@ fn a_shared_table_that_per_company_install_code_writes_holds_one_write_in_the_de
 
 // ADR-046 amendment 3: install codeunit triggers and Extension Triggers subscribers of one app run as one sequence in
 // ascending codeunit id, across the 65536 id boundary (corpus PR 810, writer UR, branch al-runtime-rs-staging-ur 1ac158e1,
-// tests/al-language/install/lt-ur-block-order/UrBlockOrderTests.al:59-81, 50300 50301 50302 before 90511 90512 90515).
+// tests/al-language/install-upgrade/install-order/UrBlockOrderTests.al:59-81, 50300 50301 50302 before 90511 90512 90515).
 // A table two such routines write (a), the tables a routine writes that reads what the other writes (b), and those of
 // routines sharing a SingleInstance codeunit (c) are answered; until that file is in the pinned corpus it is a flagged pass.
 #[test]
@@ -509,7 +509,7 @@ fn tables_whose_install_rows_depend_on_the_order_of_the_routines_follow_ascendin
     for (n, r) in &o {
         assert_eq!(*r, Outcome::Pass, "{n}: {o:?}");
     }
-    // The order is pinned (install/lt-ur-block-order/UrBlockOrderTests.al:59-81): no pass rests on an assumption.
+    // The order is pinned (install-upgrade/install-order/UrBlockOrderTests.al:59-81): no pass rests on an assumption.
     for (n, h) in &hits {
         assert!(h.is_empty(), "{n}: {hits:?}");
     }
@@ -556,7 +556,7 @@ fn a_table_two_install_subscribers_of_one_codeunit_write_is_not_known() {
 }
 
 // ADR-046 amendment 1, A2 d (kept by amendment 3 where the order is not pinned): SystemRowVersion orders rows across tables
-// (install/lt-bf-install-probes/BfInstallTests.al:8-9), so in an app with two install routines in one part in different
+// (record/BfInstallTests.al:8-9), so in an app with two install routines in one part in different
 // blocks of 65536 ids, the row version of a row install code wrote shows their order. A row
 // the test wrote itself is answered.
 #[test]
@@ -585,8 +585,8 @@ fn the_row_version_of_an_install_row_is_refused_when_the_order_of_the_routines_i
 // ADR-046 amendment 3: install codeunits of one app run in ascending object id in each company and in the per-database
 // part, whatever their names and source order, and a SingleInstance codeunit's state carries from one to the next and
 // starts again per part (corpus PR 807, writer UM, branch al-runtime-rs-staging-pub-um e3b2eedf,
-// tests/al-language/install/lt-um-install-order/UmInstallOrder.al:120-125; fact 5 for subscribers between them,
-// install/lt-bf-install-probes/BfInstallTests.al:239). Until that file is in the pinned corpus a test that reads what
+// tests/al-language/install-upgrade/install-order/UmInstallOrder.al:120-125; fact 5 for subscribers between them,
+// record/BfInstallTests.al:239). Until that file is in the pinned corpus a test that reads what
 // they wrote is a flagged pass.
 #[test]
 fn install_routines_of_one_app_run_in_ascending_object_id_and_share_single_instance_state() {
@@ -626,16 +626,16 @@ fn install_routines_of_one_app_run_in_ascending_object_id_and_share_single_insta
     for (n, r) in &o {
         assert_eq!(*r, Outcome::Pass, "{n}: {o:?}");
     }
-    // The order is pinned (install/lt-ur-block-order/UrBlockOrderTests.al:59-81): no pass rests on an assumption.
+    // The order is pinned (install-upgrade/install-order/UrBlockOrderTests.al:59-81): no pass rests on an assumption.
     for (n, h) in &hits {
         assert!(h.is_empty(), "{n}: {hits:?}");
     }
 }
 
 // ADR-046 amendment 1, A4 items 1 and 2: the install runs in a session of its own, not the test session
-// (install/lt-bf-install-probes/BfInstallTests.al:142-144), and a SingleInstance codeunit starts again in each company and in
+// (record/BfInstallTests.al:142-144), and a SingleInstance codeunit starts again in each company and in
 // the per-database part (`counter=1` in rows #1, #4 and #7, BfInstallTests.al:125-140); the test session does not see the
-// install run's SingleInstance state (events/lt-platform-events-v/PeVTests.al:297).
+// install run's SingleInstance state (events/platform-triggers/PeVTests.al:297).
 #[test]
 fn the_install_session_is_its_own_and_single_instance_state_starts_again_per_part() {
     let o = outcomes(
@@ -657,7 +657,7 @@ fn the_install_session_is_its_own_and_single_instance_state_starts_again_per_par
 }
 
 // ADR-046 amendment 1, A3: one app's whole install (per company, then per database) ends before the next app's begins
-// (install/lt-bf-install-probes/BfInstallTests.al:239, the fixture app's three rows come first), in dependency order.
+// (record/BfInstallTests.al:239, the fixture app's three rows come first), in dependency order.
 #[test]
 fn two_apps_under_test_install_one_after_the_other() {
     let dep = "table 60900 DbA { DataPerCompany = false; fields { field(1; K; Code[10]) { } } }
@@ -674,8 +674,8 @@ fn two_apps_under_test_install_one_after_the_other() {
 
 // ADR-046 amendment 1, A4 item 4: the install session raises Company Triggers OnCompanyOpen and OnCompanyOpenCompleted in
 // each company before the install routines run there, and not in the per-database part
-// (install/lt-bf-install-probes/BfInstallTests.al:125-140, `company open calls=2` and `=0`, subscribers at
-// events/lt-bf-company-open/BfCompanyOpenFixtures.al:51-71).
+// (record/BfInstallTests.al:125-140, `company open calls=2` and `=0`, subscribers at
+// events/platform-triggers/BfCompanyOpenFixtures.al:51-71).
 #[test]
 fn company_triggers_run_in_the_install_session_before_the_per_company_routines() {
     let o = outcomes(
@@ -819,8 +819,8 @@ fn when_another_apps_company_triggers_subscriber_cannot_run_the_per_company_inst
 
 // Al-runner issue 5751: install code runs without a client. A plain Message does not stop it, GuiAllowed() is false,
 // CurrentClientType() is SOAP, StrMenu, Confirm and Page.Run raise CallbackNotAllowed, Dialog, Hyperlink and
-// Notification.Send do nothing (install/lt-outside-install-ui/RlInstallUi.al:210-241; Confirm, Page.RunModal with a write open and
-// a Commit in a TryFunction: install/lt-cm-install-leads/CmInstallLeads.al:54-61).
+// Notification.Send do nothing (errors/RlInstallUi.al:210-241; Confirm, Page.RunModal with a write open and
+// a Commit in a TryFunction: metadata/CmInstallLeads.al:54-61).
 #[test]
 fn install_code_runs_without_a_client() {
     let o = outcomes(
@@ -893,7 +893,7 @@ fn an_install_codeunit_that_shows_a_message_keeps_its_setup_row() {
 
 // Al-runner issue 5743: when the test session opens the company, Base Application's LogInManagement sets WorkDate to
 // GetDefaultWorkDate() (the last G/L entry's date in a demo company), so OnRun and the first test see that date
-// (session/lt-outside-workdate/RlWorkDateAtStart.al:47-52); install code still sees today (install/lt-outside-install-ui/
+// (test-framework/RlWorkDateAtStart.al:47-52); install code still sees today (errors/
 // RlInstallUi.al:212). Here codeunit 40 stands in for Base Application's.
 #[test]
 fn the_test_session_starts_on_the_login_work_date() {
@@ -1051,7 +1051,7 @@ fn login_code_that_may_change_a_record_global_is_not_replayed() {
 }
 
 // ADR-046 amendment 1, A5: in the per-database part, IsEmpty and FindFirst of a per-company table fail with the text BC
-// gives (install/lt-bf-install-probes/BfInstallTests.al:138-139; reads in TryFunctions at BfInstallFixtures.al:131-146).
+// gives (record/BfInstallTests.al:138-139; reads in TryFunctions at BfInstallFixtures.al:131-146).
 // The code BC gave (DB:Ok) is not pinned yet, so a read of it is refused.
 #[test]
 fn a_per_company_read_in_the_per_database_part_fails_with_the_pinned_text() {
@@ -1075,7 +1075,7 @@ fn a_per_company_read_in_the_per_database_part_fails_with_the_pinned_text() {
     assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
 }
 
-// install/TestInstallSeeder.al: OnInstallAppPerDatabase seeds one table, OnInstallAppPerCompany
+// install-upgrade/TestInstallSeeder.al: OnInstallAppPerDatabase seeds one table, OnInstallAppPerCompany
 // is one the runtime cannot run. The per-database seed ran and stays; only the trigger that
 // could not run is skipped, with its tables.
 #[test]
@@ -1204,25 +1204,25 @@ fn outcome_of(o: &[(String, Outcome)], name: &str) -> Outcome {
 const UI: &str = "codeunit 60110 UiT { Subtype = Test;
         var Seen: Text; Fired: Integer; Asked: Text;
 
-        // handlers/TestMessageHandler.al:15 Message_Show_HandlerCaptures
+        // ui-handlers/TestMessageHandler.al:15 Message_Show_HandlerCaptures
         [Test] [HandlerFunctions('Msg')]
         procedure MessageReachesHandler() begin Message('Hello'); if Seen <> 'Hello' then Error('got %1', Seen); end;
 
-        // handlers/TestMessageHandler.al:23 Message_FormattedString_HandlerGetsFormatted
+        // ui-handlers/TestMessageHandler.al:23 Message_FormattedString_HandlerGetsFormatted
         [Test] [HandlerFunctions('Msg')]
         procedure MessageArgsAreSubstitutedBeforeTheHandler() begin Message('Value: %1', 42); if Seen <> 'Value: 42' then Error('got %1', Seen); end;
 
-        // handlers/TestMessageHandler.al:31,41 Confirm_Question_HandlerRepliesTrue / False
+        // ui-handlers/TestMessageHandler.al:31,41 Confirm_Question_HandlerRepliesTrue / False
         [Test] [HandlerFunctions('Yes')]
         procedure ConfirmHandlerRepliesTrue() begin if not Confirm('Sure?') then Error('false'); end;
         [Test] [HandlerFunctions('No')]
         procedure ConfirmHandlerRepliesFalse() begin if Confirm('Sure?', true) then Error('true'); end;
 
-        // handlers/TestConfirmFormatArgs.al:Confirm_SingleFormatArg_HandlerReceivesRawUnsubstitutedQuestion
+        // ui-handlers/TestConfirmFormatArgs.al:Confirm_SingleFormatArg_HandlerReceivesRawUnsubstitutedQuestion
         [Test] [HandlerFunctions('No')]
         procedure ConfirmHandlerGetsTheRawQuestion() begin if Confirm('%1 items. Go?', true, 2) then; if Asked <> '%1 items. Go?' then Error('got %1', Asked); end;
 
-        // handlers/TestConfirmFormatArgs.al:Confirm_DefaultChoiceHonored_WhenHandlerDoesNotOverrideReply
+        // ui-handlers/TestConfirmFormatArgs.al:Confirm_DefaultChoiceHonored_WhenHandlerDoesNotOverrideReply
         [Test] [HandlerFunctions('Silent')]
         procedure ConfirmDefaultSurvivesAHandlerThatLeavesReply()
         begin
@@ -1230,11 +1230,11 @@ const UI: &str = "codeunit 60110 UiT { Subtype = Test;
             if Confirm('q', false) then Error('default false lost');
         end;
 
-        // handlers/TestConfirmFormatArgs.al: one handler answers two Confirms
+        // ui-handlers/TestConfirmFormatArgs.al: one handler answers two Confirms
         [Test] [HandlerFunctions('No')]
         procedure OneHandlerServesManyCalls() begin Fired := 0; if Confirm('a', true) then; if Confirm('b', true) then; if Fired <> 2 then Error('fired %1', Fired); end;
 
-        // handlers/TestConfirmNoHandler.al:Confirm_NoHandler_TestBody_IsRefused
+        // ui-handlers/TestConfirmNoHandler.al:Confirm_NoHandler_TestBody_IsRefused
         [Test]
         procedure ConfirmWithoutHandlerIsRefused()
         var Reply: Boolean;
@@ -1247,7 +1247,7 @@ const UI: &str = "codeunit 60110 UiT { Subtype = Test;
             if Reply then Error('default was assigned');
         end;
 
-        // handlers/TestPageQueryCloseError_Tests.al:75 (Unhandled UI ... Message)
+        // text/TestPageQueryCloseError_Tests.al:75 (Unhandled UI ... Message)
         [Test]
         procedure MessageWithoutHandlerIsRefused()
         begin
@@ -1265,7 +1265,7 @@ const UI: &str = "codeunit 60110 UiT { Subtype = Test;
             Message('now used');
         end;
 
-        // handlers/TestPageQueryCloseMessageHandler_Tests.al:51 (UI handlers were not executed)
+        // ui-handlers/TestPageQueryCloseMessageHandler_Tests.al:51 (UI handlers were not executed)
         [Test] [HandlerFunctions('Msg')]
         procedure DeclaredHandlerThatNeverFiresFailsTheTest() begin end;
 
@@ -1285,7 +1285,7 @@ const UI: &str = "codeunit 60110 UiT { Subtype = Test;
             if StrPos(GetLastErrorText(), 'Unhandled UI') = 0 then Error('got %1', GetLastErrorText());
         end;
 
-        // handlers/TestUnhandledUiAndDialogDefaults.al:164 [StrMenuHandler]
+        // errors/TestUnhandledUiAndDialogDefaults.al:164 [StrMenuHandler]
         [Test] [HandlerFunctions('Menu')]
         procedure StrMenuHandlerChoosesAnOption()
         var C: Integer;
@@ -1409,7 +1409,7 @@ fn page_report_and_other_handlers_are_refused_with_their_kind() {
         "{o:?}"
     );
     assert!(
-        // A [FilterPageHandler] takes `var RecordRef` (filterpage/W3FilterPageBuilder.al:160); another shape is refused.
+        // A [FilterPageHandler] takes `var RecordRef` (pages/filterpagebuilder/W3FilterPageBuilder.al:160); another shape is refused.
         matches!(&o[2].1, Outcome::NotRun(r) if r.contains("not shaped like a FilterPage handler")),
         "{o:?}"
     );
@@ -1456,7 +1456,7 @@ codeunit 60708 PhTrace { SingleInstance = true; var Log: Text; procedure Note(T:
 page 60709 "PH Ro" { PageType = Card; SourceTable = "PH Row"; layout { area(Content) { field(NoCtl; Rec."No.") { } field(NoteCtl; Note) { } } } trigger OnOpenPage() begin CurrPage.Editable(false); end; var Note: Text[20]; }
 page 60710 "PH Desc" { PageType = List; SourceTable = "PH Row"; SourceTableView = sorting("No.") order(descending); layout { area(Content) { repeater(R) { field(NoCtl; Rec."No.") { } field(DescrCtl; Rec.Descr) { } } } } }
 table 60704 "PH Lk" { LookupPageId = "PH LkCard"; fields { field(1; "No."; Code[20]) { } field(2; Descr; Text[50]) { } } keys { key(PK; "No.") { } } }
-// The lookup page of "PH Lk" has to show its table: a record of another table is refused (pages/lt-page-run-overloads-testpart/P106RunErrors.al).
+// The lookup page of "PH Lk" has to show its table: a record of another table is refused (pages/parts/P106RunErrors.al).
 page 60713 "PH LkCard" { PageType = Card; SourceTable = "PH Lk"; layout { area(Content) { field(NoCtl; Rec."No.") { } } } }
 page 60705 "PH Saved" { PageType = StandardDialog; SaveValues = true; layout { area(Content) { field(Rem; RemTxt) { } } } var RemTxt: Text[30]; }
 page 60711 "PH Saved X" { PageType = StandardDialog; SaveValues = true; SourceTable = "PH Row"; layout { area(Content) { field(RemX; RemTxt) { } } } var RemTxt: Text[30]; }
@@ -1466,7 +1466,7 @@ codeunit 60703 PhT
     Subtype = Test;
     var Seen: Text;
 
-    // handlers/TestPageModalHandler_Tests.al:43,83 ModalPageHandlerOkReachesTheCallingAl / CancelReaches (lookup)
+    // testpage/TestPageModalHandler_Tests.al:43,83 ModalPageHandlerOkReachesTheCallingAl / CancelReaches (lookup)
     [Test] [HandlerFunctions('OkModal')]
     procedure OkReachesTheCaller()
     var R: Record "PH Row"; H: TestPage "PH Host";
@@ -1475,7 +1475,7 @@ codeunit 60703 PhT
         R.Get('RESULT'); if R.Descr <> 'OK' then Error('got %1', R.Descr);
     end;
 
-    // handlers/TestPageModalHandler_Tests.al:105 ModalPageWithoutAHandlerIsRefused
+    // testpage/TestPageModalHandler_Tests.al:105 ModalPageWithoutAHandlerIsRefused
     [Test]
     procedure NoHandlerIsRefused()
     var R: Record "PH Row"; H: TestPage "PH Host";
@@ -1485,7 +1485,7 @@ codeunit 60703 PhT
         if StrPos(GetLastErrorText(), 'Unhandled UI: ModalPage') = 0 then Error('got %1', GetLastErrorText());
     end;
 
-    // handlers/TestPageRunHandler_Tests.al:60-90: the handler is handed the record Page.Run was given
+    // ui-handlers/TestPageRunHandler_Tests.al:60-90: the handler is handed the record Page.Run was given
     [Test] [HandlerFunctions('SeePage')]
     procedure PageRunHandsTheRecord()
     var R: Record "PH Row";
@@ -1496,7 +1496,7 @@ codeunit 60703 PhT
         if Seen <> 'Beta' then Error('got %1', Seen);
     end;
 
-    // testpageclose + handlers/TestPageModalQueryClose_Tests.al (b): a handler that invokes nothing leaves a plain modal reporting OK
+    // testpageclose + ui-handlers/TestPageModalQueryClose_Tests.al (b): a handler that invokes nothing leaves a plain modal reporting OK
     [Test] [HandlerFunctions('Nothing')]
     procedure UnattendedPlainModalReportsOk()
     var M: Page "PH Card"; Res: Action;
@@ -1524,7 +1524,7 @@ codeunit 60703 PhT
         if StrPos(GetLastErrorText(), 'The built-in action = Cancel is not found on the page') = 0 then Error('got %1', GetLastErrorText());
     end;
 
-    // handlers/TestPageRunModalLookupPageId_Tests.al:47-55: id 0 with a record resolves LookupPageId (the pin has a
+    // pages/run-modal/TestPageRunModalLookupPageId_Tests.al:47-55: id 0 with a record resolves LookupPageId (the pin has a
     // row; OK of that lookup on no row is not pinned and is refused)
     [Test] [HandlerFunctions('OkModalLk')]
     procedure IdZeroUsesLookupPageId()
@@ -1537,7 +1537,7 @@ codeunit 60703 PhT
         if StrPos(GetLastErrorText(), 'You tried to invoke the Page object with the ID 0') = 0 then Error('got %1', GetLastErrorText());
     end;
 
-    // handlers/TestPageSaveValues.al: OK stores, the next open shows it; Cancel stores nothing
+    // pages/properties/TestPageSaveValues.al: OK stores, the next open shows it; Cancel stores nothing
     [Test] [HandlerFunctions('SaveRem')]
     procedure SaveValuesKeepsWhatOkStored()
     begin
@@ -1546,7 +1546,7 @@ codeunit 60703 PhT
         if Seen <> 'kept' then Error('got %1', Seen);
     end;
 
-    // handlers/TestPageSaveValues.al as above, on a SaveValues page that an extension extends with a
+    // pages/properties/TestPageSaveValues.al as above, on a SaveValues page that an extension extends with a
     // control bound to a field of Rec (it adds no variable-bound control: docs/probes-needed.md)
     [Test] [HandlerFunctions('SaveRemX')]
     procedure SaveValuesOnAnExtendedPageKeepsWhatOkStored()
@@ -1556,7 +1556,7 @@ codeunit 60703 PhT
         if Seen <> 'kept' then Error('got %1', Seen);
     end;
 
-    // handlers/TestPageTrapSharedScope_Tests.al:87: a page still held by the caller keeps the trap
+    // testpage/TestPageTrapSharedScope_Tests.al:87: a page still held by the caller keeps the trap
     [Test]
     procedure TrapSurvivesWhileAnotherVariableHoldsThePage()
     var T: TestPage "PH Card"; R: Record "PH Row";
@@ -1575,7 +1575,7 @@ codeunit 60703 PhT
         A.Trap(); B := A; Out := B;
     end;
 
-    // pageupdate/TestPageUpdateNewRow.al: Update() in OnValidate saves a DelayedInsert new row, then the refresh runs AGR for it
+    // pages/currpage/TestPageUpdateNewRow.al: Update() in OnValidate saves a DelayedInsert new row, then the refresh runs AGR for it
     [Test]
     procedure UpdateSavesTheNewRowAndRefreshesIt()
     var C: TestPage "PH NrCard"; R: Record "PH Nr"; T: Codeunit PhTrace;
@@ -1588,7 +1588,7 @@ codeunit 60703 PhT
         R.SetRange(Name, 'Nx'); if R.Count() <> 1 then Error('rows %1', R.Count());
     end;
 
-    // handlers/TestPageControlEditableRoutes.al:548: CurrPage.Editable(false) in OnOpenPage narrows every control
+    // testpage/TestPageControlEditableRoutes.al:548: CurrPage.Editable(false) in OnOpenPage narrows every control
     [Test]
     procedure CurrPageEditableFalseInOnOpenPageNarrowsEverything()
     var C: TestPage "PH Ro"; R: Record "PH Row";
@@ -1599,7 +1599,7 @@ codeunit 60703 PhT
         C.Close();
     end;
 
-    // pagefindrecord/TestPageFindRecord.al:192: SourceTableView sorting descending; Find*Field walks the view
+    // pages/triggers/TestPageFindRecord.al:192: SourceTableView sorting descending; Find*Field walks the view
     [Test]
     procedure SourceTableViewOrdersTheRowsAndFindFieldWalksThem()
     var L: TestPage "PH Desc"; R: Record "PH Row";
@@ -1657,7 +1657,7 @@ fn modal_and_page_handlers_answer_page_opens() {
     }
 }
 
-// session/TestSessionApplicationAreaTestBoundary.al:67552 (A_FirstTest_StartsWithEveryAreaEnabled_EvenAfterOnRunSetOne,
+// session-system/TestSessionApplicationAreaTestBoundary.al:67552 (A_FirstTest_StartsWithEveryAreaEnabled_EvenAfterOnRunSetOne,
 // C_NextTest_StartsWithEveryAreaEnabled): every test method starts with every application area enabled.
 #[test]
 fn every_test_starts_with_every_application_area_enabled() {
@@ -1694,7 +1694,7 @@ fn every_test_starts_with_every_application_area_enabled() {
 
 #[test]
 fn a_page_source_table_view_applies_in_filter_group_2() {
-    // corpus handlers/TestPageSourceTableView.al:129-151, reproduced without a dependency app.
+    // corpus testpage/TestPageSourceTableView.al:129-151, reproduced without a dependency app.
     let o = outcomes(
         r#"
 enum 50000 "S" { value(0; Open) { } value(1; Active) { } value(2; Closed) { } }
@@ -1775,7 +1775,7 @@ fn a_missing_control_of_a_local_page_is_reported_by_its_generated_id() {
 
 #[test]
 fn a_missing_control_of_a_dependency_page_is_named_by_the_same_generated_id() {
-    // corpus pageapplicationarea/TestPageApplicationAreaPrecompiledControlRemoval.al:92 pins
+    // corpus pages/application-area/TestPageApplicationAreaPrecompiledControlRemoval.al:92 pins
     // `ID = 301776846` for `Name` of page 329: the id derives from the declaring object's id and
     // the control name alone, so a dependency page needs no special case.
     let o = outcomes_over_dependency(SETS_HIDDEN_FIELD, HIDDEN_FIELD_PAGE);
@@ -1870,7 +1870,7 @@ codeunit 50120 "Lib" { procedure ReadSetup(): Text var S: Record "Setup"; begin 
 
 #[test]
 fn a_shared_log_the_projects_own_install_codeunits_write_in_turn_holds_their_rows_in_order() {
-    // Every OnInstallAppPerCompany, then every OnInstallAppPerDatabase (install/lt-bf-install-probes/BfInstallTests.al:239);
+    // Every OnInstallAppPerCompany, then every OnInstallAppPerDatabase (record/BfInstallTests.al:239);
     // the two per-company triggers run in ascending id, as their ids lie in one block of 65536 (ADR-046 amendment 3), and
     // the default mode models a database with one company (amendment 4), so the shared log holds one write of each.
     let o = outcomes(
@@ -1960,7 +1960,7 @@ fn install_triggers_and_company_initialize_seed_the_rows_every_test_codeunit_sta
 #[test]
 fn per_company_triggers_run_first_in_codeunit_order_then_per_database_with_no_company() {
     // Every OnInstallAppPerCompany, then OnInstallAppPerDatabase, which has no company (a DataPerCompany = false table
-    // works there): install/lt-bf-install-probes/BfInstallTests.al:138-140, :239. The order of the dependency app's two
+    // works there): record/BfInstallTests.al:138-140, :239. The order of the dependency app's two
     // per-company triggers is not pinned (ADR-046 amendment 1, A2 a); for dependency apps the refusal is not applied
     // (kept, not pinned: it would lose a baseline case, docs/owner-review.md), so program order is what the test sees.
     let outcome = with_baseline(
@@ -2603,7 +2603,7 @@ codeunit 60161 T
 }"#;
 
 // A filter set after the last row and the Read that raises are pinned (errors/lt-ms-refusals-131/
-// P131QuerySetRangeAfterRead.al:154-170), and so is the Open after the last row (query/lt-query-read-to-end/QueryReadToEnd.al:88-200):
+// P131QuerySetRangeAfterRead.al:141-157), and so is the Open after the last row (queries/read-lifecycle/QueryReadToEnd.al:88-200):
 // neither test is flagged.
 #[test]
 fn an_open_after_the_last_row_is_not_flagged() {
@@ -2824,7 +2824,7 @@ fn a_failure_after_a_test_refused_before_it_started_for_a_construct_in_its_reach
 
 // ADR-046 amendment 1, A4 item 10: the test session raises Company Triggers OnCompanyOpen then OnCompanyOpenCompleted to the
 // app's subscribers once, before the first test of the codeunit, and not again for the second test
-// (events/lt-bf-company-open/BfCompanyOpenTests.al:19-38, :40-50). What the runner does with the writes of a subscriber is not
+// (events/platform-triggers/BfCompanyOpenTests.al:19-38, :40-50). What the runner does with the writes of a subscriber is not
 // pinned: a test whose reach can read a table one wrote is not run, the other tests run (al-runner issue 5606: the whole
 // codeunit was refused).
 #[test]

@@ -2,7 +2,7 @@
 //! corpus run). Two apps with no dependency path between them: the subscribers of app B to `Global Triggers`
 //! (`GetGlobalTableTriggerMask`, `GetDatabaseTableTriggerSetup`, `OnDatabaseInsert`) run while app A installs exactly
 //! when B was installed first, and never in the per-database part of the install. Measured on BC 27.5, 28.5 and 29
-//! (corpus branch al-runtime-rs-staging-y79, install/lt-y79-install-unrelated/Y79InstallUnrelated.al:
+//! (corpus branch al-runtime-rs-staging-y79, install-upgrade/install-triggers/Y79InstallUnrelated.al:
 //! Y79_PerCompany_TriggerSubscribersOfInstalledApps, Y79_PerDatabase_NoTriggerSubscriberAsked; needs corpus bump).
 //! A process of its own: the setting is global to the process.
 

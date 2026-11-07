@@ -1,5 +1,5 @@
 //! The false branch of a conditional expression whose branches have different types converts to the true branch's type
-//! (corpus types/lt-y31-conversion-matrix/Y31ConvCd.al, LT Y31 Cd: `Byte_Char`, `Text10_Text`, `Option_Duration`).
+//! (corpus types/operators-expressions/Y31ConvCd.al, LT Y31 Cd: `Byte_Char`, `Text10_Text`, `Option_Duration`).
 
 use al_testkit::{run_in, text};
 
@@ -75,7 +75,7 @@ fn text_and_label_branches_give_the_value_taken() {
     assert_eq!(text(run_in(LABELS, "TL", "LabelText")), "a text longer than the label");
 }
 
-// LT Y31 Cd Label `Label_Code10`: into a Variant the Label branch gives a TextConstant (types/lt-y81-values/Y81LabelVariant.al);
+// LT Y31 Cd Label `Label_Code10`: into a Variant the Label branch gives a TextConstant (types/Y81LabelVariant.al);
 // the branch taken here is the Code, whose text it holds.
 #[test]
 fn a_label_branch_into_a_variant_gives_a_text_constant() {

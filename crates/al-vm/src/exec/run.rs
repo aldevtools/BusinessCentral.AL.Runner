@@ -152,15 +152,13 @@ impl Session {
                     let v = f.locals[a as usize].clone();
                     set(&mut f.locals[d as usize], v);
                 }
-                Op::Const { d, k } => {
-                    let v = self.constant_once(&chunk.consts[k as usize]);
-                    set(&mut f.locals[d as usize], v);
-                }
+                Op::Const { d, k } => set(&mut f.locals[d as usize], self.constant_once(&chunk.consts[k as usize])),
                 Op::LoadGlobal { d, i } => {
-                    self.alias_access(i as usize, f)?;
+                    self.global_read(i as usize, f)?;
                     let v = f.instance.borrow().globals[i as usize].clone();
                     set(&mut f.locals[d as usize], v);
                 }
+                Op::SingleWrite { i, kind } => self.single_write_op(i as usize, kind, f),
                 Op::ReadPlace { d, p } => {
                     let v = self.read(&chunk.places[p as usize], f)?;
                     set(&mut f.locals[d as usize], v);
@@ -377,11 +375,7 @@ impl Session {
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::Builtin { s, d } => {
-                    let site = &chunk.builtins[s as usize];
-                    let v = match (site.plain, site.native) {
-                        (true, Some(native)) => self.run_plain_builtin(site, native, f, nl)?,
-                        _ => self.run_builtin(site, f, nl)?,
-                    };
+                    let v = self.op_builtin(&chunk.builtins[s as usize], f, nl)?;
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::CharAt { d, a, b } => self.op_char_at(f, d, a, b, nl)?,
@@ -620,7 +614,7 @@ impl Session {
         };
         let Some(item) = item else { return Ok(false) };
         // An Integer item into an Enum loop variable is the enum value of that ordinal, an undeclared ordinal kept
-        // (corpus enum/lt-enum-foreach-integer/EnumForeachInteger.al:15, `7/7`); an Enum item into an Integer variable
+        // (corpus types/enum-option/EnumForeachInteger.al:15, `7/7`); an Enum item into an Integer variable
         // is its ordinal (same file :32).
         let item = match item {
             Value::Integer(n) => match self.read(&site.var, f) {
@@ -735,7 +729,7 @@ impl Session {
     fn for_init(&mut self, site: &ForSite, f: &mut Frame, nl: u16) -> Result<(), Signal> {
         let from = take(f, site.from, nl);
         let to = take(f, site.to, nl);
-        // Only Date bounds on a Date variable are pinned (misc/lt-system-functions/ControlFlow.al:607).
+        // Only Date bounds on a Date variable are pinned (language/ControlFlow.al:607).
         if site.int_local.is_none()
             && (matches!(from, Value::Date(..))
                 != matches!(self.place_type(&site.var, f), al_builtins::value::RtType::Date))
@@ -754,7 +748,7 @@ impl Session {
         f.locals[site.end as usize] = Value::BigInteger(end);
         // The end bound takes the type of the counter once the counter holds the start value: a BigInteger end beyond
         // Integer on an Integer counter raises ConversionCast, the counter keeps the start and no round runs
-        // (misc/lt-system-functions/ControlFlow.al:779-830, LT_BU_ForLoop_BigIntegerEndBoundOnInteger: `end 10^14`,
+        // (language/ControlFlow.al:779-830, LT_BU_ForLoop_BigIntegerEndBoundOnInteger: `end 10^14`,
         // `end max+1` give `|1000|0`). Only an ascending loop is pinned.
         if let Some(e) = big_end {
             let integer_counter = site.int_local.is_some()
@@ -774,7 +768,7 @@ impl Session {
             }
         }
         // A loop over an empty range still gives the counter the start value
-        // (misc/lt-system-functions/ControlFlow.al:ForLoop_VariableAfterLoop: `for i := 5 to 4` leaves 5).
+        // (language/ControlFlow.al:ForLoop_VariableAfterLoop: `for i := 5 to 4` leaves 5).
         if if site.down { start < end } else { start > end } {
             self.for_set(site, f)?;
         }
@@ -822,7 +816,7 @@ impl Session {
         Ok(())
     }
 
-    /// The step of a `for` loop over Dates (misc/lt-system-functions/ControlFlow.al:607, QX_ForLoop_DateControlVariable): on
+    /// The step of a `for` loop over Dates (language/ControlFlow.al:607, QX_ForLoop_DateControlVariable): on
     /// the end bound the loop ends with the variable there ('one day', '0D to 0D'); else the variable moves one day by Date
     /// arithmetic before the test, so an end that is a closing date leaves the day after it ('to a closing date': after
     /// 2024-01-01), 0D cannot move ('0D to a date', 'date downto 0D': DateInvalid) and a closing date raises ClosingDateOperation
@@ -926,8 +920,8 @@ impl Session {
     }
 
     /// `FieldRef.Value` into a Text, Code or Blob. A number is its Format text and an Enum its caption, checked against the
-    /// variable's or parameter's length (misc/lt-y13-triage/Y13FieldRefValueToText.al:96-153;
-    /// text/lt-y49-fieldref-into-text/Y49FieldRefIntoText.al:207-353).
+    /// variable's or parameter's length (recordref-fieldref/Y13FieldRefValueToText.al:96-153;
+    /// text/text-methods/Y49FieldRefIntoText.al:207-353).
     fn convert_field_value(&self, v: Value, ty: &al_builtins::value::RtType) -> Result<Value, Signal> {
         let from28 = self.has(al_version::Gate::FieldRefTextNumberEvaluateErrorFrom28);
         match al_builtins::fieldref_value_text::fieldref_value_into_text(&v, ty, self)
@@ -953,9 +947,9 @@ impl Session {
     #[inline(never)]
     /// `Media.ImportStream` on a field of a record, from a stream on a Blob field of that same record. Two shapes are pinned:
     /// - the Blob was written, then the row inserted and the Blob fetched with CalcFields: on BC 29 the field gets no value and no
-    ///   Tenant Media row is written (misc/lt-probes-needed-5/PnE06Media.al:66-84, ImportStream_ThreeArguments_ForComparison);
+    ///   Tenant Media row is written (streams/PnE06Media.al:66-84, ImportStream_ThreeArguments_ForComparison);
     /// - the row was inserted, then the Blob written, the row modified and the Blob fetched: the import works on every major
-    ///   (streams/lt-stream-read-write-media/P102Media.al:24-41 with P102Fixtures.al:24-30, :57-73).
+    ///   (streams/media/P102Media.al:24-41 with P102Fixtures.al:24-30, :57-73).
     ///
     /// Why BC drops the first import is not pinned, so a Blob whose content an Insert stored (`BlobBuf::inserted`) is refused.
     /// Probe wanted (docs/probes-needed.md).
@@ -995,7 +989,7 @@ impl Session {
     }
 
     /// A media imported into a field of a Media Resources row: BC keeps no Tenant Media row for it once the row is
-    /// inserted (platform/lt-platform-tables/PtCloudTables.al:352 'tenant media' = 'no tenant media row'); before the
+    /// inserted (metadata/platform-tables/PtCloudTables.al:352 'tenant media' = 'no tenant media row'); before the
     /// Insert it is not pinned. So the runtime's Tenant Media row of that media is refused (`MediaStore::outside_tenant`).
     fn note_media_resources_import(&mut self, site: &BuiltinSite, id: [u8; 16], f: &mut Frame) -> Result<(), Signal> {
         use al_builtins::builtin_id::ids;
@@ -1016,6 +1010,29 @@ impl Session {
             }
         }
         Ok(())
+    }
+
+    /// `Op::Builtin`: runs the builtin on its short or full path, then lets the profiler book a pending tick to it.
+    #[inline(always)]
+    fn op_builtin(&mut self, site: &BuiltinSite, f: &mut Frame, nl: u16) -> Result<Value, Signal> {
+        let v = match (site.plain, site.native) {
+            (true, Some(native)) => self.run_plain_builtin(site, native, f, nl),
+            _ => self.run_builtin(site, f, nl),
+        };
+        if let Some(g) = site.single_write {
+            self.single_written(&f.instance, g as usize);
+        }
+        self.profile_builtin(site.id);
+        v
+    }
+
+    #[inline]
+    fn single_write_op(&mut self, i: usize, kind: SingleWriteKind, f: &Frame) {
+        match kind {
+            SingleWriteKind::Replace => self.single_replaced(&f.instance, i),
+            SingleWriteKind::ModifyTemp => self.single_wrote_temp(&f.instance, i),
+            SingleWriteKind::Modify => self.single_wrote(&f.instance, i),
+        }
     }
 
     fn run_builtin(&mut self, site: &BuiltinSite, f: &mut Frame, nl: u16) -> Result<Value, Signal> {
@@ -1066,7 +1083,7 @@ impl Session {
                     if let al_builtins::value::RtType::Array(d, el) = self.place_type(base, f) {
                         if idx.len() < d.len() {
                             // The cells of that row become the default of their type and the other rows stay (misc/lt-probes-needed-6/
-                            // PnF25ArrayRowClear.al:Array_ClearRow, an Integer array[3, 4]; types/lt-clear-array-row/ClearArrayRow.al:
+                            // PnF25ArrayRowClear.al:Array_ClearRow, an Integer array[3, 4]; types/arrays/ClearArrayRow.al:
                             // Clear_Row_TextArray2D, _DecimalArray2D, _RecordArray2D; a record cell loses its filters too). Other
                             // element types are not pinned.
                             if !matches!(
@@ -1102,7 +1119,7 @@ impl Session {
                     }
                 }
                 // An Interface variable too: it is unassigned afterwards and a call raises "Interface not initialized"
-                // (platform/lt-system-database-members/ClearInterface.al:ClearInterface; codeunit/lt-enums-interfaces/OjT71047.al:Uninitialized_AfterClear).
+                // (metadata/platform-tables/ClearInterface.al:ClearInterface; codeunits/interfaces/OjT71047.al:Uninitialized_AfterClear).
                 if matches!(
                     self.place_type(p, f),
                     al_builtins::value::RtType::Variant | al_builtins::value::RtType::Interface(_)
@@ -1113,9 +1130,9 @@ impl Session {
                 }
             }
         }
-        // CopyArray: a multi-dimensional source raises (misc/lt-system-functions/Arrays.al:Array_MultiDimensional_ClearAndCopy
+        // CopyArray: a multi-dimensional source raises (collections/Arrays.al:Array_MultiDimensional_ClearAndCopy
         // `af172`); a multi-dimensional destination with a one-dimensional source is not pinned. A row of a two-dimensional array as
-        // the destination is a copy that is written back (collections/lt-array-rows/ArrayRows.al:TwoDim_CopyArrayRow).
+        // the destination is a copy that is written back (collections/multi-dimension-array-rows/ArrayRows.al:TwoDim_CopyArrayRow).
         let mut copy_array_row_back = None;
         if site.id == al_builtins::builtin_id::ids::SYSTEM_COPYARRAY_1 {
             let multi = |s: &mut Self, p: &ir::Place, f: &mut Frame| matches!(s.place_type(p, f), al_builtins::value::RtType::Array(d, _) if d.len() > 1);

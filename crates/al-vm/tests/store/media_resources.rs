@@ -1,5 +1,5 @@
 //! The platform table Media Resources (2000000182): an ordinary stored table
-//! (platform/lt-platform-tables/PtCloudTables.al:303-360 QX_MediaResources_ImportStreamAndBlob).
+//! (metadata/platform-tables/PtCloudTables.al:303-360 QX_MediaResources_ImportStreamAndBlob).
 
 use al_builtins::native::Signal;
 use al_testkit::text;

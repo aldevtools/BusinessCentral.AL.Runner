@@ -4,7 +4,7 @@ use al_builtins::record_op::RecordOp;
 impl Session {
     /// The blank line of a part that shows no row of an editable host, as the host opens or the part is linked afresh: the
     /// client runs the part's OnNewRecord three times, the link field validated before the first and the third
-    /// (pages/lt-part-line-before-host-key/PartLineBeforeHostKey.al:672 PYB_OpenNew_Document_LogOnly `L.OnValidate(Document No.): |
+    /// (pages/parts/PartLineBeforeHostKey.al:672 PYB_OpenNew_Document_LogOnly `L.OnValidate(Document No.): |
     /// LP.OnNewRecord: | LP.OnNewRecord: | L.OnValidate(Document No.): | LP.OnNewRecord:`, :688 a host without OnNewRecord, :704
     /// an unlinked part (three runs, no validation), :738 without AutoSplitKey, :754 two linked parts one after the other, :770 a
     /// Card host, :809 OpenEdit of a host without lines, :603 after the host key is typed). OnAfterGetCurrRecord runs right
@@ -42,7 +42,7 @@ impl Session {
         }
         // A link value the part's table relation refuses: the client stamps it without validating (no OnBeforeValidate, no
         // OnValidate), runs the part's OnNewRecord and OnAfterGetCurrRecord once, then the open fails with code TestWrapped and the
-        // relation's text (PartLineBeforeHostKey.al:1600-1680 QH_ConstLink_Missing_OpenNew_Trace `[CP.OnOpenPage |
+        // relation's text (PartLineBeforeHostKey.al:1819-1899 QH_ConstLink_Missing_OpenNew_Trace `[CP.OnOpenPage |
         // CP.OnNewRecord:D9 below=Yes | CP.OnAfterGetCurrRecord:D9/0]`, QH_ConstLink_Missing_OpenNew_Events `[LP.OnNewRecord:D9]`,
         // QH_ConstLink_Missing_OpenEdit; :776 PYB_OpenNew_ConstLinkedPart).
         if let Some(e) = self.part_link_relation_error(st)? {
@@ -55,7 +55,7 @@ impl Session {
             return Err(error_code(e.message.clone(), "TestWrapped"));
         }
         // OnNewRecord sees the xRec the part held before its first and third run, a blank one before the second, after any move
-        // of the host: GoToKey (pages/lt-qj-part-propagation/QjPartPropagation.al QL_PartLastNew_NoLines `log-open`: `S.NEW(x=3
+        // of the host: GoToKey (pages/parts/QjPartPropagation.al QL_PartLastNew_NoLines `log-open`: `S.NEW(x=3
         // x.ln=30000) S.AGCR(0 r=0 x=0) S.NEW(x=0 x.ln=0) S.AGCR(0 r=0 x=0) S.NEW(x=3 x.ln=30000)`), Next (:2468 QN_EmptyPart_HostNext),
         // Previous (:2499), First (:2530), Last (:2561); a part that held no row before (OpenNew :2591 QN_EmptyPart_HostOpenNew,
         // OpenEdit onto an empty first host :2441) sees a blank xRec all three times. The part's Last() and New() see it again
@@ -63,12 +63,24 @@ impl Session {
         let held = self.page_xrec_fields(st);
         st.borrow_mut().empty_part_xrec = Some(held.clone());
         // A value typed on this blank line without New() is stored with the first AutoSplitKey number, 10000
-        // (pages/lt-new-line-stamps-filters/NewLineStampsFilters.al QP_TwoKeyLink_TypeFirst_BlankLine `db.first =
+        // (pages/triggers/NewLineStampsFilters.al QP_TwoKeyLink_TypeFirst_BlankLine `db.first =
         // Order|H1|10000|...`); a line New() starts from it burns one interval (20000: QP_TwoKeyLink_TypeFirst_NewLine,
-        // PartLineBeforeHostKey.al:900 PartLine_EnteredAfterHostKey_Baseline). `auto_split_key` reads it on the placeholder line only.
+        // PartLineBeforeHostKey.al:1119 PartLine_EnteredAfterHostKey_Baseline). `auto_split_key` reads it on the placeholder line only.
         st.borrow_mut().split_starts_low = true;
         let blank_held = self.blank_held_xrec(st, &held);
         let table_blank = self.initial_fields(table);
+        // A host opened for edit over an empty table shows no row and is not editable (`runs_on_blank_record`): its part stamps
+        // the link value without validating it (pages/parts/PartLineBeforeHostKey.al:2720 R6920_DocAfterGet_BlankRows_OpenEdit_VisibleFirst,
+        // :3868 R6920_CardIssue_NoRows_OpenEdit_VisibleFirst and the other R6920_*_OpenEdit_* tests
+        // `open=[] fired at least once: LP.OnNewRecord`, no `L.OnValidate(Document No.)`, with and
+        // without rows of the blank key). The corpus pins two runs or more; the three runs are kept from the editable host.
+        let host_blank_on_open = st
+            .borrow()
+            .host
+            .as_ref()
+            .and_then(|(h, _)| h.upgrade())
+            .is_some_and(|h| h.borrow().blank_on_open && h.borrow().host.is_none())
+            && !rec.borrow().temporary;
         for (n, validate) in [true, false, true].into_iter().enumerate() {
             let first = n == 0;
             if validate {
@@ -80,13 +92,14 @@ impl Session {
             }
             if validate {
                 // Each run starts from a fresh record: an OnValidate of a link field that appends to another field leaves
-                // one entry, not two (pages/lt-new-line-stamps-filters/NewLineStampsFilters.al QP_TwoKeyLink_TypeFirst_BlankLine
+                // one entry, not two (pages/triggers/NewLineStampsFilters.al QP_TwoKeyLink_TypeFirst_BlankLine
                 // `draft = Order|H1|type:no=[H1];no:type=[Order];` after the host's GoToKey).
                 let rec = self.page_rec(st);
                 let table = rec.borrow().table as usize;
                 let fresh = self.initial_fields(table);
                 rec.borrow_mut().fields = fresh;
                 let stamped = match blank_held.clone() {
+                    _ if host_blank_on_open => self.stamp_from_filters(st, false),
                     Some(before) => self.stamp_from_filters_seen_as(st, before),
                     None => self.stamp_from_filters(st, true),
                 };
@@ -160,7 +173,7 @@ impl Session {
     /// What the client's NewRecord copies onto a fresh buffer of a part: a field whose combined
     /// filter is a single value, when the field is part of the primary key or the page sets
     /// PopulateAllFields; then the table's OnValidate runs for each (corpus
-    /// handlers/TestPageSubpagePartFieldLink.al, TestPageSubpagePartConstFilter.al,
+    /// testpage/TestPageSubpagePartFieldLink.al, TestPageSubpagePartConstFilter.al,
     /// TestPageSubpagePartNewRecordInit.al:New_StampsTheLinkedFieldAndValidatesIt).
     pub(in crate::pages) fn stamp_from_filters(&mut self, st: &St, validate: bool) -> Result<(), Signal> {
         if !self.has_source(st) {
@@ -211,18 +224,19 @@ impl Session {
             stamped.push((pos, v.clone()));
         }
         // One validated value is pinned: the link field's OnValidate and table relation see the rest of the line as it
-        // was, a SourceTableView value of a field outside the key is not stamped (pages/lt-new-line-stamps-filters/
+        // was, a SourceTableView value of a field outside the key is not stamped (pages/triggers/
         // NewLineStampsFilters.al:214-237, :264-287). With two or more validated values, whether the later ones are on
         // the record while the first validates is not pinned. Every value goes on first; when code can see the order (an
         // OnValidate, a table relation, a table extension's validate trigger or a subscriber to the validate events of a
         // stamped field) that runs under Assumption::NewLineStampsAllBeforeValidating (kept, not pinned: refusing it costs
-        // 7 baseline cases, handlers/TestPageActionRunPageView.al and misc/lt-probes-needed-7/PnGRefresh.al).
+        // 7 baseline cases, testpage/TestPageActionRunPageView.al and testpage/PnGRefresh.al).
         //
         // Pinned since: two primary key fields linked by a part, each with an OnValidate (one with a TableRelation whose
         // where() names the other): both are on the record before either validates, and they validate in field order,
         // which is the key order there, whatever order the SubPageLink names them in (NewLineStampsFilters.al:
         // QP_TwoKeyLink_TypeFirst_NewLine, _TypeFirst_BlankLine, _NoFirst_NewLine, _WithRelation_NewLine, tables 87149 and
-        // 87150). More values, PopulateAllFields, a value from SourceTableView, a key order that differs from the field
+        // 87150). A key field from SourceTableView next to one from the link is pinned too (NewLineStampsFilters.al SF_TwoKeyValues_HeaderTypeB_BlankLine,
+        // SF_TwoKeyValues_Relation_HeaderTypeB_NewLine). More values, PopulateAllFields, a key order that differs from the field
         // order, a table extension's validate trigger or a validate event subscriber keep the mark.
         if validate && stamped.len() > 1 {
             let mut seen = false;
@@ -242,14 +256,7 @@ impl Session {
                     || !f.ext_after_validate.is_empty()
                     || self.listened(&table, "onbeforevalidateevent", Some(&f.name))?
                     || self.listened(&table, "onaftervalidateevent", Some(&f.name))?;
-                // Pinned for values the SubPageLink gives (the link filter group), not for a SourceTableView value.
-                let linked = rec
-                    .borrow()
-                    .filters
-                    .iter()
-                    .filter(|x| x.field == *pos)
-                    .all(|x| x.group == super::parts::LINK_GROUP);
-                beyond_pin |= extra || !linked;
+                beyond_pin |= extra;
                 seen |= f.on_validate.is_some() || f.relation || extra;
             }
             if seen && beyond_pin {
@@ -335,7 +342,7 @@ impl Session {
     }
 
     /// `stamp_from_filters` with validation, the validate triggers seeing `before` as xRec: a part's blank line that held no row
-    /// validates its link value with a blank xRec, not with the line as stamped (pages/lt-qj-part-propagation/
+    /// validates its link value with a blank xRec, not with the line as stamped (pages/parts/
     /// QjPartPropagation.al:3501 QT_ValPartSplit_Empty_Last `log-openedit` and `log-last`: `T.Doc.V(H1 x= ln=0)`, :3583
     /// QT_ValPartDelayed_, :3665 QT_ValPartPlain_; :3937 QT_ValPartSplit_Empty_New_ThenType `log-new`). Callers use it only when
     /// `before` is the table's blank record; with another held row the xRec is not pinned and the line as stamped stays.
@@ -346,7 +353,9 @@ impl Session {
             return self.stamp_from_filters(st, true);
         }
         self.validating.push((handle, before));
+        self.stamp_validating.push(handle);
         let r = self.stamp_from_filters(st, true);
+        self.stamp_validating.retain(|h| *h != handle);
         self.validating.retain(|(h, _)| *h != handle);
         r
     }
@@ -360,7 +369,7 @@ impl Session {
     }
 
     /// AutoSplitKey: the last field of the primary key of a new line is numbered from its
-    /// neighbours when it is saved (corpus handlers/TestPageAutoSplitKey_Tests.al,
+    /// neighbours when it is saved (corpus testpage/TestPageAutoSplitKey_Tests.al,
     /// TestPageAutoSplitKeyRanges_Tests.al). Only the shapes the corpus pins are numbered; any
     /// other raises Signal::Unsupported.
     pub(in crate::pages) fn auto_split_key(&mut self, st: &St) -> Result<(), Signal> {
@@ -448,13 +457,13 @@ impl Session {
         };
         let number = match (lower, upper) {
             // The blank line of a top-level list that took key filter values, typed without New(), starts at 10000
-            // (misc/lt-probes-needed-7/PnGRefresh.al:672 QL_Jnl_SheetFG2_DeleteNoUpdate_OnlyRow, :792 QL_Jnl_SheetFG2_OpenOnNoRow),
+            // (testpage/PnGRefresh.al:672 QL_Jnl_SheetFG2_DeleteNoUpdate_OnlyRow, :792 QL_Jnl_SheetFG2_OpenOnNoRow),
             // and so does the placeholder line of an empty part (NewLineStampsFilters.al QP_TwoKeyLink_TypeFirst_BlankLine).
             (None, _) if starts_low && !burned => step,
             // An empty grid burns one interval on the blank placeholder row.
             (None, _) => D::from(20000),
-            // Appended after the last line (handlers/TestPageAutoSplitKeyMoreShapes.al:104-117,
-            // corpus handlers/TestPageAutoSplitKeyRanges_Tests.al): last + 10000. After a negative
+            // Appended after the last line (testpage/TestPageAutoSplitKeyMoreShapes.al:104-117,
+            // corpus testpage/TestPageAutoSplitKeyRanges_Tests.al): last + 10000. After a negative
             // line the corpus pins exactly these values; the rule behind them is not known, so
             // any other negative last line is refused.
             (Some(l), None) if l >= D::ZERO && burned => l + step + step,
@@ -475,8 +484,8 @@ impl Session {
                     _ => 1,
                 })
             }
-            // Between two lines (handlers/TestPageAutoSplitKeyMoreShapes.al:119-166 and
-            // :186-205 for Decimal; handlers/TestPageAutoSplitKeyRanges_Tests.al for the cap): the
+            // Between two lines (testpage/TestPageAutoSplitKeyMoreShapes.al:119-166 and
+            // :186-205 for Decimal; testpage/TestPageAutoSplitKeyRanges_Tests.al for the cap): the
             // lower line plus half the gap, at most 10000. A gap that crosses zero gives one less
             // (the number zero is reserved: -10000 and 10000 give -1, -1 and 1 give -0.5), and a
             // result that lands on zero by the cap goes to 1. No whole number between two adjacent

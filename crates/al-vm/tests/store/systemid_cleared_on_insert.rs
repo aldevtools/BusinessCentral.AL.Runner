@@ -1,5 +1,5 @@
 //! A SystemId that Init() or Clear(SystemId) in an insert trigger or OnBeforeInsertEvent makes null: the row gets a new id and
-//! the variable holds it (corpus record/lt-qr-systemid-insert-events/QrSystemIdTests.al:393-590, AL Runner issue 5803).
+//! the variable holds it (corpus record/system-fields/QrSystemIdTests.al:393-590, AL Runner issue 5803).
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;

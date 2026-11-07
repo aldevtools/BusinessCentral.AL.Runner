@@ -1,5 +1,5 @@
 //! `Record.LoadFields` (statement and function form) with a FlowField or a FlowFilter field, on a record never fetched and on a
-//! fetched one. Every literal is what real BC 28.5 answered: record/lt-r6795-loadfields-flow/R6795LoadFieldsFlow.al
+//! fetched one. Every literal is what real BC 28.5 answered: record/load-fields/R6795LoadFieldsFlow.al
 //! (codeunit 94542, writer R6795, runner issue 6795).
 
 use al_testkit::text;

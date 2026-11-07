@@ -1,5 +1,5 @@
 //! Media.ExportStream gives back the bytes of non-picture content unchanged, whatever MIME type the import named
-//! (streams/lt-y44-media-export/Y44MediaExportStream.al, corpus PR 962).
+//! (streams/media/Y44MediaExportStream.al, corpus PR 962).
 
 const TABLE: &str = r#"
 table 60981 "ALT Media Export"

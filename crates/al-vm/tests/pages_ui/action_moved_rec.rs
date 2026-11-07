@@ -1,7 +1,7 @@
 //! An action that puts another row (another primary key) into Rec: the client saves nothing (no OnModifyRecord, no OnModify, not
 //! after the action, not on Next, not on Close), reads the list again and shows the other row with its stored values; xRec of the
 //! next OnAfterGetCurrRecord is the row shown before. CurrPage.Close() in that action puts the shown row back into Rec.
-//! Pinned by misc/lt-probes-needed-7/PnGRefresh.al:387 QL_RecAssign_OtherChanged_ThenClose, :416 _OtherChangedUpdate_ThenClose,
+//! Pinned by testpage/PnGRefresh.al:387 QL_RecAssign_OtherChanged_ThenClose, :416 _OtherChangedUpdate_ThenClose,
 //! :445 _TempChanged_ThenClose, :532 _OtherChanged_StaysOpen_Next, :608 _OtherChanged_CloseInAction (corpus bump 42).
 //! Tests-ERM 134918 CustApplyAndPostPaymentInv: Apply Customer Entries' Post Application sets `Rec := TempApplyingCustLedgEntry`.
 
@@ -172,7 +172,7 @@ fn an_action_that_changes_the_shown_row_reads_it_first_then_saves_it_then_reads_
     );
 }
 
-// The same list with OnQueryClosePage and OnClosePage (corpus bump 44, misc/lt-probes-needed-7/PnGRefresh.al:865
+// The same list with OnQueryClosePage and OnClosePage (corpus bump 44, testpage/PnGRefresh.al:865
 // QN_CloseQ_Sheet_OtherChanged_CloseInAction, :931 _OwnRowChanged_CloseInAction, :953 _NoChange_CloseInAction, and the List page at
 // :1026, :1048, :1070): CurrPage.Close() reads the shown row back first, then the close triggers see it as Rec and xRec; nothing is
 // stored; one more OnAfterGetRecord follows the action.

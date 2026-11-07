@@ -1,5 +1,5 @@
 //! A text element with `TextType = BigText`: its variable is a BigText, an export writes its whole text and an import fills
-//! it without the 2048-character limit of a Text (corpus xmlport/lt-xmlport-bigtext/XmlPortBigText.al:178, :198, :218).
+//! it without the 2048-character limit of a Text (corpus xmlports/shapes-properties/XmlPortBigText.al:178, :198, :218).
 
 use al_testkit::run;
 

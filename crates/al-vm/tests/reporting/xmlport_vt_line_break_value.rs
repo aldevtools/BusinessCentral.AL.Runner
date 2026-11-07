@@ -1,5 +1,5 @@
 //! A VariableText import whose record separator is CR/LF while the document holds a lone LF: the line break lands inside a value
-//! (corpus xmlport/lt-y67-xmlport-separators/Y67XpSeparators.al:Assign_Import `record sep crlf token` reads `[1|a|b 2]` on real BC).
+//! (corpus xmlports/shapes-properties/Y67XpSeparators.al:Assign_Import `record sep crlf token` reads `[1|a|b 2]` on real BC).
 //! A line feed inside a text field value reads as a space; a carriage return inside one is not pinned and refused.
 
 use al_builtins::native::Signal;

@@ -41,7 +41,7 @@ codeunit 69862 T
 }
 "#;
 
-/// types/lt-for-option-time-decimal/ForLoopOptionVariable.al:31-54 (field A to C, ordinals), :221-237 (variable
+/// types/date-time/ForLoopOptionVariable.al:31-54 (field A to C, ordinals), :221-237 (variable
 /// downto); ForOptionEnum_risky.al:39-60 (enum with a gap: Red,Green,2,3,4,Blue), :83-104 (downto), :62-81 (field).
 #[test]
 fn a_for_loop_over_an_option_or_enum_counter_is_pinned() {
@@ -101,8 +101,8 @@ codeunit 69865 T
 }
 "#;
 
-/// types/lt-bigint-enum-option/BigIntToEnumOption.al:95-121 (Option: lacking and negative ordinals kept), :123-145
-/// (beyond Integer: ConversionCast), :148-171 and :173-195 (Enum on BC 29); types/lt-implicit-conversions/P79BigOption.al:194-218
+/// types/enum-option/BigIntToEnumOption.al:95-121 (Option: lacking and negative ordinals kept), :123-145
+/// (beyond Integer: ConversionCast), :148-171 and :173-195 (Enum on BC 29); types/operators-expressions/P79BigOption.al:194-218
 /// (argument, field, Validate).
 #[test]
 fn a_biginteger_into_an_option_or_enum_is_pinned() {
@@ -189,7 +189,7 @@ codeunit 69869 T
 }
 "#;
 
-/// record/lt-table-relation-quotes/TableRelationQuotes.al:41-46 (the relations), :126-207 (R1 = A, R2 = "B C", R3 = D):
+/// record/table-relation/TableRelationQuotes.al:41-46 (the relations), :126-207 (R1 = A, R2 = "B C", R3 = D):
 /// `A | "B C"` on an enum and an option field, `"B C"` alone, const("B C") and `<> "B C"`.
 #[test]
 fn a_quoted_member_in_a_table_relation_filter_is_pinned() {
@@ -256,7 +256,7 @@ codeunit 69875 T
 }
 "#;
 
-/// pages/lt-new-line-stamps-filters/NewLineStampsFilters.al:214-237 PartB_ExistingHeaderTypeA_NewLine: the part's
+/// pages/triggers/NewLineStampsFilters.al:214-237 PartB_ExistingHeaderTypeA_NewLine: the part's
 /// SourceTableView `Type = const(B)` is not stamped on the blank line, the link field's OnValidate sees A.
 #[test]
 fn a_new_part_line_keeps_a_view_field_outside_the_key_unstamped() {
@@ -266,8 +266,8 @@ fn a_new_part_line_keeps_a_view_field_outside_the_key_unstamped() {
 }
 
 /// Two key fields with a single filter value (Type from the view, Document No. from the link), validated on the new
-/// line: whether the second is on the record when the first validates is not pinned (NewLineStampsFilters.al stamps
-/// one key field only). The run keeps stamping both first and marks the assumption.
+/// line: whether the second is on the record when the first validates is pinned only for the key order of
+/// NewLineStampsFilters.al SF_TwoKeyValues_*; this key order differs from the field order. The run keeps stamping both first and marks the assumption.
 #[test]
 fn a_new_part_line_with_two_stamped_key_fields_runs_under_the_assumption() {
     let src = NL_OBJECTS.replace("KEYFIELDS", "Type, \"Document No.\", \"Line No.\"");
@@ -326,10 +326,10 @@ codeunit 69877 T
 }
 "#;
 
-/// report/lt-requestpage-savevalues-date-text-setvalue/P147DateToText.al:89-105: a Variant holding a Date (from
-/// FieldRef.Value) into a Text parameter raises TypeConversion; into a Text variable too (types/lt-variant/VaTCompare.al).
+/// reports/request-page/P147DateToText.al:89-105: a Variant holding a Date (from
+/// FieldRef.Value) into a Text parameter raises TypeConversion; into a Text variable too (types/variant/VaTCompare.al).
 /// A Code variable and a Text or Code field raise the same error with the Code text where the target is a Code
-/// (types/lt-variant-to-text-fields/VariantNumberToField.al pins the NavCode text).
+/// (types/variant/VariantNumberToField.al pins the NavCode text).
 #[test]
 fn a_variant_holding_a_date_into_a_text_or_code_raises() {
     let (got, hits) = run(DATE_SRC);
@@ -339,7 +339,7 @@ fn a_variant_holding_a_date_into_a_text_or_code_raises() {
     assert!(!hits.contains(&"date-to-text-is-format"), "{hits:?}");
 }
 
-/// types/lt-implicit-conversions/P79BigOption.al:284-302 Field_ValidateBigToOption: Validate of an Option field with a
+/// types/operators-expressions/P79BigOption.al:284-302 Field_ValidateBigToOption: Validate of an Option field with a
 /// BigInteger beyond Integer raises Overflow, not the ConversionCast of an assignment.
 #[test]
 fn validate_of_an_option_field_with_a_biginteger_beyond_integer_raises_overflow() {
@@ -384,7 +384,7 @@ codeunit 69882 T
     assert!(hits.contains(&"table-relation-quotes"), "{hits:?}");
 }
 
-/// types/lt-bigint-enum-option/BigIntToEnumOption.al:353-449 (corpus bump 45): a Variant holding a BigInteger beyond Integer
+/// types/enum-option/BigIntToEnumOption.al:353-449 (corpus bump 45): a Variant holding a BigInteger beyond Integer
 /// into an Option variable or field raises TypeConversion:Overflow; through FieldRef.Value or FieldRef.Validate of an Option or
 /// an Enum field it raises AL:Overflow. In range, missing and negative ordinals are kept.
 #[test]
@@ -435,7 +435,7 @@ codeunit 69892 T
     assert_eq!(got, format!("{tc}{tc}{ov}{ov}{ov}"));
 }
 
-/// record/lt-table-relation-quotes/TableRelationQuotes.al:279-397 (corpus bump 45, R1 = A, R2 = "B C", R3 = D): the ranges
+/// record/table-relation/TableRelationQuotes.al:279-397 (corpus bump 45, R1 = A, R2 = "B C", R3 = D): the ranges
 /// `A .. "B C"`, `"B C" .. D` (enum and option field), `"B C" ..` and `<> A & <> "B C"`, `<> "B C" & <> D` run without the mark.
 #[test]
 fn a_quoted_member_in_a_table_relation_range_or_and_is_pinned() {
@@ -449,7 +449,7 @@ fn a_quoted_member_in_a_table_relation_range_or_and_is_pinned() {
     assert!(!hits.contains(&"table-relation-quotes"), "{hits:?}");
 }
 
-/// report/lt-requestpage-savevalues-date-text-setvalue/P147DateToText.al:297-489 (corpus bump 45): `FieldRef.Value` of a
+/// reports/request-page/P147DateToText.al:297-489 (corpus bump 45): `FieldRef.Value` of a
 /// Date, Time or DateTime field handed straight to a Text, Text[30] or Code[20] parameter or assigned to a Text or Code
 /// variable is its Format text (a Code drops the leading blank of a Time); a Variant holding one raises TypeConversion.
 #[test]

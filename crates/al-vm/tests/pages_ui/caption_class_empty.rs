@@ -1,4 +1,4 @@
-//! CaptionClass = '3,' with nothing after the comma on a page control (pages/lt-y80-captionclass-empty/Y80CaptionClassEmpty.al,
+//! CaptionClass = '3,' with nothing after the comma on a page control (pages/properties/Y80CaptionClassEmpty.al,
 //! same on BC 27, 28 and 29): the control shows the caption of the LAST other control on the same field (its Caption, else the
 //! field's caption); the only control on its field shows its own Caption.
 

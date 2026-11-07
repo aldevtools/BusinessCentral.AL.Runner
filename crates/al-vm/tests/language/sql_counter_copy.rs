@@ -1,7 +1,7 @@
 //! The size of the change of `SessionInformation.SqlStatementsExecuted()` and `SqlRowsRead()` around a statement budget
 //! test (al-runner issue 5861): a procedure in another codeunit copies a temporary record into a database table of a
 //! two-field key with FindSet, Next and Insert, then SetRange and Count, with or without a Commit before the first read
-//! (session/lt-bl-sql-counters/SkSqlBudget.al). Any other shape, N or buffer state refuses.
+//! (session-system/session/SkSqlBudget.al). Any other shape, N or buffer state refuses.
 
 use al_builtins::native::Signal;
 use al_testkit::{Built, run, text};
@@ -74,9 +74,14 @@ codeunit 50102 T {{
     )
 }
 
+/// The size is not known: the measurement is refused, or (a difference across work no test pins, al-runner issue 6924) it
+/// gives only marked texts with no digit, which every text function and comparison that reads them refuses.
 fn refused(r: Result<al_builtins::value::Value, Signal>) {
     match r {
         Err(Signal::Unsupported(why)) => assert!(why.contains("SQL counter"), "{why}"),
+        Ok(al_builtins::value::Value::Text(t))
+            if t.as_str().contains(al_builtins::native::SQL_COUNT_TEXT_MARK)
+                && !t.as_str().chars().any(|c| c.is_ascii_digit()) => {}
         other => panic!("expected a SQL counter refusal, got {other:?}"),
     }
 }

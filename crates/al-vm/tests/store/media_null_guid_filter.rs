@@ -1,4 +1,4 @@
-//! SetFilter on a Media field with a Guid as text (al-runner issue 5991: media/lt-so-media-filter/SoMediaFilter.al
+//! SetFilter on a Media field with a Guid as text (al-runner issue 5991: streams/media/SoMediaFilter.al
 //! SO_MediaFilter_NullGuidForms, SO_MediaFilter_MediaIdOfFilledRow): an empty field equals the null Guid, another Guid matches no
 //! empty field.
 

@@ -1,6 +1,6 @@
 //! A control bound to a field of another record variable of the page (`Settings."Avail. Filter"`, al-runner issue 5822): it takes
 //! the field's OptionCaption (BC 29), DecimalPlaces and AutoFormat, in a group and in a repeater, but not BlankZero
-//! (pages/lt-sa-other-record-control/SaOtherRecordControl.al:9-15). OptionCaptionML there is refused.
+//! (pages/controls/SaOtherRecordControl.al:9-15). OptionCaptionML there is refused.
 
 use al_builtins::assumptions::take_hits;
 use al_builtins::native::Signal;
@@ -187,7 +187,7 @@ fn option_caption_ml_of_another_records_field_is_refused() {
     assert!(matches!(&r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
-/// types/lt-auto-format-currency/AutoFormatCurrencyPlaces.al Currency_AmountPlacesOnly_DefaultSetup and
+/// format-evaluate/AutoFormatCurrencyPlaces.al Currency_AmountPlacesOnly_DefaultSetup and
 /// Currency_UnitPlacesOnly_DefaultSetup (also under other setup places): a currency with one of the two places empty shows two
 /// places for the empty one (the Amount of type 1 with `'', '4:4'` is 1,234.50) and the places it has for the other.
 #[test]

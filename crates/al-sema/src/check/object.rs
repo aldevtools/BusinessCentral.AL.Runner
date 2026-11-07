@@ -160,7 +160,7 @@ impl<'a> Checker<'a> {
             }
         }
         // The variables of a report's `requestpage` section are the globals of its request page; only its triggers
-        // see them (corpus report/lt-ab-request-page-triggers/ABRequestPageExt.al:63, a request page extension that
+        // see them (corpus reports/request-page/ABRequestPageExt.al:63, a request page extension that
         // declares the same names as its base report). A report-level variable of the same name stays.
         for v in obj.request_page_var_decls() {
             let ty = v.type_ref().map(|t| Ty::from_type_ref(&t)).unwrap_or(Ty::Unknown);
@@ -189,7 +189,7 @@ impl<'a> Checker<'a> {
             let n = sec.name().to_ascii_lowercase();
             if n == "textelement" || n == "textattribute" {
                 if let Some(name) = sec.args().first() {
-                    // TextType = BigText makes the element a BigText variable (corpus xmlport/lt-xmlport-bigtext/XmlPortBigText.al).
+                    // TextType = BigText makes the element a BigText variable (corpus xmlports/shapes-properties/XmlPortBigText.al).
                     let big = sec.properties().any(|p| {
                         p.name().eq_ignore_ascii_case("TextType")
                             && p.value_text().trim().eq_ignore_ascii_case("BigText")
@@ -215,7 +215,6 @@ impl<'a> Checker<'a> {
                 .find(|p| p.name().eq_ignore_ascii_case(name))
                 .map(|p| p.value_text())
         };
-        let unquote = |s: String| s.trim().trim_matches('"').to_string();
         let mut rec = None;
         let mut rec_unqualified = false;
         let mut self_obj = oi;
@@ -243,7 +242,7 @@ impl<'a> Checker<'a> {
             }
             ObjKind::Page => {
                 rec = prop("SourceTable").map(|t| Ty::Record {
-                    table: unquote(t).into(),
+                    table: crate::types::property_object_name(&t).into(),
                     temporary: false,
                 });
                 rec_unqualified = true;
@@ -257,7 +256,7 @@ impl<'a> Checker<'a> {
                             .properties()
                             .find(|x| x.name().eq_ignore_ascii_case("SourceTable"))
                             .map(|x| Ty::Record {
-                                table: unquote(x.value_text()).into(),
+                                table: crate::types::property_object_name(&x.value_text()).into(),
                                 temporary: false,
                             });
                         globals.insert(
@@ -273,7 +272,7 @@ impl<'a> Checker<'a> {
             }
             ObjKind::Codeunit => {
                 rec = prop("TableNo").map(|t| Ty::Record {
-                    table: unquote(t).into(),
+                    table: crate::types::property_object_name(&t).into(),
                     temporary: false,
                 });
                 // The fields and methods of the implicit Rec can be used unqualified in a codeunit with TableNo
@@ -311,7 +310,7 @@ impl<'a> Checker<'a> {
                     Ty::Object(ObjKind::XmlPort, o.name.as_str().into()),
                 );
                 // The request page of an xmlport that states a `SourceTable` gives the xmlport's triggers, procedures and
-                // request page a `Rec` of that table (xmlport/lt-y-xmlport-props/YXmlPortProps.al:421-470, al-runner issue
+                // request page a `Rec` of that table (xmlports/shapes-properties/YXmlPortProps.al:421-470, al-runner issue
                 // 5756). Without one there is no `Rec` (AL0118: must-not-compile cases 2111 and 2112).
                 if let Some(table) = request_page_source_table(&obj) {
                     rec = Some(Ty::Record {
@@ -321,12 +320,12 @@ impl<'a> Checker<'a> {
                 }
             }
             // A query's procedures call the query's own methods unqualified and name its columns
-            // and filters (query/TestQueryDataItemTableFilterDatabaseConst.al: `SetSourceFilter` of
+            // and filters (queries/TestQueryDataItemTableFilterDatabaseConst.al: `SetSourceFilter` of
             // Base App's query 522 does `SetRange(Source_Type, ..)`).
             ObjKind::Query => {
                 rec = Some(Ty::Object(ObjKind::Query, o.name.as_str().into()));
                 rec_unqualified = true;
-                // `CurrQuery` is the running query in its triggers (query/TestQueryOnBeforeOpenVariablesContracts.al:75-77).
+                // `CurrQuery` is the running query in its triggers (queries/TestQueryOnBeforeOpenVariablesContracts.al:75-77).
                 globals.insert("currquery".into(), Ty::Object(ObjKind::Query, o.name.as_str().into()));
             }
             _ => {}
@@ -382,7 +381,7 @@ impl<'a> Checker<'a> {
                         base_vars.insert(name);
                     }
                     // The protected variables of the other extensions of the page that this extension's app sees (its own
-                    // app or a dependency): one variable, shared by both (pageext/lt-ue-pageext-leads/UeProtectedVarTests.al
+                    // app or a dependency): one variable, shared by both (testpage/UeProtectedVarTests.al
                     // ProtectedVar_OfAnotherExtension_IsSharedAndAssignable, same app; al-runner issue 6159).
                     if o.kind == ObjKind::PageExtension {
                         for &s in self.ws.extensions_of(b) {
@@ -417,13 +416,16 @@ impl<'a> Checker<'a> {
                         globals.insert(name.clone(), ty);
                         base_vars.insert(name);
                     }
-                    // The protected variables of another extension of the same table in the same app: one variable per
-                    // record variable, shared by both (al-runner issue 6485; corpus writer Y20,
-                    // tableextension/lt-y20-sibling-globals/Y20TableExtSiblingGlobals.al, measured on BC; a plain `var` does
-                    // not compile, must-not-compile 2356). Another app's extension is not pinned.
+                    // The protected variables of another extension of the same table in the same app or in an app this one
+                    // depends on: one variable per record variable, shared by both (al-runner issue 6485; corpus writer Y20,
+                    // table-objects/extensions/Y20TableExtSiblingGlobals.al, measured on BC; a plain `var` does not compile,
+                    // must-not-compile 2356). Across apps (al-runner issue 6983): corpus PR 1126 (branch
+                    // al-runtime-rs-staging-r6983), table-objects/extensions/ProtectedVarCrossApp.al
+                    // ProtVar_OtherAppExtensionVar_ReadAndWrite with xapp-b/R6983XbProtectedVars.al; an app that does not
+                    // depend on the declaring one does not see it (must-not-compile 2952, AL0118).
                     for &s in self.ws.extensions_of(b) {
                         let so = &self.ws.objects[s];
-                        if s == oi || so.kind != ObjKind::TableExtension || so.app != o.app {
+                        if s == oi || so.kind != ObjKind::TableExtension || !self.ws.app_sees(o.app, so.app) {
                             continue;
                         }
                         for (name, decl) in crate::base_access::visible_vars(&self.ws.object_ast(s)) {
@@ -808,7 +810,7 @@ impl<'a> Checker<'a> {
         }
         if node.kind() == SyntaxKind::WithStmt {
             // `with Rec do Stmt`: the record's members come before every variable and procedure of the code around
-            // it (corpus events/lt-with-statement-scopes/WithStatementAmbiguous.al: a field wins over a global, a
+            // it (corpus events/binding-senders/WithStatementAmbiguous.al: a field wins over a global, a
             // local, a procedure of the codeunit and a builtin method of the same name; WithStatementNested.al:
             // the inner statement's record first, then the outer's). The record expression itself is read in the
             // scope outside this statement.
@@ -1011,6 +1013,6 @@ fn request_page_source_table(obj: &ast::Object) -> Option<String> {
         .find_map(|sec| {
             sec.properties()
                 .find(|p| p.name().eq_ignore_ascii_case("SourceTable"))
-                .map(|p| p.value_text().trim().trim_matches('"').to_string())
+                .map(|p| crate::types::property_object_name(&p.value_text()))
         })
 }

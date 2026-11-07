@@ -1,4 +1,4 @@
-//! DMY2Date with year 0 and with arguments that are not whole Integers (writer Y81, types/lt-y81-values/Y81DMY2Date.al
+//! DMY2Date with year 0 and with arguments that are not whole Integers (writer Y81, types/Y81DMY2Date.al
 //! :41-:64 year 0, :183-:215 Decimal and BigInteger arguments; needs corpus bump). Only (1, 1, 0) is a valid year 0 and
 //! equals (2, 1, 1); any other year 0 with a day and month in range raises the parameter 3 range error; a Decimal with a
 //! fraction and a BigInteger beyond Integer raise ConversionCast.
@@ -122,6 +122,6 @@ fn a_big_integer_beyond_integer_raises_conversion_cast() {
 
 #[test]
 fn the_long_date_of_year_one_has_four_digits() {
-    // types/lt-y81-values/Y81DMY2Date.al:94-114 Y81_DMY2Date_Year1_Arithmetic `format 4`, `format 0`.
+    // types/Y81DMY2Date.al:94-114 Y81_DMY2Date_Year1_Arithmetic `format 4`, `format 0`.
     assert_eq!(text(run(SRC, "Long")), "June 15, 0001#06/15/0001");
 }

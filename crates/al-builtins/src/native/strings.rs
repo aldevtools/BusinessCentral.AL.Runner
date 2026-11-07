@@ -31,7 +31,7 @@ pub(super) fn strpos(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value])
 /// `StrCheckSum(String [, WeightString] [, Modulus])`: `(M - (sum of digit * weight) mod M) mod M`, the
 /// formula of the documentation (methods-auto/text/text-strchecksum-method.md, its example gives 0
 /// for '4378' with weights '1234' and modulus 7). The corpus pins only that the result is not
-/// negative, is below the modulus and is not 0 for '12345' (session/TestSystemExtended.al:218-256);
+/// negative, is below the modulus and is not 0 for '12345' (session-system/TestSystemExtended.al:218-256);
 /// values and the four errors: types/TestProbeScalarContracts.al:25-123.
 pub(super) fn strchecksum(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
     let digits = |s: &str| -> Option<Vec<i64>> { s.chars().map(|c| c.to_digit(10).map(i64::from)).collect() };
@@ -101,7 +101,7 @@ pub fn copystr_of(whole: &crate::text::Txt, pos: i64, len: Option<i64>) -> Resul
     };
     let total = if ascii { whole.len() } else { s.len() };
     // text/TestProbeTextDateFormatContracts.al:Text_SubstringBounds, `copystr_start0`, `copystr_neg_count`.
-    // The two-argument form allows a start up to 2048, the three-argument form up to the largest Integer (text/lt-text-functions/
+    // The two-argument form allows a start up to 2048, the three-argument form up to the largest Integer (text/text-methods/
     // CopyStr.Codeunit.al:CopyStrErrors `pos0` against `pos0len`).
     if pos < 1 {
         let top = if len.is_some() { "2,147,483,647" } else { "2048" };
@@ -139,7 +139,7 @@ pub fn copystr_of(whole: &crate::text::Txt, pos: i64, len: Option<i64>) -> Resul
     if ascii {
         return Ok(Value::Text(whole[start..end].to_string().into()));
     }
-    // Half of a surrogate pair cannot be held by a Rust string, and BC keeps it (text/lt-text-instance/Index1.Codeunit.al
+    // Half of a surrogate pair cannot be held by a Rust string, and BC keeps it (text/text-methods/Index1.Codeunit.al
     // LT_BU_Index_SurrogatePairs: `CopyStr('😀a', 1, 1)[1]` is 55357): refused instead of read as U+FFFD.
     match String::from_utf16(&s[start..end]) {
         Ok(part) => Ok(Value::Text(part.into())),
@@ -161,14 +161,15 @@ pub(super) fn group_thousands(n: i64) -> String {
 
 pub(super) fn strsubstno(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
     let template = text_arg(args, 0)?;
-    Ok(Value::Text(substitute_fields(&template, &args[1..], ctx)?.into()))
+    let values = super::messages::composite_args(ctx, &args[1..])?;
+    Ok(Value::Text(substitute_fields(&template, &values, ctx)?.into()))
 }
 
 /// The text a TextConst reads in language `language`, from its language codes and texts `args` in declaration order:
-/// - the text of the language in force (misc/lt-probe-requests-140/P140TextConstLang.al:20-56, P140_ReadAsText_Deu: `DeuFra`
+/// - the text of the language in force (text/textconst-label/P140TextConstLang.al:20-56, P140_ReadAsText_Deu: `DeuFra`
 ///   reads 'Hallo' in 1031; :58-91, P140_ReadAsText_Fra: 'Bonjour' in 1036; :163-191, BM_TextConst_Methods: an ENU and DEU
 ///   TextConst reads its DEU text in 1031);
-/// - else the ENU text (P140TextConstLang.al:58-91: `EnuEmptyDeu` reads '' in 1036; types/lt-variant/VaTTextConst.al:
+/// - else the ENU text (P140TextConstLang.al:58-91: `EnuEmptyDeu` reads '' in 1036; types/variant/VaTTextConst.al:
 ///   TextConst_To_Text_Basics);
 /// - else the text of its only language (P140TextConstNoEnu.al:23-71, P140_ReadAsText_DefaultLanguage: `OnlyFra` reads
 ///   'Seulement'; P140TextConstLang.al:20-56: `OnlyFra` in 1031);
@@ -210,7 +211,7 @@ pub(super) fn textconst_text(language: i32, args: &[Value]) -> Result<Value, Sig
 
 /// `UpperCase` and `LowerCase` follow `GlobalLanguage` for Turkish (1055) and Azerbaijani (1068): `i` becomes the dotted `İ` and `I`
 /// the dotless `ı`; every other letter maps as in the default language, and Greek (1032), German (1031) and Lithuanian (1063) map as
-/// the default too (text/lt-text-functions/CaseConv.Codeunit.al:145-180, LT_BU_CaseConv_TurkishGreekLanguage; :218-276,
+/// the default too (text/text-methods/CaseConv.Codeunit.al:145-180, LT_BU_CaseConv_TurkishGreekLanguage; :218-276,
 /// PYC_CaseConv_OtherLanguages). `ToUpper`/`ToLower` do not follow it.
 pub fn is_turkic_language(language: i32) -> bool {
     matches!(language, 1055 | 1068)

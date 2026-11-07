@@ -1,7 +1,35 @@
 //! Lowering of page control trees, `RunObject` and part links.
+use super::shared::with_field_guard;
 use super::*;
 
 impl Lowerer<'_> {
+    /// The binding of a control over `Rec.<name>`: the field of that name, else, in an extension, the source routine
+    /// (`pages::needed` made it) when `name` is a parameterless procedure of the table: the control shows its value as the call
+    /// does (pages/record-method-controls/TestRecordMethodControls.al:39 PageExtension_RecordMethod_NoParentheses_ReadsCalculatedValue,
+    /// corpus pull request 1152, al-runner issue 7133).
+    fn rec_name_binding(
+        &self,
+        table: Option<usize>,
+        name: &str,
+        in_extension: bool,
+        source: impl FnOnce() -> Option<usize>,
+    ) -> Option<ir::Binding> {
+        let t = table?;
+        if let Some(p) = self.members[t]
+            .fields
+            .iter()
+            .position(|x| x.name.eq_ignore_ascii_case(name))
+        {
+            return Some(ir::Binding::Field(p));
+        }
+        let method = self
+            .routine_nodes
+            .get(t)
+            .iter()
+            .any(|r| !r.is_trigger() && r.name().eq_ignore_ascii_case(name) && r.params().next().is_none());
+        (in_extension && method).then(source).flatten().map(ir::Binding::Expr)
+    }
+
     /// The control tree of page `oi` with its extensions merged in, with bindings and routine
     /// indices resolved. A control an extension declares keeps the extension as its `owner`: its
     /// routines and variable slots are the extension's.
@@ -45,7 +73,7 @@ impl Lowerer<'_> {
                     };
                     std::rc::Rc::new(Owner {
                         object,
-                        names: crate::pages::global_names(&obj),
+                        names: owner_names(&obj, o.is_some()),
                         base: usize::from(obj.syntax().text_range().start()),
                         obj,
                         routines: std::cell::OnceCell::new(),
@@ -81,7 +109,7 @@ impl Lowerer<'_> {
             let off = usize::from(p.syntax().text_range().start()) - ow.base;
             // An action's Visible or Enabled, or an action group's Visible, bound to a call of one of the page's own
             // procedures with no arguments compiles with warning AL0573 and reads No whatever the procedure returns; the
-            // procedure never runs (pages/lt-qq-procedure-bound-action/QqBoundProps.al:29, :77-211, QQ_ProcBound_VisibleEnabled
+            // procedure never runs (pages/actions/QqBoundProps.al:29, :77-211, QQ_ProcBound_VisibleEnabled
             // and QQ_ProcBound_EditMode, on BC 27, 28 and 29). Only `kind` of the page's own controls is passed. A call with
             // arguments, inside a larger expression or of anything else is not pinned and stays refused below.
             let procedure_bound = crate::pages::bound_to_procedure_call(kind.as_ref(), &name)
@@ -252,14 +280,10 @@ impl Lowerer<'_> {
                 let raw_args = sec.args_raw();
                 match args.get(1).map(|a| crate::pages::classify_source(a, &ow.names)) {
                     Some(crate::pages::Source::RecField(f)) => {
-                        let pos = table.and_then(|t| {
-                            self.members[t]
-                                .fields
-                                .iter()
-                                .position(|x| x.name.eq_ignore_ascii_case(&f))
-                        });
-                        match pos {
-                            Some(p) => binding = ir::Binding::Field(p),
+                        let off = usize::from(sec.syntax().text_range().start()) - ow.base;
+                        let source = || routine_named(&ow, &crate::pages::synthetic_name("source", off));
+                        match self.rec_name_binding(table, &f, raw.owner.is_some(), source) {
+                            Some(b) => binding = b,
                             None => unsupported.push(format!("control {} is bound to unknown field {f}", raw.name)),
                         }
                     }
@@ -288,9 +312,10 @@ impl Lowerer<'_> {
                         }
                     }
                     // A bare name of a field of the source table (no `Rec.`, warning AL0604) is that field: the control shows
-                    // the field's caption and value (pages/lt-page-controls-aa/AaControls.al:684-692, `SystemId`). Pinned only where
-                    // nothing else in scope has the name; with a procedure of the page or the table, a page variable or another
-                    // control of that name, which one BC binds is not pinned: refused.
+                    // the field's caption and value (pages/controls/AaControls.al:684-692, `SystemId`). Pinned only where
+                    // nothing else in scope has the name; with a procedure of the page or the table or a page variable of that
+                    // name, which one BC binds is not pinned: refused. Another CONTROL of that name does not change the binding: both
+                    // read and write the field (testpage/R6858ControlNamedLikeField.al, al-runner issue 6858).
                     Some(crate::pages::Source::Expr)
                         if let Some((n, p)) = crate::pages::plain_name(raw_args.get(1).map_or("", |a| a.as_str()))
                             .and_then(|n| {
@@ -312,11 +337,7 @@ impl Lowerer<'_> {
                             || named(ow.object)
                             || table.is_some_and(named)
                             || ow.names.contains(&n.to_lowercase())
-                            || globals.iter().any(|g| g.name.eq_ignore_ascii_case(&n))
-                            || layout
-                                .controls
-                                .iter()
-                                .any(|c| !std::ptr::eq(c, raw) && c.name.eq_ignore_ascii_case(&n));
+                            || globals.iter().any(|g| g.name.eq_ignore_ascii_case(&n));
                         if other {
                             unsupported.push(format!(
                                 "control {} is bound to the bare name {n}, which is a field of the source table and also another name in scope (which one BC binds is not pinned)",
@@ -325,7 +346,7 @@ impl Lowerer<'_> {
                         } else {
                             binding = ir::Binding::Field(p);
                             // In a page extension, a bare quoted name of a table extension's field: a TestPage cannot read the
-                            // control from BC 28 (pages/lt-wd/WdBareQuotedField.al:185, al-runner issue 6314).
+                            // control from BC 28 (testpage/WdBareQuotedField.al:185, al-runner issue 6314).
                             let declared_in_ext =
                                 table.is_some_and(|t| self.members[t].fields[p].declared_in.is_some_and(|d| d != t));
                             bare_quoted_ext_source = raw.owner.is_some()
@@ -363,7 +384,7 @@ impl Lowerer<'_> {
                                     });
                                     // An element of a one-dimensional page array with a number index in its bounds
                                     // (`ElementText[2]`): shown as a plain page variable is (al-runner issue 6379; corpus
-                                    // branch al-runtime-rs-staging-y5, pages/lt-y5/Y5PartArrayElementControl.al). Only a
+                                    // branch al-runtime-rs-staging-y5, testpage/Y5PartArrayElementControl.al). Only a
                                     // page's own control (owner None, this block): `globals` are the page's variables, not
                                     // those of a pageextension that adds the control.
                                     array_element = args.get(1).and_then(|a| crate::pages::array_element(a)).and_then(
@@ -378,7 +399,7 @@ impl Lowerer<'_> {
                                                 .then_some((slot, index - 1))
                                         },
                                     );
-                                    // A call as written, Editable False (record/lt-x3-6368/X3PageControlCalls.al:142-147,
+                                    // A call as written, Editable False (record/X3PageControlCalls.al:142-147,
                                     // `pages::call_source_pinned`). Otherwise only text with no quote and single spaces: how
                                     // BC writes other text is not pinned.
                                     let call_source = args
@@ -476,14 +497,25 @@ impl Lowerer<'_> {
                 None
             };
             // An action that declares both RunObject and OnAction runs only the RunObject
-            // (handlers/TestPageRunObjectContracts.al:371-390).
+            // (testpage/TestPageRunObjectContracts.al:371-390).
             let run_object = self.run_object(oi, file, sec);
+            // A control of a reportextension that changes the run, bound to a variable of the base report: it shows the
+            // variable but a value set through it is dropped (reports/extensions/W3RpExtRequestPage.al:359-364
+            // Bind_ExtControlOnBaseVariable_SetAlone, :381-383 and :402-404 for the two orders with the base's own control).
+            if matches!(binding, ir::Binding::BaseVar(_)) && self.in_run_changing_report_ext(raw.owner) {
+                props.push((ir::EXT_MIRROR_PROPERTY.to_string(), ir::PropVal::Lit("true".into())));
+            }
             controls.push(ir::Control {
                 name: raw.name.clone(),
                 kind: raw.kind.clone(),
                 parent: raw.parent,
+                props: with_field_guard(self.members, table, &binding, raw.owner, props),
+                source_text: expr_source_text(
+                    &binding,
+                    raw.owner.is_none() || self.in_run_changing_report_ext(raw.owner),
+                    sec,
+                ),
                 binding,
-                props,
                 triggers,
                 part_page,
                 part_link,
@@ -587,7 +619,7 @@ impl Lowerer<'_> {
             Some(v) => out.unsupported = Some(format!("RunPageMode = {v}")),
         }
         // The test surface refuses a report, xmlport or query before it looks at the target
-        // (corpus handlers/TestPageActionRunObjectKinds_Tests.al:RunObjectNamingAReportIsRefused...,
+        // (corpus testpage/TestPageActionRunObjectKinds_Tests.al:RunObjectNamingAReportIsRefused...,
         // ...KindsPrecompiled_Tests.al: the same for objects outside the workspace), so none of
         // them needs resolving.
         let target = match kind {
@@ -662,7 +694,7 @@ impl Lowerer<'_> {
                     ir::LinkEntry::Field(pf, field_pos(ht, &f)?)
                 }
                 // The host field's value is a filter text: pinned for a Normal Text or Code host field and a FlowFilter host
-                // field (pages/lt-y37-link-filter/Y37LinkFilterTests.al:183-202, :386-416).
+                // field (pages/link-filter/Y37LinkFilterTests.al:183-202, :386-416).
                 LinkRhs::FieldFilter(f) => {
                     let ht = host_table
                         .ok_or_else(|| format!("{what} reads a host field, but the host has no source table"))?;
@@ -676,11 +708,20 @@ impl Lowerer<'_> {
                     }
                     ir::LinkEntry::FieldFilter(pf, hf)
                 }
-                // An empty `const('')` selects the blank value, as in a where() (corpus record/lt-relation-where-empty-term/
+                // An empty `const('')` selects the blank value, as in a where() (corpus record/table-relation/
                 // RelationWhereEmptyTerm.al); Production BOM's `"Version Code" = const('')` (Tests-SCM-Manufacturing).
                 LinkRhs::Filter(t) if t.is_empty() => ir::LinkEntry::Filter(pf, "''".to_string()),
+                // A member name in AL's identifier quotes is the member, as in a TableRelation filter (`rewrite_quotes`): `filter(Open | "Bank
+                // Acc. Entry Applied")` on an Option or Enum field (pages/lt-y42-link-quoted-member/Y42LinkQuotedMember.al:318
+                // Lq_Option_FilterQuoted, :386 Lq_Option_ConstQuoted, :408 Lq_Option_NotEqualQuoted; AL Runner issue 6915).
+                LinkRhs::Filter(t)
+                    if t.contains('"')
+                        && matches!(self.members[target_table].fields[pf].ty, Ty::Option(_) | Ty::Enum(_)) =>
+                {
+                    ir::LinkEntry::Filter(pf, super::rewrite_quotes(&t))
+                }
                 LinkRhs::Filter(t) => ir::LinkEntry::Filter(pf, t),
-                // A qualified enum value is the member of the field's enum (pages/lt-uj-outside-leads/UjSubPageLink.al
+                // A qualified enum value is the member of the field's enum (testpage/UjSubPageLink.al
                 // UJ_SubPageLink_ConstEnum_Rows, corpus branch al-runtime-rs-staging-uj 1dc037a8: the field may share the enum's
                 // name). The checker rejects a member the enum lacks (AL0132, must-not-compile 2276); an enum other than the
                 // field's is not pinned.
@@ -781,7 +822,25 @@ impl Lowerer<'_> {
     }
 }
 
+impl Lowerer<'_> {
+    /// Whether `owner` is a reportextension that changes the run.
+    fn in_run_changing_report_ext(&self, owner: Option<usize>) -> bool {
+        owner.is_some_and(|e| {
+            self.ws.objects[e].kind == ObjKind::ReportExtension && crate::reports::changes_a_run(&self.ws.object_ast(e))
+        })
+    }
+}
+
 /// The control of a data item of a request page: the test client reads and writes the filters of its record (`binding`).
+/// The source of a page's or report's own control, or of a control of a reportextension that changes the run (`listed`), bound to an
+/// expression, as written and trimmed (`ir::Control::source_text`).
+fn expr_source_text(binding: &ir::Binding, listed: bool, sec: &ast::Section) -> Option<String> {
+    let own_expr = listed && matches!(binding, ir::Binding::Expr(_));
+    own_expr
+        .then(|| sec.args_raw().get(1).map(|a| a.trim().to_string()))
+        .flatten()
+}
+
 fn data_item_control(name: &str, binding: ir::Binding) -> ir::Control {
     ir::Control {
         name: name.to_string(),
@@ -803,6 +862,21 @@ fn data_item_control(name: &str, binding: ir::Binding) -> ir::Control {
         expr_call: false,
         array_element: None,
         bare_quoted_ext_source: false,
+        source_text: None,
         factbox: false,
     }
+}
+
+/// The variable names a control's source of this owner can name: its globals, and for an extension the variables of its request
+/// page too (corpus reports/request-page/Y80ReportExtRequestPage.al, `ExtNum`).
+fn owner_names(obj: &ast::Object, is_extension: bool) -> std::collections::BTreeSet<String> {
+    let mut names = crate::pages::global_names(obj);
+    if is_extension {
+        names.extend(
+            obj.request_page_var_decls()
+                .flat_map(|v| v.names())
+                .map(|n| n.to_lowercase()),
+        );
+    }
+    names
 }

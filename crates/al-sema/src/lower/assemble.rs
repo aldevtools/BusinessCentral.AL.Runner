@@ -275,7 +275,7 @@ pub(crate) fn build_shared<'a>(
             }
         }
         // A reportextension that extends the request page merges into it the way a page extension
-        // merges into its page (corpus handlers/TestRequestPageControlErrorName.al).
+        // merges into its page (corpus reports/TestRequestPageControlErrorName.al).
         if o.kind == ObjKind::ReportExtension && active(oi) {
             let ext = ws.object_ast(oi);
             if ext.sections().any(|s| s.name().eq_ignore_ascii_case("requestpage")) {
@@ -288,7 +288,7 @@ pub(crate) fn build_shared<'a>(
         }
     }
     // Extensions apply dependencies first, then by object id: when two modify one property, the
-    // later one wins (corpus handlers/TestPageExtensionModifyCaption_Tests.al: a higher object id wins
+    // later one wins (corpus pages/extensions/TestPageExtensionModifyCaption_Tests.al: a higher object id wins
     // within an app, `Twice2Ctl`; the app that depends on the other wins whatever the ids, `FxBoth2Ctl`).
     for list in page_extensions.values_mut() {
         list.sort_by_key(|&e| (ws.app_depth(ws.objects[e].app), ws.objects[e].id, ws.objects[e].offset));
@@ -407,14 +407,14 @@ pub(crate) fn build_shared<'a>(
                 .map(|p| p.value_text())
         };
         if let Some(t) = prop("SourceTable") {
-            match ws.resolve_ref(o.file, ObjKind::Table, &[t.trim().trim_matches('"').to_string()]) {
+            match ws.resolve_ref(o.file, ObjKind::Table, &crate::types::property_object_parts(&t)) {
                 Resolution::Found(t) => table_of[oi] = Some(t),
                 _ => page_reasons[oi].push(format!("source table: {}", ws.outside_workspace(ObjKind::Table, &t))),
             }
         }
         page_temporary[oi] = prop("SourceTableTemporary").is_some_and(|v| v.trim().eq_ignore_ascii_case("true"));
         // A SaveValues page stores the variables its page extensions bind as well as its own
-        // (misc/lt-probes-needed-6/PnF02SaveValuesExt.al; the VM's `var_slots`).
+        // (pages/PnF02SaveValuesExt.al; the VM's `var_slots`).
     }
     // A page extension shares the page's `Rec`.
     for (&p, list) in &page_extensions {
@@ -449,14 +449,14 @@ pub(crate) fn build_shared<'a>(
                     .map(|p| p.value_text());
                 if let Some(t) = table_no {
                     if let Resolution::Found(t) =
-                        ws.resolve_ref(o.file, ObjKind::Table, &[t.trim().trim_matches('"').to_string()])
+                        ws.resolve_ref(o.file, ObjKind::Table, &crate::types::property_object_parts(&t))
                     {
                         table_of[oi] = Some(t);
                     }
                 }
             }
             // `Rec` of an xmlport whose request page states `SourceTable`: a record of that table in the xmlport's code, temporary
-            // with `SourceTableTemporary = true` (xmlport/lt-y-xmlport-props/YXmlPortProps.al:861-923, al-runner issue 5756).
+            // with `SourceTableTemporary = true` (xmlports/shapes-properties/YXmlPortProps.al:861-923, al-runner issue 5756).
             ObjKind::XmlPort if active(oi) => {
                 let obj = ws.object_ast(oi);
                 if let Some(rp) = obj.sections().find(|s| s.name().eq_ignore_ascii_case("requestpage")) {
@@ -466,7 +466,7 @@ pub(crate) fn build_shared<'a>(
                         .map(|p| p.value_text());
                     if let Some(t) = source {
                         if let Resolution::Found(t) =
-                            ws.resolve_ref(o.file, ObjKind::Table, &[t.trim().trim_matches('"').to_string()])
+                            ws.resolve_ref(o.file, ObjKind::Table, &crate::types::property_object_parts(&t))
                         {
                             table_of[oi] = Some(t);
                             page_temporary[oi] = rp.properties().any(|p| {
@@ -543,7 +543,7 @@ pub(crate) fn build_shared<'a>(
         if o.kind != ObjKind::ReportExtension || prov(oi) {
             continue;
         }
-        if !active(oi) && !ws.extension_target(oi).is_some_and(&active) {
+        if !active(oi) && !ws.extension_target(oi).is_some_and(active) {
             continue;
         }
         if !ws.usable(oi) {
@@ -552,9 +552,7 @@ pub(crate) fn build_shared<'a>(
         let ext = ws.object_ast(oi);
         // The routines `pages::expand` adds for expression-valued control properties and sources of the
         // request page are not the author's: they do not change a run.
-        let changes_a_run = ext.routines().any(|r| !crate::pages::is_synthetic(&r.name()))
-            || ext.triggers().next().is_some()
-            || ext.sections().any(|s| !s.name().eq_ignore_ascii_case("requestpage"));
+        let changes_a_run = crate::reports::changes_a_run(&ext);
         if let (true, Some(base)) = (changes_a_run, ext.extends_parts()) {
             if let Resolution::Found(r) = ws.resolve_ref(o.file, ObjKind::Report, &base) {
                 changing.entry(r).or_default().push(oi);
@@ -594,19 +592,19 @@ pub(crate) fn build_shared<'a>(
         let (request, request_section) = crate::reports::request_layout(&obj, &l.items, &exts);
         page_reasons[oi].extend(request.reasons.iter().cloned());
         // A request page that declares `SourceTable` has a `Rec` of that table (corpus
-        // handlers/TestReportRequestPageSourceTableCompiledContracts.al).
+        // reports/TestReportRequestPageSourceTableCompiledContracts.al).
         if let Some(t) = request_section
             .as_ref()
             .and_then(|s| s.properties().find(|p| p.name().eq_ignore_ascii_case("SourceTable")))
             .map(|p| p.value_text())
         {
-            match ws.resolve_ref(o.file, ObjKind::Table, &[t.trim().trim_matches('"').to_string()]) {
+            match ws.resolve_ref(o.file, ObjKind::Table, &crate::types::property_object_parts(&t)) {
                 Resolution::Found(t) => table_of[oi] = Some(t),
                 _ => page_reasons[oi].push(format!("source table: {}", ws.outside_workspace(ObjKind::Table, &t))),
             }
         }
         // `SourceTableTemporary = true` gives the request page a temporary `Rec`: empty at OnOpenPage, and what it inserts stays out
-        // of the table (report/lt-y-request-page/YRequestPageTests.al:99-113).
+        // of the table (reports/request-page/YRequestPageTests.al:99-113).
         page_temporary[oi] = request_section.as_ref().is_some_and(|s| {
             s.properties().any(|p| {
                 p.name().eq_ignore_ascii_case("SourceTableTemporary")
@@ -615,11 +613,11 @@ pub(crate) fn build_shared<'a>(
         });
         // A reportextension that changes the run and extends the request page binds its controls to its variables after the
         // base items' records (`ext_slot_table`): a value the request page handler sets reaches the extension's triggers
-        // (report/lt-wd/WdReportExtRequestPage.al:98 WD_ReportExt_RequestPageFieldsReachTheRun, corpus master 930653fe, al-runner issue 6302).
+        // (reports/WdReportExtRequestPage.al:98 WD_ReportExt_RequestPageFieldsReachTheRun, corpus master 930653fe, al-runner issue 6302).
         // Pinned there for fields bound to the extension's own variables on a page without SaveValues. A field of such an
         // extension bound to a variable of the report reads apart from the report's own control (reportext/
         // W3RpExtRequestPage.al:214 Run_ExtensionControls_ReachTheVariablesAndTheRunIsUnchanged `after ext after=6: main=[5]`),
-        // and SaveValues keeps the extension's variables (report/lt-aq/AqTests.al:479 SavedExt_2_NextRunShows): neither is
+        // and SaveValues keeps the extension's variables (reports/AqTests.al:479 SavedExt_2_NextRunShows): neither is
         // built, so both stay refused, as does a field bound to anything else, and a trigger on the extension's request page
         // or its fields (none in the pin).
         let save_values = request_section.as_ref().is_some_and(|s| {
@@ -636,17 +634,7 @@ pub(crate) fn build_shared<'a>(
                 .flat_map(|v| v.names())
                 .map(|n| n.to_lowercase())
                 .collect();
-            let foreign = request.controls.iter().find(|c| {
-                c.owner == Some(*e)
-                    && c.kind == ir::ControlKind::Field
-                    && !c.section.name().eq_ignore_ascii_case("label")
-                    && !c
-                        .section
-                        .args_raw()
-                        .get(1)
-                        .and_then(|a| crate::pages::plain_name(a))
-                        .is_some_and(|n| own.contains(&n.to_lowercase()))
-            });
+            let foreign = foreign_request_control(&request, *e, &own, &obj, &l.items);
             // Triggers on the extension's request page or its fields are not pinned with an extension that changes the run.
             fn has_trigger(s: &ast::Section) -> bool {
                 s.triggers().next().is_some() || s.sections().any(|c| has_trigger(&c))
@@ -655,7 +643,7 @@ pub(crate) fn build_shared<'a>(
                 .sections()
                 .filter(|s| s.name().eq_ignore_ascii_case("requestpage"))
                 .any(|s| has_trigger(&s));
-            // SaveValues: the SaveAsXml and Cancel closes are pinned (al-language-onprem/report/lt-y60-reportext-saveasxml/
+            // SaveValues: the SaveAsXml and Cancel closes are pinned (al-language-onprem/reports/layouts-saveas/
             // Y60ReportExtSaveAsXml.al); the VM refuses the other closes (`refuse_ext_save_values_close`).
             let why = match (save_values, foreign, triggers) {
                 (true, Some(_), _) | (true, None, true) => Some("a request page with SaveValues".to_string()),
@@ -839,7 +827,7 @@ pub(crate) fn build_shared<'a>(
                         }
                     }
                 }
-                ext_slot_table[e] = slots;
+                ext_slot_table[e] = with_request_page_slots(&lw, ws, e, items_before, slots);
             }
         }
     }
@@ -858,6 +846,42 @@ pub(crate) fn build_shared<'a>(
         shared,
         uncompiled_subscribers,
     }
+}
+
+/// The first field control of reportextension `e`'s request page that is bound to none of what a reportextension that changes
+/// the run may bind (reports/extensions/W3RpExtRequestPage.al:325-490): its own variable (`own`), a variable of the base report
+/// `base`, or a field of one of the report's data items `items`.
+fn foreign_request_control<'a>(
+    request: &'a crate::pages::Layout,
+    e: usize,
+    own: &std::collections::HashSet<String>,
+    base: &ast::Object,
+    items: &[crate::reports::RawItem],
+) -> Option<&'a crate::pages::RawControl> {
+    let base_vars: std::collections::HashSet<String> = base
+        .var_decls()
+        .flat_map(|v| v.names())
+        .map(|n| n.to_lowercase())
+        .collect();
+    request.controls.iter().find(|c| {
+        let source = c.section.args_raw().get(1).cloned();
+        let named = |names: &std::collections::HashSet<String>| {
+            source
+                .as_deref()
+                .and_then(crate::pages::plain_name)
+                .is_some_and(|n| names.contains(&n.to_lowercase()))
+        };
+        let item_field = source
+            .as_deref()
+            .and_then(crate::pages::var_and_field)
+            .is_some_and(|(i, _)| items.iter().any(|x| x.name.eq_ignore_ascii_case(&i)));
+        c.owner == Some(e)
+            && c.kind == ir::ControlKind::Field
+            && !c.section.name().eq_ignore_ascii_case("label")
+            && !named(own)
+            && !named(&base_vars)
+            && !item_field
+    })
 }
 
 /// What a lowering exports beside the program (`Lowered::exported`).
@@ -1321,13 +1345,7 @@ pub(crate) fn lower_core(
             Vec::new()
         }
     };
-    let own_enum = |i: usize| {
-        let m = members.own(i);
-        (
-            m.enum_values.iter().map(|(v, n)| (*v as i32, n.clone())).collect(),
-            m.enum_captions.iter().map(|(v, c)| (*v as i32, c.clone())).collect(),
-        )
-    };
+    let own_enum = |i: usize| super::shared::enum_own(&members.own(i));
     let report_item_table = |r: usize, item: usize| {
         shared
             .report_irs
@@ -1561,7 +1579,7 @@ impl al_ir::walk::RefVisitor for Unembed<'_> {
 type ExtTriggers = (usize, String, Vec<(usize, usize)>, Vec<(usize, usize)>);
 
 /// The object-level properties of a table that a table extension sets on it: the extension's value is the table's
-/// (record/lt-x-table-props/XTablePropsTests.al:TableProperties_Metadata_LookupDrillDownDataCaption :585-587,
+/// (record/table-properties/XTablePropsTests.al:TableProperties_Metadata_LookupDrillDownDataCaption :585-587,
 /// TableExt_DataCaptionFields_TestPageCaption :609).
 const TABLE_EXTENSION_TABLE_PROPERTIES: &[&str] = &["DataCaptionFields", "LookupPageId", "DrillDownPageId"];
 use al_ir::sym::UNSUPPORTED_TABLE_PROPERTY;
@@ -1688,7 +1706,7 @@ fn split_tables(
         touched.sort_unstable();
         touched.dedup();
         for e in touched {
-            // The table properties an extension may set (record/lt-x-table-props/XTablePropsTests.al:585-587, :609).
+            // The table properties an extension may set (record/table-properties/XTablePropsTests.al:585-587, :609).
             let ext_props: Vec<(String, String)> = staged[e]
                 .object
                 .properties
@@ -1924,12 +1942,12 @@ fn split_pages(staged: &mut StagedList, provided: &(dyn Fn(usize) -> bool + Sync
                 Some((e, _)) => {
                     let ext = ExtControl {
                         pred: (i > 0).then(|| id_of(i - 1)),
-                        parent: c.parent.map(&id_of),
+                        parent: c.parent.map(id_of),
                         target: match c.action_ref {
                             Some(ir::ActionRef::Target(t)) => Some(id_of(t)),
                             _ => None,
                         },
-                        provider: c.part_link.as_ref().and_then(|l| l.provider).map(&id_of),
+                        provider: c.part_link.as_ref().and_then(|l| l.provider).map(id_of),
                         area: if c.parent.is_none() { area_of(i) } else { None },
                         provider_page: c
                             .part_link
@@ -2379,13 +2397,7 @@ pub fn relower_objects(
         implements: &|cu| implemented_interfaces(ws, cu),
         enum_info: &|i| enum_info_of(ws, &members, i),
         join_order: &|_, _| (0, 0, 0),
-        own_enum: &|i| {
-            let m = members.own(i);
-            (
-                m.enum_values.iter().map(|(v, n)| (*v as i32, n.clone())).collect(),
-                m.enum_captions.iter().map(|(v, c)| (*v as i32, c.clone())).collect(),
-            )
-        },
+        own_enum: &|i| super::shared::enum_own(&members.own(i)),
     };
     let mut replace = Vec::with_capacity(pieces.len());
     for (oi, mut piece) in pieces {
@@ -2532,9 +2544,9 @@ fn tdd_stub_list(checked: &CheckResult, sites: &[(usize, String)]) -> Vec<String
 }
 
 /// Why the report extensions `exts` (in object id order) that change a report's run cannot run in a pinned order. Several
-/// extensions apply in object id order (corpus reportextensiontrigger/TestReportExtensionBaseMembersContracts.al:256, ADR-025).
+/// extensions apply in object id order (corpus reports/extensions/TestReportExtensionBaseMembersContracts.al:256, ADR-025).
 /// Across apps they apply in dependency order when a dependency path orders the apps (al-runner issue 6653; corpus branch
-/// al-runtime-rs-staging-y64 85d86e7b, reportext/lt-y64-xapp-run-order/Y64XappRunOrder.al: A <- B <- C <- the test app). There
+/// al-runtime-rs-staging-y64 85d86e7b, reports/extensions/Y64XappRunOrder.al: A <- B <- C <- the test app). There
 /// the ids rise along the path, so only that is pinned: apps with no path between them, or ids against it, are refused.
 fn extension_order_reasons(ws: &Workspace, exts: &[usize]) -> Vec<String> {
     let app = |e: usize| ws.objects[e].app;
@@ -2546,4 +2558,24 @@ fn extension_order_reasons(ws: &Workspace, exts: &[usize]) -> Vec<String> {
     } else {
         Vec::new()
     }
+}
+
+/// The variables of a report extension's request page come after its own variables in its globals (`shared.rs`).
+fn with_request_page_slots(
+    lw: &Lowerer,
+    ws: &Workspace,
+    e: usize,
+    items_before: usize,
+    mut slots: HashMap<String, usize>,
+) -> HashMap<String, usize> {
+    for v in ws.object_ast(e).request_page_var_decls() {
+        let ty = v.type_ref().map(|t| Ty::from_type_ref(&t)).unwrap_or(Ty::Unknown);
+        for n in v.names() {
+            if lw.rt(&ty).is_ok() {
+                let next = items_before + slots.len();
+                slots.insert(n.to_lowercase(), next);
+            }
+        }
+    }
+    slots
 }

@@ -1,7 +1,7 @@
 //! A report that sets ShowPrintStatus runs as one without it (al-runner issue 6056: a partner app refused 4,245 tests with
 //! "report property showprintstatus is not supported yet"). Corpus writer TK pinned Run, RunModal and Execute of a
 //! processing-only report with ShowPrintStatus true, false and unset: the same triggers in the same order, no handler
-//! (report/lt-tk-showprintstatus/LtTkShowPrintStatus.al).
+//! (reports/runtime/LtTkShowPrintStatus.al).
 
 use al_testkit::text;
 

@@ -1,5 +1,5 @@
 //! Database.LastUsedRowVersion and MinimumActiveRowVersion per write and read shape (writer UK, corpus branch
-//! al-runtime-rs-staging-pub-uk beab119c, corpus PR 803, platform/lt-platform-members/PlTRowVersionValue.al UK_*):
+//! al-runtime-rs-staging-pub-uk beab119c, corpus PR 803, metadata/platform-tables/PlTRowVersionValue.al UK_*):
 //! the rows an Insert wrote are sent at the first read of their table (or at Commit), a read of another table sends
 //! nothing and a Modify grows the value at once. MinimumActiveRowVersion is frozen by the test runner's isolation
 //! (al-testrun), not checked here.

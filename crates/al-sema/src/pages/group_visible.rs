@@ -1,6 +1,6 @@
 //! Visible of the controls that hold other controls (cuegroup, fixed, grid) bound to an expression (al-runner issue 6675).
 //!
-//! Measured by corpus writer Y65 on BC 29 (pages/lt-y65-cue-visible/Y65CueVisible.al:235, :262): a cuegroup's Visible bound to a page variable (set in OnInit, OnOpenPage or
+//! Measured by corpus writer Y65 on BC 29 (pages/cue-visible/Y65CueVisible.al:235, :262): a cuegroup's Visible bound to a page variable (set in OnInit, OnOpenPage or
 //! OnAfterGetRecord), `not` a variable or `not Rec.IsEmpty()` reads the value it has after the page opened (an array element
 //! reads Yes on BC 29 whatever it holds, :316-331, and is refused);
 //! bound to a call of the page's own procedure with no arguments (`IsShown()`) it reads No. BC compiles any Boolean expression
@@ -11,7 +11,7 @@ use al_ir::ControlKind;
 
 /// Whether property `prop` of a control of `kind` reads No when it is bound to a call of one of the page's own procedures with
 /// no arguments (the procedure never runs). An action's Visible or Enabled and an action group's Visible
-/// (pages/lt-qq-procedure-bound-action/QqBoundProps.al:29, :77-211); a cuegroup's Visible (Y65CueVisible.al:117 GrpCall,
+/// (pages/actions/QqBoundProps.al:29, :77-211); a cuegroup's Visible (Y65CueVisible.al:117 GrpCall,
 /// `cuegroup IsShown() (J)` reads `No 0` at :235 and :262).
 pub fn bound_to_procedure_call(kind: Option<&ControlKind>, prop: &str) -> bool {
     match kind {
@@ -78,7 +78,7 @@ fn without_rec_is_empty(value: &str) -> String {
 }
 
 /// Whether a `fixed` or `grid` section binds Visible to an expression: the shapes no corpus test measures (a cuegroup's are
-/// pages/lt-ab-group-properties/ABCueProps.al and pages/lt-y65-cue-visible/Y65CueVisible.al).
+/// pages/properties/ABCueProps.al and pages/cue-visible/Y65CueVisible.al).
 pub fn holder_visible_awaits_pin(section: &al_syntax::ast::Section) -> bool {
     let name = section.name().to_ascii_lowercase();
     if !["fixed", "grid"].contains(&name.as_str()) {

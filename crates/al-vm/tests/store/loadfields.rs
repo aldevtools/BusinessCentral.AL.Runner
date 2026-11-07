@@ -88,7 +88,7 @@ fn are_fields_loaded_is_false_before_any_fetch() {
 #[test]
 fn reading_an_omitted_field_loads_its_real_value() {
     // record/TestRecordPartialLoad.al:144-190 (PartialLoad_ReadOmittedField_JitLoadsRealValue); the read loads every field
-    // (record/lt-loadfields-pagesource-validate/P81LoadFields.al:1047-1120 RN_JitRead_UnloadedField_LoadsWhich).
+    // (record/load-fields/P81LoadFields.al:1047-1120 RN_JitRead_UnloadedField_LoadsWhich).
     let body = format!(
         "{SEED} Rec.SetLoadFields(Rec.Amount); Rec.Get(1); {} a += Rec.Name; {} {} exit(a);",
         yn("Rec.AreFieldsLoaded(Rec.Name)"),
@@ -201,7 +201,7 @@ fn unpinned_cases_are_refused() {
     );
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
     // A record filled by assignment and never fetched reports its fields loaded
-    // (record/lt-are-fields-loaded-unfetched/AreFieldsLoadedUnfetched.al:42-68).
+    // (record/load-fields/AreFieldsLoadedUnfetched.al:42-68).
     assert_eq!(
         text(
             "",
@@ -256,9 +256,9 @@ fn a_record_ref_load_set_with_no_numbers_goes_back_to_a_full_load() {
 
 #[test]
 fn a_field_number_the_table_lacks_raises_field_not_found() {
-    // misc/lt-open-overloads-collections-isolated/P107RecRefNames.al:159-171 and records/W4PlatformAndMeta.al:517-518 pin
+    // recordref-fieldref/P107RecRefNames.al:159-171 and record/W4PlatformAndMeta.al:517-518 pin
     // the text and code for one unknown number; among several numbers the first unknown one is named
-    // (recordref/lt-y71-loadfields/Y71RecRefLoadFields.al:347-403).
+    // (recordref-fieldref/recordref/Y71RecRefLoadFields.al:347-403).
     let r = text(
         "RR: RecordRef;",
         "RR.Open(50800); RR.SetLoadFields(9999); exit('no error');",
@@ -293,7 +293,7 @@ fn a_field_number_the_table_lacks_raises_field_not_found() {
 #[test]
 fn a_member_of_the_option_a_call_answers_names_its_value() {
     // Base Application "Find Record Management": `RecRef.SecurityFiltering(RecRef.SecurityFiltering::Ignored)`
-    // (reached by the report 91 tests, handlers/TestPrecompiledOptionCaption.al).
+    // (reached by the report 91 tests, reports/TestPrecompiledOptionCaption.al).
     let r = text(
         "RR: RecordRef; X: SecurityFilter;",
         "RR.Open(50800); X := RR.SecurityFiltering; RR.SecurityFiltering(RR.SecurityFiltering::Ignored);
@@ -336,9 +336,9 @@ fn load_fields_as_a_statement_without_a_row_raises_nothing() {
 #[test]
 fn load_fields_with_its_result_used_on_a_fetched_record_answers_true() {
     // Pinned for a record never fetched (false) and for a whole fetched row (true, nothing changes):
-    // record/lt-load-fields-fetched/LoadFieldsFetched.al:56-63 (`load_name` Yes, `load_all` Yes). The statement
+    // record/load-fields/LoadFieldsFetched.al:56-63 (`load_name` Yes, `load_all` Yes). The statement
     // form on a fetched record changes nothing. A FlowField in the list: the function form answers No and changes nothing
-    // (record/lt-r6795-loadfields-flow/R6795LoadFieldsFlow.al Function_AfterGet_Cnt, loadfields_load_flow.rs).
+    // (record/load-fields/R6795LoadFieldsFlow.al Function_AfterGet_Cnt, loadfields_load_flow.rs).
     let missing = text("", "b := Rec.LoadFields(Rec.Name); exit(Format(b));");
     assert_eq!(missing.unwrap(), "No");
     let fetched = text(
@@ -360,7 +360,7 @@ fn load_fields_with_its_result_used_on_a_fetched_record_answers_true() {
 
 #[test]
 fn set_load_fields_with_a_flow_field_loads_it_and_the_named_fields() {
-    // record/lt-priority-assumptions/PriorityAssumptions.al:282-312 (SetLoadFields_FlowFieldAndNormal, real BC 29): the
+    // record/PriorityAssumptions.al:282-312 (SetLoadFields_FlowFieldAndNormal, real BC 29): the
     // FlowField reads as loaded, the key too, and the other stored fields are not.
     let body = format!(
         "{SEED} Rec.SetLoadFields(Rec.Cnt); Rec.FindFirst(); {} {} {} {} Clear(Rec); Rec.SetLoadFields(Rec.Name, Rec.Cnt); Rec.FindFirst(); {} {} {} {} exit(a);",
@@ -378,7 +378,7 @@ fn set_load_fields_with_a_flow_field_loads_it_and_the_named_fields() {
 
 #[test]
 fn add_load_fields_with_a_flow_field_is_an_error() {
-    // record/lt-priority-assumptions/PriorityAssumptions.al:314-344 (AddLoadFields_FlowFieldAndNormal, real BC 29): the
+    // record/PriorityAssumptions.al:314-344 (AddLoadFields_FlowFieldAndNormal, real BC 29): the
     // text and the code `DB:Ok`, after a SetLoadFields and on a record without a request.
     let msg = "The field 'Cnt' in the 'LF Keyed' table is not valid for auto loading and cannot be passed to calls to AddLoadFields, SetLoadFields, or LoadFields.";
     for body in [
@@ -407,7 +407,7 @@ fn add_load_fields_of_a_stored_field_after_set_load_fields_loads_a_flow_field_to
     assert_eq!(text("", &body).unwrap(), "YesYesYes");
 }
 
-// ---- al-runner issue 5764 (record/lt-loadfields-pagesource-validate/P81LoadFields.al:1047-1243, writer RN) ----
+// ---- al-runner issue 5764 (record/load-fields/P81LoadFields.al:1047-1243, writer RN) ----
 
 const RN_SRC: &str = r#"
 table 50810 "LF Row"
@@ -526,7 +526,7 @@ fn set_and_add_load_fields_results() {
     assert_eq!(rn("SetResults"), "YesYesNoNoYes");
 }
 
-// misc/lt-probes-needed-2/PnBErrorsCollections.al:640-674 SetLoadFields_ThenRead_AndClear: the field read joins the load set
+// errors/PnBErrorsCollections.al:640-674 SetLoadFields_ThenRead_AndClear: the field read joins the load set
 // for Next, and after Clear no field of the partial buffer is loaded.
 #[test]
 fn after_clear_a_partial_buffer_holds_no_field() {
@@ -545,7 +545,7 @@ fn a_field_changed_since_the_fetch_is_kept_by_the_load_of_the_missing_fields() {
     assert_eq!(rn("ChangedByTransferFields"), "42|Yes|alpha|42");
 }
 
-// record/lt-outside-records/ResetClearsLoadFields.al:59 ResetThenFindFirst_NoEarlierFetch: Reset drops the request, so FindFirst
+// record/ResetClearsLoadFields.al:59 ResetThenFindFirst_NoEarlierFetch: Reset drops the request, so FindFirst
 // loads every field; :181 InitThenFindFirst_NoEarlierFetch_KeepsLoadFields: Init keeps it. Pinned, no assumption is marked.
 #[test]
 fn reset_clears_the_load_fields_and_init_keeps_them() {
@@ -564,7 +564,7 @@ fn reset_clears_the_load_fields_and_init_keeps_them() {
     assert!(take_hits().is_empty());
 }
 
-// record/lt-outside-records/ResetClearsLoadFields.al:111 ResetThenGet_AfterEarlierFullGet `control without Reset`: a full Get, then
+// record/ResetClearsLoadFields.al:111 ResetThenGet_AfterEarlierFullGet `control without Reset`: a full Get, then
 // SetLoadFields and a Get of another row: the fields the request does not name are not loaded.
 #[test]
 fn a_partial_get_of_another_row_after_a_full_get_loads_only_the_request() {

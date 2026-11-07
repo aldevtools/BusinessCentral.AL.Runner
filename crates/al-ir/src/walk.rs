@@ -45,6 +45,15 @@ pub trait RefVisitor {
 pub const EXPAND: usize = usize::MAX - 1;
 /// The same marker in the `u32` list of `Expr::InterfaceTest` and as the ordinal in `Expr::EnumImpl`.
 pub const EXPAND_U32: u32 = u32::MAX - 1;
+/// The routine of an `Expr::InterfaceCall` target `(codeunit, DEFAULT_BODY)`: the codeunit does not declare the member, so
+/// the call runs the default body of the interface (the one target whose object is the interface) on its instance.
+pub const DEFAULT_BODY: usize = usize::MAX - 2;
+
+/// The routines an `Expr::InterfaceCall` with these targets can run, as (object, routine): the
+/// `DEFAULT_BODY` entries stand for the interface's default body, which is listed once.
+pub fn interface_routines(targets: &[(usize, usize)]) -> impl Iterator<Item = (usize, usize)> + '_ {
+    targets.iter().copied().filter(|&(_, r)| r != DEFAULT_BODY)
+}
 pub const EXPAND_ORDINAL: i32 = i32::MIN;
 
 /// What a site that stands for a set holds.
@@ -167,6 +176,7 @@ pub fn walk_object<V: RefVisitor>(o: &mut Object, v: &mut V) {
         properties: _,
         enum_values: _,
         enum_captions: _,
+        enum_captions_ml: _,
         table,
         rec_slot: _,
         xrec_slot: _,
@@ -403,7 +413,13 @@ fn walk_set_elem<V: RefVisitor>(e: &mut SetElem, v: &mut V) {
 
 fn walk_place<V: RefVisitor>(p: &mut Place, v: &mut V) {
     match p {
-        Place::Local(_) | Place::Global(_) | Place::BaseGlobal(_) | Place::ExtGlobal(..) => {}
+        Place::Local(_) | Place::Global(_) | Place::BaseGlobal(_) => {}
+        // The extension's object index is an object reference like a call's (cross-app since al-runner issue 6983).
+        Place::ExtGlobal(e, _) => obj(v, e),
+        Place::RecGlobal(base, o, _) => {
+            obj(v, o);
+            walk_place(base, v);
+        }
         Place::Index(base, idx) => {
             walk_place(base, v);
             for e in idx {
@@ -478,7 +494,11 @@ fn walk_expr<V: RefVisitor>(e: &mut Expr, v: &mut V) {
                 Some(&(EXPAND, index)) => v.expansion(index, ExpansionSite::InterfaceCall { targets }),
                 _ => {
                     for t in targets {
-                        pair(v, t);
+                        if t.1 == DEFAULT_BODY {
+                            obj(v, &mut t.0);
+                        } else {
+                            pair(v, t);
+                        }
                     }
                 }
             }
@@ -656,6 +676,7 @@ fn walk_field<V: RefVisitor>(f: &mut Field, v: &mut V) {
         on_lookup,
         caption_class,
         caption_class_refusal: _,
+        caption_modified: _,
         auto_format_expression,
         auto_format_refusal: _,
         properties: _,
@@ -877,6 +898,7 @@ fn walk_control<V: RefVisitor>(
         expr_call: _,
         array_element: _,
         bare_quoted_ext_source: _,
+        source_text: _,
         factbox: _,
     } = c;
     if let Some((table, field)) = var_field {
@@ -1015,6 +1037,7 @@ fn walk_xmlport<V: RefVisitor>(x: &mut XmlPort, v: &mut V) {
         xml_utf8: _,
         namespaces: _,
         default_ns: _,
+        udn_root_prefix: _,
         inline_schema: _,
         use_lax: _,
         xml_v11: _,

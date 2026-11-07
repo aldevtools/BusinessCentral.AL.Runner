@@ -248,8 +248,8 @@ fn a_platform_table_with_no_provider_is_refused_where_code_uses_it_and_names_tab
 }
 
 /// Signup Context and Document Service are empty on a fresh tenant and take Insert, Modify, Delete and DeleteAll without
-/// triggers (onprem session/PZPlatformSurvey.al:142-145, :166-169; records/W4PlatformAndMeta.al:123, count 0). Document
-/// Service's Insert with triggers raises the TestField error of an empty Folder (onprem platform/PtOnPremTables.al:103-123);
+/// triggers (onprem session-system/PZPlatformSurvey.al:142-145, :166-169; record/W4PlatformAndMeta.al:123, count 0). Document
+/// Service's Insert with triggers raises the TestField error of an empty Folder (onprem metadata/PtOnPremTables.al:103-123);
 /// with a Folder, and Modify or Delete with triggers, it is not pinned: refused.
 #[test]
 fn signup_context_and_document_service_are_stored_tables() {
@@ -272,7 +272,7 @@ fn signup_context_and_document_service_are_stored_tables() {
 
 /// Webhook Subscription and Webhook Notification are ordinary tables, empty on a fresh tenant, that take Insert, Modify,
 /// Delete and DeleteAll with and without triggers, as Microsoft's PayPal Payments Standard tests use them (corpus master onprem
-/// platform/lt-y35-stored-tables/Y35StoredTables.al pins them; the assumption `webhook-tables-stored` that stood in is gone):
+/// metadata/platform-tables/Y35StoredTables.al pins them; the assumption `webhook-tables-stored` that stood in is gone):
 /// a pass relies on no assumption. A row read back holds 'NAV' as Application ID and inserts again.
 #[test]
 fn webhook_tables_are_stored_tables() {
@@ -312,9 +312,9 @@ fn webhook_tables_are_stored_tables() {
     assert!(!flagged("Temporary"), "a temporary record relies on nothing");
 }
 
-/// Tenant Profile Page Metadata is an ordinary table, empty on a fresh tenant (onprem platform/PtOnPremTables.al:214-236;
-/// session/PZPlatformSurvey.al:172-175). A rename of a tenant profile in All Profile carries its rows to the new Profile ID and
-/// leaves the rows of another profile (onprem profile/TestTenantProfileRenameCascade.al:83-118). An Insert with an empty Profile
+/// Tenant Profile Page Metadata is an ordinary table, empty on a fresh tenant (onprem metadata/PtOnPremTables.al:214-236;
+/// session-system/PZPlatformSurvey.al:172-175). A rename of a tenant profile in All Profile carries its rows to the new Profile ID and
+/// leaves the rows of another profile (onprem profiles/TestTenantProfileRenameCascade.al:83-118). An Insert with an empty Profile
 /// ID crashes the tier (PZPlatformSurvey.al:12): refused; so is a Delete of an All Profile row that still has page metadata.
 #[test]
 fn tenant_profile_page_metadata_follows_the_rename_of_its_profile() {
@@ -372,7 +372,7 @@ fn a_virtual_platform_table_is_read_but_cannot_be_written() {
 // Microsoft's Tests-ERM `Initialize` sets Feature Key ReminderTermsCommunicationTexts to None and calls Modify (243 tests were
 // refused with "Modify on virtual table 'Feature Key'"). Enabled is the only writable column; a change stays for later reads
 // (assumed, docs/probes-needed.md). A change to one read-only column raises the error naming its caption, code DB:Ok
-// (record/lt-loadfields-pagesource-validate/P81FeatureKeyModify.al:51-63); a change to two of them is not pinned: refused.
+// (record/load-fields/P81FeatureKeyModify.al:51-63); a change to two of them is not pinned: refused.
 #[test]
 fn a_feature_key_enabled_can_be_modified_and_reads_back_and_another_column_raises() {
     let o = outcomes(
@@ -397,7 +397,7 @@ fn a_feature_key_enabled_can_be_modified_and_reads_back_and_another_column_raise
     assert!(why.contains("Feature Key"), "{why}");
 }
 
-/// Feature Key Description, "Learn More Link" and "Description In English" of the keys platform/lt-ba-columns/BaFeatureKeyTexts.al
+/// Feature Key Description, "Learn More Link" and "Description In English" of the keys metadata/platform-tables/BaFeatureKeyTexts.al
 /// pins (the same on 27.5, 28.5 and 29.0); of another key they are unknown, so a read is refused.
 #[test]
 fn feature_key_texts_are_pinned_for_five_keys() {
@@ -415,8 +415,8 @@ fn feature_key_texts_are_pinned_for_five_keys() {
 }
 
 /// Truncate of the computed tables Integer and AllObj raises "The table does not support truncation." and, with the result used,
-/// answers false and keeps the rows (record/TestCalcFieldsTruncateUniqueContracts.al:311-312; record/lt-truncate-guards/
-/// TruncateGuards.al:222-237).
+/// answers false and keeps the rows (record/TestCalcFieldsTruncateUniqueContracts.al:311-312; record/crud/
+/// TruncateGuards.al:206-221).
 #[test]
 fn truncate_of_a_computed_table_raises_the_pinned_error() {
     let o = outcomes(
@@ -432,8 +432,8 @@ fn truncate_of_a_computed_table_raises_the_pinned_error() {
 }
 
 /// Windows Language and Language Selection are read-only: Insert (with and without triggers), Modify and Delete of a row that
-/// exists and DeleteAll raise "The <table> table is read-only." with code DB:Ok, and change nothing (platform/lt-ag-contoso/
-/// AgPlatformReadOnly.al:14-55; platform/lt-platform-tables/PtCloudTables.al:46-56). A Modify of a row that does not exist is
+/// exists and DeleteAll raise "The <table> table is read-only." with code DB:Ok, and change nothing (metadata/platform-tables/
+/// AgPlatformReadOnly.al:14-55; metadata/platform-tables/PtCloudTables.al:46-56). A Modify of a row that does not exist is
 /// not pinned: refused.
 #[test]
 fn writes_to_a_read_only_computed_table_raise_the_pinned_error() {
@@ -459,7 +459,7 @@ fn writes_to_a_read_only_computed_table_raise_the_pinned_error() {
     assert!(not_run(&o, "ModifyOfAMissingRow").contains("does not exist"));
 }
 
-// platform/lt-aw-fresh-tenant/AwTests.al:557-576: on the corpus CI (Linux) a Feature Key change survives the rollback of an
+// metadata/platform-tables/AwTests.al:557-576: on the corpus CI (Linux) a Feature Key change survives the rollback of an
 // asserterror. That is a Linux suspect until the Windows nightly confirms it: the rollback of an uncommitted change is refused.
 #[test]
 fn a_rollback_of_an_uncommitted_feature_key_change_is_refused() {
@@ -540,7 +540,7 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 // The Field table answers the rowversion row (No. 0, `timestamp`, BigInteger, Normal, Len 8, Enabled) only to a FieldName
-// filter, on a table with a key over SystemRowVersion and on one without (types/lt-aj-probes/AjMisc.al:510-521, helper
+// filter, on a table with a key over SystemRowVersion and on one without (types/AjMisc.al:510-521, helper
 // QtFieldTableAnswers :414-429). Get(table, 0), a No. = 0 filter, a Type filter, a FieldName filter on another name and a
 // TableNo-only scan do not see it (same helper; RaFieldScan :613-641; metadata/W6FieldKeyRows.al:263-270). Only the shape
 // TableNo plus FieldName = 'timestamp' (:405-406) is pinned: another filter next to them, or a pattern, is refused.
@@ -568,7 +568,7 @@ codeunit 50000 "T" { Subtype = Test;
   [Test] procedure UnpinnedColumn() var F: Record Field; begin F.SetRange(TableNo, 50004); F.SetRange(FieldName, 'timestamp'); F.FindFirst(); if IsNullGuid(F."App Package ID") then; end; }"#,
     );
     // A wildcard filter on the name does not see the row, and a Class filter next to the name keeps it
-    // (types/lt-aj-probes/AjMisc.al:702-703 and :712-713, expected at :723 and :725).
+    // (types/AjMisc.al:702-703 and :712-713, expected at :723 and :725).
     for t in ["WithKey", "WithoutKey", "OtherName", "Pattern", "ExtraFilter"] {
         passes(&o, t);
     }
@@ -656,16 +656,16 @@ fn date_and_time_zone_and_windows_language_answer_from_their_pins() {
     }
 }
 
-/// A major the corpus table of Windows Language (record/lt-y39-windows-language-table, BC 27 to 29) does not cover: the
+/// A major the corpus table of Windows Language (record/table-properties, BC 27 to 29) does not cover: the
 /// runtime keeps its older rows for it, and the tests of those rows run on it (`al_test_cli::windows_language`).
 const FALLBACK_BC: &str = "30.0.0.0";
 
 // Windows Language: record/TestWindowsLanguageTable.al:9-13 pins the columns of the culture (Language ID, Primary Language
-// ID, Name, Abbreviated Name, Primary CodePage, Language Tag). platform/lt-ag-contoso/AgWindowsLanguage.al pins more: the row
+// ID, Name, Abbreviated Name, Primary CodePage, Language Tag). metadata/platform-tables/AgWindowsLanguage.al pins more: the row
 // of each of the DemoTool's 54 codes, found by Abbreviated Name with a count of 1 (QX_WindowsLanguage_ByAbbreviatedName_Part1-3),
 // "Globally Enabled" true on every row (its count is the table's, :116-118) and "STX File Exist" true for 1030, 1031, 1033,
 // 1036 and 2057 (:110-114), "Localization Exist" true for 1031, 1033, 1036, 1040 and 2057
-// (errors/lt-ms-refusals-128/P128WindowsLanguage.al:46-50). Any other column, and "STX File Exist" of any other row, is refused, not answered with a blank
+// (record/P128WindowsLanguage.al:46-50). Any other column, and "STX File Exist" of any other row, is refused, not answered with a blank
 // (the DemoTool's Demo Data Setup."Data Language ID" TableRelation filters on both).
 #[test]
 fn windows_language_answers_the_pinned_columns_and_refuses_the_rest() {
@@ -707,8 +707,8 @@ fn windows_language_answers_the_pinned_columns_and_refuses_the_rest() {
     }
 }
 
-// Windows Language ids the corpus pins as no row: 1, 127 and 4096 (errors/lt-ms-refusals-129/P129WindowsLanguage.al:63-96),
-// 1, 2, 7, 9, 10 and 12 (errors/lt-ms-refusals-137/P137WindowsLanguage.al:24-54). Get of one of them is false; an id next to
+// Windows Language ids the corpus pins as no row: 1, 127 and 4096 (record/P129WindowsLanguage.al:63-96),
+// 1, 2, 7, 9, 10 and 12 (record/P137WindowsLanguage.al:24-54). Get of one of them is false; an id next to
 // them (3, 4095) is still refused.
 #[test]
 fn windows_language_get_of_a_pinned_absent_id_is_false() {
@@ -729,7 +729,7 @@ fn windows_language_get_of_a_pinned_absent_id_is_false() {
 }
 
 // Windows Language 12297 (English (Zimbabwe)): one row, Abbreviated Name ENW, Globally Enabled, no STX file
-// (types/lt-wc/WcUnpinnedSingles.al:148-173, al-runner issue 6322). Its code page and tag are not pinned: a read of one is refused.
+// (errors/WcUnpinnedSingles.al:148-173, al-runner issue 6322). Its code page and tag are not pinned: a read of one is refused.
 #[test]
 fn windows_language_12297_is_a_pinned_row() {
     let o = outcomes_bc(
@@ -749,7 +749,7 @@ fn windows_language_12297_is_a_pinned_row() {
 }
 
 // Windows Language rows 2107 (Sami, Northern (Sweden)) and 9225 (English (Caribbean)): the reporter's BC 29 measurement
-// (al-runner issue 6558; pinned since corpus 7f7cdc2a by record/lt-y39-windows-language-table/). The repro: an enabled filter on the id is not
+// (al-runner issue 6558; pinned since corpus 7f7cdc2a by record/table-properties/). The repro: an enabled filter on the id is not
 // empty, and Get answers the row with the measured values.
 #[test]
 fn windows_language_2107_and_9225_are_rows() {
@@ -768,8 +768,8 @@ fn windows_language_2107_and_9225_are_rows() {
     }
 }
 
-// License Permission: the two rows platform/lt-platform-tables/PtCloudTables.al:60-76 pins, and the rows
-// platform/lt-ag-contoso/AgLicensePermission.al:43-67 reads by key (Codeunit 410 'Update Analysis View', which Cash Flow
+// License Permission: the two rows metadata/platform-tables/PtCloudTables.al:60-76 pins, and the rows
+// metadata/platform-tables/AgLicensePermission.al:43-67 reads by key (Codeunit 410 'Update Analysis View', which Cash Flow
 // Wksh.-Register Batch reads while the Contoso company is built). Any other object is refused, because the table lists
 // the permissions of the license and nothing pins them.
 #[test]
@@ -791,7 +791,7 @@ fn license_permission_answers_its_two_pinned_rows_and_refuses_the_rest() {
     }
 }
 
-// Language Selection: every row and column of a fresh tenant (platform/lt-platform-rows-fresh/PlatformRowsLanguageSelection.al:76,
+// Language Selection: every row and column of a fresh tenant (metadata/platform-tables/PlatformRowsLanguageSelection.al:76,
 // 212 rows from BC 29 and 208 before, :574-586). Base Application's Customer.UpdateFormatRegion reads it by Language ID (DemoTool).
 // The Name of a row in another session language is not pinned: refused.
 #[test]
@@ -897,7 +897,7 @@ codeunit 50000 "T" { Subtype = Test;
 /// Change Log Management assigns `xRecRef.ReadIsolation` on a RecordRef parameter (Base
 /// Application, ChangeLogManagement.Codeunit.al). Assigning it compiles and runs on a parameter
 /// and on a local RecordRef, as the corpus pins for a plain one (record/TestRecordLock.al:86,
-/// session/TestBCLockingContracts.al:14, both `*_IsCallable`).
+/// session-system/TestBCLockingContracts.al:14, both `*_IsCallable`).
 #[test]
 fn read_isolation_is_assignable_on_a_recordref_parameter_and_a_local_one() {
     let o = outcomes(
@@ -929,7 +929,7 @@ fn the_id_of_a_platform_table_with_no_provider_can_be_named() {
 }
 
 /// Report Layout List CaptionML (4) is blank for an RDLC, Word or Excel layout that declares none, with or without a Caption
-/// (platform/lt-aw-fresh-tenant/AwTests.al:222-260; platform/lt-ug-report-layout-list/UgReportLayoutList.al:103, :137); a
+/// (metadata/platform-tables/AwTests.al:222-260; metadata/platform-tables/UgReportLayoutList.al:103, :137); a
 /// declared CaptionML is pinned by no corpus test: refused.
 #[test]
 fn report_layout_list_caption_ml_is_blank_when_not_declared() {
@@ -950,8 +950,8 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// Report Layout List of an RDLC, Word or Excel layout of a report of the app under test: Custom Type (8) the null Guid, MIME Type
-/// (9) blank, Layout Publisher (13) `<app name> by <publisher>`, ReportIsInstalled (15) Yes (platform/lt-ug-report-layout-list/
-/// UgReportLayoutList.al:106-113, :140-147; platform/lt-aw-fresh-tenant/AwTests.al:222-260); User Defined (14) No for an Excel
+/// (9) blank, Layout Publisher (13) `<app name> by <publisher>`, ReportIsInstalled (15) Yes (metadata/platform-tables/
+/// UgReportLayoutList.al:106-113, :140-147; metadata/platform-tables/AwTests.al:222-260); User Defined (14) No for an Excel
 /// layout too (AwTests.al:226).
 #[test]
 fn report_layout_list_columns_of_an_own_layout() {
@@ -972,7 +972,7 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "Columns");
 }
 
-/// Report Layout List, Report Metadata and Report Data Items (handlers/TestSourceReportLayoutFlags.al,
+/// Report Layout List, Report Metadata and Report Data Items (permissions/TestSourceReportLayoutFlags.al,
 /// TestPrecompiledReportLayouts.al, TestReportMetadataColumns.al).
 #[test]
 fn a_report_is_listed_with_its_layouts_metadata_and_data_items() {
@@ -989,7 +989,7 @@ codeunit 50000 "T" { Subtype = Test;
     L.SetRange(Name, 'L1'); L.FindFirst(); if L."Layout Format" <> L."Layout Format"::Excel then Error('format'); if L.IsObsolete then Error('obsolete');
     if L.ExcelLayoutMultipleDataSheets <> L.ExcelLayoutMultipleDataSheets::"Multiple data sheets" then Error('sheets');
     L.SetRange(Name, 'L2'); L.FindFirst(); if not L.IsObsolete then Error('not obsolete');
-    // A layout with no Caption or Summary reads its name for both (session/PWPlatformTables.al:126-139).
+    // A layout with no Caption or Summary reads its name for both (session-system/PWPlatformTables.al:126-139).
     if L.Caption <> 'L2' then Error('caption [%1]', L.Caption); if L.Description <> 'L2' then Error('description'); end;
   [Test] procedure Metadata() var M: Record "Report Metadata"; begin M.Get(50002); if M.ProcessingOnly then Error('processing'); if M.UseRequestPage then Error('request page'); if M.FirstDataItemTableID <> Database::Thing then Error('table'); end;
   [Test] procedure DataItems() var D: Record "Report Data Items"; begin D.SetRange("Report ID", 50002); if D.Count() <> 2 then Error('count'); D.SetRange(Name, 'Thing'); D.FindFirst();
@@ -1003,7 +1003,7 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// Report Metadata TransactionType (11) is UpdateNoLocks for a report that declares none
-/// (metadata/lt-report-metadata-columns/ReportMetadata.al:210, :236, :262). A declared one is pinned by no
+/// (metadata/platform-tables/ReportMetadata.al:210, :236, :262). A declared one is pinned by no
 /// corpus test: reading it is refused.
 #[test]
 fn report_metadata_transaction_type_is_update_no_locks_when_not_declared() {
@@ -1019,7 +1019,7 @@ codeunit 50000 "T" { Subtype = Test;
     assert!(why.contains("TransactionType"), "{why}");
 }
 
-/// Report Metadata EnableExternalAssemblies (8) is No for a report that declares none (report/lt-y-report-props/
+/// Report Metadata EnableExternalAssemblies (8) is No for a report that declares none (reports/runtime/
 /// YReportPropsTests.al:45); a declared one is pinned by no corpus test, so reading it is refused.
 #[test]
 fn report_metadata_enable_external_assemblies_is_refused_when_declared() {
@@ -1036,7 +1036,7 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// Report Metadata EnableHyperLinks (7), ShowPrintStatus (10) and PreviewMode (15) of a report that declares none of
-/// them read No, Yes and Normal (metadata/lt-report-metadata-columns/ReportMetadata.al:206, :209, :214); a declared one
+/// them read No, Yes and Normal (metadata/platform-tables/ReportMetadata.al:206, :209, :214); a declared one
 /// is pinned by no corpus test: refused.
 #[test]
 fn report_metadata_hyperlinks_print_status_preview_mode_defaults() {
@@ -1091,8 +1091,8 @@ codeunit 50000 "T" { Subtype = Test;
     assert!(why.contains("SQLDataType"), "{why}");
 }
 
-/// XmlPort Metadata and Query Metadata (xmlport/TestXmlPortMetadataVirtualTable.al,
-/// query/TestQueryMetadataVirtualTable.al).
+/// XmlPort Metadata and Query Metadata (xmlports/TestXmlPortMetadataVirtualTable.al,
+/// queries/TestQueryMetadataVirtualTable.al).
 #[test]
 fn xmlports_and_queries_are_listed_from_their_declarations() {
     let o = outcomes(
@@ -1112,7 +1112,7 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "Query");
 }
 
-/// An xmlport that leaves `Encoding` out reads UTF16 (xmlport/TestPlatformMetadataDefaultsContracts.al:93),
+/// An xmlport that leaves `Encoding` out reads UTF16 (xmlports/TestPlatformMetadataDefaultsContracts.al:93),
 /// not UTF8; one that declares it is not pinned and its row is refused.
 #[test]
 fn an_xmlport_without_an_encoding_property_reads_utf16() {
@@ -1126,7 +1126,7 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// "Page Metadata"."CardPageID" is the id of the page named in CardPageId and 0 when the page states none
-/// (handlers/TestPageCloseTriggersSelectionCardPageContracts.al:305-315).
+/// (testpage/TestPageCloseTriggersSelectionCardPageContracts.al:305-315).
 #[test]
 fn a_pages_card_page_id_is_the_stated_page_or_zero() {
     let o = outcomes(
@@ -1144,7 +1144,7 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// "Page Metadata" reads a property as the page's extensions leave it: one extension's value wins over the page's
-/// (pageext/lt-z-page-ext-props/ZPageExtProps.al:629, 685-1110), an extension of another page changes nothing, and two
+/// (pages/extensions/ZPageExtProps.al:629, 685-1110), an extension of another page changes nothing, and two
 /// extensions that set it are not pinned, so a read of that column is refused (the rest of the row is served, al-runner issue 6251).
 #[test]
 fn a_page_metadata_property_is_the_one_extension_value_and_two_extensions_are_refused() {
@@ -1192,7 +1192,7 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "Nesting");
 }
 
-/// Page Action of a page with area(Promoted) (pages/lt-y72-page-probes/Y72PageActionControlRows.al
+/// Page Action of a page with area(Promoted) (record/Y72PageActionControlRows.al
 /// PageAction_FilterByName_ActionRef): no row is named after an actionref or an area, the referenced action has its one row, and
 /// a read that may see the area's other rows refuses.
 #[test]
@@ -1213,7 +1213,7 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// Page Control Field of a control bound to a quoted field of a record variable: FieldNo 0, the source expression as written
-/// (pages/lt-y72-page-probes/Y72PageActionControlRows.al PageControl_RecVarQuotedSpacedField).
+/// (record/Y72PageActionControlRows.al PageControl_RecVarQuotedSpacedField).
 #[test]
 fn a_record_variable_field_with_a_quoted_name_is_named_as_written() {
     let o = outcomes(
@@ -1250,7 +1250,7 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// A table trigger event bound to a field is published as `<event> - <field>`
-/// (xmlport/TestPlatformMetadataDefaultsContracts.al:113-124).
+/// (xmlports/TestPlatformMetadataDefaultsContracts.al:113-124).
 #[test]
 fn a_validate_subscription_on_a_field_names_the_field_in_the_published_function() {
     let o = outcomes(
@@ -1267,7 +1267,7 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// Table Relations Metadata "Table Name" (12), "Field Name" (13), "Related Table Name" (14) and "Related Field Name" (15) are
-/// the declared names of the own table and field and of the related ones (misc/lt-probes-needed-5/PnE09Platform.al:122-125).
+/// the declared names of the own table and field and of the related ones (json/PnE09Platform.al:122-125).
 /// Of the rows of SystemCreatedBy and SystemModifiedBy they are not pinned: refused.
 #[test]
 fn table_relations_metadata_names_the_tables_and_fields() {
@@ -1287,7 +1287,7 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// Table Relations Metadata "Condition Value" of a `filter(...)` condition on an enum field is the members' values joined by `|`,
-/// and on an Integer field the alternatives joined by `|` without the spaces (misc/lt-probes-needed-5/PnE09Platform.al:122-123,
+/// and on an Integer field the alternatives joined by `|` without the spaces (json/PnE09Platform.al:122-123,
 /// `filter(Alpha | Beta)` reads `0|1`, `filter(5 | 7)` reads `5|7`, `filter('A' | 'B')` reads `A|B`); one quoted literal keeps
 /// its bars (`filter('X|Y')` is `X|Y`).
 #[test]
@@ -1338,7 +1338,7 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// A tableextension `modify(..) { TableRelation }` on a field whose base relation is unconditional: the Field row keeps
-/// the base's table when the extension adds an unconditional relation (tableextension/TestTableExtFieldTableRelation.al:266)
+/// the base's table when the extension adds an unconditional relation (table-objects/extensions/TestTableExtFieldTableRelation.al:266)
 /// or a conditional one with an else arm (:532). An extension relation without an else arm is not pinned: refused.
 /// A conditional base relation reads 0 (:368, :409, :450, :491).
 #[test]
@@ -1370,7 +1370,7 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// The code coverage tables hold nothing until a recording starts; after one they hold what ran
-/// (codeunit/TestCodeCoverageTable.al, TestCodeCoveragePerTest.al). `Line No.` is a source line.
+/// (codeunits/TestCodeCoverageTable.al, TestCodeCoveragePerTest.al). `Line No.` is a source line.
 #[test]
 fn code_coverage_tables_hold_what_was_recorded_and_delete_all_empties_them() {
     let o = outcomes(
@@ -1420,7 +1420,7 @@ fn code_coverage_tables_hold_what_was_recorded_and_delete_all_empties_them() {
     passes(&o, "ARecordingAfterDeleteAllStartsFromNothing");
 }
 
-/// codeunit/TestCodeCoverageLineTextContracts.al: the `begin` and `end` lines have `Empty` rows, every row's `Line` holds the
+/// codeunits/TestCodeCoverageLineTextContracts.al: the `begin` and `end` lines have `Empty` rows, every row's `Line` holds the
 /// platform's text for an app without source, and the status is Covered, Not Covered or Non Applicable.
 #[test]
 fn code_coverage_rows_of_an_app_without_source_hold_the_platform_text_and_a_status() {
@@ -1451,7 +1451,7 @@ fn code_coverage_rows_of_an_app_without_source_hold_the_platform_text_and_a_stat
 
 /// A `[Test]` procedure that starts while recording has a Tests Run row, and the methods that run
 /// inside it a Test Lookup row each; a call outside any test leaves none
-/// (codeunit/TestCodeCoveragePerTest.al).
+/// (codeunits/TestCodeCoveragePerTest.al).
 #[test]
 fn code_coverage_notes_the_tests_that_start_while_recording() {
     let o = outcomes(
@@ -1483,7 +1483,7 @@ fn code_coverage_notes_the_tests_that_start_while_recording() {
     passes(&o, "ACallOutsideAnyTest");
 }
 
-/// All Profile (profile/TestAllProfileTable.al): stored and seeded from the profile objects. The delete
+/// All Profile (profiles/TestAllProfileTable.al): stored and seeded from the profile objects. The delete
 /// rule for an installed app's row needs an app with a GUID id: the corpus pins it.
 #[test]
 fn a_profile_object_is_a_row_and_a_tenant_row_can_be_added_and_removed() {
@@ -1586,7 +1586,7 @@ codeunit 50000 "T" { Subtype = Test;
 
 #[test]
 fn a_published_application_row_passes_the_tenant_filter_of_the_retention_policy_module() {
-    // install/TestRetenPolAllowedTables_Tests.al: Base Application registers table 405 only when
+    // install-upgrade/TestRetenPolAllowedTables_Tests.al: Base Application registers table 405 only when
     // System Application finds its Published Application row through
     // SetFilter("Tenant ID", '%1|%2', '', TenantId). The row must therefore satisfy that filter.
     let o = outcomes_app(
@@ -1602,7 +1602,7 @@ fn a_published_application_row_passes_the_tenant_filter_of_the_retention_policy_
 }
 
 /// A relation whose condition is `Kind = filter(A | B)` lists one row with Condition Type FILTER and the member
-/// ordinals joined by `|` (session/PWPlatformTables.al:109-123, BC 27.5).
+/// ordinals joined by `|` (session-system/PWPlatformTables.al:109-123, BC 27.5).
 #[test]
 fn a_filter_condition_of_option_members_lists_the_ordinals() {
     let o = outcomes(
@@ -1636,7 +1636,7 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// A filter on "Number of Calls" or "Active Manual Instances" is answered from the session's counts
-/// (session/PWPlatformTables.al:EventSubscription_FilterOnNumberOfCalls, BC 27.5 observes it).
+/// (session-system/PWPlatformTables.al:EventSubscription_FilterOnNumberOfCalls, BC 27.5 observes it).
 #[test]
 fn event_subscriptions_can_be_filtered_on_the_session_counts() {
     let o = outcomes(
@@ -1653,9 +1653,9 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// Tenant Web Service and Web Service take Insert, Modify and Delete from AL
-/// (corpus tests/al-language-onprem/session/PZPlatformSurvey.al:178-187). A fresh tenant holds 64 Tenant Web Service rows, every
-/// column pinned (platform/lt-platform-rows-fresh/PlatformRowsWebService.al:66-199, count :215). Microsoft's DemoTool (Create
-/// Web Services) calls CreateTenantWebService for page 89, which finds 'Job List' (onprem platform/PtWebServiceRows.al:229).
+/// (corpus tests/al-language-onprem/session-system/PZPlatformSurvey.al:178-187). A fresh tenant holds 64 Tenant Web Service rows, every
+/// column pinned (metadata/platform-tables/PlatformRowsWebService.al:66-199, count :215). Microsoft's DemoTool (Create
+/// Web Services) calls CreateTenantWebService for page 89, which finds 'Job List' (onprem metadata/PtWebServiceRows.al:229).
 #[test]
 fn tenant_web_service_holds_the_rows_of_a_fresh_tenant_and_takes_writes() {
     let o = outcomes(
@@ -1674,7 +1674,7 @@ fn tenant_web_service_holds_the_rows_of_a_fresh_tenant_and_takes_writes() {
 }
 
 // A fresh tenant also holds 402 Tenant Web Service Columns and 29 Tenant Web Service OData rows (System Application tables 6711,
-// 6710; onprem platform/PtWebServiceRows.al:237 and :267, 'counts before' 17|64|402|29), which rows is not pinned: the runtime starts them
+// 6710; onprem metadata/PtWebServiceRows.al:237 and :267, 'counts before' 17|64|402|29), which rows is not pinned: the runtime starts them
 // empty, so a read of rows the session did not write is refused, as for Tenant Web Service Filter (6712), whose rows nothing pins.
 #[test]
 fn tenant_web_service_columns_odata_and_filter_refuse_reads_of_rows_they_do_not_hold() {
@@ -1695,7 +1695,7 @@ codeunit 50000 "T" { Subtype = Test;
     }
 }
 
-// Web Service on a fresh tenant: 17 rows, every column (tests/al-language-onprem/platform/PtWebServiceRows.al:39-73,
+// Web Service on a fresh tenant: 17 rows, every column (tests/al-language-onprem/metadata/PtWebServiceRows.al:39-73,
 // WebService_Content). Microsoft's DemoTool (Create Web Services) calls CreateWebService for page 42, which finds SalesOrder.
 #[test]
 fn web_service_holds_the_rows_of_a_fresh_tenant() {
@@ -1711,7 +1711,7 @@ fn web_service_holds_the_rows_of_a_fresh_tenant() {
 }
 
 // Tenant Report Layout Selection on a fresh tenant: four rows, blank company and user, the layout names, the Base Application's
-// App ID (platform/lt-platform-tables/PtCloudTables.al:378-432, QX_TenantReportLayoutSelection_RowsAndDemoShape).
+// App ID (metadata/platform-tables/PtCloudTables.al:378-432, QX_TenantReportLayoutSelection_RowsAndDemoShape).
 // Insert(true) of an existing key answers false, Modify(true) true: Microsoft's DemoTool (Create Custom Report Layout) does that.
 #[test]
 fn tenant_report_layout_selection_holds_the_rows_of_a_fresh_tenant() {
@@ -1725,7 +1725,7 @@ fn tenant_report_layout_selection_holds_the_rows_of_a_fresh_tenant() {
     S.Get(1306, '', B); if S."Layout Name" <> 'X.docx' then Error('modified'); end; }"#,
     );
     passes(&o, "Rows");
-    // platform/lt-platform-rows-fresh/PlatformRowsLayoutSelection.al:82-85: the Base Application's id on every row.
+    // metadata/platform-tables/PlatformRowsLayoutSelection.al:82-85: the Base Application's id on every row.
     passes(&o, "AppId");
 }
 
@@ -1750,7 +1750,7 @@ fn odata_edm_type_holds_the_keys_of_a_fresh_tenant() {
 }
 
 /// Field.IsPartOfPrimaryKey (column 28) is read in AL code: true for a field of the primary key
-/// (corpus metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al:237-268).
+/// (corpus metadata/platform-tables/PlatformMetadataColumnValues.al:237-268).
 #[test]
 fn is_part_of_primary_key_is_read_from_the_primary_key() {
     let o = outcomes(
@@ -1765,7 +1765,7 @@ codeunit 50000 "T" { Subtype = Test;
 
 /// Page Metadata InsertAllowed, ModifyAllowed and DeleteAllowed (columns 16 to 18): Yes unless the page
 /// declares false; a page extension's literal wins over the base page's
-/// (corpus pageext/lt-z-page-ext-props/ZPageExtProps.al:685-1110, ZDeleteAllowed_1 to ZModifyAllowed_4).
+/// (corpus pages/extensions/ZPageExtProps.al:685-1110, ZDeleteAllowed_1 to ZModifyAllowed_4).
 /// Two extensions that set the same property are not pinned and are refused.
 #[test]
 fn page_metadata_allowed_columns_follow_the_page_and_its_extension() {
@@ -1858,8 +1858,8 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// "Type Name" of the Field table is the type's name, with the length of a Text or Code, for every type a table field can
-/// have (platform/lt-ba-columns/BaFieldTypeName.al:52-69; an enum reads `Option`). OptimizeForTextSearch declared on a Code
-/// field reads as declared (lt-ak-fulltext/LtAkFulltext.al:141-170).
+/// have (metadata/platform-tables/BaFieldTypeName.al:52-69; an enum reads `Option`). OptimizeForTextSearch declared on a Code
+/// field reads as declared (record/LtAkFulltext.al:141-170).
 #[test]
 fn field_type_name_is_pinned_for_every_type() {
     let o = outcomes(
@@ -1908,7 +1908,7 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// CodeUnit Metadata TestType (9) and RequiredTestIsolation (10) read the codeunit's declared properties; a test
-/// codeunit without them reads UnitTest and None (codeunit/lt-x-object-props/XObjectProps.al:255-256, :267-268, :279).
+/// codeunit without them reads UnitTest and None (codeunits/procedures/XObjectProps.al:255-256, :267-268, :279).
 #[test]
 fn codeunit_metadata_reads_the_declared_test_type_and_isolation() {
     let o = outcomes(
@@ -1929,7 +1929,7 @@ codeunit 50000 "T" { Subtype = Test;
     }
 }
 
-/// Field.OptimizeForTextSearch (62) is the declared property of a Text or Code field (lt-ak-fulltext/LtAkFulltext.al:119,
+/// Field.OptimizeForTextSearch (62) is the declared property of a Text or Code field (record/LtAkFulltext.al:119,
 /// :122, :167); the property on another type is pinned by no test, so a read of it is refused.
 #[test]
 fn field_optimize_for_text_search_reads_the_declared_property_of_a_text_field() {
@@ -1948,7 +1948,7 @@ codeunit 50000 "T" { Subtype = Test;
     assert!(why.contains("OptimizeForTextSearch"), "{why}");
 }
 
-/// AllObj holds a TableData row next to every Table row (metadata/lt-all-obj-namespace/AllObjNamespace.al:190-192:
+/// AllObj holds a TableData row next to every Table row (metadata/session-system/AllObjNamespace.al:190-192:
 /// the rows with a table's id are its TableData and its Table row), so a read over every object type counts both.
 #[test]
 fn an_all_obj_read_over_every_object_type_counts_the_table_data_row() {
@@ -1963,8 +1963,8 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// The test session's own Session row: Login Type "Username and Password" (ordinal 2), and "Application Name" the
-/// Active Session "Client Type" of the web client (session/W6SessionTimeZone.al:22-23, session/W5SessionFacts.al:135,
-/// session/TestSessionVirtualTable.al:166).
+/// Active Session "Client Type" of the web client (session-system/W6SessionTimeZone.al:22-23, session-system/W5SessionFacts.al:135,
+/// session-system/TestSessionVirtualTable.al:166).
 #[test]
 fn the_session_row_is_a_web_client_session_logged_in_by_user_name_and_password() {
     let o = outcomes(
@@ -1980,7 +1980,7 @@ fn the_session_row_is_a_web_client_session_logged_in_by_user_name_and_password()
 }
 
 /// Code Coverage Tests Run "Method ID" is one number for every test procedure, not below 1000: 469735107
-/// (codeunit/PWCodeCoverageRows.al:308; coverage/W6CodeCoverageIds.al:105-107, :139, :168). Only comparisons of it run; a read
+/// (codeunits/PWCodeCoverageRows.al:308; test-framework/code-coverage/W6CodeCoverageIds.al:105-107, :139, :168). Only comparisons of it run; a read
 /// that shows it is refused (see a_tests_run_method_id_is_refused_where_its_number_would_show).
 #[test]
 fn code_coverage_tests_run_method_id_is_the_one_number_of_a_test_procedure() {
@@ -2004,7 +2004,7 @@ fn code_coverage_tests_run_method_id_is_the_one_number_of_a_test_procedure() {
 }
 
 /// Published Application.Description (15) holds the manifest's description as UTF-8 text (onprem
-/// session/PZPublishedApplicationColumns.al:55, :59). An app whose manifest description is not known (here the System app,
+/// session-system/PZPublishedApplicationColumns.al:55, :59). An app whose manifest description is not known (here the System app,
 /// whose source carries no manifest) is refused rather than answered blank, and so is the Description of the row of the
 /// Application aggregate, which the program has no app for.
 #[test]
@@ -2038,10 +2038,10 @@ fn published_application_description_is_the_manifest_text() {
 }
 
 /// AllObjWithCaption: a table whose TableType the runtime has no pinned Object Subtype for (CDS) still lists its
-/// other columns, so a count over them is answered (install/lt-cm-install-leads/CmInstallObjects.al:73-79 counts
-/// the app's objects, record/lt-u-table-field-props/UTableCdsOrdinals.al:9 declares a CDS table); a read of the
+/// other columns, so a count over them is answered (metadata/CmInstallObjects.al:73-79 counts
+/// the app's objects, record/table-properties/UTableCdsOrdinals.al:9 declares a CDS table); a read of the
 /// Object Subtype itself is refused. The name matches the Table row and its TableData row
-/// (metadata/lt-all-obj-namespace/AllObjNamespace.al:156-218).
+/// (metadata/session-system/AllObjNamespace.al:156-218).
 #[test]
 fn an_object_subtype_nothing_pins_is_refused_and_the_other_columns_of_the_row_read() {
     let o = outcomes(
@@ -2059,7 +2059,7 @@ codeunit 50000 "T" { Subtype = Test;
 /// An install codeunit that cannot run (here: Confirm, which raises CallbackNotAllowed in install code) holds back the tests that touch the
 /// tables it could have written. AllObj and AllObjWithCaption are listed from the compiled objects only, so an
 /// install that reads them changes nothing a test reads there: a test that reads them still runs
-/// (install/lt-cm-install-leads/CmInstallObjects.al:73-79 reads AllObjWithCaption and then calls Confirm).
+/// (metadata/CmInstallObjects.al:73-79 reads AllObjWithCaption and then calls Confirm).
 #[test]
 fn an_install_that_cannot_run_does_not_hold_back_tests_of_the_object_listings() {
     let o = outcomes(
@@ -2076,7 +2076,7 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// Table Metadata DataCaptionFields lists the ids of the fields named, a table extension's included; LinkedObject reads the
-/// property (record/lt-x-table-props/XTablePropsTests.al:570-591).
+/// property (record/table-properties/XTablePropsTests.al:570-591).
 #[test]
 fn table_metadata_reads_data_caption_fields_of_an_extension_and_linked_object() {
     let o = outcomes(
@@ -2091,7 +2091,7 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// The session reads the database of the oracle: `CRONUS`, in the Session and the Active Session
-/// row (platform/lt-aw-fresh-tenant/AwTests.al:49 and :71).
+/// row (metadata/platform-tables/AwTests.al:49 and :71).
 #[test]
 fn the_session_rows_name_the_cronus_database() {
     let o = outcomes(
@@ -2104,7 +2104,7 @@ fn the_session_rows_name_the_cronus_database() {
 }
 
 /// A table the app declares with `ObsoleteState = Moved` is not in the runtime app: AllObj has no row for it and
-/// `RecordRef.Open` fails with AL:MetadataNotFound (platform/lt-aw-fresh-tenant/AwTests.al:413-442). Issued by the test
+/// `RecordRef.Open` fails with AL:MetadataNotFound (metadata/platform-tables/AwTests.al:413-442). Issued by the test
 /// method itself, the text names the test runner (AwTests.al:434-438, corpus bump 34); issued from a helper it is not
 /// pinned and a read of it is refused. A record operation on the table is not pinned and is refused.
 #[test]
@@ -2128,11 +2128,11 @@ codeunit 50002 "H" { procedure Open(No: Integer) var RR: RecordRef; begin RR.Ope
 
 /// BC 29 adds four FlowFields to every table, listed in the Field table after SystemModifiedBy: 2000000005
 /// SystemCreatedByUserName and 2000000007 SystemModifiedByUserName (Text 50), 2000000006 SystemCreatedByFullName and
-/// 2000000008 SystemModifiedByFullName (Text 80) (system-fields/W6SystemFieldStamps.al:239-246; metadata/W6FieldKeyRows.al:
+/// 2000000008 SystemModifiedByFullName (Text 80) (record/system-fields/W6SystemFieldStamps.al:239-246; metadata/W6FieldKeyRows.al:
 /// 167-168, :267-268). Their other columns: Enabled, Type Name Text50/Text80, Field Caption 'Created By (User Name)' and so on,
 /// DataClassification SystemMetadata, all others blank or zero (Access and IsAllowedInCustomizations count as pinned once the
 /// corpus bump regenerates `pinned_columns.rs`) (corpus master
-/// platform/lt-y35-username-field-rows/Y35UserNameFieldRows.al C305_UserNameFieldRows_OwnTable). Their package ids differ
+/// metadata/platform-tables/Y35UserNameFieldRows.al C305_UserNameFieldRows_OwnTable). Their package ids differ
 /// from field 1's for a table of the app under test, and what they are is not pinned: refused. A FieldRef to one reads its
 /// value only after CalcField (the value before it is not pinned and is refused; refs.rs `user_name_fieldref_op`).
 #[test]
@@ -2165,8 +2165,43 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "TextCount");
 }
 
+/// The Field rows of SystemId and the audit fields carry the platform's own DataClassification whatever the table declares
+/// (CustomerContent, ToBeClassified or nothing): EndUserPseudonymousIdentifiers (4) for SystemId (2000000000), SystemCreatedBy
+/// (2000000002) and SystemModifiedBy (2000000004); SystemMetadata (6) for SystemCreatedAt (2000000001) and SystemModifiedAt
+/// (2000000003), by `Get` and in a `SetRange(TableNo)` walk, on BC 27.5, 28.5 and 29.0 alike (corpus
+/// metadata/platform-tables/R6890SystemFieldClassification.al:97-157, al-runner issue 6890).
+#[test]
+fn system_field_rows_carry_the_platforms_data_classification() {
+    let src = r#"table 50001 "RCC" { DataClassification = CustomerContent; fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+table 50002 "RNone" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+table 50003 "RTbc" { DataClassification = ToBeClassified; fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+codeunit 50000 "T" { Subtype = Test;
+  procedure Check(TableNo: Integer) var F: Record Field; N: Text; begin
+      F.Get(TableNo, 2000000000); if F.DataClassification <> F.DataClassification::EndUserPseudonymousIdentifiers then Error('systemid %1', F.DataClassification);
+      F.Get(TableNo, 2000000001); if F.DataClassification <> F.DataClassification::SystemMetadata then Error('createdat %1', F.DataClassification);
+      F.Get(TableNo, 2000000002); if F.DataClassification <> F.DataClassification::EndUserPseudonymousIdentifiers then Error('createdby %1', F.DataClassification);
+      F.Get(TableNo, 2000000003); if F.DataClassification <> F.DataClassification::SystemMetadata then Error('modifiedat %1', F.DataClassification);
+      F.Get(TableNo, 2000000004); if F.DataClassification <> F.DataClassification::EndUserPseudonymousIdentifiers then Error('modifiedby %1', F.DataClassification);
+      Clear(F); F.SetRange(TableNo, TableNo); F.SetRange("No.", 2000000000, 2000000004); F.SetRange(DataClassification, F.DataClassification::SystemMetadata);
+      if F.FindSet() then repeat N += Format(F."No.") + ',' until F.Next() = 0;
+      if N <> '2000000001,2000000003,' then Error('metadata walk %1', N);
+      F.SetRange(DataClassification, F.DataClassification::EndUserPseudonymousIdentifiers); N := '';
+      if F.FindSet() then repeat N += Format(F."No.") + ',' until F.Next() = 0;
+      if N <> '2000000000,2000000002,2000000004,' then Error('pseudonymous walk %1', N);
+  end;
+  [Test] procedure CustomerContentTable() begin Check(50001); end;
+  [Test] procedure NoClassificationTable() begin Check(50002); end;
+  [Test] procedure ToBeClassifiedTable() begin Check(50003); end; }"#;
+    for ver in ["27.5.0.0", "29.0.0.0"] {
+        let o = outcomes_bc("main", src, al_sema::check::Roots::default(), ver);
+        passes(&o, "CustomerContentTable");
+        passes(&o, "NoClassificationTable");
+        passes(&o, "ToBeClassifiedTable");
+    }
+}
+
 /// The SystemId of a Field row is not the null Guid: the Field table's number, the table's number and the field's number as
-/// little-endian bytes, then four zero bytes (platform/lt-wc/WcFieldRowCopy.al:48, :60-63 on BC 29, al-runner issue 6313).
+/// little-endian bytes, then four zero bytes (metadata/WcFieldRowCopy.al:48, :60-63 on BC 29, al-runner issue 6313).
 /// A copy of the row of a user-name system field into a temporary Field record inserts with it (:53-65) and so does every
 /// row of a table (:67-85).
 #[test]
@@ -2184,8 +2219,8 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// The Field SystemId rule is measured on BC 28 and 29 for tables below and above 65536, fields 2000000000-2 and, on 29,
-/// fields 2000000005-8 (platform/lt-field-row-systemid/FieldRowSystemId.al:49-170, WcFieldRowCopy.al:48, :60-63), and for
-/// fields 2000000003-4 (misc/lt-y70-assumptions/Y70Probes.al:780-837): every read is a clean pass. On BC 27 every Field row's SystemId is the null Guid (FieldRowSystemId.al, the `#else` branches).
+/// fields 2000000005-8 (metadata/platform-tables/FieldRowSystemId.al:49-170, WcFieldRowCopy.al:48, :60-63), and for
+/// fields 2000000003-4 (record/Y70Probes.al:780-837): every read is a clean pass. On BC 27 every Field row's SystemId is the null Guid (FieldRowSystemId.al, the `#else` branches).
 #[test]
 fn every_field_row_system_id_read_is_a_clean_pass() {
     let src = r#"table 90646 "R" { fields { field(1; "No."; Code[20]) { } field(2; Description; Text[50]) { } } keys { key(PK; "No.") { } } }
@@ -2252,7 +2287,7 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// A Tests Run row's `Test ID` is the same in two recordings of one test and is not 1
-/// (coverage/W6CodeCoverageIds.al:144-171); four tests recorded together share one Test ID (:96-97, :111-112), which
+/// (test-framework/code-coverage/W6CodeCoverageIds.al:144-171); four tests recorded together share one Test ID (:96-97, :111-112), which
 /// the runtime's Tests Run table, keyed by Test ID alone, cannot hold: a read of the per-test tables is refused then.
 #[test]
 fn a_tests_run_row_keeps_its_test_id_across_recordings_and_several_recorded_tests_are_refused() {
@@ -2284,8 +2319,8 @@ fn a_tests_run_row_keeps_its_test_id_across_recordings_and_several_recorded_test
     passes(&o, "TwoTestsCodeCoverageRows");
 }
 
-/// The corpus pins only shapes of the Test ID: equal between recordings and rows, and not 1 (coverage/W6CodeCoverageIds.al:
-/// 111-112, :167-168; codeunit/TestCodeCoveragePerTest.al:116 filters the lookup rows by it). Any other read of its value
+/// The corpus pins only shapes of the Test ID: equal between recordings and rows, and not 1 (test-framework/code-coverage/W6CodeCoverageIds.al:
+/// 111-112, :167-168; codeunits/TestCodeCoveragePerTest.al:116 filters the lookup rows by it). Any other read of its value
 /// (formatted, compared with another number, a filter or a key of a literal, a FieldRef) would show the runtime's own
 /// number: refused.
 #[test]
@@ -2330,7 +2365,7 @@ fn a_read_of_the_exact_test_id_value_is_refused_and_the_pinned_shapes_run() {
     passes(&o, "PinnedShapes");
 }
 
-/// BC's test environment has the Test Runner app's codeunits 130450-130455 (permissions/lt-ba-testpermissions/BaTpEnv.al:
+/// BC's test environment has the Test Runner app's codeunits 130450-130455 (permissions/testpermissions/BaTpEnv.al:
 /// 26-28). A run that finds no package of that app (this one has no dependency apps) refuses an AllObj read that may land
 /// on one of them; ids BC's test environment lacks (130301 there) still answer.
 #[test]
@@ -2345,7 +2380,7 @@ fn all_obj_refuses_the_test_runner_codeunits_it_does_not_load() {
 }
 
 /// A tableextension's Caption is the table's Object Caption in AllObjWithCaption and its Table Metadata Caption; the row of the
-/// tableextension itself names it by its name (tableextension/TestTableExtFieldModify.al:172-179).
+/// tableextension itself names it by its name (table-objects/extensions/TestTableExtFieldModify.al:172-179).
 #[test]
 fn a_table_extension_caption_is_the_object_caption_of_the_table() {
     let o = outcomes(
@@ -2360,7 +2395,7 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "Captions");
 }
 
-/// Table Metadata.Caption (a Text[80] field) holds a 120-character caption whole (metadata/lt-cy-long-caption/CyLongCaption.al:
+/// Table Metadata.Caption (a Text[80] field) holds a 120-character caption whole (metadata/session-system/CyLongCaption.al:
 /// 47-58); a longer caption is not pinned and its read is refused.
 #[test]
 fn table_metadata_holds_a_caption_of_120_characters_whole() {
@@ -2379,7 +2414,7 @@ codeunit 50000 "T" {{ Subtype = Test;
 }
 
 /// The Field table's FieldName is cut to its 30 characters; FieldName() and FieldRef.Name give the whole name
-/// (tableextension/TestTableExtFieldModify.al:200-216).
+/// (table-objects/extensions/TestTableExtFieldModify.al:200-216).
 #[test]
 fn the_field_table_cuts_a_field_name_to_30_characters() {
     let o = outcomes(
@@ -2395,7 +2430,7 @@ codeunit 50000 "T" { Subtype = Test;
 
 /// The Field table's App Package ID and App Runtime Package ID are the table's AllObj ones after FindFirst and Next; a Get gives
 /// them for a Base Application table but leaves them null for a table of the app under test
-/// (metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al:283-311).
+/// (metadata/platform-tables/PlatformMetadataColumnValues.al:283-311).
 #[test]
 fn field_table_package_ids_follow_allobj_except_get_on_an_own_table() {
     let o = outcomes_app(
@@ -2418,7 +2453,7 @@ codeunit 50000 "T" { Subtype = Test;
 
 /// ADR-046 decision 4a: in the default mode (one company), a read of the Company table that could list a company the
 /// runtime does not know is refused; a read filtered to one known name is answered. The corpus database holds a second
-/// company (install/lt-bf-install-probes/BfInstallTests.al:60-62), which this runtime does not have.
+/// company (record/BfInstallTests.al:60-62), which this runtime does not have.
 #[test]
 fn company_table_reads_that_could_list_another_company_are_refused() {
     let o = outcomes(
@@ -2428,7 +2463,7 @@ fn company_table_reads_that_could_list_another_company_are_refused() {
   [Test] procedure FilteredToSession() var C: Record Company; begin C.SetRange(Name, CompanyName()); if not C.FindFirst() then Error('none'); if C.Count() <> 1 then Error('count'); end;
   [Test] procedure GetSession() var C: Record Company; begin if not C.Get(CompanyName()) then Error('no row'); end; }"#,
     );
-    // Count stays answered: refusing it loses the baseline case session/TestProbeSessionMiscContracts.al:Company_Names.
+    // Count stays answered: refusing it loses the baseline case session-system/TestProbeSessionMiscContracts.al:Company_Names.
     passes(&o, "CountAll");
     assert!(
         not_run(&o, "FindSetAll").contains("ADR-046"),
@@ -2439,9 +2474,9 @@ fn company_table_reads_that_could_list_another_company_are_refused() {
     passes(&o, "GetSession");
 }
 
-// codeunit/PWCodeCoverageRows.al:303,309: BC's Test Lookup "Method ID" is a compiler-assigned id (31658110 for
+// codeunits/PWCodeCoverageRows.al:303,309: BC's Test Lookup "Method ID" is a compiler-assigned id (31658110 for
 // `RecordedInner`) whose rule is not known, so a read that shows it is refused; comparing it with another id is kept
-// (codeunit/TestCodeCoveragePerTest.al:121, coverage/W6CodeCoverageIds.al:133-134).
+// (codeunits/TestCodeCoveragePerTest.al:121, test-framework/code-coverage/W6CodeCoverageIds.al:133-134).
 #[test]
 fn a_test_lookup_method_id_is_refused_where_its_number_would_show() {
     let o = outcomes(
@@ -2460,9 +2495,9 @@ fn a_test_lookup_method_id_is_refused_where_its_number_would_show() {
     );
 }
 
-// codeunit/PWCodeCoverageRows.al:299,308 and coverage/PxCodeCoverageIds.al:186: BC's Tests Run "Method ID" is a number per test
+// codeunits/PWCodeCoverageRows.al:299,308 and test-framework/code-coverage/PxCodeCoverageIds.al:186: BC's Tests Run "Method ID" is a number per test
 // whose rule is not known; the runtime's constant would show. A comparison, also through an Integer local that is only compared,
-// is kept (coverage/W6CodeCoverageIds.al:83-98, :129-139, :156-164).
+// is kept (test-framework/code-coverage/W6CodeCoverageIds.al:83-98, :129-139, :156-164).
 #[test]
 fn a_tests_run_method_id_is_refused_where_its_number_would_show() {
     let o = outcomes(
@@ -2485,7 +2520,7 @@ fn a_tests_run_method_id_is_refused_where_its_number_would_show() {
 }
 
 // "Agent Task".TaskExists (System Application, through "Agent Task Impl.".TaskExists): IsEmpty on the virtual table Agent Task
-// after two SetRange calls and ReadIsolation fails with the agent service's error, code DB:Ok (platform/lt-rh-agent-session/
+// after two SetRange calls and ReadIsolation fails with the agent service's error, code DB:Ok (metadata/session-system/
 // RhAgentSession.al:74-88 RH_AgentTask_TaskExistsUnknownAgent), from a partner app too. An operation no probe covers
 // (Modify) stays refused.
 #[test]
@@ -2512,14 +2547,14 @@ fn agent_task_is_empty_from_microsoft_code_reports_agents_unavailable() {
         "{o:?}"
     );
     assert!(not_run(&o, "TaskModify").contains("has no provider"));
-    // The same from this app (platform/lt-y35-agent-api/Y35AgentApi.al C302_AgentTaskDirect_Reads).
+    // The same from this app (metadata/session-system/Y35AgentApi.al C302_AgentTaskDirect_Reads).
     passes(&outcomes(src), "TaskExists");
 }
 
 // Application Object Metadata of a query and Microsoft's QueryMetadataReader over its Metadata Blob (ODataUtility.
 // GetTenantWebServiceMetadata): one entry per column in query order, FieldNo the source field (0 for Method = Count),
-// TableNo the data item's table, FieldName the column name (corpus tests/al-language-onprem-dotnet/lt-re-dotnet/
-// ReQueryMetadataShapes.al:99-145, lt-qx-dotnet/QxDotNetDemoShapes.al:150-182). The Blob's bytes are not pinned: a read
+// TableNo the data item's table, FieldName the column name (corpus tests/al-language-onprem-dotnet/dotnet/dotnet/
+// ReQueryMetadataShapes.al:99-145, dotnet/dotnet/QxDotNetDemoShapes.al:150-182). The Blob's bytes are not pinned: a read
 // of them is refused, as is the Metadata of another object type.
 const QUERY_METADATA_SRC: &str = r#"
 dotnet { assembly("Microsoft.Dynamics.Nav.Client.BusinessChart") {
@@ -2587,7 +2622,7 @@ fn application_object_metadata_of_a_query_feeds_the_query_metadata_reader_and_it
 }
 
 // A dependency app's query that the test names only by its id, read through Application Object Metadata and the
-// QueryMetadataReader (corpus tests/al-language-onprem-dotnet/lt-re-dotnet/ReQueryMetadataShapes.al:171, Base
+// QueryMetadataReader (corpus tests/al-language-onprem-dotnet/dotnet/dotnet/ReQueryMetadataShapes.al:171, Base
 // Application's query 51 read by ODataUtility.GetTenantWebServiceMetadata). The demand-driven compile must hold the
 // query as the complete compile does (ADR-013 decision 6): the Application Object Metadata row of every query exists in
 // both, so its Metadata must read alike.
@@ -2640,8 +2675,8 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// "Page Metadata".SourceTableView for a view with sorting, order and several conditions, as BC formats it (corpus
-/// misc/W2PageMetadata.al:384 SourceTableView_Shapes, :461 RP_LookupPageSortedBySecondaryKey_CardPageId; al-runner issue
-/// 5758). `order(ascending)` adds nothing (platform/lt-aw-fresh-tenant/AwTests.al:116); a const of a lower-case Code value is
+/// pages/W2PageMetadata.al:384 SourceTableView_Shapes, :461 RP_LookupPageSortedBySecondaryKey_CardPageId; al-runner issue
+/// 5758). `order(ascending)` adds nothing (metadata/platform-tables/AwTests.al:116); a const of a lower-case Code value is
 /// not pinned and stays refused.
 #[test]
 fn a_source_table_view_with_sorting_order_and_conditions_reads_as_bc_formats_it() {
@@ -2683,7 +2718,7 @@ fn a_source_table_view_with_sorting_order_and_conditions_reads_as_bc_formats_it(
     assert!(matches!(got, Some(Outcome::NotRun(_))), "CodeConst: {got:?}");
 }
 
-/// "Page Metadata".Editable is the page's declared Editable, Yes when it declares none (misc/W2PageMetadata.al:461
+/// "Page Metadata".Editable is the page's declared Editable, Yes when it declares none (pages/W2PageMetadata.al:461
 /// RP_LookupPageSortedBySecondaryKey_CardPageId: `one_editable` No for a List with Editable = false, `card_editable` Yes).
 #[test]
 fn a_pages_editable_column_is_its_declared_editable() {
@@ -2732,7 +2767,7 @@ fn feature_key_rows_follow_the_measured_minors() {
 }
 
 // al-runner issue 5786: a control with `Editable = Rec."Allow Edit"`: its row and its Visible column are served, and the
-// Editable column reads `"Allow Edit"` (errors/lt-ms-refusals-132/P132PageControlVisible.al:232-264).
+// Editable column reads `"Allow Edit"` (pages/controls/P132PageControlVisible.al:232-264).
 #[test]
 fn page_control_field_serves_the_row_of_a_control_with_an_editable_expression() {
     let o = outcomes(
@@ -2771,7 +2806,7 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// Active Session takes an Insert: the row is stored next to the session's own, Get, Count, Modify and Delete see it, a
-/// rollback removes it, and the Session table does not list it (platform/lt-outside-platform/RvActiveSessionWrites.al:42-240,
+/// rollback removes it, and the Session table does not list it (metadata/platform-tables/RvActiveSessionWrites.al:42-240,
 /// AL Runner issue 5807). A duplicate key answers false with an error whose text is not pinned (:136); its statement form
 /// and a write to the session's own row are not pinned.
 #[test]
@@ -2816,7 +2851,7 @@ codeunit 50001 H { procedure InsertFail() var A: Record "Active Session"; begin 
 
 // Agent.GetDisplayName, GetUserName and IsActive (System Application, through "Agent Impl.".GetAgent): Get on the platform table
 // Agent fails with the agent service's error, code DB:Ok, for a new and for a null id, also inside a TryFunction
-// (platform/lt-rh-agent-session/RhAgentSession.al:101-145, AL Runner issue 5787), from a partner app too. An operation no
+// (metadata/session-system/RhAgentSession.al:101-145, AL Runner issue 5787), from a partner app too. An operation no
 // probe covers (Delete) stays refused.
 #[test]
 fn agent_get_from_microsoft_code_reports_agents_unavailable() {
@@ -2839,13 +2874,13 @@ fn agent_get_from_microsoft_code_reports_agents_unavailable() {
         "{o:?}"
     );
     assert!(not_run(&o, "AgentDelete").contains("has no provider"));
-    // The same from this app (onprem platform/lt-y35-agent-direct/Y35AgentDirect.al C302_AgentDirect_Reads).
+    // The same from this app (onprem metadata/session-system/Y35AgentDirect.al C302_AgentDirect_Reads).
     passes(&outcomes(src), "GetAgent");
 }
 
 // NavUserAccountHelper.IsPermissionSetAssigned(user, company, role, app id, scope), which "User Permissions".
 // HasUserPermissionSetAssigned asks when no Access Control row of company '' or the given company matches: false for a set not
-// held, a row for another company and a row with another app id (platform/lt-outside-platform/RvPermissionSetAssigned.al:74-200,
+// held, a row for another company and a row with another app id (session-system/RvPermissionSetAssigned.al:74-200,
 // AL Runner issue 5796). A row that would match is found by "User Permissions" first: what the member answers then is not pinned.
 #[test]
 fn is_permission_set_assigned_answers_false_where_no_row_assigns_the_set() {
@@ -2880,7 +2915,7 @@ codeunit 50000 "T" { Subtype = Test; var H: Codeunit "H"; N: Guid;
 
 // Page Control Field reports a Visible, Enabled or Editable expression as text: a page variable as p<id>p<id><Name>, a source
 // table field as its name (quoted only when it needs quotes), with `not`, `and` and a comparison with a number written out
-// (errors/lt-ms-refusals-132/P132PageControlVisible.al:134-264, AL Runner issue 5786). Other expression shapes are not pinned.
+// (pages/controls/P132PageControlVisible.al:134-264, AL Runner issue 5786). Other expression shapes are not pinned.
 #[test]
 fn page_control_field_reports_expressions_as_bc_writes_them() {
     let src = r#"table 50001 "Line" { fields { field(1; "No."; Integer) { } field(2; "Allow Edit"; Boolean) { } field(3; Flag; Boolean) { } field(4; Quantity; Decimal) { } } keys { key(PK; "No.") { } } }
@@ -2981,7 +3016,7 @@ codeunit 50000 "T" { Subtype = Test;
 
 // al-runner issue 6284: the row of a control bound to a built-in call (`field(companyName; CompanyName)`) is served with
 // FieldNo 0, so a walk over the page's controls or a filter on FieldNo finds the two table-bound controls
-// (record/lt-wb-6284/WbPageControlBuiltIn.al:46-70, corpus branch al-runtime-rs-staging-wb at a07787b2, not yet on master).
+// (record/WbPageControlBuiltIn.al:46-70, corpus branch al-runtime-rs-staging-wb at a07787b2, not yet on master).
 // What BC stores in SourceExpression for a call is not pinned: a read of it is refused, as is an undeclared Editable.
 #[test]
 fn page_control_field_serves_the_row_of_a_control_bound_to_a_built_in_call() {
@@ -3033,7 +3068,7 @@ codeunit 50101 "T" { Subtype = Test;
 
 // al-runner issue 6368: the rows of controls bound to a procedure call (a source-table method `Rec.DisplayCode()`, a codeunit
 // variable's method with and without an argument) and to a built-in call with an argument list: FieldNo 0, Editable False,
-// SourceExpression the call as written with `Rec.` kept; a field control drops `Rec.` (record/lt-x3-6368/X3PageControlCalls.al:142-147,
+// SourceExpression the call as written with `Rec.` kept; a field control drops `Rec.` (record/X3PageControlCalls.al:142-147,
 // :182-183, corpus PR 874, branch al-runtime-rs-staging-x3 at 83d0857d, not yet on master). A call written with a space or a
 // single quote, and a bare name such as `CompanyName`, still refuse SourceExpression and Editable (how BC writes them is not pinned).
 #[test]
@@ -3166,7 +3201,7 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// "Page Metadata".SourceTableView of a page whose view is `where(<Date field> = filter(<> ''))` is returned and names the
-/// field (pages/lt-cd-testpage-leads/CdTestPageLeads.al:890 SH_SourceTableView_DateFilterBlank_PageMetadata).
+/// field (testpage/CdTestPageLeads.al:890 SH_SourceTableView_DateFilterBlank_PageMetadata).
 #[test]
 fn a_not_blank_date_view_is_in_page_metadata() {
     let o = outcomes(
@@ -3182,7 +3217,7 @@ codeunit 50000 "T" { Subtype = Test;
 
 /// "Page Metadata".SourceTableView of a Date field filtered blank, `filter('')` or `filter(0D)`, reads `FILTER('')`, and
 /// `const(0D)` reads the blank date as `CONST(0001-01-01T00:00:00.0000000)`
-/// (pages/lt-cd-testpage-leads/CdTestPageLeads.al:890 SH_SourceTableView_DateFilterBlank_PageMetadata).
+/// (testpage/CdTestPageLeads.al:890 SH_SourceTableView_DateFilterBlank_PageMetadata).
 #[test]
 fn a_blank_date_view_is_in_page_metadata() {
     let o = outcomes(
@@ -3224,7 +3259,7 @@ codeunit 50000 "T" { Subtype = Test;
 }
 
 /// order(ascending) adds nothing, a Code const reads without its quotes and a Decimal `filter(> 0)` reads `FILTER(>0)`
-/// (platform/lt-aw-fresh-tenant/AwTests.al:116-117 PageMetadata_SourceTableView_SortingOrderTwoConditions).
+/// (metadata/platform-tables/AwTests.al:116-117 PageMetadata_SourceTableView_SortingOrderTwoConditions).
 #[test]
 fn ascending_code_const_and_decimal_greater_filter_are_in_page_metadata() {
     let o = outcomes(
@@ -3243,15 +3278,15 @@ codeunit 50000 "T" { Subtype = Test;
 
 // Outside issues (al-runner), kept as regression tests.
 /// Issue 6214: `License Permission.Get` of an object number answers what the corpus pins, read by key:
-/// - platform/lt-ag-contoso/AgLicensePermission.al LicensePermission_ByKey_CustomerAndIsvRanges (corpus PR 809): Codeunit
+/// - metadata/platform-tables/AgLicensePermission.al LicensePermission_ByKey_CustomerAndIsvRanges (corpus PR 809): Codeunit
 ///   50000, 70000123, 2000000000 and Table 70000123 every permission `Yes`, Codeunit 0 every permission blank.
-/// - lt-ss1030/SsLicensePermissionObjects.al (corpus branch al-runtime-rs-staging-ss1030 at c36d14ea, not yet on master):
+/// - permissions/permission-sets/SsLicensePermissionObjects.al (corpus branch al-runtime-rs-staging-ss1030 at c36d14ea, not yet on master):
 ///   TableData, Table, Report, Codeunit, XMLport, Page and Query at 50123, 99999 and 70000456 every permission `Yes` and
 ///   Limited Usage blank (:22-33); at 100000 `Yes`, at 1999999999 and 2147483647 blank, at 2000000001 `Yes` but Table
 ///   Delete blank (:94-117); Limited Usage is not read there and stays unknown. Page at 2000000000 and 2000000001 differs
 ///   by major (:103-115) and is refused.
 ///
-/// TableData and Table at eight numbers of the ISV and customer ranges are pinned (lt-ss1030/SsLicensePermissionObjects.al:56-87,
+/// TableData and Table at eight numbers of the ISV and customer ranges are pinned (permissions/permission-sets/SsLicensePermissionObjects.al:56-87,
 /// corpus PR 852). When the run has loaded no license file (ADR-060), no other number is served: other numbers, other types and a negative number
 /// are refused. With a license, see `license_permission_answers_from_the_loaded_license`.
 const ISSUE_6214_OBJECTS: &str = "
@@ -3395,7 +3430,7 @@ fn issue_6214_license_permission_of_any_object_number() {
         "PinnedUnusedNumbers",
         "TopOfTheRange",
         "IsvTableDataNumbers",
-        // Page 2000000000 is all Yes before BC 28 (lt-ss1030/SsLicensePermissionObjects.al:106-109); this run is 27.5.
+        // Page 2000000000 is all Yes before BC 28 (permissions/permission-sets/SsLicensePermissionObjects.al:106-109); this run is 27.5.
         "PageAtTheTop",
     ] {
         passes(&o, t);
@@ -3417,8 +3452,8 @@ fn issue_6214_license_permission_of_any_object_number() {
 }
 
 /// Issue 6218: a lookup by `ID` of a Windows time zone finds one row; an id that is no Windows zone finds none
-/// (record/lt-at-partner-gaps/AtTimeZoneNumbering.al UQ_TimeZone_LookupById). Since corpus PR 829 the whole table is pinned
-/// (record/lt-uv-time-zone-table/UvTimeZoneRows.al: 144 rows, `Arabian Standard Time` = No. 83 at :154, `W. Europe Standard
+/// (record/AtTimeZoneNumbering.al UQ_TimeZone_LookupById). Since corpus PR 829 the whole table is pinned
+/// (record/table-properties/UvTimeZoneRows.al: 144 rows, `Arabian Standard Time` = No. 83 at :154, `W. Europe Standard
 /// Time` = No. 55 at :116), so the `No.` of every zone is served.
 const ISSUE_6218_OBJECTS: &str = "
 codeunit 50000 \"T\" {
@@ -3490,7 +3525,7 @@ fn issue_6218_time_zone_lookup_by_windows_id() {
 /// al-runner issue 6251: a page whose SourceTableView has a shape that is not pinned (here three Option members) leaves only its
 /// SourceTableView column unknown. A filtered read that leaves the page out, and a Get of it that reads other columns, are
 /// served; a read of its SourceTableView is still refused. `filter(<option name>)` reads `FILTER(<ordinal>)`
-/// (lt-ss1030/SsPageMetaFilterView.al:97-113).
+/// (pages/SsPageMetaFilterView.al:97-113).
 #[test]
 fn page_metadata_serves_the_rows_beside_a_page_whose_view_is_not_pinned() {
     let o = outcomes(
@@ -3577,9 +3612,12 @@ fn synthetic_license() -> Vec<u8> {
                 "Codeunit",
                 &[(1, 999, 31), (5000, 5999, 16), (2000000000, 2000000300, 31)],
             ),
-            ("TableData", &[(1, 50, 31), (2000000000, 2000000300, 31)]),
+            ("TableData", &[(1, 50, 31), (60, 70, 449), (2000000000, 2000000300, 31)]),
             ("TableDescription", &[(1, 999, 31), (2000000000, 2000000300, 31)]),
-            ("Page", &[(1, 999, 31), (2000000000, 2000000300, 31)]),
+            (
+                "Page",
+                &[(1, 999, 31), (1000, 1999, 512 | 31), (2000000000, 2000000300, 31)],
+            ),
             ("Report", &[(1, 999, 3)]),
             ("XMLPort", &[(1, 999, 31)]),
             ("Query", &[(1, 999, 31)]),
@@ -3693,7 +3731,25 @@ codeunit 50000 \"T\" {
     var
         ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
     begin
-        Describe(ObjType::Report, 5);
+        if Describe(ObjType::Report, 5) <> '11000' then
+            Error('partial mask: %1', Describe(ObjType::Report, 5));
+    end;
+
+    [Test]
+    procedure IndirectMask()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+    begin
+        if Describe(ObjType::TableData, 65) <> '12220' then
+            Error('indirect mask: %1', Describe(ObjType::TableData, 65));
+    end;
+
+    [Test]
+    procedure UnpinnedBit()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+    begin
+        Describe(ObjType::Page, 1500);
     end;
 
     [Test]
@@ -3740,7 +3796,7 @@ codeunit 50000 \"T\" {
 
 /// ADR-060: with a license loaded, License Permission answers every number below the system range from the license
 /// (a range's mask, every permission blank outside every range), Table from TableDescription, Execute alone from bit 16;
-/// the system range only where the corpus pins it (Table 2000000001 Delete blank, lt-ss1030/SsLicensePermissionObjects.al:118;
+/// the system range only where the corpus pins it (Table 2000000001 Delete blank, permissions/permission-sets/SsLicensePermissionObjects.al:118;
 /// Page 2000000000 Execute only from BC 28, :106-109; 2147483647 blank, :99-103), narrowed by the license (Query 2000000001
 /// is outside every Query range of this license). Range reads and counts within one object type are served.
 #[test]
@@ -3756,12 +3812,16 @@ fn license_permission_answers_from_the_loaded_license() {
         "NegativeNumber",
         "FieldNumberType",
         "FilterOnAPermission",
+        // The license facts of ADR-060 (BC 28.5, a customer license, 2026-11-06, owner decision): one bit per letter,
+        // Indirect five places higher.
+        "PartialMask",
+        "IndirectMask",
     ] {
         passes(&o, t);
     }
     for (t, why_has) in [
         ("UnpinnedSystemNumber", "system object range"),
-        ("PartialMask", "which bit is which"),
+        ("UnpinnedBit", "not pinned"),
         ("LimitedUsageOfAnotherLicense", "limited-usage list"),
         ("RangeIntoTheSystemRange", "system object range"),
     ] {
@@ -3770,7 +3830,7 @@ fn license_permission_answers_from_the_loaded_license() {
     }
 }
 
-/// License Permission in the shapes corpus PR 900 pins (platform/lt-license-permission/LicensePermissionRows.al), served from a
+/// License Permission in the shapes corpus PR 900 pins (metadata/platform-tables/LicensePermissionRows.al), served from a
 /// synthetic license: negative numbers have no row and a range skips them (:164-190); a filter on a permission column is
 /// answered from the license ranges (:108-133, :195-262); the system range is served at the pinned numbers (:280-290) with
 /// BC's narrowings (Table Delete blank, :316-338; Page 2000000002/2000000004/2000000100 Execute only, :438-468) and, between
@@ -4046,7 +4106,7 @@ fn the_artifact_license_gives_every_pinned_row() {
 
 /// The Published Function of a page action event is `<event> - <control id of the action>`, the id of the declaring object (a
 /// page extension for an action it adds) and the action name (corpus master, corpus PR 886:
-/// events/lt-event-subscription-trigger-rows/ActionEventPublishedFunction.al:259-272; the ids there are those of objects
+/// events/platform-triggers/ActionEventPublishedFunction.al:244-257; the ids there are those of objects
 /// 91355 and 91357, so the test uses the same ids).
 #[test]
 fn a_page_action_event_names_the_control_id_of_the_action() {
@@ -4076,7 +4136,7 @@ codeunit 50000 "T" { Subtype = Test;
 
 /// The Published Function of a page field's validate event is `<event> - <control id of the field>`, the id of the declaring
 /// object (a page extension for a field it adds) and the control name, the same number for Before and After
-/// (events/lt-event-subscription-trigger-rows/PageTriggerEventRows.al:241-259; events/lt-page-event-numbers/PageEventNumbers.al;
+/// (events/platform-triggers/PageTriggerEventRows.al:241-259; events/page-events/PageEventNumbers.al;
 /// the ids are those of objects 91511, 91512 and 91513, so the test uses the same ids). "Originating Package ID" is a Guid that
 /// changes with every publish (the Probe Observer scrubs it, PnE11EventSub.al:99): the subscriber app's package id.
 #[test]
@@ -4168,8 +4228,8 @@ fn windows_language_primary_language_id_is_the_primary_culture_lcid_on_an_assump
 }
 
 /// al-runner #6411: the Event Subscription row of a subscriber to a page trigger event. A page field's OnAfterValidateEvent
-/// and OnOpenPageEvent (misc/lt-probes-needed-5/PnE11EventSub.al:99, :130), OnBeforeValidateEvent and OnAfterGetCurrRecordEvent
-/// (events/lt-event-subscription-trigger-rows/PageTriggerEventRows.al:241-273) are pinned: no row runs on an assumption. The
+/// and OnOpenPageEvent (recordref-fieldref/PnE11EventSub.al:99, :130), OnBeforeValidateEvent and OnAfterGetCurrRecordEvent
+/// (events/platform-triggers/PageTriggerEventRows.al:241-273) are pinned: no row runs on an assumption. The
 /// number in a field event's Published Function is the field's control id (`a_page_field_event_names_the_control_id_of_the_field`).
 #[test]
 fn page_trigger_event_subscription_rows_are_pinned() {
@@ -4208,7 +4268,7 @@ codeunit 50000 "T" { Subtype = Test;
     }
 }
 
-// report/lt-sc-report-metadata-views/Y6TenantReportLayoutRows.al:16-89 (corpus master): Tenant Report Layout holds no row of a
+// reports/runtime/Y6TenantReportLayoutRows.al:16-89 (corpus master): Tenant Report Layout holds no row of a
 // report of the app under test on a fresh tenant; a row whose Layout is the report's own RDLC layout (Report.RdlcLayout) inserts
 // (true), keeps a blank Company Name and MIME Type and the null App ID, and a second Insert answers false. The rows a fresh
 // tenant holds for other reports, and an Insert of another layout, are not pinned.
@@ -4229,6 +4289,11 @@ codeunit 50000 "T" { Subtype = Test;
   [Test] procedure Unfiltered() var L: Record "Tenant Report Layout"; begin if L.Count() = 0 then; end;
   [Test] procedure OtherLayout() var L: Record "Tenant Report Layout"; begin
     L.Init(); L."Report ID" := 50001; L.Name := 'N'; L."Layout Format" := L."Layout Format"::RDLC; L.Insert(); end;
+  [Test] procedure WordRow() var L: Record "Tenant Report Layout"; begin
+    L.Init(); L."Report ID" := 50001; L.Name := 'N'; L."Layout Format" := L."Layout Format"::Word; L.Insert(); end;
+  [Test] procedure OtherReport() var L: Record "Tenant Report Layout"; InS: InStream; begin
+    L.Init(); L."Report ID" := 1306; L.Name := 'N'; L."Layout Format" := L."Layout Format"::RDLC;
+    Report.RdlcLayout(50001, InS); L.Layout.ImportStream(InS, 'x'); L.Insert(); end;
 }"#;
     let rdlc = b"<?xml version=\"1.0\"?><Report xmlns=\"http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition\"></Report>".to_vec();
     let (engine, l) = engine_with_layouts(
@@ -4249,13 +4314,84 @@ codeunit 50000 "T" { Subtype = Test;
     let o = run_codeunit(&engine, &l, oi);
     passes(&o, "Fresh");
     passes(&o, "Insert");
-    assert!(not_run(&o, "Unfiltered").contains("Tenant Report Layout"));
+    // reports/runtime/TrlResourceRows.al:84-97: a fresh tenant holds no row, filtered or not.
+    passes(&o, "Unfiltered");
     assert!(not_run(&o, "OtherLayout").contains("Tenant Report Layout"));
+    // The refusal names which part of the row is not pinned (al-runner issue 6924: waldo's 173 tests insert Word rows).
+    assert!(
+        not_run(&o, "WordRow").contains("a row without a Layout"),
+        "{}",
+        not_run(&o, "WordRow")
+    );
+    assert!(
+        not_run(&o, "OtherReport").contains("a report the app and its dependencies do not declare"),
+        "{}",
+        not_run(&o, "OtherReport")
+    );
+}
+
+// reports/runtime/TrlResourceRows.al (corpus master, al-runner issue 6924, waldo): Insert of a Tenant Report Layout row with a
+// Word or Custom layout takes the row, reads back its pinned fields (Custom as External), Get and SetRange find it by name,
+// Delete removes it; the stored bytes of a Word row are rewritten by BC (not pinned), so a look at them is refused, while a
+// Custom row gives its bytes back unchanged (:360-388).
+#[test]
+fn tenant_report_layout_takes_word_and_custom_rows() {
+    let main = r#"
+report 50001 "R" { DefaultRenderingLayout = D; dataset { dataitem(I; Integer) { } } rendering { layout(D) { Type = Word; LayoutFile = './r.docx'; } } }
+table 50002 "Holder" { fields { field(1; Id; Integer) { } field(2; Data; Blob) { } } keys { key(PK; Id) { Clustered = true; } } }
+codeunit 50000 "T" { Subtype = Test;
+  local procedure Row(var L: Record "Tenant Report Layout"; Kind: Option; Name: Text[250])
+  var InS: InStream; begin
+    L.Init(); L."Report ID" := 50001; L.Name := Name; L."Layout Format" := Kind;
+    if not Report.WordLayout(50001, InS) then Error('stream'); L.Layout.ImportStream(InS, 'x'); end;
+  [Test] procedure WordRow() var L: Record "Tenant Report Layout"; R: Record "Tenant Report Layout"; begin
+    Row(L, L."Layout Format"::Word, 'W'); if not L.Insert() then Error('insert');
+    if R.Count() <> 1 then Error('count'); if not R.Get(50001, 'W') then Error('get');
+    if (Format(R."Layout Format") <> 'Word') or (R."Company Name" <> '') or (R."MIME Type" <> '') or (R.Description <> '') or not IsNullGuid(R."App ID") or not R.Layout.HasValue() then Error('stored');
+    R.SetRange(Name, 'W'); if not R.FindFirst() then Error('find'); R.Delete(); if R.Count() <> 0 then Error('deleted'); end;
+  [Test] procedure WordExport() var L: Record "Tenant Report Layout"; R: Record "Tenant Report Layout"; H: Record "Holder" temporary; O: OutStream; begin
+    Row(L, L."Layout Format"::Word, 'W2'); L.Insert(); R.Get(50001, 'W2'); H.Data.CreateOutStream(O); R.Layout.ExportStream(O); H.CalcFields(Data); if H.Data.Length() = 0 then; end;
+  [Test] procedure CustomRow() var L: Record "Tenant Report Layout"; R: Record "Tenant Report Layout"; H: Record "Holder" temporary; O: OutStream; begin
+    Row(L, L."Layout Format"::Custom, 'C'); if not L.Insert() then Error('insert');
+    R.Get(50001, 'C'); if Format(R."Layout Format") <> 'External' then Error('format %1', Format(R."Layout Format"));
+    H.Data.CreateOutStream(O); if not R.Layout.ExportStream(O) then Error('export'); if H.Data.Length() <> 3 then Error('length'); end;
+  [Test] procedure BadBytes() var L: Record "Tenant Report Layout"; InS: InStream; begin
+    L.Init(); L."Report ID" := 50001; L.Name := 'B'; L."Layout Format" := L."Layout Format"::Excel;
+    if Report.WordLayout(50001, InS) then; L.Layout.ImportStream(InS, 'x'); L."Layout Format" := L."Layout Format"::RDLC; L.Insert(); end;
+}"#;
+    let (engine, l) = engine_with_layouts(
+        "main",
+        main,
+        None,
+        al_sema::check::Roots::default(),
+        "27.5.0.0",
+        vec![("r.docx".into(), b"PK\x03".to_vec())],
+        None,
+    );
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == "T")
+        .expect("test codeunit T");
+    let o = run_codeunit(&engine, &l, oi);
+    passes(&o, "WordRow");
+    passes(&o, "CustomRow");
+    assert!(
+        not_run(&o, "WordExport").contains("stored layout bytes of a Tenant Report Layout row"),
+        "{}",
+        not_run(&o, "WordExport")
+    );
+    assert!(
+        not_run(&o, "BadBytes").contains("do not match its format"),
+        "{}",
+        not_run(&o, "BadBytes")
+    );
 }
 
 // Gap cycle G9: a user-defined layout (a Tenant Report Layout row) is a row of Report Layout List: Caption the layout's name,
 // Runtime Package ID and Application ID the null guid, Description as stored, Report Name the report's Caption, Layout
-// Publisher blank, User Defined Yes, ReportIsInstalled Yes (platform/lt-ug-report-layout-list/UgReportLayoutList.al
+// Publisher blank, User Defined Yes, ReportIsInstalled Yes (metadata/platform-tables/UgReportLayoutList.al
 // Y17_ReportLayoutList_UserDefinedRow, corpus master 97c29f86).
 #[test]
 fn a_tenant_report_layout_row_is_a_user_defined_row_of_report_layout_list() {
@@ -4300,8 +4436,8 @@ codeunit 50000 "T" { Subtype = Test;
 // On the corpus containers every read and every insert of the agent tables fails with the agent service's error, code DB:Ok,
 // and leaves no write transaction, from this app as from the System Application's Agent API: Agent (FindSet with a filter,
 // FindFirst, IsEmpty, Count, FindLast, Get, Insert(true), Insert()), Agent Task (FindSet, Count, Get, Insert), Agent Task
-// Message (FindSet, Insert) and Agent Access Control (FindSet) (onprem platform/lt-y35-agent-direct/Y35AgentDirect.al
-// C302_AgentDirect_FindSetFiltered, _Reads, _Inserts; platform/lt-y35-agent-api/Y35AgentApi.al C302_AgentTaskDirect_Reads,
+// Message (FindSet, Insert) and Agent Access Control (FindSet) (onprem metadata/session-system/Y35AgentDirect.al
+// C302_AgentDirect_FindSetFiltered, _Reads, _Inserts; metadata/session-system/Y35AgentApi.al C302_AgentTaskDirect_Reads,
 // _Inserts, C302_AgentApi_Create). A temporary record is an ordinary temporary table. Other operations stay refused.
 #[test]
 fn every_read_and_insert_of_the_agent_tables_reports_agents_unavailable() {
@@ -4351,8 +4487,8 @@ fn every_read_and_insert_of_the_agent_tables_reports_agents_unavailable() {
 }
 
 // Webhook Subscription, Webhook Notification, MCP Configuration Tool and Privacy Notice Approval are ordinary stored tables,
-// empty on the corpus containers (corpus master onprem platform/lt-y35-stored-tables/Y35StoredTables.al, main
-// platform/lt-y35-privacy-approval/Y35PrivacyApproval.al). The platform fills a blank "Application ID" of a webhook
+// empty on the corpus containers (corpus master onprem metadata/platform-tables/Y35StoredTables.al, main
+// metadata/platform-tables/Y35PrivacyApproval.al). The platform fills a blank "Application ID" of a webhook
 // subscription with 'NAV' (C303_Webhook_RowsAndWrites); one AL sets is not pinned. A Delete of an MCP Configuration that has
 // tools deletes them on BC 27.5 and keeps them from BC 28 (C303_McpTool_ParentChecks): on the BC 27 table set (the tool table
 // has no "API Version") it is refused. Privacy Notice's FlowFields read the approvals per exact User SID (C303_PrivacyNotice_
@@ -4401,7 +4537,7 @@ fn the_webhook_mcp_tool_and_privacy_approval_tables_are_stored() {
 
 /// al-runner issue 6716: a page whose source table BC 29 ships twice under one id (Base Application's `ObsoleteState =
 /// Moved` copy and its Business Foundation target) reads its view against the target. The moved copy is not in the
-/// runtime app (platform/lt-aw-fresh-tenant/AwTests.al:426-442), so its fields never stand in for the target's.
+/// runtime app (metadata/platform-tables/AwTests.al:426-442), so its fields never stand in for the target's.
 #[test]
 fn page_metadata_reads_the_source_table_view_against_the_table_a_moved_copy_points_to() {
     let o = outcomes_over(
@@ -4425,7 +4561,7 @@ codeunit 50000 "T" { Subtype = Test;
 
 /// al-runner issue 6662: a User whose "Authentication Email" is a formatted Guid ('{...}@EXAMPLE.COM') was refused as not
 /// pinned. Corpus writer Y66 measured it on real BC 27.5, 28.5 and 29.0: the insert succeeds and the address is kept as given
-/// (al-language-onprem/access-control/lt-y66-auth-email-local-part/Y66AuthEmailLocalPart.al:25-42, corpus branch
+/// (al-language-onprem/permissions/access-control/Y66AuthEmailLocalPart.al:25-42, corpus branch
 /// pinned since corpus master 34ca226f). The reporter's snippet, plus a read
 /// back, on BC 29 and 27.
 #[test]
@@ -4446,5 +4582,75 @@ fn a_user_whose_authentication_email_has_a_formatted_guid_local_part_is_inserted
     for bc in ["29.0.0.0", "27.5.0.0"] {
         let o = outcomes_bc("main", main, al_sema::check::Roots::default(), bc);
         assert_eq!(o, vec![("ReporterShape".to_string(), Outcome::Pass)], "{bc}");
+    }
+}
+
+// reports/request-page/Y86LayoutStreams.al:82 Y86_RdlcLayout_StreamIsTheFile and :230
+// Y86_RdlcLayout_FieldsSectionFollowsTheDataset: the Report.RdlcLayout stream is the layout file with its Fields list replaced by
+// the report's columns (`<Fields />` for none), in the file's indent and CRLF line ends.
+#[test]
+fn the_rdlc_layout_stream_carries_the_report_columns_in_its_fields_list() {
+    let main = r#"
+report 50001 "NoCols" { DefaultRenderingLayout = L; dataset { dataitem(I; Integer) { } } rendering { layout(L) { Type = RDLC; LayoutFile = './r.rdlc'; } } }
+report 50002 "Cols" { DefaultRenderingLayout = L; dataset { dataitem(I; Integer) { column(NumberCol; I.Number) { } column(TextCol; 'abc') { } } } rendering { layout(L) { Type = RDLC; LayoutFile = './r.rdlc'; } } }
+report 50003 "Dec" { DefaultRenderingLayout = L; dataset { dataitem(I; Integer) { column(Amt; 1.5) { } } } rendering { layout(L) { Type = RDLC; LayoutFile = './r.rdlc'; } } }
+codeunit 50000 "T" { Subtype = Test;
+  local procedure Lines(Id: Integer): Text var InS: InStream; Line: Text; All: Text; begin Report.RdlcLayout(Id, InS); while not InS.EOS() do begin InS.ReadText(Line); All += Line + '|'; end; exit(All); end;
+  [Test] procedure NoColumns() begin if Lines(50001) <> '<Report>|  <DataSets>|      <Fields />|    </DataSet>|</Report>|' then Error(Lines(50001)); end;
+  [Test] procedure Columns() begin
+    if Lines(50002) <> '<Report>|  <DataSets>|      <Fields>|        <Field Name="NumberCol">|          <DataField>NumberCol</DataField>|        </Field>|        <Field Name="TextCol">|          <DataField>TextCol</DataField>|        </Field>|      </Fields>|    </DataSet>|</Report>|' then Error(Lines(50002)); end;
+  [Test] procedure DecimalColumn() begin Lines(50003); end;
+}"#;
+    let rdlc = b"<Report>\r\n  <DataSets>\r\n      <Fields>\r\n        <Field Name=\"A\">\r\n          <DataField>A</DataField>\r\n        </Field>\r\n      </Fields>\r\n    </DataSet>\r\n</Report>".to_vec();
+    let (engine, l) = engine_with_layouts(
+        "main",
+        main,
+        None,
+        al_sema::check::Roots::default(),
+        "27.5.0.0",
+        vec![("r.rdlc".into(), rdlc)],
+        None,
+    );
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == "T")
+        .expect("test codeunit T");
+    let o = run_codeunit(&engine, &l, oi);
+    passes(&o, "NoColumns");
+    passes(&o, "Columns");
+    assert!(not_run(&o, "DecimalColumn").contains("column Amt"));
+}
+
+// A not-equal filter on FieldName, an `&` of them, a comparison and a range leave out the timestamp row, with or without the
+// Class, Enabled and ObsoleteState filters (al-runner issue 6995; metadata/FieldNameNotEqualFilter.al:57-120, staging r6980). The rows
+// from 2000000005 on (SystemCreatedByUserName and the like, which BC 29 adds) are left out, as in the probe.
+#[test]
+fn not_equal_filters_on_the_field_name_leave_out_the_rowversion_row() {
+    let o = outcomes(
+        r#"table 50005 "Ne Probe" { fields { field(1; "Code"; Code[10]) { } field(2; Name; Text[30]) { } field(3; Amount; Decimal) { } }
+  keys { key(PK; "Code") { } } }
+codeunit 50000 "T" { Subtype = Test;
+  local procedure Rows(var Fld: Record Field): Text var s: Text; begin
+    if not Fld.FindSet() then exit('none');
+    repeat if Fld."No." < 2000000005 then s += Format(Fld."No.") + ':' + Fld.FieldName + ' '; until Fld.Next() = 0;
+    exit(s.TrimEnd()); end;
+  [Test] procedure FourNames() var Fld: Record Field; s: Text; begin
+    Fld.SetRange(TableNo, 50005);
+    Fld.SetFilter(FieldName, '<>%1&<>%2&<>%3&<>%4', 'SystemCreatedAt', 'SystemModifiedAt', 'SystemCreatedBy', 'SystemModifiedBy');
+    s := Rows(Fld);
+    Fld.SetRange(Class, Fld.Class::Normal); Fld.SetRange(Enabled, true); Fld.SetRange(ObsoleteState, Fld.ObsoleteState::No);
+    s += '|' + Rows(Fld);
+    if s <> '1:Code 2:Name 3:Amount 2000000000:$systemId|1:Code 2:Name 3:Amount 2000000000:$systemId' then Error(s); end;
+  [Test] procedure OtherForms() var Fld: Record Field; s: Text; begin
+    Fld.SetRange(TableNo, 50005);
+    Fld.SetFilter(FieldName, '<>%1', 'timestamp'); s := Rows(Fld);
+    Fld.SetFilter(FieldName, '<%1', 'Name'); s += '|' + Rows(Fld);
+    Fld.SetFilter(FieldName, '%1..%2', 'A', 'z'); s += '|' + Rows(Fld);
+    if s <> '1:Code 2:Name 3:Amount 2000000000:$systemId 2000000001:SystemCreatedAt 2000000002:SystemCreatedBy 2000000003:SystemModifiedAt 2000000004:SystemModifiedBy|1:Code 3:Amount 2000000000:$systemId|1:Code 2:Name 3:Amount 2000000001:SystemCreatedAt 2000000002:SystemCreatedBy 2000000003:SystemModifiedAt 2000000004:SystemModifiedBy' then Error(s); end; }"#,
+    );
+    for t in ["FourNames", "OtherForms"] {
+        passes(&o, t);
     }
 }

@@ -1,4 +1,4 @@
-//! An action refills a temporary Worksheet of 3 or 25 rows with one row (pages/lt-outside-worksheet/RmTempRefill.al
+//! An action refills a temporary Worksheet of 3 or 25 rows with one row (testpage/RmTempRefill.al
 //! SH_RefillFewer_*): the
 //! client reads that row three times and runs OnAfterGetCurrRecord (twice and nothing more without that trigger), then lists
 //! only that row.

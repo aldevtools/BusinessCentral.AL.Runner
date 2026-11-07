@@ -65,6 +65,65 @@ is a **flagged pass**, counted apart:
 - `--top-assumptions [N]` ranks the assumptions a run went through.
 - `al-runner --list-assumptions` describes all of them, with the counts of the last run.
 
+### Flagged: relies on SingleInstance state another test codeunit left
+
+Business Central runs all test codeunits of a run in one session. The globals of a
+`SingleInstance` codeunit that one test codeunit left are still there when the
+next test codeunit starts. AL Runner runs test codeunits in parallel, each on a
+session of its own, so a test codeunit starts with fresh globals.
+
+A test codeunit is **order dependent** when it reads such a global before it
+writes it, and an earlier test codeunit left another value there. On Business
+Central it sees that value; in AL Runner's parallel run it sees a fresh one.
+
+AL Runner follows one principle: a test should give the same result whether its
+codeunit runs alone or inside the whole suite. A parallel run with fresh state is a
+real Business Central result: the one you get when the codeunit runs alone, or
+first. So, by default:
+
+1. Order-dependent codeunits run in parallel like all others.
+2. When such a codeunit has a failed test or a test not run in its parallel run,
+   AL Runner runs it again, together with the codeunits that wrote the state, one
+   after the other in Business Central's order, with the state carried over. That
+   serial result is the one reported.
+3. Every test of an order-dependent codeunit is a flagged pass (or a flagged
+   failure) with the assumption `single-instance-order`, whether it passed in
+   parallel or after the serial run. It is counted apart from the clean passes.
+
+`--timings` names the codeunit whose state each test relies on. Its
+`SingleInstance order:` line gives how many order-dependent codeunits were found, how
+many ran again because of a failure, and how long that took.
+
+What the flag means: the result depends on the order in which Business Central
+runs the test codeunits. The stability mode (`--stability`) lists these tests apart,
+with and without `--strict-order`.
+
+The risk of the default: a test that passes alone but fails on Business Central in
+the full order is reported as a flagged pass here. To remove that risk, use
+`--strict-order` (in `serve`: the `runTests` field `strictOrder`). Every
+order-dependent codeunit then runs again in Business Central's order, and that
+result is the one reported. It costs time on suites with many such codeunits:
+Microsoft's Tests-SCM takes about 357 s instead of 245 s on BC 29, because the
+entry-number buffers of Sequence No. Mgt. make most posting codeunits order dependent.
+
+`AL_TEST_THREADS=1` runs one test codeunit at a time, but each one still starts with
+fresh SingleInstance state. It does not reproduce Business Central's order; only
+`--strict-order` does.
+
+How to fix such a test:
+
+1. Make the test set up what it reads. Call the setup procedure in the test, or
+   in the codeunit's own `Initialize()`, and do not rely on an earlier codeunit having
+   done it.
+2. Clear the state. Add a procedure to the `SingleInstance` codeunit that clears its
+   globals, and call it in `Initialize()` (or at the end of each test).
+3. A lazy cache (a flag that guards a fill) is not flagged when the test fills it
+   with the same values as the earlier codeunit did.
+
+A test codeunit that also hands rows on to later codeunits (`RequiredTestIsolation =
+Disabled`, or an `OnRun` that writes under runner 130450) runs again like the others.
+The later codeunits keep the rows its first run left.
+
 ## Errors whose text is not pinned
 
 Some errors are known to happen, but the corpus does not pin the exact text
@@ -111,6 +170,52 @@ raised in (innermost first):
   codeunit 50100 "Demo Calc Tests".Wrong
     at Demo.Test: src/CalcTests.Codeunit.al:20:13
 ```
+
+## Time per AL routine
+
+`--timings` stops at the test codeunit. To see which AL routines a slow run spends
+its time in, set the environment variable `AL_PROFILE` to a file name:
+
+```bash
+AL_PROFILE=profile.txt al-runner test ./MyApp ./MyApp.Test --codeunit 50100
+```
+
+The run samples the AL call stack every 5 ms. It writes the file every 5 seconds
+and once more when the run ends. The first line has the sample count and the interval,
+for example `samples 1200 of 5 ms`: 1,200 samples are about 6 seconds of AL code. Then
+come three lists of the 60 entries with the most samples:
+
+- `self`: samples where the routine was running its own statements.
+- `inclusive`: samples where the routine was anywhere on the call stack.
+- `self by statement`: the `self` samples split by the statement that was running,
+  as file and line. When the sample landed inside a built-in method, its name follows
+  in brackets, for example
+  `codeunit No. Series - Impl..GetNoSeriesLine  NoSeriesImpl.Codeunit.al:150  [Record.FindLast]`.
+  `(entry)` stands for the time between a call and the routine's first statement.
+
+Each line is the sample count, then the object type, the object name and the routine.
+A field trigger also names its field, as in `table Sales Line.Quantity.OnValidate`;
+a trigger of a page control, an action or a report data item names its owner.
+
+How to read the counts:
+
+- One process-wide timer samples one thread per tick. When tests run on several
+  threads, the samples add up to the time any AL statement ran, not to CPU time
+  times the number of threads. Routines that run many statements get a larger share.
+  Set `AL_TEST_THREADS=1` for a profile of one thread.
+- A sample is taken at the next AL statement or when a built-in method returns.
+  Time spent inside a built-in method (for example `FindSet` or `Validate`) counts
+  as `self` of the AL routine that called it; `self by statement` names the method
+  and the line. A built-in method that runs AL code (a trigger, an event subscriber)
+  books that code's time to the AL routines it runs.
+Two more variables help with short runs:
+
+- `AL_PROFILE_US=N`: sample every N microseconds instead of 5,000.
+- `AL_PROFILE_ONLY=TEXT`: count only samples whose call stack has a frame, written as
+  in the file, that contains TEXT. Use one test's name to profile that test.
+
+The profile counts AL statements only, including install code. Loading and compiling
+are not in it; `--timings` shows those.
 
 ## Report files
 

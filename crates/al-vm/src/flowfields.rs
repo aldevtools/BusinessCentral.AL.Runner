@@ -228,8 +228,8 @@ impl Session {
                 // SQL as a timestamp and BC refuses it. lookup() still calculates. Corpus
                 // record/TestCalcFormulaSystemFieldsTests.Codeunit.al:298-318,353-361 pin the
                 // sentence and the Field, Type and SQL type fragments; the whole text, its backslash line
-                // breaks and the code are pinned by calcfields/W4CalcFields.al:134-135 and
-                // misc/lt-probes-needed-1/PnACalcFieldsBC29.al:225-243.
+                // breaks and the code are pinned by record/flowfields/W4CalcFields.al:134-135 and
+                // types/PnACalcFieldsBC29.al:225-243.
                 if calc.method != ir::CalcMethod::Lookup
                     && s.id == SYSTEM_ROW_VERSION
                     && self.has(al_version::Gate::FlowFieldMinMaxOverRowVersionRefused)
@@ -243,11 +243,11 @@ impl Session {
                         "NDBCS:IncompatibleSqlType",
                     );
                 }
-                // A lookup into an Enum field from the field of another enum is allowed (record/lt-flowfield-lookup-enum/
+                // A lookup into an Enum field from the field of another enum is allowed (record/flowfields/
                 // FlowFieldLookupOtherEnum.al; Microsoft's VAT Return Period).
                 let enum_pair = matches!((&f.ty, &s.ty), (RtType::Enum(_), RtType::Enum(_)));
                 // A lookup or a max of an Enum field into an Option FlowField (al-runner issue 6481; corpus writer Y20,
-                // record/lt-flowfield-lookup-enum/Y20FlowFieldLookupEnumIntoOption.al). A min is not pinned.
+                // record/flowfields/Y20FlowFieldLookupEnumIntoOption.al). A min is not pinned.
                 let enum_into_option = matches!((&f.ty, &s.ty), (RtType::Option(_), RtType::Enum(_)))
                     && calc.method != ir::CalcMethod::Min;
                 if !same_kind(&f.ty, &s.ty)
@@ -258,12 +258,15 @@ impl Session {
                 }
             }
             ir::CalcMethod::Count => {
-                if !matches!(f.ty, RtType::Integer) {
+                // A BigInteger FlowField takes a count as well and holds a BigInteger (al-runner issue 6986; corpus branch
+                // al-runtime-rs-staging-r6961, record/flowfields/R6986BigIntegerCount.al). A Decimal one does not compile
+                // (must-not-compile 2970, AL0202).
+                if !matches!(f.ty, RtType::Integer | RtType::BigInteger) {
                     return unsupported("count into a field that is not an Integer");
                 }
                 // Gate FlowFieldCountFilterBigIntegerFromIntegerFrom29: before BC 29 a filter that links a BigInteger
                 // source field to an Integer field (`Big = field(Id)`) is refused when calculated, source first
-                // (calcfields/lt-bm-flowfield-conversions/BmFlowFieldConversions.al:166-186). Only this pair and only
+                // (record/flowfields/BmFlowFieldConversions.al:166-186). Only this pair and only
                 // a count are pinned.
                 if !self.has(al_version::Gate::FlowFieldCountFilterBigIntegerFromIntegerFrom29) {
                     for c in &calc.conds {
@@ -334,7 +337,7 @@ impl Session {
         Ok(())
     }
 
-    /// `Validate` on the FlowField at `pos` (record/lt-flowfield-write/DiFwWriteTests.al). A Count, Exist or Lookup FlowField
+    /// `Validate` on the FlowField at `pos` (record/flowfields/DiFwWriteTests.al). A Count, Exist or Lookup FlowField
     /// raises FlowFieldValidation before OnValidate runs (DiFwWriteTests.al:284, :439, :693-694). A Decimal Sum FlowField
     /// inserts the difference between `value` and the current sum into the source table, then holds `value`
     /// (DiFwWriteTests.al:812-819, :293). Every other shape is refused: it is not pinned.
@@ -407,7 +410,7 @@ impl Session {
 
     /// After the OnValidate of a Decimal Sum FlowField (`validate_flowfield` checked it): inserts the difference between
     /// `target` and the current sum into the source table, with Insert(true): the source table's OnInsert runs after the
-    /// FlowField's OnValidate (pages/lt-cf-page-leads/CfPageLeads.al:EditableFlowField_SetValue, `Amount.OnValidate:50/30,Entry.OnInsert`).
+    /// FlowField's OnValidate (testpage/CfPageLeads.al:EditableFlowField_SetValue, `Amount.OnValidate:50/30,Entry.OnInsert`).
     pub(crate) fn write_sum_difference(
         &mut self,
         rec: &Rec,
@@ -505,7 +508,7 @@ impl Session {
     /// Calculates the FlowField at `pos` of `rec` from the table as it is now.
     /// Whether the source table holds a row for the FlowField of `rec`, under the formula's filters. A sum, average, min or max
     /// over no row is NULL in SQL and `CalcFields` shows 0; a query that averages, takes the minimum or the maximum of such a
-    /// column leaves the NULL out (corpus query/lt-query-flowfield-methods/QueryFlowFieldAvgMinMax.al:
+    /// column leaves the NULL out (corpus queries/flowfields-filters/QueryFlowFieldAvgMinMax.al:
     /// Average_NoFlowFilter_GroupedByGroupCode `B|10`, Min_NoFlowFilter_GroupedByGroupCode, Min_FlowFilterRange_GroupedByGroupCode).
     pub(crate) fn calc_has_source_rows(&mut self, rec: &Rec, pos: usize) -> Result<bool, Signal> {
         let engine = self.engine.clone();
@@ -520,7 +523,7 @@ impl Session {
         }
         let filters = self.calc_filters(rec, calc, &mut Vec::new())?;
         let src_t = self.engine.tables[calc.table].clone().expect("table");
-        if self.permissions.is_some() {
+        if self.permission_checks() {
             self.permission_gate_flowfield(rec, calc.table)?;
         }
         let cx = self.cx_for(rec, &src_t)?;
@@ -553,7 +556,7 @@ impl Session {
         let table = rec.borrow().table as usize;
         let f = &engine.program.objects[table].table.as_ref().expect("table").fields[pos];
         // The user-name system FlowFields: the user name or full name of the user in SystemCreatedBy / SystemModifiedBy, a
-        // lookup in the User table (system-fields/W6SystemFieldStamps.al:239-246; the filters on them:
+        // lookup in the User table (record/system-fields/W6SystemFieldStamps.al:239-246; the filters on them:
         // lt-y64-username-filters/Y64UserNameFilters.al).
         if let Some(no) = ir::user_name_field_no(f.id) {
             let (name, _) = crate::platform::user_name_system_field(no).expect("2000000005 to 2000000008");
@@ -564,16 +567,16 @@ impl Session {
         let src_t = self.engine.tables[calc.table].clone().expect("table");
         self.unseeded_read(&src_t, rec.borrow().temporary, "a FlowField")?;
         // ADR-062: a FlowField reads its source table indirectly (CpPermLeads.al:29-63).
-        if self.permissions.is_some() {
+        if self.permission_checks() {
             self.permission_gate_flowfield(rec, calc.table)?;
         }
         let cx = self.cx_for(rec, &src_t)?;
         let store_err = |e: al_data::StoreError| Signal::Unsupported(format!("store error {e}"));
         use ir::CalcMethod as M;
         // A condition on a FlowField of the source table compares each source row's calculated value: count, exist and
-        // lookup are pinned (record/lt-calcformula-date-literal/CalcFormulaDateLiteral.al:76-95, :243-280
+        // lookup are pinned (record/flowfields/CalcFormulaDateLiteral.al:76-95, :243-280
         // EqualsEmptyDate_Chained_GroupOverFlowField: filter(true) on an exist, filter(0) and filter(> 0) on a count), and so
-        // are sum, -sum, average, min and max over the rows that pass (record/lt-y17-sum-where-flowfield/
+        // are sum, -sum, average, min and max over the rows that pass (record/flowfields/
         // Y17SumWhereFlowField.al:197, :227; a condition FlowField with an unset FlowFilter in its own formula filters
         // nothing and a condition on a sum FlowField works the same, :303). A sign on another method is not pinned.
         let src_fields = &engine.program.objects[calc.table].table.as_ref().expect("table").fields;
@@ -665,7 +668,12 @@ impl Session {
         let value = match calc.method {
             M::Count => {
                 let n = self.store.count(&cx, &src_t, &filters).map_err(store_err)? as i32;
-                Value::Integer(if calc.negate { -n } else { n })
+                let n = if calc.negate { -n } else { n };
+                if f.ty == RtType::BigInteger {
+                    Value::BigInteger(i64::from(n))
+                } else {
+                    Value::Integer(n)
+                }
             }
             M::Exist => {
                 let found = self
@@ -781,7 +789,7 @@ impl Session {
             }
         };
         // A lookup into an Enum field of another enum keeps the looked-up member as it is: `Zero` stays `Zero` and `Five`
-        // (an ordinal the FlowField's enum lacks) stays `Five` (corpus record/lt-flowfield-lookup-enum/
+        // (an ordinal the FlowField's enum lacks) stays `Five` (corpus record/flowfields/
         // FlowFieldLookupOtherEnum.al: Lookup_MembersPresentInBoth_Result, Lookup_MemberOnlyInSource_Result).
         if matches!((&value, &f.ty), (Value::Enum(from, _), RtType::Enum(to)) if from != to) {
             return Ok(value);
@@ -792,7 +800,7 @@ impl Session {
             return Ok(value);
         }
         // A value longer than the FlowField: a lookup of a Text source into a shorter Text FlowField keeps the whole value,
-        // with no error and no truncation (calcfields/lt-bm-flowfield-conversions/BmFlowFieldConversions.al:201-217,
+        // with no error and no truncation (record/flowfields/BmFlowFieldConversions.al:201-217,
         // BM_LookupFlowField_ShorterThanSource `short_30_chars`, fields at :50-58). Any other pair (Code, min or max) is
         // not pinned.
         match ops::convert(value.clone(), &f.ty) {
@@ -895,7 +903,7 @@ impl Session {
                         }
                         // An open end, `<`, `>`, `<>` and several values are more than one range (UpperLimitSingleValue.al:
                         // UpperLimit_OneValue `setfilter_lt_d`, UpperLimit_OpenAndEmpty). The code is DB:NotIntervalFilter
-                        // (calcfields/lt-upperlimit-error-code/UpperLimitErrorCode.al:107-111,131).
+                        // (record/flowfields/UpperLimitErrorCode.al:107-111,131).
                         Some(
                             e @ (FilterExpr::Range(Some(_), None)
                             | FilterExpr::Lt(_)
@@ -987,7 +995,7 @@ impl Session {
     /// `CalcSums`: the sum of stored number fields over the record's own
     /// filters (corpus record/TestRecordFlowField.al:109-160).
     ///
-    /// A Duration field sums too, also one in no SumIndexFields (record/lt-calcsums-duration/CalcSumsDuration.al
+    /// A Duration field sums too, also one in no SumIndexFields (record/flowfields/CalcSumsDuration.al
     /// CalcSums_Duration_All, _Filtered, _NotInSumIndexFields; `FieldRef.CalcSum`: FieldRefCalcSumTypes).
     pub(crate) fn calc_sums(&mut self, rec: &Rec, positions: &[usize]) -> Result<(), Signal> {
         let engine = self.engine.clone();
@@ -1017,7 +1025,7 @@ impl Session {
         if flow_field_filters.is_empty() {
             self.each_row_of(Some(rec), &cx, &t, &filters, &mut add)?;
         } else {
-            // The sum is over the rows whose FlowField value passes the filter (record/lt-calcsums-flowfield-filter/CalcSumsFlowFieldFilter.al:
+            // The sum is over the rows whose FlowField value passes the filter (record/flowfields/CalcSumsFlowFieldFilter.al:
             // CalcSums_FilterFlowFieldNotZero_Result, CalcSums_FlowFieldRangeAndStoredFilter_Result, CalcSums_SetRangeFlowFieldZero_Result).
             let mut rows = Vec::new();
             self.each_row_of(Some(rec), &cx, &t, &filters, |row| {
@@ -1063,7 +1071,7 @@ impl Session {
             }
         }
         // A database table compares its Time and DateTime columns with the filter values rounded as the columns hold them
-        // (errors/lt-ms-refusals-130/P130DateFilters.al:206-227).
+        // (record/filters/P130DateFilters.al:206-227).
         if !r.temporary {
             if let Some(t) = self.engine.tables[r.table as usize].as_ref() {
                 crate::sqltime::round_filters(t, &mut stored);
@@ -1119,7 +1127,7 @@ impl Session {
                 let table = rec.borrow().table as usize;
                 for &p in &positions {
                     // A Blob is accepted and loaded by every read (corpus
-                    // misc/lt-probes-needed-1/PnABlobLength.al:83 Length_InMemoryAndFindVariants:
+                    // record/PnABlobLength.al:83 Length_InMemoryAndFindVariants:
                     // `findfirst-autocalc` 5 against `findfirst-unloaded` 11).
                     if self.is_blob_field(table, p) {
                         continue;
@@ -1127,7 +1135,7 @@ impl Session {
                     self.check_calc_field(table, p)?;
                 }
                 // A call adds its fields to the set, and a call without fields empties it
-                // (record/lt-record-write/RcBFlowFields.al:SetAutoCalcFields_Reset_And_Replace `replaced`, `cleared`).
+                // (record/crud/RcBFlowFields.al:SetAutoCalcFields_Reset_And_Replace `replaced`, `cleared`).
                 let mut r = rec.borrow_mut();
                 if positions.is_empty() {
                     r.auto_calc.clear();
@@ -1150,7 +1158,7 @@ impl Session {
         if auto.is_empty() {
             return Ok(());
         }
-        // A temporary record loads an auto-calculated Blob like a stored row (record/lt-temporary-blob/TemporaryBlobAutoCalc.al:
+        // A temporary record loads an auto-calculated Blob like a stored row (record/temporary/TemporaryBlobAutoCalc.al:
         // Temporary_SetAutoCalcFields_ThenFind).
         self.permission_autocalc = true;
         let r = self.calc_fields(rec, &auto);

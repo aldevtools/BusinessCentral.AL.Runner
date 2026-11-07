@@ -27,7 +27,7 @@ impl Session {
                 let last = s.agr_row.as_ref().is_some_and(|k| Self::same_key(k, &key));
                 drop(s);
                 // A row other than the one OnAfterGetRecord ran with last shows what the variable held for it (pages/
-                // lt-qi-row-page-var/QiRowPageVar.al:312 QI_RV_Part_Navigation `after-action = 2 | agr 2 | cur 2`); the row
+                // lt-qi-row-page-var/QiRowPageVar.al:297 QI_RV_Part_Navigation `after-action = 2 | agr 2 | cur 2`); the row
                 // OnAfterGetRecord ran with last shows the variable as it is, as before.
                 if ran_for_it && !last {
                     let s = st.borrow();
@@ -73,7 +73,7 @@ impl Session {
                 }
                 self.shown_value(st, idx, |s| s.control_routine(st, idx, r))
             }
-            // A label shows its caption (handlers/TestPageLabelControlContracts.al:Label_IsATestPageMember_WithItsCaption).
+            // A label shows its caption (testpage/TestPageLabelControlContracts.al:Label_IsATestPageMember_WithItsCaption).
             ir::Binding::Caption => Ok(Value::Text(self.control_caption(st, idx)?.into())),
             ir::Binding::None => unsupported("a control without a source"),
         }
@@ -118,7 +118,7 @@ impl Session {
         }
         let v = self.control_value(st, idx)?;
         // AsDecimal of a Text control that holds no number: '', ' ' and a word raise AL:Format naming the text
-        // (pages/lt-ca-odd-667/CaTestPageTests.al:90-91, :130-135). A text with digits that does not convert is not pinned.
+        // (testpage/notifications-and-control-values/CaTestPageTests.al:90-91, :130-135). A text with digits that does not convert is not pinned.
         if let (RtType::Decimal, Value::Text(t)) = (to, &v) {
             let t = t.to_string();
             return match ops::convert(v, to) {
@@ -136,7 +136,7 @@ impl Session {
     }
 
     /// A control bound to the page's record reads blank when the page shows no row: whatever its
-    /// type, and on a field with an InitValue too (corpus testpart/BnrBlankPart.al:1-30).
+    /// type, and on a field with an InitValue too (corpus testpage/parts/BnrBlankPart.al:1-30).
     pub(super) fn shows_no_row(&self, st: &St, idx: usize) -> bool {
         let engine = self.engine();
         st.borrow().cursor == Cursor::None
@@ -170,7 +170,7 @@ impl Session {
         // A control bound to a field of another record variable of the page takes that field's OptionCaption (from BC 29), enum
         // captions, DecimalPlaces, AutoFormatType and AutoFormatExpression (a field of the row read from that record), in a group
         // and in a repeater, as a control bound to a field of Rec does; it does not take BlankZero, BlankNumbers or ClosingDates
-        // (pages/lt-sa-other-record-control/SaOtherRecordControl.al:9-15, SA_Option_EveryMember, SA_Enum_Bool_Date_Text,
+        // (pages/controls/SaOtherRecordControl.al:9-15, SA_Option_EveryMember, SA_Enum_Bool_Date_Text,
         // SA_Decimal_*). OptionCaptionML there is not pinned and refused.
         let var_field = ctl
             .var_field
@@ -189,17 +189,24 @@ impl Session {
                     vf.name
                 ));
             }
-            if let Some(c) = has("OptionCaption")
-                .filter(|_| ctl.prop("optioncaption").is_none() && ctl.prop("optioncaptionml").is_none())
-            {
-                // BC 27 and 28 show the member names on the Linux CI legs only, a Linux suspect (`Gate::OtherRecordOptionCaptionFrom29`).
-                if !self.has(al_version::Gate::OtherRecordOptionCaptionFrom29) {
+            // On a page with no source table the control shows and takes the member names on 27.5, 28.5 and 29.0 (testpage/no-source-controls/
+            // NoSourceGlobalRecordSetValue.al:180 SetValue_EveryKind_TextArgs_ValueReadBack `opt`, :258
+            // SetValue_TextThatDoesNotFit_Errors `opt caption`).
+            if let Some(c) = has("OptionCaption").filter(|_| {
+                ctl.prop("optioncaption").is_none() && ctl.prop("optioncaptionml").is_none() && self.has_source(st)
+            }) {
+                // Before BC 29 such a control shows the member names (`Gate::OtherRecordOptionCaptionFrom29`), confirmed on Windows for
+                // BC 28 only (al-runner issue 7005; pages/controls/OtherRecordOptionMembers.al:146 OtherRecordOption_OneRow_Values `[Short]`);
+                // BC 27 is seen on the Linux CI legs only, a Linux suspect.
+                if !self.other_record_option_shown(st) {
                     return unsupported(format!(
                         "a control bound to Option field {} of another record variable on a BC version before the gate OtherRecordOptionCaptionFrom29 (the member names were seen on Linux only; not pinned)",
                         vf.name
                     ));
                 }
-                var_captions = Some(c);
+                if self.has(al_version::Gate::OtherRecordOptionCaptionFrom29) {
+                    var_captions = Some(c);
+                }
             }
         }
         // The field whose DecimalPlaces and AutoFormat the control takes, and the record its AutoFormatExpression reads.
@@ -238,9 +245,9 @@ impl Session {
             _ => None,
         };
         // A table field's AutoFormatExpression that is an expression, read through a control that names no expression of its
-        // own: a field of the row is evaluated with the control's row (types/lt-auto-format-currency/QiTableFieldAutoFormat.al;
-        // control expressions: autoformat/PWAutoFormatTypes.al:19-22, AutoFormatCard.Page.al:53; literal field expressions:
-        // pages/lt-page-autoformat-lookups/P113AutoFormat.al). A procedure call and any other expression are refused.
+        // own: a field of the row is evaluated with the control's row (format-evaluate/QiTableFieldAutoFormat.al;
+        // control expressions: format-evaluate/autoformat/PWAutoFormatTypes.al:19-22, AutoFormatCard.Page.al:53; literal field expressions:
+        // pages/run-modal/P113AutoFormat.al). A procedure call and any other expression are refused.
         // `field_expression` is its text.
         let mut field_expression = None;
         if ctl.prop("autoformatexpression").is_none() {
@@ -248,7 +255,7 @@ impl Session {
                 let text = from_format_field("autoformatexpression");
                 if text.as_deref().is_some_and(|e| !is_text_literal(e)) {
                     // BC runs an expression that calls a procedure when the page fetches the row (open, Next,
-                    // GoToRecord), not when the text is read (types/lt-auto-format-currency/QiTableFieldAutoFormat.al:421
+                    // GoToRecord), not when the text is read (format-evaluate/QiTableFieldAutoFormat.al:421
                     // QI_Type10Procedure_Card_Calls `after-open` fmt();fmt(A);, `after-t10-read` empty). Evaluated on read,
                     // its side effects and errors would come at the wrong time, so it is refused.
                     if text.as_deref().is_some_and(|e| e.contains('(')) {
@@ -291,7 +298,7 @@ impl Session {
         // The field's AutoFormatExpression: what its expression gave, else its literal text.
         let field_afe = field_expression.or_else(|| from_format_field("autoformatexpression").map(|e| unquote(&e)));
         // The precision of the table field's AutoFormatExpression beats the control's DecimalPlaces when the control names no
-        // expression of its own (pages/lt-page-autoformat-lookups/P113AutoFormat.al: PDec `DecimalPlaces = 1 : 1` over a field
+        // expression of its own (pages/run-modal/P113AutoFormat.al: PDec `DecimalPlaces = 1 : 1` over a field
         // with `<Precision,3:3>` shows three places).
         let field_precision = if ctl.prop("autoformatexpression").is_none() {
             field_afe.as_deref().and_then(pagefmt::parse_precision)
@@ -307,7 +314,7 @@ impl Session {
             ..Default::default()
         };
         // An auto-format expression carries a precision: `<Precision,4:4><Standard Format,0>`
-        // (corpus autoformat/TestAutoFormat.al, TestAutoFormatExpressionTiming.al).
+        // (corpus format-evaluate/autoformat/TestAutoFormat.al, TestAutoFormatExpressionTiming.al).
         if f.decimal_places.is_none() {
             let expr = match ctl.prop("autoformatexpression") {
                 Some(ir::PropVal::Lit(v)) => Some(unquote(v)),
@@ -318,14 +325,14 @@ impl Session {
                 None => None,
             };
             f.decimal_places = expr.as_deref().and_then(pagefmt::parse_precision);
-            // The table field's own expression applies when the control has none (pages/lt-page-autoformat-lookups/
+            // The table field's own expression applies when the control has none (pages/run-modal/
             // P113AutoFormat.al: T10 `<Precision,3:3>` shows 1,234.500, PovT0 with type 0 keeps the field's 3 places).
             if f.decimal_places.is_none() && expr.is_none() {
                 f.decimal_places = field_afe.as_deref().and_then(pagefmt::parse_precision);
             }
             // AutoFormatType 1, 2, 4 and 5 (on the control, else on the table field): the places of an
             // amount or a unit amount, from the currency the expression names
-            // (autoformat/PWAutoFormatTypes.al, see `auto_format_places`).
+            // (format-evaluate/autoformat/PWAutoFormatTypes.al, see `auto_format_places`).
             if f.decimal_places.is_none() {
                 let kind = lit("autoformattype").or_else(|| from_format_field("autoformattype"));
                 if let Some(kind) = kind
@@ -338,8 +345,8 @@ impl Session {
                 }
             }
         }
-        // ClosingDates on the control (pages/lt-page-presentation-properties/P119ReportFields.al:174,
-        // pageext/lt-z-modify-controls/ZModifyControls.al:290) or on the source field (record/lt-x-table-props/
+        // ClosingDates on the control (pages/properties/P119ReportFields.al:174,
+        // pages/extensions/ZModifyControls.al:290) or on the source field (record/table-properties/
         // XTablePropsTests.al:523-524). A control that turns it off over a field that turns it on is not pinned.
         let closing_ctl = lit("closingdates").map(|v| is_true(&v));
         let closing_field = from_field("closingdates").is_some_and(|v| is_true(&v));
@@ -352,7 +359,7 @@ impl Session {
         f.blank_zero = lit("blankzero")
             .or_else(|| from_field("blankzero"))
             .is_some_and(|v| is_true(&v));
-        // A Decimal FlowFilter field shows nothing while it holds zero (handlers/N582TestPageEdges.al:400,
+        // A Decimal FlowFilter field shows nothing while it holds zero (testpage/N582TestPageEdges.al:400,
         // BR_Editable_FlowFilterControl `card edit amtfilter value` ''; :428 after SetValue('7') it shows 7.00). Pinned for the
         // unset field only; SetValue('0') and other number types are docs/probes-needed.md.
         if field.as_ref().is_some_and(|f| {
@@ -378,8 +385,8 @@ impl Session {
         f.option_captions = lit("optioncaption").map(|c| unquote(&c).split(',').map(str::to_string).collect());
         // OptionCaptionML on the control, else on the table field: the captions of the language the page opened in, over the
         // table field's OptionCaption. A page opened in 1033 keeps One, Two, Three after GlobalLanguage(1031) and (1036)
-        // (pages/lt-page-controls-aa/AaFieldProps.al:AA_OptionCaptionML_PageField line 179); one opened in 1031 shows Zwei
-        // (pageext/lt-z-modify-controls/ZModifyControls.al:322-360 on the control, record/lt-x-table-props/
+        // (pages/controls/AaFieldProps.al:AA_OptionCaptionML_PageField line 179); one opened in 1031 shows Zwei
+        // (pages/extensions/ZModifyControls.al:322-360 on the control, record/table-properties/
         // XTablePropsTests.al:229-230 on the field); 1036 falls back to ENU. Other languages are refused.
         if f.option_captions.is_none() {
             if let Some(ml) = lit("optioncaptionml").or_else(|| from_field("optioncaptionml")) {
@@ -416,10 +423,10 @@ impl Session {
     /// OptionCaption. The client keeps one comma-separated list and the value at position i of the enum (declaration order) stands
     /// for entry i:
     /// - the control's OptionCaption: on an enum with ordinals 0, 1, 4, 5 and `' ,c1,,,c4,c5'` the values show ` `, `c1`, `4`, `5`
-    ///   (an empty entry shows the ordinal) and SetValue takes ` ` and `c1` only (handlers/TestPageEnumField_Tests.al:197-205,
+    ///   (an empty entry shows the ordinal) and SetValue takes ` ` and `c1` only (testpage/TestPageEnumField_Tests.al:197-205,
     ///   :235-246);
     /// - the enum's captions joined, when one holds a comma: `Diamond Level, with bonus` is two entries, so `with bonus` selects the
-    ///   value at position 2 and shows as ` with bonus` (misc/lt-cv-odd-leads/CvEnumCaptionComma.al:150-174).
+    ///   value at position 2 and shows as ` with bonus` (testpage/CvEnumCaptionComma.al:150-174).
     ///
     /// Both are pinned on a control bound to a table field; OptionCaptionML or a table field's OptionCaption on an Enum, and a control
     /// bound to a variable, are refused. `Ok(None)`: the captions one by one.
@@ -473,7 +480,7 @@ impl Session {
             .iter()
             .position(|(v, _)| *v == ordinal);
         match at.and_then(|p| list.get(p)) {
-            // An empty OptionCaption entry shows the ordinal (handlers/TestPageEnumField_Tests.al:204-205).
+            // An empty OptionCaption entry shows the ordinal (testpage/TestPageEnumField_Tests.al:204-205).
             Some(e) if e.is_empty() && from_control => Ok(ordinal.to_string()),
             Some(e) if e.is_empty() => unsupported("an empty entry of an Enum's comma-split captions (not pinned)"),
             Some(e) => Ok(e.clone()),
@@ -481,20 +488,20 @@ impl Session {
         }
     }
 
-    /// The places a decimal control with `AutoFormatType` 1, 2, 4 or 5 shows (corpus autoformat/PWAutoFormatTypes.al,
+    /// The places a decimal control with `AutoFormatType` 1, 2, 4 or 5 shows (corpus format-evaluate/autoformat/PWAutoFormatTypes.al,
     /// BC 27.5; the setup does not matter in any of the three setups probed, so General Ledger Setup is not read):
     /// 1 and 4 are amounts, 2 and 5 unit amounts. A blank expression gives 2:2 for an amount and 2:5 for a unit
     /// amount (:98-175). A currency code that exists gives the currency's "Amount Decimal Places" or
     /// "Unit-Amount Decimal Places" (:177-195), both empty gives 2:2 (:197-217), and a code that is no
     /// currency gives the places of General Ledger Setup: 2:5 for all four under a setup of 2:5 and 2:5 (:263-290), 2:2 for
-    /// an amount and 2:5 for a unit amount under 2:2 and 2:5 (types/lt-auto-format-currency/QiTableFieldAutoFormat.al:272
+    /// an amount and 2:5 for a unit amount under 2:2 and 2:5 (format-evaluate/QiTableFieldAutoFormat.al:272
     /// `nocur_t1` 1,234.57, `nocur_t2` 1,234.56789). A currency with only one of the two places empty, and a code that is
     /// no currency without a General Ledger Setup row or with its places empty, are not pinned.
     /// `Format` in code of the field numbered `field_no` of `record`, a Decimal table field whose AutoFormatExpression is an expression: BC
-    /// applies the field's AutoFormat outside a page too (types/lt-auto-format-currency/QiTableFieldAutoFormat.al:400-418
+    /// applies the field's AutoFormat outside a page too (format-evaluate/QiTableFieldAutoFormat.al:400-418
     /// QI_TableFieldExpression_FormatInCode: a field of the row for types 1 and 2, the places of its currency; a procedure for
     /// type 10, the precision of the format it answers). Types 4 and 5 with a field of the row, 1 and 2 with a constant
-    /// currency code, and 2, 4 and 5 without an expression are pinned by misc/lt-sa-unit-amount-subst/SaUnitAmountSubst.al
+    /// currency code, and 2, 4 and 5 without an expression are pinned by text/text-methods/SaUnitAmountSubst.al
     /// (1 and 4 amounts, 2 and 5 unit amounts). The lowering sends only those shapes here.
     pub(crate) fn auto_format_field_places_of(&mut self, record: &Value, field_no: usize) -> Result<String, Signal> {
         let Value::Record(rec) = record else {
@@ -554,7 +561,7 @@ impl Session {
         {
             let code = text[1..text.len() - 1].replace("''", "'");
             // Types 4 and 5 with a code that is no currency take the places of an amount and a unit amount: `GBP` gives
-            // `1,234.57` and `1,234.56789` (types/lt-ax-text-format-dates/AxFillerBuilderAutoFormat.al:193-260). A currency that
+            // `1,234.57` and `1,234.56789` (format-evaluate/AxFillerBuilderAutoFormat.al:193-260). A currency that
             // exists is not pinned for them.
             if matches!(kind.as_str(), "4" | "5") && self.currency_row_exists(&code)? {
                 return unsupported(format!(
@@ -567,7 +574,7 @@ impl Session {
         }
         // A procedure of the table under types 1 and 2: BC calls it once per Format (StrSubstNo and Format(x, 0, n) too) on the
         // formatted record itself, a local one too; the record variable's table globals keep their values between calls, and
-        // an error in it is the error of the Format (types/lt-auto-format-currency/Y17AfProcedure.al:275, :300, :325, :350,
+        // an error in it is the error of the Format (format-evaluate/Y17AfProcedure.al:275, :300, :325, :350,
         // :377, :511).
         let procedure = !is_field_reference(&text) && text.contains('(');
         let pinned = match kind.as_str() {
@@ -691,7 +698,7 @@ impl Session {
         let (amount, unit_places) = (text(amount_at), text(unit_at));
         let wanted = if unit { unit_places } else { amount };
         // An empty places field of the currency shows two places, whatever the places of General Ledger Setup are, whether the other
-        // field is empty or not (types/lt-auto-format-currency/AutoFormatCurrencyPlaces.al Currency_AmountPlacesOnly_DefaultSetup,
+        // field is empty or not (format-evaluate/AutoFormatCurrencyPlaces.al Currency_AmountPlacesOnly_DefaultSetup,
         // _UnitPlacesOnly_DefaultSetup, and the _OtherSetup twins).
         if wanted.is_empty() {
             return Ok((2, 2));
@@ -758,7 +765,7 @@ impl Session {
     pub(super) fn control_text(&mut self, st: &St, idx: usize, v: &Value) -> Result<String, Signal> {
         // A Media control shows the id of its media, a MediaSet control the id of the first media
         // of its set; lowercase, no braces, empty when there is none
-        // (handlers/TestPageFieldFormats_Tests.al:28, :628-640, TestPageFieldFormatsMediaFilled_Tests.al).
+        // (testpage/TestPageFieldFormats_Tests.al:28, :628-640, TestPageFieldFormatsMediaFilled_Tests.al).
         if let (Some(RtType::Library(n)), Value::Guid(id)) = (self.control_type(st, idx, v), v) {
             let shown = if n.eq_ignore_ascii_case("Media") {
                 Some(*id)
@@ -779,14 +786,14 @@ impl Session {
         if let Value::Library(name, _) = v {
             return unsupported(format!("control text of a {name} value"));
         }
-        // A control with HideValue = true shows no value (handlers/TestProbePageHandlerContracts.al:
+        // A control with HideValue = true shows no value (testpage/TestProbePageHandlerContracts.al:
         // TestPage_Members_ShowMandatoryHideValue_Defaults, `hidevalue_field_value` is empty).
         {
             let engine = self.engine();
-            // A label keeps showing its caption (pages/lt-page-presentation-properties/P119LabelHideValue.al:P119_HideValue `label-value`).
+            // A label keeps showing its caption (pages/properties/P119LabelHideValue.al:P119_HideValue `label-value`).
             let is_label = matches!(page_of(&engine, st).controls[idx].binding, ir::Binding::Caption);
             // HideValue may name a variable: `HideValue = HideName` set in OnAfterGetRecord hides the value of that row
-            // (pages/lt-page-presentation-properties/P119LabelHideValue.al:P119_HideValue `name-value`).
+            // (pages/properties/P119LabelHideValue.al:P119_HideValue `name-value`).
             if !is_label
                 && page_of(&engine, st).controls[idx].prop("hidevalue").is_some()
                 && self.prop_bool_now(st, idx, "hidevalue", false)?
@@ -808,6 +815,9 @@ impl Session {
         let mut listed = None;
         if let Value::Enum(id, ordinal) = v {
             self.note_enum(*id);
+            if let Some(why) = self.enum_ml_unpinned(*id, Some(*ordinal), "the Value of an enum control") {
+                return unsupported(why);
+            }
             if let Some((list, from_control)) = self.enum_option_list(st, idx, *id)? {
                 listed = Some(self.enum_list_text(*id, *ordinal, &list, from_control)?);
             }
@@ -816,7 +826,7 @@ impl Session {
             Some(t) => t,
             None => pagefmt::control_text(v, &f, &caption),
         };
-        // ExtendedDatatype = Ratio shows a percentage: zero is `0%` (pages/lt-page-presentation-properties/P119PageFields.al:P119_FieldState); another
+        // ExtendedDatatype = Ratio shows a percentage: zero is `0%` (pages/properties/P119PageFields.al:P119_FieldState); another
         // value is not pinned.
         {
             let ext = self
@@ -835,7 +845,7 @@ impl Session {
                 );
             // ExtendedDatatype = Masked shows ten bullets for any text that is not empty, whatever its length, on a field (Text or
             // Code, the property on the page or on the table field) and on a page variable; the empty text shows empty
-            // (pages/lt-y72-page-probes/Y72MaskedShortText.al header, Masked_LengthSweep_Field, Masked_PageVariable_Short;
+            // (testpage/Y72MaskedShortText.al header, Masked_LengthSweep_Field, Masked_PageVariable_Short;
             // P119PageFields.al:P119_SetValues `secret`).
             if ext.as_ref().is_some_and(|e| e.trim().eq_ignore_ascii_case("masked"))
                 && let Value::Text(t) | Value::Code(t) = v
@@ -854,7 +864,7 @@ impl Session {
             }
         }
         // A DateTime control writes a plain space before AM / PM on every version (the corpus re-pinned it for the newer
-        // service image: pages/lt-page-runtime/P82TestField.al `dt-value`, pages/lt-page-run-overloads-testpart/
+        // service image: pages/run-modal/P82TestField.al `dt-value`, pages/parts/
         // P106TestFieldAsDateTime.al:P106_AsDateTime_Values; the older pin with a narrow no-break space is gone).
         Ok(text)
     }
@@ -890,7 +900,7 @@ impl Session {
         None
     }
 
-    /// corpus handlers/TestPageDecimalAssertEquals_Tests.al:85, TestPageVariableControlErrorName.al:89:
+    /// corpus testpage/TestPageDecimalAssertEquals_Tests.al:85, TestPageVariableControlErrorName.al:89:
     /// `AssertEquals for Field: <control> Expected = '<expected>', Actual = '<actual>'`.
     pub(super) fn control_assert_equals(&mut self, st: &St, idx: usize, args: &mut [Value]) -> Result<Value, Signal> {
         let actual = self.control_value(st, idx)?;
@@ -901,7 +911,7 @@ impl Session {
         };
         let expected = args.first().cloned().unwrap_or(Value::Null);
         // A text is compared as written; any other value is converted to the field's type and
-        // spelled through the control (corpus handlers/TestPageFieldFormats_Tests.al:1-40).
+        // spelled through the control (corpus testpage/TestPageFieldFormats_Tests.al:1-40).
         let expected_text = match &expected {
             Value::Text(t) | Value::Code(t) => t.clone(),
             other => {
@@ -912,9 +922,9 @@ impl Session {
                         );
                     }
                     // A number on a Text or Code control is spelled and compared with the control's text: an Integer in plain digits
-                    // (handlers/N582TestPageEdges.al:195-247: 10, 1234567, -5, -1234; '1,234,567' differs), a Decimal as Format shows it, with
+                    // (testpage/N582TestPageEdges.al:195-247: 10, 1234567, -5, -1234; '1,234,567' differs), a Decimal as Format shows it, with
                     // group separators from 1000 on and no trailing zeros (same file :250-330: 1,000, 1,234.5, -1,234.5, 999.99, 1.5, 0), and
-                    // 0, 5, 6, BigInteger 5, Decimal 5.5 and 5.0 against '5.5', '5', '05' (pages/lt-testpage-assertequals-option/
+                    // 0, 5, 6, BigInteger 5, Decimal 5.5 and 5.0 against '5.5', '5', '05' (testpage/
                     // TestPageAssertEqualsOption.al:AssertEquals_TextControl_NumbersAndText, AssertEquals_CodeControl_NumbersAndText). A BigInteger
                     // outside 0 to 9 is not pinned. A Boolean goes through ops::convert (pinned in the same tests).
                     Some(RtType::Text(_) | RtType::Code(_))
@@ -945,8 +955,8 @@ impl Session {
             }
         };
         // A text on a Code control is compared in upper case: 'abc' against 'ABC' passes
-        // (pages/lt-testpage-assertequals-option/TestPageAssertEqualsOption.al:167, :179). The error shows the expected
-        // text as written ('Wrong' against an empty Code control, handlers/TestRequestPageControlErrorName.al:281, :397).
+        // (testpage/TestPageAssertEqualsOption.al:167, :179). The error shows the expected
+        // text as written ('Wrong' against an empty Code control, reports/TestRequestPageControlErrorName.al:281, :397).
         let on_code = matches!(&expected, Value::Text(_) | Value::Code(_))
             && matches!(self.control_type(st, idx, &actual), Some(RtType::Code(_)));
         if on_code && expected_text.to_uppercase() == actual_text {
@@ -955,7 +965,7 @@ impl Session {
         if expected_text != actual_text {
             let engine = self.engine();
             let name = page_of(&engine, st).controls[idx].name.clone();
-            // misc/lt-probes-needed-7/PnGTempControl.al:AssertEqualsThroughTheControls and pages/lt-page-runtime/P82TestField.al:
+            // testpage/PnGTempControl.al:AssertEqualsThroughTheControls and pages/run-modal/P82TestField.al:
             // the error code is TestAssertEquals.
             return Err(error_code(
                 format!("AssertEquals for Field: {name} Expected = '{expected_text}', Actual = '{actual_text}'"),
@@ -970,26 +980,17 @@ impl Session {
     pub(super) fn control_caption(&mut self, st: &St, idx: usize) -> Result<String, Signal> {
         let engine = self.engine();
         let ctl = &page_of(&engine, st).controls[idx];
-        // A caption a translation file of the page's app, or of the source field's, could change in the language in force
-        // (ADR-053 step 1).
-        let page = st.borrow().object as usize;
-        let what = || {
-            format!(
-                "the caption of control {} of page {}",
-                ctl.name, engine.program.objects[page].name
-            )
-        };
-        if let Some(why) = self.translated_read_refusal(page, what).or_else(|| {
-            if al_builtins::format::FormatCtx::language(self) == 1033 {
-                return None;
+        match self.control_caption_translation(st, idx)? {
+            super::caption_translation::ControlCaption::Text(t) => return Ok(t),
+            super::caption_translation::ControlCaption::Source => {}
+            super::caption_translation::ControlCaption::Legacy => {
+                if let Some(why) = self.control_caption_refusal(st, idx) {
+                    return unsupported(why);
+                }
             }
-            let table = self.control_field(st, idx)?.declared_in?;
-            self.translated_read_refusal(table as usize, what)
-        }) {
-            return unsupported(why);
         }
         // CaptionClass `3,<text>` is a caption the platform resolves to <text>
-        // (corpus autoformat/TestAutoFormatExpressionTiming.al, WorkingCaptionClass_OpensAndReadsItsCaption).
+        // (corpus format-evaluate/autoformat/TestAutoFormatExpressionTiming.al, WorkingCaptionClass_OpensAndReadsItsCaption).
         let class = match ctl.prop("captionclass") {
             Some(ir::PropVal::Lit(c)) => Some(unquote(c)),
             Some(routine) => match self.prop_routine_value(st, idx, routine)? {
@@ -1000,7 +1001,7 @@ impl Session {
         };
         if let Some(c) = class {
             // The page resolved it when it filled; a read takes that caption and raises no event
-            // (misc/W2CaptionClass.al:113-116 claimed, :133-136 unclaimed, :170-178 an expression).
+            // (testpage/W2CaptionClass.al:113-116 claimed, :133-136 unclaimed, :170-178 an expression).
             let cached = st
                 .borrow()
                 .control_captions
@@ -1024,6 +1025,27 @@ impl Session {
         self.control_caption_plain(st, idx)
     }
 
+    /// A caption a translation file of the page's app, or of the source field's, could change in the language in force
+    /// (ADR-053 step 1).
+    fn control_caption_refusal(&mut self, st: &St, idx: usize) -> Option<String> {
+        let engine = self.engine();
+        let ctl = &page_of(&engine, st).controls[idx];
+        let page = st.borrow().object as usize;
+        let what = || {
+            format!(
+                "the caption of control {} of page {}",
+                ctl.name, engine.program.objects[page].name
+            )
+        };
+        self.translated_read_refusal(page, what).or_else(|| {
+            if al_builtins::format::FormatCtx::language(self) == 1033 {
+                return None;
+            }
+            let table = self.control_field(st, idx)?.declared_in?;
+            self.translated_read_refusal(table as usize, what)
+        })
+    }
+
     /// The control's caption with no CaptionClass of its own: its `Caption`, else the source field's `CaptionClass` or
     /// `Caption`, else its name.
     pub(super) fn control_caption_plain(&mut self, st: &St, idx: usize) -> Result<String, Signal> {
@@ -1042,15 +1064,15 @@ impl Session {
                     .map(|(_, v)| unquote(v))
             })
         };
-        // The source field's CaptionClass beats its Caption (pageext/lt-page-ext-properties/TableExtCaptionClass.al:69) and is
-        // resolved when the caption is read, not when the page opens (record/lt-x-table-props/XTablePropsTests.al:483-487).
+        // The source field's CaptionClass beats its Caption (pages/extensions/TableExtCaptionClass.al:69) and is
+        // resolved when the caption is read, not when the page opens (record/table-properties/XTablePropsTests.al:483-487).
         // Whether a Caption on the control beats it is not pinned.
         if let Some(why) = field.as_ref().and_then(|f| f.caption_class_refusal.clone()) {
             return unsupported(why);
         }
         // A CaptionClass of the source field that is an expression ran when the page filled (`fill_field_caption_expressions`);
-        // the read takes that caption and runs nothing (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:422-481
-        // Page_ControlCaptions, `exprId_again`; pageext/lt-page-ext-properties/TableExtCaptionClass.al:124-149).
+        // the read takes that caption and runs nothing (record/captions/QdCaptionClassAreas.al:422-481
+        // Page_ControlCaptions, `exprId_again`; pages/extensions/TableExtCaptionClass.al:124-149).
         if let Some(raw) = field.as_ref().and_then(|f| {
             f.properties
                 .iter()
@@ -1104,7 +1126,7 @@ impl Session {
 
     /// Resolve a control's CaptionClass as the page fills and keep the caption for `Caption()`. A class text the control
     /// already resolved raises no event again: after a SetValue only the expression whose text changed is resolved
-    /// (misc/W2CaptionClass.al:92 at open, :174-178 after SetValue).
+    /// (testpage/W2CaptionClass.al:92 at open, :174-178 after SetValue).
     pub(super) fn fill_caption_class(&mut self, st: &St, idx: usize, text: &str) -> Result<(), Signal> {
         if st
             .borrow()
@@ -1113,7 +1135,7 @@ impl Session {
             .any(|(i, t, _)| *i == idx && t == text)
         {
             // A later fill with the same class text keeps the caption and raises no OnResolveCaptionClass: the session keeps
-            // what it translated (types/PSCaptionClass.al:94-115; misc/W2CaptionClass.al:174-178 pins that a changed text is
+            // what it translated (types/PSCaptionClass.al:94-115; testpage/W2CaptionClass.al:174-178 pins that a changed text is
             // resolved again).
             return Ok(());
         }
@@ -1136,7 +1158,7 @@ impl Session {
     }
 
     /// After a SetValue the client evaluates the CaptionClass expressions again and resolves the ones whose text changed
-    /// (misc/W2CaptionClass.al:ExpressionFromPageVariable_FollowsTheVariable, `set_events`).
+    /// (testpage/W2CaptionClass.al:ExpressionFromPageVariable_FollowsTheVariable, `set_events`).
     pub(super) fn refresh_caption_classes(&mut self, st: &St) -> Result<(), Signal> {
         if !st.borrow().open {
             return Ok(());
@@ -1195,7 +1217,7 @@ impl Session {
     }
 
     /// The caption of a page with `DataCaptionExpression`: the page caption, ` - ` and the expression's value, evaluated now.
-    /// Pinned on a card with a source table, standing on a stored row (pages/lt-page-autoformat-lookups/P113DataCaption.al:83-88,
+    /// Pinned on a card with a source table, standing on a stored row (pages/run-modal/P113DataCaption.al:83-88,
     /// :264-279, P113_DC_DataCaptionExpression: `P113 Expr - EXPR-Alpha`, after GoToKey `P113 Expr - EXPR-Beta`). A page with
     /// no source table (al-runner issue 6320), a new row, no row, and an expression whose value is empty are not pinned
     /// and are refused. A list, worksheet or list part: `caption_expr_list.rs`.
@@ -1212,8 +1234,20 @@ impl Session {
                 return unsupported("the caption of a page with DataCaptionExpression on a new row (not pinned)");
             }
             if s.cursor == Cursor::None {
+                // On no row the caption stands alone, the expression having run or not (pages/properties/DataCaptionExprOrder.al
+                // DCE_RunModal_TableProcedure_Empty `H open cap=LT DCE ctl=`, DCE_TestPage_OpenView_Empty).
+                if self.card_with_data_caption_expression(st) {
+                    return Ok(base);
+                }
                 return unsupported("the caption of a page with DataCaptionExpression and no row (not pinned)");
             }
+        }
+        // A card shows what the expression returned when the row arrived, and does not run it again
+        // (DataCaptionExprOrder.al DCE_RunModal_TableProcedure_Rows: no `DC` between `OnAfterGetCurrRecord` and `H open`). The
+        // caption has its trailing blanks cut (DCE_RunModal_NoFilter_Rows `cap=LT DCE - Cap ctl=`).
+        let kept = st.borrow().data_caption_value.clone();
+        if let Some(value) = kept {
+            return Ok(format!("{base} - {value}").trim_end().to_string());
         }
         let value = self.data_caption_expression_value(st)?;
         if value.is_empty() {
@@ -1224,7 +1258,7 @@ impl Session {
 
     /// The caption a TestPage shows: the page caption, then ` - ` and the values of the data caption fields of the row, joined
     /// by ` ∙ `, empty ones left out; a new record has `New - ` in front. A list shows its caption alone. The fields are the
-    /// page's `DataCaptionFields` when it names some, else the table's. Pinned by pages/lt-page-autoformat-lookups/
+    /// page's `DataCaptionFields` when it names some, else the table's. Pinned by pages/run-modal/
     /// P113DataCaption.al (P113_DC_CardCaption, _CardNewRecord, _PageLevelDataCaptionFields, _EmptyDataCaptionFields, _ListCaption,
     /// _EmptyTable). A `DataCaptionExpression` is refused: the expression is not evaluated here.
     pub(super) fn test_page_caption(&mut self, st: &St) -> Result<String, Signal> {
@@ -1246,7 +1280,7 @@ impl Session {
                 .any(|(k, _)| k.eq_ignore_ascii_case(name))
         };
         // A request page with a source table shows its caption alone on a stored row, whatever DataCaptionFields or
-        // DataCaptionExpression say (report/lt-y-request-page/YRequestPageTests.al:84, :157, :206, :241, :255, :365, :387). On a new
+        // DataCaptionExpression say (reports/request-page/YRequestPageTests.al:84, :157, :206, :241, :255, :365, :387). On a new
         // row it is not pinned.
         if self.is_request_page(st) {
             if st.borrow().draft {
@@ -1254,7 +1288,7 @@ impl Session {
             }
             return Ok(base);
         }
-        // The caption of an API page is not pinned: real BC shows the page name alone (pageext/lt-u-page-props/UPageProps.al
+        // The caption of an API page is not pinned: real BC shows the page name alone (pages/extensions/UPageProps.al
         // ApiPage_PartAndReadOnlyIntent `page_caption = LT U Api Page`), where the data caption fields would add the key.
         if matches!(
             &self.engine.object_facts[object].page_type,
@@ -1263,21 +1297,21 @@ impl Session {
             return unsupported("the caption of an API page (not pinned)");
         }
         // A DataCaptionExpression a page extension sets is not pinned (the corpus pins the page's own); the caption was shown
-        // without it before, which is wrong on real BC (pageext/lt-u-page-props/UPageProps.al PageExt_PageLevel_Editable_And_DataCaptionExpression).
+        // without it before, which is wrong on real BC (pages/extensions/UPageProps.al PageExt_PageLevel_Editable_And_DataCaptionExpression).
         if !has_prop("DataCaptionExpression") && effective_prop(&engine, object, "DataCaptionExpression")?.is_some() {
             return unsupported("the caption of a page whose DataCaptionExpression a page extension sets (not pinned)");
         }
         if has_prop("DataCaptionExpression") {
             return self.data_caption_expression_caption(st, base);
         }
-        // A caption the page assigned still gets the record's values behind it (pages/lt-page-runtime/P82CurrPage.al:
-        // Caption_ReadAndAssign: `Changed caption - A`); on no row it stands alone (handlers/TestPageCaption_Tests.al).
+        // A caption the page assigned still gets the record's values behind it (pages/run-modal/P82CurrPage.al:
+        // Caption_ReadAndAssign: `Changed caption - A`); on no row it stands alone (testpage/TestPageCaption_Tests.al).
         if !self.has_source(st) {
             return Ok(base);
         }
         if self.is_list(st) {
             // A list (or worksheet, or list part) adds the one value its record is filtered to on each field the PAGE's
-            // DataCaptionFields names, joined by ` ∙ ` (pages/lt-y37-list-caption/Y37ListCaptionTests.al:153-158 `C313
+            // DataCaptionFields names, joined by ` ∙ ` (pages/properties/Y37ListCaptionTests.al:153-158 `C313
             // Zone List - Z1`, :322-324 two fields, :269-270 a worksheet, :345-347 filter group 2, :364-366 TestPage.Filter,
             // :298 `SetFilter('%1')`). A range, a list, a wildcard, `<>` or a blank value adds nothing (:293-297); the
             // table's DataCaptionFields and the primary key do not count on a list (:196-199, :249-251, :221 a list part).
@@ -1339,7 +1373,7 @@ impl Session {
                     _ => None,
                 };
                 // A field with a TableRelation adds what `related_caption_parts` says; a value no related record has drops the
-                // suffix (pages/lt-y45-list-caption-relation/Y45ListCaptionRelation.al:147), pinned with no other caption field.
+                // suffix (pages/properties/Y45ListCaptionRelation.al:147), pinned with no other caption field.
                 if let (true, Some(v)) = (related, one.as_ref()) {
                     match self.related_caption_parts(&rec, i, v)? {
                         Some(mut more) => parts.append(&mut more),
@@ -1426,7 +1460,7 @@ impl Session {
         let object = st.borrow().object as usize;
         let props = &engine.program.objects[object].properties;
         // A list handed over in lookup mode is read-only, page-variable controls included
-        // (corpus handlers/TestPageControlEditableRoutes.al:446 List_RunModal_LookupMode).
+        // (corpus testpage/TestPageControlEditableRoutes.al:446 List_RunModal_LookupMode).
         st.borrow().mode != PageMode::View
             && !(st.borrow().editable_off && self.open_lock(st) != Some(PageMode::New))
             && !(st.borrow().lookup && self.is_list_page(st))
@@ -1436,8 +1470,8 @@ impl Session {
     }
 
     /// The open mode, when the page is read-only only because its OnOpenPage called `CurrPage.Editable(false)`. What that
-    /// does depends on the mode: OpenEdit locks every control (handlers/TestPageControlEditableRoutes.al:553); OpenView
-    /// leaves a page-variable control editable (pages/lt-cd-testpage-leads/CdTestPageLeads.al:95, Item49_LockCard_OpenView);
+    /// does depends on the mode: OpenEdit locks every control (testpage/TestPageControlEditableRoutes.al:553); OpenView
+    /// leaves a page-variable control editable (testpage/CdTestPageLeads.al:95, Item49_LockCard_OpenView);
     /// OpenNew keeps the page editable and locks the Rec controls (CdTestPageLeads.al:117-118, Item49_LockCard_OpenNew).
     pub(super) fn open_lock(&self, st: &St) -> Option<PageMode> {
         let s = st.borrow();
@@ -1445,10 +1479,10 @@ impl Session {
     }
 
     /// Editable and Enabled follow the page state live (corpus
-    /// handlers/TestPageControlPropertyLiveness_Tests.al:73, TestPageEditable_Tests.al).
+    /// testpage/TestPageControlPropertyLiveness_Tests.al:73, TestPageEditable_Tests.al).
     pub(super) fn control_editable(&mut self, st: &St, idx: usize) -> Result<bool, Signal> {
         // A control bound to a page variable stays editable on a read-only page (corpus
-        // handlers/TestPageReadOnlySetValue.al:365 OpenView_PageVariableControl_StaysEditable).
+        // testpage/TestPageReadOnlySetValue.al:365 OpenView_PageVariableControl_StaysEditable).
         let engine = self.engine();
         let var_bound = matches!(
             page_of(&engine, st).controls[idx].binding,
@@ -1463,7 +1497,7 @@ impl Session {
         }
         // A page whose property says `Editable = false` makes its page-variable controls read No as well, also one with its own
         // `Editable = true` and one in a group outside the repeater: pinned for a List and a Card, opened for edit, for view, by
-        // Page.Run and run modally (pages/lt-outside-worksheet/RmReadOnlyPageVarControl.al:146-:277). Another page type is not.
+        // Page.Run and run modally (testpage/RmReadOnlyPageVarControl.al:146-:277). Another page type is not.
         let page_says_read_only = engine.program.objects[st.borrow().object as usize]
             .properties
             .iter()
@@ -1479,16 +1513,16 @@ impl Session {
             || (st.borrow().lookup && self.is_list_page(st))
             || (st.borrow().editable_off && open_lock != Some(PageMode::View))
             // A request page that says `Editable = false` makes its variable-bound fields read No too
-            // (handlers/PSRequestPageEditable.al Editable_RequestPageEditableFalse).
+            // (reports/PSRequestPageEditable.al Editable_RequestPageEditableFalse).
             || (self.is_request_page(st) && !self.page_editable(st));
-        // A label is never editable (handlers/TestPageLabelControlContracts.al). A cuegroup with
-        // `Editable = false` makes its fields read No (handlers/TestPageCueGroupFixedGridContracts.al:
+        // A label is never editable (testpage/TestPageLabelControlContracts.al). A cuegroup with
+        // `Editable = false` makes its fields read No (testpage/TestPageCueGroupFixedGridContracts.al:
         // CueGroup_SetValue_IsSilentlyIgnored).
         if matches!(page_of(&engine, st).controls[idx].binding, ir::Binding::Caption) {
             return Ok(false);
         }
         // A control bound to a field of another record variable of the page follows the control, not the field's Editable = false
-        // (pages/lt-sa-other-record-control/SaOtherRecordControl.al:785 SA_Editable_Visible `edit-GLocked` Yes, `edit-GNotEditable`
+        // (pages/controls/SaOtherRecordControl.al:785 SA_Editable_Visible `edit-GLocked` Yes, `edit-GNotEditable`
         // No). A control bound to another expression (`Format(Settings."Avail. Filter")`) reads No there (`edit-GOptText`), which
         // one shape does not pin for every expression: refused.
         if matches!(page_of(&engine, st).controls[idx].binding, ir::Binding::Expr(_))
@@ -1498,7 +1532,7 @@ impl Session {
         }
         let mut cue = page_of(&engine, st).controls[idx].parent;
         while let Some(p) = cue {
-            // A group (a grid is one) with `Editable = false` does the same (pages/lt-page-editability-width-lookups/P115GridLabel.al:
+            // A group (a grid is one) with `Editable = false` does the same (pages/controls/P115GridLabel.al:
             // P115_GridAndLabel_Editable `ro-grid-field-editable = No`).
             if matches!(
                 page_of(&engine, st).controls[p].kind,
@@ -1508,7 +1542,7 @@ impl Session {
                 return Ok(false);
             }
             // A repeater whose Editable is false, the literal or a page variable, makes its fields read No; a variable that is
-            // true leaves them as they were (pages/lt-y65-readonly-repeater/Y65ReadOnlyRepeater.al:255, :297, :339, :422, :443).
+            // true leaves them as they were (pages/readonly-repeater/Y65ReadOnlyRepeater.al:255, :297, :339, :422, :443).
             if page_of(&engine, st).controls[p].kind == ir::ControlKind::Repeater
                 && self.repeater_line(st)? == super::open::RepeaterLine::Denied
             {
@@ -1516,7 +1550,7 @@ impl Session {
             }
             cue = page_of(&engine, st).controls[p].parent;
         }
-        // A page that opened for edit over an empty view shows no row, and its fields read No (pages/lt-page-types-empty-table/
+        // A page that opened for edit over an empty view shows no row, and its fields read No (pages/properties/
         // PageTypesEmptyTable.al:Card_OpenEdit_EmptyTable `codeEditable`).
         if st.borrow().blank_on_open
             && st.borrow().cursor == Cursor::None
@@ -1524,7 +1558,7 @@ impl Session {
         {
             return Ok(false);
         }
-        // ModifyAllowed = false makes the fields of a stored row read-only (pages/lt-page-autoformat-lookups/P113ModifyAllowed.al:
+        // ModifyAllowed = false makes the fields of a stored row read-only (pages/run-modal/P113ModifyAllowed.al:
         // P113_MA_CardEditable: the page is editable, its controls are not; a new row, which can be inserted, is).
         if matches!(page_of(&engine, st).controls[idx].binding, ir::Binding::Field(_))
             && st.borrow().cursor == Cursor::Row
@@ -1534,7 +1568,7 @@ impl Session {
             return Ok(false);
         }
         // A field whose source table field says `Editable = false` and whose control declares no Editable of its
-        // own is not editable (pinned for a stored field: pages/lt-page-field-editable-source/PageFieldEditableSource.al:
+        // own is not editable (pinned for a stored field: pages/properties/PageFieldEditableSource.al:
         // Card_OpenEdit_FieldEditable `lockedNoProp`; a control with its own Editable = true is editable there
         // `lockedEditableTrue`). A FlowField is pinned too (below); a FlowFilter field is not
         // (assumption page-field-follows-source-field-editable-false).
@@ -1544,7 +1578,7 @@ impl Session {
                     .iter()
                     .any(|(k, v)| k.eq_ignore_ascii_case("Editable") && v.trim().eq_ignore_ascii_case("false"))
                 {
-                    // A FlowField is pinned (handlers/N582TestPageEdges.al:324 N582_Editable_FlowFieldNotEditable: Editable()
+                    // A FlowField is pinned (testpage/N582TestPageEdges.al:324 N582_Editable_FlowFieldNotEditable: Editable()
                     // No on a card, a list and a view page); a FlowFilter field is the assumption.
                     let flow_field = f.properties.iter().any(|(k, v)| {
                         k.eq_ignore_ascii_case("FieldClass") && v.trim().eq_ignore_ascii_case("FlowField")
@@ -1560,7 +1594,7 @@ impl Session {
         }
         let page_editable = self.page_editable(st) && !(rec_bound && open_lock == Some(PageMode::New));
         // A Worksheet opened for view answers the Editable expression of a repeater control, read-only as the page is
-        // (pages/lt-outside-worksheet-2/RtRowEditable.al:253
+        // (testpage/RtRowEditable.al:253
         // RT_EdWs_OpenView_GoToRecord_AB `A:No/No`, `B:Yes/Yes`). Only that reason for a read-only page is pinned.
         if rec_bound && !page_editable && self.view_worksheet_expression(st, idx) {
             return self.row_prop_bool(st, idx, "editable", true);
@@ -1588,9 +1622,9 @@ impl Session {
 
     /// The Editable or Enabled expression `name` of control `idx`, for the row the TestPage stands on. On a repeater row other
     /// than the one OnAfterGetRecord ran with last, BC answers with the page variables as that row's OnAfterGetRecord left them
-    /// (pages/lt-outside-worksheet-2/RtRowEditable.al:162
+    /// (testpage/RtRowEditable.al:162
     /// RT_EdWs_OpenEdit_GoToRecord_AB `A:No/No`, `B:Yes/Yes`, :181 the other order, :198 swapped data, :217 GoToKey, :232 Next,
-    /// Previous, First and Last, :253 OpenView, :272 a List); the Card is pinned (handlers/TestPageEditable_Tests.al:93-112). An
+    /// Previous, First and Last, :253 OpenView, :272 a List); the Card is pinned (testpage/TestPageEditable_Tests.al:93-112). An
     /// expression that calls code or reads other than the page's own variables, and a page with OnAfterGetCurrRecord, are not
     /// pinned there: refused. A row OnAfterGetRecord never ran with (a line the test added) reads the variables as they are:
     /// kept, not pinned (Tests-ERM 134117 T200_WorkTypeVariantCodeOnSalesPriceListLineResource,
@@ -1660,7 +1694,7 @@ impl Session {
     pub(super) fn control_enabled(&mut self, st: &St, idx: usize) -> Result<bool, Signal> {
         // A field in a group with `Enabled = false` reads No on a request page (misc/lt-object-properties-runtime-effect/
         // ReportRequestPageGroupEditable.al:P194_ReportGroup_EditableEnabled, `disabled_enabled = No`), and so does a card's field
-        // without an Enabled of its own in a group with `Enabled = false` (pages/lt-ap-testpage-642/ApTestPageTests.al:895-927
+        // without an Enabled of its own in a group with `Enabled = false` (testpage/ApTestPageTests.al:895-927
         // Ap16_GroupEnabledFalse_Card, ApObjects.al:384-388), and a card's field with `Enabled = true` or an expression of its own,
         // also inside an inner group with `Enabled = true` (ApTestPageTests.al:1082 Ap16_GroupEnabledFalse_FieldEnabledTrue). Another
         // page type or a group whose Enabled is an expression: the same (assumption `group-enabled-disables-field`).
@@ -1692,9 +1726,9 @@ impl Session {
         let page = page_of(&engine, st);
         // Own Visible is the open-time value; a group's and a part's are live (a part: pages/lt-page-filtergroup-assumptions/
         // P99InvisiblePart.al:P99_FlagTrueInOnAfterGetCurrRecord) and so are the groups around the
-        // control (corpus handlers/TestPageControlPropertyLiveness_Tests.al:56). An action's is live too: after an action set
+        // control (corpus testpage/TestPageControlPropertyLiveness_Tests.al:56). An action's is live too: after an action set
         // its variable to false it reads No, with or without CurrPage.Update, while a field keeps its open-time value
-        // (pages/lt-cd-testpage-leads/CdTestPageLeads.al:251-253, :267, Item51_VisibleVariables_*).
+        // (testpage/CdTestPageLeads.al:251-253, :267, Item51_VisibleVariables_*).
         let own = if matches!(
             page.controls[idx].kind,
             ir::ControlKind::Group | ir::ControlKind::CueGroup | ir::ControlKind::Part | ir::ControlKind::Action

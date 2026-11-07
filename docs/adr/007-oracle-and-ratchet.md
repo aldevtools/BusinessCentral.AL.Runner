@@ -1,6 +1,6 @@
 # ADR-007: Oracle source, emulated version, and the passing-set ratchet
 
-- Status: Accepted. Amended by ADR-015: one oracle and one ratchet per BC major, under `oracle/<major>/` and `metrics/<major>/`. Amended below: an oracle may be recorded for an older corpus commit when the pin only adds tests.
+- Status: Accepted. Amended by ADR-015: one oracle and one ratchet per BC major, under `oracle/<major>/` and `metrics/<major>/`. Amended below: an oracle may be recorded for an older corpus commit when the pin only adds tests. Amended by ADR-065 (2026-11-04): the ratchet is the list of the cases the runtime does not pass yet, `metrics/<major>/not-passing*.txt`. Amended 2026-11-05 (owner): a bump may merge the JUnit of the codeunits a corpus pull request's own green CI run ran into the current oracle (`tools/corpus_bump.sh --from-pr`), without waiting for the master run; `oracle/README.md` lists such bumps, and the next bump from a master run replaces the oracle whole.
 - Date: 2026-10-13
 
 ## Context
@@ -19,18 +19,21 @@ in this project's sessions.
 - **Probes**: when behaviour is unclear, write the probe as a corpus test on a
   branch of the corpus repo and read its result from that branch's CI run.
   Once merged there, bump the submodule and the oracle together.
-- **Ratchet**: `metrics/<major>/passing.txt` lists every corpus case the runtime passes (one file per BC major since ADR-015).
-  CI fails if any listed case stops passing. The file only grows, via
-  `al-test-cli --update-baseline`; removing a line needs a recorded reason in
-  the commit message.
+- **Ratchet** (ADR-065 since 2026-11-04): `metrics/<major>/not-passing*.txt` lists, per BC major and test
+  app, the oracle cases real BC passes and the runtime does not pass yet. CI fails when a case that is not
+  listed does not pass, when a listed case passes or left the oracle (`al-test-cli --prune-not-passing`
+  deletes the line), and when an oracle case gets no outcome. Adding a line for a case the oracle already
+  had needs the owner's OK. Failures still gate only on regressions: a case the runtime never passed is
+  listed, not a failure. (Until 2026-11-04 the ratchet was `metrics/<major>/passing.txt`, the cases the
+  runtime passes, grown by `--update-baseline`.)
 
 ## Consequences
 - Oracle refresh is a two-file change (submodule + `oracle/`), easy to review.
 - A probe round-trip costs one corpus CI run (~20 min) instead of a local run.
 
 ## Conformance
-`al-test-cli/tests/corpus_harness.rs`: pin mismatch exits 2; a baseline case
-that does not pass exits 1.
+`al-test-cli/tests/corpus_harness.rs`: pin mismatch exits 2; a case not in the not-passing list that does
+not pass exits 1 (the rest of the rule: ADR-065, Conformance).
 
 ## Decided without owner review (2026-10-13/14)
 

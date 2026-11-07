@@ -7,8 +7,11 @@ use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::page_op::PageMethod;
 use al_builtins::record_op::RecordOp;
 
+/// A part's view (its rows) and the part's place in it (`both_later_row`).
+type PartView = (Vec<Vec<Value>>, usize);
+
 /// The filter group `SubPageLink` filters live in
-/// (corpus handlers/TestPagePartLinkFilterGroup.al: `FilterGroup(4)` answers the link).
+/// (corpus testpage/TestPagePartLinkFilterGroup.al: `FilterGroup(4)` answers the link).
 pub(super) const LINK_GROUP: i32 = 4;
 
 /// Which parts [`Session::sync_parts_with`] re-points, and how they read.
@@ -22,7 +25,7 @@ enum Sync {
     Move { backward: bool },
     /// The host's GoToKey or GoToRecord stayed on its row: every visible part as `Plain`, except a list part with OnFindRecord, a
     /// filtered SourceTableView and no row trigger, which is not asked again (corpus branch al-runtime-rs-staging-qc eca98051,
-    /// pagefindrecord/QcFindViewTests.al:505 DocPart_OpenEdit_LinesOfH1: OpenEdit, GoToKey('H1'), `part_log = find(=><)=Yes:10000;`
+    /// pages/triggers/QcFindViewTests.al:505 DocPart_OpenEdit_LinesOfH1: OpenEdit, GoToKey('H1'), `part_log = find(=><)=Yes:10000;`
     /// once).
     Stayed,
 }
@@ -31,6 +34,7 @@ impl Session {
     /// Sets `open = false` on `st` and on the pages it shows as parts.
     pub(super) fn mark_closed(&mut self, st: &St) {
         st.borrow_mut().open = false;
+        self.prune_page_held();
         let parts = std::mem::take(&mut st.borrow_mut().parts);
         for (_, child) in &parts {
             self.mark_closed(child);
@@ -40,20 +44,20 @@ impl Session {
 
     /// Creates the page of every part control, before the host's own triggers run: the host's
     /// OnInit and OnOpenPage reach it through `CurrPage.<Part>.Page` (corpus
-    /// handlers/TestPageTempPart_Host.al: OnOpenPage hands rows to the part page). A part whose
+    /// testpage/TestPageTempPart_Host.al: OnOpenPage hands rows to the part page). A part whose
     /// `Visible` is the literal false is not in the control tree
-    /// (testpart/TestTestPart.al:TestPart_InvisiblePart_IsNotInTheControlTreeAtAll).
+    /// (testpage/parts/TestTestPart.al:TestPart_InvisiblePart_IsNotInTheControlTreeAtAll).
     pub(super) fn create_parts(&mut self, st: &St) -> Result<(), Signal> {
         let engine = self.engine();
         let page = page_of(&engine, st);
         for (i, c) in page.controls.iter().enumerate() {
-            if c.kind != ir::ControlKind::Part || self.control_eliminated(st, i) || self.area_removed(st, i) {
+            if c.kind != ir::ControlKind::Part || self.control_eliminated(st, i) || self.part_removed(st, i)? {
                 continue;
             }
             let Some(part_page) = c.part_page else {
                 return unsupported(format!("part {} shows no page", c.name));
             };
-            // A part page the host's code reached before the host ran (see `part_page`, pinned by pages/lt-part-never-ran) is the
+            // A part page the host's code reached before the host ran (see `part_page`, pinned by pages/parts) is the
             // one the page opens with: what that call set on it stays (Warehouse Pick Summary.SetRecords hands the summary
             // rows to its part before the page runs).
             let early = {
@@ -98,7 +102,7 @@ impl Session {
     /// are dropped, the others run their OnInit and OnOpenPage.
     pub(super) fn open_parts(&mut self, st: &St) -> Result<(), Signal> {
         // A part is opened inside its host, so the host's read-only state reaches it (corpus
-        // handlers/TestPageNewRowLine_Tests.al:ReadOnlyHostPart_NextPastLastDataRow_ReturnsFalse).
+        // testpage/TestPageNewRowLine_Tests.al:ReadOnlyHostPart_NextPastLastDataRow_ReturnsFalse).
         let mode = if self.page_editable(st) {
             PageMode::Edit
         } else {
@@ -118,7 +122,7 @@ impl Session {
         st.borrow_mut().hidden_parts = hidden.clone();
         for (_, child) in kept.into_iter().chain(hidden) {
             // A filter the host's OnOpenPage set on the part's Rec (through a procedure of the part) does not narrow the rows the
-            // part shows: it opens on all rows and a new line (pages/lt-y61-page-probes/Y61RunPageLinkCopyFilter.al:328
+            // part shows: it opens on all rows and a new line (testpage/Y61RunPageLinkCopyFilter.al:328
             // G616_PartUpdateForm_VarRec `part filters=Parent Code: P1` read in the procedure, `part rows` = `P1/A,P1/B,P2/C,/,`).
             if child.borrow().instance.is_some() && self.has_source(&child) {
                 self.page_rec(&child).borrow_mut().filters.retain(|f| f.group != 0);
@@ -138,8 +142,8 @@ impl Session {
     }
 
     /// Whether the part control that shows `st` says `Editable = false`. What that does to the
-    /// part's rows is pinned only for SetValue, which writes; New() and Next() onto the new-row line
-    /// of such a part are refused.
+    /// part's rows is pinned for SetValue, which writes, and for Next from the last row, which answers No
+    /// (R6926PartNextReadOnly.al); New() on such a part is refused.
     pub(super) fn part_control_read_only(&self, st: &St) -> bool {
         let Some((host, idx)) = st.borrow().host.clone() else {
             return false;
@@ -155,8 +159,8 @@ impl Session {
     /// What the part controls that show `st` (its host's, and theirs up the chain) say about `Editable()` (`editable`
     /// true) or `Enabled()` of a field of `st`. `Some(false)`: the answer is No. `None`: the part controls say nothing, the
     /// field answers by itself. Pinned only for a field read through a part whose control says the literal `Editable =
-    /// false`: Editable() No (misc/lt-probes-needed-7/PnGPartRows.al:117 ReadOnlyPartSetValue `ro-descr-editable`; a part a page
-    /// extension adds, pageext/lt-u-page-props/UPageProps.al:239-240 PageExt_PartStates `ext_part_row_*_editable`).
+    /// false`: Editable() No (testpage/PnGPartRows.al:117 ReadOnlyPartSetValue `ro-descr-editable`; a part a page
+    /// extension adds, pages/extensions/UPageProps.al:239-240 PageExt_PartStates `ext_part_row_*_editable`).
     /// An Editable or Enabled expression that comes out true counts as no property (assumption
     /// part-field-under-true-part-expression). Everything else a part control's Editable or Enabled can do to its fields
     /// is refused (hard rule 4): an expression that comes out false (Tests-ERM ERM Sales Quotes BlankSalesQuoteLinesUneditable
@@ -215,6 +219,18 @@ impl Session {
         Ok(())
     }
 
+    /// Next from the last row of a page that has a new-row line: it lands on that line and answers Yes. A part whose control
+    /// says Editable = false has none: Next answers No and the part stays on its last row, as on a part page that is not
+    /// editable or allows no insert (pages/parts/R6926PartNextReadOnly.al:229 R6926_CtlRO_Walk `next_walk = Yes[L2] No`,
+    /// :249 R6926_CtlRO_LastNextPrevious `next_after_last = No[L2]`, :272 R6926_CtlRO_GoToRecord `next_after_goto = No[L2]`).
+    pub(super) fn walk_onto_new_line(&mut self, st: &St) -> Result<bool, Signal> {
+        if self.part_control_read_only(st) {
+            return Ok(false);
+        }
+        self.land_on_new_line(st)?;
+        Ok(true)
+    }
+
     /// The `SubPageView` of the part control that shows `st`.
     pub(super) fn sub_page_view(&self, st: &St) -> Option<String> {
         let (host, idx) = st.borrow().host.clone()?;
@@ -243,7 +259,7 @@ impl Session {
     }
 
     /// The filter a `field(filter(F))` link entry puts on a part's (or a run page's) field of type `ty`, from host field `hf` of
-    /// `host`: the host field's value read as a filter text, as SetFilter reads it (pages/lt-y37-link-filter/Y37LinkFilterTests.al:
+    /// `host`: the host field's value read as a filter text, as SetFilter reads it (pages/link-filter/Y37LinkFilterTests.al:
     /// 183-202 `A1`, `A1|A3`, `A1..A3`, `A*`, `<>A2`; :271-313 a formatted RecordId on a RecordId field; :243-269 a FlowFilter
     /// target); a blank value sets no filter (:227-241); a FlowFilter host field gives its filter text (:386-416). A value too
     /// long for a Code or Text target raises no error and finds no row (:206-225). `None` for no filter.
@@ -297,7 +313,7 @@ impl Session {
                 );
             }
         }
-        // A RecordId target reads the text as SetFilter does (filters/lt-wc/WcRecordIdFilter.al; Y37LinkFilterTests.al:298-311).
+        // A RecordId target reads the text as SetFilter does (record/WcRecordIdFilter.al; Y37LinkFilterTests.al:298-311).
         if matches!(ty, RtType::Library(al_builtins::library_kind::LibraryKind::RecordId)) {
             return match self.record_id_filter_text(&text)? {
                 Some(Ok(expr)) => Ok(Some(expr)),
@@ -344,7 +360,7 @@ impl Session {
     pub(super) fn part_page(&mut self, st: &St, control: usize, runtime: bool) -> Result<St, Signal> {
         // A Page variable's procedure that reaches a part before the page ever ran (Check Credit Limit.PopulateDataOnNotification,
         // which Cust-Check Cr. Limit calls on a Page variable to fill a notification) gets the part page created and not opened, as
-        // a hidden part is (pages/lt-part-never-ran/NeverRanReadRec.al, NeverRanUpdate.al, NeverRanGetRecord.al, NeverRanSetRecord.al); after the page ran and closed it stays refused.
+        // a hidden part is (pages/parts/NeverRanReadRec.al, NeverRanUpdate.al, NeverRanGetRecord.al, NeverRanSetRecord.al); after the page ran and closed it stays refused.
         let never_ran = runtime && !st.borrow().open && !st.borrow().ran;
         if never_ran {
         } else {
@@ -353,7 +369,7 @@ impl Session {
                 // Document Lines.CopyLineToDoc reads `CurrPage.PostedRcpts.PAGE` after its RunModal returned): refused, as the other
                 // calls of such a page are (see test_page_op).
                 // After its RunModal returned, the page's code reaches a part that was shown: a procedure of the part reads the
-                // rows the part's record holds, after OK and after Cancel alike (pages/lt-wd/WdPartAfterRunModal.al:75-100
+                // rows the part's record holds, after OK and after Cancel alike (pages/parts/WdPartAfterRunModal.al:75-100
                 // WD_Part_ReadAfterRunModalOK `count` 1 `value` A, WD_Part_ReadAfterRunModalCancel `count` 1 `value` B;
                 // corpus branch al-runtime-rs-staging-1030c, al-runner issue 6321). Pinned for a page that ran modally and
                 // a part that was created while it was open; anything else stays refused.
@@ -373,7 +389,7 @@ impl Session {
                         return Ok(c);
                     }
                     // A part a Visible expression hid while the page was open (it opened with the page) hands out its row at
-                    // close too (pages/lt-y37-part-after-close/Y37PartAfterClose.al:376-395 LT_C314_AfterRunModalOK_OtherPartShown:
+                    // close too (pages/parts/Y37PartAfterClose.al:376-395 LT_C314_AfterRunModalOK_OtherPartShown:
                     // part A, hidden when an option switched to part B, gives its row 10000).
                     let hidden = st
                         .borrow()
@@ -381,7 +397,7 @@ impl Session {
                         .iter()
                         .find(|(i, _)| *i == control)
                         .map(|(_, c)| c.clone())
-                        .filter(|_| !(self.control_eliminated(st, control) || self.area_removed(st, control)));
+                        .filter(|_| !(self.control_eliminated(st, control) || self.off_page(st, control)));
                     if let Some(c) = hidden {
                         return Ok(c);
                     }
@@ -405,9 +421,9 @@ impl Session {
             .map(|(_, c)| c.clone());
         // The page's own code reaches a part whose Visible came out false (Base Application's journals call
         // `CurrPage.WorkflowStatusBatch.PAGE.SetFilterOnWorkflowRecord` behind `Visible = <variable>`; Tests-General
-        // Journal, 7 tests; corpus pages/lt-hidden-part-currpage/HiddenPartCurrPageEditable.al).
+        // Journal, 7 tests; corpus pages/parts/HiddenPartCurrPageEditable.al).
         // A part whose Visible expression came out false is in the test page too, answering Visible() No and First() Yes
-        // (misc/lt-probes-needed-7/PnGPartTriggers.al:HiddenPartExpression); only a literal `Visible = false` leaves it out
+        // (testpage/PnGPartTriggers.al:HiddenPartExpression); only a literal `Visible = false` leaves it out
         // (testpart/TestPartNotOnThePage, which never creates the part).
         let found = found.or_else(|| {
             // Test code finds it only when the Visible expression hid it; a part a literal `Visible = false` left out, which page
@@ -417,13 +433,13 @@ impl Session {
                 .iter()
                 .find(|(i, _)| *i == control)
                 .map(|(_, c)| c.clone())
-                // A part the session's application areas removed is not on the test page either (types/lt-conversions-hidden-parts-doctype/
+                // A part the session's application areas removed is not on the test page either (types/operators-expressions/
                 // P142HiddenPartArea.al:P142_ServiceAreaPartRemoved: `The part with ID = n was not found on the page.`).
-                .filter(|_| runtime || !(self.control_eliminated(st, control) || self.area_removed(st, control)))
+                .filter(|_| runtime || !(self.control_eliminated(st, control) || self.off_page(st, control)))
         });
         // A part the control tree dropped (Visible = false, or an ApplicationArea the session does not enable) is
         // still there for the page's own code: Base Application's Sales Credit Memo calls
-        // `CurrPage.IncomingDocAttachFactBox.Page.LoadDataFromRecord(Rec)` in OnAfterGetCurrRecord. It is created on the first such reach, not opened, and kept out of the tree (corpus pages/lt-hidden-part-currpage/HiddenPartCurrPageEditable.al: Editable_LiteralInvisible_OpenEdit, Editable_ExprInvisible_OpenEdit).
+        // `CurrPage.IncomingDocAttachFactBox.Page.LoadDataFromRecord(Rec)` in OnAfterGetCurrRecord. It is created on the first such reach, not opened, and kept out of the tree (corpus pages/parts/HiddenPartCurrPageEditable.al: Editable_LiteralInvisible_OpenEdit, Editable_ExprInvisible_OpenEdit).
         let found = match found {
             None if runtime => {
                 let engine = self.engine();
@@ -436,7 +452,7 @@ impl Session {
                         st.borrow_mut().hidden_parts.push((control, child.clone()));
                         self.init_one_part(&child)?;
                         // It is not opened: its OnOpenPage and OnAfterGetRecord do not run, only the call that reached it
-                        // (pages/lt-page-filtergroup-assumptions/P99InvisiblePart.al:P99_StaticInvisible, the log is
+                        // (testpage/P99InvisiblePart.al:P99_StaticInvisible, the log is
                         // `host-OnAfterGetCurrRecord | part-Ping | host-after-Ping`).
                         Some(child)
                     }
@@ -448,8 +464,8 @@ impl Session {
         match found {
             Some(c) => Ok(c),
             None => {
-                // Text and code: testpart/TestPartTriggerOrderAndRefresh.al:316-340. The id is
-                // `control_id` of the declaring object and the part's name (testpart/TestTestPart.al:233).
+                // Text and code: testpage/parts/TestPartTriggerOrderAndRefresh.al:316-340. The id is
+                // `control_id` of the declaring object and the part's name (testpage/parts/TestTestPart.al:233).
                 let engine = self.engine();
                 let ctl = &page_of(&engine, st).controls[control];
                 let declaring = self.object_id_of(ctl.owner.unwrap_or(st.borrow().object as usize) as u32);
@@ -471,7 +487,7 @@ impl Session {
     }
 
     /// [`Self::sync_parts`] as the host opens: the parts hidden by a Visible expression read their rows too, in the order of the
-    /// controls (pages/lt-page-filtergroup-assumptions/P99InvisiblePart.al:P99_FlagFalseAtOpen).
+    /// controls (testpage/P99InvisiblePart.al:P99_FlagFalseAtOpen).
     pub(super) fn sync_parts_at_open(&mut self, st: &St) -> Result<(), Signal> {
         let before = std::mem::replace(&mut self.part_open_running, true);
         let r = self.sync_parts_with(st, Sync::Open);
@@ -481,9 +497,9 @@ impl Session {
 
     /// [`Self::sync_parts`] after the host moved to another row with First, Last, Next or Previous. Only the parts with a
     /// SubPageLink read their rows again; a part without one keeps what it shows and runs no trigger
-    /// (pages/lt-part-reads/PartReadsOpen.al:269-283 and :336-379, `-Plain` and `-View` empty;
-    /// pages/lt-part-subpageview-filter/PartViewFilter.al:381 `next-GtOnly`; types/lt-conversions-hidden-parts-doctype/
-    /// P142HiddenPartArea.al:386, :420). A linked part hidden by a Visible expression reads too (PartReadsOpen.al `-Hidden`).
+    /// (pages/parts/PartReadsOpen.al:269-283 and :336-379, `-Plain` and `-View` empty;
+    /// pages/parts/PartViewFilter.al:381 `next-GtOnly`; types/operators-expressions/
+    /// P142HiddenPartArea.al:371, :405). A linked part hidden by a Visible expression reads too (PartReadsOpen.al `-Hidden`).
     /// After Previous and First the linked parts read their rows last to first, once each (PartReadsOpen.al:358-379: 1, 2
     /// and 3 rows; PartViewFilter.al:387-389); after Next and Last first to last, then the first row once more.
     pub(super) fn sync_parts_after_move(&mut self, st: &St, backward: bool) -> Result<(), Signal> {
@@ -492,7 +508,7 @@ impl Session {
 
     /// [`Self::sync_parts`] after a GoToKey or GoToRecord of the host that stayed on its row (`Sync::Stayed`).
     /// A host's Next() from a row whose part showed no row: the part's triggers on the row it lands on see as xRec the row the
-    /// part held before it landed on its blank line, not the blank line (pages/lt-qj-part-propagation/QjPartPropagation.al:2625
+    /// part held before it landed on its blank line, not the blank line (pages/parts/QjPartPropagation.al:2625
     /// QN_EmptyPart_HostNext_ThenNextAgain `log-move = S.AGCR(50000 r=5 x=3)` from H3 without lines after H2's line 30000 r=3;
     /// :4521 QT_EmptyPart_HostNext_Steps `log-next-3`). Pinned for Next only; the other moves keep the blank xRec as before.
     pub(super) fn restore_held_xrec_of_empty_parts(&mut self, st: &St) {
@@ -570,7 +586,7 @@ impl Session {
                         Some(al_ir::PageType::Document | al_ir::PageType::Card | al_ir::PageType::ListPlus)
                     );
                     // A part with a field(filter(...)) entry whose host value is blank (it sets no filter) reads its row again
-                    // (pages/lt-y37-link-filter/Y37LinkFilterTests.al: after OpenEdit and GoToKey on the same row, `LP.c A1 ...;
+                    // (pages/link-filter/Y37LinkFilterTests.al: after OpenEdit and GoToKey on the same row, `LP.c A1 ...;
                     // LP.c A1 ...` on a Card whose second entry is blank, :191, :238, :263; on a Document with a blank value, :302 and
                     // :332, the provider-linked part too); with every such value set it does not (:302 `EP.c 1` once, :352).
                     let blank_field_filter = how == Sync::Stayed && self.field_filter_link_blank(st, *i)?;
@@ -579,7 +595,7 @@ impl Session {
                     }
                     if how == Sync::Stayed && child.borrow().open && self.filtered_find_list_without_row_triggers(child)
                     {
-                        // The part asks its page nothing while the host stays (pagefindrecord/QcFindViewTests.al:540 DocPart_OpenEdit_LinesOfH2, `part_walk_log` empty).
+                        // The part asks its page nothing while the host stays (pages/triggers/QcFindViewTests.al:540 DocPart_OpenEdit_LinesOfH2, `part_walk_log` empty).
                         continue;
                     }
                     if opening && self.view_names_link_field(st, *i, child)? {
@@ -587,7 +603,7 @@ impl Session {
                     }
                     if let Sync::Move { backward: true } = how {
                         // The pinned parts walk the table backwards. A part with its own OnFindRecord or OnNextRecord reads as after
-                        // a forward move, `Find(=><)`, OnAfterGetRecord, `Next(1)`, `Next(-1)` (pages/lt-part-reads/PartReadsOpen.al
+                        // a forward move, `Find(=><)`, OnAfterGetRecord, `Next(1)`, `Next(-1)` (pages/parts/PartReadsOpen.al
                         // SH_FindRecordPart_HostFirstAfterGoToKey `first part log`, SH_FindRecordPart_HostNextLastPrevious
                         // `previous part log`).
                         if !(self.declares(child, "onfindrecord") || self.declares(child, "onnextrecord")) {
@@ -611,7 +627,7 @@ impl Session {
     }
 
     /// A host of another type than Document: the parts with a SubPageLink read their rows again from the first, as after a
-    /// refresh of the host (testpart/TestPartTriggerOrderAndRefresh.al: HostCurrPageUpdate_ReReadsThePart), without the host
+    /// refresh of the host (testpage/parts/TestPartTriggerOrderAndRefresh.al: HostCurrPageUpdate_ReReadsThePart), without the host
     /// reading its own row. Not pinned: assumption host-save-record-refreshes-linked-parts.
     fn refresh_linked_parts_after_save(&mut self, st: &St) -> Result<(), Signal> {
         let engine = self.engine();
@@ -651,7 +667,7 @@ impl Session {
 
     /// A host control's OnValidate called `CurrPage.SaveRecord` (and no `CurrPage.Update`), whether the row changed or not:
     /// every part of the host reads its rows again where it stands, the linked and the unlinked ones, and the host reads
-    /// nothing (testpart/QiHostSaveParts.al:362 QI_HostSaveRecord_ChangedValue, :386 _SameValue, :412 _PartMovedToSecondRow,
+    /// nothing (testpage/parts/QiHostSaveParts.al:362 QI_HostSaveRecord_ChangedValue, :386 _SameValue, :412 _PartMovedToSecondRow,
     /// :580 QI_PartNewRow_ThenHostSaveRecord). Pinned for a Document host whose parts are ListParts of 2 to 4 rows standing
     /// on a stored row; any other shape is refused.
     pub(super) fn reread_parts_after_host_save_record(&mut self, st: &St) -> Result<(), Signal> {
@@ -706,7 +722,7 @@ impl Session {
     }
 
     /// A part reads its rows again where it stands: the current row, the rows after it to the end of the view, the rows before
-    /// it back to the start, the current row twice more, then OnAfterGetCurrRecord (testpart/QiHostSaveParts.al:362 on row
+    /// it back to the start, the current row twice more, then OnAfterGetCurrRecord (testpage/parts/QiHostSaveParts.al:362 on row
     /// 10000 of 2 `L.AGR(10000);L.AGR(20000);L.AGR(10000);L.AGR(10000);L.AGCR(10000)`, :412 on row 20000 of 2 `20000;10000;
     /// 20000;20000`, :580 on row 30000 of 3 `30000;20000;10000;30000;30000`; the unlinked part of 3 and 4 rows on its first).
     /// A part that shows a row a sibling saved first reads the row it stands on (:580 `U.AGR(D1/10000 x=D1/30000)` before the
@@ -805,7 +821,7 @@ impl Session {
 
     /// The host's own code (its OnAfterGetCurrRecord as it opens or moves) called a procedure of a part that ran
     /// `CurrPage.Update`: once the host's parts have followed its row, such a part fills its rows again from the first, as
-    /// it does when it opens (pages/lt-hidden-part-currpage/HiddenPartCurrPageUpdateFalse.al:196-198 and
+    /// it does when it opens (pages/parts/HiddenPartCurrPageUpdateFalse.al:196-198 and
     /// HiddenPartCurrPageUpdateTrue.al:196-198: `part-OnAfterGetRecord:1 | :2 | :1` after `host-end`, twice at open, once
     /// after Next). `before` are the parts that waited already before the host's code ran. Pinned for a part without a
     /// SubPageLink hidden by a Visible expression, standing on no row typed into; any other part is refused.
@@ -861,11 +877,11 @@ impl Session {
     }
 
     /// Whether the part control's SubPageView restricts, with any condition, a field its SubPageLink also names.
-    /// Such a part reads its rows last to first, once each, when the host opens (pages/lt-part-reads/PartReadsOpen.al:
-    /// OpenView_SixParts_ReadsPerPartLogged `open-Same`, 3 rows; misc/lt-probes-needed-7/PnGPartTriggers.al:
+    /// Such a part reads its rows last to first, once each, when the host opens (pages/parts/PartReadsOpen.al:
+    /// OpenView_SixParts_ReadsPerPartLogged `open-Same`, 3 rows; testpage/PnGPartTriggers.al:
     /// OpenOrderOfHostWithSixParts, 2 rows). The link overrides the view on that field, whatever the condition: filter('H1|H2'),
     /// filter('<>H1'), filter('H2') and filter('H2..H3') give the reads and rows of the host's key
-    /// (pages/lt-y80-subpageview/Y80SubPageViewTests.al, Y80_SV_F1_* to Y80_SV_F4_* and Y80_SV_All_*; needs corpus bump).
+    /// (pages/subpageview/Y80SubPageViewTests.al, Y80_SV_F1_* to Y80_SV_F4_* and Y80_SV_All_*; needs corpus bump).
     fn view_names_link_field(&self, host: &St, control: usize, child: &St) -> Result<bool, Signal> {
         let engine = self.engine();
         let page = page_of(&engine, host);
@@ -899,7 +915,7 @@ impl Session {
                 // part with no condition on the field (Y80_SV_F1..F4).
                 found = after.starts_with("const(") || single_value_filter(after);
                 // Pinned for a part that serves its rows from the table (Y80_SV_*). A part with OnFindRecord or OnNextRecord reads
-                // and logs its filter groups differently (pages/lt-f3-pages/F3PartFiltersSM.al, F3PartTests.al): refused as before.
+                // and logs its filter groups differently (testpage/F3PartFiltersSM.al, F3PartTests.al): refused as before.
                 if !after.starts_with("const(")
                     && (self.declares(child, "onfindrecord") || self.declares(child, "onnextrecord"))
                 {
@@ -966,7 +982,7 @@ impl Session {
     }
 
     /// A write into part `child` moves the focus out of its sibling parts: a row typed into one of them is saved first
-    /// (pages/lt-part-link-unsaved-host/PagePartLinkUnsavedHost.al:242, the line typed into LinesG is stored once LinesH is
+    /// (pages/parts/PagePartLinkUnsavedHost.al:242, the line typed into LinesG is stored once LinesH is
     /// written, LinesH's own line is not).
     pub(super) fn save_sibling_parts(&mut self, child: &St) -> Result<(), Signal> {
         let Some(host) = child.borrow().host.as_ref().and_then(|(h, _)| h.upgrade()) else {
@@ -986,7 +1002,7 @@ impl Session {
     }
 
     /// A write into part `child` (SetValue, New) while its host stands on a typed row that is not stored yet: the host row is
-    /// saved first, and the parts link to it (pages/lt-part-line-before-host-key/PartLineBeforeHostKey.al:406
+    /// saved first, and the parts link to it (pages/parts/PartLineBeforeHostKey.al:406
     /// `HP.OnInsertRecord:D2 | H.OnInsert:D2 | L.OnValidate(Document No.):D2 | ...` for New(); handlers/
     /// TestPageOpenNewPartLink.al:100 OpenNew_NumberTyped_PartWriteCarriesTheNumber for a write).
     pub(super) fn save_unsaved_host_first(&mut self, child: &St) -> Result<(), Signal> {
@@ -1013,7 +1029,7 @@ impl Session {
 
     /// Last() or New() on the only part of a new Document host that nothing was typed into yet, the part showing no row: the
     /// client inserts the host's blank row first, and the part, linked afresh, lands on its blank line three times as at open
-    /// (pages/lt-qj-part-propagation/QjPartPropagation.al:4415 QT_EmptyPart_HostOpenNew_LastOnly `heads-before-close = [] [H1]
+    /// (pages/parts/QjPartPropagation.al:4415 QT_EmptyPart_HostOpenNew_LastOnly `heads-before-close = [] [H1]
     /// [H2] [H3]`, `log-last` = five `S.NEW(x=0 x.ln=0) S.AGCR(0 r=0 x=0)`; :4441 QT_EmptyPart_HostOpenNew_NewOnly `log-new` = four
     /// of them; :4466 QT_EmptyPart_HostOpenNew_LastThenNew `log-new` = one after the Last; :2596 QN_EmptyPart_HostOpenNew; :4393
     /// _CloseOnly and :4495 _ReadHostOnly store nothing). The pinned host declares no trigger and its table has no insert code:
@@ -1063,7 +1079,7 @@ impl Session {
 
     /// A write to a field outside the key on the blank line a part's Last() ran on a view without rows: a part without
     /// DelayedInsert and AutoSplitKey inserts the line as it is first, the write then changes the stored row, which is saved at
-    /// Close (pages/lt-qj-part-propagation/QjPartPropagation.al:3696 QT_ValPartPlain_Empty_Last_ThenType `log-type = V.INSR(H1 0
+    /// Close (pages/parts/QjPartPropagation.al:3696 QT_ValPartPlain_Empty_Last_ThenType `log-type = V.INSR(H1 0
     /// a=0 below=Yes) T.INS(H1 0 a=0)`, `lines-after-type = [H1:0:a=0]`, `log-close = V.MODR(H1 0 a=7)`). With DelayedInsert or
     /// AutoSplitKey the line is inserted at Close (:3532 QT_ValPartSplit_, :3614 QT_ValPartDelayed_). After New() a plain part
     /// does not insert at once (:3217 QN_PartPlain_NewTyped_ThenNew), so only this blank line is served.
@@ -1102,9 +1118,9 @@ impl Session {
     /// A field typed on the current row of part `child`: the parts that take their link from it (`Provider`) and link on that
     /// field, or on a field the typing changed through an OnValidate of the table field or of the page control (`before`
     /// holds the row as it was before the SetValue), read their rows again with the new value, before the row is stored
-    /// (al-runner issue 6377; corpus writer Y5, branch al-runtime-rs-staging-y5, pages/lt-y5/Y5ProviderEditLink.al:155
+    /// (al-runner issue 6377; corpus writer Y5, branch al-runtime-rs-staging-y5, testpage/Y5ProviderEditLink.al:155
     /// (plain field), :191 (OnValidate calls CurrPage.Update), :223, :244, :268; codeunit 90980; and branch
-    /// al-runtime-rs-staging-y5b, pages/lt-y5/Y5ProviderIndirectLink.al, codeunit 90988: Quantity whose table OnValidate sets
+    /// al-runtime-rs-staging-y5b, testpage/Y5ProviderIndirectLink.al, codeunit 90988: Quantity whose table OnValidate sets
     /// the linked Qty. (Base), a page control whose OnValidate sets it, and a value with no matching row). A part linked on
     /// fields that did not change keeps its rows.
     fn resync_dependents_linked_by(
@@ -1138,7 +1154,7 @@ impl Session {
         let parts = host.borrow().parts.clone();
         for (i, sibling) in &parts {
             let follows = page.controls[*i].part_link.as_ref().is_some_and(|l| {
-                l.provider == Some(idx) && l.entries.iter().any(|e| e.host_field().is_some_and(&changed))
+                l.provider == Some(idx) && l.entries.iter().any(|e| e.host_field().is_some_and(changed))
             });
             if follows {
                 self.sync_part(&host, *i, sibling)?;
@@ -1214,7 +1230,7 @@ impl Session {
             let table = self.table(&rec)?;
             let mut fresh: Vec<FieldFilter> = Vec::new();
             let mut fields = Vec::new();
-            // Pinned by pages/lt-uj-outside-leads/UjSubPageLink.al (was assumption `subpagelink-const-qualified-enum-value`).
+            // Pinned by testpage/UjSubPageLink.al (was assumption `subpagelink-const-qualified-enum-value`).
             for entry in link.entries.iter() {
                 match entry {
                     ir::LinkEntry::Field(pf, hf) => {
@@ -1224,10 +1240,10 @@ impl Session {
                             return unsupported("a SubPageLink to a page without a source table");
                         };
                         // The row the link reads, else the type's blank value: a page that shows
-                        // no row links to nothing (corpus testpart/TestPartProviderMove.al:
+                        // no row links to nothing (corpus testpage/parts/TestPartProviderMove.al:
                         // ProviderLinkedPart_HostMovesToAnEmptyProvider_ReadsBlank).
                         // A host row that is not stored yet links to nothing either, also after its key was typed: the
-                        // part's blank line takes the blank value and validates it (pages/lt-part-line-before-host-key/
+                        // part's blank line takes the blank value and validates it (pages/parts/
                         // PartLineBeforeHostKey.al:398, :400 `H.OnValidate(No.):D2 | L.OnValidate(Document No.): | ...`).
                         let unsaved_host = {
                             let p = src_page.borrow();
@@ -1275,7 +1291,7 @@ impl Session {
                         }
                     }
                     ir::LinkEntry::Filter(pf, text) => {
-                        // An empty term selects the rows whose field is blank (pages/lt-ao-testpage/AoTests.al:513-560 RunPageLink, :845-887
+                        // An empty term selects the rows whose field is blank (testpage/AoTests.al:513-560 RunPageLink, :845-887
                         // SubPageLink).
                         fields.push(*pf);
                         let ty = table.fields[*pf].ty.clone();
@@ -1320,7 +1336,7 @@ impl Session {
             r.filters.extend(fresh);
         }
         // A part linked by field(filter(...)) that stands on a row is read again from that row, `=><` as a page opened on a
-        // record (pages/lt-y37-link-filter/Y37LinkFilterTests.al:411 `LP.c A2` after the host's filter left B2 out, :445 `LP.c B2`
+        // record (pages/link-filter/Y37LinkFilterTests.al:411 `LP.c A2` after the host's filter left B2 out, :445 `LP.c B2`
         // after CurrPage.Update).
         let inserted_before = std::mem::take(&mut child.borrow_mut().inserted_before_host_action);
         let from_row = {
@@ -1362,7 +1378,7 @@ impl Session {
     }
 
     /// A field the host just changed is read by the link of some parts: they follow the new value
-    /// (corpus handlers/TestPageOpenNewPartLink.al:OpenNew_NumberTyped_PartWriteCarriesTheNumber).
+    /// (corpus testpage/TestPageOpenNewPartLink.al:OpenNew_NumberTyped_PartWriteCarriesTheNumber).
     pub(super) fn resync_parts_linked_by(
         &mut self,
         st: &St,
@@ -1370,6 +1386,12 @@ impl Session {
         before: Option<&[Value]>,
     ) -> Result<(), Signal> {
         self.resync_dependents_linked_by(st, control, before)?;
+        if st.borrow().parts.is_empty() && st.borrow().open {
+            let engine = self.engine();
+            if let ir::Binding::Field(pos) = page_of(&engine, st).controls[control].binding {
+                self.drop_key_typed_on_stored_blank_row(st, pos)?;
+            }
+        }
         if st.borrow().parts.is_empty() || !st.borrow().open {
             return Ok(());
         }
@@ -1378,10 +1400,13 @@ impl Session {
         let ir::Binding::Field(pos) = page.controls[control].binding else {
             return Ok(());
         };
+        if self.stored_blank_key_retyped(st, pos)? {
+            return Ok(());
+        }
         // A key field typed on a host row that is stored (a new row the host inserted when a field outside the key was
-        // typed first): BC keeps the parts' blank lines on the old link value (pages/lt-new-line-stamps-filters/
-        // NewLineStampsFilters.al:264 PartB_OpenNewHeader_TypeThenNo, the line is stored with a blank "Document No.");
-        // the rule is not found, so it is refused.
+        // typed first): BC keeps the parts' blank lines on the old link value (pages/triggers/
+        // NewLineStampsFilters.al:285 PartB_OpenNewHeader_TypeThenNo, the line is stored with a blank "Document No."): the card
+        // drops the key (`revert_key_typed_on_stored_row`).
         let key_of_stored_row = {
             let s = st.borrow();
             !s.draft && s.cursor == Cursor::Row
@@ -1389,9 +1414,9 @@ impl Session {
             && self.table(&self.page_rec(st))?.keys[0].contains(&pos)
             && st.borrow().typed_before_key;
         // A new Card row whose key is typed while two or more parts link on it: BC stores the row at once
-        // (pages/lt-part-link-unsaved-host/PagePartLinkUnsavedHost.al:178, :201, :218 `a_hosts = 1`), and then shows a blank key
+        // (pages/parts/PagePartLinkUnsavedHost.al:178, :201, :218 `a_hosts = 1`), and then shows a blank key
         // and parts without rows (:181-183); what the page does after that is not understood (the shape conflicts with
-        // pages/lt-part-line-before-host-key/PartLineBeforeHostKey.al:401, a Document page that stores nothing). The row is
+        // pages/parts/PartLineBeforeHostKey.al:401, a Document page that stores nothing). The row is
         // stored, and every later call on the page or its parts but Close is refused.
         let linked_on_key = parts_linked_on(page, &st.borrow().parts, pos);
         let new_card = {
@@ -1403,7 +1428,7 @@ impl Session {
         ) && self.has_source(st)
             && self.table(&self.page_rec(st))?.keys[0].contains(&pos);
         // Only the shape of that file: one of the parts links a field whose TableRelation names another table than the
-        // host's (its "Group Code"). A Card whose two parts both relate to the host (pages/lt-new-line-stamps-filters/
+        // host's (its "Group Code"). A Card whose two parts both relate to the host (pages/triggers/
         // NewLineStampsFilters.al:289 PartB_OpenNewHeader_NoThenType) carries on as before.
         // A Card with a SourceTableView: typing the key stores a header with a blank key, and the card and its parts' lines keep
         // the blank key (NewLineStampsFilters.al:534-597 QO_HostB_OpenNew_DelayedPart_NoThenType, QO_HostB_OpenNew_PartB_NoThenType:
@@ -1432,9 +1457,7 @@ impl Session {
                     .as_ref()
                     .is_some_and(|l| l.entries.iter().any(|e| e.host_field() == Some(pos)))
             {
-                return unsupported(
-                    "a key field typed on a new host row stored after a field outside its key was typed, with parts linked on it (not pinned)",
-                );
+                return self.revert_key_typed_on_stored_row(st, pos);
             }
             let reads = page.controls[*i]
                 .part_link
@@ -1450,10 +1473,80 @@ impl Session {
         Ok(())
     }
 
+    /// `First()` on a part that shows no row but holds a line typed into its blank line, whose host row a part access stored with
+    /// its blank key: it answers No, and the line stays unsaved until something else leaves it (pages/new-host-key-entry/
+    /// Y80NewHostKey.al Y80_NH_Card_NameNoThenLine `shown after line` = `|N1| part `, `close log` = `LI:/10000|d1`; _NameThenLineOnly,
+    /// _LineOnlyThenNo).
+    fn typed_line_of_blank_key_host(&self, st: &St) -> bool {
+        let (shape, host) = {
+            let s = st.borrow();
+            (
+                s.cursor == Cursor::NewLine && s.draft && s.dirty && s.window.is_empty(),
+                s.host.as_ref().and_then(|(h, _)| h.upgrade()),
+            )
+        };
+        shape && host.is_some_and(|h| h.borrow().host_stored_blank_key)
+    }
+
+    /// A key typed on a host row that a part access stored with its blank key: the key's OnValidate has run (it logged the
+    /// value), and then the page shows the old key again and stores nothing; an edit still waiting is dropped from the save
+    /// though the page keeps showing it, and the parts do not follow (pages/new-host-key-entry/Y80NewHostKey.al Y80_NH_Card_NameThenNo
+    /// `no log` = `HV:A1`, `shown after no` = `|N1|`, `close db` = `[||]`; _NoThenName, _LineOnlyThenNo). Answers whether it applied.
+    fn stored_blank_key_retyped(&mut self, st: &St, pos: usize) -> Result<bool, Signal> {
+        let (by_part, by_first_edit) = {
+            let s = st.borrow();
+            let stored = s.host.is_none() && !s.draft && s.cursor == Cursor::Row;
+            (
+                s.host_stored_blank_key && stored,
+                s.typed_before_key && stored && s.parts.len() == 1,
+            )
+        };
+        if !(by_part || by_first_edit) || !self.has_source(st) {
+            return Ok(false);
+        }
+        let in_key = self.table(&self.page_rec(st))?.keys[0].contains(&pos);
+        // The row was stored with its blank key by a field outside the key typed first, nothing read the part before: the key typed
+        // next behaves as after a part access. Only the Document page with one part and no SourceTableView is pinned
+        // (pages/parts/PartLineBeforeHostKey.al:1513 PYB_OpenNew_NameTypedFirst_ThenKey_ThenLine:
+        // `type_key_log` = `[H.OnValidate(No.):D7]`, `after_key_card_no` = `[]`, `after_key_header_rows` = `[|]`).
+        if !by_part {
+            let o = st.borrow().object as usize;
+            let facts = &self.engine.object_facts[o];
+            if !in_key || facts.page_type != Some(al_ir::PageType::Document) || facts.has_source_table_view {
+                return Ok(false);
+            }
+        }
+        if !in_key {
+            // A field outside the key typed on that row: the parts read their rows again, three times as at the insert
+            // (Y80_NH_Card_NameThenNo `name log` = `LN:;LN:;LN:`). A second edit is not pinned.
+            if std::mem::replace(&mut st.borrow_mut().blank_key_edit_reread, true) {
+                return unsupported(
+                    "a second field typed on a new host row that a part access stored with a blank key (what the parts read is not pinned)",
+                );
+            }
+            let parts: Vec<St> = st.borrow().parts.iter().map(|(_, c)| c.clone()).collect();
+            for c in &parts {
+                c.borrow_mut().field_captions_link_refill = true;
+            }
+            let r = self.sync_parts(st);
+            for c in &parts {
+                c.borrow_mut().field_captions_link_refill = false;
+            }
+            r?;
+            return Ok(true);
+        }
+        let old = self.page_xrec_fields(st);
+        if let Some(v) = old.get(pos) {
+            self.page_rec(st).borrow_mut().fields[pos] = v.clone();
+        }
+        st.borrow_mut().dirty = false;
+        Ok(true)
+    }
+
     /// A part list that shows rows of the host's own table, edited through SetValue on the host's current row: the host card reads that
     /// row's new values and runs its OnAfterGetCurrRecord once more, so its fields show the edit, whatever `UpdatePropagation` says
-    /// (pages/lt-page-controls-aa/AaPartsLists.al:AA_UpdatePropagation_Both line 191, _SubPart line 218, _Default line 245). The part
-    /// saves its row later, when its cursor leaves it (testpart/TestPartCloseLinkEditableContracts.al:Parts_EnabledReadsTheControl_
+    /// (pages/controls/AaPartsLists.al:AA_UpdatePropagation_Both line 191, _SubPart line 218, _Default line 245). The part
+    /// saves its row later, when its cursor leaves it (testpage/parts/TestPartCloseLinkEditableContracts.al:Parts_EnabledReadsTheControl_
     /// EditableFalseDoesNotBlockWrites). Pinned for a host card over the same table, without OnFindRecord; any other pairing keeps the
     /// earlier behavior.
     pub(super) fn refresh_host_after_part_edit(&mut self, st: &St) -> Result<(), Signal> {
@@ -1461,7 +1554,7 @@ impl Session {
             return Ok(());
         };
         // A part whose ModifyAllowed is false keeps its edit to itself: the host still shows the stored row
-        // (pages/lt-y80-modify-denied/Y80ModifyDenied.al Y80_MD_Doc_PartSet_PartNext `shown after partset` = `10/r10 part 10/p`;
+        // (pages/modify-denied/Y80ModifyDenied.al Y80_MD_Doc_PartSet_PartNext `shown after partset` = `10/r10 part 10/p`;
         // needs corpus bump).
         if flag_denied(&self.engine(), st.borrow().object as usize, "ModifyAllowed")? {
             return Ok(());
@@ -1495,7 +1588,7 @@ impl Session {
             return Ok(());
         }
         // Pinned for a host no page extension extends; on one that is extended the host did not show the part's edit on real BC
-        // (pageext/lt-u-page-props/UPageProps.al Part_UpdatePropagation_BothAndSubPart `host_after_part_both_edit = first`), so
+        // (pages/extensions/UPageProps.al Part_UpdatePropagation_BothAndSubPart `host_after_part_both_edit = first`), so
         // that case is refused until a probe tells the two apart.
         let host_object = host.borrow().object as usize;
         if self.engine.program.objects[host_object]
@@ -1528,7 +1621,7 @@ impl Session {
     /// change. Over a stored part row the part's typed edit is dropped (Update(false) reads the line again; the part's
     /// OnAfterGetCurrRecord sees the typed row as xRec). With Both the host's triggers run first and then its parts read their rows;
     /// with SubPart or none the part reads its rows first, then the host's triggers run. Pinned by
-    /// pages/lt-qj-part-propagation/QjPartPropagation.al:508 (QJ_Both_), :545 (QJ_SubPart_) and :582 (QJ_Default_PartModifiesHost_
+    /// pages/parts/QjPartPropagation.al:508 (QJ_Both_), :545 (QJ_SubPart_) and :582 (QJ_Default_PartModifiesHost_
     /// ThenHostSave `log-part-edit`). A new part row with Both is pinned below; with SubPart or none it is refused (QjPartPropagation.al:
     /// 1034 and :1071 pin it, but their first observation, Last and New on the part, is not built yet).
     /// Returns whether the part's own refresh was done here.
@@ -1558,7 +1651,7 @@ impl Session {
             return Ok(false);
         }
         // A part over the host's own table: `refresh_host_after_part_edit` re-reads the host once, and only once
-        // (pages/lt-page-controls-aa/AaPartsLists.al:AA_UpdatePropagation_Both line 191: loads-after-part-edit = 2).
+        // (pages/controls/AaPartsLists.al:AA_UpdatePropagation_Both line 191: loads-after-part-edit = 2).
         if self.table(&hrec)?.object == self.table(&self.page_rec(st))?.object {
             return Ok(false);
         }
@@ -1580,32 +1673,25 @@ impl Session {
             return self.new_part_row_update_without_both(st, &host, false, true);
         }
         // A new part row with Both: the part keeps its typed row (no read of the part, the row is inserted at Close) and the host
-        // reads its row again, its triggers seeing the row read before as xRec (pages/lt-qj-part-propagation/QjPartPropagation.al:997
+        // reads its row again, its triggers seeing the row read before as xRec (pages/parts/QjPartPropagation.al:997
         // QL_Both_NewPartRow_PartModifiesHost `log-part-edit` = `L.Qty.V(5 x=0) L.Qty.V.end H.AGR(t=6 ... x.t=1) H.AGCR(t=6 ... x.t=1)`,
         // `part-qty-after-part` 5.00, `lines-after-close` with 20000:q=5).
         if !part_stored {
             return self.new_part_row_update_both(st, &host);
         }
+        let kept = self.tree_part_keeps_typed_row(st, both)?;
         {
             let mut p = st.borrow_mut();
             p.refresh = false;
             p.dirty = false;
         }
+        let later = if both { self.both_later_row(st)? } else { None };
         self.set_xrec(st);
         if !both {
             self.sync_part(&host, c, st)?;
         }
         // The host's triggers still see the row it read before as xRec (`H.AGR(t=5 ... x.t=1)`); the next read sees the new one.
-        let mut h = host.borrow_mut();
-        h.refresh = true;
-        h.refresh_by_update = false;
-        h.refresh_without_parts = !both;
-        h.read_keeps_xrec = true;
-        drop(h);
-        let r = self.run_refresh(&host);
-        host.borrow_mut().read_keeps_xrec = false;
-        r?;
-        self.set_xrec(&host);
+        self.refresh_host_after_part(st, &host, !both, later, kept)?;
         Ok(true)
     }
 
@@ -1629,7 +1715,7 @@ impl Session {
 
     /// A part ran `CurrPage.Update(false)` in a trigger of a SetValue on a stored part row, and its code left the host's stored row
     /// as the host read it. On a Document host the part reads its rows again and drops the typed value; with Both the host reads its
-    /// row first (and its parts after it), with SubPart or none the host is not read again (pages/lt-qj-part-propagation/
+    /// row first (and its parts after it), with SubPart or none the host is not read again (pages/parts/
     /// QjPartPropagation.al:1106 QL_Both_PartUpdate_HostRowUnchanged `log-part-edit = N.Amt.V(5 x=1) N.Amt.V.end H.AGR(t=1 x.t=1)
     /// H.AGCR(t=1 x.t=1) N.AGR(10000 a=1 x.a=1) N.AGR(10000 a=1 x.a=1) N.AGCR(10000 a=1 x.a=5)`, :1134 _SubPart_ and :1162
     /// _Default_ `N.Amt.V(5 x=1) N.Amt.V.end N.AGR(10000 a=1 x.a=1) N.AGR(10000 a=1 x.a=1) N.AGCR(10000 a=1 x.a=5)`, `lines-after-
@@ -1675,11 +1761,13 @@ impl Session {
                 "a part's CurrPage.Update on a new part row when the host row did not change, on a Card host with UpdatePropagation Both or a ListPlus host without it (not pinned)",
             );
         }
+        let kept = self.tree_part_keeps_typed_row(st, both)?;
         {
             let mut p = st.borrow_mut();
             p.refresh = false;
             p.dirty = false;
         }
+        let later = if both { self.both_later_row(st)? } else { None };
         self.set_xrec(st);
         if !both {
             if !self.part_keeps_later_row(st)? {
@@ -1687,23 +1775,89 @@ impl Session {
             }
             return Ok(true);
         }
+        self.refresh_host_after_part(st, host, false, later, kept)?;
+        Ok(true)
+    }
+
+    /// A part with UpdatePropagation Both on a stored row other than the first of its view, after its code ran `CurrPage.Update`: it
+    /// stays on that row on a Document, Card and ListPlus host, with or without a change of the host's stored row before. The host
+    /// reads its row first (its triggers, no part read), then the part reads from its row, the row again, the rows before it back to
+    /// the first, the row twice and OnAfterGetCurrRecord, as without Both (corpus pages/lt-th-part-update-cursor/R6877PartBothLaterRow.al:375
+    /// R_Doc_, R_Card_, R_Plus_Nav1..3_Ctl1..2, BC 28.5: `Q.V Q.V.end HR HC R2 R3 R2 R1 R2 R2 C2`; the next SetValue lands on the same
+    /// row; al-runner issue 6877). A part that
+    /// serves its rows from OnNextRecord, one that is not a list, a row its view no longer holds and a view longer than
+    /// a window are refused. Returns the view and the part's place in it when the part stands on a later row (the caller reads the
+    /// host, then calls `read_part_rows_around`), `None` on the first row.
+    fn both_later_row(&mut self, st: &St) -> Result<Option<PartView>, Signal> {
+        let rec = self.page_rec(st);
+        let rows = self.view_rows(&rec, Self::WINDOW + 1)?;
+        let table = self.table(&rec)?;
+        let held = self.row_key(&rec)?;
+        let at = rows.iter().position(|r| Self::same_key(&table.primary_key(r), &held));
+        if at == Some(0) {
+            return Ok(None);
+        }
+        // A part with OnFindRecord (and no OnNextRecord) stays on its row too; its trigger runs with '=>' and '=' among the reads
+        // (`read_part_rows_around`; corpus pages/parts/R7099PartFindRecordBoth.al:13-14, :472-639, al-runner
+        // issue 7099). A part with OnNextRecord is not pinned.
+        if !self.is_list(st) || self.declares(st, "onnextrecord") {
+            return unsupported(
+                "a part with UpdatePropagation Both that runs CurrPage.Update on a row other than its first, other than a list part without OnNextRecord (which row it shows then is not pinned)",
+            );
+        }
+        let Some(at) = at else {
+            return unsupported(
+                "a part with UpdatePropagation Both that runs CurrPage.Update after the part's view left its row (which row it shows then is not pinned)",
+            );
+        };
+        if rows.len() > Self::WINDOW {
+            return unsupported(
+                "a part with UpdatePropagation Both that runs CurrPage.Update on a row other than its first of a view longer than a window (not pinned)",
+            );
+        }
+        Ok(Some((rows, at)))
+    }
+
+    /// The host reads its row again after a part's `CurrPage.Update`, its triggers seeing the row read before as xRec. `without_parts`:
+    /// its parts are not read with it. `later`: the part stood on a later row (`both_later_row`); it reads around that row after the host.
+    fn refresh_host_after_part(
+        &mut self,
+        st: &St,
+        host: &St,
+        without_parts: bool,
+        later: Option<PartView>,
+        kept: Option<Vec<Value>>,
+    ) -> Result<(), Signal> {
         let mut h = host.borrow_mut();
         h.refresh = true;
         h.refresh_by_update = false;
-        h.refresh_without_parts = false;
+        h.refresh_without_parts = without_parts || later.is_some();
         h.read_keeps_xrec = true;
         drop(h);
         let r = self.run_refresh(host);
         host.borrow_mut().read_keeps_xrec = false;
         r?;
+        let later = match (later, kept) {
+            // The typed row of a tree part is saved after the host read, before the part reads its rows (`part_tree_typed.rs`).
+            (Some(_), Some(before)) => Some(self.save_typed_tree_row(st, before)?),
+            (None, Some(_)) => {
+                return unsupported(
+                    "a tree part on its first row whose code ran CurrPage.Update after a typed value (not pinned)",
+                );
+            }
+            (later, None) => later,
+        };
+        if let Some((rows, at)) = later {
+            self.read_part_rows_around(st, &rows, at)?;
+        }
         self.set_xrec(host);
-        Ok(true)
+        Ok(())
     }
 
     /// A ListPart on a stored row other than the first of its view, after its control's OnValidate ran `CurrPage.Update` on a
     /// Document host whose row did not change: it stays on its row (`read_part_rows_around`; writer TH, pages/lt-th-part-update-
     /// cursor/ThPartUpdateCursor.al, al-runner issue 6038, assumption part-keeps-row-after-update-in-validate). On the first row it
-    /// reads as the part read again with its host (`sync_part`, pinned: pages/lt-qj-part-propagation/QjPartPropagation.al:1134,
+    /// reads as the part read again with its host (`sync_part`, pinned: pages/parts/QjPartPropagation.al:1134,
     /// :1162). Another host type, a part that serves its rows from OnFindRecord or OnNextRecord, a row its view no longer holds
     /// and a view longer than a window are refused. Returns whether it handled the part.
     fn part_keeps_later_row(&mut self, st: &St) -> Result<bool, Signal> {
@@ -1745,7 +1899,7 @@ impl Session {
 
     /// A new part row whose code changed the host's stored row and ran `CurrPage.Update(false)`, UpdatePropagation SubPart or not
     /// set: the part reads its rows again and drops the typed row (it is never inserted), comes back to its blank line, then the
-    /// host reads its row again, its triggers seeing the row read before as xRec (pages/lt-qj-part-propagation/
+    /// host reads its row again, its triggers seeing the row read before as xRec (pages/parts/
     /// QjPartPropagation.al:1032 QL_SubPart_NewPartRow_PartModifiesHost and :1069 QL_Default_ `log-part-edit = L.Qty.V(5 x=0)
     /// L.Qty.V.end L.AGR(10000 q=1 x.q=0) L.AGR(10000 q=1 x.q=1) L.AGR(10000 q=1 x.q=1) L.AGCR(10000 q=1 x.q=1) L.AGCR(0 q=0
     /// x.q=0) H.AGR(t=6 ... x.t=1) H.AGCR(t=6 ... x.t=1)`, `part-qty-after-part = 0.00`, `lines-after-close = 10000:q=1,a=1`).
@@ -1815,7 +1969,7 @@ impl Session {
 
     /// A part control is about to take a value while its Document/card host holds an unsaved edit of a stored row: the host saves
     /// it first (its OnModifyRecord and the table's OnModify run), then the part's validation runs, and the typed host field stays
-    /// (pages/lt-qj-part-propagation/QjPartPropagation.al:623, :661, :699 QJ_Both_ / QJ_SubPart_ / QJ_Default_HostEdited_
+    /// (pages/parts/QjPartPropagation.al:623, :661, :699 QJ_Both_ / QJ_SubPart_ / QJ_Default_HostEdited_
     /// PartModifiesHost_ThenHostSave `log-part-edit=H.MODR(...) T.H.MOD(...) L.Qty.V(...)`).
     /// A new host row, or a list host, keeps the earlier behavior.
     pub(super) fn save_host_before_part_edit(&mut self, st: &St) -> Result<(), Signal> {
@@ -1841,11 +1995,16 @@ impl Session {
         // after saving t=1): the saved row counts as the host's last read.
         let saved = hrec.borrow().fields.clone();
         host.borrow_mut().agr_xrec = Some(saved);
+        // The host row a part access stored with its blank key: after the save the parts read their rows again, three times as at
+        // the insert (pages/new-host-key-entry/Y80NewHostKey.al Y80_NH_Card_NameThenLineOnly `line log` = `HM:|N1;LN:;LN:;LN:`).
+        if host.borrow().host_stored_blank_key {
+            self.sync_parts(&host)?;
+        }
         Ok(())
     }
 
     /// A host control is about to take a value: the open parts that hold a typed row that is not saved save it first
-    /// (testpart/QiHostSaveParts.al:500, :554 on a Document host; other hosts: assumption part-row-saved-before-host-set-value).
+    /// (testpage/parts/QiHostSaveParts.al:500, :554 on a Document host; other hosts: assumption part-row-saved-before-host-set-value).
     pub(super) fn save_parts_before_host_edit(&mut self, st: &St) -> Result<(), Signal> {
         let parts = st.borrow().parts.clone();
         for (_, child) in parts {
@@ -1856,9 +2015,13 @@ impl Session {
             if pending {
                 let o = st.borrow().object as usize;
                 if self.engine.object_facts[o].page_type != Some(al_ir::PageType::Document) {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::PartRowSavedBeforeHostSetValue,
-                    );
+                    // Pinned for a card host stored with its blank key (pages/new-host-key-entry/Y80NewHostKey.al
+                    // Y80_NH_Card_LineOnlyThenNo `no log` = `LI:/10000|d1;HV:A1`).
+                    if !st.borrow().host_stored_blank_key {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::PartRowSavedBeforeHostSetValue,
+                        );
+                    }
                     self.save_row(&child)?;
                     continue;
                 }
@@ -1872,7 +2035,7 @@ impl Session {
 
     /// Part `child` saved a row just before a host SetValue: an unlinked ListPart of the host over the same table reads that
     /// row, twice for an inserted row and once for a modified one, then runs OnAfterGetCurrRecord with a blank xRec
-    /// (testpart/QiHostSaveParts.al:500 QI_PartNewRow_ThenHostSetValue `U.AGR(D1/30000 x=D1/10000);U.AGR(D1/30000 x=D1/30000);
+    /// (testpage/parts/QiHostSaveParts.al:500 QI_PartNewRow_ThenHostSetValue `U.AGR(D1/30000 x=D1/10000);U.AGR(D1/30000 x=D1/30000);
     /// U.AGCR(D1/30000 x=/0)`, :554 QI_PartEditedRow_ThenHostSetValue `U.AGR(D1/10000 x=D1/10000);U.AGCR(D1/10000 x=/0)`, the row
     /// the unlinked part stood on). Its cursor stays on its own row: the next refresh or the host's Close reads it again (:504,
     /// :580). Any other sibling over that table is refused.
@@ -1954,7 +2117,7 @@ impl Session {
     }
 
     /// The host closes after it saved its row: an unlinked part that shows a row a sibling saved reads the row it stands on
-    /// once (testpart/QiHostSaveParts.al:504 `H.MOD(D1);T.HeadModify(D1);U.AGR(D1/10000 x=D1/30000)`). A close that saves no
+    /// once (testpage/parts/QiHostSaveParts.al:504 `H.MOD(D1);T.HeadModify(D1);U.AGR(D1/10000 x=D1/30000)`). A close that saves no
     /// host row is refused.
     pub(super) fn stale_parts_read_at_close(&mut self, host: &St, host_saved: bool) -> Result<(), Signal> {
         let parts: Vec<St> = host.borrow().parts.iter().map(|(_, c)| c.clone()).collect();
@@ -1974,9 +2137,9 @@ impl Session {
         Ok(())
     }
 
-    /// A call reaches part `child` of a Document host that is a new, unsaved record: a read of a part field or the part's First
-    /// inserts the host (page OnInsertRecord and table OnInsert, nothing typed), and the parts link to it and read their rows
-    /// again, with or without rows of the blank key (pages/lt-part-line-before-host-key/PartLineBeforeHostKey.al:1748
+    /// A call reaches part `child` of a Document host that is a new, unsaved record: a read of a part field, the part's First,
+    /// Visible() or Editable() inserts the host (page OnInsertRecord and table OnInsert, nothing typed), and the parts link to it and read their rows
+    /// again, with or without rows of the blank key (pages/parts/PartLineBeforeHostKey.al:1967
     /// QH_BlankRows_ReadPart_Stored, :2032 QH_NoRows_ReadPartControl, :2057 QH_OtherKeyRows_ReadPartControl, :2083
     /// QH_BlankRows_PartFirst, :2142 QH_BlankRows_ReadPartControlTwice_TraceHost). Pinned for a field-linked part of a host
     /// nothing was typed into, reached the first time; any other call on such a part while it shows rows of the blank key is
@@ -1993,7 +2156,8 @@ impl Session {
             let h = host.borrow();
             h.open && h.host.is_none() && h.draft && !h.draft_stored && h.cursor != Cursor::None
         };
-        if !new_host || !self.has_source(host) {
+        // After a swallowed insert nothing tries again (`part_insert_swallowed.rs`; PartLineBeforeHostKey.al R7031_* `editable_log = []`).
+        if !new_host || !self.has_source(host) || host.borrow().part_insert_swallowed {
             return Ok(false);
         }
         let shows_rows = host.borrow().new_host_part_rows;
@@ -2006,8 +2170,13 @@ impl Session {
                 .as_ref()
                 .is_some_and(|l| l.entries.iter().any(|e| matches!(e, ir::LinkEntry::Field(..))))
         });
-        let pinned_call = field_read || m == PageMethod::First;
-        if self.engine.object_facts[o].page_type != Some(al_ir::PageType::Document) || !field_linked {
+        // Visible() and Editable() of the part insert the host as a first field read does, with or without rows of the blank
+        // key, on a Document and on a Card host (pages/parts/PartLineBeforeHostKey.al:3726 R6920_CardIssue_BlankRows_OpenNew_VisibleFirst,
+        // :2696 R6920_DocAfterGet_BlankRows_OpenNew_EditableFirst, :2768 R6920_DocAfterGet_NoRows_OpenNew_VisibleFirst and the other
+        // R6920_*_OpenNew_* tests: `visible_log` / `editable_log` = `[H.OnInsert:]`).
+        let pinned_call = field_read || matches!(m, PageMethod::First | PageMethod::Visible | PageMethod::Editable);
+        let host_type = self.engine.object_facts[o].page_type.clone();
+        if !matches!(host_type, Some(al_ir::PageType::Document | al_ir::PageType::Card)) || !field_linked {
             if shows_rows {
                 return unsupported(format!(
                     "{m} on a part while its new host shows rows of the blank key in another part (not pinned)"
@@ -2026,17 +2195,30 @@ impl Session {
             return Ok(false);
         }
         let used = self.ret_used;
+        let writes = self.write_mark();
+        let fields = self.page_rec(host).borrow().fields.clone();
         host.borrow_mut().dirty = true;
         let r = self.save_row(host);
         self.ret_used = used;
-        r?;
+        match r {
+            // A failed insert that Visible() or Editable() tried is swallowed (`part_insert_swallowed.rs`; PartLineBeforeHostKey.al
+            // R7031_*).
+            Err(Signal::Error(e)) if matches!(m, PageMethod::Visible | PageMethod::Editable) => {
+                self.swallow_part_prop_insert(host, m, &e, writes, &fields)?;
+                return Ok(true);
+            }
+            r => r?,
+        }
         host.borrow_mut().new_host_part_rows = false;
+        // Pages/lt-y80-new-host-key/Y80NewHostKey.al Y80_NH_{Card,Doc}_*: `read log at open` = `HI:|;LN:;LN:;LN:`.
+        let stored = !host.borrow().draft;
+        host.borrow_mut().host_stored_blank_key = stored;
         Ok(true)
     }
 
     /// The first call that reaches part `child` since its host opened, while the Document host holds an unsaved edit of a
     /// stored row: a read of a part field saves the host first, its OnModifyRecord and the table's OnModify, and nothing reads
-    /// again (testpart/QiHostSaveParts.al:441 QI_HostModify_ChangedValue and :469 QI_HostPlain_ChangedValue
+    /// again (testpage/parts/QiHostSaveParts.al:441 QI_HostModify_ChangedValue and :469 QI_HostPlain_ChangedValue
     /// `after-part-read=H.MOD(D1);T.HeadModify(D1);`). A part reached before saves nothing (:495 QI_PartNewRow_ThenHostSetValue
     /// `after-part-read=` after Lines.Last, New and SetValue, the host saved at Close). A SetValue goes its own way
     /// (`save_host_before_part_edit`); any other first call, a host of another type, and a first call while another part was
@@ -2089,7 +2271,7 @@ impl Session {
     }
 
     /// The client's whole view of a part that offers the blank line, held from its first row and asked of no page trigger: the
-    /// shape the Last, First and New counts of pages/lt-qj-part-propagation/QjPartPropagation.al pin (a ListPart with
+    /// shape the Last, First and New counts of pages/parts/QjPartPropagation.al pin (a ListPart with
     /// AutoSplitKey and DelayedInsert in a Document host opened for edit, without OnFindRecord and OnNextRecord).
     pub(super) fn part_view_held(&self, st: &St) -> bool {
         let s = st.borrow();
@@ -2105,7 +2287,7 @@ impl Session {
     }
 
     /// `First()` on a ListPart opened for view (no blank line) that stands on its first row, holding its whole view read from the
-    /// start and asking no page trigger: it reads nothing and answers Yes (pages/lt-y80-subpageview/Y80SubPageViewTests.al
+    /// start and asking no page trigger: it reads nothing and answers Yes (pages/subpageview/Y80SubPageViewTests.al
     /// Y80_SV_F1_OpenView `open log reading rows`, `F1.agr(H1/20000);F1.agr(H1/20000);F1.agcr(H1/20000)` for Next only; needs
     /// corpus bump). The same for an edit part is `part_last_first`.
     fn view_part_on_first_row(&self, st: &St) -> Result<bool, Signal> {
@@ -2133,7 +2315,7 @@ impl Session {
     }
 
     /// `part_view_held` for a part that declares OnFindRecord (not OnNextRecord), shown on a Document or Card page that links it
-    /// by fields and has no other part: the shape of pages/lt-y17-expr-refresh/Y17ExprRefresh.al (page 91752 in page 91753).
+    /// by fields and has no other part: the shape of pages/expression-refresh/Y17ExprRefresh.al (page 91752 in page 91753).
     fn find_part_view_held(&self, st: &St) -> bool {
         let shape = {
             let s = st.borrow();
@@ -2285,6 +2467,9 @@ impl Session {
         if how == PageMethod::First && self.view_part_on_first_row(st)? {
             return Ok(Some(true));
         }
+        if how == PageMethod::First && self.typed_line_of_blank_key_host(st) {
+            return Ok(Some(false));
+        }
         if !matches!(how, PageMethod::Last | PageMethod::First) || !self.part_view_held(st) {
             return Ok(None);
         }
@@ -2413,7 +2598,7 @@ impl Session {
         let parts = st.borrow().parts.clone();
         for (_, child) in parts {
             // A part whose ModifyAllowed is false with a typed row: the Close raises `Page cannot be saved.` (TestWrapped), as for a
-            // page of its own (pages/lt-y80-modify-denied/Y80ModifyDenied.al Y80_MD_Doc_PartSet_HostNext `close`; needs corpus bump).
+            // page of its own (pages/modify-denied/Y80ModifyDenied.al Y80_MD_Doc_PartSet_HostNext `close`; needs corpus bump).
             if child.borrow().open {
                 self.close_denied_modify(&child)?;
                 self.save_row(&child)?;

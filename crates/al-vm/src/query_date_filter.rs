@@ -9,11 +9,11 @@ const NO_MATCH: &str = " does not match your device's date settings.\\\\Make sur
 
 /// The text to parse for a static query filter on a field of type `ty`.
 /// - `0D` is the empty date, not today: `filter(0D)`, `filter(= 0D)` match the rows without a date, `filter(<> 0D)` and
-///   `filter(<>0D)` the others (filters/lt-y62-date-filter-short/Y62DateFilterShort.al:Query_DataItemTableFilter_NotZeroDate,
+///   `filter(<>0D)` the others (record/filters/Y62DateFilterShort.al:Query_DataItemTableFilter_NotZeroDate,
 ///   _ZeroDateForms, Query_ColumnFilter_ZeroDate_AndRuntimeFilters, writer Y62). Other forms with `0D` in them are not pinned.
 /// - A date literal (`20260101D`, `20180829D`) or eight digits that are no month, day and year (`29082018`) raise when the query reads
 ///   (Y62DateFilterShort.al:Query_DataItemTableFilter_ZeroDateForms `filter(0D .. 20260101D)`, `filter(20260101D ..)`;
-///   query/lt-cg-query-leads/CgQueryLeads.al:350-389 DataItemTableFilter_DateAsNumberAndAsDateLiteral).
+///   queries/CgQueryLeads.al:350-389 DataItemTableFilter_DateAsNumberAndAsDateLiteral).
 pub(crate) fn static_text<'a>(text: &'a str, ty: &RtType) -> Result<Cow<'a, str>, Signal> {
     if !matches!(ty, RtType::Date) {
         return Ok(Cow::Borrowed(text));

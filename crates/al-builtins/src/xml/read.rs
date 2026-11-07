@@ -8,7 +8,7 @@ pub(super) fn read_from_text(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
 
 /// `XmlDocument.ReadFrom(Text, XmlReadOptions, var XmlDocument)`: the document reads as the form without options
 /// does, whether the options are the default or `PreserveWhitespace` is true or false, for white space inside the
-/// text, around the root and between tags (misc/W4XmlJsonHttp.al: W4 Xml Options Tests.ReadFrom_*, BC 27.5 and 29.0).
+/// text, around the root and between tags (json/W4XmlJsonHttp.al: W4 Xml Options Tests.ReadFrom_*, BC 27.5 and 29.0).
 pub(super) fn read_from_text_options(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     read_text_into(c, r, a, 2)
 }
@@ -82,7 +82,7 @@ pub(super) fn read_text_into(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Va
 }
 
 /// `XmlDocument.ReadFrom(InStream, var XmlDocument)`: reads the stream to its end and parses it as
-/// the text form does (handlers/TestReportDatasetHelpLink.al:RenderDataset reads what `Report.SaveAs`
+/// the text form does (xml/TestReportDatasetHelpLink.al:RenderDataset reads what `Report.SaveAs`
 /// wrote, a UTF-8 document with a byte order mark). The encoding is the byte order mark's, else UTF-8;
 /// a UTF-16 document and bytes that are not UTF-8 are refused (not pinned).
 pub(super) fn read_from_stream(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
@@ -168,7 +168,7 @@ pub(super) fn read_from_stream_options(c: &mut dyn Ctx, _: Option<&mut Value>, a
 }
 
 /// The encoding a declaration names in a UTF-16 document. `None`: no declaration, no encoding or UTF-16; the document
-/// reads as UTF-16 (xml/lt-ay-xml/AyXmlReadFromStream.al:90-98 ReadFrom_le_bom_decl16). With a UTF-16 LE byte order
+/// reads as UTF-16 (xml/AyXmlReadFromStream.al:90-98 ReadFrom_le_bom_decl16). With a UTF-16 LE byte order
 /// mark and exactly `<?xml version="1.0" encoding="utf-8"?>` followed by `<`, BC switches to UTF-8 after the declaration
 /// and meets the zero byte of `<` (AyXmlReadFromStream.al:103-112 ReadFrom_le_bom_decl8, statement form in a
 /// TryFunction). Every other shape is refused: no byte order mark, big endian, other text after the declaration, another

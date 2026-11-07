@@ -1,5 +1,5 @@
 //! ADR-062 stage 3: Execute on objects under an exact permission set. Values: corpus
-//! `tests/al-language/permissions/lt-y19-perm-probes/Y24PermExecute.al` Y24_P20_* (BC 27.5, 28.5, 29.0): without an Execute grant
+//! `tests/al-language/permissions/permission-sets/Y24PermExecute.al` Y24_P20_* (BC 27.5, 28.5, 29.0): without an Execute grant
 //! `Codeunit.Run`, a call on a codeunit variable and a report run fail with `(<Kind> <id> <name> Execute: <app>)` and code
 //! `DB:ExecuteObjDenied`; the test codeunit's own procedures and objects made before the set was assigned are not checked.
 

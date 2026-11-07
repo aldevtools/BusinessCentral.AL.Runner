@@ -6,7 +6,7 @@ impl Session {
     /// One element of a table element: a fresh record, its link fields, `OnAfterInitRecord`,
     /// the attributes and children, and the save. `first_of_node` is false for the second and
     /// later elements of a table element under the same parent: only the first gets the link
-    /// (xmlport/TestXmlPortTriggersReplaceViewContracts.al:Nested_Export_GroupsTheChildrenUnderTheirParent_ImportLinksOnlyTheFirstChild,
+    /// (xmlports/TestXmlPortTriggersReplaceViewContracts.al:Nested_Export_GroupsTheChildrenUnderTheirParent_ImportLinksOnlyTheFirstChild,
     /// corpus: .
     pub(super) fn xp_import_record(
         &mut self,
@@ -23,7 +23,11 @@ impl Session {
                 "XmlPort import of a table element with MaxOccurs = Once and no LinkTable below another table element (not pinned)",
             );
         }
-        if n.max_unbounded == Some(false) && nested_table(schema, node) {
+        // Linked with LinkFields, no MinOccurs, a real table: one element per parent imports like an unbounded one (corpus
+        // xmlports/shapes-properties/XpNestedLinkedOnce.al XOM_ImportOnce_OneChild; none and two are
+        // schema errors, _NoChild and _TwoChildren). al-sema lets only that shape through on import.
+        let linked_once = n.link_node.is_some() && !n.link_fields.is_empty() && !n.min_zero && !n.use_temporary;
+        if n.max_unbounded == Some(false) && nested_table(schema, node) && !linked_once {
             return unsupported(
                 "XmlPort import of a table element with MaxOccurs = Once below another table element (not pinned)",
             );
@@ -49,9 +53,10 @@ impl Session {
                 fresh[k] = r.fields[k].clone();
             }
         }
-        if !first_of_node && n.link_node.is_some() {
+        let sibling = link_sibling(schema, node);
+        if !first_of_node && n.link_node.is_some() && !sibling {
             // A later row under the same parent keeps a link field of its primary key, as Init keeps the key, already in
-            // OnBeforeInsertRecord (xmlport/TestXmlPortTriggersReplaceViewContracts.al:648, attributes over 3 levels and
+            // OnBeforeInsertRecord (xmlports/TestXmlPortTriggersReplaceViewContracts.al:648, attributes over 3 levels and
             // elements over 2); a link field outside the key is 0 there (same file :414).
             let t = self.table(&rec)?;
             let r = rec.borrow();
@@ -65,9 +70,17 @@ impl Session {
         let mut assigned: Vec<usize> = Vec::new();
         let mut links: Vec<(usize, Value)> = Vec::new();
         // Nested table elements take their link fields from the record above
-        // (xmlport/TestXmlPortAdvanced.al:XmlPort_NestedTableElements_ImportCreatesParentAndChildren).
-        if let Some(link) = n.link_node.filter(|_| first_of_node) {
+        // (xmlports/TestXmlPortAdvanced.al:XmlPort_NestedTableElements_ImportCreatesParentAndChildren).
+        if let Some(link) = n.link_node.filter(|_| first_of_node || sibling) {
             let parent = self.xp_record(inst, schema.node(link))?;
+            if sibling {
+                // LinkTable naming the table element right before it: the header element's record reads blank in the line's
+                // OnBeforeInsertRecord and the line's link field stays blank, on every line
+                // (xmlports/shapes-properties/R6924eLinkSibling.al:251 LinkSibling_Import_HeadersFirst `ins line -1|;ins line -2|;`).
+                let ptable = parent.borrow().table as usize;
+                let init = self.initial_fields(ptable);
+                parent.borrow_mut().fields = init;
+            }
             for &(own, other) in &n.link_fields {
                 let v = parent.borrow().fields[other].clone();
                 let ty = self.engine.tables[table]
@@ -100,6 +113,9 @@ impl Session {
             return Ok(());
         }
         self.xp_import_attrs(inst, schema, node, elem, Some(&mut assigned))?;
+        if sibling {
+            self.xp_sibling_link_conflict(schema, node, &rec, &links)?;
+        }
         let mut saved = false;
         let mut saved_before_tables = false;
         let table_children: Vec<usize> = schema
@@ -107,9 +123,11 @@ impl Session {
             .into_iter()
             .filter(|&c| schema.node(c).kind == ir::XmlNodeKind::Table)
             .collect();
+        // A child that names a sibling in LinkTable is not linked to this record: the record is saved after the rows below it as
+        // without a link (R6924eLinkSibling.al Nest_Import `ins hdr H1;ins hdr H2;ins line -1|;ins outer O1;`).
         let linked_children = table_children
             .iter()
-            .filter(|&&c| schema.node(c).link_node.is_some())
+            .filter(|&&c| schema.node(c).link_node.is_some() && !link_sibling(schema, c))
             .count();
         // Some linked and some not: pinned with the linked ones first in the schema and no triggers (AhXmlPort.al:325-360,
         // xmlport 78633): the record is stored before its first linked row, the rows below keep their own values.
@@ -117,8 +135,8 @@ impl Session {
         if mixed {
             let linked_first = table_children
                 .iter()
-                .skip_while(|&&c| schema.node(c).link_node.is_some())
-                .all(|&c| schema.node(c).link_node.is_none());
+                .skip_while(|&&c| schema.node(c).link_node.is_some() && !link_sibling(schema, c))
+                .all(|&c| schema.node(c).link_node.is_none() || link_sibling(schema, c));
             let quiet = n.triggers.is_empty() && table_children.iter().all(|&c| schema.node(c).triggers.is_empty());
             if !linked_first || !quiet {
                 return unsupported(
@@ -135,7 +153,7 @@ impl Session {
             };
             match schema.node(child).kind {
                 ir::XmlNodeKind::Field => {
-                    let pos = self.xp_assign_field(inst, schema, child, &ce.text())?;
+                    let pos = self.xp_assign_field_elem(inst, schema, child, ce)?;
                     // A field element of a table element further up assigns that record, not this one (Y60XpTextInTable.al
                     // TextWrap_TempTable_Inner_Import `Outer.Name` inside `Inner`: `outer ins H1 name=n2`).
                     if schema.node(child).table_node != Some(node) {
@@ -148,9 +166,11 @@ impl Session {
                     }
                     assigned.push(pos);
                     // A link field the document gives another value than the record above fails the import there, before the
-                    // elements below (xmlport/lt-ah-xmlport/AhXmlPort.al:325 Mixed_Import and :386 Grand_Import, `ParentId` 99
+                    // elements below (xmlports/shapes-properties/AhXmlPort.al:325 Mixed_Import and :386 Grand_Import, `ParentId` 99
                     // under `Id` 1: `P1=p1 ` stored, nothing after). Pinned for an element and fields without triggers.
-                    if let Some((_, want)) = links.iter().find(|(own, _)| *own == pos) {
+                    if sibling {
+                        self.xp_sibling_link_conflict(schema, node, &rec, &links)?;
+                    } else if let Some((_, want)) = links.iter().find(|(own, _)| *own == pos) {
                         let same = ops::compare(&rec.borrow().fields[pos], want)? == std::cmp::Ordering::Equal;
                         if !same {
                             let quiet = n.triggers.is_empty()
@@ -181,7 +201,7 @@ impl Session {
                 }
                 ir::XmlNodeKind::Table => {
                     // The record is stored before the elements below it are read when they are linked to it by LinkTable (assumption:
-                    // docs/probes-needed.md; xmlport/lt-xmlport-linktable/XmlPortLinkTableNoLinkFields.al:BothTemporary_Import_*,
+                    // docs/probes-needed.md; xmlports/import/XmlPortLinkTableNoLinkFields.al:BothTemporary_Import_*,
                     // PersistentChild_Import_*, with LinkTable and no LinkFields). Without LinkTable the elements below are imported first and
                     // the record is stored after them (same file, NoLinkTable_Import_OneParentOneChild, _TwoParents).
                     if mixed && !saved && schema.node(child).link_node.is_none() {
@@ -204,7 +224,7 @@ impl Session {
                 ir::XmlNodeKind::Text if text_in_table(schema, child).is_some() => {
                     self.xp_import_text_in_table(inst, schema, child, ce, &mut assigned)?;
                 }
-                // A text element holding only attributes, of the row's fields or its own (xmlport/lt-sg-xmlport-occurs/
+                // A text element holding only attributes, of the row's fields or its own (xmlports/shapes-properties/
                 // SgXmlPortOccurs.al:114-175 SG_AttrBelowText_Import*): its attributes are read into the row as the row's own.
                 // Its own text and elements below it, beside a field attribute, are not pinned.
                 ir::XmlNodeKind::Text if attr_container(schema, child) => {
@@ -254,6 +274,12 @@ impl Session {
                 ir::XmlNodeKind::Text if attributed_leaves(schema, child) => {
                     self.xp_import_attributed_leaves(inst, schema, child, ce, &mut assigned)?;
                 }
+                ir::XmlNodeKind::Text if plain_import_tree(schema, node, child) => {
+                    self.xp_import_plain_tree(inst, schema, child, ce, &mut assigned)?;
+                }
+                ir::XmlNodeKind::Text if plain_import_leaf(schema, node, child) => {
+                    self.xp_assign_leaf_text(inst, schema, child, ce)?;
+                }
                 _ => return unsupported("XmlPort import of a text element with content inside a table element"),
             }
         }
@@ -273,7 +299,7 @@ impl Session {
             }
             self.xp_save_record(inst, schema, node, &assigned, true)?;
         }
-        Ok(())
+        self.xp_import_view_after_row(inst, schema, node)
     }
 
     /// A text element right below a table element in a pinned shape (`text_in_table`): its attributes, then the elements below
@@ -348,7 +374,7 @@ impl Session {
                 // An empty `<tier />` runs its OnAfterAssignVariable twice here (QrXpContainerOccurs.al TQ_Response_Import_Shapes
                 // `optional leaves absent`, `tier=;tier=;`; TR_EmptyLeaf_Import `inner=[];inner=[];`, `<inner></inner>` once).
                 match schema.node(child).kind {
-                    ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field(inst, schema, child, &ce.text())?),
+                    ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field_elem(inst, schema, child, ce)?),
                     _ => self.xp_assign_leaf_text(inst, schema, child, ce)?,
                 }
             }
@@ -357,11 +383,47 @@ impl Session {
         self.xp_assign_variable(inst, schema, node, elem.text())
     }
 
+    /// A line whose LinkTable is the table element right before it, with a link field the document gives a value other than the
+    /// blank link: "The data conflicts with the LinkTable and LinkFields setup of Table <element>." (xmlports/shapes-properties/
+    /// R6924eLinkSibling.al:261 LinkSibling_Import_LineWithDoc, `Doc="Z1"` as an attribute). When the error comes against the
+    /// triggers of the node that assigns the link field is not pinned: such a node with triggers is refused.
+    fn xp_sibling_link_conflict(
+        &mut self,
+        schema: &Schema,
+        node: usize,
+        rec: &Rec,
+        links: &[(usize, Value)],
+    ) -> Result<(), Signal> {
+        let n = schema.node(node);
+        for (own, want) in links {
+            if ops::compare(&rec.borrow().fields[*own], want)? == std::cmp::Ordering::Equal {
+                continue;
+            }
+            let triggered = schema.children(node).into_iter().any(|c| {
+                let k = schema.node(c);
+                k.table_node == Some(node) && k.field == Some(*own) && !k.triggers.is_empty()
+            });
+            if triggered || n.name != n.xml_name {
+                return unsupported(
+                    "XmlPort import of a link field with another value than the blank link of a LinkTable before it, with triggers on its node or an XmlName (not pinned)",
+                );
+            }
+            return Err(xerr(
+                format!(
+                    "The data conflicts with the LinkTable and LinkFields setup of Table {}.",
+                    n.name
+                ),
+                "XmlPortData",
+            ));
+        }
+        Ok(())
+    }
+
     /// A container text element inside a table element that holds only table elements linked to it
-    /// (xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:91-104, QR_Import_Present: `<lines>` in `<head>`).
+    /// (xmlports/shapes-properties/QrXpContainerOccurs.al:91-104, QR_Import_Present: `<lines>` in `<head>`).
     /// Every row of the container is linked to the record above: `H1/10=5;H1/20=7;H2/10=1` (QR_Import_Present). Right below a
     /// table element only the first row gets the link and a later one has 0 in a link field outside the primary key
-    /// (xmlport/TestXmlPortTriggersReplaceViewContracts.al:414). Both fit a link set once and kept by Init for the fields of the
+    /// (xmlports/TestXmlPortTriggersReplaceViewContracts.al:414). Both fit a link set once and kept by Init for the fields of the
     /// primary key, which is what this does; a link field outside the primary key in a container is not pinned and is refused.
     pub(super) fn xp_import_linked_container(
         &mut self,
@@ -398,7 +460,7 @@ impl Session {
     }
 
     /// The attributes and elements below field element `node`: its own text is the field's value, the attributes and the leaf
-    /// text and field elements after it fill their variables and fields (xmlport/lt-af-xmlport/AfXmlPortAttrChildren.al:247-257,
+    /// text and field elements after it fill their variables and fields (xmlports/shapes-properties/AfXmlPortAttrChildren.al:247-257,
     /// 277-288, 306-315: `<Name Lang="de" Kind="K9">Beta</Name>`, `<Name>Gamma<Child>cc</Child></Name>`, `<Name>Delta<Lang>fr</Lang></Name>`).
     pub(super) fn xp_import_field_children(
         &mut self,
@@ -409,7 +471,7 @@ impl Session {
         assigned: &mut Vec<usize>,
     ) -> Result<(), Signal> {
         // A field attribute of a field element that the document lacks: an Optional one stays blank, a Required one (also by
-        // default) fails the schema check as on a table element (xmlport/lt-y68-xmlport-shapes/Y68XmlPortShapes.al:642-692
+        // default) fails the schema check as on a table element (xmlports/shapes-properties/Y68XmlPortShapes.al:642-692
         // Q6_FieldElement_Attributes_Import `lang missing`, `req missing`; corpus master 0d01b0cc); `xp_import_attrs` raises it.
         // A text attribute Optional skips its trigger (`tag missing`); a Required one that is missing here is not pinned.
         for a in schema.children(node) {
@@ -432,7 +494,7 @@ impl Session {
                 continue;
             };
             match schema.node(child).kind {
-                ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field(inst, schema, child, &ce.text())?),
+                ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field_elem(inst, schema, child, ce)?),
                 ir::XmlNodeKind::Text => {
                     Self::xp_refuse_self_closed_leaf(schema, child, ce)?;
                     self.xp_assign_variable(inst, schema, child, ce.text())?
@@ -448,14 +510,14 @@ impl Session {
     }
 
     /// Stores the buffer of table element `node`: it is inserted with its triggers and events, as
-    /// `Insert(true)` does (xmlport/TestXmlPortExportImportContracts.al:XmlPortImport_RunsTheTableInsertTriggersAndEvents).
+    /// `Insert(true)` does (xmlports/TestXmlPortExportImportContracts.al:XmlPortImport_RunsTheTableInsertTriggersAndEvents).
     /// A row with the same key is modified when `AutoUpdate` or `AutoReplace` is on: `AutoReplace`
     /// replaces the whole buffer and `AutoUpdate` changes only the fields the document carries, and
     /// both keep the row's SystemId
-    /// (xmlport/TestXmlPortTriggersReplaceViewContracts.al:Import_AutoReplace_ReplacesTheWholeBuffer_KeepsSystemId,
+    /// (xmlports/TestXmlPortTriggersReplaceViewContracts.al:Import_AutoReplace_ReplacesTheWholeBuffer_KeepsSystemId,
     /// :Import_AutoUpdate_ChangesOnlyTheCarriedFields_KeepsSystemId, corpus: .
     /// The `OnBefore...Record` and `OnAfter...Record` triggers bracket it, and `AutoSave = false`
-    /// leaves the storing to them (xmlport/TestXmlPortAdvanced.al:XmlPort_AutoSaveFalse_...).
+    /// leaves the storing to them (xmlports/TestXmlPortAdvanced.al:XmlPort_AutoSaveFalse_...).
     /// `again`: the second save of a row stored before its linked child rows, a Modify (see `xp_import_record`).
     pub(super) fn xp_save_record(
         &mut self,
@@ -499,7 +561,7 @@ impl Session {
         let modify = stored.is_some() && (again || n.auto_update || n.auto_replace);
         // A temporary table element saves without the table's triggers: pinned for a nested one with AutoReplace
         // (XmlPortTriggerFlow.al:551 TempChild_AutoReplace, trace :561: no `tC+` or `tC~`) and for the insert of a new row
-        // (misc/lt-y14-triage/Y14Small.al:419, a top-level element: no OnInsert, corpus master). The modify of a row a
+        // (format-evaluate/Y14Small.al:419, a top-level element: no OnInsert, corpus master). The modify of a row a
         // temporary table element already holds is not pinned: refused where the table has a trigger.
         let nested = n.parent.is_some_and(|p| schema.node(p).kind == ir::XmlNodeKind::Table);
         let pinned_temp = nested && n.auto_replace;

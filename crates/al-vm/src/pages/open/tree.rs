@@ -20,10 +20,10 @@ impl Session {
 
     /// A tree page (ShowAsTree) whose repeater says TreeInitialState = ExpandAll or CollapseAll and whose page declares
     /// OnAfterGetRecord or OnAfterGetCurrRecord. When it opens it reads the rows below the level-0 rows too, though it shows only the
-    /// level-0 rows (al-runner issue 6119; corpus writer TW, branch al-runtime-rs-staging-tw, pages/lt-page-runtime/TwTreeExpandTriggers.al:123; the reporter's run on real BC: rows 1, 2, 3 (a child of 2) and 4 with Rec on 4 read `R4;R3;R2;R1;R4;
-    /// R4;C4`; which rows show is pages/lt-page-controls-aa/AaPartsLists.al:272 AA_Repeater_TreeExpandedRows). CollapseAll reads the
+    /// level-0 rows (al-runner issue 6119; corpus writer TW, branch al-runtime-rs-staging-tw, pages/run-modal/TwTreeExpandTriggers.al:123; the reporter's run on real BC: rows 1, 2, 3 (a child of 2) and 4 with Rec on 4 read `R4;R3;R2;R1;R4;
+    /// R4;C4`; which rows show is pages/controls/AaPartsLists.al:272 AA_Repeater_TreeExpandedRows). CollapseAll reads the
     /// same (al-runner issue 6523;
-    /// pageext/lt-page-ext-properties/Y28CollapsedTreeTests.al:38 Y28_CollapsedOpenAndWalk `agr1;agr2;agr3;agr4;agr5;agr1;agr1;agcr1`).
+    /// pages/extensions/Y28CollapsedTreeTests.al:38 Y28_CollapsedOpenAndWalk `agr1;agr2;agr3;agr4;agr5;agr1;agr1;agcr1`).
     /// A tree without TreeInitialState reads the same (Y72TreeDefaultState.al).
     pub(in crate::pages) fn tree_expand_all_with_row_triggers(&self, st: &St) -> bool {
         let engine = self.engine();
@@ -113,8 +113,8 @@ impl Session {
     }
 
     /// The keys of the rows a tree shows: a row without a parent in the view (no row before it, in the page's order, with a lower
-    /// level) shows whatever its level; any other row when its parent shows and is expanded (pages/lt-ah-pages/AhPageTests.al:986-993
-    /// for Expand; pageext/lt-page-ext-properties/Y28CollapsedTreeTests.al:94
+    /// level) shows whatever its level; any other row when its parent shows and is expanded (testpage/AhPageTests.al:986-993
+    /// for Expand; pages/extensions/Y28CollapsedTreeTests.al:94
     /// Y28_SetRangeChildrenInOnOpenPage `walk` 2,3,5 for rows below level 0 whose parent the view leaves out).
     pub(super) fn tree_visible(rows: &[(Vec<Value>, i32)], expanded: &[Vec<Value>]) -> Vec<Vec<Value>> {
         let mut stack: Vec<(i32, bool)> = Vec::new();
@@ -229,10 +229,10 @@ impl Session {
     }
 
     /// `Expand(on)` on the row a tree stands on: Expand(true) shows the row's direct children, Expand(false) hides them again, and
-    /// IsExpanded reads which (pages/lt-ah-pages/AhPageTests.al:950-961 Walk, :986-993 Tree_ThroughPageRun `T1 T5` -> `T1 T2 T4 T5`
+    /// IsExpanded reads which (testpage/AhPageTests.al:950-961 Walk, :986-993 Tree_ThroughPageRun `T1 T5` -> `T1 T2 T4 T5`
     /// -> `T1 T5`, GoToKey of a hidden child `No`). A row's parent is the nearest row before it, in the page's order, with a lower
-    /// level. Pinned only for a page without row triggers, expanding a row with children and collapsing
-    /// an expanded one, a second Expand of either, and Expand(true) on a leaf without a parent; anything else is refused.
+    /// level. Pinned for expanding a row with children and collapsing an expanded one, a second Expand of either, and Expand(true)
+    /// on a leaf (without a parent; with one, on a page with row triggers); anything else is refused.
     pub(in crate::pages) fn tree_expand(&mut self, st: &St, on: bool) -> Result<(), Signal> {
         for t in ["onfindrecord", "onnextrecord"] {
             if self.declares(st, t) {
@@ -242,11 +242,11 @@ impl Session {
             }
         }
         // With OnAfterGetRecord or OnAfterGetCurrRecord, Expand(true) and Expand(false) run no row trigger and the row and the values
-        // its OnAfterGetRecord computed stay; the next move reads the row it lands on as any move does (al-runner issue 6119; corpus writer TW, branch al-runtime-rs-staging-tw, pages/lt-page-runtime/TwTreeExpandTriggers.al:123; the
+        // its OnAfterGetRecord computed stay; the next move reads the row it lands on as any move does (al-runner issue 6119; corpus writer TW, branch al-runtime-rs-staging-tw, pages/run-modal/TwTreeExpandTriggers.al:123; the
         // reporter's run on real BC: `expand=2/PARENT/L2:` then `next=T/3/CHILD/L3:R3;R3;C3`, and after Expand(false) `next=4/ROOT2/L4:
         // R4;R4;C4`). Measured on a tree whose TreeInitialState is ExpandAll, and on CollapseAll by Y28CollapsedTreeTests.al:136 Y28_ActionCountOnExpandedChild; no initial state is not pinned.
         let row_triggers = self.declares(st, "onaftergetrecord") || self.declares(st, "onaftergetcurrrecord");
-        // Pinned by pages/lt-page-runtime/TwTreeExpandTriggers.al (was assumption `tree-expand-runs-no-row-trigger`).
+        // Pinned by pages/run-modal/TwTreeExpandTriggers.al (was assumption `tree-expand-runs-no-row-trigger`).
         if row_triggers && !self.tree_expand_all_with_row_triggers(st) {
             return unsupported(
                 "Expand on a tree page with row triggers whose TreeInitialState is neither ExpandAll nor CollapseAll (which rows are read is not pinned)",
@@ -254,7 +254,7 @@ impl Session {
         }
         if st.borrow().cursor != Cursor::Row || st.borrow().draft {
             // Expand(true) on a tree whose view holds no row raises nothing on BC, after an open that ran OnAfterGetCurrRecord once
-            // on the blank record (pages/lt-y72-page-probes/Y72TreeDefaultState.al TreeDefault_ExpandOnEmptyTree `open log` =
+            // on the blank record (testpage/Y72TreeDefaultState.al TreeDefault_ExpandOnEmptyTree `open log` =
             // `agcr 0`); the runtime's open of an empty tree runs no trigger, so the case stays refused.
             return unsupported("Expand on a tree page that stands on no stored row (not pinned)");
         }
@@ -276,18 +276,24 @@ impl Session {
                 (false, Some(i)) => {
                     s.expanded.remove(i);
                 }
-                // A second Expand(true) or Expand(false) on a row with children changes nothing (pages/lt-page-runtime/P82TestPage.al:
+                // A second Expand(true) or Expand(false) on a row with children changes nothing (pages/run-modal/P82TestPage.al:
                 // 283-289 Tree_Expand_IsExpanded, :336-341 Tree_Rows_WhileCollapsed; a page without row triggers).
                 (true, Some(_)) | (false, None) if has_children && !row_triggers => return Ok(()),
                 // The same with OnAfterGetRecord and OnAfterGetCurrRecord on an ExpandAll tree: no row trigger runs, the cursor stays
-                // (pages/lt-y50-tree-expand-leaf/Y50TreeExpandLeaf.al:313 G517_Mixed_ExpandFalseOnCollapsed, :332
+                // (pages/tree-expand-leaf/Y50TreeExpandLeaf.al:313 G517_Mixed_ExpandFalseOnCollapsed, :332
                 // G517_Mixed_ExpandTrueTwice_Walk).
                 (true, Some(_)) | (false, None) if has_children => return Ok(()),
                 // Expand(true) on a row without children and without a parent (a level-0 row, or every row at level 1 with no
                 // level-0 row) changes nothing: no error, IsExpanded stays No, no row trigger runs, the cursor stays
                 // (Y50TreeExpandLeaf.al:263 and :280 FLAT, :296 MIXED row 40, :351 a tree without row triggers or
-                // TreeInitialState). A leaf under a parent is not pinned.
-                (true, None) if !has_children && at.is_some_and(|i| !rows[..i].iter().any(|(_, l)| *l < rows[i].1)) => {
+                // TreeInitialState). The same for a leaf under a parent, at any level, on a tree with OnAfterGetRecord and
+                // OnAfterGetCurrRecord (pages/tree-expand-leaf/TreeExpandIndentedLeaf.al:294 Collapsed_ExpandTrue_LeafLevel1 `expand 40`
+                // `Yes/No/40:`, :322 _LeafLevel2 `expand 30` `Yes/No/30:`, :348 _LastLeafLevel1, :394 Collapsed_WalkExpandingEveryRow; al-runner
+                // issue 6947). A leaf under a parent on a tree without row triggers is not pinned.
+                (true, None)
+                    if !has_children
+                        && at.is_some_and(|i| row_triggers || !rows[..i].iter().any(|(_, l)| *l < rows[i].1)) =>
+                {
                     return Ok(());
                 }
                 _ => {

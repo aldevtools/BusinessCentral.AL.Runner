@@ -1,6 +1,6 @@
 //! When a page's expression controls are evaluated (al-runner issue 5765). BC's client shows the value an expression control
 //! had when its page last refreshed, not the value it has now. The corpus pins it for a Card with two ListParts and a
-//! CardPart FactBox that show one codeunit's state (pages/lt-qj-part-propagation/QjPartPropagation.al:4629-4710, codeunit
+//! CardPart FactBox that show one codeunit's state (pages/parts/QjPartPropagation.al:4629-4710, codeunit
 //! 86889):
 //! - every page computes its values when it opens (`opened`: all 0);
 //! - an action on the main card refreshes the card and every part, with or without `CurrPage.Update(false)` (:4695
@@ -20,13 +20,13 @@
 //!
 //! A control of any other expression is computed when it is read. That is what BC shows only when the page refreshed at
 //! each event since its last pinned refresh, which is not pinned. It is kept, as before, after the calls the baseline
-//! cases need (`DOUBT_KEPT`): a SetValue on the page (handlers/TestPageFieldSharedBinding_Tests.al:137, misc/
+//! cases need (`DOUBT_KEPT`): a SetValue on the page (testpage/TestPageFieldSharedBinding_Tests.al:137, misc/
 //! lt-protected-var-abs-query-views/P146PageExprSetValue.al:245, :300, :506) or on its host, a GoToRecord of the host and
-//! First on a part (pageupdate/TestPageUpdate.al:73, :116, :143), First on the page itself (handlers/
-//! TestTempIntegerListPart.al:92, pageextensioncontrol/TestPageExtensionControlTrapped_Tests.al:53) and the reads of a
-//! control of any page of the tree: Editable, Enabled, AssertEquals (misc/lt-probes-needed-7/PnGTempControl.al:116), AsDecimal
+//! First on a part (pages/currpage/TestPageUpdate.al:73, :116, :143), First on the page itself (handlers/
+//! TestTempIntegerListPart.al:92, pages/extensions/TestPageExtensionControlTrapped_Tests.al:53) and the reads of a
+//! control of any page of the tree: Editable, Enabled, AssertEquals (testpage/PnGTempControl.al:116), AsDecimal
 //! (TestPageUpdate.al:116) and the As* methods of the other types, and `FindFirstField` and `FindNextField` on a page without
-//! parts (misc/lt-y13-triage/Y13PageTriage.al:150-186, corpus master). These count also when they raise an error
+//! parts (testpage/Y13PageTriage.al:150-186, corpus master). These count also when they raise an error
 //! (PnGTempControl.al:116). And an action of the host whose code calls only `CurrPage.Update()` (TestPageUpdate.al:143). After
 //! any other such call a read is refused, except after `TestPage.Next`, `TestPage.Filter`, the `TestFilter` calls,
 //! `TestField.Activate` and `TestField.Caption` (`DOUBT_ASSUMED`): there the read is computed as it is now under assumption
@@ -37,7 +37,7 @@
 //! rows: right after the row's OnAfterGetRecord (`row_exprs`). The client then shows the value the row had then, after
 //! FindFirstField, FindNextField and Next too, which run no trigger and no control function (misc/lt-y14-triage/
 //! Y14PageTriage.al:241 Trapped_FindFirstField_FunctionControl and :274 OpenView_FindFirstField_FunctionControl, `open log`
-//! `agr(A);describe(A);agr(B);describe(B);agr(A);`, `log` empty; misc/lt-y13-triage/Y13PageTriage.al:150-186; corpus
+//! `agr(A);describe(A);agr(B);describe(B);agr(A);`, `log` empty; testpage/Y13PageTriage.al:150-186; corpus
 //! master). Pinned for a List page with OnAfterGetRecord and no OnFindRecord or OnNextRecord, without parts, that the test
 //! opened with OpenView or caught with Trap() (`row_expr_controls`). Any other call on the page than those and a control's
 //! Value ends it: reads are then computed as above.
@@ -73,7 +73,7 @@ const DOUBT_ASSUMED: u16 = 128;
 /// page does not keep is computed as it is now (`Session::lookup_refresh_pinned` lists the pinned shapes).
 const DOUBT_LOOKUP: u16 = 256;
 /// `FindFirstField` or `FindNextField` on a page without parts that the test opened: its controls of a function call, a string expression and a page
-/// variable OnAfterGetRecord sets show the row the search ended on (misc/lt-y13-triage/Y13PageTriage.al:150-186, corpus master).
+/// variable OnAfterGetRecord sets show the row the search ended on (testpage/Y13PageTriage.al:150-186, corpus master).
 const DOUBT_FIND_FIELD: u16 = 512;
 /// The kinds after which a control of an expression the page does not keep is read as it is now (module comment).
 const DOUBT_KEPT: u16 = DOUBT_SET_VALUE
@@ -149,7 +149,7 @@ impl Session {
                 {
                     0
                 }
-                // Visible of a field or an action runs no trigger and changes no value (pages/lt-y17-expr-refresh/
+                // Visible of a field or an action runs no trigger and changes no value (pages/expression-refresh/
                 // Y17ExprRefresh.al:517 RF_Visible_PartControl, :549 RF_Visible_CardControl `visible log` empty, totals kept).
                 PageMethod::Value | PageMethod::Visible if on_control && r.is_ok() => 0,
                 // After a cancelled Lookup nothing changed: a move of a part refreshes nothing and reads nothing (Y15LookupThreeFieldLink.al:894
@@ -484,13 +484,13 @@ impl Session {
     }
 
     /// A TestField.Lookup through OnLookup on `root`, whose code noted `notes`, is pinned to show the picked value in a control
-    /// the page does not keep (pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al, codeunit 89008, every read
+    /// the page does not keep (testpage/ScLookupGlobalRecordField.al, codeunit 89008, every read
     /// `shows=[R2]`): the code calls no `CurrPage` method but `CurrPage.Update` of `root`, and
     /// - without parts: no Update or `Update(false)` (:382 LookupShowsThePickedResource, :434
     ///   LookupWithoutUpdateShowsThePickedResource); `Update(true)` there is not pinned;
     /// - with parts: no Update, `Update(false)` or `Update(true)` (:469, :493, :517, :541, :565, :589), when every other page
     ///   of the tree is a ListPart hosted by `root` with no SubPageView or provider and a SubPageLink that is absent or one
-    ///   `field(..)` entry (pages 89631 and 89632) or two (pages/lt-wb-6290/WbLookupListPartTests.al:21-31
+    ///   `field(..)` entry (pages 89631 and 89632) or two (testpage/WbLookupListPartTests.al:21-31
     ///   OnePartWithTwoLinkedFieldsShowsThePickedResource, al-runner issue 6290), or three (al-runner issue 6466, assumption
     ///   `lookup-three-field-link-shows-picked`). A filter entry, four or more entries, a view or a provider are not pinned.
     fn lookup_refresh_pinned(&self, root: &St, tree: &[St], notes: &[ShownNote]) -> bool {
@@ -504,7 +504,7 @@ impl Session {
         };
         let notes_ok = notes.iter().all(|n| match n {
             ShownNote::UpdateFalse(x) if *x != root_ptr && part_update(*x) => {
-                // Pinned by pages/lt-sc-outside-pages/ScLookupGlobalRecordField.al TW_LookupOnValidateUpdatesThePart (was assumption `lookup-part-update-false-shows-picked`).
+                // Pinned by testpage/ScLookupGlobalRecordField.al TW_LookupOnValidateUpdatesThePart (was assumption `lookup-part-update-false-shows-picked`).
                 true
             }
             ShownNote::UpdateFalse(x) => *x == root_ptr,
@@ -564,7 +564,7 @@ impl Session {
         }
         // With two or three entries BC runs the refresh of the OnValidate's `CurrPage.Update(false)` later, not within the
         // Lookup: the host's OnAfterGetCurrRecord is not logged after it, and runs before the next Lookup (corpus writer Y15,
-        // pages/lt-y15/Y15LookupThreeFieldLink.al:194 `lookup log` `lookup;validate R2`, :278 `log`
+        // testpage/Y15LookupThreeFieldLink.al:194 `lookup log` `lookup;validate R2`, :278 `log`
         // `lookup;validate R2;agcr R1;lookup;validate R3`). Without row triggers the refresh shows nothing (al-runner issue
         // 6466, the reporter's page). With them the Lookup left the refresh for later (`defer_lookup_refresh`) and the reads
         // after it show the values as they are now (al-runner issue 6519; corpus writer Y26, Y15LookupThreeFieldLink.al:324

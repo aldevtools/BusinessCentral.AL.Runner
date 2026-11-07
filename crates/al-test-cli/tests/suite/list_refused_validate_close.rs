@@ -1,5 +1,5 @@
 //! A list row whose OnValidate refused an entry: Close and Next store nothing of the row
-//! (pages/lt-ah-pages/PwCloseRevalidate.al, codeunit 86157).
+//! (testpage/PwCloseRevalidate.al, codeunit 86157).
 
 use al_test_cli::report::Outcome;
 

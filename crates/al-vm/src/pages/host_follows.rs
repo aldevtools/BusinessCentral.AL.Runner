@@ -1,7 +1,7 @@
 //! TestPart.Next on the ListPart without a SubPageLink of a host with function controls and a second, linked ListPart, after a
 //! TestField.Lookup (al-runner issue 6639). The host does not move, and the controls of every page keep showing what they showed,
 //! but the server side reads the row the part moved to: the host runs OnAfterGetRecord twice and OnAfterGetCurrRecord for it
-//! (its function controls after each), the linked part runs OnAfterGetRecord alone (pages/lt-y15/Y15LookupThreeFieldLink.al:1163
+//! (its function controls after each), the linked part runs OnAfterGetRecord alone (testpage/Y15LookupThreeFieldLink.al:1163
 //! Y63_TwoPart_PartsNextAfterCancel `other next log` `o-agr R2;o-agr R2;o-fn R2;o-agcr R2;o-fn R2;h-agr R2;h-agr R2;h-fn R2;
 //! h-agcr R2;h-fn R2;p-agr R2`, :1083 Y63_TwoPart_LinkedPartNextFirst, :1124 _OtherPartNextFirst, :1192
 //! Y63_PartThenOther_LinkedPartNextFirst). Closing the page then reads the row the host stands on: the linked part, then the host

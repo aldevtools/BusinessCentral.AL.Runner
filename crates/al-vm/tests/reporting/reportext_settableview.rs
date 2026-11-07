@@ -1,5 +1,5 @@
 //! `SetTableView` with a record whose table only a data item a reportextension adds uses: the view reaches that item
-//! (report/lt-y17-ext-settableview/Y17ExtSetTableViewTests.al, corpus master; Microsoft's Get Source Documents, whose
+//! (reports/extension-settableview/Y17ExtSetTableViewTests.al, corpus master; Microsoft's Get Source Documents, whose
 //! Serv. Get Source Documents extension adds the Service Header and Service Line items).
 
 use al_testkit::text;

@@ -1,14 +1,15 @@
 //! `DataTransfer` inside install code (al-builtins `datatransfer` hands each call here through `Ctx::ref_op`). The staging
 //! calls keep a [`Plan`] in the variable; `CopyRows` and `CopyFields` write the destination rows straight into the store,
-//! without the table's triggers. Pinned by record/lt-as-records/AsDtInstaller.al and AsDtInstallRead.al:86-147:
+//! without the table's triggers. Pinned by install-upgrade/AsDtInstaller.al and AsDtInstallRead.al:86-147:
 //! - `CopyRows` inserts one destination row per source row the source filters keep, with the mapped fields and the constants;
 //!   the other fields hold their type's default (S1);
 //! - `CopyFields` with `AddJoin` changes each destination row the destination filters keep that one source row matches on the
 //!   join fields (and the source filters keep); the others stay as they were (S2, S4);
 //! - `CopyFields` without a join on one table copies the mapped fields within each row the source filters keep (S3).
 //!
-//! An unmapped field of a `CopyRows` row gets its InitValue and no table trigger runs (record/lt-as-records/Y47DtInstall.al
-//! S1-S3 and Y47DtInstallRead.al:54-72; al-runner issue 6586). A destination with a table extension is refused: the file
+//! An unmapped field of a `CopyRows` row gets its InitValue and no table trigger runs (record/Y47DtInstall.al
+//! S1-S3 and Y47DtInstallRead.al:54-72; al-runner issue 6586). `Clear` resets the variable: the plan staged before it is
+//! dropped (AsDtInstallRead.al:166-180, C1). A destination with a table extension is refused: the file
 //! has none. Everything else is refused.
 
 use crate::Session;
@@ -63,21 +64,36 @@ impl Session {
                     return refuse("DataTransfer.SetTables on a table outside the workspace (not pinned)");
                 }
             }
+            // A second SetTables without Clear keeps the field mappings of the first (AsDtInstallRead.al:182-195, C2).
+            let fields = match &*lib.borrow() {
+                LibraryValue::DataTransferPlan(p) => Some(p.fields.clone()),
+                _ => None,
+            };
             *lib.borrow_mut() = LibraryValue::DataTransferPlan(Box::new(Plan {
                 source,
                 destination,
+                restaged: fields.is_some(),
+                fields: fields.unwrap_or_default(),
                 ..Default::default()
             }));
             return Ok(Value::Null);
         }
         let mut plan = match &*lib.borrow() {
             LibraryValue::DataTransferPlan(p) => (**p).clone(),
+            // A variable Clear reset asks for SetTables, also in install code (AsDtInstallRead.al:198-208, C3). A cleared
+            // variable holds the same value as one never staged.
+            LibraryValue::Empty => return al_builtins::datatransfer::before_set_tables(),
             _ => {
                 return refuse(format!(
                     "DataTransfer.{method} before SetTables inside install code (not pinned)"
                 ));
             }
         };
+        if plan.restaged && matches!(method, "CopyRows" | "CopyFields") {
+            return refuse(format!(
+                "DataTransfer.{method} after a second SetTables without Clear (only the kept field mappings are pinned)"
+            ));
+        }
         match method {
             "AddSourceFilter" | "AddDestinationFilter" => {
                 let field = int(args, 0, method)?;
@@ -90,7 +106,18 @@ impl Session {
                     _ => plan.destination_filters.push(entry),
                 }
             }
-            "AddFieldValue" => plan.fields.push((int(args, 0, method)?, int(args, 1, method)?)),
+            "AddFieldValue" => {
+                let (from, to) = (int(args, 0, method)?, int(args, 1, method)?);
+                // After a second SetTables, mapping a destination field the kept mappings write raises
+                // (AsDtInstallRead.al:191, C2). Within one SetTables it is not pinned.
+                if plan.fields.iter().any(|&(_, d)| d == to) {
+                    if plan.restaged {
+                        return al_builtins::datatransfer::same_destination_twice();
+                    }
+                    return refuse("DataTransfer.AddFieldValue onto a destination field already mapped (not pinned)");
+                }
+                plan.fields.push((from, to));
+            }
             "AddJoin" => plan.joins.push((int(args, 0, method)?, int(args, 1, method)?)),
             "AddConstantValue" => plan
                 .constants
@@ -158,7 +185,7 @@ impl Session {
 
     /// Refuses a copy into table `no` when it has a table extension of another app. A table extension of the table's own app
     /// is pinned: its fields are copied, filtered and joined like the table's, an unmapped one gets its InitValue on CopyRows,
-    /// and no trigger of the table or of an extension runs (record/lt-as-records/Y47DtInstall.al S4-S7 on Y57DtExtTables.al,
+    /// and no trigger of the table or of an extension runs (record/Y47DtInstall.al S4-S7 on Y57DtExtTables.al,
     /// Y47DtInstallRead.al Y57_DtExt_Outcomes, Y57_DtExt_Rows).
     fn dt_refuse_extensions(&self, no: i32) -> Result<(), Signal> {
         let Some(object) = self.compiled_table(no as u32) else {
@@ -201,7 +228,7 @@ impl Session {
 
     fn dt_copy_fields(&mut self, plan: &Plan) -> Result<(), Signal> {
         // CopyFields into a table with a table extension, of its own app or of another, copies, filters and joins the extension's
-        // fields like the table's and runs no trigger (record/lt-as-records/Y47DtInstallRead.al Y65_DtItemAttribute_Outcomes,
+        // fields like the table's and runs no trigger (record/Y47DtInstallRead.al Y65_DtItemAttribute_Outcomes,
         // writer Y65, a Base Application table with another app's extension; Y57_DtExt_* for the own app's). CopyRows stays refused.
         let (st, sources, _) = self.dt_rows(plan.source, &plan.source_filters)?;
         let changed: Vec<Vec<Value>> = if plan.joins.is_empty() {

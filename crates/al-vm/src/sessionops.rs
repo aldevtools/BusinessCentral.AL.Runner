@@ -50,12 +50,12 @@ fn big(args: &[Value], i: usize) -> Option<i64> {
 }
 
 /// The connection string of the platform's own test connection, the one a CRM table connection
-/// may use in a test (corpus session/TestDatabaseTableConnectionCrm.al:8-14).
+/// may use in a test (corpus session-system/TestDatabaseTableConnectionCrm.al:8-14).
 const TEST_CONNECTION: &str = "@@test@@";
 
 impl Session {
     /// `Database.{Register,Unregister,Has,SetDefault,GetDefault}TableConnection`. Only the CRM
-    /// test connection is modelled (session/TestDatabaseTableConnectionCrm.al); names match
+    /// test connection is modelled (session-system/TestDatabaseTableConnectionCrm.al); names match
     /// ignoring case (:Database_HasTableConnection_CrmTest_NameIsCaseInsensitive).
     fn table_connection_op(&mut self, method: &str, args: &[Value]) -> Result<Value, Signal> {
         let kind = match args.first() {
@@ -68,8 +68,8 @@ impl Session {
         };
         match (method, kind.1.as_str()) {
             // A Cloud extension may not register an external SQL, Exchange or Microsoft Graph connection: the error and its code
-            // (session/lt-tableconnection-type-register/TableConnectionTypeRegister.al:Register_ExternalSql_Result,
-            // Register_Exchange_Result, Register_MicrosoftGraph_Result; session/TestMiscComplete.al:185-194). Query is not pinned.
+            // (session-system/session/TableConnectionTypeRegister.al:Register_ExternalSql_Result,
+            // Register_Exchange_Result, Register_MicrosoftGraph_Result; session-system/TestMiscComplete.al:185-194). Query is not pinned.
             ("Register", k @ ("ExternalSQL" | "Exchange" | "MicrosoftGraph")) => {
                 return error_code(
                     format!(
@@ -80,11 +80,11 @@ impl Session {
             }
             // Never registered, so none is found and none is the default. The corpus only calls
             // them for ExternalSQL and expects them not to throw
-            // (session/TestDatabaseExtended.al:75-92, TestSystemExtended.al:664-672).
+            // (session-system/TestDatabaseExtended.al:75-92, TestSystemExtended.al:664-672).
             ("Has", "ExternalSQL" | "Exchange" | "MicrosoftGraph") => return Ok(Value::Boolean(false)),
             ("GetDefault", "ExternalSQL") => return Ok(Value::Text(String::new().into())),
             // Unregistering a name that was never registered is no error, for every connection type
-            // (errors/lt-ms-refusals-137/P137TableConnRisky.al:P137_Unregister_NeverRegistered_OtherTypes
+            // (errors/P137TableConnRisky.al:P137_Unregister_NeverRegistered_OtherTypes
             // for ExternalSQL, Exchange and MicrosoftGraph; P137TableConn.al:P137_Unregister_NeverRegistered for CRM).
             ("Unregister", "ExternalSQL" | "Exchange" | "MicrosoftGraph") => return Ok(Value::Null),
             (_, "CRM") => {}
@@ -118,7 +118,7 @@ impl Session {
                         // The name is the pinned fragment of the error
                         // (:Database_RegisterTableConnection_CrmTest_Duplicate_Throws).
                         if !self.table_connections.insert(key.clone()) {
-                            // The name as written in this call (record/lt-table-connection-duplicate/
+                            // The name as written in this call (record/crud/
                             // TableConnectionDuplicateRegister.al:P161_RegisterTwice_SameAndOtherCase `twiceUpper`).
                             return error_code(
                                 format!("Table connection {name} for table type CRM has already been registered."),
@@ -165,7 +165,7 @@ impl Session {
     }
 
     /// The key of sequence `args[0]`; `scope` is the position of the optional CompanySpecific
-    /// argument (company specific when omitted, as the default overload is: session/TestNumberSequence.al:15-30).
+    /// argument (company specific when omitted, as the default overload is: session-system/TestNumberSequence.al:15-30).
     fn sequence_key(&self, args: &[Value], scope: usize) -> Result<(String, String), Signal> {
         let Some(name) = args.first().and_then(al_builtins::native::text_of) else {
             return unsupported("a number sequence name that is not text");
@@ -220,7 +220,7 @@ impl Session {
         }
         if id == ids::SESSIONINFORMATION_CALLSTACK_1 {
             // Frames innermost first, a backslash after each, the runner's below
-            // (session/TestSessionInformationCallstackContracts.al:130-143).
+            // (session-system/TestSessionInformationCallstackContracts.al:130-143).
             return match self.live_call_stack() {
                 Some(text) => Ok(Value::Text(text.into())),
                 None => unsupported(
@@ -230,18 +230,18 @@ impl Session {
         }
         if id == ids::DATABASE_ISINWRITETRANSACTION_1 {
             // An uncommitted write opens one, a Commit and the test boundary close it
-            // (codeunit/TestWriteTxTestBoundary.al:93,103,142). Writes to temporary tables are
+            // (codeunits/TestWriteTxTestBoundary.al:93,103,142). Writes to temporary tables are
             // not counted: they never reach the database (not pinned).
             return Ok(Value::Boolean(self.store.has_uncommitted()));
         }
         if id == ids::COMPANYPROPERTY_DISPLAYNAME_1 {
-            // Non-empty (session/TestBCPlatformContracts.al:CompanyProperty_DisplayName_NonEmpty). That it is
+            // Non-empty (session-system/TestBCPlatformContracts.al:CompanyProperty_DisplayName_NonEmpty). That it is
             // the company's name when no display name is set is an assumption (docs/probes-needed.md); a
             // company that states a display name is not modelled.
             return Ok(Value::Text(self.cx.company.clone().into()));
         }
         if id == ids::COMPANYPROPERTY_ID_1 {
-            // The `Id` of the company's row of the Company table (session/lt-company-record/CompanyRecord.al:ID_EqualsTheCompanyRecordId).
+            // The `Id` of the company's row of the Company table (session-system/company/CompanyRecord.al:ID_EqualsTheCompanyRecordId).
             if let Some(t) = self.company_table() {
                 let key = al_builtins::ops::convert(Value::Text(self.cx.company.to_string().into()), &t.fields[0].ty);
                 if let (Ok(key), Some(at)) = (key, t.fields.iter().position(|f| f.name == "Id")) {
@@ -268,7 +268,7 @@ impl Session {
         }
         if id == ids::COMPANYPROPERTY_URLNAME_1 {
             // The company name as it stands in a URL: unreserved characters kept, the rest percent-encoded
-            // (session/TestProbeSessionMiscContracts.al:Company_Names scrubs both the name and its `%20` form).
+            // (session-system/TestProbeSessionMiscContracts.al:Company_Names scrubs both the name and its `%20` form).
             let mut out = String::new();
             for b in self.cx.company.bytes() {
                 if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
@@ -284,12 +284,12 @@ impl Session {
         }
         if id == ids::DATABASE_COMPANYNAME_1 {
             // The company of the session, the same name `Record.CurrentCompany` answers
-            // (session/TestDatabase.al:69-75, session/TestSessionFunctions.al:25).
+            // (session-system/TestDatabase.al:69-75, session-system/TestSessionFunctions.al:25).
             return Ok(Value::Text(self.cx.company.clone().into()));
         }
         match id {
             // The counter has handed out `next_row_version` so far; the database never reports
-            // zero (session/TestSystemExtended.al:635-659, TestBCDatabaseContracts.al:100-117).
+            // zero (session-system/TestSystemExtended.al:635-659, TestBCDatabaseContracts.al:100-117).
             // What the database holds committed, raised by the rows the open transaction sent: a row inserted in the open
             // transaction does not count until a Get of its table or a Modify (`Session::last_used_row_version`).
             ids::DATABASE_LASTUSEDROWVERSION_1 => {
@@ -299,10 +299,10 @@ impl Session {
                 };
             }
             // After a Commit that ended a transaction without writes, and with no write since, it is LastUsedRowVersion() + 1
-            // (platform/lt-platform-members/PlTRowVersionValue.al:MinimumActiveRowVersion_NoWrite_Committed line 40 and
+            // (metadata/platform-tables/PlTRowVersionValue.al:MinimumActiveRowVersion_NoWrite_Committed line 40 and
             // _PrefixedCallEqualsBareCall). Inside a write transaction, or after a Commit that made writes durable, the value is not
             // pinned (the file shows it below LastUsedRowVersion() + 1 after a committed insert, line 108, and unchanged by an open insert,
-            // line 77, but the first read in each test follows a DeleteAll): refused. platform/lt-platform-members/PlTDatabase.al:250-264
+            // line 77, but the first read in each test follows a DeleteAll): refused. metadata/platform-tables/PlTDatabase.al:250-264
             // pins the bounds 0 <= value <= LastUsedRowVersion() + 1 only.
             ids::DATABASE_MINIMUMACTIVEROWVERSION_1 => {
                 // Under TestIsolation = Codeunit the value taken when the codeunit's tests began (`freeze_min_active_row_version`).
@@ -342,7 +342,7 @@ impl Session {
                 };
             }
             // Set when given a value, read otherwise; the default is the documented one
-            // (docs/probes-needed.md). session/TestSystemExtended.al:608-630 only calls it.
+            // (docs/probes-needed.md). session-system/TestSystemExtended.al:608-630 only calls it.
             ids::DATABASE_LOCKTIMEOUT_1 => {
                 match args.first() {
                     None | Some(Value::Null) => {}
@@ -365,7 +365,7 @@ impl Session {
                     i32::try_from(self.tx.lock_timeout_duration).unwrap_or(i32::MAX),
                 ));
             }
-            // The type of the transaction (session/ProbeSystemEnumMembers.al:60-161, BC 27.5;
+            // The type of the transaction (session-system/ProbeSystemEnumMembers.al:60-161, BC 27.5;
             // TestClearAllTransactionTypeContracts.al:224-253):
             // - a test starts as UpdateNoLocks, and a set before any database call takes effect;
             // - after a Commit() the next transaction's type is Update, and a set takes effect again;
@@ -385,7 +385,7 @@ impl Session {
                     Some(other) => return unsupported(format!("CurrentTransactionType set to {}", other.describe())),
                 };
                 let (update, snapshot, report) = (1, 2, 4);
-                // After a lock (codeunit/TestCodeunitRunWriteTransaction.al:211-278) the set is not pinned.
+                // After a lock (codeunits/TestCodeunitRunWriteTransaction.al:211-278) the set is not pinned.
                 if self.tx.tx_phase != TX_WRITE && (self.tx.lock_tx || self.tx.lock_unpinned.is_some()) {
                     return unsupported(
                         "Database.CurrentTransactionType set after a LockTable or a locking ReadIsolation (not pinned)",
@@ -420,7 +420,7 @@ impl Session {
         }
         if id == ids::SYSTEM_CODECOVERAGELOG_1 {
             // With a state it records or stops and answers the state it was given; without one it
-            // answers whether it is recording (codeunit/TestCodeCoverageStartStop.al:30-102). The
+            // answers whether it is recording (codeunits/TestCodeCoverageStartStop.al:30-102). The
             // MultiSession flag changes nothing observable here.
             return match args.first() {
                 None => Ok(Value::Boolean(self.coverage.code_coverage)),
@@ -486,13 +486,13 @@ impl Session {
         };
         let key = self.sequence_key(args, scope)?;
         let name = key.1.clone();
-        // session/TestNumberSequenceRuntimeContracts.al:NumberSequence_MissingSequence_Texts: the name is
+        // session-system/TestNumberSequenceRuntimeContracts.al:NumberSequence_MissingSequence_Texts: the name is
         // quoted and the code is `AL`.
         let missing = || error_code::<Value>(format!("The number sequence '{name}' does not exist."), "AL");
         match method {
             "Insert" => {
                 // Seed 0 and Increment 1 when omitted
-                // (session/TestNumberSequenceRuntimeContracts.al:NumberSequence_Insert_WithoutArguments_StartsAtZeroAndStepsByOne).
+                // (session-system/TestNumberSequenceRuntimeContracts.al:NumberSequence_Insert_WithoutArguments_StartsAtZeroAndStepsByOne).
                 let seed = big(args, 1).unwrap_or(0);
                 let increment = big(args, 2).unwrap_or(1);
                 // Inserting a name that exists raises, and the sequence is gone afterwards, in this
@@ -501,7 +501,7 @@ impl Session {
                     return error_code(format!("The number sequence '{name}' already exists."), "AL");
                 }
                 // An Increment of 0 raises the SQL error and creates nothing
-                // (platform/lt-platform-members/PlTNumberSequence.al:Insert_ZeroIncrement; the name exists already: not pinned).
+                // (metadata/platform-tables/PlTNumberSequence.al:Insert_ZeroIncrement; the name exists already: not pinned).
                 if increment == 0 {
                     return error_code(
                         "An unexpected error occurred after a database command was cancelled.".to_string(),
@@ -520,7 +520,7 @@ impl Session {
             }
             "Exists" => Ok(Value::Boolean(self.sequences.contains_key(&key))),
             // Deleting a sequence that is not there is not an error
-            // (error-handling/TestNumberSequenceTrappableErrors.al:117-126).
+            // (errors/TestNumberSequenceTrappableErrors.al:117-126).
             "Delete" => {
                 if let Some(before) = self.sequences.remove(&key) {
                     self.note_sequence_change(key, before).deleted = true;
@@ -536,7 +536,7 @@ impl Session {
                     match args.get(1) {
                         Some(Value::Integer(n)) if *n >= 1 => i64::from(*n),
                         // :NumberSequence_Range_Zero_ThrowsSqlError (the sequence must exist first); a negative count
-                        // of -3 too (platform/lt-platform-members/PlTNumberSequence.al:180-181,191-192 Range_Variants).
+                        // of -3 too (metadata/platform-tables/PlTNumberSequence.al:180-181,191-192 Range_Variants).
                         // Other negative counts are not pinned and stay refused.
                         Some(Value::Integer(n)) if (*n == 0 || *n == -3) && self.sequences.contains_key(&key) => {
                             return error_code(
@@ -629,10 +629,10 @@ fn secret_text(s: String) -> Value {
 
 impl Session {
     /// The key a data scope names. Module is the default and is one app's store; Company adds the
-    /// session company, and the app boundary holds there too (session/TestIsolatedStoragePerApp.al:
+    /// session company, and the app boundary holds there too (session-system/TestIsolatedStoragePerApp.al:
     /// 100-120). The user scopes need a user identity, which the runtime does not have.
     /// The app that owns the code calling IsolatedStorage, not the app that raised the event it handles
-    /// (session/TestIsolatedStoragePerApp.al:140-160).
+    /// (session-system/TestIsolatedStoragePerApp.al:140-160).
     fn calling_app(&self) -> u32 {
         self.frames.last().map_or(0, |o| self.engine.program.objects[*o].app)
     }
@@ -643,7 +643,7 @@ impl Session {
             None => Ok(format!("app{app}")),
             Some(Value::Option(0, _)) => Ok(format!("app{app}")),
             Some(Value::Option(1, _)) => Ok(format!("app{app}:company:{}", self.cx.company)),
-            // The user scopes add the session user (session/TestProbeSessionMiscContracts.al:IsolatedStorage_Behaviour:
+            // The user scopes add the session user (session-system/TestProbeSessionMiscContracts.al:IsolatedStorage_Behaviour:
             // nothing was set there, a Get answers false).
             Some(Value::Option(2, _)) => Ok(format!("app{app}:user:{}", self.host.identity.user_id())),
             Some(Value::Option(3, _)) => Ok(format!(
@@ -657,16 +657,16 @@ impl Session {
     }
 
     /// `IsolatedStorage.<rest>` (`Get#4`, `SetEncrypted#2`, ...): a text store per scope, part of the transaction
-    /// (a rollback undoes it, see `Session::isolated_committed`). Corpus: session/TestIsolatedStorage.al:30-125.
+    /// (a rollback undoes it, see `Session::isolated_committed`). Corpus: session-system/TestIsolatedStorage.al:30-125.
     fn isolated_storage_op(&mut self, method: &str, n: u32, args: &mut [Value]) -> Result<Value, Signal> {
         // A Guid key is its text form `{XXXXXXXX-...}`, for Set, Contains, Get and Delete in every scope
-        // (session/lt-isolated-storage-guid/IsoStorageGuidKey.al). Other key types are not pinned (probe wanted).
+        // (session-system/isolated-storage/IsoStorageGuidKey.al). Other key types are not pinned (probe wanted).
         let key = match args.first() {
             Some(Value::Guid(g)) => Some(al_builtins::format::format_guid(g)),
             other => other.and_then(al_builtins::native::text_of).map(String::from),
         };
         // A Variant key that holds an Integer, Decimal, Boolean or Date raises a type-conversion error from every
-        // method in every scope; nothing is stored (session/lt-isolated-storage-variant-key/IsolatedStorageVariantKey.al:
+        // method in every scope; nothing is stored (session-system/isolated-storage/IsolatedStorageVariantKey.al:
         // 125-136 Integer, 160-171 Decimal, 175-186 Boolean, 190-201 Date). Other types are not pinned.
         if key.is_none()
             && matches!(
@@ -698,7 +698,7 @@ impl Session {
                     return unsupported("IsolatedStorage.Set without a value");
                 };
                 // A Guid value is stored as its text `{XXXXXXXX-...}`, upper case with braces, and reads back into a Text
-                // or a SecretText (types/lt-y71-value-conversions/Y71ValueConversions.al:333-436).
+                // or a SecretText (types/operators-expressions/Y71ValueConversions.al:333-436).
                 let (secret, value) = match arg {
                     Value::Guid(g) => (false, al_builtins::format::format_guid(g)),
                     _ => (
@@ -708,7 +708,7 @@ impl Session {
                 };
                 if self.pages.bg_worker.is_some() {
                     // A worker runs read-only: a Set of a new key is refused as an Insert into table 2000000107
-                    // (session/lt-cn-session-leads/CnIsolatedStorageLeads.al:104-117). A Set over an existing key and a
+                    // (session-system/CnIsolatedStorageLeads.al:104-117). A Set over an existing key and a
                     // SetEncrypted are not pinned there.
                     if method != "Set" || self.isolated_storage.contains_key(&slot) {
                         return unsupported(format!(
@@ -719,7 +719,7 @@ impl Session {
                 }
                 if method == "SetEncrypted" {
                     // The limit is on the UTF-8 bytes: 214 ASCII and 107 two-byte characters are kept, 216 ASCII and 108
-                    // two-byte characters fail (session/lt-cn-session-leads/CnIsolatedStorageLeads.al:368-424; the header at
+                    // two-byte characters fail (session-system/CnIsolatedStorageLeads.al:368-424; the header at
                     // :12-13 says 216 and more fail with BC's own length check). 215 bytes fails on the Linux container with
                     // an OpenSSL error (:380-388, Linux suspect), characters of three or four bytes and SecretText values
                     // near the limit are not pinned.
@@ -741,10 +741,10 @@ impl Session {
                         );
                     }
                 }
-                // Set opens the write transaction in every scope (session/lt-cn-session-leads/CnIsolatedStorageLeads.al:
-                // 238-263); a SetEncrypted is undone by a rollback (misc/lt-cu-odd-leads/CuTryTests.al:220-230), so it is
+                // Set opens the write transaction in every scope (session-system/CnIsolatedStorageLeads.al:
+                // 238-263); a SetEncrypted is undone by a rollback (errors/CuTryTests.al:220-230), so it is
                 // a write of the transaction too. A plain Set over an existing plain key right after a Commit opens it as
-                // well, also with the same value (session/lt-cn-session-leads/CnIsolatedStorageLeads.al:293-317
+                // well, also with the same value (session-system/CnIsolatedStorageLeads.al:293-317
                 // TO_IsoOverwrite_OutsideWriteTransaction); SetEncrypted over an existing key, and a Set over an encrypted one,
                 // are assumed alike (assumption isolated-storage-overwrite-tx). Inside a write transaction the phase cannot change.
                 if self.tx.tx_phase != crate::transactions::TX_WRITE
@@ -771,7 +771,7 @@ impl Session {
             "Delete" => {
                 if self.pages.bg_worker.is_some() {
                     // A worker runs read-only: a Delete of a stored key is refused as a Delete on table 2000000107
-                    // (session/lt-cn-session-leads/CnIsolatedStorageLeads.al:119-134). A missing key is not pinned there.
+                    // (session-system/CnIsolatedStorageLeads.al:119-134). A missing key is not pinned there.
                     if !self.isolated_storage.contains_key(&slot) {
                         return unsupported(
                             "IsolatedStorage.Delete of a missing key in a page background task (not pinned)",
@@ -781,11 +781,16 @@ impl Session {
                 }
                 match self.isolated_storage.remove(&slot) {
                     Some(_) => {
-                        // A Delete opens the write transaction (session/lt-cn-session-leads/CnIsolatedStorageLeads.al:254-255).
+                        // A Delete opens the write transaction (session-system/CnIsolatedStorageLeads.al:254-255).
                         self.tx.tx_phase = crate::transactions::TX_WRITE;
                         Ok(Value::Boolean(true))
                     }
-                    None if found => Ok(Value::Boolean(false)),
+                    // A Delete of a missing key answers false and still opens the write transaction (misc/lt-y76-assumptions/
+                    // Y76IsolatedStorage.al Y76_PlainStorage_Transactions `delete_missing`: ret=No tx=Yes).
+                    None if found => {
+                        self.tx.tx_phase = crate::transactions::TX_WRITE;
+                        Ok(Value::Boolean(false))
+                    }
                     None => {
                         unsupported("IsolatedStorage.Delete of a missing key as a statement (error text not pinned)")
                     }
@@ -796,7 +801,7 @@ impl Session {
                 let mut stored = self.isolated_storage.get(&slot);
                 if self.pages.bg_worker.is_some() && stored.is_some() {
                     // A worker's Get of a key the caller wrote in this test: not committed yet, the worker reads no key; after
-                    // the caller's Commit it waits on the caller's lock and fails (session/lt-cn-session-leads/
+                    // the caller's Commit it waits on the caller's lock and fails (session-system/
                     // CnIsolatedStorageLeads.al:445-522). A key the test did not write is not pinned.
                     let committed = self.isolated_committed.get(&slot);
                     if !self.isolated_set_in_test.contains(&slot) {
@@ -821,7 +826,7 @@ impl Session {
                 }
                 match stored {
                     // A value stored from a SecretText cannot be read into a Text, also in a TryFunction; the target keeps
-                    // its value (misc/lt-cu-odd-leads/CuTryTests.al:181-232).
+                    // its value (errors/CuTryTests.al:181-232).
                     Some((_, _, true)) if n == 2 || n == 4 => al_builtins::native::raise(
                         "The operation was aborted to prevent exposing a secret value.",
                         "ForbiddenSecretAccess",
@@ -834,7 +839,7 @@ impl Session {
                         };
                         Ok(Value::Boolean(true))
                     }
-                    // A missing key empties the target (session/TestProbeSessionMiscContracts.al:IsolatedStorage_Behaviour,
+                    // A missing key empties the target (session-system/TestProbeSessionMiscContracts.al:IsolatedStorage_Behaviour,
                     // `get_missing` shows `No ` with the variable cleared).
                     None if found => {
                         args[target] = if n == 1 || n == 3 {
@@ -890,7 +895,7 @@ impl Session {
                 Ok(Value::Boolean(self.encryption_key != crate::EncryptionKey::Deleted))
             }
             // Pinned: a key exists at the start; DeleteEncryptionKey with a key leaves none and EncryptionEnabled No, a second one
-            // with no key runs without error; CreateEncryptionKey with no key makes one (session/lt-encryption-key-delete/
+            // with no key runs without error; CreateEncryptionKey with no key makes one (session-system/isolated-storage/
             // EncryptionKeyDelete.al:Delete_WithKey_ThenWithout_ThenRestore). Creating while a key exists is not pinned.
             ids::SYSTEM_DELETEENCRYPTIONKEY_1 => {
                 self.encryption_key = crate::EncryptionKey::Deleted;

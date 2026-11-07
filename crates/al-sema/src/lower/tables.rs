@@ -24,7 +24,7 @@ impl Lowerer<'_> {
     }
 
     /// The arms of a field whose relation a table extension's `modify` extended: the base's arms, then the extension's
-    /// (tableextension/TestTableExtFieldTableRelation.al:241-298). Pinned when every relation is one unconditional arm
+    /// (table-objects/extensions/TestTableExtFieldTableRelation.al:241-298). Pinned when every relation is one unconditional arm
     /// (the first decides, :241-268) or every arm has a condition (:270-298). Any other combination is not understood
     /// (no arms), so validating the field is refused.
     fn joined_relation_arms(
@@ -46,6 +46,46 @@ impl Lowerer<'_> {
             return Vec::new();
         }
         parts.into_iter().flatten().collect()
+    }
+
+    /// The filter text of a where() value written with `::`. `Database::"X"` / `Report::"X"` etc. is the object's id, as for a
+    /// CalcFormula const (corpus record/CdcOwner.Table.al:67,79); `"Enum"::Member` on a field of that enum names the member as
+    /// `const(Member)` does; `filter(A | B)` of such terms is each term joined by `|` (al-runner issue 6999,
+    /// record/table-relation/RelationWhereQualifiedConst.al). `None` for any other text, so the where() is not understood.
+    fn where_qualified_text(&self, file: usize, text: &str, ty: &Ty) -> Option<String> {
+        let terms: Vec<&str> = text.split('|').collect();
+        let mut out = Vec::with_capacity(terms.len());
+        for term in terms {
+            let term = term.trim();
+            let (qualifier, member) = term.split_once("::")?;
+            let qualifier = qualifier.trim().trim_matches('"');
+            if let Ty::Enum(field_enum) = ty {
+                let same = matches!(
+                    (
+                        self.ws.resolve_relation_target(file, ObjKind::Enum, &[qualifier.to_string()]),
+                        self.ws.resolve_relation_target(file, ObjKind::Enum, &crate::types::qualified_parts(field_enum)),
+                    ),
+                    (Resolution::Found(a), Resolution::Found(b)) if a == b
+                );
+                let member = member.trim().trim_matches('"').trim();
+                if !same || member.is_empty() || member.contains(['\'', '"', ':']) {
+                    return None;
+                }
+                out.push(if member.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                    member.to_string()
+                } else {
+                    format!("'{member}'")
+                });
+                continue;
+            }
+            out.push(match calc_const(self.ws, self.members, file, term, ty) {
+                Ok(ir::Const::Integer(id)) => id.to_string(),
+                Ok(ir::Const::BigInteger(id)) => id.to_string(),
+                Ok(ir::Const::Decimal(id)) => id,
+                _ => return None,
+            });
+        }
+        Some(out.join("|"))
     }
 
     fn relation_arms_of(
@@ -79,7 +119,7 @@ impl Lowerer<'_> {
                     // The filter text as written; AL quotes an identifier with `"`, the filter grammar with `'`.
                     let raw = a.condition_raw.get(k).cloned().unwrap_or_default();
                     // `filter(Type::Parent)`, one member qualified with the condition's own field, is `filter(Parent)`
-                    // (record/lt-y65-rename-const-relation/Y65RenameConstRelation.al RefFilter).
+                    // (record/table-relation/Y65RenameConstRelation.al RefFilter).
                     let raw = match field_qualified_member(&raw, name) {
                         // A member that is not a plain name keeps its AL quotes, which the next step turns into filter quotes.
                         Some(member) if member.chars().all(|c| c.is_alphanumeric() || c == '_') => member,
@@ -95,7 +135,7 @@ impl Lowerer<'_> {
                     continue;
                 }
                 // `const(" ")` on an Option names its blank member, pinned for a blank FIRST member (OptionMembers = " ",A:
-                // record/lt-table-relation-arms/TableRelationArms.al, the arm of the blank member and of A). A blank member
+                // record/table-relation/TableRelationArms.al, the arm of the blank member and of A). A blank member
                 // elsewhere is not pinned: the relation is not understood.
                 if let Ty::Option(members) = &own.fields[pos].ty {
                     if value.trim().trim_matches('"').trim().is_empty()
@@ -105,11 +145,11 @@ impl Lowerer<'_> {
                     }
                 }
                 // `const("Enum"::Value)` on an Enum field of that enum names the member as `const(Value)` does
-                // (record/lt-sc-enum-const-relation/ScEnumConstRelation.al:52-53, :101-140). Another enum is not pinned.
+                // (record/table-relation/ScEnumConstRelation.al:52-53, :101-140). Another enum is not pinned.
                 let raw = a.condition_raw.get(k).map(String::as_str).unwrap_or_default();
                 let qualified = match (&own.fields[pos].ty, raw.split_once("::")) {
                     // `const(Type::Parent)` on an Enum field and `const(Kind::Parent)` on an Option field, the member qualified with
-                    // the condition's own field, name the member as `const(Parent)` does (record/lt-y65-rename-const-relation/
+                    // the condition's own field, name the member as `const(Parent)` does (record/table-relation/
                     // Y65RenameConstRelation.al RefQualified, RefOptionQualified).
                     (Ty::Enum(_) | Ty::Option(_), Some(_)) if field_qualified_member(raw, name).is_some() => {
                         field_qualified_member(raw, name)
@@ -175,12 +215,7 @@ impl Lowerer<'_> {
                             // `Database::"X"` / `Report::"X"` etc.: the object's id, as for a
                             // CalcFormula const (corpus record/CdcOwner.Table.al:67,79).
                             let text = if !text.starts_with('\'') && text.contains("::") {
-                                match calc_const(self.ws, self.members, file, text, &self.members[t].fields[p].ty) {
-                                    Ok(ir::Const::Integer(id)) => id.to_string(),
-                                    Ok(ir::Const::BigInteger(id)) => id.to_string(),
-                                    Ok(ir::Const::Decimal(id)) => id,
-                                    _ => return None,
-                                }
+                                self.where_qualified_text(file, text, &self.members[t].fields[p].ty)?
                             } else if text.contains('"') {
                                 // `filter(Inventory | "Non-Inventory")`: AL quotes an identifier with `"`,
                                 // the filter grammar with `'` (corpus
@@ -188,7 +223,7 @@ impl Lowerer<'_> {
                                 // CalcFormula filter; docs/probes-needed.md for the TableRelation).
                                 rewrite_quotes(text)
                             } else if text.is_empty() {
-                                // `const('')` / `filter('')` select the blank value (corpus record/lt-relation-where-empty-term/
+                                // `const('')` / `filter('')` select the blank value (corpus record/table-relation/
                                 // RelationWhereEmptyTerm.al:Relation_ErrorTextOfFailedValidate, CalcFormula_CountWhereEmptyTerms).
                                 "''".to_string()
                             } else if !text.is_empty() && text.trim().is_empty() {
@@ -200,6 +235,21 @@ impl Lowerer<'_> {
                             };
                             Some(ir::RelationWhere::Value { related: p, text })
                         }
+                        // One AL string with a doubled quote in it is the filter its content spells: `filter('<>''''')` is
+                        // `<>''` (not empty), on a field of the related table and on one a tableextension adds, and
+                        // `filter('''''')` is `''` (the empty value); `filter('<>''')` raises InvalidFilterExpression on BC
+                        // and every other content is not measured, so both stay refused (al-runner issue 6924;
+                        // record/table-relation/TableRelationQuotes.al:1188-1189 conditional arm, :1203-1204 extension and
+                        // own field, :1225 `''`, :1221 `<>'''`; objects TableRelationExtFieldFilter.Objects.al:57-66).
+                        crate::relation::ParsedWhere::QuotedFilter { related, text }
+                            if matches!(text.as_str(), "<>''" | "''") =>
+                        {
+                            Some(ir::RelationWhere::Value {
+                                related: field_pos(&self.members[t], related)?,
+                                text: text.clone(),
+                            })
+                        }
+                        crate::relation::ParsedWhere::QuotedFilter { .. } => None,
                         crate::relation::ParsedWhere::Field { related, own: o } => Some(ir::RelationWhere::Field {
                             related: field_pos(&self.members[t], related)?,
                             own: field_pos(own, o)?,
@@ -211,8 +261,8 @@ impl Lowerer<'_> {
             };
             // A filter text with an AL-quoted identifier read as a filter text. Pinned for an Enum or Option field of the
             // related table when the text is members joined by `|`, a quoted one alone, or `<>` and a quoted one
-            // (record/lt-table-relation-quotes/TableRelationQuotes.al:41-46, :126-207; misc/lt-probes-needed-6/
-            // PnF03RelationQuotedFilter.al:40-48; query/lt-query-links-relations-httpstream/RelQuotedOption.al:27,
+            // (record/table-relation/TableRelationQuotes.al:41-46, :126-207; misc/lt-probes-needed-6/
+            // PnF03RelationQuotedFilter.al:40-48; queries/joins-links/RelQuotedOption.al:27,
             // RelQuotedEnum.al:36, :235), and the ranges and `&` forms of `quoted_relation_text_pinned`
             // (TableRelationQuotes.al:279-397). Any other form stays under the assumption.
             let quoted = a.wheres.iter().flatten().any(|w| {
@@ -273,10 +323,10 @@ impl Lowerer<'_> {
                 let is_filter = a.filter_conditions.get(k).copied().unwrap_or(false);
                 filters.push(is_filter);
                 // The value the table lists: the ordinal of an option member, the ordinals of an alternative
-                // `A | B` of members joined by `|` (session/PWPlatformTables.al:109-123). Any other
+                // `A | B` of members joined by `|` (session-system/PWPlatformTables.al:109-123). Any other
                 // shape of a filter is not pinned.
                 // An enum field's members are its values' names when every value is its position, as the
-                // ordinals of an option (misc/lt-probes-needed-5/PnE09Platform.al:122, :125: `filter(Alpha | Beta)`
+                // ordinals of an option (json/PnE09Platform.al:122, :125: `filter(Alpha | Beta)`
                 // is `0|1`, `const(Beta)` is `1`). An enum whose values are not its positions is not pinned.
                 let enum_members: Option<Vec<String>> = match &own.fields[pos].ty {
                     Ty::Enum(name) => {
@@ -324,7 +374,7 @@ impl Lowerer<'_> {
                     // A filter on a field that is no option shows its text as written, without the quotes of a
                     // quoted literal: `filter('X|Y')` is `X|Y`, `filter('<>X')` is `<>X`.
                     // Alternatives lose the spaces around `|` and their quotes: `filter(5 | 7)` is `5|7`,
-                    // `filter('A' | 'B')` is `A|B` (misc/lt-probes-needed-5/PnE09Platform.al:122-123).
+                    // `filter('A' | 'B')` is `A|B` (json/PnE09Platform.al:122-123).
                     Some(
                         split_unquoted_bars(text)
                             .iter()
@@ -587,7 +637,7 @@ impl Lowerer<'_> {
 
     /// Why the caption of field `f` is refused: the table or table extension that declares it and the `modify` blocks of
     /// its `extensions` set its `CaptionClass` two or more times, and one is an expression. Which one BC reads is not
-    /// pinned (the corpus pins one expression, pageext/lt-page-ext-properties/TableExtCaptionClass.al:124-149).
+    /// pinned (the corpus pins one expression, pages/extensions/TableExtCaptionClass.al:124-149).
     fn field_caption_class_refusal(
         &self,
         oi: usize,
@@ -704,7 +754,7 @@ impl Lowerer<'_> {
                             // A member of the field's enum, by name; a blank-named member too
                             // (types/TestBlankEnumInitTests.Codeunit.al).
                             // A member named in single quotes, `InitValue = 'G/L Account';` (al-runner issue 6585;
-                            // record/lt-y47-initvalue-quoted/Y47EnumInitQuoted.al:146-209, :332, :458).
+                            // record/crud/Y47EnumInitQuoted.al:146-209, :332, :458).
                             Ty::Enum(_) => {
                                 let file = self.ws.objects[f.declared_in.unwrap_or(oi)].file;
                                 let v = v.trim();
@@ -714,7 +764,7 @@ impl Lowerer<'_> {
                                     .filter(|x| !x.contains('\''));
                                 match named {
                                     // A member's name, in any case and with spaces around it
-                                    // (record/lt-y47-initvalue-quoted/Y47EnumInitQuoted.al:332,
+                                    // (record/crud/Y47EnumInitQuoted.al:332,
                                     // :458). A number and an unknown name stay refused.
                                     Some(n) => {
                                         self.calc_const(file, &format!("\"{}\"", n.trim()), &f.ty)
@@ -761,6 +811,7 @@ impl Lowerer<'_> {
                     calc,
                     calc_refusal: refusal,
                     declared_in: f.declared_in.map(|o| o as u32),
+                    caption_modified: f.caption_modified,
                 }
             })
             .collect();
@@ -778,7 +829,7 @@ impl Lowerer<'_> {
             {
                 for k in sec.sections().filter(|k| k.name().eq_ignore_ascii_case("key")) {
                     // A Removed key is gone: it takes no index position
-                    // (corpus recordref/TestKeyMetadataRowVersionRemoved.al:10-20, :150-170).
+                    // (corpus recordref-fieldref/recordref/TestKeyMetadataRowVersionRemoved.al:10-20, :150-170).
                     if k.properties().any(|p| {
                         p.name().eq_ignore_ascii_case("ObsoleteState")
                             && p.value_text().trim().eq_ignore_ascii_case("Removed")
@@ -863,10 +914,27 @@ impl Lowerer<'_> {
         for c in &f.conds {
             let pos = src_pos(&c.field)?;
             let decl = src_fields[pos].declared_in.map_or(file, |d| self.ws.objects[d].file);
+            // `"ALT Status"::Active` on an enum field reads as the member (record/qualified-enum-filters/
+            // TestQualifiedEnumFilters.al, al-runner issue 7189).
+            let unqualified = |raw: &str| match &src_fields[pos].ty {
+                Ty::Enum(name) => {
+                    al_builtins::enum_qualifier::strip_enum_qualifier(raw, &crate::types::display_name(name))
+                        .into_owned()
+                }
+                _ => raw.to_string(),
+            };
             let value = match &c.value {
-                CondValue::Const(raw) => ir::CalcValue::Const(self.calc_const(decl, raw, &src_fields[pos].ty)?),
+                CondValue::Const(raw) => {
+                    let raw = &unqualified(raw);
+                    // `Database::"X"` names an object where the formula was written, not where the target
+                    // field is declared (corpus record/TestCalcFormulaDatabaseConst.Codeunit.al:7-30; al-runner
+                    // issue 6882). The members of an enum field are the target field's enum's.
+                    let scope = if raw.contains("::") { file } else { decl };
+                    ir::CalcValue::Const(self.calc_const(scope, raw, &src_fields[pos].ty)?)
+                }
                 CondValue::Filter(raw) => {
-                    // One quoted literal is read as the filter its content spells (calcfields/W4CalcFields.al:396
+                    let raw = &unqualified(raw);
+                    // One quoted literal is read as the filter its content spells (record/flowfields/W4CalcFields.al:396
                     // QZ_CalcFormula_QuotedLiteralFilters, fixtures QzCalcFormulaQuotedFilter.al): `'<>'''''` is `<>''`,
                     // `''''''` is `''`, `'''x|y'''` the literal x|y, `'x|y'` the union, `'<>''x'''` is `<>'x'`, and `*` stays a
                     // wildcard. Ranges (`200..299`, `..199`, `400..`), `&`, `>=` and blanks around `|` read the same way, as the
@@ -894,7 +962,7 @@ impl Lowerer<'_> {
                         continue;
                     }
                     // The empty date literal on a Date field: `filter(<> 0D)` and `filter(<>0D)` match the dated rows, `filter(0D)`
-                    // the empty ones (record/lt-calcformula-date-literal/CalcFormulaDateLiteral.al:45,93-128). They read as the
+                    // the empty ones (record/flowfields/CalcFormulaDateLiteral.al:45,93-128). They read as the
                     // quoted empty text does (filter.rs, a_date_filter_reads_a_quoted_empty_text_as_the_blank_date). Other forms
                     // with `0D` in them stay refused when the filter is read.
                     let bare: String = raw.chars().filter(|c| !c.is_whitespace()).collect();
@@ -904,7 +972,7 @@ impl Lowerer<'_> {
                         ir::CalcValue::Filter("<>''".into())
                     } else if matches!(src_fields[pos].ty, Ty::Date) && bare.eq_ignore_ascii_case("=0D") {
                         // `filter(= 0D)` and `filter(=0D)` match the empty rows as `filter(0D)` does, also when a FlowField
-                        // filters on such a FlowField (record/lt-calcformula-date-literal/CalcFormulaDateLiteral.al:47-61,76-95,
+                        // filters on such a FlowField (record/flowfields/CalcFormulaDateLiteral.al:47-61,76-95,
                         // tests :205-280 EqualsEmptyDate_Rows_Result, _OnlyDatedRows_Result, _Chained_GroupOverFlowField).
                         ir::CalcValue::Filter("''".into())
                     } else {
@@ -954,10 +1022,10 @@ impl Lowerer<'_> {
 
 /// Whether a `filter(...)` or `const(...)` text of a TableRelation with a `"`-quoted member has a pinned form: on an Enum
 /// or Option field, terms joined by `|`, each a plain member name or a quoted one, or `<>` and one quoted member
-/// (record/lt-table-relation-quotes/TableRelationQuotes.al:41-46), and the ranges and `&` forms below.
+/// (record/table-relation/TableRelationQuotes.al:41-46), and the ranges and `&` forms below.
 /// Whether the filter(...) text of an arm's if (...) condition that quotes a member with `"` is a pinned form: on an Option
 /// field, two `<>` terms joined by `&`, one quoted and one plain (`filter(<> "B C" & <> D)`), and members joined by `|`, quoted
-/// or plain, the quoted blank member included (`filter(" " | A)`): record/lt-table-relation-quotes/TableRelationQuotes.al:76-123
+/// or plain, the quoted blank member included (`filter(" " | A)`): record/table-relation/TableRelationQuotes.al:76-123
 /// (table 87157), QP_Arms_* and QP_BlankOr_* (corpus bump 46).
 fn quoted_condition_text_pinned(text: &str, ty: &Ty) -> bool {
     if !matches!(ty, Ty::Option(_)) {
@@ -1030,11 +1098,13 @@ fn quoted_relation_text_pinned(text: &str, ty: &Ty) -> bool {
 pub(crate) fn option_init_ordinal(text: &str, members: &[String]) -> Option<Option<ir::Const>> {
     let t = text.trim().trim_matches('"').trim();
     let n: usize = t.parse().ok()?;
+    // A member named by these digits wins over the ordinal, quoted or bare (al-runner issue 6859; corpus
+    // record/crud/R6859NumericOptionInit.al, Windows BC 27.5).
     let named = members.iter().position(|m| m.trim().eq_ignore_ascii_case(t));
     Some(match named {
-        Some(p) if p != n => None,
-        _ if n < members.len() => Some(ir::Const::Option(n as i32, members.to_vec())),
-        _ => None,
+        Some(p) => Some(ir::Const::Option(p as i32, members.to_vec())),
+        None if n < members.len() => Some(ir::Const::Option(n as i32, members.to_vec())),
+        None => None,
     })
 }
 

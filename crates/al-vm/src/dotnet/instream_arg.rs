@@ -1,6 +1,6 @@
 //! A `DotNet` System.IO.MemoryStream passed straight to the InStream parameter of XmlDocument.ReadFrom, Media.ImportStream and
 //! JsonObject.ReadFrom (gap G5-22; the SMTP API and Recommended Apps of the System Application and the Base App). Pinned by
-//! tests/al-language-onprem-dotnet/lt-y51-dotnet-builtin-args/Y51DotNetBuiltinArgs.al (BC 27.5, 28.5, 29.0):
+//! tests/al-language-onprem-dotnet/dotnet/dotnet-builtin-args/Y51DotNetBuiltinArgs.al (BC 27.5, 28.5, 29.0):
 //! - the builtin reads the WHOLE stream whatever its Position (`pos3` gives the same document as `pos0`);
 //! - XmlDocument.ReadFrom leaves the Position at the end, also when the text is not XML (`pos_after_*`);
 //! - Media.ImportStream leaves it at the end when it imports (`text/plain`, from Position 4 too); a `image/png` of bytes that are no

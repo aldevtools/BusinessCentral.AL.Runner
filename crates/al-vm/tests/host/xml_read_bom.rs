@@ -1,5 +1,5 @@
 //! `XmlDocument.ReadFrom(InStream)` of UTF-16 bytes whose declaration names another encoding
-//! (xml/lt-ay-xml/AyXmlReadFromStream.al).
+//! (xml/AyXmlReadFromStream.al).
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;

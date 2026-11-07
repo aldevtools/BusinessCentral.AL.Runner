@@ -44,9 +44,9 @@ every read, and by n milliseconds on `Sleep(n)`.
 ## Conformance
 
 - Corpus pins that must still pass (all rely on order, not on equality or exact differences):
-  `session/W5SessionFacts.al:37-40` (and :52, Sleep moves the clock by at least n), `session/TestProbeSessionMiscContracts.al:784-786`,
-  `session/TestSessionFunctions.al:39-65`, `record/TestSystemFieldStampsContracts.al:60-97`, `record/TestRecordLinkColumns.al:104-106`,
-  `record/TestRecordSystemId.al:510-764`, `record/TestXRecStampFields.al:168-179`, `system-fields/W6SystemFieldStamps.al`.
+  `session-system/W5SessionFacts.al:37-40` (and :52, Sleep moves the clock by at least n), `session-system/TestProbeSessionMiscContracts.al:784-786`,
+  `session-system/TestSessionFunctions.al:39-65`, `record/TestSystemFieldStampsContracts.al:60-97`, `record/TestRecordLinkColumns.al:104-106`,
+  `record/TestRecordSystemId.al:510-764`, `record/TestXRecStampFields.al:168-179`, `record/system-fields/W6SystemFieldStamps.al`.
 - `crates/al-vm/tests/store/hostvalues.rs`: `every_read_of_the_clock_is_one_millisecond_later_than_the_last`,
   `sleep_moves_the_clock_by_the_time_waited`, `sleep_of_zero_is_allowed_and_a_negative_wait_is_refused`.
 - `crates/al-vm/tests/dotnet.rs`: `datetime_now_is_the_host_clock_and_needs_no_dotnet_host`.
@@ -122,7 +122,7 @@ every read, and by n milliseconds on `Sleep(n)`.
    - Stamps are strictly increasing (record/TestRecordSystemId.al:449, TestXRecStampFields.al:179).
    - `SystemCreatedAt = SystemModifiedAt` on insert, and a stamp copied into a DateTime field reads back equal: the stamp
      itself does not change.
-   - The rounding of a value written to a Time or DateTime column does not change (errors/lt-ms-refusals-130/P130DateFilters.al
+   - The rounding of a value written to a Time or DateTime column does not change (record/filters/P130DateFilters.al
      `BT_DateTimeAndTime_MillisecondsAfterWrite`, `RH_TimeKey_Milliseconds_ModifyRenameDelete`).
    - `ALRUNNER_REAL_CLOCK=1` keeps its meaning; the catch-up offset is added on top of the wall clock as before.
 6. **What does not match BC, and why it is accepted.** On BC whether a read right after a write is on the grid depends on the

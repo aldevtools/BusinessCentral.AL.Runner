@@ -1,6 +1,6 @@
 //! `FilterPageBuilder`: an ordered, keyed set of filter controls, each holding a record buffer.
 //! Everything up to `RunModal` is an object-graph operation (corpus
-//! filterpage/TestFilterPageBuilder.al); `RunModal` goes to a bound `[FilterPageHandler]`
+//! pages/filterpagebuilder/TestFilterPageBuilder.al); `RunModal` goes to a bound `[FilterPageHandler]`
 //! (`Session::ui_filter_page`).
 
 use crate::Session;
@@ -19,7 +19,7 @@ fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
     Err(Signal::Unsupported(what.into()))
 }
 
-/// An argument error: code `Argument` (filterpage/W3FilterPageBuilder.al, BC 27.5 and 29.0).
+/// An argument error: code `Argument` (pages/filterpagebuilder/W3FilterPageBuilder.al, BC 27.5 and 29.0).
 fn arg_error(message: String) -> Signal {
     Signal::Error(Box::new(AlError {
         message,
@@ -29,7 +29,7 @@ fn arg_error(message: String) -> Signal {
     }))
 }
 
-/// The index error of `Name`, code ArgumentOutOfRange (platform/lt-platform-members/PlTFilterPageBuilder.al:130-137).
+/// The index error of `Name`, code ArgumentOutOfRange (metadata/platform-tables/PlTFilterPageBuilder.al:130-137).
 fn al_error(message: String) -> Signal {
     Signal::Error(Box::new(AlError {
         message,
@@ -40,7 +40,7 @@ fn al_error(message: String) -> Signal {
 }
 
 /// The caption of a builder nobody assigned one to: the platform's localized default, which the
-/// corpus only knows to be non-empty (filterpage/TestFilterPageBuilder.al:
+/// corpus only knows to be non-empty (pages/filterpagebuilder/TestFilterPageBuilder.al:
 /// FilterPageBuilder_PageCaption_FreshBuilder_IsNonEmptyDefault). docs/probes-needed.md.
 const DEFAULT_CAPTION: &str = "Filter Page";
 
@@ -65,7 +65,7 @@ fn state_of(cell: &Lib) -> Result<std::cell::RefMut<'_, FilterPageState>, Signal
 }
 
 /// A copy of a builder for `:=`: the control collection is copied, the record behind each control
-/// is shared (corpus filterpage/TestFilterPageBuilder.al:FilterPageBuilder_Assignment_*).
+/// is shared (corpus pages/filterpagebuilder/TestFilterPageBuilder.al:FilterPageBuilder_Assignment_*).
 pub(crate) fn copy_for_assignment(cell: &Lib) -> Lib {
     let copy = match &*cell.borrow() {
         LibraryValue::FilterPageBuilder(s) => LibraryValue::FilterPageBuilder(s.clone()),
@@ -86,7 +86,7 @@ impl Session {
             return unsupported(format!("{id} without a FilterPageBuilder"));
         };
         // The calls that fail answer `fallback` when their result is used and raise otherwise
-        // (filterpage/TestFilterPageBuilder.al: the trappable-return convention, header item 4).
+        // (pages/filterpagebuilder/TestFilterPageBuilder.al: the trappable-return convention, header item 4).
         let fail = |message: String, fallback: Value| {
             if ret_used {
                 Ok(fallback)
@@ -142,7 +142,7 @@ impl Session {
                             );
                         }
                         let Some(table) = self.table_object(i64::from(*no)) else {
-                            // The missing-object error (platform/lt-platform-members/PlTFilterPageBuilder.al:101-110
+                            // The missing-object error (metadata/platform-tables/PlTFilterPageBuilder.al:101-110
                             // AddTable_Errors, the caller scrubbed).
                             return Err(self.missing_object("Table", i64::from(*no)));
                         };
@@ -158,7 +158,7 @@ impl Session {
                     _ => match args.get(1) {
                         Some(Value::Library(_, l)) => match &*l.borrow() {
                             // The builder keeps the RecordRef's own buffer: a filter set on the RecordRef afterwards shows in the
-                            // builder's view, where AddRecord copies a Record (filterpage/W3FilterPageBuilder.al:
+                            // builder's view, where AddRecord copies a Record (pages/filterpagebuilder/W3FilterPageBuilder.al:
                             // AddRecord_CopiesTheFiltersOfTheRecord, BC 27.5 and 29.0).
                             LibraryValue::RecordRef(r) => (r.borrow().table, r.clone()),
                             other => {
@@ -267,11 +267,11 @@ impl Session {
                     Some(c) => {
                         let t = self.table(&c.record)?;
                         // :GetView_CaptionsFlag_RendersAnOptionFilterDifferently
-                        // The view starts with `VERSION(1) ` like a Record's (filterpage/W3FilterPageBuilder.al:
+                        // The view starts with `VERSION(1) ` like a Record's (pages/filterpagebuilder/W3FilterPageBuilder.al:
                         // AddRecord_CopiesTheFiltersOfTheRecord, BC 27.5 and 29.0).
                         // Without names the view takes the numeric form of a record's: `Field1=1(1..3)`, `ORDER(1)`
-                        // (platform/lt-platform-members/PlTFilterPageBuilder.al:177-180 GetSetView_RoundTrip, :199
-                        // AddRecord_WithFilters; handlers/lt-az-handlers/AzHandlerTests.al:269).
+                        // (metadata/platform-tables/PlTFilterPageBuilder.al:177-180 GetSetView_RoundTrip, :199
+                        // AddRecord_WithFilters; ui-handlers/AzHandlerTests.al:269).
                         self.get_view_with(&c.record, &t, use_names, !use_names, true)
                             .map(|v| Value::Text(format!("VERSION(1) {v}").into()))
                     }

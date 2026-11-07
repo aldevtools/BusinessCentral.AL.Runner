@@ -1,6 +1,6 @@
 //! A text element right below a table element with field and text attributes and one text element of only text attributes
 //! inside it (assumption `xmlport-nested-text-in-table`; corpus branch al-runtime-rs-staging-pub-tp,
-//! xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al TP_Nested_*).
+//! xmlports/shapes-properties/QrXpContainerOccurs.al TP_Nested_*).
 
 use al_testkit::text;
 

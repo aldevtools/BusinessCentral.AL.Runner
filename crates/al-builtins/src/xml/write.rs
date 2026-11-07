@@ -95,7 +95,7 @@ impl Writer {
     }
 
     /// Every line end the writer is given is written as CR LF, as .NET's writer replaces them (corpus
-    /// xml/TestXmlRuntimeContracts.al, misc/lt-probes-needed-1/PnAXmlWriteTo.al: `\r\n` where the source has `\n`).
+    /// xml/TestXmlRuntimeContracts.al, xml/PnAXmlWriteTo.al: `\r\n` where the source has `\n`).
     fn push_text(&mut self, s: &str) {
         if self.crlf && s.contains(['\n', '\r']) {
             self.out
@@ -169,7 +169,7 @@ impl Writer {
                 t.replace("--", "- -"),
                 if t.ends_with('-') { " " } else { "" }
             )),
-            // The end marker inside the data is written `? >` (xml/lt-xml-cdata-comment-pi-text/P90PIRead.al:1989 `pi-end-x`,
+            // The end marker inside the data is written `? >` (xml/xml/P90PIRead.al:1989 `pi-end-x`,
             // :2110 `pi-end-doc`).
             XData::Pi { target, data } => Plan::Markup(if data.is_empty() {
                 format!("<?{target}?>")
@@ -185,7 +185,7 @@ impl Writer {
                 args,
             } => {
                 if !*ready {
-                    // A type made without a subset (xml/lt-xml-remaining-node-methods/P104WriteDocType.al:146..157,
+                    // A type made without a subset (xml/xml/P104WriteDocType.al:146..157,
                     // P104DocTypeCreate.al `doc1`..`doc3`): `<!DOCTYPE r >` for a name only, `<!DOCTYPE r PUBLIC "pub" "sys">`
                     // with a public identifier. An empty public identifier with Create(Name, Public[, System]) is not pinned.
                     if *args == 1 {
@@ -237,32 +237,73 @@ impl Writer {
         open: bool,
     ) -> Result<(), Signal> {
         let mark = self.scope.len();
-        // Declarations written on this element: explicit ones first, in their order.
-        let mut written: Vec<String> = Vec::new();
-        let mut plain: Vec<(String, String, String, String)> = Vec::new(); // prefix, local, ns, value
-        for a in attrs {
-            let (ap, al, ans, av) = with(a, |d| match d {
-                XData::Attribute {
-                    prefix,
-                    local,
-                    ns,
-                    value,
-                } => (prefix.clone(), local.clone(), ns.clone(), value.clone()),
-                _ => unreachable!("attributes hold attributes"),
-            });
+        // A generated prefix is only pinned for the outermost element (xml/xml/XmlNsPrefixes.al:Attribute_PrefixNumbering).
+        let outermost = self.level == 0;
+        let items: Vec<(String, String, String, String)> = attrs // prefix, local, ns, value
+            .iter()
+            .map(|a| {
+                with(a, |d| match d {
+                    XData::Attribute {
+                        prefix,
+                        local,
+                        ns,
+                        value,
+                    } => (prefix.clone(), local.clone(), ns.clone(), value.clone()),
+                    _ => unreachable!("attributes hold attributes"),
+                })
+            })
+            .collect();
+        // Every declaration of the element is known before the first name is written, whatever the order they were added in
+        // (Decl7208_AttributeInNamespace `attrbefore`).
+        for (ap, al, ans, av) in &items {
+            if ans == XMLNS_URI {
+                self.scope
+                    .push((if ap == "xmlns" { al.clone() } else { String::new() }, av.clone()));
+            }
+        }
+        // An element in a namespace without a prefix of its own is written with the last prefix declared for it, unless the
+        // default namespace is that one (Decl7208_TwoPrefixes, Decl7208_DeclarationBeforeChildren).
+        let mut eff = prefix.to_string();
+        if prefix.is_empty() && !ns.is_empty() && mapped(&self.scope, "").as_deref() != Some(ns) {
+            if let Some(p) = scope_prefix(&self.scope, ns) {
+                eff = p;
+            }
+        }
+        // The element's own name may need a declaration the tree does not carry; it is written after everything else.
+        let mut extra = String::new();
+        let visible = mapped(&self.scope, &eff);
+        if visible.as_deref().unwrap_or("") != ns {
+            let mut s = String::new();
+            escape_attr(ns, &mut s);
+            extra = if eff.is_empty() {
+                format!(" xmlns=\"{s}\"")
+            } else {
+                format!(" xmlns:{eff}=\"{s}\"")
+            };
+            self.scope.push((eff.clone(), ns.to_string()));
+        }
+        // Attributes and declarations in the order they were added; prefixes the writer makes up come after them, the last
+        // made first (Attribute_PrefixNumbering `four_on_element`). A made-up prefix is `p` and the number of prefixes bound
+        // so far (the element's own counts), as .NET's writer does.
+        let mut bound: Vec<String> = vec![eff.clone()];
+        let mut generated: Vec<(String, String)> = Vec::new();
+        let mut attr_text = String::new();
+        for (ap, al, ans, av) in &items {
+            let mut s = String::new();
+            escape_attr(av, &mut s);
             if ans == XMLNS_URI {
                 let declared = if ap == "xmlns" { al.clone() } else { String::new() };
-                self.scope.push((declared.clone(), av.clone()));
-                let mut s = String::new();
-                escape_attr(&av, &mut s);
-                written.push(if declared.is_empty() {
+                if !bound.contains(&declared) {
+                    bound.push(declared.clone());
+                }
+                attr_text.push_str(&if declared.is_empty() {
                     format!(" xmlns=\"{s}\"")
                 } else {
                     format!(" xmlns:{declared}=\"{s}\"")
                 });
             } else if ap.is_empty() && al == "xmlns" && ans.is_empty() {
                 // `XmlAttribute.Create('xmlns', Uri)` on an element: the same URI as the element's own namespace is written once,
-                // another one raises when the start tag is written (xml/lt-de-xml-leads/DeXmlWriteLeads.al:246-310). On an element
+                // another one raises when the start tag is written (xml/DeXmlWriteLeads.al:246-310). On an element
                 // with a prefix it is not pinned.
                 if !prefix.is_empty() {
                     return unsupported("an xmlns attribute on an element with a prefix (not pinned)");
@@ -279,62 +320,47 @@ impl Writer {
                     return unsupported("an empty xmlns attribute on an element without a namespace (not pinned)");
                 }
             } else {
-                plain.push((ap, al, ans, av));
+                let use_prefix = if ans.is_empty() {
+                    String::new()
+                } else if !ap.is_empty() && mapped(&self.scope, ap).as_deref() == Some(ans.as_str()) {
+                    ap.clone()
+                } else if ap == "xml" && ans == XML_URI {
+                    // The `xml` prefix is bound without a declaration and written as it is (xml/XmlDocReadWrite.al:259-265
+                    // ReadFrom_Whitespace_TextNode `xmlspace`: `<a xml:space="preserve">` is written back unchanged).
+                    ap.clone()
+                } else if let Some(p) = scope_prefix(&self.scope, ans) {
+                    p
+                } else if ap.is_empty() && outermost && eff.is_empty() {
+                    // The writer makes up `p1` and declares it after the attributes (xml/XmlAttributes.al:358 Collection_Set
+                    // `<e a="2" p1:a="3" xmlns:p1="urn:x" />`; Attribute_PrefixNumbering). A number that is taken is not pinned.
+                    let made = format!("p{}", bound.len());
+                    if mapped(&self.scope, &made).is_some() {
+                        return unsupported("a made-up prefix that is already taken (not pinned)");
+                    }
+                    bound.push(made.clone());
+                    self.scope.push((made.clone(), ans.clone()));
+                    generated.push((made.clone(), ans.clone()));
+                    made
+                } else {
+                    return unsupported("serialising a namespaced attribute without a declared prefix");
+                };
+                attr_text.push_str(&format!(" {}=\"{s}\"", qname(&use_prefix, al)));
             }
         }
-        // The element's own name may need a declaration the tree does not carry.
-        let mut extra = String::new();
-        let visible = mapped(&self.scope, prefix);
-        if visible.as_deref().unwrap_or("") != ns {
+        for (p, uri) in generated.iter().rev() {
             let mut s = String::new();
-            escape_attr(ns, &mut s);
-            extra = if prefix.is_empty() {
-                format!(" xmlns=\"{s}\"")
-            } else {
-                format!(" xmlns:{prefix}=\"{s}\"")
-            };
-            self.scope.push((prefix.to_string(), ns.to_string()));
+            escape_attr(uri, &mut s);
+            attr_text.push_str(&format!(" xmlns:{p}=\"{s}\""));
         }
+        attr_text.push_str(&extra);
         self.break_line();
         self.level += 1;
         // An element inside mixed content is written inline with everything it holds, as .NET's indenting writer does (the
         // mixed-content bit is inherited, then restored at the end tag): P90CDataEdit.al:AfterSelf_Attached_ExistingNodes `k12`.
         self.saved.push(self.mixed);
         self.out.push('<');
-        self.out.push_str(&qname(prefix, local));
-        self.out.push_str(&extra);
-        for w in &written {
-            self.out.push_str(w);
-        }
-        let mut generated: Option<String> = None;
-        for (ap, al, ans, av) in &plain {
-            let use_prefix = if ans.is_empty() {
-                String::new()
-            } else if !ap.is_empty() && mapped(&self.scope, ap).as_deref() == Some(ans.as_str()) {
-                ap.clone()
-            } else if ap == "xml" && ans == XML_URI {
-                // The `xml` prefix is bound without a declaration and written as it is (xml/XmlDocReadWrite.al:259-265
-                // ReadFrom_Whitespace_TextNode `xmlspace`: `<a xml:space="preserve">` is written back unchanged).
-                ap.clone()
-            } else if let Some((p, _)) = self.scope.iter().rev().find(|(p, u)| !p.is_empty() && u == ans) {
-                p.clone()
-            } else if ap.is_empty() && self.scope.is_empty() && generated.is_none() && children.is_empty() {
-                // The writer makes up `p1` and declares it after the attributes (xml/XmlAttributes.al:358 Collection_Set
-                // `<e a="2" p1:a="3" xmlns:p1="urn:x" />`). A second one, or one under a namespace in scope, is not pinned.
-                generated = Some(ans.clone());
-                "p1".to_string()
-            } else {
-                return unsupported("serialising a namespaced attribute without a declared prefix");
-            };
-            let mut s = String::new();
-            escape_attr(av, &mut s);
-            self.out.push_str(&format!(" {}=\"{s}\"", qname(&use_prefix, al)));
-        }
-        if let Some(uri) = generated {
-            let mut s = String::new();
-            escape_attr(&uri, &mut s);
-            self.out.push_str(&format!(" xmlns:p1=\"{s}\""));
-        }
+        self.out.push_str(&qname(&eff, local));
+        self.out.push_str(&attr_text);
         if children.is_empty() && !open {
             self.out.push_str(" />");
             self.level -= 1;
@@ -350,7 +376,7 @@ impl Writer {
                 self.break_line();
             }
             self.out.push_str("</");
-            self.out.push_str(&qname(prefix, local));
+            self.out.push_str(&qname(&eff, local));
             self.out.push('>');
         }
         self.mixed = self.saved.pop().unwrap_or(false);
@@ -381,7 +407,7 @@ pub(super) fn serialize(h: &Handle) -> Result<String, Signal> {
 }
 
 /// An attribute written on its own: `name="value"` with the value escaped as in an element
-/// (xml/lt-xml-attr-doc-http-members/P97AttrWrite.al:86 WriteTo_Text_Kinds `t1`..`t4`, `t9`, `t10`, `newline_tab`;
+/// (xml/xml/P97AttrWrite.al:86 WriteTo_Text_Kinds `t1`..`t4`, `t9`, `t10`, `newline_tab`;
 /// :261 WriteTo_Detached_And_Removed, attached and removed alike; xml/XmlAttributes.al:56 Attribute_Create). A namespace
 /// declaration is `xmlns:prefix="uri"` (`t7`); a detached attribute with a namespace and no prefix gets `p0` (`t5`, `t6`,
 /// `t8`). Other namespaced shapes (a prefix of its own, attached to an element, `xmlns="uri"`) are not pinned. `None` for a
@@ -425,7 +451,7 @@ pub(super) fn serialize_with(h: &Handle, indent: bool) -> Result<String, Signal>
             _ => None,
         });
         // A read declaration that names an encoding is written as its own node; one without an encoding is replaced by the
-        // writer's (xml/XmlEntitiesMisc.al:208 `with_nl`, misc/lt-probes-needed-1/PnAXmlWriteTo.al:90: a line end after
+        // writer's (xml/XmlEntitiesMisc.al:208 `with_nl`, xml/PnAXmlWriteTo.al:90: a line end after
         // `<?xml version="1.0"?>` is written once).
         let has_decl = decl.as_ref().is_some_and(|d| {
             with(

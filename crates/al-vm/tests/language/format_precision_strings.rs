@@ -1,6 +1,6 @@
 //! `Format` of a Decimal with `<Precision,2:26>` before a standard format, and `<Precision,2:2>` before `<Sign><Integer><Decimals>`
 //! with `<Comma,.>` or `<Comma,,>`, before `<Integer Thousand><Decimals><Comma,,>`, and after `<Sign>` (corpus branch
-//! al-runtime-rs-staging-pub-tp, types/lt-format-comma-format-string/FormatCommaFormatString.al TP_Format_PrecisionStrings,
+//! al-runtime-rs-staging-pub-tp, format-evaluate/FormatCommaFormatString.al TP_Format_PrecisionStrings,
 //! TP_Format_PrecisionStrings_Small).
 
 use al_testkit::text;
@@ -77,14 +77,14 @@ fn precision_comma_strings_of_writer_tq() {
     assert_eq!(tq_comma("-0.4"), "0|0.4|-0,400|");
 }
 
-// A leading `<Precision,A:B>` without a standard format is pinned for 0:0, 1:3, 2:2 and 3:3 only (TP and TQ): another A:B whose
-// rounding or minimum decimals would show is refused.
+// A leading `<Precision,A:B>` without a standard format is pinned for 0:0, 0:3, 1:3, 2:2 and 3:3 (TP and TQ) and for 2:4 without
+// `<Sign>` (language/R6901DecimalFieldFormat.al:810-850): another A:B whose rounding or minimum decimals would show is refused.
 #[test]
 fn an_unpinned_leading_precision_that_would_show_is_refused() {
     let r = format!(
         "{:?}",
         al_testkit::run_with(
-            "codeunit 50100 C { procedure F(): Text var D: Decimal; begin D := 1.23456; exit(Format(D, 0, '<Precision,2:4><Integer><Decimals>')); end; }",
+            "codeunit 50100 C { procedure F(): Text var D: Decimal; begin D := 1.23456; exit(Format(D, 0, '<Precision,1:4><Integer><Decimals>')); end; }",
             "C",
             "F",
             vec![]

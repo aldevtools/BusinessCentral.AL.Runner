@@ -1,8 +1,8 @@
 //! `CurrReport` in the code of a report extension is the report run the extension belongs to: its members
 //! resolve as in the base report (Tests-ERM, Base Application's "Mfg. Document Entries" calls
 //! `CurrReport.Break()` in `OnPreDataItem` of a data item it adds; issue 19). Pins for the members:
-//! corpus handlers/TestReportRuntimeContracts.al:80 (`Skip`, `Break`, `Quit`) and
-//! handlers/TestReportCurrReportLanguageReport.al (`Language`).
+//! corpus reports/TestReportRuntimeContracts.al:80 (`Skip`, `Break`, `Quit`) and
+//! streams/TestReportCurrReportLanguageReport.al (`Language`).
 
 use al_sema::workspace::AppSource;
 
@@ -72,7 +72,7 @@ fn currreport_resolves_in_a_data_item_a_report_extension_adds() {
 }
 
 // Running it: the members act on the report run the extension belongs to
-// (handlers/TestReportRuntimeContracts.al:80: Skip skips the row, Break ends the data item, Quit ends the run).
+// (reports/TestReportRuntimeContracts.al:80: Skip skips the row, Break ends the data item, Quit ends the run).
 mod running {
     use al_builtins::value::Value;
     use al_vm::{Engine, Session};

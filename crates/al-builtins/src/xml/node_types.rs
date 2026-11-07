@@ -16,7 +16,7 @@ pub(super) fn doc_create(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]
     Ok(tagged("XmlDocument", doc))
 }
 
-/// `XmlDocument.Create` and `Add` of an empty or blank text to a document (misc/lt-probes-needed-1/PnAXmlNodeAdds.al
+/// `XmlDocument.Create` and `Add` of an empty or blank text to a document (xml/PnAXmlNodeAdds.al
 /// TT_EmptyOrBlankTextIntoXmlDocument on corpus writer TT's branch al-runtime-rs-staging-tt; former assumption `xml-doc-blank-text` (pinned on corpus master since bump 1030)): an
 /// empty Text adds no node; a blank Text, or an empty or blank XmlText, is appended as a node before or after the root, and
 /// `WriteTo` writes it as it is. A second text node in the document is not pinned. `false` for any other argument.
@@ -26,7 +26,7 @@ pub(super) fn doc_blank_text(doc: &Handle, arg: &Value) -> Result<bool, Signal> 
     }
     let node = match arg {
         Value::Text(t) | Value::Code(t) if t.is_empty() => {
-            // Pinned by misc/lt-probes-needed-1/PnAXmlNodeAdds.al TT_EmptyOrBlankTextIntoXmlDocument (was assumption `xml-doc-blank-text`).
+            // Pinned by xml/PnAXmlNodeAdds.al TT_EmptyOrBlankTextIntoXmlDocument (was assumption `xml-doc-blank-text`).
             return Ok(true);
         }
         Value::Text(t) | Value::Code(t) if t.trim().is_empty() => new_node(XData::Text(t.to_string())),
@@ -45,7 +45,7 @@ pub(super) fn doc_blank_text(doc: &Handle, arg: &Value) -> Result<bool, Signal> 
     {
         return unsupported("a second empty or blank text added to an XmlDocument (not pinned)");
     }
-    // Pinned by misc/lt-probes-needed-1/PnAXmlNodeAdds.al TT_EmptyOrBlankTextIntoXmlDocument (was assumption `xml-doc-blank-text`).
+    // Pinned by xml/PnAXmlNodeAdds.al TT_EmptyOrBlankTextIntoXmlDocument (was assumption `xml-doc-blank-text`).
     with(doc, |d| {
         if let XData::Document { children, .. } = d {
             children.push(node.clone());
@@ -115,18 +115,41 @@ pub(super) fn attribute_create_ns(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mu
     if ns.is_empty() {
         return plain_attribute(local, value);
     }
-    unsupported("XmlAttribute.Create with a namespace (the prefix it would get is not pinned)")
+    // The attribute has no prefix of its own: detached it is named `p0:k`, attached it takes the prefix a declaration gives it or
+    // the writer makes one up (xml/xml/XmlNsPrefixes.al:Attribute_PrefixNumbering, Decl7208_AttributeInNamespace).
+    // A name with a colon or an invalid name is not pinned with a namespace.
+    if local.contains(':') {
+        return unsupported("XmlAttribute.Create with a namespace and a colon in the name (not pinned)");
+    }
+    check_name(&local)?;
+    Ok(tagged(
+        "XmlAttribute",
+        new_node(XData::Attribute {
+            prefix: String::new(),
+            local,
+            ns,
+            value,
+        }),
+    ))
 }
 
 pub(super) fn attribute_create_ns_decl(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
     // xml/TestXmlDeep.al XmlAttribute_CreateNamespaceDeclaration_HasPrefixAndUri: prefix `xmlns`.
     let (prefix, uri) = (arg_text(a, 0)?, arg_text(a, 1)?);
-    let (p, l) = if prefix.is_empty() {
-        (String::new(), "xmlns".to_string())
-    } else {
-        check_name(&prefix)?;
-        ("xmlns".to_string(), prefix)
-    };
+    // The call itself raises, before any Add: an empty prefix or namespace is an argument error, a colon in the prefix the XML
+    // name error, and the prefixes `xmlns` and `xml` an argument error with another namespace
+    // (xml/xml/XmlNsPrefixes.al:119-157,159-178 Decl_EmptyPrefixOrNamespace; xml/XmlXPathNamespaces.al:616 af476).
+    verify_ncname(&prefix)?;
+    if uri.is_empty() {
+        return Err(nav_argument());
+    }
+    if prefix == "xmlns" || prefix == "xml" {
+        if uri != "urn:x" {
+            return unsupported("CreateNamespaceDeclaration with the prefix xml or xmlns (only urn:x is pinned)");
+        }
+        return Err(nav_argument());
+    }
+    let (p, l) = ("xmlns".to_string(), prefix);
     Ok(tagged(
         "XmlAttribute",
         new_node(XData::Attribute {
@@ -160,12 +183,12 @@ pub(super) fn comment_create(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Va
 }
 
 /// The name of a document type, as `XmlConvert.VerifyName` takes it: an empty name is an argument error, a bad character
-/// the XML exception with its place (xml/lt-xml-doctype-declaration/DocTypeErrors.al:Create_InvalidNames, DocTypeSetters.al:SetName).
+/// the XML exception with its place (xml/xml/DocTypeErrors.al:Create_InvalidNames, DocTypeSetters.al:SetName).
 pub(super) fn verify_name(name: &str) -> Result<(), Signal> {
     verify_name_with(name, true)
 }
 
-/// [`verify_name`] for a name without a prefix (`XmlConvert.VerifyNCName`): a colon is refused too (xml/lt-xml-attr-doc-http-members/
+/// [`verify_name`] for a name without a prefix (`XmlConvert.VerifyNCName`): a colon is refused too (xml/xml/
 /// P97DocQuery.al:GetChildElements_LocalNameAndNamespace `*` and `b:r`).
 pub(super) fn verify_ncname(name: &str) -> Result<(), Signal> {
     verify_name_with(name, false)
@@ -211,7 +234,7 @@ pub(super) fn doctype_create(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Va
     verify_name(&name)?;
     let (public, system, subset, ready) = match a.len() {
         1 => (String::new(), String::new(), String::new(), false),
-        // Written `<!DOCTYPE r PUBLIC "pub" "">` (xml/lt-xml-remaining-node-methods/P104WriteDocType.al:150 `v2_m1`,
+        // Written `<!DOCTYPE r PUBLIC "pub" "">` (xml/xml/P104WriteDocType.al:150 `v2_m1`,
         // P104DocTypeCreate.al `doc2`); its getters are not pinned (doctype_get refuses them).
         2 => (arg_text(a, 1)?, String::new(), String::new(), false),
         3 => (arg_text(a, 1)?, arg_text(a, 2)?, String::new(), false),
@@ -425,7 +448,7 @@ pub(super) fn check_pi_target(name: &str) -> Result<(), Signal> {
     Ok(())
 }
 
-/// `XmlProcessingInstruction.SetTarget(Name)` (xml/lt-xml-cdata-comment-pi-text/P90PIRead.al:2215 PI_GetSetTargetAndData):
+/// `XmlProcessingInstruction.SetTarget(Name)` (xml/xml/P90PIRead.al:2215 PI_GetSetTargetAndData):
 /// `t2` is written `<?t2 data1?>`; an empty name raises an Argument error and a name with a blank the XML name error, both
 /// leaving the target as it was. Other invalid names, and names starting with `xml`, are not pinned.
 pub(super) fn pi_set_target(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {

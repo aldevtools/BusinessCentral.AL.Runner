@@ -16,7 +16,7 @@ namespace AlDotNetSidecar;
 
 public static class Program
 {
-    public const int ProtocolVersion = 4;
+    public const int ProtocolVersion = 5;
 
     public static int Main(string[] args)
     {
@@ -29,7 +29,7 @@ public static class Program
         CultureInfo.CurrentUICulture = culture;
         // BC's server answers the Windows and DOS code pages (1252, 850, 437) by number and by name; .NET 8 has them only
         // through this provider (part of the shared framework, no NuGet). Pinned by corpus
-        // tests/al-language-onprem-dotnet/lt-ra-dotnet/RaEncodingCodePages.al:115, :131, :244.
+        // tests/al-language-onprem-dotnet/dotnet/dotnet/RaEncodingCodePages.al:115, :131, :244.
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
         var protocolIn = Console.OpenStandardInput();

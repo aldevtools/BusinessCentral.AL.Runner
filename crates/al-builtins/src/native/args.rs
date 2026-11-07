@@ -14,7 +14,7 @@ pub(super) fn int_arg(args: &[Value], i: usize) -> Option<i64> {
         Value::BigInteger(n) => Some(*n),
         Value::Byte(n) => Some(i64::from(*n)),
         Value::Char(n) => Some(i64::from(*n)),
-        // An Option takes the place of an Integer (record/lt-record-conversion-assumptions/OptCopyStr_risky.al: CopyStr('abcdef', Opt)).
+        // An Option takes the place of an Integer (text/OptCopyStr_risky.al: CopyStr('abcdef', Opt)).
         Value::Option(n, _) => Some(i64::from(*n)),
         _ => None,
     }
@@ -47,8 +47,8 @@ pub fn text_of_carrying_call_stack(v: &Value) -> Option<crate::text::Txt> {
 }
 
 pub(super) fn text_arg(args: &[Value], i: usize) -> Result<crate::text::Txt, Signal> {
-    // A Guid where a Text is expected is its text form, as in an assignment (types/lt-guid-as-text-argument/
-    // GuidAsTextArgument.al: CopyStr, StrLen, UpperCase, StrPos, Notification.SetData and more; misc/lt-y70-assumptions/
+    // A Guid where a Text is expected is its text form, as in an assignment (types/guid/
+    // GuidAsTextArgument.al: CopyStr, StrLen, UpperCase, StrPos, Notification.SetData and more; record/
     // Y70Probes.al:264-343: EndsWith, LastIndexOf, Split, TextBuilder, Trim*, IndexOfAny, Replace, StrSubstNo).
     if let Some(Value::Guid(g)) = args.get(i) {
         return Ok(crate::format::format_guid(g).into());

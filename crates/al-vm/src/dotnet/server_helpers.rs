@@ -1,7 +1,7 @@
 //! Three BC server classes with no state of their own, served here (ADR-014 section 1; owner 2026-10-29: pure BC server
-//! classes are registered natively). Pinned by tests/al-language-onprem-dotnet/lt-y58-server-helpers/Y58ServerHelpers.al
+//! classes are registered natively). Pinned by tests/al-language-onprem-dotnet/dotnet/server-helpers/Y58ServerHelpers.al
 //! (corpus master 7330f181, PR 1019; real BC 27.5, 28.5 and 29.0) and, through System Application's "Password Handler",
-//! tests/al-language/misc/lt-y58-password/Y58PasswordHandler.al:
+//! tests/al-language/session-system/system-application/Y58PasswordHandler.al:
 //!
 //! - `PasswordGenerator.GeneratePassword(Length, MinNonAlphanumeric)` (:207 PasswordGenerator_Arguments, :112-205 the
 //!   shapes): a length from 1 to 128 ("Password length incorrect" otherwise) and a minimum from 0 to the length ("Number of
@@ -25,7 +25,7 @@ use std::rc::Rc;
 
 use al_builtins::dotnet_sigs::{AL_SEARCH, PASSWORD_GENERATOR, VSCODE_REQUEST_HELPER};
 
-const FILE: &str = "tests/al-language-onprem-dotnet/lt-y58-server-helpers/Y58ServerHelpers.al";
+const FILE: &str = "tests/al-language-onprem-dotnet/dotnet/server-helpers/Y58ServerHelpers.al";
 
 /// The non-alphanumeric characters a password draws from (:112-205, 'non-alphanumerics seen (sorted)').
 const SYMBOLS: &[u8; 25] = b"!#$%&()*+-./:;=>?@[]^_{|}";

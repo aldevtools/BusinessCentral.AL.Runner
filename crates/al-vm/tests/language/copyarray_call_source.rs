@@ -1,5 +1,5 @@
 //! `CopyArray(Target, P.Get(), Pos)`: the source is the array a procedure returns (al-runner issue 6658). Only the destination is
-//! written; the copy itself is pinned by misc/lt-system-functions/Arrays.al:CopyArray_Forms.
+//! written; the copy itself is pinned by collections/Arrays.al:CopyArray_Forms.
 
 use al_testkit::{run_in, text};
 

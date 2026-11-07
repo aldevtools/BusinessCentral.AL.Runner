@@ -1,6 +1,6 @@
 //! A stale buffer from the variable's own Insert, four Commits later, after a transaction that reads another table under
 //! ReadIsolation UpdLock (Find, as No. Series takes a number) and writes other tables only: the Modify raises DB:RecordChanged,
-//! as after a plain Get (record/lt-wb-6287/WbStaleUpdLockTests.al:16-25 and the contrast :29-38; al-runner issue 6287).
+//! as after a plain Get (record/WbStaleUpdLockTests.al:16-25 and the contrast :29-38; al-runner issue 6287).
 //! Five Commits and an UpdLock read of the buffer's own table are not pinned and stay refused.
 
 use al_testkit::outcomes_in;

@@ -1,10 +1,10 @@
 //! The rows of a record whose key starts with a FlowField whose value depends on the row ([`super::FLOWFIELD_KEY`]): ordered
 //! by the FlowField's value, then by the rest of the key and the primary key, ascending. `SetAscending(FlowField, false)`
 //! reverses the FlowField only (ties stay in primary key order), `Ascending(false)`, FindLast and `Next(-1)` walk the exact
-//! reverse, and the row read carries the FlowField's value without CalcFields. Pinned by record/lt-set-current-key/
+//! reverse, and the row read carries the FlowField's value without CalcFields. Pinned by record/keys-sorting/
 //! Y43SetAscendingFlowField.al (a sum with two `field()` conditions: Count, FindFirst, FindSet, FindLast and `Next(-1)`,
 //! SetAscending, Ascending, GetAscending; corpus PR 966) and SetCurrentKeyFlowFieldOrder.al:85-180 (a count with one
-//! condition, `Ascending(false)`, `SetCurrentKey(Cnt, Id)`). Other FlowField kinds, a FlowField after another key field
+//! condition, `Ascending(false)`, `SetCurrentKey(Cnt, Id)`). An exist is pinned by PwFlowFieldKeyRule.al:172. Other FlowField kinds, a FlowField after another key field
 //! and a second FlowField in the key are refused.
 
 use super::*;
@@ -63,11 +63,16 @@ impl Session {
         };
         let first = fields[0];
         let pinned = at == 0
-            && calc(first).is_some_and(|c| matches!(c.method, al_ir::CalcMethod::Sum | al_ir::CalcMethod::Count))
+            && calc(first).is_some_and(|c| {
+                matches!(
+                    c.method,
+                    al_ir::CalcMethod::Sum | al_ir::CalcMethod::Count | al_ir::CalcMethod::Exist
+                )
+            })
             && fields[1..].iter().all(|&p| calc(p).is_none() && t.fields[p].stored);
         if !pinned {
             return unsupported(format!(
-                "the order of the rows by the FlowField {} of key {}: only a sum or count FlowField first, then stored fields, is pinned",
+                "the order of the rows by the FlowField {} of key {}: only a sum, count or exist FlowField first, then stored fields, is pinned",
                 t.fields[fields[at]].name,
                 fields
                     .iter()

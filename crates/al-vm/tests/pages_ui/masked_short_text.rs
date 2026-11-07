@@ -1,5 +1,5 @@
 //! A Masked control shows ten bullets for any non-empty text, whatever its length, on a field and on a page variable
-//! (corpus pages/lt-y72-page-probes/Y72MaskedShortText.al).
+//! (corpus testpage/Y72MaskedShortText.al).
 
 use al_testkit::text;
 

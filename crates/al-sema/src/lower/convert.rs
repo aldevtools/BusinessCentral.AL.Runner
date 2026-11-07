@@ -203,7 +203,7 @@ impl<'a> Lowerer<'a> {
             Ty::Dictionary(k, v) => RtType::Dictionary(Box::new(self.rt(k)?), Box::new(self.rt(v)?)),
             Ty::Array(d, t) => RtType::Array(d.clone(), Box::new(self.rt(t)?)),
             Ty::Builtin(n) if al_builtins::sysenum::members(n).is_some() => {
-                RtType::Option(al_builtins::sysenum::option_members(n).expect("checked"))
+                RtType::Option(al_builtins::sysenum::option_members(n).expect("checked").into())
             }
             Ty::Builtin(n) => RtType::Library((&**n).into()),
             Ty::DotNet(alias) if alias.is_empty() => {
@@ -242,7 +242,7 @@ impl<'a> Lowerer<'a> {
     }
 
     /// Whether codeunit `cu` implements interface `iface`: it lists `iface`, or an interface that
-    /// extends it, after `implements` (codeunit/TestInterfaceRuntimeContracts.al:
+    /// extends it, after `implements` (codeunits/TestInterfaceRuntimeContracts.al:
     /// Interface_ExtendedInterface_IsAndAs: a codeunit that implements `Probe IBar` answers a call
     /// through a `Probe IFoo` variable, and `is "Probe IFoo"` holds).
     pub(crate) fn implements(&self, cu: usize, iface: usize) -> bool {
@@ -254,7 +254,7 @@ impl<'a> Lowerer<'a> {
     }
 
     /// A variable declared `TextConst` going into a Variant: in BC the Variant then answers no Is... test while Format and a
-    /// Text read its text (types/lt-variant/VaTTextConst.al:144-151, TextConst_In_Variant). That value kind is not built, so the
+    /// Text read its text (types/variant/VaTTextConst.al:144-151, TextConst_In_Variant). That value kind is not built, so the
     /// conversion is refused. A Label is a Text in a Variant (Base App hands labels to Variant parameters). Probe wanted for the
     /// other operations on such a Variant (docs/probes-needed.md).
     pub(crate) fn refuse_textconst_into_variant(&self, target: &Ty, node: &SyntaxNode) -> L<()> {
@@ -273,13 +273,13 @@ impl<'a> Lowerer<'a> {
     }
 
     /// `value` (of type `src`) converted for a slot of type `target`. An interface slot takes a
-    /// codeunit that implements it (corpus codeunit/TestCodeunitInterface.al:14-26) or an enum
+    /// codeunit that implements it (corpus codeunits/TestCodeunitInterface.al:14-26) or an enum
     /// that implements it (types/TestEnumDefaultImplTests.Codeunit.al:30-42); everything else
     /// is refused.
     pub(crate) fn convert_to(&mut self, target: &Ty, src: &Ty, value: ir::Expr) -> L<ir::Expr> {
         // A Variant into an Integer anywhere (`:=`, a by-value argument, `exit`): a BigInteger beyond Integer raises
-        // TypeConversion:Overflow (types/lt-y31-conversion-matrix/Y31ConvCv.al, LT Y31 Cv Variant `Variant_To_Integer` big in all
-        // three; types/lt-variant/VaTConvert.al:183-184).
+        // TypeConversion:Overflow (types/operators-expressions/Y31ConvCv.al, LT Y31 Cv Variant `Variant_To_Integer` big in all
+        // three; types/variant/VaTConvert.al:183-184).
         if matches!(src, Ty::Variant) && matches!(target, Ty::Integer) && !is_builtin(&value, "Variant.IntoInteger#1") {
             return Ok(ir::Expr::Builtin {
                 id: super::call::builtin_id("Variant.IntoInteger#1")?,
@@ -296,13 +296,34 @@ impl<'a> Lowerer<'a> {
         };
         // A text literal of one character is a Char once it goes into a Variant (types/lt-variant/VaTIs*.al:Is_Text_Code_Char_Byte
         // `V := 'a'` is IsChar and not IsText; `V := 'ab'` and `V := ''` are Text; a Text variable holding 'a' stays Text).
-        if matches!(self.rt(target), Ok(RtType::Variant))
-            && matches!(&value, ir::Expr::Const(ir::Const::Text(s)) if s.encode_utf16().count() == 1)
-        {
+        // Handed to a Variant parameter it stays a Text (`convert_arg`).
+        if self.char_literal_into_variant(target, &value) {
             let ch = self.convert_to(&Ty::Char, src, value)?;
             return self.convert_to(target, &Ty::Char, ch);
         }
-        // Into a number it is a Char too: `I := 'a'` is 97 (types/lt-y31-conversion-matrix/Y31ConvCv.al, LT Y31 Cv Literals
+        self.convert_after_char_literal(target, src, value)
+    }
+
+    /// Whether `value` is a text literal of one character going into a Variant.
+    fn char_literal_into_variant(&self, target: &Ty, value: &ir::Expr) -> bool {
+        matches!(self.rt(target), Ok(RtType::Variant))
+            && matches!(value, ir::Expr::Const(ir::Const::Text(s)) if s.encode_utf16().count() == 1)
+    }
+
+    /// [`convert_to`](Self::convert_to) for a by-value argument: a text literal of one character handed to a Variant
+    /// parameter is a Text there, not a Char (`','`, `'x'`: IsText; `V := ','` is IsChar), and a JSON helper that switches on
+    /// IsChar adds it as the text "," (al-runner issue 6924; types/variant/VaTIsChecks.al:179-180, :185,
+    /// json/JsonObjectBasics.al:485, :489).
+    pub(crate) fn convert_arg(&mut self, target: &Ty, src: &Ty, value: ir::Expr) -> L<ir::Expr> {
+        if self.char_literal_into_variant(target, &value) {
+            return self.convert_after_char_literal(target, src, value);
+        }
+        self.convert_to(target, src, value)
+    }
+
+    /// The rest of [`convert_to`](Self::convert_to), after the rule for a one-character literal going into a Variant.
+    fn convert_after_char_literal(&mut self, target: &Ty, src: &Ty, value: ir::Expr) -> L<ir::Expr> {
+        // Into a number it is a Char too: `I := 'a'` is 97 (types/operators-expressions/Y31ConvCv.al, LT Y31 Cv Literals
         // `LitChar1_To_Integer`, `_BigInteger`, `_Decimal`, `_Byte`, `_Option`, `_Duration`).
         if matches!(
             self.rt(target),
@@ -318,7 +339,7 @@ impl<'a> Lowerer<'a> {
             return self.convert_to(target, &Ty::Char, ch);
         }
         // The literal of an option member (`O::B`) is an Integer in a Variant; a platform enum's member keeps its type
-        // (types/lt-variant-is-text-streams/LTP89IsMisc.al:NearTypes `option_literal`, LTP89IsEnumsA.al `literal`).
+        // (types/variant/LTP89IsMisc.al:NearTypes `option_literal`, LTP89IsEnumsA.al `literal`).
         if matches!(self.rt(target), Ok(RtType::Variant)) {
             if let ir::Expr::Const(ir::Const::Option(i, members)) = &value {
                 if !al_builtins::sysenum::is_platform(members) {
@@ -327,8 +348,8 @@ impl<'a> Lowerer<'a> {
             }
         }
         // A Media or MediaSet value in a Variant answers no Is... test (not even IsGuid) and formats as its media id
-        // (media/lt-variant-media/VariantMedia.al:Variant_HoldingEmptyMediaField, _HoldingImportedMediaField;
-        // types/lt-variant-unsupported-kinds/VariantUnsupportedKinds.al:Variant_BlobAndMediaFieldValues).
+        // (streams/media/VariantMedia.al:Variant_HoldingEmptyMediaField, _HoldingImportedMediaField;
+        // types/variant/VariantUnsupportedKinds.al:Variant_BlobAndMediaFieldValues).
         if matches!(self.rt(target), Ok(RtType::Variant))
             && matches!(src, Ty::Builtin(n) if n.eq_ignore_ascii_case("Media") || n.eq_ignore_ascii_case("MediaSet"))
         {
@@ -377,7 +398,7 @@ impl<'a> Lowerer<'a> {
     ///
     /// `target` is the type of the plain assignment's target when the expression is its whole right side. A Text or Code
     /// longer than a Text true branch, assigned to a target of exactly the true branch's type, is taken as it is when it fits
-    /// and fails StringLengthExceeded with the target's length when it does not (types/lt-qx-ternary-sized/QxTernarySized.al:
+    /// and fails StringLengthExceeded with the target's length when it does not (types/operators-expressions/QxTernarySized.al:
     /// 142-144, :152-155 `T80 := Cond ? T80 : T100`): whether BC converts it to the true branch's type first or not, the
     /// result is the same there. Into another target the two differ, which no test pins: refused.
     /// The false branch of a conditional expression whose branches have different types, one of them a Label (al-runner issue
@@ -423,7 +444,7 @@ impl<'a> Lowerer<'a> {
             ))
         };
         // A MaxLength label against a Text or Code branch, sized or not, either way, is as a label without MaxLength (al-runner
-        // issue 6659; types/lt-y66-ternary-label/Y66TernaryLabel.al:65-1335).
+        // issue 6659; types/text-code-char/Y66TernaryLabel.al:65-1335).
         let other = if matches!(t, Ty::Label) { f } else { t };
         if maxlength
             && !(matches!(t, Ty::Label) && literal(&value).is_some())
@@ -437,15 +458,15 @@ impl<'a> Lowerer<'a> {
             // Pinned on master (:466): an empty literal true branch takes a Label false branch as it is.
             (Ty::Text(_), Ty::Label) if !maxlength && literal(yes.1).is_some_and(|s| s.is_empty()) => {}
             // A Guid true branch makes the Label a Guid (a text that is no GUID fails InvalidGuidFormat when that branch is taken);
-            // a Label true branch makes the Guid a Text in braces (types/lt-uf-ternary-guid-label/UfTernaryGuidLabel.al:24-55, :61-75,
+            // a Label true branch makes the Guid a Text in braces (types/guid/UfTernaryGuidLabel.al:24-55, :61-75,
             // :78-104, :153-180; al-runner issue 6160).
-            // Pinned by types/lt-uf-ternary-guid-label/UfTernaryGuidLabel.al (was assumption `ternary-guid-branch`).
+            // Pinned by types/guid/UfTernaryGuidLabel.al (was assumption `ternary-guid-branch`).
             (Ty::Guid, Ty::Label) | (Ty::Label, Ty::Guid) => {}
             (Ty::Text(_), Ty::Label) if literal(yes.1).is_some() => {}
             (Ty::Code(Some(_)) | Ty::Text(Some(_)), Ty::Label) | (Ty::Label, Ty::Code(Some(_)) | Ty::Text(Some(_))) => {
                 let sized = if matches!(t, Ty::Label) { f } else { t };
                 // Pinned lengths: Code[20] and Text[10] (TestTernaryContracts.al TI_Ternary_*), Text[100], Text[3], Code[3],
-                // Code[10] and Code[250] either way (types/lt-y66-ternary-label/Y66TernaryLabel.al, al-runner issue 6659).
+                // Code[10] and Code[250] either way (types/text-code-char/Y66TernaryLabel.al, al-runner issue 6659).
                 if !matches!(sized, Ty::Code(Some(3 | 10 | 20 | 250)) | Ty::Text(Some(3 | 10 | 100))) {
                     self.assume(al_builtins::assumptions::Assumption::TernaryLabelBranch)
                 }
@@ -463,11 +484,11 @@ impl<'a> Lowerer<'a> {
             return Ok(value);
         }
         // A pair of the run matrix of implicit conversions: the false branch converts to the true branch's type when it is
-        // taken, as `:=` converts it (corpus types/lt-y31-conversion-matrix/Y31ConvCd.al, LT Y31 Cd: a Text[10] true branch
+        // taken, as `:=` converts it (corpus types/operators-expressions/Y31ConvCd.al, LT Y31 Cd: a Text[10] true branch
         // makes an 11-character Text fail StringLengthExceeded, a Byte true branch makes the Char 'a' a Byte, an Option true
         // branch makes a Duration its ordinal; the numbers, Char, Byte, Option, Enum, Duration, Text, Code, Guid and Label).
-        // Also types/TestTernaryContracts.al:236-337, types/lt-qx-ternary-sized/QxTernarySized.al:142-155,
-        // types/lt-uf-ternary-guid-label/UfTernaryGuidLabel.al:107-150, types/lt-up-ternary/UpTernary.al:111-188.
+        // Also types/TestTernaryContracts.al:236-337, types/operators-expressions/QxTernarySized.al:142-155,
+        // types/guid/UfTernaryGuidLabel.al:107-150, types/operators-expressions/UpTernary.al:111-188.
         if super::conv_matrix::covers(al_builtins::conv::Family::Cd, t, f) {
             return self.convert_to(t, f, value);
         }
@@ -475,14 +496,14 @@ impl<'a> Lowerer<'a> {
             // Code[N] against another Code length (types/TestTernaryContracts.al:BN_Ternary_Code20TrueBranch :289-337).
             (Ty::Code(_), Ty::Code(_)) => true,
             // A Code true branch takes a Guid false branch as its text in braces, 38 characters, which fits a Code of 38 and more
-            // (types/lt-uf-ternary-guid-label/UfTernaryGuidLabel.al:107-150, Code[40]; al-runner issue 6160).
+            // (types/guid/UfTernaryGuidLabel.al:107-150, Code[40]; al-runner issue 6160).
             (Ty::Code(Some(n)), Ty::Guid) if *n >= 38 => true,
             // A Text true branch takes a Variant false branch's text, a Variant true branch keeps what the false branch is
             // (BN_Ternary_VariantBranch :173-233).
             (Ty::Text(_), Ty::Variant) => true,
             (Ty::Variant, _) => true,
             // An interface true branch takes a codeunit false branch that implements it, as an assignment to the interface does:
-            // the false branch calls the codeunit's implementation (types/lt-up-ternary/UpTernary.al:60, :70, :81 with :216-227;
+            // the false branch calls the codeunit's implementation (types/operators-expressions/UpTernary.al:60, :70, :81 with :216-227;
             // al-runner issue 6215). The reverse order does not compile (AL0122, must-not-compile 2291) and stays refused here.
             (Ty::Object(ObjKind::Interface, _), Ty::Object(ObjKind::Codeunit, _)) => true,
             _ => false,
@@ -498,7 +519,7 @@ impl<'a> Lowerer<'a> {
     fn convert_raw(&self, target: &Ty, src: &Ty, value: ir::Expr) -> L<ir::Expr> {
         let slot = self.rt(target)?;
         // A number variable into a Text or Code is AL0122 (must-not-compile 0069 for an Integer; the other numbers are not judged by
-        // the checker). Only a Variant (FieldRef.Value) converts at run time (types/lt-variant-to-text-fields/VariantFieldRefBigIntToText.al), so the direct
+        // the checker). Only a Variant (FieldRef.Value) converts at run time (types/variant/VariantFieldRefBigIntToText.al), so the direct
         // assignment stays refused.
         if matches!(slot, RtType::Text(_) | RtType::Code(_))
             && matches!(src, Ty::Integer | Ty::BigInteger | Ty::Decimal)
@@ -529,7 +550,7 @@ impl<'a> Lowerer<'a> {
         let iname = &self.ws.objects[iface].name;
         match src {
             // The same interface, or one it extends: the value is the same instance
-            // (codeunit/TestInterfaceRuntimeContracts.al:Interface_ExtendedInterface_IsAndAs).
+            // (codeunits/TestInterfaceRuntimeContracts.al:Interface_ExtendedInterface_IsAndAs).
             Ty::Object(ObjKind::Interface, n) => {
                 let from = self.resolve_obj(ObjKind::Interface, n)?;
                 if from != iface && !self.ws.interface_bases(from).contains(&iface) {
@@ -607,7 +628,7 @@ impl<'a> Lowerer<'a> {
     }
 
     /// `x is I` and `x as I` on an interface value: whether the codeunit instance the variable
-    /// holds implements `I` (corpus codeunit/TestInterfaceRuntimeContracts.al:
+    /// holds implements `I` (corpus codeunits/TestInterfaceRuntimeContracts.al:
     /// Interface_ExtendedInterface_IsAndAs pins both for an implementing instance). The
     /// implementing codeunits are known here, so the test is a set of object indexes.
     pub(crate) fn interface_test(&mut self, n: &SyntaxNode, kids: &[SyntaxNode]) -> L<ir::Expr> {
@@ -632,6 +653,26 @@ impl<'a> Lowerer<'a> {
 
     /// A call of an interface procedure on `receiver`: it runs the same-named procedure of
     /// whichever codeunit the variable holds, so every implementation is a possible target.
+    /// The routine of interface procedure `offset` of `iface` when it has a body: the default
+    /// implementation a codeunit that does not declare the member runs (runtime 18.0;
+    /// codeunits/CwDefaultInterfaceMethods.al:20-33).
+    fn interface_default_body(&self, iface: usize, offset: usize) -> Option<usize> {
+        let routine = self.routine_at.get(&(iface, offset))?;
+        let node = self.routine_nodes.get(iface).get(routine)?;
+        node.body().is_some().then_some(routine)
+    }
+
+    /// Whether codeunit `cu` has a `local` procedure of the member's name beside the interface's default body. Which body
+    /// a call through the interface runs then is not pinned (BC raised "Function ID ... was called" on the Linux tier;
+    /// codeunits/CwDefaultInterfaceMethods.al:6-9, not asserted), so the codeunit is left off the targets: a call on its
+    /// instance refuses when it runs (`Session::interface_target_value`).
+    fn local_beside_default(&self, cu: usize, name: &str) -> bool {
+        self.members[cu]
+            .procedures
+            .iter()
+            .any(|p| p.local && p.name.eq_ignore_ascii_case(name))
+    }
+
     pub(crate) fn interface_call(
         &mut self,
         iface: usize,
@@ -639,11 +680,19 @@ impl<'a> Lowerer<'a> {
         receiver: Option<&SyntaxNode>,
         args: &[SyntaxNode],
     ) -> L<ir::Expr> {
-        let Some(receiver) = receiver else {
+        // A bare call of a member in a default body of the same interface runs that member of the
+        // implementing instance the body runs on (codeunits/CwDefaultInterfaceMethods.al:30-33, `Chain`
+        // calls `Req`; :138, 'default chain of inherit req').
+        let in_default_body = receiver.is_none() && self.oi == iface;
+        // `this.Member(..)` there (the `this` receiver is dropped by `call`) does the same: it calls the implementing
+        // codeunit's member, its override of another default member, and picks an overload by its arguments
+        // (codeunits/interfaces/R6924dThisInDefaultBody.al:72 R6924d_This_CallsImplementor, :93 R6924d_This_Overload).
+        if let Some(receiver) = receiver {
+            if !matches!(self.ty_ref(receiver), Ty::Object(ObjKind::Interface, _)) {
+                return Err("an interface procedure called on something that is not an interface variable".into());
+            }
+        } else if !in_default_body {
             return Err("an interface procedure called without a receiver is not lowered yet".into());
-        };
-        if !matches!(self.ty_ref(receiver), Ty::Object(ObjKind::Interface, _)) {
-            return Err("an interface procedure called on something that is not an interface variable".into());
         }
         let sig = self.members[iface]
             .procedures
@@ -651,6 +700,7 @@ impl<'a> Lowerer<'a> {
             .find(|p| p.offset == offset)
             .ok_or("interface procedure signature")?
             .clone();
+        let default_body = self.interface_default_body(iface, offset);
         let mut targets = Vec::new();
         for &cu in self.implementers(iface).iter() {
             let same_shape: Vec<_> = self.members[cu]
@@ -667,6 +717,17 @@ impl<'a> Lowerer<'a> {
                 .iter()
                 .find(|p| p.params.iter().zip(&sig.params).all(|(a, b)| a.ty == b.ty));
             let Some(imp) = exact.or(same_shape.first()) else {
+                if let Some(routine) = default_body {
+                    if self.local_beside_default(cu, &sig.name) {
+                        continue;
+                    }
+                    targets.push((cu, ir::walk::DEFAULT_BODY));
+                    if !targets.contains(&(iface, routine)) {
+                        self.calls.push((iface, routine));
+                        targets.push((iface, routine));
+                    }
+                    continue;
+                }
                 return Err(format!(
                     "codeunit \"{}\" implements \"{}\" without a procedure `{}`",
                     self.ws.objects[cu].name, self.ws.objects[iface].name, sig.name
@@ -679,9 +740,12 @@ impl<'a> Lowerer<'a> {
         // No implementer in the workspace (an optional capability nobody added yet, an extensible enum
         // whose values live in apps not loaded): alc accepts the call, so it lowers with no targets
         // (al-runner issue 6299). The variable can then only be unassigned when the call runs, which
-        // raises "Interface not initialized" (codeunit/TestInterfaceRuntimeContracts.al:76); an instance
+        // raises "Interface not initialized" (codeunits/TestInterfaceRuntimeContracts.al:76); an instance
         // the list does not hold is refused at run time (`interface_target_value`).
-        let receiver = Box::new(self.expr(receiver)?);
+        let receiver = Box::new(match receiver {
+            Some(r) => self.expr(r)?,
+            None => ir::Expr::ThisInstance,
+        });
         let mut out = Vec::new();
         for (i, a) in args.iter().enumerate() {
             let p = sig.params.get(i).ok_or("too many arguments")?;
@@ -690,7 +754,7 @@ impl<'a> Lowerer<'a> {
             } else {
                 let value = self.expr_into(&p.ty, a)?;
                 self.refuse_variant_argument(&p.ty, a)?;
-                out.push(ir::Arg::Value(self.convert_to(&p.ty, self.ty_ref(a), value)?));
+                out.push(ir::Arg::Value(self.convert_arg(&p.ty, self.ty_ref(a), value)?));
             }
         }
         let params = {

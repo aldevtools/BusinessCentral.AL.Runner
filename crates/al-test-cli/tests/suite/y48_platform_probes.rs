@@ -80,7 +80,7 @@ fn passes_app(app_id: &str, src: &str) {
 
 // G5-02: Feature Key Get matches the ID case-insensitively and shows the listed casing; SetRange stays case-sensitive; Insert
 // (with and without triggers, of an unknown or a listed ID) and Delete of a listed row raise "The Feature Key table is
-// read-only." code DB:Ok and change nothing (record/lt-y48-feature-key-writes/Y48FeatureKeyWrites.al:104 FK_Get_OtherCasing,
+// read-only." code DB:Ok and change nothing (record/keys-sorting/Y48FeatureKeyWrites.al:104 FK_Get_OtherCasing,
 // :126 FK_Insert_UnknownId, :151 FK_Insert_UnknownId_RunTrigger, :167 FK_Insert_ListedId, :188 FK_Delete_ListedRow).
 #[test]
 fn feature_key_get_ignores_case_and_writes_raise_read_only() {
@@ -116,7 +116,7 @@ codeunit 50000 T { Subtype = Test;
 }
 
 // G5-02: Intelligent Cloud is an ordinary table: empty, Insert stores a row Get then finds, Modify of Enabled sticks, a second
-// Insert answers false without an error, Delete empties it, another key is insertable (al-language-onprem/platform/
+// Insert answers false without an error, Delete empties it, another key is insertable (al-language-onprem/metadata/
 // lt-y48-intelligent-cloud/Y48IntelligentCloudWrites.al: IC_InsertModifyGet, IC_Standard).
 #[test]
 fn intelligent_cloud_is_an_ordinary_table() {
@@ -134,7 +134,7 @@ fn intelligent_cloud_is_an_ordinary_table() {
 }
 
 // G5-03: "Security Filter" (12) of an Expanded Permission row of a permissionset object is blank, plain and with format 9, and
-// copies into a Tenant Permission as blank (permissions/lt-y48-security-filter/Y48ExpandedSecurityFilter.al:120
+// copies into a Tenant Permission as blank (permissions/permission-sets/Y48ExpandedSecurityFilter.al:120
 // EP_SecurityFilter_MetadataSet; in the corpus pin since bump 588aa27e, so pinned_columns.rs lists column 12).
 #[test]
 fn expanded_permission_security_filter_of_a_metadata_set_is_blank() {
@@ -151,7 +151,7 @@ codeunit 50000 T { Subtype = Test;
 
 // G5-01: the Published Application row of the Application app: one row, Package ID and Runtime Package ID not null and
 // different, Published As Global, Tenant ID blank, Tenant Visible; its Package ID is no other app's and no object's, so a
-// filter on another app's Package ID plus Tenant Visible finds that app alone (al-language-onprem/platform/lt-y48-published-app/
+// filter on another app's Package ID plus Tenant Visible finds that app alone (al-language-onprem/metadata/session-system/
 // Y48PublishedApplication.al:154 PA_ApplicationRow_PackageIds; the shape of Extension Operation Impl. and the Objects page).
 #[test]
 fn published_application_lists_the_application_row() {
@@ -190,7 +190,7 @@ fn field_no_of_an_unpinned_column_is_not_a_read() {
 }
 
 // G5-04: the Tenant Media row of a two-argument import of content that is no picture has Mime Type application/octet-stream,
-// in a Media field and in a MediaSet (media/lt-y48-tenant-media/Y48TenantMediaRows.al:333 TM_DeleteRowOfHeldMedia, :484
+// in a Media field and in a MediaSet (streams/media/Y48TenantMediaRows.al:333 TM_DeleteRowOfHeldMedia, :484
 // `item 1 tm row`); a three-argument import keeps its type (:399).
 #[test]
 fn tenant_media_mime_type_of_a_two_argument_import_is_octet_stream() {
@@ -226,7 +226,7 @@ fn published_application_columns_of_an_app_row_the_runtime_does_not_fill_are_ref
 
 // Writer Y57: a four-argument import (Document Attachment's) takes the Mime Type from the file name's extension: .json
 // application/json, .TXT text/plain, .csv text/csv, .xml text/xml; an .xlsx or .docx name on text content raises
-// MediaUnsupportedFormat and writes no row (media/lt-y48-tenant-media/Y48TenantMediaRows.al:600-631
+// MediaUnsupportedFormat and writes no row (streams/media/Y48TenantMediaRows.al:600-631
 // TM_RowOfFourArgImport_MoreNames).
 #[test]
 fn tenant_media_row_of_a_four_argument_import_takes_more_extensions() {

@@ -1,5 +1,5 @@
 //! Corpus bump 35, writer QE: every Decimal result keeps 18 significant digits, rounded half away from zero, for any
-//! sign and for BigInteger operands (types/lt-decimal-digits/DecimalDigits.al, codeunit 73232 QE_Decimal_*).
+//! sign and for BigInteger operands (types/decimal-integer/DecimalDigits.al, codeunit 73232 QE_Decimal_*).
 
 use al_testkit::{run_in, text};
 

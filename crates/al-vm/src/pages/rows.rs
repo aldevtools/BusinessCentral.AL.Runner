@@ -6,7 +6,7 @@ const FIELD_ARGUMENT_WITH_HANDLER: &str = "Page.Run or Page.RunModal with a fiel
 
 impl Session {
     /// The expressions every row population evaluates, whatever the control's Visible
-    /// (corpus autoformat/TestAutoFormatExpressionTiming.al:5-12): AutoFormatExpression and
+    /// (corpus format-evaluate/autoformat/TestAutoFormatExpressionTiming.al:5-12): AutoFormatExpression and
     /// CaptionClass. They run after OnOpenPage and before OnAfterGetRecord.
     pub(super) fn populate_expressions(&mut self, st: &St) -> Result<(), Signal> {
         let engine = self.engine();
@@ -23,31 +23,20 @@ impl Session {
                             // Area 3 raises no event, so '3,' with nothing after it (a matrix column whose caption nobody set)
                             // costs the open nothing; only reading that caption is refused.
                             if let Value::Text(t) | Value::Code(t) = &v {
+                                self.raise_control_area3_after_resolve(t)?;
                                 if !t.starts_with("3,") {
-                                    // A text other than the one the control resolved before, at a fill other than the one after
-                                    // SetValue (`refresh_caption_classes`, misc/W2CaptionClass.al:174-178): whether BC resolves it
-                                    // there (after an action, on the next row) is not pinned.
-                                    if super::format::raises_resolve(t)
-                                        && st
-                                            .borrow()
-                                            .control_captions
-                                            .iter()
-                                            .any(|(i, old, _)| *i == idx && old != t.as_str())
-                                    {
-                                        return unsupported(
-                                            "a CaptionClass expression that gives another text at a fill other than after SetValue (whether BC resolves it again there is not pinned)",
-                                        );
-                                    }
+                                    Self::refuse_caption_class_changed_at_fill(st, idx, t)?;
                                     self.fill_caption_class(st, idx, t)?;
                                 }
                             }
                         }
                     }
                     // An area no built-in resolver claims goes to the Caption Class codeunit's
-                    // OnResolveCaptionClass event (corpus autoformat/TestCaptionClassResolverFailure.al:1-12).
+                    // OnResolveCaptionClass event (corpus format-evaluate/autoformat/TestCaptionClassResolverFailure.al:1-12).
                     Some(ir::PropVal::Lit(l)) if name == "captionclass" => {
                         self.refuse_caption_class_translate()?;
                         let c = unquote(l);
+                        self.raise_control_area3_after_resolve(&c)?;
                         if !c.starts_with("3,") {
                             self.fill_caption_class(st, idx, &c)?;
                         }
@@ -61,7 +50,7 @@ impl Session {
 
     /// A page open runs the CaptionClass expression of every field of the source table that has one, also those without a
     /// control, 20 times with an empty record, then once for each control over such a field with the current row; `Caption()`
-    /// of the control reads that caption and runs nothing (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:422-481
+    /// of the control reads that caption and runs nothing (record/captions/QdCaptionClassAreas.al:422-481
     /// Page_ControlCaptions, a Card opened with OpenView: `open_calls = id0=240 ... rest=20@3;...`, `exprId = Id 3 call 245`
     /// twice; corpus bump 37 asserts only that empty-record calls happened, their number differs between BC runs). An empty
     /// result and `3,` read as the empty text on a control (`exprEmpty`, `expr3`). The other rows of the open and a Next() run
@@ -128,7 +117,7 @@ impl Session {
             };
             // How many times: writer SX pinned it for a Card or a List opened with OpenView or OpenEdit over a table with one
             // CaptionClass expression field (Card 8, List 7) or two with the same expression (Card 18, List 16 in all; corpus
-            // record/lt-sx-captionclass-count/SxCaptionClassCount.al:190 SX_CardOne_OpenEdit, :236 SX_CardTwo_OpenEdit, :282
+            // record/captions/SxCaptionClassCount.al:190 SX_CardOne_OpenEdit, :236 SX_CardTwo_OpenEdit, :282
             // SX_ListOne_OpenEdit, :328 SX_ListTwo_OpenEdit and their OpenView twins, the same in three cycles on every
             // supported major; al-runner issue 5870).
             if let Some(runs) = self.caption_empty_runs_pinned(st, &exprs) {
@@ -206,9 +195,10 @@ impl Session {
                     continue;
                 };
                 let class = self.field_caption_class_value(t, *pos, Some(&rec), expr)?;
-                let caption = match crate::recmeta::expression_class(&t.fields[*pos].name, &class)? {
+                let kind = crate::recmeta::expression_class(&t.fields[*pos].name, &class)?;
+                let caption = match kind {
                     crate::recmeta::ExprCaption::FieldCaption => String::new(),
-                    crate::recmeta::ExprCaption::Text(c) => c,
+                    crate::recmeta::ExprCaption::Text(c) => self.expression_text_caption(&class, c)?,
                     crate::recmeta::ExprCaption::Translate => self.caption_class_translate(&class)?,
                 };
                 let mut s = st.borrow_mut();
@@ -221,7 +211,7 @@ impl Session {
     }
 
     /// The page shapes whose CaptionClass expression runs on GoToKey, GoToRecord, First, Last and Previous are pinned
-    /// (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al:1463-1895, the SI_ tests): a Card and a Document page, not a part,
+    /// (record/captions/QdCaptionClassAreas.al:1463-1895, the SI_ tests): a Card and a Document page, not a part,
     /// opened with OpenView or OpenEdit, after their open ran the expressions. `card_only`: First, Last and Previous (pinned on a
     /// Card only).
     fn caption_moves_pinned(&self, st: &St, card_only: bool) -> bool {
@@ -348,7 +338,7 @@ impl Session {
         })
     }
 
-    /// The page shapes whose CaptionClass expression runs are pinned (record/lt-qd-captionclass-areas/QdCaptionClassAreas.al): a
+    /// The page shapes whose CaptionClass expression runs are pinned (record/captions/QdCaptionClassAreas.al): a
     /// Card opened with OpenView (Page_ControlCaptions, QF_Card_Next), a List opened with OpenView, OpenEdit or by Page.Run
     /// (QF_List_OpenView, QF_List_OpenEdit, QF_List_PageRun) and a ListPart on a Card opened with OpenView (QF_ListPart_OnCard).
     fn caption_expressions_pinned(&self, st: &St) -> bool {
@@ -379,7 +369,7 @@ impl Session {
     }
 
     /// The FlowFields the page shows are calculated when a row loads. A temporary source row
-    /// reads them from the database tables (corpus handlers/TestPageRunTempRecordStoredRow_Tests.al:
+    /// reads them from the database tables (corpus pages/TestPageRunTempRecordStoredRow_Tests.al:
     /// TempRecordFlowFieldIsCalculatedFromTheDatabase).
     pub(super) fn calc_row_flowfields(&mut self, st: &St) -> Result<(), Signal> {
         if !self.has_source(st) {
@@ -392,9 +382,9 @@ impl Session {
             return Ok(());
         };
         // A card opened for viewing does not calculate a FlowField whose control says `Visible = false`
-        // (pages/lt-cc-page-leads/CcPageLeads.al:722, FlowField_VisibleFalse_OnOpenView: `hidden=0`). Other page types and
+        // (testpage/CcPageLeads.al:722, FlowField_VisibleFalse_OnOpenView: `hidden=0`). Other page types and
         // open modes are not pinned (docs/probes-needed.md): they keep calculating it, as before, because refusing them loses
-        // a baseline case (handlers/TestPartSubPageViewPrecompiled.al:104, a Base Application part with a hidden FlowField)
+        // a baseline case (testpage/TestPartSubPageViewPrecompiled.al:104, a Base Application part with a hidden FlowField)
         // and the Microsoft pages that hide one.
         let hidden = |c: &ir::Control| matches!(c.prop("visible"), Some(ir::PropVal::Lit(v)) if v.trim().eq_ignore_ascii_case("false"));
         let view_card = st.borrow().mode == PageMode::View
@@ -434,6 +424,7 @@ impl Session {
     /// Populates the current row: the control expressions, then OnAfterGetRecord.
     pub(super) fn populate_current(&mut self, st: &St) -> Result<(), Signal> {
         st.borrow_mut().dirty = false;
+        self.apply_data_caption_globals(st);
         self.calc_row_flowfields(st)?;
         if !st.borrow().read_keeps_xrec {
             self.set_xrec(st);
@@ -444,7 +435,7 @@ impl Session {
     }
 
     /// PageType = List (a worksheet or ListPlus page with a repeater is not one; corpus
-    /// handlers/TestPageControlEditableRoutes.al:Worksheet_RunModal_LookupMode).
+    /// testpage/TestPageControlEditableRoutes.al:Worksheet_RunModal_LookupMode).
     pub(super) fn is_list_page(&self, st: &St) -> bool {
         let object = st.borrow().object as usize;
         self.engine.object_facts[object].page_type == Some(al_ir::PageType::List)
@@ -464,7 +455,7 @@ impl Session {
     }
 
     /// A repeater populates a window of rows at a time; a row inside the window it already
-    /// holds is not populated again (corpus autoformat/TestAutoFormatExpressionTiming.al:5-12:
+    /// holds is not populated again (corpus format-evaluate/autoformat/TestAutoFormatExpressionTiming.al:5-12:
     /// a failing row 20 of 120 fails the open, row 30 does not, and a move to row 120
     /// populates a new window). The window is 20 rows: the corpus pins it only between 20 and 24.
     pub(super) const WINDOW: usize = 20;
@@ -472,7 +463,7 @@ impl Session {
     pub(super) fn populate_window(&mut self, st: &St) -> Result<(), Signal> {
         // A tree with TreeInitialState = ExpandAll and row triggers reads the rows it does not show too when it opens
         // (`tree_expand_all_with_row_triggers`): the tree's cut is left out while the window is read.
-        // Pinned by pages/lt-page-runtime/TwTreeExpandTriggers.al (was assumption `tree-expand-runs-no-row-trigger`).
+        // Pinned by pages/run-modal/TwTreeExpandTriggers.al (was assumption `tree-expand-runs-no-row-trigger`).
         if st.borrow().landing_first
             && self.tree_expand_all_with_row_triggers(st)
             && self.read_tree_rows_whole(st, |this| this.populate_window_in_view(st))?
@@ -589,12 +580,12 @@ impl Session {
         }
         // A view that ends inside the window: the client puts its first row back without asking
         // the page, reads it again, then asks OnNextRecord(-1) and OnFindRecord(`=`) and reads it
-        // once more (corpus pageext/PCCurrRecordReads.al:List_ReadsAfterEachAction and
+        // once more (corpus pages/extensions/PCCurrRecordReads.al:List_ReadsAfterEachAction and
         // FindList_OnFindRecordAndOnNextRecord, `open` of a list of 3 rows: five reads). Only the
         // count is pinned, for a table of 3 rows.
         let find_page = self.declares(st, "onnextrecord") || self.declares(st, "onfindrecord");
         let view_ended_at_open = end_reached && opening;
-        // The same tail for a full window (misc/lt-probes-needed-6/PnF06FindListMoves.al:FindList_Ascending_25Rows
+        // The same tail for a full window (testpage/PnF06FindListMoves.al:FindList_Ascending_25Rows
         // `...;R20;R1;N(-1);F(=);R1;C`), for an ascending view.
         let end_reached = (end_reached || (find_page && keys.len() == Self::WINDOW)) && opening;
         if end_reached && find_page && self.declares(st, "onaftergetrecord") {
@@ -605,7 +596,7 @@ impl Session {
                 );
             }
             // A descending view that opens on its last row steps back over the rows above it before OnAfterGetCurrRecord
-            // (misc/lt-probes-needed-6/PnF06FindListMoves.al:304, :318: `R1;N(1);N(-1);R2;N(-1);R3;...;F(=);R1;C`). Pinned when
+            // (testpage/PnF06FindListMoves.al:304, :318: `R1;N(1);N(-1);R2;N(-1);R3;...;F(=);R1;C`). Pinned when
             // the first row read is the last of the view; other descending opens are refused.
             if !rec.borrow().ascending && self.declares(st, "onaftergetcurrrecord") {
                 if keys.len() != 1 || !self.declares(st, "onnextrecord") || st.borrow().host.is_some() {
@@ -618,8 +609,8 @@ impl Session {
             if let Some(first) = keys.first() {
                 rec.borrow_mut().fields = first.stored.clone();
             }
-            // A view of one row is not read again before OnNextRecord(-1) (pages/lt-ai-list-order/AiListOrderTests.al:535
-            // Next_OneRow_Nav `F:=><=Yes;R:R1001;N:1=0;N:-1=0`, :565 Next_OneRow_NavCurr; pages/lt-an-testpage-640/
+            // A view of one row is not read again before OnNextRecord(-1) (pages/list-order/AiListOrderTests.al:535
+            // Next_OneRow_Nav `F:=><=Yes;R:R1001;N:1=0;N:-1=0`, :565 Next_OneRow_NavCurr; testpage/
             // AnTestPageTests.al:405 `F=><>A;RA;N1>0A;N-1>0A;`); two rows are (AiListOrderTests.al:600 Next_TwoRows_Nav).
             if keys.len() > 1 {
                 self.page_trigger(st, "onaftergetrecord", vec![])?;
@@ -665,10 +656,10 @@ impl Session {
                 above.reverse();
             }
             // The closing OnFindRecord(`=`) and its read belong to the OnAfterGetCurrRecord that follows; a
-            // list without that trigger ends after OnNextRecord(-1) when that answers 0 (pages/lt-f3-pages/F3ListTests.al:24
+            // list without that trigger ends after OnNextRecord(-1) when that answers 0 (testpage/F3ListTests.al:24
             // Nav_TwelveRows_OpenLastPreviousFirstNext `open`, a list of 12 rows with OnFindRecord, OnNextRecord and
-            // OnAfterGetRecord; pages/lt-ai-list-order/AiListOrderTests.al:909 Paging_Open_Nav, 25 rows: the same end after
-            // a full window; pages/lt-f3-pages/F3PartTests.al:23 FilterView_OneHost_OpenAndMoves, a part of 3 rows).
+            // OnAfterGetRecord; pages/list-order/AiListOrderTests.al:909 Paging_Open_Nav, 25 rows: the same end after
+            // a full window; testpage/F3PartTests.al:23 FilterView_OneHost_OpenAndMoves, a part of 3 rows).
             let with_current = self.declares(st, "onaftergetcurrrecord");
             let reread = with_current;
             if !with_current && stepped_back {
@@ -713,7 +704,7 @@ impl Session {
                 // A List with OnFindRecord, a descending filtered SourceTableView and no row trigger that opens on the last row of
                 // its view steps back over the rows above it, with OnNextRecord(-1) until that answers 0 when the page declares
                 // it, else without asking the page; the rows it holds then start at the first row of the view and the cursor
-                // stays on the row it opened on (misc/lt-probes-needed-6/PnF06FindListMoves.al:870-908 QV_DescKind_FindNext_Moves
+                // stays on the row it opened on (testpage/PnF06FindListMoves.al:870-908 QV_DescKind_FindNext_Moves
                 // `open = 1|F(=><)=Yes:1;N(1)=0:1;N(-1)=-1:3;N(-1)=-1:5;N(-1)=0:5;`, `01_first = Yes|5|`; :825-868
                 // QV_DescKind_FindOnly_Moves, the same rows with an empty log). A view of one row: one OnNextRecord(-1) that answers 0
                 // (PnF06FindListMoves.al:1185 RK_DescKind_FindNext_1Rows `open = 1|F(=><)=Yes:1;N(1)=0:1;N(-1)=0:1;`, :1072
@@ -760,7 +751,7 @@ impl Session {
                 && rec.borrow().ascending
                 && self.filtered_find_list_without_row_triggers(st);
             if no_row_triggers && (walked > 0 || ascending_find_list_ended) {
-                // A find page with no row trigger puts its first row back and probes once (pages/lt-testpage-list-rows/ListRowsOpenNone.al:
+                // A find page with no row trigger puts its first row back and probes once (testpage/ListRowsOpenNone.al:
                 // OpenView_FindNext5Rows_ReadsAtOpen `F0;N2;N3;N4;N5;N5;N1`, _FindNext30Rows `...;N20;N1`).
                 // The client puts its first row back and asks OnNextRecord(-1) once, which answers 0 there.
                 if let Some(first) = keys.first() {
@@ -789,17 +780,17 @@ impl Session {
         st.borrow_mut().window = keys;
         // The row the cursor stands on is read once more after the window: a list of 60 rows
         // raises OnAfterGetRecord 21 times when it opens, rows 1 to 20 and then row 1 again
-        // (corpus handlers/TestPageRuntimeContracts.al:121-136 TestPage_List_OpenReads21Rows).
+        // (corpus testpage/TestPageRuntimeContracts.al:121-136 TestPage_List_OpenReads21Rows).
         // A view of one row needs no repositioning read: the window ends on the row the cursor stands on (misc/
         // lt-probes-needed-7/PnGNewRecord.al:HandedRecordWithOnlyPrimaryKeyValue, one row read twice, against HandedRecordNoFilters,
         // two rows read four times).
         // A list without OnAfterGetCurrRecord reads one row more, not two: the window and row 1 again, whether the view ends inside the
-        // window or not (pages/lt-testpage-list-rows/ListRowsOpenAG.al:OpenView_OnlyRec5Rows_ReadsAtOpen `1-5,1`,
+        // window or not (testpage/ListRowsOpenAG.al:OpenView_OnlyRec5Rows_ReadsAtOpen `1-5,1`,
         // OpenView_OnlyRec30Rows_ReadsAtOpen `1-20,1`; with both triggers: `1-5,1,1` then the current-record read).
         let agcr = self.declares(st, "onaftergetcurrrecord");
         let single = !agcr && !self.reads_as_part(st) && end_reached;
-        // A view of one row without OnAfterGetCurrRecord is read once, on a page and in a part (pages/lt-ai-list-order/
-        // AiListOrderTests.al:655 Next_OneRow_Plain `open` = `R:R1001`; pages/lt-part-subpageview-filter/PartViewFilter.al:317,
+        // A view of one row without OnAfterGetCurrRecord is read once, on a page and in a part (pages/list-order/
+        // AiListOrderTests.al:655 Next_OneRow_Plain `open` = `R:R1001`; pages/parts/PartViewFilter.al:317,
         // :336 `open-ConstTen` = `AGR(H1/10)` once).
         let one_row_read_once = walked == 0 && !agcr && end_reached;
         if (walked > 0 || self.reads_as_part(st)) && !single && !one_row_read_once {
@@ -809,15 +800,15 @@ impl Session {
             self.read_rows_above_the_moved_rec(st, start.clone(), end_reached)?;
         }
         // A part with OnAfterGetCurrRecord whose view ends inside the window reads its first row twice more, as a list does
-        // (pages/lt-an-testpage-640/AnTestPageTests.al:168, :210 An02_Part_ConstLink_FiveRows, _FieldLink_FiveRows:
+        // (testpage/AnTestPageTests.al:168, :210 An02_Part_ConstLink_FiveRows, _FieldLink_FiveRows:
         // `P.R10;...;P.R50;P.R10;P.R10;P.C10`); with one row once (:147, :189 `P.R10;P.R10;P.C10`).
         if st.borrow().host.is_some() && agcr && end_reached && walked > 0 {
             self.page_trigger(st, "onaftergetrecord", vec![])?;
         }
         // A list that declares OnAfterGetCurrRecord reads its first row once more before that trigger, whatever its length, and so
-        // does a list whose view ends inside the window; a part does not (misc/lt-probes-needed-7/PnGPartTriggers.al:
+        // does a list whose view ends inside the window; a part does not (testpage/PnGPartTriggers.al:
         // OpenOrderOfHostAndPart: two rows read as 10000, 20000 and 10000; pages/W1Navigation.al:GoToKey_List_FiftyRows_RowsReadByAFarJump
-        // `open`: rows 1 to 20, row 1, row 1). A list without the trigger reads 21 times: handlers/TestPageRuntimeContracts.al:
+        // `open`: rows 1 to 20, row 1, row 1). A list without the trigger reads 21 times: testpage/TestPageRuntimeContracts.al:
         // TestPage_List_OpenReads21Rows.
         if (end_reached || (opening && self.declares(st, "onaftergetcurrrecord")))
             && !self.reads_as_part(st)
@@ -828,17 +819,17 @@ impl Session {
         }
         // In a key other than the primary key each row is read once more than in the primary key (`reads_once_more_in_its_key`);
         // the reads of a refill of the window there are not pinned (the pinned moves and the refresh after an action do not
-        // refill it: pages/lt-sg-list-key-moves/SgListKeyMovesTests.al, corpus bump PR 738).
+        // refill it: pages/list-key-navigation/SgListKeyMovesTests.al, corpus bump PR 738).
         if !opening && self.still_reads_once_more(st) {
             return unsupported(
                 "a refill of the rows of a list in a key other than the primary key (its reads are not pinned)",
             );
         }
         // A refill from the first row (a TestPage filter change) after such an open reads the same: the window, then the first row
-        // three times before OnAfterGetCurrRecord (pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:299 Name_Filter_Refill `filter`
+        // three times before OnAfterGetCurrRecord (pages/onopenpage-moves-rec/SuRefillKey.al:299 Name_Filter_Refill `filter`
         // `4:R4;R2;R3;R4;R4;R4;C4;` against :409 Id_Filter_Refill `2:R2;R3;R4;R2;R2;C2;`; SyKeyMoves.al:209 Name_FilterMoves).
         // A view of one row and one of more rows than a window holds read the same: the window from the first row of the view,
-        // then that row three more times (corpus master 97c29f86, pages/lt-y17-refill-key/Y17RefillKey.al:341 Refill_Desc_OneRow
+        // then that row three more times (corpus master 97c29f86, pages/list-refill-key-order/Y17RefillKey.al:341 Refill_Desc_OneRow
         // `10:R10;R10;R10;C10;`, :364 Refill_Desc_MoreThanWindow `29:R29;R28;...;R7;R29;R29;R29;C29;`, :392 and :415 ascending,
         // :443 and :466 a Worksheet keyed in OnOpenPage, :311 Refill_Desc_ManyThenOne the Customer Ledger Entries path).
         let refill_in_key = opening && !st.borrow().open_read && self.still_reads_once_more(st);
@@ -883,7 +874,7 @@ impl Session {
     /// The open read of a modal list in a key other than the primary key, descending, with OnAfterGetRecord and
     /// OnAfterGetCurrRecord, that lands on the last row of its view (a blank record handed to Page.RunModal, `=><`): the client
     /// reads that row and then the rows above it, up to 20, then the row three times before OnAfterGetCurrRecord (corpus master
-    /// 930653fe, pages/lt-wd/WdModalGoToKeyDescSecondary.al:146 WD_ModalGoToKey_Descending_Last `opening log`
+    /// 930653fe, testpage/WdModalGoToKeyDescSecondary.al:146 WD_ModalGoToKey_Descending_Last `opening log`
     /// `R:D01,R:D02,...,R:D21,R:D01,R:D01,R:D01,C:D01` for 30 rows, :184 WD_ModalGoToKey_Descending_FiveRows `R:D01,...,R:D05,
     /// R:D01,R:D01,R:D01,C:D01`; al-runner issue 6363). The client then holds those rows, the cursor on the last one.
     fn read_rows_up_from_the_landed_last_row(
@@ -1066,7 +1057,7 @@ impl Session {
 
     /// `First` on a descending find list whose window was read up from its last row (see `read_rows_up_from_the_last`) and
     /// holds a full block: the client reads the top row it holds again, then asks OnNextRecord(-1) and reads each row above until
-    /// it answers 0, asks OnFindRecord(`=`) for the top row and reads it again (misc/lt-probes-needed-6/PnF06FindListMoves.al:318
+    /// it answers 0, asks OnFindRecord(`=`) for the top row and reads it again (testpage/PnF06FindListMoves.al:318
     /// FindList_Descending_25Rows `desc25_first` = `R21;N(-1);R22;...;R25;N(-1);F(=);R25;C`). When there is no row above, the top
     /// row is read once more before `=` (:404 PW_FindList_Descending_21Rows `desc21_first` = `R21;N(-1);R21;F(=);R21;C`). A second
     /// full block is refused.
@@ -1114,7 +1105,7 @@ impl Session {
 
     /// `First` on a descending find list without row triggers whose open read stopped a full window above the row it opened on
     /// (`PageState::window_top_unread`): the client steps on up from the top row it holds, with OnNextRecord(-1) when the page
-    /// declares it, until that answers 0, and asks the page nothing else (misc/lt-probes-needed-6/PnF06FindListMoves.al:1248
+    /// declares it, until that answers 0, and asks the page nothing else (testpage/PnF06FindListMoves.al:1248
     /// RK_DescKind_FindNext_25Rows `first = Yes|49|N(-1)=-1:43;N(-1)=-1:45;N(-1)=-1:47;N(-1)=-1:49;N(-1)=0:49;`, _21Rows
     /// `first = Yes|41|N(-1)=0:41;`; :1137 RK_DescKind_Find_25Rows `first = Yes|49|`, AL Runner issue 5739). The walk, Last and the
     /// walk back then ask nothing. A second full window above is not pinned.
@@ -1155,7 +1146,7 @@ impl Session {
     /// The end of the open read of a list with OnFindRecord, OnNextRecord and OnAfterGetRecord (no OnAfterGetCurrRecord) whose
     /// view ended inside the window and whose OnNextRecord(-1) from the first row read answered a step: the client reads each
     /// row it steps back to and asks OnNextRecord(-1) again until it answers 0; the cursor stays on the row read first, and the
-    /// rows the client holds now start at the first row of the view (pages/lt-ai-list-order/AiListOrderTests.al:777
+    /// rows the client holds now start at the first row of the view (pages/list-order/AiListOrderTests.al:777
     /// OpenOnRow_SetPositionInOnOpenPage `...;R:R1006;N:1=0;R:R1004;N:-1=-1;R:R1003;N:-1=-1;R:R1002;N:-1=-1;R:R1001;N:-1=0`,
     /// `current` R1004, `first_log` empty). `forward` holds the rows read from the cursor on. Pinned for a page of its own with 6
     /// rows; a part, and more rows than a window in all, are refused.
@@ -1165,7 +1156,7 @@ impl Session {
     /// (assumption list-open-full-window-rows-before): a part does the same (al-runner issue 5887, the reporter's real-BC repro:
     /// a ListPart opened on day 10 of 40), and a step back that reaches a window of rows above stops there and asks no more, as
     /// the step back of a descending find list does (PnF06FindListMoves.al RK_DescKind_FindNext_21Rows). The stop keeps the
-    /// baseline case handlers/TestPageActionRunObjectKindsPrecompiled_Tests.al:101 (page 159's period part, which ran under this
+    /// baseline case testpage/TestPageActionRunObjectKindsPrecompiled_Tests.al:101 (page 159's period part, which ran under this
     /// assumption before with another end).
     fn read_rows_before_the_first(
         &mut self,
@@ -1173,7 +1164,7 @@ impl Session {
         forward: Vec<al_builtins::value::WindowRow>,
         full: bool,
     ) -> Result<(), Signal> {
-        // A ListPart with a full first window reads as a page of its own (misc/lt-probes-needed-6/PnF06FindListMoves.al:1968
+        // A ListPart with a full first window reads as a page of its own (testpage/PnF06FindListMoves.al:1968
         // SF_DayHost_RunWithFilter_OpensPart; al-runner issue 5887).
         if st.borrow().host.is_some() && !full {
             return unsupported(
@@ -1219,9 +1210,9 @@ impl Session {
     /// block before, then 20 new rows (fewer at the end of the view). The cursor stands on the first
     /// unread row `X` and the window holds every row before it. Returns whether the block was full, the key
     /// of its last row, and leaves the cursor on `X` again with the whole block in the window.
-    /// Pinned on a real service tier by corpus handlers/TestPageSystemPartListWindowContracts.al:194
+    /// Pinned on a real service tier by corpus testpage/TestPageSystemPartListWindowContracts.al:194
     /// (List_Window_AfterGoToKeyOutsideTheRowsRead), :210 (List_Window_SmallTable) and
-    /// handlers/TestPageRuntimeContracts.al:331.
+    /// testpage/TestPageRuntimeContracts.al:331.
     pub(super) fn read_window_block(&mut self, st: &St) -> Result<(bool, Vec<Value>), Signal> {
         let rec = self.page_rec(st);
         let start = self.row_key(&rec)?;
@@ -1276,7 +1267,7 @@ impl Session {
     }
 
     /// The last two rows of the window are read once more: what a read that reached the end of the view
-    /// does (corpus handlers/TestPageSystemPartListWindowContracts.al:194, handlers/TestPageRuntimeContracts.al:331).
+    /// does (corpus testpage/TestPageSystemPartListWindowContracts.al:194, testpage/TestPageRuntimeContracts.al:331).
     /// The cursor is on the last row of the view and stays there.
     pub(super) fn reread_last_rows(&mut self, st: &St) -> Result<(), Signal> {
         let rec = self.page_rec(st);
@@ -1312,7 +1303,7 @@ impl Session {
     pub(super) fn arrive(&mut self, st: &St) -> Result<(), Signal> {
         let before = self.xrec_before_move(st);
         // A stored row is not the started record the cursor may have left (corpus
-        // handlers/TestPageOpenNewPartLink.al:OpenNew_LinesInsertedInCode_LastThenWriteLandsOnTheLastLine).
+        // testpage/TestPageOpenNewPartLink.al:OpenNew_LinesInsertedInCode_LastThenWriteLandsOnTheLastLine).
         st.borrow_mut().draft = false;
         st.borrow_mut().stale = false;
         if self.is_list(st) {
@@ -1350,7 +1341,7 @@ impl Session {
     }
 
     /// OnAfterGetCurrRecord sees as xRec the row the cursor came from (a move from row 1 to row 2 logs `AGCR(R2, R1)`, the first
-    /// row of an opened page has a blank xRec); once it has run xRec is the row itself (misc/lt-probes-needed-7/PnGGoToScan.al:
+    /// row of an opened page has a blank xRec); once it has run xRec is the row itself (testpage/PnGGoToScan.al:
     /// GoToKeyFromTheFirstRow).
     pub(super) fn current_record_trigger(&mut self, st: &St, before: Option<Vec<Value>>) -> Result<(), Signal> {
         if let Some(prev) = before {
@@ -1365,6 +1356,9 @@ impl Session {
 
     /// Moves the cursor; the Boolean the move methods return.
     pub(super) fn page_move(&mut self, st: &St, how: PageMethod) -> Result<Value, Signal> {
+        if !(how == PageMethod::Next || how == PageMethod::Previous && st.borrow().cursor == Cursor::NewLine) {
+            st.borrow_mut().refreshed_after_gone_move = false;
+        }
         if let Some(answer) = self.move_after_refused_save(st, how)? {
             return Ok(answer);
         }
@@ -1380,7 +1374,7 @@ impl Session {
             ));
         }
         // A list opened for view over an empty view holds no row: First answers No and reads nothing, also after the test stored a
-        // row the view admits (misc/lt-probes-needed-7/PnGShowRow.al:494 QG_ViewEmptyList_RowStoredByTest_ThenFirst `first` No,
+        // row the view admits (testpage/PnGShowRow.al:494 QG_ViewEmptyList_RowStoredByTest_ThenFirst `first` No,
         // `first_no` and `first_log` empty; pages/W1ShowRow.al:277 FilteredList_InsertedRowTheViewHides). An action shows the row
         // (`empty_page_after_action`). The other moves are not pinned there.
         let empty_view_list = {
@@ -1402,7 +1396,7 @@ impl Session {
         }
         let answer_used = self.ret_used;
         // A list row whose OnValidate refused an entry: Next() raises nothing, runs no OnModify and stores nothing of the row
-        // (pages/lt-ah-pages/PwCloseRevalidate.al:270 PW_List_RefusedOnValidate_ThenNext_ThenClose). Where the cursor lands
+        // (testpage/PwCloseRevalidate.al:270 PW_List_RefusedOnValidate_ThenNext_ThenClose). Where the cursor lands
         // and what Next() answers are not pinned, and neither are the other moves.
         let refused_entry = {
             let s = st.borrow();
@@ -1438,7 +1432,7 @@ impl Session {
         let writes = self.write_mark();
         let (left, origin) = self.traced(st, |s| s.leave_row(st, how));
         let left = match (left, origin.as_deref()) {
-            // corpus pages/lt-cc-page-leads/CcPageLeads.al:598-608 TriggerError_OnModifyRecord: Next() raises nothing. What it
+            // corpus testpage/CcPageLeads.al:598-608 TriggerError_OnModifyRecord: Next() raises nothing. What it
             // answers is not pinned: refused when the caller uses the answer.
             (Err(Signal::Error(e)), Some("onmodifyrecord")) if how == PageMethod::Next => {
                 self.swallowed_trigger_error(st, "OnModifyRecord", "Next()", &e, writes)?;
@@ -1462,13 +1456,13 @@ impl Session {
         }
         // A new line saved in the middle of a list: Next() goes to the row below the one it was
         // started under, not to the row after its own key (corpus
-        // handlers/ProbeTestPageForms.al:227-253, where a row with the last key, added below row 2,
+        // testpage/ProbeTestPageForms.al:227-253, where a row with the last key, added below row 2,
         // is followed by row 3 and not by the blank line).
         let cursor_now = st.borrow().cursor;
         // The client keeps a saved new line where it was typed, below its anchor. Where First or Previous go when that is not the
-        // row's place in the key order is not pinned (record/lt-loadfields-pagesource-validate/P81PageTempSource.al:238-242
+        // row's place in the key order is not pinned (record/load-fields/P81PageTempSource.al:238-242
         // RunModal_TempRecord_NewRow: `N1`, typed below `T1`, is the second row the client shows): refused. Last goes to the last
-        // row by key (misc/lt-probes-needed-7/PnGTempSource.al:101 NewRowOfTheTemporarySource `last-no = C`); Next is handled below.
+        // row by key (testpage/PnGTempSource.al:101 NewRowOfTheTemporarySource `last-no = C`); Next is handled below.
         if let (PageMethod::First | PageMethod::Previous, Some(anchor), Cursor::Row) = (how, &anchor, cursor_now) {
             if self.saved_row_out_of_key_order(st, anchor.clone())? {
                 return unsupported(format!(
@@ -1493,7 +1487,7 @@ impl Session {
             s.field_captions_quiet = how == PageMethod::Previous;
             s.field_captions_pinned_move = matches!(how, PageMethod::First | PageMethod::Last);
         }
-        let (r, origin) = self.traced(st, |s| s.page_move_inner(st, how));
+        let (r, origin) = self.traced(st, |s| s.page_move_noting_server_row(st, how));
         {
             let mut s = st.borrow_mut();
             s.field_captions_quiet = false;
@@ -1509,10 +1503,11 @@ impl Session {
     }
 
     /// Whether `First()` on a list an action opened through `RunPageLink` stands on the first row of its view already: it then
-    /// answers Yes and runs no OnAfterGetCurrRecord (pages/lt-rz-outside-page-moves/SjRunPageLinkOpenFind.al:337-350, :368-410
+    /// answers Yes and runs no OnAfterGetCurrRecord (testpage/SjRunPageLinkOpenFind.al:337-350, :368-410
     /// `agcr row=4;agcr row=3;...`: the handler's First() on the row the page opened on adds no `agcr`; :412-425 from another row
     /// it does). Pinned for a list that declares OnAfterGetCurrRecord and no other row trigger, not a part, whose OnOpenPage
-    /// moved Rec with FindFirst or FindLast; refused when OnOpenPage did not move Rec.
+    /// moved Rec with FindFirst or FindLast, and for one whose OnOpenPage did not move Rec (testpage/R7138RunPageLinkCopyGet.al:210,
+    /// :218 `agcr O3;...;handler;agcr O4`: OnAfterGetCurrRecord runs once at the open, First() on O3 runs it not again).
     fn first_on_first_row_of_a_linked_list(&mut self, st: &St) -> Result<bool, Signal> {
         let shape = {
             let s = st.borrow();
@@ -1543,22 +1538,11 @@ impl Session {
         if !Self::same_key(&self.row_key(&probe)?, &self.row_key(&rec)?) {
             return Ok(false);
         }
-        // Pinned only where OnOpenPage moved Rec with FindFirst or FindLast (SjRunPageLinkOpenFind.al:337-410); First on the
-        // first row of a linked list whose OnOpenPage did not move Rec is not pinned either way.
-        if !st.borrow().run_page_link_open_moved {
-            // Without OnAfterGetCurrRecord nothing tells the two apart: the usual First() runs.
-            if !self.declares(st, "onaftergetcurrrecord") {
-                return Ok(false);
-            }
-            return unsupported(
-                "TestPage.First() on the first row of a list an action opened through RunPageLink whose OnOpenPage did not move Rec: whether OnAfterGetCurrRecord runs is not pinned",
-            );
-        }
         Ok(true)
     }
 
     /// An AL error of OnNextRecord on `Next()` of a card opened for editing: "Page <caption> has to close.", the caption with
-    /// the key of the row the page stood on (corpus pages/lt-cc-page-leads/CcPageLeads.al:559-569 TriggerError_OnNextRecord
+    /// the key of the row the page stood on (corpus testpage/CcPageLeads.al:559-569 TriggerError_OnNextRecord
     /// `Page LT CC Err Card - 1 has to close.`), and the page is closed. The same error of another move, of OnFindRecord, on
     /// another page type or mode, or after the trigger moved the record, is not pinned: its text and code cannot be read.
     fn move_trigger_error(
@@ -1585,7 +1569,7 @@ impl Session {
     }
 
     /// Whether the row the page stands on was saved by New() below `anchor` and is not the row after `anchor` in key order. The
-    /// client keeps such a row where it was started (record/lt-loadfields-pagesource-validate/P81PageTempSource.al:238-242
+    /// client keeps such a row where it was started (record/load-fields/P81PageTempSource.al:238-242
     /// RunModal_TempRecord_NewRow: N1 started below T1 shows as row 2), so key order and the client's order differ. A page that
     /// serves its rows from OnFindRecord or OnNextRecord is not asked.
     fn saved_row_out_of_key_order(&mut self, st: &St, anchor: Vec<Value>) -> Result<bool, Signal> {
@@ -1622,9 +1606,9 @@ impl Session {
     }
 
     /// A move on a list opened with OpenNew, before anything is typed: First and Next answer No, run no trigger and leave the
-    /// cursor on the new row (pages/lt-page-report-events/P84ListTemp.al:396-401 TestPage_Real_OpenNew `tp_new3_count = 0`,
-    /// `tp_new3_last_id = 0`; pages/lt-opennew-findrecord/OpenNewFindRecord.al:227-229 List_OpenNew_TableWithRows
-    /// `first_row_after_new = No`, `close_trace` empty; pages/lt-filter-change-new-line/FilterChangeNewLine.al:191-195
+    /// cursor on the new row (pages/triggers/P84ListTemp.al:396-401 TestPage_Real_OpenNew `tp_new3_count = 0`,
+    /// `tp_new3_last_id = 0`; pages/opennew-findrecord/OpenNewFindRecord.al:227-229 List_OpenNew_TableWithRows
+    /// `first_row_after_new = No`, `close_trace` empty; pages/triggers/FilterChangeNewLine.al:191-195
     /// OpenNew_FilterSetFilter_ThenNext_AndFirst: First, Next and Previous answer No, no trigger runs). Last is not pinned.
     fn move_on_open_new_list(&mut self, how: PageMethod) -> Result<Value, Signal> {
         match how {
@@ -1637,7 +1621,7 @@ impl Session {
 
     /// An error escaping a row population tears the page down. On a card the move reads as
     /// "not open"; on a list it raises the error itself (corpus
-    /// autoformat/TestAutoFormatExpressionTiming.al, RowFormat_List_LastOntoAFailingRowBeyondTheWindow).
+    /// format-evaluate/autoformat/TestAutoFormatExpressionTiming.al, RowFormat_List_LastOntoAFailingRowBeyondTheWindow).
     pub(super) fn torn_down_on_error<T>(&mut self, st: &St, r: Result<T, Signal>) -> Result<T, Signal> {
         match r {
             Err(Signal::Error(e)) => {
@@ -1680,7 +1664,7 @@ impl Session {
     /// A move of a list whose whole view the client has read (fewer rows than a window) is served
     /// from the client's rows: the new row is read, a page with OnFindRecord is asked `=` for it,
     /// the row is read again, and OnAfterGetCurrRecord ends the move; `Last` on a page without
-    /// OnFindRecord starts with an OnAfterGetCurrRecord (corpus pageext/PCCurrRecordReads.al:
+    /// OnFindRecord starts with an OnAfterGetCurrRecord (corpus pages/extensions/PCCurrRecordReads.al:
     /// List_ReadsAfterEachAction `next`, `last`, `first`; FindList_OnFindRecordAndOnNextRecord
     /// `next`, `last`, `previous`, `first`, pinned for a table of 3 rows). `None` when the move is not
     /// one of those.
@@ -1706,7 +1690,7 @@ impl Session {
         };
         if held_above {
             // See `PageState::window_held_above`: Next inside the rows held reads nothing (AiListOrderTests.al:1090, :1127
-            // `next_log` empty), Previous too (misc/lt-probes-needed-6/PnF06FindListMoves.al:1947
+            // `next_log` empty), Previous too (testpage/PnF06FindListMoves.al:1947
             // SF_DayList_OpensOnDayTen_Next_Previous `previous` `10|`); other moves are not pinned.
             let rec = self.page_rec(st);
             let key = self.row_key(&rec)?;
@@ -1755,7 +1739,7 @@ impl Session {
             }
         }
         // A descending find list without row triggers whose open read held its whole view (the step back answered 0) goes to
-        // its last row in the client's rows, also with a full window (misc/lt-probes-needed-6/PnF06FindListMoves.al
+        // its last row in the client's rows, also with a full window (testpage/PnF06FindListMoves.al
         // RK_DescKind_Find_20Rows, RK_DescKind_FindNext_20Rows `last = Yes|1|`).
         // The same on an ascending one after Next read on from the last row of the window (RK_Asc_FindNext_20Rows `last = Yes|20|`).
         let whole_find_view = st.borrow().view_read_to_end
@@ -1778,7 +1762,7 @@ impl Session {
                 || st.borrow().view_read_to_end;
         if how == PageMethod::Next && at + 1 == window.len() && read_to_end {
             // An editable, insert-allowed page walks on from its last row onto the blank new-row line (handlers/
-            // TestPageNewRowLine_Tests.al:64-87), a part with OnFindRecord too (pagefindrecord/QcFindViewTests.al:505
+            // TestPageNewRowLine_Tests.al:64-87), a part with OnFindRecord too (pages/triggers/QcFindViewTests.al:505
             // DocPart_OpenEdit_LinesOfH1 `part_walk = 10000,20000,0`); the page is asked nothing (AiListOrderTests.al:600). Whether a
             // page with OnNextRecord is asked before the line is pinned only for a temporary Worksheet: it is not (`C:;`).
             if st.borrow().new_line {
@@ -1787,15 +1771,13 @@ impl Session {
                         "Next from the last row onto the new-row line of a page with OnNextRecord (whether the page is asked is not pinned)",
                     );
                 }
-                self.refuse_read_only_part(st, "Next() onto the new-row line")?;
-                self.land_on_new_line(st)?;
-                return Ok(Some(true));
+                return Ok(Some(self.walk_onto_new_line(st)?));
             }
             return Ok(Some(false));
         }
         // First on the first row right after the refresh of CurrPage.Update settled the list there reads nothing: on a list with
-        // OnFindRecord and OnNextRecord (pages/lt-ai-list-order/AiListOrderTests.al:174 Same_Nav_OnOpenRow, :203
-        // Same_NavCurr_OnOpenRow `after_first` empty; pages/lt-f3-pages/F3ListTests.al:72 Nav_ActionChangesViewThenUpdate
+        // OnFindRecord and OnNextRecord (pages/list-order/AiListOrderTests.al:174 Same_Nav_OnOpenRow, :203
+        // Same_NavCurr_OnOpenRow `after_first` empty; testpage/F3ListTests.al:72 Nav_ActionChangesViewThenUpdate
         // `after_walk` empty), and on a list whose action's filter left its row (AiListOrderTests.al:339
         // DropCurrent_RowsAfter_Plain, :373 DropCurrent_RowsAfter_PlainCurr). Only a field read may come between (`settled_first_row`).
         // In any other state First on the first row of a list with OnFindRecord and OnNextRecord is not pinned; it keeps reading
@@ -1805,7 +1787,7 @@ impl Session {
             return Ok(Some(true));
         }
         // Previous on the top row of a descending filtered find list without row triggers whose whole view the client holds
-        // answers false and asks the page nothing, OnNextRecord declared or not (misc/lt-probes-needed-6/PnF06FindListMoves.al:
+        // answers false and asks the page nothing, OnNextRecord declared or not (testpage/PnF06FindListMoves.al:
         // 870-908 QV_DescKind_FindNext_Moves `12_previous_top = No|5|`, :825-868 QV_DescKind_FindOnly_Moves), also when the rows it
         // holds are a full window or more and the step back up to the top answered 0 (RK_DescKind_FindNext_20Rows, _21Rows, _25Rows
         // `back` ends with `end:<top>`, nothing asked). The same on an ascending view whose first row the client holds
@@ -1819,7 +1801,7 @@ impl Session {
             return Ok(Some(false));
         }
         // First on a plain list (OnAfterGetRecord and OnAfterGetCurrRecord, rows from the table) whose cursor stands on the first
-        // row reads nothing, in the primary key and in another key (pages/lt-sg-list-key-moves/SgListKeyMovesTests.al
+        // row reads nothing, in the primary key and in another key (pages/list-key-navigation/SgListKeyMovesTests.al
         // SG_Pk_OneRow_Open, SG_Key_OneRow_Open `first` = `A|`, corpus bump PR 738; three rows: misc/lt-probes-needed-7/
         // PnGRunObjectOptions.al:132 LinkAndViewOnAList `plain-list`, the handler's First right after the open).
         if how == PageMethod::First
@@ -1832,9 +1814,9 @@ impl Session {
             return Ok(Some(true));
         }
         // Last on such a list in its primary key whose cursor stands on the last row of a view that ends inside the window reads
-        // nothing either (pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:409 Id_Filter_Refill `last` `Yes/4:`, after a GoToRecord
+        // nothing either (pages/onopenpage-moves-rec/SuRefillKey.al:409 Id_Filter_Refill `last` `Yes/4:`, after a GoToRecord
         // miss left the cursor on row 4). In another key the same holds for a view of one row (corpus master 97c29f86,
-        // pages/lt-y17-refill-key/Y17RefillKey.al:311 Refill_Desc_ManyThenOne `last` `Yes/10:` after a refill to one row); with more
+        // pages/list-refill-key-order/Y17RefillKey.al:311 Refill_Desc_ManyThenOne `last` `Yes/10:` after a refill to one row); with more
         // rows it is not pinned and reads the row as before.
         if how == PageMethod::Last
             && at + 1 == window.len()
@@ -1856,9 +1838,10 @@ impl Session {
             PageMethod::Previous if at > 0 => at - 1,
             _ => return Ok(None),
         };
+        let line_ran = how == PageMethod::Last && !find_page && st.borrow().new_line && st.borrow().host.is_none();
         // Only a list that offers the blank line: a view-mode list goes straight to the last row (misc/lt-probes-needed-6/
         // PnF06FindListMoves.al:FindList_PlainDescending `plain3_last` = `R1;R1;C`).
-        if how == PageMethod::Last && !find_page && st.borrow().new_line && st.borrow().host.is_none() {
+        if line_ran {
             self.land_on_new_line(st)?;
             let mut s = st.borrow_mut();
             s.draft = false;
@@ -1867,7 +1850,7 @@ impl Session {
         // Next and Previous in a key other than the primary key read the row once more (`reads_once_more_in_its_key`).
         // Next onto the last row of a full window of an ascending find list with OnNextRecord and no row trigger reads on from
         // there with OnNextRecord(1) until it answers 0; the client then holds the whole view and no later move asks the page
-        // (misc/lt-probes-needed-6/PnF06FindListMoves.al:1895 RK_Asc_FindNext_20Rows `walk = ...,20[N(1)=0:20;],end:20`, :1911
+        // (testpage/PnF06FindListMoves.al:1895 RK_Asc_FindNext_20Rows `walk = ...,20[N(1)=0:20;],end:20`, :1911
         // _21Rows `...,20[N(1)=1:21;N(1)=0:21;],21,end:21`, :1927 _25Rows; :1447-1484 RK_AscKind_FindNext_20Rows to _25Rows). A
         // second full window is not pinned.
         if how == PageMethod::Next
@@ -1901,6 +1884,9 @@ impl Session {
             s.window_whole = true;
             s.view_read_to_end = true;
         }
+        if let Some(done) = self.moved_onto_deleted(st, how, at, target, line_ran)? {
+            return Ok(Some(done));
+        }
         let once_more = matches!(how, PageMethod::Next | PageMethod::Previous) && self.still_reads_once_more(st);
         if once_more {
             self.read_client_row_in(st, target, true)?;
@@ -1914,7 +1900,7 @@ impl Session {
     /// (`PageState::moved_rec_open_partial`: rows above its top row, rows below its bottom row left unread). Next and Previous
     /// inside the rows it holds read the row twice, then OnAfterGetCurrRecord; First and Last onto a held row the same; First
     /// with rows above left unread reads the top row it holds, steps up reading each row to the first of the view, reads that
-    /// one again and runs OnAfterGetCurrRecord, and Last below the bottom row likewise (pages/lt-y37-long-list-open/
+    /// one again and runs OnAfterGetCurrRecord, and Last below the bottom row likewise (pages/long-list-open/
     /// Y37LongListTests.al:103-109 `next log` `R:26;R:26;C:26;`, `first log` `R:5;R:4;R:3;R:2;R:1;R:1;C:1;`, :142-149 Next on the
     /// last row `No` with an empty log, :246-249 `last log` `R:24;R:25;...;R:30;R:30;C:30;`). Moves past an edge with a second
     /// block of 20 unread rows, and Next or Previous off the rows held, are not pinned.
@@ -1999,7 +1985,7 @@ impl Session {
 
     /// `Last` on a list whose window of 20 rows is full: the client reads the last row it holds again, then the rows after it in
     /// one block, and settles on the last of them (a page with OnFindRecord asks `=` for it). Pinned for 25 rows by
-    /// misc/lt-probes-needed-6/PnF06FindListMoves.al:FindList_Ascending_25Rows `asc25_last`
+    /// testpage/PnF06FindListMoves.al:FindList_Ascending_25Rows `asc25_last`
     /// (`R20;N(1);R21;...;N(1);R25;N(1);F(=);R25;C`) and FindList_PlainDescending `plain25_last` (`R6;R5;R4;R3;R2;R1;R1;C`). A
     /// block of 20 new rows, a descending view of a page with OnFindRecord, and a list with the blank line are not pinned.
     fn last_past_the_window(&mut self, st: &St, find_page: bool) -> Result<Option<bool>, Signal> {
@@ -2010,7 +1996,7 @@ impl Session {
         let before = self.xrec_before_move(st);
         self.read_block_past_the_window(st, find_page)?;
         // Without OnAfterGetCurrRecord the move ends with the block: `=` is not asked and the row is not read again
-        // (pages/lt-ai-list-order/AiListOrderTests.al:958 Paging_Last_Nav `last_log` ends `R:R1025;N:1=0`).
+        // (pages/list-order/AiListOrderTests.al:958 Paging_Last_Nav `last_log` ends `R:R1025;N:1=0`).
         if !self.declares(st, "onaftergetcurrrecord") {
             return Ok(Some(true));
         }
@@ -2029,7 +2015,7 @@ impl Session {
 
     /// The client reads the last row it holds again, then the rows after it in one block (up to 20, the failing last call of
     /// OnNextRecord included) and ends on the last of them with the window holding the whole view. Used by `Last` and by `New` on a
-    /// list longer than a window (pages/lt-testpage-list-rows/ListRowsActionNew.al:NewRowThenAction_Ping30Rows_ReadsLogged: 12 reads
+    /// list longer than a window (testpage/ListRowsActionNew.al:NewRowThenAction_Ping30Rows_ReadsLogged: 12 reads
     /// after `New()` on 30 rows, the last row of the window, the ten rows after it, and the blank line). A second full block, and a view
     /// of exactly one window, are refused.
     pub(super) fn read_block_past_the_window(&mut self, st: &St, _find_page: bool) -> Result<(), Signal> {
@@ -2064,42 +2050,10 @@ impl Session {
         Ok(())
     }
 
-    /// A move onto a row the client holds reads that row from the table again, so a change made elsewhere since the window
-    /// was read shows (pages/W1Update.al:836-840 List_BufferLeftByOnAfterGetRecord_AfterTheStoredRowChanged `name_row2 =
-    /// changed`; misc/lt-probes-needed-7/PnGRefresh.al:268-269 BufferEditOfOnAfterGetRecordOnAList). Pinned for a page that
-    /// reads its rows from the table; a page with OnFindRecord or OnNextRecord keeps the row it holds (what the client asks
-    /// such a page for is not pinned). A held row the table no longer has is refused (not pinned).
-    pub(super) fn reread_held_row(&mut self, st: &St, target: usize) -> Result<(), Signal> {
-        if self.declares(st, "onfindrecord") || self.declares(st, "onnextrecord") {
-            return Ok(());
-        }
-        let rec = self.page_rec(st);
-        let mut key = st.borrow().window[target].key.clone();
-        self.ret_used = true;
-        if !matches!(self.record_op(RecordOp::Get, &rec, &mut key)?, Value::Boolean(true)) {
-            let stored = st.borrow().window[target].stored.clone();
-            rec.borrow_mut().fields = stored;
-            return unsupported("a move onto a row the client holds that the table no longer has (not pinned)");
-        }
-        let fresh = rec.borrow().fields.clone();
-        if let Some(w) = st.borrow_mut().window.get_mut(target) {
-            w.stored = fresh;
-        }
-        Ok(())
-    }
-
-    /// The reads of a move onto row `target` of the rows the client holds (see `move_in_client_rows`).
-    pub(super) fn read_client_row(&mut self, st: &St, target: usize) -> Result<(), Signal> {
-        // First, Last, GoToKey and GoToRecord in a key other than the primary key read the row once more too
-        // (pages/lt-sg-list-key-moves/SgListKeyMovesTests.al SG_Key_FourRows_Moves `last`, `first`, `gotokey_b`, `gotorecord_c`).
-        let once_more = self.still_reads_once_more(st);
-        self.read_client_row_in(st, target, once_more)
-    }
-
     /// A plain list (no OnFindRecord or OnNextRecord, with OnAfterGetRecord and OnAfterGetCurrRecord) on a page of its own whose
     /// Rec is in a key other than the primary key, over a database table: the client reads each row once more than in the
     /// primary key, when the list opens and at each Next and Previous between the rows it holds (corpus
-    /// pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al:345 QR_List_OpenView_SetCurrentKeyGet `...;R:B;R:B;R:B;C:B;`, `next log`
+    /// pages/onopenpage-moves-rec/QrMovedTests.al:345 QR_List_OpenView_SetCurrentKeyGet `...;R:B;R:B;R:B;C:B;`, `next log`
     /// `R:A;R:A;R:A;C:A;`; the QS_KeyAsc_List_*, QS_KeyDesc_List_* and QS_KeyWhere_List_* tests from :856, for example
     /// QS_KeyAsc_List_NoMove `O:;R:D;R:C;R:B;R:A;R:D;R:D;R:D;C:D;` against QS_PkDesc_List_NoMove `...;R:D;R:D;C:D;`, the key
     /// set by SourceTableView or by OnOpenPage). Pinned for views that end inside the window; the other moves are assumed
@@ -2122,7 +2076,7 @@ impl Session {
     }
 
     /// The list opened reading each row once more (`reads_once_more_in_its_key`) and Rec is still in that key and order. A key
-    /// or order changed after the open (TestPage.Filter.SetCurrentKey, misc/lt-probes-needed-7/PnGTestFilter.al) keeps the reads
+    /// or order changed after the open (TestPage.Filter.SetCurrentKey, testpage/PnGTestFilter.al) keeps the reads
     /// it had before.
     pub(super) fn still_reads_once_more(&self, st: &St) -> bool {
         let Some(at) = st.borrow().reads_once_more_in else {
@@ -2133,59 +2087,23 @@ impl Session {
         at == (r.key, r.ascending) && self.reads_once_more_in_its_key(st)
     }
 
-    fn read_client_row_in(&mut self, st: &St, target: usize, once_more: bool) -> Result<(), Signal> {
-        let before = self.xrec_before_move(st);
-        let rec = self.page_rec(st);
-        let stored = st.borrow().window[target].stored.clone();
-        rec.borrow_mut().fields = stored;
-        // A list with OnAfterGetRecord alone reads nothing when the cursor moves onto a row the client holds (pages/lt-testpage-list-rows/
-        // ListRowsOpenAG.al:OpenView_OnlyRec5Rows_ReadsAtOpen `after-next-total = 0`).
-        // The same holds with OnFindRecord and OnNextRecord declared: pages/lt-f3-pages/F3ListTests.al:24
-        // Nav_TwelveRows_OpenLastPreviousFirstNext (`after_last`, `after_previous3`, `after_first`, `after_next2` all empty).
-        // A list (or list part) with OnFindRecord, a filtered SourceTableView and no row trigger asks the page nothing either
-        // (corpus branch al-runtime-rs-staging-qc eca98051, pagefindrecord/QcFindViewTests.al:97 ViewList_FirstNextLastPrevious,
-        // :236 NextList_NextLog, :540 DocPart_OpenEdit_LinesOfH2: the logs are empty).
-        if !self.declares(st, "onaftergetcurrrecord")
-            && (self.declares(st, "onaftergetrecord") || self.filtered_find_list_without_row_triggers(st))
-        {
-            let shown = st.borrow().window[target].shown.clone();
-            rec.borrow_mut().fields = shown;
-            self.set_xrec(st);
-            return Ok(());
-        }
-        self.reread_held_row(st, target)?;
-        self.populate_current_pair_first(st)?;
-        if self.declares(st, "onfindrecord") {
-            self.nav_find(st, "=")?;
-        }
-        self.populate_current(st)?;
-        if once_more {
-            self.populate_current(st)?;
-        }
-        let shown = rec.borrow().fields.clone();
-        if let Some(w) = st.borrow_mut().window.get_mut(target) {
-            w.shown = shown;
-        }
-        self.current_record_trigger(st, before)
-    }
-
     /// GoToKey / GoToRecord on a list that declares OnAfterGetCurrRecord and whose whole view the client holds (fewer rows than a
     /// window). The client does not search its rows: from a row other than the first it goes to the first row, then steps to the
     /// next rows one at a time until the key is there, each step a move (`r;r;c`, the row read twice and the current-record
     /// trigger); a key it does not find ends with a move back to the row it started from. Pinned by pages/W1Navigation.al:
     /// GoToKey_List_FiveRows_WhichRowsAreRead, GoToRecord_List_WhichRowsAreRead, GoToKey_List_FilteredOutKey and
-    /// misc/lt-probes-needed-7/PnGGoToScan.al (GoToKeyFromTheFirstRow, GoToKeyFromALaterRow, GoToKeyMiss, GoToRecordFromTheFirstRow).
+    /// testpage/PnGGoToScan.al (GoToKeyFromTheFirstRow, GoToKeyFromALaterRow, GoToKeyMiss, GoToRecordFromTheFirstRow).
     /// `None` when the page is not of that kind. A key equal to the row the cursor stands on is found by the same scan
     /// (PnGGoToScan.al:GoToKeyFromALaterRow `hit-same`); a result that is not used and a key not found raise.
     /// GoToKey on a list that serves its rows from OnFindRecord and OnNextRecord and has no row trigger: a row the client holds is
     /// reached without asking the page; beyond the rows held, the next rows are read in one block with OnNextRecord (up to 20, the
-    /// failing last call included). Pinned by pages/lt-testpage-list-rows/ListRowsOpenNone.al:OpenView_FindNext5Rows_ReadsAtOpen
+    /// failing last call included). Pinned by testpage/ListRowsOpenNone.al:OpenView_FindNext5Rows_ReadsAtOpen
     /// (`to-last-total = 0`) and OpenView_FindNext30Rows_ReadsAtOpen (`N21;...;N30;N30`). A key that is not there, and a block of 20 new
     /// rows, are not pinned. `None` when the page is not of that kind.
     ///
     /// A list with OnFindRecord only, a filtered SourceTableView and no row trigger reaches a row it holds the same way, and a key it
     /// does not hold, with the whole view held, answers false and stays without asking the page (corpus branch
-    /// al-runtime-rs-staging-qc eca98051, pagefindrecord/QcFindViewTests.al:135 ViewList_GoToKey `gotokey_2 = No:1`, empty logs).
+    /// al-runtime-rs-staging-qc eca98051, pages/triggers/QcFindViewTests.al:135 ViewList_GoToKey `gotokey_2 = No:1`, empty logs).
     fn go_to_key_find_without_row_triggers(&mut self, st: &St, want: &[Value]) -> Result<Option<bool>, Signal> {
         let find_only_view = !self.declares(st, "onnextrecord") && self.filtered_find_list_without_row_triggers(st);
         if !(self.declares(st, "onfindrecord") && self.declares(st, "onnextrecord") || find_only_view)
@@ -2212,7 +2130,7 @@ impl Session {
         }
         if st.borrow().window.len() < Self::WINDOW || st.borrow().window_eof {
             // With OnNextRecord too, on a descending filtered view of a List page, a key it does not hold answers false and asks
-            // the page nothing (misc/lt-probes-needed-6/PnF06FindListMoves.al:870-908 QV_DescKind_FindNext_Moves
+            // the page nothing (testpage/PnF06FindListMoves.al:870-908 QV_DescKind_FindNext_Moves
             // `10_gotorecord2_out = No|1|`). An ascending one is not pinned.
             let descending_find_next = self.filtered_find_list_without_row_triggers(st) && !rec.borrow().ascending;
             if find_only_view || descending_find_next {
@@ -2255,65 +2173,17 @@ impl Session {
         }
     }
 
-    fn go_to_key_in_client_rows(&mut self, st: &St, want: &[Value]) -> Result<Option<bool>, Signal> {
-        if !self.declares(st, "onaftergetcurrrecord")
-            || !self.declares(st, "onaftergetrecord")
-            || self.declares(st, "onfindrecord")
-            || self.declares(st, "onnextrecord")
-            || !self.is_list(st)
-            || st.borrow().host.is_some()
-            || st.borrow().cursor != Cursor::Row
-            || st.borrow().draft
-            || st.borrow().stale
-            || !st.borrow().window_from_start
-            || st.borrow().window.is_empty()
-        {
-            return Ok(None);
-        }
-        let rec = self.page_rec(st);
-        let key = self.row_key(&rec)?;
-        let Some(origin) = st.borrow().window.iter().position(|w| Self::same_key(&w.key, &key)) else {
-            return Ok(None);
-        };
-        let at_key = |s: &Self, i: usize| -> Option<bool> { s_window_key(s, st, i).map(|k| Self::same_key(&k, want)) };
-        // A key equal to the first row the list stands on: the reads are not pinned, the generic move stays.
-        if origin == 0 && at_key(self, 0) == Some(true) {
-            return Ok(None);
-        }
-        let mut found = false;
-        if origin != 0 {
-            let r = self.arrive_held(st, 0);
-            self.torn_down_on_error(st, r)?;
-            found = at_key(self, 0) == Some(true);
-        }
-        let mut idx = 1;
-        while !found && idx < st.borrow().window.len() {
-            let r = self.arrive_held(st, idx);
-            self.torn_down_on_error(st, r)?;
-            found = at_key(self, idx) == Some(true);
-            idx += 1;
-        }
-        // A miss whose walk ended on the row the list stood on stays there without another move (pages/
-        // lt-qr-onopenpage-moves-rec/SuRefillKey.al Id_Filter_Refill `goto 1 outside` `No/4:R2;R2;C2;R3;R3;C3;R4;R4;C4;`).
-        let last = st.borrow().window.len() - 1;
-        if !found && origin != last {
-            let r = self.arrive_held(st, origin);
-            self.torn_down_on_error(st, r)?;
-        }
-        Ok(Some(found))
-    }
-
     /// A move onto row `idx` of the rows the client holds: when it is the last one held and the view goes on, the client first
     /// reads the next block of rows (the row itself, then 20 new ones); then the move itself (`r;r;c`). Pinned for views of up
     /// to 50 rows by pages/W1Navigation.al:GoToKey_List_FiftyRows_RowsReadByAFarJump (rows 20, then 21 to 40, then 20 again; row 40,
-    /// then 41 to 50, then 40 again). A second block of 20 rows is not pinned: misc/lt-probes-needed-7/PnGGoToScan.al:
+    /// then 41 to 50, then 40 again). A second block of 20 rows is not pinned: testpage/PnGGoToScan.al:
     /// GoToKeyOverTheWindowBoundary counts other reads for 60 rows, so that shape is refused.
     pub(super) fn arrive_held(&mut self, st: &St, idx: usize) -> Result<(), Signal> {
         let held = st.borrow().window.len();
         if idx + 1 == held && held >= Self::WINDOW && !st.borrow().window_eof {
             // The row the move lands on is the last the client holds and the view may go on: the client reads it, then up to 20 rows
             // after it, one call each (a block of fewer than 20 ends the view, a full block leaves it open); the move itself follows.
-            // Pinned by pages/lt-testpage-list-rows/ListRowsWindow.al:GoToKeyLastThenRow2_Both41Rows, _Both60Rows (the probe read
+            // Pinned by testpage/ListRowsWindow.al:GoToKeyLastThenRow2_Both41Rows, _Both60Rows (the probe read
             // `G60` at the end of a full block) and _Both61Rows, and by pages/W1Navigation.al:GoToKey_List_FiftyRows_RowsReadByAFarJump.
             let rec = self.page_rec(st);
             let last = st.borrow().window[idx].stored.clone();
@@ -2337,7 +2207,7 @@ impl Session {
             }
         }
         // In a key other than the primary key each step of the scan reads its row once more, as Next does: pinned for a view the
-        // client holds whole (pages/lt-outside-worksheet/RmInitValueKey.al:231 RM_List_OpenEdit `goto log` =
+        // client holds whole (testpage/RmInitValueKey.al:231 RM_List_OpenEdit `goto log` =
         // `R:4;R:4;R:4;C:4;R:2;R:2;R:2;C:2;...`, :250, :269, :290, :311). A longer view keeps the assumption.
         if held < Self::WINDOW && self.still_reads_once_more(st) {
             return self.read_client_row_in(st, idx, true);
@@ -2356,7 +2226,7 @@ impl Session {
             ));
         }
         // Last on an ascending find list with OnFindRecord only and no row trigger, standing on the row where Next answered false
-        // after it walked past the first window, asks the page nothing (misc/lt-probes-needed-6/PnF06FindListMoves.al:1799, :1815
+        // after it walked past the first window, asks the page nothing (testpage/PnF06FindListMoves.al:1799, :1815
         // RK_Asc_Find_21Rows, _25Rows and :1351, :1367 RK_AscKind_Find_21Rows, _25Rows `last = Yes|<last>|`).
         let find_only_list = !self.declares(st, "onnextrecord") && self.filtered_find_list_without_row_triggers(st);
         if how == PageMethod::Last
@@ -2382,7 +2252,7 @@ impl Session {
             PageMethod::Last => {
                 let found = self.nav_find(st, "+")?;
                 // The blank line is the last line the client shows: it is reached first, then the client settles on the
-                // last row (misc/lt-probes-needed-3/PnC07TestPage.al:New_AtTheEnd and New_AfterMovingAwayFromNewRow, OnNewRecord
+                // last row (testpage/PnC07TestPage.al:New_AtTheEnd and New_AfterMovingAwayFromNewRow, OnNewRecord
                 // twice with the New(); New_InTheMiddle after First() has one).
                 if found
                     && cursor == Cursor::Row
@@ -2409,11 +2279,9 @@ impl Session {
                         st.borrow_mut().view_read_to_end = true;
                         false
                     } else if st.borrow().new_line {
-                        // corpus handlers/TestPageNewRowLine_Tests.al: Next() past the last data
+                        // corpus testpage/TestPageNewRowLine_Tests.al: Next() past the last data
                         // row lands on the blank line and answers true.
-                        self.refuse_read_only_part(st, "Next() onto the new-row line")?;
-                        self.land_on_new_line(st)?;
-                        return Ok(true);
+                        return self.walk_onto_new_line(st);
                     } else {
                         false
                     }
@@ -2425,9 +2293,12 @@ impl Session {
                     let found = self.nav_find(st, "+")?;
                     // A list opened on the row its OnOpenPage left Rec on goes back from the new line to the last row it holds as a
                     // move between its rows does: the row read twice, then OnAfterGetCurrRecord (corpus
-                    // pages/lt-qr-onopenpage-moves-rec/QrMovedTests.al:585 QR_TempList_PageRun_NoMove `previous log` =
+                    // pages/onopenpage-moves-rec/QrMovedTests.al:585 QR_TempList_PageRun_NoMove `previous log` =
                     // `R:D;R:D;C:D;`, :615 QR_List_RunModal_FindLast). Other lists keep the earlier move.
-                    if found && st.borrow().opened_on_moved_rec && st.borrow().host.is_none() {
+                    if found
+                        && (st.borrow().opened_on_moved_rec || st.borrow().refreshed_after_gone_move)
+                        && st.borrow().host.is_none()
+                    {
                         let key = self.row_key(&self.page_rec(st))?;
                         let last = st.borrow().window.len().checked_sub(1);
                         if let Some(at) = last.filter(|&at| Self::same_key(&st.borrow().window[at].key, &key)) {
@@ -2437,6 +2308,7 @@ impl Session {
                                 s.draft = false;
                                 s.stale = false;
                             }
+                            st.borrow_mut().refreshed_after_gone_move = false;
                             self.read_client_row(st, at)?;
                             return Ok(true);
                         }
@@ -2446,7 +2318,7 @@ impl Session {
                 Cursor::Row => {
                     let moved = self.nav_next(st, -1)?;
                     // On a Worksheet over a database table in a key other than the primary key, a First right after a Previous that
-                    // found no row before the first one reads nothing (pages/lt-rz-outside-page-moves/RzWorksheetSecondaryKeyOpen.al
+                    // found no row before the first one reads nothing (pages/run-modal/RzWorksheetSecondaryKeyOpen.al
                     // RZ_RunModal_RecBeforeView `after close log`: `previous again` then `First` add no read).
                     if !moved
                         && matches!(
@@ -2472,19 +2344,19 @@ impl Session {
 
     /// GoToKey / GoToRecord: a forward scan from the first row of the view, populating every row it
     /// passes, so a row whose population fails stops the search there (corpus
-    /// autoformat/TestAutoFormatExpressionTiming.al, RowFormat_GoToKeyPastTheFailingRow_ReadsAsTheTestPageNotOpen).
+    /// format-evaluate/autoformat/TestAutoFormatExpressionTiming.al, RowFormat_GoToKeyPastTheFailingRow_ReadsAsTheTestPageNotOpen).
     /// A key no row has leaves the page on the row it stood on
-    /// (corpus handlers/TestPageGoToRecordNonKeyRefresh_Tests.al:1-15).
+    /// (corpus testpage/TestPageGoToRecordNonKeyRefresh_Tests.al:1-15).
     pub(super) fn page_go_to_key(&mut self, st: &St, key: &mut [Value]) -> Result<Value, Signal> {
         if !self.has_source(st) {
             return unsupported("GoToKey on a page without a source table");
         }
         let result_used = self.ret_used;
         // A TestPart raises when the key has the wrong number of fields, and when the key is
-        // missing and the result is not used (corpus testpart/TestTestPart.al:
+        // missing and the result is not used (corpus testpage/parts/TestTestPart.al:
         // TestPart_GoToKey_ErrorsWhenTheKeyFieldCountIsWrong, _ErrorsForAMissingKeyWhenTheReturnIsDiscarded).
-        // Texts and codes: handlers/TestPageRuntimeContracts.al:300-312 (TestPart_GoToKey_Arity_AndMissingKey).
-        // A page too raises for more values than the key has fields (pages/lt-page-runtime/P82TestPage.al:Navigation_GoToKey
+        // Texts and codes: testpage/TestPageRuntimeContracts.al:300-312 (TestPart_GoToKey_Arity_AndMissingKey).
+        // A page too raises for more values than the key has fields (pages/run-modal/P82TestPage.al:Navigation_GoToKey
         // `too-many-key-values`); fewer is pinned for a part only.
         {
             let rec = self.page_rec(st);
@@ -2501,7 +2373,7 @@ impl Session {
         st.borrow_mut().after_new = None;
         let rec = self.page_rec(st);
         let table = self.table(&rec)?;
-        // A lowercase text is no key of a Code field: the client compares as typed (pages/lt-page-runtime/P82TestPage.al:
+        // A lowercase text is no key of a Code field: the client compares as typed (pages/run-modal/P82TestPage.al:
         // Navigation_GoToKey `lowercase` = No for 'n2' against N2). A row that is not found, as for any other missing key.
         let lowercase_code = table.keys[0].iter().enumerate().any(|(n, &f)| {
             matches!(&table.fields[f].ty, RtType::Code(_))
@@ -2521,7 +2393,7 @@ impl Session {
                 None => Ok(self.default_value(&table.fields[f].ty)),
             })
             .collect();
-        // A value that is no value of the key's type is no key of any row (pages/lt-page-runtime/P82TestPage.al:Navigation_GoToKey
+        // A value that is no value of the key's type is no key of any row (pages/run-modal/P82TestPage.al:Navigation_GoToKey
         // `wrong-type`: GoToKey(1) over a Code key raises the row error).
         let want = match want {
             Ok(w) => w,
@@ -2537,7 +2409,7 @@ impl Session {
         if st.borrow().marked_refill_in_key.is_some() {
             return self.go_to_record_after_marked_refill(st, &want);
         }
-        // GoToKey onto the first row while standing on it reads nothing and runs no trigger (pages/lt-testpage-list-rows/
+        // GoToKey onto the first row while standing on it reads nothing and runs no trigger (testpage/
         // ListRowsGoToFirst.al:GoToKeyFirstWhileOnIt_Both5Rows_ReadsLogged and _OnlyCurr30Rows_ReadsLogged: `first-on-first-total = 0`,
         // also the second time).
         if self.declares(st, "onaftergetcurrrecord")
@@ -2590,7 +2462,7 @@ impl Session {
             return Ok(Value::Boolean(found));
         }
         // A list that serves its rows from OnFindRecord and holds its whole view goes to a row it
-        // holds as a move does (corpus pageext/PCCurrRecordReads.al:FindList_OnFindRecordAndOnNextRecord
+        // holds as a move does (corpus pages/extensions/PCCurrRecordReads.al:FindList_OnFindRecordAndOnNextRecord
         // `gotokey_2`, a table of 3 rows).
         if self.declares(st, "onfindrecord")
             && self.declares(st, "onaftergetrecord")
@@ -2609,7 +2481,7 @@ impl Session {
                 // With OnAfterGetCurrRecord the client steps from the first row to the key one move at a time (pages/lt-ai-list-
                 // order/AiListOrderTests.al:769 GoToRecord_BeforeAnyNavigation_NavCurr `R:R1002;F:==Yes;R:R1002;C:R1002;R:R1003;
                 // ...;C:R1004`). Pinned from the first row onto a later one; from another row not. Onto the first row while
-                // standing on it the row is read as by a move (not pinned, kept as before: pageupdate/TestPageUpdateGoneRow.al:492
+                // standing on it the row is read as by a move (not pinned, kept as before: pages/currpage/TestPageUpdateGoneRow.al:492
                 // List_DeletedByAction_PassThroughFind_OnlyRow does not observe those reads).
                 if self.declares(st, "onaftergetcurrrecord") && at > 0 {
                     let cur = self.row_key(&rec)?;
@@ -2646,7 +2518,7 @@ impl Session {
         // The last block this scan read: whether it was full and the key of its last row.
         let mut block: Option<(bool, Vec<Value>)> = None;
         // A Document host walks its rows from the first one, and its parts read their rows for each host row it passes whose
-        // lines they do not already show (pages/lt-qj-part-propagation/QjPartPropagation.al:1183 QL_Both_GoToKey_Counts
+        // lines they do not already show (pages/parts/QjPartPropagation.al:1183 QL_Both_GoToKey_Counts
         // `log-gotokey-h2-again` = H1 with the part's reads, then H2 with them; :1210 QL_Default_GoToKey_Counts). Pinned for a
         // Document page; another host keeps the earlier reads.
         let doc_host = {
@@ -2690,13 +2562,13 @@ impl Session {
         }
         if found {
             // A full block whose last row is the target: the read goes on. At the end of the view it reads
-            // the last two rows once more (handlers/TestPageRuntimeContracts.al:331, row 60). Where more
+            // the last two rows once more (testpage/TestPageRuntimeContracts.al:331, row 60). Where more
             // rows follow, nothing pins what is read.
             if let Some((true, last)) = &block {
                 if Self::same_key(&self.row_key(&rec)?, last) {
                     if self.nav_next(st, 1)? {
                         // Where more rows follow, the read goes on with the next block as a GoToKey past the rows read does: the
-                        // last two rows again, then up to 20 new rows (al-runner issue 6117; corpus writer TW, branch al-runtime-rs-staging-tw, pages/lt-testpage-list-rows/TwBlockEdge.al:125, :142; the reporter's run on real BC: 45 rows,
+                        // last two rows again, then up to 20 new rows (al-runner issue 6117; corpus writer TW, branch al-runtime-rs-staging-tw, testpage/TwBlockEdge.al:125, :142; the reporter's run on real BC: 45 rows,
                         // GoToKey(40) reads `R19..R40;R39;R40;R41..R45`, then Next reads nothing; 80 rows `...;R39;R40;R41..R60`,
                         // and GoToKey(62) then `R59..R80`). Measured on a list with OnAfterGetRecord alone; other row triggers
                         // are not pinned.
@@ -2709,7 +2581,7 @@ impl Session {
                                 "GoToKey onto the last row of a full block of rows read, with more rows after it, on a page with OnAfterGetCurrRecord, OnFindRecord or OnNextRecord (not pinned)",
                             );
                         }
-                        // Pinned by pages/lt-testpage-list-rows/TwBlockEdge.al (was assumption `gotokey-last-row-of-block-reads-next-block`).
+                        // Pinned by testpage/TwBlockEdge.al (was assumption `gotokey-last-row-of-block-reads-next-block`).
                         let r = self.read_window_block(st);
                         self.torn_down_on_error(st, r)?;
                         // Back on the row the GoToKey found, as the page shows it.
@@ -2734,7 +2606,7 @@ impl Session {
         }
         if !found {
             // A miss reads on to the end of the view and then the last two rows once more
-            // (handlers/TestPageSystemPartListWindowContracts.al:194, key 100).
+            // (testpage/TestPageSystemPartListWindowContracts.al:194, key 100).
             if block.is_some() && !st.borrow().window_eof {
                 let r = self.reread_last_rows(st);
                 self.torn_down_on_error(st, r)?;
@@ -2766,142 +2638,10 @@ impl Session {
         Ok(Value::Boolean(found))
     }
 
-    /// GoToRecord after an OnDrillDown marked rows, turned MarkedOnly on, left Rec on the last of them and called
-    /// `CurrPage.Update(false)` (`drilldown_marked_only_refresh`). The client first refills its rows around the row Rec was left on,
-    /// as the refresh after an action reads them from Rec's row (`read_list_again_from_row_as`): in a key other than the primary
-    /// key that row once more, then the row, the rows above it from the nearest up, and the row read as a move onto it (three times
-    /// in such a key, twice in the primary key) with OnAfterGetCurrRecord. Then:
-    /// - a GoToRecord of Rec's row answers true on it (corpus pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:269
-    ///   Name_DrillDown_GoToRecord `goto 3` `Yes/3:R3;R3;R5;R2;R3;R3;R3;C3;`, in the key ByName);
-    /// - a GoToRecord of another row walks the marked rows from the first, finds none and answers false, on the row the walk
-    ///   ended on (SuRefillKey.al:379 Id_DrillDown_GoToRecord `goto 3` `No/5:R5;R3;R2;R5;R5;C5;R2;R2;C2;R3;R3;C3;R5;R5;C5;`, in
-    ///   the primary key; al-runner issue 6008).
-    ///
-    /// Each answer is pinned in one key only: the other key's, Rec on a row with marked rows after it and more marked rows than
-    /// a window holds are refused.
-    fn go_to_record_after_marked_refill(&mut self, st: &St, want: &[Value]) -> Result<Value, Signal> {
-        let Some(left) = st.borrow_mut().marked_refill_in_key.take() else {
-            return unsupported("GoToRecord after a marking OnDrillDown without the rows it left (not pinned)");
-        };
-        self.pages.scope_unpinned.retain(|p| !Rc::ptr_eq(p, st));
-        let refuse = |what: &str| -> Result<Value, Signal> {
-            unsupported(format!(
-                "GoToRecord after an OnDrillDown turned MarkedOnly on and called CurrPage.Update(false) on a list, {what} (not pinned)"
-            ))
-        };
-        let in_key = self.still_reads_once_more(st);
-        let before = self.xrec_before_move(st);
-        let rec = self.page_rec(st);
-        rec.borrow_mut().fields = left;
-        let left_key = self.row_key(&rec)?;
-        let of_recs_row = Self::same_key(want, &left_key);
-        // With a part the GoToRecord of Rec's row refills as without one, in either key (corpus SuRefillKey.al:518, :562
-        // TW_*WithPart_GoToRecordOfRecsRow). A GoToRecord of another row walks the marked rows after the refill: in a key other
-        // than the primary key all of them, ending on Rec's row (:541 TW_NameKeyWithPart_GoToRecordOfUnmarkedRow `goto 2`
-        // `No/1:R1;R1;R3;R1;R1;R1;C1;R3;R3;R3;C3;R1;R1;R1;C1;`, al-runner issue 6141); in the primary key only a move onto the
-        // first marked row, where the page stays (:585 TW_IdKeyWithPart_GoToRecordOfUnmarkedRow `goto 2`
-        // `No/1:R3;R1;R3;R3;C3;R1;R1;C1;`). Both are pinned with two marked rows, Rec's row the last.
-        let with_parts = !st.borrow().parts.is_empty();
-        if with_parts {
-            // Pinned by pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al TW_NameKeyWithPart_GoToRecordOfUnmarkedRow, TW_IdKeyWithPart_GoToRecordOfUnmarkedRow, UD_IdKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_IdKeyWithPart_ActionAfterRowLostFlag (was assumption `drilldown-marked-walk-with-part`).
-        } else if of_recs_row != in_key {
-            return refuse(if in_key {
-                "in a key other than the primary key, of a row other than the row Rec was left on"
-            } else {
-                "in the primary key, of the row Rec was left on"
-            });
-        }
-        if !self.nav_find(st, "=")? {
-            return refuse("with Rec left outside the marked rows");
-        }
-        let key = self.row_key(&rec)?;
-        let stored = rec.borrow().fields.clone();
-        if self.nav_next(st, 1)? {
-            return refuse("with marked rows after the row Rec was left on");
-        }
-        rec.borrow_mut().fields = stored.clone();
-        let mut above = Vec::new();
-        while self.nav_next(st, -1)? {
-            above.push((self.row_key(&rec)?, rec.borrow().fields.clone()));
-            if above.len() >= Self::WINDOW {
-                return refuse("with more marked rows than a window holds");
-            }
-        }
-        let reads = if in_key { 2 } else { 1 };
-        for _ in 0..reads {
-            rec.borrow_mut().fields = stored.clone();
-            self.populate_current(st)?;
-        }
-        let mut held = Vec::new();
-        for (k, f) in &above {
-            rec.borrow_mut().fields = f.clone();
-            self.populate_current(st)?;
-            held.push(al_builtins::value::WindowRow {
-                key: k.clone(),
-                stored: f.clone(),
-                shown: rec.borrow().fields.clone(),
-            });
-        }
-        held.reverse();
-        self.ret_used = true;
-        if !matches!(
-            self.record_op(RecordOp::Get, &rec, &mut key.clone())?,
-            Value::Boolean(true)
-        ) {
-            return refuse("with the row Rec was left on gone");
-        }
-        let stored = rec.borrow().fields.clone();
-        for _ in 0..reads + 1 {
-            rec.borrow_mut().fields = stored.clone();
-            self.populate_current(st)?;
-        }
-        let shown = rec.borrow().fields.clone();
-        held.push(al_builtins::value::WindowRow {
-            key,
-            stored: stored.clone(),
-            shown,
-        });
-        {
-            let mut s = st.borrow_mut();
-            s.window = held;
-            s.window_from_start = true;
-            s.window_whole = true;
-            s.window_eof = true;
-            s.view_read_to_end = true;
-            s.cursor = Cursor::Row;
-            s.draft = false;
-            s.stale = false;
-        }
-        self.set_xrec_fields(st, stored);
-        let r = self.current_record_trigger(st, before);
-        self.torn_down_on_error(st, r)?;
-        if of_recs_row {
-            return Ok(Value::Boolean(true));
-        }
-        // The walk over the marked rows from the first one, a move onto each (SuRefillKey.al:379 `goto 3`: `R2;R2;C2;R3;R3;C3;
-        // R5;R5;C5;` after the refill); it ends on Rec's row, the last, so there is no move back.
-        let last = if with_parts && !in_key {
-            0
-        } else {
-            st.borrow().window.len() - 1
-        };
-        for idx in 0..=last {
-            let r = self.arrive_held(st, idx);
-            self.torn_down_on_error(st, r)?;
-        }
-        // A false GoToRecord moves no part (`page_method`); here the page did move, and the part follows to the row it ends on
-        // (corpus writer UD, branch al-runtime-rs-staging-ud, SuRefillKey.al:630, :722 `goto 2 again` `No/1`, `part` `D1`). What
-        // the part reads on the way is not pinned.
-        if with_parts {
-            self.sync_parts(st)?;
-        }
-        Ok(Value::Boolean(false))
-    }
-
     /// `FindFirstField` / `FindNextField` / `FindPreviousField`: walks the rows of the view from the
     /// first row, the row after the current one, or the row before it, and stops on the first row
     /// whose control shows `value`. The Variant is type-sensitive: a Text never matches an Integer
-    /// field (corpus handlers/TestPageAdvanced.al:302 Page_FindPreviousField_StringValue_*). A miss
+    /// field (corpus testpage/TestPageAdvanced.al:302 Page_FindPreviousField_StringValue_*). A miss
     /// leaves the cursor where it was (docs/probes-needed.md).
     pub(super) fn page_find_field(&mut self, st: &St, how: PageMethod, args: &mut [Value]) -> Result<Value, Signal> {
         if !self.has_source(st) {
@@ -2935,7 +2675,7 @@ impl Session {
         let mut key = origin;
         self.page_go_to_key(st, &mut key)?;
         // A Find...Field whose result is not used raises when no row carries the value
-        // (handlers/TestPagePlatformPageSourceTable_Tests.al:125-131, the whole message; controls/W2FindFieldAssign.al:
+        // (testpage/TestPagePlatformPageSourceTable_Tests.al:125-131, the whole message; pages/controls/W2FindFieldAssign.al:
         // FindNextField_MissWithResultUnused and FindPreviousField_MissWithResultUnused, BC 27.5 and 29.0).
         if !result_used && searched {
             return Err(error_code("The row does not exist on the TestPage.", "TestRowNotFound"));
@@ -2959,7 +2699,7 @@ impl Session {
     }
 
     /// A `Trap()` set on a TestPage that belongs to a routine ends with the routine; one set through
-    /// a `var` parameter belongs to the caller (corpus handlers/TestPageTrapScope_Tests.al:1-15).
+    /// a `var` parameter belongs to the caller (corpus testpage/TestPageTrapScope_Tests.al:1-15).
     pub(crate) fn end_trap_scope(&mut self, frame: &crate::Frame, params: usize, by_var: &[bool]) {
         // Every call ends here; without a trap there is nothing to look at.
         if self.pages.traps.is_empty() {
@@ -2968,8 +2708,8 @@ impl Session {
         for trap in self.pages.traps.clone() {
             // The trap ends with the last variable holding the page. A by-var parameter hands its page
             // back to the caller, and a page another variable still holds keeps the trap alive (corpus
-            // handlers/TestPageTrapSharedScope_Tests.al:87 TrapSharedByTwoLocalsSurvivesWhenOneIsAssignedOut,
-            // handlers/TestPageTrapScope_Tests.al TrapAssignedOutOfALocalVariableSurvives).
+            // testpage/TestPageTrapSharedScope_Tests.al:87 TrapSharedByTwoLocalsSurvivesWhenOneIsAssignedOut,
+            // testpage/TestPageTrapScope_Tests.al TrapAssignedOutOfALocalVariableSurvives).
             let mut local_holders = 0;
             let mut handed_back = false;
             for (i, v) in frame.locals.iter().enumerate() {
@@ -3061,7 +2801,7 @@ impl Session {
     /// The built-in action name `close_with` is asked for, as the `Action` the page reports. A
     /// lookup-mode modal reads OK and Cancel as LookupOK and LookupCancel; a page closing itself
     /// (`CurrPage.Close()`) reads as OK in a plain modal and as LookupCancel in lookup mode (corpus
-    /// handlers/TestPageModalQueryClose_Tests.al, TestPageModalSelfClose_Tests.al).
+    /// ui-handlers/TestPageModalQueryClose_Tests.al, TestPageModalSelfClose_Tests.al).
     pub(super) fn close_action(&self, st: &St, requested: &str) -> String {
         let (modal, lookup, object) = {
             let s = st.borrow();
@@ -3083,7 +2823,7 @@ impl Session {
     }
 
     /// What a modal page reports when its handler invoked nothing: the page type decides (corpus
-    /// handlers/TestPageBuiltInActions_Tests.al (i)-(k), TestPageModalQueryClose_Tests.al (b) and (e)).
+    /// ui-handlers/TestPageBuiltInActions_Tests.al (i)-(k), TestPageModalQueryClose_Tests.al (b) and (e)).
     pub(super) fn unattended_action(&self, st: &St) -> &'static str {
         let (lookup, object) = {
             let s = st.borrow();
@@ -3105,7 +2845,7 @@ impl Session {
     }
 
     /// `Page.RunModal(Id, Rec)` leaves the row the lookup was closed on in `Rec` (Gen. Journal Management's template
-    /// selection reads it). Pinned by pages/lt-page-runmodal-rec/PageRunModalRecAfterClose.al:P174_NonTemp_StartA_HandlerGoToKeyCThenOk and siblings.
+    /// selection reads it). Pinned by pages/run-modal/PageRunModalRecAfterClose.al:P174_NonTemp_StartA_HandlerGoToKeyCThenOk and siblings.
     /// Whether the view of the page's source has a row (a probe on a copy of Rec, which keeps its filters).
     pub(super) fn page_view_has_rows(&mut self, st: &St) -> bool {
         let rec = self.page_rec(st);
@@ -3123,8 +2863,8 @@ impl Session {
             || (statement && (a == "OK" || a == "Cancel"))));
         let picked = st.borrow_mut().selection.take();
         // LookupOK from a page that shows no row (an empty view of a list without a new-row line,
-        // handlers/TestPageModalNewRowLine_Tests.al:164 NotEditable_RunModalById_HasNoNewRowLine): what Rec holds then is not
-        // pinned (only GetRecord of a page variable after OK on an empty table is, errors/lt-ms-refusals-129/P129PageMisc.al:633
+        // ui-handlers/TestPageModalNewRowLine_Tests.al:164 NotEditable_RunModalById_HasNoNewRowLine): what Rec holds then is not
+        // pinned (only GetRecord of a page variable after OK on an empty table is, testpage/P129PageMisc.al:633
         // `id=0`), so a later use of Rec refuses. A partner test reached it.
         let lookup_ok = matches!(answer, Value::Option(n, m) if m.get(*n as usize).is_some_and(|a| a == "LookupOK" || statement && a == "OK"));
         if let (true, false, Some(r), None) = (lookup_ok, statement, handed, picked.as_ref()) {
@@ -3137,7 +2877,7 @@ impl Session {
         }
         if let (true, Some(r), Some(fields)) = (closed_on_row, handed, picked) {
             if r.borrow().fields.len() == fields.len() {
-                // Called as a statement, Rec keeps its values after OK (pages/lt-y41-page-probes/Y41RunModalStatementRec.al:195, :283,
+                // Called as a statement, Rec keeps its values after OK (ui-handlers/Y41RunModalStatementRec.al:195, :283,
                 // :298); after Cancel on another row that is not pinned, a later use of Rec refuses (docs/probes-needed.md:679).
                 if statement {
                     if !lookup_ok && !Self::same_values(&r.borrow().fields, &fields) {
@@ -3154,7 +2894,7 @@ impl Session {
 
     /// [`run_page_ui`](Self::run_page_ui); `field`: the call had a field argument (`Page.RunModal(Id, Rec, Rec.Field)`).
     /// With no handler for the page the field changes nothing: the unhandled-UI error is the same as without it
-    /// (corpus errors/lt-last-error-and-events/P70_06RunModalField.al), and with a TestPage handler neither (P106RunStatic.al).
+    /// (corpus errors/last-error/P70_06RunModalField.al), and with a TestPage handler neither (P106RunStatic.al).
     /// With a Page-typed handler a LookupOK answer is refused ([`Self::field_argument_answer`]).
     pub(crate) fn run_page_ui_with(
         &mut self,
@@ -3183,14 +2923,14 @@ impl Session {
                 trap.borrow_mut().trapping = false;
                 trap.borrow_mut().caught_by_trap = true;
                 // A variable that still holds an open page closes it first, as Close() does: OnQueryClosePage(OK), then OnClosePage
-                // with the old record (pages/lt-f3-pages/F3TrappedAndModal.al:Trap_02_SameVariableTrappedAgain line 36).
+                // with the old record (ui-handlers/F3TrappedAndModal.al:Trap_02_SameVariableTrappedAgain line 36).
                 if trap.borrow().open {
                     let a = self.close_action(&trap, "Close");
                     self.close_with(&trap, &a, false, false)?;
                 }
                 // The trapped variable receives the page and keeps it open for the test. A `Page`
                 // variable that was set up first hands its instance over
-                // (handlers/TestPageOnInit_Tests.al:223 POI_SetterBeforeTrappedRun_...).
+                // (testpage/TestPageOnInit_Tests.al:223 POI_SetterBeforeTrappedRun_...).
                 self.adopt_instance(&st, &trap);
                 st = trap;
                 trapped = true;
@@ -3211,11 +2951,11 @@ impl Session {
             }
         } else if !trapped && self.has_typed_page_handler(object) {
             // A Page-typed PageHandler of a Page.Run without a record: the handler runs on the page object, no page trigger runs
-            // before it (no OnOpenPage) and GetRecord hands a blank record (misc/lt-y14-triage/Y14PageTriage.al:383
+            // before it (no OnOpenPage) and GetRecord hands a blank record (testpage/Y14PageTriage.al:383
             // PageTypedPageHandler_PageRun, corpus master).
             // With a record no page trigger runs either, before or after the handler; the page's Rec holds the record's values
             // (GetRecord and the page's procedures see it, also a row that is not stored) without its filters, and a field
-            // argument changes nothing (pages/lt-y17-page-handler-record/Y17PageHandlerRecord.al:218 _GetRecord, :249
+            // argument changes nothing (pages/page-handler-with-record/Y17PageHandlerRecord.al:218 _GetRecord, :249
             // _EmptyHandler, :273 _PageProcedure, :301 _Close, :325 _FilteredRecord_List `filter=`, :352 _UnstoredRecord, :380
             // _RecordAndField).
             // A Page variable set up with SetRecord or SetTableView hands the handler its own instance (its globals, its Rec);
@@ -3248,9 +2988,9 @@ impl Session {
             r?;
             return Ok(Value::Null);
         }
-        // A second non-modal Run of a Page variable runs its OnInit again (pages/lt-page-variable-lifecycle/
-        // PageVariableLifecycle.al:131 PageVar_RunTwiceOnOneVariable `IOIO`); a second RunModal does not
-        // (controls/W2PageVariableInit.al:102-104 PageVariable_RunModalTwice). A run of the other kind than the one before, and a
+        // A second non-modal Run of a Page variable runs its OnInit again (pages/lifecycle/
+        // PageVariableLifecycle.al:119 PageVar_RunTwiceOnOneVariable `IOIO`); a second RunModal does not
+        // (pages/controls/W2PageVariableInit.al:102-104 PageVariable_RunModalTwice). A run of the other kind than the one before, and a
         // second non-modal run of a page with variables of its own (whether they keep their values is not pinned), are refused.
         let last = st.borrow_mut().last_run_modal.replace(modal);
         if let (false, Some(last)) = (trapped, last) {
@@ -3286,7 +3026,7 @@ impl Session {
         };
         let answer = match self.answer_page(&st, handler, modal) {
             // OK on the lookup list of a static Page.RunModal(Id, Rec) that shows no row fails, and the record the call was given
-            // comes back without its filters, its values kept (corpus PR 896, errors/lt-ms-refusals-129/Y9LookupNoRow.al
+            // comes back without its filters, its values kept (corpus PR 896, pages/run-modal/Y9LookupNoRow.al
             // Y9_Lookup_RunModalIdRec_FilteredToNoRow_Ok `filters=`, _EmptyTable_PrefilledRec_Ok `id=5|grp=Q|qty=9`).
             Err(Signal::Error(e))
                 if e.code == "TestActionNotFound"
@@ -3294,7 +3034,7 @@ impl Session {
                     && st.borrow().static_lookup =>
             {
                 // Page.RunModal(0, Rec) over the table's LookupPageId with a FilterGroup 2 filter and a view on the key leaves the
-                // record's filters as they were (misc/lt-y14-triage/Y14LookupNoRow.al:148 `rows rows` 0, corpus master). Which of
+                // record's filters as they were (ui-handlers/Y14LookupNoRow.al:148 `rows rows` 0, corpus master). Which of
                 // the two makes the difference is not pinned: one without the other is refused.
                 if let Some(r) = &handed {
                     let other_group = r.borrow().filters.iter().any(|f| f.group != 0);
@@ -3316,11 +3056,11 @@ impl Session {
         // With a TestPage handler the field argument changes nothing: what the handler sees, the action and the record after
         // the call are those of the call without it, for a field number, a field value, a FieldRef and an Integer of another
         // table, on a list and a card, with OK, Cancel, a Close action, a pick and a FilterGroup 2 filter
-        // (pages/lt-page-run-overloads-testpart/P106RunStatic.al:141-700 P106_RunModal_NumRecField*, P106_Run_NumRecField*,
+        // (pages/parts/P106RunStatic.al:141-700 P106_RunModal_NumRecField*, P106_Run_NumRecField*,
         // P106_BP_*; :761-866 RP_RunModal_FieldArg_*, RP_Run_FieldArg_FilterGroup2_GoToRecord; al-runner issue 5753).
         self.hand_back_selection(&st, &handed, &answer);
         // After a LookupOK the page variable holds the row the page closed on, and the next run of the variable opens on it;
-        // after OK it does not (pages/lt-page-run-overloads-testpart/P106RunInstance.al:P106_Inst_RunModal_LookupMode,
+        // after OK it does not (pages/parts/P106RunInstance.al:P106_Inst_RunModal_LookupMode,
         // P106_Inst_RunModal_List).
         if modal && matches!(&answer, Value::Option(o, m) if m.get(*o as usize).is_some_and(|n| n == "LookupOK")) {
             let instance = st.borrow().instance.clone();
@@ -3338,8 +3078,9 @@ impl Session {
     }
 
     /// What `Page.RunModal(Id, Rec, Field)` does with the field when a Page-typed handler answered. Only an answer other than
-    /// LookupOK is accepted, and then the field keeps its value (the corpus pins the field argument with TestPage handlers only,
-    /// P106RunStatic.al). Microsoft's tests need it: Segment Line.RunCreateInteraction
+    /// LookupOK is accepted, and then the field keeps its value (ui-handlers/F3TrappedAndModal.al:248-262 Card_PageTypedHandler,
+    /// :300 Dialog_PageTypedHandler, :355 List_PageTypedHandler: the handler leaves Response, the action is None and the field and
+    /// the row keep their values; the TestPage handlers are pinned by P106RunStatic.al). Microsoft's Segment Line.RunCreateInteraction
     /// runs `PAGE.RunModal(PAGE::"Create Interaction", Rec, "Interaction Template Code")` and Tests-Marketing answer it with a
     /// Page-typed handler that leaves Response alone (33 tests). A LookupOK answer stays refused.
     fn field_argument_answer(&self, field: bool, answer: Value) -> Result<Value, Signal> {
@@ -3350,17 +3091,16 @@ impl Session {
         if lookup_ok {
             return unsupported(FIELD_ARGUMENT_WITH_HANDLER);
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RunModalFieldKeptUnlessLookupOk);
         Ok(answer)
     }
 
-    /// A `[ModalPageHandler]` typed as the Page itself (handlers/PSModalPageHandlerTyped.al): the handler gets the page
+    /// A `[ModalPageHandler]` typed as the Page itself (ui-handlers/PSModalPageHandlerTyped.al): the handler gets the page
     /// object the code ran, never opened. `GetRecord` gives the record `RunModal` was given (an empty one when none),
     /// `LookupMode` is Yes, `SetRecord` and `GetRecord` work on it, `Response` arrives as None, and the value the
     /// handler leaves in it is what `Page.RunModal` answers. Whether the page's own triggers run is not pinned, so a
     /// page that declares one is refused.
     /// A Page-typed `[PageHandler]` for a Page.Run without a record ([`Self::run_page_ui_with`]): OnInit runs when the page object
-    /// is made, no other trigger before the handler (misc/lt-y14-triage/Y14PageTriage.al:383, corpus master: no `open` in the log).
+    /// is made, no other trigger before the handler (testpage/Y14PageTriage.al:383, corpus master: no `open` in the log).
     fn answer_typed_page(&mut self, st: &St, handler: Handler) -> Result<(), Signal> {
         self.construct_page(st)?;
         {
@@ -3390,7 +3130,7 @@ impl Session {
         handler: Handler,
     ) -> Result<Value, Signal> {
         // OnInit runs when the page object is made, before the handler starts; no other trigger of the page runs for the call
-        // (errors/lt-ms-refusals-136/P136PageTyped.al:P136_ModalHandler_TypedPage_OnInitList_LookupOK, _OnInitCard, and the
+        // (ui-handlers/P136PageTyped.al:P136_ModalHandler_TypedPage_OnInitList_LookupOK, _OnInitCard, and the
         // list and card pages there that declare OnOpenPage, OnAfterGetRecord, OnQueryClosePage and OnClosePage).
         self.construct_page(st)?;
         if self.has_source(st) {
@@ -3399,7 +3139,7 @@ impl Session {
                 // The record of a SetTableView alone is a view: it carries no position, so it does not replace the Rec the
                 // page's own code set (Contact Profile Answers.SetRunFromForm does `Rec := ProfileQuestionnaireLine` after the test's
                 // SetTableView; its handler then reads Rec."Line No."). Pinned for a row inside and outside the view:
-                // pages/lt-modal-handler-typed-page/PageTypedHandlerRec.al:SettableView_ThenAssignRecInsideView, :SettableView_ThenAssignRecOutsideView.
+                // pages/run-modal/PageTypedHandlerRec.al:SettableView_ThenAssignRecInsideView, :SettableView_ThenAssignRecOutsideView.
                 let table = r.borrow().table as usize;
                 let blank = self.initial_fields(table);
                 let view_only = st.borrow().set_view && Value::all_identical(&r.borrow().fields, &blank);
@@ -3411,7 +3151,7 @@ impl Session {
         {
             // The handler reads the lookup mode the run gave the page: Yes for the static Page.RunModal, which sets it, and the
             // variable's own for a Page variable, No unless LookupMode(true) was called (errors/lt-ms-refusals-128/
-            // P128ModalOnInit.al:191 `lookup=Yes`, :210 P128_TypedModalHandler_PageWithOnInit_PageVariable `lookup=No`).
+            // P128ModalOnInit.al:175 `lookup=Yes`, :210 P128_TypedModalHandler_PageWithOnInit_PageVariable `lookup=No`).
             let mut s = st.borrow_mut();
             s.typed_handler = true;
             s.handler_set_record = false;
@@ -3444,7 +3184,7 @@ impl Session {
             Some(v @ Value::Option(..)) => {
                 // LookupOK hands the page's record back to the record RunModal was given, as the TestPage handlers do (hand_back_selection).
                 // Pinned for a Page-typed handler that calls SetRecord (Saved Segment Criteria List: ReuseCriteria reads the record it passed):
-                // pages/lt-modal-handler-typed-page/PageTypedHandlerRec.al:RunModalWithRecord_HandlerSetRecord_LookupOK, with Cancel and with no
+                // pages/run-modal/PageTypedHandlerRec.al:RunModalWithRecord_HandlerSetRecord_LookupOK, with Cancel and with no
                 // SetRecord as the contrast (:RunModalWithRecord_HandlerSetRecord_Cancel, :RunModalWithRecord_NoSetRecord_LookupOK).
                 let lookup_ok = matches!(v, Value::Option(n, m) if m.get(*n as usize).is_some_and(|a| a == "LookupOK"));
                 if let (true, Some(r), true) = (lookup_ok, &record, self.has_source(st)) {
@@ -3486,7 +3226,7 @@ impl Session {
     }
 
     /// A ModalPageHandler that raised an error left its page open: the platform still asks the close, the parts first with
-    /// None, then the page with its own action, and RunModal raises the handler's error (pages/lt-modal-query-close-veto/
+    /// None, then the page with its own action, and RunModal raises the handler's error (pages/triggers/
     /// PageModalQueryCloseVeto.al:478 RP_ListWithFactBox_HandlerCancel_HostVetoes, where the page refuses the close). Pinned only
     /// for a refusal by a page with open parts, and for a close allowed in lookup mode (WbModalHandlerCloseTests.al); a page without
     /// parts, or one where no close trigger is declared, closes as before without asking; another allowed close, or one with an
@@ -3516,7 +3256,7 @@ impl Session {
         match self.close_with(st, a, false, false) {
             Ok(_) if st.borrow().open && st.borrow().close_vetoed => self.refuse_unpinned_modal_veto(st),
             // Allowed in lookup mode: the part answers None, the page LookupCancel, the page closes and RunModal raises the
-            // handler's error, also an error of a page action the handler invoked (pages/lt-wb-6291/WbModalHandlerCloseTests.al:9-39
+            // handler's error, also an error of a page action the handler invoked (ui-handlers/WbModalHandlerCloseTests.al:9-39
             // `Part:None|Page:LookupCancel`, al-runner issue 6291). Outside lookup mode it is not pinned.
             Ok(_) if lookup && !st.borrow().open => Ok(()),
             Err(Signal::Error(_)) | Ok(_) => unsupported(
@@ -3545,7 +3285,7 @@ impl Session {
         }
         if modal && std::mem::take(&mut st.borrow_mut().test_close_vetoed) {
             // A TestPage.Close() the page's OnQueryClosePage refused in the handler: RunModal raises, no OnClosePage runs
-            // (pages/lt-modal-query-close-veto/PageModalQueryCloseVeto.al:167 Modal_HandlerClose_VetoAlways, :236
+            // (pages/triggers/PageModalQueryCloseVeto.al:167 Modal_HandlerClose_VetoAlways, :236
             // Modal_HandlerOkThenClose_VetoAlways). Only a veto by the page's own trigger is pinned.
             self.refuse_unpinned_modal_veto(&st)?;
             st.borrow_mut().modal = false;
@@ -3556,9 +3296,9 @@ impl Session {
             ));
         }
         // A plain `TestPage.Close()` in the handler of a modal page: RunModal raises; the static RunModal of a Dialog page, with
-        // and without a record (misc/lt-cb-odd-leads/CbHandlerTests.al:181 ModalHandler_CallsClose_RunModalOutcome), and a Page
+        // and without a record (ui-handlers/CbHandlerTests.al:181 ModalHandler_CallsClose_RunModalOutcome), and a Page
         // variable's RunModal of a Card given SetRecord, whose Rec is the blank record without filters afterwards
-        // (pages/lt-bl-unopened-currpage/UnopenedCurrPage.al:273 Update_Then_RunModal_Card_HandlerCloses `rec-after-close`).
+        // (pages/currpage/UnopenedCurrPage.al:273 Update_Then_RunModal_Card_HandlerCloses `rec-after-close`).
         if modal && std::mem::take(&mut st.borrow_mut().test_closed_in_handler) {
             let page_type = self.engine.object_facts[st.borrow().object as usize]
                 .page_type_lower()
@@ -3597,10 +3337,10 @@ impl Session {
                 // The platform closes the page the handler left open, and OnQueryClosePage
                 // raises again: a second message, a second refusal. The caller gets control back
                 // with the page gone and no action completed; the page's writes stay (corpus
-                // handlers/TestPageQueryCloseMessageHandler_Tests.al:
+                // ui-handlers/TestPageQueryCloseMessageHandler_Tests.al:
                 // ErrorInQueryClosePage_MessageConsumed_CallerRegainsControl, ..._SettlesThePagesUncommittedWrite).
                 // A refusal by a plain `false` of a modal page's own OnQueryClosePage: RunModal answers None without an error,
-                // the last error is the veto's, and OnClosePage does not run (pages/lt-modal-query-close-veto/
+                // the last error is the veto's, and OnClosePage does not run (pages/triggers/
                 // PageModalQueryCloseVeto.al:275 Modal_HandlerDoesNothing_VetoAlways; after a vetoed OK or Cancel in the
                 // handler the platform asks once more with its own action, :129, :148, :255; the next run is a clean one, :309).
                 let vetoed = st.borrow().close_vetoed;
@@ -3620,7 +3360,7 @@ impl Session {
             }
         }
         // A handler that left its page torn down closed it without OK (corpus
-        // testpageteardown/TestPageTeardown.al:1930; the non-lookup reading is docs-only).
+        // testpage/lifecycle/TestPageTeardown.al:1930; the non-lookup reading is docs-only).
         if modal && !st.borrow().open && st.borrow().result.is_none() {
             let a = self.close_action(&st, "Cancel");
             st.borrow_mut().result = Some(a);
@@ -3645,6 +3385,6 @@ impl Session {
     // ---- writing ------------------------------------------------------------------------
 }
 
-fn s_window_key(_: &Session, st: &St, i: usize) -> Option<Vec<Value>> {
+pub(super) fn s_window_key(_: &Session, st: &St, i: usize) -> Option<Vec<Value>> {
     st.borrow().window.get(i).map(|w| w.key.clone())
 }

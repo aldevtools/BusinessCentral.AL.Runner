@@ -1,5 +1,5 @@
 //! A `LinkedObject = true` table has no SQL table behind it in a test database: Insert and Count raise the SQL error BC raises
-//! (record/lt-x-table-props/XTablePropsTests.al:720-737). The other uses are not pinned and are refused.
+//! (record/table-properties/XTablePropsTests.al:720-737). The other uses are not pinned and are refused.
 
 use al_builtins::native::Signal;
 use al_testkit::error_message;

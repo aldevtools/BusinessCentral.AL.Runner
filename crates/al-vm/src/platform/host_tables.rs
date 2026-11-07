@@ -8,7 +8,7 @@ use al_data::TableDef;
 /// The Time Zone table lists the host's zones, `No.` from 1 (record/TestTimeZoneVirtualTable.al:
 /// more than one row, `No.` running 1 to N without gaps, a non-blank `ID`, `Get(1)` the first row of
 /// a scan, `Get` past the end finds nothing). The default host serves the 144 rows of the corpus CI
-/// (record/lt-uv-time-zone-table/UvTimeZoneRows.al:42-240; `al_host::time_zone_table`). The real table depends
+/// (record/table-properties/UvTimeZoneRows.al:42-240; `al_host::time_zone_table`). The real table depends
 /// on the host Windows version (UvTimeZoneRows.al:7-11: a Windows SaaS sandbox lists 141 rows); the corpus CI
 /// answer is served.
 pub(super) fn time_zone_rows(t: &TableDef, i: &Ident) -> Vec<Entry> {
@@ -25,7 +25,7 @@ pub(super) fn time_zone_rows(t: &TableDef, i: &Ident) -> Vec<Entry> {
         .collect()
 }
 
-/// (ID, Description and "Description In English", "Learn More Link") of a Feature Key (platform/lt-ba-columns/
+/// (ID, Description and "Description In English", "Learn More Link") of a Feature Key (metadata/platform-tables/
 /// BaFeatureKeyTexts.al:14-76).
 const FEATURE_KEY_TEXTS: &[(&str, &str, &str)] = &[
     (
@@ -186,7 +186,7 @@ pub(super) fn feature_key_rows(t: &TableDef, target: Option<&al_version::Target>
             r[pos(t, 8)] = Value::Boolean(data_update);
             r[pos(t, 9)] = Value::Text(format!("{version}.0").into());
             // Description (3), "Learn More Link" (4) and "Description In English" (10) of the keys
-            // platform/lt-ba-columns/BaFeatureKeyTexts.al pins (the same on 27.5, 28.5 and 29.0); unknown for any other key.
+            // metadata/platform-tables/BaFeatureKeyTexts.al pins (the same on 27.5, 28.5 and 29.0); unknown for any other key.
             let texts = FEATURE_KEY_TEXTS.iter().find(|(k, _, _)| *k == id);
             for col in [3, 4, 10] {
                 if t.fields.iter().any(|f| f.id == col) {
@@ -210,7 +210,7 @@ use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_data::{Row, Scan, StoreError};
 
 /// The languages the corpus pins, as (LCID, name, abbreviated name, primary code page, tag). The table lists every
-/// language of the host (212 rows on BC 29, 208 before: platform/lt-ag-contoso/AgWindowsLanguage.al:61-68), of which these
+/// language of the host (212 rows on BC 29, 208 before: metadata/platform-tables/AgWindowsLanguage.al:61-68), of which these
 /// are pinned: 1031, 1033 and 2057 (record/TestWindowsLanguageTable.al:19-60), 1025, the first row
 /// (AgWindowsLanguage.al:65), and the row of each of the DemoTool's 54 codes (AgWindowsLanguage.al:167-184, 209-226,
 /// 251-268, QX_WindowsLanguage_ByAbbreviatedName_Part1-3, the same on every version). A read that would have to answer
@@ -273,11 +273,11 @@ const LANGUAGES: &[(i32, &str, &str, &str, &str)] = &[
     (13321, "English (Philippines)", "ENP", "437", "en-PH"),
 ];
 /// Rows the corpus pins without their code page and tag (a read of either is refused), as (LCID, name, abbreviated name):
-/// 12297 English (Zimbabwe), ENW, Globally Enabled, no STX file (types/lt-wc/WcUnpinnedSingles.al:148-173). They are not in
+/// 12297 English (Zimbabwe), ENW, Globally Enabled, no STX file (errors/WcUnpinnedSingles.al:148-173). They are not in
 /// [`LANGUAGES`], so a filter on their abbreviated name alone is not taken as naming one row.
 const NAME_ONLY_LANGUAGES: &[(i32, &str, &str)] = &[(12297, "English (Zimbabwe)", "ENW")];
 /// Rows pinned with their tag but not their code page (a read of it is refused), as (LCID, name, abbreviated name, tag):
-/// 1078 Afrikaans (South Africa), AFK, af-ZA (corpus master, corpus PR 871: misc/lt-np4-probes/Np4Misc.al
+/// 1078 Afrikaans (South Africa), AFK, af-ZA (corpus master, corpus PR 871: format-evaluate/Np4Misc.al
 /// NP4_WindowsLanguage_Get1078). Not in [`LANGUAGES`] either.
 const TAG_ONLY_LANGUAGES: &[(i32, &str, &str, &str)] = &[(1078, "Afrikaans (South Africa)", "AFK", "af-ZA")];
 /// "STX File Exist" is pinned false for these rows (WcUnpinnedSingles.al:160, :169).
@@ -293,11 +293,11 @@ fn unique_abbreviation(abbr: &str) -> Option<i64> {
 }
 /// "STX File Exist" is pinned true for these rows (AgWindowsLanguage.al:110-114); for every other row it is not known.
 const STX_FILE_EXISTS: [i32; 5] = [1030, 1031, 1033, 1036, 2057];
-/// "Localization Exist" is pinned true for these rows (errors/lt-ms-refusals-128/P128WindowsLanguage.al:46-50); for every
+/// "Localization Exist" is pinned true for these rows (record/P128WindowsLanguage.al:46-50); for every
 /// other row it is not known.
 const LOCALIZATION_EXISTS: [i32; 5] = [1031, 1033, 1036, 1040, 2057];
-/// Ids of the Windows range that are no row: 1, 127 and 4096 (errors/lt-ms-refusals-129/P129WindowsLanguage.al:63-96),
-/// 1, 2, 7, 9, 10 and 12 (errors/lt-ms-refusals-137/P137WindowsLanguage.al:24-54, every version). Every other id that is
+/// Ids of the Windows range that are no row: 1, 127 and 4096 (record/P129WindowsLanguage.al:63-96),
+/// 1, 2, 7, 9, 10 and 12 (record/P137WindowsLanguage.al:24-54, every version). Every other id that is
 /// not listed above stays unknown.
 const NO_ROW: [i64; 8] = [1, 2, 7, 9, 10, 12, 127, 4096];
 /// The ids a culture can have: a number above this is no language (TestWindowsLanguageTable.al:63-70
@@ -339,7 +339,7 @@ fn language_filter_refusal(t: &TableDef, filters: &[FieldFilter]) -> Result<(), 
 }
 
 /// Windows Language."Primary Language ID" per LCID, as measured on real BC (writer Y11, corpus branch
-/// al-runtime-rs-staging-y11, record/lt-y11-windows-language/Y11WindowsLanguagePrimary.al; al-runner #6410). It is the
+/// al-runtime-rs-staging-y11, record/table-properties/Y11WindowsLanguagePrimary.al; al-runner #6410). It is the
 /// LCID of a culture family, not a rule on the LCID's bits (2052 zh-CN answers 1028, 9242 sr-Latn-RS answers 1050):
 /// only these ids are answered, and the column of any other row is unknown. Runs on assumption
 /// windows-language-primary-language-id until the probe is in the pinned corpus.
@@ -641,7 +641,7 @@ pub(super) fn windows_language_count(
 
 // ---- Language Selection --------------------------------------------------------------------------
 
-/// Every row of Language Selection on a fresh tenant, every column (platform/lt-platform-rows-fresh/
+/// Every row of Language Selection on a fresh tenant, every column (metadata/platform-tables/
 /// PlatformRowsLanguageSelection.al:76 and the 26 tests after it): (Name, Language Tag, Language ID, Primary Language ID,
 /// Abbreviated Name, Enabled, only from BC 29). The table holds 212 rows from BC 29 and 208 before (:574-586); the four
 /// rows only BC 29 has are `<absent>` before it (:238, :377, :401, :489).
@@ -1042,8 +1042,8 @@ pub(super) fn language_selection_rows(t: &TableDef, target: Option<&al_version::
 // ---- License Permission ---------------------------------------------------------------------------
 
 /// The rows the corpus pins: the first row of the table, `TableData` 0 with every permission blank, and `Table` 99999 with
-/// Read, Insert, Modify, Delete and Execute `Yes` and Limited Usage blank (platform/lt-platform-tables/PtCloudTables.al:60-76,
-/// LicensePermission_InsertModifyDelete); and, read by key, the rows of platform/lt-ag-contoso/AgLicensePermission.al:43-67
+/// Read, Insert, Modify, Delete and Execute `Yes` and Limited Usage blank (metadata/platform-tables/PtCloudTables.al:60-76,
+/// LicensePermission_InsertModifyDelete); and, read by key, the rows of metadata/platform-tables/AgLicensePermission.al:43-67
 /// (LicensePermission_CodeunitRows_ByKey), every one with the same permissions: Codeunit 410 "Update Analysis View"
 /// (:43, :55; Cash Flow Wksh.-Register Batch reads it while the Contoso company is built), Codeunit 1, 80 and 99999999,
 /// the probe app's own Codeunit 78401, Table 18, TableData 18, Page 21, Report 1, XMLport 1, Query 1 and System 1. The
@@ -1080,7 +1080,7 @@ fn license_row(t: &TableDef, object_type: i32, number: i32, permission: i32) -> 
     r
 }
 
-/// The rows of an app's own objects read by key, pinned on corpus master since PR 809: platform/lt-ag-contoso/AgLicensePermission.al LicensePermission_ByKey_CustomerAndIsvRanges reads
+/// The rows of an app's own objects read by key, pinned on corpus master since PR 809: metadata/platform-tables/AgLicensePermission.al LicensePermission_ByKey_CustomerAndIsvRanges reads
 /// Codeunit 50000, 50123, 99999, 70000123 and 2000000000, Table 50000 and 70000123, TableData 70000123, Page 50100 and Report
 /// 70000001, each with every permission `Yes`, and Codeunit 0 with every permission blank.
 const LICENSE_ROWS_UQ: &[(i32, i32, i32)] = &[
@@ -1097,11 +1097,11 @@ const LICENSE_ROWS_UQ: &[(i32, i32, i32)] = &[
     (5, 0, 0),
 ];
 
-/// The object types pinned by lt-ss1030/SsLicensePermissionObjects.al (corpus branch al-runtime-rs-staging-ss1030 at
+/// The object types pinned by permissions/permission-sets/SsLicensePermissionObjects.al (corpus branch al-runtime-rs-staging-ss1030 at
 /// c36d14ea, not yet on corpus master): TableData, Table, Report, Codeunit, XMLport, Page and Query.
 const LICENSE_TYPES_SS: &[i64] = &[0, 1, 3, 5, 6, 8, 9];
 
-/// The Read, Insert, Modify, Delete and Execute permissions lt-ss1030/SsLicensePermissionObjects.al pins for an object of
+/// The Read, Insert, Modify, Delete and Execute permissions permissions/permission-sets/SsLicensePermissionObjects.al pins for an object of
 /// [`LICENSE_TYPES_SS`] that no app declares, and whether it pins Limited Usage (blank) too:
 /// - 50123, 99999 and 70000456: every permission `Yes`, Limited Usage blank (:22-33, the `UnusedNumbers` tests).
 /// - TableData and Table at 50001, 60000, 70000000, 70000500, 74999999, 80000, 99999998 and 99999999: every permission `Yes`,
@@ -1144,7 +1144,7 @@ const LICENSE_SYSTEM_FIRST: i64 = 2_000_000_000;
 
 /// The pinned rows of the tables above, as Read, Insert, Modify, Delete and Execute, and whether Limited Usage is pinned
 /// (blank) too. Page at 2000000000 and 2000000001 has Execute only from BC 28, every permission before
-/// (lt-ss1030/SsLicensePermissionObjects.al:106-109, :114-117, gate `LicensePermissionTopRangePageFrom28`).
+/// (permissions/permission-sets/SsLicensePermissionObjects.al:106-109, :114-117, gate `LicensePermissionTopRangePageFrom28`).
 fn license_pinned_perms(
     object_type: i64,
     number: i64,
@@ -1231,11 +1231,11 @@ fn license_list(t: &TableDef, object_type: i64) -> Result<&'static str, StoreErr
 }
 
 /// Where corpus PR 900 pins License Permission rows of the system range (2000000000 and up), Cronus license of the CI
-/// containers, platform/lt-license-permission/LicensePermissionRows.al (cited as `LPR` below):
+/// containers, metadata/platform-tables/LicensePermissionRows.al (cited as `LPR` below):
 /// - every object type with a list at 2000000002, 4, 6, 20, 38, 43, 58, 100, 150, 200, 500, 1000, 2000100000, 2099999999
 ///   and 2100000000 (`LPR`:280-290, the `SystemRange_*` tests :292-548; Table and TableData at 2000000001, 4, 43 also
 ///   :135-160), System at 2000000000 and 2000000001 (:494-520);
-/// - the types of [`LICENSE_TYPES_SS`] at 2000000000, 2000000001 and 2147483647 (lt-ss1030/SsLicensePermissionObjects.al:99-120).
+/// - the types of [`LICENSE_TYPES_SS`] at 2000000000, 2000000001 and 2147483647 (permissions/permission-sets/SsLicensePermissionObjects.al:99-120).
 const LICENSE_SYSTEM_POINTS: &[i64] = &[
     2_000_000_002,
     2_000_000_004,
@@ -1275,7 +1275,7 @@ fn license_system_point(object_type: i64, number: i64) -> bool {
 
 /// BC's own narrowings of the license in the system range (ADR-060 decision 3); the license (Cronus) grants all five
 /// permissions on 2000000000..2000000300 for every list.
-/// - Table 2000000001 to 2000000200: Delete blank (`LPR`:316-338, :135-160; lt-ss1030/SsLicensePermissionObjects.al:118).
+/// - Table 2000000001 to 2000000200: Delete blank (`LPR`:316-338, :135-160; permissions/permission-sets/SsLicensePermissionObjects.al:118).
 ///   Table 2000000000 keeps Delete (SsLicensePermissionObjects.al:104-110).
 /// - Page 2000000000, 2000000001, 2000000002 and 2000000004: Execute only from BC 28, all five before (`LPR`:438-457,
 ///   `#if BC28PLUS`; SsLicensePermissionObjects.al:106-109, :114-117; gate `LicensePermissionTopRangePageFrom28`).
@@ -1484,7 +1484,7 @@ fn license_exact(t: &TableDef, filters: &[FieldFilter]) -> Result<Option<(i64, i
 /// With a license: the object type a read covers, its numbers (0 and up: a negative number has no row, `LPR`:164-190),
 /// and the filters on the permission columns, which are answered from the rows (`LPR`:108-133, :195-262, :550-591).
 /// Served: filters on the two key fields naming one object type, plus filters on the permission columns; or no filter at
-/// all, which starts at TableData 0, the first row of the table (platform/lt-platform-rows-fresh/PlatformRowsLicensePermission.al:66-73).
+/// all, which starts at TableData 0, the first row of the table (metadata/platform-tables/PlatformRowsLicensePermission.al:66-73).
 fn license_domain<'f>(
     t: &TableDef,
     filters: &'f [FieldFilter],
@@ -1631,9 +1631,9 @@ pub(super) fn license_permission_count(
 
 /// A read of the Time Zone table filtered to one Windows time zone id that is not among the host rows: one row with that
 /// ID, whose `No.` and `Display Name` are unknown (refused when read). The default host lists every Windows id of CLDR's
-/// list (record/lt-uv-time-zone-table/UvTimeZoneRows.al), so this only matters for a host that lists fewer zones. BC on Windows lists every Windows zone, the runtime
+/// list (record/table-properties/UvTimeZoneRows.al), so this only matters for a host that lists fewer zones. BC on Windows lists every Windows zone, the runtime
 /// a few host zones; Pacific, UTC, Arabian, GMT, Eastern and Tokyo each find one row and an unknown id none (corpus branch
-/// al-runtime-rs-staging-uq at d651ec93, bump PR 809: record/lt-at-partner-gaps/AtTimeZoneNumbering.al
+/// al-runtime-rs-staging-uq at d651ec93, bump PR 809: record/AtTimeZoneNumbering.al
 /// UQ_TimeZone_LookupById). That every other Windows id of CLDR's list is a row is assumed (`time-zone-windows-id-is-a-row`,
 /// al-runner issue 6218). `None` leaves the read to the host rows: no such filter, an id among the host rows, or one that
 /// is no Windows id (absent, as an unknown id is). An id that differs from a Windows id only in case is refused: whether

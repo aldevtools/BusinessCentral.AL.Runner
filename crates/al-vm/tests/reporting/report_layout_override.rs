@@ -1,7 +1,7 @@
 //! Tenant Report Layout Override (2000000248, BC 29): an ordinary stored table, empty on a fresh tenant, with no validation, and
 //! Report Layout List shows the Description, Layout Status and IsObsolete of an override row whose flag is set; the current
 //! company's row wins over the global row ('' company) for all three, and a flag off on the company row shows the layout's own
-//! value (corpus master ac3499d6, platform/lt-platform-tables/PtCloudTables.al:794, :824, :901, BC 29.0).
+//! value (corpus master ac3499d6, metadata/platform-tables/PtCloudTables.al:794, :824, :901, BC 29.0).
 //! The platform tables are not in the test workspace: tables of their number and name stand in.
 
 use al_testkit::{Built, text};

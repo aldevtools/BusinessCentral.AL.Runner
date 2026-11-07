@@ -8,7 +8,7 @@ impl al_builtins::format::FormatCtx for Session {
         self.company_build
     }
     /// The report's language while a report runs (set by a trigger, or by the variable a SaveAs ran: report/
-    /// W3ReportObjectIdPreviewLanguage.al:893 `Ja`; report/lt-bd-format-region/BdRegionTests.al:1036 `mars` in a Run), else the
+    /// W3ReportObjectIdPreviewLanguage.al:893 `Ja`; reports/runtime/BdRegionTests.al:1036 `mars` in a Run), else the
     /// session's.
     fn language(&self) -> i32 {
         self.report
@@ -37,12 +37,12 @@ impl al_builtins::format::FormatCtx for Session {
         Some(t.keys.first()?.iter().map(|&p| t.fields[p].ty.clone()).collect())
     }
     /// `OnInitReport` of a report with the `FormatRegion` property: `Format` there writes en-US, the region is not applied yet
-    /// (report/lt-bd-format-region/BdRegionTests.al:120 BdProperty_De_DatasetAndFormat and the other property tests: every
+    /// (reports/runtime/BdRegionTests.al:120 BdProperty_De_DatasetAndFormat and the other property tests: every
     /// `init=` is the en-US text with `region=[]`). Pinned for the 13 property values of BdRegionReports.al; another region
     /// is refused.
     ///
     /// Outside a report started by Run, `CurrReport.Language :=` another language changes what `Format` writes
-    /// (report/W3ReportObjectIdPreviewLanguage.al:546-557 Language_Set1031_FormatAndColumns, a SaveAs: `Format changed=Ja`),
+    /// (reports/W3ReportObjectIdPreviewLanguage.al:546-557 Language_Set1031_FormatAndColumns, a SaveAs: `Format changed=Ja`),
     /// which is not built.
     fn region_unpinned(&self) -> Option<String> {
         const INIT_PINNED: [&str; 13] = [
@@ -74,6 +74,9 @@ impl al_builtins::format::FormatCtx for Session {
     /// A read through Format or Evaluate takes the caption a translation file gives (ADR-053 step 2): refused only where
     /// that cannot be looked up.
     fn enum_caption_refused(&self, id: u32, ordinal: Option<i32>) -> Option<String> {
+        if let Err(why) = self.enum_ml_captions(id, ordinal) {
+            return Some(why);
+        }
         match ordinal {
             Some(v) => self.enum_caption_translated(id, v).err(),
             None => self.enum_captions_translated(id).err(),
@@ -85,6 +88,11 @@ impl al_builtins::format::FormatCtx for Session {
         self.note_enum(id);
         if let Ok(Some(t)) = self.enum_caption_translated(id, value) {
             return t;
+        }
+        if let Ok(ml) = self.enum_ml_captions(id, Some(value)) {
+            if let Some((_, c)) = ml.into_iter().next() {
+                return c;
+            }
         }
         let o = &self.engine.program.objects[id as usize];
         if let Some((_, c)) = o.enum_captions.iter().find(|(v, _)| *v == value) {
@@ -108,6 +116,9 @@ impl al_builtins::native::Ctx for Session {
     fn translated_app_text(&self, app: &str, what: &str, xliff: &str) -> Result<Option<String>, Signal> {
         Session::translated_app_text(self, app, what, xliff)
     }
+    fn translated_app_read_unit(&self, app: &str, what: &str, xliff: &str) -> Result<(), Signal> {
+        Session::translated_app_read_unit(self, app, what, xliff)
+    }
 
     fn http_send(
         &mut self,
@@ -123,6 +134,9 @@ impl al_builtins::native::Ctx for Session {
     }
     fn work_date_day(&self) -> Option<i32> {
         Session::work_date_day(self)
+    }
+    fn xrec_holds_blob(&self, b: &al_builtins::stream::BlobRef) -> bool {
+        Session::xrec_holds_blob(self, b)
     }
     fn now_unix_millis(&self) -> Option<i64> {
         Some(self.now_millis())
@@ -171,6 +185,15 @@ impl al_builtins::native::Ctx for Session {
                 "record method {method} on {}",
                 other.describe()
             ))),
+        }
+    }
+    fn record_validate_variant(&mut self, rec: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+        match rec {
+            Some(Value::Record(rc)) => {
+                let rc = rc.clone();
+                Session::record_validate_variant(self, &rc, args)
+            }
+            other => Err(Signal::Unsupported(format!("Record.Validate on {}", other.describe()))),
         }
     }
     fn page(
@@ -294,7 +317,7 @@ impl al_builtins::native::Ctx for Session {
             .ok()
             .and_then(|o| o.get(&index).map(|r| r.as_ref().clone()))
             .unwrap_or_else(|| app.resources.clone());
-        // BC names the app `<name> by <publisher> <version>` (session/W5NavAppResources.al:GetResourceAsText_NameMatching).
+        // BC names the app `<name> by <publisher> <version>` (session-system/W5NavAppResources.al:GetResourceAsText_NameMatching).
         Some((format!("{} by {} {}", app.name, app.publisher, app.version), resources))
     }
     fn runner_call_stack(&self) -> String {
@@ -326,8 +349,8 @@ impl al_builtins::native::Ctx for Session {
             }
         }
         // While a test method runs, Microsoft's Test Runner app called it: its frames are below the test's, as
-        // `SessionInformation.Callstack` shows them (session/TestSessionInformationCallstackContracts.al:89-97), so its
-        // module comes last (al-runner issue 6248). Pinned by lt-ss1030/SsCallerModulesTestRunner.al:25-52 (corpus PR 830) on
+        // `SessionInformation.Callstack` shows them (session-system/TestSessionInformationCallstackContracts.al:89-97), so its
+        // module comes last (al-runner issue 6248). Pinned by collections/SsCallerModulesTestRunner.al:25-52 (corpus PR 830) on
         // the CI leg that runs tests through the Test Runner app; runs through the server's test runner hub list nothing, a
         // difference of the test runner and not of BC (docs/owner-review.md, 2026-10-30). Its manifest when the run loaded it; else its id, name and publisher
         // and no version (a read of the version is refused).
@@ -352,7 +375,7 @@ impl al_builtins::native::Ctx for Session {
     fn application_module(&self) -> al_builtins::value::ModuleInfoState {
         let bc = self.engine.target.as_ref().map(|t| &t.bc);
         let (major, minor) = bc.map_or((29, 0), |b| (i32::from(b.major), i32::from(b.minor)));
-        // Build and revision of the base application are not zero (session/W5ModuleInfo.al:
+        // Build and revision of the base application are not zero (session-system/W5ModuleInfo.al:
         // ModuleInfo_NullId_Properties); the artifact's own numbers when the run knows them, else 1.
         let (build, revision) = bc
             .and_then(|b| b.build.as_deref())
@@ -378,7 +401,7 @@ impl al_builtins::native::Ctx for Session {
         let parse = |s: &str| ops::parse_guid(s);
         if let Some(i) = apps.iter().position(|a| parse(&a.id).as_ref() == Some(id)) {
             // While an app installs, an app installed after it is not found (corpus branch al-runtime-rs-staging-y3,
-            // install/lt-install-order-subscribers/InstallOrderSubscriberTests.al:90-91: getModuleInfo=No during XApp A's install).
+            // install-upgrade/install-order/InstallOrderSubscriberTests.al:90-91: getModuleInfo=No during XApp A's install).
             let events = &self.events;
             if events
                 .not_installed_apps
@@ -509,25 +532,34 @@ impl al_builtins::native::Ctx for Session {
         let fields = (0..def.fields.len())
             .map(|pos| {
                 let f = &def.fields[pos];
+                let mut class_caption = None;
                 let caption = match self.field_caption_written(&def, pos) {
                     Ok(crate::recmeta::WrittenCaption::Text(c)) => Ok(c),
-                    Ok(_) => Err(format!("the caption of field {} is a CaptionClass", f.name)),
+                    Ok(written) => {
+                        if matches!(written, crate::recmeta::WrittenCaption::Class(_)) {
+                            class_caption = Some(self.field_caption(&def, pos));
+                        }
+                        Err(format!("the caption of field {} is a CaptionClass", f.name))
+                    }
                     Err(Signal::Unsupported(why)) => Err(why),
                     Err(_) => Err(format!("the caption of field {}", f.name)),
                 };
                 let options = match &f.ty {
-                    al_builtins::value::RtType::Option(_) => match self.members_of_field(&def, pos) {
-                        Ok(Some((false, members))) => Ok(Some(members.into_iter().map(|m| (m.1, m.2)).collect())),
-                        Ok(_) => Err(format!("the members of Option field {}", f.name)),
-                        Err(Signal::Unsupported(why)) => Err(why),
-                        Err(_) => Err(format!("the members of Option field {}", f.name)),
-                    },
+                    al_builtins::value::RtType::Option(_) | al_builtins::value::RtType::Enum(_) => {
+                        match self.members_of_field(&def, pos) {
+                            Ok(Some((_, members))) => Ok(Some(members)),
+                            Ok(None) => Err(format!("the members of Option field {}", f.name)),
+                            Err(Signal::Unsupported(why)) => Err(why),
+                            Err(_) => Err(format!("the members of Option field {}", f.name)),
+                        }
+                    }
                     _ => Ok(None),
                 };
                 TableFilterField {
                     number: f.id,
                     name: f.name.clone(),
                     caption,
+                    class_caption,
                     ty: f.ty.clone(),
                     options,
                 }
@@ -568,7 +600,12 @@ impl al_builtins::native::Ctx for Session {
         if let Ok(Some(t)) = self.enum_captions_translated(id) {
             return t;
         }
-        self.engine.program.objects[id as usize].enum_captions.clone()
+        let mut captions = self.engine.program.objects[id as usize].enum_captions.clone();
+        for (v, c) in self.enum_ml_captions(id, None).unwrap_or_default() {
+            captions.retain(|(w, _)| *w != v);
+            captions.push((v, c));
+        }
+        captions
     }
     fn enum_source_captions(&self, id: u32) -> Option<Vec<(i32, String)>> {
         matches!(self.enum_captions_translated(id), Ok(Some(_)))

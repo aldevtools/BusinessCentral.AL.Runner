@@ -1,7 +1,7 @@
 //! The model behind `SessionInformation.SqlStatementsExecuted()` and `SqlRowsRead()` (issue 5580).
 //!
 //! The corpus pins the sign of a counter's change between two reads, and its size only for the shapes [`sized`] lists
-//! (session/lt-bl-sql-counters/SqlCounters.al). So a read gives a tainted value (`Value::SqlCount`,
+//! (session-system/session/SqlCounters.al). So a read gives a tainted value (`Value::SqlCount`,
 //! `al_builtins::sqlcount`), and between two reads of a counter the VM classifies what ran (a segment):
 //!
 //! - nothing that touched the store: no change (SqlCounters.al:105-119);
@@ -22,7 +22,7 @@
 //! not classified.
 //!
 //! Database Inserts are buffered, and each record method is also given its cost under the buffer rule that
-//! session/lt-bl-sql-counters/SkSqlBudget.al measured ([`SqlCounters::cost`]); a segment of methods that all have a cost is
+//! session-system/session/SkSqlBudget.al measured ([`SqlCounters::cost`]); a segment of methods that all have a cost is
 //! sized by their sum, whatever came before it, as long as the buffer was known throughout. With nothing buffered, the reads
 //! (and a Modify after its Get) have the cost writer TX measured for each method alone ([`SqlCounters::read_cost`]); Inserts
 //! made before the session's first read are followed too ([`SqlCounters::pre_insert`]), so a measurement that starts after
@@ -866,6 +866,7 @@ impl SqlCounters {
                 chain: cur.chain,
                 floor: cur.floor,
             },
+            ty: al_builtins::value::SqlType::BigInteger,
         });
         self.trim();
         v
@@ -1159,8 +1160,12 @@ fn one_step(seg: &[Event]) -> Option<()> {
 }
 
 /// A builtin given a counter value (as receiver or argument) would read its number: refused, except the Variant type tests
-/// (`IsBigInteger`: SqlCounters.al:87-103) and `Variant.Into#1`, which hands a counter on unread to the conversion after it
-/// (`al_builtins::conv::variant_into`). Checked only while the counters are active.
+/// (`IsBigInteger`: SqlCounters.al:87-103), `Variant.Into#1`, which hands a counter on unread to the conversion after it
+/// (`al_builtins::conv::variant_into`), `Round(x, 1)` (`al_builtins::sqlcount::round_whole`), `Format(x)` (a marked text,
+/// `al_builtins::format`), the values of `StrSubstNo` (a marked text the same way), and a Dictionary or List that
+/// stores it as a value, not as a key: the value is not compared or read (SqlCounters.al
+/// P6924_Counters_DictionaryOfGuidInteger_AddGetAndLaterDifference, `Stored.Add(Key1, ...)`, `Stored.Get(Key1)`). Checked
+/// only while the counters are active.
 #[cold]
 #[inline(never)]
 pub(crate) fn guard(
@@ -1168,11 +1173,35 @@ pub(crate) fn guard(
     recv: Option<&Value>,
     args: &[Value],
 ) -> Result<(), al_builtins::native::Signal> {
-    let tainted = |v: &Value| matches!(v, Value::SqlCount(_));
-    if id.name() == "Variant.Into#1" {
-        return Ok(());
-    }
-    if args.iter().any(tainted) || (recv.is_some_and(tainted) && !id.name().starts_with("Variant.Is")) {
+    // A text `Format` made of a counter value (`al_builtins::sqlcount::formatted`) is refused the same way: a text function
+    // refuses it anyway (`Txt::has_marker`), and Error and Message would show its digits. It may go to telemetry
+    // (SqlCounters.al P6924_Counters_FormattedInTelemetryDimension_NoError), where nothing reads it.
+    let tainted = |v: &Value| matches!(v, Value::SqlCount(_)) || al_builtins::sqlcount::formatted(v);
+    // `StrSubstNo` fills each `%n` and `#n` with `Format` of value n (format-evaluate/P86StrSubstNo.al Sub_Percent,
+    // Sub_FieldWidth), and `Format` of a counter value raises no error (SqlCounters.al P6924_Counters_Format_DigitsOnly): a
+    // counter value or its formatted text as a value (never the template) gives a marked text, which may be passed on and
+    // logged and whose digits no text function reads, as `Format` gives (al-runner issue 7129). `Error` and `Message` stay
+    // refused: their text reaches the user and GetLastErrorText.
+    let embeds = id.name() == "Text.StrSubstNo#1";
+    // The argument positions that hold a collection's value (never its key or index).
+    let values: &[usize] = match id.name() {
+        "Variant.Into#1" | "Session.LogMessage#1" | "Session.LogMessage#2" => return Ok(()),
+        "System.Round#1" | "System.Format#1" => &[0],
+        "List.Add#1" => &[0],
+        // `List.Set(Index, Value)` and `List.Insert(Index, Value)` store it as a value the same way `List.Add` does, and
+        // `List.Set(Index, NewValue, var OldValue)` also hands the old value back unread.
+        "List.Set#1" | "List.Insert#1" => &[1],
+        "List.Set#2" => &[1, 2],
+        "List.Get#2" | "Dictionary.Get#2" | "Dictionary.Add#1" | "Dictionary.Set#1" => &[1],
+        "Dictionary.Set#2" => &[1, 2],
+        _ => &[],
+    };
+    if args
+        .iter()
+        .enumerate()
+        .any(|(i, v)| tainted(v) && !values.contains(&i) && !(embeds && i >= 1))
+        || (recv.is_some_and(tainted) && !id.name().starts_with("Variant.Is"))
+    {
         return Err(al_builtins::sqlcount::refusal(&format!(
             "{} given the value",
             id.name()

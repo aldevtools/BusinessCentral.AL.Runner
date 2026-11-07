@@ -1,7 +1,8 @@
 //! `GetUrl` with a company, an object, a record and its filters, for `ClientType::Web`. Only what the corpus pins is built;
-//! every other form is refused (ADR-042). The host part is the server address of the host (assumption
-//! `geturl-web-base-address`); the query after it is pinned by:
-//! - platform/lt-system-database-members/GetUrlCompany.al:67-77 and session/lt-geturl-shape/GetUrlShape.al:121-130 (company),
+//! every other form is refused (ADR-042). The host part is the server address of the host: for Web the user's own input,
+//! with no assumption mark (owner, 2026-11-04, al-runner issue 6924); the other client types mark what is not pinned
+//! (`geturl-client-host-port` for Phone, Tablet and Desktop, `geturl-current-is-web` for Current with a company or a record). The query after it is pinned by:
+//! - metadata/platform-tables/GetUrlCompany.al:67-77 and session-system/session/GetUrlShape.al:121-130 (company),
 //! - GetUrlObjects.al:62-91 and GetUrlShape.al:152-163 (object type and id),
 //! - GetUrlBookmarkFilter.al (bookmark of the key, filter text, UseFilters), GetUrlRecord.al, GetUrlRecordLayout.al.
 
@@ -36,7 +37,7 @@ fn member(v: Option<&Value>) -> Option<String> {
 
 /// Percent-encodes `s` for a query value. Letters, digits, `-`, `.`, `_` and `~` stay; every other printable ASCII
 /// character but the backtick, and non-ASCII characters (UTF-8), are encoded with capital hex digits
-/// (GetUrlCompany.al:67-77, GetUrlBookmarkFilter.al: filter_*, platform/lt-t-geturl/TGetUrl.al:310-329
+/// (GetUrlCompany.al:67-77, GetUrlBookmarkFilter.al: filter_*, metadata/session-system/TGetUrl.al:310-329
 /// GetUrl_Web_CompanyCharacters and TGetUrl.al:356-364 GetUrl_Web_FilterCharacters). The backtick and control characters
 /// are not pinned and are refused.
 fn encode(s: &str) -> Result<String, Signal> {
@@ -116,27 +117,42 @@ fn mobile_company(v: &Value) -> Result<(), Signal> {
 impl Session {
     /// `GetUrl(ClientType::Default, ...)`: the web address with the scheme `dynamicsnav`, then `/<company>/` and for an
     /// object `runpage?page=N` or `runreport?report=N`, for a page with a record `&bookmark=...`. Pinned for an http address
-    /// by session/lt-geturl-shape/GetUrlShape.al:270 (`default alone`) and platform/lt-t-geturl/TGetUrl.al:203-210
+    /// by session-system/session/GetUrlShape.al:270 (`default alone`) and metadata/session-system/TGetUrl.al:203-210
     /// (GetUrl_ClientDefault: a company with a space, the empty company, page 21, report 69367, a page with a record and
-    /// UseFilters false). Every other form is refused.
-    fn get_url_default(&mut self, args: &[Value]) -> Result<Value, Signal> {
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GetUrlWebBaseAddress);
+    /// UseFilters false). Any company the probes cover and a page with a record and UseFilters true are pinned for Default by
+    /// session-system/session/R7002GetUrlDefaultCompany.al (corpus branch al-runtime-rs-staging-r6985). Every other form is refused.
+    fn get_url_default(&mut self, args: &[Value], windows: bool) -> Result<Value, Signal> {
         let base = self.host.identity.server_base_url();
-        let Some(rest) = base.strip_prefix("http://") else {
+        if !base.starts_with("http://") {
             return unsupported(format!(
                 "GetUrl(ClientType::Default) with the server address {base}: only an http address is pinned"
             ));
-        };
+        }
+        // The Web host name with port 7085, for Default and Windows, alone and with a page
+        // (session-system/session/GetUrlShape.al:465-468, GU6924_DefaultAndWindows_PortNumber; :379 `default`).
+        let with_client_port = with_port(base.trim_end_matches('/'), 7085);
+        let rest = &with_client_port["http://".len()..];
         let company = match args.get(1) {
             None => String::new(),
             Some(Value::Text(t)) | Some(Value::Code(t)) if !t.has_marker() => {
                 let t = t.as_str();
-                if !t.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ') {
-                    return unsupported(
-                        "GetUrl(ClientType::Default) with a company name of other characters than letters, digits and space (not pinned)",
-                    );
+                // Default percent-encodes the company as the Web form's `?company=` does: letters, digits, `.`, `-` and `_`
+                // stay, a space and every other character probed is `%XX`, a non-ASCII letter its UTF-8 bytes (corpus branch
+                // al-runtime-rs-staging-r6985, session-system/session/R7002GetUrlDefaultCompany.al:
+                // Default_CompanyNames_Punctuation, `cronus` 'CRONUS%20International%20Ltd./'). Windows is not probed beyond
+                // letters, digits and space.
+                let probed = |c: char| {
+                    c.is_ascii_alphanumeric()
+                        || c == ' '
+                        || (!windows && (" .-_,&'/()+#%?=:".contains(c) || (!c.is_ascii() && c.is_alphabetic())))
+                };
+                if !t.chars().all(probed) {
+                    return unsupported(format!(
+                        "GetUrl(ClientType::{}) with a company name of characters the probes do not cover (not pinned)",
+                        if windows { "Windows" } else { "Default" }
+                    ));
                 }
-                t.replace(' ', "%20")
+                encode(t)?
             }
             other => return unsupported(format!("GetUrl with company {}", other.describe())),
         };
@@ -162,9 +178,23 @@ impl Session {
                         url.push_str(&part);
                     }
                 }
+                // UseFilters true: nothing without a filter, else `&$filter=` and the encoded filter text of the Web form
+                // (R7002GetUrlDefaultCompany.al: Default_Cronus_PageRecord_UseFilters `record true no filter`, `record true
+                // filter`, `empty company true filter`, `recordref true`). Not probed for Windows.
+                (Some("Page"), 6) if !windows && matches!(args.get(5), Some(Value::Boolean(true))) => {
+                    let rec = record_arg(args.get(4))?;
+                    url.push_str(&format!("runpage?page={id}"));
+                    if let Some(part) = self.url_record_part(&rec, true)? {
+                        let Some(filter) = part.strip_prefix("filter=") else {
+                            return unsupported("GetUrl(ClientType::Default) record part that is not a filter");
+                        };
+                        url.push_str("&$filter=");
+                        url.push_str(filter);
+                    }
+                }
                 (kind, n) => {
                     return unsupported(format!(
-                        "GetUrl(ClientType::Default) of object type {} with {n} arguments (only a page or a report, and a page with a record and UseFilters false, are pinned)",
+                        "GetUrl(ClientType::Default or Windows) of object type {} with {n} arguments (only a page or a report, and a page with a record and UseFilters false, or true for Default, are pinned)",
                         kind.unwrap_or("?")
                     ));
                 }
@@ -177,8 +207,11 @@ impl Session {
         match member(args.first()).as_deref() {
             // Windows gives the same text as Default for every form TGetUrl.al pins (GetUrl_ClientWindows,
             // TGetUrl.al:233-240, against GetUrl_ClientDefault, TGetUrl.al:203-210; also
-            // lt-system-database-onprem/PGetUrl.al:71,75).
-            Some("Default") | Some("Windows") => return self.get_url_default(args),
+            // session-system/server-system-functions/PGetUrl.al:71,75).
+            Some(kind @ ("Default" | "Windows")) => {
+                let windows = kind == "Windows";
+                return self.get_url_default(args, windows);
+            }
             Some("Phone") | Some("Tablet") | Some("Desktop") => return self.get_url_mobile(args),
             // Background, Management and NAS have no address: the empty text, alone and with a company
             // (GetUrlCtBackground.al:69-73, GetUrlCtManagement.al:69-73, GetUrlCtNAS.al:69-73, all with
@@ -191,13 +224,21 @@ impl Session {
                 return Ok(Value::Text("".into()));
             }
             Some("Web") => {}
+            // In a test session Current answers as Web, alone and with a page (session-system/session/GetUrlShape.al:424,
+            // 429, GU6924_Current_EqualsWhichForm). The other forms (a company, a record) are assumption `geturl-current-is-web`.
+            Some("Current") => {
+                let pinned = args.len() == 1 || (args.len() == 4 && member(args.get(2)).as_deref() == Some("Page"));
+                if !pinned {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GetUrlCurrentIsWeb);
+                }
+            }
             Some(kind @ ("SOAP" | "OData" | "ODataV4" | "Api")) => {
                 let kind = kind.to_string();
                 return self.get_url_service(&kind, args);
             }
             _ => {
                 return unsupported(format!(
-                    "GetUrl({}; the call had {} arguments): only ClientType::Web, Default, Windows, Phone, Tablet, Desktop, SOAP, OData, ODataV4 and Api are built, and Background, Management and NAS without an object (the other forms are not pinned)",
+                    "GetUrl({}; the call had {} arguments): only ClientType::Web, Current, Default, Windows, Phone, Tablet, Desktop, SOAP, OData, ODataV4 and Api are built, and Background, Management and NAS without an object (the other forms are not pinned)",
                     args.first().describe(),
                     args.len()
                 ));
@@ -206,16 +247,14 @@ impl Session {
         self.get_url_web(args)
     }
 
-    /// `GetUrl(ClientType::SOAP | OData | ODataV4 | Api, ...)`: the web address (its host and instance, masked by the pins,
-    /// come from the host's server address: assumption `geturl-web-base-address`), then `/WS/Services`, `/ODataV4` or
+    /// `GetUrl(ClientType::SOAP | OData | ODataV4 | Api, ...)`: the web address with the service port, then `/WS/Services`, `/ODataV4` or
     /// `/api/`; with a company `/WS/<company>/Services` or `/ODataV4/Company('<company>')`, the empty company as none;
-    /// with an object or a record the empty text. Pinned by platform/lt-t-geturl/TGetUrl.al:481-559 on corpus master
+    /// with an object or a record the empty text. Pinned by metadata/session-system/TGetUrl.al:481-559 on corpus master
     /// (TV_GetUrl_ClientSOAP, _ClientOData, _ClientODataV4, _ClientApi): the company `My Company`, page 21, report 69367,
     /// a page with a record and UseFilters false, a codeunit (SOAP, ODataV4) and a query (ODataV4). Refused: Api with a
     /// company (the id in `companies(...)` is not pinned), other company characters (`.` only with an object) and every other
     /// form.
     fn get_url_service(&mut self, kind: &str, args: &[Value]) -> Result<Value, Signal> {
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GetUrlWebBaseAddress);
         let refuse = |why: &str| {
             unsupported(format!(
                 "GetUrl(ClientType::{kind}; the call had {} arguments): {why} (not pinned)",
@@ -260,10 +299,9 @@ impl Session {
         if !base.starts_with("http://") {
             return refuse("a server address other than http");
         }
-        // The service address is not the web address: TGetUrl.al:95-102 masks the web address first, and the service
-        // texts still show http://<host>/<instance>/... (TGetUrl.al:487, 504, 521, 538). Its host part comes from the web
-        // address with BC's default service port, 7047 for SOAP and 7048 for OData, ODataV4 and Api (assumption
-        // `geturl-web-base-address`).
+        // The service address has the scheme, host name and instance of the web address, with port 7047 for SOAP and 7048
+        // for OData, ODataV4 and Api (session-system/session/GetUrlShape.al:374-379, GU6924_ServiceForms_ShareWebHost;
+        // with a company :404-405).
         let base = with_port(base.trim_end_matches('/'), if kind == "SOAP" { 7047 } else { 7048 });
         let company = company.replace(' ', "%20");
         let url = match (kind, company.is_empty()) {
@@ -279,11 +317,12 @@ impl Session {
 
     /// `GetUrl(ClientType::Phone | Tablet | Desktop, ...)`: the scheme `ms-dynamicsnav`, the web address after `http://`
     /// without a trailing slash, then the query of the web form directly after it (no `/` before the `?`). Pinned by
-    /// platform/lt-t-geturl/TGetUrl.al:248-255, 263-270, 278-285 (alone, a company, the empty company, page 21, report
+    /// metadata/session-system/TGetUrl.al:248-255, 263-270, 278-285 (alone, a company, the empty company, page 21, report
     /// 69367, a page with a record and UseFilters false), lt-system-database-members/GetUrlCtMain.al:111-115, 153-157,
-    /// 195-199 (CompanyName()) and lt-system-database-onprem/PGetUrl.al:68-73 (a company and page 99999). Every other form
+    /// 195-199 (CompanyName()) and session-system/server-system-functions/PGetUrl.al:68-73 (a company and page 99999). Every other form
     /// is refused.
     fn get_url_mobile(&mut self, args: &[Value]) -> Result<Value, Signal> {
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GetUrlClientHostPort);
         if let Some(company) = args.get(1) {
             mobile_company(company)?;
         }
@@ -327,7 +366,6 @@ impl Session {
 
     /// The `ClientType::Web` form.
     fn get_url_web(&mut self, args: &[Value]) -> Result<Value, Signal> {
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GetUrlWebBaseAddress);
         let base = self.host.identity.server_base_url();
         let company = match args.get(1) {
             None => String::new(),

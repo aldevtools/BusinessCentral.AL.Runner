@@ -1,5 +1,5 @@
 //! Several reportextensions that change one report run (ADR-025). Each test names the corpus test
-//! that pins it (tests/al-language/reportextensiontrigger/).
+//! that pins it (tests/al-language/reports/extensions/).
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
@@ -79,7 +79,7 @@ const RUN: &str = "procedure F(): Text var P: Record \"MR Parent\"; Ch: Record \
     begin P.Id := 1; P.Insert(); Ch.Id := 1; Ch.ParentId := 1; Ch.Insert(); L.Take();
     Report.Run(Report::\"MR Base\", false); exit(L.Take()); end;";
 
-// reportextensiontrigger/TestReportExtensionBaseMembersContracts.al:256: the base first, then the
+// reports/extensions/TestReportExtensionBaseMembersContracts.al:256: the base first, then the
 // extensions in object id order (68893 Ext, 68894 Zeta, 68895 Alpha: Alpha runs last).
 #[test]
 fn triggers_run_base_first_then_the_extensions_in_object_id_order() {
@@ -153,7 +153,7 @@ fn placed_ext(id: u32, name: &str, first: &str, before: &str, after: &str) -> St
     )
 }
 
-// reportextensiontrigger/TestReportExtensionSamePlaceContracts.al:251: Parent;G1;F1;F2;X1;X2;Y1;ChildA;Z2;Z1.
+// reports/extensions/TestReportExtensionSamePlaceContracts.al:251: Parent;G1;F1;F2;X1;X2;Y1;ChildA;Z2;Z1.
 // The extension with the lower id (Ext1) adds F1 F2 first, X1 X2 before and Z1 after; the later one (Ext2)
 // adds G1 first, Y1 before and Z2 after.
 #[test]
@@ -177,10 +177,10 @@ fn the_object_id_decides_not_the_file_order() {
     assert_eq!(text(run(&src, RUN)), "Parent;G1;F1;F2;X1;X2;Y1;ChildA;Z2;Z1;");
 }
 
-// Pinned by reportextensiontrigger/TestReportExtensionSamePlaceContracts.al (bump 6): two items one
+// Pinned by reports/extensions/TestReportExtensionSamePlaceContracts.al (bump 6): two items one
 // extension adds after the same anchor and two extensions adding last under one item are not refused.
 // Still refused until a probe pins them (ADR-025): extensions of different apps whose object ids go against the
-// dependency path (reportext/lt-y64-xapp-run-order/Y64XappRunOrder.al pins only ids that rise along it).
+// dependency path (reports/extensions/Y64XappRunOrder.al pins only ids that rise along it).
 #[test]
 fn same_place_placements_are_accepted_and_cross_app_extensions_are_refused() {
     let two_after = format!(
@@ -208,7 +208,7 @@ fn same_place_placements_are_accepted_and_cross_app_extensions_are_refused() {
     assert!(r.iter().any(|x| x.contains("different apps")), "{r:?}");
 }
 
-// extensionevents/TestExtensionDeclaredEvents.al:105-117 pins an event a reportextension declares and raises: a subscriber
+// events/extension-events/TestExtensionDeclaredEvents.al:105-117 pins an event a reportextension declares and raises: a subscriber
 // bound to the base report fires with the argument. Base Application's "Serv. Get Source Documents" adds data items whose
 // triggers raise such `local` events and a local procedure that counts in a variable of the extension (nothing outside the extension can call a `local` procedure, so which instance it runs
 // on is the one that runs the trigger).
@@ -251,7 +251,7 @@ codeunit 69106 "MR Sub"
 
 // A public procedure of an extension that has global variables and added data items runs on the extension's instance of
 // the report variable it is called through: the global keeps its value from one call to the next, a second variable has
-// a state of its own, and Clear starts again (reportext/W3RpExtProcedures.al:ExtensionProcedure_StateOnOneVariableAndOnANewVariable).
+// a state of its own, and Clear starts again (reports/extensions/W3RpExtProcedures.al:ExtensionProcedure_StateOnOneVariableAndOnANewVariable).
 #[test]
 fn a_public_procedure_keeps_the_extensions_globals_on_one_report_variable() {
     let src = r#"

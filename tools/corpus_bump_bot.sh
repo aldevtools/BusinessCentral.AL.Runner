@@ -7,17 +7,21 @@
 #       pin and passes the checks of tools/corpus_bump.sh (--dry-run). Prints nothing when there is none.
 #   tools/corpus_bump_bot.sh bump RUN OUT
 #       In the checkout this script belongs to: the corpus outcomes on the old pin, then tools/corpus_bump.sh RUN
-#       without baselines (pin, oracle, harness counts), the outcomes on the new pin (--baseline-diff), the
-#       awaiting assumptions, the gate, harness and golden-file tests. Writes the pull request body to OUT/body.md
+#       without the not-passing lists (pin, oracle, harness counts), then one run on the new pin that writes the two
+#       kinds of list change a bump may make (ADR-065: lines for new cases that do not pass, `--list-new-cases HEAD`;
+#       deletion of stale lines, `--prune-not-passing`) and prints --baseline-diff, the awaiting assumptions, the
+#       gate, harness and golden-file tests. Writes the pull request body to OUT/body.md
 #       (tools/corpus_bump_report.py) and commits with `commit`. What needs judgment does not stop it: the
 #       body lists it. It exits nonzero only when the bump itself or the commit is refused.
 #   tools/corpus_bump_bot.sh commit REPO SHA RUN
-#       Commits the bump in REPO: only the corpus submodule (at SHA), oracle/ and the harness counts. Any other
-#       changed path is refused, a baseline (metrics/) above all: the bot never writes one (the regen bot adds
-#       new passes after the merge; a removal is a human decision, CLAUDE.md hard rule 2).
+#       Commits the bump in REPO: only the corpus submodule (at SHA), oracle/, the harness counts and the not-passing
+#       lists metrics/*/not-passing*.txt. Any other changed path is refused. A list may only gain lines for cases the
+#       base oracle (HEAD) did not have and lose lines: `al-test-cli --list-changes HEAD` must find no line for a case
+#       HEAD's oracle had (that line would hide a regression; adding one is the owner's decision, CLAUDE.md hard rule 2).
 #
 # It never pushes and never opens a pull request; the workflow does. For tests: CORPUS_BUMP_GH,
 # CORPUS_BUMP_CORPUS and CORPUS_BUMP_NO_FETCH as for tools/corpus_bump.sh, CORPUS_BUMP_BOT_PIN (the pin),
+# CORPUS_BUMP_BOT_CLI (the al-test-cli that checks the list changes, default the release build of this checkout),
 # CORPUS_BUMP_BOT_NAME and CORPUS_BUMP_BOT_EMAIL (the commit identity, default the github-actions bot).
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -87,7 +91,7 @@ print(sum(1 for _ in ET.parse(src).iter("testcase")))' "$1"
 # The paths a bump may change, and why any other is refused.
 allowed() {
   case "$1" in
-    corpus | oracle/* | "$harness") return 0 ;;
+    corpus | oracle/* | "$harness" | metrics/*/not-passing*.txt) return 0 ;;
   esac
   return 1
 }
@@ -98,7 +102,8 @@ commit_bump() { # repository, commit, run
   while IFS= read -r path; do
     [ -n "$path" ] || continue
     case "$path" in
-      metrics/*) echo "corpus bump bot: $path changed: the bot never writes a baseline (the regen bot adds new passes after the merge; a removal is a human decision)" >&2; bad=1 ;;
+      metrics/*/not-passing*.txt) ;;
+      metrics/*) echo "corpus bump bot: $path changed: a bump writes no file under metrics/ but the not-passing lists" >&2; bad=1 ;;
       *) allowed "$path" || { echo "corpus bump bot: $path is not part of a corpus bump" >&2; bad=1; } ;;
     esac
   done < <(git -C "$r" status --porcelain=v1 -uall --ignore-submodules=none | cut -c4-)
@@ -115,11 +120,20 @@ commit_bump() { # repository, commit, run
     fi
   done < <(git -C "$r" ls-files -- 'oracle/*.xml')
   [ "$bad" = 0 ] || die "an oracle file lost cases; nothing committed"
+  # ADR-065: a list line for a case HEAD's oracle had is a regression, never the bot's to add.
+  if [ -n "$(git -C "$r" status --porcelain=v1 -uall -- 'metrics/*/not-passing*.txt')" ]; then
+    local cli="${CORPUS_BUMP_BOT_CLI:-$r/target/release/al-test-cli}" changes
+    changes="$("$cli" --root "$r" --list-changes HEAD 2>&1)" || {
+      printf '%s\n' "$changes" >&2
+      die "a not-passing list gained a line for a case the base oracle had (a regression); nothing committed"
+    }
+  fi
   local now
   now="$(git -C "$r/corpus" rev-parse HEAD)"
   [ "$now" = "$sha" ] || die "the corpus submodule is at ${now:0:12}, not at the target ${sha:0:12}; nothing committed"
   grep -q "^corpus_commit = \"$sha\"" "$r/oracle/oracle.toml" || die "oracle/oracle.toml does not pin ${sha:0:12}; nothing committed"
   git -C "$r" add -- corpus oracle
+  git -C "$r" add -A -- 'metrics/*/not-passing*.txt' 2>/dev/null || true
   [ ! -e "$r/$harness" ] || git -C "$r" add -- "$harness"
   if git -C "$r" diff --cached --quiet; then
     echo "corpus bump bot: nothing to commit" >&2
@@ -128,7 +142,7 @@ commit_bump() { # repository, commit, run
   git -C "$r" -c user.name="${CORPUS_BUMP_BOT_NAME:-github-actions[bot]}" \
     -c user.email="${CORPUS_BUMP_BOT_EMAIL:-41898282+github-actions[bot]@users.noreply.github.com}" \
     commit -q -m "Corpus bump to master ${sha:0:12} (bump bot)" \
-    -m "Pin, oracle and harness counts from corpus run $run, made by tools/corpus_bump_bot.sh. No baseline was written: the regen bot adds the new passes after the merge."
+    -m "Pin, oracle, harness counts and not-passing lists from corpus run $run, made by tools/corpus_bump_bot.sh. The lists gained lines only for cases new in the oracle and lost the lines of stale cases (ADR-065)."
   echo "committed $(git -C "$r" rev-parse --short HEAD)"
 }
 
@@ -151,7 +165,7 @@ bump() { # run, out
   cargo build --release -q -p al-test-cli
   # The outcomes on the old pin, to tell new failures from old ones.
   keep before ./target/release/al-test-cli --root . --all-versions --require-dotnet --no-ratchet --junit "$out/before/runtime-junit.xml"
-  CORPUS_BUMP_BASELINES=0 bash "$here/corpus_bump.sh" "$run" 2>&1 | tee "$out/bump.log"
+  CORPUS_BUMP_LISTS=0 bash "$here/corpus_bump.sh" "$run" 2>&1 | tee "$out/bump.log"
   sha="$(git -C corpus rev-parse HEAD)"
   python3 -c '
 import json, sys
@@ -159,8 +173,10 @@ json.dump({"sha": sys.argv[1], "old": sys.argv[2], "run": sys.argv[3], "repo": s
     "$sha" "$old" "$run" "$repo" "$out/meta.json"
   git -C corpus log --first-parent --format='%h %s' "$old..$sha" > "$out/corpus-log.txt" || true
   cargo build --release -q -p al-test-cli
-  # The outcomes on the new pin against the baselines (a lost case exits 1 and stays in the list).
-  keep diff ./target/release/al-test-cli --root . --all-versions --require-dotnet --baseline-diff --junit "$out/after/runtime-junit.xml"
+  # The outcomes on the new pin against the not-passing lists (ADR-065). The same run lists the new cases that do not
+  # pass and deletes the stale lines; a regression exits 1, stays out of the lists and is reported in the body.
+  keep diff ./target/release/al-test-cli --root . --all-versions --require-dotnet --baseline-diff \
+    --list-new-cases HEAD --prune-not-passing --junit "$out/after/runtime-junit.xml"
   keep awaiting ./target/release/al-test-cli --root . --awaiting-assumptions
   keep gates cargo test -q -p al-version --test gate_completeness
   keep harness cargo test -q --release -p al-test-cli --test corpus_harness

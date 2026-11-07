@@ -7,8 +7,8 @@ use al_host::dotnet::DotNetHost;
 use al_test_cli::args::{self, Args, Parsed};
 use al_test_cli::dotnet::{SidecarConfig, SidecarHost};
 use al_test_cli::{
-    config, corpus, deps, drift, explain, insight, oracle, output, pin, report, runner::Runner, runtime, select,
-    target, work,
+    config, corpus, deps, drift, explain, insight, not_passing, oracle, output, pin, report, runner::Runner, runtime,
+    select, target, work,
 };
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -103,7 +103,7 @@ fn run() -> Result<ExitCode, String> {
         al_test_cli::host::set_environment(env);
     }
     // The corpus pins that real BC's web address in its CI is http, has a port and the path /BC, and that its host is
-    // not `localhost` (session/lt-geturl-shape/GetUrlShape.al:283); the host name itself is masked there and stays the
+    // not `localhost` (session-system/session/GetUrlShape.al:283); the host name itself is masked there and stays the
     // host setting of ADR-042. So the corpus tool runs with an address of that shape instead of al-runner's default.
     al_test_cli::host::set_server_url(Some(CORPUS_SERVER_URL.into()));
     if let Some(dir) = &args.files_dir {
@@ -123,6 +123,9 @@ fn run() -> Result<ExitCode, String> {
             if new == text { "current" } else { "rewritten" }
         );
         return Ok(ExitCode::SUCCESS);
+    }
+    if let Some(rev) = &args.list_changes {
+        return list_changes(&args, &root, rev);
     }
     if let Some(dir) = &args.behavior_coverage_map {
         return behavior_coverage_map(&root, dir.as_deref());
@@ -239,7 +242,8 @@ fn awaiting_assumptions(
         ..Default::default()
     };
     args.no_ratchet = true;
-    args.update_baseline = false;
+    args.prune_not_passing = false;
+    args.list_new_cases = None;
     let mut cases = Vec::new();
     run_version_passes(args, root, oracle_path, cfg, version, Some(&mut cases), true)?;
     println!();
@@ -251,6 +255,32 @@ fn awaiting_assumptions(
 }
 
 /// `--coverage-map`: which builtin overloads the corpus calls (`coverage.rs`).
+/// `--list-changes REV`: how each not-passing list changed against REV, as Markdown (ADR-065, owner decision 2: a line
+/// added for a case REV's oracle had is a regression the owner approves in review). Exit 1 when there is one.
+fn list_changes(args: &Args, root: &Path, rev: &str) -> Result<ExitCode, String> {
+    let oracle_path = args.oracle.clone().unwrap_or_else(|| root.join("oracle/oracle.toml"));
+    let cfg = config::OracleFile::parse(&read(&oracle_path)?).map_err(|e| format!("{}: {e}", oracle_path.display()))?;
+    let base = al_test_cli::base_oracle::Base::open(root, rev)?;
+    let mut changes = Vec::new();
+    for v in &cfg.versions {
+        let lists =
+            std::iter::once((None, &v.baseline)).chain(v.suites.iter().map(|s| (Some(s.name.as_str()), &s.baseline)));
+        for (suite, rel) in lists {
+            let path = root.join(rel);
+            let now = if path.exists() {
+                not_passing::parse(&read(&path)?).map_err(|e| format!("{}: {e}", path.display()))?
+            } else {
+                Default::default()
+            };
+            let ids = base.oracle_ids(v.major, suite)?;
+            changes.push(not_passing::list_change(rel, &now, &base.list(rel)?, &ids));
+        }
+    }
+    print!("{}", not_passing::render_changes(rev, &changes));
+    let accepted = changes.iter().any(|c| !c.accepted_regressions.is_empty());
+    Ok(ExitCode::from(u8::from(accepted)))
+}
+
 fn coverage_map(root: &Path, dir: Option<&Path>) -> Result<ExitCode, String> {
     let commit = git_head(&root.join("corpus"))?;
     let map = al_test_cli::coverage::corpus_coverage(root, &commit)?;
@@ -365,7 +395,14 @@ struct Pass {
 fn passes(version: &config::VersionEntry) -> Vec<(config::VersionEntry, Pass)> {
     let mut groups: Vec<(Vec<config::ExtraApp>, Vec<config::SuiteEntry>)> = vec![(Vec::new(), Vec::new())];
     for suite in &version.suites {
-        match groups.iter_mut().find(|(extra, _)| *extra == suite.extra_apps) {
+        // One pass per environment: the same extra apps and the same extra corpus folders.
+        let same_env = |(extra, suites): &&mut (Vec<config::ExtraApp>, Vec<config::SuiteEntry>)| {
+            *extra == suite.extra_apps
+                && suites
+                    .first()
+                    .map_or(suite.extra_dirs.is_empty(), |s| s.extra_dirs == suite.extra_dirs)
+        };
+        match groups.iter_mut().find(same_env) {
             Some((_, suites)) => suites.push(suite.clone()),
             None => groups.push((suite.extra_apps.clone(), vec![suite.clone()])),
         }
@@ -604,6 +641,50 @@ fn run_version(
     Ok((r, kept_out))
 }
 
+/// The sidecar configuration of a corpus run of BC `major` (ADR-014).
+fn sidecar_config(args: &Args, root: &Path, major: u16) -> SidecarConfig {
+    SidecarConfig {
+        sidecar: args.dotnet_sidecar.clone(),
+        source_root: Some(root.to_path_buf()),
+        // Only the user's folders. ADR-014 section 3, step 2 (the service folder of the platform package the run
+        // selected) is skipped: the artifact cache holds no service folder, and BcContainerHelper's
+        // `~/.bcartifacts.cache/sandbox`, which `al-runner` reads, is a machine's own folder, often of another build
+        // of the major. Read here, it made a corpus case pass or be refused by what HOME held (99100
+        // AL_JsonTextWriter_SimpleObject needs Newtonsoft.Json from it), so one build gave two results
+        // (corpus_harness.rs `outcomes_do_not_depend_on_threads_or_home`). A missing assembly is refused, as on CI.
+        assembly_dirs: args.dotnet_assembly_dirs.clone(),
+        allow_roll_forward: args.dotnet_allow_roll_forward,
+        // BC 29 runs on .NET 10, 27 and 28 on .NET 8 (al_testrun::dotnet_runtime).
+        bc_major: Some(u32::from(major)),
+        timeout: Duration::from_secs(args.dotnet_timeout_secs.unwrap_or(60)),
+        ..Default::default()
+    }
+}
+
+/// The corpus apps published before the main app (`deps::corpus_publish_dirs`), without the apps that run as suites.
+///
+/// The folders some suite lists in `extra_dirs` are left out (CI publishes them in that suite's job only); `own` is
+/// the pass's own list, which follows the internals fixture in its order.
+fn publish_dirs(root: &Path, cfg: &config::OracleFile, suites: &[config::SuiteEntry]) -> Result<Vec<PathBuf>, String> {
+    let mut skip: Vec<PathBuf> = suites.iter().map(|s| root.join(&s.app)).collect();
+    let all_extra = cfg.versions.iter().flat_map(|v| &v.suites).flat_map(|s| &s.extra_dirs);
+    skip.extend(all_extra.map(|d| root.join(d)));
+    let mut dirs = deps::corpus_publish_dirs_without(&root.join(&cfg.corpus_app), &skip)?;
+    let own: Vec<PathBuf> = suites
+        .first()
+        .map(|s| s.extra_dirs.iter().map(|d| root.join(d)).collect())
+        .unwrap_or_default();
+    // CI's `app_dirs` lists the internals fixture first, then these apps, then the cross-app fixtures.
+    let at = dirs
+        .iter()
+        .position(|d| d.ends_with("al-language-internals-fixture"))
+        .map_or(0, |i| i + 1);
+    for (n, d) in own.into_iter().enumerate() {
+        dirs.insert(at + n, d);
+    }
+    Ok(dirs)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_version_inner(
     args: &Args,
@@ -786,7 +867,7 @@ fn run_version_inner(
     // The corpus apps CI publishes before the main app (the internals fixture, the cross-app fixtures, including
     // fixture D, which the main app does not depend on), in CI's order, then the main app (corpus
     // `.github/workflows/ci.yml`, `app_dirs`; `deps::corpus_publish_dirs`).
-    let corpus_deps = deps::corpus_publish_dirs(&root.join(&cfg.corpus_app))?;
+    let corpus_deps = publish_dirs(root, cfg, &version.suites)?;
     // So the apps under test install in that order, also two that do not depend on each other (`install::InstallView`).
     al_test_cli::host::set_publish_order_known(true);
     let main_app = corpus_deps.len();
@@ -917,20 +998,7 @@ fn run_version_inner(
         return Ok(VersionRun::empty(0));
     }
     // ADR-014: the sidecar starts lazily, at the first `DotNet` call that reaches it.
-    let host = Arc::new(SidecarHost::new(SidecarConfig {
-        sidecar: args.dotnet_sidecar.clone(),
-        source_root: Some(root.to_path_buf()),
-        // Only the user's folders. ADR-014 section 3, step 2 (the service folder of the platform package the run
-        // selected) is skipped: the artifact cache holds no service folder, and BcContainerHelper's
-        // `~/.bcartifacts.cache/sandbox`, which `al-runner` reads, is a machine's own folder, often of another build
-        // of the major. Read here, it made a corpus case pass or be refused by what HOME held (99100
-        // AL_JsonTextWriter_SimpleObject needs Newtonsoft.Json from it), so one build gave two results
-        // (corpus_harness.rs `outcomes_do_not_depend_on_threads_or_home`). A missing assembly is refused, as on CI.
-        assembly_dirs: args.dotnet_assembly_dirs.clone(),
-        allow_roll_forward: args.dotnet_allow_roll_forward,
-        timeout: Duration::from_secs(args.dotnet_timeout_secs.unwrap_or(60)),
-        ..Default::default()
-    }));
+    let host = Arc::new(SidecarHost::new(sidecar_config(args, root, version.major)));
     if args.require_dotnet {
         if let Err(why) = host.availability() {
             return Err(format!("--require-dotnet: DotNet {why}"));
@@ -991,11 +1059,11 @@ fn run_version_inner(
         compile_cache,
         test_time_limit: None,
         lazy: Vec::new(),
-        isolation: None,
+        test_runner: args.test_runner.unwrap_or_default(),
         // The corpus CI runs a test codeunit without handlers through BC's TestRunnerHub, which takes its isolation from
         // the codeunit's RequiredTestIsolation, on BC 28 and later; on BC 27 it runs every codeunit under Microsoft's runner
         // 130450 (TestIsolation = Codeunit), where the property has no effect. A difference of the CI's harness, not of
-        // the platform (corpus codeunit/lt-qu-commit-isolation/QuCommitIsolation.al:10-16 and 36-39).
+        // the platform (corpus codeunits/run-onrun/QuCommitIsolation.al:10-16 and 36-39).
         required_isolation: chosen
             .target
             .has(al_version::Gate::TestRunnerHubRequiredIsolationFrom28),
@@ -1141,19 +1209,9 @@ fn run_version_inner(
                 took.as_secs_f64()
             );
         }
-        let slowest: Vec<String> = p
-            .slowest
-            .iter()
-            .map(|c| {
-                let start = if c.sidecar_start.is_zero() {
-                    String::new()
-                } else {
-                    format!(" (sidecar start {:.2} s)", c.sidecar_start.as_secs_f64())
-                };
-                format!("{} {} {:.2} s{start}", c.id, c.name, c.took.as_secs_f64())
-            })
-            .collect();
-        eprintln!("slowest test codeunits: {}", slowest.join("; "));
+        for line in slowest_and_chain_lines(p) {
+            eprintln!("{line}");
+        }
         if let Some(d) = &timings.dotnet {
             eprintln!("dotnet: {}", d.line());
         }
@@ -1365,51 +1423,39 @@ fn run_version_inner(
         });
     }
 
-    // One ratchet per oracle file: the main app's, then each other test app's.
-    struct Target<'a> {
-        label: String,
-        /// `None`: this app is not ratcheted (`--baseline` names the main app's file alone).
-        baseline_path: Option<PathBuf>,
-        passing: std::collections::BTreeSet<oracle::CaseId>,
-        cases: &'a [oracle::OracleCase],
-        outcome: Box<dyn Fn(&oracle::CaseId) -> report::Outcome + 'a>,
-        area_of: Box<dyn Fn(u32) -> Option<String> + 'a>,
-        /// Whether the selection picks a case (every case when nothing is selected).
-        selected: Box<dyn Fn(&oracle::CaseId) -> bool + 'a>,
-    }
+    // One not-passing list per oracle file (ADR-065): the main app's, then each other test app's.
     let mut targets = Vec::new();
     targets.push(Target {
         label: version.bc_version.clone(),
-        baseline_path: Some(args.baseline.clone().unwrap_or_else(|| root.join(&version.baseline))),
-        passing: passing.clone(),
+        major: version.major,
+        suite: None,
+        list_path: Some(args.baseline.clone().unwrap_or_else(|| root.join(&version.baseline))),
         cases: &cases,
-        outcome: Box::new(outcome),
+        all: &all_cases,
+        recorded: Box::new(|c| rt.first_recorded(c)),
         area_of: Box::new(|cu| index.area_of(cu).map(str::to_string)),
         selected: Box::new(|c| match &explained {
             Some((_, e)) => *c == e.id,
             None => !args.select.is_active() || args.select.matches(c, index),
         }),
     });
-    // A pass without the main app's tests leaves its ratchet alone.
+    // A pass without the main app's tests leaves its list alone.
     if !pass.main {
         targets.clear();
     }
-    for ((suite, suite_cases), (_, suite_index)) in version.suites.iter().zip(&suite_cases).zip(&suite_data) {
-        let outcome = |c: &oracle::CaseId| rt.outcome_in(&suite.name, c);
+    for ((suite, suite_cases), (suite_all, suite_index)) in version.suites.iter().zip(&suite_cases).zip(&suite_data) {
         // `--baseline FILE` is the main app's alone (a run without the dependency apps has its own
-        // file); an extra app is ratcheted then only against a file named with `--suite-baseline`.
+        // file); an extra app is checked then only against a file named with `--suite-baseline`.
         let named = args.suite_baselines.iter().find(|(n, _)| *n == suite.name);
-        let ratcheted = args.baseline.is_none() || named.is_some();
+        let checked = args.baseline.is_none() || named.is_some();
         targets.push(Target {
             label: format!("{} {}", version.bc_version, suite.name),
-            baseline_path: ratcheted.then(|| named.map_or_else(|| root.join(&suite.baseline), |(_, f)| f.clone())),
-            passing: suite_cases
-                .iter()
-                .filter(|c| !c.bc_failed && outcome(&c.id) == report::Outcome::Pass)
-                .map(|c| c.id.clone())
-                .collect(),
+            major: version.major,
+            suite: Some(suite.name.clone()),
+            list_path: checked.then(|| named.map_or_else(|| root.join(&suite.baseline), |(_, f)| f.clone())),
             cases: suite_cases,
-            outcome: Box::new(outcome),
+            all: suite_all,
+            recorded: Box::new(|c| rt.recorded_in(&suite.name, c)),
             area_of: Box::new(|cu| suite_index.area_of(cu).map(str::to_string)),
             selected: Box::new(|c| match &explained {
                 Some((_, e)) => *c == e.id,
@@ -1417,17 +1463,6 @@ fn run_version_inner(
             }),
         });
     }
-    // The baseline of a target, narrowed to the selected cases: the others did not run.
-    let load_baseline = |t: &Target| -> Result<std::collections::BTreeSet<oracle::CaseId>, String> {
-        let path = t
-            .baseline_path
-            .as_ref()
-            .expect("a ratcheted target has a baseline file");
-        let mut baseline = report::parse_baseline(&read(path)?).map_err(|e| format!("{}: {e}", path.display()))?;
-        // Only the selected cases ran; the others cannot have regressed.
-        baseline.retain(|c| (t.selected)(c));
-        Ok(baseline)
-    };
     if let Some(n) = args.top_refusals {
         for t in targets.iter().filter(|t| !t.cases.is_empty()) {
             let in_scope = |id: &oracle::CaseId| {
@@ -1435,7 +1470,12 @@ fn run_version_inner(
                     .as_ref()
                     .is_none_or(|a| (t.area_of)(id.codeunit).is_some_and(|x| x.eq_ignore_ascii_case(a)))
             };
-            let list = insight::top_refusals(t.cases, &in_scope, &*t.outcome);
+            let outcome = |c: &oracle::CaseId| {
+                (t.recorded)(c).unwrap_or_else(|| {
+                    report::Outcome::NotRun("test procedure not found in the compiled corpus".into())
+                })
+            };
+            let list = insight::top_refusals(t.cases, &in_scope, &outcome);
             let title = match &args.top_refusals_area {
                 Some(a) => format!("BC {} area {a}", t.label),
                 None => format!("BC {}", t.label),
@@ -1443,82 +1483,162 @@ fn run_version_inner(
             println!("\n{}", insight::render_top(&title, &list, n));
         }
     }
-    if args.baseline_diff {
-        for t in targets.iter().filter(|t| t.baseline_path.is_some()) {
-            let d = insight::baseline_diff(&load_baseline(t)?, t.cases, &*t.outcome);
-            println!(
-                "\n{}",
-                insight::render_diff(&format!("BC {}", t.label), &d, &*t.area_of)
-            );
-        }
-    }
-    if args.no_ratchet {
-        if args.update_baseline {
-            return Err("--no-ratchet cannot be combined with --update-baseline".into());
-        }
-        return Ok(VersionRun {
-            code: 0,
-            oracle: oracle_ok,
-            passing,
-            rep: Some(rep),
-            unmatched: None,
-        });
-    }
-    targets.retain(|t| t.baseline_path.is_some());
-    let mut regressed = false;
-    for t in &targets {
-        let baseline = load_baseline(t)?;
-        let baseline_path = t.baseline_path.as_ref().expect("retained for its baseline file");
-        let ratchet = report::ratchet(&baseline, &*t.outcome);
-        if !ratchet.skipped.is_empty() {
-            // ADR-014 section 11: not a regression, but never silent.
-            eprintln!(
-                "{} baseline case(s) skipped, .NET is unavailable on this machine (CI uses --require-dotnet):",
-                ratchet.skipped.len()
-            );
-            for (c, why) in &ratchet.skipped {
-                eprintln!("  {} {}: {why}", c.codeunit, c.name);
-            }
-        }
-        match report::decide(&ratchet, args.update_baseline, args.require_dotnet) {
-            report::Decision::Ok => {}
-            report::Decision::Setup(why) => return Err(why),
-            report::Decision::Regression => {
-                eprintln!(
-                    "BC {}: {} regression(s): cases in {} no longer pass:",
-                    t.label,
-                    ratchet.regressions.len(),
-                    baseline_path.display()
-                );
-                for c in &ratchet.regressions {
-                    eprintln!("  {} {}", c.codeunit, c.name);
-                }
-                regressed = true;
-            }
-        }
-    }
-    if regressed {
-        return Ok(VersionRun {
-            code: 1,
-            oracle: oracle_ok,
-            passing,
-            rep: Some(rep),
-            unmatched: None,
-        });
-    }
-    if args.update_baseline {
-        for t in &targets {
-            let path = t.baseline_path.as_ref().expect("retained for its baseline file");
-            write(path, &report::format_baseline(&t.passing))?;
-        }
-    }
+    let code = if args.no_ratchet && !args.baseline_diff {
+        0
+    } else {
+        check_lists(args, root, &targets)?
+    };
     Ok(VersionRun {
-        code: 0,
+        code: if args.no_ratchet { 0 } else { code },
         oracle: oracle_ok,
         passing,
         rep: Some(rep),
         unmatched: None,
     })
+}
+
+/// The outcome a run recorded for a case, `None` when it recorded none.
+type Recorded<'a> = dyn Fn(&oracle::CaseId) -> Option<report::Outcome> + 'a;
+
+/// One not-passing list and the cases it is checked over (ADR-065).
+struct Target<'a> {
+    label: String,
+    major: u16,
+    /// The suite's name; `None` for the main app.
+    suite: Option<String>,
+    /// `None`: this app is not checked (`--baseline` names the main app's file alone).
+    list_path: Option<PathBuf>,
+    /// The selected oracle cases.
+    cases: &'a [oracle::OracleCase],
+    /// Every case of the oracle.
+    all: &'a [oracle::OracleCase],
+    /// The outcome the run recorded, `None` when it recorded none.
+    recorded: Box<Recorded<'a>>,
+    area_of: Box<dyn Fn(u32) -> Option<String> + 'a>,
+    /// Whether the selection picks a case (every case when nothing is selected).
+    selected: Box<dyn Fn(&oracle::CaseId) -> bool + 'a>,
+}
+
+/// The rule of ADR-065 section 2 over each target's list: `--list-new-cases` adds the lines of new cases first,
+/// `--prune-not-passing` deletes the stale lines, `--baseline-diff` prints the check. The exit code: 1 when a list
+/// does not hold.
+fn check_lists(args: &Args, root: &Path, targets: &[Target]) -> Result<u8, String> {
+    let base = match &args.list_new_cases {
+        Some(rev) => Some(al_test_cli::base_oracle::Base::open(root, rev)?),
+        None => None,
+    };
+    let mut failed = false;
+    for t in targets {
+        let Some(path) = &t.list_path else { continue };
+        let text = if path.exists() { read(path)? } else { String::new() };
+        let mut list = not_passing::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+        let mut changed = false;
+        if let Some(base) = &base {
+            let base_ids = base.oracle_ids(t.major, t.suite.as_deref())?;
+            let c = not_passing::check(&list, t.all, &*t.selected, &*t.recorded);
+            if !c.skipped.is_empty() {
+                return Err(format!(
+                    "--list-new-cases refused: BC {}: {} case(s) were skipped because .NET is unavailable, so their lines would be guesses",
+                    t.label,
+                    c.skipped.len()
+                ));
+            }
+            let new = not_passing::new_cases(&list, t.all, &base_ids, &*t.recorded);
+            if !new.is_empty() {
+                println!(
+                    "BC {}: {} new case(s) that the oracle at {} does not have and the runtime does not pass, added to {}",
+                    t.label,
+                    new.len(),
+                    base.rev(),
+                    path.display()
+                );
+                list.extend(new);
+                changed = true;
+            }
+        }
+        let c = not_passing::check(&list, t.all, &*t.selected, &*t.recorded);
+        if args.baseline_diff {
+            println!(
+                "\n{}",
+                not_passing::render_diff(&format!("BC {}", t.label), &c, &*t.area_of)
+            );
+        }
+        if args.no_ratchet {
+            continue;
+        }
+        if !c.skipped.is_empty() {
+            // ADR-014 section 11: not a regression, but never silent.
+            eprintln!(
+                "{} case(s) skipped, .NET is unavailable on this machine (CI uses --require-dotnet):",
+                c.skipped.len()
+            );
+            for (x, why) in &c.skipped {
+                eprintln!("  {} {}: {why}", x.codeunit, x.name);
+            }
+        }
+        let stale: Vec<_> = c.stale().cloned().collect();
+        if args.prune_not_passing && !stale.is_empty() {
+            println!(
+                "BC {}: {} stale line(s) deleted from {}",
+                t.label,
+                stale.len(),
+                path.display()
+            );
+            for s in &stale {
+                list.remove(s);
+            }
+            changed = true;
+        }
+        if changed {
+            write(path, &not_passing::format(&list))?;
+        }
+        report_check(t, path, &c, args.prune_not_passing);
+        match not_passing::decide(&c, args.prune_not_passing, args.require_dotnet) {
+            not_passing::Decision::Ok => {}
+            not_passing::Decision::Setup(why) => return Err(why),
+            not_passing::Decision::Fail => failed = true,
+        }
+    }
+    Ok(u8::from(failed))
+}
+
+/// The failures of a check on standard error: what each case does, and what to do about it.
+fn report_check(t: &Target, path: &Path, c: &not_passing::Check, pruned: bool) {
+    if !c.regressions.is_empty() {
+        eprintln!(
+            "BC {}: {} regression(s): cases not listed in {} do not pass:",
+            t.label,
+            c.regressions.len(),
+            path.display()
+        );
+        for (x, why) in &c.regressions {
+            eprintln!("  {} {}  [{why}]", x.codeunit, x.name);
+        }
+    }
+    if !pruned && c.stale().next().is_some() {
+        eprintln!(
+            "BC {}: {} stale line(s) in {}: delete them with `al-test-cli --root . --prune-not-passing`:",
+            t.label,
+            c.stale_passing.len() + c.stale_gone.len(),
+            path.display()
+        );
+        for x in &c.stale_passing {
+            eprintln!("  {} {}  [passes]", x.codeunit, x.name);
+        }
+        for x in &c.stale_gone {
+            eprintln!("  {} {}  [not in the oracle]", x.codeunit, x.name);
+        }
+    }
+    if !c.no_outcome.is_empty() {
+        eprintln!(
+            "BC {}: {} oracle case(s) got no outcome: the runner did not run them and said nothing (a runner bug):",
+            t.label,
+            c.no_outcome.len()
+        );
+        for x in &c.no_outcome {
+            eprintln!("  {} {}", x.codeunit, x.name);
+        }
+    }
 }
 
 /// ", M flagged" after a pass rate, or nothing when no pass was flagged.
@@ -1671,4 +1791,23 @@ fn git_head(repo: &Path) -> Result<String, String> {
         ));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// The `--timings` lines of the slowest test codeunits and of the carry chain (`al_testrun::runtime::ChainReport`).
+fn slowest_and_chain_lines(p: &al_testrun::runtime::Phases) -> Vec<String> {
+    let slowest: Vec<String> = p
+        .slowest
+        .iter()
+        .map(|c| {
+            let start = if c.sidecar_start.is_zero() {
+                String::new()
+            } else {
+                format!(" (sidecar start {:.2} s)", c.sidecar_start.as_secs_f64())
+            };
+            format!("{} {} {:.2} s{start}", c.id, c.name, c.took.as_secs_f64())
+        })
+        .collect();
+    let mut lines = vec![format!("slowest test codeunits: {}", slowest.join("; "))];
+    lines.extend(p.chain.lines());
+    lines
 }

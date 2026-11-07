@@ -20,6 +20,8 @@ public sealed class Server
     public JsonObject Handle(JsonObject req)
     {
         marshal.BeginRequest();
+        foldedCase = false;
+        textAsGuid = false;
         switch (req["op"]!.GetValue<string>())
         {
             case "hello":
@@ -73,7 +75,7 @@ public sealed class Server
                 // position, position 0 afterwards; with a count from the position, which follows.
                 var stream = StreamOf(req["handle"]!.GetValue<long>());
                 // The stream ZipArchiveEntry.Open() gives in Read mode, used once as the source of CopyStream without a count:
-                // all its bytes (lt-y44-zip-create/Y44ZipCreateMode.al ReadZip, Zip_TwoEntries_CopyStreamIntoOpen
+                // all its bytes (dotnet/zip-create/Y44ZipCreateMode.al ReadZip, Zip_TwoEntries_CopyStreamIntoOpen
                 // `content_<i>`; a compressed entry gives a DeflateStream, the empty stored one `d.txt` a SubReadStream). The
                 // runtime sends it only for a temporary Open() stream nothing read before.
                 var entryRead = stream is System.IO.Compression.DeflateStream
@@ -108,30 +110,36 @@ public sealed class Server
                 var type = DeclaredType(req["type"]!);
                 // A generic type AL declares without type arguments is made closed over System.Object, as BC does: the type
                 // its messages name is `Dictionary`2[System.Object,System.Object]` (tests/al-language-onprem-dotnet/
-                // lt-y17-dotnet-dictionary/Y17DotNetDictionary.al:126, :147). System Application's ABS and AFS Operation Payload
+                // dotnet/dotnet-dictionary/Y17DotNetDictionary.al:126, :147). System Application's ABS and AFS Operation Payload
                 // make a SortedDictionary`2 so.
                 if (type.IsGenericTypeDefinition)
                     type = type.MakeGenericType(type.GetGenericArguments().Select(_ => typeof(object)).ToArray());
                 var args = DecodeArgs(req);
-                var (best, coerced, _) = Pick(type.GetConstructors(BindingFlags.Public | BindingFlags.Instance), args, $"new {type.FullName}");
+                var (best, coerced, _) = Pick(type.GetConstructors(BindingFlags.Public | BindingFlags.Instance), args, $"new {type.FullName}", textAsGuidFallback: true);
                 object? obj = ((ConstructorInfo)best).Invoke(coerced);
                 return Done(obj, best, coerced, args);
             }
             case "invoke":
             {
                 var (target, type) = Target(req["target"]!);
-                string name = req["member"]!.GetValue<string>();
                 var args = DecodeArgs(req);
                 var flags = BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy | (target != null ? BindingFlags.Instance : 0);
+                string name = BindName(type, flags, req["member"]!.GetValue<string>());
                 var cands = type.GetMethods(flags).Where(m => m.Name == name && !m.IsGenericMethodDefinition).ToArray();
                 if (cands.Length == 0)
                 {
                     // A method that is generic only, whose one type parameter is its return type (OpenXml's
                     // `T WorkbookReader.GetWorksheetByName<T>(string)`): the runtime closes it over the declared type of the
                     // DotNet variable the result is stored into (`generic`); without one the type argument is not known.
+                    // Only an overload that can take this many arguments counts: `JProperty.Value()` (Base Application,
+                    // "JSON Management".GetPropertyValueFromJObjectByName) is the property `JToken Value`, read below as a
+                    // call, not JToken's `T Value<T>(object key)`, which needs its key (al-runner issue 6927;
+                    // tests/al-language-onprem-dotnet/dotnet/dotnet/R6927JPropertyValue.al:31,
+                    // passed on BC 27.5, 28.5 and 29.0).
                     var generic = type.GetMethods(flags)
                         .Where(m => m.Name == name && m.IsGenericMethodDefinition && m.GetGenericArguments().Length == 1
-                            && m.ReturnType == m.GetGenericArguments()[0])
+                            && m.ReturnType == m.GetGenericArguments()[0]
+                            && TakesArgCount(m, args.Length))
                         .ToArray();
                     if (generic.Length > 0)
                     {
@@ -186,7 +194,7 @@ public sealed class Server
                         .Select(p => (MethodBase)p.GetMethod!).ToArray();
                     // With one argument more than the index, the last one is the value assigned through the indexer:
                     // `DataRow.Item(ColumnName, Value)` (System Application "Business Chart Impl."; corpus
-                    // tests/al-language/misc/lt-au-language-edges/AuEdgeTests.al:608, real BC reads the value back).
+                    // tests/al-language/streams/AuEdgeTests.al:608, real BC reads the value back).
                     // Both can fit two arguments (`DataRow.Item(String, DataRowVersion)` reads, `Item(String) = Object`
                     // writes): the closer fit wins and a tie reads. An Integer value is written, as on real BC (the
                     // corpus test above sets 7 with SetValueByIndex and reads it back).
@@ -217,15 +225,15 @@ public sealed class Server
                     throw new Refusal(target == null && type.GetMethods(BindingFlags.Public | BindingFlags.Instance).Any(m => m.Name == name)
                         ? $"'{type.FullName}.{name}' is an instance member and the variable holds no object"
                         : $"member '{name}' not found on '{type.FullName}'");
-                var (best, coerced, _) = Pick(cands, args, $"{type.FullName}.{name}");
+                var (best, coerced, _) = Pick(cands, args, $"{type.FullName}.{name}", textAsGuidFallback: true);
                 object? result = ((MethodInfo)best).Invoke(((MethodInfo)best).IsStatic ? null : target, coerced);
                 return Done(result, best, coerced, args, ((MethodInfo)best).ReturnType);
             }
             case "get":
             {
                 var (target, type) = Target(req["target"]!);
-                string name = req["member"]!.GetValue<string>();
                 var flags = BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy | (target != null ? BindingFlags.Instance : 0);
+                string name = BindName(type, flags, req["member"]!.GetValue<string>());
                 var prop = type.GetProperty(name, flags, null, null, Type.EmptyTypes, null);
                 if (prop != null && prop.GetMethod != null)
                     return Done(prop.GetValue(prop.GetMethod.IsStatic ? null : target), null, null, null, prop.PropertyType);
@@ -244,9 +252,9 @@ public sealed class Server
             case "set":
             {
                 var (target, type) = Target(req["target"]!);
-                string name = req["member"]!.GetValue<string>();
                 var value = marshal.Decode(req["value"], 0);
                 var flags = BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy | (target != null ? BindingFlags.Instance : 0);
+                string name = BindName(type, flags, req["member"]!.GetValue<string>());
                 var prop = type.GetProperty(name, flags, null, null, Type.EmptyTypes, null);
                 if (prop != null && prop.SetMethod != null)
                 {
@@ -268,6 +276,33 @@ public sealed class Server
         }
     }
 
+    // AL does not tell identifiers apart by letter case, so a DotNet member written in another case than its .NET name
+    // binds to it: Base Application codeunit 1203 "Import XML File to Data Exch.", ParseParentChildLine
+    // (ImportXMLFiletoDataExch.Codeunit.al:106) writes `XmlElement.OuterXML` for the .NET `OuterXml`; it compiles and the
+    // line runs on BC (al-runner issue 6897, compile acceptance as 6488). A Microsoft test that passes through it:
+    // see assumption `dotnet-member-name-case`. A name some public method, property or field carries exactly is kept;
+    // otherwise the one public name equal to it ignoring case is taken (and the reply says so, so the host marks the
+    // assumption); two or more such names are refused, because which one BC binds is not pinned.
+    bool foldedCase;
+    // The call bound an AL Text argument to a System.Guid parameter (see PickTextAsGuid); the host marks its assumption.
+    bool textAsGuid;
+
+    string BindName(Type type, BindingFlags flags, string name)
+    {
+        foldedCase = false;
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var m in type.GetMethods(flags)) names.Add(m.Name);
+        foreach (var p in type.GetProperties(flags)) names.Add(p.Name);
+        foreach (var f in type.GetFields(flags)) names.Add(f.Name);
+        if (names.Contains(name)) return name;
+        var like = names.Where(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase)).OrderBy(n => n, StringComparer.Ordinal).ToArray();
+        if (like.Length == 0) return name;
+        if (like.Length > 1)
+            throw new Refusal($"member '{name}' of '{type.FullName}' matches {string.Join(", ", like.Select(n => $"'{n}'"))} ignoring letter case: which one BC binds is not pinned");
+        foldedCase = true;
+        return like[0];
+    }
+
     Stream StreamOf(long handle) =>
         marshal.Handle(handle) as Stream
         ?? throw new Refusal($"'{marshal.Handle(handle).GetType().FullName}' is not a System.IO.Stream");
@@ -280,6 +315,8 @@ public sealed class Server
     {
         // A null whose declared type is string is tagged "ns" (ADR-024): AL reads it as an empty text.
         var reply = Ok(result == null && declared == typeof(string) ? new JsonObject { ["t"] = "ns" } : marshal.Encode(result));
+        if (foldedCase) reply["folded"] = true;
+        if (textAsGuid) reply["textAsGuid"] = true;
         // New values of by-reference parameters, by argument position.
         if (method != null && coerced != null)
         {
@@ -375,10 +412,27 @@ public sealed class Server
     /// The candidate whose parameters accept the runtime types of the arguments with the fewest
     /// conversions: exact type, assignable, enum from integer, numeric conversion. By-reference
     /// parameters need an argument the AL caller passed as a variable.
-    (MethodBase Best, object?[] Coerced, int Score) Pick(IEnumerable<MethodBase> cands, object?[] args, string what)
+    (MethodBase Best, object?[] Coerced, int Score) Pick(IEnumerable<MethodBase> cands, object?[] args, string what, bool textAsGuidFallback = false)
+    {
+        var all = cands as IReadOnlyCollection<MethodBase> ?? cands.ToList();
+        var r = PickBy(all, args, what, false);
+        if (r != null) return r.Value;
+        // BC binds an AL Text to a System.Guid parameter (System Application Image Impl. EncodeToImage,
+        // ImageImpl.Codeunit.al:347 `Encoder.Encoder(QualityEncodeGuidTxt)`; assumption dotnet-text-argument-as-guid). Only when no
+        // overload takes the arguments as they are, the text is a Guid in form D or B, and exactly one overload fits that way.
+        if (textAsGuidFallback && args.Any(a => a is string))
+        {
+            r = PickBy(all, args, what, true);
+            if (r != null) { textAsGuid = true; return r.Value; }
+        }
+        throw new Refusal($"{what} has no overload taking {args.Length} argument(s) of the given types ({string.Join(", ", args.Select(Describe))})");
+    }
+
+    (MethodBase Best, object?[] Coerced, int Score)? PickBy(IReadOnlyCollection<MethodBase> cands, object?[] args, string what, bool guidText)
     {
         MethodBase? best = null;
         var bestScore = int.MaxValue;
+        int fits = 0;
         foreach (var c in cands)
         {
             var ps = c.GetParameters();
@@ -394,23 +448,35 @@ public sealed class Server
                     pt = pt.GetElementType()!;
                     score += 1;
                 }
-                var s = Cost(args[i], pt);
+                var s = guidText && args[i] is string t && pt == typeof(Guid) ? (IsGuidText(t) ? 6 : -1) : Cost(args[i], pt);
                 if (s < 0) ok = false; else score += s;
             }
+            if (ok) fits++;
             if (ok && score < bestScore) { best = c; bestScore = score; }
         }
-        if (best == null)
-            throw new Refusal($"{what} has no overload taking {args.Length} argument(s) of the given types ({string.Join(", ", args.Select(Describe))})");
+        if (best == null || (guidText && fits != 1)) return null;
         var ps2 = best.GetParameters();
         var coerced = new object?[args.Length];
         for (int i = 0; i < args.Length; i++)
         {
             var pt = ps2[i].ParameterType;
             if (pt.IsByRef) pt = pt.GetElementType()!;
-            coerced[i] = Coerce(args[i], pt)?.Value;
+            coerced[i] = guidText && args[i] is string g && pt == typeof(Guid) ? Guid.Parse(g) : Coerce(args[i], pt)?.Value;
         }
         return (best, coerced, bestScore);
     }
+
+    // Whether a method can be called with this many arguments: every required parameter given, and no more arguments
+    // than parameters unless the last one is a params array.
+    static bool TakesArgCount(MethodBase m, int count)
+    {
+        var ps = m.GetParameters();
+        bool rest = ps.Length > 0 && ps[^1].IsDefined(typeof(ParamArrayAttribute), false);
+        int required = ps.Count(p => !p.IsOptional) - (rest ? 1 : 0);
+        return count >= required && (rest || count <= ps.Length);
+    }
+
+    static bool IsGuidText(string t) => Guid.TryParseExact(t, "D", out _) || Guid.TryParseExact(t, "B", out _);
 
     static string Describe(object? a) => a == null ? "null" : a.GetType().Name;
 
@@ -428,7 +494,7 @@ public sealed class Server
         if (a is decimal && pt.IsPrimitive && pt != typeof(bool) && pt != typeof(char)) return 4;
         // A one-character AL text into a char[] (String.Split(','), whose one-argument form is `params char[]`): the
         // character (tests/al-language-onprem-dotnet/TestDotNetValueKindsContracts.al:250 Foreach_OverClrCollections,
-        // lt-y51-dotnet-builtin-args/Y51DotNetBuiltinArgs.al DotNetString_ErrorInfoCreate `Source.Split(',')`).
+        // dotnet/dotnet-builtin-args/Y51DotNetBuiltinArgs.al DotNetString_ErrorInfoCreate `Source.Split(',')`).
         if (pt == typeof(char[]) && a is string { Length: 1 }) return 5;
         return -1;
     }
@@ -452,4 +518,30 @@ public sealed class Server
         try { return new Boxed(Convert.ChangeType(a, pt, CultureInfo.InvariantCulture)); }
         catch (Exception ex) when (ex is InvalidCastException or OverflowException or FormatException) { return null; }
     }
+}
+
+/// Test fixture for the case-binding rule (`BindName`): public members that differ only in letter case, which no
+/// .NET framework type has. Reached by tests as assembly `AlDotNetSidecar`, type `AlDotNetSidecar.CaseFixture`.
+public class CaseFixture
+{
+    public string value = "lower";
+    public string Value = "upper";
+    public string Single = "single";
+    public static string StaticMember = "static";
+    public string Echo(string s) => s;
+}
+
+/// Test fixture for the AL Text to System.Guid argument conversion (assumption `dotnet-text-argument-as-guid`): the shapes
+/// of System.Drawing.Imaging.Encoder (one constructor taking a Guid) and of overload sets that make the conversion
+/// unnecessary or ambiguous. Reached by tests as assembly `AlDotNetSidecar`, type `AlDotNetSidecar.GuidFixture`.
+public class GuidFixture
+{
+    public string Got = "";
+    public GuidFixture(Guid g) { Got = "guid " + g.ToString("D"); }
+    public static string OnlyGuid(Guid g) => "guid " + g.ToString("D");
+    public static string Both(string s) => "string " + s;
+    public static string Both(Guid g) => "guid " + g.ToString("D");
+    public static string Amb(Guid g, int i) => "int";
+    public static string Amb(Guid g, long l) => "long";
+    public static string Nullable(Guid? g) => "nullable";
 }

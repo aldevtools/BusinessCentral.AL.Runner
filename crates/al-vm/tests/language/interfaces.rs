@@ -149,7 +149,7 @@ fn run_with(fixtures: &str, body: &str, routine: &str, enums: &[(&str, i32)]) ->
     s.call(oi, ri, inst, args).map(|(v, _)| v)
 }
 
-// corpus codeunit/TestCodeunitInterface.al:14-26 (Interface_Assign_DoubleImpl_ComputesDouble)
+// corpus codeunits/TestCodeunitInterface.al:14-26 (Interface_Assign_DoubleImpl_ComputesDouble)
 #[test]
 fn a_codeunit_variable_assigns_to_an_interface_and_dispatches() {
     let r = run(
@@ -160,7 +160,7 @@ fn a_codeunit_variable_assigns_to_an_interface_and_dispatches() {
     assert_eq!(int(r), 20);
 }
 
-// corpus codeunit/TestCodeunitInterface.al:40-60 (Interface_Reassign_ChangesImpl)
+// corpus codeunits/TestCodeunitInterface.al:40-60 (Interface_Reassign_ChangesImpl)
 #[test]
 fn reassigning_an_interface_switches_the_implementation() {
     let r = run(
@@ -171,7 +171,7 @@ fn reassigning_an_interface_switches_the_implementation() {
     assert_eq!(int(r), 8 * 100 + 16);
 }
 
-// corpus codeunit/TestCodeunitInterface.al:85-96 (negative input)
+// corpus codeunits/TestCodeunitInterface.al:85-96 (negative input)
 #[test]
 fn dispatch_passes_arguments_through() {
     let r = run(
@@ -270,7 +270,7 @@ enum 60370 StateKind implements IState { value(0; V) { Implementation = IState =
     assert_eq!(int(r), 2);
 }
 
-// codeunit/TestInterfaceRuntimeContracts.al:76
+// codeunits/TestInterfaceRuntimeContracts.al:76
 // (Interface_CallOnUnassignedVariable_Throws_InterfaceNotInitialized)
 #[test]
 fn a_call_on_an_unassigned_interface_raises_interface_not_initialized() {
@@ -351,7 +351,7 @@ fn an_extended_interface_converts_to_its_base_and_answers_is_and_as() {
     assert_eq!(text(r), "10YesYes20b");
 }
 
-// codeunit/TestInterfaceIsAsContracts.al:61-102: `is` is false, not an error, for an interface the
+// codeunits/TestInterfaceIsAsContracts.al:61-102: `is` is false, not an error, for an interface the
 // instance does not implement and for an unassigned variable; `as` to such an interface, or on an
 // unassigned variable, raises "The expression cannot be the target interface." / UnableToCast.
 #[test]
@@ -407,7 +407,7 @@ fn an_enum_value_from_frominteger_converts_to_the_interface_directly() {
 // al-runner issue 6249: an interface that extends another and declares a method of the same name with other parameters. A
 // call of the base interface's overload through the derived interface resolves to the base overload, as alc compiles it (the
 // reporter's run). That base procedures are callable through the derived interface is pinned by
-// codeunit/TestInterfaceRuntimeContracts.al (Interface_ExtendedInterface_IsAndAs).
+// codeunits/TestInterfaceRuntimeContracts.al (Interface_ExtendedInterface_IsAndAs).
 #[test]
 fn a_base_overload_is_called_through_a_derived_interface_that_declares_the_name_again() {
     let fixtures = "interface IEBase { procedure SetValue(Value: Text; Count: Integer); procedure GetValue(): Text; } \
@@ -434,8 +434,8 @@ fn a_base_overload_is_called_through_a_derived_interface_that_declares_the_name_
 // An interface that no codeunit in the workspace implements still lowers its calls (al-runner
 // issue 6299: alc accepts the code, so the runner must not refuse the procedure). With no
 // implementer the variable can only be unassigned when the call runs, so the call raises
-// "Interface not initialized" (codeunit/TestInterfaceRuntimeContracts.al:76), and an `is` guard
-// on an instance that does not implement it is false (codeunit/TestInterfaceIsAsContracts.al:61-102).
+// "Interface not initialized" (codeunits/TestInterfaceRuntimeContracts.al:76), and an `is` guard
+// on an instance that does not implement it is false (codeunits/TestInterfaceIsAsContracts.al:61-102).
 #[test]
 fn a_call_on_an_interface_without_implementer_lowers_and_runs_behind_an_is_guard() {
     let fixtures = "interface IA { procedure A(): Text; } interface IV extends IA { procedure V(): Boolean; } \
@@ -471,4 +471,142 @@ fn a_loop_over_an_empty_extensible_enum_with_an_interface_call_runs() {
         "P",
     );
     assert_eq!(int(r), 0);
+}
+
+/// corpus codeunits/CwDefaultInterfaceMethods.al:20-63 (fixtures, BC 29, runtime 18.0).
+const DEFAULTS: &str = r#"
+interface "LT CW I68"
+{
+    procedure Req(): Text;
+
+    procedure Opt(): Text
+    begin
+        exit('default');
+    end;
+
+    procedure Chain(): Text
+    begin
+        exit('default chain of ' + Req());
+    end;
+}
+
+codeunit 85430 "LT CW Impl68 Inherit" implements "LT CW I68"
+{
+    procedure Req(): Text
+    begin
+        exit('inherit req');
+    end;
+}
+
+codeunit 85431 "LT CW Impl68 Override" implements "LT CW I68"
+{
+    procedure Req(): Text
+    begin
+        exit('override req');
+    end;
+
+    procedure Opt(): Text
+    begin
+        exit('override opt');
+    end;
+
+    procedure Chain(): Text
+    begin
+        exit('override chain');
+    end;
+}
+
+codeunit 85432 "LT CW Impl68 Internal" implements "LT CW I68"
+{
+    internal procedure Req(): Text
+    begin
+        exit('internal req');
+    end;
+
+    internal procedure Opt(): Text
+    begin
+        exit('internal opt');
+    end;
+}
+"#;
+
+// A codeunit that does not declare an interface member with a body runs the default body, and a
+// default body calls the implementor's own members; one that declares it runs its own; internal
+// procedures still implement (corpus codeunits/CwDefaultInterfaceMethods.al:114-158,
+// CW_Default_InheritAndOverride and CW_Default_NonPublicImplementations).
+#[test]
+fn a_codeunit_without_a_member_that_has_a_default_body_runs_the_default() {
+    let r = run(
+        DEFAULTS,
+        "procedure P(): Text var I: Interface \"LT CW I68\"; Inh: Codeunit \"LT CW Impl68 Inherit\"; \
+         Ovr: Codeunit \"LT CW Impl68 Override\"; Intl: Codeunit \"LT CW Impl68 Internal\"; \
+         begin I := Inh; exit(I.Opt() + '|' + I.Chain() + '|' + Ovr.Opt() + '|' + Intl.Opt()); end;",
+        "P",
+    );
+    assert_eq!(
+        text(r),
+        "default|default chain of inherit req|override opt|internal opt"
+    );
+    let r = run(
+        DEFAULTS,
+        "procedure P(): Text var I: Interface \"LT CW I68\"; Ovr: Codeunit \"LT CW Impl68 Override\"; \
+         Intl: Codeunit \"LT CW Impl68 Internal\"; \
+         begin I := Ovr; exit(I.Opt() + '|' + I.Chain()); end;",
+        "P",
+    );
+    assert_eq!(text(r), "override opt|override chain");
+    let r = run(
+        DEFAULTS,
+        "procedure P(): Text var I: Interface \"LT CW I68\"; Intl: Codeunit \"LT CW Impl68 Internal\"; \
+         begin I := Intl; exit(I.Req() + '|' + I.Opt() + '|' + I.Chain()); end;",
+        "P",
+    );
+    assert_eq!(text(r), "internal req|internal opt|default chain of internal req");
+}
+
+// A local procedure of the member's name next to a default body: calling through the interface is
+// not pinned (codeunits/CwDefaultInterfaceMethods.al:6-9, not asserted), so the call on that
+// instance refuses when it runs; the codeunit's own call runs its local procedure (:150).
+#[test]
+fn a_local_procedure_of_a_member_with_a_default_body_refuses_the_interface_call() {
+    let fixtures = format!(
+        "{DEFAULTS}\ncodeunit 85433 \"LT CW Impl68 Local\" implements \"LT CW I68\" {{ \
+         procedure Req(): Text begin exit('local req'); end; \
+         local procedure Opt(): Text begin exit('local opt'); end; \
+         procedure CallOwnOpt(): Text begin exit(Opt()); end; }}"
+    );
+    let r = run(
+        &fixtures,
+        "procedure P(): Text var L: Codeunit \"LT CW Impl68 Local\"; begin exit(L.CallOwnOpt()); end;",
+        "P",
+    );
+    assert_eq!(text(r), "local opt");
+    let r = run(
+        &fixtures,
+        "procedure P(): Text var I: Interface \"LT CW I68\"; L: Codeunit \"LT CW Impl68 Local\"; \
+         begin I := L; exit(I.Opt()); end;",
+        "P",
+    );
+    let Err(Signal::Unsupported(why)) = r else {
+        panic!("{r:?}")
+    };
+    assert!(why.contains("does not list"), "{why}");
+}
+
+// `this.Member(..)` in a default body calls the implementor's member, overloads chosen by arity, as
+// Microsoft's PEPPOL Tax Info Provider (BC 29) does in GetTaxExemptionReason (codeunits/interfaces/
+// R6924dThisInDefaultBody.al:93 R6924d_This_Overload). The pass is clean: no assumption is marked.
+#[test]
+fn this_in_a_default_body_calls_the_member_of_the_implementing_codeunit() {
+    let fixtures = "interface IT { procedure Get(A: Text): Text; \
+         procedure Get(A: Text; B: Text): Text begin exit(this.Get(A + B)); end; } \
+         codeunit 60396 ImplT implements IT { procedure Get(A: Text): Text begin exit('impl ' + A); end; }";
+    al_builtins::assumptions::clear_hits();
+    let r = run(
+        fixtures,
+        "procedure P(): Text var I: Interface IT; C: Codeunit ImplT; begin I := C; exit(I.Get('a', 'b')); end;",
+        "P",
+    );
+    assert_eq!(text(r), "impl ab");
+    assert_eq!(al_builtins::assumptions::take_hits(), vec![]);
 }

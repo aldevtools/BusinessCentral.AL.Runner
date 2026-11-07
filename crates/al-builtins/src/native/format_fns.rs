@@ -1,7 +1,8 @@
+use super::format_field_codes::covered_field_template;
 use super::*;
 
 /// `Format(V, Length, Number)` with `V` declared as a Variant: the standard format numbers 3 to 8 do not exist for a Variant
-/// (types/lt-scalars/ScT70050.al:FormatNumbers_*), though a Decimal variable has 3 and 4.
+/// (types/decimal-integer/ScT70050.al:FormatNumbers_*), though a Decimal variable has 3 and 4.
 pub(super) fn format_variant(ctx: &mut dyn Ctx, r: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
     let std = int_arg(args, 2).unwrap_or(0) as i32;
     if !matches!(std, 0..=2 | 9) && !matches!(&args[0], Value::Null) {
@@ -16,7 +17,7 @@ pub(super) fn format_variant(ctx: &mut dyn Ctx, r: Option<&mut Value>, args: &mu
 }
 
 /// An Option value with the OptionCaptionML captions of the session language (the lowering passes the property text):
-/// `Format` then shows the caption (record/lt-x-table-props/XTablePropsTests.al:219-228). See
+/// `Format` then shows the caption (record/table-properties/XTablePropsTests.al:219-228). See
 /// [`crate::format::ml_text_in_language`] for what is pinned.
 pub(super) fn option_caption_ml(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
     let (Some(Value::Option(o, names)), Some(ml)) = (a.first(), a.get(1).and_then(text_of)) else {
@@ -33,8 +34,8 @@ pub(super) fn option_caption_ml(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mu
 
 /// `Format(Rec.Field)` of a Decimal field that declares its places (`DecimalPlaces` or an `AutoFormatExpression` precision;
 /// lowering appends them as a fourth argument `min:max`). The standard formats 0 and 1 and the XML format 9 show those places; 0 groups
-/// thousands (pages/lt-page-autoformat-lookups/P113AutoFormat.al:P113_AF_TableFieldFormatIsPlain, `1,234.500` and, for 1 and 9,
-/// `1234.500`; pages/lt-page-presentation-properties/P119Table.al:P119_DecimalPlaces `1.500`).
+/// thousands (pages/run-modal/P113AutoFormat.al:P113_AF_TableFieldFormatIsPlain, `1,234.500` and, for 1 and 9,
+/// `1234.500`; pages/properties/P119Table.al:P119_DecimalPlaces `1.500`).
 pub(super) fn format_decimal_field(
     ctx: &mut dyn Ctx,
     r: Option<&mut Value>,
@@ -46,7 +47,7 @@ pub(super) fn format_decimal_field(
         _ => None,
     };
     // When the places hold (`al-sema` `decimal_field_places`): mode 1, an amount field without AutoFormatExpression, rounds from
-    // BC 28 only; BC 27 writes every digit (types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al:684-723, `#else` side, and
+    // BC 28 only; BC 27 writes every digit (format-evaluate/AtPrecisionStandardFormat2.al:684-723, `#else` side, and
     // :883-967). Mode 2, a unit amount without one, has its places under `FIELD_FORMAT_STRINGS` only (:883-967); elsewhere it
     // keeps every digit (:684).
     let mode = int_arg(args, 4).unwrap_or(0);
@@ -79,8 +80,12 @@ pub(super) fn format_decimal_field(
                 return plain(ctx, r, args);
             }
             if t != "<Standard Format,2>" {
-                return match (FIELD_FORMAT_STRINGS.contains(&t), &args[0], places) {
-                    (true, Value::Decimal(d), Some(places)) => format_field_string(ctx, *d, len, t, places),
+                // The strings of `FIELD_FORMAT_STRINGS` are pinned by AtPrecisionStandardFormat2.al; any other string of the covered digit
+                // codes, on any places, by language/R6901DecimalFieldFormat.al.
+                return match (&args[0], places) {
+                    (Value::Decimal(d), Some(places)) if covered_field_template(t) => {
+                        format_field_string(ctx, *d, len, t, places)
+                    }
                     _ => Err(Signal::Unsupported(format!(
                         "Format of a Decimal field with DecimalPlaces or an AutoFormat with the format string `{t}` (not pinned)"
                     ))),
@@ -92,7 +97,7 @@ pub(super) fn format_decimal_field(
     };
     if let (Value::Decimal(d), Some(places), 0 | 1 | 2 | 9) = (&args[0], places, std) {
         // The amount field is pinned for formats 0, 2 and 9 on values of two decimals or more (AtPrecisionStandardFormat2.al:
-        // 663-723: 1234.5678, -0.005), and for format 0 on any value (misc/lt-outside-format-json-list/RwDecimalFieldPlaces.al:83
+        // 663-723: 1234.5678, -0.005), and for format 0 on any value (text/text-methods/RwDecimalFieldPlaces.al:83
         // `Amt1NoExpr`: 70, 0, 1234.5 give `70.00`, `0.00`, `1,234.50` from BC 28).
         if gated && (std == 1 || (std != 0 && d.normalize().scale() < 2)) {
             return Err(Signal::Unsupported(format!(
@@ -119,7 +124,7 @@ pub(super) fn format_decimal_field(
 }
 
 /// The format strings measured on Decimal fields with places: DecimalPlaces 2:2, 0:0, 3:5, 0:5, and AutoFormatType 1 (2:2 from
-/// BC 28), 2 and 10 with `<Precision,1:1>` (types/lt-at-partner-gaps/AtPrecisionStandardFormat2.al:805-1047, RO_* tests: the
+/// BC 28), 2 and 10 with `<Precision,1:1>` (format-evaluate/AtPrecisionStandardFormat2.al:805-1047, RO_* tests: the
 /// values 5, 1234, 1234.5678, -0.5, 0 and -1234567.25; the same under GlobalLanguage 1031).
 pub(super) const FIELD_FORMAT_STRINGS: &[&str] = &[
     "<Integer>",
@@ -134,15 +139,10 @@ pub(super) const FIELD_FORMAT_STRINGS: &[&str] = &[
     "<Integer>.<Decimals>",
 ];
 
-/// The places measured with `FIELD_FORMAT_STRINGS`: DecimalPlaces 2:2, 0:0, 3:5 and 0:5, AutoFormatType 1 (2:2), 2 (2:5) and
-/// 10 with `<Precision,1:1>` (AtPrecisionStandardFormat2.al:883-1047). Other places are not pinned and are refused.
-pub(super) const FIELD_FORMAT_PLACES: &[(u32, u32)] = &[(2, 2), (0, 0), (3, 5), (0, 5), (2, 5), (1, 1)];
-
 /// A string of `FIELD_FORMAT_STRINGS` on a field of `(min, max)` places: the value is first rounded half away from zero to
 /// `max` places (0:0 writes 1234.5678 as `1235` and -0.5 as `-1`, `<Integer>` of it `1`: the integer code drops the sign), then
 /// `<Decimals>` shows at least `min` places (2:2 writes 5 as `.00`, 0:5 as nothing, 3:5 -0.5 as `.500`), and `<Decimals,3>`
-/// keeps its width of two (3:5 1234.5678 is `***`) (AtPrecisionStandardFormat2.al:969-1047). A negative value that rounds to
-/// zero, and places outside `FIELD_FORMAT_PLACES`, are not measured and are refused.
+/// keeps its width of two (3:5 1234.5678 is `***`) (AtPrecisionStandardFormat2.al:969-1047; any places and values: language/R6901DecimalFieldFormat.al).
 pub(super) fn format_field_string(
     ctx: &mut dyn Ctx,
     d: rust_decimal::Decimal,
@@ -150,13 +150,10 @@ pub(super) fn format_field_string(
     template: &str,
     (min, max): (u32, u32),
 ) -> Result<Value, Signal> {
-    if !FIELD_FORMAT_PLACES.contains(&(min, max)) {
-        return Err(Signal::Unsupported(format!(
-            "Format of a Decimal field with places {min}:{max} with `{template}` (only the measured places are pinned)"
-        )));
-    }
     let rounded = d.round_dp_with_strategy(max, rust_decimal::RoundingStrategy::MidpointAwayFromZero);
-    if rounded.is_zero() && d.is_sign_negative() && !d.is_zero() {
+    // Only `<Sign>` shows the minus of a negative value that rounds to zero (`-0`, `-0.00`), no other code does
+    // (R6901DecimalFieldFormat.al, v8 of the `<Sign><Integer><Decimal>` and `<Integer><Decimal>` strings); the standard formats are not measured.
+    if rounded.is_zero() && d.is_sign_negative() && !d.is_zero() && template.starts_with("<Standard Format,") {
         return Err(Signal::Unsupported(format!(
             "Format of a Decimal field with places {min}:{max} of {d}, a negative value that rounds to zero, with `{template}` (not pinned)"
         )));
@@ -175,7 +172,7 @@ pub(super) fn format_field_string(
         &Value::Decimal(rounded),
         len,
         template,
-        min,
+        (min, rounded.is_zero() && d.is_sign_negative() && !d.is_zero()),
         ctx,
     ))
 }
@@ -199,7 +196,7 @@ pub(super) fn format_auto_format_field(
         return crate::autoformat11::format(ctx, args, &places);
     }
     // A sixth argument 4 or 5: an amount or unit amount without an expression, which BC 27 formats as a plain Decimal
-    // (misc/lt-sa-unit-amount-subst/SaUnitAmountSubst.al `A4No`, `A5No`, the `#else` side of BC28PLUS): mode 1 of
+    // (text/text-methods/SaUnitAmountSubst.al `A4No`, `A5No`, the `#else` side of BC28PLUS): mode 1 of
     // `format_decimal_field`.
     let mode = i32::from(matches!(args.get(5), Some(Value::Integer(4 | 5))));
     let mut rest = vec![
@@ -225,7 +222,7 @@ pub(super) fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Val
             return r.map(|s| Value::Text(s.into()));
         }
     }
-    // The first day of the calendar (00010101D) is not a valid date to format with the numbers 0, 1, 4 and 9 (types/lt-datetime/
+    // The first day of the calendar (00010101D) is not a valid date to format with the numbers 0, 1, 4 and 9 (types/date-time/
     // Format.al:Date_Format_0D_And_Bounds); the keys and messages the runtime builds itself format it all the same.
     if matches!(&args[0], Value::Date(1, _)) && matches!(std, 0 | 1 | 4 | 9) {
         return Err(Signal::Error(Box::new(AlError {
@@ -236,7 +233,7 @@ pub(super) fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Val
         })));
     }
     // A TestPage control formats as the text it shows, cut or padded after it as a Text is; the format number changes nothing
-    // (errors/lt-ms-refusals-132/P132TestPageFormatRisky.al:64-89 P132_FormatOfControl_Standard0 and :92-125 _StandardNumbers:
+    // (testpage/P132TestPageFormatRisky.al:64-89 P132_FormatOfControl_Standard0 and :92-125 _StandardNumbers:
     // Integer, Decimal, Text, Boolean and DateTime controls with 0, 1, 2 and 9 and a length of 8; errors/lt-ms-refusals-129/
     // P129FormatTestPageControl.al:94-138 P129_FormatTestPageControl_BooleanOptionCodeTextEnum: Boolean, Option, Code, Text and Enum controls with 0, 2 and 9 and a
     // length of 5). Other format numbers are not pinned.
@@ -267,7 +264,7 @@ pub(super) fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Val
             )
         );
     // Standard format 9 of a Record or a RecordRef gives the text of standard format 0, and an unopened RecordRef formats as
-    // the empty text with 0 and 9 (errors/lt-ms-refusals-133/P133DateEvaluateFormat.al:441-566
+    // the empty text with 0 and 9 (types/P133DateEvaluateFormat.al:441-566
     // NP3_FormatRecord_StandardFormats_0And9, _Temporary_AndFlowField_0And9, NP3_FormatRecordRef_StandardFormats_0And9,
     // NP3_FormatRecordRef_NotOpen). A FieldRef with a number other than 0 is handled below.
     let record_or_ref = match &args[0] {
@@ -282,7 +279,7 @@ pub(super) fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Val
     }
     // A FieldRef with a format number other than 0 formats its value as `Format(FieldRef.Value, Length, Number)` does, which
     // differs from the field's own Format: a Decimal ignores the field's DecimalPlaces, an Option still shows its caption with 1
-    // (errors/lt-ms-refusals-129/P129FormatFieldRef.al:114-149 P129_FormatFieldRef_Numbers 1, 2 and 9 of Integer, BigInteger,
+    // (recordref-fieldref/P129FormatFieldRef.al:114-149 P129_FormatFieldRef_Numbers 1, 2 and 9 of Integer, BigInteger,
     // Decimal and Duration; :176-208 _BooleanOptionCodeTextEnum 2 and 9; :321-358 BT_FormatFieldRef_AgainstFormatValue and
     // :360-380 _BlobOptionEnum, `FR 0,1` = `FR.Value 0,1` and `FR 0,9` = `FR.Value 0,9` for Decimals with DecimalPlaces, a Date,
     // an Option with captions and an Enum). Other format numbers are not pinned.

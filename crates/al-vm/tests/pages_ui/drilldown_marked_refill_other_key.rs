@@ -1,7 +1,7 @@
 //! A Worksheet in a key other than the primary key (OnOpenPage calls SetCurrentKey) whose field's OnDrillDown marks rows,
 //! turns MarkedOnly on and calls `CurrPage.Update(false)`: the drilldown reads nothing and the page keeps showing the row it
 //! stood on; a GoToRecord of the row Rec was left on first refills the rows around it and answers true on it (corpus
-//! pages/lt-qr-onopenpage-moves-rec/SuRefillKey.al:269 Name_DrillDown_GoToRecord, three marked rows; al-runner issue 6008).
+//! pages/onopenpage-moves-rec/SuRefillKey.al:269 Name_DrillDown_GoToRecord, three marked rows; al-runner issue 6008).
 //! The fixture is the reporter's repro without Library Assert; its GoToRecord of another marked row in this key is not pinned
 //! and is refused.
 

@@ -1,5 +1,5 @@
 //! Gap C3-16: TransferFields between fields of one number and different types, from a table of this app into a table of
-//! another app and into one of this app (record/lt-y38-transfer-xapp/Y38TransferXApp.al, corpus writer Y38, measured on BC 27.5,
+//! another app and into one of this app (record/transferfields-cross-app/Y38TransferXApp.al, corpus writer Y38, measured on BC 27.5,
 //! 28.5, 29.0).
 
 use al_testkit::AppSource;

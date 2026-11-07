@@ -1,5 +1,5 @@
 //! Unbounded recursion through an event subscriber stops with the error code `RecursiveEventCall:StackOverflow` and a text
-//! that names the subscriber, the event and its publisher (codeunit/lt-call-depth-direct/CallDepthDirectAndEvent.al:101-137).
+//! that names the subscriber, the event and its publisher (codeunits/call-depth/CallDepthDirectAndEvent.al:101-137).
 
 const SRC: &str = "
 table 50711 Row { fields { field(1; Code; Code[20]) { } field(4; Qty; Integer) { } } keys { key(PK; Code) { } } }

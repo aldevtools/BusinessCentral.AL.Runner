@@ -13,7 +13,8 @@ no pass counts, because they go stale within a day. For the current numbers:
 
 ## BC versions (ADR-015)
 
-One oracle and one ratchet per BC major (`metrics/<major>/passing.txt`). `al-test-cli --root .` runs the newest;
+One oracle per BC major, and per major and test app a list of the cases the runtime does not pass yet
+(`metrics/<major>/not-passing*.txt`, ADR-065). `al-test-cli --root .` runs the newest;
 `--bc-version N` picks one; `--all-versions` runs all three and compares them. On BC 27.5 the corpus compiles
 Microsoft's apps from the corpus's own `.alpackages`; the other versions take them from the artifact of the
 matching build. The OnPrem app and the isolation probe each have their own oracle, ratchet and report line, and
@@ -98,10 +99,12 @@ fixes that came with that work stay on. Details: [alrunner-buckets.md](alrunner-
 - **Company modes (ADR-046).** One company by default; `--companies LIST|all` runs the per-company install
   code in each declared company and models BC with several companies. User text: `docs/manual/writing-tests.md`.
 - **Test framework, BC 29 (ADR-059, Accepted).** Data-driven tests (`[TestDataSource]`) run with one result per
-  case, `Procedure[identifier]` (`al-testrun` `runtime/data_driven.rs`). `TestHandlers` are refused; the
+  case, `Procedure[identifier]` (`al-testrun` `runtime/data_driven.rs`). The ITestHandler callbacks of
+  `TestHandlers` and `DefaultTestHandler` run (`runtime/test_handlers.rs`); the
   `TestHandlerContext` and `DataSourceContext` members work on a fresh variable. A skipped outcome waits for a pin.
 - **License-backed permissions (ADR-060).** `--license FILE` and the license in the BC artifact answer License
-  Permission (`docs/manual/license.md`). The license is not yet a limit on the permission checks (ADR-062 stage 5).
+  Permission (`docs/manual/license.md`). The license limits table data access below the system range (Indirect needs the
+  code's `Permissions` property; `al-vm/src/license_ceiling.rs`); a blank level refuses; Execute is not limited yet.
 - **Permission enforcement (ADR-062, Accepted).** Stage 1 is on by default: table data writes in a session a test
   lowered are checked (`al-vm/src/permissions.rs`); other denials refuse the test. Reads, `Execute` and the runner
   sets (stages 2 to 4) wait for probes. `--permissions off` restores the refusal.
@@ -139,7 +142,7 @@ Answered on 2026-10-13 and recorded in ADR-013 (and, for `DotNet`, on 2026-10-13
 ## Known issues and debt
 
 - `GetLastErrorCallStack` and `SessionInformation.Callstack` list real AL frames, innermost first with a
-  backslash after each, the test runner's frames below the test (pinned: session/TestSessionInformationCallstackContracts.al).
+  backslash after each, the test runner's frames below the test (pinned: session-system/TestSessionInformationCallstackContracts.al).
   Frames of pages, reports, queries, xmlports and extensions are still refused, and so is `Callstack` inside an event
   with no publisher routine. `ErrorInfo.Callstack()` is not implemented.
 - Red/green discipline slipped in places during the parallel build-out. A

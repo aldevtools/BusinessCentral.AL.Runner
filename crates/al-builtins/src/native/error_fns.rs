@@ -44,7 +44,7 @@ pub const EXC_MESSAGE: usize = 0;
 pub const EXC_CALL_STACK: usize = 1;
 
 /// `GetLastErrorObject()`: the last error as the .NET exception BC holds, or null when there is none.
-/// Pinned by tests/al-language-onprem-dotnet/lt-dotnet-interop/GetLastErrorObject.al for `Error('literal', args)`
+/// Pinned by tests/al-language-onprem-dotnet/dotnet/dotnet-interop/GetLastErrorObject.al for `Error('literal', args)`
 /// (:138-230), `Get` without a row (:232-255) and a division by zero (:257-280); null after `ClearLastError`
 /// (:283-301). Any other error is refused, naming its code.
 pub(super) fn get_last_error_object(
@@ -109,19 +109,19 @@ pub(super) fn get_last_error_call_stack(
 ) -> Result<Value, Signal> {
     let e = ctx.last_error();
     if e.call_stack.is_empty() && !(e.message.is_empty() && e.code.is_empty()) {
-        // BC returns the AL frames of the error (codeunit/TestCodeunitAlCallStack.al). The VM adds
+        // BC returns the AL frames of the error (codeunits/TestCodeunitAlCallStack.al). The VM adds
         // them as the error unwinds (al-vm/src/callstack.rs), so an error with no frame at all
         // (raised outside any AL routine) is the only one that gets here. The answer is non-empty,
         // as in BC, but its content is a marker that every text function refuses to read
         // ([`text_of`]), so a test that inspects the frames is not run while one that only calls
-        // the function (error-handling/TestGetLastError.al) still passes.
+        // the function (errors/TestGetLastError.al) still passes.
         return Ok(Value::Text(UNTRACKED_CALL_STACK.to_string().into()));
     }
     if e.call_stack.is_empty() {
         return Ok(Value::Text(String::new().into()));
     }
     // The frames are separated by a backslash and the text ends with one, the runner's frames
-    // below the test's (session/TestSessionInformationCallstackContracts.al:200-218).
+    // below the test's (session-system/TestSessionInformationCallstackContracts.al:200-218).
     let mut out = String::with_capacity(e.call_stack.len() + 64);
     for frame in e.call_stack.split('\n') {
         out.push_str(frame);
@@ -132,7 +132,7 @@ pub(super) fn get_last_error_call_stack(
 }
 
 /// `CodeCoverageRefresh()`: loads what was recorded into the Code Coverage tables. While logging is on a read of the table holds
-/// nothing until this call or until logging stops; after logging stopped the call changes nothing (platform/lt-code-coverage-refresh/
+/// nothing until this call or until logging stops; after logging stopped the call changes nothing (metadata/code-coverage/
 /// CodeCoverageRefreshLogged.al: CodeCoverageRefresh_WhileLogging_Result, _AfterLoggingStopped_Result, _NeverLogging_Result).
 pub(super) fn code_coverage_refresh(
     ctx: &mut dyn Ctx,
@@ -210,8 +210,9 @@ pub(super) fn field_error_computed(
 
 pub(super) fn error_text_with(ctx: &mut dyn Ctx, args: &mut [Value], form: ErrorTextForm) -> Result<Value, Signal> {
     let template = text_arg(args, 0)?;
-    let mut message = substitute(&template, &args[1..], ctx)?;
-    // The error text of `Error(Text)` without arguments shows a CR LF as one backslash (misc/lt-system-functions/ErrorMessage.al:
+    let values = super::messages::composite_args(ctx, &args[1..])?;
+    let mut message = substitute(&template, &values, ctx)?;
+    // The error text of `Error(Text)` without arguments shows a CR LF as one backslash (errors/error-texts/ErrorMessage.al:
     // 606-618, LT_BU_Message_BackslashAndAppendLine: 17 characters), and so does a CR LF in an argument, alone, between other text
     // or after a backslash the text holds (ErrorMessage.al:684-718, PYC_Error_CrLfAndLoneCrLf: `a\b`, `xa\by`, `p\q a\b`). A
     // CR LF in the text itself next to arguments is not pinned.

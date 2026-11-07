@@ -1,4 +1,4 @@
-//! `Record.IsDirty` (BC 29): the sequences of lt-ac/ACRecordIsDirty.al (codeunit 77504), and the refusals of what the
+//! `Record.IsDirty` (BC 29): the sequences of record/ACRecordIsDirty.al (codeunit 77504), and the refusals of what the
 //! corpus does not pin.
 
 use al_testkit::{run, text};

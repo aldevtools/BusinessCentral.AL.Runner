@@ -56,9 +56,12 @@ jobs:
     # A called workflow gets at most the caller's permissions. ci.yml's cache-cleanup job asks for
     # actions: write (it runs only on a push to main, but the request is checked at start-up).
     # Without this grant the run ends in startup_failure.
+    # merge-check and release-tests-paths (ci.yml) ask for pull-requests: read since the CI trim (#7026);
+    # without it here the tag run ended in startup_failure (v3.0.0-alpha.12, first attempt).
     permissions:
       actions: write
       contents: read
+      pull-requests: read
 
   package:
     needs: [plan, test]

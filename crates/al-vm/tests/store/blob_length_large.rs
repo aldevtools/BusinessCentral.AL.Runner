@@ -1,4 +1,4 @@
-//! The length of a 3 MB BLOB (streams/lt-blob-length-integer/BlobLengthInteger.al, writer Y57): it fits an Integer,
+//! The length of a 3 MB BLOB (streams/blob-tempblob/BlobLengthInteger.al, writer Y57): it fits an Integer,
 //! BigInteger and Decimal; read back with Get and no CalcFields the stored (compressed) size of that content is 3072; a
 //! second CreateOutStream on a blob that holds data writes over it from the start and does not truncate it.
 

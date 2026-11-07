@@ -42,19 +42,19 @@ The behaviours a first model must know:
 
 | Behaviour | Corpus |
 |---|---|
-| `OpenEdit/OpenView/OpenNew` run `OnInit`/`OnOpenPage`, then read the first row of the view | `handlers/TestPageRecordTriggers.al:147` (`OnOpenPage_RunsBeforeThePageIsRead`), `testpageclose/TestPageClosingActions.al:11-14` (reopen shows the FIRST row) |
+| `OpenEdit/OpenView/OpenNew` run `OnInit`/`OnOpenPage`, then read the first row of the view | `testpage/TestPageRecordTriggers.al:147` (`OnOpenPage_RunsBeforeThePageIsRead`), `testpage/lifecycle/TestPageClosingActions.al:11-14` (reopen shows the FIRST row) |
 | `OpenNew` runs `OnNewRecord` before any field is set; `OnInsertRecord` returning false suppresses the insert | `TestPageRecordTriggers.al:32`, `:76` |
 | `OK().Invoke()` persists a new row at once; `Close()` on a dirty new Card persists it too | `TestPageRecordTriggers.al:95`, `:125` |
-| On a List the row is inserted once its key is typed, later controls are a Modify; on a Card the insert waits for Close/OK; `DelayedInsert` changes that | `handlers/TestPageBlankKeyInsert.al:1-25`, `handlers/TestPageTriggerEvents.al` (`NewAndInsertRecordEvents_PageDrivenInsert_FireForTheKeyOnly`) |
+| On a List the row is inserted once its key is typed, later controls are a Modify; on a Card the insert waits for Close/OK; `DelayedInsert` changes that | `testpage/TestPageBlankKeyInsert.al:1-25`, `testpage/TestPageTriggerEvents.al` (`NewAndInsertRecordEvents_PageDrivenInsert_FireForTheKeyOnly`) |
 | `OnClosePage` runs on `Close()`; `OnAfterGetCurrRecord` runs on every move | `TestPageRecordTriggers.al:187`, `:205` |
-| After `OK`/`Cancel`/`Close` the variable is closed; every call raises `The TestPage is not open.`; an `Open*` on an open variable raises `The TestPage is already open.`; a card/list has no `Cancel` (`The built-in action = Cancel is not found on the page.`) | `testpageclose/TestPageClosingActions.al:9-24`, `:338-339` |
-| An error escaping `OnAfterGetRecord` or a control expression tears the page down; from then on every call raises `The TestPage is not open.` | `testpageteardown/TestPageTeardown.al:3-24` (85 tests) |
-| `Visible` of a control is frozen at open, `Editable`/`Enabled` are live, a group's `Visible` is live | `handlers/TestPageControlPropertyLiveness_Tests.al:56`, `:73` |
-| Control text: each type has its own en-US spelling (`Yes`/`No`, `1,234.50`, short dates, braced Guid, option captions); `AssertEquals` compares the control's text ordinally; `SetValue` of a typed value is spelled the same way and re-parsed | `handlers/TestPageFieldFormats_Tests.al:1-40` (107 tests), `handlers/TestPageExtended.al:179` |
-| `GoToKey` returns false for a missing key; `FindFirstField(Field, Variant)` is type-sensitive (`'20'` does not match an Integer field) | `handlers/TestPageExtended.al:34`, `handlers/TestPageAdvanced.al:302` |
-| A modal page opened by AL (`Page.RunModal`, a `RunObject` action, `Lookup`) is answered by the test's `[ModalPageHandler]`, synchronously, with a `TestPage` over the running page; OK/Cancel become the `RunModal` result (`LookupOK` in lookup mode); no handler raises `Unhandled UI: ModalPage` | `handlers/TestPageModalHandler_Tests.al:43`, `:83`, `:105`, `:132` |
-| A page-driven save gets the full data-layer treatment (AutoIncrement, `SystemCreatedAt`...) | `pagesave/TestPageSaveDataLayer.al:1-30` |
-| The platform raises page events (`OnOpenPageEvent`, `OnModifyRecordEvent`, ...) after the page's own trigger | `handlers/TestPageTriggerEvents.al:1-20` |
+| After `OK`/`Cancel`/`Close` the variable is closed; every call raises `The TestPage is not open.`; an `Open*` on an open variable raises `The TestPage is already open.`; a card/list has no `Cancel` (`The built-in action = Cancel is not found on the page.`) | `testpage/lifecycle/TestPageClosingActions.al:9-24`, `:338-339` |
+| An error escaping `OnAfterGetRecord` or a control expression tears the page down; from then on every call raises `The TestPage is not open.` | `testpage/lifecycle/TestPageTeardown.al:3-24` (85 tests) |
+| `Visible` of a control is frozen at open, `Editable`/`Enabled` are live, a group's `Visible` is live | `testpage/TestPageControlPropertyLiveness_Tests.al:56`, `:73` |
+| Control text: each type has its own en-US spelling (`Yes`/`No`, `1,234.50`, short dates, braced Guid, option captions); `AssertEquals` compares the control's text ordinally; `SetValue` of a typed value is spelled the same way and re-parsed | `testpage/TestPageFieldFormats_Tests.al:1-40` (107 tests), `pages/TestPageExtended.al:179` |
+| `GoToKey` returns false for a missing key; `FindFirstField(Field, Variant)` is type-sensitive (`'20'` does not match an Integer field) | `pages/TestPageExtended.al:34`, `testpage/TestPageAdvanced.al:302` |
+| A modal page opened by AL (`Page.RunModal`, a `RunObject` action, `Lookup`) is answered by the test's `[ModalPageHandler]`, synchronously, with a `TestPage` over the running page; OK/Cancel become the `RunModal` result (`LookupOK` in lookup mode); no handler raises `Unhandled UI: ModalPage` | `testpage/TestPageModalHandler_Tests.al:43`, `:83`, `:105`, `:132` |
+| A page-driven save gets the full data-layer treatment (AutoIncrement, `SystemCreatedAt`...) | `pages/record-save/TestPageSaveDataLayer.al:1-30` |
+| The platform raises page events (`OnOpenPageEvent`, `OnModifyRecordEvent`, ...) after the page's own trigger | `testpage/TestPageTriggerEvents.al:1-20` |
 
 Constructs used by the 341 pages and 40 page extensions of the corpus (counted
 inside page objects only): `field` 865, `action` 142, `repeater` 127, `part` 82,
@@ -149,7 +149,7 @@ The project owner accepted the design below and answered the open questions:
   page runs inside `RunModal`.
 * **Record writes use the record layer** (`insert/modify/validate` in
   `records.rs`), so table triggers, system fields, AutoIncrement and
-  `Validate` behave as for AL code (`pagesave/TestPageSaveDataLayer.al`).
+  `Validate` behave as for AL code (`pages/record-save/TestPageSaveDataLayer.al`).
 
 ### 2. IR additions (al-ir)
 
@@ -362,7 +362,7 @@ entry in `docs/probes-needed.md` ("Page extensions") and a line in
    order.** Options: refuse (the table-extension precedent), or run in
    application order. Chosen: run, because two corpus tests count the runs of
    two extensions' OnOpenPage and state no order
-   (`pageextensiontrigger/TestPageExtQualifiedExtends_Tests.al`), and
+   (`pages/extensions/TestPageExtQualifiedExtends_Tests.al`), and
    `TestModifiedControlValidateTriggers_Page.al` says the order is the
    platform's load order. Application order is: dependency app first, then
    object id.
@@ -377,7 +377,7 @@ entry in `docs/probes-needed.md` ("Page extensions") and a line in
    OnInit, OnFindRecord and OnNextRecord are page-only in BC.
 4. **When extensions `modify` one property, the later extension in application
    order wins**, for every property. Pinned for Caption only
-   (`handlers/TestPageExtensionModifyCaption_Tests.al`).
+   (`pages/extensions/TestPageExtensionModifyCaption_Tests.al`).
 5. **Application areas are read when the page opens.** A control the session's
    areas do not enable is not on the page. A control with no area of its own
    takes the page's, unless an extension declared it; with the areas
@@ -396,7 +396,7 @@ Remaining TestPage-client gaps (branch `pages-misc`). Each has rows in `docs/pro
 
 8. **A `Page` variable is constructed at its first use, which runs OnInit once.** Options: leave procedure
    calls on a `Page` variable refused, or construct the page then. Chosen: construct, because
-   `handlers/TestPageOnInit_Tests.al:188` pins "I, then the setter, then OnOpenPage". The open does not run OnInit again.
+   `testpage/TestPageOnInit_Tests.al:188` pins "I, then the setter, then OnOpenPage". The open does not run OnInit again.
 9. **A list that serves its rows from OnFindRecord/OnNextRecord is walked through the triggers.**
    First, Last, Next, Previous and GoToKey ask the triggers (`-`, `+`, +1, -1); a `CurrPage.Update` leaves the row
    unread until the next move. Options: keep refusing such pages (10 tests), or model the walk. Chosen: model it
@@ -443,7 +443,7 @@ reportextensions that extend a request page merge in like page extensions
 3. **The data items' own views are in force before the request page opens and are
    not applied again after it.** The handler's filter would otherwise be wiped
    by the item's `DataItemTableView`. Pinned in a comment of
-   `handlers/TestReportMultiLineDataItemView.al`, not asserted.
+   `reports/TestReportMultiLineDataItemView.al`, not asserted.
 4. **`RunRequestPage` returns an XML text of this runtime's own layout**
    (`ReportParameters`, `Options`, `DataItems`), documented in
    `docs/probes-needed.md` with what the corpus pins. It takes the same text
@@ -451,7 +451,7 @@ reportextensions that extend a request page merge in like page extensions
 5. **`Invoke` on an action of a request page raises "The action with ID = N is
    not found on the page." with N derived by FNV-1a over the report id and the
    action name.** The formula is fitted to three corpus ids
-   (`handlers/TestReportRequestPageAction.al:31-33`) and gives no other
+   (`reports/TestReportRequestPageAction.al:31-33`) and gives no other
    pinned id. If a probe contradicts it, replace `action_id` in
    `pages/request.rs`.
 6. **A report that renders output (not `ProcessingOnly`, or a layout) is
@@ -462,8 +462,8 @@ reportextensions that extend a request page merge in like page extensions
 7. **`RunRequestPage` commits the transaction world it entered, as `Run`
    does.** No corpus test reads the data afterwards.
 8. **FilterPageBuilder**: `RunModal` and `[FilterPageHandler]` are refused (no
-   corpus test calls them; superseded 2026-10-29: filterpage/W3FilterPageBuilder.al and
-   platform/lt-platform-members/PlTFilterPageBuilder.al pin a one-table builder, see
+   corpus test calls them; superseded 2026-10-29: pages/filterpagebuilder/W3FilterPageBuilder.al and
+   metadata/platform-tables/PlTFilterPageBuilder.al pin a one-table builder, see
    `Session::ui_filter_page`); the default `PageCaption` is `Filter`; `AddRecord`
    and `AddRecordRef` copy the record; error sentences other than the two the
    corpus pins in full are filled in around the control name.

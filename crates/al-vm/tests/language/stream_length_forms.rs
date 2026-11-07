@@ -1,6 +1,6 @@
 //! `OutStream.Write(Value, Length)` and `InStream.Read(var Value, Length)` of fixed-size types, `Write` of an Option, and
-//! `Write` of a Record or a RecordId (streams/lt-stream-length/StreamLengthIntegers.al, StreamLengthOthers.al,
-//! streams/lt-stream-read-write-media/P102WriteRecord.al).
+//! `Write` of a Record or a RecordId (streams/instream-outstream/StreamLengthIntegers.al, StreamLengthOthers.al,
+//! streams/media/P102WriteRecord.al).
 
 const TABLE: &str =
     "table 50100 T { fields { field(1; Id; Integer) { } field(2; Data; Blob) { } } keys { key(PK; Id) { } } }";

@@ -1,5 +1,5 @@
 //! Issue 6807: a view set after a Get narrows the next Find, on a Record and on a RecordRef, with a filter on a FlowField and on a
-//! stored field. Values measured on BC 28.5 in corpus record/lt-r6807-view-find/R6807ViewFind.al (Rec_svFlowZero, Rec_svStored,
+//! stored field. Values measured on BC 28.5 in corpus record/views/R6807ViewFind.al (Rec_svFlowZero, Rec_svStored,
 //! Rec_copyFlowZero, Ref_svFlowZero, Ref_svStored, Ref_viewRoundTripFlowZero, Ref_GetTableAfterRecordView, and the controls
 //! Rec_svFlowSome, Ref_svFlowSome).
 

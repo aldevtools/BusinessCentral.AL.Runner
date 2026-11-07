@@ -6,6 +6,7 @@ mod blob_stream;
 mod blob_stream_position;
 pub mod compression;
 mod drawing;
+mod exception_frames;
 mod generic_dictionary;
 mod generic_dictionary_more;
 mod gettype;
@@ -153,7 +154,9 @@ enum Target {
 /// Streams passed in one call, kept so the reply's effects can be applied.
 #[derive(Default)]
 struct StreamBook {
-    ins: Vec<(usize, Rc<RefCell<LibraryValue>>)>,
+    /// The InStream arguments: argument position, the stream, and where the bytes sent start in it (what .NET reports as
+    /// consumed counts from there).
+    ins: Vec<(usize, Rc<RefCell<LibraryValue>>, usize)>,
     outs: Vec<(usize, BlobRef)>,
 }
 
@@ -256,7 +259,7 @@ impl Session {
                 DotNetKind::Internal { type_name, .. } => Target::Internal(o.clone(), type_name.clone()),
                 // An enum value is boxed for the call, as a primitive is: its members (`Equals`, `ToString`,
                 // the static members of its type) are .NET's
-                // (tests/al-language-onprem-dotnet/lt-dotnet-interop/XmlNodeTypeEquals.al, XmlNodeTypeFormat.al).
+                // (tests/al-language-onprem-dotnet/dotnet/dotnet-interop/XmlNodeTypeEquals.al, XmlNodeTypeFormat.al).
                 DotNetKind::Enum {
                     clr_type,
                     name,
@@ -410,10 +413,10 @@ impl Session {
         // A folder AL code created in the company build's temporary folder: Config. XML Exchange.UpdateConfigPackageMediaSet
         // (ConfigXMLExchange.Codeunit.al:1505-1522) lists the Media folder MediaSet.ExportFile wrote into. Windows BC 29.0
         // lists those files, full path with no extension (windows-check-results 2026-10-23 RJ item B; corpus
-        // tests/al-language-onprem/media/MediaFiles.al:772, RJ_MediaSet_ExportFile_ConfigPackageShape, cu 61286); the Linux
+        // tests/al-language-onprem/streams/media/MediaFiles.al:772, RJ_MediaSet_ExportFile_ConfigPackageShape, cu 61286); the Linux
         // image listed none (bc-linux issue 181). Windows BC 29.0 lists in name order without case, never in creation order
         // (windows-check-results 2026-10-23 listing order, cu 61287 LO_ListingOrder), pinned on every major since corpus bump 62
-        // (tests/al-language-onprem/media/MediaFiles.al RJ_GetServerDirectoryFilesList_ListingOrder). The join with `/` differs
+        // (tests/al-language-onprem/streams/media/MediaFiles.al RJ_GetServerDirectoryFilesList_ListingOrder). The join with `/` differs
         // from BC's backslash (see the assumption), so the listing still marks it. An empty folder is refused (not measured).
         if let (Target::Static(d), MemberKind::Call, [Value::Text(p) | Value::Code(p)]) =
             (&target, kind, values.as_slice())
@@ -434,7 +437,7 @@ impl Session {
         // Microsoft's DemoTool exports its RapidStart packages there through File Management (ServerDirectoryExists,
         // ServerCreateDirectory, ServerRemoveDirectory, DeleteServerFile): static System.IO.Directory and System.IO.File
         // calls, answered by the company build's file system as real BC answers them (tests/al-language-onprem-dotnet/
-        // lt-qx-dotnet/QxDotNetDemoShapes.al:265-346). Only that file system serves any path; elsewhere the policy below
+        // dotnet/dotnet/QxDotNetDemoShapes.al:265-346). Only that file system serves any path; elsewhere the policy below
         // refuses them.
         if let (Target::Static(d), MemberKind::Call) = (&target, kind)
             && let Some(r) = self.temp_folder_call(&d.name, &member, &values, &shown)
@@ -1223,7 +1226,7 @@ impl Session {
         match d.name.as_str() {
             "System.DateTime" if is("Now") || is("UtcNow") => Some(Ok(Value::DateTime(ticks() / TICKS_PER_MS + 1))),
             // `Guid.NewGuid()` is the host's fresh Guid, the one `CreateGuid` gives, so a run stays repeatable. The corpus pins
-            // that the result is a System.Guid (tests/al-language-onprem-dotnet/lt-dotnet-interop/DotNetTypeOfDotNet.al:`TryGuid`),
+            // that the result is a System.Guid (tests/al-language-onprem-dotnet/dotnet/dotnet-interop/DotNetTypeOfDotNet.al:`TryGuid`),
             // not that it differs from the next one; a version 4 Guid does.
             "System.Guid" if is("NewGuid") => Some(Ok(Value::Guid(self.fresh_guid()))),
             "System.DateTime" if is("Today") => {
@@ -1315,11 +1318,14 @@ impl Session {
         shown: &str,
         f: &mut Frame,
     ) -> Result<Value, Signal> {
+        if reply.streams.text_converted_to_guid {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DotNetTextArgumentAsGuid);
+        }
         // Streams first: the bytes .NET read, the new bridges, the bytes written into any bridge.
         for (idx, n) in &reply.streams.consumed {
-            if let Some((_, h)) = book.ins.iter().find(|(i, _)| i == idx) {
+            if let Some((_, h, base)) = book.ins.iter().find(|(i, _, _)| i == idx) {
                 if let LibraryValue::InStream(st) = &mut *h.borrow_mut() {
-                    st.pos = (st.pos + n).min(st.len());
+                    st.pos = (base + n).min(st.len());
                 }
             }
         }
@@ -1390,14 +1396,24 @@ impl Session {
                 }
             },
             Value::Library(_, h) => match &*h.borrow() {
-                LibraryValue::InStream(st) => {
-                    book.ins.push((arg, h.clone()));
+                // A stream at its start sends its bytes; one that stands further on sends all its bytes and its position, since
+                // .NET may seek back before it (DotNetValue::InStreamAt, al-runner issue 7134).
+                LibraryValue::InStream(st) if st.pos == 0 => {
+                    book.ins.push((arg, h.clone(), 0));
                     DotNetValue::InStream(st.rest())
+                }
+                LibraryValue::InStream(st) => {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::InstreamDotnetSeekBack);
+                    book.ins.push((arg, h.clone(), 0));
+                    DotNetValue::InStreamAt {
+                        bytes: st.with_data(<[u8]>::to_vec),
+                        at: st.pos.min(st.len()),
+                    }
                 }
                 LibraryValue::OutStream(blob, _) => {
                     book.outs.push((arg, blob.clone()));
                     // BC hands .NET the Blob's own stream: a ZipArchive in Read mode over an OutStream AL copied a zip into reads
-                    // that zip (corpus tests/al-language-onprem-dotnet/lt-wd-dotnet/WdZipArchiveOverOutStream.al:77-96
+                    // that zip (corpus tests/al-language-onprem-dotnet/dotnet/dotnet/WdZipArchiveOverOutStream.al:77-96
                     // WD_Zip_ReadThroughAnOutStream, al-runner issue 6317). The bridge starts with the bytes when the stream
                     // stands at their end; a write over them is refused by the host. A stream standing elsewhere keeps the
                     // empty bridge whose bytes land at the AL position (the earlier behavior).
@@ -1450,7 +1466,10 @@ impl Session {
             DotNetValue::Handle { handle, ty } => {
                 Value::DotNet(Rc::new(DotNetObject::host(handle, ty, self.dotnet.release.clone())))
             }
-            DotNetValue::InStream(_) | DotNetValue::OutStream | DotNetValue::OutStreamWith(_) => {
+            DotNetValue::InStream(_)
+            | DotNetValue::InStreamAt { .. }
+            | DotNetValue::OutStream
+            | DotNetValue::OutStreamWith(_) => {
                 return unsupported("the host returned an AL stream value");
             }
         })
@@ -1520,7 +1539,7 @@ impl Session {
             Value::DotNet(o) => match (&o.kind, how) {
                 (_, U::Variant) => Ok(Value::DotNet(o)),
                 // Order operators keep an enum an enum: `dotnet_order` compares members of one enum by number
-                // (tests/al-language-onprem-dotnet/lt-dotnet-interop/XmlNodeTypeOrder.al).
+                // (tests/al-language-onprem-dotnet/dotnet/dotnet-interop/XmlNodeTypeOrder.al).
                 (DotNetKind::Enum { .. }, U::Order) => Ok(Value::DotNet(o)),
                 (DotNetKind::Enum { ordinal, .. }, U::Enum) => Ok(match i32::try_from(*ordinal) {
                     Ok(i) => Value::Integer(i),
@@ -1546,7 +1565,7 @@ impl Session {
 /// `IntegerProperties_TakePartInIntegerExpressions_AndStringCompareIsCaseSensitive`); any other
 /// pair compares as AL does.
 /// `<`, `<=`, `>`, `>=` with a settled `DotNet` operand. Two members of one .NET enum order by number
-/// (tests/al-language-onprem-dotnet/lt-dotnet-interop/XmlNodeTypeOrder.al: `Element < Attribute`,
+/// (tests/al-language-onprem-dotnet/dotnet/dotnet-interop/XmlNodeTypeOrder.al: `Element < Attribute`,
 /// `Attribute > Element`, `Element <= Element` are Yes). Two texts order as .NET orders them only when
 /// that is certain: the corpus pins lower case ASCII words (DotNetOperandStringLess.al, 61407), where an ordinal
 /// and a culture order agree, so any text with another character, or where the ordinal order and AL's
@@ -1682,7 +1701,7 @@ fn kind_of(v: &Value) -> &'static str {
 pub(crate) fn fit(v: Value, t: &RtType) -> Result<Value, Signal> {
     use RtType as T;
     // A .NET Int64 into an Integer: the number when it fits, else an overflow error and the slot keeps its value
-    // (tests/al-language-onprem-dotnet/lt-y51-dotnet-int64/Y51DotNetInt64IntoInteger.al:49-175, also through a var parameter).
+    // (tests/al-language-onprem-dotnet/dotnet/dotnet-int64/Y51DotNetInt64IntoInteger.al:49-175, also through a var parameter).
     if let (Value::BigInteger(n), T::Integer) = (&v, t) {
         return match i32::try_from(*n) {
             Ok(i) => Ok(Value::Integer(i)),

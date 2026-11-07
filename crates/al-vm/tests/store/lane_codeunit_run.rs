@@ -30,8 +30,8 @@ fn run(body: &str, routine: &str) -> Result<al_builtins::value::Value, Signal> {
     run_in(&format!("{FIXTURES}\ncodeunit 51310 C {{ {body} }}"), "C", routine)
 }
 
-/// misc/lt-cu-odd-leads/CuWriteTxTests.al:203-233 (CodeunitRun_TableNo_RecordOfAnotherTable and _Guarded),
-/// codeunit/TestCodeunitRunErrorTextsAndModels.al:273-300: the error is raised before the run and the Boolean result
+/// session-system/isolated-storage/CuWriteTxTests.al:203-233 (CodeunitRun_TableNo_RecordOfAnotherTable and _Guarded),
+/// codeunits/TestCodeunitRunErrorTextsAndModels.al:273-300: the error is raised before the run and the Boolean result
 /// does not trap it.
 #[test]
 fn codeunit_run_of_a_tableno_codeunit_with_a_record_of_another_table_fails() {
@@ -54,7 +54,7 @@ fn codeunit_run_of_a_tableno_codeunit_with_a_record_of_another_table_fails() {
     );
 }
 
-/// misc/lt-ct-odd-leads/CtErrorLeads.al:76-93 and :550-570 (Item27_TryFunction_ArgumentRaises): an argument of a
+/// errors/CtErrorLeads.al:76-93 and :550-570 (Item27_TryFunction_ArgumentRaises): an argument of a
 /// TryFunction call whose result is used is evaluated inside the try; in the statement form the error goes on.
 #[test]
 fn an_argument_error_of_a_used_try_call_is_trapped_by_the_try() {
@@ -80,7 +80,7 @@ fn an_argument_error_of_a_used_try_call_is_trapped_by_the_try() {
     );
 }
 
-/// misc/lt-cu-odd-leads/CuTryTests.al:83-150: an Insert inside a TryFunction whose result is used fails with
+/// errors/CuTryTests.al:83-150: an Insert inside a TryFunction whose result is used fails with
 /// TryFunctionWrite, which the try does not trap; the statement form writes and fails with the try's own error.
 /// The scope named is the caller of the procedure that uses the result: the test method for a helper
 /// (:105-121 TryInsertThenError_IfNotForm), the runner's root scope when the test method uses it itself (:236-238).
@@ -131,8 +131,9 @@ fn an_insert_inside_a_used_try_function_fails_with_try_function_write() {
     }
 }
 
-/// misc/lt-cu-odd-leads/CuTryTests.al:56-70 and :153-171 (TryTemporaryWrites_ExpressionForm): writes to a temporary
-/// record are allowed. Writes other than Insert to a database table are not pinned and are refused.
+/// errors/CuTryTests.al:56-70 and :153-171 (TryTemporaryWrites_ExpressionForm): writes to a temporary
+/// record are allowed. ModifyAll of a database table raises TryFunctionWrite (errors/lt-r7143-try-write/
+/// R7143TryWriteDeny.al:145-160, al-runner issue 7143).
 #[test]
 fn temporary_writes_are_allowed_and_other_writes_are_refused_in_a_used_try() {
     let body = r#"
@@ -148,12 +149,12 @@ fn temporary_writes_are_allowed_and_other_writes_are_refused_in_a_used_try() {
         procedure Modify(): Boolean begin exit(TryModify()); end;"#;
     assert_eq!(text(run(body, "Temp")), "Yes");
     match run(body, "Modify") {
-        Err(Signal::Unsupported(m)) => assert!(m.contains("TryFunction"), "{m}"),
+        Err(Signal::Error(e)) => assert_eq!(e.code, "TryFunctionWrite", "{e:?}"),
         other => panic!("{other:?}"),
     }
 }
 
-/// misc/lt-cu-odd-leads/CuCommitTests.al:301-381 (Commit_InTryFunction): Commit inside a TryFunction whose result is
+/// errors/CuCommitTests.al:301-381 (Commit_InTryFunction): Commit inside a TryFunction whose result is
 /// used fails with TryFunctionWrite and the try does not trap it; :203-264 (TryFunction_WithCommitBehavior): a
 /// `[CommitBehavior]` on the try function decides first.
 #[test]
@@ -177,7 +178,7 @@ fn a_commit_inside_a_used_try_function_fails_with_try_function_write() {
     );
 }
 
-/// misc/lt-cu-odd-leads/CuCommitTests.al:163-245 (Nested_ErrorOuter_IgnoreInner, Nested_IgnoreOuter_ErrorInner): an
+/// errors/CuCommitTests.al:163-245 (Nested_ErrorOuter_IgnoreInner, Nested_IgnoreOuter_ErrorInner): an
 /// inner `[CommitBehavior(Ignore)]` does not lift an outer `Error`.
 #[test]
 fn an_inner_commit_behavior_ignore_does_not_override_an_outer_error() {
@@ -204,7 +205,7 @@ fn an_inner_commit_behavior_ignore_does_not_override_an_outer_error() {
     );
 }
 
-/// misc/lt-cu-odd-leads/CuCommitTests.al:382-433 (Consistent_False_ThenCommit, Consistent_FalseThenTrue_ThenCommit).
+/// errors/CuCommitTests.al:382-433 (Consistent_False_ThenCommit, Consistent_FalseThenTrue_ThenCommit).
 #[test]
 fn a_commit_after_consistent_false_fails_and_consistent_true_clears_it() {
     let body = r#"

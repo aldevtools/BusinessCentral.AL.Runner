@@ -1,6 +1,6 @@
 //! Page.Run and Page.RunModal with a field argument and a TestPage handler: the field changes nothing, the call answers as the
-//! one without it (corpus pages/lt-page-run-overloads-testpart/P106RunStatic.al:141-866; al-runner issue 5753). A Variant that
-//! holds a RecordRef runs the page on the RecordRef's record (pages/lt-ce-page-run/CePageRun.al:382, :548-676; al-runner issue
+//! one without it (corpus pages/parts/P106RunStatic.al:141-866; al-runner issue 5753). A Variant that
+//! holds a RecordRef runs the page on the RecordRef's record (pages/run-modal/CePageRun.al:382, :548-676; al-runner issue
 //! 5759); a Variant that holds an Integer or a Char raises a conversion error (CePageRun.al:654).
 
 use al_testkit::outcomes_in;

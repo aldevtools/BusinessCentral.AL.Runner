@@ -7,6 +7,9 @@
 
 use crate::Session;
 
+mod delta;
+pub use delta::{Delta, DeltaPart, Fingerprint};
+
 /// What a session keeps of the baseline run; see the module comment.
 #[derive(Clone)]
 pub struct Baseline {
@@ -263,7 +266,60 @@ impl Baseline {
     pub fn nonempty_tables(&self) -> std::collections::BTreeSet<u32> {
         self.store.nonempty_tables()
     }
+
+    /// How many numbers each sequence of `start` moved on by to reach this baseline's sequences ([`SequenceSteps`],
+    /// sequences that did not move left out). `None` when the two do not hold the same sequences, with the same
+    /// increment and seed, each at or past where `start` has it by whole steps.
+    pub fn steps_since(&self, start: &Baseline) -> Option<SequenceSteps> {
+        if self.sequences.len() != start.sequences.len() {
+            return None;
+        }
+        let mut steps = SequenceSteps::new();
+        for (k, then) in &start.sequences {
+            let now = self.sequences.get(k)?;
+            if now == then {
+                continue;
+            }
+            if now.increment != then.increment || now.seed != then.seed || then.increment == 0 {
+                return None;
+            }
+            // From no number taken, the first `Next` hands out the seed.
+            let (z, from, add) = match (then.last, now.last) {
+                (None, Some(z)) => (z, then.seed, 1),
+                (Some(a), Some(z)) => (z, a, 0),
+                _ => return None,
+            };
+            let moved = z.checked_sub(from)?;
+            if moved % then.increment != 0 || moved / then.increment < 0 {
+                return None;
+            }
+            steps.insert(k.clone(), moved / then.increment + add);
+        }
+        Some(steps)
+    }
+
+    /// A clone of this baseline with each sequence moved on by its count in `steps`, as that many `Next` calls would
+    /// (the inverse of [`Baseline::steps_since`]). `None` when `steps` names a sequence it does not hold, or a count is
+    /// below 1 or out of range.
+    pub fn stepped(&self, steps: &SequenceSteps) -> Option<Baseline> {
+        let mut b = self.clone();
+        for (k, n) in steps {
+            let q = b.sequences.get_mut(k)?;
+            if *n < 1 {
+                return None;
+            }
+            q.last = Some(match q.last {
+                None => q.seed.checked_add((n - 1).checked_mul(q.increment)?)?,
+                Some(l) => l.checked_add(n.checked_mul(q.increment)?)?,
+            });
+        }
+        Some(b)
+    }
 }
+
+/// How many numbers a run took from each number sequence of the state it started from, by (company, name); a sequence
+/// it took none from is left out ([`Baseline::steps_since`], [`Baseline::stepped`]).
+pub type SequenceSteps = std::collections::BTreeMap<(String, String), i64>;
 
 impl Session {
     /// Whether a restored company (test data, ADR-020) has rows for table `object` in the session
@@ -329,7 +385,7 @@ impl Session {
         let old = std::mem::replace(&mut self.cx.company, company.into()).to_string();
         if old != company && !self.events.global_setups.is_empty() {
             // The per-company part of an install asks for the setup again in each company
-            // (install/lt-ug-install-trigger-setup/UgInstallTests.al:59 "asked once for each company").
+            // (install-upgrade/install-triggers/UgInstallTests.al:59 "asked once for each company").
             self.events.global_setups.clear();
         }
         old
@@ -341,13 +397,43 @@ impl Session {
         self.isolated_storage != start.isolated_storage || self.sequences != start.sequences
     }
 
+    /// Whether a session restored from a capture of this one now ([`Session::capture_baseline`]) would start exactly as one
+    /// restored from `start`, the baseline this session was restored from ([`Session::restore_baseline`] reads nothing
+    /// else): no table changed since that restore (the store is `start`'s), the counters, AutoIncrement values, isolated
+    /// storage, number sequences, last stamp, unknown company tables and full copies are `start`'s, and `start` holds no
+    /// built company (a capture does not keep that mark). The install rows a capture is given are those `start` gave
+    /// (`Session::install_rows`), and its workspace installs are the caller's to compare.
+    pub fn holds_what_it_started_from(&self, start: &Baseline) -> bool {
+        let unknown: std::collections::BTreeSet<(&str, u32, &str)> = self
+            .company_unknown
+            .iter()
+            .map(|((c, t), why)| (c.as_str(), *t, why.as_str()))
+            .collect();
+        let start_unknown: std::collections::BTreeSet<(&str, u32, &str)> = start
+            .company_unknown
+            .iter()
+            .map(|(c, t, why)| (c.as_str(), *t, why.as_str()))
+            .collect();
+        self.baseline_origin() == Some(start.origin)
+            && self.next_guid == start.next_guid
+            && self.next_row_version == start.next_row_version
+            && self.tx.committed_row_version == start.committed_row_version
+            && self.autoinc == start.autoinc
+            && self.isolated_storage == start.isolated_storage
+            && self.sequences == start.sequences
+            && self.last_stamp == start.last_stamp
+            && !start.company_built
+            && unknown == start_unknown
+            && self.full_copies.iter().eq(start.full_copies.iter())
+    }
+
     /// Puts into `b` the numbers the session took since `b` from the sequences `b` holds. Under runner 130450 a test's
     /// `NumberSequence.Next` is not given back when the codeunit's writes are rolled back, while its new sequences and its
-    /// isolated storage writes are (testlibraries lt-y35-onrun-storage/Y35OnRunStorage.al:30-31, C302_B2_TestWritesStorage
+    /// isolated storage writes are (testlibraries test-framework/onrun-storage/Y35OnRunStorage.al:30-31, C302_B2_TestWritesStorage
     /// :447-457). A test's Restart of a sequence of `b` is rolled back too, with the numbers taken after it: the later
     /// codeunits see the sequence as it was just before the first Restart, the numbers taken before it included. A test's
     /// Delete of a sequence of `b` that it had not taken numbers from, and what it did with the name after (Insert,
-    /// Next), is rolled back the same way. codeunit/lt-seq-carry/SeqCarry.al (corpus pin 9cf26907, every CI major and
+    /// Next), is rolled back the same way. codeunits/run-onrun/SeqCarry.al (corpus pin 9cf26907, every CI major and
     /// SaaS): Restart R1_Act :391-411, read by R2_Act :503-510; Delete D1_Act :123-132, read by D2_Act :206-211.
     /// `None`: no number was taken and nothing was rolled back. `Some(false)`: a sequence of `b` was changed otherwise (a
     /// Delete after numbers were taken from it, or both Restart and Delete), which is not pinned; `b` is left as it was.
@@ -448,7 +534,7 @@ mod tests {
     use super::*;
     use al_data::memory::ExportedTable;
 
-    fn sample() -> Baseline {
+    pub(super) fn sample() -> Baseline {
         let table = ExportedTable {
             company: "CRONUS".into(),
             object: 311,
@@ -530,6 +616,39 @@ mod tests {
                 built
             );
         }
+    }
+
+    fn seq(increment: i64, seed: i64, last: Option<i64>) -> crate::sessionops::Sequence {
+        crate::sessionops::Sequence { increment, seed, last }
+    }
+
+    #[test]
+    fn steps_count_the_next_calls_between_two_baselines_of_one_origin() {
+        let start = sample();
+        let key = ("".to_string(), "Seq".to_string());
+        // `Seq` is at 9, increment 2: three `Next` calls hand out 11, 13, 15.
+        let steps: SequenceSteps = [(key.clone(), 3)].into_iter().collect();
+        let later = start.stepped(&steps).expect("Seq is held");
+        assert_eq!(later.sequences[&key], seq(2, 5, Some(15)));
+        assert_eq!(later.steps_since(&start), Some(steps.clone()));
+        assert_eq!(start.steps_since(&start), Some(SequenceSteps::new()));
+        assert_eq!(start.steps_since(&later), None, "a sequence does not move back");
+        // From no number taken, the first `Next` hands out the seed.
+        let mut fresh = sample();
+        fresh.sequences.insert(key.clone(), seq(2, 5, None));
+        let one: SequenceSteps = [(key.clone(), 1)].into_iter().collect();
+        assert_eq!(fresh.stepped(&one).unwrap().sequences[&key], seq(2, 5, Some(5)));
+        assert_eq!(fresh.stepped(&one).unwrap().steps_since(&fresh), Some(one));
+        // Another increment, an unknown sequence, or another origin: not steps.
+        let mut other = sample();
+        other.origin = start.origin;
+        other.sequences.insert(key.clone(), seq(3, 5, Some(12)));
+        assert_eq!(other.steps_since(&start), None);
+        assert!(
+            start
+                .stepped(&[(("".into(), "Nope".into()), 1)].into_iter().collect())
+                .is_none()
+        );
     }
 
     #[test]

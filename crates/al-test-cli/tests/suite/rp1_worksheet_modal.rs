@@ -1,5 +1,5 @@
-//! A Worksheet without the new-row line run modally whose action deletes its only row (corpus pages/lt-outside-worksheet/
-//! RmWorksheetGoneRow.al:397 RM_Ws_RunModal_DeleteAllUpdate, al-runner issue 5752): First right after the open reads nothing,
+//! A Worksheet without the new-row line run modally whose action deletes its only row (corpus testpage/
+//! RmWorksheetGoneRow.al:381 RM_Ws_RunModal_DeleteAllUpdate, al-runner issue 5752): First right after the open reads nothing,
 //! the action reads the gone row, then OnNewRecord and OnAfterGetCurrRecord run once on a blank Rec, First answers No, and the
 //! handler that returns leaves RunModal = LookupCancel.
 

@@ -1,7 +1,7 @@
 //! A Variant holding a defined Date, Time, DateTime, Duration, BigInteger, Decimal, Boolean, Integer or a text assigned to an
 //! Integer, Decimal, BigInteger, Duration, Date, Time, DateTime or Boolean variable: the cells `ops::convert` refuses.
 //!
-//! Pinned by types/lt-y67-variant-numeric/Y67VariantNumeric.al:147-353 (writer Y67, real BC 29, the same on 27.5 and 28.5). A
+//! Pinned by types/variant/Y67VariantNumeric.al:147-353 (writer Y67, real BC 29, the same on 27.5 and 28.5). A
 //! Date is the number `2 * day + 731` (one more for a closing date; `day` counts from 0001-01-01 as 1), a Time its milliseconds
 //! plus one, a DateTime its milliseconds since 0001-01-01 plus one, moved by 366 days; a Duration takes that number as
 //! milliseconds. The undefined values are `conv_undefined`'s (Y62UndefinedDate.al).
@@ -169,7 +169,7 @@ pub(crate) fn before_convert(v: &Value, t: &RtType) -> Option<Result<Value, Sign
         (Value::BigInteger(n), RtType::Boolean) if i32::try_from(*n).is_err() => {
             Some(variant_error("Boolean", "TypeConversion:Overflow"))
         }
-        // A number beyond the target into a Char or a Byte (types/lt-y31-conversion-matrix/Y31ConvCv.al:9942 Variant_To_Char
+        // A number beyond the target into a Char or a Byte (types/operators-expressions/Y31ConvCv.al:9942 Variant_To_Char
         // `big` 3000000000, :10138 Variant_To_Byte `int300` and `big`): the Variant's overflow, where `ops::convert` raises the cast.
         (Value::BigInteger(n), RtType::Char) if i32::try_from(*n).is_err() => {
             Some(variant_error("Char", "TypeConversion:Overflow"))

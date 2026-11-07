@@ -260,7 +260,7 @@ pub fn scan_path(path: &Path, hint: Option<&str>) -> (Vec<Found>, Vec<String>) {
             let vars = vars_for(path, hint);
             // The manifest and the zip directory are enough, and a big package is not read whole.
             if let Some(l) = crate::lazy::read_lazy(path, &vars) {
-                return Ok((l.manifest, !l.names.is_empty()));
+                return Ok((l.manifest, !l.names.is_empty() || l.no_objects));
             }
             std::fs::read(path)
                 .map_err(|e| e.to_string())
@@ -1100,6 +1100,63 @@ mod tests {
         );
         // With the default policy it is an error, as a missing package is.
         assert!(load_dependencies(&req(MissingPolicy::Error)).is_err());
+    }
+
+    /// A package kept as an empty placeholder holds no objects at all: no `.al` file, and symbols that list none
+    /// (al-runner issue 6924). It is the whole of its source, so it serves its dependents as an app with no files,
+    /// with no skip and no note. Tooling only (ADR-009). A package whose symbols list an object stays symbols only.
+    #[test]
+    fn a_package_with_no_objects_serves_as_an_empty_app() {
+        const NO_OBJECTS: &str = "\u{feff}{\"RuntimeVersion\":\"14.0\",\"Namespaces\":[{\"Name\":\"Acme\",\"Namespaces\":[],\"Codeunits\":[]}],\"Tables\":[],\"Codeunits\":[],\"Pages\":[],\"AppId\":\"empty\",\"Name\":\"Empty\"}";
+        const ONE_OBJECT: &str = "{\"Namespaces\":[{\"Name\":\"Acme\",\"Codeunits\":[{\"Id\":1,\"Name\":\"A\"}]}],\"Tables\":[],\"Codeunits\":[]}";
+        for lazy_sources in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            write_app(
+                dir.path(),
+                "empty.app",
+                "empty",
+                "Empty",
+                "1.0.0.0",
+                &[],
+                &[("SymbolReference.json", NO_OBJECTS)],
+            );
+            write_app(
+                dir.path(),
+                "sym.app",
+                "sym",
+                "Sym",
+                "1.0.0.0",
+                &[],
+                &[("SymbolReference.json", ONE_OBJECT)],
+            );
+            let proj = project(&[("empty", "Empty", "1.0.0.0"), ("sym", "Sym", "1.0.0.0")]);
+            let searched = [dir.path().to_path_buf()];
+            let loaded = load_dependencies(&Request {
+                project: &proj,
+                workspace_apps: &[],
+                search_dirs: &searched,
+                missing: MissingPolicy::Skip,
+                source_build: None,
+                application_implies_dependencies: false,
+                lazy_sources,
+            })
+            .unwrap();
+            let names: Vec<&str> = loaded.apps.iter().map(|a| a.app.name.as_str()).collect();
+            assert_eq!(names, ["Empty"], "lazy {lazy_sources}");
+            assert!(loaded.apps[0].app.files.is_empty());
+            let skipped: Vec<String> = loaded.skipped.iter().map(|e| e.to_string()).collect();
+            assert_eq!(
+                skipped.len(),
+                1,
+                "only the symbols-only package is skipped: {skipped:?}"
+            );
+            assert!(skipped[0].contains("Sym"), "{skipped:?}");
+            assert!(
+                loaded.notes.iter().all(|n| !n.contains("Empty")),
+                "nothing is said about the empty app: {:?}",
+                loaded.notes
+            );
+        }
     }
 
     /// The owner's case: the symbol package is in the project's `.alpackages`, the source is elsewhere

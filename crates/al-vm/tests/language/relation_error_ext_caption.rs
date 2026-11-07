@@ -1,6 +1,6 @@
 //! A table whose own Caption one tableextension overrides is named by the extension's Caption in every text that names the
 //! table, while its name stays (al-runner issues 5955 and 6378; measured on real BC by corpus writer Y5, branch
-//! al-runtime-rs-staging-y5, tableextension/lt-y5/Y5TestFieldExtCaption.al, codeunit 90986, on Base Application's Machine
+//! al-runtime-rs-staging-y5, recordref-fieldref/Y5TestFieldExtCaption.al, codeunit 90986, on Base Application's Machine
 //! Center): the TableRelation error of a Validate, TestField (equal, blank and value forms), FieldError with and without a
 //! text, the Get error of a missing row, TableCaption and RecordRef.Caption. TableName and RecordRef.Name give the name.
 

@@ -109,7 +109,7 @@ fn run(body: &str, routine: &str) -> Result<Value, Signal> {
 
 #[test]
 fn open_number_and_isempty() {
-    // corpus recordref/TestRecordRefOpen.al:14-37
+    // corpus recordref-fieldref/recordref/TestRecordRefOpen.al:14-37
     let r = run(
         "procedure F(): Text var RR: RecordRef; begin
             RR.Open(50900);
@@ -136,7 +136,7 @@ fn unsupported(r: Result<Value, Signal>) -> String {
 
 #[test]
 fn insert_through_fieldref_is_visible_to_record_and_ref() {
-    // corpus recordref/TestRecordRefCRUD.al:16-27, TestRecordVsRecordRef.al:8-30
+    // corpus recordref-fieldref/recordref/TestRecordRefCRUD.al:16-27, TestRecordVsRecordRef.al:8-30
     let r = run(
         "procedure F(): Text var RR: RecordRef; FR: FieldRef; R: Record \"ALT T\"; begin
             RR.Open(50900);
@@ -155,7 +155,7 @@ fn insert_through_fieldref_is_visible_to_record_and_ref() {
 
 #[test]
 fn fieldref_value_reads_the_found_row() {
-    // corpus recordref/TestRecordRefCRUD.al:98-115 (FindLast then Field(1).Value)
+    // corpus recordref-fieldref/recordref/TestRecordRefCRUD.al:98-115 (FindLast then Field(1).Value)
     let r = run(
         "procedure F(): Integer var RR: RecordRef; R: Record \"ALT T\"; i: Integer; begin
             for i := 1 to 3 do begin R.\"No.\" := Format(i); R.Grp := i * 10; R.Insert(); end;
@@ -170,7 +170,7 @@ fn fieldref_value_reads_the_found_row() {
 
 #[test]
 fn findset_next_walks_a_fieldref_range() {
-    // corpus recordref/TestRecordRefFilter.al:62-85
+    // corpus recordref-fieldref/recordref/TestRecordRefFilter.al:62-85
     let r = run(
         "procedure F(): Integer var RR: RecordRef; FR: FieldRef; R: Record \"ALT T\"; i: Integer; n: Integer; begin
             for i := 1 to 5 do begin R.\"No.\" := Format(i); R.Grp := i; R.Insert(); end;
@@ -188,7 +188,7 @@ fn findset_next_walks_a_fieldref_range() {
 
 #[test]
 fn modify_delete_deleteall_and_rename_through_the_ref() {
-    // corpus recordref/TestRecordRefCRUD.al:30-84, TestRecordVsRecordRef.al:141-167
+    // corpus recordref-fieldref/recordref/TestRecordRefCRUD.al:30-84, TestRecordVsRecordRef.al:141-167
     let r = run(
         "procedure F(): Text var RR: RecordRef; R: Record \"ALT T\"; s: Text; begin
             R.\"No.\" := 'A'; R.Grp := 1; R.Insert();
@@ -219,7 +219,7 @@ fn modify_delete_deleteall_and_rename_through_the_ref() {
 
 #[test]
 fn field_metadata_number_name_length_active_class() {
-    // corpus recordref/TestRecordRefField.al:14-23,118-131; fieldref/TestFieldRefMetadata.al:100-136
+    // corpus recordref-fieldref/recordref/TestRecordRefField.al:14-23,118-131; recordref-fieldref/fieldref/TestFieldRefMetadata.al:100-136
     let r = run(
         "procedure F(): Text var RR: RecordRef; FR: FieldRef; begin
             RR.Open(50900);
@@ -233,7 +233,7 @@ fn field_metadata_number_name_length_active_class() {
 
 #[test]
 fn open_of_a_missing_table_raises_an_al_error() {
-    // corpus recordref/TestRecordRefOpenMissingTable.al:31-49
+    // corpus recordref-fieldref/recordref/TestRecordRefOpenMissingTable.al:31-49
     let m = err(run("procedure F() var RR: RecordRef; begin RR.Open(99991); end;", "F"));
     assert!(
         m.contains("You tried to invoke the Table object with the ID 99991 from the object"),
@@ -247,7 +247,7 @@ fn open_of_a_missing_table_raises_an_al_error() {
 
 #[test]
 fn keyref_counts_and_names_key_fields() {
-    // corpus recordref/TestBCMetadataContracts.al:30-66, TestRecordRefKeys.al
+    // corpus recordref-fieldref/recordref/TestBCMetadataContracts.al:30-66, TestRecordRefKeys.al
     let r = run(
         "procedure F(): Text var RR: RecordRef; KR: KeyRef; begin
             RR.Open(50900);
@@ -256,14 +256,14 @@ fn keyref_counts_and_names_key_fields() {
         end;",
         "F",
     );
-    // The implicit SystemId key follows the declared keys (corpus recordref/TestRecordRefRuntimeContracts.al:
+    // The implicit SystemId key follows the declared keys (corpus recordref-fieldref/recordref/TestRecordRefRuntimeContracts.al:
     // KeyRefAndFieldRef_Active_AreTrue_KeyCount).
     assert_eq!(text(r), "32Grp1Yes");
 }
 
 #[test]
 fn format_of_a_keyref_lists_its_field_numbers() {
-    // recordref/lt-y12-keyref-format/Y12KeyRefFormat.al:33-87 (corpus branch al-runtime-rs-staging-y12, al-runner issue 6437):
+    // recordref-fieldref/recordref/Y12KeyRefFormat.al:33-87 (corpus branch al-runtime-rs-staging-y12, al-runner issue 6437):
     // `Field<no>` in key order joined by commas; format numbers 0, 1, 2 and 9 give the same text; a length cuts it.
     let r = run(
         "procedure F(): Text var RR: RecordRef; KR: KeyRef; begin
@@ -300,7 +300,7 @@ fn format_of_a_keyref_refuses_what_is_not_pinned() {
 #[test]
 fn keyref_field_index_past_the_key_raises_index_out_of_bounds() {
     // types/TestTypeSystemContracts.al:240-262 pins the fragment (both operands of `and` run, so
-    // FieldIndex(2) on a one-field key raises); recordref/TestBCSumIndexFieldContracts.al:188-198.
+    // FieldIndex(2) on a one-field key raises); recordref-fieldref/recordref/TestBCSumIndexFieldContracts.al:188-198.
     let r = run(
         "procedure F(): Text var RR: RecordRef; KR: KeyRef; m: Boolean; begin
             RR.Open(50900);
@@ -315,7 +315,7 @@ fn keyref_field_index_past_the_key_raises_index_out_of_bounds() {
 
 #[test]
 fn gettable_copies_the_record_in_settable_copies_it_out() {
-    // corpus recordref/TestRecordRefGetSetTableContracts.al:30-60 (GetTable leaves the Record
+    // corpus recordref-fieldref/recordref/TestRecordRefGetSetTableContracts.al:30-60 (GetTable leaves the Record
     // alone, the ref takes the Record's buffer), :106-130 (SetTable: Rec is overwritten by the ref).
     let r = run(
         "procedure F(): Text var RR: RecordRef; R: Record \"ALT T\"; R2: Record \"ALT T\"; s: Text; begin
@@ -354,7 +354,7 @@ fn gettable_of_a_record_ref_copies_the_other_ref() {
 
 #[test]
 fn clear_closes_the_ref() {
-    // corpus recordref/TestRecordRefOpenCompilationTarget.al:70-81 (Clear(RecRef) then Open again)
+    // corpus recordref-fieldref/recordref/TestRecordRefOpenCompilationTarget.al:70-81 (Clear(RecRef) then Open again)
     let r = run(
         "procedure F(): Integer var RR: RecordRef; begin
             RR.Open(50900); Clear(RR); RR.Open(50900);
@@ -367,13 +367,13 @@ fn clear_closes_the_ref() {
 
 #[test]
 fn a_ref_that_is_not_open_raises_record_not_opened_where_the_corpus_pins_it() {
-    // recordref/lt-refs/RfTOpen.al:Closed_Errors (Count, Name, Find, ...), P92Position.al:GetPosition_UnopenedAndNotFound.
+    // recordref-fieldref/recordref/RfTOpen.al:Closed_Errors (Count, Name, Find, ...), P92Position.al:GetPosition_UnopenedAndNotFound.
     let m = err(run(
         "procedure F(): Integer var RR: RecordRef; begin exit(RR.Count()); end;",
         "F",
     ));
     assert_eq!(m, "The record is not open.");
-    // IsDirty after Clear (misc/lt-y70-assumptions/Y70Probes.al:964-1018, RecordRefIsDirty_Shapes `after_clear`).
+    // IsDirty after Clear (record/Y70Probes.al:964-1018, RecordRefIsDirty_Shapes `after_clear`).
     let m = err(run(
         "procedure F(): Boolean var RR: RecordRef; begin RR.Open(50900); Clear(RR); exit(RR.IsDirty()); end;",
         "F",
@@ -386,7 +386,7 @@ fn a_ref_that_is_not_open_raises_record_not_opened_where_the_corpus_pins_it() {
 
 #[test]
 fn recordref_metadata_caption_company_duplicate_system_field_numbers() {
-    // corpus recordref/TestRecordRefGetSet.al:16-30,53-72; TestRecordRefExtended.al; TestRecordVsRecordRef.al:333-352
+    // corpus recordref-fieldref/recordref/TestRecordRefGetSet.al:16-30,53-72; TestRecordRefExtended.al; TestRecordVsRecordRef.al:333-352
     let r = run(
         "procedure F(): Text var RR: RecordRef; D: RecordRef; R: Record \"ALT T\"; begin
             R.\"No.\" := 'A'; R.Insert(); R.\"No.\" := 'B'; R.Insert();
@@ -402,7 +402,7 @@ fn recordref_metadata_caption_company_duplicate_system_field_numbers() {
 
 #[test]
 fn views_filters_and_has_filter_on_a_recordref() {
-    // corpus recordref/TestRecordRefFilter.al:14-60, 98-121; TestRecordVsRecordRef.al:150-180
+    // corpus recordref-fieldref/recordref/TestRecordRefFilter.al:14-60, 98-121; TestRecordVsRecordRef.al:150-180
     let r = run(
         "procedure F(): Text var RR: RecordRef; D: RecordRef; R: Record \"ALT T\"; i: Integer; s: Text; begin
             for i := 1 to 5 do begin R.\"No.\" := Format(i); R.Grp := i; R.Insert(); end;
@@ -424,7 +424,7 @@ fn views_filters_and_has_filter_on_a_recordref() {
 
 #[test]
 fn setview_sorting_picks_the_key() {
-    // docs: SORTING(...) is SetCurrentKey; corpus recordref/TestRecordRefFilter.al:14-30 uses it with the primary key
+    // docs: SORTING(...) is SetCurrentKey; corpus recordref-fieldref/recordref/TestRecordRefFilter.al:14-30 uses it with the primary key
     let r = run(
         "procedure F(): Text var RR: RecordRef; R: Record \"ALT T\"; s: Text; begin
             R.\"No.\" := 'A'; R.Grp := 2; R.Insert(); R.\"No.\" := 'B'; R.Grp := 1; R.Insert();
@@ -440,7 +440,7 @@ fn setview_sorting_picks_the_key() {
 
 #[test]
 fn fieldref_caption_validate_and_getfilter() {
-    // corpus fieldref/TestFieldRefMetadata.al:36-54, TestFieldRefValidate.al:10-30,70-90, TestFieldRefFilter.al:127-145
+    // corpus recordref-fieldref/fieldref/TestFieldRefMetadata.al:36-54, TestFieldRefValidate.al:10-30,70-90, TestFieldRefFilter.al:127-145
     let r = run(
         "procedure F(): Text var RR: RecordRef; FR: FieldRef; s: Text; begin
             RR.Open(50900);
@@ -459,7 +459,7 @@ fn fieldref_caption_validate_and_getfilter() {
 
 #[test]
 fn fieldref_enum_and_option_metadata() {
-    // corpus fieldref/TestFieldRefEnumOrdinalByIndex.al (index/ordinal/caption/name, out of range),
+    // corpus recordref-fieldref/fieldref/TestFieldRefEnumOrdinalByIndex.al (index/ordinal/caption/name, out of range),
     // TestFieldRefEnum.al:112-124, TestPrecompiledFieldOptionCaption.al:34-48
     let r = run(
         "procedure F(): Text var RR: RecordRef; E: FieldRef; O: FieldRef; s: Text; begin
@@ -483,7 +483,7 @@ fn fieldref_enum_and_option_metadata() {
 
 #[test]
 fn fieldref_testfield_and_fielderror() {
-    // corpus fieldref/TestFieldRefFieldError.al:10-100
+    // corpus recordref-fieldref/fieldref/TestFieldRefFieldError.al:10-100
     let m = err(run(
         "procedure F() var RR: RecordRef; begin RR.Open(50900); RR.Field(3).TestField(); end;",
         "F",
@@ -517,7 +517,7 @@ fn fieldref_record_gives_the_same_buffer_back() {
 
 #[test]
 fn record_id_table_no_equality_format_and_variant() {
-    // corpus record/TestRecordRecordId.al:14-56, recordref/TestBCMetadataContracts.al:98-150,
+    // corpus record/TestRecordRecordId.al:14-56, recordref-fieldref/recordref/TestBCMetadataContracts.al:98-150,
     // types/TestVariantExtended.al:123-130
     let r = run(
         "procedure F(): Text var R: Record \"ALT T\"; A: RecordId; B: RecordId; V: Variant; s: Text; begin
@@ -539,7 +539,7 @@ fn record_id_table_no_equality_format_and_variant() {
 
 #[test]
 fn recordref_recordid_and_get_by_recordid() {
-    // corpus recordref/TestRecordRefKeys.al:35-52 (RecRef.Get(Rec.RecordId())), TestRecordRefGetSet.al:32-50
+    // corpus recordref-fieldref/recordref/TestRecordRefKeys.al:35-52 (RecRef.Get(Rec.RecordId())), TestRecordRefGetSet.al:32-50
     let r = run(
         "procedure F(): Text var R: Record \"ALT T\"; RR: RecordRef; s: Text; begin
             R.\"No.\" := 'X1'; R.Grp := 11; R.Insert();
@@ -557,9 +557,9 @@ fn recordref_recordid_and_get_by_recordid() {
 
 #[test]
 fn field_type_and_class_are_system_options() {
-    // corpus fieldref/TestFieldRefMetadata.al:56-98 (Type non-empty, Class = Normal),
+    // corpus recordref-fieldref/fieldref/TestFieldRefMetadata.al:56-98 (Type non-empty, Class = Normal),
     // TestFieldRefEnumKeywordCase.al:95-106 (an enum field's Type formats as 'Option'),
-    // tableextensiontrigger/TestTableExtTargetNamespace_Tests.al:119-121 (FieldType::Integer / ::Text)
+    // table-objects/extensions/TestTableExtTargetNamespace_Tests.al:119-121 (FieldType::Integer / ::Text)
     let r = run(
         "procedure F(): Text var RR: RecordRef; ft: FieldType; fc: FieldClass; s: Text; begin
             RR.Open(50900);
@@ -594,7 +594,7 @@ fn gettable_works_on_a_ref_that_was_never_opened_even_through_a_variant() {
 
 #[test]
 fn field_ref_calc_field_calculates_a_flow_field() {
-    // fieldref/TestRelationTargetNamespaceScope.al:63-75: `RecRef.Field(3).CalcField()` makes the
+    // recordref-fieldref/fieldref/TestRelationTargetNamespaceScope.al:63-75: `RecRef.Field(3).CalcField()` makes the
     // FlowField read its count.
     let r = run(
         "procedure F(): Text var T: Record \"ALT T\"; RR: RecordRef; a: Text; begin
@@ -623,7 +623,7 @@ fn field_ref_calc_field_of_a_stored_field_is_refused() {
 
 #[test]
 fn field_type_of_library_typed_fields_formats_as_the_type_name() {
-    // corpus recordref/TestPlatformOptionsLockingContracts.al:46-63 (13=BLOB), :66-76 (RecordID,
+    // corpus recordref-fieldref/recordref/TestPlatformOptionsLockingContracts.al:46-63 (13=BLOB), :66-76 (RecordID,
     // TableFilter, MediaSet name themselves; Format(.., 0, 2) prints the name, never an ordinal).
     let r = run(
         "procedure F(): Text var RR: RecordRef; s: Text; begin
@@ -640,7 +640,7 @@ fn field_type_of_library_typed_fields_formats_as_the_type_name() {
 
 #[test]
 fn security_filter_ordinals() {
-    // corpus recordref/TestPlatformOptionsLockingContracts.al:36-43 (read with Format(x, 0, 2), BC 27.5).
+    // corpus recordref-fieldref/recordref/TestPlatformOptionsLockingContracts.al:36-43 (read with Format(x, 0, 2), BC 27.5).
     let r = run(
         "procedure F(): Text var R: Record \"ALT T\"; f: SecurityFilter; s: Text; begin
             s := Format(SecurityFilter::Validated, 0, 2) + Format(SecurityFilter::Filtered, 0, 2)
@@ -709,7 +709,7 @@ fn set_rec_filter_filters_the_primary_key_to_the_current_values() {
 
 #[test]
 fn current_key_index_numbers_the_keys_and_the_hidden_system_id_key() {
-    // recordref/TestRecordRefKeyIndexSetRecFilterContracts.al:75-105 (KeyCount counts the hidden key last;
+    // recordref-fieldref/recordref/TestRecordRefKeyIndexSetRecFilterContracts.al:75-105 (KeyCount counts the hidden key last;
     // CurrentKeyIndex(n) selects, the hidden key is `System ID`), :107-124 (outside 1..KeyCount raises
     // DB:KeyNotFound), :126-148 (the direction stays, Reset goes back to key 1), :150-176 (GetTable
     // follows the record's key; fields no key starts with report -1).
@@ -748,7 +748,7 @@ fn current_key_index_numbers_the_keys_and_the_hidden_system_id_key() {
 fn a_tableextension_key_on_systemrowversion_is_visible_through_keyref() {
     // A key a table extension declares on SystemRowVersion is a key of the table; KeyRef sees it
     // after the declared keys and before the implicit SystemId key (same order as
-    // recordref/TestRecordRefRuntimeContracts.al:KeyRefAndFieldRef_Active_AreTrue_KeyCount).
+    // recordref-fieldref/recordref/TestRecordRefRuntimeContracts.al:KeyRefAndFieldRef_Active_AreTrue_KeyCount).
     let r = run(
         "procedure F(): Text var RR: RecordRef; KR: KeyRef; i: Integer; s: Text; begin
             RR.Open(50960);
@@ -765,7 +765,7 @@ fn a_tableextension_key_on_systemrowversion_is_visible_through_keyref() {
 
 #[test]
 fn systemrowversion_is_field_0_through_fieldno_number_and_field() {
-    // Corpus recordref/TestKeyMetadataRowVersionRemoved.al:51,:85 pins that KeyRef.FieldIndex(1).Number()
+    // Corpus recordref-fieldref/recordref/TestKeyMetadataRowVersionRemoved.al:51,:85 pins that KeyRef.FieldIndex(1).Number()
     // equals FieldNo(SystemRowVersion); the rowversion sits at field id 0 (record/TestCalcFormulaSystemFieldsTests
     // .Codeunit.al:213-215), which is also what a real project reads (`KeyRef.FieldIndex(1).Number = 0`).
     // Pinned by record/TestRowVersionFieldNumberFieldActiveContracts.al (name `timestamp`, FieldExist(0) false). The other system fields keep their numbers.
@@ -782,7 +782,7 @@ fn systemrowversion_is_field_0_through_fieldno_number_and_field() {
     assert_eq!(text(r), "0|0|2000000000|timestamp|No|0");
 }
 
-// recordref/PWRecordMisc.al:109-150 (BC 27.5): a field with ObsoleteState = Removed is not counted, not listed and does
+// recordref-fieldref/recordref/PWRecordMisc.al:109-150 (BC 27.5): a field with ObsoleteState = Removed is not counted, not listed and does
 // not exist; RecordRef.Field of it raises MetadataObsolete with the reason.
 #[test]
 fn a_removed_field_is_not_enumerated_and_its_field_call_raises_the_obsolete_error() {
@@ -865,8 +865,8 @@ fn decimal_to_text_is_the_default_format() {
 }
 
 /// Agent Creation Control (2000000297), declared by the System app from BC 28 on, is refused to a Cloud-target app like
-/// Object Metadata: `RecordRef.Open` raises before any row is read (platform/lt-aw-fresh-tenant/AwTests.al:590-616). An
-/// OnPrem app opens it (onprem platform/lt-aw-fresh-tenant/AwOnPremTests.al:234-253); an app of no known target is refused.
+/// Object Metadata: `RecordRef.Open` raises before any row is read (metadata/platform-tables/AwTests.al:590-616). An
+/// OnPrem app opens it (onprem metadata/platform-tables/AwOnPremTests.al:234-253); an app of no known target is refused.
 #[test]
 fn recordref_open_of_agent_creation_control_depends_on_the_app_target() {
     let src = r#"
@@ -888,7 +888,7 @@ codeunit 50100 C { procedure Run() var RR: RecordRef; begin RR.Open(2000000297);
 }
 
 /// Printer (2000000039) is refused to a Cloud-target app: `RecordRef.Open` raises the compilation-target error
-/// (platform/lt-y21-env-columns/Y21EnvColumns.al:43-50 Y21_Printer_RecordRefRefused). Another target is not pinned.
+/// (metadata/platform-tables/Y21EnvColumns.al:43-50 Y21_Printer_RecordRefRefused). Another target is not pinned.
 #[test]
 fn recordref_open_of_printer_is_refused_to_a_cloud_app() {
     let src = r#"

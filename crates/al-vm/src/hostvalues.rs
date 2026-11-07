@@ -101,7 +101,7 @@ impl Session {
             ids::SYSTEM_WORKDATE_1 => self.work_date_op(args),
             ids::SYSTEM_SLEEP_1 => match args.first().map(|a| match a {
                 // A Duration argument is the Integer it converts to, its milliseconds (al-runner issue 6301;
-                // types/lt-filter-enum-relation-duration-guid/D_Duration.al:DateTimeMinusDateTime_To_Integer).
+                // types/duration/D_Duration.al:DateTimeMinusDateTime_To_Integer).
                 Value::Duration(_) => al_builtins::ops::convert(a.clone(), &al_builtins::value::RtType::Integer),
                 other => Ok(other.clone()),
             }) {
@@ -150,7 +150,7 @@ impl Session {
             ids::DATABASE_USERID_1 => Ok(Value::Text(self.host.identity.user_id().into())),
             ids::DATABASE_USERSECURITYID_1 => Ok(Value::Guid(self.host.identity.user_security_id())),
             ids::DATABASE_SESSIONID_1 => Ok(Value::Integer(self.session_id())),
-            // An id no session has is not active (session/TestSessionComplete.al:45-52: 99999; platform/lt-platform-members/
+            // An id no session has is not active (session-system/TestSessionComplete.al:45-52: 99999; metadata/platform-tables/
             // PlTSession.al:295-296: 0 and 2147483647); the running session is (PlTSession.al:294 SessionId_Relations).
             ids::SESSION_ISSESSIONACTIVE_1 => match args.first() {
                 Some(Value::Integer(n)) if *n == self.session_id() => Ok(Value::Boolean(true)),
@@ -161,7 +161,7 @@ impl Session {
                 )),
             },
             // No session is started in a test run, so no id but the running session's is a session: StopSession answers false for
-            // 0, a negative id, a huge id and the id a refused StartSession left (platform/lt-xmlport-session-navapp-cookie/
+            // 0, a negative id, a huge id and the id a refused StartSession left (metadata/session-system/
             // P94Session.al:Stop_*). The running session's own id is never stopped there and is not pinned: refused.
             ids::SESSION_STOPSESSION_1 => match args.first() {
                 Some(Value::Integer(n)) if *n != self.session_id() => Ok(Value::Boolean(false)),
@@ -173,7 +173,7 @@ impl Session {
             ids::DATABASE_SERVICEINSTANCEID_1 => Ok(Value::Integer(self.host.identity.service_instance_id())),
             ids::DATABASE_TENANTID_1 => Ok(Value::Text(self.host.identity.tenant_id().into())),
             // One fixed value per run: the same at every call, not blank, at most 250 characters
-            // (platform/lt-system-database-members/DbSerialNumber.al:33-41). The text itself is not pinned; AL Runner v2
+            // (metadata/platform-tables/DbSerialNumber.al:33-41). The text itself is not pinned; AL Runner v2
             // answered `STANDALONE` too (al-runner issue 6055).
             ids::DATABASE_SERIALNUMBER_1 => Ok(Value::Text("STANDALONE".into())),
             // A step of the Contoso company build runs without a client (`set_no_client`).
@@ -181,24 +181,24 @@ impl Session {
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ContosoBuildNoClient);
                 Ok(Value::Boolean(false))
             }
-            // Install code has no client (install/lt-outside-install-ui/RlInstallUi.al:210, :239;
-            // install/lt-cm-install-leads/CmInstallLeads.al:51).
+            // Install code has no client (errors/RlInstallUi.al:210, :239;
+            // metadata/CmInstallLeads.al:51).
             ids::SYSTEM_GUIALLOWED_1 if self.install_without_client => Ok(Value::Boolean(false)),
-            // A page background task worker has no client (bgtasks/lt-bj-no-gui/BjNoGuiDialogs.al:204 `gui=No`).
+            // A page background task worker has no client (pages/background-tasks/BjNoGuiDialogs.al:204 `gui=No`).
             ids::SYSTEM_GUIALLOWED_1 if self.pages.bg_worker.is_some() => Ok(Value::Boolean(false)),
             ids::SYSTEM_GUIALLOWED_1 => Ok(Value::Boolean(self.host.identity.gui_allowed())),
             ids::SYSTEM_ISSERVICETIER_1 => Ok(Value::Boolean(self.host.identity.is_service_tier())),
             // The folder AL code writes scratch files to. BC's answer ends with `TEMP\` on the Linux tier
-            // too (al-language-onprem/handlers/TestRequestPageSaveAsXmlContracts.al:TemporaryPath_EndsWithTheTempFolderAndABackslash);
+            // too (al-language-onprem/reports/TestRequestPageSaveAsXmlContracts.al:TemporaryPath_EndsWithTheTempFolderAndABackslash);
             // the path starts with a separator, has no drive colon and ends with a separator
-            // (al-language-onprem/lt-system-database-onprem/PTemporaryPath.al:P109_TemporaryPath_Shape), so it is `\TEMP\`; the files
+            // (al-language-onprem/session-system/server-system-functions/PTemporaryPath.al:P109_TemporaryPath_Shape), so it is `\TEMP\`; the files
             // directory (or the in-memory files) keeps it inside the run, a leading backslash being dropped there (docs/owner-review.md).
             ids::SYSTEM_TEMPORARYPATH_1 => Ok(Value::Text("\\TEMP\\".into())),
             ids::SYSTEM_WINDOWSLANGUAGE_1 => Ok(Value::Integer(self.host.identity.windows_language())),
             ids::SYSTEM_GLOBALLANGUAGE_1 => match args.first() {
                 None => Ok(Value::Integer(self.global_language)),
                 // These ids raise NotSupportedLanguage and leave the language as it was
-                // (platform/lt-platform-members/PlTSession.al:245-266, GlobalLanguage_InvalidIds: 0, -1, 99999;
+                // (metadata/platform-tables/PlTSession.al:245-266, GlobalLanguage_InvalidIds: 0, -1, 99999;
                 // :326-360, GlobalLanguage_PositiveIds: 1000, 4096, 8192, 9999, 32767, 65535). Other ids are set as before.
                 Some(Value::Integer(n @ (0 | -1 | 99999 | 1000 | 4096 | 8192 | 9999 | 32767 | 65535))) => {
                     Err(crate::transactions::al_error_code(
@@ -228,7 +228,9 @@ impl Session {
             }
             // corpus types/PSCaptionClass.al:5-8, :58-81 (CaptionClassTranslate_Expressions).
             ids::SYSTEM_CAPTIONCLASSTRANSLATE_1 => match args.first().and_then(al_builtins::native::text_of) {
-                Some(t) => self.caption_class_translate(&t).map(|s| Value::Text(s.into())),
+                Some(t) => self
+                    .caption_class_translate_statement(&t)
+                    .map(|s| Value::Text(s.into())),
                 None => unsupported("CaptionClassTranslate of something that is not text"),
             },
             // ADR-042: the host's server base address and the pinned query forms (geturl.rs).
@@ -236,7 +238,7 @@ impl Session {
                 self.get_url(args)
             }
             // Install code runs in a SOAP session on the corpus CI's publish path, the same on BC 27.5, 28.5 and 29.0
-            // (install/lt-outside-install-ui/RlInstallUi.al:211).
+            // (errors/RlInstallUi.al:211).
             ids::SESSION_CURRENTCLIENTTYPE_1 if self.install_without_client => Ok(client_type_named("SOAP")),
             ids::SESSION_CURRENTCLIENTTYPE_1 => Ok(client_type(self.host.identity.current_client_type())),
             ids::SESSION_DEFAULTCLIENTTYPE_1 => Ok(client_type(self.host.identity.default_client_type())),
@@ -261,7 +263,7 @@ impl Session {
             }
             Some(Value::Integer(n)) => n.abs().max(1),
             // A Decimal: a whole one draws as that Integer (`Random(1.0)` is always 1, `Random(3.0)` 1 to 3), one with a fraction
-            // is the conversion error (types/lt-aj-probes/AjScalars.al:375-433, Random_Decimal_*: 0.4, 1.5, 2.5, 2.9). A whole
+            // is the conversion error (format-evaluate/AjScalars.al:375-433, Random_Decimal_*: 0.4, 1.5, 2.5, 2.9). A whole
             // Decimal beyond an Integer is not pinned.
             Some(Value::Decimal(d)) if !d.fract().is_zero() => {
                 return Err(crate::transactions::al_error_code(
@@ -291,7 +293,7 @@ impl Session {
     }
 
     /// `WorkDate()` answers the date set, or today until AL sets one; `WorkDate(Date)` sets it
-    /// (session/TestSessionFunctions.al:53-65, session/TestDateTimeContracts.al:150-158). The
+    /// (session-system/TestSessionFunctions.al:53-65, session-system/TestDateTimeContracts.al:150-158). The
     /// date is the session's, so a new session starts at today again (ADR-001).
     /// The work date as a day number: the date set, or today.
     pub(crate) fn work_date_day(&self) -> Option<i32> {
@@ -304,15 +306,18 @@ impl Session {
     fn work_date_op(&mut self, args: &mut [Value]) -> Result<Value, Signal> {
         match args.first() {
             None => Ok(Value::Date(self.work_date_day().expect("always a date"), false)),
+            // The call returns the work date it set, so it is usable as an expression
+            // (session-system/session/R6862WorkDateExpression.al, BC 28.5 and 29.0).
             Some(Value::Date(d, false)) if *d > 0 => {
                 self.work_date = Some(*d);
-                Ok(Value::Null)
+                Ok(Value::Date(*d, false))
             }
-            // The undefined date sets the work date back to today (session/TestProbeSessionMiscContracts.al:
+            // The undefined date sets the work date back to today (session-system/TestProbeSessionMiscContracts.al:
             // WorkDate_SetUndefined).
+            // The call returns that date (R6862WorkDateExpression.al: `empty: result = Today`).
             Some(Value::Date(0, false)) => {
                 self.work_date = None;
-                Ok(Value::Null)
+                Ok(Value::Date(self.work_date_day().expect("always a date"), false))
             }
             Some(other) => unsupported(format!(
                 "WorkDate({other}): only a defined, non-closing Date is pinned",
@@ -367,7 +372,7 @@ fn changed(t: &al_data::TableDef, stored: &[Value], buffer: &[Value]) -> bool {
 
 impl Session {
     /// `SystemCreatedAt/By` and `SystemModifiedAt/By` of a row the platform inserts: the clock and
-    /// the user's security id, the same instant in both pairs (pagesave/TestPageSaveDataLayer.al:265).
+    /// the user's security id, the same instant in both pairs (pages/record-save/TestPageSaveDataLayer.al:265).
     /// They are written below the trigger, so `OnInsert` and `OnBeforeInsertEvent` still see the
     /// default values and the buffer holds the stamps when `Insert` returns
     /// (record/TestXRecStampFields.al:75-99, TestStorageLayerFieldWriteRoutes.al:114-125).

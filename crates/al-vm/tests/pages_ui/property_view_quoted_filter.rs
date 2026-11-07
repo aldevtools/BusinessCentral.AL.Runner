@@ -1,5 +1,5 @@
 //! `filter('>B')` in a view set by an object property is a comparison, on a Code and on a Text field
-//! (filters/lt-uc-quoted-values/UcQuotedValues.al:PageAndQuery_FilterGreaterB `page_cd_ids`, `page_txt_ids` 5,14,15).
+//! (record/filters/UcQuotedValues.al:PageAndQuery_FilterGreaterB `page_cd_ids`, `page_txt_ids` 5,14,15).
 //! Only a view given to SetView at run time reads the quoted value as a literal (:SetView_FilterGreaterB).
 
 use al_testkit::text;

@@ -1,5 +1,5 @@
 //! The lists of Enum.Ordinals and Enum.Names, and Contains on a list of dictionaries
-//! (collections/lt-cs-odd-leads/CsCollections.al).
+//! (collections/CsCollections.al).
 
 use al_testkit::{run_in, text};
 

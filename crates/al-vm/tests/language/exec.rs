@@ -220,7 +220,7 @@ fn runaway_recursion_raises_stack_overflow_not_a_crash() {
 
 #[test]
 fn a_character_can_be_assigned_into_a_text_by_position() {
-    // handlers/TestPageFieldFormats_Tests.al:58-66: `Nnbsp[1] := 8239` on an empty Text[1] sets
+    // testpage/TestPageFieldFormats_Tests.al:58-66: `Nnbsp[1] := 8239` on an empty Text[1] sets
     // its one character (the narrow no-break space), which Replace then finds.
     let src = cu("procedure F(): Text var N: Text[1]; T: Text; begin
                       N[1] := 8239; T := 'a' + N + 'b';
@@ -243,9 +243,9 @@ fn a_character_can_be_assigned_into_a_text_by_position() {
 
 #[test]
 fn a_990_deep_chain_completes() {
-    // codeunit/TestCodeunitRecursionDepth.al:57-70 (RecursionDepth_JustInsideTheCeiling_Completes):
+    // codeunits/TestCodeunitRecursionDepth.al:57-70 (RecursionDepth_JustInsideTheCeiling_Completes):
     // the platform's ceiling lies above 990 calls. Past it the run raises the StackOverflow error
-    // (session/TestProbeSessionMiscContracts.al:CallDepth_1001).
+    // (session-system/TestProbeSessionMiscContracts.al:CallDepth_1001).
     std::thread::Builder::new()
         .stack_size(512 << 20)
         .spawn(|| {
@@ -332,7 +332,7 @@ fn dictionaries() {
 
 #[test]
 fn list_remove_at_past_the_end_raises() {
-    // session/TestProbeSessionMiscContracts.al:Dictionary_List_ErrorTexts, `list_removeat_4`.
+    // session-system/TestProbeSessionMiscContracts.al:Dictionary_List_ErrorTexts, `list_removeat_4`.
     let src = cu("procedure F(): Integer var L: List of [Integer]; begin L.RemoveAt(1); exit(0); end;");
     let r = run(&src, "F", vec![]);
     assert!(
@@ -362,7 +362,7 @@ fn unpinned_error_and_commit_behaviors_are_unsupported() {
 #[test]
 fn labels_hold_their_text() {
     // Label variables evaluate to their declared text, global or local, with or without
-    // properties (error-handling/TestCommitBehaviorAttribute.al raises Error(UnrelatedErr)
+    // properties (errors/TestCommitBehaviorAttribute.al raises Error(UnrelatedErr)
     // and matches the text).
     let src = cu("var G: Label 'glob %1', Locked = true;
          procedure P(): Text
@@ -388,8 +388,8 @@ fn enum_values_format_by_caption_when_declared() {
     assert_eq!(text(run(&src, "F", vec![])), "The Alpha|Beta|It's G");
 }
 
-// error-handling/TestTryFunctionContracts.al:TryFunction_VarParam_SetBeforeError_VisibleToCaller and
-// codeunit/TestScopeIsolationContracts.al:Test03AssertErrorVarParamChangesVisibleToCaller -- a var
+// errors/TestTryFunctionContracts.al:TryFunction_VarParam_SetBeforeError_VisibleToCaller and
+// codeunits/TestScopeIsolationContracts.al:Test03AssertErrorVarParamChangesVisibleToCaller -- a var
 // parameter set before the error is visible to the caller that catches it, through any depth.
 #[test]
 fn var_parameters_set_before_an_error_are_visible_to_the_catching_caller() {
@@ -436,7 +436,7 @@ fn a_member_reached_through_this_can_be_a_var_argument() {
 
 // ------------------------------------------------------- property forms of builtin members
 // `Notif.Id := x`, `Rec.ReadIsolation := x` and `Text[1]` of a call result are plain AL.
-// Corpus handlers/TestNotificationHandler.al:55-56 (Notification.Id round trip),
+// Corpus ui-handlers/TestNotificationHandler.al:55-56 (Notification.Id round trip),
 // json/TestJsonXmlDeepContracts.al:71 (`Format(10, 0, '<Integer>')[1]`); the record form is
 // used all over Base Application (CostAdjmtSignals.Codeunit.al: `Item.ReadIsolation := ...`).
 
@@ -464,7 +464,7 @@ fn a_character_of_a_call_result_can_be_indexed() {
 }
 
 // ------------------------------------------------------------------------------- ClearAll
-// types/TestClearContracts.al:ClearAll_ResetsCodeunitLevelVars and session/TestSystemComplete.al:
+// types/TestClearContracts.al:ClearAll_ResetsCodeunitLevelVars and session-system/TestSystemComplete.al:
 // System_ClearAll_DoesNotThrow pin that the call works. That it resets the object's global variables
 // and leaves locals alone is the documented meaning (docs/probes-needed.md).
 
@@ -494,7 +494,7 @@ fn overloads_that_differ_only_in_the_table_of_a_record_parameter_pick_by_table()
     assert_eq!(text(run(src, "F", vec![])), "12");
 }
 
-// codeunit/PWCodeCoverageRows.al:DumpRows (BC 27.5): StrSubstNo of an Option field with an OptionCaption reads the
+// codeunits/PWCodeCoverageRows.al:DumpRows (BC 27.5): StrSubstNo of an Option field with an OptionCaption reads the
 // caption, as Format does ("Non Applicable", not the member NonApplicable).
 #[test]
 fn strsubstno_of_an_option_field_reads_its_caption() {
@@ -544,7 +544,7 @@ fn a_for_loop_reads_its_counter_back_and_fails_on_an_end_beyond_integer() {
     assert_eq!(int(run(&src, "Moved", vec![])), 4);
     assert_eq!(int(run(&src, "Down", vec![])), 54321);
     // A BigInteger end beyond Integer raises the conversion error before the first round
-    // (misc/lt-system-functions/ControlFlow.al:779-830, `end max+1`).
+    // (language/ControlFlow.al:779-830, `end max+1`).
     match run(&src, "Wide", vec![]) {
         Err(Signal::Error(e)) => assert_eq!(
             (e.message.as_str(), e.code.as_str()),
@@ -573,7 +573,7 @@ fn foreach_runs_over_the_result_of_a_builtin_method() {
     assert_eq!(int(run(&src, "F", vec![])), 3);
 }
 
-/// platform/lt-platform-members/PlTRowVersionValue.al:MinimumActiveRowVersion_NoWrite_Committed: without writes it is
+/// metadata/platform-tables/PlTRowVersionValue.al:MinimumActiveRowVersion_NoWrite_Committed: without writes it is
 /// LastUsedRowVersion() + 1. After a write the value is not pinned and the call is refused.
 #[test]
 fn minimum_active_row_version_is_last_used_plus_one_without_writes() {

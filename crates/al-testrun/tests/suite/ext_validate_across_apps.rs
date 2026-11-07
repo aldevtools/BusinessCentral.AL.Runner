@@ -1,5 +1,5 @@
 //! OnBeforeValidate and OnAfterValidate of table extensions in several apps run app by app (al-runner issue 6486). The order
-//! is pinned by tableextension/lt-bw-cross-app/Y20CrossAppValidateOrder.al:44 (corpus pin 92031e20): an app before the apps
+//! is pinned by table-objects/extensions/Y20CrossAppValidateOrder.al:44 (corpus pin 92031e20): an app before the apps
 //! that depend on it, and two apps that do not depend on each other in the order BC visits the apps (B before D: the lower app
 //! id, as for event subscribers in `dispatch.rs`).
 

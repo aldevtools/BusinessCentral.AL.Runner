@@ -351,12 +351,6 @@
 29 2627-pageext-modify-implicit-promoted-caption
 # corpus bump to master 34ca226f (writer Y66): break/quit/skip and UseRequestPage on an XmlPort variable
 # corpus bump to master 48433dfe (writer Y24, permissions lane): the Permissions property of an object takes only tabledata entries (AL0104)
-27 2360-permissions-property-codeunit-execute
-27 2361-permissions-property-object-execute
-28 2360-permissions-property-codeunit-execute
-28 2361-permissions-property-object-execute
-29 2360-permissions-property-codeunit-execute
-29 2361-permissions-property-object-execute
 # corpus bump to 941cd813 (and 9cce33bd, whose gates were not run): new cases the front end does not reject yet; 2791 and 2793 are Y85 LoadPackageData
 27 2713-global-variable-through-this-variable
 28 2713-global-variable-through-this-variable
@@ -380,3 +374,22 @@
 27 2785-accessbypermission-group
 28 2785-accessbypermission-group
 29 2785-accessbypermission-group
+# corpus bump 1104a: new cases the front end does not decide yet (Permissions property on an object)
+# corpus bump 1105a (pin c9aac994): a new protected-variable case the front end does not decide yet
+# (2952 wants AL0118 and gets none)
+27 2952-tableext-protected-var-of-app-not-depended-on
+28 2952-tableext-protected-var-of-app-not-depended-on
+29 2952-tableext-protected-var-of-app-not-depended-on
+# corpus bump 1105n (pin f0596301, corpus PR 1152): a TestPage member of a Base Application page that BC 29 removed
+# (2972 wants AL0132 and gets none)
+29 2972-bc29-legacy-statistics-invoke
+# corpus bump to a9562bcd: qualified enum values in column filters (corpus PR 1184), not decided yet
+27 2980-columnfilter-filter-qualified-enum
+27 2982-columnfilter-or-qualified-enum
+27 2984-columnfilter-same-name-field-qualified-enum
+28 2980-columnfilter-filter-qualified-enum
+28 2982-columnfilter-or-qualified-enum
+28 2984-columnfilter-same-name-field-qualified-enum
+29 2980-columnfilter-filter-qualified-enum
+29 2982-columnfilter-or-qualified-enum
+29 2984-columnfilter-same-name-field-qualified-enum

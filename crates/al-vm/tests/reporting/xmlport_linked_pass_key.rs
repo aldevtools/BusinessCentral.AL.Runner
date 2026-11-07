@@ -1,6 +1,6 @@
 //! The key of a table element with LinkTable and no LinkFields below another table element: every pass starts from the
 //! SourceTableView key, or the primary key without a view, ascending; a key OnPreXmlItem sets at one pass is gone at the next
-//! (corpus writer TU's branch al-runtime-rs-staging-tu, xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al
+//! (corpus writer TU's branch al-runtime-rs-staging-tu, xmlports/shapes-properties/QrXpContainerOccurs.al
 //! TU_LinkedKey_*, xmlports 90126/90127). A key or direction the code set before the first pass is not pinned.
 
 use al_builtins::native::Signal;

@@ -1,9 +1,9 @@
 //! After a marking OnDrillDown with `CurrPage.Update(false)` on a Worksheet with a ListPart, GoToRecord follows the marked view
 //! that the page code later changes and refreshes with `CurrPage.Update(false)`:
 //! - an action that turns MarkedOnly off and clears the marks: GoToRecord finds an unmarked row again (al-runner issue 6289;
-//!   corpus writer Y1, branch al-runtime-rs-staging-y1, pages/lt-y1-6289/Y1ClearMarkedOnly.al:362, :390, :418, :446);
+//!   corpus writer Y1, branch al-runtime-rs-staging-y1, pages/Y1ClearMarkedOnly.al:362, :390, :418, :446);
 //! - OnAfterGetCurrRecord that marks again after code outside the page cleared a row's flag: GoToRecord of that row is false
-//!   (al-runner issue 6288; pages/lt-y1-6288/Y1ExternalReapplyMarks.al:223, :254, :278).
+//!   (al-runner issue 6288; testpage/Y1ExternalReapplyMarks.al:207, :238, :262).
 //!
 //! The fixtures are the corpus files with a local "Probe Observer" whose Verify raises the observations as the error text.
 

@@ -6,7 +6,7 @@ impl Session {
     /// - A record that is no temporary one handed to a Card whose source table is temporary by `Page.Run(Id, Rec)` or
     ///   `Page.RunModal(Id, Rec)`: the page's Rec stops being temporary, OnOpenPage reads `temp=No` and counts the table, the page
     ///   shows the stored row, steps through the table and writes to it, also when the record is filtered to no row
-    ///   (pages/lt-y61-page-probes/Y61StoredRecToTempCard.al:373 G617b_PageRunModalIdRec_Rename, :435
+    ///   (pages/run-modal/Y61StoredRecToTempCard.al:373 G617b_PageRunModalIdRec_Rename, :435
     ///   G617b_PageRunIdRec_TrapTestPage_CountAndStep, :499 G617b_RecordFilteredToNoRow). The same record handed by `SetRecord` of a
     ///   Page variable leaves a Card or NavigatePage temporary and empty: OnOpenPage reads the record's fields, the page shows a blank
     ///   row (:313 G617b_SetRecord_RunModal_Agree, :404 _StoredRow_Delete, :468 G617b_NavigatePage_SetRecord_RunModal_Agree). Other
@@ -55,7 +55,7 @@ impl Session {
 
     /// A NavigatePage over a temporary table, handed a record by SetRecord of a Page variable, that finds no row when it opens: after
     /// OnOpenPage (which read the record's fields) its Rec is the blank record, an action's Modify looks for `Code=''`
-    /// (pages/lt-y61-page-probes/Y61StoredRecToTempCard.al:468 G617b_NavigatePage_SetRecord_RunModal_Agree). Pinned for a page without
+    /// (pages/run-modal/Y61StoredRecToTempCard.al:468 G617b_NavigatePage_SetRecord_RunModal_Agree). Pinned for a page without
     /// OnNewRecord and OnAfterGetCurrRecord (whether they run there is not); `false` for those.
     pub(in crate::pages) fn empty_temp_navigate_page_by_set_record(&self, st: &St) -> bool {
         let navigate = matches!(

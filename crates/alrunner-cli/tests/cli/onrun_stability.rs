@@ -344,3 +344,65 @@ fn stability_mode_moves_host_values() {
     assert_eq!(code(&o), 1, "{}", text(&o));
     assert!(text(&o).contains("company Other Company"), "{}", text(&o));
 }
+
+/// ADR-066 amendment 4, decision 5: a test codeunit that relies on SingleInstance state an earlier one left is listed as
+/// order dependent by `--stability`, whether it keeps its parallel run (default) or runs again serially
+/// (`--strict-order`).
+#[test]
+fn stability_lists_order_dependent_codeunits_with_and_without_strict_order() {
+    let d = tempfile::tempdir().unwrap();
+    let src = r#"
+codeunit 50870 "Order State"
+{
+    SingleInstance = true;
+    procedure SetFlag(V: Text) begin Flag := V; end;
+    procedure GetFlag(): Text begin exit(Flag); end;
+    var Flag: Text;
+}
+codeunit 50871 "Order Setter"
+{
+    Subtype = Test;
+    [Test] procedure SetsTheFlag() var S: Codeunit "Order State"; begin S.SetFlag('left'); end;
+}
+codeunit 50872 "Order Lenient Reader"
+{
+    Subtype = Test;
+    [Test] procedure ReadsAnyFlag() var S: Codeunit "Order State"; begin if StrLen(S.GetFlag()) > 10 then Error('long'); end;
+}
+"#;
+    let app = one_file_app(
+        d.path(),
+        "order",
+        "11111111-0000-0000-0000-000000006924",
+        "Order",
+        "src/Tests.al",
+        src,
+    );
+    let a = app.to_str().unwrap();
+    for strict in [false, true] {
+        let json = d.path().join(format!("r{strict}.json"));
+        let mut args = vec![
+            "test",
+            a,
+            "--no-download",
+            "--stability",
+            "microsoft",
+            "--stability-allow-flips",
+            "--output-json",
+            json.to_str().unwrap(),
+        ];
+        if strict {
+            args.push("--strict-order");
+        }
+        let o = alrunner(&args);
+        assert_eq!(code(&o), 0, "{}", text(&o));
+        let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&json).unwrap()).unwrap();
+        let listed: Vec<&str> = doc["stability"]["orderDependent"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{doc}"))
+            .iter()
+            .map(|t| t["test"].as_str().unwrap())
+            .collect();
+        assert_eq!(listed, vec!["Codeunit50872.ReadsAnyFlag"], "strict {strict}: {doc}");
+    }
+}

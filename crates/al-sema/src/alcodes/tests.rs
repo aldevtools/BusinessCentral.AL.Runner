@@ -44,7 +44,7 @@ fn a_text_attribute_after_a_text_element_is_al0335() {
 
 // Must-not-compile cases 2330-2332 (corpus branch al-runtime-rs-staging-y12, al-runner issue 6436): a trailing
 // comma after a Label property is AL0301, two commas after the text AL0107; one comma after the text compiles
-// (text/lt-label-textbuilder/TxCLabel.al Y12_Label_TrailingComma).
+// (text/textbuilder-bigtext/TxCLabel.al Y12_Label_TrailingComma).
 #[test]
 fn label_trailing_commas_al0301_and_al0107() {
     let cu = |decl: &str| format!("codeunit 50000 \"MNC Codeunit\"\n{{\n    var\n        SetupLbl: {decl};\n}}\n");
@@ -379,7 +379,7 @@ fn messages_with_platform(files: &[&str], platform: &str) -> Vec<String> {
 }
 
 /// must-not-compile 2514-currreport-requestoptionspage.al: `CurrReport.RequestOptionsPage` is AL0161; the bare
-/// `RequestOptionsPage` compiles (report/lt-y40-bare-report-run/Y40BareReportRun.al:156-166).
+/// `RequestOptionsPage` compiles (reports/runtime/Y40BareReportRun.al:156-166).
 #[test]
 fn al0161_currreport_request_options_page() {
     let src = |body: &str| {
@@ -399,7 +399,7 @@ fn al0161_currreport_request_options_page() {
 /// al-runner #6631: real BC compiles `CurrReport.RequestOptionsPage.Update(false)` in all request page code (control,
 /// action and request page triggers, a procedure of the requestpage) and gives AL0161 everywhere else in the report: its
 /// triggers, its data item triggers (must-not-compile 2580-2584) and its procedures (2514). Pin:
-/// report/lt-request-options-page-access/RequestOptionsPageAccess.al.
+/// reports/request-page/RequestOptionsPageAccess.al.
 #[test]
 fn currreport_request_options_page_by_location() {
     let src = |field_trigger: &str, page_trigger: &str, report_trigger: &str, item_trigger: &str| {
@@ -557,7 +557,7 @@ fn al0322_and_al0208_of_control_visible_expressions() {
     let int = "page 50000 P { PageType = CardPart; SourceTable = T; layout { area(Content) { cuegroup(Cues) { Visible = 5; \
                    field(CueA; Rec.CueA) { } } } } }";
     assert_eq!(codes(&[t, int]), vec!["AL0208"]);
-    // A cuegroup takes an array element, a method call and a procedure call (pages/lt-y65-cue-visible/Y65CueVisible.al).
+    // A cuegroup takes an array element, a method call and a procedure call (pages/cue-visible/Y65CueVisible.al).
     let ok = "page 50000 P { PageType = CardPart; SourceTable = T; layout { area(Content) { \
                   cuegroup(A) { Visible = ShowArr[2]; field(CueA; Rec.CueA) { Visible = Rec.CueA <> 0; } } \
                   cuegroup(B) { Visible = not Rec.IsEmpty(); } cuegroup(C) { Visible = IsShown(); } } } \
@@ -572,7 +572,7 @@ fn al0322_a_field_control_property_bound_to_a_procedure_call() {
     let page = "page 52000 P { PageType = Card; SourceTable = T; layout { area(Content) { field(Id; Rec.Id) { Visible = IsOk(); } \
                     field(A; Rec.A) { Enabled = IsOk(); Editable = IsOk(); } } } procedure IsOk(): Boolean begin exit(true); end; }";
     assert_eq!(codes(&[t, page]), vec!["AL0322", "AL0322", "AL0322"]);
-    // On an action the same binding compiles (warning AL0573, pages/lt-qq-procedure-bound-action/QqBoundObjects.al).
+    // On an action the same binding compiles (warning AL0573, pages/actions/QqBoundObjects.al).
     let action = "page 52001 Q { PageType = Card; actions { area(Processing) { action(X) { Visible = IsOk(); Enabled = IsOk(); } } } \
                       procedure IsOk(): Boolean begin exit(true); end; }";
     assert!(codes(&[action]).is_empty());
@@ -739,7 +739,7 @@ fn al0122_an_enum_of_another_type_into_a_target_without_assignment_compatibility
 }
 
 // must-not-compile 2291 (corpus PR 808 at branch commit 910da83e; al-runner issue 6215): a codeunit true branch and an
-// interface false branch is AL0122; the other order compiles (types/lt-up-ternary/UpTernary.al:60, :70, :81).
+// interface false branch is AL0122; the other order compiles (types/operators-expressions/UpTernary.al:60, :70, :81).
 #[test]
 fn al0122_ternary_codeunit_true_branch_interface_false_branch() {
     let src = |ternary: &str| {
@@ -929,7 +929,7 @@ fn al0122_text_into_decimal() {
 
 // Writer TL's must-not-compile 2249-2251 (branch al-runtime-rs-staging-pub-tl, al-runner issue 6060): an Enum variable,
 // an enum value and an Enum field into a Decimal are AL0122; an Option into a Decimal compiles
-// (types/lt-implicit-conversions/P79OptionDecimal.al on the same branch).
+// (types/operators-expressions/P79OptionDecimal.al on the same branch).
 #[test]
 fn al0122_enum_into_decimal() {
     let src = |body: &str| {
@@ -1116,7 +1116,7 @@ fn al0305_every_pinned_object_type() {
             ]
         );
     // 30 characters compile, a permission set of 20 compiles, and an enum has no such limit
-    // (al-language/misc/lt-cv-odd-leads/CvEnumLongNames.al, 38 characters).
+    // (al-language/types/enum-option/CvEnumLongNames.al, 38 characters).
     for ok in [
         "table 50001 \"MNC SH Name Length Probe Objec\" { fields { field(1; Id; Integer) { } } }",
         "permissionset 50001 \"MNC SH Name Length P\" { Assignable = true; }",
@@ -1161,7 +1161,7 @@ fn al0305_an_object_name_too_long() {
         );
     assert!(codes(&["codeunit 50000 \"Thirty Characters Name Is Fine\" { }"]).is_empty());
     // A test codeunit of 31 characters (must-not-compile 2115, al-runner issue 5845); 30 compiles
-    // (codeunit/TestScopeIsolationContracts.al:1).
+    // (codeunits/TestScopeIsolationContracts.al:1).
     assert_eq!(
         codes(&["codeunit 50000 \"MNC Test Codeunit Name Length31\" { Subtype = Test; }"]),
         vec!["AL0305"]
@@ -1386,7 +1386,7 @@ fn al0135_assignment_form_of_a_two_parameter_builtin() {
 
 // must-not-compile 2359 (corpus writer Y20, al-runner issue 6488): an alias the app declares outside a namespace, with the
 // name of one a dependency declares in namespace System, is ambiguous when named bare. `DotNet System.String` and the
-// dependency's alias alone compile (al-language-onprem-dotnet/lt-y20-dotnet-fullname/Y20DotNetFullTypeName.al:27-58).
+// dependency's alias alone compile (al-language-onprem-dotnet/dotnet/dotnet-fullname/Y20DotNetFullTypeName.al:27-58).
 #[test]
 fn al0275_bare_dotnet_alias_declared_by_the_app_and_in_namespace_system() {
     const SYSTEM: &str = "namespace System;\ndotnet { assembly(mscorlib) { type(\"System.String\"; String) { } type(\"System.DateTime\"; DateTime) { } } }";
@@ -1525,7 +1525,7 @@ fn al0365_crossjoin_with_a_data_item_link() {
 }
 
 // must-not-compile 2010: a global variable is no named field; a field written with a data item name compiles
-// (errors/lt-ms-refusals-138/P138ColCaptionQualified.al, QS_*).
+// (streams/P138ColCaptionQualified.al, QS_*).
 #[test]
 fn al0385_include_caption_on_a_global_variable_column() {
     let r =
@@ -1826,7 +1826,7 @@ fn al0296_a_cloud_permission_set_names_an_onprem_table() {
 }
 
 // TestHandlers is a codeunit property: BC 29 compiles a test codeunit that names one (corpus
-// al-language-testlibraries/lt-bi-test-framework/BiTestHandler.al:98, CI job test-testlibraries on BC 29), and on BC 27 the
+// al-language-testlibraries/test-framework/data-driven-tests-and-handlers/BiTestHandler.al:98, CI job test-testlibraries on BC 29), and on BC 27 the
 // compiler answers AL0666 and AL0928 for it, never AL0124 (must-not-compile 0784).
 #[test]
 fn testhandlers_is_a_codeunit_property() {
@@ -2162,12 +2162,12 @@ fn al0122_exit_value_and_a_procedure_without_a_result() {
     );
     let ok = "codeunit 50001 C { local procedure One(): Integer begin exit(1); end; procedure Run1(): Text var I: Integer; begin I := One(); exit('a'); end; procedure Run2(): Integer begin exit(One()); end; }";
     assert!(codes(&[ok]).is_empty(), "{:?}", messages(ok));
-    // A TryFunction returns a Boolean without declaring one (corpus errors/lt-error-handling/ErTTryBasics.al:81).
+    // A TryFunction returns a Boolean without declaring one (corpus errors/error-texts/ErTTryBasics.al:81).
     let try_fn = "codeunit 50001 C { [TryFunction] local procedure TryOk() begin end; procedure Run1() var Ok: Boolean; begin Ok := TryOk(); end; }";
     assert!(codes(&[try_fn]).is_empty(), "{:?}", messages(try_fn));
 }
 
-// TestType on a Test codeunit compiles on BC (corpus al-language/codeunit/lt-x-object-props/XObjectProps.al:11,
+// TestType on a Test codeunit compiles on BC (corpus al-language/codeunits/procedures/XObjectProps.al:11,
 // codeunits 75020-75023, every value of the enum: UnitTest, IntegrationTest, Uncategorized, AITest).
 #[test]
 fn al0124_testtype_on_a_test_codeunit_compiles() {
@@ -2257,11 +2257,11 @@ fn al0162_a_trigger_the_object_does_not_have() {
     }
     let ok = [
             "codeunit 50001 C { trigger OnRun() begin end; }",
-            // The install and upgrade triggers (corpus install/TestInstallSeeder.al).
+            // The install and upgrade triggers (corpus install-upgrade/TestInstallSeeder.al).
             "codeunit 50001 C { Subtype = Install; trigger OnInstallAppPerCompany() begin end; trigger OnInstallAppPerDatabase() begin end; }",
             "codeunit 50001 C { Subtype = \"Install\"; trigger OnInstallAppPerCompany() begin end; }",
             "codeunit 50001 C { Subtype = Upgrade; trigger OnUpgradePerCompany() begin end; trigger OnValidateUpgradePerDatabase() begin end; }",
-            // The triggers of a test runner codeunit (corpus events/lt-trigger-pins/PTestRunnerTriggers.al:107, :116).
+            // The triggers of a test runner codeunit (corpus events/platform-triggers/PTestRunnerTriggers.al:107, :116).
             "codeunit 50001 C { Subtype = TestRunner; trigger OnBeforeTestRun(CodeunitId: Integer; CodeunitName: Text; FunctionName: Text; FunctionTestPermissions: TestPermissions): Boolean begin exit(true); end;
                trigger OnAfterTestRun(CodeunitId: Integer; CodeunitName: Text; FunctionName: Text; FunctionTestPermissions: TestPermissions; IsSuccess: Boolean) begin end; }",
             "table 50001 T { fields { field(1; Id; Integer) { } } trigger OnInsert() begin end; trigger OnModify() begin end; trigger OnDelete() begin end; trigger OnRename() begin end; }",
@@ -2541,4 +2541,36 @@ fn xmlport_separator_read_into_char() {
     ] {
         assert!(codes(&[&xp(ok)]).is_empty(), "{ok}");
     }
+}
+
+// Must-not-compile cases 2830 and 2831 (corpus branch al-runtime-rs-staging-y93): an object's Permissions property takes table data
+// only, by name; a permission set takes wildcards and every kind.
+#[test]
+fn an_object_permissions_property_takes_named_table_data_only() {
+    let wild = "codeunit 50000 \"W\" { Permissions = tabledata * = i; }";
+    assert_eq!(
+        codes(&[wild]),
+        vec!["AL0104".to_string(), "AL0104".into(), "AL0107".into()]
+    );
+    let kind = "codeunit 50000 \"K\" { Permissions = codeunit \"K\" = X; }";
+    assert_eq!(codes(&[kind]), vec!["AL0104".to_string()]);
+    let good = "table 50001 \"T, x\" { fields { field(1; Id; Integer) { } } }\ncodeunit 50000 \"G\" { Permissions = tabledata \"T, x\" = rimd; }";
+    assert_eq!(codes(&[good]), Vec::<String>::new());
+    let set = "permissionset 50002 \"S\" { Assignable = true; Permissions = tabledata * = RIMD, codeunit * = X; }";
+    assert_eq!(codes(&[set]), Vec::<String>::new());
+}
+
+// Must-not-compile case 2970 (al-runner issue 6986, corpus branch al-runtime-rs-staging-r6961): count() into a Decimal FlowField is
+// AL0202; into an Integer or a BigInteger FlowField it compiles (record/flowfields/R6986BigIntegerCount.al).
+#[test]
+fn count_into_a_decimal_flowfield_is_al0202_and_into_a_biginteger_compiles() {
+    let doc = r#"table 50000 "MNC Count Doc" { fields { field(1; "No."; Code[20]) { } field(2; "Type No."; Code[20]) { } } keys { key(PK; "No.") { } } }"#;
+    let flow = |ty: &str| {
+        format!(
+            r#"table 50001 "MNC Count Type" {{ fields {{ field(1; "No."; Code[20]) {{ }} field(10; DocCount; {ty}) {{ FieldClass = FlowField; CalcFormula = count("MNC Count Doc" where("Type No." = field("No."))); }} }} keys {{ key(PK; "No.") {{ }} }} }}"#
+        )
+    };
+    assert_eq!(codes(&[doc, &flow("Decimal")]), vec!["AL0202".to_string()]);
+    assert!(codes(&[doc, &flow("BigInteger")]).is_empty());
+    assert!(codes(&[doc, &flow("Integer")]).is_empty());
 }

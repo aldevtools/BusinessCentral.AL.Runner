@@ -50,7 +50,7 @@ pub(super) fn check_fits(
     let n_kind = kind(node);
     let ok = match (c_kind, n_kind) {
         ("XmlDocument", "XmlComment" | "XmlProcessingInstruction" | "XmlDeclaration") => true,
-        // One document type, before the root element (xml/lt-xml-doctype-declaration/DocTypeInDoc.al:DocumentAdd_*).
+        // One document type, before the root element (xml/xml/DocTypeInDoc.al:DocumentAdd_*).
         ("XmlDocument", "XmlDocumentType") => {
             let kids: Vec<Handle> = children_of(container);
             let keep = |c: &&Handle| !removed.iter().any(|r| Rc::ptr_eq(r, c));
@@ -97,7 +97,7 @@ pub(super) fn check_fits(
     } else {
         match (c_kind, n_kind) {
             // An empty or blank text at document level is not pinned (.NET takes white space there): every pin below adds a
-            // non-blank text (xml/TestProbeXmlContracts.al:268, xml/XmlDocReadWrite.al:556, misc/lt-probes-needed-1/PnAXmlNodeAdds.al:38).
+            // non-blank text (xml/TestProbeXmlContracts.al:268, xml/XmlDocReadWrite.al:556, xml/PnAXmlNodeAdds.al:38).
             ("XmlDocument", "XmlText") if with(node, |d| matches!(d, XData::Text(t) if t.trim().is_empty())) => {
                 unsupported("an empty or blank text added to an XmlDocument (not pinned)")
             }
@@ -203,7 +203,7 @@ pub(super) fn detach(h: &Handle) {
 
 /// A text, CDATA, comment, processing instruction or document type without a parent: every sibling operation and `Remove` on it
 /// raises `InvalidOperation` (xml/lt-xml-cdata-comment-pi-text/P90*Edit.al:AfterSelf_Detached_*, BeforeSelf_Detached_*,
-/// ReplaceWith_Detached_*, Remove_Detached_Twice; xml/lt-xml-doctype-declaration/DocTypeNode.al). Other kinds are not pinned.
+/// ReplaceWith_Detached_*, Remove_Detached_Twice; xml/xml/DocTypeNode.al). Other kinds are not pinned.
 pub(super) fn detached_is_invalid(h: &Handle) -> bool {
     with(h, |d| {
         matches!(
@@ -220,7 +220,7 @@ pub(super) fn detached_is_invalid(h: &Handle) -> bool {
 
 /// Why a sibling operation on an element, attribute or document without a parent fails, before its arguments are read.
 /// - A detached attribute raises `InvalidOperation` whatever the arguments are, an unassigned `XmlNode` and an Integer
-///   included (xml/lt-xml-attr-doc-http-members/P97AttrEdit.al:AddAfterSelf_Detached_Kinds `k1`..`k18`, *_Detached_Typed).
+///   included (xml/xml/P97AttrEdit.al:AddAfterSelf_Detached_Kinds `k1`..`k18`, *_Detached_Typed).
 /// - A document raises `InvalidOperation` for every argument kind, except that an unassigned `XmlNode` argument raises
 ///   `NotInitialized` first (P97DocEdit.al:*_Kinds `k14`, *_Typed `t1`..`t11`; P97DocMisc.al:Uninitialised_Document_Edits).
 /// - An element without a parent raises `InvalidOperation` for element arguments (xml/XmlElement.al:521
@@ -285,7 +285,7 @@ pub(super) fn position_in_parent(h: &Handle, args: &[Value]) -> Result<(Handle, 
     let pos = children_of(&p).iter().position(|c| Rc::ptr_eq(c, h));
     match pos {
         Some(i) => Ok((p, i)),
-        // A declaration is no child of its document (xml/lt-xml-remaining-node-methods/P104TreeBDecl.al:P104_ReplaceWith_*).
+        // A declaration is no child of its document (xml/xml/P104TreeBDecl.al:P104_ReplaceWith_*).
         None if with(h, |d| matches!(d, XData::Declaration { .. })) => Err(error(
             "The requested operation cannot be performed in this context.",
             "InvalidOperation",

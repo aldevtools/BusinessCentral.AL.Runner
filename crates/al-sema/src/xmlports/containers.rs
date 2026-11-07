@@ -6,11 +6,11 @@ use ir::XmlNodeKind as K;
 
 /// A text element with child elements whose nodes are only text attributes, leaf text elements, text elements of only text
 /// attributes, and text elements of this same shape: no table, field element or field attribute below it. Its triggers run,
-/// with `currXMLport.Skip()` in OnBeforePassVariable leaving out the element and all below it (xmlport/lt-y60-xmlport-container-skip/
+/// with `currXMLport.Skip()` in OnBeforePassVariable leaving out the element and all below it (xmlports/shapes-properties/
 /// Y60XpContainerSkip.al: `Period` and `Billing > InvDoc` below the root, `Ext` two levels below a table element; import of
 /// `Billing > InvDoc` below the root; the same test as al-vm xmlports `container_tree`). The root's own triggers are not pinned.
 /// Also a text element of only text attributes whose ancestors are all text elements, no table element
-/// (`attributed_outside_table`, xmlport/lt-y67-xmlport-textattr-skip/Y67XpTextAttrSkip.al:298-374).
+/// (`attributed_outside_table`, xmlports/shapes-properties/Y67XpTextAttrSkip.al:298-374).
 pub(super) fn container_tree_shape(layout: &Layout, i: usize) -> bool {
     layout.nodes[i].parent.is_some() && (tree(layout, i) || attributed_outside_table(layout, i))
 }
@@ -68,7 +68,7 @@ fn table_wrap(layout: &Layout, i: usize) -> bool {
 
 /// A text element right below a table element whose nodes are field elements (with only attributes below them, at least one),
 /// `table_wrap` text elements, text elements of only text attributes and table elements without LinkTable (the last two:
-/// xmlport/lt-y67-xmlport-wrapper-in-table/Y67XpWrapperInTable.al:533-604 `membership`).
+/// xmlports/shapes-properties/Y67XpWrapperInTable.al:533-604 `membership`).
 fn field_wrap(layout: &Layout, i: usize) -> bool {
     let k = kids(layout, i);
     layout.nodes[i].kind == K::Text
@@ -98,7 +98,7 @@ fn attributed_leaves(layout: &Layout, i: usize) -> bool {
             .all(|&c| layout.nodes[c].kind == K::TextAttr || leaf(c) || attributed(c))
 }
 
-/// The triggers of a text element inside a table element in the shapes xmlport/lt-y60-xmlport-text-in-table/Y60XpTextInTable.al
+/// The triggers of a text element inside a table element in the shapes xmlports/shapes-properties/Y60XpTextInTable.al
 /// pins: a text element of field elements and wrapped table elements (`Info`, export), a wrapped table element inside it (`Sub`),
 /// a text element of attributes, leaves and attributed leaves (`Ticket`, import). The same shapes as al-vm xmlports `wraps.rs`.
 pub(super) fn wrap_shape(layout: &Layout, i: usize) -> bool {
@@ -110,7 +110,7 @@ pub(super) fn wrap_shape(layout: &Layout, i: usize) -> bool {
 
 /// A text element whose nodes are only text attributes, inside a container (`tree` or `table_container_shape`) that stands, through
 /// text elements, below a table element, on an export port (the PEPPOL EndpointID and CompanyID leaves,
-/// xmlport/lt-y72-xmlport-probes/Y72XpEInvoiceShapes.al; the same test as al-vm xmlports einvoice_shapes.rs `attributed_leaf`).
+/// streams/Y72XpEInvoiceShapes.al; the same test as al-vm xmlports einvoice_shapes.rs `attributed_leaf`).
 pub(super) fn attributed_leaf_shape(layout: &Layout, i: usize) -> bool {
     let Some(p) = layout.nodes[i].parent else {
         return false;
@@ -157,4 +157,22 @@ pub(super) fn table_container_shape(layout: &Layout, i: usize) -> bool {
 
 fn has_trigger(layout: &Layout, i: usize) -> bool {
     layout.nodes[i].section.triggers().next().is_some()
+}
+
+/// The root text element with triggers whose nodes are table elements without LinkTable (at least one) and text elements that are
+/// leaves, hold only text attributes or are container trees (xmlports/shapes-properties/Y83XpMiscTests.al ContainerTriggers_Nested:
+/// `Root` with a table element and `Hdr`; its OnBeforePassVariable runs before everything, its OnAfterAssignVariable after
+/// everything; the same test as al-vm xmlports `container_tree::root_with_table`). Only Format = Xml without InlineSchema is pinned;
+/// the runtime refuses the rest.
+pub(super) fn root_table_shape(layout: &Layout, i: usize) -> bool {
+    let k = kids(layout, i);
+    let table = |c: usize| layout.nodes[c].kind == K::Table && layout.property(c, "LinkTable").is_none();
+    layout.nodes[i].parent.is_none()
+        && layout.nodes[i].kind == K::Text
+        && k.iter().any(|&c| table(c))
+        && k.iter().all(|&c| {
+            table(c)
+                || (layout.nodes[c].kind == K::Text
+                    && (!layout.has_children(c) || attrs_only(layout, c) || tree(layout, c)))
+        })
 }

@@ -6,8 +6,8 @@
 //!   anchor on it, `modify` may set Visible.
 //!
 //! A run of the extension's action and actionref from a TestPage is pinned for `addafter` and `addlast` of an undeclared
-//! category (pages/lt-up-page-ext/UpPromotedCategories.al, groups 7 and 12), and by corpus writer Y64 (branch
-//! al-runtime-rs-staging-y64 85d86e7b, pages/lt-up-page-ext/Y64PromotedImplicit.al:229-308) for modify and addlast of groups 5 and 6
+//! category (pages/extensions/UpPromotedCategories.al, groups 7 and 12), and by corpus writer Y64 (branch
+//! al-runtime-rs-staging-y64 85d86e7b, pages/extensions/Y64PromotedImplicit.al:217-296) for modify and addlast of groups 5 and 6
 //! and addafter/addbefore of `<action>_Promoted`. Here the group and the implicit actionref are anchors only, so a Caption or
 //! ShowAs on them is not seen by AL code. Reading the implicit actionref from a TestPage and setting its Visible (Y64 pins both)
 //! are not supported yet and stay refused, as do the forms nothing pins.
@@ -157,4 +157,28 @@ fn unpinned_uses_of_implicit_promoted_parts_stay_refused() {
             "{anchors}: {results:?}"
         );
     }
+}
+
+/// A Caption- or ShowAs-only `modify` of a standard group the base page does not declare, with nothing added into it (the form
+/// the conversion of PromotedActionCategories writes; al-runner issue 6962): the group is an anchor, as for the numbered groups
+/// (corpus branch al-runtime-rs-staging-r6962, pages/extensions/StandardCategoryCaptionModify.al).
+#[test]
+fn issue_6962_caption_only_modify_of_an_undeclared_standard_group() {
+    for anchors in [
+        "modify(Category_New) { Caption = 'New', Comment = 'Generated from the PromotedActionCategories property index 0.'; } \
+         modify(Category_Process) { Caption = 'Process'; } modify(Category_Report) { Caption = 'Report'; }",
+        "modify(Category_New) { ShowAs = SplitButton; } modify(Category_Report) { ShowAs = Standard; }",
+    ] {
+        // The test invokes the extension's actionref: it goes into a numbered group (pinned above), not the modified ones.
+        let results = run(&format!("{anchors} addlast(Category_Category5) {REF}"));
+        assert!(!results.is_empty());
+        for (name, outcome) in &results {
+            assert_eq!(*outcome, Outcome::Pass, "{anchors}: {name}");
+        }
+    }
+    // Visible of an undeclared standard group: not pinned.
+    let results = run(&format!(
+        "modify(Category_New) {{ Visible = false; }} addlast(Category_Category5) {REF}"
+    ));
+    assert!(matches!(&results[..], [(_, Outcome::NotRun(_))]), "{results:?}");
 }

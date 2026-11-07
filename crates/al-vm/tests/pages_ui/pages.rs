@@ -262,7 +262,7 @@ page 50002 "PG List"
     }
 }
 
-// corpus handlers/TestPageCurrFieldNo_Row.al and _Card.al
+// corpus testpage/TestPageCurrFieldNo_Row.al and _Card.al
 table 50020 "PG CFN"
 {
     fields
@@ -389,7 +389,7 @@ fn rows(n: &[(&str, i32)]) -> String {
         .join(" ")
 }
 
-// handlers/TestPageHandler.al:17 Page_TestPage_Open_FindsFirstRecord: a page opened on a table
+// testpage/TestPageHandler.al:17 Page_TestPage_Open_FindsFirstRecord: a page opened on a table
 // shows the first row, and a control reads as the text of its field.
 #[test]
 fn open_shows_the_first_row_and_controls_read_as_text() {
@@ -405,7 +405,7 @@ fn open_shows_the_first_row_and_controls_read_as_text() {
     assert_eq!(text(r), "A:5");
 }
 
-// handlers/TestPageHandler.al:28-70 Page_TestPage_Next_AdvancesToSecond / _Last_ReturnsLastRecord
+// testpage/TestPageHandler.al:28-70 Page_TestPage_Next_AdvancesToSecond / _Last_ReturnsLastRecord
 #[test]
 fn first_next_last_previous_walk_the_rows_in_key_order() {
     let r = run(
@@ -429,8 +429,8 @@ fn first_next_last_previous_walk_the_rows_in_key_order() {
     assert_eq!(text(r), "ABCNoCBA");
 }
 
-// handlers/TestPageExtended.al:17,34 Page_GoToKey_ExistingRecord_ReturnsTrue / _MissingRecord_ReturnsFalse;
-// handlers/TestPageGoToRecordNonKeyRefresh_Tests.al:1-15: a missing key leaves the page where it was.
+// pages/TestPageExtended.al:17,34 Page_GoToKey_ExistingRecord_ReturnsTrue / _MissingRecord_ReturnsFalse;
+// testpage/TestPageGoToRecordNonKeyRefresh_Tests.al:1-15: a missing key leaves the page where it was.
 #[test]
 fn go_to_key_finds_a_row_and_a_missing_key_leaves_the_cursor() {
     let r = run(
@@ -449,7 +449,7 @@ fn go_to_key_finds_a_row_and_a_missing_key_leaves_the_cursor() {
     assert_eq!(text(r), "YesB2NoB2");
 }
 
-// testpageclose/TestPageClosingActions.al:19-24 and testpageteardown/TestPageTeardown.al:227,339:
+// testpage/lifecycle/TestPageClosingActions.al:19-24 and testpage/lifecycle/TestPageTeardown.al:227,339:
 // a variable that is not open answers "The TestPage is not open."; an open one cannot be opened.
 #[test]
 fn closed_and_open_variables_refuse_with_the_corpus_texts() {
@@ -466,7 +466,7 @@ fn closed_and_open_variables_refuse_with_the_corpus_texts() {
     assert_eq!(e, "The TestPage is not open.");
     let e = error_text(run(&body("TP.OpenView(); TP.OpenView();"), "F"));
     assert_eq!(e, "The TestPage is already open.");
-    // Its code is TestPageAlreadyOpen (codeunit/lt-qu-commit-isolation/BlankKeyRowNextTest.al:274, F2_Read_CloseLeftOpen).
+    // Its code is TestPageAlreadyOpen (codeunits/run-onrun/BlankKeyRowNextTest.al:274, F2_Read_CloseLeftOpen).
     match run(&body("TP.OpenView(); TP.OpenEdit();"), "F") {
         Err(Signal::Error(e)) => assert_eq!(e.code, "TestPageAlreadyOpen"),
         other => panic!("expected an error, got {other:?}"),
@@ -475,7 +475,7 @@ fn closed_and_open_variables_refuse_with_the_corpus_texts() {
     assert_eq!(e, "The TestPage is not open.");
 }
 
-// autoformat/TestAutoFormatExpressionTiming.al:5-12: the control expressions run when a row is
+// format-evaluate/autoformat/TestAutoFormatExpressionTiming.al:5-12: the control expressions run when a row is
 // populated, after OnOpenPage and before OnAfterGetRecord, even with no row at all; an error
 // fails the open and leaves the variable closed.
 #[test]
@@ -506,7 +506,7 @@ fn control_expressions_run_between_on_open_page_and_on_after_get_record() {
     );
 }
 
-// autoformat/TestAutoFormatExpressionTiming.al: a failing expression at open raises its own
+// format-evaluate/autoformat/TestAutoFormatExpressionTiming.al: a failing expression at open raises its own
 // error and leaves the page not open; on a card, a move onto the failing row reads "not open".
 #[test]
 fn a_failing_expression_fails_the_open_and_tears_a_card_down_on_a_move() {
@@ -550,7 +550,7 @@ fn a_failing_expression_fails_the_open_and_tears_a_card_down_on_a_move() {
     assert_eq!(text(r), "The TestPage is not open.|The TestPage is not open.");
 }
 
-// handlers/TestPageControlPropertyLiveness_Tests.al:40-73: Visible is the open-time value,
+// testpage/TestPageControlPropertyLiveness_Tests.al:40-73: Visible is the open-time value,
 // Editable and Enabled follow the page state.
 #[test]
 fn visible_is_frozen_at_open_editable_and_enabled_are_live() {
@@ -571,8 +571,8 @@ fn visible_is_frozen_at_open_editable_and_enabled_are_live() {
     assert_eq!(text(r), "YesYes|YesNo");
 }
 
-// autoformat/TestAutoFormat.al: an AutoFormatExpression with a precision sets the places;
-// handlers/TestPageFieldFormats.Page.al: page-variable controls read the variable.
+// format-evaluate/autoformat/TestAutoFormat.al: an AutoFormatExpression with a precision sets the places;
+// testpage/TestPageFieldFormats.Page.al: page-variable controls read the variable.
 #[test]
 fn controls_read_through_their_format_and_binding() {
     let r = run(
@@ -589,7 +589,7 @@ fn controls_read_through_their_format_and_binding() {
     assert_eq!(text(r), "1500|3000|Shiny|No.");
 }
 
-// handlers/TestPageNewRowLine_Tests.al:1-30 (EditableInsertable_NextPastLastDataRow_LandsOnTheNewRowLine and
+// testpage/TestPageNewRowLine_Tests.al:1-30 (EditableInsertable_NextPastLastDataRow_LandsOnTheNewRowLine and
 // the OpenView gating arm): an editable list carries a blank line past its data; OpenView has none.
 #[test]
 fn an_editable_list_has_a_blank_new_row_line_past_its_data() {
@@ -613,7 +613,7 @@ fn an_editable_list_has_a_blank_new_row_line_past_its_data() {
     assert_eq!(text(f("OpenView")), "YesANo[A]No");
 }
 
-// handlers/TestPageNewRowLine_Tests.al: First() on an empty editable list answers false.
+// testpage/TestPageNewRowLine_Tests.al: First() on an empty editable list answers false.
 #[test]
 fn first_on_an_empty_editable_list_is_false() {
     let r = run(
@@ -626,7 +626,7 @@ fn first_on_an_empty_editable_list_is_false() {
     assert_eq!(text(r), "NoNo");
 }
 
-// autoformat/TestAutoFormatExpressionTiming.al, RowFormat_List_FailingRow20Of120_RaisesAtOpen /
+// format-evaluate/autoformat/TestAutoFormatExpressionTiming.al, RowFormat_List_FailingRow20Of120_RaisesAtOpen /
 // _FailingRow30Of120_OpensAndReadsTheFirstRow / _LastOntoAFailingRowBeyondTheWindow_RaisesItsOwnError:
 // a list populates a window of rows (the corpus pins it between 20 and 24) and raises the expression's
 // own error on a move that populates a new window.
@@ -649,7 +649,7 @@ fn a_list_populates_a_window_of_rows() {
     assert_eq!(error_text(run(&body(120, "TP.Last();"), "F")), "boom for R1120");
 }
 
-// testpart/BnrBlankPart.al:1-30 (NoRow_Action_StoredListInsertAndFind_ShowsTheRow / _TempListFieldsOnly_StaysBlank):
+// testpage/parts/BnrBlankPart.al:1-30 (NoRow_Action_StoredListInsertAndFind_ShowsTheRow / _TempListFieldsOnly_StaysBlank):
 // controls read blank on a page that shows no row, until page code inserts a row and stands on it.
 #[test]
 fn a_page_with_no_row_reads_blank_until_page_code_inserts_and_positions_a_row() {
@@ -668,7 +668,7 @@ fn a_page_with_no_row_reads_blank_until_page_code_inserts_and_positions_a_row() 
     assert_eq!(text(r), "[]0[][4]M");
 }
 
-// handlers/TestPageReadOnlySetValue.al:253-330, TestPageBlankKeyInsert.al, TestPageSaveRecordInOnValidate_Tests.al:
+// testpage/TestPageReadOnlySetValue.al:253-330, TestPageBlankKeyInsert.al, TestPageSaveRecordInOnValidate_Tests.al:
 // SetValue validates (table trigger, then the page control's), shows at once, and reaches the
 // table when the page leaves the row (Close); writing back the same value modifies nothing.
 #[test]
@@ -694,7 +694,7 @@ fn set_value_validates_and_the_row_is_saved_when_the_page_closes() {
     assert_eq!(text(r), "5|1|5|t-qty;p-qty;mod:>;qcp:OK;close;");
 }
 
-// handlers/TestPageSameValueSetValue_Tests.al:1-30: writing back the value the field already holds
+// testpage/TestPageSameValueSetValue_Tests.al:1-30: writing back the value the field already holds
 // does not modify the row.
 #[test]
 fn writing_the_same_value_back_does_not_modify() {
@@ -714,7 +714,7 @@ fn writing_the_same_value_back_does_not_modify() {
     assert_eq!(text(r), "qcp:OK;close;");
 }
 
-// handlers/TestPageFieldMinMaxValue_Tests.al:20-110: MinValue and MaxValue are enforced on a control write
+// testpage/TestPageFieldMinMaxValue_Tests.al:20-110: MinValue and MaxValue are enforced on a control write
 // and a refused write does not reach the row.
 #[test]
 fn min_and_max_value_refuse_a_control_write() {
@@ -739,7 +739,7 @@ fn min_and_max_value_refuse_a_control_write() {
     assert!(t.ends_with("|1"), "{t}");
 }
 
-// handlers/TestPageValidationError_Tests.al:62-250: a refusing OnValidate records one validation error
+// testpage/TestPageValidationError_Tests.al:62-250: a refusing OnValidate records one validation error
 // on the control and the page (with the refresh suffix for a Rec-bound control, none for a page
 // variable) and raises the wrapper.
 #[test]
@@ -810,9 +810,9 @@ fn control_get_validation_error_without_an_index_is_refused() {
     }
 }
 
-// handlers/TestPageBooleanSpelling_Tests.al: SetValue('False') is not an acceptable Boolean text.
+// testpage/TestPageBooleanSpelling_Tests.al: SetValue('False') is not an acceptable Boolean text.
 // (TextBool: a Text value written to an Integer control that cannot parse it.) On a card the text says why
-// (pages/lt-ah-pages/AhPageTests.al:112, pages/lt-page-runtime/P82TestField.al:296).
+// (testpage/AhPageTests.al:112, pages/run-modal/P82TestField.al:296).
 #[test]
 fn a_text_that_does_not_parse_is_refused_with_the_acceptable_value_message() {
     let r = run(
@@ -832,7 +832,7 @@ fn a_text_that_does_not_parse_is_refused_with_the_acceptable_value_message() {
     );
 }
 
-// handlers/TestPageRecordTriggers.al:32-130, TestPageCreateModeNewRecordArgs.al:243-270: OpenNew runs OnNewRecord
+// testpage/TestPageRecordTriggers.al:32-130, TestPageCreateModeNewRecordArgs.al:212-239: OpenNew runs OnNewRecord
 // (BelowxRec true, xRec the last row) before anything is typed; the key alone does not insert a
 // Card row, a non-key control does (TestPageBlankKeyInsert.al:Card_TypedKey_ThenNonKeyWrite_InsertsBeforeClose).
 #[test]
@@ -860,7 +860,7 @@ fn open_new_runs_on_new_record_and_a_non_key_write_inserts_the_row() {
     );
 }
 
-// handlers/TestPageInsertAllowed_Tests.al:70 New_OnInsertAllowedFalsePage_IsDenied
+// testpage/TestPageInsertAllowed_Tests.al:70 New_OnInsertAllowedFalsePage_IsDenied
 #[test]
 fn new_is_denied_on_a_page_that_does_not_allow_inserts() {
     let r = run(
@@ -873,7 +873,7 @@ fn new_is_denied_on_a_page_that_does_not_allow_inserts() {
     );
 }
 
-// handlers/TestPageFieldVisibleGroup_Tests.al:1-30 and TestPageActionReachability_Tests.al:100-122: a control
+// testpage/TestPageFieldVisibleGroup_Tests.al:1-30 and TestPageActionReachability_Tests.al:100-122: a control
 // whose Visible is the literal false (or inside such a group) is not on the page; an action is, and still runs.
 #[test]
 fn literal_false_visible_removes_a_control_but_not_an_action() {
@@ -896,7 +896,7 @@ fn literal_false_visible_removes_a_control_but_not_an_action() {
     assert_eq!(text(r), "NoYes");
 }
 
-// handlers/TestPageFailedInsert_Tests.al:1-30: a started line whose insert fails raises nothing on New(),
+// testpage/TestPageFailedInsert_Tests.al:1-30: a started line whose insert fails raises nothing on New(),
 // stays, and counts one validation error on its key control; Previous() moves on and Close() raises.
 #[test]
 fn a_started_line_whose_insert_fails_is_not_raised_on_new_but_on_close_after_previous() {
@@ -923,7 +923,7 @@ fn a_started_line_whose_insert_fails_is_not_raised_on_new_but_on_close_after_pre
     assert!(e.starts_with("The record in table PG Row already exists."), "{e}");
 }
 
-// testpageclose/TestPageClosingActions.al:Card_OK_RaisesTheCloseTriggersOnce / _Cancel_IsNotOffered / _OK_RefusedByOnQueryClosePage:
+// testpage/lifecycle/TestPageClosingActions.al:Card_OK_RaisesTheCloseTriggersOnce / _Cancel_IsNotOffered / _OK_RefusedByOnQueryClosePage:
 // OK saves, asks OnQueryClosePage(OK), then OnClosePage; a card offers no Cancel; Close() reports Cancel.
 #[test]
 fn ok_closes_with_the_query_close_page_then_the_close_trigger() {
@@ -951,14 +951,14 @@ fn ok_closes_with_the_query_close_page_then_the_close_trigger() {
         "F",
     );
     // The second OpenEdit sees an empty view (the asserterror before it rolled the seeded row back), so the page runs OnNewRecord on a
-    // blank record (pages/lt-page-types-empty-table/PageTypesEmptyTable.al:Card_OpenEdit_EmptyTable).
+    // blank record (pages/properties/PageTypesEmptyTable.al:Card_OpenEdit_EmptyTable).
     assert_eq!(
         text(r),
         "saved|mod:>saved;qcp:OK;close;The TestPage is not open.|The TestPage is not open.|The built-in action = Cancel is not found on the page.|new:Yes,x=;qcp:OK;close;"
     );
 }
 
-// handlers/TestPageModeSwitchAction_Tests.al:Claim 1 and 2, TestPageReadOnlySetValue.al:365: the built-in Edit
+// testpage/TestPageModeSwitchAction_Tests.al:Claim 1 and 2, TestPageReadOnlySetValue.al:365: the built-in Edit
 // and View switch an open card's mode in place; a page-variable control stays editable on a read-only page.
 #[test]
 fn edit_and_view_switch_a_card_in_place() {
@@ -980,7 +980,7 @@ fn edit_and_view_switch_a_card_in_place() {
     assert_eq!(text(r), "NoNoYesYesNo|YesYesNoYes");
 }
 
-// handlers/TestPageTriggerEvents.al:1-20, :230-300: the platform's page events run after the page's own trigger,
+// testpage/TestPageTriggerEvents.al:1-20, :230-300: the platform's page events run after the page's own trigger,
 // and AllowModify := false vetoes the write.
 #[test]
 fn page_events_follow_the_triggers_and_can_veto_a_modify() {
@@ -1002,7 +1002,7 @@ fn page_events_follow_the_triggers_and_can_veto_a_modify() {
     assert_eq!(text(r), "|evt-open;mod:>x;evt-mod:>x;qcp:OK;close;");
 }
 
-// handlers/TestPageEnumVariableControl_Tests.al:50-56,86-90: an Enum control resolves a SetValue text
+// ui-handlers/TestPageEnumVariableControl_Tests.al:50-56,86-90: an Enum control resolves a SetValue text
 // by the member's caption; the bare member name of a captioned value is refused.
 #[test]
 fn an_enum_control_takes_the_caption_and_refuses_the_member_name() {
@@ -1036,7 +1036,7 @@ fn an_enum_value_without_a_caption_is_set_by_its_name() {
     assert_eq!(text(r), "Plain");
 }
 
-// testpart/BnrBlankPart.al NoRow_Action_GetOfARowTheFilterHides_StaysBlank: an action that Gets a row the
+// testpage/parts/BnrBlankPart.al NoRow_Action_GetOfARowTheFilterHides_StaysBlank: an action that Gets a row the
 // page's filter hides, on a key field of the filter, leaves the page showing nothing.
 #[test]
 fn a_get_of_a_row_the_view_hides_shows_nothing() {
@@ -1055,7 +1055,7 @@ fn a_get_of_a_row_the_view_hides_shows_nothing() {
     assert_eq!(text(r), "[][]");
 }
 
-// codeunit/TestWriteTxTestBoundary.al:Test13, Test13c, Test13d: under TransactionModel::None a
+// codeunits/TestWriteTxTestBoundary.al:Test13, Test13c, Test13d: under TransactionModel::None a
 // TestPage operation opens a transaction of its own, so the page may write, and the transaction
 // ends with the operation. A direct write from the test is refused again afterwards.
 #[test]
@@ -1084,7 +1084,7 @@ fn under_transaction_model_none_a_page_operation_may_write_and_ends_its_transact
     );
 }
 
-// handlers/TestPageCurrFieldNo_Tests.al:36-60 (SetValue_OwnTableField_OnValidateSeesCurrFieldNo),
+// testpage/TestPageCurrFieldNo_Tests.al:36-60 (SetValue_OwnTableField_OnValidateSeesCurrFieldNo),
 // :65-76 (Validate_FromCode_OnValidateSeesZero), :105-123 (SetValue_ThenClose_OnModifySeesZero).
 #[test]
 fn a_page_write_validates_with_the_field_number_and_code_with_zero() {
@@ -1105,7 +1105,7 @@ fn a_page_write_validates_with_the_field_number_and_code_with_zero() {
     assert_eq!(text(r), "10|10|0|0");
 }
 
-// handlers/TestPageCaption_Tests.al:DynamicCaptionSetInOnOpenPage_IsReturned (and the static twin):
+// testpage/TestPageCaption_Tests.al:DynamicCaptionSetInOnOpenPage_IsReturned (and the static twin):
 // `CurrPage.Caption := x` in OnOpenPage is what `TestPage.Caption()` answers.
 #[test]
 fn a_caption_assigned_in_on_open_page_is_the_test_pages_caption() {
@@ -1119,7 +1119,7 @@ fn a_caption_assigned_in_on_open_page_is_the_test_pages_caption() {
     assert_eq!(text(r), "Dynamic Caption/Static Caption");
 }
 
-// handlers/TestPagePlatformPageSourceTable_Tests.al:66,125: a bare name in the field position of
+// testpage/TestPagePlatformPageSourceTable_Tests.al:66,125: a bare name in the field position of
 // FindFirstField is a control of the page; a value no row carries raises the pinned error.
 #[test]
 fn find_first_field_takes_a_bare_control_name() {
@@ -1153,7 +1153,7 @@ fn find_first_field_takes_a_bare_control_name() {
     assert_eq!(text(r), "B");
 }
 
-// pages/lt-page-field-editable-source/PageFieldEditableSource.al:Card_OpenEdit_FieldEditable `lockedNoProp`: a page field over a
+// pages/properties/PageFieldEditableSource.al:Card_OpenEdit_FieldEditable `lockedNoProp`: a page field over a
 // stored source field with `Editable = false` and no Editable of its own reads No. A FlowField is the assumption
 // page-field-follows-source-field-editable-false (Microsoft's Payment Export Mgt Unit Test.FilterByHasPaymentExportError).
 #[test]
@@ -1169,7 +1169,7 @@ fn a_page_field_over_a_source_field_with_editable_false_is_not_editable() {
     assert_eq!(text(r), "YesNoYes");
 }
 
-// pages/lt-page-types-empty-table/PageTypesEmptyTable.al:ListPlus_OpenEdit_EmptyTable (also Card and Document): a page without a
+// pages/properties/PageTypesEmptyTable.al:ListPlus_OpenEdit_EmptyTable (also Card and Document): a page without a
 // repeater opened for edit over an empty view runs OnNewRecord and OnAfterGetCurrRecord on a blank record after OnOpenPage.
 // Microsoft's Suggest Price Lines UT.T212_CopyLinesEnabledOnPurchPriceListPageIfFixedUpgradeCompleted needs it.
 #[test]
@@ -1184,7 +1184,7 @@ fn a_list_plus_page_over_an_empty_view_runs_new_record_and_get_curr_record() {
     assert_eq!(text(r), "open;new;agcr;");
 }
 
-// pages/lt-be-enum-setvalue-blank/BeEnumSetValueBlank.al:502-528 (SetValue_FCompat_VariantInts_FromBlank) and :2366
+// pages/enum-setvalue-blank/BeEnumSetValueBlank.al:502-528 (SetValue_FCompat_VariantInts_FromBlank) and :2366
 // (SetValue_VCompat_VariantInts_FromBlank): an Integer handed to an Enum control, bound to a table field or to a page
 // variable, selects the value of that ordinal, also when the value's caption is ' ' (which trims to the refused '').
 // Pinned on a card with a row.
@@ -1222,7 +1222,7 @@ fn set_value_of_an_integer_selects_the_blank_captioned_enum_value() {
     assert!(al_builtins::assumptions::take_hits().is_empty());
 }
 
-// pages/lt-be-enum-setvalue-blank/BeEnumSetValueBlank.al:532-597 (SetValue_FCompat_VariantTexts_FromBlank, BC 28 and later): a
+// pages/enum-setvalue-blank/BeEnumSetValueBlank.al:532-597 (SetValue_FCompat_VariantTexts_FromBlank, BC 28 and later): a
 // Text inside a Variant selects by ordinal digits; a caption or a blank text fails to evaluate and the control keeps its value.
 #[test]
 fn set_value_of_a_text_in_a_variant_goes_by_ordinal_digits() {
@@ -1248,7 +1248,7 @@ fn set_value_of_a_text_in_a_variant_goes_by_ordinal_digits() {
     );
 }
 
-// pages/lt-be-enum-setvalue-blank/BeEnumSetValueBlank.al:541-597 `member0` (the blank-captioned Enum value in a Variant selects it),
+// pages/enum-setvalue-blank/BeEnumSetValueBlank.al:541-597 `member0` (the blank-captioned Enum value in a Variant selects it),
 // :600-611 `space` (a Text ' ' selects the value whose caption is ' '), :1907 and :2138 (an Integer that is no Option member names
 // the ordinal held before).
 #[test]
@@ -1276,7 +1276,7 @@ fn set_value_selects_a_blank_captioned_value_by_member_and_by_space() {
     );
 }
 
-// pages/lt-be-enum-setvalue-blank/BeEnumSetValueBlank.al:523-525 (int5 from blank) and :742-744 (int5 from Beta): an Integer that
+// pages/enum-setvalue-blank/BeEnumSetValueBlank.al:523-525 (int5 from blank) and :742-744 (int5 from Beta): an Integer that
 // is no value of the Enum is refused naming the ordinal the control held before, not the one handed in.
 #[test]
 fn set_value_of_an_integer_that_is_no_enum_value_names_the_old_ordinal() {

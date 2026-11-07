@@ -1,5 +1,5 @@
 //! `JsonObject.WriteWithSecretsTo(Path, Secret, var Result)` and `WriteWithSecretsTo(Secrets, var Result)`, the forms
-//! json/lt-json-select-secrets/WriteWithSecrets.al (onprem suite) pins.
+//! json/json/WriteWithSecrets.al (onprem suite) pins.
 
 fn run(decl: &str, body: &str) -> String {
     let src = format!(

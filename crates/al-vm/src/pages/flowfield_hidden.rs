@@ -1,5 +1,5 @@
 //! A page control over a FlowField whose source table the session's permission sets cannot read is not on the page (ADR-062
-//! stage 2; corpus permissions/lt-y19-perm-probes/Y24PermReads.al Y24_P15_FlowFieldsNothingOnSource `testpage_field`: with rows in
+//! stage 2; corpus record/Y24PermReads.al Y24_P15_FlowFieldsNothingOnSource `testpage_field`: with rows in
 //! the source table, `Card.SumCtl.Value()` raises "The field with ID = n is not found on the page.", code TestFieldNotFound; with
 //! the table readable the value is there).
 
@@ -13,7 +13,7 @@ impl Session {
     pub(super) fn leave_off_denied_flowfields(
         &mut self,
         st: &St,
-        rec: &Rec,
+        _rec: &Rec,
         table: usize,
         mut positions: Vec<usize>,
     ) -> Result<Vec<usize>, Signal> {
@@ -33,10 +33,10 @@ impl Session {
                 kept.push(p);
                 continue;
             };
-            match self.permission_gate_flowfield(rec, calc.table) {
-                Ok(()) => kept.push(p),
-                Err(Signal::Error(_)) => st.borrow_mut().hidden_flowfields.push(p),
-                Err(other) => return Err(other),
+            if self.permission_flowfield_off_page(calc.table)? {
+                st.borrow_mut().hidden_flowfields.push(p);
+            } else {
+                kept.push(p);
             }
         }
         Ok(kept)
@@ -53,12 +53,12 @@ impl Session {
     }
 
     /// The checks before a TestPage call of `m` on control `idx`: the application areas, and the FlowField controls left off the
-    /// page, which answer only `Value` (Y24_P15 `testpage_field`); any other method of such a control is not pinned and refuses.
+    /// page, which answer only `Value` (Y24_P15 `testpage_field`) and `Visible` (Y84PermAbp.al Y84_Abp_FlowFieldControl); any other method of such a control is not pinned and refuses.
     pub(super) fn check_removed_pinned(&self, st: &St, idx: usize, m: PageMethod) -> Result<(), Signal> {
         self.check_areas_pinned(st, idx)?;
-        if m != PageMethod::Value && self.flowfield_hidden(st, idx) {
+        if !matches!(m, PageMethod::Value | PageMethod::Visible) && self.flowfield_hidden(st, idx) {
             return unsupported(format!(
-                "TestPage.{}() of a control over a FlowField the session cannot read, which is not on the page (only Value is pinned)",
+                "TestPage.{}() of a control over a FlowField the session cannot read, which is not on the page (only Value and Visible are pinned)",
                 m.name()
             ));
         }

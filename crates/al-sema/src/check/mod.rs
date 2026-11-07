@@ -160,6 +160,12 @@ pub enum Res {
         ext: usize,
         name: String,
     },
+    /// `Other.<protected var>` in a table extension, where `Other` is a record of the extended table: the variable of table or
+    /// table extension `object` (an object index) on that record, by lower-case name (al-runner issue 6984).
+    RecGlobal {
+        object: usize,
+        name: String,
+    },
     /// `this.<protected variable of the base>` in an extension, by lower-case name: BC compiles it and raises when it
     /// runs (types/PYThisExtensions.al:ReportExtension_ThisBaseVariable_ReadInATrigger).
     ThisBaseGlobal(String),
@@ -185,7 +191,7 @@ pub enum Res {
     /// `X` before `::` read as enum type `object` although the implicit Rec has a field `X` of another type
     /// (al-runner issue 6129, assumption `EnumTypeBeforeRecField`; `infer.rs` `enum_type_before_rec_field`).
     EnumTypeBeforeRecField(usize),
-    /// A bare name that the record of a `with` statement supplied (corpus events/lt-with-statement-scopes/
+    /// A bare name that the record of a `with` statement supplied (corpus events/binding-senders/
     /// WithStatementAmbiguous.al, WithStatementNested.al): `with` is the offset of the `WithStmt` node in its
     /// file, `inner` what the name resolved to as a member of that record. Lowering reads `inner` through
     /// [`Res::inner`] and takes the record from the statement.
@@ -284,6 +290,9 @@ pub struct Roots {
     /// Keep the whole demand state (`CheckResult::kept_demand`) for a later pass that grows the compile by apps
     /// (ADR-063). Changes nothing else.
     pub keep_demand: bool,
+    /// Dependency test runner codeunits (by id) a run goes through (ADR-066): their triggers and `Test Suite Mgt.`.RunNextTest
+    /// are roots. Empty: none.
+    pub test_runners: Vec<u32>,
 }
 
 /// Members that platform enums do not have, as the AL compiler says (corpus must-not-compile 0010
@@ -484,7 +493,7 @@ fn check_inner(
                 .into_iter()
                 .any(|(o, _)| !ws.is_dependency(o) && !skip(o));
             c.reach_install_events(roots.baseline, install_code);
-            c.reach_test_runner();
+            c.reach_test_runner(&roots.test_runners);
             c.reach_dependencies_on_workspace();
             if !roots.no_login_root {
                 c.reach_login_work_date();
@@ -1081,7 +1090,7 @@ pub(crate) struct Checker<'a> {
     panicked: HashMap<(usize, usize), String>,
     /// For the next `pick`: the arguments that are a bare field name of the receiver's table where no value of that name
     /// is in scope (`Row.Validate(Note, 'x')` in a codeunit). Such an argument fits a built-in's field parameter only, not
-    /// a procedure's (record/lt-bm-builtin-name-procedures/Y36BuiltinNameSameArity.al:229-251).
+    /// a procedure's (record/builtin-name-procedures/Y36BuiltinNameSameArity.al:214-236).
     field_only_args: Vec<usize>,
     /// For the next `pick`: the arguments that are a `FieldRef.Value()` call, which fit a procedure's Variant parameter only
     /// (`is_fieldref_value`).
@@ -1128,7 +1137,7 @@ pub(crate) struct ObjCtx {
 
 /// The `this` keyword: the object whose code is running (Microsoft Learn, "this keyword"). Only the unquoted spelling
 /// is the keyword, and it is always the keyword, even where a variable is declared as `this` or `"this"`; the quoted
-/// `"this"` is a plain variable (types/lt-y73-quoted-this/Y73ThisCodeunit.al, al-runner issue 6750).
+/// `"this"` is a plain variable (types/operators-expressions/Y73ThisCodeunit.al, al-runner issue 6750).
 pub(crate) fn is_this_keyword(node: &SyntaxNode) -> bool {
     node.kind() == SyntaxKind::NameRef
         && ast::significant_green_tokens(node)
@@ -1189,7 +1198,7 @@ fn first_token(node: &SyntaxNode) -> String {
 }
 
 /// A text literal of exactly one character (`'A'`), as written. Next to a Char under `+` or `-` it is read as a Char and
-/// the result is an Integer (corpus types/lt-af-char-literal/AfCharLiteralArithmetic.al:22-58: `Ch - 'A'` is 2, `'A' + Ch` 132;
+/// the result is an Integer (corpus types/text-code-char/AfCharLiteralArithmetic.al:22-58: `Ch - 'A'` is 2, `'A' + Ch` 132;
 /// `Ch + 'AB'` and `Ch + ''` stay texts).
 pub(crate) fn one_char_literal(node: &SyntaxNode) -> bool {
     if node.kind() != SyntaxKind::Literal {
@@ -1205,7 +1214,7 @@ pub(crate) fn one_char_literal(node: &SyntaxNode) -> bool {
 
 /// `Ch + 'X'`, `'X' - Ch` and the like: a Char variable and a one-character literal under `+` or `-` ([`one_char_literal`];
 /// AfCharLiteralArithmetic.al:22-43). A character taken by index from a Text or Code variable counts too (`S[1] - '0'`,
-/// `'A' + C[1]`: types/lt-at-partner-gaps/AtTextCharLiteral.al:15-112), and so does such a sum or difference followed by
+/// `'A' + C[1]`: format-evaluate/AtTextCharLiteral.al:15-112), and so does such a sum or difference followed by
 /// another one-character literal (`'a' + S[1] + 'b'` is 250, AtTextCharLiteral.al:67-80). A character of another text
 /// expression joins a literal as text (json/TestJsonXmlDeepContracts.al:71, `'line1' + Format(10, 0, '<Integer>')[1] +
 /// 'line2'`, a longer literal), and other Char expressions are not pinned.
@@ -1244,7 +1253,7 @@ pub(crate) fn char_and_one_char_literal(
 }
 
 /// `Num + '-'`, `'A' - Num`, `Num = '-'` and `Num > '-'`: an Integer next to a one-character literal under `+`, `-`, `=` or `>`.
-/// The literal is a Char, so the two add, subtract and compare as numbers (types/lt-wc/WcIntegerCharLiteral.al:13-57: a literal
+/// The literal is a Char, so the two add, subtract and compare as numbers (types/text-code-char/WcIntegerCharLiteral.al:13-57: a literal
 /// Integer, an Integer variable and an earlier such sum on the left, a variable on the right). Other operators and other number
 /// types are not pinned.
 pub(crate) fn integer_and_one_char_literal(op: &str, kids: &[SyntaxNode], l: &Ty, r: &Ty) -> bool {
@@ -1305,7 +1314,7 @@ fn is_numeric(t: &Ty) -> bool {
 
 fn binary_ty(op: &str, l: &Ty, r: &Ty) -> Ty {
     // An Enum operand of `+ - * / div mod` is its ordinal, an Integer (warning AL0603 in alc), next to a number or another Enum
-    // (types/lt-uf-enum-arithmetic/UfEnumArithmetic.al:41-62, :80-90, :146-152 `Usage / 2` is a Decimal; al-runner issue 6156).
+    // (types/enum-option/UfEnumArithmetic.al:41-62, :80-90, :146-152 `Usage / 2` is a Decimal; al-runner issue 6156).
     if matches!(op, "+" | "-" | "*" | "/" | "div" | "mod")
         && (matches!(l, Ty::Enum(_)) || matches!(r, Ty::Enum(_)))
         && [l, r].iter().all(|t| matches!(t, Ty::Enum(_)) || is_numeric(t))
@@ -1321,12 +1330,12 @@ fn binary_ty(op: &str, l: &Ty, r: &Ty) -> Ty {
     }
     match op {
         "=" | "<>" | "<" | "<=" | ">" | ">=" | "in" | "and" | "or" | "xor" => Ty::Boolean,
-        // Duration div / mod a number is a Decimal18 (corpus types/lt-duration-div-mod/DurationDivIntegerOverflow.al: it formats as
+        // Duration div / mod a number is a Decimal18 (corpus types/duration/DurationDivIntegerOverflow.al: it formats as
         // '2,160,000,000' and an assignment to an Integer overflows with the Decimal18 text).
         "div" | "mod" if matches!(l, Ty::Duration) => Ty::Decimal,
         // The type the operator gives at run time (al-builtins `ops.rs`), so `:=` into an Integer converts it (al-runner issue
-        // 6660): a BigInteger operand makes a BigInteger (misc/lt-expressions-statements/PBinaryUnaryExpressions.al:141, :180
-        // `Big div 2` is `BigInteger 2`), and a Decimal mod keeps its fraction (types/lt-scalars/ScT70058.al:28, :37
+        // 6660): a BigInteger operand makes a BigInteger (types/PBinaryUnaryExpressions.al:141, :180
+        // `Big div 2` is `BigInteger 2`), and a Decimal mod keeps its fraction (types/decimal-integer/ScT70058.al:28, :37
         // `mod_int` is 1.5).
         "mod" if matches!(l, Ty::Decimal) || matches!(r, Ty::Decimal) => Ty::Decimal,
         "div" | "mod" if matches!(l, Ty::BigInteger) || matches!(r, Ty::BigInteger) => Ty::BigInteger,
@@ -1346,14 +1355,14 @@ fn binary_ty(op: &str, l: &Ty, r: &Ty) -> Ty {
             (Ty::Date, _) => Ty::Date,
             (Ty::DateTime, Ty::DateTime) if op == "-" => Ty::Duration,
             (Ty::DateTime, _) => Ty::DateTime,
-            // Time - Time is a number of milliseconds, not a Duration (types/lt-expression-operators-literals/
+            // Time - Time is a number of milliseconds, not a Duration (types/operators-expressions/
             // ExpressionBinaryDateTimeOperands.al:P195_Binary_TimeAndDateTimeOperands: `Format(T1 - T2, 0, 9)` is `-9000000`); the result is an Integer
-            // (misc/lt-expressions-statements/PBinaryUnaryExpressions.al:147, TypeOf is Integer; a Time is under 86 400 000 so it always fits).
+            // (types/PBinaryUnaryExpressions.al:147, TypeOf is Integer; a Time is under 86 400 000 so it always fits).
             (Ty::Time, Ty::Time) if op == "-" => Ty::Integer,
             (Ty::Time, _) => Ty::Time,
-            // Duration +/- Duration is a BigInteger of milliseconds (corpus types/lt-duration-arithmetic/DurationAddDuration.al).
+            // Duration +/- Duration is a BigInteger of milliseconds (corpus types/duration/DurationAddDuration.al).
             (Ty::Duration, Ty::Duration) if op == "+" || op == "-" => Ty::BigInteger,
-            // So is Duration +/- a whole number and a whole number +/- Duration (corpus types/lt-duration-arithmetic/
+            // So is Duration +/- a whole number and a whole number +/- Duration (corpus types/duration/
             // DurationPlusInteger.al:DurationPlusInteger_ResultType_Result, IntegerPlusDuration.al, IntegerMinusDuration.al).
             (Ty::Duration, n) | (n, Ty::Duration) if (op == "+" || op == "-") && is_numeric(n) => Ty::BigInteger,
             // Duration * a whole number is a BigInteger and Duration / a number a Decimal (P195_Binary_DurationOperands: `A * 2` formats
@@ -1435,6 +1444,7 @@ mod infer;
 mod member;
 mod object;
 pub(crate) mod posmap;
+mod protected_member;
 pub mod tdd;
 pub mod tdd_decl;
 #[cfg(test)]

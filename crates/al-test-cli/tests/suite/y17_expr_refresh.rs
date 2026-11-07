@@ -1,4 +1,4 @@
-//! Pins of pages/lt-y17-expr-refresh/Y17ExprRefresh.al (corpus writer Y17): what an expression control over a field of a
+//! Pins of pages/expression-refresh/Y17ExprRefresh.al (corpus writer Y17): what an expression control over a field of a
 //! page-global record shows in a linked ListPart after TestField.Visible, TestAction.Visible, TestPage.GoToKey, TestPart.Last,
 //! Next and First, and an action of the Document host that calls a procedure of the part.
 

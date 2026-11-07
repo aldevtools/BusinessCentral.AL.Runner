@@ -1,6 +1,6 @@
 //! Exact sizes of the change of `SessionInformation.SqlStatementsExecuted()` and `SqlRowsRead()` (al-runner issue 5761).
 //! The corpus pins them for nine shapes of record methods on a two-field table, each measured right after a Commit that
-//! left the table empty or with N rows, for N = 1, 2, 5, 10, 20 (session/lt-bl-sql-counters/SqlCounters.al:204-395).
+//! left the table empty or with N rows, for N = 1, 2, 5, 10, 20 (session-system/session/SqlCounters.al:204-395).
 //! Any other shape, N, table or precondition keeps only the sign of the change, or refuses.
 
 use al_builtins::native::Signal;
@@ -61,9 +61,14 @@ codeunit 50101 C {{
     )
 }
 
+/// The size is not known: the measurement is refused, or (a difference across work no test pins, al-runner issue 6924) it
+/// gives only marked texts with no digit, which every text function and comparison that reads them refuses.
 fn refused(r: Result<al_builtins::value::Value, Signal>) {
     match r {
         Err(Signal::Unsupported(why)) => assert!(why.contains("SQL counter"), "{why}"),
+        Ok(al_builtins::value::Value::Text(t))
+            if t.as_str().contains(al_builtins::native::SQL_COUNT_TEXT_MARK)
+                && !t.as_str().chars().any(|c| c.is_ascii_digit()) => {}
         other => panic!("expected a SQL counter refusal, got {other:?}"),
     }
 }
@@ -182,7 +187,7 @@ fn an_unmeasured_shape_is_refused() {
     }
 }
 /// On this table, and for an N or filter the corpus did not measure, each record method costs what writer TX measured it to
-/// cost alone on its table (session/lt-bl-sql-counters/SkSqlBudget.al:709-860): Get 1/1, a FindSet loop 1/(N+1), Get and Modify
+/// cost alone on its table (session-system/session/SkSqlBudget.al:709-860): Get 1/1, a FindSet loop 1/(N+1), Get and Modify
 /// 2/2 a row, Count 1/1. The pass is flagged: it rests on `sql-read-cost-unmeasured-shape`.
 #[test]
 fn an_unmeasured_shape_or_n_costs_as_measured_and_is_flagged() {
@@ -286,7 +291,7 @@ codeunit 50113 C
         Mark();
         Gt.Id := 1; Gt.Insert();
         GtFirst := Stmt() - Stmts;
-        exit(Format(GtFirst));
+        Message(StrSubstNo('%1', GtFirst));
     end;
 
     procedure GtFirstAtMost(): Boolean

@@ -1,5 +1,5 @@
 //! A Worksheet over a temporary source that empties and refills Rec from a filter field's OnValidate or from an action, the
-//! shape of page 5530 "Item Availability by Event" (corpus pages/lt-outside-worksheet/RmTempRefill.al, al-runner issues 5779
+//! shape of page 5530 "Item Availability by Event" (corpus testpage/RmTempRefill.al, al-runner issues 5779
 //! and 5780): what the client reads afterwards and which row it shows.
 
 use super::*;
@@ -130,7 +130,7 @@ impl Session {
         let rec = self.page_rec(st);
         // A collapsed tree: the client reads every row of the tree as the flat page reads its view, keeps the row it stood on
         // when its key came back (else Rec's row), keeps the rows it had expanded by key, shows the parent of a kept row below the
-        // top level expanded, and holds the rows the cut shows (al-runner issue 6550; pages/lt-outside-worksheet/RmTempRefill.al
+        // top level expanded, and holds the rows the cut shows (al-runner issue 6550; testpage/RmTempRefill.al
         // Y34_Tree_Fewer_AB_To_B `R:B;R:B-1;R:B-2;R:B;R:B;C:B;` rows `B`, Y34_Tree_SameKeys_AB_To_CD_FromSecondRoot
         // `R:D;R:D;R:D-1;R:D-2;R:D;R:C-2;R:C-1;R:C;R:D;R:D;C:D;` rows `C D`, Y34_Tree_ExpandedBefore_AB_To_B rows `B B-1 B-2`,
         // Y34_Tree_EndOnLastRow_A_To_AB rows `A A-1 A-2 B` (Rec's own row, B-2, does not expand B),
@@ -228,7 +228,7 @@ impl Session {
     /// An action that refilled the rows of a temporary Worksheet, a row the client held being gone, Rec left on the first row of
     /// the view. With one row: after the read of the row the client stood on that comes before every action, the client reads the
     /// row three times and runs OnAfterGetCurrRecord, or, without that trigger, reads it twice; it then holds that one row
-    /// (pages/lt-outside-worksheet/RmTempRefill.al SH_RefillFewer_WithCurrRecord_3To1 `R:R1;R:R1;R:R1;R:R1;C:R1;`, _25To1, _25To1_FromRow23 `R:R23;R:R1;R:R1;R:R1;C:R1;`,
+    /// (testpage/RmTempRefill.al SH_RefillFewer_WithCurrRecord_3To1 `R:R1;R:R1;R:R1;R:R1;C:R1;`, _25To1, _25To1_FromRow23 `R:R23;R:R1;R:R1;R:R1;C:R1;`,
     /// SH_RefillFewer_NoCurrRecord_3To1 and _25To1 `R:R1;R:R1;R:R1;`). With two rows up to a window it holds only those rows
     /// (al-runner issue 6029; RmTempRefill.al TD_RefillFewer_WithCurrRecord_*, the reads below). Without OnAfterGetCurrRecord,
     /// Rec on another row of the view, and more rows than a window, are refused.
@@ -253,7 +253,7 @@ impl Session {
         if rows.is_empty() {
             return Ok(false);
         }
-        // Pinned by pages/lt-uj-outside-leads/UjTempList.al (was assumption `list-action-rebuilds-rows`).
+        // Pinned by testpage/UjTempList.al (was assumption `list-action-rebuilds-rows`).
         let table = self.table(&rec)?;
         let now = self.row_key(&rec)?;
         // On the List shape Rec left on a later row of a view the window holds whole: the client reads the row, the rows from it
@@ -321,7 +321,7 @@ impl Session {
     }
 
     /// A List with InsertAllowed, ModifyAllowed and DeleteAllowed false: an action that rebuilds its temporary rows is read as on a
-    /// temporary Worksheet (pages/lt-uj-outside-leads/UjTempList.al UJ_Temp_List_ThreeNewRows, UJ_Temp_List_OneRowRebuilt, corpus
+    /// temporary Worksheet (testpage/UjTempList.al UJ_Temp_List_ThreeNewRows, UJ_Temp_List_OneRowRebuilt, corpus
     /// branch al-runtime-rs-staging-uj 1dc037a8; former assumption `list-action-rebuilds-rows` (pinned on corpus master since bump 1030) until the bump).
     fn temp_list_without_writes(&mut self, st: &St) -> bool {
         let engine = self.engine();
@@ -354,31 +354,59 @@ impl Session {
     /// The reads from row `at` of `rows` (the view from its start), then OnAfterGetCurrRecord on it; the client then holds the
     /// rows it read.
     fn read_refilled_rows(&mut self, st: &St, rows: &[Vec<Value>], at: usize) -> Result<(), Signal> {
-        self.read_refilled_rows_as(st, rows, at, false)
+        self.read_refilled_rows_as(st, rows, at, false, false)
     }
 
     /// A ListPart whose control's OnValidate ran `CurrPage.Update` (with or without `false`) on a Document host whose row did not
     /// change, standing on a later row of its view than the first: it stays on that row. It reads from the row to the end of the
     /// view, the row again when it moved, the rows before it back to the first, then the row twice and OnAfterGetCurrRecord
-    /// (writer TH, pages/lt-th-part-update-cursor/ThPartUpdateCursor.al:357 TH_Line2_UpdateTrue `R2 R3 R2 R1 R2 R2 C2`, :373
+    /// (writer TH, pages/parts/ThPartUpdateCursor.al:357 TH_Line2_UpdateTrue `R2 R3 R2 R1 R2 R2 C2`, :373
     /// TH_Line2_UpdateFalse, :437 TH_Line3_UpdateFalse `R3 R2 R1 R3 R3 C3`, :453 TH_Walk_*; on branch al-runtime-rs-staging-pub-th,
     /// assumption part-keeps-row-after-update-in-validate). `rows` is the view from its start, up to a window.
     pub(super) fn read_part_rows_around(&mut self, st: &St, rows: &[Vec<Value>], at: usize) -> Result<(), Signal> {
-        self.read_refilled_rows_as(st, rows, at, true)
+        self.read_refilled_rows_as(st, rows, at, true, false)
     }
 
-    fn read_refilled_rows_as(&mut self, st: &St, rows: &[Vec<Value>], at: usize, part: bool) -> Result<(), Signal> {
+    /// A ListPart standing on a later row after its host's own `CurrPage.Update`: the part reads its row first, then the same
+    /// walk without the two reads of the row at its end (see `part_host_update.rs`).
+    pub(super) fn read_part_rows_after_host_update(
+        &mut self,
+        st: &St,
+        rows: &[Vec<Value>],
+        at: usize,
+    ) -> Result<(), Signal> {
+        self.read_refilled_rows_as(st, rows, at, true, true)
+    }
+
+    fn read_refilled_rows_as(
+        &mut self,
+        st: &St,
+        rows: &[Vec<Value>],
+        at: usize,
+        part: bool,
+        host_update: bool,
+    ) -> Result<(), Signal> {
         let rec = self.page_rec(st);
         let before = self.xrec_before_move(st);
         let window_end = rows.len().min(at + Self::WINDOW);
+        // A part with OnFindRecord runs it with '=>' before its first read and with '=' before its last (R7099PartFindRecordBoth.al
+        // PG7099_Doc_Line2_Note `F(=>);R2;R3;R2;R1;R2;F(=);R2;C2`, _Line3_ `F(=>);R3;R2;R1;R3;F(=);R3;C3`, on Document, Card and
+        // ListPlus hosts; `both_later_row` is the only caller with such a part).
+        let find = part && self.declares(st, "onfindrecord");
+        if find {
+            self.part_find_on_row(st, &rec, &rows[at], "=>")?;
+        }
+        // A part whose view is sorted by a key other than the primary key reads the row once more at the start, once more after the
+        // rows below it (also on its first row) and once more before the last pair (pinned for the two shapes below).
+        let by_order_key = part && self.part_reads_once_more_at(st, &rec, rows.len(), at);
         let mut held = Vec::new();
-        if at > 0 && !part {
+        if (at > 0 && !part) || by_order_key || host_update {
             self.read_refilled_row(st, &rec, &rows[at])?;
         }
         for r in &rows[at..window_end] {
             held.push(self.read_refilled_row(st, &rec, r)?);
         }
-        if at > 0 {
+        if at > 0 || by_order_key {
             if window_end > at + 1 {
                 self.read_refilled_row(st, &rec, &rows[at])?;
             }
@@ -390,10 +418,23 @@ impl Session {
             above.extend(held);
             held = above;
         }
-        if !(part && at == 0 && window_end == 1) {
+        if !(part && at == 0 && window_end == 1) && !host_update {
             self.read_refilled_row(st, &rec, &rows[at])?;
         }
-        let current = self.read_refilled_row(st, &rec, &rows[at])?;
+        if by_order_key {
+            self.read_refilled_row(st, &rec, &rows[at])?;
+        }
+        if find {
+            self.part_find_on_row(st, &rec, &rows[at], "=")?;
+        }
+        // After a host's Update the walk ends without the two reads of the row; Rec is put back on it unread.
+        let current = if host_update {
+            let shown = held[at].shown.clone();
+            rec.borrow_mut().fields = shown;
+            held[at].clone()
+        } else {
+            self.read_refilled_row(st, &rec, &rows[at])?
+        };
         let whole = rows.len() <= Self::WINDOW && held.len() == rows.len();
         {
             let mut s = st.borrow_mut();
@@ -414,5 +455,59 @@ impl Session {
             s.cursor = Cursor::Row;
         }
         self.current_record_trigger(st, before)
+    }
+
+    /// A part sorted by a key other than the primary key reads its row once more (see `read_refilled_rows_as`): pinned for a view
+    /// of three rows on its second row and one of two rows on its first, on a part with both row triggers and without OnFindRecord
+    /// or OnNextRecord (pages/parts/R6889RealShape.al:1364 PG6889RS_Step2_ and :1420 _Step2a_, rows 10000, 30000, 20000 in key
+    /// order, standing on 30000: `R30;R30;R20;R30;R10;R30;R30;R30;C30` after the action's own read; :1400 _Step4_, rows 10000,
+    /// 20000 standing on 10000: `R10;R10;R20;R10;R10;R10;C10`). Another place keeps the reads of the primary key (not pinned).
+    pub(super) fn part_reads_once_more_at(&self, st: &St, rec: &Rec, len: usize, at: usize) -> bool {
+        let other_key = {
+            let r = rec.borrow();
+            r.key != 0 || r.adhoc.is_some()
+        };
+        other_key
+            && st.borrow().host.is_some()
+            && self.is_list(st)
+            && matches!((len, at), (3, 1) | (2, 0))
+            && !self.declares(st, "onfindrecord")
+            && !self.declares(st, "onnextrecord")
+            && self.declares(st, "onaftergetrecord")
+            && self.declares(st, "onaftergetcurrrecord")
+    }
+
+    /// [`Self::part_reads_once_more_at`] for the row `key` the part stands on, read from the table.
+    pub(super) fn part_reads_once_more(&mut self, st: &St, rec: &Rec, key: &[Value]) -> Result<bool, Signal> {
+        if st.borrow().host.is_none() || rec.borrow().key == 0 && rec.borrow().adhoc.is_none() {
+            return Ok(false);
+        }
+        let rows = self.view_rows(rec, Self::WINDOW + 1)?;
+        let table = self.table(rec)?;
+        let at = rows.iter().position(|r| Self::same_key(&table.primary_key(r), key));
+        let once_more = at.is_some_and(|at| self.part_reads_once_more_at(st, rec, rows.len(), at));
+        // A tree part in another key whose action leaves it on another place of its view (or on none: R6889RealShape.al:1213
+        // RunStep4 starts on an empty part and the reads of :1406 `R20;R20;R20;R10;R20;R20;R20;C20;R10;R10;R10;C10` are a different
+        // walk) is not pinned.
+        if !once_more && at.is_some() && self.part_is_tree(st) {
+            return unsupported(
+                "an action of a tree part sorted by another key than the primary key, other than on the second of three rows or the first of two (the reads are not pinned)",
+            );
+        }
+        Ok(once_more)
+    }
+
+    /// OnFindRecord(`which`) of part `st` with Rec on `row`. Pinned for a trigger that finds the row it stands on
+    /// (R7099PartFindRecordBoth.al: `exit(Rec.Find(Which))`); one that answers false or moves Rec to another row is refused.
+    fn part_find_on_row(&mut self, st: &St, rec: &Rec, row: &[Value], which: &str) -> Result<(), Signal> {
+        rec.borrow_mut().fields = row.to_vec();
+        let held = self.row_key(rec)?;
+        let found = self.nav_find(st, which)?;
+        if !found || !Self::same_key(&self.row_key(rec)?, &held) {
+            return unsupported(
+                "a part's OnFindRecord that does not find the row the part stands on, among the reads after CurrPage.Update (not pinned)",
+            );
+        }
+        Ok(())
     }
 }

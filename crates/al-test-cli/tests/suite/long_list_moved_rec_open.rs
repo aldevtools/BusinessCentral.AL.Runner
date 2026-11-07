@@ -1,6 +1,6 @@
 //! A list whose OnOpenPage leaves Rec on a row with more rows around it than a window: the open reads at most 20 rows from
 //! the row on and steps back over at most 20 rows above it; First then reads on up from the top row it holds
-//! (pages/lt-y37-long-list-open/Y37LongListTests.al:91-111).
+//! (pages/long-list-open/Y37LongListTests.al:91-111).
 use al_testkit::outcomes_in;
 use al_testrun::Outcome;
 

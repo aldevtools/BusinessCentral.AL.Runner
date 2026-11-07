@@ -92,7 +92,7 @@ codeunit 50323 T
 }
 "#;
 
-// record/lt-truncate-guards/TruncateGuards.al:P163_Truncate_Temporary_ReturnValueUsed_BQ.
+// record/crud/TruncateGuards.al:P163_Truncate_Temporary_ReturnValueUsed_BQ.
 #[test]
 fn truncate_of_a_temporary_record_with_the_result_used_answers_false() {
     assert_eq!(

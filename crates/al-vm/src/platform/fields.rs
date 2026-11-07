@@ -86,7 +86,7 @@ fn field_len(ty: &RtType) -> Option<i32> {
     })
 }
 
-/// The Field "Type Name" column (platform/lt-ba-columns/BaFieldTypeName.al:52-69).
+/// The Field "Type Name" column (metadata/platform-tables/BaFieldTypeName.al:52-69).
 fn type_name(ty: &RtType) -> Option<String> {
     Some(match ty {
         RtType::Text(Some(n)) => format!("Text{n}"),
@@ -137,7 +137,7 @@ fn table_of<'a>(c: &'a Catalog, i: usize) -> Option<(&'a Object, &'a al_ir::Tabl
 
 /// A `Get` of a Field row of a table of the app under test gives null App Package ID and App Runtime Package ID; a `Get` of a
 /// Base Application table, and FindFirst and Next of either, give the AllObj ones
-/// (metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al:287-311). The app under test is the app whose two
+/// (metadata/platform-tables/PlatformMetadataColumnValues.al:287-311). The app under test is the app whose two
 /// ids are equal (`ids::runtime_package_id`).
 pub(super) fn field_get(t: &TableDef, mut r: al_data::Row) -> al_data::Row {
     let col = |name: &str| t.fields.iter().position(|x| x.name == name);
@@ -257,7 +257,7 @@ fn table_entries(
         if system_ids {
             set_field_row_system_id(t, &mut r, tid, f.id);
         }
-        // IsPartOfPrimaryKey: the field is in the primary key (metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al:
+        // IsPartOfPrimaryKey: the field is in the primary key (metadata/platform-tables/PlatformMetadataColumnValues.al:
         // FieldTable_IsPartOfPrimaryKey_OwnTable and _BaseApp).
         if let Some(col) = t.fields.iter().position(|x| x.name == "IsPartOfPrimaryKey") {
             let idx = schema.fields.iter().position(|x| x.id == f.id);
@@ -308,12 +308,12 @@ fn package_columns(c: &Catalog, table: &Object, t: &TableDef) -> Vec<(usize, Val
 
 /// The Field row of the rowversion: No. 0, FieldName `timestamp`, Type BigInteger, Class Normal, Len 8, Enabled. Only a
 /// FieldName filter finds it, on a table with a key over SystemRowVersion (own key, or one a tableextension adds) and on
-/// one without (types/lt-aj-probes/AjMisc.al:466-521, helper QtFieldTableAnswers :414-429, QtRowVersionRows :400-412;
+/// one without (types/AjMisc.al:466-521, helper QtFieldTableAnswers :414-429, QtRowVersionRows :400-412;
 /// FieldTable_Customer_RowVersionField :336-348). Get(table, 0), a No. = 0 filter, a Type filter, a FieldName filter
 /// on another name and a TableNo-only scan do not see it (same helper; RaFieldScan :613-641;
 /// metadata/W6FieldKeyRows.al:263-270). TableName, Type Name, Field Caption, RelationTableNo, RelationFieldNo,
 /// SQLDataType, OptionString, ObsoleteState, ObsoleteReason, DataClassification and IsPartOfPrimaryKey on a Base
-/// Application table and an own one: types/lt-aj-probes/AjMisc.al:667-686 SG_FieldTable_RowVersion_AllColumns. The
+/// Application table and an own one: types/AjMisc.al:667-686 SG_FieldTable_RowVersion_AllColumns. The
 /// other columns are not pinned: reading one refuses. Pinned on normal tables
 /// of the workspace and the Base Application only: for another kind of table the row refuses where it could be found.
 fn rowversion_row(o: &Object, schema: &al_ir::Table, t: &TableDef, blank: &Blank, tid: u32) -> Option<Entry> {
@@ -321,7 +321,7 @@ fn rowversion_row(o: &Object, schema: &al_ir::Table, t: &TableDef, blank: &Blank
     static WHY: std::sync::OnceLock<std::sync::Arc<str>> = std::sync::OnceLock::new();
     let why = WHY
         .get_or_init(|| {
-            "the value of a column of the Field row of the rowversion (No. 0, timestamp) is not known: only the columns of types/lt-aj-probes/AjMisc.al:656-657 are pinned"
+            "the value of a column of the Field row of the rowversion (No. 0, timestamp) is not known: only the columns of types/AjMisc.al:656-657 are pinned"
                 .into()
         })
         .clone();
@@ -369,7 +369,7 @@ fn rowversion_row(o: &Object, schema: &al_ir::Table, t: &TableDef, blank: &Blank
             .any(|(k, v)| k.eq_ignore_ascii_case("TableType") && !ident(v.trim()).eq_ignore_ascii_case("Normal"));
     let refuse = (!normal).then(|| {
         format!(
-            "the Field row of the rowversion (No. 0, timestamp) of table '{}': it is pinned only for normal tables (types/lt-aj-probes/AjMisc.al:466-521)",
+            "the Field row of the rowversion (No. 0, timestamp) of table '{}': it is pinned only for normal tables (types/AjMisc.al:466-521)",
             o.name
         )
     });
@@ -377,7 +377,7 @@ fn rowversion_row(o: &Object, schema: &al_ir::Table, t: &TableDef, blank: &Blank
 }
 
 /// The FlowFields every table has under `Gate::PlatformMetadataColumnsFrom29`, with the columns the corpus pins: number, name, type Text, length and class
-/// FlowField (system-fields/W6SystemFieldStamps.al:239-246; their order after SystemModifiedBy: metadata/W6FieldKeyRows.al:
+/// FlowField (record/system-fields/W6SystemFieldStamps.al:239-246; their order after SystemModifiedBy: metadata/W6FieldKeyRows.al:
 /// 267-268). The runtime's schema does not hold them (it keeps SystemRowVersion at 2000000005, where BC 27 and 28 have it;
 /// where BC 29 keeps it is not pinned); RecordRef.Field reaches them through `LibraryValue::UserNameFieldRef` (refs.rs).
 pub(crate) const USER_NAME_SYSTEM_FIELDS: [(u32, &str, i32); 4] = [
@@ -397,9 +397,9 @@ pub(crate) fn user_name_system_field(no: u32) -> Option<(&'static str, i32)> {
 
 /// The SystemId of a Field row: not the null Guid but the Field table's number, the table's number and the field's number, each as
 /// four little-endian bytes of the Guid's binary form (so the first two read as Data1 and Data2/Data3 in the text), then four zero
-/// bytes (platform/lt-wc/WcFieldRowCopy.al, al-runner issue 6313: field 2 of table 90646
+/// bytes (metadata/WcFieldRowCopy.al, al-runner issue 6313: field 2 of table 90646
 /// is {77359429-6216-0001-0200-000000000000}, 2000000041 = 0x77359429; SystemCreatedByUserName 2000000005 is
-/// {77359429-6216-0001-0594-357700000000}; the rows of 2000000003-4 too, misc/lt-y70-assumptions/Y70Probes.al:780-837).
+/// {77359429-6216-0001-0594-357700000000}; the rows of 2000000003-4 too, record/Y70Probes.al:780-837).
 /// Set in column SystemId (2000000000) when the Field table has it.
 fn set_field_row_system_id(t: &TableDef, r: &mut al_data::Row, table_no: u32, field_no: u32) {
     if let Some(col) = t.fields.iter().position(|x| x.id == 2_000_000_000) {
@@ -418,7 +418,7 @@ fn field_row_system_id(table_no: u32, field_no: u32) -> Value {
 }
 
 /// The Field rows of the [`USER_NAME_SYSTEM_FIELDS`] of table `o` (BC 29), every column as measured for an own and a Base
-/// Application table (corpus master platform/lt-y35-username-field-rows/Y35UserNameFieldRows.al C305_UserNameFieldRows_OwnTable,
+/// Application table (corpus master metadata/platform-tables/Y35UserNameFieldRows.al C305_UserNameFieldRows_OwnTable,
 /// _Customer, _FilteredScans): TableNo, No., TableName, FieldName, Type Text, Len, Class FlowField, Enabled, Type Name
 /// Text50/Text80, ExternalName blank, Field Caption 'Created By (User Name)' and so on, RelationTableNo and RelationFieldNo 0,
 /// SQLDataType 0, OptionString blank, ObsoleteState No, ObsoleteReason blank, DataClassification SystemMetadata,
@@ -492,6 +492,15 @@ fn user_name_system_field_rows(
         .collect()
 }
 
+/// The DataClassification ordinal of the Field row of SystemId (2000000000) and the audit fields (2000000001-2000000004).
+fn system_field_classification(id: u32) -> Option<i32> {
+    match id {
+        2_000_000_000 | 2_000_000_002 | 2_000_000_004 => Some(4),
+        2_000_000_001 | 2_000_000_003 => Some(6),
+        _ => None,
+    }
+}
+
 fn field_row(
     c: &Catalog,
     table: &Object,
@@ -510,7 +519,7 @@ fn field_row(
     };
     // SystemId is named `$systemId` (record/TestFieldLenAndFeatureKeyContracts.al:107-112).
     // FieldName is cut to its 30 characters; a tableextension field may have a longer name
-    // (tableextension/TestTableExtFieldModify.al:204-216).
+    // (table-objects/extensions/TestTableExtFieldModify.al:204-216).
     r[pos(t, 4)] = Value::Text(if f.id == 2_000_000_000 {
         "$systemId".into()
     } else {
@@ -542,7 +551,7 @@ fn field_row(
             .collect(),
     );
     // Type Name: the type's name, with its length for a Text or Code (`Text30`, `Code20`), `Option` for an enum
-    // (record/PZFieldObsoleteRows.al:FieldRows_AllColumns_OfLivePendingAndRemovedField; platform/lt-ba-columns/
+    // (record/PZFieldObsoleteRows.al:FieldRows_AllColumns_OfLivePendingAndRemovedField; metadata/platform-tables/
     // BaFieldTypeName.al:52-69, every type below; metadata/W6FieldKeyRows.al:219-225).
     r[pos(t, 9)] = match type_name(&f.ty) {
         Some(n) => Value::Text(n.into()),
@@ -556,7 +565,7 @@ fn field_row(
     }
     if t.fields.iter().any(|x| x.id == 23) {
         // A Code field reads Varchar when it declares none, and the member it declares among Varchar, Integer, BigInteger and
-        // Variant (the writer's probe tests/al-language/record/lt-y82-sqldatatype-code/ Y82PkTests.al `Pk*_Meta`, needs corpus bump).
+        // Variant (the writer's probe tests/al-language/record/system-fields/ Y82PkTests.al `Pk*_Meta`, needs corpus bump).
         let member = match (&f.ty, fprop("SQLDataType")) {
             (RtType::Text(Some(_)), None) | (RtType::Code(_), None) => Some("Varchar"),
             (RtType::Code(_), Some(v)) => ["Varchar", "Integer", "BigInteger", "Variant"]
@@ -581,11 +590,11 @@ fn field_row(
         };
     }
     // OptimizeForTextSearch: the declared property of a Text or Code field, false where it is not declared
-    // (lt-ak-fulltext/LtAkFulltext.al:119, :122, :167-168). Declared on another type it is pinned by no test: unknown.
+    // (record/LtAkFulltext.al:119, :122, :167-168). Declared on another type it is pinned by no test: unknown.
     if let Some(col) = t.fields.iter().position(|x| x.id == 62) {
         if let Some(v) = fprop("OptimizeForTextSearch") {
             r[col] = match &f.ty {
-                // A Code field too (lt-ak-fulltext/LtAkFulltext.al:141-170, PX_OptimizeForTextSearch_OnACodeField).
+                // A Code field too (record/LtAkFulltext.al:141-170, PX_OptimizeForTextSearch_OnACodeField).
                 RtType::Text(_) | RtType::Code(_) => Value::Boolean(truthy(v)),
                 _ => super::unknown(
                     t,
@@ -622,7 +631,12 @@ fn field_row(
     // DataClassification: the field's own; else the table's; a FlowField is SystemMetadata and a
     // silent Blob is CustomerContent (TestFieldDataClassificationInheritance.al:17-50).
     let is_blob = matches!(&f.ty, RtType::Library(al_builtins::library_kind::LibraryKind::Blob));
+    // SystemId and the audit fields have the platform's own: EndUserPseudonymousIdentifiers (4) for SystemId, SystemCreatedBy and
+    // SystemModifiedBy, SystemMetadata (6) for SystemCreatedAt and SystemModifiedAt, whatever the table declares (Windows BC 27.5
+    // and 28.5 probe, pinned in the corpus at metadata/platform-tables/R6890SystemFieldClassification.al:97-157,
+    // R6890_SystemFieldRows_CustomerContentTable, _NoClassificationTable and _ToBeClassifiedTable).
     let dc = match (fprop("DataClassification"), is_flow_field, is_blob) {
+        _ if system_field_classification(f.id).is_some() => system_field_classification(f.id).unwrap_or(0),
         (_, true, _) => 6,
         (Some(v), _, _) => ordinal_of(DATA_CLASSIFICATIONS, v)
             .ok_or_else(|| format!("{}: DataClassification `{v}` is not understood", what()))?,
@@ -666,7 +680,7 @@ fn field_row(
             ([], []) if f.relation => return Err(format!("{}: the TableRelation is not understood", what())),
             ([], []) => None,
             // A relation whose only arm has an `if` condition is conditional too: 0 and 0
-            // (handlers/ProbeObjectMetadataTables.al:FieldTable_RelationTableNo_OfConditionalRelations,
+            // (metadata/platform-tables/ProbeObjectMetadataTables.al:FieldTable_RelationTableNo_OfConditionalRelations,
             // EnumConditionRef; a `where(...)` clause does not make a relation conditional, :FilterConditionRef).
             ([arm], _) if !arm.conditions.is_empty() => return Ok(()),
             ([arm], _) => Some((arm.table, arm.field, arm.table_name.clone())),
@@ -739,7 +753,7 @@ pub(super) fn key_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                     .into(),
             );
             // SumIndexFields: the names of the property, comma-joined without the blanks and quotes
-            // (metadata/lt-platform-metadata-columns/PlatformMetadataColumnValues.al:KeyTable_SumIndexFields_OwnTable, _BaseApp).
+            // (metadata/platform-tables/PlatformMetadataColumnValues.al:KeyTable_SumIndexFields_OwnTable, _BaseApp).
             if let (Some(col), Some(sum)) = (
                 t.fields.iter().position(|x| x.name == "SumIndexFields"),
                 kprop("SumIndexFields"),

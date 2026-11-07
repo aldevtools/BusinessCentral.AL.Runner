@@ -4,7 +4,7 @@
 //! Tenant Permission Set table.
 //!
 //! Pinned by corpus permissions/TestMetadataPermissionSet.al, TestPermissionSetTable.al,
-//! TestPermissionSetUndeclaredAssignable.al and access-control/TestAggregatePermissionSetTable.al:
+//! TestPermissionSetUndeclaredAssignable.al and permissions/access-control/TestAggregatePermissionSetTable.al:
 //! - "Role ID" is the object name, upper-cased (a Code field) and cut to the field length; "Name" is the
 //!   Caption with its own casing, else the upper-case Role ID;
 //! - "Assignable" is the declared property and false when it is not declared;
@@ -319,10 +319,21 @@ fn parse_grants_with<O: al_ir::ObjectInfo + ?Sized>(
     Ok(out)
 }
 
-/// The guard of an `AccessByPermission` property (`tabledata "T" = R`): the object type ordinal, the object id and the
-/// permission slot. Only the shapes Y24PermExecute.al Y24_P21 pins are read: `tabledata` with `R` or `I`, and `codeunit` with
-/// `X`; any other guard is an error naming it.
-pub(crate) fn parse_guard(engine: &crate::Engine, text: &str) -> Result<(i32, u32, usize), String> {
+/// The guard of an `AccessByPermission` property: the object type ordinal, the object (an id, or for a named System object its
+/// name), and the permission slots the mask names.
+pub(crate) struct Guard {
+    pub kind: i32,
+    /// `None` for a System object, which the program holds no id for.
+    pub id: Option<u32>,
+    pub name: String,
+    /// Slots (Read, Insert, Modify, Delete, Execute) of the letters of the mask, whatever their case.
+    pub slots: Vec<usize>,
+}
+
+/// Parses `tabledata "T" = RIMD`, `codeunit "C" = X`, `system "N" = x`, ...: any object type the Permission table knows and a mask of
+/// the letters R, I, M, D, X in either case. Pinned (corpus permissions/permission-sets/Y84PermAbp.al, BC 29.0): the control is
+/// there when the session holds at least one letter of the mask at level Yes (see `access_by_permission_hidden_decided`).
+pub(crate) fn parse_guard(engine: &crate::Engine, text: &str) -> Result<Guard, String> {
     let bad = |why: &str| {
         format!(
             "AccessByPermission `{}` {why} (not pinned, ADR-062 probe P21)",
@@ -335,19 +346,57 @@ pub(crate) fn parse_guard(engine: &crate::Engine, text: &str) -> Result<(i32, u3
         .split_once(char::is_whitespace)
         .ok_or_else(|| bad("names no object"))?;
     let (kind, ty) = match kind_word.to_ascii_lowercase().as_str() {
-        "tabledata" => (0, al_ir::ObjKind::Table),
-        "codeunit" => (5, al_ir::ObjKind::Codeunit),
-        _ => return Err(bad("guards an object type other than tabledata and codeunit")),
+        "tabledata" => (0, Some(al_ir::ObjKind::Table)),
+        "table" => (1, Some(al_ir::ObjKind::Table)),
+        "report" => (3, Some(al_ir::ObjKind::Report)),
+        "codeunit" => (5, Some(al_ir::ObjKind::Codeunit)),
+        "xmlport" => (6, Some(al_ir::ObjKind::XmlPort)),
+        "page" => (8, Some(al_ir::ObjKind::Page)),
+        "query" => (9, Some(al_ir::ObjKind::Query)),
+        "system" => (10, None),
+        _ => return Err(bad("guards an object type that is not pinned")),
     };
-    let slot = match (kind, mask.trim()) {
-        (0, "R") => 0,
-        (0, "I") => 1,
-        (5, "X") => 4,
-        _ => return Err(bad("has a permission other than tabledata R or I, codeunit X")),
+    let mut slots = Vec::new();
+    for c in mask.trim().chars() {
+        let slot = match c.to_ascii_uppercase() {
+            'R' => 0,
+            'I' => 1,
+            'M' => 2,
+            'D' => 3,
+            'X' => 4,
+            _ => return Err(bad("has a letter that is not R, I, M, D or X")),
+        };
+        if !slots.contains(&slot) {
+            slots.push(slot);
+        }
+    }
+    if slots.is_empty() {
+        return Err(bad("has no permission mask"));
+    }
+    let name = last_name(name.trim());
+    let id = match ty {
+        Some(ty) => Some(Catalog::new(engine).id_of(ty, &name).map_err(|why| bad(&why))?),
+        None => None,
     };
-    let c = Catalog::new(engine);
-    let id = c.id_of(ty, &last_name(name.trim())).map_err(|why| bad(&why))?;
-    Ok((kind, id, slot))
+    Ok(Guard { kind, id, name, slots })
+}
+
+/// The level (0 blank, 1 Yes, 2 Indirect) a set entry of the form `system "Name" = X` (as `Content::unread_system` keeps them)
+/// gives permission slot `slot` on the System object `name`.
+pub(crate) fn system_entry_level(entry: &str, name: &str, slot: usize) -> u8 {
+    let Some(inner) = entry.split('`').nth(1) else {
+        return 0;
+    };
+    let Some((head, mask)) = inner.rsplit_once('=') else {
+        return 0;
+    };
+    let Some((kind_word, n)) = head.trim().split_once(char::is_whitespace) else {
+        return 0;
+    };
+    if !kind_word.eq_ignore_ascii_case("system") || !last_name(n.trim()).eq_ignore_ascii_case(name) {
+        return 0;
+    }
+    parse_mask(mask).map_or(0, |l| l[slot])
 }
 
 /// The five levels a mask such as `RIMD` or `rX` gives (0 blank, 1 Yes, 2 Indirect); `None` for a letter that is not
@@ -578,7 +627,7 @@ pub(super) fn grants_mat(
         };
         match grants {
             // The set's key alone is known: a filter on the other key columns cannot rule the row out
-            // (codeunit/lt-x-object-props/XObjectProps.al:341, a filter on Object Type and Object ID of an excluding set).
+            // (codeunits/procedures/XObjectProps.al:341, a filter on Object Type and Object ID of an excluding set).
             Err(why) => entries.push(Entry::poisoned_prefix(
                 key_only(t),
                 if which == GrantTable::Legacy { 1 } else { 2 },
@@ -711,6 +760,7 @@ fn content_of<O: al_ir::ObjectInfo + ?Sized>(
             wild,
             explicit,
             unread_system,
+            cut: Vec::new(),
         }
     })
 }

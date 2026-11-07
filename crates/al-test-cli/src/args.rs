@@ -6,19 +6,29 @@ use std::path::PathBuf;
 #[derive(Default)]
 pub struct Args {
     pub root: Option<PathBuf>,
+    /// `--test-runner builtin|microsoft|ID` (ADR-066): the runner the tests run through. `None`: al-runner's own
+    /// (ADR-066 decision 6: the harness keeps it until a zero-difference run).
+    pub test_runner: Option<al_testrun::runtime::TestRunner>,
     pub oracle: Option<PathBuf>,
+    /// `--baseline FILE`: the not-passing list of the main app (ADR-065) instead of the one `oracle.toml` names.
     pub baseline: Option<PathBuf>,
-    /// `--suite-baseline NAME=FILE` (repeatable): the ratchet file of an extra test app. With
-    /// `--baseline` the extra apps are ratcheted only when named here.
+    /// `--suite-baseline NAME=FILE` (repeatable): the not-passing list of an extra test app. With
+    /// `--baseline` the extra apps are checked only when named here.
     pub suite_baselines: Vec<(String, PathBuf)>,
     pub json: Option<PathBuf>,
     pub markdown: Option<PathBuf>,
     pub junit: Option<PathBuf>,
-    pub update_baseline: bool,
+    /// `--prune-not-passing` (ADR-065): delete the stale lines of the not-passing lists; never adds one.
+    pub prune_not_passing: bool,
+    /// `--list-new-cases REV` (ADR-065, corpus bumps): add lines for the cases that do not pass and that the oracle
+    /// at REV (the base branch) does not have.
+    pub list_new_cases: Option<String>,
+    /// `--list-changes REV`: print how the not-passing lists changed against REV, then stop (the CI job summary).
+    pub list_changes: Option<String>,
     /// `--update-work`: rewrite `metrics/<major>/work.json` from this run's counts (the work ratchet, `work.rs`).
     pub update_work: bool,
-    /// `--no-ratchet`: report only; do not compare with the baseline (for running the corpus
-    /// without the dependency apps its baseline needs).
+    /// `--no-ratchet`: report only; do not check the not-passing lists (for running the corpus
+    /// without the dependency apps the lists assume).
     pub no_ratchet: bool,
     /// Extra directories of `.app` packages, searched after the project's `.alpackages`.
     pub deps: Vec<PathBuf>,
@@ -33,7 +43,7 @@ pub struct Args {
     pub dotnet_sidecar: Option<PathBuf>,
     /// `--dotnet-assembly-dir DIR` (repeatable): where community assemblies are searched.
     pub dotnet_assembly_dirs: Vec<PathBuf>,
-    /// `--dotnet-allow-roll-forward`: run the sidecar on a newer .NET major than 8, with a warning.
+    /// `--dotnet-allow-roll-forward`: when the .NET major the BC version needs is missing, run the sidecar on a newer one, with a warning.
     pub dotnet_allow_roll_forward: bool,
     /// `--dotnet-timeout-secs N`: the deadline of one `DotNet` call (default 60).
     pub dotnet_timeout_secs: Option<u64>,
@@ -97,7 +107,7 @@ pub struct Args {
     pub summary: bool,
     /// `--top-refusals-area AREA`: the ranking counts only that area (and selects it).
     pub top_refusals_area: Option<String>,
-    /// `--baseline-diff`: list what newly passes, what fails and what left the baseline.
+    /// `--baseline-diff`: by area, the regressions, the stale lines, what is still listed and the cases without an outcome.
     pub baseline_diff: bool,
     /// `--timings`: print how long loading, compiling and running took, and the slowest test codeunits.
     pub timings: bool,
@@ -221,11 +231,24 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             "--json" => a.json = Some(text()?.into()),
             "--markdown" => a.markdown = Some(text()?.into()),
             "--junit" => a.junit = Some(text()?.into()),
-            "--update-baseline" => a.update_baseline = true,
+            "--prune-not-passing" => a.prune_not_passing = true,
+            "--list-new-cases" => a.list_new_cases = Some(text()?),
+            "--list-changes" => a.list_changes = Some(text()?),
             "--update-work" => a.update_work = true,
             "--no-ratchet" => a.no_ratchet = true,
             "--deps" | "--dep" => a.deps.push(text()?.into()),
             "--no-deps" => a.no_deps = true,
+            "--test-runner" => {
+                let v = text()?;
+                a.test_runner =
+                    Some(match v.to_ascii_lowercase().as_str() {
+                        "builtin" => al_testrun::runtime::TestRunner::Builtin,
+                        "microsoft" => al_testrun::runtime::TestRunner::Microsoft,
+                        n => al_testrun::runtime::TestRunner::Codeunit(n.parse().map_err(|_| {
+                            format!("--test-runner needs builtin, microsoft or a codeunit id, got `{v}`")
+                        })?),
+                    });
+            }
             "--all-versions" => a.all_versions = true,
             "--bc-version" => a.bc_version = Some(text()?),
             "--dotnet-sidecar" => a.dotnet_sidecar = Some(text()?.into()),
@@ -288,20 +311,36 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             _ => return Err(format!("unknown argument `{flag}` (see --help)")),
         }
     }
-    if a.update_baseline && a.select.is_active() {
-        return Err(format!(
-            "--update-baseline cannot be combined with a selection ({}): the baseline would lose every case outside it",
-            a.select.describe()
-        ));
-    }
-    if a.update_baseline && a.permission_shadow.is_some() {
-        return Err("--update-baseline cannot be combined with --permission-shadow: a shadow run is a diagnostic, not a baseline".into());
-    }
-    if a.update_baseline && a.seed.is_some_and(|s| s != al_host::seed::FIXED_RUN_SEED) {
-        return Err(format!(
-            "--update-baseline needs the fixed run seed {} (ADR-061 section 5); leave out --seed",
-            al_host::seed::FIXED_RUN_SEED
-        ));
+    for (on, flag) in [
+        (a.prune_not_passing, "--prune-not-passing"),
+        (a.list_new_cases.is_some(), "--list-new-cases"),
+    ] {
+        if !on {
+            continue;
+        }
+        if a.select.is_active() {
+            return Err(format!(
+                "{flag} cannot be combined with a selection ({}): the cases outside it did not run",
+                a.select.describe()
+            ));
+        }
+        if a.permission_shadow.is_some() {
+            return Err(format!(
+                "{flag} cannot be combined with --permission-shadow: a shadow run is a diagnostic"
+            ));
+        }
+        if a.seed.is_some_and(|s| s != al_host::seed::FIXED_RUN_SEED) {
+            return Err(format!(
+                "{flag} needs the fixed run seed {} (ADR-061 section 5); leave out --seed",
+                al_host::seed::FIXED_RUN_SEED
+            ));
+        }
+        if a.explain.is_some() {
+            return Err(format!("{flag} cannot be combined with --explain"));
+        }
+        if a.no_ratchet {
+            return Err(format!("{flag} cannot be combined with --no-ratchet"));
+        }
     }
     if a.update_work {
         if let Some(why) = crate::work::not_full_corpus(&a) {
@@ -309,9 +348,6 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
                 "--update-work needs a run of the full corpus the way CI's normal run makes it, not one with {why}"
             ));
         }
-    }
-    if a.update_baseline && a.explain.is_some() {
-        return Err("--update-baseline cannot be combined with --explain".into());
     }
     Ok(Parsed::Run(Box::new(a)))
 }
@@ -323,7 +359,8 @@ USAGE
   al-test-cli [--root DIR] [FLAGS]
 
 EXIT CODES
-  0 ok    1 a baseline case no longer passes    2 setup error (bad arguments, oracle and corpus disagree)
+  0 ok    1 the not-passing lists do not hold (a regression, a stale line, a case without an outcome)
+  2 setup error (bad arguments, oracle and corpus disagree)
 
 INPUT
   --root DIR                  the repository root (default: .)
@@ -332,6 +369,8 @@ INPUT
   --all-versions              run every version in the oracle table, then compare them
   --deps DIR, --dep DIR       extra directory of .app packages for the dependencies (repeatable)
   --no-deps                   run the corpus alone, without Microsoft's apps
+  --test-runner R             builtin (default), microsoft (runner 130450 run as BcContainerHelper runs it;
+                              not on the TestRunnerHub path of the newer majors) or a runner codeunit id (ADR-066)
   --no-download               never fetch a dependency app from the artifact feed
   --environment ENV           the server Environment Information describes: saas (default, as probed) or
                               onprem (IsSaaS and IsSandbox No until a test library changes them;
@@ -350,7 +389,7 @@ SELECTION (each flag repeats; the selection is their union; without one, everyth
   --file SUFFIX               the test codeunits in a file whose path ends with SUFFIX
   A selection compiles only the selected test codeunits and the code they reach, runs those
   codeunits whole (tests of a codeunit share state), and reports and ratchets only the selected
-  cases. --update-baseline refuses to run with a selection.
+  cases. --prune-not-passing and --list-new-cases refuse to run with a selection.
 
 DIAGNOSE
   --behavior-coverage-map [DIR]  write corpus-behavior-coverage.md and .json to DIR (default docs/): which
@@ -379,23 +418,34 @@ DIAGNOSE
                               some files present is a warning. Add --summary for one status line
                               (count, oldest first) without a run
   --top-refusals-area FOLDER  the same for one corpus folder; also selects that folder
-  --baseline-diff             per version: cases that newly pass, cases that fail and are not in
-                              the baseline, and baseline cases that no longer pass; listed by area
+  --baseline-diff             per version and test app, by area: regressions (not listed, not passing),
+                              stale lines to delete, the cases still listed, cases without an outcome
   --timings                   print how long loading, compiling and running took, and the slowest
                               test codeunits (the --json and --markdown reports always carry the
-                              times)
+                              times); for the time per AL routine set AL_PROFILE=FILE (see the
+                              manual, results.md)
   --timings-table FILE        print the timing table of the --json reports named (repeatable), then stop
   --permission-shadow FILE    check every access under the test runner's permission sets, grant it anyway, write what would be
                               denied to FILE (ADR-062 stage 4 shadow run; a diagnostic, never a baseline)
   --seed N                    the run seed of Random and Guids per test (default: the fixed seed 1, ADR-061)
 
-BASELINE AND REPORTS
-  --baseline FILE             ratchet against this file instead of metrics/<major>/passing.txt
-  --suite-baseline NAME=FILE  the ratchet file of an extra test app (repeatable)
-  --update-baseline           rewrite the baseline files from this run (refused on any regression)
+NOT-PASSING LISTS (ADR-065) AND REPORTS
+  Each version and test app has a list of the oracle cases real BC passes and the runtime does not pass
+  yet (metrics/<major>/not-passing*.txt, `baseline` in oracle.toml). A run fails (exit 1) when a case
+  that is not listed does not pass, when a listed case passes or left the oracle (a stale line), and
+  when an oracle case got no outcome.
+  --baseline FILE             check against this list instead of metrics/<major>/not-passing.txt
+  --suite-baseline NAME=FILE  the list of an extra test app (repeatable)
+  --prune-not-passing         delete the stale lines from the lists; never adds a line
+  --list-new-cases REV        add lines for the cases that do not pass and that the oracle at REV (the
+                              base branch, e.g. HEAD before a corpus bump) does not have; never one for a
+                              case REV's oracle has (that line would hide a regression)
+  --list-changes REV          print, as Markdown, the lines each list gained and lost against REV, the
+                              gained ones split into new cases and accepted regressions (cases REV's oracle
+                              had), then stop; exit 1 when a regression was accepted
   --update-work               rewrite metrics/<major>/work.json, the expected work counts, from this run
                               (refused unless the run is the full corpus without the compile cache)
-  --no-ratchet                report only; do not compare with the baseline
+  --no-ratchet                report only; do not check the not-passing lists
   --json FILE                 write the pass-rate report as JSON
   --markdown FILE             write the pass-rate report as Markdown
   --junit FILE                write per-test outcomes and refusal reasons as JUnit XML
@@ -403,7 +453,7 @@ BASELINE AND REPORTS
 DOTNET (ADR-014)
   --dotnet-sidecar PATH       the built sidecar (default: next to this binary)
   --dotnet-assembly-dir DIR   where community assemblies are searched (repeatable)
-  --dotnet-allow-roll-forward run the sidecar on a newer .NET major than 8, with a warning
+  --dotnet-allow-roll-forward when the .NET major the BC version needs is missing, run the sidecar on a newer one, with a warning
   --dotnet-timeout-secs N     the deadline of one DotNet call (default 60)
   --require-dotnet            a machine without .NET is an error, not a skip (CI)
 
@@ -493,18 +543,27 @@ mod tests {
     }
 
     #[test]
-    fn update_baseline_refuses_another_seed() {
-        let e = run(&["--update-baseline", "--seed", "7"]).err().unwrap();
+    fn prune_not_passing_refuses_another_seed() {
+        let e = run(&["--prune-not-passing", "--seed", "7"]).err().unwrap();
         assert!(e.contains("fixed run seed"), "{e}");
-        assert_eq!(run(&["--update-baseline", "--seed", "1"]).unwrap().seed, Some(1));
+        assert_eq!(run(&["--prune-not-passing", "--seed", "1"]).unwrap().seed, Some(1));
         assert_eq!(run(&[]).unwrap().seed, None);
         assert!(run(&["--seed", "x"]).is_err());
     }
 
     #[test]
-    fn update_baseline_refuses_a_selection() {
-        let e = run(&["--update-baseline", "--area", "json"]).err().unwrap();
-        assert!(e.contains("--update-baseline") && e.contains("--area json"), "{e}");
+    fn the_list_writers_refuse_a_selection() {
+        let e = run(&["--prune-not-passing", "--area", "json"]).err().unwrap();
+        assert!(e.contains("--prune-not-passing") && e.contains("--area json"), "{e}");
+        let e = run(&["--list-new-cases", "HEAD", "--codeunit", "5"]).err().unwrap();
+        assert!(e.contains("--list-new-cases") && e.contains("selection"), "{e}");
+        let a = run(&["--list-new-cases", "HEAD", "--prune-not-passing"]).unwrap();
+        assert!(a.prune_not_passing && a.list_new_cases.as_deref() == Some("HEAD"));
+        assert_eq!(
+            run(&["--list-changes", "origin/main"]).unwrap().list_changes.as_deref(),
+            Some("origin/main")
+        );
+        assert!(run(&["--update-baseline"]).is_err(), "retired by ADR-065");
     }
 
     #[test]

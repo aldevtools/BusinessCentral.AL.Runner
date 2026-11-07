@@ -1,6 +1,6 @@
 //! A Modify(true) through a stale buffer from the variable's own Insert two or three Commits back, in a transaction that
 //! wrote nothing and took no lock: the table's OnModify trigger runs on the buffer, with xRec the buffer itself, then the
-//! write raises DB:RecordChanged and the row stays (record/lt-sb-stale-own-modify/Y27StaleOtherVarTests.al:269-299,
+//! write raises DB:RecordChanged and the row stays (record/crud/Y27StaleOtherVarTests.al:269-299,
 //! Y27_2C_Nothing and Y27_3C_Nothing, `buffer` `Changed|100|1|1|100|Changed`; al-runner issue 6522). A table extension's
 //! modify triggers, modify event subscribers and the OnDatabaseModify global trigger are not pinned there: with any of
 //! them the error comes before the trigger, as before.
@@ -33,18 +33,25 @@ impl Session {
             let mine = if let Value::BigInteger(n) = &r.fields[i] { *n } else { 0 };
             r.row_origin
                 .filter(|o| o.version == mine)
-                .is_some_and(|o| o.own_write && (o.commits + 2 == self.commits || o.commits + 3 == self.commits))
+                .is_some_and(|o| o.own_write && (1..=3).contains(&self.commits.saturating_sub(o.commits)))
         };
-        let untouched_tx =
-            self.tx.writes.is_empty() && !self.tx.rolled_back && !self.tx.lock_tx && self.tx.lock_unpinned.is_none();
+        // Inserts into other tables (a log) do not change that: the OnModify trigger runs before the refusal
+        // (record/crud/Y27StaleOwnInsertMore.al:650 Y27B_2C_OnlyLogInserted_Refused, `buffer` Modify Count 1).
+        let untouched_tx = !self.tx.rolled_back
+            && !self.tx.lock_tx
+            && self.tx.lock_unpinned.is_none()
+            && self
+                .tx
+                .writes
+                .iter()
+                .all(|w| w.kind == crate::state::TxWriteKind::Insert && w.table != t.object);
         let mut hooks = false;
         for n in ["OnBeforeModify", "OnModify", "OnAfterModify"] {
             hooks |= !self.ext_triggers(t, n).is_empty();
         }
-        hooks = hooks
-            || self.listened(t, "onbeforemodifyevent", None)?
-            || self.listened(t, "onaftermodifyevent", None)?
-            || self.global_enabled(t, GlobalOp::Modify)?;
+        // An OnAfterModify subscriber does not matter: the refused write never reaches it (Y27StaleOwnInsertMore.al:754
+        // Y27B_2C_SubscriberLogInTx2_NothingAfter_Refused, `log` 1 from the helper's own Modify only).
+        hooks = hooks || self.listened(t, "onbeforemodifyevent", None)? || self.global_enabled(t, GlobalOp::Modify)?;
         if run && own_insert && untouched_tx && !hooks {
             if let Some(tr) = self.table_trigger(t, "OnModify") {
                 let x = Self::xrec_handle(rec, rec.borrow().fields.clone());
@@ -55,7 +62,7 @@ impl Session {
     }
 
     /// Notes that a guarded Insert of `rec` answered false (the key existed): the buffer keeps the version it had, and a Modify
-    /// through it is refused when the row is newer (record/lt-y71-failed-insert-modify/Y71FailedInsertModify.al).
+    /// through it is refused when the row is newer (record/crud/Y71FailedInsertModify.al).
     pub(crate) fn note_failed_insert(&self, t: &TableDef, rec: &Rec, outcome: &Result<Value, Signal>) {
         if !(self.ret_used && matches!(outcome, Ok(Value::Boolean(false))) && !rec.borrow().temporary) {
             return;

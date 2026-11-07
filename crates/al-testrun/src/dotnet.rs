@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 /// The protocol version the sidecar must speak.
-pub const PROTOCOL: u64 = 4;
+pub const PROTOCOL: u64 = 5;
 
 /// Where the sidecar and .NET are found and how a call is bounded.
 #[derive(Debug, Clone)]
@@ -35,15 +35,36 @@ pub struct SidecarConfig {
     /// `--dotnet-assembly-dir DIR` (repeatable): searched for assemblies the runtime does not
     /// ship, after the platform package folders (ADR-014 section 3, step 3).
     pub assembly_dirs: Vec<PathBuf>,
-    /// `--dotnet-allow-roll-forward`: run on a newer major than 8, with a warning.
+    /// `--dotnet-allow-roll-forward`: when the .NET major the BC version needs is not installed, run on the lowest
+    /// newer one, with a warning (`crate::dotnet_runtime`).
     pub allow_roll_forward: bool,
-    /// Where each process gets its working folders; default: the system temporary folder.
+    /// The BC major in use: it picks the .NET major the sidecar runs on (`dotnet_runtime::runtime_major_for_bc`;
+    /// al-runner issues 6924 and 5590). `None`: .NET 8.
+    pub bc_major: Option<u32>,
+    /// Where each process gets its working folders; default: `run/` under the helper's cache ([`work_root`]).
     pub work_root: Option<PathBuf>,
     /// Deadline of one call; on expiry the process is killed (ADR-014 section 10).
     pub timeout: Duration,
     /// Reuse of a clean process by the next session (ADR-014 amendment 2026-11-02); `None`: `ALRUNNER_DOTNET_REUSE`
     /// and `ALRUNNER_DOTNET_FRESH` decide, and without them it is on.
     pub reuse: Option<Reuse>,
+    /// Called with the simple name of each assembly a type names, before the sidecar first resolves it: fetches it
+    /// into a probe folder when it is missing (al-runner issue 6924, `al_deps::service_tier`). `None`: nothing is fetched.
+    pub fetch_assembly: Option<AssemblyFetch>,
+}
+
+/// See [`SidecarConfig::fetch_assembly`]. An error is reported once per name and the sidecar then says the assembly
+/// is missing, as it would without the fetch.
+#[derive(Clone)]
+pub struct AssemblyFetch(pub Arc<FetchFn>);
+
+/// The function of an [`AssemblyFetch`]: the simple name of an assembly in, why it could not be fetched out.
+pub type FetchFn = dyn Fn(&str) -> Result<(), String> + Send + Sync;
+
+impl std::fmt::Debug for AssemblyFetch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("AssemblyFetch")
+    }
 }
 
 impl Default for SidecarConfig {
@@ -55,9 +76,11 @@ impl Default for SidecarConfig {
             cache_dir: None,
             assembly_dirs: Vec::new(),
             allow_roll_forward: false,
+            bc_major: None,
             work_root: None,
             timeout: Duration::from_secs(60),
             reuse: None,
+            fetch_assembly: None,
         }
     }
 }
@@ -67,8 +90,10 @@ impl Default for SidecarConfig {
 struct Resolved {
     dotnet: PathBuf,
     sidecar: PathBuf,
-    /// The `Microsoft.NETCore.App` versions `dotnet` reported: the sidecar runs on the newest 8.x of them.
+    /// The `Microsoft.NETCore.App` versions `dotnet` reported.
     versions: Vec<String>,
+    /// The one of them the sidecar runs on (`--fx-version`).
+    runtime: crate::dotnet_runtime::RuntimeChoice,
 }
 
 /// What the sidecars of one host cost, so start-up is reported apart from the calls
@@ -176,9 +201,30 @@ struct Shared {
     reuse: Reuse,
     /// Why `reset` found a process dirty, with how often (reported by `shutdown` unless reuse is off).
     dirty_reasons: Mutex<std::collections::BTreeMap<String, usize>>,
+    /// The assembly names handed to `cfg.fetch_assembly` so far (lower case).
+    fetched: Mutex<std::collections::HashSet<String>>,
 }
 
 impl Shared {
+    /// Hands the assembly of `ty` to `cfg.fetch_assembly`, once per name. A closed generic's inner assemblies are not
+    /// followed: the fetch follows an assembly's own references.
+    fn fetch_for(&self, ty: &DotNetType) {
+        let Some(fetch) = &self.cfg.fetch_assembly else { return };
+        let simple = ty.assembly.split(',').next().unwrap_or("").trim();
+        if simple.is_empty() || !lock(&self.fetched).insert(simple.to_ascii_lowercase()) {
+            return;
+        }
+        if let Err(why) = (fetch.0)(simple) {
+            eprintln!("warning: DotNet assembly {simple} was not fetched from the BC artifacts: {why}");
+        }
+    }
+
+    fn fetch_for_target(&self, target: &DotNetTarget) {
+        if let DotNetTarget::Static(ty) = target {
+            self.fetch_for(ty);
+        }
+    }
+
     fn resolve(&self) -> &Result<Resolved, String> {
         self.resolved.get_or_init(|| {
             let began = std::time::Instant::now();
@@ -268,10 +314,19 @@ fn wire_probe_dirs(dirs: &[PathBuf]) -> Vec<Value> {
 }
 
 /// The probe folders of a run: the user's `--dotnet-assembly-dir` folders first, then the default
-/// service-tier folder (see [`default_probe_dir`]) unless it is already listed.
-pub fn probe_dirs(user: &[PathBuf], sandbox: Option<&Path>, build: Option<&str>, major: u32) -> Vec<PathBuf> {
+/// service-tier folder (see [`default_probe_dir`]), then `fetched`, the folder al-runner fetches service-tier
+/// assemblies into from the platform artifact (`al_deps::service_tier`, al-runner issue 6924), each unless it is
+/// already listed. `fetched` is listed even before it exists: the fetch fills it during the run.
+pub fn probe_dirs(
+    user: &[PathBuf],
+    sandbox: Option<&Path>,
+    build: Option<&str>,
+    major: u32,
+    fetched: Option<&Path>,
+) -> Vec<PathBuf> {
     let mut dirs = user.to_vec();
-    if let Some(d) = sandbox.and_then(|s| default_probe_dir(s, build, major)) {
+    let default = sandbox.and_then(|s| default_probe_dir(s, build, major));
+    for d in default.into_iter().chain(fetched.map(Path::to_path_buf)) {
         if !dirs.contains(&d) {
             dirs.push(d);
         }
@@ -423,6 +478,7 @@ impl SidecarHost {
                 pool: Pool::default(),
                 reuse: cfg_reuse.unwrap_or_else(|| Reuse::from_env(&|k| std::env::var(k).ok())),
                 dirty_reasons: Mutex::new(Default::default()),
+                fetched: Mutex::new(Default::default()),
             }),
         }
     }
@@ -501,9 +557,10 @@ impl DotNetHost for SidecarHost {
         // helper given with `--dotnet-sidecar`.
         let modified = std::fs::metadata(&r.sidecar).and_then(|m| m.modified()).ok()?;
         Some(format!(
-            "dotnet {} runtimes {} sidecar {} {:?} roll-forward {} assembly dirs {:?}",
+            "dotnet {} runtimes {} on {} sidecar {} {:?} roll-forward {} assembly dirs {:?}",
             r.dotnet.display(),
             r.versions.join(","),
+            r.runtime.version,
             r.sidecar.display(),
             modified,
             cfg.allow_roll_forward,
@@ -579,7 +636,8 @@ fn resolve(cfg: &SidecarConfig) -> Result<Resolved, String> {
     if let Some(p) = &cfg.dotnet {
         if !p.is_file() {
             return Err(format!(
-                "needs the .NET 8 runtime; 'dotnet' not found ({} does not exist)",
+                "needs the .NET {} runtime; 'dotnet' not found ({} does not exist)",
+                crate::dotnet_runtime::runtime_major_for_bc(cfg.bc_major),
                 p.display()
             ));
         }
@@ -587,28 +645,18 @@ fn resolve(cfg: &SidecarConfig) -> Result<Resolved, String> {
     // An explicit path is a file, read against the runner's folder as the sidecar's path is (`find_sidecar`).
     let explicit = cfg.dotnet.clone().map(|p| std::path::absolute(&p).unwrap_or(p));
     let Some(dotnet) = explicit.or_else(locate_dotnet) else {
-        return Err(
-            "needs the .NET 8 runtime; 'dotnet' not found (looked in DOTNET_ROOT, PATH, /usr/share/dotnet, /usr/lib/dotnet, ~/.dotnet)"
-                .into(),
-        );
+        return Err(format!(
+            "needs the .NET {} runtime; 'dotnet' not found (looked in DOTNET_ROOT, PATH, /usr/share/dotnet, /usr/lib/dotnet, ~/.dotnet)",
+            crate::dotnet_runtime::runtime_major_for_bc(cfg.bc_major)
+        ));
     };
     let versions = runtimes(&dotnet);
-    let has8 = versions.iter().any(|v| major(v) == Some(8));
-    if !has8 {
-        let newer = versions.iter().any(|v| major(v).is_some_and(|m| m > 8));
-        if !(cfg.allow_roll_forward && newer) {
-            let found = if versions.is_empty() {
-                "no Microsoft.NETCore.App runtime".to_string()
-            } else {
-                format!("found {}", versions.join(", "))
-            };
-            return Err(format!(
-                "needs the .NET 8 runtime; {found}; the sidecar needs Microsoft.NETCore.App 8.x (--dotnet-allow-roll-forward runs it on a newer major)"
-            ));
-        }
+    let needed = crate::dotnet_runtime::runtime_major_for_bc(cfg.bc_major);
+    let runtime = crate::dotnet_runtime::pick_runtime(&versions, needed, cfg.bc_major, cfg.allow_roll_forward)?;
+    if runtime.rolled_forward {
         eprintln!(
-            "warning: running the .NET sidecar on {} instead of 8.x (--dotnet-allow-roll-forward); BCL behaviour can differ",
-            versions.join(", ")
+            "warning: running the .NET sidecar on {} instead of {needed}.x (--dotnet-allow-roll-forward); BCL behaviour can differ",
+            runtime.version
         );
     }
     let sidecar = find_sidecar(cfg, &dotnet)?;
@@ -616,6 +664,7 @@ fn resolve(cfg: &SidecarConfig) -> Result<Resolved, String> {
         dotnet,
         sidecar,
         versions,
+        runtime,
     })
 }
 
@@ -700,6 +749,20 @@ fn no_cache_message() -> String {
         "{NOT_BUILT} (no cache folder to build it in: none of HOME, XDG_CACHE_HOME or USERPROFILE is set; \
          set ALRUNNER_CACHE or pass --cache-dir)"
     )
+}
+
+/// Where each process gets its working folders (`cwd`, `home`, `tmp`; removed with the process): `work_root` when
+/// set, else `run/` under the helper's cache (`cache_dir`, else `env_cache`, the cache the environment names), else
+/// the system temporary folder. Issue 6954: the process's temporary folder belongs to the run, not to the machine.
+fn work_root(cfg: &SidecarConfig, env_cache: Option<PathBuf>) -> PathBuf {
+    if let Some(w) = &cfg.work_root {
+        return w.clone();
+    }
+    cfg.cache_dir
+        .clone()
+        .or(env_cache)
+        .map(|c| c.join("run"))
+        .unwrap_or_else(std::env::temp_dir)
 }
 
 /// [`sidecar_cache_dir`] over the process environment.
@@ -945,30 +1008,30 @@ impl SidecarSession {
     fn start_process(&mut self) -> Result<(), String> {
         let began = std::time::Instant::now();
         let r = self.resolved.clone()?;
-        let workdir = self
-            .shared
-            .cfg
-            .work_root
-            .clone()
-            .unwrap_or_else(std::env::temp_dir)
-            .join(format!("al-runtime-dotnet-{}-{}", std::process::id(), self.number));
+        let cfg = &self.shared.cfg;
+        let env_cache = (cfg.work_root.is_none() && cfg.cache_dir.is_none()).then(|| sidecar_cache_dir_from_env(None));
+        let workdir = work_root(cfg, env_cache.flatten()).join(format!(
+            "al-runtime-dotnet-{}-{}",
+            std::process::id(),
+            self.number
+        ));
         let (cwd, home, tmp) = (workdir.join("cwd"), workdir.join("home"), workdir.join("tmp"));
         for d in [&cwd, &home, &tmp] {
             std::fs::create_dir_all(d).map_err(|e| format!("cannot create {}: {e}", d.display()))?;
         }
         // A cleared environment, UTC, an empty working directory (ADR-014 section 9).
         let mut cmd = Command::new(&r.dotnet);
-        cmd.arg(&r.sidecar)
-            .env_clear()
-            .env("HOME", &home)
-            .env("TMPDIR", &tmp)
-            .env("TZ", "UTC")
-            .env("DOTNET_NOLOGO", "1")
-            .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
-            .env("DOTNET_TieredPGO", "0")
-            .env("DOTNET_TC_QuickJitForLoops", "1")
-            .env("DOTNET_gcServer", "0")
-            .current_dir(&cwd)
+        // The runtime the BC version needs (crate::dotnet_runtime): the sidecar is built for net8.0, and its
+        // runtimeconfig alone would keep it on .NET 8 whenever .NET 8 is installed.
+        cmd.arg("exec")
+            .arg("--fx-version")
+            .arg(&r.runtime.version)
+            .arg(&r.sidecar)
+            .env_clear();
+        for (k, v) in crate::dotnet_env::fixed(&home, &tmp) {
+            cmd.env(k, v);
+        }
+        cmd.current_dir(&cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -978,9 +1041,6 @@ impl SidecarSession {
         }
         if let Some(root) = r.dotnet.parent() {
             cmd.env("DOTNET_ROOT", root);
-        }
-        if self.shared.cfg.allow_roll_forward {
-            cmd.env("DOTNET_ROLL_FORWARD", "Major");
         }
         let mut child = cmd
             .spawn()
@@ -1030,10 +1090,12 @@ impl SidecarSession {
                 v["protocol"]
             ));
         }
-        if v["major"].as_u64() != Some(8) && !self.shared.cfg.allow_roll_forward {
+        let chosen = u64::from(major(&r.runtime.version).unwrap_or(r.runtime.needed));
+        if v["major"].as_u64() != Some(chosen) {
             return Err(format!(
-                "the sidecar runs on {}; it needs Microsoft.NETCore.App 8.x",
-                v["runtime"].as_str().unwrap_or("an unknown runtime")
+                "the sidecar runs on {}; it was started on Microsoft.NETCore.App {}",
+                v["runtime"].as_str().unwrap_or("an unknown runtime"),
+                r.runtime.version
             ));
         }
         // Where assemblies other than the standard library come from (ADR-014 section 3).
@@ -1235,6 +1297,8 @@ fn args_json(args: &[DotNetArg]) -> Value {
 fn reply_of(v: Value) -> Result<DotNetReply, DotNetFailure> {
     let bad = |e: String| DotNetFailure::Refused(format!("unreadable reply from the sidecar: {e}"));
     let value = decode(&v["value"]).map_err(bad)?;
+    // `folded`: the sidecar bound a member written in another letter case than its .NET name, as BC does for a method,
+    // a property get and set and a static member (al-language-onprem-dotnet/dotnet/dotnet/R6897DotNetMemberCase.al, corpus pin 833a01ce). Nothing to mark.
     let mut by_ref = Vec::new();
     if let Some(a) = v["byref"].as_array() {
         for e in a {
@@ -1242,7 +1306,10 @@ fn reply_of(v: Value) -> Result<DotNetReply, DotNetFailure> {
         }
     }
     let s = &v["streams"];
-    let mut fx = StreamEffects::default();
+    let mut fx = StreamEffects {
+        text_converted_to_guid: v["textAsGuid"].as_bool().unwrap_or(false),
+        ..Default::default()
+    };
     for e in s["consumed"].as_array().into_iter().flatten() {
         fx.consumed
             .push((e[0].as_u64().unwrap_or(0) as usize, e[1].as_u64().unwrap_or(0) as usize));
@@ -1264,6 +1331,7 @@ fn reply_of(v: Value) -> Result<DotNetReply, DotNetFailure> {
 
 impl DotNetSession for SidecarSession {
     fn construct(&mut self, ty: &DotNetType, args: Vec<DotNetArg>) -> Result<DotNetReply, DotNetFailure> {
+        self.shared.fetch_for(ty);
         self.request(json!({"op":"construct","type":type_json(ty),"args":args_json(&args)}))
             .and_then(reply_of)
     }
@@ -1273,6 +1341,7 @@ impl DotNetSession for SidecarSession {
         member: &str,
         args: Vec<DotNetArg>,
     ) -> Result<DotNetReply, DotNetFailure> {
+        self.shared.fetch_for_target(&target);
         self.request(json!({"op":"invoke","target":target_json(&target),"member":member,"args":args_json(&args)}))
             .and_then(reply_of)
     }
@@ -1283,10 +1352,13 @@ impl DotNetSession for SidecarSession {
         type_arg: &DotNetType,
         args: Vec<DotNetArg>,
     ) -> Result<DotNetReply, DotNetFailure> {
+        self.shared.fetch_for_target(&target);
+        self.shared.fetch_for(type_arg);
         self.request(json!({"op":"invoke","target":target_json(&target),"member":member,"generic":type_json(type_arg),"args":args_json(&args)}))
             .and_then(reply_of)
     }
     fn get_property(&mut self, target: DotNetTarget, name: &str) -> Result<DotNetReply, DotNetFailure> {
+        self.shared.fetch_for_target(&target);
         self.request(json!({"op":"get","target":target_json(&target),"member":name}))
             .and_then(reply_of)
     }
@@ -1296,6 +1368,7 @@ impl DotNetSession for SidecarSession {
         name: &str,
         value: DotNetValue,
     ) -> Result<DotNetReply, DotNetFailure> {
+        self.shared.fetch_for_target(&target);
         self.request(json!({"op":"set","target":target_json(&target),"member":name,"value":encode(&value)}))
             .and_then(reply_of)
     }
@@ -1398,6 +1471,7 @@ pub fn encode(v: &DotNetValue) -> Value {
         DotNetValue::Enum { ty, name, ordinal } => json!({"t":"e","type":ty,"v":name,"o":ordinal}),
         DotNetValue::Handle { handle, ty } => json!({"t":"h","v":handle,"type":ty}),
         DotNetValue::InStream(b) => json!({"t":"ins","v":base64(b)}),
+        DotNetValue::InStreamAt { bytes, at } => json!({"t":"ins","v":base64(bytes),"p":at}),
         DotNetValue::OutStream => json!({"t":"outs"}),
         DotNetValue::OutStreamWith(b) => json!({"t":"outs","v":base64(b)}),
     }
@@ -1539,14 +1613,46 @@ mod tests {
         let svc = fake_artifact(t.path(), "27.5.1.1", "270");
         let mine = PathBuf::from("/my/dlls");
         assert_eq!(
-            probe_dirs(std::slice::from_ref(&mine), Some(t.path()), Some("27.5.1.1"), 27),
+            probe_dirs(std::slice::from_ref(&mine), Some(t.path()), Some("27.5.1.1"), 27, None),
             vec![mine.clone(), svc.clone()]
         );
         assert_eq!(
-            probe_dirs(std::slice::from_ref(&svc), Some(t.path()), None, 27),
+            probe_dirs(std::slice::from_ref(&svc), Some(t.path()), None, 27, None),
             vec![svc]
         );
-        assert_eq!(probe_dirs(std::slice::from_ref(&mine), None, None, 27), vec![mine]);
+        assert_eq!(
+            probe_dirs(std::slice::from_ref(&mine), None, None, 27, None),
+            vec![mine]
+        );
+    }
+
+    /// al-runner issue 6924: the folder al-runner fetches service-tier assemblies into comes last, after the user's
+    /// folders and an extracted BcContainerHelper artifact, and is listed before it exists (the fetch fills it during
+    /// the run; the sidecar looks at a folder again on each miss).
+    #[test]
+    fn probe_dirs_search_the_fetched_service_folder_last() {
+        let t = tempfile::tempdir().unwrap();
+        let svc = fake_artifact(t.path(), "27.5.1.1", "270");
+        let mine = PathBuf::from("/my/dlls");
+        let fetched = t.path().join("cache/artifacts/27.5.1.1/service");
+        assert_eq!(
+            probe_dirs(
+                std::slice::from_ref(&mine),
+                Some(t.path()),
+                Some("27.5.1.1"),
+                27,
+                Some(&fetched)
+            ),
+            vec![mine.clone(), svc, fetched.clone()]
+        );
+        assert_eq!(
+            probe_dirs(std::slice::from_ref(&mine), None, None, 27, Some(&fetched)),
+            vec![mine.clone(), fetched.clone()]
+        );
+        assert_eq!(
+            probe_dirs(std::slice::from_ref(&fetched), None, None, 27, Some(&fetched)),
+            vec![fetched]
+        );
     }
 
     #[test]
@@ -1592,6 +1698,30 @@ mod tests {
 
     fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
         move |k| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())
+    }
+
+    #[test]
+    fn process_folders_live_under_the_runner_cache() {
+        // Issue 6954: the process's temporary folder is a folder of its own under the runner's cache, not a folder of
+        // the system temporary folder; a chosen `work_root` wins.
+        let cfg = |cache: Option<&str>, work: Option<&str>| SidecarConfig {
+            cache_dir: cache.map(PathBuf::from),
+            work_root: work.map(PathBuf::from),
+            ..Default::default()
+        };
+        assert_eq!(
+            work_root(&cfg(Some("/c/dotnet-sidecar"), None), None),
+            PathBuf::from("/c/dotnet-sidecar/run")
+        );
+        assert_eq!(
+            work_root(&cfg(Some("/c/dotnet-sidecar"), Some("/w")), None),
+            PathBuf::from("/w")
+        );
+        assert_eq!(
+            work_root(&cfg(None, None), Some(PathBuf::from("/e/dotnet-sidecar"))),
+            PathBuf::from("/e/dotnet-sidecar/run")
+        );
+        assert_eq!(work_root(&cfg(None, None), None), std::env::temp_dir());
     }
 
     #[test]
@@ -1711,6 +1841,14 @@ mod tests {
             (Some("outs"), Some("YWJj"))
         );
         assert_eq!(encode(&DotNetValue::InStream(b"abc".to_vec()))["v"], "YWJj");
+        let at = encode(&DotNetValue::InStreamAt {
+            bytes: b"abc".to_vec(),
+            at: 2,
+        });
+        assert_eq!(
+            (at["t"].as_str(), at["v"].as_str(), at["p"].as_u64()),
+            (Some("ins"), Some("YWJj"), Some(2))
+        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
 //! TestPage SetValue on a control over a TABLE field that declares ValuesAllowed (al-runner issue 6672).
 //!
-//! Measured by corpus writer Y65 on BC 29 (pages/lt-y65-values-allowed-table-field/Y65ValuesAllowedTableField.al:236-574 on corpus
+//! Measured by corpus writer Y65 on BC 29 (pages/values-allowed-table-field/Y65ValuesAllowedTableField.al:236-574 on corpus
 //! branch al-runtime-rs-staging-y65, not pinned yet; assumption `table-field-values-allowed-setvalue`), each case on a freshly
 //! opened NavigatePage over a temporary table, Card or List with a row:
 //! - an Enum or Option field: an Enum value or an Integer in the list is taken; another (also an Integer that is no value) is a
@@ -18,9 +18,27 @@ use super::*;
 
 impl Session {
     /// The hint a TestValidation error of control `idx` ends with: a table-field control with a row on a page that is not a
-    /// list adds ` (Select Refresh to discard errors)` (handlers/TestPageErrTeardown_Tests.al, TestPageBooleanSpelling_Tests.al:210;
-    /// a list adds none, misc/lt-probes-needed-3/PnC07TestPage.al). A NavigatePage adds none (Y65ValuesAllowedTableField.al:243,
+    /// list adds ` (Select Refresh to discard errors)` (testpage/TestPageErrTeardown_Tests.al, TestPageBooleanSpelling_Tests.al:210;
+    /// a list adds none, testpage/PnC07TestPage.al). A NavigatePage adds none (Y65ValuesAllowedTableField.al:243,
     /// :262, :282, :296) for a control over a table field with ValuesAllowed.
+    /// Whether control `idx` shows an Integer field of the primary key on a draft row (a card opened with OpenNew): the
+    /// SetValue of a text it cannot take then gives the bare message, with no Refresh hint (localization/app-xliff/
+    /// lt-r7144-ext-caption/R7187PageCaption.al:107-122 and :166-175, both languages, al-runner issue 7187). Other draft shapes
+    /// are not pinned and keep the hint.
+    pub(super) fn draft_integer_key(&self, st: &St, idx: usize) -> bool {
+        if !st.borrow().draft || !self.has_source(st) {
+            return false;
+        }
+        let engine = self.engine();
+        let ir::Binding::Field(pos) = page_of(&engine, st).controls[idx].binding else {
+            return false;
+        };
+        let table = self.page_rec(st).borrow().table as usize;
+        engine.program.objects[table].table.as_ref().is_some_and(|t| {
+            matches!(t.fields[pos].ty, RtType::Integer) && t.keys.first().is_some_and(|k| k.contains(&pos))
+        })
+    }
+
     pub(super) fn validation_suffix(&self, st: &St, idx: usize, rec_bound: bool) -> &'static str {
         let object = st.borrow().object as usize;
         // Only measured for a control over a table field with ValuesAllowed: other NavigatePage controls keep the hint.
@@ -242,7 +260,7 @@ impl Session {
             }
             // A Text or Code field of quoted values on a card with a row: an entry outside the list, and also the empty text
             // although '' is listed, is a TestValidation error that lists the values with `;`; `A` is taken
-            // (pages/lt-cd-testpage-leads/CdTestPageLeads.al:396-423, Item56_ValuesAllowedEmpty_SetValueEmptyAfterA,
+            // (testpage/CdTestPageLeads.al:396-423, Item56_ValuesAllowedEmpty_SetValueEmptyAfterA,
             // Item56_ValuesAllowed_SetValueNotAllowed). Validate in code does not check it (:426-444). An entry that matches only
             // when the case is ignored, or that a Code field upper-cases, and the empty text on a list without '' are not pinned.
             _ => {
@@ -282,7 +300,7 @@ impl Session {
     }
 
     /// What Value shows for an Enum or Option control `idx` whose value `v` is outside its ValuesAllowed: the ordinal. Pinned for
-    /// the control's own list on a list (pages/lt-y37-values-allowed/Y37ValuesAllowedSetValue.al:302, :322 `4` for Finished) and
+    /// the control's own list on a list (pages/values-allowed-set-value/Y37ValuesAllowedSetValue.al:302, :322 `4` for Finished) and
     /// for the table field's list on a NavigatePage (Y65ValuesAllowedTableField.al:271-276 `now 0` for Opt A of `B, D`); elsewhere
     /// the table field's list is not measured and the caption shows as before. `Ok(None)` when the caption shows.
     pub(super) fn outside_values_allowed_shown(

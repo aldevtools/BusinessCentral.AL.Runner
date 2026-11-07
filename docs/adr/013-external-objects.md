@@ -893,7 +893,7 @@ The project owner accepted this ADR and gave three further answers.
 
 The host-values work (branch `host`) needed these choices. The owner was away; each follows
 AL Runner v2. Decision 9 above is unchanged except for the `SessionId()` row, which codeunit
-60023 (`session/TestSessionIdentityValues.al`) corrected after the table was written.
+60023 (`session-system/TestSessionIdentityValues.al`) corrected after the table was written.
 
 1. **`SessionId()` and `ServiceInstanceId()` are 1, not 0.** Options: keep 0 as the table said;
    answer a positive id. The corpus asserts `> 0` for both and for the Active Session row, and
@@ -916,8 +916,8 @@ AL Runner v2. Decision 9 above is unchanged except for the `SessionId()` row, wh
 5. **`Session.CurrentClientType()` is `Background` (AL Runner) and `DefaultClientType()` is
    `Web`.** AL Runner does not set the second. Nothing in the corpus reads either value.
    Superseded 2026-10-19 by the corpus pins (CLAUDE.md rule 3): the oracle's tests run in a web client session,
-   so `CurrentClientType()` is `Web` and `DefaultClientType()` is `Windows` (session/W5SessionFacts.al:135-138), and
-   the Session row's "Login Type" is "Username and Password" (session/W6SessionTimeZone.al:22-23).
+   so `CurrentClientType()` is `Web` and `DefaultClientType()` is `Windows` (session-system/W5SessionFacts.al:135-138), and
+   the Session row's "Login Type" is "Username and Password" (session-system/W6SessionTimeZone.al:22-23).
 6. **`CompanyName()` is `My Company`** (decision 9), replacing the placeholder `CRONUS`.
    There is still no Company row: the Company table is outside the workspace.
 7. **Temporary records are not stamped** with `SystemCreatedAt/By` and `SystemModifiedAt/By`.
@@ -1138,7 +1138,7 @@ table; a report or XML port that a variable runs or `Report::"X"` names in `Repo
 (`Codeunit::Microsoft.Foundation.Company."Company-Initialize"`, 7 in Base Application and System
 Application) attached to nothing, in both compiles. The caption class resolvers attached to the
 compiled `Caption Class` codeunit and not to the key the page client raises (a difference between
-the demand-driven and the eager compile, `autoformat/TestCaptionClassResolverFailure.al`).
+the demand-driven and the eager compile, `format-evaluate/autoformat/TestCaptionClassResolverFailure.al`).
 `Page.RunModal(0, Rec)` answered "no page has id 0" for a lookup page that was not compiled;
 the report and background task lookups by number name the real reason.
 
@@ -1157,6 +1157,8 @@ difference in outcome (about twice the cost of the first run, 8 s against 15 s o
 version, so it runs on every push). `Roots::eager` does the same inside a unit test.
 
 **Amendment (owner, 2026-10-31): runs on main and nightly only.** The eager comparison and the install baseline rule check (`tools/baseline_rule_check.sh`, `AL_CHECK_BASELINE_RULE=1`) run in CI on a push to main and on the nightly schedule, not on a pull request. Neither had failed on a pull request since 2026-10-14 apart from one catch of the eager comparison (2026-10-23), and together they cost about 3 runner minutes per run. The normal corpus run with its ratchet and work ratchet stays on every pull request, so a case already in `passing.txt` is still caught there. A merge train runs as a pull request, so its comparisons run on main after the train merges. A difference fails the CI run of main, and the regen bot and the nightly edge advance only from green main commits.
+
+**Owner decision (2026-11-04): nightly only.** The eager comparison and the install baseline rule check no longer run on a push to main either. They run on the nightly schedule, on manual dispatch and when `release-tag.yml` calls CI. A difference now fails the nightly CI run, not the run of the merge that caused it; the bisect is over a day of merges. The nightly CI run starts at 00:17 UTC, and the nightly edge (02:17 UTC) advances `release` only to a commit whose scheduled CI run passed, so edge still ships only commits these comparisons have checked.
 
 ## "Outside the workspace" on Microsoft's test buckets: root causes (branch `bucket-demand`, 2026-10-14)
 
@@ -1449,7 +1451,7 @@ higher, and the resolver failed with a version conflict.
 **What BC has.** BC runs tests through Microsoft's Test Runner app, so a BC test environment has it installed although no
 test app declares it. The corpus pins its codeunits 130450-130455 in AllObj on BC 27, 28 and 29, and pins that
 Tests-TestLibraries (130301, 130302, 130440), Permission Test Catalog (132218) and Prevent Metadata Updates (132553) are not
-installed there (`permissions/lt-ba-testpermissions/BaTpEnv.al:28`). Microsoft's own recipe builds and installs the Test
+installed there (`permissions/testpermissions/BaTpEnv.al:28`). Microsoft's own recipe builds and installs the Test
 Runner with the test apps (BCApps `build/projects/Apps W1/.AL-Go/settings.json:120`).
 
 **As built.** `al-testrun/src/deps.rs` (`with_test_environment`) adds the Test Runner app (id

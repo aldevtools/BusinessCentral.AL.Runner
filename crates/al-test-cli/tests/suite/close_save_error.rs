@@ -1,5 +1,5 @@
 //! `TestPage.Close()` on a Card whose save fails with an AL error (crates/al-vm/src/pages/close_save_failed.rs). Each test names
-//! the corpus test of testpageclose/lt-y67-close-save-error/Y67CloseSaveError.al that pins it.
+//! the corpus test of testpage/lifecycle/Y67CloseSaveError.al that pins it.
 
 use al_testrun::Outcome;
 

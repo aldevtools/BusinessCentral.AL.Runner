@@ -1,8 +1,8 @@
 //! An empty value in a WHERE condition of a view given to `SetView` (the Retention Policy filter views of the System
-//! Application, gap G5-14). Pinned by record/lt-y51-setview-shapes/Y51SetViewShapes.al:141-154 (SetView_EmptyFilterValue):
+//! Application, gap G5-14). Pinned by record/views/Y51SetViewShapes.al:141-154 (SetView_EmptyFilterValue):
 //! `1()` and `FILTER()` on a Text, Date or Integer field set a filter BC writes back as `==` and that keeps every row;
 //! `CONST()` on a Text field selects the blank value. `CONST()` on an Integer is an Evaluate error, read by the parser
-//! (types/lt-evaluate-format-lasterror-setview/P86SetView.al:139). Other field types keep the parser's refusal.
+//! (format-evaluate/P86SetView.al:139). Other field types keep the parser's refusal.
 //! `1(==)` and `FILTER(==)`, the text GetView writes for that filter, are the same filter when set again; `CONST(==)` on a
 //! Text field is the literal text `==` (Y51SetViewShapes.al:269-345, SetView_DoubleEquals*).
 
@@ -48,7 +48,7 @@ impl Session {
     }
 
     /// `SetFilter` of `==` or `=` alone on a Text field, without placeholders: `==` keeps no filter (true), `=` raises the
-    /// filter error (record/lt-y51-setview-shapes/Y51SetViewShapes.al:343-352 `setfilter_eqeq`, `setfilter_eq`). Other texts:
+    /// filter error (record/views/Y51SetViewShapes.al:343-352 `setfilter_eqeq`, `setfilter_eq`). Other texts:
     /// false.
     pub(crate) fn setfilter_equals_text(
         &self,

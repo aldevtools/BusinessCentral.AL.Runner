@@ -4,7 +4,7 @@ use al_builtins::native::Signal;
 use al_builtins::value::Value;
 
 const FIXTURES: &str = r#"
-// Occurrence = Required and Optional on field attributes of a table element (platform/lt-ag-contoso/AgXmlPortImport.al:27-53).
+// Occurrence = Required and Optional on field attributes of a table element (metadata/platform-tables/AgXmlPortImport.al:27-53).
 xmlport 60101 "ALT FieldAttr Occ"
 {
     Direction = Both; Format = Xml; UseRequestPage = false;
@@ -24,7 +24,7 @@ xmlport 60101 "ALT FieldAttr Occ"
 // UseLax (YXmlPortProps.al:67, :87).
 xmlport 60091 "ALT Lax" { Format = Xml; UseLax = true; schema { textelement(Root) { tableelement(U; "ALT Universal") { XmlName = 'Item'; fieldelement(Id; U."Entry No.") { } fieldelement(Name; U."Text Field") { } } } } }
 xmlport 60092 "ALT Strict" { Format = Xml; schema { textelement(Root) { tableelement(U; "ALT Universal") { XmlName = 'Item'; fieldelement(Id; U."Entry No.") { } fieldelement(Name; U."Text Field") { } } } } }
-// MinOccurs and MaxOccurs on container text elements (xmlport/lt-qr-xmlport-container-occurs/QrXpContainerOccurs.al:67-122).
+// MinOccurs and MaxOccurs on container text elements (xmlports/shapes-properties/QrXpContainerOccurs.al:67-122).
 table 60093 "ALT Occ Head" { fields { field(1; "No."; Code[10]) { } field(2; Name; Text[30]) { } } keys { key(PK; "No.") { } } }
 table 60094 "ALT Occ Line" { fields { field(1; "Head No."; Code[10]) { } field(2; "Line No."; Integer) { } field(3; Qty; Integer) { } } keys { key(PK; "Head No.", "Line No.") { } } }
 xmlport 60095 "ALT Occ"
@@ -71,7 +71,7 @@ xmlport 60095 "ALT Occ"
 }
 
 // Occurrence of a text attribute on the root, a container and a table element
-// (xmlport/lt-qr-xmlport-container-occurs/QsXpTextAttrObjects.al, the QS_TextAttr_* tests of QrXpContainerOccurs.al:441).
+// (xmlports/shapes-properties/QsXpTextAttrObjects.al, the QS_TextAttr_* tests of QrXpContainerOccurs.al:441).
 table 60096 "ALT Attr Row" { fields { field(1; "No."; Code[10]) { } field(2; Ref; Text[30]) { } field(3; Must; Text[30]) { } } keys { key(PK; "No.") { } } }
 xmlport 60097 "ALT Attr Occ"
 {
@@ -120,7 +120,7 @@ xmlport 60097 "ALT Attr Occ"
     end;
 }
 
-// UseTemporary with AutoSave = false (xmlport/lt-aj-xmlport/AjRunAndXmlPort.al:307 xmlport 87357, :386 xmlport 87358).
+// UseTemporary with AutoSave = false (xmlports/shapes-properties/AjRunAndXmlPort.al:307 xmlport 87357, :386 xmlport 87358).
 table 60100 "ALT Num" { fields { field(1; Number; Integer) { } } keys { key(PK; Number) { } } }
 xmlport 60098 "ALT Temp No Save Text"
 {
@@ -662,7 +662,7 @@ xmlport 60048 "ALT Container Trigger XmlPort"
     }
 }
 
-// corpus xmlport/TestXmlPortFormatEvaluateContracts.al (68460..68462)
+// corpus xmlports/TestXmlPortFormatEvaluateContracts.al (68460..68462)
 table 60060 "FE Table"
 {
     fields { field(1; Id; Integer) { } field(2; Dt; Date) { } field(3; Dec; Decimal) { } field(4; Bl; Boolean) { } }
@@ -692,7 +692,7 @@ xmlport 60062 "FE Xml"
         fieldelement(Id; T.Id) { } fieldelement(Dt; T.Dt) { } fieldelement(Dec; T.Dec) { } fieldelement(Bl; T.Bl) { } } } }
 }
 
-// corpus xmlport/lt-af-xmlport/AfXmlPortAttrChildren.al:9-113 (without its Encoding property)
+// corpus xmlports/shapes-properties/AfXmlPortAttrChildren.al:9-113 (without its Encoding property)
 table 60070 "ALT AF Row"
 {
     fields { field(1; Id; Integer) { } field(2; Name; Text[30]) { } field(3; Lang; Text[10]) { } }
@@ -841,7 +841,7 @@ fn refusal(vars: &str, body: &str) -> String {
 
 const EXPORT_VARS: &str = "H: Codeunit Helpers; B: Record \"ALT Blob\"; OutStr: OutStream; P: XmlPort \"ALT Universal XmlPort\"; Ok: Boolean;";
 
-// xmlport/TestXmlPortObject.al:XmlPort_Export_SetDestination_ProducesWellFormedXml
+// xmlports/TestXmlPortObject.al:XmlPort_Export_SetDestination_ProducesWellFormedXml
 #[test]
 fn export_writes_the_root_and_every_row_to_the_destination() {
     let out = text(
@@ -860,7 +860,7 @@ fn export_writes_the_root_and_every_row_to_the_destination() {
     assert!(xml.contains("<TextValue>Second</TextValue>"), "{xml}");
 }
 
-// xmlport/TestXmlPortObject.al:XmlPort_SetTableView_RestrictsExportedRows
+// xmlports/TestXmlPortObject.al:XmlPort_SetTableView_RestrictsExportedRows
 #[test]
 fn set_table_view_restricts_the_exported_rows() {
     let out = text(
@@ -877,7 +877,7 @@ fn set_table_view_restricts_the_exported_rows() {
     assert!(!out.contains("<EntryNo>1</EntryNo>"), "{out}");
 }
 
-// xmlport/TestXmlPortObject.al:XmlPort_Export_StaticWithRecord_RespectsFilters
+// xmlports/TestXmlPortObject.al:XmlPort_Export_StaticWithRecord_RespectsFilters
 #[test]
 fn the_static_export_respects_the_filters_of_the_given_record() {
     let out = text(
@@ -897,7 +897,7 @@ fn the_static_export_respects_the_filters_of_the_given_record() {
 const IMPORT_VARS: &str = "H: Codeunit Helpers; B: Record \"ALT Blob\" temporary; InStr: InStream; U: Record \"ALT Universal\"; P: XmlPort \"ALT Universal XmlPort\";";
 const TWO_ROWS: &str = "'<?xml version=\"1.0\" encoding=\"UTF-8\"?><Universals><Universal><EntryNo>1</EntryNo><IntegerValue>10</IntegerValue><TextValue>First</TextValue></Universal><Universal><EntryNo>2</EntryNo><IntegerValue>20</IntegerValue><TextValue>Second</TextValue></Universal></Universals>'";
 
-// xmlport/TestXmlPortObject.al:XmlPort_Import_SetSource_InsertsRows
+// xmlports/TestXmlPortObject.al:XmlPort_Import_SetSource_InsertsRows
 #[test]
 fn import_through_set_source_inserts_every_row() {
     let out = text(
@@ -912,7 +912,7 @@ fn import_through_set_source_inserts_every_row() {
     assert_eq!(out, "2|20|Second");
 }
 
-// xmlport/TestXmlPortObject.al:XmlPort_Import_StaticFromStream_InsertsRows
+// xmlports/TestXmlPortObject.al:XmlPort_Import_StaticFromStream_InsertsRows
 #[test]
 fn the_static_import_inserts_every_row() {
     let out = text(
@@ -922,7 +922,7 @@ fn the_static_import_inserts_every_row() {
     assert_eq!(out, "2");
 }
 
-// xmlport/TestXmlPortObject.al:XmlPort_Import_StaticWithRecord_GivenVariableUnchangedWithoutExplicitGet
+// xmlports/TestXmlPortObject.al:XmlPort_Import_StaticWithRecord_GivenVariableUnchangedWithoutExplicitGet
 #[test]
 fn the_record_given_to_the_static_import_only_seeds_the_table_view() {
     let out = text(
@@ -934,7 +934,7 @@ fn the_record_given_to_the_static_import_only_seeds_the_table_view() {
     assert_eq!(out, "0|0|1");
 }
 
-// xmlport/TestXmlPortAdvanced.al:XmlPort_NestedTableElements_ExportIncludesChildRecordsAndAttribute
+// xmlports/TestXmlPortAdvanced.al:XmlPort_NestedTableElements_ExportIncludesChildRecordsAndAttribute
 #[test]
 fn a_nested_table_element_exports_its_linked_rows_and_field_attributes() {
     let out = text(
@@ -955,7 +955,7 @@ fn a_nested_table_element_exports_its_linked_rows_and_field_attributes() {
     assert!(out.contains("Amount=\"15.00\""), "{out}");
 }
 
-// xmlport/TestXmlPortAdvanced.al:XmlPort_NestedTableElements_ImportCreatesParentAndChildren
+// xmlports/TestXmlPortAdvanced.al:XmlPort_NestedTableElements_ImportCreatesParentAndChildren
 #[test]
 fn a_nested_import_creates_the_children_with_the_link_field_of_their_parent() {
     let out = text(
@@ -968,7 +968,7 @@ fn a_nested_import_creates_the_children_with_the_link_field_of_their_parent() {
     assert_eq!(out, "1|2|1|15");
 }
 
-// xmlport/TestXmlPortAdvanced.al:XmlPort_TextVariableTriggers_ExportManipulatesTextAndAttributes
+// xmlports/TestXmlPortAdvanced.al:XmlPort_TextVariableTriggers_ExportManipulatesTextAndAttributes
 #[test]
 fn before_pass_variable_shapes_exported_text_and_attributes() {
     let out = text(
@@ -982,7 +982,7 @@ fn before_pass_variable_shapes_exported_text_and_attributes() {
     assert!(out.contains("<DisplayText>TXT:First</DisplayText>"), "{out}");
 }
 
-// xmlport/TestXmlPortAdvanced.al:XmlPort_TextVariableTriggers_ImportMutatesAssignedValues
+// xmlports/TestXmlPortAdvanced.al:XmlPort_TextVariableTriggers_ImportMutatesAssignedValues
 #[test]
 fn after_assign_triggers_rewrite_what_an_import_stores() {
     let out = text(
@@ -1001,7 +1001,7 @@ fn partial(entry: i32, int: i32) -> String {
     )
 }
 
-// xmlport/TestXmlPortAdvanced.al:XmlPort_AutoUpdate_UpdatesSpecifiedFieldsAndPreservesOthers
+// xmlports/TestXmlPortAdvanced.al:XmlPort_AutoUpdate_UpdatesSpecifiedFieldsAndPreservesOthers
 #[test]
 fn auto_update_changes_only_the_fields_present_in_the_import() {
     let out = text(
@@ -1018,7 +1018,7 @@ fn auto_update_changes_only_the_fields_present_in_the_import() {
     assert_eq!(out, "99|Keep|KeepDesc");
 }
 
-// xmlport/TestXmlPortAdvanced.al:XmlPort_AutoReplace_ReinitializesOmittedFields
+// xmlports/TestXmlPortAdvanced.al:XmlPort_AutoReplace_ReinitializesOmittedFields
 #[test]
 fn auto_replace_resets_the_fields_the_import_omits() {
     let out = text(
@@ -1041,7 +1041,7 @@ fn full(entry: i32, int: i32, txt: &str) -> String {
     )
 }
 
-// xmlport/TestXmlPortAdvanced.al:XmlPort_AutoSaveFalse_OnBeforeAndAfterInsertControlPersistence
+// xmlports/TestXmlPortAdvanced.al:XmlPort_AutoSaveFalse_OnBeforeAndAfterInsertControlPersistence
 #[test]
 fn with_auto_save_off_the_insert_triggers_decide_what_is_stored() {
     let out = text(
@@ -1054,7 +1054,7 @@ fn with_auto_save_off_the_insert_triggers_decide_what_is_stored() {
     assert_eq!(out, "manual-insert-First-after");
 }
 
-// xmlport/TestXmlPortAdvanced.al:XmlPort_AutoSaveFalse_OnBeforeAndAfterModifyControlPersistence
+// xmlports/TestXmlPortAdvanced.al:XmlPort_AutoSaveFalse_OnBeforeAndAfterModifyControlPersistence
 #[test]
 fn with_auto_save_off_the_modify_triggers_decide_what_is_stored() {
     let out = text(
@@ -1068,7 +1068,7 @@ fn with_auto_save_off_the_modify_triggers_decide_what_is_stored() {
     assert_eq!(out, "42|After|manual-modify-after");
 }
 
-// xmlport/TestXmlPortAdvanced.al:XmlPort_UseTemporary_RequiresManualPersistence
+// xmlports/TestXmlPortAdvanced.al:XmlPort_UseTemporary_RequiresManualPersistence
 #[test]
 fn a_temporary_table_element_stores_nothing_in_the_real_table() {
     let out = text(
@@ -1084,7 +1084,7 @@ fn a_temporary_table_element_stores_nothing_in_the_real_table() {
     assert_eq!(out, "10|Temp|temp-copy");
 }
 
-// xmlport/TestXmlPortImportWriteTx.al:StaticGuardedImport_WithUncommittedWrite_ReturnsFalse_AndImportsNothing
+// xmlports/TestXmlPortImportWriteTx.al:StaticGuardedImport_WithUncommittedWrite_ReturnsFalse_AndImportsNothing
 #[test]
 fn a_guarded_static_import_with_a_pending_write_returns_false_and_imports_nothing() {
     let out = text(
@@ -1098,7 +1098,7 @@ fn a_guarded_static_import_with_a_pending_write_returns_false_and_imports_nothin
     assert_eq!(out, "No|0");
 }
 
-// xmlport/TestXmlPortImportWriteTx.al:InstanceGuardedImport_WithUncommittedWrite_IsRefused_AndImportsNothing
+// xmlports/TestXmlPortImportWriteTx.al:InstanceGuardedImport_WithUncommittedWrite_IsRefused_AndImportsNothing
 #[test]
 fn a_guarded_instance_import_with_a_pending_write_is_refused_with_an_error() {
     let out = text(
@@ -1114,7 +1114,7 @@ fn a_guarded_instance_import_with_a_pending_write_is_refused_with_an_error() {
     assert!(out.ends_with("|No|0"), "{out}");
 }
 
-// xmlport/TestXmlPortImportWriteTx.al:StaticStatementImport_WithUncommittedWrite_IsAllowed_AndImportsRows
+// xmlports/TestXmlPortImportWriteTx.al:StaticStatementImport_WithUncommittedWrite_IsAllowed_AndImportsRows
 // and InstanceStatementImport_WithUncommittedWrite_IsAllowed_AndImportsRows
 #[test]
 fn the_statement_form_joins_the_callers_transaction() {
@@ -1129,7 +1129,7 @@ fn the_statement_form_joins_the_callers_transaction() {
     assert_eq!(out, "3");
 }
 
-// xmlport/TestXmlPortImportWriteTx.al:InstanceGuardedImport_AfterCommit_ReturnsTrue_AndImportsRows
+// xmlports/TestXmlPortImportWriteTx.al:InstanceGuardedImport_AfterCommit_ReturnsTrue_AndImportsRows
 // and GuardedImport_LeavingImportedRows_DoesNotBlockTheNextGuardedImport
 #[test]
 fn a_guarded_import_commits_its_own_transaction() {
@@ -1144,7 +1144,7 @@ fn a_guarded_import_commits_its_own_transaction() {
     assert_eq!(out, "Yes|2|No");
 }
 
-// xmlport/TestXmlPortImportWriteTx.al:StaticGuardedImport_FailingSecondElement_ReturnsFalse_AndRollsBackTheFirstRow
+// xmlports/TestXmlPortImportWriteTx.al:StaticGuardedImport_FailingSecondElement_ReturnsFalse_AndRollsBackTheFirstRow
 // and InstanceGuardedImport_FailingSecondElement_ReturnsFalse_AndRollsBackTheFirstRow
 #[test]
 fn a_failing_guarded_import_returns_false_and_rolls_back_its_rows() {
@@ -1164,9 +1164,9 @@ fn a_failing_guarded_import_returns_false_and_rolls_back_its_rows() {
     }
 }
 
-// The statement form leaves the failure to the caller (xmlport/TestXmlPortImportWriteTx.al does not
+// The statement form leaves the failure to the caller (xmlports/TestXmlPortImportWriteTx.al does not
 // pin its text, so the failing statement import is refused).
-// xmlport/TestXmlPortExportImportContracts.al:XmlPortImport_BadInteger_ThrowsEvaluate
+// xmlports/TestXmlPortExportImportContracts.al:XmlPortImport_BadInteger_ThrowsEvaluate
 #[test]
 fn a_failing_statement_import_raises_the_evaluate_error() {
     match run(
@@ -1181,10 +1181,10 @@ fn a_failing_statement_import_raises_the_evaluate_error() {
     }
 }
 
-// xmlport/TestXmlPortPrecompiledObject.al:PrecompiledXmlPort_DeclaredExportDirection_RefusesImport
+// xmlports/TestXmlPortPrecompiledObject.al:PrecompiledXmlPort_DeclaredExportDirection_RefusesImport
 // (the message is a platform resource string the corpus does not pin).
 
-// A request page with content never opens for an Export from code (xmlport/lt-y40-xmlport-request-page/
+// A request page with content never opens for an Export from code (xmlports/shapes-properties/
 // Y40XmlPortRequestPage.al:283, corpus master ac3499d6); a Run of a port that declares UseRequestPage is not pinned.
 #[test]
 fn an_export_from_code_of_a_port_with_a_request_page_runs() {
@@ -1251,7 +1251,7 @@ fn set_table_view_refuses_a_view_that_is_more_than_filters() {
     for (setup, why) in [
         ("", "ok"),
         ("V.MarkedOnly(true);", "marked"),
-        // A key and a direction order the export (corpus xmlport/TestXmlPortTriggersReplaceViewContracts.al).
+        // A key and a direction order the export (corpus xmlports/TestXmlPortTriggersReplaceViewContracts.al).
         ("V.SetCurrentKey(Rank);", "ok"),
         ("V.Ascending(false);", "ok"),
     ] {
@@ -1279,11 +1279,21 @@ fn set_table_view_refuses_a_view_that_is_more_than_filters() {
 // give the view to; both refusals name the xmlport.
 #[test]
 fn set_table_view_refusals_name_what_is_wrong() {
-    let r = refusal(
+    // A record of a table no element uses raises XmlPortNodeNotFound (xmlports/set-table-view/XmlPortSetTableViewElement.al:226
+    // SetTableView_RecordOfTableNoElementUses).
+    match run(
         "V: Record \"ALT Universal\"; P: XmlPort \"ALT Keyed XmlPort\";",
         "P.SetTableView(V); exit('');",
-    );
-    assert!(r.contains("another table"), "{r}");
+    ) {
+        Err(Signal::Error(e)) => {
+            assert_eq!(e.code, "XmlPortNodeNotFound");
+            assert_eq!(
+                e.message,
+                "The ALT Keyed XmlPort XmlPort does not have a XmlItem that uses the table (Table 60000 ALT Universal) specified in the function SetTableView."
+            );
+        }
+        other => panic!("expected an error, got {other:?}"),
+    }
     let r = refusal(
         "V: Record \"ALT Universal\"; P: XmlPort \"ALT Empty Root XmlPort\";",
         "P.SetTableView(V); exit('');",
@@ -1295,7 +1305,7 @@ fn set_table_view_refusals_name_what_is_wrong() {
 }
 
 // A refused direction names the xmlport and the direction it declares.
-// xmlport/TestXmlPortExportImportContracts.al:XmlPort_WrongDirection_Throws
+// xmlports/TestXmlPortExportImportContracts.al:XmlPort_WrongDirection_Throws
 #[test]
 fn a_direction_mismatch_raises_the_pinned_text_and_code() {
     let err = |vars: &str, body: &str| match run(vars, body) {
@@ -1317,7 +1327,7 @@ fn a_direction_mismatch_raises_the_pinned_text_and_code() {
 }
 
 // The root of an importable document must be a text element with content, or a table element of the shape
-// platform/lt-ag-contoso/AgXmlPortImport.al:784-833 pins (plain field elements; xmlport_root_table.rs). An optional field
+// metadata/platform-tables/AgXmlPortImport.al:784-833 pins (plain field elements; xmlport_root_table.rs). An optional field
 // element below a table element root is not pinned.
 #[test]
 fn an_import_whose_root_is_not_a_text_element_with_content_is_refused() {
@@ -1335,7 +1345,7 @@ fn an_import_whose_root_is_not_a_text_element_with_content_is_refused() {
 }
 
 // An error that AL code raises inside an import trigger is the last error of a guarded import,
-// with its own text (xmlport/TestXmlPortImportWriteTx.al:StaticGuardedImport_FailingSecondElement_ReturnsFalse...
+// with its own text (xmlports/TestXmlPortImportWriteTx.al:StaticGuardedImport_FailingSecondElement_ReturnsFalse...
 // pins the false and the rollback; the text of the platform's own failures is what is not pinned).
 #[test]
 fn an_error_raised_by_a_trigger_keeps_its_text_as_the_last_error() {
@@ -1364,7 +1374,7 @@ fn a_guarded_import_inside_a_try_function_is_refused() {
     }
 }
 
-// codeunit/TestWriteTxTestBoundary.al:WriteTx_Test12_AnXmlPortImportMayWriteUnderNone: the import
+// codeunits/TestWriteTxTestBoundary.al:WriteTx_Test12_AnXmlPortImportMayWriteUnderNone: the import
 // opens a transaction of its own under TransactionModel::None, which ends with it -- and a direct
 // write from the test is refused again afterwards.
 #[test]
@@ -1388,7 +1398,7 @@ fn under_transaction_model_none_an_import_may_write_and_the_refusal_returns_afte
 }
 
 // The statement form joins the caller's transaction: it neither commits the caller's pending
-// write nor returns a value (xmlport/TestXmlPortImportWriteTx.al:StaticStatementImport_WithUncommittedWrite_IsAllowed_AndImportsRows).
+// write nor returns a value (xmlports/TestXmlPortImportWriteTx.al:StaticStatementImport_WithUncommittedWrite_IsAllowed_AndImportsRows).
 #[test]
 fn a_statement_import_leaves_the_callers_write_uncommitted() {
     let out = text(
@@ -1462,16 +1472,17 @@ fn a_nested_text_group_exports_and_imports_its_variables() {
     assert_eq!(out, "World");
 }
 
-// A text element with content inside a table element is refused in both directions when a container is below it (only
-// attributes and leaf elements below it are pinned: xmlport_text_in_table.rs).
+// A text element with content inside a table element is refused on import when a container is below it (only attributes and
+// leaf elements below it are pinned: xmlport_text_in_table.rs). The export writes it as any container
+// (xmlports/shapes-properties/R6924eTreeInTable.al:287-288; xmlport_tree_in_table.rs).
 #[test]
-fn a_text_group_inside_a_table_element_is_refused() {
-    let r = refusal(
+fn a_text_group_inside_a_table_element_is_refused_on_import() {
+    let out = text(
         "H: Codeunit Helpers; B: Record \"ALT Blob\"; OutStr: OutStream;",
         "H.Row(1, 0, '', ''); B.Code := 'N2'; B.Insert(); B.Data.CreateOutStream(OutStr);
-         XmlPort.Export(60045, OutStr); exit('');",
+         XmlPort.Export(60045, OutStr); B.Modify(); exit(H.ReadAll(B));",
     );
-    assert!(r.contains("text element with content inside a table element"), "{r}");
+    assert!(out.contains("<Group>"), "{out}");
     let r = refusal(
         IMPORT_VARS,
         "H.Stage(B, InStr, '<Universals><Universal><EntryNo>1</EntryNo><Group><Inner><Deep>x</Deep></Inner></Group></Universal></Universals>');
@@ -1561,7 +1572,7 @@ fn a_statement_import_lets_a_trigger_error_through() {
 
 // A container text element with a trigger (Base App xmlport 1, "Consolidation Import/Export") is
 // not pinned by any corpus test, so running the port is refused. Code that only holds the port
-// (handlers/TestReqPageBoundVisibility.al:172-188 reaches it through Report.Run and cancels the
+// (reports/TestReqPageBoundVisibility.al:172-188 reaches it through Report.Run and cancels the
 // request page) still runs.
 #[test]
 fn a_container_text_element_trigger_is_refused_when_the_port_runs_not_when_it_is_declared() {
@@ -1576,7 +1587,7 @@ fn a_container_text_element_trigger_is_refused_when_the_port_runs_not_when_it_is
 
 const FE_ROW: &str = "T: Record \"FE Table\"; B: Record \"ALT Blob\"; OutStr: OutStream; PL: XmlPort \"FE Legacy\"; PX: XmlPort \"FE Xml\"; H: Codeunit Helpers; s: Text;";
 
-// xmlport/TestXmlPortFormatEvaluateContracts.al:131-155: Legacy writes the display text, Xml the XML forms.
+// xmlports/TestXmlPortFormatEvaluateContracts.al:131-155: Legacy writes the display text, Xml the XML forms.
 #[test]
 fn format_evaluate_decides_the_text_an_export_writes() {
     let out = text(
@@ -1600,7 +1611,7 @@ fn format_evaluate_decides_the_text_an_export_writes() {
 }
 
 // :157-197: an import reads only its own form; the Xml port refuses the display date (the start of BC's text
-// is pinned). The Legacy port reads a Date in the form yyyy-mm-dd and `true` (xmlport/lt-xmlport-query-datatransfer/
+// is pinned). The Legacy port reads a Date in the form yyyy-mm-dd and `true` (xmlports/import/
 // XpTImportOptions.al:344 Import_FormatEvaluateLegacy_XmlValues); its "The date is not valid." in :192-194 comes from
 // the DateTime, which this table does not have.
 #[test]
@@ -1627,7 +1638,7 @@ fn format_evaluate_decides_the_form_an_import_reads() {
     assert_eq!(imp(60061, xml_row), "Yes||1|2024-03-051234.5");
 }
 
-// xmlport/lt-xmlport-query-datatransfer/XpTImportBasic.al:Import_DuplicateKeyExisting
+// xmlports/import/XpTImportBasic.al:Import_DuplicateKeyExisting
 #[test]
 fn an_import_of_a_key_that_is_stored_raises_the_table_error() {
     let r = run(
@@ -1644,7 +1655,7 @@ fn an_import_of_a_key_that_is_stored_raises_the_table_error() {
     }
 }
 
-// xmlport/lt-y-xmlport-props/YXmlPortProps.al:UseLax_Import_AcceptsUnknownElements: a UseLax port skips an element of another
+// xmlports/shapes-properties/YXmlPortProps.al:UseLax_Import_AcceptsUnknownElements: a UseLax port skips an element of another
 // namespace after the last element of a sequence and lists `any element in namespace '##other'` for one of no namespace; a
 // strict port names the other namespace.
 #[test]
@@ -1683,7 +1694,7 @@ procedure Imp(Id: Integer; Xml: Text): Text var H: Codeunit Helpers; B: Record "
 const AF_VARS: &str = "H: Codeunit Helpers; B: Record \"ALT Blob\"; T: Record \"ALT Blob\" temporary; OutStr: OutStream; InStr: InStream; R: Record \"ALT AF Row\";";
 const AF_SEED: &str = "R.Id := 1; R.Name := 'Alpha'; R.Lang := 'en'; R.Insert(); B.Code := 'AF'; B.Insert(); B.Data.CreateOutStream(OutStr);";
 
-// xmlport/lt-af-xmlport/AfXmlPortAttrChildren.al:AF_Attributes_In_FieldElement (lines 241-258)
+// xmlports/shapes-properties/AfXmlPortAttrChildren.al:AF_Attributes_In_FieldElement (lines 241-258)
 #[test]
 fn a_field_element_carries_a_field_attribute_and_a_text_attribute() {
     let out = text(
@@ -1701,7 +1712,7 @@ fn a_field_element_carries_a_field_attribute_and_a_text_attribute() {
     );
 }
 
-// xmlport/lt-af-xmlport/AfXmlPortAttrChildren.al:AF_FieldElement_With_TextElement_Child (lines 271-288)
+// xmlports/shapes-properties/AfXmlPortAttrChildren.al:AF_FieldElement_With_TextElement_Child (lines 271-288)
 #[test]
 fn a_field_element_holds_a_text_element_after_its_value() {
     let out = text(
@@ -1719,7 +1730,7 @@ fn a_field_element_holds_a_text_element_after_its_value() {
     );
 }
 
-// xmlport/lt-af-xmlport/AfXmlPortAttrChildren.al:AF_FieldElement_With_FieldElement_Child (lines 300-315)
+// xmlports/shapes-properties/AfXmlPortAttrChildren.al:AF_FieldElement_With_FieldElement_Child (lines 300-315)
 #[test]
 fn a_field_element_holds_a_field_element_after_its_value() {
     let out = text(
@@ -1738,7 +1749,7 @@ fn a_field_element_holds_a_field_element_after_its_value() {
 }
 
 // A field element whose field attribute (Required by default) is missing in the document fails the schema check
-// (xmlport/lt-y68-xmlport-shapes/Y68XmlPortShapes.al:642-692 Q6_FieldElement_Attributes_Import `req missing`).
+// (xmlports/shapes-properties/Y68XmlPortShapes.al:642-692 Q6_FieldElement_Attributes_Import `req missing`).
 #[test]
 fn a_field_element_without_its_required_field_attribute_fails_on_import() {
     let r = run(
@@ -1751,7 +1762,7 @@ fn a_field_element_without_its_required_field_attribute_fails_on_import() {
     );
 }
 
-// xmlport/PWXmlPortFormatEvaluate.al:Import_Xml_Enum_Invalid: an undeclared ordinal is imported, a name that is no member raises
+// xmlports/PWXmlPortFormatEvaluate.al:Import_Xml_Enum_Invalid: an undeclared ordinal is imported, a name that is no member raises
 // with the captions.
 #[test]
 fn an_xml_import_into_an_enum_takes_an_undeclared_ordinal_and_names_the_captions_for_an_unknown_name() {
@@ -2029,7 +2040,7 @@ fn fa_occ_import(xml: &str) -> String {
     }
 }
 
-// platform/lt-ag-contoso/AgXmlPortImport.al:248 FieldAttribute_Occurrence_RequiredAndOptional_Import: a missing Optional field
+// metadata/platform-tables/AgXmlPortImport.al:248 FieldAttribute_Occurrence_RequiredAndOptional_Import: a missing Optional field
 // attribute leaves the field at its initial value; a missing Required one fails the schema check, and the first one the element
 // lacks is named.
 #[test]
@@ -2062,7 +2073,7 @@ fn an_import_checks_the_occurrence_of_field_attributes() {
 
 // The export of a field attribute with an explicit Occurrence: an Optional one whose text is empty is left out, a Required one
 // is written as `attr=""`, a value that is not empty is written as without the property (corpus
-// xmlport/lt-ra-xmlport/RaXmlPortExport.al:553 RA_FieldAttribute_Occurrence_Export_EmptyValues: `OptNum="0"`, no OptTxt).
+// xmlports/shapes-properties/RaXmlPortExport.al:553 RA_FieldAttribute_Occurrence_Export_EmptyValues: `OptNum="0"`, no OptTxt).
 #[test]
 fn an_export_leaves_out_an_empty_optional_field_attribute() {
     let vars = "H: Codeunit Helpers; B: Record \"ALT Blob\" temporary; OutStr: OutStream; U: Record \"ALT Universal\";";

@@ -44,7 +44,7 @@ const STMT_KWS: [&str; 12] = [
 
 /// The keyword that starts a statement. `continue` is one only where a statement of one word ends: before `;`, `end`,
 /// `else`, `until` or the end of the input; anywhere else it is a name (corpus types/PUContinue.al,
-/// misc/lt-system-functions/ControlFlow.al).
+/// language/ControlFlow.al).
 fn stmt_kw(p: &Parser) -> Option<usize> {
     match p.which_kw(&STMT_KWS) {
         Some(10)
@@ -327,7 +327,7 @@ mod tests {
 
     #[test]
     fn with_statement_takes_an_expression_and_one_statement() {
-        // corpus events/lt-global-triggers-statements/P114WithStatement.al:30-60
+        // corpus events/platform-triggers/P114WithStatement.al:30-60
         assert_eq!(
             s("with Row do Id := 7"),
             "(WithStmt with (NameRef Row) do (AssignStmt (NameRef Id) := (Literal 7)))"

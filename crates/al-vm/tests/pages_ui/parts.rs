@@ -422,7 +422,7 @@ const SEED: &str = "R.Grp := 'A'; R.\"Line No.\" := 10; R.Descr := 'Alpha'; R.In
     R.Grp := 'A'; R.\"Line No.\" := 20; R.Descr := 'Shared'; R.Insert();
     R.Grp := 'A'; R.\"Line No.\" := 30; R.Descr := 'Shared'; R.Insert();";
 
-// testpart/TestTestPart.al TestPart_First_LandsOnTheFirstRowInKeyOrder, _Next_WalksForwardOneRowAtATime,
+// testpage/parts/TestTestPart.al TestPart_First_LandsOnTheFirstRowInKeyOrder, _Next_WalksForwardOneRowAtATime,
 // _Last_LandsOnTheHighestKeyedRow, _Previous_WalksBackwardOneRowAtATime
 #[test]
 fn a_part_walks_its_own_rowset_in_key_order() {
@@ -444,7 +444,7 @@ fn a_part_walks_its_own_rowset_in_key_order() {
     assert_eq!(text(r), "Alpha,20,30,20");
 }
 
-// testpart/TestTestPart.al TestPart_Caption_ReadsThePartPageNotTheHost
+// testpage/parts/TestTestPart.al TestPart_Caption_ReadsThePartPageNotTheHost
 #[test]
 fn a_part_caption_is_the_part_pages() {
     let r = run(
@@ -454,7 +454,7 @@ fn a_part_caption_is_the_part_pages() {
     assert_eq!(text(r), "Part Lines Caption");
 }
 
-// testpart/TestTestPart.al TestPart_InvisiblePart_IsNotInTheControlTreeAtAll
+// testpage/parts/TestTestPart.al TestPart_InvisiblePart_IsNotInTheControlTreeAtAll
 #[test]
 fn an_invisible_part_is_not_on_the_page() {
     let r = run(
@@ -464,7 +464,7 @@ fn an_invisible_part_is_not_on_the_page() {
     assert!(error_text(r).contains("was not found on the page"));
 }
 
-// testpart/PvdHeaderCard.Page.al + TestPartProvider.al: SubPageLink follows the host's current row
+// testpage/parts/PvdHeaderCard.Page.al + TestPartProvider.al: SubPageLink follows the host's current row
 #[test]
 fn a_linked_part_shows_the_rows_of_the_hosts_current_row() {
     let r = run(
@@ -485,7 +485,7 @@ fn a_linked_part_shows_the_rows_of_the_hosts_current_row() {
     assert_eq!(text(r), "ten,twenty,[]");
 }
 
-// testpart/TestTestPart.al TestPart_New_AddsARowThePartCanThenWrite
+// testpage/parts/TestTestPart.al TestPart_New_AddsARowThePartCanThenWrite
 #[test]
 fn a_row_typed_into_a_part_is_saved_when_the_host_closes() {
     let r = run(
@@ -509,8 +509,8 @@ const RANKS: &str = "R.\"Entry No.\" := 1; R.Rank := 30; R.Bucket := 'KEEP'; R.I
     R.\"Entry No.\" := 3; R.Rank := 40; R.Bucket := 'KEEP'; R.Insert();
     R.\"Entry No.\" := 4; R.Rank := 20; R.Bucket := 'KEEP'; R.Insert();";
 
-// handlers/TestPartSubPageView.al SubPageView_FiltersThePartToTheMatchingRowsOnly and
-// handlers/TestPartSubPageViewSorting.al SubPageViewSortingAndWhere_FiltersAndOrdersTogether:
+// testpage/TestPartSubPageView.al SubPageView_FiltersThePartToTheMatchingRowsOnly and
+// testpage/TestPartSubPageViewSorting.al SubPageViewSortingAndWhere_FiltersAndOrdersTogether:
 // the part control's SubPageView filters, orders by the named key and direction.
 #[test]
 fn a_sub_page_view_filters_and_orders_the_part() {
@@ -532,7 +532,7 @@ fn a_sub_page_view_filters_and_orders_the_part() {
     assert_eq!(text(r), "3,1,4,0,|1,2,3,4,0,");
 }
 
-// handlers/TestPartSubPageView.al SubPageView_FilterLandsInTheLinkFilterGroup4
+// testpage/TestPartSubPageView.al SubPageView_FilterLandsInTheLinkFilterGroup4
 #[test]
 fn a_sub_page_view_filter_lands_in_filter_group_four() {
     let r = run(
@@ -579,7 +579,7 @@ fn the_draft_line_of_a_linked_part_is_a_started_record() {
 }
 
 // handlers/TestPagePartDraftLink.al EmptyLinkedPart_WriteWithoutFirst_ValidateSeesTheLinkedKey
-// and handlers/TestPageSubpagePartNewRecordInit.al New_StampsTheLinkedFieldAndValidatesIt
+// and testpage/TestPageSubpagePartNewRecordInit.al New_StampsTheLinkedFieldAndValidatesIt
 #[test]
 fn typing_into_the_draft_line_inserts_a_row_with_the_link_key_validated() {
     let r = run(
@@ -604,7 +604,7 @@ fn typing_into_the_draft_line_inserts_a_row_with_the_link_key_validated() {
     assert_eq!(text(r), "H1/10000/H1/NEWREC/Yes/1");
 }
 
-// handlers/TestPagePartOnNewRecordCount.al: showing the draft line starts the record once; First()
+// testpage/TestPagePartOnNewRecordCount.al: showing the draft line starts the record once; First()
 // on the open empty part and writing into the draft line start nothing; New() starts one more.
 #[test]
 fn on_new_record_runs_once_per_started_row() {
@@ -651,7 +651,7 @@ fn append_after(existing: &[i32], pos: usize) -> String {
     text(r)
 }
 
-// handlers/TestPageAutoSplitKeyRanges_Tests.al: _OnAGridThatAlreadyHasALine_ContinuesFromTheLastLine,
+// testpage/TestPageAutoSplitKeyRanges_Tests.al: _OnAGridThatAlreadyHasALine_ContinuesFromTheLastLine,
 // _BetweenLines50000And70000_LandsAt60000, _BetweenLines10000And90000_StepsOneIncrementTo20000,
 // _AfterSingleNegativeLine_LandsAtMinus6667, _BetweenMinus10000And10000_LandsAtMinusOne
 #[test]
@@ -663,7 +663,7 @@ fn auto_split_key_numbers_a_new_line_after_the_current_one() {
     assert_eq!(append_after(&[-10000, 10000], 0), "-1");
 }
 
-// handlers/TestPageAutoSplitKey_Tests.al TestPage_New_ThreeConsecutiveLines_AutoSplitKeyNumbersThemInTenThousands
+// testpage/TestPageAutoSplitKey_Tests.al TestPage_New_ThreeConsecutiveLines_AutoSplitKeyNumbersThemInTenThousands
 #[test]
 fn consecutive_new_lines_are_numbered_in_steps_of_ten_thousand() {
     let r = run(
@@ -685,7 +685,7 @@ fn consecutive_new_lines_are_numbered_in_steps_of_ten_thousand() {
     assert_eq!(text(r), "20000one,30000two,40000three,");
 }
 
-// testpart/TestOkPartRow.al OkInvoke_SavesThePartRowStartedByNew (and the untouched negative control)
+// testpage/parts/TestOkPartRow.al OkInvoke_SavesThePartRowStartedByNew (and the untouched negative control)
 #[test]
 fn ok_saves_a_typed_part_row_and_drops_an_untouched_new_one() {
     let r = run(
@@ -707,7 +707,7 @@ fn ok_saves_a_typed_part_row_and_drops_an_untouched_new_one() {
     assert_eq!(text(r), "1/2");
 }
 
-// handlers/TestPageNoSrcPart_Tests.al DirectOpen_NoSrcHost_NoSourceTablePartControlReads,
+// testpage/TestPageNoSrcPart_Tests.al DirectOpen_NoSrcHost_NoSourceTablePartControlReads,
 // _HostFieldReachesTheNoSourceTablePartPage and _HostWriteIsVisibleThroughTheSameInstance:
 // a part page without a source table, and the host's code calling its procedure through
 // CurrPage.<Part>.Page.
@@ -728,7 +728,7 @@ fn a_host_calls_the_procedures_of_its_part_page() {
     assert_eq!(text(r), "Hello/FROM-HOST");
 }
 
-// testfilter/TestTestFilter.al TestFilter_SetFilter_And_GetFilter_RoundTripAFilterExpression and
+// testpage/filters/TestTestFilter.al TestFilter_SetFilter_And_GetFilter_RoundTripAFilterExpression and
 // TestFilter_SetFilter_RestrictsTheRowsetAndNotJustTheReportedFilter, on a part (claim 9: a part has
 // its own Filter, independent of its host's).
 #[test]
@@ -752,7 +752,7 @@ fn a_part_filter_restricts_its_own_rowset_and_reads_back() {
     assert_eq!(text(r), "10..20[]2,4,|3,1,4,");
 }
 
-// TestFilter.SetFilter with an empty text takes the filter off the field (pages/lt-ao-testpage/AoTests.al:673-695
+// TestFilter.SetFilter with an empty text takes the filter off the field (testpage/AoTests.al:673-695
 // TestFilter_SetFilterEmpty).
 #[test]
 fn an_empty_page_filter_text_clears_the_filter_of_the_field() {
@@ -774,7 +774,7 @@ fn an_empty_page_filter_text_clears_the_filter_of_the_field() {
     assert_eq!(text(r), "[]1,2,3,4,");
 }
 
-// handlers/TestPageTempPart_Host.al: the host's OnOpenPage reaches the part page it shows through
+// testpage/TestPageTempPart_Host.al: the host's OnOpenPage reaches the part page it shows through
 // CurrPage.<Part>.Page, so the part page exists before the host's own triggers run, and the part's
 // OnOpenPage runs after the host's.
 #[test]
@@ -792,7 +792,7 @@ fn a_hosts_on_open_page_can_reach_its_part_page() {
     assert_eq!(text(r), "Hello");
 }
 
-// testpart/TestPartProviderMove.al ProviderLinkedPart_FollowsTheProviderWhenOnlyTheProviderMoves and
+// testpage/parts/TestPartProviderMove.al ProviderLinkedPart_FollowsTheProviderWhenOnlyTheProviderMoves and
 // ProviderLinkedPart_HostMovesToAnEmptyProvider_ReadsBlank (the provider's own row, not the host's).
 #[test]
 fn a_provider_linked_part_follows_the_provider_part() {
@@ -818,7 +818,7 @@ fn a_provider_linked_part_follows_the_provider_part() {
     assert_eq!(text(r), "ten,twenty,[]");
 }
 
-// handlers/TestPageSubpagePartFieldLink.al, TestPageSubpagePartConstFilter.al: New() stamps a
+// testpage/TestPageSubpagePartFieldLink.al, TestPageSubpagePartConstFilter.al: New() stamps a
 // single-valued link onto key fields only, a multi-valued filter nowhere, and PopulateAllFields
 // lifts the key gate.
 #[test]
@@ -858,7 +858,7 @@ fn writing_through_a_read_only_part_control_is_refused() {
     assert!(matches!(r, Err(Signal::Unsupported(m)) if m.contains("Editable = false")));
 }
 
-// testpart/TestTestPart.al TestPart_GoToKey_*: a missing key answers false when the result is used;
+// testpage/parts/TestTestPart.al TestPart_GoToKey_*: a missing key answers false when the result is used;
 // the wrong number of key values and a discarded miss raise errors with the texts and codes above.
 #[test]
 fn part_go_to_key_answers_false_and_refuses_what_the_corpus_leaves_open() {
@@ -875,7 +875,7 @@ fn part_go_to_key_answers_false_and_refuses_what_the_corpus_leaves_open() {
         "F",
     );
     assert_eq!(text(ok), "YesNo20");
-    // handlers/TestPageRuntimeContracts.al:300-312: texts and codes.
+    // testpage/TestPageRuntimeContracts.al:300-312: texts and codes.
     let arity = run(
         "procedure F() var H: TestPage \"PT Host\"; begin H.OpenEdit(); H.Lines.GoToKey('A'); end;",
         "F",
@@ -891,7 +891,7 @@ fn part_go_to_key_answers_false_and_refuses_what_the_corpus_leaves_open() {
         if e.message == "The row does not exist on the TestPage." && e.code == "TestRowNotFound"));
 }
 
-// testfilter/TestTestFilter.al: Ascending, CurrentKey and SetCurrentKey change the walk of the page.
+// testpage/filters/TestTestFilter.al: Ascending, CurrentKey and SetCurrentKey change the walk of the page.
 #[test]
 fn test_filter_changes_the_key_and_direction_of_the_page() {
     let r = run(
@@ -914,7 +914,7 @@ fn test_filter_changes_the_key_and_direction_of_the_page() {
     assert_eq!(text(r), "Rank:2,4,1,3,No:3,1,4,2,");
 }
 
-// handlers/TestPageOpenNewPartLink.al OpenNew_NumberAssignedOnInsert_PartWriteCarriesTheNumber:
+// testpage/TestPageOpenNewPartLink.al OpenNew_NumberAssignedOnInsert_PartWriteCarriesTheNumber:
 // the parts of a new host row link to it once it is stored.
 #[test]
 fn a_new_hosts_part_follows_the_header_once_it_is_stored() {
@@ -949,7 +949,7 @@ fn the_pages_own_code_reaches_a_part_the_control_tree_dropped() {
     assert_eq!(text(r), "opened");
 }
 
-// pages/lt-page-report-events/P84Captions.al (Page_NoSubscriber c01..c13, BC 29): a CaptionClass of a numeric area other
+// pages/triggers/P84Captions.al (Page_NoSubscriber c01..c13, BC 29): a CaptionClass of a numeric area other
 // than 3 stays as written and raises no event. Base Application's captions of this kind ('5,1,GB', '1,1,') stopped
 // about 770 Tests-ERM tests.
 #[test]
@@ -961,7 +961,7 @@ fn a_numeric_caption_class_area_other_than_3_keeps_the_text_as_written() {
     assert_eq!(text(r), "5,1,GB|1,1,|Fixed");
 }
 
-// pages/lt-page-report-events/P84Captions.al Table_NoSubscriber f01..f14 (BC 29): FieldCaption of a field with a CaptionClass.
+// pages/triggers/P84Captions.al Table_NoSubscriber f01..f14 (BC 29): FieldCaption of a field with a CaptionClass.
 #[test]
 fn field_caption_of_a_field_with_a_caption_class_follows_the_pinned_forms() {
     let r = run(
@@ -973,7 +973,7 @@ fn field_caption_of_a_field_with_a_caption_class_follows_the_pinned_forms() {
 }
 
 // Tests-ERM `PurchaseOrderStatisticsTestPage.InvDiscountAmount_General.SetValue(...)`: the control shows
-// `TotalPurchLine[1]."Inv. Discount Amount"`. Unprobed (page-expression-control-setvalue).
+// `TotalPurchLine[1]."Inv. Discount Amount"`. Pinned by pages/array-element-fields/PageArrayPathSetValue.al ArrayElementField_*.
 #[test]
 fn set_value_on_a_control_bound_to_an_assignable_expression_writes_it_and_validates() {
     let r = run(
@@ -1011,7 +1011,7 @@ fn set_value_written_as_an_assignment_is_the_call() {
     assert_eq!(text(r), "viaassign");
 }
 
-// misc/lt-probes-needed-7/PnGPartTriggers.al:OpenOrderOfHostWithSixParts (17 part reads) and pages/lt-part-reads/PartReadsOpen.al:
+// testpage/PnGPartTriggers.al:OpenOrderOfHostWithSixParts (17 part reads) and pages/parts/PartReadsOpen.al:
 // OpenView_SixParts_ReadsPerPartLogged (`open-Same`, 3 rows read 30000, 20000, 10000, count 4 with OnOpenPage): a part whose SubPageView
 // restricts the field its SubPageLink names reads its rows once each, last to first, when the host opens; every other part reads
 // its rows and then the first row again.
@@ -1068,7 +1068,7 @@ fn a_part_viewing_its_linked_field_reads_its_rows_backwards_once_at_open() {
     );
 }
 
-// misc/lt-probes-needed-7/PnGPartRows.al:117 ReadOnlyPartSetValue `ro-descr-editable` No: a field of a part whose control
+// testpage/PnGPartRows.al:117 ReadOnlyPartSetValue `ro-descr-editable` No: a field of a part whose control
 // says the literal `Editable = false` is not editable.
 #[test]
 fn a_field_of_a_part_with_a_literal_editable_false_reads_not_editable() {
@@ -1085,7 +1085,7 @@ fn a_field_of_a_part_with_a_literal_editable_false_reads_not_editable() {
 
 // Hard rule 4: what an Editable or Enabled expression on a part control (or Enabled = false) does to the fields of the part
 // is not pinned (the corpus pins only TestPart.Editable()/Enabled() of the part itself,
-// pages/lt-page-controls-aa/AaControls.al:AA_Controls_PartState). Tests-ERM ERM Sales Quotes BlankSalesQuoteLinesUneditable
+// pages/controls/AaControls.al:AA_Controls_PartState). Tests-ERM ERM Sales Quotes BlankSalesQuoteLinesUneditable
 // reads `SalesLines.Description.Editable()` behind `Editable = IsSalesLinesEditable`: refused, not answered Yes.
 #[test]
 fn editable_and_enabled_of_a_field_behind_a_part_expression_are_refused() {
@@ -1152,7 +1152,7 @@ fn a_part_expression_that_is_true_leaves_its_fields_answering_by_themselves() {
     );
 }
 
-// pages/lt-part-line-before-host-key/PartLineBeforeHostKey.al:672 PYB_OpenNew_Document_LogOnly, :809 PYB_OpenEdit_HostWithoutLines,
+// pages/parts/PartLineBeforeHostKey.al:672 PYB_OpenNew_Document_LogOnly, :809 PYB_OpenEdit_HostWithoutLines,
 // :879 PYB_OpenEdit_ThenHostNew: the blank line of a part that shows no row of an editable host runs OnNewRecord three times as the
 // host opens (OpenNew and OpenEdit); the host's New() runs none of the part's.
 #[test]
@@ -1180,7 +1180,7 @@ fn an_empty_part_of_an_editable_host_runs_on_new_record_three_times_and_host_new
     assert_eq!(text(r), "3,3,0");
 }
 
-// pages/lt-part-line-before-host-key/PartLineBeforeHostKey.al:1349 QH_EmptyPart_OpenNew_CurrRecordOrder, :1381
+// pages/parts/PartLineBeforeHostKey.al:1568 QH_EmptyPart_OpenNew_CurrRecordOrder, :1381
 // QH_EmptyPart_OpenEdit_CurrRecordOrder, :1495 QH_EmptyPart_OpenEdit_HostNext, :1418 QH_EmptyPart_OpenNew_KeyTyped: the
 // empty part of an editable host runs OnAfterGetCurrRecord right after each of its three OnNewRecord runs; :1439
 // QH_EmptyPart_OpenNew_CurrRecordOnlyPart, :1455 QH_EmptyPart_OpenEdit_CurrRecordOnlyPart: a part declaring only
@@ -1213,7 +1213,7 @@ fn an_empty_part_runs_on_after_get_curr_record_after_each_of_its_three_new_recor
     );
 }
 
-// PartLineBeforeHostKey.al:879 PYB_OpenEdit_ThenHostNew: a host's New() runs none of the part's OnNewRecord; whether the
+// PartLineBeforeHostKey.al:1098 PYB_OpenEdit_ThenHostNew: a host's New() runs none of the part's OnNewRecord; whether the
 // part's OnAfterGetCurrRecord runs then is not pinned, so a part that declares it is refused.
 #[test]
 fn a_host_new_over_an_empty_part_with_on_after_get_curr_record_is_refused() {
@@ -1232,7 +1232,7 @@ fn a_host_new_over_an_empty_part_with_on_after_get_curr_record_is_refused() {
     }
 }
 
-/// pages/lt-new-line-stamps-filters/NewLineStampsFilters.al:534-597 QO_HostB_OpenNew_DelayedPart_NoThenType and
+/// pages/triggers/NewLineStampsFilters.al:534-597 QO_HostB_OpenNew_DelayedPart_NoThenType and
 /// QO_HostB_OpenNew_PartB_NoThenType (corpus bump 45): a Card with a SourceTableView, opened with OpenNew, whose parts link on its
 /// key. Typing the key stores a header with a blank key (`after_no.headers = 1 [|A]`), and the card and the lines keep the blank
 /// key. That rule is not understood: the key SetValue is refused.

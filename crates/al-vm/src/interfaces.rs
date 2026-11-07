@@ -13,7 +13,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 /// A call on an interface variable that holds no implementation
-/// (codeunit/TestInterfaceRuntimeContracts.al:76,
+/// (codeunits/TestInterfaceRuntimeContracts.al:76,
 /// Interface_CallOnUnassignedVariable_Throws_InterfaceNotInitialized).
 fn not_initialized() -> Signal {
     Signal::Error(Box::new(AlError {
@@ -29,8 +29,8 @@ impl Session {
     /// from `objects`. `is` is false, not an error, for an instance that does not implement `I` and
     /// for an unassigned variable; `as` to such an interface or on an unassigned variable raises
     /// `The expression cannot be the target interface.` / `UnableToCast`
-    /// (codeunit/TestInterfaceIsAsContracts.al:61-102; the implemented case:
-    /// codeunit/TestInterfaceRuntimeContracts.al:Interface_ExtendedInterface_IsAndAs).
+    /// (codeunits/TestInterfaceIsAsContracts.al:61-102; the implemented case:
+    /// codeunits/TestInterfaceRuntimeContracts.al:Interface_ExtendedInterface_IsAndAs).
     pub(crate) fn interface_test(&mut self, value: Value, objects: &[u32], cast: bool) -> Result<Value, Signal> {
         let unable = || {
             Signal::Error(Box::new(AlError {
@@ -66,6 +66,20 @@ impl Session {
             Value::Codeunit(i) => {
                 let object = i.borrow().object as usize;
                 match targets.iter().find(|(o, _)| *o == object) {
+                    // The codeunit does not declare the member: the interface's default body runs on its
+                    // instance (codeunits/CwDefaultInterfaceMethods.al:114-138, CW_Default_InheritAndOverride).
+                    Some((_, al_ir::walk::DEFAULT_BODY)) => {
+                        let kinds = &self.engine.program.objects;
+                        match targets
+                            .iter()
+                            .find(|(o, _)| kinds[*o].kind == al_ir::ObjKind::Interface)
+                        {
+                            Some((o, r)) => Ok((*o, *r, self.shared_instance(i))),
+                            None => Err(Signal::Unsupported(
+                                "interface call: the default body of the interface is not compiled".into(),
+                            )),
+                        }
+                    }
                     Some((o, r)) => Ok((*o, *r, self.shared_instance(i))),
                     None => Err(Signal::Unsupported(format!(
                         "interface call on an instance of `{}`, which the interface does not list",
@@ -73,7 +87,7 @@ impl Session {
                     ))),
                 }
             }
-            // codeunit/TestInterfaceRuntimeContracts.al:76
+            // codeunits/TestInterfaceRuntimeContracts.al:76
             // (Interface_CallOnUnassignedVariable_Throws_InterfaceNotInitialized).
             Value::Null => Err(not_initialized()),
             other => Err(Signal::Unsupported(format!("interface call on {}", other.describe()))),
@@ -96,7 +110,7 @@ impl Session {
         let object = match by_ordinal.iter().find(|(o, _)| *o == ordinal) {
             Some((_, c)) => *c,
             // An ordinal the enum does not declare and no UnknownValueImplementation to answer for
-            // it: codeunit/TestInterfaceRuntimeContracts.al:90
+            // it: codeunits/TestInterfaceRuntimeContracts.al:90
             // (Interface_CastUndeclaredEnumOrdinalWithoutUnknownImplementation_Throws).
             None => unknown.ok_or_else(|| {
                 Signal::Error(Box::new(AlError {

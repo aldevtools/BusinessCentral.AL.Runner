@@ -160,7 +160,7 @@ page 50100 P { PageType = Card; layout { area(Content) { usercontrol(BusinessCha
 
 /// Tests-SCM: a page extension's field `field(X; Item."Qty. on Component Lines")` names a
 /// `protected var` of the page it extends. It lowers (ADR-023; corpus
-/// handlers/TestPageExtensionBaseAccessContracts.al:326), and a name the base does not make
+/// pages/extensions/TestPageExtensionBaseAccessContracts.al:326), and a name the base does not make
 /// visible is refused with the compiler's text (AL0161).
 #[test]
 fn an_extension_naming_a_variable_of_its_base_page_lowers_and_a_private_one_is_refused() {
@@ -185,7 +185,7 @@ pageextension 50102 Ext2 extends Base { trigger OnOpenPage() begin Hidden := 1; 
 /// Tests-ERM: the Manufacturing report extensions call `Window.Open(..)` and
 /// `ExchangeAmtLCYToFCY(..)`, a `protected var` and a `protected procedure` of the report they
 /// extend (Microsoft's "Adjust Add. Reporting Currency"). They lower (corpus
-/// reportextensiontrigger/TestReportExtensionBaseMembersContracts.al:256); a `local` procedure
+/// reports/extensions/TestReportExtensionBaseMembersContracts.al:256); a `local` procedure
 /// is refused with the compiler's text.
 #[test]
 fn a_report_extension_naming_a_member_of_its_base_report_lowers_and_a_local_one_is_refused() {
@@ -212,7 +212,7 @@ reportextension 50101 Ext extends Base
 
 /// A report extension declares a `var` in its `requestpage`, with the name of a variable of its base report. Its request
 /// page triggers see their own variable, not the base's private one (AL0161) and not nothing (corpus
-/// report/lt-ab-request-page-triggers/ABRequestPageExt.al:63).
+/// reports/request-page/ABRequestPageExt.al:63).
 #[test]
 fn a_request_page_variable_is_seen_by_the_request_page_triggers_of_a_report_extension() {
     let (_, l) = lower_files(
@@ -694,7 +694,7 @@ fn a_dotnet_alias_without_a_declaration_is_a_lowering_reason() {
     );
 }
 
-// session/TestEnvironmentUserTenantContracts.al:204-216 reaches `CopyStr(TenantInfo.PreferredLanguage(), 1, 2)`
+// session-system/TestEnvironmentUserTenantContracts.al:204-216 reaches `CopyStr(TenantInfo.PreferredLanguage(), 1, 2)`
 // and `IsNull(TenantInfo)` in Microsoft's Azure AD Tenant Impl.: a DotNet result passed to a Text
 // parameter must fit it exactly (ADR-014 section 4), and IsNull takes a DotNet value.
 #[test]
@@ -711,7 +711,7 @@ fn a_dotnet_result_passed_to_a_text_parameter_is_coerced_and_isnull_takes_a_dotn
 
 // System Application Uri.GetSegments: `Result.Add(Segment)` with `Segment: DotNet String` and `Result: List of [Text]`
 // (al-runner issue 6298). A variable declared `DotNet String` reads as a Text, nothing as '' (tests/al-language-onprem-dotnet/
-// lt-dotnet-interop/DotNetOperandStringEq.al), so it fits the list's Text element like a DotNet result does.
+// dotnet/dotnet-interop/DotNetOperandStringEq.al), so it fits the list's Text element like a DotNet result does.
 #[test]
 fn a_dotnet_string_variable_added_to_a_list_of_text_is_converted() {
     let (ws, l) = lower_src(
@@ -731,7 +731,7 @@ fn a_dotnet_string_variable_added_to_a_list_of_text_is_converted() {
 // `DotNet A.B.C` names alias `C` declared in namespace `A.B`, not a .NET full type name: Microsoft's System Application declares
 // `type("System.DateTime"; "DateTime")` inside `namespace System;`, and its AFS Format Helper declares
 // `DateTimeDotNet: DotNet System.DateTime` (al-runner issue 6488; corpus writer Y20,
-// al-language-onprem-dotnet/lt-y20-dotnet-fullname/Y20DotNetFullTypeName.al). A quoted name is one alias, whatever dots it holds.
+// al-language-onprem-dotnet/dotnet/dotnet-fullname/Y20DotNetFullTypeName.al). A quoted name is one alias, whatever dots it holds.
 // The .NET full name of a type declared under another alias does not compile (must-not-compile 2358, AL0185), nor quoted (2357).
 #[test]
 fn a_dotted_dotnet_type_name_is_a_namespace_and_an_alias() {
@@ -999,7 +999,7 @@ fn procedure_calls_and_call_graph() {
 
 #[test]
 fn format_of_an_option_field_with_captions_formats_the_caption() {
-    // corpus fieldref/TestPrecompiledFieldOptionCaption.al:47-55
+    // corpus recordref-fieldref/fieldref/TestPrecompiledFieldOptionCaption.al:47-55
     let (_, l) = lower_src(
         "table 1 T { fields { field(1; K; Code[10]) { } field(2; St; Option) { OptionMembers = Draft,\"Validaton in Process\"; OptionCaption = 'Draft,Validation in Process'; } field(3; Plain; Option) { OptionMembers = A,B; } } }\n\
              codeunit 2 C { procedure P(): Text var R: Record T; begin exit(Format(R.St)); end; procedure Q(): Text var R: Record T; begin exit(Format(R.Plain)); end; procedure W(): Text var R: Record T; begin exit(Format(R.St, 0, 9)); end; }",
@@ -1013,7 +1013,7 @@ fn format_of_an_option_field_with_captions_formats_the_caption() {
         let ir::Arg::Value(v) = &args[0] else { return None };
         Some(v.clone())
     };
-    let want = RtType::Option(vec!["Draft".into(), "Validation in Process".into()]);
+    let want = RtType::Option(vec!["Draft".into(), "Validation in Process".into()].into());
     assert!(
         matches!(arg0("P"), Some(ir::Expr::Convert(t, _)) if t == want),
         "{:?}",
@@ -1193,7 +1193,7 @@ fn enum_init_value_with_namespaced_enum() {
 
 /// A dependency app's TableRelation is fixed when that app compiled, against the apps it saw:
 /// a same-named table of a dependent app does not take it over (corpus
-/// fieldref/TestRelationTargetNameCollision.al: Customer."Shipping Agent Code" relates to the
+/// recordref-fieldref/fieldref/TestRelationTargetNameCollision.al: Customer."Shipping Agent Code" relates to the
 /// Base Application table 291, not to the dependent app's table 60990).
 #[test]
 fn a_dependency_apps_relation_resolves_among_the_apps_it_saw() {
@@ -1537,7 +1537,7 @@ fn table_relation_condition_on_the_blank_enum_member_resolves() {
 
 #[test]
 fn table_relation_const_blank_on_an_option_resolves_only_when_the_blank_member_is_first() {
-    // record/lt-table-relation-arms/TableRelationArms.al (OptionMembers = " ",A, const(" ") selects the first arm) pins the blank
+    // record/table-relation/TableRelationArms.al (OptionMembers = " ",A, const(" ") selects the first arm) pins the blank
     // member at ordinal 0; a blank member elsewhere is not pinned and the relation is not understood.
     let src = |members: &str| {
         format!(
@@ -1595,7 +1595,7 @@ fn calc_formula_filters_rewrite_double_quotes_and_flow_references_resolve() {
 fn a_record_of_a_table_that_is_not_normal_or_temporary_is_refused() {
     // A table served by a table connection the runtime does not model (ExternalSQL here) is refused.
     // A CRM table is lowered: its first use fails at run time while no connection is registered
-    // (session/TestCrmTableNoConnectionContracts.al), and with one it is refused there.
+    // (session-system/TestCrmTableNoConnectionContracts.al), and with one it is refused there.
     let (_, l) = lower_src(
         "table 50960 Crm { TableType = ExternalSQL; fields { field(1; Id; Guid) { } } }
              table 50961 Plain { TableType = Normal; fields { field(1; Id; Integer) { } } }
@@ -1718,7 +1718,7 @@ fn a_table_extension_formula_resolves_names_in_the_extensions_file() {
 
 #[test]
 fn namespace_qualified_object_types_resolve_in_the_workspace() {
-    // tableextensiontrigger/TestTableExtTargetNamespace_Tests.al:58 declares
+    // table-objects/extensions/TestTableExtTargetNamespace_Tests.al:58 declares
     // `Record ALLanguage.Coverage.TxnLocal."Shipment Method"`, a workspace table.
     let files = vec![
         (
@@ -1772,10 +1772,10 @@ fn option_fields_carry_their_option_members() {
     let t = table_ir(&l);
     assert_eq!(
         t.fields[1].ty,
-        RtType::Option(vec![" ".into(), "Draft".into(), "In Work".into()])
+        RtType::Option(vec![" ".into(), "Draft".into(), "In Work".into()].into())
     );
-    assert_eq!(t.fields[2].ty, RtType::Option(vec!["".into(), "Alpha".into()]));
-    assert_eq!(t.fields[3].ty, RtType::Option(vec!["".into()]));
+    assert_eq!(t.fields[2].ty, RtType::Option(vec!["".into(), "Alpha".into()].into()));
+    assert_eq!(t.fields[3].ty, RtType::Option(vec!["".into()].into()));
 }
 
 #[test]
@@ -1802,7 +1802,7 @@ fn audit_system_fields_are_lowered_now_that_the_runtime_stamps_them() {
 
 #[test]
 fn a_removed_key_takes_no_index_position() {
-    // corpus recordref/TestKeyMetadataRowVersionRemoved.al:10-20: KeyIndex() skips the
+    // corpus recordref-fieldref/recordref/TestKeyMetadataRowVersionRemoved.al:10-20: KeyIndex() skips the
     // Removed key's position while a Pending key stays.
     let (_, l) = lower_src(
             "table 50901 R { fields { field(1; A; Integer) { } field(2; B; Integer) { } field(3; C; Integer) { } }
@@ -1944,8 +1944,8 @@ page 50001 "P"
 codeunit 50002 "C" { procedure P() var TP: TestPage "P"; begin end; }
 "#;
 
-// Corpus handlers/TestPageFieldFormats.Page.al: controls bound to `Rec.Field` and to page
-// variables; handlers/TestPageControlPropertyLiveness_Tests.al: expression-valued Visible.
+// Corpus testpage/TestPageFieldFormats.Page.al: controls bound to `Rec.Field` and to page
+// variables; testpage/TestPageControlPropertyLiveness_Tests.al: expression-valued Visible.
 #[test]
 fn a_page_lowers_to_a_control_tree_with_bindings_and_triggers() {
     let (_, l) = lower_src(PAGE_SRC);
@@ -2012,7 +2012,7 @@ fn save_values_with_an_extension_that_adds_only_record_fields_is_lowered() {
     assert!(pg.unsupported.is_empty(), "{:?}", pg.unsupported);
 }
 
-// A SaveValues page stores the variable an extension's control binds as well (misc/lt-probes-needed-6/PnF02SaveValuesExt.al:
+// A SaveValues page stores the variable an extension's control binds as well (pages/PnF02SaveValuesExt.al:
 // 157-234): the page is not refused.
 #[test]
 fn save_values_with_an_extension_variable_control_is_not_refused() {
@@ -2293,7 +2293,7 @@ pageextension 50102 X extends P {
 
 /// al-runner issue 6250: inside a page or a page extension, a bare `Caption := ...` is `CurrPage.Caption := ...`, as alc
 /// compiles it (as for the bare page methods of issue 6021). It lowers to the same IR as the `CurrPage.` form, whose effect on
-/// `TestPage.Caption` is pinned by handlers/TestPageCaption_Page.al:44 and TestPageCaption_Tests.al:53-62.
+/// `TestPage.Caption` is pinned by testpage/TestPageCaption_Page.al:44 and TestPageCaption_Tests.al:53-62.
 #[test]
 fn a_bare_caption_assignment_in_a_page_lowers_as_the_currpage_form() {
     let src = r#"
@@ -2324,7 +2324,7 @@ pageextension 50102 X extends P {
 
 /// al-runner issue 6283: a bare `RunModal()` in a page procedure is the page's own `RunModal`, as the bare `LookupMode(true)`
 /// before it is (issue 6021). It lowers to the same IR as the `CurrPage.RunModal()` form (pinned by
-/// pages/lt-wb-6283/WbBareRunModal.al:35-43).
+/// ui-handlers/WbBareRunModal.al:35-43).
 #[test]
 fn a_bare_run_modal_in_a_page_lowers_as_the_currpage_form() {
     let src = r#"
@@ -2343,7 +2343,7 @@ page 50100 P {
     assert_eq!(body("Bare"), body("Qual"));
 }
 
-/// al-runner issue 6590: a bare `Run(Page::X, Rec)` in a page's code is the static `Page.Run` (pages/lt-uf-unqualified-runmodal/
+/// al-runner issue 6590: a bare `Run(Page::X, Rec)` in a page's code is the static `Page.Run` (pages/run-modal/
 /// Y47UnqualifiedRun.al:237-325). It lowers to the `Page.Run` form.
 #[test]
 fn a_bare_page_run_in_a_page_lowers_as_the_static_page_run() {
@@ -2414,5 +2414,97 @@ fn the_compile_counts_the_objects_and_routines_it_lowered_from_source() {
             objects_from_cache: 0,
             objects_from_kept: 0,
         }
+    );
+}
+
+/// `Database::X` in a CalcFormula names an object in the scope of the app that declares the FlowField, not
+/// of the target table's app: a workspace FlowField over a dependency table with
+/// `const(Database::"<workspace table>")` calculates like one with the literal id (corpus
+/// record/TestCalcFormulaDatabaseConst.Codeunit.al:7-30; al-runner issue 6882).
+#[test]
+fn a_database_const_over_a_dependency_table_names_the_workspace_table() {
+    use crate::workspace::AppKind;
+    let src = |id: &str, deps: &[&str], files: &[(&str, &str)]| AppSource {
+        id: id.into(),
+        name: id.into(),
+        dependencies: deps.iter().map(|d| d.to_string()).collect(),
+        files: files.iter().map(|(p, s)| (p.to_string(), s.to_string())).collect(),
+    };
+    let dep = src(
+        "dep",
+        &[],
+        &[(
+            "att.al",
+            "table 1306 \"Doc Att\" { fields { field(1; \"Table ID\"; Integer) { } field(2; \"No.\"; Code[20]) { } } \
+             keys { key(PK; \"Table ID\", \"No.\") { } } }",
+        )],
+    );
+    let main = src(
+        "main",
+        &["dep"],
+        &[(
+            "m.al",
+            "table 50712 \"FF Doc\" { fields { field(1; \"No.\"; Code[20]) { } \
+             field(2; Std; Integer) { FieldClass = FlowField; CalcFormula = count(\"Doc Att\" where(\"Table ID\" = const(Database::\"FF Doc\"), \"No.\" = field(\"No.\"))); } \
+             field(3; Lit; Integer) { FieldClass = FlowField; CalcFormula = count(\"Doc Att\" where(\"Table ID\" = const(50712), \"No.\" = field(\"No.\"))); } } \
+             keys { key(PK; \"No.\") { } } } \
+             codeunit 50000 C { var A: Record \"Doc Att\"; }",
+        )],
+    );
+    let ws = Workspace::load_apps(
+        vec![main, dep],
+        vec![AppKind::Workspace, AppKind::Dependency],
+        &Default::default(),
+    );
+    let members = crate::members::build(&ws);
+    let checked = crate::check::check(&ws, &members, &al_builtins::catalog::Catalog::load());
+    let l = lower_with_positions(&ws, &members, &checked, false);
+    let field = |n: &str| {
+        let o = l.program.objects.iter().find(|o| o.name == "FF Doc").expect("FF Doc");
+        o.table
+            .as_ref()
+            .unwrap()
+            .fields
+            .iter()
+            .find(|f| f.name == n)
+            .unwrap()
+            .clone()
+    };
+    let (std, lit) = (field("Std"), field("Lit"));
+    assert_eq!(std.calc_refusal, None);
+    assert_eq!(std.calc, lit.calc, "the Database:: constant is the literal table id");
+}
+
+/// A page's `SourceTable` (and a codeunit's `TableNo`) may be namespace-qualified; it names the same table as the
+/// plain form (al-runner issue 6790; the AL compiler compiles both to the same metadata).
+#[test]
+fn a_namespace_qualified_source_table_lowers_like_the_plain_name() {
+    let (_, l) = lower_files(
+        &[(
+            "f.al",
+            "namespace Demo.Sales;
+table 50100 \"Demo Mapping\" { fields { field(1; \"Entry No.\"; Integer) { } } keys { key(PK; \"Entry No.\") { } } }
+page 50100 FB { PageType = ListPart; SourceTable = Demo.Sales.\"Demo Mapping\"; layout { area(Content) { repeater(Lines) { field(\"Entry No.\"; Rec.\"Entry No.\") { } } } } }
+page 50101 Card { SourceTable = \"Demo Mapping\"; layout { area(Content) { part(M; FB) { } } } }",
+        )],
+        true,
+    );
+    let reasons: Vec<&String> = l.unsupported.iter().flatten().flatten().collect();
+    assert!(reasons.is_empty(), "{reasons:?}");
+    let pages: Vec<_> = l
+        .program
+        .objects
+        .iter()
+        .filter(|o| o.name == "FB" || o.name == "Card")
+        .collect();
+    assert!(
+        pages
+            .iter()
+            .all(|o| o.page.as_ref().is_some_and(|p| p.unsupported.is_empty())),
+        "{:?}",
+        pages
+            .iter()
+            .map(|o| o.page.as_ref().map(|p| p.unsupported.clone()))
+            .collect::<Vec<_>>()
     );
 }

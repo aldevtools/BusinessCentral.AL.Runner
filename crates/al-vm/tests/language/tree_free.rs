@@ -91,7 +91,7 @@ fn a_routine_that_needs_more_registers_than_the_bytecode_can_name_is_refused_not
 
 #[test]
 fn a_for_loop_over_an_empty_range_leaves_the_counter_at_the_start() {
-    // misc/lt-system-functions/ControlFlow.al:ForLoop_VariableAfterLoop: 'empty to' reads 5, 'empty downto' reads 4.
+    // language/ControlFlow.al:ForLoop_VariableAfterLoop: 'empty to' reads 5, 'empty downto' reads 4.
     let src = code(
         "procedure F(): Text var I: Integer; B: BigInteger; N: Integer; begin N := 0; I := 1; for I := 5 to 4 do N += 1; \
          B := 9; for B := 4 downto 5 do N += 1; exit(Format(I) + '|' + Format(B) + '|' + Format(N)); end;",

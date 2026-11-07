@@ -13,13 +13,13 @@
 The platform table License Permission (2000000043) is answered row by row from corpus pins
 (`al-vm/src/platform/host_tables.rs`, `license_permission_get`):
 
-- `platform/lt-platform-rows-fresh/PlatformRowsLicensePermission.al:65-73` and
-  `platform/lt-platform-tables/PtCloudTables.al:60-76`: the first rows (TableData 0 all blank, TableData 1..7 all Yes),
+- `metadata/platform-tables/PlatformRowsLicensePermission.al:65-73` and
+  `metadata/platform-tables/PtCloudTables.al:60-76`: the first rows (TableData 0 all blank, TableData 1..7 all Yes),
   and Table 99999 all Yes.
-- `platform/lt-ag-contoso/AgLicensePermission.al`: Codeunit 1, 80, 410, 99999999 and the app's own numbers, one object
+- `metadata/platform-tables/AgLicensePermission.al`: Codeunit 1, 80, 410, 99999999 and the app's own numbers, one object
   of every type at a low number, the customer range (50000-99999) and the ISV range (70000000+), Codeunit 2000000000
   all Yes, Codeunit 0 all blank.
-- `lt-ss1030/SsLicensePermissionObjects.al` (corpus staging branch): seven object types at 50123, 99999, 70000456,
+- `permissions/permission-sets/SsLicensePermissionObjects.al` (corpus staging branch): seven object types at 50123, 99999, 70000456,
   100000, 1999999999, 2000000000, 2000000001 and 2147483647.
 
 Every other Report, Codeunit or Page from 1 to 99999999 is answered by the assumption
@@ -89,7 +89,7 @@ for every type. 0, 1999999999 and 2147483647 are outside every range and pinned 
 are inside the license's system object range with all five permissions and pinned all Yes for most types. `Database.CheckLicenseFile` of a System
 key outside every System range (-1, 2147483647, -2147483647) raises the permission error
 `Sorry, the current permissions prevented the action. (System N N Execute: <app name>)`, code `DB:ExecuteObjDenied`;
-9999, inside a System range, passes (`al-language-onprem/lt-system-database-onprem/PCheckLicenseFile.al:36-39`).
+9999, inside a System range, passes (`al-language-onprem/session-system/server-system-functions/PCheckLicenseFile.al:36-39`).
 
 **Disagree.** These pins are not explained by the license file alone:
 
@@ -186,7 +186,7 @@ What the corpus pins today:
 
 - Permission sets with Indirect, plus a `Permissions` property: allowed; without the property: the error text
   `Sorry, the current permissions prevented the action. (TableData N <name> IndirectInsert: <app name>)`, code
-  `DB:ClientInsertDenied` (`permissions/lt-permissions-mock-indirect/TestIndirect.al:80-81, 102-103`). The corpus also
+  `DB:ClientInsertDenied` (`permissions/permission-sets/TestIndirect.al:80-81, 102-103`). The corpus also
   pins Read, Modify and Delete (`DB:ClientReadDenied`, `DB:ClientModifyDenied`, `DB:ClientDeleteDenied`) and
   `IndirectRead` and `IndirectModify` texts.
 - A license gap on a System object: `DB:ExecuteObjDenied` (`PCheckLicenseFile.al:37-39`).
@@ -280,7 +280,7 @@ license), `al-testrun/src/license.rs` (which license a run uses, report values),
 
 ## Implementation notes (corpus PR 900, 2026-10-31)
 
-Corpus PR 900 (`platform/lt-license-permission/LicensePermissionRows.al`, `LicensePermissionIndirectWrite.al`) pins
+Corpus PR 900 (`metadata/platform-tables/LicensePermissionRows.al`, `LicensePermissionIndirectWrite.al`) pins
 License Permission rows as the Cronus license of the CI containers gives them. What comes from where, decided without
 owner review:
 
@@ -298,3 +298,16 @@ owner review:
 - **No license loaded:** unchanged, only the rows pinned before.
 - The G/L Entry writes of `LicensePermissionIndirectWrite.al` pass because permissions are not enforced; nothing in the
   runtime changes for them.
+
+## Implementation notes (indirect entries, 2026-11-06)
+
+Open question 1 is answered by license facts measured on BC 28.5 with a customer license, 2026-11-06 (owner decision:
+the facts may be embedded in the runner as an exception to hard rule 3 for the license format only, since no corpus
+test can carry a license; nothing of that license is recorded here):
+
+- Mask bits 1, 2, 4, 8, 16 = Read, Insert, Modify, Delete, Execute at Yes; bits 32, 64, 128, 256 = Read, Insert, Modify,
+  Delete at Indirect. Letter k is Yes if bit k, Indirect if bit k << 5. The limited-usage list keeps its own meaning.
+- `al-host/src/license.rs` no longer stops the run on unknown bits. A range with bit 512 or higher, or with both bits of
+  one letter, and a MenuSuite range other than 0 or 31 (MenuSuite rows do not follow the mask), is refused where its
+  level is asked for (License Permission row, permission check).
+- Decision 6 for TableData at Indirect: see ADR-062, "Stage 5, part 1".

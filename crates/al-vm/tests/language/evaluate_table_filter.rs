@@ -1,4 +1,4 @@
-//! `Evaluate` into a TableFilter field (al-runner issues 5998 and 6006), pinned by records/W4PlatformAndMeta.al (writer SI:
+//! `Evaluate` into a TableFilter field (al-runner issues 5998 and 6006), pinned by record/W4PlatformAndMeta.al (writer SI:
 //! TableFilterEvaluate_AcceptedForms, _RejectedForms, _ErrorsAsStatement, _StoredValue; writer SR: TableFilterEvaluate_SeveralCodeFields,
 //! _SrMultiFieldForms, _SrSecondFieldTypes, _SrExpressionForms, _SrRejectedForms, _SrStoredSpaceValue). The stored text names the
 //! table by its name and each field by its caption, an Option value by its caption, a Code value in capitals, the conditions in
@@ -160,7 +160,10 @@ fn rejected_forms_answer_false_with_the_pinned_error() {
         ),
         (
             "No Such Table: Kind=1",
-            cant("No Such Table: Kind=1", "\\The metadata object Table -1 was not found."),
+            cant(
+                "No Such Table: Kind=1",
+                " \\      The metadata object Table -1 was not found.\\      The application might be incompatible with the current compiler. Please unpublish the application that contains the application object Table -1 and republish it. \\      Or, run a technical upgrade of the application database with the 'Force' flag set.\\    ",
+            ),
             "Evaluate:MetadataNotFound",
         ),
         ("SI TF Target", cant("SI TF Target", ""), "Evaluate"),
@@ -221,10 +224,10 @@ fn format_number_9_and_a_failed_evaluate_keep_the_value() {
 #[test]
 fn forms_no_test_pins_are_refused() {
     for text in [
-        // other field types, filter forms of a type the corpus does not pin, other format text shapes
+        // other field types, filter forms of a type the corpus does not pin, other format text shapes (an Option list is
+        // pinned since TableFilterEnumForms.al TableFilterEvaluate_OptionExpressions: evaluate_table_filter_enum.rs)
         "SR TF Pair: D=010125D",
         "SR TF Pair: Qty=>5",
-        "SR TF Pair: Kind=MAIN|SIDE",
         "SR TF Pair: Descr=A*",
         "SI TF Target:",
         "SR TF Pair: Code=A,,Qty=1",
@@ -275,7 +278,7 @@ fn a_field_given_by_its_number() {
 
 #[test]
 fn y67_text_or_values_quoted_numbers_and_a_second_condition_after_an_or() {
-    // xmlport/lt-y67-xmlport-tablefilter/Y67XpTableFilter.al:52 (Seed, `Note=a|b`) and :189-213 TableFilterField_Evaluate_Forms.
+    // xmlports/shapes-properties/Y67XpTableFilter.al:52 (Seed, `Note=a|b`) and :189-213 TableFilterField_Evaluate_Forms.
     assert_eq!(
         statement_form("SR TF Pair: Descr=a|b").unwrap(),
         "ok:[SR TF Pair: SR Descr Cap=a|b]"

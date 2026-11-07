@@ -186,7 +186,7 @@ fn json_missing_key_throws_with_the_pinned_text_and_code() {
 
 #[test]
 fn json_object_get_missing_key_as_statement_throws_property_not_found() {
-    // misc/lt-y14-triage/Y14Small.al:389 (corpus master): JsonObject.Get of a missing name whose
+    // format-evaluate/Y14Small.al:389 (corpus master): JsonObject.Get of a missing name whose
     // result is not used raises JsonPropertyNotFound; the token keeps its value.
     let t = text_of(
         "J: JsonObject; T: JsonToken;",
@@ -350,7 +350,7 @@ fn json_yaml_reads_and_writes_the_flat_form() {
 #[test]
 fn evaluate_numbers() {
     // text/TestEvaluate.al: Evaluate(I, '42') = 42; Evaluate(D, '3.14') > 3.0;
-    // handlers/TestPageFieldFormats_Tests.al:753 Evaluate(BigInteger, '9000000000').
+    // testpage/TestPageFieldFormats_Tests.al:753 Evaluate(BigInteger, '9000000000').
     let t = text_of(
         "I: Integer; D: Decimal; B: BigInteger;",
         "Evaluate(I, '42'); Evaluate(D, '3.14'); Evaluate(B, '9000000000'); exit(Format(I) + '|' + Format(D = 3.14) + '|' + Format(B));",
@@ -360,7 +360,7 @@ fn evaluate_numbers() {
     assert_eq!(t, "-7");
 }
 
-// errors/lt-ms-refusals-128/P128EvalBasic.al:P128_Evaluate_IntoText, P128_Evaluate_IntoCode (`lower`, `padded`,
+// recordref-fieldref/P128EvalBasic.al:P128_Evaluate_IntoText, P128_Evaluate_IntoCode (`lower`, `padded`,
 // `one too long`), P128_Evaluate_IntoCode_ResultUnused and P128_Evaluate_IntoShortText_ResultUnused (`too long`).
 #[test]
 fn evaluate_into_text_and_code() {
@@ -400,7 +400,7 @@ fn evaluate_reports_failure_through_its_result() {
 
 #[test]
 fn evaluate_failure_without_using_the_result_raises_the_pinned_error() {
-    // session/TestProbeSessionMiscContracts.al:Arithmetic_ErrorTexts, `evaluate_int_overflow_statement`;
+    // session-system/TestProbeSessionMiscContracts.al:Arithmetic_ErrorTexts, `evaluate_int_overflow_statement`;
     // types/TestProbeScalarContracts.al:Evaluate_BooleanFailureError.
     assert_eq!(
         raised("I: Integer;", "Evaluate(I, 'notanumber'); exit('');"),
@@ -437,8 +437,8 @@ fn evaluate_dates_round_trip_through_format() {
 
 #[test]
 fn evaluate_guid_and_datetime_xml_form() {
-    // types/TestGuid.al:78 round trip; handlers/TestPageFieldFormats_Tests.al:1401 braces literal;
-    // session/TestSessionEvaluateRegionalPatterns.al:38 DateTime with format number 9.
+    // types/TestGuid.al:78 round trip; testpage/TestPageFieldFormats_Tests.al:1401 braces literal;
+    // session-system/TestSessionEvaluateRegionalPatterns.al:38 DateTime with format number 9.
     let t = text_of(
         "G: Guid; G2: Guid;",
         "Evaluate(G, '{11111111-2222-3333-4444-555555555555}'); G2 := G; Evaluate(G2, Format(G)); exit(Format(G) + Format(G = G2));",
@@ -453,7 +453,7 @@ fn evaluate_guid_and_datetime_xml_form() {
 
 #[test]
 fn evaluate_of_forms_the_corpus_does_not_pin_is_refused() {
-    // Grouped thousands are read (P86Eval.al); `1,00` is 100 (errors/lt-ms-refusals-129/P129Evaluate.al:420).
+    // Grouped thousands are read (P86Eval.al); `1,00` is 100 (types/P129Evaluate.al:420).
     assert_eq!(text_of("I: Integer;", "Evaluate(I, '1,00'); exit(Format(I));"), "100");
     assert_eq!(
         raised("B: Boolean;", "Evaluate(B, 'maybe'); exit('');"),
@@ -812,7 +812,7 @@ fn text_functions() {
         "exit(DelChr('hello', '=', 'e') + '|' + DelChr('  hello  ', '<>') + '|' + DelChr('h e l l o', '=', ' ') + '|' + DelChr('  hello  ', '<>', ' ') + '|' + DelChr('   ', '<>', ' ') + '|');",
     );
     assert_eq!(t, "hllo|hello|hello|hello||");
-    // errors/lt-ms-refusals-136/P136Text.al:P136_DelChr_ThreeCharWhere, P136_DelChr_DoubledAndOddWhere.
+    // text/text-methods/P136Text.al:P136_DelChr_ThreeCharWhere, P136_DelChr_DoubledAndOddWhere.
     let t = text_of(
         "",
         "exit(DelChr('xxaxbxx', '=<>', 'x') + '|' + DelChr('xxaxbxx', '<=>', 'x') + '|' + DelChr('xxaxbxx', '=>', 'x') + '|' + DelChr('xxaxbxx', '<<', 'x') + '|' + DelChr('xxaxbxx', '>>', 'x') + '|' + DelChr('xxaxbxx', '<>>', 'x') + '|' + DelChr('xxaxbxx', '><', 'x') + '|' + DelChr('xxaxbxx', '', 'x') + '|');",
@@ -948,13 +948,13 @@ fn big_text() {
         "B.AddText('foo'); B.AddText('bar'); B.GetSubText(S, 1, 6); exit(S + Format(B.Length()));",
     );
     assert_eq!(t, "foobar6");
-    // session/TestSystemExtended.al BigTextTextPos_*: 1-based, 0 when absent.
+    // session-system/TestSystemExtended.al BigTextTextPos_*: 1-based, 0 when absent.
     let t = text_of(
         "B: BigText;",
         "B.AddText('Hello World'); exit(Format(B.TextPos('World')) + Format(B.TextPos('Hello')) + Format(B.TextPos('xyz')));",
     );
     assert_eq!(t, "7".to_string() + "10");
-    // A position in AddText inserts before that character (types/lt-totext-bigtext-codeunit-run/P93BigText.al:95-160).
+    // A position in AddText inserts before that character (format-evaluate/P93BigText.al:95-160).
     assert_eq!(
         text_of(
             "B: BigText; S: Text;",
@@ -1002,7 +1002,7 @@ fn big_text_get_sub_text_clips_at_the_end() {
 
 #[test]
 fn max_str_len_reads_the_declared_length() {
-    // text/TestTextExtended.al MaxStrLen_*; also record fields (handlers/OngCard.Page.al).
+    // text/TestTextExtended.al MaxStrLen_*; also record fields (testpage/OngCard.Page.al).
     let t = text_of(
         "T50: Text[50]; U: Text; C: Code[10];",
         "exit(Format(MaxStrLen(T50)) + '|' + Format(MaxStrLen(U)) + '|' + Format(MaxStrLen(C)));",
@@ -1171,9 +1171,11 @@ fn xml_parser_edge_cases() {
         "E: XmlElement; C: XmlElement; S: Text;",
         "E := XmlElement.Create('root', 'urn:x'); C := XmlElement.Create('child', 'urn:x'); E.Add(C); E.SetAttribute('a', 'v\"&<'); E.WriteTo(S); exit(S);",
     );
+    // The element's own default namespace is written after its attributes (xml/xml/XmlNsPrefixes.al:Decl7208_OtherNamespace
+    // `other_txt`, Attribute_PrefixNumbering `element_ns_same`).
     assert_eq!(
         t,
-        "<root xmlns=\"urn:x\" a=\"v&quot;&amp;&lt;\">\r\n  <child />\r\n</root>"
+        "<root a=\"v&quot;&amp;&lt;\" xmlns=\"urn:x\">\r\n  <child />\r\n</root>"
     );
 }
 
@@ -1231,7 +1233,7 @@ fn evaluate_into_an_enum_reads_the_xml_ordinal_and_member_names() {
 fn evaluate_a_date_formula_with_format_number_2() {
     // System Application stores `Format(DateFormula, 0, 2)` and reads it back with `Evaluate(.., 2)`
     // ("Reten. Pol. Allowed Tbl. Impl."). Format 2 shows the formula in angle brackets
-    // (types/lt-y62-dateformula-format/Y62DateFormulaFormat.al:DateFormulaFormat_Std2_English).
+    // (format-evaluate/Y62DateFormulaFormat.al:DateFormulaFormat_Std2_English).
     let t = text_of(
         "F: DateFormula; G: DateFormula; R: Boolean;",
         "Evaluate(F, '<-1Y>', 2); R := Evaluate(G, Format(F, 0, 2), 2); exit(Format(R) + Format(G, 0, 2) + Format(F, 0, 2));",
@@ -1254,7 +1256,7 @@ fn clearing_a_json_variable_gives_a_fresh_empty_one() {
 #[test]
 fn clearing_an_array_resets_every_element() {
     // Doc (Clear): a variable goes back to its initial value, an array element by element. The
-    // oracle runs pageupdate/PageUpdateFacts.Page.al:58 (`Clear(Derived)`, an array of Decimal).
+    // oracle runs pages/currpage/PageUpdateFacts.Page.al:58 (`Clear(Derived)`, an array of Decimal).
     let t = text_of(
         "D: array[3] of Decimal; S: array[2] of Text; I: Integer;",
         "D[1] := 5; D[3] := 7; S[2] := 'x'; Clear(D); Clear(S); exit(Format(D[1]) + Format(D[3]) + '|' + S[2] + '|' + Format(StrLen(S[1])));",
