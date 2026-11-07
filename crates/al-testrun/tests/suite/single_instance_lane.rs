@@ -687,3 +687,56 @@ fn a_codeunit_listed_in_two_suites_is_reported_once() {
         rt.results()
     );
 }
+
+/// Amendment 6 (owner, 2026-11-07): suite boundaries are session boundaries for SingleInstance state only. The compile,
+/// the install code and the install baseline are made once per run and shared by every suite and every session.
+const INSTALLED: &str = r#"
+table 50458 "Lane Setting" { fields { field(1; Code; Code[20]) { } } keys { key(PK; Code) { } } }
+codeunit 50459 "Lane Installer"
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany() var S: Record "Lane Setting"; begin S.Code := 'SEEDED'; S.Insert(); end;
+}
+"#;
+
+const SEEDED_READERS: &str = r#"
+codeunit 60491 "Lane Seed Reader A"
+{
+    Subtype = Test;
+    [Test] procedure SeesTheSeedA() var S: Record "Lane Setting"; begin S.Get('SEEDED'); end;
+}
+codeunit 60492 "Lane Seed Reader B"
+{
+    Subtype = Test;
+    [Test] procedure SeesTheSeedB() var S: Record "Lane Setting"; begin S.Get('SEEDED'); end;
+}
+"#;
+
+#[test]
+fn suites_share_one_compile_and_one_install_baseline() {
+    let src = format!("{DEPENDENT_PAIR}{SEEDED_READERS}");
+    let base = format!("{STATE}{INSTALLED}");
+    let plain = runtime_opts(&src, &base, &RunOptions::default());
+    let opts = RunOptions {
+        test_suites: Some(std::sync::Arc::new(
+            al_testrun::test_suites::TestSuites::parse("A: 60451 60491\nB: 60452 60492\nC: 60451 60452\n").unwrap(),
+        )),
+        ..Default::default()
+    };
+    let split = runtime_opts(&src, &base, &opts);
+    for rt in [&plain, &split] {
+        // Both readers, in different suites, see the row the install code wrote once.
+        assert!(
+            passed(rt, "SeesTheSeedA") && passed(rt, "SeesTheSeedB"),
+            "{:?}",
+            rt.results()
+        );
+        assert_eq!(rt.phases.baseline_source, Some("ran"));
+        assert_eq!(rt.phases.work.compiles, 1);
+    }
+    // The same work as one session: one compile, one baseline with the same rows, the same tests run, one pass.
+    assert_eq!(format!("{:?}", split.phases.work), format!("{:?}", plain.phases.work));
+    assert_eq!(split.phases.passes.len(), plain.phases.passes.len());
+    // Suite C links the pair, so the reader still runs again; its serial session starts from the shared baseline.
+    assert!(passed(&split, "ReadsTheFlag") && flagged(&split, "ReadsTheFlag"));
+}

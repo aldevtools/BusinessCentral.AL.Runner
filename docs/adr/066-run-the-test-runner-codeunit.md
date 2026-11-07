@@ -716,11 +716,18 @@ made dependent on `ConfigLoaded`, which codeunit 81673 (suite DATACHECK) left. O
    that is no test codeunit of the apps under test is a `warning:` on stderr per suite and is ignored: a pipeline's
    file may name codeunits of other apps or ones a selection leaves out. A suite without ids is accepted and holds
    nothing.
-7. **Without the option nothing changes**: the whole run is one session (Microsoft's default), as in amendments 2
+7. **Suites cut SingleInstance state only (owner, 2026-11-07).** The compile, the database load, the install code and
+   the install baseline (ADR-013) are made once per run and shared by every suite and every session, exactly as
+   without the option: a suite pays no compile, database load or install code of its own. This holds by construction:
+   the suites only change how `single_lane.rs` groups the codeunits it already analyses after the parallel run; the
+   parallel run and the serial sessions start from the run's one install baseline (a worker thread reads its copy from
+   the snapshot written once per run, amendment 5). The work ratchet counts (`RunWork`) of a run with suites equal
+   those of the same run without them.
+8. **Without the option nothing changes**: the whole run is one session (Microsoft's default), as in amendments 2
    to 5.
-8. **`--stability`** lists as `orderDependent` only codeunits that depend on a codeunit of their own suite (it reads
+9. **`--stability`** lists as `orderDependent` only codeunits that depend on a codeunit of their own suite (it reads
    the same flag).
-9. **`--affected`**: the file's text is part of the environment hash, so another file is a full run.
+10. **`--affected`**: the file's text is part of the environment hash, so another file is a full run.
 
 ### Consequences and limits
 
@@ -740,7 +747,9 @@ made dependent on `ConfigLoaded`, which codeunit 81673 (suite DATACHECK) left. O
 - `crates/al-testrun/tests/suite/single_instance_lane.rs`: a writer in one suite and a reader in another are not
   linked; a writer and a reader in one suite are still linked (the reader runs again and passes flagged); the order
   within a suite is the file's; a codeunit in no suite is a session of its own; a codeunit in two suites is reported
-  and counted once, and is dependent through either suite. The tests without the option are unchanged.
+  and counted once, and is dependent through either suite. The tests without the option are unchanged. Suites share one compile and one install baseline:
+  two readers of a row the install code wrote, in different suites, both see it, and `RunWork` and the number of
+  passes equal those of the run without suites (`suites_share_one_compile_and_one_install_baseline`).
 - `crates/alrunner-cli/src/test_suites.rs` and `serve.rs` unit tests: the option takes a path, `serve` refuses it as a
   server option and takes `testSuites` per request, an unknown id is a warning per suite, a missing file is an error.
 - `crates/alrunner-cli/tests/cli/onrun_stability.rs`: `--stability` lists a reader as order dependent only when its
