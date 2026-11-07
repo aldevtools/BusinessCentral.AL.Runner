@@ -1,6 +1,6 @@
 # ADR-066: Run the test runner codeunit's own AL
 
-- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07)
+- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07); amendment 4 (order-dependent codeunits run in parallel, serial run only after a failure, `--strict-order`) Accepted (owner, 2026-11-07); amendment 5 (each serial re-run is a session of its own, the sessions run in parallel; a test refused before it starts triggers no re-run) Accepted (owner, 2026-11-07)
 - Date: 2026-11-05
 
 ## Context
@@ -384,3 +384,286 @@ transaction is what BC's next codeunit sees.
 - `crates/al-testrun/tests/suite/single_instance_lane.rs`: a keyed cache every codeunit checks and refills has no lane;
   a global record overwritten before it is read has no lane; the dependent pair of amendment 2 still runs in the lane
   and is flagged. `crates/al-testrun/tests/suite/runner_reset.rs`: an append to a SingleInstance log stays a dependence.
+
+## Amendment 4 (Accepted, owner, 2026-11-07): order-dependent codeunits run in parallel; the serial run only after a failure
+
+- Status: Accepted by the owner on 2026-11-07. Amends amendments 2 and 3: how a dependent codeunit is found (amendment 3)
+  is unchanged; when it runs again serially changes.
+
+### Principle (owner, 2026-11-07)
+
+A test should give the same result whether its codeunit runs alone or inside the whole suite. A codeunit whose result
+depends on SingleInstance state an earlier codeunit left is an order-dependence problem in the tests, which is what
+`--stability` (ADR-058) is for. A parallel run with fresh SingleInstance state is a real BC outcome: the codeunit run
+alone, or first.
+
+### Decision
+
+1. **Default: in parallel.** A codeunit that amendment 3 finds dependent runs in parallel like all others. There is no
+   serial lane up front.
+2. **Serial run only after a failure.** Only when a dependent codeunit has a failed test or a test not run in its
+   parallel run does it run again serially in BC's order, with the writers it depends on (the chain of amendments 2
+   and 3: for each global that makes it dependent the last writer, and that writer's own writers when it is dependent
+   itself). The serial result is reported. A dependent writer that joins the lane only as a writer keeps its parallel
+   run.
+3. **Every test of a dependent codeunit is flagged.** When it passes, whether in parallel or after the serial run, it
+   is a flagged pass, counted apart from clean passes, through the registered assumption `single-instance-order`
+   (`Assumption::SingleInstanceOrder`). The id keeps its meaning (the test is order dependent); its text now says
+   which run is reported.
+4. **`--strict-order` forces amendment 3.** Every dependent codeunit runs again serially in BC's order and that run is
+   reported (`RunOptions::strict_order`; `serve`: the `runTests` field `strictOrder`). Nothing else serializes the
+   order: `AL_TEST_THREADS=1` runs one codeunit at a time, but each still starts with fresh SingleInstance state, so it
+   does not reproduce BC's order.
+5. **`--stability` lists these codeunits** (`orderDependent`) in both modes: the flag is set either way.
+6. **`--timings`** keeps the lane line: the lane's time, how many dependent codeunits were found (`LaneReport::dependent`)
+   and how many ran again because of a failure (`LaneReport::rerun`; under `--strict-order` all of them).
+
+### Why
+
+Amendment 3 ran every dependent codeunit again. On Microsoft's posting suites most dependence is real but harmless:
+Sequence No. Mgt. keeps the rest of an entry-number range after a posting that stopped with an error, and the next
+codeunit draws its entry numbers from that rest. Those codeunits pass with fresh state too. Running them all again
+serially cost Tests-SCM (BC 29, 12 threads) 357 s against 245 s before the lane existed.
+
+### Rejected alternative
+
+Strict serial for every dependent codeunit by default (amendment 3 as merged). Rejected for its cost on posting suites
+(Tests-SCM 357 s against 245 s, caused by the entry-number buffers of Sequence No. Mgt.) while the parallel result is a
+real BC outcome. It stays available as `--strict-order`.
+
+### Risk: a false pass
+
+A test that passes alone but fails on BC in the full order (it needs another value than the fresh one, but the
+earlier codeunit's value breaks it) is reported as a flagged pass by default. The flag and the `--stability` list say
+so; `--strict-order` removes the risk. A test that fails alone and passes in BC's order still gets BC's result through
+the serial run.
+
+### Measured (BC 29, Microsoft's apps, 12 threads)
+
+Release binary, BC 29.0.54011.55816, cores 0-2 and 5-11, warm compile cache. "Before the lane" is the binary of
+7b1a05de7; amendment 3 is main at 5605cb8ba.
+
+| Bucket | Before the lane | Amendment 3 | Amendment 4 (this default) | Dependent / ran again | Outcome changes against before the lane |
+|---|---|---|---|---|---|
+| Tests-ERM-Purchase | 131.7 s | 103.5 s | 92.0 s (lane 25.9 s) | 9 / 7 | 0 |
+| Tests-SCM | 244.9 s | 357 s | 360.6 s (lane 121.6 s) | 31 / 26 | 0 |
+
+Tests-SCM codeunits 137035 and 137038 alone keep their 128 passes.
+
+The cut is small on Microsoft's suites. Of the 31 dependent codeunits of Tests-SCM, 13 have a failed test and 20 a
+test not run (mostly refusals of features not built yet) already with fresh state, so 26 run again. Measured for
+information with a local build that counts only failures (not committed): 13 ran again, lane 90.5 s, run 341.7 s.
+In both runs every serial result equals the parallel one (0 outcome changes). Making the serial run cheaper on such
+suites needs another rule; that is an open question for the owner.
+
+### Conformance
+
+- `crates/al-testrun/tests/suite/single_instance_lane.rs`: a dependent codeunit that passes in parallel is not run
+  again and is flagged; one that fails in parallel (the reader of amendment 2, the corpus P7B shape) runs again
+  serially and passes flagged; `--strict-order` runs every dependent codeunit again.
+- `crates/al-testrun/src/runtime/single_lane.rs` unit test: the lane of the chosen dependent codeunits holds only their
+  chain.
+- `crates/alrunner-cli/tests/cli/onrun_stability.rs`: `--stability` lists the dependent test with and without
+  `--strict-order`.
+- Corpus: `P7B_ReadsWhatThePreviousTestCodeunitLeft` fails with fresh state, runs again and passes flagged.
+
+## Amendment 5 (Accepted, owner, 2026-11-07): each serial re-run is a session of its own, and the sessions run in parallel
+
+- Status: Accepted by the owner on 2026-11-07. Amends amendment 4: which codeunits are dependent (amendment 3) and
+  which of them run again (amendment 4) are unchanged, except decision 2 below. How the serial runs are grouped and
+  where they run changes. `--strict-order`, `--stability` (`orderDependent`) and the flagged-pass rule stay as amendment 4
+  defined them.
+
+### Decision
+
+1. **One serial session per chain (owner).** A dependent codeunit that runs again gets a serial session of its own:
+   its chain (amendment 4, decision 2: for each global that makes it dependent the last writer, and that writer's own
+   writers when it is dependent itself; `Found::lane_for`) in BC's order, the single instances moved from codeunit to
+   codeunit as before. The sessions run in parallel on the worker threads (as many as the parallel run uses), not one
+   after the other on one thread. A codeunit no longer sees the state that codeunits outside its session left.
+2. **A writer two chains share runs in each (orchestrator's call, within the owner's decision).** Each chosen
+   dependent codeunit keeps a session of its own even when its chain shares a writer with another chain; the shared
+   writer runs once per session (`Found::sessions`). So each codeunit sees exactly the state of its own chain, as
+   decision 1 says. One exception saves runs without changing what a codeunit sees: a chosen codeunit that is in a later
+   chosen codeunit's chain, where every codeunit of that chain up to it is in its own chain, is reported from that
+   session and gets none of its own (it starts there with the very state its own session would give it).
+   Rejected: merging overlapping chains into one session, so a shared writer runs once. Built first and measured on
+   Tests-ERM-Purchase: the chains link through one dependent writer (134804 RED Test Unit for Purch Doc, itself
+   dependent on 134398 through the entry-number buffers of Sequence No. Mgt.), so 7 re-runs merged into 2 sessions, one
+   of them holding almost every codeunit: longest session 26.7 s, lane wall time 31.4 s, no faster than amendment 4's
+   single lane (25.9 s). Merging also lets a codeunit see the state another chain's codeunits left, against decision 1.
+3. **A test refused before it starts triggers no re-run (orchestrator's call, within the owner's rule of amendment 4
+   "re-run only on failures").** Only a failed test (also a failure judged not trusted) or a test that started and did
+   not run to its end (refused while it ran, stopped by the time limit) makes a dependent codeunit run again. A test the
+   lowering refused, a diagnostic, or a refusal of the whole codeunit before it started is not caused by the state the
+   codeunit started with, and the serial run would refuse it all the same (`Scratch::unfinished_after_start`,
+   `needs_serial_run`).
+4. **`--strict-order` keeps its meaning** (every dependent codeunit runs again serially in BC's order, with the writers
+   it depends on, and that run is reported) and uses the same parallel sessions. This does not contradict the flag's
+   documented meaning: each dependent codeunit still runs after its chain in BC's order. What changes under the flag is
+   that state from codeunits outside the chain is not carried, as amendment 3 already limited the chain to the last
+   writer.
+5. **Carried starts as bytes.** A codeunit that comes after a carry-chain member (RequiredTestIsolation = Disabled,
+   ADR-055) may start from the baseline that member left, which holds `Rc`s and stays on the thread that made it. The
+   main thread works out where each codeunit of a session starts (`Step`) and writes each carried baseline it needs as
+   bytes once (`Starts`); a worker thread reads them back over the engine's test data, as the chain walk's helpers do.
+   A session whose carried baseline cannot be written as bytes runs on the main thread from the baselines themselves.
+   Built first without this: on Tests-ERM-Purchase every codeunit is in the carry chain, so every session stayed on
+   the main thread (6 sessions, longest 13.6 s, lane wall time 45.8 s).
+6. **`--timings`** keeps the lane line: the lane's time, how many dependent codeunits were found (`LaneReport::dependent`)
+   and how many ran again because of a failure (`LaneReport::rerun`; under `--strict-order` all of them).
+
+### Why
+
+Amendment 3 ran every dependent codeunit again. On Microsoft's posting suites most dependence is real but harmless:
+Sequence No. Mgt. keeps the rest of an entry-number range after a posting that stopped with an error, and the next
+codeunit draws its entry numbers from that rest. Those codeunits pass with fresh state too. Running them all again
+serially cost Tests-SCM (BC 29, 12 threads) 357 s against 245 s before the lane existed.
+
+### Rejected alternative
+
+Strict serial for every dependent codeunit by default (amendment 3 as merged). Rejected for its cost on posting suites
+(Tests-SCM 357 s against 245 s, caused by the entry-number buffers of Sequence No. Mgt.) while the parallel result is a
+real BC outcome. It stays available as `--strict-order`.
+
+### Risk: a false pass
+
+A test that passes alone but fails on BC in the full order (it needs another value than the fresh one, but the
+earlier codeunit's value breaks it) is reported as a flagged pass by default. The flag and the `--stability` list say
+so; `--strict-order` removes the risk. A test that fails alone and passes in BC's order still gets BC's result through
+the serial run.
+
+### Measured (BC 29, Microsoft's apps, 12 threads)
+
+Release binary, BC 29.0.54011.55816, cores 0-2 and 5-11, warm compile cache. "Before the lane" is the binary of
+7b1a05de7; amendment 3 is main at 5605cb8ba.
+
+| Bucket | Before the lane | Amendment 3 | Amendment 4 (this default) | Dependent / ran again | Outcome changes against before the lane |
+|---|---|---|---|---|---|
+| Tests-ERM-Purchase | 131.7 s | 103.5 s | 92.0 s (lane 25.9 s) | 9 / 7 | 0 |
+| Tests-SCM | 244.9 s | 357 s | 360.6 s (lane 121.6 s) | 31 / 26 | 0 |
+
+Tests-SCM codeunits 137035 and 137038 alone keep their 128 passes.
+
+The cut is small on Microsoft's suites. Of the 31 dependent codeunits of Tests-SCM, 13 have a failed test and 20 a
+test not run (mostly refusals of features not built yet) already with fresh state, so 26 run again. Measured for
+information with a local build that counts only failures (not committed): 13 ran again, lane 90.5 s, run 341.7 s.
+In both runs every serial result equals the parallel one (0 outcome changes). Making the serial run cheaper on such
+suites needs another rule; that is an open question for the owner.
+
+### Conformance
+
+- `crates/al-testrun/tests/suite/single_instance_lane.rs`: a dependent codeunit that passes in parallel is not run
+  again and is flagged; one that fails in parallel (the reader of amendment 2, the corpus P7B shape) runs again
+  serially and passes flagged; `--strict-order` runs every dependent codeunit again.
+- `crates/al-testrun/src/runtime/single_lane.rs` unit test: the lane of the chosen dependent codeunits holds only their
+  chain.
+- `crates/alrunner-cli/tests/cli/onrun_stability.rs`: `--stability` lists the dependent test with and without
+  `--strict-order`.
+- Corpus: `P7B_ReadsWhatThePreviousTestCodeunitLeft` fails with fresh state, runs again and passes flagged.
+
+## Amendment 5 (Accepted, owner, 2026-11-07): each serial re-run is a session of its own, and the sessions run in parallel
+
+- Status: Accepted by the owner on 2026-11-07. Amends amendment 4: which codeunits are dependent (amendment 3) and
+  which of them run again (amendment 4) are unchanged, except decision 2 below. How the serial runs are grouped and
+  where they run changes. `--strict-order`, `--stability` (`orderDependent`) and the flagged-pass rule stay as amendment 4
+  defined them.
+
+### Decision
+
+1. **One serial session per chain (owner).** A dependent codeunit that runs again gets a serial session of its own:
+   its chain (amendment 4, decision 2: for each global that makes it dependent the last writer, and that writer's own
+   writers when it is dependent itself; `Found::lane_for`) in BC's order, the single instances moved from codeunit to
+   codeunit as before. The sessions run in parallel on the worker threads (as many as the parallel run uses), not one
+   after the other on one thread. A codeunit no longer sees the state that codeunits outside its session left.
+2. **A writer two chains share runs in each (orchestrator's call, within the owner's decision).** Each chosen
+   dependent codeunit keeps a session of its own even when its chain shares a writer with another chain; the shared
+   writer runs once per session (`Found::sessions`). So each codeunit sees exactly the state of its own chain, as
+   decision 1 says. One exception saves runs without changing what a codeunit sees: a chosen codeunit that is in a later
+   chosen codeunit's chain, where every codeunit of that chain up to it is in its own chain, is reported from that
+   session and gets none of its own (it starts there with the very state its own session would give it).
+   Rejected: merging overlapping chains into one session, so a shared writer runs once. Built first and measured on
+   Tests-ERM-Purchase: the chains link through one dependent writer (134804 RED Test Unit for Purch Doc, itself
+   dependent on 134398 through the entry-number buffers of Sequence No. Mgt.), so 7 re-runs merged into 2 sessions, one
+   of them holding almost every codeunit: longest session 26.7 s, lane wall time 31.4 s, no faster than amendment 4's
+   single lane (25.9 s). Merging also lets a codeunit see the state another chain's codeunits left, against decision 1.
+3. **A test refused before it starts triggers no re-run (orchestrator's call, within the owner's rule of amendment 4
+   "re-run only on failures").** Only a failed test (also a failure judged not trusted) or a test that started and did
+   not run to its end (refused while it ran, stopped by the time limit) makes a dependent codeunit run again. A test the
+   lowering refused, a diagnostic, or a refusal of the whole codeunit before it started is not caused by the state the
+   codeunit started with, and the serial run would refuse it all the same (`Scratch::unfinished_after_start`,
+   `needs_serial_run`).
+4. **`--strict-order` keeps its meaning** (every dependent codeunit runs again serially in BC's order, with the writers
+   it depends on, and that run is reported) and uses the same parallel sessions. This does not contradict the flag's
+   documented meaning: each dependent codeunit still runs after its chain in BC's order. What changes under the flag is
+   that state from codeunits outside the chain is not carried, as amendment 3 already limited the chain to the last
+   writer.
+5. **A session bound to the main thread.** A session with a codeunit that comes after a carry-chain member
+   (RequiredTestIsolation = Disabled, ADR-055) may start from the baseline that member left, which holds `Rc`s and stays
+   on the thread that made it. Such a session runs on the main thread, alongside the worker threads; the others run on
+   the worker threads, each with its own copy of the install baseline (the snapshot the parallel run uses).
+6. **`--timings`**: the lane line adds the number of serial sessions, the time of the longest one and the lane's wall
+   time (`LaneReport::chains`, `longest`, `took`).
+
+### Why
+
+Amendment 4 ran all re-runs of a run in one lane on one thread. On Tests-SCM (BC 29) that lane took 121.6 s of the
+360.6 s run, with 26 codeunits running again, while the other 11 threads were idle. Most chains are short (a dependent
+codeunit and the last codeunit that wrote what it read, most often through the entry-number buffers of Sequence No.
+Mgt.), so they can run side by side. A test refused before it starts was one of the reasons a dependent codeunit ran again (20 of the
+31 dependent codeunits of Tests-SCM have a test not run, mostly refusals of features not built yet); the serial run
+cannot change such a refusal.
+
+### Measured (BC 29, Microsoft's apps, 12 threads)
+
+Release binary, BC 29.0.54011.55816, cores 0-2 and 5-11, warm compile cache, 12 threads. The machine was shared with
+other agents (load average between 1.5 and 14 during these runs), so the totals carry noise of 10 to 30 %; the lane's
+wall time is the number this amendment changes. "Before the lane" is the binary of 7b1a05de7 (amendment 4's table).
+Run 1 is this change alone; run 2 is this change and then the binary amendment 4's table measured, in the same half hour.
+
+| Bucket | Before the lane | Amendment 4 (its table / run 2) | Amendment 5 (run 1 / run 2) | Lane wall time, amendment 4 (run 2) / amendment 5 (run 1 / run 2) | Serial sessions (longest, run 1) | Codeunit runs in the lane, amendment 4 / 5 | Dependent / ran again | Outcome changes against before the lane |
+|---|---|---|---|---|---|---|---|---|
+| Tests-ERM-Purchase | 131.7 s | 92.0 s / 99.1 s | 85.9 s / 145.0 s | 25.8 s / 16.5 s / 17.7 s | 6 (16.3 s) | 12 / 17 | 9 / 7 | 0 / 0 |
+| Tests-SCM | 244.9 s | 360.6 s / 418.3 s | 322.5 s / 313.5 s | 132.8 s / 64.5 s / 56.5 s | 20 (57.6 s) | 49 / 81 | 31 / 26 | 1 / 0, see below |
+
+The 145.0 s of Purchase in run 2 is load: the load average went from 1.8 to 14 during that run, and its lane still
+took 17.7 s.
+
+Tests-SCM codeunits 137035 and 137038 alone (`--codeunit 137035 --codeunit 137038`) keep their 128 passes, 0 outcome
+changes.
+
+- The lane's wall time is now the time of its longest session. On Tests-SCM that is one long chain (57.6 s); the
+  other 19 sessions finish within it. More codeunit runs (writers that two chains share run in each) cost CPU time on
+  threads that are idle at that point.
+- Decision 3 changed no count on these suites: each of their dependent codeunits with a test not run also has a failed
+  test or a test refused while it ran.
+- The one outcome change on Tests-SCM in run 1 is `FiveThousandSerialNos` of codeunit 137380 SCM Performance Tests,
+  which is not in the lane: it took 20.2 s of CPU time (limit 20 s; also 20.5 s in an earlier run of this branch)
+  against 17.9 s before, and passed in run 2. Run alone
+  (`--codeunit 137380`) right after each other, it passes with both binaries (7b1a05de7: 17.1 s, this change: 17.7 s).
+  The CPU time of that test sits close to the limit and grows with the machine's load; the change does not touch the
+  parallel run it ran in.
+
+### Risk
+
+- A codeunit no longer sees state from codeunits outside its session. Where that state matters, amendment 3 says the
+  codeunit reads it, so the codeunit that left it is its last writer and in its chain. A missed link (a flag that guards
+  a cache in another codeunit, amendment 3) could make the serial result differ from BC's; it was already possible
+  under amendment 4 for codeunits not in the lane.
+- A dependent codeunit whose parallel run has only tests refused before they start and passes keeps its parallel run,
+  flagged. Its refused tests stay not run either way.
+- Parallel sessions use more memory at once, as the parallel run does: one session per worker thread.
+- A writer two chains share runs once per session: more CPU time in total than one lane, spent on threads that are idle
+  at that point of the run.
+
+### Conformance
+
+- `crates/al-testrun/tests/suite/single_instance_lane.rs`: two dependent codeunits with writers of their own run as two
+  sessions (`two_dependents_with_their_own_writers_run_as_two_serial_sessions`); two that share a writer run as two
+  sessions, the writer in each (`chains_that_share_a_writer_run_as_sessions_of_their_own`); a test refused before it starts
+  does not make its codeunit run again (`a_test_refused_before_it_starts_does_not_trigger_a_serial_run`); a test refused
+  while it runs does (`a_test_refused_while_it_runs_triggers_a_serial_run`); `--strict-order` still runs every dependent
+  codeunit again.
+- `crates/al-testrun/src/runtime/single_lane.rs` unit tests: every chain is a session of its own and a shared writer
+  runs in each; a chain that is the start of a later chosen codeunit's chain runs inside it, and one that is not keeps
+  its own session.

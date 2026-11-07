@@ -281,6 +281,10 @@ fn runtime(src: &str) -> CorpusRuntime {
 }
 
 fn runtime_over(src: &str, base: &str) -> CorpusRuntime {
+    runtime_opts(src, base, &RunOptions::default())
+}
+
+fn runtime_opts(src: &str, base: &str, opts: &RunOptions) -> CorpusRuntime {
     CorpusRuntime::try_run_suites_with(
         vec![app("main", &["base"], src), app("base", &[], base)],
         vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
@@ -289,7 +293,7 @@ fn runtime_over(src: &str, base: &str) -> CorpusRuntime {
         None,
         Default::default(),
         &[SuiteRun::everything()],
-        &RunOptions::default(),
+        opts,
     )
     .expect("the run starts")
 }
@@ -319,6 +323,8 @@ fn a_reader_of_state_an_earlier_codeunit_left_passes_and_is_flagged() {
     assert!(passed(&rt, "UsesNothingShared") && !flagged(&rt, "UsesNothingShared"));
     let lane = &rt.phases.chain.single_lane;
     assert_eq!(lane.lane.len(), 2, "{:?}", lane.lane);
+    // ADR-066 amendment 4: the reader fails in its parallel run (fresh state), so it ran again serially in BC's order.
+    assert_eq!((lane.dependent, lane.rerun), (1, 1), "{:?}", lane);
     assert!(
         lane.notes
             .iter()
@@ -366,4 +372,227 @@ codeunit 60492 "Lane Plain D" { Subtype = Test; [Test] procedure Two() begin end
     assert!(rt.results().iter().all(|r| r.outcome == Outcome::Pass));
     let lane = &rt.phases.chain.single_lane;
     assert!(lane.lane.is_empty());
+}
+
+/// ADR-066 amendment 4: a dependent codeunit whose tests pass with fresh SingleInstance state (as when it runs alone or
+/// first on BC).
+const DEPENDENT_BUT_PASSES: &str = r#"
+codeunit 60521 "Lane Setter Two"
+{
+    Subtype = Test;
+    [Test] procedure SetsItToo() var S: Codeunit "Lane State"; begin S.SetFlag('left'); end;
+}
+codeunit 60522 "Lane Lenient Reader"
+{
+    Subtype = Test;
+    [Test] procedure ReadsAnyFlag()
+    var S: Codeunit "Lane State";
+    begin
+        if StrLen(S.GetFlag()) > 10 then Error('flag is %1', S.GetFlag());
+    end;
+}
+"#;
+
+/// ADR-066 amendment 4, decisions 1 and 3: a dependent codeunit that passes in its parallel run is not run again, and
+/// its tests are flagged passes (order dependent).
+#[test]
+fn a_dependent_codeunit_that_passes_in_parallel_is_not_run_again_and_is_flagged() {
+    let rt = runtime(DEPENDENT_BUT_PASSES);
+    assert!(passed(&rt, "ReadsAnyFlag"), "{:?}", rt.results());
+    assert!(flagged(&rt, "ReadsAnyFlag"));
+    assert!(passed(&rt, "SetsItToo") && !flagged(&rt, "SetsItToo"));
+    let lane = &rt.phases.chain.single_lane;
+    assert!(lane.lane.is_empty(), "{:?}", lane.lane);
+    assert_eq!((lane.dependent, lane.rerun, lane.strict), (1, 0, false), "{:?}", lane);
+    // The note still names what it relies on, and the --timings line counts it.
+    assert!(
+        lane.notes
+            .iter()
+            .any(|n| n.contains("Lane Lenient Reader") && n.contains("Lane Setter Two")),
+        "{:?}",
+        lane.notes
+    );
+    let head = &lane.lines()[0];
+    assert!(head.contains("1 dependent") && head.contains("0 ran again"), "{head}");
+}
+
+/// ADR-066 amendment 4, decision 4: `--strict-order` runs every dependent codeunit again serially in BC's order, with
+/// the codeunit it depends on, as amendment 3 did.
+#[test]
+fn strict_order_runs_every_dependent_codeunit_again_serially() {
+    let opts = RunOptions {
+        strict_order: true,
+        ..Default::default()
+    };
+    let rt = runtime_opts(DEPENDENT_BUT_PASSES, STATE, &opts);
+    assert!(passed(&rt, "ReadsAnyFlag") && flagged(&rt, "ReadsAnyFlag"));
+    let lane = &rt.phases.chain.single_lane;
+    assert_eq!(lane.lane.len(), 2, "{:?}", lane.lane);
+    assert_eq!((lane.dependent, lane.rerun, lane.strict), (1, 1, true), "{:?}", lane);
+    assert!(lane.lines()[0].contains("strict order"), "{:?}", lane.lines());
+}
+
+/// ADR-066 amendment 5: two dependent codeunits that fail with fresh state and rely on different writers.
+const TWO_CHAINS: &str = r#"
+codeunit 50457 "Lane Other State"
+{
+    SingleInstance = true;
+    procedure SetFlag(V: Text) begin Flag := V; end;
+    procedure GetFlag(): Text begin exit(Flag); end;
+    var Flag: Text;
+}
+codeunit 60531 "Lane Chain Setter A"
+{
+    Subtype = Test;
+    [Test] procedure SetsA() var S: Codeunit "Lane State"; begin S.SetFlag('a'); end;
+}
+codeunit 60532 "Lane Chain Reader A"
+{
+    Subtype = Test;
+    [Test] procedure ReadsA() var S: Codeunit "Lane State"; begin if S.GetFlag() <> 'a' then Error('a is %1', S.GetFlag()); end;
+}
+codeunit 60533 "Lane Chain Setter B"
+{
+    Subtype = Test;
+    [Test] procedure SetsB() var S: Codeunit "Lane Other State"; begin S.SetFlag('b'); end;
+}
+codeunit 60534 "Lane Chain Reader B"
+{
+    Subtype = Test;
+    [Test] procedure ReadsB() var S: Codeunit "Lane Other State"; begin if S.GetFlag() <> 'b' then Error('b is %1', S.GetFlag()); end;
+}
+"#;
+
+/// ADR-066 amendment 5, decision 1: each serial re-run is a session of its own (the dependent codeunit and its writer
+/// chain); two chains that share no codeunit are two sessions.
+#[test]
+fn two_dependents_with_their_own_writers_run_as_two_serial_sessions() {
+    let rt = runtime(TWO_CHAINS);
+    for t in ["ReadsA", "ReadsB"] {
+        assert!(passed(&rt, t) && flagged(&rt, t), "{t}: {:?}", rt.results());
+    }
+    let lane = &rt.phases.chain.single_lane;
+    assert_eq!((lane.dependent, lane.rerun), (2, 2), "{:?}", lane);
+    assert_eq!(lane.chains, 2, "{:?}", lane);
+    assert_eq!(lane.lane.len(), 4, "{:?}", lane.lane);
+    let head = &lane.lines()[0];
+    assert!(head.contains("2 serial sessions") && head.contains("longest"), "{head}");
+}
+
+/// Two dependent codeunits that read what one writer left.
+const SHARED_WRITER: &str = r#"
+codeunit 60541 "Lane Shared Setter"
+{
+    Subtype = Test;
+    [Test] procedure SetsShared() var S: Codeunit "Lane State"; begin S.SetFlag('s'); end;
+}
+codeunit 60542 "Lane Shared Reader A"
+{
+    Subtype = Test;
+    [Test] procedure ReadsSharedA() var S: Codeunit "Lane State"; begin if S.GetFlag() <> 's' then Error('a %1', S.GetFlag()); end;
+}
+codeunit 60543 "Lane Shared Reader B"
+{
+    Subtype = Test;
+    [Test] procedure ReadsSharedB() var S: Codeunit "Lane State"; begin if S.GetFlag() <> 's' then Error('b %1', S.GetFlag()); end;
+}
+"#;
+
+/// ADR-066 amendment 5: two chains that share a writer are two sessions; the writer runs in each, so neither reader
+/// sees what the other left.
+#[test]
+fn chains_that_share_a_writer_run_as_sessions_of_their_own() {
+    let rt = runtime(SHARED_WRITER);
+    for t in ["ReadsSharedA", "ReadsSharedB"] {
+        assert!(passed(&rt, t) && flagged(&rt, t), "{t}: {:?}", rt.results());
+    }
+    let lane = &rt.phases.chain.single_lane;
+    assert_eq!((lane.dependent, lane.rerun, lane.chains), (2, 2, 2), "{:?}", lane);
+    assert_eq!(lane.lane.len(), 4, "the writer runs in both sessions: {:?}", lane.lane);
+    assert_eq!(
+        lane.lane.iter().filter(|(id, _)| *id == 60541).count(),
+        2,
+        "{:?}",
+        lane.lane
+    );
+}
+
+/// A dependent codeunit that passes with fresh state, besides a test the lowering refuses (a ternary of a label and an
+/// integer into a Variant) and so never starts.
+const DEPENDENT_WITH_STATIC_REFUSAL: &str = r#"
+codeunit 60551 "Lane Static Setter"
+{
+    Subtype = Test;
+    [Test] procedure SetsStatic() var S: Codeunit "Lane State"; begin S.SetFlag('left'); end;
+}
+codeunit 60552 "Lane Static Reader"
+{
+    Subtype = Test;
+    [Test] procedure ReadsAnyFlagStatic()
+    var S: Codeunit "Lane State";
+    begin
+        if StrLen(S.GetFlag()) > 10 then Error('flag is %1', S.GetFlag());
+    end;
+    [Test] procedure RefusedBeforeItStarts()
+    var V: Variant; L: Label 'abc', Locked = true; B: Boolean;
+    begin
+        V := B ? L : 5;
+    end;
+}
+"#;
+
+/// ADR-066 amendment 5, decision 2: a test refused before it starts does not make its dependent codeunit run again.
+#[test]
+fn a_test_refused_before_it_starts_does_not_trigger_a_serial_run() {
+    let rt = runtime(DEPENDENT_WITH_STATIC_REFUSAL);
+    assert!(
+        rt.results()
+            .iter()
+            .any(|r| r.test == "RefusedBeforeItStarts" && matches!(r.outcome, Outcome::NotRun(_))),
+        "{:?}",
+        rt.results()
+    );
+    assert!(passed(&rt, "ReadsAnyFlagStatic") && flagged(&rt, "ReadsAnyFlagStatic"));
+    let lane = &rt.phases.chain.single_lane;
+    assert_eq!((lane.dependent, lane.rerun, lane.chains), (1, 0, 0), "{:?}", lane);
+    assert!(lane.lane.is_empty(), "{:?}", lane.lane);
+}
+
+/// The same codeunit, but its other test is refused while it runs (`Sleep(-1)`).
+const DEPENDENT_WITH_MID_RUN_REFUSAL: &str = r#"
+codeunit 60561 "Lane MidRun Setter"
+{
+    Subtype = Test;
+    [Test] procedure SetsMidRun() var S: Codeunit "Lane State"; begin S.SetFlag('left'); end;
+}
+codeunit 60562 "Lane MidRun Reader"
+{
+    Subtype = Test;
+    [Test] procedure ReadsAnyFlagMidRun()
+    var S: Codeunit "Lane State";
+    begin
+        if StrLen(S.GetFlag()) > 10 then Error('flag is %1', S.GetFlag());
+    end;
+    [Test] procedure RefusedWhileItRuns()
+    begin
+        Sleep(-1);
+    end;
+}
+"#;
+
+/// ADR-066 amendment 5, decision 2: a test refused while it runs does make its dependent codeunit run again.
+#[test]
+fn a_test_refused_while_it_runs_triggers_a_serial_run() {
+    let rt = runtime(DEPENDENT_WITH_MID_RUN_REFUSAL);
+    assert!(
+        rt.results()
+            .iter()
+            .any(|r| r.test == "RefusedWhileItRuns" && matches!(r.outcome, Outcome::NotRun(_))),
+        "{:?}",
+        rt.results()
+    );
+    assert!(passed(&rt, "ReadsAnyFlagMidRun") && flagged(&rt, "ReadsAnyFlagMidRun"));
+    let lane = &rt.phases.chain.single_lane;
+    assert_eq!((lane.dependent, lane.rerun, lane.chains), (1, 1, 1), "{:?}", lane);
+    assert_eq!(lane.lane.len(), 2, "{:?}", lane.lane);
 }

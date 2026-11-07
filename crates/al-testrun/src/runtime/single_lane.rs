@@ -3,9 +3,9 @@
 //! BC runs the test codeunits of a run in one session, so the globals of a SingleInstance codeunit that one codeunit
 //! left are what the next one starts with (al-language/codeunits/TestCuP7BReader.al:24-37, against
 //! TestCuP7ASetter.al:24-58). al-runner runs the codeunits in parallel, each on a session of its own, and copies no
-//! state from one to the next. Instead it finds the codeunits that depend on such state and runs only those again,
-//! with the codeunits that wrote it, in one serial session in BC's order, the single instances moved from codeunit to
-//! codeunit. The tests of a dependent codeunit are flagged (`Assumption::SingleInstanceOrder`).
+//! state from one to the next. Instead it finds the codeunits that depend on such state and runs those that need it
+//! again, with the codeunits that wrote it, in a serial session in BC's order, the single instances moved from codeunit
+//! to codeunit. The tests of a dependent codeunit are flagged (`Assumption::SingleInstanceOrder`).
 //!
 //! Three steps, each as cheap as it can be:
 //!
@@ -15,8 +15,12 @@
 //!    (`al_vm::single_track`).
 //! 3. [`Lane::run`] goes through each BC session in order ([`analyse`]): a codeunit depends on earlier state when a
 //!    global it read first held another value than the last earlier writer left, unless it filled the same cache
-//!    itself: it ended with the very values the earlier writer left. The lane is the dependent codeunits and, until
-//!    nothing is added, the earlier codeunits that wrote a global one of them read.
+//!    itself: it ended with the very values the earlier writer left. Every dependent codeunit is flagged. Amendment 4:
+//!    it keeps its parallel run (fresh state, a real BC outcome: the codeunit run alone or first); only one with a
+//!    failed test or a test refused while it ran (amendment 5: not one refused before it started), or every one under
+//!    `--strict-order`, runs again with the writers it needs ([`Found::lane_for`]), and that run is reported.
+//!    Amendment 5: each such chain is a serial session of its own ([`Found::sessions`]); the sessions run in parallel
+//!    on the worker threads.
 
 use super::chain_walk::Carry as ChainCarry;
 use super::*;
@@ -73,6 +77,9 @@ pub(super) struct Found {
     pub dependent: BTreeMap<usize, (usize, GlobalKey)>,
     /// Positions of the codeunits to run in the lane: the dependent ones and the writers they need.
     pub lane: BTreeSet<usize>,
+    /// Per dependent codeunit (position), the positions of the earlier codeunits it needs in the lane: for each global
+    /// that makes it dependent, the last writer (R2).
+    pub writers: BTreeMap<usize, BTreeSet<usize>>,
     /// Position of a codeunit that is not dependent only because a guard then the refill of a global it read first
     /// is taken as no link although the earlier codeunit left another value (`Assumption::SingleInstanceRefill`), with
     /// that codeunit's position and the global.
@@ -154,6 +161,9 @@ pub(super) fn analyse(outs: &[Option<&SingleOut>]) -> Found {
             lane.insert(p);
             lane.insert(c.0);
             lane.extend(diff.iter().map(|(_, w)| *w));
+            let mine = found.writers.entry(p).or_default();
+            mine.insert(c.0);
+            mine.extend(diff.iter().map(|(_, w)| *w));
         } else if let Some(a) = assumed {
             found.refill_assumed.insert(p, a);
         }
@@ -167,6 +177,76 @@ pub(super) fn analyse(outs: &[Option<&SingleOut>]) -> Found {
     found
 }
 
+impl Found {
+    /// The lane for the dependent codeunits `chosen` (ADR-066 amendment 4): each one, the writers it needs, and the
+    /// writers of a writer that is dependent itself (R2), to the end. With every dependent codeunit chosen, this is
+    /// `lane` (amendment 3).
+    pub(super) fn lane_for(&self, chosen: &BTreeSet<usize>) -> BTreeSet<usize> {
+        let mut lane: BTreeSet<usize> = BTreeSet::new();
+        let mut todo: Vec<usize> = chosen.iter().copied().collect();
+        while let Some(p) = todo.pop() {
+            if !lane.insert(p) {
+                continue;
+            }
+            for &w in self.writers.get(&p).into_iter().flatten() {
+                if self.writers.contains_key(&w) {
+                    todo.push(w);
+                } else {
+                    lane.insert(w);
+                }
+            }
+        }
+        lane
+    }
+
+    /// The serial sessions for the dependent codeunits `chosen` (ADR-066 amendment 5, decision 1), each in BC's order,
+    /// with the chosen codeunits whose run in it is reported: every chosen codeunit's chain ([`Found::lane_for`] of it
+    /// alone) is a session of its own, so it sees no state from a codeunit outside its chain. A writer two chains share
+    /// runs in each (decision 2). A chosen codeunit that is in a later chosen codeunit's chain, where every codeunit of
+    /// that chain up to it is in its own chain, is reported from that session and gets none of its own: it starts with
+    /// the very state there. Sorted by their positions.
+    pub(super) fn sessions(&self, chosen: &BTreeSet<usize>) -> Vec<(Vec<usize>, BTreeSet<usize>)> {
+        let chains: BTreeMap<usize, BTreeSet<usize>> = chosen
+            .iter()
+            .map(|&p| (p, self.lane_for(&BTreeSet::from([p]))))
+            .collect();
+        // Whether `p` runs in `q`'s session with what its own chain would give it.
+        let inside =
+            |p: usize, q: usize| p != q && chains[&q].contains(&p) && chains[&q].range(..=p).eq(chains[&p].iter());
+        let absorbed: BTreeSet<usize> = chosen
+            .iter()
+            .copied()
+            .filter(|&p| chosen.iter().any(|&q| inside(p, q)))
+            .collect();
+        let mut out: Vec<(Vec<usize>, BTreeSet<usize>)> = chosen
+            .iter()
+            .filter(|p| !absorbed.contains(p))
+            .map(|&q| {
+                let mut reported = BTreeSet::from([q]);
+                reported.extend(
+                    absorbed
+                        .iter()
+                        .filter(|&&p| chosen.iter().find(|&&r| !absorbed.contains(&r) && inside(p, r)) == Some(&q)),
+                );
+                (chains[&q].iter().copied().collect(), reported)
+            })
+            .collect();
+        out.sort();
+        out
+    }
+}
+
+/// Whether a dependent codeunit runs again serially after its parallel run (ADR-066 amendment 4, decision 2, as
+/// amendment 5 decision 2 narrows it): a test of it failed, or started and did not run to its end (refused while it ran,
+/// a failure judged not trusted, a time limit). A test refused before it started does not count: the serial run would
+/// refuse it all the same. A run that panicked has no notes and is never dependent.
+fn needs_serial_run(slot: Option<&UnitResult>) -> bool {
+    match slot.map(|r| &r.result) {
+        Some(Ok(done)) => done.5.unfinished_after_start || done.0.iter().any(|(_, o)| matches!(o, Outcome::Fail(_))),
+        _ => true,
+    }
+}
+
 /// What the lane needs from the run (`corpus.rs`).
 pub(super) struct Lane<'a> {
     pub engine: &'a Arc<Engine>,
@@ -177,6 +257,18 @@ pub(super) struct Lane<'a> {
     pub sees: &'a dyn Fn(usize, u32, u8, &Unit) -> bool,
     pub place: &'a dyn Fn(usize, u32) -> u32,
     pub limit: Option<std::time::Duration>,
+    /// `--strict-order` (ADR-066 amendment 4, decision 4): every dependent codeunit runs again serially.
+    pub strict: bool,
+    /// The run's worker threads: the serial sessions run on as many (amendment 5).
+    pub workers: usize,
+    /// A worker thread can make its own copy of the install baseline (`corpus.rs` `baseline_engine`); without it and
+    /// with a baseline, the sessions run one after the other on this thread.
+    pub install_copies: bool,
+    /// The install baseline as bytes, written once per run (shared with the parallel run).
+    pub snapshot: &'a std::cell::OnceCell<Option<Vec<u8>>>,
+    /// A worker thread's own copy of the install baseline from `snapshot` (a baseline holds `Rc`s and stays on its
+    /// thread).
+    pub thread_baseline: &'a (dyn Fn(Option<&[u8]>) -> Option<al_vm::Baseline> + Sync),
 }
 
 /// What the lane did, for `--timings` and the stability report.
@@ -186,15 +278,28 @@ pub struct LaneReport {
     pub watched: usize,
     /// BC sessions with at least one dependent codeunit.
     pub sessions: usize,
-    /// The codeunits that ran again in the lane (dependent ones and the writers they need), with the reason.
+    /// The runs of codeunits in the lane (dependent ones and the writers they need), with the codeunit. A writer that
+    /// two chains share is listed once per session it ran in (amendment 5).
     pub lane: Vec<(u32, String)>,
     /// One line per dependent codeunit: what it relies on.
     pub notes: Vec<String>,
     /// Codeunits taken as independent under `Assumption::SingleInstanceRefill` (a guard, then the refill of a global
     /// an earlier codeunit left with another value): their tests are flagged, they do not run again.
     pub refill_assumed: usize,
-    /// The time the lane took (all its BC sessions, one after the other on one thread).
+    /// The wall time the lane took (its serial sessions run in parallel, amendment 5).
     pub took: std::time::Duration,
+    /// Dependent codeunits found (ADR-066 amendment 4): each one's tests are flagged.
+    pub dependent: usize,
+    /// Dependent codeunits that ran again serially because a test of theirs failed or was refused while it ran in the
+    /// parallel run (amendments 4 and 5). With `strict`, every dependent codeunit runs again and this counts them all.
+    pub rerun: usize,
+    /// `--strict-order`: every dependent codeunit ran again serially.
+    pub strict: bool,
+    /// Serial sessions the lane ran (amendment 5): one per chain of a dependent codeunit that ran again (none for one
+    /// whose chain starts another's).
+    pub chains: usize,
+    /// The time of the longest serial session.
+    pub longest: std::time::Duration,
 }
 
 impl LaneReport {
@@ -202,12 +307,20 @@ impl LaneReport {
         if self.watched == 0 {
             return Vec::new();
         }
+        let why = if self.strict {
+            "(strict order: every dependent codeunit)"
+        } else {
+            "because a test failed or was refused while it ran in parallel"
+        };
         let mut out = vec![format!(
-            "SingleInstance order: {} test codeunits watched, {} BC sessions with a dependent codeunit, {} codeunits ran in the lane ({} dependent, {:.2} s); {} codeunits flagged as independent under the guard-then-refill assumption",
+            "SingleInstance order: {} test codeunits watched, {} BC sessions with a dependent codeunit, {} dependent codeunits (flagged), {} ran again serially {why}, {} codeunit runs in {} serial sessions (longest {:.2} s, lane wall time {:.2} s); {} codeunits flagged as independent under the guard-then-refill assumption",
             self.watched,
             self.sessions,
+            self.dependent,
+            self.rerun,
             self.lane.len(),
-            self.notes.len(),
+            self.chains,
+            self.longest.as_secs_f64(),
             self.took.as_secs_f64(),
             self.refill_assumed
         )];
@@ -216,16 +329,194 @@ impl LaneReport {
     }
 }
 
+/// One serial session of the lane (amendment 5): unit indices in BC's order, and the dependent ones whose run is
+/// reported.
+struct Chain {
+    order: Vec<usize>,
+    chosen: BTreeSet<usize>,
+    /// Where each codeunit starts, for a worker thread. `None`: a carried baseline it may start from could not be
+    /// written as bytes, so the session runs on this thread from the baselines themselves ([`Lane::run_bound`]).
+    steps: Option<Vec<Step>>,
+}
+
+/// Where a codeunit of a serial session starts, worked out on this thread (amendment 5). A baseline a carry-chain
+/// member left (RequiredTestIsolation = Disabled) holds `Rc`s and stays on the thread that made it, so a worker thread
+/// gets it as bytes ([`Start`]), as the chain walk's helpers do (`chain_walk.rs`). The same choices as
+/// [`Lane::run_bound`].
+struct Step {
+    k: usize,
+    /// A chain member starts from what the member before it left (index into the starts); `None`: the install
+    /// baseline.
+    from: Option<usize>,
+    /// A codeunit that is no member and comes after one: whether it reaches session storage that member changed (then
+    /// it runs again whatever it read), and the start it runs again from when it read a table that member wrote
+    /// (`None`: it keeps its first run).
+    again: Option<(bool, Option<usize>)>,
+}
+
+/// A carried baseline as bytes, for a worker thread.
+struct Start {
+    bytes: Vec<u8>,
+    install_rows: Option<BTreeSet<u32>>,
+    origin: u64,
+}
+
+impl Start {
+    /// The worker's own copy (the same data, so the same origin, over the engine's test data).
+    fn decode(&self, engine: &Arc<Engine>) -> Option<al_vm::Baseline> {
+        al_vm::Baseline::from_bytes(&self.bytes).map(|b| {
+            let mut b = b.backed_by(engine).with_origin(self.origin);
+            b.install_rows = self.install_rows.clone();
+            b
+        })
+    }
+}
+
+/// The carried baselines written as bytes so far, by carry index (`None`: it has no bytes).
+#[derive(Default)]
+struct Starts {
+    index: BTreeMap<usize, Option<usize>>,
+    list: Vec<Start>,
+}
+
+impl Starts {
+    fn of(&mut self, carry: usize, b: &al_vm::Baseline) -> Option<usize> {
+        if let Some(i) = self.index.get(&carry) {
+            return *i;
+        }
+        let i = b.to_bytes().map(|bytes| {
+            self.list.push(Start {
+                bytes,
+                install_rows: b.install_rows.clone(),
+                origin: b.origin(),
+            });
+            self.list.len() - 1
+        });
+        self.index.insert(carry, i);
+        i
+    }
+}
+
+/// What a worker thread needs to run a session's steps (all of it can be shared between threads).
+struct Worker<'a> {
+    engine: &'a Arc<Engine>,
+    lowered: &'a Lowered,
+    units: &'a [Unit],
+    limit: Option<std::time::Duration>,
+    starts: &'a [Start],
+}
+
+impl Worker<'_> {
+    /// Runs one step from `install` (this thread's install baseline) or a carried start, decoded once per thread into
+    /// `copies`. `None`: the codeunit keeps its first run.
+    fn run(
+        &self,
+        install: Option<&al_vm::Baseline>,
+        copies: &mut BTreeMap<usize, Option<al_vm::Baseline>>,
+        s: &Step,
+    ) -> Option<UnitResult> {
+        let mut u = self.units[s.k].clone();
+        u.watch = false;
+        let mut copy = |i: usize| {
+            copies
+                .entry(i)
+                .or_insert_with(|| self.starts[i].decode(self.engine))
+                .clone()
+        };
+        let first = match s.from {
+            Some(i) => Some(copy(i)?),
+            None => None,
+        };
+        let mut r = run_unit(
+            self.engine,
+            self.lowered,
+            first.as_ref().or(install),
+            &u,
+            None,
+            self.limit,
+        );
+        if let Some((storage, again)) = s.again {
+            if storage || r.result.as_ref().is_ok_and(|done| done.5.leak_hit) {
+                let from = copy(again?)?;
+                super::run::CARRIED.with(|c| c.borrow_mut().take());
+                r = run_unit(self.engine, self.lowered, Some(&from), &u, None, self.limit);
+            }
+        }
+        Some(r)
+    }
+}
+
+/// What one serial session gave: each codeunit's run in order (`None`: kept its first run, `corpus.rs` refuses the
+/// case), and the time it took.
+type ChainRuns = (Vec<(usize, Option<UnitResult>)>, std::time::Duration);
+
+/// Runs the codeunits `order` one after the other on this thread, the single instances moved from codeunit to codeunit
+/// (`run.rs` `LANE_SINGLES`).
+fn run_in_order(order: &[usize], one: &mut dyn FnMut(usize) -> Option<UnitResult>) -> ChainRuns {
+    let started = std::time::Instant::now();
+    super::run::LANE_SINGLES.with(|c| *c.borrow_mut() = Some(None));
+    let mut out = Vec::with_capacity(order.len());
+    for &k in order {
+        let r = one(k);
+        super::run::CARRIED.with(|c| c.borrow_mut().take());
+        out.push((k, r));
+    }
+    super::run::LANE_SINGLES.with(|c| *c.borrow_mut() = None);
+    (out, started.elapsed())
+}
+
 impl Lane<'_> {
-    /// Step 3: runs the lane of each BC session that has a dependent codeunit and puts the dependent codeunits'
-    /// results (flagged) in `slots`.
+    /// Step 3: finds the dependent codeunits of each BC session, flags them, and runs the serial sessions of those that
+    /// run again (in parallel, amendment 5), putting the dependent codeunits' results (flagged) in `slots`.
     pub(super) fn run(&self, slots: &mut [Option<UnitResult>], report: &mut LaneReport) {
         if report.watched == 0 {
             return;
         }
         let started = std::time::Instant::now();
+        report.strict = self.strict;
+        let mut starts = Starts::default();
+        let chains = self.chains(slots, report, &mut starts);
+        report.chains = chains.len();
+        let runs = self.run_chains(&chains, &starts.list);
+        for (chain, (done, took)) in chains.iter().zip(runs) {
+            report.longest = report.longest.max(took);
+            for (k, r) in done {
+                let Some(mut r) = r else { continue };
+                report.lane.push((self.units[k].id, self.name(k)));
+                if !chain.chosen.contains(&k) {
+                    // A writer that does not depend keeps its first run: it was complete without the lane. So does a
+                    // dependent writer that was not chosen (amendment 4: it passed in parallel, flagged), and a chosen
+                    // one whose result comes from its own session. A chain member that depends hands the later
+                    // codeunits the rows of its first run (its run here is dropped).
+                    continue;
+                }
+                if let Ok(done) = &mut r.result {
+                    // What the first run marked (an instance's making marks once, in the codeunit that made it) stays.
+                    if let Some(Ok(first)) = slots[k].as_ref().map(|f| &f.result) {
+                        for (test, hits) in &first.3 {
+                            match done.3.iter_mut().find(|(t, _)| t == test) {
+                                Some((_, mine)) => {
+                                    mine.extend(hits.iter().copied());
+                                    mine.sort();
+                                    mine.dedup();
+                                }
+                                None => done.3.push((test.clone(), hits.clone())),
+                            }
+                        }
+                    }
+                    flag_all(done, Assumption::SingleInstanceOrder);
+                }
+                slots[k] = Some(r);
+            }
+        }
+        report.took += started.elapsed();
+    }
+
+    /// Analyses each BC session, flags its dependent codeunits, and returns the serial sessions to run.
+    fn chains(&self, slots: &mut [Option<UnitResult>], report: &mut LaneReport, starts: &mut Starts) -> Vec<Chain> {
         let has = |k: usize| slots[k].is_some();
         let streams = streams(self.units, self.place, &has);
+        let mut chains = Vec::new();
         for ks in streams {
             let found = {
                 let outs: Vec<Option<&SingleOut>> = ks
@@ -247,9 +538,187 @@ impl Lane<'_> {
                 continue;
             }
             report.sessions += 1;
-            self.run_stream(&ks, &found, slots, report);
+            report.dependent += found.dependent.len();
+            // Amendment 4, decision 3: every dependent codeunit is flagged, whether its parallel run is kept or not.
+            for &p in found.dependent.keys() {
+                report.notes.push(format!(
+                    "test codeunit {} {}",
+                    self.name(ks[p]),
+                    self.dependent_why(&ks, &found, p)
+                ));
+                if let Some(Ok(done)) = slots[ks[p]].as_mut().map(|r| &mut r.result) {
+                    flag_all(done, Assumption::SingleInstanceOrder);
+                }
+            }
+            // Decision 2: only a dependent codeunit with a failure or a test refused while it ran in parallel runs again
+            // serially; `--strict-order` (decision 4) runs them all again.
+            let chosen: BTreeSet<usize> = found
+                .dependent
+                .keys()
+                .copied()
+                .filter(|&p| self.strict || needs_serial_run(slots[ks[p]].as_ref()))
+                .collect();
+            report.rerun += chosen.len();
+            for (positions, reported) in found.sessions(&chosen) {
+                let order: Vec<usize> = positions.iter().map(|&p| ks[p]).collect();
+                chains.push(Chain {
+                    steps: self.plan(&order, starts),
+                    chosen: reported.iter().map(|&p| ks[p]).collect(),
+                    order,
+                });
+            }
         }
-        report.took += started.elapsed();
+        chains
+    }
+
+    /// Runs the serial sessions in parallel (amendment 5): on worker threads and this one; a session without steps
+    /// only on this thread. The results come back in the order of `chains`, whichever thread ran them.
+    fn run_chains(&self, chains: &[Chain], starts: &[Start]) -> Vec<ChainRuns> {
+        let mut out: Vec<Option<ChainRuns>> = (0..chains.len()).map(|_| None).collect();
+        let free: Vec<usize> = (0..chains.len()).filter(|&i| chains[i].steps.is_some()).collect();
+        let threads = if self.workers > 1 && (self.baseline.is_none() || self.install_copies) {
+            self.workers
+        } else {
+            1
+        };
+        let helpers = threads.min(free.len()).saturating_sub(1);
+        if helpers > 0 {
+            self.snapshot
+                .get_or_init(|| self.baseline.and_then(al_vm::Baseline::to_bytes));
+        }
+        let snapshot: Option<&[u8]> = self.snapshot.get().and_then(|s| s.as_deref());
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let worker = Worker {
+            engine: self.engine,
+            lowered: self.lowered,
+            units: self.units,
+            limit: self.limit,
+            starts,
+        };
+        let pull = |install: Option<&al_vm::Baseline>| {
+            let mut copies = BTreeMap::new();
+            let mut done = Vec::new();
+            loop {
+                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some(&c) = free.get(i) else { return done };
+                let steps = chains[c].steps.as_deref().unwrap_or_default();
+                let mut at = steps.iter();
+                let runs = run_in_order(&chains[c].order, &mut |_| {
+                    worker.run(install, &mut copies, at.next().expect("a step per codeunit"))
+                });
+                done.push((c, runs));
+            }
+        };
+        let thread_baseline = self.thread_baseline;
+        std::thread::scope(|scope| {
+            let mut handles = Vec::new();
+            for _ in 0..helpers {
+                let spawned = std::thread::Builder::new()
+                    .stack_size(TEST_STACK)
+                    .spawn_scoped(scope, || {
+                        let own = thread_baseline(snapshot);
+                        pull(own.as_ref())
+                    });
+                match spawned {
+                    Ok(h) => handles.push(h),
+                    // No room for another thread (an address space limit): fewer will do.
+                    Err(_) => break,
+                }
+            }
+            for (i, c) in chains.iter().enumerate().filter(|(_, c)| c.steps.is_none()) {
+                out[i] = Some(run_in_order(&c.order, &mut |k| self.run_bound(k)));
+            }
+            for (c, runs) in pull(self.baseline) {
+                out[c] = Some(runs);
+            }
+            for h in handles {
+                for (c, runs) in h.join().expect("a lane worker panicked") {
+                    out[c] = Some(runs);
+                }
+            }
+        });
+        out.into_iter().map(|r| r.expect("every serial session ran")).collect()
+    }
+
+    /// Where each codeunit of a session starts ([`Step`]); `None` when a carried baseline it needs has no bytes.
+    fn plan(&self, order: &[usize], starts: &mut Starts) -> Option<Vec<Step>> {
+        order
+            .iter()
+            .map(|&k| {
+                let Some(ci) = self.earlier_carry_index(k) else {
+                    return Some(Step {
+                        k,
+                        from: None,
+                        again: None,
+                    });
+                };
+                let c = &self.carried[ci].3;
+                let start = match (&c.unfinished, &c.storage_why, &c.baseline) {
+                    (None, None, Some(b)) => Some(starts.of(ci, b)?),
+                    _ => None,
+                };
+                if self.is_member(k) {
+                    return Some(Step {
+                        k,
+                        from: start,
+                        again: None,
+                    });
+                }
+                let storage =
+                    c.everything && super::corpus::reaches_session_storage(self.engine, self.lowered, self.units[k].oi);
+                Some(Step {
+                    k,
+                    from: None,
+                    again: Some((storage, start)),
+                })
+            })
+            .collect()
+    }
+
+    /// The index of the last chain member's carry (RequiredTestIsolation = Disabled) that codeunit `k` comes after.
+    fn earlier_carry_index(&self, k: usize) -> Option<usize> {
+        let u = &self.units[k];
+        self.carried
+            .iter()
+            .rposition(|(si, id, leg, _)| (si, id) != (&u.si, &u.id) && (self.sees)(*si, *id, *leg, u))
+    }
+
+    /// The last chain member's carry that codeunit `k` comes after, if any.
+    fn earlier_carry(&self, k: usize) -> Option<&ChainCarry> {
+        self.earlier_carry_index(k).map(|i| &self.carried[i])
+    }
+
+    /// Runs codeunit `k` of a session bound to this thread. `None`: it keeps its first run.
+    fn run_bound(&self, k: usize) -> Option<UnitResult> {
+        let mut u = self.units[k].clone();
+        u.watch = false;
+        let earlier = self.earlier_carry(k);
+        let base = match earlier {
+            Some((_, _, _, c)) if self.is_member(k) && c.unfinished.is_none() && c.storage_why.is_none() => {
+                c.baseline.as_ref().or(self.baseline)
+            }
+            _ => self.baseline,
+        };
+        let mut r = run_unit(self.engine, self.lowered, base, &u, None, self.limit);
+        // A codeunit that is no chain member runs from the install baseline, and runs again from what an earlier
+        // member left when it read a table that member wrote or reaches session storage (`corpus.rs`, "run as
+        // before"). The lane does the same, or a codeunit in it loses the rows it reads (corpus Y35OnRunStorage.al:453,
+        // C302_B2_TestWritesStorage: a default test handler that writes to a SingleInstance log for every test
+        // codeunit puts every codeunit in the lane). A case `corpus.rs` refuses keeps its first run.
+        if let (false, Some((_, _, _, c))) = (self.is_member(k), earlier) {
+            let storage = c.everything && super::corpus::reaches_session_storage(self.engine, self.lowered, u.oi);
+            let hit = storage || r.result.as_ref().is_ok_and(|done| done.5.leak_hit);
+            if hit {
+                match (&c.unfinished, &c.storage_why, c.baseline.as_ref()) {
+                    (None, None, Some(from)) => {
+                        super::run::CARRIED.with(|c| c.borrow_mut().take());
+                        r = run_unit(self.engine, self.lowered, Some(from), &u, None, self.limit);
+                    }
+                    _ => return None,
+                }
+            }
+        }
+        Some(r)
     }
 
     fn name(&self, k: usize) -> String {
@@ -264,90 +733,16 @@ impl Lane<'_> {
         u.carry.is_some() || u.isolation == TestIsolation::Disabled
     }
 
-    fn run_stream(&self, ks: &[usize], found: &Found, slots: &mut [Option<UnitResult>], report: &mut LaneReport) {
-        let dependent_why = |p: usize| {
-            let (o, g) = found.dependent[&p].1;
-            let obj = &self.lowered.program.objects[o];
-            format!(
-                "relies on SingleInstance state (variable {} of codeunit {}) that test codeunit {} left (order-dependent test; fix the test)",
-                obj.globals.get(g).map_or("?", |s| s.name.as_str()),
-                obj.name,
-                self.name(ks[found.dependent[&p].0])
-            )
-        };
-        super::run::LANE_SINGLES.with(|c| *c.borrow_mut() = Some(None));
-        for &p in &found.lane {
-            let k = ks[p];
-            let mut u = self.units[k].clone();
-            u.watch = false;
-            let before = if self.is_member(k) {
-                self.carried
-                    .iter()
-                    .rev()
-                    .find(|(si, id, leg, _)| (si, id) != (&u.si, &u.id) && (self.sees)(*si, *id, *leg, &u))
-            } else {
-                None
-            };
-            let base = match before {
-                Some((_, _, _, c)) if c.unfinished.is_none() && c.storage_why.is_none() => {
-                    c.baseline.as_ref().or(self.baseline)
-                }
-                _ => self.baseline,
-            };
-            let mut r = run_unit(self.engine, self.lowered, base, &u, None, self.limit);
-            // A codeunit that is no chain member runs from the install baseline, and runs again from what an earlier
-            // member left when it read a table that member wrote or reaches session storage (`corpus.rs`, "run as
-            // before"). The lane does the same, or a codeunit in it loses the rows it reads (corpus Y35OnRunStorage.al:453,
-            // C302_B2_TestWritesStorage: a default test handler that writes to a SingleInstance log for every test
-            // codeunit puts every codeunit in the lane). A case `corpus.rs` refuses keeps its first run.
-            if !self.is_member(k) {
-                let earlier = self
-                    .carried
-                    .iter()
-                    .rev()
-                    .find(|(si, id, leg, _)| (si, id) != (&u.si, &u.id) && (self.sees)(*si, *id, *leg, &u));
-                if let Some((_, _, _, c)) = earlier {
-                    let storage =
-                        c.everything && super::corpus::reaches_session_storage(self.engine, self.lowered, u.oi);
-                    let hit = storage || r.result.as_ref().is_ok_and(|done| done.5.leak_hit);
-                    if hit {
-                        match (&c.unfinished, &c.storage_why, c.baseline.as_ref()) {
-                            (None, None, Some(from)) => {
-                                super::run::CARRIED.with(|c| c.borrow_mut().take());
-                                r = run_unit(self.engine, self.lowered, Some(from), &u, None, self.limit);
-                            }
-                            _ => continue,
-                        }
-                    }
-                }
-            }
-            super::run::CARRIED.with(|c| c.borrow_mut().take());
-            report.lane.push((u.id, self.name(k)));
-            if found.dependent.contains_key(&p) {
-                let why = dependent_why(p);
-                report.notes.push(format!("test codeunit {} {why}", self.name(k)));
-                if let Ok(done) = &mut r.result {
-                    // What the first run marked (an instance's making marks once, in the codeunit that made it) stays.
-                    if let Some(Ok(first)) = slots[k].as_ref().map(|f| &f.result) {
-                        for (test, hits) in &first.3 {
-                            match done.3.iter_mut().find(|(t, _)| t == test) {
-                                Some((_, mine)) => {
-                                    mine.extend(hits.iter().copied());
-                                    mine.sort();
-                                    mine.dedup();
-                                }
-                                None => done.3.push((test.clone(), hits.clone())),
-                            }
-                        }
-                    }
-                    flag_all(done, Assumption::SingleInstanceOrder);
-                }
-                slots[k] = Some(r);
-            }
-            // A writer that does not depend keeps its first run: it was complete without the lane. A chain member that
-            // depends hands the later codeunits the rows of its first run (what its run in the lane left is dropped).
-        }
-        super::run::LANE_SINGLES.with(|c| *c.borrow_mut() = None);
+    /// What the dependent codeunit at position `p` relies on, for its note.
+    fn dependent_why(&self, ks: &[usize], found: &Found, p: usize) -> String {
+        let (w, (o, g)) = found.dependent[&p];
+        let obj = &self.lowered.program.objects[o];
+        format!(
+            "relies on SingleInstance state (variable {} of codeunit {}) that test codeunit {} left (order-dependent test; fix the test)",
+            obj.globals.get(g).map_or("?", |s| s.name.as_str()),
+            obj.name,
+            self.name(ks[w])
+        )
     }
 }
 
@@ -406,6 +801,76 @@ mod tests {
         let found = analyse(&[Some(&a), Some(&b), Some(&c)]);
         assert_eq!(found.dependent.keys().copied().collect::<Vec<_>>(), vec![1, 2]);
         assert_eq!(found.lane, BTreeSet::from([0, 1, 2]));
+    }
+
+    /// ADR-066 amendment 4: the lane of one chosen dependent codeunit holds what it needs and nothing of the others.
+    #[test]
+    fn the_lane_of_chosen_dependents_holds_only_their_chain() {
+        let (k1, k2) = ((1, 0), (2, 0));
+        let a = out(&[], &[(k2, 3)], &[k2]);
+        let b = out(&[(k2, 0)], &[(k2, 0), (k1, 4)], &[k1]);
+        let c = out(&[(k1, 0)], &[(k1, 0)], &[]);
+        let found = analyse(&[Some(&a), Some(&b), Some(&c)]);
+        // Only b chosen: b and its writer a. Only c chosen: c, its writer b (dependent itself) and b's writer a.
+        assert_eq!(found.lane_for(&BTreeSet::from([1])), BTreeSet::from([0, 1]));
+        assert_eq!(found.lane_for(&BTreeSet::from([2])), BTreeSet::from([0, 1, 2]));
+        assert_eq!(found.lane_for(&BTreeSet::from([1, 2])), found.lane);
+        assert!(found.lane_for(&BTreeSet::new()).is_empty());
+    }
+
+    fn sessions(found: &Found, chosen: &[usize]) -> Vec<(Vec<usize>, Vec<usize>)> {
+        found
+            .sessions(&chosen.iter().copied().collect())
+            .into_iter()
+            .map(|(order, reported)| (order, reported.into_iter().collect()))
+            .collect()
+    }
+
+    /// ADR-066 amendment 5: each chosen dependent codeunit's chain is a serial session of its own, also when two chains
+    /// share a writer (the writer runs in each): a codeunit sees no state from outside its chain.
+    #[test]
+    fn every_chain_is_a_session_of_its_own_and_a_shared_writer_runs_in_each() {
+        let (f1, f2) = ((1, 0), (2, 0));
+        let a = out(&[], &[(f1, 3)], &[f1]);
+        let b = out(&[], &[(f2, 4)], &[f2]);
+        let c = out(&[(f1, 0)], &[(f1, 0)], &[]);
+        let d = out(&[(f2, 0)], &[(f2, 0)], &[]);
+        let e = out(&[(f1, 0)], &[(f1, 0)], &[]);
+        let found = analyse(&[Some(&a), Some(&b), Some(&c), Some(&d), Some(&e)]);
+        assert_eq!(found.dependent.keys().copied().collect::<Vec<_>>(), vec![2, 3, 4]);
+        assert_eq!(
+            sessions(&found, &[2, 3]),
+            vec![(vec![0, 2], vec![2]), (vec![1, 3], vec![3])]
+        );
+        // c and e share their writer a: two sessions, a runs in both; e does not see what c left.
+        assert_eq!(
+            sessions(&found, &[2, 3, 4]),
+            vec![(vec![0, 2], vec![2]), (vec![0, 4], vec![4]), (vec![1, 3], vec![3])]
+        );
+        assert!(sessions(&found, &[]).is_empty());
+    }
+
+    /// A dependent codeunit whose chain is the start of a later chosen codeunit's chain is reported from that session:
+    /// it starts there with the very state its own session would give it.
+    #[test]
+    fn a_chain_that_starts_another_runs_inside_it() {
+        let (k1, k2) = ((1, 0), (2, 0));
+        let a = out(&[], &[(k2, 3)], &[k2]);
+        let b = out(&[(k2, 0)], &[(k2, 0), (k1, 4)], &[k1]);
+        let c = out(&[(k1, 0)], &[(k1, 0)], &[]);
+        let found = analyse(&[Some(&a), Some(&b), Some(&c)]);
+        assert_eq!(sessions(&found, &[1, 2]), vec![(vec![0, 1, 2], vec![1, 2])]);
+        // A codeunit of the later chain comes before it and is not in its chain: it keeps a session of its own.
+        let (f1, f2) = ((1, 0), (2, 0));
+        let w = out(&[], &[(f1, 3)], &[f1]);
+        let x = out(&[], &[(f2, 4)], &[f2]);
+        let y = out(&[(f1, 0)], &[(f1, 0)], &[]);
+        let z = out(&[(f1, 0), (f2, 0)], &[(f1, 0), (f2, 0)], &[]);
+        let found = analyse(&[Some(&w), Some(&x), Some(&y), Some(&z)]);
+        assert_eq!(
+            sessions(&found, &[2, 3]),
+            vec![(vec![0, 1, 3], vec![3]), (vec![0, 2], vec![2])]
+        );
     }
 
     #[test]
