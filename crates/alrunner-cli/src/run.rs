@@ -537,6 +537,30 @@ pub struct Collected {
     pub disabled: Vec<bool>,
 }
 
+/// `skippedDependencies` of the JSON outputs: the dependency apps the run did not load (empty: none).
+fn skipped_json(d: &al_testrun::deps::Dependencies) -> serde_json::Value {
+    d.skipped_details
+        .iter()
+        .map(al_testrun::deps::SkippedDependency::json)
+        .collect()
+}
+
+/// The error of a run that stops on dependencies it could not find (`--no-download`, issue 7139).
+fn missing_dependencies_message(skipped: &[al_testrun::deps::SkippedDependency]) -> String {
+    let mut m = format!(
+        "{} dependency app(s) were not found and --no-download is set, so the run would use a different install than a run with the apps:",
+        skipped.len()
+    );
+    for s in skipped {
+        m.push_str("\n  ");
+        m.push_str(&s.reason);
+    }
+    m.push_str(
+        "\nAdd the app to a --dep folder or the cache, or pass --allow-missing-dependencies to skip it with a warning.",
+    );
+    m
+}
+
 /// A run whose selected tests and coverage statements are handed back in `into` (one side of an impact run).
 /// Prints the summary line of the run but no verdict.
 pub fn test_collect(a: &TestArgs, into: &mut Collected) -> Result<u8, String> {
@@ -1120,6 +1144,10 @@ fn test_inner(
             d
         }
     };
+    // al-runner issue 7139: without the feed a missing dependency would quietly change the install the tests run on.
+    if a.no_download && !a.allow_missing_dependencies && !dependencies.skipped_details.is_empty() {
+        return Err(missing_dependencies_message(&dependencies.skipped_details));
+    }
     if let Some(d) = &debug {
         let written = al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()).join("debug-sources");
         *d.sources.lock().unwrap_or_else(|e| e.into_inner()) =
@@ -2376,6 +2404,7 @@ fn test_inner(
                 crate::unpinned::count(results.iter().map(|r| &r.outcome)),
             ))
             .map(|mut doc: serde_json::Value| {
+                doc["skippedDependencies"] = skipped_json(&dependencies);
                 if !entry_counts.is_empty() {
                     doc["entries"] = entry_counts
                         .iter()
@@ -2441,6 +2470,13 @@ fn test_inner(
                 d.to_string()
             }
             None => doc,
+        };
+        let doc = match serde_json::from_str::<serde_json::Value>(&doc) {
+            Ok(mut d) if d.is_object() => {
+                d["skippedDependencies"] = skipped_json(&dependencies);
+                serde_json::to_string_pretty(&d).map_err(|e| e.to_string())?
+            }
+            _ => doc,
         };
         match target {
             Some(path) => write_file(path, &doc)?,
