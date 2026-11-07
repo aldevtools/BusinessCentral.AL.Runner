@@ -104,14 +104,11 @@ impl Session {
     }
 
     fn tenant_report_layout_insert(&mut self, t: &TableDef, rec: &Rec) -> Result<(), Signal> {
-        let refuse = || {
-            unsupported(
-                "Insert on Tenant Report Layout of another row than one of a report of the app under test whose Layout is the report's own RDLC layout (not pinned)",
-            )
-        };
+        const WHAT: &str = "Insert on Tenant Report Layout of";
+        let refuse = |why: &str| unsupported(format!("{WHAT} {why} (not pinned)"));
         let field = |id: u32| t.fields.iter().position(|f| f.id == id);
         let (Some(report), Some(layout), Some(format)) = (field(1), field(7), field(8)) else {
-            return refuse();
+            return refuse("a table without the pinned fields");
         };
         let (report_id, media, format) = {
             let r = rec.borrow();
@@ -121,24 +118,33 @@ impl Session {
                 r.fields[format].clone(),
             )
         };
-        let (Value::Integer(report_id), Value::Option(RDLC, _)) = (report_id, format) else {
-            return refuse();
+        let (Value::Integer(report_id), Value::Option(format, _)) = (report_id, format) else {
+            return refuse("a row without a report id or layout format");
         };
+        if format != RDLC {
+            // Word rows are pinned (reports/runtime/Y6TenantReportLayoutRows.al W5_*), but their Layout comes from Report.WordLayout,
+            // whose stream the runtime does not produce, and BC validates the Word document: both stay refused.
+            let kind = ["RDLC", "Word", "Excel", "Custom"]
+                .get(format as usize)
+                .copied()
+                .unwrap_or("an unknown");
+            return refuse(&format!("a row with Layout Format {kind}, only RDLC is served"));
+        }
         let Some(object) = self.own_report(report_id) else {
-            return refuse();
+            return refuse("a report that is not one of the app under test");
         };
         let Some(file) = self
             .default_rdlc_layout_file(object)
             .and_then(|f| self.rdlc_layout_stream(object, f).ok())
         else {
-            return refuse();
+            return refuse("a report whose default rendering layout is not an RDLC file of the app");
         };
         let Value::Guid(id) = media else {
-            return refuse();
+            return refuse("a row without a Layout");
         };
         let same = self.media.objects.borrow().get(&id).is_some_and(|m| m.bytes == file);
         if !same {
-            return refuse();
+            return refuse("a Layout that is not the report's own RDLC layout");
         }
         Ok(())
     }
