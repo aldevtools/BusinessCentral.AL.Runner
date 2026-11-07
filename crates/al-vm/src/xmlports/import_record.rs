@@ -123,9 +123,11 @@ impl Session {
             .into_iter()
             .filter(|&c| schema.node(c).kind == ir::XmlNodeKind::Table)
             .collect();
+        // A child that names a sibling in LinkTable is not linked to this record: the record is saved after the rows below it as
+        // without a link (R6924eLinkSibling.al Nest_Import `ins hdr H1;ins hdr H2;ins line -1|;ins outer O1;`).
         let linked_children = table_children
             .iter()
-            .filter(|&&c| schema.node(c).link_node.is_some())
+            .filter(|&&c| schema.node(c).link_node.is_some() && !link_sibling(schema, c))
             .count();
         // Some linked and some not: pinned with the linked ones first in the schema and no triggers (AhXmlPort.al:325-360,
         // xmlport 78633): the record is stored before its first linked row, the rows below keep their own values.
@@ -133,8 +135,8 @@ impl Session {
         if mixed {
             let linked_first = table_children
                 .iter()
-                .skip_while(|&&c| schema.node(c).link_node.is_some())
-                .all(|&c| schema.node(c).link_node.is_none());
+                .skip_while(|&&c| schema.node(c).link_node.is_some() && !link_sibling(schema, c))
+                .all(|&c| schema.node(c).link_node.is_none() || link_sibling(schema, c));
             let quiet = n.triggers.is_empty() && table_children.iter().all(|&c| schema.node(c).triggers.is_empty());
             if !linked_first || !quiet {
                 return unsupported(
