@@ -126,43 +126,59 @@ pub fn corpus_source_dirs(app_dir: &Path) -> Result<Vec<PathBuf>, String> {
 /// it that it does not depend on whose dependencies are all among those (corpus cross-app fixture D, which depends on
 /// fixture A only), right after the last of them it depends on; two such apps at one place in folder-name order. Corpus
 /// `.github/workflows/ci.yml` `app_dirs` publishes fixture, A, D, B, C, then the main app. An app that depends on the
-/// main app (another suite's test app), on no corpus app or on any other app is not published with them.
+/// main app (another suite's test app) or on any other app is not published with them. An app with no dependency (XApp N) is published last, with the apps that depend only on it (XApp T), as CI does.
 pub fn corpus_publish_dirs(app_dir: &Path) -> Result<Vec<PathBuf>, String> {
+    corpus_publish_dirs_without(app_dir, &[])
+}
+
+/// [`corpus_publish_dirs`] without the folders in `suites` (the apps that run as test suites of their own, which are
+/// not published with the main app's environment).
+pub fn corpus_publish_dirs_without(app_dir: &Path, suites: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
+    let suites: Vec<PathBuf> = suites
+        .iter()
+        .map(|d| d.canonicalize().unwrap_or_else(|_| d.clone()))
+        .collect();
     let mut dirs = corpus_source_dirs(app_dir)?;
     let parent = app_dir.parent().unwrap_or(Path::new("."));
     let apps = neighbor_apps(parent, Some(app_dir))?;
-    let in_closure: Vec<(PathBuf, String)> = dirs
-        .iter()
-        .filter_map(|d| {
-            apps.iter()
-                .find(|(p, _)| p == d)
-                .map(|(p, j)| (p.clone(), j.id.clone()))
-        })
-        .collect();
-    let mut extra: Vec<(usize, PathBuf)> = Vec::new();
-    for (dir, json) in &apps {
-        if in_closure.iter().any(|(p, _)| p == dir) || json.dependencies.is_empty() {
-            continue;
+    // The apps of `apps` left, in folder-name order. One that depends on no app at all goes last; one whose dependencies
+    // are all loaded already goes right after the last of them (after earlier ones added there). Repeated until no app
+    // fits, so an app that depends on an added one comes after it.
+    let id_of = |dir: &PathBuf| apps.iter().find(|(p, _)| p == dir).map(|(_, j)| j.id.clone());
+    let mut added: Vec<PathBuf> = Vec::new();
+    loop {
+        let mut progress = false;
+        for (dir, json) in &apps {
+            if dirs.contains(dir) || suites.contains(&dir.canonicalize().unwrap_or_else(|_| dir.clone())) {
+                continue;
+            }
+            let ids: Vec<Option<String>> = dirs.iter().map(&id_of).collect();
+            let at: Option<Vec<usize>> = json
+                .dependencies
+                .iter()
+                .map(|d| {
+                    ids.iter()
+                        .position(|i| i.as_ref().is_some_and(|i| i.eq_ignore_ascii_case(&d.id)))
+                })
+                .collect();
+            let Some(at) = at else { continue };
+            let pos = match at.into_iter().max() {
+                None => dirs.len(),
+                Some(last) => {
+                    let mut pos = last + 1;
+                    while dirs.get(pos).is_some_and(|d| added.contains(d)) {
+                        pos += 1;
+                    }
+                    pos
+                }
+            };
+            dirs.insert(pos, dir.clone());
+            added.push(dir.clone());
+            progress = true;
         }
-        let at: Option<Vec<usize>> = json
-            .dependencies
-            .iter()
-            .map(|d| in_closure.iter().position(|(_, id)| id.eq_ignore_ascii_case(&d.id)))
-            .collect();
-        if let Some(at) = at {
-            let last = at.into_iter().max().unwrap_or(0);
-            extra.push((last, dir.clone()));
+        if !progress {
+            break;
         }
-    }
-    // `apps` is in folder-name order, so a stable sort keeps two apps at one place in that order; inserting from the
-    // back keeps the earlier positions valid.
-    extra.sort_by_key(|(at, _)| *at);
-    for (at, dir) in extra.into_iter().rev() {
-        let pos = dirs
-            .iter()
-            .position(|d| *d == in_closure[at].0)
-            .map_or(dirs.len(), |p| p + 1);
-        dirs.insert(pos, dir);
     }
     Ok(dirs)
 }
@@ -515,8 +531,11 @@ mod tests {
 
     /// Corpus CI also publishes a cross-app fixture the main app does not depend on (corpus `.github/workflows/ci.yml`,
     /// `app_dirs`: fixture, A, D, B, C, then the main app; D depends on A only). It goes right after the last corpus app
-    /// it depends on. An app that depends on the main app (a suite's test app), on an app that is not loaded before
-    /// it, or on no corpus app at all is not one of them.
+    /// it depends on. An app with no dependency at all (XApp N) goes last, and an app that depends only on such an app
+    /// (XApp T) after it: CI publishes both after C, and the subscriber-order probe needs them
+    /// (events/subscriber-order/TtSubscriberOrderTests.al:37-44, `N;A;M;T;`). An app that depends on the main app (a
+    /// suite's test app) or on an app that is not loaded (a Microsoft app, or an app that is itself left out) is not one of
+    /// them; one that depends only on a loaded app (`on-d`, on D) follows it.
     #[test]
     fn a_fixture_app_outside_the_main_apps_dependencies_is_published_after_its_own() {
         let tmp = tempfile::tempdir().unwrap();
@@ -526,7 +545,8 @@ mod tests {
         app_folder(t, "xapp-b", &json("b", &["f", "a"]), &[]);
         app_folder(t, "xapp-c", &json("c", &["a", "b"]), &[]);
         app_folder(t, "xapp-d", &json("d", &["a"]), &[]);
-        app_folder(t, "unrelated", &json("u", &[]), &[]);
+        app_folder(t, "xapp-n", &json("n", &[]), &[]);
+        app_folder(t, "xapp-t", &json("t", &["n"]), &[]);
         app_folder(t, "runner-only", &json("r", &["ms-test-runner"]), &[]);
         app_folder(t, "onprem", &json("o", &["m"]), &[]);
         app_folder(t, "on-d", &json("e", &["d"]), &[]);
@@ -537,7 +557,23 @@ mod tests {
             .iter()
             .map(|d| d.file_name().unwrap().to_string_lossy().into_owned())
             .collect();
-        assert_eq!(names, ["fixture", "xapp-a", "xapp-d", "xapp-b", "xapp-c"]);
+        assert_eq!(
+            names,
+            [
+                "fixture", "xapp-a", "xapp-d", "on-d", "xapp-b", "xapp-c", "xapp-n", "xapp-t"
+            ]
+        );
+    }
+
+    /// A dependency-free app next to the main app that runs as a suite of its own is not published with the main app.
+    #[test]
+    fn a_suite_app_without_dependencies_is_not_published_with_the_main_app() {
+        let tmp = tempfile::tempdir().unwrap();
+        let t = tmp.path();
+        let suite = app_folder(t, "suite", &json("s", &[]), &[]);
+        let main = app_folder(t, "main", &json("m", &[]), &[]);
+        assert_eq!(corpus_publish_dirs(&main).unwrap(), [suite.clone()]);
+        assert!(corpus_publish_dirs_without(&main, &[suite]).unwrap().is_empty());
     }
 
     /// BC's test environment has Microsoft's Test Runner app installed although no test app declares it

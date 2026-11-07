@@ -253,14 +253,7 @@ impl Session {
         // Manual instances that unbound themselves while one of their own subscriber methods ran in this raise.
         let mut self_unbound: Vec<Inst> = Vec::new();
         refresh(args);
-        let raised = crate::guard_exit::Raised {
-            names,
-            args,
-            aliased: (0..args.len())
-                .map(|j| matches!(origins.get(j), Some(Some(_))))
-                .collect(),
-        };
-        let targets = self.event_targets(object, event, element, Some(&raised))?;
+        let targets = self.event_targets(object, event, element)?;
         for (s, inst) in targets {
             // A manual instance unbound since the raise began. One that unbound itself in an earlier method of this raise
             // is not called again (events/ProbeEventSubscriberOrder.al:253
@@ -386,20 +379,17 @@ impl Session {
         if !self.engine.events.is_subscribed(object, event) {
             return false;
         }
-        !matches!(self.event_targets(object, event, None, None), Ok(v) if v.is_empty())
+        !matches!(self.event_targets(object, event, None), Ok(v) if v.is_empty())
     }
 
     /// The subscribers an event reaches right now, each with the instance it
     /// runs on: static subscribers always, manual ones once per bound instance.
     /// `element` filters field events by field name.
-    /// `raised` (the arguments of the raise, when there is one) lets subscribers whose guard exits for them stand anywhere in
-    /// an unpinned cross-app order (`guard_exit.rs`).
     fn event_targets(
         &mut self,
         object: usize,
         event: &str,
         element: Option<&str>,
-        raised: Option<&crate::guard_exit::Raised>,
     ) -> Result<Vec<(crate::events::Subscriber, Inst)>, Signal> {
         let engine = self.engine.clone();
         // A subscriber BC would run and this program has no code for: running the event without it
@@ -550,51 +540,9 @@ impl Session {
                 .unwrap_or(0);
             order.push(left.remove(at));
         }
-        let dependency_app = |a: usize| program.apps.get(a).is_some_and(|x| x.dependency);
-        let name = |a: usize| {
-            program
-                .apps
-                .get(a)
-                .map_or_else(|| format!("app {a}"), |x| x.name.clone())
-        };
-        // Kept, not pinned: two dependency apps (Microsoft's) that do not depend on each other keep the order the
-        // runtime had before the cross-app probe, ascending codeunit id across them (one block below).
-        let mut kept = false;
-        let mut unrelated = false;
-        for (i, &first) in order.iter().enumerate() {
-            for &later in &order[i + 1..] {
-                if depends(later, first) {
-                    continue;
-                }
-                if dependency_app(first) && dependency_app(later) {
-                    kept = true;
-                } else {
-                    unrelated = true;
-                }
-            }
-        }
-        // One block per app in `order`; with a kept pair, each run of dependency apps none of which depends on
-        // another is one block in codeunit id order.
-        let sorted = |order: &[usize], mut targets: Vec<(crate::events::Subscriber, Inst)>, merge: bool| {
-            let mut blocks: Vec<(usize, usize)> = Vec::new();
-            for (i, &app) in order.iter().enumerate() {
-                let merge = kept
-                    && merge
-                    && i > 0
-                    && dependency_app(app)
-                    && blocks.last().is_some_and(|&(_, b)| {
-                        blocks
-                            .iter()
-                            .filter(|&&(_, ob)| ob == b)
-                            .all(|&(o, _)| dependency_app(o) && !depends(app, o))
-                    });
-                let block = match blocks.last() {
-                    Some(&(_, b)) if merge => b,
-                    Some(&(_, b)) => b + 1,
-                    None => 0,
-                };
-                blocks.push((app, block));
-            }
+        // One block per app in `order`, subscribers of one app in ascending subscriber codeunit id.
+        let sorted = |order: &[usize], mut targets: Vec<(crate::events::Subscriber, Inst)>| {
+            let blocks: Vec<(usize, usize)> = order.iter().copied().enumerate().map(|(i, app)| (app, i)).collect();
             let rank = |s: &crate::events::Subscriber| {
                 blocks
                     .iter()
@@ -604,11 +552,16 @@ impl Session {
             targets.sort_by_key(|(s, _)| (rank(s), id_of(s)));
             targets
         };
-        // Two dependency apps that do not depend on each other keep ascending codeunit id across them. That is not the
-        // order BC pins (a depth-first walk over the app ids, corpus issue 6924), so such an event is served only where
-        // the walk gives the same order (al-runner issue 6924, below).
-        if !unrelated && !kept {
-            return Ok(sorted(&order, targets, true));
+        let mut unrelated = false;
+        for (i, &first) in order.iter().enumerate() {
+            for &later in &order[i + 1..] {
+                if !depends(later, first) {
+                    unrelated = true;
+                }
+            }
+        }
+        if !unrelated {
+            return Ok(sorted(&order, targets));
         }
         // Apps under test that do not depend on each other. BC visits the apps in ascending app id and places each
         // app's dependencies before it (depth first, post-order), the dependencies themselves in ascending app id:
@@ -627,48 +580,15 @@ impl Session {
         // Measured pairs of apps that do not depend on each other, for one event (`MEASURED_PAIRS`): when they and the
         // dependencies order every pair of apps here, that order is served; anything else falls through to the readings.
         if let Some(measured) = measured_order(program, object, event, &order, &depends) {
-            return Ok(sorted(&measured, targets, true));
+            return Ok(sorted(&measured, targets));
         }
-        // A subscriber whose guard exits for this raise has no effect wherever it runs: only the others need one order
-        // under every reading (guard_exit.rs, al-runner issue 6924). All of them run, in the pinned reading's order.
-        let subs: Vec<crate::events::Subscriber> = targets.iter().map(|(s, _)| s.clone()).collect();
-        let exited = raised.map_or_else(|| vec![false; subs.len()], |r| self.guard_exited(&subs, r));
-        let live: Vec<_> = targets
-            .iter()
-            .zip(&exited)
-            .filter(|(_, e)| !**e)
-            .map(|(t, _)| t.clone())
-            .collect();
+        // Every app in ascending app id, each app's dependencies before it (depth first, post-order). Pinned for apps that do
+        // not depend on each other by events/subscriber-order/TtSubscriberOrderTests.al:37-44 (`N;A;M;T;` on every major:
+        // BC walks from every app, not only from the apps no other app depends on, and does not sort by publisher; al-runner
+        // issue 6924).
         let models = visit_orders(&program.apps);
-        let reading = |full: &[usize]| -> Vec<usize> { full.iter().copied().filter(|a| order.contains(a)).collect() };
-        let pinned = sorted(&reading(&models[0].1), targets.clone(), false);
-        let mut results: Vec<_> = models
-            .iter()
-            .map(|(what, full)| (*what, sorted(&reading(full), live.clone(), false)))
-            .collect();
-        if kept {
-            results.push((
-                "whether dependency apps that do not depend on each other run in ascending codeunit id",
-                sorted(&order, live.clone(), true),
-            ));
-        }
-        let mut results = results.into_iter();
-        let (_, first) = results.next().expect("at least one reading");
-        for (what, other) in results {
-            let at = first
-                .iter()
-                .zip(&other)
-                .position(|(x, y)| x.0.object != y.0.object || x.0.routine != y.0.routine);
-            if let Some(at) = at {
-                let (x, y) = (app_of(&first[at].0), app_of(&other[at].0));
-                return unsupported(format!(
-                    "event {event}: subscribers in apps {} and {}, whose order BC does not pin for this event (the \
-                     corpus pins apps in ascending app id, each app's dependencies before it; not pinned: {what})",
-                    name(x),
-                    name(y)
-                ));
-            }
-        }
+        let reading: Vec<usize> = models[0].1.iter().copied().filter(|a| order.contains(a)).collect();
+        let pinned = sorted(&reading, targets);
         // Pinned by events/subscriber-order/BwSubscriberOrderTests.al SubscriberOrder_PlatformTableEvent_AppsThatDoNotDependOnEachOther_SixApps, SubscriberOrder_PlatformTableEvent_DuringInstallOfTheTestApp, SubscriberOrder_PlatformTableEvent_DependenciesVisitedInAppIdOrderNotDeclaredOrder, SubscriberOrder_PlatformTableEvent_DependenciesVisitedInAppIdOrder_DuringInstall (was assumption `cross-app-subscriber-order-by-app-id`).
         Ok(pinned)
     }
@@ -678,7 +598,7 @@ impl Session {
         if !self.engine.events.is_subscribed(object, event) {
             return Ok(false);
         }
-        Ok(!self.event_targets(object, event, element, None)?.is_empty())
+        Ok(!self.event_targets(object, event, element)?.is_empty())
     }
 
     /// The instance a static (automatic) subscriber runs on: the session's one instance for a

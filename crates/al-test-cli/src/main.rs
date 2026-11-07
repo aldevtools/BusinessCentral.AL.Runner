@@ -676,6 +676,12 @@ fn version_code(serial: &al_testrun::runtime::ChainReport, no_ratchet: bool, cod
     }
 }
 
+/// The corpus apps published before the main app (`deps::corpus_publish_dirs`), without the apps that run as suites.
+fn publish_dirs(root: &Path, main: &str, suites: &[config::SuiteEntry]) -> Result<Vec<PathBuf>, String> {
+    let suites: Vec<PathBuf> = suites.iter().map(|s| root.join(&s.app)).collect();
+    deps::corpus_publish_dirs_without(&root.join(main), &suites)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_version_inner(
     args: &Args,
@@ -858,7 +864,7 @@ fn run_version_inner(
     // The corpus apps CI publishes before the main app (the internals fixture, the cross-app fixtures, including
     // fixture D, which the main app does not depend on), in CI's order, then the main app (corpus
     // `.github/workflows/ci.yml`, `app_dirs`; `deps::corpus_publish_dirs`).
-    let corpus_deps = deps::corpus_publish_dirs(&root.join(&cfg.corpus_app))?;
+    let corpus_deps = publish_dirs(root, &cfg.corpus_app, &version.suites)?;
     // So the apps under test install in that order, also two that do not depend on each other (`install::InstallView`).
     al_test_cli::host::set_publish_order_known(true);
     let main_app = corpus_deps.len();
