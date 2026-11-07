@@ -10,12 +10,11 @@ use super::*;
 pub(super) fn plain_text_tree(schema: &Schema, c: usize) -> bool {
     let n = schema.node(c);
     let kids = schema.children(c);
-    // A text element with its own value (`valued_leaf`) is pinned next to a table element, once, in the text element right below the
-    // root table element (XNT_NsTblText_Export, XNT_NsDfltTblText_Export, XNT_TblText_*, XNT_TextTbl_*).
+    // A text element with its own value (`valued_leaf`) is pinned next to a table element, once, in a `valued_place`.
     let valued = kids.iter().filter(|&&k| valued_leaf(schema, k)).count();
     let valued_ok = valued == 0
         || (valued == 1
-            && is_root_table(schema, n.parent)
+            && valued_place(schema, c)
             && kids.iter().any(|&k| schema.node(k).kind == ir::XmlNodeKind::Table));
     n.kind == ir::XmlNodeKind::Text
         && n.triggers.is_empty()
@@ -48,17 +47,36 @@ fn is_root_table(schema: &Schema, node: Option<usize>) -> bool {
     node.is_some_and(|p| schema.node(p).kind == ir::XmlNodeKind::Table && schema.node(p).parent.is_none())
 }
 
+/// Where a text element `c` may hold a `valued_leaf` next to a table element (written in schema order, the value once):
+/// - right below the root table element (XpTableRootNestedText.al XNT_NsTblText_Export, XNT_NsDfltTblText_Export, XNT_TblText_*,
+///   XNT_TextTbl_*);
+/// - one text element further down, the second text level below the root table element (al-runner issue 7263;
+///   xmlports/shapes-properties/XpTextValueNestedTable.al:344 XTV_RootTextsTableThenValue_Export, :359 XTV_RootTextsValueThenTable_Export,
+///   :374 XTV_RootTextsNamespaces_Export);
+/// - right below a table element that is not the root, in its row (XpTextValueNestedTable.al:389 XTV_RowTextValueThenTable_Export,
+///   :419 XTV_RowTextTableThenValue_Export, :434 XTV_RowTextFieldValueThenTable_Export, one row of the outer table element).
+///
+/// Deeper places are not pinned.
+fn valued_place(schema: &Schema, c: usize) -> bool {
+    let Some(p) = schema.node(c).parent else {
+        return false;
+    };
+    match schema.node(p).kind {
+        ir::XmlNodeKind::Table => true,
+        ir::XmlNodeKind::Text => is_root_table(schema, schema.node(p).parent),
+        _ => false,
+    }
+}
+
 /// A `valued_leaf` in a pinned place: the only element of the root table element (XNT_PlainLeaf_Export, XNT_LeafRows_Export), or
-/// in a `plain_text_tree` right below it. Its trigger's Skip, Break and Quit are not pinned there.
+/// in a `plain_text_tree` in a `valued_place`. Its trigger's Skip, Break and Quit are not pinned there.
 pub(super) fn plain_valued_leaf(schema: &Schema, k: usize) -> bool {
     let Some(p) = schema.node(k).parent else {
         return false;
     };
     valued_leaf(schema, k)
         && ((is_root_table(schema, Some(p)) && schema.children(p).len() == 1)
-            || (schema.node(p).kind == ir::XmlNodeKind::Text
-                && is_root_table(schema, schema.node(p).parent)
-                && plain_text_tree(schema, p)))
+            || (schema.node(p).kind == ir::XmlNodeKind::Text && valued_place(schema, p) && plain_text_tree(schema, p)))
 }
 
 /// A table element root of an Xml port without triggers, LinkTable or MinOccurs = Zero, whose nodes are leaf field elements, leaf
@@ -84,15 +102,24 @@ pub(super) fn plain_tree_root(schema: &Schema, top: usize) -> bool {
 }
 
 /// A `plain_tree_root` whose import is pinned: MaxOccurs = Once and no field element of its own (XNT_TxtField_Import,
-/// XNT_TxtTbl_Import, XNT_TxtTxtField_Import, XNT_TxtTxtTbl_Import, XNT_PlainLeaf_Import, XNT_TblText_Import, XNT_TextTbl_Import).
-/// Other roots are exported only.
+/// XNT_TxtTbl_Import, XNT_TxtTxtField_Import, XNT_TxtTxtTbl_Import, XNT_PlainLeaf_Import, XNT_TblText_Import, XNT_TextTbl_Import),
+/// and no `valued_leaf` on the second text level (XpTextValueNestedTable.al pins that shape's export only). Other roots are
+/// exported only.
 pub(super) fn plain_import_root(schema: &Schema, top: usize) -> bool {
     plain_tree_root(schema, top)
         && schema.node(top).max_unbounded == Some(false)
         && schema
             .children(top)
             .iter()
-            .all(|&k| schema.node(k).kind != ir::XmlNodeKind::Field)
+            .all(|&k| schema.node(k).kind != ir::XmlNodeKind::Field && !value_below_first_text_level(schema, k))
+}
+
+/// Whether a text element below text element `c` holds a `valued_leaf`.
+fn value_below_first_text_level(schema: &Schema, c: usize) -> bool {
+    schema.children(c).iter().any(|&k| {
+        schema.node(k).kind == ir::XmlNodeKind::Text
+            && (schema.children(k).iter().any(|&g| valued_leaf(schema, g)) || value_below_first_text_level(schema, k))
+    })
 }
 
 /// A `plain_text_tree` below the root table element `table` (its import is pinned there only; below another table element it is not).

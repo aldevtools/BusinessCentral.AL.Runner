@@ -10,7 +10,7 @@
 # The artifact cache key of CI follows the pin (`--print-builds`).
 corpus_repo = "corpus"
 corpus_app = "corpus/tests/al-language"
-corpus_commit = "25f8e528dec7922d5daa63219a5146f8e4f33fa1"
+corpus_commit = "6c89e542ff6d54d4cb404d6da8940a7d9b276db2"
 # ADR-046 amendment 4: the corpus CI database has two companies, the session company first
 # (install/lt-bf-install-probes/BfInstallTests.al:60-62).
 companies = ["CRONUS International Ltd.", "My Company"]
@@ -20,24 +20,24 @@ major = 27
 app_runtime = "16.1"
 bc_version = "27.5"
 bc_build = "27.5.46862.56249"
-workflow_run = 42383326360
-artifact_id = 13580201761
+workflow_run = 42389409955
+artifact_id = 13581562525
 junit = "27/junit.xml"
 baseline = "metrics/27/not-passing.txt"
 
 [[version.suite]]
 name = "onprem"
 app = "corpus/tests/al-language-onprem"
-workflow_run = 42383326360
-artifact_id = 13579620862
+workflow_run = 42389409955
+artifact_id = 13581690505
 oracle = "27/junit-onprem.xml"
 baseline = "metrics/27/not-passing-onprem.txt"
 
 [[version.suite]]
 name = "onprem-dotnet"
 app = "corpus/tests/al-language-onprem-dotnet"
-workflow_run = 42383326360
-artifact_id = 13580070323
+workflow_run = 42389409955
+artifact_id = 13581630840
 oracle = "27/junit-dotnet.xml"
 baseline = "metrics/27/not-passing-dotnet.txt"
 
@@ -47,8 +47,8 @@ baseline = "metrics/27/not-passing-dotnet.txt"
 [[version.suite]]
 name = "testlibraries"
 app = "corpus/tests/al-language-testlibraries"
-workflow_run = 42383326360
-artifact_id = 13579378018
+workflow_run = 42389409955
+artifact_id = 13581349674
 oracle = "27/junit-testlibraries.xml"
 baseline = "metrics/27/not-passing-testlibraries.txt"
 extra_apps = [
@@ -68,24 +68,24 @@ major = 28
 app_runtime = "17.1"
 bc_version = "28.5"
 bc_build = "28.5.54151.56267"
-workflow_run = 42383326360
-artifact_id = 13580286042
+workflow_run = 42389409955
+artifact_id = 13581682718
 junit = "28/junit.xml"
 baseline = "metrics/28/not-passing.txt"
 
 [[version.suite]]
 name = "onprem"
 app = "corpus/tests/al-language-onprem"
-workflow_run = 42383326360
-artifact_id = 13578704461
+workflow_run = 42389409955
+artifact_id = 13581442143
 oracle = "28/junit-onprem.xml"
 baseline = "metrics/28/not-passing-onprem.txt"
 
 [[version.suite]]
 name = "onprem-dotnet"
 app = "corpus/tests/al-language-onprem-dotnet"
-workflow_run = 42383326360
-artifact_id = 13579166811
+workflow_run = 42389409955
+artifact_id = 13580869557
 oracle = "28/junit-dotnet.xml"
 baseline = "metrics/28/not-passing-dotnet.txt"
 
@@ -95,8 +95,8 @@ baseline = "metrics/28/not-passing-dotnet.txt"
 [[version.suite]]
 name = "testlibraries"
 app = "corpus/tests/al-language-testlibraries"
-workflow_run = 42383326360
-artifact_id = 13579559519
+workflow_run = 42389409955
+artifact_id = 13582117896
 oracle = "28/junit-testlibraries.xml"
 baseline = "metrics/28/not-passing-testlibraries.txt"
 extra_apps = [
@@ -146,24 +146,24 @@ major = 29
 app_runtime = "18.0"
 bc_version = "29.0"
 bc_build = "29.0.54011.56262"
-workflow_run = 42383326360
-artifact_id = 13579967406
+workflow_run = 42389409955
+artifact_id = 13582366433
 junit = "29/junit.xml"
 baseline = "metrics/29/not-passing.txt"
 
 [[version.suite]]
 name = "onprem"
 app = "corpus/tests/al-language-onprem"
-workflow_run = 42383326360
-artifact_id = 13579846657
+workflow_run = 42389409955
+artifact_id = 13581800379
 oracle = "29/junit-onprem.xml"
 baseline = "metrics/29/not-passing-onprem.txt"
 
 [[version.suite]]
 name = "onprem-dotnet"
 app = "corpus/tests/al-language-onprem-dotnet"
-workflow_run = 42383326360
-artifact_id = 13579141899
+workflow_run = 42389409955
+artifact_id = 13580474215
 oracle = "29/junit-dotnet.xml"
 baseline = "metrics/29/not-passing-dotnet.txt"
 
@@ -173,8 +173,8 @@ baseline = "metrics/29/not-passing-dotnet.txt"
 [[version.suite]]
 name = "testlibraries"
 app = "corpus/tests/al-language-testlibraries"
-workflow_run = 42383326360
-artifact_id = 13580221631
+workflow_run = 42389409955
+artifact_id = 13582406724
 oracle = "29/junit-testlibraries.xml"
 baseline = "metrics/29/not-passing-testlibraries.txt"
 extra_apps = [
