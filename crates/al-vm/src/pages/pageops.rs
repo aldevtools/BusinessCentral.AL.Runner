@@ -1269,6 +1269,7 @@ impl Session {
                 // CurrPage.Update() without an argument saves (the parameter defaults to true).
                 let save = (method == PageOp::PageSaveRecord) || !matches!(args.first(), Some(Value::Boolean(false)));
                 if !(method == PageOp::PageSaveRecord) {
+                    self.refuse_update_in_action(st)?;
                     // The refresh lands after the trigger that asked for it returns (corpus
                     // pages/currpage/TestPageUpdate.al: ValidateBegin;ValidateEnd;HostAGCR).
                     st.borrow_mut().refresh = true;
