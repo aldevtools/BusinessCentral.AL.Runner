@@ -122,6 +122,12 @@ impl Session {
     /// `caption_class_translate` with the refusal of `setup_caption_refusal` returned beside the caption.
     pub(crate) fn caption_class_translate_deferring(&mut self, text: &str) -> Result<(String, Option<String>), Signal> {
         self.refuse_caption_class_translate()?;
+        self.caption_class_translate_unrefused(text)
+    }
+
+    /// `caption_class_translate_deferring` without the refusal for a `UI Helper Triggers` subscriber: for the callers that
+    /// pin what that event does (`ui_caption_translate.rs`).
+    pub(super) fn caption_class_translate_unrefused(&mut self, text: &str) -> Result<(String, Option<String>), Signal> {
         let after = self.after_resolve_subscribed();
         let Some((area, expr)) = text.split_once(',') else {
             if after {
