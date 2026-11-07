@@ -572,7 +572,7 @@ mod tests {
         let t = tmp.path();
         let suite = app_folder(t, "suite", &json("s", &[]), &[]);
         let main = app_folder(t, "main", &json("m", &[]), &[]);
-        assert_eq!(corpus_publish_dirs(&main).unwrap(), [suite.clone()]);
+        assert_eq!(corpus_publish_dirs(&main).unwrap(), vec![suite.clone()]);
         assert!(corpus_publish_dirs_without(&main, &[suite]).unwrap().is_empty());
     }
 
