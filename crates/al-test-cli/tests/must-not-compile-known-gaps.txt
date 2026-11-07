@@ -383,3 +383,13 @@
 # corpus bump 1105n (pin f0596301, corpus PR 1152): a TestPage member of a Base Application page that BC 29 removed
 # (2972 wants AL0132 and gets none)
 29 2972-bc29-legacy-statistics-invoke
+# corpus bump to a9562bcd: qualified enum values in column filters (corpus PR 1184), not decided yet
+27 2980-columnfilter-filter-qualified-enum
+27 2982-columnfilter-or-qualified-enum
+27 2984-columnfilter-same-name-field-qualified-enum
+28 2980-columnfilter-filter-qualified-enum
+28 2982-columnfilter-or-qualified-enum
+28 2984-columnfilter-same-name-field-qualified-enum
+29 2980-columnfilter-filter-qualified-enum
+29 2982-columnfilter-or-qualified-enum
+29 2984-columnfilter-same-name-field-qualified-enum

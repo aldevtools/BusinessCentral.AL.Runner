@@ -450,29 +450,129 @@ enumextension 50132 "TH After Ext" extends TestHandler
     );
 }
 
-// A DefaultTestHandler value declared in a dependency app, with the test codeunit in the app that depends on it (al-runner
-// 7181, the reporter's shape with the handler in another app). BiTestHandlerDefault.al pins handler and test codeunit in ONE
-// app only, so this shape stays refused until a corpus probe pins it (docs/probes-needed.md, "DefaultTestHandler of another app").
-#[test]
-fn a_default_handler_of_a_dependency_app_is_refused_not_skipped() {
-    let dep = format!("{SYSTEM}\n{}{DEFAULT_EXT}", handler(50112, "TH Default Handler", "D"));
-    let got = crate::user_reports::run_with_deps(
-        &[&dep],
-        r#"
+/// Runs test codeunit `codeunit` of the last app in `apps` (name, source). Each app depends on the ones before it and is
+/// a workspace app, as the corpus apps are (a dependency app's handler codeunit is compiled on demand only).
+fn run_named_apps(apps: &[(&str, String)], codeunit: &str) -> Vec<(String, Outcome)> {
+    use al_sema::workspace::{AppKind, AppSource};
+    let mut sources = Vec::new();
+    let mut kinds = Vec::new();
+    let mut ids: Vec<String> = Vec::new();
+    for (i, (name, src)) in apps.iter().enumerate() {
+        let id = format!("app{i}");
+        sources.push(AppSource {
+            id: id.clone(),
+            name: name.to_string(),
+            dependencies: ids.clone(),
+            files: vec![(format!("{id}.al"), src.clone())],
+        });
+        kinds.push(AppKind::Workspace);
+        ids.push(id);
+    }
+    let (ws, l) = al_sema::lower::compile_apps(sources, kinds, &Default::default());
+    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+    let oi = l.program.objects.iter().position(|o| o.name == codeunit).unwrap();
+    let blocked = l
+        .unsupported
+        .iter()
+        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .collect();
+    let engine = al_vm::Engine::new(l.program.clone(), blocked);
+    al_test_cli::runtime::run_codeunit(&engine, &l, oi)
+}
+
+fn default_ext(ext_id: u32, handler_name: &str) -> String {
+    format!(
+        "enumextension {ext_id} \"{handler_name} Ext\" extends DefaultTestHandler\n{{\n    value({ext_id}; \"{handler_name} Ext\") {{ Implementation = ITestHandler = \"{handler_name}\"; }}\n}}\n"
+    )
+}
+
+const READER: &str = r#"
 codeunit 50140 T
 {
     Subtype = Test;
 
     [Test]
-    procedure One()
+    procedure A_Plain()
+    var
+        Log: Codeunit "TH Log";
     begin
+        Log.Add('body');
+    end;
+
+    [Test]
+    procedure Z_Observe()
+    var
+        Log: Codeunit "TH Log";
+    begin
+        if Log.Take() <> EXPECTED then
+            Error('log: %1', Log.Take());
     end;
 }
-"#,
+"#;
+
+// BiTestHandlerCrossApp.al:9-14 (codeunits 81646, 81647, al-runner 7181): the default handlers of every installed app run for
+// a test codeunit of any app, in every callback. Order seen there: the apps that hold no tests and are no dependency
+// (XH Handler D, then C), then the dependency's (A), then the test app's own default handler. All of that order also
+// follows app name descending and enum value id descending, so a test of one of the two alone is not pinned (below).
+#[test]
+fn default_handlers_of_other_apps_run_in_the_pinned_order() {
+    let lib = format!(
+        "{SYSTEM}\n{}",
+        handler(50112, "TH Lib Handler", "HA") + &default_ext(50112, "TH Lib Handler")
     );
-    assert_eq!(got.len(), 1, "{got:?}");
+    let c = handler(50113, "TH C Handler", "HC") + &default_ext(50113, "TH C Handler");
+    let d = handler(50114, "TH D Handler", "HD") + &default_ext(50114, "TH D Handler");
+    // The test app: its own default handler has the lowest value id and the lowest app name.
+    let own = handler(50111, "TH Default Handler", "D") + &default_ext(50111, "TH Default Handler");
+    let expected = "'HD.bCU(||n=1);HC.bCU(||n=1);HA.bCU(||n=1);D.bCU(||n=1);HD.bP(A_Plain||n=2);HC.bP(A_Plain||n=2);HA.bP(A_Plain||n=2);D.bP(A_Plain||n=2);body;HD.aP(A_Plain||n=3|Yes);HC.aP(A_Plain||n=3|Yes);HA.aP(A_Plain||n=3|Yes);D.aP(A_Plain||n=3|Yes);HD.bP(Z_Observe||n=4);HC.bP(Z_Observe||n=4);HA.bP(Z_Observe||n=4);D.bP(Z_Observe||n=4);'";
+    let got = run_named_apps(
+        &[
+            ("X Lib", lib),
+            ("Y Handler C", c),
+            ("Z Handler D", d),
+            ("A Tests", format!("{own}{}", READER.replace("EXPECTED", expected))),
+        ],
+        "T",
+    );
+    assert_all_pass(&got, &["A_Plain", "Z_Observe"]);
+}
+
+// The two rules that fit the pinned order (app name descending, value id descending) disagree here, so the order is not pinned
+// and the test codeunit is refused, not run in a guessed order.
+#[test]
+fn default_handlers_of_two_apps_whose_order_rules_disagree_are_refused() {
+    let lib = format!(
+        "{SYSTEM}\n{}",
+        handler(50112, "TH Lib Handler", "HA") + &default_ext(50112, "TH Lib Handler")
+    );
+    let other = handler(50113, "TH B Handler", "HB") + &default_ext(50100, "TH B Handler");
+    let got = run_named_apps(
+        &[
+            ("A Lib", lib),
+            ("B Other", other),
+            ("Tests", READER.replace("EXPECTED", "''")),
+        ],
+        "T",
+    );
     assert!(
-        matches!(&got[0].1, Outcome::NotRun(w) if w.contains("default test handler") && w.contains("another app")),
+        matches!(got.first(), Some((_, Outcome::NotRun(w))) if w.contains("order of the default test handlers is not pinned")),
+        "{got:?}"
+    );
+}
+
+// Two default handlers of one app: their order is not pinned either (BiTestHandlerCrossApp.al has one per app).
+#[test]
+fn two_default_handlers_in_one_app_are_refused() {
+    let both = format!(
+        "{SYSTEM}\n{}{}{}{}",
+        handler(50112, "TH One", "H1"),
+        default_ext(50112, "TH One"),
+        handler(50113, "TH Two", "H2"),
+        default_ext(50113, "TH Two")
+    );
+    let got = run_named_apps(&[("Lib", both), ("Tests", READER.replace("EXPECTED", "''"))], "T");
+    assert!(
+        matches!(got.first(), Some((_, Outcome::NotRun(w))) if w.contains("order of the default test handlers is not pinned")),
         "{got:?}"
     );
 }

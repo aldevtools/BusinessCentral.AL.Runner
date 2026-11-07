@@ -10,7 +10,7 @@
 # The artifact cache key of CI follows the pin (`--print-builds`).
 corpus_repo = "corpus"
 corpus_app = "corpus/tests/al-language"
-corpus_commit = "7820244ade86a7d44f44e5b5d0de54049cdb17f5"
+corpus_commit = "a9562bcd0f1c3c7be636d8577e83305b0d1e5604"
 # ADR-046 amendment 4: the corpus CI database has two companies, the session company first
 # (install/lt-bf-install-probes/BfInstallTests.al:60-62).
 companies = ["CRONUS International Ltd.", "My Company"]
@@ -20,24 +20,24 @@ major = 27
 app_runtime = "16.1"
 bc_version = "27.5"
 bc_build = "27.5.46862.56249"
-workflow_run = 42348641232
-artifact_id = 13565844094
+workflow_run = 42363490410
+artifact_id = 13572274234
 junit = "27/junit.xml"
 baseline = "metrics/27/not-passing.txt"
 
 [[version.suite]]
 name = "onprem"
 app = "corpus/tests/al-language-onprem"
-workflow_run = 42348641232
-artifact_id = 13565260781
+workflow_run = 42363490410
+artifact_id = 13571519917
 oracle = "27/junit-onprem.xml"
 baseline = "metrics/27/not-passing-onprem.txt"
 
 [[version.suite]]
 name = "onprem-dotnet"
 app = "corpus/tests/al-language-onprem-dotnet"
-workflow_run = 42348641232
-artifact_id = 13565502294
+workflow_run = 42363490410
+artifact_id = 13572536309
 oracle = "27/junit-dotnet.xml"
 baseline = "metrics/27/not-passing-dotnet.txt"
 
@@ -47,13 +47,20 @@ baseline = "metrics/27/not-passing-dotnet.txt"
 [[version.suite]]
 name = "testlibraries"
 app = "corpus/tests/al-language-testlibraries"
-workflow_run = 42348641232
-artifact_id = 13565484254
+workflow_run = 42363490410
+artifact_id = 13572647369
 oracle = "27/junit-testlibraries.xml"
 baseline = "metrics/27/not-passing-testlibraries.txt"
 extra_apps = [
   { id = "5d86850b-0d76-4eca-bd7b-951ad998e997", name = "Tests-TestLibraries" },
   { id = "7819d79d-feea-4f09-bbed-5bbaca4bf323", name = "Data Archive" },
+]
+# The cross-app default test handler fixtures (corpus PR 1193): CI publishes them in this job only.
+extra_dirs = [
+  "corpus/tests/al-language-xhandler-lib",
+  "corpus/tests/al-language-xhandler-a",
+  "corpus/tests/al-language-xhandler-c",
+  "corpus/tests/al-language-xhandler-d",
 ]
 
 [[version]]
@@ -61,24 +68,24 @@ major = 28
 app_runtime = "17.1"
 bc_version = "28.5"
 bc_build = "28.5.54151.56267"
-workflow_run = 42348641232
-artifact_id = 13566035753
+workflow_run = 42363490410
+artifact_id = 13572858764
 junit = "28/junit.xml"
 baseline = "metrics/28/not-passing.txt"
 
 [[version.suite]]
 name = "onprem"
 app = "corpus/tests/al-language-onprem"
-workflow_run = 42348641232
-artifact_id = 13564454154
+workflow_run = 42363490410
+artifact_id = 13572278673
 oracle = "28/junit-onprem.xml"
 baseline = "metrics/28/not-passing-onprem.txt"
 
 [[version.suite]]
 name = "onprem-dotnet"
 app = "corpus/tests/al-language-onprem-dotnet"
-workflow_run = 42348641232
-artifact_id = 13564933856
+workflow_run = 42363490410
+artifact_id = 13572516991
 oracle = "28/junit-dotnet.xml"
 baseline = "metrics/28/not-passing-dotnet.txt"
 
@@ -88,13 +95,20 @@ baseline = "metrics/28/not-passing-dotnet.txt"
 [[version.suite]]
 name = "testlibraries"
 app = "corpus/tests/al-language-testlibraries"
-workflow_run = 42348641232
-artifact_id = 13565368216
+workflow_run = 42363490410
+artifact_id = 13572629734
 oracle = "28/junit-testlibraries.xml"
 baseline = "metrics/28/not-passing-testlibraries.txt"
 extra_apps = [
   { id = "5d86850b-0d76-4eca-bd7b-951ad998e997", name = "Tests-TestLibraries" },
   { id = "7819d79d-feea-4f09-bbed-5bbaca4bf323", name = "Data Archive" },
+]
+# The cross-app default test handler fixtures (corpus PR 1193): CI publishes them in this job only.
+extra_dirs = [
+  "corpus/tests/al-language-xhandler-lib",
+  "corpus/tests/al-language-xhandler-a",
+  "corpus/tests/al-language-xhandler-c",
+  "corpus/tests/al-language-xhandler-d",
 ]
 
 # The isolation probe runs only in the corpus's Windows nightly (workflow "Nightly Windows", never
@@ -132,24 +146,24 @@ major = 29
 app_runtime = "18.0"
 bc_version = "29.0"
 bc_build = "29.0.54011.56262"
-workflow_run = 42348641232
-artifact_id = 13566047690
+workflow_run = 42363490410
+artifact_id = 13573725096
 junit = "29/junit.xml"
 baseline = "metrics/29/not-passing.txt"
 
 [[version.suite]]
 name = "onprem"
 app = "corpus/tests/al-language-onprem"
-workflow_run = 42348641232
-artifact_id = 13565815543
+workflow_run = 42363490410
+artifact_id = 13572546971
 oracle = "29/junit-onprem.xml"
 baseline = "metrics/29/not-passing-onprem.txt"
 
 [[version.suite]]
 name = "onprem-dotnet"
 app = "corpus/tests/al-language-onprem-dotnet"
-workflow_run = 42348641232
-artifact_id = 13564563900
+workflow_run = 42363490410
+artifact_id = 13572591536
 oracle = "29/junit-dotnet.xml"
 baseline = "metrics/29/not-passing-dotnet.txt"
 
@@ -159,11 +173,18 @@ baseline = "metrics/29/not-passing-dotnet.txt"
 [[version.suite]]
 name = "testlibraries"
 app = "corpus/tests/al-language-testlibraries"
-workflow_run = 42348641232
-artifact_id = 13566060352
+workflow_run = 42363490410
+artifact_id = 13573041984
 oracle = "29/junit-testlibraries.xml"
 baseline = "metrics/29/not-passing-testlibraries.txt"
 extra_apps = [
   { id = "5d86850b-0d76-4eca-bd7b-951ad998e997", name = "Tests-TestLibraries" },
   { id = "7819d79d-feea-4f09-bbed-5bbaca4bf323", name = "Data Archive" },
+]
+# The cross-app default test handler fixtures (corpus PR 1193): CI publishes them in this job only.
+extra_dirs = [
+  "corpus/tests/al-language-xhandler-lib",
+  "corpus/tests/al-language-xhandler-a",
+  "corpus/tests/al-language-xhandler-c",
+  "corpus/tests/al-language-xhandler-d",
 ]
