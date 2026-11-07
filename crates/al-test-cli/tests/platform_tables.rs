@@ -4314,18 +4314,78 @@ codeunit 50000 "T" { Subtype = Test;
     let o = run_codeunit(&engine, &l, oi);
     passes(&o, "Fresh");
     passes(&o, "Insert");
-    assert!(not_run(&o, "Unfiltered").contains("Tenant Report Layout"));
+    // reports/runtime/TrlResourceRows.al:84-97: a fresh tenant holds no row, filtered or not.
+    passes(&o, "Unfiltered");
     assert!(not_run(&o, "OtherLayout").contains("Tenant Report Layout"));
     // The refusal names which part of the row is not pinned (al-runner issue 6924: waldo's 173 tests insert Word rows).
     assert!(
-        not_run(&o, "WordRow").contains("Layout Format Word"),
+        not_run(&o, "WordRow").contains("a row without a Layout"),
         "{}",
         not_run(&o, "WordRow")
     );
     assert!(
-        not_run(&o, "OtherReport").contains("a report that is not one of the app under test"),
+        not_run(&o, "OtherReport").contains("a report the app and its dependencies do not declare"),
         "{}",
         not_run(&o, "OtherReport")
+    );
+}
+
+// reports/runtime/TrlResourceRows.al (corpus master, al-runner issue 6924, waldo): Insert of a Tenant Report Layout row with a
+// Word or Custom layout takes the row, reads back its pinned fields (Custom as External), Get and SetRange find it by name,
+// Delete removes it; the stored bytes of a Word row are rewritten by BC (not pinned), so a look at them is refused, while a
+// Custom row gives its bytes back unchanged (:360-388).
+#[test]
+fn tenant_report_layout_takes_word_and_custom_rows() {
+    let main = r#"
+report 50001 "R" { DefaultRenderingLayout = D; dataset { dataitem(I; Integer) { } } rendering { layout(D) { Type = Word; LayoutFile = './r.docx'; } } }
+table 50002 "Holder" { fields { field(1; Id; Integer) { } field(2; Data; Blob) { } } keys { key(PK; Id) { Clustered = true; } } }
+codeunit 50000 "T" { Subtype = Test;
+  local procedure Row(var L: Record "Tenant Report Layout"; Kind: Option; Name: Text[250])
+  var InS: InStream; begin
+    L.Init(); L."Report ID" := 50001; L.Name := Name; L."Layout Format" := Kind;
+    if not Report.WordLayout(50001, InS) then Error('stream'); L.Layout.ImportStream(InS, 'x'); end;
+  [Test] procedure WordRow() var L: Record "Tenant Report Layout"; R: Record "Tenant Report Layout"; begin
+    Row(L, L."Layout Format"::Word, 'W'); if not L.Insert() then Error('insert');
+    if R.Count() <> 1 then Error('count'); if not R.Get(50001, 'W') then Error('get');
+    if (Format(R."Layout Format") <> 'Word') or (R."Company Name" <> '') or (R."MIME Type" <> '') or (R.Description <> '') or not IsNullGuid(R."App ID") or not R.Layout.HasValue() then Error('stored');
+    R.SetRange(Name, 'W'); if not R.FindFirst() then Error('find'); R.Delete(); if R.Count() <> 0 then Error('deleted'); end;
+  [Test] procedure WordExport() var L: Record "Tenant Report Layout"; R: Record "Tenant Report Layout"; H: Record "Holder" temporary; O: OutStream; begin
+    Row(L, L."Layout Format"::Word, 'W2'); L.Insert(); R.Get(50001, 'W2'); H.Data.CreateOutStream(O); R.Layout.ExportStream(O); H.CalcFields(Data); if H.Data.Length() = 0 then; end;
+  [Test] procedure CustomRow() var L: Record "Tenant Report Layout"; R: Record "Tenant Report Layout"; H: Record "Holder" temporary; O: OutStream; begin
+    Row(L, L."Layout Format"::Custom, 'C'); if not L.Insert() then Error('insert');
+    R.Get(50001, 'C'); if Format(R."Layout Format") <> 'External' then Error('format %1', Format(R."Layout Format"));
+    H.Data.CreateOutStream(O); if not R.Layout.ExportStream(O) then Error('export'); if H.Data.Length() <> 3 then Error('length'); end;
+  [Test] procedure BadBytes() var L: Record "Tenant Report Layout"; InS: InStream; begin
+    L.Init(); L."Report ID" := 50001; L.Name := 'B'; L."Layout Format" := L."Layout Format"::Excel;
+    if Report.WordLayout(50001, InS) then; L.Layout.ImportStream(InS, 'x'); L."Layout Format" := L."Layout Format"::RDLC; L.Insert(); end;
+}"#;
+    let (engine, l) = engine_with_layouts(
+        "main",
+        main,
+        None,
+        al_sema::check::Roots::default(),
+        "27.5.0.0",
+        vec![("r.docx".into(), b"PK\x03".to_vec())],
+        None,
+    );
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == "T")
+        .expect("test codeunit T");
+    let o = run_codeunit(&engine, &l, oi);
+    passes(&o, "WordRow");
+    passes(&o, "CustomRow");
+    assert!(
+        not_run(&o, "WordExport").contains("stored layout bytes of a Tenant Report Layout row"),
+        "{}",
+        not_run(&o, "WordExport")
+    );
+    assert!(
+        not_run(&o, "BadBytes").contains("do not match its format"),
+        "{}",
+        not_run(&o, "BadBytes")
     );
 }
 

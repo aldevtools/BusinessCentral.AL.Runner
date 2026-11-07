@@ -104,6 +104,7 @@ mod refs;
 mod relations;
 mod rename;
 mod report_layout_export;
+mod report_layout_streams;
 mod report_no_layout_file;
 mod reports;
 mod run_page_link_open;
