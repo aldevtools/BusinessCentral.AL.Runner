@@ -541,8 +541,8 @@ impl Encoding {
                     // The euro sign is written as 0xB1 (streams/TestStreamsRuntimeContracts.al:
                     // WriteText_ExplicitEncodings_Bytes, streams/TestProbeStreamContracts.al `61 84 94 B1 00`).
                     '€' => vec![0xB1],
-                    // The call stack mark, kept as for a Windows stream (`CALL_STACK_MARK_BYTES`); the stream bytes of a call
-                    // stack text are not pinned (assumption `call-stack-text-stream-write`).
+                    // The call stack mark, kept as for a Windows stream (`CALL_STACK_MARK_BYTES`). It stands for untracked
+                    // frames whose bytes are not known; what reads them is refused (`stream_call_stack`).
                     crate::native::CALL_STACK_MARK => CALL_STACK_MARK_BYTES.to_vec(),
                     c if msdos_table_byte(c).is_some() => vec![msdos_table_byte(c).expect("checked")],
                     // π is written as `p` (streams/StTEncodings.al:UnmappableCharacters `msdos`: it reads back as `p`).
@@ -741,6 +741,9 @@ pub struct InState {
     /// A UTF-8 `Read(Text, 0)` at a byte order mark: the next read skips the mark, but the Position in between is not pinned
     /// (see `stream_read_len::utf8`).
     pub len0_over_mark: bool,
+    /// A ReadText returned the mark of untracked call stack frames: where the stream stands now is not known
+    /// (`stream_call_stack::position_unknown`). Moving the position clears it.
+    pub past_call_stack_mark: bool,
 }
 
 impl InState {
@@ -754,6 +757,7 @@ impl InState {
             owner_gone: false,
             not_initialized: false,
             len0_over_mark: false,
+            past_call_stack_mark: false,
         }
     }
 
@@ -767,6 +771,7 @@ impl InState {
             owner_gone: false,
             not_initialized: false,
             len0_over_mark: false,
+            past_call_stack_mark: false,
         }
     }
 
@@ -1029,6 +1034,10 @@ fn blob_length_of(c: &mut dyn Ctx, r: Option<&mut Value>, sign_only: bool) -> NR
     let b = blob_of(r)?;
     let buf = b.borrow();
     buf.observe()?;
+    // Only the sign is pinned for a call stack text: it is not empty (errors/last-error/WdCallStackToBlob.al:96).
+    if !sign_only {
+        crate::stream_call_stack::refuse_length(&buf.bytes, "Blob.Length")?;
+    }
     if !buf.loaded {
         // Before CalcFields the length is the stored size. An empty blob is 0 (streams/TestProbeStreamContracts.al:
         // BlobLength_EmptyUnloaded); a temporary row's is its content's (record/PnABlobLength.al:
@@ -1262,12 +1271,16 @@ fn in_eos_plain(r: Option<&mut Value>, _: &mut [Value]) -> NResult {
     }
     // A stream HttpContent.WriteFrom took is not at its end (http/content/DbHttpContentLeads.al:310): its position
     // did not move.
-    with_in_of(r, true, |s| Ok(Value::Boolean(s.pos >= s.len())))
+    with_in_of(r, true, |s| {
+        crate::stream_call_stack::refuse_position(s, "EOS")?;
+        Ok(Value::Boolean(s.pos >= s.len()))
+    })
 }
 
 fn in_reset(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
     with_in(r, |s| {
         s.pos = 0;
+        s.past_call_stack_mark = false;
         Ok(Value::Boolean(true))
     })
 }
@@ -1285,7 +1298,10 @@ fn in_length(ctx: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResu
     // A cleared stream raises (Y62GoneInStream.al:GoneStream_Clear); the length of a stream WriteFrom took is its whole length
     // (GoneStream_HttpContentWriteFrom `kept stream after` len=23).
     crate::stream_cleared::refuse_cleared(r.as_deref())?;
-    with_in_of(r, true, |s| Ok(Value::BigInteger(s.len() as i64)))
+    with_in_of(r, true, |s| {
+        s.with_data(|d| crate::stream_call_stack::refuse_length(d, "InStream.Length"))?;
+        Ok(Value::BigInteger(s.len() as i64))
+    })
 }
 
 /// `Position` is 1-based: 1 at the start, the length plus one after the last byte (streams/TestProbeStreamContracts.al:
@@ -1321,6 +1337,7 @@ fn in_position(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
                 );
             }
             s.pos = (p - 1) as usize;
+            s.past_call_stack_mark = false;
             Ok(Value::Null)
         });
     }
@@ -1328,6 +1345,7 @@ fn in_position(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
         if s.len0_over_mark && s.pos == 0 {
             return unsupported("InStream.Position after Read(Text, 0) at a UTF-8 byte order mark (not pinned)");
         }
+        crate::stream_call_stack::refuse_position(s, "Position")?;
         Ok(Value::BigInteger(s.pos as i64 + 1))
     })
 }
@@ -1335,7 +1353,7 @@ fn in_position(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
 /// Reads up to the next line feed or the end of the stream. The line feed is consumed and every
 /// carriage return in the line is dropped, so CR LF is one terminator, a lone CR is not one, and a
 /// final CR adds no line (streams/TestStreamsRuntimeContracts.al:InStream_ReadText_SplitsAtLineFeed_AndDropsALoneCarriageReturn).
-fn in_read_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+fn in_read_text(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     // `ReadText(Text, Length)` reads at most Length characters, and stops after a line feed
     // (streams/TestProbeStreamContracts.al:ReadText_LengthPositionAndTerminators).
     let max_chars = match a.get(1) {
@@ -1386,6 +1404,7 @@ fn in_read_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NRes
                 s.pos = n;
             }
         }
+        crate::stream_call_stack::refuse_position(s, "ReadText")?;
         let (enc, pos) = (s.enc, s.pos);
         if pos >= s.len() {
             s.hit_end = true;
@@ -1455,9 +1474,15 @@ fn in_read_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NRes
             })));
         }
         s.pos = pos + consumed;
+        // The line holds the mark of untracked call stack frames, which may hold line breaks: where the line ends in BC is not
+        // known (a JSON text of a call stack has none and reads back equal, WdCallStackWriteText.al:530).
+        s.past_call_stack_mark |= crate::stream_call_stack::holds_mark(&text);
         enc_used = enc;
         Ok(text)
     })?;
+    if crate::stream_call_stack::holds_mark(&text) && ctx.ret_used() {
+        crate::stream_call_stack::refuse_count("InStream.ReadText")?;
+    }
     // The count is the bytes of the text in the stream's encoding, without the terminators (a UTF-16 `ab` is 4).
     // UTF-8 counts its own bytes: `aéb` is 4 (streams/instream-outstream/StreamRawBytes.al:P175_Raw_EAcute_ReadText `utf8 utf8`).
     let n = if enc_used == Encoding::Utf8 {
@@ -1494,6 +1519,7 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
             return Ok(Value::Integer(0));
         }
         let (text, count) = with_in(r, |s| {
+            crate::stream_call_stack::refuse_position(s, "Read")?;
             let got = match s.enc {
                 Encoding::Utf8 => crate::stream_read_len::utf8(s, n)?,
                 Encoding::Windows | Encoding::MsDos => crate::stream_read_len::single_byte(s, n)?,
@@ -1503,6 +1529,9 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
             };
             Ok((got.text, got.count))
         })?;
+        if used && crate::stream_call_stack::holds_mark(&text) {
+            crate::stream_call_stack::refuse_count("InStream.Read")?;
+        }
         a[0] = Value::Text(text.into());
         return Ok(if used {
             Value::Integer(count as i32)
@@ -1545,6 +1574,7 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
     if matches!(a[0], Value::Text(_) | Value::Code(_)) {
         let used = c.ret_used();
         let (taken, count) = with_in(r, |s| {
+            crate::stream_call_stack::refuse_position(s, "Read")?;
             // A UTF-8 byte order mark at the start of a stream created as UTF-8 is skipped (streams/
             // DdStreamLeads.al:502 Item68_Utf8Bom `read utf8` 3 [97,98,99]). The count leaves the mark out when no zero byte
             // follows (streams/instream-outstream/StreamReadMatrix.al:533 Matrix_Utf8Bom `u8 len -1` `2 [97]`); with one it is not pinned.
@@ -1584,9 +1614,13 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
             // same file's TO_ReadText_NonAscii_NoTerminator `7|wörld` with no terminator,
             // `5|äö` then `5|€A`). On a UTF-16 stream the pin reads only the characters before the first non-ASCII one, which
             // is not modelled.
-            if !s.enc.decode_pinned(body)
-                || (!s.enc.decode(body).is_ascii()
-                    && !matches!(s.enc, Encoding::Windows | Encoding::MsDos | Encoding::Utf8))
+            // A call stack text reads back whole on every encoding (errors/WdCallStackWriteText.al:148-149 `read equal`).
+            let decoded = s.enc.decode(body);
+            let call_stack = crate::stream_call_stack::holds_mark(&decoded)
+                && decoded.replace(crate::native::CALL_STACK_MARK, "").is_ascii();
+            if !call_stack
+                && (!s.enc.decode_pinned(body)
+                    || (!decoded.is_ascii() && !matches!(s.enc, Encoding::Windows | Encoding::MsDos | Encoding::Utf8)))
             {
                 return unsupported(
                     "InStream.Read into a Text of non-ASCII characters on a UTF-16 stream (not pinned)",
@@ -1595,6 +1629,9 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
             s.pos += consumed;
             Ok((s.enc.decode(body), counted))
         })?;
+        if used && crate::stream_call_stack::holds_mark(&taken) {
+            crate::stream_call_stack::refuse_count("InStream.Read")?;
+        }
         a[0] = match a[0] {
             Value::Code(_) => Value::Code(taken.into()),
             _ => Value::Text(taken.into()),
@@ -1851,7 +1888,7 @@ pub(crate) fn read_serialised_text(stream: &mut Value) -> Result<String, Signal>
 
 /// `WriteText(Text)` writes the text in the stream's encoding and no terminator; `WriteText()` writes
 /// CR LF (:OutStream_WriteText_WithoutArgument_WritesCarriageReturnLineFeed).
-fn out_write_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+fn out_write_text(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     if a.len() > 1 {
         // A length equal to that of an ASCII text writes the text (al-language-onprem-dotnet/dotnet/blob-stream-position/
         // Y51BlobStreamPosition.al:245-247, `writetext_len1` 9|9: WriteText('x', 1) wrote one byte).
@@ -1869,10 +1906,10 @@ fn out_write_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
         }
         .to_string(),
     };
-    // A call stack text is written like any text. Its stream bytes are not pinned, only that it is not refused and reads
-    // back (the Write round trip is: error-handling/lt-wd/WdCallStackToBlob.al:96-102), so the pass is flagged.
-    if text.contains(crate::native::CALL_STACK_MARK) {
-        crate::assumptions::assume(crate::assumptions::Assumption::CallStackTextStreamWrite);
+    // A call stack text is written on every encoding (errors/WdCallStackWriteText.al:128, WD_*_Collected_WriteText); the
+    // stream holds StrLen bytes of it (:136), and StrLen of its untracked frames is not known (`stream_call_stack`).
+    if crate::stream_call_stack::holds_mark(&text) && c.ret_used() {
+        crate::stream_call_stack::refuse_count("OutStream.WriteText")?;
     }
     let (b, enc) = out_buf(r)?;
     let bytes = enc.encode(&text);
@@ -2062,7 +2099,18 @@ fn out_write(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NRe
         // 'wörld' is 77 F6 72 6C 64 00).
         // The text ends at its first NUL character (types/variant/LTP89StreamText.al:Text_BytesWritten `nul_char`).
         // Cyrillic and Japanese text on every encoding: `Encoding::write_text_pinned`.
-        Value::Text(t) | Value::Code(t) if enc.write_text_pinned(t.split('\0').next().unwrap_or_default()) => {
+        // A call stack text is written on every encoding (errors/WdCallStackWriteText.al:130, WD_*_Collected_Write).
+        Value::Text(t) | Value::Code(t)
+            if enc.write_text_pinned(
+                &t.split('\0')
+                    .next()
+                    .unwrap_or_default()
+                    .replace(crate::native::CALL_STACK_MARK, ""),
+            ) =>
+        {
+            if crate::stream_call_stack::holds_mark(t.as_str()) && c.ret_used() {
+                crate::stream_call_stack::refuse_count("OutStream.Write")?;
+            }
             let mut v = enc.encode(t.split('\0').next().unwrap_or_default());
             v.extend(std::iter::repeat_n(0, enc.unit()));
             v

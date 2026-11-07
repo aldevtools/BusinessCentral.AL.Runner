@@ -1484,7 +1484,7 @@ pub fn text_key_order(a: &str, b: &str) -> Ordering {
         }
         return Ordering::Equal;
     }
-    crate::collation::compare_total(a, b)
+    crate::collation::compare_key(a, b)
 }
 
 /// The order a filter applies to two texts when one starts with a hyphen and both are letters and digits besides it: the key order,
@@ -1504,7 +1504,11 @@ pub fn hyphen_filter_order(a: &Value, b: &Value) -> Option<Ordering> {
             .bytes()
             .all(|c| c.is_ascii_alphanumeric())
     };
-    ((x.starts_with('-') || y.starts_with('-')) && shape(x) && shape(y)).then(|| code_key_order(x, y))
+    // Punctuation anywhere: a range and a comparison on a Code field of a normal record follow the key order (`TTS-A..TTS.001` is
+    // empty, `<AB` keeps `A.B` and not `A-B`; record/keys-sorting/KeyPunctuationOrder.al:277-310, staging r6980).
+    let punctuated = |t: &str| t.bytes().any(|c| c.is_ascii() && !c.is_ascii_alphanumeric());
+    (((x.starts_with('-') || y.starts_with('-')) && shape(x) && shape(y)) || punctuated(x) || punctuated(y))
+        .then(|| code_key_order(x, y))
 }
 
 /// The key order of two Code values: the text key order of the texts without a leading hyphen, and for two that tie there the one
@@ -1517,9 +1521,11 @@ pub fn hyphen_filter_order(a: &Value, b: &Value) -> Option<Ordering> {
 ///
 /// Every leading hyphen is dropped, and of two Codes that tie there the one with fewer hyphens comes first: `+5 -+5 +A 0 -0 5 -5 --5 A
 /// -A` (record/AsCodeKeySigns.al:56, Order_Ascending; :68 Order_Descending).
+///
+/// Since the key order of punctuation was measured (record/keys-sorting/KeyPunctuationOrder.al, staging r6980) a hyphen anywhere
+/// does not count first, for a Code and a Text key alike: this is [`text_key_order`], which covers the leading hyphens above.
 pub fn code_key_order(a: &str, b: &str) -> Ordering {
-    let (sa, sb) = (a.trim_start_matches('-'), b.trim_start_matches('-'));
-    text_key_order(sa, sb).then_with(|| (a.len() - sa.len()).cmp(&(b.len() - sb.len())))
+    text_key_order(a, b)
 }
 
 /// [`compare`] for the values of a key: text follows [`text_key_order`].
