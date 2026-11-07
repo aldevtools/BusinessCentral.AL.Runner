@@ -444,7 +444,8 @@ jobs:
       # a codeunit read SingleInstance state an earlier codeunit left run once more, in one go, the single instances moved
       # from session to session instead of copied; every outcome must equal the normal run's (exit 1 otherwise, the lines
       # start with "SingleInstance serial check"). It is a full run of the newest major plus the second run of those
-      # sessions: measured on BC 29, about CHECKSEC s of user CPU more than the run without it. It is a step of its own so
+      # sessions: measured on BC 29, it adds about a third to the user instructions of the run (554 G against 421 G;
+      # main without the carry: 304 G). It is a step of its own so
       # it does not count toward the time guard of the corpus step above. Runs on every pull request.
       - name: SingleInstance serial check (newest major)
         run: |

@@ -347,7 +347,8 @@ only, in a step of its own, so its time does not count toward the corpus step's 
 and CI first set it on the corpus step of all three majors. Measured on BC 29 (user CPU, `taskset -c 0-2,5-11`): main
 61 s, the carrying without the check 83 s, with the check 108 s; the corpus step took 222 s against a limit of 132 s.
 The check runs the codeunits of every session in which a codeunit read carried state, which is almost every
-codeunit (3,568 on BC 29), once more on one thread. It costs about as much as the run itself.
+codeunit (3,568 on BC 29), once more on one thread. After the speed work below (user instructions of a BC 29 run: main
+304 G, the carry 421 G, the carry with the check 554 G) the check still adds about a third.
 
 **Rounds (2026-11-07, speed only, outcomes unchanged).** The parallel part ran every codeunit from no single
 instances, so a codeunit that read a cache an earlier one filled (Change Log Management, Server Setting Impl.) or a
