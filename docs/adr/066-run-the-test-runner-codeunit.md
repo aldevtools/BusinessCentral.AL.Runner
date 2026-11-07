@@ -617,14 +617,17 @@ cannot change such a refusal.
 ### Measured (BC 29, Microsoft's apps, 12 threads)
 
 Release binary, BC 29.0.54011.55816, cores 0-2 and 5-11, warm compile cache, 12 threads. The machine was shared with
-other agents (load average 6.5 to 9.5 during these runs, against a quieter machine for amendment 4's numbers), so the
-totals carry noise of about 10 to 20 %; the lane's wall time is the number this amendment changes. "Before the lane" is
-the binary of 7b1a05de7.
+other agents (load average between 1.5 and 14 during these runs), so the totals carry noise of 10 to 30 %; the lane's
+wall time is the number this amendment changes. "Before the lane" is the binary of 7b1a05de7 (amendment 4's table).
+Run 1 is this change alone; run 2 is this change and then the binary amendment 4's table measured, in the same half hour.
 
-| Bucket | Before the lane | Amendment 4 | Amendment 5 | Lane wall time, amendment 4 / 5 | Serial sessions (longest) | Codeunit runs in the lane | Dependent / ran again | Outcome changes against before the lane |
+| Bucket | Before the lane | Amendment 4 (its table / run 2) | Amendment 5 (run 1 / run 2) | Lane wall time, amendment 4 (run 2) / amendment 5 (run 1 / run 2) | Serial sessions (longest, run 1) | Codeunit runs in the lane, amendment 4 / 5 | Dependent / ran again | Outcome changes against before the lane |
 |---|---|---|---|---|---|---|---|---|
-| Tests-ERM-Purchase | 131.7 s | 92.0 s | 85.9 s | 25.9 s / 16.5 s | 6 (16.3 s) | 17 (amendment 4: 12) | 9 / 7 | 0 |
-| Tests-SCM | 244.9 s | 360.6 s | 322.5 s | 121.6 s / 64.5 s | 20 (57.6 s) | 81 (amendment 4: 49) | 31 / 26 | 1, see below |
+| Tests-ERM-Purchase | 131.7 s | 92.0 s / 99.1 s | 85.9 s / 145.0 s | 25.8 s / 16.5 s / 17.7 s | 6 (16.3 s) | 12 / 17 | 9 / 7 | 0 / 0 |
+| Tests-SCM | 244.9 s | 360.6 s / 418.3 s | 322.5 s / 313.5 s | 132.8 s / 64.5 s / 56.5 s | 20 (57.6 s) | 49 / 81 | 31 / 26 | 1 / 0, see below |
+
+The 145.0 s of Purchase in run 2 is load: the load average went from 1.8 to 14 during that run, and its lane still
+took 17.7 s.
 
 Tests-SCM codeunits 137035 and 137038 alone (`--codeunit 137035 --codeunit 137038`) keep their 128 passes, 0 outcome
 changes.
@@ -634,8 +637,9 @@ changes.
   threads that are idle at that point.
 - Decision 3 changed no count on these suites: each of their dependent codeunits with a test not run also has a failed
   test or a test refused while it ran.
-- The one outcome change on Tests-SCM is `FiveThousandSerialNos` of codeunit 137380 SCM Performance Tests, which is
-  not in the lane: it took 20.2 and 20.5 s of CPU time in two runs (limit 20 s) against 17.9 s before. Run alone
+- The one outcome change on Tests-SCM in run 1 is `FiveThousandSerialNos` of codeunit 137380 SCM Performance Tests,
+  which is not in the lane: it took 20.2 s of CPU time (limit 20 s; also 20.5 s in an earlier run of this branch)
+  against 17.9 s before, and passed in run 2. Run alone
   (`--codeunit 137380`) right after each other, it passes with both binaries (7b1a05de7: 17.1 s, this change: 17.7 s).
   The CPU time of that test sits close to the limit and grows with the machine's load; the change does not touch the
   parallel run it ran in.
