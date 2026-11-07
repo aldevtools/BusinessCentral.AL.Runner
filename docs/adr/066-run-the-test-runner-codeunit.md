@@ -350,14 +350,32 @@ The check runs the codeunits of every session in which a codeunit read carried s
 codeunit (3,568 on BC 29), once more on one thread. After the speed work below (user instructions of a BC 29 run: main
 304 G, the carry 421 G, the carry with the check 554 G) the check still adds about a third.
 
-**Rounds (2026-11-07, speed only, outcomes unchanged).** The parallel part ran every codeunit from no single
+**Batches (2026-11-07, speed only, outcomes unchanged).** The parallel part ran every codeunit from no single
 instances, so a codeunit that read a cache an earlier one filled (Change Log Management, Server Setting Impl.) or a
 binding an earlier one left saw another state than the serial run and ran a second time: 1,879 of 3,568 codeunits on
-BC 29. The codeunits now run in rounds (`rounds_run.rs`): the first 8, then 16, 32, ... of each BC session, each
-round starting from the state `SingleWalk::predict` gives it from the rounds before. The prediction is only a start
-value: `walk` still checks every run against the serial state (`fits`) and runs again those that saw another one, so no
-outcome depends on it. A run again made by the prediction is reused by `walk` when it fits. The serial check is
-unchanged.
+BC 29. The codeunits now run in batches (`rounds_run.rs`, `single_walk.rs` `Batches`) of each BC session in run order,
+each batch starting from the state `Predictor::advance` gives it from the batches before. The prediction is only a
+start value: `walk` still checks every run against the serial state (`fits`) and runs again those that saw another
+one, so no outcome depends on it. A run again made by the prediction is reused by `walk` when it fits. The serial
+check is unchanged.
+
+The batch size adapts per session. It starts at twice the number of threads (at least 8) and doubles up to eight times
+the number of threads (at least 64) while no codeunit of the batch before ran again. It falls back to the start when
+one did. Reason: when one codeunit changes a global many later codeunits read (a cache that gets a row, a mock that is
+started), every later codeunit of its batch saw the old value and runs twice. On BC 29 one such change in a large
+batch cost hundreds of codeunits: 405 of 665 second runs came from `Change Log Management.ChangeLogSetup` and 177 from
+`Permissions Mock.Started`. With adapting batches the second runs fell from 670 to about 330.
+
+**A run that could not restore what it was given does not fit (2026-11-07, a fix).** A run given the serial value of a
+global counted as fitting whatever it saw. A session whose committed row version is below a record's cannot restore it
+and refuses a read of it, and that refusal was noted nowhere, so the refused run stood as the serial one. With the
+smaller batches that hid about 1,000 passing tests on BC 29. The refused read is now noted as an observed value that is
+not carried (`single_carry.rs`), and `fits` does not accept it when the serial state holds the value as a carried one:
+the run again restores it.
+
+**What a refused test may change is worked out late (2026-11-07).** `SingleWalk::take` only notes the refused tests
+(`Pend`); the walk of their reach (`resolve`) runs when a later codeunit that read SingleInstance state has a failure
+to trust or not (`distrust`). The results are the same, in the same order.
 
 **Bound subscriptions stay refused.** A single instance still bound to manual subscribers at the end of a codeunit
 makes the later failures not trusted, as on the branch. Probe wanted: corpus codeunit A binds a SingleInstance

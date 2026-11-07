@@ -62,6 +62,23 @@ struct Stream {
     /// The last chain member run again whose run left something else than its first run, with what it left (suite,
     /// id, leg, state): the later chain members and the codeunits that read what the chain left run again from it.
     relay: Option<(usize, u32, u8, super::run::Carried)>,
+    /// What `take` noted since the last [`SingleWalk::resolve`], in order: the walk of a refused test's reach is only
+    /// made when a later codeunit that read SingleInstance state has a failure to trust or not (`distrust`).
+    pending: Vec<Pend>,
+}
+
+/// A note of `take`, applied in order by `SingleWalk::resolve`.
+enum Pend {
+    /// The runtime stopped in a test codeunit: any global may have changed.
+    Stopped(String),
+    /// A codeunit wrote this global without reading it first: what a refused test may have changed there is settled.
+    Wrote(GlobalKey),
+    /// Tests of codeunit `oi` (routines `routines`) were refused: `what` names them.
+    Refused {
+        oi: usize,
+        routines: Vec<usize>,
+        what: String,
+    },
 }
 
 /// What a chain member run again left, against its first run (`SingleWalk::chain_left_other`).
@@ -125,7 +142,7 @@ impl SingleWalk<'_> {
                 .is_some_and(|(si, id, leg, _)| (self.sees)(*si, *id, *leg, u))
                 && self.reads_relay(k, s.relay.as_ref());
             if !matches || relayed {
-                // A run again made for the prediction of the rounds (`predict`) stands when it saw the state the serial
+                // A run again made for the prediction of the batches (`Predictor::advance`) stands when it saw the state the serial
                 // run holds here: a codeunit outside the chain, with no relayed rows, runs the same way (`run_again`).
                 let cached = (s.relay.is_none() && !self.is_member(k))
                     .then(|| self.predicted.borrow_mut().remove(&k))
@@ -377,9 +394,14 @@ impl SingleWalk<'_> {
     }
 
     /// Marks as not trusted the failures of a codeunit that read a global a refused test before it may have changed.
-    fn distrust(&self, s: &Stream, r: &mut UnitResult) {
+    fn distrust(&self, s: &mut Stream, r: &mut UnitResult) {
         let Ok(done) = &mut r.result else { return };
         let Some(out) = done.5.singles_out.as_ref() else { return };
+        // Only a failure is distrusted: what the refused tests before may have changed is worked out for one.
+        if out.observed.is_empty() || !done.0.iter().any(|(_, o)| matches!(o, Outcome::Fail(_))) {
+            return;
+        }
+        self.resolve(s);
         let why = out.observed.keys().find_map(|key| s.unknown.get(key).map(|why| (key, why))).map(|(&key, why)| {
             if key == BINDINGS_KEY {
                 return format!(
@@ -413,12 +435,16 @@ impl SingleWalk<'_> {
         }
     }
 
-    /// The serial state after codeunit `r`: what it left, and what its refused tests may have changed.
+    /// The serial state after codeunit `r`: what it left. What its refused tests may have changed is noted
+    /// ([`Pend`]) and worked out when it is needed ([`SingleWalk::resolve`]).
     fn take(&self, s: &mut Stream, r: &UnitResult) {
         let done = match &r.result {
             Ok(done) => done,
             Err(panic) => {
-                s.unknown_all = Some(format!("the runtime stopped in test codeunit {}: {panic}", r.id));
+                s.pending.push(Pend::Stopped(format!(
+                    "the runtime stopped in test codeunit {}: {panic}",
+                    r.id
+                )));
                 return;
             }
         };
@@ -430,7 +456,7 @@ impl SingleWalk<'_> {
                     s.shared = None;
                 }
                 if !out.observed.contains_key(key) {
-                    s.unknown.remove(key);
+                    s.pending.push(Pend::Wrote(*key));
                 }
             }
         }
@@ -444,9 +470,6 @@ impl SingleWalk<'_> {
             return;
         }
         let obj = &self.lowered.program.objects[r.oi];
-        let index = self
-            .engine
-            .derived(|| ReachIndex::new(&self.engine.events, self.lowered));
         let mut routines: Vec<usize> = (0..obj.routines.len())
             .filter(|&i| refused.iter().any(|n| obj.routines[i].name.eq_ignore_ascii_case(n)))
             .collect();
@@ -458,12 +481,6 @@ impl SingleWalk<'_> {
             );
         }
         let Some(&first) = routines.first() else { return };
-        // One walk of the refused routines' joined reach: they share most of it, and a global any of them can write is
-        // not known from here on, whichever wrote it.
-        let roots: Vec<(usize, usize)> = routines.iter().map(|&i| (r.oi, i)).collect();
-        let facts = union_reach_written(&self.engine.events, self.lowered, &index, &roots, &|o| {
-            single_instance(self.lowered, o)
-        });
         let what = match routines.len() {
             1 => format!("{}.{}", obj.name, obj.routines[first].name),
             n => format!(
@@ -473,16 +490,46 @@ impl SingleWalk<'_> {
                 n - 1
             ),
         };
-        if let Some(why) = &facts.unknown {
-            s.unknown_all.get_or_insert_with(|| format!("{what}: {why}"));
-        }
-        // A refused test that may bind or unbind: which bindings reach the next codeunit is not known.
-        if facts.state_writes & super::written::state::BINDING != 0 {
-            s.unknown.entry(BINDINGS_KEY).or_insert_with(|| what.clone());
-        }
-        for &(o, g) in &facts.globals_written {
-            if single_instance(self.lowered, o) {
-                s.unknown.entry((o, g)).or_insert_with(|| what.clone());
+        s.pending.push(Pend::Refused {
+            oi: r.oi,
+            routines,
+            what,
+        });
+    }
+
+    /// Works out what the refused tests noted since the last call may have changed, in order.
+    fn resolve(&self, s: &mut Stream) {
+        for p in std::mem::take(&mut s.pending) {
+            match p {
+                Pend::Stopped(why) => {
+                    s.unknown_all = Some(why);
+                }
+                Pend::Wrote(key) => {
+                    s.unknown.remove(&key);
+                }
+                Pend::Refused { oi, routines, what } => {
+                    let index = self
+                        .engine
+                        .derived(|| ReachIndex::new(&self.engine.events, self.lowered));
+                    // One walk of the refused routines' joined reach: they share most of it, and a global any of them
+                    // can write is not known from here on, whichever wrote it.
+                    let roots: Vec<(usize, usize)> = routines.iter().map(|&i| (oi, i)).collect();
+                    let facts = union_reach_written(&self.engine.events, self.lowered, &index, &roots, &|o| {
+                        single_instance(self.lowered, o)
+                    });
+                    if let Some(why) = &facts.unknown {
+                        s.unknown_all.get_or_insert_with(|| format!("{what}: {why}"));
+                    }
+                    // A refused test that may bind or unbind: which bindings reach the next codeunit is not known.
+                    if facts.state_writes & super::written::state::BINDING != 0 {
+                        s.unknown.entry(BINDINGS_KEY).or_insert_with(|| what.clone());
+                    }
+                    for &(o, g) in &facts.globals_written {
+                        if single_instance(self.lowered, o) {
+                            s.unknown.entry((o, g)).or_insert_with(|| what.clone());
+                        }
+                    }
+                }
             }
         }
     }
@@ -510,7 +557,12 @@ fn key_fits(key: &GlobalKey, seen: &Carry, start: Option<&SingleState>, serial: 
         // (`Session::restore_single_instances`), whatever its first read encodes it as (a record buffer of a
         // rolled-back row reads back without its row version), and a value that is not carried (the same
         // description) was refused where it read it, as there.
-        (Some(v), Some(given)) if same_given(v, given) => true,
+        // A value that carries (`Val`) that the run could not read back (it saw `Opaque`: its session could not restore it,
+        // as when its committed row version is below the record's) does not count: the run again from the serial state
+        // may restore it.
+        (Some(v), Some(given)) if same_given(v, given) => {
+            !(matches!(seen, Carry::Opaque(_)) && matches!(v, Carry::Val(_)))
+        }
         (Some(v), _) => v == seen,
         (None, given) => given.is_none(),
     }
@@ -527,109 +579,184 @@ fn same_given(a: &Carry, b: &Carry) -> bool {
 
 /// The state `before` with what run `r` wrote applied (`walk`'s `take`, without what refused tests may have changed);
 /// also what it wrote. Predictions only (`chain_walk.rs`): `fits` checks every run against the state of `walk`.
-pub(super) fn after_run(before: &SingleState, r: &UnitResult) -> (SingleState, Option<Arc<SingleState>>) {
-    let wrote = match &r.result {
-        Ok(done) => done.5.singles_out.as_ref().map(|out| Arc::new(out.wrote.clone())),
+pub(super) fn after_run(
+    before: Arc<SingleState>,
+    r: &UnitResult,
+    keep_wrote: bool,
+) -> (Arc<SingleState>, Option<Arc<SingleState>>) {
+    let out = match &r.result {
+        Ok(done) => done.5.singles_out.as_ref(),
         Err(_) => None,
     };
-    let mut now = before.clone();
-    if let Some(w) = &wrote {
-        now.extend(w.iter().map(|(k, v)| (*k, v.clone())));
+    let mut now = before;
+    // Nothing is copied when the codeunit wrote nothing, or when no run ahead holds the state it started from.
+    if let Some(out) = out.filter(|o| !o.wrote.is_empty()) {
+        Arc::make_mut(&mut now).extend(out.wrote.iter().map(|(k, v)| (*k, v.clone())));
     }
-    (now, wrote)
+    (now, out.filter(|_| keep_wrote).map(|o| Arc::new(o.wrote.clone())))
 }
 
-/// The rank (place in the BC session's run order) at which each round of the parallel part ends (`rounds`).
-const FIRST_ROUND: usize = 8;
-
-/// The round of the codeunit at rank `n` of its BC session: the first [`FIRST_ROUND`], then twice as many in each round.
-/// (Finer rounds start more runs from a predicted state; with steps of 24 codeunits some of those carried a record
-/// whose row version the next session had not committed, which a later codeunit refuses: 954 tests of BC 29 were not
-/// run. Doubling rounds gave the same outcomes as no rounds.)
-fn round_at(n: usize) -> usize {
-    ((n / FIRST_ROUND) + 1).ilog2() as usize
+/// The batches of the parallel part (`rounds_run.rs`): per BC session (suite, hub leg) in run order, so many codeunits
+/// at a time. A batch starts from the state the batches before it left ([`Predictor`]): a codeunit that reads a global
+/// a codeunit before it in the same batch changed saw the old value and has to run again. So the size of a session's
+/// batch adapts: it doubles (up to `max`) while the batch before it was predicted right, and falls back to `min` when a
+/// codeunit of it had to run again, because such a change (a cache a codeunit filled, a mock one started) makes every
+/// later codeunit of its batch run twice. Only the time of the run depends on the sizes.
+pub(super) struct Batches {
+    /// Per session: its codeunits still to run, in run order, and the size of its next batch.
+    queues: Vec<((usize, bool), std::collections::VecDeque<usize>, usize)>,
+    /// The sessions (indexes of `queues`) the last batch took codeunits from.
+    last: Vec<usize>,
+    min: usize,
+    max: usize,
 }
 
-/// Splits the codeunits `rest` (indexes of `units`) into rounds: the first few of each BC session in run order, then
-/// more and more of the others. A test codeunit that reads state a codeunit before it left (a cache Change Log
-/// Management filled, a binding of a SingleInstance subscriber) saw none of it in the parallel run and had to run again
-/// from the serial state; a round starts from the state the rounds before it left instead ([`seed`]).
-pub(super) fn rounds(units: &[Unit], rest: &[usize], place: &dyn Fn(usize, u32) -> u32) -> Vec<Vec<usize>> {
-    let mut order: Vec<usize> = rest.iter().copied().filter(|&k| !units[k].execute).collect();
-    order.sort_by_key(|&k| {
-        let u = &units[k];
-        (u.si, u.hub_leg, place(u.si, u.id), k)
-    });
-    let mut count: std::collections::HashMap<(usize, bool), usize> = Default::default();
-    let mut round_of: std::collections::HashMap<usize, usize> = Default::default();
-    for k in order {
-        let n = count.entry((units[k].si, units[k].hub_leg)).or_default();
-        round_of.insert(k, round_at(*n));
-        *n += 1;
+impl Batches {
+    /// The batches for the codeunits `rest` (indexes of `units`).
+    pub(super) fn new(
+        units: &[Unit],
+        rest: &[usize],
+        place: &dyn Fn(usize, u32) -> u32,
+        min: usize,
+        max: usize,
+    ) -> Batches {
+        let mut order: Vec<usize> = rest.iter().copied().filter(|&k| !units[k].execute).collect();
+        order.sort_by_key(|&k| {
+            let u = &units[k];
+            (u.si, u.hub_leg, place(u.si, u.id), k)
+        });
+        let mut streams: Vec<((usize, bool), Vec<usize>)> = Vec::new();
+        for k in order {
+            let key = (units[k].si, units[k].hub_leg);
+            match streams.last_mut() {
+                Some((q, ks)) if *q == key => ks.push(k),
+                _ => streams.push((key, vec![k])),
+            }
+        }
+        let mut b = Batches::of(streams, min, max);
+        // The codeunits that execute (they run with nothing before them) go in the first batch.
+        let first: Vec<usize> = rest.iter().copied().filter(|&k| units[k].execute).collect();
+        if !first.is_empty() {
+            b.queues.insert(0, ((usize::MAX, false), first.into(), usize::MAX));
+        }
+        b
     }
-    let mut out = vec![Vec::new(); round_of.values().max().map_or(1, |m| m + 1)];
-    for &k in rest {
-        out[round_of.get(&k).copied().unwrap_or(0)].push(k);
+
+    /// The batches of sessions `streams` (the session, its codeunits in run order).
+    fn of(streams: Vec<((usize, bool), Vec<usize>)>, min: usize, max: usize) -> Batches {
+        Batches {
+            queues: streams.into_iter().map(|(key, ks)| (key, ks.into(), min)).collect(),
+            last: Vec::new(),
+            min,
+            max,
+        }
     }
-    out.retain(|r| !r.is_empty());
-    out
+
+    /// The next batch (indexes of `units`); empty when every codeunit ran.
+    pub(super) fn next(&mut self) -> Vec<usize> {
+        self.last.clear();
+        let mut out = Vec::new();
+        for (i, (_, ks, size)) in self.queues.iter_mut().enumerate() {
+            let n = (*size).min(ks.len());
+            if n > 0 {
+                self.last.push(i);
+                out.extend(ks.drain(..n));
+            }
+        }
+        out
+    }
+
+    /// Whether every codeunit is in a batch already.
+    pub(super) fn is_done(&self) -> bool {
+        self.queues.iter().all(|(_, ks, _)| ks.is_empty())
+    }
+
+    /// Tells which sessions had a codeunit that ran again after the last batch (`Predictor::advance`).
+    pub(super) fn feedback(&mut self, again: &std::collections::HashSet<(usize, bool)>) {
+        for &i in &self.last {
+            let (key, _, size) = &mut self.queues[i];
+            if *size == usize::MAX {
+                continue;
+            }
+            *size = if again.contains(key) {
+                self.min
+            } else {
+                (*size * 2).min(self.max)
+            };
+        }
+    }
 }
 
 /// A BC session's predicted state, with a shared copy of it for the runs again (dropped when the state changes).
 type Predicted = (SingleState, Option<Arc<SingleState>>);
 
+/// The predicted SingleInstance state of each BC session after the codeunits that ran so far, in run order.
+pub(super) struct Predictor {
+    /// Per session: its codeunits in run order, how many were taken into the state, and the state.
+    streams: Vec<PredictedStream>,
+}
+
+type PredictedStream = ((usize, bool), Vec<usize>, usize, Predicted);
+
+/// The state of each BC session, and the sessions where a codeunit ran again ([`SingleWalk::advance`]).
+pub(super) type Advanced = (
+    std::collections::HashMap<(usize, bool), Arc<SingleState>>,
+    std::collections::HashSet<(usize, bool)>,
+);
+
 impl SingleWalk<'_> {
-    /// The single instances each BC session's codeunits before the next round left, as the serial run would have them:
-    /// the runs of `ran` (with their `results`) and of `slots`, in run order, each when it fits the state so far, and
-    /// otherwise as run again from it (the run again is only for what it leaves: `walk` runs it again for the report).
-    /// Only a prediction: `walk` checks every run against the serial state.
-    pub fn predict(
-        &self,
-        ran: &[usize],
-        results: &[UnitResult],
-        slots: &[Option<UnitResult>],
-    ) -> std::collections::HashMap<(usize, bool), Arc<SingleState>> {
-        let mut done: Vec<(&UnitResult, usize)> = results.iter().zip(ran.iter().copied()).collect();
-        done.extend(slots.iter().enumerate().filter_map(|(k, r)| r.as_ref().map(|r| (r, k))));
+    /// A predictor over all codeunits of the run (chain members included).
+    pub fn predictor(&self) -> Predictor {
         let units = self.units;
-        done.sort_by_key(|(_, k)| {
-            (
-                units[*k].si,
-                units[*k].hub_leg,
-                (self.place)(units[*k].si, units[*k].id),
-                *k,
-            )
-        });
-        let mut states: std::collections::HashMap<(usize, bool), Predicted> = Default::default();
-        for (r, k) in done {
-            if units[k].execute {
-                continue;
+        let mut order: Vec<usize> = (0..units.len()).filter(|&k| !units[k].execute).collect();
+        order.sort_by_key(|&k| (units[k].si, units[k].hub_leg, (self.place)(units[k].si, units[k].id), k));
+        let mut streams: Vec<PredictedStream> = Vec::new();
+        for k in order {
+            let key = (units[k].si, units[k].hub_leg);
+            match streams.last_mut() {
+                Some((q, ks, _, _)) if *q == key => ks.push(k),
+                _ => streams.push((key, vec![k], 0, Predicted::default())),
             }
-            let (st, shared) = states.entry((units[k].si, units[k].hub_leg)).or_default();
-            let mut cache = self.predicted.borrow_mut();
-            if !fits(r, st) && !cache.get(&k).is_some_and(|c| fits(c, st)) {
-                let given = shared.get_or_insert_with(|| Arc::new(st.clone())).clone();
-                let again = self.run_again(k, Some(given), None);
-                super::run::CARRIED.with(|c| c.borrow_mut().take());
-                cache.insert(k, again);
-            }
-            let r = if fits(r, st) { r } else { &cache[&k] };
-            if let Ok(done) = &r.result {
-                if let Some(out) = &done.5.singles_out {
-                    for (key, v) in &out.wrote {
-                        if st.get(key) != Some(v) {
-                            st.insert(*key, v.clone());
-                            *shared = None;
+        }
+        Predictor { streams }
+    }
+
+    /// Takes the codeunits whose runs `result` has, in run order up to the first one it has not, into the predicted
+    /// states: each run when it fits the state so far, and otherwise as run again from it (the run again is only for
+    /// what it leaves: `walk` takes it when it fits there). Returns the state of each session (those with one) and the
+    /// sessions where a codeunit ran again. Only a prediction: `walk` checks every run against the serial state.
+    pub fn advance<'r>(&self, p: &mut Predictor, result: &dyn Fn(usize) -> Option<&'r UnitResult>) -> Advanced {
+        let mut seeds = std::collections::HashMap::new();
+        let mut again = std::collections::HashSet::new();
+        for (key, ks, next, (st, shared)) in p.streams.iter_mut() {
+            while let Some(&k) = ks.get(*next) {
+                let Some(r) = result(k) else { break };
+                *next += 1;
+                let mut cache = self.predicted.borrow_mut();
+                if !fits(r, st) && !cache.get(&k).is_some_and(|c| fits(c, st)) {
+                    let given = shared.get_or_insert_with(|| Arc::new(st.clone())).clone();
+                    let rerun = self.run_again(k, Some(given), None);
+                    super::run::CARRIED.with(|c| c.borrow_mut().take());
+                    cache.insert(k, rerun);
+                    again.insert(*key);
+                }
+                let r = if fits(r, st) { r } else { &cache[&k] };
+                if let Ok(done) = &r.result {
+                    if let Some(out) = &done.5.singles_out {
+                        for (key, v) in &out.wrote {
+                            if st.get(key) != Some(v) {
+                                st.insert(*key, v.clone());
+                                *shared = None;
+                            }
                         }
                     }
                 }
             }
+            if !st.is_empty() {
+                seeds.insert(*key, shared.get_or_insert_with(|| Arc::new(st.clone())).clone());
+            }
         }
-        states
-            .into_iter()
-            .filter(|(_, (st, _))| !st.is_empty())
-            .map(|(key, (st, shared))| (key, shared.unwrap_or_else(|| Arc::new(st))))
-            .collect()
+        (seeds, again)
     }
 }
 
@@ -710,10 +837,52 @@ mod tests {
         assert!(!fits(&run(Some(state(val(0))), val(0)), &SingleState::new()));
     }
 
-    /// The rounds of the parallel part: 8 codeunits of a session first, then twice as many each round.
+    /// A run that read a value its session could not restore (it saw a value that is not carried) is not the serial run
+    /// when the serial state holds that value as a carried one, even when the run was given exactly that value: the run
+    /// again from the serial state may restore it (a record whose row version is above the session's committed one).
     #[test]
-    fn the_rounds_of_a_session_start_small_and_double() {
-        assert_eq!((round_at(0), round_at(7), round_at(8), round_at(23)), (0, 0, 1, 1));
-        assert_eq!((round_at(24), round_at(55), round_at(56)), (2, 2, 3));
+    fn a_run_that_could_not_restore_the_given_value_does_not_fit() {
+        let refused = || Carry::Opaque("a record buffer with a row version this session has not committed".into());
+        assert!(!fits(&run(Some(state(val(1))), refused()), &state(val(1))));
+        // The serial state holds a value that is not carried either, with the same description: the run was refused
+        // there as the run from the serial state is.
+        assert!(fits(&run(Some(state(refused())), refused()), &state(refused())));
+    }
+
+    /// A session's batches start at the smallest size, double while no codeunit of the batch before ran again, and fall
+    /// back to the smallest when one did, so a change made in the middle of a batch costs the codeunits of that batch
+    /// after it, not those of a batch twice as large.
+    #[test]
+    fn the_batches_of_a_session_double_and_fall_back_when_a_codeunit_ran_again() {
+        let key = (0, false);
+        let mut b = Batches::of(vec![(key, (0..100).collect())], 4, 16);
+        let none = std::collections::HashSet::new();
+        let again = std::collections::HashSet::from([key]);
+        let sizes: Vec<usize> = [&none, &none, &again, &none, &none, &none]
+            .into_iter()
+            .map(|feedback| {
+                let n = b.next().len();
+                b.feedback(feedback);
+                n
+            })
+            .collect();
+        assert_eq!(sizes, vec![4, 8, 16, 4, 8, 16]);
+        assert!(!b.is_done());
+        let rest: usize = std::iter::from_fn(|| Some(b.next().len())).take_while(|n| *n > 0).sum();
+        assert_eq!(rest, 100 - sizes.iter().sum::<usize>());
+        assert!(b.is_done());
+    }
+
+    /// A session that did not take part in a batch keeps its size, and sessions go in batches side by side.
+    #[test]
+    fn the_batches_of_two_sessions_go_side_by_side() {
+        let mut b = Batches::of(
+            vec![((0, false), vec![0, 1, 2]), ((1, false), vec![10, 11, 12, 13])],
+            2,
+            8,
+        );
+        assert_eq!(b.next(), vec![0, 1, 10, 11]);
+        b.feedback(&std::collections::HashSet::new());
+        assert_eq!(b.next(), vec![2, 12, 13]);
     }
 }

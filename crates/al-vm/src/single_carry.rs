@@ -472,6 +472,10 @@ impl Session {
             return Ok(());
         }
         if let Some(why) = t.poisoned.get(&key) {
+            // The read is noted as one of a value that is not carried: the walk does not take this run as the serial one
+            // when the serial state holds a value this session could not read back (its committed row version below the
+            // record's, `single_walk.rs` `key_fits`).
+            t.observed.entry(key).or_insert_with(|| Carry::Opaque(why.clone()));
             return Err(crate::Signal::Unsupported(why.clone()));
         }
         t.seen.insert(key, Seen::Read);

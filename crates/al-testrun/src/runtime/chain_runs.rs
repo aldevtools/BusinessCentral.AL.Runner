@@ -311,17 +311,18 @@ impl Runs {
                 }
                 let (epoch, start) = s.starts.get(&self.suite[k])?;
                 let (delta, complete, sure) = self.guess_sure(&s, k)?;
-                let singles = self.guess_singles(&s, k);
+                // Worked out only for a member that may run: it copies the state of its BC session.
+                let guessed = || self.guess_singles(&s, k);
                 let run = match &s.slots[k] {
                     Slot::Pending => true,
                     // Run again from a better prediction: every count before it is known now, and it differs (or the
                     // run read SingleInstance state the prediction now gives another value).
                     Slot::Done(e, from, a) => {
-                        e == epoch && complete && (*from != delta || !Self::fits_singles(a.as_deref(), &singles))
+                        e == epoch && complete && (*from != delta || !Self::fits_singles(a.as_deref(), &guessed()))
                     }
                     _ => false,
                 };
-                run.then(|| (k, *epoch, start.clone(), delta, complete, sure, singles))
+                run.then(|| (k, *epoch, start.clone(), delta, complete, sure, guessed()))
             });
             let waiting = rest
                 .iter()

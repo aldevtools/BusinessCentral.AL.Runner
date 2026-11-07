@@ -10,7 +10,7 @@
 
 use super::chain_walk::Carry as ChainCarry;
 use super::corpus::observed_detail;
-use super::single_walk::{SingleWalk, rounds};
+use super::single_walk::{Batches, SingleWalk};
 use super::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -70,7 +70,12 @@ impl RoundRun<'_> {
         predicted: &std::cell::RefCell<HashMap<usize, UnitResult>>,
         details: &mut HashMap<(usize, u32, String), explain::TestDetail>,
     ) -> (Vec<usize>, Vec<UnitResult>) {
-        let batches = rounds(units, rest_all, self.place);
+        let min = (self.workers * 2).max(8);
+        let none_reran = HashSet::new();
+        let mut batches = Batches::new(units, rest_all, self.place, min, (self.workers * 8).max(64));
+        let mut predictor = self.walker(units, &none_reran, predicted).predictor();
+        let mut seeds: HashMap<(usize, bool), Arc<SingleState>> = HashMap::new();
+        let mut index: HashMap<usize, usize> = HashMap::new();
         let mut rest: Vec<usize> = Vec::new();
         let mut results: Vec<UnitResult> = Vec::new();
         let threads = if self.workers > 1 && rest_all.len() >= 2 {
@@ -104,9 +109,13 @@ impl RoundRun<'_> {
                 }
             }
             drop(done_tx);
-            for (round, batch) in batches.into_iter().enumerate() {
+            let mut round = 0;
+            loop {
+                let batch = batches.next();
+                if batch.is_empty() {
+                    break;
+                }
                 if round > 0 {
-                    let seeds = self.seeds(units, &rest, &results, slots, predicted);
                     for &k in &batch {
                         if !units[k].execute {
                             units[k].singletons = seeds.get(&(units[k].si, units[k].hub_leg)).cloned();
@@ -139,24 +148,34 @@ impl RoundRun<'_> {
                     done.sort_by_key(|(k, _)| *k);
                     done.into_iter().map(|(_, r)| r).collect()
                 };
+                for (i, &k) in batch.iter().enumerate() {
+                    index.insert(k, results.len() + i);
+                }
                 rest.extend(batch);
                 results.extend(out);
+                round += 1;
+                if !batches.is_done() {
+                    let (s, again) = self
+                        .walker(units, &none_reran, predicted)
+                        .advance(&mut predictor, &|k| {
+                            slots[k].as_ref().or_else(|| index.get(&k).map(|&i| &results[i]))
+                        });
+                    seeds = s;
+                    batches.feedback(&again);
+                }
             }
             drop(senders);
         });
         (rest, results)
     }
 
-    /// The single instances each BC session's codeunits of the rounds so far left, as the serial run has them.
-    fn seeds(
-        &self,
-        units: &[Unit],
-        rest: &[usize],
-        results: &[UnitResult],
-        slots: &[Option<UnitResult>],
-        predicted: &std::cell::RefCell<HashMap<usize, UnitResult>>,
-    ) -> HashMap<(usize, bool), Arc<SingleState>> {
-        let none = HashSet::new();
+    /// What predicts the single instances each BC session's codeunits of the batches so far left.
+    fn walker<'w>(
+        &'w self,
+        units: &'w [Unit],
+        none: &'w HashSet<usize>,
+        predicted: &'w std::cell::RefCell<HashMap<usize, UnitResult>>,
+    ) -> SingleWalk<'w> {
         SingleWalk {
             engine: self.engine,
             lowered: self.lowered,
@@ -166,9 +185,8 @@ impl RoundRun<'_> {
             sees: self.sees,
             place: self.place,
             limit: self.limit,
-            leak_reran: &none,
+            leak_reran: none,
             predicted,
         }
-        .predict(rest, results, slots)
     }
 }

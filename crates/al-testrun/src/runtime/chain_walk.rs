@@ -397,7 +397,7 @@ impl ChainWalk<'_> {
                         .and_then(|b| b.fingerprint_apart(&apart));
                     // Whether the helpers ran the suite when the walk reached the member (`SerialWhy::Closed`).
                     let open = runs.is_some_and(|r| r.is_open(si));
-                    let at = singles.get(&(si, units[k].hub_leg)).cloned().unwrap_or_default();
+                    let at = singles.remove(&(si, units[k].hub_leg)).unwrap_or_default();
                     let (ahead, dropped) =
                         runs.map_or((None, Dropped::Nothing), |r| r.take(k, epoch, actual.as_ref(), &at));
                     if let Dropped::Wrong(predicted) = &dropped {
@@ -495,8 +495,7 @@ impl ChainWalk<'_> {
                             refuse_all(&mut done.0, why);
                         }
                     }
-                    let (now, wrote) = super::single_walk::after_run(&at, &r);
-                    let now = Arc::new(now);
+                    let (now, wrote) = super::single_walk::after_run(at, &r, runs.is_some());
                     if let Some(runs) = runs {
                         runs.singles_walked(k, now.clone(), wrote);
                     }
