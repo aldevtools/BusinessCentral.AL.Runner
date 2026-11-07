@@ -15,6 +15,17 @@ const SYSTEM_ID: u32 = 2_000_000_000;
 type GonePartial = (std::sync::Arc<TableDef>, Vec<Value>, FieldSet);
 
 impl Session {
+    /// Notes that a partial record runs `Delete(true)` on its row: a read of an unloaded field of that row in OnDelete, in the delete
+    /// events or afterwards is refused, never answered with the JIT "row gone" error (al-runner issue 6924). Nothing pins whether BC loads the
+    /// missing fields first; P170JitLoadGone.al deletes through another variable without triggers.
+    pub(crate) fn note_own_delete_true(&mut self, t: &TableDef, rec: &Rec) {
+        let r = rec.borrow();
+        if r.load.partial && !matches!(&r.load.buffer, Some(b) if matches!(b.have, FieldSet::All)) {
+            self.own_delete_true
+                .insert((t.object, crate::partial::row_id(t, &r.fields)));
+        }
+    }
+
     /// A read of field `p` that is not loaded, whose row was deleted and inserted again under the same key: the row has another
     /// SystemId, so BC raises InconsistentRead instead of loading it (P170JitLoadGone.al:1006-1020
     /// PG_RowDeletedAndInsertedAgainWithSameKey). `None` when the SystemId is the same or either side has none.

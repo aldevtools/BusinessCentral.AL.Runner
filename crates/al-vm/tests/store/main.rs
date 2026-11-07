@@ -63,6 +63,7 @@ mod modify_all_partial;
 mod modify_all_unchanged;
 mod np_blockers;
 mod option_init_ordinal;
+mod partial_own_delete_event;
 mod profile_extension_enabled;
 mod query_aggregate_caption;
 mod query_flowfield_filter_join;
