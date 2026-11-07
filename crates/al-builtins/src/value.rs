@@ -493,6 +493,9 @@ pub struct PageState {
     /// The page's source is temporary and its OnOpenPage left Rec as it stood before (key, order, filters and row): the row
     /// was set before the open, for example by a procedure of the page variable (see `rec_moved_by_onopenpage`).
     pub onopenpage_kept_rec: bool,
+    /// A record was handed to the page (Page.Run(Id, Rec)) and its OnOpenPage left Rec on a primary key other than the handed one
+    /// (`handed_moved.rs`).
+    pub handed_rec_moved_by_onopenpage: bool,
     /// A lookup page handed the related row a field holds opens on it as a list opens on a row its OnOpenPage left Rec on
     /// (`lookup_start.rs`).
     pub lookup_held_row: bool,
@@ -1035,6 +1038,7 @@ impl PageState {
             gone_row_settled: false,
             part_on_host_row: false,
             onopenpage_kept_rec: false,
+            handed_rec_moved_by_onopenpage: false,
             lookup_held_row: false,
             open_rec_unpinned: None,
             run_page_link_opened: false,

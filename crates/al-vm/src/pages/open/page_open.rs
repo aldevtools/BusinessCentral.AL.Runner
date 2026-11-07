@@ -238,8 +238,10 @@ impl Session {
     /// `PagesState::run_page_link_opening` while the trigger runs.
     fn on_open_page(&mut self, st: &St, linked: bool) -> Result<Option<Value>, Signal> {
         self.pages.run_page_link_opening += u32::from(linked);
+        let before = self.rec_key_before_open(st)?;
         let opened = self.page_trigger(st, "onopenpage", vec![]);
         self.pages.run_page_link_opening -= u32::from(linked);
+        self.note_handed_rec_moved(st, before)?;
         opened
     }
 
@@ -944,6 +946,9 @@ impl Session {
                 if st.borrow().lookup_held_row {
                     self.lead_read_of_held_row(st)?;
                 }
+                return self.open_on_rec_moved_by_onopenpage(st);
+            }
+            if self.handed_rec_list_opens_on_moved_row(st)? {
                 return self.open_on_rec_moved_by_onopenpage(st);
             }
             if self.stored_row(&rec)?.is_some() {
