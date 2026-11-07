@@ -32,6 +32,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "ignorePermissionMock",
     "devEndpointUi",
     "allowWriteInTryFunctions",
+    "strictOrder",
     "dependenciesPublishedGlobal",
     "affectedOnly",
     "includeFailing",
@@ -325,6 +326,8 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     a.dev_endpoint_ui = flag(fields, "devEndpointUi")?;
     // Issue 7143: the service-tier setting DisableWriteInsideTryFunctions is off, as `--allow-write-in-try-functions`.
     a.allow_write_in_try_functions = flag(fields, "allowWriteInTryFunctions")?;
+    // ADR-066 amendment 4: every order-dependent test codeunit runs again serially, as `--strict-order`.
+    a.strict_order = flag(fields, "strictOrder")?;
     // Issue 7169: "Published As" of a dependency by another publisher is Global, as `--dependencies-published-global`.
     a.dependencies_published_global = flag(fields, "dependenciesPublishedGlobal")?;
     // ADR-062 section 5: `permissions: "off"` is `--permissions off`.
@@ -991,6 +994,14 @@ mod tests {
                 .ignore_permission_mock
         );
         assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.ignore_permission_mock);
+        // ADR-066 amendment 4: `strictOrder` is `--strict-order` for one request.
+        assert!(
+            run(json!({"sourcePaths": ["/a"], "strictOrder": true}))
+                .unwrap()
+                .0
+                .strict_order
+        );
+        assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.strict_order);
         // Issue 3697: `devEndpointUi` is `--dev-endpoint-ui` for one request.
         assert!(
             run(json!({"sourcePaths": ["/a"], "devEndpointUi": true}))

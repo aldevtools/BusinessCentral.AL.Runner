@@ -1,6 +1,6 @@
 # ADR-066: Run the test runner codeunit's own AL
 
-- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07)
+- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07); amendment 4 (order-dependent codeunits run in parallel, serial run only after a failure, `--strict-order`) Accepted (owner, 2026-11-07)
 - Date: 2026-11-05
 
 ## Context
@@ -384,3 +384,85 @@ transaction is what BC's next codeunit sees.
 - `crates/al-testrun/tests/suite/single_instance_lane.rs`: a keyed cache every codeunit checks and refills has no lane;
   a global record overwritten before it is read has no lane; the dependent pair of amendment 2 still runs in the lane
   and is flagged. `crates/al-testrun/tests/suite/runner_reset.rs`: an append to a SingleInstance log stays a dependence.
+
+## Amendment 4 (Accepted, owner, 2026-11-07): order-dependent codeunits run in parallel; the serial run only after a failure
+
+- Status: Accepted by the owner on 2026-11-07. Amends amendments 2 and 3: how a dependent codeunit is found (amendment 3)
+  is unchanged; when it runs again serially changes.
+
+### Principle (owner, 2026-11-07)
+
+A test should give the same result whether its codeunit runs alone or inside the whole suite. A codeunit whose result
+depends on SingleInstance state an earlier codeunit left is an order-dependence problem in the tests, which is what
+`--stability` (ADR-058) is for. A parallel run with fresh SingleInstance state is a real BC outcome: the codeunit run
+alone, or first.
+
+### Decision
+
+1. **Default: in parallel.** A codeunit that amendment 3 finds dependent runs in parallel like all others. There is no
+   serial lane up front.
+2. **Serial run only after a failure.** Only when a dependent codeunit has a failed test or a test not run in its
+   parallel run does it run again serially in BC's order, with the writers it depends on (the chain of amendments 2
+   and 3: for each global that makes it dependent the last writer, and that writer's own writers when it is dependent
+   itself). The serial result is reported. A dependent writer that joins the lane only as a writer keeps its parallel
+   run.
+3. **Every test of a dependent codeunit is flagged.** When it passes, whether in parallel or after the serial run, it
+   is a flagged pass, counted apart from clean passes, through the registered assumption `single-instance-order`
+   (`Assumption::SingleInstanceOrder`). The id keeps its meaning (the test is order dependent); its text now says
+   which run is reported.
+4. **`--strict-order` forces amendment 3.** Every dependent codeunit runs again serially in BC's order and that run is
+   reported (`RunOptions::strict_order`; `serve`: the `runTests` field `strictOrder`). Nothing else serializes the
+   order: `AL_TEST_THREADS=1` runs one codeunit at a time, but each still starts with fresh SingleInstance state, so it
+   does not reproduce BC's order.
+5. **`--stability` lists these codeunits** (`orderDependent`) in both modes: the flag is set either way.
+6. **`--timings`** keeps the lane line: the lane's time, how many dependent codeunits were found (`LaneReport::dependent`)
+   and how many ran again because of a failure (`LaneReport::rerun`; under `--strict-order` all of them).
+
+### Why
+
+Amendment 3 ran every dependent codeunit again. On Microsoft's posting suites most dependence is real but harmless:
+Sequence No. Mgt. keeps the rest of an entry-number range after a posting that stopped with an error, and the next
+codeunit draws its entry numbers from that rest. Those codeunits pass with fresh state too. Running them all again
+serially cost Tests-SCM (BC 29, 12 threads) 357 s against 245 s before the lane existed.
+
+### Rejected alternative
+
+Strict serial for every dependent codeunit by default (amendment 3 as merged). Rejected for its cost on posting suites
+(Tests-SCM 357 s against 245 s, caused by the entry-number buffers of Sequence No. Mgt.) while the parallel result is a
+real BC outcome. It stays available as `--strict-order`.
+
+### Risk: a false pass
+
+A test that passes alone but fails on BC in the full order (it needs another value than the fresh one, but the
+earlier codeunit's value breaks it) is reported as a flagged pass by default. The flag and the `--stability` list say
+so; `--strict-order` removes the risk. A test that fails alone and passes in BC's order still gets BC's result through
+the serial run.
+
+### Measured (BC 29, Microsoft's apps, 12 threads)
+
+Release binary, BC 29.0.54011.55816, cores 0-2 and 5-11, warm compile cache. "Before the lane" is the binary of
+7b1a05de7; amendment 3 is main at 5605cb8ba.
+
+| Bucket | Before the lane | Amendment 3 | Amendment 4 (this default) | Dependent / ran again | Outcome changes against before the lane |
+|---|---|---|---|---|---|
+| Tests-ERM-Purchase | 131.7 s | 103.5 s | 92.0 s (lane 25.9 s) | 9 / 7 | 0 |
+| Tests-SCM | 244.9 s | 357 s | 360.6 s (lane 121.6 s) | 31 / 26 | 0 |
+
+Tests-SCM codeunits 137035 and 137038 alone keep their 128 passes.
+
+The cut is small on Microsoft's suites. Of the 31 dependent codeunits of Tests-SCM, 13 have a failed test and 20 a
+test not run (mostly refusals of features not built yet) already with fresh state, so 26 run again. Measured for
+information with a local build that counts only failures (not committed): 13 ran again, lane 90.5 s, run 341.7 s.
+In both runs every serial result equals the parallel one (0 outcome changes). Making the serial run cheaper on such
+suites needs another rule; that is an open question for the owner.
+
+### Conformance
+
+- `crates/al-testrun/tests/suite/single_instance_lane.rs`: a dependent codeunit that passes in parallel is not run
+  again and is flagged; one that fails in parallel (the reader of amendment 2, the corpus P7B shape) runs again
+  serially and passes flagged; `--strict-order` runs every dependent codeunit again.
+- `crates/al-testrun/src/runtime/single_lane.rs` unit test: the lane of the chosen dependent codeunits holds only their
+  chain.
+- `crates/alrunner-cli/tests/cli/onrun_stability.rs`: `--stability` lists the dependent test with and without
+  `--strict-order`.
+- Corpus: `P7B_ReadsWhatThePreviousTestCodeunitLeft` fails with fresh state, runs again and passes flagged.
