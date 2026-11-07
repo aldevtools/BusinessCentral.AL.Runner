@@ -503,11 +503,19 @@ suites needs another rule; that is an open question for the owner.
    documented meaning: each dependent codeunit still runs after its chain in BC's order. What changes under the flag is
    that state from codeunits outside the chain is not carried, as amendment 3 already limited the chain to the last
    writer.
-5. **Carried starts as bytes.** A codeunit that comes after a carry-chain member (RequiredTestIsolation = Disabled,
-   ADR-055) may start from the baseline that member left, which holds `Rc`s and stays on the thread that made it. The
-   main thread works out where each codeunit of a session starts (`Step`) and writes each carried baseline it needs as
-   bytes once (`Starts`); a worker thread reads them back over the engine's test data, as the chain walk's helpers do.
-   A session whose carried baseline cannot be written as bytes runs on the main thread from the baselines themselves.
+5. **Carried starts as bytes, written when needed.** A codeunit that comes after a carry-chain member
+   (RequiredTestIsolation = Disabled, ADR-055) may start from the baseline that member left, which holds `Rc`s and stays
+   on the thread that made it. The main thread works out where each codeunit of a session starts (`Step`). The sessions
+   run on worker threads, as many as the parallel run uses (`AL_TEST_THREADS`); the main thread writes a carried
+   baseline as bytes only when a worker asks for it (`Starts`), and the worker reads it back over the engine's test
+   data, as the chain walk's helpers do, and drops the bytes. A worker holds one carried start at a time, for one step.
+   A session whose carried baseline cannot be written as bytes runs on the main thread from the baselines themselves,
+   as do all sessions when there is one thread or one session.
+   **Memory rule (al-runner issue 6924):** at most one carried start per worker thread is alive at once, as bytes or
+   read back. As first merged, the main thread wrote every carried start all sessions needed before they started and
+   kept them to the lane's end, and each worker kept every start it had read back: a partner suite with about 700
+   codeunits in the carry chain and about 65,000 rows of test data ran out of memory. `--timings` prints how many
+   starts were written and the most alive at once.
    Built first without this: on Tests-ERM-Purchase every codeunit is in the carry chain, so every session stayed on
    the main thread (6 sessions, longest 13.6 s, lane wall time 45.8 s).
 6. **`--timings`** keeps the lane line: the lane's time, how many dependent codeunits were found (`LaneReport::dependent`)
@@ -558,6 +566,9 @@ suites needs another rule; that is an open question for the owner.
   serially and passes flagged; `--strict-order` runs every dependent codeunit again.
 - `crates/al-testrun/src/runtime/single_lane.rs` unit test: the lane of the chosen dependent codeunits holds only their
   chain.
+- `crates/al-testrun/tests/suite/single_instance_lane.rs`
+  `carried_starts_are_written_when_a_session_needs_them_and_freed_after`: 24 sessions in a carry chain, each with a
+  carried start of its own, never hold more starts at once than there are worker threads (issue 6924).
 - `crates/alrunner-cli/tests/cli/onrun_stability.rs`: `--stability` lists the dependent test with and without
   `--strict-order`.
 - Corpus: `P7B_ReadsWhatThePreviousTestCodeunitLeft` fails with fresh state, runs again and passes flagged.

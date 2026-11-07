@@ -101,7 +101,11 @@ first. So, by default:
 `--timings` names the codeunit whose state each test relies on. Its
 `SingleInstance order:` line gives how many order-dependent codeunits were found, how
 many ran again because of a failure, in how many serial sessions, the time of the
-longest session and the wall time of all of them.
+longest session and the wall time of all of them. When a session starts from data a
+codeunit with `RequiredTestIsolation = Disabled` left, the line also gives how many
+of those starts were copied for the worker threads and the most held at once. The
+serial sessions use the same number of threads as the parallel run
+(`AL_TEST_THREADS`), and each thread holds at most one such copy at a time.
 
 What the flag means: the result depends on the order in which Business Central
 runs the test codeunits. The stability mode (`--stability`) lists these tests apart,
