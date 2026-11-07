@@ -108,6 +108,13 @@ pub struct SuiteEntry {
     /// declared dependencies, and without the main app's tests.
     #[serde(default)]
     pub extra_apps: Vec<ExtraApp>,
+    /// Corpus app folders (relative to the repository root) the corpus CI publishes in the job of this suite only
+    /// (corpus `.github/workflows/ci.yml`, `app_dirs` of that job: `tests/al-language-xhandler-*`, the cross-app
+    /// default test handler fixtures). They are published in this suite's pass, in the order given and right after the
+    /// internals fixture as CI does, and in no other pass: a default handler of an installed app runs for the test
+    /// codeunits of other apps.
+    #[serde(default)]
+    pub extra_dirs: Vec<String>,
 }
 
 /// An app of `SuiteEntry::extra_apps`: the id it is found by, and its name for messages.
@@ -309,6 +316,31 @@ baseline = "metrics/28/not-passing-isolation-function.txt"
         assert_eq!(v.suites[1].runner, Some(61300));
         assert_eq!(v.suites[1].corpus_commit.as_deref(), Some("old"));
         assert!(f.versions.iter().find(|v| v.major == 27).unwrap().suites.is_empty());
+    }
+
+    // The corpus CI publishes some corpus app folders in the job of one suite only (job test-testlibraries, `app_dirs`:
+    // the cross-app default test handler fixtures): such a suite names them in `extra_dirs`.
+    #[test]
+    fn a_suite_names_the_corpus_folders_its_job_publishes() {
+        let t = format!(
+            r#"{TOML}
+[[version.suite]]
+name = "testlibraries"
+app = "corpus/tests/al-language-testlibraries"
+oracle = "28/junit-testlibraries.xml"
+baseline = "metrics/28/not-passing-testlibraries.txt"
+extra_dirs = ["corpus/tests/al-language-xhandler-lib", "corpus/tests/al-language-xhandler-a"]
+"#
+        );
+        let f = OracleFile::parse(&t).unwrap();
+        let v = f.versions.iter().find(|v| v.major == 28).unwrap();
+        assert_eq!(
+            v.suites[0].extra_dirs,
+            [
+                "corpus/tests/al-language-xhandler-lib",
+                "corpus/tests/al-language-xhandler-a"
+            ]
+        );
     }
 
     // The corpus CI installs apps no test app declares for some suites (corpus .github/workflows/ci.yml, job
