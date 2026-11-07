@@ -1036,7 +1036,10 @@ impl Session {
                 return self.page_first_row_from(st, "=><", true);
             }
         } else if st.borrow().host.is_none()
-            && self.declares(st, "onopenpage")
+            // The base page's or a page extension's OnOpenPage: a base without the trigger and an extension with it opens on the
+            // row the extension left Rec on, as the pinned cases with both do (pages/onopenpage-moves-rec/OnOpenPageGetChain.al:587
+            // Og_ExtList_OpenView_Base0Ext1; al-runner issue 6924).
+            && self.declares_or_ext_declares(st, "onopenpage")
             && (!self.declares(st, "onfindrecord") || self.temp_worksheet_set_before_open(st))
             && !self.is_request_page(st)
         {

@@ -72,6 +72,14 @@ impl Session {
         self.page_var_not_shown(st) && !st.borrow().ran
     }
 
+    /// Whether the page or one of its page extensions declares trigger `name` (lower case). The extension's trigger runs
+    /// after the page's (`page_trigger`), so an open that asks whether OnOpenPage ran code counts both.
+    pub(in crate::pages) fn declares_or_ext_declares(&self, st: &St, name: &str) -> bool {
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        page.triggers.iter().any(|(n, _)| n == name) || page.ext_triggers.iter().any(|(n, _, _)| n == name)
+    }
+
     /// Whether the page declares trigger `name` (lower case) of its own.
     pub(in crate::pages) fn declares(&self, st: &St, name: &str) -> bool {
         let engine = self.engine();
