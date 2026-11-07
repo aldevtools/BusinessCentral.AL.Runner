@@ -119,6 +119,7 @@ mod page_views;
 mod pageext_implicit_promoted;
 mod pageext_move_actions;
 mod pageext_move_layout_containers;
+mod pageext_only_onopenpage_moves_rec;
 mod pageext_worksheet_factbox;
 mod pagemisc;
 mod part_after_modal_close;
