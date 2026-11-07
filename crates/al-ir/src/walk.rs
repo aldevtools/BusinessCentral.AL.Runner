@@ -176,6 +176,7 @@ pub fn walk_object<V: RefVisitor>(o: &mut Object, v: &mut V) {
         properties: _,
         enum_values: _,
         enum_captions: _,
+        enum_captions_ml: _,
         table,
         rec_slot: _,
         xrec_slot: _,

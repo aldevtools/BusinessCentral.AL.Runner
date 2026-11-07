@@ -542,6 +542,19 @@ impl Lowerer<'_> {
 
     /// `value` through `System.TranslatedText#1`: the same value, refused in a language other than 1033 when the app of
     /// object `object` ships a translation file (ADR-053 step 1). `what` names the text for the reason.
+    pub(crate) fn translated_option_text(
+        &self,
+        value: ir::Expr,
+        (object, what, xliff): (usize, String, Option<String>),
+    ) -> L<ir::Expr> {
+        let mut read = self.translated_text(value, object, what)?;
+        if let (Some(id), ir::Expr::Builtin { args, .. }) = (xliff, &mut read) {
+            args.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Text(id))));
+            args.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Boolean(true))));
+        }
+        Ok(read)
+    }
+
     pub(crate) fn translated_text(&self, value: ir::Expr, object: usize, what: String) -> L<ir::Expr> {
         let app = self.ws.apps[self.ws.objects[object].app].id.clone();
         Ok(ir::Expr::Builtin {
@@ -558,7 +571,7 @@ impl Lowerer<'_> {
 
     /// For an Option field with an `OptionCaption` or `OptionCaptionML`: the object that declares it and what a read of its
     /// captions is called, for [`Self::translated_text`].
-    pub(crate) fn option_caption_owner(&mut self, arg: &SyntaxNode) -> Option<(usize, String)> {
+    pub(crate) fn option_caption_owner(&mut self, arg: &SyntaxNode) -> Option<(usize, String, Option<String>)> {
         let node = if arg.kind() == SyntaxKind::ScopeExpr {
             arg.children().next()?
         } else {
@@ -573,12 +586,23 @@ impl Lowerer<'_> {
                 .iter()
                 .any(|(k, _)| k.eq_ignore_ascii_case("OptionCaption") || k.eq_ignore_ascii_case("OptionCaptionML"));
         captioned.then(|| {
+            let owner = f.declared_in.unwrap_or(table);
+            let o = &self.ws.objects[owner];
+            let xliff = al_ir::xliff_object_kind(o.kind).map(|kind| {
+                format!(
+                    "{} - {} - {}",
+                    al_ir::xliff_part(kind, &o.name),
+                    al_ir::xliff_part("Field", &f.name),
+                    al_ir::xliff_part("Property", "OptionCaption")
+                )
+            });
             (
-                f.declared_in.unwrap_or(table),
+                owner,
                 format!(
                     "the OptionCaption of field {} of table {}",
                     f.name, self.ws.objects[table].name
                 ),
+                xliff,
             )
         })
     }

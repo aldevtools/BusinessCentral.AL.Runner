@@ -554,7 +554,12 @@ pub(crate) struct Unit {
     run_seed: crate::seed::RunSeed,
     /// See `Scratch::runner`.
     runner: Option<usize>,
+    /// See `Scratch::singles_in`.
+    singletons: Option<Arc<SingleState>>,
 }
+
+/// What earlier test codeunits left in the single instances (`single_carry.rs`), by global.
+pub(crate) type SingleState = std::collections::BTreeMap<al_vm::single_carry::GlobalKey, al_vm::single_carry::Carry>;
 
 /// What a scratch run or a capture leaves besides outcomes, per test.
 #[derive(Default)]
@@ -605,6 +610,12 @@ pub(crate) struct Scratch {
     /// The test runner codeunit (object index) whose OnRun runs the test codeunit (ADR-066 decision 1, `al_runner.rs`);
     /// `None`: al-runner's own runner.
     pub(crate) runner: Option<usize>,
+    /// What the earlier test codeunits of the run left in the single instances: put back after the company open
+    /// (probe P7 of ADR-066, `single_carry.rs`). `None`: nothing.
+    singles_in: Option<Arc<SingleState>>,
+    /// What this codeunit did with the single instances (`al_vm::single_carry::SingleOut`); `None` for a scratch run
+    /// or a codeunit that stopped before its session began to track them.
+    pub(crate) singles_out: Option<al_vm::single_carry::SingleOut>,
 }
 
 /// What a test codeunit left: each test's outcome, the call stack of each AL error that failed one, how long
@@ -690,6 +701,7 @@ fn run_unit(
             perturb: u.perturb.clone(),
             run_seed: u.run_seed,
             runner: u.runner,
+            singles_in: u.singletons.clone(),
             ..Default::default()
         };
         if u.coverage {
@@ -897,9 +909,11 @@ mod data_driven;
 mod grow;
 mod handlers;
 mod numbers_taken;
+mod rounds_run;
 mod run;
 mod runner_reset;
 mod session_flags;
+mod single_walk;
 mod suite_rows;
 #[cfg(test)]
 mod suite_rows_tests;

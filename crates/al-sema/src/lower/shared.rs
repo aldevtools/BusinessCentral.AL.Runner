@@ -291,6 +291,7 @@ pub(crate) fn lower_object<'a>(
                 properties: with_profile_target(ws, oi, o.scanned_properties.clone()),
                 enum_values: Vec::new(),
                 enum_captions: Vec::new(),
+                enum_captions_ml: Vec::new(),
                 table: None,
                 rec_slot: None,
                 xrec_slot: None,
@@ -729,16 +730,9 @@ pub(crate) fn lower_object<'a>(
         globals,
         routines,
         properties,
-        enum_values: members[oi]
-            .enum_values
-            .iter()
-            .map(|(v, n)| (*v as i32, n.clone()))
-            .collect(),
-        enum_captions: members[oi]
-            .enum_captions
-            .iter()
-            .map(|(v, c)| (*v as i32, c.clone()))
-            .collect(),
+        enum_values: enum_pairs(&members[oi].enum_values),
+        enum_captions: enum_pairs(&members[oi].enum_captions),
+        enum_captions_ml: enum_pairs(&members[oi].enum_captions_ml),
         // A table whose source cannot be used (a platform table nothing provides, a dependency
         // file that does not parse) has no members, so it has no schema: the Field and Key
         // tables report it as not compiled instead of reading fields it does not have.
@@ -1400,4 +1394,18 @@ pub(crate) fn with_field_guard(
         props.push((FIELD_GUARD.into(), ir::PropVal::Lit(String::new())));
     }
     props
+}
+
+/// An enum's ordinal and text pairs as the IR keeps them.
+pub(crate) fn enum_pairs(list: &[(u32, String)]) -> Vec<(i32, String)> {
+    list.iter().map(|(v, n)| (*v as i32, n.clone())).collect()
+}
+
+/// The own enum values, captions and `CaptionML` lists of an object's members.
+pub(crate) fn enum_own(m: &crate::members::Members) -> super::localize::EnumOwn {
+    (
+        enum_pairs(&m.enum_values),
+        enum_pairs(&m.enum_captions),
+        enum_pairs(&m.enum_captions_ml),
+    )
 }

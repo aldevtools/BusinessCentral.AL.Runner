@@ -353,6 +353,8 @@ jobs:
           status=0
           # Its output also goes to normal.log, which the comparison of the passes below and the job summary read
           # (ADR-063; the failures of the not-passing lists, ADR-065).
+          # The SingleInstance serial check (ADR-066 amendment 1) runs in a step of its own below, so its time does not
+          # count toward this step's time guard.
           ./target/release/al-test-cli --all-versions --require-dotnet \
             --json pass-rate.json --markdown pass-rate.md --junit runtime-junit.xml 2>&1 | tee normal.log
           [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
@@ -437,6 +439,22 @@ jobs:
         run: |
           python3 tools/step_time_guard.py "${{ steps.corpus_step.outputs.seconds }}" \
             --step "Corpus pass rate, and the demand-driven compile against the eager compile"
+
+      # The SingleInstance serial check (ADR-066 amendment 1, owner 2026-11-06). The codeunits of each BC session in which
+      # a codeunit read SingleInstance state an earlier codeunit left run once more, in one go, the single instances moved
+      # from session to session instead of copied; every outcome must equal the normal run's (exit 1 otherwise, the lines
+      # start with "SingleInstance serial check"). It is a full run of the newest major plus the second run of those
+      # sessions: measured on BC 29, it adds about a third to the user instructions of the run (554 G against 421 G;
+      # main without the carry: 304 G). It is a step of its own so
+      # it does not count toward the time guard of the corpus step above. Runs on every pull request.
+      - name: SingleInstance serial check (newest major)
+        run: |
+          status=0
+          AL_SINGLE_SERIAL_CHECK=1 ./target/release/al-test-cli --bc-version 29 --require-dotnet --no-ratchet \
+            > serial-check.log 2>&1 || status=1
+          grep "SingleInstance serial check" serial-check.log || true
+          [ "$status" -eq 0 ] || tail -40 serial-check.log
+          exit $status
 
       # The developer-tool tests that run `al-test-cli` over the corpus (about 1 min), against the release binary built
       # above. In the release-tests job they made it end 2 to 3 minutes after this one; here they reuse the release
