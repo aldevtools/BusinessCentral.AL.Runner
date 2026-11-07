@@ -666,6 +666,11 @@ impl Batches {
         out
     }
 
+    /// Whether session `key` has codeunits left for a later batch.
+    pub(super) fn has_more(&self, key: (usize, bool)) -> bool {
+        self.queues.iter().any(|(k, ks, _)| *k == key && !ks.is_empty())
+    }
+
     /// Whether every codeunit is in a batch already.
     pub(super) fn is_done(&self) -> bool {
         self.queues.iter().all(|(_, ks, _)| ks.is_empty())
@@ -725,7 +730,12 @@ impl SingleWalk<'_> {
     /// states: each run when it fits the state so far, and otherwise as run again from it (the run again is only for
     /// what it leaves: `walk` takes it when it fits there). Returns the state of each session (those with one) and the
     /// sessions where a codeunit ran again. Only a prediction: `walk` checks every run against the serial state.
-    pub fn advance<'r>(&self, p: &mut Predictor, result: &dyn Fn(usize) -> Option<&'r UnitResult>) -> Advanced {
+    pub fn advance<'r>(
+        &self,
+        p: &mut Predictor,
+        result: &dyn Fn(usize) -> Option<&'r UnitResult>,
+        wanted: &dyn Fn((usize, bool)) -> bool,
+    ) -> Advanced {
         let mut seeds = std::collections::HashMap::new();
         let mut again = std::collections::HashSet::new();
         for (key, ks, next, (st, shared)) in p.streams.iter_mut() {
@@ -752,7 +762,7 @@ impl SingleWalk<'_> {
                     }
                 }
             }
-            if !st.is_empty() {
+            if !st.is_empty() && wanted(*key) {
                 seeds.insert(*key, shared.get_or_insert_with(|| Arc::new(st.clone())).clone());
             }
         }

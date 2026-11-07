@@ -155,11 +155,11 @@ impl RoundRun<'_> {
                 results.extend(out);
                 round += 1;
                 if !batches.is_done() {
-                    let (s, again) = self
-                        .walker(units, &none_reran, predicted)
-                        .advance(&mut predictor, &|k| {
-                            slots[k].as_ref().or_else(|| index.get(&k).map(|&i| &results[i]))
-                        });
+                    let (s, again) = self.walker(units, &none_reran, predicted).advance(
+                        &mut predictor,
+                        &|k| slots[k].as_ref().or_else(|| index.get(&k).map(|&i| &results[i])),
+                        &|key| batches.has_more(key),
+                    );
                     seeds = s;
                     batches.feedback(&again);
                 }
