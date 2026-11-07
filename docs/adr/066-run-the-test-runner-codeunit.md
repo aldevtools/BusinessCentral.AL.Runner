@@ -667,3 +667,81 @@ changes.
 - `crates/al-testrun/src/runtime/single_lane.rs` unit tests: every chain is a session of its own and a shared writer
   runs in each; a chain that is the start of a later chosen codeunit's chain runs inside it, and one that is not keeps
   its own session.
+
+## Amendment 6 (Accepted, owner, 2026-11-07): test-suite boundaries are Business Central session boundaries
+
+- Status: Accepted by the owner on 2026-11-07 ("Yes, but treat those as minimum boundaries. If feasible the runner
+  should be able to parallelize even further."). Amends amendments 2 to 5: which BC session a test codeunit belongs to
+  can now come from a file. Within a session nothing changes.
+
+### Why
+
+Amendments 2 to 5 assume what Microsoft's own test runner does: all test codeunits of a run in one session, in order.
+Not every pipeline runs tests that way. An outside user (al-runner issue 6924) runs his reference pipeline with ALOps
+as one test-tool run per BC test suite: 73 pipeline steps, each an `ALOpsAppTest` task on test page 130455 that opens
+its own client session, runs one suite and disconnects. SingleInstance state therefore never crosses a suite on BC.
+al-runner treated the whole run as one session and linked codeunits across suites: codeunit 81697 (suite LCSP) was
+made dependent on `ConfigLoaded`, which codeunit 81673 (suite DATACHECK) left. On BC that link cannot happen.
+
+### Decision
+
+1. **`--test-suites FILE`** (`RunOptions::test_suites`; `serve`: the `runTests` field `testSuites`, the file's path).
+   The file lists suites, one per line: an optional name ended by the first `:`, then the suite's test codeunit ids in
+   BC's run order, separated by spaces, tabs or commas (`DATACHECK: 81659 81660 81673`). The name may hold spaces
+   (`suite  1: 93001 93002`, the shape issue 6924 posted); a line without a name is named `line N`. Blank lines and
+   lines that start with `#` are skipped; a byte order mark and Windows line ends are accepted. The parser is
+   `al_testrun::test_suites` (no OS access); `alrunner-cli/src/test_suites.rs` reads the file (ADR-006).
+2. **Each suite is a BC session of its own for order dependence.** The streams of `single_lane.rs` are the suites of
+   the file (per suite, app and hub leg), each in the file's order, not in id order. No SingleInstance link, serial
+   re-run or writer chain crosses a suite. The watch (amendment 2, cost control) follows: a suite of one codeunit
+   watches nothing.
+3. **Minimum boundaries.** Within a suite amendments 3 to 5 apply unchanged: every codeunit runs in parallel with fresh
+   state, a dependent codeunit is flagged (`single-instance-order`), and only one with a failed test or a test refused
+   while it ran (or every one, under `--strict-order`) runs again in a serial session of its own chain, the sessions in
+   parallel. The suites themselves add no serial step: they only remove links.
+4. **A codeunit in no suite is a session of its own** (orchestrator's call). On a per-suite pipeline such a codeunit
+   is not run by BC at all, so it has no BC order to copy and no earlier codeunit whose state it could see. Running it
+   as if alone is the parallel run al-runner gives anyway, and it is never linked or flagged. Rejected: one default
+   session for all unlisted codeunits, as today. It would invent links between codeunits that never share a session
+   on BC.
+5. **A codeunit listed in more than one suite** (issue 6924: suites 5 and 6, and 2 and 25, list the same codeunits;
+   BC runs such a codeunit once per suite) runs once in the parallel run and is reported once (orchestrator's call).
+   It is a member of each suite's session: it counts as a writer for the codeunits after it in every one of them (what
+   it left is its parallel run's end state, the same each time). It is dependent when it is dependent in any suite it
+   is listed in; the first such suite in the file's order gives its note and, when it runs again, its serial session.
+   It is counted once in `--timings`. Rejected: reporting it once per suite, which would change the result format
+   (one result per test) for a rare case whose suites are, in the case seen, identical.
+6. **What the file may hold.** A token that is not a whole number from 1 to 4294967295, or a codeunit listed twice in
+   one suite (a BC test suite holds a codeunit once), stops the run with exit code 2 and names the line. A listed id
+   that is no test codeunit of the apps under test is a `warning:` on stderr per suite and is ignored: a pipeline's
+   file may name codeunits of other apps or ones a selection leaves out. A suite without ids is accepted and holds
+   nothing.
+7. **Without the option nothing changes**: the whole run is one session (Microsoft's default), as in amendments 2
+   to 5.
+8. **`--stability`** lists as `orderDependent` only codeunits that depend on a codeunit of their own suite (it reads
+   the same flag).
+9. **`--affected`**: the file's text is part of the environment hash, so another file is a full run.
+
+### Consequences and limits
+
+- The database carry chain of `RequiredTestIsolation = Disabled` (ADR-055) is not changed: on BC committed rows stay
+  in the database across sessions, so suites do not cut it. It keeps the id order it had. Whether the order of the
+  suites themselves matters for such rows on a per-suite pipeline is not modelled.
+- A codeunit listed in two suites whose dependence differs per suite is reported with one result. In the shape seen
+  (identical suites) both give the same.
+- The file describes the pipeline; al-runner cannot check that it matches what BC ran. Issue 6924's reporter generates
+  it from the same suite definitions the pipeline uses.
+
+### Conformance
+
+- `crates/al-testrun/src/test_suites.rs` unit tests: named and unnamed lines, a name with spaces and the order kept,
+  comments, blank lines, byte order mark and Windows line ends, an empty name and an empty suite, a bad token and a
+  codeunit twice in one suite as errors naming the line, a codeunit in several suites.
+- `crates/al-testrun/tests/suite/single_instance_lane.rs`: a writer in one suite and a reader in another are not
+  linked; a writer and a reader in one suite are still linked (the reader runs again and passes flagged); the order
+  within a suite is the file's; a codeunit in no suite is a session of its own; a codeunit in two suites is reported
+  and counted once, and is dependent through either suite. The tests without the option are unchanged.
+- `crates/alrunner-cli/src/test_suites.rs` and `serve.rs` unit tests: the option takes a path, `serve` refuses it as a
+  server option and takes `testSuites` per request, an unknown id is a warning per suite, a missing file is an error.
+- `crates/alrunner-cli/tests/cli/onrun_stability.rs`: `--stability` lists a reader as order dependent only when its
+  writer is in its suite; a bad line exits 2.

@@ -21,6 +21,9 @@
 //!    `--strict-order`, runs again with the writers it needs ([`Found::lane_for`]), and that run is reported.
 //!    Amendment 5: each such chain is a serial session of its own ([`Found::sessions`]); the sessions run in parallel
 //!    on the worker threads.
+//!
+//! Amendment 6: with `--test-suites` (`RunOptions::test_suites`) each listed suite is a BC session of its own, in the
+//! file's order, and a codeunit in no suite is a session of its own ([`streams`]); without it the whole run is one.
 
 use super::chain_walk::Carry as ChainCarry;
 use super::*;
@@ -28,17 +31,46 @@ use al_vm::single_track::{GlobalKey, SingleOut};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The BC sessions of a run: the units of each (suite, hub leg) in BC's run order.
-fn streams(units: &[Unit], place: &dyn Fn(usize, u32) -> u32, has: &dyn Fn(usize) -> bool) -> Vec<Vec<usize>> {
-    let mut order: Vec<usize> = (0..units.len()).filter(|&k| !units[k].execute && has(k)).collect();
-    order.sort_by_key(|&k| {
-        let u = &units[k];
-        (u.si, u.hub_leg, place(u.si, u.id), k)
-    });
+///
+/// ADR-066 amendment 6 (al-runner issue 6924): with `--test-suites` each listed suite is a BC session of its own (per
+/// suite and hub leg), its codeunits in the file's order; a codeunit listed in two suites is in both sessions, and one
+/// in no suite is a session of its own (no earlier codeunit, so no link). Without it, the whole run is one session.
+fn streams(
+    units: &[Unit],
+    place: &dyn Fn(usize, u32) -> u32,
+    has: &dyn Fn(usize) -> bool,
+    suites: Option<&crate::test_suites::TestSuites>,
+) -> Vec<Vec<usize>> {
+    let picked = (0..units.len()).filter(|&k| !units[k].execute && has(k));
+    // (session key, place in the session, unit), sorted: a key is (suite or `usize::MAX`, app suite, hub leg).
+    let mut order: Vec<((usize, usize, bool), u64, usize)> = match suites {
+        None => picked
+            .map(|k| {
+                let u = &units[k];
+                ((0, u.si, u.hub_leg), u64::from(place(u.si, u.id)), k)
+            })
+            .collect(),
+        Some(s) => {
+            let index = s.index();
+            let mut out = Vec::new();
+            for k in picked {
+                let u = &units[k];
+                match index.get(&u.id) {
+                    Some(places) => {
+                        out.extend(places.iter().map(|&(si, p)| ((si, u.si, u.hub_leg), p as u64, k)));
+                    }
+                    // Alone: a session of its own (no other unit gets this key).
+                    None => out.push(((usize::MAX, u.si, u.hub_leg), k as u64, k)),
+                }
+            }
+            out
+        }
+    };
+    order.sort();
     let mut out: Vec<Vec<usize>> = Vec::new();
     let mut last = None;
-    for k in order {
-        let key = (units[k].si, units[k].hub_leg);
-        if last == Some(key) {
+    for (key, _, k) in order {
+        if last == Some(key) && key.0 != usize::MAX {
             out.last_mut().expect("a stream").push(k);
         } else {
             out.push(vec![k]);
@@ -55,9 +87,9 @@ fn streams(units: &[Unit], place: &dyn Fn(usize, u32) -> u32, has: &dyn Fn(usize
 /// watching: a walk of every test's reach through the Microsoft apps, +3.3 % instructions on the BC 29 corpus run,
 /// against +0.3 % for the notes. It also read every object of a compile cache that decodes them on touch.) Returns how
 /// many codeunits got a watch.
-pub(super) fn assign_watches(units: &mut [Unit], place: &dyn Fn(usize, u32) -> u32) -> usize {
+pub(super) fn assign_watches(units: &mut [Unit], place: &dyn Fn(usize, u32) -> u32, opts: &RunOptions) -> usize {
     let mut n = 0;
-    for ks in streams(units, place, &|_| true) {
+    for ks in streams(units, place, &|_| true, opts.test_suites.as_deref()) {
         if ks.len() < 2 {
             continue;
         }
@@ -259,6 +291,8 @@ pub(super) struct Lane<'a> {
     pub limit: Option<std::time::Duration>,
     /// `--strict-order` (ADR-066 amendment 4, decision 4): every dependent codeunit runs again serially.
     pub strict: bool,
+    /// `--test-suites` (amendment 6): each suite is a BC session of its own.
+    pub suites: Option<&'a crate::test_suites::TestSuites>,
     /// The run's worker threads: the serial sessions run on as many (amendment 5).
     pub workers: usize,
     /// A worker thread can make its own copy of the install baseline (`corpus.rs` `baseline_engine`); without it and
@@ -515,8 +549,12 @@ impl Lane<'_> {
     /// Analyses each BC session, flags its dependent codeunits, and returns the serial sessions to run.
     fn chains(&self, slots: &mut [Option<UnitResult>], report: &mut LaneReport, starts: &mut Starts) -> Vec<Chain> {
         let has = |k: usize| slots[k].is_some();
-        let streams = streams(self.units, self.place, &has);
+        let streams = streams(self.units, self.place, &has, self.suites);
         let mut chains = Vec::new();
+        // Amendment 6: a codeunit listed in two suites is in two sessions but runs and is reported once. The first
+        // session (in the file's order) where it is dependent, or where the refill assumption flags it, decides.
+        let mut counted: BTreeSet<usize> = BTreeSet::new();
+        let mut refill_counted: BTreeSet<usize> = BTreeSet::new();
         for ks in streams {
             let found = {
                 let outs: Vec<Option<&SingleOut>> = ks
@@ -529,18 +567,27 @@ impl Lane<'_> {
                 analyse(&outs)
             };
             for &p in found.refill_assumed.keys() {
+                if !refill_counted.insert(ks[p]) {
+                    continue;
+                }
                 if let Some(Ok(done)) = slots[ks[p]].as_mut().map(|r| &mut r.result) {
                     flag_all(done, Assumption::SingleInstanceRefill);
                     report.refill_assumed += 1;
                 }
             }
-            if found.dependent.is_empty() {
+            let fresh: BTreeSet<usize> = found
+                .dependent
+                .keys()
+                .copied()
+                .filter(|&p| counted.insert(ks[p]))
+                .collect();
+            if fresh.is_empty() {
                 continue;
             }
             report.sessions += 1;
-            report.dependent += found.dependent.len();
+            report.dependent += fresh.len();
             // Amendment 4, decision 3: every dependent codeunit is flagged, whether its parallel run is kept or not.
-            for &p in found.dependent.keys() {
+            for &p in &fresh {
                 report.notes.push(format!(
                     "test codeunit {} {}",
                     self.name(ks[p]),
@@ -552,9 +599,8 @@ impl Lane<'_> {
             }
             // Decision 2: only a dependent codeunit with a failure or a test refused while it ran in parallel runs again
             // serially; `--strict-order` (decision 4) runs them all again.
-            let chosen: BTreeSet<usize> = found
-                .dependent
-                .keys()
+            let chosen: BTreeSet<usize> = fresh
+                .iter()
                 .copied()
                 .filter(|&p| self.strict || needs_serial_run(slots[ks[p]].as_ref()))
                 .collect();

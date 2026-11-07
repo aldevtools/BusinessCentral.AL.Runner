@@ -596,3 +596,94 @@ fn a_test_refused_while_it_runs_triggers_a_serial_run() {
     assert_eq!((lane.dependent, lane.rerun, lane.chains), (1, 1, 1), "{:?}", lane);
     assert_eq!(lane.lane.len(), 2, "{:?}", lane.lane);
 }
+
+/// ADR-066 amendment 6 (al-runner issue 6924): a run with `--test-suites` treats each suite as a BC session of its own.
+fn with_suites(src: &str, suites: &str) -> CorpusRuntime {
+    let opts = RunOptions {
+        test_suites: Some(std::sync::Arc::new(
+            al_testrun::test_suites::TestSuites::parse(suites).expect("a valid suites file"),
+        )),
+        ..Default::default()
+    };
+    runtime_opts(src, STATE, &opts)
+}
+
+/// Amendment 6: a writer in one suite and a reader in another are not linked. On BC each suite runs in a client
+/// session of its own, so the reader starts with fresh SingleInstance state and fails, unflagged.
+#[test]
+fn a_writer_in_one_suite_and_a_reader_in_another_are_not_linked() {
+    let rt = with_suites(DEPENDENT_PAIR, "A: 60451\nB: 60452 60453\n");
+    assert!(!passed(&rt, "ReadsTheFlag"), "{:?}", rt.results());
+    assert!(!flagged(&rt, "ReadsTheFlag"));
+    let lane = &rt.phases.chain.single_lane;
+    assert_eq!((lane.dependent, lane.rerun), (0, 0), "{:?}", lane);
+    assert!(lane.lane.is_empty(), "{:?}", lane.lane);
+}
+
+/// Amendment 6: within a suite amendments 4 and 5 apply unchanged: the reader fails with fresh state, runs again
+/// serially after its writer and passes flagged.
+#[test]
+fn a_writer_and_a_reader_in_one_suite_are_still_linked() {
+    let rt = with_suites(DEPENDENT_PAIR, "DATACHECK: 60451 60452\nOTHER: 60453\n");
+    assert!(
+        passed(&rt, "ReadsTheFlag") && flagged(&rt, "ReadsTheFlag"),
+        "{:?}",
+        rt.results()
+    );
+    assert!(passed(&rt, "SetsTheFlag") && !flagged(&rt, "SetsTheFlag"));
+    let lane = &rt.phases.chain.single_lane;
+    assert_eq!((lane.dependent, lane.rerun, lane.lane.len()), (1, 1, 2), "{:?}", lane);
+}
+
+/// Amendment 6: BC's order is the order in the suite, not the id order: a reader listed before its writer sees
+/// nothing the writer left.
+#[test]
+fn the_order_within_a_suite_is_the_order_of_the_file() {
+    let rt = with_suites(DEPENDENT_PAIR, "A: 60452 60451\n");
+    assert!(
+        !passed(&rt, "ReadsTheFlag") && !flagged(&rt, "ReadsTheFlag"),
+        "{:?}",
+        rt.results()
+    );
+    assert_eq!(rt.phases.chain.single_lane.dependent, 0);
+}
+
+/// Amendment 6: a codeunit in no suite runs as a session of its own: no earlier codeunit, no link.
+#[test]
+fn a_codeunit_in_no_suite_is_a_session_of_its_own() {
+    let rt = with_suites(DEPENDENT_PAIR, "A: 60451 60453\n");
+    assert!(
+        !passed(&rt, "ReadsTheFlag") && !flagged(&rt, "ReadsTheFlag"),
+        "{:?}",
+        rt.results()
+    );
+    assert!(passed(&rt, "UsesNothingShared"));
+    assert_eq!(rt.phases.chain.single_lane.dependent, 0);
+}
+
+/// Amendment 6: a codeunit listed in two suites (issue 6924: suites 5 and 6 are the same) runs and is reported once.
+/// It is dependent when it is in any suite it is listed in; the first suite where it is decides its serial run.
+#[test]
+fn a_codeunit_listed_in_two_suites_is_reported_once() {
+    let rt = with_suites(DEPENDENT_PAIR, "A: 60451 60452\nB: 60451 60452\n");
+    assert!(
+        passed(&rt, "ReadsTheFlag") && flagged(&rt, "ReadsTheFlag"),
+        "{:?}",
+        rt.results()
+    );
+    assert_eq!(rt.results().iter().filter(|r| r.test == "ReadsTheFlag").count(), 1);
+    let lane = &rt.phases.chain.single_lane;
+    assert_eq!(
+        (lane.dependent, lane.rerun, lane.chains, lane.notes.len()),
+        (1, 1, 1, 1),
+        "{:?}",
+        lane
+    );
+    // Not dependent in its first suite (alone there), dependent in the second: flagged, run again after its writer.
+    let rt = with_suites(DEPENDENT_PAIR, "B: 60452\nA: 60451 60452\n");
+    assert!(
+        passed(&rt, "ReadsTheFlag") && flagged(&rt, "ReadsTheFlag"),
+        "{:?}",
+        rt.results()
+    );
+}

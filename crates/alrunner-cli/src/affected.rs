@@ -156,6 +156,11 @@ fn options_hash(a: &TestArgs) -> Result<String, String> {
     if a.strict_order {
         h.update(b"strict_order");
     }
+    // `--test-suites FILE` (ADR-066 amendment 6) changes which codeunits are order dependent: the file's text counts.
+    if let Some(p) = &a.test_suites {
+        h.update(b"test_suites ");
+        h.update(std::fs::read(p).unwrap_or_default());
+    }
     // `ALRUNNER_REPORT_UNPINNED_ERRORS=1` (issue 6487) changes outcomes (not run becomes failed); off keeps the hash.
     if crate::unpinned::enabled() {
         h.update(b"report_unpinned_errors");

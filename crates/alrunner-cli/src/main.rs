@@ -26,6 +26,7 @@ mod sources;
 mod sources_report;
 mod stability;
 mod style;
+mod test_suites;
 mod testdata;
 mod unpinned;
 mod version;

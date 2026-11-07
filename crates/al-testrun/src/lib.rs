@@ -38,6 +38,7 @@ pub mod runtime;
 pub mod seed;
 pub mod stability;
 pub mod target;
+pub mod test_suites;
 
 /// What one test did.
 #[derive(Debug, Clone, PartialEq, Eq)]

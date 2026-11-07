@@ -806,6 +806,36 @@ pub fn test_debug(a: &TestArgs, debug: DebugSetup) -> Result<u8, String> {
     test_inner(a, None, None, Some(debug), false)
 }
 
+/// A run whose selection (or apps) holds no test: the message, the `--output-json` document and exit code 6, as `serve`
+/// answers its summary (issue 5613). `selected`: a selection or entries narrowed the run.
+fn no_test_selected(a: &TestArgs, selected: bool, started: Instant, warm: Option<&mut WarmCtx>) -> Result<u8, String> {
+    let what = if selected {
+        "the selection matches no test"
+    } else {
+        "no test codeunit (Subtype = Test) in the given apps"
+    };
+    eprintln!("error: {what}");
+    let empty = Report::empty(6, started.elapsed().as_secs_f64(), what);
+    // `--output-json` writes the document of a run with no test, with the reason in `warnings`, as `serve`
+    // answers its summary (issue 5613).
+    if let Some(target) = &a.output_json
+        && warm.is_none()
+    {
+        let mut doc = empty.doc.clone();
+        doc["warnings"] = serde_json::json!(empty.warnings);
+        let doc = serde_json::to_string_pretty(&doc).expect("a JSON value serializes");
+        match target {
+            Some(path) => write_file(path, &doc)?,
+            None => println!("{doc}"),
+        }
+    }
+    // A server request answers a summary with exit code 6, as `al-runner test` exits 6 (ADR-028 item 1).
+    if let Some(w) = warm {
+        w.report = Some(empty);
+    }
+    Ok(6)
+}
+
 fn test_inner(
     a: &TestArgs,
     mut warm: Option<&mut WarmCtx>,
@@ -918,6 +948,7 @@ fn test_inner(
         }
     }
     let disabled = load_disabled(a)?;
+    let test_suites = crate::test_suites::load(a.test_suites.as_deref(), found.iter().map(|f| f.id))?;
     let selection = Selection {
         codeunits: a.codeunits.clone(),
         exact: a.exact.clone(),
@@ -964,31 +995,12 @@ fn test_inner(
         .filter(|f| f.tests.iter().any(|t| picks(f.id, t)))
         .collect();
     if chosen_units.is_empty() && !a.execute {
-        let what = if selection.active() || !entries.is_empty() {
-            "the selection matches no test"
-        } else {
-            "no test codeunit (Subtype = Test) in the given apps"
-        };
-        eprintln!("error: {what}");
-        let empty = Report::empty(6, started.elapsed().as_secs_f64(), what);
-        // `--output-json` writes the document of a run with no test, with the reason in `warnings`, as `serve`
-        // answers its summary (issue 5613).
-        if let Some(target) = &a.output_json
-            && warm.is_none()
-        {
-            let mut doc = empty.doc.clone();
-            doc["warnings"] = serde_json::json!(empty.warnings);
-            let doc = serde_json::to_string_pretty(&doc).expect("a JSON value serializes");
-            match target {
-                Some(path) => write_file(path, &doc)?,
-                None => println!("{doc}"),
-            }
-        }
-        // A server request answers a summary with exit code 6, as `al-runner test` exits 6 (ADR-028 item 1).
-        if let Some(w) = warm.as_deref_mut() {
-            w.report = Some(empty);
-        }
-        return Ok(6);
+        return no_test_selected(
+            a,
+            selection.active() || !entries.is_empty(),
+            started,
+            warm.as_deref_mut(),
+        );
     }
     // Al-runner issue 5704: an entry whose own selection matches no test gets the signal a whole request gets (exit
     // code 6, the reason in `warnings`), and the request's exit code is 6 (section 5 of docs/manual/tool-protocol.md ranks
@@ -1577,6 +1589,7 @@ fn test_inner(
         allow_write_in_try_functions: a.allow_write_in_try_functions,                                   // issue 7143
         dependencies_published_global: a.dependencies_published_global,                                 // issue 7169
         strict_order: a.strict_order, // `--strict-order` (ADR-066 amendment 4)
+        test_suites,                  // `--test-suites FILE` (ADR-066 amendment 6)
         perturb: Default::default(),
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
         run_only: (selection.active() && !a.execute)

@@ -406,3 +406,82 @@ codeunit 50872 "Order Lenient Reader"
         assert_eq!(listed, vec!["Codeunit50872.ReadsAnyFlag"], "strict {strict}: {doc}");
     }
 }
+
+/// ADR-066 amendment 6 (al-runner issue 6924): with `--test-suites` a codeunit is order dependent only on what an
+/// earlier codeunit of its own suite left. A listed id that is no test codeunit is a warning; a bad line stops the run.
+#[test]
+fn stability_lists_order_dependence_within_a_suite_only() {
+    let d = tempfile::tempdir().unwrap();
+    let src = r#"
+codeunit 50875 "Suite State"
+{
+    SingleInstance = true;
+    procedure SetFlag(V: Text) begin Flag := V; end;
+    procedure GetFlag(): Text begin exit(Flag); end;
+    var Flag: Text;
+}
+codeunit 50876 "Suite Setter"
+{
+    Subtype = Test;
+    [Test] procedure SetsTheFlag() var S: Codeunit "Suite State"; begin S.SetFlag('left'); end;
+}
+codeunit 50877 "Suite Lenient Reader"
+{
+    Subtype = Test;
+    [Test] procedure ReadsAnyFlag() var S: Codeunit "Suite State"; begin if StrLen(S.GetFlag()) > 10 then Error('long'); end;
+}
+"#;
+    let app = one_file_app(
+        d.path(),
+        "suites",
+        "11111111-0000-0000-0000-000000006925",
+        "Suites",
+        "src/Tests.al",
+        src,
+    );
+    let a = app.to_str().unwrap();
+    for (name, file, expected) in [
+        ("split", "BASE01: 50876\nDATACHECK: 50877 99\n", vec![]),
+        (
+            "together",
+            "# one suite\nsuite  1: 50876 50877\n",
+            vec!["Codeunit50877.ReadsAnyFlag"],
+        ),
+    ] {
+        let suites = d.path().join(format!("{name}.txt"));
+        std::fs::write(&suites, file).unwrap();
+        let json = d.path().join(format!("{name}.json"));
+        let o = alrunner(&[
+            "test",
+            a,
+            "--no-download",
+            "--stability",
+            "microsoft",
+            "--stability-allow-flips",
+            "--test-suites",
+            suites.to_str().unwrap(),
+            "--output-json",
+            json.to_str().unwrap(),
+        ]);
+        assert_eq!(code(&o), 0, "{}", text(&o));
+        assert_eq!(
+            text(&o).contains("suite `DATACHECK` (line 2) lists 99 that is no test codeunit"),
+            name == "split",
+            "{}",
+            text(&o)
+        );
+        let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&json).unwrap()).unwrap();
+        let listed: Vec<&str> = doc["stability"]["orderDependent"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{doc}"))
+            .iter()
+            .map(|t| t["test"].as_str().unwrap())
+            .collect();
+        assert_eq!(listed, expected, "{name}: {doc}");
+    }
+    let bad = d.path().join("bad.txt");
+    std::fs::write(&bad, "A: 50876 x\n").unwrap();
+    let o = alrunner(&["test", a, "--no-download", "--test-suites", bad.to_str().unwrap()]);
+    assert_eq!(code(&o), 2, "{}", text(&o));
+    assert!(text(&o).contains("line 1: `x` is not a codeunit id"), "{}", text(&o));
+}

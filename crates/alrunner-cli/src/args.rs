@@ -127,6 +127,8 @@ pub struct TestArgs {
     /// `--strict-order` (ADR-066 amendment 4): every order-dependent test codeunit runs again serially in BC's order.
     /// Default: it keeps its parallel run and runs again only after a failure or a test not run there.
     pub strict_order: bool,
+    /// `--test-suites FILE` (ADR-066 amendment 6): each suite of the file is a BC session of its own for order dependence.
+    pub test_suites: Option<PathBuf>,
     /// `--affected` (ADR-050): run only the test codeunits a change since the stored result of the last run can
     /// affect; the others keep their stored outcome.
     pub affected: bool,
@@ -904,6 +906,15 @@ ISOLATION
                          own codeunit's Initialize, or clear the SingleInstance codeunit there.
                          AL_TEST_THREADS=1 runs one codeunit at a time but still with fresh state.
                          In `serve`: the runTests field `strictOrder`.
+    --test-suites FILE   Treat each test suite in FILE as a Business Central session of its own, as
+                         a pipeline that runs one test-tool run per suite does (ALOps). One suite
+                         per line: an optional name and `:`, then its test codeunit ids in run
+                         order (`DATACHECK: 81659 81660 81673`). SingleInstance state never links
+                         codeunits of different suites; within a suite the rules above apply in
+                         the file's order. A codeunit in no suite runs as a session of its own. A
+                         codeunit in several suites runs once. Without this option the whole run
+                         is one session. Format: docs/manual/cli-reference.md, \"Test suites file\".
+                         In `serve`: the runTests field `testSuites` (the file's path).
 
 EXIT CODES
     0  every selected test passed
@@ -1278,6 +1289,7 @@ fn parse_serve(args: Vec<String>) -> Result<Command, String> {
         || t.dev_endpoint_ui
         || t.allow_write_in_try_functions
         || t.strict_order
+        || t.test_suites.is_some()
         || t.dependencies_published_global
         || t.permissions_off
         || t.affected_store.is_some()
@@ -1657,6 +1669,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--dev-endpoint-ui" => a.dev_endpoint_ui = true,
             "--allow-write-in-try-functions" => a.allow_write_in_try_functions = true,
             "--strict-order" => a.strict_order = true,
+            "--test-suites" => a.test_suites = Some(text()?.into()),
             "--dependencies-published-global" => a.dependencies_published_global = true,
             "--permissions" => a.permissions_off = permissions_off(&text()?)?,
             "--affected" => a.affected = true,
