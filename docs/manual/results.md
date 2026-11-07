@@ -82,17 +82,26 @@ real Business Central result: the one you get when the codeunit runs alone, or
 first. So, by default:
 
 1. Order-dependent codeunits run in parallel like all others.
-2. When such a codeunit has a failed test or a test not run in its parallel run,
-   AL Runner runs it again, together with the codeunits that wrote the state, one
-   after the other in Business Central's order, with the state carried over. That
-   serial result is the one reported.
-3. Every test of an order-dependent codeunit is a flagged pass (or a flagged
+2. When such a codeunit has a failed test, or a test that started and was refused
+   while it ran (or stopped by the time limit), AL Runner runs it again, together
+   with the codeunits that wrote the state it read, one after the other in Business
+   Central's order, with the state carried over. That serial result is the one
+   reported. A test refused before it starts (a feature AL Runner refuses when it
+   compiles the test) does not trigger this: the serial run would refuse it too.
+3. Each such serial run is a session of its own: the codeunit and the chain of
+   codeunits that wrote what it read (for each value, the last codeunit that wrote
+   it, and that codeunit's own writers when it is order dependent itself). These
+   sessions run in parallel. A codeunit in a session does not see the state that
+   codeunits outside its session left. When two chains share a writer, the writer
+   runs in each session.
+4. Every test of an order-dependent codeunit is a flagged pass (or a flagged
    failure) with the assumption `single-instance-order`, whether it passed in
    parallel or after the serial run. It is counted apart from the clean passes.
 
 `--timings` names the codeunit whose state each test relies on. Its
 `SingleInstance order:` line gives how many order-dependent codeunits were found, how
-many ran again because of a failure, and how long that took.
+many ran again because of a failure, in how many serial sessions, the time of the
+longest session and the wall time of all of them.
 
 What the flag means: the result depends on the order in which Business Central
 runs the test codeunits. The stability mode (`--stability`) lists these tests apart,
@@ -101,10 +110,12 @@ with and without `--strict-order`.
 The risk of the default: a test that passes alone but fails on Business Central in
 the full order is reported as a flagged pass here. To remove that risk, use
 `--strict-order` (in `serve`: the `runTests` field `strictOrder`). Every
-order-dependent codeunit then runs again in Business Central's order, and that
-result is the one reported. It costs time on suites with many such codeunits:
-Microsoft's Tests-SCM takes about 357 s instead of 245 s on BC 29, because the
-entry-number buffers of Sequence No. Mgt. make most posting codeunits order dependent.
+order-dependent codeunit then runs again in Business Central's order, after the
+codeunits it depends on, and that result is the one reported. It uses the same
+parallel sessions as the default, so state from codeunits outside a codeunit's chain
+is not carried with it either. It costs time on suites with many such codeunits,
+because the entry-number buffers of Sequence No. Mgt. make most posting codeunits
+order dependent (see ADR-066 amendment 5 for measured times).
 
 `AL_TEST_THREADS=1` runs one test codeunit at a time, but each one still starts with
 fresh SingleInstance state. It does not reproduce Business Central's order; only

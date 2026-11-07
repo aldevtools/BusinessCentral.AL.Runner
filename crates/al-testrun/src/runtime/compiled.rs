@@ -188,10 +188,11 @@ pub struct RunOptions {
     /// The run seed (ADR-061): each test method's `Random` seed and Guid key derive from it. The default is
     /// `al-test-cli`'s fixed seed 1.
     pub run_seed: crate::seed::RunSeed,
-    /// `al-runner test --strict-order` (ADR-066 amendment 4): every test codeunit that depends on SingleInstance state an
-    /// earlier one left runs again serially in BC's order, with the codeunits it depends on, and reports that run.
-    /// Default `false`: such a codeunit keeps its parallel run (flagged) and runs again serially only when a test of it
-    /// failed or was not run there.
+    /// `al-runner test --strict-order` (ADR-066 amendments 4 and 5): every test codeunit that depends on SingleInstance
+    /// state an earlier one left runs again serially in BC's order, with the codeunits it depends on, and reports that
+    /// run. Default `false`: such a codeunit keeps its parallel run (flagged) and runs again serially only when a test of
+    /// it failed or was refused while it ran there. Either way each re-run is a serial session of its own (its chain),
+    /// and the sessions run in parallel.
     pub strict_order: bool,
 }
 
