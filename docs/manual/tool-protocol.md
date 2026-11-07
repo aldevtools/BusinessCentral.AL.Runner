@@ -70,7 +70,7 @@ Accepted with the v2 meaning unless the "Difference" column says otherwise.
 | `--per-suite`, `--watch` | Refused with exit 2 and the reason (deferred). Do not send them. |
 | any other v2 flag | `unknown option`, exit 2. `al-runner test --help` is the list. |
 
-Selection runs whole codeunits: tests of one codeunit share state, so `al-runner` runs the codeunit
+Selection runs whole codeunits (in `serve`, a `test` or an entry that picks exactly one test runs that test alone; a difference from v2, the CLI `--test` is unchanged): tests of one codeunit share state, so `al-runner` runs the codeunit
 of every selected test and reports only the selected tests. A tool that selects one test and
 excludes its siblings sees the same rows as in v2; it does not save the time of the siblings.
 With `--run-selected-only` (in `serve`: `"runSelectedOnly": true`) only the selected tests run, as in
@@ -233,7 +233,9 @@ Differences a client must adapt to:
    process, a stream, a record buffer of a row an earlier codeunit wrote) is not run, with that reason.
    An entry whose selection picks exactly one test runs that test alone (the codeunit's `OnRun`, then that test), as
    one runner call per method does in BC, so a sibling that sets WorkDate does not run before it (al-runner issue 7207).
-   The plain `test` field keeps running whole codeunits (section 3).
+   The plain `test` field of a request does the same when its selection picks exactly one test (owner decision
+   2026-11-06). This is a difference from v2, which ran the whole codeunit. Only `serve` does this: the CLI `--test`
+   keeps running whole codeunits (section 3).
 5. A request that cannot run answers one `{"error": "<reason>"}` line instead of a summary with exit code 2 or 3:
    for example `{"error":"/x: no such file or folder"}`, ``{"error":"unknown field `cobertura` for runTests"}``,
    ``{"error":"`sourcePaths` needs at least one app folder"}``. A `test` or `excludeTests` that matches no test is not

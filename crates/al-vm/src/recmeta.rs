@@ -215,7 +215,9 @@ impl Session {
                 .and_then(|v| string_literal(&v))
             {
                 if class.len() > 2 && class.starts_with("3,") {
-                    return self.caption_class_translate(&class);
+                    // FieldCaption raises no CaptionClassTranslate of UI Helper Triggers (events/platform-triggers/
+                    // PtObserve.al:135-150 `Captions`, `fieldcap` log=[]).
+                    return self.caption_class_translate_silent(&class);
                 }
             }
         }

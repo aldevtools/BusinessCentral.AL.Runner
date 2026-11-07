@@ -48,6 +48,11 @@ pub struct BlobBuf {
     /// A stream wrote to the buffer since it was fetched or saved: `Modify` counts the Blob as changed whatever it holds now
     /// (record/PnASystemFields.al:Modify_StampsOnlyWhenStoredFieldDiffers `same-blob-content-keeps-stamp`).
     pub written: bool,
+    /// The content the buffer held when the first stream write after the last save or fetch began: what the row held then.
+    /// `CalcFields` reads the row again when it holds something else now, because another variable of the row modified the
+    /// Blob since, unsaved write or not (streams/CalcFieldsBlobStaleBuffer.al:75-98 `Stale_UnsavedWriteInA_OtherModifies_CalcFields`);
+    /// it keeps the write when the row is as it was (streams/TestBlobCalcFieldsUncommittedWrite.al).
+    pub written_base: Option<Vec<u8>>,
     /// ADR-040: a report on the allow-list was saved to this buffer in a rendered format and nothing was written:
     /// the name of the report. Any look at the buffer is refused (`observe`); a copy of the buffer carries the mark
     /// (`copy_blob`, a record assignment, `CalcFields`); creating the stream again clears it.
@@ -331,6 +336,7 @@ pub fn new_blob() -> BlobRef {
         temp_row: false,
         uncompressed: false,
         written: false,
+        written_base: None,
         render_pending: None,
         inserted: false,
         temp_inserted: false,
@@ -370,6 +376,7 @@ pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
         temp_row: false,
         uncompressed: false,
         written: false,
+        written_base: None,
         render_pending: b.render_pending.clone(),
         inserted: b.inserted,
         temp_inserted: false,
@@ -413,6 +420,9 @@ pub fn copy_blob_db_row_of(b: &BlobRef, uncompressed: bool) -> BlobRef {
 /// moves the position on.
 pub fn write_bytes(b: &BlobRef, bytes: &[u8]) {
     let mut buf = b.borrow_mut();
+    if !buf.written {
+        buf.written_base = Some(buf.bytes.clone());
+    }
     if buf.first_write_truncates {
         buf.first_write_truncates = false;
         if buf.loaded {
@@ -896,6 +906,7 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
         temp_row: false,
         uncompressed: false,
         written: false,
+        written_base: None,
         render_pending: None,
         inserted: false,
         temp_inserted: false,

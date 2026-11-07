@@ -1948,7 +1948,27 @@ impl Session {
             }
             // A row this variable inserted and that is gone (an error inside ASSERTERROR rolled the Insert back) leaves the Blob empty, whatever a
             // stream wrote since (recordref-fieldref/PnE08RecordMisc.al:TestField_Blob `af219`).
-            if keeps_content && (stored.is_some() || !rec.borrow().inserted) {
+            // A buffer that holds no unsaved write and differs from the stored row was left behind by another variable's
+            // Modify (Copy Document's report writes the new order's Work Description through its own copy of the header;
+            // Tests-ERM ERM Copy Purch/Sales Doc.CopyWorkDescriptionSalesArchiveShipment reads it back through the caller's
+            // record). CalcFields then reads the row. Pinned by streams/CalcFieldsBlobStaleBuffer.al.
+            // An unsaved stream write is replaced the same way when the row changed since the write began
+            // (streams/CalcFieldsBlobStaleBuffer.al:75-98); `BlobBuf::written_base` says what the row held then.
+            let stale = keeps_content
+                && match stored.as_ref().map(|row| &row[pos]) {
+                    Some(Value::Blob(src)) => {
+                        let (src, buf) = (src.borrow(), buf.borrow());
+                        match (&buf.written_base, buf.written) {
+                            (_, false) => src.bytes != buf.bytes,
+                            (Some(base), true) => src.bytes != *base && src.bytes != buf.bytes,
+                            (None, true) => false,
+                        }
+                    }
+                    _ => false,
+                };
+            if stale {
+                // Pinned: streams/CalcFieldsBlobStaleBuffer.al (empty, loaded-earlier and unsaved-write buffers).
+            } else if keeps_content && (stored.is_some() || !rec.borrow().inserted) {
                 continue;
             }
             // A row that is not stored (a copy of a record never inserted) leaves the Blob empty: the buffer
@@ -1965,6 +1985,7 @@ impl Session {
             b.inserted = inserted;
             b.bytes = bytes;
             b.written = false;
+            b.written_base = None;
             b.fetched = true;
             // ADR-040: the stored row carries the mark of an output that was never produced.
             b.render_pending = pending;
@@ -1980,6 +2001,7 @@ impl Session {
             if let Value::Blob(b) = v {
                 let mut b = b.borrow_mut();
                 b.written = false;
+                b.written_base = None;
                 // A Blob the record read without CalcFields stays as stored by the save (record/load-fields/
                 // P81LoadFields.al:700-711) and stays unloaded: a later CalcFields fetches it (streams/TestBlob.al
                 // Blob_Get_WithoutCalcFields_InStreamReadsEmpty), it does not keep the empty view the buffer shows.
