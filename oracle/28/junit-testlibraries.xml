@@ -1,104 +1,104 @@
 <?xml version='1.0' encoding='utf-8'?>
-<testsuites name="hybrid" tests="54" failures="0" errors="0" skipped="0" time="17.944" timestamp="2026-11-07T11:46:08Z"><testsuite name="Codeunit 81577" tests="4" failures="0" errors="0" skipped="0" time="1.908" timestamp="2026-11-07T11:45:56Z">
-    <testcase classname="Codeunit 81577" name="BiTs_Row1_FlagsLeftAlone" time="0.451" />
-    <testcase classname="Codeunit 81577" name="BiTs_Row2_FalseInGlobalTriggersSubscriber" time="0.338" />
-    <testcase classname="Codeunit 81577" name="BiTs_Row3_FalseInOnAfterSubscriber" time="0.566" />
-    <testcase classname="Codeunit 81577" name="BiTs_Row4_OnlyInsertInGlobalTriggersSubscriber" time="0.553" />
+<testsuites name="hybrid" tests="54" failures="0" errors="0" skipped="0" time="21.102" timestamp="2026-11-07T15:40:57Z"><testsuite name="Codeunit 81577" tests="4" failures="0" errors="0" skipped="0" time="1.937" timestamp="2026-11-07T15:40:42Z">
+    <testcase classname="Codeunit 81577" name="BiTs_Row1_FlagsLeftAlone" time="0.745" />
+    <testcase classname="Codeunit 81577" name="BiTs_Row2_FalseInGlobalTriggersSubscriber" time="0.362" />
+    <testcase classname="Codeunit 81577" name="BiTs_Row3_FalseInOnAfterSubscriber" time="0.427" />
+    <testcase classname="Codeunit 81577" name="BiTs_Row4_OnlyInsertInGlobalTriggersSubscriber" time="0.403" />
   </testsuite>
-  <testsuite name="Codeunit 81579" tests="2" failures="0" errors="0" skipped="0" time="1.113" timestamp="2026-11-07T11:45:56Z">
-    <testcase classname="Codeunit 81579" name="OnRun" time="0.236" />
-    <testcase classname="Codeunit 81579" name="C306_A6_SeesOwnOnRun" time="0.877" />
+  <testsuite name="Codeunit 81579" tests="2" failures="0" errors="0" skipped="0" time="0.860" timestamp="2026-11-07T15:40:43Z">
+    <testcase classname="Codeunit 81579" name="OnRun" time="0.756" />
+    <testcase classname="Codeunit 81579" name="C306_A6_SeesOwnOnRun" time="0.104" />
   </testsuite>
-  <testsuite name="Codeunit 81586" tests="2" failures="0" errors="0" skipped="0" time="0.790" timestamp="2026-11-07T11:45:56Z">
-    <testcase classname="Codeunit 81586" name="C306_B6_OnRunStorage" time="0.553" />
-    <testcase classname="Codeunit 81586" name="C306_B6_OnRunSequences" time="0.237" />
+  <testsuite name="Codeunit 81586" tests="2" failures="0" errors="0" skipped="0" time="0.071" timestamp="2026-11-07T15:40:43Z">
+    <testcase classname="Codeunit 81586" name="C306_B6_OnRunStorage" time="0.036" />
+    <testcase classname="Codeunit 81586" name="C306_B6_OnRunSequences" time="0.035" />
   </testsuite>
-  <testsuite name="Codeunit 81596" tests="3" failures="0" errors="0" skipped="0" time="1.407" timestamp="2026-11-07T11:45:56Z">
-    <testcase classname="Codeunit 81596" name="DatabaseTriggerDeleteFalseDeleted" time="0.051" />
-    <testcase classname="Codeunit 81596" name="OnDeleteTriggerDeleteTrueDeleted" time="0.514" />
-    <testcase classname="Codeunit 81596" name="DeleteEventsDeleteFalseDeleted" time="0.842" />
+  <testsuite name="Codeunit 81596" tests="3" failures="0" errors="0" skipped="0" time="1.780" timestamp="2026-11-07T15:40:43Z">
+    <testcase classname="Codeunit 81596" name="DatabaseTriggerDeleteFalseDeleted" time="0.649" />
+    <testcase classname="Codeunit 81596" name="OnDeleteTriggerDeleteTrueDeleted" time="0.839" />
+    <testcase classname="Codeunit 81596" name="DeleteEventsDeleteFalseDeleted" time="0.292" />
   </testsuite>
-  <testsuite name="Codeunit 81639" tests="2" failures="0" errors="0" skipped="0" time="1.141" timestamp="2026-11-07T11:45:57Z">
-    <testcase classname="Codeunit 81639" name="SetupOrder_MicrosoftTestLibrariesAgainstPartnerApps" time="0.952" />
-    <testcase classname="Codeunit 81639" name="SetupOrder_UnrelatedPartnerAppsAroundTestLibraries" time="0.189" />
+  <testsuite name="Codeunit 81639" tests="2" failures="0" errors="0" skipped="0" time="1.485" timestamp="2026-11-07T15:40:43Z">
+    <testcase classname="Codeunit 81639" name="SetupOrder_MicrosoftTestLibrariesAgainstPartnerApps" time="0.976" />
+    <testcase classname="Codeunit 81639" name="SetupOrder_UnrelatedPartnerAppsAroundTestLibraries" time="0.509" />
   </testsuite>
-<testsuite name="Codeunit 81552" tests="3" failures="0" errors="0" skipped="0" time="0.272" timestamp="2026-11-07T11:46:02Z">
-    <testcase classname="Codeunit 81552" name="BiTpEnv_InstalledFrameworkCodeunits" time="0.264" />
-    <testcase classname="Codeunit 81552" name="BiTpEnv_AppArea1_Set" time="0.004" />
-    <testcase classname="Codeunit 81552" name="BiTpEnv_AppArea2_SeenByNextTest" time="0.004" />
+<testsuite name="Codeunit 81552" tests="3" failures="0" errors="0" skipped="0" time="0.371" timestamp="2026-11-07T15:40:50Z">
+    <testcase classname="Codeunit 81552" name="BiTpEnv_InstalledFrameworkCodeunits" time="0.354" />
+    <testcase classname="Codeunit 81552" name="BiTpEnv_AppArea1_Set" time="0.010" />
+    <testcase classname="Codeunit 81552" name="BiTpEnv_AppArea2_SeenByNextTest" time="0.007" />
   </testsuite>
-  <testsuite name="Codeunit 81553" tests="2" failures="0" errors="0" skipped="0" time="0.270" timestamp="2026-11-07T11:46:03Z">
-    <testcase classname="Codeunit 81553" name="BiTpDefault_Permissions" time="0.240" />
-    <testcase classname="Codeunit 81553" name="BiTpDefault_Insert" time="0.030" />
+  <testsuite name="Codeunit 81553" tests="2" failures="0" errors="0" skipped="0" time="0.344" timestamp="2026-11-07T15:40:51Z">
+    <testcase classname="Codeunit 81553" name="BiTpDefault_Permissions" time="0.307" />
+    <testcase classname="Codeunit 81553" name="BiTpDefault_Insert" time="0.037" />
   </testsuite>
-  <testsuite name="Codeunit 81554" tests="2" failures="0" errors="0" skipped="0" time="0.023" timestamp="2026-11-07T11:46:03Z">
-    <testcase classname="Codeunit 81554" name="BiTpDisabled_Permissions" time="0.010" />
-    <testcase classname="Codeunit 81554" name="BiTpDisabled_Insert" time="0.013" />
+  <testsuite name="Codeunit 81554" tests="2" failures="0" errors="0" skipped="0" time="0.033" timestamp="2026-11-07T15:40:51Z">
+    <testcase classname="Codeunit 81554" name="BiTpDisabled_Permissions" time="0.013" />
+    <testcase classname="Codeunit 81554" name="BiTpDisabled_Insert" time="0.020" />
   </testsuite>
-  <testsuite name="Codeunit 81555" tests="2" failures="0" errors="0" skipped="0" time="0.033" timestamp="2026-11-07T11:46:03Z">
-    <testcase classname="Codeunit 81555" name="BiTpNonRestr_Permissions" time="0.020" />
-    <testcase classname="Codeunit 81555" name="BiTpNonRestr_Insert" time="0.013" />
+  <testsuite name="Codeunit 81555" tests="2" failures="0" errors="0" skipped="0" time="0.054" timestamp="2026-11-07T15:40:51Z">
+    <testcase classname="Codeunit 81555" name="BiTpNonRestr_Permissions" time="0.030" />
+    <testcase classname="Codeunit 81555" name="BiTpNonRestr_Insert" time="0.024" />
   </testsuite>
-  <testsuite name="Codeunit 81556" tests="2" failures="0" errors="0" skipped="0" time="0.037" timestamp="2026-11-07T11:46:04Z">
-    <testcase classname="Codeunit 81556" name="BiTpRestr_Permissions" time="0.023" />
-    <testcase classname="Codeunit 81556" name="BiTpRestr_Insert" time="0.014" />
+  <testsuite name="Codeunit 81556" tests="2" failures="0" errors="0" skipped="0" time="0.047" timestamp="2026-11-07T15:40:52Z">
+    <testcase classname="Codeunit 81556" name="BiTpRestr_Permissions" time="0.030" />
+    <testcase classname="Codeunit 81556" name="BiTpRestr_Insert" time="0.017" />
   </testsuite>
-  <testsuite name="Codeunit 81557" tests="2" failures="0" errors="0" skipped="0" time="0.037" timestamp="2026-11-07T11:46:04Z">
-    <testcase classname="Codeunit 81557" name="BiTpDisMRestr_Permissions" time="0.023" />
-    <testcase classname="Codeunit 81557" name="BiTpDisMRestr_Insert" time="0.014" />
+  <testsuite name="Codeunit 81557" tests="2" failures="0" errors="0" skipped="0" time="0.047" timestamp="2026-11-07T15:40:52Z">
+    <testcase classname="Codeunit 81557" name="BiTpDisMRestr_Permissions" time="0.027" />
+    <testcase classname="Codeunit 81557" name="BiTpDisMRestr_Insert" time="0.020" />
   </testsuite>
-  <testsuite name="Codeunit 81558" tests="2" failures="0" errors="0" skipped="0" time="0.042" timestamp="2026-11-07T11:46:04Z">
-    <testcase classname="Codeunit 81558" name="BiTpDisMNonRestr_Permissions" time="0.026" />
-    <testcase classname="Codeunit 81558" name="BiTpDisMNonRestr_Insert" time="0.016" />
+  <testsuite name="Codeunit 81558" tests="2" failures="0" errors="0" skipped="0" time="0.047" timestamp="2026-11-07T15:40:52Z">
+    <testcase classname="Codeunit 81558" name="BiTpDisMNonRestr_Permissions" time="0.027" />
+    <testcase classname="Codeunit 81558" name="BiTpDisMNonRestr_Insert" time="0.020" />
   </testsuite>
-  <testsuite name="Codeunit 81559" tests="2" failures="0" errors="0" skipped="0" time="0.023" timestamp="2026-11-07T11:46:04Z">
+  <testsuite name="Codeunit 81559" tests="2" failures="0" errors="0" skipped="0" time="0.027" timestamp="2026-11-07T15:40:52Z">
     <testcase classname="Codeunit 81559" name="BiTpRestrMDis_Permissions" time="0.013" />
-    <testcase classname="Codeunit 81559" name="BiTpRestrMDis_Insert" time="0.010" />
+    <testcase classname="Codeunit 81559" name="BiTpRestrMDis_Insert" time="0.014" />
   </testsuite>
-  <testsuite name="Codeunit 81560" tests="2" failures="0" errors="0" skipped="0" time="0.023" timestamp="2026-11-07T11:46:04Z">
-    <testcase classname="Codeunit 81560" name="BiTpNoneMDis_Permissions" time="0.013" />
-    <testcase classname="Codeunit 81560" name="BiTpNoneMDis_Insert" time="0.010" />
+  <testsuite name="Codeunit 81560" tests="2" failures="0" errors="0" skipped="0" time="0.031" timestamp="2026-11-07T15:40:52Z">
+    <testcase classname="Codeunit 81560" name="BiTpNoneMDis_Permissions" time="0.014" />
+    <testcase classname="Codeunit 81560" name="BiTpNoneMDis_Insert" time="0.017" />
   </testsuite>
-  <testsuite name="Codeunit 81561" tests="2" failures="0" errors="0" skipped="0" time="0.024" timestamp="2026-11-07T11:46:04Z">
-    <testcase classname="Codeunit 81561" name="BiTpDisMInherit_Permissions" time="0.014" />
-    <testcase classname="Codeunit 81561" name="BiTpDisMInherit_Insert" time="0.010" />
+  <testsuite name="Codeunit 81561" tests="2" failures="0" errors="0" skipped="0" time="0.029" timestamp="2026-11-07T15:40:52Z">
+    <testcase classname="Codeunit 81561" name="BiTpDisMInherit_Permissions" time="0.016" />
+    <testcase classname="Codeunit 81561" name="BiTpDisMInherit_Insert" time="0.013" />
   </testsuite>
-  <testsuite name="Codeunit 81564" tests="9" failures="0" errors="0" skipped="0" time="0.156" timestamp="2026-11-07T11:46:04Z">
-    <testcase classname="Codeunit 81564" name="BiIp_InsertPlain" time="0.040" />
-    <testcase classname="Codeunit 81564" name="BiIp_InherentI" time="0.020" />
-    <testcase classname="Codeunit 81564" name="BiIp_InherentR" time="0.013" />
-    <testcase classname="Codeunit 81564" name="BiIp_ScopePermissions" time="0.014" />
-    <testcase classname="Codeunit 81564" name="BiIp_ScopeEntitlements" time="0.013" />
-    <testcase classname="Codeunit 81564" name="BiIp_ScopeBoth" time="0.010" />
-    <testcase classname="Codeunit 81564" name="BiIp_InsertInCallee" time="0.010" />
+  <testsuite name="Codeunit 81564" tests="9" failures="0" errors="0" skipped="0" time="0.184" timestamp="2026-11-07T15:40:53Z">
+    <testcase classname="Codeunit 81564" name="BiIp_InsertPlain" time="0.046" />
+    <testcase classname="Codeunit 81564" name="BiIp_InherentI" time="0.023" />
+    <testcase classname="Codeunit 81564" name="BiIp_InherentR" time="0.016" />
+    <testcase classname="Codeunit 81564" name="BiIp_ScopePermissions" time="0.013" />
+    <testcase classname="Codeunit 81564" name="BiIp_ScopeEntitlements" time="0.014" />
+    <testcase classname="Codeunit 81564" name="BiIp_ScopeBoth" time="0.017" />
+    <testcase classname="Codeunit 81564" name="BiIp_InsertInCallee" time="0.013" />
     <testcase classname="Codeunit 81564" name="BiIp_PermissionFunctions" time="0.016" />
-    <testcase classname="Codeunit 81564" name="BiIp_RequiredPermissionsRaise" time="0.020" />
+    <testcase classname="Codeunit 81564" name="BiIp_RequiredPermissionsRaise" time="0.026" />
   </testsuite>
-  <testsuite name="Codeunit 81566" tests="1" failures="0" errors="0" skipped="0" time="0.020" timestamp="2026-11-07T11:46:05Z">
+  <testsuite name="Codeunit 81566" tests="1" failures="0" errors="0" skipped="0" time="0.020" timestamp="2026-11-07T15:40:53Z">
     <testcase classname="Codeunit 81566" name="C302_A0_Prepared" time="0.020" />
   </testsuite>
-  <testsuite name="Codeunit 81567" tests="1" failures="0" errors="0" skipped="0" time="0.027" timestamp="2026-11-07T11:46:05Z">
-    <testcase classname="Codeunit 81567" name="C301_A1_SeesOwnOnRun" time="0.027" />
+  <testsuite name="Codeunit 81567" tests="1" failures="0" errors="0" skipped="0" time="0.033" timestamp="2026-11-07T15:40:53Z">
+    <testcase classname="Codeunit 81567" name="C301_A1_SeesOwnOnRun" time="0.033" />
   </testsuite>
-  <testsuite name="Codeunit 81568" tests="3" failures="0" errors="0" skipped="0" time="0.043" timestamp="2026-11-07T11:46:05Z">
-    <testcase classname="Codeunit 81568" name="C301_B1_OnRunCommittedStorage" time="0.010" />
+  <testsuite name="Codeunit 81568" tests="3" failures="0" errors="0" skipped="0" time="0.054" timestamp="2026-11-07T15:40:53Z">
+    <testcase classname="Codeunit 81568" name="C301_B1_OnRunCommittedStorage" time="0.014" />
     <testcase classname="Codeunit 81568" name="C301_B1_OnRunSequences" time="0.020" />
-    <testcase classname="Codeunit 81568" name="C301_B1_OnRunOpenWrites" time="0.013" />
+    <testcase classname="Codeunit 81568" name="C301_B1_OnRunOpenWrites" time="0.020" />
   </testsuite>
-  <testsuite name="Codeunit 81569" tests="1" failures="0" errors="0" skipped="0" time="0.030" timestamp="2026-11-07T11:46:05Z">
-    <testcase classname="Codeunit 81569" name="C302_A2_TestWrites" time="0.030" />
+  <testsuite name="Codeunit 81569" tests="1" failures="0" errors="0" skipped="0" time="0.040" timestamp="2026-11-07T15:40:54Z">
+    <testcase classname="Codeunit 81569" name="C302_A2_TestWrites" time="0.040" />
   </testsuite>
-  <testsuite name="Codeunit 81578" tests="1" failures="0" errors="0" skipped="0" time="0.020" timestamp="2026-11-07T11:46:05Z">
-    <testcase classname="Codeunit 81578" name="C302_B2_TestWritesStorage" time="0.020" />
+  <testsuite name="Codeunit 81578" tests="1" failures="0" errors="0" skipped="0" time="0.027" timestamp="2026-11-07T15:40:54Z">
+    <testcase classname="Codeunit 81578" name="C302_B2_TestWritesStorage" time="0.027" />
   </testsuite>
-  <testsuite name="Codeunit 81641" tests="2" failures="0" errors="0" skipped="0" time="1.650" timestamp="2026-11-07T11:46:05Z">
-    <testcase classname="Codeunit 81641" name="Y24_P23_TestTables" time="0.167" />
-    <testcase classname="Codeunit 81641" name="Y24_P24_FullAccess" time="1.483" />
+  <testsuite name="Codeunit 81641" tests="2" failures="0" errors="0" skipped="0" time="2.090" timestamp="2026-11-07T15:40:54Z">
+    <testcase classname="Codeunit 81641" name="Y24_P23_TestTables" time="0.173" />
+    <testcase classname="Codeunit 81641" name="Y24_P24_FullAccess" time="1.917" />
   </testsuite>
-  <testsuite name="Codeunit 81642" tests="1" failures="0" errors="0" skipped="0" time="0.090" timestamp="2026-11-07T11:46:07Z">
-    <testcase classname="Codeunit 81642" name="Y24_P25_Restrictive" time="0.090" />
+  <testsuite name="Codeunit 81642" tests="1" failures="0" errors="0" skipped="0" time="0.113" timestamp="2026-11-07T15:40:56Z">
+    <testcase classname="Codeunit 81642" name="Y24_P25_Restrictive" time="0.113" />
   </testsuite>
-  <testsuite name="Codeunit 81643" tests="1" failures="0" errors="0" skipped="0" time="0.044" timestamp="2026-11-07T11:46:07Z">
-    <testcase classname="Codeunit 81643" name="Y24_P25_Default" time="0.044" />
+  <testsuite name="Codeunit 81643" tests="1" failures="0" errors="0" skipped="0" time="0.057" timestamp="2026-11-07T15:40:56Z">
+    <testcase classname="Codeunit 81643" name="Y24_P25_Default" time="0.057" />
   </testsuite>
 </testsuites>
