@@ -1410,7 +1410,7 @@ codeunit 50100 C
     procedure Digits()
     var Row: Record "LT SC Url Enum Row"; T: Text;
     begin
-        Row.Code := '12';
+        Row.Code := '1-2';
         T := GetUrl(ClientType::Web, 'My Company', ObjectType::Page, 22, Row, false);
     end;
     procedure O(): Text
@@ -1430,7 +1430,7 @@ codeunit 50100 C
         al_testkit::text(al_testkit::run(src, "E")),
         "bookmark=21%3bfWQBAACLAAAAAAJ7%2f0EAMQ%3d%3d bookmark=17%3bfWQBAACLBQAAAAJ7 bookmark=29%3bfWQBAACLAQAAAAJ7BjEAMAA2ADAAMAAx"
     );
-    // Purchase Header `order 106001` (GetUrlBookmarkEnumKey.al:149) on the own table; other digit codes are not pinned.
+    // Purchase Header `order 106001` (GetUrlBookmarkEnumKey.al:149) on the own table; digits only of any length and digits with letters are pinned too (:218-233); a digit then another character is not.
     assert!(matches!(al_testkit::run(src, "Digits"), Err(Signal::Unsupported(_))));
     assert_eq!(
         al_testkit::text(al_testkit::run(src, "O")),
@@ -1457,16 +1457,20 @@ codeunit 50100 C
         exit(Tail(GetUrl(ClientType::Web, 'My Company', ObjectType::Page, 22, Row, false)));
     end;
     procedure Pinned(): Text begin exit(Url('1234567') + ' ' + Url('1A')); end;
-    procedure Seven() begin Url('12345678'); end;
-    procedure Mixed() begin Url('1A2'); end;
+    procedure Seven(): Text begin exit(Url('12345678')); end;
+    procedure Mixed(): Text begin exit(Url('1A2')); end;
+    procedure Dash() begin Url('1-2'); end;
 }
 "#;
     assert_eq!(
         al_testkit::text(al_testkit::run(src, "Pinned")),
         "bookmark=31%3br2QBAACLAQAAAAJ7BzEAMgAzADQANQA2ADc%3d bookmark=21%3br2QBAACLAQAAAAJ7%2fzEAQQ%3d%3d"
     );
-    assert!(matches!(al_testkit::run(src, "Seven"), Err(Signal::Unsupported(_))));
-    assert!(matches!(al_testkit::run(src, "Mixed"), Err(Signal::Unsupported(_))));
+    // GetUrlBookmarkEnumKey.al:228 and :230, :239-240: eight digits are marked 0x08, `1A2` 0xff.
+    assert!(al_testkit::text(al_testkit::run(src, "Seven")).ends_with("AAJ7CDEAMgAzADQANQA2ADcAOA%3d%3d"));
+    assert!(al_testkit::text(al_testkit::run(src, "Mixed")).ends_with("AAJ7%2fzEAQQAy"));
+    // A digit then a character that is no letter or digit is not pinned in a composite key.
+    assert!(matches!(al_testkit::run(src, "Dash"), Err(Signal::Unsupported(_))));
 }
 
 // metadata/platform-tables/GetUrlBookmarkDigitCode.al:117-184 (corpus master): the bookmark of a key of one Code[20]
