@@ -225,9 +225,13 @@ Differences a client must adapt to:
    kept: the rows the install code left, none of an earlier request's writes.
    What each test codeunit starts from (in every request and every entry; al-runner issue 5862): a new session over
    the post-install database. Reset: table rows, the system id, row version and AutoIncrement counters,
-   IsolatedStorage, NumberSequence, SingleInstance codeunits (also those of dependency apps), event bindings, handlers,
-   and session settings such as WorkDate and GlobalLanguage. Not reset: files a `--files-dir` folder holds on disk,
-   and the state of the .NET helper processes, which the codeunits of one request share.
+   IsolatedStorage, NumberSequence, event bindings, handlers, and session settings such as WorkDate and
+   GlobalLanguage. Not reset: files a `--files-dir` folder holds on disk, the state of the .NET helper processes,
+   which the codeunits of one request share, and the globals of SingleInstance codeunits (also those of dependency
+   apps): as in BC's one test session, a test codeunit sees what the codeunits before it in run order left there
+   (al-runner issue 6924, ADR-066 amendment 1), including records, temporary records with their rows and lists. A
+   codeunit that reads a global holding something that cannot be handed on exactly (a .NET object of a helper
+   process, a stream, a record buffer of a row an earlier codeunit wrote) is not run, with that reason.
    An entry whose selection picks exactly one test runs that test alone (the codeunit's `OnRun`, then that test), as
    one runner call per method does in BC, so a sibling that sets WorkDate does not run before it (al-runner issue 7207).
    The plain `test` field of a request does the same when its selection picks exactly one test (owner decision
