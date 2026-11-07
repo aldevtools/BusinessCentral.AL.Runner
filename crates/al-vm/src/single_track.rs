@@ -284,8 +284,8 @@ impl Session {
         t.observed.insert(key, f);
     }
 
-    /// A write of global `g` of `inst`, before it is made: an assignment (which may use the value it read: `Log += x`),
-    /// or a `var` argument (ADR-066 amendment 3, R1). Call [`Session::single_written`] when the write is done.
+    /// A write of global `g` of `inst`, before it is made, that may keep or use what it held: an assignment
+    /// (`Log += x`), a `var` argument, `List.Add`, `Dictionary.Set` (ADR-066 amendment 3, R1). Call [`Session::single_written`] when the write is done.
     #[inline]
     pub(crate) fn single_wrote(&mut self, inst: &Rc<RefCell<Instance>>, g: usize) {
         if self.si_track.is_none() || !inst.borrow().single {
@@ -294,8 +294,8 @@ impl Session {
         self.single_wrote_slow(inst, g, false);
     }
 
-    /// A write in place that replaces the value without using it (`:=` into a record, `Clear`, `Get`, a `Find`,
-    /// `List.Add`, `Dictionary.Set`; ADR-066 amendment 3, R1): after a guard that read the global and nothing else was
+    /// A write in place that replaces the value without using it (`:=` into a record, `Clear`, `Get`, a `Find`, `Init`,
+    /// `G := x` where `x` is made without `G`; ADR-066 amendment 3, R1): after a guard that read the global and nothing else was
     /// written, it is the refill (R1b).
     #[inline]
     pub(crate) fn single_replaced(&mut self, inst: &Rc<RefCell<Instance>>, g: usize) {
@@ -347,7 +347,8 @@ impl Session {
     }
 
     /// A write in place of a temporary record held by global `g` of `inst` (`Insert`, `Delete`, `DeleteAll`): a write
-    /// of its rows. On a record that is not temporary it writes the database, not the variable, so it is none.
+    /// of its rows that keeps the other rows (never the refill of a guard). On a record that is not temporary it writes
+    /// the database, not the variable, so it is none.
     #[inline]
     pub(crate) fn single_wrote_temp(&mut self, inst: &Rc<RefCell<Instance>>, g: usize) {
         if self.si_track.is_none() || !inst.borrow().single {
@@ -356,7 +357,7 @@ impl Session {
         let temp =
             matches!(inst.borrow().globals.get(g), Some(Value::Record(r)) if r.try_borrow().is_ok_and(|r| r.temporary));
         if temp {
-            self.single_wrote_slow(inst, g, true);
+            self.single_wrote_slow(inst, g, false);
         }
     }
 

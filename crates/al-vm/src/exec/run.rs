@@ -1030,8 +1030,8 @@ impl Session {
     fn single_write_op(&mut self, i: usize, kind: SingleWriteKind, f: &Frame) {
         match kind {
             SingleWriteKind::Replace => self.single_replaced(&f.instance, i),
-            SingleWriteKind::ReplaceTemp => self.single_wrote_temp(&f.instance, i),
-            SingleWriteKind::VarArg => self.single_wrote(&f.instance, i),
+            SingleWriteKind::ModifyTemp => self.single_wrote_temp(&f.instance, i),
+            SingleWriteKind::Modify => self.single_wrote(&f.instance, i),
         }
     }
 

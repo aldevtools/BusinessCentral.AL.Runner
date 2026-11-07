@@ -329,7 +329,7 @@ impl<'a> Compiler<'a> {
             if let ir::Arg::Ref(ir::Place::Global(g)) = a {
                 self.emit(Op::SingleWrite {
                     i: *g as u32,
-                    kind: SingleWriteKind::VarArg,
+                    kind: SingleWriteKind::Modify,
                 });
             }
         }
@@ -361,8 +361,11 @@ impl<'a> Compiler<'a> {
             | ids::RECORD_FINDLAST_1
             | ids::RECORD_FINDSET_1
             | ids::RECORD_FINDSET_2
-            | ids::RECORD_COPY_1
-            | ids::LIST_ADD_1
+            | ids::RECORD_COPY_1 => (global(receiver)?, SingleWriteKind::Replace),
+            // The other entries stay: a write, never the refill of a guard (corpus
+            // al-language-xhandler-lib/XhLog.al: `if Entries.ContainsKey(Id) then Entries.Set(..) else Entries.Add(..)`
+            // is a log that a later test codeunit reads, BiTestHandlerCrossApp.al:87-103).
+            ids::LIST_ADD_1
             | ids::LIST_ADDRANGE_1
             | ids::LIST_ADDRANGE_2
             | ids::LIST_INSERT_1
@@ -374,12 +377,12 @@ impl<'a> Compiler<'a> {
             | ids::DICTIONARY_ADD_1
             | ids::DICTIONARY_SET_1
             | ids::DICTIONARY_SET_2
-            | ids::DICTIONARY_REMOVE_1 => (global(receiver)?, SingleWriteKind::Replace),
+            | ids::DICTIONARY_REMOVE_1 => (global(receiver)?, SingleWriteKind::Modify),
             ids::RECORD_INSERT_1
             | ids::RECORD_INSERT_2
             | ids::RECORD_INSERT_3
             | ids::RECORD_DELETE_1
-            | ids::RECORD_DELETEALL_1 => (global(receiver)?, SingleWriteKind::ReplaceTemp),
+            | ids::RECORD_DELETEALL_1 => (global(receiver)?, SingleWriteKind::ModifyTemp),
             _ => return None,
         };
         self.emit(Op::SingleWrite { i: g, kind });

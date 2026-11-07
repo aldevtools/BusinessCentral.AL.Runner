@@ -248,12 +248,13 @@ fn an_assignment_of_a_value_made_without_the_global_after_a_guard_is_the_refill(
 }
 
 #[test]
-fn a_dictionary_checked_then_filled_in_a_local_procedure_is_guarded() {
-    // Application Area Cache.GetApplicationAreasForUser (System Application, BC 29).
+fn a_dictionary_checked_then_filled_is_not_guarded() {
+    // `Set` keeps the other entries, which an earlier test codeunit may have left and this one may read (corpus
+    // al-language-xhandler-lib/XhLog.al, read by BiTestHandlerCrossApp.al:87-103): no refill.
     let (out, b) = notes("AreasIt");
     let k = key(&b, "GlobalDict");
     assert!(
-        out.observed.contains_key(&k) && out.guarded.contains(&k),
+        out.observed.contains_key(&k) && !out.guarded.contains(&k),
         "{:?}",
         out.guarded
     );

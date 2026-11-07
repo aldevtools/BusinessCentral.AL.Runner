@@ -324,7 +324,8 @@ Tests-SCM from 245 s to 517 s with 75 of 76. The causes:
   receiver back after the call; when it hands back the value the global holds (the same list, dictionary or record),
   that is no write.
 - **R1b, a re-validated cache.** The notes also take the fingerprint right after the first write of a global that was
-  read first (the refill). When that first write replaces the value without using it (a write in place of R1, or
+  read first (the refill). When that first write replaces the whole value without using it (`:=` into a record,
+  `Clear`, `Init`, `Get`, `Copy`, a `Find`, or
   `G := x` where `x` is made without `G`, such as `WhenGotGLSetup := CurrentDateTime`; not `Log += x` or
   `Flag := not Flag`) and no other watched global was written between the read and it, the read was a
   guard and the write the refill. Such a global is no link when the refill left the value the earlier codeunit left (the
@@ -374,9 +375,9 @@ transaction is what BC's next codeunit sees.
 
 - `crates/al-vm/tests/language/single_track_access.rs`: `:=` into a record, `Clear`, `Get`, `FindFirst`, `List.Add`,
   `Dictionary.Set` and a `var` argument as the first access are writes; a field read and `Count` stay reads; a guard
-  directly followed by `Get` is guarded with the refill's fingerprint, and so are `ContainsKey` then `Set` in a local
-  procedure and `if When = 0DT then When := CurrentDateTime`; a write of another global between, an append and a
-  toggle are not guarded.
+  directly followed by `Get` is guarded with the refill's fingerprint, and so is `if When = 0DT then When :=
+  CurrentDateTime`; a write of another global between, an append, a toggle and `ContainsKey` then `Set` on a
+  dictionary (the other entries stay: corpus `XhLog.al`, read by `BiTestHandlerCrossApp.al:87-103`) are not guarded.
 - `crates/al-testrun/src/runtime/single_lane.rs` unit tests: the last writer only; a dependent writer brings its writer,
   an independent one does not; a refused writer is no change; a guard-then-refill with the same value is no link, with
   another value no link under the assumption, and with another global left otherwise a dependence.

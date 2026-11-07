@@ -414,12 +414,13 @@ pub(crate) struct CallSite {
 /// How `Op::SingleWrite` writes its global.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SingleWriteKind {
-    /// A builtin replaces the value without using it (`Get`, `Clear`, `List.Add`): after a guard, the refill.
+    /// A builtin replaces the value without using it (`Get`, `Clear`, `Init`): after a guard, the refill.
     Replace,
-    /// As `Replace`, only when the global holds a temporary record (`Insert`, `Delete`).
-    ReplaceTemp,
-    /// A `var` argument: the procedure may use the value it gets.
-    VarArg,
+    /// As `Modify`, only when the global holds a temporary record (`Insert`, `Delete`).
+    ModifyTemp,
+    /// A write that may keep or use what the global held: a `var` argument, `List.Add`, `Dictionary.Set` (the other
+    /// entries stay, so it is never the refill of a guard).
+    Modify,
 }
 
 pub(crate) struct BuiltinSite {
