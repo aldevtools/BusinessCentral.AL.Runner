@@ -79,10 +79,9 @@ fn a_second_generated_prefix_is_numbered_and_declared_last_made_first() {
 /// A namespace on the element itself is still not pinned for a namespaced attribute.
 #[test]
 fn a_namespace_in_scope_is_refused() {
-    for routine in ["ElementInANamespace"] {
-        match run_in(SRC, "X", routine) {
-            Err(Signal::Unsupported(why)) => assert!(why.contains("prefix"), "{routine}: {why}"),
-            other => panic!("{routine}: expected a refusal, got {other:?}"),
-        }
+    let routine = "ElementInANamespace";
+    match run_in(SRC, "X", routine) {
+        Err(Signal::Unsupported(why)) => assert!(why.contains("prefix"), "{routine}: {why}"),
+        other => panic!("{routine}: expected a refusal, got {other:?}"),
     }
 }
