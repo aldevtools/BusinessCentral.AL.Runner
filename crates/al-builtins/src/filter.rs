@@ -183,7 +183,7 @@ fn like(text: &str, pattern: &str, ci: bool) -> bool {
 /// Parses a `SetFilter` expression for a field of type `ty`. `%1`.. take the
 /// typed `args`. Forms the corpus does not exercise yet return an error.
 pub fn parse_filter(text: &str, args: &[crate::value::Value], ty: &crate::value::RtType) -> Result<FilterExpr, String> {
-    parse_filter_with(text, args, ty, &|_| Vec::new())
+    parse_filter_with(text, args, ty, &|_| Ok(Vec::new()))
 }
 
 /// Like [`parse_filter`], with the (ordinal, name) members of an enum object
@@ -572,7 +572,7 @@ pub fn parse_filter_with(
     text: &str,
     args: &[crate::value::Value],
     ty: &crate::value::RtType,
-    enums: &dyn Fn(u32) -> Vec<(i32, String)>,
+    enums: &dyn Fn(u32) -> Result<Vec<(i32, String)>, String>,
 ) -> Result<FilterExpr, String> {
     if matches!(ty, crate::value::RtType::Date) {
         if let Some(e) = date_letter_filter(text.trim()) {
@@ -916,7 +916,7 @@ struct Parser<'a> {
     toks: Vec<Tok>,
     i: usize,
     ty: &'a crate::value::RtType,
-    enums: &'a dyn Fn(u32) -> Vec<(i32, String)>,
+    enums: &'a dyn Fn(u32) -> Result<Vec<(i32, String)>, String>,
 }
 
 impl Parser<'_> {
@@ -1090,7 +1090,7 @@ impl Parser<'_> {
             T::Enum(id) => {
                 // The list holds the captions first, then the names, so a caption wins over a name that spells the same
                 // (corpus record/filters/EnumFilterByCaption.al: SetFilter_CaptionEqualsOtherName_Result).
-                let named = (self.enums)(*id)
+                let named = (self.enums)(*id)?
                     .into_iter()
                     .find(|(_, n)| !n.is_empty() && n.trim().eq_ignore_ascii_case(text.trim()))
                     .map(|(v, _)| v);
@@ -2115,7 +2115,8 @@ mod tests {
     }
 
     fn enum_hits(text: &str) -> Vec<i32> {
-        let f = parse_filter_with(text, &[], &RtType::Enum(7), &enum_members).unwrap_or_else(|e| panic!("{text}: {e}"));
+        let f = parse_filter_with(text, &[], &RtType::Enum(7), &|id| Ok(enum_members(id)))
+            .unwrap_or_else(|e| panic!("{text}: {e}"));
         (0..4).filter(|v| f.matches(&Value::Enum(7, *v))).collect()
     }
 
@@ -2130,7 +2131,7 @@ mod tests {
         assert_eq!(enum_hits("' '"), [0]);
         assert_eq!(enum_hits("application"), [3]);
         assert_eq!(enum_hits("2"), [2]);
-        assert!(parse_filter_with("Nope", &[], &RtType::Enum(7), &enum_members).is_err());
+        assert!(parse_filter_with("Nope", &[], &RtType::Enum(7), &|id| Ok(enum_members(id))).is_err());
     }
 
     // corpus types/TestEnumBlankOptionFilterTests.Codeunit.al:122,160,188: the option matcher

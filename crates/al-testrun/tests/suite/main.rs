@@ -144,3 +144,4 @@ fn no_module_of_the_suite_changes_a_setting_of_the_process() {
     );
 }
 mod single_instance_carry;
+mod enum_caption_ml_readers;

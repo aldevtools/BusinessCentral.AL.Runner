@@ -38,6 +38,11 @@ impl Session {
     /// `filter_value`; with `iso` a Date reads `yyyy-mm-dd`, as a view writes it (record/crud/RcAMisc.al:
     /// GetView_Field_Types `date`).
     fn filter_value_with(&self, v: &Value, iso: bool) -> Result<String, Signal> {
+        if let (false, Value::Enum(id, o)) = (iso, v)
+            && let Some(why) = self.enum_ml_unpinned(*id, Some(*o), "GetFilter and GetFilters")
+        {
+            return Err(Signal::Unsupported(why));
+        }
         // A blank date shows as two single quotes, like a blank text (record/crud/RcAMisc.al:
         // SetRecFilter_Composite_And_Text_Keys `dateBlank`).
         // A blank DateTime too, in a view and in GetFilters (record/views/Y71SetViewDateTime.al:105-134
@@ -1000,10 +1005,17 @@ fn field_by_name(t: &TableDef, name: &str) -> Option<usize> {
 }
 
 /// The members of an enum for a text filter: the captions first, then the names (see `filter::parse_filter_with`).
-pub(crate) fn enum_filter_members(o: &al_ir::Object) -> Vec<(i32, String)> {
+pub(crate) fn enum_filter_members(o: &al_ir::Object) -> Result<Vec<(i32, String)>, String> {
+    // A value with a `CaptionML` is matched by its caption in the session language; no corpus test pins that for a filter text.
+    if let Some((v, _)) = o.enum_captions_ml.first() {
+        return Err(format!(
+            "the caption of enum value {v} of enum {} (CaptionML; not pinned for a filter text)",
+            o.name
+        ));
+    }
     let mut out: Vec<(i32, String)> = o.enum_captions.iter().filter(|(_, c)| !c.is_empty()).cloned().collect();
     out.extend(o.enum_values.iter().cloned());
-    out
+    Ok(out)
 }
 
 #[cfg(test)]
