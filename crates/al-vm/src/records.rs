@@ -24,6 +24,7 @@ mod nested_validate;
 mod op_inner;
 mod platform_rows;
 mod stale;
+mod stale_own_insert;
 mod write_notes;
 
 pub(crate) type Rec = Rc<RefCell<RecordState>>;

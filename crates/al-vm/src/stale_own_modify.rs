@@ -33,18 +33,25 @@ impl Session {
             let mine = if let Value::BigInteger(n) = &r.fields[i] { *n } else { 0 };
             r.row_origin
                 .filter(|o| o.version == mine)
-                .is_some_and(|o| o.own_write && (o.commits + 2 == self.commits || o.commits + 3 == self.commits))
+                .is_some_and(|o| o.own_write && (1..=3).contains(&self.commits.saturating_sub(o.commits)))
         };
-        let untouched_tx =
-            self.tx.writes.is_empty() && !self.tx.rolled_back && !self.tx.lock_tx && self.tx.lock_unpinned.is_none();
+        // Inserts into other tables (a log) do not change that: the OnModify trigger runs before the refusal
+        // (record/crud/Y27StaleOwnInsertMore.al:650 Y27B_2C_OnlyLogInserted_Refused, `buffer` Modify Count 1).
+        let untouched_tx = !self.tx.rolled_back
+            && !self.tx.lock_tx
+            && self.tx.lock_unpinned.is_none()
+            && self
+                .tx
+                .writes
+                .iter()
+                .all(|w| w.kind == crate::state::TxWriteKind::Insert && w.table != t.object);
         let mut hooks = false;
         for n in ["OnBeforeModify", "OnModify", "OnAfterModify"] {
             hooks |= !self.ext_triggers(t, n).is_empty();
         }
-        hooks = hooks
-            || self.listened(t, "onbeforemodifyevent", None)?
-            || self.listened(t, "onaftermodifyevent", None)?
-            || self.global_enabled(t, GlobalOp::Modify)?;
+        // An OnAfterModify subscriber does not matter: the refused write never reaches it (Y27StaleOwnInsertMore.al:754
+        // Y27B_2C_SubscriberLogInTx2_NothingAfter_Refused, `log` 1 from the helper's own Modify only).
+        hooks = hooks || self.listened(t, "onbeforemodifyevent", None)? || self.global_enabled(t, GlobalOp::Modify)?;
         if run && own_insert && untouched_tx && !hooks {
             if let Some(tr) = self.table_trigger(t, "OnModify") {
                 let x = Self::xrec_handle(rec, rec.borrow().fields.clone());
