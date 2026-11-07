@@ -2087,7 +2087,8 @@ fn into_record_id(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) -> 
             other => Err(other),
         }
     };
-    let new = if text.is_empty() {
+    // A text of blanks is the empty text (recordref-fieldref/N582EvalFieldRefUnused.al:87 `blank`, :97-99: no error, the blank RecordId).
+    let new = if text.trim().is_empty() {
         crate::value::LibraryValue::Empty
     } else {
         match c.evaluate_record_id(text, number) {
@@ -2130,26 +2131,29 @@ fn into_field_ref(c: &mut dyn Ctx, a: &mut [Value], number: i64) -> Result<Value
     // recordref-fieldref/N582EvalFieldRefUnused.al:71-169: Decimal, Date, Boolean, Code, Text, an Option without an
     // OptionCaption and Integer; :218-249 N582_Evaluate_FieldRef_Guid_Statement, a Guid: the spellings, `abc` and an empty
     // text give InvalidGuidFormat and keep the field; :251-332 BigInteger, Time, DateTime, DateFormula and Duration; :334-364
-    // an Option with an OptionCaption and an Enum). Another type is not pinned.
+    // an Option with an OptionCaption and an Enum; :362-662 a RecordId, waldo run 2 of al-runner issue 6924: the error of
+    // `into_record_id` and the field keeps its value). Another type is not pinned.
     if !c.ret_used() {
         use crate::value::RtType as T;
-        let pinned = matches!(
-            &target.ty,
-            T::Integer
-                | T::BigInteger
-                | T::Decimal
-                | T::Date
-                | T::Time
-                | T::DateTime
-                | T::DateFormula
-                | T::Duration
-                | T::Boolean
-                | T::Code(_)
-                | T::Text(_)
-                | T::Guid
-                | T::Enum(_)
-                | T::Option(_)
-        );
+        let record_id = matches!(&target.ty, T::Library(k) if *k == crate::library_kind::LibraryKind::RecordId);
+        let pinned = record_id
+            || matches!(
+                &target.ty,
+                T::Integer
+                    | T::BigInteger
+                    | T::Decimal
+                    | T::Date
+                    | T::Time
+                    | T::DateTime
+                    | T::DateFormula
+                    | T::Duration
+                    | T::Boolean
+                    | T::Code(_)
+                    | T::Text(_)
+                    | T::Guid
+                    | T::Enum(_)
+                    | T::Option(_)
+            );
         if !pinned {
             return unsupported(format!(
                 "Evaluate into a FieldRef of type {} with the result unused (not pinned)",

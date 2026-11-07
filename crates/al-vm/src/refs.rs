@@ -311,7 +311,7 @@ impl Session {
         {
             return Ok(None);
         }
-        match self.evaluate_record_id_text(body, 0) {
+        match self.evaluate_record_id_text(body, 0, false) {
             Ok(Some(id)) => {
                 let v = handle("RecordId", id);
                 Ok(Some(Ok(if ne { FilterExpr::Ne(v) } else { FilterExpr::Eq(v) })))
@@ -332,10 +332,22 @@ impl Session {
     }
 
     /// `Evaluate(RecordId, text)`: see `al_builtins::evaluate`. A one-field key is pinned; a composite key is an assumption.
-    pub(crate) fn evaluate_record_id_text(&mut self, text: &str, number: i64) -> Result<Option<LibraryValue>, Signal> {
+    /// `prefix`: a prefix of a table name and the name in quotes name the table (`recordid_table_name`; Evaluate only, a filter
+    /// text is not pinned).
+    pub(crate) fn evaluate_record_id_text(
+        &mut self,
+        text: &str,
+        number: i64,
+        prefix: bool,
+    ) -> Result<Option<LibraryValue>, Signal> {
         let (name, key_text) = match text.split_once(':') {
             Some((n, k)) => (n.trim(), Some(k)),
             None => (text.trim(), None),
+        };
+        let name = if prefix {
+            crate::recordid_table_name::unquoted(name)
+        } else {
+            name
         };
         // `[<namespace>.<name>]` is what Format(RecordId, 0, 9) writes for a table in a namespace, and Evaluate reads it back
         // (language/namespaces/P69NsConsumers.al:198, :215, a name with spaces); the same text without the brackets
@@ -381,6 +393,11 @@ impl Session {
                 .map(|(i, _)| i)
                 .collect(),
             _ => tables,
+        };
+        let tables = if prefix && tables.is_empty() && qualified.is_none() {
+            self.record_id_tables_by_prefix(name)?
+        } else {
+            tables
         };
         if let (Some(q), [one]) = (qualified, tables.as_slice()) {
             if !self.engine.program.objects[*one].name.contains(' ') {

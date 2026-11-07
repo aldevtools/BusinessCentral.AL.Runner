@@ -9,14 +9,19 @@
 //!
 //! A control of a report extension that changes the run, bound to a field of a data item (`BindRow.Name`), is listed the same way
 //! (reports/extensions/W3RpExtRequestPage.al Bind_RunRequestPage_ParametersText_AllBindings); setting it through a parameters
-//! text is not pinned. Other expressions (a call, a quoted name, an index that is not a number) are not pinned and are refused.
+//! text is not pinned. A control of such an extension bound to a field of the extension's own record variable (`Params.Factor`,
+//! `Params."Per Zone"`) is listed by its source as written, quotes kept, and a parameters text that names it so sets it
+//! (reports/extensions/W3RpExtRequestPage.al:1277 RunRequestPage_OwnRecordControls_ParametersText, :1409
+//! RunRequestPage_SeededByQuotedFieldName, :1385 Execute_ParametersText_VariableAndFieldNames, corpus PR 1202). Other
+//! expressions (a call, a quoted name elsewhere, an index that is not a number) are not pinned and are refused.
 
 use super::*;
 
 type Inst = Rc<RefCell<al_builtins::value::Instance>>;
 
-/// Whether `text` has a form the probe pins: a name, an optional number index, and an optional unquoted field name.
-fn pinned_shape(text: &str) -> bool {
+/// Whether `text` has a form the probe pins: a name, an optional number index, and an optional unquoted field name; with
+/// `quoted` (a control of a report extension) the field name may also be in double quotes (W3RpExtRequestPage.al:1281).
+fn pinned_shape(text: &str, quoted: bool) -> bool {
     let ident = |s: &str| {
         let mut c = s.chars();
         c.next().is_some_and(|f| f.is_ascii_alphabetic() || f == '_')
@@ -26,7 +31,13 @@ fn pinned_shape(text: &str) -> bool {
         Some((h, f)) => (h, Some(f)),
         None => (text, None),
     };
-    if field.is_some_and(|f| !ident(f)) {
+    let quoted_field = |f: &str| {
+        quoted
+            && f.strip_prefix('"')
+                .and_then(|f| f.strip_suffix('"'))
+                .is_some_and(|n| !n.is_empty() && !n.contains('"'))
+    };
+    if field.is_some_and(|f| !ident(f) && !quoted_field(f)) {
         return false;
     }
     match head.split_once('[') {
@@ -38,6 +49,32 @@ fn pinned_shape(text: &str) -> bool {
         }
         None => ident(head),
     }
+}
+
+/// Whether the source of control `c` (an expression) starts with the name of a data item of the request page `page`.
+pub(super) fn names_data_item(page: &ir::Page, c: &ir::Control) -> bool {
+    let head = c
+        .source_text
+        .as_deref()
+        .and_then(|t| t.split(['.', '[']).next())
+        .unwrap_or("");
+    page.controls
+        .iter()
+        .any(|d| d.kind == ir::ControlKind::DataItem && d.name.eq_ignore_ascii_case(head))
+}
+
+/// Whether a parameters text name sets nothing and is skipped: the control name of a report extension control bound to a field
+/// of the extension's own record (`PerZoneCtl`), or its source with the quotes of the field name left out (`Params.Per Zone`);
+/// BC keeps the values (reports/extensions/W3RpExtRequestPage.al:1329 RunRequestPage_SeededByControlName, :1341
+/// RunRequestPage_SeededByVariableAndFieldName; Report.Execute skips every unknown name anyway).
+pub(super) fn ignored_extension_name(page: &ir::Page, name: &str) -> bool {
+    page.controls.iter().any(|c| {
+        c.kind == ir::ControlKind::Field
+            && c.owner.is_some()
+            && matches!(c.binding, ir::Binding::Expr(_))
+            && !names_data_item(page, c)
+            && (c.name == name || c.source_text.as_deref().is_some_and(|t| t.replace('"', "") == name))
+    })
 }
 
 impl Session {
@@ -56,7 +93,7 @@ impl Session {
         let (Some(text), Some(write)) = (c.source_text.as_deref(), c.trigger("__sourceset")) else {
             return refuse();
         };
-        if !pinned_shape(text) {
+        if !pinned_shape(text, c.owner.is_some()) {
             return refuse();
         }
         Ok((text.to_string(), read, write, c.owner))
@@ -89,7 +126,7 @@ mod tests {
     #[test]
     fn only_the_probed_shapes_are_pinned() {
         for t in ["Buf.Name", "BufArr[1].Name", "TxtArr[2]", "D.Name", "PlainVal"] {
-            assert!(pinned_shape(t), "{t}");
+            assert!(pinned_shape(t, false), "{t}");
         }
         for t in [
             "Buf.\"No.\"",
@@ -100,7 +137,10 @@ mod tests {
             "X + Y",
             "Buf. Name",
         ] {
-            assert!(!pinned_shape(t), "{t}");
+            assert!(!pinned_shape(t, false), "{t}");
         }
+        assert!(pinned_shape("Params.\"Per Zone\"", true));
+        assert!(!pinned_shape("Params.\"Per Zone\"", false));
+        assert!(!pinned_shape("Params.\"A\"B\"", true));
     }
 }

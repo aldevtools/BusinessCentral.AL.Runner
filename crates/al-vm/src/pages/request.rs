@@ -880,7 +880,16 @@ impl Session {
         let page = o.page.as_ref().expect("a request page");
         let mut options = String::new();
         let mut items = String::new();
-        for c in &page.controls {
+        // The base report's controls come first, then each report extension's, whatever place the extension gave them on the
+        // page: an `addfirst(Content)` control is written after the base's (reports/extensions/W3RpExtRequestPage.al:1281
+        // `BaseVal` before `Params."Per Zone"`, corpus PR 1202; :289 `OwnVal` of the first extension before `Own2` of the second).
+        let mut ordered: Vec<&ir::Control> = page.controls.iter().collect();
+        ordered.sort_by_key(|c| {
+            c.owner
+                .map(|e| exts.iter().position(|(o, _)| *o == e).map_or(usize::MAX, |p| p + 1))
+                .unwrap_or(0)
+        });
+        for c in ordered {
             match (&c.kind, &c.binding) {
                 // A control of a reportextension on a variable of the base report that the base's own control shows too: the
                 // variable is in the text once (W3RpExtRequestPage.al Bind_RunRequestPage_ParametersText_AllBindings). With no
@@ -1050,13 +1059,23 @@ impl Session {
             });
             if let Some(c) = expr {
                 let (_, read, write, who) = self.request_expr_place(c)?;
-                if who.is_some() {
-                    return unsupported(format!(
-                        "a parameters text that sets the control {} of a report extension bound to an expression (not pinned)",
-                        c.name
-                    ));
+                match who {
+                    None => self.request_expr_write(object, inst, &name, &text, (read, write))?,
+                    // A field of the extension's own record variable (`request_expr_params`); a field of a data item is
+                    // not pinned.
+                    Some(e) if !super::request_expr_params::names_data_item(page, c) => {
+                        self.request_expr_write(e, &owner_inst(inst, exts, Some(e)), &name, &text, (read, write))?
+                    }
+                    Some(_) => {
+                        return unsupported(format!(
+                            "a parameters text that sets the control {} of a report extension bound to a field of a data item (not pinned)",
+                            c.name
+                        ));
+                    }
                 }
-                self.request_expr_write(object, inst, &name, &text, (read, write))?;
+                continue;
+            }
+            if super::request_expr_params::ignored_extension_name(page, &name) {
                 continue;
             }
             let Some(c) = page.controls.iter().find(|c| {

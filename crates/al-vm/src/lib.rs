@@ -97,6 +97,7 @@ mod read_only_tables;
 mod recmeta;
 mod recordid_bookmark;
 mod recordid_code_text;
+mod recordid_table_name;
 mod recordref_copy;
 mod recordref_load_fields;
 mod records;
