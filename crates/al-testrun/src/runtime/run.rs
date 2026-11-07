@@ -429,6 +429,7 @@ fn run_codeunit_inner(
     // The test codeunit run: called here, or from the OnRun of the test runner codeunit `al_runner_object` when it runs
     // the test codeunit (ADR-066 decision 1, `al_runner.rs`). An error is a result that skips what follows below.
     let refused_mid_run = std::cell::Cell::new(false);
+    let unfinished_after_start = std::cell::Cell::new(false);
     let mut body = |session: &mut Session,
                     al: Option<super::al_runner::RunnerRef>|
      -> Result<super::al_runner::Outcomes, super::al_runner::Outcomes> {
@@ -1241,6 +1242,7 @@ fn run_codeunit_inner(
             not_run_after_panic(obj, &mut queue, &mut out);
         }
         refused_mid_run.set(unfinished.iter().any(|u| u.ended == Ended::RefusedMidRun));
+        unfinished_after_start.set(unfinished.iter().any(|u| u.ended != Ended::RefusedBeforeStart));
         th.end_codeunit(session, lowered, &mut out);
         Ok(out)
     };
@@ -1250,6 +1252,7 @@ fn run_codeunit_inner(
             .unwrap_or_else(|why| Err(all(Outcome::NotRun(why)))),
     };
     scratch.singles_out = singles_out(&mut session, execute, refused_mid_run.get());
+    scratch.unfinished_after_start = unfinished_after_start.get();
     let out = match ran {
         Ok(out) => out,
         Err(early) => return early,

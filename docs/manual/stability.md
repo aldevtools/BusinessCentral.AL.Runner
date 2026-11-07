@@ -182,7 +182,9 @@ How to read it:
   Their result depends on whether Business Central runs their codeunit alone or after
   the codeunit that left the state. They are listed with and without `--strict-order`:
   by default they keep their parallel run (fresh state) and run again in order only
-  after a failure; with `--strict-order` they always run again in order.
+  after a failure or a test refused while it ran (not one refused before it starts);
+  with `--strict-order` they always run again in order. Each such run is a serial
+  session of the codeunit and the codeunits it depends on; the sessions run in parallel.
   With `order.codeunits` they are the ones most likely to flip. See "Flagged: relies on
   SingleInstance state another test codeunit left" in the results chapter.
 - A flip that only happens where an unprobed assumption ran is marked "relies on an

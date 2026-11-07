@@ -611,6 +611,10 @@ pub(crate) struct Scratch {
     watch: bool,
     /// What this codeunit did with the watched single instances (`al_vm::single_track`).
     pub(crate) singles_out: Option<al_vm::single_track::SingleOut>,
+    /// A test of the codeunit started and did not run to its end: it failed (also a failure judged not trusted) or was
+    /// refused while it ran. A test refused before it started does not count (ADR-066 amendment 5, decision 2:
+    /// only this, or a failed test, makes a dependent codeunit run again serially).
+    pub(crate) unfinished_after_start: bool,
 }
 
 /// What a test codeunit left: each test's outcome, the call stack of each AL error that failed one, how long
