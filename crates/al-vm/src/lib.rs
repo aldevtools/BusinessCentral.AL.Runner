@@ -55,6 +55,7 @@ mod dispatch;
 pub mod dotnet;
 mod effects;
 mod empty_reads;
+mod enum_caption_ml;
 mod page_held_bindings;
 pub use empty_reads::{InstallRows, KnownValue};
 mod caller_writes;
