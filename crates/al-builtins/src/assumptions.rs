@@ -170,6 +170,7 @@ pub fn hit(a: Assumption) -> bool {
 /// Forgets the marks of this thread (a test is about to start).
 pub fn clear_hits() {
     HITS.with(|h| h.set(HitBits::EMPTY));
+    crate::collation::set_temporary_keys(false);
 }
 
 /// The marks of this thread as a bit set (bit `a as u32` for assumption `a`); clears them. With [`add_hit_bits`], a

@@ -9,10 +9,17 @@
 //! Only ASCII and the accented Latin-1 letters have weights. Anything else is refused, never ordered
 //! by a guess. The order of two different accents on the same letter is not pinned either.
 
+use std::cell::Cell;
 use std::cmp::Ordering;
 
 /// ASCII punctuation and symbols in the order of the root collation, lowest first.
 const SYMBOLS: &str = " _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$";
+
+/// ASCII punctuation and symbols in the order of the keys of a normal record (SQL Server), lowest first; the hyphen and the
+/// apostrophe are not here, as they do not count at the first level ([`compare_key`]). Measured: record/keys-sorting/
+/// KeyPunctuationOrder.al:194-236 (staging r6980), the same for a Code and a Text key and at the start, inside and at the end of a
+/// value. A double quote before a comma agrees with format-evaluate/Y14Small.al:173.
+const KEY_SYMBOLS: &str = " !\"#$%&()*,./:;?@[\\]^_`{|}~+<=>";
 
 /// Accented Latin-1 letters and the base letter they fold to.
 const ACCENTED: &[(&str, char)] = &[
@@ -57,18 +64,16 @@ fn weight(c: char, total: bool) -> Result<Weight, String> {
             upper: false,
         });
     }
-    // In the order of keys a double quote comes before a comma: a Text primary key `a"b` is read before `a,b`
-    // (format-evaluate/Y14Small.al:173 `format [a"b]` before `format [a,b]`, corpus master). The weights are spaced by two
-    // to make room for it.
-    if total && c == '"' {
-        let comma = SYMBOLS.find(',').expect("a comma has a weight") as u32;
-        return Ok(Weight {
-            primary: 100 + 2 * comma - 1,
-            accent: None,
-            upper: false,
-        });
+    if total {
+        if let Some(i) = KEY_SYMBOLS.find(c) {
+            return Ok(Weight {
+                primary: 100 + i as u32,
+                accent: None,
+                upper: false,
+            });
+        }
     }
-    if let Some(i) = SYMBOLS.find(c) {
+    if let Some(i) = SYMBOLS.find(c).filter(|_| !total || matches!(c, '-' | '\'')) {
         return Ok(Weight {
             primary: 100 + 2 * i as u32,
             accent: None,
@@ -94,10 +99,65 @@ pub fn compare(a: &str, b: &str) -> Result<Ordering, String> {
     compare_with(a, b, false)
 }
 
-/// [`compare`] as a total order, for sorting keys: a character without a weight follows the weighted ones (by code point), and
-/// two different accents on one letter are ordered by the accent. Never an `Err`. Unpinned beyond what [`compare`] pins.
+/// [`compare`] as a total order, for sorting keys, with the symbols in the order of [`KEY_SYMBOLS`]: a character without a weight
+/// follows the weighted ones (by code point), and two different accents on one letter are ordered by the accent. Never an `Err`.
 pub fn compare_total(a: &str, b: &str) -> Ordering {
     compare_with(a, b, true).unwrap_or_else(|_| a.cmp(b))
+}
+
+/// The order of two keys of a normal record (record/keys-sorting/KeyPunctuationOrder.al:194-251, :277-310, staging r6980; al-runner issue
+/// 6980): a hyphen and an apostrophe do not count first (`A-B` and `A'B` sort next to `AB`, `TTS.001` before `TTS-HD.001`);
+/// of two texts that tie without them, the one without comes first and an apostrophe before a hyphen (`AB`, `A'B`, `A-B`; `A`,
+/// `A'`, `A-`), and fewer hyphens before more (`-5` before `--5`, record/AsCodeKeySigns.al:56). Two texts that still tie (the
+/// same characters in other places, not pinned) are ordered by code point, so the order stays total.
+///
+/// A temporary record is assumed to use this order too (assumption `temporary-key-order-windows`): measured on Windows BC 27.5 and
+/// 29.0 (2026-11-07, corpus pull request 1208, the Windows comments next to the Ignores of KeyPunctuationOrder.al), not asserted by
+/// the corpus because its Linux container sorts a temporary record otherwise (aldevtools/MsDyn365Bc.On.Linux#222).
+pub fn compare_key(a: &str, b: &str) -> Ordering {
+    if TEMPORARY_KEYS.with(Cell::get) && decided_at_punctuation(a, b) {
+        crate::assumptions::assume(crate::assumptions::Assumption::TemporaryKeyOrderWindows);
+    }
+    let ignorable = |c: char| matches!(c, '-' | '\'');
+    if !a.contains(ignorable) && !b.contains(ignorable) {
+        return compare_total(a, b);
+    }
+    let rest = |t: &str| t.chars().filter(|c| !ignorable(*c)).collect::<String>();
+    let marks = |t: &str| {
+        t.chars()
+            .filter(|c| ignorable(*c))
+            .map(|c| c == '-')
+            .collect::<Vec<bool>>()
+    };
+    compare_total(&rest(a), &rest(b))
+        .then_with(|| marks(a).cmp(&marks(b)))
+        .then_with(|| a.cmp(b))
+}
+
+thread_local! {
+    /// Whether the key comparisons of this thread are for a temporary record ([`set_temporary_keys`]).
+    static TEMPORARY_KEYS: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Says whether the key comparisons that follow are for a temporary record (the VM sets it when it picks the store of a
+/// record, `Session::store_for`), so [`compare_key`] can mark the assumption `temporary-key-order-windows`.
+pub fn set_temporary_keys(on: bool) {
+    TEMPORARY_KEYS.with(|t| t.set(on));
+}
+
+/// Whether the order of `a` and `b` is decided at an ASCII punctuation character: the first place where they differ, case
+/// ignored, holds one on either side. There the Windows order (the normal record's) and the Linux container's order of a
+/// temporary record can differ; a difference at a letter or a digit, or a text that is a prefix of the other, orders alike.
+fn decided_at_punctuation(a: &str, b: &str) -> bool {
+    let punct = |c: char| c.is_ascii_punctuation();
+    let (mut x, mut y) = (a.chars(), b.chars());
+    loop {
+        match (x.next(), y.next()) {
+            (Some(p), Some(q)) if p.eq_ignore_ascii_case(&q) => {}
+            (Some(p), Some(q)) => return punct(p) || punct(q),
+            _ => return false,
+        }
+    }
 }
 
 /// The primary weight and the upper-case flag of an ASCII character, `None` for one without a weight.
@@ -238,5 +298,45 @@ mod tests {
     #[test]
     fn characters_without_a_weight_are_refused() {
         assert!(compare("a", "Ж").is_err());
+    }
+
+    /// The key order of a normal record, measured on SQL Server (record/keys-sorting/KeyPunctuationOrder.al:194-251, :277-310, staging
+    /// r6980; al-runner issue 6980): sorting the values of each list gives the list.
+    #[test]
+    fn the_key_order_of_punctuation() {
+        let lists = [
+            // Order_Leading, Code (the Text key adds ` B` first).
+            "!B¦\"B¦#B¦$B¦%B¦&B¦(B¦)B¦*B¦,B¦.B¦/B¦:B¦;B¦?B¦@B¦[B¦\\B¦]B¦^B¦_B¦`B¦{B¦|B¦}B¦~B¦+B¦<B¦=B¦>B¦0¦9¦A¦B¦'B¦-B¦BB¦C",
+            " B¦!B¦\"B¦#B¦$B¦%B¦&B¦(B¦)B¦*B¦,B¦.B¦/B¦:B¦;B¦?B¦@B¦[B¦\\B¦]B¦^B¦_B¦`B¦{B¦|B¦}B¦~B¦+B¦<B¦=B¦>B¦0¦9¦A¦B¦'B¦-B¦BB¦C",
+            // Order_Interior.
+            "A¦A B¦A!B¦A\"B¦A#B¦A$B¦A%B¦A&B¦A(B¦A)B¦A*B¦A,B¦A.B¦A/B¦A:B¦A;B¦A?B¦A@B¦A[B¦A\\B¦A]B¦A^B¦A_B¦A`B¦A{B¦A|B¦A}B¦A~B¦A+B¦A<B¦A=B¦A>B¦A0B¦A9B¦AA¦AAB¦AB¦A'B¦A-B¦ABB¦AC¦B",
+            // Order_Trailing.
+            "A¦A'¦A-¦A!¦A\"¦A#¦A$¦A%¦A&¦A(¦A)¦A*¦A,¦A.¦A/¦A:¦A;¦A?¦A@¦A[¦A\\¦A]¦A^¦A_¦A`¦A{¦A|¦A}¦A~¦A+¦A<¦A=¦A>¦A0¦A9¦AA¦B",
+            // Order_IssueValues.
+            "A.B¦AB¦A-B¦TTS.001¦TTSA¦TTS-A¦TTS-HD.001",
+            // record/AsCodeKeySigns.al:56.
+            "+5¦-+5¦+A¦0¦-0¦5¦-5¦--5¦A¦-A",
+        ];
+        for list in lists {
+            let want: Vec<&str> = list.split('¦').collect();
+            for order in [crate::ops::text_key_order, crate::ops::code_key_order] {
+                let mut got = want.clone();
+                got.reverse();
+                got.sort_by(|a, b| order(a, b));
+                assert_eq!(got, want);
+            }
+        }
+    }
+    /// Only a comparison decided at punctuation marks the temporary-record assumption: a difference at a letter or a digit,
+    /// a prefix and equal texts order alike on Windows and on the Linux container.
+    #[test]
+    fn decided_at_punctuation_only_where_the_orders_can_differ() {
+        assert!(super::decided_at_punctuation("TTS.001", "TTS-HD.001"));
+        assert!(super::decided_at_punctuation("A0B", "A-B"));
+        assert!(super::decided_at_punctuation("a_B", "AB"));
+        assert!(!super::decided_at_punctuation("A-B", "ZZZ"));
+        assert!(!super::decided_at_punctuation("A", "A-"));
+        assert!(!super::decided_at_punctuation("A-B", "a-b"));
+        assert!(!super::decided_at_punctuation("TTS001", "TTSA"));
     }
 }
