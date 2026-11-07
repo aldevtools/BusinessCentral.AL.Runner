@@ -21,5 +21,3 @@
 81641 Y24_P24_FullAccess
 81642 Y24_P25_Restrictive
 81643 Y24_P25_Default
-81648 BiXh_Own_Final
-81648 BiXh_Plain_Final
