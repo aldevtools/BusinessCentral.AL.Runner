@@ -8,13 +8,13 @@ pass rate is measured against: every `<testcase>` in it passed on real BC.
 | Field | Value |
 |---|---|
 | Corpus repo | aldevtools/BusinessCentral.AL.Language.Tests (until 2026-10-21 StefanMaron/BusinessCentral.AL.Language.Tests), branch `master` (the default branch; until 2026-10-19 the side branch `al-runtime-rs`, whose commits are all on `master`) |
-| Corpus pin | `10c091e5b7098e7ddddd559c2a4332f64115cca6` (the `corpus` submodule, master merge of corpus PR 706; must equal `corpus_commit` in `oracle.toml`) |
+| Corpus pin | `d54c34bfdad08a0f256cceb121744acc74eafa48` (the `corpus` submodule, master merge of corpus PR 706; must equal `corpus_commit` in `oracle.toml`) |
 
 | Major | Oracle leg | Corpus commit of the run | Workflow run | Artifact | Artifact id | Cases |
 |---|---|---|---|---|---|---|
-| 27 | 27.5 | `10c091e` (the pin) | 42331536527 | `junit-test-results-27.5` | 13558736451 | 24283 |
-| 28 | 28.5 | `10c091e` (the pin) | 42331536527 | `junit-test-results-28.5` | 13559395518 | 24424 (+26 `OnRun`) |
-| 29 | 29.0 | `10c091e` (the pin) | 42331536527 | `junit-test-results-29.0` | 13559081513 | 24567 (+26 `OnRun`) |
+| 27 | 27.5 | `d54c34b` (the pin) | 42340314532 | `junit-test-results-27.5` | 13562212526 | 24338 |
+| 28 | 28.5 | `d54c34b` (the pin) | 42340314532 | `junit-test-results-28.5` | 13562053188 | 24479 (+26 `OnRun`) |
+| 29 | 29.0 | `d54c34b` (the pin) | 42340314532 | `junit-test-results-29.0` | 13562416522 | 24622 (+26 `OnRun`) |
 
 The files come from the green full run of corpus PR 706 ("full run: the pull request has the label full-run"), whose head `f64dfd8` has the same tree
 (`cff97a3c`) as the pin `2be1140`.
