@@ -1,10 +1,7 @@
 //! al-runner issue 6924 (waldo, 156 tests): an event a page extension publishes with IncludeSender, whose subscriber asks for
 //! the sender as a `Page` parameter, was handed the extension's Rec and failed with "conversion of Record of table object N to
-//! Page". What BC passes as the sender of a page extension's event is not pinned by the corpus (events/extension-events pins a
-//! table extension's and a report extension's sender, and a page extension's event without a sender), so the subscriber that
-//! asks for it is refused with that reason.
+//! Page". The sender is the page instance (events/extension-events/PageExtensionSender.al).
 
-use al_builtins::native::Signal;
 use al_testkit::Built;
 
 const SRC: &str = r#"
@@ -33,13 +30,14 @@ codeunit 52704 "LD Snd Run"
 }
 "#;
 
-// The extension's procedure raises the event on the open page; a subscriber that takes the sender is refused, naming the reason.
+// The sender is the page the extension runs on: the subscriber takes it and the call goes through. The event without a sender is
+// raised first, so `Seen` stays -1 only when the sender subscriber ran last.
 #[test]
-fn a_subscriber_that_asks_for_the_sender_of_a_page_extension_event_is_refused() {
-    let mut b = Built::from_source(SRC);
+fn a_subscriber_that_asks_for_the_sender_of_a_page_extension_event_gets_the_page() {
+    let mut b = Built::from_source(&SRC.replace(
+        "OnWithSender(Rec.Id); OnWithoutSender(Rec.Id);",
+        "OnWithoutSender(Rec.Id); OnWithSender(Rec.Id);",
+    ));
     let r = b.run_in("LD Snd Run", "Open");
-    let Err(Signal::Unsupported(why)) = r else {
-        panic!("{r:?}")
-    };
-    assert!(why.contains("IncludeSender on a pageextension"), "{why}");
+    assert!(matches!(r, Ok(al_builtins::value::Value::Integer(-1))), "{r:?}");
 }
