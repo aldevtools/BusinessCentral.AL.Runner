@@ -2171,6 +2171,8 @@
 96249 WF3_PlusNoBoth_Line3_Action
 96249 WF3_Plus_Line2_Action
 96249 WF3_Plus_Line3_Action
+96940 WA_Delete_Control_PlainTable
+96940 WA_Delete_Control_TriggerTable
 97000 Insert_Excel_MsReport
 97000 Insert_Excel_OwnReport
 97000 Insert_Rdlc_MsReport
