@@ -18,8 +18,7 @@ pub(super) fn validation_signal(
     msg: String,
     suffix: &str,
     code: &str,
-    language: i32,
-    draft_key: bool,
+    (language, draft_key): (i32, bool),
 ) -> Signal {
     let integer_entry = msg.ends_with(" can't be evaluated into type Integer.");
     let suffix = if draft_key && integer_entry { "" } else { suffix };
