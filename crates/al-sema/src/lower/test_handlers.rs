@@ -3,7 +3,8 @@
 //! of the system enum TestHandler, 2000000023). Lowering resolves the names; the test runner calls the callbacks
 //! (al-testrun `runtime/test_handlers.rs`).
 //!
-//! Pins: corpus al-language-testlibraries/test-framework/data-driven-tests-and-handlers/BiTestHandlerDefault.al:12-21 (a
+//! Pins: corpus al-language-testlibraries/test-framework/data-driven-tests-and-handlers/BiTestHandlerCrossApp.al:9-14 (default
+//! handlers of other apps run for every test codeunit, in a fixed order), al-language-testlibraries/test-framework/data-driven-tests-and-handlers/BiTestHandlerDefault.al:12-21 (a
 //! default handler reaches a codeunit without TestHandlers and one with only data-driven procedures; default handlers run
 //! before the TestHandlers handlers), BiTestHandlerBehavior.al:382-441 (two TestHandlers values run in the order listed).
 
@@ -33,7 +34,7 @@ pub(crate) fn properties(
         .iter()
         .find(|(k, _)| k.eq_ignore_ascii_case("TestHandlers"))
         .map(|(_, v)| v.as_str());
-    match handlers(ws, members, oi, own) {
+    match handlers(ws, members, own) {
         Ok(list) if list.is_empty() => Vec::new(),
         Ok(list) => vec![(TEST_HANDLER_CODEUNITS.into(), list.join(","))],
         Err(why) => vec![(TEST_HANDLERS_REFUSED.into(), why)],
@@ -75,31 +76,53 @@ fn implementation(
     }
 }
 
-fn handlers(ws: &Workspace, members: &MemberTable<'_>, oi: usize, own: Option<&str>) -> Result<Vec<String>, String> {
-    let mut out = Vec::new();
-    if let Some(e) = enum_by_id(ws, DEFAULT_TEST_HANDLER_ENUM) {
-        let values = &members[e].enum_values;
-        // The order of two default handlers is not pinned (BiTestHandlerDefault.al has one).
-        if values.len() > 1 {
-            return Err(
-                "more than one value of DefaultTestHandler: the order of the default test handlers is not pinned"
-                    .into(),
-            );
-        }
-        for (ordinal, name) in values {
-            let declared_in = members[e]
+/// The values of DefaultTestHandler with the app that declares each, in the order BC runs them. Every installed app's
+/// default handler runs for every test codeunit, whichever app declares it (corpus
+/// al-language-testlibraries/test-framework/data-driven-tests-and-handlers/BiTestHandlerCrossApp.al:9-14, codeunits 81646
+/// and 81647, probed on BC 29: handlers of apps D and C, which hold no tests and are no dependency, then the dependency A,
+/// then the test app's own). That order is both the value id descending and the app name descending; the probe cannot tell
+/// the two rules apart, so an order is used only when both rules give it. Two values of one app, or any two where the rules
+/// disagree, are refused (nothing pins them).
+fn default_handlers_in_order(
+    ws: &Workspace,
+    members: &MemberTable<'_>,
+    e: usize,
+) -> Result<Vec<(u32, String, String)>, String> {
+    let mut list: Vec<(u32, String, String)> = members[e]
+        .enum_values
+        .iter()
+        .map(|(ordinal, name)| {
+            let app = members[e]
                 .enum_impls
                 .iter()
                 .find(|i| i.slot == ImplSlot::Value(*ordinal))
-                .map(|i| i.declared_in);
-            // A default handler of another app reaches this test codeunit on BC too; it is not probed
-            // (BiTestHandlerDefault.al pins handler and test codeunits of one app).
-            if declared_in.is_some_and(|d| ws.objects[d].app != ws.objects[oi].app) {
-                return Err(format!(
-                    "the default test handler `{name}` of another app (DefaultTestHandler for the test codeunits of other apps is not pinned)"
-                ));
-            }
-            out.push(format!("D{}", implementation(ws, members, e, *ordinal, name)?));
+                .map(|i| ws.apps[ws.objects[i.declared_in].app].name.to_lowercase())
+                .unwrap_or_default();
+            (*ordinal, name.clone(), app)
+        })
+        .collect();
+    if list.len() > 1 {
+        let not_pinned = || {
+            "more than one value of DefaultTestHandler: the order of the default test handlers is not pinned \
+             (BiTestHandlerCrossApp.al:9-14 pins one handler per app, in an order that fits two rules)"
+                .to_string()
+        };
+        list.sort_by_key(|a| std::cmp::Reverse(a.0));
+        let mut by_app = list.clone();
+        by_app.sort_by(|a, b| b.2.cmp(&a.2));
+        let distinct_apps = by_app.windows(2).all(|w| w[0].2 != w[1].2);
+        if !distinct_apps || by_app.iter().map(|v| v.0).ne(list.iter().map(|v| v.0)) {
+            return Err(not_pinned());
+        }
+    }
+    Ok(list)
+}
+
+fn handlers(ws: &Workspace, members: &MemberTable<'_>, own: Option<&str>) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    if let Some(e) = enum_by_id(ws, DEFAULT_TEST_HANDLER_ENUM) {
+        for (ordinal, name, _) in default_handlers_in_order(ws, members, e)? {
+            out.push(format!("D{}", implementation(ws, members, e, ordinal, &name)?));
         }
     }
     let Some(own) = own else {

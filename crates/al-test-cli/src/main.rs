@@ -395,7 +395,14 @@ struct Pass {
 fn passes(version: &config::VersionEntry) -> Vec<(config::VersionEntry, Pass)> {
     let mut groups: Vec<(Vec<config::ExtraApp>, Vec<config::SuiteEntry>)> = vec![(Vec::new(), Vec::new())];
     for suite in &version.suites {
-        match groups.iter_mut().find(|(extra, _)| *extra == suite.extra_apps) {
+        // One pass per environment: the same extra apps and the same extra corpus folders.
+        let same_env = |(extra, suites): &&mut (Vec<config::ExtraApp>, Vec<config::SuiteEntry>)| {
+            *extra == suite.extra_apps
+                && suites
+                    .first()
+                    .map_or(suite.extra_dirs.is_empty(), |s| s.extra_dirs == suite.extra_dirs)
+        };
+        match groups.iter_mut().find(same_env) {
             Some((_, suites)) => suites.push(suite.clone()),
             None => groups.push((suite.extra_apps.clone(), vec![suite.clone()])),
         }
@@ -655,9 +662,27 @@ fn sidecar_config(args: &Args, root: &Path, major: u16) -> SidecarConfig {
 }
 
 /// The corpus apps published before the main app (`deps::corpus_publish_dirs`), without the apps that run as suites.
-fn publish_dirs(root: &Path, main: &str, suites: &[config::SuiteEntry]) -> Result<Vec<PathBuf>, String> {
-    let suites: Vec<PathBuf> = suites.iter().map(|s| root.join(&s.app)).collect();
-    deps::corpus_publish_dirs_without(&root.join(main), &suites)
+///
+/// The folders some suite lists in `extra_dirs` are left out (CI publishes them in that suite's job only); `own` is
+/// the pass's own list, which follows the internals fixture in its order.
+fn publish_dirs(root: &Path, cfg: &config::OracleFile, suites: &[config::SuiteEntry]) -> Result<Vec<PathBuf>, String> {
+    let mut skip: Vec<PathBuf> = suites.iter().map(|s| root.join(&s.app)).collect();
+    let all_extra = cfg.versions.iter().flat_map(|v| &v.suites).flat_map(|s| &s.extra_dirs);
+    skip.extend(all_extra.map(|d| root.join(d)));
+    let mut dirs = deps::corpus_publish_dirs_without(&root.join(&cfg.corpus_app), &skip)?;
+    let own: Vec<PathBuf> = suites
+        .first()
+        .map(|s| s.extra_dirs.iter().map(|d| root.join(d)).collect())
+        .unwrap_or_default();
+    // CI's `app_dirs` lists the internals fixture first, then these apps, then the cross-app fixtures.
+    let at = dirs
+        .iter()
+        .position(|d| d.ends_with("al-language-internals-fixture"))
+        .map_or(0, |i| i + 1);
+    for (n, d) in own.into_iter().enumerate() {
+        dirs.insert(at + n, d);
+    }
+    Ok(dirs)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -842,7 +867,7 @@ fn run_version_inner(
     // The corpus apps CI publishes before the main app (the internals fixture, the cross-app fixtures, including
     // fixture D, which the main app does not depend on), in CI's order, then the main app (corpus
     // `.github/workflows/ci.yml`, `app_dirs`; `deps::corpus_publish_dirs`).
-    let corpus_deps = publish_dirs(root, &cfg.corpus_app, &version.suites)?;
+    let corpus_deps = publish_dirs(root, cfg, &version.suites)?;
     // So the apps under test install in that order, also two that do not depend on each other (`install::InstallView`).
     al_test_cli::host::set_publish_order_known(true);
     let main_app = corpus_deps.len();

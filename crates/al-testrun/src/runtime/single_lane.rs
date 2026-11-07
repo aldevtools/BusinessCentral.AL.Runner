@@ -288,6 +288,32 @@ impl Lane<'_> {
                 _ => self.baseline,
             };
             let mut r = run_unit(self.engine, self.lowered, base, &u, None, self.limit);
+            // A codeunit that is no chain member runs from the install baseline, and runs again from what an earlier
+            // member left when it read a table that member wrote or reaches session storage (`corpus.rs`, "run as
+            // before"). The lane does the same, or a codeunit in it loses the rows it reads (corpus Y35OnRunStorage.al:453,
+            // C302_B2_TestWritesStorage: a default test handler that writes to a SingleInstance log for every test
+            // codeunit puts every codeunit in the lane). A case `corpus.rs` refuses keeps its first run.
+            if !self.is_member(k) {
+                let earlier = self
+                    .carried
+                    .iter()
+                    .rev()
+                    .find(|(si, id, leg, _)| (si, id) != (&u.si, &u.id) && (self.sees)(*si, *id, *leg, &u));
+                if let Some((_, _, _, c)) = earlier {
+                    let storage =
+                        c.everything && super::corpus::reaches_session_storage(self.engine, self.lowered, u.oi);
+                    let hit = storage || r.result.as_ref().is_ok_and(|done| done.5.leak_hit);
+                    if hit {
+                        match (&c.unfinished, &c.storage_why, c.baseline.as_ref()) {
+                            (None, None, Some(from)) => {
+                                super::run::CARRIED.with(|c| c.borrow_mut().take());
+                                r = run_unit(self.engine, self.lowered, Some(from), &u, None, self.limit);
+                            }
+                            _ => continue,
+                        }
+                    }
+                }
+            }
             super::run::CARRIED.with(|c| c.borrow_mut().take());
             report.lane.push((u.id, self.name(k)));
             if found.dependent.contains_key(&p) {
