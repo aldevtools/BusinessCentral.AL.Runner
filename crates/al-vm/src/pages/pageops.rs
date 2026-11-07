@@ -10,6 +10,12 @@ impl Session {
         recv: Option<&mut Value>,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
+        // CurrPage calls from the page's own code do not count as the test code touching the page.
+        if let (Some(Value::TestPage(st)), al_builtins::page_op::PageRecv::TestPage) = (recv.as_deref(), method.recv())
+        {
+            let st = st.clone();
+            self.flush_data_caption(&st)?;
+        }
         let r = self.outside_used_tries(|s| s.page_op_outer(method, recv, args));
         self.save_abort_swallowed(method, r)
     }

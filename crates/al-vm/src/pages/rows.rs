@@ -424,6 +424,7 @@ impl Session {
     /// Populates the current row: the control expressions, then OnAfterGetRecord.
     pub(super) fn populate_current(&mut self, st: &St) -> Result<(), Signal> {
         st.borrow_mut().dirty = false;
+        self.apply_data_caption_globals(st);
         self.calc_row_flowfields(st)?;
         if !st.borrow().read_keeps_xrec {
             self.set_xrec(st);

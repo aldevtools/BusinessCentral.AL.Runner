@@ -1586,7 +1586,6 @@
 90630 DC_Expression_Empty
 90630 DC_Expression_NoSourceTable_DefaultText
 90630 DC_Expression_NoSourceTable_Procedure
-90630 DC_Expression_SourceTable_NoRow
 90742 WD_CallStack_Collected_ToWindowsBlob
 90820 RequestSetCookieObject_InvalidValues
 90952 GLEntry_Read_ByPermissionsProperty
@@ -2209,13 +2208,6 @@
 96249 WF3_Plus_Line3_Action
 96249 WF3_Plus_Line3_FieldUpdateFalse
 96249 WF3_Plus_Line3_FieldUpdateTrue
-96262 DCE_PageRun_Rows
-96262 DCE_RunModal_NoFilter_Rows
-96262 DCE_RunModal_TableProcedure_Empty
-96262 DCE_RunModal_TableProcedure_Rows
-96262 DCE_TestPage_OpenEdit_Rows
-96262 DCE_TestPage_OpenView_Empty
-96262 DCE_TestPage_OpenView_Rows
 96283 EL_Date_DAN_1030
 96283 EL_Date_DEU_1031
 96283 EL_Date_ENU_1033

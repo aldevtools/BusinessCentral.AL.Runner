@@ -496,6 +496,15 @@ pub struct PageState {
     /// A record was handed to the page (Page.Run(Id, Rec)) and its OnOpenPage left Rec on a primary key other than the handed one
     /// (`handed_moved.rs`).
     pub handed_rec_moved_by_onopenpage: bool,
+    /// The value the page's DataCaptionExpression returned at its last evaluation, which happens when a row arrives
+    /// (`data_caption_run.rs`); a TestPage's Caption() shows it without evaluating the expression again.
+    pub data_caption_value: Option<String>,
+    /// The page globals the DataCaptionExpression assigned, by global index: the page's code and controls see them only from
+    /// the next row that arrives (`data_caption_run.rs`).
+    pub data_caption_pending: Vec<(usize, Value)>,
+    /// A row trigger ran since the DataCaptionExpression last did: it runs before the next trigger other than OnAfterGetRecord
+    /// and before the test code touches the page.
+    pub data_caption_due: bool,
     /// A lookup page handed the related row a field holds opens on it as a list opens on a row its OnOpenPage left Rec on
     /// (`lookup_start.rs`).
     pub lookup_held_row: bool,
@@ -1039,6 +1048,9 @@ impl PageState {
             part_on_host_row: false,
             onopenpage_kept_rec: false,
             handed_rec_moved_by_onopenpage: false,
+            data_caption_value: None,
+            data_caption_pending: Vec::new(),
+            data_caption_due: false,
             lookup_held_row: false,
             open_rec_unpinned: None,
             run_page_link_opened: false,
