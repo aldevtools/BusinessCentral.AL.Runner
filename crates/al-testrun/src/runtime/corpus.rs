@@ -1397,6 +1397,7 @@ impl CorpusRuntime {
                             perturb: Default::default(),
                             run_seed: opts.run_seed,
                             runner: None,
+                            watch: false,
                         });
                     }
                     continue;
@@ -1451,6 +1452,7 @@ impl CorpusRuntime {
                             perturb: opts.perturb.clone(),
                             run_seed: opts.run_seed,
                             runner: *runner,
+                            watch: false,
                         }),
                         Err(why) => {
                             if suite.runner.is_none()
@@ -1569,6 +1571,7 @@ impl CorpusRuntime {
             let sees = |si: usize, id: u32, leg: u8, u: &Unit| {
                 si == u.si && place(si, id) < place(u.si, u.id) && (leg == 0 || !u.hub_leg)
             };
+            chain_report.single_lane.watched = super::single_lane::assign_watches(&mut units, &place);
             let mut slots: Vec<Option<UnitResult>> = (0..units.len()).map(|_| None).collect();
             chain_report.units += units.len() + chain.iter().filter(|c| matches!(c.3, Link::Refused(..))).count();
             // Helper threads run the chain's codeunits ahead while the walk can still use their runs (`chain_walk.rs`).
@@ -1742,6 +1745,19 @@ impl CorpusRuntime {
                     }
                 }
                 slots[k] = Some(r);
+            }
+            if chain_report.single_lane.watched > 0 {
+                super::single_lane::Lane {
+                    engine: &engine,
+                    lowered,
+                    baseline: baseline.as_ref(),
+                    units: &units,
+                    carried: &carried,
+                    sees: &sees,
+                    place: &place,
+                    limit,
+                }
+                .run(&mut slots, &mut chain_report.single_lane);
             }
             let results: Vec<UnitResult> = slots.into_iter().flatten().collect();
             for r in results {

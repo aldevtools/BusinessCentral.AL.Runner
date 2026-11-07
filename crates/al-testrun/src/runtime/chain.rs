@@ -132,6 +132,8 @@ pub struct ChainReport {
     /// For the runs ahead dropped because they started elsewhere: what differed between the predicted start and the
     /// walk's state (a sequence, a table, a counter), and how often.
     pub differed: std::collections::BTreeMap<String, usize>,
+    /// The SingleInstance lane (`single_lane.rs`, ADR-066 amendment 2).
+    pub single_lane: super::LaneReport,
 }
 
 impl ChainReport {
@@ -208,6 +210,7 @@ impl ChainReport {
                 parts.join("; ")
             ));
         }
+        out.extend(self.single_lane.lines());
         out
     }
 }

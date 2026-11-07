@@ -2010,6 +2010,8 @@ pub struct Instance {
     /// of the test codeunit, the Permissions Mock) is not checked (Y24PermExecute.al: `Mock.ClearAssignments()` and `Observer`
     /// run under an exact set that grants them no Execute).
     pub born: Born,
+    /// The session watches this single instance's globals (al-vm `single_track.rs`).
+    pub single: bool,
 }
 
 thread_local! {

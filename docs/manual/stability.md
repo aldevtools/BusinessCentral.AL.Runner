@@ -177,6 +177,11 @@ How to read it:
   - `random.librarySeed`: the test assumes a particular random value.
 - **Changed to or from not run** is listed apart. It is not a finding by itself. A
   test refused in the base variant is refused in every variant.
+- **Order-dependent tests** have a list of their own, "Tests that rely on SingleInstance
+  state an earlier test codeunit left", also in `--output-json` as `orderDependent`.
+  These tests pass because Business Central runs all test codeunits in one session.
+  With `order.codeunits` they are the ones most likely to flip. See "Flagged: relies on
+  SingleInstance state another test codeunit left" in the results chapter.
 - A flip that only happens where an unprobed assumption ran is marked "relies on an
   unprobed assumption". The runtime may be wrong there, not the test.
 

@@ -900,6 +900,14 @@ impl Session {
         any
     }
 
+    /// A read of global `i` of the frame's instance: the alias watch, then the single-instance notes.
+    #[inline]
+    pub(crate) fn global_read(&mut self, i: usize, f: &Frame) -> Result<(), Signal> {
+        self.alias_access(i, f)?;
+        self.single_read(&f.instance, i);
+        Ok(())
+    }
+
     /// Before a read or a write of global `i` of the frame's instance by its own name while a procedure that got the same
     /// global by `var` runs. In the frame of that procedure, when it is of the same instance, the parameter and the global
     /// are one variable (codeunits/procedures/VarGlobalAlias.al:96-110, :160-169): the parameter's value goes to the
@@ -1002,7 +1010,10 @@ impl Session {
         }
         if !self.singletons.contains_key(&object) {
             let inst = self.instance(object);
+            self.single_made(object, &inst);
             self.singletons.insert(object, inst);
+        } else if !self.singles_unclaimed.is_empty() {
+            self.claim_carried_single(object);
         }
         self.singletons[&object].clone()
     }
@@ -1252,6 +1263,7 @@ impl Session {
             ir::Place::Local(i) => Ok(f.locals[*i].clone()),
             ir::Place::Global(i) => {
                 self.alias_access(*i, f)?;
+                self.single_read(&f.instance, *i);
                 Ok(f.instance.borrow().globals[*i].clone())
             }
             ir::Place::BaseGlobal(i) => {
@@ -1545,6 +1557,7 @@ impl Session {
             ir::Place::Local(i) => f.locals[*i] = v,
             ir::Place::Global(i) => {
                 self.alias_access(*i, f)?;
+                self.single_wrote(&f.instance, *i);
                 f.instance.borrow_mut().globals[*i] = v;
                 self.alias_wrote(*i, f);
             }

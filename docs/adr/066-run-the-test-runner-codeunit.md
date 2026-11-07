@@ -1,6 +1,6 @@
 # ADR-066: Run the test runner codeunit's own AL
 
-- Status: Accepted (owner, 2026-11-05)
+- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Proposed (2026-11-07)
 - Date: 2026-11-05
 
 ## Context
@@ -214,3 +214,76 @@ tests need these steps) and a row in `docs/probes-needed.md`. When a probe lands
 5. **`--isolation Function`:** stays the built-in override (orchestrator's call, following the recommendation).
 6. **ADR-055:** decision kept, context line amended (orchestrator's call, following the recommendation).
 
+
+
+## Amendment 2 (Proposed, 2026-11-07): SingleInstance state from one test codeunit to the next (P7), found and run in one serial lane
+
+- Status: Proposed. Supersedes amendment 1 (carrying the state between sessions, in pull request 7247 on branch
+  `rt-p7v2`, which is not merged and stays unmerged). Owner decision of 2026-11-07, written down here for acceptance.
+
+### What BC does (P7 pinned)
+
+Within one test runner run, the globals of a SingleInstance codeunit that test codeunit A left are still there in the
+next test codeunit B. Table rows A wrote are rolled back per codeunit.
+`al-language/codeunits/TestCuP7ASetter.al:24-58`, `TestCuP7BReader.al:24-37`; identical on BC 27.5, 28.5 and 29.0. This
+covers the SingleInstance codeunits of Microsoft's apps too.
+
+### What al-runner does today and why it does not copy state
+
+Each test codeunit runs on a session of its own, in parallel, and starts with fresh globals. Amendment 1 copied the
+globals from session to session, with a codec for records, lists and temporary tables. Measured on the BC 29 corpus run
+it cost +22.7 % instructions, and most of the second runs were caused by lazy caches and set-and-forget flags, not by
+values that differ.
+
+### Decision
+
+1. **No state is copied between sessions.** The parallel run stays as it is.
+2. **Find the dependent codeunits.** A test codeunit depends on SingleInstance state when it reads a global before it
+   writes it, an earlier test codeunit of the same BC session (a suite, and each leg of the TestRunnerHub) left that
+   global with another value, and the codeunit does not end with that same value itself.
+3. **Run them in one serial lane.** After the parallel part, the dependent codeunits and, until nothing is added, every
+   earlier codeunit that wrote a global one of them read run again one after the other on one thread in BC's order.
+   The single instances, their temporary tables and the manual bindings they hold move (are not copied) from codeunit to
+   codeunit (`Session::take_single_instances`, `adopt_single_instances`). The dependent codeunits' outcomes replace the
+   parallel ones. A writer that does not depend keeps its first outcome.
+4. **Flag them.** Every test of a dependent codeunit is marked with the registered assumption
+   `single-instance-order` (same family as the flagged passes of unprobed assumptions): "relies on SingleInstance state
+   that test codeunit X left (order-dependent test; fix the test)". `--timings` names X for each codeunit. The stability
+   mode (ADR-058) lists these tests in a list of its own.
+5. **Chain members.** A dependent codeunit that is a member of the carry chain (it hands rows to later codeunits) runs
+   in the lane like any other. Its outcome is the lane's; the later codeunits keep the rows of its first run, as the
+   chain walk gave them. That the lane's run leaves the same rows is assumed (registered with the flag).
+
+### Cost control
+
+- **Watch only what is used.** The SingleInstance codeunits that have globals are watched in each BC session of two
+  test codeunits or more; SingleInstance codeunits without globals are ignored. A session notes only the single
+  instances it makes, so a codeunit that uses none pays one test per global access. An app with no SingleInstance
+  codeunit that has globals, or a BC session of one test codeunit, watches nothing: no hook runs.
+  A static restriction from the reach of each test codeunit (which codeunit can read what an earlier one can write) was
+  built and measured: the walk of every test's reach through the Microsoft apps cost +3.3 % instructions on the BC 29
+  corpus run, the notes of watching everything +0.3 %. So the reach walk is not used.
+- **Lazy caches.** A codeunit that read a flag first (a lazy cache guard, a set-and-forget flag) and then filled the cache
+  itself is not dependent when it ends with the very values the earlier codeunit left: one value comparison per global
+  at the end of the run.
+- **Notes.** A watched session notes, per global, the fingerprint at the first read and at the end. A value without a
+  comparable form (a .NET object, a page, a temporary record) never equals anything, so it counts as a difference.
+
+### Consequences and limits
+
+- Whether a dependence is real is decided by values, so a reader of an incomparable value (a DotNet object another
+  codeunit wrote) is run in the lane even when both hold the same thing. It costs time and a flag, not a wrong outcome.
+- The decision uses the values the first runs left. A dependent writer's own first run may have left a value that
+  rests on stale state (a counter it read first and raised); a later reader that saw that very value is then taken as
+  independent. Such a reader sees the state it would see in the lane only by chance, and is run in the lane when it
+  also needs a writer that is in it.
+- State left by a refused or not-run test codeunit is not seen (it left no notes).
+- The registered assumption covers what the P7 probe does not pin: whether the Execute permission check of a moved
+  single instance restarts (assumed as `Y93WildScope.al:439` shows for one shape).
+
+### Conformance
+
+- `crates/al-testrun/tests/suite/single_instance_lane.rs`: a dependent pair passes and is flagged; a lazy cache with an
+  equal value is neither flagged nor run again; a cache with another value is flagged; an app without a dependence has
+  no lane.
+- Corpus: `P7B_ReadsWhatThePreviousTestCodeunitLeft` and the other P7 cases pass flagged.

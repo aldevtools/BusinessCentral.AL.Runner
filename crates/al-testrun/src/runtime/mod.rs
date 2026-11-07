@@ -554,6 +554,8 @@ pub(crate) struct Unit {
     run_seed: crate::seed::RunSeed,
     /// See `Scratch::runner`.
     runner: Option<usize>,
+    /// The session watches the single instances it makes (`single_lane.rs`).
+    watch: bool,
 }
 
 /// What a scratch run or a capture leaves besides outcomes, per test.
@@ -605,6 +607,10 @@ pub(crate) struct Scratch {
     /// The test runner codeunit (object index) whose OnRun runs the test codeunit (ADR-066 decision 1, `al_runner.rs`);
     /// `None`: al-runner's own runner.
     pub(crate) runner: Option<usize>,
+    /// See `Unit::watch`.
+    watch: bool,
+    /// What this codeunit did with the watched single instances (`al_vm::single_track`).
+    pub(crate) singles_out: Option<al_vm::single_track::SingleOut>,
 }
 
 /// What a test codeunit left: each test's outcome, the call stack of each AL error that failed one, how long
@@ -690,6 +696,7 @@ fn run_unit(
             perturb: u.perturb.clone(),
             run_seed: u.run_seed,
             runner: u.runner,
+            watch: u.watch,
             ..Default::default()
         };
         if u.coverage {
@@ -900,6 +907,7 @@ mod numbers_taken;
 mod run;
 mod runner_reset;
 mod session_flags;
+mod single_lane;
 mod suite_rows;
 #[cfg(test)]
 mod suite_rows_tests;
@@ -917,6 +925,7 @@ use self::grow::{Grow, GrowKept};
 pub use self::grow::{KeptCompile, fresh_pass_compile};
 use self::handlers::*;
 pub use self::run::*;
+pub use self::single_lane::LaneReport;
 
 /// The translation files of the app folder `dir`, as the IR keeps them (ADR-053 step 2). A file that cannot be read keeps its
 /// reason, and its language refuses every translated read.
