@@ -122,15 +122,25 @@ impl Session {
                         }
                     }
                 }
-                // The sender of a page extension's event: the corpus pins no sender for it (events/extension-events pins a table
-                // extension's and a reportextension's), so a subscriber that asks for it is refused. Handing it the extension's Rec
-                // failed later as "conversion of Record ... to Page" (al-runner issue 6924).
+                // The sender of a page extension's event is the page instance the extension runs on, as a `Page` variable: the
+                // subscriber calls base and extension procedures through it, which read that instance's live Rec and variables
+                // (PageExtensionSender.al:Card_SubscriberSeesSender, Card_HeldSender_CallsWhileOpen, Card_TwoPagesTwoSenders,
+                // List_SenderPerRow, Document_HeaderAndLinesSenders).
                 (al_ir::ObjKind::PageExtension, _) => {
-                    sender_refused = Some(format!(
-                        "{}: IncludeSender on a pageextension (what BC passes as the sender is not pinned)",
-                        r.name
-                    ));
-                    None
+                    let base = instance.borrow().base.as_ref().and_then(std::rc::Weak::upgrade);
+                    let sender = base.and_then(|base| {
+                        let bo = &engine.program.objects[base.borrow().object as usize];
+                        let slot = bo.globals.iter().position(|g| g.name == "CurrPage")?;
+                        let v = base.borrow().globals[slot].clone();
+                        Some(v)
+                    });
+                    if sender.is_none() {
+                        sender_refused = Some(format!(
+                            "{}: IncludeSender on a pageextension that runs without its page (not pinned)",
+                            r.name
+                        ));
+                    }
+                    sender
                 }
                 (al_ir::ObjKind::Codeunit, _) => Some(Value::Codeunit(instance)),
                 // The sender of a page's event is the page (a `Page` variable), not its Rec: Item Tracking Lines

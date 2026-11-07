@@ -2185,12 +2185,6 @@
 97042 Run_ControlOnAddedDataItem_ReachesTheRun
 97042 Run_ControlOnRecordVariableField_ReachesTheRun
 97042 Run_NoBaseControl_ReachesTheRun
-96993 Card_HeldSender_AfterClose
-96993 Card_HeldSender_CallsWhileOpen
-96993 Card_SubscriberSeesSender
-96993 Card_TwoPagesTwoSenders
-96993 Document_HeaderAndLinesSenders
-96993 List_SenderPerRow
 97063 FT0_Import_HeadersFirst
 97063 FT0_Import_Interleaved
 97063 FT0_Import_LineWithDoc
