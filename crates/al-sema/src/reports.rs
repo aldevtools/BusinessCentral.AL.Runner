@@ -704,6 +704,14 @@ pub struct ExtLayout {
     pub output: Vec<String>,
 }
 
+/// Whether a reportextension changes the run: a routine or trigger of its own, or a section other than `requestpage`. The
+/// routines `pages::expand` adds for expression-valued control properties and sources are not the author's.
+pub fn changes_a_run(ext: &ast::Object) -> bool {
+    ext.routines().any(|r| !crate::pages::is_synthetic(&r.name()))
+        || ext.triggers().next().is_some()
+        || ext.sections().any(|s| !s.name().eq_ignore_ascii_case("requestpage"))
+}
+
 /// Walks reportextension `obj`. Only what the corpus pins is understood
 /// (reportextension/TestReportExtensionTriggers.al): `OnPreReport` and `OnPostReport`,
 /// `modify(Item)` with its two triggers, `add(Item)` of columns, and `addfirst`, `addlast`, `addbefore` and

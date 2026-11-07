@@ -7,8 +7,9 @@
 //! - `Report.Execute` and `Report.RunRequestPage(Id, Parameters)` with that text set each place again
 //!   (`Rrp_TypedValues_ThenExecute` :243, `Rrp_TypedValues_ThenSeededRequestPage` :266).
 //!
-//! Other expressions (a call, a quoted name, an index that is not a number, a control of a report extension) are not pinned
-//! and are refused.
+//! A control of a report extension that changes the run, bound to a field of a data item (`BindRow.Name`), is listed the same way
+//! (reports/extensions/W3RpExtRequestPage.al Bind_RunRequestPage_ParametersText_AllBindings); setting it through a parameters
+//! text is not pinned. Other expressions (a call, a quoted name, an index that is not a number) are not pinned and are refused.
 
 use super::*;
 
@@ -42,7 +43,7 @@ fn pinned_shape(text: &str) -> bool {
 impl Session {
     /// For a request page control bound to an expression: its parameter name and the routines that read and write its
     /// place, when the shape is pinned; otherwise the refusal.
-    pub(super) fn request_expr_place(&self, c: &ir::Control) -> Result<(String, usize, usize), Signal> {
+    pub(super) fn request_expr_place(&self, c: &ir::Control) -> Result<(String, usize, usize, Option<usize>), Signal> {
         let refuse = || {
             unsupported(format!(
                 "the parameters text for request page control {} bound to this expression (not pinned)",
@@ -52,13 +53,13 @@ impl Session {
         let ir::Binding::Expr(read) = c.binding else {
             return refuse();
         };
-        let (Some(text), None, Some(write)) = (c.source_text.as_deref(), c.owner, c.trigger("__sourceset")) else {
+        let (Some(text), Some(write)) = (c.source_text.as_deref(), c.trigger("__sourceset")) else {
             return refuse();
         };
         if !pinned_shape(text) {
             return refuse();
         }
-        Ok((text.to_string(), read, write))
+        Ok((text.to_string(), read, write, c.owner))
     }
 
     /// The value of the place behind a request page control bound to an expression, read on the report's instance.
