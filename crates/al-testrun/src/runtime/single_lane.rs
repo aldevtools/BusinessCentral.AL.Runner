@@ -334,6 +334,12 @@ pub struct LaneReport {
     pub chains: usize,
     /// The time of the longest serial session.
     pub longest: std::time::Duration,
+    /// The threads the serial sessions ran on (amendment 5).
+    pub threads: usize,
+    /// Carried starts written as bytes for a worker thread (amendment 5, decision 5).
+    pub starts_written: usize,
+    /// The most carried starts alive as bytes at once (al-runner issue 6924).
+    pub starts_peak: usize,
 }
 
 impl LaneReport {
@@ -358,32 +364,36 @@ impl LaneReport {
             self.took.as_secs_f64(),
             self.refill_assumed
         )];
+        if self.starts_written > 0 {
+            out[0].push_str(&format!(
+                "; {} carried starts written as bytes for {} threads (at most {} at once)",
+                self.starts_written, self.threads, self.starts_peak
+            ));
+        }
         out.extend(self.notes.iter().cloned());
         out
     }
 }
 
-/// One serial session of the lane (amendment 5): unit indices in BC's order, and the dependent ones whose run is
-/// reported.
+/// One serial session of the lane (amendment 5): unit indices in BC's order, the dependent ones whose run is reported,
+/// and where each codeunit starts.
 struct Chain {
     order: Vec<usize>,
     chosen: BTreeSet<usize>,
-    /// Where each codeunit starts, for a worker thread. `None`: a carried baseline it may start from could not be
-    /// written as bytes, so the session runs on this thread from the baselines themselves ([`Lane::run_bound`]).
-    steps: Option<Vec<Step>>,
+    steps: Vec<Step>,
 }
 
 /// Where a codeunit of a serial session starts, worked out on this thread (amendment 5). A baseline a carry-chain
 /// member left (RequiredTestIsolation = Disabled) holds `Rc`s and stays on the thread that made it, so a worker thread
-/// gets it as bytes ([`Start`]), as the chain walk's helpers do (`chain_walk.rs`). The same choices as
+/// asks this thread for it as bytes ([`Starts`]), as the chain walk's helpers do (`chain_walk.rs`). The same choices as
 /// [`Lane::run_bound`].
 struct Step {
     k: usize,
-    /// A chain member starts from what the member before it left (index into the starts); `None`: the install
-    /// baseline.
+    /// A chain member starts from what the member before it left (the index of that member's carry); `None`: the
+    /// install baseline.
     from: Option<usize>,
     /// A codeunit that is no member and comes after one: whether it reaches session storage that member changed (then
-    /// it runs again whatever it read), and the start it runs again from when it read a table that member wrote
+    /// it runs again whatever it read), and the carry it runs again from when it read a table that member wrote
     /// (`None`: it keeps its first run).
     again: Option<(bool, Option<usize>)>,
 }
@@ -406,30 +416,53 @@ impl Start {
     }
 }
 
-/// The carried baselines written as bytes so far, by carry index (`None`: it has no bytes).
+/// The carried baselines the worker threads ask for, written as bytes on this thread when one is asked for, not before.
+/// al-runner issue 6924: written all before the sessions started and kept to the lane's end, the starts of a carry chain
+/// of about 700 codeunits (each the full test data) ran a partner suite out of memory. This side keeps only a weak
+/// reference and a worker drops the bytes once it has read them back, so a start lives only while a worker reads it:
+/// at most one per worker thread at once. Two workers that ask for the same start at once share it.
 #[derive(Default)]
 struct Starts {
-    index: BTreeMap<usize, Option<usize>>,
-    list: Vec<Start>,
+    /// By carry index: the start while a worker holds it; `None`: it cannot be written as bytes.
+    known: BTreeMap<usize, Option<std::sync::Weak<Start>>>,
+    /// How many starts were written.
+    written: usize,
+    /// The most starts alive at once.
+    peak: usize,
 }
 
 impl Starts {
-    fn of(&mut self, carry: usize, b: &al_vm::Baseline) -> Option<usize> {
-        if let Some(i) = self.index.get(&carry) {
-            return *i;
+    /// The start of carry `carry`, whose baseline is `b`; `None` when it cannot be written as bytes.
+    fn get(&mut self, carry: usize, b: &al_vm::Baseline) -> Option<Arc<Start>> {
+        match self.known.get(&carry) {
+            Some(None) => return None,
+            Some(Some(alive)) => {
+                if let Some(s) = alive.upgrade() {
+                    return Some(s);
+                }
+            }
+            None => {}
         }
-        let i = b.to_bytes().map(|bytes| {
-            self.list.push(Start {
-                bytes,
-                install_rows: b.install_rows.clone(),
-                origin: b.origin(),
-            });
-            self.list.len() - 1
+        let Some(bytes) = b.to_bytes() else {
+            self.known.insert(carry, None);
+            return None;
+        };
+        let s = Arc::new(Start {
+            bytes,
+            install_rows: b.install_rows.clone(),
+            origin: b.origin(),
         });
-        self.index.insert(carry, i);
-        i
+        self.known.insert(carry, Some(Arc::downgrade(&s)));
+        self.written += 1;
+        let alive = self.known.values().flatten().filter(|w| w.strong_count() > 0).count();
+        self.peak = self.peak.max(alive);
+        Some(s)
     }
 }
+
+/// A carried start a session needs cannot be written as bytes: the session runs on this thread from the baselines
+/// themselves ([`Lane::run_bound`]).
+struct NoBytes;
 
 /// What a worker thread needs to run a session's steps (all of it can be shared between threads).
 struct Worker<'a> {
@@ -437,28 +470,26 @@ struct Worker<'a> {
     lowered: &'a Lowered,
     units: &'a [Unit],
     limit: Option<std::time::Duration>,
-    starts: &'a [Start],
 }
 
 impl Worker<'_> {
-    /// Runs one step from `install` (this thread's install baseline) or a carried start, decoded once per thread into
-    /// `copies`. `None`: the codeunit keeps its first run.
+    /// Runs one step from `install` (this thread's install baseline) or a carried start that `fetch` gets from the
+    /// thread that holds the baselines. A start is read back when the step needs it and dropped after the step (issue
+    /// 6924). `Ok(None)`: the codeunit keeps its first run.
     fn run(
         &self,
         install: Option<&al_vm::Baseline>,
-        copies: &mut BTreeMap<usize, Option<al_vm::Baseline>>,
+        fetch: &mut dyn FnMut(usize) -> Option<Arc<Start>>,
         s: &Step,
-    ) -> Option<UnitResult> {
+    ) -> Result<Option<UnitResult>, NoBytes> {
         let mut u = self.units[s.k].clone();
         u.watch = false;
-        let mut copy = |i: usize| {
-            copies
-                .entry(i)
-                .or_insert_with(|| self.starts[i].decode(self.engine))
-                .clone()
-        };
+        let mut copy = |carry: usize| fetch(carry).ok_or(NoBytes).map(|start| start.decode(self.engine));
         let first = match s.from {
-            Some(i) => Some(copy(i)?),
+            Some(carry) => match copy(carry)? {
+                Some(b) => Some(b),
+                None => return Ok(None),
+            },
             None => None,
         };
         let mut r = run_unit(
@@ -469,14 +500,16 @@ impl Worker<'_> {
             None,
             self.limit,
         );
+        drop(first);
         if let Some((storage, again)) = s.again {
             if storage || r.result.as_ref().is_ok_and(|done| done.5.leak_hit) {
-                let from = copy(again?)?;
+                let Some(carry) = again else { return Ok(None) };
+                let Some(from) = copy(carry)? else { return Ok(None) };
                 super::run::CARRIED.with(|c| c.borrow_mut().take());
                 r = run_unit(self.engine, self.lowered, Some(&from), &u, None, self.limit);
             }
         }
-        Some(r)
+        Ok(Some(r))
     }
 }
 
@@ -485,18 +518,28 @@ impl Worker<'_> {
 type ChainRuns = (Vec<(usize, Option<UnitResult>)>, std::time::Duration);
 
 /// Runs the codeunits `order` one after the other on this thread, the single instances moved from codeunit to codeunit
-/// (`run.rs` `LANE_SINGLES`).
-fn run_in_order(order: &[usize], one: &mut dyn FnMut(usize) -> Option<UnitResult>) -> ChainRuns {
+/// (`run.rs` `LANE_SINGLES`). Stops at the first codeunit `one` gives up on.
+fn run_in_order<E>(
+    order: &[usize],
+    one: &mut dyn FnMut(usize) -> Result<Option<UnitResult>, E>,
+) -> Result<ChainRuns, E> {
     let started = std::time::Instant::now();
     super::run::LANE_SINGLES.with(|c| *c.borrow_mut() = Some(None));
     let mut out = Vec::with_capacity(order.len());
+    let mut ended = Ok(());
     for &k in order {
         let r = one(k);
         super::run::CARRIED.with(|c| c.borrow_mut().take());
-        out.push((k, r));
+        match r {
+            Ok(r) => out.push((k, r)),
+            Err(e) => {
+                ended = Err(e);
+                break;
+            }
+        }
     }
     super::run::LANE_SINGLES.with(|c| *c.borrow_mut() = None);
-    (out, started.elapsed())
+    ended.map(|()| (out, started.elapsed()))
 }
 
 impl Lane<'_> {
@@ -508,10 +551,9 @@ impl Lane<'_> {
         }
         let started = std::time::Instant::now();
         report.strict = self.strict;
-        let mut starts = Starts::default();
-        let chains = self.chains(slots, report, &mut starts);
+        let chains = self.chains(slots, report);
         report.chains = chains.len();
-        let runs = self.run_chains(&chains, &starts.list);
+        let runs = self.run_chains(&chains, report);
         for (chain, (done, took)) in chains.iter().zip(runs) {
             report.longest = report.longest.max(took);
             for (k, r) in done {
@@ -547,7 +589,7 @@ impl Lane<'_> {
     }
 
     /// Analyses each BC session, flags its dependent codeunits, and returns the serial sessions to run.
-    fn chains(&self, slots: &mut [Option<UnitResult>], report: &mut LaneReport, starts: &mut Starts) -> Vec<Chain> {
+    fn chains(&self, slots: &mut [Option<UnitResult>], report: &mut LaneReport) -> Vec<Chain> {
         let has = |k: usize| slots[k].is_some();
         let streams = streams(self.units, self.place, &has, self.suites);
         let mut chains = Vec::new();
@@ -608,7 +650,7 @@ impl Lane<'_> {
             for (positions, reported) in found.sessions(&chosen) {
                 let order: Vec<usize> = positions.iter().map(|&p| ks[p]).collect();
                 chains.push(Chain {
-                    steps: self.plan(&order, starts),
+                    steps: self.plan(&order),
                     chosen: reported.iter().map(|&p| ks[p]).collect(),
                     order,
                 });
@@ -617,106 +659,130 @@ impl Lane<'_> {
         chains
     }
 
-    /// Runs the serial sessions in parallel (amendment 5): on worker threads and this one; a session without steps
-    /// only on this thread. The results come back in the order of `chains`, whichever thread ran them.
-    fn run_chains(&self, chains: &[Chain], starts: &[Start]) -> Vec<ChainRuns> {
+    /// Runs the serial sessions in parallel (amendment 5) on worker threads, as many as the parallel run uses, while this
+    /// thread writes the carried starts they ask for ([`Starts`]). With one thread or one session, or for a session whose
+    /// carried start cannot be written as bytes, this thread runs it from the baselines themselves. The results come
+    /// back in the order of `chains`, whichever thread ran them.
+    fn run_chains(&self, chains: &[Chain], report: &mut LaneReport) -> Vec<ChainRuns> {
         let mut out: Vec<Option<ChainRuns>> = (0..chains.len()).map(|_| None).collect();
-        let free: Vec<usize> = (0..chains.len()).filter(|&i| chains[i].steps.is_some()).collect();
         let threads = if self.workers > 1 && (self.baseline.is_none() || self.install_copies) {
             self.workers
         } else {
             1
         };
-        let helpers = threads.min(free.len()).saturating_sub(1);
+        let helpers = if threads > 1 && chains.len() > 1 {
+            threads.min(chains.len())
+        } else {
+            0
+        };
+        let mut starts = Starts::default();
+        let mut ran_on = 1;
         if helpers > 0 {
             self.snapshot
                 .get_or_init(|| self.baseline.and_then(al_vm::Baseline::to_bytes));
+            let snapshot: Option<&[u8]> = self.snapshot.get().and_then(|s| s.as_deref());
+            let next = std::sync::atomic::AtomicUsize::new(0);
+            let worker = Worker {
+                engine: self.engine,
+                lowered: self.lowered,
+                units: self.units,
+                limit: self.limit,
+            };
+            let thread_baseline = self.thread_baseline;
+            type Ask = (usize, std::sync::mpsc::Sender<Option<Arc<Start>>>);
+            let (ask, asked) = std::sync::mpsc::channel::<Ask>();
+            std::thread::scope(|scope| {
+                let mut handles = Vec::new();
+                for _ in 0..helpers {
+                    let ask = ask.clone();
+                    let (next, worker) = (&next, &worker);
+                    let spawned = std::thread::Builder::new()
+                        .stack_size(TEST_STACK)
+                        .spawn_scoped(scope, move || {
+                            let own = thread_baseline(snapshot);
+                            let (reply, replies) = std::sync::mpsc::channel();
+                            let mut fetch = |carry: usize| {
+                                ask.send((carry, reply.clone())).ok()?;
+                                replies.recv().ok().flatten()
+                            };
+                            let mut done = Vec::new();
+                            loop {
+                                let c = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                let Some(chain) = chains.get(c) else { return done };
+                                let mut at = chain.steps.iter();
+                                let runs = run_in_order(&chain.order, &mut |_| {
+                                    worker.run(own.as_ref(), &mut fetch, at.next().expect("a step per codeunit"))
+                                });
+                                done.push((c, runs.ok()));
+                            }
+                        });
+                    match spawned {
+                        Ok(h) => handles.push(h),
+                        // No room for another thread (an address space limit): fewer will do.
+                        Err(_) => break,
+                    }
+                }
+                drop(ask);
+                // Ends when every worker thread is done (each holds a sender).
+                for (carry, reply) in asked {
+                    let start = self.carried[carry]
+                        .3
+                        .baseline
+                        .as_ref()
+                        .and_then(|b| starts.get(carry, b));
+                    let _ = reply.send(start);
+                }
+                ran_on = handles.len().max(1);
+                for h in handles {
+                    for (c, runs) in h.join().expect("a lane worker panicked") {
+                        out[c] = runs;
+                    }
+                }
+            });
         }
-        let snapshot: Option<&[u8]> = self.snapshot.get().and_then(|s| s.as_deref());
-        let next = std::sync::atomic::AtomicUsize::new(0);
-        let worker = Worker {
-            engine: self.engine,
-            lowered: self.lowered,
-            units: self.units,
-            limit: self.limit,
-            starts,
-        };
-        let pull = |install: Option<&al_vm::Baseline>| {
-            let mut copies = BTreeMap::new();
-            let mut done = Vec::new();
-            loop {
-                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                let Some(&c) = free.get(i) else { return done };
-                let steps = chains[c].steps.as_deref().unwrap_or_default();
-                let mut at = steps.iter();
-                let runs = run_in_order(&chains[c].order, &mut |_| {
-                    worker.run(install, &mut copies, at.next().expect("a step per codeunit"))
-                });
-                done.push((c, runs));
+        for (i, c) in chains.iter().enumerate() {
+            if out[i].is_none() {
+                let Ok(runs) = run_in_order::<std::convert::Infallible>(&c.order, &mut |k| Ok(self.run_bound(k)));
+                out[i] = Some(runs);
             }
-        };
-        let thread_baseline = self.thread_baseline;
-        std::thread::scope(|scope| {
-            let mut handles = Vec::new();
-            for _ in 0..helpers {
-                let spawned = std::thread::Builder::new()
-                    .stack_size(TEST_STACK)
-                    .spawn_scoped(scope, || {
-                        let own = thread_baseline(snapshot);
-                        pull(own.as_ref())
-                    });
-                match spawned {
-                    Ok(h) => handles.push(h),
-                    // No room for another thread (an address space limit): fewer will do.
-                    Err(_) => break,
-                }
-            }
-            for (i, c) in chains.iter().enumerate().filter(|(_, c)| c.steps.is_none()) {
-                out[i] = Some(run_in_order(&c.order, &mut |k| self.run_bound(k)));
-            }
-            for (c, runs) in pull(self.baseline) {
-                out[c] = Some(runs);
-            }
-            for h in handles {
-                for (c, runs) in h.join().expect("a lane worker panicked") {
-                    out[c] = Some(runs);
-                }
-            }
-        });
+        }
+        report.threads = ran_on;
+        report.starts_written = starts.written;
+        report.starts_peak = starts.peak;
         out.into_iter().map(|r| r.expect("every serial session ran")).collect()
     }
 
-    /// Where each codeunit of a session starts ([`Step`]); `None` when a carried baseline it needs has no bytes.
-    fn plan(&self, order: &[usize], starts: &mut Starts) -> Option<Vec<Step>> {
+    /// Where each codeunit of a session starts ([`Step`]).
+    fn plan(&self, order: &[usize]) -> Vec<Step> {
         order
             .iter()
             .map(|&k| {
                 let Some(ci) = self.earlier_carry_index(k) else {
-                    return Some(Step {
+                    return Step {
                         k,
                         from: None,
                         again: None,
-                    });
+                    };
                 };
                 let c = &self.carried[ci].3;
                 let start = match (&c.unfinished, &c.storage_why, &c.baseline) {
-                    (None, None, Some(b)) => Some(starts.of(ci, b)?),
+                    (None, None, Some(_)) => Some(ci),
                     _ => None,
                 };
                 if self.is_member(k) {
-                    return Some(Step {
+                    return Step {
                         k,
                         from: start,
                         again: None,
-                    });
+                    };
                 }
                 let storage =
                     c.everything && super::corpus::reaches_session_storage(self.engine, self.lowered, self.units[k].oi);
-                Some(Step {
+                Step {
                     k,
                     from: None,
                     again: Some((storage, start)),
-                })
+                }
             })
             .collect()
     }
