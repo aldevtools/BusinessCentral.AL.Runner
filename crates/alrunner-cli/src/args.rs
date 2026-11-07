@@ -894,11 +894,13 @@ ISOLATION
                          parallel, each with fresh SingleInstance state, the result Business Central
                          gives when the codeunit runs alone or first. By default it keeps that
                          result and runs such a codeunit again in order only when one of its tests
-                         failed or was not run. Every test of such a codeunit is a flagged pass,
-                         `single-instance-order`. Without this option a test that passes alone but
-                         fails in the full order passes here, flagged; with it, the result is the
-                         one of the full order, at a cost (Microsoft's Tests-SCM: about 357 s
-                         instead of 245 s). Fix such a test: set up the state it needs in its
+                         failed or was refused while it ran (not one refused before it starts).
+                         Each such run is a serial session of the codeunit and the codeunits it
+                         depends on; the sessions run in parallel, with this option too. Every
+                         test of such a codeunit is a flagged pass, `single-instance-order`.
+                         Without this option a test that passes alone but fails in the full order
+                         passes here, flagged; with it, the result is the one of the full order
+                         after its chain, at a cost. Fix such a test: set up the state it needs in its
                          own codeunit's Initialize, or clear the SingleInstance codeunit there.
                          AL_TEST_THREADS=1 runs one codeunit at a time but still with fresh state.
                          In `serve`: the runTests field `strictOrder`.
