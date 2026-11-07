@@ -1140,17 +1140,17 @@ impl Session {
                 }
                 // A Delete loads the missing fields of a partially loaded record first: afterwards they read as loaded, with the
                 // values of the row it deleted (record/load-fields/LoadFieldsFetched.al:270-289,
-                // P170_JitLoad_After_Delete_Of_The_Same_Partial_Record_BQ, Delete without triggers). With triggers it is not pinned.
+                // P170_JitLoad_After_Delete_Of_The_Same_Partial_Record_BQ, Delete without triggers). Delete(true) does the same:
+                // OnBeforeDeleteEvent, OnDelete, OnAfterDeleteEvent and the caller's buffer afterwards read the stored value
+                // (record/load-fields/P170JitLoadGone.al WA_Delete_FindSetForUpdate_DeleteTrue, WA_Delete_Control_PlainTable,
+                // WA_Delete_Control_TriggerTable; al-runner issue 6924).
                 let tenant_media =
                     self.engine.program.objects.get(t.object as usize).and_then(|o| o.id) == Some(2_000_000_184);
                 if tenant_media && !rec.borrow().temporary {
                     return self.delete_tenant_media(&t, rec, run);
                 }
-                if !run && !rec.borrow().temporary {
+                if !rec.borrow().temporary {
                     self.load_missing_fields(rec, None)?;
-                }
-                if run && !rec.borrow().temporary {
-                    self.note_own_delete_true(&t, rec);
                 }
                 self.delete_row(&t, rec, run)
             }
