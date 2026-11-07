@@ -731,7 +731,11 @@ impl Session {
         // The variables the frame's event parameters stand for: the parameter's value goes to the variable before the call and
         // the variable's value comes back after it, because the callee (the sender) may read or change either.
         for (slot, inst, g) in &f.aliases {
+            // The global a `var` parameter of this frame stands for gets the parameter's value: a write (ADR-066
+            // amendment 3, R1).
+            self.single_wrote(inst, *g);
             inst.borrow_mut().globals[*g] = f.locals[*slot].clone();
+            self.single_written(inst, *g);
         }
         // While the call runs, the global is the current value of a parameter of this frame that aliases it.
         let own_aliases = self.set_alias_live(f, false);
@@ -1443,7 +1447,16 @@ impl Session {
                     _ => false,
                 };
             if !matches!(p, ir::Place::Field(..)) && !replaces_variant {
-                if let Ok(Value::Record(dst)) = self.read(p, f) {
+                // `:=` into a global record is a write in place: it replaces what an earlier test codeunit left in a
+                // SingleInstance global, it reads nothing of it (ADR-066 amendment 3, R1).
+                let dst = match p {
+                    ir::Place::Global(i) => {
+                        self.alias_access(*i, f)?;
+                        Ok(f.instance.borrow().globals[*i].clone())
+                    }
+                    _ => self.read(p, f),
+                };
+                if let Ok(Value::Record(dst)) = dst {
                     // A record variable takes no record of another table; that only happens through a Variant
                     // (types/variant/VariantRecordReassign.al:130 Variant_Reassign_ReadBack).
                     if dst.borrow().table != src.borrow().table && !matches!(self.place_type(p, f), RtType::Variant) {
@@ -1455,6 +1468,9 @@ impl Session {
                         })));
                     }
                     if !Rc::ptr_eq(src, &dst) {
+                        if let ir::Place::Global(i) = p {
+                            self.single_replaced(&f.instance, *i);
+                        }
                         // The source's buffer after an export under SourceTableView is not pinned (records.rs
                         // `XP_VIEW_AFTER_EXPORT`).
                         if let Some(why) = crate::records::xp_export_marked(src) {
@@ -1517,6 +1533,9 @@ impl Session {
                         d.load.buffer = load.buffer;
                         d.load.partial = load.partial;
                     }
+                    if let ir::Place::Global(i) = p {
+                        self.single_written(&f.instance, *i);
+                    }
                     return Ok(());
                 }
             }
@@ -1563,8 +1582,17 @@ impl Session {
             ir::Place::Local(i) => f.locals[*i] = v,
             ir::Place::Global(i) => {
                 self.alias_access(*i, f)?;
-                self.single_wrote(&f.instance, *i);
+                // A builtin's write-back of the value the global holds is no write (`D.ContainsKey(K)` on a global).
+                let noted = if assign {
+                    self.single_wrote(&f.instance, *i);
+                    true
+                } else {
+                    self.single_wrote_back(&f.instance, *i, &v)
+                };
                 f.instance.borrow_mut().globals[*i] = v;
+                if noted {
+                    self.single_written(&f.instance, *i);
+                }
                 self.alias_wrote(*i, f);
             }
             ir::Place::BaseGlobal(i) => {

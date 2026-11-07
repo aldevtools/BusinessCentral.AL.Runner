@@ -1,6 +1,6 @@
 # ADR-066: Run the test runner codeunit's own AL
 
-- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07)
+- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07)
 - Date: 2026-11-05
 
 ## Context
@@ -287,3 +287,100 @@ values that differ.
   equal value is neither flagged nor run again; a cache with another value is flagged; an app without a dependence has
   no lane.
 - Corpus: `P7B_ReadsWhatThePreviousTestCodeunitLeft` and the other P7 cases pass flagged.
+
+## Amendment 3 (Accepted, owner, 2026-11-07): narrow the SingleInstance lane to real order dependence
+
+- Status: Accepted by the owner on 2026-11-07. Amends amendment 2. The owner rejected the further cut "re-run only the
+  dependent codeunits that failed": every dependent codeunit still runs again in the lane.
+- Supersedes pull request 7270 (branch `rt-lanerefuse`): its rule that a refused writer is no change is kept (R3); its
+  "distrust" step, which turned a failure of a later codeunit into not run, is dropped.
+
+### Why
+
+An outside user's suite (al-runner issue 6924) put 716 of its 717 test codeunits into the lane, and the run took 2.8
+times as long. Microsoft's Tests-ERM-Purchase on BC 29 went from 131 s to 205 s with 32 of 32 codeunits in the lane,
+Tests-SCM from 245 s to 517 s with 75 of 76. The causes:
+
+1. One cache pulled everything in. The lane took every earlier codeunit that changed any global a lane member read, until
+   nothing was added. A cache that every codeunit fills (Sequence No. Mgt., Unit of Measure Management, the dimension
+   and general ledger setup caches) linked every codeunit to every earlier one.
+2. Writes were noted as reads. Only a plain `:=` of a global counted as a write. `GlobalRec := Passed`, `Clear`, `Get`,
+   `Find`, `List.Add`, `Dictionary.Set` and a `var` argument went through the read path: the codeunit looked as if it
+   read the earlier state.
+3. A keyed cache never matched. A codeunit that refilled a cache with its own key ended with its own key, so the "same
+   end value" rule of amendment 2 never applied.
+4. State left by a test that was refused mid-run moved on. Tests-SCM codeunit 137035 is refused in the middle of a
+   print; the row it leaves in a SingleInstance temporary table moved into 137038 in the lane, and 5 of its tests went
+   from pass to fail ("Production Order does not exist").
+
+### Decision
+
+- **R1, access kind.** The first access of a global decides whether the codeunit read the state it was given. A write
+  in place is a write: `:=` into a record, `Clear`, `Init`, `Get`, `GetBySystemId`, `Copy`, `Find`, `FindFirst`,
+  `FindLast`, `FindSet` on a global record; `Add`, `AddRange`, `Insert`, `Remove`, `RemoveAt`, `RemoveRange`, `Set` on a
+  global list or dictionary; `Insert`, `Delete`, `DeleteAll` on a global temporary record; a global passed by `var` to a
+  procedure, and the write-back of a `var` parameter to the global it stands for. Only a read of the value (a field, a
+  comparison, `Count`, `Contains`, `Get(key)` of a dictionary, `IsEmpty`) is a read. A builtin hands its `var`
+  receiver back after the call; when it hands back the value the global holds (the same list, dictionary or record),
+  that is no write.
+- **R1b, a re-validated cache.** The notes also take the fingerprint right after the first write of a global that was
+  read first (the refill). When that first write replaces the whole value without using it (`:=` into a record,
+  `Clear`, `Init`, `Get`, `Copy`, a `Find`, or
+  `G := x` where `x` is made without `G`, such as `WhenGotGLSetup := CurrentDateTime`; not `Log += x` or
+  `Flag := not Flag`) and no other watched global was written between the read and it, the read was a
+  guard and the write the refill. Such a global is no link when the refill left the value the earlier codeunit left (the
+  same state either way, nothing assumed). It is no link either when the refill left another value; that is the
+  registered assumption `single-instance-refill` (`Assumption::SingleInstanceRefill`): with the earlier value the guard
+  would have refilled all the same or found the key it wants, and the cached row is what the store holds. Every test of
+  such a codeunit is flagged and the codeunit keeps its parallel run. Neither applies when the codeunit also left
+  another global unlike the earlier codeunit (a cache filled after its key): then it is dependent.
+- **R2, only the last writer.** For each global that makes a codeunit dependent, only the last earlier codeunit that
+  wrote it joins the lane. That writer's own writers join only when it is dependent itself. The fixpoint over every
+  earlier writer is gone.
+- **R3, a refused writer is no change.** What a codeunit with a test refused while it ran left is not BC's state (on BC
+  the test runs to its end). It makes no later codeunit dependent; a later codeunit that reads it keeps its own run and
+  outcome. In the lane such a codeunit hands no single instances on: the next codeunit starts without them.
+- **R4, the lane is timed.** `LaneReport::took` and the `--timings` line give the lane's time and the number of
+  codeunits flagged under R1b.
+
+### Decided without owner review (2026-11-07)
+
+Measured on Tests-ERM-Purchase (BC 29) while building R1 to R4, two refinements of the lazy-cache rule of amendment 2
+were needed to reach real dependence only. Both are recorded in `docs/owner-review.md`.
+
+1. **A refilled global is not a culprit.** A global the codeunit refilled after a guard is left out of the "did it end
+   as the earlier codeunit left it" check: its end is the refill's own value. Without this a time stamp
+   (`WhenGotGLSetup` of Get Shortcut Dimension Values) kept every reader of the dimension cache dependent.
+2. **A flag guards a cache in its own codeunit.** When a flag read first ends as it was left, only the globals the
+   codeunit wrote in the same SingleInstance codeunit as that flag are checked. What it wrote in another single instance
+   (Application Area Cache filled with its own keys) is not tied to the flag. A flag that guards a cache in another
+   codeunit is missed; that test keeps its parallel run unflagged.
+
+What stays a dependence on purpose: Sequence No. Mgt. keeps the rest of an entry-number range it allocated
+(`SeqNoBufferFrom`, `SeqNoBufferTo`, `PendingAllocation`) when a posting stopped with an error, and BC's next test
+codeunit draws its entry numbers from that rest. A record cache (the general ledger setup in Dimension CaptionClass Mgmt
+and Get Shortcut Dimension Values) that an earlier codeunit filled after it changed the setup in its rolled-back
+transaction is what BC's next codeunit sees.
+
+### Consequences and limits
+
+- A run without real order dependence has no lane. Real dependence still runs serially and is a flagged pass.
+- R1 takes a codeunit whose first access appends to a list or dictionary an earlier codeunit filled as independent;
+  a test that then counts the entries sees only its own. Accepted by the owner with the rule.
+- `Find` on a global record whose filters an earlier codeunit set is a write under R1: the filters it finds by are not
+  compared.
+- R1b rests on the assumption above; when a probe pins it, the probe wins.
+
+### Conformance
+
+- `crates/al-vm/tests/language/single_track_access.rs`: `:=` into a record, `Clear`, `Get`, `FindFirst`, `List.Add`,
+  `Dictionary.Set` and a `var` argument as the first access are writes; a field read and `Count` stay reads; a guard
+  directly followed by `Get` is guarded with the refill's fingerprint, and so is `if When = 0DT then When :=
+  CurrentDateTime`; a write of another global between, an append, a toggle and `ContainsKey` then `Set` on a
+  dictionary (the other entries stay: corpus `XhLog.al`, read by `BiTestHandlerCrossApp.al:87-103`) are not guarded.
+- `crates/al-testrun/src/runtime/single_lane.rs` unit tests: the last writer only; a dependent writer brings its writer,
+  an independent one does not; a refused writer is no change; a guard-then-refill with the same value is no link, with
+  another value no link under the assumption, and with another global left otherwise a dependence.
+- `crates/al-testrun/tests/suite/single_instance_lane.rs`: a keyed cache every codeunit checks and refills has no lane;
+  a global record overwritten before it is read has no lane; the dependent pair of amendment 2 still runs in the lane
+  and is flagged. `crates/al-testrun/tests/suite/runner_reset.rs`: an append to a SingleInstance log stays a dependence.
