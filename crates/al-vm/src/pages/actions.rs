@@ -1399,7 +1399,7 @@ impl Session {
                 .page_action_event(st, "onbeforeactionevent", &element)
                 .and_then(|()| self.run_ext_after_action(st, &before_ext))
             {
-                Ok(()) => self.control_routine(st, idx, r),
+                Ok(()) => self.in_page_trigger(st, "onaction", |s| s.control_routine(st, idx, r)),
                 err => err.map(|()| Value::Null),
             };
             let r = match r {

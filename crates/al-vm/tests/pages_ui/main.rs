@@ -13,6 +13,7 @@ mod caption_class_counts;
 mod caption_class_empty;
 mod clear_all_page_extension;
 mod close_action_navigate_parts;
+mod code_close_veto_asked_again;
 mod collapsed_tree_page_code;
 mod control_entry;
 mod control_properties;
