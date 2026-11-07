@@ -16,6 +16,7 @@ mod byte_char_table;
 mod byte_overflow;
 mod calc_const_guid;
 mod call_stack;
+mod blob_stale_unsaved_write;
 mod caption_after_resolve;
 mod ui_caption_translate;
 mod caption_class_areas;
