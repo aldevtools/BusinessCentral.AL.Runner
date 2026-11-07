@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<testsuites name="DEFAULT" tests="24204" failures="0" errors="0" skipped="0" time="3434.000" timestamp="2026-11-06T23:58:11Z"><testsuite name="Codeunit 60002" tests="4" failures="0" errors="0" skipped="0" time="0.201" timestamp="2026-11-06T23:30:20Z">
+<testsuites name="DEFAULT" tests="24231" failures="0" errors="0" skipped="0" time="2482.107" timestamp="2026-11-06T23:58:11Z"><testsuite name="Codeunit 60002" tests="4" failures="0" errors="0" skipped="0" time="0.201" timestamp="2026-11-06T23:30:20Z">
     <testcase classname="Codeunit 60002" name="TestCodeunitOnRun_GlobalSetInOnRun_IsVisibleToTest" time="0.160" />
     <testcase classname="Codeunit 60002" name="TestCodeunitOnRun_RunsExactlyOncePerCodeunit" time="0.004" />
     <testcase classname="Codeunit 60002" name="TestCodeunitOnRun_RowInsertedInOnRun_IsVisibleToTest" time="0.017" />
@@ -25456,13 +25456,15 @@
     <testcase classname="Codeunit 91255" name="OpenView_NewDraftRow_ActionUpdate" time="0.036" />
     <testcase classname="Codeunit 91255" name="OpenView_ViewShowsNoRowWhileTableHasRows_ActionUpdate" time="0.060" />
   </testsuite>
-  <testsuite name="Codeunit 91264" tests="6" failures="0" errors="0" skipped="0" time="0.660" timestamp="2026-11-06T23:41:52Z">
-    <testcase classname="Codeunit 91264" name="EnumAndCodeKey_OwnTable" time="0.083" />
-    <testcase classname="Codeunit 91264" name="EnumAndCodeKey_InsertedRow_SameAsNotInserted" time="0.020" />
+  <testsuite name="Codeunit 91264" tests="8" failures="0" errors="0" skipped="0" time="3.556" timestamp="2026-11-06T23:39:43Z">
+    <testcase classname="Codeunit 91264" name="EnumAndCodeKey_OwnTable" time="0.380" />
+    <testcase classname="Codeunit 91264" name="EnumAndCodeKey_InsertedRow_SameAsNotInserted" time="0.017" />
     <testcase classname="Codeunit 91264" name="PurchaseHeader_DocumentTypeAndNo" time="0.020" />
-    <testcase classname="Codeunit 91264" name="OptionAndCodeKey_OwnTable" time="0.064" />
-    <testcase classname="Codeunit 91264" name="GetUrl_PurchaseHeader_SevenDigits_UsesCompositeBookmark" time="0.450" />
-    <testcase classname="Codeunit 91264" name="GetUrl_PurchaseHeader_DigitThenLetter_UsesCompositeBookmark" time="0.023" />
+    <testcase classname="Codeunit 91264" name="OptionAndCodeKey_OwnTable" time="0.053" />
+    <testcase classname="Codeunit 91264" name="GetUrl_PurchaseHeader_SevenDigits_UsesCompositeBookmark" time="3.020" />
+    <testcase classname="Codeunit 91264" name="GetUrl_PurchaseHeader_DigitThenLetter_UsesCompositeBookmark" time="0.026" />
+    <testcase classname="Codeunit 91264" name="EnumAndCodeKey_OwnTable_NumericAndMixedCodes" time="0.020" />
+    <testcase classname="Codeunit 91264" name="PurchaseHeaderOrder_NumericAndMixedNumbers" time="0.020" />
   </testsuite>
   <testsuite name="Codeunit 91275" tests="1" failures="0" errors="0" skipped="0" time="0.156" timestamp="2026-11-06T23:41:53Z">
     <testcase classname="Codeunit 91275" name="RecordVersusInterface_ArgumentKinds" time="0.156" />
@@ -27453,8 +27455,8 @@
     <testcase classname="Codeunit 92983" name="RecRefCopy_RecordIntoTemporary_ShareTableTrue" time="0.034" />
     <testcase classname="Codeunit 92983" name="RecRefCopy_RecordRefIntoTemporary_InsertFalse" time="0.027" />
   </testsuite>
-  <testsuite name="Codeunit 93011" tests="1" failures="0" errors="0" skipped="0" time="0.007" timestamp="2026-11-06T23:53:45Z">
-    <testcase classname="Codeunit 93011" name="RequestOptionsPage_InRequestPageCode_Compiles" time="0.007" />
+  <testsuite name="Codeunit 93011" tests="1" failures="0" errors="0" skipped="0" time="0.004" timestamp="2026-11-06T23:39:47Z">
+    <testcase classname="Codeunit 93011" name="RequestOptionsPage_InRequestPageCode_Compiles" time="0.004" />
   </testsuite>
   <testsuite name="Codeunit 93104" tests="7" failures="0" errors="0" skipped="0" time="0.127" timestamp="2026-11-06T23:53:46Z">
     <testcase classname="Codeunit 93104" name="ByteChar_Codes_128_159" time="0.027" />
@@ -30824,5 +30826,34 @@
   <testsuite name="Codeunit 99851" tests="2" failures="0" errors="0" skipped="0" time="0.168" timestamp="2026-11-06T23:58:11Z">
     <testcase classname="Codeunit 99851" name="Ternary_TextNTrue_BuiltinFalse_ValuesAndLengths" time="0.134" />
     <testcase classname="Codeunit 99851" name="Ternary_TextNTrue_BuiltinFalse_IntoShorterTarget" time="0.034" />
+  </testsuite>
+<testsuite name="Codeunit 96902" tests="22" failures="0" errors="0" skipped="0" time="0.768" timestamp="2026-11-06T23:39:47Z">
+    <testcase classname="Codeunit 96902" name="TableFilter_Text_Empty" time="0.343" />
+    <testcase classname="Codeunit 96902" name="TableFilter_Text_NotEmpty" time="0.026" />
+    <testcase classname="Codeunit 96902" name="TableFilter_Text_QuestionStar" time="0.023" />
+    <testcase classname="Codeunit 96902" name="TableFilter_Text_PrefixStar" time="0.020" />
+    <testcase classname="Codeunit 96902" name="TableFilter_Decimal_NotZero" time="0.023" />
+    <testcase classname="Codeunit 96902" name="TableFilter_Decimal_NotFive" time="0.017" />
+    <testcase classname="Codeunit 96902" name="TableFilter_Decimal_QuotedGE" time="0.033" />
+    <testcase classname="Codeunit 96902" name="TableFilter_Decimal_PlainGE" time="0.020" />
+    <testcase classname="Codeunit 96902" name="TableFilter_Decimal_QuotedGroupedGE" time="0.016" />
+    <testcase classname="Codeunit 96902" name="TableFilter_Decimal_UnquotedGroupedGE" time="0.023" />
+    <testcase classname="Codeunit 96902" name="TableFilter_Code_Prefix" time="0.020" />
+    <testcase classname="Codeunit 96902" name="TableFilter_Code_NotPrefix" time="0.020" />
+    <testcase classname="Codeunit 96902" name="TableFilter_Code_LowerPrefix" time="0.017" />
+    <testcase classname="Codeunit 96902" name="TableFilter_Boolean_Yes" time="0.017" />
+    <testcase classname="Codeunit 96902" name="TableFilter_Boolean_NoCapital" time="0.020" />
+    <testcase classname="Codeunit 96902" name="TableFilter_Boolean_NoLower" time="0.016" />
+    <testcase classname="Codeunit 96902" name="TableFilter_Boolean_False" time="0.016" />
+    <testcase classname="Codeunit 96902" name="TableFilter_Boolean_True" time="0.020" />
+    <testcase classname="Codeunit 96902" name="TableFilter_Enum_NoMember7" time="0.017" />
+    <testcase classname="Codeunit 96902" name="TableFilter_Enum_NoMember10" time="0.020" />
+    <testcase classname="Codeunit 96902" name="TableFilter_Enum_NoMember2" time="0.017" />
+    <testcase classname="Codeunit 96902" name="TableFilter_Enum_Member5" time="0.024" />
+  </testsuite>
+  <testsuite name="Codeunit 96913" tests="3" failures="0" errors="0" skipped="0" time="1.651" timestamp="2026-11-06T23:39:48Z">
+    <testcase classname="Codeunit 96913" name="CalcFormula_QualifiedEnumList_And_Range" time="0.147" />
+    <testcase classname="Codeunit 96913" name="SourceTableView_QualifiedEnumList" time="1.377" />
+    <testcase classname="Codeunit 96913" name="SourceTableView_QualifiedEnumRange" time="0.127" />
   </testsuite>
 </testsuites>
