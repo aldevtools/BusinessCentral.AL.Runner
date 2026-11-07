@@ -536,15 +536,18 @@ impl Encoding {
             Encoding::Utf16 => s.encode_utf16().flat_map(u16::to_le_bytes).collect(),
             Encoding::MsDos => s
                 .chars()
-                .map(|c| match c {
-                    c if (c as u32) < 0x80 => c as u8,
+                .flat_map(|c| match c {
+                    c if (c as u32) < 0x80 => vec![c as u8],
                     // The euro sign is written as 0xB1 (streams/TestStreamsRuntimeContracts.al:
                     // WriteText_ExplicitEncodings_Bytes, streams/TestProbeStreamContracts.al `61 84 94 B1 00`).
-                    '€' => 0xB1,
-                    c if msdos_table_byte(c).is_some() => msdos_table_byte(c).expect("checked"),
+                    '€' => vec![0xB1],
+                    // The call stack mark, kept as for a Windows stream (`CALL_STACK_MARK_BYTES`); the stream bytes of a call
+                    // stack text are not pinned (assumption `call-stack-text-stream-write`).
+                    crate::native::CALL_STACK_MARK => CALL_STACK_MARK_BYTES.to_vec(),
+                    c if msdos_table_byte(c).is_some() => vec![msdos_table_byte(c).expect("checked")],
                     // π is written as `p` (streams/StTEncodings.al:UnmappableCharacters `msdos`: it reads back as `p`).
-                    'π' => b'p',
-                    c => CP437_HIGH.iter().position(|u| *u == c).map_or(b'?', |i| 0x80 + i as u8),
+                    'π' => vec![b'p'],
+                    c => vec![CP437_HIGH.iter().position(|u| *u == c).map_or(b'?', |i| 0x80 + i as u8)],
                 })
                 .collect(),
             Encoding::Windows => {
@@ -583,16 +586,26 @@ impl Encoding {
                 let units: Vec<u16> = b.chunks_exact(2).map(|p| u16::from_le_bytes([p[0], p[1]])).collect();
                 String::from_utf16_lossy(&units)
             }
-            Encoding::MsDos => b
-                .iter()
-                .map(|&x| match x {
-                    0..=0x7F => char::from(x),
-                    // Every byte from 0x80 up reads as the Byte to Char table gives it (`conv::byte_char`): ReadText and BigText.Read of
-                    // each byte 128 to 255 (corpus branch al-runtime-rs-staging-r6963, streams/instream-outstream/
-                    // ReadTextMsDosHighBytes.al ReadText_NoEncoding_Bytes128To159, _160To191, _192To223, _224To255).
-                    x => char::from_u32(u32::from(crate::conv::byte_char::byte_to_char(x))).unwrap_or('?'),
-                })
-                .collect(),
+            Encoding::MsDos => {
+                let mut out = String::with_capacity(b.len());
+                let mut i = 0;
+                while i < b.len() {
+                    if b[i..].starts_with(CALL_STACK_MARK_BYTES) {
+                        out.push(crate::native::CALL_STACK_MARK);
+                        i += CALL_STACK_MARK_BYTES.len();
+                        continue;
+                    }
+                    out.push(match b[i] {
+                        x @ 0..=0x7F => char::from(x),
+                        // Every byte from 0x80 up reads as the Byte to Char table gives it (`conv::byte_char`): ReadText and BigText.Read of
+                        // each byte 128 to 255 (corpus branch al-runtime-rs-staging-r6963, streams/instream-outstream/
+                        // ReadTextMsDosHighBytes.al ReadText_NoEncoding_Bytes128To159, _160To191, _192To223, _224To255).
+                        x => char::from_u32(u32::from(crate::conv::byte_char::byte_to_char(x))).unwrap_or('?'),
+                    });
+                    i += 1;
+                }
+                out
+            }
             Encoding::Windows => {
                 let mut out = String::with_capacity(b.len());
                 let mut i = 0;
@@ -617,13 +630,26 @@ impl Encoding {
     /// Whether `decode` of `b` gives what the Windows tier gives: every code page 437 byte whose character is also in
     /// code page 1252 reads as that character, and the bytes of `CP437_AS_READ` as pinned; the rest is not pinned.
     pub fn decode_pinned(self, b: &[u8]) -> bool {
-        self != Encoding::MsDos
-            || b.iter().all(|&x| {
-                x < 0x80 || CP437_AS_READ.iter().any(|(p, _)| *p == x) || {
-                    let c = CP437_HIGH[usize::from(x - 0x80)] as u32;
-                    c <= 0xFF || u16::try_from(c).is_ok_and(|u| CP1252_HIGH.contains(&u))
-                }
-            })
+        if self != Encoding::MsDos {
+            return true;
+        }
+        // The bytes of the call stack mark read back as the mark (`decode`), whatever code page 437 would make of them.
+        let mut rest = b;
+        let mut plain = Vec::with_capacity(b.len());
+        while let Some((&x, tail)) = rest.split_first() {
+            if rest.starts_with(CALL_STACK_MARK_BYTES) {
+                rest = &rest[CALL_STACK_MARK_BYTES.len()..];
+            } else {
+                plain.push(x);
+                rest = tail;
+            }
+        }
+        plain.iter().all(|&x| {
+            x < 0x80 || CP437_AS_READ.iter().any(|(p, _)| *p == x) || {
+                let c = CP437_HIGH[usize::from(x - 0x80)] as u32;
+                c <= 0xFF || u16::try_from(c).is_ok_and(|u| CP1252_HIGH.contains(&u))
+            }
+        })
     }
 
     /// Whether `encode` of `t` is pinned: ASCII, the characters code page 1252 has for a Windows stream, and for an MS-DOS
@@ -1837,12 +1863,17 @@ fn out_write_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
     }
     let text = match a.first() {
         None => "\r\n".to_string(),
-        Some(v) => match crate::native::text_of(v) {
+        Some(v) => match crate::native::text_of_carrying_call_stack(v) {
             Some(t) => t,
             None => return unsupported("OutStream.WriteText of a value that is not text"),
         }
         .to_string(),
     };
+    // A call stack text is written like any text. Its stream bytes are not pinned, only that it is not refused and reads
+    // back (the Write round trip is: error-handling/lt-wd/WdCallStackToBlob.al:96-102), so the pass is flagged.
+    if text.contains(crate::native::CALL_STACK_MARK) {
+        crate::assumptions::assume(crate::assumptions::Assumption::CallStackTextStreamWrite);
+    }
     let (b, enc) = out_buf(r)?;
     let bytes = enc.encode(&text);
     write_bytes(&b, &bytes);
@@ -2336,5 +2367,15 @@ mod blob_cell_tests {
             Encoding::MsDos.decode(ja),
             "2025\u{CE}\u{2030}\u{201E}1\u{B5}\u{A3}\u{EA}31\u{B5}\u{F9}\u{D1} 1\u{CB}\u{C7}\u{BB}2"
         );
+    }
+
+    // al-runner issue 6853: a call stack text written to a default (code page 437) stream reads back with its mark, as it does
+    // from a Windows stream (error-handling/lt-wd/WdCallStackToBlob.al:96-102).
+    #[test]
+    fn the_call_stack_mark_round_trips_through_the_default_encoding() {
+        let t = "\"C\"(CodeUnit 50100).Collect line 3\r\n\u{FDD0}";
+        let bytes = Encoding::MsDos.encode(t);
+        assert!(Encoding::MsDos.decode_pinned(&bytes));
+        assert_eq!(Encoding::MsDos.decode(&bytes), t);
     }
 }
