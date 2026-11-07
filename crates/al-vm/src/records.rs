@@ -17,6 +17,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
+mod boolean_filter_error;
 mod delete_all_flow;
 mod flowfield_key;
 mod nested_validate;

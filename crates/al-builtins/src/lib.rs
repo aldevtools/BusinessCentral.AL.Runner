@@ -43,6 +43,7 @@ pub mod fieldref_value_text;
 pub mod fieldref_variant_cells;
 pub mod file;
 pub mod filter;
+mod filter_boolean_words;
 pub mod format;
 mod format_json;
 pub mod formatstr;

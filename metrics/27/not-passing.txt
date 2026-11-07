@@ -2197,12 +2197,6 @@
 96165 R7187_SetValueError_FieldControlText_English
 96165 R7187_SetValueError_OwnControl_Dutch
 96165 R7187_SetValueError_OwnControl_English
-96231 WF3_BaseApp_French
-96231 WF3_BaseApp_German
-96231 WF3_RoundTrip_French
-96231 WF3_RoundTrip_German
-96231 WF3_Words_French
-96231 WF3_Words_German
 96249 WF3_Card_Line2_Action
 96249 WF3_Card_Line2_FieldUpdateFalse
 96249 WF3_Card_Line2_FieldUpdateTrue
