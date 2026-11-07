@@ -1373,6 +1373,9 @@ pub struct Field {
     /// system field. Its app is the app that owns the field's column (test data, ADR-020).
     #[serde(default)]
     pub declared_in: Option<u32>,
+    /// A `modify` block of a table extension sets the field's `Caption` or `CaptionML`.
+    #[serde(default)]
+    pub caption_modified: bool,
 }
 
 /// One arm of a `TableRelation`: `if (Kind = const(A)) Table.Field where(...)`.
