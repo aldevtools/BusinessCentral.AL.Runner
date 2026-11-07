@@ -919,7 +919,7 @@ impl Lowerer<'_> {
             let unqualified = |raw: &str| match &src_fields[pos].ty {
                 Ty::Enum(name) => {
                     al_builtins::enum_qualifier::strip_enum_qualifier(raw, &crate::types::display_name(name))
-                        .to_string()
+                        .into_owned()
                 }
                 _ => raw.to_string(),
             };

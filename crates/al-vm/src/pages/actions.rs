@@ -3098,7 +3098,7 @@ impl Session {
         // The parts read their rows again after the host's own triggers (corpus
         // testpage/parts/TestPartTriggerOrderAndRefresh.al:HostCurrPageUpdate_ReReadsThePart:
         // "host.Action;host.AGCR(2);part.AGCR(2);", and no part OnOpenPage).
-        if !without_parts {
+        if !without_parts && !(by_update && self.host_update_keeps_part_row(st)?) {
             self.sync_parts(st)?;
         }
         Ok(())
