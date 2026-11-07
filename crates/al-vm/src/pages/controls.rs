@@ -995,10 +995,11 @@ impl Session {
                     self.pages.curr_field_no.pop();
                     validated?;
                 }
+                // The value is dropped: see `ir::EXT_MIRROR_PROPERTY`.
+                ir::Binding::BaseVar(_) if ctl.props.iter().any(|(n, _)| n == ir::EXT_MIRROR_PROPERTY) => {}
                 ir::Binding::Var(_) | ir::Binding::BaseVar(_) => {
                     let (slot, owner) = ctl.binding.var_slot(ctl.owner).expect("a variable binding");
-                    let inst = self.owner_instance(st, owner);
-                    inst.borrow_mut().globals[slot] = parsed.clone();
+                    self.owner_instance(st, owner).borrow_mut().globals[slot] = parsed.clone();
                 }
                 // A control bound to an expression that is a place (`Totals[1]."Inv. Discount Amount"`) is written through the
                 // routine `pages::expand` made; the value is converted to the type the path holds, then the control's OnValidate runs
