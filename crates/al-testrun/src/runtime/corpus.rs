@@ -1746,19 +1746,9 @@ impl CorpusRuntime {
                 }
                 slots[k] = Some(r);
             }
-            if chain_report.single_lane.watched > 0 {
-                super::single_lane::Lane {
-                    engine: &engine,
-                    lowered,
-                    baseline: baseline.as_ref(),
-                    units: &units,
-                    carried: &carried,
-                    sees: &sees,
-                    place: &place,
-                    limit,
-                }
-                .run(&mut slots, &mut chain_report.single_lane);
-            }
+            #[rustfmt::skip]
+            let lane = super::single_lane::Lane { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, carried: &carried, sees: &sees, place: &place, limit };
+            lane.run(&mut slots, &mut chain_report.single_lane);
             let results: Vec<UnitResult> = slots.into_iter().flatten().collect();
             for r in results {
                 suite_work.push((r.si, r.took));

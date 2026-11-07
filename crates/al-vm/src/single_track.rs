@@ -164,8 +164,11 @@ fn put(v: &Value, depth: u8, out: &mut Vec<u8>, e: &crate::Engine) -> bool {
                     return false;
                 }
             }
-            let rest = format!("{:?}|{:?}|{}|{:?}", r.filters, r.marks, r.marked_only, r.company);
-            out.extend_from_slice(rest.as_bytes());
+            // Filters and marks as counts: a cached row is read as it was got.
+            put_u32(out, r.filters.len() as u32);
+            put_u32(out, r.marks.len() as u32);
+            put_u8(out, r.marked_only as u8);
+            out.extend_from_slice(r.company.as_deref().unwrap_or("").as_bytes());
             true
         }
         Value::Codeunit(c) => {

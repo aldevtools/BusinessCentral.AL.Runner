@@ -188,6 +188,9 @@ impl Lane<'_> {
     /// Step 3: runs the lane of each BC session that has a dependent codeunit and puts the dependent codeunits'
     /// results (flagged) in `slots`.
     pub(super) fn run(&self, slots: &mut [Option<UnitResult>], report: &mut LaneReport) {
+        if report.watched == 0 {
+            return;
+        }
         let has = |k: usize| slots[k].is_some();
         let streams = streams(self.units, self.place, &has);
         for ks in streams {

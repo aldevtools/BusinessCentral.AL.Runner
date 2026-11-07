@@ -251,11 +251,7 @@ fn run_codeunit_inner(
     let run_seed = scratch.run_seed;
     let mut host = crate::host::host_perturbed(scratch.clock_start, &perturb);
     host.run_seed = run_seed.seed;
-    let mut session = Session::with_host(engine.clone(), host);
-    if let Some(b) = baseline {
-        session.restore_baseline(b);
-    }
-    let moved = singles_moved_in(&mut session, execute);
+    let (mut session, moved) = new_session(engine, host, baseline, execute);
     session.trace_faults(observe.is_some());
     scratch.flags.apply(&mut session);
     let covering = crate::coverage::enabled();
@@ -1376,6 +1372,21 @@ fn carry_disabled(
         as_started: false,
     };
     CARRIED.with(|c| *c.borrow_mut() = Some(carried));
+}
+
+/// A codeunit's session from the install baseline; in the lane with the single instances of the codeunit before.
+fn new_session(
+    engine: &Arc<Engine>,
+    host: al_host::Host,
+    baseline: Option<&al_vm::Baseline>,
+    execute: bool,
+) -> (Session, Option<al_vm::single_track::MovedSingles>) {
+    let mut session = Session::with_host(engine.clone(), host);
+    if let Some(b) = baseline {
+        session.restore_baseline(b);
+    }
+    let moved = singles_moved_in(&mut session, execute);
+    (session, moved)
 }
 
 /// The lane: the single instances of the codeunit before, moved in later (`start_singles`); their temporary tables
