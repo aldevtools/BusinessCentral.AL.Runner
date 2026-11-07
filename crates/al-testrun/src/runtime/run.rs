@@ -393,7 +393,7 @@ fn run_codeunit_inner(
     // codeunits left are still there (al-language/codeunits/TestCuP7BReader.al:24-37, against TestCuP7ASetter.al:24-58).
     // Put back here, after the company open (which BC's session did once, before the first codeunit), and noted from
     // here on, so the run can be checked against the serial order (`single_carry.rs`, `corpus.rs`).
-    start_singles(&mut session, execute, moved, scratch.singles_in.as_deref());
+    start_singles(&mut session, execute, moved, scratch.singles_in.clone());
     // What a Disabled codeunit leaves for the later codeunits is its writes from here on ([`CARRIED`]). With
     // Company Triggers subscribers each session writes on its own when it opens the company, and how those writes
     // meet the ones carried over is not pinned.
@@ -1411,7 +1411,7 @@ fn start_singles(
     session: &mut Session,
     execute: bool,
     moved: Option<al_vm::single_carry::MovedSingles>,
-    state: Option<&SingleState>,
+    state: Option<std::sync::Arc<SingleState>>,
 ) {
     if execute {
         return;

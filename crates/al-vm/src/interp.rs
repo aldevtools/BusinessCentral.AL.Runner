@@ -1010,7 +1010,8 @@ impl Session {
         if !self.singletons.contains_key(&object) {
             let inst = self.instance(object);
             self.single_made(object, &inst);
-            self.singletons.insert(object, inst);
+            self.singletons.insert(object, inst.clone());
+            self.restore_lazy(object, &inst);
         } else if !self.singles_unclaimed.is_empty() {
             self.claim_carried_single(object);
         }

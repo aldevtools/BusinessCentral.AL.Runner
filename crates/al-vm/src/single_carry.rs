@@ -260,7 +260,34 @@ impl Session {
     /// Puts back what earlier test codeunits left in the single instances: each global of `state` gets its value; a
     /// handle (`Carry::Opaque`) is refused when the codeunit reads it before writing it. Call after
     /// [`Session::track_single_instances`].
-    pub fn restore_single_instances(&mut self, state: &BTreeMap<GlobalKey, Carry>) {
+    pub fn restore_single_instances(&mut self, state: std::sync::Arc<BTreeMap<GlobalKey, Carry>>) {
+        // Without carried bindings an instance is put back when the session first makes it (`restore_lazy`): a
+        // codeunit that uses few single instances reads back few of the many the run carries.
+        let no_bindings = match state.get(&BINDINGS_KEY) {
+            None => true,
+            Some(Carry::Val(v)) => matches!(&**v, CarryVal::Plain(text) if text.is_empty()),
+            Some(Carry::Opaque(_)) => false,
+        };
+        if no_bindings {
+            self.lazy_single = Some(state);
+            let b = self.binding_carry();
+            if let Some(t) = self.si_track.as_mut() {
+                t.bind_start = Some(b);
+            }
+            return;
+        }
+        self.restore_all(&state);
+    }
+
+    /// Puts the carried globals of single instance `object` back when the session makes it (`shared_instance`).
+    pub(crate) fn restore_lazy(&mut self, object: usize, inst: &Rc<RefCell<Instance>>) {
+        let Some(state) = self.lazy_single.clone() else { return };
+        if state.range((object, 0)..=(object, usize::MAX)).next().is_some() {
+            self.restore_object(object, inst, &state);
+        }
+    }
+
+    fn restore_all(&mut self, state: &BTreeMap<GlobalKey, Carry>) {
         let mut objects: Vec<usize> = state.keys().map(|k| k.0).filter(|&o| o != BINDINGS_KEY.0).collect();
         objects.dedup();
         match state.get(&BINDINGS_KEY) {
@@ -296,64 +323,7 @@ impl Session {
         }
         for object in objects {
             let inst = self.codeunit_instance(object);
-            // The globals of one single instance are one group: decoded in order, with one set of numbered handles.
-            let mut ids = Ids::new();
-            let name = self.engine.program.objects[object].name.clone();
-            for (&(o, g), carry) in state.range((object, 0)..=(object, usize::MAX)) {
-                debug_assert_eq!(o, object);
-                if g >= inst.borrow().globals.len() {
-                    continue;
-                }
-                let bound = self.si_track.as_ref().map_or(0, |t| t.bound);
-                let pending = self.si_track.as_ref().map_or(0, |t| t.pending.len());
-                let refused = match carry {
-                    Carry::Val(c) => match self.carry_decode(c, bound, &mut ids) {
-                        Ok(v) => {
-                            inst.borrow_mut().globals[g] = v;
-                            if let Some(t) = self.si_track.as_mut()
-                                && t.pending.len() > pending
-                            {
-                                t.held.push((object, g));
-                            }
-                            None
-                        }
-                        Err(why) => {
-                            // A bound instance inside a value that does not read back: its binding is not carried.
-                            if let Some(t) = self.si_track.as_mut()
-                                && t.pending.len() > pending
-                            {
-                                t.pending.truncate(pending);
-                                t.poisoned.entry(BINDINGS_KEY).or_insert_with(|| {
-                                    format!(
-                                        "an event with a manual subscriber: an earlier test codeunit of the run left a \
-                                         codeunit instance bound in {why}, which al-runner cannot hand on to the next \
-                                         test codeunit exactly"
-                                    )
-                                });
-                            }
-                            Some(why)
-                        }
-                    },
-                    Carry::Opaque(what) => Some(what.clone()),
-                };
-                if let Some(what) = refused {
-                    let var = self.engine.program.objects[object].globals[g].name.clone();
-                    if let Some(t) = self.si_track.as_mut() {
-                        t.poisoned.insert(
-                            (object, g),
-                            format!(
-                                "variable {var} of SingleInstance codeunit {name}: an earlier test codeunit of the run \
-                                 left it holding {what}, which al-runner cannot hand on to the next test codeunit \
-                                 exactly"
-                            ),
-                        );
-                    }
-                }
-                let v = inst.borrow().globals[g].clone();
-                if let Some(t) = self.si_track.as_mut() {
-                    t.start.insert((object, g), v);
-                }
-            }
+            self.restore_object(object, &inst, state);
         }
         self.bind_carried();
         let b = self.binding_carry();
@@ -361,6 +331,68 @@ impl Session {
             t.bind_start = Some(b);
         }
         self.singles_unclaimed.extend(self.singletons.keys().copied());
+    }
+
+    /// Puts the globals of `state` that belong to single instance `object` (held as `inst`) back.
+    fn restore_object(&mut self, object: usize, inst: &Rc<RefCell<Instance>>, state: &BTreeMap<GlobalKey, Carry>) {
+        // The globals of one single instance are one group: decoded in order, with one set of numbered handles.
+        let mut ids = Ids::new();
+        let name = self.engine.program.objects[object].name.clone();
+        for (&(o, g), carry) in state.range((object, 0)..=(object, usize::MAX)) {
+            debug_assert_eq!(o, object);
+            if g >= inst.borrow().globals.len() {
+                continue;
+            }
+            let bound = self.si_track.as_ref().map_or(0, |t| t.bound);
+            let pending = self.si_track.as_ref().map_or(0, |t| t.pending.len());
+            let refused = match carry {
+                Carry::Val(c) => match self.carry_decode(c, bound, &mut ids) {
+                    Ok(v) => {
+                        inst.borrow_mut().globals[g] = v;
+                        if let Some(t) = self.si_track.as_mut()
+                            && t.pending.len() > pending
+                        {
+                            t.held.push((object, g));
+                        }
+                        None
+                    }
+                    Err(why) => {
+                        // A bound instance inside a value that does not read back: its binding is not carried.
+                        if let Some(t) = self.si_track.as_mut()
+                            && t.pending.len() > pending
+                        {
+                            t.pending.truncate(pending);
+                            t.poisoned.entry(BINDINGS_KEY).or_insert_with(|| {
+                                format!(
+                                    "an event with a manual subscriber: an earlier test codeunit of the run left a \
+                                     codeunit instance bound in {why}, which al-runner cannot hand on to the next \
+                                     test codeunit exactly"
+                                )
+                            });
+                        }
+                        Some(why)
+                    }
+                },
+                Carry::Opaque(what) => Some(what.clone()),
+            };
+            if let Some(what) = refused {
+                let var = self.engine.program.objects[object].globals[g].name.clone();
+                if let Some(t) = self.si_track.as_mut() {
+                    t.poisoned.insert(
+                        (object, g),
+                        format!(
+                            "variable {var} of SingleInstance codeunit {name}: an earlier test codeunit of the run \
+                             left it holding {what}, which al-runner cannot hand on to the next test codeunit \
+                             exactly"
+                        ),
+                    );
+                }
+            }
+            let v = inst.borrow().globals[g].clone();
+            if let Some(t) = self.si_track.as_mut() {
+                t.start.insert((object, g), v);
+            }
+        }
     }
 
     /// The first use in this session of a single instance an earlier test codeunit left: it counts as made now for the
@@ -381,6 +413,12 @@ impl Session {
     /// What the session did with the single instances since [`Session::track_single_instances`]; `None` when it did not
     /// track them.
     pub fn single_out(&self) -> Option<SingleOut> {
+        let t0 = std::time::Instant::now();
+        let r = self.single_out_inner();
+        TIME_OUT.fetch_add(t0.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+        r
+    }
+    fn single_out_inner(&self) -> Option<SingleOut> {
         let t = self.si_track.as_ref()?;
         let mut out = SingleOut {
             observed: t.observed.clone(),
@@ -658,3 +696,6 @@ mod tests {
         assert_ne!(v, o);
     }
 }
+
+pub static TIME_OUT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static TIME_IN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);

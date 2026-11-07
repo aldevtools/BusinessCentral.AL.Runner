@@ -786,6 +786,8 @@ pub struct Session {
     singletons: std::collections::HashMap<usize, Rc<RefCell<Instance>>>,
     /// The notes on the single instances' globals while the session carries SingleInstance state (`single_carry.rs`).
     si_track: Option<Box<single_carry::Track>>,
+    /// What earlier test codeunits left in the single instances, put back as the session makes each one (`single_carry.rs`).
+    lazy_single: Option<std::sync::Arc<std::collections::BTreeMap<single_carry::GlobalKey, single_carry::Carry>>>,
     /// The single instances an earlier test codeunit left (restored or moved in) that this session has not used yet: the
     /// first use decides whether the instance counts as made under lowered permissions (`single_carry.rs`
     /// `claim_carried_single`).
@@ -1199,6 +1201,7 @@ impl Session {
             xp_pass_views: Vec::new(),
             singletons: Default::default(),
             si_track: None,
+            lazy_single: None,
             singles_unclaimed: Default::default(),
             xp_unlinked_passes: Vec::new(),
             xp_link_hidden: Vec::new(),
@@ -1903,6 +1906,7 @@ impl Session {
     /// (record/BfInstallTests.al:125-140; ADR-046 amendment 1, A4 item 2).
     pub fn reset_single_instances(&mut self) {
         self.singletons.clear();
+        self.lazy_single = None;
     }
 
     /// Runs one subscriber of a platform event that has no parameters (the install events of `Extension Triggers`) on
