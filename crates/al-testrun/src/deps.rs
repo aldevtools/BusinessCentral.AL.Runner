@@ -33,6 +33,29 @@ pub struct Dependencies {
     /// The dependency apps that were skipped (no package with their source, or none at the declared version), as
     /// `` `Name` by Publisher ``.
     pub skipped: Vec<String>,
+    /// The same skipped dependencies with their parts, for a machine-readable report (al-runner issue 7139).
+    pub skipped_details: Vec<SkippedDependency>,
+}
+
+/// One dependency app that was not loaded. `reason` is the full message of the resolver.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkippedDependency {
+    pub id: String,
+    pub name: String,
+    pub publisher: String,
+    /// The declared version, a minimum. Empty when the entry is not about one declared app (a cycle or conflict).
+    pub version: String,
+    pub reason: String,
+}
+
+impl SkippedDependency {
+    /// The `skippedDependencies` entry of the JSON outputs.
+    pub fn json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "id": self.id, "name": self.name, "publisher": self.publisher,
+            "version": self.version, "reason": self.reason,
+        })
+    }
 }
 
 impl Dependencies {
@@ -362,14 +385,24 @@ pub fn load_project_with(
         }
     }));
     let mut skipped = Vec::new();
+    let mut skipped_details = Vec::new();
     for s in &loaded.skipped {
         log.push(format!("dependency skipped: {s}"));
-        match s {
-            SelectError::Missing { dep, .. } | SelectError::BelowMinimum { dep, .. } => {
-                skipped.push(format!("`{}` by {}", dep.name, dep.publisher))
-            }
-            other => skipped.push(other.to_string()),
+        let dep = match s {
+            SelectError::Missing { dep, .. } | SelectError::BelowMinimum { dep, .. } => Some(dep),
+            _ => None,
+        };
+        match dep {
+            Some(dep) => skipped.push(format!("`{}` by {}", dep.name, dep.publisher)),
+            None => skipped.push(s.to_string()),
         }
+        skipped_details.push(SkippedDependency {
+            id: dep.map(|d| d.id.clone()).unwrap_or_default(),
+            name: dep.map(|d| d.name.clone()).unwrap_or_default(),
+            publisher: dep.map(|d| d.publisher.clone()).unwrap_or_default(),
+            version: dep.map(|d| d.min.to_string()).unwrap_or_default(),
+            reason: s.to_string(),
+        });
     }
     let mut apps = Vec::new();
     let mut summary = Vec::new();
@@ -420,6 +453,7 @@ pub fn load_project_with(
         lazy,
         paths,
         skipped,
+        skipped_details,
     })
 }
 

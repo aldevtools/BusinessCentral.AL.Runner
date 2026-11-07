@@ -1941,3 +1941,72 @@ fn a_request_may_set_the_run_seed_and_the_summary_names_it() {
     let (_, summary) = run(None);
     assert_eq!(summary["seedSource"], "fresh", "{summary}");
 }
+
+fn app_needing_missing_lib(root: &Path) -> PathBuf {
+    let a = app(root, "needslib", MIXED);
+    write(
+        &a,
+        "app.json",
+        r#"{"id":"71390000-0000-0000-0000-000000000002","name":"needslib","publisher":"Test","version":"1.0.0.0","dependencies":[{"id":"71390000-0000-0000-0000-0000000000aa","name":"Contoso Lib","publisher":"Contoso","version":"2.1.0.0"}]}"#,
+    );
+    a
+}
+
+/// al-runner issue 7139: a dependency that is not found under --no-download is an error line by default.
+#[test]
+fn a_missing_dependency_under_no_download_is_an_error_line() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app_needing_missing_lib(d.path());
+    let cache = d.path().join("cache");
+    let mut s = Server::start(&[
+        "--no-download",
+        "--no-test-data",
+        "--cache-dir",
+        cache.to_str().unwrap(),
+    ]);
+    assert_eq!(s.line(), json!({"ready": true}));
+    s.send(json!({"command": "runTests", "sourcePaths": [a]}));
+    let lines = s.until_summary();
+    let e = lines.last().unwrap()["error"].as_str().unwrap_or_default().to_string();
+    assert!(
+        e.contains("Contoso Lib") && e.contains("--allow-missing-dependencies"),
+        "{lines:?}"
+    );
+}
+
+/// With the flag the run goes on and the summary names the skipped dependency; a run without one has an empty list.
+#[test]
+fn the_summary_lists_skipped_dependencies() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app_needing_missing_lib(d.path());
+    let ok = app(d.path(), "plain", MIXED);
+    let cache = d.path().join("cache");
+    let mut s = Server::start(&[
+        "--no-download",
+        "--no-test-data",
+        "--allow-missing-dependencies",
+        "--cache-dir",
+        cache.to_str().unwrap(),
+    ]);
+    assert_eq!(s.line(), json!({"ready": true}));
+    s.send(json!({"command": "runTests", "sourcePaths": [a]}));
+    let summary = s.until_summary().pop().unwrap();
+    assert_eq!(summary["type"], "summary", "{summary}");
+    let list = summary["skippedDependencies"].as_array().expect("skippedDependencies");
+    assert_eq!(list.len(), 1, "{summary}");
+    assert_eq!(
+        (
+            list[0]["id"].as_str(),
+            list[0]["name"].as_str(),
+            list[0]["version"].as_str()
+        ),
+        (
+            Some("71390000-0000-0000-0000-0000000000aa"),
+            Some("Contoso Lib"),
+            Some("2.1.0.0")
+        )
+    );
+    s.send(json!({"command": "runTests", "sourcePaths": [ok]}));
+    let summary = s.until_summary().pop().unwrap();
+    assert_eq!(summary["skippedDependencies"], json!([]), "{summary}");
+}

@@ -1068,9 +1068,13 @@ impl Parser<'_> {
             // Format(false) = 'No' is used as a filter value in the corpus. The words BC accepts,
             // in any case, are Yes, True, 1 and No, False, 0
             // (record/TestFilterTextBooleanFindContracts.al:103, SetFilter_BooleanField_AcceptedWords).
-            T::Boolean if ["yes", "true", "1"].contains(&text.to_lowercase().as_str()) => Value::Boolean(true),
-            T::Boolean if ["no", "false", "0"].contains(&text.to_lowercase().as_str()) => Value::Boolean(false),
-            T::Boolean => return Err(format!("{INVALID_BOOLEAN}{text}")),
+            T::Boolean => match crate::filter_boolean_words::boolean_filter_word(
+                DATE_CONTEXT.with(std::cell::Cell::get).map(|c| c.language),
+                &text,
+            )? {
+                Some(b) => Value::Boolean(b),
+                None => return Err(format!("{INVALID_BOOLEAN}{text}")),
+            },
             // The matcher trims both sides and skips zero-length member names (corpus
             // types/TestEnumBlankOptionFilterTests.Codeunit.al:122,188).
             T::Option(m) => match m
