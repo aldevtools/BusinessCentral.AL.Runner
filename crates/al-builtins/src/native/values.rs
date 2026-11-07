@@ -313,6 +313,13 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
         }
         // A cleared XmlNodeList is an empty one, a copy taken before keeps its nodes, and SelectNodes fills it again
         // (xml/XmlNodes.al TP_NodeList_Clear).
+        // Clear of an XmlAttribute that was never assigned (a failed Create) changes nothing
+        // (xml/xml/XmlNsPrefixes.al:129,139,147,150,153 Decl_EmptyPrefixOrNamespace). One that holds an attribute is not pinned.
+        Value::Library(name, h)
+            if name.as_str() == "XmlAttribute" && matches!(&*h.borrow(), crate::value::LibraryValue::Empty) =>
+        {
+            Value::Library(name.clone(), Default::default())
+        }
         Value::Library(name, _) if name.as_str() == "XmlNodeList" => Value::Library(
             name.clone(),
             std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::XmlList(Vec::new()))),

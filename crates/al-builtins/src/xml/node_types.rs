@@ -115,18 +115,41 @@ pub(super) fn attribute_create_ns(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mu
     if ns.is_empty() {
         return plain_attribute(local, value);
     }
-    unsupported("XmlAttribute.Create with a namespace (the prefix it would get is not pinned)")
+    // The attribute has no prefix of its own: detached it is named `p0:k`, attached it takes the prefix a declaration gives it or
+    // the writer makes one up (xml/xml/XmlNsPrefixes.al:Attribute_PrefixNumbering, Decl7208_AttributeInNamespace).
+    // A name with a colon or an invalid name is not pinned with a namespace.
+    if local.contains(':') {
+        return unsupported("XmlAttribute.Create with a namespace and a colon in the name (not pinned)");
+    }
+    check_name(&local)?;
+    Ok(tagged(
+        "XmlAttribute",
+        new_node(XData::Attribute {
+            prefix: String::new(),
+            local,
+            ns,
+            value,
+        }),
+    ))
 }
 
 pub(super) fn attribute_create_ns_decl(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
     // xml/TestXmlDeep.al XmlAttribute_CreateNamespaceDeclaration_HasPrefixAndUri: prefix `xmlns`.
     let (prefix, uri) = (arg_text(a, 0)?, arg_text(a, 1)?);
-    let (p, l) = if prefix.is_empty() {
-        (String::new(), "xmlns".to_string())
-    } else {
-        check_name(&prefix)?;
-        ("xmlns".to_string(), prefix)
-    };
+    // The call itself raises, before any Add: an empty prefix or namespace is an argument error, a colon in the prefix the XML
+    // name error, and the prefixes `xmlns` and `xml` an argument error with another namespace
+    // (xml/xml/XmlNsPrefixes.al:119-157,159-178 Decl_EmptyPrefixOrNamespace; xml/XmlXPathNamespaces.al:616 af476).
+    verify_ncname(&prefix)?;
+    if uri.is_empty() {
+        return Err(nav_argument());
+    }
+    if prefix == "xmlns" || prefix == "xml" {
+        if uri != "urn:x" {
+            return unsupported("CreateNamespaceDeclaration with the prefix xml or xmlns (only urn:x is pinned)");
+        }
+        return Err(nav_argument());
+    }
+    let (p, l) = ("xmlns".to_string(), prefix);
     Ok(tagged(
         "XmlAttribute",
         new_node(XData::Attribute {

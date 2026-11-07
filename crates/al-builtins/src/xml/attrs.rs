@@ -230,17 +230,31 @@ pub(super) fn add_namespaced_attribute(owner: Handle, a: &mut [Value]) -> NResul
     if ns.is_empty() {
         return unsupported("XmlAttributeCollection.Set with an empty namespace URI (not pinned)");
     }
+    // On the element itself other attributes and declarations are fine: the writer resolves them as it does for `Create` and
+    // `Add` (xml/xml/XmlNsPrefixes.al:Attribute_PrefixNumbering `setattribute_ns`). The same name again replaces the value
+    // and is not pinned. An element with a namespace, or an ancestor with a namespace or declaration, is not pinned either.
+    if attrs_of(&owner).iter().any(|x| {
+        with(
+            x,
+            |d| matches!(d, XData::Attribute { local, ns: n, .. } if *local == name && *n == ns),
+        )
+    }) {
+        return unsupported("XmlElement.SetAttribute with a namespace for an attribute that exists (not pinned)");
+    }
     let mut at = Some(owner.clone());
+    let mut first = true;
     while let Some(h) = at {
         let in_ns = with(&h, |d| matches!(d, XData::Element { ns, .. } if !ns.is_empty()));
-        let declares = attrs_of(&h)
-            .iter()
-            .any(|x| with(x, |d| matches!(d, XData::Attribute { ns, .. } if !ns.is_empty())));
+        let declares = !first
+            && attrs_of(&h)
+                .iter()
+                .any(|x| with(x, |d| matches!(d, XData::Attribute { ns, .. } if !ns.is_empty())));
         if in_ns || declares {
             return unsupported(
                 "XmlAttributeCollection.Set with a namespace on an element with a namespace or a namespaced attribute in scope (the prefix it gets is not pinned)",
             );
         }
+        first = false;
         at = parent_of(&h);
     }
     let attr = new_node(XData::Attribute {
