@@ -15,6 +15,8 @@ use al_ir::{Arg, Const, Expr, ObjKind, Place, Stmt};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::OnceLock;
 
+mod closure;
+
 /// Session state that lasts from one test of a codeunit to the next, as bits of [`ReachFacts::state_reads`] and
 /// [`ReachFacts::state_writes`].
 pub(crate) mod state {
@@ -216,6 +218,8 @@ pub(crate) struct ReachIndex {
     /// walk that ended without finding one visited a set closed under what its routines reach, so each routine in it
     /// is clean, and a later question about a report skips them ([`report_that_cannot_run`]).
     report_clean: std::sync::Mutex<Vec<u64>>,
+    /// What the reach of a routine writes, memoized per routine ([`closure`]).
+    closures: std::sync::Mutex<closure::Memo>,
 }
 
 impl ReachIndex {
@@ -278,6 +282,7 @@ impl ReachIndex {
             global_triggers,
             summaries,
             report_clean: std::sync::Mutex::new(vec![0; total.div_ceil(64)]),
+            closures: Default::default(),
             first_routine,
         }
     }
@@ -314,17 +319,34 @@ pub(crate) fn reach_facts(
     walk_reach(events, lowered, index, &[(object, routine)], &|_| false)
 }
 
-/// The reach facts of the joined reach of the routines `roots`, with only the globals written, the state bits and the
-/// reasons filled in: one walk of the union of their reaches, which visits the part they share once (the tests of a
-/// codeunit share most of theirs). The tables and the globals read, which the SingleInstance walk does not ask for, are
-/// skipped.
+/// The reach facts of the joined reach of the routines `roots`, with only the globals written (of the objects `keep`
+/// accepts), the state bits and the reasons filled in. The tables and the globals read, which the SingleInstance walk
+/// does not ask for, are skipped. One walk of the union of their reaches runs until part of the reach is found not to be
+/// known, which gives the reason (the first one a walk meets). The globals and bits of a reach that is not known are
+/// then taken from the memo of what each routine's whole reach writes ([`closure`]), which the tests of every codeunit
+/// share; a reach that is known is walked to its end. `keep` must be the same on every call on one index.
 pub(crate) fn union_reach_written(
     events: &al_vm::events::Registry,
     lowered: &Lowered,
     index: &ReachIndex,
     roots: &[(usize, usize)],
+    keep: &dyn Fn(usize) -> bool,
 ) -> ReachFacts {
-    walk_reach_with(events, lowered, index, roots, true, true, &|_| false)
+    let mut walk = Walk::new(events, lowered, index);
+    walk.written_only = true;
+    // Popped first root first, as a walk of each root alone starts.
+    walk.stack.extend(roots.iter().rev().copied());
+    walk.run(&|f| f.unknown.is_some());
+    if walk.out.unknown.is_none() {
+        return walk.out;
+    }
+    let (state_writes, globals) = closure::written(events, lowered, index, roots, keep);
+    ReachFacts {
+        unknown: walk.out.unknown.take(),
+        state_writes,
+        globals_written: globals.into_iter().collect(),
+        ..ReachFacts::default()
+    }
 }
 
 /// Whether `fact` holds of the joined reach of the routines `roots`: one walk of the union of their reaches, which
@@ -646,6 +668,9 @@ struct Walk<'a> {
     /// does not change under an engine).
     seen_beyond: BTreeSet<(usize, usize)>,
     entered_beyond: BTreeSet<(usize, u8)>,
+    /// With `log_entered`: the objects whose [`Walk::entered`] bits were set since the last reset ([`closure`]).
+    entered_log: Vec<usize>,
+    log_entered: bool,
     stack: Vec<(usize, usize)>,
     global_triggers: bool,
     /// Whether the walk keeps the tables, globals and state it reaches ([`ReachFacts`]) besides the reasons.
@@ -667,6 +692,8 @@ impl<'a> Walk<'a> {
             entered: vec![0; index.first_routine.len().saturating_sub(1)],
             seen_beyond: BTreeSet::new(),
             entered_beyond: BTreeSet::new(),
+            entered_log: Vec::new(),
+            log_entered: false,
             stack: Vec::new(),
             global_triggers: false,
             facts: true,
@@ -713,6 +740,9 @@ impl<'a> Walk<'a> {
         match self.entered.get_mut(o) {
             Some(bits) => {
                 let new = *bits & what == 0;
+                if new && self.log_entered && *bits == 0 {
+                    self.entered_log.push(o);
+                }
                 *bits |= what;
                 new
             }
@@ -858,6 +888,25 @@ impl<'a> Walk<'a> {
             }
         };
         self.apply(s);
+    }
+
+    /// [`Walk::routine`] for a walk that keeps no facts ([`closure`]): the routine's own state bits and globals written,
+    /// which are what it adds to every reach that holds it. What the routine pushes goes on the stack.
+    fn routine_own(&mut self, o: usize, r: usize, keep: &dyn Fn(usize) -> bool) -> (u16, Vec<(usize, usize)>) {
+        let index = self.index;
+        let fresh;
+        let s = match index.summary(self.events, self.lowered, o, r) {
+            Some(s) => s,
+            None => {
+                fresh = Rec::record(self.events, self.lowered, index, o, r);
+                &fresh
+            }
+        };
+        self.apply(s);
+        (
+            s.state_writes,
+            s.globals_written.iter().copied().filter(|&(go, _)| keep(go)).collect(),
+        )
     }
 
     /// The facts and steps of a [`Summary`].
@@ -1615,5 +1664,55 @@ mod tests {
         assert!(!has(&all[..2], &|f| f.unknown.is_some()));
         assert!(!has(&all[..1], &|f| f.state_writes & state::NUMBER_SEQUENCE != 0));
         assert!(!has(&all, &|f| f.writes_any));
+    }
+
+    // The globals a reach writes, taken from the memo of what each routine's whole reach writes, are those of a walk of
+    // the whole reach: through the triggers of a table, through a loop of calls, and for a reach that is not known.
+    #[test]
+    fn the_memo_of_written_globals_matches_the_walk() {
+        let src = "
+            table 50100 T { fields { field(1; K; Integer) { } }
+                trigger OnInsert() var F: Codeunit Flag; begin F.SetIt(); end; }
+            codeunit 50101 Flag { SingleInstance = true; var Hit: Boolean; Other: Integer;
+                procedure SetIt() begin Hit := true; end;
+                procedure SetOther() begin Other := 1; end; }
+            codeunit 50102 Loop { var Fl: Codeunit Flag;
+                procedure P(n: Integer) begin if n > 0 then Q(n - 1); end;
+                procedure Q(n: Integer) begin Fl.SetOther(); P(n); end; }
+            codeunit 50103 Tests { Subtype = Test;
+                [Test] procedure A() var R: Record T; begin R.Insert(true); end;
+                [Test] procedure B() var L: Codeunit Loop; begin L.P(2); end;
+                [Test] procedure C() var Id: Integer; L: Codeunit Loop; begin L.Q(1); Codeunit.Run(Id); end;
+                [Test] procedure D() begin end; }";
+        let l = lowered(src);
+        let events = al_vm::events::Registry::build(&l.program);
+        let flag = routine(&l, "Flag", "SetIt").0;
+        let keep = |o: usize| o == flag;
+        let fresh = ReachIndex::new(&events, &l);
+        let (o, _) = routine(&l, "Tests", "A");
+        let names = ["A", "B", "C", "D"];
+        let roots: Vec<(usize, usize)> = names.iter().map(|n| routine(&l, "Tests", n)).collect();
+        // The memo is shared by the questions below, in this order and in another.
+        for order in [[0, 1, 2, 3], [3, 2, 1, 0]] {
+            let memo = ReachIndex::new(&events, &l);
+            for &i in &order {
+                let asked = [roots[i]];
+                let got = union_reach_written(&events, &l, &memo, &asked, &keep);
+                let all = reach_facts(&events, &l, &fresh, o, roots[i].1);
+                let want: std::collections::BTreeSet<_> =
+                    all.globals_written.iter().copied().filter(|g| keep(g.0)).collect();
+                let got_set: std::collections::BTreeSet<_> =
+                    got.globals_written.iter().copied().filter(|g| keep(g.0)).collect();
+                assert_eq!(got_set, want, "{}", names[i]);
+                assert_eq!(got.unknown.is_some(), all.unknown.is_some(), "{}", names[i]);
+                if all.unknown.is_some() {
+                    assert_eq!(got.unknown, all.unknown);
+                }
+                assert_eq!(got.state_writes, all.state_writes, "{}", names[i]);
+            }
+            let got = union_reach_written(&events, &l, &memo, &roots, &keep);
+            let want = reach_facts(&events, &l, &fresh, o, roots[0].1).globals_written.len();
+            assert!(want >= 1 && got.globals_written.len() >= 2, "{:?}", got.globals_written);
+        }
     }
 }

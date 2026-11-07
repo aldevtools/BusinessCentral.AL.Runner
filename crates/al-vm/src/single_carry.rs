@@ -387,14 +387,16 @@ impl Session {
             ..Default::default()
         };
         let (objects, groups) = self.single_groups();
-        let enc = Enc::new(self, &groups, t.bound);
+        // Counting what the groups share costs a walk of all their values: only when a group needs writing.
+        let enc_cell = std::cell::OnceCell::new();
+        let enc = || enc_cell.get_or_init(|| Enc::new(self, &groups, t.bound));
         for (&object, globals) in objects.iter().zip(&groups) {
             // After a BindSubscription or UnbindSubscription, a global that holds a bound instance, or held one at the
             // start, may stand for another binding although it holds the same handle.
             let rebound = t.bindings_changed
                 && (t.held.iter().any(|k| k.0 == object) || {
                     let mut ranks = Vec::new();
-                    carry_group(&enc, globals).iter().for_each(|c| {
+                    carry_group(enc(), globals).iter().for_each(|c| {
                         if let Carry::Val(v) = c {
                             bound_in(v, &mut ranks)
                         }
@@ -410,7 +412,7 @@ impl Session {
             if !changed.contains(&true) {
                 continue;
             }
-            let carried = carry_group(&enc, globals);
+            let carried = carry_group(enc(), globals);
             // Globals that share a handle are handed on together (one may have changed through another). What the
             // others held at the start then counts as read: the walk checks it against the serial state, as what
             // they hand on rests on it.

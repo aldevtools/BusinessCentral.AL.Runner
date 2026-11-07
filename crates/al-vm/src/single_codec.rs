@@ -44,6 +44,7 @@ use al_builtins::value::{
 use al_builtins::value_codec::{self as vc, Reader};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::hash::{BuildHasherDefault, Hasher};
 use std::rc::Rc;
 
 /// A value in a form that can go to another thread and be compared (see the module).
@@ -444,14 +445,14 @@ fn filters_of(bytes: &[u8]) -> Option<Vec<FieldFilter>> {
 pub(crate) struct Enc<'s> {
     session: &'s Session,
     /// Handles reached more than once within one group.
-    shared: HashSet<usize>,
+    shared: PtrSet<usize>,
     /// Handles reached from more than one group.
-    cross: HashSet<usize>,
+    cross: PtrSet<usize>,
     /// JSON handles reached as a node of a tree.
-    in_tree: HashSet<usize>,
-    shared_temps: HashSet<u64>,
+    in_tree: PtrSet<usize>,
+    shared_temps: PtrSet<u64>,
     /// The numbers given so far in the current group.
-    ids: RefCell<HashMap<usize, u32>>,
+    ids: RefCell<PtrMap<usize, u32>>,
     /// The committed row version when the session began to track the single instances.
     bound: i64,
     /// Each bound instance whose binding reaches the next session, with its place ([`binding_ranks`]).
@@ -461,12 +462,39 @@ pub(crate) struct Enc<'s> {
 /// What [`count`] notes while it walks the roots of one group.
 #[derive(Default)]
 struct Counts {
-    seen: HashMap<usize, u32>,
-    temps: HashMap<u64, u32>,
-    in_tree: HashSet<usize>,
+    seen: PtrMap<usize, u32>,
+    temps: PtrMap<u64, u32>,
+    in_tree: PtrSet<usize>,
     /// The walk stopped at [`DEPTH`] somewhere: a handle below it was not seen.
     deep: bool,
 }
+
+/// A hasher for the handle addresses and ids the encoder counts: the keys are plain integers the encoder made or got from
+/// the allocator, so the default hasher's protection against chosen keys buys nothing, and counting every handle of
+/// every single instance for each first read made it a tenth of the carry's cost.
+#[derive(Default)]
+struct PtrHasher(u64);
+
+impl Hasher for PtrHasher {
+    fn finish(&self) -> u64 {
+        // Addresses are aligned: their low bits are zero, and the table takes its bucket from them.
+        self.0.rotate_left(26)
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for b in bytes {
+            self.write_u64(u64::from(*b));
+        }
+    }
+    fn write_u64(&mut self, x: u64) {
+        self.0 = (self.0.rotate_left(5) ^ x).wrapping_mul(0x517c_c1b7_2722_0a95);
+    }
+    fn write_usize(&mut self, x: usize) {
+        self.write_u64(x as u64);
+    }
+}
+
+type PtrMap<K, V> = HashMap<K, V, BuildHasherDefault<PtrHasher>>;
+type PtrSet<K> = HashSet<K, BuildHasherDefault<PtrHasher>>;
 
 fn ptr<T>(rc: &Rc<T>) -> usize {
     Rc::as_ptr(rc) as *const () as usize
@@ -474,9 +502,9 @@ fn ptr<T>(rc: &Rc<T>) -> usize {
 
 impl<'s> Enc<'s> {
     pub(crate) fn new(session: &'s Session, groups: &[Vec<Value>], bound: i64) -> Enc<'s> {
-        let mut reach: HashMap<usize, (u32, u32)> = HashMap::new();
-        let mut temps: HashMap<u64, u32> = HashMap::new();
-        let mut in_tree = HashSet::new();
+        let mut reach: PtrMap<usize, (u32, u32)> = PtrMap::default();
+        let mut temps: PtrMap<u64, u32> = PtrMap::default();
+        let mut in_tree = PtrSet::default();
         for g in groups {
             let mut c = Counts::default();
             for v in g {
