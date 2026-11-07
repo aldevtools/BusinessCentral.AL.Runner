@@ -45,6 +45,7 @@ pub mod file;
 pub mod filter;
 pub mod format;
 mod format_json;
+mod format_textbuilder;
 pub mod formatstr;
 pub mod http;
 pub mod iso;
