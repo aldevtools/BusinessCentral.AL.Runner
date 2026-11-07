@@ -83,7 +83,7 @@ files older than a day are removed.
 | `--stability-max N` | The most variants the `matrix` strategy forms (default 1000). |
 | `--stability-allow-flips` | Exit 0 although a test changed outcome. |
 | `--stability-print-preset microsoft` | Print the preset, as a starting point for a config file. |
-| `--explain TEST` | Run one test and print its outcome and, for a failure or refusal, the routines and source lines. |
+| `--explain TEST` | Run one test and print its outcome and, for a failure or refusal, the routines and source lines. TEST is selected like `--filter`: a method name or `Codeunit<ID>.<Method>`. A bare name that matches several tests lists them in the `Codeunit<ID>.<Method>` form. |
 
 `--filter` together with `--test-exact` selects only the tests both match. A test
 name is its AL name as written, without quotes (`Codeunit50100.Space Step`).
