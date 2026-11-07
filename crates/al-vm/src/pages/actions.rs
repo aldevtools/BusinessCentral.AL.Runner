@@ -1599,6 +1599,7 @@ impl Session {
                 // the refresh's `Find:=`. Without CurrPage.Update and without OnAfterGetCurrRecord the refresh is pinned
                 // by BeCardOnFindRecord.al (above), not assumed.
                 self.read_page_again(st)?;
+                self.modal_card_blank_read_after_update(st)?;
                 let pinned = !refresh_asked && !self.declares(st, "onaftergetcurrrecord");
                 st.borrow_mut().refresh = true;
                 st.borrow_mut().refresh_by_update = false;
