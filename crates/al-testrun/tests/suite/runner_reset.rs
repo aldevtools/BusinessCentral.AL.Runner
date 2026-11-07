@@ -119,8 +119,6 @@ codeunit 50910 "Reset Disabled"
     end;
 }
 
-// "Reset Log" is a single instance: it keeps what earlier test codeunits logged, as on BC (P7,
-// al-language/codeunits/TestCuP7BReader.al:24-37), so these codeunits check only the end of the log.
 codeunit 50911 "Reset Default"
 {
     Subtype = Test;
@@ -130,7 +128,7 @@ codeunit 50911 "Reset Default"
     [Test]
     procedure WithoutTestPermissions()
     begin
-        if not L.Get().EndsWith('start;130301;130302;132553;') then
+        if L.Get() <> 'start;130301;130302;132553;' then
             Error('order: %1', L.Get());
     end;
 }
@@ -146,7 +144,7 @@ codeunit 50912 "Reset Method Disabled"
     [TestPermissions(TestPermissions::Disabled)]
     procedure MethodDisabled()
     begin
-        if not L.Get().EndsWith('stop;start;130301;132553;') then
+        if L.Get() <> 'start;130301;132553;' then
             Error('order: %1', L.Get());
     end;
 
@@ -154,7 +152,7 @@ codeunit 50912 "Reset Method Disabled"
     [TestPermissions(TestPermissions::InheritFromTestCodeunit)]
     procedure MethodInherits()
     begin
-        if not L.Get().EndsWith('start;130301;132553;stop;start;130301;130302;132553;') then
+        if L.Get() <> 'start;130301;132553;stop;start;130301;130302;132553;' then
             Error('order: %1', L.Get());
     end;
 }

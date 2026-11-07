@@ -84,8 +84,8 @@ impl Helper<'_> {
         // The helper's copies of the starts it read back, per suite and epoch.
         let mut copies: std::collections::HashMap<(usize, u32), Option<al_vm::Baseline>> = Default::default();
         loop {
-            let (k, epoch, start, from, singles) = match runs.claim() {
-                Claim::Run(k, epoch, start, from, singles) => (k, epoch, start, *from, singles),
+            let (k, epoch, start, from) = match runs.claim() {
+                Claim::Run(k, epoch, start, from) => (k, epoch, start, *from),
                 Claim::Done => return,
             };
             let si = self.units[k].si;
@@ -106,7 +106,7 @@ impl Helper<'_> {
                 .map(Arc::new);
             runs.starting(k, fingerprint.clone());
             let ahead = match (predicted, fingerprint) {
-                (Some(p), Some(fp)) => Some(self.run_ahead(k, &p, leak, fp, singles)),
+                (Some(p), Some(fp)) => Some(self.run_ahead(k, &p, leak, fp)),
                 _ => None,
             };
             runs.finish(k, epoch, from, ahead);
@@ -134,13 +134,10 @@ impl Helper<'_> {
         start: &al_vm::Baseline,
         leak: Option<Arc<std::collections::BTreeSet<u32>>>,
         fingerprint: Arc<al_vm::Fingerprint>,
-        singles: Arc<SingleState>,
     ) -> Ahead {
         let kept: Arc<Mutex<Vec<HookEvent>>> = Default::default();
         let mut u = self.units[k].clone();
         u.leak = leak;
-        // The predicted SingleInstance state (`Runs::guess_singles`): the walk takes the run only when it fits its own.
-        u.singletons = (!singles.is_empty()).then_some(singles);
         let (on_start, on_test) = (kept.clone(), kept.clone());
         u.hooks.on_start = self.units[k].hooks.on_start.is_some().then(|| {
             let f: crate::events::OnStart = Arc::new(move |id: u32, test: &str| {
@@ -282,8 +279,7 @@ impl ChainWalk<'_> {
             self.units.iter().map(|u| u.si).collect(),
             install.into_iter().collect(),
             self.helpers * WINDOW_PER_HELPER,
-        )
-        .with_streams(self.units.iter().map(|u| (u.si, u.hub_leg)).collect());
+        );
         // What a helper thread needs (a baseline stays on its thread, so not the walk's).
         let helper = Helper {
             engine: self.engine,
@@ -369,9 +365,6 @@ impl ChainWalk<'_> {
             let install: Vec<usize> = track.epochs.keys().copied().collect();
             track.bases = install.into_iter().map(|si| (si, b.clone())).collect();
         }
-        // Per BC session (suite, hub leg): the SingleInstance state the members walked so far left (ADR-066 amendment
-        // 1). Only a prediction: `single_walk.rs` checks every run against the serial state of all codeunits.
-        let mut singles: std::collections::HashMap<(usize, bool), Arc<SingleState>> = Default::default();
         for (si, leg, id, link) in chain {
             let before = carried.iter().rev().find(|(s, _, _, _)| *s == si);
             let mut leg1 = None;
@@ -397,16 +390,10 @@ impl ChainWalk<'_> {
                         .and_then(|b| b.fingerprint_apart(&apart));
                     // Whether the helpers ran the suite when the walk reached the member (`SerialWhy::Closed`).
                     let open = runs.is_some_and(|r| r.is_open(si));
-                    let at = singles.get(&(si, units[k].hub_leg)).cloned().unwrap_or_default();
-                    let (ahead, dropped) =
-                        runs.map_or((None, Dropped::Nothing), |r| r.take(k, epoch, actual.as_ref(), &at));
+                    let (ahead, dropped) = runs.map_or((None, Dropped::Nothing), |r| r.take(k, epoch, actual.as_ref()));
                     if let Dropped::Wrong(predicted) = &dropped {
                         *track.misses.entry(si).or_default() += 1;
                         self.note_miss(predicted, start, track.bases.get(&si), report);
-                    }
-                    if let Dropped::SingleState = &dropped {
-                        *track.misses.entry(si).or_default() += 1;
-                        report.missed_by("SingleInstance state");
                     }
                     if let Some(r) = runs {
                         r.reached(k);
@@ -434,7 +421,6 @@ impl ChainWalk<'_> {
                         None => Some(SerialWhy::NoHelpers),
                         Some(_) if ahead.is_some() => Some(SerialWhy::NotRebuilt),
                         Some(_) if matches!(dropped, Dropped::Wrong(_)) => Some(SerialWhy::Missed),
-                        Some(_) if matches!(dropped, Dropped::SingleState) => Some(SerialWhy::SingleState),
                         Some(_) if matches!(dropped, Dropped::Early) => Some(SerialWhy::Early),
                         Some(_) if matches!(dropped, Dropped::Guessed) => Some(SerialWhy::Guessed),
                         Some(r) if r.tainted(si) => Some(SerialWhy::GaveUp),
@@ -450,7 +436,6 @@ impl ChainWalk<'_> {
                         _ => {
                             let mut u = units[k].clone();
                             u.leak = before.map(|(_, _, _, c)| Arc::new(c.tables.clone()));
-                            u.singletons = (!at.is_empty()).then(|| at.clone());
                             // `--explain` names where a test of the chain failed too (al-runner issue 6924).
                             let mut observe = |name: &str, _: &Outcome, seen: &Observed| {
                                 details.insert((si, id, name.to_lowercase()), observed_detail(lowered, seen));
@@ -495,12 +480,6 @@ impl ChainWalk<'_> {
                             refuse_all(&mut done.0, why);
                         }
                     }
-                    let (now, wrote) = super::single_walk::after_run(&at, &r);
-                    let now = Arc::new(now);
-                    if let Some(runs) = runs {
-                        runs.singles_walked(k, now.clone(), wrote);
-                    }
-                    singles.insert((si, units[k].hub_leg), now);
                     slots[k] = Some(r);
                     left.unwrap_or_else(|| {
                         not_run_link(

@@ -22,8 +22,6 @@ use al_builtins::builtin_id::ids;
 /// What the starting session keeps aside while the new one runs.
 struct Parked {
     singletons: std::collections::HashMap<usize, Rc<RefCell<Instance>>>,
-    /// The starting session's notes on its single instances (`single_carry.rs`): the new session's are its own.
-    si_track: Option<Box<crate::single_carry::Track>>,
     bindings: Vec<dispatch::Binding>,
     global_group1: std::collections::HashMap<u32, String>,
     last_error: AlError,
@@ -116,7 +114,6 @@ impl Session {
         };
         let parked = Parked {
             singletons: std::mem::take(&mut self.singletons),
-            si_track: self.si_track.take(),
             bindings: std::mem::take(&mut self.events.bindings),
             global_group1: std::mem::take(&mut self.global_group1),
             last_error: std::mem::take(&mut self.last_error),
@@ -146,7 +143,6 @@ impl Session {
         self.background_session = false;
         let committed_row_version = self.tx.committed_row_version;
         self.singletons = parked.singletons;
-        self.si_track = parked.si_track;
         self.events.bindings = parked.bindings;
         self.global_group1 = parked.global_group1;
         self.last_error = parked.last_error;
