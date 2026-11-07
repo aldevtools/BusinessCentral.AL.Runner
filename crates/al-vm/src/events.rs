@@ -114,6 +114,51 @@ fn is_manual(o: &ir::ObjectHead) -> bool {
     ir::ObjectFacts::of_properties(&o.properties).manual_subscriber
 }
 
+impl Registry {
+    /// A subscriber of `UI Helper Triggers`: `CaptionClassTranslate` is raised by the runtime (`UI_HELPER_TRIGGERS`), every
+    /// event of the codeunit is also listed as one the runtime does not raise everywhere (`Registry::unraised_subscriber`).
+    fn add_ui_helper_subscriber(
+        &mut self,
+        heads: &[ir::ObjectHead],
+        oi: usize,
+        o: &ir::ObjectHead,
+        r: &ir::EventRoutine,
+        target: &str,
+        event: &str,
+    ) {
+        let mut witnesses = vec![oi];
+        for &c in &r.codeunit_slots {
+            let c = c as usize;
+            if heads.get(c).is_some_and(|x| {
+                x.properties
+                    .iter()
+                    .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"))
+            }) && !witnesses.contains(&c)
+            {
+                witnesses.push(c);
+            }
+        }
+        if event == "captionclasstranslate" {
+            self.subscribers
+                .entry((UI_HELPER_TRIGGERS, event.to_string()))
+                .or_default()
+                .push(Subscriber {
+                    object: oi,
+                    routine: r.routine as usize,
+                    manual: is_manual(o),
+                    element: String::new(),
+                });
+        }
+        self.unraised
+            .entry((target.to_ascii_lowercase(), event.to_string()))
+            .or_default()
+            .push(Unraised {
+                subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
+                witnesses,
+            });
+    }
+}
+
 /// A subscriber of `Global Triggers` in a dependency app that cannot run.
 #[derive(Debug, Clone, Default)]
 pub struct UnavailableGlobal {
@@ -330,39 +375,7 @@ impl Registry {
                                     });
                             }
                             if kind == ObjKind::Codeunit && target.eq_ignore_ascii_case("UI Helper Triggers") {
-                                let mut witnesses = vec![oi];
-                                for &c in &r.codeunit_slots {
-                                    {
-                                        let c = c as usize;
-                                        if heads.get(c).is_some_and(|x| {
-                                            x.properties.iter().any(|(k, v)| {
-                                                k.eq_ignore_ascii_case("SingleInstance")
-                                                    && v.trim().eq_ignore_ascii_case("true")
-                                            })
-                                        }) && !witnesses.contains(&c)
-                                        {
-                                            witnesses.push(c);
-                                        }
-                                    }
-                                }
-                                if event == "captionclasstranslate" {
-                                    reg.subscribers
-                                        .entry((UI_HELPER_TRIGGERS, event.clone()))
-                                        .or_default()
-                                        .push(Subscriber {
-                                            object: oi,
-                                            routine: ri,
-                                            manual: is_manual(o),
-                                            element: String::new(),
-                                        });
-                                }
-                                reg.unraised
-                                    .entry((target.to_ascii_lowercase(), event.clone()))
-                                    .or_default()
-                                    .push(Unraised {
-                                        subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
-                                        witnesses,
-                                    });
+                                reg.add_ui_helper_subscriber(heads, oi, o, r, &target, &event);
                             }
                             if kind == ObjKind::Codeunit
                                 && target.eq_ignore_ascii_case("Reporting Triggers")

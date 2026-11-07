@@ -30,13 +30,23 @@ impl Session {
         let visible = self
             .engine
             .events
-            .unraised_subscriber("ui helper triggers", Some("captionclasstranslate"), test, self.test_object)
+            .unraised_subscriber(
+                "ui helper triggers",
+                Some("captionclasstranslate"),
+                test,
+                self.test_object,
+            )
             .is_some();
         if !visible {
             return self.caption_class_translate(text);
         }
         let language = self.global_language;
-        if text.is_empty() || self.ui_caption_translated.iter().any(|(t, l)| t == text && *l == language) {
+        if text.is_empty()
+            || self
+                .ui_caption_translated
+                .iter()
+                .any(|(t, l)| t == text && *l == language)
+        {
             return unsupported(
                 "CaptionClassTranslate of the empty text or of a text translated before, with a UI Helper Triggers subscriber (whether the event is raised is not pinned)",
             );
@@ -54,7 +64,10 @@ impl Session {
                 "CaptionClassTranslate whose translation another subscriber changed, with a UI Helper Triggers subscriber (the order of the events is not pinned)",
             );
         }
-        let names: Vec<String> = ["Language", "CaptionExpr", "Translation"].iter().map(|n| n.to_string()).collect();
+        let names: Vec<String> = ["Language", "CaptionExpr", "Translation"]
+            .iter()
+            .map(|n| n.to_string())
+            .collect();
         let mut args = vec![
             Value::Integer(language),
             Value::Text(text.to_string().into()),
@@ -81,7 +94,7 @@ impl Session {
             _ => {
                 return unsupported(
                     "a UI Helper Triggers subscriber changed Translation of CaptionClassTranslate (its effect is not pinned)",
-                )
+                );
             }
         }
         self.ui_caption_translated.push((text.to_string(), language));
