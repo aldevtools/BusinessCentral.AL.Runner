@@ -314,19 +314,6 @@ pub(crate) fn reach_facts(
     walk_reach(events, lowered, index, &[(object, routine)], &|_| false)
 }
 
-/// The reach facts of the joined reach of the routines `roots`, with only the globals written, the state bits and the
-/// reasons filled in: one walk of the union of their reaches, which visits the part they share once (the tests of a
-/// codeunit share most of theirs). The tables and the globals read, which the SingleInstance walk does not ask for, are
-/// skipped.
-pub(crate) fn union_reach_written(
-    events: &al_vm::events::Registry,
-    lowered: &Lowered,
-    index: &ReachIndex,
-    roots: &[(usize, usize)],
-) -> ReachFacts {
-    walk_reach_with(events, lowered, index, roots, true, true, &|_| false)
-}
-
 /// Whether `fact` holds of the joined reach of the routines `roots`: one walk of the union of their reaches, which
 /// stops as soon as `fact` holds. `fact` must be one that, once it holds of part of a reach, holds of all of it (a
 /// table, a state bit, a part not known); it then holds of the union exactly when it holds of the reach of one of the
@@ -611,7 +598,7 @@ fn walk_reach(
     roots: &[(usize, usize)],
     stop: &dyn Fn(&ReachFacts) -> bool,
 ) -> ReachFacts {
-    walk_reach_with(events, lowered, index, roots, true, false, stop)
+    walk_reach_with(events, lowered, index, roots, true, stop)
 }
 
 /// [`walk_reach`]; with `facts` off the walk keeps only `unknown` and `report_cannot_run` (the routines it follows are the same).
@@ -621,12 +608,10 @@ fn walk_reach_with(
     index: &ReachIndex,
     roots: &[(usize, usize)],
     facts: bool,
-    written_only: bool,
     stop: &dyn Fn(&ReachFacts) -> bool,
 ) -> ReachFacts {
     let mut walk = Walk::new(events, lowered, index);
     walk.facts = facts;
-    walk.written_only = written_only;
     // Popped first root first, as a walk of each root alone starts.
     walk.stack.extend(roots.iter().rev().copied());
     walk.run(stop);
@@ -650,9 +635,6 @@ struct Walk<'a> {
     global_triggers: bool,
     /// Whether the walk keeps the tables, globals and state it reaches ([`ReachFacts`]) besides the reasons.
     facts: bool,
-    /// With `facts`: keep only the globals written, the state bits and the reasons, not the tables and the globals read
-    /// ([`union_reach_written`]).
-    written_only: bool,
 }
 
 impl<'a> Walk<'a> {
@@ -670,7 +652,6 @@ impl<'a> Walk<'a> {
             stack: Vec::new(),
             global_triggers: false,
             facts: true,
-            written_only: false,
         }
     }
 
@@ -703,7 +684,7 @@ impl<'a> Walk<'a> {
 
     /// Table `t` is in the reach.
     fn touch(&mut self, t: u32) {
-        if self.facts && !self.written_only && self.enter(t as usize, TOUCHED) {
+        if self.facts && self.enter(t as usize, TOUCHED) {
             self.out.touched.insert(t);
         }
     }
@@ -831,7 +812,7 @@ impl<'a> Walk<'a> {
 
     fn note_table_write(&mut self, table: Option<u32>) {
         match table {
-            _ if !self.facts || self.written_only => {}
+            _ if !self.facts => {}
             Some(t) => {
                 self.out.writes.insert(t);
             }
@@ -863,12 +844,10 @@ impl<'a> Walk<'a> {
     /// The facts and steps of a [`Summary`].
     fn apply(&mut self, s: &Summary) {
         if self.facts {
-            if !self.written_only {
-                for &t in &s.touched {
-                    self.touch(t);
-                }
-                self.out.globals_read.extend(s.globals_read.iter().copied());
+            for &t in &s.touched {
+                self.touch(t);
             }
+            self.out.globals_read.extend(s.globals_read.iter().copied());
             self.out.globals_written.extend(s.globals_written.iter().copied());
             self.out.state_reads |= s.state_reads;
             self.out.state_writes |= s.state_writes;
