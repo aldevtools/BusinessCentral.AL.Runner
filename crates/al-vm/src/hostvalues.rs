@@ -228,7 +228,9 @@ impl Session {
             }
             // corpus types/PSCaptionClass.al:5-8, :58-81 (CaptionClassTranslate_Expressions).
             ids::SYSTEM_CAPTIONCLASSTRANSLATE_1 => match args.first().and_then(al_builtins::native::text_of) {
-                Some(t) => self.caption_class_translate(&t).map(|s| Value::Text(s.into())),
+                Some(t) => self
+                    .caption_class_translate_statement(&t)
+                    .map(|s| Value::Text(s.into())),
                 None => unsupported("CaptionClassTranslate of something that is not text"),
             },
             // ADR-042: the host's server base address and the pinned query forms (geturl.rs).

@@ -220,6 +220,7 @@ mod moved_onto_deleted;
 mod never_run_update;
 mod open;
 mod validation_text;
+mod ui_caption_translate;
 pub(crate) use open::written_by_routine;
 mod other_record_no_row;
 mod page_get_record;

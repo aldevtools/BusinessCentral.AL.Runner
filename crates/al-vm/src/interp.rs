@@ -1469,6 +1469,7 @@ impl Session {
                                             temp_row: b.temp_row,
                                             uncompressed: b.uncompressed,
                                             written: false,
+                                            written_base: None,
                                             render_pending: b.render_pending.clone(),
                                             inserted: b.inserted,
                                             temp_inserted: false,
