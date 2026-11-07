@@ -82,6 +82,7 @@ mod page_inserts;
 mod page_run_fqn;
 mod page_var_validate_code_change;
 mod pageext;
+mod pageext_event_sender;
 mod pageext_leads;
 mod pages;
 mod part_both_later_row;
