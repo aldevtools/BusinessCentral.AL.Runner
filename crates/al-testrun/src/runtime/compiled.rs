@@ -60,10 +60,6 @@ pub const MICROSOFT_ISOL_DISABLED: u32 = 130_451;
 pub struct RunOptions {
     /// The test runner (ADR-066). Default: al-runner's own.
     pub test_runner: TestRunner,
-    /// Also run the codeunits of each BC session that read SingleInstance state an earlier codeunit left in one go,
-    /// the single instances moved from session to session, and report every outcome that differs
-    /// (`ChainReport::serial_mismatches`; also `AL_SINGLE_SERIAL_CHECK=1`; ADR-066 amendment 1).
-    pub single_serial_check: bool,
     /// Only these test codeunits (app index of the compile, object id) are roots of the compile
     /// and are run. `None`: all of them.
     pub only: Option<Vec<(usize, u32)>>,

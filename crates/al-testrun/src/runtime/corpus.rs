@@ -1397,7 +1397,6 @@ impl CorpusRuntime {
                             perturb: Default::default(),
                             run_seed: opts.run_seed,
                             runner: None,
-                            singletons: None,
                         });
                     }
                     continue;
@@ -1452,7 +1451,6 @@ impl CorpusRuntime {
                             perturb: opts.perturb.clone(),
                             run_seed: opts.run_seed,
                             runner: *runner,
-                            singletons: None,
                         }),
                         Err(why) => {
                             if suite.runner.is_none()
@@ -1627,46 +1625,80 @@ impl CorpusRuntime {
                     }
                 }
             }
-            let rest_all: Vec<usize> = (0..units.len()).filter(|k| slots[*k].is_none()).collect();
-            // Test codeunits run on a session each and do not share anything (the install baseline is put back for each),
-            // so worker threads take them in turn, in rounds (`rounds_run.rs`). A worker sets up its own copy of the
-            // baseline.
-            let encode_started = std::time::Instant::now();
-            let snapshot: Option<&[u8]> = (workers > 1 && rest_all.len() >= 2)
-                .then(|| {
-                    snapshot_once.get_or_init(|| {
-                        baseline_engine
-                            .is_some()
-                            .then(|| baseline.as_ref().and_then(al_vm::Baseline::to_bytes))
-                            .flatten()
+            let rest: Vec<usize> = (0..units.len()).filter(|k| slots[*k].is_none()).collect();
+            let results: Vec<UnitResult> = if workers <= 1 || rest.len() < 2 {
+                rest.iter()
+                    .map(|&k| &units[k])
+                    .map(|u| {
+                        let mut observe = |name: &str, _: &Outcome, seen: &Observed| {
+                            details.insert((u.si, u.id, name.to_lowercase()), observed_detail(lowered, seen));
+                        };
+                        let trace: Option<&mut Observer> = opts.trace.then_some(&mut observe);
+                        run_unit(&engine, lowered, baseline.as_ref(), u, trace, limit)
                     })
+                    .collect()
+            } else {
+                // Test codeunits run on a session each and do not share anything (the install
+                // baseline is put back for each), so worker threads take them in turn. A worker
+                // sets up its own copy of the baseline.
+                let encode_started = std::time::Instant::now();
+                let snapshot: &Option<Vec<u8>> = snapshot_once.get_or_init(|| {
+                    baseline_engine
+                        .is_some()
+                        .then(|| baseline.as_ref().and_then(al_vm::Baseline::to_bytes))
+                        .flatten()
+                });
+                encode_time += encode_started.elapsed();
+                let next = std::sync::atomic::AtomicUsize::new(0);
+                let pull = |baseline: Option<&al_vm::Baseline>| {
+                    let mut done = Vec::new();
+                    loop {
+                        let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(u) = rest.get(k).map(|&i| &units[i]) else {
+                            return done;
+                        };
+                        done.push((k, run_unit(&engine, lowered, baseline, u, None, limit)));
+                    }
+                };
+                std::thread::scope(|scope| {
+                    let mut handles = Vec::new();
+                    for _ in 1..workers.min(rest.len()) {
+                        let spawned = std::thread::Builder::new()
+                            .stack_size(TEST_STACK)
+                            .spawn_scoped(scope, || {
+                                let own = thread_baseline(snapshot.as_deref());
+                                pull(own.as_ref())
+                            });
+                        match spawned {
+                            Ok(h) => handles.push(h),
+                            // No room for another thread (an address space limit): fewer will do.
+                            Err(_) => break,
+                        }
+                    }
+                    let mut done = pull(baseline.as_ref());
+                    for h in handles {
+                        done.extend(h.join().expect("a test worker panicked"));
+                    }
+                    // Results in the order of the units, whichever worker finished first.
+                    done.sort_by_key(|(k, _)| *k);
+                    done.into_iter().map(|(_, r)| r).collect()
                 })
-                .and_then(|s| s.as_deref());
-            encode_time += encode_started.elapsed();
-            let predicted = std::cell::RefCell::new(std::collections::HashMap::new());
-            let (rest, results) = super::rounds_run::RoundRun {
-                engine: &engine,
-                lowered,
-                baseline: baseline.as_ref(),
-                carried: &carried,
-                sees: &sees,
-                place: &place,
-                limit,
-                workers,
-                trace: opts.trace,
-                snapshot,
-                thread_baseline: &|s| thread_baseline(s),
-            }
-            .run(&mut units, &rest_all, &slots, &predicted, &mut details);
-            let mut leak_reran = std::collections::HashSet::new();
+            };
             for (k, mut r) in rest.into_iter().zip(results) {
-                let before = last_seen(&carried, &sees, &units[k]);
+                let before = carried
+                    .iter()
+                    .rev()
+                    .find(|(si, id, leg, _)| sees(*si, *id, *leg, &units[k]));
                 let storage = before
                     .is_some_and(|(_, _, _, c)| c.everything && reaches_session_storage(&engine, lowered, units[k].oi));
                 let hit = r.result.as_ref().is_ok_and(|done| done.5.leak_hit) || storage;
                 if let (true, Some((_, _, leg, c))) = (hit, before) {
                     let o = &lowered.program.objects[units[k].oi];
-                    let handlers = has_handler_functions(o);
+                    let handlers = o.routines.iter().any(|r| {
+                        r.attributes
+                            .iter()
+                            .any(|a| a.name.eq_ignore_ascii_case("HandlerFunctions"))
+                    });
                     let unfinished = if storage { c.storage_why.as_ref() } else { None }.or(c.unfinished.as_ref());
                     let refused = match unfinished {
                         Some(why) => Some(why.clone()),
@@ -1694,7 +1726,6 @@ impl CorpusRuntime {
                             };
                             let trace: Option<&mut Observer> = opts.trace.then_some(&mut observe);
                             r = run_unit(&engine, lowered, c.baseline.as_ref(), &units[k], trace, limit);
-                            leak_reran.insert(k);
                             chain_report.reruns.push(super::ChainEntry {
                                 id,
                                 name: lowered.program.objects[units[k].oi].name.clone(),
@@ -1712,24 +1743,15 @@ impl CorpusRuntime {
                 }
                 slots[k] = Some(r);
             }
-            // SingleInstance state goes from each codeunit to the next in run order (probe P7 of ADR-066): codeunits
-            // that saw another state than the serial run gives them run again from it (`single_walk.rs`).
-            super::single_walk::SingleWalk {
-                engine: &engine,
-                lowered,
-                baseline: baseline.as_ref(),
-                units: &units,
-                carried: &carried,
-                sees: &sees,
-                place: &place,
-                limit,
-                leak_reran: &leak_reran,
-                predicted: &predicted,
-            }
-            .walk_and_check(&mut slots, opts, &mut chain_report);
-            for r in slots.into_iter().flatten() {
+            let results: Vec<UnitResult> = slots.into_iter().flatten().collect();
+            for r in results {
                 suite_work.push((r.si, r.took));
-                codeunit_times.push(codeunit_time(lowered, &r));
+                codeunit_times.push(CodeunitTime {
+                    id: r.id,
+                    name: lowered.program.objects[r.oi].name.clone(),
+                    took: r.took,
+                    sidecar_start: r.sidecar_start,
+                });
                 let o = &lowered.program.objects[r.oi];
                 let push = |list: &mut Vec<TestResult>,
                             test: &str,
@@ -2595,31 +2617,4 @@ pub(super) fn observed_detail(lowered: &Lowered, seen: &Observed) -> explain::Te
     );
     d.refused_in = seen.refused_in.map(|(o, r)| explain::describe_refused(lowered, o, r));
     d
-}
-
-fn codeunit_time(lowered: &Lowered, r: &UnitResult) -> CodeunitTime {
-    CodeunitTime {
-        id: r.id,
-        name: lowered.program.objects[r.oi].name.clone(),
-        took: r.took,
-        sidecar_start: r.sidecar_start,
-    }
-}
-
-/// The last chain member whose state codeunit `u` sees (`sees`).
-fn last_seen<'c>(
-    carried: &'c [super::chain_walk::Carry],
-    sees: &dyn Fn(usize, u32, u8, &Unit) -> bool,
-    u: &Unit,
-) -> Option<&'c super::chain_walk::Carry> {
-    carried.iter().rev().find(|(si, id, leg, _)| sees(*si, *id, *leg, u))
-}
-
-/// Whether a routine of object `o` names handler functions (`[HandlerFunctions(..)]`).
-fn has_handler_functions(o: &al_ir::Object) -> bool {
-    o.routines.iter().any(|r| {
-        r.attributes
-            .iter()
-            .any(|a| a.name.eq_ignore_ascii_case("HandlerFunctions"))
-    })
 }

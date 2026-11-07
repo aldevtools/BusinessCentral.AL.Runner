@@ -354,7 +354,7 @@ impl Session {
     /// The reads from row `at` of `rows` (the view from its start), then OnAfterGetCurrRecord on it; the client then holds the
     /// rows it read.
     fn read_refilled_rows(&mut self, st: &St, rows: &[Vec<Value>], at: usize) -> Result<(), Signal> {
-        self.read_refilled_rows_as(st, rows, at, false)
+        self.read_refilled_rows_as(st, rows, at, false, false)
     }
 
     /// A ListPart whose control's OnValidate ran `CurrPage.Update` (with or without `false`) on a Document host whose row did not
@@ -364,10 +364,28 @@ impl Session {
     /// TH_Line2_UpdateFalse, :437 TH_Line3_UpdateFalse `R3 R2 R1 R3 R3 C3`, :453 TH_Walk_*; on branch al-runtime-rs-staging-pub-th,
     /// assumption part-keeps-row-after-update-in-validate). `rows` is the view from its start, up to a window.
     pub(super) fn read_part_rows_around(&mut self, st: &St, rows: &[Vec<Value>], at: usize) -> Result<(), Signal> {
-        self.read_refilled_rows_as(st, rows, at, true)
+        self.read_refilled_rows_as(st, rows, at, true, false)
     }
 
-    fn read_refilled_rows_as(&mut self, st: &St, rows: &[Vec<Value>], at: usize, part: bool) -> Result<(), Signal> {
+    /// A ListPart standing on a later row after its host's own `CurrPage.Update`: the part reads its row first, then the same
+    /// walk without the two reads of the row at its end (see `part_host_update.rs`).
+    pub(super) fn read_part_rows_after_host_update(
+        &mut self,
+        st: &St,
+        rows: &[Vec<Value>],
+        at: usize,
+    ) -> Result<(), Signal> {
+        self.read_refilled_rows_as(st, rows, at, true, true)
+    }
+
+    fn read_refilled_rows_as(
+        &mut self,
+        st: &St,
+        rows: &[Vec<Value>],
+        at: usize,
+        part: bool,
+        host_update: bool,
+    ) -> Result<(), Signal> {
         let rec = self.page_rec(st);
         let before = self.xrec_before_move(st);
         let window_end = rows.len().min(at + Self::WINDOW);
@@ -382,7 +400,7 @@ impl Session {
         // rows below it (also on its first row) and once more before the last pair (pinned for the two shapes below).
         let by_order_key = part && self.part_reads_once_more_at(st, &rec, rows.len(), at);
         let mut held = Vec::new();
-        if (at > 0 && !part) || by_order_key {
+        if (at > 0 && !part) || by_order_key || host_update {
             self.read_refilled_row(st, &rec, &rows[at])?;
         }
         for r in &rows[at..window_end] {
@@ -400,7 +418,7 @@ impl Session {
             above.extend(held);
             held = above;
         }
-        if !(part && at == 0 && window_end == 1) {
+        if !(part && at == 0 && window_end == 1) && !host_update {
             self.read_refilled_row(st, &rec, &rows[at])?;
         }
         if by_order_key {
@@ -409,7 +427,14 @@ impl Session {
         if find {
             self.part_find_on_row(st, &rec, &rows[at], "=")?;
         }
-        let current = self.read_refilled_row(st, &rec, &rows[at])?;
+        // After a host's Update the walk ends without the two reads of the row; Rec is put back on it unread.
+        let current = if host_update {
+            let shown = held[at].shown.clone();
+            rec.borrow_mut().fields = shown;
+            held[at].clone()
+        } else {
+            self.read_refilled_row(st, &rec, &rows[at])?
+        };
         let whole = rows.len() <= Self::WINDOW && held.len() == rows.len();
         {
             let mut s = st.borrow_mut();
