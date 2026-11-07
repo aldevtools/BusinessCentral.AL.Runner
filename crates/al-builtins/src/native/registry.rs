@@ -383,6 +383,16 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
                 c.translated_app_read(app, what)?;
                 return Ok(value.clone());
             }
+            [
+                value,
+                Value::Text(app),
+                Value::Text(what),
+                Value::Text(xliff),
+                Value::Boolean(true),
+            ] => {
+                c.translated_app_read_unit(app, what, xliff)?;
+                return Ok(value.clone());
+            }
             [value, Value::Text(app), Value::Text(what), Value::Text(xliff)] => {
                 return Ok(match c.translated_app_text(app, what, xliff)? {
                     Some(text) => Value::Text(text.into()),

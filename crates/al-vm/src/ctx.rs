@@ -74,6 +74,9 @@ impl al_builtins::format::FormatCtx for Session {
     /// A read through Format or Evaluate takes the caption a translation file gives (ADR-053 step 2): refused only where
     /// that cannot be looked up.
     fn enum_caption_refused(&self, id: u32, ordinal: Option<i32>) -> Option<String> {
+        if let Err(why) = self.enum_ml_captions(id, ordinal) {
+            return Some(why);
+        }
         match ordinal {
             Some(v) => self.enum_caption_translated(id, v).err(),
             None => self.enum_captions_translated(id).err(),
@@ -85,6 +88,11 @@ impl al_builtins::format::FormatCtx for Session {
         self.note_enum(id);
         if let Ok(Some(t)) = self.enum_caption_translated(id, value) {
             return t;
+        }
+        if let Ok(ml) = self.enum_ml_captions(id, Some(value)) {
+            if let Some((_, c)) = ml.into_iter().next() {
+                return c;
+            }
         }
         let o = &self.engine.program.objects[id as usize];
         if let Some((_, c)) = o.enum_captions.iter().find(|(v, _)| *v == value) {
@@ -107,6 +115,9 @@ impl al_builtins::native::Ctx for Session {
     }
     fn translated_app_text(&self, app: &str, what: &str, xliff: &str) -> Result<Option<String>, Signal> {
         Session::translated_app_text(self, app, what, xliff)
+    }
+    fn translated_app_read_unit(&self, app: &str, what: &str, xliff: &str) -> Result<(), Signal> {
+        Session::translated_app_read_unit(self, app, what, xliff)
     }
 
     fn http_send(
@@ -589,7 +600,12 @@ impl al_builtins::native::Ctx for Session {
         if let Ok(Some(t)) = self.enum_captions_translated(id) {
             return t;
         }
-        self.engine.program.objects[id as usize].enum_captions.clone()
+        let mut captions = self.engine.program.objects[id as usize].enum_captions.clone();
+        for (v, c) in self.enum_ml_captions(id, None).unwrap_or_default() {
+            captions.retain(|(w, _)| *w != v);
+            captions.push((v, c));
+        }
+        captions
     }
     fn enum_source_captions(&self, id: u32) -> Option<Vec<(i32, String)>> {
         matches!(self.enum_captions_translated(id), Ok(Some(_)))

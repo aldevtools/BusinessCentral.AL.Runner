@@ -1345,13 +1345,7 @@ pub(crate) fn lower_core(
             Vec::new()
         }
     };
-    let own_enum = |i: usize| {
-        let m = members.own(i);
-        (
-            m.enum_values.iter().map(|(v, n)| (*v as i32, n.clone())).collect(),
-            m.enum_captions.iter().map(|(v, c)| (*v as i32, c.clone())).collect(),
-        )
-    };
+    let own_enum = |i: usize| super::shared::enum_own(&members.own(i));
     let report_item_table = |r: usize, item: usize| {
         shared
             .report_irs
@@ -2403,13 +2397,7 @@ pub fn relower_objects(
         implements: &|cu| implemented_interfaces(ws, cu),
         enum_info: &|i| enum_info_of(ws, &members, i),
         join_order: &|_, _| (0, 0, 0),
-        own_enum: &|i| {
-            let m = members.own(i);
-            (
-                m.enum_values.iter().map(|(v, n)| (*v as i32, n.clone())).collect(),
-                m.enum_captions.iter().map(|(v, c)| (*v as i32, c.clone())).collect(),
-            )
-        },
+        own_enum: &|i| super::shared::enum_own(&members.own(i)),
     };
     let mut replace = Vec::with_capacity(pieces.len());
     for (oi, mut piece) in pieces {

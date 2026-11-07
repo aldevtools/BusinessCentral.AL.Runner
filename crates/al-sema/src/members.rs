@@ -110,6 +110,8 @@ pub struct Members {
     pub enum_values: Vec<(u32, String)>,
     /// `Caption` of enum values that declare one, by ordinal.
     pub enum_captions: Vec<(u32, String)>,
+    /// `CaptionML` of enum values that declare one, as written, by ordinal.
+    pub enum_captions_ml: Vec<(u32, String)>,
     /// An enum states `AssignmentCompatibility = true`: an enum of another type assigns into it
     /// (corpus must-not-compile 0074, 0075; types/PXEnumRecordRef.al:7-10).
     pub assignment_compatible: bool,
@@ -220,6 +222,7 @@ fn merged_members(ws: &Workspace, i: usize) -> Members {
         target.fields.extend(ext.fields);
         target.enum_values.extend(ext.enum_values);
         target.enum_captions.extend(ext.enum_captions);
+        target.enum_captions_ml.extend(ext.enum_captions_ml);
         target.enum_impls.extend(ext.enum_impls);
         target.procedures.extend(ext.procedures);
         // `modify(Field) { Caption = ...; }` changes properties of an existing field
@@ -483,6 +486,9 @@ fn own_members(ws: &Workspace, i: usize) -> Members {
                     .and_then(|p| first_string_literal(&p.value_text()));
                 if let Some(c) = caption {
                     m.enum_captions.push((id, c));
+                }
+                if let Some(p) = sec.properties().find(|p| p.name().eq_ignore_ascii_case("CaptionML")) {
+                    m.enum_captions_ml.push((id, p.value_text()));
                 }
             }
         }
