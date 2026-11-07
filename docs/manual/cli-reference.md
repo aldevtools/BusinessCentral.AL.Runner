@@ -75,6 +75,7 @@ files older than a day are removed.
 | `--dev-endpoint-ui` | Answer a UI call that no handler of the test takes (`Confirm`, `StrMenu`, `Message`, `Hyperlink`, `Page.Run`, `Page.RunModal`, the request page of `Report.RunModal`) as the dev-endpoint test runner of BC 28 and 29 does (the runner VS Code uses), instead of failing with `Unhandled UI` as Microsoft's Test Runner app does. Only the call shapes measured on BC 28.5 and 29 (SaaS) are answered; the others still fail. On BC 27 it changes nothing (that runner also fails); on other versions it is refused. **Risk:** a test that passes here can fail under Microsoft's Test Runner app. Each answered call prints a `warning:` line with the test, the call and the answer, and the test is a flagged pass with the assumption `dev-endpoint-ui` (`--junit` property `dev_endpoint_ui`, `--output-json` field `uiAnswered`). In `serve`: the `runTests` field `devEndpointUi`. See [Writing tests](writing-tests.md#ui-calls-without-a-handler). |
 | `--allow-write-in-try-functions` | Run as a Business Central service tier whose setting `DisableWriteInsideTryFunctions` is off, as on Business Central online. Without it, AL Runner follows the setting's default, as a BC container and on-premises: a database write inside a TryFunction whose result is used raises `Call to the function 'MODIFY' is not allowed inside the call to '...' when it is used as a TryFunction.` (code `TryFunctionWrite`). What BC does with the setting off is not measured yet, so with this option such a write is not run: the test is reported as not run with that reason, instead of failing. In `serve`: the `runTests` field `allowWriteInTryFunctions`. |
 | `--strict-order` | Run every order-dependent test codeunit again, one after the other in Business Central's order, and report that result. A test codeunit is order dependent when it reads a variable of a `SingleInstance` codeunit that an earlier test codeunit left with another value (Business Central runs all test codeunits in one session). Without this option such a codeunit keeps its parallel result (fresh state, as when it runs alone or first) and runs again in order only when a test of it failed or was refused while it ran (a test refused before it starts does not count). Each such run is a serial session of the codeunit and the codeunits it depends on (their last writers), and the sessions run in parallel; with this option too, so state from codeunits outside that chain is not carried. Either way its tests are flagged passes, `single-instance-order`. The option removes the risk that a test passing alone but failing in the full order passes here, at a cost on suites with many order-dependent codeunits (ADR-066 amendment 5 has measured times). `AL_TEST_THREADS=1` runs one codeunit at a time but does not carry state. See "Flagged: relies on SingleInstance state another test codeunit left" in [results](results.md). In `serve`: the `runTests` field `strictOrder`. |
+| `--test-suites FILE` | Treat each test suite listed in FILE as a Business Central session of its own, as a pipeline does that runs one test-tool run per suite (ALOps). A test codeunit is then order dependent only on a codeunit listed before it in its own suite, in the file's order; within a suite `--strict-order` and the default rules apply unchanged, and everything still runs in parallel. A codeunit in no suite runs as a session of its own; one listed in several suites runs once and has one result. Without this option the whole run is one session. Format and how to make the file: [Test suites file](#test-suites-file). In `serve`: the `runTests` field `testSuites`. |
 | `--dependencies-published-global` | Show the column "Published As" of the table "NAV App Installed App" as Global (0), not Dev (2), for a dependency app of a publisher other than Microsoft. Without it such an app is Dev, as when it is published through the development endpoint. Use it when your pipeline publishes dependencies as compiled apps and your install code filters on Published As. Global is a setting, not a value measured on Business Central: a test that reads it is a flagged pass with the assumption `dependency-published-as-global`. Microsoft's apps are always Global, and the apps under test always Dev. In `serve`: the `runTests` field `dependenciesPublishedGlobal`. |
 | `--permissions on\|off` | Whether AL Runner checks permissions where one of its permission-check stages is on (ADR-062). Default `on`. Stage 1 is on: in a session that a test lowered, table data writes are checked and a denied write raises Business Central's error. Other denials are not run. `off` checks nothing, and a test that lowers its permissions is not run. In `serve`: the `runTests` field `permissions` (`"on"` or `"off"`). |
 | `--stability FILE\|microsoft` | Stability mode (ADR-058): run the selected tests once per variant of a JSON config over one compile and list the tests whose outcome changes against the base variant. The preset `microsoft` is Microsoft's four: another `Library - Random` seed, each test alone, reverse method order, work date plus one year. Dimensions built: `random.librarySeed`, `isolation.alone`, `order.methods`, `workDate.offset`, `clock.date`, `order.codeunits` (changes outcomes only with `--isolation disabled`), `random.hostSeed`, `guid.seed`, `clock.timeOfDay`, `clock.stepMs` (positive), `identity.userId` (letters and digits), `identity.userSecurityId`, `identity.sessionId`, `identity.serviceInstanceId`, `identity.tenantId`, `company.name` (letters, digits and spaces, up to 30); the integer ones also take a range; strategies `oneAtATime`, `matrix`, `sample`. The config's `matrix` names the axes `bcVersion`, `country`, `companies` (each value `null` for one company, `"all"`, or a list of names) and `environment` (`saas`, `onprem`): every cell runs every variant and is compared with its own base variant. Version, country and companies cells are child processes, as with `--matrix`; the environments of a cell share its compile. A version or country list on the command line forms the cells the same way when the config names neither axis. A config that names a "never" or "pin first" dimension, a dimension not built yet, or an unknown matrix axis is refused with exit 2, and so is an axis the config names together with its command-line option (`--bc-version`, `--country`, `--matrix`, `--environment`, `--companies`). Exit 1 when a test changes between pass and fail; a change to or from not run is listed apart. `--junit` holds one testsuite per variant, `--output-json` a `stability` object. In a matrix, each cell writes its own JUnit file and its document holds its `stability` object; the matrix report adds a table of the cells and the tests that changed within each. Not with `--affected`, `--recipe`, `--explain`, `serve`, or `ALRUNNER_REAL_CLOCK=1`. |
@@ -193,6 +194,54 @@ See [What works](what-works.md#dotnet).
 `al-runner test-microsoft [--app NAME ...] [--bc-version V] [--country CODE] [OPTIONS] [APP...]`
 runs Microsoft's test apps of a build with `--recipe microsoft`. `--list-lanes` prints, without compiling or running, the lane of Microsoft's CI that each test codeunit runs in, with totals per lane; `--verbose` adds a line per codeunit. `--app NAME` (also
 `--microsoft-app NAME`) names a test app. See [Running Microsoft's tests](microsoft-tests.md).
+
+## Test suites file
+
+`--test-suites FILE` reads a plain text file (UTF-8) that lists Business Central test
+suites, one per line (ADR-066 amendment 6):
+
+```
+# one line per suite: an optional name and a colon, then the test codeunit ids in run order
+DATACHECK: 81659 81660 81665 81667 81673
+LCSP: 81697 81699 81700 81704
+suite  3: 81045, 81046, 81047
+82002 82004 82005
+```
+
+- **Ids**: the suite's test codeunit ids, in the order Business Central runs them.
+  Separate them with spaces, tabs or commas.
+- **Name** (optional): the text before the first `:`. It may hold spaces. It only
+  appears in messages. A line without a name, or with an empty one, is named `line N`.
+- **Skipped**: blank lines, and lines whose first non-blank character is `#`. A UTF-8
+  byte order mark and Windows line ends are fine.
+- **Errors** (exit code 2, with the line number): a token that is not a whole number
+  from 1 to 4294967295, and a codeunit listed twice in one suite.
+- **Warnings** (on stderr; the run goes on): an id that is no test codeunit of the
+  apps under test. It is ignored, so one file can serve several apps.
+- A suite without ids (`ENV:`) is accepted and holds nothing.
+- A codeunit may be listed in more than one suite. It runs once and has one result.
+
+What the suites change is described in [results](results.md), "One session per test
+suite".
+
+### Making the file from your test suites
+
+The order inside a suite matters, so take it from where your pipeline gets it:
+
+1. **From the pipeline's suite definitions.** If the pipeline loops over a list of
+   suites (an ALOps template with one `ALOpsAppTest` task per `testsuite`), write
+   one line per suite from that same list, in the same order as the tasks run.
+2. **From the test tool in Business Central.** The suites are rows of table 130451
+   "AL Test Suite". Their codeunits are rows of table 130450 "Test Method Line" with
+   "Line Type" = Codeunit, ordered by "Test Suite", "Line No." (the table's key and the
+   order the test tool runs them in). Write one line per "Test Suite" value: the suite
+   name, a colon, then the "Test Codeunit" values in "Line No." order.
+3. **From the results of a run.** If each suite's run writes its own result file
+   (for example one JUnit or XUnit file per pipeline step), the codeunits in each file,
+   in the order they appear, give that suite's line.
+
+Codeunits you leave out run as sessions of their own, so a partial file is safe: it
+only removes links, never adds them.
 
 ## Debugging
 

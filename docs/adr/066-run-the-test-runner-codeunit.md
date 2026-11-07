@@ -518,101 +518,6 @@ suites needs another rule; that is an open question for the owner.
    starts were written and the most alive at once.
    Built first without this: on Tests-ERM-Purchase every codeunit is in the carry chain, so every session stayed on
    the main thread (6 sessions, longest 13.6 s, lane wall time 45.8 s).
-6. **`--timings`** keeps the lane line: the lane's time, how many dependent codeunits were found (`LaneReport::dependent`)
-   and how many ran again because of a failure (`LaneReport::rerun`; under `--strict-order` all of them).
-
-### Why
-
-Amendment 3 ran every dependent codeunit again. On Microsoft's posting suites most dependence is real but harmless:
-Sequence No. Mgt. keeps the rest of an entry-number range after a posting that stopped with an error, and the next
-codeunit draws its entry numbers from that rest. Those codeunits pass with fresh state too. Running them all again
-serially cost Tests-SCM (BC 29, 12 threads) 357 s against 245 s before the lane existed.
-
-### Rejected alternative
-
-Strict serial for every dependent codeunit by default (amendment 3 as merged). Rejected for its cost on posting suites
-(Tests-SCM 357 s against 245 s, caused by the entry-number buffers of Sequence No. Mgt.) while the parallel result is a
-real BC outcome. It stays available as `--strict-order`.
-
-### Risk: a false pass
-
-A test that passes alone but fails on BC in the full order (it needs another value than the fresh one, but the
-earlier codeunit's value breaks it) is reported as a flagged pass by default. The flag and the `--stability` list say
-so; `--strict-order` removes the risk. A test that fails alone and passes in BC's order still gets BC's result through
-the serial run.
-
-### Measured (BC 29, Microsoft's apps, 12 threads)
-
-Release binary, BC 29.0.54011.55816, cores 0-2 and 5-11, warm compile cache. "Before the lane" is the binary of
-7b1a05de7; amendment 3 is main at 5605cb8ba.
-
-| Bucket | Before the lane | Amendment 3 | Amendment 4 (this default) | Dependent / ran again | Outcome changes against before the lane |
-|---|---|---|---|---|---|
-| Tests-ERM-Purchase | 131.7 s | 103.5 s | 92.0 s (lane 25.9 s) | 9 / 7 | 0 |
-| Tests-SCM | 244.9 s | 357 s | 360.6 s (lane 121.6 s) | 31 / 26 | 0 |
-
-Tests-SCM codeunits 137035 and 137038 alone keep their 128 passes.
-
-The cut is small on Microsoft's suites. Of the 31 dependent codeunits of Tests-SCM, 13 have a failed test and 20 a
-test not run (mostly refusals of features not built yet) already with fresh state, so 26 run again. Measured for
-information with a local build that counts only failures (not committed): 13 ran again, lane 90.5 s, run 341.7 s.
-In both runs every serial result equals the parallel one (0 outcome changes). Making the serial run cheaper on such
-suites needs another rule; that is an open question for the owner.
-
-### Conformance
-
-- `crates/al-testrun/tests/suite/single_instance_lane.rs`: a dependent codeunit that passes in parallel is not run
-  again and is flagged; one that fails in parallel (the reader of amendment 2, the corpus P7B shape) runs again
-  serially and passes flagged; `--strict-order` runs every dependent codeunit again.
-- `crates/al-testrun/src/runtime/single_lane.rs` unit test: the lane of the chosen dependent codeunits holds only their
-  chain.
-- `crates/al-testrun/tests/suite/single_instance_lane.rs`
-  `carried_starts_are_written_when_a_session_needs_them_and_freed_after`: 24 sessions in a carry chain, each with a
-  carried start of its own, never hold more starts at once than there are worker threads (issue 6924).
-- `crates/alrunner-cli/tests/cli/onrun_stability.rs`: `--stability` lists the dependent test with and without
-  `--strict-order`.
-- Corpus: `P7B_ReadsWhatThePreviousTestCodeunitLeft` fails with fresh state, runs again and passes flagged.
-
-## Amendment 5 (Accepted, owner, 2026-11-07): each serial re-run is a session of its own, and the sessions run in parallel
-
-- Status: Accepted by the owner on 2026-11-07. Amends amendment 4: which codeunits are dependent (amendment 3) and
-  which of them run again (amendment 4) are unchanged, except decision 2 below. How the serial runs are grouped and
-  where they run changes. `--strict-order`, `--stability` (`orderDependent`) and the flagged-pass rule stay as amendment 4
-  defined them.
-
-### Decision
-
-1. **One serial session per chain (owner).** A dependent codeunit that runs again gets a serial session of its own:
-   its chain (amendment 4, decision 2: for each global that makes it dependent the last writer, and that writer's own
-   writers when it is dependent itself; `Found::lane_for`) in BC's order, the single instances moved from codeunit to
-   codeunit as before. The sessions run in parallel on the worker threads (as many as the parallel run uses), not one
-   after the other on one thread. A codeunit no longer sees the state that codeunits outside its session left.
-2. **A writer two chains share runs in each (orchestrator's call, within the owner's decision).** Each chosen
-   dependent codeunit keeps a session of its own even when its chain shares a writer with another chain; the shared
-   writer runs once per session (`Found::sessions`). So each codeunit sees exactly the state of its own chain, as
-   decision 1 says. One exception saves runs without changing what a codeunit sees: a chosen codeunit that is in a later
-   chosen codeunit's chain, where every codeunit of that chain up to it is in its own chain, is reported from that
-   session and gets none of its own (it starts there with the very state its own session would give it).
-   Rejected: merging overlapping chains into one session, so a shared writer runs once. Built first and measured on
-   Tests-ERM-Purchase: the chains link through one dependent writer (134804 RED Test Unit for Purch Doc, itself
-   dependent on 134398 through the entry-number buffers of Sequence No. Mgt.), so 7 re-runs merged into 2 sessions, one
-   of them holding almost every codeunit: longest session 26.7 s, lane wall time 31.4 s, no faster than amendment 4's
-   single lane (25.9 s). Merging also lets a codeunit see the state another chain's codeunits left, against decision 1.
-3. **A test refused before it starts triggers no re-run (orchestrator's call, within the owner's rule of amendment 4
-   "re-run only on failures").** Only a failed test (also a failure judged not trusted) or a test that started and did
-   not run to its end (refused while it ran, stopped by the time limit) makes a dependent codeunit run again. A test the
-   lowering refused, a diagnostic, or a refusal of the whole codeunit before it started is not caused by the state the
-   codeunit started with, and the serial run would refuse it all the same (`Scratch::unfinished_after_start`,
-   `needs_serial_run`).
-4. **`--strict-order` keeps its meaning** (every dependent codeunit runs again serially in BC's order, with the writers
-   it depends on, and that run is reported) and uses the same parallel sessions. This does not contradict the flag's
-   documented meaning: each dependent codeunit still runs after its chain in BC's order. What changes under the flag is
-   that state from codeunits outside the chain is not carried, as amendment 3 already limited the chain to the last
-   writer.
-5. **A session bound to the main thread.** A session with a codeunit that comes after a carry-chain member
-   (RequiredTestIsolation = Disabled, ADR-055) may start from the baseline that member left, which holds `Rc`s and stays
-   on the thread that made it. Such a session runs on the main thread, alongside the worker threads; the others run on
-   the worker threads, each with its own copy of the install baseline (the snapshot the parallel run uses).
 6. **`--timings`**: the lane line adds the number of serial sessions, the time of the longest one and the lane's wall
    time (`LaneReport::chains`, `longest`, `took`).
 
@@ -678,3 +583,94 @@ changes.
 - `crates/al-testrun/src/runtime/single_lane.rs` unit tests: every chain is a session of its own and a shared writer
   runs in each; a chain that is the start of a later chosen codeunit's chain runs inside it, and one that is not keeps
   its own session.
+- `crates/al-testrun/tests/suite/single_instance_lane.rs`
+  `carried_starts_are_written_when_a_session_needs_them_and_freed_after`: 24 sessions in a carry chain, each with a
+  carried start of its own, never hold more starts at once than there are worker threads (issue 6924).
+
+
+## Amendment 6 (Accepted, owner, 2026-11-07): test-suite boundaries are Business Central session boundaries
+
+- Status: Accepted by the owner on 2026-11-07 ("Yes, but treat those as minimum boundaries. If feasible the runner
+  should be able to parallelize even further."). Amends amendments 2 to 5: which BC session a test codeunit belongs to
+  can now come from a file. Within a session nothing changes.
+
+### Why
+
+Amendments 2 to 5 assume what Microsoft's own test runner does: all test codeunits of a run in one session, in order.
+Not every pipeline runs tests that way. An outside user (al-runner issue 6924) runs his reference pipeline with ALOps
+as one test-tool run per BC test suite: 73 pipeline steps, each an `ALOpsAppTest` task on test page 130455 that opens
+its own client session, runs one suite and disconnects. SingleInstance state therefore never crosses a suite on BC.
+al-runner treated the whole run as one session and linked codeunits across suites: codeunit 81697 (suite LCSP) was
+made dependent on `ConfigLoaded`, which codeunit 81673 (suite DATACHECK) left. On BC that link cannot happen.
+
+### Decision
+
+1. **`--test-suites FILE`** (`RunOptions::test_suites`; `serve`: the `runTests` field `testSuites`, the file's path).
+   The file lists suites, one per line: an optional name ended by the first `:`, then the suite's test codeunit ids in
+   BC's run order, separated by spaces, tabs or commas (`DATACHECK: 81659 81660 81673`). The name may hold spaces
+   (`suite  1: 93001 93002`, the shape issue 6924 posted); a line without a name is named `line N`. Blank lines and
+   lines that start with `#` are skipped; a byte order mark and Windows line ends are accepted. The parser is
+   `al_testrun::test_suites` (no OS access); `alrunner-cli/src/test_suites.rs` reads the file (ADR-006).
+2. **Each suite is a BC session of its own for order dependence.** The streams of `single_lane.rs` are the suites of
+   the file (per suite, app and hub leg), each in the file's order, not in id order. No SingleInstance link, serial
+   re-run or writer chain crosses a suite. The watch (amendment 2, cost control) follows: a suite of one codeunit
+   watches nothing.
+3. **Minimum boundaries.** Within a suite amendments 3 to 5 apply unchanged: every codeunit runs in parallel with fresh
+   state, a dependent codeunit is flagged (`single-instance-order`), and only one with a failed test or a test refused
+   while it ran (or every one, under `--strict-order`) runs again in a serial session of its own chain, the sessions in
+   parallel. The suites themselves add no serial step: they only remove links.
+4. **A codeunit in no suite is a session of its own** (orchestrator's call). On a per-suite pipeline such a codeunit
+   is not run by BC at all, so it has no BC order to copy and no earlier codeunit whose state it could see. Running it
+   as if alone is the parallel run al-runner gives anyway, and it is never linked or flagged. Rejected: one default
+   session for all unlisted codeunits, as today. It would invent links between codeunits that never share a session
+   on BC.
+5. **A codeunit listed in more than one suite** (issue 6924: suites 5 and 6, and 2 and 25, list the same codeunits;
+   BC runs such a codeunit once per suite) runs once in the parallel run and is reported once (orchestrator's call).
+   It is a member of each suite's session: it counts as a writer for the codeunits after it in every one of them (what
+   it left is its parallel run's end state, the same each time). It is dependent when it is dependent in any suite it
+   is listed in; the first such suite in the file's order gives its note and, when it runs again, its serial session.
+   It is counted once in `--timings`. Rejected: reporting it once per suite, which would change the result format
+   (one result per test) for a rare case whose suites are, in the case seen, identical.
+6. **What the file may hold.** A token that is not a whole number from 1 to 4294967295, or a codeunit listed twice in
+   one suite (a BC test suite holds a codeunit once), stops the run with exit code 2 and names the line. A listed id
+   that is no test codeunit of the apps under test is a `warning:` on stderr per suite and is ignored: a pipeline's
+   file may name codeunits of other apps or ones a selection leaves out. A suite without ids is accepted and holds
+   nothing.
+7. **Suites cut SingleInstance state only (owner, 2026-11-07).** The compile, the database load, the install code and
+   the install baseline (ADR-013) are made once per run and shared by every suite and every session, exactly as
+   without the option: a suite pays no compile, database load or install code of its own. This holds by construction:
+   the suites only change how `single_lane.rs` groups the codeunits it already analyses after the parallel run; the
+   parallel run and the serial sessions start from the run's one install baseline (a worker thread reads its copy from
+   the snapshot written once per run, amendment 5). The work ratchet counts (`RunWork`) of a run with suites equal
+   those of the same run without them.
+8. **Without the option nothing changes**: the whole run is one session (Microsoft's default), as in amendments 2
+   to 5.
+9. **`--stability`** lists as `orderDependent` only codeunits that depend on a codeunit of their own suite (it reads
+   the same flag).
+10. **`--affected`**: the file's text is part of the environment hash, so another file is a full run.
+
+### Consequences and limits
+
+- The database carry chain of `RequiredTestIsolation = Disabled` (ADR-055) is not changed: on BC committed rows stay
+  in the database across sessions, so suites do not cut it. It keeps the id order it had. Whether the order of the
+  suites themselves matters for such rows on a per-suite pipeline is not modelled.
+- A codeunit listed in two suites whose dependence differs per suite is reported with one result. In the shape seen
+  (identical suites) both give the same.
+- The file describes the pipeline; al-runner cannot check that it matches what BC ran. Issue 6924's reporter generates
+  it from the same suite definitions the pipeline uses.
+
+### Conformance
+
+- `crates/al-testrun/src/test_suites.rs` unit tests: named and unnamed lines, a name with spaces and the order kept,
+  comments, blank lines, byte order mark and Windows line ends, an empty name and an empty suite, a bad token and a
+  codeunit twice in one suite as errors naming the line, a codeunit in several suites.
+- `crates/al-testrun/tests/suite/single_instance_lane.rs`: a writer in one suite and a reader in another are not
+  linked; a writer and a reader in one suite are still linked (the reader runs again and passes flagged); the order
+  within a suite is the file's; a codeunit in no suite is a session of its own; a codeunit in two suites is reported
+  and counted once, and is dependent through either suite. The tests without the option are unchanged. Suites share one compile and one install baseline:
+  two readers of a row the install code wrote, in different suites, both see it, and `RunWork` and the number of
+  passes equal those of the run without suites (`suites_share_one_compile_and_one_install_baseline`).
+- `crates/alrunner-cli/src/test_suites.rs` and `serve.rs` unit tests: the option takes a path, `serve` refuses it as a
+  server option and takes `testSuites` per request, an unknown id is a warning per suite, a missing file is an error.
+- `crates/alrunner-cli/tests/cli/onrun_stability.rs`: `--stability` lists a reader as order dependent only when its
+  writer is in its suite; a bad line exits 2.
