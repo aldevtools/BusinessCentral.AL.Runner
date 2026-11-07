@@ -3,7 +3,15 @@
 use super::*;
 
 impl Session {
-    /// After OnOpenPage of a page handed a record: whether OnOpenPage left Rec on a primary key other than the one it was handed.
+    /// The primary key Rec holds before OnOpenPage runs (a page with a source table).
+    pub(super) fn rec_key_before_open(&mut self, st: &St) -> Result<Option<Vec<Value>>, Signal> {
+        if !self.has_source(st) {
+            return Ok(None);
+        }
+        Ok(Some(self.row_key(&self.page_rec(st))?))
+    }
+
+    /// After OnOpenPage of a page: whether OnOpenPage left Rec on a primary key other than the one it was handed.
     pub(super) fn note_handed_rec_moved(&mut self, st: &St, before: Option<Vec<Value>>) -> Result<(), Signal> {
         let moved = match before {
             Some(before) => !Self::same_key(&before, &self.row_key(&self.page_rec(st))?),
@@ -26,11 +34,7 @@ impl Session {
             let s = st.borrow();
             s.handed_rec_moved_by_onopenpage && !s.modal && !s.lookup && s.host.is_none()
         };
-        if !shape
-            || !self.is_list(st)
-            || self.declares(st, "onnextrecord")
-            || rec.borrow().temporary
-        {
+        if !shape || !self.is_list(st) || self.declares(st, "onnextrecord") || rec.borrow().temporary {
             return Ok(false);
         }
         if self.stored_row(&rec)?.is_none() {

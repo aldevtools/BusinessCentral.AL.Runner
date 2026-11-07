@@ -238,8 +238,10 @@ impl Session {
     /// `PagesState::run_page_link_opening` while the trigger runs.
     fn on_open_page(&mut self, st: &St, linked: bool) -> Result<Option<Value>, Signal> {
         self.pages.run_page_link_opening += u32::from(linked);
+        let before = self.rec_key_before_open(st)?;
         let opened = self.page_trigger(st, "onopenpage", vec![]);
         self.pages.run_page_link_opening -= u32::from(linked);
+        self.note_handed_rec_moved(st, before)?;
         opened
     }
 
@@ -524,11 +526,6 @@ impl Session {
             self.check_page_events(st)?;
             // A temporary source: Rec as it stands before OnOpenPage, to tell a row set before the open from one OnOpenPage set.
             let before_open = if has_source { self.temp_rec_position(st)? } else { None };
-            let handed_key_before = if has_source && record.is_some() {
-                Some(self.row_key(&self.page_rec(st))?)
-            } else {
-                None
-            };
             if let (Some(why), true) = (rec_unpinned, has_source) {
                 self.page_rec(st).borrow_mut().unpinned_buffer = Some(why);
             }
@@ -570,7 +567,6 @@ impl Session {
                 });
                 st.borrow_mut().onopenpage_kept_rec = kept;
             }
-            self.note_handed_rec_moved(st, handed_key_before)?;
             self.page_event(st, "onopenpageevent", None, None)?;
             self.cut_rec_after_onopenpage(st, has_source)?;
             if unattended {
