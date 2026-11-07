@@ -281,6 +281,10 @@ fn runtime(src: &str) -> CorpusRuntime {
 }
 
 fn runtime_over(src: &str, base: &str) -> CorpusRuntime {
+    runtime_opts(src, base, &RunOptions::default())
+}
+
+fn runtime_opts(src: &str, base: &str, opts: &RunOptions) -> CorpusRuntime {
     CorpusRuntime::try_run_suites_with(
         vec![app("main", &["base"], src), app("base", &[], base)],
         vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
@@ -289,7 +293,7 @@ fn runtime_over(src: &str, base: &str) -> CorpusRuntime {
         None,
         Default::default(),
         &[SuiteRun::everything()],
-        &RunOptions::default(),
+        opts,
     )
     .expect("the run starts")
 }
@@ -319,6 +323,8 @@ fn a_reader_of_state_an_earlier_codeunit_left_passes_and_is_flagged() {
     assert!(passed(&rt, "UsesNothingShared") && !flagged(&rt, "UsesNothingShared"));
     let lane = &rt.phases.chain.single_lane;
     assert_eq!(lane.lane.len(), 2, "{:?}", lane.lane);
+    // ADR-066 amendment 4: the reader fails in its parallel run (fresh state), so it ran again serially in BC's order.
+    assert_eq!((lane.dependent, lane.rerun), (1, 1), "{:?}", lane);
     assert!(
         lane.notes
             .iter()
@@ -366,4 +372,62 @@ codeunit 60492 "Lane Plain D" { Subtype = Test; [Test] procedure Two() begin end
     assert!(rt.results().iter().all(|r| r.outcome == Outcome::Pass));
     let lane = &rt.phases.chain.single_lane;
     assert!(lane.lane.is_empty());
+}
+
+/// ADR-066 amendment 4: a dependent codeunit whose tests pass with fresh SingleInstance state (as when it runs alone or
+/// first on BC).
+const DEPENDENT_BUT_PASSES: &str = r#"
+codeunit 60521 "Lane Setter Two"
+{
+    Subtype = Test;
+    [Test] procedure SetsItToo() var S: Codeunit "Lane State"; begin S.SetFlag('left'); end;
+}
+codeunit 60522 "Lane Lenient Reader"
+{
+    Subtype = Test;
+    [Test] procedure ReadsAnyFlag()
+    var S: Codeunit "Lane State";
+    begin
+        if StrLen(S.GetFlag()) > 10 then Error('flag is %1', S.GetFlag());
+    end;
+}
+"#;
+
+/// ADR-066 amendment 4, decisions 1 and 3: a dependent codeunit that passes in its parallel run is not run again, and
+/// its tests are flagged passes (order dependent).
+#[test]
+fn a_dependent_codeunit_that_passes_in_parallel_is_not_run_again_and_is_flagged() {
+    let rt = runtime(DEPENDENT_BUT_PASSES);
+    assert!(passed(&rt, "ReadsAnyFlag"), "{:?}", rt.results());
+    assert!(flagged(&rt, "ReadsAnyFlag"));
+    assert!(passed(&rt, "SetsItToo") && !flagged(&rt, "SetsItToo"));
+    let lane = &rt.phases.chain.single_lane;
+    assert!(lane.lane.is_empty(), "{:?}", lane.lane);
+    assert_eq!((lane.dependent, lane.rerun, lane.strict), (1, 0, false), "{:?}", lane);
+    // The note still names what it relies on, and the --timings line counts it.
+    assert!(
+        lane.notes
+            .iter()
+            .any(|n| n.contains("Lane Lenient Reader") && n.contains("Lane Setter Two")),
+        "{:?}",
+        lane.notes
+    );
+    let head = &lane.lines()[0];
+    assert!(head.contains("1 dependent") && head.contains("0 ran again"), "{head}");
+}
+
+/// ADR-066 amendment 4, decision 4: `--strict-order` runs every dependent codeunit again serially in BC's order, with
+/// the codeunit it depends on, as amendment 3 did.
+#[test]
+fn strict_order_runs_every_dependent_codeunit_again_serially() {
+    let opts = RunOptions {
+        strict_order: true,
+        ..Default::default()
+    };
+    let rt = runtime_opts(DEPENDENT_BUT_PASSES, STATE, &opts);
+    assert!(passed(&rt, "ReadsAnyFlag") && flagged(&rt, "ReadsAnyFlag"));
+    let lane = &rt.phases.chain.single_lane;
+    assert_eq!(lane.lane.len(), 2, "{:?}", lane.lane);
+    assert_eq!((lane.dependent, lane.rerun, lane.strict), (1, 1, true), "{:?}", lane);
+    assert!(lane.lines()[0].contains("strict order"), "{:?}", lane.lines());
 }

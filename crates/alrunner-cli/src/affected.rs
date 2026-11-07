@@ -152,6 +152,10 @@ fn options_hash(a: &TestArgs) -> Result<String, String> {
     if a.ignore_permission_mock {
         h.update(b"ignore_permission_mock");
     }
+    // `--strict-order` (ADR-066 amendment 4) can change outcomes (the serial run is reported); off keeps the hash.
+    if a.strict_order {
+        h.update(b"strict_order");
+    }
     // `ALRUNNER_REPORT_UNPINNED_ERRORS=1` (issue 6487) changes outcomes (not run becomes failed); off keeps the hash.
     if crate::unpinned::enabled() {
         h.update(b"report_unpinned_errors");

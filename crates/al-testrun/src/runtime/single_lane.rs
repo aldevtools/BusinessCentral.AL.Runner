@@ -15,8 +15,10 @@
 //!    (`al_vm::single_track`).
 //! 3. [`Lane::run`] goes through each BC session in order ([`analyse`]): a codeunit depends on earlier state when a
 //!    global it read first held another value than the last earlier writer left, unless it filled the same cache
-//!    itself: it ended with the very values the earlier writer left. The lane is the dependent codeunits and, until
-//!    nothing is added, the earlier codeunits that wrote a global one of them read.
+//!    itself: it ended with the very values the earlier writer left. Every dependent codeunit is flagged. Amendment 4:
+//!    it keeps its parallel run (fresh state, a real BC outcome: the codeunit run alone or first); only one with a
+//!    failed or not-run test, or every one under `--strict-order`, runs again in the lane with the writers it needs
+//!    ([`Found::lane_for`]), and that run is reported.
 
 use super::chain_walk::Carry as ChainCarry;
 use super::*;
@@ -73,6 +75,9 @@ pub(super) struct Found {
     pub dependent: BTreeMap<usize, (usize, GlobalKey)>,
     /// Positions of the codeunits to run in the lane: the dependent ones and the writers they need.
     pub lane: BTreeSet<usize>,
+    /// Per dependent codeunit (position), the positions of the earlier codeunits it needs in the lane: for each global
+    /// that makes it dependent, the last writer (R2).
+    pub writers: BTreeMap<usize, BTreeSet<usize>>,
     /// Position of a codeunit that is not dependent only because a guard then the refill of a global it read first
     /// is taken as no link although the earlier codeunit left another value (`Assumption::SingleInstanceRefill`), with
     /// that codeunit's position and the global.
@@ -154,6 +159,9 @@ pub(super) fn analyse(outs: &[Option<&SingleOut>]) -> Found {
             lane.insert(p);
             lane.insert(c.0);
             lane.extend(diff.iter().map(|(_, w)| *w));
+            let mine = found.writers.entry(p).or_default();
+            mine.insert(c.0);
+            mine.extend(diff.iter().map(|(_, w)| *w));
         } else if let Some(a) = assumed {
             found.refill_assumed.insert(p, a);
         }
@@ -167,6 +175,39 @@ pub(super) fn analyse(outs: &[Option<&SingleOut>]) -> Found {
     found
 }
 
+impl Found {
+    /// The lane for the dependent codeunits `chosen` (ADR-066 amendment 4): each one, the writers it needs, and the
+    /// writers of a writer that is dependent itself (R2), to the end. With every dependent codeunit chosen, this is
+    /// `lane` (amendment 3).
+    pub(super) fn lane_for(&self, chosen: &BTreeSet<usize>) -> BTreeSet<usize> {
+        let mut lane: BTreeSet<usize> = BTreeSet::new();
+        let mut todo: Vec<usize> = chosen.iter().copied().collect();
+        while let Some(p) = todo.pop() {
+            if !lane.insert(p) {
+                continue;
+            }
+            for &w in self.writers.get(&p).into_iter().flatten() {
+                if self.writers.contains_key(&w) {
+                    todo.push(w);
+                } else {
+                    lane.insert(w);
+                }
+            }
+        }
+        lane
+    }
+}
+
+/// Whether a codeunit's parallel run has a test that failed or was not run (ADR-066 amendment 4, decision 2): only such
+/// a dependent codeunit runs again serially, unless `--strict-order`. A run that panicked has no notes and is never
+/// dependent.
+fn needs_serial_run(slot: Option<&UnitResult>) -> bool {
+    match slot.map(|r| &r.result) {
+        Some(Ok(done)) => done.0.iter().any(|(_, o)| !matches!(o, Outcome::Pass)),
+        _ => true,
+    }
+}
+
 /// What the lane needs from the run (`corpus.rs`).
 pub(super) struct Lane<'a> {
     pub engine: &'a Arc<Engine>,
@@ -177,6 +218,8 @@ pub(super) struct Lane<'a> {
     pub sees: &'a dyn Fn(usize, u32, u8, &Unit) -> bool,
     pub place: &'a dyn Fn(usize, u32) -> u32,
     pub limit: Option<std::time::Duration>,
+    /// `--strict-order` (ADR-066 amendment 4, decision 4): every dependent codeunit runs again serially.
+    pub strict: bool,
 }
 
 /// What the lane did, for `--timings` and the stability report.
@@ -195,6 +238,13 @@ pub struct LaneReport {
     pub refill_assumed: usize,
     /// The time the lane took (all its BC sessions, one after the other on one thread).
     pub took: std::time::Duration,
+    /// Dependent codeunits found (ADR-066 amendment 4): each one's tests are flagged.
+    pub dependent: usize,
+    /// Dependent codeunits that ran again serially because a test of theirs failed or was not run in the parallel run
+    /// (amendment 4). With `strict`, every dependent codeunit runs again and this counts them all.
+    pub rerun: usize,
+    /// `--strict-order`: every dependent codeunit ran again serially, as amendment 3 did.
+    pub strict: bool,
 }
 
 impl LaneReport {
@@ -202,12 +252,18 @@ impl LaneReport {
         if self.watched == 0 {
             return Vec::new();
         }
+        let why = if self.strict {
+            "(strict order: every dependent codeunit)"
+        } else {
+            "because a test failed or was not run in parallel"
+        };
         let mut out = vec![format!(
-            "SingleInstance order: {} test codeunits watched, {} BC sessions with a dependent codeunit, {} codeunits ran in the lane ({} dependent, {:.2} s); {} codeunits flagged as independent under the guard-then-refill assumption",
+            "SingleInstance order: {} test codeunits watched, {} BC sessions with a dependent codeunit, {} dependent codeunits (flagged), {} ran again serially {why}, {} codeunits ran in the lane ({:.2} s); {} codeunits flagged as independent under the guard-then-refill assumption",
             self.watched,
             self.sessions,
+            self.dependent,
+            self.rerun,
             self.lane.len(),
-            self.notes.len(),
             self.took.as_secs_f64(),
             self.refill_assumed
         )];
@@ -224,6 +280,7 @@ impl Lane<'_> {
             return;
         }
         let started = std::time::Instant::now();
+        report.strict = self.strict;
         let has = |k: usize| slots[k].is_some();
         let streams = streams(self.units, self.place, &has);
         for ks in streams {
@@ -247,7 +304,31 @@ impl Lane<'_> {
                 continue;
             }
             report.sessions += 1;
-            self.run_stream(&ks, &found, slots, report);
+            report.dependent += found.dependent.len();
+            // Amendment 4, decision 3: every dependent codeunit is flagged, whether its parallel run is kept or not.
+            for &p in found.dependent.keys() {
+                report.notes.push(format!(
+                    "test codeunit {} {}",
+                    self.name(ks[p]),
+                    self.dependent_why(&ks, &found, p)
+                ));
+                if let Some(Ok(done)) = slots[ks[p]].as_mut().map(|r| &mut r.result) {
+                    flag_all(done, Assumption::SingleInstanceOrder);
+                }
+            }
+            // Decision 2: only a dependent codeunit with a failure or a test not run in parallel runs again serially;
+            // `--strict-order` (decision 4) runs them all again.
+            let chosen: BTreeSet<usize> = found
+                .dependent
+                .keys()
+                .copied()
+                .filter(|&p| self.strict || needs_serial_run(slots[ks[p]].as_ref()))
+                .collect();
+            if chosen.is_empty() {
+                continue;
+            }
+            report.rerun += chosen.len();
+            self.run_stream(&ks, &found, &chosen, slots, report);
         }
         report.took += started.elapsed();
     }
@@ -264,19 +345,29 @@ impl Lane<'_> {
         u.carry.is_some() || u.isolation == TestIsolation::Disabled
     }
 
-    fn run_stream(&self, ks: &[usize], found: &Found, slots: &mut [Option<UnitResult>], report: &mut LaneReport) {
-        let dependent_why = |p: usize| {
-            let (o, g) = found.dependent[&p].1;
-            let obj = &self.lowered.program.objects[o];
-            format!(
-                "relies on SingleInstance state (variable {} of codeunit {}) that test codeunit {} left (order-dependent test; fix the test)",
-                obj.globals.get(g).map_or("?", |s| s.name.as_str()),
-                obj.name,
-                self.name(ks[found.dependent[&p].0])
-            )
-        };
+    /// What the dependent codeunit at position `p` relies on, for its note.
+    fn dependent_why(&self, ks: &[usize], found: &Found, p: usize) -> String {
+        let (w, (o, g)) = found.dependent[&p];
+        let obj = &self.lowered.program.objects[o];
+        format!(
+            "relies on SingleInstance state (variable {} of codeunit {}) that test codeunit {} left (order-dependent test; fix the test)",
+            obj.globals.get(g).map_or("?", |s| s.name.as_str()),
+            obj.name,
+            self.name(ks[w])
+        )
+    }
+
+    /// Runs the lane of the dependent codeunits `chosen` of one BC session and puts their serial runs in `slots`.
+    fn run_stream(
+        &self,
+        ks: &[usize],
+        found: &Found,
+        chosen: &BTreeSet<usize>,
+        slots: &mut [Option<UnitResult>],
+        report: &mut LaneReport,
+    ) {
         super::run::LANE_SINGLES.with(|c| *c.borrow_mut() = Some(None));
-        for &p in &found.lane {
+        for &p in &found.lane_for(chosen) {
             let k = ks[p];
             let mut u = self.units[k].clone();
             u.watch = false;
@@ -323,9 +414,7 @@ impl Lane<'_> {
             }
             super::run::CARRIED.with(|c| c.borrow_mut().take());
             report.lane.push((u.id, self.name(k)));
-            if found.dependent.contains_key(&p) {
-                let why = dependent_why(p);
-                report.notes.push(format!("test codeunit {} {why}", self.name(k)));
+            if chosen.contains(&p) {
                 if let Ok(done) = &mut r.result {
                     // What the first run marked (an instance's making marks once, in the codeunit that made it) stays.
                     if let Some(Ok(first)) = slots[k].as_ref().map(|f| &f.result) {
@@ -344,8 +433,9 @@ impl Lane<'_> {
                 }
                 slots[k] = Some(r);
             }
-            // A writer that does not depend keeps its first run: it was complete without the lane. A chain member that
-            // depends hands the later codeunits the rows of its first run (what its run in the lane left is dropped).
+            // A writer that does not depend keeps its first run: it was complete without the lane. So does a dependent
+            // writer that was not chosen (amendment 4: it passed in parallel, flagged). A chain member that depends hands
+            // the later codeunits the rows of its first run (what its run in the lane left is dropped).
         }
         super::run::LANE_SINGLES.with(|c| *c.borrow_mut() = None);
     }
@@ -406,6 +496,21 @@ mod tests {
         let found = analyse(&[Some(&a), Some(&b), Some(&c)]);
         assert_eq!(found.dependent.keys().copied().collect::<Vec<_>>(), vec![1, 2]);
         assert_eq!(found.lane, BTreeSet::from([0, 1, 2]));
+    }
+
+    /// ADR-066 amendment 4: the lane of one chosen dependent codeunit holds what it needs and nothing of the others.
+    #[test]
+    fn the_lane_of_chosen_dependents_holds_only_their_chain() {
+        let (k1, k2) = ((1, 0), (2, 0));
+        let a = out(&[], &[(k2, 3)], &[k2]);
+        let b = out(&[(k2, 0)], &[(k2, 0), (k1, 4)], &[k1]);
+        let c = out(&[(k1, 0)], &[(k1, 0)], &[]);
+        let found = analyse(&[Some(&a), Some(&b), Some(&c)]);
+        // Only b chosen: b and its writer a. Only c chosen: c, its writer b (dependent itself) and b's writer a.
+        assert_eq!(found.lane_for(&BTreeSet::from([1])), BTreeSet::from([0, 1]));
+        assert_eq!(found.lane_for(&BTreeSet::from([2])), BTreeSet::from([0, 1, 2]));
+        assert_eq!(found.lane_for(&BTreeSet::from([1, 2])), found.lane);
+        assert!(found.lane_for(&BTreeSet::new()).is_empty());
     }
 
     #[test]

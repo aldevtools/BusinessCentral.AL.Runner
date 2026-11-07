@@ -124,6 +124,9 @@ pub struct TestArgs {
     /// `--permissions off` (ADR-062 section 5): no access kind is enforced, whatever stage is on by default. `on`,
     /// the default, enforces the stages that are on; none is yet.
     pub permissions_off: bool,
+    /// `--strict-order` (ADR-066 amendment 4): every order-dependent test codeunit runs again serially in BC's order.
+    /// Default: it keeps its parallel run and runs again only after a failure or a test not run there.
+    pub strict_order: bool,
     /// `--affected` (ADR-050): run only the test codeunits a change since the stored result of the last run can
     /// affect; the others keep their stored outcome.
     pub affected: bool,
@@ -883,6 +886,22 @@ ISOLATION
                          test codeunit runs under its own RequiredTestIsolation, as Business
                          Central runs it without a test runner codeunit from version 28 (on
                          version 27 as `codeunit`).
+    --strict-order       Run every order-dependent test codeunit again, one after the other in
+                         Business Central's order. A test codeunit is order dependent when it reads
+                         a variable of a SingleInstance codeunit that an earlier test codeunit left
+                         with another value: Business Central runs all test codeunits in one
+                         session, so the value carries over. AL Runner runs the codeunits in
+                         parallel, each with fresh SingleInstance state, the result Business Central
+                         gives when the codeunit runs alone or first. By default it keeps that
+                         result and runs such a codeunit again in order only when one of its tests
+                         failed or was not run. Every test of such a codeunit is a flagged pass,
+                         `single-instance-order`. Without this option a test that passes alone but
+                         fails in the full order passes here, flagged; with it, the result is the
+                         one of the full order, at a cost (Microsoft's Tests-SCM: about 357 s
+                         instead of 245 s). Fix such a test: set up the state it needs in its
+                         own codeunit's Initialize, or clear the SingleInstance codeunit there.
+                         AL_TEST_THREADS=1 runs one codeunit at a time but still with fresh state.
+                         In `serve`: the runTests field `strictOrder`.
 
 EXIT CODES
     0  every selected test passed
@@ -1256,6 +1275,7 @@ fn parse_serve(args: Vec<String>) -> Result<Command, String> {
         || t.ignore_permission_mock
         || t.dev_endpoint_ui
         || t.allow_write_in_try_functions
+        || t.strict_order
         || t.dependencies_published_global
         || t.permissions_off
         || t.affected_store.is_some()
@@ -1634,6 +1654,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--ignore-permission-mock" => a.ignore_permission_mock = true,
             "--dev-endpoint-ui" => a.dev_endpoint_ui = true,
             "--allow-write-in-try-functions" => a.allow_write_in_try_functions = true,
+            "--strict-order" => a.strict_order = true,
             "--dependencies-published-global" => a.dependencies_published_global = true,
             "--permissions" => a.permissions_off = permissions_off(&text()?)?,
             "--affected" => a.affected = true,
@@ -2135,6 +2156,13 @@ mod tests {
     fn ignore_permission_mock_is_opt_in() {
         assert!(!test_args("test A").ignore_permission_mock);
         assert!(test_args("test A --ignore-permission-mock").ignore_permission_mock);
+    }
+
+    /// ADR-066 amendment 4: `--strict-order` is off unless given.
+    #[test]
+    fn strict_order_is_opt_in() {
+        assert!(!test_args("test A").strict_order);
+        assert!(test_args("test A --strict-order").strict_order);
     }
 
     /// Issue 7143: `--allow-write-in-try-functions` is off unless given.

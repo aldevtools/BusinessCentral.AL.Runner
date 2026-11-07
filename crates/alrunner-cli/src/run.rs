@@ -1576,6 +1576,7 @@ fn test_inner(
         dev_endpoint_ui: crate::dev_endpoint_ui::for_major(a.dev_endpoint_ui, chosen.target.bc.major)?, // issue 3697
         allow_write_in_try_functions: a.allow_write_in_try_functions,                                   // issue 7143
         dependencies_published_global: a.dependencies_published_global,                                 // issue 7169
+        strict_order: a.strict_order, // `--strict-order` (ADR-066 amendment 4)
         perturb: Default::default(),
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
         run_only: (selection.active() && !a.execute)
