@@ -33,6 +33,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "devEndpointUi",
     "allowWriteInTryFunctions",
     "strictOrder",
+    "testSuites",
     "dependenciesPublishedGlobal",
     "affectedOnly",
     "includeFailing",
@@ -328,6 +329,12 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     a.allow_write_in_try_functions = flag(fields, "allowWriteInTryFunctions")?;
     // ADR-066 amendment 4: every order-dependent test codeunit runs again serially, as `--strict-order`.
     a.strict_order = flag(fields, "strictOrder")?;
+    // ADR-066 amendment 6: `testSuites` is the path of a suites file, as `--test-suites FILE`.
+    a.test_suites = match fields.get("testSuites") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(p)) if !p.is_empty() => Some(PathBuf::from(p)),
+        Some(_) => return Err("`testSuites` is the path of a test suites file".into()),
+    };
     // Issue 7169: "Published As" of a dependency by another publisher is Global, as `--dependencies-published-global`.
     a.dependencies_published_global = flag(fields, "dependenciesPublishedGlobal")?;
     // ADR-062 section 5: `permissions: "off"` is `--permissions off`.
@@ -1002,6 +1009,16 @@ mod tests {
                 .strict_order
         );
         assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.strict_order);
+        // ADR-066 amendment 6: `testSuites` is `--test-suites FILE` for one request.
+        assert_eq!(
+            run(json!({"sourcePaths": ["/a"], "testSuites": "/s/suites.txt"}))
+                .unwrap()
+                .0
+                .test_suites,
+            Some(PathBuf::from("/s/suites.txt"))
+        );
+        assert_eq!(run(json!({"sourcePaths": ["/a"]})).unwrap().0.test_suites, None);
+        assert!(run(json!({"sourcePaths": ["/a"], "testSuites": 3})).is_err());
         // Issue 3697: `devEndpointUi` is `--dev-endpoint-ui` for one request.
         assert!(
             run(json!({"sourcePaths": ["/a"], "devEndpointUi": true}))

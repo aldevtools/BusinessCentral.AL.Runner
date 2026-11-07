@@ -101,7 +101,11 @@ first. So, by default:
 `--timings` names the codeunit whose state each test relies on. Its
 `SingleInstance order:` line gives how many order-dependent codeunits were found, how
 many ran again because of a failure, in how many serial sessions, the time of the
-longest session and the wall time of all of them.
+longest session and the wall time of all of them. When a session starts from data a
+codeunit with `RequiredTestIsolation = Disabled` left, the line also gives how many
+of those starts were copied for the worker threads and the most held at once. The
+serial sessions use the same number of threads as the parallel run
+(`AL_TEST_THREADS`), and each thread holds at most one such copy at a time.
 
 What the flag means: the result depends on the order in which Business Central
 runs the test codeunits. The stability mode (`--stability`) lists these tests apart,
@@ -120,6 +124,32 @@ order dependent (see ADR-066 amendment 5 for measured times).
 `AL_TEST_THREADS=1` runs one test codeunit at a time, but each one still starts with
 fresh SingleInstance state. It does not reproduce Business Central's order; only
 `--strict-order` does.
+
+#### One session per test suite (`--test-suites`)
+
+Everything above assumes Microsoft's default: all test codeunits of a run in one
+session. Some pipelines run one test-tool run per Business Central test suite
+instead (ALOps does: one `ALOpsAppTest` step per suite, each in its own client
+session). There, SingleInstance state never reaches another suite.
+
+Tell AL Runner where the suites are with `--test-suites FILE` (in `serve`: the
+`runTests` field `testSuites`). The file format and how to make it from your test
+suites are in the [CLI reference](cli-reference.md#test-suites-file). Then:
+
+1. Each suite is a session of its own. A codeunit is order dependent only on a
+   codeunit listed before it in its own suite. The order is the file's order.
+2. Within a suite everything above applies unchanged: parallel by default, a serial
+   run only after a failure (or always, with `--strict-order`), flagged passes.
+   The suites are minimum boundaries: AL Runner still runs everything in parallel.
+3. A codeunit in no suite runs as a session of its own. It is never linked to
+   another codeunit and never flagged as order dependent.
+4. A codeunit listed in several suites runs once and has one result. It is order
+   dependent when it is in any of its suites; the first such suite in the file
+   decides which codeunits its serial run starts after.
+5. `--stability` lists as order dependent only tests that depend on a codeunit of
+   their own suite.
+
+Without `--test-suites` the whole run is one session, as before.
 
 How to fix such a test:
 

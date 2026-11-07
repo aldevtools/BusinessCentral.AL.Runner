@@ -596,3 +596,214 @@ fn a_test_refused_while_it_runs_triggers_a_serial_run() {
     assert_eq!((lane.dependent, lane.rerun, lane.chains), (1, 1, 1), "{:?}", lane);
     assert_eq!(lane.lane.len(), 2, "{:?}", lane.lane);
 }
+
+/// ADR-066 amendment 6 (al-runner issue 6924): a run with `--test-suites` treats each suite as a BC session of its own.
+fn with_suites(src: &str, suites: &str) -> CorpusRuntime {
+    let opts = RunOptions {
+        test_suites: Some(std::sync::Arc::new(
+            al_testrun::test_suites::TestSuites::parse(suites).expect("a valid suites file"),
+        )),
+        ..Default::default()
+    };
+    runtime_opts(src, STATE, &opts)
+}
+
+/// Amendment 6: a writer in one suite and a reader in another are not linked. On BC each suite runs in a client
+/// session of its own, so the reader starts with fresh SingleInstance state and fails, unflagged.
+#[test]
+fn a_writer_in_one_suite_and_a_reader_in_another_are_not_linked() {
+    let rt = with_suites(DEPENDENT_PAIR, "A: 60451\nB: 60452 60453\n");
+    assert!(!passed(&rt, "ReadsTheFlag"), "{:?}", rt.results());
+    assert!(!flagged(&rt, "ReadsTheFlag"));
+    let lane = &rt.phases.chain.single_lane;
+    assert_eq!((lane.dependent, lane.rerun), (0, 0), "{:?}", lane);
+    assert!(lane.lane.is_empty(), "{:?}", lane.lane);
+}
+
+/// Amendment 6: within a suite amendments 4 and 5 apply unchanged: the reader fails with fresh state, runs again
+/// serially after its writer and passes flagged.
+#[test]
+fn a_writer_and_a_reader_in_one_suite_are_still_linked() {
+    let rt = with_suites(DEPENDENT_PAIR, "DATACHECK: 60451 60452\nOTHER: 60453\n");
+    assert!(
+        passed(&rt, "ReadsTheFlag") && flagged(&rt, "ReadsTheFlag"),
+        "{:?}",
+        rt.results()
+    );
+    assert!(passed(&rt, "SetsTheFlag") && !flagged(&rt, "SetsTheFlag"));
+    let lane = &rt.phases.chain.single_lane;
+    assert_eq!((lane.dependent, lane.rerun, lane.lane.len()), (1, 1, 2), "{:?}", lane);
+}
+
+/// Amendment 6: BC's order is the order in the suite, not the id order: a reader listed before its writer sees
+/// nothing the writer left.
+#[test]
+fn the_order_within_a_suite_is_the_order_of_the_file() {
+    let rt = with_suites(DEPENDENT_PAIR, "A: 60452 60451\n");
+    assert!(
+        !passed(&rt, "ReadsTheFlag") && !flagged(&rt, "ReadsTheFlag"),
+        "{:?}",
+        rt.results()
+    );
+    assert_eq!(rt.phases.chain.single_lane.dependent, 0);
+}
+
+/// Amendment 6: a codeunit in no suite runs as a session of its own: no earlier codeunit, no link.
+#[test]
+fn a_codeunit_in_no_suite_is_a_session_of_its_own() {
+    let rt = with_suites(DEPENDENT_PAIR, "A: 60451 60453\n");
+    assert!(
+        !passed(&rt, "ReadsTheFlag") && !flagged(&rt, "ReadsTheFlag"),
+        "{:?}",
+        rt.results()
+    );
+    assert!(passed(&rt, "UsesNothingShared"));
+    assert_eq!(rt.phases.chain.single_lane.dependent, 0);
+}
+
+/// Amendment 6: a codeunit listed in two suites (issue 6924: suites 5 and 6 are the same) runs and is reported once.
+/// It is dependent when it is in any suite it is listed in; the first suite where it is decides its serial run.
+#[test]
+fn a_codeunit_listed_in_two_suites_is_reported_once() {
+    let rt = with_suites(DEPENDENT_PAIR, "A: 60451 60452\nB: 60451 60452\n");
+    assert!(
+        passed(&rt, "ReadsTheFlag") && flagged(&rt, "ReadsTheFlag"),
+        "{:?}",
+        rt.results()
+    );
+    assert_eq!(rt.results().iter().filter(|r| r.test == "ReadsTheFlag").count(), 1);
+    let lane = &rt.phases.chain.single_lane;
+    assert_eq!(
+        (lane.dependent, lane.rerun, lane.chains, lane.notes.len()),
+        (1, 1, 1, 1),
+        "{:?}",
+        lane
+    );
+    // Not dependent in its first suite (alone there), dependent in the second: flagged, run again after its writer.
+    let rt = with_suites(DEPENDENT_PAIR, "B: 60452\nA: 60451 60452\n");
+    assert!(
+        passed(&rt, "ReadsTheFlag") && flagged(&rt, "ReadsTheFlag"),
+        "{:?}",
+        rt.results()
+    );
+}
+
+/// Amendment 6 (owner, 2026-11-07): suite boundaries are session boundaries for SingleInstance state only. The compile,
+/// the install code and the install baseline are made once per run and shared by every suite and every session.
+const INSTALLED: &str = r#"
+table 50458 "Lane Setting" { fields { field(1; Code; Code[20]) { } } keys { key(PK; Code) { } } }
+codeunit 50459 "Lane Installer"
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany() var S: Record "Lane Setting"; begin S.Code := 'SEEDED'; S.Insert(); end;
+}
+"#;
+
+const SEEDED_READERS: &str = r#"
+codeunit 60491 "Lane Seed Reader A"
+{
+    Subtype = Test;
+    [Test] procedure SeesTheSeedA() var S: Record "Lane Setting"; begin S.Get('SEEDED'); end;
+}
+codeunit 60492 "Lane Seed Reader B"
+{
+    Subtype = Test;
+    [Test] procedure SeesTheSeedB() var S: Record "Lane Setting"; begin S.Get('SEEDED'); end;
+}
+"#;
+
+#[test]
+fn suites_share_one_compile_and_one_install_baseline() {
+    let src = format!("{DEPENDENT_PAIR}{SEEDED_READERS}");
+    let base = format!("{STATE}{INSTALLED}");
+    let plain = runtime_opts(&src, &base, &RunOptions::default());
+    let opts = RunOptions {
+        test_suites: Some(std::sync::Arc::new(
+            al_testrun::test_suites::TestSuites::parse("A: 60451 60491\nB: 60452 60492\nC: 60451 60452\n").unwrap(),
+        )),
+        ..Default::default()
+    };
+    let split = runtime_opts(&src, &base, &opts);
+    for rt in [&plain, &split] {
+        // Both readers, in different suites, see the row the install code wrote once.
+        assert!(
+            passed(rt, "SeesTheSeedA") && passed(rt, "SeesTheSeedB"),
+            "{:?}",
+            rt.results()
+        );
+        assert_eq!(rt.phases.baseline_source, Some("ran"));
+        assert_eq!(rt.phases.work.compiles, 1);
+    }
+    // The same work as one session: one compile, one baseline with the same rows, the same tests run, one pass.
+    assert_eq!(format!("{:?}", split.phases.work), format!("{:?}", plain.phases.work));
+    assert_eq!(split.phases.passes.len(), plain.phases.passes.len());
+    // Suite C links the pair, so the reader still runs again; its serial session starts from the shared baseline.
+    assert!(passed(&split, "ReadsTheFlag") && flagged(&split, "ReadsTheFlag"));
+}
+
+/// A carry chain (`RequiredTestIsolation = Disabled`, ADR-055) of one writer and `n` readers of what it left that pass
+/// either way: under `--strict-order`, `n` serial sessions, each reader starting from the rows the codeunit before it left (a carried start of its
+/// own: each codeunit inserts a row).
+fn carry_chain(n: usize) -> String {
+    let mut src = String::from(
+        r#"
+table 60600 "Lane Carry Row" { fields { field(1; K; Integer) { } } keys { key(PK; K) { Clustered = true; } } }
+codeunit 60600 "Lane Carry Setter"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure SetsCarried()
+    var S: Codeunit "Lane State"; R: Record "Lane Carry Row";
+    begin
+        S.SetFlag('left');
+        R.K := 0;
+        R.Insert();
+    end;
+}
+"#,
+    );
+    for i in 1..=n {
+        src.push_str(&format!(
+            r#"
+codeunit {} "Lane Carry Reader {i}"
+{{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure ReadsCarried{i}()
+    var S: Codeunit "Lane State"; R: Record "Lane Carry Row";
+    begin
+        R.K := {i};
+        R.Insert();
+        if StrLen(S.GetFlag()) > 10 then Error('flag is %1', S.GetFlag());
+    end;
+}}
+"#,
+            60600 + i
+        ));
+    }
+    src
+}
+
+/// ADR-066 amendment 5, decision 5, and al-runner issue 6924 (a partner suite of about 700 codeunits in the carry chain
+/// ran out of memory): a carried start is written as bytes when a worker thread needs it and freed once it is read
+/// back, so at most one per thread is alive at once, not every start every session needs for the whole lane.
+#[test]
+fn carried_starts_are_written_when_a_session_needs_them_and_freed_after() {
+    const READERS: usize = 24;
+    let opts = RunOptions {
+        required_isolation: true,
+        strict_order: true,
+        ..Default::default()
+    };
+    let rt = runtime_opts(&carry_chain(READERS), STATE, &opts);
+    for i in 1..=READERS {
+        let t = format!("ReadsCarried{i}");
+        assert!(passed(&rt, &t) && flagged(&rt, &t), "{t}: {:?}", rt.results());
+    }
+    let lane = &rt.phases.chain.single_lane;
+    assert_eq!((lane.rerun, lane.chains), (READERS, READERS), "{:?}", lane);
+    if lane.threads > 1 {
+        assert!(lane.starts_written >= READERS, "{:?}", lane);
+        assert!(lane.starts_peak <= lane.threads, "{:?}", lane);
+    }
+}

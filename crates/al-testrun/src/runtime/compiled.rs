@@ -194,6 +194,10 @@ pub struct RunOptions {
     /// it failed or was refused while it ran there. Either way each re-run is a serial session of its own (its chain),
     /// and the sessions run in parallel.
     pub strict_order: bool,
+    /// `al-runner test --test-suites FILE` (ADR-066 amendment 6, al-runner issue 6924): each suite is a BC session of
+    /// its own for order dependence, the codeunits in the suite's order. No SingleInstance link, serial re-run or
+    /// chain crosses a suite; a codeunit in no suite is a session of its own. `None`: the whole run is one session.
+    pub test_suites: Option<std::sync::Arc<crate::test_suites::TestSuites>>,
 }
 
 /// One entry of a run (`RunOptions::entries`).

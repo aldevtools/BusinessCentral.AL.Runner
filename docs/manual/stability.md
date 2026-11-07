@@ -185,6 +185,8 @@ How to read it:
   after a failure or a test refused while it ran (not one refused before it starts);
   with `--strict-order` they always run again in order. Each such run is a serial
   session of the codeunit and the codeunits it depends on; the sessions run in parallel.
+  With `--test-suites FILE` only a dependence within one suite counts: a codeunit that
+  relies on state a codeunit of another suite left is not listed.
   With `order.codeunits` they are the ones most likely to flip. See "Flagged: relies on
   SingleInstance state another test codeunit left" in the results chapter.
 - A flip that only happens where an unprobed assumption ran is marked "relies on an
