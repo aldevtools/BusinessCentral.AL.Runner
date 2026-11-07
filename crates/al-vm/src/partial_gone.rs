@@ -11,6 +11,9 @@ use al_data::{Store, TableDef};
 const FIRST_SYSTEM_FIELD: u32 = 2_000_000_000;
 const SYSTEM_ID: u32 = 2_000_000_000;
 
+/// The table, the buffer's fields and the loaded set of a partial record.
+type GonePartial = (std::sync::Arc<TableDef>, Vec<Value>, FieldSet);
+
 impl Session {
     /// A read of field `p` that is not loaded, whose row was deleted and inserted again under the same key: the row has another
     /// SystemId, so BC raises InconsistentRead instead of loading it (P170JitLoadGone.al:1006-1020
@@ -42,7 +45,7 @@ impl Session {
 
     /// The table, the buffer's fields and the loaded set of a partial record that holds a row another variable removed; `None` when
     /// the record is not partial, does not hold the row's key, or the row exists.
-    fn gone_partial(&mut self, rec: &Rec) -> Result<Option<(std::sync::Arc<TableDef>, Vec<Value>, FieldSet)>, Signal> {
+    fn gone_partial(&mut self, rec: &Rec) -> Result<Option<GonePartial>, Signal> {
         let (have, held) = {
             let r = rec.borrow();
             match &r.load.buffer {
