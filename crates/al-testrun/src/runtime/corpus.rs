@@ -1627,65 +1627,37 @@ impl CorpusRuntime {
                     }
                 }
             }
-            let rest: Vec<usize> = (0..units.len()).filter(|k| slots[*k].is_none()).collect();
-            let results: Vec<UnitResult> = if workers <= 1 || rest.len() < 2 {
-                rest.iter()
-                    .map(|&k| &units[k])
-                    .map(|u| {
-                        let mut observe = |name: &str, _: &Outcome, seen: &Observed| {
-                            details.insert((u.si, u.id, name.to_lowercase()), observed_detail(lowered, seen));
-                        };
-                        let trace: Option<&mut Observer> = opts.trace.then_some(&mut observe);
-                        run_unit(&engine, lowered, baseline.as_ref(), u, trace, limit)
+            let rest_all: Vec<usize> = (0..units.len()).filter(|k| slots[*k].is_none()).collect();
+            // Test codeunits run on a session each and do not share anything (the install baseline is put back for each),
+            // so worker threads take them in turn, in rounds (`rounds_run.rs`). A worker sets up its own copy of the
+            // baseline.
+            let encode_started = std::time::Instant::now();
+            let snapshot: Option<&[u8]> = (workers > 1 && rest_all.len() >= 2)
+                .then(|| {
+                    snapshot_once.get_or_init(|| {
+                        baseline_engine
+                            .is_some()
+                            .then(|| baseline.as_ref().and_then(al_vm::Baseline::to_bytes))
+                            .flatten()
                     })
-                    .collect()
-            } else {
-                // Test codeunits run on a session each and do not share anything (the install
-                // baseline is put back for each), so worker threads take them in turn. A worker
-                // sets up its own copy of the baseline.
-                let encode_started = std::time::Instant::now();
-                let snapshot: &Option<Vec<u8>> = snapshot_once.get_or_init(|| {
-                    baseline_engine
-                        .is_some()
-                        .then(|| baseline.as_ref().and_then(al_vm::Baseline::to_bytes))
-                        .flatten()
-                });
-                encode_time += encode_started.elapsed();
-                let next = std::sync::atomic::AtomicUsize::new(0);
-                let pull = |baseline: Option<&al_vm::Baseline>| {
-                    let mut done = Vec::new();
-                    loop {
-                        let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let Some(u) = rest.get(k).map(|&i| &units[i]) else {
-                            return done;
-                        };
-                        done.push((k, run_unit(&engine, lowered, baseline, u, None, limit)));
-                    }
-                };
-                std::thread::scope(|scope| {
-                    let mut handles = Vec::new();
-                    for _ in 1..workers.min(rest.len()) {
-                        let spawned = std::thread::Builder::new()
-                            .stack_size(TEST_STACK)
-                            .spawn_scoped(scope, || {
-                                let own = thread_baseline(snapshot.as_deref());
-                                pull(own.as_ref())
-                            });
-                        match spawned {
-                            Ok(h) => handles.push(h),
-                            // No room for another thread (an address space limit): fewer will do.
-                            Err(_) => break,
-                        }
-                    }
-                    let mut done = pull(baseline.as_ref());
-                    for h in handles {
-                        done.extend(h.join().expect("a test worker panicked"));
-                    }
-                    // Results in the order of the units, whichever worker finished first.
-                    done.sort_by_key(|(k, _)| *k);
-                    done.into_iter().map(|(_, r)| r).collect()
                 })
-            };
+                .and_then(|s| s.as_deref());
+            encode_time += encode_started.elapsed();
+            let predicted = std::cell::RefCell::new(std::collections::HashMap::new());
+            let (rest, results) = super::rounds_run::RoundRun {
+                engine: &engine,
+                lowered,
+                baseline: baseline.as_ref(),
+                carried: &carried,
+                sees: &sees,
+                place: &place,
+                limit,
+                workers,
+                trace: opts.trace,
+                snapshot,
+                thread_baseline: &|s| thread_baseline(s),
+            }
+            .run(&mut units, &rest_all, &slots, &predicted, &mut details);
             let mut leak_reran = std::collections::HashSet::new();
             for (k, mut r) in rest.into_iter().zip(results) {
                 let before = last_seen(&carried, &sees, &units[k]);
@@ -1752,6 +1724,7 @@ impl CorpusRuntime {
                 place: &place,
                 limit,
                 leak_reran: &leak_reran,
+                predicted: &predicted,
             }
             .walk_and_check(&mut slots, opts, &mut chain_report);
             for r in slots.into_iter().flatten() {

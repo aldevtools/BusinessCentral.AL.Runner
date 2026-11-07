@@ -340,9 +340,23 @@ run, the codeunits of each BC session (a suite, and a TestRunnerHub leg) in whic
 left run once more, one after the other on one thread, each session taking over the very single instances and
 temporary tables of the one before (`Session::take_single_instances` / `adopt_single_instances`), nothing copied.
 Every test the run passed or failed must come out the same; a difference fails the run (al-test-cli exit 1, lines
-"SingleInstance serial check: ..."). Tests the run refused are not compared. CI sets it on the normal corpus run of
-every pull request (all three majors): only the sessions that depend on the carrying run again, so it costs the job
-little.
+"SingleInstance serial check: ..."). Tests the run refused are not compared. CI runs it on every pull request, on BC 29
+only, in a step of its own, so its time does not count toward the corpus step's time guard.
+
+*Correction (2026-11-07, a fact, not a change of decision).* This paragraph first said the check "costs the job little",
+and CI first set it on the corpus step of all three majors. Measured on BC 29 (user CPU, `taskset -c 0-2,5-11`): main
+61 s, the carrying without the check 83 s, with the check 108 s; the corpus step took 222 s against a limit of 132 s.
+The check runs the codeunits of every session in which a codeunit read carried state, which is almost every
+codeunit (3,568 on BC 29), once more on one thread. It costs about as much as the run itself.
+
+**Rounds (2026-11-07, speed only, outcomes unchanged).** The parallel part ran every codeunit from no single
+instances, so a codeunit that read a cache an earlier one filled (Change Log Management, Server Setting Impl.) or a
+binding an earlier one left saw another state than the serial run and ran a second time: 1,879 of 3,568 codeunits on
+BC 29. The codeunits now run in rounds (`rounds_run.rs`): the first 8, then 16, 32, ... of each BC session, each
+round starting from the state `SingleWalk::predict` gives it from the rounds before. The prediction is only a start
+value: `walk` still checks every run against the serial state (`fits`) and runs again those that saw another one, so no
+outcome depends on it. A run again made by the prediction is reused by `walk` when it fits. The serial check is
+unchanged.
 
 **Bound subscriptions stay refused.** A single instance still bound to manual subscribers at the end of a codeunit
 makes the later failures not trusted, as on the branch. Probe wanted: corpus codeunit A binds a SingleInstance

@@ -18,7 +18,7 @@
 
 use super::chain_walk::Carry as ChainCarry;
 use super::corpus::refuse_all;
-use super::written::{ReachIndex, union_reach_facts};
+use super::written::{ReachIndex, union_reach_written};
 use super::*;
 use al_vm::single_carry::{BINDINGS_KEY, Carry, GlobalKey};
 
@@ -42,12 +42,17 @@ pub(super) struct SingleWalk<'a> {
     pub limit: Option<std::time::Duration>,
     /// The codeunits the run reran from what a chain member left because they read it (`corpus.rs`).
     pub leak_reran: &'a std::collections::HashSet<usize>,
+    /// Runs again that [`SingleWalk::predict`] made, by codeunit: [`SingleWalk::walk`] takes one when it fits the serial
+    /// state at the codeunit, instead of running it again.
+    pub predicted: &'a std::cell::RefCell<std::collections::HashMap<usize, UnitResult>>,
 }
 
 /// The serial state of one session of BC.
 #[derive(Default)]
 struct Stream {
     state: SingleState,
+    /// `state` as one shared value for the runs again, made when one needs it and dropped when the state changes.
+    shared: Option<Arc<SingleState>>,
     /// Globals a refused test may have changed: why.
     unknown: std::collections::BTreeMap<GlobalKey, String>,
     /// Any global may have changed: why.
@@ -120,7 +125,19 @@ impl SingleWalk<'_> {
                 .is_some_and(|(si, id, leg, _)| (self.sees)(*si, *id, *leg, u))
                 && self.reads_relay(k, s.relay.as_ref());
             if !matches || relayed {
-                let r = self.run_again(k, Some(&s.state), s.relay.as_ref());
+                // A run again made for the prediction of the rounds (`predict`) stands when it saw the state the serial
+                // run holds here: a codeunit outside the chain, with no relayed rows, runs the same way (`run_again`).
+                let cached = (s.relay.is_none() && !self.is_member(k))
+                    .then(|| self.predicted.borrow_mut().remove(&k))
+                    .flatten()
+                    .filter(|c| fits(c, &s.state));
+                let r = match cached {
+                    Some(c) => c,
+                    None => {
+                        let shared = s.shared.get_or_insert_with(|| Arc::new(s.state.clone())).clone();
+                        self.run_again(k, Some(shared), s.relay.as_ref())
+                    }
+                };
                 match self.chain_left_other(k) {
                     // Back on the first run's chain: the later codeunits keep what the first runs gave them.
                     Left::Same if relayed && self.is_member(k) => s.relay = None,
@@ -143,11 +160,11 @@ impl SingleWalk<'_> {
     fn run_again(
         &self,
         k: usize,
-        state: Option<&SingleState>,
+        state: Option<Arc<SingleState>>,
         relay: Option<&(usize, u32, u8, super::run::Carried)>,
     ) -> UnitResult {
         let mut u = self.units[k].clone();
-        u.singletons = state.map(|s| Arc::new(s.clone()));
+        u.singletons = state;
         let before = relay
             .filter(|(si, id, leg, _)| (si, id) != (&u.si, &u.id) && (self.sees)(*si, *id, *leg, &u))
             .or_else(|| {
@@ -407,7 +424,11 @@ impl SingleWalk<'_> {
         };
         if let Some(out) = &done.5.singles_out {
             for (key, v) in &out.wrote {
-                s.state.insert(*key, v.clone());
+                // A value the state holds already stays as it is (nothing to copy, and the shared copy stays valid).
+                if s.state.get(key) != Some(v) {
+                    s.state.insert(*key, v.clone());
+                    s.shared = None;
+                }
                 if !out.observed.contains_key(key) {
                     s.unknown.remove(key);
                 }
@@ -440,7 +461,7 @@ impl SingleWalk<'_> {
         // One walk of the refused routines' joined reach: they share most of it, and a global any of them can write is
         // not known from here on, whichever wrote it.
         let roots: Vec<(usize, usize)> = routines.iter().map(|&i| (r.oi, i)).collect();
-        let facts = union_reach_facts(&self.engine.events, self.lowered, &index, &roots);
+        let facts = union_reach_written(&self.engine.events, self.lowered, &index, &roots);
         let what = match routines.len() {
             1 => format!("{}.{}", obj.name, obj.routines[first].name),
             n => format!(
@@ -476,15 +497,21 @@ pub(super) fn fits(r: &UnitResult, serial: &SingleState) -> bool {
     let start = done.5.singles_in.as_deref();
     out.observed
         .iter()
-        .all(|(key, seen)| match (serial.get(key), start.and_then(|s| s.get(key))) {
-            // The run was given the very value `serial` holds: it restored it as the run from `serial` does
-            // (`Session::restore_single_instances`), whatever its first read encodes it as (a record buffer of a
-            // rolled-back row reads back without its row version), and a value that is not carried (the same
-            // description) was refused where it read it, as there.
-            (Some(v), Some(given)) if same_given(v, given) => true,
-            (Some(v), _) => v == seen,
-            (None, given) => given.is_none(),
-        })
+        .all(|(key, seen)| key_fits(key, seen, start, serial))
+}
+
+/// Whether the global `key`, which a run saw holding `seen` at its first read and was given `start`'s value of, held that
+/// in the state `serial` too (`fits`).
+fn key_fits(key: &GlobalKey, seen: &Carry, start: Option<&SingleState>, serial: &SingleState) -> bool {
+    match (serial.get(key), start.and_then(|s| s.get(key))) {
+        // The run was given the very value `serial` holds: it restored it as the run from `serial` does
+        // (`Session::restore_single_instances`), whatever its first read encodes it as (a record buffer of a
+        // rolled-back row reads back without its row version), and a value that is not carried (the same
+        // description) was refused where it read it, as there.
+        (Some(v), Some(given)) if same_given(v, given) => true,
+        (Some(v), _) => v == seen,
+        (None, given) => given.is_none(),
+    }
 }
 
 /// Whether two carried values restore the same: equal carried values, or values that are not carried with the same
@@ -508,6 +535,100 @@ pub(super) fn after_run(before: &SingleState, r: &UnitResult) -> (SingleState, O
         now.extend(w.iter().map(|(k, v)| (*k, v.clone())));
     }
     (now, wrote)
+}
+
+/// The rank (place in the BC session's run order) at which each round of the parallel part ends (`rounds`).
+const FIRST_ROUND: usize = 8;
+
+/// The round of the codeunit at rank `n` of its BC session: the first [`FIRST_ROUND`], then twice as many in each round.
+/// (Finer rounds start more runs from a predicted state; with steps of 24 codeunits some of those carried a record
+/// whose row version the next session had not committed, which a later codeunit refuses: 954 tests of BC 29 were not
+/// run. Doubling rounds gave the same outcomes as no rounds.)
+fn round_at(n: usize) -> usize {
+    ((n / FIRST_ROUND) + 1).ilog2() as usize
+}
+
+/// Splits the codeunits `rest` (indexes of `units`) into rounds: the first few of each BC session in run order, then
+/// more and more of the others. A test codeunit that reads state a codeunit before it left (a cache Change Log
+/// Management filled, a binding of a SingleInstance subscriber) saw none of it in the parallel run and had to run again
+/// from the serial state; a round starts from the state the rounds before it left instead ([`seed`]).
+pub(super) fn rounds(units: &[Unit], rest: &[usize], place: &dyn Fn(usize, u32) -> u32) -> Vec<Vec<usize>> {
+    let mut order: Vec<usize> = rest.iter().copied().filter(|&k| !units[k].execute).collect();
+    order.sort_by_key(|&k| {
+        let u = &units[k];
+        (u.si, u.hub_leg, place(u.si, u.id), k)
+    });
+    let mut count: std::collections::HashMap<(usize, bool), usize> = Default::default();
+    let mut round_of: std::collections::HashMap<usize, usize> = Default::default();
+    for k in order {
+        let n = count.entry((units[k].si, units[k].hub_leg)).or_default();
+        round_of.insert(k, round_at(*n));
+        *n += 1;
+    }
+    let mut out = vec![Vec::new(); round_of.values().max().map_or(1, |m| m + 1)];
+    for &k in rest {
+        out[round_of.get(&k).copied().unwrap_or(0)].push(k);
+    }
+    out.retain(|r| !r.is_empty());
+    out
+}
+
+/// A BC session's predicted state, with a shared copy of it for the runs again (dropped when the state changes).
+type Predicted = (SingleState, Option<Arc<SingleState>>);
+
+impl SingleWalk<'_> {
+    /// The single instances each BC session's codeunits before the next round left, as the serial run would have them:
+    /// the runs of `ran` (with their `results`) and of `slots`, in run order, each when it fits the state so far, and
+    /// otherwise as run again from it (the run again is only for what it leaves: `walk` runs it again for the report).
+    /// Only a prediction: `walk` checks every run against the serial state.
+    pub fn predict(
+        &self,
+        ran: &[usize],
+        results: &[UnitResult],
+        slots: &[Option<UnitResult>],
+    ) -> std::collections::HashMap<(usize, bool), Arc<SingleState>> {
+        let mut done: Vec<(&UnitResult, usize)> = results.iter().zip(ran.iter().copied()).collect();
+        done.extend(slots.iter().enumerate().filter_map(|(k, r)| r.as_ref().map(|r| (r, k))));
+        let units = self.units;
+        done.sort_by_key(|(_, k)| {
+            (
+                units[*k].si,
+                units[*k].hub_leg,
+                (self.place)(units[*k].si, units[*k].id),
+                *k,
+            )
+        });
+        let mut states: std::collections::HashMap<(usize, bool), Predicted> = Default::default();
+        for (r, k) in done {
+            if units[k].execute {
+                continue;
+            }
+            let (st, shared) = states.entry((units[k].si, units[k].hub_leg)).or_default();
+            let mut cache = self.predicted.borrow_mut();
+            if !fits(r, st) && !cache.get(&k).is_some_and(|c| fits(c, st)) {
+                let given = shared.get_or_insert_with(|| Arc::new(st.clone())).clone();
+                let again = self.run_again(k, Some(given), None);
+                super::run::CARRIED.with(|c| c.borrow_mut().take());
+                cache.insert(k, again);
+            }
+            let r = if fits(r, st) { r } else { &cache[&k] };
+            if let Ok(done) = &r.result {
+                if let Some(out) = &done.5.singles_out {
+                    for (key, v) in &out.wrote {
+                        if st.get(key) != Some(v) {
+                            st.insert(*key, v.clone());
+                            *shared = None;
+                        }
+                    }
+                }
+            }
+        }
+        states
+            .into_iter()
+            .filter(|(_, (st, _))| !st.is_empty())
+            .map(|(key, (st, shared))| (key, shared.unwrap_or_else(|| Arc::new(st))))
+            .collect()
+    }
 }
 
 /// An outcome in words, for the serial check's lines.
@@ -534,7 +655,7 @@ mod tests {
     use al_vm::single_codec::CarryVal;
 
     fn val(b: u8) -> Carry {
-        Carry::Val(CarryVal::Plain(vec![b]))
+        Carry::Val(Arc::new(CarryVal::Plain(vec![b])))
     }
 
     /// A run that read global (1, 0) first and saw `seen` there, started from `start`.
@@ -585,5 +706,12 @@ mod tests {
         assert!(!fits(&run(None, val(0)), &state(val(1))));
         assert!(fits(&run(None, val(0)), &SingleState::new()));
         assert!(!fits(&run(Some(state(val(0))), val(0)), &SingleState::new()));
+    }
+
+    /// The rounds of the parallel part: 8 codeunits of a session first, then twice as many each round.
+    #[test]
+    fn the_rounds_of_a_session_start_small_and_double() {
+        assert_eq!((round_at(0), round_at(7), round_at(8), round_at(23)), (0, 0, 1, 1));
+        assert_eq!((round_at(24), round_at(55), round_at(56)), (2, 2, 3));
     }
 }

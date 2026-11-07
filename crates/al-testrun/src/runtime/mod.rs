@@ -909,6 +909,7 @@ mod data_driven;
 mod grow;
 mod handlers;
 mod numbers_taken;
+mod rounds_run;
 mod run;
 mod runner_reset;
 mod session_flags;

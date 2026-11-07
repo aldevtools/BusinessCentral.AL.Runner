@@ -40,7 +40,7 @@ pub const BINDINGS_KEY: GlobalKey = (usize::MAX, 0);
 #[derive(Debug, Clone)]
 pub enum Carry {
     /// A value with what it holds (`single_codec.rs`).
-    Val(CarryVal),
+    Val(std::sync::Arc<CarryVal>),
     /// A value that has no exact form in another session, described with the reason: not carried.
     Opaque(String),
 }
@@ -89,14 +89,14 @@ fn bindings_carry(b: &BindingRanks, held: &[(GlobalKey, &Carry)]) -> Carry {
         ));
     }
     lines.sort();
-    Carry::Val(CarryVal::Plain(
+    Carry::Val(std::sync::Arc::new(CarryVal::Plain(
         lines
             .into_iter()
             .map(|(_, l)| l)
             .collect::<Vec<_>>()
             .join("\n")
             .into_bytes(),
-    ))
+    )))
 }
 
 /// What one test codeunit's session did with the single instances, from the point the session began to track them.
@@ -183,7 +183,7 @@ impl Session {
     fn binding_carry(&self) -> Carry {
         let b = binding_ranks(self);
         if b.singles.is_empty() && b.ranks.is_empty() && !b.deep {
-            return Carry::Val(CarryVal::Plain(Vec::new()));
+            return Carry::Val(std::sync::Arc::new(CarryVal::Plain(Vec::new())));
         }
         let bound = self.si_track.as_ref().map_or(0, |t| t.bound);
         let (objects, groups) = self.single_groups();
@@ -264,7 +264,8 @@ impl Session {
         let mut objects: Vec<usize> = state.keys().map(|k| k.0).filter(|&o| o != BINDINGS_KEY.0).collect();
         objects.dedup();
         match state.get(&BINDINGS_KEY) {
-            Some(Carry::Val(CarryVal::Plain(text))) => {
+            Some(Carry::Val(v)) if matches!(&**v, CarryVal::Plain(_)) => {
+                let CarryVal::Plain(text) = &**v else { unreachable!() };
                 for line in String::from_utf8_lossy(text).lines() {
                     let f: Vec<usize> = line.split(' ').skip(1).filter_map(|x| x.parse().ok()).collect();
                     if line.starts_with("s ")
@@ -628,7 +629,7 @@ fn carry_group(enc: &Enc, globals: &[Value]) -> Vec<Carry> {
     out.into_iter()
         .zip(globals)
         .map(|(r, v)| match r {
-            Ok(c) if IdUse::of(&c).refs.is_subset(&defs) => Carry::Val(c),
+            Ok(c) if IdUse::of(&c).refs.is_subset(&defs) => Carry::Val(std::sync::Arc::new(c)),
             Ok(_) => Carry::Opaque(format!(
                 "{} that shares a handle with another global of the codeunit that al-runner cannot hand on",
                 v.describe()
@@ -646,7 +647,7 @@ mod tests {
     fn a_value_that_is_not_carried_equals_nothing() {
         let o = Carry::Opaque("temporary Record of table object 1".into());
         assert_ne!(o, o.clone());
-        let v = Carry::Val(CarryVal::Plain(vec![0]));
+        let v = Carry::Val(std::sync::Arc::new(CarryVal::Plain(vec![0])));
         assert_eq!(v, v.clone());
         assert_ne!(v, o);
     }
