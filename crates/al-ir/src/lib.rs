@@ -80,6 +80,18 @@ pub enum PlatformPublisher {
     FilterHelperTriggers,
 }
 
+/// The events of the `Caption Class` codeunit (42) the runtime raises for a caption class translation: `OnResolveCaptionClass`
+/// for an area no built-in resolver claims, then `OnAfterCaptionClassResolve` with the caption the translation gave
+/// (types/caption-class-events/Y71CaptionClassEvents.al:235-246).
+pub const RAISED_CAPTION_CLASS_EVENTS: [&str; 2] = ["OnResolveCaptionClass", "OnAfterCaptionClassResolve"];
+
+/// Whether `event` (any case) is one of [`RAISED_CAPTION_CLASS_EVENTS`].
+pub fn is_raised_caption_class_event(event: &str) -> bool {
+    RAISED_CAPTION_CLASS_EVENTS
+        .iter()
+        .any(|e| e.eq_ignore_ascii_case(event))
+}
+
 /// The events of `Reporting Triggers` the runtime raises: `CustomDocumentMergerEx` for a custom layout, and
 /// `SubstituteReport` and `OnDocumentReady` around an Xml `SaveAs` (events/platform-triggers/PeVTests.al:432), and
 /// `SetupPrinters` for the static `Report.RunRequestPage` (PeVTests.al:450).
@@ -375,6 +387,13 @@ pub const EXT_CAPTION_OVER_OWN: &str = "$ExtCaptionOverOwn";
 /// profile it extends. The All Profile rows read the extension's `Enabled` through it.
 pub const EXTENDS_PROFILE: &str = "$ExtendsProfile";
 
+/// The name of an object property the lowering adds to a test codeunit with ITestHandler callbacks (BC 29): its handler
+/// codeunits in call order, `D<id>` for a DefaultTestHandler handler and `O<id>` for one its TestHandlers names, separated
+/// by commas (al-sema `lower/test_handlers.rs`).
+pub const TEST_HANDLER_CODEUNITS: &str = "$TestHandlerCodeunits";
+/// The name of an object property the lowering adds to a test codeunit whose test handlers cannot be run: why.
+pub const TEST_HANDLERS_REFUSED: &str = "$TestHandlersRefused";
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Object {
     pub kind: ObjKind,
@@ -392,6 +411,9 @@ pub struct Object {
     /// For enums: the `Caption` of values that declare one, by ordinal.
     #[serde(default)]
     pub enum_captions: Vec<(i32, String)>,
+    /// For enums: the `CaptionML` list of values that declare one (`ENU = 'a', DEU = 'b'`), by ordinal, as written.
+    #[serde(default)]
+    pub enum_captions_ml: Vec<(i32, String)>,
     /// For tables: fields (extensions and system fields included), keys as
     /// field positions (`keys[0]` primary), `DataPerCompany`.
     pub table: Option<Table>,
@@ -771,6 +793,13 @@ pub struct XmlPort {
     /// `urn:microsoft-dynamics-nav/xmlports/x<id>` (corpus xmlports/shapes-properties/BdXmlPort.al:499).
     #[serde(default)]
     pub default_ns: Option<String>,
+    /// `UseDefaultNamespace = true` with `Namespaces` (`default_ns` is the `DefaultNamespace`, else BC's namespace of the port):
+    /// the export writes the root without its prefix, with the uri of that prefix as the default namespace, and an element without
+    /// a prefix declares the port's namespace where the namespace in scope differs (corpus
+    /// xmlports/shapes-properties/XpUseDefaultNsPrefixes.al; with DefaultNamespace: corpus PR 1158,
+    /// XpUseDefaultNsWithDefault.al). Its import is refused.
+    #[serde(default)]
+    pub udn_root_prefix: bool,
     /// A `TextEncoding` property other than UTF8 was declared (its value is not kept).
     #[serde(default)]
     pub text_encoding_declared: bool,
@@ -1053,6 +1082,10 @@ impl Binding {
     }
 }
 
+/// The property that marks a control of a reportextension that changes the run, bound to a variable of the base report: a
+/// value set through the control is dropped.
+pub const EXT_MIRROR_PROPERTY: &str = "__ext_mirror";
+
 /// The property under which a report's `properties` keep its request page's own `Caption` as written (the report's `Caption`,
 /// when it declares one, wins under `Caption`). `RequestOptionsPage.Caption` reads it (al-vm `reports.rs`).
 pub const REQUEST_PAGE_CAPTION_PROPERTY: &str = "RequestPage.Caption";
@@ -1135,6 +1168,10 @@ pub struct Control {
     /// (`field("LT WD Profile"; "LT WD Profile Code")`): from BC 28 a TestPage cannot read it (testpage/WdBareQuotedField.al:185).
     #[serde(default)]
     pub bare_quoted_ext_source: bool,
+    /// For a report's own request page control bound to an expression: the source as written, trimmed (`BufArr[1].Name`).
+    /// `Report.RunRequestPage` names the control's parameter by it (reports/request-page/R6960RequestParamBindings.al).
+    #[serde(default)]
+    pub source_text: Option<String>,
     /// Declared in the layout's `area(FactBoxes)`.
     #[serde(default)]
     pub factbox: bool,
@@ -1339,6 +1376,9 @@ pub struct Field {
     /// system field. Its app is the app that owns the field's column (test data, ADR-020).
     #[serde(default)]
     pub declared_in: Option<u32>,
+    /// A `modify` block of a table extension sets the field's `Caption` or `CaptionML`.
+    #[serde(default)]
+    pub caption_modified: bool,
 }
 
 /// One arm of a `TableRelation`: `if (Kind = const(A)) Table.Field where(...)`.
@@ -1647,6 +1687,9 @@ pub enum Place {
     /// Global slot `.1` of the instance of page extension `.0` (an object index) on the same open page, in a routine of
     /// another extension of that page: a `protected var` one extension declares and another one names (al-runner issue 6159).
     ExtGlobal(usize, usize),
+    /// Global slot `.2` of the instance of table or table extension `.1` (an object index) on the record in place `.0`:
+    /// `Other.<protected var>` in a table extension (al-runner issue 6984). The instance is made when the record has none.
+    RecGlobal(Box<Place>, usize, usize),
     /// Element of an array place.
     Index(Box<Place>, Vec<Expr>),
     /// Field at position `.1` of the record in place `.0`.
@@ -2012,6 +2055,7 @@ mod tests {
                 properties: vec![("Subtype".into(), "Test".into())],
                 enum_values: vec![],
                 enum_captions: vec![],
+                enum_captions_ml: vec![],
                 table: None,
                 rec_slot: None,
                 xrec_slot: None,

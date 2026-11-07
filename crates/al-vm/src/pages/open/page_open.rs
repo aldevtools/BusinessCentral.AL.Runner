@@ -84,6 +84,7 @@ impl Session {
         }
         st.borrow_mut().ext_instances = exts;
         st.borrow_mut().instance = Some(inst.clone());
+        self.note_page_instance(st);
         self.seed_unopened_rec(st);
         Ok(inst)
     }
@@ -233,6 +234,17 @@ impl Session {
         Ok(())
     }
 
+    /// The page's OnOpenPage trigger; `linked` when an action opened the page through RunPageLink, counted in
+    /// `PagesState::run_page_link_opening` while the trigger runs.
+    fn on_open_page(&mut self, st: &St, linked: bool) -> Result<Option<Value>, Signal> {
+        self.pages.run_page_link_opening += u32::from(linked);
+        let before = self.rec_key_before_open(st)?;
+        let opened = self.page_trigger(st, "onopenpage", vec![]);
+        self.pages.run_page_link_opening -= u32::from(linked);
+        self.note_handed_rec_moved(st, before)?;
+        opened
+    }
+
     /// `open_page`, or with `as_part` the opening of a part's page: everything up to and including
     /// the page's OnOpenPage, leaving its rows to the host (`sync_part`), which knows the link.
     pub(in crate::pages) fn open_page_as(
@@ -319,9 +331,7 @@ impl Session {
             s.or_group_dropped = false;
             s.unpinned_filter_fields = Vec::new();
             s.placeholder_line = false;
-            s.gone_blank_no_new_line = false;
-            s.gone_blank_shows_line = false;
-            s.gone_view_list = false;
+            reset_row_line_flags(&mut s);
             s.parts = Vec::new();
             s.closed_parts = Vec::new();
             s.areas = self.application_areas.clone();
@@ -534,7 +544,7 @@ impl Session {
             }
             self.pages.run_page_link_open_moved = false;
             self.drop_handed_or_group(st, has_source);
-            let opened = self.page_trigger(st, "onopenpage", vec![]);
+            let opened = self.on_open_page(st, has_source && rec_fill.is_some());
             st.borrow_mut().opening = false;
             st.borrow_mut().run_page_link_open_moved = std::mem::take(&mut self.pages.run_page_link_open_moved);
             if rec_unpinned.is_some() && has_source {
@@ -938,6 +948,9 @@ impl Session {
                 }
                 return self.open_on_rec_moved_by_onopenpage(st);
             }
+            if self.handed_rec_list_opens_on_moved_row(st)? {
+                return self.open_on_rec_moved_by_onopenpage(st);
+            }
             if self.stored_row(&rec)?.is_some() {
                 self.ret_used = true;
                 let mut pk = self.table(&rec)?.primary_key(&rec.borrow().fields);
@@ -983,6 +996,7 @@ impl Session {
                     }
                 }
             }
+            self.modal_card_asks_find_equals(st)?;
             // A record that names no row of the view (a blank one, a SetTableView, a row outside the view or not in the table)
             // opens the page `=><` from the record's own values: the row itself, else the next one in the view's direction, else
             // the one before. A descending view opened on a blank record lands on its last row (ui-handlers/W2PageProperties.al:234
@@ -1022,7 +1036,13 @@ impl Session {
                 return self.page_first_row_from(st, "=><", true);
             }
         } else if st.borrow().host.is_none()
-            && self.declares(st, "onopenpage")
+            // The base page's or a page extension's OnOpenPage: a base without the trigger and an extension with it opens on the
+            // row the extension left Rec on, as the pinned cases with both do (pages/onopenpage-moves-rec/OnOpenPageGetChain.al:587
+            // Og_ExtList_OpenView_Base0Ext1; al-runner issue 6924).
+            // A temporary Worksheet counts only its own OnOpenPage: with the trigger in an extension alone it keeps the first row
+            // it always had (al-runner issue 6924, SalesPriceShipmentTypeActivateLinesDuplicatesShowOK/ShowCancel).
+            && (self.declares(st, "onopenpage")
+                || (self.declares_or_ext_declares(st, "onopenpage") && !self.is_temp_worksheet(st)))
             && (!self.declares(st, "onfindrecord") || self.temp_worksheet_set_before_open(st))
             && !self.is_request_page(st)
         {
@@ -1467,9 +1487,19 @@ impl Session {
 }
 
 /// The flags a new host row, a first part access and New() on a request page set; a page that runs again starts without them.
+/// The flags a list's earlier run left about its rows and its new-row line.
+fn reset_row_line_flags(s: &mut al_builtins::value::PageState) {
+    s.gone_blank_no_new_line = false;
+    s.gone_blank_shows_line = false;
+    s.gone_view_list = false;
+    s.list_view_switched = false;
+    s.list_edit_back = false;
+}
+
 fn reset_host_row_flags(s: &mut al_builtins::value::PageState) {
     s.new_host_part_rows = false;
     s.host_stored_blank_key = false;
+    s.part_insert_swallowed = false;
     s.blank_key_edit_reread = false;
     s.request_new_blank = false;
 }

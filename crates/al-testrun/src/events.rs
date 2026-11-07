@@ -50,6 +50,26 @@ pub struct TestEvent {
     pub entry: Option<usize>,
 }
 
+impl TestEvent {
+    /// The event of a test of codeunit `codeunit` (`name`) that was not run, for `why`.
+    pub fn not_run(codeunit: u32, name: &str, test: &str, why: &str) -> TestEvent {
+        TestEvent {
+            codeunit,
+            codeunit_name: name.to_string(),
+            test: test.to_string(),
+            outcome: crate::Outcome::NotRun(why.to_string()),
+            call_stack: String::new(),
+            time: std::time::Duration::ZERO,
+            slept_ms: 0,
+            coverage: Vec::new(),
+            captured: None,
+            stubs: Vec::new(),
+            ui_answered: Vec::new(),
+            entry: None,
+        }
+    }
+}
+
 type OnTest = Arc<dyn Fn(TestEvent) + Send + Sync>;
 /// What is told when a test is about to run: codeunit id and test name.
 pub type OnStart = Arc<dyn Fn(u32, &str) + Send + Sync>;

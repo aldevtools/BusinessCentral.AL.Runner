@@ -953,7 +953,10 @@ impl Merges {
             for j in &s.joins {
                 m.lists.push((base, j.list, j.order, i));
             }
-            if !s.contribution.enum_values.is_empty() || !s.contribution.enum_captions.is_empty() {
+            if !s.contribution.enum_values.is_empty()
+                || !s.contribution.enum_captions.is_empty()
+                || !s.contribution.enum_captions_ml.is_empty()
+            {
                 m.enums.push((base, i));
             }
             if s.contribution.table.is_some() {
@@ -997,6 +1000,9 @@ impl Merges {
                 obj_at(objects, base)
                     .enum_captions
                     .extend(c.enum_captions.iter().cloned());
+                obj_at(objects, base)
+                    .enum_captions_ml
+                    .extend(c.enum_captions_ml.iter().cloned());
             }
         }
         Ok(())
@@ -1268,6 +1274,7 @@ pub fn relink<'k>(
                 let old = &program.objects[oi];
                 object.enum_values = old.enum_values.clone();
                 object.enum_captions = old.enum_captions.clone();
+                object.enum_captions_ml = old.enum_captions_ml.clone();
                 if let (Some(n), Some(o)) = (object.table.as_mut(), old.table.as_ref()) {
                     n.extensions = o.extensions.clone();
                 }
@@ -1877,6 +1884,7 @@ mod tests {
                 expr_source: None,
                 expr_call: false,
                 array_element: None,
+                source_text: None,
                 bare_quoted_ext_source: false,
                 factbox: false,
             },

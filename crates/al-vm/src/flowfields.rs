@@ -258,7 +258,10 @@ impl Session {
                 }
             }
             ir::CalcMethod::Count => {
-                if !matches!(f.ty, RtType::Integer) {
+                // A BigInteger FlowField takes a count as well and holds a BigInteger (al-runner issue 6986; corpus branch
+                // al-runtime-rs-staging-r6961, record/flowfields/R6986BigIntegerCount.al). A Decimal one does not compile
+                // (must-not-compile 2970, AL0202).
+                if !matches!(f.ty, RtType::Integer | RtType::BigInteger) {
                     return unsupported("count into a field that is not an Integer");
                 }
                 // Gate FlowFieldCountFilterBigIntegerFromIntegerFrom29: before BC 29 a filter that links a BigInteger
@@ -520,7 +523,7 @@ impl Session {
         }
         let filters = self.calc_filters(rec, calc, &mut Vec::new())?;
         let src_t = self.engine.tables[calc.table].clone().expect("table");
-        if self.permissions.is_some() {
+        if self.permission_checks() {
             self.permission_gate_flowfield(rec, calc.table)?;
         }
         let cx = self.cx_for(rec, &src_t)?;
@@ -564,7 +567,7 @@ impl Session {
         let src_t = self.engine.tables[calc.table].clone().expect("table");
         self.unseeded_read(&src_t, rec.borrow().temporary, "a FlowField")?;
         // ADR-062: a FlowField reads its source table indirectly (CpPermLeads.al:29-63).
-        if self.permissions.is_some() {
+        if self.permission_checks() {
             self.permission_gate_flowfield(rec, calc.table)?;
         }
         let cx = self.cx_for(rec, &src_t)?;
@@ -665,7 +668,12 @@ impl Session {
         let value = match calc.method {
             M::Count => {
                 let n = self.store.count(&cx, &src_t, &filters).map_err(store_err)? as i32;
-                Value::Integer(if calc.negate { -n } else { n })
+                let n = if calc.negate { -n } else { n };
+                if f.ty == RtType::BigInteger {
+                    Value::BigInteger(i64::from(n))
+                } else {
+                    Value::Integer(n)
+                }
             }
             M::Exist => {
                 let found = self

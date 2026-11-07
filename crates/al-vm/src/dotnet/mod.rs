@@ -154,7 +154,9 @@ enum Target {
 /// Streams passed in one call, kept so the reply's effects can be applied.
 #[derive(Default)]
 struct StreamBook {
-    ins: Vec<(usize, Rc<RefCell<LibraryValue>>)>,
+    /// The InStream arguments: argument position, the stream, and where the bytes sent start in it (what .NET reports as
+    /// consumed counts from there).
+    ins: Vec<(usize, Rc<RefCell<LibraryValue>>, usize)>,
     outs: Vec<(usize, BlobRef)>,
 }
 
@@ -1316,11 +1318,14 @@ impl Session {
         shown: &str,
         f: &mut Frame,
     ) -> Result<Value, Signal> {
+        if reply.streams.text_converted_to_guid {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DotNetTextArgumentAsGuid);
+        }
         // Streams first: the bytes .NET read, the new bridges, the bytes written into any bridge.
         for (idx, n) in &reply.streams.consumed {
-            if let Some((_, h)) = book.ins.iter().find(|(i, _)| i == idx) {
+            if let Some((_, h, base)) = book.ins.iter().find(|(i, _, _)| i == idx) {
                 if let LibraryValue::InStream(st) = &mut *h.borrow_mut() {
-                    st.pos = (st.pos + n).min(st.len());
+                    st.pos = (base + n).min(st.len());
                 }
             }
         }
@@ -1391,9 +1396,19 @@ impl Session {
                 }
             },
             Value::Library(_, h) => match &*h.borrow() {
-                LibraryValue::InStream(st) => {
-                    book.ins.push((arg, h.clone()));
+                // A stream at its start sends its bytes; one that stands further on sends all its bytes and its position, since
+                // .NET may seek back before it (DotNetValue::InStreamAt, al-runner issue 7134).
+                LibraryValue::InStream(st) if st.pos == 0 => {
+                    book.ins.push((arg, h.clone(), 0));
                     DotNetValue::InStream(st.rest())
+                }
+                LibraryValue::InStream(st) => {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::InstreamDotnetSeekBack);
+                    book.ins.push((arg, h.clone(), 0));
+                    DotNetValue::InStreamAt {
+                        bytes: st.with_data(<[u8]>::to_vec),
+                        at: st.pos.min(st.len()),
+                    }
                 }
                 LibraryValue::OutStream(blob, _) => {
                     book.outs.push((arg, blob.clone()));
@@ -1451,7 +1466,10 @@ impl Session {
             DotNetValue::Handle { handle, ty } => {
                 Value::DotNet(Rc::new(DotNetObject::host(handle, ty, self.dotnet.release.clone())))
             }
-            DotNetValue::InStream(_) | DotNetValue::OutStream | DotNetValue::OutStreamWith(_) => {
+            DotNetValue::InStream(_)
+            | DotNetValue::InStreamAt { .. }
+            | DotNetValue::OutStream
+            | DotNetValue::OutStreamWith(_) => {
                 return unsupported("the host returned an AL stream value");
             }
         })

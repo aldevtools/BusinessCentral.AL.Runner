@@ -100,10 +100,11 @@ Documents for contributors:
 - `docs/al-runner-v2-parity.md`: which features of AL Runner v2 exist in the current version.
 - `docs/dotnet-examples.md`: how Microsoft's AL uses `DotNet`.
 - `docs/probes-needed.md`: behavior taken from documentation only, waiting for a probe on real BC.
-- `docs/corpus-coverage.md`: which parts of the AL language the corpus covers.
+- `docs/corpus-coverage.md`: which parts of the AL language the corpus covers (generated, not committed: `al-test-cli --root . --coverage-map` writes it in seconds; CI on main uploads it as the artifact `coverage-maps-<run id>`).
 - `docs/agents/brief.md`: the working method for implementation agents.
 - `oracle/`: the real-BC results the pass rate is measured against.
-- `metrics/<major>/passing.txt`: the cases that must keep passing, per BC major.
+- `metrics/<major>/not-passing*.txt`: the oracle cases the runtime does not pass yet, per BC major and test app
+  (ADR-065). Every case not listed must pass.
 - `docs/history/`: the original spike brief and report, and retired research notes.
 
 ## Trademarks

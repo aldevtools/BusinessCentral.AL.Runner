@@ -1,0 +1,22 @@
+# Corpus cases of this oracle that real BC passes and the runtime does not pass yet (ADR-065).
+# CI fails when a case that is not listed does not pass, and when a listed case passes or left the oracle.
+# `al-test-cli --prune-not-passing` deletes stale lines; a corpus bump adds new cases with `--list-new-cases`.
+# A line for a case the oracle already had is a regression: it needs the owner's OK (CLAUDE.md hard rule 2).
+81553 BiTpDefault_Insert
+81553 BiTpDefault_Permissions
+81555 BiTpNonRestr_Insert
+81555 BiTpNonRestr_Permissions
+81556 BiTpRestr_Insert
+81556 BiTpRestr_Permissions
+81557 BiTpDisMRestr_Insert
+81557 BiTpDisMRestr_Permissions
+81558 BiTpDisMNonRestr_Insert
+81558 BiTpDisMNonRestr_Permissions
+81564 BiIp_InherentR
+81564 BiIp_InsertPlain
+81564 BiIp_PermissionFunctions
+81564 BiIp_ScopeEntitlements
+81641 Y24_P23_TestTables
+81641 Y24_P24_FullAccess
+81642 Y24_P25_Restrictive
+81643 Y24_P25_Default

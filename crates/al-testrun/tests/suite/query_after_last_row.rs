@@ -1,5 +1,5 @@
 //! A query read to its last row takes a new filter, and its next Read raises until it is opened again
-//! (queries/P131QuerySetRangeAfterRead.al:154-170). Opened again it runs with the new filter (Base
+//! (queries/P131QuerySetRangeAfterRead.al:141-157). Opened again it runs with the new filter (Base
 //! Application's Workflow Step Instance.SetTableRelationValues sets filters on its query, opens it and reads it to the end,
 //! once per table relation; queries/read-lifecycle/QueryReadToEnd.al:88-200). A query that still has rows to read takes the filter and its next
 //! Read raises until it is opened again (queries/flowfields-filters/QuerySetRangeAfterRead.al:52-77).
@@ -42,7 +42,7 @@ codeunit 50470 "T"
     procedure FilterAfterTheLastRowThenReadRaises()
     var Row: Record "QLR Row"; Q: Query "QLR Query";
     begin
-        // queries/P131QuerySetRangeAfterRead.al:154-170.
+        // queries/P131QuerySetRangeAfterRead.al:141-157.
         Row.Id := 5; Row.Insert(); Row.Id := 6; Row.Insert();
         Q.Open();
         while Q.Read() do;

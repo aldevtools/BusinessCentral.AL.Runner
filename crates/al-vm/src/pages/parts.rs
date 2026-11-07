@@ -34,6 +34,7 @@ impl Session {
     /// Sets `open = false` on `st` and on the pages it shows as parts.
     pub(super) fn mark_closed(&mut self, st: &St) {
         st.borrow_mut().open = false;
+        self.prune_page_held();
         let parts = std::mem::take(&mut st.borrow_mut().parts);
         for (_, child) in &parts {
             self.mark_closed(child);
@@ -498,7 +499,7 @@ impl Session {
     /// SubPageLink read their rows again; a part without one keeps what it shows and runs no trigger
     /// (pages/parts/PartReadsOpen.al:269-283 and :336-379, `-Plain` and `-View` empty;
     /// pages/parts/PartViewFilter.al:381 `next-GtOnly`; types/operators-expressions/
-    /// P142HiddenPartArea.al:386, :420). A linked part hidden by a Visible expression reads too (PartReadsOpen.al `-Hidden`).
+    /// P142HiddenPartArea.al:371, :405). A linked part hidden by a Visible expression reads too (PartReadsOpen.al `-Hidden`).
     /// After Previous and First the linked parts read their rows last to first, once each (PartReadsOpen.al:358-379: 1, 2
     /// and 3 rows; PartViewFilter.al:387-389); after Next and Last first to last, then the first row once more.
     pub(super) fn sync_parts_after_move(&mut self, st: &St, backward: bool) -> Result<(), Signal> {
@@ -1678,6 +1679,7 @@ impl Session {
         if !part_stored {
             return self.new_part_row_update_both(st, &host);
         }
+        let kept = self.tree_part_keeps_typed_row(st, both)?;
         {
             let mut p = st.borrow_mut();
             p.refresh = false;
@@ -1689,7 +1691,7 @@ impl Session {
             self.sync_part(&host, c, st)?;
         }
         // The host's triggers still see the row it read before as xRec (`H.AGR(t=5 ... x.t=1)`); the next read sees the new one.
-        self.refresh_host_after_part(st, &host, !both, later)?;
+        self.refresh_host_after_part(st, &host, !both, later, kept)?;
         Ok(true)
     }
 
@@ -1759,6 +1761,7 @@ impl Session {
                 "a part's CurrPage.Update on a new part row when the host row did not change, on a Card host with UpdatePropagation Both or a ListPlus host without it (not pinned)",
             );
         }
+        let kept = self.tree_part_keeps_typed_row(st, both)?;
         {
             let mut p = st.borrow_mut();
             p.refresh = false;
@@ -1772,7 +1775,7 @@ impl Session {
             }
             return Ok(true);
         }
-        self.refresh_host_after_part(st, host, false, later)?;
+        self.refresh_host_after_part(st, host, false, later, kept)?;
         Ok(true)
     }
 
@@ -1782,7 +1785,7 @@ impl Session {
     /// the first, the row twice and OnAfterGetCurrRecord, as without Both (corpus pages/lt-th-part-update-cursor/R6877PartBothLaterRow.al:375
     /// R_Doc_, R_Card_, R_Plus_Nav1..3_Ctl1..2, BC 28.5: `Q.V Q.V.end HR HC R2 R3 R2 R1 R2 R2 C2`; the next SetValue lands on the same
     /// row; al-runner issue 6877). A part that
-    /// serves its rows from OnFindRecord or OnNextRecord, one that is not a list, a row its view no longer holds and a view longer than
+    /// serves its rows from OnNextRecord, one that is not a list, a row its view no longer holds and a view longer than
     /// a window are refused. Returns the view and the part's place in it when the part stands on a later row (the caller reads the
     /// host, then calls `read_part_rows_around`), `None` on the first row.
     fn both_later_row(&mut self, st: &St) -> Result<Option<PartView>, Signal> {
@@ -1794,9 +1797,12 @@ impl Session {
         if at == Some(0) {
             return Ok(None);
         }
-        if !self.is_list(st) || self.declares(st, "onfindrecord") || self.declares(st, "onnextrecord") {
+        // A part with OnFindRecord (and no OnNextRecord) stays on its row too; its trigger runs with '=>' and '=' among the reads
+        // (`read_part_rows_around`; corpus pages/parts/R7099PartFindRecordBoth.al:13-14, :472-639, al-runner
+        // issue 7099). A part with OnNextRecord is not pinned.
+        if !self.is_list(st) || self.declares(st, "onnextrecord") {
             return unsupported(
-                "a part with UpdatePropagation Both that runs CurrPage.Update on a row other than its first, other than a list part without OnFindRecord (which row it shows then is not pinned)",
+                "a part with UpdatePropagation Both that runs CurrPage.Update on a row other than its first, other than a list part without OnNextRecord (which row it shows then is not pinned)",
             );
         }
         let Some(at) = at else {
@@ -1820,6 +1826,7 @@ impl Session {
         host: &St,
         without_parts: bool,
         later: Option<PartView>,
+        kept: Option<Vec<Value>>,
     ) -> Result<(), Signal> {
         let mut h = host.borrow_mut();
         h.refresh = true;
@@ -1830,6 +1837,16 @@ impl Session {
         let r = self.run_refresh(host);
         host.borrow_mut().read_keeps_xrec = false;
         r?;
+        let later = match (later, kept) {
+            // The typed row of a tree part is saved after the host read, before the part reads its rows (`part_tree_typed.rs`).
+            (Some(_), Some(before)) => Some(self.save_typed_tree_row(st, before)?),
+            (None, Some(_)) => {
+                return unsupported(
+                    "a tree part on its first row whose code ran CurrPage.Update after a typed value (not pinned)",
+                );
+            }
+            (later, None) => later,
+        };
         if let Some((rows, at)) = later {
             self.read_part_rows_around(st, &rows, at)?;
         }
@@ -2139,7 +2156,8 @@ impl Session {
             let h = host.borrow();
             h.open && h.host.is_none() && h.draft && !h.draft_stored && h.cursor != Cursor::None
         };
-        if !new_host || !self.has_source(host) {
+        // After a swallowed insert nothing tries again (`part_insert_swallowed.rs`; PartLineBeforeHostKey.al R7031_* `editable_log = []`).
+        if !new_host || !self.has_source(host) || host.borrow().part_insert_swallowed {
             return Ok(false);
         }
         let shows_rows = host.borrow().new_host_part_rows;
@@ -2177,10 +2195,20 @@ impl Session {
             return Ok(false);
         }
         let used = self.ret_used;
+        let writes = self.write_mark();
+        let fields = self.page_rec(host).borrow().fields.clone();
         host.borrow_mut().dirty = true;
         let r = self.save_row(host);
         self.ret_used = used;
-        r?;
+        match r {
+            // A failed insert that Visible() or Editable() tried is swallowed (`part_insert_swallowed.rs`; PartLineBeforeHostKey.al
+            // R7031_*).
+            Err(Signal::Error(e)) if matches!(m, PageMethod::Visible | PageMethod::Editable) => {
+                self.swallow_part_prop_insert(host, m, &e, writes, &fields)?;
+                return Ok(true);
+            }
+            r => r?,
+        }
         host.borrow_mut().new_host_part_rows = false;
         // Pages/lt-y80-new-host-key/Y80NewHostKey.al Y80_NH_{Card,Doc}_*: `read log at open` = `HI:|;LN:;LN:;LN:`.
         let stored = !host.borrow().draft;

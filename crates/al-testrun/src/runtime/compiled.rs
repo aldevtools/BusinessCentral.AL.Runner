@@ -16,9 +16,50 @@ pub enum OnRunRows {
     TestRunner,
 }
 
+/// Which test runner runs the test codeunits (ADR-066 decision 5, `al-runner test --test-runner`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TestRunner {
+    /// Al-runner's own runner, which replays the Test Runner app's steps (`runner_reset.rs`). The corpus harness's
+    /// runner (ADR-066 decision 6) and `--test-runner builtin`.
+    #[default]
+    Builtin,
+    /// Microsoft's runner codeunit for the isolation: 130450 "Test Runner - Isol. Codeunit" under Codeunit isolation,
+    /// 130451 "Test Runner - Isol. Disabled" under Disabled, run as BcContainerHelper runs it; al-runner's own runner
+    /// under Function isolation, on the TestRunnerHub, and when the Test Runner app is not loaded. `al-runner`'s default.
+    Microsoft,
+    /// A runner codeunit of the compiled apps, by id, that reads its tests from "Test Method Line" rows.
+    Codeunit(u32),
+}
+
+impl TestRunner {
+    /// The runner codeunit's id of `--test-runner ID`.
+    pub fn codeunit(self) -> Option<u32> {
+        match self {
+            TestRunner::Codeunit(id) => Some(id),
+            _ => None,
+        }
+    }
+
+    /// The dependency runner codeunits whose triggers the compile must lower (`al_sema::check::Roots::test_runners`).
+    pub fn root_ids(self) -> Vec<u32> {
+        match self {
+            TestRunner::Builtin => Vec::new(),
+            TestRunner::Microsoft => vec![MICROSOFT_ISOL_CODEUNIT, MICROSOFT_ISOL_DISABLED],
+            TestRunner::Codeunit(id) => vec![id],
+        }
+    }
+}
+
+/// Codeunit 130450 "Test Runner - Isol. Codeunit" of Microsoft's Test Runner app.
+pub const MICROSOFT_ISOL_CODEUNIT: u32 = 130_450;
+/// Codeunit 130451 "Test Runner - Isol. Disabled".
+pub const MICROSOFT_ISOL_DISABLED: u32 = 130_451;
+
 /// What a run is asked to do beyond running everything.
 #[derive(Debug, Clone, Default)]
 pub struct RunOptions {
+    /// The test runner (ADR-066). Default: al-runner's own.
+    pub test_runner: TestRunner,
     /// Only these test codeunits (app index of the compile, object id) are roots of the compile
     /// and are run. `None`: all of them.
     pub only: Option<Vec<(usize, u32)>>,
@@ -134,12 +175,25 @@ pub struct RunOptions {
     /// "Unhandled UI". Each such test hits the assumption `dev-endpoint-ui` (a flagged pass), and its answered calls are in
     /// `TestResult::ui_answered`. Default `false`: the TestRunner codeunit mode, as the corpus runs.
     pub dev_endpoint_ui: bool,
+    /// `al-runner test --allow-write-in-try-functions` (al-runner issue 7143): the service-tier setting
+    /// DisableWriteInsideTryFunctions is off, as on Business Central online (`al_vm::Engine::write_in_try_allowed`). Default
+    /// `false`: the setting's default, as the corpus CI runs.
+    pub allow_write_in_try_functions: bool,
+    /// `al-runner test --dependencies-published-global`: "Published As" of "NAV App Installed App" is Global for a dependency
+    /// app by another publisher than Microsoft (`al_vm::Engine::dependencies_published_global`). Default `false`: Dev.
+    pub dependencies_published_global: bool,
     /// A variant of a stability run (ADR-058): what the runner changes in its steps around each test and in the
     /// session's host values. The default is a normal run.
     pub perturb: crate::stability::Perturb,
     /// The run seed (ADR-061): each test method's `Random` seed and Guid key derive from it. The default is
     /// `al-test-cli`'s fixed seed 1.
     pub run_seed: crate::seed::RunSeed,
+    /// `al-runner test --strict-order` (ADR-066 amendments 4 and 5): every test codeunit that depends on SingleInstance
+    /// state an earlier one left runs again serially in BC's order, with the codeunits it depends on, and reports that
+    /// run. Default `false`: such a codeunit keeps its parallel run (flagged) and runs again serially only when a test of
+    /// it failed or was refused while it ran there. Either way each re-run is a serial session of its own (its chain),
+    /// and the sessions run in parallel.
+    pub strict_order: bool,
 }
 
 /// One entry of a run (`RunOptions::entries`).

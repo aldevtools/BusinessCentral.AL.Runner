@@ -12,6 +12,8 @@ mod baseline_cache;
 mod baseline_rule_carry;
 mod baseline_skip;
 mod capture;
+mod chain_ahead;
+mod chain_speculate;
 mod code_coverage_refresh;
 mod compile_cache;
 mod datatransfer_clear;
@@ -33,6 +35,8 @@ mod install_db_event_order;
 mod install_hold_back;
 mod install_load_package_data;
 mod install_own_table_guard;
+mod install_own_table_rows;
+mod install_stopped_rows;
 mod install_trigger_setup_order;
 mod lean_selection;
 mod login_work_date_lean;
@@ -45,6 +49,7 @@ mod permission_abp;
 mod permission_abp_shapes;
 mod permission_execute;
 mod permission_execute_triggers;
+mod permission_license;
 mod permission_open_page_named_grant;
 mod permission_read_write;
 mod permission_report_after_denial;
@@ -73,6 +78,7 @@ mod run_request_page_static_view;
 mod runner_isolation;
 mod runner_permission_sets;
 mod runner_reset;
+mod single_instance_lane;
 mod single_instance_test_codeunit;
 mod start_session_record;
 mod testfilter_qualified_field;
@@ -138,3 +144,4 @@ fn no_module_of_the_suite_changes_a_setting_of_the_process() {
         "move these tests to a binary of their own (tests/<name>.rs): {found:?}"
     );
 }
+mod enum_caption_ml_readers;

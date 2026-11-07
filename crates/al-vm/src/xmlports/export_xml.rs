@@ -28,21 +28,22 @@ impl Session {
         // A table element record after an export under SourceTableView: what corpus writer TS pinned of it runs, the rest
         // refuses (records.rs `XP_VIEW_AFTER_EXPORT`, former assumption `xmlport-export-again` (pinned on corpus master since bump 1030)).
         for (i, n) in schema.xp().nodes.iter().enumerate() {
+            // Without a SourceTableView the link filter of a linked MaxOccurs = Once element with LinkFields does not show either
+            // (corpus xmlports/shapes-properties/XpNestedLinkedOnce.al XOM_TempOnce_*,
+            // XOM_RealOnce_* `held ...|filters=`; with a temporary child it counts, XOM_TempOnce_OneParent_TwoChildren `count=2`).
+            let linked_once = n.max_unbounded == Some(false) && n.link_node.is_some() && !n.link_fields.is_empty();
+            if n.source_view.is_none() && linked_once {
+                if let Ok(rec) = self.xp_record(inst, schema.node(i)) {
+                    self.xp_hide_link_filter(&rec, n);
+                }
+            }
             if n.source_view.is_some() {
                 if let Ok(rec) = self.xp_record(inst, schema.node(i)) {
                     // The link filter of a linked element with LinkFields does not show afterwards: GetFilters reads '' (corpus
                     // PR 896, streams/Np4XmlPort.al Y9_XmlPort_LinkedOnceOnce_* `held ...|filters=`). It is kept
                     // with the view's own filters, which count but do not show.
                     if !n.link_fields.is_empty() {
-                        for f in rec.borrow_mut().filters.iter_mut() {
-                            if f.group == 0 && n.link_fields.iter().any(|(own, _)| *own == f.field) {
-                                f.group = XP_VIEW_GROUP;
-                            }
-                        }
-                        let addr = Rc::as_ptr(&rec) as usize;
-                        if !self.xp_link_hidden.contains(&addr) {
-                            self.xp_link_hidden.push(addr);
-                        }
+                        self.xp_hide_link_filter(&rec, n);
                     }
                     if rec.borrow().unpinned_buffer != Some(crate::records::XP_ROW_AFTER_ONCE) {
                         rec.borrow_mut().unpinned_buffer = Some(crate::records::XP_VIEW_AFTER_EXPORT);
@@ -51,6 +52,27 @@ impl Session {
             }
         }
         result
+    }
+
+    /// Moves the link filter of linked table element `n` out of sight: it still counts, GetFilters no longer reads it.
+    fn xp_hide_link_filter(&mut self, rec: &Rec, n: &ir::XmlNode) {
+        for f in rec.borrow_mut().filters.iter_mut() {
+            if f.group == 0 && n.link_fields.iter().any(|(own, _)| *own == f.field) {
+                f.group = XP_VIEW_GROUP;
+            }
+        }
+        let addr = Rc::as_ptr(rec) as usize;
+        if !self.xp_link_hidden.contains(&addr) {
+            self.xp_link_hidden.push(addr);
+        }
+    }
+
+    /// The namespace declarations of an exported root (`declare_namespaces`, or `declare_udn_namespaces` for its shape).
+    fn xp_declare(root: &mut Elem, xp: &ir::XmlPort) {
+        match (xp.udn_root_prefix, xp.default_ns.as_deref()) {
+            (true, Some(port_ns)) => declare_udn_namespaces(root, &xp.namespaces, port_ns),
+            _ => declare_namespaces(root, &xp.namespaces, xp.default_ns.as_deref()),
+        }
     }
 
     /// The export that ends in OnPreXmlPort: the XML declaration alone (54 bytes, UTF-8), result true.
@@ -108,7 +130,10 @@ impl Session {
         // shape (xmlports/shapes-properties/Y17XmlPortNamespaces.al, an Integer root with MaxOccurs = Once, an OnAfterGetRecord,
         // text and table elements below; Y17XmlPortNamespacesTests.al:60-93). Without namespaces it is not pinned.
         let declares = !xp.namespaces.is_empty() || xp.default_ns.is_some();
-        let table_root = root_table_element(schema, top) || (declares && table_root_with_content(schema, top));
+        // Without namespaces, a table element root whose text elements below it hold content (`plain_tree_root`, plain_tree.rs).
+        let table_root = root_table_element(schema, top)
+            || (declares && table_root_with_content(schema, top))
+            || plain_tree_root(schema, top);
         if !table_top && !table_root && (xp.nodes[top].kind != ir::XmlNodeKind::Text || schema.children(top).is_empty())
         {
             return unsupported("XmlPort export whose root is not a text element with content (not pinned)");
@@ -157,7 +182,7 @@ impl Session {
                                 "XmlPort export of a text value with a line end under a table element root with namespaces (not pinned)",
                             );
                         }
-                        declare_namespaces(root, &xp.namespaces, xp.default_ns.as_deref());
+                        Self::xp_declare(root, xp);
                     }
                 }
                 let encoding = if xp.xml_utf8 { "UTF-8" } else { "UTF-16" };
@@ -179,11 +204,11 @@ impl Session {
                 self.xp_export_root_trigger(inst, schema, top)?;
             }
             match self.xp_export_container(inst, schema, top).map(|mut root| {
-                declare_namespaces(&mut root, &xp.namespaces, xp.default_ns.as_deref());
+                Self::xp_declare(&mut root, xp);
                 root
             }) {
                 // A line end in a text value (LF, CR LF, a lone CR) is written as CR LF: pinned on an UTF8 export, with and without
-                // PreserveWhiteSpace and a default namespace (streams/Np4XmlPort.al:280, :300, :320, corpus PR 871;
+                // PreserveWhiteSpace and a default namespace (streams/Np4XmlPort.al:264, :300, :320, corpus PR 871;
                 // Y9_XmlPort_Export_LineFeed_Plain, corpus PR 896), and on an UTF16 export without either (FF FE, 302 bytes:
                 // Y9_XmlPort_Export_LineFeed_Utf16_RawStream, _Utf16Stream). UTF16 with PreserveWhiteSpace or a namespace is not.
                 Ok(root)
@@ -523,6 +548,13 @@ impl Session {
                     }
                     out.children.push(Node::Elem(e));
                 }
+                // A `plain_valued_leaf` (plain_tree.rs): its OnBeforePassVariable sets the text, written once where the schema has it
+                // (XpTableRootNestedText.al XNT_NsTblText_Export, XNT_TblText_Export, XNT_TextTbl_Export, XNT_PlainLeaf_Export).
+                // Skip, Break and Quit in that trigger are not pinned there.
+                ir::XmlNodeKind::Text if plain_valued_leaf(schema, child) => {
+                    let e = self.xp_export_valued_leaf(inst, schema, child)?;
+                    out.children.push(Node::Elem(e));
+                }
                 ir::XmlNodeKind::Text if schema.children(child).is_empty() => {
                     let v = got!(self.xp_pass_variable(inst, schema, child));
                     // currXMLport.Skip() in its OnBeforePassVariable leaves the element out (xmlports/shapes-properties/
@@ -685,13 +717,39 @@ impl Session {
                         return Ok(());
                     }
                 }
+                // `leaf_triggered_tree` (container_tree.rs): written as any container, its leaves' OnBeforePassVariable in schema
+                // order, Skip there leaves out that leaf (xmlports/shapes-properties/R6924eTreeInTable.al:287-288 all filled,
+                // :296-297 leaves skipped, :305-306 an inner leaf empty). Its own text stays refused (measured at :314, not built).
+                ir::XmlNodeKind::Text if leaf_triggered_tree(schema, child, node) => {
+                    if !got!(self.xp_pass_variable(inst, schema, child)).is_empty() {
+                        return unsupported(
+                            "XmlPort export of a container text element below a table element with its own text (not pinned)",
+                        );
+                    }
+                    let e = self.xp_export_container(inst, schema, child)?;
+                    if matches!(Self::xp_flow(inst), Some(Flow::Break | Flow::Unbound)) {
+                        return unsupported(
+                            "Break in OnBeforePassVariable of a leaf inside a container text element below a table element (not pinned)",
+                        );
+                    }
+                    out.children.push(Node::Elem(e));
+                    if Self::xp_quit(inst) {
+                        return Ok(());
+                    }
+                }
+                // A `plain_text_tree` (plain_tree.rs) is written as any container, below.
                 ir::XmlNodeKind::Text
                     if schema.node(node).kind == ir::XmlNodeKind::Table
+                        && !plain_text_tree(schema, child)
                         && !linked_container(schema, child, node)
                         && !attr_container(schema, child)
                         && !plain_container(schema, child) =>
                 {
-                    return unsupported("XmlPort export of a text element with content inside a table element");
+                    return unsupported(format!(
+                        "XmlPort export of a text element with content inside a table element: {} in {}",
+                        schema.node(child).name,
+                        schema.node(node).name
+                    ));
                 }
                 ir::XmlNodeKind::Text => {
                     let e = self.xp_export_container(inst, schema, child)?;
@@ -893,6 +951,39 @@ fn table_root_with_content(schema: &Schema, top: usize) -> bool {
 /// DgXmlPortLeads.al:290; after the root's attributes: xmlports/shapes-properties/SgXmlPortOccurs.al TF_NsAttr_Export
 /// `<Root Ver="v1" xmlns="...">`), else the uri of the empty prefix `""`, whether `""` is listed first or last
 /// (xmlports/shapes-properties/Y17XmlPortNamespacesTests.al:60, :71); a used default namespace replaces that uri (:82).
+/// The namespaces of root `root` of a port with Namespaces and UseDefaultNamespace (`ir::XmlPort::udn_root_prefix`; `port_ns` is
+/// the DefaultNamespace, else BC's namespace of the port: corpus PR 1158, XpUseDefaultNsWithDefault.al
+/// XDN_TextLeaf_Export, _Item_Export, _RootPlain_Export, _RootSecond_Export, _TableRoot_Export, _ItemUtf16_Export): the root loses its prefix and its uri becomes the default namespace (the port's for a
+/// root without a prefix), declared after the named ones; an element without a prefix declares `port_ns` where the default namespace
+/// in scope differs, its children inherit it; a prefixed element keeps its prefix and the scope (corpus
+/// xmlports/shapes-properties/XpUseDefaultNsPrefixes.al XUD_TableRoot_Export, _TextRoot_Export,
+/// _RootSecond_Export, _RootPlain_Export, _TextRootUtf16_Export, _RootOnly_Export, _ItemPrefix_Export).
+pub(super) fn declare_udn_namespaces(root: &mut Elem, namespaces: &[(String, String)], port_ns: &str) {
+    let default = match root.name.split_once(':') {
+        Some((prefix, local)) => {
+            let uri = namespaces.iter().find(|(p, _)| p == prefix).map(|(_, u)| u.clone());
+            let local = local.to_string();
+            root.name = local;
+            uri.unwrap_or_else(|| port_ns.to_string())
+        }
+        None => port_ns.to_string(),
+    };
+    fn walk(e: &mut Elem, scope: &str, port_ns: &str) {
+        for c in e.children.iter_mut() {
+            if let al_builtins::xmlport::Node::Elem(c) = c {
+                let mut inner = scope;
+                if !c.name.contains(':') && scope != port_ns {
+                    c.attrs.push(("xmlns".into(), port_ns.to_string()));
+                    inner = port_ns;
+                }
+                walk(c, inner, port_ns);
+            }
+        }
+    }
+    walk(root, &default, port_ns);
+    declare_namespaces(root, namespaces, Some(&default));
+}
+
 pub(super) fn declare_namespaces(root: &mut Elem, namespaces: &[(String, String)], default_ns: Option<&str>) {
     for (at, (prefix, uri)) in namespaces.iter().filter(|(p, _)| !p.is_empty()).enumerate() {
         root.attrs.insert(at, (format!("xmlns:{prefix}"), uri.clone()));

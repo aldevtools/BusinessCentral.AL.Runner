@@ -114,6 +114,51 @@ fn is_manual(o: &ir::ObjectHead) -> bool {
     ir::ObjectFacts::of_properties(&o.properties).manual_subscriber
 }
 
+impl Registry {
+    /// A subscriber of `UI Helper Triggers`: `CaptionClassTranslate` is raised by the runtime (`UI_HELPER_TRIGGERS`), every
+    /// event of the codeunit is also listed as one the runtime does not raise everywhere (`Registry::unraised_subscriber`).
+    fn add_ui_helper_subscriber(
+        &mut self,
+        heads: &[ir::ObjectHead],
+        oi: usize,
+        o: &ir::ObjectHead,
+        r: &ir::EventRoutine,
+        target: &str,
+        event: &str,
+    ) {
+        let mut witnesses = vec![oi];
+        for &c in &r.codeunit_slots {
+            let c = c as usize;
+            if heads.get(c).is_some_and(|x| {
+                x.properties
+                    .iter()
+                    .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"))
+            }) && !witnesses.contains(&c)
+            {
+                witnesses.push(c);
+            }
+        }
+        if event == "captionclasstranslate" {
+            self.subscribers
+                .entry((UI_HELPER_TRIGGERS, event.to_string()))
+                .or_default()
+                .push(Subscriber {
+                    object: oi,
+                    routine: r.routine as usize,
+                    manual: is_manual(o),
+                    element: String::new(),
+                });
+        }
+        self.unraised
+            .entry((target.to_ascii_lowercase(), event.to_string()))
+            .or_default()
+            .push(Unraised {
+                subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
+                witnesses,
+            });
+    }
+}
+
 /// A subscriber of `Global Triggers` in a dependency app that cannot run.
 #[derive(Debug, Clone, Default)]
 pub struct UnavailableGlobal {
@@ -151,6 +196,11 @@ pub const FILTER_HELPER_TRIGGERS: usize = usize::MAX - 3;
 /// before the install routines run there (record/BfInstallTests.al:125-140, `company open calls`;
 /// ADR-046 amendment 1, A4 item 4; `al-testrun` `install.rs`).
 pub const COMPANY_TRIGGERS: usize = usize::MAX - 4;
+
+/// The object key under which subscribers to `CaptionClassTranslate` of the platform codeunit `UI Helper Triggers` are
+/// registered: the `CaptionClassTranslate` statement raises it (events/platform-triggers/P114GlobalTriggerEvents.al:309-330,
+/// `pages/ui_caption_translate.rs`). The other events of that codeunit stay in `Registry::unraised`.
+pub const UI_HELPER_TRIGGERS: usize = usize::MAX - 5;
 
 /// `out[i][j]`: app `i` depends on app `j`, directly or through other apps of `apps` (dependencies named by app id).
 fn app_dependencies(apps: &[ir::AppInfo]) -> Vec<Vec<bool>> {
@@ -292,7 +342,7 @@ impl Registry {
                             // whether or not the codeunit is compiled.
                             if kind == ObjKind::Codeunit
                                 && (target.eq_ignore_ascii_case("Caption Class") || target == "42")
-                                && event == "onresolvecaptionclass"
+                                && al_ir::is_raised_caption_class_event(&event)
                             {
                                 reg.subscribers
                                     .entry((CAPTION_CLASS, event.clone()))
@@ -325,28 +375,7 @@ impl Registry {
                                     });
                             }
                             if kind == ObjKind::Codeunit && target.eq_ignore_ascii_case("UI Helper Triggers") {
-                                let mut witnesses = vec![oi];
-                                for &c in &r.codeunit_slots {
-                                    {
-                                        let c = c as usize;
-                                        if heads.get(c).is_some_and(|x| {
-                                            x.properties.iter().any(|(k, v)| {
-                                                k.eq_ignore_ascii_case("SingleInstance")
-                                                    && v.trim().eq_ignore_ascii_case("true")
-                                            })
-                                        }) && !witnesses.contains(&c)
-                                        {
-                                            witnesses.push(c);
-                                        }
-                                    }
-                                }
-                                reg.unraised
-                                    .entry((target.to_ascii_lowercase(), event.clone()))
-                                    .or_default()
-                                    .push(Unraised {
-                                        subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
-                                        witnesses,
-                                    });
+                                reg.add_ui_helper_subscriber(heads, oi, o, r, &target, &event);
                             }
                             if kind == ObjKind::Codeunit
                                 && target.eq_ignore_ascii_case("Reporting Triggers")
@@ -510,6 +539,12 @@ impl Registry {
             .collect();
         found.sort();
         found.into_iter().next()
+    }
+
+    /// Whether any subscriber (compiled or not) listens to an event of object `object`.
+    pub fn any_subscriber_of(&self, object: usize) -> bool {
+        self.subscribers.iter().any(|((o, _), v)| *o == object && !v.is_empty())
+            || self.missing.keys().any(|(o, _)| *o == object)
     }
 
     pub fn is_subscribed(&self, object: usize, event: &str) -> bool {

@@ -291,6 +291,7 @@ pub(crate) fn lower_object<'a>(
                 properties: with_profile_target(ws, oi, o.scanned_properties.clone()),
                 enum_values: Vec::new(),
                 enum_captions: Vec::new(),
+                enum_captions_ml: Vec::new(),
                 table: None,
                 rec_slot: None,
                 xrec_slot: None,
@@ -707,51 +708,14 @@ pub(crate) fn lower_object<'a>(
     // report's own `Caption` wins over the request page's
     // (corpus reports/TestReportRequestPageCaption.al).
     let mut properties = with_profile_target(ws, oi, object_properties(&obj, request_section.as_ref()));
-    // A tableextension's Caption is the caption of a table that declares none (table-objects/extensions/TestTableExtFieldModify.al:
-    // 168-178: TableCaption, RecordRef.Caption and AllObjWithCaption of the table). With a Caption on the table too, or on
-    // two extensions, which one wins is not pinned: the reads of the caption refuse (`CAPTION_REFUSED`). One extension's Caption
-    // over the table's own is the caption the runtime reads (`EXT_CAPTION_OVER_OWN`; corpus writer Y5, branch
-    // al-runtime-rs-staging-y5, recordref-fieldref/Y5TestFieldExtCaption.al); AllObjWithCaption of it stays refused.
-    if o.kind == ObjKind::Table {
-        let ext_captions: Vec<(String, String)> = extensions
-            .get(&oi)
-            .into_iter()
-            .flatten()
-            .flat_map(|&e| {
-                ws.object_ast(e)
-                    .properties()
-                    .filter(|p| p.name().eq_ignore_ascii_case("Caption") || p.name().eq_ignore_ascii_case("CaptionML"))
-                    .map(move |p| (p.name(), p.value_text()))
-                    .collect::<Vec<_>>()
-            })
-            .collect();
-        let own = properties
-            .iter()
-            .any(|(k, _)| k.eq_ignore_ascii_case("Caption") || k.eq_ignore_ascii_case("CaptionML"));
-        match ext_captions.as_slice() {
-            [] => {}
-            [(k, v)] if !own && k.eq_ignore_ascii_case("Caption") => properties.push((k.clone(), v.clone())),
-            _ => {
-                if let [(k, v)] = ext_captions.as_slice() {
-                    if k.eq_ignore_ascii_case("Caption") {
-                        properties.push((ir::EXT_CAPTION_OVER_OWN.into(), v.clone()));
-                    }
-                }
-                properties.push((
-                ir::CAPTION_REFUSED.into(),
-                format!(
-                    "the caption of table {}, which a tableextension sets {} (which caption BC shows is not pinned)",
-                    o.name,
-                    if own {
-                        "over its own"
-                    } else {
-                        "with CaptionML or more than once"
-                    }
-                ),
-            ))
-            }
-        }
-    }
+    let handler_props = super::test_handlers::properties(ws, members, oi, &properties);
+    properties.extend(handler_props);
+    ext_caption_properties(
+        ws,
+        extensions.get(&oi).map(Vec::as_slice).unwrap_or_default(),
+        &o.name,
+        &mut properties,
+    );
     let (table, key_owners) = if o.kind == ObjKind::Table && ws.usable(oi) {
         let (t, owners) = lw.table_schema(oi, &obj, extensions.get(&oi).cloned().unwrap_or_default(), routine_at);
         (Some(t), owners)
@@ -766,16 +730,9 @@ pub(crate) fn lower_object<'a>(
         globals,
         routines,
         properties,
-        enum_values: members[oi]
-            .enum_values
-            .iter()
-            .map(|(v, n)| (*v as i32, n.clone()))
-            .collect(),
-        enum_captions: members[oi]
-            .enum_captions
-            .iter()
-            .map(|(v, c)| (*v as i32, c.clone()))
-            .collect(),
+        enum_values: enum_pairs(&members[oi].enum_values),
+        enum_captions: enum_pairs(&members[oi].enum_captions),
+        enum_captions_ml: enum_pairs(&members[oi].enum_captions_ml),
         // A table whose source cannot be used (a platform table nothing provides, a dependency
         // file that does not parse) has no members, so it has no schema: the Field and Key
         // tables report it as not compiled instead of reading fields it does not have.
@@ -817,6 +774,55 @@ pub(crate) fn lower_object<'a>(
         page_mods: lw.page_mods.take(),
         sym: None,
         key_owners,
+    }
+}
+
+/// A tableextension's Caption is the caption of a table that declares none (table-objects/extensions/TestTableExtFieldModify.al:
+/// 168-178: TableCaption, RecordRef.Caption and AllObjWithCaption of the table). With a Caption on the table too, or on
+/// two extensions, which one wins is not pinned: the reads of the caption refuse (`CAPTION_REFUSED`). One extension's Caption
+/// over the table's own is the caption the runtime reads (`EXT_CAPTION_OVER_OWN`; corpus writer Y5, branch
+/// al-runtime-rs-staging-y5, recordref-fieldref/Y5TestFieldExtCaption.al); AllObjWithCaption of it stays refused.
+fn ext_caption_properties(ws: &Workspace, exts: &[usize], name: &str, properties: &mut Vec<(String, String)>) {
+    if exts.is_empty() {
+        return;
+    }
+    {
+        let ext_captions: Vec<(String, String)> = exts
+            .iter()
+            .flat_map(|&e| {
+                ws.object_ast(e)
+                    .properties()
+                    .filter(|p| p.name().eq_ignore_ascii_case("Caption") || p.name().eq_ignore_ascii_case("CaptionML"))
+                    .map(move |p| (p.name(), p.value_text()))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        let own = properties
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case("Caption") || k.eq_ignore_ascii_case("CaptionML"));
+        match ext_captions.as_slice() {
+            [] => {}
+            [(k, v)] if !own && k.eq_ignore_ascii_case("Caption") => properties.push((k.clone(), v.clone())),
+            _ => {
+                if let [(k, v)] = ext_captions.as_slice() {
+                    if k.eq_ignore_ascii_case("Caption") {
+                        properties.push((ir::EXT_CAPTION_OVER_OWN.into(), v.clone()));
+                    }
+                }
+                properties.push((
+                ir::CAPTION_REFUSED.into(),
+                format!(
+                    "the caption of table {}, which a tableextension sets {} (which caption BC shows is not pinned)",
+                    name,
+                    if own {
+                        "over its own"
+                    } else {
+                        "with CaptionML or more than once"
+                    }
+                ),
+            ))
+            }
+        }
     }
 }
 
@@ -1388,4 +1394,18 @@ pub(crate) fn with_field_guard(
         props.push((FIELD_GUARD.into(), ir::PropVal::Lit(String::new())));
     }
     props
+}
+
+/// An enum's ordinal and text pairs as the IR keeps them.
+pub(crate) fn enum_pairs(list: &[(u32, String)]) -> Vec<(i32, String)> {
+    list.iter().map(|(v, n)| (*v as i32, n.clone())).collect()
+}
+
+/// The own enum values, captions and `CaptionML` lists of an object's members.
+pub(crate) fn enum_own(m: &crate::members::Members) -> super::localize::EnumOwn {
+    (
+        enum_pairs(&m.enum_values),
+        enum_pairs(&m.enum_captions),
+        enum_pairs(&m.enum_captions_ml),
+    )
 }

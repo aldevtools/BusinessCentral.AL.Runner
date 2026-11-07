@@ -195,14 +195,18 @@ impl Session {
             if let Some(c) = has("OptionCaption").filter(|_| {
                 ctl.prop("optioncaption").is_none() && ctl.prop("optioncaptionml").is_none() && self.has_source(st)
             }) {
-                // BC 27 and 28 show the member names on the Linux CI legs only, a Linux suspect (`Gate::OtherRecordOptionCaptionFrom29`).
-                if !self.has(al_version::Gate::OtherRecordOptionCaptionFrom29) {
+                // Before BC 29 such a control shows the member names (`Gate::OtherRecordOptionCaptionFrom29`), confirmed on Windows for
+                // BC 28 only (al-runner issue 7005; pages/controls/OtherRecordOptionMembers.al:146 OtherRecordOption_OneRow_Values `[Short]`);
+                // BC 27 is seen on the Linux CI legs only, a Linux suspect.
+                if !self.other_record_option_shown(st) {
                     return unsupported(format!(
                         "a control bound to Option field {} of another record variable on a BC version before the gate OtherRecordOptionCaptionFrom29 (the member names were seen on Linux only; not pinned)",
                         vf.name
                     ));
                 }
-                var_captions = Some(c);
+                if self.has(al_version::Gate::OtherRecordOptionCaptionFrom29) {
+                    var_captions = Some(c);
+                }
             }
         }
         // The field whose DecimalPlaces and AutoFormat the control takes, and the record its AutoFormatExpression reads.
@@ -811,6 +815,9 @@ impl Session {
         let mut listed = None;
         if let Value::Enum(id, ordinal) = v {
             self.note_enum(*id);
+            if let Some(why) = self.enum_ml_unpinned(*id, Some(*ordinal), "the Value of an enum control") {
+                return unsupported(why);
+            }
             if let Some((list, from_control)) = self.enum_option_list(st, idx, *id)? {
                 listed = Some(self.enum_list_text(*id, *ordinal, &list, from_control)?);
             }
@@ -973,23 +980,14 @@ impl Session {
     pub(super) fn control_caption(&mut self, st: &St, idx: usize) -> Result<String, Signal> {
         let engine = self.engine();
         let ctl = &page_of(&engine, st).controls[idx];
-        // A caption a translation file of the page's app, or of the source field's, could change in the language in force
-        // (ADR-053 step 1).
-        let page = st.borrow().object as usize;
-        let what = || {
-            format!(
-                "the caption of control {} of page {}",
-                ctl.name, engine.program.objects[page].name
-            )
-        };
-        if let Some(why) = self.translated_read_refusal(page, what).or_else(|| {
-            if al_builtins::format::FormatCtx::language(self) == 1033 {
-                return None;
+        match self.control_caption_translation(st, idx)? {
+            super::caption_translation::ControlCaption::Text(t) => return Ok(t),
+            super::caption_translation::ControlCaption::Source => {}
+            super::caption_translation::ControlCaption::Legacy => {
+                if let Some(why) = self.control_caption_refusal(st, idx) {
+                    return unsupported(why);
+                }
             }
-            let table = self.control_field(st, idx)?.declared_in?;
-            self.translated_read_refusal(table as usize, what)
-        }) {
-            return unsupported(why);
         }
         // CaptionClass `3,<text>` is a caption the platform resolves to <text>
         // (corpus format-evaluate/autoformat/TestAutoFormatExpressionTiming.al, WorkingCaptionClass_OpensAndReadsItsCaption).
@@ -1025,6 +1023,27 @@ impl Session {
             return self.caption_class_text_for(st, idx, &c);
         }
         self.control_caption_plain(st, idx)
+    }
+
+    /// A caption a translation file of the page's app, or of the source field's, could change in the language in force
+    /// (ADR-053 step 1).
+    fn control_caption_refusal(&mut self, st: &St, idx: usize) -> Option<String> {
+        let engine = self.engine();
+        let ctl = &page_of(&engine, st).controls[idx];
+        let page = st.borrow().object as usize;
+        let what = || {
+            format!(
+                "the caption of control {} of page {}",
+                ctl.name, engine.program.objects[page].name
+            )
+        };
+        self.translated_read_refusal(page, what).or_else(|| {
+            if al_builtins::format::FormatCtx::language(self) == 1033 {
+                return None;
+            }
+            let table = self.control_field(st, idx)?.declared_in?;
+            self.translated_read_refusal(table as usize, what)
+        })
     }
 
     /// The control's caption with no CaptionClass of its own: its `Caption`, else the source field's `CaptionClass` or
@@ -1215,8 +1234,20 @@ impl Session {
                 return unsupported("the caption of a page with DataCaptionExpression on a new row (not pinned)");
             }
             if s.cursor == Cursor::None {
+                // On no row the caption stands alone, the expression having run or not (pages/properties/DataCaptionExprOrder.al
+                // DCE_RunModal_TableProcedure_Empty `H open cap=LT DCE ctl=`, DCE_TestPage_OpenView_Empty).
+                if self.card_with_data_caption_expression(st) {
+                    return Ok(base);
+                }
                 return unsupported("the caption of a page with DataCaptionExpression and no row (not pinned)");
             }
+        }
+        // A card shows what the expression returned when the row arrived, and does not run it again
+        // (DataCaptionExprOrder.al DCE_RunModal_TableProcedure_Rows: no `DC` between `OnAfterGetCurrRecord` and `H open`). The
+        // caption has its trailing blanks cut (DCE_RunModal_NoFilter_Rows `cap=LT DCE - Cap ctl=`).
+        let kept = st.borrow().data_caption_value.clone();
+        if let Some(value) = kept {
+            return Ok(format!("{base} - {value}").trim_end().to_string());
         }
         let value = self.data_caption_expression_value(st)?;
         if value.is_empty() {

@@ -266,7 +266,8 @@ impl Walk<'_> {
                 }
                 self.place(inner, at, inst)
             }
-            Place::Field(inner, _) => self.place(inner, at, inst),
+            // A variable of a record's table or table extension instance lives as long as the record variable.
+            Place::Field(inner, _) | Place::RecGlobal(inner, ..) => self.place(inner, at, inst),
         }
     }
 
@@ -281,7 +282,7 @@ impl Walk<'_> {
                 Place::Local(_) => return Inst::Transient,
                 Place::Global(_) => return inst,
                 Place::BaseGlobal(_) | Place::ExtGlobal(..) => return Inst::Lasting,
-                Place::Index(inner, _) | Place::Field(inner, _) => p = inner,
+                Place::Index(inner, _) | Place::Field(inner, _) | Place::RecGlobal(inner, ..) => p = inner,
             }
         }
     }
@@ -451,7 +452,7 @@ impl Walk<'_> {
                 args,
                 ret_used: _,
             } => {
-                if !plain_builtin(*id) {
+                if !plain_builtin(*id) && !self.on_confined_collection(*id, receiver.as_deref(), at) {
                     return Err(format!("calls {}", id.name().split('#').next().unwrap_or(id.name())));
                 }
                 if let Some(r) = receiver {
@@ -467,4 +468,88 @@ impl Walk<'_> {
             }
         }
     }
+}
+
+/// The local slot `arg` names, when it is a plain local (a receiver written as a place or as a load).
+fn local_slot(arg: &Arg) -> Option<usize> {
+    match arg {
+        Arg::Ref(Place::Local(n)) | Arg::Value(Expr::Load(Place::Local(n))) => Some(*n),
+        _ => None,
+    }
+}
+
+impl Walk<'_> {
+    /// A method of List or Dictionary called on a collection the routine `at` made itself and never shares: what it writes dies
+    /// with the call (al-runner issue 6987: a CaptionClass expression that fills a local `List of [Text]` and hands it by `var`
+    /// to an integration event no subscriber listens to). A List and a Dictionary are references, so a collection the routine
+    /// takes from outside may be another variable's: see [`Walk::confined_local`].
+    fn on_confined_collection(
+        &self,
+        id: al_builtins::builtin_id::BuiltinId,
+        receiver: Option<&Arg>,
+        at: (usize, usize),
+    ) -> bool {
+        let class = id.name().split_once('.').map_or("", |(c, _)| c);
+        matches!(class, "List" | "Dictionary")
+            && receiver
+                .and_then(local_slot)
+                .is_some_and(|slot| self.confined_local(at, slot))
+    }
+
+    /// Whether local `slot` of routine `at` only ever holds the collection the routine itself made: it is not a parameter, it is
+    /// never assigned (nor a loop variable), and it is handed by `var` only as the receiver of a List or Dictionary method or to an
+    /// event publisher no subscriber listens to (whose body is empty, so nothing can put another collection into it).
+    fn confined_local(&self, at: (usize, usize), slot: usize) -> bool {
+        let Some(r) = self.engine.program.objects.get(at.0).and_then(|o| o.routines.get(at.1)) else {
+            return false;
+        };
+        if slot < r.params {
+            return false;
+        }
+        let is_slot = |p: &Place| matches!(p, Place::Local(n) if *n == slot);
+        if !stmts_keep_local(r.body.stmts(), &is_slot) {
+            return false;
+        }
+        let silent_publisher = |object: usize, routine: usize| {
+            self.engine.events.publishers.get(&(object, routine)).is_some_and(|p| {
+                self.engine
+                    .events
+                    .subscribers
+                    .get(&(p.object, p.event.clone()))
+                    .is_none_or(|subs| subs.is_empty())
+            })
+        };
+        let by_var = |args: &[Arg]| args.iter().any(|a| matches!(a, Arg::Ref(p) if is_slot(p)));
+        let mut confined = true;
+        al_ir::types::for_each_expr_post(r.body.stmts(), &mut |e| match e {
+            Expr::Call {
+                object, routine, args, ..
+            } if by_var(args) && !silent_publisher(*object, *routine) => {
+                confined = false;
+            }
+            Expr::Builtin { args, .. } | Expr::InterfaceCall { args, .. } | Expr::DotNet { args, .. }
+                if by_var(args) =>
+            {
+                confined = false;
+            }
+            _ => {}
+        });
+        confined
+    }
+}
+
+/// No statement of `body` assigns the local `is_slot` names or loops over it.
+fn stmts_keep_local(body: &[Stmt], is_slot: &dyn Fn(&Place) -> bool) -> bool {
+    body.iter().all(|s| match s {
+        Stmt::Assign(p, _) => !is_slot(p),
+        Stmt::For { var, body, .. } | Stmt::Foreach { var, body, .. } => {
+            !is_slot(var) && stmts_keep_local(body, is_slot)
+        }
+        Stmt::If(_, a, b) => stmts_keep_local(a, is_slot) && stmts_keep_local(b, is_slot),
+        Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::AssertError(b) => stmts_keep_local(b, is_slot),
+        Stmt::Case {
+            branches, otherwise, ..
+        } => branches.iter().all(|(_, b)| stmts_keep_local(b, is_slot)) && stmts_keep_local(otherwise, is_slot),
+        _ => true,
+    })
 }

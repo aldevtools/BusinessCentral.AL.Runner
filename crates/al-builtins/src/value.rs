@@ -201,6 +201,10 @@ pub enum SqlForm {
     Delta,
     /// A difference known to be at least the number, its exact size not pinned.
     AtLeast,
+    /// The difference of two reads of one counter of different epochs: work whose change no test pins ran between them, so
+    /// neither its size nor its sign is known. It may be stored, passed on, formatted and logged; every use that reads it
+    /// is refused (`al_builtins::sqlcount`).
+    Unknown,
 }
 
 /// Which counter.
@@ -489,6 +493,18 @@ pub struct PageState {
     /// The page's source is temporary and its OnOpenPage left Rec as it stood before (key, order, filters and row): the row
     /// was set before the open, for example by a procedure of the page variable (see `rec_moved_by_onopenpage`).
     pub onopenpage_kept_rec: bool,
+    /// A record was handed to the page (Page.Run(Id, Rec)) and its OnOpenPage left Rec on a primary key other than the handed one
+    /// (`handed_moved.rs`).
+    pub handed_rec_moved_by_onopenpage: bool,
+    /// The value the page's DataCaptionExpression returned at its last evaluation, which happens when a row arrives
+    /// (`data_caption_run.rs`); a TestPage's Caption() shows it without evaluating the expression again.
+    pub data_caption_value: Option<String>,
+    /// The page globals the DataCaptionExpression assigned, by global index: the page's code and controls see them only from
+    /// the next row that arrives (`data_caption_run.rs`).
+    pub data_caption_pending: Vec<(usize, Value)>,
+    /// A row trigger ran since the DataCaptionExpression last did: it runs before the next trigger other than OnAfterGetRecord
+    /// and before the test code touches the page.
+    pub data_caption_due: bool,
     /// A lookup page handed the related row a field holds opens on it as a list opens on a row its OnOpenPage left Rec on
     /// (`lookup_start.rs`).
     pub lookup_held_row: bool,
@@ -650,6 +666,9 @@ pub struct PageState {
     pub marking_action: bool,
     /// The refresh after such an action took the marked rows it read as the rows the client holds.
     pub marked_rows_held: bool,
+    /// An action left the list's view without rows (`empty_view_after_action`): while the page shows no row, its repeater
+    /// controls read blank, page variables too.
+    pub empty_after_action: bool,
     /// While an action runs: the view of the page's record (filters, key and its ad-hoc fields, Ascending) as it was before
     /// the action, so the refresh inside the action can tell the view changed (al-runner issue 6381).
     pub view_before_action: Option<ActionView>,
@@ -696,6 +715,9 @@ pub struct PageState {
     /// The refresh after an action that changed the view of a list with OnFindRecord read more rows than a window holds: a
     /// move is refused (al-runner issue 6469).
     pub action_refresh_unheld: bool,
+    /// The fields the page's server-side Rec still has after the test client moved onto a row it holds without running a read
+    /// trigger (`Session::note_server_row_lag`): a procedure called through a held `Page` variable reads this row.
+    pub server_lag: Option<Vec<Value>>,
     /// The page was run by the static `Page.RunModal` with its return value used (lookup mode set by the call, not by
     /// `LookupMode(true)` on a page variable).
     pub static_lookup: bool,
@@ -734,6 +756,12 @@ pub struct PageState {
     /// A list without the new-row line lost its only row to an action and stands on a blank Rec: a later action runs
     /// OnNewRecord and OnAfterGetCurrRecord again (testpage/RmWorksheetGoneRow.al:336).
     pub gone_blank_no_new_line: bool,
+    /// The built-in View switched this list without a card from edit to view (al-runner issue 6977,
+    /// testpage/R6977ListViewNext.al:138, R6977ListAfterView.al:125): the built-in Edit switches it back.
+    pub list_view_switched: bool,
+    /// The built-in Edit switched such a list back to edit after View (testpage/R6977ListAfterView.al:187). Only Editable,
+    /// the fields, the Edit and View Enabled reads, ValidationErrorCount and Close are pinned in this state.
+    pub list_edit_back: bool,
     /// A list with the new-row line lost its only row to an action and stands on that line: its fields show the blank Rec's
     /// values, an Integer key 0 (testpage/RmWorksheetGoneRow.al:436 `shown after action = 0|`).
     pub gone_blank_shows_line: bool,
@@ -835,6 +863,9 @@ pub struct PageState {
     /// A new host card or document that a first part access stored with its blank key (pages/new-host-key-entry/Y80NewHostKey.al
     /// Y80_NH_*): a key typed afterwards runs its OnValidate, then the page shows and stores the old key again.
     pub host_stored_blank_key: bool,
+    /// A new host whose insert, tried by the first Visible() or Editable() of a part, failed and was swallowed (pages/parts/
+    /// PartLineBeforeHostKey.al R7031_*): only Close and Visible() or Editable() of its parts are pinned afterwards.
+    pub part_insert_swallowed: bool,
     /// A field outside the key was typed on that host row: its parts read their rows again (once is pinned).
     pub blank_key_edit_reread: bool,
     /// `P.Editable(false)` or `P.Editable := false` on a Page variable before it runs: the page
@@ -1019,6 +1050,10 @@ impl PageState {
             gone_row_settled: false,
             part_on_host_row: false,
             onopenpage_kept_rec: false,
+            handed_rec_moved_by_onopenpage: false,
+            data_caption_value: None,
+            data_caption_pending: Vec::new(),
+            data_caption_due: false,
             lookup_held_row: false,
             open_rec_unpinned: None,
             run_page_link_opened: false,
@@ -1083,6 +1118,7 @@ impl PageState {
             marked_only_by_action: false,
             marking_action: false,
             marked_rows_held: false,
+            empty_after_action: false,
             view_before_action: None,
             unmarking_action: false,
             shown_until_next_call: None,
@@ -1098,6 +1134,7 @@ impl PageState {
             action_landed_on_new_row: false,
             validate_refresh_unheld: false,
             action_refresh_unheld: false,
+            server_lag: None,
             static_lookup: false,
             lookup_page_from_table: false,
             triggers_run: 0,
@@ -1111,6 +1148,8 @@ impl PageState {
             empty_part_xrec: None,
             blank_after_empty_last: false,
             gone_blank_no_new_line: false,
+            list_view_switched: false,
+            list_edit_back: false,
             gone_blank_shows_line: false,
             gone_view_list: false,
             gone_temp_list: false,
@@ -1151,6 +1190,7 @@ impl PageState {
             new_host_part_rows: false,
             request_new_blank: false,
             host_stored_blank_key: false,
+            part_insert_swallowed: false,
             blank_key_edit_reread: false,
             editable_preset: None,
             caption: None,
@@ -1599,6 +1639,9 @@ pub struct Buffer {
     /// The row as it was fetched: a field that is not loaded and no longer holds its fetched value was changed by AL code
     /// (an assignment, Validate, TransferFields, ...), and a load of the missing fields keeps it.
     pub fetched: FetchedRow,
+    /// `Init` ran since the fetch: the fields that were not loaded hold their initial values, and neither a read nor a write
+    /// loads them from the row (record/load-fields/R7000InitAfterLoadFields.al, corpus branch al-runtime-rs-staging-r6961).
+    pub init: bool,
 }
 
 /// The fields of a row as it was fetched into a partial buffer (`Buffer::fetched`). Buffers compare equal whatever it holds.
@@ -1971,6 +2014,8 @@ pub struct Instance {
     /// of the test codeunit, the Permissions Mock) is not checked (Y24PermExecute.al: `Mock.ClearAssignments()` and `Observer`
     /// run under an exact set that grants them no Execute).
     pub born: Born,
+    /// The session watches this single instance's globals (al-vm `single_track.rs`).
+    pub single: bool,
 }
 
 thread_local! {
@@ -1992,6 +2037,23 @@ impl Default for Born {
     }
 }
 
+/// What a `TestHandlerContext` handed to an ITestHandler callback holds (corpus al-language-testlibraries/test-framework/
+/// data-driven-tests-and-handlers/BiTestHandler.al:79-82, :125 and BiTestHandlerDefault.al:152-155, :286).
+#[derive(Debug, Default, Clone)]
+pub struct HandlerContext {
+    pub codeunit_id: i32,
+    /// The test codeunit's name, namespace first (BiTestHandlerBehaviorNs.al:26).
+    pub codeunit_name: String,
+    /// Empty in the codeunit callbacks.
+    pub procedure: String,
+    /// Empty except in the case callbacks.
+    pub case: String,
+    /// Whether the test passed, in the After callbacks; `None` in the Before callbacks (not pinned there).
+    pub success: Option<bool>,
+    /// The reason of a `Skip` call in this callback.
+    pub skip: Option<String>,
+}
+
 /// State behind a library-type handle; grows with the builtins that need it.
 #[derive(Debug, Default)]
 pub enum LibraryValue {
@@ -2000,6 +2062,9 @@ pub enum LibraryValue {
     /// A `DataSourceContext` or `TestHandlerContext` the test framework handed to a callback (ADR-059). Its members are
     /// refused there (`testcontexts.rs`).
     HandedContext,
+    /// A `TestHandlerContext` the test runner hands to an ITestHandler callback (BC 29): what its members return there, and
+    /// the reason of a `Skip` the callback made (`testcontexts.rs`, al-testrun `runtime/test_handlers.rs`).
+    HandlerContext(Box<HandlerContext>),
     Text(String),
     /// A TextBuilder whose capacity was set or has to be kept: the text and the capacity in characters.
     TextCap(String, i32),

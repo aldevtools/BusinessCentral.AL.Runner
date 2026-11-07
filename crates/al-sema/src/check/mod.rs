@@ -160,6 +160,12 @@ pub enum Res {
         ext: usize,
         name: String,
     },
+    /// `Other.<protected var>` in a table extension, where `Other` is a record of the extended table: the variable of table or
+    /// table extension `object` (an object index) on that record, by lower-case name (al-runner issue 6984).
+    RecGlobal {
+        object: usize,
+        name: String,
+    },
     /// `this.<protected variable of the base>` in an extension, by lower-case name: BC compiles it and raises when it
     /// runs (types/PYThisExtensions.al:ReportExtension_ThisBaseVariable_ReadInATrigger).
     ThisBaseGlobal(String),
@@ -284,6 +290,9 @@ pub struct Roots {
     /// Keep the whole demand state (`CheckResult::kept_demand`) for a later pass that grows the compile by apps
     /// (ADR-063). Changes nothing else.
     pub keep_demand: bool,
+    /// Dependency test runner codeunits (by id) a run goes through (ADR-066): their triggers and `Test Suite Mgt.`.RunNextTest
+    /// are roots. Empty: none.
+    pub test_runners: Vec<u32>,
 }
 
 /// Members that platform enums do not have, as the AL compiler says (corpus must-not-compile 0010
@@ -484,7 +493,7 @@ fn check_inner(
                 .into_iter()
                 .any(|(o, _)| !ws.is_dependency(o) && !skip(o));
             c.reach_install_events(roots.baseline, install_code);
-            c.reach_test_runner();
+            c.reach_test_runner(&roots.test_runners);
             c.reach_dependencies_on_workspace();
             if !roots.no_login_root {
                 c.reach_login_work_date();
@@ -1435,6 +1444,7 @@ mod infer;
 mod member;
 mod object;
 pub(crate) mod posmap;
+mod protected_member;
 pub mod tdd;
 pub mod tdd_decl;
 #[cfg(test)]

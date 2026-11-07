@@ -470,6 +470,15 @@ pub fn var_and_field(text: &str) -> Option<(String, String)> {
     Some((plain_name(&t[..dot])?, plain_name(&t[dot + 1..])?))
 }
 
+/// Whether `text` is `Rec.<name>` with an unquoted name: a field, or a parameterless method called without parentheses.
+fn unquoted_rec_name(text: &str) -> bool {
+    let t = text.trim();
+    t.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("rec."))
+        && !t[4..].is_empty()
+        && t[4..].chars().all(|c| c.is_alphanumeric() || c == '_')
+        && !t[4..].starts_with(|c: char| c.is_ascii_digit())
+}
+
 /// Global variable names (lower case) declared in `obj`.
 pub fn global_names(obj: &ast::Object) -> BTreeSet<String> {
     obj.var_decls()
@@ -518,7 +527,12 @@ fn needed(
         if let Some(src) = args.get(1) {
             let names_a_base_variable = extension_routines
                 .is_some_and(|routines| plain_name(src).is_some_and(|n| !routines.contains(&n.to_lowercase())));
-            if classify_source(src, globals) == Source::Expr && !names_a_base_variable {
+            // In an extension, `Rec.<name>` unquoted may name a parameterless method of the source table, called without
+            // parentheses (pages/record-method-controls/TestRecordMethodControls.al:39, al-runner issue 7133): it gets a routine
+            // too, which the lowering binds when the name is no field. Only extensions: a page's own controls would add a
+            // routine for every such field (thousands in Microsoft's apps, against 19 in their extensions).
+            let rec_name = extension_routines.is_some() && unquoted_rec_name(src);
+            if (classify_source(src, globals) == Source::Expr && !names_a_base_variable) || rec_name {
                 out.push((
                     "source".into(),
                     PropType::Variant,
@@ -1304,10 +1318,13 @@ impl Tree {
                 // Several layout controls in one move keep the order written (al-runner issue 6483;
                 // pages/extensions/Y20PageExtMoves.al).
                 let first_last = kind == "movefirst" || kind == "movelast";
-                let area = if op.in_actions && first_last {
+                // movefirst/movelast into an area: of actions, and of the layout (`movefirst(FactBoxes; Details)`,
+                // `movelast(Content; Data)`: pages/extension-layout-containers/TestFactboxMove.Codeunit.al:21,
+                // TestContentMove.Codeunit.al:21; issue 6952).
+                let area = if first_last {
                     self.areas
                         .iter()
-                        .position(|a| a.in_actions && a.name.eq_ignore_ascii_case(&target))
+                        .position(|a| a.in_actions == op.in_actions && a.name.eq_ignore_ascii_case(&target))
                 } else {
                     None
                 };
@@ -1333,6 +1350,12 @@ impl Tree {
                             let group = match self.nodes[a].kind {
                                 al_ir::ControlKind::Group => !op.in_actions,
                                 al_ir::ControlKind::ActionGroup => op.in_actions,
+                                // Fields into a repeater (`movefirst(General; Description)`: pages/extension-layout-containers/
+                                // TestRepeaterMove.Codeunit.al:21; issue 6952).
+                                al_ir::ControlKind::Repeater => {
+                                    !op.in_actions
+                                        && ms.iter().all(|&m| self.nodes[m].kind == al_ir::ControlKind::Field)
+                                }
                                 _ => false,
                             };
                             if !group {
@@ -1461,9 +1484,10 @@ impl Tree {
             };
             // `modify` of an implicit group, and `addafter`/`addbefore` of the implicit actionref of a legacy promoted action
             // (al-runner issues 6646, 6647; `promoted.rs`).
-            let implicit =
-                (kind == "modify" && promoted::numbered_category(&target) && promoted::inert_group_modify(&op.section))
-                    || (["addafter", "addbefore"].contains(&kind.as_str()) && self.legacy_promoted_ref(&target));
+            let implicit = (kind == "modify"
+                && (promoted::numbered_category(&target) || promoted::standard_category(&target))
+                && promoted::inert_group_modify(&op.section))
+                || (["addafter", "addbefore"].contains(&kind.as_str()) && self.legacy_promoted_ref(&target));
             if op.in_actions
                 && (process_after || legacy || added_into || implicit || other.is_some())
                 && self.find_node(&target).is_none()

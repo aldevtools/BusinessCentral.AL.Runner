@@ -23,21 +23,9 @@ impl Session {
                             // Area 3 raises no event, so '3,' with nothing after it (a matrix column whose caption nobody set)
                             // costs the open nothing; only reading that caption is refused.
                             if let Value::Text(t) | Value::Code(t) = &v {
+                                self.raise_control_area3_after_resolve(t)?;
                                 if !t.starts_with("3,") {
-                                    // A text other than the one the control resolved before, at a fill other than the one after
-                                    // SetValue (`refresh_caption_classes`, testpage/W2CaptionClass.al:174-178): whether BC resolves it
-                                    // there (after an action, on the next row) is not pinned.
-                                    if super::format::raises_resolve(t)
-                                        && st
-                                            .borrow()
-                                            .control_captions
-                                            .iter()
-                                            .any(|(i, old, _)| *i == idx && old != t.as_str())
-                                    {
-                                        return unsupported(
-                                            "a CaptionClass expression that gives another text at a fill other than after SetValue (whether BC resolves it again there is not pinned)",
-                                        );
-                                    }
+                                    Self::refuse_caption_class_changed_at_fill(st, idx, t)?;
                                     self.fill_caption_class(st, idx, t)?;
                                 }
                             }
@@ -48,6 +36,7 @@ impl Session {
                     Some(ir::PropVal::Lit(l)) if name == "captionclass" => {
                         self.refuse_caption_class_translate()?;
                         let c = unquote(l);
+                        self.raise_control_area3_after_resolve(&c)?;
                         if !c.starts_with("3,") {
                             self.fill_caption_class(st, idx, &c)?;
                         }
@@ -206,9 +195,10 @@ impl Session {
                     continue;
                 };
                 let class = self.field_caption_class_value(t, *pos, Some(&rec), expr)?;
-                let caption = match crate::recmeta::expression_class(&t.fields[*pos].name, &class)? {
+                let kind = crate::recmeta::expression_class(&t.fields[*pos].name, &class)?;
+                let caption = match kind {
                     crate::recmeta::ExprCaption::FieldCaption => String::new(),
-                    crate::recmeta::ExprCaption::Text(c) => c,
+                    crate::recmeta::ExprCaption::Text(c) => self.expression_text_caption(&class, c)?,
                     crate::recmeta::ExprCaption::Translate => self.caption_class_translate(&class)?,
                 };
                 let mut s = st.borrow_mut();
@@ -434,6 +424,7 @@ impl Session {
     /// Populates the current row: the control expressions, then OnAfterGetRecord.
     pub(super) fn populate_current(&mut self, st: &St) -> Result<(), Signal> {
         st.borrow_mut().dirty = false;
+        self.apply_data_caption_globals(st);
         self.calc_row_flowfields(st)?;
         if !st.borrow().read_keeps_xrec {
             self.set_xrec(st);
@@ -1496,7 +1487,7 @@ impl Session {
             s.field_captions_quiet = how == PageMethod::Previous;
             s.field_captions_pinned_move = matches!(how, PageMethod::First | PageMethod::Last);
         }
-        let (r, origin) = self.traced(st, |s| s.page_move_inner(st, how));
+        let (r, origin) = self.traced(st, |s| s.page_move_noting_server_row(st, how));
         {
             let mut s = st.borrow_mut();
             s.field_captions_quiet = false;
@@ -1515,7 +1506,8 @@ impl Session {
     /// answers Yes and runs no OnAfterGetCurrRecord (testpage/SjRunPageLinkOpenFind.al:337-350, :368-410
     /// `agcr row=4;agcr row=3;...`: the handler's First() on the row the page opened on adds no `agcr`; :412-425 from another row
     /// it does). Pinned for a list that declares OnAfterGetCurrRecord and no other row trigger, not a part, whose OnOpenPage
-    /// moved Rec with FindFirst or FindLast; refused when OnOpenPage did not move Rec.
+    /// moved Rec with FindFirst or FindLast, and for one whose OnOpenPage did not move Rec (testpage/R7138RunPageLinkCopyGet.al:210,
+    /// :218 `agcr O3;...;handler;agcr O4`: OnAfterGetCurrRecord runs once at the open, First() on O3 runs it not again).
     fn first_on_first_row_of_a_linked_list(&mut self, st: &St) -> Result<bool, Signal> {
         let shape = {
             let s = st.borrow();
@@ -1545,17 +1537,6 @@ impl Session {
         }
         if !Self::same_key(&self.row_key(&probe)?, &self.row_key(&rec)?) {
             return Ok(false);
-        }
-        // Pinned only where OnOpenPage moved Rec with FindFirst or FindLast (SjRunPageLinkOpenFind.al:337-410); First on the
-        // first row of a linked list whose OnOpenPage did not move Rec is not pinned either way.
-        if !st.borrow().run_page_link_open_moved {
-            // Without OnAfterGetCurrRecord nothing tells the two apart: the usual First() runs.
-            if !self.declares(st, "onaftergetcurrrecord") {
-                return Ok(false);
-            }
-            return unsupported(
-                "TestPage.First() on the first row of a list an action opened through RunPageLink whose OnOpenPage did not move Rec: whether OnAfterGetCurrRecord runs is not pinned",
-            );
         }
         Ok(true)
     }
@@ -2655,138 +2636,6 @@ impl Session {
             }
         }
         Ok(Value::Boolean(found))
-    }
-
-    /// GoToRecord after an OnDrillDown marked rows, turned MarkedOnly on, left Rec on the last of them and called
-    /// `CurrPage.Update(false)` (`drilldown_marked_only_refresh`). The client first refills its rows around the row Rec was left on,
-    /// as the refresh after an action reads them from Rec's row (`read_list_again_from_row_as`): in a key other than the primary
-    /// key that row once more, then the row, the rows above it from the nearest up, and the row read as a move onto it (three times
-    /// in such a key, twice in the primary key) with OnAfterGetCurrRecord. Then:
-    /// - a GoToRecord of Rec's row answers true on it (corpus pages/onopenpage-moves-rec/SuRefillKey.al:269
-    ///   Name_DrillDown_GoToRecord `goto 3` `Yes/3:R3;R3;R5;R2;R3;R3;R3;C3;`, in the key ByName);
-    /// - a GoToRecord of another row walks the marked rows from the first, finds none and answers false, on the row the walk
-    ///   ended on (SuRefillKey.al:379 Id_DrillDown_GoToRecord `goto 3` `No/5:R5;R3;R2;R5;R5;C5;R2;R2;C2;R3;R3;C3;R5;R5;C5;`, in
-    ///   the primary key; al-runner issue 6008).
-    ///
-    /// Each answer is pinned in one key only: the other key's, Rec on a row with marked rows after it and more marked rows than
-    /// a window holds are refused.
-    fn go_to_record_after_marked_refill(&mut self, st: &St, want: &[Value]) -> Result<Value, Signal> {
-        let Some(left) = st.borrow_mut().marked_refill_in_key.take() else {
-            return unsupported("GoToRecord after a marking OnDrillDown without the rows it left (not pinned)");
-        };
-        self.pages.scope_unpinned.retain(|p| !Rc::ptr_eq(p, st));
-        let refuse = |what: &str| -> Result<Value, Signal> {
-            unsupported(format!(
-                "GoToRecord after an OnDrillDown turned MarkedOnly on and called CurrPage.Update(false) on a list, {what} (not pinned)"
-            ))
-        };
-        let in_key = self.still_reads_once_more(st);
-        let before = self.xrec_before_move(st);
-        let rec = self.page_rec(st);
-        rec.borrow_mut().fields = left;
-        let left_key = self.row_key(&rec)?;
-        let of_recs_row = Self::same_key(want, &left_key);
-        // With a part the GoToRecord of Rec's row refills as without one, in either key (corpus SuRefillKey.al:518, :562
-        // TW_*WithPart_GoToRecordOfRecsRow). A GoToRecord of another row walks the marked rows after the refill: in a key other
-        // than the primary key all of them, ending on Rec's row (:541 TW_NameKeyWithPart_GoToRecordOfUnmarkedRow `goto 2`
-        // `No/1:R1;R1;R3;R1;R1;R1;C1;R3;R3;R3;C3;R1;R1;R1;C1;`, al-runner issue 6141); in the primary key only a move onto the
-        // first marked row, where the page stays (:585 TW_IdKeyWithPart_GoToRecordOfUnmarkedRow `goto 2`
-        // `No/1:R3;R1;R3;R3;C3;R1;R1;C1;`). Both are pinned with two marked rows, Rec's row the last.
-        let with_parts = !st.borrow().parts.is_empty();
-        if with_parts {
-            // Pinned by pages/onopenpage-moves-rec/SuRefillKey.al TW_NameKeyWithPart_GoToRecordOfUnmarkedRow, TW_IdKeyWithPart_GoToRecordOfUnmarkedRow, UD_IdKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_IdKeyWithPart_ActionAfterRowLostFlag (was assumption `drilldown-marked-walk-with-part`).
-        } else if of_recs_row != in_key {
-            return refuse(if in_key {
-                "in a key other than the primary key, of a row other than the row Rec was left on"
-            } else {
-                "in the primary key, of the row Rec was left on"
-            });
-        }
-        if !self.nav_find(st, "=")? {
-            return refuse("with Rec left outside the marked rows");
-        }
-        let key = self.row_key(&rec)?;
-        let stored = rec.borrow().fields.clone();
-        if self.nav_next(st, 1)? {
-            return refuse("with marked rows after the row Rec was left on");
-        }
-        rec.borrow_mut().fields = stored.clone();
-        let mut above = Vec::new();
-        while self.nav_next(st, -1)? {
-            above.push((self.row_key(&rec)?, rec.borrow().fields.clone()));
-            if above.len() >= Self::WINDOW {
-                return refuse("with more marked rows than a window holds");
-            }
-        }
-        let reads = if in_key { 2 } else { 1 };
-        for _ in 0..reads {
-            rec.borrow_mut().fields = stored.clone();
-            self.populate_current(st)?;
-        }
-        let mut held = Vec::new();
-        for (k, f) in &above {
-            rec.borrow_mut().fields = f.clone();
-            self.populate_current(st)?;
-            held.push(al_builtins::value::WindowRow {
-                key: k.clone(),
-                stored: f.clone(),
-                shown: rec.borrow().fields.clone(),
-            });
-        }
-        held.reverse();
-        self.ret_used = true;
-        if !matches!(
-            self.record_op(RecordOp::Get, &rec, &mut key.clone())?,
-            Value::Boolean(true)
-        ) {
-            return refuse("with the row Rec was left on gone");
-        }
-        let stored = rec.borrow().fields.clone();
-        for _ in 0..reads + 1 {
-            rec.borrow_mut().fields = stored.clone();
-            self.populate_current(st)?;
-        }
-        let shown = rec.borrow().fields.clone();
-        held.push(al_builtins::value::WindowRow {
-            key,
-            stored: stored.clone(),
-            shown,
-        });
-        {
-            let mut s = st.borrow_mut();
-            s.window = held;
-            s.window_from_start = true;
-            s.window_whole = true;
-            s.window_eof = true;
-            s.view_read_to_end = true;
-            s.cursor = Cursor::Row;
-            s.draft = false;
-            s.stale = false;
-        }
-        self.set_xrec_fields(st, stored);
-        let r = self.current_record_trigger(st, before);
-        self.torn_down_on_error(st, r)?;
-        if of_recs_row {
-            return Ok(Value::Boolean(true));
-        }
-        // The walk over the marked rows from the first one, a move onto each (SuRefillKey.al:379 `goto 3`: `R2;R2;C2;R3;R3;C3;
-        // R5;R5;C5;` after the refill); it ends on Rec's row, the last, so there is no move back.
-        let last = if with_parts && !in_key {
-            0
-        } else {
-            st.borrow().window.len() - 1
-        };
-        for idx in 0..=last {
-            let r = self.arrive_held(st, idx);
-            self.torn_down_on_error(st, r)?;
-        }
-        // A false GoToRecord moves no part (`page_method`); here the page did move, and the part follows to the row it ends on
-        // (corpus writer UD, branch al-runtime-rs-staging-ud, SuRefillKey.al:630, :722 `goto 2 again` `No/1`, `part` `D1`). What
-        // the part reads on the way is not pinned.
-        if with_parts {
-            self.sync_parts(st)?;
-        }
-        Ok(Value::Boolean(false))
     }
 
     /// `FindFirstField` / `FindNextField` / `FindPreviousField`: walks the rows of the view from the

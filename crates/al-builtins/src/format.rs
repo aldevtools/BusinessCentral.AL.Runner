@@ -191,7 +191,17 @@ pub fn ml_text_in_language(ml: &str, language: i32) -> Result<String, String> {
         1033 => "ENU",
         1031 => "DEU",
         1036 => "FRA",
-        n => return Err(format!("`{ml}` in language {n} (only 1033, 1031 and 1036 are pinned)")),
+        // format-evaluate/EvalLanguageBoolean.al EL_Option_* (a list with an entry for each of these languages).
+        1030 => "DAN",
+        1043 => "NLD",
+        2067 => "NLB",
+        // format-evaluate/EvalLanguageBoolean.al:1063-1318 (WA_BlankEnum*_ES_1034: `Primero` is the ESP caption of member First).
+        1034 => "ESP",
+        n => {
+            return Err(format!(
+                "`{ml}` in language {n} (only 1033, 1031, 1036, 1030, 1034, 1043 and 2067 are pinned)"
+            ));
+        }
     };
     let mut entries = Vec::new();
     let (mut start, mut quoted) = (0, false);
@@ -264,11 +274,27 @@ fn format_unread(v: &Value, length: i32, standard: i32) -> Option<Result<String,
         Value::Unknown(why) => Some(Err(FormatFail::Unsupported(why.to_string()))),
         // `Format(x)` of a counter value gives digits only (SqlCounters.al P6924_Counters_Format_DigitsOnly), which digits
         // nothing pins: a marked text that may be passed on and logged, and that no text function reads (`Txt::has_marker`).
-        Value::SqlCount(_) if length == 0 && standard == 0 => Some(Ok(crate::native::SQL_COUNT_TEXT_MARK.to_string())),
+        // Standard format 9 of a whole number gives its digits too, with no error (format-evaluate/EvalDecimalEn.al:205
+        // `Format(1000, 0, 9)`, types/decimal-integer/ScT70052.al:123 `Format(0, 0, 9)`; al-runner issue 6924 logs
+        // `Format(x, 0, 9)` of a difference).
+        Value::SqlCount(_) if length == 0 && (standard == 0 || standard == 9) => {
+            Some(Ok(crate::native::SQL_COUNT_TEXT_MARK.to_string()))
+        }
         Value::SqlCount(_) => Some(Err(FormatFail::Unsupported(crate::sqlcount::refusal_text(
             "Format with a length or a standard format",
         )))),
         _ => None,
+    }
+}
+
+/// A first member with an empty name formats as its ordinal `0`
+/// (format-evaluate/EvalLanguageBoolean.al:1233 WA_BlankEnum3_ES_1034, `Format blank` is `[0]`). Another member with an
+/// empty name is not pinned.
+fn enum_member_text(name: String, ordinal: i32) -> String {
+    if name.is_empty() && ordinal == 0 {
+        "0".to_string()
+    } else {
+        name
     }
 }
 
@@ -371,7 +397,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                 if let Some(why) = ctx.enum_caption_refused(*id, Some(*o)) {
                     return Err(FormatFail::Unsupported(why));
                 }
-                ctx.enum_name(*id, *o)
+                enum_member_text(ctx.enum_name(*id, *o), *o)
             }
         },
         // Numbers 0, 1, 2 and 9 are the braced form; 3 has neither braces nor dashes, 4 only the dashes (metadata/platform-tables/
@@ -412,6 +438,9 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                 crate::value::LibraryValue::Text(s) => s.clone(),
                 _ => return Err("Format of a BigText of this kind is not pinned".to_string().into()),
             }
+        }
+        Value::Library(crate::library_kind::LibraryKind::TextBuilder, l) => {
+            crate::format_textbuilder::text(&l.borrow(), standard)?
         }
         Value::Library(crate::library_kind::LibraryKind::Version, l) => match &*l.borrow() {
             crate::value::LibraryValue::Version(v) => format!("{}.{}.{}.{}", v[0], v[1], v[2], v[3]),
@@ -530,7 +559,11 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                 // Format 1 names the table by its caption (record/crud/RcBMeta.al:572, :578, also under
                 // GlobalLanguage 1031); format 9 of a table in a namespace names it `[<namespace>.<name>]`
                 // (language/namespaces/P69NsConsumers.al:214, a name with spaces; :210 format 1 of the same table
-                // gives the plain name, which is its caption). The other numbers give the plain name (RcBMeta.al:570-574).
+                // gives the plain name, which is its caption), a one-word name too, and a name with a dot is quoted
+                // inside the brackets (corpus branch al-runtime-rs-staging-r6985, language/namespaces/
+                // R7003RecordIdFormat9.al: Format9_NamespacedOwnTables, Format9_BaseAppContactAndItem `[Microsoft.CRM.Contact.Contact]`;
+                // a table outside a namespace gives the plain name, Format9_TablesWithoutNamespace). The other numbers give
+                // the plain name (RcBMeta.al:570-574).
                 let shown = match standard {
                     1 | 9 => {
                         let Some((caption, namespace)) = ctx.record_id_table(*table) else {
@@ -538,13 +571,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                         };
                         match (standard, namespace) {
                             (1, _) => caption,
-                            (_, Some(ns)) if name.contains(' ') => format!("[{ns}.{name}]"),
-                            (_, Some(_)) => {
-                                return Err(format!(
-                                    "Format(RecordId, 0, 9) of table {name} in a namespace, whose name has no space (whether it is bracketed is not pinned)"
-                                )
-                                .into());
-                            }
+                            (_, Some(ns)) => format!("[{ns}.{}]", recordid_number::namespaced_name(name)?),
                             (_, None) => name.clone(),
                         }
                     }
@@ -632,6 +659,9 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         if n < length as usize {
             return Ok(format!("{s}{}", " ".repeat(length as usize - n)));
         }
+    }
+    if let (Value::Library(crate::library_kind::LibraryKind::TextBuilder, _), true) = (v, length != 0) {
+        return crate::format_textbuilder::with_length(&s, length);
     }
     // A RecordId is padded on the right too (types/operators-expressions/P79RecordId.al:409,421 `len-30`).
     if let (Value::Library(crate::library_kind::LibraryKind::RecordId, _), true) = (v, length > 0) {
@@ -1225,6 +1255,9 @@ fn format_date(day: i32, closing: bool, standard: i32, lang: i32) -> Result<Stri
         (1036, 7) => MONTHS_FR_SHORT[m as usize - 1],
         (3082, 4) => MONTHS_ES[m as usize - 1],
         (3082, 7) => MONTHS_ES_SHORT[m as usize - 1],
+        // Danish and Dutch December, format 4 only (format-evaluate/EvalLanguageBoolean.al EL_Date_DAN_1030, EL_Date_NLD_1043,
+        // EL_Date_NLB_2067: `december 31, 2026`); the other months are not pinned.
+        (1030 | 1043 | 2067, 4) if m == 12 => "december",
         (_, 4 | 7) => {
             return Err(FormatFail::Unsupported(format!(
                 "Format {standard} of a Date in language {lang}, month {m}: the month name is not pinned (docs/probes-needed.md)"
@@ -1778,5 +1811,14 @@ mod tests {
         assert_eq!(f(1033, 7), "Sep 1, 2024");
         assert_eq!(duration_format(172_800_000, false, 1031).ok().unwrap(), "2 Tage");
         assert_eq!(duration_format(1, false, 1036).ok().unwrap(), "1 milliseconde");
+    }
+
+    // format-evaluate/EvalLanguageBoolean.al:1063 WA_BlankEnum1_ES_1034: `Primero` is the ESP entry, read under 1034.
+    #[test]
+    fn spanish_caption_is_read_under_1034() {
+        assert_eq!(
+            ml_text_in_language("ENU = 'First', ESP = 'Primero'", 1034).unwrap(),
+            "Primero"
+        );
     }
 }

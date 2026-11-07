@@ -54,7 +54,7 @@ build builds a new entry. `al-runner cache info` lists the entries, and
 
 Some tests reach `DotNet` code that needs the .NET 8 helper, and it could not be
 used. Install the .NET 8 SDK (the runtime alone is not enough to build the helper),
-or accept the result with `--allow-not-run`. See [What works](what-works.md#dotnet).
+and for BC 29 also the .NET 10 runtime (the helper runs on it), or accept the result with `--allow-not-run`. See [What works](what-works.md#dotnet).
 
 ## "A required dependency is missing" or "no AL source"
 
@@ -62,6 +62,8 @@ Microsoft's apps come from the artifact feed unless `--no-download` is set. An a
 from another publisher must be given with `--dep`, `--package-cache`, or the
 `.alpackages` folder, and it must carry AL source. A package without source cannot be
 used, and the message names it.
+
+With `--no-download`, a dependency that cannot be found stops the run with exit 2 and names the app (id, name, declared version). `--allow-missing-dependencies` skips it with a warning instead. The run can then give different results, so check `skippedDependencies` in `--output-json` or the `serve` summary.
 
 ## `-v: no such file or folder`
 

@@ -17,6 +17,7 @@ use std::rc::{Rc, Weak};
 
 mod filter;
 mod text_number;
+mod walk;
 
 pub type Handle = Rc<RefCell<LibraryValue>>;
 
@@ -2156,14 +2157,22 @@ fn value_set_undefined(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) 
 
 enum Seg {
     Key(String),
-    /// `[n]`; a negative index matches nothing (json/JsonObjectBasics.al:323 `select_neg`).
+    /// `[n]`; a negative index raises ArgumentOutOfRange (json/DbJPathLeads.al:154 `LastArrayElement` `index_minus_1`).
     Index(i64),
     /// `[*]`.
     Wild,
-    /// `[a:b]`.
-    Slice(usize, usize),
+    /// `.*` or a bare `*` (json/DbJPathLeads.al:465 `P6924_SelectToken_WildcardAndEmptyNames`).
+    ObjectWild,
+    /// `[start:end:step]`; any part may be left out (:585 `P6924_SelectToken_Slices`, :154 `slice_minus_1`).
+    Slice(Option<i64>, Option<i64>, Option<i64>),
+    /// `['a','b']`: the children that exist (:85 `Union_OfKeys`).
+    Union(Vec<String>),
     /// `..name`: every descendant named `name`.
     Descent(String),
+    /// `..*`: every descendant (:505 `descent_star`; used form only).
+    DescentAny,
+    /// `..[n]`: element n of every array below (:505 `descent_index`; used form only).
+    DescentIndex(i64),
     /// `[?(@.name == x)]` (`filter`).
     Filter(filter::Filter),
 }
@@ -2180,7 +2189,77 @@ enum PathErr {
     Refused(Signal),
 }
 
-/// Dotted names, `[n]` / `['name']` / `[*]` / `[a:b]` indexers and `..name`, with an optional leading `$`.
+/// The end of the indexer that opens at `open`: the first `]` outside single quotes (a backslash escapes a character in
+/// quotes). A stray quote falls back to the first `]`.
+fn bracket_end(p: &str, open: usize) -> Option<usize> {
+    let mut quoted = false;
+    let mut skip = false;
+    for (k, ch) in p[open + 1..].char_indices() {
+        match (skip, ch) {
+            (true, _) => skip = false,
+            (false, '\\') if quoted => skip = true,
+            (false, '\'') => quoted = !quoted,
+            (false, ']') if !quoted => return Some(open + 1 + k),
+            _ => {}
+        }
+    }
+    p[open..].find(']').map(|c| c + open)
+}
+
+/// `'a'` or `'a','b'`: single-quoted names, `\'` and `\\` escaped (json/DbJPathLeads.al:545 `quoted_escaped_quote`). None when
+/// the text is anything else.
+fn quoted_names(inner: &str) -> Option<Vec<String>> {
+    let mut names = Vec::new();
+    let mut chars = inner.chars().peekable();
+    loop {
+        if chars.next()? != '\'' {
+            return None;
+        }
+        let mut name = String::new();
+        loop {
+            match chars.next()? {
+                '\'' => break,
+                '\\' => match chars.next()? {
+                    c @ ('\'' | '\\') => name.push(c),
+                    _ => return None,
+                },
+                c => name.push(c),
+            }
+        }
+        names.push(name);
+        match chars.next() {
+            None => return Some(names),
+            Some(',') => {}
+            Some(_) => return None,
+        }
+    }
+}
+
+/// `a:b:c` with every part a whole number or empty.
+fn slice_parts(inner: &str) -> Option<Seg> {
+    let parts: Vec<&str> = inner.split(':').collect();
+    if !(2..=3).contains(&parts.len()) {
+        return None;
+    }
+    let mut n = parts.iter().map(|t| match t.trim() {
+        "" => Some(None),
+        t => t.parse::<i64>().ok().map(Some),
+    });
+    let (a, z, step) = (n.next()??, n.next()??, n.next().unwrap_or(Some(None))?);
+    Some(Seg::Slice(a, z, step))
+}
+
+/// A whole number as AL reads it in an indexer: digits with an optional `-`, blanks around (`[ 1 ]`, `[01]`; not `[+1]`,
+/// `[1.0]`: json/DbJPathLeads.al:665 `P6924_SelectToken_IndexerForms`).
+fn index_number(inner: &str) -> Option<i64> {
+    let t = inner.trim();
+    let digits = t.strip_prefix('-').unwrap_or(t);
+    (!digits.is_empty() && digits.bytes().all(|c| c.is_ascii_digit()))
+        .then(|| t.parse().ok())
+        .flatten()
+}
+
+/// Dotted names, `[n]` / `['name']` / `['a','b']` / `[*]` / `[a:b:c]` indexers and `..name`, with an optional leading `$`.
 /// Filters as `filter` reads them.
 fn parse_path(p: &str) -> Result<Vec<Seg>, PathErr> {
     let refuse = |what: &str| PathErr::Refused(Signal::Unsupported(what.into()));
@@ -2193,32 +2272,8 @@ fn parse_path(p: &str) -> Result<Vec<Seg>, PathErr> {
     while i < b.len() {
         match b[i] {
             b'[' => {
-                let close = p[i..].find(']').map(|c| c + i).ok_or(PathErr::Unclosed)?;
-                let inner = &p[i + 1..close];
-                if let Some(q) = inner.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) {
-                    segs.push(Seg::Key(q.to_string()));
-                } else if let Ok(n) = inner.parse::<i64>() {
-                    segs.push(Seg::Index(n));
-                } else if inner == "*" {
-                    segs.push(Seg::Wild);
-                } else if let Some((a, z)) = inner.split_once(':') {
-                    match (a.parse::<usize>(), z.parse::<usize>()) {
-                        (Ok(a), Ok(z)) => segs.push(Seg::Slice(a, z)),
-                        _ => return Err(refuse("SelectToken slice form not pinned by the corpus")),
-                    }
-                } else if inner.len() >= 2 && inner.starts_with('"') && inner.ends_with('"') {
-                    return Err(PathErr::DoubleQuoted);
-                } else if inner.starts_with('?') {
-                    match filter::parse(inner) {
-                        Ok(f) => segs.push(Seg::Filter(f)),
-                        Err(filter::FilterErr::Invalid) => return Err(PathErr::InvalidFilter),
-                        Err(filter::FilterErr::Refused(why)) => return Err(refuse(why)),
-                    }
-                } else if inner.starts_with('(') || inner.contains(',') {
-                    return Err(refuse("SelectToken indexer form not pinned by the corpus"));
-                } else {
-                    return Err(PathErr::BadIndex);
-                }
+                let close = bracket_end(p, i).ok_or(PathErr::Unclosed)?;
+                segs.push(parse_indexer(&p[i + 1..close])?);
                 i = close + 1;
             }
             c => {
@@ -2228,9 +2283,25 @@ fn parse_path(p: &str) -> Result<Vec<Seg>, PathErr> {
                     if b.get(i) == Some(&b'.') {
                         descent = true;
                         i += 1;
-                    } else if b.get(i) == Some(&b'[') && b.get(i + 1) == Some(&b'?') {
-                        // `$.[?(@.id==2)]` (al-runner issue 6588): the dot before a filter is skipped
-                        // (json/DbJPathLeads.al:249 `dot` and :353 `tok_dot`).
+                        if b.get(i) == Some(&b'[') {
+                            let close = bracket_end(p, i).ok_or(PathErr::Unclosed)?;
+                            let Some(n) = index_number(&p[i + 1..close]) else {
+                                return Err(refuse(
+                                    "SelectToken `..` before an indexer that is not a number (not pinned)",
+                                ));
+                            };
+                            segs.push(Seg::DescentIndex(n));
+                            i = close + 1;
+                            continue;
+                        }
+                        if b.get(i) == Some(&b'*') && matches!(b.get(i + 1), None | Some(b'.' | b'[')) {
+                            segs.push(Seg::DescentAny);
+                            i += 1;
+                            continue;
+                        }
+                    } else if b.get(i) == Some(&b'[') {
+                        // `$.[?(@.id==2)]` (al-runner issue 6588), `$.[A,B]` (json/DbJPathLeads.al:85 `Union_OfKeys`): the
+                        // dot before an indexer is skipped (:249 `dot`, :353 `tok_dot`).
                         continue;
                     }
                 }
@@ -2239,17 +2310,60 @@ fn parse_path(p: &str) -> Result<Vec<Seg>, PathErr> {
                     i += 1;
                 }
                 let name = &p[s..i];
-                if name.is_empty() || name.contains(['*', '?', '@']) {
+                // A dot that ends the path, or a blank inside a name, is a path the platform cannot read
+                // (json/DbJPathLeads.al:465 `trailing_dot`, `root_dot`; :705 `blank_around_dot`; :545 `dotted_blank`).
+                if !descent && i >= b.len() && name.is_empty() && c == b'.' || name.contains(char::is_whitespace) {
+                    return Err(PathErr::BadIndex);
+                }
+                if name.is_empty() || name.contains(['?']) || (name.contains('*') && name != "*") {
                     return Err(refuse("SelectToken path form not pinned by the corpus"));
                 }
-                segs.push(match descent {
-                    true => Seg::Descent(name.to_string()),
-                    false => Seg::Key(name.to_string()),
+                segs.push(match (descent, name) {
+                    (true, n) => Seg::Descent(n.to_string()),
+                    (false, "*") => Seg::ObjectWild,
+                    (false, n) => Seg::Key(n.to_string()),
                 });
             }
         }
     }
     Ok(segs)
+}
+
+/// The step of a path for the text `inner` between `[` and `]`.
+fn parse_indexer(inner: &str) -> Result<Seg, PathErr> {
+    let refuse = |what: &str| PathErr::Refused(Signal::Unsupported(what.into()));
+    if inner.starts_with('\'') {
+        return match quoted_names(inner) {
+            Some(mut v) if v.len() == 1 => Ok(Seg::Key(v.remove(0))),
+            Some(v) => Ok(Seg::Union(v)),
+            None => Err(refuse("SelectToken quoted name form not pinned by the corpus")),
+        };
+    }
+    if let Some(n) = index_number(inner) {
+        return Ok(Seg::Index(n));
+    }
+    if inner == "*" {
+        return Ok(Seg::Wild);
+    }
+    if inner.contains(':') && !inner.starts_with('?') {
+        return slice_parts(inner).ok_or_else(|| refuse("SelectToken slice form not pinned by the corpus"));
+    }
+    if inner.len() >= 2 && inner.starts_with('"') && inner.ends_with('"') {
+        return Err(PathErr::DoubleQuoted);
+    }
+    if inner.starts_with('?') {
+        return match filter::parse(inner) {
+            Ok(f) => Ok(Seg::Filter(f)),
+            Err(filter::FilterErr::Invalid) => Err(PathErr::InvalidFilter),
+            Err(filter::FilterErr::Refused(why)) => Err(refuse(why)),
+        };
+    }
+    // `[(@.length-1)]` and unquoted names, `[A,B]`, are paths the platform cannot read (json/DbJPathLeads.al:85, :154).
+    // Whole numbers in a union are not pinned.
+    if inner.contains(',') && inner.split(',').any(|t| index_number(t).is_some()) {
+        return Err(refuse("SelectToken indexer form not pinned by the corpus"));
+    }
+    Err(PathErr::BadIndex)
 }
 
 /// The descendants of `h` named `name`, in document order.
@@ -2275,85 +2389,31 @@ fn select_token(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Resu
     let used = c.ret_used();
     // A path the platform cannot read answers false when the result is used (json/JsonObjectBasics.al:329 `select_bad`, an
     // unclosed indexer) and raises "The requested operation cannot be performed in this context." (InvalidOperation) as a
-    // statement (:369-380). A bad index with the result used is not pinned.
+    // statement (:369-380). A bad index, a trailing dot or a blank in a name with the result used: false and the same last
+    // error without raising (json/DbJPathLeads.al:665 `index_letters_used`, :465 `trailing_dot`).
+    let invalid_op = || {
+        error(
+            "The requested operation cannot be performed in this context.",
+            "InvalidOperation",
+        )
+    };
     let segs = match parse_path(&p) {
         Ok(s) => s,
         Err(PathErr::Unclosed) if used => return Ok(Value::Boolean(false)),
-        Err(PathErr::BadIndex) if used => return unsupported("SelectToken with a bad index, result used (not pinned)"),
+        Err(PathErr::BadIndex) if used => return Ok(filter::invalid(c)),
         Err(PathErr::InvalidFilter) if used => return Ok(filter::invalid(c)),
         Err(PathErr::DoubleQuoted) if used => return Ok(Value::Boolean(false)),
-        Err(PathErr::DoubleQuoted) => {
-            return unsupported("SelectToken with a double-quoted name as a statement (not pinned)");
-        }
+        // A name in double quotes as a statement raises the same error (DbJPathLeads.al:785 `stmt_double_quoted`).
+        Err(PathErr::DoubleQuoted | PathErr::Unclosed | PathErr::BadIndex) => return Err(invalid_op()),
         Err(PathErr::InvalidFilter) => {
             return unsupported("SelectToken with a double-quoted filter text as a statement (not pinned)");
-        }
-        Err(PathErr::Unclosed | PathErr::BadIndex) => {
-            return Err(error(
-                "The requested operation cannot be performed in this context.",
-                "InvalidOperation",
-            ));
         }
         Err(PathErr::Refused(e)) => return Err(e),
     };
     if segs.iter().any(|s| matches!(s, Seg::Filter(_))) {
         return filter::select(h, &segs, &p, used, &mut a[1]);
     }
-    let last = segs.len().saturating_sub(1);
-    let mut cur = h;
-    for (n, seg) in segs.iter().enumerate() {
-        let found: Vec<Handle> = match seg {
-            Seg::Descent(name) => {
-                let mut out = Vec::new();
-                descendants_named(&cur, name, &mut out);
-                out
-            }
-            _ => with_node(&cur, |node| match (node, seg) {
-                (JsonNode::Object(kids), Seg::Key(k)) => {
-                    kids.iter().filter(|(e, _)| e == k).map(|(_, c)| c.clone()).collect()
-                }
-                (JsonNode::Array(kids), Seg::Index(i)) => usize::try_from(*i)
-                    .ok()
-                    .and_then(|i| kids.get(i).cloned())
-                    .into_iter()
-                    .collect(),
-                (JsonNode::Array(kids), Seg::Wild) => kids.clone(),
-                (JsonNode::Array(kids), Seg::Slice(s, z)) => {
-                    kids.iter().skip(*s).take(z.saturating_sub(*s)).cloned().collect()
-                }
-                _ => Vec::new(),
-            }),
-        };
-        let plain = matches!(seg, Seg::Key(_) | Seg::Index(_));
-        match found.len() {
-            1 => cur = found.into_iter().next().expect("one"),
-            // A name or an index that matches nothing (json/JsonObjectBasics.al:316 `select_missing`, :320 `select_arr_oob`,
-            // :323 `select_neg`).
-            0 if plain && used => return Ok(Value::Boolean(false)),
-            0 if plain => {
-                return unsupported("SelectToken without a match, result unused (error text not pinned yet)");
-            }
-            // `[*]` that ends the path and matches more than one token: false when the result is used (:324 `select_wild`),
-            // else "The set of tokens matching the JSON path '<path>' contains more than one element."
-            // (InvalidJsonPathSelection, :363 and :373-374).
-            m if m > 1 && matches!(seg, Seg::Wild) && n == last => {
-                if used {
-                    return Ok(Value::Boolean(false));
-                }
-                return Err(error(
-                    format!("The set of tokens matching the JSON path '{p}' contains more than one element."),
-                    "InvalidJsonPathSelection",
-                ));
-            }
-            _ => {
-                return unsupported(
-                    "SelectToken with a wildcard, a slice or `..` that matches no token, or more than one (not pinned)",
-                );
-            }
-        }
-    }
-    a[1] = tagged("JsonToken", cur);
-    Ok(Value::Boolean(true))
+    walk::select(c, h, &segs, &p, used, &mut a[1])
 }
 
 // ----------------------------------------------------------- SelectTokens

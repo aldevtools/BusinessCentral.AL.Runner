@@ -17,11 +17,14 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
+mod boolean_filter_error;
+mod delete_all_flow;
 mod flowfield_key;
 mod nested_validate;
 mod op_inner;
 mod platform_rows;
 mod stale;
+mod stale_own_insert;
 mod write_notes;
 
 pub(crate) type Rec = Rc<RefCell<RecordState>>;
@@ -85,6 +88,18 @@ pub(crate) const RUN_PAGE_LINK_OPEN_FILLED: &str = "in the OnOpenPage of a page 
 /// (testpage/TestActionRunPageLinkFilterGroup.al:292-369, `Describe(Child: Record ...)` in QzRunPageLinkOnOpen.al).
 pub(crate) const RUN_PAGE_LINK_COPY: &str = "a by-value copy of Rec of a page an action opened through RunPageLink: real BC hands it Rec's fields and no link filter, whether it reads rows without the link is not pinned";
 
+/// [`RUN_PAGE_LINK_COPY`] for a copy taken in the OnOpenPage of the page: it holds Rec's fields and no link filter
+/// (TestActionRunPageLinkFilterGroup.al:292-369), but whether it reads rows without the link was probed only after the page opened
+/// (R7138RunPageLinkCopyGet.al, OnAfterGetCurrRecord), so its `Count` and `Get` stay refused.
+pub(crate) const RUN_PAGE_LINK_OPEN_COPY: &str = "a by-value copy of Rec in the OnOpenPage of a page an action opened through RunPageLink: real BC hands it Rec's fields and no link filter, whether it reads rows without the link is not pinned";
+
+/// The `RecordState::unpinned_buffer` reason of Rec of a page an action opened through `RunPageLink` handed to a Variant parameter:
+/// the Variant holds Rec with the link filter. Only `RecordRef.GetTable` of it is pinned (the RecordRef carries the link filter and
+/// answers as any RecordRef, corpus testpage/R7138RunPageLinkCopyGet.al:117-134 `rr[Project Code: P2] n=2`); every record
+/// method and field read on it refuses.
+pub(crate) const RUN_PAGE_LINK_VARIANT: &str =
+    "Rec of a page an action opened through RunPageLink handed to a Variant: only RecordRef.GetTable of it is pinned";
+
 /// The `RecordState::unpinned_buffer` reason of a record after `SetCurrentKey` on Media or MediaSet fields that no key holds, and
 /// of a by-value copy of it. Only `CurrentKey` is pinned: the record answers the fields (streams/ArRecordProbes.al:198-229
 /// SetCurrentKey_Media `Pic`, SetCurrentKey_MediaSet `Pics`), a by-value copy answers the primary key (record/W4SortKeys.al:440-471
@@ -107,6 +122,7 @@ pub(crate) fn media_key_marked(rec: &Rec) -> bool {
 pub(crate) fn run_page_link_fields_read(why: &str) -> bool {
     why == RUN_PAGE_LINK_OPEN_FILLED
         || why == RUN_PAGE_LINK_COPY
+        || why == RUN_PAGE_LINK_OPEN_COPY
         || why == MEDIA_KEY
         || why == FLOWFIELD_KEY
         || why == XP_VIEW_AFTER_EXPORT
@@ -848,6 +864,7 @@ impl Session {
             let Some(x) = xrec else {
                 return unsupported(format!("{event} without an xRec"));
             };
+            self.note_xrec(x);
             args.push(Value::Record(x.clone()));
         }
         args.push(tail);
@@ -889,8 +906,14 @@ impl Session {
         // The triggers table extensions attach to the field bracket its own OnValidate
         // (record/TestTriggerDispatchOrder.al:TriggerOrder_Validate_FieldPipeline_IsStable).
         let (before, after) = self.ext_validate_order(t, field)?;
+        // An error in an OnBeforeValidate or OnAfterValidate trigger a table extension adds to the field puts the whole record
+        // back too (al-runner issue 6978; corpus
+        // record/TestValidateRaisesAndHandlerAsserterrorContracts.al:167-274, ExtOnBeforeValidate_Raises_RecordAfterwards,
+        // ExtOnAfterValidate_Raises_RecordAfterwards, ExtOnAfterValidate_Raises_FieldOnValidateChangesUndone).
         for &(object, routine) in &before {
-            self.run_trigger(object, routine, rec, Some(xrec))?;
+            if let Err(e) = self.run_trigger(object, routine, rec, Some(xrec)) {
+                return Err(restore(rec, e, snapshot));
+            }
         }
         if let Some((object, routine)) = field.on_validate {
             if let Err(e) = self.run_trigger(object, routine, rec, Some(xrec)) {
@@ -907,7 +930,9 @@ impl Session {
             }
         }
         for &(object, routine) in &after {
-            self.run_trigger(object, routine, rec, Some(xrec))?;
+            if let Err(e) = self.run_trigger(object, routine, rec, Some(xrec)) {
+                return Err(restore(rec, e, snapshot));
+            }
         }
         self.table_event(t, "onaftervalidateevent", rec, Some(xrec), false, Some(&field.name))
             .map_err(|e| restore(rec, e, snapshot))
@@ -1461,6 +1486,7 @@ impl Session {
         // carry the variable's xRec globals (ADR-021 decision 5).
         let xr = match (xrec, xs) {
             (Some(x), _) => {
+                self.note_xrec(x);
                 if x.borrow().globals.is_unset() {
                     let g = rec.borrow().globals.xrec();
                     x.borrow_mut().globals = g;
@@ -1802,6 +1828,7 @@ impl Session {
                 assigned: Vec::new(),
                 missing_loaded: false,
                 fetched: Default::default(),
+                init: false,
             });
             r.load.partial = false;
         }
@@ -1913,7 +1940,27 @@ impl Session {
             }
             // A row this variable inserted and that is gone (an error inside ASSERTERROR rolled the Insert back) leaves the Blob empty, whatever a
             // stream wrote since (recordref-fieldref/PnE08RecordMisc.al:TestField_Blob `af219`).
-            if keeps_content && (stored.is_some() || !rec.borrow().inserted) {
+            // A buffer that holds no unsaved write and differs from the stored row was left behind by another variable's
+            // Modify (Copy Document's report writes the new order's Work Description through its own copy of the header;
+            // Tests-ERM ERM Copy Purch/Sales Doc.CopyWorkDescriptionSalesArchiveShipment reads it back through the caller's
+            // record). CalcFields then reads the row. Pinned by streams/CalcFieldsBlobStaleBuffer.al.
+            // An unsaved stream write is replaced the same way when the row changed since the write began
+            // (streams/CalcFieldsBlobStaleBuffer.al:75-98); `BlobBuf::written_base` says what the row held then.
+            let stale = keeps_content
+                && match stored.as_ref().map(|row| &row[pos]) {
+                    Some(Value::Blob(src)) => {
+                        let (src, buf) = (src.borrow(), buf.borrow());
+                        match (&buf.written_base, buf.written) {
+                            (_, false) => src.bytes != buf.bytes,
+                            (Some(base), true) => src.bytes != *base && src.bytes != buf.bytes,
+                            (None, true) => false,
+                        }
+                    }
+                    _ => false,
+                };
+            if stale {
+                // Pinned: streams/CalcFieldsBlobStaleBuffer.al (empty, loaded-earlier and unsaved-write buffers).
+            } else if keeps_content && (stored.is_some() || !rec.borrow().inserted) {
                 continue;
             }
             // A row that is not stored (a copy of a record never inserted) leaves the Blob empty: the buffer
@@ -1930,6 +1977,7 @@ impl Session {
             b.inserted = inserted;
             b.bytes = bytes;
             b.written = false;
+            b.written_base = None;
             b.fetched = true;
             // ADR-040: the stored row carries the mark of an output that was never produced.
             b.render_pending = pending;
@@ -1945,6 +1993,7 @@ impl Session {
             if let Value::Blob(b) = v {
                 let mut b = b.borrow_mut();
                 b.written = false;
+                b.written_base = None;
                 // A Blob the record read without CalcFields stays as stored by the save (record/load-fields/
                 // P81LoadFields.al:700-711) and stays unloaded: a later CalcFields fetches it (streams/TestBlob.al
                 // Blob_Get_WithoutCalcFields_InStreamReadsEmpty), it does not keep the empty view the buffer shows.
@@ -2067,8 +2116,11 @@ impl Session {
         if why == XP_VIEW_AFTER_EXPORT {
             return self.xp_view_after_export_op(method, rec, args);
         }
-        if why == RUN_PAGE_LINK_COPY {
-            return self.run_page_link_copy_op(method, rec, args);
+        if why == RUN_PAGE_LINK_COPY || why == RUN_PAGE_LINK_OPEN_COPY {
+            return self.run_page_link_copy_op(method, rec, args, why);
+        }
+        if why == RUN_PAGE_LINK_VARIANT {
+            return unsupported(format!("Record.{}(): {RUN_PAGE_LINK_VARIANT}", method.name()));
         }
         if why == MEDIA_KEY || why == FLOWFIELD_KEY {
             return self.media_key_op(method, rec, args, why);
@@ -2189,15 +2241,24 @@ impl Session {
 
     /// A record method on a by-value copy of Rec of a page an action opened through `RunPageLink` ([`RUN_PAGE_LINK_COPY`]):
     /// `GetFilters` of a copy that holds no filter reads '' (testpage/TestActionRunPageLinkFilterGroup.al:292-369, `filters=`),
-    /// the names of its table run, and every other method refuses.
-    fn run_page_link_copy_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
+    /// the names of its table run. On such a copy `Count` counts every row of the table and `Get` finds the current row and a
+    /// row outside the link (testpage/R7138RunPageLinkCopyGet.al:136-151, :218 `copy[] n=4;copy.get own O3;copy.get O1 O1`, in
+    /// OnAfterGetCurrRecord; not for a copy taken in OnOpenPage, [`RUN_PAGE_LINK_OPEN_COPY`]). Every other method refuses.
+    fn run_page_link_copy_op(
+        &mut self,
+        method: RecordOp,
+        rec: &Rec,
+        args: &mut [Value],
+        why: &'static str,
+    ) -> Result<Value, Signal> {
         let runs = match method {
             RecordOp::GetFilters => rec.borrow().filters.is_empty(),
+            RecordOp::Count | RecordOp::Get => why == RUN_PAGE_LINK_COPY && rec.borrow().filters.is_empty(),
             RecordOp::FieldNo | RecordOp::IsTemporary | RecordOp::TableName | RecordOp::TableCaption => true,
             _ => false,
         };
         if !runs {
-            return unsupported(format!("Rec.{}() on {RUN_PAGE_LINK_COPY}", method.name()));
+            return unsupported(format!("Rec.{}() on {why}", method.name()));
         }
         let flag = rec.borrow_mut().unpinned_buffer.take();
         let r = self.record_op_inner(method, rec, args);
@@ -2226,8 +2287,8 @@ impl Session {
     /// A record method: [`Session::record_op_inner`], with what it does to the snapshot `Record.IsDirty` compares with
     /// (isdirty.rs).
     pub(crate) fn record_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
-        // ADR-062: a record method of a restricted session; an unrestricted session pays one branch.
-        if self.permissions.is_some() {
+        // ADR-062: a record method of a restricted session, or of any session when the license limits a table (license_ceiling.rs).
+        if self.permission_checks() {
             let from_al = std::mem::take(&mut self.permission_from_al);
             self.permission_gate_record(method, rec, args, from_al)?;
         }
@@ -2527,7 +2588,7 @@ impl Session {
             self.global_group_check(rec, table, method.name())?;
         }
         // ADR-062: a denial of a method AL code calls raises BC's error where its shape is pinned.
-        if self.permissions.is_some() {
+        if self.permission_checks() {
             self.permission_from_al = true;
         }
         self.record_op(method, rec, args)

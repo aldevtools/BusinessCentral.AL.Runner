@@ -330,7 +330,7 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
             }
         }
         // A Boolean for a Code (a Boolean handed to `Get` of a Code key): as `Format` writes it, upper-cased: Get(true)
-        // finds the row YES and not 1 or TRUE (format-evaluate/AxEvaluateText.al:348 GetTrue_CodeKey_Yes).
+        // finds the row YES and not 1 or TRUE (format-evaluate/AxEvaluateText.al:332 GetTrue_CodeKey_Yes).
         // An assignment of a Boolean to a Text or Code does not compile (must-not-compile cases 1190, 1191). For a Text
         // (`Get` of a Text key) it is Yes or No (record/Y70Probes.al RecordGet_BooleanOnTextKey `text_true`, `text_false`).
         (Value::Boolean(b), T::Text(max)) => Value::Text(fit(if b { "Yes" } else { "No" }.to_string(), *max)?.into()),
@@ -1109,7 +1109,7 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
             return Ok(V::Date(sum, *c));
         }
         // A defined Date plus or minus a Decimal with a fraction raises; a subtraction names the negated amount
-        // (errors/PnF11DateDecimalArithmetic.al:57-117, DatePlusDecimal: 2.5, 0.4, -0.5, 12 / 5 as `2.4`;
+        // (errors/PnF11DateDecimalArithmetic.al:45-105, DatePlusDecimal: 2.5, 0.4, -0.5, 12 / 5 as `2.4`;
         // DateMinusDecimal: D - 2.5 names `-2.5`, D - -2.5 names `2.5`). A Decimal before the Date and the undefined date are
         // not pinned.
         (V::Date(a, _), V::Decimal(d)) if matches!(op, Arith::Add | Arith::Sub) && *a > 0 && !d.fract().is_zero() => {

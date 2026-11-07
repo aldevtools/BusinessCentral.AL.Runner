@@ -416,6 +416,11 @@ impl Session {
                     .iter()
                     .any(|(k, v)| k.eq_ignore_ascii_case("NotBlank") && v.trim().eq_ignore_ascii_case("true"))
             });
+        if let RtType::Enum(id) = &ty
+            && let Some(why) = self.enum_ml_unpinned(*id, None, "SetValue and ValidateValue of an enum control")
+        {
+            return unsupported(why);
+        }
         let mut blank_enum = None;
         if let (RtType::Enum(id), Value::Text(t) | Value::Code(t)) = (&ty, &arg) {
             if !t.is_empty() && t.chars().all(|c| c == ' ') {
@@ -584,18 +589,10 @@ impl Session {
         // A list shows no Refresh hint (testpage/PnC07TestPage.al:GetValidationError_AfterFailedValidation, ValueAssign_Number_FromText_And_Decimal);
         // a card does (testpage/TestPageErrTeardown_Tests.al, TestPageBooleanSpelling_Tests.al:210).
         let suffix = self.validation_suffix(st, idx, rec_bound);
+        let language = al_builtins::format::FormatCtx::language(self);
+        let draft_key = self.draft_integer_key(st, idx);
         let refuse_code = |msg: String, code: &str| -> Signal {
-            let stored = format!("{msg}{suffix}");
-            if let Err(why) = note_refusal(st, idx, stored.clone()) {
-                return why;
-            }
-            error_code(
-                format!(
-                    "Validation error for Field: {},  Message = '{stored}'",
-                    page_of(&engine, st).controls[idx].name
-                ),
-                code,
-            )
+            super::validation_text::validation_signal(&engine, st, idx, msg, suffix, code, (language, draft_key))
         };
         let refuse = |_: &mut Session, msg: String| -> Signal { refuse_code(msg, "") };
         // The bounds and the length of a Text variable raise a TestValidation error
@@ -995,10 +992,11 @@ impl Session {
                     self.pages.curr_field_no.pop();
                     validated?;
                 }
+                // The value is dropped: see `ir::EXT_MIRROR_PROPERTY`.
+                ir::Binding::BaseVar(_) if ctl.props.iter().any(|(n, _)| n == ir::EXT_MIRROR_PROPERTY) => {}
                 ir::Binding::Var(_) | ir::Binding::BaseVar(_) => {
                     let (slot, owner) = ctl.binding.var_slot(ctl.owner).expect("a variable binding");
-                    let inst = self.owner_instance(st, owner);
-                    inst.borrow_mut().globals[slot] = parsed.clone();
+                    self.owner_instance(st, owner).borrow_mut().globals[slot] = parsed.clone();
                 }
                 // A control bound to an expression that is a place (`Totals[1]."Inv. Discount Amount"`) is written through the
                 // routine `pages::expand` made; the value is converted to the type the path holds, then the control's OnValidate runs
@@ -1232,6 +1230,14 @@ impl Session {
             )
     }
 
+    /// The built-in Edit or View action switches the open page to `mode`; the parts follow the host (corpus
+    /// testpage/TestPageControlEditableRoutes.al: Part_HostOpenEdit_ThenViewAction).
+    pub(super) fn switch_mode(&mut self, st: &St, mode: PageMode) -> Result<Value, Signal> {
+        st.borrow_mut().mode = mode;
+        self.set_part_modes(st, mode);
+        Ok(Value::Null)
+    }
+
     /// Whether control `idx` sits inside a `cuegroup` with `CuegroupLayout = Wide`.
     fn in_wide_cue_group(&self, st: &St, idx: usize) -> bool {
         let engine = self.engine();
@@ -1395,6 +1401,8 @@ impl Session {
                     return match m {
                         PageMethod::Visible => Ok(Value::Boolean(true)),
                         PageMethod::Enabled => Ok(Value::Boolean(enabled)),
+                        // A list without a card switches its own mode (testpage/R6977ListViewNext.al, R6977ListAfterView.al).
+                        PageMethod::Invoke if enabled && card.is_none() => self.switch_list_without_card(st, edit),
                         PageMethod::Invoke if !enabled || card.is_none() => Ok(Value::Null),
                         PageMethod::Invoke => self.list_card_action(st, edit),
                         other => unsupported(format!(
@@ -1410,10 +1418,7 @@ impl Session {
                     PageMethod::Invoke => {
                         if applies {
                             let mode = if name == "Edit" { PageMode::Edit } else { PageMode::View };
-                            st.borrow_mut().mode = mode;
-                            // The parts follow the host (corpus testpage/TestPageControlEditableRoutes.al:
-                            // Part_HostOpenEdit_ThenViewAction).
-                            self.set_part_modes(st, mode);
+                            return self.switch_mode(st, mode);
                         }
                         Ok(Value::Null)
                     }
@@ -1448,24 +1453,9 @@ impl Session {
                 }
                 // OK and Yes confirm, Cancel and No cancel; a refused save keeps the page open
                 // (corpus testpage/lifecycle/TestPageClosingActions.al).
-                // The client reads the row of a card before Cancel, as before any action (pages/run-modal/P82PageRun.al:
-                // RunModal_NumberAndRecord_Cancel `OnAfterGetRecord(C);OnAfterGetRecord(C);OnQueryClosePage(LookupCancel)`); OK reads nothing
-                // (RunModal_Number_OnCard).
-                if name == "Cancel"
-                    && self.has_source(st)
-                    && !self.is_list(st)
-                    && !self.is_request_page(st)
-                    && st.borrow().cursor == Cursor::Row
-                    && !st.borrow().draft
-                    && self.declares(st, "onaftergetrecord")
-                {
-                    self.populate_current(st)?;
-                    // A page with OnAfterGetCurrRecord runs it after that read (ui-handlers/P129Handlers.al:
-                    // P129_TwoTestPageHandlers_SecondPageOpenedByAnActionOfTheFirstHandler: `card AGR 1;card AGCR 1;card OnQueryClosePage`).
-                    if self.declares(st, "onaftergetcurrrecord") {
-                        self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
-                        self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
-                    }
+                if name == "Cancel" {
+                    self.cancel_reads_card_row(st)?;
+                    self.cancel_refinds_static_lookup_row(st)?;
                 }
                 // Yes on a ConfirmationDialog whose control still holds a refused entry closes it as Cancel; the values it took stay
                 // (pages/values-allowed-set-value/Y37ValuesAllowedSetValue.al:193-196, :225-226; without a refused entry Yes reports Yes,
@@ -1599,7 +1589,7 @@ impl Session {
                 Ok(r)
             }
             PageMethod::Value => {
-                if self.shows_no_row(st, idx) {
+                if self.value_reads_blank(st, idx) || self.reads_blank_without_row(st, idx) {
                     return Ok(Value::Text(String::new().into()));
                 }
                 let v = self.control_value(st, idx)?;
@@ -1953,4 +1943,44 @@ pub(super) fn note_refusal(st: &St, idx: usize, text: String) -> Result<(), Sign
 /// after `base MyProc<-base validate`).
 fn unpinned_ext_validate(before: &[(usize, usize)], after: &[(usize, usize)], request_page: bool) -> bool {
     !before.is_empty() || (!after.is_empty() && !request_page)
+}
+
+impl Session {
+    /// Cancel of a list with OnFindRecord that the static Page.RunModal opened in lookup mode finds the current row again (`=`) and
+    /// reads it before it closes; the record is left on that row (corpus branch al-runtime-rs-staging-r6962,
+    /// pages/run-modal/StaticRunModalFindRecordLookup.al StaticRunModalZero_FilteredNotPositioned_Cancel
+    /// `...;H:opened=V2;F:==Yes;R:V2;H:cancel;`, `selected` V2; issue 6992).
+    fn cancel_refinds_static_lookup_row(&mut self, st: &St) -> Result<(), Signal> {
+        let shape = {
+            let s = st.borrow();
+            s.lookup && s.static_lookup && s.host.is_none() && s.cursor == Cursor::Row && !s.draft
+        };
+        if shape && self.is_list(st) && self.declares(st, "onfindrecord") && self.nav_find(st, "=")? {
+            self.populate_current(st)?;
+        }
+        Ok(())
+    }
+
+    /// Before Cancel the client reads the row of a card.
+    fn cancel_reads_card_row(&mut self, st: &St) -> Result<(), Signal> {
+        // The client reads the row of a card before Cancel, as before any action (pages/run-modal/P82PageRun.al:
+        // RunModal_NumberAndRecord_Cancel `OnAfterGetRecord(C);OnAfterGetRecord(C);OnQueryClosePage(LookupCancel)`); OK reads nothing
+        // (RunModal_Number_OnCard).
+        if self.has_source(st)
+            && !self.is_list(st)
+            && !self.is_request_page(st)
+            && st.borrow().cursor == Cursor::Row
+            && !st.borrow().draft
+            && self.declares(st, "onaftergetrecord")
+        {
+            self.populate_current(st)?;
+            // A page with OnAfterGetCurrRecord runs it after that read (ui-handlers/P129Handlers.al:
+            // P129_TwoTestPageHandlers_SecondPageOpenedByAnActionOfTheFirstHandler: `card AGR 1;card AGCR 1;card OnQueryClosePage`).
+            if self.declares(st, "onaftergetcurrrecord") {
+                self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
+                self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
+            }
+        }
+        Ok(())
+    }
 }

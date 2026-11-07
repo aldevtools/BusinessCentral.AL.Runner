@@ -7,7 +7,7 @@ use al_vm::Engine;
 
 /// Runs the test codeunit `T` of the workspace app `objects`. `apps` are dependency apps in order, each one
 /// depending on the ones before it; the workspace app depends on all of them.
-fn run_with_deps(apps: &[&str], objects: &str) -> Vec<(String, Outcome)> {
+pub(crate) fn run_with_deps(apps: &[&str], objects: &str) -> Vec<(String, Outcome)> {
     let mut sources = Vec::new();
     let mut kinds = Vec::new();
     let mut ids: Vec<String> = Vec::new();
@@ -38,7 +38,7 @@ fn run_with_deps(apps: &[&str], objects: &str) -> Vec<(String, Outcome)> {
     run_codeunit(&engine, &l, oi)
 }
 
-fn all_pass(results: Vec<(String, Outcome)>) {
+pub(crate) fn all_pass(results: Vec<(String, Outcome)>) {
     assert!(!results.is_empty());
     for (name, outcome) in results {
         assert_eq!(outcome, Outcome::Pass, "{name}");
@@ -1056,7 +1056,7 @@ fn issue_6173_filter_element_read_without_a_row_raises() {
 
 /// Issue 6174: a query column over a Sum or Count FlowField of a LeftOuterJoin dataitem is calculated per joined
 /// row, and is 0 for a parent row without a matching child. Pins:
-/// queries/P130QueryOuterFlow.al:163-184 (P130_Query_FlowFieldOfOuterJoinedItem) and :210-229.
+/// queries/P130QueryOuterFlow.al:151-172 (P130_Query_FlowFieldOfOuterJoinedItem) and :210-229.
 #[test]
 fn issue_6174_flowfield_column_of_outer_joined_item() {
     let objects = "

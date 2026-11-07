@@ -122,6 +122,26 @@ impl Session {
                         }
                     }
                 }
+                // The sender of a page extension's event is the page instance the extension runs on, as a `Page` variable: the
+                // subscriber calls base and extension procedures through it, which read that instance's live Rec and variables
+                // (PageExtensionSender.al:Card_SubscriberSeesSender, Card_HeldSender_CallsWhileOpen, Card_TwoPagesTwoSenders,
+                // List_SenderPerRow, Document_HeaderAndLinesSenders).
+                (al_ir::ObjKind::PageExtension, _) => {
+                    let base = instance.borrow().base.as_ref().and_then(std::rc::Weak::upgrade);
+                    let sender = base.and_then(|base| {
+                        let bo = &engine.program.objects[base.borrow().object as usize];
+                        let slot = bo.globals.iter().position(|g| g.name == "CurrPage")?;
+                        let v = base.borrow().globals[slot].clone();
+                        Some(v)
+                    });
+                    if sender.is_none() {
+                        sender_refused = Some(format!(
+                            "{}: IncludeSender on a pageextension that runs without its page (not pinned)",
+                            r.name
+                        ));
+                    }
+                    sender
+                }
                 (al_ir::ObjKind::Codeunit, _) => Some(Value::Codeunit(instance)),
                 // The sender of a page's event is the page (a `Page` variable), not its Rec: Item Tracking Lines
                 // publishes with IncludeSender and Asm. Item Tracking Mgt. takes `var sender: Page "Item Tracking
@@ -243,14 +263,7 @@ impl Session {
         // Manual instances that unbound themselves while one of their own subscriber methods ran in this raise.
         let mut self_unbound: Vec<Inst> = Vec::new();
         refresh(args);
-        let raised = crate::guard_exit::Raised {
-            names,
-            args,
-            aliased: (0..args.len())
-                .map(|j| matches!(origins.get(j), Some(Some(_))))
-                .collect(),
-        };
-        let targets = self.event_targets(object, event, element, Some(&raised))?;
+        let targets = self.event_targets(object, event, element)?;
         for (s, inst) in targets {
             // A manual instance unbound since the raise began. One that unbound itself in an earlier method of this raise
             // is not called again (events/ProbeEventSubscriberOrder.al:253
@@ -316,6 +329,9 @@ impl Session {
                 })
                 .collect();
             if engine.routine_facts(s.object, s.routine).var_lens {
+                if object == crate::events::CAPTION_CLASS {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::CaptionClassEventVarLength);
+                }
                 self.events.next_var_lens = map
                     .iter()
                     .map(|m| m.and_then(|j| lens.get(j).copied().flatten()))
@@ -358,7 +374,10 @@ impl Session {
                 if let (Some(j), true) = (m, r.by_var[i]) {
                     args[*j] = finals[i].clone();
                     if let Some(Some((inst, g))) = origins.get(*j) {
+                        // A write of the publisher's global through a subscriber's `var` parameter (ADR-066 amendment 3, R1).
+                        self.single_wrote(inst, *g);
                         inst.borrow_mut().globals[*g] = finals[i].clone();
+                        self.single_written(inst, *g);
                     }
                 }
             }
@@ -367,17 +386,23 @@ impl Session {
         Ok(())
     }
 
+    /// Whether raising `event` of `object` now would reach a subscriber (a static one, or a manual one with a bound instance),
+    /// or would be refused for one.
+    pub(crate) fn event_reaches_any(&mut self, object: usize, event: &str) -> bool {
+        if !self.engine.events.is_subscribed(object, event) {
+            return false;
+        }
+        !matches!(self.event_targets(object, event, None), Ok(v) if v.is_empty())
+    }
+
     /// The subscribers an event reaches right now, each with the instance it
     /// runs on: static subscribers always, manual ones once per bound instance.
     /// `element` filters field events by field name.
-    /// `raised` (the arguments of the raise, when there is one) lets subscribers whose guard exits for them stand anywhere in
-    /// an unpinned cross-app order (`guard_exit.rs`).
     fn event_targets(
         &mut self,
         object: usize,
         event: &str,
         element: Option<&str>,
-        raised: Option<&crate::guard_exit::Raised>,
     ) -> Result<Vec<(crate::events::Subscriber, Inst)>, Signal> {
         let engine = self.engine.clone();
         // A subscriber BC would run and this program has no code for: running the event without it
@@ -391,6 +416,8 @@ impl Session {
         let Some(subs) = engine.events.subscribers.get(&(object, event.to_string())) else {
             return Ok(Vec::new());
         };
+        // A binding only a gone page held ends before the event picks its targets (page_held_bindings.rs).
+        self.prune_page_held();
         let mut targets = Vec::new();
         for s in subs {
             if self
@@ -473,6 +500,7 @@ impl Session {
             }
             if s.manual {
                 for inst in self.bound_instances(s.object) {
+                    self.refuse_unpinned_page_binding(&inst)?;
                     targets.push((s.clone(), inst));
                 }
             } else {
@@ -523,50 +551,9 @@ impl Session {
                 .unwrap_or(0);
             order.push(left.remove(at));
         }
-        let dependency_app = |a: usize| program.apps.get(a).is_some_and(|x| x.dependency);
-        let name = |a: usize| {
-            program
-                .apps
-                .get(a)
-                .map_or_else(|| format!("app {a}"), |x| x.name.clone())
-        };
-        // Kept, not pinned: two dependency apps (Microsoft's) that do not depend on each other keep the order the
-        // runtime had before the cross-app probe, ascending codeunit id across them (one block below).
-        let mut kept = false;
-        let mut unrelated = false;
-        for (i, &first) in order.iter().enumerate() {
-            for &later in &order[i + 1..] {
-                if depends(later, first) {
-                    continue;
-                }
-                if dependency_app(first) && dependency_app(later) {
-                    kept = true;
-                } else {
-                    unrelated = true;
-                }
-            }
-        }
-        // One block per app in `order`; with a kept pair, each run of dependency apps none of which depends on
-        // another is one block in codeunit id order.
+        // One block per app in `order`, subscribers of one app in ascending subscriber codeunit id.
         let sorted = |order: &[usize], mut targets: Vec<(crate::events::Subscriber, Inst)>| {
-            let mut blocks: Vec<(usize, usize)> = Vec::new();
-            for (i, &app) in order.iter().enumerate() {
-                let merge = kept
-                    && i > 0
-                    && dependency_app(app)
-                    && blocks.last().is_some_and(|&(_, b)| {
-                        blocks
-                            .iter()
-                            .filter(|&&(_, ob)| ob == b)
-                            .all(|&(o, _)| dependency_app(o) && !depends(app, o))
-                    });
-                let block = match blocks.last() {
-                    Some(&(_, b)) if merge => b,
-                    Some(&(_, b)) => b + 1,
-                    None => 0,
-                };
-                blocks.push((app, block));
-            }
+            let blocks: Vec<(usize, usize)> = order.iter().copied().enumerate().map(|(i, app)| (app, i)).collect();
             let rank = |s: &crate::events::Subscriber| {
                 blocks
                     .iter()
@@ -576,6 +563,14 @@ impl Session {
             targets.sort_by_key(|(s, _)| (rank(s), id_of(s)));
             targets
         };
+        let mut unrelated = false;
+        for (i, &first) in order.iter().enumerate() {
+            for &later in &order[i + 1..] {
+                if !depends(later, first) {
+                    unrelated = true;
+                }
+            }
+        }
         if !unrelated {
             return Ok(sorted(&order, targets));
         }
@@ -598,38 +593,13 @@ impl Session {
         if let Some(measured) = measured_order(program, object, event, &order, &depends) {
             return Ok(sorted(&measured, targets));
         }
-        // A subscriber whose guard exits for this raise has no effect wherever it runs: only the others need one order
-        // under every reading (guard_exit.rs, al-runner issue 6924). All of them run, in the pinned reading's order.
-        let subs: Vec<crate::events::Subscriber> = targets.iter().map(|(s, _)| s.clone()).collect();
-        let exited = raised.map_or_else(|| vec![false; subs.len()], |r| self.guard_exited(&subs, r));
-        let live: Vec<_> = targets
-            .iter()
-            .zip(&exited)
-            .filter(|(_, e)| !**e)
-            .map(|(t, _)| t.clone())
-            .collect();
+        // Every app in ascending app id, each app's dependencies before it (depth first, post-order). Pinned for apps that do
+        // not depend on each other by events/subscriber-order/TtSubscriberOrderTests.al:37-44 (`N;A;M;T;` on every major:
+        // BC walks from every app, not only from the apps no other app depends on, and does not sort by publisher; al-runner
+        // issue 6924).
         let models = visit_orders(&program.apps);
-        let reading = |full: &[usize]| -> Vec<usize> { full.iter().copied().filter(|a| order.contains(a)).collect() };
-        let pinned = sorted(&reading(&models[0].1), targets.clone());
-        let mut results = models
-            .iter()
-            .map(|(what, full)| (*what, sorted(&reading(full), live.clone())));
-        let (_, first) = results.next().expect("at least one reading");
-        for (what, other) in results {
-            let at = first
-                .iter()
-                .zip(&other)
-                .position(|(x, y)| x.0.object != y.0.object || x.0.routine != y.0.routine);
-            if let Some(at) = at {
-                let (x, y) = (app_of(&first[at].0), app_of(&other[at].0));
-                return unsupported(format!(
-                    "event {event}: subscribers in apps {} and {}, whose order BC does not pin for this event (the \
-                     corpus pins apps in ascending app id, each app's dependencies before it; not pinned: {what})",
-                    name(x),
-                    name(y)
-                ));
-            }
-        }
+        let reading: Vec<usize> = models[0].1.iter().copied().filter(|a| order.contains(a)).collect();
+        let pinned = sorted(&reading, targets);
         // Pinned by events/subscriber-order/BwSubscriberOrderTests.al SubscriberOrder_PlatformTableEvent_AppsThatDoNotDependOnEachOther_SixApps, SubscriberOrder_PlatformTableEvent_DuringInstallOfTheTestApp, SubscriberOrder_PlatformTableEvent_DependenciesVisitedInAppIdOrderNotDeclaredOrder, SubscriberOrder_PlatformTableEvent_DependenciesVisitedInAppIdOrder_DuringInstall (was assumption `cross-app-subscriber-order-by-app-id`).
         Ok(pinned)
     }
@@ -639,7 +609,7 @@ impl Session {
         if !self.engine.events.is_subscribed(object, event) {
             return Ok(false);
         }
-        Ok(!self.event_targets(object, event, element, None)?.is_empty())
+        Ok(!self.event_targets(object, event, element)?.is_empty())
     }
 
     /// The instance a static (automatic) subscriber runs on: the session's one instance for a
@@ -674,7 +644,7 @@ impl Session {
     }
 
     /// The bound instances per manual subscriber codeunit, for the Event Subscription table.
-    fn sync_active_instances(&mut self) {
+    pub(crate) fn sync_active_instances(&mut self) {
         self.events.bindings.retain(|b| b.instance.strong_count() > 0);
         let mut active = std::collections::HashMap::new();
         for b in &self.events.bindings {
@@ -735,9 +705,11 @@ impl Session {
                 };
             }
             self.ensure_initialized(&inst);
+            self.forget_page_held(&inst);
             self.events.bindings.push(Binding {
                 instance: Rc::downgrade(&inst),
             });
+            self.note_page_binding(&inst);
             self.sync_active_instances();
             Ok(Value::Boolean(true))
         } else if manual {
@@ -745,6 +717,7 @@ impl Session {
             if let Some(i) = at {
                 self.events.bindings.remove(i);
             }
+            self.forget_page_held(&inst);
             self.sync_active_instances();
             Ok(Value::Boolean(true))
         } else if ret_used {

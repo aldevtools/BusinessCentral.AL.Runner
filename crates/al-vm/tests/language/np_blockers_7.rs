@@ -99,6 +99,9 @@ fn evaluate_into_a_fieldref_as_a_statement_raises_and_keeps_the_field() {
         table_text(vars, &body(3, "abc")),
         "The format of the Date 'abc' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'.|Evaluate|"
     );
-    // A DateTime field is not pinned.
-    assert!(table_text(vars, &body(9, "abc")).starts_with("unsupported:Evaluate into a FieldRef of type"));
+    // A DateTime field: N582EvalFieldRefUnused.al:312 `datetime abc` (the refusal is gone).
+    assert_eq!(
+        table_text(vars, &body(9, "abc")),
+        "The value \"abc\" can't be evaluated into type DateTime.|Evaluate|"
+    );
 }

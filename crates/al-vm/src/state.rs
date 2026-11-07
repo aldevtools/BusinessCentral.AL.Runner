@@ -233,6 +233,9 @@ pub(crate) struct PageClients {
     /// Set by a FindFirst or FindLast that found a row on Rec in the OnOpenPage of a page an action opened through
     /// RunPageLink (`records.rs`); taken by `open_page_as` into `PageState::run_page_link_open_moved`.
     pub(crate) run_page_link_open_moved: bool,
+    /// How many OnOpenPage triggers of pages an action opened through RunPageLink are running now: a by-value copy of Rec taken
+    /// in one is `records::RUN_PAGE_LINK_OPEN_COPY` (see `Session::record_by_value`).
+    pub(crate) run_page_link_opening: u32,
     /// The close that starts next is a TestPage's own Close() (taken by `close_with`).
     pub(crate) test_close: bool,
     /// The save of the close running now failed with an AL Error (`pages/close_save_failed.rs`).
@@ -251,6 +254,13 @@ pub(crate) struct PageClients {
 pub(crate) struct EventState {
     /// Manual event subscriptions made by `BindSubscription`.
     pub(crate) bindings: Vec<dispatch::Binding>,
+    /// Manual bindings whose bound instance the globals of a page reached when they were made (`page_held_bindings.rs`,
+    /// al-runner issue 6924).
+    pub(crate) page_held: Vec<crate::page_held_bindings::PageHeld>,
+    /// The pages that have an instance and may still run code (`page_held_bindings.rs`).
+    pub(crate) pages_with_instance: Vec<std::rc::Weak<RefCell<al_builtins::value::PageState>>>,
+    /// The pages a Page variable's non-modal `Run` showed last (`page_held_bindings.rs`).
+    pub(crate) page_var_runs: Vec<std::rc::Weak<RefCell<al_builtins::value::PageState>>>,
     /// What the Event Subscription table reports (calls handled, bound instances).
     pub(crate) event_stats: Rc<platform::EventStats>,
     /// `publish` is about to raise its event: the next `raise` has an event frame on the stack.
@@ -287,6 +297,9 @@ pub(crate) struct EventState {
     /// The tables the install code of the apps under test may write (`Session::set_install_written_tables`); `None`: not
     /// known, so no table counts as empty in either install order (empty_reads.rs).
     pub(crate) install_written: Option<std::collections::BTreeSet<u32>>,
+    /// Tables of `install_written` that only their own app's install code writes, with the rows it may insert
+    /// (`Session::set_install_rows`, empty_reads.rs).
+    pub(crate) install_rows: Option<std::sync::Arc<crate::empty_reads::InstallRows>>,
     /// While the database trigger setup of one table is asked, or a database trigger event of one table is raised: the
     /// subscribers of `order_unknown_apps` that leave every flag unchanged for it (setup_no_op.rs), or do nothing for it
     /// (db_event_no_op.rs), which the raise leaves out instead of refusing.
@@ -381,6 +394,8 @@ pub(crate) struct ReportState {
     pub(crate) report_save_tried: Vec<std::rc::Weak<RefCell<Instance>>>,
     /// Report variables a procedure of the caller initialized before their run (`SetParameters` and the like).
     pub(crate) prepared: Vec<std::rc::Weak<RefCell<Instance>>>,
+    /// For each of those: the global slots the procedures the caller ran on it can write (`Session::note_caller_writes`).
+    pub(crate) caller_writes: Vec<(std::rc::Weak<RefCell<Instance>>, std::collections::HashSet<usize>)>,
     /// Report variables whose request page OnInit ran at a procedure's first use (`Session::first_use`): the run does not
     /// run it again.
     pub(crate) rp_init_done: Vec<std::rc::Weak<RefCell<Instance>>>,

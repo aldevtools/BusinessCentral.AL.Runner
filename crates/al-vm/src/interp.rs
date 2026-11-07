@@ -86,7 +86,7 @@ impl Session {
         let drain_pending = self.pages.bg_drain_after_call.is_some();
         let ret = native(self, recv.as_mut(), &mut values)?;
         if let (Some(ir::Arg::Ref(p)), Some(v)) = (receiver, recv) {
-            self.write(p, v, f)?;
+            self.write_native_back(p, v, f)?;
         }
         for (a, v) in args.iter().zip(values.drain(..)) {
             if let ir::Arg::Ref(p) = a {
@@ -95,7 +95,7 @@ impl Session {
                 } else {
                     self.fit_ref_number(p, v, f)?
                 };
-                self.write(p, v, f)?;
+                self.write_native_back(p, v, f)?;
             }
         }
         self.return_vec(values);
@@ -195,13 +195,25 @@ impl Session {
     /// `ClearAll()` resets every global variable of the running object to its default;
     /// locals are untouched (docs/probes-needed.md "ClearAll"). In a codeunit with a TableNo,
     /// a table and a page the record stays as it is and so does the page itself
-    /// (session-system/TestClearAllTransactionTypeContracts.al:224-285, BC 27.5). Any other object
+    /// (session-system/TestClearAllTransactionTypeContracts.al:224-285, BC 27.5); a table extension too, with the base table
+    /// (`clear_all_other_table_instances`), and a page extension with the base page (`clear_all_base_page`). Any other object
     /// kind is refused.
     pub(crate) fn clear_all(&mut self, f: &Frame) -> Result<Value, Signal> {
         let object = f.instance.borrow().object as usize;
         let o = &self.engine.program.objects[object];
         let keep: Vec<usize> = match o.kind {
             al_ir::ObjKind::Codeunit | al_ir::ObjKind::Table => o.rec_slot.into_iter().collect(),
+            // A table extension keeps its record, fields and filters, as a table does (pages/extensions/CyClearAllExtensions.al:
+            // 137-162, record/ProbeClearAllSetKeyHyperlink.al:358-385); the base table's globals are reset below.
+            al_ir::ObjKind::TableExtension => o.rec_slot.into_iter().chain(o.xrec_slot).collect(),
+            // A page extension keeps Rec, xRec and CurrPage, as a page does; the base page's globals are reset below
+            // (`clear_all_base_page`, pages/extensions/CyClearAllExtensions.al:166-193).
+            al_ir::ObjKind::PageExtension => o
+                .rec_slot
+                .into_iter()
+                .chain(o.xrec_slot)
+                .chain(o.globals.iter().position(|g| g.name == "CurrPage"))
+                .collect(),
             al_ir::ObjKind::Page => o
                 .rec_slot
                 .into_iter()
@@ -217,8 +229,10 @@ impl Session {
                 return Err(Signal::Unsupported(format!("ClearAll in a {} (not pinned)", o.kind)));
             }
         };
-        self.alias_any(f)?;
+        let table_like = matches!(o.kind, al_ir::ObjKind::Table | al_ir::ObjKind::TableExtension);
+        let page_ext = o.kind == al_ir::ObjKind::PageExtension;
         let tys: Vec<RtType> = o.globals.iter().map(|g| g.ty.clone()).collect();
+        self.alias_any(f)?;
         let fresh: Vec<Value> = tys.iter().map(|t| self.default_value(t)).collect();
         let mut inst = f.instance.borrow_mut();
         for (i, v) in fresh.into_iter().enumerate() {
@@ -236,6 +250,14 @@ impl Session {
                 }
                 inst.globals[i] = v;
             }
+        }
+        if table_like {
+            drop(inst);
+            return self.clear_all_other_table_instances(f);
+        }
+        if page_ext {
+            drop(inst);
+            return self.clear_all_base_page(f);
         }
         // ClearAll in a page resets the globals of its page extensions too: a flag an extension set in its OnOpenPage reads
         // false in the extension's OnAfterGetRecord once the base page's OnAfterGetRecord called ClearAll, for a base page of the
@@ -276,6 +298,61 @@ impl Session {
                         ei.globals[i] = v;
                     }
                 }
+            }
+        }
+        Ok(Value::Null)
+    }
+
+    /// The rest of `ClearAll()` in a table or a table extension: the globals of the other instances of the record
+    /// variable are reset as well, except their `Rec` and `xRec`. In a table extension the base table's globals go
+    /// (pages/extensions/CyClearAllExtensions.al:137-153 `in ext: base glob` 0); in the base table the extension's
+    /// globals go (CyClearAllExtensions.al:154-162 `in base: ext glob` 0, record/ProbeClearAllSetKeyHyperlink.al:373-384).
+    /// Only one extension with globals is pinned: a second one, or a global temporary record there, is refused.
+    fn clear_all_other_table_instances(&mut self, f: &Frame) -> Result<Value, Signal> {
+        let own = f.instance.borrow().object as usize;
+        let engine = self.engine.clone();
+        let objects = &engine.program.objects;
+        let Some(Value::Record(rec)) = objects[own]
+            .rec_slot
+            .and_then(|s| f.instance.borrow().globals.get(s).cloned())
+        else {
+            return Ok(Value::Null);
+        };
+        let slots = |o: usize| -> Vec<usize> { objects[o].rec_slot.into_iter().chain(objects[o].xrec_slot).collect() };
+        let others: Vec<(usize, Rc<RefCell<Instance>>)> = rec
+            .borrow()
+            .globals
+            .instances()
+            .into_iter()
+            .filter(|(_, i)| !Rc::ptr_eq(i, &f.instance))
+            .map(|(o, i)| (o as usize, i))
+            .filter(|(o, _)| (0..objects[*o].globals.len()).any(|g| !slots(*o).contains(&g)))
+            .collect();
+        let exts = others
+            .iter()
+            .filter(|(o, _)| objects[*o].kind == al_ir::ObjKind::TableExtension)
+            .count();
+        let own_ext = objects[own].kind == al_ir::ObjKind::TableExtension;
+        if exts > usize::from(!own_ext) {
+            return Err(Signal::Unsupported(
+                "ClearAll in a table or table extension while a second extension of the table holds globals (not pinned)".into(),
+            ));
+        }
+        for (o, inst) in others {
+            let keep = slots(o);
+            let tys: Vec<RtType> = objects[o].globals.iter().map(|g| g.ty.clone()).collect();
+            let fresh: Vec<Value> = tys.iter().map(|t| self.default_value(t)).collect();
+            let mut i = inst.borrow_mut();
+            for (g, v) in fresh.into_iter().enumerate() {
+                if keep.contains(&g) {
+                    continue;
+                }
+                if matches!(&i.globals[g], Value::Record(r) if r.borrow().temporary) {
+                    return Err(Signal::Unsupported(
+                        "ClearAll in a table or table extension whose other part has a global temporary record (not pinned)".into(),
+                    ));
+                }
+                i.globals[g] = v;
             }
         }
         Ok(Value::Null)
@@ -444,11 +521,11 @@ impl Session {
     /// The statement at position `p` begins: the call stack, the profiler and coverage see it.
     #[inline(always)]
     pub(crate) fn at_pos(&mut self, p: u32) {
+        if profile::ON.load(std::sync::atomic::Ordering::Relaxed) {
+            self.profile_sample(None);
+        }
         if let Some(top) = self.call_stack.last_mut() {
             top.pos = p;
-        }
-        if profile::ON.load(std::sync::atomic::Ordering::Relaxed) {
-            self.profile_sample();
         }
         if self.coverage.code_coverage {
             self.coverage_hit(p);
@@ -537,6 +614,7 @@ impl Session {
         try_call: bool,
         f: &mut Frame,
     ) -> Result<Value, Signal> {
+        let mut lagged = None;
         let inst = match instance {
             None => f.instance.clone(),
             Some(v) => match v {
@@ -596,6 +674,7 @@ impl Session {
                 // is constructed at first use.
                 Value::TestPage(st) => {
                     let i = self.construct_page(&st)?;
+                    lagged = self.enter_server_row(&st);
                     // A procedure a page extension declares runs on the extension's instance.
                     let ext = st
                         .borrow()
@@ -613,7 +692,11 @@ impl Session {
                 }
             },
         };
-        self.finish_call(object, routine, inst, args, values, try_call, f)
+        let result = self.finish_call(object, routine, inst, args, values, try_call, f);
+        if let Some((rec, now)) = lagged {
+            rec.borrow_mut().fields = now;
+        }
+        result
     }
 
     /// Evaluates the arguments of a resolved call and runs it on `inst`, writing back the
@@ -648,7 +731,11 @@ impl Session {
         // The variables the frame's event parameters stand for: the parameter's value goes to the variable before the call and
         // the variable's value comes back after it, because the callee (the sender) may read or change either.
         for (slot, inst, g) in &f.aliases {
+            // The global a `var` parameter of this frame stands for gets the parameter's value: a write (ADR-066
+            // amendment 3, R1).
+            self.single_wrote(inst, *g);
             inst.borrow_mut().globals[*g] = f.locals[*slot].clone();
+            self.single_written(inst, *g);
         }
         // While the call runs, the global is the current value of a parameter of this frame that aliases it.
         let own_aliases = self.set_alias_live(f, false);
@@ -823,6 +910,14 @@ impl Session {
         any
     }
 
+    /// A read of global `i` of the frame's instance: the alias watch, then the single-instance notes.
+    #[inline]
+    pub(crate) fn global_read(&mut self, i: usize, f: &Frame) -> Result<(), Signal> {
+        self.alias_access(i, f)?;
+        self.single_read(&f.instance, i);
+        Ok(())
+    }
+
     /// Before a read or a write of global `i` of the frame's instance by its own name while a procedure that got the same
     /// global by `var` runs. In the frame of that procedure, when it is of the same instance, the parameter and the global
     /// are one variable (codeunits/procedures/VarGlobalAlias.al:96-110, :160-169): the parameter's value goes to the
@@ -925,7 +1020,10 @@ impl Session {
         }
         if !self.singletons.contains_key(&object) {
             let inst = self.instance(object);
+            self.single_made(object, &inst);
             self.singletons.insert(object, inst);
+        } else if !self.singles_unclaimed.is_empty() {
+            self.claim_carried_single(object);
         }
         self.singletons[&object].clone()
     }
@@ -999,6 +1097,31 @@ impl Session {
                  instance of that extension"
                     .into(),
             )
+        })
+    }
+
+    /// The instance of table or table extension `object` on the record in place `base` (`Other.<protected var>` in a table
+    /// extension, al-runner issue 6984): the one the record's calls run on, made and kept in the record when it has none yet
+    /// (ADR-021 per-record instances; corpus PR 1126, table-objects/extensions/ProtectedVarCrossApp.al).
+    fn record_instance(
+        &mut self,
+        base: &ir::Place,
+        object: usize,
+        f: &mut Frame,
+    ) -> Result<Rc<RefCell<Instance>>, Signal> {
+        let Value::Record(rec) = self.read(base, f)? else {
+            return Err(Signal::Unsupported(
+                "internal error: a protected variable named through a record variable that holds no record".into(),
+            ));
+        };
+        let existing = rec.borrow().globals.instance(object as u32);
+        Ok(match existing {
+            Some(i) => i,
+            None => {
+                let i = self.table_instance(object);
+                rec.borrow().globals.set_instance(object as u32, i.clone());
+                i
+            }
         })
     }
 
@@ -1085,6 +1208,7 @@ impl Session {
                 Err(_) => RtType::Variant,
             },
             ir::Place::ExtGlobal(e, i) => self.engine.program.objects[*e].globals[*i].ty.clone(),
+            ir::Place::RecGlobal(_, o, i) => self.engine.program.objects[*o].globals[*i].ty.clone(),
             ir::Place::Index(base, _) => match self.place_type(base, f) {
                 RtType::Array(_, el) => *el,
                 other => other,
@@ -1149,6 +1273,7 @@ impl Session {
             ir::Place::Local(i) => Ok(f.locals[*i].clone()),
             ir::Place::Global(i) => {
                 self.alias_access(*i, f)?;
+                self.single_read(&f.instance, *i);
                 Ok(f.instance.borrow().globals[*i].clone())
             }
             ir::Place::BaseGlobal(i) => {
@@ -1159,6 +1284,11 @@ impl Session {
             ir::Place::ExtGlobal(e, i) => {
                 let ext = self.sibling_instance(f, *e)?;
                 let v = ext.borrow().globals.get(*i).cloned();
+                v.ok_or_else(|| base_slot_missing(*i))
+            }
+            ir::Place::RecGlobal(base, o, i) => {
+                let inst = self.record_instance(base, *o, f)?;
+                let v = inst.borrow().globals.get(*i).cloned();
                 v.ok_or_else(|| base_slot_missing(*i))
             }
             ir::Place::Index(base, idx) => {
@@ -1267,6 +1397,17 @@ impl Session {
     }
 
     pub(crate) fn write(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<(), Signal> {
+        self.write_as(p, v, f, true)
+    }
+
+    /// The write-back of a builtin's by-reference receiver or argument (`run_native`): a Blob it hands back is stored as the
+    /// buffer it is, never copied (a stream `CreateOutStream` created on it writes there; `field_blob`).
+    fn write_native_back(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<(), Signal> {
+        self.write_as(p, v, f, false)
+    }
+
+    /// [`Self::write`]; `assign` is false for a builtin's write-back.
+    fn write_as(&mut self, p: &ir::Place, v: Value, f: &mut Frame, assign: bool) -> Result<(), Signal> {
         // A column a platform row leaves unknown never reaches a variable: every read of one is refused where it happens; this
         // catches a reader that missed it.
         if let Value::Unknown(why) = &v {
@@ -1306,7 +1447,16 @@ impl Session {
                     _ => false,
                 };
             if !matches!(p, ir::Place::Field(..)) && !replaces_variant {
-                if let Ok(Value::Record(dst)) = self.read(p, f) {
+                // `:=` into a global record is a write in place: it replaces what an earlier test codeunit left in a
+                // SingleInstance global, it reads nothing of it (ADR-066 amendment 3, R1).
+                let dst = match p {
+                    ir::Place::Global(i) => {
+                        self.alias_access(*i, f)?;
+                        Ok(f.instance.borrow().globals[*i].clone())
+                    }
+                    _ => self.read(p, f),
+                };
+                if let Ok(Value::Record(dst)) = dst {
                     // A record variable takes no record of another table; that only happens through a Variant
                     // (types/variant/VariantRecordReassign.al:130 Variant_Reassign_ReadBack).
                     if dst.borrow().table != src.borrow().table && !matches!(self.place_type(p, f), RtType::Variant) {
@@ -1318,6 +1468,9 @@ impl Session {
                         })));
                     }
                     if !Rc::ptr_eq(src, &dst) {
+                        if let ir::Place::Global(i) = p {
+                            self.single_replaced(&f.instance, *i);
+                        }
                         // The source's buffer after an export under SourceTableView is not pinned (records.rs
                         // `XP_VIEW_AFTER_EXPORT`).
                         if let Some(why) = crate::records::xp_export_marked(src) {
@@ -1350,6 +1503,7 @@ impl Session {
                                             temp_row: b.temp_row,
                                             uncompressed: b.uncompressed,
                                             written: false,
+                                            written_base: None,
                                             render_pending: b.render_pending.clone(),
                                             inserted: b.inserted,
                                             temp_inserted: false,
@@ -1379,6 +1533,9 @@ impl Session {
                         d.load.buffer = load.buffer;
                         d.load.partial = load.partial;
                     }
+                    if let ir::Place::Global(i) = p {
+                        self.single_written(&f.instance, *i);
+                    }
                     return Ok(());
                 }
             }
@@ -1402,22 +1559,7 @@ impl Session {
                 Value::Record(rc) => {
                     self.connection_check(&rc)?;
                     let mut r = rc.borrow_mut();
-                    // A Blob of a record read from the database without CalcFields holds none of its content: assigned to
-                    // another field it gives an empty Blob (record/flowfields/BlobCalcFieldsLength.al:404,
-                    // 'target after assign' has=No|len=0, and the Modify after it stores nothing). The write-back of a
-                    // method call on the field itself keeps the buffer. A temporary row read back (Get, FindFirst, FindSet)
-                    // without CalcFields gives the same empty copy (record/temporary/TemporaryBlobAutoCalc.al:174-310,
-                    // corpus branch al-runtime-rs-staging-y12, al-runner issue 6434).
-                    let v = match v {
-                        Value::Blob(b)
-                            if (b.borrow().db_row || b.borrow().temp_row)
-                                && !b.borrow().loaded
-                                && !matches!(&r.fields[*pos], Value::Blob(cur) if std::sync::Arc::ptr_eq(cur, &b)) =>
-                        {
-                            Value::Blob(al_builtins::stream::new_blob())
-                        }
-                        v => v,
-                    };
+                    let v = field_blob(&r.fields[*pos], v, assign);
                     r.before_field_write();
                     r.fields[*pos] = v;
                     r.touched = true;
@@ -1440,7 +1582,17 @@ impl Session {
             ir::Place::Local(i) => f.locals[*i] = v,
             ir::Place::Global(i) => {
                 self.alias_access(*i, f)?;
+                // A builtin's write-back of the value the global holds is no write (`D.ContainsKey(K)` on a global).
+                let noted = if assign {
+                    self.single_wrote(&f.instance, *i);
+                    true
+                } else {
+                    self.single_wrote_back(&f.instance, *i, &v)
+                };
                 f.instance.borrow_mut().globals[*i] = v;
+                if noted {
+                    self.single_written(&f.instance, *i);
+                }
                 self.alias_wrote(*i, f);
             }
             ir::Place::BaseGlobal(i) => {
@@ -1454,6 +1606,14 @@ impl Session {
             ir::Place::ExtGlobal(e, i) => {
                 let ext = self.sibling_instance(f, *e)?;
                 let mut b = ext.borrow_mut();
+                match b.globals.get_mut(*i) {
+                    Some(slot) => *slot = v,
+                    None => return Err(base_slot_missing(*i)),
+                }
+            }
+            ir::Place::RecGlobal(base, o, i) => {
+                let inst = self.record_instance(base, *o, f)?;
+                let mut b = inst.borrow_mut();
                 match b.globals.get_mut(*i) {
                     Some(slot) => *slot = v,
                     None => return Err(base_slot_missing(*i)),
@@ -1839,4 +1999,29 @@ pub(crate) fn date_key(v: &Value) -> i64 {
 /// The Date a [`date_key`] stands for.
 pub(crate) fn date_of_key(k: i64) -> Value {
     Value::Date((k.div_euclid(2)) as i32, k.rem_euclid(2) == 1)
+}
+
+/// The Blob value a field write stores. A Blob of a record read from the database without CalcFields holds none of its
+/// content: assigned to another field it gives an empty Blob (record/flowfields/BlobCalcFieldsLength.al:404, 'target after
+/// assign' has=No|len=0, and the Modify after it stores nothing). A temporary row read back (Get, FindFirst, FindSet) without
+/// CalcFields gives the same empty copy (record/temporary/TemporaryBlobAutoCalc.al:174-310, al-runner issue 6434). Any other
+/// Blob that another holder still has (the source field, a Variant) is copied: the field gets a value of its own, which a later
+/// Clear of the source or a new write to it does not change, nor the reverse (al-runner issue 7128). The field's own buffer
+/// written back, and a builtin's write-back (`assign` false, `Session::write_native_back`: Clear, CreateOutStream), keep the buffer.
+fn field_blob(cur: &Value, v: Value, assign: bool) -> Value {
+    let Value::Blob(b) = &v else { return v };
+    if matches!(cur, Value::Blob(c) if std::sync::Arc::ptr_eq(c, b)) {
+        return v;
+    }
+    let unloaded = {
+        let buf = b.borrow();
+        (buf.db_row || buf.temp_row) && !buf.loaded
+    };
+    if unloaded {
+        Value::Blob(al_builtins::stream::new_blob())
+    } else if assign && std::sync::Arc::strong_count(b) > 1 {
+        Value::Blob(al_builtins::stream::copy_for_assignment(b))
+    } else {
+        v
+    }
 }

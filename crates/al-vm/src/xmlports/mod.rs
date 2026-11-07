@@ -26,8 +26,10 @@ mod container_tree;
 mod einvoice_shapes;
 mod export_xml;
 mod import_record;
+mod import_view;
 mod import_xml;
 mod pass;
+mod plain_tree;
 mod run_request;
 mod sequence;
 mod shape;
@@ -43,6 +45,7 @@ use self::container_tree::*;
 use self::einvoice_shapes::*;
 use self::pass::*;
 pub(crate) use self::pass::{PassView, UnlinkedPass};
+use self::plain_tree::*;
 use self::sequence::*;
 use self::shape::*;
 use self::text::*;
@@ -528,7 +531,7 @@ impl Session {
 
     fn xp_run(&mut self, inst: &Inst, dir: Dir, ret_used: bool, static_form: bool) -> Result<Value, Signal> {
         let saved = self.permission_run_object;
-        if self.permissions.is_some() {
+        if self.permission_checks() {
             self.permission_run_object = self.xp_schema(inst).ok().map(|s| s.object);
         }
         let r = self.xp_run_tx(inst, dir, ret_used, static_form);
@@ -588,7 +591,7 @@ impl Session {
             al_builtins::assumptions::assume(*a);
         }
         // ADR-062: an export reads its table elements with the xmlport's own Permissions (Y24PermObjectReads.al Y24_P16_*).
-        if dir == Dir::Export && self.permissions.is_some() {
+        if dir == Dir::Export && self.permission_checks() {
             let mut tables = Vec::new();
             for node in &schema.xp().nodes {
                 if let Ok(rec) = self.xp_record(inst, node) {

@@ -64,13 +64,20 @@ pub fn encode(table_id: u32, shape: &[&RtType], values: &[&Value]) -> Result<(us
                         0xff
                     }
                 } else if s.starts_with(|c: char| c.is_ascii_digit()) {
-                    if s.len() != 6 || !s.bytes().all(|b| b.is_ascii_digit()) {
+                    // All digits, of any length: the digit count (`106001` 0x06 :149, `1234567` 0x07 :175-189, `1`..`12345678` in
+                    // EnumAndCodeKey_OwnTable_NumericAndMixedCodes and PurchaseHeaderOrder_NumericAndMixedNumbers, GetUrlBookmarkEnumKey.al
+                    // :218-229, :253-264); digits and letters `1A`, `1A2` 0xff (:191-206, :230). A digit followed by another
+                    // character (`1-2`, `1 2`) is not pinned in a composite key.
+                    if s.bytes().all(|b| b.is_ascii_digit()) {
+                        s.len() as u8
+                    } else if s.bytes().all(|b| b.is_ascii_alphanumeric()) {
+                        0xff
+                    } else {
                         return Err(
-                            "GetUrl bookmark of a Code value that starts with a digit (pinned only for six digits)"
+                            "GetUrl bookmark of a Code value that starts with a digit (pinned for digits only, and digits with letters)"
                                 .into(),
                         );
                     }
-                    0x06
                 } else {
                     0xff
                 };

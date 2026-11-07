@@ -152,15 +152,13 @@ impl Session {
                     let v = f.locals[a as usize].clone();
                     set(&mut f.locals[d as usize], v);
                 }
-                Op::Const { d, k } => {
-                    let v = self.constant_once(&chunk.consts[k as usize]);
-                    set(&mut f.locals[d as usize], v);
-                }
+                Op::Const { d, k } => set(&mut f.locals[d as usize], self.constant_once(&chunk.consts[k as usize])),
                 Op::LoadGlobal { d, i } => {
-                    self.alias_access(i as usize, f)?;
+                    self.global_read(i as usize, f)?;
                     let v = f.instance.borrow().globals[i as usize].clone();
                     set(&mut f.locals[d as usize], v);
                 }
+                Op::SingleWrite { i, kind } => self.single_write_op(i as usize, kind, f),
                 Op::ReadPlace { d, p } => {
                     let v = self.read(&chunk.places[p as usize], f)?;
                     set(&mut f.locals[d as usize], v);
@@ -377,11 +375,7 @@ impl Session {
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::Builtin { s, d } => {
-                    let site = &chunk.builtins[s as usize];
-                    let v = match (site.plain, site.native) {
-                        (true, Some(native)) => self.run_plain_builtin(site, native, f, nl)?,
-                        _ => self.run_builtin(site, f, nl)?,
-                    };
+                    let v = self.op_builtin(&chunk.builtins[s as usize], f, nl)?;
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::CharAt { d, a, b } => self.op_char_at(f, d, a, b, nl)?,
@@ -1016,6 +1010,29 @@ impl Session {
             }
         }
         Ok(())
+    }
+
+    /// `Op::Builtin`: runs the builtin on its short or full path, then lets the profiler book a pending tick to it.
+    #[inline(always)]
+    fn op_builtin(&mut self, site: &BuiltinSite, f: &mut Frame, nl: u16) -> Result<Value, Signal> {
+        let v = match (site.plain, site.native) {
+            (true, Some(native)) => self.run_plain_builtin(site, native, f, nl),
+            _ => self.run_builtin(site, f, nl),
+        };
+        if let Some(g) = site.single_write {
+            self.single_written(&f.instance, g as usize);
+        }
+        self.profile_builtin(site.id);
+        v
+    }
+
+    #[inline]
+    fn single_write_op(&mut self, i: usize, kind: SingleWriteKind, f: &Frame) {
+        match kind {
+            SingleWriteKind::Replace => self.single_replaced(&f.instance, i),
+            SingleWriteKind::ModifyTemp => self.single_wrote_temp(&f.instance, i),
+            SingleWriteKind::Modify => self.single_wrote(&f.instance, i),
+        }
     }
 
     fn run_builtin(&mut self, site: &BuiltinSite, f: &mut Frame, nl: u16) -> Result<Value, Signal> {

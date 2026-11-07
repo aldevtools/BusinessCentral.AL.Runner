@@ -41,7 +41,7 @@ const KEPT: &[(&str, &str, &str)] = &[
     ),
     (
         "al-testrun/src/dotnet.rs",
-        r#""dotnet {} runtimes {} sidecar {} {:?} roll-forward {} assembly dirs {:?}","#,
+        r#""dotnet {} runtimes {} on {} sidecar {} {:?} roll-forward {} assembly dirs {:?}","#,
         "the .NET host's identity in the key of the cached install state, hashed, never shown",
     ),
     (
@@ -61,7 +61,7 @@ const KEPT: &[(&str, &str, &str)] = &[
     ),
     (
         "al-testrun/src/runtime/corpus.rs",
-        r#""target={target:?} dotnet={} test_data={:?} license={:?} skipped={:?}","#,
+        r#""target={target:?} dotnet={} test_data={:?} license={:?} skipped={:?} write_in_try={} deps_global={}","#,
         "the key of the engines kept between serve requests, compared for equality, never shown",
     ),
     (

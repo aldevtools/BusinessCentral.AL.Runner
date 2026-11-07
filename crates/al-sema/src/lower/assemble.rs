@@ -552,9 +552,7 @@ pub(crate) fn build_shared<'a>(
         let ext = ws.object_ast(oi);
         // The routines `pages::expand` adds for expression-valued control properties and sources of the
         // request page are not the author's: they do not change a run.
-        let changes_a_run = ext.routines().any(|r| !crate::pages::is_synthetic(&r.name()))
-            || ext.triggers().next().is_some()
-            || ext.sections().any(|s| !s.name().eq_ignore_ascii_case("requestpage"));
+        let changes_a_run = crate::reports::changes_a_run(&ext);
         if let (true, Some(base)) = (changes_a_run, ext.extends_parts()) {
             if let Resolution::Found(r) = ws.resolve_ref(o.file, ObjKind::Report, &base) {
                 changing.entry(r).or_default().push(oi);
@@ -636,17 +634,7 @@ pub(crate) fn build_shared<'a>(
                 .flat_map(|v| v.names())
                 .map(|n| n.to_lowercase())
                 .collect();
-            let foreign = request.controls.iter().find(|c| {
-                c.owner == Some(*e)
-                    && c.kind == ir::ControlKind::Field
-                    && !c.section.name().eq_ignore_ascii_case("label")
-                    && !c
-                        .section
-                        .args_raw()
-                        .get(1)
-                        .and_then(|a| crate::pages::plain_name(a))
-                        .is_some_and(|n| own.contains(&n.to_lowercase()))
-            });
+            let foreign = foreign_request_control(&request, *e, &own, &obj, &l.items);
             // Triggers on the extension's request page or its fields are not pinned with an extension that changes the run.
             fn has_trigger(s: &ast::Section) -> bool {
                 s.triggers().next().is_some() || s.sections().any(|c| has_trigger(&c))
@@ -858,6 +846,42 @@ pub(crate) fn build_shared<'a>(
         shared,
         uncompiled_subscribers,
     }
+}
+
+/// The first field control of reportextension `e`'s request page that is bound to none of what a reportextension that changes
+/// the run may bind (reports/extensions/W3RpExtRequestPage.al:325-490): its own variable (`own`), a variable of the base report
+/// `base`, or a field of one of the report's data items `items`.
+fn foreign_request_control<'a>(
+    request: &'a crate::pages::Layout,
+    e: usize,
+    own: &std::collections::HashSet<String>,
+    base: &ast::Object,
+    items: &[crate::reports::RawItem],
+) -> Option<&'a crate::pages::RawControl> {
+    let base_vars: std::collections::HashSet<String> = base
+        .var_decls()
+        .flat_map(|v| v.names())
+        .map(|n| n.to_lowercase())
+        .collect();
+    request.controls.iter().find(|c| {
+        let source = c.section.args_raw().get(1).cloned();
+        let named = |names: &std::collections::HashSet<String>| {
+            source
+                .as_deref()
+                .and_then(crate::pages::plain_name)
+                .is_some_and(|n| names.contains(&n.to_lowercase()))
+        };
+        let item_field = source
+            .as_deref()
+            .and_then(crate::pages::var_and_field)
+            .is_some_and(|(i, _)| items.iter().any(|x| x.name.eq_ignore_ascii_case(&i)));
+        c.owner == Some(e)
+            && c.kind == ir::ControlKind::Field
+            && !c.section.name().eq_ignore_ascii_case("label")
+            && !named(own)
+            && !named(&base_vars)
+            && !item_field
+    })
 }
 
 /// What a lowering exports beside the program (`Lowered::exported`).
@@ -1321,13 +1345,7 @@ pub(crate) fn lower_core(
             Vec::new()
         }
     };
-    let own_enum = |i: usize| {
-        let m = members.own(i);
-        (
-            m.enum_values.iter().map(|(v, n)| (*v as i32, n.clone())).collect(),
-            m.enum_captions.iter().map(|(v, c)| (*v as i32, c.clone())).collect(),
-        )
-    };
+    let own_enum = |i: usize| super::shared::enum_own(&members.own(i));
     let report_item_table = |r: usize, item: usize| {
         shared
             .report_irs
@@ -2379,13 +2397,7 @@ pub fn relower_objects(
         implements: &|cu| implemented_interfaces(ws, cu),
         enum_info: &|i| enum_info_of(ws, &members, i),
         join_order: &|_, _| (0, 0, 0),
-        own_enum: &|i| {
-            let m = members.own(i);
-            (
-                m.enum_values.iter().map(|(v, n)| (*v as i32, n.clone())).collect(),
-                m.enum_captions.iter().map(|(v, c)| (*v as i32, c.clone())).collect(),
-            )
-        },
+        own_enum: &|i| super::shared::enum_own(&members.own(i)),
     };
     let mut replace = Vec::with_capacity(pieces.len());
     for (oi, mut piece) in pieces {

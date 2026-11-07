@@ -74,6 +74,9 @@ impl al_builtins::format::FormatCtx for Session {
     /// A read through Format or Evaluate takes the caption a translation file gives (ADR-053 step 2): refused only where
     /// that cannot be looked up.
     fn enum_caption_refused(&self, id: u32, ordinal: Option<i32>) -> Option<String> {
+        if let Err(why) = self.enum_ml_captions(id, ordinal) {
+            return Some(why);
+        }
         match ordinal {
             Some(v) => self.enum_caption_translated(id, v).err(),
             None => self.enum_captions_translated(id).err(),
@@ -85,6 +88,11 @@ impl al_builtins::format::FormatCtx for Session {
         self.note_enum(id);
         if let Ok(Some(t)) = self.enum_caption_translated(id, value) {
             return t;
+        }
+        if let Ok(ml) = self.enum_ml_captions(id, Some(value)) {
+            if let Some((_, c)) = ml.into_iter().next() {
+                return c;
+            }
         }
         let o = &self.engine.program.objects[id as usize];
         if let Some((_, c)) = o.enum_captions.iter().find(|(v, _)| *v == value) {
@@ -108,6 +116,9 @@ impl al_builtins::native::Ctx for Session {
     fn translated_app_text(&self, app: &str, what: &str, xliff: &str) -> Result<Option<String>, Signal> {
         Session::translated_app_text(self, app, what, xliff)
     }
+    fn translated_app_read_unit(&self, app: &str, what: &str, xliff: &str) -> Result<(), Signal> {
+        Session::translated_app_read_unit(self, app, what, xliff)
+    }
 
     fn http_send(
         &mut self,
@@ -123,6 +134,9 @@ impl al_builtins::native::Ctx for Session {
     }
     fn work_date_day(&self) -> Option<i32> {
         Session::work_date_day(self)
+    }
+    fn xrec_holds_blob(&self, b: &al_builtins::stream::BlobRef) -> bool {
+        Session::xrec_holds_blob(self, b)
     }
     fn now_unix_millis(&self) -> Option<i64> {
         Some(self.now_millis())
@@ -171,6 +185,15 @@ impl al_builtins::native::Ctx for Session {
                 "record method {method} on {}",
                 other.describe()
             ))),
+        }
+    }
+    fn record_validate_variant(&mut self, rec: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+        match rec {
+            Some(Value::Record(rc)) => {
+                let rc = rc.clone();
+                Session::record_validate_variant(self, &rc, args)
+            }
+            other => Err(Signal::Unsupported(format!("Record.Validate on {}", other.describe()))),
         }
     }
     fn page(
@@ -509,25 +532,34 @@ impl al_builtins::native::Ctx for Session {
         let fields = (0..def.fields.len())
             .map(|pos| {
                 let f = &def.fields[pos];
+                let mut class_caption = None;
                 let caption = match self.field_caption_written(&def, pos) {
                     Ok(crate::recmeta::WrittenCaption::Text(c)) => Ok(c),
-                    Ok(_) => Err(format!("the caption of field {} is a CaptionClass", f.name)),
+                    Ok(written) => {
+                        if matches!(written, crate::recmeta::WrittenCaption::Class(_)) {
+                            class_caption = Some(self.field_caption(&def, pos));
+                        }
+                        Err(format!("the caption of field {} is a CaptionClass", f.name))
+                    }
                     Err(Signal::Unsupported(why)) => Err(why),
                     Err(_) => Err(format!("the caption of field {}", f.name)),
                 };
                 let options = match &f.ty {
-                    al_builtins::value::RtType::Option(_) => match self.members_of_field(&def, pos) {
-                        Ok(Some((false, members))) => Ok(Some(members.into_iter().map(|m| (m.1, m.2)).collect())),
-                        Ok(_) => Err(format!("the members of Option field {}", f.name)),
-                        Err(Signal::Unsupported(why)) => Err(why),
-                        Err(_) => Err(format!("the members of Option field {}", f.name)),
-                    },
+                    al_builtins::value::RtType::Option(_) | al_builtins::value::RtType::Enum(_) => {
+                        match self.members_of_field(&def, pos) {
+                            Ok(Some((_, members))) => Ok(Some(members)),
+                            Ok(None) => Err(format!("the members of Option field {}", f.name)),
+                            Err(Signal::Unsupported(why)) => Err(why),
+                            Err(_) => Err(format!("the members of Option field {}", f.name)),
+                        }
+                    }
                     _ => Ok(None),
                 };
                 TableFilterField {
                     number: f.id,
                     name: f.name.clone(),
                     caption,
+                    class_caption,
                     ty: f.ty.clone(),
                     options,
                 }
@@ -568,7 +600,12 @@ impl al_builtins::native::Ctx for Session {
         if let Ok(Some(t)) = self.enum_captions_translated(id) {
             return t;
         }
-        self.engine.program.objects[id as usize].enum_captions.clone()
+        let mut captions = self.engine.program.objects[id as usize].enum_captions.clone();
+        for (v, c) in self.enum_ml_captions(id, None).unwrap_or_default() {
+            captions.retain(|(w, _)| *w != v);
+            captions.push((v, c));
+        }
+        captions
     }
     fn enum_source_captions(&self, id: u32) -> Option<Vec<(i32, String)>> {
         matches!(self.enum_captions_translated(id), Ok(Some(_)))

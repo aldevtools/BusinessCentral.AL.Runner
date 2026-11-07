@@ -3612,9 +3612,12 @@ fn synthetic_license() -> Vec<u8> {
                 "Codeunit",
                 &[(1, 999, 31), (5000, 5999, 16), (2000000000, 2000000300, 31)],
             ),
-            ("TableData", &[(1, 50, 31), (2000000000, 2000000300, 31)]),
+            ("TableData", &[(1, 50, 31), (60, 70, 449), (2000000000, 2000000300, 31)]),
             ("TableDescription", &[(1, 999, 31), (2000000000, 2000000300, 31)]),
-            ("Page", &[(1, 999, 31), (2000000000, 2000000300, 31)]),
+            (
+                "Page",
+                &[(1, 999, 31), (1000, 1999, 512 | 31), (2000000000, 2000000300, 31)],
+            ),
             ("Report", &[(1, 999, 3)]),
             ("XMLPort", &[(1, 999, 31)]),
             ("Query", &[(1, 999, 31)]),
@@ -3728,7 +3731,25 @@ codeunit 50000 \"T\" {
     var
         ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
     begin
-        Describe(ObjType::Report, 5);
+        if Describe(ObjType::Report, 5) <> '11000' then
+            Error('partial mask: %1', Describe(ObjType::Report, 5));
+    end;
+
+    [Test]
+    procedure IndirectMask()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+    begin
+        if Describe(ObjType::TableData, 65) <> '12220' then
+            Error('indirect mask: %1', Describe(ObjType::TableData, 65));
+    end;
+
+    [Test]
+    procedure UnpinnedBit()
+    var
+        ObjType: Option TableData,\"Table\",Form,\"Report\",Dataport,\"Codeunit\",\"XMLport\",MenuSuite,\"Page\",\"Query\",System,FieldNumber;
+    begin
+        Describe(ObjType::Page, 1500);
     end;
 
     [Test]
@@ -3791,12 +3812,16 @@ fn license_permission_answers_from_the_loaded_license() {
         "NegativeNumber",
         "FieldNumberType",
         "FilterOnAPermission",
+        // The license facts of ADR-060 (BC 28.5, a customer license, 2026-11-06, owner decision): one bit per letter,
+        // Indirect five places higher.
+        "PartialMask",
+        "IndirectMask",
     ] {
         passes(&o, t);
     }
     for (t, why_has) in [
         ("UnpinnedSystemNumber", "system object range"),
-        ("PartialMask", "which bit is which"),
+        ("UnpinnedBit", "not pinned"),
         ("LimitedUsageOfAnotherLicense", "limited-usage list"),
         ("RangeIntoTheSystemRange", "system object range"),
     ] {
@@ -4081,7 +4106,7 @@ fn the_artifact_license_gives_every_pinned_row() {
 
 /// The Published Function of a page action event is `<event> - <control id of the action>`, the id of the declaring object (a
 /// page extension for an action it adds) and the action name (corpus master, corpus PR 886:
-/// events/platform-triggers/ActionEventPublishedFunction.al:259-272; the ids there are those of objects
+/// events/platform-triggers/ActionEventPublishedFunction.al:244-257; the ids there are those of objects
 /// 91355 and 91357, so the test uses the same ids).
 #[test]
 fn a_page_action_event_names_the_control_id_of_the_action() {
@@ -4264,6 +4289,11 @@ codeunit 50000 "T" { Subtype = Test;
   [Test] procedure Unfiltered() var L: Record "Tenant Report Layout"; begin if L.Count() = 0 then; end;
   [Test] procedure OtherLayout() var L: Record "Tenant Report Layout"; begin
     L.Init(); L."Report ID" := 50001; L.Name := 'N'; L."Layout Format" := L."Layout Format"::RDLC; L.Insert(); end;
+  [Test] procedure WordRow() var L: Record "Tenant Report Layout"; begin
+    L.Init(); L."Report ID" := 50001; L.Name := 'N'; L."Layout Format" := L."Layout Format"::Word; L.Insert(); end;
+  [Test] procedure OtherReport() var L: Record "Tenant Report Layout"; InS: InStream; begin
+    L.Init(); L."Report ID" := 1306; L.Name := 'N'; L."Layout Format" := L."Layout Format"::RDLC;
+    Report.RdlcLayout(50001, InS); L.Layout.ImportStream(InS, 'x'); L.Insert(); end;
 }"#;
     let rdlc = b"<?xml version=\"1.0\"?><Report xmlns=\"http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition\"></Report>".to_vec();
     let (engine, l) = engine_with_layouts(
@@ -4284,8 +4314,79 @@ codeunit 50000 "T" { Subtype = Test;
     let o = run_codeunit(&engine, &l, oi);
     passes(&o, "Fresh");
     passes(&o, "Insert");
-    assert!(not_run(&o, "Unfiltered").contains("Tenant Report Layout"));
+    // reports/runtime/TrlResourceRows.al:84-97: a fresh tenant holds no row, filtered or not.
+    passes(&o, "Unfiltered");
     assert!(not_run(&o, "OtherLayout").contains("Tenant Report Layout"));
+    // The refusal names which part of the row is not pinned (al-runner issue 6924: waldo's 173 tests insert Word rows).
+    assert!(
+        not_run(&o, "WordRow").contains("a row without a Layout"),
+        "{}",
+        not_run(&o, "WordRow")
+    );
+    assert!(
+        not_run(&o, "OtherReport").contains("a report the app and its dependencies do not declare"),
+        "{}",
+        not_run(&o, "OtherReport")
+    );
+}
+
+// reports/runtime/TrlResourceRows.al (corpus master, al-runner issue 6924, waldo): Insert of a Tenant Report Layout row with a
+// Word or Custom layout takes the row, reads back its pinned fields (Custom as External), Get and SetRange find it by name,
+// Delete removes it; the stored bytes of a Word row are rewritten by BC (not pinned), so a look at them is refused, while a
+// Custom row gives its bytes back unchanged (:360-388).
+#[test]
+fn tenant_report_layout_takes_word_and_custom_rows() {
+    let main = r#"
+report 50001 "R" { DefaultRenderingLayout = D; dataset { dataitem(I; Integer) { } } rendering { layout(D) { Type = Word; LayoutFile = './r.docx'; } } }
+table 50002 "Holder" { fields { field(1; Id; Integer) { } field(2; Data; Blob) { } } keys { key(PK; Id) { Clustered = true; } } }
+codeunit 50000 "T" { Subtype = Test;
+  local procedure Row(var L: Record "Tenant Report Layout"; Kind: Option; Name: Text[250])
+  var InS: InStream; begin
+    L.Init(); L."Report ID" := 50001; L.Name := Name; L."Layout Format" := Kind;
+    if not Report.WordLayout(50001, InS) then Error('stream'); L.Layout.ImportStream(InS, 'x'); end;
+  [Test] procedure WordRow() var L: Record "Tenant Report Layout"; R: Record "Tenant Report Layout"; begin
+    Row(L, L."Layout Format"::Word, 'W'); if not L.Insert() then Error('insert');
+    if R.Count() <> 1 then Error('count'); if not R.Get(50001, 'W') then Error('get');
+    if (Format(R."Layout Format") <> 'Word') or (R."Company Name" <> '') or (R."MIME Type" <> '') or (R.Description <> '') or not IsNullGuid(R."App ID") or not R.Layout.HasValue() then Error('stored');
+    R.SetRange(Name, 'W'); if not R.FindFirst() then Error('find'); R.Delete(); if R.Count() <> 0 then Error('deleted'); end;
+  [Test] procedure WordExport() var L: Record "Tenant Report Layout"; R: Record "Tenant Report Layout"; H: Record "Holder" temporary; O: OutStream; begin
+    Row(L, L."Layout Format"::Word, 'W2'); L.Insert(); R.Get(50001, 'W2'); H.Data.CreateOutStream(O); R.Layout.ExportStream(O); H.CalcFields(Data); if H.Data.Length() = 0 then; end;
+  [Test] procedure CustomRow() var L: Record "Tenant Report Layout"; R: Record "Tenant Report Layout"; H: Record "Holder" temporary; O: OutStream; begin
+    Row(L, L."Layout Format"::Custom, 'C'); if not L.Insert() then Error('insert');
+    R.Get(50001, 'C'); if Format(R."Layout Format") <> 'External' then Error('format %1', Format(R."Layout Format"));
+    H.Data.CreateOutStream(O); if not R.Layout.ExportStream(O) then Error('export'); if H.Data.Length() <> 3 then Error('length'); end;
+  [Test] procedure BadBytes() var L: Record "Tenant Report Layout"; InS: InStream; begin
+    L.Init(); L."Report ID" := 50001; L.Name := 'B'; L."Layout Format" := L."Layout Format"::Excel;
+    if Report.WordLayout(50001, InS) then; L.Layout.ImportStream(InS, 'x'); L."Layout Format" := L."Layout Format"::RDLC; L.Insert(); end;
+}"#;
+    let (engine, l) = engine_with_layouts(
+        "main",
+        main,
+        None,
+        al_sema::check::Roots::default(),
+        "27.5.0.0",
+        vec![("r.docx".into(), b"PK\x03".to_vec())],
+        None,
+    );
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == "T")
+        .expect("test codeunit T");
+    let o = run_codeunit(&engine, &l, oi);
+    passes(&o, "WordRow");
+    passes(&o, "CustomRow");
+    assert!(
+        not_run(&o, "WordExport").contains("stored layout bytes of a Tenant Report Layout row"),
+        "{}",
+        not_run(&o, "WordExport")
+    );
+    assert!(
+        not_run(&o, "BadBytes").contains("do not match its format"),
+        "{}",
+        not_run(&o, "BadBytes")
+    );
 }
 
 // Gap cycle G9: a user-defined layout (a Tenant Report Layout row) is a row of Report Layout List: Caption the layout's name,
@@ -4520,4 +4621,36 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "NoColumns");
     passes(&o, "Columns");
     assert!(not_run(&o, "DecimalColumn").contains("column Amt"));
+}
+
+// A not-equal filter on FieldName, an `&` of them, a comparison and a range leave out the timestamp row, with or without the
+// Class, Enabled and ObsoleteState filters (al-runner issue 6995; metadata/FieldNameNotEqualFilter.al:57-120, staging r6980). The rows
+// from 2000000005 on (SystemCreatedByUserName and the like, which BC 29 adds) are left out, as in the probe.
+#[test]
+fn not_equal_filters_on_the_field_name_leave_out_the_rowversion_row() {
+    let o = outcomes(
+        r#"table 50005 "Ne Probe" { fields { field(1; "Code"; Code[10]) { } field(2; Name; Text[30]) { } field(3; Amount; Decimal) { } }
+  keys { key(PK; "Code") { } } }
+codeunit 50000 "T" { Subtype = Test;
+  local procedure Rows(var Fld: Record Field): Text var s: Text; begin
+    if not Fld.FindSet() then exit('none');
+    repeat if Fld."No." < 2000000005 then s += Format(Fld."No.") + ':' + Fld.FieldName + ' '; until Fld.Next() = 0;
+    exit(s.TrimEnd()); end;
+  [Test] procedure FourNames() var Fld: Record Field; s: Text; begin
+    Fld.SetRange(TableNo, 50005);
+    Fld.SetFilter(FieldName, '<>%1&<>%2&<>%3&<>%4', 'SystemCreatedAt', 'SystemModifiedAt', 'SystemCreatedBy', 'SystemModifiedBy');
+    s := Rows(Fld);
+    Fld.SetRange(Class, Fld.Class::Normal); Fld.SetRange(Enabled, true); Fld.SetRange(ObsoleteState, Fld.ObsoleteState::No);
+    s += '|' + Rows(Fld);
+    if s <> '1:Code 2:Name 3:Amount 2000000000:$systemId|1:Code 2:Name 3:Amount 2000000000:$systemId' then Error(s); end;
+  [Test] procedure OtherForms() var Fld: Record Field; s: Text; begin
+    Fld.SetRange(TableNo, 50005);
+    Fld.SetFilter(FieldName, '<>%1', 'timestamp'); s := Rows(Fld);
+    Fld.SetFilter(FieldName, '<%1', 'Name'); s += '|' + Rows(Fld);
+    Fld.SetFilter(FieldName, '%1..%2', 'A', 'z'); s += '|' + Rows(Fld);
+    if s <> '1:Code 2:Name 3:Amount 2000000000:$systemId 2000000001:SystemCreatedAt 2000000002:SystemCreatedBy 2000000003:SystemModifiedAt 2000000004:SystemModifiedBy|1:Code 3:Amount 2000000000:$systemId|1:Code 2:Name 3:Amount 2000000001:SystemCreatedAt 2000000002:SystemCreatedBy 2000000003:SystemModifiedAt 2000000004:SystemModifiedBy' then Error(s); end; }"#,
+    );
+    for t in ["FourNames", "OtherForms"] {
+        passes(&o, t);
+    }
 }

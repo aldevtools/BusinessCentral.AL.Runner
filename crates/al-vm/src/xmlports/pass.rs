@@ -47,15 +47,38 @@ impl Session {
                 // The filters of the element's own SourceTableView are no filters of the code's own
                 // (streams/Y72XpEInvoiceShapes.al TableContainer_ItemAndPrice, _BreakAndSkipInInnerTable: the
                 // InvoiceLine element over Integer with `where(Number = filter(1 ..))` below the root table element, one pass).
-                // A second pass with a SourceTableView is still refused below.
+                // A later pass with a SourceTableView starts from the view again (below).
                 if rec.borrow().filters.iter().any(|f| f.group != XP_VIEW_GROUP) {
                     return refuse("filters");
                 }
+                let mut now = now;
+                now.view_start = n.source_view.is_some().then(|| ViewStart::of(&rec.borrow()));
                 self.xp_unlinked_passes.push((addr, node, now));
             }
             Some((_, _, last)) => {
                 if last.filters != now.filters {
                     return refuse("filters set between two passes");
+                }
+                if let Some(start) = last.view_start.clone() {
+                    // With a SourceTableView every pass starts from the view alone, as the first pass did: its filters, its key,
+                    // ascending, whatever OnPreXmlItem of an earlier pass set: a filter at every pass or at the first only, a
+                    // SetCurrentKey, Ascending(false) or a Reset (corpus branch al-runtime-rs-staging-r6924x, corpus PR 1144,
+                    // xmlports/shapes-properties/R6924xNestedView.al NestedView_Export_NoCode, _FilterEachPass, _FilterFirstPass,
+                    // _KeyFirstPass, _DescendingFirstPass, _ResetFirstPass, IntegerView_Export_OneEachPass, _GrowEachPass: `pre h2 f=
+                    // n=4 k=Kind a=Yes` at every later pass). Pinned for a view with a sorting and no ORDER, on the first export of
+                    // the instance (a later export keeps the record's key, `xp_apply_source_views`).
+                    let view = n.source_view.as_deref().unwrap_or("").to_ascii_lowercase();
+                    let again = inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_EXPORTED);
+                    if !view.contains("sorting") || view.contains("order") || again {
+                        return refuse(
+                            "a SourceTableView without a sorting, with an ORDER, or on a later export of the instance",
+                        );
+                    }
+                    if last.end_key.as_ref() != Some(&now.first_key) {
+                        return refuse("a key or direction set between two passes");
+                    }
+                    start.restore(&mut rec.borrow_mut());
+                    return Ok(());
                 }
                 if last.first_key != now.first_key {
                     return refuse("a key or direction other than at the first pass");
@@ -82,6 +105,7 @@ impl Session {
         {
             last.filters = now.filters;
             last.filter_group = now.filter_group;
+            last.end_key = Some(now.first_key);
         }
         Ok(())
     }
@@ -121,6 +145,17 @@ impl Session {
             usize::MAX
         };
         self.xp_rows_upto(inst, schema, node, &mut rows, cap)?;
+        // LinkTable naming the table element right before it: the lines of the header element's record as its loop left it (the
+        // last header) are written, and none without a header row (xmlports/shapes-properties/R6924eLinkSibling.al:224
+        // LinkSibling_Export_TwoHeaders, :240 LinkSibling_Export_NoHeader). A header record whose link fields hold their initial
+        // values cannot tell a header row with blank link values from no header row; with lines that match those values it is not
+        // pinned.
+        if !rows.is_empty() && link_sibling(schema, node) && self.xp_link_values_initial(inst, schema, node)? {
+            return unsupported(format!(
+                "XmlPort export of table element {} whose LinkTable is the table element before it, with that record's link fields blank and lines that match them (not pinned)",
+                n.name
+            ));
+        }
         let mut more = if lazy {
             rows.first().map(|r| self.xp_row_position(inst, n, r)).transpose()?
         } else {
@@ -156,7 +191,7 @@ impl Session {
             }
         } else if n.max_unbounded == Some(false) && rows.len() > 1 {
             // Without export triggers, a table element without LinkTable below another one with MinOccurs = Once holds the second of
-            // two rows afterwards: the next pass without rows writes it (streams/Np4XmlPort.al:381
+            // two rows afterwards: the next pass without rows writes it (streams/Np4XmlPort.al:365
             // NP4_XmlPort_OnceOnce_TwoRows `<Child cid="12">` under head 2, corpus master), and the second of three as well (corpus
             // PR 896, Np4XmlPort.al Y9_XmlPort_OnceOnce_ThreeRowsThenNone `<Child cid="12">`). Of four or more it is not pinned.
             let once_once = unlinked_below_table(schema, node) && !n.min_zero && !export_triggers_below(schema, node);
@@ -409,6 +444,21 @@ impl Session {
         Ok(())
     }
 
+    /// Whether every link field of the LinkTable record of table element `node` holds its initial value.
+    fn xp_link_values_initial(&mut self, inst: &Inst, schema: &Schema, node: usize) -> Result<bool, Signal> {
+        let n = schema.node(node);
+        let Some(link) = n.link_node else { return Ok(false) };
+        let parent = self.xp_record(inst, schema.node(link))?;
+        let table = parent.borrow().table as usize;
+        let initial = self.initial_fields(table);
+        for &(_, other) in &n.link_fields {
+            if ops::compare(&parent.borrow().fields[other], &initial[other])? != std::cmp::Ordering::Equal {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
     /// The rows of table element `node` in export order.
     pub(super) fn xp_rows(
         &mut self,
@@ -478,6 +528,44 @@ pub(crate) struct UnlinkedPass {
     pub(super) filter_group: i32,
     /// The key and direction at the start of the first pass.
     pub(super) first_key: String,
+    /// With a SourceTableView: the record's filters, key and direction at the start of the first pass (the view alone).
+    pub(super) view_start: Option<ViewStart>,
+    /// The key and direction at the end of the last pass.
+    pub(super) end_key: Option<String>,
+}
+
+/// The filters, key and direction of a table element record at the start of its first pass.
+#[derive(Clone)]
+pub(crate) struct ViewStart {
+    filters: Vec<al_builtins::filter::FieldFilter>,
+    filter_group: i32,
+    key: usize,
+    adhoc: Option<(usize, Vec<usize>)>,
+    ascending: bool,
+    field_descending: u32,
+}
+
+impl ViewStart {
+    fn of(r: &al_builtins::value::RecordState) -> ViewStart {
+        ViewStart {
+            filters: r.filters.clone(),
+            filter_group: r.filter_group,
+            key: r.key,
+            adhoc: r.adhoc.clone(),
+            ascending: r.ascending,
+            field_descending: r.field_descending,
+        }
+    }
+
+    fn restore(self, r: &mut al_builtins::value::RecordState) {
+        r.filters = self.filters;
+        r.filter_group = self.filter_group;
+        r.key = self.key;
+        r.adhoc = self.adhoc;
+        r.ascending = self.ascending;
+        r.field_descending = self.field_descending;
+        r.marked_only = false;
+    }
 }
 
 impl UnlinkedPass {
@@ -490,6 +578,8 @@ impl UnlinkedPass {
             },
             filter_group: r.filter_group,
             first_key: format!("{:?}", (r.key, &r.adhoc, r.ascending, r.field_descending)),
+            view_start: None,
+            end_key: None,
         }
     }
 }
@@ -500,6 +590,22 @@ pub(super) fn unlinked_below_table(schema: &Schema, node: usize) -> bool {
     n.kind == ir::XmlNodeKind::Table
         && n.link_node.is_none()
         && n.parent.is_some_and(|p| schema.node(p).kind == ir::XmlNodeKind::Table)
+}
+
+/// Whether table element `node` names in LinkTable a table element that is not above it: the one right before it under the same
+/// text element (al-sema `link_sibling_named`, xmlports/shapes-properties/R6924eLinkSibling.al).
+pub(super) fn link_sibling(schema: &Schema, node: usize) -> bool {
+    let Some(link) = schema.node(node).link_node else {
+        return false;
+    };
+    let mut cur = schema.node(node).parent;
+    while let Some(p) = cur {
+        if p == link {
+            return false;
+        }
+        cur = schema.node(p).parent;
+    }
+    true
 }
 
 /// Runs `body` once for every row of table element `node`, with the row loaded.

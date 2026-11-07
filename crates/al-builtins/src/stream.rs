@@ -48,6 +48,11 @@ pub struct BlobBuf {
     /// A stream wrote to the buffer since it was fetched or saved: `Modify` counts the Blob as changed whatever it holds now
     /// (record/PnASystemFields.al:Modify_StampsOnlyWhenStoredFieldDiffers `same-blob-content-keeps-stamp`).
     pub written: bool,
+    /// The content the buffer held when the first stream write after the last save or fetch began: what the row held then.
+    /// `CalcFields` reads the row again when it holds something else now, because another variable of the row modified the
+    /// Blob since, unsaved write or not (streams/CalcFieldsBlobStaleBuffer.al:75-98 `Stale_UnsavedWriteInA_OtherModifies_CalcFields`);
+    /// it keeps the write when the row is as it was (streams/TestBlobCalcFieldsUncommittedWrite.al).
+    pub written_base: Option<Vec<u8>>,
     /// ADR-040: a report on the allow-list was saved to this buffer in a rendered format and nothing was written:
     /// the name of the report. Any look at the buffer is refused (`observe`); a copy of the buffer carries the mark
     /// (`copy_blob`, a record assignment, `CalcFields`); creating the stream again clears it.
@@ -98,6 +103,11 @@ pub const MEDIA_SET_FILE_REENCODED: &str = "MediaSet.ExportFile";
 /// The mark a .docx `Media.ImportFile` puts on its media from BC 29, whose Linux tier stores a re-zipped package the corpus
 /// does not pin (`Gate::DocxMediaRezippedFrom29`).
 pub const MEDIA_DOCX_REZIPPED: &str = "Media.ImportFile of a .docx";
+
+/// The mark on the Layout media of a Tenant Report Layout row of format RDLC, Word or Excel: BC rewrites the stored bytes
+/// (reports/runtime/TrlResourceRows.al `length equals the file` No for all three, version-dependent lengths), so any look at
+/// them is refused.
+pub const TENANT_LAYOUT_STORED: &str = "the stored Layout of a Tenant Report Layout row";
 
 /// The mark on the Tenant Media Content of an imported PNG: BC stores the picture re-encoded (the Guided Experience Icon an
 /// app's logo is imported into, onprem session-system/UsAppLogo.al:7; an exported PNG, types/W7Media.al:141-145), bytes not pinned.
@@ -246,6 +256,11 @@ pub fn render_pending_error(report: &str) -> Signal {
                 .into(),
         );
     }
+    if report == TENANT_LAYOUT_STORED {
+        return Signal::Unsupported(
+            "the stored layout bytes of a Tenant Report Layout row (BC rewrites them; not pinned)".into(),
+        );
+    }
     if report == MEDIA_DOCX_REZIPPED {
         return Signal::Unsupported(
             "the Tenant Media row and the exported bytes of a .docx Media.ImportFile on this major (a re-zipped package on the Linux \
@@ -331,6 +346,7 @@ pub fn new_blob() -> BlobRef {
         temp_row: false,
         uncompressed: false,
         written: false,
+        written_base: None,
         render_pending: None,
         inserted: false,
         temp_inserted: false,
@@ -370,6 +386,7 @@ pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
         temp_row: false,
         uncompressed: false,
         written: false,
+        written_base: None,
         render_pending: b.render_pending.clone(),
         inserted: b.inserted,
         temp_inserted: false,
@@ -379,6 +396,18 @@ pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
         dotnet_view: 0,
         unread_content: false,
     }))
+}
+
+/// The value `Target.Field := Source` stores when the source Blob is held elsewhere too (a field of another record, a
+/// Variant): a buffer of its own with everything the source shows, so a later Clear of the source or a new write to it does
+/// not reach the target, and the reverse (al-runner issue 7128): record/lt-blob-field-assign/BlobFieldAssignCopy.al:73-127
+/// RunCase, :137-152 Importer, expected at :154-176 (temporary and stored tables). A record assignment copies its Blobs as
+/// well (record/PnABlobAssignRename.al:35-66 Assign_Temporary `copy-after-source-change`).
+pub fn copy_for_assignment(b: &BlobRef) -> BlobRef {
+    let mut copy = b.borrow().clone();
+    copy.dotnet_view = 0;
+    copy.temp_inserted = false;
+    std::sync::Arc::new(BlobCell::new(copy))
 }
 
 /// The unloaded copy a read of a database row hands out (`BlobBuf::db_row`).
@@ -401,6 +430,9 @@ pub fn copy_blob_db_row_of(b: &BlobRef, uncompressed: bool) -> BlobRef {
 /// moves the position on.
 pub fn write_bytes(b: &BlobRef, bytes: &[u8]) {
     let mut buf = b.borrow_mut();
+    if !buf.written {
+        buf.written_base = Some(buf.bytes.clone());
+    }
     if buf.first_write_truncates {
         buf.first_write_truncates = false;
         if buf.loaded {
@@ -504,13 +536,18 @@ impl Encoding {
             Encoding::Utf16 => s.encode_utf16().flat_map(u16::to_le_bytes).collect(),
             Encoding::MsDos => s
                 .chars()
-                .map(|c| match c {
-                    c if (c as u32) < 0x80 => c as u8,
+                .flat_map(|c| match c {
+                    c if (c as u32) < 0x80 => vec![c as u8],
                     // The euro sign is written as 0xB1 (streams/TestStreamsRuntimeContracts.al:
                     // WriteText_ExplicitEncodings_Bytes, streams/TestProbeStreamContracts.al `61 84 94 B1 00`).
-                    '€' => 0xB1,
-                    c if msdos_table_byte(c).is_some() => msdos_table_byte(c).expect("checked"),
-                    c => CP437_HIGH.iter().position(|u| *u == c).map_or(b'?', |i| 0x80 + i as u8),
+                    '€' => vec![0xB1],
+                    // The call stack mark, kept as for a Windows stream (`CALL_STACK_MARK_BYTES`). It stands for untracked
+                    // frames whose bytes are not known; what reads them is refused (`stream_call_stack`).
+                    crate::native::CALL_STACK_MARK => CALL_STACK_MARK_BYTES.to_vec(),
+                    c if msdos_table_byte(c).is_some() => vec![msdos_table_byte(c).expect("checked")],
+                    // π is written as `p` (streams/StTEncodings.al:UnmappableCharacters `msdos`: it reads back as `p`).
+                    'π' => vec![b'p'],
+                    c => vec![CP437_HIGH.iter().position(|u| *u == c).map_or(b'?', |i| 0x80 + i as u8)],
                 })
                 .collect(),
             Encoding::Windows => {
@@ -525,6 +562,9 @@ impl Encoding {
                         // WD_CallStack_Collected_ToWindowsBlob, corpus branch al-runtime-rs-staging-1030c, al-runner issue
                         // 6310). Its bytes are not pinned: the mark is kept as its UTF-8 bytes, which `decode` reads back.
                         out.extend_from_slice(CALL_STACK_MARK_BYTES);
+                    } else if c == 'π' {
+                        // Written as `p` (streams/StTEncodings.al:UnmappableCharacters `windows`: it reads back as `p`).
+                        out.push(b'p');
                     } else {
                         out.push(
                             CP1252_HIGH
@@ -546,16 +586,26 @@ impl Encoding {
                 let units: Vec<u16> = b.chunks_exact(2).map(|p| u16::from_le_bytes([p[0], p[1]])).collect();
                 String::from_utf16_lossy(&units)
             }
-            Encoding::MsDos => b
-                .iter()
-                .map(|&x| match x {
-                    0..=0x7F => char::from(x),
-                    x => CP437_AS_READ
-                        .iter()
-                        .find(|(b, _)| *b == x)
-                        .map_or(CP437_HIGH[usize::from(x - 0x80)], |(_, c)| *c),
-                })
-                .collect(),
+            Encoding::MsDos => {
+                let mut out = String::with_capacity(b.len());
+                let mut i = 0;
+                while i < b.len() {
+                    if b[i..].starts_with(CALL_STACK_MARK_BYTES) {
+                        out.push(crate::native::CALL_STACK_MARK);
+                        i += CALL_STACK_MARK_BYTES.len();
+                        continue;
+                    }
+                    out.push(match b[i] {
+                        x @ 0..=0x7F => char::from(x),
+                        // Every byte from 0x80 up reads as the Byte to Char table gives it (`conv::byte_char`): ReadText and BigText.Read of
+                        // each byte 128 to 255 (corpus branch al-runtime-rs-staging-r6963, streams/instream-outstream/
+                        // ReadTextMsDosHighBytes.al ReadText_NoEncoding_Bytes128To159, _160To191, _192To223, _224To255).
+                        x => char::from_u32(u32::from(crate::conv::byte_char::byte_to_char(x))).unwrap_or('?'),
+                    });
+                    i += 1;
+                }
+                out
+            }
             Encoding::Windows => {
                 let mut out = String::with_capacity(b.len());
                 let mut i = 0;
@@ -580,17 +630,32 @@ impl Encoding {
     /// Whether `decode` of `b` gives what the Windows tier gives: every code page 437 byte whose character is also in
     /// code page 1252 reads as that character, and the bytes of `CP437_AS_READ` as pinned; the rest is not pinned.
     pub fn decode_pinned(self, b: &[u8]) -> bool {
-        self != Encoding::MsDos
-            || b.iter().all(|&x| {
-                x < 0x80 || CP437_AS_READ.iter().any(|(p, _)| *p == x) || {
-                    let c = CP437_HIGH[usize::from(x - 0x80)] as u32;
-                    c <= 0xFF || u16::try_from(c).is_ok_and(|u| CP1252_HIGH.contains(&u))
-                }
-            })
+        if self != Encoding::MsDos {
+            return true;
+        }
+        // The bytes of the call stack mark read back as the mark (`decode`), whatever code page 437 would make of them.
+        let mut rest = b;
+        let mut plain = Vec::with_capacity(b.len());
+        while let Some((&x, tail)) = rest.split_first() {
+            if rest.starts_with(CALL_STACK_MARK_BYTES) {
+                rest = &rest[CALL_STACK_MARK_BYTES.len()..];
+            } else {
+                plain.push(x);
+                rest = tail;
+            }
+        }
+        plain.iter().all(|&x| {
+            x < 0x80 || CP437_AS_READ.iter().any(|(p, _)| *p == x) || {
+                let c = CP437_HIGH[usize::from(x - 0x80)] as u32;
+                c <= 0xFF || u16::try_from(c).is_ok_and(|u| CP1252_HIGH.contains(&u))
+            }
+        })
     }
 
     /// Whether `encode` of `t` is pinned: ASCII, the characters code page 1252 has for a Windows stream, and for an MS-DOS
-    /// stream the characters of code page 437 and the euro sign.
+    /// stream the characters of the Byte to Char table (which read back from their byte, `decode`), the euro sign and π. A code
+    /// page 437 character outside the table (a box-drawing or Greek letter) would be written as its code page 437 byte, which
+    /// reads back as another character: not pinned.
     pub fn encode_pinned(self, t: &str) -> bool {
         t.is_ascii()
             || match self {
@@ -600,10 +665,13 @@ impl Encoding {
                     t.contains(crate::native::CALL_STACK_MARK)
                         && t.chars().all(|c| c.is_ascii() || c == crate::native::CALL_STACK_MARK)
                 }
-                Encoding::Windows => self.decode(&self.encode(t)) == *t,
+                Encoding::Windows => t.chars().all(|c| {
+                    let one = c.to_string();
+                    c == 'π' || self.decode(&self.encode(&one)) == one
+                }),
                 Encoding::MsDos => t
                     .chars()
-                    .all(|c| c.is_ascii() || c == '€' || CP437_HIGH.contains(&c) || msdos_table_byte(c).is_some()),
+                    .all(|c| c.is_ascii() || c == '€' || c == 'π' || msdos_table_byte(c).is_some()),
                 _ => false,
             }
     }
@@ -670,6 +738,12 @@ pub struct InState {
     /// A stream that was never created, handed to a `Report.*Layout` call that found no layout (see
     /// [`mark_not_initialized`]): only `EOS` is pinned on it.
     pub not_initialized: bool,
+    /// A UTF-8 `Read(Text, 0)` at a byte order mark: the next read skips the mark, but the Position in between is not pinned
+    /// (see `stream_read_len::utf8`).
+    pub len0_over_mark: bool,
+    /// A ReadText returned the mark of untracked call stack frames: where the stream stands now is not known
+    /// (`stream_call_stack::position_unknown`). Moving the position clears it.
+    pub past_call_stack_mark: bool,
 }
 
 impl InState {
@@ -682,6 +756,8 @@ impl InState {
             handed_to_content: false,
             owner_gone: false,
             not_initialized: false,
+            len0_over_mark: false,
+            past_call_stack_mark: false,
         }
     }
 
@@ -694,6 +770,8 @@ impl InState {
             handed_to_content: false,
             owner_gone: false,
             not_initialized: false,
+            len0_over_mark: false,
+            past_call_stack_mark: false,
         }
     }
 
@@ -869,6 +947,7 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
         temp_row: false,
         uncompressed: false,
         written: false,
+        written_base: None,
         render_pending: None,
         inserted: false,
         temp_inserted: false,
@@ -955,6 +1034,10 @@ fn blob_length_of(c: &mut dyn Ctx, r: Option<&mut Value>, sign_only: bool) -> NR
     let b = blob_of(r)?;
     let buf = b.borrow();
     buf.observe()?;
+    // Only the sign is pinned for a call stack text: it is not empty (errors/last-error/WdCallStackToBlob.al:96).
+    if !sign_only {
+        crate::stream_call_stack::refuse_length(&buf.bytes, "Blob.Length")?;
+    }
     if !buf.loaded {
         // Before CalcFields the length is the stored size. An empty blob is 0 (streams/TestProbeStreamContracts.al:
         // BlobLength_EmptyUnloaded); a temporary row's is its content's (record/PnABlobLength.al:
@@ -1161,7 +1244,7 @@ pub(crate) fn read_all_text(stream: &mut Value) -> Result<String, Signal> {
             Encoding::Utf16 if body.len() % 2 != 0 => {
                 unsupported("BigText.Read of a UTF-16 stream with an odd number of bytes (not pinned)")
             }
-            _ if !enc.decode_pinned(body) => unsupported("BigText.Read of MS-DOS bytes whose character is not pinned"),
+            // Every MS-DOS byte reads as `decode` gives (ReadTextMsDosHighBytes.al, corpus branch al-runtime-rs-staging-r6963).
             _ => Ok(enc.decode(body)),
         }
     })
@@ -1188,12 +1271,16 @@ fn in_eos_plain(r: Option<&mut Value>, _: &mut [Value]) -> NResult {
     }
     // A stream HttpContent.WriteFrom took is not at its end (http/content/DbHttpContentLeads.al:310): its position
     // did not move.
-    with_in_of(r, true, |s| Ok(Value::Boolean(s.pos >= s.len())))
+    with_in_of(r, true, |s| {
+        crate::stream_call_stack::refuse_position(s, "EOS")?;
+        Ok(Value::Boolean(s.pos >= s.len()))
+    })
 }
 
 fn in_reset(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
     with_in(r, |s| {
         s.pos = 0;
+        s.past_call_stack_mark = false;
         Ok(Value::Boolean(true))
     })
 }
@@ -1211,7 +1298,10 @@ fn in_length(ctx: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResu
     // A cleared stream raises (Y62GoneInStream.al:GoneStream_Clear); the length of a stream WriteFrom took is its whole length
     // (GoneStream_HttpContentWriteFrom `kept stream after` len=23).
     crate::stream_cleared::refuse_cleared(r.as_deref())?;
-    with_in_of(r, true, |s| Ok(Value::BigInteger(s.len() as i64)))
+    with_in_of(r, true, |s| {
+        s.with_data(|d| crate::stream_call_stack::refuse_length(d, "InStream.Length"))?;
+        Ok(Value::BigInteger(s.len() as i64))
+    })
 }
 
 /// `Position` is 1-based: 1 at the start, the length plus one after the last byte (streams/TestProbeStreamContracts.al:
@@ -1247,16 +1337,23 @@ fn in_position(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
                 );
             }
             s.pos = (p - 1) as usize;
+            s.past_call_stack_mark = false;
             Ok(Value::Null)
         });
     }
-    with_in(r, |s| Ok(Value::BigInteger(s.pos as i64 + 1)))
+    with_in(r, |s| {
+        if s.len0_over_mark && s.pos == 0 {
+            return unsupported("InStream.Position after Read(Text, 0) at a UTF-8 byte order mark (not pinned)");
+        }
+        crate::stream_call_stack::refuse_position(s, "Position")?;
+        Ok(Value::BigInteger(s.pos as i64 + 1))
+    })
 }
 
 /// Reads up to the next line feed or the end of the stream. The line feed is consumed and every
 /// carriage return in the line is dropped, so CR LF is one terminator, a lone CR is not one, and a
 /// final CR adds no line (streams/TestStreamsRuntimeContracts.al:InStream_ReadText_SplitsAtLineFeed_AndDropsALoneCarriageReturn).
-fn in_read_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+fn in_read_text(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     // `ReadText(Text, Length)` reads at most Length characters, and stops after a line feed
     // (streams/TestProbeStreamContracts.al:ReadText_LengthPositionAndTerminators).
     let max_chars = match a.get(1) {
@@ -1307,6 +1404,7 @@ fn in_read_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NRes
                 s.pos = n;
             }
         }
+        crate::stream_call_stack::refuse_position(s, "ReadText")?;
         let (enc, pos) = (s.enc, s.pos);
         if pos >= s.len() {
             s.hit_end = true;
@@ -1319,11 +1417,25 @@ fn in_read_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NRes
             // character per call (xmlports/import/XpTExportBasic.al:Export_StaticWithRecordNoRows,
             // xmlports/PnC19XmlPort.al:Export_BothFormatEvaluates, streams/StTEncodings.al:CrossEncodingMsDosAndUtf16).
             let ends = |u: &[u8]| is_unit(u, b'\n') || u.iter().all(|b| *b == 0);
-            while end + unit <= rest.len() && end / unit < max_chars && !ends(&rest[end..end + unit]) {
-                end += unit;
+            // On UTF-8 the length counts characters, a surrogate pair once (streams/instream-outstream/StreamUtf8CharsRead.al:196-197
+            // Utf8_Euro_ReadVariants `ReadText(Text,1)`, :178-179, :214-215, :250-251 the other characters); a byte that starts no
+            // character steps one byte and raises below.
+            let step = |b: u8| match b {
+                0xC2..=0xDF if enc == Encoding::Utf8 => 2,
+                0xE0..=0xEF if enc == Encoding::Utf8 => 3,
+                0xF0..=0xF4 if enc == Encoding::Utf8 => 4,
+                _ => unit,
+            };
+            let mut chars = 0;
+            while end + unit <= rest.len() && chars < max_chars && !ends(&rest[end..end + unit]) {
+                end = (end + step(rest[end])).min(rest.len());
+                chars += 1;
             }
             // Stopping on the length leaves the line feed unread.
             let at_lf = end + unit <= rest.len() && ends(&rest[end..end + unit]);
+            // Stopping on the length before the end of the line after a non-ASCII character is pinned only for one character per
+            // stream (StreamUtf8CharsRead.al); with more text after it, it is not.
+            let cut_unpinned = enc == Encoding::Utf8 && end < rest.len() && !at_lf && !rest[..end].is_ascii();
             let line: Vec<u8> = rest[..end]
                 .chunks(unit)
                 .filter(|u| !is_unit(u, b'\r'))
@@ -1339,12 +1451,20 @@ fn in_read_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NRes
             // XpTExportBasic.al:Export_ThreeRows: the UTF-16 bytes of an export).
             let invalid_utf8 = enc == Encoding::Utf8 && std::str::from_utf8(&line).is_err();
             (
-                (!invalid_utf8 && enc.decode_pinned(&line)).then(|| enc.decode(&line)),
+                // Every MS-DOS byte reads as `decode` gives (ReadTextMsDosHighBytes.al, corpus branch
+                // al-runtime-rs-staging-r6963).
+                if invalid_utf8 { String::new() } else { enc.decode(&line) },
                 consumed,
                 invalid_utf8,
+                cut_unpinned,
             )
         });
-        let (text, consumed, invalid_utf8) = (text.0, text.1, text.2);
+        let (text, consumed, invalid_utf8, cut_unpinned) = text;
+        if cut_unpinned {
+            return unsupported(
+                "InStream.ReadText(Text, Length) on UTF-8 that stops on the length after a non-ASCII character (not pinned)",
+            );
+        }
         if invalid_utf8 {
             return Err(Signal::Error(Box::new(crate::native::AlError {
                 message: "Invalid data encountered in stream, unable to read text.".into(),
@@ -1353,13 +1473,16 @@ fn in_read_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NRes
                 ..Default::default()
             })));
         }
-        let Some(text) = text else {
-            return unsupported("InStream.ReadText of MS-DOS bytes whose character is not pinned");
-        };
         s.pos = pos + consumed;
+        // The line holds the mark of untracked call stack frames, which may hold line breaks: where the line ends in BC is not
+        // known (a JSON text of a call stack has none and reads back equal, WdCallStackWriteText.al:530).
+        s.past_call_stack_mark |= crate::stream_call_stack::holds_mark(&text);
         enc_used = enc;
         Ok(text)
     })?;
+    if crate::stream_call_stack::holds_mark(&text) && ctx.ret_used() {
+        crate::stream_call_stack::refuse_count("InStream.ReadText")?;
+    }
     // The count is the bytes of the text in the stream's encoding, without the terminators (a UTF-16 `ab` is 4).
     // UTF-8 counts its own bytes: `aéb` is 4 (streams/instream-outstream/StreamRawBytes.al:P175_Raw_EAcute_ReadText `utf8 utf8`).
     let n = if enc_used == Encoding::Utf8 {
@@ -1384,11 +1507,10 @@ fn is_unit(u: &[u8], c: u8) -> bool {
 /// InOutStream_Write_Integer_ReadInteger) or a Byte (one byte: the HexOf helper of
 /// streams/TestStreamsRuntimeContracts.al reads a stream byte by byte). Other types are not pinned.
 fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    // `Read(Text, Length)` on a single-byte stream takes Length bytes as one character each
-    // (xml/TestXmlDocumentWriteToOutStreamContracts.al:LeadingBytes reads the bytes 239 187 191 of a
-    // byte order mark into a Text[3]); bytes 128 to 159, other encodings and a used result are not pinned.
+    // `Read(Text, Length)`: per encoding in `stream_read_len` (UTF-8 and the single-byte encodings); UTF-16 is not pinned beyond
+    // streams/W7StreamRead.al:375 ReadTextWithLength_Utf16_WhatIsConsumed and stays refused.
     if let (2, Value::Text(_) | Value::Code(_), Some(Value::Integer(n))) = (a.len(), &a[0], a.get(1)) {
-        let n = usize::try_from(*n).unwrap_or(0);
+        let n = *n;
         let used = c.ret_used();
         // A stream whose owner went out of scope reads nothing: 0, and the text is empty
         // (streams/instream-outstream/Y62GoneInStream.al:GoneStream_ReadAndPosition `step2` `0|[]`).
@@ -1397,29 +1519,19 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
             return Ok(Value::Integer(0));
         }
         let (text, count) = with_in(r, |s| {
-            if !matches!(s.enc, Encoding::Windows | Encoding::MsDos) {
-                return unsupported(
-                    "InStream.Read(Text, Length) on a stream that is neither Windows nor MS-DOS encoded (not pinned)",
-                );
-            }
-            let rest = s.rest();
-            let taken = &rest[..n.min(rest.len())];
-            if s.enc == Encoding::Windows && taken.iter().any(|b| (0x80..0xA0).contains(b)) {
-                return unsupported("InStream.Read(Text, Length) of bytes 128 to 159 (not pinned)");
-            }
-            if !s.enc.decode_pinned(taken) {
-                return unsupported("InStream.Read(Text, Length) of MS-DOS bytes whose character is not pinned");
-            }
-            // The result is the number of bytes read, pinned for ASCII text (al-language-onprem-dotnet/
-            // dotnet/blob-stream-position/Y51BlobStreamPosition.al:274, :283 `read_text_2` `ef|2`).
-            if used && (!taken.is_ascii() || taken.len() != n) {
-                return unsupported(
-                    "the result of InStream.Read(Text, Length) of non-ASCII bytes or past the end (not pinned)",
-                );
-            }
-            s.pos += taken.len();
-            Ok((s.enc.decode(taken), taken.len()))
+            crate::stream_call_stack::refuse_position(s, "Read")?;
+            let got = match s.enc {
+                Encoding::Utf8 => crate::stream_read_len::utf8(s, n)?,
+                Encoding::Windows | Encoding::MsDos => crate::stream_read_len::single_byte(s, n)?,
+                Encoding::Utf16 => {
+                    return unsupported("InStream.Read(Text, Length) on a UTF-16 stream (not pinned)");
+                }
+            };
+            Ok((got.text, got.count))
         })?;
+        if used && crate::stream_call_stack::holds_mark(&text) {
+            crate::stream_call_stack::refuse_count("InStream.Read")?;
+        }
         a[0] = Value::Text(text.into());
         return Ok(if used {
             Value::Integer(count as i32)
@@ -1462,10 +1574,12 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
     if matches!(a[0], Value::Text(_) | Value::Code(_)) {
         let used = c.ret_used();
         let (taken, count) = with_in(r, |s| {
+            crate::stream_call_stack::refuse_position(s, "Read")?;
             // A UTF-8 byte order mark at the start of a stream created as UTF-8 is skipped (streams/
-            // DdStreamLeads.al:502 Item68_Utf8Bom `read utf8` 3 [97,98,99]). The count Read returns over a mark is not pinned.
+            // DdStreamLeads.al:502 Item68_Utf8Bom `read utf8` 3 [97,98,99]). The count leaves the mark out when no zero byte
+            // follows (streams/instream-outstream/StreamReadMatrix.al:533 Matrix_Utf8Bom `u8 len -1` `2 [97]`); with one it is not pinned.
             if s.pos == 0 && s.enc == Encoding::Utf8 && s.with_data(|d| d.starts_with(&[0xEF, 0xBB, 0xBF])) {
-                if used {
+                if used && s.with_data(|d| d[3..].contains(&0)) {
                     return unsupported(
                         "the result of InStream.Read into a Text over a UTF-8 byte order mark (not pinned)",
                     );
@@ -1500,9 +1614,13 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
             // same file's TO_ReadText_NonAscii_NoTerminator `7|wörld` with no terminator,
             // `5|äö` then `5|€A`). On a UTF-16 stream the pin reads only the characters before the first non-ASCII one, which
             // is not modelled.
-            if !s.enc.decode_pinned(body)
-                || (!s.enc.decode(body).is_ascii()
-                    && !matches!(s.enc, Encoding::Windows | Encoding::MsDos | Encoding::Utf8))
+            // A call stack text reads back whole on every encoding (errors/WdCallStackWriteText.al:148-149 `read equal`).
+            let decoded = s.enc.decode(body);
+            let call_stack = crate::stream_call_stack::holds_mark(&decoded)
+                && decoded.replace(crate::native::CALL_STACK_MARK, "").is_ascii();
+            if !call_stack
+                && (!s.enc.decode_pinned(body)
+                    || (!decoded.is_ascii() && !matches!(s.enc, Encoding::Windows | Encoding::MsDos | Encoding::Utf8)))
             {
                 return unsupported(
                     "InStream.Read into a Text of non-ASCII characters on a UTF-16 stream (not pinned)",
@@ -1511,6 +1629,9 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
             s.pos += consumed;
             Ok((s.enc.decode(body), counted))
         })?;
+        if used && crate::stream_call_stack::holds_mark(&taken) {
+            crate::stream_call_stack::refuse_count("InStream.Read")?;
+        }
         a[0] = match a[0] {
             Value::Code(_) => Value::Code(taken.into()),
             _ => Value::Text(taken.into()),
@@ -1767,7 +1888,7 @@ pub(crate) fn read_serialised_text(stream: &mut Value) -> Result<String, Signal>
 
 /// `WriteText(Text)` writes the text in the stream's encoding and no terminator; `WriteText()` writes
 /// CR LF (:OutStream_WriteText_WithoutArgument_WritesCarriageReturnLineFeed).
-fn out_write_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+fn out_write_text(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     if a.len() > 1 {
         // A length equal to that of an ASCII text writes the text (al-language-onprem-dotnet/dotnet/blob-stream-position/
         // Y51BlobStreamPosition.al:245-247, `writetext_len1` 9|9: WriteText('x', 1) wrote one byte).
@@ -1779,12 +1900,17 @@ fn out_write_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
     }
     let text = match a.first() {
         None => "\r\n".to_string(),
-        Some(v) => match crate::native::text_of(v) {
+        Some(v) => match crate::native::text_of_carrying_call_stack(v) {
             Some(t) => t,
             None => return unsupported("OutStream.WriteText of a value that is not text"),
         }
         .to_string(),
     };
+    // A call stack text is written on every encoding (errors/WdCallStackWriteText.al:128, WD_*_Collected_WriteText); the
+    // stream holds StrLen bytes of it (:136), and StrLen of its untracked frames is not known (`stream_call_stack`).
+    if crate::stream_call_stack::holds_mark(&text) && c.ret_used() {
+        crate::stream_call_stack::refuse_count("OutStream.WriteText")?;
+    }
     let (b, enc) = out_buf(r)?;
     let bytes = enc.encode(&text);
     write_bytes(&b, &bytes);
@@ -1973,7 +2099,18 @@ fn out_write(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NRe
         // 'wörld' is 77 F6 72 6C 64 00).
         // The text ends at its first NUL character (types/variant/LTP89StreamText.al:Text_BytesWritten `nul_char`).
         // Cyrillic and Japanese text on every encoding: `Encoding::write_text_pinned`.
-        Value::Text(t) | Value::Code(t) if enc.write_text_pinned(t.split('\0').next().unwrap_or_default()) => {
+        // A call stack text is written on every encoding (errors/WdCallStackWriteText.al:130, WD_*_Collected_Write).
+        Value::Text(t) | Value::Code(t)
+            if enc.write_text_pinned(
+                &t.split('\0')
+                    .next()
+                    .unwrap_or_default()
+                    .replace(crate::native::CALL_STACK_MARK, ""),
+            ) =>
+        {
+            if crate::stream_call_stack::holds_mark(t.as_str()) && c.ret_used() {
+                crate::stream_call_stack::refuse_count("OutStream.Write")?;
+            }
             let mut v = enc.encode(t.split('\0').next().unwrap_or_default());
             v.extend(std::iter::repeat_n(0, enc.unit()));
             v
@@ -2237,6 +2374,24 @@ mod blob_cell_tests {
     }
 
     // streams/TestStreamsRuntimeContracts.al:WriteText_ExplicitEncodings_Bytes, streams/StTEncodings.al:RoundTripSameEncoding and
+    /// π is written as `p` on an MS-DOS and a Windows stream (streams/StTEncodings.al:UnmappableCharacters); a box-drawing
+    /// character of code page 437 is not pinned.
+    #[test]
+    fn pi_is_written_as_p() {
+        assert_eq!(Encoding::MsDos.encode("aπb"), b"apb".to_vec());
+        assert_eq!(Encoding::Windows.encode("aπb"), b"apb".to_vec());
+        assert!(Encoding::MsDos.encode_pinned("π") && Encoding::Windows.encode_pinned("π"));
+        assert!(!Encoding::MsDos.encode_pinned("\u{2500}"));
+    }
+
+    /// The bytes pinned earlier one by one (`CP437_AS_READ`) read as the full table says.
+    #[test]
+    fn the_earlier_pins_agree_with_the_msdos_table() {
+        for (b, c) in CP437_AS_READ {
+            assert_eq!(Encoding::MsDos.decode(&[b]), c.to_string(), "{b:#x}");
+        }
+    }
+
     // CrossEncodingUtf8ToOthers: the default encoding is code page 437.
     #[test]
     fn the_default_encoding_is_code_page_437() {
@@ -2260,5 +2415,15 @@ mod blob_cell_tests {
             Encoding::MsDos.decode(ja),
             "2025\u{CE}\u{2030}\u{201E}1\u{B5}\u{A3}\u{EA}31\u{B5}\u{F9}\u{D1} 1\u{CB}\u{C7}\u{BB}2"
         );
+    }
+
+    // al-runner issue 6853: a call stack text written to a default (code page 437) stream reads back with its mark, as it does
+    // from a Windows stream (error-handling/lt-wd/WdCallStackToBlob.al:96-102).
+    #[test]
+    fn the_call_stack_mark_round_trips_through_the_default_encoding() {
+        let t = "\"C\"(CodeUnit 50100).Collect line 3\r\n\u{FDD0}";
+        let bytes = Encoding::MsDos.encode(t);
+        assert!(Encoding::MsDos.decode_pinned(&bytes));
+        assert_eq!(Encoding::MsDos.decode(&bytes), t);
     }
 }

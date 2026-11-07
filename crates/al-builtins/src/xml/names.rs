@@ -22,10 +22,19 @@ pub(super) fn element_name(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Valu
         return Err(uninitialized("XmlAttribute"));
     }
     let h = recv(r)?;
+    // A namespace without a prefix of its own: the prefix a declaration in scope gives it (see `unprefixed_name`).
+    let bare = with(&h, |d| match d {
+        XData::Element { local, ns, .. } if !ns.is_empty() => Some((local.clone(), ns.clone(), false)),
+        XData::Attribute { prefix, local, ns, .. } if prefix.is_empty() && !ns.is_empty() && ns != XMLNS_URI => {
+            Some((local.clone(), ns.clone(), true))
+        }
+        _ => None,
+    });
+    if let Some((local, ns, is_attribute)) = bare {
+        return Ok(Value::Text(unprefixed_name(&h, &local, &ns, is_attribute)?.into()));
+    }
     Ok(Value::Text(
         with(&h, |d| match d {
-            // An element in a namespace without a prefix reads `:name` (xml/XmlElement.al:Create_Namespace).
-            XData::Element { prefix, local, ns, .. } if prefix.is_empty() && !ns.is_empty() => format!(":{local}"),
             XData::Element { prefix, local, .. } | XData::Attribute { prefix, local, .. } => qname(prefix, local),
             _ => String::new(),
         })
@@ -59,9 +68,17 @@ pub(super) fn namespace_prefix(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [
     let h = recv(r)?;
     Ok(Value::Text(
         with(&h, |d| match d {
-            XData::Attribute { prefix, .. } => prefix.clone(),
-            _ => String::new(),
+            XData::Attribute { prefix, ns, .. } if prefix.is_empty() && !ns.is_empty() && ns != XMLNS_URI => None,
+            XData::Attribute { prefix, .. } => Some(prefix.clone()),
+            _ => Some(String::new()),
         })
+        .map(Ok)
+        .unwrap_or_else(|| match parent_of(&h) {
+            // A detached attribute made with a namespace has the prefix `p0` (xml/xml/XmlNsPrefixes.al:Attribute_PrefixNumbering
+            // `detached_prefix`); an attached one is not pinned.
+            None => Ok("p0".to_string()),
+            Some(_) => unsupported("NamespacePrefix of an attached attribute made with a namespace (not pinned)"),
+        })?
         .into(),
     ))
 }
@@ -73,35 +90,10 @@ pub(super) fn is_namespace_declaration(_: &mut dyn Ctx, r: Option<&mut Value>, _
 pub(super) fn get_prefix_of_namespace(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = recv(r)?;
     let uri = arg_text(a, 0)?;
-    let mut cur = Some(h);
-    while let Some(e) = cur {
-        for at in attrs_of(&e) {
-            let hit = with(&at, |d| match d {
-                XData::Attribute {
-                    prefix,
-                    local,
-                    ns,
-                    value,
-                } if ns == XMLNS_URI && *value == uri => {
-                    Some(if prefix == "xmlns" { Some(local.clone()) } else { None })
-                }
-                _ => None,
-            });
-            match hit {
-                Some(Some(p)) => {
-                    a[1] = Value::Text(p.into());
-                    return Ok(Value::Boolean(true));
-                }
-                // xml/TestXmlRuntimeContracts.al:XmlElement_NamespaceLookups: the default namespace
-                // has an empty prefix.
-                Some(None) => {
-                    a[1] = Value::Text(String::new().into());
-                    return Ok(Value::Boolean(true));
-                }
-                None => {}
-            }
-        }
-        cur = parent_of(&e);
+    // xml/TestXmlRuntimeContracts.al:XmlElement_NamespaceLookups: the default namespace has an empty prefix.
+    if let Some(p) = declared_prefix(&h, &uri) {
+        a[1] = Value::Text(p.into());
+        return Ok(Value::Boolean(true));
     }
     // No declaration in scope: Yes, the reserved namespaces give `xml` and `xmlns` and any other (the empty one, one no
     // element declares, on a loaded or a detached element) the empty prefix (xml/xml/XmlNsPrefixes.al:55-108

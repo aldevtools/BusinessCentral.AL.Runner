@@ -108,6 +108,13 @@ pub struct SuiteEntry {
     /// declared dependencies, and without the main app's tests.
     #[serde(default)]
     pub extra_apps: Vec<ExtraApp>,
+    /// Corpus app folders (relative to the repository root) the corpus CI publishes in the job of this suite only
+    /// (corpus `.github/workflows/ci.yml`, `app_dirs` of that job: `tests/al-language-xhandler-*`, the cross-app
+    /// default test handler fixtures). They are published in this suite's pass, in the order given and right after the
+    /// internals fixture as CI does, and in no other pass: a default handler of an installed app runs for the test
+    /// codeunits of other apps.
+    #[serde(default)]
+    pub extra_dirs: Vec<String>,
 }
 
 /// An app of `SuiteEntry::extra_apps`: the id it is found by, and its name for messages.
@@ -233,7 +240,7 @@ corpus_commit = "abc"
 major = 27
 bc_version = "27.5"
 junit = "27/junit.xml"
-baseline = "metrics/27/passing.txt"
+baseline = "metrics/27/not-passing.txt"
 
 [[version]]
 major = 29
@@ -242,13 +249,13 @@ bc_build = "29.0.54011.55816"
 workflow_run = 1
 artifact_id = 2
 junit = "29/junit.xml"
-baseline = "metrics/29/passing.txt"
+baseline = "metrics/29/not-passing.txt"
 
 [[version]]
 major = 28
 bc_version = "28.5"
 junit = "28/junit.xml"
-baseline = "metrics/28/passing.txt"
+baseline = "metrics/28/not-passing.txt"
 "#;
 
     fn file() -> OracleFile {
@@ -286,7 +293,7 @@ baseline = "metrics/28/passing.txt"
 name = "onprem"
 app = "corpus/tests/al-language-onprem"
 oracle = "28/junit-onprem.xml"
-baseline = "metrics/28/passing-onprem.txt"
+baseline = "metrics/28/not-passing-onprem.txt"
 
 [[version.suite]]
 name = "isolation-function"
@@ -296,7 +303,7 @@ runner = 61300
 bc_version = "28.4"
 corpus_commit = "old"
 oracle = "28/xunit-isolation-function.xml"
-baseline = "metrics/28/passing-isolation-function.txt"
+baseline = "metrics/28/not-passing-isolation-function.txt"
 "#
         );
         let f = OracleFile::parse(&t).unwrap();
@@ -311,6 +318,31 @@ baseline = "metrics/28/passing-isolation-function.txt"
         assert!(f.versions.iter().find(|v| v.major == 27).unwrap().suites.is_empty());
     }
 
+    // The corpus CI publishes some corpus app folders in the job of one suite only (job test-testlibraries, `app_dirs`:
+    // the cross-app default test handler fixtures): such a suite names them in `extra_dirs`.
+    #[test]
+    fn a_suite_names_the_corpus_folders_its_job_publishes() {
+        let t = format!(
+            r#"{TOML}
+[[version.suite]]
+name = "testlibraries"
+app = "corpus/tests/al-language-testlibraries"
+oracle = "28/junit-testlibraries.xml"
+baseline = "metrics/28/not-passing-testlibraries.txt"
+extra_dirs = ["corpus/tests/al-language-xhandler-lib", "corpus/tests/al-language-xhandler-a"]
+"#
+        );
+        let f = OracleFile::parse(&t).unwrap();
+        let v = f.versions.iter().find(|v| v.major == 28).unwrap();
+        assert_eq!(
+            v.suites[0].extra_dirs,
+            [
+                "corpus/tests/al-language-xhandler-lib",
+                "corpus/tests/al-language-xhandler-a"
+            ]
+        );
+    }
+
     // The corpus CI installs apps no test app declares for some suites (corpus .github/workflows/ci.yml, job
     // test-testlibraries, `extra_apps`): such a suite names them, and runs in an environment of its own.
     #[test]
@@ -321,13 +353,13 @@ baseline = "metrics/28/passing-isolation-function.txt"
 name = "onprem"
 app = "corpus/tests/al-language-onprem"
 oracle = "28/junit-onprem.xml"
-baseline = "metrics/28/passing-onprem.txt"
+baseline = "metrics/28/not-passing-onprem.txt"
 
 [[version.suite]]
 name = "testlibraries"
 app = "corpus/tests/al-language-testlibraries"
 oracle = "28/junit-testlibraries.xml"
-baseline = "metrics/28/passing-testlibraries.txt"
+baseline = "metrics/28/not-passing-testlibraries.txt"
 extra_apps = [
   {{ id = "5d86850b-0d76-4eca-bd7b-951ad998e997", name = "Tests-TestLibraries" }},
   {{ id = "7819d79d-feea-4f09-bbed-5bbaca4bf323", name = "Data Archive" }},

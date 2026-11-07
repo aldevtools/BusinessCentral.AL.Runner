@@ -90,6 +90,24 @@ impl Lowerer<'_> {
     }
 
     /// A call resolved on `node` (the CallExpr, or the callee for a call without parentheses).
+    /// The id of the implementation for a call whose argument is written as a Variant, where BC treats it apart.
+    fn variant_argument_id(&self, id: &str, args: &[SyntaxNode]) -> Option<&'static str> {
+        let variant = |i: usize| args.get(i).is_some_and(|a| matches!(self.ty_of(a), Ty::Variant));
+        match id {
+            "System.Format#1" if args.len() >= 3 && variant(0) => Some("System.FormatVariant#1"),
+            // A record that reaches GetTable through a Variant loses its ChangeCompany (types/lt-cw-variant-leads/
+            // CwVariantChangeCompany.al:CW_Variant_KeepsOrDropsChangeCompany `variant to recordref`).
+            "RecordRef.GetTable#1" if variant(0) => Some("RecordRef.GetTableVariant#1"),
+            // A Variant converts into the field as through `FieldRef.Validate` (corpus
+            // record/validate/RecordValidateVariant.al; al-runner issue 6975).
+            "Record.Validate#1" if args.len() == 2 && variant(1) => Some("Record.ValidateVariant#1"),
+            // A Text inside a Variant goes by ordinal digits on an Enum or Option control
+            // (pages/enum-setvalue-blank/BeEnumSetValueBlank.al:532-597).
+            "TestField.SetValue#1" if variant(0) => Some("TestField.SetValueVariant#1"),
+            _ => None,
+        }
+    }
+
     pub(crate) fn call(&mut self, node: &SyntaxNode, callee: &SyntaxNode, args: &[SyntaxNode]) -> L<ir::Expr> {
         if let Some(Res::TddStub(site)) = self.res(node).cloned() {
             return self.tdd_stub(&site, args);
@@ -252,7 +270,7 @@ impl Lowerer<'_> {
                             out.push(ir::Arg::Value(value));
                             continue;
                         }
-                        out.push(ir::Arg::Value(self.convert_to(&p.ty, self.ty_ref(a), value)?));
+                        out.push(ir::Arg::Value(self.convert_arg(&p.ty, self.ty_ref(a), value)?));
                     }
                 }
                 self.calls.push((object, routine));
@@ -468,11 +486,8 @@ impl Lowerer<'_> {
                         ErrorTextForm::Other => id.as_str(),
                     }
                     .to_string()
-                } else if id == "System.Format#1"
-                    && args.len() >= 3
-                    && args.first().is_some_and(|a| matches!(self.ty_of(a), Ty::Variant))
-                {
-                    "System.FormatVariant#1".to_string()
+                } else if let Some(variant_id) = self.variant_argument_id(&id, args) {
+                    variant_id.to_string()
                 } else if id == "TextBuilder.Append#1"
                     && args
                         .first()
@@ -490,18 +505,6 @@ impl Lowerer<'_> {
                     // A Variant variable holding a number raises (format-evaluate/NumberToTextIsFormat.al:193-216);
                     // a `FieldRef.Value()` argument goes to `TextBuilder.AppendFieldValue#1`.
                     "TextBuilder.AppendVariant#1".to_string()
-                } else if id == "RecordRef.GetTable#1"
-                    && args.first().is_some_and(|a| matches!(self.ty_of(a), Ty::Variant))
-                {
-                    // A record that reaches GetTable through a Variant loses its ChangeCompany (types/lt-cw-variant-leads/
-                    // CwVariantChangeCompany.al:CW_Variant_KeepsOrDropsChangeCompany `variant to recordref`).
-                    "RecordRef.GetTableVariant#1".to_string()
-                } else if id == "TestField.SetValue#1"
-                    && args.first().is_some_and(|a| matches!(self.ty_of(a), Ty::Variant))
-                {
-                    // A Text inside a Variant goes by ordinal digits on an Enum or Option control
-                    // (pages/enum-setvalue-blank/BeEnumSetValueBlank.al:532-597).
-                    "TestField.SetValueVariant#1".to_string()
                 } else if (id == "System.Format#1" || id == "System.Format#2") && decimal_field_places.is_some() {
                     "System.FormatDecimalField#1".to_string()
                 } else if id == "System.Format#1" && auto_format_field.is_some() {
@@ -590,7 +593,7 @@ impl Lowerer<'_> {
                         Some(Box::new(ir::Arg::Ref(ir::Place::Global(*slot))))
                     }
                     // A bare report method in a report's or report extension's procedure is the `CurrReport.` form: the VM
-                    // takes the report whose code runs (reports/bare-report-member/Y36BareReportMember.al:206-357, also
+                    // takes the report whose code runs (reports/bare-report-member/Y36BareReportMember.al:191-342, also
                     // on a report variable never run and from a report extension; the checker resolves only the pinned names,
                     // `check::calls::BARE_REPORT_MEMBERS`). In a trigger the bare form is not pinned. The bare `RunModal()` and
                     // `Run()` run the report's own instance: the triggers run once, the globals they set read back through the
@@ -810,10 +813,10 @@ impl Lowerer<'_> {
                 // Evaluate into an Option field reads its captions: the text goes through `System.TranslatedText#1`, refused where a
                 // translation file could change them (ADR-053 step 1).
                 if id == "System.Evaluate#1" && matches!(out.get(1), Some(ir::Arg::Value(_))) {
-                    if let Some((object, what)) = args.first().and_then(|a| self.option_caption_owner(a)) {
+                    if let Some(owner) = args.first().and_then(|a| self.option_caption_owner(a)) {
                         let placeholder = ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(0)));
                         if let ir::Arg::Value(v) = std::mem::replace(&mut out[1], placeholder) {
-                            out[1] = ir::Arg::Value(self.translated_text(v, object, what)?);
+                            out[1] = ir::Arg::Value(self.translated_option_text(v, owner)?);
                         }
                     }
                 }
@@ -932,7 +935,7 @@ impl Lowerer<'_> {
     /// A Char argument for a by-value number parameter of a procedure called on a variable of another object (`receiver`
     /// is its kind). A Char variable handed to an Integer parameter of a report procedure fails with 'Unable to convert from
     /// System.Char to System.Int32.' (code Conversion), with and without a report extension that adds an overload, measured on
-    /// Windows too (reports/runtime/BvReportCharArg.al:87-131); a local procedure converts it (:160-170, the
+    /// Windows too (reports/runtime/BvReportCharArg.al:72-116); a local procedure converts it (:160-170, the
     /// runtime's usual conversion). The same call on another codeunit was measured on the Linux tiers only (:140-158), so it
     /// is refused until the Windows check; other receivers, other number types and other Char expressions are not pinned and
     /// are refused. `None`: not such an argument.

@@ -77,7 +77,9 @@ impl Session {
         // (codeunits/TestWriteTxTestBoundary.al:WriteTx_Test12_AnXmlPortImportMayWriteUnderNone).
         let began_world = self.no_transaction();
         self.tx.tx_world += 1;
-        let result = self.xp_import_document(inst, schema);
+        let result = self
+            .xp_import_view_keys(inst, schema)
+            .and_then(|()| self.xp_import_document(inst, schema));
         self.tx.tx_world -= 1;
         if result.is_err() && inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_IMPORTED) {
             inst.borrow_mut().xp_text.push((XP_IMPORT_FAILED, String::new()));
@@ -139,6 +141,16 @@ impl Session {
         let [top] = tops[..] else {
             return unsupported("XmlPort import with more than one top-level element (not pinned)");
         };
+        // With Namespaces and UseDefaultNamespace = true BC fails every import, whatever the document and the root of the port: the
+        // rows stay (corpus xmlports/shapes-properties/XpUseDefaultNsPrefixes.al XUD_*_Import; with a DefaultNamespace
+        // XpUseDefaultNsWithDefault.al XDN_TextLeaf_Import, XDN_Item_Import, XDN_TableRoot_Import, XDN_AttrDefault_Import,
+        // XDN_AttrNoDefault_Import; BC 27.5, 28.5 and 29.0 alike).
+        if xp.udn_root_prefix {
+            return Err(xerr(
+                "The prefix  is not defined in the Namespaces property of the XMLPort.",
+                "XmlPortNodeProcess",
+            ));
+        }
         if xp.text_encoding.as_deref() == Some("msdos") {
             return unsupported("XmlPort import into a VariableText port with TextEncoding = MSDOS (not pinned)");
         }
@@ -154,7 +166,12 @@ impl Session {
                 enc.to_ascii_uppercase()
             ));
         }
-        let table_root = root_table_element(schema, top);
+        let table_root = root_table_element(schema, top) || plain_tree_root(schema, top);
+        if table_root && !root_table_element(schema, top) && !plain_import_root(schema, top) {
+            return unsupported(
+                "XmlPort import of a root table element with a field element beside a text element, or without MaxOccurs = Once (not pinned)",
+            );
+        }
         Self::xp_root_triggers_pinned(schema, top)?;
         if !table_root && (xp.nodes[top].kind != ir::XmlNodeKind::Text || schema.children(top).is_empty()) {
             return unsupported("XmlPort import whose root is not a text element with content (not pinned)");

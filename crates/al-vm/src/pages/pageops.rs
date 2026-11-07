@@ -10,6 +10,12 @@ impl Session {
         recv: Option<&mut Value>,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
+        // CurrPage calls from the page's own code do not count as the test code touching the page.
+        if let (Some(Value::TestPage(st)), al_builtins::page_op::PageRecv::TestPage) = (recv.as_deref(), method.recv())
+        {
+            let st = st.clone();
+            self.flush_data_caption(&st)?;
+        }
         let r = self.outside_used_tries(|s| s.page_op_outer(method, recv, args));
         self.save_abort_swallowed(method, r)
     }
@@ -275,13 +281,16 @@ impl Session {
         }
     }
 
-    /// Only Close, OK and Cancel are pinned on a request page after New() (`request_new_blank_row`).
+    /// Only Close, OK and Cancel are pinned on a request page after New() (`request_new_blank_row`), and only Close and a part's
+    /// Visible() and Editable() after a swallowed insert of a new host (`refuse_after_swallowed_part_insert`).
     fn refuse_after_request_new(&self, st: &St, name: PageMethod) -> Result<PageMethod, Signal> {
+        self.refuse_after_swallowed_part_insert(st, Some(name))?;
         if st.borrow().request_new_blank && !matches!(name, PageMethod::Close | PageMethod::OK | PageMethod::Cancel) {
             return unsupported(format!(
                 "TestPage.{name} on a request page after New() (only Close, OK and Cancel are pinned)"
             ));
         }
+        self.refuse_after_list_edit_back(st, name)?;
         Ok(name)
     }
 
@@ -1004,16 +1013,16 @@ impl Session {
                 if src.borrow().table != dst.borrow().table {
                     return unsupported("Page.SetSelectionFilter into a record of another table (not pinned)");
                 }
-                if st.borrow().cursor != Cursor::Row && !self.closed_on_handler_set_record(st) {
+                // A part on no row whose Rec holds the values its SubPageLink set selects that record: a filter on its key and a
+                // count of 0, whether the table has rows of other documents or none (corpus branch al-runtime-rs-staging-r6962,
+                // pages/parts/SelectionFilterLinkedPartNoRow.al SetSelectionFilter_LinkedPartOnNoRow_TableHasOtherRows, _TableEmpty
+                // `rec=95656/A/0 count=0 filters=Table ID: 95656, No.: A, Line No.: 0`; issue 6964). Marks are not pinned: none is set.
+                let linked_no_row = self.linked_part_on_no_row(st, &src, dst);
+                if st.borrow().cursor != Cursor::Row && !linked_no_row && !self.closed_on_handler_set_record(st) {
                     // A page on no row because its table is empty selects nothing, and the record keeps no filter
                     // (pages/run-modal/P82CurrPage.al:SetSelectionFilter_EmptyPage: `sel=0 filter=''`). A page on no row
                     // over a table that has rows is not pinned.
-                    let table_empty = st.borrow().open
-                        && dst.borrow().filters.is_empty()
-                        && matches!(
-                            self.record_op(RecordOp::IsEmpty, dst, &mut []),
-                            Ok(Value::Boolean(true))
-                        );
+                    let table_empty = self.selection_into_empty_table(st, dst);
                     if table_empty {
                         return self.record_op(RecordOp::SetRecFilter, dst, &mut []);
                     }
@@ -1127,7 +1136,7 @@ impl Session {
                 // (testpage/CdTestPageLeads.al:676-708, Item60_SelectionFilter_*, `marked=2,`), and the marks of
                 // other rows are gone, with or without MarkedOnly (testpage/ApTestPageTests.al:866-882,
                 // Ap15_SetSelectionFilter_IntoMarkedRecord, `rows=C*;after=C`).
-                if !blank_row {
+                if !blank_row && !linked_no_row {
                     dst.borrow_mut().marks = vec![selected_key];
                 }
                 Ok(Value::Null)
@@ -1154,14 +1163,10 @@ impl Session {
                 self.require_open(st)?;
                 self.bg_run_page_task(st, args)
             }
-            PageMethod::Run => {
-                let record = st.borrow().set_record.clone();
-                self.run_page_ui(st, record, false)
-            }
+            PageMethod::Run => self.run_page_var(st, false),
             PageMethod::RunModal => {
-                let record = st.borrow().set_record.clone();
                 st.borrow_mut().run_static = Some(false);
-                self.run_page_ui(st, record, true)
+                self.run_page_var(st, true)
             }
             // `CurrPage.Close()` in a procedure of a Page variable that never ran does nothing and the procedure goes on
             // (pages/currpage/ClosedPageVariableCurrPageClose.al:83-99, Close_NeverRun), and so does
@@ -1254,7 +1259,7 @@ impl Session {
                     }
                 } =>
             {
-                Ok(Value::Null)
+                self.never_run_update(method, st, args)
             }
             PageMethod::Update | PageMethod::SaveRecord => {
                 self.require_open(st)?;
@@ -1264,6 +1269,7 @@ impl Session {
                 // CurrPage.Update() without an argument saves (the parameter defaults to true).
                 let save = (method == PageOp::PageSaveRecord) || !matches!(args.first(), Some(Value::Boolean(false)));
                 if !(method == PageOp::PageSaveRecord) {
+                    self.refuse_update_in_action(st)?;
                     // The refresh lands after the trigger that asked for it returns (corpus
                     // pages/currpage/TestPageUpdate.al: ValidateBegin;ValidateEnd;HostAGCR).
                     st.borrow_mut().refresh = true;
@@ -1376,4 +1382,25 @@ impl Session {
     }
 
     // ---- opening and closing ------------------------------------------------------------
+}
+
+impl Session {
+    /// Whether SetSelectionFilter of the part `st` stands on no row while its Rec `src` holds the values its SubPageLink set (not the
+    /// blank record), into a record `dst` without filters or marks (see the caller for the pin).
+    fn linked_part_on_no_row(&mut self, st: &St, src: &Rec, dst: &Rec) -> bool {
+        st.borrow().cursor != Cursor::Row && st.borrow().host.is_some() && !self.is_blank_row(src) && {
+            let d = dst.borrow();
+            d.marks.is_empty() && !d.marked_only && d.filters.is_empty()
+        }
+    }
+
+    /// Whether the open page `st` hands its selection to a record `dst` without filters whose table holds no row.
+    fn selection_into_empty_table(&mut self, st: &St, dst: &Rec) -> bool {
+        st.borrow().open
+            && dst.borrow().filters.is_empty()
+            && matches!(
+                self.record_op(RecordOp::IsEmpty, dst, &mut []),
+                Ok(Value::Boolean(true))
+            )
+    }
 }

@@ -74,7 +74,7 @@ impl Selection {
 
     /// A pattern with a dot is matched against the qualified name, one without against the method name; any case,
     /// as a substring.
-    fn matches(pattern: &str, codeunit: u32, test: &str) -> bool {
+    pub(crate) fn matches(pattern: &str, codeunit: u32, test: &str) -> bool {
         let p = pattern.to_lowercase();
         if p.contains('.') {
             qualified(codeunit, test).to_lowercase().contains(&p)
@@ -535,6 +535,61 @@ pub struct Collected {
     pub bc_build: Option<String>,
     pub baseline_assumptions: Vec<String>,
     pub disabled: Vec<bool>,
+}
+
+/// `skippedDependencies` of the JSON outputs: the dependency apps the run did not load (empty: none).
+fn skipped_json(d: &al_testrun::deps::Dependencies) -> serde_json::Value {
+    d.skipped_details
+        .iter()
+        .map(al_testrun::deps::SkippedDependency::json)
+        .collect()
+}
+
+/// The error of a run that stops on dependencies it could not find (`--no-download`, issue 7139).
+fn missing_dependencies_message(skipped: &[al_testrun::deps::SkippedDependency]) -> String {
+    let mut m = format!(
+        "{} dependency app(s) were not found and --no-download is set, so the run would use a different install than a run with the apps:",
+        skipped.len()
+    );
+    for s in skipped {
+        m.push_str("\n  ");
+        m.push_str(&s.reason);
+    }
+    m.push_str(
+        "\nAdd the app to a --dep folder or the cache, or pass --allow-missing-dependencies to skip it with a warning.",
+    );
+    m
+}
+
+/// What follows the load of the dependency apps: a run under `--no-download` stops on dependencies it could not find
+/// (al-runner issue 7139: without the feed a missing dependency would quietly change the install the tests run on),
+/// and a debug session learns the sources it can show.
+fn after_dependencies_load(
+    a: &TestArgs,
+    debug: &Option<DebugSetup>,
+    inputs: &[crate::apps::AppInput],
+    dependencies: &al_testrun::deps::Dependencies,
+) -> Result<(), String> {
+    if a.no_download && !a.allow_missing_dependencies && !dependencies.skipped_details.is_empty() {
+        return Err(missing_dependencies_message(&dependencies.skipped_details));
+    }
+    if let Some(d) = debug {
+        let written = al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()).join("debug-sources");
+        *d.sources.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some(crate::debug::sources_of(inputs, dependencies, written));
+    }
+    Ok(())
+}
+
+/// The `--output-json` document with its `skippedDependencies` list (issue 7139).
+fn with_skipped_dependencies(doc: String, dependencies: &al_testrun::deps::Dependencies) -> Result<String, String> {
+    match serde_json::from_str::<serde_json::Value>(&doc) {
+        Ok(mut d) if d.is_object() => {
+            d["skippedDependencies"] = skipped_json(dependencies);
+            serde_json::to_string_pretty(&d).map_err(|e| e.to_string())
+        }
+        _ => Ok(doc),
+    }
 }
 
 /// A run whose selected tests and coverage statements are handed back in `into` (one side of an impact run).
@@ -1120,11 +1175,7 @@ fn test_inner(
             d
         }
     };
-    if let Some(d) = &debug {
-        let written = al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()).join("debug-sources");
-        *d.sources.lock().unwrap_or_else(|e| e.into_inner()) =
-            Some(crate::debug::sources_of(&inputs, &dependencies, written));
-    }
+    after_dependencies_load(a, &debug, &inputs, &dependencies)?;
     let microsoft = inputs.iter().any(|i| apps::is_microsoft(&i.manifest.publisher))
         || dependencies.manifests.iter().any(|m| apps::is_microsoft(&m.publisher));
     if should_choose_test_data(a, test_data.is_some(), microsoft) {
@@ -1358,16 +1409,10 @@ fn test_inner(
         source_root: source_root(),
         // Under the same cache root as the apps when the user chose one (issue 5747).
         cache_dir: al_testrun::dotnet::sidecar_cache_dir_from_env(a.cache_dir.as_deref()),
-        // ADR-014 section 3, step 2: after the user's folders, the service tier of the platform artifact in use.
-        assembly_dirs: al_testrun::dotnet::probe_dirs(
-            &a.dotnet_assembly_dirs,
-            al_deps::cache::bcartifacts_sandbox_from_env().as_deref(),
-            bc_build.as_deref(),
-            u32::from(chosen.target.bc.major),
-        ),
         allow_roll_forward: a.dotnet_allow_roll_forward,
         timeout: Duration::from_secs(a.dotnet_timeout_secs.unwrap_or(60)),
-        ..Default::default()
+        // ADR-014 section 3, step 2 and issue 6924: the user's folders, an extracted artifact, then fetched assemblies.
+        ..crate::service_tier::dotnet_dirs(a, dependencies.build.as_ref(), u32::from(chosen.target.bc.major))
     }));
     if a.require_dotnet {
         if let Err(why) = host.availability() {
@@ -1492,6 +1537,8 @@ fn test_inner(
             0 => None,
             n => Some(std::time::Duration::from_secs(n)),
         },
+        // ADR-066 (owner decision 3): Microsoft's runner by default; `--test-runner builtin` keeps al-runner's own.
+        test_runner: a.test_runner.unwrap_or(al_testrun::runtime::TestRunner::Microsoft),
         isolation: a.isolation,
         // By default AL Runner runs every test codeunit as Microsoft's runner 130450 does (TestIsolation = Codeunit unless
         // --isolation says otherwise); RequiredTestIsolation on a codeunit has no effect there, as on BC. `--isolation
@@ -1527,18 +1574,23 @@ fn test_inner(
         permissions_off: a.permissions_off, // `--permissions off` (ADR-062 section 5).
         check_baseline_rule: false,
         dev_endpoint_ui: crate::dev_endpoint_ui::for_major(a.dev_endpoint_ui, chosen.target.bc.major)?, // issue 3697
+        allow_write_in_try_functions: a.allow_write_in_try_functions,                                   // issue 7143
+        dependencies_published_global: a.dependencies_published_global,                                 // issue 7169
+        strict_order: a.strict_order, // `--strict-order` (ADR-066 amendment 4)
         perturb: Default::default(),
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
-        run_only: (a.run_selected_only && selection.active() && !a.execute).then(|| {
-            Arc::new(
-                found
+        run_only: (selection.active() && !a.execute)
+            .then(|| {
+                let picked: std::collections::BTreeSet<(u32, String)> = found
                     .iter()
                     .flat_map(|f| f.tests.iter().map(move |t| (f.id, t)))
                     .filter(|(id, t)| selection.picks(*id, t))
                     .map(|(id, t)| (id, t.to_lowercase()))
-                    .collect(),
-            )
-        }),
+                    .collect();
+                // `serve` only (issue 7207): exactly one picked test runs alone, as an entry's does.
+                (a.run_selected_only || (a.single_test_alone && picked.len() == 1)).then(|| Arc::new(picked))
+            })
+            .flatten(),
         test_data: test_data.as_ref().map(|(d, _)| d.clone()),
         company_data: company_data.clone(),
         compile_cache: compile_cache_on.then(|| al_testrun::compile_cache::CompileCache {
@@ -1570,16 +1622,18 @@ fn test_inner(
                     v.dedup();
                     v
                 };
-                let run_only = (a.run_selected_only && sel.active()).then(|| {
-                    Arc::new(
-                        found
-                            .iter()
-                            .flat_map(|f| f.tests.iter().map(move |t| (f.id, t)))
-                            .filter(|(id, t)| sel.picks(*id, t))
-                            .map(|(id, t)| (id, t.to_lowercase()))
-                            .collect(),
-                    )
-                });
+                // An entry that selects exactly one test runs that test alone, on a session of its own, as one
+                // runner call per method does in BC (issue 7207; BC 28.4 measured by the reporter): the siblings that
+                // would run first do not leave their WorkDate or other state behind. Entries are not in v2, so the
+                // "selection runs whole codeunits" rule of the plain `test` field stays as it is.
+                let picked: std::collections::BTreeSet<(u32, String)> = found
+                    .iter()
+                    .flat_map(|f| f.tests.iter().map(move |t| (f.id, t)))
+                    .filter(|(id, t)| sel.picks(*id, t))
+                    .map(|(id, t)| (id, t.to_lowercase()))
+                    .collect();
+                let single_method = picked.len() == 1 && sel.active() && !a.execute;
+                let run_only = ((a.run_selected_only && sel.active()) || single_method).then(|| Arc::new(picked));
                 // The entry's resource texts, in each app under test that has a resource of that name (the request
                 // checked that one has).
                 let resources: Vec<(usize, al_testrun::runtime::ResourceFiles)> = inputs
@@ -1971,6 +2025,9 @@ fn test_inner(
             })
             .collect();
         eprintln!("slowest test codeunits: {}", slowest.join("; "));
+        for line in p.chain.lines() {
+            eprintln!("{line}");
+        }
         if d.started > 0 {
             eprintln!(
                 "dotnet: {} .NET sidecar process(es) started: starting {} in total, {} at most; finding dotnet {}; sessions waited {} for theirs; {} request(s) {}",
@@ -2371,6 +2428,7 @@ fn test_inner(
                 crate::unpinned::count(results.iter().map(|r| &r.outcome)),
             ))
             .map(|mut doc: serde_json::Value| {
+                doc["skippedDependencies"] = skipped_json(&dependencies);
                 if !entry_counts.is_empty() {
                     doc["entries"] = entry_counts
                         .iter()
@@ -2437,6 +2495,7 @@ fn test_inner(
             }
             None => doc,
         };
+        let doc = with_skipped_dependencies(doc, &dependencies)?;
         match target {
             Some(path) => write_file(path, &doc)?,
             None => println!("{doc}"),
@@ -2471,7 +2530,7 @@ fn explain(
     target: &str,
 ) -> Result<u8, String> {
     // `--codeunit` narrows the candidates here; elsewhere it selects the whole codeunit.
-    let named = |r: &&&TestResult| r.test.to_lowercase().contains(&pattern.to_lowercase());
+    let named = |r: &&&TestResult| Selection::matches(pattern, r.codeunit, &r.test);
     let narrowed: Vec<&&TestResult> = results
         .iter()
         .filter(|r| codeunits.is_empty() || codeunits.contains(&r.codeunit))
@@ -2480,7 +2539,9 @@ fn explain(
     let exact: Vec<&&TestResult> = narrowed
         .iter()
         .copied()
-        .filter(|r| r.test.eq_ignore_ascii_case(pattern))
+        .filter(|r| {
+            r.test.eq_ignore_ascii_case(pattern) || qualified(r.codeunit, &r.test).eq_ignore_ascii_case(pattern)
+        })
         .collect();
     let candidates = if exact.len() == 1 { exact } else { narrowed };
     let [r] = candidates.as_slice() else {
@@ -2491,10 +2552,10 @@ fn explain(
         let list: Vec<String> = candidates
             .iter()
             .take(10)
-            .map(|r| format!("  {} {}.{}", r.codeunit, r.codeunit_name, r.test))
+            .map(|r| format!("  {} ({})", qualified(r.codeunit, &r.test), r.codeunit_name))
             .collect();
         return Err(format!(
-            "--explain `{pattern}` matches {} tests; give a longer name or add --codeunit ID:\n{}",
+            "--explain `{pattern}` matches {} tests; give a longer name, `Codeunit<ID>.<Method>` or add --codeunit ID:\n{}",
             candidates.len(),
             list.join("\n")
         ));

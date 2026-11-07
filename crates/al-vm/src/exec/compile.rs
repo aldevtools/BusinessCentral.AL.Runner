@@ -323,6 +323,72 @@ impl<'a> Compiler<'a> {
         }))
     }
 
+    /// A global passed by `var` to a procedure is written by it (ADR-066 amendment 3, R1).
+    fn var_arg_writes(&mut self, args: &[ir::Arg]) {
+        for a in args {
+            if let ir::Arg::Ref(ir::Place::Global(g)) = a {
+                self.emit(Op::SingleWrite {
+                    i: *g as u32,
+                    kind: SingleWriteKind::Modify,
+                });
+            }
+        }
+    }
+
+    /// A builtin that writes a global in place (ADR-066 amendment 3, R1): emits `Op::SingleWrite` before the global is
+    /// read as its receiver or argument, and returns the global, whose refill `op_builtin` notes after the call.
+    fn single_write(
+        &mut self,
+        id: al_builtins::builtin_id::BuiltinId,
+        receiver: Option<&ir::Arg>,
+        args: &[ir::Arg],
+    ) -> Option<u32> {
+        let global = |a: Option<&ir::Arg>| match a {
+            Some(ir::Arg::Ref(ir::Place::Global(g)) | ir::Arg::Value(ir::Expr::Load(ir::Place::Global(g)))) => {
+                Some(*g as u32)
+            }
+            _ => None,
+        };
+        let (g, kind) = match id {
+            ids::SYSTEM_CLEAR_1 | ids::SYSTEM_CLEAR_2 | ids::SYSTEM_CLEAR_3 => {
+                (global(args.first())?, SingleWriteKind::Replace)
+            }
+            ids::RECORD_GET_1
+            | ids::RECORD_GETBYSYSTEMID_1
+            | ids::RECORD_INIT_1
+            | ids::RECORD_FIND_1
+            | ids::RECORD_FINDFIRST_1
+            | ids::RECORD_FINDLAST_1
+            | ids::RECORD_FINDSET_1
+            | ids::RECORD_FINDSET_2
+            | ids::RECORD_COPY_1 => (global(receiver)?, SingleWriteKind::Replace),
+            // The other entries stay: a write, never the refill of a guard (corpus
+            // al-language-xhandler-lib/XhLog.al: `if Entries.ContainsKey(Id) then Entries.Set(..) else Entries.Add(..)`
+            // is a log that a later test codeunit reads, BiTestHandlerCrossApp.al:87-103).
+            ids::LIST_ADD_1
+            | ids::LIST_ADDRANGE_1
+            | ids::LIST_ADDRANGE_2
+            | ids::LIST_INSERT_1
+            | ids::LIST_REMOVE_1
+            | ids::LIST_REMOVEAT_1
+            | ids::LIST_REMOVERANGE_1
+            | ids::LIST_SET_1
+            | ids::LIST_SET_2
+            | ids::DICTIONARY_ADD_1
+            | ids::DICTIONARY_SET_1
+            | ids::DICTIONARY_SET_2
+            | ids::DICTIONARY_REMOVE_1 => (global(receiver)?, SingleWriteKind::Modify),
+            ids::RECORD_INSERT_1
+            | ids::RECORD_INSERT_2
+            | ids::RECORD_INSERT_3
+            | ids::RECORD_DELETE_1
+            | ids::RECORD_DELETEALL_1 => (global(receiver)?, SingleWriteKind::ModifyTemp),
+            _ => return None,
+        };
+        self.emit(Op::SingleWrite { i: g, kind });
+        Some(g)
+    }
+
     /// The builtins the VM runs on operands it holds (`special`): `false` when the shape of the call is not one it knows, which
     /// then raises the error of a builtin nothing implements.
     fn special(
@@ -465,6 +531,7 @@ impl<'a> Compiler<'a> {
                     Some(i) => Some(self.expr_copy(i)?),
                     None => None,
                 };
+                self.var_arg_writes(args);
                 let (arg_regs, site_args) = self.arg_regs(args)?;
                 if let Some(at) = guard {
                     let end = self.here();
@@ -497,6 +564,7 @@ impl<'a> Compiler<'a> {
             } if !special(*id) && (vm_class(*id) || al_builtins::native::by_id(*id).is_some()) => {
                 let vm = vm_class(*id);
                 let native = if vm { None } else { al_builtins::native::by_id(*id) };
+                let single_write = self.single_write(*id, receiver.as_deref(), args);
                 let n = args.len();
                 let mut regs = Vec::with_capacity(n + 1);
                 let mut kept: Vec<ir::Arg> = Vec::with_capacity(n + 1);
@@ -513,13 +581,7 @@ impl<'a> Compiler<'a> {
                 }
                 let receiver_reg = if receiver.is_some() { Some(regs.remove(0)) } else { None };
                 let receiver_arg = if receiver.is_some() { Some(kept.remove(0)) } else { None };
-                let by_ref = |a: &ir::Arg| matches!(a, ir::Arg::Ref(_));
-                let plain = !vm
-                    && native.is_some()
-                    && *id != al_builtins::builtin_id::ids::SYSTEM_CLEAR_1
-                    && *id != al_builtins::builtin_id::ids::SYSTEM_COPYARRAY_1
-                    && !receiver_arg.as_ref().is_some_and(by_ref)
-                    && !kept.iter().any(by_ref);
+                let plain = plain_builtin(*id, vm, native.is_some(), receiver_arg.as_ref(), &kept);
                 self.chunk.builtins.push(BuiltinSite {
                     id: *id,
                     vm_class: vm,
@@ -527,6 +589,7 @@ impl<'a> Compiler<'a> {
                     class: id.class(),
                     receiver: receiver_reg,
                     receiver_arg,
+                    single_write,
                     arg_regs: regs,
                     args: kept,
                     ret_used: *ret_used,
@@ -750,6 +813,7 @@ impl<'a> Compiler<'a> {
                 p.clone()
             }
             ir::Place::Field(base, pos) => ir::Place::Field(Box::new(self.rplace(base)?), *pos),
+            ir::Place::RecGlobal(base, o, slot) => ir::Place::RecGlobal(Box::new(self.rplace(base)?), *o, *slot),
             ir::Place::Index(base, idx) => {
                 let base = self.rplace(base)?;
                 let mut regs = Vec::with_capacity(idx.len());
@@ -1227,6 +1291,16 @@ impl<'a> Compiler<'a> {
                 }
             }
         }
+        // `G := x` where `x` is made without `G` replaces the value without using it: after a guard that read `G`, the
+        // refill (ADR-066 amendment 3, R1b; `WhenGotGLSetup := CurrentDateTime` in Get Shortcut Dimension Values).
+        if let ir::Place::Global(g) = p {
+            if free_of_global(e, *g, 0) {
+                self.emit(Op::SingleWrite {
+                    i: *g as u32,
+                    kind: SingleWriteKind::Replace,
+                });
+            }
+        }
         match p {
             // A local of a typed kind takes a proven value of that kind straight into its register.
             ir::Place::Local(i)
@@ -1273,4 +1347,64 @@ fn is_field_value_conversion(t: &RtType, inner: &ir::Expr) -> bool {
     (matches!(t, RtType::Text(_) | RtType::Code(_))
         || matches!(t, RtType::Library(n) if n.eq_ignore_ascii_case("Blob")))
         && matches!(inner, ir::Expr::Builtin { id, .. } if *id == al_builtins::builtin_id::ids::FIELDREF_VALUE_1)
+}
+
+/// Whether evaluating `e` surely does not read global `g` of the running instance: only shapes known not to (a constant,
+/// a local, another global, an operator or a builtin over such operands, a procedure of another instance). A procedure
+/// of the same instance may read it, so it does not count.
+fn free_of_global(e: &ir::Expr, g: usize, depth: u8) -> bool {
+    if depth > 8 {
+        return false;
+    }
+    let ex = |x: &ir::Expr| free_of_global(x, g, depth + 1);
+    let arg = |a: &ir::Arg| match a {
+        ir::Arg::Value(x) => ex(x),
+        ir::Arg::Ref(p) => place_free_of_global(p, g, depth + 1),
+    };
+    match e {
+        ir::Expr::Const(_) => true,
+        ir::Expr::Load(p) => place_free_of_global(p, g, depth + 1),
+        ir::Expr::Unary(_, a) | ir::Expr::Convert(_, a) => ex(a),
+        ir::Expr::Binary(_, a, b) => ex(a) && ex(b),
+        ir::Expr::Ternary(a, b, c) => ex(a) && ex(b) && ex(c),
+        ir::Expr::Builtin { receiver, args, .. } => receiver.as_deref().is_none_or(arg) && args.iter().all(arg),
+        ir::Expr::Call {
+            instance: Some(i),
+            args,
+            ..
+        } => ex(i) && args.iter().all(arg),
+        _ => false,
+    }
+}
+
+fn place_free_of_global(p: &ir::Place, g: usize, depth: u8) -> bool {
+    if depth > 8 {
+        return false;
+    }
+    match p {
+        ir::Place::Local(_) => true,
+        ir::Place::Global(h) => *h != g,
+        ir::Place::Field(base, _) => place_free_of_global(base, g, depth + 1),
+        ir::Place::Index(base, idx) => {
+            place_free_of_global(base, g, depth + 1) && idx.iter().all(|x| free_of_global(x, g, depth + 1))
+        }
+        _ => false,
+    }
+}
+
+/// A registered native whose receiver and arguments are all values and that `run_builtin` does not handle itself
+/// (`BuiltinSite::plain`).
+fn plain_builtin(
+    id: al_builtins::builtin_id::BuiltinId,
+    vm: bool,
+    native: bool,
+    receiver: Option<&ir::Arg>,
+    args: &[ir::Arg],
+) -> bool {
+    let by_ref = |a: &ir::Arg| matches!(a, ir::Arg::Ref(_));
+    !vm && native
+        && id != ids::SYSTEM_CLEAR_1
+        && id != ids::SYSTEM_COPYARRAY_1
+        && !receiver.is_some_and(by_ref)
+        && !args.iter().any(by_ref)
 }

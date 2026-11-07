@@ -685,21 +685,41 @@ fn boolean(text: &str, number: i64) -> Result<Parsed, Signal> {
     }
 }
 
-/// A Boolean text under language 1031 (errors/WcUnpinnedSingles.al:79-113 WC_Evaluate_Boolean_German): `Ja` is true,
-/// `Nein` false, and `Yes` and `vielleicht` are rejected. Other texts are not pinned in German (a rule for "any word that is no
-/// Boolean" would decide words such as `J` or `Wahr` that may be Boolean words there).
-fn german_boolean(text: &str) -> Result<Parsed, Signal> {
-    match text {
-        "Ja" => Ok(Parsed::Value(Value::Boolean(true))),
-        "Nein" => Ok(Parsed::Value(Value::Boolean(false))),
-        "Yes" | "vielleicht" => Ok(Parsed::Rejected),
-        // xmlports/shapes-properties/Y83XpMiscTests.al:Boolean_VT_German, Boolean_XML_German (needs the corpus bump): under
-        // language 1031 the texts `true`, `false`, `TRUE`, `1` and `0` read as in English, and `No`, `Wahr`, `Falsch` and `x`
-        // are rejected.
-        t if matches!(t.to_ascii_lowercase().as_str(), "true" | "1") => Ok(Parsed::Value(Value::Boolean(true))),
-        t if matches!(t.to_ascii_lowercase().as_str(), "false" | "0") => Ok(Parsed::Value(Value::Boolean(false))),
-        "No" | "Wahr" | "Falsch" | "x" => Ok(Parsed::Rejected),
-        _ => unsupported(format!("Evaluate of the Boolean text `{text}` in German (not pinned)")),
+/// A Boolean text under a language other than English (see [`crate::filter_boolean_words::evaluate_boolean_word`]).
+/// German texts that are no word of the table are pinned too (xmlports/shapes-properties/Y83XpMiscTests.al:Boolean_VT_German,
+/// Boolean_XML_German: `TRUE` reads as in English). Other texts are not pinned and are refused.
+fn language_boolean(language: i32, text: &str) -> Option<Result<Parsed, Signal>> {
+    use crate::filter_boolean_words::{EvaluateWord, evaluate_boolean_word};
+    Some(match evaluate_boolean_word(language, text)? {
+        EvaluateWord::Value(b) => Ok(Parsed::Value(Value::Boolean(b))),
+        EvaluateWord::Rejected => Ok(Parsed::Rejected),
+        EvaluateWord::NotPinned => unsupported(format!(
+            "Evaluate of the Boolean text `{text}` under GlobalLanguage {language} (not pinned)"
+        )),
+    })
+}
+
+/// [`boolean`] with the words of the session language when it has pinned ones (number 0 only).
+fn boolean_in_language(language: Option<i32>, text: &str, number: i64) -> Result<Parsed, Signal> {
+    match language.filter(|_| number == 0).and_then(|l| language_boolean(l, text)) {
+        Some(r) => r,
+        None => boolean(text, number),
+    }
+}
+
+fn raise_boolean_error(language: i32, text: &str) -> Result<Value, Signal> {
+    crate::native::raise(boolean_error(language, text), "Evaluate")
+}
+
+/// The error text of a rejected Boolean under Danish, French or Dutch (the quotes of the French text are \u{ab} and \u{bb}
+/// with a no-break space inside; format-evaluate/EvalLanguageBoolean.al EL_Errors_NLB_2067, _NLD_1043, _FRA_1036, _DAN_1030).
+fn boolean_error(language: i32, text: &str) -> String {
+    match language {
+        1036 => {
+            format!("La valeur \u{ab}\u{a0}{text}\u{a0}\u{bb} ne peut pas \u{ea}tre \u{e9}valu\u{e9}e en type Boolean.")
+        }
+        1030 => format!("V\u{e6}rdien \"{text}\" kan ikke evalueres til typen Boolean."),
+        _ => format!("De waarde \"{text}\" kan niet worden ge\u{eb}valueerd tot type Boolean."),
     }
 }
 
@@ -1100,6 +1120,29 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
             return Ok(Parsed::Rejected);
         }
     }
+    // A day, a month word and a year, in every session language (format-evaluate/EvalLanguageBoolean.al EL_Date_*, the same on the
+    // three supported majors and under 1030, 1031, 1033, 1036, 1043 and 2067): `31 december 2026` reads as 2026-12-31, while
+    // `31 Dezember 2026` and `Dec 31 2026` are rejected. Other month words and days are not pinned.
+    {
+        let words: Vec<&str> = text.split(' ').collect();
+        if let [d, m, y] = words.as_slice() {
+            if digits(d, 1..=2) && digits(y, 4..=4) {
+                if *m == "december" {
+                    if let (Ok(day), Ok(year)) = (d.parse::<u32>(), y.parse::<i32>()) {
+                        if (1..=31).contains(&day) {
+                            return Ok(Parsed::Value(Value::Date(day_from_civil(year, 12, day), false)));
+                        }
+                    }
+                }
+                if *m == "Dezember" {
+                    return Ok(Parsed::Rejected);
+                }
+            }
+            if *d == "Dec" && digits(m, 1..=2) && digits(y, 4..=4) {
+                return Ok(Parsed::Rejected);
+            }
+        }
+    }
     unsupported(format!(
         "Evaluate of `{text}` into Date (form not pinned by the corpus)"
     ))
@@ -1285,14 +1328,14 @@ fn time(text: &str, number: i64) -> Result<Parsed, Signal> {
         num(&body[..2], 2).zip(num(&body[2..], 2)).map(|(h, m)| (h, m, 0, 0))
     } else if body.len() == 6 && number == 0 {
         // `hhmmss` reads as hours, minutes and seconds and an hour from 24 is rejected (format-evaluate/
-        // AxEvaluateText.al:44-118: `085606`, `246000`), and so are minutes or seconds from 60 (record/
+        // AxEvaluateText.al:28-102: `085606`, `246000`), and so are minutes or seconds from 60 (record/
         // Y70Probes.al:123-170 `086000`, `085960`).
         num(&body[..2], 2)
             .zip(num(&body[2..4], 2))
             .zip(num(&body[4..], 2))
             .map(|((h, m), s)| (h, m, s, 0))
     } else if (1..=2).contains(&body.len()) && number == 0 && body.bytes().all(|b| b.is_ascii_digit()) {
-        // One or two digits are an hour; 24 is rejected (AxEvaluateText.al:44-118: `23`, `5`, `24`).
+        // One or two digits are an hour; 24 is rejected (AxEvaluateText.al:28-102: `23`, `5`, `24`).
         num(body, 2).map(|h| (h, 0, 0, 0))
     } else {
         None
@@ -1650,7 +1693,7 @@ pub fn evaluate_typed(
 }
 
 /// The tail of the error for an unknown table name: a space, then each part after a real backslash and six spaces, the last one after
-/// four spaces (xmlports/shapes-properties/Y88XmlPortProbes.al:223 and :241; W4PlatformAndMeta.al:706 pins the head up to the backslash).
+/// four spaces (xmlports/shapes-properties/Y88XmlPortProbes.al:209 and :241; W4PlatformAndMeta.al:706 pins the head up to the backslash).
 const METADATA_NOT_FOUND_TAIL: &str = " \\      The metadata object Table -1 was not found.\\      The application might be incompatible with the current compiler. Please unpublish the application that contains the application object Table -1 and republish it. \\      Or, run a technical upgrade of the application database with the 'Force' flag set.\\    ";
 
 /// `Evaluate(TableFilterField, Text)` (al-runner issues 5998 and 6006), pinned by record/W4PlatformAndMeta.al (writer SI:
@@ -1698,7 +1741,7 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
         .unwrap_or(table);
     let def = match c.table_filter_table(table) {
         Some(Ok(Some(def))) => def,
-        // An unknown table name: the whole text is pinned by xmlports/shapes-properties/Y88XmlPortProbes.al:223 (Y88_EvaluateTableFilter_
+        // An unknown table name: the whole text is pinned by xmlports/shapes-properties/Y88XmlPortProbes.al:209 (Y88_EvaluateTableFilter_
         // UnknownTableErrorText, 27-29), see METADATA_NOT_FOUND_TAIL.
         Some(Ok(None)) if table.parse::<i64>().is_err() => {
             return reject(c, METADATA_NOT_FOUND_TAIL, "Evaluate:MetadataNotFound");
@@ -1711,12 +1754,13 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
     if rest == " " {
         return Ok(store_table_filter(a, &format!("{}: ", def.name)));
     }
-    let mut parts: Vec<&str> = rest.split(',').collect();
+    let mut parts: Vec<&str> = crate::evaluate_table_filter_forms::split_conditions(rest);
     // A trailing comma is dropped (TableFilterEvaluate_SrRejectedForms `trailing_comma`).
     if parts.len() > 1 && parts.last().is_some_and(|p| p.trim().is_empty()) {
         parts.pop();
     }
     let mut conditions: Vec<(u32, String)> = Vec::new();
+    let all_parts = parts.clone();
     for (i, part) in parts.into_iter().enumerate() {
         let part = part.trim();
         if part.is_empty() {
@@ -1725,6 +1769,11 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
         let Some((field, value)) = part.split_once('=') else {
             // A second condition without '=': false and no error (`missing_equals_second`). The first condition without '=',
             // and the error as a statement, are not pinned.
+            // The thousands comma of an unquoted Decimal `>=100,000` cuts the condition: the whole text is the error
+            // (format-evaluate/tablefilter-stored/TableFilterStoredText.al TableFilter_Decimal_UnquotedGroupedGE, a statement).
+            if !ret_used && i > 0 && crate::evaluate_table_filter_forms::grouped_split_error(all_parts[i - 1], part) {
+                return reject(c, "", "Evaluate");
+            }
             if ret_used && i > 0 {
                 return Ok(Value::Boolean(false));
             }
@@ -1747,6 +1796,15 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
                 match (by_caption.next(), by_caption.next()) {
                     (Some(f), None) => Some(f),
                     (Some(_), Some(_)) => return refuse("a field caption two fields have"),
+                    // The declared Caption of a field with a CaptionClass is not pinned as a field of the text.
+                    (None, _)
+                        if def
+                            .fields
+                            .iter()
+                            .any(|f| f.class_caption.as_ref().is_some_and(|c| c.eq_ignore_ascii_case(field))) =>
+                    {
+                        return refuse("the declared caption of a field with a CaptionClass");
+                    }
                     (None, _) => None,
                 }
             }
@@ -1768,12 +1826,18 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
         };
         let Some(f) = found else {
             // The system fields' captions are refused; they are named as their names (SystemId, SystemCreatedAt, ...).
+            // A field with a literal CaptionClass is not found by the caption it resolves to: `Displayed Price`, which a bound
+            // OnResolveCaptionClass subscriber gives for `Nominal Price`, is an unknown field (format-evaluate/tablefilter-neutral/
+            // TableFilterEnumForms.al:551 TableFilter_Evaluate_ResolvedCaptionClass_RejectsUnknownField, pinned by corpus PR 1157).
             if def
                 .fields
                 .iter()
-                .any(|f| f.caption.is_err() && f.number < 2_000_000_000)
+                .any(|f| f.caption.is_err() && f.class_caption.is_none() && f.number < 2_000_000_000)
             {
                 return refuse("an unknown field of a table whose captions are refused");
+            }
+            if def.fields.iter().any(|f| f.class_caption.is_some()) {
+                crate::assumptions::assume(crate::assumptions::Assumption::TablefilterCaptionClassDeclared);
             }
             return reject(
                 c,
@@ -1784,9 +1848,17 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
                 "Evaluate:FieldNotFound",
             );
         };
-        let caption = match &f.caption {
-            Ok(caption) => caption.clone(),
-            Err(why) => return unsupported(why.clone()),
+        let caption = match (&f.caption, &f.class_caption) {
+            (Ok(caption), _) => caption.clone(),
+            // A field with a literal CaptionClass, named by its name, is found (format-evaluate/tablefilter-neutral/
+            // TableFilterEnumForms.al:539 TableFilter_Evaluate_CaptionClassFieldName_SelectsPricedRow, pinned by corpus PR 1157:
+            // `Nominal Price=>=40` selects the priced row through page Table Filter). It is stored by its declared caption,
+            // which the virtual Field table gives as "Field Caption"; that stored text is an assumption.
+            (Err(_), Some(declared)) => {
+                crate::assumptions::assume(crate::assumptions::Assumption::TablefilterCaptionClassDeclared);
+                declared.clone()
+            }
+            (Err(why), None) => return unsupported(why.clone()),
         };
         match table_filter_value(f, value)? {
             Ok(v) => conditions.push((f.number, format!("{caption}={v}"))),
@@ -1829,10 +1901,33 @@ fn table_filter_value(f: &crate::native::TableFilterField, value: &str) -> Resul
             && s.split(' ')
                 .all(|w| !w.is_empty() && w.chars().all(|ch| ch.is_ascii_alphanumeric()))
     };
+    // Forms stored as pinned by format-evaluate/tablefilter-stored/TableFilterStoredText.al (al-runner issues 7188 and 7190).
+    let ordinals: Option<Vec<i32>> = match &f.options {
+        Ok(Some(m)) => Some(m.iter().map(|x| x.0).collect()),
+        _ => None,
+    };
+    if let Some(r) = crate::evaluate_table_filter_forms::kept_form(&f.ty, v, ordinals.as_deref()) {
+        return Ok(r.map(|(text, assumed)| {
+            if assumed {
+                crate::assumptions::assume(crate::assumptions::Assumption::TablefilterQuotedCommaTextKept);
+            }
+            text
+        }));
+    }
     match &f.ty {
         RtType::Code(len) => {
             if v.is_empty() {
                 return Ok(Ok(String::new()));
+            }
+            // `<>''`: the nonempty codes (format-evaluate/tablefilter-neutral/TableFilterEnumForms.al:485
+            // TableFilter_Evaluate_NotEqualQuotedBlankCode_SelectsNonemptyCode, pinned by corpus pull request 1152). The text is
+            // kept as written; that stored form is an assumption.
+            // `''` alone and in a compound condition: the blank codes (TableFilterEnumForms.al:579
+            // TableFilter_Evaluate_QuotedBlankCode10_SelectsBlankService and :587 _CompoundQuotedBlankCode10_SelectsBlankService,
+            // pinned by corpus pull request 1157). Kept as written too.
+            if v == "<>''" || v == "''" {
+                crate::assumptions::assume(crate::assumptions::Assumption::TablefilterQuotedBlankKept);
+                return Ok(Ok(v.to_string()));
             }
             if let Some(inner) = v.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) {
                 if inner.contains('\'') {
@@ -1925,33 +2020,38 @@ fn table_filter_value(f: &crate::native::TableFilterField, value: &str) -> Resul
             }
             refuse()
         }
-        RtType::Option(_) => {
+        // Decimal `>=<digits>`: the rows at or above it (format-evaluate/tablefilter-neutral/TableFilterEnumForms.al:539
+        // TableFilter_Evaluate_CaptionClassFieldName_SelectsPricedRow, pinned by corpus pull request 1157: `Nominal Price=>=40`
+        // selects 42.5, not 17.5, through page Table Filter). Kept as written; that stored form is an assumption. Every other
+        // Decimal filter is not pinned.
+        RtType::Decimal
+            if v.strip_prefix(">=")
+                .is_some_and(|d| !d.is_empty() && d.len() <= 9 && d.chars().all(|ch| ch.is_ascii_digit())) =>
+        {
+            crate::assumptions::assume(crate::assumptions::Assumption::TablefilterDecimalAtLeastKept);
+            Ok(Ok(v.to_string()))
+        }
+        // Option and Enum members, one or in a list, `<>` or a range (crate::evaluate_table_filter_member).
+        RtType::Option(_) | RtType::Enum(_) => {
             let members = match &f.options {
                 Ok(Some(m)) => m,
                 Ok(None) => return refuse(),
                 Err(why) => return unsupported(why.clone()),
             };
-            let upper = v.to_ascii_uppercase();
-            if upper.starts_with("FILTER(") || upper.starts_with("CONST(") {
-                return Ok(Err(
-                    "An error occurred while interpreting the filter: Did not expect '('.".into(),
-                ));
+            // `''` on an Enum with a blank member: that member (TableFilterEnumForms.al:468
+            // TableFilter_Evaluate_QuotedBlankEnum_SelectsBlankMember, pinned by corpus pull request 1152). Kept as written; that
+            // stored form is an assumption. An Option, or an Enum without a blank member, is not pinned.
+            if v == "''" && matches!(f.ty, RtType::Enum(_)) && members.iter().any(|m| m.1.trim().is_empty()) {
+                crate::assumptions::assume(crate::assumptions::Assumption::TablefilterQuotedBlankKept);
+                return Ok(Ok(v.to_string()));
             }
-            let hit = v
-                .parse::<usize>()
-                .ok()
-                .filter(|_| v.chars().all(|ch| ch.is_ascii_digit()))
-                .and_then(|i| members.get(i))
-                .or_else(|| members.iter().find(|(name, _)| name.eq_ignore_ascii_case(v)))
-                .or_else(|| members.iter().find(|(_, caption)| caption == v));
-            if let Some((_, caption)) = hit {
-                return Ok(Ok(caption.clone()));
+            match crate::evaluate_table_filter_member::member_filter(members, v) {
+                // One Option member: W4PlatformAndMeta.al. Enum members by name, caption or ordinal, lists, `<>` and ranges of
+                // Option and Enum members: format-evaluate/tablefilter-neutral/TableFilterEnumForms.al:253
+                // TableFilterEvaluate_EnumMemberForms, :277 _EnumExpressions, :301 _OptionExpressions, :317 _EnumRoundTrip.
+                Some(r) => Ok(r),
+                None => refuse(),
             }
-            if !v.is_empty() && v.chars().all(|ch| ch.is_ascii_alphabetic()) {
-                let list = members.iter().map(|(_, c)| c.as_str()).collect::<Vec<_>>().join(",");
-                return Ok(Err(format!("'{v}' is not an option. The existing options are: {list}")));
-            }
-            refuse()
         }
         _ => refuse(),
     }
@@ -2028,14 +2128,28 @@ fn into_field_ref(c: &mut dyn Ctx, a: &mut [Value], number: i64) -> Result<Value
     // With the result unused a text that is no value raises the error of the type and leaves the field, as for a variable
     // (format-evaluate/EvaluateRecordIdComposite.al:Evaluate_IntoFieldRef `invalidUnusedErr`, an Integer field;
     // recordref-fieldref/N582EvalFieldRefUnused.al:71-169: Decimal, Date, Boolean, Code, Text, an Option without an
-    // OptionCaption and Integer). The other types are not pinned.
+    // OptionCaption and Integer; :218-249 N582_Evaluate_FieldRef_Guid_Statement, a Guid: the spellings, `abc` and an empty
+    // text give InvalidGuidFormat and keep the field; :251-332 BigInteger, Time, DateTime, DateFormula and Duration; :334-364
+    // an Option with an OptionCaption and an Enum). Another type is not pinned.
     if !c.ret_used() {
         use crate::value::RtType as T;
-        let pinned = match &target.ty {
-            T::Integer | T::Decimal | T::Date | T::Boolean | T::Code(_) | T::Text(_) => true,
-            T::Option(_) => !target.option_caption,
-            _ => false,
-        };
+        let pinned = matches!(
+            &target.ty,
+            T::Integer
+                | T::BigInteger
+                | T::Decimal
+                | T::Date
+                | T::Time
+                | T::DateTime
+                | T::DateFormula
+                | T::Duration
+                | T::Boolean
+                | T::Code(_)
+                | T::Text(_)
+                | T::Guid
+                | T::Enum(_)
+                | T::Option(_)
+        );
         if !pinned {
             return unsupported(format!(
                 "Evaluate into a FieldRef of type {} with the result unused (not pinned)",
@@ -2156,8 +2270,7 @@ fn evaluate_with_max(
         Value::BigInteger(_) => big_integer(&text, number)?,
         Value::Decimal(_) => decimal(&text, number)?,
         Value::Duration(_) => duration(&text, number)?,
-        Value::Boolean(_) if number == 0 && c.session_locale().map(|l| l.0) == Some(1031) => german_boolean(&text)?,
-        Value::Boolean(_) => boolean(&text, number)?,
+        Value::Boolean(_) => boolean_in_language(c.session_locale().map(|l| l.0), &text, number)?,
         Value::Guid(_) => guid(&text)?,
         Value::Byte(_) | Value::Char(_) if number == 0 => byte_or_char(&a[0], &text)?,
         // Every number but 9 reads a Date as the default does (types/date-time/Evaluate.al:Date_Other_Formats `fmt 1` to `fmt 8`,
@@ -2439,6 +2552,9 @@ fn evaluate_with_max(
                     "Evaluate",
                 ),
                 (Some(1031), _) => unsupported(format!("the Evaluate error of {ty} in German (not pinned)")),
+                // format-evaluate/EvalLanguageBoolean.al EL_Errors_NLB_2067, _NLD_1043, _FRA_1036, _DAN_1030 (the quotes of the
+                // French text are « and » with a no-break space inside).
+                (Some(n @ (1030 | 1036 | 1043 | 2067)), "Boolean") => raise_boolean_error(n, &text),
                 // The flag hides the text (errors/last-error/P70_02LastErrFlag.al:Flag_EvaluateAndOverflow
                 // `eval_int|true`, `eval_int_var|true`); for the other types it is not pinned.
                 (_, "Integer") => crate::native::raise_redacted(

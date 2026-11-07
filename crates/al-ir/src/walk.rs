@@ -176,6 +176,7 @@ pub fn walk_object<V: RefVisitor>(o: &mut Object, v: &mut V) {
         properties: _,
         enum_values: _,
         enum_captions: _,
+        enum_captions_ml: _,
         table,
         rec_slot: _,
         xrec_slot: _,
@@ -412,7 +413,13 @@ fn walk_set_elem<V: RefVisitor>(e: &mut SetElem, v: &mut V) {
 
 fn walk_place<V: RefVisitor>(p: &mut Place, v: &mut V) {
     match p {
-        Place::Local(_) | Place::Global(_) | Place::BaseGlobal(_) | Place::ExtGlobal(..) => {}
+        Place::Local(_) | Place::Global(_) | Place::BaseGlobal(_) => {}
+        // The extension's object index is an object reference like a call's (cross-app since al-runner issue 6983).
+        Place::ExtGlobal(e, _) => obj(v, e),
+        Place::RecGlobal(base, o, _) => {
+            obj(v, o);
+            walk_place(base, v);
+        }
         Place::Index(base, idx) => {
             walk_place(base, v);
             for e in idx {
@@ -669,6 +676,7 @@ fn walk_field<V: RefVisitor>(f: &mut Field, v: &mut V) {
         on_lookup,
         caption_class,
         caption_class_refusal: _,
+        caption_modified: _,
         auto_format_expression,
         auto_format_refusal: _,
         properties: _,
@@ -890,6 +898,7 @@ fn walk_control<V: RefVisitor>(
         expr_call: _,
         array_element: _,
         bare_quoted_ext_source: _,
+        source_text: _,
         factbox: _,
     } = c;
     if let Some((table, field)) = var_field {
@@ -1028,6 +1037,7 @@ fn walk_xmlport<V: RefVisitor>(x: &mut XmlPort, v: &mut V) {
         xml_utf8: _,
         namespaces: _,
         default_ns: _,
+        udn_root_prefix: _,
         inline_schema: _,
         use_lax: _,
         xml_v11: _,

@@ -130,7 +130,18 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
         // collections/TestListByRefContracts.al:155 through a `var` parameter).
         Value::List(_) => Value::List(Default::default()),
         Value::Dictionary(_) => Value::Dictionary(Default::default()),
-        // A cleared Blob is a new, empty buffer (streams/TestBlobCalcFieldsUncommittedWrite.al).
+        // A cleared Blob is an empty buffer (streams/TestBlobCalcFieldsUncommittedWrite.al), emptied in place: the row of a temporary
+        // table that holds the same buffer sees what a stream writes after the Clear, also through a Get (corpus
+        // streams/TestBlobCalcFieldsUncommittedWrite.al:183-222,
+        // BlobRoundTrip_TemporaryVariable_Matrix and _TemporaryTable_Matrix, `clear+noget`, `clear+get`; al-runner issue 6791). A buffer an Insert stored while it held content (`BlobBuf::temp_inserted`) is
+        // replaced as before: what a Clear of it leaves on the row is not pinned. So is a buffer a live xRec shares with Rec (a
+        // Clear in OnModify or in a table event): nothing pins what xRec shows after the Clear, so Rec gets a new buffer and xRec
+        // keeps its content, as before issue 6791 (crates/al-vm/tests/store/blob_clear_shared_xrec.rs).
+        Value::Blob(b) if !b.borrow().temp_inserted && !ctx.xrec_holds_blob(b) => {
+            let fresh = crate::stream::new_blob().borrow().clone();
+            *b.borrow_mut() = fresh;
+            Value::Blob(b.clone())
+        }
         Value::Blob(_) => Value::Blob(crate::stream::new_blob()),
         // A cleared TestPage or Page variable is a fresh, closed one (corpus
         // testpage/TestPageEditable_Tests.al:93 EditableBoundToPageVariable_FollowsTheRow). A page
@@ -302,6 +313,13 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
         }
         // A cleared XmlNodeList is an empty one, a copy taken before keeps its nodes, and SelectNodes fills it again
         // (xml/XmlNodes.al TP_NodeList_Clear).
+        // Clear of an XmlAttribute that was never assigned (a failed Create) changes nothing
+        // (xml/xml/XmlNsPrefixes.al:129,139,147,150,153 Decl_EmptyPrefixOrNamespace). One that holds an attribute is not pinned.
+        Value::Library(name, h)
+            if name.as_str() == "XmlAttribute" && matches!(&*h.borrow(), crate::value::LibraryValue::Empty) =>
+        {
+            Value::Library(name.clone(), Default::default())
+        }
         Value::Library(name, _) if name.as_str() == "XmlNodeList" => Value::Library(
             name.clone(),
             std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::XmlList(Vec::new()))),

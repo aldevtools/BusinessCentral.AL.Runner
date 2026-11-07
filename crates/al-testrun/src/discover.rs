@@ -155,7 +155,9 @@ fn scan(original: &str) -> Vec<Scanned> {
                 if let Some(v) = words.get(i + 1) {
                     cur.3.get_or_insert_with(|| v.to_string());
                 }
-            } else if w.eq_ignore_ascii_case("[test]") {
+            } else if w.eq_ignore_ascii_case("[test]") || w.eq_ignore_ascii_case("[testdatasource") {
+                // A data-driven procedure carries `[TestDataSource(...)]` and no `[Test]` (al-runner issue 7180; corpus
+                // al-language-testlibraries/test-framework/data-driven-tests-and-handlers/BiTestHandlerDefault.al:12, :257-291).
                 if let Some(pos) = words[i + 1..].iter().position(|w| w.eq_ignore_ascii_case("procedure")) {
                     // The name is read from the original text: a quoted name is blanked in `src` (issue 5572).
                     let (at, kw) = spans[i + 1 + pos];
@@ -173,6 +175,12 @@ fn scan(original: &str) -> Vec<Scanned> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_codeunit_with_only_data_driven_procedures_is_a_test_codeunit() {
+        let src = "codeunit 52132 \"R18 DD\"\n{\n    Subtype = Test;\n\n    [TestDataSource(Codeunit::\"R18 Source\", 'values')]\n    procedure Double(Context: Interface ITestContext)\n    begin\n    end;\n}\n";
+        assert_eq!(test_codeunits(src), vec![(52132, vec!["Double".to_string()])]);
+    }
 
     #[test]
     fn a_quoted_name_that_starts_with_a_number_does_not_start_a_codeunit() {

@@ -266,7 +266,7 @@ impl Session {
             } else if matches!(method, RecordOp::Insert | RecordOp::Modify) {
                 self.gate_used_try_row_write(&t, method)?;
             } else {
-                self.refuse_used_try_write(method)?;
+                self.gate_used_try_other_write(&t, method)?;
             }
             self.user_bulk_refusal(&t, rec.borrow().temporary, method)?;
             // A write call starts the transaction, also a DeleteAll that finds no row
@@ -401,19 +401,9 @@ impl Session {
         }
         match method {
             RecordOp::Init => {
-                let mut fresh = self.initial_fields(t.object as usize);
-                if self.temp_never_stamps(&t, rec) {
-                    // Init of a temporary record keeps the SQLTimestamp fields and SystemRowVersion
-                    // (record/temporary/QrTempTimestamp.al:221-226, `shared copy insert`).
-                    let r = rec.borrow();
-                    let facts = &self.engine.table_facts[t.object as usize].sql_timestamp;
-                    for (i, f) in t.fields.iter().enumerate() {
-                        if f.id == 2_000_000_005 || facts.contains(&i) {
-                            fresh[i] = r.fields[i].clone();
-                        }
-                    }
-                }
+                let fresh = self.init_fields(&t, rec);
                 let mut r = rec.borrow_mut();
+                crate::partial::note_init(&mut r);
                 r.assigned = false;
                 r.inserted = false;
                 if matches!(r.is_dirty_base, al_builtins::value::DirtyBase::Synced) {
@@ -951,7 +941,8 @@ impl Session {
                 // and stays as it is.
                 // What it writes: the loaded and the assigned fields; a field never loaded or assigned keeps the stored value
                 // (record/load-fields/P81LoadFields.al:1127-1243, al-runner issue 5764).
-                if !rec.borrow().temporary {
+                // A row that is gone fails below as RecordNotFound, partial or not (P170JitLoadGone.al:550-600 PG_Modify_*).
+                if !rec.borrow().temporary && stored.is_some() {
                     self.load_missing_fields(rec, None)?;
                 }
                 if let Some(b) = &mut rec.borrow_mut().load.buffer {
@@ -1149,13 +1140,16 @@ impl Session {
                 }
                 // A Delete loads the missing fields of a partially loaded record first: afterwards they read as loaded, with the
                 // values of the row it deleted (record/load-fields/LoadFieldsFetched.al:270-289,
-                // P170_JitLoad_After_Delete_Of_The_Same_Partial_Record_BQ, Delete without triggers). With triggers it is not pinned.
+                // P170_JitLoad_After_Delete_Of_The_Same_Partial_Record_BQ, Delete without triggers). Delete(true) does the same:
+                // OnBeforeDeleteEvent, OnDelete, OnAfterDeleteEvent and the caller's buffer afterwards read the stored value
+                // (record/load-fields/P170JitLoadGone.al WA_Delete_FindSetForUpdate_DeleteTrue, WA_Delete_Control_PlainTable,
+                // WA_Delete_Control_TriggerTable; al-runner issue 6924).
                 let tenant_media =
                     self.engine.program.objects.get(t.object as usize).and_then(|o| o.id) == Some(2_000_000_184);
                 if tenant_media && !rec.borrow().temporary {
                     return self.delete_tenant_media(&t, rec, run);
                 }
-                if !run && !rec.borrow().temporary {
+                if !rec.borrow().temporary {
                     self.load_missing_fields(rec, None)?;
                 }
                 self.delete_row(&t, rec, run)
@@ -1168,7 +1162,7 @@ impl Session {
                 self.document_service_trigger_refused(&t, rec, run, "DeleteAll")?;
                 let (filters, flow_field_filters) = self.split_filters(rec);
                 if !flow_field_filters.is_empty() {
-                    return unsupported("DeleteAll with a filter on a FlowField");
+                    return self.delete_all_flow_filtered(&t, rec, run);
                 }
                 let temporary = rec.borrow().temporary;
                 self.coverage_cleared(&t, temporary, &filters);
@@ -1659,7 +1653,7 @@ impl Session {
                 let steps = match args.first() {
                     Some(Value::Integer(n)) => *n,
                     // A whole-number Decimal steps like the Integer (`Calendar.Next(12 / CountFrequency)`); one with a fraction
-                    // raises and leaves the row (errors/PnF11DateDecimalArithmetic.al:119-187,
+                    // raises and leaves the row (errors/PnF11DateDecimalArithmetic.al:107-175,
                     // Next_Decimal_Whole: 1, 2, -1, -2, 12 / 4, 0, 20 past the end; Next_Decimal_Fraction: 1.5, -1.5, 0.4, ...).
                     Some(Value::Decimal(d)) if d.fract().is_zero() && i32::try_from(d.trunc()).is_ok() => {
                         i32::try_from(d.trunc()).unwrap_or(0)
@@ -1936,22 +1930,7 @@ impl Session {
                     // BT_Evaluate_Boolean_LeadingBlank `filter [ Da]`); a trailing one is not pinned.
                     Err(e) if e.starts_with(al_builtins::filter::INVALID_BOOLEAN) => {
                         let word = &e[al_builtins::filter::INVALID_BOOLEAN.len()..];
-                        if text.ends_with(char::is_whitespace) {
-                            return unsupported(
-                                "the error of a Boolean filter with a trailing blank (its quoted filter is not pinned)",
-                            );
-                        }
-                        return Err(Signal::Error(Box::new(AlError {
-                            message: format!(
-                                "The filter \"{}\" is not valid for the {} field on the {} table. The value \"{word}\" can't be evaluated into type Boolean.",
-                                text,
-                                self.field_caption(&t, pos),
-                                self.caption(&t)
-                            ),
-                            code: "Filter:CSide".into(),
-                            call_stack: String::new(),
-                            ..Default::default()
-                        })));
+                        return Err(self.boolean_filter_error(&t, pos, &text, word));
                     }
                     // types/date-time/P143Guid_Filters.al:P143_GuidInvalid, P143Date_FieldRef.al:P143_FieldRefGuid.
                     Err(e) if e.starts_with(al_builtins::filter::INVALID_GUID) => {
@@ -2201,6 +2180,14 @@ impl Session {
                 let engine = self.engine.clone();
                 let schema = engine.program.objects[t.object as usize].table.as_ref().expect("table");
                 let field = &schema.fields[pos];
+                // A field with an OnValidate trigger is left to the trigger: PG_Validate_TriggerReadsUnloadedField names the field the
+                // trigger reads, not the validated one (P170JitLoadGone.al:634-651).
+                if !rec.borrow().temporary && field.on_validate.is_none() {
+                    let (before, after) = self.ext_validate_order(&t, field)?;
+                    if before.is_empty() && after.is_empty() {
+                        self.validate_jit_gone(rec, pos)?;
+                    }
+                }
                 // A FlowField (record/flowfields/DiFwWriteTests.al): flowfields.rs `validate_flowfield` raises or refuses
                 // what is not a Decimal Sum; for that one the value goes in, OnValidate runs, then `write_sum_difference`.
                 let sum_flowfield = !field.stored && !field.flow_filter && field.id < 2_000_000_000;
@@ -2280,6 +2267,9 @@ impl Session {
             RecordOp::Rename => {
                 let rename_note = (self.tx.writes.len(), self.store.change_counter());
                 self.note_other_write(rec, &t);
+                if !rec.borrow().temporary {
+                    self.rename_jit_gone(rec)?;
+                }
                 // Fields that relate to this table follow the rename; a temporary record has none.
                 let refs = if rec.borrow().temporary {
                     Vec::new()
@@ -2537,5 +2527,21 @@ impl Session {
             | RecordOp::SetBaseLoadFields => self.load_fields_op(method, rec, &t, args),
             other => self.record_meta_op(other, rec, &t, args),
         }
+    }
+
+    /// The fields `Init` gives `rec`: the initial values, except that Init of a temporary record keeps the SQLTimestamp fields
+    /// and SystemRowVersion (record/temporary/QrTempTimestamp.al:221-226, `shared copy insert`).
+    fn init_fields(&mut self, t: &TableDef, rec: &Rec) -> Vec<Value> {
+        let mut fresh = self.initial_fields(t.object as usize);
+        if self.temp_never_stamps(t, rec) {
+            let r = rec.borrow();
+            let facts = &self.engine.table_facts[t.object as usize].sql_timestamp;
+            for (i, f) in t.fields.iter().enumerate() {
+                if f.id == 2_000_000_005 || facts.contains(&i) {
+                    fresh[i] = r.fields[i].clone();
+                }
+            }
+        }
+        fresh
     }
 }

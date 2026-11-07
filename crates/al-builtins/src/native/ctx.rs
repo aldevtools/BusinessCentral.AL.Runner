@@ -46,14 +46,21 @@ pub struct TableFilterTable {
 }
 
 /// A field of a [`TableFilterTable`].
+/// A member of an Option or Enum field: (ordinal, name, caption).
+pub type FieldMember = (i32, String, String);
+
 pub struct TableFilterField {
     pub number: u32,
     pub name: String,
     /// Its caption, or why reading it is refused.
     pub caption: Result<String, String>,
+    /// For a field whose caption is a literal CaptionClass (`caption` is refused): its declared caption (the Caption property,
+    /// else the English CaptionML, else its name), which the virtual Field table gives as its "Field Caption".
+    pub class_caption: Option<String>,
     pub ty: crate::value::RtType,
-    /// An Option field's members as (name, caption), or why reading them is refused; `Ok(None)` for other fields.
-    pub options: Result<Option<Vec<(String, String)>>, String>,
+    /// An Option or Enum field's members as (ordinal, name, caption), or why reading them is refused; `Ok(None)` for other
+    /// fields.
+    pub options: Result<Option<Vec<FieldMember>>, String>,
 }
 
 /// The field an `Evaluate` into a `FieldRef` writes (see [`Ctx::evaluate_field_target`]).
@@ -85,6 +92,13 @@ pub trait Ctx: FormatCtx {
         Ok(None)
     }
 
+    /// [`Self::translated_app_read`] that lets the read through when no translation file of the app has a unit `xliff`: the
+    /// source text then stays in every language (an OptionCaption read, `System.TranslatedText#1` with a fifth argument).
+    fn translated_app_read_unit(&self, app: &str, what: &str, xliff: &str) -> Result<(), Signal> {
+        let _ = xliff;
+        self.translated_app_read(app, what)
+    }
+
     fn last_error(&self) -> AlError;
     fn set_last_error(&mut self, e: AlError);
     /// Whether the run has the newer behaviour of `gate` (ADR-015 3.4); a context with no target has every gate.
@@ -108,6 +122,11 @@ pub trait Ctx: FormatCtx {
     ) -> Result<Value, Signal> {
         let _ = form;
         self.record(crate::record_op::RecordOp::FieldError, rec, args)
+    }
+    /// `Record.Validate(Field, V)` with `V` written as a Variant (lowering picks `Record.ValidateVariant#1`): the value converts
+    /// into the field as `FieldRef.Validate` converts it.
+    fn record_validate_variant(&mut self, rec: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+        self.record(crate::record_op::RecordOp::Validate, rec, args)
     }
     /// `TestPage` / `TestField` / `TestAction` methods: the VM's test client
     /// implements them (ADR-012). `method` is `Receiver.Name`.
@@ -151,6 +170,11 @@ pub trait Ctx: FormatCtx {
     /// The host clock in milliseconds since the Unix epoch; `None` where there is no host.
     fn now_unix_millis(&self) -> Option<i64> {
         None
+    }
+    /// Whether an xRec handle that AL code can still see holds the Blob buffer `b` (a `Clear` of it then gives Rec a new
+    /// buffer instead of emptying the shared one, `native::values::clear`).
+    fn xrec_holds_blob(&self, _b: &crate::stream::BlobRef) -> bool {
+        false
     }
     /// `Format` of a record variable, a `RecordRef` or a `FieldRef` (standard format 0): needs the
     /// table's fields. `None` where the context has no program.

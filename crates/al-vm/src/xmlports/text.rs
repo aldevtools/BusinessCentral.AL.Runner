@@ -21,7 +21,10 @@ impl Session {
         // (P94Fixtures.al: "LT P94 Csv Plain", exported by P94XpDelim.al:Export_NothingDeclared).
         let direct = schema.node(top).kind == ir::XmlNodeKind::Table;
         let kids = if direct { vec![top] } else { schema.children(top) };
-        let two = many && kids.len() == 2 && schema.xp().format == ir::XmlFormat::VariableText;
+        // A FixedText port has two table elements only as the pair a LinkTable ties together (`linked_pair`).
+        let two = many
+            && kids.len() == 2
+            && (schema.xp().format == ir::XmlFormat::VariableText || linked_pair(schema, &kids));
         if kids.len() != 1 && !two {
             return unsupported(
                 "a VariableText or FixedText port whose root has other than one table element (not pinned)",
@@ -184,6 +187,12 @@ impl Session {
                     })
                     .collect()
             };
+            // A TAB inside a value: the evaluate error of such a value shows the TAB as a space (XpSeparatorTokens.al
+            // VariableText_Import_SepTabLower_Plain, corpus branch al-runtime-rs-staging-r6963, `1 Alpha`); where BC changes it is not
+            // pinned.
+            if variable && values.iter().any(|v| v.contains('\t')) {
+                return unsupported("a TAB inside a VariableText value (not pinned)");
+            }
             if xp.preserve_whitespace && variable {
                 if let Some(v) = values.iter().find(|v| {
                     v.as_str() != v.trim() && (fdelim.is_empty() || !line.contains(&format!("{fdelim}{v}{fdelim}")))
@@ -328,7 +337,11 @@ impl Session {
                 // The table separator takes the place of the record separator between two tables (DgXmlPortLeads.al:
                 // Item106_TwoTablesDefaultSeparator `export`: `"2","Beta"\r\n\r\n"7"`, _TwoTablesNewLineSeparator); the last record has
                 // none. A table without a record is not pinned.
-                if parts.iter().any(|(_, empty)| *empty) {
+                // Pinned for the pair a LinkTable ties together when the first has no record, so the second has none either:
+                // the text is the table separator alone (R6924eLinkSibling.al:956 VT_Export_NoHeader `||`, :1028 FT_Export_NoHeader).
+                let no_header =
+                    parts.iter().all(|(_, empty)| *empty) && linked_pair(schema, &[tables[0].0, tables[1].0]);
+                if !no_header && parts.iter().any(|(_, empty)| *empty) {
                     return unsupported(
                         "a VariableText export of two table elements where one has no record (not pinned)",
                     );
@@ -479,14 +492,25 @@ pub(super) fn text_separator(value: Option<&str>, default: &str) -> Result<Strin
             rest = "";
             break;
         };
-        match rest[start + 1..start + end].to_ascii_uppercase().as_str() {
+        // The tokens are case-sensitive, and <> is no token: <>, <tab> and <none> are written as these characters
+        // (xmlports/shapes-properties/XpSeparatorTokens.al, corpus branch al-runtime-rs-staging-r6963:
+        // VariableText_Export_DelimEmptySepTab, _DelimNoneSepEmpty, _SepTabLower, _DelimNoneLower). Other spellings are not
+        // pinned.
+        match &rest[start + 1..start + end] {
             "LF" => out.push('\n'),
             "CR" => out.push('\r'),
             "TAB" => out.push('\t'),
-            // <NewLine> writes CR LF (XpTVariableText.al:Csv_ExportThreeRows reads the lines back as <NL>-separated).
-            "NEWLINE" | "CR/LF" => out.push_str("\r\n"),
-            // <None> is the empty text (XmlPortFixtures.al "LT XpT Csv Semi" has no field delimiter).
-            "NONE" => {}
+            // <NewLine> and <CR/LF> write CR LF (XpTVariableText.al:Csv_ExportThreeRows reads the lines back as <NL>-separated;
+            // XpSeparatorTokens.al VariableText_Export_SepNewLine, _SepCRLF).
+            "NewLine" | "CR/LF" => out.push_str("\r\n"),
+            // <None> is the empty text (XmlPortFixtures.al "LT XpT Csv Semi" has no field delimiter; XpSeparatorTokens.al
+            // VariableText_Export_SepNone).
+            "None" => {}
+            literal @ ("" | "tab" | "none") => {
+                out.push('<');
+                out.push_str(literal);
+                out.push('>');
+            }
             other => return unsupported(format!("the separator token <{other}> (not pinned)")),
         }
         rest = &rest[start + end + 1..];
@@ -582,4 +606,11 @@ pub(super) fn split_overlapping(text: &str, fsep: &str, rsep: &str, delim: &str)
         records.push(record);
     }
     records
+}
+
+/// Whether `kids` are two table elements of which the second names the first in LinkTable (the second is the first's following
+/// sibling, R6924eLinkSibling.al xmlports 95355 VariableText and 95356 FixedText).
+fn linked_pair(schema: &Schema, kids: &[usize]) -> bool {
+    let [first, second] = kids else { return false };
+    schema.node(*second).link_node == Some(*first) && super::pass::link_sibling(schema, *second)
 }

@@ -899,13 +899,7 @@ impl Session {
                     // Through a Variant the record keeps its filters and loses its ChangeCompany
                     // (recordref-fieldref/CwVariantChangeCompany.al:CW_Variant_KeepsOrDropsChangeCompany `variant to recordref`,
                     // record/TestChangeCompanyFiltersCopyDeleteContracts.al:248 `variantGetTableCompany`).
-                    Some(Value::Record(src)) if from_variant => {
-                        let mut copy = src.borrow().clone();
-                        copy.company = None;
-                        own_unloaded_blobs(&mut copy);
-                        *lib.borrow_mut() = LibraryValue::RecordRef(Rc::new(RefCell::new(copy)));
-                        return Ok(Value::Null);
-                    }
+                    Some(Value::Record(src)) if from_variant => return variant_record_into_ref(lib, src),
                     Some(Value::Record(src)) => src.clone(),
                     // A RecordRef as the source (only through a Variant: B.GetTable(A) does not compile, must-not-compile
                     // case 1140): a copy of its table, buffer, filters and current row, not shared afterwards
@@ -927,6 +921,16 @@ impl Session {
                 };
                 let mut copy = src.borrow().clone();
                 own_unloaded_blobs(&mut copy);
+                // A RecordRef copy of Rec in the OnOpenPage of a RunPageLink target holds Rec's view, the link included, and answers
+                // as any RecordRef: GetView, SetView, SetFilter, FindFirst (corpus
+                // testpage/RunPageLinkOpenSetView.al, RSV_LinkAndView_SameViewOfRecordRef, RSV_LinkAndView_ViewOfACopyWithItsOwnFilter).
+                if matches!(
+                    copy.unpinned_buffer,
+                    Some(crate::records::RUN_PAGE_LINK_OPEN | crate::records::RUN_PAGE_LINK_OPEN_FILLED)
+                ) {
+                    copy.unpinned_buffer = None;
+                    copy.run_page_link = None;
+                }
                 *lib.borrow_mut() = LibraryValue::RecordRef(Rc::new(RefCell::new(copy)));
                 return Ok(Value::Null);
             }
@@ -1142,7 +1146,7 @@ impl Session {
             "IsEmpty" | "Count" | "Init" | "Insert" | "Modify" | "Delete" | "DeleteAll" | "Find" | "FindFirst"
             | "FindLast" | "FindSet" | "Next" | "Reset" | "Rename" => {
                 // ADR-062: a RecordRef write is checked like a record write (Y19PermWrites.al Y19_P6_RecordRef).
-                if self.permissions.is_some() {
+                if self.permission_checks() {
                     self.permission_from_al = true;
                 }
                 self.record_op(record_method(method), &rec, args)
@@ -1903,6 +1907,9 @@ impl Session {
                 if let Some(why) = self.enum_caption_refusal(*id, None) {
                     return unsupported(why);
                 }
+                if let Some(why) = self.enum_ml_unpinned(*id, None, "the members of an enum field") {
+                    return unsupported(why);
+                }
                 let o = &self.engine.program.objects[*id as usize];
                 let members = o
                     .enum_values
@@ -2045,6 +2052,27 @@ impl Session {
 /// The record method a RecordRef method forwards to; the RecordRef arms that forward are listed by name.
 fn record_method(method: &str) -> RecordOp {
     RecordOp::from_name(method).expect("a RecordRef method that forwards to the record")
+}
+
+/// `RecordRef.GetTable` of a Variant that holds a record: the RecordRef takes a copy of the record with its filters and without its
+/// ChangeCompany (recordref-fieldref/CwVariantChangeCompany.al:CW_Variant_KeepsOrDropsChangeCompany `variant to recordref`,
+/// record/TestChangeCompanyFiltersCopyDeleteContracts.al:248 `variantGetTableCompany`). Rec of a page an action opened through
+/// RunPageLink, handed to a Variant parameter: the RecordRef carries the link filter and answers as any RecordRef: GetFilters, Count,
+/// Get of the current row and of a row outside the link (testpage/R7138RunPageLinkCopyGet.al:117-134, :218 `rr[Project Code: P2]
+/// n=2;rr.get own O3;rr.get O1 O1`). A by-value copy of that Rec put into a Variant some other way is not pinned.
+fn variant_record_into_ref(lib: &Lib, src: &Rc<RefCell<RecordState>>) -> Result<Value, Signal> {
+    let mut copy = src.borrow().clone();
+    match copy.unpinned_buffer {
+        Some(crate::records::RUN_PAGE_LINK_VARIANT) => copy.unpinned_buffer = None,
+        Some(w @ (crate::records::RUN_PAGE_LINK_COPY | crate::records::RUN_PAGE_LINK_OPEN_COPY)) => {
+            return unsupported(format!("RecordRef.GetTable of a Variant that holds {w}"));
+        }
+        _ => {}
+    }
+    copy.company = None;
+    own_unloaded_blobs(&mut copy);
+    *lib.borrow_mut() = LibraryValue::RecordRef(Rc::new(RefCell::new(copy)));
+    Ok(Value::Null)
 }
 
 /// The copy `RecordRef.GetTable` takes holds its own buffer of each Blob the record read from the database without

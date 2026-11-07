@@ -19,6 +19,8 @@ pub struct FieldInfo {
     pub class: FieldClass,
     /// Object index of the table or tableextension that declares it (None for system fields).
     pub declared_in: Option<usize>,
+    /// A `modify` block of a table extension sets `Caption` or `CaptionML` of the field.
+    pub caption_modified: bool,
     /// The `InitValue` property as written.
     pub init_value: Option<String>,
     pub auto_increment: bool,
@@ -108,6 +110,8 @@ pub struct Members {
     pub enum_values: Vec<(u32, String)>,
     /// `Caption` of enum values that declare one, by ordinal.
     pub enum_captions: Vec<(u32, String)>,
+    /// `CaptionML` of enum values that declare one, as written, by ordinal.
+    pub enum_captions_ml: Vec<(u32, String)>,
     /// An enum states `AssignmentCompatibility = true`: an enum of another type assigns into it
     /// (corpus must-not-compile 0074, 0075; types/PXEnumRecordRef.al:7-10).
     pub assignment_compatible: bool,
@@ -218,6 +222,7 @@ fn merged_members(ws: &Workspace, i: usize) -> Members {
         target.fields.extend(ext.fields);
         target.enum_values.extend(ext.enum_values);
         target.enum_captions.extend(ext.enum_captions);
+        target.enum_captions_ml.extend(ext.enum_captions_ml);
         target.enum_impls.extend(ext.enum_impls);
         target.procedures.extend(ext.procedures);
         // `modify(Field) { Caption = ...; }` changes properties of an existing field
@@ -228,6 +233,9 @@ fn merged_members(ws: &Workspace, i: usize) -> Members {
                     continue;
                 };
                 for (k, v) in props {
+                    if k.eq_ignore_ascii_case("Caption") || k.eq_ignore_ascii_case("CaptionML") {
+                        field.caption_modified = true;
+                    }
                     // A modify block that sets TableRelation gives the field a relation (record/ table extension: misc/
                     // lt-object-properties-runtime-effect/TableExtModifyTableRelation.al: Validate of the field finds the related table, and
                     // `FieldRef.Relation()` names it).
@@ -459,6 +467,7 @@ fn own_members(ws: &Workspace, i: usize) -> Members {
                     on_lookup,
                     properties: f.properties().map(|p| (p.name(), p.value_text())).collect(),
                     relation_scopes: Vec::new(),
+                    caption_modified: false,
                 });
             }
         } else if name == "value" {
@@ -477,6 +486,9 @@ fn own_members(ws: &Workspace, i: usize) -> Members {
                     .and_then(|p| first_string_literal(&p.value_text()));
                 if let Some(c) = caption {
                     m.enum_captions.push((id, c));
+                }
+                if let Some(p) = sec.properties().find(|p| p.name().eq_ignore_ascii_case("CaptionML")) {
+                    m.enum_captions_ml.push((id, p.value_text()));
                 }
             }
         }
@@ -520,6 +532,7 @@ fn own_members(ws: &Workspace, i: usize) -> Members {
                     _ => Vec::new(),
                 },
                 relation_scopes: Vec::new(),
+                caption_modified: false,
             });
         }
         if ws.user_name_fields() {
@@ -543,6 +556,7 @@ fn own_members(ws: &Workspace, i: usize) -> Members {
                         ("FieldClass".into(), "FlowField".into()),
                     ],
                     relation_scopes: Vec::new(),
+                    caption_modified: false,
                 });
             }
         }

@@ -424,7 +424,7 @@ pub(crate) fn remainder_reach_facts(
         let mut p = p;
         loop {
             match p {
-                Place::Index(b, _) | Place::Field(b, _) => p = b,
+                Place::Index(b, _) | Place::Field(b, _) | Place::RecGlobal(b, ..) => p = b,
                 Place::Local(i) => return Some((false, *i)),
                 Place::Global(i) => return Some((true, *i)),
                 Place::BaseGlobal(_) | Place::ExtGlobal(..) => return None,
@@ -1069,7 +1069,7 @@ impl Rec<'_> {
         let mut p = p;
         loop {
             match p {
-                Place::Index(b, _) | Place::Field(b, _) => p = b,
+                Place::Index(b, _) | Place::Field(b, _) | Place::RecGlobal(b, ..) => p = b,
                 Place::Global(g) => {
                     return (objs[o].kind == ObjKind::Codeunit).then_some((o, *g));
                 }

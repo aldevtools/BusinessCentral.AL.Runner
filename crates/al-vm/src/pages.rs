@@ -174,26 +174,32 @@ mod filter;
 mod filter_enum;
 mod filter_link_numbers;
 mod param_read;
+mod part_tree_typed;
 mod parts;
 mod qualified_name;
 mod read_backwards;
 mod text_control_value;
 use text_control_value::TextConv;
 pub(crate) mod request;
+mod request_expr_params;
 pub(crate) mod request_options;
 pub(crate) use request::RequestClosed;
 mod access_by_permission;
+mod action_blob_change;
 mod actions;
 mod blank_key_retyped;
 mod caption_class;
 mod caption_expr_list;
 mod caption_relation;
 mod caption_runs;
+mod caption_translation;
 mod close_save_failed;
 mod controls;
+mod data_caption_run;
 mod dev_endpoint;
 mod dirty_step;
 mod draft;
+mod empty_after_action;
 mod fn_controls;
 mod format;
 mod format_type11;
@@ -204,22 +210,33 @@ mod gotokey_find;
 mod host_follows;
 mod inserted_rows;
 mod list_refresh;
+mod list_view_switch;
 mod lookup_next;
 mod lookup_refresh;
 mod lookup_start;
+mod lookup_trigger;
+mod marked_refill_goto;
 mod modify_denied;
 mod moved_onto_deleted;
+mod never_run_update;
 mod open;
+mod ui_caption_translate;
+mod validation_text;
+pub(crate) use open::written_by_routine;
+mod other_record_no_row;
 mod page_get_record;
 mod page_var_view;
 mod pageops;
 mod part_filter_unsaved_host;
+mod part_host_update;
+mod part_insert_swallowed;
 mod refill;
 mod refresh_new_line;
 mod rows;
 mod rows_above;
 mod rows_client;
 mod runobject;
+mod server_row_lag;
 mod shown;
 mod table_values_allowed;
 mod test_end;
@@ -327,6 +344,13 @@ impl Session {
     /// declare one trigger and extension triggers that answer a Boolean. The answer returned
     /// is the page's own.
     fn page_trigger(&mut self, st: &St, name: &str, args: Vec<Value>) -> Result<Option<Value>, Signal> {
+        self.data_caption_before_trigger(st, name)?;
+        let r = self.page_trigger_run(st, name, args)?;
+        self.data_caption_after_trigger(st, name);
+        Ok(r)
+    }
+
+    fn page_trigger_run(&mut self, st: &St, name: &str, args: Vec<Value>) -> Result<Option<Value>, Signal> {
         let engine = self.engine();
         let object = st.borrow().object as usize;
         let page = page_of(&engine, st);
@@ -966,6 +990,8 @@ impl Session {
         args: Vec<Value>,
     ) -> Result<(Value, Vec<Value>), Signal> {
         let hidden = self.hide_tree_cut(st);
+        // A routine the page runs reads its row from the server again (`server_row_lag`).
+        st.borrow_mut().server_lag = None;
         let result = self.call(object, r, inst, args);
         if let Some(saved) = hidden
             && st.borrow().instance.is_some()

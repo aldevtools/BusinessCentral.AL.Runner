@@ -65,7 +65,7 @@ pub(super) fn write_from_stream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut 
 /// pinned:
 /// - `Req.Content.ReadAs(Txt)` with its result used answers false and leaves the text (http/HttpRequest.al:220,
 ///   FreshRequestContent);
-/// - `Req.Content.ReadAs(Txt)` as a statement raises `NotInitialized` (http/PnE12HttpContent.al:205,
+/// - `Req.Content.ReadAs(Txt)` as a statement raises `NotInitialized` (http/PnE12HttpContent.al:192,
 ///   RequestWithoutContent, under asserterror);
 /// - a copy of it in a variable (`Content := Req.Content`), called as a statement, raises `NotInitialized`
 ///   (json/W4XmlJsonHttp.al:342-343, RequestWithoutContent_ReadAs, through a TryFunction).

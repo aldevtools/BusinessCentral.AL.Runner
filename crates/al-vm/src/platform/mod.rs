@@ -76,6 +76,27 @@ pub(crate) struct EventStats {
     pub active: RefCell<HashMap<usize, i64>>,
     /// The session's `GlobalLanguage` when it is not 1033 (0: 1033). The Report Layout List's Description follows it.
     pub language: std::cell::Cell<i32>,
+    /// What the install of an app lets the "NAV App Installed App" list show ([`InstallView`]).
+    pub install_view: RefCell<InstallView>,
+}
+
+/// The apps an install has not reached, and the app whose install runs: the "NAV App Installed App" list leaves them out
+/// (record/lt-r7142-installed-app/R7169DepInstallPublishedAs.al: during XApp A's install `install_own` is `no row`, the
+/// fixture app installed before it is listed, B and the main app are not yet).
+#[derive(Default, Clone)]
+pub(crate) struct InstallView {
+    /// Apps (indexes in `Program::apps`) not installed yet.
+    pub not_installed: std::collections::BTreeSet<u32>,
+    /// The app whose install code runs; its own row does not exist yet.
+    pub installing: Option<u32>,
+    /// Apps with no dependency path to the installing one and no known install order: whether their row exists is not known.
+    pub order_unknown: std::collections::BTreeSet<u32>,
+}
+
+impl InstallView {
+    pub(crate) fn active(&self) -> bool {
+        !self.not_installed.is_empty() || self.installing.is_some() || !self.order_unknown.is_empty()
+    }
 }
 
 /// What the host says about the session, read once when the session starts.
@@ -308,6 +329,11 @@ impl Providers {
 
     /// An Event Subscription row with "Number of Calls" (8) and "Active Manual Instances" (13) as
     /// the session has them now.
+    /// What the install in progress lets the list of installed apps show.
+    pub(super) fn install_view(&self) -> InstallView {
+        self.events.install_view.borrow().clone()
+    }
+
     /// The session's `GlobalLanguage`.
     pub(super) fn language(&self) -> i32 {
         match self.events.language.get() {
@@ -566,6 +592,12 @@ impl Providers {
                 "Language Selection: the rows in session language {} are not pinned (only those in 1033 are)",
                 self.language()
             )));
+        }
+        // The list of installed apps follows the install in progress and the run's setting for dependency apps: listed per read.
+        if kind == Virtual::NavAppInstalledApp
+            && (self.events.install_view.borrow().active() || self.engine().dependencies_published_global)
+        {
+            return Ok(Listed::Own(Rc::new(mat::Mat::new(t, self.list_rows(t, kind)))));
         }
         if let Some(m) = self.listed.borrow().get(&kind) {
             return Ok(m.clone());

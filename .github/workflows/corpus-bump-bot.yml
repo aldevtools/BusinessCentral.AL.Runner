@@ -2,17 +2,20 @@ name: Corpus bump bot
 
 # Keeps the corpus pin close to the corpus branch master. Every 20 minutes the bot looks for a green corpus CI
 # run newer than the pin (tools/corpus_bump_bot.sh find). When there is one, it makes the mechanical part of the
-# bump on a branch corpus-bump/<commit> (the pin, oracle/ and the harness counts; tools/corpus_bump_bot.sh bump)
-# and opens a pull request to main. The pull request body lists what needs a person: lost baseline cases, cases
+# bump on a branch corpus-bump/<commit> (the pin, oracle/, the harness counts and the not-passing lists;
+# tools/corpus_bump_bot.sh bump) and opens a pull request to main. The pull request body lists what needs a person:
+# regressions, cases
 # that newly fail, assumptions whose awaited pin landed, guards without a gate, harness counts.
 #
 #   - It never merges and never turns on auto-merge: that stays a person's call.
-#   - It writes no baseline. The regen bot (.github/workflows/regen-bot.yml) adds the new passes after the
-#     merge; removing a case stays a human decision (CLAUDE.md hard rule 2). tools/corpus_bump_bot.sh refuses to
-#     commit any change under metrics/ or any path outside the bump.
+#   - Under metrics/ it writes only the not-passing lists (ADR-065): lines for cases new in the oracle that do not
+#     pass, and the deletion of stale lines. tools/corpus_bump_bot.sh refuses to commit a line for a case the old
+#     oracle had (`al-test-cli --list-changes HEAD`; that is the owner's decision, CLAUDE.md hard rule 2), any other
+#     change under metrics/ and any path outside the bump.
 #   - One open bot pull request at a time, and a branch corpus-bump/<commit> that exists is never pushed
 #     again: a person may be fixing it. It never force-pushes.
-#   - It pushes over SSH with the regen bot's deploy key (secret REGEN_BOT_DEPLOY_KEY); the workflow token only
+#   - It pushes over SSH with a deploy key (secret REGEN_BOT_DEPLOY_KEY, named after the retired regen bot; it needs
+#     no bypass of the ruleset `main`, the bot pushes only corpus-bump/** branches); the workflow token only
 #     reads contents. A push with a deploy key starts CI (ci.yml runs on pushes to corpus-bump/**), so the
 #     branch gets the same checks as main. The pull request itself is opened with the workflow token
 #     (pull-requests: write), which starts no pull_request run.

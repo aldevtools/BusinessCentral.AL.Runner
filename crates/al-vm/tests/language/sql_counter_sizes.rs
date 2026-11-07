@@ -61,9 +61,14 @@ codeunit 50101 C {{
     )
 }
 
+/// The size is not known: the measurement is refused, or (a difference across work no test pins, al-runner issue 6924) it
+/// gives only marked texts with no digit, which every text function and comparison that reads them refuses.
 fn refused(r: Result<al_builtins::value::Value, Signal>) {
     match r {
         Err(Signal::Unsupported(why)) => assert!(why.contains("SQL counter"), "{why}"),
+        Ok(al_builtins::value::Value::Text(t))
+            if t.as_str().contains(al_builtins::native::SQL_COUNT_TEXT_MARK)
+                && !t.as_str().chars().any(|c| c.is_ascii_digit()) => {}
         other => panic!("expected a SQL counter refusal, got {other:?}"),
     }
 }
@@ -286,7 +291,7 @@ codeunit 50113 C
         Mark();
         Gt.Id := 1; Gt.Insert();
         GtFirst := Stmt() - Stmts;
-        exit(StrSubstNo('%1', GtFirst));
+        Message(StrSubstNo('%1', GtFirst));
     end;
 
     procedure GtFirstAtMost(): Boolean

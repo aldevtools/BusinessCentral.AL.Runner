@@ -72,6 +72,14 @@ impl Session {
         self.page_var_not_shown(st) && !st.borrow().ran
     }
 
+    /// Whether the page or one of its page extensions declares trigger `name` (lower case). The extension's trigger runs
+    /// after the page's (`page_trigger`), so an open that asks whether OnOpenPage ran code counts both.
+    pub(in crate::pages) fn declares_or_ext_declares(&self, st: &St, name: &str) -> bool {
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        page.triggers.iter().any(|(n, _)| n == name) || page.ext_triggers.iter().any(|(n, _, _)| n == name)
+    }
+
     /// Whether the page declares trigger `name` (lower case) of its own.
     pub(in crate::pages) fn declares(&self, st: &St, name: &str) -> bool {
         let engine = self.engine();
@@ -166,18 +174,15 @@ impl Session {
             // (pages/triggers/QcFindViewTests.al:78 ViewList_OpenView_FindStringAndRow, :361 ViewCard_OpenView_FindStringAndRow,
             // :505 DocPart_OpenEdit_LinesOfH1).
             // A list page variable run in lookup mode (LookupMode(true)) with no record is asked `=>` (pages/list-order/
-            // QgGoToKeyNextCall.al:629 Nav_LookupHandler_GoToKey_ThenOK `log` `F:=>=Yes;R:R1001;N:1=1;...`). The static RunModal
-            // in lookup mode is not pinned; a TableRelation lookup keeps `=><` as before.
+            // QgGoToKeyNextCall.al:629 Nav_LookupHandler_GoToKey_ThenOK `log` `F:=>=Yes;R:R1001;N:1=1;...`). So is a list the
+            // static Page.RunModal(0 or Id, Rec) runs in lookup mode, positioned or not (corpus branch al-runtime-rs-staging-r6962,
+            // pages/run-modal/StaticRunModalFindRecordLookup.al StaticRunModalZero_FilteredNotPositioned_FirstThenOK `F:=>=Yes;R:V2;...`,
+            // _FilteredOnRow_, _NoFilterNotPositioned_, StaticRunModalPageId_; issue 6992). A TableRelation lookup keeps `=><`.
             let (lookup, lookup_set, static_lookup) = {
                 let s = st.borrow();
                 (s.lookup, s.lookup_set, s.static_lookup)
             };
-            if lookup && static_lookup && self.is_list(st) {
-                return unsupported(
-                    "a list with OnFindRecord run in lookup mode by the static Page.RunModal without a record (which Find it is asked is not pinned)",
-                );
-            }
-            if lookup && lookup_set && self.is_list(st) {
+            if lookup && (lookup_set || static_lookup) && self.is_list(st) {
                 "=>"
             } else if !lookup && self.is_list(st) && self.onopenpage_left_rec_past_the_first_row(st)? {
                 // A list whose OnOpenPage left Rec on a row that is not the first of its view is asked `=>`
@@ -243,10 +248,13 @@ impl Session {
                     hb.host.is_none()
                         && mode_ok
                         && hb.cursor == Cursor::None
-                        && matches!(
-                            self.engine.object_facts[hb.object as usize].page_type,
-                            Some(al_ir::PageType::Document | al_ir::PageType::Card)
-                        )
+                        && match self.engine.object_facts[hb.object as usize].page_type {
+                            Some(al_ir::PageType::Document | al_ir::PageType::Card) => true,
+                            // Opened for view, a ListPlus host behaves the same (pages/parts/PartListPlusHostNoRow.al:288-295
+                            // _PartTriggers, _PartInGroup, :314 _PartFirst `No`, :336 _HiddenPart; issue 6953).
+                            Some(al_ir::PageType::ListPlus) => view,
+                            _ => false,
+                        }
                 })
         };
         let edit_host_no_row = host_shows_no_row_as(false);
@@ -368,7 +376,8 @@ impl Session {
             // OnAfterGetCurrRecord once; the host runs neither (PartLineBeforeHostKey.al:1722 QH_OpenView_NoRow_Document
             // `[LP.OnNewRecord:]`, :1530 _TraceHost `[TH.OnOpenPage | CP.OnOpenPage | CP.OnNewRecord: below=Yes |
             // CP.OnAfterGetCurrRecord:/0]`, :1562 _UnlinkedPart, :1602 QH_OpenView_RowFilteredAway after the host's filter
-            // left no row). Pinned for a Document or Card host (`host_shows_no_row`); another host is refused.
+            // left no row). Pinned for a Document or Card host, and measured for a ListPlus host (`host_shows_no_row`); another
+            // host is refused.
             let view_part_no_host_row = self.has_source(st)
                 && !host_on_row
                 && !host_shows_no_row
@@ -403,6 +412,14 @@ impl Session {
                 self.populate_expressions(st)?;
                 self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
                 self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
+                rec.borrow_mut().fields = fresh;
+            } else if self.has_source(st) && st.borrow().host.is_some() && st.borrow().mode == PageMode::Edit {
+                // A part of a host that moved to a row without lines holds no row of the old link: Rec is blank, so the part's
+                // action sees no Line No. (pages/parts/R6889RealShape.al:1213 RunStep4, :1406 PG6889RS_Step4_ `ACT;CU;T.INS(10);...`,
+                // a host filtered to D2|D3 and moved there by GoToRecord from D1, whose part held D1's lines).
+                let rec = self.page_rec(st);
+                let table = rec.borrow().table as usize;
+                let fresh = self.initial_fields(table);
                 rec.borrow_mut().fields = fresh;
             }
             self.populate_expressions(st)
@@ -486,5 +503,16 @@ impl Session {
         self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
         self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
         Ok(())
+    }
+}
+
+impl Session {
+    /// The page is a Worksheet over a temporary source.
+    pub(in crate::pages) fn is_temp_worksheet(&self, st: &St) -> bool {
+        self.page_rec(st).borrow().temporary
+            && matches!(
+                self.engine.object_facts[st.borrow().object as usize].page_type,
+                Some(al_ir::PageType::Worksheet)
+            )
     }
 }

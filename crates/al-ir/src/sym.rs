@@ -343,6 +343,8 @@ pub struct Contribution {
     /// The values and captions an enum extension declares.
     pub enum_values: Vec<(i32, String)>,
     pub enum_captions: Vec<(i32, String)>,
+    #[serde(default)]
+    pub enum_captions_ml: Vec<(i32, String)>,
     /// The fields, keys and field changes a table extension declares.
     pub table: Option<TableContribution>,
     /// The controls, changes and triggers a page extension (or a report extension's request page) adds.

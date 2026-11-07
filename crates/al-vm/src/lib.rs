@@ -19,6 +19,8 @@ mod bgsession;
 mod blob_copy;
 mod get_key_value;
 mod package_data;
+mod partial_gone;
+pub mod single_track;
 mod state;
 pub(crate) use state::*;
 mod baseline;
@@ -27,7 +29,7 @@ mod ctx;
 mod debug;
 mod exec;
 mod interp;
-pub use baseline::Baseline;
+pub use baseline::{Baseline, Delta, DeltaPart, Fingerprint, SequenceSteps};
 pub use capture::{CaptureConfig, Captured, ClosedBy, LoopRecord, MAX_RECORDS, MessageRecord, Rendered, ValueRecord};
 pub(crate) use ctx::base_slot_missing;
 pub use debug::{DebugFrame, DebugHook, DebugView, Resume};
@@ -38,7 +40,9 @@ pub(crate) use interp::constant;
 pub use platform::{FieldGetByKey, field_get_by_key_pairs};
 pub use profile::flush as profile_flush;
 pub use profile::frame_name as profile_frame_name;
+pub use test_runner_host::TestCodeunitHost;
 mod callstack;
+mod clear_all_page_ext;
 mod code_storage_check;
 mod column_formatter;
 mod companies;
@@ -53,6 +57,10 @@ mod dispatch;
 pub mod dotnet;
 mod effects;
 mod empty_reads;
+mod enum_caption_ml;
+mod page_held_bindings;
+pub use empty_reads::{InstallRows, KnownValue};
+mod caller_writes;
 mod errorcollect;
 pub mod events;
 mod ext_validate_order;
@@ -66,14 +74,15 @@ mod filterpage;
 mod flowfields;
 mod geturl;
 mod globaltriggers;
-mod guard_exit;
 mod hostvalues;
 mod http;
 pub mod impact;
 mod interfaces;
 mod isdirty;
+mod license_ceiling;
 mod load_fields_request;
 mod media_orphans;
+mod native_rows;
 mod pages;
 mod partial;
 mod permission_shadow;
@@ -95,6 +104,7 @@ mod refs;
 mod relations;
 mod rename;
 mod report_layout_export;
+mod report_layout_streams;
 mod report_no_layout_file;
 mod reports;
 mod run_page_link_open;
@@ -107,6 +117,7 @@ mod stale_own_modify;
 mod tasks;
 mod tenant_layout_cfg;
 mod tenant_layouts;
+mod test_runner_host;
 mod testdata;
 mod transactions;
 mod translations;
@@ -117,6 +128,7 @@ mod view_empty;
 mod view_unknown;
 mod views;
 mod xmlports;
+mod xrec_blobs;
 pub use transactions::TxModel;
 pub use ui::{UiHandler, UiKind};
 
@@ -169,6 +181,17 @@ pub struct Engine {
     /// The BC license of the run (ADR-060): License Permission answers from it. `None`: no license was available, and
     /// only the pinned rows are served.
     pub license: Option<Arc<al_host::license::License>>,
+    /// Whether the license gives some table of the program less than Yes on Read, Insert, Modify or Delete, so that
+    /// record accesses check it also in an unrestricted session (license_ceiling.rs). Worked out on first use.
+    pub(crate) license_caps: std::sync::OnceLock<bool>,
+    /// The service-tier setting DisableWriteInsideTryFunctions is off (`al-runner test --allow-write-in-try-functions`, al-runner
+    /// issue 7143), as on Business Central online. Default `false`: the setting at its default, as on a BC container and the
+    /// corpus CI, where a write inside a TryFunction whose result is used raises TryFunctionWrite.
+    pub write_in_try_allowed: bool,
+    /// `al-runner test --dependencies-published-global`: "Published As" of "NAV App Installed App" is Global for a dependency app
+    /// by another publisher than Microsoft (a documented setting, assumption `dependency-published-as-global`). Default
+    /// `false`: Dev, as published through the development endpoint (al-runner issue 7169).
+    pub dependencies_published_global: bool,
     /// (table object, field position) -> the error BC raises when it evaluates the field's
     /// `InitValue` (`0DT` on a DateTime, a closing-date literal on a Date).
     pub unevaluable_init: Arc<std::collections::HashMap<(u32, usize), String>>,
@@ -442,6 +465,9 @@ impl Engine {
             dotnet_called: Default::default(),
             test_data: None,
             license: None,
+            license_caps: Default::default(),
+            write_in_try_allowed: false,
+            dependencies_published_global: false,
             unevaluable_init: Arc::new(unevaluable_init),
             table_facts: table_facts.into(),
             object_facts: object_facts.into(),
@@ -487,6 +513,9 @@ impl Engine {
             dotnet_called: Default::default(),
             test_data: None,
             license: None,
+            license_caps: Default::default(),
+            write_in_try_allowed: false,
+            dependencies_published_global: false,
             unevaluable_init: self.unevaluable_init.clone(),
             table_facts: self.table_facts.clone(),
             object_facts: self.object_facts.clone(),
@@ -547,6 +576,9 @@ impl Engine {
             dotnet_called,
             test_data,
             license,
+            license_caps,
+            write_in_try_allowed,
+            dependencies_published_global,
             // From the program and the config of `with_config` (and al-testrun's `global_triggers_find_unavailable`,
             // which reads only the compile): the same for every run over this program.
             program: _,
@@ -590,6 +622,9 @@ impl Engine {
         *dotnet_called.get_mut() = false;
         *test_data = None;
         *license = None;
+        *license_caps = Default::default();
+        *write_in_try_allowed = false;
+        *dependencies_published_global = false;
     }
 
     /// The first compiled codeunit with this id, in program order: the object `Codeunit.Run(Id)` runs. Found in an index
@@ -750,6 +785,10 @@ pub struct Session {
     pub(crate) sequences_changed: std::collections::HashMap<(String, String), sessionops::SequenceChange>,
     /// The one instance of each `SingleInstance = true` codeunit in this session.
     singletons: std::collections::HashMap<usize, Rc<RefCell<Instance>>>,
+    /// The notes on the watched single instances' globals (`single_track.rs`).
+    si_track: Option<Box<single_track::Track>>,
+    /// Single instances moved in from an earlier test codeunit's session that this session has not used yet.
+    singles_unclaimed: std::collections::HashSet<usize>,
     pub(crate) store: al_data::memory::MemStore,
     /// Private tables of temporary records, by temp id.
     pub(crate) temps: std::collections::HashMap<u64, al_data::memory::MemStore>,
@@ -780,6 +819,8 @@ pub struct Session {
     pub(crate) dirty_ops_open: u32,
     /// The writes with triggers that are running, innermost last (isdirty.rs `DirtyFrame`).
     pub(crate) dirty_frames: Vec<crate::isdirty::DirtyFrame>,
+    /// The xRec handles that triggers and table events were given, while they live (xrec_blobs.rs).
+    pub(crate) live_xrecs: Vec<std::rc::Weak<std::cell::RefCell<al_builtins::value::RecordState>>>,
     /// Whether the test running has reseeded the `Random` sequence (`Randomize`); see [`Session::inherited_random_draws`].
     pub(crate) reseeded_in_test: bool,
     /// How many numbers `Random` has drawn from a sequence the test running did not seed itself.
@@ -860,6 +901,8 @@ pub struct Session {
     /// Run", al-testrun `runner_reset.rs`): `PermissionTestHelper.AddEffectivePermissionSet` runs there on the assumption
     /// `runner-permission-sets-grant-all` instead of refusing.
     pub runner_permission_step: bool,
+    /// ADR-066 decision 1: the test codeunit run of a test runner codeunit (`test_runner_host.rs`).
+    pub(crate) runner_host: test_runner_host::RunnerHost,
     /// `al-runner test --ignore-permission-mock`: a test that assigns a permission set itself
     /// (`PermissionTestHelper.AddEffectivePermissionSet`) runs on with every access granted, on the assumption
     /// `permissions-not-enforced`, instead of being refused.
@@ -1006,6 +1049,8 @@ pub struct Session {
     /// What `CaptionClassTranslate` translated in this session: (class text, GlobalLanguage then, caption). Cleared by
     /// `SelectLatestVersion` (types/PSCaptionClass.al:94-115).
     pub(crate) caption_translations: Vec<(String, i32, String)>,
+    /// The (class text, GlobalLanguage) pairs the `CaptionClassTranslate` statement raised the UI Helper event for.
+    pub(crate) ui_caption_translated: Vec<(String, i32)>,
     /// The row `load` is about to read came from `Get` (partial.rs: a `Get` of the row the buffer holds keeps what is loaded).
     pub(crate) get_load: bool,
     /// The row `load` is about to read came from `GetBySystemId` (al-runner issue 5913: a read in the transaction that wrote
@@ -1125,6 +1170,7 @@ impl Session {
         let mut session = Session {
             global_language: host.identity.global_language(),
             caption_translations: Vec::new(),
+            ui_caption_translated: Vec::new(),
             get_load: false,
             sysid_load: false,
             find_load: false,
@@ -1151,6 +1197,8 @@ impl Session {
             spare_vecs: Vec::new(),
             xp_pass_views: Vec::new(),
             singletons: Default::default(),
+            si_track: None,
+            singles_unclaimed: Default::default(),
             xp_unlinked_passes: Vec::new(),
             xp_link_hidden: Vec::new(),
             store,
@@ -1167,6 +1215,7 @@ impl Session {
             sql: sqlcount::SqlCounters::new_session(),
             dirty_ops_open: 0,
             dirty_frames: Vec::new(),
+            live_xrecs: Vec::new(),
             reseeded_in_test: false,
             inherited_draws: 0,
             run_seeded_in_test: false,
@@ -1224,6 +1273,7 @@ impl Session {
             iso_min_unpinned: false,
             hub_disabled: false,
             runner_permission_step: false,
+            runner_host: Default::default(),
             ignore_permission_mock: false,
             permissions_off: false,
             permission_roles: Vec::new(),
@@ -1286,11 +1336,15 @@ impl Session {
                 ext_vetoed: false,
                 test_open: false,
                 run_page_link_open_moved: false,
+                run_page_link_opening: 0,
                 test_close: false,
                 close_save_error: false,
             },
             events: EventState {
                 bindings: Vec::new(),
+                page_held: Vec::new(),
+                page_var_runs: Vec::new(),
+                pages_with_instance: Vec::new(),
                 event_stats,
                 publish_frame: false,
                 sender_refused: None,
@@ -1305,6 +1359,7 @@ impl Session {
                 not_installed_apps: None,
                 order_unknown_apps: None,
                 install_written: None,
+                install_rows: None,
                 setup_no_ops: Default::default(),
                 global_setups: Default::default(),
             },
@@ -1676,13 +1731,27 @@ impl Session {
     /// after it (BCApps build/scripts/ImportTestDataInBcContainer.ps1:907-923), so the install baseline holds the others
     /// back while the company is built.
     pub fn set_apps_not_installed(&mut self, apps: Option<std::collections::BTreeSet<u32>>) {
+        self.events.event_stats.install_view.borrow_mut().not_installed = apps.clone().unwrap_or_default();
         self.events.not_installed_apps = apps;
+    }
+
+    /// The app (index in `Program::apps`) whose install code runs: its own row of "NAV App Installed App" does not exist yet.
+    /// `set_apps_install_order_unknown(None)`, which ends an install, clears it.
+    pub fn set_installing_app(&mut self, app: Option<u32>) {
+        self.events.event_stats.install_view.borrow_mut().installing = app;
     }
 
     /// The apps (indexes in `Program::apps`) with no dependency path to the app whose install code runs: whether BC installs
     /// them before or after it is not known, so an event the install code raises that one of their subscribers would
     /// receive, and `NavApp.GetModuleInfo` of one of them, are refused. `None`: no install runs.
     pub fn set_apps_install_order_unknown(&mut self, apps: Option<std::collections::BTreeSet<u32>>) {
+        {
+            let mut view = self.events.event_stats.install_view.borrow_mut();
+            view.order_unknown = apps.clone().unwrap_or_default();
+            if apps.is_none() {
+                view.installing = None;
+            }
+        }
         self.events.order_unknown_apps = apps;
     }
 
@@ -1936,6 +2005,7 @@ impl Session {
             exts: Vec::new(),
             xp_text: Vec::new(),
             born: Default::default(),
+            single: false,
         }))
     }
 
@@ -1980,6 +2050,7 @@ impl Session {
             exts: Vec::new(),
             xp_text: Vec::new(),
             born: Default::default(),
+            single: false,
         }))
     }
 
@@ -2062,7 +2133,11 @@ impl Session {
                 .unpinned_buffer
                 .is_none_or(|w| w == crate::records::RUN_PAGE_LINK_OPEN_FILLED)
             {
-                st.unpinned_buffer = Some(crate::records::RUN_PAGE_LINK_COPY);
+                st.unpinned_buffer = Some(if self.pages.run_page_link_opening > 0 {
+                    crate::records::RUN_PAGE_LINK_OPEN_COPY
+                } else {
+                    crate::records::RUN_PAGE_LINK_COPY
+                });
             }
         }
         Value::Record(Rc::new(RefCell::new(st)))
@@ -2214,6 +2289,7 @@ impl Session {
         self.events.next_is_subscriber = false;
         self.note_routine(object, routine);
         self.first_use(&instance)?;
+        self.note_caller_writes(&instance, object, routine)?;
         let engine = self.engine.clone();
         let r = &engine.program.objects[object].routines[routine];
         // The bytecode, if the mode asks for it. Whether a capture watches the routine is only known once its frame is
@@ -2290,6 +2366,17 @@ impl Session {
                     st.filter_group = 0;
                     st.temporary = true;
                     st.temp_id = Some(self.new_temp_id());
+                    Value::Record(Rc::new(RefCell::new(st)))
+                }
+                // Rec of a page an action opened through RunPageLink handed to a Variant parameter keeps the link filter: a
+                // RecordRef.GetTable of the Variant carries it (testpage/R7138RunPageLinkCopyGet.al:117-134 `rr[Project Code: P2]
+                // n=2`); see `records::RUN_PAGE_LINK_VARIANT`.
+                (Value::Record(rc), false)
+                    if matches!(r.locals[i].ty, RtType::Variant) && rc.borrow().run_page_link.is_some() =>
+                {
+                    let mut st = rc.borrow().clone();
+                    st.run_page_link = None;
+                    st.unpinned_buffer = Some(crate::records::RUN_PAGE_LINK_VARIANT);
                     Value::Record(Rc::new(RefCell::new(st)))
                 }
                 // The copy keeps what Record.IsDirty compares with (record/Y8RecordIsDirtyShapes.al:321-324 `by_value_dirty` Yes,

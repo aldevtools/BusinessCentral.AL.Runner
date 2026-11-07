@@ -3,6 +3,33 @@ use super::shared::with_field_guard;
 use super::*;
 
 impl Lowerer<'_> {
+    /// The binding of a control over `Rec.<name>`: the field of that name, else, in an extension, the source routine
+    /// (`pages::needed` made it) when `name` is a parameterless procedure of the table: the control shows its value as the call
+    /// does (pages/record-method-controls/TestRecordMethodControls.al:39 PageExtension_RecordMethod_NoParentheses_ReadsCalculatedValue,
+    /// corpus pull request 1152, al-runner issue 7133).
+    fn rec_name_binding(
+        &self,
+        table: Option<usize>,
+        name: &str,
+        in_extension: bool,
+        source: impl FnOnce() -> Option<usize>,
+    ) -> Option<ir::Binding> {
+        let t = table?;
+        if let Some(p) = self.members[t]
+            .fields
+            .iter()
+            .position(|x| x.name.eq_ignore_ascii_case(name))
+        {
+            return Some(ir::Binding::Field(p));
+        }
+        let method = self
+            .routine_nodes
+            .get(t)
+            .iter()
+            .any(|r| !r.is_trigger() && r.name().eq_ignore_ascii_case(name) && r.params().next().is_none());
+        (in_extension && method).then(source).flatten().map(ir::Binding::Expr)
+    }
+
     /// The control tree of page `oi` with its extensions merged in, with bindings and routine
     /// indices resolved. A control an extension declares keeps the extension as its `owner`: its
     /// routines and variable slots are the extension's.
@@ -253,14 +280,10 @@ impl Lowerer<'_> {
                 let raw_args = sec.args_raw();
                 match args.get(1).map(|a| crate::pages::classify_source(a, &ow.names)) {
                     Some(crate::pages::Source::RecField(f)) => {
-                        let pos = table.and_then(|t| {
-                            self.members[t]
-                                .fields
-                                .iter()
-                                .position(|x| x.name.eq_ignore_ascii_case(&f))
-                        });
-                        match pos {
-                            Some(p) => binding = ir::Binding::Field(p),
+                        let off = usize::from(sec.syntax().text_range().start()) - ow.base;
+                        let source = || routine_named(&ow, &crate::pages::synthetic_name("source", off));
+                        match self.rec_name_binding(table, &f, raw.owner.is_some(), source) {
+                            Some(b) => binding = b,
                             None => unsupported.push(format!("control {} is bound to unknown field {f}", raw.name)),
                         }
                     }
@@ -476,11 +499,22 @@ impl Lowerer<'_> {
             // An action that declares both RunObject and OnAction runs only the RunObject
             // (testpage/TestPageRunObjectContracts.al:371-390).
             let run_object = self.run_object(oi, file, sec);
+            // A control of a reportextension that changes the run, bound to a variable of the base report: it shows the
+            // variable but a value set through it is dropped (reports/extensions/W3RpExtRequestPage.al:359-364
+            // Bind_ExtControlOnBaseVariable_SetAlone, :381-383 and :402-404 for the two orders with the base's own control).
+            if matches!(binding, ir::Binding::BaseVar(_)) && self.in_run_changing_report_ext(raw.owner) {
+                props.push((ir::EXT_MIRROR_PROPERTY.to_string(), ir::PropVal::Lit("true".into())));
+            }
             controls.push(ir::Control {
                 name: raw.name.clone(),
                 kind: raw.kind.clone(),
                 parent: raw.parent,
                 props: with_field_guard(self.members, table, &binding, raw.owner, props),
+                source_text: expr_source_text(
+                    &binding,
+                    raw.owner.is_none() || self.in_run_changing_report_ext(raw.owner),
+                    sec,
+                ),
                 binding,
                 triggers,
                 part_page,
@@ -788,7 +822,25 @@ impl Lowerer<'_> {
     }
 }
 
+impl Lowerer<'_> {
+    /// Whether `owner` is a reportextension that changes the run.
+    fn in_run_changing_report_ext(&self, owner: Option<usize>) -> bool {
+        owner.is_some_and(|e| {
+            self.ws.objects[e].kind == ObjKind::ReportExtension && crate::reports::changes_a_run(&self.ws.object_ast(e))
+        })
+    }
+}
+
 /// The control of a data item of a request page: the test client reads and writes the filters of its record (`binding`).
+/// The source of a page's or report's own control, or of a control of a reportextension that changes the run (`listed`), bound to an
+/// expression, as written and trimmed (`ir::Control::source_text`).
+fn expr_source_text(binding: &ir::Binding, listed: bool, sec: &ast::Section) -> Option<String> {
+    let own_expr = listed && matches!(binding, ir::Binding::Expr(_));
+    own_expr
+        .then(|| sec.args_raw().get(1).map(|a| a.trim().to_string()))
+        .flatten()
+}
+
 fn data_item_control(name: &str, binding: ir::Binding) -> ir::Control {
     ir::Control {
         name: name.to_string(),
@@ -810,6 +862,7 @@ fn data_item_control(name: &str, binding: ir::Binding) -> ir::Control {
         expr_call: false,
         array_element: None,
         bare_quoted_ext_source: false,
+        source_text: None,
         factbox: false,
     }
 }

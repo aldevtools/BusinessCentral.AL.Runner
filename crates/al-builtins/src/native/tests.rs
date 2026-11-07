@@ -168,6 +168,7 @@ fn every_registered_id_is_in_the_catalog() {
         "TextBuilder.AppendVariant#1",
         "RecordRef.GetTableVariant#1",
         "TestField.SetValueVariant#1",
+        "Record.ValidateVariant#1",
         "System.FormatDecimalField#1",
         "System.FormatAutoFormatField#1",
         "System.OptionCaptionML#1",

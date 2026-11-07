@@ -67,6 +67,9 @@ pub struct TestArgs {
     /// (ADR-020 amendment, owner 2026-10-17). `None`: `w1`. Never read from app.json or AL-Go settings.
     pub country: Option<String>,
     pub no_download: bool,
+    /// `--allow-missing-dependencies`: with `--no-download`, a dependency that cannot be found is a warning again
+    /// (al-runner issue 7139). Without the flag it stops the run with exit code 2.
+    pub allow_missing_dependencies: bool,
     pub cache_dir: Option<PathBuf>,
     /// `--no-compile-cache`: compile the dependency apps on every run, only what the tests reach.
     pub no_compile_cache: bool,
@@ -87,6 +90,9 @@ pub struct TestArgs {
     /// `--isolation required`: each test codeunit runs under its own `RequiredTestIsolation`, as BC's TestRunnerHub runs
     /// it on BC 28 and later (`isolation` is then `None`).
     pub required_isolation: bool,
+    /// `--test-runner ID|builtin` (ADR-066): the test runner codeunit the tests run through. `None`: Microsoft's runner
+    /// for the isolation (130450, or 130451 under `--isolation disabled`) when the Test Runner app is loaded.
+    pub test_runner: Option<al_testrun::runtime::TestRunner>,
     /// `--exclude-test TEXT`: tests whose name matches are left out of the selection. Repeatable.
     pub excludes: Vec<String>,
     /// `--test-exact NAME`: the test whose method name or `Codeunit<ID>.<Method>` is exactly NAME. Repeatable.
@@ -99,15 +105,28 @@ pub struct TestArgs {
     pub tdd: bool,
     /// `--run-selected-only` (issue 5611): of a selected codeunit, only the selected tests run.
     pub run_selected_only: bool,
+    /// `serve` only (issue 7207): a selection that picks exactly one test runs that test alone, as an entry does.
+    /// The CLI `--test` has no such flag and keeps running whole codeunits.
+    pub single_test_alone: bool,
     /// `--ignore-permission-mock` (issue 5996): a test that lowers its own permissions runs with every access granted
     /// instead of being refused; its pass is flagged `permissions-not-enforced`.
     pub ignore_permission_mock: bool,
     /// `--dev-endpoint-ui` (issue 3697): a UI call no handler takes gets the answer of Business Central's dev-endpoint
     /// test runner, for the measured shapes, with a warning per call; such a pass is flagged `dev-endpoint-ui`.
     pub dev_endpoint_ui: bool,
+    /// `--allow-write-in-try-functions` (al-runner issue 7143): run as a service tier whose setting DisableWriteInsideTryFunctions
+    /// is off (Business Central online). Default: the setting's default, as a BC container: such a write raises TryFunctionWrite.
+    pub allow_write_in_try_functions: bool,
+    /// `--dependencies-published-global` (al-runner issue 7169): "Published As" of "NAV App Installed App" is Global for a dependency
+    /// app by another publisher than Microsoft, for a pipeline that publishes dependencies as compiled apps. Default: Dev, as
+    /// published through the development endpoint.
+    pub dependencies_published_global: bool,
     /// `--permissions off` (ADR-062 section 5): no access kind is enforced, whatever stage is on by default. `on`,
     /// the default, enforces the stages that are on; none is yet.
     pub permissions_off: bool,
+    /// `--strict-order` (ADR-066 amendment 4): every order-dependent test codeunit runs again serially in BC's order.
+    /// Default: it keeps its parallel run and runs again only after a failure or a test not run there.
+    pub strict_order: bool,
     /// `--affected` (ADR-050): run only the test codeunits a change since the stored result of the last run can
     /// affect; the others keep their stored outcome.
     pub affected: bool,
@@ -503,7 +522,11 @@ DEPENDENCIES
     --bc-version V       BC major, major.minor or an exact build (four numbers). An exact build
                          also fills Microsoft's $(app_...) variables in source archives that
                          lie outside a folder named for their build.
-    --no-download        Never fetch from the artifact feed (apps, System.app, demo data).
+    --no-download        Never fetch from the artifact feed (apps, System.app, demo data). A dependency
+                         app that cannot be found then stops the run (exit 2) and the message names it.
+    --allow-missing-dependencies
+                         With --no-download: skip a missing dependency with a warning instead of
+                         stopping. --output-json and serve list it as `skippedDependencies`.
     Microsoft's apps, and the platform's System.app, come from the artifact feed. Without
     --bc-version they come from the build of the tests when the tests are Microsoft's (a
     Tests-*.Source.zip or .app in a folder named for its build, or with the build as its
@@ -566,7 +589,8 @@ selects only the tests both match)
                          written, without quotes (`Codeunit50100.Space Step`).
     --exclude-test TEXT  Leave out the tests TEXT matches (matched like --filter). Wins over
                          every selecting option. Repeatable.
-    --explain TEST       Run one test (its name, or a part of it that only one test has) and print
+    --explain TEST       Run one test (its name, `Codeunit<ID>.<Method>`, or a part of either that only
+                         one test has) and print
                          its outcome and, for a failure or a refusal, the routines and source
                          lines it left from. Selects that test like --filter.
     A selected test's codeunit runs whole (tests of a codeunit share state); only the selected
@@ -615,6 +639,13 @@ selects only the tests both match)
                          measured on Business Central are answered; the others still fail. Each
                          answer prints a warning with the test, the call and the answer, and such a
                          test is a flagged pass, `dev-endpoint-ui`.
+    --dependencies-published-global
+                         Show Published As of NAV App Installed App as Global, not Dev, for a
+                         dependency app of a publisher other than Microsoft. Use it when your
+                         pipeline publishes dependencies as compiled apps. The Global value is a
+                         setting, not measured on Business Central: a pass that reads it is a
+                         flagged pass, `dependency-published-as-global`. In `serve`: the runTests
+                         field `dependenciesPublishedGlobal`.
     --permissions on|off Whether AL Runner enforces permissions where a stage of its permission
                          checks is on (default on). Stage 1 is on: table data writes of a session a test
                          lowered are checked. Other denials are not run. `off` checks nothing.
@@ -833,6 +864,14 @@ MATRIX RUNS (ADR-052)
                          al-runner serve.
 
 ISOLATION
+    --test-runner ID|builtin
+                         The test runner codeunit the tests run through. Default: Microsoft's
+                         runner, 130450 \"Test Runner - Isol. Codeunit\" (130451 under
+                         `--isolation disabled`), run as BcContainerHelper runs it, so subscribers
+                         to the events of \"Test Runner - Mgt\" run; al-runner's own runner when the
+                         Test Runner app is not loaded and under `--isolation test` or `required`.
+                         ID: a runner codeunit with TableNo = \"Test Method Line\"; its TestIsolation
+                         is the isolation. `builtin`: al-runner's own runner.
     --isolation MODE     (`--test-isolation MODE` is the same) `codeunit` (default): the database
                          is rolled back when a test codeunit ends. `test` (also `function`, `method`): it is rolled back to its state after OnRun
                          after every test method; the codeunit's AL variables are kept, as BC's
@@ -847,6 +886,24 @@ ISOLATION
                          test codeunit runs under its own RequiredTestIsolation, as Business
                          Central runs it without a test runner codeunit from version 28 (on
                          version 27 as `codeunit`).
+    --strict-order       Run every order-dependent test codeunit again, one after the other in
+                         Business Central's order. A test codeunit is order dependent when it reads
+                         a variable of a SingleInstance codeunit that an earlier test codeunit left
+                         with another value: Business Central runs all test codeunits in one
+                         session, so the value carries over. AL Runner runs the codeunits in
+                         parallel, each with fresh SingleInstance state, the result Business Central
+                         gives when the codeunit runs alone or first. By default it keeps that
+                         result and runs such a codeunit again in order only when one of its tests
+                         failed or was refused while it ran (not one refused before it starts).
+                         Each such run is a serial session of the codeunit and the codeunits it
+                         depends on; the sessions run in parallel, with this option too. Every
+                         test of such a codeunit is a flagged pass, `single-instance-order`.
+                         Without this option a test that passes alone but fails in the full order
+                         passes here, flagged; with it, the result is the one of the full order
+                         after its chain, at a cost. Fix such a test: set up the state it needs in its
+                         own codeunit's Initialize, or clear the SingleInstance codeunit there.
+                         AL_TEST_THREADS=1 runs one codeunit at a time but still with fresh state.
+                         In `serve`: the runTests field `strictOrder`.
 
 EXIT CODES
     0  every selected test passed
@@ -1219,6 +1276,9 @@ fn parse_serve(args: Vec<String>) -> Result<Command, String> {
         || t.strict_environment
         || t.ignore_permission_mock
         || t.dev_endpoint_ui
+        || t.allow_write_in_try_functions
+        || t.strict_order
+        || t.dependencies_published_global
         || t.permissions_off
         || t.affected_store.is_some()
     {
@@ -1431,6 +1491,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
                 a.matrix_cell = Some(f);
             }
             "--no-download" => a.no_download = true,
+            "--allow-missing-dependencies" => a.allow_missing_dependencies = true,
             "--no-test-data" => a.no_test_data = true,
             "--cache-dir" => a.cache_dir = Some(text()?.into()),
             "--no-compile-cache" => a.no_compile_cache = true,
@@ -1482,17 +1543,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
                     .map(String::from),
             ),
             "--auto-provision" => {}
-            "--isolation" | "--test-isolation" => {
-                let v = text()?;
-                a.required_isolation = v.eq_ignore_ascii_case("required");
-                a.isolation = match v.to_ascii_lowercase().as_str() {
-                    "codeunit" => Some(al_testrun::isolation::TestIsolation::Codeunit),
-                    "test" | "function" | "method" => Some(al_testrun::isolation::TestIsolation::Function),
-                    "disabled" => Some(al_testrun::isolation::TestIsolation::Disabled),
-                    "required" => None,
-                    _ => return Err(format!("{flag} needs codeunit, test, disabled or required, got `{v}`")),
-                };
-            }
+            "--isolation" | "--test-isolation" => parse_isolation(&mut a, &flag, &text()?)?,
+            "--test-runner" => a.test_runner = Some(parse_test_runner(&text()?)?),
             "--color" => {
                 let v = text()?;
                 a.color = crate::style::ColorMode::parse(&v)
@@ -1603,6 +1655,9 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--run-selected-only" => a.run_selected_only = true,
             "--ignore-permission-mock" => a.ignore_permission_mock = true,
             "--dev-endpoint-ui" => a.dev_endpoint_ui = true,
+            "--allow-write-in-try-functions" => a.allow_write_in_try_functions = true,
+            "--strict-order" => a.strict_order = true,
+            "--dependencies-published-global" => a.dependencies_published_global = true,
             "--permissions" => a.permissions_off = permissions_off(&text()?)?,
             "--affected" => a.affected = true,
             "--affected-store" => a.affected_store = Some(text()?.into()),
@@ -2058,6 +2113,31 @@ fn impact_args(a: &TestArgs) -> Result<(), String> {
     Ok(())
 }
 
+/// The value of `--test-runner` (serve: `testRunner`): `builtin`, or the id of a test runner codeunit (ADR-066).
+pub(crate) fn parse_test_runner(v: &str) -> Result<al_testrun::runtime::TestRunner, String> {
+    use al_testrun::runtime::TestRunner;
+    if v.eq_ignore_ascii_case("builtin") {
+        return Ok(TestRunner::Builtin);
+    }
+    v.trim()
+        .parse::<u32>()
+        .map(TestRunner::Codeunit)
+        .map_err(|_| format!("--test-runner needs a codeunit id or builtin, got `{v}`"))
+}
+
+/// `--isolation MODE` into `a`.
+fn parse_isolation(a: &mut TestArgs, flag: &str, v: &str) -> Result<(), String> {
+    a.required_isolation = v.eq_ignore_ascii_case("required");
+    a.isolation = match v.to_ascii_lowercase().as_str() {
+        "codeunit" => Some(al_testrun::isolation::TestIsolation::Codeunit),
+        "test" | "function" | "method" => Some(al_testrun::isolation::TestIsolation::Function),
+        "disabled" => Some(al_testrun::isolation::TestIsolation::Disabled),
+        "required" => None,
+        _ => return Err(format!("{flag} needs codeunit, test, disabled or required, got `{v}`")),
+    };
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2078,6 +2158,28 @@ mod tests {
     fn ignore_permission_mock_is_opt_in() {
         assert!(!test_args("test A").ignore_permission_mock);
         assert!(test_args("test A --ignore-permission-mock").ignore_permission_mock);
+    }
+
+    /// ADR-066 amendment 4: `--strict-order` is off unless given.
+    #[test]
+    fn strict_order_is_opt_in() {
+        assert!(!test_args("test A").strict_order);
+        assert!(test_args("test A --strict-order").strict_order);
+    }
+
+    /// Issue 7143: `--allow-write-in-try-functions` is off unless given.
+    #[test]
+    fn allow_write_in_try_functions_is_opt_in() {
+        assert!(!test_args("test A").allow_write_in_try_functions);
+        assert!(test_args("test A --allow-write-in-try-functions").allow_write_in_try_functions);
+    }
+
+    /// Issue 7169: `--dependencies-published-global` is off unless given.
+    #[test]
+    fn dependencies_published_global_is_opt_in() {
+        assert!(!test_args("test A").dependencies_published_global);
+        assert!(test_args("test A --dependencies-published-global").dependencies_published_global);
+        assert!(parse(["serve".to_string(), "--dependencies-published-global".to_string()]).is_err());
     }
 
     /// Issue 3697: `--dev-endpoint-ui` is off unless given, and `serve` takes it only per request.

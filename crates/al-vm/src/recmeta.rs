@@ -205,18 +205,42 @@ impl Session {
         pos: usize,
         rec: Option<&Rc<RefCell<RecordState>>>,
     ) -> Result<String, Signal> {
-        match self.field_caption_written(t, pos)? {
+        let written = self.field_caption_written(t, pos)?;
+        // With an OnAfterCaptionClassResolve subscriber an area 3 CaptionClass is translated as well, which raises the event
+        // (Y71CaptionClassEvents.al:168-170; FieldCaption: record/captions/WcExtFieldAfterResolve.al
+        // WcExtField_Area3_FieldCaption). `3,` alone raises nothing and gives the Caption (WcExtField_ThreeAlone_FieldCaption).
+        if matches!(written, WrittenCaption::Text(_)) && self.after_resolve_subscribed() {
+            if let Some(class) = self
+                .field_property(t, pos, "CaptionClass")
+                .and_then(|v| string_literal(&v))
+            {
+                if class.len() > 2 && class.starts_with("3,") {
+                    // FieldCaption raises no CaptionClassTranslate of UI Helper Triggers (events/platform-triggers/
+                    // PtObserve.al:135-150 `Captions`, `fieldcap` log=[]).
+                    return self.caption_class_translate_silent(&class);
+                }
+            }
+        }
+        match written {
             WrittenCaption::Text(caption) => Ok(caption),
-            WrittenCaption::Class(class) => self.caption_class_translate(&class),
+            WrittenCaption::Class(class) => {
+                if !class.contains(',') && !self.after_resolve_subscribed() {
+                    return unsupported(format!(
+                        "FieldCaption of a field whose CaptionClass `{class}` has no comma (not pinned)"
+                    ));
+                }
+                self.caption_class_translate(&class)
+            }
             // A CaptionClass that is an expression runs once per read, with the record that reads it (record/lt-qd-captionclass-
             // areas/QdCaptionClassAreas.al:323-347 Expression_PerRead_CallCount, :350-372 Expression_ChangesRec), and its
             // result goes through the same resolvers as a literal (:262-296 Expressions_FieldCaption, :376-418
             // Expressions_FieldRefCaption).
             WrittenCaption::Expr(expr) => {
                 let class = self.field_caption_class_value(t, pos, rec, &expr)?;
-                match expression_class(&t.fields[pos].name, &class)? {
+                let kind = expression_class(&t.fields[pos].name, &class)?;
+                match kind {
                     ExprCaption::FieldCaption => Ok(self.field_caption(t, pos)),
-                    ExprCaption::Text(c) => Ok(c),
+                    ExprCaption::Text(c) => self.expression_text_caption(&class, c),
                     ExprCaption::Translate => self.caption_class_translate(&class),
                 }
             }
@@ -244,7 +268,12 @@ impl Session {
         // for the session (record/captions/QdCaptionClassAreas.al:233-258 Literals_FieldCaption: '2,0,x' reads
         // `x Excl. VAT`, '5,3,' `Bill-to County` through Base Application's subscribers; pages/triggers/
         // P84Captions.al: a text no subscriber resolves stays as written, and a second read raises no event). A non-numeric
-        // area is the platform's event and not pinned for FieldCaption: refused.
+        // area goes the same way: OnResolveCaptionClass with the area, the rest and the session language, the caption a
+        // subscriber resolves, else the whole text (also with a Caption property), kept for the session and shared with
+        // CaptionClassTranslate (corpus branch al-runtime-rs-staging-r6985, record/captions/R6985FieldCaptionArea.al:
+        // FieldCaption_ClaimedArea, _SecondRead, _UnclaimedArea, FieldRefCaption_ClaimedArea, FieldCaption_ThenCaptionClassTranslate,
+        // FieldCaption_InOnValidate; on master testpage/AnTestPageTests.al:583-589 An19_TableFieldCaptionClass_NonNumericArea,
+        // 'X,Y' unclaimed). A text with no comma is pinned only with an OnAfterCaptionClassResolve subscriber: refused otherwise.
         let declared = self.field_property(t, pos, "CaptionClass");
         if let Some(v) = declared.as_ref().filter(|v| string_literal(v).is_none()) {
             return Ok(WrittenCaption::Expr(v.clone()));
@@ -253,12 +282,10 @@ impl Session {
             return match class.split_once(',') {
                 Some(("3", "")) => Ok(WrittenCaption::Text(self.field_caption(t, pos))),
                 Some(("3", rest)) => Ok(WrittenCaption::Text(rest.to_string())),
-                Some((area, _)) if area.is_empty() || area.trim().parse::<u32>().is_ok() => {
-                    Ok(WrittenCaption::Class(class))
-                }
-                _ => unsupported(format!(
-                    "FieldCaption of a field whose CaptionClass `{class}` has an area no built-in resolver claims (not pinned)"
-                )),
+                Some(_) => Ok(WrittenCaption::Class(class)),
+                // With an OnAfterCaptionClassResolve subscriber the read raises the event (`FieldCaption`'s Class arm;
+                // WcExtField_NoComma_FieldCaption); without one the shape stays refused.
+                None => Ok(WrittenCaption::Class(class)),
             };
         }
         Ok(WrittenCaption::Text(self.field_caption(t, pos)))
@@ -1134,11 +1161,17 @@ impl Session {
                         if let Some(why) = self.enum_caption_refusal(*id, Some(*o)) {
                             return unsupported(why);
                         }
+                        if let Some(why) = self.enum_ml_unpinned(*id, Some(*o), "a field comparison read") {
+                            return unsupported(why);
+                        }
                         shown = Some(al_builtins::format::FormatCtx::enum_name(self, *id, *o))
                     }
                     // An Enum against a Text field is never equal and is written as its member (:229-231, Knd_result No, 'Two').
                     (Value::Text(_) | Value::Code(_), Value::Enum(id, o)) => {
                         if let Some(why) = self.enum_caption_refusal(*id, Some(*o)) {
+                            return unsupported(why);
+                        }
+                        if let Some(why) = self.enum_ml_unpinned(*id, Some(*o), "a field comparison read") {
                             return unsupported(why);
                         }
                         shown = Some(al_builtins::format::FormatCtx::enum_name(self, *id, *o));
@@ -1440,6 +1473,11 @@ impl Session {
             let Some(sp) = from.fields.iter().position(|f| f.id == df.id && f.stored) else {
                 continue;
             };
+            // Fields of one number declared by different apps count as fields of different apps, also on two tables of one app:
+            // a table extension's field against another app's extension field or against the table's own field
+            // (record/transferfields-cross-app/TransferFieldsFieldApps.al:131-163 on corpus master
+            // 3eb812ed, al-runner issue 6982).
+            let cross_app = cross_app || self.field_app(t, dp) != self.field_app(&from, sp);
             // An Enum field and an Option field with the same field number are the same kind of field to
             // TransferFields: Base Application's "Sales Order Entity Buffer" holds `Shipping Advice` as an
             // Option and `Sales Header` as an Enum, and its TransferFields from the header works in BC
@@ -1477,6 +1515,11 @@ impl Session {
                 (&from.fields[sp].ty, &df.ty, &src_fields[sp])
                 && Value::text_len(s) > *to_len as usize
             {
+                // Across apps it is skipped, with and without SkipFieldsWithoutCheck (TransferFieldsFieldApps.al:147-148,
+                // `mode 1 long text`, `mode 3 long text`).
+                if cross_app {
+                    continue;
+                }
                 return unsupported(format!(
                     "TransferFields of a Text too long for the Code field {} of {} (not pinned)",
                     df.name, t.name
@@ -1627,6 +1670,19 @@ impl Session {
     /// Transfer_DifferentPrimaryKey). Pinned for Decimal into Integer or BigInteger, Integer into Code, and Boolean and Text either way, between tables whose
     /// captions are their names; anything else gives `None` and stays refused. Between tables of different apps BC skips the field
     /// instead (Transfer_From_Another_Apps_Table_Type_Mismatch_BQ; `transfer_fields`).
+    /// The app that declares field `pos` of `t`: the app of the table or table extension that declares it, or the table's own
+    /// app for a field without one (a system field).
+    fn field_app(&self, t: &TableDef, pos: usize) -> u32 {
+        let objects = &self.engine.program.objects;
+        let declared = objects[t.object as usize]
+            .table
+            .as_ref()
+            .and_then(|schema| schema.fields.get(pos))
+            .and_then(|f| f.declared_in)
+            .map_or(t.object as usize, |o| o as usize);
+        objects[declared].app
+    }
+
     fn transfer_type_mismatch(
         &mut self,
         rec: &Rec,
@@ -1665,6 +1721,8 @@ impl Session {
                 | ("Integer", "Option")
                 | ("DateTime", "Date")
                 | ("Boolean", "Decimal")
+                // Two extension fields of one app: TransferFieldsFieldApps.al:204-205 (corpus master 3eb812ed).
+                | ("Code", "Boolean")
         ) {
             return None;
         }

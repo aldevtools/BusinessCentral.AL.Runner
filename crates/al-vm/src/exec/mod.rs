@@ -32,6 +32,13 @@ pub(crate) enum Op {
         d: u16,
         i: u32,
     },
+    /// Global `i` is about to be written in place by the next builtin or call (`Clear`, `Get`, a `Find`, `List.Add`, a
+    /// `var` argument): the SingleInstance notes count it as a write, not as a read of what it held (ADR-066 amendment 3,
+    /// R1). See [`SingleWriteKind`].
+    SingleWrite {
+        i: u32,
+        kind: SingleWriteKind,
+    },
     /// `d := read(place p)` (any place: fields, array elements, base globals).
     ReadPlace {
         d: u16,
@@ -404,6 +411,18 @@ pub(crate) struct CallSite {
     pub try_call: bool,
 }
 
+/// How `Op::SingleWrite` writes its global.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SingleWriteKind {
+    /// A builtin replaces the value without using it (`Get`, `Clear`, `Init`): after a guard, the refill.
+    Replace,
+    /// As `Modify`, only when the global holds a temporary record (`Insert`, `Delete`).
+    ModifyTemp,
+    /// A write that may keep or use what the global held: a `var` argument, `List.Add`, `Dictionary.Set` (the other
+    /// entries stay, so it is never the refill of a guard).
+    Modify,
+}
+
 pub(crate) struct BuiltinSite {
     pub id: al_builtins::builtin_id::BuiltinId,
     /// A builtin the VM runs itself (`Session::vm_class_call`) instead of a registered native.
@@ -412,6 +431,8 @@ pub(crate) struct BuiltinSite {
     pub class: al_builtins::builtin_id::Class,
     pub receiver: Option<u16>,
     pub receiver_arg: Option<ir::Arg>,
+    /// The global the builtin writes in place (see `Op::SingleWrite`): its refill is noted after the call.
+    pub single_write: Option<u32>,
     pub arg_regs: Vec<u16>,
     pub args: Vec<ir::Arg>,
     pub ret_used: bool,

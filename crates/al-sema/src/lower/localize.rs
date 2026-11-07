@@ -262,7 +262,7 @@ pub(crate) struct Expansions {
 pub(crate) type EnumInfo = (Vec<(al_ir::sym::ImplSlot, Option<usize>, Option<usize>)>, Vec<u32>);
 
 /// The values and the captions an enum declares.
-pub(crate) type EnumOwn = (Vec<(i32, String)>, Vec<(i32, String)>);
+pub(crate) type EnumOwn = (Vec<(i32, String)>, Vec<(i32, String)>, Vec<(i32, String)>);
 
 /// The `modify` blocks of a table extension: field name and the properties it sets.
 pub(crate) type Modifies = Vec<(String, Vec<(String, String)>)>;
@@ -341,7 +341,7 @@ pub(crate) fn localize(
     // What other objects add to this one is not part of it: link merges it again.
     match object.kind {
         ObjKind::Enum if !object.uncompiled => {
-            (object.enum_values, object.enum_captions) = (keys.own_enum)(own);
+            (object.enum_values, object.enum_captions, object.enum_captions_ml) = (keys.own_enum)(own);
         }
         _ => {}
     }
@@ -355,10 +355,11 @@ pub(crate) fn localize(
         r.extensions.clear();
     }
     let mut contribution = if object.kind == ObjKind::EnumExtension {
-        let (enum_values, enum_captions) = (keys.own_enum)(own);
+        let (enum_values, enum_captions, enum_captions_ml) = (keys.own_enum)(own);
         Contribution {
             enum_values,
             enum_captions,
+            enum_captions_ml,
             table: None,
             page: None,
         }

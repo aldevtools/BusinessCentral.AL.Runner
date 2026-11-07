@@ -60,6 +60,14 @@ pub enum DotNetValue {
     },
     /// An AL `InStream` handed to .NET: the unread bytes (section 4, streams).
     InStream(Vec<u8>),
+    /// An AL `InStream` that stands after its first byte, handed to .NET: all its bytes and its read position. BC hands .NET the
+    /// Blob's own seekable stream (SgDotNetStreams.al:106-126), so .NET code can seek back before the position (Excel Buffer's
+    /// SelectSheetsNameStream then OpenBookStream on one InStream, al-runner issue 7134). The host's stream starts at `at`; what
+    /// the host reports as consumed for it is its position in `bytes`.
+    InStreamAt {
+        bytes: Vec<u8>,
+        at: usize,
+    },
     /// An AL `OutStream` handed to .NET: the host creates a writable bridge stream.
     OutStream,
     /// An AL `OutStream` whose Blob already holds the bytes, written up to their end: the host's bridge starts with them and
@@ -94,6 +102,8 @@ pub struct StreamEffects {
     pub bridges: Vec<(usize, u64)>,
     /// Bytes written into any live bridge since the last reply, by bridge id.
     pub written: Vec<(u64, Vec<u8>)>,
+    /// The helper bound an AL Text argument to a `System.Guid` parameter (assumption `dotnet-text-argument-as-guid`); the VM marks it.
+    pub text_converted_to_guid: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -159,7 +159,10 @@ block names an assembly and a type. At run time `NavAutomationHelper` calls
   in `AlRunner/DependencyLoader.cs` and is pinned by a test when implemented.
 - The service-tier folder comes from the platform package that ADR-013 selects
   for the run, stored in the same cache outside the repo. Nothing from
-  Microsoft is committed (hard rule 7).
+  Microsoft is committed (hard rule 7). Since 2026-11-05 (al-runner issue 6924): when no
+  extracted artifact is on disk, the assembly a type names and the service-tier
+  assemblies it references are fetched by range from the platform artifact
+  into `<cache>/artifacts/<build>/service` on first use (`al_deps::service_tier`).
 - **Compile time.** Compilation never starts the sidecar. AL0296 (Cloud target
   uses `DotNet`) is checked from `app.json`, for apps we compile that are not
   Microsoft's. AL0185 (type missing) is **not** reproduced statically. BC would
@@ -225,6 +228,7 @@ item 6). The wire carries a tagged value.
   1. Passing an `InStream`: Rust sends the unread bytes. The sidecar wraps them
      in a read-only `MemoryStream`. After the call, Rust moves the AL read
      position by the number of bytes .NET consumed.
+     Amended by ADR-067: a stream past its start is sent whole with its position.
   2. Passing an `OutStream`: the sidecar creates a writable stream (the
      **bridge**). After the call, and after every later call that could touch
      it, Rust appends the newly written bytes to the AL blob.
@@ -357,6 +361,15 @@ before a request is sent. Every refusal names the type or member and the rule.
   can change between majors. `--dotnet-allow-roll-forward` switches it on and
   prints a warning. For later BC builds, the framework version follows the
   selected build's runtimeconfig.
+  Note (2026-11-05, al-runner issues 6924 and 5590): BC 29's service-tier
+  assemblies (`Microsoft.Dynamics.Nav.OpenXml`, `System.Drawing.Common`) target
+  .NET 10 and do not load into .NET 8. The sidecar stays built for `net8.0`
+  and is started with `dotnet exec --fx-version <newest installed patch>` of the
+  major the BC version needs: 8 for BC 27 and 28, 10 for BC 29
+  (`al-testrun/src/dotnet_runtime.rs`, which cites the measured target
+  frameworks). `--dotnet-allow-roll-forward` now picks the lowest newer major
+  only when that major is missing; `DOTNET_ROLL_FORWARD=Major`, used before,
+  never left .NET 8 while .NET 8 was installed. No protocol or packaging change.
 - BCL behaviour that depends on the host OS (`System.Drawing`, file paths,
   certificates) can differ from Windows. Known cases are refused by name.
 - The same sidecar and the same inputs give the same outputs, except where

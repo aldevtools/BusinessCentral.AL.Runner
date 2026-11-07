@@ -819,9 +819,10 @@ fn a_discarded_value_call_is_not_evaluated() {
     assert_eq!(text(r), "ok");
 }
 
-// The areas changing under an open page is not pinned: refused.
+// The areas changing under an open page do not reach it: it keeps the controls it opened with (corpus branch
+// al-runtime-rs-staging-r6962, pages/application-area/AreasChangedWhilePageOpen.al AreasSetInTest_FewerTags_FieldsRead; issue 7001).
 #[test]
-fn changing_the_areas_while_a_page_is_open_is_refused() {
+fn changing_the_areas_while_a_page_is_open_does_not_reach_it() {
     let r = run(
         "procedure F(): Text var C: TestPage \"PX Area Card\"; begin
             C.OpenView();
@@ -830,7 +831,7 @@ fn changing_the_areas_while_a_page_is_open_is_refused() {
         end;",
         "F",
     );
-    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
+    assert!(r.is_ok(), "{r:?}");
 }
 
 // testpage/TestPagePartAgcr_Tests.al (a host reaches its part's page through CurrPage.<Part>.Page) with

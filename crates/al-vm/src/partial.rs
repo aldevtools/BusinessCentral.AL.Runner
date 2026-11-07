@@ -46,6 +46,22 @@ fn positions(args: &[Value]) -> Result<Vec<usize>, Signal> {
     Ok(out)
 }
 
+/// `Init` on a record that holds a partial fetch: the fields it did not load now hold their initial values and are not
+/// loaded from the row afterwards; they still read as not loaded, the key as loaded (record/load-fields/
+/// R7000InitAfterLoadFields.al:Init_AfterLoadFields_KeyKept_Reads, corpus branch al-runtime-rs-staging-r6961; the reads in
+/// OnValidate and OnInsert and the inserted row: Init_AfterLoadFieldsReset_NewKey_Validate_InsertTrue,
+/// Init_StillPartial_NewKey_Validate_InsertTrue, Init_AfterLoadFields_NewKey_PlainInsert).
+pub(crate) fn note_init(r: &mut al_builtins::value::RecordState) {
+    if let Some(b) = r
+        .load
+        .buffer
+        .as_mut()
+        .filter(|b| !b.cleared && !matches!(b.have, FieldSet::All))
+    {
+        b.init = true;
+    }
+}
+
 /// The primary key of a row, as a comparable text.
 pub(crate) fn row_id(t: &TableDef, row: &[Value]) -> String {
     format!("{:?}", t.primary_key(row))
@@ -81,6 +97,7 @@ impl Session {
                 assigned: Vec::new(),
                 missing_loaded: false,
                 fetched: Default::default(),
+                init: false,
             },
             // After a Clear only a whole fetched row stays in hand for a Get of the same row (session/
             // TestProbeSessionMiscContracts.al:PartialRecords_AreFieldsLoaded). A partial buffer does not: after FindSet and
@@ -98,6 +115,7 @@ impl Session {
                     assigned: Vec::new(),
                     missing_loaded: false,
                     fetched: Default::default(),
+                    init: false,
                 }
             }
             Some(old) => {
@@ -107,6 +125,7 @@ impl Session {
                 next.cleared = false;
                 next.assigned.clear();
                 next.missing_loaded = false;
+                next.init = false;
                 if old_row == new_row && !via_get {
                     // A Find on the row the buffer holds reads it again and keeps only what the request names: after a full
                     // FindFirst, `SetLoadFields(Amt)` and another FindFirst, the Name is no longer loaded (recordref/
@@ -176,25 +195,20 @@ impl Session {
     }
 
     /// A read of field `p`, which is not loaded, of a partial record whose row another variable deleted: the JustInTimeFieldLoad
-    /// error, naming the field, the table and the key (record/load-fields/LoadFieldsFetched.al:232-268, a normal and a
-    /// table extension field). Pinned for a table whose primary key is one Integer field and whose caption is its name; `None`
-    /// otherwise.
-    fn jit_row_gone(&self, t: &TableDef, fields: &[Value], p: usize) -> Option<Signal> {
-        let [k] = t.keys[0][..] else { return None };
-        let Value::Integer(n) = fields[k] else { return None };
-        let obj = &self.engine.program.objects[t.object as usize];
-        let caption_is_name = obj
-            .properties
+    /// error, naming the field, the table's caption and the key (record/load-fields/P170JitLoadGone.al header and PG_CodeKey_ReadName
+    /// onward; LoadFieldsFetched.al:232-268 for the table extension field). The key lists every primary key part in
+    /// key order with its caption and its Format text, whatever was loaded (PG_Composite_*, PG_TypedKey_*).
+    pub(crate) fn jit_row_gone(&self, t: &TableDef, fields: &[Value], names: &[usize]) -> Result<Signal, Signal> {
+        let key = self.identification(t, fields)?;
+        let list = names
             .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case("Caption"))
-            .is_none_or(|(_, v)| v.trim().trim_matches('\'') == obj.name);
-        if !caption_is_name || self.field_caption(t, k) != t.fields[k].name {
-            return None;
-        }
-        Some(crate::transactions::al_error_code(
+            .map(|&p| t.fields[p].name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        Ok(crate::transactions::al_error_code(
             &format!(
-                "JIT loading of field(s): '{}' failed for table: '{}' identification values: '{}='{n}''",
-                t.fields[p].name, t.name, t.fields[k].name
+                "JIT loading of field(s): '{list}' failed for table: '{}' identification values: '{key}'",
+                self.caption(t)
             ),
             "JustInTimeFieldLoad",
         ))
@@ -206,7 +220,7 @@ impl Session {
         let (have, unsure, assigned, held, fetched) = {
             let r = rec.borrow();
             match &r.load.buffer {
-                Some(b) if r.load.partial && !b.cleared && !matches!(b.have, FieldSet::All) => (
+                Some(b) if r.load.partial && !b.cleared && !b.init && !matches!(b.have, FieldSet::All) => (
                     b.have.clone(),
                     b.unsure.clone(),
                     b.assigned.clone(),
@@ -237,12 +251,20 @@ impl Session {
             .map_err(|e| Signal::Unsupported(format!("{e}")))?;
         let Some(stored) = stored else {
             if let Some(p) = read {
-                if let Some(e) = self.jit_row_gone(&t, &fields, p) {
-                    return Err(e);
-                }
+                return Err(self.jit_row_gone(&t, &fields, &[p]).unwrap_or_else(|e| e));
+            }
+            // LoadFields on a row that is gone raises nothing and loads nothing (P170JitLoadGone.al:689-711
+            // PG_LoadFieldsStatement_AfterGone, :713 _TwoFields_).
+            if only.is_some() {
+                return Ok(());
             }
             return unsupported("a load of the missing fields of a partial record whose row is gone (not pinned)");
         };
+        if let Some(p) = read {
+            if let Some(e) = self.jit_inconsistent_read(&t, &fields, &stored, p)? {
+                return Err(e);
+            }
+        }
         let mut merged = fields;
         for p in 0..t.fields.len() {
             if !t.fields[p].stored || have.contains(p) || assigned.contains(&p) || only.is_some_and(|o| !o.contains(&p))

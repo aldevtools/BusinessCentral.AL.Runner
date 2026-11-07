@@ -118,3 +118,74 @@ fn reporter_repro_no_row() {
 fn reporter_repro_one_row() {
     assert_eq!(reporter(true), Outcome::Pass);
 }
+
+/// Issue 6953: Allocation Account and Bank Acc. Reconciliation are ListPlus pages. Opened for view on no row, their linked
+/// list part declares OnNewRecord. `host` is the host's page type, `hidden` hides the part (Allocation Account hides one of
+/// its two parts), `grouped` puts the part in a group (Bank Acc. Reconciliation).
+fn list_plus_host(host: &str, hidden: bool, grouped: bool) -> (Outcome, String) {
+    let visible = if hidden { "Visible = false;" } else { "" };
+    let part = format!(r#"part(Lines; "LH Lines") {{ {visible} SubPageLink = "Head No." = field("No."); }}"#);
+    let part = if grouped {
+        format!("group(G) {{ {part} }}")
+    } else {
+        part
+    };
+    let src = format!(
+        r#"
+table 62940 "LH Head" {{ fields {{ field(1; "No."; Code[10]) {{ }} }} keys {{ key(PK; "No.") {{ Clustered = true; }} }} }}
+table 62941 "LH Line" {{ fields {{ field(1; "Head No."; Code[10]) {{ }} field(2; "Line No."; Integer) {{ }} field(3; Description; Text[30]) {{ }} }} keys {{ key(PK; "Head No.", "Line No.") {{ Clustered = true; }} }} }}
+codeunit 62945 LHLog {{ SingleInstance = true; var Log: Text; procedure Add(t: Text) begin Log += t + '|'; end; procedure Take(): Text var R: Text; begin R := Log; Log := ''; exit(R); end; }}
+page 62942 "LH Lines" {{
+    PageType = ListPart; SourceTable = "LH Line"; DelayedInsert = true; AutoSplitKey = true;
+    layout {{ area(Content) {{ repeater(R) {{ field(Description; Rec.Description) {{ }} }} }} }}
+    trigger OnNewRecord(BelowxRec: Boolean) var L: Codeunit LHLog; begin L.Add('LP.OnNewRecord:' + Rec."Head No." + ' below=' + Format(BelowxRec)); Rec.Description := 'New-line marker'; end;
+    trigger OnAfterGetCurrRecord() var L: Codeunit LHLog; begin L.Add('LP.OnAfterGetCurrRecord:' + Rec."Head No." + '/' + Format(Rec."Line No.") + ' ' + Rec.Description); end;
+}}
+page 62943 "LH Host" {{
+    PageType = {host}; SourceTable = "LH Head"; Caption = 'LH Host';
+    layout {{ area(Content) {{ group(General) {{ field("No."; Rec."No.") {{ }} }} {part} }} }}
+    trigger OnOpenPage() var L: Codeunit LHLog; begin L.Add('H.OnOpenPage'); end;
+}}
+codeunit 62944 T
+{{
+    Subtype = Test;
+    [Test] procedure Run()
+    var P: TestPage "LH Host"; L: Codeunit LHLog;
+    begin
+        P.OpenView();
+        if P.Caption() = '' then Error('no caption');
+        Error('LOG:' + L.Take());
+    end;
+}}"#
+    );
+    let r = al_testkit::outcomes_in(&src, "T")[0].1.clone();
+    let log = match &r {
+        Outcome::Fail(m) => m.split("LOG:").nth(1).unwrap_or(m).to_string(),
+        _ => String::new(),
+    };
+    (r, log)
+}
+
+// pages/parts/PartListPlusHostNoRow.al:288 and :336 (issue 6953):
+// ListPlusHost_OpenView_NoRow_PartTriggers `[H.OnOpenPage | LP.OnNewRecord: below=Yes | LP.OnAfterGetCurrRecord:/0 New-line
+// marker]`, _PartInGroup the same, _HiddenPart `[H.OnOpenPage]`.
+const VISIBLE_PART: &str = "H.OnOpenPage|LP.OnNewRecord: below=Yes|LP.OnAfterGetCurrRecord:/0 New-line marker|";
+
+#[test]
+fn list_plus_host_on_no_row_opens_its_part() {
+    let (r, log) = list_plus_host("ListPlus", false, false);
+    assert!(matches!(r, Outcome::Fail(_)), "{r:?}");
+    assert_eq!(log, VISIBLE_PART);
+}
+
+#[test]
+fn list_plus_host_on_no_row_with_the_part_in_a_group() {
+    assert_eq!(list_plus_host("ListPlus", false, true).1, VISIBLE_PART);
+}
+
+#[test]
+fn list_plus_host_on_no_row_with_a_hidden_part_runs_no_part_trigger() {
+    let (r, log) = list_plus_host("ListPlus", true, false);
+    assert!(matches!(r, Outcome::Fail(_)), "{r:?}");
+    assert_eq!(log, "H.OnOpenPage|");
+}

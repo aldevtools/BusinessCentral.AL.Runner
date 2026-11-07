@@ -930,23 +930,25 @@ fn geturl_with_a_company_or_an_object_builds_the_pinned_query() {
 // form without arguments are pinned; the rest is refused.
 #[test]
 fn geturl_default_alone_is_the_dynamicsnav_form_of_the_address() {
-    // The port differs from the Web port, 7047 and 7048 (GetUrlShape.al GU6924_ServiceForms_ShareWebHost `default`, corpus
-    // branch al-runtime-rs-staging-p6924c); 7046 is assumption geturl-client-host-port.
-    let r = get_url("exit(GetUrl(ClientType::Default));", None);
-    assert!(
-        matches!(&r, Ok(Value::Text(t)) if &**t == "dynamicsnav://localhost:7046/BC//"),
-        "{r:?}"
-    );
-    assert_eq!(
-        al_builtins::assumptions::take_hits(),
-        vec![al_builtins::assumptions::Assumption::GetUrlClientHostPort]
-    );
+    // The Web host name with port 7085 (session-system/session/GetUrlShape.al:465, 467 `default`, `windows`); no assumption
+    // marks it.
+    for body in [
+        "exit(GetUrl(ClientType::Default));",
+        "exit(GetUrl(ClientType::Windows));",
+    ] {
+        let r = get_url(body, None);
+        assert!(
+            matches!(&r, Ok(Value::Text(t)) if &**t == "dynamicsnav://localhost:7085/BC//"),
+            "{body}: {r:?}"
+        );
+        assert_eq!(al_builtins::assumptions::take_hits(), vec![], "{body}");
+    }
     for (body, url) in [
         (
             "exit(GetUrl(ClientType::Default));",
             Some("https://bc.example:7048/BC1"),
         ),
-        ("exit(GetUrl(ClientType::Default, 'A&B'));", None),
+        ("exit(GetUrl(ClientType::Windows, 'A&B'));", None),
         ("exit(GetUrl(ClientType::Default, 'C', ObjectType::Table, 18));", None),
         ("exit(GetUrl(ClientType::Default, 'C', ObjectType::Page, 0));", None),
         (
@@ -970,19 +972,19 @@ fn geturl_default_with_a_company_or_an_object_builds_the_pinned_path() {
     for (body, want) in [
         (
             "exit(GetUrl(ClientType::Default, 'My Company'));",
-            "dynamicsnav://localhost:7046/BC/My%20Company/",
+            "dynamicsnav://localhost:7085/BC/My%20Company/",
         ),
         (
             "exit(GetUrl(ClientType::Default, ''));",
-            "dynamicsnav://localhost:7046/BC//",
+            "dynamicsnav://localhost:7085/BC//",
         ),
         (
             "exit(GetUrl(ClientType::Default, '', ObjectType::Page, 21));",
-            "dynamicsnav://localhost:7046/BC//runpage?page=21",
+            "dynamicsnav://localhost:7085/BC//runpage?page=21",
         ),
         (
             "exit(GetUrl(ClientType::Default, 'My Company', ObjectType::Report, 69367));",
-            "dynamicsnav://localhost:7046/BC/My%20Company/runreport?report=69367",
+            "dynamicsnav://localhost:7085/BC/My%20Company/runreport?report=69367",
         ),
     ] {
         let r = get_url(body, None);
@@ -990,9 +992,9 @@ fn geturl_default_with_a_company_or_an_object_builds_the_pinned_path() {
     }
 }
 
-// GetUrlShape.al GU6924_ServiceForms_ShareWebHost and _WithObject_ShareWebHost (corpus branch al-runtime-rs-staging-p6924c,
-// BC 27.5, 28.5, 29.0): the service forms share the Web scheme, host and instance; SOAP has port 7047, OData, ODataV4 and
-// Api 7048; with an object the empty text. Marked with the awaiting assumption geturl-service-host-port.
+// session-system/session/GetUrlShape.al:374-379 (GU6924_ServiceForms_ShareWebHost) and :397-405 (_WithObject_ShareWebHost):
+// the service forms share the Web scheme, host and instance; SOAP has port 7047, OData, ODataV4 and Api 7048; with an object
+// the empty text. No assumption marks them.
 #[test]
 fn geturl_service_forms_share_the_web_host_with_their_own_port() {
     for (body, want) in [
@@ -1013,17 +1015,13 @@ fn geturl_service_forms_share_the_web_host_with_their_own_port() {
     ] {
         let r = get_url(body, Some("http://bcserver:8080/BC"));
         assert!(matches!(&r, Ok(Value::Text(t)) if &**t == want), "{body}: {r:?}");
-        assert_eq!(
-            al_builtins::assumptions::take_hits(),
-            vec![al_builtins::assumptions::Assumption::GetUrlServiceHostPort],
-            "{body}"
-        );
+        assert_eq!(al_builtins::assumptions::take_hits(), vec![], "{body}");
     }
 }
 
-// GetUrlShape.al GU6924_Current_EqualsWhichForm (corpus branch al-runtime-rs-staging-p6924c): in a test
-// session GetUrl(ClientType::Current) is the Web answer, alone and with a page. Marked with the awaiting assumption
-// geturl-current-is-web.
+// session-system/session/GetUrlShape.al:424, 429 (GU6924_Current_EqualsWhichForm): in a test session GetUrl(ClientType::Current)
+// is the Web answer, alone and with a page; no assumption marks these two forms. With a company the answer is still marked
+// with the assumption geturl-current-is-web.
 #[test]
 fn geturl_current_answers_as_web() {
     for (body, want) in [
@@ -1035,12 +1033,17 @@ fn geturl_current_answers_as_web() {
     ] {
         let r = get_url(body, None);
         assert!(matches!(&r, Ok(Value::Text(t)) if &**t == want), "{body}: {r:?}");
-        assert_eq!(
-            al_builtins::assumptions::take_hits(),
-            vec![al_builtins::assumptions::Assumption::GetUrlCurrentIsWeb],
-            "{body}"
-        );
+        assert_eq!(al_builtins::assumptions::take_hits(), vec![], "{body}");
     }
+    let r = get_url("exit(GetUrl(ClientType::Current, 'My Company'));", None);
+    assert!(
+        matches!(&r, Ok(Value::Text(t)) if &**t == "http://localhost:8080/BC/?company=My%20Company"),
+        "{r:?}"
+    );
+    assert_eq!(
+        al_builtins::assumptions::take_hits(),
+        vec![al_builtins::assumptions::Assumption::GetUrlCurrentIsWeb]
+    );
 }
 
 // The host part of the other client types, and a character the corpus does not pin in a company, are refused.
@@ -1171,7 +1174,7 @@ fn geturl_of_the_other_client_types_builds_the_pinned_text() {
         ),
         (
             "exit(GetUrl(ClientType::Windows, 'My Company', ObjectType::Page, 21));",
-            "dynamicsnav://localhost:7046/BC/My%20Company/runpage?page=21",
+            "dynamicsnav://localhost:7085/BC/My%20Company/runpage?page=21",
         ),
         ("exit(GetUrl(ClientType::Background));", ""),
         ("exit(GetUrl(ClientType::Management, 'My Company'));", ""),
@@ -1407,7 +1410,7 @@ codeunit 50100 C
     procedure Digits()
     var Row: Record "LT SC Url Enum Row"; T: Text;
     begin
-        Row.Code := '12';
+        Row.Code := '1-2';
         T := GetUrl(ClientType::Web, 'My Company', ObjectType::Page, 22, Row, false);
     end;
     procedure O(): Text
@@ -1427,7 +1430,7 @@ codeunit 50100 C
         al_testkit::text(al_testkit::run(src, "E")),
         "bookmark=21%3bfWQBAACLAAAAAAJ7%2f0EAMQ%3d%3d bookmark=17%3bfWQBAACLBQAAAAJ7 bookmark=29%3bfWQBAACLAQAAAAJ7BjEAMAA2ADAAMAAx"
     );
-    // Purchase Header `order 106001` (GetUrlBookmarkEnumKey.al:149) on the own table; other digit codes are not pinned.
+    // Purchase Header `order 106001` (GetUrlBookmarkEnumKey.al:149) on the own table; digits only of any length and digits with letters are pinned too (:218-233); a digit then another character is not.
     assert!(matches!(al_testkit::run(src, "Digits"), Err(Signal::Unsupported(_))));
     assert_eq!(
         al_testkit::text(al_testkit::run(src, "O")),
@@ -1435,6 +1438,39 @@ codeunit 50100 C
     );
     // An enum as the only key field: GetUrlBookmarkDigitCode.al:166-184 (`geturl_bookmarks_a_digit_code_key_and_an_enum_only_key`).
     assert_eq!(al_testkit::text(al_testkit::run(src, "Only")), "bookmark=12%3bgWQBAACL");
+}
+
+// metadata/platform-tables/GetUrlBookmarkEnumKey.al:175-206 (Purchase Header, enum + Code key): a Code of seven digits
+// is marked 0x07 (`1234567`), a digit followed by a letter 0xff (`1A`). Other digit-leading forms stay refused.
+#[test]
+fn geturl_composite_enum_code_key_marks_seven_digits_and_digit_then_letter() {
+    let src = r#"
+enum 91310 "LT Z7 Url Kind" { value(0; Quote) { } value(1; Order) { } }
+table 91311 "LT Z7 Url Row" { fields { field(1; Kind; Enum "LT Z7 Url Kind") { } field(2; Code; Code[20]) { } } keys { key(PK; Kind, Code) { } } }
+codeunit 50100 C
+{
+    local procedure Tail(Url: Text): Text begin exit(CopyStr(Url, StrPos(Url, 'bookmark='))); end;
+    local procedure Url(No: Code[20]): Text
+    var Row: Record "LT Z7 Url Row";
+    begin
+        Row.Kind := Row.Kind::Order; Row.Code := No;
+        exit(Tail(GetUrl(ClientType::Web, 'My Company', ObjectType::Page, 22, Row, false)));
+    end;
+    procedure Pinned(): Text begin exit(Url('1234567') + ' ' + Url('1A')); end;
+    procedure Seven(): Text begin exit(Url('12345678')); end;
+    procedure Mixed(): Text begin exit(Url('1A2')); end;
+    procedure Dash() begin Url('1-2'); end;
+}
+"#;
+    assert_eq!(
+        al_testkit::text(al_testkit::run(src, "Pinned")),
+        "bookmark=31%3br2QBAACLAQAAAAJ7BzEAMgAzADQANQA2ADc%3d bookmark=21%3br2QBAACLAQAAAAJ7%2fzEAQQ%3d%3d"
+    );
+    // GetUrlBookmarkEnumKey.al:228 and :230, :239-240: eight digits are marked 0x08, `1A2` 0xff.
+    assert!(al_testkit::text(al_testkit::run(src, "Seven")).ends_with("AAJ7CDEAMgAzADQANQA2ADcAOA%3d%3d"));
+    assert!(al_testkit::text(al_testkit::run(src, "Mixed")).ends_with("AAJ7%2fzEAQQAy"));
+    // A digit then a character that is no letter or digit is not pinned in a composite key.
+    assert!(matches!(al_testkit::run(src, "Dash"), Err(Signal::Unsupported(_))));
 }
 
 // metadata/platform-tables/GetUrlBookmarkDigitCode.al:117-184 (corpus master): the bookmark of a key of one Code[20]
@@ -1530,4 +1566,45 @@ fn about_two_thirds_of_clock_reads_right_after_a_write_are_off_the_grid_and_the_
     assert!((0.62..0.71).contains(&share), "off the grid: {share}");
     assert_eq!(reads(4271833), one, "the same seed gives the same clock values");
     assert_ne!(reads(4271834), one, "another seed gives other clock values");
+}
+
+// Corpus branch al-runtime-rs-staging-r6985, session-system/session/R7002GetUrlDefaultCompany.al (al-runner issue 7002): the Default
+// form writes the company percent-encoded as the Web form does ('CRONUS International Ltd.' keeps its dot), and a page with a record
+// and UseFilters true adds `&$filter=` with the encoded filter text, or nothing without a filter. Windows is not probed for these forms.
+#[test]
+fn geturl_default_encodes_any_company_and_writes_the_filter_of_a_record() {
+    let src = r#"
+table 50101 "Gu Row" { fields { field(1; Id; Integer) { } field(2; Name; Text[30]) { } } keys { key(PK; Id) { } } }
+codeunit 50100 C
+{
+    procedure D(): Text
+    var Row: Record "Gu Row"; R: Text;
+    begin
+        Row.Id := 3; Row.Name := 'Alpha'; Row.Insert();
+        R := GetUrl(ClientType::Default, 'CRONUS International Ltd.');
+        R += '|' + GetUrl(ClientType::Default, 'O''Neil & Co.', ObjectType::Page, 21);
+        R += '|' + GetUrl(ClientType::Default, 'A,B/(C)+#%?=:Müller');
+        R += '|' + GetUrl(ClientType::Default, 'CRONUS International Ltd.', ObjectType::Page, 21, Row, true);
+        Row.SetRange(Name, 'Alpha');
+        exit(R + '|' + GetUrl(ClientType::Default, '', ObjectType::Page, 21, Row, true));
+    end;
+    procedure WindowsCompany(): Text begin exit(GetUrl(ClientType::Windows, 'A.B')); end;
+    procedure WindowsFilters(): Text var Row: Record "Gu Row"; begin exit(GetUrl(ClientType::Windows, '', ObjectType::Page, 21, Row, true)); end;
+}
+"#;
+    assert_eq!(
+        al_testkit::text(al_testkit::run(src, "D")),
+        "dynamicsnav://localhost:7085/BC/CRONUS%20International%20Ltd./\
+         |dynamicsnav://localhost:7085/BC/O%27Neil%20%26%20Co./runpage?page=21\
+         |dynamicsnav://localhost:7085/BC/A%2CB%2F%28C%29%2B%23%25%3F%3D%3AM%C3%BCller/\
+         |dynamicsnav://localhost:7085/BC/CRONUS%20International%20Ltd./runpage?page=21\
+         |dynamicsnav://localhost:7085/BC//runpage?page=21&$filter=%27Name%27%20IS%20%27Alpha%27"
+    );
+    for routine in ["WindowsCompany", "WindowsFilters"] {
+        let r = al_testkit::run(src, routine);
+        assert!(
+            matches!(&r, Err(Signal::Unsupported(w)) if w.contains("Windows")),
+            "{routine}: {r:?}"
+        );
+    }
 }

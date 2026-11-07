@@ -88,26 +88,7 @@ pub(crate) fn tables_install_code_may_write(lowered: &Lowered, engine: &Engine) 
     use al_builtins::library_kind::LibraryKind;
     use al_builtins::value::RtType;
     let objs = &lowered.program.objects;
-    let under_test = |o: usize| !lowered.dependency[o];
-    let mut roots: Vec<(usize, usize)> = Vec::new();
-    for (oi, o) in objs.heads().iter().enumerate() {
-        if under_test(oi) && (is_install(o) || is_upgrade(o)) {
-            roots.extend((0..objs[oi].routines.len()).map(|ri| (oi, ri)));
-        }
-    }
-    roots.extend(
-        engine
-            .events
-            .install_subscribers
-            .iter()
-            .filter(|(so, _, _)| under_test(*so))
-            .map(|&(so, sr, _)| (so, sr)),
-    );
-    roots.extend(company_open_subscribers(lowered, &engine.events, under_test));
-    let mut all: BTreeSet<(usize, usize)> = roots.iter().copied().collect();
-    for &(o, r) in &roots {
-        all.extend(crate::runtime::subscribers_reached(engine, lowered, o, r));
-    }
+    let all = install_roots_and_subscribers(lowered, engine, |o| !lowered.dependency[o]);
     // Every routine those reach through calls, for the slots that may write any table.
     let mut seen = BTreeSet::new();
     let mut stack: Vec<(usize, usize)> = all.iter().copied().collect();
@@ -131,6 +112,53 @@ pub(crate) fn tables_install_code_may_write(lowered: &Lowered, engine: &Engine) 
         out.extend(crate::baseline::tables_written(lowered, o, r));
     }
     Some(out)
+}
+
+/// The Install and Upgrade codeunit routines of the objects `of` accepts, their install and Company Triggers subscribers,
+/// and the subscribers those reach.
+fn install_roots_and_subscribers(
+    lowered: &Lowered,
+    engine: &Engine,
+    of: impl Fn(usize) -> bool + Copy,
+) -> BTreeSet<(usize, usize)> {
+    let objs = &lowered.program.objects;
+    let mut roots: Vec<(usize, usize)> = Vec::new();
+    for (oi, o) in objs.heads().iter().enumerate() {
+        if of(oi) && (is_install(o) || is_upgrade(o)) {
+            roots.extend((0..objs[oi].routines.len()).map(|ri| (oi, ri)));
+        }
+    }
+    roots.extend(
+        engine
+            .events
+            .install_subscribers
+            .iter()
+            .filter(|(so, _, _)| of(*so))
+            .map(|&(so, sr, _)| (so, sr)),
+    );
+    roots.extend(company_open_subscribers(lowered, &engine.events, of));
+    let mut all: BTreeSet<(usize, usize)> = roots.iter().copied().collect();
+    for &(o, r) in &roots {
+        all.extend(crate::runtime::subscribers_reached(engine, lowered, o, r));
+    }
+    all
+}
+
+/// Every routine the install code of the objects `of` accepts can run (`install_roots_and_subscribers` and what those call;
+/// install_rows.rs).
+pub(crate) fn install_code_of(
+    lowered: &Lowered,
+    engine: &Engine,
+    of: impl Fn(usize) -> bool + Copy,
+) -> BTreeSet<(usize, usize)> {
+    let mut seen = BTreeSet::new();
+    let mut stack: Vec<(usize, usize)> = install_roots_and_subscribers(lowered, engine, of).into_iter().collect();
+    while let Some((o, r)) = stack.pop() {
+        if seen.insert((o, r)) {
+            lowered.calls_into(o, r, &mut stack);
+        }
+    }
+    seen
 }
 
 fn is_single_instance(o: &al_ir::ObjectHead) -> bool {
@@ -498,7 +526,12 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
     let view = InstallView::new(lowered, crate::host::publish_order_known());
     let under_test = apps_under_test(lowered);
     if under_test.len() > 1 {
-        session.set_install_written_tables(tables_install_code_may_write(lowered, &engine));
+        let written = tables_install_code_may_write(lowered, &engine);
+        // A table only its own app's install code writes, with the rows constants show (al-runner issue 6971).
+        if written.is_some() {
+            session.set_install_rows(Some(crate::install_rows::install_rows(lowered, &engine)));
+        }
+        session.set_install_written_tables(written);
     }
     for (k, app) in plan(lowered, &engine.events, false).into_iter().enumerate() {
         if app.company.is_empty() && app.database.is_empty() {
@@ -613,6 +646,7 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
     session.set_apps_not_installed(None);
     session.set_apps_install_order_unknown(None);
     session.set_install_written_tables(None);
+    session.set_install_rows(None);
     session.set_install_without_client(false);
     // The test session does not see the SingleInstance state of the install run (PeVTests.al:297, fact 6).
     session.reset_single_instances();
@@ -752,6 +786,7 @@ impl InstallView {
         let (not_installed, unknown) = self.of(installing, group, held);
         session.set_apps_not_installed(Some(not_installed));
         session.set_apps_install_order_unknown(Some(unknown));
+        session.set_installing_app(Some(installing));
     }
 }
 

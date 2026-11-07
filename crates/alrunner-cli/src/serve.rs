@@ -31,6 +31,9 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "runSelectedOnly",
     "ignorePermissionMock",
     "devEndpointUi",
+    "allowWriteInTryFunctions",
+    "strictOrder",
+    "dependenciesPublishedGlobal",
     "affectedOnly",
     "includeFailing",
     "strictEnvironment",
@@ -285,6 +288,10 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
             }
         };
     }
+    if let Some(r) = fields.get("testRunner").and_then(Value::as_str) {
+        a.test_runner =
+            Some(crate::args::parse_test_runner(r).map_err(|e| e.replace("--test-runner", "`testRunner`"))?);
+    }
     a.coverage = flag(fields, "coverage")? || flag(fields, "perTestCoverage")?;
     a.capture = al_vm::CaptureConfig {
         values: flag(fields, "captureValues")?,
@@ -311,10 +318,18 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     if !matches!(fields.get("runSelectedOnly"), None | Some(Value::Null)) {
         a.run_selected_only = flag(fields, "runSelectedOnly")?;
     }
+    // Issue 7207: a plain `test` that picks one test runs it alone, as an entry does (not in v2, not in the CLI).
+    a.single_test_alone = true;
     // Issue 5996: tests that lower their own permissions run with every access granted, as `--ignore-permission-mock`.
     a.ignore_permission_mock = flag(fields, "ignorePermissionMock")?;
     // Issue 3697: UI calls no handler takes get the dev-endpoint runner's answer, as `--dev-endpoint-ui`.
     a.dev_endpoint_ui = flag(fields, "devEndpointUi")?;
+    // Issue 7143: the service-tier setting DisableWriteInsideTryFunctions is off, as `--allow-write-in-try-functions`.
+    a.allow_write_in_try_functions = flag(fields, "allowWriteInTryFunctions")?;
+    // ADR-066 amendment 4: every order-dependent test codeunit runs again serially, as `--strict-order`.
+    a.strict_order = flag(fields, "strictOrder")?;
+    // Issue 7169: "Published As" of a dependency by another publisher is Global, as `--dependencies-published-global`.
+    a.dependencies_published_global = flag(fields, "dependenciesPublishedGlobal")?;
     // ADR-062 section 5: `permissions: "off"` is `--permissions off`.
     a.permissions_off = match fields.get("permissions") {
         None | Some(Value::Null) => false,
@@ -515,6 +530,7 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
                 "seed",
                 "seedSource",
                 "license",
+                "skippedDependencies",
             ] {
                 if let Some(v) = doc.get(key) {
                     summary[key] = v.clone();
@@ -978,6 +994,14 @@ mod tests {
                 .ignore_permission_mock
         );
         assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.ignore_permission_mock);
+        // ADR-066 amendment 4: `strictOrder` is `--strict-order` for one request.
+        assert!(
+            run(json!({"sourcePaths": ["/a"], "strictOrder": true}))
+                .unwrap()
+                .0
+                .strict_order
+        );
+        assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.strict_order);
         // Issue 3697: `devEndpointUi` is `--dev-endpoint-ui` for one request.
         assert!(
             run(json!({"sourcePaths": ["/a"], "devEndpointUi": true}))
@@ -986,6 +1010,19 @@ mod tests {
                 .dev_endpoint_ui
         );
         assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.dev_endpoint_ui);
+        // Issue 7169: `dependenciesPublishedGlobal` is `--dependencies-published-global` for one request.
+        assert!(
+            run(json!({"sourcePaths": ["/a"], "dependenciesPublishedGlobal": true}))
+                .unwrap()
+                .0
+                .dependencies_published_global
+        );
+        assert!(
+            !run(json!({"sourcePaths": ["/a"]}))
+                .unwrap()
+                .0
+                .dependencies_published_global
+        );
         // ADR-062 section 5: `permissions: "off"` is `--permissions off` for one request.
         assert!(
             run(json!({"sourcePaths": ["/a"], "permissions": "off"}))

@@ -27,6 +27,10 @@ use al_syntax::{SyntaxKind, SyntaxNode, ast};
 /// The AL codes this front end reports, with what each one covers.
 pub const IMPLEMENTED: &[(&str, &str)] = &[
     (
+        "AL0202",
+        "a table FlowField of type Decimal whose CalcFormula is a count (alcodes/count_flowfield.rs; case 2970)",
+    ),
+    (
         "AL0172",
         "unary minus on an Enum or Option variable or field, unary minus or plus on a Duration (check/infer.rs; cases 0584, 0585, 1531, 1532, 1728, 2268)",
     ),
@@ -571,6 +575,7 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
                 control_visible::check(ws, oi, &obj, &page_procedures(&obj), &mut out);
             }
             ObjKind::Query => query_joins(ws, o.file, obj.sections(), &mut out),
+            ObjKind::Table => count_flowfield::check(ws, oi, &obj, &mut out),
             ObjKind::Report => {
                 let globals = report_variable_columns(ws, o.file, &obj);
                 report_columns(ws, o.file, obj.sections(), &globals, &mut out)
@@ -2509,6 +2514,7 @@ fn typed_names(d: &ast::VarDecl) -> Vec<(String, String)> {
 }
 
 mod control_visible;
+mod count_flowfield;
 mod permissions_property;
 #[cfg(test)]
 mod tests;

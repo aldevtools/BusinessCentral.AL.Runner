@@ -3,16 +3,39 @@
 //! `ALRT_REQUIRE_DOTNET=1` (CI) a missing .NET fails instead, so a skip never reads as a pass.
 
 use al_host::dotnet::*;
-use al_test_cli::dotnet::{SidecarConfig, SidecarHost};
+use al_test_cli::dotnet::{PROTOCOL, SidecarConfig, SidecarHost};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 fn root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .unwrap()
+    without_verbatim_prefix(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .unwrap(),
+    )
+}
+
+/// On Windows `canonicalize` gives a verbatim path (`\\?\C:\...`), which MSBuild cannot use: it turns the `?` into `%3f`
+/// in `$(MSBuildProjectExtensionsPath)`, the restore output is not found, the sidecar build fails and every test here
+/// skipped (al-runner issue 7017). The plain form names the same folder.
+fn without_verbatim_prefix(p: PathBuf) -> PathBuf {
+    let text = p.to_string_lossy();
+    let plain = match text.strip_prefix(r"\\?\UNC\") {
+        Some(unc) => Some(PathBuf::from(format!(r"\\{unc}"))),
+        None => text.strip_prefix(r"\\?\").map(PathBuf::from),
+    };
+    plain.unwrap_or(p)
+}
+
+#[test]
+fn the_verbatim_prefix_of_a_windows_path_is_dropped_for_msbuild() {
+    let plain = |s: &str| without_verbatim_prefix(PathBuf::from(s));
+    assert_eq!(plain(r"\\?\C:\src\al-runner"), PathBuf::from(r"C:\src\al-runner"));
+    assert_eq!(plain(r"\\?\UNC\server\share\x"), PathBuf::from(r"\\server\share\x"));
+    assert_eq!(plain(r"C:\src"), PathBuf::from(r"C:\src"));
+    assert_eq!(plain("/home/u/al-runner"), PathBuf::from("/home/u/al-runner"));
 }
 
 fn config() -> SidecarConfig {
@@ -569,7 +592,11 @@ fn assemblies_come_from_the_assembly_dir_by_simple_name() {
     t.culture = None;
     t.public_key_token = None;
     let r = sess.get_property(DotNetTarget::Static(t), "ProtocolVersion");
-    assert_eq!(r.unwrap().value, DotNetValue::Int32(4));
+    assert_eq!(
+        r.unwrap().value,
+        DotNetValue::Int32(PROTOCOL as i32),
+        "host and sidecar speak one protocol version"
+    );
     sess.close();
 }
 
@@ -672,6 +699,75 @@ fn an_outstream_argument_becomes_a_bridge_and_what_dotnet_writes_comes_back_afte
     let r2 = sess.invoke(DotNetTarget::Instance(writer), "Flush", vec![]).unwrap();
     assert!(r.streams.written.is_empty());
     assert_eq!(r2.streams.written, vec![(bridge, b"!".to_vec())], "only the new bytes");
+    sess.close();
+}
+
+// al-runner issue 7016: after every call the sidecar looks for bytes .NET wrote into the session's OutStream bridges, and a
+// bridge lives as long as the session. That look copied each bridge's whole stream, so a session with many bridges over
+// large Blobs (a storage mock that saves one ZIP through a new OutStream per file) made every later call slower: one
+// codeunit took 17 minutes. A bridge nothing writes into must cost a later call (almost) nothing.
+#[test]
+fn idle_outstream_bridges_do_not_slow_down_later_calls() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let utf8 = handle_of(&sess.get_property(st("System.Text.Encoding"), "UTF8").unwrap());
+    let calls = |sess: &mut Box<dyn DotNetSession>| {
+        let t = std::time::Instant::now();
+        for _ in 0..100 {
+            let r = sess.get_property(DotNetTarget::Instance(utf8), "WebName").unwrap();
+            assert_eq!(text_of(&r), "utf-8");
+            assert!(r.streams.written.is_empty());
+        }
+        t.elapsed()
+    };
+    let before = calls(&mut sess);
+    let blob = vec![b'z'; 2 << 20];
+    let mut writers = Vec::new();
+    for _ in 0..50 {
+        let w = sess
+            .construct(
+                &ty("System.IO.StreamWriter"),
+                vec![arg(DotNetValue::OutStreamWith(blob.clone()))],
+            )
+            .unwrap();
+        writers.push((handle_of(&w), w.streams.bridges[0].1));
+    }
+    let after = calls(&mut sess);
+    eprintln!("100 calls: {before:?} before, {after:?} after 50 idle bridges of 2 MB");
+    assert!(
+        after < before * 3 + Duration::from_millis(250),
+        "100 calls took {before:?} before and {after:?} after 50 idle bridges of 2 MB"
+    );
+    // The idle bridges still carry what .NET writes into them, and only that.
+    let (writer, bridge) = writers[31];
+    sess.invoke(DotNetTarget::Instance(writer), "Write", vec![s("tail")])
+        .unwrap();
+    let r = sess.invoke(DotNetTarget::Instance(writer), "Flush", vec![]).unwrap();
+    assert_eq!(r.streams.written, vec![(bridge, b"tail".to_vec())]);
+    sess.close();
+}
+
+// al-runner issue 7016: a stream .NET closes (ZipArchive.Dispose writes its central directory, then closes the stream it
+// was given) hands back what it wrote with the call that closed it, once.
+#[test]
+fn bytes_written_while_closing_a_bridge_come_back_with_that_call_and_never_again() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let w = sess
+        .construct(&ty("System.IO.StreamWriter"), vec![arg(DotNetValue::OutStream)])
+        .unwrap();
+    let (_, bridge) = w.streams.bridges[0];
+    let writer = handle_of(&w);
+    let r = sess
+        .invoke(DotNetTarget::Instance(writer), "Write", vec![s("closing")])
+        .unwrap();
+    assert!(r.streams.written.is_empty(), "buffered until the close");
+    let r = sess.invoke(DotNetTarget::Instance(writer), "Dispose", vec![]).unwrap();
+    assert_eq!(r.streams.written, vec![(bridge, b"closing".to_vec())]);
+    for _ in 0..3 {
+        let r = sess.get_property(st("System.Text.Encoding"), "UTF8").unwrap();
+        assert!(r.streams.written.is_empty(), "{:?}", r.streams.written);
+    }
     sess.close();
 }
 
@@ -861,7 +957,7 @@ fn a_runtime_of_the_wrong_major_is_unavailable_and_names_what_was_found() {
     });
     let e = h.availability().unwrap_err();
     assert!(
-        e.0.contains("found 9.0.15") && e.0.contains("needs Microsoft.NETCore.App 8.x"),
+        e.0.contains("found 9.0.15") && e.0.contains("install Microsoft.NETCore.App 8.x"),
         "{e}"
     );
     // --dotnet-allow-roll-forward gets past this check (and then needs a sidecar build).
@@ -873,6 +969,89 @@ fn a_runtime_of_the_wrong_major_is_unavailable_and_names_what_was_found() {
     });
     let e = h.availability().unwrap_err();
     assert!(e.0.contains("sidecar not built"), "{e}");
+}
+
+/// al-runner issues 6924 and 5590: BC 29's service-tier assemblies target .NET 10, so a run of BC 29 needs .NET 10
+/// (crate al_testrun::dotnet_runtime), even when .NET 8 is installed too.
+#[cfg(unix)]
+#[test]
+fn bc_29_needs_the_net_10_runtime_and_names_it_when_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    let dotnet = fake_dotnet(dir.path(), "echo 'Microsoft.NETCore.App 8.0.33 [/x]'");
+    let h = SidecarHost::new(SidecarConfig {
+        dotnet: Some(dotnet),
+        bc_major: Some(29),
+        ..Default::default()
+    });
+    let e = h.availability().unwrap_err();
+    assert!(
+        e.0.starts_with("needs the .NET 10 runtime (BC 29's service tier runs on .NET 10); found 8.0.33"),
+        "{e}"
+    );
+}
+
+/// The process is started on the newest installed patch of the major the BC version needs, with `--fx-version`:
+/// `DOTNET_ROLL_FORWARD=Major` kept it on .NET 8 whenever .NET 8 was installed (al-runner issue 6924).
+#[cfg(unix)]
+#[test]
+fn the_sidecar_is_started_on_the_runtime_the_bc_version_needs() {
+    for (bc, version, major) in [(29, "10.0.13", 10), (28, "8.0.33", 8)] {
+        let dir = tempfile::tempdir().unwrap();
+        let dll = dir.path().join("AlDotNetSidecar.dll");
+        std::fs::write(&dll, b"").unwrap();
+        let args = dir.path().join("args.txt");
+        // A hello of protocol 99 ends the start right after the arguments were written down.
+        let reply = format!(r#"{{"id":1,"ok":true,"value":{{"protocol":99,"compatible":false,"major":{major}}}}}"#);
+        let len = reply.len();
+        let script = [
+            "if [ \"$1\" = \"--list-runtimes\" ]; then printf 'Microsoft.NETCore.App 8.0.33 [/x]\\nMicrosoft.NETCore.App 10.0.8 [/x]\\nMicrosoft.NETCore.App 10.0.13 [/x]\\n'; exit 0; fi".to_string(),
+            format!("echo \"$@\" > '{}'", args.display()),
+            format!("printf '\\{len:03o}\\000\\000\\000'"),
+            format!("printf '%s' '{reply}'"),
+            "sleep 5".to_string(),
+        ]
+        .join("\n");
+        let dotnet = fake_dotnet(dir.path(), &script);
+        let h = SidecarHost::new(SidecarConfig {
+            dotnet: Some(dotnet),
+            sidecar: Some(dll.clone()),
+            bc_major: Some(bc),
+            ..Default::default()
+        });
+        h.availability().expect("the runtime is installed");
+        let mut sess = h.open_session(&DotNetSessionConfig::default());
+        let why = refused(sess.invoke(st("System.Convert"), "ToInt32", vec![s("1")]));
+        assert!(why.contains("protocol mismatch"), "{why}");
+        sess.close();
+        let got = std::fs::read_to_string(&args).unwrap();
+        assert_eq!(
+            got.trim(),
+            format!("exec --fx-version {version} {}", dll.display()),
+            "BC {bc}"
+        );
+    }
+}
+
+/// A type the assembly defines but the runtime cannot load names the load error, so a missing or too new dependency
+/// shows (al-runner issue 6924: the inner FileNotFoundException of System.Runtime 10.0 was dropped).
+#[test]
+fn a_type_that_does_not_load_names_the_type_load_error() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let why = refused(sess.invoke(
+        DotNetTarget::Static(DotNetType {
+            assembly: "System.Runtime".into(),
+            name: "System.NoSuchTypeAnywhere".into(),
+            ..Default::default()
+        }),
+        "Foo",
+        vec![],
+    ));
+    assert!(
+        why.contains("type 'System.NoSuchTypeAnywhere' not found in assembly 'System.Runtime': TypeLoadException: Could not load type 'System.NoSuchTypeAnywhere'"),
+        "{why}"
+    );
+    sess.close();
 }
 
 #[cfg(unix)]
@@ -915,7 +1094,7 @@ fn a_protocol_mismatch_is_a_refusal_naming_both_versions() {
     let mut sess = h.open_session(&DotNetSessionConfig::default());
     let why = refused(sess.invoke(st("System.Convert"), "ToInt32", vec![s("1")]));
     assert!(
-        why.contains("protocol mismatch") && why.contains("99") && why.contains('4'),
+        why.contains("protocol mismatch") && why.contains("99") && why.contains(&PROTOCOL.to_string()),
         "{why}"
     );
     sess.close();
@@ -1172,6 +1351,7 @@ fn a_pool_kept_for_first_use_starts_nothing_until_a_session_calls_then_keeps_sta
     h.shutdown();
 }
 
+#[cfg(unix)]
 #[test]
 fn a_standby_that_cannot_start_leaves_the_session_to_report_the_reason() {
     let dir = tempfile::tempdir().unwrap();
@@ -1512,5 +1692,62 @@ fn two_members_that_differ_only_in_case_keep_an_exact_call_and_refuse_another_ca
     assert!(why.contains("not pinned"), "{why}");
     // One member of its own: other case binds.
     assert_eq!(text_of(&sess.get_property(o(), "SINGLE").unwrap()), "single");
+    sess.close();
+}
+
+// ---- AL Text bound to a System.Guid parameter (al-runner issue 5590; assumption dotnet-text-argument-as-guid) ----
+
+fn guid_fixture() -> DotNetType {
+    DotNetType {
+        assembly: "AlDotNetSidecar".into(),
+        name: "AlDotNetSidecar.GuidFixture".into(),
+        ..Default::default()
+    }
+}
+
+const GUID_TEXT: &str = "1d5be4b5-fa4a-452d-9cdd-5db35e0599d6";
+
+#[test]
+fn a_text_that_parses_as_a_guid_binds_to_a_constructor_or_method_taking_only_a_guid() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    // System Application Image Impl. EncodeToImage: `Encoder.Encoder(QualityEncodeGuidTxt)`.
+    let made = sess.construct(&guid_fixture(), vec![s(GUID_TEXT)]).unwrap();
+    assert!(
+        made.streams.text_converted_to_guid,
+        "the conversion is reported so the runner marks the assumption"
+    );
+    let got = sess
+        .invoke(DotNetTarget::Instance(handle_of(&made)), "Got", vec![])
+        .unwrap();
+    assert_eq!(text_of(&got), format!("guid {GUID_TEXT}"));
+    let r = sess
+        .invoke(
+            DotNetTarget::Static(guid_fixture()),
+            "OnlyGuid",
+            vec![s(&format!("{{{}}}", GUID_TEXT.to_uppercase()))],
+        )
+        .unwrap();
+    assert_eq!(text_of(&r), format!("guid {GUID_TEXT}"));
+    sess.close();
+}
+
+#[test]
+fn a_text_that_is_no_guid_or_an_overload_set_that_is_not_one_guid_stays_refused() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let g = || DotNetTarget::Static(guid_fixture());
+    let why = refused(sess.construct(&guid_fixture(), vec![s("not a guid")]));
+    assert!(why.contains("no overload taking 1 argument"), "{why}");
+    // A String overload exists: the text goes there, nothing is converted.
+    let r = sess.invoke(g(), "Both", vec![s(GUID_TEXT)]).unwrap();
+    assert_eq!(text_of(&r), format!("string {GUID_TEXT}"));
+    assert!(!r.streams.text_converted_to_guid);
+    // Two overloads would take the Guid.
+    let why = refused(sess.invoke(g(), "Amb", vec![s(GUID_TEXT), arg(DotNetValue::Int32(1))]));
+    assert!(why.contains("no overload taking 2 argument"), "{why}");
+    // Only a parameter of exactly System.Guid converts.
+    let why = refused(sess.invoke(g(), "Nullable", vec![s(GUID_TEXT)]));
+    assert!(why.contains("no overload taking 1 argument"), "{why}");
     sess.close();
 }

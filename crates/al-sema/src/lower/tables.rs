@@ -48,6 +48,46 @@ impl Lowerer<'_> {
         parts.into_iter().flatten().collect()
     }
 
+    /// The filter text of a where() value written with `::`. `Database::"X"` / `Report::"X"` etc. is the object's id, as for a
+    /// CalcFormula const (corpus record/CdcOwner.Table.al:67,79); `"Enum"::Member` on a field of that enum names the member as
+    /// `const(Member)` does; `filter(A | B)` of such terms is each term joined by `|` (al-runner issue 6999,
+    /// record/table-relation/RelationWhereQualifiedConst.al). `None` for any other text, so the where() is not understood.
+    fn where_qualified_text(&self, file: usize, text: &str, ty: &Ty) -> Option<String> {
+        let terms: Vec<&str> = text.split('|').collect();
+        let mut out = Vec::with_capacity(terms.len());
+        for term in terms {
+            let term = term.trim();
+            let (qualifier, member) = term.split_once("::")?;
+            let qualifier = qualifier.trim().trim_matches('"');
+            if let Ty::Enum(field_enum) = ty {
+                let same = matches!(
+                    (
+                        self.ws.resolve_relation_target(file, ObjKind::Enum, &[qualifier.to_string()]),
+                        self.ws.resolve_relation_target(file, ObjKind::Enum, &crate::types::qualified_parts(field_enum)),
+                    ),
+                    (Resolution::Found(a), Resolution::Found(b)) if a == b
+                );
+                let member = member.trim().trim_matches('"').trim();
+                if !same || member.is_empty() || member.contains(['\'', '"', ':']) {
+                    return None;
+                }
+                out.push(if member.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                    member.to_string()
+                } else {
+                    format!("'{member}'")
+                });
+                continue;
+            }
+            out.push(match calc_const(self.ws, self.members, file, term, ty) {
+                Ok(ir::Const::Integer(id)) => id.to_string(),
+                Ok(ir::Const::BigInteger(id)) => id.to_string(),
+                Ok(ir::Const::Decimal(id)) => id,
+                _ => return None,
+            });
+        }
+        Some(out.join("|"))
+    }
+
     fn relation_arms_of(
         &self,
         oi: usize,
@@ -175,12 +215,7 @@ impl Lowerer<'_> {
                             // `Database::"X"` / `Report::"X"` etc.: the object's id, as for a
                             // CalcFormula const (corpus record/CdcOwner.Table.al:67,79).
                             let text = if !text.starts_with('\'') && text.contains("::") {
-                                match calc_const(self.ws, self.members, file, text, &self.members[t].fields[p].ty) {
-                                    Ok(ir::Const::Integer(id)) => id.to_string(),
-                                    Ok(ir::Const::BigInteger(id)) => id.to_string(),
-                                    Ok(ir::Const::Decimal(id)) => id,
-                                    _ => return None,
-                                }
+                                self.where_qualified_text(file, text, &self.members[t].fields[p].ty)?
                             } else if text.contains('"') {
                                 // `filter(Inventory | "Non-Inventory")`: AL quotes an identifier with `"`,
                                 // the filter grammar with `'` (corpus
@@ -200,6 +235,21 @@ impl Lowerer<'_> {
                             };
                             Some(ir::RelationWhere::Value { related: p, text })
                         }
+                        // One AL string with a doubled quote in it is the filter its content spells: `filter('<>''''')` is
+                        // `<>''` (not empty), on a field of the related table and on one a tableextension adds, and
+                        // `filter('''''')` is `''` (the empty value); `filter('<>''')` raises InvalidFilterExpression on BC
+                        // and every other content is not measured, so both stay refused (al-runner issue 6924;
+                        // record/table-relation/TableRelationQuotes.al:1188-1189 conditional arm, :1203-1204 extension and
+                        // own field, :1225 `''`, :1221 `<>'''`; objects TableRelationExtFieldFilter.Objects.al:57-66).
+                        crate::relation::ParsedWhere::QuotedFilter { related, text }
+                            if matches!(text.as_str(), "<>''" | "''") =>
+                        {
+                            Some(ir::RelationWhere::Value {
+                                related: field_pos(&self.members[t], related)?,
+                                text: text.clone(),
+                            })
+                        }
+                        crate::relation::ParsedWhere::QuotedFilter { .. } => None,
                         crate::relation::ParsedWhere::Field { related, own: o } => Some(ir::RelationWhere::Field {
                             related: field_pos(&self.members[t], related)?,
                             own: field_pos(own, o)?,
@@ -761,6 +811,7 @@ impl Lowerer<'_> {
                     calc,
                     calc_refusal: refusal,
                     declared_in: f.declared_in.map(|o| o as u32),
+                    caption_modified: f.caption_modified,
                 }
             })
             .collect();
@@ -863,8 +914,18 @@ impl Lowerer<'_> {
         for c in &f.conds {
             let pos = src_pos(&c.field)?;
             let decl = src_fields[pos].declared_in.map_or(file, |d| self.ws.objects[d].file);
+            // `"ALT Status"::Active` on an enum field reads as the member (record/qualified-enum-filters/
+            // TestQualifiedEnumFilters.al, al-runner issue 7189).
+            let unqualified = |raw: &str| match &src_fields[pos].ty {
+                Ty::Enum(name) => {
+                    al_builtins::enum_qualifier::strip_enum_qualifier(raw, &crate::types::display_name(name))
+                        .into_owned()
+                }
+                _ => raw.to_string(),
+            };
             let value = match &c.value {
                 CondValue::Const(raw) => {
+                    let raw = &unqualified(raw);
                     // `Database::"X"` names an object where the formula was written, not where the target
                     // field is declared (corpus record/TestCalcFormulaDatabaseConst.Codeunit.al:7-30; al-runner
                     // issue 6882). The members of an enum field are the target field's enum's.
@@ -872,6 +933,7 @@ impl Lowerer<'_> {
                     ir::CalcValue::Const(self.calc_const(scope, raw, &src_fields[pos].ty)?)
                 }
                 CondValue::Filter(raw) => {
+                    let raw = &unqualified(raw);
                     // One quoted literal is read as the filter its content spells (record/flowfields/W4CalcFields.al:396
                     // QZ_CalcFormula_QuotedLiteralFilters, fixtures QzCalcFormulaQuotedFilter.al): `'<>'''''` is `<>''`,
                     // `''''''` is `''`, `'''x|y'''` the literal x|y, `'x|y'` the union, `'<>''x'''` is `<>'x'`, and `*` stays a
