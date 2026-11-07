@@ -1063,6 +1063,11 @@ impl Gate {
                     file: "reports/runtime/Y6TenantReportLayoutRows.al",
                     lines: "157,249,311",
                 },
+                // Stored layout length of an Insert on Tenant Report Layout from resource layouts (al-runner issue 6924; corpus PR 1194).
+                Evidence {
+                    file: "reports/runtime/TrlResourceRows.al",
+                    lines: "256,265,343",
+                },
                 Evidence {
                     file: "metadata/platform-tables/Y35UserNameFieldRows.al",
                     lines: "86,104,144",
