@@ -411,6 +411,9 @@ pub struct Object {
     /// For enums: the `Caption` of values that declare one, by ordinal.
     #[serde(default)]
     pub enum_captions: Vec<(i32, String)>,
+    /// For enums: the `CaptionML` list of values that declare one (`ENU = 'a', DEU = 'b'`), by ordinal, as written.
+    #[serde(default)]
+    pub enum_captions_ml: Vec<(i32, String)>,
     /// For tables: fields (extensions and system fields included), keys as
     /// field positions (`keys[0]` primary), `DataPerCompany`.
     pub table: Option<Table>,
@@ -2052,6 +2055,7 @@ mod tests {
                 properties: vec![("Subtype".into(), "Test".into())],
                 enum_values: vec![],
                 enum_captions: vec![],
+                enum_captions_ml: vec![],
                 table: None,
                 rec_slot: None,
                 xrec_slot: None,

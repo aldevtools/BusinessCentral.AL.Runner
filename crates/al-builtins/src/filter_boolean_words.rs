@@ -8,18 +8,24 @@
 //!
 //! Any other language is not pinned and is refused.
 
-/// `Some(value)` for an accepted word, `None` for a word the language does not accept, `Err` for a language not pinned.
-pub(crate) fn boolean_filter_word(language: Option<i32>, text: &str) -> Result<Option<bool>, String> {
-    let word = text.to_lowercase();
-    let (yes, no): (&[&str], &[&str]) = match language {
+/// The words of the session language for true and false, besides `true`, `false`, `1` and `0` (lower case).
+fn language_words(language: Option<i32>) -> Option<(&'static [&'static str], &'static [&'static str])> {
+    Some(match language {
         None | Some(1033) => (&["yes", "true", "1"], &["no", "false", "0"]),
         Some(1031) => (&["ja", "true", "1"], &["nein", "false", "0"]),
         Some(1036) => (&["oui", "true", "1"], &["non", "no", "false", "0"]),
-        Some(other) => {
-            return Err(format!(
-                "a Boolean filter value under GlobalLanguage {other} (the words of that language are not pinned)"
-            ));
-        }
+        _ => return None,
+    })
+}
+
+/// `Some(value)` for an accepted word, `None` for a word the language does not accept, `Err` for a language not pinned.
+pub(crate) fn boolean_filter_word(language: Option<i32>, text: &str) -> Result<Option<bool>, String> {
+    let word = text.to_lowercase();
+    let Some((yes, no)) = language_words(language) else {
+        return Err(format!(
+            "a Boolean filter value under GlobalLanguage {} (the words of that language are not pinned)",
+            language.unwrap_or(1033)
+        ));
     };
     Ok(if yes.contains(&word.as_str()) {
         Some(true)
@@ -27,6 +33,44 @@ pub(crate) fn boolean_filter_word(language: Option<i32>, text: &str) -> Result<O
         Some(false)
     } else {
         None
+    })
+}
+
+/// What `Evaluate` into a Boolean makes of a text under a language other than English.
+#[derive(Debug, PartialEq)]
+pub(crate) enum EvaluateWord {
+    Value(bool),
+    Rejected,
+    /// A text no corpus case pins in that language.
+    NotPinned,
+}
+
+/// `Evaluate(Boolean, Text)` under GlobalLanguage 1030, 1031, 1036, 1043 or 2067 (`None` for another language), with blanks
+/// around the text dropped and any case (format-evaluate/EvalLanguageBoolean.al EL_Words_*, EL_Errors_*, the same on the
+/// three supported majors). The language's own words are `Ja`/`Nein` (1031), `Oui`/`Non` and `No` (1036), `Ja`/`Nej` (1030)
+/// and `Ja`/`Nee` (1043, 2067); `true`, `false`, `1`, `0` and `N` (false) read in all of them. `Y`, `Yes`, and the words of
+/// the other languages are rejected, except `No`, which French reads as false. Texts outside that list are not pinned,
+/// except the German ones errors/WcUnpinnedSingles.al:79-113 pins (`vielleicht`, `Wahr`, `Falsch`, `x`).
+pub(crate) fn evaluate_boolean_word(language: i32, text: &str) -> Option<EvaluateWord> {
+    let (yes, no): (&[&str], &[&str]) = match language {
+        1031 => (&["ja"], &["nein"]),
+        1036 => (&["oui"], &["non", "no"]),
+        1030 => (&["ja"], &["nej"]),
+        1043 | 2067 => (&["ja"], &["nee"]),
+        _ => return None,
+    };
+    let word = text.trim_matches(' ').to_lowercase();
+    let w = word.as_str();
+    Some(if matches!(w, "true" | "1") || yes.contains(&w) {
+        EvaluateWord::Value(true)
+    } else if matches!(w, "false" | "0" | "n") || no.contains(&w) {
+        EvaluateWord::Value(false)
+    } else if matches!(w, "yes" | "no" | "y" | "ja" | "nee" | "nein" | "nej" | "oui" | "non")
+        || (language == 1031 && matches!(w, "vielleicht" | "wahr" | "falsch" | "x"))
+    {
+        EvaluateWord::Rejected
+    } else {
+        EvaluateWord::NotPinned
     })
 }
 
@@ -61,5 +105,22 @@ mod tests {
     #[test]
     fn other_languages_are_refused() {
         assert!(w(Some(1043), "Ja").is_err());
+    }
+
+    use super::{EvaluateWord::*, evaluate_boolean_word as e};
+
+    #[test]
+    fn evaluate_words_by_language() {
+        assert_eq!(e(2067, " ja "), Some(Value(true)));
+        assert_eq!(e(2067, "Nee"), Some(Value(false)));
+        assert_eq!(e(2067, "Nein"), Some(Rejected));
+        assert_eq!(e(1031, "N"), Some(Value(false)));
+        assert_eq!(e(1031, "No"), Some(Rejected));
+        assert_eq!(e(1036, "No"), Some(Value(false)));
+        assert_eq!(e(1036, "Yes"), Some(Rejected));
+        assert_eq!(e(1030, "Nej"), Some(Value(false)));
+        assert_eq!(e(1030, "Y"), Some(Rejected));
+        assert_eq!(e(1030, "t"), Some(NotPinned));
+        assert_eq!(e(1033, "Yes"), None);
     }
 }

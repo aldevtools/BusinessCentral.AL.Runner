@@ -284,11 +284,20 @@ fn a_deleted_row_or_no_contact_raises() {
     }
 }
 
+/// Y27StaleOwnInsertMore.al:503 Y27B_2C_BWroteAndInsertsOtherRow_Accepted: the Modify of the row beside an Insert of
+/// another row in the new transaction writes the stale buffer.
+#[test]
+fn a_modify_of_the_row_beside_an_insert_of_another_row_writes_the_buffer() {
+    assert_eq!(
+        text(run("ModifiesAndInsertsAnotherRow", None)),
+        "Changed|100|1|1|100|Changed / Changed|100|1|1|100|Changed|rows 2"
+    );
+}
+
 /// Shapes no test pins stay refused.
 #[test]
 fn other_writes_a_lock_or_more_commits_stay_refused() {
     for p in [
-        "ModifiesAndInsertsAnotherRow",
         "ModifiesUnderLock",
         "ModifiesThreeCommitsOneEmpty",
         "ModifiesFourCommits",
