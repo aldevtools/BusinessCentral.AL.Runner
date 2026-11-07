@@ -1,6 +1,6 @@
 # ADR-066: Run the test runner codeunit's own AL
 
-- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Proposed (2026-11-07)
+- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07)
 - Date: 2026-11-05
 
 ## Context
@@ -216,10 +216,10 @@ tests need these steps) and a row in `docs/probes-needed.md`. When a probe lands
 
 
 
-## Amendment 2 (Proposed, 2026-11-07): SingleInstance state from one test codeunit to the next (P7), found and run in one serial lane
+## Amendment 2 (Accepted, owner, 2026-11-07): SingleInstance state from one test codeunit to the next (P7), found and run in one serial lane
 
-- Status: Proposed. Supersedes amendment 1 (carrying the state between sessions, in pull request 7247 on branch
-  `rt-p7v2`, which is not merged and stays unmerged). Owner decision of 2026-11-07, written down here for acceptance.
+- Status: Accepted by the owner on 2026-11-07. Supersedes amendment 1 (carrying the state between sessions, in pull
+  request 7247 on branch `rt-p7v2`, which is not merged and stays unmerged). Amendment 1 is superseded: it is not built.
 
 ### What BC does (P7 pinned)
 
