@@ -991,6 +991,7 @@ impl Session {
                     }
                 }
             }
+            self.modal_card_asks_find_equals(st)?;
             // A record that names no row of the view (a blank one, a SetTableView, a row outside the view or not in the table)
             // opens the page `=><` from the record's own values: the row itself, else the next one in the view's direction, else
             // the one before. A descending view opened on a blank record lands on its last row (ui-handlers/W2PageProperties.al:234

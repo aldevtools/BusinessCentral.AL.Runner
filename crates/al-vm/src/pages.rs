@@ -194,6 +194,7 @@ mod caption_relation;
 mod caption_runs;
 mod close_save_failed;
 mod controls;
+mod data_caption_run;
 mod dev_endpoint;
 mod dirty_step;
 mod draft;
@@ -339,6 +340,13 @@ impl Session {
     /// declare one trigger and extension triggers that answer a Boolean. The answer returned
     /// is the page's own.
     fn page_trigger(&mut self, st: &St, name: &str, args: Vec<Value>) -> Result<Option<Value>, Signal> {
+        self.data_caption_before_trigger(st, name)?;
+        let r = self.page_trigger_run(st, name, args)?;
+        self.data_caption_after_trigger(st, name);
+        Ok(r)
+    }
+
+    fn page_trigger_run(&mut self, st: &St, name: &str, args: Vec<Value>) -> Result<Option<Value>, Signal> {
         let engine = self.engine();
         let object = st.borrow().object as usize;
         let page = page_of(&engine, st);

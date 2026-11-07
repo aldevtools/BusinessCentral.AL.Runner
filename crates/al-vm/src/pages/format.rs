@@ -1219,8 +1219,20 @@ impl Session {
                 return unsupported("the caption of a page with DataCaptionExpression on a new row (not pinned)");
             }
             if s.cursor == Cursor::None {
+                // On no row the caption stands alone, the expression having run or not (pages/properties/DataCaptionExprOrder.al
+                // DCE_RunModal_TableProcedure_Empty `H open cap=LT DCE ctl=`, DCE_TestPage_OpenView_Empty).
+                if self.card_with_data_caption_expression(st) {
+                    return Ok(base);
+                }
                 return unsupported("the caption of a page with DataCaptionExpression and no row (not pinned)");
             }
+        }
+        // A card shows what the expression returned when the row arrived, and does not run it again
+        // (DataCaptionExprOrder.al DCE_RunModal_TableProcedure_Rows: no `DC` between `OnAfterGetCurrRecord` and `H open`). The
+        // caption has its trailing blanks cut (DCE_RunModal_NoFilter_Rows `cap=LT DCE - Cap ctl=`).
+        let kept = st.borrow().data_caption_value.clone();
+        if let Some(value) = kept {
+            return Ok(format!("{base} - {value}").trim_end().to_string());
         }
         let value = self.data_caption_expression_value(st)?;
         if value.is_empty() {
