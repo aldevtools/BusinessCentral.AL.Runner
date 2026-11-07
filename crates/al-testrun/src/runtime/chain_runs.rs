@@ -5,8 +5,13 @@
 //! is what its own last run ahead changed ([`Kept::Left`]), or, once the walk passed it, what it really changed. The
 //! walk keeps a run only when the run's start has the fingerprint of the walk's actual state (`Runs::take`,
 //! `Baseline::fingerprint`), so a wrong prediction costs time, never an outcome.
+//!
+//! The SingleInstance state a member starts from is predicted the same way (ADR-066 amendment 1): the walk's state of
+//! its BC session with what the members between wrote in their last runs applied (`Runs::guess_singles`). The walk
+//! takes a run only when every global it read first held the walk's value (`single_walk::fits`).
 
-use super::UnitResult;
+use super::single_walk::fits;
+use super::{SingleState, UnitResult};
 use std::sync::{Arc, Condvar, Mutex};
 
 /// How often a member is run ahead at most per epoch: once from whatever start is predicted when a helper reaches it,
@@ -53,6 +58,8 @@ pub(super) enum Dropped {
     /// A run from a prediction that knew what every member before it changes, and was wrong: the delta it started
     /// from, on the epoch's start.
     Wrong(Box<al_vm::Delta>),
+    /// A run from the walk's rows that read a SingleInstance global that held another value than in the walk's state.
+    SingleState,
 }
 
 /// An event a run ahead told its hooks, kept until the walk takes the run.
@@ -104,8 +111,9 @@ pub(super) struct StartBytes {
 
 /// What a helper is told to do next.
 pub(super) enum Claim {
-    /// Run this member from this start, of this epoch of its suite, with this delta applied.
-    Run(usize, u32, Start, Box<al_vm::Delta>),
+    /// Run this member from this start, of this epoch of its suite, with this delta applied, and from this
+    /// SingleInstance state.
+    Run(usize, u32, Start, Box<al_vm::Delta>, Arc<SingleState>),
     Done,
 }
 
@@ -130,8 +138,15 @@ struct RunsState {
     at: std::collections::HashMap<usize, (usize, al_vm::Delta)>,
     /// The suites whose chain lost its known start: their members are not run ahead any more.
     tainted: std::collections::HashSet<usize>,
+    /// Per BC session (suite, hub leg), once the walk passed a member there: the members of `order` before this place
+    /// are done, and the walk's SingleInstance state.
+    singles_at: std::collections::HashMap<(usize, bool), (usize, Arc<SingleState>)>,
+    /// Per unit index: the SingleInstance globals it wrote in its last run ahead, or once the walk passed it, there.
+    singles_wrote: Vec<Option<Arc<SingleState>>>,
     /// The members of `order` the walk has reached.
     walked: usize,
+    /// The helpers waiting in `claim` for a member to run.
+    idle: usize,
     /// The suites in which a member left nothing or only numbers since their last start: only their members are run
     /// ahead, so a suite whose members leave rows costs the helpers nothing.
     open: std::collections::HashSet<usize>,
@@ -146,6 +161,8 @@ pub(super) struct Runs {
     place: Vec<Option<usize>>,
     /// The suite of each unit index.
     suite: Vec<usize>,
+    /// The BC session (suite, hub leg) of each unit index: the SingleInstance state goes from member to member there.
+    stream: Vec<(usize, bool)>,
     /// How far ahead of the walk the helpers run (members of `order`).
     window: usize,
     state: Mutex<RunsState>,
@@ -171,16 +188,72 @@ impl Runs {
                 starts: install.iter().map(|&si| (si, (0, Start::Install))).collect(),
                 at: install.iter().map(|&si| (si, (0, Default::default()))).collect(),
                 tainted: Default::default(),
+                singles_at: Default::default(),
+                singles_wrote: vec![None; n],
                 walked: 0,
+                idle: 0,
                 open: Default::default(),
                 closed: false,
             }),
             ready: Condvar::new(),
             place,
+            stream: suite.iter().map(|&si| (si, false)).collect(),
             suite,
             window,
             order,
         }
+    }
+
+    /// The BC session (suite, hub leg) of each unit index (`Unit::hub_leg`); default: the suite's, no hub leg.
+    pub fn with_streams(mut self, stream: Vec<(usize, bool)>) -> Runs {
+        self.stream = stream;
+        self
+    }
+
+    /// Where member `k` is predicted to start in its BC session's SingleInstance state: the walk's state there with what
+    /// the members between wrote applied (an unknown one counts as writing nothing).
+    fn guess_singles(&self, s: &RunsState, k: usize) -> Arc<SingleState> {
+        let key = self.stream[k];
+        let (from, at) = s.singles_at.get(&key).map_or((0, None), |(p, a)| (*p, Some(a.clone())));
+        let to = self.place[k].unwrap_or(0);
+        let between: Vec<&Arc<SingleState>> = self
+            .order
+            .get(from..to)
+            .unwrap_or_default()
+            .iter()
+            .filter(|&&j| self.stream[j] == key)
+            .filter_map(|&j| s.singles_wrote[j].as_ref())
+            .collect();
+        let at = at.unwrap_or_default();
+        if between.is_empty() {
+            return at;
+        }
+        let mut state = (*at).clone();
+        for w in between {
+            state.extend(w.iter().map(|(g, v)| (*g, v.clone())));
+        }
+        Arc::new(state)
+    }
+
+    /// Whether a member between the walk and member `k` runs on the walk's thread now (the walk took it, and what it
+    /// changes is not known yet): no run ahead predicts it, so a run of `k` would count it as changing nothing and
+    /// mostly start elsewhere; the helper waits for it instead (each such run would also leave the next member to the
+    /// walk again, the walk and one helper taking turns without one run ahead kept).
+    fn behind_walk(&self, s: &RunsState, k: usize) -> bool {
+        let si = self.suite[k];
+        let (Some((from, _)), Some(to)) = (s.at.get(&si), self.place[k]) else {
+            return false;
+        };
+        self.order.get(*from..to).unwrap_or_default().iter().any(|&j| {
+            self.suite[j] == si
+                && matches!(s.slots[j], Slot::Taken)
+                && (s.counts[j].is_none() || s.singles_wrote[j].is_none())
+        })
+    }
+
+    /// Whether the run ahead `a` read the SingleInstance state `singles` gives it.
+    fn fits_singles(a: Option<&Ahead>, singles: &SingleState) -> bool {
+        a.is_none_or(|a| fits(&a.result, singles))
     }
 
     /// The epochs of the suites known at the start.
@@ -233,38 +306,55 @@ impl Runs {
             }
             let rest = &self.order[s.walked.min(self.order.len())..];
             let next = rest.iter().take(self.window).copied().find_map(|k| {
-                let si = self.suite[k];
-                if s.tainted.contains(&si) || !s.open.contains(&si) || s.tries[k] >= TRIES {
+                if !self.may_run(&s, k) {
                     return None;
                 }
-                let (epoch, start) = s.starts.get(&si)?;
+                let (epoch, start) = s.starts.get(&self.suite[k])?;
                 let (delta, complete, sure) = self.guess_sure(&s, k)?;
+                let singles = self.guess_singles(&s, k);
                 let run = match &s.slots[k] {
                     Slot::Pending => true,
-                    // Run again from a better prediction: every count before it is known now, and it differs.
-                    Slot::Done(e, from, _) => e == epoch && complete && *from != delta,
+                    // Run again from a better prediction: every count before it is known now, and it differs (or the
+                    // run read SingleInstance state the prediction now gives another value).
+                    Slot::Done(e, from, a) => {
+                        e == epoch && complete && (*from != delta || !Self::fits_singles(a.as_deref(), &singles))
+                    }
                     _ => false,
                 };
-                run.then(|| (k, *epoch, start.clone(), delta, complete, sure))
+                run.then(|| (k, *epoch, start.clone(), delta, complete, sure, singles))
             });
             let waiting = rest
                 .iter()
                 .any(|k| !matches!(s.slots[*k], Slot::Taken) && !s.tainted.contains(&self.suite[*k]));
             match next {
-                Some((k, epoch, start, delta, complete, sure)) => {
+                Some((k, epoch, start, delta, complete, sure, singles)) => {
                     s.slots[k] = Slot::Running(epoch, delta.clone(), None);
                     s.complete[k] = complete;
                     s.sure[k] = sure;
                     s.tries[k] += 1;
-                    return Claim::Run(k, epoch, start, Box::new(delta));
+                    return Claim::Run(k, epoch, start, Box::new(delta), singles);
                 }
-                None if waiting => match self.ready.wait(s) {
-                    Ok(g) => s = g,
-                    Err(_) => return Claim::Done,
-                },
+                None if waiting => {
+                    s.idle += 1;
+                    let woke = self.ready.wait(s);
+                    match woke {
+                        Ok(g) => {
+                            s = g;
+                            s.idle -= 1;
+                        }
+                        Err(_) => return Claim::Done,
+                    }
+                }
                 None => return Claim::Done,
             }
         }
+    }
+
+    /// Whether a helper may run member `k` now, as far as its suite and the walk go (`claim`).
+    fn may_run(&self, s: &RunsState, k: usize) -> bool {
+        let si = self.suite[k];
+        !(s.tainted.contains(&si) || !s.open.contains(&si) || s.tries[k] >= TRIES || self.behind_walk(s, k))
+            && s.starts.contains_key(&si)
     }
 
     /// Tells the helpers the new start of suite `si`, which holds for the members from place `from` of `order` on;
@@ -310,6 +400,9 @@ impl Runs {
                 if let Some(kept) = ahead.as_ref().and_then(|a| a.kept.as_ref()) {
                     s.counts[k] = Some(kept.delta());
                 }
+                if let Some(Ok(done)) = ahead.as_ref().map(|a| &a.result.result) {
+                    s.singles_wrote[k] = done.5.singles_out.as_ref().map(|out| Arc::new(out.wrote.clone()));
+                }
             }
             s.slots[k] = match () {
                 _ if taken => Slot::Taken,
@@ -331,7 +424,14 @@ impl Runs {
     /// The run ahead of member `k` from the start of `epoch` whose fingerprint is `actual`, the walk's state, waiting
     /// for it while a helper runs it; `None` when there is none (or `epoch` or `actual` is `None`: the walk runs it
     /// itself). The second part says what was dropped instead ([`Dropped`]). No helper runs the member after this.
-    pub fn take(&self, k: usize, epoch: Option<u32>, actual: Option<&al_vm::Fingerprint>) -> (Option<Ahead>, Dropped) {
+    /// `singles` is the walk's SingleInstance state of the member's BC session: a run that read another is dropped too.
+    pub fn take(
+        &self,
+        k: usize,
+        epoch: Option<u32>,
+        actual: Option<&al_vm::Fingerprint>,
+        singles: &SingleState,
+    ) -> (Option<Ahead>, Dropped) {
         let Ok(mut s) = self.state.lock() else {
             return (None, Dropped::Nothing);
         };
@@ -343,7 +443,10 @@ impl Runs {
         loop {
             match std::mem::replace(&mut s.slots[k], Slot::Taken) {
                 Slot::Done(e, _, Some(a)) if same(&e, a.start.as_deref()).is_some_and(|rows| rows || a.unseen) => {
-                    return (Some(*a), Dropped::Nothing);
+                    if fits(&a.result, singles) {
+                        return (Some(*a), Dropped::Nothing);
+                    }
+                    return (None, Dropped::SingleState);
                 }
                 // Its fingerprint is not known yet, or it is the walk's (but perhaps for those rows): wait.
                 Slot::Running(e, d, fp) if Some(e) == epoch && (fp.is_none() || same(&e, fp.as_deref()).is_some()) => {
@@ -357,7 +460,25 @@ impl Runs {
                     return (None, Dropped::Wrong(Box::new(from)));
                 }
                 Slot::Done(..) | Slot::Running(..) if s.complete[k] => return (None, Dropped::Guessed),
-                Slot::Done(..) | Slot::Running(..) => return (None, Dropped::Early),
+                // Not run yet, but an idle helper may run it now (the walk just ran the member before it itself): wait
+                // for the helper, which runs it from the walk's own state, so the walk and the helper do not take
+                // turns, the helper waiting for each member the walk runs.
+                Slot::Pending
+                    if s.idle > 0
+                        && self.may_run(&s, k)
+                        && s.starts.get(&self.suite[k]).map(|(e, _)| *e) == epoch
+                        && self.place[k].is_some_and(|p| p < s.walked + self.window) =>
+                {
+                    s.slots[k] = Slot::Pending;
+                    self.ready.notify_all();
+                    s = match self.ready.wait(s) {
+                        Ok(g) => g,
+                        Err(_) => return (None, Dropped::Nothing),
+                    };
+                }
+                Slot::Done(..) | Slot::Running(..) => {
+                    return (None, Dropped::Early);
+                }
                 _ => return (None, Dropped::Nothing),
             }
         }
@@ -367,6 +488,34 @@ impl Runs {
     pub fn reached(&self, k: usize) {
         if let (Some(p), Ok(mut s)) = (self.place[k], self.state.lock()) {
             s.walked = s.walked.max(p + 1);
+        }
+        self.ready.notify_all();
+    }
+
+    /// The walk passed unit `k` (a member of `order` or not): its BC session's SingleInstance state is `state` now, and
+    /// `k` wrote `wrote`. A later member whose run ahead read a global the prediction now gives another value gets one
+    /// more run, as in `advance`.
+    pub fn singles_walked(&self, k: usize, state: Arc<SingleState>, wrote: Option<Arc<SingleState>>) {
+        let key = self.stream[k];
+        if let Ok(mut s) = self.state.lock() {
+            let from = match self.place[k] {
+                Some(p) => p + 1,
+                None => s.singles_at.get(&key).map_or(0, |(p, _)| *p),
+            };
+            s.singles_at.insert(key, (from, state));
+            s.singles_wrote[k] = wrote;
+            let stale: Vec<usize> = self.order[from.min(self.order.len())..]
+                .iter()
+                .copied()
+                .filter(|&j| self.stream[j] == key)
+                .filter(|&j| match &s.slots[j] {
+                    Slot::Done(_, _, a) => !Self::fits_singles(a.as_deref(), &self.guess_singles(&s, j)),
+                    _ => false,
+                })
+                .collect();
+            for j in stale {
+                s.tries[j] = s.tries[j].min(TRIES - 1);
+            }
         }
         self.ready.notify_all();
     }
@@ -468,33 +617,39 @@ mod tests {
     fn a_run_ahead_is_taken_only_from_the_walks_own_state() {
         let runs = Runs::new(vec![0, 1, 2], vec![0, 0, 0], vec![0], 6);
         assert!(
-            runs.take(0, Some(0), Some(&fp(b"s0", b""))).0.is_none(),
+            runs.take(0, Some(0), Some(&fp(b"s0", b"")), &SingleState::new())
+                .0
+                .is_none(),
             "nothing ran yet"
         );
         runs.reached(0);
         runs.advance(0, 0, Default::default(), Some(Default::default()));
-        let Claim::Run(1, 0, _, from) = runs.claim() else {
+        let Claim::Run(1, 0, _, from, _) = runs.claim() else {
             panic!("member 1 first")
         };
         runs.starting(1, Some(Arc::new(fp(b"s1", b""))));
         assert!(runs.has_run(1, Some(0)));
         runs.finish(1, 0, *from, Some(ahead(b"s1")));
-        let Claim::Run(2, 0, _, from) = runs.claim() else {
+        let Claim::Run(2, 0, _, from, _) = runs.claim() else {
             panic!("then member 2")
         };
         runs.finish(2, 0, *from, Some(ahead(b"s2")));
         assert!(
-            runs.take(1, Some(0), Some(&fp(b"s1", b""))).0.is_some(),
+            runs.take(1, Some(0), Some(&fp(b"s1", b"")), &SingleState::new())
+                .0
+                .is_some(),
             "member 1 started where the walk is"
         );
         runs.reached(1);
-        let (wrong, dropped) = runs.take(2, Some(0), Some(&fp(b"other", b"")));
+        let (wrong, dropped) = runs.take(2, Some(0), Some(&fp(b"other", b"")), &SingleState::new());
         assert!(
             wrong.is_none() && matches!(dropped, Dropped::Wrong(_) | Dropped::Guessed),
             "a run from another start is not taken"
         );
         assert!(
-            runs.take(2, Some(0), Some(&fp(b"s2", b""))).0.is_none(),
+            runs.take(2, Some(0), Some(&fp(b"s2", b"")), &SingleState::new())
+                .0
+                .is_none(),
             "and it is gone"
         );
     }
@@ -518,7 +673,7 @@ mod tests {
             let (tx, rx) = std::sync::mpsc::channel();
             scope.spawn(move || {
                 let _ = tx.send(match runs.claim() {
-                    Claim::Run(k, _, _, from) => Some((k, *from)),
+                    Claim::Run(k, _, _, from, _) => Some((k, *from)),
                     Claim::Done => None,
                 });
             });
@@ -537,7 +692,7 @@ mod tests {
         let runs = Runs::new(vec![0, 1, 2], vec![0, 0, 0], vec![0], 6);
         runs.open(0);
         for (k, from) in [(0, g(0)), (1, g(1)), (2, g(2))] {
-            let Claim::Run(got, 0, _, d) = runs.claim() else {
+            let Claim::Run(got, 0, _, d, _) = runs.claim() else {
                 panic!("member {k}")
             };
             assert_eq!((got, *d), (k, from.clone()));
@@ -547,7 +702,7 @@ mod tests {
         runs.reached(0);
         runs.advance(0, 0, g(5), Some(g(5)));
         for (k, from) in [(1, g(5)), (2, g(6))] {
-            let Claim::Run(got, 0, _, d) = runs.claim() else {
+            let Claim::Run(got, 0, _, d, _) = runs.claim() else {
                 panic!("member {k} again")
             };
             assert_eq!((got, *d), (k, from.clone()));
@@ -570,11 +725,11 @@ mod tests {
         runs.reached(0);
         runs.advance(0, 0, g(0), Some(g(0)));
         // Member 1 runs from the walk's state and changes 1; member 2 then runs from that prediction (complete).
-        let Claim::Run(1, 0, _, from) = runs.claim() else {
+        let Claim::Run(1, 0, _, from, _) = runs.claim() else {
             panic!("member 1 first")
         };
         runs.finish(1, 0, *from, changed(1));
-        let Claim::Run(2, 0, _, from) = runs.claim() else {
+        let Claim::Run(2, 0, _, from, _) = runs.claim() else {
             panic!("then member 2")
         };
         assert_eq!(*from, g(1));
@@ -585,7 +740,7 @@ mod tests {
         // 1's run ahead.
         runs.reached(1);
         runs.advance(0, 1, g(3), Some(g(3)));
-        let (got, dropped) = runs.take(2, Some(0), Some(&fp(b"after 3", b"")));
+        let (got, dropped) = runs.take(2, Some(0), Some(&fp(b"after 3", b"")), &SingleState::new());
         assert!(got.is_none());
         assert!(matches!(dropped, Dropped::Guessed), "{dropped:?}");
     }
@@ -596,22 +751,26 @@ mod tests {
         let runs = Runs::new(vec![0, 1, 2], vec![0, 0, 0], vec![0], 6);
         runs.reached(0);
         runs.advance(0, 0, Default::default(), Some(Default::default()));
-        let Claim::Run(1, 0, _, from) = runs.claim() else {
+        let Claim::Run(1, 0, _, from, _) = runs.claim() else {
             panic!("member 1 first")
         };
         let mut a = ahead(b"s1");
         a.start = Some(Arc::new(fp(b"s1", b"rows of 1")));
         a.unseen = true;
         runs.finish(1, 0, *from, Some(a));
-        let Claim::Run(2, 0, _, from) = runs.claim() else {
+        let Claim::Run(2, 0, _, from, _) = runs.claim() else {
             panic!("then member 2")
         };
         let mut a = ahead(b"s2");
         a.start = Some(Arc::new(fp(b"s2", b"rows of 2")));
         runs.finish(2, 0, *from, Some(a));
-        assert!(runs.take(1, Some(0), Some(&fp(b"s1", b"other rows"))).0.is_some());
+        assert!(
+            runs.take(1, Some(0), Some(&fp(b"s1", b"other rows")), &SingleState::new())
+                .0
+                .is_some()
+        );
         runs.reached(1);
-        let (seen, dropped) = runs.take(2, Some(0), Some(&fp(b"s2", b"other rows")));
+        let (seen, dropped) = runs.take(2, Some(0), Some(&fp(b"s2", b"other rows")), &SingleState::new());
         assert!(
             seen.is_none() && matches!(dropped, Dropped::Wrong(_) | Dropped::Guessed),
             "a run that saw the rows needs the same rows"

@@ -249,12 +249,8 @@ fn run_codeunit_inner(
     let obj = &lowered.program.objects[object];
     let perturb = scratch.perturb.clone();
     let run_seed = scratch.run_seed;
-    let mut host = crate::host::host_perturbed(scratch.clock_start, &perturb);
-    host.run_seed = run_seed.seed;
-    let mut session = Session::with_host(engine.clone(), host);
-    if let Some(b) = baseline {
-        session.restore_baseline(b);
-    }
+    let mut session = new_session(engine, scratch.clock_start, &perturb, run_seed.seed, baseline);
+    let moved = singles_moved_in(&mut session, execute);
     session.trace_faults(observe.is_some());
     scratch.flags.apply(&mut session);
     let covering = crate::coverage::enabled();
@@ -393,6 +389,11 @@ fn run_codeunit_inner(
         }
     };
     super::suite_rows::seen_before(&mut session, rows);
+    // BC runs the test codeunits of a run in one session: the globals of SingleInstance codeunits that the earlier
+    // codeunits left are still there (al-language/codeunits/TestCuP7BReader.al:24-37, against TestCuP7ASetter.al:24-58).
+    // Put back here, after the company open (which BC's session did once, before the first codeunit), and noted from
+    // here on, so the run can be checked against the serial order (`single_carry.rs`, `corpus.rs`).
+    start_singles(&mut session, execute, moved, scratch.singles_in.as_deref());
     // What a Disabled codeunit leaves for the later codeunits is its writes from here on ([`CARRIED`]). With
     // Company Triggers subscribers each session writes on its own when it opens the company, and how those writes
     // meet the ones carried over is not pinned.
@@ -1253,6 +1254,7 @@ fn run_codeunit_inner(
         Some(runner) => super::al_runner::drive(&mut session, runner, object, &tests, &mut |s, al| body(s, Some(al)))
             .unwrap_or_else(|why| Err(all(Outcome::NotRun(why)))),
     };
+    scratch.singles_out = singles_out(&mut session, execute);
     let out = match ran {
         Ok(out) => out,
         Err(early) => return early,
@@ -1373,10 +1375,82 @@ fn carry_disabled(
     CARRIED.with(|c| *c.borrow_mut() = Some(carried));
 }
 
+/// The serial check: the single instances of the codeunit before, moved in later (`start_singles`); their temporary
+/// tables keep their ids.
+fn singles_moved_in(session: &mut Session, execute: bool) -> Option<al_vm::single_carry::MovedSingles> {
+    if execute {
+        return None;
+    }
+    let moved = SERIAL_SINGLES.with(|c| c.borrow_mut().as_mut().and_then(Option::take));
+    if let Some(m) = &moved {
+        session.continue_temp_ids(m);
+    }
+    moved
+}
+
+/// A codeunit's session on the perturbed host, from the install baseline.
+fn new_session(
+    engine: &Arc<Engine>,
+    clock_start: Option<i64>,
+    perturb: &crate::stability::Perturb,
+    seed: i32,
+    baseline: Option<&al_vm::Baseline>,
+) -> Session {
+    let mut host = crate::host::host_perturbed(clock_start, perturb);
+    host.run_seed = seed;
+    let mut session = Session::with_host(engine.clone(), host);
+    if let Some(b) = baseline {
+        session.restore_baseline(b);
+    }
+    session
+}
+
+/// Takes over the moved single instances, starts the notes and puts back what the earlier codeunits left (not for a
+/// codeunit the runner runs with Codeunit.Run: `execute`).
+fn start_singles(
+    session: &mut Session,
+    execute: bool,
+    moved: Option<al_vm::single_carry::MovedSingles>,
+    state: Option<&SingleState>,
+) {
+    if execute {
+        return;
+    }
+    if let Some(m) = moved {
+        session.adopt_single_instances(m);
+    }
+    session.track_single_instances();
+    if let Some(state) = state {
+        session.restore_single_instances(state);
+    }
+}
+
+/// What the session did with the single instances; for the serial check, hands them to the next codeunit of the session.
+fn singles_out(session: &mut Session, execute: bool) -> Option<al_vm::single_carry::SingleOut> {
+    let out = session.single_out();
+    if execute {
+        return out;
+    }
+    SERIAL_SINGLES.with(|c| {
+        if let Some(slot) = c.borrow_mut().as_mut() {
+            *slot = Some(session.take_single_instances());
+        }
+    });
+    out
+}
+
 thread_local! {
     /// What the last codeunit with RequiredTestIsolation = Disabled that ran on this thread left. A baseline holds `Rc`s
     /// and stays on its thread: the codeunits that start from it run on the same one (`corpus.rs`).
     pub(crate) static CARRIED: std::cell::RefCell<Option<Carried>> = const { std::cell::RefCell::new(None) };
+}
+
+std::thread_local! {
+    /// While the serial check runs a BC session's codeunits on this thread (`single_walk.rs` `serial_check`): the single
+    /// instances the last codeunit left, moved into the next codeunit's session instead of being carried in their
+    /// copied form (`al_vm::single_carry::MovedSingles`). `None`: no serial check.
+    pub(crate) static SERIAL_SINGLES: std::cell::RefCell<Option<Option<al_vm::single_carry::MovedSingles>>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// What a codeunit with RequiredTestIsolation = Disabled left for the codeunits after it ([`CARRIED`]).
