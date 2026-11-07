@@ -771,27 +771,29 @@ impl Layout {
             .map(|p| p.value_text())
     }
 
-    /// The table node named `name` that is the node right before node `i` under the same text element, when that text element
-    /// has no table element above it: `Root > Hdr, Line` with `LinkTable = Hdr` on `Line` (xmlports/shapes-properties/
-    /// R6924eLinkSibling.al:85-108, the shape BC 29 is measured with). Any other node a LinkTable could name stays refused.
+    /// The table node named `name` that precedes node `i` under the same parent, when no table element named `name` is above it:
+    /// `Root > Hdr, Line` with `LinkTable = Hdr` on `Line`, in Xml, VariableText and FixedText, with a table element between the two
+    /// and with the pair below another table element (xmlports/shapes-properties/R6924eLinkSibling.al: the xmlports 95355 (VT),
+    /// 95356 (FT), 95357 (a table element between), 95358 (below another table element), 95359 (two pairs); BC 29 is measured with
+    /// them). Any other node a LinkTable could name, a text element between the two for one, stays refused.
     fn link_sibling_named(&self, i: usize, name: &str) -> Option<usize> {
         let parent = self.nodes[i].parent?;
-        if self.nodes[parent].kind != ir::XmlNodeKind::Text
+        if !matches!(self.nodes[parent].kind, ir::XmlNodeKind::Text | ir::XmlNodeKind::Table)
             || self.table_named(Some(parent), name).is_some()
-            || self.format != ir::XmlFormat::Xml
         {
             return None;
         }
-        let mut above = self.nodes[parent].parent;
-        while let Some(a) = above {
-            if self.nodes[a].kind == ir::XmlNodeKind::Table {
+        let mut prev = None;
+        for j in (0..i).rev().filter(|&j| self.nodes[j].parent == Some(parent)) {
+            if self.nodes[j].kind != ir::XmlNodeKind::Table {
                 return None;
             }
-            above = self.nodes[a].parent;
+            if self.nodes[j].name.eq_ignore_ascii_case(name) {
+                prev = Some(j);
+                break;
+            }
         }
-        let prev = (0..i).rev().find(|&j| self.nodes[j].parent == Some(parent))?;
-        (self.nodes[prev].kind == ir::XmlNodeKind::Table && self.nodes[prev].name.eq_ignore_ascii_case(name))
-            .then_some(prev)
+        prev
     }
 
     /// The nearest table node named `name` at or above node `from`.
@@ -1902,6 +1904,37 @@ xmlport 50010 X
             "tableelement(H; Parent) { fieldattribute(HNo; H.No) { } }\n            textelement(Gap) { }\n            tableelement(L; Child) { LinkTable = H; LinkFields = ParentNo = FIELD(No); fieldattribute(LId; L.No) { } }",
         );
         assert!(reasons_of(gap).contains("LinkTable H is not a table element above it"));
+        // A table element between the two is pinned (R6924eLinkSibling.al xmlport 95357), and so is the pair below another table
+        // element (xmlport 95358) and in the text formats (xmlports 95355, 95356).
+        let between = sibling(
+            "tableelement(H; Parent) { fieldattribute(HNo; H.No) { } }\n            tableelement(B; Parent) { fieldattribute(BNo; B.No) { } }\n            tableelement(L; Child) { LinkTable = H; LinkFields = ParentNo = FIELD(No); fieldattribute(LId; L.No) { } }",
+        );
+        assert_eq!(reasons_of(between), "");
+        let below = SRC
+            .replace("LinkTable = P;", "")
+            .replace("LinkFields = ParentNo = FIELD(No);", "")
+            .replace(
+                "tableelement(C; Child)",
+                "tableelement(H; Parent) { fieldattribute(HNo; H.No) { } }\n                tableelement(C; Child)",
+            )
+            .replace(
+                "fieldattribute(Id; C.No) { }",
+                "LinkTable = H; LinkFields = ParentNo = FIELD(No); fieldattribute(Id; C.No) { }",
+            );
+        assert_eq!(reasons_of(below), "");
+        let text = |format: &str| {
+            format!(
+                "table 50003 Hdr {{ fields {{ field(1; No; Code[10]) {{ }} }} keys {{ key(PK; No) {{ }} }} }}
+                 table 50004 Ln {{ fields {{ field(1; Doc; Code[10]) {{ }} field(2; Nr; Integer) {{ }} }} keys {{ key(PK; Doc, Nr) {{ }} }} }}
+                 xmlport 50011 T {{ Direction = Export; Format = {format}; UseRequestPage = false;
+                   schema {{ textelement(Root) {{
+                     tableelement(H; Hdr) {{ fieldelement(No; H.No) {{ Width = 4; }} }}
+                     tableelement(L; Ln) {{ LinkTable = H; LinkFields = Doc = field(No); fieldelement(Doc; L.Doc) {{ Width = 4; }} fieldelement(Nr; L.Nr) {{ Width = 3; }} }}
+                   }} }} }}"
+            )
+        };
+        assert_eq!(reasons_of(text("VariableText")), "");
+        assert_eq!(reasons_of(text("FixedText")), "");
     }
 
     #[test]
