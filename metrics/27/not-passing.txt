@@ -450,9 +450,6 @@
 70974 P189_FldRefMismatch_OnGuidField
 70974 P189_FldRefMismatch_OnIntegerField
 70974 P189_FldRefMismatch_OnTemporalAndBool
-71016 Format_TextBuilder_EmptyAndLineBreaks
-71016 Format_TextBuilder_LengthAndFormatString
-71016 Format_TextBuilder_StandardFormats
 71033 EmptyVariant_To_Types
 71033 IntegerVariant_To_Other_Types
 71033 Param_Variant_Into_Integer_Text
