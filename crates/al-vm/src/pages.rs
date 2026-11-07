@@ -236,6 +236,7 @@ mod rows;
 mod rows_above;
 mod rows_client;
 mod runobject;
+mod server_row_lag;
 mod shown;
 mod table_values_allowed;
 mod test_end;
@@ -989,6 +990,8 @@ impl Session {
         args: Vec<Value>,
     ) -> Result<(Value, Vec<Value>), Signal> {
         let hidden = self.hide_tree_cut(st);
+        // A routine the page runs reads its row from the server again (`server_row_lag`).
+        st.borrow_mut().server_lag = None;
         let result = self.call(object, r, inst, args);
         if let Some(saved) = hidden
             && st.borrow().instance.is_some()

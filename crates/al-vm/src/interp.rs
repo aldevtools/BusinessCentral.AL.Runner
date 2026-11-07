@@ -614,6 +614,7 @@ impl Session {
         try_call: bool,
         f: &mut Frame,
     ) -> Result<Value, Signal> {
+        let mut lagged = None;
         let inst = match instance {
             None => f.instance.clone(),
             Some(v) => match v {
@@ -673,6 +674,7 @@ impl Session {
                 // is constructed at first use.
                 Value::TestPage(st) => {
                     let i = self.construct_page(&st)?;
+                    lagged = self.enter_server_row(&st);
                     // A procedure a page extension declares runs on the extension's instance.
                     let ext = st
                         .borrow()
@@ -690,7 +692,11 @@ impl Session {
                 }
             },
         };
-        self.finish_call(object, routine, inst, args, values, try_call, f)
+        let result = self.finish_call(object, routine, inst, args, values, try_call, f);
+        if let Some((rec, now)) = lagged {
+            rec.borrow_mut().fields = now;
+        }
+        result
     }
 
     /// Evaluates the arguments of a resolved call and runs it on `inst`, writing back the
