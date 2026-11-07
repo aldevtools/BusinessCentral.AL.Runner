@@ -189,6 +189,7 @@ mod action_blob_change;
 mod actions;
 mod blank_key_retyped;
 mod caption_class;
+mod ui_caption_translate;
 mod caption_expr_list;
 mod caption_relation;
 mod caption_runs;

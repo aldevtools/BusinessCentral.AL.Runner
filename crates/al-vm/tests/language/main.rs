@@ -17,6 +17,7 @@ mod byte_overflow;
 mod calc_const_guid;
 mod call_stack;
 mod caption_after_resolve;
+mod ui_caption_translate;
 mod caption_class_areas;
 mod caption_setup_deferred;
 mod caption_setup_written;

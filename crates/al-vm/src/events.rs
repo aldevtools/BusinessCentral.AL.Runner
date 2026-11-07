@@ -152,6 +152,11 @@ pub const FILTER_HELPER_TRIGGERS: usize = usize::MAX - 3;
 /// ADR-046 amendment 1, A4 item 4; `al-testrun` `install.rs`).
 pub const COMPANY_TRIGGERS: usize = usize::MAX - 4;
 
+/// The object key under which subscribers to `CaptionClassTranslate` of the platform codeunit `UI Helper Triggers` are
+/// registered: the `CaptionClassTranslate` statement raises it (events/platform-triggers/P114GlobalTriggerEvents.al:309-330,
+/// `pages/ui_caption_translate.rs`). The other events of that codeunit stay in `Registry::unraised`.
+pub const UI_HELPER_TRIGGERS: usize = usize::MAX - 5;
+
 /// `out[i][j]`: app `i` depends on app `j`, directly or through other apps of `apps` (dependencies named by app id).
 fn app_dependencies(apps: &[ir::AppInfo]) -> Vec<Vec<bool>> {
     let n = apps.len();
@@ -339,6 +344,17 @@ impl Registry {
                                             witnesses.push(c);
                                         }
                                     }
+                                }
+                                if event == "captionclasstranslate" {
+                                    reg.subscribers
+                                        .entry((UI_HELPER_TRIGGERS, event.clone()))
+                                        .or_default()
+                                        .push(Subscriber {
+                                            object: oi,
+                                            routine: ri,
+                                            manual: is_manual(o),
+                                            element: String::new(),
+                                        });
                                 }
                                 reg.unraised
                                     .entry((target.to_ascii_lowercase(), event.clone()))
