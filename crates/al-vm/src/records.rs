@@ -434,6 +434,8 @@ impl Session {
     }
 
     pub(crate) fn store_for(&mut self, rec: &Rec) -> &mut MemStore {
+        // The key comparisons on the store picked here mark `temporary-key-order-windows` for a temporary record (collation.rs).
+        al_builtins::collation::set_temporary_keys(rec.borrow().temp_id.is_some());
         // A CRM table's rows are its default table connection's (crm.rs).
         if let Some(name) = self.crm_connection_of(rec)
             && let Some(s) = self.crm_stores.get_mut(&name)

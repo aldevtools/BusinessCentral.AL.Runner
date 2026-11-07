@@ -54,3 +54,64 @@ fn a_hyphen_does_not_count_first_in_the_key_order() {
         "A.B|AB|A-B|TTS.001|TTSA|TTS-A|TTS-HD.001 / A.B|AB|A-B|TTS.001|TTSA|TTS-A|TTS-HD.001 /  / A.B / TTSA|TTS-A|TTS-HD.001"
     );
 }
+
+/// A temporary record uses the normal record's order, measured on Windows BC 27.5 and 29.0 only (the corpus CI on Linux sorts
+/// otherwise and cannot assert it): a pass that relies on it is flagged with `temporary-key-order-windows`.
+mod temporary_order_is_flagged {
+    use al_builtins::assumptions::{Assumption, take_hits};
+
+    const SRC: &str = r#"
+table 69931 K
+{
+    fields { field(1; K; Code[50]) { } }
+    keys { key(PK; K) { Clustered = true; } }
+}
+codeunit 69931 C
+{
+    local procedure Seed(var R: Record K; A: Text; B: Text; C: Text)
+    begin
+        R.K := A; R.Insert(); R.K := B; R.Insert(); R.K := C; R.Insert();
+        R.FindSet();
+    end;
+
+    procedure TempPunctuation()
+    var T: Record K temporary;
+    begin
+        Seed(T, 'TTS.001', 'TTS-HD.001', 'TTSA');
+    end;
+
+    procedure TempPlain()
+    var T: Record K temporary;
+    begin
+        Seed(T, 'TTS001', 'TTSHD001', 'TTSA');
+    end;
+
+    procedure NormalPunctuation()
+    var R: Record K;
+    begin
+        Seed(R, 'TTS.001', 'TTS-HD.001', 'TTSA');
+    end;
+}
+"#;
+
+    fn flagged(routine: &str) -> bool {
+        take_hits();
+        let _ = al_testkit::run(SRC, routine);
+        take_hits().contains(&Assumption::TemporaryKeyOrderWindows)
+    }
+
+    #[test]
+    fn a_temporary_key_with_punctuation_is_flagged() {
+        assert!(flagged("TempPunctuation"));
+    }
+
+    #[test]
+    fn a_temporary_key_without_punctuation_is_not_flagged() {
+        assert!(!flagged("TempPlain"));
+    }
+
+    #[test]
+    fn a_normal_key_with_punctuation_is_not_flagged() {
+        assert!(!flagged("NormalPunctuation"));
+    }
+}

@@ -9,6 +9,7 @@
 //! Only ASCII and the accented Latin-1 letters have weights. Anything else is refused, never ordered
 //! by a guess. The order of two different accents on the same letter is not pinned either.
 
+use std::cell::Cell;
 use std::cmp::Ordering;
 
 /// ASCII punctuation and symbols in the order of the root collation, lowest first.
@@ -109,7 +110,14 @@ pub fn compare_total(a: &str, b: &str) -> Ordering {
 /// of two texts that tie without them, the one without comes first and an apostrophe before a hyphen (`AB`, `A'B`, `A-B`; `A`,
 /// `A'`, `A-`), and fewer hyphens before more (`-5` before `--5`, record/AsCodeKeySigns.al:56). Two texts that still tie (the
 /// same characters in other places, not pinned) are ordered by code point, so the order stays total.
+///
+/// A temporary record is assumed to use this order too (assumption `temporary-key-order-windows`): measured on Windows BC 27.5 and
+/// 29.0 (2026-11-07, corpus pull request 1208, the Windows comments next to the Ignores of KeyPunctuationOrder.al), not asserted by
+/// the corpus because its Linux container sorts a temporary record otherwise (aldevtools/MsDyn365Bc.On.Linux#222).
 pub fn compare_key(a: &str, b: &str) -> Ordering {
+    if TEMPORARY_KEYS.with(Cell::get) && decided_at_punctuation(a, b) {
+        crate::assumptions::assume(crate::assumptions::Assumption::TemporaryKeyOrderWindows);
+    }
     let ignorable = |c: char| matches!(c, '-' | '\'');
     if !a.contains(ignorable) && !b.contains(ignorable) {
         return compare_total(a, b);
@@ -124,6 +132,32 @@ pub fn compare_key(a: &str, b: &str) -> Ordering {
     compare_total(&rest(a), &rest(b))
         .then_with(|| marks(a).cmp(&marks(b)))
         .then_with(|| a.cmp(b))
+}
+
+thread_local! {
+    /// Whether the key comparisons of this thread are for a temporary record ([`set_temporary_keys`]).
+    static TEMPORARY_KEYS: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Says whether the key comparisons that follow are for a temporary record (the VM sets it when it picks the store of a
+/// record, `Session::store_for`), so [`compare_key`] can mark the assumption `temporary-key-order-windows`.
+pub fn set_temporary_keys(on: bool) {
+    TEMPORARY_KEYS.with(|t| t.set(on));
+}
+
+/// Whether the order of `a` and `b` is decided at an ASCII punctuation character: the first place where they differ, case
+/// ignored, holds one on either side. There the Windows order (the normal record's) and the Linux container's order of a
+/// temporary record can differ; a difference at a letter or a digit, or a text that is a prefix of the other, orders alike.
+fn decided_at_punctuation(a: &str, b: &str) -> bool {
+    let punct = |c: char| c.is_ascii_punctuation();
+    let (mut x, mut y) = (a.chars(), b.chars());
+    loop {
+        match (x.next(), y.next()) {
+            (Some(p), Some(q)) if p.eq_ignore_ascii_case(&q) => {}
+            (Some(p), Some(q)) => return punct(p) || punct(q),
+            _ => return false,
+        }
+    }
 }
 
 /// The primary weight and the upper-case flag of an ASCII character, `None` for one without a weight.
@@ -292,5 +326,17 @@ mod tests {
                 assert_eq!(got, want);
             }
         }
+    }
+    /// Only a comparison decided at punctuation marks the temporary-record assumption: a difference at a letter or a digit,
+    /// a prefix and equal texts order alike on Windows and on the Linux container.
+    #[test]
+    fn decided_at_punctuation_only_where_the_orders_can_differ() {
+        assert!(super::decided_at_punctuation("TTS.001", "TTS-HD.001"));
+        assert!(super::decided_at_punctuation("A0B", "A-B"));
+        assert!(super::decided_at_punctuation("a_B", "AB"));
+        assert!(!super::decided_at_punctuation("A-B", "ZZZ"));
+        assert!(!super::decided_at_punctuation("A", "A-"));
+        assert!(!super::decided_at_punctuation("A-B", "a-b"));
+        assert!(!super::decided_at_punctuation("TTS001", "TTSA"));
     }
 }
