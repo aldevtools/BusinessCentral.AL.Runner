@@ -110,6 +110,142 @@ codeunit 60482 "Lane Plain B"
 }
 "#;
 
+/// ADR-066 amendment 3: a keyed record cache that each codeunit checks and refills (Microsoft's Unit of Measure
+/// Management shape), and a global record that a procedure overwrites with `:=` before it reads it.
+const KEYED: &str = r#"
+table 50454 "Lane Row"
+{
+    fields
+    {
+        field(1; "No."; Integer) { }
+        field(2; Name; Text[30]) { }
+    }
+    keys { key(PK; "No.") { } }
+}
+codeunit 50455 "Lane Keyed Cache"
+{
+    SingleInstance = true;
+    procedure NameOf(No: Integer): Text
+    begin
+        if Cached."No." <> No then
+            Cached.Get(No);
+        exit(Cached.Name);
+    end;
+    procedure Remember(R: Record "Lane Row"): Text
+    begin
+        Last := R;
+        exit(Last.Name);
+    end;
+    var
+        Cached: Record "Lane Row";
+        Last: Record "Lane Row";
+}
+codeunit 50456 "Lane Rows"
+{
+    procedure Seed()
+    var R: Record "Lane Row";
+    begin
+        R."No." := 1; R.Name := 'one'; R.Insert();
+        R."No." := 2; R.Name := 'two'; R.Insert();
+    end;
+}
+"#;
+
+const KEYED_OTHER_KEYS: &str = r#"
+codeunit 60501 "Lane Keyed A"
+{
+    Subtype = Test;
+    [Test] procedure AsksForOne()
+    var C: Codeunit "Lane Keyed Cache"; Rows: Codeunit "Lane Rows";
+    begin
+        Rows.Seed();
+        if C.NameOf(1) <> 'one' then Error('a');
+    end;
+}
+codeunit 60502 "Lane Keyed B"
+{
+    Subtype = Test;
+    [Test] procedure AsksForTwo()
+    var C: Codeunit "Lane Keyed Cache"; Rows: Codeunit "Lane Rows";
+    begin
+        Rows.Seed();
+        if C.NameOf(2) <> 'two' then Error('b');
+    end;
+}
+codeunit 60503 "Lane Keyed C"
+{
+    Subtype = Test;
+    [Test] procedure AsksForTwoAgain()
+    var C: Codeunit "Lane Keyed Cache"; Rows: Codeunit "Lane Rows";
+    begin
+        Rows.Seed();
+        if C.NameOf(2) <> 'two' then Error('c');
+    end;
+}
+"#;
+
+const OVERWRITTEN_FIRST: &str = r#"
+codeunit 60511 "Lane Remember A"
+{
+    Subtype = Test;
+    [Test] procedure RemembersOne()
+    var C: Codeunit "Lane Keyed Cache"; R: Record "Lane Row";
+    begin
+        R."No." := 1; R.Name := 'one';
+        if C.Remember(R) <> 'one' then Error('a');
+    end;
+}
+codeunit 60512 "Lane Remember B"
+{
+    Subtype = Test;
+    [Test] procedure RemembersTwo()
+    var C: Codeunit "Lane Keyed Cache"; R: Record "Lane Row";
+    begin
+        R."No." := 2; R.Name := 'two';
+        if C.Remember(R) <> 'two' then Error('b');
+    end;
+}
+"#;
+
+fn refill_flagged(rt: &CorpusRuntime, test: &str) -> bool {
+    rt.results()
+        .iter()
+        .find(|r| r.test == test)
+        .unwrap_or_else(|| panic!("{test} ran"))
+        .assumptions
+        .contains(&Assumption::SingleInstanceRefill)
+}
+
+#[test]
+fn a_keyed_cache_each_codeunit_checks_and_refills_costs_no_lane() {
+    let rt = runtime_over(KEYED_OTHER_KEYS, KEYED);
+    assert!(
+        rt.results().iter().all(|r| r.outcome == Outcome::Pass),
+        "{:?}",
+        rt.results()
+    );
+    let lane = &rt.phases.chain.single_lane;
+    assert!(lane.lane.is_empty(), "{:?}", lane.lane);
+    // B refilled the cache with another key than A left: independent under the guard-then-refill assumption, flagged.
+    assert!(refill_flagged(&rt, "AsksForTwo") && !flagged(&rt, "AsksForTwo"));
+    // C refilled it with the key B left: the same value either way, nothing assumed.
+    assert!(!refill_flagged(&rt, "AsksForTwoAgain"));
+    assert!(!refill_flagged(&rt, "AsksForOne"));
+}
+
+#[test]
+fn a_global_record_overwritten_before_it_is_read_is_no_dependence() {
+    let rt = runtime_over(OVERWRITTEN_FIRST, KEYED);
+    assert!(
+        rt.results().iter().all(|r| r.outcome == Outcome::Pass),
+        "{:?}",
+        rt.results()
+    );
+    let lane = &rt.phases.chain.single_lane;
+    assert!(lane.lane.is_empty() && lane.notes.is_empty(), "{:?}", lane.notes);
+    assert!(!flagged(&rt, "RemembersTwo") && !refill_flagged(&rt, "RemembersTwo"));
+}
+
 fn app(id: &str, deps: &[&str], src: &str) -> AppSource {
     AppSource {
         id: id.into(),

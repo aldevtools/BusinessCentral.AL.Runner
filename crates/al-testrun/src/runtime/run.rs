@@ -428,6 +428,7 @@ fn run_codeunit_inner(
     let al_runner_object = scratch.runner.filter(|_| data_driven.is_empty());
     // The test codeunit run: called here, or from the OnRun of the test runner codeunit `al_runner_object` when it runs
     // the test codeunit (ADR-066 decision 1, `al_runner.rs`). An error is a result that skips what follows below.
+    let refused_mid_run = std::cell::Cell::new(false);
     let mut body = |session: &mut Session,
                     al: Option<super::al_runner::RunnerRef>|
      -> Result<super::al_runner::Outcomes, super::al_runner::Outcomes> {
@@ -1084,13 +1085,7 @@ fn run_codeunit_inner(
                 }
                 Err(o) => o,
             };
-            let ended = match &outcome {
-                Outcome::NotRun(_) if !began => Some(Ended::RefusedBeforeStart),
-                Outcome::NotRun(why) if why.contains("this failure is not trusted") => Some(Ended::Failed),
-                Outcome::NotRun(_) => Some(Ended::RefusedMidRun),
-                Outcome::Fail(_) => Some(Ended::Failed),
-                _ => None,
-            };
+            let ended = ended_of(&outcome, began);
             if let (Some(ended), Outcome::NotRun(why) | Outcome::Fail(why)) = (ended, &outcome) {
                 let how = match ended {
                     Ended::RefusedBeforeStart => "not run",
@@ -1245,6 +1240,7 @@ fn run_codeunit_inner(
         if panicked {
             not_run_after_panic(obj, &mut queue, &mut out);
         }
+        refused_mid_run.set(unfinished.iter().any(|u| u.ended == Ended::RefusedMidRun));
         th.end_codeunit(session, lowered, &mut out);
         Ok(out)
     };
@@ -1253,7 +1249,7 @@ fn run_codeunit_inner(
         Some(runner) => super::al_runner::drive(&mut session, runner, object, &tests, &mut |s, al| body(s, Some(al)))
             .unwrap_or_else(|why| Err(all(Outcome::NotRun(why)))),
     };
-    scratch.singles_out = singles_out(&mut session, execute);
+    scratch.singles_out = singles_out(&mut session, execute, refused_mid_run.get());
     let out = match ran {
         Ok(out) => out,
         Err(early) => return early,
@@ -1417,14 +1413,19 @@ fn start_singles(session: &mut Session, execute: bool, moved: Option<al_vm::sing
 }
 
 /// What the session did with the watched single instances; in the lane, hands the instances to the next codeunit.
-fn singles_out(session: &mut Session, execute: bool) -> Option<al_vm::single_track::SingleOut> {
-    let out = session.single_out();
+/// `refused`: a test of the codeunit was refused while it ran, so what it left is not what BC's run to the end would
+/// have left (ADR-066 amendment 3, R3): it is no change for the decision, and in the lane it hands nothing on (the next
+/// codeunit starts without single instances).
+fn singles_out(session: &mut Session, execute: bool, refused: bool) -> Option<al_vm::single_track::SingleOut> {
+    let out = session
+        .single_out()
+        .map(|o| al_vm::single_track::SingleOut { refused, ..o });
     if execute {
         return out;
     }
     LANE_SINGLES.with(|c| {
         if let Some(slot) = c.borrow_mut().as_mut() {
-            *slot = Some(session.take_single_instances());
+            *slot = (!refused).then(|| session.take_single_instances());
         }
     });
     out
@@ -1641,4 +1642,15 @@ struct Rest {
     handlers: Vec<usize>,
     /// The tables it wrote before the refusal, which the rollback undid.
     written: BTreeSet<u32>,
+}
+
+/// How a test that did not pass ended (`None`: it passed or was skipped).
+fn ended_of(outcome: &Outcome, began: bool) -> Option<Ended> {
+    match outcome {
+        Outcome::NotRun(_) if !began => Some(Ended::RefusedBeforeStart),
+        Outcome::NotRun(why) if why.contains("this failure is not trusted") => Some(Ended::Failed),
+        Outcome::NotRun(_) => Some(Ended::RefusedMidRun),
+        Outcome::Fail(_) => Some(Ended::Failed),
+        _ => None,
+    }
 }

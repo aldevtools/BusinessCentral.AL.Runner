@@ -60,6 +60,14 @@ pub struct SingleOut {
     pub ends: BTreeMap<GlobalKey, Fp>,
     /// The globals it left other than it was given: written first, or read first and ended unlike it started.
     pub wrote: BTreeSet<GlobalKey>,
+    /// The globals read first whose first write directly followed that read, with no write of another watched global
+    /// between (a guard, then the refill; ADR-066 amendment 3, R1b).
+    pub guarded: BTreeSet<GlobalKey>,
+    /// The fingerprint each global read first held right after its first write (what the refill left).
+    pub refill: BTreeMap<GlobalKey, Fp>,
+    /// A test of the codeunit was refused while it ran (it stopped early): what it left is not what BC's run to the end
+    /// would have left (ADR-066 amendment 3, R3). Set by the test runner, not by the session.
+    pub refused: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -69,12 +77,23 @@ enum Seen {
 }
 
 /// The notes of a session that tracks single instances.
+#[derive(Default)]
 pub(crate) struct Track {
     seen: HashMap<GlobalKey, Seen>,
     observed: BTreeMap<GlobalKey, Fp>,
     /// The values a watched instance's globals held when the session made it: a global that was never read or written
     /// through the notes but holds another value at the end was changed some other way.
     start: HashMap<GlobalKey, Value>,
+    /// How many writes of watched globals the session made so far.
+    writes: u64,
+    /// For each global read first: `writes` at that read (a write of it with the same count follows the read directly).
+    first_read_at: HashMap<GlobalKey, u64>,
+    /// The globals read first whose first write came.
+    refilled: HashSet<GlobalKey>,
+    guarded: BTreeSet<GlobalKey>,
+    /// The globals read first whose first write is running: their fingerprint is taken when it is done.
+    want_refill: Vec<GlobalKey>,
+    refill: BTreeMap<GlobalKey, Fp>,
 }
 
 /// Whether `a` and `b` are the same value: equal simple values, or the same handle.
@@ -224,11 +243,7 @@ impl Session {
     /// Starts noting the use of the globals of the single instances of `watch` (see the module). Call before the test
     /// codeunit's code runs; instances the session made already (the company open) count with the values they hold.
     pub fn track_single_instances(&mut self) {
-        let mut t = Track {
-            seen: HashMap::new(),
-            observed: BTreeMap::new(),
-            start: HashMap::new(),
-        };
+        let mut t = Track::default();
         let made: Vec<(usize, Rc<RefCell<Instance>>)> = self.singletons.iter().map(|(o, i)| (*o, i.clone())).collect();
         self.si_track = Some(Box::new(t_snapshot_all(&mut t, &made)));
     }
@@ -261,6 +276,7 @@ impl Session {
             return;
         }
         t.seen.insert(key, Seen::Read);
+        t.first_read_at.insert(key, t.writes);
         let f = match inst.try_borrow() {
             Ok(i) => i.globals.get(g).map_or(Fp::Opaque("?".into()), |v| fp(v, &self.engine)),
             Err(_) => Fp::Opaque("borrowed".into()),
@@ -268,16 +284,100 @@ impl Session {
         t.observed.insert(key, f);
     }
 
-    /// A write of global `g` of `inst`.
+    /// A write of global `g` of `inst`, before it is made: an assignment (which may use the value it read: `Log += x`),
+    /// or a `var` argument (ADR-066 amendment 3, R1). Call [`Session::single_written`] when the write is done.
     #[inline]
     pub(crate) fn single_wrote(&mut self, inst: &Rc<RefCell<Instance>>, g: usize) {
         if self.si_track.is_none() || !inst.borrow().single {
             return;
         }
-        let object = inst.borrow().object as usize;
-        if let Some(t) = self.si_track.as_mut() {
-            t.seen.entry((object, g)).or_insert(Seen::Written);
+        self.single_wrote_slow(inst, g, false);
+    }
+
+    /// A write in place that replaces the value without using it (`:=` into a record, `Clear`, `Get`, a `Find`,
+    /// `List.Add`, `Dictionary.Set`; ADR-066 amendment 3, R1): after a guard that read the global and nothing else was
+    /// written, it is the refill (R1b).
+    #[inline]
+    pub(crate) fn single_replaced(&mut self, inst: &Rc<RefCell<Instance>>, g: usize) {
+        if self.si_track.is_none() || !inst.borrow().single {
+            return;
         }
+        self.single_wrote_slow(inst, g, true);
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn single_wrote_slow(&mut self, inst: &Rc<RefCell<Instance>>, g: usize, replaces: bool) {
+        let object = inst.borrow().object as usize;
+        let Some(t) = self.si_track.as_mut() else { return };
+        let key = (object, g);
+        match t.seen.get(&key) {
+            None => {
+                t.seen.insert(key, Seen::Written);
+            }
+            // The first write of a global read first: the refill after a guard when nothing else was written between.
+            Some(Seen::Read) if t.refilled.insert(key) => {
+                if replaces && t.first_read_at.get(&key) == Some(&t.writes) {
+                    t.guarded.insert(key);
+                }
+                t.want_refill.push(key);
+            }
+            Some(_) => {}
+        }
+        t.writes += 1;
+    }
+
+    /// A builtin writes global `g` of `inst` back (a `var` receiver or argument) with `v`: a write only when `v` is not
+    /// the value the global holds (a list or a dictionary the builtin changed in place comes back as the same handle;
+    /// `ContainsKey` and `Count` change nothing). Returns whether it was noted, so the caller calls
+    /// [`Session::single_written`].
+    #[inline]
+    pub(crate) fn single_wrote_back(&mut self, inst: &Rc<RefCell<Instance>>, g: usize, v: &Value) -> bool {
+        if self.si_track.is_none() || !inst.borrow().single {
+            return false;
+        }
+        let unchanged = inst
+            .try_borrow()
+            .is_ok_and(|i| i.globals.get(g).is_some_and(|old| same(old, v)));
+        if unchanged {
+            return false;
+        }
+        self.single_wrote_slow(inst, g, false);
+        true
+    }
+
+    /// A write in place of a temporary record held by global `g` of `inst` (`Insert`, `Delete`, `DeleteAll`): a write
+    /// of its rows. On a record that is not temporary it writes the database, not the variable, so it is none.
+    #[inline]
+    pub(crate) fn single_wrote_temp(&mut self, inst: &Rc<RefCell<Instance>>, g: usize) {
+        if self.si_track.is_none() || !inst.borrow().single {
+            return;
+        }
+        let temp =
+            matches!(inst.borrow().globals.get(g), Some(Value::Record(r)) if r.try_borrow().is_ok_and(|r| r.temporary));
+        if temp {
+            self.single_wrote_slow(inst, g, true);
+        }
+    }
+
+    /// The write [`Session::single_wrote`] announced is done: the fingerprint of a refill is taken now.
+    #[inline]
+    pub(crate) fn single_written(&mut self, inst: &Rc<RefCell<Instance>>, g: usize) {
+        if !self.si_track.as_ref().is_some_and(|t| !t.want_refill.is_empty()) {
+            return;
+        }
+        let object = inst.borrow().object as usize;
+        let key = (object, g);
+        let Some(t) = self.si_track.as_mut() else { return };
+        let Some(at) = t.want_refill.iter().position(|k| *k == key) else {
+            return;
+        };
+        t.want_refill.swap_remove(at);
+        let f = match inst.try_borrow() {
+            Ok(i) => i.globals.get(g).map_or(Fp::Opaque("?".into()), |v| fp(v, &self.engine)),
+            Err(_) => Fp::Opaque("borrowed".into()),
+        };
+        t.refill.insert(key, f);
     }
 
     /// What the session did with the watched single instances; `None` when it tracked none.
@@ -285,6 +385,8 @@ impl Session {
         let t = self.si_track.as_ref()?;
         let mut out = SingleOut {
             observed: t.observed.clone(),
+            guarded: t.guarded.clone(),
+            refill: t.refill.clone(),
             ..Default::default()
         };
         for (&object, inst) in &self.singletons {
@@ -321,6 +423,12 @@ impl Session {
                 }
             }
         }
+        // A refill whose write did not report its end (it raised an error): what the global holds now.
+        for k in &t.want_refill {
+            if let Some(e) = out.ends.get(k) {
+                out.refill.entry(*k).or_insert_with(|| e.clone());
+            }
+        }
         Some(out)
     }
 }
@@ -332,11 +440,7 @@ fn t_snapshot_all(t: &mut Track, made: &[(usize, Rc<RefCell<Instance>>)]) -> Tra
             snapshot(t, *o, inst);
         }
     }
-    Track {
-        seen: std::mem::take(&mut t.seen),
-        observed: std::mem::take(&mut t.observed),
-        start: std::mem::take(&mut t.start),
-    }
+    std::mem::take(t)
 }
 
 fn snapshot(t: &mut Track, object: usize, inst: &Rc<RefCell<Instance>>) {

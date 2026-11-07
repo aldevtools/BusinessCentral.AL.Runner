@@ -171,6 +171,7 @@ mod run_on_client;
 mod self_unbind;
 mod setter_call;
 mod setview_blank_datetime_or;
+mod single_track_access;
 mod sql_counter_copy;
 mod sql_counter_sizes;
 mod sql_counter_stored;

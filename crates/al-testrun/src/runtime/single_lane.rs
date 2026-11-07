@@ -73,68 +73,93 @@ pub(super) struct Found {
     pub dependent: BTreeMap<usize, (usize, GlobalKey)>,
     /// Positions of the codeunits to run in the lane: the dependent ones and the writers they need.
     pub lane: BTreeSet<usize>,
+    /// Position of a codeunit that is not dependent only because a guard then the refill of a global it read first
+    /// is taken as no link although the earlier codeunit left another value (`Assumption::SingleInstanceRefill`), with
+    /// that codeunit's position and the global.
+    pub refill_assumed: BTreeMap<usize, (usize, GlobalKey)>,
 }
 
 /// Step 3, the decision: from what each codeunit of a BC session (in order) noted, which depend on state an earlier one
 /// left. `None`: no notes (the codeunit was not watched, or it did not run).
+///
+/// ADR-066 amendment 3: a global read first whose read was a guard directly followed by the refill (R1b) is no link
+/// when the refill left the very value the earlier codeunit left, and is no link under `Assumption::SingleInstanceRefill`
+/// when it left another one. What a codeunit with a test refused mid-run left is no change (R3). The lane is each
+/// dependent codeunit and, for each global that makes it dependent, only the last codeunit that wrote it (R2); that
+/// writer's own writers join only when it is dependent itself.
 pub(super) fn analyse(outs: &[Option<&SingleOut>]) -> Found {
-    let mut state: BTreeMap<GlobalKey, (al_vm::single_track::Fp, usize)> = BTreeMap::new();
+    // Per global: what the last writer left, that writer, and whether it was refused mid-run.
+    let mut state: BTreeMap<GlobalKey, (al_vm::single_track::Fp, usize, bool)> = BTreeMap::new();
     let mut found = Found::default();
-    // The writes that changed a global: the first, and each that left another value than the one before it.
-    let mut effective: BTreeMap<GlobalKey, Vec<usize>> = BTreeMap::new();
+    let mut lane: BTreeSet<usize> = BTreeSet::new();
     for (p, out) in outs.iter().enumerate() {
         let Some(o) = out else { continue };
         let mut diff: Vec<(GlobalKey, usize)> = Vec::new();
+        // The globals read first that differ, but whose read was a guard directly followed by the refill (R1b).
+        let mut guarded: Vec<(GlobalKey, usize)> = Vec::new();
+        let mut assumed: Option<(usize, GlobalKey)> = None;
         for (k, seen) in &o.observed {
-            if let Some((fp, w)) = state.get(k) {
-                if fp != seen {
-                    diff.push((*k, *w));
-                }
+            let Some((fp, w, refused)) = state.get(k) else { continue };
+            if fp == seen || *refused {
+                continue;
             }
+            if o.guarded.contains(k) {
+                if o.refill.get(k) != Some(fp) {
+                    assumed.get_or_insert((*w, *k));
+                }
+                guarded.push((*k, *w));
+                continue;
+            }
+            diff.push((*k, *w));
         }
+        // A lazy cache the codeunit filled itself with the very values the earlier codeunit left is no dependence:
+        // whether it skipped the fill or did it, the state and what it reads are the same.
+        let same_end = |k: &GlobalKey| match state.get(k) {
+            Some((fp, _, false)) => o.ends.get(k).is_some_and(|e| e == fp || e.same_kind(fp)),
+            _ => true,
+        };
+        let mut culprit = None;
         if !diff.is_empty() {
-            // A lazy cache the codeunit filled itself with the very values the earlier codeunit left is no
-            // dependence: whether it skipped the fill or did it, the state and what it reads are the same.
-            let same_end = |k: &GlobalKey| match state.get(k) {
-                Some((fp, _)) => o.ends.get(k).is_some_and(|e| e == fp || e.same_kind(fp)),
-                None => true,
-            };
-            // The global that gives the dependence away: the first one the codeunit did not end with as it was left.
-            let culprit = diff
+            // The global that gives the dependence away: the first one the codeunit did not end with as it was left. A
+            // global it refilled after a guard (R1b) is not one: its end is the refill's (a time stamp never matches).
+            // A cache a flag guards lives in the flag's codeunit: what the codeunit wrote in another single instance is
+            // not tied to the flags it read (amendment 3).
+            let objects: BTreeSet<usize> = diff.iter().map(|((o, _), _)| *o).collect();
+            culprit = diff
                 .iter()
                 .map(|(k, _)| k)
-                .chain(o.wrote.iter())
+                .chain(
+                    o.wrote
+                        .iter()
+                        .filter(|k| !o.guarded.contains(k) && objects.contains(&k.0)),
+                )
                 .find(|k| !same_end(k))
-                .and_then(|k| state.get(k).map(|(_, w)| (*w, *k)));
-            if let Some(c) = culprit {
-                found.dependent.insert(p, c);
+                .and_then(|k| state.get(k).map(|(_, w, _)| (*w, *k)));
+        } else if !guarded.is_empty() {
+            // A refill is no link only when the codeunit left every other global as the earlier codeunit did: with the
+            // earlier value the guard may have skipped more than the refill (a cache filled after the key).
+            let objects: BTreeSet<usize> = guarded.iter().map(|((o, _), _)| *o).collect();
+            culprit = o
+                .wrote
+                .iter()
+                .filter(|k| !o.guarded.contains(k) && objects.contains(&k.0))
+                .find(|k| !same_end(k))
+                .and_then(|k| state.get(k).map(|(_, w, _)| (*w, *k)));
+            if culprit.is_some() {
+                diff = guarded;
             }
+        }
+        if let Some(c) = culprit {
+            found.dependent.insert(p, c);
+            lane.insert(p);
+            lane.insert(c.0);
+            lane.extend(diff.iter().map(|(_, w)| *w));
+        } else if let Some(a) = assumed {
+            found.refill_assumed.insert(p, a);
         }
         for k in &o.wrote {
             if let Some(end) = o.ends.get(k) {
-                let before = state.insert(*k, (end.clone(), p));
-                if before.is_none_or(|(b, _)| !(b == *end || b.same_kind(end))) {
-                    effective.entry(*k).or_default().push(p);
-                }
-            }
-        }
-    }
-    // The lane: the dependent codeunits and the earlier writes that changed a global one of its members read first. A
-    // write that left the value as it was is no change: leaving it out gives the members the same start.
-    let mut lane: BTreeSet<usize> = found.dependent.keys().copied().collect();
-    let mut work: Vec<usize> = lane.iter().copied().collect();
-    while let Some(m) = work.pop() {
-        let Some(o) = outs[m] else { continue };
-        for k in o.observed.keys() {
-            for &j in effective
-                .get(k)
-                .map_or(&[][..], Vec::as_slice)
-                .iter()
-                .filter(|&&j| j < m)
-            {
-                if lane.insert(j) {
-                    work.push(j);
-                }
+                state.insert(*k, (end.clone(), p, o.refused));
             }
         }
     }
@@ -165,6 +190,11 @@ pub struct LaneReport {
     pub lane: Vec<(u32, String)>,
     /// One line per dependent codeunit: what it relies on.
     pub notes: Vec<String>,
+    /// Codeunits taken as independent under `Assumption::SingleInstanceRefill` (a guard, then the refill of a global
+    /// an earlier codeunit left with another value): their tests are flagged, they do not run again.
+    pub refill_assumed: usize,
+    /// The time the lane took (all its BC sessions, one after the other on one thread).
+    pub took: std::time::Duration,
 }
 
 impl LaneReport {
@@ -173,11 +203,13 @@ impl LaneReport {
             return Vec::new();
         }
         let mut out = vec![format!(
-            "SingleInstance order: {} test codeunits watched, {} BC sessions with a dependent codeunit, {} codeunits ran in the lane ({} dependent)",
+            "SingleInstance order: {} test codeunits watched, {} BC sessions with a dependent codeunit, {} codeunits ran in the lane ({} dependent, {:.2} s); {} codeunits flagged as independent under the guard-then-refill assumption",
             self.watched,
             self.sessions,
             self.lane.len(),
-            self.notes.len()
+            self.notes.len(),
+            self.took.as_secs_f64(),
+            self.refill_assumed
         )];
         out.extend(self.notes.iter().cloned());
         out
@@ -191,6 +223,7 @@ impl Lane<'_> {
         if report.watched == 0 {
             return;
         }
+        let started = std::time::Instant::now();
         let has = |k: usize| slots[k].is_some();
         let streams = streams(self.units, self.place, &has);
         for ks in streams {
@@ -204,12 +237,19 @@ impl Lane<'_> {
                     .collect();
                 analyse(&outs)
             };
+            for &p in found.refill_assumed.keys() {
+                if let Some(Ok(done)) = slots[ks[p]].as_mut().map(|r| &mut r.result) {
+                    flag_all(done, Assumption::SingleInstanceRefill);
+                    report.refill_assumed += 1;
+                }
+            }
             if found.dependent.is_empty() {
                 continue;
             }
             report.sessions += 1;
             self.run_stream(&ks, &found, slots, report);
         }
+        report.took += started.elapsed();
     }
 
     fn name(&self, k: usize) -> String {
@@ -300,17 +340,7 @@ impl Lane<'_> {
                             }
                         }
                     }
-                    for (test, _) in &done.0 {
-                        match done.3.iter_mut().find(|(t, _)| t == test) {
-                            Some((_, hits)) => {
-                                if !hits.contains(&Assumption::SingleInstanceOrder) {
-                                    hits.push(Assumption::SingleInstanceOrder);
-                                    hits.sort();
-                                }
-                            }
-                            None => done.3.push((test.clone(), vec![Assumption::SingleInstanceOrder])),
-                        }
-                    }
+                    flag_all(done, Assumption::SingleInstanceOrder);
                 }
                 slots[k] = Some(r);
             }
@@ -318,6 +348,21 @@ impl Lane<'_> {
             // depends hands the later codeunits the rows of its first run (what its run in the lane left is dropped).
         }
         super::run::LANE_SINGLES.with(|c| *c.borrow_mut() = None);
+    }
+}
+
+/// Marks every test of a codeunit's run with `a`.
+fn flag_all(done: &mut UnitOutcomes, a: Assumption) {
+    for (test, _) in &done.0 {
+        match done.3.iter_mut().find(|(t, _)| t == test) {
+            Some((_, hits)) => {
+                if !hits.contains(&a) {
+                    hits.push(a);
+                    hits.sort();
+                }
+            }
+            None => done.3.push((test.clone(), vec![a])),
+        }
     }
 }
 
@@ -335,7 +380,137 @@ mod tests {
             observed: observed.iter().map(|&(k, v)| (k, fp(v))).collect(),
             ends: ends.iter().map(|&(k, v)| (k, fp(v))).collect(),
             wrote: wrote.iter().copied().collect(),
+            ..Default::default()
         }
+    }
+
+    #[test]
+    fn only_the_last_writer_of_a_global_joins_the_lane() {
+        let flag = (1, 0);
+        // Two codeunits set the flag one after the other; the reader needs only the state the last one left.
+        let a = out(&[], &[(flag, 7)], &[flag]);
+        let b = out(&[], &[(flag, 8)], &[flag]);
+        let c = out(&[(flag, 0)], &[(flag, 0)], &[]);
+        let found = analyse(&[Some(&a), Some(&b), Some(&c)]);
+        assert_eq!(found.dependent, BTreeMap::from([(2, (1, flag))]));
+        assert_eq!(found.lane, BTreeSet::from([1, 2]));
+    }
+
+    #[test]
+    fn a_dependent_writer_brings_its_own_writer() {
+        let (k1, k2) = ((1, 0), (2, 0));
+        let a = out(&[], &[(k2, 3)], &[k2]);
+        // b read k2 (that a set) and set k1; c reads k1.
+        let b = out(&[(k2, 0)], &[(k2, 0), (k1, 4)], &[k1]);
+        let c = out(&[(k1, 0)], &[(k1, 0)], &[]);
+        let found = analyse(&[Some(&a), Some(&b), Some(&c)]);
+        assert_eq!(found.dependent.keys().copied().collect::<Vec<_>>(), vec![1, 2]);
+        assert_eq!(found.lane, BTreeSet::from([0, 1, 2]));
+    }
+
+    #[test]
+    fn a_writer_that_is_not_dependent_brings_no_earlier_writer() {
+        let (k1, k2) = ((1, 0), (2, 0));
+        let a = out(&[], &[(k2, 3)], &[k2]);
+        // b wrote k2 itself before it read it, and set k1; it does not depend on a.
+        let b = out(&[], &[(k2, 5), (k1, 4)], &[k1, k2]);
+        let c = out(&[(k1, 0)], &[(k1, 0)], &[]);
+        let found = analyse(&[Some(&a), Some(&b), Some(&c)]);
+        assert_eq!(found.lane, BTreeSet::from([1, 2]));
+    }
+
+    #[test]
+    fn a_refused_writer_is_no_change() {
+        let flag = (1, 0);
+        // The writer set the flag, then a test of it was refused before it could reset the flag (as BC's run would).
+        let mut a = out(&[], &[(flag, 7)], &[flag]);
+        a.refused = true;
+        let b = out(&[(flag, 0)], &[(flag, 0)], &[]);
+        let found = analyse(&[Some(&a), Some(&b)]);
+        assert!(found.dependent.is_empty() && found.lane.is_empty(), "{found:?}");
+    }
+
+    #[test]
+    fn a_writer_after_a_refused_one_counts_again() {
+        let flag = (1, 0);
+        let mut a = out(&[], &[(flag, 7)], &[flag]);
+        a.refused = true;
+        let b = out(&[(flag, 0)], &[(flag, 5)], &[flag]);
+        let c = out(&[(flag, 0)], &[(flag, 0)], &[]);
+        let found = analyse(&[Some(&a), Some(&b), Some(&c)]);
+        assert_eq!(found.dependent, BTreeMap::from([(2, (1, flag))]));
+        assert_eq!(found.lane, BTreeSet::from([1, 2]));
+    }
+
+    #[test]
+    fn a_guard_then_refill_that_left_the_earlier_value_is_no_link() {
+        let cache = (1, 0);
+        // A keyed cache: a filled it with key 3; b's guard saw it empty and refilled it with key 3, then moved to key 4.
+        let a = out(&[], &[(cache, 3)], &[cache]);
+        let mut b = out(&[(cache, 0)], &[(cache, 4)], &[cache]);
+        b.guarded.insert(cache);
+        b.refill.insert(cache, fp(3));
+        let found = analyse(&[Some(&a), Some(&b)]);
+        assert!(found.dependent.is_empty() && found.lane.is_empty(), "{found:?}");
+        assert!(
+            found.refill_assumed.is_empty(),
+            "the same value either way: no assumption"
+        );
+    }
+
+    #[test]
+    fn a_guard_then_refill_that_also_left_another_global_unlike_the_earlier_codeunit_is_a_dependence() {
+        let (key, cache) = ((1, 0), (1, 1));
+        // b's guard refilled the key the earlier codeunit left, then filled the cache with another value: with the
+        // earlier key BC would have skipped the fill and kept a's cache.
+        let a = out(&[], &[(key, 3), (cache, 30)], &[key, cache]);
+        let mut b = out(&[(key, 0)], &[(key, 3), (cache, 31)], &[key, cache]);
+        b.guarded.insert(key);
+        b.refill.insert(key, fp(3));
+        let found = analyse(&[Some(&a), Some(&b)]);
+        assert_eq!(found.dependent, BTreeMap::from([(1, (0, cache))]));
+        assert!(found.refill_assumed.is_empty());
+    }
+
+    #[test]
+    fn a_lazy_flag_does_not_tie_in_what_the_codeunit_wrote_in_another_single_instance() {
+        // The flag of codeunit 1 ends as the earlier codeunit left it; codeunit 2's dictionary (Application Area Cache,
+        // filled with this codeunit's own keys) is no cache the flag guards.
+        let (flag, dict) = ((1, 0), (2, 0));
+        let a = out(&[], &[(flag, 1), (dict, 3)], &[flag, dict]);
+        let b = out(&[(flag, 0)], &[(flag, 1), (dict, 4)], &[flag, dict]);
+        assert!(analyse(&[Some(&a), Some(&b)]).dependent.is_empty());
+    }
+
+    #[test]
+    fn a_refilled_time_stamp_does_not_make_a_lazy_cache_dependent() {
+        // Get Shortcut Dimension Values.GetGLSetup (Base Application, BC 29): `if WhenGotGLSetup = 0DT then
+        // WhenGotGLSetup := CurrentDateTime`, then the flag and the cache. The flag and the cache end as the earlier
+        // codeunit left them; the time stamp never does.
+        let (when, has, cache) = ((1, 0), (1, 1), (1, 2));
+        let a = out(&[], &[(when, 10), (has, 1), (cache, 5)], &[when, has, cache]);
+        let mut b = out(
+            &[(when, 0), (has, 0)],
+            &[(when, 11), (has, 1), (cache, 5)],
+            &[when, has, cache],
+        );
+        b.guarded.insert(when);
+        b.refill.insert(when, fp(11));
+        let found = analyse(&[Some(&a), Some(&b)]);
+        assert!(found.dependent.is_empty(), "{found:?}");
+        assert_eq!(found.refill_assumed, BTreeMap::from([(1, (0, when))]));
+    }
+
+    #[test]
+    fn a_guard_then_refill_with_another_value_is_no_link_under_the_assumption() {
+        let cache = (1, 0);
+        let a = out(&[], &[(cache, 3)], &[cache]);
+        let mut b = out(&[(cache, 0)], &[(cache, 4)], &[cache]);
+        b.guarded.insert(cache);
+        b.refill.insert(cache, fp(4));
+        let found = analyse(&[Some(&a), Some(&b)]);
+        assert!(found.dependent.is_empty() && found.lane.is_empty(), "{found:?}");
+        assert_eq!(found.refill_assumed, BTreeMap::from([(1, (0, cache))]));
     }
 
     #[test]
@@ -380,6 +555,7 @@ mod tests {
             observed: BTreeMap::from([(g, observed)]),
             ends: BTreeMap::from([(g, end)]),
             wrote: BTreeSet::from([g]),
+            ..Default::default()
         };
         let first = SingleOut {
             ends: BTreeMap::from([(g, opaque("a DotNet object"))]),

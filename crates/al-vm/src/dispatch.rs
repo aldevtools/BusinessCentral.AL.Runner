@@ -374,7 +374,10 @@ impl Session {
                 if let (Some(j), true) = (m, r.by_var[i]) {
                     args[*j] = finals[i].clone();
                     if let Some(Some((inst, g))) = origins.get(*j) {
+                        // A write of the publisher's global through a subscriber's `var` parameter (ADR-066 amendment 3, R1).
+                        self.single_wrote(inst, *g);
                         inst.borrow_mut().globals[*g] = finals[i].clone();
+                        self.single_written(inst, *g);
                     }
                 }
             }
