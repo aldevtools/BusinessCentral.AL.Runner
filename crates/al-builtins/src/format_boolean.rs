@@ -18,9 +18,29 @@ pub(crate) fn boolean_text(b: bool, standard: i32, language: i32) -> Result<Stri
         // format-evaluate/EvalLanguageBoolean.al EL_Errors_DAN_1030, EL_Errors_NLD_1043, EL_Errors_NLB_2067.
         (_, false) if language == 1030 => "Nej".into(),
         (_, false) if matches!(language, 1043 | 2067) => "Nee".into(),
+        // format-evaluate/EvalLanguageBoolean.al:1063 WA_BlankEnum1_ES_1034 (`Sí` for true; the word for false is not pinned).
+        (_, true) if language == 1034 => "Sí".into(),
+        (_, false) if language == 1034 => {
+            return Err(FormatFail::Unsupported(
+                "Format of false under GlobalLanguage 1034 (only the word for true is pinned)".into(),
+            ));
+        }
         (_, true) if language == 1036 => "Oui".into(),
         (_, false) if language == 1036 => "Non".into(),
         (_, true) => "Yes".into(),
         (_, false) => "No".into(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::boolean_text;
+
+    // format-evaluate/EvalLanguageBoolean.al:1063 WA_BlankEnum1_ES_1034: true is `Sí` under 1034; false is not pinned.
+    #[test]
+    fn spanish_true_is_si_and_false_is_refused() {
+        assert_eq!(boolean_text(true, 0, 1034).unwrap(), "Sí");
+        assert!(boolean_text(false, 0, 1034).is_err());
+        assert_eq!(boolean_text(true, 9, 1034).unwrap(), "true");
+    }
 }
