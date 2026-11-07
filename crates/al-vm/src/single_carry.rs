@@ -20,7 +20,7 @@
 //! (`Signal::Unsupported`).
 
 use crate::Session;
-use crate::single_codec::{BindingRanks, reaches_any, CarryVal, Enc, IdUse, Ids, binding_ranks, bound_in};
+use crate::single_codec::{BindingRanks, CarryVal, Enc, IdUse, Ids, binding_ranks, bound_in, reaches_any};
 use al_builtins::describe::Describe;
 use al_builtins::value::{Instance, Value};
 use std::cell::RefCell;
@@ -162,7 +162,9 @@ fn same(a: &Value, b: &Value) -> bool {
         (Value::Byte(x), Value::Byte(y)) => x == y,
         (Value::Char(x), Value::Char(y)) => x == y,
         (Value::Date(x, c), Value::Date(y, d)) => x == y && c == d,
-        (Value::Time(x), Value::Time(y)) | (Value::DateTime(x), Value::DateTime(y)) | (Value::Duration(x), Value::Duration(y)) => x == y,
+        (Value::Time(x), Value::Time(y))
+        | (Value::DateTime(x), Value::DateTime(y))
+        | (Value::Duration(x), Value::Duration(y)) => x == y,
         (Value::Enum(x, m), Value::Enum(y, n)) => x == y && m == n,
         (Value::Text(x), Value::Text(y)) | (Value::Code(x), Value::Code(y)) => x == y,
         _ => {
@@ -443,26 +445,16 @@ impl Session {
     /// What the session did with the single instances since [`Session::track_single_instances`]; `None` when it did not
     /// track them.
     pub fn single_out(&self) -> Option<SingleOut> {
-        let t0 = std::time::Instant::now();
-        let r = self.single_out_inner();
-        TIME_OUT.fetch_add(t0.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
-        r
-    }
-    fn single_out_inner(&self) -> Option<SingleOut> {
         let t = self.si_track.as_ref()?;
         let mut out = SingleOut {
             observed: t.observed.clone(),
             ..Default::default()
         };
-        let t1 = std::time::Instant::now();
         let ranks = binding_ranks(self);
-        TIME_IN.fetch_add(t1.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
-        let t0 = std::time::Instant::now();
         let (objects, groups) = self.single_groups();
-        TIME_GRP.fetch_add(t0.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
         // Counting what the groups share costs a walk of all their values: only when a group needs writing.
         let enc_cell = std::cell::OnceCell::new();
-        let enc = || enc_cell.get_or_init(|| { let t0 = std::time::Instant::now(); let e = Enc::new(self, &groups, t.bound, ranks.ranks.clone()); TIME_ENC.fetch_add(t0.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed); e });
+        let enc = || enc_cell.get_or_init(|| Enc::new(self, &groups, t.bound, ranks.ranks.clone()));
         for (&object, globals) in objects.iter().zip(&groups) {
             // After a BindSubscription or UnbindSubscription, a global that holds a bound instance, or held one at the
             // start, may stand for another binding although it holds the same handle.
@@ -485,9 +477,7 @@ impl Session {
             if !changed.contains(&true) {
                 continue;
             }
-            let t0 = std::time::Instant::now();
             let carried = carry_group(enc(), globals);
-            TIME_GRP.fetch_add(t0.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
             // Globals that share a handle are handed on together (one may have changed through another). What the
             // others held at the start then counts as read: the walk checks it against the serial state, as what
             // they hand on rests on it.
@@ -520,7 +510,7 @@ impl Session {
         }
         let bindings = match t.poisoned.get(&BINDINGS_KEY) {
             Some(why) => Carry::Opaque(why.clone()),
-            None => { let t0 = std::time::Instant::now(); let b = self.binding_carry_with(ranks); TIME_RK.fetch_add(t0.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed); b }
+            None => self.binding_carry_with(ranks),
         };
         if t.bindings_changed || t.bind_start.as_ref() != Some(&bindings) {
             out.wrote.insert(BINDINGS_KEY, bindings);
@@ -733,9 +723,3 @@ mod tests {
         assert_ne!(v, o);
     }
 }
-
-pub static TIME_OUT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-pub static TIME_IN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-pub static TIME_ENC: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-pub static TIME_GRP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-pub static TIME_RK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);

@@ -143,6 +143,9 @@ struct RunsState {
     singles_at: std::collections::HashMap<(usize, bool), (usize, Arc<SingleState>)>,
     /// Per unit index: the SingleInstance globals it wrote in its last run ahead, or once the walk passed it, there.
     singles_wrote: Vec<Option<Arc<SingleState>>>,
+    /// Counts the changes of `singles_at` and `singles_wrote`; `guesses` hold what [`Runs::guess_singles`] made at one.
+    singles_version: u64,
+    guesses: std::cell::RefCell<std::collections::HashMap<usize, (u64, Arc<SingleState>)>>,
     /// The members of `order` the walk has reached.
     walked: usize,
     /// The helpers waiting in `claim` for a member to run.
@@ -190,6 +193,8 @@ impl Runs {
                 tainted: Default::default(),
                 singles_at: Default::default(),
                 singles_wrote: vec![None; n],
+                singles_version: 0,
+                guesses: Default::default(),
                 walked: 0,
                 idle: 0,
                 open: Default::default(),
@@ -213,6 +218,17 @@ impl Runs {
     /// Where member `k` is predicted to start in its BC session's SingleInstance state: the walk's state there with what
     /// the members between wrote applied (an unknown one counts as writing nothing).
     fn guess_singles(&self, s: &RunsState, k: usize) -> Arc<SingleState> {
+        if let Some((v, g)) = s.guesses.borrow().get(&k) {
+            if *v == s.singles_version {
+                return g.clone();
+            }
+        }
+        let made = self.guess_singles_now(s, k);
+        s.guesses.borrow_mut().insert(k, (s.singles_version, made.clone()));
+        made
+    }
+
+    fn guess_singles_now(&self, s: &RunsState, k: usize) -> Arc<SingleState> {
         let key = self.stream[k];
         let (from, at) = s.singles_at.get(&key).map_or((0, None), |(p, a)| (*p, Some(a.clone())));
         let to = self.place[k].unwrap_or(0);
@@ -403,6 +419,7 @@ impl Runs {
                 }
                 if let Some(Ok(done)) = ahead.as_ref().map(|a| &a.result.result) {
                     s.singles_wrote[k] = done.5.singles_out.as_ref().map(|out| Arc::new(out.wrote.clone()));
+                    s.singles_version += 1;
                 }
             }
             s.slots[k] = match () {
@@ -505,6 +522,7 @@ impl Runs {
             };
             s.singles_at.insert(key, (from, state));
             s.singles_wrote[k] = wrote;
+            s.singles_version += 1;
             let stale: Vec<usize> = self.order[from.min(self.order.len())..]
                 .iter()
                 .copied()

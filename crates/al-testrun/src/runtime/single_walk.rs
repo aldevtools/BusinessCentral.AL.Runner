@@ -124,8 +124,6 @@ impl SingleWalk<'_> {
         });
         let mut streams: std::collections::HashMap<(usize, bool), Stream> = Default::default();
         let mut again = Vec::new();
-        let t_walk = std::time::Instant::now();
-        let mut t_rerun = std::time::Duration::ZERO;
         for k in order {
             let u = &self.units[k];
             let s = streams.entry((u.si, u.hub_leg)).or_default();
@@ -150,7 +148,6 @@ impl SingleWalk<'_> {
                     .then(|| self.predicted.borrow_mut().remove(&k))
                     .flatten()
                     .filter(|c| fits(c, &s.state));
-                let t_r = std::time::Instant::now();
                 let r = match cached {
                     Some(c) => c,
                     None => {
@@ -165,7 +162,6 @@ impl SingleWalk<'_> {
                     Left::Relay(c) => s.relay = Some((u.si, u.id, self.leg_of(k), *c)),
                     Left::Broken(why) => s.broken = Some(why),
                 }
-                t_rerun += t_r.elapsed();
                 slots[k] = Some(r);
                 again.push(k);
             }
@@ -173,7 +169,6 @@ impl SingleWalk<'_> {
             self.distrust(s, r);
             self.take(s, r);
         }
-        eprintln!("TIMES walk {:.2}s of which reruns {:.2}s; single_out {:.2}s restore {:.2}s enc {:.2}s grp {:.2}s bindcarry {:.2}s", t_walk.elapsed().as_secs_f64(), t_rerun.as_secs_f64(), al_vm::single_carry::TIME_OUT.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e9, al_vm::single_carry::TIME_IN.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e9, al_vm::single_carry::TIME_ENC.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e9, al_vm::single_carry::TIME_GRP.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e9, al_vm::single_carry::TIME_RK.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e9);
         again
     }
 

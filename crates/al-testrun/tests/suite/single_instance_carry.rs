@@ -880,3 +880,30 @@ fn a_binding_held_where_it_cannot_be_handed_on_is_refused_not_dropped() {
     assert_eq!(outcome(&results, "Binds"), Outcome::Pass);
     refused(outcome(&results, "Raises"), "an event with a manual subscriber");
 }
+
+/// A single instance is put back in a session when the session first makes it: a codeunit that uses none of the
+/// instances the run carries leaves them as they were, and the codeunit after it still reads them.
+#[test]
+fn a_single_instance_a_codeunit_in_between_does_not_use_stays_for_the_codeunit_after_it() {
+    let src = r#"
+codeunit 60280 "Lazy A"
+{
+    Subtype = Test;
+    [Test] procedure SetsOther() var O: Codeunit "Carry Other"; begin O.Set(41); end;
+}
+codeunit 60281 "Lazy B"
+{
+    Subtype = Test;
+    [Test] procedure UsesAnotherOne() var S: Codeunit "Carry State"; begin S.Bump(); end;
+}
+codeunit 60282 "Lazy C"
+{
+    Subtype = Test;
+    [Test] procedure ReadsOther() var O: Codeunit "Carry Other"; begin if O.Get() <> 41 then Error('other: %1', O.Get()); end;
+}
+"#;
+    let results = run(src, &RunOptions::default());
+    for t in ["SetsOther", "UsesAnotherOne", "ReadsOther"] {
+        assert_eq!(outcome(&results, t), Outcome::Pass, "{t}: {results:?}");
+    }
+}

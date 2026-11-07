@@ -373,6 +373,12 @@ smaller batches that hid about 1,000 passing tests on BC 29. The refused read is
 not carried (`single_carry.rs`), and `fits` does not accept it when the serial state holds the value as a carried one:
 the run again restores it.
 
+**Less work per codeunit (2026-11-07, speed only).** A session puts a carried single instance back when it first
+makes it, not all at the start (`Session::restore_lazy`, `shared_instance`); a run that carries bindings (a bound
+subscriber) restores everything at the start as before. The end of a run encodes only the globals that hold a bound
+instance for the bindings value, not every global of every single instance, and walks the globals for bound
+instances once. The chain's prediction caches the state it guesses for a member until the state changes.
+
 **What a refused test may change is worked out late (2026-11-07).** `SingleWalk::take` only notes the refused tests
 (`Pend`); the walk of their reach (`resolve`) runs when a later codeunit that read SingleInstance state has a failure
 to trust or not (`distrust`). The results are the same, in the same order.
