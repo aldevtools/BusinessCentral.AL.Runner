@@ -461,7 +461,9 @@ impl SingleWalk<'_> {
         // One walk of the refused routines' joined reach: they share most of it, and a global any of them can write is
         // not known from here on, whichever wrote it.
         let roots: Vec<(usize, usize)> = routines.iter().map(|&i| (r.oi, i)).collect();
-        let facts = union_reach_written(&self.engine.events, self.lowered, &index, &roots);
+        let facts = union_reach_written(&self.engine.events, self.lowered, &index, &roots, &|o| {
+            single_instance(self.lowered, o)
+        });
         let what = match routines.len() {
             1 => format!("{}.{}", obj.name, obj.routines[first].name),
             n => format!(
