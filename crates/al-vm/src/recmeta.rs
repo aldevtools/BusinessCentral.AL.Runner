@@ -1161,11 +1161,17 @@ impl Session {
                         if let Some(why) = self.enum_caption_refusal(*id, Some(*o)) {
                             return unsupported(why);
                         }
+                        if let Some(why) = self.enum_ml_unpinned(*id, Some(*o), "a field comparison read") {
+                            return unsupported(why);
+                        }
                         shown = Some(al_builtins::format::FormatCtx::enum_name(self, *id, *o))
                     }
                     // An Enum against a Text field is never equal and is written as its member (:229-231, Knd_result No, 'Two').
                     (Value::Text(_) | Value::Code(_), Value::Enum(id, o)) => {
                         if let Some(why) = self.enum_caption_refusal(*id, Some(*o)) {
+                            return unsupported(why);
+                        }
+                        if let Some(why) = self.enum_ml_unpinned(*id, Some(*o), "a field comparison read") {
                             return unsupported(why);
                         }
                         shown = Some(al_builtins::format::FormatCtx::enum_name(self, *id, *o));

@@ -30,4 +30,21 @@ impl Session {
         }
         Ok(out)
     }
+
+    /// The refusal of a reader other than Format and Evaluate (a page control, a filter text, a key value, a metadata read)
+    /// of the caption of value `ordinal` (`None`: of any value) of enum `id`, when a value declares a `CaptionML`. Only Format
+    /// and Evaluate are pinned to read it (above); every other reader would show the name or the plain caption, a silent
+    /// wrong result (hard rule 4).
+    pub(crate) fn enum_ml_unpinned(&self, id: u32, ordinal: Option<i32>, reader: &str) -> Option<String> {
+        let o = self.engine.program.objects.get(id as usize)?;
+        let (v, _) = o
+            .enum_captions_ml
+            .iter()
+            .find(|(v, _)| ordinal.is_none_or(|w| w == *v))?;
+        Some(format!(
+            "the caption of enum value {v} of enum {} under GlobalLanguage {} (CaptionML; not pinned for {reader})",
+            o.name,
+            al_builtins::format::FormatCtx::language(self)
+        ))
+    }
 }
