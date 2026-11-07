@@ -67,6 +67,9 @@ pub struct TestArgs {
     /// (ADR-020 amendment, owner 2026-10-17). `None`: `w1`. Never read from app.json or AL-Go settings.
     pub country: Option<String>,
     pub no_download: bool,
+    /// `--allow-missing-dependencies`: with `--no-download`, a dependency that cannot be found is a warning again
+    /// (al-runner issue 7139). Without the flag it stops the run with exit code 2.
+    pub allow_missing_dependencies: bool,
     pub cache_dir: Option<PathBuf>,
     /// `--no-compile-cache`: compile the dependency apps on every run, only what the tests reach.
     pub no_compile_cache: bool,
@@ -516,7 +519,11 @@ DEPENDENCIES
     --bc-version V       BC major, major.minor or an exact build (four numbers). An exact build
                          also fills Microsoft's $(app_...) variables in source archives that
                          lie outside a folder named for their build.
-    --no-download        Never fetch from the artifact feed (apps, System.app, demo data).
+    --no-download        Never fetch from the artifact feed (apps, System.app, demo data). A dependency
+                         app that cannot be found then stops the run (exit 2) and the message names it.
+    --allow-missing-dependencies
+                         With --no-download: skip a missing dependency with a warning instead of
+                         stopping. --output-json and serve list it as `skippedDependencies`.
     Microsoft's apps, and the platform's System.app, come from the artifact feed. Without
     --bc-version they come from the build of the tests when the tests are Microsoft's (a
     Tests-*.Source.zip or .app in a folder named for its build, or with the build as its
@@ -1461,6 +1468,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
                 a.matrix_cell = Some(f);
             }
             "--no-download" => a.no_download = true,
+            "--allow-missing-dependencies" => a.allow_missing_dependencies = true,
             "--no-test-data" => a.no_test_data = true,
             "--cache-dir" => a.cache_dir = Some(text()?.into()),
             "--no-compile-cache" => a.no_compile_cache = true,

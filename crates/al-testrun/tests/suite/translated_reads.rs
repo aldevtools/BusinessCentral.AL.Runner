@@ -250,8 +250,10 @@ fn the_issues_three_tests_and_other_translatable_reads_are_not_run_when_the_app_
             "the OptionCaption of field Kind of table ALR Item",
         ),
         (
+            // A field control with no Caption of its own takes its source field's caption, so the refusal names the field
+            // (localization/app-xliff/lt-r7144-ext-caption/R7187PageCaption.al, al-runner issue 7187).
             "TestPageCaptions_UnderAnotherLanguage",
-            "the caption of control No of page ALR Item Card",
+            "the caption of field No. of table ALR Item",
         ),
         (
             "TestPageCaption_UnderAnotherLanguage",

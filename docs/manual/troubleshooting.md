@@ -63,6 +63,8 @@ from another publisher must be given with `--dep`, `--package-cache`, or the
 `.alpackages` folder, and it must carry AL source. A package without source cannot be
 used, and the message names it.
 
+With `--no-download`, a dependency that cannot be found stops the run with exit 2 and names the app (id, name, declared version). `--allow-missing-dependencies` skips it with a warning instead. The run can then give different results, so check `skippedDependencies` in `--output-json` or the `serve` summary.
+
 ## `-v: no such file or folder`
 
 `3.0.0-alpha.3` read the short flags `-v` and `-q` as app paths
