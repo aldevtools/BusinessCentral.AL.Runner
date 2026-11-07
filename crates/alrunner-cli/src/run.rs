@@ -561,6 +561,37 @@ fn missing_dependencies_message(skipped: &[al_testrun::deps::SkippedDependency])
     m
 }
 
+/// What follows the load of the dependency apps: a run under `--no-download` stops on dependencies it could not find
+/// (al-runner issue 7139: without the feed a missing dependency would quietly change the install the tests run on),
+/// and a debug session learns the sources it can show.
+fn after_dependencies_load(
+    a: &TestArgs,
+    debug: &Option<DebugSetup>,
+    inputs: &[crate::apps::AppInput],
+    dependencies: &al_testrun::deps::Dependencies,
+) -> Result<(), String> {
+    if a.no_download && !a.allow_missing_dependencies && !dependencies.skipped_details.is_empty() {
+        return Err(missing_dependencies_message(&dependencies.skipped_details));
+    }
+    if let Some(d) = debug {
+        let written = al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()).join("debug-sources");
+        *d.sources.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some(crate::debug::sources_of(inputs, dependencies, written));
+    }
+    Ok(())
+}
+
+/// The `--output-json` document with its `skippedDependencies` list (issue 7139).
+fn with_skipped_dependencies(doc: String, dependencies: &al_testrun::deps::Dependencies) -> Result<String, String> {
+    match serde_json::from_str::<serde_json::Value>(&doc) {
+        Ok(mut d) if d.is_object() => {
+            d["skippedDependencies"] = skipped_json(dependencies);
+            serde_json::to_string_pretty(&d).map_err(|e| e.to_string())
+        }
+        _ => Ok(doc),
+    }
+}
+
 /// A run whose selected tests and coverage statements are handed back in `into` (one side of an impact run).
 /// Prints the summary line of the run but no verdict.
 pub fn test_collect(a: &TestArgs, into: &mut Collected) -> Result<u8, String> {
@@ -1144,15 +1175,7 @@ fn test_inner(
             d
         }
     };
-    // al-runner issue 7139: without the feed a missing dependency would quietly change the install the tests run on.
-    if a.no_download && !a.allow_missing_dependencies && !dependencies.skipped_details.is_empty() {
-        return Err(missing_dependencies_message(&dependencies.skipped_details));
-    }
-    if let Some(d) = &debug {
-        let written = al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()).join("debug-sources");
-        *d.sources.lock().unwrap_or_else(|e| e.into_inner()) =
-            Some(crate::debug::sources_of(&inputs, &dependencies, written));
-    }
+    after_dependencies_load(a, &debug, &inputs, &dependencies)?;
     let microsoft = inputs.iter().any(|i| apps::is_microsoft(&i.manifest.publisher))
         || dependencies.manifests.iter().any(|m| apps::is_microsoft(&m.publisher));
     if should_choose_test_data(a, test_data.is_some(), microsoft) {
@@ -2471,13 +2494,7 @@ fn test_inner(
             }
             None => doc,
         };
-        let doc = match serde_json::from_str::<serde_json::Value>(&doc) {
-            Ok(mut d) if d.is_object() => {
-                d["skippedDependencies"] = skipped_json(&dependencies);
-                serde_json::to_string_pretty(&d).map_err(|e| e.to_string())?
-            }
-            _ => doc,
-        };
+        let doc = with_skipped_dependencies(doc, &dependencies)?;
         match target {
             Some(path) => write_file(path, &doc)?,
             None => println!("{doc}"),
