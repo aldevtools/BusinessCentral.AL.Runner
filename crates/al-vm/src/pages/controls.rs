@@ -585,8 +585,9 @@ impl Session {
         // a card does (testpage/TestPageErrTeardown_Tests.al, TestPageBooleanSpelling_Tests.al:210).
         let suffix = self.validation_suffix(st, idx, rec_bound);
         let language = al_builtins::format::FormatCtx::language(self);
+        let draft_key = self.draft_integer_key(st, idx);
         let refuse_code = |msg: String, code: &str| -> Signal {
-            super::validation_text::validation_signal(&engine, st, idx, msg, suffix, code, language)
+            super::validation_text::validation_signal(&engine, st, idx, msg, suffix, code, language, draft_key)
         };
         let refuse = |_: &mut Session, msg: String| -> Signal { refuse_code(msg, "") };
         // The bounds and the length of a Text variable raise a TestValidation error

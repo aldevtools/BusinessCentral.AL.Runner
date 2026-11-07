@@ -3,6 +3,9 @@
 use super::controls::note_refusal;
 use super::*;
 
+/// `draft_key`: the control shows an Integer key field of a draft row (`draft_integer_key`); its Integer-entry error adds no
+/// Refresh hint.
+///
 /// The error of a refused entry of control `idx`: `msg` is the sentence the client builds, `suffix` the Refresh hint.
 ///
 /// Under 1043 the platform's own words are Dutch: the frame of the error and the reason an Integer entry could not be read
@@ -16,7 +19,10 @@ pub(super) fn validation_signal(
     suffix: &str,
     code: &str,
     language: i32,
+    draft_key: bool,
 ) -> Signal {
+    let integer_entry = msg.ends_with(" can't be evaluated into type Integer.");
+    let suffix = if draft_key && integer_entry { "" } else { suffix };
     let name = &page_of(engine, st).controls[idx].name;
     let (stored, text) = if language == 1043 {
         let reason = msg.split_once(" The value \"").and_then(|(head, tail)| {
