@@ -1717,6 +1717,7 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
         parts.pop();
     }
     let mut conditions: Vec<(u32, String)> = Vec::new();
+    let all_parts = parts.clone();
     for (i, part) in parts.into_iter().enumerate() {
         let part = part.trim();
         if part.is_empty() {
@@ -1725,6 +1726,11 @@ fn into_table_filter(c: &mut dyn Ctx, a: &mut [Value], text: &str, number: i64) 
         let Some((field, value)) = part.split_once('=') else {
             // A second condition without '=': false and no error (`missing_equals_second`). The first condition without '=',
             // and the error as a statement, are not pinned.
+            // The thousands comma of an unquoted Decimal `>=100,000` cuts the condition: the whole text is the error
+            // (format-evaluate/tablefilter-stored/TableFilterStoredText.al TableFilter_Decimal_UnquotedGroupedGE, a statement).
+            if !ret_used && i > 0 && crate::evaluate_table_filter_forms::grouped_split_error(all_parts[i - 1], part) {
+                return reject(c, "", "Evaluate");
+            }
             if ret_used && i > 0 {
                 return Ok(Value::Boolean(false));
             }
@@ -1852,16 +1858,18 @@ fn table_filter_value(f: &crate::native::TableFilterField, value: &str) -> Resul
             && s.split(' ')
                 .all(|w| !w.is_empty() && w.chars().all(|ch| ch.is_ascii_alphanumeric()))
     };
-    // Forms kept as written (format-evaluate/tablefilter-neutral/TableFilterEnumForms.al:688-895, al-runner issue 7188).
+    // Forms stored as pinned by format-evaluate/tablefilter-stored/TableFilterStoredText.al (al-runner issues 7188 and 7190).
     let ordinals: Option<Vec<i32>> = match &f.options {
         Ok(Some(m)) => Some(m.iter().map(|x| x.0).collect()),
         _ => None,
     };
     if let Some(r) = crate::evaluate_table_filter_forms::kept_form(&f.ty, v, ordinals.as_deref()) {
-        if r.is_ok() {
-            crate::assumptions::assume(crate::assumptions::Assumption::TablefilterFormsKept);
-        }
-        return Ok(r);
+        return Ok(r.map(|(text, assumed)| {
+            if assumed {
+                crate::assumptions::assume(crate::assumptions::Assumption::TablefilterQuotedCommaTextKept);
+            }
+            text
+        }));
     }
     match &f.ty {
         RtType::Code(len) => {
