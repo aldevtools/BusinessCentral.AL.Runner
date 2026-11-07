@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<testsuites name="DEFAULT" tests="24231" failures="0" errors="0" skipped="0" time="2482.107" timestamp="2026-11-06T23:58:11Z"><testsuite name="Codeunit 60002" tests="4" failures="0" errors="0" skipped="0" time="0.201" timestamp="2026-11-06T23:30:20Z">
+<testsuites name="DEFAULT" tests="24231" failures="0" errors="0" skipped="0" time="2484.386" timestamp="2026-11-07T00:01:43Z"><testsuite name="Codeunit 60002" tests="4" failures="0" errors="0" skipped="0" time="0.201" timestamp="2026-11-06T23:30:20Z">
     <testcase classname="Codeunit 60002" name="TestCodeunitOnRun_GlobalSetInOnRun_IsVisibleToTest" time="0.160" />
     <testcase classname="Codeunit 60002" name="TestCodeunitOnRun_RunsExactlyOncePerCodeunit" time="0.004" />
     <testcase classname="Codeunit 60002" name="TestCodeunitOnRun_RowInsertedInOnRun_IsVisibleToTest" time="0.017" />
@@ -2425,10 +2425,10 @@
     <testcase classname="Codeunit 60232" name="OwnGroup0Filter_CombinesWithTheLink" time="0.046" />
     <testcase classname="Codeunit 60232" name="LinkFilter_InAModalPageHandler_UnderFilterGroup4" time="0.033" />
   </testsuite>
-  <testsuite name="Codeunit 60233" tests="3" failures="0" errors="0" skipped="0" time="15.227" timestamp="2026-11-06T23:32:02Z">
-    <testcase classname="Codeunit 60233" name="AfterHostGotoKey_ReadsTheItemLineBeforeAnyNext" time="6.807" />
-    <testcase classname="Codeunit 60233" name="AfterHostGotoKey_FirstNextLandsOnTheGLLine" time="4.300" />
-    <testcase classname="Codeunit 60233" name="AfterHostGotoKey_SecondNextAnswersFalse" time="4.120" />
+  <testsuite name="Codeunit 60233" tests="3" failures="0" errors="0" skipped="0" time="16.166" timestamp="2026-11-07T00:01:19Z">
+    <testcase classname="Codeunit 60233" name="AfterHostGotoKey_ReadsTheItemLineBeforeAnyNext" time="8.160" />
+    <testcase classname="Codeunit 60233" name="AfterHostGotoKey_FirstNextLandsOnTheGLLine" time="4.056" />
+    <testcase classname="Codeunit 60233" name="AfterHostGotoKey_SecondNextAnswersFalse" time="3.950" />
   </testsuite>
   <testsuite name="Codeunit 60234" tests="5" failures="0" errors="0" skipped="0" time="0.119" timestamp="2026-11-06T23:32:18Z">
     <testcase classname="Codeunit 60234" name="EmptyGuidRow_IsExcluded_SoASingleRegistrationResolves" time="0.073" />
@@ -6439,17 +6439,17 @@
     <testcase classname="Codeunit 67749" name="PendingWrite_Print" time="0.023" />
     <testcase classname="Codeunit 67749" name="NoPendingWrite_Print" time="0.020" />
   </testsuite>
-  <testsuite name="Codeunit 67755" tests="10" failures="0" errors="0" skipped="0" time="0.448" timestamp="2026-11-06T23:35:45Z">
-    <testcase classname="Codeunit 67755" name="Header_Values_ReportWithCaption" time="0.050" />
-    <testcase classname="Codeunit 67755" name="Header_CompanyInformation_NameAndAddress" time="0.070" />
-    <testcase classname="Codeunit 67755" name="Header_RawText_LineEndsAndIndentation" time="0.096" />
-    <testcase classname="Codeunit 67755" name="Rows_NoRowsAtAll" time="0.043" />
-    <testcase classname="Codeunit 67755" name="Rows_ParentsWithoutChildRows" time="0.024" />
+  <testsuite name="Codeunit 67755" tests="10" failures="0" errors="0" skipped="0" time="1.418" timestamp="2026-11-07T00:01:35Z">
+    <testcase classname="Codeunit 67755" name="Header_Values_ReportWithCaption" time="0.604" />
+    <testcase classname="Codeunit 67755" name="Header_CompanyInformation_NameAndAddress" time="0.073" />
+    <testcase classname="Codeunit 67755" name="Header_RawText_LineEndsAndIndentation" time="0.100" />
+    <testcase classname="Codeunit 67755" name="Rows_NoRowsAtAll" time="0.217" />
+    <testcase classname="Codeunit 67755" name="Rows_ParentsWithoutChildRows" time="0.057" />
     <testcase classname="Codeunit 67755" name="Rows_ParentsWithChildRowsAndSiblingItem" time="0.023" />
     <testcase classname="Codeunit 67755" name="Rows_OnlyTheSiblingItemHasRows" time="0.023" />
-    <testcase classname="Codeunit 67755" name="Names_ColumnsWithSpacesPunctuationAndLetters" time="0.043" />
-    <testcase classname="Codeunit 67755" name="Names_DataItemsWithSpacesAndPunctuation" time="0.040" />
-    <testcase classname="Codeunit 67755" name="Identity_DataItemGuid_IsTheSystemIdOfTheRow" time="0.036" />
+    <testcase classname="Codeunit 67755" name="Names_ColumnsWithSpacesPunctuationAndLetters" time="0.087" />
+    <testcase classname="Codeunit 67755" name="Names_DataItemsWithSpacesAndPunctuation" time="0.197" />
+    <testcase classname="Codeunit 67755" name="Identity_DataItemGuid_IsTheSystemIdOfTheRow" time="0.037" />
   </testsuite>
   <testsuite name="Codeunit 67761" tests="24" failures="0" errors="0" skipped="0" time="5.047" timestamp="2026-11-06T23:35:46Z">
     <testcase classname="Codeunit 67761" name="ObjectId_ReportVariable_WithAndWithoutCaption" time="0.136" />
@@ -11890,24 +11890,24 @@
     <testcase classname="Codeunit 73034" name="Database_WriteTransaction" time="0.027" />
     <testcase classname="Codeunit 73034" name="Session_LogMessage_NoError" time="0.007" />
   </testsuite>
-  <testsuite name="Codeunit 73040" tests="17" failures="0" errors="0" skipped="0" time="0.418" timestamp="2026-11-06T23:35:32Z">
-    <testcase classname="Codeunit 73040" name="Table_NoSubscriber" time="0.120" />
-    <testcase classname="Codeunit 73040" name="Page_NoSubscriber" time="0.057" />
-    <testcase classname="Codeunit 73040" name="Table_Log_A" time="0.017" />
-    <testcase classname="Codeunit 73040" name="Page_Log_A" time="0.023" />
-    <testcase classname="Codeunit 73040" name="Table_Log_B" time="0.010" />
-    <testcase classname="Codeunit 73040" name="Page_Log_B" time="0.020" />
-    <testcase classname="Codeunit 73040" name="Table_Resolve_A" time="0.014" />
-    <testcase classname="Codeunit 73040" name="Page_Resolve_A" time="0.020" />
-    <testcase classname="Codeunit 73040" name="Table_Resolve_B" time="0.013" />
-    <testcase classname="Codeunit 73040" name="Page_Resolve_B" time="0.020" />
-    <testcase classname="Codeunit 73040" name="Table_CaptionOnly_Sel" time="0.010" />
-    <testcase classname="Codeunit 73040" name="Page_CaptionOnly_Sel" time="0.020" />
-    <testcase classname="Codeunit 73040" name="Table_ResolvedOnly_Sel" time="0.014" />
-    <testcase classname="Codeunit 73040" name="Page_ResolvedOnly_Sel" time="0.020" />
-    <testcase classname="Codeunit 73040" name="FieldRef_Captions" time="0.013" />
-    <testcase classname="Codeunit 73040" name="FieldRef_Resolved" time="0.014" />
-    <testcase classname="Codeunit 73040" name="Table_ReadTwice_CallCount" time="0.013" />
+  <testsuite name="Codeunit 73040" tests="17" failures="0" errors="0" skipped="0" time="0.437" timestamp="2026-11-07T00:01:38Z">
+    <testcase classname="Codeunit 73040" name="Table_NoSubscriber" time="0.060" />
+    <testcase classname="Codeunit 73040" name="Page_NoSubscriber" time="0.087" />
+    <testcase classname="Codeunit 73040" name="Table_Log_A" time="0.020" />
+    <testcase classname="Codeunit 73040" name="Page_Log_A" time="0.027" />
+    <testcase classname="Codeunit 73040" name="Table_Log_B" time="0.017" />
+    <testcase classname="Codeunit 73040" name="Page_Log_B" time="0.026" />
+    <testcase classname="Codeunit 73040" name="Table_Resolve_A" time="0.013" />
+    <testcase classname="Codeunit 73040" name="Page_Resolve_A" time="0.024" />
+    <testcase classname="Codeunit 73040" name="Table_Resolve_B" time="0.017" />
+    <testcase classname="Codeunit 73040" name="Page_Resolve_B" time="0.023" />
+    <testcase classname="Codeunit 73040" name="Table_CaptionOnly_Sel" time="0.013" />
+    <testcase classname="Codeunit 73040" name="Page_CaptionOnly_Sel" time="0.024" />
+    <testcase classname="Codeunit 73040" name="Table_ResolvedOnly_Sel" time="0.017" />
+    <testcase classname="Codeunit 73040" name="Page_ResolvedOnly_Sel" time="0.026" />
+    <testcase classname="Codeunit 73040" name="FieldRef_Captions" time="0.016" />
+    <testcase classname="Codeunit 73040" name="FieldRef_Resolved" time="0.013" />
+    <testcase classname="Codeunit 73040" name="Table_ReadTwice_CallCount" time="0.014" />
   </testsuite>
   <testsuite name="Codeunit 73044" tests="9" failures="0" errors="0" skipped="0" time="0.200" timestamp="2026-11-06T23:35:33Z">
     <testcase classname="Codeunit 73044" name="Proc_SenderIsReportInstance" time="0.070" />
@@ -13905,12 +13905,12 @@
     <testcase classname="Codeunit 73968" name="RecordId_InLongerTexts" time="0.030" />
     <testcase classname="Codeunit 73968" name="RecordId_Comparison" time="0.016" />
   </testsuite>
-  <testsuite name="Codeunit 73973" tests="5" failures="0" errors="0" skipped="0" time="0.304" timestamp="2026-11-06T23:36:43Z">
-    <testcase classname="Codeunit 73973" name="TableField_Captions" time="0.044" />
-    <testcase classname="Codeunit 73973" name="TableField_DimCaptionClass" time="0.093" />
+  <testsuite name="Codeunit 73973" tests="5" failures="0" errors="0" skipped="0" time="0.247" timestamp="2026-11-07T00:01:38Z">
+    <testcase classname="Codeunit 73973" name="TableField_Captions" time="0.057" />
+    <testcase classname="Codeunit 73973" name="TableField_DimCaptionClass" time="0.013" />
     <testcase classname="Codeunit 73973" name="Page_LiteralClasses" time="0.090" />
-    <testcase classname="Codeunit 73973" name="Page_DimensionClasses" time="0.023" />
-    <testcase classname="Codeunit 73973" name="Page_VariableExpression" time="0.054" />
+    <testcase classname="Codeunit 73973" name="Page_DimensionClasses" time="0.030" />
+    <testcase classname="Codeunit 73973" name="Page_VariableExpression" time="0.057" />
   </testsuite>
   <testsuite name="Codeunit 73974" tests="5" failures="0" errors="0" skipped="0" time="0.116" timestamp="2026-11-06T23:36:44Z">
     <testcase classname="Codeunit 73974" name="GetUrl_Web" time="0.030" />
@@ -18188,10 +18188,10 @@
     <testcase classname="Codeunit 84362" name="RP_RunModal_VariantNotARecord_FieldZero" time="0.017" />
     <testcase classname="Codeunit 84362" name="RP_PageManagement_PageRunModal_OpensTheCard" time="0.104" />
   </testsuite>
-  <testsuite name="Codeunit 84363" tests="3" failures="0" errors="0" skipped="0" time="0.633" timestamp="2026-11-06T23:41:04Z">
-    <testcase classname="Codeunit 84363" name="ClearAll_InOwnBasePage_ExtensionGlobal" time="0.120" />
-    <testcase classname="Codeunit 84363" name="ClearAll_InBaseAppPage_ExtensionGlobal" time="0.450" />
-    <testcase classname="Codeunit 84363" name="ExtensionAction_VisibleFromVariableSetInOnOpenPage" time="0.063" />
+  <testsuite name="Codeunit 84363" tests="3" failures="0" errors="0" skipped="0" time="0.814" timestamp="2026-11-07T00:01:38Z">
+    <testcase classname="Codeunit 84363" name="ClearAll_InOwnBasePage_ExtensionGlobal" time="0.194" />
+    <testcase classname="Codeunit 84363" name="ClearAll_InBaseAppPage_ExtensionGlobal" time="0.533" />
+    <testcase classname="Codeunit 84363" name="ExtensionAction_VisibleFromVariableSetInOnOpenPage" time="0.087" />
   </testsuite>
   <testsuite name="Codeunit 84409" tests="4" failures="0" errors="0" skipped="0" time="0.266" timestamp="2026-11-06T23:41:04Z">
     <testcase classname="Codeunit 84409" name="DayMonthYear_BlankAndSetDates" time="0.087" />
@@ -19003,53 +19003,53 @@
     <testcase classname="Codeunit 86450" name="RunnerSets_TestAppTable" time="0.057" />
     <testcase classname="Codeunit 86450" name="RunnerSets_TestAppTable_NoMock" time="0.027" />
   </testsuite>
-  <testsuite name="Codeunit 86504" tests="46" failures="0" errors="0" skipped="0" time="2.661" timestamp="2026-11-06T23:43:25Z">
-    <testcase classname="Codeunit 86504" name="Literals_FieldCaption" time="0.150" />
-    <testcase classname="Codeunit 86504" name="Expressions_FieldCaption" time="0.024" />
+  <testsuite name="Codeunit 86504" tests="46" failures="0" errors="0" skipped="0" time="2.729" timestamp="2026-11-07T00:01:39Z">
+    <testcase classname="Codeunit 86504" name="Literals_FieldCaption" time="0.106" />
+    <testcase classname="Codeunit 86504" name="Expressions_FieldCaption" time="0.020" />
     <testcase classname="Codeunit 86504" name="Expression_VatSwitch_SameRecord" time="0.010" />
     <testcase classname="Codeunit 86504" name="Expression_PerRead_CallCount" time="0.014" />
-    <testcase classname="Codeunit 86504" name="Expression_ChangesRec" time="0.020" />
-    <testcase classname="Codeunit 86504" name="Expressions_FieldRefCaption" time="0.020" />
-    <testcase classname="Codeunit 86504" name="Page_ControlCaptions" time="0.093" />
-    <testcase classname="Codeunit 86504" name="SalesLine_InvDiscountAmount_NoHeader" time="0.056" />
-    <testcase classname="Codeunit 86504" name="SalesLine_InvDiscountAmount_PricesInclVat" time="0.640" />
-    <testcase classname="Codeunit 86504" name="QF_List_OpenView" time="0.080" />
+    <testcase classname="Codeunit 86504" name="Expression_ChangesRec" time="0.017" />
+    <testcase classname="Codeunit 86504" name="Expressions_FieldRefCaption" time="0.013" />
+    <testcase classname="Codeunit 86504" name="Page_ControlCaptions" time="0.070" />
+    <testcase classname="Codeunit 86504" name="SalesLine_InvDiscountAmount_NoHeader" time="0.047" />
+    <testcase classname="Codeunit 86504" name="SalesLine_InvDiscountAmount_PricesInclVat" time="0.523" />
+    <testcase classname="Codeunit 86504" name="QF_List_OpenView" time="0.097" />
     <testcase classname="Codeunit 86504" name="QF_List_OpenEdit" time="0.030" />
-    <testcase classname="Codeunit 86504" name="QF_List_PageRun" time="0.030" />
-    <testcase classname="Codeunit 86504" name="QF_ListPart_OnCard" time="0.136" />
+    <testcase classname="Codeunit 86504" name="QF_List_PageRun" time="0.037" />
+    <testcase classname="Codeunit 86504" name="QF_ListPart_OnCard" time="0.167" />
     <testcase classname="Codeunit 86504" name="QF_Card_Next" time="0.030" />
     <testcase classname="Codeunit 86504" name="QF_GLSetup_CorpusRow" time="0.017" />
-    <testcase classname="Codeunit 86504" name="QO_Doc_OpenEdit_Open" time="0.206" />
-    <testcase classname="Codeunit 86504" name="QO_Doc_OpenEdit_PartSteps" time="0.036" />
-    <testcase classname="Codeunit 86504" name="QO_Doc_OpenEdit_HostSteps" time="0.046" />
-    <testcase classname="Codeunit 86504" name="QO_Doc_OpenNew" time="0.046" />
+    <testcase classname="Codeunit 86504" name="QO_Doc_OpenEdit_Open" time="0.220" />
+    <testcase classname="Codeunit 86504" name="QO_Doc_OpenEdit_PartSteps" time="0.090" />
+    <testcase classname="Codeunit 86504" name="QO_Doc_OpenEdit_HostSteps" time="0.103" />
+    <testcase classname="Codeunit 86504" name="QO_Doc_OpenNew" time="0.090" />
     <testcase classname="Codeunit 86504" name="QO_Card_OpenEdit" time="0.033" />
     <testcase classname="Codeunit 86504" name="QO_Count_CardOpenThreeTimes" time="0.040" />
-    <testcase classname="Codeunit 86504" name="QO_Count_DocOpenTwice" time="0.036" />
-    <testcase classname="Codeunit 86504" name="SF_Count_CardOpenViewFiveTimes" time="0.070" />
-    <testcase classname="Codeunit 86504" name="SF_Count_ListOpenViewFiveTimes" time="0.060" />
-    <testcase classname="Codeunit 86504" name="SF_Count_DocOpenEditFiveTimes" time="0.067" />
-    <testcase classname="Codeunit 86504" name="SF_Doc_OpenEdit_RefreshWithoutSetValue" time="0.033" />
+    <testcase classname="Codeunit 86504" name="QO_Count_DocOpenTwice" time="0.040" />
+    <testcase classname="Codeunit 86504" name="SF_Count_CardOpenViewFiveTimes" time="0.074" />
+    <testcase classname="Codeunit 86504" name="SF_Count_ListOpenViewFiveTimes" time="0.063" />
+    <testcase classname="Codeunit 86504" name="SF_Count_DocOpenEditFiveTimes" time="0.076" />
+    <testcase classname="Codeunit 86504" name="SF_Doc_OpenEdit_RefreshWithoutSetValue" time="0.036" />
     <testcase classname="Codeunit 86504" name="SF_Doc_OpenEdit_SetValueThenActionWithoutUpdate" time="0.036" />
     <testcase classname="Codeunit 86504" name="SF_Doc_OpenEdit_ActionWithoutUpdate" time="0.026" />
     <testcase classname="Codeunit 86504" name="SF_Doc_OpenEdit_PartSetValueThenRefresh" time="0.030" />
-    <testcase classname="Codeunit 86504" name="SF_Doc_OpenView_Refresh" time="0.027" />
-    <testcase classname="Codeunit 86504" name="SF_Card_OpenNew" time="0.020" />
-    <testcase classname="Codeunit 86504" name="SF_List_OpenNew" time="0.024" />
-    <testcase classname="Codeunit 86504" name="SI_Card_OpenEdit_GoToRecord" time="0.040" />
-    <testcase classname="Codeunit 86504" name="SI_Card_OpenView_GoToRecord" time="0.037" />
-    <testcase classname="Codeunit 86504" name="SI_Card_OpenEdit_GoToKey" time="0.037" />
-    <testcase classname="Codeunit 86504" name="SI_Card_GoToRecord_SameRow" time="0.030" />
+    <testcase classname="Codeunit 86504" name="SF_Doc_OpenView_Refresh" time="0.030" />
+    <testcase classname="Codeunit 86504" name="SF_Card_OpenNew" time="0.023" />
+    <testcase classname="Codeunit 86504" name="SF_List_OpenNew" time="0.020" />
+    <testcase classname="Codeunit 86504" name="SI_Card_OpenEdit_GoToRecord" time="0.037" />
+    <testcase classname="Codeunit 86504" name="SI_Card_OpenView_GoToRecord" time="0.030" />
+    <testcase classname="Codeunit 86504" name="SI_Card_OpenEdit_GoToKey" time="0.040" />
+    <testcase classname="Codeunit 86504" name="SI_Card_GoToRecord_SameRow" time="0.026" />
     <testcase classname="Codeunit 86504" name="SI_Card_GoToRecord_Twice" time="0.030" />
     <testcase classname="Codeunit 86504" name="SI_Card_GoToRecord_ThenNext" time="0.030" />
-    <testcase classname="Codeunit 86504" name="SI_Card_Last_Previous_First" time="0.030" />
-    <testcase classname="Codeunit 86504" name="SI_Card_SetValueThenGoToRecord" time="0.030" />
-    <testcase classname="Codeunit 86504" name="SI_List_OpenView_GoToRecord" time="0.027" />
-    <testcase classname="Codeunit 86504" name="SI_List_OpenEdit_GoToKey" time="0.027" />
-    <testcase classname="Codeunit 86504" name="SI_Doc_OpenEdit_GoToRecord" time="0.060" />
-    <testcase classname="Codeunit 86504" name="SI_Doc_OpenView_GoToKey" time="0.027" />
-    <testcase classname="Codeunit 86504" name="SI_DocPart_OpenEdit_GoToRecord" time="0.037" />
-    <testcase classname="Codeunit 86504" name="SI_DocPart_Part_GoToKey" time="0.033" />
+    <testcase classname="Codeunit 86504" name="SI_Card_Last_Previous_First" time="0.040" />
+    <testcase classname="Codeunit 86504" name="SI_Card_SetValueThenGoToRecord" time="0.040" />
+    <testcase classname="Codeunit 86504" name="SI_List_OpenView_GoToRecord" time="0.030" />
+    <testcase classname="Codeunit 86504" name="SI_List_OpenEdit_GoToKey" time="0.026" />
+    <testcase classname="Codeunit 86504" name="SI_Doc_OpenEdit_GoToRecord" time="0.070" />
+    <testcase classname="Codeunit 86504" name="SI_Doc_OpenView_GoToKey" time="0.030" />
+    <testcase classname="Codeunit 86504" name="SI_DocPart_OpenEdit_GoToRecord" time="0.036" />
+    <testcase classname="Codeunit 86504" name="SI_DocPart_Part_GoToKey" time="0.036" />
   </testsuite>
   <testsuite name="Codeunit 86508" tests="10" failures="0" errors="0" skipped="0" time="0.480" timestamp="2026-11-06T23:43:28Z">
     <testcase classname="Codeunit 86508" name="StoredRecord_ToTemporaryParameter" time="0.103" />
@@ -22910,16 +22910,16 @@
     <testcase classname="Codeunit 70526" name="ModifyAll_PrimaryKeyField" time="0.017" />
     <testcase classname="Codeunit 70526" name="Commit_InsideAsserterror" time="0.023" />
   </testsuite>
-  <testsuite name="Codeunit 70535" tests="9" failures="0" errors="0" skipped="0" time="0.572" timestamp="2026-11-06T23:43:23Z">
-    <testcase classname="Codeunit 70535" name="Rows_SkipAndBreak" time="0.330" />
+  <testsuite name="Codeunit 70535" tests="9" failures="0" errors="0" skipped="0" time="0.732" timestamp="2026-11-07T00:01:37Z">
+    <testcase classname="Codeunit 70535" name="Rows_SkipAndBreak" time="0.377" />
     <testcase classname="Codeunit 70535" name="Rows_ColumnBoundToVariable" time="0.030" />
-    <testcase classname="Codeunit 70535" name="TemporaryDataItem" time="0.033" />
-    <testcase classname="Codeunit 70535" name="TriggerOrder" time="0.033" />
-    <testcase classname="Codeunit 70535" name="OtherFormats_NoLayout" time="0.037" />
-    <testcase classname="Codeunit 70535" name="TriggerError_InPreReport" time="0.023" />
-    <testcase classname="Codeunit 70535" name="StaticSaveAs_WithParametersString" time="0.030" />
+    <testcase classname="Codeunit 70535" name="TemporaryDataItem" time="0.024" />
+    <testcase classname="Codeunit 70535" name="TriggerOrder" time="0.027" />
+    <testcase classname="Codeunit 70535" name="OtherFormats_NoLayout" time="0.180" />
+    <testcase classname="Codeunit 70535" name="TriggerError_InPreReport" time="0.017" />
+    <testcase classname="Codeunit 70535" name="StaticSaveAs_WithParametersString" time="0.027" />
     <testcase classname="Codeunit 70535" name="PW_TriggerError_InPreReport_LastError" time="0.020" />
-    <testcase classname="Codeunit 70535" name="PW_SecondSaveAs_LastErrorCode" time="0.036" />
+    <testcase classname="Codeunit 70535" name="PW_SecondSaveAs_LastErrorCode" time="0.030" />
   </testsuite>
   <testsuite name="Codeunit 70537" tests="3" failures="0" errors="0" skipped="0" time="0.080" timestamp="2026-11-06T23:43:24Z">
     <testcase classname="Codeunit 70537" name="CreateDateTime_ClosingDate" time="0.033" />
@@ -27455,10 +27455,10 @@
     <testcase classname="Codeunit 92983" name="RecRefCopy_RecordIntoTemporary_ShareTableTrue" time="0.034" />
     <testcase classname="Codeunit 92983" name="RecRefCopy_RecordRefIntoTemporary_InsertFalse" time="0.027" />
   </testsuite>
-  <testsuite name="Codeunit 93011" tests="1" failures="0" errors="0" skipped="0" time="0.004" timestamp="2026-11-06T23:39:47Z">
-    <testcase classname="Codeunit 93011" name="RequestOptionsPage_InRequestPageCode_Compiles" time="0.004" />
+  <testsuite name="Codeunit 93011" tests="1" failures="0" errors="0" skipped="0" time="0.003" timestamp="2026-11-07T00:01:42Z">
+    <testcase classname="Codeunit 93011" name="RequestOptionsPage_InRequestPageCode_Compiles" time="0.003" />
   </testsuite>
-  <testsuite name="Codeunit 93104" tests="7" failures="0" errors="0" skipped="0" time="0.127" timestamp="2026-11-06T23:53:46Z">
+<testsuite name="Codeunit 93104" tests="7" failures="0" errors="0" skipped="0" time="0.127" timestamp="2026-11-06T23:53:46Z">
     <testcase classname="Codeunit 93104" name="ByteChar_Codes_128_159" time="0.027" />
     <testcase classname="Codeunit 93104" name="ByteChar_Codes_160_191" time="0.010" />
     <testcase classname="Codeunit 93104" name="ByteChar_Codes_192_223" time="0.010" />

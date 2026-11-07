@@ -8,7 +8,7 @@ pass rate is measured against: every `<testcase>` in it passed on real BC.
 | Field | Value |
 |---|---|
 | Corpus repo | aldevtools/BusinessCentral.AL.Language.Tests (until 2026-10-21 StefanMaron/BusinessCentral.AL.Language.Tests), branch `master` (the default branch; until 2026-10-19 the side branch `al-runtime-rs`, whose commits are all on `master`) |
-| Corpus pin | `cd489aad8d7097d89b818df17f6075a7c4a5118b` (the `corpus` submodule, master merge of corpus PR 706; must equal `corpus_commit` in `oracle.toml`) |
+| Corpus pin | `4609082f844ca658310ff676ce7e73a391251d00` (the `corpus` submodule, master merge of corpus PR 706; must equal `corpus_commit` in `oracle.toml`) |
 
 | Major | Oracle leg | Corpus commit of the run | Workflow run | Artifact | Artifact id | Cases |
 |---|---|---|---|---|---|---|
@@ -95,4 +95,5 @@ results. The table above still names the last full run. The next bump from a gre
 section.
 
 - pin `cd489aa` (was `1df21b1`): corpus PR 1181 (head `cbb5aa6`, merge `cd489aa`, run 42311179707: BC 27 4 codeunit(s) of junit.xml, BC 28 4 codeunit(s) of junit.xml, BC 29 4 codeunit(s) of junit.xml)
+- pin `4609082` (was `cd489aa`): corpus PR 1182 (head `d5e6ba5`, merge `4609082`, run 42313859048: BC 27 8 codeunit(s) of junit.xml, BC 28 8 codeunit(s) of junit.xml, BC 29 9 codeunit(s) of junit.xml)
 <!-- pr-results-bump:end -->
