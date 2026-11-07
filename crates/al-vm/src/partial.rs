@@ -251,6 +251,11 @@ impl Session {
             .map_err(|e| Signal::Unsupported(format!("{e}")))?;
         let Some(stored) = stored else {
             if let Some(p) = read {
+                if self.own_delete_true.contains(&(t.object, row_id(&t, &fields))) {
+                    return unsupported(
+                        "a read of an unloaded field of a partial record during or after its Delete(true) (whether Delete(true) loads the missing fields is not pinned, docs/probes-needed.md)",
+                    );
+                }
                 return Err(self.jit_row_gone(&t, &fields, &[p]).unwrap_or_else(|e| e));
             }
             // LoadFields on a row that is gone raises nothing and loads nothing (P170JitLoadGone.al:689-711

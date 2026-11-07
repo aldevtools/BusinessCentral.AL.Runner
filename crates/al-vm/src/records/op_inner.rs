@@ -1149,6 +1149,9 @@ impl Session {
                 if !run && !rec.borrow().temporary {
                     self.load_missing_fields(rec, None)?;
                 }
+                if run && !rec.borrow().temporary {
+                    self.note_own_delete_true(&t, rec);
+                }
                 self.delete_row(&t, rec, run)
             }
             RecordOp::DeleteAll => {
