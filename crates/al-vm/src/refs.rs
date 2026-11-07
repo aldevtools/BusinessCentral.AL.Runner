@@ -1907,6 +1907,9 @@ impl Session {
                 if let Some(why) = self.enum_caption_refusal(*id, None) {
                     return unsupported(why);
                 }
+                if let Some(why) = self.enum_ml_unpinned(*id, None, "the members of an enum field") {
+                    return unsupported(why);
+                }
                 let o = &self.engine.program.objects[*id as usize];
                 let members = o
                     .enum_values

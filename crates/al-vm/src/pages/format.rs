@@ -815,6 +815,9 @@ impl Session {
         let mut listed = None;
         if let Value::Enum(id, ordinal) = v {
             self.note_enum(*id);
+            if let Some(why) = self.enum_ml_unpinned(*id, Some(*ordinal), "the Value of an enum control") {
+                return unsupported(why);
+            }
             if let Some((list, from_control)) = self.enum_option_list(st, idx, *id)? {
                 listed = Some(self.enum_list_text(*id, *ordinal, &list, from_control)?);
             }

@@ -416,6 +416,11 @@ impl Session {
                     .iter()
                     .any(|(k, v)| k.eq_ignore_ascii_case("NotBlank") && v.trim().eq_ignore_ascii_case("true"))
             });
+        if let RtType::Enum(id) = &ty
+            && let Some(why) = self.enum_ml_unpinned(*id, None, "SetValue and ValidateValue of an enum control")
+        {
+            return unsupported(why);
+        }
         let mut blank_enum = None;
         if let (RtType::Enum(id), Value::Text(t) | Value::Code(t)) = (&ty, &arg) {
             if !t.is_empty() && t.chars().all(|c| c == ' ') {
