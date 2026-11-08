@@ -719,8 +719,21 @@ impl Session {
             }
             M::Min | M::Max | M::Lookup => {
                 let at = calc.field.expect("field");
-                if calc.negate {
+                // A sign on a lookup of a RecordId gives the stored RecordId unchanged (record/flowfields/
+                // TestSignedRecordIdLookup.al:13 and :25 CalcFormula_SignedRecordIdLookup_ReturnsStoredTarget, corpus pull request
+                // 1199, al-runner issue 7266). A sign on min or max, or on a lookup of any other type, is not pinned.
+                let signed_record_id = calc.method == M::Lookup
+                    && matches!(
+                        f.ty,
+                        al_builtins::value::RtType::Library(al_builtins::library_kind::LibraryKind::RecordId)
+                    );
+                if calc.negate && !signed_record_id {
                     return unsupported("a sign on min, max or lookup");
+                }
+                if calc.negate {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::SignedRecordIdLookupUnchanged,
+                    );
                 }
                 // Lookup reads the first matching row in primary key order (corpus
                 // record/TestCalcFieldsTruncateUniqueContracts.al:

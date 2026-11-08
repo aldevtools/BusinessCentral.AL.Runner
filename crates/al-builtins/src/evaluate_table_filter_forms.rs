@@ -140,6 +140,29 @@ pub(crate) fn kept_form(ty: &RtType, v: &str, enum_ordinals: Option<&[i32]>) -> 
     }
 }
 
+/// Two Code forms of a TableFilter condition kept as written (the stored text is an assumption, tablefilter-code-chained-kept):
+/// - alternatives joined by `|` whose values hold `-` or `/`: `BIN-A|BIN/B` selects BIN-A and BIN/B and not BIN/C
+///   (format-evaluate/tablefilter-neutral/TableFilterEnumForms.al:943 TableFilter_Evaluate_CodeAlternatives_SelectsBothMatchingRows,
+///   corpus pull request 1199, al-runner issue 7262);
+/// - exclusions joined by `&`: `<>CORP01&<>CORP02` leaves only OTHER (TableFilterEnumForms.al:936
+///   TableFilter_Evaluate_CodeExclusions_LeavesOtherRow, corpus pull request 1199, al-runner issue 7264).
+///
+/// Only values in capitals, of letters, digits, `-` and `/`, that fit the field are served; lower case, other characters and
+/// other operators are not pinned.
+pub(crate) fn code_chained_form(v: &str, len: Option<u32>) -> bool {
+    let value = |w: &str, extra: bool| {
+        !w.is_empty()
+            && len.is_none_or(|n| w.chars().count() <= n as usize)
+            && w.chars()
+                .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || (extra && (ch == '-' || ch == '/')))
+    };
+    let alternatives = v.contains('|') && v.split('|').all(|w| value(w, true));
+    let exclusions = v.contains('&')
+        && v.split('&')
+            .all(|w| w.strip_prefix("<>").is_some_and(|w| value(w, false)));
+    alternatives || exclusions
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -567,7 +567,10 @@ impl Session {
                         let stripped = match &ty {
                             al_builtins::value::RtType::Enum(id) if !runtime => {
                                 let name = &self.engine.program.objects[*id as usize].name;
-                                al_builtins::enum_qualifier::strip_enum_qualifier(value, name)
+                                match al_builtins::enum_qualifier::strip_enum_qualifier(value, name) {
+                                    std::borrow::Cow::Borrowed(v) if v.contains("::") => self.cross_enum_member(v, *id),
+                                    stripped => stripped,
+                                }
                             }
                             _ => std::borrow::Cow::Borrowed(value),
                         };

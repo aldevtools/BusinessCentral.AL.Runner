@@ -2991,8 +2991,9 @@ impl Session {
                 if self.is_list(st) && self.declares(st, "onfindrecord") {
                     return self.refresh_list_with_find(st);
                 }
-                if !self.declares(st, "onfindrecord") || st.borrow().dirty || self.is_list(st) {
-                    let why = if !self.declares(st, "onfindrecord") {
+                let only_next = !self.declares(st, "onfindrecord"); // a card with only OnNextRecord: see update_refresh_card.rs
+                if st.borrow().dirty || self.is_list(st) {
+                    let why = if only_next {
                         "only OnNextRecord"
                     } else if st.borrow().dirty {
                         "unsaved edits"
@@ -3003,9 +3004,7 @@ impl Session {
                         "CurrPage.Update on a page with OnFindRecord and row triggers (re-anchoring not pinned; {why})"
                     ));
                 }
-                if !st.borrow().refresh_pinned {
-                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::UpdateRefreshOnFindRecord);
-                }
+                self.assume_card_refresh(st, only_next);
                 if !self.nav_find(st, "=")? {
                     return unsupported(
                         "OnFindRecord does not find the current row after CurrPage.Update (not pinned)",

@@ -1975,6 +1975,10 @@ fn table_filter_value(f: &crate::native::TableFilterField, value: &str) -> Resul
                     return Ok(Ok(format!("@{}*", w.to_uppercase())));
                 }
             }
+            if crate::evaluate_table_filter_forms::code_chained_form(v, *len) {
+                crate::assumptions::assume(crate::assumptions::Assumption::TablefilterCodeChainedKept);
+                return Ok(Ok(v.to_string()));
+            }
             refuse()
         }
         // Words joined by `|` are kept as written too (xmlports/shapes-properties/Y67XpTableFilter.al:52 `Note=a|b`).
