@@ -632,6 +632,16 @@ impl Session {
             .any(|b| b.instance.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
     }
 
+    /// Whether `v` (a codeunit, or an array of them) holds an instance bound right now: `ClearAll()` keeps such an
+    /// instance in its variable (`clear_all_bound_globals`, al-runner issue 6974).
+    pub(crate) fn holds_bound_codeunit(&self, v: &Value) -> bool {
+        match v {
+            Value::Codeunit(rc) => self.is_bound(rc),
+            Value::Array(items) => items.borrow().iter().any(|i| self.holds_bound_codeunit(i)),
+            _ => false,
+        }
+    }
+
     /// Live bound instances of codeunit `object`, oldest binding first.
     fn bound_instances(&mut self, object: usize) -> Vec<Inst> {
         self.events.bindings.retain(|b| b.instance.strong_count() > 0);
