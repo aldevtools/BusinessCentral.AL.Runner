@@ -8,12 +8,21 @@ name: Release
 # The same binaries also go to nuget.org as the .NET tool MSDyn365BC.AL.Runner (packaging/dotnet-tool,
 # owner decision 2026-10-25), after the GitHub release. The edge build (edge.yml) does not publish it.
 # workflow_dispatch is a dry run: it builds, packages and smoke tests but creates no release and
-# pushes nothing to NuGet.
+# pushes nothing to NuGet. With the input repush_run it does only one thing: it pushes the .nupkg of
+# that earlier tag run to nuget.org (for a tag run whose push failed; nuget-repush).
+# NuGet pushes use trusted publishing (owner decision 2026-11-08): NuGet/login exchanges the job's
+# GitHub OIDC token for a one-hour API key. The nuget.org policy names this workflow file, so the
+# push jobs must stay in release-tag.yml.
 
 on:
   push:
     tags: ["v3.*"]
   workflow_dispatch:
+    inputs:
+      repush_run:
+        description: "Run id of an earlier tag run of this workflow whose NuGet push failed (empty: dry run)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -52,6 +61,7 @@ jobs:
   # The same checks as every push: ci.yml, reused.
   test:
     needs: plan
+    if: github.event.inputs.repush_run == '' || github.event.inputs.repush_run == null
     uses: ./.github/workflows/ci.yml
     # A called workflow gets at most the caller's permissions. ci.yml's cache-cleanup job asks for
     # actions: write (it runs only on a push to main, but the request is checked at start-up).
@@ -180,6 +190,9 @@ jobs:
     needs: [plan, release]
     if: needs.plan.outputs.publish == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/setup-dotnet@v4
         with:
@@ -188,7 +201,54 @@ jobs:
         with:
           name: nupkg
           path: nupkg
+      - uses: NuGet/login@v1
+        id: login
+        with:
+          user: StefanMaron
       - name: Push to NuGet
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: dotnet nuget push nupkg/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+  # A manual run with repush_run: push the .nupkg that tag run built (its push failed, for example
+  # because the old API key had expired: alpha.11 to alpha.13). Only a successful-release tag run of
+  # this workflow is accepted; --skip-duplicate makes a repeat a no-op.
+  nuget-repush:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.repush_run != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      REPUSH_RUN: ${{ github.event.inputs.repush_run }}
+    steps:
+      - name: Check the run
+        run: |
+          [[ "$REPUSH_RUN" =~ ^[0-9]+$ ]] || { echo "::error::repush_run must be a run id"; exit 1; }
+          info="$(gh api "repos/$GH_REPO/actions/runs/$REPUSH_RUN" -q '"\(.path) \(.event) \(.head_branch)"')"
+          read -r path event ref <<< "$info"
+          [ "$path" = .github/workflows/release-tag.yml ] || { echo "::error::run $REPUSH_RUN is not a run of release-tag.yml"; exit 1; }
+          [ "$event" = push ] && [[ "$ref" == v3.* ]] || { echo "::error::run $REPUSH_RUN is not a tag run ($event $ref)"; exit 1; }
+          ok="$(gh api "repos/$GH_REPO/actions/runs/$REPUSH_RUN/jobs?per_page=100" -q '[.jobs[]|select(.name=="release" and .conclusion=="success")]|length')"
+          [ "$ok" = 1 ] || { echo "::error::run $REPUSH_RUN has no successful release job"; exit 1; }
+          echo "Re-pushing the package of $ref (run $REPUSH_RUN)"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - uses: actions/download-artifact@v4
+        with:
+          name: nupkg
+          path: nupkg
+          run-id: ${{ github.event.inputs.repush_run }}
+          github-token: ${{ github.token }}
+      - uses: NuGet/login@v1
+        id: login
+        with:
+          user: StefanMaron
+      - name: Push to NuGet
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
         run: dotnet nuget push nupkg/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
