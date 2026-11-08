@@ -691,20 +691,9 @@ impl Builder<'_> {
         // A ColumnFilter on a Count column is a filter on the groups (HAVING), not on the joined rows: the join
         // stays outer and `const(0)` keeps the parents without children
         // (queries/P133QueryOuterFilters.al:321-323, :361-362, default join and LeftOuterJoin).
-        // Other aggregates with a ColumnFilter on the optional side are not pinned.
-        for c in &self.columns {
-            let item = &self.items[c.item];
-            if item.left_outer
-                && item.parent.is_some()
-                && c.static_filter.is_some()
-                && c.method.is_some_and(|m| m != ir::QueryMethod::Count)
-            {
-                self.reasons.push(format!(
-                    "column {} has a ColumnFilter on an aggregate other than Count of an outer-joined dataitem (not pinned)",
-                    c.name
-                ));
-            }
-        }
+        // So is one on a Sum, Average, Min or Max column, and a parent without a child meets it with 0
+        // (queries/flowfields-filters/Y78QueryOuterAggFilter.al:1353-1394 LeftOuterJoin, :1397 RightOuterJoin,
+        // :1441 FullOuterJoin; issue 6675).
         let filtered: Vec<bool> = self
             .items
             .iter()
@@ -929,9 +918,10 @@ table 50001 "U" { fields { field(1; "No."; Code[20]) { } field(2; Amount; Decima
     }
 
     /// A ColumnFilter on a Count column of the optional side keeps the join outer
-    /// (queries/P133QueryOuterFilters.al:321-323); on another aggregate it is not pinned.
+    /// (queries/P133QueryOuterFilters.al:321-323); so does one on a Sum, Average, Min or Max column
+    /// (queries/flowfields-filters/Y78QueryOuterAggFilter.al:1353-1394).
     #[test]
-    fn a_count_column_filter_keeps_the_join_outer_and_other_aggregates_are_refused() {
+    fn an_aggregate_column_filter_keeps_the_join_outer() {
         let l = layout_of(
             "query 50100 Q { elements { dataitem(A; T) { column(No; \"No.\") { }
                 dataitem(B; U) { DataItemLink = \"No.\" = A.\"No.\"; column(N) { Method = Count; ColumnFilter = N = const(0); } } } } }",
@@ -942,13 +932,8 @@ table 50001 "U" { fields { field(1; "No."; Code[20]) { } field(2; Amount; Decima
             "query 50100 Q { elements { dataitem(A; T) { column(No; \"No.\") { }
                 dataitem(B; U) { DataItemLink = \"No.\" = A.\"No.\"; column(S; Amount) { Method = Sum; ColumnFilter = S = const(0); } } } } }",
         );
-        assert!(
-            l.reasons
-                .iter()
-                .any(|r| r.contains("ColumnFilter on an aggregate other than Count")),
-            "{:?}",
-            l.reasons
-        );
+        assert_eq!(l.reasons, Vec::<String>::new());
+        assert!(l.query.items[1].left_outer);
     }
 
     /// A static filter on the optional side of an outer join acts after the join, so the join is an inner join in effect
