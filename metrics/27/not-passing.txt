@@ -187,7 +187,6 @@
 68553 ReadFromInStream_ByteOrderMarks
 68553 ReadFromInStream_NonAsciiPerEncoding
 68553 WriteToOutStream_ArrayAndValue_Utf8
-68554 ReadTextWithLength_BytesFrom128To159
 68571 ExportStream_OfAnImportedPicture
 68665 DateFormula_MoreRefusedSpellings
 68665 DateFormula_RefusedAndLeadingTokenSpellings
@@ -477,10 +476,6 @@
 71526 P103_GuidCreateStatic
 71526 P103_TextMaxStrLen_Variant
 71526 P103_TimeSecond
-71574 P175_Raw_EAcute_Read
-71574 P175_Raw_Emoji_Read
-71574 P175_Raw_Euro_Read
-71574 P175_Raw_UUml_Read
 71575 P175_Written_MsDos
 71575 P175_Written_None
 71575 P175_Written_Utf16
@@ -1507,7 +1502,6 @@
 91976 Y24_P17_ReportPermRequestPage
 91976 Y24_P17_ReportRequestPage
 91976 Y24_P18_Pages
-92001 HighBytesMsDos
 92001 Windows1252
 92110 Y20_AddCertificate_CerWithoutKey
 92110 Y20_AddCertificate_DerSequenceNoCertificate

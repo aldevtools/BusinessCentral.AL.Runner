@@ -1683,12 +1683,10 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
             // same file's TO_ReadText_NonAscii_NoTerminator `7|wörld` with no terminator,
             // `5|äö` then `5|€A`). A UTF-16 stream reads in `stream_read_len::utf16`.
             // A call stack text reads back whole on every encoding (errors/WdCallStackWriteText.al:148-149 `read equal`).
-            let decoded = s.enc.decode(body);
-            let call_stack = crate::stream_call_stack::holds_mark(&decoded)
-                && decoded.replace(crate::native::CALL_STACK_MARK, "").is_ascii();
-            if !call_stack && !s.enc.decode_pinned(body) {
-                return unsupported("InStream.Read into a Text of MS-DOS bytes whose character is not pinned");
-            }
+            // Every MS-DOS byte from 128 up reads as `decode` gives it, as for ReadText: the 128 bytes in
+            // session-system/Y18NavAppResourceEncodings.al HighBytesMsDos `msdos read`, and F0 9F 98 80 through a Blob
+            // stream of the default and the MS-DOS encoding (streams/instream-outstream/StreamRawBytes.al P175_Raw_Emoji_Read
+            // `utf8 none`, `utf8 msdos`, `trunc none`).
             s.pos += consumed;
             Ok((s.enc.decode(body), counted))
         })?;
