@@ -38,4 +38,32 @@ impl Session {
         }
         Ok(())
     }
+
+    /// Whether the refresh after an action reads the list again from row `key` (`read_list_again_from_row_in_view`): a list whose
+    /// window starts at the first row of its view, or one walked past its first window whose action left another row in Rec
+    /// (`rec_moved_other`) that lies in the first window of the view with a full window from it on. From R3, R20, R21, R25 and R30
+    /// of thirty rows an action that leaves R2 is followed by the same reads, and Next then steps from R2 (testpage/PnGRefresh.al:1204
+    /// BW_GetRow2_FromRow3_InsideFirstWindow, :1240 _FromRow20_LastRowOfFirstWindow, :1276 _FromRow21_FirstRowPastFirstWindow,
+    /// :1312 _FromRow25_BeyondFirstWindow, :1348 _FromRow30_LastRowOfView; al-runner issue 7288). A row nearer the end of the view
+    /// is read back 20 rows only (:1384 BW_GetRow24_FromRow25_RowAboveInWindow, :1420 BW_GetRow28_FromRow25_RowBelowInView),
+    /// which the runtime does not build: those stay refused.
+    pub(super) fn reads_again_from_row_held(&mut self, st: &St, rec: &Rec, key: &[Value]) -> Result<bool, Signal> {
+        if st.borrow().window_from_start {
+            return Ok(true);
+        }
+        if !st.borrow().rec_moved_other {
+            return Ok(false);
+        }
+        let rows = self.view_rows(rec, 2 * Self::WINDOW)?;
+        let table = self.table(rec)?;
+        let at = rows.iter().position(|r| Self::same_key(&table.primary_key(r), key));
+        let held = at.is_some_and(|i| i < Self::WINDOW && rows.len() - i >= Self::WINDOW);
+        if held {
+            // The client holds the rows it reads now, back to the first row of the view, so a move after it steps from the row the
+            // action left as from inside the first window (BW_GetRow2_FromRow25_BeyondFirstWindow `log-next` `G:R3;G:R3;C:R3/x=R2`,
+            // `log-previous` `G:R2;G:R2;C:R2/x=R3`); the refresh keeps those rows as the window.
+            st.borrow_mut().action_landed_on_new_row = false;
+        }
+        Ok(held)
+    }
 }

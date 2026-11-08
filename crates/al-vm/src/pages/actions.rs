@@ -2626,7 +2626,8 @@ impl Session {
         key: &[Value],
         read_first: bool,
     ) -> Result<(), Signal> {
-        let ok = self.declares(st, "onaftergetrecord") && st.borrow().window_from_start;
+        let walked_past = !st.borrow().window_from_start;
+        let ok = self.declares(st, "onaftergetrecord") && self.reads_again_from_row_held(st, rec, key)?;
         if !ok {
             // Other shapes are not pinned: the refresh alone stays (docs/probes-needed.md).
             return Ok(());
@@ -2838,7 +2839,7 @@ impl Session {
             s.window = back;
             s.window_from_start = true;
             s.window_whole = true;
-        } else if read_first && self.view_changed_by_action(st) {
+        } else if read_first && (self.view_changed_by_action(st) || walked_past) {
             // An action that changed the filters or the key: the client holds the rows of the new view this refresh read, from
             // the row it settled on, and the rows before it; the rows of the old view are gone (
             // testpage/Y5GoToKeyAfterActionKeyAndTriggers.al:273-303 with OnAfterGetRecord,
@@ -2847,7 +2848,8 @@ impl Session {
             // than a window, a page that reads its rows from the table holds what the refresh read: the way back reached the
             // first row of the view, so the rows are the new view's from its start (al-runner issue 6469:
             // testpage/Y15ActionWidensView.al:365 Y15_WV_FromLast25 `first` `true/A01 0:-`, `count` `25/A25`, `next`
-            // `true/A03`, `last after` `true/A25`). With OnFindRecord the rows are not pinned: the next move is refused.
+            // `true/A03`, `last after` `true/A25`). With OnFindRecord the rows are not pinned: the next move is refused. A list walked past
+            // its first window holds the first window of the view, as from inside it (`reads_again_from_row_held`).
             let held = back.len() + rows.len() > Self::WINDOW;
             let mut s = st.borrow_mut();
             if held && find {
@@ -2857,6 +2859,7 @@ impl Session {
             } else {
                 back.reverse();
                 back.extend(rows);
+                back.truncate(if walked_past { Self::WINDOW } else { usize::MAX });
                 s.window = back;
                 s.window_from_start = true;
             }
