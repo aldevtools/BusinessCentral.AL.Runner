@@ -336,6 +336,14 @@ impl Session {
                 let q = qs.borrow();
                 match q.filters.iter().find(|(c, _)| *c == col) {
                     Some((_, e)) => self.filter_text(e).map(|s| Value::Text(s.into())),
+                    // The static ColumnFilter of an aggregated column reads back as its filter text
+                    // (queries/flowfields-filters/Y78QueryOuterAggFilter.al:1364 `>0`, :1391 `0`).
+                    None if def.columns[col].method.is_some() && def.columns[col].static_filter.is_some() => {
+                        match self.static_column_filter(&def.columns[col])? {
+                            Some(e) => self.filter_text(&e).map(|s| Value::Text(s.into())),
+                            None => Ok(Value::Text(String::new().into())),
+                        }
+                    }
                     None if def.columns[col].static_filter.is_some() => {
                         unsupported("GetFilter of a column with a static ColumnFilter (not pinned)")
                     }
@@ -347,7 +355,8 @@ impl Session {
                 // (queries/TestQueryRuntimeContracts.al:Query_GetFilters_TextForSingleAndCombinedFilters).
                 let q = qs.borrow();
                 let mut parts = Vec::new();
-                for (c, e) in self.filters_in_text_order(def, &q.filters, q.filter_replaced)? {
+                let filters = self.get_filters_list(def, &q.filters)?;
+                for (c, e) in self.filters_in_text_order(def, &filters, q.filter_replaced)? {
                     let caption = self.column_caption(def, c)?;
                     parts.push(format!("{caption}: {}", self.filter_text(&e)?));
                 }
@@ -1017,12 +1026,7 @@ impl Session {
             // (queries/TestQueryDataItemTableFilter.al:137-229).
             let expr = match runtime.iter().find(|(r, _)| *r == ci) {
                 Some((_, e)) => Some(e.clone()),
-                None => match &c.static_filter {
-                    Some(ir::CalcValue::Const(k)) => Some(FilterExpr::Eq(ops::convert(crate::constant(k), &c.ty)?)),
-                    Some(ir::CalcValue::Filter(text)) => Some(self.parse_query_filter(text, &c.ty)?),
-                    Some(_) => return unsupported("a column filter of this form"),
-                    None => None,
-                },
+                None => self.static_column_filter(c)?,
             };
             let Some(expr) = expr else { continue };
             let item = &def.items[c.item];
@@ -1075,6 +1079,41 @@ impl Session {
             }
         }
         Ok(plan)
+    }
+
+    /// The static ColumnFilter of a column, parsed.
+    fn static_column_filter(&self, c: &ir::QueryColumn) -> Result<Option<FilterExpr>, Signal> {
+        Ok(match &c.static_filter {
+            Some(ir::CalcValue::Const(k)) => Some(FilterExpr::Eq(ops::convert(crate::constant(k), &c.ty)?)),
+            Some(ir::CalcValue::Filter(text)) => Some(self.parse_query_filter(text, &c.ty)?),
+            Some(_) => return unsupported("a column filter of this form"),
+            None => None,
+        })
+    }
+
+    /// The filters `GetFilters` prints: the runtime filters and the static ColumnFilter of each aggregated column without
+    /// one (queries/flowfields-filters/Y78QueryOuterAggFilter.al:1363-1392, `SumQ: >0`). A static filter on an aggregated
+    /// column next to other filters is not pinned (the order of the pairs), and neither is one on a plain column.
+    fn get_filters_list(
+        &self,
+        def: &ir::Query,
+        filters: &[(usize, FilterExpr)],
+    ) -> Result<Vec<(usize, FilterExpr)>, Signal> {
+        let mut out = filters.to_vec();
+        for (ci, c) in def.columns.iter().enumerate() {
+            if c.method.is_none() || filters.iter().any(|(r, _)| *r == ci) {
+                continue;
+            }
+            if let Some(e) = self.static_column_filter(c)? {
+                out.push((ci, e));
+            }
+        }
+        if out.len() > filters.len() && out.len() > 1 {
+            return unsupported(
+                "GetFilters of a query with a static ColumnFilter on an aggregated column and other filters (not pinned)",
+            );
+        }
+        Ok(out)
     }
 
     fn parse_query_filter(&self, text: &str, ty: &RtType) -> Result<FilterExpr, Signal> {
