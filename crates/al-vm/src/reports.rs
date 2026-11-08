@@ -84,7 +84,7 @@ enum Entry {
 /// The report instance's object, kept alive independently of the session.
 pub(crate) struct Schema {
     engine: Arc<crate::Engine>,
-    object: usize,
+    pub(crate) object: usize,
 }
 
 impl Schema {
@@ -1973,7 +1973,7 @@ impl Session {
         shows_page: bool,
         save_as: Option<&str>,
     ) -> Result<bool, Signal> {
-        if shows_page && self.report_handler_answers(inst, schema)? {
+        if self.report_handler_takes_run(inst, schema, shows_page, save_as.is_some())? {
             return Ok(true);
         }
         let execute_parameters = self.report.execute_parameters.take();
@@ -2048,7 +2048,7 @@ impl Session {
     /// (reports/reporthandler/AeReportHandler.al:31-158, AeReportHandlerCalls.al). Execute, SaveAs and a run without
     /// the page do not call it (AeReportHandler.al:85, :121, :133). Pinned for a processing-only report with a request page
     /// only; another report, and a test that binds a [RequestPageHandler] for the same report too, are refused.
-    fn report_handler_answers(&mut self, inst: &Inst, schema: &Schema) -> Result<bool, Signal> {
+    pub(crate) fn report_handler_answers(&mut self, inst: &Inst, schema: &Schema) -> Result<bool, Signal> {
         let object = schema.object as u32;
         if !self.has_page_handler(UiKind::Report, object) {
             return Ok(false);
@@ -2065,16 +2065,7 @@ impl Session {
                 schema.name()
             ));
         }
-        self.request_page_init_unshown(inst, schema)?;
-        self.report.rp_init_by_handler.push(Rc::downgrade(inst));
-        let (o, r, hi) = self.bind_page_handler(UiKind::Report, object)?;
-        // The handler takes the run over: its Run or RunModal of the instance runs it (AeReportHandlerCalls.al:79-99), so the
-        // instance does not count as running while the handler runs.
-        let running = std::mem::take(&mut self.report.report_running);
-        let called = self.call(o, r, hi, vec![Value::Codeunit(inst.clone())]);
-        self.report.report_running = running;
-        called?;
-        Ok(true)
+        self.hand_run_to_report_handler(inst, schema)
     }
 
     /// The request page's `OnInit` runs although the page is not shown, after OnInitReport and before OnPreReport, and
@@ -2084,7 +2075,7 @@ impl Session {
     /// adds to the page. The values of a SaveAs's parameters landing after it: reports/runtime/
     /// Y68SelfClosingParams.al:420-444 (Q1_SaveAs_SelfClosing_DataReport, a control they do not name keeps OnInit's value).
     /// Returns whether the trigger ran here.
-    fn request_page_init_unshown(&mut self, inst: &Inst, schema: &Schema) -> Result<bool, Signal> {
+    pub(crate) fn request_page_init_unshown(&mut self, inst: &Inst, schema: &Schema) -> Result<bool, Signal> {
         let engine = self.engine.clone();
         let Some(page) = engine.program.objects[schema.object].page.as_ref() else {
             return Ok(false);

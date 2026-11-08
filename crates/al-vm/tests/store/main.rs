@@ -34,6 +34,7 @@ mod find_other_key;
 mod fix_records;
 mod flowfield_key_order;
 mod flowfield_lookup_enum_into_option;
+mod flowfield_signed_recordid_lookup;
 mod flowfield_write;
 mod flowfields;
 mod format_record_std9;

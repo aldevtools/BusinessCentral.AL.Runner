@@ -47,6 +47,31 @@ pub fn strip_enum_qualifier<'a>(value: &'a str, enum_name: &str) -> Cow<'a, str>
     }
 }
 
+/// `value` as the member of the field's enum when it is `<other enum>::<member>` of another enum and the field's enum has a member
+/// with the same name and the same ordinal: `"Purchase Document Type"::Order` on a field of enum "Purchase Comment Document Type"
+/// (Order is 1 in both) reads as Order (record/qualified-enum-filters/TestQualifiedEnumFilters.al:162
+/// SubPageView_CrossEnumQualifier_SelectsPurchaseOrderComment, corpus pull request 1199, al-runner issue 7265). Whether BC
+/// matches by name or by ordinal is not pinned, so a member whose name or ordinal differs gives `None` (and stays refused), as
+/// does a list, a range, another operator and an enum `members_of` does not know.
+pub fn cross_enum_member(
+    value: &str,
+    field_members: &[(i32, String)],
+    members_of: impl Fn(&str) -> Option<Vec<(i32, String)>>,
+) -> Option<String> {
+    let unquote = |s: &str| s.trim().trim_matches(['"', '\'']).to_string();
+    let (qualifier, member) = value.trim().split_once("::")?;
+    if member.contains(['|', '&', '<', '>', '(', ')', ':']) || member.contains("..") || member.trim().is_empty() {
+        return None;
+    }
+    let other = members_of(&unquote(qualifier.rsplit('.').next().unwrap_or(qualifier)))?;
+    let name = unquote(member);
+    let (ordinal, _) = other.iter().find(|(_, n)| n.eq_ignore_ascii_case(&name))?;
+    field_members
+        .iter()
+        .any(|(o, n)| o == ordinal && n.eq_ignore_ascii_case(&name))
+        .then(|| member.trim().to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::strip_enum_qualifier as strip;
