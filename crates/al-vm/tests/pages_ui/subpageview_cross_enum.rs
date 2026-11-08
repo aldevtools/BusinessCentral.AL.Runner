@@ -1,6 +1,6 @@
 //! `SubPageView = where("Document Type" = const("Purchase Document Type"::Order), ...)` on a part whose field is of another enum
 //! that has a member Order with the same ordinal shows the Order row (al-runner issue 7265). Pinned by corpus pull request 1199
-//! (measured on real BC 27.5, 28.5 and 29.0, not yet on master): record/qualified-enum-filters/TestQualifiedEnumFilters.al:162
+//! (measured on real BC 27.5, 28.5 and 29.0): record/qualified-enum-filters/TestQualifiedEnumFilters.al:162
 //! SubPageView_CrossEnumQualifier_SelectsPurchaseOrderComment (host page :202). There the field is Base Application's
 //! "Purch. Comment Line"."Document Type"; these local enums repeat its first members. A member of the other enum whose name or
 //! ordinal the field's enum does not share stays refused.

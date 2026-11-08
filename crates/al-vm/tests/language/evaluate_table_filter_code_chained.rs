@@ -1,6 +1,6 @@
 //! `Evaluate` into a TableFilter field of Code alternatives that hold `-` and `/` (al-runner issue 7262) and of chained Code
-//! exclusions `<>X&<>Y` (al-runner issue 7264). Pinned by corpus pull request 1199 (measured on real BC 27.5, 28.5 and 29.0, not yet
-//! on master): format-evaluate/tablefilter-neutral/TableFilterEnumForms.al:936 TableFilter_Evaluate_CodeExclusions_LeavesOtherRow
+//! exclusions `<>X&<>Y` (al-runner issue 7264). Pinned by corpus pull request 1199 (measured on real BC 27.5, 28.5 and 29.0):
+//! format-evaluate/tablefilter-neutral/TableFilterEnumForms.al:936 TableFilter_Evaluate_CodeExclusions_LeavesOtherRow
 //! and :943 TableFilter_Evaluate_CodeAlternatives_SelectsBothMatchingRows. Only the selection through the Base Application page
 //! "Table Filter" and FieldRef.SetFilter is pinned; the stored text is an assumption. The test reads the stored text back as that
 //! page does: each field by its caption, its filter handed to FieldRef.SetFilter as written.

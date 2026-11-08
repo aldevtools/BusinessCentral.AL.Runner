@@ -9,12 +9,11 @@ use super::*;
 use al_builtins::assumptions::{Assumption, assume};
 
 impl Session {
-    /// Marks the assumption of the refresh: update-refresh-only-next-record-card for a card without OnFindRecord, else
-    /// update-refresh-onfindrecord unless a pin covers this page's refresh.
-    pub(super) fn assume_card_refresh(&self, st: &St, only_next: bool) {
-        if only_next {
-            assume(Assumption::UpdateRefreshOnlyNextRecordCard);
-        } else if !st.borrow().refresh_pinned {
+    /// Marks the assumption of the refresh: update-refresh-onfindrecord (the trigger order of the refresh) unless a pin covers
+    /// this page's refresh. A card with only OnNextRecord staying on its row is pinned (UpdateOnFindRecord.al:357); the trigger
+    /// order of its refresh is not, so it is marked the same way.
+    pub(super) fn assume_card_refresh(&self, st: &St) {
+        if !st.borrow().refresh_pinned {
             assume(Assumption::UpdateRefreshOnFindRecord);
         }
     }

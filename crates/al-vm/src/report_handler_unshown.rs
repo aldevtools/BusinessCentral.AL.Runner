@@ -4,9 +4,8 @@
 //! A plain Run or RunModal without the page of a report that renders output (not processing-only) calls the handler bound for
 //! it too, and the run ends there: Run is pinned by reports/layouts-saveas/Y43SystemPrinterRequestPage.al:313
 //! Y43_G411_Layout_Run_ReqFalse_Sp_ReportHandler (`ok / handler;`, no OnPreReport, no data item); RunModal by
-//! reports/reporthandler/AeReportHandler.al:237 Report_RunModal_RdlcReportCallsRegisteredHandler (corpus pull request 1199, not yet
-//! on master, al-runner issue 7269: `Report.RunModal(Report::"Assembly Order", false, false)` logs only what the handler adds),
-//! marked as report-handler-run-without-page until it lands. Execute and SaveAs keep not calling it (AeReportHandler.al:121,
+//! reports/reporthandler/AeReportHandler.al:237 Report_RunModal_RdlcReportCallsRegisteredHandler (corpus pull request 1199,
+//! al-runner issue 7269: `Report.RunModal(Report::"Assembly Order", false, false)` logs only what the handler adds). Execute and SaveAs keep not calling it (AeReportHandler.al:121,
 //! :133). A processing-only report run without its page is left as it was: whether the handler is called there is not pinned.
 
 use std::cell::RefCell;
@@ -42,9 +41,6 @@ impl Session {
                 "a [ReportHandler] and a [RequestPageHandler] for report \"{}\" in one test, run without its request page (not pinned)",
                 schema.name()
             )));
-        }
-        if self.report.run_modal {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReportHandlerRunWithoutPage);
         }
         self.hand_run_to_report_handler(inst, schema)
     }
