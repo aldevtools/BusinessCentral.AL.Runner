@@ -518,6 +518,30 @@ suites needs another rule; that is an open question for the owner.
    starts were written and the most alive at once.
    Built first without this: on Tests-ERM-Purchase every codeunit is in the carry chain, so every session stayed on
    the main thread (6 sessions, longest 13.6 s, lane wall time 45.8 s).
+   **Each carried start made once, as rows (al-runner issue 6924, 2026-11-08; an internal change, rule 6).** With the
+   memory rule alone, a synthetic suite shaped like the partner's (737 test codeunits, 701 in the carry chain, 36 that
+   fail alone, about 65,000 rows) took 527 s against 24 s for amendment 3's one lane: its 36 sessions asked for 6,737
+   carried starts, the same carry step once per session, and the main thread wrote each whole (about 78 ms each, one
+   after another) while the workers waited. Now (`lane_starts.rs`) the main thread makes each carry's start once, as a
+   row delta (`al_vm::RowDelta`): the rows its baseline holds apart from the baseline of the carry before it (from the
+   install baseline for the first one, or from an empty baseline in a run without one), found by comparing the
+   persistent maps' shared entries by pointer and only the others by their bytes, with every other part of the baseline
+   (counters, sequences, storage, marks, origin) as it is. A worker keeps the one start it built last and walks forward
+   from it, or from its own copy of the install baseline, putting the deltas between on top; put on a copy of the
+   baseline it was taken from, a delta gives the very baseline (`Baseline::row_delta_from`, `with_row_delta`). The main
+   thread keeps the deltas for every session that asks, up to 256 MB (`DELTA_BUDGET`); past it it drops them and makes
+   one again when asked, from the same baselines, so the bytes are the same. A carry whose delta cannot be made (a row
+   that is not a plain value, other company copies) goes whole as before. Which codeunits run, in which session and
+   from which state is unchanged; a start now also keeps which tables a DeleteAll emptied, as the one-thread path
+   (`run_bound`) already did. The memory rule still holds: a worker holds one carried start at a time.
+   `--timings` prints how many starts were made, how many went whole and the most bytes of deltas kept.
+   Measured (12 threads, cores 0-2 and 5-11, release; the synthetic suite with and without an install baseline, which
+   a run has only when a dependency app has install code; Microsoft's suites on BC 29.0.54011.55816): synthetic, no
+   install baseline: 527 s before, 35 s now (amendment 3's one lane: 24 s), 1474 passes each; synthetic with an
+   install baseline: 273 s before, 2 s now (amendment 3: 1 s); Tests-ERM-Purchase 90 s before, 88 s now; Tests-SCM
+   296 s before, 301 s now. Outcomes equal except `FiveThousandSerialNos`, the CPU-time-limit case named above. Without
+   an install baseline every session's codeunit that is no carry member runs the workspace's install code again
+   before it reruns from the carried start; that, not the starts, is the rest of the 35 s.
 6. **`--timings`**: the lane line adds the number of serial sessions, the time of the longest one and the lane's wall
    time (`LaneReport::chains`, `longest`, `took`).
 
@@ -586,6 +610,11 @@ changes.
 - `crates/al-testrun/tests/suite/single_instance_lane.rs`
   `carried_starts_are_written_when_a_session_needs_them_and_freed_after`: 24 sessions in a carry chain, each with a
   carried start of its own, never hold more starts at once than there are worker threads (issue 6924).
+  `a_carried_start_that_sessions_share_is_made_once`: 24 sessions that each run the same two writers from the same
+  carried starts make each start once (no more than there are carries) and none whole.
+- `crates/al-vm/src/baseline/row_delta.rs` and `crates/al-data/src/memory/row_changes.rs` unit tests: a row delta put
+  on a copy of its base gives the same fingerprint, bytes and origin (rows changed, gone and new, a table gone and one
+  new, and from an empty baseline); rows two stores share are not compared by value.
 
 
 ## Amendment 6 (Accepted, owner, 2026-11-07): test-suite boundaries are Business Central session boundaries
