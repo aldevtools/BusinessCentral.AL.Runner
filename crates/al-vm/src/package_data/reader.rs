@@ -24,8 +24,6 @@ pub(crate) struct Column {
     pub uncompressed_blob: bool,
     /// A field of the primary key.
     pub key: bool,
-    /// The ordinals an Enum field has; `None` for any other type.
-    pub ordinals: Option<Vec<i32>>,
 }
 
 /// One row of the file.
@@ -148,25 +146,10 @@ fn value(c: &mut Cursor, col: &Column) -> R<Value> {
         RtType::Decimal => decimal(c),
         RtType::Guid => Ok(Value::Guid(guid(c)?)),
         RtType::Duration => Ok(Value::Duration(c.i64()?)),
-        RtType::Option(names) => {
-            let n = c.i32()?;
-            if usize::try_from(n).is_ok_and(|n| n < names.len()) {
-                Ok(Value::Option(n, names.clone()))
-            } else {
-                Err(format!(
-                    "the Option ordinal {n}, which the field does not define (not pinned)"
-                ))
-            }
-        }
-        RtType::Enum(id) => {
-            let n = c.i32()?;
-            match &col.ordinals {
-                Some(o) if o.contains(&n) => Ok(Value::Enum(*id, n)),
-                _ => Err(format!(
-                    "the Enum ordinal {n}, which the enum does not define (not pinned)"
-                )),
-            }
-        }
+        // An ordinal the field or enum does not define loads as it is (Y88PackageData.al, Y88_Option_UndefinedOrdinal:
+        // 7 of Zero,One,Two; Y88_Enum_UndefinedOrdinal: 9 and -1).
+        RtType::Option(names) => Ok(Value::Option(c.i32()?, names.clone())),
+        RtType::Enum(id) => Ok(Value::Enum(*id, c.i32()?)),
         RtType::Date => date(c),
         RtType::Time => time(c),
         RtType::DateTime => date_time(c),
@@ -212,6 +195,12 @@ fn guid(c: &mut Cursor) -> R<[u8; 16]> {
 fn decimal(c: &mut Cursor) -> R<Value> {
     let (lo, mid, hi, flags) = (c.u32()?, c.u32()?, c.u32()?, c.u32()?);
     let (scale, negative) = ((flags >> 16) & 0xFF, flags >> 31 == 1);
+    // The file's 1E-28 (lo 1, scale 28, positive) loads as 0 (corpus install-upgrade/install-triggers/Y88PackageData.al:220,
+    // fixture tests/al-language-xapp-a/Y88XaPackageData.al:8). Only that value is pinned; every other Decimal with a scale
+    // above 9 is refused below.
+    if (lo, mid, hi, flags) == (1, 0, 0, 28 << 16) {
+        return Ok(Value::Decimal(rust_decimal::Decimal::ZERO));
+    }
     if flags & 0x7F00_FFFF != 0 || scale > 9 {
         return Err("a Decimal with a scale above 9 or reserved bits (not pinned)".into());
     }
@@ -328,7 +317,6 @@ mod tests {
             ty,
             uncompressed_blob: false,
             key: false,
-            ordinals: None,
         }
     }
 
@@ -382,5 +370,53 @@ mod tests {
         let rows = one(250, 2 << 16).unwrap();
         assert!(matches!(&rows[0].values[0], Value::Decimal(d) if d.to_string() == "2.50"));
         assert!(one(1, 12 << 16).is_err());
+    }
+
+    /// The file's 1E-28 (scale 28) loads as 0 (corpus install-upgrade/install-triggers/Y88PackageData.al:220, fixture
+    /// tests/al-language-xapp-a/Y88XaPackageData.al:8). Any other value with a scale above 9 is not pinned and is refused.
+    #[test]
+    fn only_the_pinned_tiny_decimal_loads_as_zero() {
+        let one = |lo: u32, flags: u32| {
+            let mut f = header(7, &["D"]);
+            f.push(1);
+            for n in [lo, 0, 0, flags] {
+                f.extend_from_slice(&n.to_le_bytes());
+            }
+            f.extend_from_slice(&[0; 16]);
+            f.push(0);
+            read(&f, 7, &[col(RtType::Decimal)])
+        };
+        let rows = one(1, 28 << 16).unwrap();
+        assert!(
+            matches!(&rows[0].values[0], Value::Decimal(d) if d.is_zero()),
+            "{:?}",
+            rows[0].values[0]
+        );
+        // 2E-28, 1E-27, 1E-25 and a negative 1E-28 are not pinned.
+        assert!(one(2, 28 << 16).is_err());
+        assert!(one(1, 27 << 16).is_err());
+        assert!(one(1, 25 << 16).is_err());
+        assert!(one(1, (28 << 16) | (1 << 31)).is_err());
+    }
+
+    /// Y88PackageData.al, Y88_Option_UndefinedOrdinal and Y88_Enum_UndefinedOrdinal: an ordinal the field does not define
+    /// loads as it is (7 of an Option Zero,One,Two; 9 and -1 of an enum).
+    #[test]
+    fn an_undefined_option_or_enum_ordinal_loads_as_it_is() {
+        let one = |n: i32, c: Column| {
+            let mut f = header(7, &["O"]);
+            f.push(1);
+            f.extend_from_slice(&n.to_le_bytes());
+            f.extend_from_slice(&[0; 16]);
+            f.push(0);
+            read(&f, 7, &[c]).map(|mut r| r.remove(0).values.remove(0))
+        };
+        let names: Vec<String> = ["Zero", "One", "Two"].iter().map(|s| s.to_string()).collect();
+        assert!(matches!(
+            one(7, col(RtType::Option(names.clone().into()))),
+            Ok(Value::Option(7, _))
+        ));
+        assert!(matches!(one(9, col(RtType::Enum(3))), Ok(Value::Enum(3, 9))));
+        assert!(matches!(one(-1, col(RtType::Enum(3))), Ok(Value::Enum(3, -1))));
     }
 }

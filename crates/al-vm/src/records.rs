@@ -835,6 +835,11 @@ impl Session {
         run_trigger: bool,
         element: Option<&str>,
     ) -> Result<(), Signal> {
+        // NavApp.LoadPackageData raises no table event (corpus install-upgrade/install-triggers/Y88PackageData.al,
+        // Y88_Events_LoadRaisesNoTableEvent).
+        if self.package_load {
+            return Ok(());
+        }
         self.note_event(t.object as usize, event, element);
         if !self.listened(t, event, element)? {
             return Ok(());

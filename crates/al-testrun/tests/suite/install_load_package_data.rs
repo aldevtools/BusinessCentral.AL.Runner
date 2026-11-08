@@ -187,3 +187,152 @@ fn a_data_file_that_is_not_pinned_is_refused() {
     let out = run_with_data(data_file(&[("A1", "alpha", 5, 1_000 * 864_000_000_000, 1)]));
     assert!(matches!(out, Outcome::NotRun(_)), "{out:?}");
 }
+
+/// A subscriber to the table's insert events that writes a log row.
+const EVENT_SUBSCRIBER: &str = r#"
+table 50201 "LD Log"
+{
+    fields { field(1; Id; Integer) { AutoIncrement = true; } field(2; What; Text[30]) { } }
+    keys { key(PK; Id) { Clustered = true; } }
+}
+
+codeunit 50202 "LD Events"
+{
+    [EventSubscriber(ObjectType::Table, Database::"LD Row", 'OnBeforeInsertEvent', '', false, false)]
+    local procedure OnBeforeInsert(var Rec: Record "LD Row"; RunTrigger: Boolean)
+    var Log: Record "LD Log";
+    begin
+        Log.What := 'before ' + Rec.No;
+        Log.Insert();
+    end;
+
+    [EventSubscriber(ObjectType::Table, Database::"LD Row", 'OnAfterInsertEvent', '', false, false)]
+    local procedure OnAfterInsert(var Rec: Record "LD Row"; RunTrigger: Boolean)
+    var Log: Record "LD Log";
+    begin
+        Log.What := 'after ' + Rec.No;
+        Log.Insert();
+    end;
+}
+
+codeunit 50203 "LD Event Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure NoEventDuringLoad()
+    var Row: Record "LD Row"; Log: Record "LD Log";
+    begin
+        if Row.Count() <> 2 then
+            Error('rows %1', Row.Count());
+        if not Log.IsEmpty() then
+            Error('events %1', Log.Count());
+    end;
+}
+"#;
+
+/// NavApp.LoadPackageData raises no table event; the subscribers still run for ordinary writes (corpus
+/// install-upgrade/install-triggers/Y88PackageData.al, Y88_Events_LoadRaisesNoTableEvent,
+/// Y88_Events_SubscribersWorkForOrdinaryWrites).
+#[test]
+fn load_package_data_raises_no_table_event() {
+    let apps = vec![AppSource {
+        id: "11111111-1111-1111-1111-111111116651".into(),
+        name: "LD".into(),
+        dependencies: Vec::new(),
+        files: vec![("f.al".into(), format!("{DATA_SRC}{EVENT_SUBSCRIBER}"))],
+    }];
+    let manifest = al_testrun::runtime::Manifest {
+        package_data: true,
+        package_data_files: vec![(
+            "TAB50200.navxdata".into(),
+            data_file(&[("A1", "alpha", 5, D2022, 1), ("B2", "", -3, D1753, 2)]),
+        )],
+        ..Default::default()
+    };
+    let kinds = vec![al_sema::AppKind::Workspace];
+    let rt = CorpusRuntime::run_for_apps(apps, kinds, &[manifest], &Default::default(), None, Default::default());
+    let out = rt.first_outcome(&CaseId {
+        codeunit: 50203,
+        name: "NoEventDuringLoad".into(),
+    });
+    assert_eq!(out, Outcome::Pass);
+}
+
+/// The install code of DATA_SRC, with the load inside a TryFunction whose result is used.
+const TRY_SRC: &str = r#"
+table 50200 "LD Row"
+{
+    fields
+    {
+        field(1; No; Code[20]) { }
+        field(2; Desc; Text[30]) { }
+        field(3; Amt; Integer) { }
+        field(4; Day; Date) { }
+    }
+    keys { key(PK; No) { Clustered = true; } }
+}
+
+codeunit 50200 "LD Install"
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany()
+    var Row: Record "LD Row";
+    begin
+        if Row.IsEmpty() then
+            if not TryLoad() then
+                Error('load failed');
+    end;
+
+    [TryFunction]
+    local procedure TryLoad()
+    begin
+        NavApp.LoadPackageData(Database::"LD Row");
+    end;
+
+    [EventSubscriber(ObjectType::Table, Database::"LD Row", 'OnAfterInsertEvent', '', false, false)]
+    local procedure OnAfterInsert(var Rec: Record "LD Row"; RunTrigger: Boolean)
+    begin
+    end;
+}
+
+codeunit 50201 "LD Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure Rows()
+    var Row: Record "LD Row";
+    begin
+        if Row.Count() <> 2 then
+            Error('rows %1', Row.Count());
+    end;
+}
+"#;
+
+/// NavApp.LoadPackageData inside a TryFunction whose result is used loads, also for a table with event subscribers (corpus
+/// Y88PackageData.al: the loads of codeunit 94682 run in TryLoad and log `ok`).
+#[test]
+fn load_package_data_inside_a_used_try_function_loads() {
+    let apps = vec![AppSource {
+        id: "11111111-1111-1111-1111-111111116652".into(),
+        name: "LD".into(),
+        dependencies: Vec::new(),
+        files: vec![("f.al".into(), TRY_SRC.into())],
+    }];
+    let manifest = al_testrun::runtime::Manifest {
+        package_data: true,
+        package_data_files: vec![(
+            "TAB50200.navxdata".into(),
+            data_file(&[("A1", "alpha", 5, D2022, 1), ("B2", "", -3, D1753, 2)]),
+        )],
+        ..Default::default()
+    };
+    let kinds = vec![al_sema::AppKind::Workspace];
+    let rt = CorpusRuntime::run_for_apps(apps, kinds, &[manifest], &Default::default(), None, Default::default());
+    let out = rt.first_outcome(&CaseId {
+        codeunit: 50201,
+        name: "Rows".into(),
+    });
+    assert_eq!(out, Outcome::Pass);
+}
