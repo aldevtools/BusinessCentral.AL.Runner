@@ -87,6 +87,10 @@ pub struct BlobBuf {
     /// (streams/PnE04Streams.al:162-183 `utf16` and `utf16terminated` read `4|w` of 77 00 F6 00 72 00, :237-250 `utf16len4`
     /// reads `4|h` of `hey!`), and what it reads then is not pinned (`stream_read_len::utf16`). A copy keeps it.
     pub utf16_binary: bool,
+    /// The encoding (UTF-8 or UTF-16) of the first `ReadText` through a UTF-8 or UTF-16 stream on this buffer since it was
+    /// last written, while a stream write is not saved or fetched yet (`written`). A later `ReadText` through a stream of the other of the two encodings does not decode as that stream
+    /// says, and what it does is not pinned (`refuse_unicode_switch`). A copy does not keep it.
+    pub unicode_read: Option<Encoding>,
 }
 
 thread_local! {
@@ -361,6 +365,7 @@ pub fn new_blob() -> BlobRef {
         dotnet_view: 0,
         unread_content: false,
         utf16_binary: false,
+        unicode_read: None,
     }))
 }
 
@@ -402,6 +407,7 @@ pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
         dotnet_view: 0,
         unread_content: false,
         utf16_binary: b.utf16_binary,
+        unicode_read: None,
     }))
 }
 
@@ -437,6 +443,7 @@ pub fn copy_blob_db_row_of(b: &BlobRef, uncompressed: bool) -> BlobRef {
 /// moves the position on.
 pub fn write_bytes(b: &BlobRef, bytes: &[u8]) {
     let mut buf = b.borrow_mut();
+    buf.unicode_read = None;
     if !buf.written {
         buf.written_base = Some(buf.bytes.clone());
     }
@@ -852,6 +859,39 @@ impl InState {
         }
     }
 
+    /// Remembers the encoding of a `ReadText` through a UTF-8 or UTF-16 stream on a Blob a stream wrote since it was last saved
+    /// or fetched, and refuses one through the other of the two encodings after it. BC then does not decode as the new stream says: on the 7 bytes of a text written with no
+    /// encoding, `ReadText` through a UTF-16 stream raises InvalidStreamData after one through a UTF-8 stream raised
+    /// (streams/instream-outstream/StreamWrittenText.al:87-88 P175_Written_None), where the same kind of bytes on a Blob read
+    /// only as UTF-16 decode with the odd byte dropped (streams/StTEncodings.al CrossEncodingWindowsToOthers
+    /// `windows-as-utf16`); 13 UTF-8 bytes read through a UTF-16 stream after a UTF-8 one give the UTF-8 text
+    /// (StreamWrittenText.al:127), and 14 UTF-16 bytes through a UTF-8 stream after a UTF-16 one the UTF-16 text (:165).
+    /// Which read decides, and whether the write's encoding counts, is not pinned.
+    fn refuse_unicode_switch(&self) -> Result<(), Signal> {
+        let Source::Live(b) = &self.source else {
+            return Ok(());
+        };
+        if !matches!(self.enc, Encoding::Utf8 | Encoding::Utf16) {
+            return Ok(());
+        }
+        let mut buf = b.borrow_mut();
+        // Once the content was saved or fetched, each stream decodes as it says: E9 00 68 00 reads `éh` through a UTF-16 stream
+        // after a UTF-8 one raised (errors/Y68Small.al Q6_ReadText_Utf8_OfUtf16Bytes `e-acute utf16`, after Insert and CalcFields).
+        if !buf.written {
+            return Ok(());
+        }
+        match buf.unicode_read {
+            Some(e) if e != self.enc => unsupported(
+                "InStream.ReadText through a UTF-8 or UTF-16 stream on a Blob that an earlier ReadText read with the other of the two encodings (not pinned)",
+            ),
+            Some(_) => Ok(()),
+            None => {
+                buf.unicode_read = Some(self.enc);
+                Ok(())
+            }
+        }
+    }
+
     pub fn rest(&self) -> Vec<u8> {
         let pos = self.pos;
         self.with_data(|d| d[pos.min(d.len())..].to_vec())
@@ -978,6 +1018,7 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
         dotnet_view: 0,
         unread_content: false,
         utf16_binary: false,
+        unicode_read: None,
     });
     set_stream(
         &a[0],
@@ -1401,6 +1442,7 @@ fn in_read_text(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
     let mut enc_used = Encoding::Windows;
     crate::stream_cleared::refuse_cleared(r.as_deref())?;
     let text = with_in_of(r, false, |s| {
+        s.refuse_unicode_switch()?;
         // A UTF-8 mark is taken as one only by a stream created with `TextEncoding::UTF8` (handlers/
         // TestReportSaveAsDatasetContracts.al:DatasetLines); a stream with the default encoding reads it as the three
         // characters 239, 187, 191 (al-language-onprem/reports/TestRequestPageSaveAsXmlContracts.al:FileText). A UTF-16 mark
@@ -1641,12 +1683,10 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
             // same file's TO_ReadText_NonAscii_NoTerminator `7|wörld` with no terminator,
             // `5|äö` then `5|€A`). A UTF-16 stream reads in `stream_read_len::utf16`.
             // A call stack text reads back whole on every encoding (errors/WdCallStackWriteText.al:148-149 `read equal`).
-            let decoded = s.enc.decode(body);
-            let call_stack = crate::stream_call_stack::holds_mark(&decoded)
-                && decoded.replace(crate::native::CALL_STACK_MARK, "").is_ascii();
-            if !call_stack && !s.enc.decode_pinned(body) {
-                return unsupported("InStream.Read into a Text of MS-DOS bytes whose character is not pinned");
-            }
+            // Every MS-DOS byte from 128 up reads as `decode` gives it, as for ReadText: the 128 bytes in
+            // session-system/Y18NavAppResourceEncodings.al HighBytesMsDos `msdos read`, and F0 9F 98 80 through a Blob
+            // stream of the default and the MS-DOS encoding (streams/instream-outstream/StreamRawBytes.al P175_Raw_Emoji_Read
+            // `utf8 none`, `utf8 msdos`, `trunc none`).
             s.pos += consumed;
             Ok((s.enc.decode(body), counted))
         })?;

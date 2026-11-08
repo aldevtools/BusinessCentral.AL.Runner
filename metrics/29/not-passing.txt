@@ -190,7 +190,6 @@
 68553 ReadFromInStream_ByteOrderMarks
 68553 ReadFromInStream_NonAsciiPerEncoding
 68553 WriteToOutStream_ArrayAndValue_Utf8
-68554 ReadTextWithLength_BytesFrom128To159
 68571 ExportStream_OfAnImportedPicture
 68665 DateFormula_MoreRefusedSpellings
 68665 DateFormula_RefusedAndLeadingTokenSpellings
@@ -198,8 +197,6 @@
 68665 Duration_OtherSpellings
 68669 FindFirstField_LocalVariableNamedLikeTheControl
 68669 FindNextField_LocalVariableNamedLikeTheControl
-68675 Clear_OpenTestPage
-68675 Clear_TrappingTestPage
 68675 PageVariable_LookupModeDefault
 68675 PageVariable_RunThenGetter
 68675 PageVariable_RunTwice
@@ -496,10 +493,6 @@
 71526 P103_GuidCreateStatic
 71526 P103_TextMaxStrLen_Variant
 71526 P103_TimeSecond
-71574 P175_Raw_EAcute_Read
-71574 P175_Raw_Emoji_Read
-71574 P175_Raw_Euro_Read
-71574 P175_Raw_UUml_Read
 71575 P175_Written_MsDos
 71575 P175_Written_None
 71575 P175_Written_Utf16
@@ -631,7 +624,6 @@
 72876 FormatOption_FieldRefAndEvaluate
 72879 DateFormulaControl_Spellings
 72879 DurationControl_Spellings
-72895 TestPageVar_ClearClosedOpenAndReopen
 73020 Closed_Errors
 73020 Open_InvalidTableNumbers
 73020 Open_Zero_Members
@@ -1091,7 +1083,6 @@
 79257 TextRdlc_SaveAsHtml_IsRefused
 79257 TextRdlc_SaveAsWord
 79257 TextRdlc_SaveAsXml_DoesNotRender
-79450 An10_ClearPartTestPage
 79450 An11_DeleteInLongView
 79450 An11_DeleteMiddleRow
 79450 An11_DeleteOnlyRow
@@ -1549,7 +1540,6 @@
 91976 Y24_P17_ReportPermRequestPage
 91976 Y24_P17_ReportRequestPage
 91976 Y24_P18_Pages
-92001 HighBytesMsDos
 92001 Windows1252
 92110 Y20_AddCertificate_CerWithoutKey
 92110 Y20_AddCertificate_DerSequenceNoCertificate

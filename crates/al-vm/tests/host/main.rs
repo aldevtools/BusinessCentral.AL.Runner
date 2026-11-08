@@ -15,6 +15,7 @@ mod http_request_cookies;
 mod instream_read_char;
 mod instream_read_length;
 mod instream_read_text_matrix;
+mod instream_read_text_unicode_switch;
 mod key_vault;
 mod last_error_frames;
 mod last_error_object;
