@@ -1634,7 +1634,6 @@
 92150 Y21_DatabaseWaitStatistics_Rules
 92150 Y21_LicenseInformation_ReadFails
 92150 Y21_SessionEvent_OwnSession
-92150 Y21_WindowsLanguage_Flags
 92350 C302_AgentApi_Activate
 92350 C302_AgentApi_Create
 92350 C302_AgentApi_TaskCreate
