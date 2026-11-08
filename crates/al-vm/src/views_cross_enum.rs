@@ -8,7 +8,7 @@ use crate::Session;
 
 impl Session {
     /// `value` as the member of the field's enum `field_enum` when the other enum names a member with the same name and ordinal
-    /// (marked as the assumption cross-enum-view-member); otherwise `value` as it is, which the filter parser then refuses.
+    /// (record/qualified-enum-filters/TestQualifiedEnumFilters.al:162); otherwise `value` as it is, which the filter parser then refuses.
     pub(crate) fn cross_enum_member<'a>(&self, value: &'a str, field_enum: u32) -> Cow<'a, str> {
         let objects = &self.engine.program.objects;
         let members_of = |name: &str| {
@@ -29,10 +29,7 @@ impl Session {
             &objects[field_enum as usize].enum_values,
             members_of,
         ) {
-            Some(member) => {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::CrossEnumViewMember);
-                Cow::Owned(member)
-            }
+            Some(member) => Cow::Owned(member),
             None => Cow::Borrowed(value),
         }
     }

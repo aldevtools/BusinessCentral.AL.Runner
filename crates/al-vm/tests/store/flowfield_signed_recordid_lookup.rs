@@ -1,5 +1,5 @@
 //! A RecordId FlowField with `CalcFormula = -lookup(...)` gives the stored RecordId unchanged (al-runner issue 7266). Pinned by
-//! corpus pull request 1199 (measured on real BC 27.5, 28.5 and 29.0, not yet on master):
+//! corpus pull request 1199 (measured on real BC 27.5, 28.5 and 29.0):
 //! record/flowfields/TestSignedRecordIdLookup.al:13 (the formula) and :25 CalcFormula_SignedRecordIdLookup_ReturnsStoredTarget.
 //! A sign on a numeric lookup, on min or on max stays refused.
 

@@ -294,7 +294,6 @@
 69451 Y29_Record_AssignForms
 69451 Y29_TextBuilder_AssignForms
 69451 Y29_XmlDocument_GetRoot_AssignForm
-69478 SubPageView_CrossEnumQualifier_SelectsPurchaseOrderComment
 69543 FilterElement_InQueryProcedure_NoFilter
 69584 PX_MaxLength_OptionCaptionAndToolTip
 69592 ApiPage_PartAndReadOnlyIntent
@@ -320,8 +319,6 @@
 69886 TestPage_BadFilter
 69886 TestPage_CardCue
 69886 TestPage_List
-69991 CalcFormula_SignedRecordIdLookup_ReturnsStoredTarget
-69995 SubPageLink_BlankRecordId_SelectsBlankRow
 70040 LT_BU_Index_SurrogatePairs
 70051 FormatString_Invalid
 70051 FormatString_Separators
@@ -986,7 +983,6 @@
 74811 Secret_EmptyValue
 74811 Secret_Overwrite_Order
 74812 WriteFrom_InStream
-74820 CurrPage_Update_CardWithOnlyOnNextRecord_KeepsCurrentRow
 74925 SF_B_EmptyRecord
 74925 SF_B_NoRecordArgument
 74925 SF_B_RecFilterAscending
@@ -1101,7 +1097,6 @@
 78110 Rows_MediaResources_03
 78110 Rows_MediaResources_04
 78110 Rows_MediaResources_05
-78200 Report_RunModal_RdlcReportCallsRegisteredHandler
 78600 OrXor_AllCombinations
 78600 XorOr_AllCombinations
 78600 XorOr_WithAnd_AndNot
@@ -2150,8 +2145,6 @@
 95438 Pk_MarkedOnlyOff_GoTo
 95438 Pk_MarkedOnlyOff_Walk
 95438 Pk_MarkedOnlyOnThenOff_GoTo
-95454 TableFilter_Evaluate_CodeAlternatives_SelectsBothMatchingRows
-95454 TableFilter_Evaluate_CodeExclusions_LeavesOtherRow
 95482 VariableText_Import_SepTabLower_Plain
 95485 Duration_Format_SecondDecComma
 95578 SetFilter_DateFormula_OperatorAndFormula
