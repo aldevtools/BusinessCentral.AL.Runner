@@ -970,9 +970,10 @@ fn html_of_a_report_with_an_rdlc_layout_answers_false_with_the_layout_error_and_
     );
 }
 
+// Pdf writes a placeholder since the owner decision of 2026-11-08 (ADR-040 amendment, tests/reporting/report_pdf_placeholder.rs).
 #[test]
 fn a_rendered_format_is_refused_not_guessed() {
-    for format in ["Pdf", "Word", "Excel"] {
+    for format in ["Word", "Excel"] {
         let why = refusal(&format!(
             "var H: Codeunit Helpers; Buf: Record \"Probe Rep Parent\"; Out: OutStream; begin
                 H.Seed();
@@ -1505,11 +1506,17 @@ fn a_reportextension_rendering_section_leaves_the_xml_dataset_and_the_html_error
         ),
         "No|The Html output format is not supported by the current report layout format."
     );
-    let why = refusal(
-        "var Buf: Record \"Probe Rep Parent\"; Out: OutStream; begin
+    // The layouts the extension adds do not change the default RDLC layout: a Pdf writes the placeholder (owner decision
+    // 2026-11-08, ADR-040 amendment).
+    assert_eq!(
+        f(
+            "var Buf: Record \"Probe Rep Parent\"; Out: OutStream; Ok: Boolean; begin
             Buf.Data.CreateOutStream(Out);
-            Report.SaveAs(68920, '', ReportFormat::Pdf, Out);
-        end;",
+            Ok := Report.SaveAs(68920, '', ReportFormat::Pdf, Out);
+            Buf.CalcFields(Data);
+            exit(Format(Ok) + '|' + Format(Buf.Data.HasValue()));
+        end;"
+        ),
+        "Yes|Yes"
     );
-    assert!(why.contains("Pdf"), "{why}");
 }

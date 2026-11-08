@@ -160,10 +160,6 @@
 61287 SaveAs_File_BadPaths
 61288 PActivate_NoDebugger
 61296 AzureAdGraphUser_WithoutDirectory_OnTheTier
-98024 QX_SaveAsPdf_ProcessingOnly_ResultUnused
-98024 QX_SaveAsPdf_ProcessingOnly_Variable
-98024 QX_SaveAsPdf_RdlcLayout_ResultUnused
-98024 QX_SaveAsPdf_RdlcLayout_Variable
 98041 RE_MediaAndMediaSet_ImportFile_JpgHoldingPng
 98102 Instance_SecondUse
 98102 Instance_Xml
