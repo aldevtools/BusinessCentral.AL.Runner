@@ -67,6 +67,7 @@ mod evaluate_datetime_iso_space;
 mod evaluate_duration;
 mod evaluate_guid_fieldref;
 mod evaluate_option_captions;
+mod evaluate_option_no_caption;
 mod evaluate_option_rejects;
 mod evaluate_table_filter;
 mod evaluate_table_filter_caption_blank;

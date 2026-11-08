@@ -2,6 +2,17 @@
 use super::*;
 use al_syntax::ast::NodeText;
 
+/// Where the captions `Evaluate` into an Option field reads come from (`option_field_captions`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OptionCaptions {
+    /// The field's OptionCaption.
+    Caption,
+    /// The field's OptionCaptionML property text.
+    Ml,
+    /// The field declares no caption: the member names.
+    None,
+}
+
 impl Lowerer<'_> {
     pub(crate) fn routine(&mut self, r: &ast::Routine) -> ir::Routine {
         #[cfg(test)]
@@ -423,10 +434,11 @@ impl Lowerer<'_> {
     /// OptionCaption of as many entries as members that differs from them; for a field with OptionCaptionML, the property text
     /// and `true` (the captions of the session language are taken when it runs, format-evaluate/
     /// OptionEvaluateCaptions.al:236 CaptionML_ByLanguage). `None` for any other argument.
-    pub(crate) fn option_field_captions(&mut self, arg: &SyntaxNode) -> Option<(String, bool)> {
+    pub(crate) fn option_field_captions(&mut self, arg: &SyntaxNode) -> Option<(String, OptionCaptions)> {
         let Some(Res::Field { table, id: field }) = self.res(arg).cloned() else {
             return None;
         };
+        let platform = self.ws.objects[table].id.is_some_and(|id| id >= 2_000_000_000);
         let f = self.members[table].fields.iter().find(|f| f.id == field)?;
         if let (Ty::Option(_), Some((_, ml))) = (
             &f.ty,
@@ -434,20 +446,26 @@ impl Lowerer<'_> {
                 .iter()
                 .find(|(k, _)| k.eq_ignore_ascii_case("OptionCaptionML")),
         ) {
-            return Some((ml.trim().to_string(), true));
+            return Some((ml.trim().to_string(), OptionCaptions::Ml));
         }
-        let (Ty::Option(names), Some((_, text))) = (
-            &f.ty,
-            f.properties
-                .iter()
-                .find(|(k, _)| k.eq_ignore_ascii_case("OptionCaption")),
-        ) else {
+        let Ty::Option(names) = &f.ty else {
             return None;
+        };
+        let Some((_, text)) = f
+            .properties
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("OptionCaption"))
+        else {
+            // A field of an app's table that declares no caption: its members are its captions (record/filters/
+            // P68I_TransferEnumOption.al:303-332, errors/P137OptionEvaluate.al:155-231, format-evaluate/AxFormatOption.al:
+            // 187-212). The Option fields of platform tables keep the rules of their system options (`sysenum`).
+            return (!platform && !names.iter().any(|n| n.contains(',')))
+                .then(|| (names.join(","), OptionCaptions::None));
         };
         let list = crate::members::first_string_literal(text)?;
         let captions: Vec<&str> = list.split(',').collect();
         (captions.len() == names.len() && captions.iter().zip(names).any(|(c, n)| c != n))
-            .then(|| (list.to_string(), false))
+            .then(|| (list.to_string(), OptionCaptions::Caption))
     }
 
     /// Whether `arg` is a Decimal table field that declares how it is formatted (`DecimalPlaces`, `AutoFormatType` or

@@ -399,7 +399,6 @@
 70722 Empty_Flt_Table_Unused_Result
 70724 Get_RecordId_Missing_Row_And_Blank
 70728 OptionField_OrdinalNotAMember_AssignStoreAndFilter
-70728 OptionField_OrdinalNotAMember_ValidateAndEvaluate
 70731 UninitialisedVariable_1
 70731 UninitialisedVariable_2
 70731 UninitialisedVariable_3
@@ -744,7 +743,6 @@
 73581 DateFormula_SetFilter_Formulas
 73584 Query_RowsLeft_OpenAgainAndSetRange
 73626 P131_EvaluateDateTime_TimeOnlyForm
-73627 P131_EvaluateOption_BlankFirstMemberNoCaption
 73701 P132_CalcDate_InnerBrackets
 73701 P132_CalcDate_MissingSignErrors
 73701 P132_Evaluate_InnerBrackets
@@ -881,8 +879,6 @@
 74409 WriteToYaml_Null
 74409 WriteToYaml_Scalars
 74409 WriteToYaml_SpecialText
-74428 P137_Evaluate_OptionFieldResultUnused
-74428 P137_Evaluate_OptionFieldWithoutCaption
 74431 P137_CalcDate_BracketsInsideTheText
 74431 P137_Evaluate_BracketsInsideTheText
 74432 P137_SetDefault_NotRegistered
@@ -1173,7 +1169,6 @@
 80352 PageAction_SystemActions
 80354 RecordRef_DeleteLink_FromAnotherCompany
 80356 FeatureKey_D_ModifyThenRollback
-80420 BlankFirstMember_Evaluate
 80420 BlankFirstMember_FieldRefOptionLists
 80420 BlankFirstMember_Format
 80420 IsolationLevel_Format

@@ -830,13 +830,18 @@ impl Lowerer<'_> {
                 }
                 // The OptionCaption of an Option field goes along as a fourth argument.
                 // A fifth argument 1: the fourth is the OptionCaptionML property text.
-                if let (true, Some((captions, ml))) = (emit_id == "System.EvaluateOptionField#1", option_captions) {
+                // A fifth argument 2: the field declares no caption and the fourth is its member names.
+                if let (true, Some((captions, kind))) = (emit_id == "System.EvaluateOptionField#1", option_captions) {
                     while out.len() < 3 {
                         out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(0))));
                     }
                     out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Text(captions))));
-                    if ml {
-                        out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(1))));
+                    match kind {
+                        super::stmt::OptionCaptions::Ml => out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(1)))),
+                        super::stmt::OptionCaptions::None => {
+                            out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(2))))
+                        }
+                        super::stmt::OptionCaptions::Caption => {}
                     }
                 }
                 // The declared length of a Text or Code variable goes along as a fourth argument.
