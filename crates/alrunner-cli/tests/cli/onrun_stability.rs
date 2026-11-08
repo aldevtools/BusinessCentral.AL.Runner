@@ -529,11 +529,17 @@ fn a_rerun_over_the_chain_limit_is_reported_in_the_output_junit_and_stability() 
         .find(|l| l.contains("name=\"NeedsTheChain\""))
         .unwrap_or_else(|| panic!("{x}"));
     assert!(
-        case.contains(&format!("<property name=\"singleInstanceRerun\" value=\"{text_of}\" />")),
+        case.contains(&format!(
+            "<property name=\"singleInstanceRerun\" value=\"{text_of}\" />"
+        )),
         "{case}"
     );
     assert!(case.contains("single-instance-rerun-skipped"), "{case}");
-    assert!(!x.lines().any(|l| l.contains("name=\"Step3\"") && l.contains("singleInstanceRerun")), "{x}");
+    assert!(
+        !x.lines()
+            .any(|l| l.contains("name=\"Step3\"") && l.contains("singleInstanceRerun")),
+        "{x}"
+    );
     // `--strict-order` replays the chain: the checker passes and nothing is skipped.
     let o = alrunner(&["test", a, "--no-download", "--strict-order"]);
     assert_eq!(code(&o), 0, "{}", text(&o));

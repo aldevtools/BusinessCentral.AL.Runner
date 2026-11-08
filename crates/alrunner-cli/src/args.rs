@@ -900,8 +900,8 @@ ISOLATION
                          failed or was refused while it ran (not one refused before it starts) and
                          that test, or one before it, read a value an earlier codeunit left
                          otherwise. A re-run whose chain holds more than 50 codeunits is skipped
-                         and printed as "re-run skipped (chain of N codeunits over the limit of
-                         50)"; with this option every chain runs again.
+                         and printed as `re-run skipped (chain of N codeunits over the limit of
+                         50)`; with this option every chain runs again.
                          Each such run is a serial session of the codeunit and the codeunits it
                          depends on; the sessions run in parallel, with this option too. Every
                          test of such a codeunit is a flagged pass, `single-instance-order`.

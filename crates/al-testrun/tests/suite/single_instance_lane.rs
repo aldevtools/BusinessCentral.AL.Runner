@@ -997,10 +997,15 @@ fn a_rerun_whose_chain_is_over_the_limit_is_skipped_and_flagged_unless_strict_or
     assert!(lane.lane.is_empty(), "{:?}", lane.lane);
     assert_eq!(lane.skipped.len(), 1, "{:?}", lane.skipped);
     assert_eq!((lane.skipped[0].codeunit, lane.skipped[0].chain), (61999, limit + 1));
-    let text = format!("re-run skipped (chain of {} codeunits over the limit of {limit})", limit + 1);
+    let text = format!(
+        "re-run skipped (chain of {} codeunits over the limit of {limit})",
+        limit + 1
+    );
     assert_eq!(al_testrun::runtime::rerun_skipped_text(limit + 1), text);
     assert!(
-        lane.lines().iter().any(|l| l.contains("61999 Lane Append Checker") && l.contains(&text)),
+        lane.lines()
+            .iter()
+            .any(|l| l.contains("61999 Lane Append Checker") && l.contains(&text)),
         "{:?}",
         lane.lines()
     );

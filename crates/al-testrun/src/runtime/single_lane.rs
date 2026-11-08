@@ -1028,11 +1028,23 @@ mod tests {
         let (flag, other) = ((1, 0), (2, 0));
         let changed = BTreeSet::from([flag]);
         let read_in = BTreeMap::from([(flag, 2), (other, 1)]);
-        assert!(!failure_saw_change(&read_in, &changed, 1), "the failed test 1 read only the other global");
+        assert!(
+            !failure_saw_change(&read_in, &changed, 1),
+            "the failed test 1 read only the other global"
+        );
         assert!(failure_saw_change(&read_in, &changed, 2), "test 2 read it and failed");
-        assert!(failure_saw_change(&read_in, &changed, 3), "test 2 read it before the failed test 3");
-        assert!(failure_saw_change(&BTreeMap::from([(flag, 0)]), &changed, 1), "OnRun read it");
-        assert!(failure_saw_change(&BTreeMap::new(), &changed, 1), "a read not noted counts");
+        assert!(
+            failure_saw_change(&read_in, &changed, 3),
+            "test 2 read it before the failed test 3"
+        );
+        assert!(
+            failure_saw_change(&BTreeMap::from([(flag, 0)]), &changed, 1),
+            "OnRun read it"
+        );
+        assert!(
+            failure_saw_change(&BTreeMap::new(), &changed, 1),
+            "a read not noted counts"
+        );
         assert!(!failure_saw_change(&read_in, &BTreeSet::new(), u32::MAX));
     }
 
