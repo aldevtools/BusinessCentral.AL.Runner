@@ -314,6 +314,9 @@ fn the_test_libraries_artifact_of_a_leg_is_the_oracle_of_the_testlibraries_suite
         roles.push(("junit-al-language-testlibraries.xml", 900, "2026-10-19T18:42:00Z"));
         // The Isolation Disabled job (corpus tests/al-language-isolation-disabled, runner 130451): a fifth artifact.
         roles.push(("junit-al-language-isolation-disabled.xml", 400, "2026-10-19T18:43:00Z"));
+        // The TryWrites job (corpus tests/al-language-trywrite-allowed, server setting DisableWriteInsideTryFunctions=false):
+        // a sixth artifact.
+        roles.push(("junit-al-language-trywrite-allowed.xml", 300, "2026-10-19T18:44:00Z"));
         for (xml, size, at) in roles {
             id += 1;
             let src = d.join(format!("z{id}"));
@@ -347,11 +350,11 @@ fn the_test_libraries_artifact_of_a_leg_is_the_oracle_of_the_testlibraries_suite
     let (code, out) = bump(&f, &gh, &["--dry-run", "123"]);
     assert_eq!(code, 0, "{out}");
     assert!(
-        out.contains("27.5: oracle artifact 201, onprem artifact 202, dotnet artifact 203, testlibraries artifact 204, isolation-disabled artifact 205"),
+        out.contains("27.5: oracle artifact 201, onprem artifact 202, dotnet artifact 203, testlibraries artifact 204, isolation-disabled artifact 205, trywrite-allowed artifact 206"),
         "{out}"
     );
     assert!(
-        out.contains("28.5: oracle artifact 206, onprem artifact 207, dotnet artifact 208, testlibraries artifact 209, isolation-disabled artifact 210"),
+        out.contains("28.5: oracle artifact 207, onprem artifact 208, dotnet artifact 209, testlibraries artifact 210, isolation-disabled artifact 211, trywrite-allowed artifact 212"),
         "{out}"
     );
 }
@@ -600,6 +603,63 @@ fn a_new_pin_adds_the_isolation_disabled_suite_and_moves_it_afterwards() {
             .unwrap()
             .iter()
             .filter(|s| s["name"].as_str() == Some("isolation-disabled"))
+            .collect();
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0]["workflow_run"].as_integer(), Some(1000));
+    }
+}
+
+// TRYW_IDS names the artifact of each leg's TryWrites file (corpus job "BC TryWrites", server setting
+// DisableWriteInsideTryFunctions=false). A version without the suite gets it with the job's setting; a later bump moves it.
+#[test]
+fn a_new_pin_adds_the_trywrite_allowed_suite_with_its_server_setting() {
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    let legs = [
+        ["27", "1", "2", "5600", "72"],
+        ["28", "3", "4", "5598", "72"],
+        ["29", "5", "6", "5598", "72"],
+    ];
+    let (d, toml, _) = edit_copy_with(sha, "999", &legs, &[("TRYW_IDS", "27=61 28=62 29=63")]);
+    let v: toml::Value = toml::from_str(&toml).unwrap();
+    for ver in v["version"].as_array().unwrap() {
+        let major = ver["major"].as_integer().unwrap();
+        let s: Vec<_> = ver["suite"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|s| s["name"].as_str() == Some("trywrite-allowed"))
+            .collect();
+        assert_eq!(s.len(), 1, "{toml}");
+        assert_eq!(s[0]["artifact_id"].as_integer(), Some(34 + major), "{toml}");
+        assert_eq!(s[0]["workflow_run"].as_integer(), Some(999), "{toml}");
+        assert_eq!(s[0]["app"].as_str(), Some("corpus/tests/al-language-trywrite-allowed"));
+        assert_eq!(
+            s[0]["oracle"].as_str().map(str::to_string),
+            Some(format!("{major}/junit-trywrite-allowed.xml"))
+        );
+        assert_eq!(
+            s[0]["server_settings"].as_array().unwrap()[0].as_str(),
+            Some("DisableWriteInsideTryFunctions=false")
+        );
+    }
+    let again = Command::new("python3")
+        .env("TRYW_IDS", "27=71 28=72 29=73")
+        .arg(root().join("tools/corpus_bump_edit.py"))
+        .arg(d.path())
+        .arg(sha)
+        .arg("1000")
+        .args(legs.iter().flatten())
+        .output()
+        .unwrap();
+    assert!(again.status.success(), "{}", String::from_utf8_lossy(&again.stderr));
+    let v: toml::Value =
+        toml::from_str(&std::fs::read_to_string(d.path().join("oracle/oracle.toml")).unwrap()).unwrap();
+    for ver in v["version"].as_array().unwrap() {
+        let s: Vec<_> = ver["suite"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|s| s["name"].as_str() == Some("trywrite-allowed"))
             .collect();
         assert_eq!(s.len(), 1);
         assert_eq!(s[0]["workflow_run"].as_integer(), Some(1000));

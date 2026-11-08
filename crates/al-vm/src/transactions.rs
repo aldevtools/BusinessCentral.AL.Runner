@@ -448,7 +448,9 @@ impl Session {
         let Some(t) = self.tx.used_tries.last() else {
             return Ok(());
         };
-        self.refuse_allowed_try_write(function)?;
+        if let Some(r) = self.allowed_try_write(function) {
+            return r;
+        }
         // Install code has no test runner around it: a Commit in a TryFunction there commits and the code goes on
         // (metadata/CmInstallLeads.al:58-59, CmInstallObjects.al:69-70). Other writes there are not pinned.
         if self.install_without_client {
@@ -519,6 +521,7 @@ impl Session {
             ),
         };
         if self.used_try_write_applies()
+            && !self.engine.write_in_try_allowed
             && (self.listened(t, events[0], None)?
                 || self.listened(t, events[1], None)?
                 || triggers.iter().any(|n| !self.ext_triggers(t, n).is_empty()))
@@ -532,24 +535,26 @@ impl Session {
         self.gate_used_try_write(function)
     }
 
-    /// With DisableWriteInsideTryFunctions off (`Engine::write_in_try_allowed`, al-runner issue 7143) a write of a TryFunction
-    /// whose result is used is allowed on Business Central, but what it does then (whether the write stays, what an error
-    /// after it rolls back, what the TryFunction returns) has not been measured: the corpus CI runs BC containers with the
-    /// setting at its default. Refused until a probe pins it (docs/probes-needed.md; the probe app is corpus
-    /// tests/al-language-trywrite-allowed, measured on a server with the setting off). A write the try does not own (an
-    /// XmlPort import or a report the try started) is allowed in both modes and is not refused here.
-    fn refuse_allowed_try_write(&self, function: &str) -> Result<(), Signal> {
-        // A Commit in a TryFunction of install code commits in either mode (metadata/CmInstallLeads.al:58-59).
-        let install_commit = self.install_without_client && function == "COMMIT";
-        if !self.engine.write_in_try_allowed
-            || install_commit
-            || matches!(self.used_try_nested_world(), Ok(Some(Ok(()))))
-        {
-            return Ok(());
+    /// With DisableWriteInsideTryFunctions off (`Engine::write_in_try_allowed`, al-runner issue 7143, Business Central online)
+    /// a write of a TryFunction whose result is used runs like any write: Insert, Modify, Delete, DeleteAll, ModifyAll, Rename
+    /// and Commit change the rows, the TryFunction returns true, and an error after the write makes it return false without
+    /// undoing the write (corpus tests/al-language-trywrite-allowed/TryWriteAllowed.al:44-144, measured on 27.5, 28.5 and 29.0
+    /// in the corpus CI job "BC TryWrites"). The table's triggers run as for any write (the table there, LT CU Row, has OnInsert
+    /// and OnModify: errors/CuFixtures.al:20-30). `None` in the default mode. Still refused: a write inside a `Codeunit.Run` the
+    /// try started (`used_try_nested_world`) and a write other than Commit in install code, which no probe covers.
+    fn allowed_try_write(&self, function: &str) -> Option<Result<(), Signal>> {
+        if !self.engine.write_in_try_allowed {
+            return None;
         }
-        Err(Signal::Unsupported(format!(
-            "{function} inside a TryFunction whose result is used, with --allow-write-in-try-functions (DisableWriteInsideTryFunctions off): what Business Central does then is not pinned"
-        )))
+        if let Err(e) = self.used_try_nested_world() {
+            return Some(Err(e));
+        }
+        if self.install_without_client && function != "COMMIT" {
+            return Some(Err(Signal::Unsupported(format!(
+                "{function} inside a TryFunction whose result is used, in install code, with --allow-write-in-try-functions (not pinned)"
+            ))));
+        }
+        Some(Ok(()))
     }
 
     /// Delete, DeleteAll, ModifyAll and Rename of a database table inside a TryFunction whose result is used raise
@@ -581,7 +586,10 @@ impl Session {
             ),
             _ => return self.refuse_used_try_write(method),
         };
-        if !self.used_try_write_applies() || self.tx.xp_export_try_world == Some(self.tx.tx_world) {
+        if !self.used_try_write_applies()
+            || self.tx.xp_export_try_world == Some(self.tx.tx_world)
+            || self.engine.write_in_try_allowed
+        {
             return self.refuse_used_try_write(method);
         }
         let mut code = false;
@@ -614,6 +622,9 @@ impl Session {
         if self.tx.used_tries.is_empty() || method == RecordOp::Truncate {
             return Ok(());
         }
+        if let Some(r) = self.allowed_try_write(&method.name().to_uppercase()) {
+            return r;
+        }
         if self.tx.xp_export_try_world == Some(self.tx.tx_world) && method != RecordOp::Modify {
             return Err(Signal::Unsupported(format!(
                 "{} in an XmlPort export started inside a TryFunction whose result is used (only Insert and Modify are pinned)",
@@ -623,7 +634,6 @@ impl Session {
         if let Some(r) = self.used_try_nested_world()? {
             return r;
         }
-        self.refuse_allowed_try_write(&method.name().to_uppercase())?;
         Err(Signal::Unsupported(format!(
             "{} of a database table inside a TryFunction whose result is used (only Insert, Modify and Commit are pinned)",
             method.name()

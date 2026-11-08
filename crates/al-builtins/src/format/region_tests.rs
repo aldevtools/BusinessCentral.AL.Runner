@@ -8,6 +8,7 @@ use std::str::FromStr;
 struct R {
     region: &'static str,
     g29: bool,
+    language: i32,
 }
 
 impl FormatCtx for R {
@@ -16,6 +17,9 @@ impl FormatCtx for R {
     }
     fn region(&self) -> Option<String> {
         Some(self.region.into())
+    }
+    fn language(&self) -> i32 {
+        self.language
     }
     fn format_gate(&self, gate: al_version::Gate) -> bool {
         self.g29 && gate == al_version::Gate::ProbedValuesDifferFrom29
@@ -40,7 +44,12 @@ fn time(h: i64, mi: i64, s: i64) -> Value {
 
 /// The ten values of `Fmt()` of BdRegionReports.al / BdRegionFixtures.al, joined with `#`.
 fn texts(region: &'static str, g29: bool) -> Result<String, FormatFail> {
-    let r = R { region, g29 };
+    texts_in(region, g29, 1033)
+}
+
+/// The same after `CurrReport.Language := language`.
+fn texts_in(region: &'static str, g29: bool, language: i32) -> Result<String, FormatFail> {
+    let r = R { region, g29, language };
     let d2 = date(2024, 3, 5);
     let values = [
         (dec("1234567.891"), 0),
@@ -61,7 +70,7 @@ fn texts(region: &'static str, g29: bool) -> Result<String, FormatFail> {
     Ok(out.join("#"))
 }
 
-fn columns(region: &'static str, g29: bool) -> Option<String> {
+fn columns(region: &'static str) -> Option<String> {
     let r = Region::parse(region)?;
     let values = [
         dec("1234567.891"),
@@ -75,7 +84,7 @@ fn columns(region: &'static str, g29: bool) -> Option<String> {
     ];
     let mut out = Vec::new();
     for v in &values {
-        out.push(region_column(r, v, g29)?);
+        out.push(region_column(r, v)?);
     }
     Some(out.join(";"))
 }
@@ -112,36 +121,70 @@ fn the_regions_measured_on_every_version() {
 }
 
 #[test]
-fn the_regions_measured_on_bc_29_only_are_refused_below() {
-    // BdRegionTests.al: en-GB :147, da-DK :239, nl-NL :283, es-ES :344, sv-SE :371, nb-NO :398 are asserted under `#if BC29PLUS`; the
-    // other versions hold `Observer.Discard()`.
-    assert_eq!(
-        texts("en-GB", true).unwrap(),
-        "1,234,567.891#-1,234.5#31/01/25#05/03/24#05 March 2024#31/01/25 14:30#05/03/24 09:05#14:30:15#09:05:07#-1234567"
-    );
-    assert_eq!(
-        texts("da-DK", true).unwrap(),
-        "1.234.567,891#-1.234,5#31-01-25#05-03-24#5. March 2024#31-01-25 14:30#05-03-24 09:05#14:30:15#09:05:07#-1234567"
-    );
-    assert_eq!(
-        texts("nl-NL", true).unwrap(),
-        "1.234.567,891#-1.234,5#31-01-25#05-03-24#5 March 2024#31-01-25 14:30#05-03-24 09:05#14:30:15#09:05:07#-1234567"
-    );
-    assert_eq!(
-        texts("es-ES", true).unwrap(),
-        "1.234.567,891#-1.234,5#31/01/25#05/03/24#5 de March de 2024#31/01/25 14:30#05/03/24 09:05#14:30:15# 9:05:07#-1234567"
-    );
-    assert_eq!(
-        texts("sv-SE", true).unwrap(),
-        "1\u{A0}234\u{A0}567,891#-1\u{A0}234,5#25-01-31#24-03-05#den 5 March 2024#25-01-31 14:30#24-03-05 09:05#14:30:15#09:05:07#-1234567"
-    );
-    assert_eq!(
-        texts("nb-NO", true).unwrap(),
-        "1\u{A0}234\u{A0}567,891#-1\u{A0}234,5#31.01.25#05.03.24#5. March 2024#31.01.25 14:30#05.03.24 09:05#14:30:15#09:05:07#-1234567"
-    );
-    for r in ["en-GB", "da-DK", "nl-NL", "es-ES", "sv-SE", "nb-NO"] {
-        assert!(texts(r, false).is_err(), "{r} before the gate is not pinned");
+fn the_regions_first_measured_on_bc_29_are_the_same_on_27_and_28() {
+    // BdRegionTests.al: en-GB :147, da-DK :239, nl-NL :283, es-ES :344, sv-SE :371, nb-NO :398 under `#if BC29PLUS`, and the same
+    // values on BC 27 and 28 in Y89_Old_Property_* and Y89_Old_Setter_* (:1506-1710, `#if not BC29PLUS`).
+    for g29 in [false, true] {
+        assert_eq!(
+            texts("en-GB", g29).unwrap(),
+            "1,234,567.891#-1,234.5#31/01/25#05/03/24#05 March 2024#31/01/25 14:30#05/03/24 09:05#14:30:15#09:05:07#-1234567"
+        );
+        assert_eq!(
+            texts("da-DK", g29).unwrap(),
+            "1.234.567,891#-1.234,5#31-01-25#05-03-24#5. March 2024#31-01-25 14:30#05-03-24 09:05#14:30:15#09:05:07#-1234567"
+        );
+        assert_eq!(
+            texts("nl-NL", g29).unwrap(),
+            "1.234.567,891#-1.234,5#31-01-25#05-03-24#5 March 2024#31-01-25 14:30#05-03-24 09:05#14:30:15#09:05:07#-1234567"
+        );
+        assert_eq!(
+            texts("es-ES", g29).unwrap(),
+            "1.234.567,891#-1.234,5#31/01/25#05/03/24#5 de March de 2024#31/01/25 14:30#05/03/24 09:05#14:30:15# 9:05:07#-1234567"
+        );
+        assert_eq!(
+            texts("sv-SE", g29).unwrap(),
+            "1\u{A0}234\u{A0}567,891#-1\u{A0}234,5#25-01-31#24-03-05#den 5 March 2024#25-01-31 14:30#24-03-05 09:05#14:30:15#09:05:07#-1234567"
+        );
+        assert_eq!(
+            texts("nb-NO", g29).unwrap(),
+            "1\u{A0}234\u{A0}567,891#-1\u{A0}234,5#31.01.25#05.03.24#5. March 2024#31.01.25 14:30#05.03.24 09:05#14:30:15#09:05:07#-1234567"
+        );
     }
+}
+
+#[test]
+fn a_region_after_a_language_writes_the_month_of_the_language() {
+    // BdRegionTests.al:1712-1912 Y89_Lang_* and :1346-1480 BdSetterLanguage_* (every version): the long date takes the month name
+    // of the language in the order of the region; de-AT groups with U+00A0.
+    let want = [
+        ("da-DK", 1030, "5. marts 2024"),
+        ("nl-NL", 1043, "5 maart 2024"),
+        ("es-ES", 1034, "5 de marzo de 2024"),
+        ("es-ES_tradnl", 1034, "5 de marzo de 2024"),
+        ("sv-SE", 1053, "den 5 mars 2024"),
+        ("nb-NO", 1044, "5. mars 2024"),
+        ("en-GB", 2057, "05 March 2024"),
+        ("de-AT", 3079, "5. M\u{E4}rz 2024"),
+        ("de-DE", 1031, "5. M\u{E4}rz 2024"),
+        ("fr-FR", 1030, "5 marts 2024"),
+    ];
+    for g29 in [false, true] {
+        for (region, language, long) in want {
+            let t = texts_in(region, g29, language).unwrap();
+            assert_eq!(t.split('#').nth(4), Some(long), "{region} after {language}");
+        }
+        assert_eq!(
+            texts_in("de-AT", g29, 3079).unwrap(),
+            "1\u{A0}234\u{A0}567,891#-1\u{A0}234,5#31.01.25#05.03.24#5. M\u{E4}rz 2024#31.01.25 14:30#05.03.24 09:05#14:30:15#09:05:07#-1234567"
+        );
+    }
+    // A month whose name in that language no test pins (January in de-AT may be `J\u{E4}nner`) is refused.
+    let r = R {
+        region: "de-AT",
+        g29: true,
+        language: 3079,
+    };
+    assert!(format_value(&date(2025, 1, 31), 0, 4, &r).is_err());
 }
 
 #[test]
@@ -200,14 +243,13 @@ fn dataset_columns_of_each_region() {
             "nb-NO",
             "1234567,891;-1234,5;31.01.2025;05.03.2024;31.01.2025 14:30:15;05.03.2024 09:05:07;14:30:15;09:05:07",
         ),
+        // Y89_Lang_DeAT_3079_D (BdRegionTests.al:1890).
+        (
+            "de-AT",
+            "1234567,891;-1234,5;31.01.2025;05.03.2024;31.01.2025 14:30:15;05.03.2024 09:05:07;14:30:15;09:05:07",
+        ),
     ];
     for (r, w) in want {
-        assert_eq!(columns(r, true).as_deref(), Some(w), "{r}");
-    }
-    for r in ["de-DE", "fr-FR", "ja-JP", "zz-ZZ", "de-CH", "it-IT", "es-ES_tradnl"] {
-        assert!(columns(r, false).is_some(), "{r} is pinned on every version");
-    }
-    for r in ["nl-NL", "es-ES", "sv-SE", "nb-NO", "da-DK"] {
-        assert!(columns(r, false).is_none(), "{r} before the gate is not pinned");
+        assert_eq!(columns(r).as_deref(), Some(w), "{r}");
     }
 }

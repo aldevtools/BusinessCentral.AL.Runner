@@ -1,0 +1,17 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testsuites name="hybrid" tests="13" failures="0" errors="0" skipped="0" time="6.792" timestamp="2026-11-08T17:20:48Z"><testsuite name="Codeunit 81700" tests="13" failures="0" errors="0" skipped="0" time="8.101" timestamp="2026-11-08T17:20:48Z">
+    <testcase classname="Codeunit 81700" name="Insert_InTryFunction_Succeeds" time="0.566" />
+    <testcase classname="Codeunit 81700" name="Insert_InTryFunction_ErrorAfter" time="0.062" />
+    <testcase classname="Codeunit 81700" name="Modify_InTryFunction_Succeeds" time="0.257" />
+    <testcase classname="Codeunit 81700" name="Modify_InTryFunction_ErrorAfter" time="0.934" />
+    <testcase classname="Codeunit 81700" name="Delete_InTryFunction_Succeeds" time="0.873" />
+    <testcase classname="Codeunit 81700" name="Delete_InTryFunction_ErrorAfter" time="0.887" />
+    <testcase classname="Codeunit 81700" name="DeleteAll_InTryFunction_Succeeds" time="0.693" />
+    <testcase classname="Codeunit 81700" name="DeleteAll_InTryFunction_ErrorAfter" time="0.792" />
+    <testcase classname="Codeunit 81700" name="ModifyAll_InTryFunction_Succeeds" time="0.388" />
+    <testcase classname="Codeunit 81700" name="ModifyAll_InTryFunction_ErrorAfter" time="0.888" />
+    <testcase classname="Codeunit 81700" name="Rename_InTryFunction_Succeeds" time="0.114" />
+    <testcase classname="Codeunit 81700" name="Rename_InTryFunction_ErrorAfter" time="0.926" />
+    <testcase classname="Codeunit 81700" name="Commit_InTryFunction_Succeeds" time="0.721" />
+  </testsuite>
+</testsuites>

@@ -115,6 +115,42 @@ pub struct SuiteEntry {
     /// codeunits of other apps.
     #[serde(default)]
     pub extra_dirs: Vec<String>,
+    /// Service-tier settings the corpus CI sets for the job of this suite only, as `Name=value` (corpus
+    /// `.github/workflows/ci.yml`, `server_settings` of that job). A suite with any runs in a pass of its own (each setting
+    /// is per service tier); [`SuiteEntry::settings`] reads them, and a setting the runner does not know is an error.
+    #[serde(default)]
+    pub server_settings: Vec<String>,
+}
+
+/// The service-tier settings of a suite's job ([`SuiteEntry::server_settings`]) the runner knows how to follow.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ServerSettings {
+    /// `DisableWriteInsideTryFunctions=false` (the job "BC TryWrites"): writes inside a TryFunction whose result is used
+    /// run, as `--allow-write-in-try-functions` does (al-runner issue 7143).
+    pub allow_write_in_try_functions: bool,
+}
+
+impl SuiteEntry {
+    /// What [`SuiteEntry::server_settings`] asks for; an unknown setting or value is an error.
+    pub fn settings(&self) -> Result<ServerSettings, String> {
+        let mut out = ServerSettings::default();
+        for s in &self.server_settings {
+            let (name, value) = s
+                .split_once('=')
+                .ok_or_else(|| format!("suite {}: server setting `{s}` is not Name=value", self.name))?;
+            match (name.trim(), value.trim().to_ascii_lowercase().as_str()) {
+                ("DisableWriteInsideTryFunctions", "false") => out.allow_write_in_try_functions = true,
+                ("DisableWriteInsideTryFunctions", "true") => out.allow_write_in_try_functions = false,
+                _ => {
+                    return Err(format!(
+                        "suite {}: server setting `{s}` is not one the runner follows (only DisableWriteInsideTryFunctions)",
+                        self.name
+                    ));
+                }
+            }
+        }
+        Ok(out)
+    }
 }
 
 /// An app of `SuiteEntry::extra_apps`: the id it is found by, and its name for messages.
@@ -184,6 +220,7 @@ impl OracleFile {
             }
             let mut names = std::collections::BTreeSet::new();
             for suite in &v.suites {
+                suite.settings().map_err(|e| format!("version {}: {e}", v.major))?;
                 if !names.insert(suite.name.as_str()) {
                     return Err(format!("version {}: suite `{}` is listed twice", v.major, suite.name));
                 }
@@ -341,6 +378,37 @@ extra_dirs = ["corpus/tests/al-language-xhandler-lib", "corpus/tests/al-language
                 "corpus/tests/al-language-xhandler-a"
             ]
         );
+    }
+
+    // The corpus CI job "BC TryWrites" runs its app on a service tier with DisableWriteInsideTryFunctions=false (corpus
+    // .github/workflows/ci.yml, job test-trywrite-allowed, `server_settings`): the suite names the setting, and runs as
+    // `--allow-write-in-try-functions` does. A setting the runner does not know is an error, never ignored.
+    #[test]
+    fn a_suite_names_the_server_settings_of_its_job() {
+        let t = format!(
+            r#"{TOML}
+[[version.suite]]
+name = "trywrite-allowed"
+app = "corpus/tests/al-language-trywrite-allowed"
+oracle = "28/junit-trywrite-allowed.xml"
+baseline = "metrics/28/not-passing-trywrite-allowed.txt"
+server_settings = ["DisableWriteInsideTryFunctions=false"]
+"#
+        );
+        let f = OracleFile::parse(&t).unwrap();
+        let v = f.versions.iter().find(|v| v.major == 28).unwrap();
+        assert_eq!(
+            v.suites[0].settings(),
+            Ok(ServerSettings {
+                allow_write_in_try_functions: true
+            })
+        );
+        let default = t.replace("=false", "=true");
+        let f = OracleFile::parse(&default).unwrap();
+        let v = f.versions.iter().find(|v| v.major == 28).unwrap();
+        assert_eq!(v.suites[0].settings(), Ok(ServerSettings::default()));
+        assert!(OracleFile::parse(&t.replace("DisableWriteInsideTryFunctions", "SqlCommandTimeout")).is_err());
+        assert!(OracleFile::parse(&t.replace("=false", "")).is_err());
     }
 
     // The corpus CI installs apps no test app declares for some suites (corpus .github/workflows/ci.yml, job
