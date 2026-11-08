@@ -1,4 +1,5 @@
-//! A text function whose result would hold half of a surrogate pair refuses (hard rule 4) until ADR-068 is built.
+//! A text function whose result would hold half of a surrogate pair refuses (hard rule 4) until ADR-068 audits it.
+//! DelStr is audited (`text_lone_half.rs`); the others still refuse.
 //! Before, each turned the half into U+FFFD silently. The corpus pins that real BC keeps the half
 //! (text/lt-cr-text-leads/CrTextLeads.al:414-439, types/lt-text-char-index/TextCharIndexAssignEdges.al:88-116), so
 //! U+FFFD is a guessed value.
@@ -46,7 +47,7 @@ codeunit 50996 C
 
 #[test]
 fn a_cut_through_a_pair_refuses() {
-    for which in 3..=14 {
+    for which in (3..=14).filter(|w| *w != 6) {
         let r = run_with(SRC, "C", "Cut", vec![Value::Integer(which)]).map(|(v, _)| v);
         match &r {
             Err(Signal::Unsupported(why)) => assert!(why.contains("half of a surrogate pair"), "{which}: {why}"),
