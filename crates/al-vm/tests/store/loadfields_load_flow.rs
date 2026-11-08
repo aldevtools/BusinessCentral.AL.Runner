@@ -131,17 +131,6 @@ codeunit 50210 C
         Txt := Format(Row.LoadFields(Row.Cnt)) + Format(Row.LoadFields(Row.Flt, Row.Name)) + Format(Row.LoadFields(Row.Name)) + ' ';
         exit(Txt + Flags(Row) + ' ' + Format(Row.Cnt));
     end;
-
-    procedure RecRefFlow(): Text
-    var
-        Row: Record LF;
-        RecRef: RecordRef;
-    begin
-        Seed();
-        RecRef.Open(Database::LF);
-        RecRef.LoadFields(4);
-        exit('ran');
-    end;
 }
 "#;
 
@@ -181,11 +170,4 @@ fn statement_on_a_fetched_record_raises_for_a_flow_field() {
 #[test]
 fn function_on_a_fetched_record_answers_no_for_a_flow_field_and_changes_nothing() {
     assert_eq!(text(al_testkit::run(SRC, "FetchedFunction")), "NoNoYes YesYesNo 0");
-}
-
-/// RecordRef.LoadFields of a FlowField is not pinned (a probe is needed): refused, not run as the Record form.
-#[test]
-fn record_ref_load_fields_of_a_flow_field_is_refused() {
-    let r = al_testkit::run(SRC, "RecRefFlow");
-    assert!(matches!(r, Err(al_builtins::native::Signal::Unsupported(_))), "{r:?}");
 }

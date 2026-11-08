@@ -58,6 +58,7 @@ mod linked_object;
 mod loadfields;
 mod loadfields_flow;
 mod loadfields_load_flow;
+mod loadfields_recordref_flow;
 mod media_find_orphans;
 mod media_null_guid_filter;
 mod media_resources;
