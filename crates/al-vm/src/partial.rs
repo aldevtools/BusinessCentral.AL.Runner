@@ -361,18 +361,16 @@ impl Session {
                 if wanted.is_empty() {
                     return unsupported("AreFieldsLoaded without fields");
                 }
-                let flow = wanted.iter().any(|&p| !stored(p));
                 let wanted: Vec<usize> = wanted.into_iter().filter(|&p| stored(p)).collect();
                 // A FlowField reads as loaded on a record that fetched a partial request, whether or not it was requested
-                // (PriorityAssumptions.al:282-312 flow_only_cnt_loaded, mixed_cnt_loaded; :325-333 cnt_loaded). A record
-                // that fetched nothing or a whole row is not pinned for it. A FlowFilter reads the same: Yes after a partial
+                // (PriorityAssumptions.al:282-312 flow_only_cnt_loaded, mixed_cnt_loaded; :325-333 cnt_loaded). A
+                // FlowFilter reads the same: Yes after a partial
                 // fetch, after a read of an unloaded field and after Next (record/load-fields/
                 // P81LoadFields.al:1047-1120 RN_JitRead_UnloadedField_LoadsWhich, `_loaded_KindFilter`). After a fetch of the whole
                 // row both read as loaded too (record/load-fields/Y67AddLoadFlow.al:375-399 Record_NoRequest_SetStatement
-                // `1 none` loaded=YesYesYesYesYesYes). A record that fetched nothing is not pinned for them.
-                if flow && rec.borrow().load.buffer.is_none() {
-                    return unsupported("AreFieldsLoaded of a FlowField on a record that fetched nothing (not pinned)");
-                }
+                // `1 none` loaded=YesYesYesYesYesYes). On a record that fetched nothing they follow the stored fields: No after
+                // Clear, Init or SetLoadFields, Yes once a field was assigned (record/load-fields/Y87RecordRefLoadFields.al,
+                // codeunit 94656 Rec_Cleared, Rec_Init, Rec_KeyAssigned, Ref_*).
                 let r = rec.borrow();
                 let Some(b) = &r.load.buffer else {
                     // Nothing was fetched (record/TestRecordPartialLoad.al:102-141). A buffer that
@@ -402,8 +400,10 @@ impl Session {
                 };
                 let partial = !matches!(b.have, FieldSet::All);
                 // After Clear a partial buffer holds no field (errors/PnBErrorsCollections.al:640-674
-                // SetLoadFields_ThenRead_AndClear `afterClear.name` No).
-                if partial && b.cleared {
+                // SetLoadFields_ThenRead_AndClear `afterClear.name` No), and so does a whole fetched row that nothing was
+                // assigned to since (record/load-fields/Y87RecordRefLoadFields.al codeunit 94656 Rec_AfterClearOfFetched
+                // `NoNoNoNoNoNo`). A field assigned after the Clear of a whole row is not pinned and keeps the old answer.
+                if b.cleared && (partial || !r.assigned) {
                     return Ok(Value::Boolean(false));
                 }
                 let mut all = true;
