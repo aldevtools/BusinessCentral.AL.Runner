@@ -901,6 +901,26 @@ pub(crate) enum Export {
     Facts,
 }
 
+/// A grown compile kept for a later pass (ADR-063, `extend::grow_growable`): the objects were not in the program when
+/// `lower_core` exported the facts. The heads of every object, and the positions and drivers of those lowered here (a
+/// supplied object's facts are the kept compile's, which the caller puts back).
+fn export_lazy_facts(program: &ir::Program, out: &mut Lowered, prov: &dyn Fn(usize) -> bool) {
+    let Some(set) = out.exported.as_mut() else {
+        return;
+    };
+    set.heads = program.objects.heads().to_vec();
+    for oi in (0..program.objects.len()).filter(|&oi| !prov(oi)) {
+        let o = program.objects.get(oi).expect("in range");
+        let facts = &mut set.facts[oi];
+        facts.positions = out.pos_ranges[oi].1;
+        facts.drivers = o
+            .routines
+            .iter()
+            .map(|r| driver_types(r.locals.iter().chain(&o.globals)))
+            .collect();
+    }
+}
+
 pub(crate) fn lower_core(
     ws: &Workspace,
     members: &MemberTable<'_>,
@@ -1455,6 +1475,9 @@ pub(crate) fn lower_core(
     }
     if let Some(src) = lazy_src {
         super::compile::lazy_cached_objects(&mut program, &mut out, objects, &src);
+        if export_as == Export::Facts {
+            export_lazy_facts(&program, &mut out, &prov);
+        }
     }
     out.program = std::sync::Arc::new(program);
     Ok(out)

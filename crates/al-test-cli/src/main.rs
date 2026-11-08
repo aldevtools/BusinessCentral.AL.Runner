@@ -376,7 +376,7 @@ impl VersionRun {
 }
 
 /// How a pass gets its compile (ADR-063): `kept`, the main pass's compile to grow by this pass's apps; `keep`, give this
-/// pass's compile back for the next pass.
+/// pass's compile back for the next pass (a grown pass gives it back cut to the main pass's apps it grew).
 struct PassCompile {
     keep: bool,
     kept: Option<runtime::KeptCompile>,
@@ -457,14 +457,15 @@ fn run_version_passes(
     let mut joined: Option<VersionRun> = None;
     let mut unmatched = Vec::new();
     // ADR-063: the main pass keeps its compile when another pass follows, and the next pass grows it by its own apps
-    // instead of compiling everything again. AL_FRESH_PASS_COMPILE=1: every pass compiles from source.
+    // instead of compiling everything again; a grown pass keeps its compile, cut back to the main pass's apps, for the
+    // pass after it. AL_FRESH_PASS_COMPILE=1: every pass compiles from source.
     let mut kept: Option<runtime::KeptCompile> = None;
     let share = multi && !runtime::fresh_pass_compile();
     // The test codeunits of the main app: the same for every pass.
     let index = corpus::discover(&root.join(&cfg.corpus_app)).map_err(|e| format!("corpus: {e}"))?;
     for (i, (view, pass)) in all.iter().enumerate() {
         let grow = PassCompile {
-            keep: share && i == 0 && i < last,
+            keep: share && i < last,
             kept: kept.take(),
         };
         let (r, left) = run_version(
@@ -701,6 +702,60 @@ fn publish_dirs(root: &Path, cfg: &config::OracleFile, suites: &[config::SuiteEn
         dirs.insert(at + n, d);
     }
     Ok(dirs)
+}
+
+/// The apps a pass compiles (`run_pass_compile`).
+struct PassApps<'a> {
+    apps: Vec<al_sema::workspace::AppSource>,
+    kinds: Vec<al_sema::AppKind>,
+    manifests: &'a [runtime::Manifest],
+    symbols: &'a std::collections::BTreeSet<String>,
+    target: Option<&'a al_version::Target>,
+}
+
+/// Compiles and runs a pass as `grow` says (ADR-063); a compile kept for the next pass goes to `kept_out`. `own` are the
+/// suite apps of this pass alone (indexes into the apps).
+#[allow(clippy::too_many_arguments)]
+fn run_pass_compile(
+    grow: PassCompile,
+    main: bool,
+    own: &[usize],
+    p: PassApps<'_>,
+    dotnet: al_vm::dotnet::DotNetConfig,
+    runs: &[runtime::SuiteRun],
+    opts: &runtime::RunOptions,
+    kept_out: &mut Option<runtime::KeptCompile>,
+) -> Result<runtime::CorpusRuntime, String> {
+    let PassApps {
+        apps,
+        kinds,
+        manifests,
+        symbols,
+        target,
+    } = p;
+    Ok(match grow {
+        PassCompile { kept: Some(kept), keep } => {
+            let (rt, kept) = runtime::CorpusRuntime::try_run_suites_grown(
+                kept, keep, apps, kinds, manifests, symbols, target, dotnet, runs, opts,
+            )?;
+            *kept_out = kept;
+            rt
+        }
+        // Only the main pass keeps a compile from source: the apps of another pass's environment are not every later
+        // pass's.
+        PassCompile { keep: true, .. } if main => {
+            // The other passes have every app of this one but its own suite apps.
+            let shared: Vec<usize> = (0..apps.len()).filter(|i| !own.contains(i)).collect();
+            let (rt, kept) = runtime::CorpusRuntime::try_run_suites_growable(
+                apps, kinds, manifests, symbols, target, dotnet, runs, opts, &shared,
+            )?;
+            *kept_out = kept;
+            rt
+        }
+        PassCompile { .. } => {
+            runtime::CorpusRuntime::try_run_suites_with(apps, kinds, manifests, symbols, target, dotnet, runs, opts)?
+        }
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1116,48 +1171,17 @@ fn run_version_inner(
         ..Default::default()
     };
     let load_time = started.elapsed();
-    let rt = match grow {
-        PassCompile { kept: Some(kept), .. } => runtime::CorpusRuntime::try_run_suites_grown(
-            kept,
-            apps,
-            kinds,
-            &manifests,
-            &symbols,
-            Some(&chosen.target),
-            dotnet,
-            &runs,
-            &opts,
-        )?,
-        PassCompile { keep: true, .. } => {
-            // The other passes have every app of this one but its own suite apps.
-            let shared: Vec<usize> = (0..apps.len())
-                .filter(|i| !app_index.iter().any(|(_, a)| a == i))
-                .collect();
-            let (rt, kept) = runtime::CorpusRuntime::try_run_suites_growable(
-                apps,
-                kinds,
-                &manifests,
-                &symbols,
-                Some(&chosen.target),
-                dotnet,
-                &runs,
-                &opts,
-                &shared,
-            )?;
-            *kept_out = kept;
-            rt
-        }
-        PassCompile { .. } => runtime::CorpusRuntime::try_run_suites_with(
-            apps,
-            kinds,
-            &manifests,
-            &symbols,
-            Some(&chosen.target),
-            dotnet,
-            &runs,
-            &opts,
-        )?,
+    // The suite apps of this pass alone: the other passes have every other app of this one.
+    let own: Vec<usize> = app_index.iter().map(|(_, a)| *a).collect();
+    let target = Some(&chosen.target);
+    let compiled = PassApps {
+        apps,
+        kinds,
+        manifests: &manifests,
+        symbols: &symbols,
+        target,
     };
+    let rt = run_pass_compile(grow, pass.main, &own, compiled, dotnet, &runs, &opts, kept_out)?;
     // Nothing waits for the drop of the runtime after the report is written.
     let rt = runtime::Retiring::new(rt);
     let p = &rt.phases;
