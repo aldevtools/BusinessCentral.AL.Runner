@@ -1,4 +1,4 @@
-//! The memory budget of a test run (owner decision 2026-11-08): the run fits in the memory it may use by running fewer
+//! The memory budget of a test run (ADR-066 amendment 9): the run fits in the memory it may use by running fewer
 //! test codeunits at once, down to one at a time, instead of being killed for running out of it.
 //!
 //! The front end works out the limit (free memory, the cgroup's `memory.max`, `--max-memory`) and hands it in with a
@@ -25,7 +25,7 @@ use std::time::Duration;
 pub const WORKER_FLOOR: u64 = 64 << 20;
 
 /// The cost of a test thread assumed until one is seen, in bytes. Measured (BC 29, release, 12 cores, 2026-11-08): each
-/// thread from 2 to 12 added 150 to 200 MB to the peak of Tests-ERM-Purchase (`docs/adr/066` amendment 7).
+/// thread from 2 to 12 added 150 to 200 MB to the peak of Tests-ERM-Purchase (ADR-066 amendment 9).
 pub const PER_WORKER_START: u64 = 200 << 20;
 
 /// The part of the limit the gate fills: a tenth stays free for a codeunit that grows past the cost seen so far.

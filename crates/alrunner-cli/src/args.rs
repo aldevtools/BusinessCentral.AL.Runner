@@ -134,7 +134,7 @@ pub struct TestArgs {
     pub max_replay: Option<usize>,
     /// `--test-suites FILE` (ADR-066 amendment 6): each suite of the file is a BC session of its own for order dependence.
     pub test_suites: Option<PathBuf>,
-    /// `--max-memory SIZE` (owner decision 2026-11-08): the most memory the run may use, in bytes; the run then uses
+    /// `--max-memory SIZE` (ADR-066 amendment 9): the most memory the run may use, in bytes; the run then uses
     /// fewer test threads. The free memory and the cgroup limit apply as well (`memory_budget.rs`).
     pub max_memory: Option<u64>,
     /// `--affected` (ADR-050): run only the test codeunits a change since the stored result of the last run can

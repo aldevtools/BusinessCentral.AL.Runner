@@ -1,4 +1,4 @@
-//! The memory budget of a test run (owner decision 2026-11-08): `--max-memory`, the `--timings` line, and the stop
+//! The memory budget of a test run (ADR-066 amendment 9): `--max-memory`, the `--timings` line, and the stop
 //! with a clear message when not even one test thread fits.
 
 use super::*;

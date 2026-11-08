@@ -1,4 +1,4 @@
-//! The memory budget of `al-runner test` (owner decision 2026-11-08; `al_testrun::runtime::memory` uses it): the
+//! The memory budget of `al-runner test` (ADR-066 amendment 9; `al_testrun::runtime::memory` uses it): the
 //! smallest of the machine's free memory (`MemAvailable`), the `memory.max` of the process's cgroup and its parents
 //! (cgroup v2: a container or a `systemd-run` scope), and `--max-memory`. Reading them is the front end's job
 //! (ADR-006): the run gets the number and a way to read the resident memory.
