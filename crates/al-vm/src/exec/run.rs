@@ -349,7 +349,7 @@ impl Session {
                         self.restore_pos(Some(p as u32));
                     }
                 }
-                Op::Pos { p } => self.at_pos(p),
+                Op::Pos { p } => self.at_pos_checked(p)?,
                 Op::ForInit { s } => self.for_init(&chunk.fors[s as usize], f, nl)?,
                 Op::ForTest { s, t } => {
                     let site = &chunk.fors[s as usize];

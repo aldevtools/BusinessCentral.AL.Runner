@@ -304,6 +304,14 @@ fn enum_member_text(name: String, ordinal: i32) -> String {
     }
 }
 
+/// The text of a Char. Half of a surrogate pair is no character of a Rust string: `native::format_fns::format_1` keeps it
+/// (ADR-068); any other way here refuses instead of giving the empty text.
+fn char_text(c: u16) -> Result<String, FormatFail> {
+    char::from_u32(u32::from(c))
+        .map(String::from)
+        .ok_or_else(|| FormatFail::Unsupported("Format of half of a surrogate pair here (not pinned)".into()))
+}
+
 /// `Format(Value, Length, Standard)` with BC's own errors kept apart from refusals.
 pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) -> Result<String, FormatFail> {
     if let Some(r) = format_unread(v, length, standard) {
@@ -347,7 +355,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         // Kept, not pinned: a byte from 0x80 up whose character no corpus test pins shows as the Latin-1 character of its
         // code; json/TestJsonComplete.al:JsonObject_GetByte_ReturnsValue (Assert.AreEqual of Byte 200) passes through it.
         Value::Byte(b) => char::from(*b).to_string(),
-        Value::Char(c) => char::from_u32(u32::from(*c)).map(String::from).unwrap_or_default(),
+        Value::Char(c) => char_text(*c)?,
         // Under GlobalLanguage 1031 a standard format a Decimal does not have raises the German text
         // (format-evaluate/FormatPrecStdDe.al:52-55, `Die Standardformatnummer 5 ist für den Typ 'Decimal'
         // nicht vorhanden.`).

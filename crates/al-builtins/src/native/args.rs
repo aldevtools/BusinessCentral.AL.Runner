@@ -38,7 +38,7 @@ pub fn text_of(v: &Value) -> Option<crate::text::Txt> {
 pub fn text_of_carrying_call_stack(v: &Value) -> Option<crate::text::Txt> {
     match v {
         Value::Text(s) | Value::Code(s)
-            if s.as_str().contains(CALL_STACK_MARK) && !s.as_str().contains(CARRIED_TEXT_MARK) =>
+            if s.audited_str().contains(CALL_STACK_MARK) && !s.audited_str().contains(CARRIED_TEXT_MARK) =>
         {
             Some(s.clone())
         }

@@ -201,6 +201,7 @@ mod text_append;
 mod text_decimal_args;
 mod text_half_pair_refused;
 mod text_index_past_length;
+mod text_lone_half;
 mod text_methods;
 mod text_scans;
 mod textbuilder_call_stack;
