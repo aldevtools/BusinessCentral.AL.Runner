@@ -248,6 +248,14 @@ pub(crate) struct PageClients {
     )>,
     /// Per page object, the expression controls whose value the page keeps between refreshes (`pages/shown.rs`).
     pub(crate) shown_controls: std::collections::HashMap<u32, Rc<Vec<usize>>>,
+    /// The page triggers running now, innermost last, with their page (`pages/code_close_veto.rs`).
+    pub(crate) trigger_kinds: Vec<(*const RefCell<al_builtins::value::PageState>, crate::pages::TriggerKind)>,
+    /// How many TestPage calls run now, nested (`pages/code_close_veto.rs`).
+    pub(crate) client_depth: u32,
+    /// Vetoed `CurrPage.Close()` calls waiting for the end of their TestPage call (`pages/code_close_veto.rs`).
+    pub(crate) code_close_vetoes: Vec<crate::pages::CodeCloseVeto>,
+    /// Pages whose close, requested by OnAfterGetCurrRecord at OpenView, OnQueryClosePage refused twice (`pages/code_close_veto.rs`).
+    pub(crate) open_vetoed: Vec<std::rc::Weak<RefCell<al_builtins::value::PageState>>>,
 }
 
 /// Event subscriptions and what the Event Subscription table reports.

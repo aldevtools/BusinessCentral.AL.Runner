@@ -194,6 +194,8 @@ mod caption_relation;
 mod caption_runs;
 mod caption_translation;
 mod close_save_failed;
+mod code_close_veto;
+pub(crate) use code_close_veto::{CodeCloseVeto, TriggerKind};
 mod controls;
 mod data_caption_run;
 mod dev_endpoint;
@@ -345,7 +347,7 @@ impl Session {
     /// is the page's own.
     fn page_trigger(&mut self, st: &St, name: &str, args: Vec<Value>) -> Result<Option<Value>, Signal> {
         self.data_caption_before_trigger(st, name)?;
-        let r = self.page_trigger_run(st, name, args)?;
+        let r = self.in_page_trigger(st, name, |s| s.page_trigger_run(st, name, args))?;
         self.data_caption_after_trigger(st, name);
         Ok(r)
     }

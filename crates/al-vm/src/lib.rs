@@ -1323,6 +1323,10 @@ impl Session {
             pages: PageClients {
                 shown_frames: Vec::new(),
                 shown_controls: std::collections::HashMap::new(),
+                trigger_kinds: Vec::new(),
+                client_depth: 0,
+                code_close_vetoes: Vec::new(),
+                open_vetoed: Vec::new(),
                 saved_values: std::collections::HashMap::new(),
                 saved_values_committed: std::collections::HashMap::new(),
                 traps: Vec::new(),

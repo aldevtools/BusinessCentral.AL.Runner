@@ -260,8 +260,10 @@ impl Session {
                 self.pending_add_in_reread(&st, method.method())?;
                 let arg_false = matches!(args.first(), Some(Value::Boolean(false)));
                 self.lookup_refresh_deferred_call(method, &st, None)?;
-                let moved = self.marked_only_unshown_call(method, &st, |s| {
-                    s.shown_client_call(method, &st, None, arg_false, |s| s.test_page_op_held(method, &st, args))
+                let moved = self.code_close_client_call(method, &st, |s| {
+                    s.marked_only_unshown_call(method, &st, |s| {
+                        s.shown_client_call(method, &st, None, arg_false, |s| s.test_page_op_held(method, &st, args))
+                    })
                 })?;
                 self.lookup_move_refresh_after(&st, &moved)?;
                 Ok(moved)
@@ -271,9 +273,11 @@ impl Session {
                 let page = c.page.clone();
                 self.pending_add_in_reread(&page, method.method())?;
                 self.lookup_refresh_deferred_call(method, &page, Some(&c.target))?;
-                self.marked_only_unshown_call(method, &page, |s| {
-                    s.shown_client_call(method, &c.page, Some(&c.target), false, |s| {
-                        s.test_control_op_held(method, &c, args)
+                self.code_close_client_call(method, &page, |s| {
+                    s.marked_only_unshown_call(method, &page, |s| {
+                        s.shown_client_call(method, &c.page, Some(&c.target), false, |s| {
+                            s.test_control_op_held(method, &c, args)
+                        })
                     })
                 })
             }
@@ -1187,6 +1191,7 @@ impl Session {
                 let restored = st.borrow().close_restored_row;
                 let fields = restored.then(|| self.page_rec(st).borrow().fields.clone());
                 let r = self.close_with(st, &a, false, false)?;
+                self.note_code_close_veto(st, &a)?;
                 // Under Page.RunModal the record variable gets the shown row the call read back, although the page closes with
                 // LookupCancel (testpage/PnGRefresh.al:996 QN_CloseQ_Sheet_RunModal_OtherChanged_CloseInAction
                 // `run-modal-result = LookupCancel`, `row-after = A,orig A`; :1113 the List page). Pinned for that read back only.
