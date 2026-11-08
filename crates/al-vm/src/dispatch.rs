@@ -632,10 +632,8 @@ impl Session {
             .any(|b| b.instance.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
     }
 
-    /// Whether `v` (a codeunit, or an array of them) holds an instance bound right now: `ClearAll()` of such a global is
-    /// refused, because whether the binding survives it is not pinned (al-runner issue 6974; probe pending in
-    /// events/binding-senders/BindSubscriptionClearAll.al). Clear of a bound local ends the binding
-    /// (events/TestProbeEventContracts.al BSK_Bind_AfterClear_And_OnCopy).
+    /// Whether `v` (a codeunit, or an array of them) holds an instance bound right now: `ClearAll()` keeps such an
+    /// instance in its variable (`clear_all_bound_globals`, al-runner issue 6974).
     pub(crate) fn holds_bound_codeunit(&self, v: &Value) -> bool {
         match v {
             Value::Codeunit(rc) => self.is_bound(rc),

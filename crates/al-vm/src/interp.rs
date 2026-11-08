@@ -233,7 +233,9 @@ impl Session {
         let page_ext = o.kind == al_ir::ObjKind::PageExtension;
         let tys: Vec<RtType> = o.globals.iter().map(|g| g.ty.clone()).collect();
         self.alias_any(f)?;
-        self.refuse_clear_all_of_bound(&f.instance.borrow().globals, &keep)?;
+        let globals = f.instance.borrow().globals.clone();
+        let bound = self.clear_all_bound_globals(&globals, &keep, true)?;
+        let keep: Vec<usize> = keep.into_iter().chain(bound).collect();
         let fresh: Vec<Value> = tys.iter().map(|t| self.default_value(t)).collect();
         let mut inst = f.instance.borrow_mut();
         for (i, v) in fresh.into_iter().enumerate() {
@@ -284,7 +286,8 @@ impl Session {
                         .chain(eo.globals.iter().position(|g| g.name == "CurrPage"))
                         .collect();
                     let tys: Vec<RtType> = eo.globals.iter().map(|g| g.ty.clone()).collect();
-                    self.refuse_clear_all_of_bound(&ext.borrow().globals, &keep)?;
+                    let ext_globals = ext.borrow().globals.clone();
+                    self.clear_all_bound_globals(&ext_globals, &keep, false)?;
                     let fresh: Vec<Value> = tys.iter().map(|t| self.default_value(t)).collect();
                     let mut ei = ext.borrow_mut();
                     for (i, v) in fresh.into_iter().enumerate() {
@@ -305,20 +308,56 @@ impl Session {
         Ok(Value::Null)
     }
 
-    /// `ClearAll()` would reset a global (not in `keep`) that holds a bound manual subscriber: refused, see
-    /// `holds_bound_codeunit` (al-runner issue 6974).
-    fn refuse_clear_all_of_bound(&self, globals: &[Value], keep: &[usize]) -> Result<(), Signal> {
-        if globals
-            .iter()
-            .enumerate()
-            .any(|(i, v)| !keep.contains(&i) && self.holds_bound_codeunit(v))
-        {
-            return Err(Signal::Unsupported(
-                "ClearAll of a global codeunit variable whose instance is bound by BindSubscription (not pinned)"
+    /// The globals (not in `keep`) that `ClearAll()` leaves pointing at their instance because the instance is bound by
+    /// `BindSubscription`. Real BC 29 keeps the bound instance in the variable and its binding, and resets the instance's own
+    /// globals (corpus branch al-runtime-rs-staging-6974, events/binding-senders/BindSubscriptionClearAll.al
+    /// ClearAll_HolderWithBoundGlobal_Binding and ClearAll_TestCodeunitWithBoundGlobal_Binding; al-runner issue 6974).
+    /// Pinned for a codeunit's global (`in_place`); an array of codeunits, a page extension's global, and a bound instance
+    /// whose own globals hold a temporary record or another bound instance are not pinned and are refused.
+    fn clear_all_bound_globals(
+        &mut self,
+        globals: &[Value],
+        keep: &[usize],
+        in_place: bool,
+    ) -> Result<Vec<usize>, Signal> {
+        let refuse = || {
+            Err(Signal::Unsupported(
+                "ClearAll of this global codeunit variable whose instance is bound by BindSubscription (not pinned)"
                     .into(),
-            ));
+            ))
+        };
+        let mut kept = Vec::new();
+        for (i, v) in globals.iter().enumerate() {
+            if keep.contains(&i) || !self.holds_bound_codeunit(v) {
+                continue;
+            }
+            let Value::Codeunit(rc) = v else { return refuse() };
+            if !in_place {
+                return refuse();
+            }
+            let object = rc.borrow().object as usize;
+            let o = &self.engine.program.objects[object];
+            let inner_keep: Vec<usize> = o.rec_slot.into_iter().collect();
+            let tys: Vec<RtType> = o.globals.iter().map(|g| g.ty.clone()).collect();
+            let inner = rc.borrow().globals.clone();
+            let nested = inner.iter().enumerate().any(|(k, g)| {
+                !inner_keep.contains(&k)
+                    && (self.holds_bound_codeunit(g) || matches!(g, Value::Record(r) if r.borrow().temporary))
+            });
+            if nested {
+                return refuse();
+            }
+            let fresh: Vec<Value> = tys.iter().map(|t| self.default_value(t)).collect();
+            let mut b = rc.borrow_mut();
+            for (k, nv) in fresh.into_iter().enumerate() {
+                if !inner_keep.contains(&k) && k < b.globals.len() {
+                    b.globals[k] = nv;
+                }
+            }
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ClearAllKeepsBoundInstance);
+            kept.push(i);
         }
-        Ok(())
+        Ok(kept)
     }
 
     /// The rest of `ClearAll()` in a table or a table extension: the globals of the other instances of the record
