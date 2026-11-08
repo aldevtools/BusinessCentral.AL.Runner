@@ -255,12 +255,12 @@ impl Session {
         self.si_track = Some(Box::new(t_snapshot_all(&mut t, &made)));
     }
 
-    /// A test method of the codeunit begins: the first reads from now on count for it (`SingleOut::read_in`). Without
-    /// notes it does nothing.
-    pub fn single_test_begins(&mut self) {
-        if let Some(t) = self.si_track.as_mut() {
-            t.test += 1;
-        }
+    /// A test method of the codeunit begins: the first reads from now on count for it (`SingleOut::read_in`). Returns
+    /// its number (from 1); without notes it does nothing and returns 0.
+    pub fn single_test_begins(&mut self) -> u32 {
+        let Some(t) = self.si_track.as_mut() else { return 0 };
+        t.test += 1;
+        t.test
     }
 
     /// A single instance the session just made: watched when its object is.

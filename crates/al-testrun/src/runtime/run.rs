@@ -587,8 +587,6 @@ fn run_codeunit_inner(
         // The rows of `out` that are results of data-driven procedures: BC reports none of them when it ends the session.
         let mut data_driven_rows: Vec<usize> = Vec::new();
         let mut cases_ok = true;
-        // The test methods begun so far (`Session::single_test_begins`, ADR-066 amendment 7).
-        let mut test_no: u32 = 0;
         while let Some(item) = queue.pop_front() {
             let r = item.routine;
             let name = item.name;
@@ -636,8 +634,8 @@ fn run_codeunit_inner(
                 break;
             }
             crate::events::starting(obj.id.unwrap_or(0), &obj.routines[r].name);
-            test_no += 1;
-            session.single_test_begins();
+            // The number of this test for the SingleInstance notes (ADR-066 amendment 7; 0 without notes).
+            let test_no = session.single_test_begins();
             let test_started = std::time::Instant::now();
             let draws_before = session.inherited_random_draws();
             let carried_before = session.carried_random_draws();
@@ -1091,9 +1089,7 @@ fn run_codeunit_inner(
                 Err(o) => o,
             };
             let ended = ended_of(&outcome, began);
-            if ended.is_some_and(|e| e != Ended::RefusedBeforeStart) || runner_refused.is_some() {
-                scratch.unfinished_at.push((test_no, name.clone()));
-            }
+            note_unfinished(scratch, ended, runner_refused.is_some(), test_no, &name);
             if let (Some(ended), Outcome::NotRun(why) | Outcome::Fail(why)) = (ended, &outcome) {
                 let how = match ended {
                     Ended::RefusedBeforeStart => "not run",
@@ -1591,6 +1587,14 @@ impl Watchdog {
     pub(crate) fn finish(self) -> bool {
         let _ = self.done.send(());
         self.thread.join().unwrap_or(false)
+    }
+}
+
+/// Notes test `test_no` in `Scratch::unfinished_at` when it started and did not run to its end, or a runner step around
+/// it did not (ADR-066 amendment 7, option 1).
+fn note_unfinished(scratch: &mut Scratch, ended: Option<Ended>, runner_refused: bool, test_no: u32, name: &str) {
+    if ended.is_some_and(|e| e != Ended::RefusedBeforeStart) || runner_refused {
+        scratch.unfinished_at.push((test_no, name.to_string()));
     }
 }
 
