@@ -203,6 +203,7 @@ pub const SIGS: &[(&str, &str, Ret)] = &[
     (TENANT_SETTINGS_HELPER, "GetLinkedPowerPlatformEnvironmentId", Ret::Text),
     (TENANT_SETTINGS_HELPER, "GetEnvironmentApplicationSetting", Ret::Text),
     (TENANT_SETTINGS_HELPER, "GetApplicationFamily", Ret::Text),
+    (TENANT_SETTINGS_HELPER, "GetRingName", Ret::Text),
     (TENANT_SETTINGS_HELPER, "GetPlatformVersion", Ret::Object),
     (TENANT_SETTINGS_HELPER, "TryGetStringTenantSetting", Ret::Boolean),
     (USER_ACCOUNT_HELPER, "IsAzure", Ret::Boolean),
