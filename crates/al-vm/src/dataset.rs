@@ -391,8 +391,11 @@ pub(crate) struct Dataset {
     /// Why the Labels block cannot be written (its order is not pinned). Refused when the dataset is written, not when the run
     /// starts: a run that errors before it writes the dataset raises its own error.
     pub labels_unpinned: Option<String>,
-    /// Why the dataset cannot be written in the language a trigger set (`reports.rs` `saveas_language_set`).
+    /// Why the dataset cannot be written in the language a trigger set (`reports/format_region.rs` `saveas_language_set`).
     pub culture_unpinned: Option<String>,
+    /// Why the dataset cannot be written in a language that is pinned only with a region a trigger sets after it (cleared by
+    /// that `CurrReport.FormatRegion :=`, `reports/format_region.rs`).
+    pub language_wants_region: Option<String>,
     /// Every row, in the order written, for a .NET DataSet (`finish_data_set`).
     flat: Vec<FlatRow>,
     /// For every open `DataItem`: the state to go back to when `PrintOnlyIfDetail` drops its row, and how many rows its nested items wrote.
@@ -782,7 +785,11 @@ impl Dataset {
     /// The bytes of the whole dataset: the byte order mark, the header, the data items.
     pub(crate) fn finish(self, header: &Header) -> Result<Vec<u8>, Signal> {
         debug_assert!(self.open.is_empty());
-        if let Some(why) = self.labels_unpinned.or(self.culture_unpinned) {
+        if let Some(why) = self
+            .labels_unpinned
+            .or(self.culture_unpinned)
+            .or(self.language_wants_region)
+        {
             return Err(Signal::Unsupported(why));
         }
         let mut out = String::new();

@@ -70,23 +70,22 @@ impl Session {
     /// A card whose row an action deleted asks OnQueryClosePage before it runs OnClosePage.
     pub(super) fn card_query_close_before_forced_close(&mut self, st: &St) -> Result<(), Signal> {
         // The card asks OnQueryClosePage first, then runs OnClosePage (corpus master pages/deleted-rows/Y80GoneRows.al
-        // Y80_Gone_Card_OpenEdit_DeleteAllUpdate, _DeleteCurrent, _OpenView_* `action log R:10;D:10;Q;X`). The CloseAction it
-        // receives is not pinned (those triggers never read it): a trigger that reads it is refused. A veto is not pinned.
+        // Y80_Gone_Card_OpenEdit_DeleteAllUpdate, _DeleteCurrent, _OpenView_* `action log R:10;D:10;Q;X`). It receives the action
+        // of a close by the page itself: OK, LookupCancel when run modally in lookup mode (pages/deleted-rows-navigation/
+        // Y89GoneSingleMove.al Y89_CA_True_{OpenEdit,OpenView}_* `Q:OK:..`, Y89_CA_Modal_True_* `Q:LookupCancel:..`). A veto is
+        // not pinned to the end (the page stays open and asks again in shapes that are not modelled): refused.
         if self.declares(st, "onqueryclosepage") {
-            if self.query_close_reads_close_action(st) {
-                return unsupported(
-                    "a card whose OnQueryClosePage reads the CloseAction its deleted row forces (not pinned)",
-                );
-            }
+            self.rec_after_forced_close(st)?;
+            let action = self.close_action(st, "Close");
             let members: std::sync::Arc<[String]> = al_builtins::value::ACTION_MEMBERS
                 .iter()
                 .map(|m| m.to_string())
                 .collect();
-            let none = al_builtins::value::ACTION_MEMBERS
+            let at = al_builtins::value::ACTION_MEMBERS
                 .iter()
-                .position(|m| *m == "None")
+                .position(|m| *m == action)
                 .unwrap_or(0) as i32;
-            if self.query_close_answer(st, vec![Value::Option(none, members)])? == Some(false) {
+            if self.query_close_answer(st, vec![Value::Option(at, members)])? == Some(false) {
                 return unsupported(
                     "a card whose OnQueryClosePage vetoes the close its deleted row forces (not pinned)",
                 );
@@ -95,22 +94,43 @@ impl Session {
         Ok(())
     }
 
-    /// Whether an OnQueryClosePage of the page (its own or an extension's) reads its first parameter, the CloseAction.
-    fn query_close_reads_close_action(&self, st: &St) -> bool {
-        let engine = self.engine();
-        let object = st.borrow().object as usize;
-        let page = page_of(&engine, st);
-        let mut calls: Vec<(usize, usize)> = Vec::new();
-        if let Some((_, r)) = page.triggers.iter().find(|(n, _)| n == "onqueryclosepage") {
-            calls.push((object, *r));
+    /// The Rec of a card whose row is gone, as its OnQueryClosePage sees it: the next row of the view, or a blank record when
+    /// no row is left (Y89GoneSingleMove.al Y89_CA_True_*_2Row_delcur `Q:OK:20`, _1Row_* and _2Row_delall{,upd} `Q:OK:0`).
+    /// Only rows after the deleted one are pinned: a row before it, a page that finds its own rows and whether
+    /// OnAfterGetRecord runs for the next row are not, and are refused.
+    fn rec_after_forced_close(&mut self, st: &St) -> Result<(), Signal> {
+        if self.declares(st, "onfindrecord") || self.declares(st, "onnextrecord") {
+            return unsupported("a card that finds its own rows, closed by its deleted row (not pinned)");
         }
-        for (n, e, r) in &page.ext_triggers {
-            if n == "onqueryclosepage" {
-                calls.push((*e, *r));
+        let rec = self.page_rec(st);
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        self.ret_used = true;
+        if matches!(
+            self.record_op(RecordOp::Find, &probe, &mut [Value::Text(">".into())])?,
+            Value::Boolean(true)
+        ) {
+            if self.declares(st, "onaftergetrecord") {
+                return unsupported(
+                    "a card closed by its deleted row with a row after it and OnAfterGetRecord (not pinned)",
+                );
             }
+            let found = probe.borrow().clone();
+            *rec.borrow_mut() = found;
+            return Ok(());
         }
-        calls
-            .into_iter()
-            .any(|(obj, r)| super::param_read::reads_first_param(&engine.program.objects[obj].routines[r].body))
+        let back = Rc::new(RefCell::new(rec.borrow().clone()));
+        self.ret_used = true;
+        if matches!(
+            self.record_op(RecordOp::Find, &back, &mut [Value::Text("<".into())])?,
+            Value::Boolean(true)
+        ) {
+            return unsupported("a card closed by its deleted row with rows only before it (not pinned)");
+        }
+        let table = rec.borrow().table as usize;
+        let fresh = self.initial_fields(table);
+        let mut r = rec.borrow_mut();
+        r.fields = fresh;
+        r.position = None;
+        Ok(())
     }
 }

@@ -37,6 +37,8 @@ ROLES = {
     "junit-al-language-onprem-dotnet.xml": ("tests/al-language-onprem-dotnet", "junit-dotnet.xml"),
     "junit-al-language-testlibraries.xml": ("tests/al-language-testlibraries", "junit-testlibraries.xml"),
     "junit-al-language-isolation-disabled.xml": ("tests/al-language-isolation-disabled", "junit-isolation-disabled.xml"),
+    # The job "BC TryWrites" (server setting DisableWriteInsideTryFunctions=false; oracle.toml suite trywrite-allowed).
+    "junit-al-language-trywrite-allowed.xml": ("tests/al-language-trywrite-allowed", "junit-trywrite-allowed.xml"),
 }
 ROLE_OF_APP = {app: role for role, (app, _) in ROLES.items()}
 SECTION_START = "<!-- pr-results-bump:start -->"

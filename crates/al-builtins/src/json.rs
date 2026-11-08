@@ -506,7 +506,11 @@ impl Parser<'_> {
                 }
             }
         }
-        Ok(String::from_utf16_lossy(&units))
+        // `"\uD800"` alone is half of a surrogate pair. Real BC keeps it; this runtime cannot hold it until ADR-068 is
+        // built, and U+FFFD would be a guessed value (hard rule 4).
+        String::from_utf16(&units).map_err(|_| {
+            ParseError::Unsupported("a JSON \\u escape that ends up with half of a surrogate pair (not pinned)")
+        })
     }
 
     fn number(&mut self) -> PResult<Handle> {
@@ -2881,6 +2885,18 @@ pub fn write_text(h: &Handle, out: &mut String) -> Result<(), Signal> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `"\uD800"` alone is half of a surrogate pair: real BC keeps it in the text, which this runtime cannot hold until
+    /// ADR-068 is built, so the parse refuses instead of giving U+FFFD (hard rule 4). A whole pair still reads.
+    #[test]
+    fn a_half_pair_escape_refuses() {
+        let r = parse("{\"a\":\"x\\uD800\"}");
+        assert!(
+            matches!(&r, Err(Signal::Unsupported(w)) if w.contains("half of a surrogate pair")),
+            "{r:?}"
+        );
+        assert!(parse("{\"a\":\"\\ud83d\\ude00\"}").is_ok());
+    }
 
     /// Np4FormatJson.al NP4_JsonValue_AsInteger_SetValueDecimal (corpus master, corpus PR 871).
     #[test]

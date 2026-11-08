@@ -24,6 +24,19 @@ oracle = "{major}/junit-isolation-disabled.xml"
 baseline = "metrics/{major}/not-passing-isolation-disabled.txt"
 runner = 130451
 '''
+# TRYW_IDS="27=ID 28=ID 29=ID": the artifact ids of the TryWrites files (suite trywrite-allowed, corpus job "BC TryWrites",
+# which runs BC with DisableWriteInsideTryFunctions=false). Added to a version that lacks it, like isolation-disabled.
+tryw = {k: v for k, v in (x.split("=") for x in os.environ.get("TRYW_IDS", "").split()) if v != "0"}
+TRYW_SUITE = '''[[version.suite]]
+name = "trywrite-allowed"
+app = "corpus/tests/al-language-trywrite-allowed"
+workflow_run = {run}
+artifact_id = {artifact}
+oracle = "{major}/junit-trywrite-allowed.xml"
+baseline = "metrics/{major}/not-passing-trywrite-allowed.txt"
+# The corpus job "BC TryWrites" (corpus .github/workflows/ci.yml, job test-trywrite-allowed, `server_settings`).
+server_settings = ["DisableWriteInsideTryFunctions=false"]
+'''
 legs = [rest[i:i + 5] for i in range(0, len(rest), 5)]
 # oracle.toml: the pin, then per [[version]] table its run and artifact, and its onprem suite's.
 p = root + "/oracle/oracle.toml"
@@ -50,12 +63,16 @@ for b in blocks[1:]:
             else leg_fields(s, dotnet[major]) if re.search(r'^name = "onprem-dotnet"', s, re.M) and major in dotnet
             else leg_fields(s, testlib[major]) if re.search(r'^name = "testlibraries"', s, re.M) and major in testlib
             else leg_fields(s, isol[major]) if re.search(r'^name = "isolation-disabled"', s, re.M) and major in isol
+            else leg_fields(s, tryw[major]) if re.search(r'^name = "trywrite-allowed"', s, re.M) and major in tryw
             else s
             for s in parts[1:]
         ]
         if major in isol and not any(re.search(r'^name = "isolation-disabled"', s, re.M) for s in parts[1:]):
             parts[-1] = parts[-1].rstrip("\n") + "\n\n"
             parts.append(ISOL_SUITE.format(run=run, artifact=isol[major], major=major) + "\n")
+        if major in tryw and not any(re.search(r'^name = "trywrite-allowed"', s, re.M) for s in parts[1:]):
+            parts[-1] = parts[-1].rstrip("\n") + "\n\n"
+            parts.append(TRYW_SUITE.format(run=run, artifact=tryw[major], major=major) + "\n")
         b = "".join(parts)
     out.append(b)
 open(p, "w").write("".join(out))
