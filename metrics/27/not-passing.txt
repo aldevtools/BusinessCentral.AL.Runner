@@ -190,10 +190,6 @@
 68553 ReadFromInStream_ByteOrderMarks
 68553 ReadFromInStream_NonAsciiPerEncoding
 68553 WriteToOutStream_ArrayAndValue_Utf8
-68553 WriteToOutStream_MsDos
-68553 WriteToOutStream_Utf16
-68553 WriteToOutStream_Utf8
-68553 WriteToOutStream_Windows
 68554 ReadTextWithLength_BytesFrom128To159
 68571 ExportStream_OfAnImportedPicture
 68665 DateFormula_MoreRefusedSpellings
@@ -289,7 +285,6 @@
 69886 TestPage_BadFilter
 69886 TestPage_CardCue
 69886 TestPage_List
-70040 LT_BU_Index_SurrogatePairs
 70051 FormatString_Invalid
 70051 FormatString_Separators
 70055 BT_Evaluate_InvisibleCharacter
@@ -355,7 +350,6 @@
 70535 PW_SecondSaveAs_LastErrorCode
 70535 PW_TriggerError_InPreReport_LastError
 70540 Decimal_QuotientDigits
-70540 TextCharAssign
 70540 TextOrder_BaseLetterAccentCase
 70540 TextOrder_Punctuation
 70550 RO_CollectedErrorInfo_Internal_And_Client
@@ -510,7 +504,6 @@
 71630 P119_RatioNonZeroValues
 71697 BigInteger_StatementError_TextAndCode
 71697 Integer_StatementError_TextAndCode
-71701 Utf8_Emoji_ReadVariants
 71702 PrecStd9And0_OtherPrecisionForms
 71703 PrecStd9And0_OtherPrecisionForms
 71725 WrongType_IntegerAndTextVariables
@@ -541,7 +534,6 @@
 71877 P192_IndexOf_DateTime_Stored
 71878 P192_ArrayAdd_DateTime_Get0
 71878 P192_SetValue_DateTime_Then_Others
-71884 Foreach_Text_SurrogatePair
 71923 SaveAsJson_RawBytes
 71923 SaveAsXml_RawBytes
 71923 SaveAs_NoRows_RawBytes
@@ -626,8 +618,6 @@
 72702 P107_AddFieldFieldRef
 72703 P107_ContainsIsSecret
 72722 P161_Unregister_NotRegistered
-72871 TextIndex_CharacterValues
-72871 TextIndex_UnboundedTextAndCode
 72876 FormatOption_FieldRefAndEvaluate
 72879 DateFormulaControl_Spellings
 72879 DurationControl_Spellings
@@ -807,10 +797,8 @@
 74141 PYB_OpenNew_TypeA_ThenNo_Steps
 74200 ReadWriteSizes
 74200 WriteReadTypes
-74201 LoneSurrogate
 74201 PositionPerEncoding
 74201 ReadTextLengthMultiByte
-74201 SurrogatePair
 74202 Base64InvalidInput
 74202 Base64UrlAlphabetRoundTrip
 74202 Base64UrlAlphabetToStandardDecode
@@ -1361,7 +1349,6 @@
 85018 CalcField_RecordIf_NoRead_EmptyTable
 85018 RecordRefOpen_TableInformation
 85018 Subscriber_EmptySet_ReadInSubscriber
-85120 Utf16_SurrogatePairs
 85180 Variant_HoldingCodeunit_AssignBack
 85180 Variant_HoldingDictionary_AssignBackAndEvaluate
 85180 Variant_HoldingList_AssignBack
