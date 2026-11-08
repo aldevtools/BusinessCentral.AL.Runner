@@ -1158,10 +1158,9 @@ impl CorpusRuntime {
             .map(|b| b.unseeded.iter().map(|&t| t as usize).collect())
             .unwrap_or_default();
         let baseline_engine = (workers > 1 && baseline_run.is_some()).then(|| engine.clone());
-        let mut baseline_ids: Vec<String> = Vec::new();
-        let mut baseline_roots: Option<(usize, usize)> = None;
+        let mut baseline_ids = crate::baseline::NoteFacts::default();
+        let baseline_roots = baseline_run.as_ref().map(|b| (b.ran, b.total));
         if let Some(b) = &baseline_run {
-            baseline_roots = Some((b.ran, b.total));
             if !opts.quiet_baseline {
                 if from_cache {
                     eprintln!("baseline: read from the cache of an earlier run of this program");
@@ -1181,7 +1180,7 @@ impl CorpusRuntime {
                     started.elapsed().as_secs_f64()
                 );
             }
-            baseline_ids = crate::baseline::assumption_ids(&b.notes);
+            baseline_ids = crate::baseline::NoteFacts::of(&b.notes);
             if baseline_engine.is_some() {
                 engine = spare_engine.take().unwrap_or_else(|| sibling_of(&engine));
             }
@@ -1955,7 +1954,8 @@ impl CorpusRuntime {
             panics,
             phases: Phases {
                 chain: chain_report,
-                baseline_assumptions: baseline_ids,
+                baseline_assumptions: baseline_ids.assumptions,
+                baseline_install_orders: baseline_ids.install_orders,
                 baseline_roots,
                 compile: compile_time,
                 baseline: baseline_time,

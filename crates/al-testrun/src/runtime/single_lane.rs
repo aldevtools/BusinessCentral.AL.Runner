@@ -26,6 +26,7 @@
 //! file's order, and a codeunit in no suite is a session of its own ([`streams`]); without it the whole run is one.
 
 use super::chain_walk::Carry as ChainCarry;
+use super::lane_starts::{Ask, Deltas, Held, Reply, Starts, carried_start};
 use super::*;
 use al_vm::single_track::{GlobalKey, SingleOut};
 use std::collections::{BTreeMap, BTreeSet};
@@ -336,10 +337,15 @@ pub struct LaneReport {
     pub longest: std::time::Duration,
     /// The threads the serial sessions ran on (amendment 5).
     pub threads: usize,
-    /// Carried starts written as bytes for a worker thread (amendment 5, decision 5).
+    /// Carried starts the main thread made for the worker threads (amendment 5, decision 5): each carry's delta once
+    /// (`lane_starts.rs`), and the starts written whole as bytes.
     pub starts_written: usize,
-    /// The most carried starts alive as bytes at once (al-runner issue 6924).
+    /// Of `starts_written`, those written whole as bytes (a carry without a delta).
+    pub starts_whole: usize,
+    /// The most carried starts alive whole as bytes at once (al-runner issue 6924).
     pub starts_peak: usize,
+    /// The most bytes of deltas the main thread kept at once (at most `lane_starts::DELTA_BUDGET`).
+    pub delta_bytes_peak: usize,
 }
 
 impl LaneReport {
@@ -366,8 +372,12 @@ impl LaneReport {
         )];
         if self.starts_written > 0 {
             out[0].push_str(&format!(
-                "; {} carried starts written as bytes for {} threads (at most {} at once)",
-                self.starts_written, self.threads, self.starts_peak
+                "; {} carried starts made for {} threads ({} written whole as bytes, at most {} at once; {:.1} MB of row deltas kept at most)",
+                self.starts_written,
+                self.threads,
+                self.starts_whole,
+                self.starts_peak,
+                self.delta_bytes_peak as f64 / 1e6
             ));
         }
         out.extend(self.notes.iter().cloned());
@@ -398,68 +408,6 @@ struct Step {
     again: Option<(bool, Option<usize>)>,
 }
 
-/// A carried baseline as bytes, for a worker thread.
-struct Start {
-    bytes: Vec<u8>,
-    install_rows: Option<BTreeSet<u32>>,
-    origin: u64,
-}
-
-impl Start {
-    /// The worker's own copy (the same data, so the same origin, over the engine's test data).
-    fn decode(&self, engine: &Arc<Engine>) -> Option<al_vm::Baseline> {
-        al_vm::Baseline::from_bytes(&self.bytes).map(|b| {
-            let mut b = b.backed_by(engine).with_origin(self.origin);
-            b.install_rows = self.install_rows.clone();
-            b
-        })
-    }
-}
-
-/// The carried baselines the worker threads ask for, written as bytes on this thread when one is asked for, not before.
-/// al-runner issue 6924: written all before the sessions started and kept to the lane's end, the starts of a carry chain
-/// of about 700 codeunits (each the full test data) ran a partner suite out of memory. This side keeps only a weak
-/// reference and a worker drops the bytes once it has read them back, so a start lives only while a worker reads it:
-/// at most one per worker thread at once. Two workers that ask for the same start at once share it.
-#[derive(Default)]
-struct Starts {
-    /// By carry index: the start while a worker holds it; `None`: it cannot be written as bytes.
-    known: BTreeMap<usize, Option<std::sync::Weak<Start>>>,
-    /// How many starts were written.
-    written: usize,
-    /// The most starts alive at once.
-    peak: usize,
-}
-
-impl Starts {
-    /// The start of carry `carry`, whose baseline is `b`; `None` when it cannot be written as bytes.
-    fn get(&mut self, carry: usize, b: &al_vm::Baseline) -> Option<Arc<Start>> {
-        match self.known.get(&carry) {
-            Some(None) => return None,
-            Some(Some(alive)) => {
-                if let Some(s) = alive.upgrade() {
-                    return Some(s);
-                }
-            }
-            None => {}
-        }
-        let Some(bytes) = b.to_bytes() else {
-            self.known.insert(carry, None);
-            return None;
-        };
-        let s = Arc::new(Start {
-            bytes,
-            install_rows: b.install_rows.clone(),
-            origin: b.origin(),
-        });
-        self.known.insert(carry, Some(Arc::downgrade(&s)));
-        self.written += 1;
-        let alive = self.known.values().flatten().filter(|w| w.strong_count() > 0).count();
-        self.peak = self.peak.max(alive);
-        Some(s)
-    }
-}
-
 /// A carried start a session needs cannot be written as bytes: the session runs on this thread from the baselines
 /// themselves ([`Lane::run_bound`]).
 struct NoBytes;
@@ -473,20 +421,18 @@ struct Worker<'a> {
 }
 
 impl Worker<'_> {
-    /// Runs one step from `install` (this thread's install baseline) or a carried start that `fetch` gets from the
-    /// thread that holds the baselines. A start is read back when the step needs it and dropped after the step (issue
-    /// 6924). `Ok(None)`: the codeunit keeps its first run.
+    /// Runs one step from `install` (this thread's install baseline) or a carried start that `start` builds from what
+    /// the thread that holds the baselines hands over (`lane_starts.rs`). `Ok(None)`: the codeunit keeps its first run.
     fn run(
         &self,
         install: Option<&al_vm::Baseline>,
-        fetch: &mut dyn FnMut(usize) -> Option<Arc<Start>>,
+        start: &mut dyn FnMut(usize) -> Result<Option<al_vm::Baseline>, NoBytes>,
         s: &Step,
     ) -> Result<Option<UnitResult>, NoBytes> {
         let mut u = self.units[s.k].clone();
         u.watch = false;
-        let mut copy = |carry: usize| fetch(carry).ok_or(NoBytes).map(|start| start.decode(self.engine));
         let first = match s.from {
-            Some(carry) => match copy(carry)? {
+            Some(carry) => match start(carry)? {
                 Some(b) => Some(b),
                 None => return Ok(None),
             },
@@ -504,7 +450,7 @@ impl Worker<'_> {
         if let Some((storage, again)) = s.again {
             if storage || r.result.as_ref().is_ok_and(|done| done.5.leak_hit) {
                 let Some(carry) = again else { return Ok(None) };
-                let Some(from) = copy(carry)? else { return Ok(None) };
+                let Some(from) = start(carry)? else { return Ok(None) };
                 super::run::CARRIED.with(|c| c.borrow_mut().take());
                 r = run_unit(self.engine, self.lowered, Some(&from), &u, None, self.limit);
             }
@@ -676,6 +622,10 @@ impl Lane<'_> {
             0
         };
         let mut starts = Starts::default();
+        // Each carried start made once, as the rows it holds apart from the one before (`lane_starts.rs`).
+        // Without an install baseline the first delta is taken from a baseline that holds nothing.
+        let empty = al_vm::Baseline::empty();
+        let mut deltas = Deltas::new(self.carried, self.baseline.unwrap_or(&empty));
         let mut ran_on = 1;
         if helpers > 0 {
             self.snapshot
@@ -689,7 +639,6 @@ impl Lane<'_> {
                 limit: self.limit,
             };
             let thread_baseline = self.thread_baseline;
-            type Ask = (usize, std::sync::mpsc::Sender<Option<Arc<Start>>>);
             let (ask, asked) = std::sync::mpsc::channel::<Ask>();
             std::thread::scope(|scope| {
                 let mut handles = Vec::new();
@@ -701,9 +650,15 @@ impl Lane<'_> {
                         .spawn_scoped(scope, move || {
                             let own = thread_baseline(snapshot);
                             let (reply, replies) = std::sync::mpsc::channel();
-                            let mut fetch = |carry: usize| {
-                                ask.send((carry, reply.clone())).ok()?;
-                                replies.recv().ok().flatten()
+                            let mut fetch = |carry: usize, whole: bool| {
+                                ask.send((carry, whole, reply.clone())).ok()?;
+                                replies.recv().ok()
+                            };
+                            // The one carried start this thread holds (issue 6924).
+                            let mut held: Held = None;
+                            let mut start = |carry: usize| {
+                                carried_start(carry, &mut held, own.as_ref(), worker.engine, &mut fetch)
+                                    .map_err(|()| NoBytes)
                             };
                             let mut done = Vec::new();
                             loop {
@@ -711,7 +666,7 @@ impl Lane<'_> {
                                 let Some(chain) = chains.get(c) else { return done };
                                 let mut at = chain.steps.iter();
                                 let runs = run_in_order(&chain.order, &mut |_| {
-                                    worker.run(own.as_ref(), &mut fetch, at.next().expect("a step per codeunit"))
+                                    worker.run(own.as_ref(), &mut start, at.next().expect("a step per codeunit"))
                                 });
                                 done.push((c, runs.ok()));
                             }
@@ -724,13 +679,19 @@ impl Lane<'_> {
                 }
                 drop(ask);
                 // Ends when every worker thread is done (each holds a sender).
-                for (carry, reply) in asked {
-                    let start = self.carried[carry]
-                        .3
-                        .baseline
-                        .as_ref()
-                        .and_then(|b| starts.get(carry, b));
-                    let _ = reply.send(start);
+                for (carry, whole, reply) in asked {
+                    let delta = if whole { None } else { deltas.get(carry) };
+                    let answer = match delta {
+                        Some((d, base)) => Reply::Delta(d, base),
+                        None => Reply::Whole(
+                            self.carried[carry]
+                                .3
+                                .baseline
+                                .as_ref()
+                                .and_then(|b| starts.get(carry, b)),
+                        ),
+                    };
+                    let _ = reply.send(answer);
                 }
                 ran_on = handles.len().max(1);
                 for h in handles {
@@ -747,8 +708,11 @@ impl Lane<'_> {
             }
         }
         report.threads = ran_on;
-        report.starts_written = starts.written;
+        let (made, kept) = (deltas.count, deltas.peak);
+        report.starts_written = starts.written + made;
+        report.starts_whole = starts.written;
         report.starts_peak = starts.peak;
+        report.delta_bytes_peak = kept;
         out.into_iter().map(|r| r.expect("every serial session ran")).collect()
     }
 
