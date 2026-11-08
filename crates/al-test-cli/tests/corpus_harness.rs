@@ -1024,7 +1024,10 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // This branch makes it 38: 67605 N582_Evaluate_FieldRef_Guid_ResultUsedAndFormat9 (recordref-fieldref/N582EvalFieldRefUnused.al,
     // al-runner issue 6924) passes on BC 28 and 29; on 27 the last error stays set when Evaluate into a Guid FieldRef
     // answers false (the `#else` arms), which the runtime does not do, so it stays listed there.
-    assert!(out.contains("runtime: 38 case(s) differ between versions"), "{out}");
+    // Corpus bump to master 3f82e513 makes it 39: 69340 EnvironmentInformation_PreviewRings (types/PVEnvironment.al:49-68)
+    // passes on BC 27 only in this run without Microsoft's apps: there its body is guarded out (gate
+    // EnvironmentPreviewRingsFrom28); on 28 and 29 it calls Environment Information of the System Application.
+    assert!(out.contains("runtime: 39 case(s) differ between versions"), "{out}");
     assert!(out.contains("71500 Get_Uses_Primary_Key_Not_Current_Key: 27"), "{out}");
 }
 
