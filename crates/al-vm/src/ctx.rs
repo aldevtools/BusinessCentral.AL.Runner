@@ -62,13 +62,22 @@ impl al_builtins::format::FormatCtx for Session {
         match self.report.curr_report_language {
             Some(n)
                 if n != self.global_language
-                    && self.report.report_preview_pinned.last() != Some(&crate::state::ReportStart::Run) =>
+                    && self.report.report_preview_pinned.last() != Some(&crate::state::ReportStart::Run)
+                    && !self.region_language_pinned_for(n) =>
             {
                 Some(format!(
                     "after CurrReport.Language := {n} in a report not started by Run (the formats in that language are not built)"
                 ))
             }
             _ => None,
+        }
+    }
+    /// The language in force is 1033, or a trigger set it and then a region it is measured with (reports/runtime/
+    /// BdRegionTests.al:1712-1912 Y89_Lang_*).
+    fn region_language_pinned(&self) -> bool {
+        match self.report.curr_report_language {
+            Some(n) => self.region_language_pinned_for(n),
+            None => self.report.run_language.unwrap_or(self.global_language) == 1033,
         }
     }
     /// A read through Format or Evaluate takes the caption a translation file gives (ADR-053 step 2): refused only where
@@ -710,6 +719,18 @@ impl Session {
             Some(report) => Err(al_builtins::stream::render_pending_error(report)),
             None => Ok(()),
         }
+    }
+}
+
+impl Session {
+    /// Whether the report's region was set after `CurrReport.Language := n` as one of the pairs BdRegionTests.al measures.
+    fn region_language_pinned_for(&self, n: i32) -> bool {
+        n == 1033
+            || self
+                .report
+                .format_region
+                .as_deref()
+                .is_some_and(|r| crate::reports::format_region::language_region_pinned(n, r))
     }
 }
 

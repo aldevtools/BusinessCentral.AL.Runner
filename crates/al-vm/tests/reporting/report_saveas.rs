@@ -5,6 +5,7 @@
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
 use al_sema::workspace::AppSource;
+use al_testkit::text;
 use al_version::{BcVersion, Target};
 use al_vm::{Engine, Session};
 
@@ -1398,16 +1399,21 @@ fn the_save_as_of_a_report_with_the_format_region_property_writes_its_region() {
     }
 }
 
-// nl-NL as the property: the columns of this report use a Format shape (standard format 0 of a value) that BdRegionTests.al does not
-// pin for nl-NL, so the SaveAs stays refused with the reason (docs/probes-needed.md).
+// nl-NL as the property on BC 27: the texts are those of BC 29 (reports/runtime/BdRegionTests.al:1536 Y89_Old_Property_Nl,
+// `#if not BC29PLUS`, the same values as BdProperty_Nl_DatasetAndFormat on BC 29).
 #[test]
-fn the_save_as_of_a_report_with_the_nl_nl_property_still_refuses_an_unpinned_format() {
-    match run_on(
+fn the_save_as_of_a_report_with_the_nl_nl_property_on_bc_27_writes_the_bc_29_texts() {
+    let all = text(run_on(
         Some("27.5"),
         "var H: Codeunit Helpers; All: Text; begin H.Seed(); All := H.Dataset(68393, ''); exit(All); end;",
-    ) {
-        Err(Signal::Unsupported(r)) => assert!(r.contains("nl-NL") && r.contains("not pinned"), "{r}"),
-        other => panic!("{other:?}"),
+    ));
+    for want in [
+        "<Column name=\"DayCol\">31-1-2025</Column>",
+        "<Column name=\"StampCol\">31-1-2025 14:30:15</Column>",
+        "<Column name=\"AmtText\">1.234.567,891</Column>",
+        "<Column name=\"StampText\">31-01-25 14:30</Column>",
+    ] {
+        assert!(all.contains(want), "{want}: {all}");
     }
 }
 
