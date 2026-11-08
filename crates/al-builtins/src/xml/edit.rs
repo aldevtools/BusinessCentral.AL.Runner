@@ -16,6 +16,11 @@ pub(super) fn content_nodes(args: &[Value]) -> Result<Vec<Handle>, Signal> {
             Value::Library(_, h) if is_xml(h) => h.clone(),
             // Text is accepted as content and becomes a text node
             // (xml/TestXmlRuntimeContracts.al:XmlElement_Add_Text_IsAccepted_AndAdjacentTextsMerge).
+            // The XML tree holds Rust strings: half of a surrogate pair cannot be kept in it (ADR-068). BC raises on
+            // WriteTo of such a text (xml/XmlDocReadWrite.al:876-905); what its other readers give is not pinned.
+            Value::Text(t) | Value::Code(t) if t.has_lone() => {
+                return unsupported("a text with half of a surrogate pair as XML content (not pinned)");
+            }
             Value::Text(t) | Value::Code(t) => {
                 out.push(new_node(XData::Text(t.to_string())));
                 continue;
