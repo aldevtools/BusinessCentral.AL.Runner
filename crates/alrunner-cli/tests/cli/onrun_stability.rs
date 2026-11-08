@@ -486,11 +486,11 @@ codeunit 50877 "Suite Lenient Reader"
     assert!(text(&o).contains("line 1: `x` is not a codeunit id"), "{}", text(&o));
 }
 
-/// ADR-066 amendment 7, option 2 (owner, 2026-11-08): a dependent codeunit whose re-run chain holds more than 50 test
-/// codeunits keeps its parallel run. The run output and the JUnit file say why, `--stability` lists it, and
-/// `--strict-order` replays it.
+/// ADR-066 amendment 7, option 2, opt-in since the owner's change of 2026-11-08: by default the chain of 51 codeunits is
+/// replayed in full and the checker passes. With `--max-replay 50` the dependent codeunit keeps its parallel run; the run
+/// output and the JUnit file say why, `--stability` lists it, and `--strict-order` replays it.
 #[test]
-fn a_rerun_over_the_chain_limit_is_reported_in_the_output_junit_and_stability() {
+fn a_rerun_over_max_replay_is_reported_in_the_output_junit_and_stability() {
     let d = tempfile::tempdir().unwrap();
     let mut src = String::from(
         "codeunit 50880 \"Chain Counter\" { SingleInstance = true; procedure Bump() begin Count += 1; end; procedure Get(): Integer begin exit(Count); end; var Count: Integer; }\n",
@@ -515,8 +515,27 @@ fn a_rerun_over_the_chain_limit_is_reported_in_the_output_junit_and_stability() 
     );
     let a = app.to_str().unwrap();
     let text_of = "re-run skipped (chain of 51 codeunits over the limit of 50)";
+    // Default: no cap, the whole chain is replayed.
+    let o = alrunner(&["test", a, "--no-download"]);
+    assert_eq!(code(&o), 0, "{}", text(&o));
+    assert!(!text(&o).contains("re-run skipped"), "{}", text(&o));
+    let o = alrunner(&["test", a, "--no-download", "--max-replay", "x"]);
+    assert_eq!(code(&o), 2, "{}", text(&o));
+    assert!(
+        text(&o).contains("--max-replay needs a number, got `x`"),
+        "{}",
+        text(&o)
+    );
     let junit = d.path().join("r.xml");
-    let o = alrunner(&["test", a, "--no-download", "--junit", junit.to_str().unwrap()]);
+    let o = alrunner(&[
+        "test",
+        a,
+        "--no-download",
+        "--max-replay",
+        "50",
+        "--junit",
+        junit.to_str().unwrap(),
+    ]);
     assert_eq!(code(&o), 1, "{}", text(&o));
     assert!(
         text(&o).contains(&format!("test codeunit 50999 Chain Checker: {text_of}")),
@@ -540,8 +559,8 @@ fn a_rerun_over_the_chain_limit_is_reported_in_the_output_junit_and_stability() 
             .any(|l| l.contains("name=\"Step3\"") && l.contains("singleInstanceRerun")),
         "{x}"
     );
-    // `--strict-order` replays the chain: the checker passes and nothing is skipped.
-    let o = alrunner(&["test", a, "--no-download", "--strict-order"]);
+    // `--strict-order` wins over `--max-replay`: the checker passes and nothing is skipped.
+    let o = alrunner(&["test", a, "--no-download", "--max-replay", "50", "--strict-order"]);
     assert_eq!(code(&o), 0, "{}", text(&o));
     assert!(!text(&o).contains("re-run skipped"), "{}", text(&o));
     // `--stability` lists the codeunit whose re-run was skipped.
@@ -550,6 +569,8 @@ fn a_rerun_over_the_chain_limit_is_reported_in_the_output_junit_and_stability() 
         "test",
         a,
         "--no-download",
+        "--max-replay",
+        "50",
         "--stability",
         "microsoft",
         "--stability-allow-flips",

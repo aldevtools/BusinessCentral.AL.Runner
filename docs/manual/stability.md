@@ -186,8 +186,8 @@ How to read it:
   with `--strict-order` they always run again in order. Each such run is a serial
   session of the codeunit and the codeunits it depends on; the sessions run in parallel.
   A failure triggers the run again only when the failed test, or a test before it, read
-  a value an earlier codeunit left otherwise. A re-run whose chain holds more than 50
-  codeunits is skipped (not with `--strict-order`): those tests are listed again under
+  a value an earlier codeunit left otherwise. With `--max-replay N`, a re-run whose
+  chain holds more than `N` codeunits is skipped (not with `--strict-order`): those tests are listed again under
   "Tests whose serial re-run was skipped", also in `--output-json` as `rerunSkipped`.
   With `--test-suites FILE` only a dependence within one suite counts: a codeunit that
   relies on state a codeunit of another suite left is not listed.

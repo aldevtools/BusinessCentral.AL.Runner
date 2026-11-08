@@ -432,10 +432,10 @@ pub fn compare(plan: &Plan, per_variant: &[Vec<Seen>]) -> Outcome {
     let skipped = rerun_skipped(plan, per_variant);
     if !skipped.is_empty() {
         lines.push(String::new());
-        lines.push(format!(
-            "Tests whose serial re-run was skipped (re-run skipped: chain over the limit of {} codeunits; parallel result kept, --strict-order replays it):",
-            al_testrun::runtime::RERUN_CHAIN_LIMIT
-        ));
+        lines.push(
+            "Tests whose serial re-run was skipped (re-run skipped: chain over --max-replay; parallel result kept, --strict-order replays it):"
+                .into(),
+        );
         for (t, ids) in &skipped {
             lines.push(format!("  {t}  in {}", ids.join(", ")));
         }

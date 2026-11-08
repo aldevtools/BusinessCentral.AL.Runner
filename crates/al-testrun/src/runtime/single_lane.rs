@@ -304,15 +304,11 @@ fn needs_serial_run(slot: Option<&UnitResult>) -> bool {
     }
 }
 
-/// ADR-066 amendment 7, option 2 (owner, 2026-11-08): a serial re-run whose replay chain holds more test codeunits than
-/// this is not replayed. The codeunit keeps its parallel run and is flagged (`Assumption::SingleInstanceRerunSkipped`);
-/// `--strict-order` replays every chain whatever its length. On NP Retail (BC 29) 50 skips 18 of the 21 sessions, whose
-/// replays changed no outcome there.
-pub const RERUN_CHAIN_LIMIT: usize = 50;
-
-/// What the run output and the JUnit file say of a codeunit whose re-run was skipped (amendment 7, option 2).
-pub fn rerun_skipped_text(chain: usize) -> String {
-    format!("re-run skipped (chain of {chain} codeunits over the limit of {RERUN_CHAIN_LIMIT})")
+/// What the run output and the JUnit file say of a codeunit whose re-run was skipped because its chain of `chain`
+/// codeunits is over `--max-replay` `limit` (ADR-066 amendment 7, option 2; opt-in since the owner's change of
+/// 2026-11-08: without `--max-replay` there is no cap and nothing is skipped).
+pub fn rerun_skipped_text(chain: usize, limit: usize) -> String {
+    format!("re-run skipped (chain of {chain} codeunits over the limit of {limit})")
 }
 
 /// ADR-066 amendment 7, option 1 (owner, 2026-11-08): whether a failed or unfinished test, the last of them numbered
@@ -342,7 +338,7 @@ fn failure_bound(slot: Option<&UnitResult>) -> u32 {
     at.iter().map(|(n, _)| *n).max().unwrap_or(u32::MAX)
 }
 
-/// A dependent codeunit whose serial re-run was skipped because its chain is over [`RERUN_CHAIN_LIMIT`].
+/// A dependent codeunit whose serial re-run was skipped because its chain is over `--max-replay`.
 #[derive(Debug, Clone)]
 pub struct RerunSkipped {
     /// The index of the run (`TestResult::suite`) and the codeunit.
@@ -352,6 +348,8 @@ pub struct RerunSkipped {
     pub name: String,
     /// How many codeunits its replay chain holds.
     pub chain: usize,
+    /// The `--max-replay` limit it is over.
+    pub limit: usize,
 }
 
 /// What the lane needs from the run (`corpus.rs`).
@@ -366,6 +364,9 @@ pub(super) struct Lane<'a> {
     pub limit: Option<std::time::Duration>,
     /// `--strict-order` (ADR-066 amendment 4, decision 4): every dependent codeunit runs again serially.
     pub strict: bool,
+    /// `--max-replay N` (amendment 7, option 2, opt-in since 2026-11-08): a re-run whose chain holds more than `N`
+    /// codeunits is skipped. `None`: every re-run is replayed in full. `strict` wins over it.
+    pub max_replay: Option<usize>,
     /// `--test-suites` (amendment 6): each suite is a BC session of its own.
     pub suites: Option<&'a crate::test_suites::TestSuites>,
     /// The run's worker threads: the serial sessions run on as many (amendment 5).
@@ -407,8 +408,8 @@ pub struct LaneReport {
     /// Dependent codeunits with a failed or unfinished test that kept their parallel run because no such test, and no
     /// test before it, read a global the chain leaves otherwise (ADR-066 amendment 7, option 1).
     pub kept: usize,
-    /// Dependent codeunits that would run again but whose chain is over [`RERUN_CHAIN_LIMIT`] (amendment 7, option 2):
-    /// they keep their parallel run, flagged. Not counted in `rerun`.
+    /// Dependent codeunits that would run again but whose chain is over `--max-replay` (amendment 7, option 2; empty
+    /// without the flag): they keep their parallel run, flagged. Not counted in `rerun`.
     pub skipped: Vec<RerunSkipped>,
     /// Serial sessions the lane ran (amendment 5): one per chain of a dependent codeunit that ran again (none for one
     /// whose chain starts another's).
@@ -439,13 +440,13 @@ impl LaneReport {
             "because a test failed or was refused while it ran in parallel"
         };
         let mut out = vec![format!(
-            "SingleInstance order: {} test codeunits watched, {} BC sessions with a dependent codeunit, {} dependent codeunits (flagged), {} ran again serially {why}, {} kept their parallel run (no failed test read a changed global), {} re-runs skipped (chain over {RERUN_CHAIN_LIMIT} codeunits), {} codeunit runs in {} serial sessions (longest {:.2} s, lane wall time {:.2} s); {} codeunits flagged as independent under the guard-then-refill assumption",
+            "SingleInstance order: {} test codeunits watched, {} BC sessions with a dependent codeunit, {} dependent codeunits (flagged), {} ran again serially {why}, {} kept their parallel run (no failed test read a changed global), {}{} codeunit runs in {} serial sessions (longest {:.2} s, lane wall time {:.2} s); {} codeunits flagged as independent under the guard-then-refill assumption",
             self.watched,
             self.sessions,
             self.dependent,
             self.rerun,
             self.kept,
-            self.skipped.len(),
+            self.skipped_count(),
             self.lane.len(),
             self.chains,
             self.longest.as_secs_f64(),
@@ -467,6 +468,18 @@ impl LaneReport {
         out
     }
 
+    /// The part of the summary line on skipped re-runs: nothing when none was skipped (always without `--max-replay`).
+    fn skipped_count(&self) -> String {
+        match self.skipped.first() {
+            Some(s) => format!(
+                "{} re-runs skipped (chain over --max-replay {}), ",
+                self.skipped.len(),
+                s.limit
+            ),
+            None => String::new(),
+        }
+    }
+
     /// One line per codeunit whose re-run was skipped (amendment 7, option 2). The run output prints them with or
     /// without `--timings`.
     pub fn skipped_lines(&self) -> Vec<String> {
@@ -476,7 +489,7 @@ impl LaneReport {
                 format!(
                     "SingleInstance order: test codeunit {}: {}; its parallel result is kept (flagged); --strict-order replays it",
                     s.name,
-                    rerun_skipped_text(s.chain)
+                    rerun_skipped_text(s.chain, s.limit)
                 )
             })
             .collect()
@@ -487,7 +500,7 @@ impl LaneReport {
         self.skipped
             .iter()
             .find(|s| s.suite == suite && s.codeunit == codeunit)
-            .map(|s| rerun_skipped_text(s.chain))
+            .map(|s| rerun_skipped_text(s.chain, s.limit))
     }
 }
 
@@ -717,9 +730,10 @@ impl Lane<'_> {
                     }
                 }
             }
-            // Amendment 7, option 2: a chain over the limit is not replayed (not under `--strict-order`).
-            if !self.strict {
-                let (kept, over) = found.within_limit(&chosen, RERUN_CHAIN_LIMIT);
+            // Amendment 7, option 2, opt-in since the owner's change of 2026-11-08: with `--max-replay N`, a chain over
+            // `N` is not replayed (not under `--strict-order`). Without it every chosen re-run is replayed in full.
+            if let Some(limit) = self.max_replay.filter(|_| !self.strict) {
+                let (kept, over) = found.within_limit(&chosen, limit);
                 chosen = kept;
                 for (p, chain) in over {
                     let k = ks[p];
@@ -731,6 +745,7 @@ impl Lane<'_> {
                         codeunit: self.units[k].id,
                         name: self.name(k),
                         chain,
+                        limit,
                     });
                 }
             }

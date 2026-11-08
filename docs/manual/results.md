@@ -103,11 +103,15 @@ first. So, by default:
 4. Every test of an order-dependent codeunit is a flagged pass (or a flagged
    failure) with the assumption `single-instance-order`, whether it passed in
    parallel or after the serial run. It is counted apart from the clean passes.
-5. A serial run is skipped when its chain holds more than 50 test codeunits. On
-   some partner suites almost every codeunit reads state the one before it left,
-   so a chain is nearly the whole run before the codeunit and a re-run costs
-   minutes. Such a codeunit keeps its parallel result. AL Runner prints one line
-   for it, with or without `--timings`:
+5. By default every serial run replays its whole chain, however long, so the
+   result is exact. On some partner suites almost every codeunit reads state the
+   one before it left, so a chain is nearly the whole run before the codeunit and a
+   re-run costs minutes. To trade exactness for time, give `--max-replay N` (in
+   `serve`: the `runTests` field `maxReplay`): a serial run whose chain holds more
+   than `N` test codeunits is then skipped, and the codeunit keeps its parallel
+   result. A test that passes only in the full order then fails here, flagged.
+   AL Runner prints one line for each such codeunit, with or without `--timings`
+   (here with `--max-replay 50`):
 
    ```
    SingleInstance order: test codeunit 50999 Chain Checker: re-run skipped (chain of 51 codeunits over the limit of 50); its parallel result is kept (flagged); --strict-order replays it
@@ -116,13 +120,14 @@ first. So, by default:
    Its tests also carry the assumption `single-instance-rerun-skipped`, and in the
    JUnit file the property `singleInstanceRerun` with the text
    `re-run skipped (chain of 51 codeunits over the limit of 50)`. `--strict-order`
-   replays every chain, however long.
+   replays every chain, however long, and wins over `--max-replay`. Nothing is kept
+   from one run to the next: each run decides its re-runs on its own.
 
 `--timings` names the codeunit whose state each test relies on. Its
 `SingleInstance order:` line gives how many order-dependent codeunits were found, how
 many ran again because of a failure, how many kept their parallel result because no
-failed test read a changed value, how many re-runs were skipped for the length of
-their chain, in how many serial sessions, the time of the
+failed test read a changed value, with `--max-replay` how many re-runs were skipped
+for the length of their chain, in how many serial sessions, the time of the
 longest session and the wall time of all of them. When a session starts from data a
 codeunit with `RequiredTestIsolation = Disabled` left, the line also gives how many
 of those starts were copied for the worker threads and the most held at once. The

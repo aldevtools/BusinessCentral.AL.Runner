@@ -1589,6 +1589,7 @@ fn test_inner(
         allow_write_in_try_functions: a.allow_write_in_try_functions,                                   // issue 7143
         dependencies_published_global: a.dependencies_published_global,                                 // issue 7169
         strict_order: a.strict_order, // `--strict-order` (ADR-066 amendment 4)
+        max_replay: a.max_replay,     // `--max-replay N` (ADR-066 amendment 7)
         test_suites,                  // `--test-suites FILE` (ADR-066 amendment 6)
         perturb: Default::default(),
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.

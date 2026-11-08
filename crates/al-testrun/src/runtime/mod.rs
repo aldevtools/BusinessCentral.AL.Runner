@@ -949,7 +949,7 @@ use self::grow::{Grow, GrowKept};
 pub use self::grow::{KeptCompile, fresh_pass_compile};
 use self::handlers::*;
 pub use self::run::*;
-pub use self::single_lane::{LaneReport, RERUN_CHAIN_LIMIT, RerunSkipped, rerun_skipped_text};
+pub use self::single_lane::{LaneReport, RerunSkipped, rerun_skipped_text};
 
 /// The translation files of the app folder `dir`, as the IR keeps them (ADR-053 step 2). A file that cannot be read keeps its
 /// reason, and its language refuses every translated read.

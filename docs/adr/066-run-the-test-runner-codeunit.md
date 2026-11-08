@@ -1,6 +1,6 @@
 # ADR-066: Run the test runner codeunit's own AL
 
-- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07); amendment 4 (order-dependent codeunits run in parallel, serial run only after a failure, `--strict-order`) Accepted (owner, 2026-11-07); amendment 5 (each serial re-run is a session of its own, the sessions run in parallel; a test refused before it starts triggers no re-run) Accepted (owner, 2026-11-07); amendment 7 (a re-run only when a failed test could have seen the changed state, and a cap of 50 codeunits per replay chain) Accepted (owner, 2026-11-08)
+- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07); amendment 4 (order-dependent codeunits run in parallel, serial run only after a failure, `--strict-order`) Accepted (owner, 2026-11-07); amendment 5 (each serial re-run is a session of its own, the sessions run in parallel; a test refused before it starts triggers no re-run) Accepted (owner, 2026-11-07); amendment 7 (a re-run only when a failed test could have seen the changed state; a replay cap only with `--max-replay N`, changed by the owner the same day) Accepted (owner, 2026-11-08)
 - Date: 2026-11-05
 
 ## Context
@@ -778,19 +778,42 @@ Recommendation: option 1, with option 2 as the bound for chains that option 1 st
    before (`LaneReport::kept` counts these). A failure the test loop did not number counts as the last test, so it
    always sees every read. Corpus P7B (`TestCuP7BReader.al:24-37`): the reader test reads what codeunit P7A left and
    fails with fresh state, so it still runs again and passes flagged.
-2. **Cap (option 2).** A codeunit that the per-test rule still selects is not replayed when its own chain
-   (`Found::lane_for` of it alone) holds more than `RERUN_CHAIN_LIMIT` = 50 test codeunits (`Found::within_limit`).
-   It keeps its parallel run. Its tests are flagged with the registered assumption `single-instance-rerun-skipped`
-   (besides `single-instance-order`), the run output prints one line per such codeunit ("test codeunit 50999 Chain
-   Checker: re-run skipped (chain of 51 codeunits over the limit of 50); its parallel result is kept (flagged);
-   --strict-order replays it"), with or without `--timings`, and each of its tests carries the JUnit property
-   `singleInstanceRerun` with the text "re-run skipped (chain of N codeunits over the limit of 50)"
+2. **Cap (option 2), opt-in since the owner's change below.** With `--max-replay N` (`serve`: `maxReplay`), a
+   codeunit that the per-test rule still selects is not replayed when its own chain (`Found::lane_for` of it alone)
+   holds more than `N` test codeunits (`Found::within_limit`). Without the flag there is no cap. It keeps its parallel
+   run. Its tests are flagged with the registered assumption `single-instance-rerun-skipped`
+   (besides `single-instance-order`), the run output prints one line per such codeunit (with `--max-replay 50`:
+   "test codeunit 50999 Chain Checker: re-run skipped (chain of 51 codeunits over the limit of 50); its parallel result
+   is kept (flagged); --strict-order replays it"), with or without `--timings`, and each of its tests carries the JUnit
+   property `singleInstanceRerun` with the text "re-run skipped (chain of M codeunits over the limit of N)"
    (`LaneReport::skipped`). `--stability` lists such tests (`rerunSkipped` in the JSON, a list of its own on the
    console). The cap is a cost bound of the runner, not a behavior of BC, so no corpus probe pins it (ADR-009: tooling).
 3. **`--strict-order`** (`serve`: `strictOrder`) replays every dependent codeunit's chain whatever its length and
-   whatever its tests read, as amendments 4 and 5 defined it.
-4. **`--timings`** adds to the lane line how many codeunits kept their parallel run under the per-test rule and how many
-   re-runs were skipped for the cap.
+   whatever its tests read, as amendments 4 and 5 defined it. It wins over `--max-replay`.
+4. **`--timings`** adds to the lane line how many codeunits kept their parallel run under the per-test rule and, with
+   `--max-replay`, how many re-runs were skipped for the cap.
+5. **No state across runs.** Nothing this amendment adds is kept from one run to the next: the per-test notes, the
+   changed globals and the choice of re-runs are made inside the run and dropped at its end. A run never depends on an
+   earlier run. The only thing kept across runs stays the compile cache (ADR-022).
+6. **Costliest session first.** The worker threads take the serial sessions in order of the summed parallel run times
+   of their codeunits. Which codeunits run, and from which state, does not change; only the wall time does.
+
+### Owner's change (2026-11-08, before merge): the cap is opt-in
+
+The first build had the cap on by default at 50 codeunits (`RERUN_CHAIN_LIMIT`). The owner changed that the same day:
+
+- **Why.** On the synthetic stress suite the default cap turned 28 order-dependent passes into flagged failures: tests
+  that pass in BC's full order were reported as failures because their chains were over 50. A default run must give
+  the exact result. A cost bound that changes outcomes may only be something the user asks for.
+- **Decision.** By default every re-run the per-test rule asks for is replayed in full, however long its chain. The
+  cap is the flag `--max-replay N` (`serve`: `maxReplay`); without it there is no cap. With it, chains longer than `N`
+  are skipped and flagged as in decision 2. `--strict-order` still replays everything and wins over the flag.
+- **Kept on by default:** the per-test rule (decision 1), which works within one run and does not change an outcome
+  (a failure that read nothing changed cannot change in the replay), and the costliest-session-first order
+  (decision 6).
+- **Runs never depend on earlier runs** (decision 5): no saved result changes a later run, beyond the compile cache.
+- **Measured** (NP Retail, BC 29): see the pull request; the default run costs about what it did before this
+  amendment, since on NP the per-test rule keeps none of the 26 re-runs, and `--max-replay 50` gives the faster run.
 
 ### Conformance
 
@@ -799,8 +822,11 @@ Recommendation: option 1, with option 2 as the bound for chains that option 1 st
   failure sees a changed global only when it or an earlier test read it (a read in `OnRun` counts for all); a chain over
   the limit is left out with its length.
 - `crates/al-testrun/tests/suite/single_instance_lane.rs`: a failed test that read no changed global triggers no serial
-  run (`--strict-order` still runs it); a chain of exactly 50 codeunits is replayed; a chain of 51 is skipped and
-  flagged, and `--strict-order` replays it and the test passes. The amendment 4 and 5 cases (P7B shape, a test refused
+  run (`--strict-order` still runs it); without `--max-replay` a chain of 101 codeunits is replayed in full; with
+  `--max-replay 50` a chain of exactly 50 codeunits is replayed and a chain of 51 is skipped and flagged, and
+  `--strict-order` (with `--max-replay 50`) replays it and the test passes. The amendment 4 and 5 cases (P7B shape, a test refused
   while it runs after the reading test) still run again.
-- `crates/alrunner-cli/tests/cli/onrun_stability.rs`: the skip text in the run output and the JUnit property, `--stability`
-  lists the test under `rerunSkipped`, `--strict-order` passes it.
+- `crates/alrunner-cli/tests/cli/onrun_stability.rs`: the default run replays the chain of 51 and passes; with
+  `--max-replay 50` the skip text in the run output and the JUnit property, `--stability` lists the test under
+  `rerunSkipped`, `--strict-order` passes it.
+- `crates/alrunner-cli/src/args.rs` and `serve.rs` unit tests: `--max-replay` and `maxReplay` are off unless given.

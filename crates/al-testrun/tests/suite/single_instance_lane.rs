@@ -962,12 +962,41 @@ fn rerun_skipped(rt: &CorpusRuntime, test: &str) -> bool {
         .contains(&Assumption::SingleInstanceRerunSkipped)
 }
 
-/// ADR-066 amendment 7, option 2 (owner, 2026-11-08): a re-run whose chain holds at most the limit of codeunits is
-/// replayed.
+/// The limit the tests of `--max-replay` use (NP Retail's measured run used 50).
+const MAX_REPLAY: usize = 50;
+
+fn max_replay(n: usize) -> RunOptions {
+    RunOptions {
+        max_replay: Some(n),
+        ..Default::default()
+    }
+}
+
+/// ADR-066 amendment 7 as the owner changed it on 2026-11-08: without `--max-replay` there is no cap. Every re-run the
+/// per-test rule asks for is replayed in full, however long its chain, so the result is exact.
 #[test]
-fn a_rerun_whose_chain_is_at_the_limit_is_replayed() {
-    let limit = al_testrun::runtime::RERUN_CHAIN_LIMIT;
-    let rt = runtime(&appending_chain(limit - 1));
+fn a_long_chain_is_replayed_in_full_by_default() {
+    let rt = runtime(&appending_chain(MAX_REPLAY * 2));
+    assert!(passed(&rt, "NeedsTheChain"), "{:?}", rt.results());
+    assert!(flagged(&rt, "NeedsTheChain") && !rerun_skipped(&rt, "NeedsTheChain"));
+    let lane = &rt.phases.chain.single_lane;
+    assert_eq!((lane.rerun, lane.chains), (1, 1), "{:?}", lane.lines());
+    assert_eq!(
+        lane.lane.len(),
+        MAX_REPLAY * 2 + 1,
+        "the whole chain replayed: {:?}",
+        lane.lane
+    );
+    assert!(lane.skipped.is_empty(), "{:?}", lane.skipped);
+    assert!(!lane.lines().iter().any(|l| l.contains("re-run")), "{:?}", lane.lines());
+}
+
+/// ADR-066 amendment 7, option 2, opt-in since 2026-11-08 (`--max-replay N`): a re-run whose chain holds at most `N`
+/// codeunits is replayed.
+#[test]
+fn a_rerun_whose_chain_is_at_the_max_replay_limit_is_replayed() {
+    let limit = MAX_REPLAY;
+    let rt = runtime_opts(&appending_chain(limit - 1), STATE, &max_replay(limit));
     assert!(passed(&rt, "NeedsTheChain"), "{:?}", rt.results());
     assert!(flagged(&rt, "NeedsTheChain") && !rerun_skipped(&rt, "NeedsTheChain"));
     let lane = &rt.phases.chain.single_lane;
@@ -976,13 +1005,13 @@ fn a_rerun_whose_chain_is_at_the_limit_is_replayed() {
     assert!(lane.skipped.is_empty(), "{:?}", lane.skipped);
 }
 
-/// ADR-066 amendment 7, option 2: a re-run whose chain holds more codeunits than the limit is not replayed. The codeunit
-/// keeps its parallel run and is flagged with why; `--strict-order` replays it all the same.
+/// ADR-066 amendment 7, option 2 (`--max-replay N`): a re-run whose chain holds more codeunits than `N` is not replayed.
+/// The codeunit keeps its parallel run and is flagged with why; `--strict-order` replays it all the same.
 #[test]
-fn a_rerun_whose_chain_is_over_the_limit_is_skipped_and_flagged_unless_strict_order() {
-    let limit = al_testrun::runtime::RERUN_CHAIN_LIMIT;
+fn a_rerun_whose_chain_is_over_max_replay_is_skipped_and_flagged_unless_strict_order() {
+    let limit = MAX_REPLAY;
     let src = appending_chain(limit);
-    let rt = runtime(&src);
+    let rt = runtime_opts(&src, STATE, &max_replay(limit));
     assert!(
         rt.results()
             .iter()
@@ -1001,7 +1030,7 @@ fn a_rerun_whose_chain_is_over_the_limit_is_skipped_and_flagged_unless_strict_or
         "re-run skipped (chain of {} codeunits over the limit of {limit})",
         limit + 1
     );
-    assert_eq!(al_testrun::runtime::rerun_skipped_text(limit + 1), text);
+    assert_eq!(al_testrun::runtime::rerun_skipped_text(limit + 1, limit), text);
     assert!(
         lane.lines()
             .iter()
@@ -1009,9 +1038,10 @@ fn a_rerun_whose_chain_is_over_the_limit_is_skipped_and_flagged_unless_strict_or
         "{:?}",
         lane.lines()
     );
+    // `--strict-order` wins over `--max-replay`.
     let opts = RunOptions {
         strict_order: true,
-        ..Default::default()
+        ..max_replay(limit)
     };
     let rt = runtime_opts(&src, STATE, &opts);
     assert!(passed(&rt, "NeedsTheChain"), "{:?}", rt.results());
