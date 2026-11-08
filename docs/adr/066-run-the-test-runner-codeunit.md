@@ -812,8 +812,12 @@ The first build had the cap on by default at 50 codeunits (`RERUN_CHAIN_LIMIT`).
   (a failure that read nothing changed cannot change in the replay), and the costliest-session-first order
   (decision 6).
 - **Runs never depend on earlier runs** (decision 5): no saved result changes a later run, beyond the compile cache.
-- **Measured** (NP Retail, BC 29): see the pull request; the default run costs about what it did before this
-  amendment, since on NP the per-test rule keeps none of the 26 re-runs, and `--max-replay 50` gives the faster run.
+- **Measured** (NP Retail, 5494 tests, BC 29, 12 threads, load average 5 to 13 from other work). Default: 2092 s,
+  peak RSS 13.8 GB; all 26 re-runs replayed in full (3025 codeunit runs in 21 sessions, lane 1686 s); the per-test
+  rule kept none, since every failing NP test comes after a test that read the changed state. `--max-replay 50`:
+  494 s, peak RSS 4.0 GB; 3 re-runs replayed, 23 skipped and flagged (lane 172 s). The two runs give the same outcome
+  for all 5494 tests. The default costs about what a run cost before this amendment (1831 s, 13.0 GB on main
+  7c3c37006). Stress suite with the default: 0 outcome changes against main, no re-run skipped.
 
 ### Conformance
 
