@@ -8,7 +8,7 @@
 //! - an AutoIncrement key keeps the file's values and continues after them (Y85_AutoIncrement_ContinuesAfterLoadedRows);
 //! - a table without a data file in the app loads nothing (metadata/Y64InstallLeads.al:81-96);
 //! - no table event is raised (Y88PackageData.al, Y88_Events_LoadRaisesNoTableEvent); an Option or Enum ordinal the field
-//!   does not define, the last Date and a Decimal far below the last stored decimal place load (Y88_Option_UndefinedOrdinal,
+//!   does not define, the last Date and the file's Decimal 1E-28 (as 0) load (Y88_Option_UndefinedOrdinal,
 //!   Y88_Enum_UndefinedOrdinal, Y88_Date_LastDay, Y88_Decimal_OutOfRange; `reader.rs`).
 //!
 //! Refused: a table of another app, a table with a table extension of another app or a field with `ObsoleteState = Removed`
