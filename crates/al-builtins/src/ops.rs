@@ -872,6 +872,13 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
     // Text concatenation.
     if op == Arith::Add {
         if let (Some(a), Some(b)) = (text_like(l), text_like(r)) {
+            // A side with half of a surrogate pair joins by its units, and halves that meet merge (ADR-068;
+            // text/text-methods/ForeachText.al:137-148).
+            if a.has_lone() || b.has_lone() {
+                let mut out = a.clone();
+                out.push_txt(b);
+                return Ok(V::Text(out));
+            }
             // An empty side leaves the other as it is (shared, no copy).
             if b.is_empty() {
                 return Ok(V::Text(a.clone()));
@@ -898,25 +905,8 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
             }
             _ => {}
         }
-        // A Char next to a text is a character of it, not a number: `'line1' + S[1] + 'line2'`
-        // (corpus json/TestJsonXmlDeepContracts.al:71, which round-trips the result through JSON).
-        // Two Chars add as numbers. A lone surrogate is not a character a Rust string can hold.
-        match (l, r) {
-            (V::Text(t) | V::Code(t), V::Char(c)) | (V::Char(c), V::Text(t) | V::Code(t)) => {
-                let Some(ch) = char::from_u32(u32::from(*c)) else {
-                    return unsupported("a text joined with half of a surrogate pair".to_string());
-                };
-                let mut out = String::new();
-                if matches!(l, V::Char(_)) {
-                    out.push(ch);
-                    out.push_str(t);
-                } else {
-                    out.push_str(t);
-                    out.push(ch);
-                }
-                return Ok(V::Text(out.into()));
-            }
-            _ => {}
+        if let Some(v) = join_char(l, r) {
+            return Ok(v);
         }
     }
     match (l, r) {
@@ -1246,6 +1236,22 @@ pub fn keep_18_digits(d: Decimal) -> Decimal {
         .unwrap_or(d)
 }
 
+/// A Char next to a text is a character of it, not a number: `'line1' + S[1] + 'line2'`
+/// (corpus json/TestJsonXmlDeepContracts.al:71, which round-trips the result through JSON).
+/// Two Chars add as numbers. Half of a surrogate pair joins as its unit, and halves that meet merge (ADR-068;
+/// text/text-methods/ForeachText.al:137-148).
+fn join_char(l: &Value, r: &Value) -> Option<Value> {
+    let (t, c, char_first) = match (l, r) {
+        (Value::Text(t) | Value::Code(t), Value::Char(c)) => (t, *c, false),
+        (Value::Char(c), Value::Text(t) | Value::Code(t)) => (t, *c, true),
+        _ => return None,
+    };
+    let ch = crate::text::Txt::from_unit(c);
+    let (mut out, more) = if char_first { (ch, t.clone()) } else { (t.clone(), ch) };
+    out.push_txt(&more);
+    Some(Value::Text(out))
+}
+
 fn text_like(v: &Value) -> Option<&crate::text::Txt> {
     match v {
         Value::Text(s) | Value::Code(s) => Some(s),
@@ -1565,6 +1571,19 @@ pub fn compare(l: &Value, r: &Value) -> Result<Ordering, Signal> {
         (V::Unknown(a), V::Unknown(b)) if a == b => return Ok(Ordering::Equal),
         (V::Unknown(why), _) | (_, V::Unknown(why)) => return Err(Signal::Unsupported(why.to_string())),
         (V::SqlCount(_), _) | (_, V::SqlCount(_)) => return crate::sqlcount::order(l, r),
+        // A text with half of a surrogate pair is equal only to the same units, and the empty text comes before any other
+        // (ADR-068; `R <> ''` in the corpus's `Codes`, streams/StTEncodings.al:70 on the values of :233-244). Any other order
+        // of it is not audited and refuses (`Txt::cmp`).
+        (V::Text(a) | V::Code(a), V::Text(b) | V::Code(b)) if a.has_lone() || b.has_lone() => {
+            if a == b {
+                return Ok(Ordering::Equal);
+            }
+            match (a.utf16_len() == 0, b.utf16_len() == 0) {
+                (true, _) => return Ok(Ordering::Less),
+                (_, true) => return Ok(Ordering::Greater),
+                _ => return Ok(a.cmp(b)),
+            }
+        }
         (V::Text(a) | V::Code(a), V::Text(b) | V::Code(b)) if !a.has_marker() && !b.has_marker() => {
             return Ok(a.cmp(b));
         }

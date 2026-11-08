@@ -7,8 +7,15 @@ pub(super) fn strlen(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value])
 pub(super) fn strpos(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
     let (s, sub) = (text_arg(args, 0)?, text_arg(args, 1)?);
     // text/TestTextProcessingContracts.al StrPos_EmptySubstring_ReturnsZero.
-    if sub.is_empty() {
+    if sub.utf16_len() == 0 {
         return Ok(Value::Integer(0));
+    }
+    // A text with half of a surrogate pair is searched unit by unit: the low half alone is found inside a pair's text
+    // (ADR-068; text/CrTextLeads.al:429,443 `strpos_low` is 3).
+    if s.has_lone() || sub.has_lone() {
+        let (h, n) = (s.units(), sub.units());
+        let pos = h.windows(n.len()).position(|w| w == n.as_slice()).map_or(0, |i| i + 1);
+        return Ok(Value::Integer(pos as i32));
     }
     // A match at a char boundary is the same match unit by unit; the position counts UTF-16 units. No copy of the
     // text: a loop that calls StrPos on a long text (Pageworks' asset parsing) would copy it each time.
@@ -94,11 +101,7 @@ pub fn copystr_of(whole: &crate::text::Txt, pos: i64, len: Option<i64>) -> Resul
     // A text of ASCII only is indexed by byte, with no copy: a loop of CopyStr over a long text stays linear in
     // the loop (Pageworks' asset parsing).
     let ascii = whole.is_ascii();
-    let s: Vec<u16> = if ascii {
-        Vec::new()
-    } else {
-        whole.encode_utf16().collect()
-    };
+    let s: Vec<u16> = if ascii { Vec::new() } else { whole.units() };
     let total = if ascii { whole.len() } else { s.len() };
     // text/TestProbeTextDateFormatContracts.al:Text_SubstringBounds, `copystr_start0`, `copystr_neg_count`.
     // The two-argument form allows a start up to 2048, the three-argument form up to the largest Integer (text/text-methods/
@@ -139,12 +142,9 @@ pub fn copystr_of(whole: &crate::text::Txt, pos: i64, len: Option<i64>) -> Resul
     if ascii {
         return Ok(Value::Text(whole[start..end].to_string().into()));
     }
-    // Half of a surrogate pair cannot be held by a Rust string, and BC keeps it (text/text-methods/Index1.Codeunit.al
-    // LT_BU_Index_SurrogatePairs: `CopyStr('😀a', 1, 1)[1]` is 55357): refused instead of read as U+FFFD.
-    match String::from_utf16(&s[start..end]) {
-        Ok(part) => Ok(Value::Text(part.into())),
-        Err(_) => unsupported("CopyStr that ends up with half of a surrogate pair (not pinned)"),
-    }
+    // A cut through a pair keeps the half, and a half of the text stays (ADR-068; text/text-methods/Index1.Codeunit.al:357-373
+    // LT_BU_Index_SurrogatePairs: `CopyStr('😀a', 1, 1)[1]` is 55357; text/CrTextLeads.al:425-441).
+    Ok(Value::Text(crate::text::Txt::from_units(&s[start..end])))
 }
 
 pub(super) fn group_thousands(n: i64) -> String {

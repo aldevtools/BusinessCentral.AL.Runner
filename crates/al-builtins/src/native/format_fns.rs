@@ -365,17 +365,35 @@ pub(super) fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Val
             return Ok(Value::Text(crate::format::pad(t, len).into()));
         }
     }
+    // Format of half of a surrogate pair is the one-unit text that holds it (ADR-068; streams/StTEncodings.al:238-244
+    // `utf8-rt`: the corpus's `Codes` builds `\uD83D,\uDE00` from `Format(Value[i])`). Every check a Char goes through runs
+    // on a stand-in character first (a region that refuses a Char still refuses).
+    if let Value::Char(c) = &args[0] {
+        if (0xD800..0xE000).contains(c) {
+            if len != 0 || std != 0 {
+                return Err(Signal::Unsupported(
+                    "Format of half of a surrogate pair with a length or a format number (not pinned)".into(),
+                ));
+            }
+            format_value(&Value::Char(0x41), 0, 0, ctx).map_err(format_fail)?;
+            return Ok(Value::Text(crate::text::Txt::from_unit(*c)));
+        }
+    }
     format_value(&args[0], len, std, ctx)
         .map(|s| Value::Text(s.into()))
-        .map_err(|f| match f {
-            FormatFail::Unsupported(s) => Signal::Unsupported(s),
-            FormatFail::Error { message, code } => Signal::Error(Box::new(AlError {
-                message,
-                code,
-                call_stack: String::new(),
-                ..Default::default()
-            })),
-        })
+        .map_err(format_fail)
+}
+
+fn format_fail(f: FormatFail) -> Signal {
+    match f {
+        FormatFail::Unsupported(s) => Signal::Unsupported(s),
+        FormatFail::Error { message, code } => Signal::Error(Box::new(AlError {
+            message,
+            code,
+            call_stack: String::new(),
+            ..Default::default()
+        })),
+    }
 }
 
 /// `Format(Value, Length, FormatString)`: see [`crate::formatstr`].

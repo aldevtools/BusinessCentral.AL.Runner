@@ -99,12 +99,12 @@ fn a_position_outside_a_text_literal_raises() {
     assert_eq!(int(run_in(&src, "C", "LiteralOk")), 111);
 }
 
-/// LT_BU_Index_SurrogatePairs: half of a surrogate pair cannot be held, so the split is refused instead of read as U+FFFD; a whole
-/// pair is fine. LT_BU_Index_Write_Code `code blank last`: a blank written at the end of a Code is cut off.
+/// LT_BU_Index_SurrogatePairs: CopyStr keeps half of a surrogate pair (ADR-068), `CopyStr('😀a', 1, 1)[1]` is 55357
+/// (text/text-methods/Index1.Codeunit.al:357-372); a whole pair is fine. LT_BU_Index_Write_Code `code blank last`: a blank
+/// written at the end of a Code is cut off.
 #[test]
-fn half_a_surrogate_pair_is_refused_and_a_trailing_blank_of_a_code_is_cut() {
-    let r = run_in(SRC, "C", "HalfPair");
-    assert!(matches!(r, Err(al_builtins::native::Signal::Unsupported(_))), "{r:?}");
+fn half_a_surrogate_pair_is_kept_and_a_trailing_blank_of_a_code_is_cut() {
+    assert_eq!(int(run_in(SRC, "C", "HalfPair")), 55357);
     assert_eq!(int(run_in(SRC, "C", "WholePair")), 2);
     assert_eq!(text(run_in(SRC, "C", "BlankLastOfCode")), "[AB]2");
 }

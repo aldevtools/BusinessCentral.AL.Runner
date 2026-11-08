@@ -554,6 +554,9 @@ impl Encoding {
                     c if msdos_table_byte(c).is_some() => vec![msdos_table_byte(c).expect("checked")],
                     // π is written as `p` (streams/StTEncodings.al:UnmappableCharacters `msdos`: it reads back as `p`).
                     'π' => vec![b'p'],
+                    // A character outside the BMP is two UTF-16 units and becomes two `?` (streams/instream-outstream/
+                    // StreamWrittenText.al:84,199: 'aéü€😀b' is 7 bytes on the default and the MS-DOS stream).
+                    c if (c as u32) > 0xFFFF => vec![b'?', b'?'],
                     c => vec![CP437_HIGH.iter().position(|u| *u == c).map_or(b'?', |i| 0x80 + i as u8)],
                 })
                 .collect(),
@@ -572,6 +575,9 @@ impl Encoding {
                     } else if c == 'π' {
                         // Written as `p` (streams/StTEncodings.al:UnmappableCharacters `windows`: it reads back as `p`).
                         out.push(b'p');
+                    } else if cp > 0xFFFF {
+                        // Two UTF-16 units, two `?` (streams/instream-outstream/StreamWrittenText.al:238: 'aéü€😀b' is 7 bytes).
+                        out.extend_from_slice(b"??");
                     } else {
                         out.push(
                             CP1252_HIGH
@@ -1913,20 +1919,30 @@ fn out_write_text(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
             return unsupported("OutStream.WriteText with a length (not pinned)");
         }
     }
+    let (b, enc) = out_buf(r)?;
     let text = match a.first() {
         None => "\r\n".to_string(),
         Some(v) => match crate::native::text_of_carrying_call_stack(v) {
-            Some(t) => t,
+            // Half of a surrogate pair is written as U+FFFD on a UTF-8 and a UTF-16 stream (ADR-068; streams/StTEncodings.al:249-265
+            // LoneSurrogate: 'a' + D83D + 'b' is 5 bytes in UTF-8 and 6 in UTF-16, and reads back as `a,U+FFFD,b`). Other
+            // encodings are not pinned.
+            Some(t) if t.has_lone() => {
+                if !matches!(enc, Encoding::Utf8 | Encoding::Utf16) {
+                    return unsupported(
+                        "OutStream.WriteText of half of a surrogate pair on a stream that is neither UTF-8 nor UTF-16 (not pinned)",
+                    );
+                }
+                t.audited_str().to_string()
+            }
+            Some(t) => t.to_string(),
             None => return unsupported("OutStream.WriteText of a value that is not text"),
-        }
-        .to_string(),
+        },
     };
     // A call stack text is written on every encoding (errors/WdCallStackWriteText.al:128, WD_*_Collected_WriteText); the
     // stream holds StrLen bytes of it (:136), and StrLen of its untracked frames is not known (`stream_call_stack`).
     if crate::stream_call_stack::holds_mark(&text) && c.ret_used() {
         crate::stream_call_stack::refuse_count("OutStream.WriteText")?;
     }
-    let (b, enc) = out_buf(r)?;
     let bytes = enc.encode(&text);
     write_bytes(&b, &bytes);
     Ok(Value::Integer(bytes.len() as i32))
