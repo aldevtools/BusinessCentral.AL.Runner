@@ -597,7 +597,9 @@ fn read_into_a_text_reads_back_what_write_of_a_text_wrote() {
 
 // streams/PnE04Streams.al:118 ReadText_Utf8_NonAscii (`7|wörld` with a zero byte after it) and, on corpus branch
 // al-runtime-rs-staging-pub-to, TO_ReadText_NonAscii_NoTerminator (`7|wörld` without one, assumption
-// utf-eight-read-non-ascii-unterminated). A UTF-16 stream with non-ASCII characters stays refused.
+// utf-eight-read-non-ascii-unterminated). A UTF-16 stream reads each unit as its character, the count two bytes per character
+// plus two (streams/instream-outstream/StreamReadMatrix.al:270 Matrix_EacuteUtf8 `u16 len -1`; session-system/
+// Y18NavAppResourceEncodings.al:73 `utf16 read` of the same bytes).
 #[test]
 fn read_into_a_text_takes_non_ascii_characters_on_a_utf8_stream() {
     let vars = base!("N: Integer;");
@@ -609,11 +611,14 @@ fn read_into_a_text_takes_non_ascii_characters_on_a_utf8_stream() {
         ),
         "7|w\u{f6}rld"
     );
-    assert!(refused(
-        vars,
-        "B.Data.CreateOutStream(O, TextEncoding::UTF16); O.WriteText('w\u{f6}r'); B.Data.CreateInStream(I, TextEncoding::UTF16);
-         N := I.Read(T); exit('');"
-    ));
+    assert_eq!(
+        text(
+            vars,
+            "B.Data.CreateOutStream(O, TextEncoding::UTF16); O.WriteText('w\u{f6}r'); B.Data.CreateInStream(I, TextEncoding::UTF16);
+             N := I.Read(T); exit(Format(N) + '|' + T);"
+        ),
+        "8|w\u{f6}r"
+    );
 }
 
 // streams/DdStreamLeads.al:502 (Item68_Utf8Bom `read utf8`): Read(Text) of a UTF-8 stream skips the mark.

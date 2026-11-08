@@ -64,21 +64,6 @@
 67066 WebServiceActionResultCode_MemberList
 67067 SessionSettings_Init_FollowsGlobalLanguage
 67067 SessionSettings_Update_SaveTrue_WithHandler
-67081 Matrix_Abc
-67081 Matrix_AbcZero
-67081 Matrix_AbcZeroDef
-67081 Matrix_ByteFF
-67081 Matrix_Crlf
-67081 Matrix_EacuteLatin1
-67081 Matrix_EacuteUtf8
-67081 Matrix_Empty
-67081 Matrix_EuroUtf8
-67081 Matrix_TruncatedUtf8
-67081 Matrix_TwoZeros
-67081 Matrix_Utf16Ab
-67081 Matrix_Utf16Bom
-67081 Matrix_Utf16Odd
-67081 Matrix_Utf8Bom
 67093 FilterView_FourHosts_OpenAndMoves
 67093 FilterView_OneHost_OpenAndMoves
 67093 NotEqualView_FourHosts_OpenAndMoves
@@ -209,8 +194,6 @@
 68553 WriteToOutStream_Utf8
 68553 WriteToOutStream_Windows
 68554 ReadTextWithLength_BytesFrom128To159
-68554 ReadTextWithLength_Utf16_WhatIsConsumed
-68554 ReadText_NonAsciiCharacters
 68571 ExportStream_OfAnImportedPicture
 68665 DateFormula_MoreRefusedSpellings
 68665 DateFormula_RefusedAndLeadingTokenSpellings
@@ -472,7 +455,6 @@
 71118 CopyFilter_DifferentTypes
 71134 ContainerTextElement_Export_And_Import
 71136 Read_Text_IntoCode_And_Length
-71136 Read_Text_NoTerminator
 71138 QueryMetadata_NonApi
 71138 ReportDataItems_Columns
 71139 PageAction_Rows
@@ -520,7 +502,6 @@
 71526 P103_GuidCreateStatic
 71526 P103_TextMaxStrLen_Variant
 71526 P103_TimeSecond
-71574 P175_Raw_AsciiOnly_AllEncodings
 71574 P175_Raw_EAcute_Read
 71574 P175_Raw_Emoji_Read
 71574 P175_Raw_Euro_Read
@@ -870,7 +851,6 @@
 74315 JsonValue_ReadFromStream_RecordBlobRewritten
 74315 JsonValue_ReadFromStream_Scalars
 74316 ReadTextLength_IntoShorterVariable
-74316 ReadText_AtTheEndOfTheStream_Utf16AndWindows
 74316 ReadText_IntoShorterVariable_Utf16
 74316 ReadText_IntoShorterVariable_Utf8
 74316 ReadText_IntoShorterVariable_Windows
@@ -1417,7 +1397,6 @@
 85780 Item50_YamlRoundTrip_NestedList
 85841 Item63_MediaAfterChangeCompany
 85841 Item64_OutStreamWriteInStream
-85901 WriteTextLines_ReadTextAndRead
 85902 ToRecordRef_Modify_FreshGet
 85905 Get_WithoutBoolean_EmptyList
 85905 Get_WithoutBoolean_Indexes
@@ -1614,11 +1593,6 @@
 91976 Y24_P17_ReportRequestPage
 91976 Y24_P18_Pages
 92001 HighBytesMsDos
-92001 HighBytesWindows
-92001 Utf16LeWithBom
-92001 Utf16LeWithoutBom
-92001 Utf8WithBom
-92001 Utf8WithoutBom
 92001 Windows1252
 92110 Y20_AddCertificate_CerWithoutKey
 92110 Y20_AddCertificate_DerSequenceNoCertificate
