@@ -394,6 +394,14 @@ struct Pass {
     settings: config::ServerSettings,
 }
 
+impl Pass {
+    /// The pass's name in `metrics/<major>/work.json` (`work::pass_name`).
+    fn work_name(&self) -> String {
+        let extra_names: Vec<String> = self.extra_apps.iter().map(|(_, name)| name.clone()).collect();
+        work::pass_name(self.main, &extra_names, &self.server_settings)
+    }
+}
+
 /// The passes of `version`, the main one first, each with the version's table narrowed to its suites.
 fn passes(version: &config::VersionEntry) -> Vec<(config::VersionEntry, Pass)> {
     let mut groups: Vec<(Vec<config::ExtraApp>, Vec<config::SuiteEntry>)> = vec![(Vec::new(), Vec::new())];
@@ -1254,11 +1262,7 @@ fn run_version_inner(
     rep.dependencies = dependency_summary;
     rep.bc_build = bc_build.clone();
     rep.timings = Some(timings);
-    let extra_names: Vec<String> = pass.extra_apps.iter().map(|(_, name)| name.clone()).collect();
-    rep.work.insert(
-        work::pass_name(pass.main, &extra_names, &pass.server_settings),
-        work::counts_of(&rt.phases.work),
-    );
+    rep.work.insert(pass.work_name(), work::counts_of(&rt.phases.work));
     if !rep.unmapped.is_empty() {
         return Err(format!(
             "{} oracle case(s) have no test codeunit in the corpus, e.g. {}",
