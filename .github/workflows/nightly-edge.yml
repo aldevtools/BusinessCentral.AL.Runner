@@ -18,11 +18,20 @@ name: Nightly edge
 #     a push passed. The owner starts it during the day so outside reporters can test fresh fixes.
 #     That push run has the pull request checks (or merge-check proved the pull request ran them on
 #     the same tree) but not the slow comparisons.
+#   - A manual run with the input `sha` (owner decision 2026-11-08) publishes exactly that commit.
+#     It must be on main and have a successful CI run on a push to main; otherwise the run fails.
+#     The local edge gate uses this: it tests one commit, then publishes that same commit, even when
+#     main moved on meanwhile.
 
 on:
   schedule:
     - cron: "17 2 * * *"
   workflow_dispatch:
+    inputs:
+      sha:
+        description: "Full 40-character commit of main to publish (empty: newest main commit with green CI on a push)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -43,6 +52,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
+      EVENT_NAME: ${{ github.event_name }}
+      INPUT_SHA: ${{ github.event.inputs.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,15 +63,30 @@ jobs:
       - id: advance
         run: |
           # The scheduled run trusts the nightly CI run; a manual run the newest push run (see the header).
-          if [ "${{ github.event_name }}" = schedule ]; then ci_event=schedule; else ci_event=push; fi
+          if [ "$EVENT_NAME" = schedule ]; then ci_event=schedule; else ci_event=push; fi
+          if [ "$EVENT_NAME" = workflow_dispatch ] && [ -n "$INPUT_SHA" ]; then
+            if ! [[ "$INPUT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::input sha must be a full 40-character lowercase hex commit"
+              exit 1
+            fi
+            sha="$INPUT_SHA"
+            ok="$(gh api "repos/$GH_REPO/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&head_sha=$sha&per_page=1" \
+              -q '.total_count')"
+            if [ "${ok:-0}" -eq 0 ]; then
+              echo "::error::$sha has no successful CI run on a push to main"
+              exit 1
+            fi
+            echo "Commit given by input: $sha"
+          else
           sha="$(gh run list --workflow ci.yml --branch main --event "$ci_event" --status success \
             --limit 1 --json headSha -q '.[0].headSha')"
           if [ -z "$sha" ]; then
             echo "::error::no successful CI run on main found for the event $ci_event"
             exit 1
           fi
+          fi
           echo "CI event trusted: $ci_event"
-          echo "Newest main commit with green CI: $sha"
+          echo "Commit to publish: $sha"
           git fetch origin release
           if ! git merge-base --is-ancestor "$sha" origin/main; then
             echo "::error::$sha is not on main"
