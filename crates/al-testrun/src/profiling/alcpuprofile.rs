@@ -158,7 +158,7 @@ fn node_json(
 /// The label of one record-operation node: `FindSet "Sales Line"`, `Insert "Buffer" (temporary)`.
 pub fn db_label(d: &al_vm::DbStat) -> String {
     let temp = if d.temporary { " (temporary)" } else { "" };
-    format!("{:?} \"{}\"{temp}", d.op, d.table)
+    format!("{} \"{}\"{temp}", d.op, d.table)
 }
 
 fn emit(nodes: &[Node], sampling: bool, url_of: UrlOf) -> Body {
