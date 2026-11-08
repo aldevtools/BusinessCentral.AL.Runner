@@ -76,6 +76,34 @@ A test codeunit is **order dependent** when it reads such a global before it
 writes it, and an earlier test codeunit left another value there. On Business
 Central it sees that value; in AL Runner's parallel run it sees a fresh one.
 
+**Codeunits that already run one after the other.** Some test codeunits never run
+in parallel: those with `RequiredTestIsolation = Disabled`, and those whose `OnRun`
+writes data or whose tests take numbers from a number series (their changes reach
+the codeunits after them). AL Runner runs these one after the other in Business
+Central's order, in one chain. Since ADR-066 amendment 8 the chain also keeps the
+SingleInstance state from one codeunit to the next, as Business Central's session
+does. So for these codeunits the reported result already is the result in Business
+Central's order:
+
+- They are never order dependent, never run again and never flagged
+  `single-instance-order`. `--strict-order` and `--max-replay` do not change them.
+- The state starts fresh at a new session: a new suite, or the switch from the
+  codeunits the TestRunnerHub runs to those runner 130450 runs.
+- The state also starts fresh after a codeunit AL Runner refuses as a whole, and
+  after a codeunit with a test refused while it ran: what Business Central would
+  have left there is not known. A failed test hands its state on, as on Business
+  Central.
+- The chain does not see state that a codeunit outside it left. Such a codeunit
+  still runs in parallel.
+
+On Microsoft's suites almost every test codeunit is in this chain (most of them take
+numbers). The cost: the chain can no longer run its codeunits ahead on other threads
+when they use SingleInstance state, so it runs more of them on one thread. On
+Tests-ERM-Purchase this made the run slower; on a large partner suite it removed
+almost all serial re-runs and made the run several times faster.
+
+Everything below is about the other codeunits, the ones that run in parallel.
+
 AL Runner follows one principle: a test should give the same result whether its
 codeunit runs alone or inside the whole suite. A parallel run with fresh state is a
 real Business Central result: the one you get when the codeunit runs alone, or

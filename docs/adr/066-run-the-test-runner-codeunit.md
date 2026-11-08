@@ -1,6 +1,6 @@
 # ADR-066: Run the test runner codeunit's own AL
 
-- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07); amendment 4 (order-dependent codeunits run in parallel, serial run only after a failure, `--strict-order`) Accepted (owner, 2026-11-07); amendment 5 (each serial re-run is a session of its own, the sessions run in parallel; a test refused before it starts triggers no re-run) Accepted (owner, 2026-11-07); amendment 7 (a re-run only when a failed test could have seen the changed state; a replay cap only with `--max-replay N`, changed by the owner the same day) Accepted (owner, 2026-11-08)
+- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07); amendment 4 (order-dependent codeunits run in parallel, serial run only after a failure, `--strict-order`) Accepted (owner, 2026-11-07); amendment 5 (each serial re-run is a session of its own, the sessions run in parallel; a test refused before it starts triggers no re-run) Accepted (owner, 2026-11-07); amendment 7 (a re-run only when a failed test could have seen the changed state; a replay cap only with `--max-replay N`, changed by the owner the same day) Accepted (owner, 2026-11-08); amendment 8 (the carry chain walk keeps the SingleInstance state; chain members are never re-run or flagged) Accepted (owner, 2026-11-08, variant A)
 - Date: 2026-11-05
 
 ## Context
@@ -834,3 +834,101 @@ The first build had the cap on by default at 50 codeunits (`RERUN_CHAIN_LIMIT`).
   `--max-replay 50` the skip text in the run output and the JUnit property, `--stability` lists the test under
   `rerunSkipped`, `--strict-order` passes it.
 - `crates/alrunner-cli/src/args.rs` and `serve.rs` unit tests: `--max-replay` and `maxReplay` are off unless given.
+
+## Amendment 8 (Accepted, owner, 2026-11-08): the carry chain walk keeps the SingleInstance state
+
+- Status: Accepted by the owner on 2026-11-08 as "variant A as is". Amends amendments 2, 4, 5 and 7 for the members of
+  the carry chain only. How a dependent codeunit outside the chain is found, flagged and run again is unchanged.
+  Variant B (keep run ahead and replay one prefix of the session) was prototyped and not taken.
+
+### What the code did before (checked)
+
+- **A chain member runs once, in the walk, not in the parallel run.** `corpus.rs` builds the chain (every codeunit
+  with RequiredTestIsolation = Disabled, and every codeunit runner 130450 runs whose OnRun writes or whose tests take
+  numbers, `Unit::carry`), walks it (`ChainWalk::walk`) and then runs only the other codeunits in parallel. The
+  "parallel result" of a chain member is the walk's result.
+- **The walk runs in BC's order.** It sorts by (suite, leg, id): the TestRunnerHub's codeunits, then the codeunits
+  runner 130450 runs. A carry member is never on the hub (`carry` requires `!on_hub`), so this is the order of the BC
+  sessions `single_lane.rs` `streams` uses (suite, hub leg, id).
+- **Run ahead.** Helper threads run members ahead from a predicted database state. The walk takes such a run only when
+  its start has the fingerprint of the walk's own state. Each run, in the walk or ahead, was `run_unit` on a new
+  `Session`: fresh single instances for every member. Only the lane moved single instances (`run.rs` `LANE_SINGLES`).
+- **The lane replayed chain members.** A chosen dependent chain member ran again in a serial session of its chain
+  (amendment 5), the single instances moved along. Its result replaced the walk's.
+
+### Decision (owner, 2026-11-08: variant A)
+
+1. **The walk keeps the single instances** from member to member of a BC session, moved as the lane moves them
+   (`ChainWalk::keep_singles`, `KeptSingles`, `run::LANE_SINGLES`). The result of each chain member is then its run in
+   BC's order (P7, `TestCuP7BReader.al:24-37`): no lane re-run, no cap, no per-test rule for chain members.
+2. **Boundaries.** A new BC session (the suite or the hub leg changes) starts with fresh single instances. A chain
+   member that is not run (a refused Disabled codeunit) and a member with a test refused while it ran hand nothing on:
+   the next member starts fresh (R3 of amendment 3, as the lane does). A failed test hands its state on, as on BC
+   (SingleInstance state is not rolled back). `chain_walk.rs` `starts_fresh`.
+3. **Run ahead.** A run ahead (fresh single instances, another thread) is taken only when it read and wrote no watched
+   global, was not refused, and the walk's single instances hold no manual binding (`ahead_ignores_singles`). Then its
+   run cannot differ from the walk's. Otherwise the member runs on the walk's thread.
+4. **Codeunits outside the chain** keep amendments 4, 5 and 7: they run in parallel with fresh state, are flagged when
+   dependent, and run again in the lane when chosen. A chain member is a writer for them as before.
+5. **Flags.** A chain member's result rests on P7, which is pinned, so it is not flagged `single-instance-order`, and
+   `--stability` does not list it as `orderDependent` (`Lane::kept_chain`). `--strict-order` and `--max-replay` do not
+   change a chain member.
+6. **`--test-suites`**: the walk goes in id order, the suites in the file's order, so with `--test-suites` the walk
+   keeps today's fresh state per member and the lane handles the members as before. The same when nothing is watched
+   (no session of two codeunits or more).
+
+No switch: variant A is the behavior. The prototype's environment variable (`AL_CHAIN_SI`) is gone, so core crates
+still do no OS access (ADR-006).
+
+### Accepted cost
+
+Microsoft's suites lose run ahead. On Tests-ERM-Purchase every member uses Sequence No. Mgt. or another watched
+single instance, so rule 3 sends every member to the walk's thread and the walk becomes serial. The owner accepted this
+until run ahead is improved later (for example the extended rule of risk 1 below).
+
+### Measured
+
+Prototype (branch `rt-chain-si`, release, 12 threads, cores 0-2 and 5-11; load average 13 to 25 during the bucket
+runs, so wall times carry large noise). Outcomes are per test (pass, failed, not run, and the message of each failure).
+
+| Suite | Main default | Main `--strict-order` | Prototype | Outcome changes against strict / default | Peak RSS main / prototype |
+|---|---|---|---|---|---|
+| stress (868 codeunits, 821 in the chain) | 43.4 s | 45.2 s | 16.1 s | 0 / 0 | 1.87 / 1.90 GB |
+| Corpus (BC 29, all buckets, `al-test-cli`) | same | not run | same | 0 (0 regressions, 0 new passes) | not measured |
+| Tests-ERM-Purchase (32 codeunits, all in the chain) | 180 s (load 18) | not run | 314 s (load 13, includes a 15 s compile cache build) | - / 0 | 4.73 / 5.52 GB |
+| NP Retail (336 codeunits, 333 in the chain, warm cache, load 5) | 2188 s (load 13) | killed by the 14 GB memory cap after 2315 s | 468 s (load 5) | - / 0 | 13.4 / 3.8 GB |
+
+- **stress:** the lane goes from 8202 codeunit runs in 47 sessions to 106 runs in 12 sessions (only the 47 codeunits
+  outside the chain); flagged tests 1445 to 83.
+- **NP Retail:** the lane runs nothing (main: 3025 codeunit runs in 21 sessions). Same 5437 passes, 25 failures with
+  the same messages and 32 not run; flagged tests 5224 to 0.
+
+The port on branch `rt-chain-si-a8` (main plus this amendment, no switch) is measured in its pull request.
+
+### Risks kept
+
+1. **Run ahead lost** on suites that use it (the accepted cost above). A later improvement: a run ahead counts when
+   every global it read first held the walk's current value and every global it wrote is a plain value the walk can
+   set on its own instances (Sequence No. Mgt. holds integers). New code on the single instance seam; not built.
+2. **State from codeunits outside the chain** is not seen by later members (99 members on stress, 225 on NP read such
+   a global; `LaneReport::chain_missed` counts them). BC sees it. The outcomes matched in every measured suite.
+3. **A test stopped by the time limit** hands on the state it had when it stopped; BC would have run it to its end.
+   The lane has the same gap.
+4. **Order-dependence information.** Chain members are no longer flagged, so `--stability` no longer lists them.
+
+### What it replaces
+
+For chain members: amendment 4, decision 2 (re-run after a failure), amendment 5, decision 1 (one serial session per
+chain), amendment 7 (the per-test rule and `--max-replay`), and the `single-instance-order` flag.
+
+### Conformance
+
+- `crates/al-testrun/tests/suite/single_instance_lane.rs`:
+  `a_chain_member_sees_the_single_instance_state_the_member_before_it_left` (passes in the walk, no re-run);
+  `a_failed_chain_member_hands_its_single_instance_state_on`; `a_chain_member_of_another_hub_leg_starts_with_fresh_single_instances`;
+  `a_chain_member_of_the_next_suite_starts_with_fresh_single_instances`;
+  `the_chain_member_after_a_test_refused_while_it_ran_starts_with_fresh_single_instances`. The two carried-start tests of
+  amendment 5 (`carried_starts_are_written_when_a_session_needs_them_and_freed_after`,
+  `a_carried_start_that_sessions_share_is_made_once`) now use readers outside the chain (RequiredTestIsolation =
+  Function, on the same hub session), since chain members no longer run again.
+- `crates/al-testrun/src/runtime/chain_walk.rs` unit test: `starts_fresh` (suite and hub leg boundaries, a refused link).

@@ -1607,6 +1607,10 @@ impl CorpusRuntime {
                 own
             };
             let ahead_snapshot: Option<&[u8]> = snapshot_once.get().and_then(|s| s.as_deref());
+            // ADR-066 amendment 8: the walk keeps the SingleInstance state along each BC session's members.
+            // `--test-suites` orders a session by the file, not by the walk's id order: there the walk keeps fresh
+            // state per member and the lane handles the members as before (amendment 8, decision 6).
+            let keep_singles = chain_report.single_lane.watched > 0 && opts.test_suites.is_none();
             let carried = super::chain_walk::ChainWalk {
                 engine: &engine,
                 lowered,
@@ -1616,6 +1620,7 @@ impl CorpusRuntime {
                 limit,
                 helpers,
                 thread_baseline: &|| thread_baseline(ahead_snapshot),
+                keep_singles,
             }
             .walk(chain, &mut slots, &mut details, &mut chain_report);
             // The other codeunits run as before; one that comes after a Disabled codeunit notes whether it reads a table that
@@ -1746,7 +1751,7 @@ impl CorpusRuntime {
                 slots[k] = Some(r);
             }
             #[rustfmt::skip]
-            let lane = super::single_lane::Lane { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, carried: &carried, sees: &sees, place: &place, limit, strict: opts.strict_order, max_replay: opts.max_replay, suites: opts.test_suites.as_deref(), workers, install_copies: baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline };
+            let lane = super::single_lane::Lane { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, carried: &carried, sees: &sees, place: &place, limit, strict: opts.strict_order, max_replay: opts.max_replay, suites: opts.test_suites.as_deref(), workers, install_copies: baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline, kept_chain: keep_singles };
             lane.run(&mut slots, &mut chain_report.single_lane);
             let results: Vec<UnitResult> = slots.into_iter().flatten().collect();
             for r in results {
