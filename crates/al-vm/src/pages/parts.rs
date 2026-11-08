@@ -1321,9 +1321,12 @@ impl Session {
                         // SubPageLink).
                         fields.push(*pf);
                         let ty = table.fields[*pf].ty.clone();
-                        let expr = self
-                            .parse_filter_text(text, &ty)
-                            .map_err(|e| Signal::Unsupported(format!("SubPageLink filter: {e}")))?;
+                        let expr = match blank_record_id_link(text, &ty) {
+                            Some(expr) => expr,
+                            None => self
+                                .parse_filter_text(text, &ty)
+                                .map_err(|e| Signal::Unsupported(format!("SubPageLink filter: {e}")))?,
+                        };
                         fresh.push(FieldFilter {
                             field: *pf,
                             expr,
@@ -2661,4 +2664,19 @@ fn single_value_filter(after: &str) -> bool {
     };
     let value = &rest[..end];
     !value.is_empty() && !value.contains(['|', '&', '<', '>', '=', '*', '?', '@', '(', ')', '.'])
+}
+
+/// `const()` on a RecordId field selects the rows whose RecordId is blank (pages/subpagelink-empty-term/TestSubPageLinkRecordId.al:41
+/// and :53 SubPageLink_BlankRecordId_SelectsBlankRow, corpus pull request 1199, al-runner issue 7267). Every other text on a
+/// RecordId field goes on to the filter parser, which refuses it.
+fn blank_record_id_link(text: &str, ty: &al_builtins::value::RtType) -> Option<FilterExpr> {
+    use al_builtins::library_kind::LibraryKind;
+    use al_builtins::value::RtType;
+    // `const()` and `const('')` both come here as `''` (al-sema lower/pages.rs, "An empty `const('')`").
+    if text != "''" || !matches!(ty, RtType::Library(LibraryKind::RecordId)) {
+        return None;
+    }
+    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::SubpagelinkBlankRecordId);
+    let blank = Value::default_for(ty);
+    Some(FilterExpr::Range(Some(blank.clone()), Some(blank)))
 }
