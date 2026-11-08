@@ -511,7 +511,16 @@ pub fn test(a: &TestArgs) -> Result<u8, String> {
         return crate::impact::run(a);
     }
     // `al-runner test`: the process ends after this one run (main.rs), so its compile is not freed.
-    test_inner(a, None, None, None, true)
+    profiled(a, || test_inner(a, None, None, None, true))
+}
+
+/// Runs `f` under `--profile` (serve `profile`) when asked, and writes the profile after it.
+fn profiled(a: &TestArgs, f: impl FnOnce() -> Result<u8, String>) -> Result<u8, String> {
+    let Some(r) = &a.profile else { return f() };
+    crate::profile::begin(r);
+    let out = f();
+    crate::profile::end(r, &a.apps);
+    out
 }
 
 /// What one side of an impact run (ADR-043), or the run that builds its index, asks for and keeps of its run.
@@ -784,7 +793,7 @@ fn warm_key(
 }
 
 pub fn test_with(a: &TestArgs, warm: Option<&mut WarmCtx>) -> Result<u8, String> {
-    test_inner(a, warm, None, None, false)
+    profiled(a, || test_inner(a, warm, None, None, false))
 }
 
 /// What `al-runner debug` adds to a run (ADR-048).

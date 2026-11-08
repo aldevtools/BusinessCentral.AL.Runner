@@ -2293,6 +2293,19 @@ impl Session {
     /// A record method: [`Session::record_op_inner`], with what it does to the snapshot `Record.IsDirty` compares with
     /// (isdirty.rs).
     pub(crate) fn record_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
+        if self.coverage.profiler.is_some() {
+            return self.record_op_profiled(method, rec, args);
+        }
+        self.record_op_unprofiled(method, rec, args)
+    }
+
+    /// [`Session::record_op`] without the profiler's count (`profile.rs`).
+    pub(crate) fn record_op_unprofiled(
+        &mut self,
+        method: RecordOp,
+        rec: &Rec,
+        args: &mut [Value],
+    ) -> Result<Value, Signal> {
         // ADR-062: a record method of a restricted session, or of any session when the license limits a table (license_ceiling.rs).
         if self.permission_checks() {
             let from_al = std::mem::take(&mut self.permission_from_al);

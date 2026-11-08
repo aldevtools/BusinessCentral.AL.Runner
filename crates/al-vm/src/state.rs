@@ -336,6 +336,9 @@ pub(crate) struct CoverageState {
     pub(crate) impact: std::cell::RefCell<Option<crate::impact::Touches>>,
     /// `impact` is on: the one branch a note costs when it is off.
     pub(crate) impact_on: bool,
+    /// `al-runner test --profile`: the session's call tree (`profile.rs`). `None` when off: one branch per statement,
+    /// call, builtin return and record method.
+    pub(crate) profiler: Option<Box<crate::profile::Profiler>>,
 }
 
 /// `Language` and `FormatRegion` set on a report variable outside a run.

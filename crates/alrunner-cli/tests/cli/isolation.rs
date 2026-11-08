@@ -330,8 +330,8 @@ fn al_profile_writes_its_file_at_the_end_of_a_short_run() {
     assert!(profile.starts_with("samples "), "no profile written: {profile:?}");
 }
 
-/// Issue 6924: the profile file splits the self samples by statement (file and line) and names the builtin a sample
-/// landed in, so the time inside FindLast or Insert is no longer only self time of the calling routine.
+/// Issue 6924: the profile file splits the self samples by statement (file and line) and lists the record operations
+/// per routine, so the time inside FindLast or Insert is no longer only self time of the calling routine.
 #[test]
 fn al_profile_names_the_statement_and_builtin_of_a_sample() {
     let d = tempfile::tempdir().unwrap();
@@ -366,12 +366,11 @@ fn al_profile_names_the_statement_and_builtin_of_a_sample() {
         .unwrap();
     assert_eq!(code(&o), 0, "{}", text(&o));
     let profile = std::fs::read_to_string(&file).unwrap_or_default();
-    let section = profile.split("\nself by statement").nth(1).unwrap_or_default();
+    let section = profile.split("\nby statement").nth(1).unwrap_or_default();
     assert!(section.contains("Tests.al:"), "no statement lines: {profile}");
+    // The record operations are counted per routine (exactly, not only when a sample landed in them).
     assert!(
-        section.contains("[Record.FindLast]")
-            || section.contains("[Record.Insert]")
-            || section.contains("[Record.SetRange]"),
-        "no builtin named: {profile}"
+        profile.contains("FindLast \"Prof Row\" (temporary)") && profile.contains("Insert \"Prof Row\" (temporary)"),
+        "no record operations named: {profile}"
     );
 }

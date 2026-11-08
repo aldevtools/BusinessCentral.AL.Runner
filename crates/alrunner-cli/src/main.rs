@@ -16,6 +16,7 @@ mod impact_index;
 mod matrix;
 mod output;
 mod path_note;
+mod profile;
 mod recipe;
 mod recipe_run;
 mod run;
@@ -57,6 +58,9 @@ fn main() -> ExitCode {
     // A crash (SIGSEGV and the like) names the test it hit instead of ending the run without a word.
     al_testrun::crash::install();
     // An AL call nests native frames of the bytecode loop; give the runner thread room.
+    if al_testrun::profiling::start_from_env().is_some() {
+        eprintln!("{}", al_testrun::profiling::LEGACY_NOTE);
+    }
     let worker = std::thread::Builder::new()
         .stack_size(512 << 20)
         .spawn(real_main)
@@ -65,8 +69,8 @@ fn main() -> ExitCode {
     if let Some(path) = &shadow {
         write_permission_shadow(path);
     }
-    // `AL_PROFILE`: the samples of a run shorter than the profiler's periodic write reach the file too (issue 6133).
-    al_vm::profile_flush();
+    // `AL_PROFILE` (deprecated): its files are written when the run ends (issue 6133).
+    al_testrun::profiling::finish_legacy();
     if std::env::var_os("AL_EXEC_REPORT").is_some() {
         eprintln!("{}", al_vm::exec_report());
     }

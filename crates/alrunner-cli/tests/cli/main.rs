@@ -12,6 +12,7 @@ mod json_interface;
 mod onrun_stability;
 mod package_target_resources;
 mod path_note;
+mod profile;
 mod run;
 mod seed;
 

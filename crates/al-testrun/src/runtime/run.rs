@@ -1254,7 +1254,7 @@ fn run_codeunit_inner(
         Some(runner) => super::al_runner::drive(&mut session, runner, object, &tests, &mut |s, al| body(s, Some(al)))
             .unwrap_or_else(|why| Err(all(Outcome::NotRun(why)))),
     };
-    scratch.singles_out = singles_out(&mut session, execute, refused_mid_run.get());
+    scratch.singles_out = ended(&mut session, lowered, object, times, execute, refused_mid_run.get());
     scratch.unfinished_after_start = unfinished_after_start.get();
     let out = match ran {
         Ok(out) => out,
@@ -1376,6 +1376,20 @@ fn carry_disabled(
     CARRIED.with(|c| *c.borrow_mut() = Some(carried));
 }
 
+/// The codeunit's tests are done: its profile (if any) is kept (`profiling::end`), and the single instances it leaves
+/// are returned (`singles_out`).
+fn ended(
+    session: &mut Session,
+    lowered: &Lowered,
+    object: usize,
+    times: &[(String, std::time::Duration)],
+    execute: bool,
+    refused_mid_run: bool,
+) -> Option<al_vm::single_track::SingleOut> {
+    crate::profiling::end(session, &lowered.program, object, times);
+    singles_out(session, execute, refused_mid_run)
+}
+
 /// A codeunit's session from the install baseline; in the lane with the single instances of the codeunit before.
 fn new_session(
     engine: &Arc<Engine>,
@@ -1388,6 +1402,7 @@ fn new_session(
         session.restore_baseline(b);
     }
     let moved = singles_moved_in(&mut session, execute);
+    crate::profiling::begin(&mut session);
     (session, moved)
 }
 
