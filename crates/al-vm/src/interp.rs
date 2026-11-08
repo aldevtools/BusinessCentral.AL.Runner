@@ -309,9 +309,9 @@ impl Session {
     }
 
     /// The globals (not in `keep`) that `ClearAll()` leaves pointing at their instance because the instance is bound by
-    /// `BindSubscription`. Real BC 29 keeps the bound instance in the variable and its binding, and resets the instance's own
-    /// globals (corpus branch al-runtime-rs-staging-6974, events/binding-senders/BindSubscriptionClearAll.al
-    /// ClearAll_HolderWithBoundGlobal_Binding and ClearAll_TestCodeunitWithBoundGlobal_Binding; al-runner issue 6974).
+    /// `BindSubscription`. Real BC keeps the bound instance in the variable and its binding, and resets the instance's own
+    /// globals (events/binding-senders/BindSubscriptionClearAll.al:7-10, ClearAll_HolderWithBoundGlobal_Binding :76-107 and
+    /// ClearAll_TestCodeunitWithBoundGlobal_Binding :148-171; al-runner issue 6974).
     /// Pinned only for a codeunit's global (`in_place`) whose bound instance has no TableNo record and only Text globals
     /// (the probe's subscriber "LT BSK Manual" has one global, `Tag: Text`, BindSubscriptionKinds.Objects.al:44-49).
     /// Everything else is refused: an array of codeunits, a page extension's global, a bound instance with a TableNo
@@ -359,7 +359,6 @@ impl Session {
                     b.globals[k] = nv;
                 }
             }
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ClearAllKeepsBoundInstance);
             kept.push(i);
         }
         Ok(kept)
