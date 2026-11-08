@@ -1089,9 +1089,10 @@ fn the_other_test_apps_are_reported_apart_from_the_main_one() {
 }
 
 // BC 27 and 29 have no isolation oracle (the probe only ran in the BC 28.4 nightly). The testlibraries suite runs in
-// a pass of its own (`extra_apps`), and its report joins the version's.
+// a pass of its own (`extra_apps`), and its report joins the version's, as does the TryWrites suite (its own pass, server
+// settings).
 #[test]
-fn a_version_without_an_isolation_oracle_lists_only_the_onprem_and_testlibraries_apps() {
+fn a_version_without_an_isolation_oracle_lists_only_the_onprem_testlibraries_and_trywrite_apps() {
     let r = all_versions().json("27");
     let names: Vec<_> = r["suites"]
         .as_array()
@@ -1099,7 +1100,10 @@ fn a_version_without_an_isolation_oracle_lists_only_the_onprem_and_testlibraries
         .iter()
         .map(|s| s["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names, vec!["onprem", "onprem-dotnet", "testlibraries"]);
+    assert_eq!(
+        names,
+        vec!["onprem", "onprem-dotnet", "testlibraries", "trywrite-allowed"]
+    );
 }
 
 // `--baseline FILE` is the main app's list alone. The extra apps keep their own files in
@@ -1245,8 +1249,8 @@ fn outcomes_do_not_depend_on_threads_or_home() {
     let b = run(&artifacts_home, "1", "run-b");
     assert_eq!(
         a.len(),
-        4,
-        "the main app, the two OnPrem suites and the testlibraries suite: {:?}",
+        5,
+        "the main app, the two OnPrem suites, the testlibraries suite and the TryWrites suite: {:?}",
         a.iter().map(|f| &f.0).collect::<Vec<_>>()
     );
     assert_eq!(
