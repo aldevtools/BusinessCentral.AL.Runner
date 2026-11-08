@@ -1020,6 +1020,8 @@ pub struct Session {
     /// While `Database.CopyCompany` inserts the Company row: why the `RunTrigger` of the Company's insert events is not
     /// known. The subscribers get it as an unknown value (`Session::table_event`).
     pub(crate) run_trigger_unknown: Option<&'static str>,
+    /// While `NavApp.LoadPackageData` inserts the rows of a data file: no table event is raised (`package_data`).
+    pub(crate) package_load: bool,
     /// The time `Sleep` has waited, added to every clock reading.
     pub(crate) waited_ms: i64,
     /// The running test's time limit in milliseconds, which its `Sleep` calls count toward (al-runner issue 5605), and
@@ -1182,6 +1184,7 @@ impl Session {
             company_unknown: Default::default(),
             full_copies: Default::default(),
             run_trigger_unknown: None,
+            package_load: false,
             sleep_budget: None,
             slept_in_test: 0,
             encrypted: Default::default(),

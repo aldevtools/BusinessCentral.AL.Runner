@@ -1945,12 +1945,6 @@
 94656 Ref_SetLoadFieldsCntThenGet
 94656 Ref_SetLoadFieldsName
 94656 Ref_SetLoadFieldsNameThenGet
-94700 Y88_Date_LastDay
-94700 Y88_Decimal_OutOfRange
-94700 Y88_Enum_UndefinedOrdinal
-94700 Y88_Events_LoadRaisesNoTableEvent
-94700 Y88_Events_SubscribersWorkForOrdinaryWrites
-94700 Y88_Option_UndefinedOrdinal
 94730 Y89_CA_False_OpenEdit_1Row_closeact
 94730 Y89_CA_False_OpenEdit_1Row_delall
 94730 Y89_CA_False_OpenEdit_1Row_delallupd
