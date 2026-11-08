@@ -5,7 +5,7 @@
 
 use al_testkit::outcomes_in;
 
-const SRC: &str = r#"
+pub(super) const SRC: &str = r#"
 table 50100 "Repro Lookup Setting" { fields { field(1; "Primary Key"; Code[10]) { } field(2; "Resource No."; Code[20]) { } } keys { key(PK; "Primary Key") { } } }
 table 50101 "Repro Lookup Resource"
 {
