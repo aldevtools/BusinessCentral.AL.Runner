@@ -125,7 +125,8 @@ pub struct TestArgs {
     /// the default, enforces the stages that are on; none is yet.
     pub permissions_off: bool,
     /// `--strict-order` (ADR-066 amendment 4): every order-dependent test codeunit runs again serially in BC's order.
-    /// Default: it keeps its parallel run and runs again only after a failure or a test not run there.
+    /// Default: it keeps its parallel run and runs again only after a failure or a test not run there that could have
+    /// seen the changed state, and not when its chain is over `RERUN_CHAIN_LIMIT` (amendment 7).
     pub strict_order: bool,
     /// `--test-suites FILE` (ADR-066 amendment 6): each suite of the file is a BC session of its own for order dependence.
     pub test_suites: Option<PathBuf>,
@@ -896,7 +897,11 @@ ISOLATION
                          parallel, each with fresh SingleInstance state, the result Business Central
                          gives when the codeunit runs alone or first. By default it keeps that
                          result and runs such a codeunit again in order only when one of its tests
-                         failed or was refused while it ran (not one refused before it starts).
+                         failed or was refused while it ran (not one refused before it starts) and
+                         that test, or one before it, read a value an earlier codeunit left
+                         otherwise. A re-run whose chain holds more than 50 codeunits is skipped
+                         and printed as "re-run skipped (chain of N codeunits over the limit of
+                         50)"; with this option every chain runs again.
                          Each such run is a serial session of the codeunit and the codeunits it
                          depends on; the sessions run in parallel, with this option too. Every
                          test of such a codeunit is a flagged pass, `single-instance-order`.

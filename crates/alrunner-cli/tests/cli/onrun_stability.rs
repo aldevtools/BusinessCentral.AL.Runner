@@ -485,3 +485,78 @@ codeunit 50877 "Suite Lenient Reader"
     assert_eq!(code(&o), 2, "{}", text(&o));
     assert!(text(&o).contains("line 1: `x` is not a codeunit id"), "{}", text(&o));
 }
+
+/// ADR-066 amendment 7, option 2 (owner, 2026-11-08): a dependent codeunit whose re-run chain holds more than 50 test
+/// codeunits keeps its parallel run. The run output and the JUnit file say why, `--stability` lists it, and
+/// `--strict-order` replays it.
+#[test]
+fn a_rerun_over_the_chain_limit_is_reported_in_the_output_junit_and_stability() {
+    let d = tempfile::tempdir().unwrap();
+    let mut src = String::from(
+        "codeunit 50880 \"Chain Counter\" { SingleInstance = true; procedure Bump() begin Count += 1; end; procedure Get(): Integer begin exit(Count); end; var Count: Integer; }\n",
+    );
+    // Each raises the counter by a number of its own, so each depends on the one before it.
+    for k in 0..50 {
+        src.push_str(&format!(
+            "codeunit {} \"Chain Step {k}\" {{ Subtype = Test; [Test] procedure Step{k}() var C: Codeunit \"Chain Counter\"; I: Integer; begin for I := 0 to {k} do C.Bump(); end; }}\n",
+            50900 + k
+        ));
+    }
+    src.push_str(
+        "codeunit 50999 \"Chain Checker\" { Subtype = Test; [Test] procedure NeedsTheChain() var C: Codeunit \"Chain Counter\"; begin if C.Get() = 0 then Error('alone'); end; }\n",
+    );
+    let app = one_file_app(
+        d.path(),
+        "chain",
+        "11111111-0000-0000-0000-000000006926",
+        "Chain",
+        "src/Tests.al",
+        &src,
+    );
+    let a = app.to_str().unwrap();
+    let text_of = "re-run skipped (chain of 51 codeunits over the limit of 50)";
+    let junit = d.path().join("r.xml");
+    let o = alrunner(&["test", a, "--no-download", "--junit", junit.to_str().unwrap()]);
+    assert_eq!(code(&o), 1, "{}", text(&o));
+    assert!(
+        text(&o).contains(&format!("test codeunit 50999 Chain Checker: {text_of}")),
+        "{}",
+        text(&o)
+    );
+    let x = std::fs::read_to_string(&junit).unwrap();
+    let case = x
+        .lines()
+        .find(|l| l.contains("name=\"NeedsTheChain\""))
+        .unwrap_or_else(|| panic!("{x}"));
+    assert!(
+        case.contains(&format!("<property name=\"singleInstanceRerun\" value=\"{text_of}\" />")),
+        "{case}"
+    );
+    assert!(case.contains("single-instance-rerun-skipped"), "{case}");
+    assert!(!x.lines().any(|l| l.contains("name=\"Step3\"") && l.contains("singleInstanceRerun")), "{x}");
+    // `--strict-order` replays the chain: the checker passes and nothing is skipped.
+    let o = alrunner(&["test", a, "--no-download", "--strict-order"]);
+    assert_eq!(code(&o), 0, "{}", text(&o));
+    assert!(!text(&o).contains("re-run skipped"), "{}", text(&o));
+    // `--stability` lists the codeunit whose re-run was skipped.
+    let json = d.path().join("s.json");
+    let o = alrunner(&[
+        "test",
+        a,
+        "--no-download",
+        "--stability",
+        "microsoft",
+        "--stability-allow-flips",
+        "--output-json",
+        json.to_str().unwrap(),
+    ]);
+    assert!(text(&o).contains("re-run skipped"), "{}", text(&o));
+    let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&json).unwrap()).unwrap();
+    let listed: Vec<&str> = doc["stability"]["rerunSkipped"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{doc}"))
+        .iter()
+        .map(|t| t["test"].as_str().unwrap())
+        .collect();
+    assert!(listed.contains(&"Codeunit50999.NeedsTheChain"), "{doc}");
+}

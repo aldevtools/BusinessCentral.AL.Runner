@@ -68,6 +68,10 @@ pub struct SingleOut {
     /// A test of the codeunit was refused while it ran (it stopped early): what it left is not what BC's run to the end
     /// would have left (ADR-066 amendment 3, R3). Set by the test runner, not by the session.
     pub refused: bool,
+    /// For each global in `observed`: the test method it was first read in, counted from 1 by
+    /// [`Session::single_test_begins`] (0: before the first test, for example in `OnRun`). ADR-066 amendment 7, option 1:
+    /// a re-run is needed only when a failed test, or a test before it, read a global the chain leaves otherwise.
+    pub read_in: BTreeMap<GlobalKey, u32>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -94,6 +98,9 @@ pub(crate) struct Track {
     /// The globals read first whose first write is running: their fingerprint is taken when it is done.
     want_refill: Vec<GlobalKey>,
     refill: BTreeMap<GlobalKey, Fp>,
+    /// The test method that runs now ([`Session::single_test_begins`]; 0 before the first).
+    test: u32,
+    read_in: BTreeMap<GlobalKey, u32>,
 }
 
 /// Whether `a` and `b` are the same value: equal simple values, or the same handle.
@@ -248,6 +255,14 @@ impl Session {
         self.si_track = Some(Box::new(t_snapshot_all(&mut t, &made)));
     }
 
+    /// A test method of the codeunit begins: the first reads from now on count for it (`SingleOut::read_in`). Without
+    /// notes it does nothing.
+    pub fn single_test_begins(&mut self) {
+        if let Some(t) = self.si_track.as_mut() {
+            t.test += 1;
+        }
+    }
+
     /// A single instance the session just made: watched when its object is.
     pub(crate) fn single_made(&mut self, object: usize, inst: &Rc<RefCell<Instance>>) {
         let Some(t) = self.si_track.as_mut() else { return };
@@ -277,6 +292,7 @@ impl Session {
         }
         t.seen.insert(key, Seen::Read);
         t.first_read_at.insert(key, t.writes);
+        t.read_in.insert(key, t.test);
         let f = match inst.try_borrow() {
             Ok(i) => i.globals.get(g).map_or(Fp::Opaque("?".into()), |v| fp(v, &self.engine)),
             Err(_) => Fp::Opaque("borrowed".into()),
@@ -388,6 +404,7 @@ impl Session {
             observed: t.observed.clone(),
             guarded: t.guarded.clone(),
             refill: t.refill.clone(),
+            read_in: t.read_in.clone(),
             ..Default::default()
         };
         for (&object, inst) in &self.singletons {

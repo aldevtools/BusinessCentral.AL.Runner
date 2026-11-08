@@ -295,6 +295,9 @@ pub fn seen(results: &[&TestResult]) -> Vec<Seen> {
             order: r
                 .assumptions
                 .contains(&al_builtins::assumptions::Assumption::SingleInstanceOrder),
+            rerun_skipped: r
+                .assumptions
+                .contains(&al_builtins::assumptions::Assumption::SingleInstanceRerunSkipped),
         })
         .collect()
 }
@@ -425,6 +428,18 @@ pub fn compare(plan: &Plan, per_variant: &[Vec<Seen>]) -> Outcome {
             lines.push(format!("  {t}  in {}", ids.join(", ")));
         }
     }
+    // Of those, the tests whose serial re-run was skipped for the length of its chain (ADR-066 amendment 7, option 2).
+    let skipped = rerun_skipped(plan, per_variant);
+    if !skipped.is_empty() {
+        lines.push(String::new());
+        lines.push(format!(
+            "Tests whose serial re-run was skipped (re-run skipped: chain over the limit of {} codeunits; parallel result kept, --strict-order replays it):",
+            al_testrun::runtime::RERUN_CHAIN_LIMIT
+        ));
+        for (t, ids) in &skipped {
+            lines.push(format!("  {t}  in {}", ids.join(", ")));
+        }
+    }
     // The variants with the most flips.
     let mut per: Vec<(usize, usize)> = (0..plan.variants.len())
         .filter(|&i| plan.variants[i].index > 0)
@@ -483,6 +498,18 @@ pub fn order_dependent(plan: &Plan, per_variant: &[Vec<Seen>]) -> std::collectio
     let mut out: std::collections::BTreeMap<String, Vec<String>> = Default::default();
     for (i, seen) in per_variant.iter().enumerate() {
         for s in seen.iter().filter(|s| s.order) {
+            out.entry(s.test.clone()).or_default().push(plan.id_at(i));
+        }
+    }
+    out
+}
+
+/// The tests whose codeunit's serial re-run was skipped for the length of its chain
+/// (`Assumption::SingleInstanceRerunSkipped`) and the variants in which each was.
+pub fn rerun_skipped(plan: &Plan, per_variant: &[Vec<Seen>]) -> std::collections::BTreeMap<String, Vec<String>> {
+    let mut out: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+    for (i, seen) in per_variant.iter().enumerate() {
+        for s in seen.iter().filter(|s| s.rerun_skipped) {
             out.entry(s.test.clone()).or_default().push(plan.id_at(i));
         }
     }
@@ -571,6 +598,10 @@ pub fn json(plan: &Plan, out: &Outcome, per_variant: &[Vec<Seen>]) -> serde_json
         "cells": cells,
         "flips": flips,
         "orderDependent": order_dependent(plan, per_variant)
+            .into_iter()
+            .map(|(test, variants)| serde_json::json!({ "test": test, "variants": variants }))
+            .collect::<Vec<_>>(),
+        "rerunSkipped": rerun_skipped(plan, per_variant)
             .into_iter()
             .map(|(test, variants)| serde_json::json!({ "test": test, "variants": variants }))
             .collect::<Vec<_>>(),
@@ -698,6 +729,7 @@ mod tests {
             message: if k == Kind::Fail { "boom".into() } else { String::new() },
             assumption: false,
             order: false,
+            rerun_skipped: false,
         }
     }
 
@@ -792,6 +824,7 @@ mod tests {
         let plan = plan_of(r#"{"format":1,"dimensions":{"order.methods":["reverse"]}}"#);
         let flagged = |t: &str| Seen {
             order: true,
+            rerun_skipped: false,
             ..seen(t, Kind::Pass)
         };
         let runs = vec![

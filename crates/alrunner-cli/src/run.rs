@@ -2054,6 +2054,13 @@ fn test_inner(
             );
         }
     }
+    // ADR-066 amendment 7, option 2: a re-run skipped for the length of its chain is said with or without `--timings`
+    // (`--timings` prints it with the other lane lines).
+    if !a.timings {
+        for line in p.chain.single_lane.skipped_lines() {
+            eprintln!("{line}");
+        }
+    }
     if rt.panics > 0 {
         eprintln!(
             "warning: {} test codeunit(s) hit a runtime panic (reported as not run)",
@@ -2254,12 +2261,13 @@ fn test_inner(
             &crate::unpinned::junit(
                 &crate::seed::junit_license(
                     &crate::seed::junit(
-                        &output::junit(
+                        &output::junit_with(
                             &with_skipped,
                             bc_build.as_deref(),
                             total_time.as_secs_f64(),
                             &|cu, t| disabled.as_ref().is_some_and(|d| d.is_disabled(cu, t)),
                             &rt.phases.baseline_assumptions,
+                            &|r| output::rerun_skipped_property(&rt.phases.chain.single_lane, r),
                         ),
                         run_seed,
                     ),

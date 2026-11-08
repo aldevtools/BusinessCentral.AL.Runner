@@ -117,6 +117,9 @@ pub(super) struct Found {
     /// is taken as no link although the earlier codeunit left another value (`Assumption::SingleInstanceRefill`), with
     /// that codeunit's position and the global.
     pub refill_assumed: BTreeMap<usize, (usize, GlobalKey)>,
+    /// Per dependent codeunit (position), the globals it read first that the earlier codeunits left with another value
+    /// (ADR-066 amendment 7, option 1: only a failed test that read one, or a test before it, makes it run again).
+    pub changed: BTreeMap<usize, BTreeSet<GlobalKey>>,
 }
 
 /// Step 3, the decision: from what each codeunit of a BC session (in order) noted, which depend on state an earlier one
@@ -197,6 +200,7 @@ pub(super) fn analyse(outs: &[Option<&SingleOut>]) -> Found {
             let mine = found.writers.entry(p).or_default();
             mine.insert(c.0);
             mine.extend(diff.iter().map(|(_, w)| *w));
+            found.changed.insert(p, diff.iter().map(|(k, _)| *k).collect());
         } else if let Some(a) = assumed {
             found.refill_assumed.insert(p, a);
         }
@@ -230,6 +234,26 @@ impl Found {
             }
         }
         lane
+    }
+
+    /// ADR-066 amendment 7, option 2: splits `chosen` into the codeunits whose own chain ([`Found::lane_for`] of it
+    /// alone) holds at most `limit` codeunits, and the others with the length of their chain.
+    pub(super) fn within_limit(
+        &self,
+        chosen: &BTreeSet<usize>,
+        limit: usize,
+    ) -> (BTreeSet<usize>, BTreeMap<usize, usize>) {
+        let mut kept = BTreeSet::new();
+        let mut over = BTreeMap::new();
+        for &p in chosen {
+            let n = self.lane_for(&BTreeSet::from([p])).len();
+            if n > limit {
+                over.insert(p, n);
+            } else {
+                kept.insert(p);
+            }
+        }
+        (kept, over)
     }
 
     /// The serial sessions for the dependent codeunits `chosen` (ADR-066 amendment 5, decision 1), each in BC's order,
@@ -278,6 +302,56 @@ fn needs_serial_run(slot: Option<&UnitResult>) -> bool {
         Some(Ok(done)) => done.5.unfinished_after_start || done.0.iter().any(|(_, o)| matches!(o, Outcome::Fail(_))),
         _ => true,
     }
+}
+
+/// ADR-066 amendment 7, option 2 (owner, 2026-11-08): a serial re-run whose replay chain holds more test codeunits than
+/// this is not replayed. The codeunit keeps its parallel run and is flagged (`Assumption::SingleInstanceRerunSkipped`);
+/// `--strict-order` replays every chain whatever its length. On NP Retail (BC 29) 50 skips 18 of the 21 sessions, whose
+/// replays changed no outcome there.
+pub const RERUN_CHAIN_LIMIT: usize = 50;
+
+/// What the run output and the JUnit file say of a codeunit whose re-run was skipped (amendment 7, option 2).
+pub fn rerun_skipped_text(chain: usize) -> String {
+    format!("re-run skipped (chain of {chain} codeunits over the limit of {RERUN_CHAIN_LIMIT})")
+}
+
+/// ADR-066 amendment 7, option 1 (owner, 2026-11-08): whether a failed or unfinished test, the last of them numbered
+/// `bound` (`Session::single_test_begins`), or a test before it, read first one of the `changed` globals. `read_in`
+/// gives the test each global was first read in (0: before the first test, so it counts for every test). A changed
+/// global without a note counts. Corpus P7B (al-language/codeunits/TestCuP7BReader.al:24-37): the reader test itself
+/// reads what the earlier codeunit left and fails with fresh state, so it runs again.
+fn failure_saw_change(read_in: &BTreeMap<GlobalKey, u32>, changed: &BTreeSet<GlobalKey>, bound: u32) -> bool {
+    changed.iter().any(|k| read_in.get(k).is_none_or(|&t| t <= bound))
+}
+
+/// The number of the last test of a codeunit's run that failed or started and did not run to its end
+/// (`Scratch::unfinished_at`). A failure the test loop did not number (an outcome changed after it) counts as the last
+/// test of all (`u32::MAX`), as does a run without results.
+fn failure_bound(slot: Option<&UnitResult>) -> u32 {
+    let Some(Ok(done)) = slot.map(|r| &r.result) else {
+        return u32::MAX;
+    };
+    let at = &done.5.unfinished_at;
+    let unnumbered = done
+        .0
+        .iter()
+        .any(|(t, o)| matches!(o, Outcome::Fail(_)) && !at.iter().any(|(_, n)| n == t));
+    if unnumbered {
+        return u32::MAX;
+    }
+    at.iter().map(|(n, _)| *n).max().unwrap_or(u32::MAX)
+}
+
+/// A dependent codeunit whose serial re-run was skipped because its chain is over [`RERUN_CHAIN_LIMIT`].
+#[derive(Debug, Clone)]
+pub struct RerunSkipped {
+    /// The index of the run (`TestResult::suite`) and the codeunit.
+    pub suite: usize,
+    pub codeunit: u32,
+    /// The codeunit's id and name.
+    pub name: String,
+    /// How many codeunits its replay chain holds.
+    pub chain: usize,
 }
 
 /// What the lane needs from the run (`corpus.rs`).
@@ -330,6 +404,12 @@ pub struct LaneReport {
     pub rerun: usize,
     /// `--strict-order`: every dependent codeunit ran again serially.
     pub strict: bool,
+    /// Dependent codeunits with a failed or unfinished test that kept their parallel run because no such test, and no
+    /// test before it, read a global the chain leaves otherwise (ADR-066 amendment 7, option 1).
+    pub kept: usize,
+    /// Dependent codeunits that would run again but whose chain is over [`RERUN_CHAIN_LIMIT`] (amendment 7, option 2):
+    /// they keep their parallel run, flagged. Not counted in `rerun`.
+    pub skipped: Vec<RerunSkipped>,
     /// Serial sessions the lane ran (amendment 5): one per chain of a dependent codeunit that ran again (none for one
     /// whose chain starts another's).
     pub chains: usize,
@@ -359,11 +439,13 @@ impl LaneReport {
             "because a test failed or was refused while it ran in parallel"
         };
         let mut out = vec![format!(
-            "SingleInstance order: {} test codeunits watched, {} BC sessions with a dependent codeunit, {} dependent codeunits (flagged), {} ran again serially {why}, {} codeunit runs in {} serial sessions (longest {:.2} s, lane wall time {:.2} s); {} codeunits flagged as independent under the guard-then-refill assumption",
+            "SingleInstance order: {} test codeunits watched, {} BC sessions with a dependent codeunit, {} dependent codeunits (flagged), {} ran again serially {why}, {} kept their parallel run (no failed test read a changed global), {} re-runs skipped (chain over {RERUN_CHAIN_LIMIT} codeunits), {} codeunit runs in {} serial sessions (longest {:.2} s, lane wall time {:.2} s); {} codeunits flagged as independent under the guard-then-refill assumption",
             self.watched,
             self.sessions,
             self.dependent,
             self.rerun,
+            self.kept,
+            self.skipped.len(),
             self.lane.len(),
             self.chains,
             self.longest.as_secs_f64(),
@@ -381,7 +463,31 @@ impl LaneReport {
             ));
         }
         out.extend(self.notes.iter().cloned());
+        out.extend(self.skipped_lines());
         out
+    }
+
+    /// One line per codeunit whose re-run was skipped (amendment 7, option 2). The run output prints them with or
+    /// without `--timings`.
+    pub fn skipped_lines(&self) -> Vec<String> {
+        self.skipped
+            .iter()
+            .map(|s| {
+                format!(
+                    "SingleInstance order: test codeunit {}: {}; its parallel result is kept (flagged); --strict-order replays it",
+                    s.name,
+                    rerun_skipped_text(s.chain)
+                )
+            })
+            .collect()
+    }
+
+    /// The text for the tests of codeunit `codeunit` of run `suite` when its re-run was skipped.
+    pub fn skipped_text(&self, suite: usize, codeunit: u32) -> Option<String> {
+        self.skipped
+            .iter()
+            .find(|s| s.suite == suite && s.codeunit == codeunit)
+            .map(|s| rerun_skipped_text(s.chain))
     }
 }
 
@@ -588,12 +694,46 @@ impl Lane<'_> {
                 }
             }
             // Decision 2: only a dependent codeunit with a failure or a test refused while it ran in parallel runs again
-            // serially; `--strict-order` (decision 4) runs them all again.
-            let chosen: BTreeSet<usize> = fresh
-                .iter()
-                .copied()
-                .filter(|&p| self.strict || needs_serial_run(slots[ks[p]].as_ref()))
-                .collect();
+            // serially; `--strict-order` (decision 4) runs them all again. Amendment 7, option 1: and only when such a
+            // test, or one before it, read a global the chain leaves otherwise.
+            let mut chosen: BTreeSet<usize> = BTreeSet::new();
+            for &p in &fresh {
+                let slot = slots[ks[p]].as_ref();
+                if self.strict {
+                    chosen.insert(p);
+                } else if needs_serial_run(slot) {
+                    let read_in = match slot.map(|r| &r.result) {
+                        Some(Ok(done)) => done.5.singles_out.as_ref().map(|o| &o.read_in),
+                        _ => None,
+                    };
+                    let saw = match (read_in, found.changed.get(&p)) {
+                        (Some(read_in), Some(changed)) => failure_saw_change(read_in, changed, failure_bound(slot)),
+                        _ => true,
+                    };
+                    if saw {
+                        chosen.insert(p);
+                    } else {
+                        report.kept += 1;
+                    }
+                }
+            }
+            // Amendment 7, option 2: a chain over the limit is not replayed (not under `--strict-order`).
+            if !self.strict {
+                let (kept, over) = found.within_limit(&chosen, RERUN_CHAIN_LIMIT);
+                chosen = kept;
+                for (p, chain) in over {
+                    let k = ks[p];
+                    if let Some(Ok(done)) = slots[k].as_mut().map(|r| &mut r.result) {
+                        flag_all(done, Assumption::SingleInstanceRerunSkipped);
+                    }
+                    report.skipped.push(RerunSkipped {
+                        suite: self.units[k].si,
+                        codeunit: self.units[k].id,
+                        name: self.name(k),
+                        chain,
+                    });
+                }
+            }
             report.rerun += chosen.len();
             for (positions, reported) in found.sessions(&chosen) {
                 let order: Vec<usize> = positions.iter().map(|&p| ks[p]).collect();
@@ -868,6 +1008,48 @@ mod tests {
             wrote: wrote.iter().copied().collect(),
             ..Default::default()
         }
+    }
+
+    /// ADR-066 amendment 7, option 1: the globals that make a codeunit dependent are noted per dependent codeunit.
+    #[test]
+    fn the_globals_read_first_that_differ_are_noted_per_dependent_codeunit() {
+        let (flag, other) = ((1, 0), (2, 0));
+        let a = out(&[], &[(flag, 7), (other, 1)], &[flag, other]);
+        // b read both; only the flag differs from what a left.
+        let b = out(&[(flag, 0), (other, 1)], &[(flag, 0), (other, 1)], &[]);
+        let found = analyse(&[Some(&a), Some(&b)]);
+        assert_eq!(found.changed, BTreeMap::from([(1, BTreeSet::from([flag]))]));
+    }
+
+    /// ADR-066 amendment 7, option 1 (owner, 2026-11-08): a re-run is needed only when a failed test, or a test before
+    /// it, read first a global that the chain leaves otherwise. A read before the first test (OnRun) counts for all.
+    #[test]
+    fn a_failure_sees_a_changed_global_only_when_it_or_an_earlier_test_read_it() {
+        let (flag, other) = ((1, 0), (2, 0));
+        let changed = BTreeSet::from([flag]);
+        let read_in = BTreeMap::from([(flag, 2), (other, 1)]);
+        assert!(!failure_saw_change(&read_in, &changed, 1), "the failed test 1 read only the other global");
+        assert!(failure_saw_change(&read_in, &changed, 2), "test 2 read it and failed");
+        assert!(failure_saw_change(&read_in, &changed, 3), "test 2 read it before the failed test 3");
+        assert!(failure_saw_change(&BTreeMap::from([(flag, 0)]), &changed, 1), "OnRun read it");
+        assert!(failure_saw_change(&BTreeMap::new(), &changed, 1), "a read not noted counts");
+        assert!(!failure_saw_change(&read_in, &BTreeSet::new(), u32::MAX));
+    }
+
+    /// ADR-066 amendment 7, option 2: a chosen codeunit whose own chain is longer than the limit is not replayed.
+    #[test]
+    fn a_chain_over_the_limit_is_left_out_with_its_length() {
+        let (k1, k2) = ((1, 0), (2, 0));
+        let a = out(&[], &[(k2, 3)], &[k2]);
+        let b = out(&[(k2, 0)], &[(k2, 0), (k1, 4)], &[k1]);
+        let c = out(&[(k1, 0)], &[(k1, 0)], &[]);
+        let found = analyse(&[Some(&a), Some(&b), Some(&c)]);
+        // b's chain holds 2 codeunits, c's 3.
+        let (kept, over) = found.within_limit(&BTreeSet::from([1, 2]), 2);
+        assert_eq!(kept, BTreeSet::from([1]));
+        assert_eq!(over, BTreeMap::from([(2, 3)]));
+        let (kept, over) = found.within_limit(&BTreeSet::from([1, 2]), 3);
+        assert_eq!((kept, over), (BTreeSet::from([1, 2]), BTreeMap::new()));
     }
 
     #[test]

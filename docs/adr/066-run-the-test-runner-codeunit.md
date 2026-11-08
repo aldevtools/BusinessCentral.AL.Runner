@@ -1,6 +1,6 @@
 # ADR-066: Run the test runner codeunit's own AL
 
-- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07); amendment 4 (order-dependent codeunits run in parallel, serial run only after a failure, `--strict-order`) Accepted (owner, 2026-11-07); amendment 5 (each serial re-run is a session of its own, the sessions run in parallel; a test refused before it starts triggers no re-run) Accepted (owner, 2026-11-07)
+- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07); amendment 4 (order-dependent codeunits run in parallel, serial run only after a failure, `--strict-order`) Accepted (owner, 2026-11-07); amendment 5 (each serial re-run is a session of its own, the sessions run in parallel; a test refused before it starts triggers no re-run) Accepted (owner, 2026-11-07); amendment 7 (a re-run only when a failed test could have seen the changed state, and a cap of 50 codeunits per replay chain) Accepted (owner, 2026-11-08)
 - Date: 2026-11-05
 
 ## Context
@@ -704,10 +704,11 @@ made dependent on `ConfigLoaded`, which codeunit 81673 (suite DATACHECK) left. O
 - `crates/alrunner-cli/tests/cli/onrun_stability.rs`: `--stability` lists a reader as order dependent only when its
   writer is in its suite; a bad line exits 2.
 
-## Amendment 7 (Proposed, 2026-11-08): skip a serial re-run that cannot change the outcome
+## Amendment 7 (Accepted, owner, 2026-11-08): skip a serial re-run that cannot change the outcome
 
-- Status: Proposed. Needs the owner's decision. Amends amendment 4, decision 2 (which dependent codeunits run again)
-  and amendment 5, decision 1 (each re-run replays its whole chain). Nothing is built yet.
+- Status: Accepted by the owner on 2026-11-08: option 1 plus option 2 below. Amends amendment 4, decision 2 (which
+  dependent codeunits run again) and amendment 5, decision 1 (each re-run replays its whole chain). How a dependent
+  codeunit is found (amendment 3), the flag on its tests, `--strict-order` and `--test-suites` are unchanged.
 
 ### Why
 
@@ -765,3 +766,41 @@ What cannot be done within amendments 4 and 5 (checked):
 
 Recommendation: option 1, with option 2 as the bound for chains that option 1 still selects. Both keep
 `--strict-order` as the exact BC order, and both need a corpus case for the flag text before they are built.
+
+### Decision (owner, 2026-11-08: option 1 plus option 2)
+
+1. **Per-test rule (option 1).** A watched session numbers the test methods it begins (`Session::single_test_begins`,
+   from 1; a read before the first test, in `OnRun`, is test 0) and notes for each global read first the test it was
+   read in (`SingleOut::read_in`). The analysis notes, per dependent codeunit, the globals it read first that the last
+   writers left with another value (`Found::changed`). A dependent codeunit with a failed test or a test that started
+   and did not run to its end (amendment 5, decision 3) runs again only when such a test, or a test before it in the
+   same codeunit, read one of those globals (`failure_saw_change`). Otherwise it keeps its parallel run, flagged as
+   before (`LaneReport::kept` counts these). A failure the test loop did not number counts as the last test, so it
+   always sees every read. Corpus P7B (`TestCuP7BReader.al:24-37`): the reader test reads what codeunit P7A left and
+   fails with fresh state, so it still runs again and passes flagged.
+2. **Cap (option 2).** A codeunit that the per-test rule still selects is not replayed when its own chain
+   (`Found::lane_for` of it alone) holds more than `RERUN_CHAIN_LIMIT` = 50 test codeunits (`Found::within_limit`).
+   It keeps its parallel run. Its tests are flagged with the registered assumption `single-instance-rerun-skipped`
+   (besides `single-instance-order`), the run output prints one line per such codeunit ("test codeunit 50999 Chain
+   Checker: re-run skipped (chain of 51 codeunits over the limit of 50); its parallel result is kept (flagged);
+   --strict-order replays it"), with or without `--timings`, and each of its tests carries the JUnit property
+   `singleInstanceRerun` with the text "re-run skipped (chain of N codeunits over the limit of 50)"
+   (`LaneReport::skipped`). `--stability` lists such tests (`rerunSkipped` in the JSON, a list of its own on the
+   console). The cap is a cost bound of the runner, not a behavior of BC, so no corpus probe pins it (ADR-009: tooling).
+3. **`--strict-order`** (`serve`: `strictOrder`) replays every dependent codeunit's chain whatever its length and
+   whatever its tests read, as amendments 4 and 5 defined it.
+4. **`--timings`** adds to the lane line how many codeunits kept their parallel run under the per-test rule and how many
+   re-runs were skipped for the cap.
+
+### Conformance
+
+- `crates/al-vm/tests/language/single_track_access.rs`: a first read notes the test it came in.
+- `crates/al-testrun/src/runtime/single_lane.rs` unit tests: the changed globals are noted per dependent codeunit; a
+  failure sees a changed global only when it or an earlier test read it (a read in `OnRun` counts for all); a chain over
+  the limit is left out with its length.
+- `crates/al-testrun/tests/suite/single_instance_lane.rs`: a failed test that read no changed global triggers no serial
+  run (`--strict-order` still runs it); a chain of exactly 50 codeunits is replayed; a chain of 51 is skipped and
+  flagged, and `--strict-order` replays it and the test passes. The amendment 4 and 5 cases (P7B shape, a test refused
+  while it runs after the reading test) still run again.
+- `crates/alrunner-cli/tests/cli/onrun_stability.rs`: the skip text in the run output and the JUnit property, `--stability`
+  lists the test under `rerunSkipped`, `--strict-order` passes it.
