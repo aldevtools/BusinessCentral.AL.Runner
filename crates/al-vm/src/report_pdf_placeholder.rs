@@ -13,6 +13,7 @@
 
 use crate::reports::{SaveTarget, Schema};
 use crate::{Session, Signal};
+use al_builtins::value::Value;
 
 /// What a rendering save writes.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -81,6 +82,12 @@ const REPORT_MANAGEMENT_EVENTS: &[&str] = &[
 
 const REPORT_MANAGEMENT: &str = "ReportManagement";
 
+/// Base Application's table "Report Layout Selection" and codeunit "Design-time Report Selection".
+const REPORT_LAYOUT_SELECTION: u32 = 9651;
+const DESIGN_TIME_REPORT_SELECTION: u32 = 9654;
+/// The platform table Tenant Report Layout Selection.
+const TENANT_REPORT_LAYOUT_SELECTION: u32 = 2_000_000_233;
+
 impl Session {
     /// Puts the output of a rendering save that ran to its end where the caller asked for it.
     pub(crate) fn write_save_output(
@@ -123,7 +130,8 @@ impl Session {
 
     /// Whether a Pdf save of the report writes the placeholder: its default layout is RDLC or Word, and no subscriber the
     /// test can see listens to an event BC raises around the render. Such a subscriber refuses the save, and so does one
-    /// the compile left out (other than Base Application's ReportManagement, which only picks a layout).
+    /// the compile left out (other than Base Application's ReportManagement, which picks a layout from data: a layout
+    /// selection other than the report's RDLC or Word layout refuses too, [`Session::layout_selection`]).
     pub(crate) fn pdf_placeholder(&self, schema: &Schema) -> Result<bool, Signal> {
         let report = schema.report();
         if !matches!(report.default_layout_kind.as_str(), "rdlc" | "word") || report.layout_file_missing {
@@ -136,7 +144,91 @@ impl Session {
                 schema.name()
             )));
         }
+        if let Some(what) = self.layout_selection(schema)? {
+            return Err(Signal::Unsupported(format!(
+                "Report.SaveAs of \"{}\" as Pdf while {what} (BC may render another layout, and an Excel one writes no \
+                 output; this runtime writes a placeholder PDF only for the report's own RDLC or Word layout)",
+                schema.name()
+            )));
+        }
         Ok(true)
+    }
+
+    /// A layout selection BC follows when it renders that may pick something other than an RDLC or Word layout of the report,
+    /// as text for a refusal. Base Application's ReportManagement answers SelectedBuiltinLayoutType and SelectReportLayoutCode
+    /// from table 9651 "Report Layout Selection" and from the SingleInstance codeunit 9654 "Design-time Report Selection"
+    /// (ReportManagement.Codeunit.al, Base Application 29); the platform reads Tenant Report Layout Selection. What BC does
+    /// with each selection is not probed, so any selection but a built-in RDLC or Word one, or a tenant row naming an RDLC or
+    /// Word layout the report declares, refuses (reports/layouts-saveas/AMReportOutputTests.al:257: a Pdf of an Excel layout
+    /// writes nothing).
+    fn layout_selection(&self, schema: &Schema) -> Result<Option<String>, Signal> {
+        let report = schema.report();
+        let Some(id) = self.engine.program.objects[schema.object()].id else {
+            return Ok(None);
+        };
+        let has_kind =
+            |kind: &str| report.default_layout_kind == kind || report.rendering_layouts.iter().any(|l| l.kind == kind);
+        let field = |t: &al_data::TableDef, name: &str| t.fields.iter().position(|f| f.name.eq_ignore_ascii_case(name));
+        let text = |v: &Value| match v {
+            Value::Text(s) | Value::Code(s) => s.to_string(),
+            _ => String::new(),
+        };
+        let cx = self.cx.clone();
+        if let Some(t) = self
+            .table_def(REPORT_LAYOUT_SELECTION)
+            .filter(|t| t.name.eq_ignore_ascii_case("Report Layout Selection"))
+        {
+            if let (Some(r), Some(c), Some(k)) = (field(&t, "Report ID"), field(&t, "Company Name"), field(&t, "Type"))
+            {
+                for row in self.all_rows(&cx, &t)? {
+                    if !matches!(row[r], Value::Integer(n) if n as i64 == id as i64)
+                        || !text(&row[c]).eq_ignore_ascii_case(&self.cx.company)
+                    {
+                        continue;
+                    }
+                    // Option 0 "RDLC (built-in)", 1 "Word (built-in)".
+                    let builtin = match &row[k] {
+                        Value::Integer(0) | Value::Option(0, _) => has_kind("rdlc"),
+                        Value::Integer(1) | Value::Option(1, _) => has_kind("word"),
+                        _ => false,
+                    };
+                    if !builtin {
+                        return Ok(Some("a Report Layout Selection row selects a layout for it".into()));
+                    }
+                }
+            }
+        }
+        if let Some(t) = self.table_def(TENANT_REPORT_LAYOUT_SELECTION) {
+            if let (Some(r), Some(n)) = (field(&t, "Report ID"), field(&t, "Layout Name")) {
+                for row in self.all_rows(&cx, &t)? {
+                    if !matches!(row[r], Value::Integer(n) if n as i64 == id as i64) {
+                        continue;
+                    }
+                    let name = text(&row[n]);
+                    let known = report
+                        .rendering_layouts
+                        .iter()
+                        .any(|l| l.name.eq_ignore_ascii_case(&name) && matches!(l.kind.as_str(), "rdlc" | "word"));
+                    if !known {
+                        return Ok(Some(format!(
+                            "Tenant Report Layout Selection selects layout \"{name}\", not an RDLC or Word layout of it"
+                        )));
+                    }
+                }
+            }
+        }
+        let program = &self.engine.program;
+        let design_time = program.objects.heads().iter().position(|o| {
+            o.is_kind(al_ir::ObjKind::Codeunit)
+                && o.id == Some(DESIGN_TIME_REPORT_SELECTION)
+                && o.name.eq_ignore_ascii_case("Design-time Report Selection")
+        });
+        if let Some(inst) = design_time.and_then(|oi| self.singletons.get(&oi)) {
+            if inst.borrow().globals.iter().any(|v| !text(v).is_empty()) {
+                return Ok(Some("Design-time Report Selection holds a selected layout".into()));
+            }
+        }
+        Ok(None)
     }
 
     /// The first subscriber to a layout event that refuses a placeholder, as text for a refusal.

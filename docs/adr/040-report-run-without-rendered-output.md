@@ -235,7 +235,15 @@ first. The Pdf of a processing-only report goes on to its pinned answer (false, 
   the integration events Base Application's ReportManagement raises from them (OnAfterSubstituteReport and others).
   "Can see" is the rule of `Registry::unraised_subscriber` (decided without owner review 2026-10-19 for
   CaptionClassTranslate): the test names the subscriber's codeunit or a SingleInstance codeunit the subscriber holds.
-  Base Application's ReportManagement subscribers only pick a layout.
+  Base Application's ReportManagement subscribers do not log: they pick the layout from data. SelectedBuiltinLayoutType
+  and SelectReportLayoutCode read table 9651 "Report Layout Selection", "Custom Report Layout" and the SingleInstance
+  codeunit 9654 "Design-time Report Selection"; the platform reads Tenant Report Layout Selection. Such a selection can
+  pick an Excel layout, and a Pdf of an Excel layout writes no output on BC (AMReportOutputTests.al:257). So a save is
+  also refused while a Report Layout Selection row for the report and company selects anything but its built-in RDLC or
+  Word layout, while "Design-time Report Selection" holds a selected layout, or while a Tenant Report Layout Selection row
+  for the report names a layout that is not an RDLC or Word layout of the report. The other ReportManagement subscribers
+  on the layout events (HasCustomLayout, SubstituteReport, OnIntermediateDocumentReady, OnDocumentReady) only forward to
+  integration events, covered above; FetchReportLayoutByCode and GetCompanyMetadata only read data for the rendered bytes.
 - One assumption id `report-pdf-placeholder`, marked each time the path writes; a test through it is a flagged pass.
   A probe on a Windows tier (RDLC and Word report to a stream and a file, a subscriber logging the layout events) is
   queued; when it lands it wins.

@@ -203,6 +203,107 @@ codeunit 50957 "RPP Layout Subscriber"
 }
 "#;
 
+// Base Application's ReportManagement answers SelectedBuiltinLayoutType and SelectReportLayoutCode from table 9651 "Report
+// Layout Selection" and from the SingleInstance codeunit 9654 "Design-time Report Selection" (the platform's Tenant Report
+// Layout Selection: al-test-cli tests/platform_tables.rs). A selection there can pick a layout that is not the report's default (an Excel layout writes no output:
+// reports/layouts-saveas/AMReportOutputTests.al:257 ExcelLayout_SaveAsPdf), so a placeholder is written only while none of
+// them selects something other than an RDLC or Word layout of the report.
+const SELECTION: &str = r#"
+table 9651 "Report Layout Selection"
+{
+    fields
+    {
+        field(1; "Report ID"; Integer) { }
+        field(3; "Company Name"; Text[30]) { }
+        field(4; Type; Option) { OptionMembers = "RDLC (built-in)","Word (built-in)","Custom Layout","Excel Layout","External Layout"; }
+    }
+    keys { key(PK; "Report ID", "Company Name") { } }
+}
+
+codeunit 9654 "Design-time Report Selection"
+{
+    SingleInstance = true;
+    var SelectedCustomLayoutCode: Code[20]; SelectedPlatformLayoutName: Text[250];
+    procedure SetSelectedLayout(Name: Text[250]) begin SelectedPlatformLayoutName := Name; end;
+}
+
+codeunit 50959 "RPP Selection Tests"
+{
+    local procedure Save(Id: Integer): Text
+    var R: Record "RPP Row"; Out: OutStream; Ok: Boolean;
+    begin
+        R.Data.CreateOutStream(Out);
+        Ok := Report.SaveAs(Id, '', ReportFormat::Pdf, Out);
+        exit(Format(Ok));
+    end;
+
+    local procedure Select(Id: Integer; T: Option)
+    var S: Record "Report Layout Selection";
+    begin
+        S."Report ID" := Id; S."Company Name" := CompanyName(); S.Type := T; S.Insert();
+    end;
+
+    procedure CustomSelection(): Text
+    var S: Record "Report Layout Selection";
+    begin
+        Select(Report::"RPP Rdlc", S.Type::"Custom Layout");
+        exit(Save(Report::"RPP Rdlc"));
+    end;
+
+    procedure BuiltinSelection(): Text
+    var S: Record "Report Layout Selection";
+    begin
+        Select(Report::"RPP Rdlc", S.Type::"RDLC (built-in)");
+        exit(Save(Report::"RPP Rdlc"));
+    end;
+
+    procedure DesignTimeSelection(): Text
+    var D: Codeunit "Design-time Report Selection";
+    begin
+        D.SetSelectedLayout('Other');
+        exit(Save(Report::"RPP Rdlc"));
+    end;
+}
+"#;
+
+fn refused_with(src: &str, codeunit: &str, proc: &str, want: &str) {
+    match Built::from_source(src).run_in(codeunit, proc) {
+        Err(Signal::Unsupported(why)) => assert!(why.contains(want), "{why}"),
+        other => panic!("expected a refusal naming {want}, got {other:?}"),
+    }
+}
+
+#[test]
+fn report_pdf_placeholder_a_report_layout_selection_of_a_custom_layout_is_refused() {
+    let src = format!("{SRC}{SELECTION}");
+    refused_with(
+        &src,
+        "RPP Selection Tests",
+        "CustomSelection",
+        "Report Layout Selection",
+    );
+}
+
+#[test]
+fn report_pdf_placeholder_a_report_layout_selection_of_the_builtin_rdlc_layout_writes_a_pdf() {
+    let src = format!("{SRC}{SELECTION}");
+    assert_eq!(
+        al_testkit::text(Built::from_source(&src).run_in("RPP Selection Tests", "BuiltinSelection")),
+        "Yes"
+    );
+}
+
+#[test]
+fn report_pdf_placeholder_a_design_time_layout_selection_is_refused() {
+    let src = format!("{SRC}{SELECTION}");
+    refused_with(
+        &src,
+        "RPP Selection Tests",
+        "DesignTimeSelection",
+        "Design-time Report Selection",
+    );
+}
+
 fn run(src: &str, proc: &str) -> Result<Value, Signal> {
     Built::from_source(src).run_in("RPP Tests", proc)
 }
