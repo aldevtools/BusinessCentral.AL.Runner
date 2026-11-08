@@ -6,6 +6,8 @@ use al_builtins::filter::{FieldFilter, key_cmp};
 use std::cmp::Ordering;
 
 mod order_carry;
+mod row_changes;
+pub use row_changes::{RowChanges, TableRows};
 
 /// A primary-key tuple ordered field by field.
 #[derive(Clone, Debug)]
