@@ -632,6 +632,18 @@ impl Session {
             .any(|b| b.instance.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
     }
 
+    /// Whether `v` (a codeunit, or an array of them) holds an instance bound right now: `ClearAll()` of such a global is
+    /// refused, because whether the binding survives it is not pinned (al-runner issue 6974; probe pending in
+    /// events/binding-senders/BindSubscriptionClearAll.al). Clear of a bound local ends the binding
+    /// (events/TestProbeEventContracts.al BSK_Bind_AfterClear_And_OnCopy).
+    pub(crate) fn holds_bound_codeunit(&self, v: &Value) -> bool {
+        match v {
+            Value::Codeunit(rc) => self.is_bound(rc),
+            Value::Array(items) => items.borrow().iter().any(|i| self.holds_bound_codeunit(i)),
+            _ => false,
+        }
+    }
+
     /// Live bound instances of codeunit `object`, oldest binding first.
     fn bound_instances(&mut self, object: usize) -> Vec<Inst> {
         self.events.bindings.retain(|b| b.instance.strong_count() > 0);

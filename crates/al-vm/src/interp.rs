@@ -233,6 +233,7 @@ impl Session {
         let page_ext = o.kind == al_ir::ObjKind::PageExtension;
         let tys: Vec<RtType> = o.globals.iter().map(|g| g.ty.clone()).collect();
         self.alias_any(f)?;
+        self.refuse_clear_all_of_bound(&f.instance.borrow().globals, &keep)?;
         let fresh: Vec<Value> = tys.iter().map(|t| self.default_value(t)).collect();
         let mut inst = f.instance.borrow_mut();
         for (i, v) in fresh.into_iter().enumerate() {
@@ -283,6 +284,7 @@ impl Session {
                         .chain(eo.globals.iter().position(|g| g.name == "CurrPage"))
                         .collect();
                     let tys: Vec<RtType> = eo.globals.iter().map(|g| g.ty.clone()).collect();
+                    self.refuse_clear_all_of_bound(&ext.borrow().globals, &keep)?;
                     let fresh: Vec<Value> = tys.iter().map(|t| self.default_value(t)).collect();
                     let mut ei = ext.borrow_mut();
                     for (i, v) in fresh.into_iter().enumerate() {
@@ -301,6 +303,22 @@ impl Session {
             }
         }
         Ok(Value::Null)
+    }
+
+    /// `ClearAll()` would reset a global (not in `keep`) that holds a bound manual subscriber: refused, see
+    /// `holds_bound_codeunit` (al-runner issue 6974).
+    fn refuse_clear_all_of_bound(&self, globals: &[Value], keep: &[usize]) -> Result<(), Signal> {
+        if globals
+            .iter()
+            .enumerate()
+            .any(|(i, v)| !keep.contains(&i) && self.holds_bound_codeunit(v))
+        {
+            return Err(Signal::Unsupported(
+                "ClearAll of a global codeunit variable whose instance is bound by BindSubscription (not pinned)"
+                    .into(),
+            ));
+        }
+        Ok(())
     }
 
     /// The rest of `ClearAll()` in a table or a table extension: the globals of the other instances of the record
