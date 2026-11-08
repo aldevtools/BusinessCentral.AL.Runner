@@ -26,6 +26,7 @@ mod caption_class_empty_count;
 mod caption_class_goto;
 mod card_onfindrecord;
 mod ci_compile_cache;
+mod clear_trapping_test_page;
 mod close_save_error;
 mod codemap;
 mod control_add_in_calls;

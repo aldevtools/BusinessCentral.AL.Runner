@@ -144,16 +144,17 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
         }
         Value::Blob(_) => Value::Blob(crate::stream::new_blob()),
         // A cleared TestPage or Page variable is a fresh, closed one (corpus
-        // testpage/TestPageEditable_Tests.al:93 EditableBoundToPageVariable_FollowsTheRow). A page
-        // that is open, waits for Trap(), or is a part is not cleared: nothing pins what follows.
+        // testpage/TestPageEditable_Tests.al:93 EditableBoundToPageVariable_FollowsTheRow). A page that is open or waits for
+        // Trap() is closed and loses its trap first (`Ctx::clear_test_page`), which refuses a part of a host.
         Value::TestPage(st) => {
-            let object = {
+            let busy = {
                 let s = st.borrow();
-                if s.open || s.trapping || s.host.is_some() {
-                    return unsupported("Clear of a TestPage that is open, trapping or a part (not pinned)");
-                }
-                s.object
+                s.open || s.trapping || s.host.is_some()
             };
+            if busy {
+                ctx.clear_test_page(st)?;
+            }
+            let object = st.borrow().object;
             Value::TestPage(std::rc::Rc::new(std::cell::RefCell::new(
                 crate::value::PageState::closed(object),
             )))

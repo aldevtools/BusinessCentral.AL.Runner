@@ -198,8 +198,6 @@
 68665 Duration_OtherSpellings
 68669 FindFirstField_LocalVariableNamedLikeTheControl
 68669 FindNextField_LocalVariableNamedLikeTheControl
-68675 Clear_OpenTestPage
-68675 Clear_TrappingTestPage
 68675 PageVariable_LookupModeDefault
 68675 PageVariable_RunThenGetter
 68675 PageVariable_RunTwice
@@ -631,7 +629,6 @@
 72876 FormatOption_FieldRefAndEvaluate
 72879 DateFormulaControl_Spellings
 72879 DurationControl_Spellings
-72895 TestPageVar_ClearClosedOpenAndReopen
 73020 Closed_Errors
 73020 Open_InvalidTableNumbers
 73020 Open_Zero_Members
@@ -1091,7 +1088,6 @@
 79257 TextRdlc_SaveAsHtml_IsRefused
 79257 TextRdlc_SaveAsWord
 79257 TextRdlc_SaveAsXml_DoesNotRender
-79450 An10_ClearPartTestPage
 79450 An11_DeleteInLongView
 79450 An11_DeleteMiddleRow
 79450 An11_DeleteOnlyRow
