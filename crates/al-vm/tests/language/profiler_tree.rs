@@ -3,8 +3,8 @@
 
 use al_testkit::Built;
 use al_vm::{ProfileMode, ProfileTree};
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 const SRC: &str = r#"
 table 50700 "Prof Row"
@@ -75,7 +75,8 @@ fn child(b: &Built, t: &ProfileTree, n: usize, routine: &str) -> usize {
 
 fn instrumented(routines: &[&str]) -> (Built, ProfileTree) {
     let mut b = Built::from_source(SRC);
-    b.session.start_profiler(ProfileMode::Instrumentation { statement_times: true });
+    b.session
+        .start_profiler(ProfileMode::Instrumentation { statement_times: true });
     for r in routines {
         let _ = b.run_in("Prof", r);
     }
@@ -116,7 +117,11 @@ fn times_nest_and_child_time_is_counted() {
     assert!(n(a).total_ns > 0);
     assert!(n(a).total_ns >= n(ab).total_ns + n(ac).total_ns);
     assert_eq!(n(a).child_ns, n(ab).total_ns + n(ac).total_ns);
-    assert_eq!(n(0).total_ns, n(a).total_ns, "the root's total is the sum of its children");
+    assert_eq!(
+        n(0).total_ns,
+        n(a).total_ns,
+        "the root's total is the sum of its children"
+    );
 }
 
 #[test]
@@ -167,11 +172,17 @@ fn record_operations_are_counted_per_routine_and_table() {
     assert_eq!(count("FindSet", false), 1);
     assert_eq!(count("Next", false), 1);
     assert_eq!(count("Insert", true), 1, "a temporary record is counted apart");
-    assert!(!db.iter().any(|d| format!("{:?}", d.op) == "Init"), "Init does not reach the database");
+    assert!(
+        !db.iter().any(|d| format!("{:?}", d.op) == "Init"),
+        "Init does not reach the database"
+    );
     // The OnInsert trigger runs inside Insert: it is a child node, and its time is not the database's.
     let trig = child(&b, &t, r, "OnInsert");
     assert_eq!(t.nodes[trig].calls, 1);
-    let insert = db.iter().find(|d| format!("{:?}", d.op) == "Insert" && !d.temporary).unwrap();
+    let insert = db
+        .iter()
+        .find(|d| format!("{:?}", d.op) == "Insert" && !d.temporary)
+        .unwrap();
     assert!(insert.ns <= t.nodes[r].total_ns - t.nodes[trig].total_ns);
 }
 

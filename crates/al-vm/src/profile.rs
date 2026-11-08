@@ -18,8 +18,8 @@
 
 use crate::Session;
 use al_builtins::record_op::RecordOp;
-use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::time::Instant;
 
 /// How a session profiles.
@@ -392,18 +392,17 @@ impl Profiler {
                         ns,
                     })
                     .collect();
-                let db = n
-                    .db
-                    .iter()
-                    .map(|d| DbStat {
-                        op: d.op,
-                        table: table_name(d.table),
-                        temporary: d.temporary,
-                        count: d.count,
-                        ns: d.ns,
-                        samples: d.samples,
-                    })
-                    .collect();
+                let db =
+                    n.db.iter()
+                        .map(|d| DbStat {
+                            op: d.op,
+                            table: table_name(d.table),
+                            temporary: d.temporary,
+                            count: d.count,
+                            ns: d.ns,
+                            samples: d.samples,
+                        })
+                        .collect();
                 let (total_ns, child_ns) = if i == 0 {
                     (root_child_ns, root_child_ns)
                 } else {

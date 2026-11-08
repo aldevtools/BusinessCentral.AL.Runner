@@ -40,7 +40,8 @@ pub(crate) use interp::constant;
 pub use platform::{FieldGetByKey, field_get_by_key_pairs};
 pub use profile::frame_name as profile_frame_name;
 pub use profile::{
-    DbStat, PosStat, ProfFrame, ProfNode, ProfileMode, ProfileTree, reaches_database, routine_label as profile_routine_label,
+    DbStat, PosStat, ProfFrame, ProfNode, ProfileMode, ProfileTree, reaches_database,
+    routine_label as profile_routine_label,
 };
 pub use test_runner_host::TestCodeunitHost;
 mod callstack;

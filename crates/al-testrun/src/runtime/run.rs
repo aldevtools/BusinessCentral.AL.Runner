@@ -1254,6 +1254,7 @@ fn run_codeunit_inner(
         Some(runner) => super::al_runner::drive(&mut session, runner, object, &tests, &mut |s, al| body(s, Some(al)))
             .unwrap_or_else(|why| Err(all(Outcome::NotRun(why)))),
     };
+    crate::profiling::end(&mut session, &lowered.program, object, times);
     scratch.singles_out = singles_out(&mut session, execute, refused_mid_run.get());
     scratch.unfinished_after_start = unfinished_after_start.get();
     let out = match ran {
@@ -1388,6 +1389,7 @@ fn new_session(
         session.restore_baseline(b);
     }
     let moved = singles_moved_in(&mut session, execute);
+    crate::profiling::begin(&mut session);
     (session, moved)
 }
 
