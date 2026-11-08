@@ -110,8 +110,11 @@ fixes that came with that work stay on. Details: [alrunner-buckets.md](alrunner-
   sets (stages 2 to 4) wait for probes. `--permissions off` restores the refusal.
 - **Stability mode (ADR-058, Accepted).** `--stability` runs variants over one compile and reports flips
   (`docs/manual/stability.md`). **Run seed (ADR-061):** `--seed N`, printed and replayable.
-- **Install order.** Apps install one at a time in dependency order; two apps with no dependency path between them have
-  no known order, and what one could see of the other is refused (`al-testrun/src/install.rs`).
+- **Install order.** Apps install one at a time in dependency order. For apps with no dependency path between them,
+  Microsoft's apps install before partner apps; two partner apps whose install code reaches the other's code are
+  installed in every order (at most three apps) and the databases compared: the same rows run, different rows refuse
+  the tests that touch the tables that differ; two Microsoft apps stay refused (ADR-046 amendment 7,
+  `al-testrun/src/install_orders.rs`).
 - **`--dev-endpoint-ui`** answers unhandled UI as BC 28 and 29's dev-endpoint test runner does (flagged pass).
 
 ## Largest remaining blockers

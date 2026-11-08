@@ -47,10 +47,32 @@ does the same, for your apps among themselves and for the dependency apps among
 themselves. During the install of app A, the subscribers of an app that depends on A
 do not run, and `NavApp.GetModuleInfo` does not find that app.
 
-Two apps with no dependency path between them have no known install order. If the
-install code of one reaches a subscriber of the other, or calls `NavApp.GetModuleInfo`
-for it, the test is not run, and the reason says that the install order of the two is
-not known. Add the dependency to `app.json` to give them an order.
+Two apps with no dependency path between them have no fixed install order in
+Business Central. AL Runner handles them like this:
+
+1. Microsoft's apps install before partner apps. This matches how a container is
+   built: its database comes from the BC artifact with Microsoft's apps installed,
+   and your pipeline publishes the partner apps into it afterwards. So the install
+   code of a Microsoft app (E-Document, for example) never sees a subscriber or table
+   extension trigger of a partner app it does not depend on.
+2. For two partner apps, AL Runner first installs them once. If the install code of
+   one reaches the other app (a subscriber, a table extension trigger, or
+   `NavApp.GetModuleInfo`), it installs both apps again, in each order, and compares
+   the database each order leaves. System fields such as SystemId and the
+   SystemCreatedAt/SystemModifiedAt stamps are left out of the comparison.
+   - The same rows: the tests run normally.
+   - Different rows: a test that touches a table that differs is not run. The reason
+     names both apps and the tables.
+   With three such apps it tries all six orders. With more than three, or when the
+   orders differ in isolated storage or number sequences, the test is not run, and
+   the reason says that the install order is not known.
+3. Two Microsoft apps with no dependency path between them keep the old rule: the
+   test is not run, and the reason says that the install order of the two is not
+   known.
+
+Install code runs more than once only in the second case. `--timings` then prints
+one `install baseline: install order: ...` line that names the apps and says how
+many orders ran. Add the dependency to `app.json` to give two apps a fixed order.
 
 ## A test codeunit
 

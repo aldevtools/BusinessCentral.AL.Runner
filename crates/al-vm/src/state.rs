@@ -302,6 +302,9 @@ pub(crate) struct EventState {
     /// Apps with no dependency path to the app whose install code runs (`Session::set_apps_install_order_unknown`): BC's
     /// order between them is not known, so a subscriber of one of them that the install code reaches is refused.
     pub(crate) order_unknown_apps: Option<std::collections::BTreeSet<u32>>,
+    /// The pairs (installing app, app of `order_unknown_apps`) whose refusal the install code met
+    /// (`Session::take_order_unknown_hits`, ADR-046 amendment 7).
+    pub(crate) order_unknown_hits: std::cell::RefCell<std::collections::BTreeSet<(u32, u32)>>,
     /// The tables the install code of the apps under test may write (`Session::set_install_written_tables`); `None`: not
     /// known, so no table counts as empty in either install order (empty_reads.rs).
     pub(crate) install_written: Option<std::collections::BTreeSet<u32>>,
