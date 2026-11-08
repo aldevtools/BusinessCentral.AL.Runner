@@ -8,6 +8,7 @@
 use crate::Session;
 
 mod delta;
+mod install_orders;
 pub use delta::{Delta, DeltaPart, Fingerprint};
 mod row_delta;
 pub use row_delta::RowDelta;

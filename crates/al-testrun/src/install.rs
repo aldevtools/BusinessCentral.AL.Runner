@@ -533,115 +533,34 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
         }
         session.set_install_written_tables(written);
     }
-    for (k, app) in plan(lowered, &engine.events, false).into_iter().enumerate() {
+    let plans: Vec<AppInstall> = plan(lowered, &engine.events, false);
+    // Microsoft's apps under test install before the partner apps under test (ADR-046 amendment 7, `install_orders.rs`).
+    let (microsoft, partner) = crate::install_orders::split_microsoft(lowered, &view, &under_test);
+    let mut inst = UnderTestInstalls {
+        lowered,
+        plans: &plans,
+        company: &company,
+        skipped: &mut skipped,
+    };
+    for app in plans.iter().filter(|a| microsoft.contains(&(a.app as u32))) {
         if app.company.is_empty() && app.database.is_empty() {
             continue;
         }
         // One app at a time: the apps under test after it are not installed yet (`InstallView`).
-        view.apply(session, app.app as u32, &under_test, &BTreeSet::new());
-        // A session of its own (A4 item 1): any id that is positive and not the test session's 1.
-        session.set_install_session_id(Some(2 + k as i32));
-        for part in [Part::Company, Part::Database] {
-            let routines = app.part(part);
-            if routines.is_empty() {
-                continue;
-            }
-            // Decision 3, step 4a: the per-company part once in each declared company, in list order (the session
-            // company first: record/BfInstallTests.al:125-137, rows #1-#6, and
-            // install-upgrade/install-order/AvInstallOrder.al:56-67, `first per-company run`); one company completes
-            // before the next starts (BfInstallTests.al:239). Without `--companies`, the session company only.
-            let companies: Vec<String> = match part {
-                Part::Database => vec![String::new()],
-                Part::Company if session.companies().is_empty() => vec![company.clone()],
-                Part::Company => session.companies().to_vec(),
-            };
-            for in_company in companies {
-                // A4 item 2: SingleInstance state starts again in each company and in the per-database part.
-                session.reset_single_instances();
-                session.set_company(&in_company);
-                // A4 item 4: Company Triggers in each company, before the routines. Under `--companies` the dependency
-                // apps stay in the session company (decision 5): in another company only the subscribers of the apps
-                // under test run (decided without owner review, 2026-10-29, ADR-046 amendment 2).
-                let with_dependencies = in_company == company;
-                let open = if part == Part::Company {
-                    company_open(lowered, session, app.app, with_dependencies)
-                } else {
-                    Ok(())
-                };
-                match open {
-                    Err(why) => {
-                        session.rollback_transaction();
-                        // What the subscribers wrote before the one that could not run is rolled back, and BC would have
-                        // kept it: a test that touches what any of them can write is not run either.
-                        for (so, sr) in company_open_subscribers(lowered, &engine.events, |o| {
-                            installed(lowered, o, app.app) && (with_dependencies || !lowered.dependency[o])
-                        }) {
-                            refuse(
-                                lowered,
-                                session,
-                                &mut skipped,
-                                &in_company,
-                                &company,
-                                (
-                                    (so, sr),
-                                    format!(
-                                        "Company Triggers subscriber {} in the install session of {} could not run: {why}",
-                                        label(lowered, so, sr),
-                                        lowered
-                                            .program
-                                            .apps
-                                            .get(app.app)
-                                            .map(|a| a.name.as_str())
-                                            .unwrap_or("an app under test")
-                                    ),
-                                ),
-                            );
-                        }
-                        for &(oi, ri) in routines {
-                            refuse(
-                                lowered,
-                                session,
-                                &mut skipped,
-                                &in_company,
-                                &company,
-                                (
-                                    (oi, ri),
-                                    format!(
-                                        "install routine {} could not run: Company Triggers before it: {why}",
-                                        label(lowered, oi, ri)
-                                    ),
-                                ),
-                            );
-                        }
-                    }
-                    Ok(()) => {
-                        session.commit_transaction();
-                        for &(oi, ri) in routines {
-                            if let Some(why) = run_routine(lowered, session, oi, ri) {
-                                session.rollback_transaction();
-                                refuse(
-                                    lowered,
-                                    session,
-                                    &mut skipped,
-                                    &in_company,
-                                    &company,
-                                    (
-                                        (oi, ri),
-                                        format!("install routine {} could not run: {why}", label(lowered, oi, ri)),
-                                    ),
-                                );
-                            } else {
-                                // A routine that ran is durable before the next one starts: a later one that cannot run
-                                // must not take its writes with it.
-                                al_builtins::native::Ctx::commit(session).expect("commit");
-                            }
-                        }
-                    }
-                }
-            }
-            session.set_company(&company);
-        }
+        view.apply(session, app.app as u32, &microsoft, &partner);
+        crate::install_orders::AppInstalls::install(&mut inst, session, app.app as u32);
     }
+    let group = crate::install_orders::PartnerGroup {
+        view: &view,
+        group: partner.clone(),
+        held: BTreeSet::new(),
+        apps: plans
+            .iter()
+            .filter(|a| partner.contains(&(a.app as u32)) && !(a.company.is_empty() && a.database.is_empty()))
+            .map(|a| a.app as u32)
+            .collect(),
+    };
+    crate::install_orders::install_partner_apps(lowered, session, &group, &mut inst);
     session.set_install_session_id(None);
     session.set_apps_not_installed(None);
     session.set_apps_install_order_unknown(None);
@@ -652,6 +571,153 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
     session.reset_single_instances();
     session.commit_transaction();
     skipped
+}
+
+/// The apps under test, for `install_orders::install_partner_apps` and the Microsoft apps before them.
+struct UnderTestInstalls<'a> {
+    lowered: &'a Lowered,
+    plans: &'a [AppInstall],
+    company: &'a str,
+    skipped: &'a mut Vec<(BTreeSet<u32>, String)>,
+}
+
+impl crate::install_orders::AppInstalls for UnderTestInstalls<'_> {
+    type Mark = usize;
+
+    fn mark(&self) -> usize {
+        self.skipped.len()
+    }
+
+    fn rewind(&mut self, mark: &usize) {
+        self.skipped.truncate(*mark);
+    }
+
+    fn install(&mut self, session: &mut Session, app: u32) {
+        if let Some(k) = self.plans.iter().position(|a| a.app as u32 == app) {
+            install_app_under_test(self.lowered, session, &self.plans[k], k, self.company, self.skipped);
+        }
+    }
+
+    fn refuse(&mut self, tables: BTreeSet<u32>, why: String) {
+        self.skipped.push((tables, why));
+    }
+
+    fn note(&mut self, _line: String) {}
+}
+
+/// Runs the install code of app under test `app` (`k`: its place in the plan), the session's install view set.
+fn install_app_under_test(
+    lowered: &Lowered,
+    session: &mut Session,
+    app: &AppInstall,
+    k: usize,
+    company: &str,
+    skipped: &mut Vec<(BTreeSet<u32>, String)>,
+) {
+    let engine = session.engine.clone();
+    let company = company.to_string();
+    // A session of its own (A4 item 1): any id that is positive and not the test session's 1.
+    session.set_install_session_id(Some(2 + k as i32));
+    for part in [Part::Company, Part::Database] {
+        let routines = app.part(part);
+        if routines.is_empty() {
+            continue;
+        }
+        // Decision 3, step 4a: the per-company part once in each declared company, in list order (the session
+        // company first: record/BfInstallTests.al:125-137, rows #1-#6, and
+        // install-upgrade/install-order/AvInstallOrder.al:56-67, `first per-company run`); one company completes
+        // before the next starts (BfInstallTests.al:239). Without `--companies`, the session company only.
+        let companies: Vec<String> = match part {
+            Part::Database => vec![String::new()],
+            Part::Company if session.companies().is_empty() => vec![company.clone()],
+            Part::Company => session.companies().to_vec(),
+        };
+        for in_company in companies {
+            // A4 item 2: SingleInstance state starts again in each company and in the per-database part.
+            session.reset_single_instances();
+            session.set_company(&in_company);
+            // A4 item 4: Company Triggers in each company, before the routines. Under `--companies` the dependency
+            // apps stay in the session company (decision 5): in another company only the subscribers of the apps
+            // under test run (decided without owner review, 2026-10-29, ADR-046 amendment 2).
+            let with_dependencies = in_company == company;
+            let open = if part == Part::Company {
+                company_open(lowered, session, with_dependencies)
+            } else {
+                Ok(())
+            };
+            match open {
+                Err(why) => {
+                    session.rollback_transaction();
+                    // What the subscribers wrote before the one that could not run is rolled back, and BC would have
+                    // kept it: a test that touches what any of them can write is not run either.
+                    for (so, sr) in company_open_subscribers(lowered, &engine.events, |o| {
+                        installed(lowered, o, app.app) && (with_dependencies || !lowered.dependency[o])
+                    }) {
+                        refuse(
+                            lowered,
+                            session,
+                            skipped,
+                            &in_company,
+                            &company,
+                            (
+                                (so, sr),
+                                format!(
+                                    "Company Triggers subscriber {} in the install session of {} could not run: {why}",
+                                    label(lowered, so, sr),
+                                    lowered
+                                        .program
+                                        .apps
+                                        .get(app.app)
+                                        .map(|a| a.name.as_str())
+                                        .unwrap_or("an app under test")
+                                ),
+                            ),
+                        );
+                    }
+                    for &(oi, ri) in routines {
+                        refuse(
+                            lowered,
+                            session,
+                            skipped,
+                            &in_company,
+                            &company,
+                            (
+                                (oi, ri),
+                                format!(
+                                    "install routine {} could not run: Company Triggers before it: {why}",
+                                    label(lowered, oi, ri)
+                                ),
+                            ),
+                        );
+                    }
+                }
+                Ok(()) => {
+                    session.commit_transaction();
+                    for &(oi, ri) in routines {
+                        if let Some(why) = run_routine(lowered, session, oi, ri) {
+                            session.rollback_transaction();
+                            refuse(
+                                lowered,
+                                session,
+                                skipped,
+                                &in_company,
+                                &company,
+                                (
+                                    (oi, ri),
+                                    format!("install routine {} could not run: {why}", label(lowered, oi, ri)),
+                                ),
+                            );
+                        } else {
+                            // A routine that ran is durable before the next one starts: a later one that cannot run
+                            // must not take its writes with it.
+                            al_builtins::native::Ctx::commit(session).expect("commit");
+                        }
+                    }
+                }
+            }
+        }
+        session.set_company(&company);
+    }
 }
 
 /// Whether the app of object `o` is installed when app `app` (an app under test) installs: a dependency app (the install
@@ -755,21 +821,32 @@ impl InstallView {
         }
     }
 
-    /// (not installed, order unknown) while `installing` installs.
-    pub(crate) fn of(
+    /// (not installed, order unknown) while `installing` installs, with `fixed` an install order the runner chose for some apps of `group` with no dependency
+    /// path between them (ADR-046 amendment 7, `install_orders.rs`): between two apps of `fixed`, the one listed first is
+    /// installed while the other installs.
+    pub(crate) fn of_ordered(
         &self,
         installing: u32,
         group: &BTreeSet<u32>,
         held: &BTreeSet<u32>,
+        fixed: &[u32],
     ) -> (BTreeSet<u32>, BTreeSet<u32>) {
         let mut not_installed = held.clone();
         let mut unknown = BTreeSet::new();
-        let needs = |a: u32, b: u32| self.deps.get(a as usize).is_some_and(|d| d.contains(&b));
+        let at = |a: u32| fixed.iter().position(|&f| f == a);
         for &g in group {
-            if g == installing || needs(installing, g) {
+            if g == installing || self.needs(installing, g) {
                 continue;
             }
-            if needs(g, installing) || (self.listed_order && g > installing) {
+            if self.needs(g, installing) {
+                not_installed.insert(g);
+            } else if let (Some(i), Some(j)) = (at(installing), at(g)) {
+                if j < i {
+                    not_installed.remove(&g);
+                } else {
+                    not_installed.insert(g);
+                }
+            } else if self.listed_order && g > installing {
                 not_installed.insert(g);
             } else if self.listed_order {
                 not_installed.remove(&g);
@@ -781,9 +858,31 @@ impl InstallView {
         (not_installed, unknown)
     }
 
+    /// Whether the apps of a group install in the order the run lists them (`host::publish_order_known`).
+    pub(crate) fn listed(&self) -> bool {
+        self.listed_order
+    }
+
+    /// Whether app `a` depends on app `b`, directly or through other apps.
+    pub(crate) fn needs(&self, a: u32, b: u32) -> bool {
+        self.deps.get(a as usize).is_some_and(|d| d.contains(&b))
+    }
+
     /// Sets what the session sees while `installing` installs.
     pub(crate) fn apply(&self, session: &mut Session, installing: u32, group: &BTreeSet<u32>, held: &BTreeSet<u32>) {
-        let (not_installed, unknown) = self.of(installing, group, held);
+        self.apply_ordered(session, installing, group, held, &[]);
+    }
+
+    /// [`InstallView::apply`] with an install order chosen for the apps of `fixed` ([`InstallView::of_ordered`]).
+    pub(crate) fn apply_ordered(
+        &self,
+        session: &mut Session,
+        installing: u32,
+        group: &BTreeSet<u32>,
+        held: &BTreeSet<u32>,
+        fixed: &[u32],
+    ) {
+        let (not_installed, unknown) = self.of_ordered(installing, group, held, fixed);
         session.set_apps_not_installed(Some(not_installed));
         session.set_apps_install_order_unknown(Some(unknown));
         session.set_installing_app(Some(installing));
@@ -870,16 +969,18 @@ fn company_open_subscribers(
 ///
 /// `with_dependencies` false (a company other than the session company under `--companies`): the dependency apps' subscribers
 /// do not run there, since the dependency apps stay in the session company (ADR-046 decision 5, amendment 2).
-fn company_open(lowered: &Lowered, session: &mut Session, app: usize, with_dependencies: bool) -> Result<(), String> {
+fn company_open(lowered: &Lowered, session: &mut Session, with_dependencies: bool) -> Result<(), String> {
     let engine = session.engine.clone();
-    let view = InstallView::new(lowered, crate::host::publish_order_known());
-    let (_, unknown) = view.of(app as u32, &apps_under_test(lowered), &BTreeSet::new());
+    // What the session sees while the app installs (`InstallView::apply_ordered`, set by the caller).
+    let unknown = session.apps_install_order_unknown().cloned().unwrap_or_default();
+    let not_installed = session.apps_not_installed().cloned().unwrap_or_default();
     let objs = &lowered.program.objects;
     if let Some(&(o, r)) = company_open_subscribers(lowered, &engine.events, |o| {
         !lowered.dependency[o] && unknown.contains(&objs[o].app)
     })
     .first()
     {
+        session.note_order_unknown_hit(objs[o].app);
         return Err(format!(
             "Company Triggers subscriber {} is in an app with no dependency path to the app that installs; the install \
              order of the two is not known",
@@ -887,7 +988,9 @@ fn company_open(lowered: &Lowered, session: &mut Session, app: usize, with_depen
         ));
     }
     let all = company_open_subscribers(lowered, &engine.events, |o| {
-        installed(lowered, o, app) && (with_dependencies || !lowered.dependency[o]) && !unknown.contains(&objs[o].app)
+        (lowered.dependency[o] || !not_installed.contains(&objs[o].app))
+            && (with_dependencies || !lowered.dependency[o])
+            && !unknown.contains(&objs[o].app)
     });
     run_subscribers(lowered, session, &all)
 }

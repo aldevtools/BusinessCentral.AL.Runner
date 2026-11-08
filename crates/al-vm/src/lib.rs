@@ -1366,6 +1366,7 @@ impl Session {
                 skip_dependency_subscribers: false,
                 not_installed_apps: None,
                 order_unknown_apps: None,
+                order_unknown_hits: Default::default(),
                 install_written: None,
                 install_rows: None,
                 setup_no_ops: Default::default(),

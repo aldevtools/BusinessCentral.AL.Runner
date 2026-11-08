@@ -6,6 +6,7 @@
 pub mod affected;
 pub mod baseline;
 pub mod baseline_cache;
+mod baseline_roots;
 pub mod cache_gc;
 pub mod capture;
 pub mod company_data;
@@ -26,6 +27,7 @@ pub mod host;
 pub mod impact_static;
 pub mod impact_trace;
 pub mod install;
+pub mod install_orders;
 mod install_reach;
 mod install_rows;
 pub mod isolation;
