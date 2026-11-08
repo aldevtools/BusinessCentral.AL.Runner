@@ -33,7 +33,7 @@
       "objects_loaded": 22276,
       "objects_lowered": 12211,
       "routines_lowered": 55894,
-      "tests_run": 23199
+      "tests_run": 23296
     },
     "server settings: DisableWriteInsideTryFunctions=false": {
       "baseline_rows": 2842,
@@ -43,13 +43,13 @@
       "dependency_apps": 8,
       "dependency_apps_from_cache": 0,
       "dependency_apps_from_source": 8,
-      "dependency_objects_lowered": 9199,
-      "dependency_routines_lowered": 101254,
+      "dependency_objects_lowered": 33,
+      "dependency_routines_lowered": 3794,
       "objects_from_cache": 0,
-      "objects_from_kept": 0,
+      "objects_from_kept": 21896,
       "objects_loaded": 21938,
-      "objects_lowered": 11873,
-      "routines_lowered": 14952,
+      "objects_lowered": 5,
+      "routines_lowered": 20,
       "tests_run": 13
     },
     "total": {
@@ -60,14 +60,14 @@
       "dependency_apps": 30,
       "dependency_apps_from_cache": 0,
       "dependency_apps_from_source": 30,
-      "dependency_objects_lowered": 18570,
-      "dependency_routines_lowered": 211626,
+      "dependency_objects_lowered": 9404,
+      "dependency_routines_lowered": 114166,
       "objects_from_cache": 0,
-      "objects_from_kept": 18539,
+      "objects_from_kept": 40435,
       "objects_loaded": 66513,
-      "objects_lowered": 27532,
-      "routines_lowered": 71161,
-      "tests_run": 23333
+      "objects_lowered": 15664,
+      "routines_lowered": 56229,
+      "tests_run": 23430
     }
   }
 }
