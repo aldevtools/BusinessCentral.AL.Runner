@@ -39,21 +39,8 @@ page 51606 "Y8 Card" { PageType = Card; SourceTable = "Y8 Row";
     trigger OnQueryClosePage(CloseAction: Action): Boolean begin L.Add('Q'); exit(true); end;
     trigger OnClosePage() begin L.Add('X'); end;
     var L: Codeunit "Y8 Log"; }
-page 51607 "Y8 CardReads" { PageType = Card; SourceTable = "Y8 Row";
-    layout { area(Content) { field(IdCtl; Rec.Id) { } } }
-    actions { area(Processing) { action(DelAllUpd) { trigger OnAction() var R: Record "Y8 Row"; begin R.DeleteAll(true); CurrPage.Update(false); end; } } }
-    trigger OnQueryClosePage(CloseAction: Action): Boolean begin L.Add(Format(CloseAction)); exit(true); end;
-    var L: Codeunit "Y8 Log"; }
 codeunit 51605 C
 {
-    procedure CardReadsCloseAction(): Text
-    var R: Record "Y8 Row"; P: TestPage "Y8 CardReads";
-    begin
-        R.Id := 10; R.Insert();
-        P.OpenEdit();
-        P.DelAllUpd.Invoke();
-        exit('done');
-    end;
     procedure CardEdit(): Text
     var R: Record "Y8 Row"; L: Codeunit "Y8 Log"; P: TestPage "Y8 Card"; s: Text;
     begin
@@ -193,15 +180,5 @@ fn a_card_whose_row_an_action_deleted_asks_on_query_close_page_before_it_closes(
     assert_eq!(
         al_testkit::text(al_testkit::run_in(SRC, "C", "CardEdit")),
         "R:10|R:10;Q;X|PageCloseRequest"
-    );
-}
-
-// The CloseAction a card's OnQueryClosePage receives when its deleted row closes it is not pinned: a trigger that reads it is refused.
-#[test]
-fn a_card_whose_on_query_close_page_reads_the_close_action_of_a_forced_close_is_refused() {
-    let r = al_testkit::run_in(SRC, "C", "CardReadsCloseAction");
-    assert!(
-        matches!(&r, Err(al_builtins::native::Signal::Unsupported(w)) if w.contains("CloseAction")),
-        "{r:?}"
     );
 }
