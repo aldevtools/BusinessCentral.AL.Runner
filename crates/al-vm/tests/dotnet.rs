@@ -1344,6 +1344,13 @@ fn run_text(vars: &str, body: &str) -> String {
     out
 }
 
+/// `GetRingName` answers an empty ring, so "Environment Information" reads neither preview nor early preview (issue 6675:
+/// the role-center pages "SO Processor Activities" and "O365 Activities" reach it in OnOpenPage). An unprobed assumption.
+#[test]
+fn the_ring_name_is_empty() {
+    assert_eq!(run_text("T: DotNet NavTenantSettingsHelper;", "T.GetRingName()"), "");
+}
+
 /// Each value, with its source. The ALConfigSettings flags, the environment type, the topology and
 /// the application family are measured on real BC 27.5 and later (corpus
 /// `session-system/TestEnvironmentUserTenantContracts.al` and the OnPrem suite's `TestServerSettingContracts.al`). The probe
@@ -1639,11 +1646,11 @@ fn a_registered_type_is_never_forwarded_to_the_host() {
     let host = no_host();
     let r = run(
         &host,
-        "T: DotNet NavTenantSettingsHelper; S: Text;",
-        "S := T.GetRingName();",
+        "T: DotNet NavTenantSettingsHelper;",
+        "T.EnableM365Collaboration();",
         "",
     );
-    assert!(unsupported(&r).contains("NavTenantSettingsHelper.GetRingName"));
+    assert!(unsupported(&r).contains("NavTenantSettingsHelper.EnableM365Collaboration"));
     assert_eq!(host.log(), vec![]);
 }
 
