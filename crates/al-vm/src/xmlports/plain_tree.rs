@@ -10,12 +10,10 @@ use super::*;
 pub(super) fn plain_text_tree(schema: &Schema, c: usize) -> bool {
     let n = schema.node(c);
     let kids = schema.children(c);
-    // A text element with its own value (`valued_leaf`) is pinned next to a table element, once, in a `valued_place`.
+    // Text elements with their own value (`valued_leaf`) are pinned next to a table element, each once, in a `valued_place`.
     let valued = kids.iter().filter(|&&k| valued_leaf(schema, k)).count();
-    let valued_ok = valued == 0
-        || (valued == 1
-            && valued_place(schema, c)
-            && kids.iter().any(|&k| schema.node(k).kind == ir::XmlNodeKind::Table));
+    let valued_ok =
+        valued == 0 || (valued_place(schema, c) && kids.iter().any(|&k| schema.node(k).kind == ir::XmlNodeKind::Table));
     n.kind == ir::XmlNodeKind::Text
         && n.triggers.is_empty()
         && !kids.is_empty()
@@ -47,25 +45,32 @@ fn is_root_table(schema: &Schema, node: Option<usize>) -> bool {
     node.is_some_and(|p| schema.node(p).kind == ir::XmlNodeKind::Table && schema.node(p).parent.is_none())
 }
 
-/// Where a text element `c` may hold a `valued_leaf` next to a table element (written in schema order, the value once):
+/// Where a text element `c` may hold `valued_leaf`s next to a table element (written in schema order, each value once): below a
+/// table element through text elements only, at any depth, in the root table element or in the row of another table element:
 /// - right below the root table element (XpTableRootNestedText.al XNT_NsTblText_Export, XNT_NsDfltTblText_Export, XNT_TblText_*,
 ///   XNT_TextTbl_*);
-/// - one text element further down, the second text level below the root table element (al-runner issue 7263;
-///   xmlports/shapes-properties/XpTextValueNestedTable.al:344 XTV_RootTextsTableThenValue_Export, :359 XTV_RootTextsValueThenTable_Export,
-///   :374 XTV_RootTextsNamespaces_Export);
-/// - right below a table element that is not the root, in its row (XpTextValueNestedTable.al:389 XTV_RowTextValueThenTable_Export,
-///   :419 XTV_RowTextTableThenValue_Export, :434 XTV_RowTextFieldValueThenTable_Export, one row of the outer table element).
-///
-/// Deeper places are not pinned.
+/// - two text levels below it (al-runner issue 7263; xmlports/shapes-properties/XpTextValueNestedTable.al:954
+///   XTV_RootTextsTableThenValue_Export, :969 XTV_RootTextsValueThenTable_Export, :984 XTV_RootTextsNamespaces_Export);
+/// - three and four text levels below it, and two value elements in one text element (al-runner issue 7309; the same file on corpus
+///   branch al-runtime-rs-staging-7309, corpus PR 1218: :1060 XTV_Root3TextsTableThenValue_Export, :1073
+///   XTV_Root3TextsValueThenTable_Export, :1089 XTV_Root3TextsNamespaces_Export, :1109 XTV_Root4TextsTableThenValue_Export, :1122
+///   XTV_Root3TextsTwoValues_Export, :1135 XTV_Root2TextsTwoValues_Export);
+/// - one to three text levels inside the row of a table element that is not the root, with one to three value elements before,
+///   around or after the table element (:999 XTV_RowTextValueThenTable_Export, :1029 XTV_RowTextTableThenValue_Export, :1044
+///   XTV_RowTextFieldValueThenTable_Export; branch al-runtime-rs-staging-7309: :1148 XTV_RowTextTwoValuesThenTable_Export, :1164
+///   XTV_RowTextValueTableValue_Export, :1177 XTV_RowTextTableThenTwoValues_Export, :1190 XTV_RowTextThreeValuesThenTable_Export,
+///   :1216 XTV_RowDeepTwoValuesThenTable_Export, :1229 XTV_RowDeep3OneValueThenTable_Export, :1242
+///   XTV_RowFieldTwoValuesThenTable_Export); one row of the outer table element.
 fn valued_place(schema: &Schema, c: usize) -> bool {
-    let Some(p) = schema.node(c).parent else {
-        return false;
-    };
-    match schema.node(p).kind {
-        ir::XmlNodeKind::Table => true,
-        ir::XmlNodeKind::Text => is_root_table(schema, schema.node(p).parent),
-        _ => false,
+    let mut at = schema.node(c).parent;
+    while let Some(p) = at {
+        match schema.node(p).kind {
+            ir::XmlNodeKind::Table => return true,
+            ir::XmlNodeKind::Text => at = schema.node(p).parent,
+            _ => return false,
+        }
     }
+    false
 }
 
 /// A `valued_leaf` in a pinned place: the only element of the root table element (XNT_PlainLeaf_Export, XNT_LeafRows_Export), or
@@ -103,15 +108,16 @@ pub(super) fn plain_tree_root(schema: &Schema, top: usize) -> bool {
 
 /// A `plain_tree_root` whose import is pinned: MaxOccurs = Once and no field element of its own (XNT_TxtField_Import,
 /// XNT_TxtTbl_Import, XNT_TxtTxtField_Import, XNT_TxtTxtTbl_Import, XNT_PlainLeaf_Import, XNT_TblText_Import, XNT_TextTbl_Import),
-/// and no `valued_leaf` on the second text level (XpTextValueNestedTable.al pins that shape's export only). Other roots are
-/// exported only.
+/// no `valued_leaf` on the second text level or deeper and at most one in a text element (XpTextValueNestedTable.al pins those
+/// shapes' export only). Other roots are exported only.
 pub(super) fn plain_import_root(schema: &Schema, top: usize) -> bool {
     plain_tree_root(schema, top)
         && schema.node(top).max_unbounded == Some(false)
-        && schema
-            .children(top)
-            .iter()
-            .all(|&k| schema.node(k).kind != ir::XmlNodeKind::Field && !value_below_first_text_level(schema, k))
+        && schema.children(top).iter().all(|&k| {
+            schema.node(k).kind != ir::XmlNodeKind::Field
+                && !value_below_first_text_level(schema, k)
+                && schema.children(k).iter().filter(|&&g| valued_leaf(schema, g)).count() <= 1
+        })
 }
 
 /// Whether a text element below text element `c` holds a `valued_leaf`.
