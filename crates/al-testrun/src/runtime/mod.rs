@@ -364,6 +364,8 @@ pub struct TestResult {
 pub struct Phases {
     /// The test codeunits that ran serially in the carry chain, and why (`--timings`).
     pub chain: ChainReport,
+    /// The memory budget, the resident memory after the compile and the install baseline, the threads chosen.
+    pub memory: memory::MemoryReport,
     /// The ids of the assumptions the install baseline relied on (a JUnit suite-level property).
     pub baseline_assumptions: Vec<String>,
     /// The partner dependency apps the install baseline installed in several orders, one line each (ADR-046
@@ -924,6 +926,7 @@ mod data_driven;
 mod grow;
 mod handlers;
 mod lane_starts;
+pub mod memory;
 mod numbers_taken;
 mod run;
 mod runner_reset;

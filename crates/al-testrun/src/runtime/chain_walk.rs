@@ -63,6 +63,8 @@ pub(super) struct ChainWalk<'a> {
     pub helpers: usize,
     /// A helper thread's own copy of the install baseline.
     pub thread_baseline: &'a (dyn Fn() -> Option<al_vm::Baseline> + Sync),
+    /// The memory budget's admission (`memory.rs`): a helper runs a member ahead when memory leaves room for it.
+    pub gate: &'a super::memory::Gate,
 }
 
 /// A helper thread's part of a [`ChainWalk`].
@@ -73,6 +75,7 @@ struct Helper<'a> {
     limit: Option<std::time::Duration>,
     /// The Test Runner's tables, whose rows the fingerprints hold apart (`suite_rows::tables`).
     apart: Vec<u32>,
+    gate: &'a super::memory::Gate,
 }
 
 impl Helper<'_> {
@@ -156,7 +159,9 @@ impl Helper<'_> {
             f
         });
         super::suite_rows::take_unseen();
+        let room = self.gate.enter();
         let result = run_unit(self.engine, self.lowered, Some(start), &u, None, self.limit);
+        drop(room);
         let unseen = super::suite_rows::take_unseen();
         let left = super::run::CARRIED.with(|c| c.borrow_mut().take());
         let events = std::mem::take(&mut *kept.lock().unwrap_or_else(|e| e.into_inner()));
@@ -287,6 +292,7 @@ impl ChainWalk<'_> {
             units: self.units,
             limit: self.limit,
             apart: self.apart(),
+            gate: self.gate,
         };
         let thread_baseline = self.thread_baseline;
         std::thread::scope(|scope| {

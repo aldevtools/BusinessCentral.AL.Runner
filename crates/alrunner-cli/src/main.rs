@@ -14,6 +14,7 @@ mod dev_endpoint_ui;
 mod impact;
 mod impact_index;
 mod matrix;
+mod memory_budget;
 mod output;
 mod path_note;
 mod recipe;

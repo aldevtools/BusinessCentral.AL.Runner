@@ -129,6 +129,9 @@ pub struct TestArgs {
     pub strict_order: bool,
     /// `--test-suites FILE` (ADR-066 amendment 6): each suite of the file is a BC session of its own for order dependence.
     pub test_suites: Option<PathBuf>,
+    /// `--max-memory SIZE` (owner decision 2026-11-08): the most memory the run may use, in bytes; the run then uses
+    /// fewer test threads. The free memory and the cgroup limit apply as well (`memory_budget.rs`).
+    pub max_memory: Option<u64>,
     /// `--affected` (ADR-050): run only the test codeunits a change since the stored result of the last run can
     /// affect; the others keep their stored outcome.
     pub affected: bool,
@@ -906,6 +909,11 @@ ISOLATION
                          own codeunit's Initialize, or clear the SingleInstance codeunit there.
                          AL_TEST_THREADS=1 runs one codeunit at a time but still with fresh state.
                          In `serve`: the runTests field `strictOrder`.
+    --max-memory SIZE    The most memory the run may use, such as 6G or 800M. AL Runner runs fewer
+                         test codeunits at once to stay under it, down to one at a time, and stops
+                         with exit code 2 when not even one fits. Without it the limit is the free
+                         memory or the container's limit, whichever is smaller. Outcomes do not
+                         change, only the time. In `serve`: the runTests field `maxMemory`.
     --test-suites FILE   Treat each test suite in FILE as a Business Central session of its own, as
                          a pipeline that runs one test-tool run per suite does (ALOps). One suite
                          per line: an optional name and `:`, then its test codeunit ids in run
@@ -1670,6 +1678,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--allow-write-in-try-functions" => a.allow_write_in_try_functions = true,
             "--strict-order" => a.strict_order = true,
             "--test-suites" => a.test_suites = Some(text()?.into()),
+            "--max-memory" => a.max_memory = Some(crate::memory_budget::parse_size(&text()?)?),
             "--dependencies-published-global" => a.dependencies_published_global = true,
             "--permissions" => a.permissions_off = permissions_off(&text()?)?,
             "--affected" => a.affected = true,

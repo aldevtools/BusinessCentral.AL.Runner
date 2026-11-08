@@ -979,12 +979,9 @@ impl CorpusRuntime {
             .map(|o| o.iter().map(|r| r.first().cloned()).collect())
             .collect();
         let limit = opts.test_time_limit;
-        // A debugged run is one thread, so the tests stop one at a time (ADR-048 decision 3).
-        let workers = if opts.trace || opts.hooks.debugger.is_some() {
-            1
-        } else {
-            test_workers()
-        };
+        // A debugged run is one thread, so the tests stop one at a time (ADR-048 decision 3); the memory budget may cut.
+        let mut memory = super::memory::Plan::after_compile(opts, test_workers());
+        let mut workers = memory.workers();
         let baseline_skipped = baseline_wanted && !baseline;
         let engine_started = std::time::Instant::now();
         let make_engine = || {
@@ -1157,6 +1154,7 @@ impl CorpusRuntime {
             .as_ref()
             .map(|b| b.unseeded.iter().map(|&t| t as usize).collect())
             .unwrap_or_default();
+        workers = memory.after_baseline(); // The fixed part is loaded: as many threads as fit beside it.
         let baseline_engine = (workers > 1 && baseline_run.is_some()).then(|| engine.clone());
         let mut baseline_ids = crate::baseline::NoteFacts::default();
         let baseline_roots = baseline_run.as_ref().map(|b| (b.ran, b.total));
@@ -1574,11 +1572,7 @@ impl CorpusRuntime {
             let mut slots: Vec<Option<UnitResult>> = (0..units.len()).map(|_| None).collect();
             chain_report.units += units.len() + chain.iter().filter(|c| matches!(c.3, Link::Refused(..))).count();
             // Helper threads run the chain's codeunits ahead while the walk can still use their runs (`chain_walk.rs`).
-            let helpers = if workers > 1 && baseline_engine.is_some() {
-                workers - 1
-            } else {
-                0
-            };
+            let helpers = (workers - 1) * usize::from(baseline_engine.is_some()); // `workers` is at least 1.
             let first_origin = baseline.as_ref().map(al_vm::Baseline::origin);
             if helpers > 0 {
                 let encode_started = std::time::Instant::now();
@@ -1616,6 +1610,7 @@ impl CorpusRuntime {
                 limit,
                 helpers,
                 thread_baseline: &|| thread_baseline(ahead_snapshot),
+                gate: memory.gate(),
             }
             .walk(chain, &mut slots, &mut details, &mut chain_report);
             // The other codeunits run as before; one that comes after a Disabled codeunit notes whether it reads a table that
@@ -1659,6 +1654,7 @@ impl CorpusRuntime {
                         let Some(u) = rest.get(k).map(|&i| &units[i]) else {
                             return done;
                         };
+                        let _room = memory.gate().enter(); // Waits while memory is tight (`memory.rs`).
                         done.push((k, run_unit(&engine, lowered, baseline, u, None, limit)));
                     }
                 };
@@ -1746,7 +1742,7 @@ impl CorpusRuntime {
                 slots[k] = Some(r);
             }
             #[rustfmt::skip]
-            let lane = super::single_lane::Lane { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, carried: &carried, sees: &sees, place: &place, limit, strict: opts.strict_order, suites: opts.test_suites.as_deref(), workers, install_copies: baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline };
+            let lane = super::single_lane::Lane { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, carried: &carried, sees: &sees, place: &place, limit, strict: opts.strict_order, suites: opts.test_suites.as_deref(), workers, install_copies: baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline, gate: memory.gate() };
             lane.run(&mut slots, &mut chain_report.single_lane);
             let results: Vec<UnitResult> = slots.into_iter().flatten().collect();
             for r in results {
@@ -1954,6 +1950,7 @@ impl CorpusRuntime {
             panics,
             phases: Phases {
                 chain: chain_report,
+                memory: memory.report(),
                 baseline_assumptions: baseline_ids.assumptions,
                 baseline_install_orders: baseline_ids.install_orders,
                 baseline_roots,

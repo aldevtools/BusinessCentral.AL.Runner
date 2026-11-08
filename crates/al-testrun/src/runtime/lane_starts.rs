@@ -144,16 +144,22 @@ impl<'a> Deltas<'a> {
         let d = Arc::new(b.row_delta_from(self.baseline(base))?);
         self.count += 1;
         if self.kept + d.size() > DELTA_BUDGET {
-            for m in &mut self.made {
-                if let Made::Ok { delta, .. } = m {
-                    *delta = None;
-                }
-            }
-            self.kept = 0;
+            self.forget();
         }
         self.kept += d.size();
         self.peak = self.peak.max(self.kept);
         Some(d)
+    }
+
+    /// Drops every delta kept for a later session (the memory budget asks, `memory.rs`); a later ask makes it again.
+    /// Whether any was kept.
+    pub(super) fn forget(&mut self) -> bool {
+        for m in &mut self.made {
+            if let Made::Ok { delta, .. } = m {
+                *delta = None;
+            }
+        }
+        std::mem::replace(&mut self.kept, 0) > 0
     }
 
     /// The delta of carry `carry` and the carry it is taken from (`None`: the install baseline); `None` when it has none.

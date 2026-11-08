@@ -304,6 +304,8 @@ pub(super) struct Lane<'a> {
     /// A worker thread's own copy of the install baseline from `snapshot` (a baseline holds `Rc`s and stays on its
     /// thread).
     pub thread_baseline: &'a (dyn Fn(Option<&[u8]>) -> Option<al_vm::Baseline> + Sync),
+    /// The memory budget's admission (`memory.rs`): a session starts when memory leaves room for it.
+    pub gate: &'a super::memory::Gate,
 }
 
 /// What the lane did, for `--timings` and the stability report.
@@ -638,7 +640,7 @@ impl Lane<'_> {
                 units: self.units,
                 limit: self.limit,
             };
-            let thread_baseline = self.thread_baseline;
+            let (thread_baseline, gate) = (self.thread_baseline, self.gate);
             let (ask, asked) = std::sync::mpsc::channel::<Ask>();
             std::thread::scope(|scope| {
                 let mut handles = Vec::new();
@@ -664,6 +666,7 @@ impl Lane<'_> {
                             loop {
                                 let c = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                 let Some(chain) = chains.get(c) else { return done };
+                                let _room = gate.enter();
                                 let mut at = chain.steps.iter();
                                 let runs = run_in_order(&chain.order, &mut |_| {
                                     worker.run(own.as_ref(), &mut start, at.next().expect("a step per codeunit"))
@@ -680,6 +683,10 @@ impl Lane<'_> {
                 drop(ask);
                 // Ends when every worker thread is done (each holds a sender).
                 for (carry, whole, reply) in asked {
+                    // Memory is tight: the deltas kept for later sessions go first (they are made again on demand).
+                    if self.gate.take_tight() && deltas.forget() {
+                        self.gate.dropped_cache();
+                    }
                     let delta = if whole { None } else { deltas.get(carry) };
                     let answer = match delta {
                         Some((d, base)) => Reply::Delta(d, base),

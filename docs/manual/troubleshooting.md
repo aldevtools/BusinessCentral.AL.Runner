@@ -50,6 +50,17 @@ were loaded from it. The cache key includes the `al-runner` build, so each new e
 build builds a new entry. `al-runner cache info` lists the entries, and
 `al-runner cache clear` removes them if a cached result is in doubt.
 
+## The run is killed, or runs out of memory
+
+AL Runner runs one test codeunit per core at once, but only as many as fit in the
+free memory of the machine or the memory limit of its container. Each test thread
+holds a copy of the install baseline and the data of its test. On a build agent
+that also runs other jobs, cap the run with `--max-memory`, for example
+`--max-memory 3G`: AL Runner then runs fewer codeunits at once and takes longer.
+`--timings` shows the limit, the memory the compiled apps and the install
+baseline hold, and how many threads it chose. If even one thread does not fit,
+the run stops with exit code 2 and says how much memory it needs.
+
 ## The run exits with 8
 
 Some tests reach `DotNet` code that needs the .NET 8 helper, and it could not be
