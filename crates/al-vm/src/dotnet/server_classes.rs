@@ -15,6 +15,7 @@
 
 use super::registry::{MemberFn, MemberKind, MemberRefFn, Pin, RegistryMember, RegistryType};
 use crate::Session;
+use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::describe::Describe;
 use al_builtins::dotnet_sigs::{
     AKV_PROVIDER, AL_CONFIG_SETTINGS, COPILOT_FUNCTIONS, ENVIRONMENT, GRAPH_QUERY, PERMISSION_TEST_HELPER, TENANT_INFO,
@@ -262,6 +263,12 @@ fn platform_version(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -
 
 fn application_family(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     text("NavTenantSettingsHelper.GetApplicationFamily", args, 0, "W1")
+}
+
+/// `GetRingName()`: an empty ring (unprobed; issue 6675).
+fn ring_name(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+    assume(Assumption::TenantRingNameEmpty);
+    text("NavTenantSettingsHelper.GetRingName", args, 0, "")
 }
 
 fn power_platform_environment_id(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
@@ -860,6 +867,14 @@ fn own_types() -> Vec<RegistryType> {
                     environment_name,
                 ),
                 member("GetApplicationFamily", probe("181 ('W1')"), application_family),
+                member(
+                    "GetRingName",
+                    Pin::Probe(
+                        "probe tests/al-language-onprem-dotnet/dotnet/dotnet/BbNavHelpers.al TenantSettings_GetRingName (corpus branch al-runtime-rs-staging-6675, not landed: assumption tenant-ring-name-empty)"
+                            .into(),
+                    ),
+                    ring_name,
+                ),
                 member(
                     "GetPlatformVersion",
                     Pin::Corpus(
