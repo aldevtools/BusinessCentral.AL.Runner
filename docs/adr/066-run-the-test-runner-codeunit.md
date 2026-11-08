@@ -703,3 +703,65 @@ made dependent on `ConfigLoaded`, which codeunit 81673 (suite DATACHECK) left. O
   server option and takes `testSuites` per request, an unknown id is a warning per suite, a missing file is an error.
 - `crates/alrunner-cli/tests/cli/onrun_stability.rs`: `--stability` lists a reader as order dependent only when its
   writer is in its suite; a bad line exits 2.
+
+## Amendment 7 (Proposed, 2026-11-08): skip a serial re-run that cannot change the outcome
+
+- Status: Proposed. Needs the owner's decision. Amends amendment 4, decision 2 (which dependent codeunits run again)
+  and amendment 5, decision 1 (each re-run replays its whole chain). Nothing is built yet.
+
+### Why
+
+On a partner suite (NP Retail, 336 test codeunits, 5494 tests, BC 29, 12 threads) the serial re-runs are most of the
+run, and they change no outcome. Measured on main 7c3c37006 with a local trace (not committed):
+
+| | |
+|---|---|
+| Whole run | 1684 s (compile 13 s) |
+| Serial re-runs (lane wall time) | 1354 s |
+| Dependent codeunits / re-run because a test failed or did not finish | 308 / 26 |
+| Codeunit runs in the lane | 3025 in 21 serial sessions (4 to 274 codeunits each, longest session 956 s) |
+| Re-runs whose outcome differs from the parallel run | **0 of 26**: no test went from pass to fail, fail to pass or to another error |
+| Tests whose result changed at all | 1: `GivenTwoRunsDifferingOnlyInDepartmentCount_...` of 85340 went from one not-run reason to another (refused in parallel; in the lane it hit the 20 s CPU limit under load) |
+
+All 25 failures of the run fail the same way with fresh SingleInstance state and in BC's order (Assert texts about an
+on-prem service tier, a missing Magento Setup, a missing VAT account). Tests-ERM-Purchase and Tests-SCM showed the
+same in amendments 4 and 5: 0 outcome changes from the serial runs there either.
+
+Why each re-run is so long: almost every NP codeunit reads SingleInstance state the codeunit before it left
+(`_Images` of NPR Item Before Image, the entry-number buffer of Sequence No. Mgt.), so the chain of last writers
+(amendment 3, R2) of a codeunit is nearly the whole prefix of the run before it. 26 re-runs replay 3025 codeunits.
+
+What cannot be done within amendments 4 and 5 (checked):
+
+- **Share the prefixes.** The 21 sessions have only 309 distinct prefix steps (against 3025 runs), so one walk with a
+  copy of the single instances at each branch would run about 10 % of the codeunits. But after the first NP codeunit the
+  single instances hold 21,024 RecordRef values, HttpClient, JsonObject, JsonArray, SecretText and internal .NET
+  values. Copying them so that each branch sees exactly what a replay would give is a new seam on every library type,
+  with the risk of a wrong outcome; not done.
+- **Schedule the sessions better.** Taking the costliest session first (an internal change, on branch
+  `rt-lane-reruns`, not merged) can at best bring the lane's wall time down to its longest session (956 s of 1354 s
+  above). Measured once on NP with load average 7 to 14 from other work: lane 1675 s, longest session 1420 s, 0 outcome
+  changes; the load hides any gain. It does not remove replays.
+
+### Options for the owner
+
+1. **Re-run only when a failed test could have seen the difference.** The watch (amendment 2) already notes, per
+   codeunit, the globals read first. Note it per test instead: a dependent codeunit runs again only when a test that
+   failed or did not finish, or a test before it in the same codeunit, read first a global whose value the chain left
+   differently from the fresh value. Otherwise the parallel run stands (flagged, as today). This keeps the reason for the
+   re-run (a test that may fail only because it ran alone, corpus P7B) and drops re-runs whose failures never touch
+   the state. Cost: one note per test of a watched codeunit. Effect on NP not measured yet; it needs the per-test notes
+   first.
+2. **Cap the replay.** A chain longer than a limit (for example 50 codeunits, or an expected cost of 60 s from the
+   parallel run times) is not replayed: the codeunit keeps its parallel run and is flagged with a text that says the
+   serial re-run was skipped and why. `--strict-order` always replays. `--stability` lists such codeunits. Simple and
+   predictable; on NP a limit of 50 codeunits would skip 18 of the 21 sessions.
+3. **No re-run by default.** Every dependent codeunit keeps its parallel run, flagged; `--strict-order` gives the
+   serial result. This follows amendment 4's principle (the parallel result is a real BC outcome: the codeunit run alone),
+   and the measured re-runs changed nothing. It loses the serial result for a test that fails alone and passes in BC's
+   order (corpus P7B) unless the user asks for `--strict-order`.
+4. **Re-run only the failing test methods.** Rejected: the cost is the replay of the writers before the codeunit, not
+   the codeunit itself.
+
+Recommendation: option 1, with option 2 as the bound for chains that option 1 still selects. Both keep
+`--strict-order` as the exact BC order, and both need a corpus case for the flag text before they are built.
