@@ -1,6 +1,6 @@
 # ADR-068: Text that holds half of a surrogate pair
 
-- Status: Proposed
+- Status: Accepted (owner, 2026-11-08)
 - Date: 2026-11-08
 
 ## Context
@@ -146,3 +146,16 @@ Option c.
   text builders of `al-builtins` and `al-vm`).
 - The corpus ratchet: the 26 cases leave `metrics/<major>/not-passing.txt` as they pass.
 - `perf_vm` and `perf_budget` within their caps.
+
+## As built (2026-11-08)
+
+- `Txt` (`al-builtins/src/text.rs`) holds the side list; `Deref`, `as_str`, `AsRef`, `Borrow`, `Display`, `into_string`,
+  `make_mut` and `Ord` record their caller on a text with a lone half. The VM turns a recorded read into
+  `Signal::Unsupported("a text with half of a surrogate pair read by <file:line> (not pinned)")` when a builtin returns, at each
+  statement and when a call from outside returns.
+- Sources: `T[i] := Char`, the join of texts and of a Char and a text, `CopyStr`, `DelStr`, `Text.Substring`, `Text.Remove`,
+  `Format` of a Char that is half of a pair.
+- Audited readers: `StrLen`, `T[i]`, `foreach`, `CopyStr`, `DelStr`, `StrPos`, `Text.IndexOf`, `Text.Replace`,
+  `Text.Substring`, `Text.Remove`, `=` and `<>` (exact units; the empty text first), `OutStream.WriteText` on UTF-8 and UTF-16.
+- Still refused: the other text functions of item 2 (Split, PadStr, InsStr, ConvertStr, TextBuilder and BigText cuts), a Code
+  with a lone half, XML content, other stream encodings, and every reader not listed.
