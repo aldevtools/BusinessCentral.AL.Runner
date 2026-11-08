@@ -1429,6 +1429,12 @@ text/textbuilder-bigtext, format-evaluate, format-evaluate, types/date-time).
 | A SourceTableView on a table element without LinkTable below another table element, at a later pass (PEPPOL's `invlnallowancechargeloop`) | BUILT (al-vm/src/xmlports/pass.rs `xp_unlinked_pass_start`, import_view.rs) against xmlports/shapes-properties/R6924xNestedView.al (corpus PR 1144, in the pin, measured on BC 29.0): every pass starts from the view alone; an import filters nothing and gives the view's key to the first row only. Still refused: a view without a sorting or with an ORDER at a later pass, a later export of the instance, a key or filter set between two passes. | A view without a sorting or with an ORDER at a later pass; the second export of an instance; an import over a view with an ORDER where a trigger reads the key. |
 | A container below a table element with its own text, or a Break in a leaf's OnBeforePassVariable inside it | REFUSED (al-vm/src/xmlports/export_xml.rs, `leaf_triggered_tree` arm). | Own text measured (R6924eTreeInTable.al `TreeInTable_ContainerOwnText`): written after the last child element, before the end tag. Break not asked. |
 
+## Language Selection rows zh-HK, zh-SG and zh-MO (corpus pin 66680001, 2026-11-08)
+
+| Shape | Status | Probe wanted |
+|---|---|---|
+| Name, Primary Language ID, Abbreviated Name and Enabled of the Language Selection rows zh-HK (3076), zh-SG (4100) and zh-MO (5124) on the corpus CI container (bc-linux image 1a121fc6) | REFUSED on read (al-vm/src/platform/host_tables.rs `LANGUAGE_SELECTION_UNPINNED`). The rows exist: the table has 214 rows (metadata/platform-tables/PlatformRowsLanguageSelection.al:577), and their ids complete the digest of Y21EnvColumns.al:122. No corpus test and no bc-linux file pins their other columns (the image builds them from ICU's culture data). Every Rows_LanguageSelection test walks every column of every row, so all 30 are refused until this is pinned. | Add `zh-HK~zh-SG~zh-MO` to a DumpKeys call of PlatformRowsLanguageSelection.al and read the rows from the Linux CI. |
+
 ## Writes inside a TryFunction with DisableWriteInsideTryFunctions off (al-runner issue 7143, 2026-11-05)
 
 | Shape | Status | Probe wanted |
