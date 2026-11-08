@@ -97,6 +97,7 @@ mod xmlport_tablefilter_field;
 mod xmlport_text_content_optional;
 mod xmlport_text_encoding;
 mod xmlport_text_in_table;
+mod xmlport_text_value_deep;
 mod xmlport_text_value_nested_table;
 mod xmlport_text_wrap;
 mod xmlport_time_ms_xml;
