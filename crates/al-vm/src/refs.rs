@@ -1126,8 +1126,16 @@ impl Session {
                     },
                     other => return unsupported(format!("RecordRef.Get of {}", other.describe())),
                 };
+                // The ref fetches the whole row whatever SetLoadFields asked for, and the Record form does not
+                // (record/load-fields/Y87RecordRefLoadFields.al codeunit 94656 Ref_SetLoadFieldsNameThenGet and
+                // Ref_SetLoadFieldsCntThenGet `YesYesYesYesYesYes` against Rec_SetLoadFieldsNameThenGet `YesYesNoYesYesYes`;
+                // record/W4PlatformAndMeta.al:497-516 `recref_loaded_txt` Yes). What a later fetch loads is not pinned: the
+                // request is kept for it.
                 let mut a = key;
-                self.record_op(RecordOp::Get, &rec, &mut a)
+                let request = rec.borrow_mut().load.request.take();
+                let got = self.record_op(RecordOp::Get, &rec, &mut a);
+                rec.borrow_mut().load.request = request;
+                got
             }
             // As Record.GetBySystemId, and a miss with the result unused raises "The <table> does not
             // exist" naming the Guid (PXEnumRecordRef.al:199-301).
