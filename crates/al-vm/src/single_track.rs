@@ -481,6 +481,13 @@ pub struct MovedSingles {
     unclaimed: HashSet<usize>,
 }
 
+impl MovedSingles {
+    /// Whether a manual binding moves with the single instances.
+    pub fn has_bindings(&self) -> bool {
+        !self.bindings.is_empty()
+    }
+}
+
 impl Session {
     /// Moves the single instances and the temporary tables out of this finished session (see [`MovedSingles`]).
     pub fn take_single_instances(&mut self) -> MovedSingles {

@@ -11,4 +11,3 @@
 "crates/al-sema/src/lower/shared.rs" = 1
 "crates/al-vm/src/exec/compile.rs" = 1
 "crates/al-vm/src/exec/mod.rs" = 1
-"crates/al-vm/src/profile.rs" = 6

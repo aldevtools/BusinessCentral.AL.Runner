@@ -191,7 +191,10 @@ How to read it:
   "Tests whose serial re-run was skipped", also in `--output-json` as `rerunSkipped`.
   With `--test-suites FILE` only a dependence within one suite counts: a codeunit that
   relies on state a codeunit of another suite left is not listed.
-  With `order.codeunits` they are the ones most likely to flip. See "Flagged: relies on
+  With `order.codeunits` they are the ones most likely to flip. A codeunit of the chain
+  that runs one after the other (`RequiredTestIsolation = Disabled`, or an `OnRun` that
+  writes data, or tests that take numbers) is never listed: it already runs with the
+  state the codeunits before it left (ADR-066 amendment 8). See "Flagged: relies on
   SingleInstance state another test codeunit left" in the results chapter.
 - A flip that only happens where an unprobed assumption ran is marked "relies on an
   unprobed assumption". The runtime may be wrong there, not the test.

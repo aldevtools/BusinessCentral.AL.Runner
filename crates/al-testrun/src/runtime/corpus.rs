@@ -1569,7 +1569,7 @@ impl CorpusRuntime {
             let mut slots: Vec<Option<UnitResult>> = (0..units.len()).map(|_| None).collect();
             chain_report.units += units.len() + chain.iter().filter(|c| matches!(c.3, Link::Refused(..))).count();
             // Helper threads run the chain's codeunits ahead while the walk can still use their runs (`chain_walk.rs`).
-            let helpers = (workers - 1) * usize::from(baseline_engine.is_some()); // `workers` is at least 1.
+            let helpers = helper_threads(workers, baseline_engine.is_some());
             let first_origin = baseline.as_ref().map(al_vm::Baseline::origin);
             if helpers > 0 {
                 let encode_started = std::time::Instant::now();
@@ -1598,6 +1598,10 @@ impl CorpusRuntime {
                 own
             };
             let ahead_snapshot: Option<&[u8]> = snapshot_once.get().and_then(|s| s.as_deref());
+            // ADR-066 amendment 8: the walk keeps the SingleInstance state along each BC session's members.
+            // `--test-suites` orders a session by the file, not by the walk's id order: there the walk keeps fresh
+            // state per member and the lane handles the members as before (amendment 8, decision 6).
+            let keep_singles = chain_report.single_lane.watched > 0 && opts.test_suites.is_none();
             let carried = super::chain_walk::ChainWalk {
                 engine: &engine,
                 lowered,
@@ -1608,6 +1612,7 @@ impl CorpusRuntime {
                 helpers,
                 thread_baseline: &|| thread_baseline(ahead_snapshot),
                 gate: memory.gate(),
+                keep_singles,
             }
             .walk(chain, &mut slots, &mut details, &mut chain_report);
             // The other codeunits run as before; one that comes after a Disabled codeunit notes whether it reads a table that
@@ -1621,16 +1626,7 @@ impl CorpusRuntime {
             }
             let rest: Vec<usize> = (0..units.len()).filter(|k| slots[*k].is_none()).collect();
             let results: Vec<UnitResult> = if workers <= 1 || rest.len() < 2 {
-                rest.iter()
-                    .map(|&k| &units[k])
-                    .map(|u| {
-                        let mut observe = |name: &str, _: &Outcome, seen: &Observed| {
-                            details.insert((u.si, u.id, name.to_lowercase()), observed_detail(lowered, seen));
-                        };
-                        let trace: Option<&mut Observer> = opts.trace.then_some(&mut observe);
-                        run_unit(&engine, lowered, baseline.as_ref(), u, trace, limit)
-                    })
-                    .collect()
+                run_serially(&engine, lowered, baseline.as_ref(), &units, &rest, &mut details, opts)
             } else {
                 // Test codeunits run on a session each and do not share anything (the install
                 // baseline is put back for each), so worker threads take them in turn. A worker
@@ -1739,7 +1735,7 @@ impl CorpusRuntime {
                 slots[k] = Some(r);
             }
             #[rustfmt::skip]
-            let lane = super::single_lane::Lane { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, carried: &carried, sees: &sees, place: &place, limit, strict: opts.strict_order, max_replay: opts.max_replay, suites: opts.test_suites.as_deref(), workers, install_copies: baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline, gate: memory.gate() };
+            let lane = super::single_lane::Lane { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, carried: &carried, sees: &sees, place: &place, limit, strict: opts.strict_order, max_replay: opts.max_replay, suites: opts.test_suites.as_deref(), workers, install_copies: baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline, kept_chain: keep_singles, gate: memory.gate() };
             lane.run(&mut slots, &mut chain_report.single_lane);
             let results: Vec<UnitResult> = slots.into_iter().flatten().collect();
             for r in results {
@@ -2410,6 +2406,35 @@ fn hub_isolation(lowered: &Lowered, oi: usize) -> Result<Option<TestIsolation>, 
     // An OnRun trigger runs once, before the first test, with no write open; under Function its writes are part of the
     // state each test returns to, under Disabled they persist like the tests' (RqIsolationModes.al:396-472, :532-616).
     Ok(Some(isolation))
+}
+
+/// Runs the codeunits `rest` of `units` one after the other on this thread; with `--trace` it notes what each test
+/// observed for `--explain`.
+fn run_serially(
+    engine: &Arc<al_vm::Engine>,
+    lowered: &Lowered,
+    baseline: Option<&al_vm::Baseline>,
+    units: &[Unit],
+    rest: &[usize],
+    details: &mut std::collections::HashMap<(usize, u32, String), explain::TestDetail>,
+    opts: &RunOptions,
+) -> Vec<UnitResult> {
+    rest.iter()
+        .map(|&k| &units[k])
+        .map(|u| {
+            let mut observe = |name: &str, _: &Outcome, seen: &Observed| {
+                details.insert((u.si, u.id, name.to_lowercase()), observed_detail(lowered, seen));
+            };
+            let trace: Option<&mut Observer> = opts.trace.then_some(&mut observe);
+            run_unit(engine, lowered, baseline, u, trace, opts.test_time_limit)
+        })
+        .collect()
+}
+
+/// How many helper threads run the carry chain's codeunits ahead: every worker but the walk's, when the threads can
+/// have an install baseline of their own.
+fn helper_threads(workers: usize, own_baseline: bool) -> usize {
+    if workers > 1 && own_baseline { workers - 1 } else { 0 }
 }
 
 /// Whether BC runs test codeunit `oi` on the TestRunnerHub: `hub` (its RequiredTestIsolation is Function or Disabled), or

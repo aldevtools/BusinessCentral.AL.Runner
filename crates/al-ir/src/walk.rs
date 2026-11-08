@@ -1177,6 +1177,7 @@ fn walk_report<V: RefVisitor>(r: &mut Report, v: &mut V) {
         layout_file_missing: _,
         rendering_layouts: _,
         default_rendering_layout: _,
+        default_layout_kind: _,
     } = r;
     let tables: Vec<Option<usize>> = items.iter().map(|i| i.table).collect();
     for i in items {

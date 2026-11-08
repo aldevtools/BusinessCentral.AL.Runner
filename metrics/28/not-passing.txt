@@ -34,7 +34,6 @@
 60569 Lookup_RelationToTableWithNoLookupPage_LeavesTheFieldUnchanged
 60569 Lookup_RelationToTableWithNoLookupPage_RaisesTheUnhandledUiSignal
 60670 TemporalSetValue_ValidateRefusesTextCarriedInAVariant
-60774 Report_SaveAs_Pdf_ReturnValueAgreesWithTheBytesInTheStream
 60827 PYD_ModifyTableRelation_BaseConditional_ExtUnconditional_XY
 60827 PYD_ModifyTableRelation_BaseConditional_ExtUnconditional_Z
 60827 PYD_ModifyTableRelation_BaseElseArm_ExtConditional_XY
@@ -130,7 +129,6 @@
 67761 QV_Preview_Execute
 67761 QV_Preview_Run_PreviewAction
 67761 QV_Preview_Run_PrintAction
-67761 QV_Preview_SaveAsPdf
 67768 ForBoolean_ChangeTheCounterInsideTheLoop
 67768 ReportLayoutType_EvaluateOrdinalsAndNames
 67857 SG_DayOfMonth_EdgeNumbersAndEvaluate
@@ -288,7 +286,6 @@
 69886 Bad_DateTime
 69886 FilterPageBuilder_Run
 69886 PageRun_Zero
-69886 Report_Pdf
 69886 TestPage_BadFilter
 69886 TestPage_CardCue
 69886 TestPage_List
@@ -380,7 +377,6 @@
 70652 SetFilter_UnknownText_Result
 70679 Formats_ProcessingOnly_ExcelHtmlXml
 70679 Formats_ProcessingOnly_PdfWord
-70679 Instance_SaveAs_Pdf_ProcessingOnly
 70690 Static_Guarded_PendingWrite_KeepsOrReplacesAnEarlierError
 70690 Static_Guarded_PendingWrite_ReturnsFalse_LastError
 70690 Static_Guarded_TwoSuccessfulImports_ThenPending
@@ -553,7 +549,6 @@
 71941 Aggregated_InsertIntoReadGroupAndNewGroups
 71944 Excel_ProcessingOnly
 71944 Html_ProcessingOnly
-71944 Pdf_ProcessingOnly
 71944 Word_ProcessingOnly
 72028 PrecisionTypesAndOddValues
 72035 RecordRef_NeverOpened
@@ -564,7 +559,6 @@
 72038 PW_SetRequestUri_SchemeWithoutSlashes
 72038 SetRequestUri_EmptyAndWhiteSpace
 72038 SetRequestUri_NoSchemeNoWhiteSpace
-72043 Preview_InReportSaveAs_Pdf_NoCaption
 72101 P121_RunReport
 72107 P121_RunReport
 72109 P121_RunReport
@@ -1458,21 +1452,12 @@
 89950 Layout_F_Execute
 89950 Layout_F_Run
 89950 Layout_F_RunModal
-89950 Layout_F_SaveAsPdf
 89950 Layout_T_Execute
 89950 Layout_T_Run
 89950 Layout_T_RunModal
-89950 Layout_T_SaveAsPdf
 89950 Layout_U_Execute
 89950 Layout_U_Run
 89950 Layout_U_RunModal
-89950 Layout_U_SaveAsPdf
-89950 Proc_F_SaveAsPdf
-89950 Proc_T_SaveAsPdf
-89950 Proc_U_SaveAsPdf
-89950 Req_F_SaveAsPdf
-89950 Req_T_SaveAsPdf
-89950 Req_U_SaveAsPdf
 90367 PerDatabasePart_IsEmptyOfPerCompanyTable_NoCompany
 90367 TriggerSetup_AskedPerCompanyInInstall_NeverInPerDatabasePart
 90370 Y17_ReportLayoutList_UserDefinedRow
@@ -1486,9 +1471,7 @@
 90820 RequestSetCookieObject_InvalidValues
 90952 GLEntry_Read_ByPermissionsProperty
 91210 BaseWithOwnLayout_Word_Excel_Html
-91210 BaseWithOwnLayout_Xml_Pdf
 91210 BaseWithoutRendering_ExtensionOnlyLayout
-91210 ControlReportWithoutExtension_Xml_Pdf
 91232 TenantReportLayout_FreshTenant_FieldsAndInsert
 91312 W5_ReportSelection_EmailBodyLayout_AssignedNameOfTenantRow
 91312 W5_ReportSelection_EmailBodyLayout_ValidateNameOfTenantRow

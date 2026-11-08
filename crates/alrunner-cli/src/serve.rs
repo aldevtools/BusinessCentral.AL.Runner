@@ -42,6 +42,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "strictEnvironment",
     "entries",
     "seed",
+    "profile",
 ];
 /// The fields of an entry of `runTests` (issue 5635).
 const ENTRY_FIELDS: &[&str] = &["id", "resources", "test", "excludeTests"];
@@ -296,6 +297,7 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
             Some(crate::args::parse_test_runner(r).map_err(|e| e.replace("--test-runner", "`testRunner`"))?);
     }
     a.coverage = flag(fields, "coverage")? || flag(fields, "perTestCoverage")?;
+    a.profile = crate::profile::from_json(fields.get("profile").unwrap_or(&Value::Null))?;
     a.capture = al_vm::CaptureConfig {
         values: flag(fields, "captureValues")?,
         loops: flag(fields, "iterationTracking")?,
@@ -592,6 +594,9 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
                 if want_per_test {
                     summary["perTestCoverage"] = cov["perTestCoverage"].clone();
                 }
+            }
+            if let Some(files) = crate::profile::take_written() {
+                summary["profile"] = json!({ "files": files });
             }
             out(&summary);
         }
@@ -984,6 +989,25 @@ mod tests {
         assert_eq!(a.isolation, Some(al_testrun::isolation::TestIsolation::Function));
         assert!(a.coverage && a.quiet);
         assert!(w.is_empty());
+    }
+
+    #[test]
+    fn a_run_request_with_profile_profiles_the_run() {
+        let f = fields(json!({
+            "command": "runTests", "sourcePaths": ["/a"],
+            "profile": {"path": "/tmp/p", "mode": "sampling", "intervalUs": 500},
+        }));
+        let (a, w) = request_args(&base(), &f).unwrap();
+        let r = a.profile.unwrap();
+        assert_eq!(r.path, PathBuf::from("/tmp/p"));
+        assert_eq!((r.mode, r.interval_us), (al_testrun::profiling::Mode::Sampling, 500));
+        assert!(w.is_empty(), "{w:?}");
+        let f = fields(json!({"command": "runTests", "sourcePaths": ["/a"], "profile": {"mode": "x"}}));
+        assert!(
+            request_args(&base(), &f)
+                .unwrap_err()
+                .contains("`profile` needs `path`")
+        );
     }
 
     #[test]

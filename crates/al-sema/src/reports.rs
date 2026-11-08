@@ -132,6 +132,8 @@ pub struct Layout {
     pub about_text: Option<String>,
     /// The kind of the default layout.
     pub default_layout: ir::ReportLayout,
+    /// The type of the default layout, lower-case; empty when it cannot be told (`ir::Report::default_layout_kind`).
+    pub default_layout_kind: String,
     pub layout_file_missing: bool,
     /// Why `Report.SaveAs(.., Xml, ..)` cannot write this report's dataset.
     pub dataset_reasons: Vec<String>,
@@ -242,6 +244,41 @@ fn default_layout(obj: &ast::Object) -> ir::ReportLayout {
     }
 }
 
+/// The type of the layout the report renders with by default, lower-case: the `Type` of the layout `DefaultRenderingLayout`
+/// names, else the `DefaultLayout` value, else `rdlc` when the only layout the report declares is an RDLC one. Empty when
+/// it cannot be told (several kinds and no default, or a default naming no layout).
+fn default_layout_kind(obj: &ast::Object) -> String {
+    let prop = |n: &str| {
+        obj.properties()
+            .find(|p| p.name().eq_ignore_ascii_case(n))
+            .map(|p| p.value_text().trim().to_string())
+    };
+    let rendering = rendering_layouts(obj);
+    if let Some(name) = prop("DefaultRenderingLayout") {
+        let name = crate::scan::unquote_double(&name);
+        return rendering
+            .iter()
+            .find(|(n, ..)| n.eq_ignore_ascii_case(&name))
+            .map(|(_, kind, ..)| kind.clone())
+            .unwrap_or_default();
+    }
+    if let Some(kind) = prop("DefaultLayout") {
+        return kind.to_ascii_lowercase();
+    }
+    let mut kinds: Vec<String> = rendering.into_iter().map(|(_, kind, ..)| kind).collect();
+    for (property, kind) in [("RDLCLayout", "rdlc"), ("WordLayout", "word"), ("ExcelLayout", "excel")] {
+        if prop(property).is_some() || obj.sections().any(|s| s.name().eq_ignore_ascii_case(property)) {
+            kinds.push(kind.into());
+        }
+    }
+    kinds.sort();
+    kinds.dedup();
+    match kinds.as_slice() {
+        [only] if only == "rdlc" => only.clone(),
+        _ => String::new(),
+    }
+}
+
 /// A report with `DefaultLayout = ...` and no layout file at all (reports/PRSaveAsFormats.al: `DefaultLayout = RDLC`
 /// and nothing else).
 fn layout_file_missing(obj: &ast::Object) -> bool {
@@ -308,6 +345,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
         about_title: None,
         about_text: None,
         default_layout: default_layout(obj),
+        default_layout_kind: default_layout_kind(obj),
         layout_file_missing: layout_file_missing(obj),
         dataset_reasons: Vec::new(),
         labels: Vec::new(),
@@ -1276,6 +1314,7 @@ pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::R
             })
             .collect(),
         default_rendering_layout: layout.default_rendering.clone(),
+        default_layout_kind: layout.default_layout_kind.clone(),
     }
 }
 

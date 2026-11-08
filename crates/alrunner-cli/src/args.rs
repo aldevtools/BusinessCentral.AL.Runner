@@ -151,6 +151,9 @@ pub struct TestArgs {
     pub coverage_out: Option<PathBuf>,
     /// `--coverage-json FILE`: write the statements and the statements of each test as JSON (implies `--coverage`).
     pub coverage_json: Option<PathBuf>,
+    /// `--profile PATH`, `--profile-mode`, `--profile-interval` as given, and the request they make (`profile.rs`).
+    pub profile_flags: crate::profile::Flags,
+    pub profile: Option<crate::profile::Request>,
     /// `--explain TEST`: run one test and say where it was refused or failed.
     pub explain: Option<String>,
     /// `--top-refusals [N]`: how many refusal reasons to list (default 10).
@@ -757,6 +760,14 @@ COVERAGE
                          its runs, and for each test the statements it ran. File names are absolute with
                          forward slashes (`archive.zip!/inner/path.al` inside a package). Statements are the
                          ones the lowering marks, one per AL statement.
+
+PROFILE (docs/manual/profiling.md)
+    --profile PATH       Write AL CPU profiles the AL extension in VS Code opens: a folder gets one
+                         `<id>-<name>.alcpuprofile` per test codeunit plus summary.txt; a PATH ending in
+                         .alcpuprofile gets one merged file (run, threads, codeunits). Off costs nothing.
+    --profile-mode M     instrumentation (default: exact times, call counts, statement times) or sampling
+                         (a sample of every thread each --profile-interval, BC's kind 1 file).
+    --profile-interval US  Microseconds between samples (default 1000, at least 50).
 
 IMPACT (ADR-043)
     --impact-of APP      Measure what an extension changes in the tests of the APPs (for example
@@ -1709,9 +1720,11 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
                     "{flag} is deferred in v3 (ADR-016, owner direction 2026-10-13): features that only hide start-up or run cost wait until they are measured to matter"
                 ));
             }
+            f if a.profile_flags.take(f, &mut text)? => {}
             _ => return Err(format!("unknown option `{flag}` (see --help)")),
         }
     }
+    a.profile = a.profile_flags.request()?;
     matrix_args(&mut a, matrix_spec, country_list)?;
     if a.matrix.is_some() && (index_build || debug.is_some()) {
         return Err("a matrix (a list in --bc-version or --country, or --matrix) works with al-runner test and al-runner test-microsoft only: give one --bc-version and --country".into());

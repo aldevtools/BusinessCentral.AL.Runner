@@ -134,6 +134,10 @@ pub struct ChainReport {
     pub differed: std::collections::BTreeMap<String, usize>,
     /// The SingleInstance lane (`single_lane.rs`, ADR-066 amendment 2).
     pub single_lane: super::LaneReport,
+    /// ADR-066 amendment 8: members the walk ran with the single instances the members before them left.
+    pub singles_kept: usize,
+    /// Of `singles_kept`, those that read first a global an earlier member of their BC session wrote.
+    pub singles_read_carried: usize,
 }
 
 impl ChainReport {
@@ -157,6 +161,12 @@ impl ChainReport {
             self.reruns.len(),
             total(&mut self.reruns.iter().map(|m| &m.took)),
         )];
+        if self.singles_kept > 0 {
+            out.push(format!(
+                "carry chain: {} members ran with the SingleInstance state of the members before them (ADR-066 amendment 8); {} of them read first a global an earlier member wrote",
+                self.singles_kept, self.singles_read_carried
+            ));
+        }
         if !self.starts.is_empty() {
             out.push(format!(
                 "carry chain: {} new starts written for the helper threads ({:.2} s)",

@@ -76,6 +76,34 @@ A test codeunit is **order dependent** when it reads such a global before it
 writes it, and an earlier test codeunit left another value there. On Business
 Central it sees that value; in AL Runner's parallel run it sees a fresh one.
 
+**Codeunits that already run one after the other.** Some test codeunits never run
+in parallel: those with `RequiredTestIsolation = Disabled`, and those whose `OnRun`
+writes data or whose tests take numbers from a number series (their changes reach
+the codeunits after them). AL Runner runs these one after the other in Business
+Central's order, in one chain. Since ADR-066 amendment 8 the chain also keeps the
+SingleInstance state from one codeunit to the next, as Business Central's session
+does. So for these codeunits the reported result already is the result in Business
+Central's order:
+
+- They are never order dependent, never run again and never flagged
+  `single-instance-order`. `--strict-order` and `--max-replay` do not change them.
+- The state starts fresh at a new session: a new suite, or the switch from the
+  codeunits the TestRunnerHub runs to those runner 130450 runs.
+- The state also starts fresh after a codeunit AL Runner refuses as a whole, and
+  after a codeunit with a test refused while it ran: what Business Central would
+  have left there is not known. A failed test hands its state on, as on Business
+  Central.
+- The chain does not see state that a codeunit outside it left. Such a codeunit
+  still runs in parallel.
+
+On Microsoft's suites almost every test codeunit is in this chain (most of them take
+numbers). The cost: the chain can no longer run its codeunits ahead on other threads
+when they use SingleInstance state, so it runs more of them on one thread. On
+Tests-ERM-Purchase this made the run slower; on a large partner suite it removed
+almost all serial re-runs and made the run several times faster.
+
+Everything below is about the other codeunits, the ones that run in parallel.
+
 AL Runner follows one principle: a test should give the same result whether its
 codeunit runs alone or inside the whole suite. A parallel run with fresh state is a
 real Business Central result: the one you get when the codeunit runs alone, or
@@ -243,48 +271,15 @@ raised in (innermost first):
 ## Time per AL routine
 
 `--timings` stops at the test codeunit. To see which AL routines a slow run spends
-its time in, set the environment variable `AL_PROFILE` to a file name:
+its time in, write a profile and open it in VS Code:
 
 ```bash
-AL_PROFILE=profile.txt al-runner test ./MyApp ./MyApp.Test --codeunit 50100
+al-runner test ./MyApp ./MyApp.Test --codeunit 50100 --profile out/
 ```
 
-The run samples the AL call stack every 5 ms. It writes the file every 5 seconds
-and once more when the run ends. The first line has the sample count and the interval,
-for example `samples 1200 of 5 ms`: 1,200 samples are about 6 seconds of AL code. Then
-come three lists of the 60 entries with the most samples:
-
-- `self`: samples where the routine was running its own statements.
-- `inclusive`: samples where the routine was anywhere on the call stack.
-- `self by statement`: the `self` samples split by the statement that was running,
-  as file and line. When the sample landed inside a built-in method, its name follows
-  in brackets, for example
-  `codeunit No. Series - Impl..GetNoSeriesLine  NoSeriesImpl.Codeunit.al:150  [Record.FindLast]`.
-  `(entry)` stands for the time between a call and the routine's first statement.
-
-Each line is the sample count, then the object type, the object name and the routine.
-A field trigger also names its field, as in `table Sales Line.Quantity.OnValidate`;
-a trigger of a page control, an action or a report data item names its owner.
-
-How to read the counts:
-
-- One process-wide timer samples one thread per tick. When tests run on several
-  threads, the samples add up to the time any AL statement ran, not to CPU time
-  times the number of threads. Routines that run many statements get a larger share.
-  Set `AL_TEST_THREADS=1` for a profile of one thread.
-- A sample is taken at the next AL statement or when a built-in method returns.
-  Time spent inside a built-in method (for example `FindSet` or `Validate`) counts
-  as `self` of the AL routine that called it; `self by statement` names the method
-  and the line. A built-in method that runs AL code (a trigger, an event subscriber)
-  books that code's time to the AL routines it runs.
-Two more variables help with short runs:
-
-- `AL_PROFILE_US=N`: sample every N microseconds instead of 5,000.
-- `AL_PROFILE_ONLY=TEXT`: count only samples whose call stack has a frame, written as
-  in the file, that contains TEXT. Use one test's name to profile that test.
-
-The profile counts AL statements only, including install code. Loading and compiling
-are not in it; `--timings` shows those.
+[Profiling AL code](profiling.md) explains the files, the two modes, and how far the
+runner's times carry over to BC. The old `AL_PROFILE=FILE` variable still works for this
+release and is deprecated.
 
 ## Report files
 

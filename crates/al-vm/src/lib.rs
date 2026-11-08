@@ -38,8 +38,11 @@ pub use faultsite::FaultFrame;
 pub(crate) use interp::constant;
 #[doc(hidden)]
 pub use platform::{FieldGetByKey, field_get_by_key_pairs};
-pub use profile::flush as profile_flush;
 pub use profile::frame_name as profile_frame_name;
+pub use profile::{
+    DbStat, PosStat, ProfFrame, ProfNode, ProfileMode, ProfileTree, reaches_database,
+    routine_label as profile_routine_label,
+};
 pub use test_runner_host::TestCodeunitHost;
 mod callstack;
 mod clear_all_page_ext;
@@ -108,6 +111,7 @@ mod report_handler_unshown;
 mod report_layout_export;
 mod report_layout_streams;
 mod report_no_layout_file;
+pub mod report_pdf_placeholder;
 mod reports;
 mod run_page_link_open;
 mod sessionops;
@@ -1134,7 +1138,6 @@ impl Session {
 
     /// A session whose clock, identity and file system come from `host`.
     pub fn with_host(engine: Arc<Engine>, host: al_host::Host) -> Session {
-        profile::init();
         // The session of a run with test data works in the restored company.
         let host = match &engine.test_data {
             Some(td) => host.in_company(td.provider.company()),
@@ -1380,6 +1383,7 @@ impl Session {
                 recorder: Default::default(),
                 impact: Default::default(),
                 impact_on: false,
+                profiler: None,
             },
             report: ReportState::default(),
         };
@@ -2532,6 +2536,7 @@ impl Session {
             routine,
             pos: ir::NO_POS,
         });
+        self.profile_enter(object, routine, false);
         if self.capture.is_some() {
             self.cap_enter_frame(object, r, &frame.locals);
         }
@@ -2572,6 +2577,7 @@ impl Session {
         if let (Err(Signal::Error(e)), Some(&top)) = (&mut outcome, self.call_stack.last()) {
             self.add_frame(e, object, top);
         }
+        self.profile_leave();
         self.call_stack.pop();
         if let Some(scope) = test_scope {
             self.coverage_leave(scope);
