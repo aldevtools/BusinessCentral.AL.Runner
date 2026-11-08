@@ -72,8 +72,12 @@ push. Or push `release` by hand:
    (`packaging/dotnet-tool/pack.sh`; the package carries the binaries for
    linux-x64, linux-arm64, osx-arm64 and win-x64), installs it on Linux (x64 and arm64), Windows and macOS and
    runs the smoke test through it, all before the GitHub release. After the
-   release it pushes the package to nuget.org with the repository secret
-   `NUGET_API_KEY` (owner decision 2026-10-25). A version with a suffix such as
+   release it pushes the package to nuget.org (owner decision 2026-10-25) with
+   trusted publishing (owner decision 2026-11-08): `NuGet/login` exchanges the
+   job's GitHub OIDC token for a one-hour API key; the nuget.org policy names
+   `release-tag.yml`, so no key is stored. If a push failed, run the Release
+   workflow by hand on `main` with the input `repush_run` set to that tag run's
+   id: it pushes the package that run built. A version with a suffix such as
    `-alpha.6` is a NuGet prerelease. A version on nuget.org cannot be replaced; a
    re-run skips the push when the version is already there.
 8. Check: `mise ls-remote github:aldevtools/BusinessCentral.AL.Runner` lists the
