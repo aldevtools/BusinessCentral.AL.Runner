@@ -13,9 +13,9 @@
 //!
 //! Refused: a table of another app, a table with a table extension of another app or a field with `ObsoleteState = Removed`
 //! (the file layout of those is not pinned), a table whose database insert trigger is on (whether the load raises
-//! OnDatabaseInsert is not pinned), a per-company table loaded in the per-database part and the reverse (not pinned; corpus
-//! probe install-upgrade/install-triggers/PkgDataParts.al on branch al-runtime-rs-staging-install-6644), a row whose key
-//! exists, and every file content `reader.rs` refuses.
+//! OnDatabaseInsert is not pinned), a per-company table loaded in the per-database part (BC fails the publish, the error
+//! text is not pinned: install-upgrade/install-triggers/PkgDataParts.al:5), a row whose key exists, and every file content
+//! `reader.rs` refuses. A shared table loads from the per-company part too (PkgDataParts.al:40-42).
 
 mod reader;
 
@@ -64,12 +64,14 @@ impl Session {
         let Some(def) = self.engine.tables[object].clone() else {
             return refuse(format!("{what}: a table without a schema"));
         };
-        let in_company = !self.cx.company.is_empty();
-        if def.per_company != in_company {
+        // A shared table loads from the per-company part as well: its rows land in the shared table
+        // (install-upgrade/install-triggers/PkgDataParts.al:40-42, LoadPackageData_SharedTableInCompanyPart). A per-company
+        // table loaded from the per-database part fails the publish of the whole app (PkgDataParts.al:5,
+        // tests/al-language-xapp-a/PkgDataPartsFixture.al:4); the error text is not asserted by the corpus, so it is refused.
+        if def.per_company && self.cx.company.is_empty() {
             return refuse(format!(
-                "{what}: a {} table in the {} part of the install (not pinned)",
-                if def.per_company { "per-company" } else { "shared" },
-                if in_company { "per-company" } else { "per-database" },
+                "{what}: a per-company table in the per-database part of the install (the platform fails the publish \
+                 of the app; the error text is not pinned)"
             ));
         }
         self.refuse_unpinned_table(object, &what)?;
