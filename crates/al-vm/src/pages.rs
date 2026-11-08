@@ -193,6 +193,7 @@ mod caption_expr_list;
 mod caption_relation;
 mod caption_runs;
 mod caption_translation;
+mod clear_test_page;
 mod close_save_failed;
 mod code_close_veto;
 pub(crate) use code_close_veto::{CodeCloseVeto, TriggerKind};

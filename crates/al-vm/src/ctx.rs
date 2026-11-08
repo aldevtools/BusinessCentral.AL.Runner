@@ -147,6 +147,12 @@ impl al_builtins::native::Ctx for Session {
     fn xrec_holds_blob(&self, b: &al_builtins::stream::BlobRef) -> bool {
         Session::xrec_holds_blob(self, b)
     }
+    fn clear_test_page(
+        &mut self,
+        st: &std::rc::Rc<std::cell::RefCell<al_builtins::value::PageState>>,
+    ) -> Result<(), Signal> {
+        Session::clear_test_page(self, st)
+    }
     fn now_unix_millis(&self) -> Option<i64> {
         Some(self.now_millis())
     }
