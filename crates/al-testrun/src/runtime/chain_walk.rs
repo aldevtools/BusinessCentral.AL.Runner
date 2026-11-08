@@ -63,6 +63,12 @@ pub(super) struct ChainWalk<'a> {
     pub helpers: usize,
     /// A helper thread's own copy of the install baseline.
     pub thread_baseline: &'a (dyn Fn() -> Option<al_vm::Baseline> + Sync),
+    /// ADR-066 amendment 8: the walk keeps the SingleInstance state from member to member of a BC
+    /// session (suite and hub leg), as BC's one test-runner session does (P7: `TestCuP7BReader.al:24-37`), instead of
+    /// starting each member with fresh single instances. The single instances move as in the lane (`run.rs`
+    /// `LANE_SINGLES`). A run ahead (fresh single instances, another thread) is taken only when it read and wrote no
+    /// watched global and the walk's single instances hold no manual binding: then its run cannot differ.
+    pub keep_singles: bool,
 }
 
 /// A helper thread's part of a [`ChainWalk`].
@@ -225,6 +231,77 @@ fn delta_from(now: Option<&al_vm::Baseline>, base: Option<&al_vm::Baseline>) -> 
     now?.delta_from(base?)
 }
 
+/// Whether a run ahead (fresh single instances) gives the walk's outcome although the walk keeps the single instances
+/// (`ChainWalk::keep_singles`): the run read no watched global before writing it and wrote none, and the walk's single
+/// instances hold no manual binding (a bound subscriber of an earlier codeunit would run in it).
+fn ahead_ignores_singles(a: &Ahead) -> bool {
+    let quiet = match &a.result.result {
+        Ok(done) => done
+            .5
+            .singles_out
+            .as_ref()
+            .is_none_or(|o| o.observed.is_empty() && o.wrote.is_empty() && !o.refused),
+        Err(_) => false,
+    };
+    quiet
+        && super::run::LANE_SINGLES.with(|c| {
+            c.borrow()
+                .as_ref()
+                .is_none_or(|m| m.as_ref().is_none_or(|m| !m.has_bindings()))
+        })
+}
+
+/// The single instances the walk keeps from member to member (`ChainWalk::keep_singles`): which BC session they belong
+/// to, and the globals the members of that session wrote so far (for the count of members that read them).
+#[derive(Default)]
+struct KeptSingles {
+    session: Option<(usize, bool)>,
+    wrote: std::collections::BTreeSet<al_vm::single_track::GlobalKey>,
+}
+
+impl KeptSingles {
+    /// The next member belongs to BC session `key` (suite, hub leg); `None`: a member that is not run. A new session
+    /// starts with fresh single instances, and so does the member after one that is not run.
+    fn enter(&mut self, key: Option<(usize, bool)>) {
+        if starts_fresh(self.session, key) {
+            super::run::LANE_SINGLES.with(|c| {
+                if let Some(slot) = c.borrow_mut().as_mut() {
+                    *slot = None;
+                }
+            });
+            self.wrote.clear();
+        }
+        self.session = key;
+    }
+
+    /// Member run `r` ended (`ahead`: its run ahead was taken; the walk's single instances are unchanged then). Counts a
+    /// member that read first a global an earlier member of its session wrote.
+    fn left(&mut self, r: &UnitResult, ahead: bool, report: &mut super::ChainReport) {
+        report.singles_kept += 1;
+        let Ok(done) = &r.result else {
+            self.enter(None);
+            return;
+        };
+        let Some(o) = done.5.singles_out.as_ref() else { return };
+        if o.observed.keys().any(|k| self.wrote.contains(k)) {
+            report.singles_read_carried += 1;
+        }
+        if o.refused && !ahead {
+            // `run.rs` `singles_out` handed nothing on (R3): the next member starts fresh.
+            self.wrote.clear();
+        } else {
+            self.wrote.extend(o.wrote.iter().copied());
+        }
+    }
+}
+
+/// Whether the member after one of BC session `before` starts with fresh single instances when it belongs to BC
+/// session `next` (suite, hub leg; `None`: a member that is not run, or none before). ADR-066 amendment 8, decision 2:
+/// a new BC session starts fresh, and so does a member that is not run and the member after it (R3 of amendment 3).
+fn starts_fresh(before: Option<(usize, bool)>, next: Option<(usize, bool)>) -> bool {
+    next.is_none() || before != next
+}
+
 /// What the walk keeps per suite for the runs ahead.
 #[derive(Default)]
 struct Track {
@@ -365,7 +442,19 @@ impl ChainWalk<'_> {
             let install: Vec<usize> = track.epochs.keys().copied().collect();
             track.bases = install.into_iter().map(|si| (si, b.clone())).collect();
         }
+        let keep = self.keep_singles;
+        let mut singles = KeptSingles::default();
+        if keep {
+            super::run::LANE_SINGLES.with(|c| *c.borrow_mut() = Some(None));
+        }
         for (si, leg, id, link) in chain {
+            if keep {
+                singles.enter(match &link {
+                    Link::Run(k) => Some((si, units[*k].hub_leg)),
+                    // BC runs it and it may change the single instances: what it would leave is not known (R3).
+                    Link::Refused(..) => None,
+                });
+            }
             let before = carried.iter().rev().find(|(s, _, _, _)| *s == si);
             let mut leg1 = None;
             let mut left = match link {
@@ -407,10 +496,13 @@ impl ChainWalk<'_> {
                     // A run ahead from the walk's own state that left nothing or only numbers: its outcome is the serial one.
                     // Taken from a start whose Test Runner rows differ (its run did not see them): their AutoIncrement
                     // counters are set as the run from the walk's start leaves them (`Baseline::with_delta_apart`).
-                    let kept = ahead.as_ref().and_then(|a| {
-                        let differ = a.start.as_deref().map(|f| &f.rows) != actual.as_ref().map(|f| &f.rows);
-                        left_of(a.kept.as_ref()?, start, differ.then_some(counters.as_slice()))
-                    });
+                    let kept = ahead
+                        .as_ref()
+                        .filter(|a| !keep || ahead_ignores_singles(a))
+                        .and_then(|a| {
+                            let differ = a.start.as_deref().map(|f| &f.rows) != actual.as_ref().map(|f| &f.rows);
+                            left_of(a.kept.as_ref()?, start, differ.then_some(counters.as_slice()))
+                        });
                     let took_ahead = kept.is_some();
                     if took_ahead {
                         *track.taken.entry(si).or_default() += 1;
@@ -445,6 +537,9 @@ impl ChainWalk<'_> {
                             (r, super::run::CARRIED.with(|c| c.borrow_mut().take()))
                         }
                     };
+                    if keep {
+                        singles.left(&r, took_ahead, report);
+                    }
                     report.members.push(super::ChainEntry {
                         id,
                         name: name_of(units[k].oi),
@@ -516,6 +611,9 @@ impl ChainWalk<'_> {
             if let (Some(leg1), Some(r), Some((_, _, _, c))) = (leg1, runs, carried.last()) {
                 self.after(r, si, leg1, c, &mut track, report);
             }
+        }
+        if keep {
+            super::run::LANE_SINGLES.with(|c| *c.borrow_mut() = None);
         }
         carried
     }
@@ -634,5 +732,26 @@ impl ChainWalk<'_> {
                 r.taint(si);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::starts_fresh;
+
+    /// ADR-066 amendment 8, decision 2: which member of the walk starts with fresh single instances.
+    #[test]
+    fn a_member_starts_fresh_at_a_session_boundary_and_after_a_member_that_is_not_run() {
+        // The first member of the walk.
+        assert!(starts_fresh(None, Some((0, true))));
+        // The same suite and hub leg: the state moves on.
+        assert!(!starts_fresh(Some((0, true)), Some((0, true))));
+        // Another hub leg or another suite: a new BC session.
+        assert!(starts_fresh(Some((0, true)), Some((0, false))));
+        assert!(starts_fresh(Some((0, false)), Some((1, false))));
+        // A refused member (not run): what BC's run of it would leave is not known, so nothing is handed on.
+        assert!(starts_fresh(Some((0, true)), None));
+        // The member after a refused one, in the same session as the one before the refused member.
+        assert!(starts_fresh(None, Some((0, true))));
     }
 }

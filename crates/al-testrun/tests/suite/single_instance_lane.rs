@@ -741,44 +741,54 @@ fn suites_share_one_compile_and_one_install_baseline() {
     assert!(passed(&split, "ReadsTheFlag") && flagged(&split, "ReadsTheFlag"));
 }
 
-/// A carry chain (`RequiredTestIsolation = Disabled`, ADR-055) of one writer and `n` readers of what it left that pass
-/// either way: under `--strict-order`, `n` serial sessions, each reader starting from the rows the codeunit before it left (a carried start of its
-/// own: each codeunit inserts a row).
+/// A carry chain (`RequiredTestIsolation = Disabled`, ADR-055) of `n` writers, each inserting a row and setting a
+/// SingleInstance flag of its own, and `n` readers outside the chain (`RequiredTestIsolation = Function`, on the same
+/// TestRunnerHub session) that each read one writer's flag and pass either way. ADR-066 amendment 8: the walk keeps the
+/// single instances for the writers, so only the readers are dependent. Under `--strict-order`, `n` serial sessions, each
+/// replaying its writer from the rows the writers before it left (a carried start of its own, apart from the first).
 fn carry_chain(n: usize) -> String {
     let mut src = String::from(
         r#"
 table 60600 "Lane Carry Row" { fields { field(1; K; Integer) { } } keys { key(PK; K) { Clustered = true; } } }
-codeunit 60600 "Lane Carry Setter"
-{
-    Subtype = Test;
-    RequiredTestIsolation = Disabled;
-    [Test] procedure SetsCarried()
-    var S: Codeunit "Lane State"; R: Record "Lane Carry Row";
-    begin
-        S.SetFlag('left');
-        R.K := 0;
-        R.Insert();
-    end;
-}
 "#,
     );
-    for i in 1..=n {
+    for i in 0..n {
         src.push_str(&format!(
             r#"
-codeunit {} "Lane Carry Reader {i}"
+codeunit {si} "Lane Carry Flag {i}"
+{{
+    SingleInstance = true;
+    procedure SetFlag(V: Text) begin Flag := V; end;
+    procedure GetFlag(): Text begin exit(Flag); end;
+    var Flag: Text;
+}}
+codeunit {w} "Lane Carry Setter {i}"
 {{
     Subtype = Test;
     RequiredTestIsolation = Disabled;
-    [Test] procedure ReadsCarried{i}()
-    var S: Codeunit "Lane State"; R: Record "Lane Carry Row";
+    [Test] procedure SetsCarried{i}()
+    var S: Codeunit "Lane Carry Flag {i}"; R: Record "Lane Carry Row";
     begin
+        S.SetFlag('left');
         R.K := {i};
         R.Insert();
+    end;
+}}
+codeunit {r} "Lane Carry Reader {n1}"
+{{
+    Subtype = Test;
+    RequiredTestIsolation = Function;
+    [Test] procedure ReadsCarried{n1}()
+    var S: Codeunit "Lane Carry Flag {i}";
+    begin
         if StrLen(S.GetFlag()) > 10 then Error('flag is %1', S.GetFlag());
     end;
 }}
 "#,
-            60600 + i
+            si = 60660 + i,
+            w = 60600 + i,
+            r = 60631 + i,
+            n1 = i + 1,
         ));
     }
     src
@@ -800,10 +810,15 @@ fn carried_starts_are_written_when_a_session_needs_them_and_freed_after() {
         let t = format!("ReadsCarried{i}");
         assert!(passed(&rt, &t) && flagged(&rt, &t), "{t}: {:?}", rt.results());
     }
+    // The writers are chain members: the walk ran them with the single instances kept (amendment 8), not flagged.
+    for i in 0..READERS {
+        assert!(!flagged(&rt, &format!("SetsCarried{i}")));
+    }
     let lane = &rt.phases.chain.single_lane;
     assert_eq!((lane.rerun, lane.chains), (READERS, READERS), "{:?}", lane);
     if lane.threads > 1 {
-        assert!(lane.starts_written >= READERS, "{:?}", lane);
+        // Every writer but the first replays from a carried start.
+        assert!(lane.starts_written >= READERS - 1, "{:?}", lane);
         assert!(lane.starts_peak <= lane.threads, "{:?}", lane);
     }
 }
@@ -842,12 +857,11 @@ codeunit 60702 "Lane Shared W2"
 codeunit {} "Lane Shared Reader {i}"
 {{
     Subtype = Test;
-    RequiredTestIsolation = Disabled;
+    RequiredTestIsolation = Function;
     [Test] procedure ReadsShared{i}()
     var S: Codeunit "Lane State"; A: Codeunit "Lane Alone"; R: Record "Lane Shared Row"; Seed: Record "Lane Setting";
     begin
         Seed.Get('SEEDED');
-        R.Get(2);
         R.K := {};
         R.Insert();
         if (StrLen(S.GetFlag()) > 10) or (A.Get() > 10) then Error('flag is %1', S.GetFlag());
@@ -881,8 +895,8 @@ fn a_carried_start_that_sessions_share_is_made_once() {
     let lane = &rt.phases.chain.single_lane;
     assert_eq!((lane.rerun, lane.chains), (READERS, READERS), "{:?}", lane);
     if lane.threads > 1 {
-        // Three codeunits of each session start from a carried start (72 asks); there are 3 + READERS carries.
-        assert!(lane.starts_written <= 3 + READERS, "{:?}", lane);
+        // W1 and W2 of each session start from a carried start (48 asks); there are 3 carries.
+        assert!(lane.starts_written <= 3, "{:?}", lane);
         // Each as the rows it holds apart from the start before it, none whole.
         assert_eq!(lane.starts_whole, 0, "{:?}", lane);
     }
@@ -1047,4 +1061,237 @@ fn a_rerun_whose_chain_is_over_max_replay_is_skipped_and_flagged_unless_strict_o
     assert!(passed(&rt, "NeedsTheChain"), "{:?}", rt.results());
     assert!(!rerun_skipped(&rt, "NeedsTheChain"));
     assert!(rt.phases.chain.single_lane.skipped.is_empty());
+}
+
+/// ADR-066 amendment 8: the carry chain's walk keeps the SingleInstance state from member to
+/// member of a BC session, as BC's one test-runner session does (P7: codeunits/TestCuP7BReader.al:24-37 against
+/// TestCuP7ASetter.al:24-58). A chain member that reads what the member before it left passes in the walk itself:
+/// no serial re-run, and its result is the run in BC's order.
+#[test]
+fn a_chain_member_sees_the_single_instance_state_the_member_before_it_left() {
+    let src = r#"
+codeunit 60700 "Chain SI Setter"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure ChainSetsTheFlag() var S: Codeunit "Lane State"; begin S.SetFlag('left'); end;
+}
+codeunit 60701 "Chain SI Reader"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure ChainReadsTheFlag()
+    var S: Codeunit "Lane State";
+    begin
+        if S.GetFlag() <> 'left' then Error('flag is %1', S.GetFlag());
+    end;
+}
+"#;
+    let opts = RunOptions {
+        required_isolation: true,
+        ..Default::default()
+    };
+    let rt = runtime_opts(src, STATE, &opts);
+    assert!(passed(&rt, "ChainReadsTheFlag"), "{:?}", rt.results());
+    let chain = &rt.phases.chain;
+    assert_eq!((chain.singles_kept, chain.singles_read_carried), (2, 1), "{:?}", chain);
+    assert_eq!(chain.single_lane.rerun, 0, "{:?}", chain.single_lane);
+}
+
+/// A carry chain member that reports what it found in the flag of "Lane State", then leaves `sets` in it and fails with
+/// "saw [<what it found>]". SingleInstance state is not rolled back with the failure, so the failed test hands it on
+/// (ADR-066 amendment 8, decision 2).
+fn chain_reporter(id: u32, extra: &str, sets: &str) -> String {
+    format!(
+        r#"
+codeunit {id} "Chain Reporter {id}"
+{{
+    Subtype = Test;
+    {extra}
+    [Test] procedure Reports{id}()
+    var S: Codeunit "Lane State"; Saw: Text;
+    begin
+        Saw := S.GetFlag();
+        S.SetFlag('{sets}');
+        Error('saw [%1]', Saw);
+    end;
+}}
+"#
+    )
+}
+
+/// As [`chain_reporter`], but passes when it found `expect` (a failed Disabled codeunit before a codeunit that reads
+/// a table it may have written leaves that codeunit not run, `corpus.rs`).
+fn chain_checker(id: u32, extra: &str, expect: &str, sets: &str) -> String {
+    chain_reporter(id, extra, sets).replace(
+        "Error('saw [%1]', Saw);",
+        &format!("if Saw <> '{expect}' then Error('saw [%1]', Saw);"),
+    )
+}
+
+/// The failure text of test `test`.
+fn failure(rt: &CorpusRuntime, test: &str) -> String {
+    match rt.results().iter().find(|r| r.test == test).map(|r| &r.outcome) {
+        Some(Outcome::Fail(m)) => m.clone(),
+        other => panic!("{test}: {other:?}"),
+    }
+}
+
+const DISABLED: &str = "RequiredTestIsolation = Disabled;";
+
+/// ADR-066 amendment 8, decision 2: the walk hands the single instances from member to member of one BC session, and
+/// a failed test hands its state on as on BC. The third member sees what the second left, the second what the first left.
+#[test]
+fn a_failed_chain_member_hands_its_single_instance_state_on() {
+    let src = [
+        chain_reporter(60710, DISABLED, "one"),
+        chain_reporter(60711, DISABLED, "two"),
+        chain_reporter(60712, DISABLED, "three"),
+    ]
+    .concat();
+    let opts = RunOptions {
+        required_isolation: true,
+        ..Default::default()
+    };
+    let rt = runtime_opts(&src, STATE, &opts);
+    assert_eq!(failure(&rt, "Reports60710"), "saw []");
+    assert_eq!(failure(&rt, "Reports60711"), "saw [one]");
+    assert_eq!(failure(&rt, "Reports60712"), "saw [two]");
+    for t in ["Reports60710", "Reports60711", "Reports60712"] {
+        assert!(!flagged(&rt, t), "{t}");
+    }
+    assert_eq!(
+        rt.phases.chain.single_lane.rerun, 0,
+        "{:?}",
+        rt.phases.chain.single_lane
+    );
+}
+
+/// ADR-066 amendment 8, decision 2: a new BC session starts with fresh single instances. A Disabled codeunit runs on
+/// the TestRunnerHub, a codeunit whose OnRun writes a table under runner 130450 (`Unit::carry`); both are chain
+/// members of different BC sessions (amendment 6, `single_lane.rs` `streams`). Two of each, so each session is watched:
+/// the second of a session sees what the first left, the first of a session sees fresh state.
+#[test]
+fn a_chain_member_of_another_hub_leg_starts_with_fresh_single_instances() {
+    let on_run =
+        |k: u32| format!("trigger OnRun() var R: Record \"Chain Leg Row\"; begin R.K := {k}; R.Insert(); end;");
+    let src = format!(
+        "table 60720 \"Chain Leg Row\" {{ fields {{ field(1; K; Integer) {{ }} }} keys {{ key(PK; K) {{ Clustered = true; }} }} }}\n{}{}{}{}",
+        chain_checker(60721, DISABLED, "", "hub"),
+        chain_reporter(60722, &on_run(1), "runner"),
+        chain_checker(60723, DISABLED, "hub", "hub2"),
+        chain_reporter(60724, &on_run(2), "runner2"),
+    );
+    let opts = RunOptions {
+        required_isolation: true,
+        ..Default::default()
+    };
+    let rt = runtime_opts(&src, STATE, &opts);
+    let members: Vec<u32> = rt.phases.chain.members.iter().map(|m| m.id).collect();
+    for id in 60721..=60724 {
+        assert!(members.contains(&id), "{id}: {members:?}");
+    }
+    assert!(
+        passed(&rt, "Reports60721") && passed(&rt, "Reports60723"),
+        "{:?}",
+        rt.results()
+    );
+    assert_eq!(failure(&rt, "Reports60722"), "saw []");
+    assert_eq!(failure(&rt, "Reports60724"), "saw [runner]");
+}
+
+/// ADR-066 amendment 8, decision 2 (amendment 6: a suite is a BC session of its own): the first member of the second
+/// suite starts with fresh single instances, although the walk ran the first suite's members just before it.
+#[test]
+fn a_chain_member_of_the_next_suite_starts_with_fresh_single_instances() {
+    let rt = CorpusRuntime::try_run_suites_with(
+        vec![
+            app(
+                "first",
+                &["base"],
+                &[
+                    chain_reporter(60730, DISABLED, "first"),
+                    chain_reporter(60732, DISABLED, "first2"),
+                ]
+                .concat(),
+            ),
+            app(
+                "second",
+                &["base"],
+                &[
+                    chain_reporter(60731, DISABLED, "second"),
+                    chain_reporter(60733, DISABLED, "second2"),
+                ]
+                .concat(),
+            ),
+            app("base", &[], STATE),
+        ],
+        vec![
+            al_sema::AppKind::Workspace,
+            al_sema::AppKind::Workspace,
+            al_sema::AppKind::Dependency,
+        ],
+        &[manifest("Me"), manifest("Me"), manifest("Microsoft")],
+        &Default::default(),
+        None,
+        Default::default(),
+        &[
+            SuiteRun {
+                name: "first".into(),
+                app: Some(0),
+                runner: None,
+            },
+            SuiteRun {
+                name: "second".into(),
+                app: Some(1),
+                runner: None,
+            },
+        ],
+        &RunOptions {
+            required_isolation: true,
+            ..Default::default()
+        },
+    )
+    .expect("the run starts");
+    assert_eq!(failure(&rt, "Reports60730"), "saw []");
+    assert_eq!(failure(&rt, "Reports60732"), "saw [first]");
+    assert_eq!(failure(&rt, "Reports60731"), "saw []");
+    assert_eq!(failure(&rt, "Reports60733"), "saw [second]");
+}
+
+/// ADR-066 amendment 8, decision 2 (R3 of amendment 3): a member with a test refused while it ran hands nothing on, so
+/// the next member starts with fresh single instances; the member after that sees what the fresh one left.
+#[test]
+fn the_chain_member_after_a_test_refused_while_it_ran_starts_with_fresh_single_instances() {
+    let refusing = r#"
+codeunit 60741 "Chain Refusing Member"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure SetsThenIsRefused1() var S: Codeunit "Lane State"; begin S.SetFlag('refusing'); end;
+    [Test] procedure SetsThenIsRefused2() begin Sleep(-1); end;
+}
+"#;
+    let src = [
+        chain_reporter(60740, DISABLED, "first"),
+        refusing.to_string(),
+        chain_reporter(60742, DISABLED, "after"),
+        chain_reporter(60743, DISABLED, "last"),
+    ]
+    .concat();
+    let opts = RunOptions {
+        required_isolation: true,
+        ..Default::default()
+    };
+    let rt = runtime_opts(&src, STATE, &opts);
+    assert!(
+        rt.results()
+            .iter()
+            .any(|r| r.test == "SetsThenIsRefused2" && matches!(r.outcome, Outcome::NotRun(_))),
+        "{:?}",
+        rt.results()
+    );
+    assert_eq!(failure(&rt, "Reports60740"), "saw []");
+    assert_eq!(failure(&rt, "Reports60742"), "saw []");
+    assert_eq!(failure(&rt, "Reports60743"), "saw [after]");
 }
