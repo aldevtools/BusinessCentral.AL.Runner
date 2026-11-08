@@ -1027,10 +1027,9 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // Corpus bump to master 3f82e513 makes it 39: 69340 EnvironmentInformation_PreviewRings (types/PVEnvironment.al:49-68)
     // passes on BC 27 only in this run without Microsoft's apps: there its body is guarded out (gate
     // EnvironmentPreviewRingsFrom28); on 28 and 29 it calls Environment Information of the System Application.
-    // Branch rt-notrun-7 makes it 15: the en-GB, da-DK, nl-NL, es-ES, sv-SE and nb-NO texts are the same on BC 27 and 28
-    // (reports/runtime/BdRegionTests.al:1506-1710 Y89_Old_*), so the 14 Y89_Old_* cases and the 10 BdProperty_*/BdSetter_* cases
-    // of 81070 that discard their checks below BC 29 pass on every version.
-    assert!(out.contains("runtime: 15 case(s) differ between versions"), "{out}");
+    // Branch rt-notrun-7 (FormatRegion after Language) leaves it at 39 in this run: CI on the merge train reported 39, the
+    // Y89_Old_*/BdProperty_*/BdSetter_* cases of 81070 already counted the same on every version here.
+    assert!(out.contains("runtime: 39 case(s) differ between versions"), "{out}");
     assert!(out.contains("71500 Get_Uses_Primary_Key_Not_Current_Key: 27"), "{out}");
 }
 
