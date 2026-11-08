@@ -207,3 +207,43 @@ the refusal. Test: `report_no_output_in_the_company_build_save_as_pdf_to_a_file_
 - A catalog audit test in `al-builtins` (stream, blob and file builtins versus the table).
 - The assumption registry test (ids checked by the compiler) for `report-render-discarded`.
 - Bucket comparison: `--baseline-diff` before and after; flagged passes listed.
+
+## Amendment 2026-11-08: a placeholder PDF (Accepted, owner 2026-11-08)
+
+### Decision
+
+`Report.SaveAs(.., ReportFormat::Pdf, ..)`, `Report.SaveAsPdf` (by number and on a variable) and `TestRequestPage.SaveAsPdf`
+in a request page handler succeed for a report whose default layout is RDLC or Word, and write a small valid placeholder
+PDF: a `%PDF-1.4` header, a catalog, a page tree and one blank page (`al-vm/src/report_pdf_placeholder.rs`). This
+applies to every such report, not only to the allow-list of section 3. There is no rendering parity and no layout work.
+
+What runs is the Xml path (section 2): request parameters, data items, triggers, reportextension triggers, and errors
+reaching the caller as there. Only the output bytes are a placeholder. The render-stage errors of section 6 stay and run
+first. The Pdf of a processing-only report goes on to its pinned answer (false, `ReportProcessingOnly`).
+
+### What it means
+
+- The PDF content does not match BC. Only "it exists, it is a PDF, its length is > 0" is meant to match. Anything a
+  test reads beyond that (an exact length, a page count, text in the PDF) is unpinned. A corpus case that asserts more
+  than that stays refused or is listed as not passing; it is never counted as evidence for this path.
+- The default layout type decides: `rdlc` or `word` (`ir::Report::default_layout_kind`: the `Type` of the
+  `DefaultRenderingLayout`, else `DefaultLayout`, else `rdlc` when the only layout declared is RDLC). An Excel or
+  Custom default, or a report whose layout cannot be told, keeps the refusal (or the custom-layout path).
+- BC raises the layout events of `Reporting Triggers` around a render (SubstituteReport, SelectReportLayoutCode,
+  HasCustomLayout, SelectedBuiltinLayoutType, ApplicationReportMergeStrategy, OnDocumentReady, and others). The
+  placeholder raises none of them. A save is refused while a subscriber the test can see listens to one of them, or to
+  the integration events Base Application's ReportManagement raises from them (OnAfterSubstituteReport and others).
+  "Can see" is the rule of `Registry::unraised_subscriber` (decided without owner review 2026-10-19 for
+  CaptionClassTranslate): the test names the subscriber's codeunit or a SingleInstance codeunit the subscriber holds.
+  Base Application's ReportManagement subscribers only pick a layout.
+- One assumption id `report-pdf-placeholder`, marked each time the path writes; a test through it is a flagged pass.
+  A probe on a Windows tier (RDLC and Word report to a stream and a file, a subscriber logging the layout events) is
+  queued; when it lands it wins.
+- For a report on the allow-list, a Pdf save with an RDLC or Word layout now writes the placeholder instead of
+  marking the target as pending. Excel, Word and Html saves of a listed report keep the no-output path, and so does a
+  SaveAsPdf to a file in the company build.
+
+### Evidence
+
+About 215 Microsoft test methods (BC 29) reach a PDF save, most through `Library - Post Inventory to G/L`.PostInvtCostToGL
+or through request page handlers. None reads the PDF bytes; 2 need a non-empty file and 2 need the file to exist.

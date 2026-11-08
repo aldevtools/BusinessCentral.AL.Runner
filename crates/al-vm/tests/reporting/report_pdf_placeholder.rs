@@ -1,0 +1,311 @@
+//! ADR-040 amendment (owner, 2026-11-08): a Pdf save of a report with an RDLC or Word layout runs the report exactly as
+//! the Xml path does and writes a small placeholder PDF (a `%PDF-` header and one blank page). The bytes are not BC's;
+//! only "it exists, it is a PDF, it is not empty" is meant to be read. The path marks the assumption
+//! `report-pdf-placeholder`, so a test that passes through it is a flagged pass.
+
+use al_builtins::assumptions::{self, Assumption};
+use al_builtins::native::Signal;
+use al_builtins::value::Value;
+use al_testkit::Built;
+
+const SRC: &str = r#"
+table 50950 "RPP Row"
+{
+    fields { field(1; Id; Integer) { } field(2; Data; Blob) { } }
+    keys { key(PK; Id) { } }
+}
+
+codeunit 50951 "RPP Log"
+{
+    SingleInstance = true;
+    var Entries: Text;
+    procedure Add(Entry: Text) begin Entries += Entry + ';'; end;
+    procedure Take(): Text var Result: Text; begin Result := Entries; Entries := ''; exit(Result); end;
+}
+
+report 50952 "RPP Rdlc"
+{
+    UsageCategory = None;
+    DefaultLayout = RDLC;
+    RDLCLayout = 'RppRdlc.rdl';
+    dataset
+    {
+        dataitem(T; "RPP Row")
+        {
+            column(Id; Id) { }
+            trigger OnAfterGetRecord() var L: Codeunit "RPP Log"; begin L.Add('row' + Format(T.Id)); end;
+        }
+    }
+    trigger OnInitReport() var L: Codeunit "RPP Log"; begin L.Add('init'); end;
+    trigger OnPreReport() var L: Codeunit "RPP Log"; begin L.Add('pre'); end;
+    trigger OnPostReport() var L: Codeunit "RPP Log"; begin L.Add('post'); end;
+}
+
+report 50953 "RPP Word"
+{
+    UsageCategory = None;
+    DefaultRenderingLayout = WordOne;
+    dataset
+    {
+        dataitem(T; "RPP Row")
+        {
+            column(Id; Id) { }
+            trigger OnAfterGetRecord() var L: Codeunit "RPP Log"; begin L.Add('row' + Format(T.Id)); end;
+        }
+    }
+    rendering
+    {
+        layout(WordOne) { Type = Word; LayoutFile = 'RppWord.docx'; }
+    }
+}
+
+report 50954 "RPP Excel"
+{
+    UsageCategory = None;
+    DefaultRenderingLayout = ExcelOne;
+    dataset { dataitem(T; "RPP Row") { column(Id; Id) { } } }
+    rendering
+    {
+        layout(ExcelOne) { Type = Excel; LayoutFile = 'RppExcel.xlsx'; }
+    }
+}
+
+report 50955 "RPP Failing"
+{
+    UsageCategory = None;
+    DefaultLayout = RDLC;
+    RDLCLayout = 'RppFailing.rdl';
+    dataset { dataitem(T; "RPP Row") { column(Id; Id) { } } }
+    trigger OnPreReport() begin Error('stop in pre'); end;
+}
+
+report 50958 "RPP Processing"
+{
+    UsageCategory = None;
+    ProcessingOnly = true;
+    dataset { dataitem(T; "RPP Row") { trigger OnAfterGetRecord() var L: Codeunit "RPP Log"; begin L.Add('row'); end; } }
+}
+
+codeunit 50956 "RPP Tests"
+{
+    local procedure Seed()
+    var R: Record "RPP Row";
+    begin
+        R.DeleteAll();
+        R.Id := 1; R.Insert();
+        R.Id := 2; R.Insert();
+    end;
+
+    local procedure Head(var R: Record "RPP Row"): Text
+    var InS: InStream; C: Char; I: Integer; Result: Text;
+    begin
+        R.CalcFields(Data);
+        R.Data.CreateInStream(InS);
+        for I := 1 to 5 do begin
+            InS.Read(C);
+            Result += Format(C);
+        end;
+        exit(Result);
+    end;
+
+    procedure ToStream(): Text
+    var L: Codeunit "RPP Log"; R: Record "RPP Row"; Out: OutStream; Ok: Boolean;
+    begin
+        Seed();
+        R.Id := 9;
+        R.Data.CreateOutStream(Out);
+        Ok := Report.SaveAs(Report::"RPP Rdlc", '', ReportFormat::Pdf, Out);
+        R.Insert();
+        exit(Format(Ok) + '|' + L.Take() + '|' + Format(R.Data.HasValue()) + '|' + Head(R));
+    end;
+
+    procedure ToStreamOnAVariable(): Text
+    var L: Codeunit "RPP Log"; R: Record "RPP Row"; Rep: Report "RPP Rdlc"; Out: OutStream; Ok: Boolean;
+    begin
+        Seed();
+        R.Id := 9;
+        R.Data.CreateOutStream(Out);
+        Ok := Rep.SaveAs('', ReportFormat::Pdf, Out);
+        R.Insert();
+        exit(Format(Ok) + '|' + L.Take() + '|' + Head(R));
+    end;
+
+    procedure ToFile(): Text
+    var L: Codeunit "RPP Log"; F: File; Ok: Boolean; Len: Integer;
+    begin
+        Seed();
+        Ok := Report.SaveAsPdf(Report::"RPP Rdlc", 'out/a.pdf');
+        F.Open('out/a.pdf');
+        Len := F.Len();
+        F.Close();
+        exit(Format(Ok) + '|' + L.Take() + '|' + Format(Exists('out/a.pdf')) + '|' + Format(Len > 0));
+    end;
+
+    procedure ToFileOnAVariable(): Text
+    var L: Codeunit "RPP Log"; Rep: Report "RPP Rdlc"; Ok: Boolean;
+    begin
+        Seed();
+        Ok := Rep.SaveAsPdf('out/b.pdf');
+        exit(Format(Ok) + '|' + L.Take() + '|' + Format(Exists('out/b.pdf')));
+    end;
+
+    procedure WordLayout(): Text
+    var L: Codeunit "RPP Log"; R: Record "RPP Row"; Out: OutStream; Ok: Boolean;
+    begin
+        Seed();
+        R.Id := 9;
+        R.Data.CreateOutStream(Out);
+        Ok := Report.SaveAs(Report::"RPP Word", '', ReportFormat::Pdf, Out);
+        R.Insert();
+        exit(Format(Ok) + '|' + L.Take() + '|' + Head(R));
+    end;
+
+    procedure ExcelLayout()
+    var R: Record "RPP Row"; Out: OutStream;
+    begin
+        R.Data.CreateOutStream(Out);
+        Report.SaveAs(Report::"RPP Excel", '', ReportFormat::Pdf, Out);
+    end;
+
+    procedure WordFormat()
+    var R: Record "RPP Row"; Out: OutStream;
+    begin
+        R.Data.CreateOutStream(Out);
+        Report.SaveAs(Report::"RPP Rdlc", '', ReportFormat::Word, Out);
+    end;
+
+    procedure ProcessingOnly(): Text
+    var L: Codeunit "RPP Log"; R: Record "RPP Row"; Out: OutStream; Ok: Boolean;
+    begin
+        Seed();
+        R.Data.CreateOutStream(Out);
+        Ok := Report.SaveAs(Report::"RPP Processing", '', ReportFormat::Pdf, Out);
+        exit(Format(Ok) + '|' + GetLastErrorText() + '|' + L.Take());
+    end;
+
+    procedure TriggerError(): Text
+    var R: Record "RPP Row"; Out: OutStream;
+    begin
+        R.Data.CreateOutStream(Out);
+        asserterror Report.SaveAs(Report::"RPP Failing", '', ReportFormat::Pdf, Out);
+        exit(GetLastErrorText());
+    end;
+}
+"#;
+
+const SUBSCRIBER: &str = r#"
+codeunit 50957 "RPP Layout Subscriber"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Reporting Triggers", 'SelectReportLayoutCode', '', false, false)]
+    local procedure OnSelect(ObjectId: Integer; var LayoutCode: Text; var LayoutType: Option "None",RDLC,Word,Excel,Custom; var Success: Boolean)
+    begin
+    end;
+}
+"#;
+
+fn run(src: &str, proc: &str) -> Result<Value, Signal> {
+    Built::from_source(src).run_in("RPP Tests", proc)
+}
+
+#[test]
+fn report_pdf_placeholder_save_as_pdf_to_a_stream_runs_the_report_and_writes_a_pdf() {
+    assumptions::clear_hits();
+    assert_eq!(
+        al_testkit::text(run(SRC, "ToStream")),
+        "Yes|init;pre;row1;row2;post;|Yes|%PDF-"
+    );
+    assert!(assumptions::take_hits().contains(&Assumption::ReportPdfPlaceholder));
+}
+
+#[test]
+fn report_pdf_placeholder_the_variable_form_writes_a_pdf_too() {
+    assert_eq!(
+        al_testkit::text(run(SRC, "ToStreamOnAVariable")),
+        "Yes|init;pre;row1;row2;post;|%PDF-"
+    );
+}
+
+#[test]
+fn report_pdf_placeholder_save_as_pdf_to_a_file_writes_a_file_that_exists_and_is_not_empty() {
+    assert_eq!(
+        al_testkit::text(run(SRC, "ToFile")),
+        "Yes|init;pre;row1;row2;post;|Yes|Yes"
+    );
+    assert_eq!(
+        al_testkit::text(run(SRC, "ToFileOnAVariable")),
+        "Yes|init;pre;row1;row2;post;|Yes"
+    );
+}
+
+#[test]
+fn report_pdf_placeholder_a_word_layout_writes_a_pdf() {
+    assert_eq!(al_testkit::text(run(SRC, "WordLayout")), "Yes|row1;row2;|%PDF-");
+}
+
+#[test]
+fn report_pdf_placeholder_an_excel_layout_keeps_the_refusal() {
+    match run(SRC, "ExcelLayout") {
+        Err(Signal::Unsupported(why)) => assert!(why.contains("as Pdf"), "{why}"),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+#[test]
+fn report_pdf_placeholder_other_formats_keep_the_refusal() {
+    match run(SRC, "WordFormat") {
+        Err(Signal::Unsupported(why)) => assert!(why.contains("as Word"), "{why}"),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+// reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:372-388: Pdf of a processing-only report answers false
+// with this text, runs no trigger and writes nothing (also reports/runtime/LtTkShowPrintStatus.al:621 Proc_T_SaveAsPdf).
+#[test]
+fn report_pdf_placeholder_a_processing_only_report_keeps_the_pinned_answer() {
+    assert_eq!(
+        al_testkit::text(run(SRC, "ProcessingOnly")),
+        "No|Report 50958 is a processing-only report. Output cannot be rendered and saved to a file.|"
+    );
+}
+
+#[test]
+fn report_pdf_placeholder_an_error_of_a_trigger_reaches_the_caller_as_on_the_xml_path() {
+    assert_eq!(al_testkit::text(run(SRC, "TriggerError")), "stop in pre");
+}
+
+#[test]
+fn report_pdf_placeholder_a_subscriber_to_a_layout_event_is_refused() {
+    let src = format!("{SRC}{SUBSCRIBER}");
+    match run(&src, "ToStream") {
+        Err(Signal::Unsupported(why)) => assert!(why.contains("SelectReportLayoutCode"), "{why}"),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+#[test]
+fn report_pdf_placeholder_the_bytes_are_a_valid_pdf_with_one_page() {
+    let bytes = al_vm::report_pdf_placeholder::placeholder_pdf();
+    let text = String::from_utf8(bytes.clone()).expect("ascii");
+    assert!(text.starts_with("%PDF-1.4\n"));
+    assert!(text.ends_with("%%EOF\n"));
+    assert_eq!(text.matches("/Type /Page ").count(), 1);
+    // Every offset in the cross-reference table points at its object.
+    let xref = text.find("xref\n").expect("xref");
+    let entries: Vec<usize> = text[xref..]
+        .lines()
+        .skip(3)
+        .take(3)
+        .map(|l| l[..10].parse().expect("offset"))
+        .collect();
+    for (i, at) in entries.iter().enumerate() {
+        assert!(text[*at..].starts_with(&format!("{} 0 obj", i + 1)), "object {}", i + 1);
+    }
+    let start: usize = text
+        .lines()
+        .rev()
+        .nth(1)
+        .expect("startxref value")
+        .parse()
+        .expect("number");
+    assert_eq!(start, xref);
+}

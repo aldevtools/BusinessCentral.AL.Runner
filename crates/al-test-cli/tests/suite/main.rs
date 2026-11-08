@@ -138,6 +138,7 @@ mod readable_messages;
 mod reapply_marks_other_key;
 mod recall_never_sent;
 mod report_handler;
+mod report_request_page_save_as_pdf;
 mod report_run_after_write;
 mod report_run_system_printer_true;
 mod reportext_own_record_controls;
