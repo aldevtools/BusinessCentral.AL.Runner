@@ -8,6 +8,7 @@
 use crate::Session;
 
 mod delta;
+mod install_orders;
 pub use delta::{Delta, DeltaPart, Fingerprint};
 
 /// What a session keeps of the baseline run; see the module comment.

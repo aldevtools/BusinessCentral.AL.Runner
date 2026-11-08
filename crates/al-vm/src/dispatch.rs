@@ -478,6 +478,7 @@ impl Session {
                 if self.inert_in_either_order(s.object, s.routine) {
                     continue;
                 }
+                self.note_order_unknown_hit(app);
                 return unsupported(format!(
                     "event {event}: a subscriber in app {} would run while an app installs that it has no dependency path \
                      to; the install order of the two is not known",

@@ -14,7 +14,6 @@
 //! exactly those tables instead of answered.
 
 use crate::company_data::CompanyData;
-use al_builtins::native::Signal;
 use al_sema::lower::Lowered;
 use al_vm::{Baseline, Engine, Session};
 use std::collections::BTreeSet;
@@ -92,7 +91,7 @@ impl BaselineRun {
     }
 }
 
-fn is_install(o: &al_ir::Object) -> bool {
+pub(crate) fn is_install(o: &al_ir::Object) -> bool {
     o.is_kind(al_ir::ObjKind::Codeunit)
         && o.properties
             .iter()
@@ -106,6 +105,28 @@ pub(crate) fn trigger(o: &al_ir::Object, name: &str) -> Option<usize> {
 }
 
 const ASSUMPTION_NOTE: &str = "the baseline relied on the unprobed assumption ";
+
+/// What the run reports from the baseline notes besides the notes themselves.
+#[derive(Debug, Clone, Default)]
+pub struct NoteFacts {
+    /// [`assumption_ids`].
+    pub assumptions: Vec<String>,
+    /// The lines on partner apps installed in several orders (`install_orders::INSTALL_ORDERS_NOTE`, ADR-046 amendment 7).
+    pub install_orders: Vec<String>,
+}
+
+impl NoteFacts {
+    pub fn of(notes: &[String]) -> NoteFacts {
+        NoteFacts {
+            assumptions: assumption_ids(notes),
+            install_orders: notes
+                .iter()
+                .filter(|n| n.starts_with(crate::install_orders::INSTALL_ORDERS_NOTE))
+                .cloned()
+                .collect(),
+        }
+    }
+}
 
 /// The assumption ids named by the notes of a baseline run (they survive the baseline cache as text).
 pub fn assumption_ids(notes: &[String]) -> Vec<String> {
@@ -201,11 +222,27 @@ pub fn run_traced(
     // The test-toolkit apps install after the application apps (`install::TEST_TOOLKIT_APP_IDS`, ADR-046 amendment 6).
     let toolkit = crate::install::test_toolkit_apps(lowered);
     let mut toolkit_roots: Vec<(usize, usize, bool, bool)> = Vec::new();
+    // Microsoft's apps install before the partner apps (ADR-046 amendment 7, `install_orders.rs`): the partner apps' roots
+    // come after the toolkit's.
+    let view = crate::install::InstallView::new(lowered, false);
+    let under_test = crate::install::apps_under_test(lowered);
+    let late_group = late_apps.clone().unwrap_or_default();
+    let early_group: BTreeSet<u32> = (0..lowered.program.apps.len() as u32)
+        .filter(|a| !under_test.contains(a) && !late_group.contains(a))
+        .collect();
+    let (toolkit_group, app_group): (BTreeSet<u32>, BTreeSet<u32>) =
+        early_group.iter().copied().partition(|a| toolkit.contains(a));
+    let (app_group, partner_group) = crate::install_orders::split_microsoft(lowered, &view, &app_group);
+    let mut partner_roots: Vec<(usize, usize, bool, bool)> = Vec::new();
+    let mut partner_apps: Vec<u32> = Vec::new();
     for app in crate::install::plan(lowered, &engine.events, true) {
         let into = if is_late(app.app) {
             &mut late_roots
         } else if toolkit.contains(&(app.app as u32)) {
             &mut toolkit_roots
+        } else if partner_group.contains(&(app.app as u32)) {
+            partner_apps.push(app.app as u32);
+            &mut partner_roots
         } else {
             &mut roots
         };
@@ -220,6 +257,8 @@ pub fn run_traced(
     // the test-toolkit apps' from `toolkit_from`.
     let toolkit_from = roots.len();
     roots.extend(toolkit_roots);
+    let partner_from = roots.len();
+    roots.extend(partner_roots);
     let early_installs = roots.len();
     let company_initialize = (0..objs.len()).find(|&oi| {
         lowered.dependency[oi]
@@ -288,7 +327,6 @@ pub fn run_traced(
     let mut notes = Vec::new();
     // Per root that stopped: the tables it writes, and whether its rows before the stop are kept.
     let mut stopped: Vec<(BTreeSet<u32>, bool)> = Vec::new();
-    let mut ran = 0;
     al_builtins::assumptions::clear_hits();
     let run_environment = session.environment();
     let company_name = session.set_company("");
@@ -303,25 +341,18 @@ pub fn run_traced(
     // subscriber, no `OnGetPerCompanyUpgradeTags` subscriber answering `SetAllUpgradeTags`). Their per-company install code
     // then sees `HasUpgradeTag` = No for its own tag and no row its `OnCompanyInitialize` subscriber writes
     // (install-upgrade/BfUpgradeTagInstallTests.al:42-43).
-    let under_test = crate::install::apps_under_test(lowered);
     let mut held = late_apps.clone().unwrap_or_default();
     held.extend(under_test.iter().copied());
     session.set_apps_not_installed(Some(held.clone()));
-    // The dependency apps install one at a time as well (`install::InstallView`): the early ones among themselves, then
-    // the late ones among themselves.
-    // Nothing pins the order of two dependency apps that do not depend on each other (`publish_order_known` covers only the
-    // apps under test).
-    let view = crate::install::InstallView::new(lowered, false);
-    let late_group = late_apps.clone().unwrap_or_default();
-    let early_group: BTreeSet<u32> = (0..lowered.program.apps.len() as u32)
-        .filter(|a| !under_test.contains(a) && !late_group.contains(a))
-        .collect();
-    // Application apps first, with the test-toolkit apps not installed yet; then the toolkit apps, with every application app
-    // installed (ADR-046 amendment 6, owner 2026-10-30).
-    let (toolkit_group, app_group): (BTreeSet<u32>, BTreeSet<u32>) =
-        early_group.iter().copied().partition(|a| toolkit.contains(a));
+    // The dependency apps install one at a time as well (`install::InstallView`): Microsoft's application apps, then the
+    // test-toolkit apps with every application app installed (ADR-046 amendment 6, owner 2026-10-30), then the partner
+    // apps with every Microsoft app installed (amendment 7), then the late ones among themselves. Nothing pins the order of
+    // two dependency apps that do not depend on each other (`publish_order_known` covers only the apps under test).
     let mut held_for_apps = held.clone();
     held_for_apps.extend(toolkit_group.iter().copied());
+    held_for_apps.extend(partner_group.iter().copied());
+    let mut held_for_toolkit = held.clone();
+    held_for_toolkit.extend(partner_group.iter().copied());
     if let Some(why) = &company_missing {
         notes.push(format!("{}{why}", crate::company_data::BLOCKED_NOTE));
     }
@@ -329,14 +360,43 @@ pub fn run_traced(
     if company.is_some_and(|c| c.evaluation_company) {
         session.mark_evaluation_company();
     }
-    let mut steps_built = 0;
-    let mut step_failed = false;
-    for (k, &(oi, ri, keep_prefix, no_company)) in roots.iter().enumerate() {
-        let app = objs[oi].app;
+    let mut st = crate::baseline_roots::RootRun {
+        lowered,
+        roots: &roots,
+        company_roots: &company_roots,
+        company_initialize_root,
+        no_client: no_client.then_some((no_client_from, no_client_to)),
+        company_name: company_name.clone(),
+        notes: &mut notes,
+        stopped: &mut stopped,
+        ran: 0,
+        steps_built: 0,
+        step_failed: false,
+        refused: Vec::new(),
+    };
+    let mut k = 0;
+    while k < roots.len() {
+        if k == partner_from && partner_from < early_installs {
+            let group = crate::install_orders::PartnerGroup {
+                view: &view,
+                group: partner_group.clone(),
+                held: held.clone(),
+                apps: partner_apps.clone(),
+            };
+            let mut inst = crate::baseline_roots::DependencyInstalls {
+                run: &mut st,
+                from: partner_from,
+                to: early_installs,
+            };
+            crate::install_orders::install_partner_apps(lowered, &mut session, &group, &mut inst);
+            k = early_installs;
+            continue;
+        }
+        let app = objs[roots[k].0].app;
         if k < toolkit_from {
             view.apply(&mut session, app, &app_group, &held_for_apps);
         } else if k < early_installs {
-            view.apply(&mut session, app, &toolkit_group, &held);
+            view.apply(&mut session, app, &toolkit_group, &held_for_toolkit);
         } else if late_from.is_some_and(|f| k >= f) {
             view.apply(&mut session, app, &late_group, &under_test);
         } else {
@@ -344,91 +404,15 @@ pub fn run_traced(
             session.set_apps_not_installed(Some(held.clone()));
             session.set_apps_install_order_unknown(None);
         }
-        let is_step = company_roots.contains(&k);
-        if is_step && step_failed {
-            // BCApps' script stops at the step that failed; the company is blocked already.
-            continue;
-        }
-        if is_step && company_roots.first() != Some(&k) {
-            // Each step is a session of its own (`Invoke-NavContainerCodeunit`): SingleInstance state starts again.
-            session.reset_single_instances();
-        }
-        let without_client =
-            no_client && no_client_from.is_some_and(|f| f <= k) && no_client_to.is_some_and(|t| k <= t);
-        session.set_no_client(without_client);
-        // An app's install code runs in BC's install session, which has no client (`Session::set_install_without_client`);
-        // Company-Initialize and the company build keep their own rules.
-        session.set_install_without_client(!is_step && company_initialize_root != Some(k));
-        let label = format!("{}.{}", objs[oi].name, objs[oi].routines[ri].name);
-        if no_company {
-            session.set_company("");
-        }
-        session.clear_fault_site();
-        // A Message while the company is built goes to the run log (`company_data::MESSAGE_NOTE`).
-        if is_step {
-            session.capture_messages();
-            session.set_company_build(true);
-        }
-        let called = if is_install(&objs[oi]) || keep_prefix {
-            let inst = session.instance(oi);
-            session.call(oi, ri, inst, Vec::new()).map(|_| ())
-        } else {
-            session.call_parameterless_subscriber(oi, ri)
-        };
-        session.set_no_client(false);
-        session.set_install_without_client(false);
-        if is_step {
-            session.set_company_build(false);
-            for m in session.stop_capturing_messages() {
-                notes.push(format!("{}{m}", crate::company_data::MESSAGE_NOTE));
-            }
-        }
-        let why = match called {
-            Ok(_) => None,
-            // Where it stopped: the innermost routine and its source position.
-            Err(Signal::Unsupported(r)) => Some(match session.fault_site().last() {
-                Some(f) => {
-                    let at = crate::explain::describe(&lowered.program, f.object, f.routine, f.pos);
-                    format!("{r} [in {} at {}]", at.who, at.at)
-                }
-                None => r,
-            }),
-            Err(Signal::Error(e)) => Some(format!("failed with an error: {}", e.message)),
-            Err(_) => None,
-        };
-        session.set_company(&company_name);
-        match why {
-            None => {
-                ran += 1;
-                steps_built += usize::from(is_step);
-                session.commit_transaction();
-            }
-            Some(why) => {
-                if keep_prefix {
-                    session.commit_transaction();
-                } else {
-                    session.rollback_transaction();
-                }
-                if is_step {
-                    step_failed = true;
-                    notes.push(format!(
-                        "{}{label} did not run to its end: {why}",
-                        crate::company_data::BLOCKED_NOTE
-                    ));
-                } else {
-                    notes.push(format!(
-                        "{label} did not run to its end{}: {why}",
-                        if keep_prefix {
-                            " (the rows before it are kept)"
-                        } else {
-                            ""
-                        }
-                    ));
-                }
-                stopped.push((tables_written(lowered, oi, ri), keep_prefix));
-            }
-        }
+        st.run_root(&mut session, k);
+        k += 1;
     }
+    let crate::baseline_roots::RootRun {
+        ran,
+        steps_built,
+        refused: order_refused,
+        ..
+    } = st;
     let company_built = !company_roots.is_empty() && steps_built == company_roots.len();
     session.set_apps_not_installed(None);
     session.set_apps_install_order_unknown(None);
@@ -451,7 +435,10 @@ pub fn run_traced(
     }
     // The workspace app's own install codeunits run here, once, so that the data they write is part of what every
     // test codeunit starts from (publishing the app runs them once; they are not re-run for each codeunit).
-    let workspace_installs = crate::runtime::run_install_codeunits(lowered, &mut session);
+    let mut workspace_installs = crate::runtime::run_install_codeunits(lowered, &mut session);
+    // Tables whose rows depend on the install order of two partner dependency apps (ADR-046 amendment 7): a test that
+    // touches one is not run, as for an app under test's install routine that could not run.
+    workspace_installs.extend(order_refused);
     let restored = session.restored_changes();
     let trace = trace.then(|| crate::impact_trace::keys(&lowered.program, &session.take_impact_trace()));
     session.set_install_scope(false);
