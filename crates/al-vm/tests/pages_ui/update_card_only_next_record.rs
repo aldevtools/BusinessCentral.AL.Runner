@@ -1,6 +1,6 @@
 //! CurrPage.Update(false) from a field's OnAssistEdit on a Card that declares OnNextRecord and OnAfterGetCurrRecord but no
 //! OnFindRecord keeps the card on its row (al-runner issue 7268). Pinned by corpus pull request 1199 (measured on real BC 27.5,
-//! 28.5 and 29.0, not yet on master): pages/currpage/UpdateOnFindRecord.al:357 CurrPage_Update_CardWithOnlyOnNextRecord_KeepsCurrentRow
+//! 28.5 and 29.0): pages/currpage/UpdateOnFindRecord.al:357 CurrPage_Update_CardWithOnlyOnNextRecord_KeepsCurrentRow
 //! (page :376). Only the row is pinned; the trigger order of the refresh is an assumption. A list, and a card with unsaved
 //! edits, stay refused.
 

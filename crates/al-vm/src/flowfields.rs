@@ -730,11 +730,6 @@ impl Session {
                 if calc.negate && !signed_record_id {
                     return unsupported("a sign on min, max or lookup");
                 }
-                if calc.negate {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::SignedRecordIdLookupUnchanged,
-                    );
-                }
                 // Lookup reads the first matching row in primary key order (corpus
                 // record/TestCalcFieldsTruncateUniqueContracts.al:
                 // CalcFields_Lookup_OverSeveralRows_ReadsTheFirstInPrimaryKeyOrder), so it

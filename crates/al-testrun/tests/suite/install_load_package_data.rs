@@ -336,3 +336,66 @@ fn load_package_data_inside_a_used_try_function_loads() {
     });
     assert_eq!(out, Outcome::Pass);
 }
+
+/// TRY_SRC with the table shared (`DataPerCompany = false`) or the load in the per-database part.
+fn parts_src(shared: bool, trigger: &str) -> String {
+    TRY_SRC
+        .replacen(
+            "table 50200 \"LD Row\"\n{\n",
+            &format!("table 50200 \"LD Row\"\n{{\n    DataPerCompany = {};\n", !shared),
+            1,
+        )
+        .replacen("OnInstallAppPerCompany", trigger, 1)
+}
+
+/// A per-company table cannot be read in the per-database part (CompanyName() is empty), so the load runs unguarded.
+fn unguarded(src: String) -> String {
+    src.replacen(
+        "if Row.IsEmpty() then\n            if not TryLoad()",
+        "if not TryLoad()",
+        1,
+    )
+}
+
+fn run_parts(src: String, app: &str) -> Outcome {
+    let apps = vec![AppSource {
+        id: format!("11111111-1111-1111-1111-11111111{app}"),
+        name: "LD".into(),
+        dependencies: Vec::new(),
+        files: vec![("f.al".into(), src)],
+    }];
+    let manifest = al_testrun::runtime::Manifest {
+        package_data: true,
+        package_data_files: vec![(
+            "TAB50200.navxdata".into(),
+            data_file(&[("A1", "alpha", 5, D2022, 1), ("B2", "", -3, D1753, 2)]),
+        )],
+        ..Default::default()
+    };
+    let kinds = vec![al_sema::AppKind::Workspace];
+    let rt = CorpusRuntime::run_for_apps(apps, kinds, &[manifest], &Default::default(), None, Default::default());
+    rt.first_outcome(&CaseId {
+        codeunit: 50201,
+        name: "Rows".into(),
+    })
+}
+
+/// A shared table loaded from OnInstallAppPerCompany loads its rows into the shared table (corpus
+/// install-upgrade/install-triggers/PkgDataParts.al:40-42, LoadPackageData_SharedTableInCompanyPart: `load returned`,
+/// rows `S1=one;S2=two;`).
+#[test]
+fn a_shared_table_loads_from_the_per_company_part() {
+    let out = run_parts(parts_src(true, "OnInstallAppPerCompany"), "6653");
+    assert_eq!(out, Outcome::Pass);
+}
+
+/// A per-company table loaded from OnInstallAppPerDatabase fails the publish of the app on BC (PkgDataParts.al:5,
+/// tests/al-language-xapp-a/PkgDataPartsFixture.al:4); the error text is not pinned, so the install is refused.
+#[test]
+fn a_per_company_table_from_the_per_database_part_is_refused() {
+    let out = run_parts(unguarded(parts_src(false, "OnInstallAppPerDatabase")), "6654");
+    match out {
+        Outcome::NotRun(why) => assert!(why.contains("fails the publish"), "{why}"),
+        other => panic!("{other:?}"),
+    }
+}

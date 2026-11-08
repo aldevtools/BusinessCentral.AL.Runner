@@ -3007,7 +3007,7 @@ impl Session {
                         "CurrPage.Update on a page with OnFindRecord and row triggers (re-anchoring not pinned; {why})"
                     ));
                 }
-                self.assume_card_refresh(st, only_next);
+                self.assume_card_refresh(st);
                 if !self.nav_find(st, "=")? {
                     return unsupported(
                         "OnFindRecord does not find the current row after CurrPage.Update (not pinned)",

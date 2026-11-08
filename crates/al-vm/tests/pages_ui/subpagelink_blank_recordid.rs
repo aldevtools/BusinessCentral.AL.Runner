@@ -1,5 +1,5 @@
 //! `SubPageLink = Target = const()` on a RecordId field shows only the child whose RecordId is blank (al-runner issue 7267).
-//! Pinned by corpus pull request 1199 (measured on real BC 27.5, 28.5 and 29.0, not yet on master):
+//! Pinned by corpus pull request 1199 (measured on real BC 27.5, 28.5 and 29.0):
 //! pages/subpagelink-empty-term/TestSubPageLinkRecordId.al:41 (the link) and :53 SubPageLink_BlankRecordId_SelectsBlankRow.
 //! Any other text filter on a RecordId field stays refused.
 

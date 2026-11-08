@@ -2676,7 +2676,6 @@ fn blank_record_id_link(text: &str, ty: &al_builtins::value::RtType) -> Option<F
     if text != "''" || !matches!(ty, RtType::Library(LibraryKind::RecordId)) {
         return None;
     }
-    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::SubpagelinkBlankRecordId);
     let blank = Value::default_for(ty);
     Some(FilterExpr::Range(Some(blank.clone()), Some(blank)))
 }
