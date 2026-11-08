@@ -38,15 +38,17 @@ codeunit 69985 C
     )
 }
 
-fn export(props: &str, schema: &str, orders: usize, refs: usize) -> String {
+pub(super) fn export(props: &str, schema: &str, orders: usize, refs: usize) -> String {
     text(run_in(&src(props, schema, orders, refs), "C", "Go"))
 }
 
-const DECL: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>|";
-const ORDERS: &str = "tableelement(orders; \"TV Order\") { XmlName = 'order'; fieldelement(No; orders.\"No.\") { } }";
-const USERNAME: &str = "textelement(username) { trigger OnBeforePassVariable() begin username := 'x'; end; }";
-const REFS: &str = "tableelement(rf; \"TV Ref\") { XmlName = 'r'; fieldelement(Ref; rf.\"Ref\") { } }";
-const T1: &str = "textelement(T1) { trigger OnBeforePassVariable() begin T1 := 'x'; end; }";
+pub(super) const DECL: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>|";
+pub(super) const ORDERS: &str =
+    "tableelement(orders; \"TV Order\") { XmlName = 'order'; fieldelement(No; orders.\"No.\") { } }";
+pub(super) const USERNAME: &str =
+    "textelement(username) { trigger OnBeforePassVariable() begin username := 'x'; end; }";
+pub(super) const REFS: &str = "tableelement(rf; \"TV Ref\") { XmlName = 'r'; fieldelement(Ref; rf.\"Ref\") { } }";
+pub(super) const T1: &str = "textelement(T1) { trigger OnBeforePassVariable() begin T1 := 'x'; end; }";
 
 /// A: root table element > L1 > L0 > `inner`.
 fn a(prefix: bool, inner: &str) -> String {
@@ -162,7 +164,7 @@ fn a_field_element_a_value_element_and_a_table_element_in_a_text_element_inside_
 }
 
 /// The import of `schema` (in a port with Direction = Both) from `doc`, or its refusal.
-fn import(schema: &str, doc: &str) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
+pub(super) fn import(schema: &str, doc: &str) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
     let src = format!(
         r#"
 table 69980 "TV Blob" {{ fields {{ field(1; Code; Code[10]) {{ }} field(2; Data; Blob) {{ }} }} keys {{ key(PK; Code) {{ }} }} }}

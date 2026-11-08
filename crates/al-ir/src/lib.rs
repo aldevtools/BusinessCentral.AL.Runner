@@ -528,6 +528,11 @@ pub struct Report {
     /// `DefaultRenderingLayout`: the name of the layout the report renders with when none is named.
     #[serde(default)]
     pub default_rendering_layout: Option<String>,
+    /// The type of the layout the report renders with by default, lower-case (`rdlc`, `word`, `excel`, `custom`): the
+    /// `Type` of the `DefaultRenderingLayout`, else `DefaultLayout`, else `rdlc` when the only layout declared is an RDLC
+    /// one. Empty when it cannot be told.
+    #[serde(default)]
+    pub default_layout_kind: String,
 }
 
 /// One `layout(Name) { ... }` of a report's `rendering` section.

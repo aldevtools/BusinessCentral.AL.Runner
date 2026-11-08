@@ -2581,8 +2581,10 @@ impl<'a> ItemTree<'a> {
 const FORMAT_NOT_SUPPORTED_BY_LAYOUT: &str =
     "The Html output format is not supported by the current report layout format.";
 
+use crate::report_pdf_placeholder::SaveOutput;
+
 /// Where a rendering save puts its output.
-enum SaveTarget {
+pub(crate) enum SaveTarget {
     Stream(al_builtins::stream::BlobRef),
     File(String),
 }
@@ -2715,8 +2717,8 @@ impl Session {
     ) -> Result<Value, Signal> {
         let result_used = self.ret_used;
         let format = format.to_string();
-        // ADR-040: a rendering save of a listed report runs it and writes nothing.
-        let mut discard = false;
+        // ADR-040: a rendering save of a listed report runs it and writes nothing; a Pdf save may write a placeholder.
+        let mut output = SaveOutput::Dataset;
         // The SaveAs raised SubstituteReport, so OnDocumentReady follows the dataset.
         let mut document_ready = false;
         let (inst, schema, quit) = if at == 0 {
@@ -2886,12 +2888,17 @@ impl Session {
                 };
                 return Ok(Value::Boolean(false));
             }
-            "Pdf" | "Html" | "Word" | "Excel" if self.output_is_ignored(&schema) => discard = true,
             // Owner decision 2026-10-22 ("Run triggers, no file"): while Microsoft's DemoTool builds the company, SaveAsPdf to a
             // file runs the report, triggers and data, and writes no file (MakeCorrections.Codeunit.al:62, PostRevaluation.
             // Codeunit.al:82, RunPostInventoryCosttoGL.Codeunit.al:17 write a PDF under TemporaryPath that nothing reads). The
             // file is marked as for a listed report, so a look at it is refused. Outside the company build it stays refused.
-            "Pdf" if self.company_build && matches!(target, SaveTarget::File(_)) => discard = true,
+            "Pdf" if self.company_build && matches!(target, SaveTarget::File(_)) => output = SaveOutput::Discard,
+            // A processing-only report goes on to its pinned answer below (TestReportSaveAsColumnTypesContracts.al:372-388,
+            // reports/runtime/LtTkShowPrintStatus.al:621); nothing is rendered.
+            "Pdf" if schema.report().processing_only => {}
+            // Owner decision 2026-11-08 (ADR-040 amendment): a Pdf of a report with an RDLC or Word layout writes a placeholder.
+            "Pdf" if self.pdf_placeholder(&schema)? => output = SaveOutput::Placeholder,
+            "Pdf" | "Html" | "Word" | "Excel" if self.output_is_ignored(&schema) => output = SaveOutput::Discard,
             other => {
                 return unsupported(format!(
                     "Report.SaveAs of \"{}\" as {other}: only the Xml dataset is produced (a rendered format needs a layout \
@@ -3103,19 +3110,7 @@ impl Session {
                         return Ok(Value::Boolean(true));
                     }
                 }
-                match target {
-                    SaveTarget::Stream(blob) if !discard => al_builtins::stream::write_bytes(&blob, &bytes),
-                    SaveTarget::Stream(blob) => {
-                        // The dataset is dropped; the buffer is marked and any look at it is refused.
-                        blob.borrow_mut().render_pending = Some(schema.name().into());
-                        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReportRenderDiscarded);
-                    }
-                    SaveTarget::File(name) => {
-                        self.render_pending_files
-                            .insert(crate::ctx::pending_key(&name), schema.name().into());
-                        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReportRenderDiscarded);
-                    }
-                }
+                self.write_save_output(target, output, &schema, &bytes)?;
                 Ok(Value::Boolean(true))
             }
             Ok(false) => unsupported("CurrReport.Quit during a SaveAs (what the dataset holds is not pinned)"),

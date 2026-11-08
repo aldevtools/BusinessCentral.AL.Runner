@@ -379,6 +379,10 @@ pub(super) struct Lane<'a> {
     /// A worker thread's own copy of the install baseline from `snapshot` (a baseline holds `Rc`s and stays on its
     /// thread).
     pub thread_baseline: &'a (dyn Fn(Option<&[u8]>) -> Option<al_vm::Baseline> + Sync),
+    /// ADR-066 amendment 8: the chain walk kept the single instances from member to member (`ChainWalk::keep_singles`),
+    /// so a chain member's result is already its run in BC's order: it is never dependent here, never runs again and is
+    /// not flagged. It still counts as a writer for the codeunits that are no members.
+    pub kept_chain: bool,
 }
 
 /// What the lane did, for `--timings` and the stability report.
@@ -427,6 +431,8 @@ pub struct LaneReport {
     pub starts_peak: usize,
     /// The most bytes of deltas the main thread kept at once (at most `lane_starts::DELTA_BUDGET`).
     pub delta_bytes_peak: usize,
+    /// ADR-066 amendment 8: chain members that read first a global a codeunit outside the chain wrote before them.
+    pub chain_missed: usize,
 }
 
 impl LaneReport {
@@ -453,6 +459,12 @@ impl LaneReport {
             self.took.as_secs_f64(),
             self.refill_assumed
         )];
+        if self.chain_missed > 0 {
+            out[0].push_str(&format!(
+                "; {} chain members read first a global a codeunit outside the chain wrote before them",
+                self.chain_missed
+            ));
+        }
         if self.starts_written > 0 {
             out[0].push_str(&format!(
                 "; {} carried starts made for {} threads ({} written whole as bytes, at most {} at once; {:.1} MB of row deltas kept at most)",
@@ -684,10 +696,14 @@ impl Lane<'_> {
                     report.refill_assumed += 1;
                 }
             }
+            if self.kept_chain {
+                report.chain_missed += self.missed_by_walk(&ks, slots);
+            }
             let fresh: BTreeSet<usize> = found
                 .dependent
                 .keys()
                 .copied()
+                .filter(|&p| !(self.kept_chain && self.is_member(ks[p])))
                 .filter(|&p| counted.insert(ks[p]))
                 .collect();
             if fresh.is_empty() {
@@ -957,6 +973,27 @@ impl Lane<'_> {
             }
         }
         Some(r)
+    }
+
+    /// ADR-066 amendment 8: chain members of session `ks` that read first a global a codeunit that is no member, earlier
+    /// in the session, wrote. The walk did not see that codeunit's state, so for them it is not BC's session.
+    fn missed_by_walk(&self, ks: &[usize], slots: &[Option<UnitResult>]) -> usize {
+        let mut wrote: BTreeSet<GlobalKey> = BTreeSet::new();
+        let mut n = 0;
+        for &k in ks {
+            let Some(Ok(done)) = slots[k].as_ref().map(|r| &r.result) else {
+                continue;
+            };
+            let Some(o) = done.5.singles_out.as_ref() else { continue };
+            if self.is_member(k) {
+                if o.observed.keys().any(|g| wrote.contains(g)) {
+                    n += 1;
+                }
+            } else if !o.refused {
+                wrote.extend(o.wrote.iter().copied());
+            }
+        }
+        n
     }
 
     fn name(&self, k: usize) -> String {

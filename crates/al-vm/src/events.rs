@@ -126,18 +126,7 @@ impl Registry {
         target: &str,
         event: &str,
     ) {
-        let mut witnesses = vec![oi];
-        for &c in &r.codeunit_slots {
-            let c = c as usize;
-            if heads.get(c).is_some_and(|x| {
-                x.properties
-                    .iter()
-                    .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"))
-            }) && !witnesses.contains(&c)
-            {
-                witnesses.push(c);
-            }
-        }
+        let witnesses = witnesses(heads, oi, r);
         if event == "captionclasstranslate" {
             self.subscribers
                 .entry((UI_HELPER_TRIGGERS, event.to_string()))
@@ -157,6 +146,24 @@ impl Registry {
                 witnesses,
             });
     }
+}
+
+/// The objects through which a test can see that subscriber `r` of codeunit `oi` ran: the codeunit itself and the
+/// SingleInstance codeunits the routine holds a variable of (`Unraised::witnesses`).
+fn witnesses(heads: &[ir::ObjectHead], oi: usize, r: &ir::EventRoutine) -> Vec<usize> {
+    let mut witnesses = vec![oi];
+    for &c in &r.codeunit_slots {
+        let c = c as usize;
+        if heads.get(c).is_some_and(|x| {
+            x.properties
+                .iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"))
+        }) && !witnesses.contains(&c)
+        {
+            witnesses.push(c);
+        }
+    }
+    witnesses
 }
 
 /// A subscriber of `Global Triggers` in a dependency app that cannot run.
@@ -376,6 +383,21 @@ impl Registry {
                             }
                             if kind == ObjKind::Codeunit && target.eq_ignore_ascii_case("UI Helper Triggers") {
                                 reg.add_ui_helper_subscriber(heads, oi, o, r, &target, &event);
+                            }
+                            // The events of Reporting Triggers, and those Base Application's ReportManagement raises from its
+                            // subscribers to them, are listed too: a Pdf save that writes a placeholder raises none of them and
+                            // refuses while a test can see a subscriber (`report_pdf_placeholder.rs`).
+                            if kind == ObjKind::Codeunit
+                                && (target.eq_ignore_ascii_case("Reporting Triggers")
+                                    || target.eq_ignore_ascii_case("ReportManagement"))
+                            {
+                                reg.unraised
+                                    .entry((target.to_ascii_lowercase(), event.clone()))
+                                    .or_default()
+                                    .push(Unraised {
+                                        subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
+                                        witnesses: witnesses(heads, oi, r),
+                                    });
                             }
                             if kind == ObjKind::Codeunit
                                 && target.eq_ignore_ascii_case("Reporting Triggers")

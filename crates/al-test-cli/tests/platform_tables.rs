@@ -4651,3 +4651,31 @@ codeunit 50000 "T" { Subtype = Test;
         passes(&o, t);
     }
 }
+
+// The platform renders the layout Tenant Report Layout Selection names for the report. A Pdf save writes a placeholder only
+// while that layout is an RDLC or Word layout of the report (ADR-040 amendment "A placeholder PDF"); an Excel layout writes no
+// output on BC (reports/layouts-saveas/AMReportOutputTests.al:257 ExcelLayout_SaveAsPdf), so a selection of one refuses.
+#[test]
+fn a_pdf_save_follows_tenant_report_layout_selection_or_refuses() {
+    let o = outcomes(
+        r#"table 50001 "R Row" { fields { field(1; Id; Integer) { } field(2; Data; Blob) { } } keys { key(PK; Id) { } } }
+report 50002 "R Word" { UsageCategory = None; DefaultRenderingLayout = WordOne;
+  dataset { dataitem(D; "R Row") { column(Id; Id) { } } }
+  rendering { layout(WordOne) { Type = Word; LayoutFile = 'W.docx'; } layout(ExcelOne) { Type = Excel; LayoutFile = 'X.xlsx'; } } }
+codeunit 50000 "T" { Subtype = Test;
+  local procedure Save(Name: Text) var S: Record "Tenant Report Layout Selection"; R: Record "R Row"; Out: OutStream; begin
+    S.SetRange("Report ID", Report::"R Word"); S.DeleteAll(); S.Reset();
+    S."Report ID" := Report::"R Word"; S."Layout Name" := CopyStr(Name, 1, MaxStrLen(S."Layout Name")); S.Insert();
+    R.Data.CreateOutStream(Out); if not Report.SaveAs(Report::"R Word", '', ReportFormat::Pdf, Out) then Error('false'); end;
+  [Test] procedure WordSelected() begin Save('WordOne'); end;
+  [Test] procedure ExcelSelected() begin Save('ExcelOne'); end;
+  [Test] procedure UnknownSelected() begin Save('Elsewhere.docx'); end; }"#,
+    );
+    passes(&o, "WordSelected");
+    for t in ["ExcelSelected", "UnknownSelected"] {
+        match o.iter().find(|(n, _)| n == t).map(|(_, o)| o) {
+            Some(Outcome::NotRun(why)) => assert!(why.contains("Tenant Report Layout Selection"), "{t}: {why}"),
+            other => panic!("{t}: expected a refusal, got {other:?}"),
+        }
+    }
+}
