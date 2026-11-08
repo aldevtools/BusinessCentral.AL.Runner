@@ -37,7 +37,11 @@ fn ms(ns: u64) -> String {
 }
 
 fn top<K: Ord + Clone>(m: &HashMap<K, (u64, u64)>) -> Vec<(K, (u64, u64))> {
-    let mut v: Vec<(K, (u64, u64))> = m.iter().map(|(k, x)| (k.clone(), *x)).collect();
+    let mut v: Vec<(K, (u64, u64))> = m
+        .iter()
+        .filter(|(_, x)| x.0 > 0 || x.1 > 0)
+        .map(|(k, x)| (k.clone(), *x))
+        .collect();
     v.sort_by(|a, b| b.1.0.cmp(&a.1.0).then(a.0.cmp(&b.0)));
     v.truncate(TOP);
     v
