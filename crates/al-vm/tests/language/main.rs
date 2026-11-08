@@ -198,6 +198,7 @@ mod ternary_maxlength_label;
 mod test_contexts;
 mod text_append;
 mod text_decimal_args;
+mod text_half_pair_refused;
 mod text_index_past_length;
 mod text_methods;
 mod text_scans;

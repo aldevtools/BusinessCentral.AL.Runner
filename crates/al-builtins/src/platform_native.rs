@@ -322,7 +322,13 @@ fn decode_bytes(b: &[u8], enc: Enc) -> Result<String, Signal> {
                 return unsupported("UTF-16 bytes of an odd length (not pinned)");
             }
             let units: Vec<u16> = b.chunks(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
-            Ok(String::from_utf16_lossy(&units))
+            // Half of a surrogate pair: real BC keeps it in the text; this runtime cannot hold it until ADR-068 is built,
+            // and U+FFFD would be a guessed value (hard rule 4).
+            String::from_utf16(&units).map_err(|_| {
+                Signal::Unsupported(
+                    "a Base64 UTF-16 decode that ends up with half of a surrogate pair (not pinned)".into(),
+                )
+            })
         }
         Enc::Latin1 | Enc::Windows1252 => {
             if b.iter().any(|x| (0x80..0xA0).contains(x)) {
@@ -548,6 +554,23 @@ mod tests {
         assert_eq!(from("5Pb8", "UTF8", 0), "\u{FFFD}\u{FFFD}\u{FFFD}");
         assert_eq!(from("5Pb8", "Windows", 28591), "äöü");
         assert_eq!(from("5AD2APwA", "UTF16", 0), "äöü");
+    }
+
+    // UTF-16 bytes that hold half of a surrogate pair (00 D8 alone): real BC keeps the half in the text, which this runtime
+    // cannot hold until ADR-068 is built, so it refuses instead of giving U+FFFD (hard rule 4).
+    #[test]
+    fn a_utf16_half_pair_refuses() {
+        let r = decode_bytes(&[0x00, 0xD8, 0x61, 0x00], enc("UTF16", 0).ok().unwrap());
+        assert!(
+            matches!(&r, Err(Signal::Unsupported(w)) if w.contains("half of a surrogate pair")),
+            "{r:?}"
+        );
+        assert_eq!(
+            decode_bytes(&[0x3D, 0xD8, 0x00, 0xDE], enc("UTF16", 0).ok().unwrap())
+                .ok()
+                .unwrap(),
+            "😀"
+        );
     }
 
     // FromBase64_Invalid_Text
