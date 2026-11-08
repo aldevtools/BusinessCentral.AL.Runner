@@ -3,7 +3,8 @@
 //! ClearAll_HolderWithBoundGlobal_Binding, ClearAll_TestCodeunitWithBoundGlobal_Binding): the variable keeps the bound
 //! instance and the binding stays, but the instance's own globals are reset. A second BindSubscription of the variable
 //! raises "already been bound"; UnbindSubscription of it ends the binding. Clear of the global gives a fresh, unbound
-//! instance (Clear_HolderWithBoundGlobal_Binding). The same inside an array of codeunits is not pinned and is refused.
+//! instance (Clear_HolderWithBoundGlobal_Binding). Only a bound instance whose globals are all Text (as the probe's
+//! subscriber) is pinned; an array of codeunits, a TableNo record or a global of another kind is refused.
 
 use al_builtins::native::Signal;
 
@@ -76,4 +77,60 @@ fn clear_all_with_an_unbound_codeunit_global_still_runs() {
             procedure F(): Integer begin N := 3; ClearAll(); exit(N + C.Get()); end; }}"
     );
     assert_eq!(al_testkit::int(al_testkit::run_in(&src, "Holder", "F")), 1);
+}
+
+/// The probe pins a bound instance whose only global is a Text (`Tag` of "LT BSK Manual"). A bound instance with a TableNo
+/// record, or with a global of another kind, is not pinned: ClearAll refuses it.
+fn refused(holder_src: &str) {
+    let src = format!("{OBJECTS} {holder_src}");
+    match al_testkit::run_in(&src, "Holder", "F") {
+        Err(Signal::Unsupported(m)) => assert!(m.contains("ClearAll"), "{m}"),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+#[test]
+fn clear_all_of_a_bound_instance_with_a_tableno_record_is_refused() {
+    refused(
+        "table 50730 T { fields { field(1; K; Integer) { } } }
+        codeunit 50731 SubT { EventSubscriberInstance = Manual; TableNo = T;
+            [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnPing', '', false, false)]
+            local procedure OnPing(var Hits: Text) begin Hits += 'T'; end; }
+        codeunit 50732 Holder { var S: Codeunit SubT; P: Codeunit Pub;
+            procedure F(): Text begin BindSubscription(S); ClearAll(); exit(P.Ping()); end; }",
+    );
+}
+
+#[test]
+fn clear_all_of_a_bound_instance_with_an_integer_global_is_refused() {
+    refused(
+        "codeunit 50733 SubI { EventSubscriberInstance = Manual; var N: Integer;
+            [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnPing', '', false, false)]
+            local procedure OnPing(var Hits: Text) begin Hits += Format(N); end; }
+        codeunit 50734 Holder { var S: Codeunit SubI; P: Codeunit Pub;
+            procedure F(): Text begin BindSubscription(S); ClearAll(); exit(P.Ping()); end; }",
+    );
+}
+
+#[test]
+fn clear_all_of_a_bound_instance_with_a_record_global_is_refused() {
+    refused(
+        "table 50735 T2 { fields { field(1; K; Integer) { } } }
+        codeunit 50736 SubR { EventSubscriberInstance = Manual; var R: Record T2;
+            [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnPing', '', false, false)]
+            local procedure OnPing(var Hits: Text) begin Hits += 'R'; end; }
+        codeunit 50737 Holder { var S: Codeunit SubR; P: Codeunit Pub;
+            procedure F(): Text begin BindSubscription(S); ClearAll(); exit(P.Ping()); end; }",
+    );
+}
+
+#[test]
+fn clear_all_of_a_bound_instance_with_a_codeunit_global_is_refused() {
+    refused(
+        "codeunit 50738 SubC { EventSubscriberInstance = Manual; var C: Codeunit Plain;
+            [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnPing', '', false, false)]
+            local procedure OnPing(var Hits: Text) begin Hits += 'C'; end; }
+        codeunit 50739 Holder { var S: Codeunit SubC; P: Codeunit Pub;
+            procedure F(): Text begin BindSubscription(S); ClearAll(); exit(P.Ping()); end; }",
+    );
 }

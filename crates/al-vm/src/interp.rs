@@ -312,8 +312,10 @@ impl Session {
     /// `BindSubscription`. Real BC 29 keeps the bound instance in the variable and its binding, and resets the instance's own
     /// globals (corpus branch al-runtime-rs-staging-6974, events/binding-senders/BindSubscriptionClearAll.al
     /// ClearAll_HolderWithBoundGlobal_Binding and ClearAll_TestCodeunitWithBoundGlobal_Binding; al-runner issue 6974).
-    /// Pinned for a codeunit's global (`in_place`); an array of codeunits, a page extension's global, and a bound instance
-    /// whose own globals hold a temporary record or another bound instance are not pinned and are refused.
+    /// Pinned only for a codeunit's global (`in_place`) whose bound instance has no TableNo record and only Text globals
+    /// (the probe's subscriber "LT BSK Manual" has one global, `Tag: Text`, BindSubscriptionKinds.Objects.al:44-49).
+    /// Everything else is refused: an array of codeunits, a page extension's global, a bound instance with a TableNo
+    /// record, or with a global of any other kind (records, temporary records, codeunits, arrays, numbers, ...).
     fn clear_all_bound_globals(
         &mut self,
         globals: &[Value],
@@ -337,20 +339,23 @@ impl Session {
             }
             let object = rc.borrow().object as usize;
             let o = &self.engine.program.objects[object];
-            let inner_keep: Vec<usize> = o.rec_slot.into_iter().collect();
-            let tys: Vec<RtType> = o.globals.iter().map(|g| g.ty.clone()).collect();
-            let inner = rc.borrow().globals.clone();
-            let nested = inner.iter().enumerate().any(|(k, g)| {
-                !inner_keep.contains(&k)
-                    && (self.holds_bound_codeunit(g) || matches!(g, Value::Record(r) if r.borrow().temporary))
-            });
-            if nested {
-                return refuse();
+            if o.rec_slot.is_some() {
+                return Err(Signal::Unsupported(
+                    "ClearAll of a global codeunit variable whose bound instance has a TableNo record (not pinned)"
+                        .into(),
+                ));
             }
+            if o.globals.iter().any(|g| !matches!(g.ty, RtType::Text(_))) {
+                return Err(Signal::Unsupported(
+                    "ClearAll of a global codeunit variable whose bound instance has a global that is not Text (not pinned)"
+                        .into(),
+                ));
+            }
+            let tys: Vec<RtType> = o.globals.iter().map(|g| g.ty.clone()).collect();
             let fresh: Vec<Value> = tys.iter().map(|t| self.default_value(t)).collect();
             let mut b = rc.borrow_mut();
             for (k, nv) in fresh.into_iter().enumerate() {
-                if !inner_keep.contains(&k) && k < b.globals.len() {
+                if k < b.globals.len() {
                     b.globals[k] = nv;
                 }
             }
