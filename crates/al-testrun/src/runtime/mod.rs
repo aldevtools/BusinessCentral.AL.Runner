@@ -631,6 +631,9 @@ pub(crate) struct Scratch {
     /// refused while it ran. A test refused before it started does not count (ADR-066 amendment 5, decision 2:
     /// only this, or a failed test, makes a dependent codeunit run again serially).
     pub(crate) unfinished_after_start: bool,
+    /// The tests that started and did not run to their end (as for `unfinished_after_start`), each with the number
+    /// `Session::single_test_begins` gave it (from 1) and its name (ADR-066 amendment 7, option 1).
+    pub(crate) unfinished_at: Vec<(u32, String)>,
 }
 
 /// What a test codeunit left: each test's outcome, the call stack of each AL error that failed one, how long
@@ -946,7 +949,7 @@ use self::grow::{Grow, GrowKept};
 pub use self::grow::{KeptCompile, fresh_pass_compile};
 use self::handlers::*;
 pub use self::run::*;
-pub use self::single_lane::LaneReport;
+pub use self::single_lane::{LaneReport, RerunSkipped, rerun_skipped_text};
 
 /// The translation files of the app folder `dir`, as the IR keeps them (ADR-053 step 2). A file that cannot be read keeps its
 /// reason, and its language refuses every translated read.

@@ -1,0 +1,6 @@
+SingleInstanceRerunSkipped => {
+    id: "single-instance-rerun-skipped",
+    assumed: "A test codeunit that is order-dependent (single-instance-order) and has a failed or unfinished test that could have seen the SingleInstance state an earlier codeunit left would run again in a serial session of its own chain (ADR-066 amendments 4 and 5). With --max-replay N (opt-in, owner 2026-11-08; no cap by default), when that chain holds more than N test codeunits the replay is skipped (ADR-066 amendment 7, option 2): the codeunit keeps its parallel run (fresh SingleInstance state, the outcome BC gives when it runs alone or first), and the run output and the JUnit file say 're-run skipped (chain of M codeunits over the limit of N)'. BC's result in the full order may differ; without --max-replay, or with --strict-order, every chain is replayed whatever its length.",
+    tests: "Partner suites where almost every test codeunit reads SingleInstance state the codeunit before it left (NP Retail: an item image cache and the entry-number buffer of Sequence No. Mgt.), so a chain is nearly the whole run before the codeunit.",
+    probe: "None on real BC: the outcome BC gives in the full order is what --strict-order reports. The limit is a cost bound of the runner, not a behavior of BC.",
+}
