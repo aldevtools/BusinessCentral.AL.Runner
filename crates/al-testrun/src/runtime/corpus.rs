@@ -1574,11 +1574,7 @@ impl CorpusRuntime {
             let mut slots: Vec<Option<UnitResult>> = (0..units.len()).map(|_| None).collect();
             chain_report.units += units.len() + chain.iter().filter(|c| matches!(c.3, Link::Refused(..))).count();
             // Helper threads run the chain's codeunits ahead while the walk can still use their runs (`chain_walk.rs`).
-            let helpers = if workers > 1 && baseline_engine.is_some() {
-                workers - 1
-            } else {
-                0
-            };
+            let helpers = helper_threads(workers, baseline_engine.is_some());
             let first_origin = baseline.as_ref().map(al_vm::Baseline::origin);
             if helpers > 0 {
                 let encode_started = std::time::Instant::now();
@@ -2421,6 +2417,12 @@ fn hub_isolation(lowered: &Lowered, oi: usize) -> Result<Option<TestIsolation>, 
     // An OnRun trigger runs once, before the first test, with no write open; under Function its writes are part of the
     // state each test returns to, under Disabled they persist like the tests' (RqIsolationModes.al:396-472, :532-616).
     Ok(Some(isolation))
+}
+
+/// How many helper threads run the carry chain's codeunits ahead: every worker but the walk's, when the threads can
+/// have an install baseline of their own.
+fn helper_threads(workers: usize, own_baseline: bool) -> usize {
+    if workers > 1 && own_baseline { workers - 1 } else { 0 }
 }
 
 /// Whether BC runs test codeunit `oi` on the TestRunnerHub: `hub` (its RequiredTestIsolation is Function or Disabled), or
