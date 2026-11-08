@@ -498,6 +498,12 @@ impl Session {
         t: &al_data::TableDef,
         method: al_builtins::record_op::RecordOp,
     ) -> Result<(), Signal> {
+        // NavApp.LoadPackageData inside a TryFunction whose result is used loads its rows and the try returns true (corpus
+        // install-upgrade/install-triggers/Y88PackageData.al: every load of codeunit 94682 runs in TryLoad, and the log says
+        // `ok` with the rows there, Y88_Events_LoadRaisesNoTableEvent, Y88_Option_UndefinedOrdinal).
+        if self.package_load {
+            return Ok(());
+        }
         let (function, what, events, triggers) = match method {
             al_builtins::record_op::RecordOp::Modify => (
                 "MODIFY",
