@@ -82,6 +82,11 @@ pub struct BlobBuf {
     /// ([`unread_content_blob`]): `Format` shows `*` (text/text-methods/Y49FieldRefIntoText.al:383) and a comparison
     /// sees a Blob with content (`blob_compare`). A copy does not keep it.
     pub unread_content: bool,
+    /// A Write of a value other than a Text went through a UTF-16 OutStream to this buffer. A UTF-16 Read(Text) of such bytes
+    /// reads less than StreamReadMatrix.al shows for the same bytes written through a stream of the default encoding
+    /// (streams/PnE04Streams.al:162-183 `utf16` and `utf16terminated` read `4|w` of 77 00 F6 00 72 00, :237-250 `utf16len4`
+    /// reads `4|h` of `hey!`), and what it reads then is not pinned (`stream_read_len::utf16`). A copy keeps it.
+    pub utf16_binary: bool,
 }
 
 thread_local! {
@@ -355,6 +360,7 @@ pub fn new_blob() -> BlobRef {
         file: false,
         dotnet_view: 0,
         unread_content: false,
+        utf16_binary: false,
     }))
 }
 
@@ -395,6 +401,7 @@ pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
         file: false,
         dotnet_view: 0,
         unread_content: false,
+        utf16_binary: b.utf16_binary,
     }))
 }
 
@@ -831,6 +838,14 @@ impl InState {
     }
 
     /// The bytes from the read position on.
+    /// Whether a Write of a value other than a Text went through a UTF-16 OutStream to the buffer (`BlobBuf::utf16_binary`).
+    pub fn utf16_binary(&self) -> bool {
+        match &self.source {
+            Source::Snapshot(_) => false,
+            Source::Live(b) => b.borrow().utf16_binary,
+        }
+    }
+
     pub fn rest(&self) -> Vec<u8> {
         let pos = self.pos;
         self.with_data(|d| d[pos.min(d.len())..].to_vec())
@@ -956,6 +971,7 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
         file: false,
         dotnet_view: 0,
         unread_content: false,
+        utf16_binary: false,
     });
     set_stream(
         &a[0],
@@ -1523,9 +1539,7 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
             let got = match s.enc {
                 Encoding::Utf8 => crate::stream_read_len::utf8(s, n)?,
                 Encoding::Windows | Encoding::MsDos => crate::stream_read_len::single_byte(s, n)?,
-                Encoding::Utf16 => {
-                    return unsupported("InStream.Read(Text, Length) on a UTF-16 stream (not pinned)");
-                }
+                Encoding::Utf16 => crate::stream_read_len::utf16(s, Some(n))?,
             };
             Ok((got.text, got.count))
         })?;
@@ -1575,6 +1589,10 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
         let used = c.ret_used();
         let (taken, count) = with_in(r, |s| {
             crate::stream_call_stack::refuse_position(s, "Read")?;
+            if s.enc == Encoding::Utf16 {
+                let got = crate::stream_read_len::utf16(s, None)?;
+                return Ok((got.text, got.count));
+            }
             // A UTF-8 byte order mark at the start of a stream created as UTF-8 is skipped (streams/
             // DdStreamLeads.al:502 Item68_Utf8Bom `read utf8` 3 [97,98,99]). The count leaves the mark out when no zero byte
             // follows (streams/instream-outstream/StreamReadMatrix.al:533 Matrix_Utf8Bom `u8 len -1` `2 [97]`); with one it is not pinned.
@@ -1596,12 +1614,15 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
             }
             let end = rest.chunks_exact(unit).position(|u| u.iter().all(|b| *b == 0));
             // On a UTF-8 stream a text with no zero byte after it counts one more than its bytes as well: `hello` is 6
-            // (PnE04Streams.al:111, ReadText_Utf8_NoTerminator).
+            // (PnE04Streams.al:111, ReadText_Utf8_NoTerminator). On a single-byte stream the count is the bytes taken
+            // (streams/instream-outstream/StreamReadMatrix.al:145 Matrix_Abc `def len -1` `3`, :154, :157, :439 `rest 1 [98]`).
             let utf8_unterminated = end.is_none() && s.enc == Encoding::Utf8;
-            if used && ((end.is_none() && !utf8_unterminated) || unit != 1) {
-                return unsupported(
-                    "the result of InStream.Read into a Text without a zero terminator or on a UTF-16 stream (not pinned)",
-                );
+            // Bytes that are not UTF-8 read as with an unbounded Length (`stream_read_len::utf8`): a lead byte alone at the
+            // end is dropped, FF raises (StreamReadMatrix.al:294 Matrix_EacuteLatin1 `u8 len -1` `1 []`, :353
+            // Matrix_TruncatedUtf8 `2 [97]`, :321-323 Matrix_ByteFF and :532-534 Matrix_Utf16Bom InvalidStreamData).
+            if s.enc == Encoding::Utf8 && std::str::from_utf8(&rest[..end.unwrap_or(rest.len())]).is_err() {
+                let got = crate::stream_read_len::utf8(s, i32::MAX)?;
+                return Ok((got.text, got.count));
             }
             let (body_len, consumed) = match end {
                 Some(e) => (e * unit, (e + 1) * unit),
@@ -1612,19 +1633,13 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
             // Non-ASCII characters read as their characters on a UTF-8 stream, with and without a zero byte after them, the
             // count in bytes as for ASCII (streams/PnE04Streams.al:118 ReadText_Utf8_NonAscii `7|wörld`; the
             // same file's TO_ReadText_NonAscii_NoTerminator `7|wörld` with no terminator,
-            // `5|äö` then `5|€A`). On a UTF-16 stream the pin reads only the characters before the first non-ASCII one, which
-            // is not modelled.
+            // `5|äö` then `5|€A`). A UTF-16 stream reads in `stream_read_len::utf16`.
             // A call stack text reads back whole on every encoding (errors/WdCallStackWriteText.al:148-149 `read equal`).
             let decoded = s.enc.decode(body);
             let call_stack = crate::stream_call_stack::holds_mark(&decoded)
                 && decoded.replace(crate::native::CALL_STACK_MARK, "").is_ascii();
-            if !call_stack
-                && (!s.enc.decode_pinned(body)
-                    || (!decoded.is_ascii() && !matches!(s.enc, Encoding::Windows | Encoding::MsDos | Encoding::Utf8)))
-            {
-                return unsupported(
-                    "InStream.Read into a Text of non-ASCII characters on a UTF-16 stream (not pinned)",
-                );
+            if !call_stack && !s.enc.decode_pinned(body) {
+                return unsupported("InStream.Read into a Text of MS-DOS bytes whose character is not pinned");
             }
             s.pos += consumed;
             Ok((s.enc.decode(body), counted))
@@ -2122,6 +2137,9 @@ fn out_write(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NRe
             ));
         }
     };
+    if enc == Encoding::Utf16 && !matches!(a[0], Value::Text(_) | Value::Code(_)) {
+        b.borrow_mut().utf16_binary = true;
+    }
     write_bytes(&b, &bytes);
     Ok(Value::Integer(bytes.len() as i32))
 }

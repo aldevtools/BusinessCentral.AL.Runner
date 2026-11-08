@@ -1574,6 +1574,7 @@ impl Session {
                                             file: false,
                                             dotnet_view: 0,
                                             unread_content: false,
+                                            utf16_binary: b.utf16_binary,
                                         },
                                     )))
                                 }

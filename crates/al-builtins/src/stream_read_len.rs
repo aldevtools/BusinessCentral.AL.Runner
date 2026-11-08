@@ -126,3 +126,83 @@ pub(crate) fn single_byte(s: &mut InState, n: i32) -> Result<LenRead, Signal> {
     debug_assert!(matches!(s.enc, Encoding::Windows | Encoding::MsDos));
     Ok(LenRead { text, count: consumed })
 }
+
+/// A UTF-16 stream (little endian), for `Read(Text)` (`n` None) and `Read(Text, Length)`: StreamReadMatrix.al, every `u16` line.
+/// - The count is two bytes per character read plus two, whatever ends the read: the zero unit (:181, :242 Matrix_TwoZeros `2 []`),
+///   the end of the stream, a stream that is empty or at its end (:122-124, `rest 2 []` at :216), or Length (:216
+///   Matrix_AbcZeroDef `u16 len 3` `8`). Read(Text, 0) reads nothing and answers 2 (:243 `eos No rest 2 []`).
+/// - A zero unit ends the read and is consumed (:242 `eos Yes`). A byte left alone at the end is dropped and consumed when the read
+///   reaches it (:151 Matrix_Abc `4 [25185] eos Yes`, :445 Matrix_Utf16Odd), and left when Length stopped the read before it (:216).
+/// - Every other unit is its character, also above 127 (:270 `43459`, :475 `33506 25260`; streams/W7StreamRead.al:244-245,
+///   :382-391; session-system/Y18NavAppResourceEncodings.al:73).
+/// - A byte order mark FF FE at the start is skipped and not counted (:539-541 Matrix_Utf16Bom `4 [97]`).
+///
+/// Not pinned, refused: surrogates, a mark followed by a zero unit, a zero unit right after Length characters (UTF-8 leaves it, the
+/// single-byte encodings take it), a negative Length, and bytes a Write of a value other than a Text put through a UTF-16
+/// OutStream (`BlobBuf::utf16_binary`).
+pub(crate) fn utf16(s: &mut InState, n: Option<i32>) -> Result<LenRead, Signal> {
+    let n = match n.map(usize::try_from) {
+        None => usize::MAX,
+        Some(Ok(n)) => n,
+        Some(Err(_)) => {
+            return unsupported("InStream.Read(Text, Length) with a negative length on a UTF-16 stream (not pinned)");
+        }
+    };
+    if s.utf16_binary() {
+        return unsupported(
+            "InStream.Read into a Text on a UTF-16 stream of bytes a Write of a Byte or another non-Text value put there through a UTF-16 OutStream (not pinned)",
+        );
+    }
+    if n == 0 {
+        return Ok(LenRead {
+            text: String::new(),
+            count: 2,
+        });
+    }
+    let rest = s.rest();
+    let start = if s.pos == 0 && rest.starts_with(&[0xFF, 0xFE]) {
+        2
+    } else {
+        0
+    };
+    let body = &rest[start..];
+    let mut units = Vec::new();
+    let mut consumed = 0;
+    let mut terminated = false;
+    for pair in body.chunks_exact(2) {
+        if units.len() == n {
+            break;
+        }
+        let u = u16::from_le_bytes([pair[0], pair[1]]);
+        consumed += 2;
+        if u == 0 {
+            terminated = true;
+            break;
+        }
+        if (0xD800..=0xDFFF).contains(&u) {
+            return unsupported("InStream.Read into a Text of a surrogate on a UTF-16 stream (not pinned)");
+        }
+        units.push(u);
+    }
+    let after = &body[consumed..];
+    if terminated && start > 0 {
+        return unsupported(
+            "InStream.Read into a Text on a UTF-16 stream of a byte order mark and a zero unit (not pinned)",
+        );
+    }
+    if !terminated && units.len() == n {
+        if after.first() == Some(&0) && after.get(1).is_none_or(|b| *b == 0) {
+            return unsupported(
+                "InStream.Read(Text, Length) on a UTF-16 stream with a zero unit right after the characters (not pinned)",
+            );
+        }
+    } else if !terminated {
+        // Only a byte alone is left.
+        consumed += after.len();
+    }
+    s.pos += start + consumed;
+    Ok(LenRead {
+        text: String::from_utf16_lossy(&units),
+        count: units.len() * 2 + 2,
+    })
+}

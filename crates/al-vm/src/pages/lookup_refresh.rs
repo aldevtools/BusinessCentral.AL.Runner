@@ -29,7 +29,7 @@ impl Session {
                 && s.open
                 && !s.draft
                 && s.cursor == Cursor::Row
-                && matches!(s.parts.len(), 1..=4)
+                && matches!(s.parts.len(), 1..=5)
                 && s.refresh
                 && s.refresh_by_update
                 && s.refresh_update_false
@@ -112,10 +112,16 @@ impl Session {
 
     /// The layouts of a host's parts (in layout order: `L` the ListPart linked by three fields, `O` an unlinked ListPart, `K` a
     /// CardPart in the FactBoxes area linked by one field) on which the Lookup is measured to leave the refresh for later:
-    /// two parts (Y63: `OL`, `LO`, `LK`), three (R6806, R6806LookupParts.al: `OOL`, `LOO`, `OLO`, with a card `OOLK`) and four with the
-    /// linked part last (`OOOL`). Every other layout (five parts, four with the linked part not last, a second card) is not pinned.
+    /// two parts (Y63: `OL`, `LO`, `LK`), three (R6806, R6806LookupParts.al: `OOL`, `LOO`, `OLO`, with a card `OOLK`), four with the
+    /// linked part last (`OOOL`), and (writer Y87, testpage/Y87LookupParts.al Y87_{ALBC,ABLC,ABLKM,LKM}_ReadEach and _ReadReverse:
+    /// `lookup log` `lookup;hfR1;validate R2;hfR1`, every read log empty) four with the linked part second or third (`OLOO`,
+    /// `OOLO`), two cards (`LKK`) and three ListParts with two cards (`OOLKK`). Five or six ListParts with the linked one last
+    /// (Y87_ABCDL_*, Y87_ABCDEL_*) open with another order of triggers, which is not built: not pinned here.
     fn many_parts_pinned(kinds: &str) -> bool {
-        matches!(kinds, "OL" | "LO" | "LK" | "OOL" | "LOO" | "OLO" | "OOLK" | "OOOL")
+        matches!(
+            kinds,
+            "OL" | "LO" | "LK" | "OOL" | "LOO" | "OLO" | "OOLK" | "OOOL" | "OLOO" | "OOLO" | "OOLKK" | "LKK"
+        )
     }
 
     /// TestPage call `method` on page `st` (of control `target`) while a Lookup of its tree left its refresh for later
