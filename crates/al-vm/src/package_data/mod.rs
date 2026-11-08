@@ -6,12 +6,16 @@
 //! - the stored fields are listed primary key fields first, then the others in declaration order, without FlowFields,
 //!   FlowFilters and disabled fields (Y85_FieldOrder_KeyFieldsFirstThenDeclarationOrder);
 //! - an AutoIncrement key keeps the file's values and continues after them (Y85_AutoIncrement_ContinuesAfterLoadedRows);
-//! - a table without a data file in the app loads nothing (metadata/Y64InstallLeads.al:81-96).
+//! - a table without a data file in the app loads nothing (metadata/Y64InstallLeads.al:81-96);
+//! - no table event is raised (Y88PackageData.al, Y88_Events_LoadRaisesNoTableEvent); an Option or Enum ordinal the field
+//!   does not define, the last Date and a Decimal far below the last stored decimal place load (Y88_Option_UndefinedOrdinal,
+//!   Y88_Enum_UndefinedOrdinal, Y88_Date_LastDay, Y88_Decimal_OutOfRange; `reader.rs`).
 //!
 //! Refused: a table of another app, a table with a table extension of another app or a field with `ObsoleteState = Removed`
-//! (the file layout of those is not pinned), a table with event subscribers (whether the load raises the insert events is not
-//! pinned), a per-company table loaded in the per-database part and the reverse (the platform fails the install), a row whose
-//! key exists, and every file content `reader.rs` refuses.
+//! (the file layout of those is not pinned), a table whose database insert trigger is on (whether the load raises
+//! OnDatabaseInsert is not pinned), a per-company table loaded in the per-database part and the reverse (not pinned; corpus
+//! probe install-upgrade/install-triggers/PkgDataParts.al on branch al-runtime-rs-staging-install-6644), a row whose key
+//! exists, and every file content `reader.rs` refuses.
 
 mod reader;
 
@@ -63,7 +67,7 @@ impl Session {
         let in_company = !self.cx.company.is_empty();
         if def.per_company != in_company {
             return refuse(format!(
-                "{what}: a {} table in the {} part of the install (the platform fails the install)",
+                "{what}: a {} table in the {} part of the install (not pinned)",
                 if def.per_company { "per-company" } else { "shared" },
                 if in_company { "per-company" } else { "per-database" },
             ));
@@ -73,6 +77,12 @@ impl Session {
         let columns = self.columns_of(&def, &positions)?;
         let rows = reader::read(&bytes, table as u32, &columns)
             .map_err(|e| Signal::Unsupported(format!("{what} ({name}): {e}")))?;
+        // Whether the load raises the database trigger events (Global Triggers OnDatabaseInsert) is not pinned.
+        if !rows.is_empty() && self.global_enabled(&def, crate::globaltriggers::GlobalOp::Insert)? {
+            return refuse(format!(
+                "{what}: a table whose database insert trigger is on (whether the load raises it is not pinned)"
+            ));
+        }
         if rows
             .iter()
             .flat_map(|r| &r.values)
@@ -94,11 +104,13 @@ impl Session {
                 }
             }
             let used = std::mem::replace(&mut self.ret_used, true);
+            let loading = std::mem::replace(&mut self.package_load, true);
             let done = self.record_op(
                 RecordOp::Insert,
                 &rec,
                 &mut [Value::Boolean(false), Value::Boolean(true)],
             );
+            self.package_load = loading;
             self.ret_used = used;
             match done {
                 Ok(Value::Boolean(true)) => {}
@@ -122,15 +134,10 @@ impl Session {
     }
 
     fn columns_of(&self, t: &al_data::TableDef, positions: &[usize]) -> Result<Vec<Column>, Signal> {
-        let objects = &self.engine.program.objects;
         positions
             .iter()
             .map(|&p| {
                 let f = &t.fields[p];
-                let ordinals = match &f.ty {
-                    RtType::Enum(id) => Some(objects[*id as usize].enum_values.iter().map(|(n, _)| *n).collect()),
-                    _ => None,
-                };
                 let uncompressed_blob = self
                     .field_property(t, p, "Compressed")
                     .is_some_and(|v| v.trim().eq_ignore_ascii_case("false"));
@@ -140,7 +147,6 @@ impl Session {
                     ty: f.ty.clone(),
                     uncompressed_blob,
                     key,
-                    ordinals,
                 })
             })
             .collect()
@@ -161,11 +167,6 @@ impl Session {
         let def = self.engine.tables[object].as_ref().expect("checked");
         if (0..def.fields.len()).any(|i| self.field_removed(def, i)) {
             return refuse(format!("{what}: a table with a removed field (not pinned)"));
-        }
-        if !self.engine.events.subscribers_of(object).is_empty() {
-            return refuse(format!(
-                "{what}: a table with event subscribers (whether the load raises them is not pinned)"
-            ));
         }
         Ok(())
     }
