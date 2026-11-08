@@ -478,3 +478,43 @@ codeunit 50198 C
     let r = al_testkit::run_in(src, "C", "F");
     assert!(matches!(r, Err(al_builtins::native::Signal::Unsupported(_))), "{r:?}");
 }
+
+// Read(Text) of MS-DOS bytes outside code page 1252 reads each byte as ReadText does: F0 is 218 (Ú), also through a stream
+// of the default encoding (streams/instream-outstream/StreamRawBytes.al P175_Raw_Emoji_Read `utf8 none`, `utf8 msdos`;
+// the 128 high bytes in session-system/Y18NavAppResourceEncodings.al HighBytesMsDos `msdos read`).
+#[test]
+fn ms_dos_bytes_outside_code_page_1252() {
+    assert_eq!(
+        run("97, 240, 159, 152, 128, 98", "def", -1),
+        "6 [97 218 402 255 199 98] eos Yes"
+    );
+    assert_eq!(
+        run("97, 240, 159, 152, 128, 98", "MSDos", -1),
+        "6 [97 218 402 255 199 98] eos Yes"
+    );
+}
+
+// Read(Text) on a UTF-16 stream of a surrogate pair: both units, counted as two characters
+// (streams/instream-outstream/StreamRawBytes.al P175_Raw_Emoji_Read `utf16 utf16` `ret=10;len=4`).
+#[test]
+fn a_utf16_surrogate_pair() {
+    assert_eq!(
+        run("97, 0, 61, 216, 0, 222, 98, 0", "UTF16", -1),
+        "10 [97 55357 56832 98] eos Yes"
+    );
+}
+
+// Read(Text) on a UTF-8 stream of a 4-byte lead cut at the end with an ASCII byte after it raises
+// (streams/instream-outstream/StreamRawBytes.al P175_Raw_Emoji_Read `trunc utf8`).
+#[test]
+fn a_utf8_lead_cut_at_the_end_by_an_ascii_byte() {
+    assert_eq!(run("97, 240, 159, 98", "UTF8", -1), "error InvalidStreamData");
+}
+
+// Read(Text) on a UTF-8 stream of a byte that cannot start a character raises: FC and 80 between ASCII
+// (streams/instream-outstream/StreamRawBytes.al P175_Raw_UUml_Read, P175_Raw_Euro_Read `single utf8`).
+#[test]
+fn a_utf8_byte_that_cannot_start_a_character() {
+    assert_eq!(run("97, 252, 98", "UTF8", -1), "error InvalidStreamData");
+    assert_eq!(run("97, 128, 98", "UTF8", -1), "error InvalidStreamData");
+}
