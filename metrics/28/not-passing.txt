@@ -1556,7 +1556,6 @@
 92150 Y21_DatabaseWaitStatistics_Rules
 92150 Y21_LicenseInformation_ReadFails
 92150 Y21_SessionEvent_OwnSession
-92150 Y21_WindowsLanguage_Flags
 92425 Variant_To_Byte_2
 92425 Variant_To_Code10
 92425 Variant_To_Code10_2

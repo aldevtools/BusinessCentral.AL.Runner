@@ -1593,7 +1593,6 @@
 92150 Y21_DatabaseWaitStatistics_Rules
 92150 Y21_LicenseInformation_ReadFails
 92150 Y21_SessionEvent_OwnSession
-92150 Y21_WindowsLanguage_Flags
 92357 C305_UserNameFieldRows_Customer
 92357 C305_UserNameFieldRows_OwnTable
 92425 Variant_To_Byte_2

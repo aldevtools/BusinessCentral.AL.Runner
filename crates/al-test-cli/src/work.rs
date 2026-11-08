@@ -93,13 +93,21 @@ pub fn not_full_corpus_env(var: impl Fn(&str) -> bool) -> Option<String> {
     WORK_ENV.iter().find(|v| var(v)).map(|v| format!("{v} set"))
 }
 
-/// The name of a pass in the file: `main`, or the extra apps its environment installs.
-pub fn pass_name(main: bool, extra_apps: &[String]) -> String {
+/// The name of a pass in the file: `main`, or the extra apps its environment installs, or the server settings it runs with.
+pub fn pass_name(main: bool, extra_apps: &[String], server_settings: &[String]) -> String {
     if main {
-        "main".into()
-    } else {
-        format!("extra apps: {}", extra_apps.join(", "))
+        return "main".into();
     }
+    // A pass with only extra corpus folders keeps the name it has always had (`extra apps: `).
+    let mut name = format!("extra apps: {}", extra_apps.join(", "));
+    if !server_settings.is_empty() {
+        name = if extra_apps.is_empty() {
+            format!("server settings: {}", server_settings.join(", "))
+        } else {
+            format!("{name}; server settings: {}", server_settings.join(", "))
+        };
+    }
+    name
 }
 
 /// The counts of a run of one pass.
@@ -319,8 +327,8 @@ mod tests {
         let w = WorkFile::of(
             Some("29.1.1.0".into()),
             &[
-                (pass_name(true, &[]), a),
-                (pass_name(false, &["T".into(), "U".into()]), b),
+                (pass_name(true, &[], &[]), a),
+                (pass_name(false, &["T".into(), "U".into()], &[]), b),
             ],
         );
         assert_eq!(w.passes[TOTAL]["tests_run"], 14);

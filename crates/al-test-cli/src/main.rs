@@ -389,18 +389,31 @@ struct Pass {
     main: bool,
     /// (id, name) of the apps this pass loads beyond the declared dependencies.
     extra_apps: Vec<(String, String)>,
+    /// The service-tier settings of the pass's suites (`SuiteEntry::server_settings`, as written there) and what they ask for.
+    server_settings: Vec<String>,
+    settings: config::ServerSettings,
+}
+
+impl Pass {
+    /// The pass's name in `metrics/<major>/work.json` (`work::pass_name`).
+    fn work_name(&self) -> String {
+        let extra_names: Vec<String> = self.extra_apps.iter().map(|(_, name)| name.clone()).collect();
+        work::pass_name(self.main, &extra_names, &self.server_settings)
+    }
 }
 
 /// The passes of `version`, the main one first, each with the version's table narrowed to its suites.
 fn passes(version: &config::VersionEntry) -> Vec<(config::VersionEntry, Pass)> {
     let mut groups: Vec<(Vec<config::ExtraApp>, Vec<config::SuiteEntry>)> = vec![(Vec::new(), Vec::new())];
     for suite in &version.suites {
-        // One pass per environment: the same extra apps and the same extra corpus folders.
+        // One pass per environment: the same extra apps, the same extra corpus folders and the same server settings.
         let same_env = |(extra, suites): &&mut (Vec<config::ExtraApp>, Vec<config::SuiteEntry>)| {
             *extra == suite.extra_apps
                 && suites
                     .first()
-                    .map_or(suite.extra_dirs.is_empty(), |s| s.extra_dirs == suite.extra_dirs)
+                    .map_or(suite.extra_dirs.is_empty() && suite.server_settings.is_empty(), |s| {
+                        s.extra_dirs == suite.extra_dirs && s.server_settings == suite.server_settings
+                    })
         };
         match groups.iter_mut().find(same_env) {
             Some((_, suites)) => suites.push(suite.clone()),
@@ -411,11 +424,16 @@ fn passes(version: &config::VersionEntry) -> Vec<(config::VersionEntry, Pass)> {
         .into_iter()
         .enumerate()
         .map(|(i, (extra, suites))| {
+            let server_settings = suites.first().map(|s| s.server_settings.clone()).unwrap_or_default();
+            // `OracleFile::parse` checked every suite's settings.
+            let settings = suites.first().and_then(|s| s.settings().ok()).unwrap_or_default();
             let mut view = version.clone();
             view.suites = suites;
             let pass = Pass {
                 main: i == 0,
                 extra_apps: extra.into_iter().map(|a| (a.id, a.name)).collect(),
+                server_settings,
+                settings,
             };
             (view, pass)
         })
@@ -1092,6 +1110,8 @@ fn run_version_inner(
         // The corpus run is the conformance result: an unpinned error text is never reported as a failure (issue 6487).
         report_unpinned_errors: false,
         permissions_off: false,
+        // The suite's CI job sets DisableWriteInsideTryFunctions=false (oracle.toml `server_settings`, job "BC TryWrites").
+        allow_write_in_try_functions: pass.settings.allow_write_in_try_functions,
         // `dev_endpoint_ui` stays off: the corpus runs as Microsoft's Test Runner app does, so unhandled UI is an error.
         ..Default::default()
     };
@@ -1242,11 +1262,7 @@ fn run_version_inner(
     rep.dependencies = dependency_summary;
     rep.bc_build = bc_build.clone();
     rep.timings = Some(timings);
-    let extra_names: Vec<String> = pass.extra_apps.iter().map(|(_, name)| name.clone()).collect();
-    rep.work.insert(
-        work::pass_name(pass.main, &extra_names),
-        work::counts_of(&rt.phases.work),
-    );
+    rep.work.insert(pass.work_name(), work::counts_of(&rt.phases.work));
     if !rep.unmapped.is_empty() {
         return Err(format!(
             "{} oracle case(s) have no test codeunit in the corpus, e.g. {}",
