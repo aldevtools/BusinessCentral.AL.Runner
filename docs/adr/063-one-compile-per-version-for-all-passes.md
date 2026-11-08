@@ -123,8 +123,8 @@ Built as decided, with these points the proposal did not foresee. None changes a
    acted on in the corpus run.
 6. **When a pass compiles from source anyway:** `AL_FRESH_PASS_COMPILE=1`; a main pass with a selection, the compile
    cache, `AL_EAGER_DEPENDENCIES`, `--tdd` or `--affected` (nothing is kept); a kept app that differs in the later pass
-   (sources, kind, dependencies, symbols, target) or that would see a new app (a note on stderr says why); a third pass
-   of a version (only the first pass after the main one grows the kept compile).
+   (sources, kind, dependencies, symbols, target) or that would see a new app (a note on stderr says why). A third pass
+   of a version compiled from source until 2026-11-08; see point 8.
 7. **Conformance as built:** `tools/fresh_vs_grown.sh` (CI, after the eager runs): for BC 27, 28 and 29, every suite's
    JUnit outcomes and reasons and every pass's install baseline equal those of runs with `AL_FRESH_PASS_COMPILE=1`. A
    `compile_dump` comparison is not exact because of point 4; the program equality is checked by the al-sema tests
@@ -141,3 +141,12 @@ samples):
 | testlibraries pass, from source / grown | 120.7 G / 20.1 G (of which its own install baseline 5.1 G) |
 
 The full run stays above the `perf_budget` limit (215 G at this corpus size): the main pass alone is about 220 G.
+
+8. **A third pass grows the compile too** (2026-11-08, the TryWrites suite, its own pass for its server setting): a
+   grown pass that another pass follows keeps its grown compile (`lower::grow_growable`), cut back to the main pass's
+   apps it grew (`Growable::truncate`, as the main pass cuts its own suite apps), and the next pass grows that. Before,
+   the third pass compiled the Microsoft apps again (about 101 000 dependency routines per major). What the second
+   pass's roots reached stays reached (point 4). An object the second pass's apps changed (an extension, an
+   implementer) is lowered again in the third pass (the `relower_set` rule at the cut). The al-sema tests
+   `lower::extend` check that the third pass's program equals a fresh compile of its apps, and that a third pass that
+   reaches nothing new lowers no dependency routine; `tools/fresh_vs_grown.sh` covers every pass.
