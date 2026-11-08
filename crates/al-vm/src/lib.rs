@@ -29,7 +29,7 @@ mod ctx;
 mod debug;
 mod exec;
 mod interp;
-pub use baseline::{Baseline, Delta, DeltaPart, Fingerprint, SequenceSteps};
+pub use baseline::{Baseline, Delta, DeltaPart, Fingerprint, RowDelta, SequenceSteps};
 pub use capture::{CaptureConfig, Captured, ClosedBy, LoopRecord, MAX_RECORDS, MessageRecord, Rendered, ValueRecord};
 pub(crate) use ctx::base_slot_missing;
 pub use debug::{DebugFrame, DebugHook, DebugView, Resume};
@@ -1366,6 +1366,7 @@ impl Session {
                 skip_dependency_subscribers: false,
                 not_installed_apps: None,
                 order_unknown_apps: None,
+                order_unknown_hits: Default::default(),
                 install_written: None,
                 install_rows: None,
                 setup_no_ops: Default::default(),

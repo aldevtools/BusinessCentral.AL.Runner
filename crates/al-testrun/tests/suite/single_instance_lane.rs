@@ -807,3 +807,83 @@ fn carried_starts_are_written_when_a_session_needs_them_and_freed_after() {
         assert!(lane.starts_peak <= lane.threads, "{:?}", lane);
     }
 }
+
+/// Sessions that share writers in a carry chain: `W1` sets the flag, `W2` bumps the count, and each reader reads both,
+/// so every reader's session runs `W1` and `W2` from the same carried starts.
+fn shared_carry_chain(n: usize) -> String {
+    let mut src = String::from(
+        r#"
+table 60700 "Lane Shared Row" { fields { field(1; K; Integer) { } } keys { key(PK; K) { Clustered = true; } } }
+codeunit 60700 "Lane Shared First"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure SharedFirst() var R: Record "Lane Shared Row"; begin R.K := 0; R.Insert(); end;
+}
+codeunit 60701 "Lane Shared W1"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure SharedW1() var S: Codeunit "Lane State"; R: Record "Lane Shared Row";
+    begin S.SetFlag('left'); R.K := 1; R.Insert(); end;
+}
+codeunit 60702 "Lane Shared W2"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure SharedW2() var A: Codeunit "Lane Alone"; R: Record "Lane Shared Row";
+    begin A.Bump(); R.K := 2; R.Insert(); end;
+}
+"#,
+    );
+    for i in 1..=n {
+        src.push_str(&format!(
+            r#"
+codeunit {} "Lane Shared Reader {i}"
+{{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure ReadsShared{i}()
+    var S: Codeunit "Lane State"; A: Codeunit "Lane Alone"; R: Record "Lane Shared Row"; Seed: Record "Lane Setting";
+    begin
+        Seed.Get('SEEDED');
+        R.Get(2);
+        R.K := {};
+        R.Insert();
+        if (StrLen(S.GetFlag()) > 10) or (A.Get() > 10) then Error('flag is %1', S.GetFlag());
+    end;
+}}
+"#,
+            60702 + i,
+            100 + i
+        ));
+    }
+    src
+}
+
+/// ADR-066 amendment 5, decision 5 (al-runner issue 6924, a partner suite of about 700 codeunits in the carry chain
+/// took 527 s against 24 s): a carried start that several sessions need is made once on the main thread, not once per
+/// session that asks for it.
+#[test]
+fn a_carried_start_that_sessions_share_is_made_once() {
+    const READERS: usize = 24;
+    let opts = RunOptions {
+        required_isolation: true,
+        strict_order: true,
+        ..Default::default()
+    };
+    // An install baseline, as in the partner's suite: a start goes as the rows it holds apart from it.
+    let rt = runtime_opts(&shared_carry_chain(READERS), &format!("{STATE}{INSTALLED}"), &opts);
+    for i in 1..=READERS {
+        let t = format!("ReadsShared{i}");
+        assert!(passed(&rt, &t) && flagged(&rt, &t), "{t}: {:?}", rt.results());
+    }
+    let lane = &rt.phases.chain.single_lane;
+    assert_eq!((lane.rerun, lane.chains), (READERS, READERS), "{:?}", lane);
+    if lane.threads > 1 {
+        // Three codeunits of each session start from a carried start (72 asks); there are 3 + READERS carries.
+        assert!(lane.starts_written <= 3 + READERS, "{:?}", lane);
+        // Each as the rows it holds apart from the start before it, none whole.
+        assert_eq!(lane.starts_whole, 0, "{:?}", lane);
+    }
+}

@@ -788,6 +788,7 @@ impl Session {
                 .iter()
                 .find(|&&e| self.object_app_order_unknown(e) && self.ext_trigger_matters(e, name))
         {
+            self.note_order_unknown_hit(self.engine.program.objects[e].app);
             return unsupported(format!(
                 "{name} of table {}: a table extension in app {} while an app installs that it has no dependency path to; the \
                  install order of the two is not known",

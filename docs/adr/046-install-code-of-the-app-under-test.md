@@ -1045,3 +1045,95 @@ B's install A's and B's ran, the main app's did not; at test time all ran.
 - Install code that reads data another app with no dependency path to it wrote in its own install code: not detected; only
   subscribers and `GetModuleInfo` are refused.
 - Table extension triggers of an app installed later, on a table of the app that installs: not covered by the probe.
+
+## Amendment 7 (2026-11-08): Microsoft's apps first; partner apps installed in every order and compared
+
+Status: Accepted (owner, 2026-11-08). al-runner issue 6644.
+
+### Context
+
+BC keeps no install order for two apps with no dependency path between them (measured on 27.5, 28.5 and 29.0; owner,
+2026-10-30), and there is no flag to state one (owner, 2026-11-02). Under amendment 6 item 2 the runner refused what one
+such app's install code could see of the other. Issue 6644 showed two shapes in a partner's suite of about 45 apps that
+this refused, while they pass on real BC:
+
+- Microsoft's E-Document Install inserts a Job Queue Entry; a partner app with no dependency path to E-Document has a
+  table extension on Job Queue Entry with an `OnBeforeInsert` trigger.
+- A partner app's install code logs telemetry; another partner app with no dependency path to it subscribes to
+  `OnRegisterTelemetryLogger` and changes `Sender` (registers its logger).
+
+### Decision (owner, 2026-11-08)
+
+1. **Microsoft's apps install before partner apps.** Basis: how a container's database is built. The BC artifact's
+   database holds Microsoft's apps installed (BcContainerHelper creates the container from it, and
+   `Import-TestToolkitToBcContainer` adds the test toolkit, amendment 6 item 4); a pipeline then publishes and installs
+   the partner apps into that database. So while a Microsoft app installs, a partner app it does not depend on is not
+   installed, and while a partner app installs, every Microsoft app is installed. The source is the container recipe,
+   not a corpus probe.
+   - Microsoft's app: the manifest's publisher is `Microsoft`. An app whose manifest gives no publisher keeps the rules
+     of amendment 6 (no partner rule without the fact). A partner app that a Microsoft app depends on counts as
+     Microsoft's side (it must install first).
+   - Order of the dependency apps: Microsoft's application apps, then the test-toolkit apps, then the partner apps,
+     then Company-Initialize and the company build (as before). Among the apps under test: the Microsoft ones, then
+     the partner ones.
+   - Two Microsoft apps with no dependency path between them stay refused as in amendment 6 item 2.
+2. **Two partner apps whose install code may interact are installed in both orders and the databases compared.**
+   - The partner apps of a group install once, with the order of unordered pairs not known (amendment 6 item 2). When
+     no refusal of that kind happened, that is the result: the install code ran once, as before.
+   - When the install code of a partner app met code of another partner app of the group (an event its subscriber
+     would get, a table extension trigger, `NavApp.GetModuleInfo`, a Company Triggers subscriber), the runner goes back
+     to the database before the group (the data, the counters, the clock offset, SingleInstance state cleared), and
+     installs the group again once per order of the apps met, with the other apps of the group in plan order. Each order
+     is captured and compared with the first one.
+   - The comparison covers every table's committed rows and AutoIncrement counters, in every company. Left out: the
+     system fields SystemId, SystemCreatedAt/By, SystemModifiedAt/By and SystemRowVersion, which BC gives new values
+     on every install whatever the order, and the GUID and row version counters.
+   - **Same rows:** the run goes on from the database of the last order. The tests run normally.
+   - **Different rows:** the run goes on from the database of the last order, and a test that touches a table that
+     differs is not run, with the reason "the install order of apps A, B is not known (no dependency path between them),
+     and installing them in each order leaves different rows in T1, T2 (ADR-046 amendment 7)".
+   - **Isolated storage, number sequences, unknown or copied companies differ:** the differences cannot be named by
+     table, so the group installs once more with the order not known, as before (the refusal of amendment 6 item 2).
+   - If an order meets a partner app that was not in the set yet, it joins the set and the orders start again.
+3. **Three or more interacting partner apps.** The runner tries every order of the apps met, up to three apps (at most
+   3! = 6 orders, the orders a dependency path rules out left out). Pairwise comparison would miss an effect that needs
+   three apps in a certain order, so all orders are tried. With more than three apps it does not try them: the group
+   installs once more with the order not known, as before, and the baseline note says why.
+4. **Cost.** The shared install baseline is still built once per run. Install code runs again only for a group with
+   partner apps whose install code met another partner app's code: the group's install code then runs once plus once per
+   order (2 orders for a pair: three runs of the partner group's install code, Microsoft's apps not again). A run without
+   such apps pays one capture of the store when the group has two unordered partner apps with install code (a clone of
+   a root pointer), and nothing otherwise; the corpus run has no partner dependency apps and its apps under test install
+   in listed order, so it pays nothing. `--timings` prints one line per group that ran in several orders:
+   `install baseline: install order: A, B: ... ran in 2 orders; every order left the same database`.
+
+### Built
+
+- `al-testrun/src/install_orders.rs`: `split_microsoft`, `install_partner_apps` (the orders, the comparison, the
+  fallback), the `AppInstalls` trait for the two kinds of install run.
+- `al-testrun/src/baseline_roots.rs`: one root of the dependency baseline, split from `baseline.rs` so the partner roots
+  can run again.
+- `al-testrun/src/install.rs`: `InstallView::of_ordered`/`apply_ordered` (an order chosen for some apps); the apps under
+  test install per app (`install_app_under_test`); Company Triggers subscribers use the session's view.
+- `al-vm/src/baseline/install_orders.rs`: `Session::note_order_unknown_hit` / `take_order_unknown_hits` (noted at the
+  refusals in `dispatch.rs`, `ctx.rs`, `records.rs`), `Session::rewind_install`, `Session::set_clock_offset_ms`,
+  `Baseline::install_order_differences`.
+- Tests: `al-testrun/tests/suite/install_partner_order.rs`.
+
+### Not covered (stays as before)
+
+- A read of NAV App Installed App during a partner install still gives an unknown cell for an unordered app (no order is
+  tried for it).
+- Install code that reads data another unordered app wrote in its own install code is not detected (amendment 6, still
+  not pinned); the comparison covers it only when the install code also meets the other app's code.
+- The late group of a company data recipe (`installed_first`) keeps amendment 6.
+
+### Decided without owner review (2026-11-08)
+
+- The first install of the partner group (order not known) finds which apps interact; it is not one of the compared
+  orders. For a pair the group's install code therefore runs three times, not two. Making the first install one of the
+  orders needs the refusal sites to record and go on in a chosen order; not built.
+- At most three interacting apps (all orders); more falls back to the refusal of amendment 6.
+- An app whose manifest gives no publisher counts as Microsoft's side, so nothing changes where the fact is missing.
+- System fields and the GUID and row version counters are left out of the comparison; every other value counts, so a
+  `CurrentDateTime` or `CreateGuid` value that install code writes in both apps is a difference (refused).
