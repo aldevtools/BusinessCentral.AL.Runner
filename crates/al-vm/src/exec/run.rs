@@ -1022,7 +1022,7 @@ impl Session {
         if let Some(g) = site.single_write {
             self.single_written(&f.instance, g as usize);
         }
-        self.profile_builtin(site.id);
+        self.profile_builtin();
         v
     }
 

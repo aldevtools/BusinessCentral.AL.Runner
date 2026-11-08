@@ -176,6 +176,7 @@ impl Session {
             routine,
             pos: al_ir::NO_POS,
         });
+        self.profile_enter(object, routine, true);
         self.events.publish_frame = true;
         self.events.sender_refused = sender_refused;
         self.events.var_origins = origins;
@@ -183,6 +184,7 @@ impl Session {
         let raised = self.raise(&call, &mut values);
         self.events.sender_refused = None;
         self.events.publish_frame = false;
+        self.profile_leave();
         let top = self.call_stack.pop();
         self.frames.pop();
         if let Err(e) = raised {
