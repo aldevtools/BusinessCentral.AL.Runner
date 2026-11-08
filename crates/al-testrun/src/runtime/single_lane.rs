@@ -391,6 +391,8 @@ struct Chain {
     order: Vec<usize>,
     chosen: BTreeSet<usize>,
     steps: Vec<Step>,
+    /// What the session is expected to cost: the parallel run times of its codeunits ([`dispatch_order`]).
+    cost: std::time::Duration,
 }
 
 /// Where a codeunit of a serial session starts, worked out on this thread (amendment 5). A baseline a carry-chain
@@ -595,7 +597,9 @@ impl Lane<'_> {
             report.rerun += chosen.len();
             for (positions, reported) in found.sessions(&chosen) {
                 let order: Vec<usize> = positions.iter().map(|&p| ks[p]).collect();
+                let cost = order.iter().filter_map(|&k| slots[k].as_ref()).map(|r| r.took).sum();
                 chains.push(Chain {
+                    cost,
                     steps: self.plan(&order),
                     chosen: reported.iter().map(|&p| ks[p]).collect(),
                     order,
@@ -632,6 +636,8 @@ impl Lane<'_> {
                 .get_or_init(|| self.baseline.and_then(al_vm::Baseline::to_bytes));
             let snapshot: Option<&[u8]> = self.snapshot.get().and_then(|s| s.as_deref());
             let next = std::sync::atomic::AtomicUsize::new(0);
+            // The costliest sessions first: the lane's wall time is then close to the longest session's.
+            let taken = dispatch_order(&chains.iter().map(|c| c.cost).collect::<Vec<_>>());
             let worker = Worker {
                 engine: self.engine,
                 lowered: self.lowered,
@@ -644,7 +650,7 @@ impl Lane<'_> {
                 let mut handles = Vec::new();
                 for _ in 0..helpers {
                     let ask = ask.clone();
-                    let (next, worker) = (&next, &worker);
+                    let (next, worker, taken) = (&next, &worker, &taken);
                     let spawned = std::thread::Builder::new()
                         .stack_size(TEST_STACK)
                         .spawn_scoped(scope, move || {
@@ -662,8 +668,9 @@ impl Lane<'_> {
                             };
                             let mut done = Vec::new();
                             loop {
-                                let c = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                let Some(chain) = chains.get(c) else { return done };
+                                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                let Some(&c) = taken.get(i) else { return done };
+                                let chain = &chains[c];
                                 let mut at = chain.steps.iter();
                                 let runs = run_in_order(&chain.order, &mut |_| {
                                     worker.run(own.as_ref(), &mut start, at.next().expect("a step per codeunit"))
@@ -822,6 +829,14 @@ impl Lane<'_> {
     }
 }
 
+/// The order the worker threads take the serial sessions in: the costliest first, so the longest sessions do not start
+/// last while the other threads have nothing left to do. `costs[i]` is what session `i` is expected to cost.
+fn dispatch_order(costs: &[std::time::Duration]) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..costs.len()).collect();
+    order.sort_by_key(|&i| std::cmp::Reverse(costs[i]));
+    order
+}
+
 /// Marks every test of a codeunit's run with `a`.
 fn flag_all(done: &mut UnitOutcomes, a: Assumption) {
     for (test, _) in &done.0 {
@@ -853,6 +868,16 @@ mod tests {
             wrote: wrote.iter().copied().collect(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn the_costliest_serial_session_is_taken_first() {
+        let ms = std::time::Duration::from_millis;
+        assert_eq!(
+            dispatch_order(&[ms(5), ms(900), ms(40), ms(900), ms(0)]),
+            vec![1, 3, 2, 0, 4]
+        );
+        assert!(dispatch_order(&[]).is_empty());
     }
 
     #[test]
