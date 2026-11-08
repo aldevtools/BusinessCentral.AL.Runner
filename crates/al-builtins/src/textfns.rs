@@ -23,8 +23,35 @@ fn u16s(s: &str) -> Vec<u16> {
     s.encode_utf16().collect()
 }
 
-fn from_u16(u: &[u16]) -> String {
-    String::from_utf16_lossy(u)
+/// The text of `u`, or a refusal naming `op` when `u` holds half of a surrogate pair. Real BC keeps the half in the text
+/// (text/lt-cr-text-leads/CrTextLeads.al:414-439, types/lt-text-char-index/TextCharIndexAssignEdges.al:88-116); this runtime
+/// cannot hold it until ADR-068 is built, and U+FFFD in its place would be a guessed value (hard rule 4).
+fn from_u16(u: &[u16], op: &str) -> Result<String, Signal> {
+    String::from_utf16(u)
+        .map_err(|_| Signal::Unsupported(format!("{op} that ends up with half of a surrogate pair (not pinned)")))
+}
+
+/// `Text.Substring` and `Text.Remove` through a pair keep the half (ADR-068); the corpus reads the length of the result
+/// (text/text-methods/Index1.Codeunit.al:189 and :192, `'😀a'.Substring(1, 1)` has length 1, `.Remove(1, 1)` length 2).
+/// A reader that is not audited refuses on the half (ADR-068 item 3).
+fn from_u16_length_pinned(u: &[u16]) -> crate::text::Txt {
+    crate::text::Txt::from_units(u)
+}
+
+/// `h` with every `old` replaced by `new`, left to right, matches not overlapping, unit by unit.
+fn replace_units(h: &[u16], old: &[u16], new: &[u16]) -> Vec<u16> {
+    let mut out = Vec::with_capacity(h.len());
+    let mut i = 0;
+    while i < h.len() {
+        if h[i..].starts_with(old) {
+            out.extend_from_slice(new);
+            i += old.len();
+        } else {
+            out.push(h[i]);
+            i += 1;
+        }
+    }
+    out
 }
 
 fn text(a: &[Value], i: usize) -> Result<crate::text::Txt, Signal> {
@@ -209,7 +236,9 @@ fn index_of(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult 
             find_ascii(&st.as_bytes()[from..], sb.as_bytes()).map_or(0, |p| (p + from) as i32 + 1),
         ));
     }
-    let (s, sub) = (u16s(&st), u16s(&sb));
+    // Unit by unit, so a lone half is searched as itself (ADR-068; the corpus's Probe Observer searches every observed
+    // text, _fixtures/ProbeObserver.Codeunit.al:105, on the values of types/text-code-char/TextCharIndexAssignEdges.al:116).
+    let (s, sub) = (st.units(), sb.units());
     let from = if a.len() > 1 {
         let n = int(a, 1)?;
         // A start outside 1 to the length plus one raises (text/TestProbeTextDateFormatContracts.al:Text_IndexOfAndTextBuilderEdges).
@@ -325,7 +354,7 @@ fn index_of_any(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NRes
 /// end is `count ('C') must be less than or equal to 'R'.`. Two arguments with a start further than just past the end are not
 /// pinned.
 fn remove(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    let s = u16s(&recv_text(&r)?);
+    let s = recv_text(&r)?.units();
     let start = int(a, 0)?;
     let len = s.len() as i64;
     let from = start - 1;
@@ -363,7 +392,7 @@ fn remove(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let from = from as usize;
     let mut out = s[..from].to_vec();
     out.extend_from_slice(&s[to..]);
-    Ok(Value::Text(from_u16(&out).into()))
+    Ok(Value::Text(from_u16_length_pinned(&out)))
 }
 
 // ---------------------------------------------------- transforming
@@ -416,12 +445,21 @@ fn trim_end(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult 
 
 fn replace(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let (s, old, new) = (recv_text(&r)?, text_or_guid(a, 0)?, text(a, 1)?);
-    if old.is_empty() {
+    if old.utf16_len() == 0 {
         // types/TestFormatEvaluateTextContracts.al:Text_EmptyArguments_ContainsStartsEndsAreTrueIndexOfIsOne.
         return raise(
             "The value cannot be an empty string. (Parameter 'oldValue')",
             "Argument",
         );
+    }
+    // A text with half of a surrogate pair is replaced in unit by unit (ADR-068; the Probe Observer replaces in every
+    // observed text, _fixtures/ProbeObserver.Codeunit.al:32, on the values of TextCharIndexAssignEdges.al:116).
+    if s.has_lone() || old.has_lone() || new.has_lone() {
+        return Ok(Value::Text(crate::text::Txt::from_units(&replace_units(
+            &s.units(),
+            &old.units(),
+            &new.units(),
+        ))));
     }
     Ok(Value::Text(s.replace(old.as_str(), new.as_str()).into()))
 }
@@ -431,7 +469,7 @@ fn substring(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult
     let st = recv_text(&r)?;
     let ascii = st.is_ascii();
     // Text of ASCII only is sliced where it lies; anything else goes through its UTF-16 units.
-    let s: Vec<u16> = if ascii { Vec::new() } else { u16s(&st) };
+    let s: Vec<u16> = if ascii { Vec::new() } else { st.units() };
     let len = if ascii { st.len() } else { s.len() };
     let start = int(a, 0)?;
     let count = if a.len() > 1 { Some(int(a, 1)?) } else { None };
@@ -456,7 +494,7 @@ fn substring(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult
     if ascii {
         return Ok(Value::Text(st[from..to].to_string().into()));
     }
-    Ok(Value::Text(from_u16(&s[from..to]).into()))
+    Ok(Value::Text(from_u16_length_pinned(&s[from..to])))
 }
 
 fn pad(r: &Option<&mut Value>, a: &[Value], left: bool) -> NResult {
@@ -534,14 +572,14 @@ fn split(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
         };
         match hit {
             Some(n) => {
-                parts.push(Value::Text(from_u16(&s[start..i]).into()));
+                parts.push(Value::Text(from_u16(&s[start..i], "Text.Split")?.into()));
                 i += n;
                 start = i;
             }
             None => i += 1,
         }
     }
-    parts.push(Value::Text(from_u16(&s[start..]).into()));
+    parts.push(Value::Text(from_u16(&s[start..], "Text.Split")?.into()));
     Ok(Value::List(Rc::new(RefCell::new(parts.into()))))
 }
 
@@ -556,8 +594,8 @@ fn convert_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResu
         return raise(
             format!(
                 "ALConvertStr expects 2 strings in the conversion to be of equal length: Converting from {} to {}.",
-                from_u16(&from),
-                from_u16(&to)
+                from_u16(&from, "ConvertStr")?,
+                from_u16(&to, "ConvertStr")?
             ),
             "InvalidStringFormat",
         );
@@ -566,7 +604,7 @@ fn convert_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResu
         .into_iter()
         .map(|c| from.iter().position(|f| *f == c).map_or(c, |i| to[i]))
         .collect();
-    Ok(Value::Text(from_u16(&mapped).into()))
+    Ok(Value::Text(from_u16(&mapped, "ConvertStr")?.into()))
 }
 
 /// `DelChr(String [, Where [, Which]])`: `Where` is `<` (leading), `>` (trailing), `<>` (both) or
@@ -656,15 +694,17 @@ fn pad_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let u = u16s(&s);
     // Shorter than the text truncates (TestTextProcessingContracts.al PadStr_LengthLessThanStringLen_Truncates).
     if want <= u.len() {
-        return Ok(Value::Text(from_u16(&u[..want]).into()));
+        return Ok(Value::Text(from_u16(&u[..want], "PadStr")?.into()));
     }
     let mut out = s.into_string();
     out.extend(std::iter::repeat_n(f, want - u.len()));
     Ok(Value::Text(out.into()))
 }
 
+// A cut through a pair keeps the half, and a half of the text stays (ADR-068; text/CrTextLeads.al:428,442 `delstr_2_1`,
+// text/text-methods/Index1.Codeunit.al:371,380).
 fn del_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    let s = u16s(&text_or_guid(a, 0)?);
+    let s = text_or_guid(a, 0)?.units();
     let pos = int_or_decimal(a, 1)?;
     // text/TestProbeTextDateFormatContracts.al:Text_DelStrInsStr: the position must be 1 or more (the upper bound the
     // message names is 2048 without a length and the largest Integer with one); a length must be 0 or more.
@@ -685,7 +725,7 @@ fn del_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
     }
     // A position past the end deletes nothing (types/TestFormatEvaluateTextContracts.al:Text_OutOfRangeArguments).
     if pos as usize > s.len() {
-        return Ok(Value::Text(from_u16(&s).into()));
+        return Ok(Value::Text(crate::text::Txt::from_units(&s)));
     }
     let from = pos as usize - 1;
     let to = if a.len() > 2 {
@@ -695,7 +735,7 @@ fn del_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
     };
     let mut out = s[..from].to_vec();
     out.extend_from_slice(&s[to..]);
-    Ok(Value::Text(from_u16(&out).into()))
+    Ok(Value::Text(crate::text::Txt::from_units(&out)))
 }
 
 fn ins_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
@@ -710,7 +750,7 @@ fn ins_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let mut out = s[..at].to_vec();
     out.extend_from_slice(&sub);
     out.extend_from_slice(&s[at..]);
-    Ok(Value::Text(from_u16(&out).into()))
+    Ok(Value::Text(from_u16(&out, "InsStr")?.into()))
 }
 
 /// An index outside the list raises with the text and code of
@@ -956,7 +996,9 @@ fn tb_to_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResul
         ));
     }
     let from = start as usize - 1;
-    Ok(Value::Text(from_u16(&u[from..from + count as usize]).into()))
+    Ok(Value::Text(
+        from_u16(&u[from..from + count as usize], "TextBuilder.ToText")?.into(),
+    ))
 }
 
 fn tb_length(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
@@ -983,11 +1025,10 @@ fn tb_set_length(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> N
     if ctx.ret_used() {
         return unsupported("the answer of setting TextBuilder.Length (not pinned)");
     }
-    with_string(&h, |s| {
-        let mut u = u16s(s);
-        u.resize(n as usize, 0);
-        *s = from_u16(&u);
-    });
+    let mut u = with_string(&h, |s| u16s(s));
+    u.resize(n as usize, 0);
+    let cut = from_u16(&u, "TextBuilder.Length")?;
+    with_string(&h, |s| *s = cut);
     grow_capacity(&h);
     Ok(Value::Integer(n as i32))
 }
@@ -1019,10 +1060,11 @@ fn tb_replace_range(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
         );
     }
     let (from, to) = ((start - 1) as usize, (start - 1 + count) as usize);
-    let mid = from_u16(&u[from..to]).replace(old.as_str(), new.as_str());
-    let mut out = from_u16(&u[..from]);
+    let op = "TextBuilder.Replace";
+    let mid = from_u16(&u[from..to], op)?.replace(old.as_str(), new.as_str());
+    let mut out = from_u16(&u[..from], op)?;
     out.push_str(&mid);
-    out.push_str(&from_u16(&u[to..]));
+    out.push_str(&from_u16(&u[to..], op)?);
     with_string(&h, |s| *s = out);
     grow_capacity(&h);
     Ok(Value::Boolean(true))
@@ -1079,7 +1121,8 @@ fn tb_insert(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult
     let mut out = u[..at].to_vec();
     out.extend(t.encode_utf16());
     out.extend_from_slice(&u[at..]);
-    with_string(&h, |s| *s = from_u16(&out));
+    let joined = from_u16(&out, "TextBuilder.Insert")?;
+    with_string(&h, |s| *s = joined);
     grow_capacity(&h);
     Ok(Value::Boolean(true))
 }
@@ -1098,7 +1141,8 @@ fn tb_remove(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult
     let from = start as usize - 1;
     let mut out = u[..from].to_vec();
     out.extend_from_slice(&u[from + count as usize..]);
-    with_string(&h, |s| *s = from_u16(&out));
+    let cut = from_u16(&out, "TextBuilder.Remove")?;
+    with_string(&h, |s| *s = cut);
     Ok(Value::Boolean(true))
 }
 
@@ -1168,12 +1212,11 @@ fn bt_add_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
         if pos < 1 {
             return Err(permitted("INSSTR", 3, pos, "1", INT_MAX));
         }
-        with_string(&h, |s| {
-            let mut u = u16s(s);
-            let at = (pos as usize - 1).min(u.len());
-            u.splice(at..at, t.encode_utf16());
-            *s = from_u16(&u);
-        });
+        let mut u = with_string(&h, |s| u16s(s));
+        let at = (pos as usize - 1).min(u.len());
+        u.splice(at..at, t.encode_utf16());
+        let joined = from_u16(&u, "BigText.AddText")?;
+        with_string(&h, |s| *s = joined);
         return Ok(Value::Null);
     }
     with_string(&h, |s| s.push_str(&t));
@@ -1234,7 +1277,7 @@ fn bt_get_sub_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> N
     }
     let from = (pos as usize - 1).min(u.len());
     let to = len.map_or(u.len(), |l| (from + l as usize).min(u.len()));
-    let part = from_u16(&u[from..to]);
+    let part = from_u16(&u[from..to], "BigText.GetSubText")?;
     let n = (to - from) as i32;
     match &mut a[0] {
         Value::Library(_, t)

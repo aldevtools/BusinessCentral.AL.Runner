@@ -104,6 +104,7 @@ mod records;
 mod refs;
 mod relations;
 mod rename;
+mod report_handler_unshown;
 mod report_layout_export;
 mod report_layout_streams;
 mod report_no_layout_file;
@@ -128,6 +129,7 @@ mod usertable;
 mod view_empty;
 mod view_unknown;
 mod views;
+mod views_cross_enum;
 mod xmlports;
 mod xrec_blobs;
 pub use transactions::TxModel;
@@ -2174,7 +2176,17 @@ impl Session {
         args: Vec<Value>,
     ) -> Result<(Value, Vec<Value>), Signal> {
         let facts = self.engine.routine_facts(object, routine);
-        self.call_with_facts(object, routine, instance, args, facts)
+        // ADR-068 item 3: a call from outside starts with no read recorded and refuses on one left at its end (an `exit` of an
+        // expression that read a text with half of a surrogate pair runs no further statement).
+        let outer = self.depth == 0;
+        if outer {
+            al_builtins::text::take_unaudited_read();
+        }
+        let r = self.call_with_facts(object, routine, instance, args, facts);
+        if outer && r.is_ok() {
+            al_builtins::text::check_unaudited()?;
+        }
+        r
     }
 
     /// [`Session::call`] with the routine's facts already looked up by the caller (one lookup per call, not one per step).

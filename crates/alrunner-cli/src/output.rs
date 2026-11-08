@@ -439,6 +439,8 @@ fn not_run_message(why: &str) -> String {
     format!("NotRun: out-of-scope: {}", why.lines().next().unwrap_or(""))
 }
 
+/// [`junit_with`] without further properties (the tests use it; the run adds the re-run property).
+#[cfg(test)]
 pub fn junit(
     results: &[&TestResult],
     bc_build: Option<&str>,
@@ -449,6 +451,14 @@ pub fn junit(
     junit_with(results, bc_build, wall_s, disabled, baseline_assumptions, &|_| {
         Vec::new()
     })
+}
+
+/// The JUnit property of a test whose codeunit's serial re-run was skipped for the length of its chain (ADR-066
+/// amendment 7, option 2): `singleInstanceRerun` with the text the run output prints.
+pub fn rerun_skipped_property(lane: &al_testrun::runtime::LaneReport, r: &TestResult) -> Vec<(String, String)> {
+    lane.skipped_text(r.suite, r.codeunit)
+        .map(|t| vec![("singleInstanceRerun".to_string(), t)])
+        .unwrap_or_default()
 }
 
 /// [`junit`], with further properties per test (an impact run's change class, ADR-043 step 3).

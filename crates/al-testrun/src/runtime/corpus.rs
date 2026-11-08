@@ -139,10 +139,12 @@ impl CorpusRuntime {
     /// [`try_run_suites_with`](Self::try_run_suites_with) on the compile `kept` grown by the apps of `apps` it does not
     /// have (ADR-063): `apps` holds the kept compile's apps too, which are not compiled again. The run has an engine, a
     /// store, an install baseline and sessions of its own. When the kept compile does not fit `apps` (an app differs, or
-    /// an app it has would see a new one), the run compiles all of `apps` from source and says why on stderr.
+    /// an app it has would see a new one), the run compiles all of `apps` from source and says why on stderr. With
+    /// `keep`, the grown compile is given back, cut back to `kept`'s apps, for a later pass that grows it again.
     #[allow(clippy::too_many_arguments)]
     pub fn try_run_suites_grown(
         kept: KeptCompile,
+        keep: bool,
         apps: Vec<al_sema::workspace::AppSource>,
         kinds: Vec<al_sema::AppKind>,
         manifests: &[Manifest],
@@ -151,10 +153,9 @@ impl CorpusRuntime {
         dotnet: al_vm::dotnet::DotNetConfig,
         suites: &[SuiteRun],
         opts: &RunOptions,
-    ) -> Result<CorpusRuntime, String> {
-        let grow = Grow::From(Box::new(kept));
+    ) -> Result<(CorpusRuntime, Option<KeptCompile>), String> {
+        let grow = Grow::From(Box::new(kept), keep);
         Self::try_run_suites_inner(apps, kinds, manifests, symbols, target, dotnet, suites, opts, grow)
-            .map(|(rt, _)| rt)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -399,7 +400,7 @@ impl CorpusRuntime {
         let on_workspace = dependency_apps_on_workspace(&apps, &kinds);
         // ADR-063: a run that grows a kept compile has the kept compile's apps first, in its order, then its own.
         let grow_order: Option<Vec<usize>> = match &*grow {
-            Grow::From(kept) => match kept.order_for(&apps, &kinds, manifests, symbols, target) {
+            Grow::From(kept, _) => match kept.order_for(&apps, &kinds, manifests, symbols, target) {
                 Ok(order) => Some(order),
                 Err(why) => {
                     eprintln!("note: this pass compiles its apps from source: {why}");
@@ -408,7 +409,7 @@ impl CorpusRuntime {
             },
             _ => None,
         };
-        if grow_order.is_none() && matches!(grow, Grow::From(_)) {
+        if grow_order.is_none() && matches!(grow, Grow::From(..)) {
             *grow = Grow::Off;
         }
         let use_cache = grow_order.is_none()
@@ -567,7 +568,7 @@ impl CorpusRuntime {
         let require_cache = opts.compile_cache.as_ref().is_some_and(|c| c.require);
         let mut source_index: Option<&'static str> = None;
         // A grown compile is the complete compile of its pass (its baseline is weighed on it below).
-        let growing = matches!(grow, Grow::From(_));
+        let growing = matches!(grow, Grow::From(..));
         let mut grow_kept = None;
         if try_skip
             && !require_cache
@@ -709,24 +710,20 @@ impl CorpusRuntime {
                     let (ws, lowered) = match std::mem::replace(grow, Grow::Off) {
                         // ADR-063: the kept compile grown by this run's other apps, which follow its apps. The kept
                         // apps' sources are not read again: the kept compile has them.
-                        Grow::From(kept) => {
-                            let kept = *kept;
-                            let n_kept = kept.ws.apps.len();
-                            let more = apps.split_off(n_kept);
-                            retire(std::mem::take(&mut apps));
-                            let more_kinds = kinds[n_kept..].to_vec();
-                            let more_symbols = dep_symbols[n_kept..].to_vec();
-                            al_sema::lower::grow(
-                                kept.ws,
-                                kept.growable,
-                                more,
-                                more_kinds,
+                        Grow::From(kept, keep) => {
+                            let apps = std::mem::take(&mut apps);
+                            let (ws, lowered, kept) = grow_from_kept(
+                                *kept,
+                                keep,
+                                apps,
+                                &kinds,
+                                &dep_symbols,
                                 symbols,
-                                &more_symbols,
                                 &catalog,
                                 roots.clone(),
-                            )
-                            .map_err(|(_, why)| format!("growing the kept compile: {why}"))?
+                            )?;
+                            grow_kept = kept;
+                            (ws, lowered)
                         }
                         keep => {
                             let (ws, load) = match preloaded.take() {
@@ -1742,7 +1739,7 @@ impl CorpusRuntime {
                 slots[k] = Some(r);
             }
             #[rustfmt::skip]
-            let lane = super::single_lane::Lane { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, carried: &carried, sees: &sees, place: &place, limit, strict: opts.strict_order, suites: opts.test_suites.as_deref(), workers, install_copies: baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline, gate: memory.gate() };
+            let lane = super::single_lane::Lane { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, carried: &carried, sees: &sees, place: &place, limit, strict: opts.strict_order, max_replay: opts.max_replay, suites: opts.test_suites.as_deref(), workers, install_copies: baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline, gate: memory.gate() };
             lane.run(&mut slots, &mut chain_report.single_lane);
             let results: Vec<UnitResult> = slots.into_iter().flatten().collect();
             for r in results {
@@ -2620,4 +2617,56 @@ pub(super) fn observed_detail(lowered: &Lowered, seen: &Observed) -> explain::Te
     );
     d.refused_in = seen.refused_in.map(|(o, r)| explain::describe_refused(lowered, o, r));
     d
+}
+
+/// ADR-063: the kept compile grown by the run's other apps, which follow its apps in `apps`. The kept apps' sources are
+/// not read again: the kept compile has them. With `keep` (a pass another pass follows), what the grown compile keeps
+/// for it: the next pass has the kept compile's apps, not this pass's own.
+#[allow(clippy::too_many_arguments)]
+fn grow_from_kept(
+    kept: KeptCompile,
+    keep: bool,
+    mut apps: Vec<al_sema::workspace::AppSource>,
+    kinds: &[al_sema::AppKind],
+    dep_symbols: &[Option<BTreeSet<String>>],
+    symbols: &BTreeSet<String>,
+    catalog: &al_builtins::catalog::Catalog,
+    roots: al_sema::check::Roots,
+) -> Result<(al_sema::Workspace, al_sema::lower::Lowered, Option<GrowKept>), String> {
+    let n_kept = kept.ws.apps.len();
+    let more = apps.split_off(n_kept);
+    retire(apps);
+    let grow = if keep { al_sema::lower::grow_growable } else { grow_only };
+    let (ws, lowered, growable) = grow(
+        kept.ws,
+        kept.growable,
+        more,
+        kinds[n_kept..].to_vec(),
+        symbols,
+        &dep_symbols[n_kept..],
+        catalog,
+        roots,
+    )
+    .map_err(|(_, why)| format!("growing the kept compile: {why}"))?;
+    let kept = growable.map(|growable| GrowKept {
+        growable,
+        app_symbols: dep_symbols.to_vec(),
+        shared: n_kept,
+    });
+    Ok((ws, lowered, kept))
+}
+
+/// [`al_sema::lower::grow`] in the shape of [`al_sema::lower::grow_growable`], keeping nothing.
+#[allow(clippy::too_many_arguments)]
+fn grow_only(
+    ws: al_sema::Workspace,
+    kept: al_sema::lower::Growable,
+    apps: Vec<al_sema::workspace::AppSource>,
+    kinds: Vec<al_sema::AppKind>,
+    symbols: &BTreeSet<String>,
+    app_symbols: &[Option<BTreeSet<String>>],
+    catalog: &al_builtins::catalog::Catalog,
+    roots: al_sema::check::Roots,
+) -> al_sema::lower::Grown {
+    al_sema::lower::grow(ws, kept, apps, kinds, symbols, app_symbols, catalog, roots).map(|(ws, l)| (ws, l, None))
 }

@@ -25,6 +25,13 @@ report 61502 "RH Proc"
     trigger OnInitReport() var L: Codeunit "RH Log"; begin L.Add('OnInitReport'); end;
     trigger OnPreReport() var L: Codeunit "RH Log"; begin L.Add('OnPreReport'); end;
 }
+report 61505 "RH Rendered"
+{
+    DefaultLayout = RDLC;
+    RDLCLayout = 'RHRendered.rdl';
+    dataset { dataitem(Row; "RH Row") { column(Id; Id) { } } }
+    requestpage { }
+}
 report 61503 "RH Layout"
 {
     dataset { dataitem(Row; "RH Row") { column(Id; Id) { } } }
@@ -72,4 +79,27 @@ fn a_report_handler_for_a_report_with_a_layout_is_refused() {
         Outcome::NotRun(why) => assert!(why.contains("processing-only"), "{why}"),
         other => panic!("{other:?}"),
     }
+}
+
+/// A run without the request page of a report that renders output calls the handler bound for it (Run: reports/layouts-saveas/
+/// Y43SystemPrinterRequestPage.al:313 Y43_G411_Layout_Run_ReqFalse_Sp_ReportHandler; RunModal:
+/// reports/reporthandler/AeReportHandler.al:237 Report_RunModal_RdlcReportCallsRegisteredHandler, corpus pull request 1199, al-runner
+/// issue 7269: `Report.RunModal(Report::"Assembly Order", false, false)` logs `rdlc-handler;`).
+#[test]
+fn a_run_without_the_page_of_a_rendering_report_calls_its_handler() {
+    let got = outcomes(
+        "[ReportHandler] procedure RenderedHandler(var R: Report \"RH Rendered\") begin L.Add('rendered-handler'); end;
+        [Test] [HandlerFunctions('RenderedHandler')] procedure Rendered() begin Seed(); Report.RunModal(Report::\"RH Rendered\", false, false);
+            Check('rendered-handler;', L.Take()); end;",
+    );
+    assert_eq!(got[0].1, Outcome::Pass, "{got:?}");
+}
+
+/// A processing-only report run without its page with a handler bound: whether the handler is called is not pinned.
+#[test]
+fn a_run_without_the_page_of_a_processing_only_report_with_a_handler_stays_as_it_was() {
+    let got = outcomes(
+        "[Test] [HandlerFunctions('Handler')] procedure NoPage() begin Seed(); Report.RunModal(Report::\"RH Proc\", false, false); end;",
+    );
+    assert!(!matches!(got[0].1, Outcome::Pass), "{got:?}");
 }

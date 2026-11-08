@@ -153,12 +153,13 @@ pub enum Gate {
     /// compiled from BC 28 on, and BC 27 refuses the methods at compile time (json/json/SelectTokensList.al,
     /// corpus bump 27). Not consumed yet.
     JsonSelectTokensListFrom28,
-    /// The system table Windows Language has 212 rows from BC 29 (208 before) (metadata/platform-tables/AgWindowsLanguage.al, corpus bump 26).
-    /// The flag columns count the same rows (metadata/platform-tables/Y21EnvColumns.al:120 Y21_WindowsLanguage_Flags). Not
-    /// consumed yet.
+    /// `Environment Information.IsPreview` and `IsEarlyPreview` exist from System Application 28: the test is compiled from
+    /// BC 28 on, BC 27.5 refuses the methods at compile time (AL0132), and a container is on no preview ring
+    /// (types/PVEnvironment.al:35-47, :55-67, corpus PR 1211). Not consumed yet.
+    EnvironmentPreviewRingsFrom28,
+    /// The system table Windows Language has 212 rows from BC 29 (208 before) on the Linux CI containers before bc-linux image
+    /// 1a121fc6 (metadata/platform-tables/AgWindowsLanguage.al, corpus bump 26). Not consumed yet.
     WindowsLanguageRowsFrom29,
-    /// The platform table Language Selection has the row ff-NG and other rows from BC 29 (metadata/platform-tables/PlatformRowsLanguageSelection.al, corpus bump 26). Consumed by the Language Selection provider (al-vm platform/host_tables.rs).
-    LanguageSelectionRowsFrom29,
     /// The report dataset header has the CompanyAddressLine1..8 elements from BC 29 (reports/dataset/AhDatasetHeader.al, corpus bump 26). Not consumed yet.
     DatasetHeaderCompanyAddressLinesFrom29,
     /// `Report.SaveAs` of a report with inherent permissions is refused with `DB:ClientReadDenied` from BC 29 (reports/runtime/UPropertyTests.al, corpus bump 26). Not consumed yet.
@@ -431,8 +432,8 @@ impl Gate {
         Gate::FullyQualifiedNameRunAndOpenFrom28,
         Gate::ControlAddInNotInstantiatedErrorFrom28,
         Gate::JsonSelectTokensListFrom28,
+        Gate::EnvironmentPreviewRingsFrom28,
         Gate::WindowsLanguageRowsFrom29,
-        Gate::LanguageSelectionRowsFrom29,
         Gate::DatasetHeaderCompanyAddressLinesFrom29,
         Gate::ReportSaveAsInherentPermissionsFrom29,
         Gate::ObsoleteRequiredPendingAttributeFrom29,
@@ -489,7 +490,6 @@ impl Gate {
             | Gate::QueryReadCommittedFrom29
             | Gate::ProbedValuesDifferFrom29
             | Gate::WindowsLanguageRowsFrom29
-            | Gate::LanguageSelectionRowsFrom29
             | Gate::DatasetHeaderCompanyAddressLinesFrom29
             | Gate::ReportSaveAsInherentPermissionsFrom29
             | Gate::ObsoleteRequiredPendingAttributeFrom29
@@ -539,6 +539,7 @@ impl Gate {
             | Gate::FullyQualifiedNameRunAndOpenFrom28
             | Gate::ControlAddInNotInstantiatedErrorFrom28
             | Gate::JsonSelectTokensListFrom28
+            | Gate::EnvironmentPreviewRingsFrom28
             | Gate::DataTransferAddDestinationFilterFrom28
             | Gate::HttpHeaderNameRulesProbedFrom28
             | Gate::AutoFormatAmountFieldRoundsFrom28
@@ -560,6 +561,7 @@ impl Gate {
             | Gate::EnumFieldRefValidateCaptionEvaluateErrorFrom28
             | Gate::FieldRefTextNumberEvaluateErrorFrom28
             | Gate::JsonSelectTokensListFrom28
+            | Gate::EnvironmentPreviewRingsFrom28
             | Gate::DocxMediaRezippedFrom29
             | Gate::MovedOntoDeletedStaysFrom28
             | Gate::MovedOntoDeletedRefreshesAgainFrom29
@@ -773,15 +775,7 @@ impl Gate {
                     file: "metadata/platform-tables/AgWindowsLanguage.al",
                     lines: "58",
                 },
-                Evidence {
-                    file: "metadata/platform-tables/Y21EnvColumns.al",
-                    lines: "120",
-                },
             ],
-            Gate::LanguageSelectionRowsFrom29 => &[Evidence {
-                file: "metadata/platform-tables/PlatformRowsLanguageSelection.al",
-                lines: "238,377,401,489,581",
-            }],
             Gate::DatasetHeaderCompanyAddressLinesFrom29 => &[Evidence {
                 file: "reports/dataset/AhDatasetHeader.al",
                 lines: "9",
@@ -1151,6 +1145,11 @@ impl Gate {
                     file: "text/text-methods/Y49FieldRefIntoText.al",
                     lines: "307",
                 },
+                // FieldRef.Value := a member name, caption or translation of an Option field, in session language 1033 and 2067.
+                Evidence {
+                    file: "format-evaluate/EnumCaptionReaders.al",
+                    lines: "1135,1144,1153,1172,1181",
+                },
             ],
             Gate::EnumFieldRefValidateCaptionEvaluateErrorFrom28 => &[Evidence {
                 file: "text/text-methods/Y49FieldRefIntoText.al",
@@ -1190,6 +1189,10 @@ impl Gate {
                     lines: "373,394,415",
                 },
             ],
+            Gate::EnvironmentPreviewRingsFrom28 => &[Evidence {
+                file: "types/PVEnvironment.al",
+                lines: "35,55",
+            }],
             Gate::JsonSelectTokensListFrom28 => &[
                 Evidence {
                     file: "json/DcJsonLeads.al",

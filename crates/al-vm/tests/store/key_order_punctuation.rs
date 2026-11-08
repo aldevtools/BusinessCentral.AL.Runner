@@ -55,10 +55,10 @@ fn a_hyphen_does_not_count_first_in_the_key_order() {
     );
 }
 
-/// A temporary record uses the normal record's order, measured on Windows BC 27.5 and 29.0 only (the corpus CI on Linux sorts
-/// otherwise and cannot assert it): a pass that relies on it is flagged with `temporary-key-order-windows`.
-mod temporary_order_is_flagged {
-    use al_builtins::assumptions::{Assumption, take_hits};
+/// A temporary record uses the normal record's order (record/keys-sorting/KeyPunctuationOrder.al:199-296, codeunit 95572,
+/// the Expect lines of each temporary value): a pass through it relies on no assumption.
+mod temporary_order_is_pinned {
+    use al_builtins::assumptions::take_hits;
 
     const SRC: &str = r#"
 table 69931 K
@@ -97,12 +97,12 @@ codeunit 69931 C
     fn flagged(routine: &str) -> bool {
         take_hits();
         let _ = al_testkit::run(SRC, routine);
-        take_hits().contains(&Assumption::TemporaryKeyOrderWindows)
+        !take_hits().is_empty()
     }
 
     #[test]
-    fn a_temporary_key_with_punctuation_is_flagged() {
-        assert!(flagged("TempPunctuation"));
+    fn a_temporary_key_with_punctuation_is_not_flagged() {
+        assert!(!flagged("TempPunctuation"));
     }
 
     #[test]

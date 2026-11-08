@@ -887,3 +887,164 @@ fn a_carried_start_that_sessions_share_is_made_once() {
         assert_eq!(lane.starts_whole, 0, "{:?}", lane);
     }
 }
+
+/// ADR-066 amendment 7, option 1: a dependent codeunit whose failing test runs before any test of it reads the global
+/// an earlier codeunit left otherwise.
+const FAILS_BEFORE_IT_READS: &str = r#"
+codeunit 60571 "Lane Early Setter"
+{
+    Subtype = Test;
+    [Test] procedure SetsEarly() var S: Codeunit "Lane State"; begin S.SetFlag('left'); end;
+}
+codeunit 60572 "Lane Early Failer"
+{
+    Subtype = Test;
+    [Test] procedure FailsBeforeItReads() begin Error('unrelated'); end;
+    [Test] procedure ReadsAnyFlagLate()
+    var S: Codeunit "Lane State";
+    begin
+        if StrLen(S.GetFlag()) > 10 then Error('flag is %1', S.GetFlag());
+    end;
+}
+"#;
+
+/// ADR-066 amendment 7, option 1 (owner, 2026-11-08): the failed test read no global the chain would have left with
+/// another value, and no test before it did: the serial re-run cannot change it, so the parallel run stays (flagged).
+#[test]
+fn a_failed_test_that_read_no_changed_global_triggers_no_serial_run() {
+    let rt = runtime(FAILS_BEFORE_IT_READS);
+    assert!(
+        rt.results()
+            .iter()
+            .any(|r| r.test == "FailsBeforeItReads" && matches!(r.outcome, Outcome::Fail(_))),
+        "{:?}",
+        rt.results()
+    );
+    assert!(passed(&rt, "ReadsAnyFlagLate") && flagged(&rt, "ReadsAnyFlagLate"));
+    assert!(flagged(&rt, "FailsBeforeItReads"));
+    let lane = &rt.phases.chain.single_lane;
+    assert_eq!((lane.dependent, lane.rerun, lane.chains), (1, 0, 0), "{:?}", lane);
+    assert_eq!(lane.kept, 1, "{:?}", lane);
+    assert!(lane.lane.is_empty(), "{:?}", lane.lane);
+    // `--strict-order` still runs it again.
+    let opts = RunOptions {
+        strict_order: true,
+        ..Default::default()
+    };
+    let rt = runtime_opts(FAILS_BEFORE_IT_READS, STATE, &opts);
+    let lane = &rt.phases.chain.single_lane;
+    assert_eq!((lane.dependent, lane.rerun, lane.kept), (1, 1, 0), "{:?}", lane);
+}
+
+/// `n` test codeunits that each raise the counter of "Lane Alone" by a number of their own (so each reads what the one
+/// before it left and ends with another value: each depends on the one before it), then one that fails unless an
+/// earlier codeunit left the counter set: its replay chain holds `n + 1` codeunits.
+fn appending_chain(n: usize) -> String {
+    let mut s = String::new();
+    for k in 0..n {
+        s.push_str(&format!(
+            "codeunit {} \"Lane Append {k}\" {{ Subtype = Test; [Test] procedure Appends{k}() var A: Codeunit \"Lane Alone\"; I: Integer; begin for I := 0 to {k} do A.Bump(); end; }}\n",
+            61000 + k
+        ));
+    }
+    s.push_str(
+        "codeunit 61999 \"Lane Append Checker\" { Subtype = Test; [Test] procedure NeedsTheChain() var A: Codeunit \"Lane Alone\"; begin if A.Get() = 0 then Error('alone'); end; }\n",
+    );
+    s
+}
+
+fn rerun_skipped(rt: &CorpusRuntime, test: &str) -> bool {
+    rt.results()
+        .iter()
+        .find(|r| r.test == test)
+        .unwrap_or_else(|| panic!("{test} ran"))
+        .assumptions
+        .contains(&Assumption::SingleInstanceRerunSkipped)
+}
+
+/// The limit the tests of `--max-replay` use (NP Retail's measured run used 50).
+const MAX_REPLAY: usize = 50;
+
+fn max_replay(n: usize) -> RunOptions {
+    RunOptions {
+        max_replay: Some(n),
+        ..Default::default()
+    }
+}
+
+/// ADR-066 amendment 7 as the owner changed it on 2026-11-08: without `--max-replay` there is no cap. Every re-run the
+/// per-test rule asks for is replayed in full, however long its chain, so the result is exact.
+#[test]
+fn a_long_chain_is_replayed_in_full_by_default() {
+    let rt = runtime(&appending_chain(MAX_REPLAY * 2));
+    assert!(passed(&rt, "NeedsTheChain"), "{:?}", rt.results());
+    assert!(flagged(&rt, "NeedsTheChain") && !rerun_skipped(&rt, "NeedsTheChain"));
+    let lane = &rt.phases.chain.single_lane;
+    assert_eq!((lane.rerun, lane.chains), (1, 1), "{:?}", lane.lines());
+    assert_eq!(
+        lane.lane.len(),
+        MAX_REPLAY * 2 + 1,
+        "the whole chain replayed: {:?}",
+        lane.lane
+    );
+    assert!(lane.skipped.is_empty(), "{:?}", lane.skipped);
+    assert!(!lane.lines().iter().any(|l| l.contains("re-run")), "{:?}", lane.lines());
+}
+
+/// ADR-066 amendment 7, option 2, opt-in since 2026-11-08 (`--max-replay N`): a re-run whose chain holds at most `N`
+/// codeunits is replayed.
+#[test]
+fn a_rerun_whose_chain_is_at_the_max_replay_limit_is_replayed() {
+    let limit = MAX_REPLAY;
+    let rt = runtime_opts(&appending_chain(limit - 1), STATE, &max_replay(limit));
+    assert!(passed(&rt, "NeedsTheChain"), "{:?}", rt.results());
+    assert!(flagged(&rt, "NeedsTheChain") && !rerun_skipped(&rt, "NeedsTheChain"));
+    let lane = &rt.phases.chain.single_lane;
+    assert_eq!((lane.rerun, lane.chains), (1, 1), "{:?}", lane.lines());
+    assert_eq!(lane.lane.len(), limit, "the whole chain replayed: {:?}", lane.lane);
+    assert!(lane.skipped.is_empty(), "{:?}", lane.skipped);
+}
+
+/// ADR-066 amendment 7, option 2 (`--max-replay N`): a re-run whose chain holds more codeunits than `N` is not replayed.
+/// The codeunit keeps its parallel run and is flagged with why; `--strict-order` replays it all the same.
+#[test]
+fn a_rerun_whose_chain_is_over_max_replay_is_skipped_and_flagged_unless_strict_order() {
+    let limit = MAX_REPLAY;
+    let src = appending_chain(limit);
+    let rt = runtime_opts(&src, STATE, &max_replay(limit));
+    assert!(
+        rt.results()
+            .iter()
+            .any(|r| r.test == "NeedsTheChain" && r.outcome == Outcome::Fail("alone".into())),
+        "{:?}",
+        rt.results()
+    );
+    assert!(flagged(&rt, "NeedsTheChain") && rerun_skipped(&rt, "NeedsTheChain"));
+    assert!(!rerun_skipped(&rt, "Appends3"));
+    let lane = &rt.phases.chain.single_lane;
+    assert_eq!((lane.rerun, lane.chains), (0, 0), "{:?}", lane.lines());
+    assert!(lane.lane.is_empty(), "{:?}", lane.lane);
+    assert_eq!(lane.skipped.len(), 1, "{:?}", lane.skipped);
+    assert_eq!((lane.skipped[0].codeunit, lane.skipped[0].chain), (61999, limit + 1));
+    let text = format!(
+        "re-run skipped (chain of {} codeunits over the limit of {limit})",
+        limit + 1
+    );
+    assert_eq!(al_testrun::runtime::rerun_skipped_text(limit + 1, limit), text);
+    assert!(
+        lane.lines()
+            .iter()
+            .any(|l| l.contains("61999 Lane Append Checker") && l.contains(&text)),
+        "{:?}",
+        lane.lines()
+    );
+    // `--strict-order` wins over `--max-replay`.
+    let opts = RunOptions {
+        strict_order: true,
+        ..max_replay(limit)
+    };
+    let rt = runtime_opts(&src, STATE, &opts);
+    assert!(passed(&rt, "NeedsTheChain"), "{:?}", rt.results());
+    assert!(!rerun_skipped(&rt, "NeedsTheChain"));
+    assert!(rt.phases.chain.single_lane.skipped.is_empty());
+}

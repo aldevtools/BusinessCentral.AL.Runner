@@ -88,6 +88,12 @@ first. So, by default:
    Central's order, with the state carried over. That serial result is the one
    reported. A test refused before it starts (a feature AL Runner refuses when it
    compiles the test) does not trigger this: the serial run would refuse it too.
+   The serial run also needs that failed test, or a test before it in the same
+   codeunit, to have read one of the values an earlier codeunit left otherwise.
+   If none did, the state cannot change its result, and the parallel result stays
+   (ADR-066 amendment 7). For example: a codeunit's first test fails on a missing
+   setup and its second test reads the shared value; the first test never saw the
+   value, so the codeunit does not run again.
 3. Each such serial run is a session of its own: the codeunit and the chain of
    codeunits that wrote what it read (for each value, the last codeunit that wrote
    it, and that codeunit's own writers when it is order dependent itself). These
@@ -97,10 +103,31 @@ first. So, by default:
 4. Every test of an order-dependent codeunit is a flagged pass (or a flagged
    failure) with the assumption `single-instance-order`, whether it passed in
    parallel or after the serial run. It is counted apart from the clean passes.
+5. By default every serial run replays its whole chain, however long, so the
+   result is exact. On some partner suites almost every codeunit reads state the
+   one before it left, so a chain is nearly the whole run before the codeunit and a
+   re-run costs minutes. To trade exactness for time, give `--max-replay N` (in
+   `serve`: the `runTests` field `maxReplay`): a serial run whose chain holds more
+   than `N` test codeunits is then skipped, and the codeunit keeps its parallel
+   result. A test that passes only in the full order then fails here, flagged.
+   AL Runner prints one line for each such codeunit, with or without `--timings`
+   (here with `--max-replay 50`):
+
+   ```
+   SingleInstance order: test codeunit 50999 Chain Checker: re-run skipped (chain of 51 codeunits over the limit of 50); its parallel result is kept (flagged); --strict-order replays it
+   ```
+
+   Its tests also carry the assumption `single-instance-rerun-skipped`, and in the
+   JUnit file the property `singleInstanceRerun` with the text
+   `re-run skipped (chain of 51 codeunits over the limit of 50)`. `--strict-order`
+   replays every chain, however long, and wins over `--max-replay`. Nothing is kept
+   from one run to the next: each run decides its re-runs on its own.
 
 `--timings` names the codeunit whose state each test relies on. Its
 `SingleInstance order:` line gives how many order-dependent codeunits were found, how
-many ran again because of a failure, in how many serial sessions, the time of the
+many ran again because of a failure, how many kept their parallel result because no
+failed test read a changed value, with `--max-replay` how many re-runs were skipped
+for the length of their chain, in how many serial sessions, the time of the
 longest session and the wall time of all of them. When a session starts from data a
 codeunit with `RequiredTestIsolation = Disabled` left, the line also gives how many
 of those starts were copied for the worker threads and the most held at once. The
@@ -109,7 +136,8 @@ serial sessions use the same number of threads as the parallel run
 
 What the flag means: the result depends on the order in which Business Central
 runs the test codeunits. The stability mode (`--stability`) lists these tests apart,
-with and without `--strict-order`.
+with and without `--strict-order`, and lists the tests whose re-run was skipped in
+a list of their own.
 
 The risk of the default: a test that passes alone but fails on Business Central in
 the full order is reported as a flagged pass here. To remove that risk, use

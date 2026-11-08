@@ -85,6 +85,8 @@ impl Session {
         // enqueued waits for that call.
         let drain_pending = self.pages.bg_drain_after_call.is_some();
         let ret = native(self, recv.as_mut(), &mut values)?;
+        // ADR-068 item 3: a builtin that read a text with half of a surrogate pair without an audit refuses.
+        al_builtins::text::check_unaudited()?;
         if let (Some(ir::Arg::Ref(p)), Some(v)) = (receiver, recv) {
             self.write_native_back(p, v, f)?;
         }
@@ -152,9 +154,24 @@ impl Session {
                     None => up.into(),
                 }))
             }
-            (Value::Text(t), RtType::Text(Some(m))) if t.chars().count() > m as usize => Err(Signal::Unsupported(
-                "InStream.Read of more characters than the Text variable holds (not pinned)".into(),
-            )),
+            // A text longer than the variable, counted in UTF-16 units as AL counts, raises the length error of an assignment
+            // (streams/instream-outstream/StreamUtf8CharsRead.al:245-247: an emoji, 2 units, read into a Text[1], with and
+            // without a length).
+            (Value::Text(t), RtType::Text(Some(m))) if t.utf16_len() > m as usize => {
+                if t.has_lone() {
+                    return Err(Signal::Unsupported(
+                        "the length error of a text that holds half of a surrogate pair (not pinned)".into(),
+                    ));
+                }
+                al_builtins::native::raise(
+                    format!(
+                        "The length of the string is {}, but it must be less than or equal to {m} characters. Value: {}",
+                        t.utf16_len(),
+                        ops::shown_in_length_error(t)
+                    ),
+                    "StringLengthExceeded",
+                )
+            }
             _ => Ok(v),
         }
     }
@@ -309,9 +326,9 @@ impl Session {
     }
 
     /// The globals (not in `keep`) that `ClearAll()` leaves pointing at their instance because the instance is bound by
-    /// `BindSubscription`. Real BC 29 keeps the bound instance in the variable and its binding, and resets the instance's own
-    /// globals (corpus branch al-runtime-rs-staging-6974, events/binding-senders/BindSubscriptionClearAll.al
-    /// ClearAll_HolderWithBoundGlobal_Binding and ClearAll_TestCodeunitWithBoundGlobal_Binding; al-runner issue 6974).
+    /// `BindSubscription`. Real BC keeps the bound instance in the variable and its binding, and resets the instance's own
+    /// globals (events/binding-senders/BindSubscriptionClearAll.al:7-10, ClearAll_HolderWithBoundGlobal_Binding :76-107 and
+    /// ClearAll_TestCodeunitWithBoundGlobal_Binding :148-171; al-runner issue 6974).
     /// Pinned only for a codeunit's global (`in_place`) whose bound instance has no TableNo record and only Text globals
     /// (the probe's subscriber "LT BSK Manual" has one global, `Tag: Text`, BindSubscriptionKinds.Objects.al:44-49).
     /// Everything else is refused: an array of codeunits, a page extension's global, a bound instance with a TableNo
@@ -359,7 +376,6 @@ impl Session {
                     b.globals[k] = nv;
                 }
             }
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ClearAllKeepsBoundInstance);
             kept.push(i);
         }
         Ok(kept)
@@ -482,7 +498,9 @@ impl Session {
                 None => Ok(Value::Char(0)),
             };
         }
-        let units: Vec<u16> = t.encode_utf16().collect();
+        // A lone half reads as itself (ADR-068; text/CrTextLeads.al:425-442 through the corpus's `Codes`,
+        // text/text-methods/Index1.Codeunit.al:359-373).
+        let units: Vec<u16> = t.units();
         match units.get(i as usize - 1) {
             Some(u) => Ok(Value::Char(*u)),
             None => Ok(Value::Char(0)),
@@ -496,7 +514,8 @@ impl Session {
             // A Text or Code visits its UTF-16 code units, one Char each, in order; the text is read once, so an assignment
             // inside the loop changes nothing about the visits (text/text-methods/ForeachText.al:Foreach_Text_Char_Order,
             // Foreach_Text_Char_Sources, Foreach_Text_ModifyDuringLoop; a Text[1] variable: Foreach_Text_Text1_Variable).
-            Value::Text(t) | Value::Code(t) if !t.has_marker() => t.encode_utf16().map(Value::Char).collect(),
+            // A lone half is visited as itself (ADR-068; ForeachText.al:Foreach_Text_SurrogatePair).
+            Value::Text(t) | Value::Code(t) if !t.has_marker() => t.units().into_iter().map(Value::Char).collect(),
             // The nodes an XPath query found (corpus xml/TestReportFlowFieldColumnAutoCalc.al).
             other => match al_builtins::json::array_items(&other).or_else(|| al_builtins::xml::node_list_items(&other))
             {
@@ -578,6 +597,15 @@ impl Session {
                 (_, r) => r,
             }),
         }
+    }
+
+    /// [`Self::at_pos`] after the check of ADR-068 item 3: a read of a text with half of a surrogate pair by a reader that is
+    /// not audited refuses before the next statement runs.
+    #[inline]
+    pub(crate) fn at_pos_checked(&mut self, p: u32) -> Result<(), Signal> {
+        al_builtins::text::check_unaudited()?;
+        self.at_pos(p);
+        Ok(())
     }
 
     /// The statement at position `p` begins: the call stack, the profiler and coverage see it.
@@ -1306,7 +1334,8 @@ impl Session {
                     ir::Place::Global(i) => f.instance.borrow_mut().globals[*i] = Value::Null,
                     _ => unreachable!("a local or a global"),
                 }
-                t.push_str(x);
+                // Halves that meet merge (ADR-068; text/text-methods/ForeachText.al:137-148).
+                t.push_txt(x);
                 ops::convert(Value::Text(t), &RtType::Text(max))?
             }
             // `S += T[i]`: a Char appends in place as a Text does. A surrogate half and the call-stack mark stay on the slow
@@ -1575,6 +1604,7 @@ impl Session {
                                             file: false,
                                             dotnet_view: 0,
                                             unread_content: false,
+                                            utf16_binary: b.utf16_binary,
                                         },
                                     )))
                                 }
@@ -1746,14 +1776,16 @@ impl Session {
                 }
                 enc.decode(&[*b]).encode_utf16().next()
             }
+            // Half of a surrogate pair is stored as it is (ADR-068; types/text-code-char/TextCharIndexAssignEdges.al:100-118
+            // `c55296_highSurrogate`, `c56320_lowSurrogate`, `c57343`).
             _ => match int(&v) {
-                Ok(c) => u16::try_from(c).ok().filter(|u| !(0xD800..0xE000).contains(u)),
+                Ok(c) => u16::try_from(c).ok(),
                 Err(_) => None,
             },
         };
         // A Text of ASCII only gets an ASCII character in place (a loop over a long text stays linear): the variable lets
         // go of its hold first so that nothing is copied.
-        if let (false, Some(unit), true) = (is_code, unit.filter(|u| *u < 128), i >= 1) {
+        if let (false, Some(unit), true) = (is_code, unit.filter(|u| (1..128).contains(u)), i >= 1) {
             if let ir::Place::Local(l) = base {
                 if let Value::Text(t) = &mut f.locals[*l] {
                     let at = (i - 1) as usize;
@@ -1769,7 +1801,7 @@ impl Session {
                 "assigning a character into a value that is no text".into(),
             ));
         };
-        let mut units: Vec<u16> = s.encode_utf16().collect();
+        let mut units: Vec<u16> = s.units();
         let Some(unit) = unit else {
             return Err(Signal::Unsupported(format!(
                 "assigning {v} to a character of a text (only a UTF-16 character is pinned)",
@@ -1789,12 +1821,26 @@ impl Session {
             );
         }
         let i = i as usize - 1;
-        if i == units.len() {
+        if unit == 0 {
+            // The character 0 ends the text there: `T[2] := 0` on 'abc' gives 'a' of length 1
+            // (types/text-code-char/TextCharIndexAssignEdges.al:92,108 `c0`). A Code is not pinned.
+            if is_code {
+                return Err(Signal::Unsupported(
+                    "assigning the character 0 to a character of a Code (not pinned)".into(),
+                ));
+            }
+            units.truncate(i);
+        } else if i == units.len() {
             units.push(unit);
         } else {
             units[i] = unit;
         }
         if let Some(m) = max.filter(|m| units.len() > *m as usize) {
+            if String::from_utf16(&units).is_err() {
+                return Err(Signal::Unsupported(
+                    "the length error of a text that holds half of a surrogate pair (not pinned)".into(),
+                ));
+            }
             return al_builtins::native::raise(
                 format!(
                     "The length of the string is {}, but it must be less than or equal to {m} characters. Value: {}",
@@ -1804,15 +1850,20 @@ impl Session {
                 "StringLengthExceeded",
             );
         }
-        let text = String::from_utf16(&units)
-            .map_err(|_| Signal::Unsupported("a text that ends up with a lone surrogate".into()))?;
+        let text = al_builtins::text::Txt::from_units(&units);
         if is_code {
+            if text.has_lone() {
+                return Err(Signal::Unsupported(
+                    "a Code that holds half of a surrogate pair (not pinned)".into(),
+                ));
+            }
+            let text = text.audited_str();
             // A blank written at the last position is cut off like any trailing blank of a Code value: `C[3] := ' '` on 'abc'
             // gives `AB` of length 2 (text/text-methods/Index1.Codeunit.al LT_BU_Index_Write_Code `code blank last`).
             let text = text.trim_end_matches(' ');
             return self.write(base, Value::Code(ops::upper_code_checked(text)?.into()), f);
         }
-        self.write(base, Value::Text(text.into()), f)
+        self.write(base, Value::Text(text), f)
     }
 
     /// The cells of row `idx` of the two-dimensional array behind `base`, as (cells, first position, length): `None` for an

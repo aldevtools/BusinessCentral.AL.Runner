@@ -200,7 +200,7 @@ pub fn compile_loaded_growable(
 /// the apps from source.
 #[allow(clippy::too_many_arguments)]
 pub fn grow(
-    mut ws: Workspace,
+    ws: Workspace,
     kept: Growable,
     apps: Vec<AppSource>,
     kinds: Vec<AppKind>,
@@ -209,6 +209,49 @@ pub fn grow(
     catalog: &al_builtins::catalog::Catalog,
     roots: crate::check::Roots,
 ) -> Result<(Workspace, Lowered), (Vec<AppSource>, String)> {
+    grow_inner(ws, kept, apps, kinds, symbols, app_symbols, catalog, roots, false).map(|(ws, l, _)| (ws, l))
+}
+
+/// What [`grow_growable`] gives: the grown compile and what it keeps for a later pass, or the apps back with the reason
+/// it could not grow (see [`grow`]).
+pub type Grown = Result<(Workspace, Lowered, Option<Growable>), (Vec<AppSource>, String)>;
+
+/// [`grow`] that also keeps the grown compile for a later pass, as [`compile_loaded_growable`] keeps the main pass's: a
+/// third pass of a version grows it (after [`Growable::truncate`] cut it back to the apps that pass also has) instead
+/// of compiling everything again. `None` instead of the kept part when the grown compile cannot be grown (the
+/// conditions of `compile_loaded_growable`, except a test selection). The program is the one `grow` lowers.
+///
+/// A test selection is allowed here (a later pass leaves out the main app's test codeunits, `Roots::only_tests`): the
+/// chain starts from a compile without one (`compile_loaded_growable`), whose demand reached what every test codeunit of
+/// the kept apps reaches, and a grown demand only adds to that. A test codeunit of a kept app that this pass leaves out
+/// and a later pass selects again reaches nothing new; its lowered form changes, so it is lowered again.
+#[allow(clippy::too_many_arguments)]
+pub fn grow_growable(
+    ws: Workspace,
+    kept: Growable,
+    apps: Vec<AppSource>,
+    kinds: Vec<AppKind>,
+    symbols: &std::collections::BTreeSet<String>,
+    app_symbols: &[Option<std::collections::BTreeSet<String>>],
+    catalog: &al_builtins::catalog::Catalog,
+    roots: crate::check::Roots,
+) -> Grown {
+    let keep = !roots.lean && !roots.reach_only && !roots.tdd && !roots.eager && !roots.object_hashes;
+    grow_inner(ws, kept, apps, kinds, symbols, app_symbols, catalog, roots, keep)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn grow_inner(
+    mut ws: Workspace,
+    kept: Growable,
+    apps: Vec<AppSource>,
+    kinds: Vec<AppKind>,
+    symbols: &std::collections::BTreeSet<String>,
+    app_symbols: &[Option<std::collections::BTreeSet<String>>],
+    catalog: &al_builtins::catalog::Catalog,
+    roots: crate::check::Roots,
+    keep: bool,
+) -> Grown {
     let n_old = kept.prev.objects;
     if ws.objects.len() != n_old {
         return Err((apps, "the workspace is not the one the compile was kept from".into()));
@@ -231,7 +274,11 @@ pub fn grow(
     for &(o, _) in &kept.prev.demand.reached {
         reached_before[o] += 1;
     }
-    let checked = crate::check::check_grown(&ws, &members, catalog, roots, kept.prev);
+    let roots = crate::check::Roots {
+        keep_demand: keep,
+        ..roots
+    };
+    let mut checked = crate::check::check_grown(&ws, &members, catalog, roots, kept.prev);
     let demand = checked.demand.as_ref().expect("a grown check has a demand");
     let mut reached_now = vec![0u32; n_old];
     for &(o, _) in &demand.reached {
@@ -254,6 +301,7 @@ pub fn grow(
             same.then(DepBlock::placeholder)
         })
         .collect();
+    let supplied: Vec<bool> = blocks.iter().map(Option::is_some).collect();
     let shared: std::sync::Arc<dyn DepSource + Send> = src.clone();
     let check_time = checked.timings;
     let started = std::time::Instant::now();
@@ -270,7 +318,7 @@ pub fn grow(
         true,
         lower_workers(),
         Some(provided),
-        Export::No,
+        if keep { Export::Facts } else { Export::No },
     )
     .map_err(|why| (Vec::new(), why))?;
     lowered.timings = CompileTimings {
@@ -280,9 +328,61 @@ pub fn grow(
         lower: started.elapsed(),
         cache_blocks: Default::default(),
     };
+    let grown = if keep {
+        kept_grown(&ws, &mut checked, &mut lowered, &supplied, &src)
+    } else {
+        None
+    };
     drop(checked);
-    drop(members);
-    Ok((ws, lowered))
+    let known = members.into_known();
+    let grown = grown.map(|g| Growable { members: known, ..g });
+    Ok((ws, lowered, grown))
+}
+
+/// What a grown compile keeps for a later pass ([`grow_growable`]); the members are the caller's to add. An object the
+/// grown compile took from the kept one (`supplied`) keeps the kept compile's facts: the export of a supplied object
+/// holds only its key. Its block comes from the grown program, which makes it from the kept one on first touch.
+fn kept_grown(
+    ws: &Workspace,
+    checked: &mut crate::check::CheckResult,
+    lowered: &mut Lowered,
+    supplied: &[bool],
+    before: &KeptProgram,
+) -> Option<Growable> {
+    let mut exported = lowered.exported.take()?;
+    for (oi, facts) in exported.facts.iter_mut().enumerate() {
+        if supplied[oi] {
+            *facts = before.facts[oi].clone();
+        }
+    }
+    let (demand, kept, codes) = (
+        checked.demand.take()?,
+        checked.kept_demand.take()?,
+        checked.kept_codes.take()?,
+    );
+    Some(Growable {
+        prev: crate::check::PrevCheck {
+            objects: ws.objects.len(),
+            demand,
+            kept,
+            types: std::mem::take(&mut checked.types),
+            resolutions: std::mem::take(&mut checked.resolutions),
+            from_checker: std::mem::take(&mut checked.from_checker),
+            panicked: std::mem::take(&mut checked.panicked),
+            codes,
+        },
+        skipped: (0..ws.objects.len()).map(|oi| checked.is_skipped(oi)).collect(),
+        // Every object is lowered for the grown workspace: what a later cut takes away marks it (`truncate`).
+        stale: vec![false; ws.objects.len()],
+        members: Vec::new(),
+        left_out: (0..ws.objects.len()).map(|oi| checked.is_left_out(oi)).collect(),
+        source: std::sync::Arc::new(KeptProgram {
+            facts: exported.facts,
+            heads: exported.heads,
+            program: lowered.program.clone(),
+            pos_ranges: lowered.pos_ranges.clone(),
+        }),
+    })
 }
 
 #[cfg(test)]
@@ -560,6 +660,134 @@ codeunit 90002 OSub
         assert!(!grown.provided[at("T")]);
         assert!(!grown.provided[at("T2")], "only the cut app extended T2");
         assert!(grown.provided[at("Unused")]);
+    }
+
+    /// The suite app of a third pass: a test that reaches only what the main app reaches.
+    const THIRD: &str = r#"
+codeunit 85000 TTest
+{
+    Subtype = Test;
+    [Test]
+    procedure T3() var A: Codeunit AUse; begin A.Go(); end;
+}
+"#;
+
+    /// The suite app of a second pass that reaches nothing the main app does not: a grown compile keeps what the roots of
+    /// every earlier pass reached (ADR-063 as built, point 4), so a fresh compile of the third pass's apps would leave
+    /// out what only the second pass's tests reach.
+    const SECOND: &str = r#"
+codeunit 82000 S2Test
+{
+    Subtype = Test;
+    [Test]
+    procedure T2() var A: Codeunit AUse; begin A.Go(); end;
+}
+"#;
+
+    /// The apps of a second pass: `with_dep` adds the dependency app that extends, implements and subscribes.
+    fn second(with_dep: bool) -> (Vec<AppSource>, Vec<AppKind>) {
+        let (_, _, more, more_kinds) = passes();
+        let suite = app("s2", &["a", "d1"], SECOND);
+        if with_dep {
+            (vec![more[0].clone(), suite], vec![more_kinds[0], AppKind::Workspace])
+        } else {
+            (vec![suite], vec![AppKind::Workspace])
+        }
+    }
+
+    /// Grows the kept compile of the main pass (`main`, cut back from `main` plus `own`) by `more`, keeps the grown
+    /// compile, cuts it back to the main pass's apps and grows that by the app of a third pass.
+    fn third_pass(more: Vec<AppSource>, more_kinds: Vec<AppKind>) -> (Workspace, Lowered, Lowered) {
+        third_pass_with(more, more_kinds, Roots::default(), Roots::default())
+    }
+
+    /// [`third_pass`] with the roots of the second and the third pass (the fresh compile has the third's).
+    fn third_pass_with(
+        more: Vec<AppSource>,
+        more_kinds: Vec<AppKind>,
+        second_roots: Roots,
+        third_roots: Roots,
+    ) -> (Workspace, Lowered, Lowered) {
+        let (main, main_kinds, _, _) = passes();
+        let symbols = BTreeSet::new();
+        let catalog = al_builtins::catalog::Catalog::load();
+        let mut with_own = main.clone();
+        with_own.push(app("own", &["a", "d1"], OWN_SUITE));
+        let mut own_kinds = main_kinds.clone();
+        own_kinds.push(AppKind::Workspace);
+        let ws = Workspace::load_apps(with_own, own_kinds, &symbols);
+        let (mut ws, _, kept) = compile_loaded_growable(ws, Default::default(), &catalog, Roots::default());
+        let mut kept = kept.expect("the compile can be grown");
+        kept.truncate(&mut ws, main.len());
+        let n_more = more.len();
+        let (mut ws, _, kept) = grow_growable(ws, kept, more, more_kinds, &symbols, &[], &catalog, second_roots)
+            .map_err(|e| e.1)
+            .expect("the apps can be added");
+        let mut kept = kept.expect("the grown compile can be grown again");
+        let gone = kept.truncate(&mut ws, main.len());
+        assert_eq!(gone.len(), n_more, "the second pass's apps leave the kept compile");
+        let third = vec![app("t", &["a", "d1"], THIRD)];
+        let (_, grown) = grow(
+            ws,
+            kept,
+            third.clone(),
+            vec![AppKind::Workspace],
+            &symbols,
+            &[],
+            &catalog,
+            third_roots.clone(),
+        )
+        .map_err(|e| e.1)
+        .expect("the third pass's app can be added");
+        let mut all = main;
+        all.extend(third);
+        let mut kinds = main_kinds;
+        kinds.push(AppKind::Workspace);
+        let (ws, fresh) = fresh(all, kinds, third_roots);
+        (ws, fresh, grown)
+    }
+
+    // ADR-063, a third pass (the corpus's TryWrites suite after the testlibraries one): the second pass keeps its grown
+    // compile, cut back to the main pass's apps, and the third pass grows it as the second pass grew the main one.
+    #[test]
+    fn a_grown_compile_kept_and_cut_back_grows_as_a_fresh_compile_of_the_apps() {
+        let (more, more_kinds) = second(true);
+        let (ws, fresh, grown) = third_pass(more, more_kinds);
+        assert_same(&fresh, &grown);
+        let at = |name: &str| ws.objects.iter().position(|o| o.name == name).unwrap();
+        // The table the second pass's dependency app extended is lowered again; an untouched object is not.
+        assert!(!grown.provided[at("T")]);
+        assert!(grown.provided[at("Unused")]);
+    }
+
+    // The third pass of a version whose apps add no dependency app and reach nothing new in the dependency apps (the
+    // TryWrites suite) lowers no dependency routine: every dependency object comes from the kept compile.
+    #[test]
+    fn a_third_pass_that_reaches_nothing_new_lowers_no_dependency_routine() {
+        // Only the second pass's suite app: no dependency app of its own.
+        let (more, more_kinds) = second(false);
+        let (ws, fresh, grown) = third_pass(more, more_kinds);
+        assert_same(&fresh, &grown);
+        assert_eq!(grown.work.dependency_routines_lowered, 0, "{:?}", grown.work);
+        assert_eq!(grown.work.dependency_objects_lowered, 0, "{:?}", grown.work);
+        let deps = (0..ws.objects.len()).filter(|&o| ws.is_dependency(o)).count();
+        assert!(grown.work.objects_from_kept >= deps, "{:?}", grown.work);
+    }
+
+    // The corpus's later passes select their own suites' tests (`Roots::only_tests`): the main app's test codeunits are
+    // left out. A second pass with a selection still keeps its compile, and the third pass, with its own selection,
+    // equals a fresh compile of its apps with that selection.
+    #[test]
+    fn a_grown_compile_with_a_test_selection_is_kept_for_a_third_pass() {
+        let (more, more_kinds) = second(false);
+        let only = |app: usize, id: u32| Roots {
+            only_tests: Some(vec![(app, id)]),
+            ..Roots::default()
+        };
+        // The main pass's apps are `a` and `d1`: the second and the third pass's suite app is app 2.
+        let (_, fresh, grown) = third_pass_with(more, more_kinds, only(2, 82000), only(2, 85000));
+        assert_same(&fresh, &grown);
+        assert_eq!(grown.work.dependency_routines_lowered, 0, "{:?}", grown.work);
     }
 
     #[test]

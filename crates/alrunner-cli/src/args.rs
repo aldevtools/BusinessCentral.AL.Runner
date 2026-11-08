@@ -125,8 +125,13 @@ pub struct TestArgs {
     /// the default, enforces the stages that are on; none is yet.
     pub permissions_off: bool,
     /// `--strict-order` (ADR-066 amendment 4): every order-dependent test codeunit runs again serially in BC's order.
-    /// Default: it keeps its parallel run and runs again only after a failure or a test not run there.
+    /// Default: it keeps its parallel run and runs again only after a failure or a test not run there that could have
+    /// seen the changed state (amendment 7).
     pub strict_order: bool,
+    /// `--max-replay N` (ADR-066 amendment 7, option 2, opt-in since the owner's change of 2026-11-08): a serial
+    /// re-run whose chain holds more than `N` test codeunits is skipped and flagged. Default: no cap.
+    /// `--strict-order` wins over it.
+    pub max_replay: Option<usize>,
     /// `--test-suites FILE` (ADR-066 amendment 6): each suite of the file is a BC session of its own for order dependence.
     pub test_suites: Option<PathBuf>,
     /// `--max-memory SIZE` (owner decision 2026-11-08): the most memory the run may use, in bytes; the run then uses
@@ -899,7 +904,11 @@ ISOLATION
                          parallel, each with fresh SingleInstance state, the result Business Central
                          gives when the codeunit runs alone or first. By default it keeps that
                          result and runs such a codeunit again in order only when one of its tests
-                         failed or was refused while it ran (not one refused before it starts).
+                         failed or was refused while it ran (not one refused before it starts) and
+                         that test, or one before it, read a value an earlier codeunit left
+                         otherwise. Each such re-run replays its whole chain, however long, unless
+                         --max-replay is given; with this option every codeunit runs again, and
+                         --max-replay has no effect.
                          Each such run is a serial session of the codeunit and the codeunits it
                          depends on; the sessions run in parallel, with this option too. Every
                          test of such a codeunit is a flagged pass, `single-instance-order`.
@@ -909,6 +918,14 @@ ISOLATION
                          own codeunit's Initialize, or clear the SingleInstance codeunit there.
                          AL_TEST_THREADS=1 runs one codeunit at a time but still with fresh state.
                          In `serve`: the runTests field `strictOrder`.
+    --max-replay N       Skip a re-run of an order-dependent test codeunit (see --strict-order)
+                         whose chain holds more than N test codeunits. The codeunit keeps its
+                         parallel result, flagged `single-instance-rerun-skipped`, and the run
+                         prints `re-run skipped (chain of M codeunits over the limit of N)`. A test
+                         that passes only in the full order then fails here. Use it when long
+                         chains cost too much time; default: no limit, every re-run is replayed
+                         in full and the result is exact. --strict-order wins over it.
+                         In `serve`: the runTests field `maxReplay`.
     --max-memory SIZE    The most memory the run may use, such as 6G or 800M. AL Runner runs fewer
                          test codeunits at once to stay under it, down to one at a time, and stops
                          with exit code 2 when not even one fits. Without it the limit is the free
@@ -1297,6 +1314,7 @@ fn parse_serve(args: Vec<String>) -> Result<Command, String> {
         || t.dev_endpoint_ui
         || t.allow_write_in_try_functions
         || t.strict_order
+        || t.max_replay.is_some()
         || t.test_suites.is_some()
         || t.dependencies_published_global
         || t.permissions_off
@@ -1677,6 +1695,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--dev-endpoint-ui" => a.dev_endpoint_ui = true,
             "--allow-write-in-try-functions" => a.allow_write_in_try_functions = true,
             "--strict-order" => a.strict_order = true,
+            "--max-replay" => a.max_replay = Some(number(&flag, &text()?)?),
             "--test-suites" => a.test_suites = Some(text()?.into()),
             "--max-memory" => a.max_memory = Some(crate::memory_budget::parse_size(&text()?)?),
             "--dependencies-published-global" => a.dependencies_published_global = true,
@@ -2187,6 +2206,13 @@ mod tests {
     fn strict_order_is_opt_in() {
         assert!(!test_args("test A").strict_order);
         assert!(test_args("test A --strict-order").strict_order);
+    }
+
+    /// ADR-066 amendment 7 (owner, 2026-11-08): no replay cap unless `--max-replay N` is given.
+    #[test]
+    fn max_replay_is_opt_in() {
+        assert_eq!(test_args("test A").max_replay, None);
+        assert_eq!(test_args("test A --max-replay 50").max_replay, Some(50));
     }
 
     /// Issue 7143: `--allow-write-in-try-functions` is off unless given.

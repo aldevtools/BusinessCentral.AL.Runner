@@ -156,6 +156,10 @@ fn options_hash(a: &TestArgs) -> Result<String, String> {
     if a.strict_order {
         h.update(b"strict_order");
     }
+    // `--max-replay N` (ADR-066 amendment 7) can change outcomes (a skipped re-run keeps its parallel result).
+    if let Some(n) = a.max_replay {
+        h.update(format!("max_replay={n}").as_bytes());
+    }
     // `--test-suites FILE` (ADR-066 amendment 6) changes which codeunits are order dependent: the file's text counts.
     if let Some(p) = &a.test_suites {
         h.update(b"test_suites ");

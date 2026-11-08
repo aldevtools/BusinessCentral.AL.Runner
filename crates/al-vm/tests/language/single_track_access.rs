@@ -271,3 +271,22 @@ fn a_two_field_guard_then_get_or_clear_is_guarded() {
         out.guarded
     );
 }
+
+/// ADR-066 amendment 7, option 1: a first read notes the test it came in (0: before the first test, in OnRun), so the
+/// lane can tell whether a failed test, or one before it, read a global an earlier codeunit left otherwise.
+#[test]
+fn a_first_read_notes_the_test_it_came_in() {
+    let mut b = Built::from_source(SRC);
+    b.run_in("Si Track Driver", "Seed").expect("seeded");
+    b.session.track_single_instances();
+    b.session.single_test_begins();
+    b.run_in("Si Track Driver", "ReadIt").expect("ran");
+    b.session.single_test_begins();
+    b.run_in("Si Track Driver", "CountIt").expect("ran");
+    // A second read of a global already read counts for the first test only.
+    b.run_in("Si Track Driver", "ReadIt").expect("ran");
+    let out = b.session.single_out().expect("tracked");
+    let (rec, list) = (key(&b, "GlobalRec"), key(&b, "GlobalList"));
+    assert_eq!(out.read_in.get(&rec), Some(&1), "{:?}", out.read_in);
+    assert_eq!(out.read_in.get(&list), Some(&2), "{:?}", out.read_in);
+}

@@ -264,6 +264,13 @@ fn application_family(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args)
     text("NavTenantSettingsHelper.GetApplicationFamily", args, 0, "W1")
 }
 
+/// `GetRingName()`: an empty text, so `"Environment Information".IsPreview` and `IsEarlyPreview` answer false
+/// (tests/al-language-onprem-dotnet/dotnet/dotnet/BbNavHelpers.al:111-120 `[]`, tests/al-language/types/PVEnvironment.al:50-66;
+/// issue 6675).
+fn ring_name(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+    text("NavTenantSettingsHelper.GetRingName", args, 0, "")
+}
+
 fn power_platform_environment_id(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     text(
         "NavTenantSettingsHelper.GetLinkedPowerPlatformEnvironmentId",
@@ -860,6 +867,13 @@ fn own_types() -> Vec<RegistryType> {
                     environment_name,
                 ),
                 member("GetApplicationFamily", probe("181 ('W1')"), application_family),
+                member(
+                    "GetRingName",
+                    Pin::Corpus(
+                        "tests/al-language-onprem-dotnet/dotnet/dotnet/BbNavHelpers.al:111-120 (corpus master, PR 1211)".into(),
+                    ),
+                    ring_name,
+                ),
                 member(
                     "GetPlatformVersion",
                     Pin::Corpus(

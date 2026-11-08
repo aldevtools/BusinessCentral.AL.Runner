@@ -194,6 +194,11 @@ pub struct RunOptions {
     /// it failed or was refused while it ran there. Either way each re-run is a serial session of its own (its chain),
     /// and the sessions run in parallel.
     pub strict_order: bool,
+    /// `al-runner test --max-replay N` (ADR-066 amendment 7, option 2, opt-in since the owner's change of 2026-11-08):
+    /// a serial re-run whose replay chain holds more than `N` test codeunits is skipped; the codeunit keeps its parallel
+    /// run, flagged (`Assumption::SingleInstanceRerunSkipped`). `None` (the default): no cap, every re-run the per-test
+    /// rule asks for is replayed in full. `strict_order` wins over it.
+    pub max_replay: Option<usize>,
     /// `al-runner test --test-suites FILE` (ADR-066 amendment 6, al-runner issue 6924): each suite is a BC session of
     /// its own for order dependence, the codeunits in the suite's order. No SingleInstance link, serial re-run or
     /// chain crosses a suite; a codeunit in no suite is a session of its own. `None`: the whole run is one session.

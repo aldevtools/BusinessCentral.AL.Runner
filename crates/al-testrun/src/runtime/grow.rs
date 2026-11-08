@@ -32,8 +32,9 @@ pub(crate) enum Grow {
     /// Keep the compile for a later run, when it can be grown (`Compiled::grow_kept`). The apps (indexes in the
     /// caller's order) the later run also has come first in the program; the kept compile is cut back to them.
     Keep(Vec<usize>),
-    /// Grow this kept compile by the run's other apps.
-    From(Box<KeptCompile>),
+    /// Grow this kept compile by the run's other apps; with `true`, keep the grown compile, cut back to the kept
+    /// compile's apps, for the next pass (a third pass of a version).
+    From(Box<KeptCompile>, bool),
 }
 
 /// Whether `AL_FRESH_PASS_COMPILE` asks every pass to compile from source.

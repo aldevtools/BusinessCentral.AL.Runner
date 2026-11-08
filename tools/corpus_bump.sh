@@ -4,12 +4,13 @@
 #   1. check the run: completed and green, and its head commit on the corpus branch master (the default
 #      branch; it moves only through a pull request from al-runtime-rs-staging, merged with a merge commit);
 #      when a merge commit brought the commit into master, that merge must hold exactly the commit's files;
-#   2. find the artifacts: per leg (27.5, 28.5, 29.0) two to five named junit-test-results-<leg>: the oracle
-#      (junit-al-language.xml), the OnPrem file, the OnPrem DotNet file, the TestLibraries file and the
-#      Isolation Disabled file;
+#   2. find the artifacts: per leg (27.5, 28.5, 29.0) two to six named junit-test-results-<leg>: the oracle
+#      (junit-al-language.xml), the OnPrem file, the OnPrem DotNet file, the TestLibraries file, the
+#      Isolation Disabled file and the TryWrites file;
 #   3. move the corpus submodule to the run's commit;
 #   4. download each artifact by id and copy its XML unchanged to oracle/<major>/junit.xml,
-#      oracle/<major>/junit-onprem.xml, junit-dotnet.xml, junit-testlibraries.xml and junit-isolation-disabled.xml;
+#      oracle/<major>/junit-onprem.xml, junit-dotnet.xml, junit-testlibraries.xml, junit-isolation-disabled.xml and
+#      junit-trywrite-allowed.xml;
 #   5. write the new pin, run and artifact ids into oracle/oracle.toml and oracle/README.md;
 #   6. build release and update the not-passing lists (ADR-065): lines for the new oracle cases that do not pass
 #      (--list-new-cases HEAD), stale lines deleted (--prune-not-passing); al-test-cli exits 1 on a regression; then
@@ -183,11 +184,11 @@ xml_of() {
   "$gh" api "repos/$repo/actions/artifacts/$1/zip" > "$d/a.zip"
   unzip -Z1 "$d/a.zip" | grep '\.xml$' | head -n 1
 }
-declare -A oracle_id onprem_id dotnet_id testlib_id isol_id
+declare -A oracle_id onprem_id dotnet_id testlib_id isol_id tryw_id
 for leg in $legs; do
   # Two artifacts: the oracle (larger) and the OnPrem file. Three (since the OnPrem DotNet app runs in CI): the DotNet file is the smallest.
   # Four (since the TestLibraries job): the roles are read from the XML file names below.
-  tl=0 isol=0
+  tl=0 isol=0 tw=0
   read -r n big mid small < <(python3 -c '
 import json, sys
 a = [x for x in json.loads(sys.argv[1]).get("artifacts", []) if x.get("name") == "junit-test-results-" + sys.argv[2]]
@@ -202,7 +203,7 @@ else:
   if [ "$n" -gt 3 ]; then
     # A job rerun (corpus run 39303760055, attempt 2) keeps the first attempt's artifact under the same name.
     # The role is the XML file each artifact holds; per role the newest artifact is the rerun's.
-    big=0 mid=0 small=0 tl=0 isol=0
+    big=0 mid=0 small=0 tl=0 isol=0 tw=0
     while read -r id; do
       case "$(xml_of "$id")" in
         junit-al-language.xml) [ "$big" != 0 ] || big=$id ;;
@@ -214,6 +215,10 @@ else:
         # The Isolation Disabled job (corpus tests/al-language-isolation-disabled, test runner 130451): the oracle of the
         # suite isolation-disabled. It runs in the main environment under its own runner, so it needs no pass of its own.
         junit-al-language-isolation-disabled.xml) [ "$isol" != 0 ] || isol=$id ;;
+        # The TryWrites job (corpus tests/al-language-trywrite-allowed) runs BC with the server setting
+        # DisableWriteInsideTryFunctions=false: the oracle of the suite trywrite-allowed, which runs in a pass of its own
+        # with that setting (oracle.toml `server_settings`).
+        junit-al-language-trywrite-allowed.xml) [ "$tw" != 0 ] || tw=$id ;;
         *) die "artifact $id of junit-test-results-$leg holds no known JUnit file" ;;
       esac
     done < <(python3 -c '
@@ -223,16 +228,18 @@ a.sort(key=lambda x: x.get("created_at", ""), reverse=True)
 print("\n".join(str(x["id"]) for x in a))' "$arts" "$leg")
     { [ "$big" != 0 ] && [ "$mid" != 0 ]; } || die "run $run: junit-test-results-$leg lacks the oracle or the OnPrem file"
   fi
-  { [ "$n" -ge 2 ]; } || die "run $run has $n artifact(s) named junit-test-results-$leg, expected 2 to 5 (the oracle, the OnPrem file, the OnPrem DotNet file, the TestLibraries file and the Isolation Disabled file)"
+  { [ "$n" -ge 2 ]; } || die "run $run has $n artifact(s) named junit-test-results-$leg, expected 2 to 6 (the oracle, the OnPrem file, the OnPrem DotNet file, the TestLibraries file, the Isolation Disabled file and the TryWrites file)"
   oracle_id[$leg]=$big
   onprem_id[$leg]=$mid
   dotnet_id[$leg]=$small
   testlib_id[$leg]=$tl
   isol_id[$leg]=$isol
+  tryw_id[$leg]=$tw
   line="$leg: oracle artifact $big, onprem artifact $mid"
   [ "$small" = 0 ] || line="$line, dotnet artifact $small"
   [ "$tl" = 0 ] || line="$line, testlibraries artifact $tl"
   [ "$isol" = 0 ] || line="$line, isolation-disabled artifact $isol"
+  [ "$tw" = 0 ] || line="$line, trywrite-allowed artifact $tw"
   echo "$line"
 done
 
@@ -247,7 +254,7 @@ fi
 echo "docs/probes-needed.md table rows before: $(probe_rows)"
 
 if [ "$dry" = 1 ]; then
-  echo "would move corpus to $sha, copy the six artifacts above into oracle/27, 28, 29,"
+  echo "would move corpus to $sha, copy the artifacts above into oracle/27, 28, 29,"
   echo "update oracle/oracle.toml and oracle/README.md, the not-passing lists and the harness counts"
   echo "dry run: nothing changed"
   exit 0
@@ -290,6 +297,8 @@ for leg in $legs; do
   if [ "${testlib_id[$leg]}" != 0 ]; then fetch_xml "${testlib_id[$leg]}" "$root/oracle/$major/junit-testlibraries.xml"; fi
   # The Isolation Disabled file is the oracle of the isolation-disabled suite (corpus_bump_edit.py adds the suite).
   if [ "${isol_id[$leg]}" != 0 ]; then fetch_xml "${isol_id[$leg]}" "$root/oracle/$major/junit-isolation-disabled.xml"; fi
+  # The TryWrites file is the oracle of the trywrite-allowed suite (corpus_bump_edit.py adds the suite).
+  if [ "${tryw_id[$leg]}" != 0 ]; then fetch_xml "${tryw_id[$leg]}" "$root/oracle/$major/junit-trywrite-allowed.xml"; fi
 done
 
 # 5. oracle.toml and README.md.
@@ -311,6 +320,7 @@ for leg in $legs; do
 done
 DOTNET_IDS="27=${dotnet_id[27.5]} 28=${dotnet_id[28.5]} 29=${dotnet_id[29.0]}" \
   TESTLIB_IDS="27=${testlib_id[27.5]} 28=${testlib_id[28.5]} 29=${testlib_id[29.0]}" \
-  ISOL_IDS="27=${isol_id[27.5]} 28=${isol_id[28.5]} 29=${isol_id[29.0]}" python3 "$here/corpus_bump_edit.py" "$root" "$sha" "$run" "${args[@]}"
+  ISOL_IDS="27=${isol_id[27.5]} 28=${isol_id[28.5]} 29=${isol_id[29.0]}" \
+  TRYW_IDS="27=${tryw_id[27.5]} 28=${tryw_id[28.5]} 29=${tryw_id[29.0]}" python3 "$here/corpus_bump_edit.py" "$root" "$sha" "$run" "${args[@]}"
 
 finish "run $run"

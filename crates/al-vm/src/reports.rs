@@ -84,7 +84,7 @@ enum Entry {
 /// The report instance's object, kept alive independently of the session.
 pub(crate) struct Schema {
     engine: Arc<crate::Engine>,
-    object: usize,
+    pub(crate) object: usize,
 }
 
 impl Schema {
@@ -764,55 +764,6 @@ impl Session {
             }
             other => unsupported(format!("builtin {other}")),
         }
-    }
-
-    /// `CurrReport.Language := n` in a trigger of a SaveAs: the dataset names the language, `de-DE` for 1031, on its top data items
-    /// and in its header (reports/W3ReportObjectIdPreviewLanguage.al:605 Language_Set1031_FormatAndColumns `item language=de-DE`;
-    /// reports/runtime/BdRegionTests.al:928 the header). Another language, another language set after the first data
-    /// item was written, and the Labels block in German are not pinned: the dataset is refused when it is written.
-    fn saveas_language_set(&mut self, n: i32, running: &Inst) -> Result<(), Signal> {
-        if self.report.report_preview_pinned.last() != Some(&crate::state::ReportStart::SaveAs) {
-            return Ok(());
-        }
-        let schema = self.report_schema(running)?;
-        let labels = !schema.report().labels.is_empty()
-            || schema
-                .report()
-                .items
-                .iter()
-                .any(|i| i.columns.iter().any(|c| c.include_caption));
-        let Some(ds) = self.report.dataset.as_mut() else {
-            return Ok(());
-        };
-        let target = match n {
-            1033 => None,
-            1031 => Some("de-DE"),
-            _ => {
-                ds.culture_unpinned.get_or_insert(format!(
-                    "the SaveAs dataset after CurrReport.Language := {n} (only 1031 is pinned)"
-                ));
-                return Ok(());
-            }
-        };
-        let why = if ds.rows > 0 {
-            // The same language again, row after row (streams/TestReportCurrReportLanguage.al:44 sets 1031 in every
-            // OnAfterGetRecord), changes nothing.
-            (ds.language.as_deref() != target)
-                .then(|| format!("CurrReport.Language := {n} after the dataset's first data item was written"))
-        } else {
-            ds.language = target.map(str::to_string);
-            // Kept, not pinned: on BC 29 the company captions of the header stay en-US (refusing them would lose
-            // streams/TestReportCurrReportLanguage.al:44 TestReport_SettingCurrReportLanguage_RunsAndIsReadableBack, which does
-            // not read the dataset).
-            (labels && target.is_some()).then(|| {
-                "CurrReport.Language := 1031 with a Labels block (its texts in German are not pinned)".to_string()
-            })
-        };
-        if let Some(why) = why {
-            ds.culture_unpinned
-                .get_or_insert(format!("the SaveAs dataset after {why}"));
-        }
-        Ok(())
     }
 
     /// The report variable `receiver` when no report runs: `Language` and `FormatRegion` are kept with it.
@@ -1973,7 +1924,7 @@ impl Session {
         shows_page: bool,
         save_as: Option<&str>,
     ) -> Result<bool, Signal> {
-        if shows_page && self.report_handler_answers(inst, schema)? {
+        if self.report_handler_takes_run(inst, schema, shows_page, save_as.is_some())? {
             return Ok(true);
         }
         let execute_parameters = self.report.execute_parameters.take();
@@ -2048,7 +1999,7 @@ impl Session {
     /// (reports/reporthandler/AeReportHandler.al:31-158, AeReportHandlerCalls.al). Execute, SaveAs and a run without
     /// the page do not call it (AeReportHandler.al:85, :121, :133). Pinned for a processing-only report with a request page
     /// only; another report, and a test that binds a [RequestPageHandler] for the same report too, are refused.
-    fn report_handler_answers(&mut self, inst: &Inst, schema: &Schema) -> Result<bool, Signal> {
+    pub(crate) fn report_handler_answers(&mut self, inst: &Inst, schema: &Schema) -> Result<bool, Signal> {
         let object = schema.object as u32;
         if !self.has_page_handler(UiKind::Report, object) {
             return Ok(false);
@@ -2065,16 +2016,7 @@ impl Session {
                 schema.name()
             ));
         }
-        self.request_page_init_unshown(inst, schema)?;
-        self.report.rp_init_by_handler.push(Rc::downgrade(inst));
-        let (o, r, hi) = self.bind_page_handler(UiKind::Report, object)?;
-        // The handler takes the run over: its Run or RunModal of the instance runs it (AeReportHandlerCalls.al:79-99), so the
-        // instance does not count as running while the handler runs.
-        let running = std::mem::take(&mut self.report.report_running);
-        let called = self.call(o, r, hi, vec![Value::Codeunit(inst.clone())]);
-        self.report.report_running = running;
-        called?;
-        Ok(true)
+        self.hand_run_to_report_handler(inst, schema)
     }
 
     /// The request page's `OnInit` runs although the page is not shown, after OnInitReport and before OnPreReport, and
@@ -2084,7 +2026,7 @@ impl Session {
     /// adds to the page. The values of a SaveAs's parameters landing after it: reports/runtime/
     /// Y68SelfClosingParams.al:420-444 (Q1_SaveAs_SelfClosing_DataReport, a control they do not name keeps OnInit's value).
     /// Returns whether the trigger ran here.
-    fn request_page_init_unshown(&mut self, inst: &Inst, schema: &Schema) -> Result<bool, Signal> {
+    pub(crate) fn request_page_init_unshown(&mut self, inst: &Inst, schema: &Schema) -> Result<bool, Signal> {
         let engine = self.engine.clone();
         let Some(page) = engine.program.objects[schema.object].page.as_ref() else {
             return Ok(false);
@@ -4234,11 +4176,7 @@ impl Session {
                 if let Value::Decimal(_) = &value {
                     attribute = Some(("decimalformatter", self.decimal_column_formatter(&t, c)?));
                 }
-                match al_builtins::format::region_column(
-                    r,
-                    &value,
-                    self.has(al_version::Gate::ProbedValuesDifferFrom29),
-                ) {
+                match al_builtins::format::region_column(r, &value) {
                     Some(text) => text,
                     None => {
                         return unsupported(format!(
@@ -4803,7 +4741,7 @@ fn header_extension_name(name: &str, publisher: &str) -> String {
     }
 }
 
-mod format_region;
+pub(crate) mod format_region;
 #[cfg(test)]
 mod header_tests;
 mod request_caption;

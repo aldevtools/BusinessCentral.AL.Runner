@@ -1551,6 +1551,10 @@ pub fn evaluate_variable_option(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut 
 /// - with the result unused a rejected text raises `'<text>' is not an option. The existing options are: <captions>` with code
 ///   InvalidOptionString (:330 ResultUnused_Errors).
 ///
+/// A field that declares no caption reads the same way with its member names as captions: a name in any case, else an ordinal of
+/// any size; with the result unused the error lists the names (record/filters/P68I_TransferEnumOption.al:303-332 `16`, `6`, `M9`;
+/// errors/P137OptionEvaluate.al:155-231 field Three).
+///
 /// A rejected text gives `false` with the result used.
 pub fn evaluate_option_field(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
     let (Some(text), Some(Value::Text(captions)), Value::Option(_, names)) =
@@ -1572,11 +1576,14 @@ pub fn evaluate_option_field(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Va
         captions.as_str().to_string()
     };
     let t = text.trim();
+    // A field without a caption (fifth argument 2, the fourth its member names): an empty or blank text names a member
+    // declared as `" "`, not one declared as `""` (format-evaluate/AxFormatOption.al:208-211).
+    let no_caption = matches!(a.get(4), Some(Value::Integer(2)));
     // An empty or blank text names a blank member (format-evaluate/P131EvalOption.al:107-108: `''` and `' '` give the
     // member `" "` of caption `' '`, :146: a field without a blank member rejects `''`).
     let same = |n: &str| {
         if t.is_empty() {
-            n.trim().is_empty()
+            n.trim().is_empty() && !(no_caption && n.is_empty())
         } else {
             n.trim().eq_ignore_ascii_case(t)
         }
@@ -1974,6 +1981,10 @@ fn table_filter_value(f: &crate::native::TableFilterField, value: &str) -> Resul
                 if !w.is_empty() && w.chars().all(|ch| ch.is_ascii_alphanumeric()) {
                     return Ok(Ok(format!("@{}*", w.to_uppercase())));
                 }
+            }
+            if crate::evaluate_table_filter_forms::code_chained_form(v, *len) {
+                crate::assumptions::assume(crate::assumptions::Assumption::TablefilterCodeChainedKept);
+                return Ok(Ok(v.to_string()));
             }
             refuse()
         }
