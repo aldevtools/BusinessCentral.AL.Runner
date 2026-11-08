@@ -132,7 +132,7 @@ See [Writing tests](writing-tests.md#several-versions-and-countries).
 | `--refusal-detail TEXT` | Not-run reasons that contain TEXT, most common first. |
 | `--junit FILE` | JUnit XML. |
 | `--output-json [FILE]`, `--output-json=FILE` | JSON in the shape of AL Runner version 2. See [Reading results](results.md). |
-| `--timings` | Compile phases and the slowest test codeunits. For the time per AL routine, set `AL_PROFILE=FILE` (see [Reading results](results.md#time-per-al-routine)). |
+| `--timings` | Compile phases and the slowest test codeunits. For the time per AL routine, use `--profile` (see [Profiling AL code](profiling.md)). |
 | `--list-assumptions` | Print the registry of unprobed assumptions with the counts of the last run. Use it alone. |
 
 ## Coverage
@@ -144,6 +144,16 @@ See [Writing tests](writing-tests.md#several-versions-and-countries).
 | `--coverage-json FILE` | Write JSON with `coverage` and `perTestCoverage`. Implies `--coverage`. |
 
 See [Editor and tool integration](editor-tools.md) for the formats.
+
+## Profiling
+
+| Flag | Effect |
+|---|---|
+| `--profile PATH` | Write AL CPU profiles (`.alcpuprofile`) that the AL extension in VS Code opens. A folder gets one file per test codeunit, named `<id>-<name>.alcpuprofile`, plus `summary.txt`. A PATH that ends in `.alcpuprofile` gets one merged file for the whole run. With the profiler off, a run pays one branch per statement and call. |
+| `--profile-mode MODE` | `instrumentation` (default): exact times, call counts and statement times. `sampling`: a sample of every thread at each interval; the file can also be loaded on BC's Performance Profiler page. Needs `--profile`. |
+| `--profile-interval US` | Microseconds between samples in sampling mode. Default 1000, at least 50. Needs `--profile`. |
+
+`AL_PROFILE=FILE` still works for this release and is deprecated. See [Profiling AL code](profiling.md#the-old-al_profile-variable).
 
 ## Test data
 
