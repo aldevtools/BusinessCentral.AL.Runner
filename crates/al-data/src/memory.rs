@@ -6,6 +6,7 @@ use al_builtins::filter::{FieldFilter, key_cmp};
 use std::cmp::Ordering;
 
 mod order_carry;
+mod replace;
 mod row_changes;
 pub use row_changes::{RowChanges, TableRows};
 
