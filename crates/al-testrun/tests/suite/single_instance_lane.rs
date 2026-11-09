@@ -1295,3 +1295,161 @@ codeunit 60741 "Chain Refusing Member"
     assert_eq!(failure(&rt, "Reports60742"), "saw []");
     assert_eq!(failure(&rt, "Reports60743"), "saw [after]");
 }
+
+// ADR-058 amendment 1: order dependence through SingleInstance state, in stability mode.
+
+const CHAIN_PAIR: &str = r#"
+codeunit 60710 "Chain Fresh Setter"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure FreshSetsTheFlag() var S: Codeunit "Lane State"; begin S.SetFlag('left'); end;
+}
+codeunit 60711 "Chain Fresh Reader"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure FreshReadsTheFlag()
+    var S: Codeunit "Lane State";
+    begin
+        if S.GetFlag() <> 'left' then Error('flag is [%1]', S.GetFlag());
+    end;
+}
+codeunit 60712 "Chain Fresh Bystander"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure FreshUsesNothing() begin end;
+}
+"#;
+
+fn fresh_opts() -> RunOptions {
+    RunOptions {
+        required_isolation: true,
+        single_fresh_check: true,
+        strict_order: true,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn a_chain_member_that_reads_a_carried_value_runs_again_fresh_and_names_the_global_and_its_writer() {
+    let rt = runtime_opts(CHAIN_PAIR, STATE, &fresh_opts());
+    // The base result stays BC's order.
+    assert!(passed(&rt, "FreshReadsTheFlag"), "{:?}", rt.results());
+    let carried: Vec<_> = rt.single_carried().collect();
+    assert_eq!(carried.len(), 1, "only the reader is a suspect: {carried:?}");
+    let c = carried[0];
+    assert_eq!(
+        (c.codeunit, c.in_chain, c.isolation.as_str()),
+        (60711, true, "Disabled")
+    );
+    assert_eq!(c.reads.len(), 1, "{c:?}");
+    let r = &c.reads[0];
+    assert_eq!(
+        (r.single_id, r.single_name.as_str(), r.global.as_str()),
+        (50451, "Lane State", "Flag")
+    );
+    assert_eq!(r.last_writer, Some((60710, "Chain Fresh Setter".to_string())));
+    let fresh = c.fresh.as_ref().expect("checked");
+    assert!(
+        matches!(&fresh[..], [(t, Outcome::Fail(m))] if t == "FreshReadsTheFlag" && m.contains("flag is []")),
+        "{fresh:?}"
+    );
+}
+
+#[test]
+fn without_the_check_a_suspect_is_listed_but_not_run_again() {
+    let opts = RunOptions {
+        required_isolation: true,
+        ..Default::default()
+    };
+    let rt = runtime_opts(CHAIN_PAIR, STATE, &opts);
+    let carried: Vec<_> = rt.single_carried().collect();
+    assert_eq!(carried.len(), 1, "{carried:?}");
+    assert!(carried[0].fresh.is_none());
+}
+
+#[test]
+fn a_chain_member_rerun_hands_nothing_on() {
+    // The reader's fresh run sets nothing, so a later member that checks the flag still sees what the setter left.
+    let src = format!(
+        "{CHAIN_PAIR}{}",
+        chain_checker(60713, "RequiredTestIsolation = Disabled;", "left", "left")
+    );
+    let rt = runtime_opts(&src, STATE, &fresh_opts());
+    assert!(passed(&rt, "Reports60713"), "{:?}", rt.results());
+}
+
+#[test]
+fn a_dependent_codeunit_outside_the_chain_keeps_its_parallel_run_as_the_fresh_outcome() {
+    let rt = runtime_opts(DEPENDENT_PAIR, STATE, &fresh_opts());
+    assert!(passed(&rt, "ReadsTheFlag"), "{:?}", rt.results());
+    let carried: Vec<_> = rt.single_carried().collect();
+    assert_eq!(carried.len(), 1, "{carried:?}");
+    let c = carried[0];
+    assert!(!c.in_chain);
+    assert_eq!(c.reads[0].global, "Flag");
+    assert!(
+        c.reads[0]
+            .last_writer
+            .as_ref()
+            .is_some_and(|w| w.1.contains("Lane Setter")),
+        "{c:?}"
+    );
+    let fresh = c.fresh.as_ref().expect("checked");
+    assert!(
+        matches!(&fresh[..], [(t, Outcome::Fail(_))] if t == "ReadsTheFlag"),
+        "{fresh:?}"
+    );
+}
+
+fn variants_of(src: &str, perturbs: &[al_testrun::stability::Perturb]) -> Vec<CorpusRuntime> {
+    CorpusRuntime::try_run_variants(
+        vec![app("main", &["base"], src), app("base", &[], STATE)],
+        vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
+        &[manifest("Me"), manifest("Microsoft")],
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &RunOptions {
+            required_isolation: true,
+            ..Default::default()
+        },
+        perturbs,
+        |_| {},
+    )
+    .expect("the run starts")
+}
+
+fn outcome_of<'a>(rt: &'a CorpusRuntime, test: &str) -> &'a Outcome {
+    &rt.results().iter().find(|r| r.test == test).expect("ran").outcome
+}
+
+/// ADR-058 amendment 1, decisions 2 and 3: the `fresh` variant is formed from the base variant's run: a suspect takes
+/// its fresh outcome, every other codeunit its base outcome.
+#[test]
+fn the_fresh_variant_takes_each_suspects_fresh_outcome_and_every_other_base_outcome() {
+    let base = al_testrun::stability::Perturb::default();
+    let fresh = al_testrun::stability::Perturb {
+        single_fresh: true,
+        ..Default::default()
+    };
+    let src = format!("{CHAIN_PAIR}{DEPENDENT_PAIR}");
+    let rts = variants_of(&src, &[base, fresh]);
+    assert_eq!(rts.len(), 2);
+    for t in [
+        "FreshReadsTheFlag",
+        "ReadsTheFlag",
+        "FreshSetsTheFlag",
+        "FreshUsesNothing",
+    ] {
+        assert_eq!(outcome_of(&rts[0], t), &Outcome::Pass, "{t} in the base variant");
+    }
+    assert!(matches!(outcome_of(&rts[1], "FreshReadsTheFlag"), Outcome::Fail(_)));
+    assert!(matches!(outcome_of(&rts[1], "ReadsTheFlag"), Outcome::Fail(_)));
+    assert_eq!(outcome_of(&rts[1], "FreshUsesNothing"), &Outcome::Pass);
+    // The base variant ran with the check, so its list holds the fresh outcomes ("checked").
+    assert!(rts[0].single_carried().all(|c| c.fresh.is_some()));
+}

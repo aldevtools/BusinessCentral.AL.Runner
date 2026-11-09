@@ -73,6 +73,9 @@ pub(super) struct ChainWalk<'a> {
     /// `LANE_SINGLES`). A run ahead (fresh single instances, another thread) is taken only when it read and wrote no
     /// watched global and the walk's single instances hold no manual binding: then its run cannot differ.
     pub keep_singles: bool,
+    /// ADR-058 amendment 1, decision 2 (`RunOptions::single_fresh_check`): a member that read a carried
+    /// SingleInstance value runs once more with fresh single instances, from the same database start.
+    pub fresh_check: bool,
 }
 
 /// A helper thread's part of a [`ChainWalk`].
@@ -259,11 +262,13 @@ fn ahead_ignores_singles(a: &Ahead) -> bool {
 }
 
 /// The single instances the walk keeps from member to member (`ChainWalk::keep_singles`): which BC session they belong
-/// to, and the globals the members of that session wrote so far (for the count of members that read them).
+/// to, the globals the members of that session wrote so far with the member (unit) that wrote each last, and what a
+/// fresh instance holds in each global (ADR-058 amendment 1, decision 4: the reason of a flip names the last writer).
 #[derive(Default)]
 struct KeptSingles {
     session: Option<(usize, bool)>,
-    wrote: std::collections::BTreeSet<al_vm::single_track::GlobalKey>,
+    last: std::collections::BTreeMap<al_vm::single_track::GlobalKey, usize>,
+    fresh: std::collections::BTreeMap<al_vm::single_track::GlobalKey, al_vm::single_track::Fp>,
 }
 
 impl KeptSingles {
@@ -276,29 +281,46 @@ impl KeptSingles {
                     *slot = None;
                 }
             });
-            self.wrote.clear();
+            self.last.clear();
+            self.fresh.clear();
         }
         self.session = key;
     }
 
-    /// Member run `r` ended (`ahead`: its run ahead was taken; the walk's single instances are unchanged then). Counts a
-    /// member that read first a global an earlier member of its session wrote.
-    fn left(&mut self, r: &UnitResult, ahead: bool, report: &mut super::ChainReport) {
+    /// Member run `r` of unit `k` ended (`ahead`: its run ahead was taken; the walk's single instances are unchanged
+    /// then). Counts a member that read first a global an earlier member of its session wrote, and returns the globals
+    /// it read with a carried value that differs from a fresh instance's, each with its last writer (ADR-058 amendment
+    /// 1, decision 2: a suspect).
+    fn left(
+        &mut self,
+        k: usize,
+        r: &UnitResult,
+        ahead: bool,
+        report: &mut super::ChainReport,
+    ) -> Vec<(al_vm::single_track::GlobalKey, usize)> {
         report.singles_kept += 1;
         let Ok(done) = &r.result else {
             self.enter(None);
-            return;
+            return Vec::new();
         };
-        let Some(o) = done.5.singles_out.as_ref() else { return };
-        if o.observed.keys().any(|k| self.wrote.contains(k)) {
+        let Some(o) = done.5.singles_out.as_ref() else {
+            return Vec::new();
+        };
+        if o.observed.keys().any(|g| self.last.contains_key(g)) {
             report.singles_read_carried += 1;
         }
+        for (g, f) in &o.fresh {
+            self.fresh.entry(*g).or_insert_with(|| f.clone());
+        }
+        let reads = super::single_fresh::carried_reads(&o.observed, &self.last, &self.fresh);
         if o.refused && !ahead {
             // `run.rs` `singles_out` handed nothing on (R3): the next member starts fresh.
-            self.wrote.clear();
+            self.last.clear();
+            self.fresh.clear();
         } else {
-            self.wrote.extend(o.wrote.iter().copied());
+            self.last.extend(o.wrote.iter().map(|g| (*g, k)));
         }
+        reads
     }
 }
 
@@ -555,8 +577,13 @@ impl ChainWalk<'_> {
                             (r, super::run::CARRIED.with(|c| c.borrow_mut().take()))
                         }
                     };
-                    if keep {
-                        singles.left(&r, took_ahead, report);
+                    let reads = if keep {
+                        singles.left(k, &r, took_ahead, report)
+                    } else {
+                        Vec::new()
+                    };
+                    if !reads.is_empty() {
+                        self.suspect(k, &reads, start, before.map(|(_, _, _, c)| c), &r, report);
                     }
                     report.members.push(super::ChainEntry {
                         id,
@@ -634,6 +661,27 @@ impl ChainWalk<'_> {
             super::run::LANE_SINGLES.with(|c| *c.borrow_mut() = None);
         }
         carried
+    }
+
+    /// Member `k` read carried SingleInstance values (`reads`): noted in `report.carried`, and under `fresh_check` run
+    /// once more from `start` with fresh single instances (ADR-058 amendment 1, decision 2; the run hands nothing on).
+    fn suspect(
+        &self,
+        k: usize,
+        reads: &[(al_vm::single_track::GlobalKey, usize)],
+        start: Option<&al_vm::Baseline>,
+        before: Option<&super::run::Carried>,
+        r: &UnitResult,
+        report: &mut super::ChainReport,
+    ) {
+        let mut c = super::single_fresh::carried_codeunit(self.lowered, self.units, k, true, reads);
+        if self.fresh_check && r.result.is_ok() {
+            let mut u = self.units[k].clone();
+            u.leak = before.map(|c| Arc::new(c.tables.clone()));
+            let fresh = super::single_fresh::rerun_fresh(self.engine, self.lowered, start, &u, self.limit, self.gate);
+            c.fresh = Some(super::single_fresh::outcomes_of(&fresh));
+        }
+        report.carried.push(c);
     }
 
     /// A run ahead from the prediction `predicted` (a delta on the suite's epoch start `base`) was dropped because the

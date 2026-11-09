@@ -290,3 +290,29 @@ fn a_first_read_notes_the_test_it_came_in() {
     assert_eq!(out.read_in.get(&rec), Some(&1), "{:?}", out.read_in);
     assert_eq!(out.read_in.get(&list), Some(&2), "{:?}", out.read_in);
 }
+
+/// ADR-058 amendment 1, decision 2: a carried value is a suspect only when it differs from what a fresh instance
+/// holds. The notes keep the fingerprints of the globals of each single instance the session made itself; an instance
+/// an earlier codeunit left (moved in) has none.
+#[test]
+fn the_notes_keep_what_a_fresh_instance_holds_only_for_instances_the_session_made() {
+    let (out, mut b) = notes("AppendIt");
+    let k = key(&b, "Log");
+    assert_eq!(
+        out.fresh.get(&k),
+        out.observed.get(&k),
+        "a fresh instance holds what the first read saw"
+    );
+    assert!(out.ends.get(&k) != out.fresh.get(&k), "the append changed it");
+    let moved = b.session.take_single_instances();
+    b.session.adopt_single_instances(moved);
+    b.session.track_single_instances();
+    b.run_in("Si Track Driver", "AppendIt").expect("ran");
+    let out = b.session.single_out().expect("tracked");
+    assert!(out.observed.contains_key(&k), "the carried value was read");
+    assert!(
+        out.fresh.is_empty(),
+        "a moved-in instance is not fresh: {:?}",
+        out.fresh.keys()
+    );
+}
