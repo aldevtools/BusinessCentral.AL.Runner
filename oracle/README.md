@@ -8,13 +8,13 @@ pass rate is measured against: every `<testcase>` in it passed on real BC.
 | Field | Value |
 |---|---|
 | Corpus repo | aldevtools/BusinessCentral.AL.Language.Tests (until 2026-10-21 StefanMaron/BusinessCentral.AL.Language.Tests), branch `master` (the default branch; until 2026-10-19 the side branch `al-runtime-rs`, whose commits are all on `master`) |
-| Corpus pin | `abd2a0aaaab28124d5cc6eedc69331a8b04f1ed1` (the `corpus` submodule, master merge of corpus PR 706; must equal `corpus_commit` in `oracle.toml`) |
+| Corpus pin | `4e6c706f74daa0cb1af1fd6890d86212f5302e10` (the `corpus` submodule, master merge of corpus PR 706; must equal `corpus_commit` in `oracle.toml`) |
 
 | Major | Oracle leg | Corpus commit of the run | Workflow run | Artifact | Artifact id | Cases |
 |---|---|---|---|---|---|---|
-| 27 | 27.5 | `abd2a0a` (the pin) | 42561471786 | `junit-test-results-27.5` | 13650489100 | 24671 |
-| 28 | 28.5 | `abd2a0a` (the pin) | 42561471786 | `junit-test-results-28.5` | 13650797947 | 24812 (+26 `OnRun`) |
-| 29 | 29.0 | `abd2a0a` (the pin) | 42561471786 | `junit-test-results-29.0` | 13651091422 | 24955 (+26 `OnRun`) |
+| 27 | 27.5 | `4e6c706` (the pin) | 42636820882 | `junit-test-results-27.5` | 13690326605 | 24774 |
+| 28 | 28.5 | `4e6c706` (the pin) | 42636820882 | `junit-test-results-28.5` | 13691077642 | 24915 (+26 `OnRun`) |
+| 29 | 29.0 | `4e6c706` (the pin) | 42636820882 | `junit-test-results-29.0` | 13689628302 | 25058 (+26 `OnRun`) |
 
 The files come from the green full run of corpus PR 706 ("full run: the pull request has the label full-run"), whose head `f64dfd8` has the same tree
 (`cff97a3c`) as the pin `2be1140`.
@@ -32,8 +32,8 @@ overall count.
 | Name | App | Oracle file | From | Cases |
 |---|---|---|---|---|
 | `onprem` (27, 28, 29) | `tests/al-language-onprem` | `<major>/junit-onprem.xml` | the small artifact of the same CI run as the main oracle (ids 11957600568, 11957362118, 11956862735), copied unchanged | 72 |
-| `isolation-function` (28 only) | `tests/al-language-isolation-probe` | `28/xunit-isolation-function.xml` | the Windows nightly of 2026-10-18, BC 28.5, run 39127745894, artifact 12137159749 | 7 |
-| `isolation-codeunit` (28 only) | the same app | `28/xunit-isolation-codeunit.xml` | the same artifact | 7 (T5 fails on BC, on purpose) |
+| `isolation-function` (28 only) | `tests/al-language-isolation-probe` | `28/xunit-isolation-function.xml` | the scheduled Windows nightly of 2026-11-09, BC 28.4 build 28.4.53241.57822, run 42604559766, artifact 13682127739, corpus master 24456ba9 | 49 |
+| `isolation-codeunit` (28 only) | the same app | `28/xunit-isolation-codeunit.xml` | the same artifact | 49 (T5 fails on BC, on purpose) |
 | `testlibraries` (27, 28, 29) | `tests/al-language-testlibraries` | `<major>/junit-testlibraries.xml` | the TestLibraries artifact (`junit-al-language-testlibraries.xml`) of the same CI run as the main oracle, job "BC TestLibraries <ver> / test", copied unchanged | 37 (BC 29: 40, one skipped on purpose) |
 
 The `isolation-disabled` suite (`tests/al-language-isolation-disabled`, test runner 130451, `TestIsolation = Disabled`;
@@ -52,8 +52,8 @@ suites keep the main job's environment. Its list is `metrics/<major>/not-passing
 
 The isolation probe never runs in the Linux CI legs: it needs two custom test runners
 (`-testRunnerCodeunitId`), which only the Windows nightly provides. Its files are BcContainerHelper
-XUnit, not JUnit, and come from the nightly on corpus staging at `92aeaa7`, whose tests/ are
-identical to the pin's (the CLI checks the corpus diff, ADR-007). There is no isolation oracle for
+XUnit, not JUnit, and come from the nightly on corpus master at `24456ba9`, whose
+`tests/al-language-isolation-probe` is identical to the pin's (the CLI checks the corpus diff of the app, ADR-007). There is no isolation oracle for
 BC 27 and 29. The control suite fails `T5` on real BC; the report
 shows that the runtime fails it too.
 
