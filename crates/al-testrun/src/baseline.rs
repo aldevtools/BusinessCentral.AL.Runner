@@ -524,15 +524,42 @@ fn unseeded_tables(stopped: &[(BTreeSet<u32>, bool)], filled: &BTreeSet<u32>, se
 }
 
 pub(crate) fn tables_written(lowered: &Lowered, object: usize, routine: usize) -> BTreeSet<u32> {
+    tables_written_in(lowered, object, routine, false)
+}
+
+/// [`tables_written`] and the tables a `NavApp.LoadPackageData` with a constant table id fills (al-runner issue 7359): what
+/// a root that stopped or could not run leaves without the rows BC has. The order analyses of the install routines keep
+/// [`tables_written`] (a load writes no SystemCreatedAt the corpus orders).
+pub(crate) fn tables_written_or_loaded(lowered: &Lowered, object: usize, routine: usize) -> BTreeSet<u32> {
+    tables_written_in(lowered, object, routine, true)
+}
+
+fn tables_written_in(lowered: &Lowered, object: usize, routine: usize, loads: bool) -> BTreeSet<u32> {
     use al_builtins::value::RtType;
     use al_ir::{Arg, Expr, Place, Stmt};
 
     struct W<'a> {
         locals: &'a [al_ir::Slot],
         globals: &'a [al_ir::Slot],
+        heads: &'a [al_ir::ObjectHead],
+        loads: bool,
         out: &'a mut BTreeSet<u32>,
     }
     impl W<'_> {
+        /// `NavApp.LoadPackageData(Database::X)` with a constant table id writes the rows of table X (al-runner issue 7359:
+        /// a refused load leaves the table without the rows the app ships, as a stopped root's Insert does).
+        fn package_data_table(&mut self, args: &[Arg]) {
+            let Some(Arg::Value(Expr::Const(al_ir::Const::Integer(n)))) = args.first() else {
+                return;
+            };
+            let found = self
+                .heads
+                .iter()
+                .position(|o| o.kind == al_ir::ObjKind::Table && o.id.is_some_and(|id| i64::from(id) == i64::from(*n)));
+            if let Some(t) = found {
+                self.out.insert(t as u32);
+            }
+        }
         fn root(p: &Place) -> Option<&Place> {
             match p {
                 Place::Local(_) | Place::Global(_) => Some(p),
@@ -620,6 +647,9 @@ pub(crate) fn tables_written(lowered: &Lowered, object: usize, routine: usize) -
                     args.iter().for_each(|a| self.arg(a));
                 }
                 Expr::Builtin { id, receiver, args, .. } => {
+                    if self.loads && id.name() == "NavApp.LoadPackageData#1" {
+                        self.package_data_table(args);
+                    }
                     if let Some(r) = receiver {
                         if let Some(rest) = id.name().strip_prefix("Record.") {
                             let method = rest.split('#').next().unwrap_or("");
@@ -709,6 +739,8 @@ pub(crate) fn tables_written(lowered: &Lowered, object: usize, routine: usize) -
         W {
             locals: &rt.locals,
             globals: &obj.globals,
+            heads: lowered.program.objects.heads(),
+            loads,
             out: &mut out,
         }
         .stmts(&rt.body);

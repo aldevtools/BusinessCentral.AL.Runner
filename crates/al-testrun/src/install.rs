@@ -1490,6 +1490,9 @@ fn run_routine(lowered: &Lowered, session: &mut Session, oi: usize, ri: usize) -
 /// The tables a routine that could not run touches, with those of the event subscribers it would have set off.
 fn touched(engine: &Engine, lowered: &Lowered, oi: usize, ri: usize) -> BTreeSet<u32> {
     let mut t = crate::runtime::tables_touched(lowered, oi, ri);
+    // The tables it writes include those of a `NavApp.LoadPackageData` with a constant table id, which names no record
+    // variable (al-runner issue 7359: a test that reads the rows the refused load would have put there).
+    t.extend(crate::baseline::tables_written_or_loaded(lowered, oi, ri));
     for (so, sr) in crate::runtime::subscribers_reached(engine, lowered, oi, ri) {
         t.extend(crate::runtime::tables_touched(lowered, so, sr));
     }
