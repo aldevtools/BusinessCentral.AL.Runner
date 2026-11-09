@@ -215,7 +215,7 @@ fn show(v: &Value) -> String {
         Value::Integer(i) => i.to_string(),
         Value::BigInteger(i) => i.to_string(),
         Value::Text(t) | Value::Code(t) => t.to_string(),
-        other => format!("{other:?}"),
+        other => al_builtins::describe::Describe::describe(other),
     }
 }
 
