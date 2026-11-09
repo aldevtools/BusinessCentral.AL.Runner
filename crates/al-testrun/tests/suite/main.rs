@@ -67,6 +67,7 @@ mod query_after_last_row;
 mod query_close_fall_through;
 mod query_record_id_column;
 mod recordref_into_record;
+mod refused_chain_link;
 mod report_default_layout;
 mod report_render_discarded;
 mod report_request_values;
