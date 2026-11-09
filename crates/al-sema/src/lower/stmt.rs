@@ -438,6 +438,16 @@ impl Lowerer<'_> {
         let Some(Res::Field { table, id: field }) = self.res(arg).cloned() else {
             return None;
         };
+        // The Field table's Class column reads as an Option field, not as a FieldClass value: `3` is read and shown as 3, the
+        // name KeyFieldReference is rejected, the error lists the members joined by `,` (format-evaluate/
+        // SoEvaluateSystemOptions.al:3843 FieldTableClassColumn_Evaluate).
+        if self.field_table_class_column(arg) {
+            let f = self.members[table].fields.iter().find(|f| f.id == field)?;
+            let Ty::Option(names) = &f.ty else {
+                return None;
+            };
+            return Some((names.join(","), OptionCaptions::None));
+        }
         let platform = self.ws.objects[table].id.is_some_and(|id| id >= 2_000_000_000);
         let f = self.members[table].fields.iter().find(|f| f.id == field)?;
         if let (Ty::Option(_), Some((_, ml))) = (
@@ -466,6 +476,18 @@ impl Lowerer<'_> {
         let captions: Vec<&str> = list.split(',').collect();
         (captions.len() == names.len() && captions.iter().zip(names).any(|(c, n)| c != n))
             .then(|| (list.to_string(), OptionCaptions::Caption))
+    }
+
+    /// Whether `arg` is the Class column of the Field table (2000000041), an Option field with the members of FieldClass.
+    pub(crate) fn field_table_class_column(&mut self, arg: &SyntaxNode) -> bool {
+        let Some(Res::Field { table, id: field }) = self.res(arg).cloned() else {
+            return false;
+        };
+        self.ws.objects[table].id == Some(2_000_000_041)
+            && self.members[table]
+                .fields
+                .iter()
+                .any(|f| f.id == field && f.name.eq_ignore_ascii_case("Class") && matches!(f.ty, Ty::Option(_)))
     }
 
     /// Whether `arg` is a Decimal table field that declares how it is formatted (`DecimalPlaces`, `AutoFormatType` or

@@ -67,15 +67,19 @@ impl Session {
         Ok(true)
     }
 
-    /// A card whose row an action deleted asks OnQueryClosePage before it runs OnClosePage.
+    /// A card whose row an action deleted moves to another row, then asks OnQueryClosePage before it runs OnClosePage. A card
+    /// without OnQueryClosePage moves the same way: OnAfterGetRecord runs for the next row, else the row before, and OnClosePage
+    /// sees Rec on it, or blank when no row is left (pages/deleted-rows-navigation/Y89GoneSingleMove.al
+    /// Y89_NQ_{OpenEdit,OpenView}_On20_delcur `D:20/R:20;R:30;X:30`, _On30_delcur `D:30/R:30;R:20;X:20`, _On20_delall
+    /// `R:20;X:0`, _Only_delcur `R:10;X:0`, Y89_NQ_Modal_* the same with `result` LookupCancel).
     pub(super) fn card_query_close_before_forced_close(&mut self, st: &St) -> Result<(), Signal> {
         // The card asks OnQueryClosePage first, then runs OnClosePage (corpus master pages/deleted-rows/Y80GoneRows.al
         // Y80_Gone_Card_OpenEdit_DeleteAllUpdate, _DeleteCurrent, _OpenView_* `action log R:10;D:10;Q;X`). It receives the action
         // of a close by the page itself: OK, LookupCancel when run modally in lookup mode (pages/deleted-rows-navigation/
         // Y89GoneSingleMove.al Y89_CA_True_{OpenEdit,OpenView}_* `Q:OK:..`, Y89_CA_Modal_True_* `Q:LookupCancel:..`). A veto is
         // not pinned to the end (the page stays open and asks again in shapes that are not modelled): refused.
+        self.rec_after_forced_close(st)?;
         if self.declares(st, "onqueryclosepage") {
-            self.rec_after_forced_close(st)?;
             let action = self.close_action(st, "Close");
             let members: std::sync::Arc<[String]> = al_builtins::value::ACTION_MEMBERS
                 .iter()

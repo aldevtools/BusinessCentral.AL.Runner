@@ -509,6 +509,8 @@ impl Lowerer<'_> {
                     "System.FormatDecimalField#1".to_string()
                 } else if id == "System.Format#1" && auto_format_field.is_some() {
                     "System.FormatAutoFormatField#1".to_string()
+                } else if id == "System.Format#1" && args.first().is_some_and(|a| self.field_table_class_column(a)) {
+                    "System.FormatOptionColumn#1".to_string()
                 } else {
                     // `Blob.Length` compared with 0: only the sign of the stored size is observed (issue 6896; blob_length_sign.rs).
                     Self::blob_length_emit_id(&id, node)

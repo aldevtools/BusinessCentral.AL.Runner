@@ -8,9 +8,11 @@
 //!   member has, a sign `-`, a decimal point, a number past the integer range are rejected (:118-141, :150-173);
 //! - members AL cannot name are read from their ordinal: ObjectType 2 Form and 10 Enum (:114-143), ReportFormat 0 None (also
 //!   the empty text) and 6 to 8 Jpeg, Xps, Meta, ExecutionContext 2 Uninstall, FieldClass 3 KeyFieldReference from BC 28
-//!   (:3560); the error lists them;
+//!   (:3560); the error lists them; their names read too (SoEvaluateSystemOptionsHidden.al, corpus PR 1225);
+//! - WebServiceActionResultCode reads the numbers 0, 200, 201 and 204 (SoEvaluateSystemOptionsHidden.al:1519);
 //! - a rejected text keeps the value and answers false; the statement form raises `'<text>' is not an option. The existing
-//!   options are: <names>` (names joined by `, `, a TAB shown as `\t`) with code InvalidOptionString (:208-260);
+//!   options are: <names>` (names joined by `, `, a TAB shown as `\t`, the blanks and TABs around the text left out) with
+//!   code InvalidOptionString (:208-260, SoEvaluateSystemOptionsHidden.al:68);
 //! - format numbers 0, 2 and 9 read alike (:264-289).
 
 use crate::native::{Ctx, Signal};
@@ -159,6 +161,19 @@ pub fn hidden_name(members: &[String], position: i32) -> Option<&'static str> {
         .map(|(n, _, _)| *n)
 }
 
+/// The name `Format` shows for member `name` of these members when another member has its ordinal first: Updated is the code
+/// 200 of Get and shows as Get (SoEvaluateSystemOptionsHidden.al:1576 WebServiceActionResultCode_FormatOfMembers `Updated`
+/// `Get/Get/200/200`).
+pub fn shown_name(members: &[String], name: &str) -> Option<&'static str> {
+    let (_, table) = type_of(members)?;
+    let (_, ordinal, _) = table.iter().find(|(n, _, _)| *n == name)?;
+    table
+        .iter()
+        .find(|(_, o, _)| o == ordinal)
+        .map(|(n, _, _)| *n)
+        .filter(|n| *n != name)
+}
+
 /// The position in `members` of the member with platform ordinal `ordinal`.
 fn position_of(members: &[String], table: &[Member], ordinal: i32) -> Option<i32> {
     let (name, _, named) = table.iter().find(|(_, o, _)| *o == ordinal)?;
@@ -190,14 +205,12 @@ pub fn evaluate(c: &dyn Ctx, members: &std::sync::Arc<[String]>, text: &str) -> 
     let t = text.trim_matches([' ', '\t']);
     let digits = t.strip_prefix('+').unwrap_or(t);
     let found = if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) {
-        let ordinal = digits.parse::<i32>().ok();
-        // Only 0 is pinned as a number of WebServiceActionResultCode (:3190 Numbers: 0 to 8); the HTTP codes are not.
-        if name == "webserviceactionresultcode" && ordinal.is_some_and(|o| o != 0 && table.iter().any(|m| m.1 == o)) {
-            return unsupported(format!(
-                "Evaluate of the number `{t}` into WebServiceActionResultCode (not pinned)"
-            ));
-        }
-        ordinal.and_then(|o| table.iter().find(|m| m.1 == o).copied())
+        // The HTTP codes of WebServiceActionResultCode read as numbers like any ordinal, 200 as Get
+        // (SoEvaluateSystemOptionsHidden.al:1519 HttpNumbers, :1538 HttpNumberForms).
+        digits
+            .parse::<i32>()
+            .ok()
+            .and_then(|o| table.iter().find(|m| m.1 == o).copied())
     } else {
         let exact = table.iter().find(|m| m.0.eq_ignore_ascii_case(t));
         let prefix = || {
@@ -205,15 +218,10 @@ pub fn evaluate(c: &dyn Ctx, members: &std::sync::Arc<[String]>, text: &str) -> 
                 m.0.len() >= t.len() && m.0.is_char_boundary(t.len()) && m.0[..t.len()].eq_ignore_ascii_case(t)
             })
         };
-        match exact.or_else(prefix).copied() {
-            // A name of a member AL cannot name is not pinned; the empty text naming one is (ReportFormat None, :1500).
-            Some((n, _, false)) if !t.is_empty() => {
-                return unsupported(format!(
-                    "Evaluate of `{t}` into {name}: the name of the member {n} (not pinned)"
-                ));
-            }
-            other => other,
-        }
+        // The name of a member AL cannot name reads like any other, in any case, with blanks and as a prefix
+        // (SoEvaluateSystemOptionsHidden.al:120 ObjectType_UnnamableNames1, :640-806 ReportFormat, :1286 ExecutionContext,
+        // :1722 FieldClass).
+        exact.or_else(prefix).copied()
     };
     Ok(match found {
         Some((_, ordinal, _)) => match position_of(members, table, ordinal) {
@@ -233,11 +241,9 @@ pub fn rejected_error<T>(c: &dyn Ctx, members: &[String], text: &str) -> Result<
     let Some((name, table)) = type_of(members) else {
         return unsupported("Evaluate into a platform option this runtime does not read");
     };
-    if text.trim_matches([' ', '\t']) != text {
-        return unsupported(format!(
-            "Evaluate into {name} failing with the result unused, of a text with blanks or TABs around it (not pinned)"
-        ));
-    }
+    // The message names the text without the blanks and TABs around it (SoEvaluateSystemOptionsHidden.al:68
+    // ObjectType_StatementBlanksText, :96 _StatementBlanksNumber; the same for all 14 types).
+    let text = text.trim_matches([' ', '\t']);
     let names: Vec<&str> = live_members(c, name, table).iter().map(|m| m.0).collect();
     crate::native::raise(
         format!(
