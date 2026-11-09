@@ -194,6 +194,19 @@ pub fn run_traced(
     company: Option<&CompanyData>,
     perturb: &crate::stability::Perturb,
 ) -> Option<BaselineRun> {
+    run_traced_halting(engine, lowered, trace, company, perturb, None)
+}
+
+/// [`run_traced`] that stops its install code once `halt` is set: the run stopped at its hard memory limit (ADR-066
+/// amendment 10, decision 6).
+pub fn run_traced_halting(
+    engine: &Arc<Engine>,
+    lowered: &Lowered,
+    trace: bool,
+    company: Option<&CompanyData>,
+    perturb: &crate::stability::Perturb,
+    halt: Option<Arc<std::sync::atomic::AtomicBool>>,
+) -> Option<BaselineRun> {
     let objs = &lowered.program.objects;
     // (object, routine, keep what it wrote when it stops early, no company chosen)
     //
@@ -318,6 +331,8 @@ pub fn run_traced(
         None => host,
     };
     let mut session = Session::with_host(engine.clone(), host);
+    // A run that stops at its hard memory limit stops its install code too (ADR-066 amendment 10, decision 6).
+    let _halt = crate::runtime::memory::StopBridge::start(halt, session.stop_flag());
     session.set_install_scope(true);
     if trace {
         session.enable_impact_trace();
