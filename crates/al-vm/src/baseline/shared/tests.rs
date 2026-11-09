@@ -46,7 +46,7 @@ fn freeze_refuses_a_value_that_is_not_plain() {
             why.position,
             why.kind.as_str()
         ),
-        ("CRONUS", 311, false, 1, "List")
+        ("CRONUS", 311, false, 1, "List of 0 elements")
     );
 }
 
@@ -103,6 +103,6 @@ fn a_baseline_that_cannot_be_written_as_bytes_names_the_value() {
     let why = b.first_without_bytes().expect("the JsonObject has no form");
     assert_eq!(
         (why.position, why.kind.as_str()),
-        (2, "Library JsonObject holding Empty")
+        (2, "JsonObject")
     );
 }
