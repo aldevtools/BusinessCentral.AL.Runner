@@ -144,9 +144,34 @@ pub struct ChainReport {
     pub singles_kept: usize,
     /// Of `singles_kept`, those that read first a global an earlier member of their BC session wrote.
     pub singles_read_carried: usize,
+    /// ADR-066 amendment 12, decision 3 (default run only): the test codeunits whose tests can take numbers after an
+    /// earlier codeunit of their BC session that can take some too.
+    pub numbers_order: Vec<super::NumbersOrder>,
 }
 
 impl ChainReport {
+    /// ADR-066 amendment 12, decision 3: the numbers list, one line per codeunit. The run output prints it with or
+    /// without `--timings`.
+    pub fn numbers_lines(&self) -> Vec<String> {
+        self.numbers_order.iter().map(|n| n.line()).collect()
+    }
+
+    /// The order lines the run output prints with or without `--timings`: the skipped re-runs (ADR-066 amendment 7,
+    /// option 2) and the numbers list.
+    pub fn run_output_lines(&self) -> Vec<String> {
+        let mut out = self.single_lane.skipped_lines();
+        out.extend(self.numbers_lines());
+        out
+    }
+
+    /// The text for the tests of codeunit `codeunit` of run `suite` when it is on the numbers list.
+    pub fn numbers_text(&self, suite: usize, codeunit: u32) -> Option<String> {
+        self.numbers_order
+            .iter()
+            .find(|n| n.suite == suite && n.codeunit == codeunit)
+            .map(|n| n.text())
+    }
+
     /// A run ahead was dropped because its predicted start differed from the walk's state in `part`.
     pub fn missed_by(&mut self, part: &str) {
         *self.differed.entry(part.to_string()).or_default() += 1;
@@ -167,6 +192,7 @@ impl ChainReport {
             self.reruns.len(),
             total(&mut self.reruns.iter().map(|m| &m.took)),
         )];
+        out.extend(self.numbers_lines());
         if self.singles_kept > 0 {
             out.push(format!(
                 "carry chain: {} members ran with the SingleInstance state of the members before them (ADR-066 amendment 8); {} of them read first a global an earlier member wrote",

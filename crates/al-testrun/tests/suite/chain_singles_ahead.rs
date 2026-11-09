@@ -129,7 +129,13 @@ fn workers() -> usize {
 
 #[test]
 fn a_chain_whose_runs_ahead_read_single_instance_state_stops_running_ahead() {
-    let rt = run(&source(true), &RunOptions::default());
+    let rt = run(
+        &source(true),
+        &RunOptions {
+            strict_order: true,
+            ..Default::default()
+        },
+    );
     for r in rt.results() {
         assert_eq!(r.outcome, Outcome::Pass, "{}", r.test);
     }
@@ -175,6 +181,7 @@ fn numbers_only_members_run_ahead_although_they_read_single_instance_state() {
     let rt = run(
         &source(false),
         &RunOptions {
+            strict_order: true,
             chain_wait_for_runs_ahead: true,
             ..Default::default()
         },
@@ -236,7 +243,13 @@ codeunit 60301 "Numbers Reader"
     end;
 }
 "#;
-    let rt = run(src, &RunOptions::default());
+    let rt = run(
+        src,
+        &RunOptions {
+            strict_order: true,
+            ..Default::default()
+        },
+    );
     let result = |t: &str| {
         rt.results()
             .iter()

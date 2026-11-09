@@ -11,6 +11,7 @@ mod isolation;
 mod json_interface;
 mod memory;
 mod onrun_stability;
+mod order_default;
 mod package_target_resources;
 mod path_note;
 mod profile;

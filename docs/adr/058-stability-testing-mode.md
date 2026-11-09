@@ -435,6 +435,10 @@ Implementation choices inside sections 3 and 4; no seam changes.
    BC-order result, and the base result of a stability run would be the fresh one (ADR-066 amendment 4, "Risk: a
    false pass"). With it, both sides of the comparison are known for every suspect, and the base variant is BC's
    order. A normal run does not change.
+   Note (ADR-066 amendment 12, 2026-11-09): a normal run now gives every test codeunit fresh SingleInstance state by
+   default, so the default run equals this dimension's `fresh` side. A stability run runs every variant in BC's order
+   (as `--strict-order`), and with this dimension the base variant still replays every dependent codeunit
+   (`RunOptions::replay_every_dependent`, the meaning `--strict-order` had before amendment 12).
 4. **Each flip under this dimension carries a reason**: the test, the outcome and message in each variant, and for
    each global the codeunit read first with a carried value: the SingleInstance codeunit (id, name, and the app that
    holds it, with publisher, so a cache in a dependency app is named as such), the global's name, and the earlier test
@@ -608,4 +612,5 @@ Each can be accepted or rejected on its own.
   dependency app's SingleInstance codeunit is marked as such.
 - `crates/alrunner-cli/tests/cli/onrun_stability.rs`: the console section, the JSON `reason` and `readsCarried`, the
   JUnit property, exit 1 on such a flip.
-- A differential test: the base variant of a run with this dimension equals a normal `--strict-order` run.
+- A differential test: the base variant of a run with this dimension equals a run with `strict_order` and
+  `replay_every_dependent` (before ADR-066 amendment 12: a normal `--strict-order` run).

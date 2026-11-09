@@ -148,6 +148,11 @@ fn manifest(p: &str) -> Manifest {
 }
 
 fn run(src: &str, opts: &RunOptions) -> CorpusRuntime {
+    // ADR-066 amendment 12: these runs measure the carry chain and the lane, which run in BC's order only.
+    let opts = &RunOptions {
+        strict_order: true,
+        ..opts.clone()
+    };
     CorpusRuntime::try_run_suites_with(
         vec![app("main", &["base"], src), app("base", &[], BASE)],
         vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],

@@ -16,8 +16,10 @@ codeunit 50601 "Rows"
 "#;
 
 fn run(src: &str, required: bool) -> Vec<(u32, String, Outcome)> {
+    // ADR-066 amendment 12: these tests pin what BC's order carries (`--strict-order`).
     let opts = RunOptions {
         required_isolation: required,
+        strict_order: true,
         ..Default::default()
     };
     let rt = CorpusRuntime::run_suites_with(
@@ -58,7 +60,10 @@ fn assumptions_of(src: &str, test: &str) -> Vec<al_builtins::assumptions::Assump
         None,
         Default::default(),
         &[SuiteRun::everything()],
-        &RunOptions::default(),
+        &RunOptions {
+            strict_order: true,
+            ..Default::default()
+        },
     );
     let r = rt.results().iter().find(|r| r.test == test);
     r.unwrap_or_else(|| panic!("no {test}")).assumptions.clone()

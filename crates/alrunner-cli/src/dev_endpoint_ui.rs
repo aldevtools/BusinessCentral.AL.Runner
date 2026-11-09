@@ -96,6 +96,7 @@ mod tests {
             slept_ms: 0,
             entered: Vec::new(),
             dotnet: false,
+            order_hint: None,
         }
     }
 

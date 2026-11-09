@@ -563,6 +563,11 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
                     summary[key] = v.clone();
                 }
             }
+            // ADR-066 amendment 12, decision 2: the order hints of the failed tests. The `test` lines stream before the
+            // run's order analysis, so the hints come with the summary.
+            if let Some(h) = order_hints(doc) {
+                summary["orderHints"] = h;
+            }
             // One summary per entry, in the order of the entries, before the summary of the request (issue 5635). An
             // entry's warnings are also the request's, with the entry's id (issue 5704).
             if let Some(counts) = doc.get("entries").and_then(Value::as_array) {
@@ -857,6 +862,18 @@ fn execute(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, flag
 /// A `test` line of v2: the row of the JSON document, with `stackFrames` split out of the stack text. `codeunit`,
 /// `codeunitName` and `method` are on every line, as on the row: a method name may hold a dot, so `name` cannot be split
 /// back (issue 5798).
+/// The `orderHints` of a `runTests` summary (ADR-066 amendment 12, decision 2): `{"name", "orderHint"}` for each test row
+/// of the run's JSON document that has an `orderHint`; `None` when no test has one.
+fn order_hints(doc: &Value) -> Option<Value> {
+    let hints: Vec<Value> = doc["tests"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|t| t.get("orderHint").map(|h| json!({"name": t["name"], "orderHint": h})))
+        .collect();
+    (!hints.is_empty()).then(|| json!(hints))
+}
+
 fn test_line(row: &mut Map<String, Value>) -> Map<String, Value> {
     let mut line = Map::new();
     line.insert("type".into(), json!("test"));
@@ -1043,6 +1060,16 @@ mod tests {
                 .ignore_permission_mock
         );
         assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.ignore_permission_mock);
+        // ADR-066 amendment 12, decision 2: the summary lists the order hints of the test rows that have one.
+        let doc = json!({"tests": [
+            {"name": "Codeunit1.A", "status": "pass"},
+            {"name": "Codeunit2.B", "status": "fail", "orderHint": "this test read global Flag"}
+        ]});
+        assert_eq!(
+            order_hints(&doc),
+            Some(json!([{"name": "Codeunit2.B", "orderHint": "this test read global Flag"}]))
+        );
+        assert_eq!(order_hints(&json!({"tests": [{"name": "Codeunit1.A"}]})), None);
         // ADR-066 amendment 4: `strictOrder` is `--strict-order` for one request.
         assert!(
             run(json!({"sourcePaths": ["/a"], "strictOrder": true}))

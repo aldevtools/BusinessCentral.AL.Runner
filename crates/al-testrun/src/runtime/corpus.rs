@@ -292,7 +292,11 @@ impl CorpusRuntime {
                     ..p.clone()
                 },
                 single_fresh_check: check[i],
-                strict_order: opts.strict_order || check[i],
+                // ADR-066 amendment 12, "What changes in code": a stability run keeps its variants in BC's order (it
+                // implies `--strict-order`); with `isolation.singleInstance` the base variant replays every dependent
+                // codeunit (ADR-058 amendment 1, decision 3).
+                strict_order: true,
+                replay_every_dependent: opts.replay_every_dependent || check[i],
                 process_ends_after: false,
                 hooks: if i == 0 { opts.hooks.clone() } else { Default::default() },
                 ..opts.clone()
@@ -1429,6 +1433,7 @@ impl CorpusRuntime {
                             run_seed: opts.run_seed,
                             runner: None,
                             watch: false,
+                            takes_numbers: false,
                         });
                     }
                     continue;
@@ -1484,6 +1489,7 @@ impl CorpusRuntime {
                             run_seed: opts.run_seed,
                             runner: *runner,
                             watch: false,
+                            takes_numbers: false,
                         }),
                         Err(why) => {
                             if suite.runner.is_none()
@@ -1518,6 +1524,7 @@ impl CorpusRuntime {
                                     slept_ms: 0,
                                     entered: Vec::new(),
                                     dotnet: false,
+                                    order_hint: None,
                                 });
                             }
                         }
@@ -1555,6 +1562,7 @@ impl CorpusRuntime {
             // each starts from what the one before it in its suite left, and leaves everything for the later codeunits
             // (QuCommitIsolation.al:695-718 QU_D11_NextCodeunitSees; codeunits run in ascending id order, :18-20).
             use super::chain_walk::Link;
+            super::order_hint::numbers_unchained(&mut units, opts.strict_order);
             // Codeunits runner 130450 runs whose OnRun can write (`Unit::carry`) join the chain after them: the hub runs
             // its codeunits first (RqIsolationModes.al:12), and each carries what its OnRun left (leg 1).
             let mut chain: Vec<(usize, u8, u32, Link)> = (0..units.len())
@@ -1603,6 +1611,7 @@ impl CorpusRuntime {
                 si == u.si && place(si, id) < place(u.si, u.id) && (leg == 0 || !u.hub_leg)
             };
             chain_report.single_lane.watched = super::single_lane::assign_watches(&mut units, &place, opts);
+            super::order_hint::note_numbers_order(lowered, &units, &place, opts, &mut chain_report);
             let mut slots: Vec<Option<UnitResult>> = (0..units.len()).map(|_| None).collect();
             chain_report.units += units.len() + chain.iter().filter(|c| matches!(c.3, Link::Refused(..))).count();
             // Helper threads run the chain's codeunits ahead while the walk can still use their runs (`chain_walk.rs`).
@@ -1629,18 +1638,14 @@ impl CorpusRuntime {
             // ADR-066 amendment 8: the walk keeps the SingleInstance state along each BC session's members.
             // `--test-suites` orders a session by the file, not by the walk's id order: there the walk keeps fresh
             // state per member and the lane handles the members as before (amendment 8, decision 6).
-            let keep_singles = chain_report.single_lane.watched > 0 && opts.test_suites.is_none();
+            // ADR-066 amendment 12, decision 1: by default every test codeunit starts with fresh single instances; the walk
+            // keeps them only under `--strict-order`.
+            let keep_singles = opts.strict_order && chain_report.single_lane.watched > 0 && opts.test_suites.is_none();
             #[rustfmt::skip]
             let carried = super::chain_walk::ChainWalk { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, trace: opts.trace, limit, helpers, thread_baseline: &|| thread_baseline(ahead_snapshot), pool: memory.pool(), keep_singles, fresh_check: opts.single_fresh_check, wait_for_helpers: opts.chain_wait_for_runs_ahead }.walk(chain, &mut slots, &mut details, &mut chain_report);
             // The other codeunits run as before; one that comes after a Disabled codeunit notes whether it reads a table that
             // codeunit left rows in, and then runs again below, from what it left.
-            for u in units.iter_mut() {
-                if let Some((_, _, _, c)) = carried.iter().rev().find(|(si, id, leg, _)| sees(*si, *id, *leg, u)) {
-                    if u.leak.is_none() {
-                        u.leak = Some(Arc::new(c.tables.clone()));
-                    }
-                }
-            }
+            note_leaks(&mut units, &carried, &sees);
             let rest: Vec<usize> = (0..units.len()).filter(|k| slots[*k].is_none()).collect();
             let results: Vec<UnitResult> = if workers <= 1 || rest.len() < 2 {
                 run_serially(&engine, lowered, baseline.as_ref(), &units, &rest, &mut details, opts)
@@ -1715,7 +1720,7 @@ impl CorpusRuntime {
                 slots[k] = Some(r);
             }
             #[rustfmt::skip]
-            let lane = super::single_lane::Lane { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, carried: &carried, sees: &sees, place: &place, limit, strict: opts.strict_order, max_replay: opts.max_replay, suites: opts.test_suites.as_deref(), workers, install_copies: baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline, kept_chain: keep_singles, pool: memory.pool(), fresh_check: opts.single_fresh_check };
+            let lane = super::single_lane::Lane { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, carried: &carried, sees: &sees, place: &place, limit, bc_order: opts.strict_order, strict: opts.replay_every_dependent, max_replay: opts.max_replay, suites: opts.test_suites.as_deref(), workers, install_copies: baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline, kept_chain: keep_singles, pool: memory.pool(), fresh_check: opts.single_fresh_check };
             lane.run(&mut slots, &mut chain_report.single_lane);
             let results: Vec<UnitResult> = slots.into_iter().flatten().collect();
             for r in results {
@@ -1756,6 +1761,7 @@ impl CorpusRuntime {
                         slept_ms: 0,
                         entered: Vec::new(),
                         dotnet: false,
+                        order_hint: None,
                     })
                 };
                 match r.result {
@@ -1805,6 +1811,7 @@ impl CorpusRuntime {
                                 seen,
                                 touched,
                             );
+                            scratch.move_order_hint(&name, list.last_mut());
                             if let Some((_, ms)) = scratch.slept.iter().find(|(n, _)| *n == name) {
                                 if let Some(last) = list.last_mut() {
                                     last.slept_ms = *ms;
@@ -2093,6 +2100,32 @@ impl CorpusRuntime {
 }
 
 impl CorpusRuntime {
+    /// ADR-066 amendment 12 (owner, 2026-11-09): the cases of the test codeunits `listed` (run name, codeunit id) take
+    /// their outcome, time and assumptions from `from`, a `--strict-order` run of those codeunits alone. The corpus
+    /// harness does this for the order probes of `metrics/strict-order-files.txt`. What this run recorded for them is
+    /// dropped first, so a case `from` did not record has no outcome.
+    pub fn adopt_cases(&mut self, from: &CorpusRuntime, listed: &BTreeSet<(String, u32)>) {
+        let picked =
+            |suites: &[String], si: usize, cu: u32| suites.get(si).is_some_and(|s| listed.contains(&(s.clone(), cu)));
+        let suites = self.suites.clone();
+        self.outcomes.retain(|(si, cu, _), _| !picked(&suites, *si, *cu));
+        self.times.retain(|(si, cu, _), _| !picked(&suites, *si, *cu));
+        self.marks.retain(|(si, cu, _), _| !picked(&suites, *si, *cu));
+        let to = |si: usize| suites.iter().position(|s| Some(s) == from.suites.get(si));
+        for ((si, cu, name), o) in &from.outcomes {
+            if let (true, Some(mine)) = (picked(&from.suites, *si, *cu), to(*si)) {
+                let key = (mine, *cu, name.clone());
+                self.outcomes.insert(key.clone(), o.clone());
+                if let Some(t) = from.times.get(&(*si, *cu, name.clone())) {
+                    self.times.insert(key.clone(), *t);
+                }
+                if let Some(m) = from.marks.get(&(*si, *cu, name.clone())) {
+                    self.marks.insert(key, m.clone());
+                }
+            }
+        }
+    }
+
     /// The outcome of `case` in the first run (the main corpus app, or the only run).
     pub fn first_outcome(&self, case: &CaseId) -> Outcome {
         self.first_recorded(case)
@@ -2699,4 +2732,16 @@ fn grow_only(
     roots: al_sema::check::Roots,
 ) -> al_sema::lower::Grown {
     al_sema::lower::grow(ws, kept, apps, kinds, symbols, app_symbols, catalog, roots).map(|(ws, l)| (ws, l, None))
+}
+
+/// Each unit that comes after a carry-chain member (`sees`) notes the tables the last such member left rows in
+/// (`Unit::leak`): reading one makes it run again from what that member left.
+fn note_leaks(units: &mut [Unit], carried: &[super::chain_walk::Carry], sees: &dyn Fn(usize, u32, u8, &Unit) -> bool) {
+    for u in units.iter_mut() {
+        if let Some((_, _, _, c)) = carried.iter().rev().find(|(si, id, leg, _)| sees(*si, *id, *leg, u)) {
+            if u.leak.is_none() {
+                u.leak = Some(Arc::new(c.tables.clone()));
+            }
+        }
+    }
 }
