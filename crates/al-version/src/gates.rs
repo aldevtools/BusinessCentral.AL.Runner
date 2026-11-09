@@ -33,6 +33,18 @@ const LEGACY_STATISTICS_EVIDENCE: &[Evidence] = &[Evidence {
     lines: "9",
 }];
 
+/// Evidence of [`Gate::NoCodeunitAfterTestRunAfterFailedOnRunFrom29`]: the isolation-probe app, next to the main corpus app.
+const NO_CODEUNIT_AFTER_TEST_RUN_EVIDENCE: &[Evidence] = &[
+    Evidence {
+        file: "../al-language-isolation-probe/src/RpReader.Codeunit.al",
+        lines: "197",
+    },
+    Evidence {
+        file: "../al-language-isolation-probe/src/RpReaderB.Codeunit.al",
+        lines: "43",
+    },
+];
+
 /// Evidence of [`Gate::PermissionShapeProbesFrom28`]; a constant so `Gate::evidence` stays under its length cap.
 const PERMISSION_SHAPE_PROBES_EVIDENCE: &[Evidence] = &[
     Evidence {
@@ -340,6 +352,11 @@ pub enum Gate {
     /// do not compile there (pages/statistics-compatibility/TestStatisticsCompatibility.al:9, must-not-compile cases 2971
     /// and 2972, corpus PR 1152). An app difference the compile of Microsoft's source shows; not consumed.
     LegacyStatisticsActionGoneFrom29,
+    /// A test runner codeunit's OnAfterTestRun for the test codeunit itself (FunctionName '') is not called after the test
+    /// codeunit's OnRun failed on BC 29; BC 27.5 and 28.5 call it with IsSuccess false (corpus
+    /// tests/al-language-isolation-probe/src/RpReader.Codeunit.al:119-125 and :195-202, probe runners 61330 and 61331,
+    /// Windows nightly). Consumed by `al-testrun` runtime/al_runner.rs `Steps::around_codeunit`.
+    NoCodeunitAfterTestRunAfterFailedOnRunFrom29,
     /// A list action that deletes two or three worksheet lines of a filtered page and leaves Rec on a key no row has runs
     /// OnNewRecord and OnAfterGetCurrRecord once on BC 28, twice on BC 27 and from BC 29 (pages/lt-outside-worksheet-2/
     /// RtFilteredGoneRow.al:662 TD_LeavesKey_Line1WithUpdate_ThreeLines, guarded `#if BC28PLUS and not BC29PLUS`; two lines:
@@ -473,6 +490,7 @@ impl Gate {
         Gate::ExceptionTraceValueTaskFrameFrom29,
         Gate::DotNetRuntime10From29,
         Gate::LegacyStatisticsActionGoneFrom29,
+        Gate::NoCodeunitAfterTestRunAfterFailedOnRunFrom29,
     ];
 
     /// The first BC major with the new behaviour.
@@ -515,7 +533,8 @@ impl Gate {
             | Gate::EmptyActionViewOneRowAgainFrom29
             | Gate::ExceptionTraceValueTaskFrameFrom29
             | Gate::DotNetRuntime10From29
-            | Gate::LegacyStatisticsActionGoneFrom29 => 29,
+            | Gate::LegacyStatisticsActionGoneFrom29
+            | Gate::NoCodeunitAfterTestRunAfterFailedOnRunFrom29 => 29,
             Gate::ReportSaveAsDataItemIdentity
             | Gate::FeatureKeyListChangedFrom28
             | Gate::FromBase64InvalidTextRaises
@@ -789,6 +808,7 @@ impl Gate {
             }],
             Gate::ReportSaveAsInherentPermissionsFrom29 => REPORT_SAVE_AS_INHERENT_PERMISSIONS_EVIDENCE,
             Gate::LegacyStatisticsActionGoneFrom29 => LEGACY_STATISTICS_EVIDENCE,
+            Gate::NoCodeunitAfterTestRunAfterFailedOnRunFrom29 => NO_CODEUNIT_AFTER_TEST_RUN_EVIDENCE,
             Gate::ObsoleteRequiredPendingAttributeFrom29 => &[Evidence {
                 file: "reports/runtime/ACAttributes.al",
                 lines: "146",

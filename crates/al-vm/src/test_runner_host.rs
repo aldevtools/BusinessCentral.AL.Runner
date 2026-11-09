@@ -26,6 +26,12 @@ pub trait TestCodeunitHost {
         object: usize,
         runner: (usize, Rc<RefCell<Instance>>),
     ) -> Result<(), Signal>;
+
+    /// After [`TestCodeunitHost::run_test_codeunit`] returned `Ok`: what `Ok := Codeunit.Run(...)` returns for that run,
+    /// or why that is not known (the error is a refusal reason). The default knows nothing.
+    fn run_result(&self) -> Result<bool, String> {
+        Err("what Codeunit.Run of a test codeunit returns here is not known".into())
+    }
 }
 
 /// The host installed by [`Session::with_test_codeunit_host`] and the runner codeunits running under it.
@@ -68,7 +74,8 @@ impl Session {
     /// After a test runner's trigger wrote and committed (ADR-066): a MinimumActiveRowVersion that TestIsolation =
     /// Codeunit froze moves to the state after the trigger, as the trigger's writes are not the tests' (BC passes the
     /// corpus's MinimumActiveRowVersion cases, metadata/platform-tables/PlTRowVersionValue.al, through runner 130450,
-    /// whose triggers write rows before each test; assumption `test-runner-trigger-transactions`).
+    /// whose triggers write rows before each test; the trigger's commit before the method is pinned by
+    /// tests/al-language-isolation-probe/src/RpReader.Codeunit.al:94-98, ADR-066 P4).
     pub fn refreeze_min_active_row_version(&mut self) {
         if self.iso_min_row_version.is_some() {
             self.freeze_min_active_row_version();
@@ -101,12 +108,19 @@ impl Session {
     pub(crate) fn run_for_runner(&mut self, object: usize, guarded: bool) -> Option<Result<Value, Signal>> {
         let runner = self.runner_host.runners.last().cloned()?;
         let ptr = self.runner_host.host.take()?;
-        let result = if guarded {
-            // What the guarded form returns when a test fails is not probed (ADR-066 probe P5); 130454 uses the
-            // statement form (`TestRunnerMgt.Codeunit.al:48`).
+        // Every probe runner commits before its `Ok := Codeunit.Run(...)` (corpus
+        // tests/al-language-isolation-probe/src/RpRunnerLogic.Codeunit.al:28-30): the guarded form inside a write
+        // transaction is not probed.
+        let open = match guarded {
+            true => self.in_write_transaction(),
+            false => Ok(false),
+        };
+        let result = if let Err(e) = open {
+            Err(e)
+        } else if matches!(open, Ok(true)) {
             Err(Signal::Unsupported(
-                "Codeunit.Run of a test codeunit from a test runner, with its result used: what it returns when a test \
-                 fails is not probed (ADR-066 P5)"
+                "Codeunit.Run of a test codeunit from a test runner, with its result used, inside a write transaction: \
+                 not probed (ADR-066 P5 commits first)"
                     .into(),
             ))
         } else {
@@ -117,14 +131,23 @@ impl Session {
             let depth = std::mem::take(&mut self.depth);
             let world = std::mem::take(&mut self.tx.tx_world);
             let tries = std::mem::take(&mut self.tx.used_tries);
-            let guarded = std::mem::take(&mut self.tx.guarded_runs);
+            let guarded_runs = std::mem::take(&mut self.tx.guarded_runs);
             let base = std::mem::replace(&mut self.runner_host.base, self.frames.len());
             // SAFETY: see `with_test_codeunit_host`; the pointer is live while the host is installed.
-            let r = unsafe { (*ptr).run_test_codeunit(self, object, runner) }.map(|()| Value::Null);
+            let r = unsafe { (*ptr).run_test_codeunit(self, object, runner) };
+            // The statement form raises nothing whatever the tests did; the guarded form returns false when a method or
+            // the OnRun trigger failed (RpReader.Codeunit.al:111-125, ADR-066 P5 on BC 27.5, 28.5 and 29.0).
+            // SAFETY: as above.
+            let r = r.and_then(|()| match guarded {
+                false => Ok(Value::Null),
+                true => unsafe { (*ptr).run_result() }
+                    .map(Value::Boolean)
+                    .map_err(Signal::Unsupported),
+            });
             self.depth = depth;
             self.tx.tx_world = world;
             self.tx.used_tries = tries;
-            self.tx.guarded_runs = guarded;
+            self.tx.guarded_runs = guarded_runs;
             self.runner_host.base = base;
             r
         };

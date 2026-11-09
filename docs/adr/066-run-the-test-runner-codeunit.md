@@ -66,9 +66,22 @@ Corpus pin `92da8280`.
 | Runner frames 130450 and 130454 on the call stack; the Test Runner app among the caller modules; `RunTests` as the outermost scope in an error text | `BiTpDefault.al:29`, `al-language/collections/SsCallerModulesTestRunner.al:42`, `al-language/errors/CuCommitTests.al:563-564` |
 | The runner holds its own "Test Method Line" row in an open transaction while a test runs | `al-language/types/variant/OSmallBuiltins.al:88-90` (comment, from the CopyCompany error) |
 | A codeunit whose OnRun raises: no rows, run stays green | ADR-055 (issue 5859 measurement, not a corpus assertion yet; assumption `test-codeunit-onrun-rows`) |
+| The runner's triggers run once for the test codeunit itself with FunctionName `''` (before its OnRun and first method, after its last), also without OnRun; the `''` call after has IsSuccess false when a method failed (P3) | `al-language-isolation-probe/src/RpReader.Codeunit.al:55-69` (runners 61330, 61331; Windows nightly, BC 27.5, 28.5, 29.0) |
+| After a failed OnRun, BC 29.0 makes no `''` OnAfterTestRun call; 27.5 and 28.5 make one with IsSuccess false (P5; gate `NoCodeunitAfterTestRunAfterFailedOnRunFrom29`) | `RpReader.Codeunit.al:119-125, 195-202`, `RpReaderB.Codeunit.al:21-30, 41-48` |
+| OnBeforeTestRun answering false skips the method body, and OnAfterTestRun is not called for it (P1) | `RpReader.Codeunit.al:20-31` |
+| OnAfterTestRun: IsSuccess true for a pass and for an error caught by `asserterror`, false for a failure; GetLastErrorText holds the failure (P2) | `RpReader.Codeunit.al:33-53` |
+| A declared OnRun gets both triggers with FunctionName `OnRun` (P3) | `RpReader.Codeunit.al:55-62` |
+| Rows written by OnBeforeTestRun, OnAfterTestRun and a subscriber survive the isolation rollback under TestIsolation Codeunit and Function, with and without `Commit()`, also for a failing method; the method sees the row of OnBeforeTestRun; its own row is rolled back (P4) | `RpReader.Codeunit.al:71-107` |
+| In the runner, `Ok := Codeunit.Run(test codeunit)` returns false when a method fails and when OnRun fails (the last error is then the OnRun error); the statement form raises nothing (P5, P5b) | `RpReader.Codeunit.al:109-125`, `RpReaderB.Codeunit.al:21-30` |
+| TestPermissions passed to OnBeforeTestRun: Restrictive when neither the method nor the codeunit sets it; the codeunit property applies; a method attribute wins over it (P8, P8b) | `RpReader.Codeunit.al:174-191`, `RpReaderB.Codeunit.al:32-38` |
 
-**Not pinned (probes needed).** A runner's triggers cannot be reached from a test (the nesting error above), so each
-probe needs a top-level custom runner in the isolation-probe app, read from the Windows nightly (ADR-007).
+The rows from P1 to P8b replace the registered assumptions `test-runner-trigger-calls` and
+`test-runner-trigger-transactions` (removed from the registry). What `Ok := Codeunit.Run(test codeunit)` returns when
+every method passed is not measured: al-runner refuses that call.
+
+**Probes.** A runner's triggers cannot be reached from a test (the nesting error above), so each probe needs a
+top-level custom runner in the isolation-probe app, read from the Windows nightly (ADR-007). P1-P5 and P8 are pinned
+(table above, corpus PR 1221); P6 and P7 are outside that change (P7: amendment 2). The questions as filed:
 
 - **P1** OnBeforeTestRun answers false: is the body skipped, is OnAfterTestRun still called, with what IsSuccess.
 - **P2** OnAfterTestRun: IsSuccess for pass, fail, and a failure caught by `asserterror`; is GetLastErrorText set.

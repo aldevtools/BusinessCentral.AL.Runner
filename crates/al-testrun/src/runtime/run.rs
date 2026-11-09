@@ -1,4 +1,5 @@
 //! Running the test codeunits of one compiled program, each test on a session of its own.
+use super::al_runner::run_unit;
 use super::written::{
     self, ReachFacts, ReachIndex, reach_facts, remainder_reach_facts, settled_flags, unfinished_reach_facts,
 };
@@ -430,13 +431,10 @@ fn run_codeunit_inner(
     // the test codeunit (ADR-066 decision 1, `al_runner.rs`). An error is a result that skips what follows below.
     let refused_mid_run = std::cell::Cell::new(false);
     let unfinished_after_start = std::cell::Cell::new(false);
-    let mut body = |session: &mut Session,
-                    al: Option<super::al_runner::RunnerRef>|
+    let mut inner = |session: &mut Session,
+                     runner: &super::al_runner::Steps|
      -> Result<super::al_runner::Outcomes, super::al_runner::Outcomes> {
         let instance = session.codeunit_instance(object);
-        // What BC's AL test runner does around each test method: al-runner's own steps (runner_reset.rs), or the triggers of
-        // the test runner codeunit whose OnRun runs this codeunit (al_runner.rs). A scratch run has no runner.
-        let runner = super::al_runner::Steps::new(engine, execute, al, session);
         // The ITestHandler callbacks (BC 29): OnBeforeTestCodeunitRun comes before OnRun (BiTestHandlerDefault.al:15, :329).
         let th = super::test_handlers::Handlers::begin(session, lowered, object, execute)
             .map_err(|w| all(Outcome::NotRun(w)))?;
@@ -469,26 +467,11 @@ fn run_codeunit_inner(
                 return Err(on_run_refused(why));
             }
             let ran = session.call(object, on_run, instance.clone(), Vec::new());
-            if let Err(why) = runner.after_on_run(session, obj, ran.is_ok()) {
+            if let Err(why) = runner.after_on_run(session, obj, ran.is_ok(), on_run_error(&ran)) {
                 return Err(on_run_refused(why));
             }
             let timed_out = watchdog.is_some_and(Watchdog::finish);
-            let slept_out = session.sleep_budget_passed();
-            let slept_ms = session.slept_in_test_ms();
-            session.end_sleep_budget();
-            // The reasons start as a test method's do, so the outputs give the same timeout row (`Test exceeded <N>s
-            // timeout.`); the rest names the trigger.
-            let ran = match ran {
-                Err(Signal::Unsupported(_)) if slept_out => Err(Signal::Unsupported(format!(
-                    "the test used more than the time limit of {} s and was stopped (--test-timeout-secs) in the test codeunit's OnRun trigger, before its tests: its Sleep calls asked to wait {slept_ms} ms in total (Sleep does not wait here; the time it asks for counts toward the limit)",
-                    limit.map_or(0, |l| l.as_secs())
-                ))),
-                Err(Signal::Unsupported(_)) if timed_out => Err(Signal::Unsupported(format!(
-                    "the test used more than the time limit of {} s of CPU time and was stopped (--test-timeout-secs) in the test codeunit's OnRun trigger, before its tests; BC may have ended it differently or not at all",
-                    limit.map_or(0, |l| l.as_secs())
-                ))),
-                r => r,
-            };
+            let ran = on_run_time_limit(session, ran, limit, timed_out);
             if session.store_mut().watch_hit().is_some() {
                 scratch.leak_hit = true;
             }
@@ -722,7 +705,8 @@ fn run_codeunit_inner(
                         // The session language and WorkDate a refusal while the test runs puts back.
                         let carried = session.carried_state();
                         // A runner codeunit's OnBeforeTestRun that answers false skips the method: no body, no row
-                        // (assumption `test-runner-trigger-calls`; ADR-059's Skipped outcome is not built yet).
+                        // (corpus tests/al-language-isolation-probe/src/RpReader.Codeunit.al:20-24 P1; ADR-059's Skipped
+                        // outcome is not built yet).
                         let mut reset = runner.before_or_skip(session, obj, routine, &mut skipped);
                         // `random.librarySeed` of a stability run (ADR-058, owner decision 2) or `--seed-library`
                         // (ADR-061): after codeunit 130301, the runner calls Microsoft's own `LibraryRandom.SetSeed(n)` with
@@ -966,8 +950,8 @@ fn run_codeunit_inner(
                         };
                         // The runner's step after the method. It only changes what later tests of the codeunit start
                         // from; if it cannot run, their failures are not trusted.
-                        // A skipped method gets no OnAfterTestRun (assumption `test-runner-trigger-calls`).
-                        if let Err(why) = runner.after(session, obj, routine, outcome == Outcome::Pass, skipped) {
+                        // A skipped method gets no OnAfterTestRun (RpReader.Codeunit.al:20-24 P1).
+                        if let Err(why) = runner.after(session, obj, routine, (&outcome, failure.as_ref()), skipped) {
                             session.rollback_transaction();
                             runner_refused.get_or_insert(why);
                         }
@@ -1249,11 +1233,19 @@ fn run_codeunit_inner(
         th.end_codeunit(session, lowered, &mut out);
         Ok(out)
     };
-    let ran = match al_runner_object {
-        None => body(&mut session, None),
-        Some(runner) => super::al_runner::drive(&mut session, runner, object, &tests, &mut |s, al| body(s, Some(al)))
-            .unwrap_or_else(|why| Err(all(Outcome::NotRun(why)))),
-    };
+    // What BC's AL test runner does around the codeunit and each test method: al-runner's own steps (runner_reset.rs), or
+    // the triggers of the test runner codeunit whose OnRun runs this codeunit (al_runner.rs). A scratch run has no runner.
+    let refuse = |why| all(Outcome::NotRun(why));
+    let ran = run_unit(
+        &mut session,
+        engine,
+        execute,
+        object,
+        al_runner_object,
+        &tests,
+        &refuse,
+        &mut inner,
+    );
     scratch.singles_out = ended(&mut session, lowered, object, times, execute, refused_mid_run.get());
     scratch.unfinished_after_start = unfinished_after_start.get();
     let out = match ran {
@@ -1681,5 +1673,38 @@ fn ended_of(outcome: &Outcome, began: bool) -> Option<Ended> {
         Outcome::NotRun(_) => Some(Ended::RefusedMidRun),
         Outcome::Fail(_) => Some(Ended::Failed),
         _ => None,
+    }
+}
+
+/// The AL error a call ended with, if any.
+fn on_run_error<T>(ran: &Result<T, Signal>) -> Option<&AlError> {
+    match ran {
+        Err(Signal::Error(e)) => Some(e),
+        _ => None,
+    }
+}
+
+/// The OnRun trigger's result `ran`, with a stop by the time `limit` (`timed_out`: the CPU watchdog fired) named. The
+/// reasons start as a test method's do, so the outputs give the same timeout row (`Test exceeded <N>s timeout.`); the rest
+/// names the trigger. Ends the trigger's Sleep budget.
+fn on_run_time_limit<T>(
+    session: &mut Session,
+    ran: Result<T, Signal>,
+    limit: Option<std::time::Duration>,
+    timed_out: bool,
+) -> Result<T, Signal> {
+    let slept_out = session.sleep_budget_passed();
+    let slept_ms = session.slept_in_test_ms();
+    session.end_sleep_budget();
+    match ran {
+        Err(Signal::Unsupported(_)) if slept_out => Err(Signal::Unsupported(format!(
+            "the test used more than the time limit of {} s and was stopped (--test-timeout-secs) in the test codeunit's OnRun trigger, before its tests: its Sleep calls asked to wait {slept_ms} ms in total (Sleep does not wait here; the time it asks for counts toward the limit)",
+            limit.map_or(0, |l| l.as_secs())
+        ))),
+        Err(Signal::Unsupported(_)) if timed_out => Err(Signal::Unsupported(format!(
+            "the test used more than the time limit of {} s of CPU time and was stopped (--test-timeout-secs) in the test codeunit's OnRun trigger, before its tests; BC may have ended it differently or not at all",
+            limit.map_or(0, |l| l.as_secs())
+        ))),
+        r => r,
     }
 }
