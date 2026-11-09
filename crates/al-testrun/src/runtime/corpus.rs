@@ -1287,8 +1287,15 @@ impl CorpusRuntime {
                 }
             }
         }
-        // ADR-069 decision 10: the test data rows the threads build once count once, in the fixed part of the budget.
-        memory.pool().share(Arc::new(engine.shared_test_rows_meter()));
+        // ADR-069 decision 10: the test data rows the threads build once count once, in the fixed part of the budget. The
+        // first thread reads them through the test engine, the others through the engine that ran the install code.
+        let (tests, others) = (
+            engine.shared_test_rows_meter(),
+            baseline_engine.as_ref().map(|e| e.shared_test_rows_meter()),
+        );
+        memory
+            .pool()
+            .share(Arc::new(move || tests() + others.as_ref().map_or(0, |m| m())));
         let baseline_time = started.elapsed();
         let baseline_rows = baseline_run.as_ref().map(|b| b.baseline.rows());
         let mut baseline_run = baseline_run;
