@@ -1159,10 +1159,11 @@ impl Session {
                     None => unsupported(format!("RecordRef.{method} on a table without {field}")),
                 }
             }
-            // A RecordRef write inside a TryFunction whose result is used is not pinned (only Record.Insert is,
-            // errors/CuTryTests.al:83-150).
+            // A RecordRef write inside a TryFunction whose result is used is not pinned in the default mode (only
+            // Record.Insert is, errors/CuTryTests.al:83-150). With DisableWriteInsideTryFunctions off it runs as a Record write
+            // does, through `record_op` (trywrite-allowed/TryWriteAllowed.al:150-244, the RecRef* tests; al-runner issue 7347).
             "Insert" | "Modify" | "Delete" | "DeleteAll" | "Rename"
-                if !self.tx.used_tries.is_empty() && !rec.borrow().temporary =>
+                if !self.tx.used_tries.is_empty() && !rec.borrow().temporary && !self.engine.write_in_try_allowed =>
             {
                 unsupported(format!(
                     "RecordRef.{method} inside a TryFunction whose result is used (not pinned)"

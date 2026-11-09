@@ -448,7 +448,7 @@ impl Session {
         let Some(t) = self.tx.used_tries.last() else {
             return Ok(());
         };
-        if let Some(r) = self.allowed_try_write(function) {
+        if let Some(r) = self.allowed_try_write() {
             return r;
         }
         // Install code has no test runner around it: a Commit in a TryFunction there commits and the code goes on
@@ -540,19 +540,15 @@ impl Session {
     /// and Commit change the rows, the TryFunction returns true, and an error after the write makes it return false without
     /// undoing the write (corpus tests/al-language-trywrite-allowed/TryWriteAllowed.al:44-144, measured on 27.5, 28.5 and 29.0
     /// in the corpus CI job "BC TryWrites"). The table's triggers run as for any write (the table there, LT CU Row, has OnInsert
-    /// and OnModify: errors/CuFixtures.al:20-30). `None` in the default mode. Still refused: a write inside a `Codeunit.Run` the
-    /// try started (`used_try_nested_world`) and a write other than Commit in install code, which no probe covers.
-    fn allowed_try_write(&self, function: &str) -> Option<Result<(), Signal>> {
+    /// and OnModify: errors/CuFixtures.al:20-30). The same holds in install code: OnInstallAppPerDatabase writing DataPerCompany =
+    /// false tables, also after NavApp.GetResource and Media.ImportStream (trywrite-allowed/TryWriteInstall.al:52-372, al-runner issue
+    /// 7348). `None` in the default mode. Still refused: a write inside a `Codeunit.Run` the try started (`used_try_nested_world`).
+    fn allowed_try_write(&self) -> Option<Result<(), Signal>> {
         if !self.engine.write_in_try_allowed {
             return None;
         }
         if let Err(e) = self.used_try_nested_world() {
             return Some(Err(e));
-        }
-        if self.install_without_client && function != "COMMIT" {
-            return Some(Err(Signal::Unsupported(format!(
-                "{function} inside a TryFunction whose result is used, in install code, with --allow-write-in-try-functions (not pinned)"
-            ))));
         }
         Some(Ok(()))
     }
@@ -622,7 +618,7 @@ impl Session {
         if self.tx.used_tries.is_empty() || method == RecordOp::Truncate {
             return Ok(());
         }
-        if let Some(r) = self.allowed_try_write(&method.name().to_uppercase()) {
+        if let Some(r) = self.allowed_try_write() {
             return r;
         }
         if self.tx.xp_export_try_world == Some(self.tx.tx_world) && method != RecordOp::Modify {
