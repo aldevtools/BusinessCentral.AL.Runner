@@ -29,7 +29,7 @@ mod ctx;
 mod debug;
 mod exec;
 mod interp;
-pub use baseline::{Baseline, Delta, DeltaPart, Fingerprint, RowDelta, SequenceSteps};
+pub use baseline::{Baseline, Delta, DeltaPart, Fingerprint, RowDelta, SequenceSteps, SharedBaseline};
 pub use capture::{CaptureConfig, Captured, ClosedBy, LoopRecord, MAX_RECORDS, MessageRecord, Rendered, ValueRecord};
 pub(crate) use ctx::base_slot_missing;
 pub use debug::{DebugFrame, DebugHook, DebugView, Resume};
@@ -125,6 +125,7 @@ mod stale_own_modify;
 mod tasks;
 mod tenant_layout_cfg;
 mod tenant_layouts;
+mod test_rows;
 mod test_runner_host;
 mod testdata;
 mod transactions;
@@ -229,6 +230,11 @@ pub struct Engine {
     /// The seed rows that depend on the program only (`platform::seed::program_seed_rows`), per object index, found on the
     /// first session.
     pub(crate) seed_rows: std::sync::OnceLock<Option<platform::seed::SeedRows>>,
+    /// The rows of the test data, built once for every thread of this engine (ADR-069 decision 4, `test_rows.rs`).
+    pub(crate) test_rows: Arc<test_rows::TestRows>,
+    /// ADR-069 decision 11 (`AL_PRIVATE_BASELINE=1`): each thread builds its own rows of the test data, as before
+    /// `test_rows`. The reference side of the differential check; only time and memory depend on it.
+    pub private_test_rows: bool,
     pub(crate) delete_subscribed: std::sync::OnceLock<std::collections::HashSet<String>>,
     /// What a run of a routine on a transient instance can leave behind (`effects.rs`), per (object, routine).
     pub(crate) lasting_effects: std::sync::Mutex<std::collections::HashMap<(usize, usize), Option<effects::Effect>>>,
@@ -489,6 +495,8 @@ impl Engine {
             profile_seeds: Default::default(),
             seed_tables: Default::default(),
             seed_rows: Default::default(),
+            test_rows: Default::default(),
+            private_test_rows: false,
             facts,
             exec: Arc::new(exec),
             positions_by_object: Default::default(),
@@ -537,6 +545,8 @@ impl Engine {
             profile_seeds: Default::default(),
             seed_tables: self.seed_tables.clone(),
             seed_rows: Default::default(),
+            test_rows: Default::default(),
+            private_test_rows: false,
             facts: self.facts.clone(),
             exec: self.exec.clone(),
             positions_by_object: Default::default(),
@@ -608,6 +618,8 @@ impl Engine {
             profile_seeds: _,
             seed_tables: _,
             seed_rows: _,
+            test_rows,
+            private_test_rows: _,
             delete_subscribed: _,
             lasting_effects: _,
             positions_by_object: _,
@@ -620,6 +632,7 @@ impl Engine {
             uid: _,
         } = self;
         unseeded.clear();
+        test_rows.clear();
         demo_tables.clear();
         *company_refusal = None;
         skipped_apps.clear();

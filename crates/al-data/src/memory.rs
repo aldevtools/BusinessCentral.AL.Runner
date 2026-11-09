@@ -5,9 +5,11 @@ use crate::*;
 use al_builtins::filter::{FieldFilter, key_cmp};
 use std::cmp::Ordering;
 
+mod frozen;
 mod order_carry;
 mod replace;
 mod row_changes;
+pub use frozen::{FrozenRows, FrozenStore, shareable};
 pub use row_changes::{RowChanges, TableRows};
 
 /// A primary-key tuple ordered field by field.

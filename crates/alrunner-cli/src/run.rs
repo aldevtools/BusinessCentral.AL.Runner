@@ -1602,6 +1602,7 @@ fn test_inner(
         memory: crate::memory_budget::budget(a.max_memory, warm.is_none() && debug.is_none()), // `--max-memory`
         perturb: Default::default(),
         chain_wait_for_runs_ahead: false, // for tests of the carry chain only
+        private_baseline: std::env::var_os("AL_PRIVATE_BASELINE").is_some(), // ADR-069 decision 11
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
         run_only: (selection.active() && !a.execute)
             .then(|| {
