@@ -128,6 +128,10 @@ fn outcomes(main: &str) -> Vec<(String, Outcome)> {
 }
 
 fn outcomes_over(main: &str, dep: &str) -> Vec<(String, Outcome)> {
+    outcomes_with(main, dep, &RunOptions::default())
+}
+
+fn outcomes_with(main: &str, dep: &str, opts: &RunOptions) -> Vec<(String, Outcome)> {
     let rt = CorpusRuntime::try_run_suites_with(
         vec![app("main", &["dep"], main), app("dep", &[], dep)],
         vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
@@ -136,7 +140,7 @@ fn outcomes_over(main: &str, dep: &str) -> Vec<(String, Outcome)> {
         None,
         Default::default(),
         &[SuiteRun::everything()],
-        &RunOptions::default(),
+        opts,
     )
     .expect("the run starts");
     let mut o: Vec<_> = rt
@@ -194,7 +198,13 @@ fn a_refused_codeunit_whose_tests_take_numbers_holds_back_a_reader_of_number_seq
 ;
     assert!(main.contains("Next('SHARED51100') < 0") && main.contains("<> 0 then Error('a number was taken')"));
     let dep = format!("{DEP}{}", INSTALLS);
-    let o = outcomes_over(&main, &dep);
+    // ADR-066 amendment 12: by default every test codeunit starts from the baseline's sequence values and nothing is held
+    // back for numbers an earlier codeunit took; `--strict-order` keeps BC's order and the hold-back.
+    let strict = RunOptions {
+        strict_order: true,
+        ..RunOptions::default()
+    };
+    let o = outcomes_with(&main, &dep, &strict);
     assert!(
         matches!(outcome(&o, "SeesNoRow"), Outcome::NotRun(m) if m.contains("Sees The Login")),
         "{o:?}"
