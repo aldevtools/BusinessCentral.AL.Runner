@@ -340,6 +340,12 @@ impl Engine {
         move || rows.bytes()
     }
 
+    /// Whether this engine and `other` read one cache of test data rows (an engine and its [`Engine::sibling`]): the
+    /// memory budget then counts the rows once (ADR-069 decision 10).
+    pub fn shares_test_rows_with(&self, other: &Engine) -> bool {
+        Arc::ptr_eq(&self.test_rows, &other.test_rows)
+    }
+
     pub fn new(program: impl Into<Arc<ir::Program>>, blocked: Vec<Vec<Option<String>>>) -> Arc<Engine> {
         Engine::with_config(program, blocked, None, dotnet::DotNetConfig::default())
     }
@@ -519,7 +525,8 @@ impl Engine {
     /// works out from the program (table definitions, event registry, per-object and per-routine facts, bytecode), so
     /// it is not worked out again: a run's install baseline and its tests each have an engine. Everything a run sets is
     /// as `with_config` leaves it, and the engine has its own `uid`. The event registry is shared as it is, with what
-    /// the runner set in it (`unavailable_global`), which reads only the compile.
+    /// the runner set in it (`unavailable_global`), which reads only the compile. The cache of test data rows is shared
+    /// too (`test_rows.rs`).
     pub fn sibling(&self) -> Arc<Engine> {
         Arc::new(Engine {
             program: self.program.clone(),
@@ -553,7 +560,9 @@ impl Engine {
             profile_seeds: Default::default(),
             seed_tables: self.seed_tables.clone(),
             seed_rows: Default::default(),
-            test_rows: Default::default(),
+            // The rows are a function of the test data and the program, which the sibling shares: one cache for the
+            // run's install engine and tests engine, so each table is built once per process (ADR-069 decision 4).
+            test_rows: self.test_rows.clone(),
             private_test_rows: false,
             facts: self.facts.clone(),
             exec: self.exec.clone(),

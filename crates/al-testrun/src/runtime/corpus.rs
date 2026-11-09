@@ -1287,15 +1287,9 @@ impl CorpusRuntime {
                 }
             }
         }
-        // ADR-069 decision 10: the test data rows the threads build once count once, in the fixed part of the budget. The
-        // first thread reads them through the test engine, the others through the engine that ran the install code.
-        let (tests, others) = (
-            engine.shared_test_rows_meter(),
-            baseline_engine.as_ref().map(|e| e.shared_test_rows_meter()),
-        );
         memory
             .pool()
-            .share(Arc::new(move || tests() + others.as_ref().map_or(0, |m| m())));
+            .share(shared_test_rows_meter(&engine, baseline_engine.as_ref()));
         let baseline_time = started.elapsed();
         let baseline_rows = baseline_run.as_ref().map(|b| b.baseline.rows());
         let mut baseline_run = baseline_run;
@@ -2171,6 +2165,17 @@ fn kept_engine_key(
 /// The engines a warm server kept for runs with `key` (al-runner issue 5856), set for this run as a new engine is:
 /// its .NET host, test data and skipped apps, and nothing of what the last run set (the unseeded and demo tables, the
 /// company refusal, the resources it gave or read). An engine something still holds is not taken.
+/// ADR-069 decision 10: the test data rows the threads build once count once, in the fixed part of the budget. The first
+/// thread reads them through the tests' engine, the others through the engine that ran the install code; a sibling
+/// engine shares the tests engine's cache (decision 4), which is then counted once.
+fn shared_test_rows_meter(engine: &Arc<Engine>, install: Option<&Arc<Engine>>) -> Arc<dyn Fn() -> u64 + Send + Sync> {
+    let tests = engine.shared_test_rows_meter();
+    let others = install
+        .filter(|e| !e.shares_test_rows_with(engine))
+        .map(|e| e.shared_test_rows_meter());
+    Arc::new(move || tests() + others.as_ref().map_or(0, |m| m()))
+}
+
 fn take_kept_engines(
     kept: &std::sync::Mutex<Option<KeptEngines>>,
     key: &str,
