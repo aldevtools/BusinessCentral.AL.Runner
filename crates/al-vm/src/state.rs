@@ -315,6 +315,8 @@ pub(crate) struct EventState {
     /// subscribers of `order_unknown_apps` that leave every flag unchanged for it (setup_no_op.rs), or do nothing for it
     /// (db_event_no_op.rs), which the raise leaves out instead of refusing.
     pub(crate) setup_no_ops: std::collections::BTreeSet<(usize, usize)>,
+    /// The trial runs of subscribers whose install order is not known (order_trial.rs).
+    pub(crate) trial: crate::order_trial::TrialState,
     /// What the subscribers of `Global Triggers` answered, per table object (globaltriggers.rs).
     pub(crate) global_setups: std::collections::HashMap<usize, globaltriggers::GlobalSetup>,
 }

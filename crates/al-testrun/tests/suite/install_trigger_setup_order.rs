@@ -70,6 +70,7 @@ codeunit 50200 "OB Subscriber"
 
     procedure Note()
     begin
+        IsolatedStorage.Set('note', 'x');
     end;
 }}
 "#
@@ -141,14 +142,15 @@ fn a_subscriber_that_sets_a_flag_for_the_table_still_stops_the_install() {
     assert!(why.contains("install order"), "{why}");
 }
 
-/// Writing the value a flag already has for every input changes nothing, but a flag written from another one does.
+/// A flag written from another one: the static rule cannot show it changes nothing, but the trial run (al-vm
+/// order_trial.rs, al-runner issue 6972) sees both flags arrive as false and leave as false, so the outcome is the same
+/// in both orders.
 #[test]
-fn a_subscriber_that_copies_one_flag_into_another_still_stops_the_install() {
-    let why = refused("OnDatabaseModify := OnDatabaseInsert;");
-    assert!(why.contains("install order"), "{why}");
+fn a_subscriber_that_copies_one_flag_into_another_leaves_the_flags_as_they_were() {
+    assert_eq!(outcome("OnDatabaseModify := OnDatabaseInsert;"), Outcome::Pass);
 }
 
-/// A subscriber that does more than set its flags (here a call) is not known to change nothing.
+/// A subscriber that does more than set its flags (here a call that writes isolated storage) changes what lasts.
 #[test]
 fn a_subscriber_that_calls_code_still_stops_the_install() {
     let why = refused(&format!("Note();\n{ONLY_OWN_TABLE}"));

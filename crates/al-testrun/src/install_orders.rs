@@ -23,6 +23,12 @@ pub(crate) const MAX_INTERACTING: usize = 3;
 /// The start of the baseline note that says which partner apps were installed in several orders (`--timings`).
 pub const INSTALL_ORDERS_NOTE: &str = "install order: ";
 
+/// The start of a baseline note that names one difference between two install orders by table, key and field.
+pub const INSTALL_ORDER_DIFFERENCE_NOTE: &str = "install order difference: ";
+
+/// How many differences the reason of a refusal names; the baseline notes list every one.
+const SHOWN_DIFFERENCES: usize = 3;
+
 /// Whether app `app` (index in `Program::apps`) counts as Microsoft's: its manifest's publisher is `Microsoft`, or no
 /// manifest gave a publisher (then the app keeps the rules of amendment 6: no partner rule without the fact).
 fn is_microsoft(lowered: &Lowered, app: u32) -> bool {
@@ -182,19 +188,37 @@ pub(crate) fn install_partner_apps<I: AppInstalls>(
         let mut ends = Vec::new();
         for order in orders(g, &met) {
             rewind(session, inst);
+            // The clock readings around this order: a value inside them was read from the clock (al-runner issue 6644 b).
+            let from = session.clock_now_millis();
             g.run(session, inst, &g.sequence(&order), &order);
             let new = g.hits(session);
             if !new.is_subset(&met) {
                 met.extend(new);
                 continue 'grow;
             }
-            ends.push(session.capture_baseline());
+            ends.push((session.capture_baseline(), (from, session.clock_now_millis())));
         }
-        let mut differ = BTreeSet::new();
-        for e in ends.iter().skip(1) {
-            match e.install_order_differences(&ends[0], &start, &session.engine) {
-                Some(d) => differ.extend(d),
+        let mut lines: std::collections::BTreeMap<u32, Vec<String>> = std::collections::BTreeMap::new();
+        for (e, clock) in ends.iter().skip(1) {
+            match e.install_order_differences(&ends[0].0, &start, &session.engine, (*clock, ends[0].1)) {
+                Some(d) => {
+                    for (t, l) in d {
+                        lines.entry(t).or_default().extend(l);
+                    }
+                }
                 None => break 'grow,
+            }
+        }
+        let differ: BTreeSet<u32> = lines.keys().copied().collect();
+        let table_name = |t: u32| lowered.program.objects.get(t as usize).map_or("?", |o| o.name.as_str());
+        // Every difference by table, key and field (`--verbose` prints the baseline notes; al-runner issue 6644 b).
+        let mut detail = Vec::new();
+        for (t, ls) in &lines {
+            let mut ls = ls.clone();
+            ls.sort();
+            ls.dedup();
+            for l in ls {
+                detail.push(format!("{}, {l}", table_name(*t)));
             }
         }
         let who = names(lowered, &met);
@@ -208,17 +232,23 @@ pub(crate) fn install_partner_apps<I: AppInstalls>(
                 format!("the orders left different rows in {} table(s)", differ.len())
             }
         ));
+        for l in &detail {
+            inst.note(format!("{INSTALL_ORDER_DIFFERENCE_NOTE}{l}"));
+        }
         if !differ.is_empty() {
-            let tables = differ
-                .iter()
-                .map(|&t| lowered.program.objects.get(t as usize).map_or("?", |o| o.name.as_str()))
-                .collect::<Vec<_>>()
-                .join(", ");
+            let tables = differ.iter().map(|&t| table_name(t)).collect::<Vec<_>>().join(", ");
+            let first: Vec<&str> = detail.iter().take(SHOWN_DIFFERENCES).map(String::as_str).collect();
             inst.refuse(
                 differ,
                 format!(
                     "the install order of apps {who} is not known (no dependency path between them), and installing them \
-                     in each order leaves different rows in {tables} (ADR-046 amendment 7)"
+                     in each order leaves different rows in {tables} (ADR-046 amendment 7; {}{})",
+                    first.join("; "),
+                    if detail.len() > SHOWN_DIFFERENCES {
+                        format!("; {} more, --verbose lists them", detail.len() - SHOWN_DIFFERENCES)
+                    } else {
+                        String::new()
+                    }
                 ),
             );
         }

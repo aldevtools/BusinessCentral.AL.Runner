@@ -265,7 +265,12 @@ impl Session {
         // Manual instances that unbound themselves while one of their own subscriber methods ran in this raise.
         let mut self_unbound: Vec<Inst> = Vec::new();
         refresh(args);
-        let targets = self.event_targets(object, event, element)?;
+        self.events.trial.allowed = true;
+        self.events.trial.picked.clear();
+        let targets = self.event_targets(object, event, element);
+        self.events.trial.allowed = false;
+        let trials = std::mem::take(&mut self.events.trial.picked);
+        let targets = targets?;
         for (s, inst) in targets {
             // A manual instance unbound since the raise began. One that unbound itself in an earlier method of this raise
             // is not called again (events/ProbeEventSubscriberOrder.al:253
@@ -298,7 +303,7 @@ impl Session {
                     ));
                 }
             }
-            let call_args = map
+            let call_args: Vec<Value> = map
                 .iter()
                 .map(|m| match m {
                     Some(j) => args[*j].clone(),
@@ -349,8 +354,38 @@ impl Session {
                 _ => None,
             });
             self.events.subscriber_stack.push(recursion_text);
+            let trial = trials.contains(&(s.object, s.routine));
+            let snapshot: Vec<Value> = if trial { call_args.clone() } else { Vec::new() };
+            let watch = trial.then(|| self.trial_start());
             let called = self.call(s.object, s.routine, inst, call_args);
             self.events.subscriber_stack.pop();
+            if let Some(w) = watch {
+                let is_sender: Vec<bool> = map.iter().map(Option::is_none).collect();
+                let after = called.as_ref().ok().map(|(_, f)| f.as_slice());
+                match self.trial_end(w, s.object, &snapshot, after, &r.by_var, &is_sender, object) {
+                    Ok(crate::order_trial::Verdict::NoEffect) => {}
+                    Ok(crate::order_trial::Verdict::HandedToSender) => {
+                        self.events.trial.guarded.insert(engine.program.objects[s.object].app);
+                    }
+                    Err(_why) => {
+                        self.events.next_is_subscriber = false;
+                        self.events.next_aliases.clear();
+                        self.events.next_var_lens.clear();
+                        let app = engine.program.objects[s.object].app;
+                        self.note_order_unknown_hit(app);
+                        return unsupported(format!(
+                            "event {event}: a subscriber in app {} would run while an app installs that it has no dependency \
+                             path to; the install order of the two is not known",
+                            engine
+                                .program
+                                .apps
+                                .get(app as usize)
+                                .map(|a| a.name.as_str())
+                                .unwrap_or("?")
+                        ));
+                    }
+                }
+            }
             self.events.next_is_subscriber = false;
             if let Some(i) = manual_inst {
                 if !self.is_bound(&i) {
@@ -478,6 +513,13 @@ impl Session {
                 // A subscriber with no effect in either order, its own app's empty tables read (db_event_no_op.rs,
                 // empty_reads.rs; Y79InstallUnrelated.al:6-12: it runs only when its app installed first).
                 if self.inert_in_either_order(s.object, s.routine) {
+                    continue;
+                }
+                // A raise (not a question whether the event has listeners) runs it once under watch and refuses then when
+                // running it may make the order visible (order_trial.rs, al-runner issues 6972 and 6644).
+                if self.events.trial.allowed && self.events.trial.depth == 0 {
+                    self.events.trial.picked.push((s.object, s.routine));
+                    targets.push((s.clone(), self.static_instance(s.object)?));
                     continue;
                 }
                 self.note_order_unknown_hit(app);

@@ -85,10 +85,20 @@ fn is_upgrade(o: &al_ir::ObjectHead) -> bool {
 /// table of its own app outside this set does nothing in either order (al-vm empty_reads.rs; al-runner issue 6924).
 /// `None` when that code holds a RecordRef or a DataTransfer, which may write any table.
 pub(crate) fn tables_install_code_may_write(lowered: &Lowered, engine: &Engine) -> Option<BTreeSet<u32>> {
+    tables_install_code_of_may_write(lowered, engine, |o| !lowered.dependency[o])
+}
+
+/// [`tables_install_code_may_write`] for the install code of the objects `of` accepts: the partner dependency apps whose
+/// install order is open in the install baseline (al-runner issue 6972, al-vm order_trial.rs).
+pub(crate) fn tables_install_code_of_may_write(
+    lowered: &Lowered,
+    engine: &Engine,
+    of: impl Fn(usize) -> bool + Copy,
+) -> Option<BTreeSet<u32>> {
     use al_builtins::library_kind::LibraryKind;
     use al_builtins::value::RtType;
     let objs = &lowered.program.objects;
-    let all = install_roots_and_subscribers(lowered, engine, |o| !lowered.dependency[o]);
+    let all = install_roots_and_subscribers(lowered, engine, of);
     // Every routine those reach through calls, for the slots that may write any table.
     let mut seen = BTreeSet::new();
     let mut stack: Vec<(usize, usize)> = all.iter().copied().collect();
