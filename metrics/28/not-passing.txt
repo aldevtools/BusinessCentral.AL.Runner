@@ -1117,7 +1117,6 @@
 80670 SecurityFiltering_AfterOpen
 80670 TopNumberOfRows_AfterOpen
 80960 DateMethods_MinDateLiteral
-80960 DateMethods_ZeroDate
 80979 Xml_MediaColumns_WithContent
 80985 SystemId_From_Create_With_Record
 81070 BdDecimalFormatter_Columns
