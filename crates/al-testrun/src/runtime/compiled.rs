@@ -206,6 +206,11 @@ pub struct RunOptions {
     /// The memory the run may use (ADR-066 amendment 9, `runtime::memory`). `None`: no budget, the threads
     /// `AL_TEST_THREADS` or the cores say.
     pub memory: Option<super::memory::MemoryBudget>,
+    /// For tests of the carry chain's runs ahead (`chain_walk.rs`): the walk waits for a helper to run each member a
+    /// helper can still run from the walk's own state, instead of running the member itself, so which members run
+    /// ahead does not depend on how the threads are scheduled. Slower; no front end sets it. Only the time of the run
+    /// depends on it.
+    pub chain_wait_for_runs_ahead: bool,
 }
 
 /// One entry of a run (`RunOptions::entries`).
