@@ -659,6 +659,23 @@ pub(crate) struct UnitResult {
     sidecar_start: std::time::Duration,
 }
 
+/// ADR-066 amendment 10, decision 6: once the run stopped at its hard memory limit, the tests of `u` that have no
+/// outcome are not run, with the limit as the reason (the tests already done keep theirs).
+fn not_reached(lowered: &Lowered, u: &Unit, mut done: UnitOutcomes) -> UnitOutcomes {
+    let Some(why) = crate::events::halted() else {
+        return done;
+    };
+    let o = &lowered.program.objects[u.oi];
+    for r in test_routines(o) {
+        let key = (o.id.unwrap_or(0), r.name.to_lowercase());
+        let selected = u.run_only.as_ref().is_none_or(|keep| keep.contains(&key));
+        if selected && !done.0.iter().any(|(t, _)| t.eq_ignore_ascii_case(&r.name)) {
+            done.0.push((r.name.clone(), Outcome::NotRun(why.clone())));
+        }
+    }
+    done
+}
+
 /// The `[Test]` routines of a codeunit.
 fn test_routines(o: &al_ir::Object) -> impl Iterator<Item = &al_ir::Routine> {
     o.routines
@@ -682,22 +699,25 @@ fn run_unit(
     crate::events::install(u.hooks.clone());
     // A crash of the process names this codeunit (and, once it starts, the test).
     crate::crash::running(u.id, "");
-    // A cancelled run starts no further codeunit.
-    if crate::events::cancelled() {
+    // A cancelled run starts no further codeunit, nor does a run stopped at its memory limit (its tests are reported
+    // as not run below).
+    if crate::events::cancelled() || crate::events::halted().is_some() {
         crate::crash::idle();
+        let empty = (
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Scratch::default(),
+        );
+        let result = Ok(not_reached(lowered, u, empty));
         crate::events::uninstall();
         return UnitResult {
             si: u.si,
             oi: u.oi,
             id: u.id,
-            result: Ok((
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                Scratch::default(),
-            )),
+            result,
             took: started.elapsed(),
             sidecar_start: std::time::Duration::ZERO,
         };
@@ -749,6 +769,7 @@ fn run_unit(
             .or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()))
             .unwrap_or_default()
     });
+    let result = result.map(|done| not_reached(lowered, u, done));
     // Tests the loop did not report as they finished (a codeunit refused as a whole, a panic) are reported now.
     if crate::events::wants_events() {
         let have = crate::events::reported();
@@ -943,6 +964,7 @@ mod test_handlers;
 mod test_marks;
 #[cfg(test)]
 mod tests;
+mod threads;
 pub(crate) mod written;
 
 pub use self::blocked::*;

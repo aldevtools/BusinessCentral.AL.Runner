@@ -33,9 +33,10 @@ fn size_error(text: &str) -> String {
     format!("--max-memory takes a size such as 6G or 800M, not `{text}`")
 }
 
-/// The budget of a run: the smallest limit that applies, with where it comes from. `stop`: the run exits with code 2
-/// when not even one test thread fits (a plain test run; `serve` and `debug` go on with one thread).
-pub fn budget(max_memory: Option<u64>, stop: bool) -> Option<MemoryBudget> {
+/// The budget of a run: the smallest limit that applies, with where it comes from. `hard`: the limit is a hard one
+/// (ADR-066 amendment 10, decision 6; a plain test run): a run that cannot fit stops, its tests not reached are not
+/// run, and the command exits with code 2. `serve` and `debug` go on with one thread.
+pub fn budget(max_memory: Option<u64>, hard: bool) -> Option<MemoryBudget> {
     let (limit, source) = smallest(&[
         (max_memory, "--max-memory"),
         (cgroup_limit(), "cgroup memory.max"),
@@ -45,14 +46,21 @@ pub fn budget(max_memory: Option<u64>, stop: bool) -> Option<MemoryBudget> {
         limit,
         source: source.to_string(),
         rss: Arc::new(resident),
-        stop: stop.then(|| Arc::new(|message: &str| stop_run(message)) as al_testrun::runtime::memory::StopRun),
+        hard,
     })
 }
 
-/// Not even one test thread fits: the message, and exit code 2 (the run could not start).
-fn stop_run(message: &str) {
-    eprintln!("al-runner: {message}");
-    std::process::exit(2);
+/// The exit code of a run that ended with `code`: 2 when it stopped at its hard memory limit (`halted`, ADR-066
+/// amendment 10, decision 6), after the message that says how much memory it needed and what the limit allowed. The
+/// tests it did not reach are already reported as not run.
+pub fn exit_code(halted: Option<&str>, code: u8) -> u8 {
+    match halted {
+        Some(message) => {
+            eprintln!("al-runner: {message}");
+            2
+        }
+        None => code,
+    }
 }
 
 /// The smallest of the limits that are known, with its source; the first wins a tie.

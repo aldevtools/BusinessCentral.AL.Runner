@@ -52,14 +52,28 @@ build builds a new entry. `al-runner cache info` lists the entries, and
 
 ## The run is killed, or runs out of memory
 
-AL Runner runs one test codeunit per core at once, but only as many as fit in the
-free memory of the machine or the memory limit of its container. Each test thread
-holds a copy of the install baseline and the data of its test. On a build agent
-that also runs other jobs, cap the run with `--max-memory`, for example
-`--max-memory 3G`: AL Runner then runs fewer codeunits at once and takes longer.
-`--timings` shows the limit, the memory the compiled apps and the install
-baseline hold, and how many threads it chose. If even one thread does not fit,
-the run stops with exit code 2 and says how much memory it needs.
+AL Runner starts with one test thread and adds more only while there is work for
+them and memory left for another test codeunit. It learns how much memory one
+codeunit takes from the first one it runs. When memory runs short, a thread stops
+after its codeunit and gives its memory back. The limit is the free memory of the
+machine or the memory limit of its container, whichever is smaller. On a build
+agent that also runs other jobs, set the limit yourself with `--max-memory`, for
+example `--max-memory 3G`. The run then uses fewer threads and may take longer.
+
+The limit is a hard limit. One test thread needs a fixed amount of memory: the
+compiled apps, the install baseline, and the state a test suite builds up. If that
+does not fit, AL Runner stops instead of going over the limit:
+
+- It exits with code 2 and prints how much memory the run needed and what the
+  limit allowed.
+- The tests it did not reach are reported as not run, with the reason
+  `memory limit (--max-memory 2048 MB)` (or `cgroup memory.max`, `free memory`).
+  They are never reported as failures. Results it already reported stay.
+
+To get a result, raise the limit or free memory. `--timings` prints a `memory:`
+line: the limit and where it comes from, the memory held after the compile and
+after the install baseline, the memory one codeunit took, the most threads that
+ran at once, and how many threads stopped for memory.
 
 ## The run exits with 8
 

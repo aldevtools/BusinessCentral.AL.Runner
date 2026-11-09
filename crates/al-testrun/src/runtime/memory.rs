@@ -1,42 +1,59 @@
-//! The memory budget of a test run (ADR-066 amendment 9): the run fits in the memory it may use by running fewer
-//! test codeunits at once, down to one at a time, instead of being killed for running out of it.
+//! The memory limit of a test run (ADR-066 amendments 9 and 10): the run holds the limit by running more of its work
+//! one after the other, and stops when even one test thread cannot fit.
 //!
 //! The front end works out the limit (free memory, the cgroup's `memory.max`, `--max-memory`) and hands it in with a
 //! way to read the process's resident memory ([`MemoryBudget`]); this crate reads no OS state for it. The run then:
 //!
-//! 1. reads the resident memory once the apps are compiled, and stops ([`MemoryBudget::stop`]) when not even one test
-//!    thread fits beside it;
-//! 2. reads it again once the install baseline is loaded: that is the fixed part. The thread count is what fits in
-//!    nine tenths of the limit beside it at [`PER_WORKER_START`] each, at least one, at most the threads asked for
-//!    ([`workers_for`]);
-//! 3. before a thread starts the next test codeunit, checks that the resident memory leaves room for one more
-//!    ([`Gate`]), at the cost a running codeunit has been seen to hold (what the process grew beyond the fixed part,
-//!    per running codeunit). When it does not, the thread waits for a running one to finish; one codeunit always runs,
-//!    so the run always moves on. A tenth of the limit stays free: a codeunit can grow past the cost seen so far.
+//! 1. reads the resident memory once the apps are compiled and once the install baseline is loaded (the fixed part),
+//!    and stops when not even one test thread fits beside it ([`below_minimum`]);
+//! 2. starts with one test thread. Another starts only when there is work it can use (the caller's part) and the
+//!    resident memory plus the cost of one codeunit stays under nine tenths of the limit ([`Pool::try_add`]). The cost
+//!    is learned in the run: the largest growth above the fixed part per running codeunit, seen from the first codeunit
+//!    on, at least [`WORKER_FLOOR`]; until the first codeunit ends only one thread runs. Nothing is kept between runs;
+//! 3. a thread other than the first that finishes a codeunit when there is no room ends ([`Pool::keep`]) and gives
+//!    back its session, baseline copy and runs ahead; it never waits holding them. One thread always runs;
+//! 4. under a hard limit ([`MemoryBudget::hard`]: `al-runner test`), stops the run ([`Halt`]) before the resident
+//!    memory passes the limit: a watcher samples it while the tests run. The running tests are stopped, the tests not
+//!    reached are reported as not run with the reason [`Halt::reason`], and the front end exits with code 2.
 //!
-//! Only how many codeunits run at once changes: each still runs on a session of its own from the same baseline, so the
-//! outcomes are those of any other thread count (ADR-009: scheduling is internal; ADR-066's parallel run is unchanged).
+//! Only which thread runs a codeunit, and when, changes: each codeunit still runs on a session of its own from the same
+//! baseline, so the outcomes are those of any other thread count (ADR-009: scheduling is internal).
 
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-/// The least memory a test thread needs on top of the fixed part, in bytes: below it the run stops at start.
+/// The least memory a test thread needs on top of the fixed part, in bytes: below it the run stops at start, and the
+/// learned cost of a codeunit is never taken as less.
 pub const WORKER_FLOOR: u64 = 64 << 20;
 
-/// The cost of a test thread assumed until one is seen, in bytes. Measured (BC 29, release, 12 cores, 2026-11-08): each
-/// thread from 2 to 12 added 150 to 200 MB to the peak of Tests-ERM-Purchase (ADR-066 amendment 9).
-pub const PER_WORKER_START: u64 = 200 << 20;
+/// How the reason of a test not reached starts when the run stopped at its hard limit ([`Halt::reason`]).
+pub const REASON: &str = "memory limit (";
 
-/// The part of the limit the gate fills: a tenth stays free for a codeunit that grows past the cost seen so far.
+/// How often the watcher reads the resident memory while the tests run.
+const SAMPLE: Duration = Duration::from_millis(10);
+
+/// The part of the limit new threads may fill: a tenth stays free for a codeunit that grows past the cost seen so far.
 fn usable(limit: u64) -> u64 {
     limit / 10 * 9
 }
 
+/// Where a hard limit stops the run with one test thread left: an eighth of the limit (at least 64 MB) under it. The
+/// process still grows after the stop until the running test has ended: on Tests-SCM by up to about 165 MB after a
+/// stop at 2880 MB (it grew by about 450 MB a second there).
+fn stop_line(limit: u64) -> u64 {
+    limit.saturating_sub((limit / 8).max(64 << 20))
+}
+
+/// Where a hard limit stops the run while more threads run: closer to the limit (a thirty-second, at least 32 MB),
+/// since the threads other than the first end after their codeunit when there is no room (`Pool::keep`), and so free
+/// memory without a stop.
+fn last_line(limit: u64) -> u64 {
+    limit.saturating_sub((limit / 32).max(32 << 20))
+}
+
 /// Reads the process's resident memory in bytes.
 pub type ReadResident = Arc<dyn Fn() -> Option<u64> + Send + Sync>;
-/// Stops the run with a message.
-pub type StopRun = Arc<dyn Fn(&str) + Send + Sync>;
 
 /// The limit of a run and how to read the process's resident memory, from the front end.
 #[derive(Clone)]
@@ -45,11 +62,11 @@ pub struct MemoryBudget {
     pub limit: u64,
     /// Where the limit comes from, for `--timings` and the stop message (`--max-memory`, `memory.max`, free memory).
     pub source: String,
-    /// The process's resident memory now, in bytes; `None` where it cannot be read (the run is then not gated).
+    /// The process's resident memory now, in bytes; `None` where it cannot be read (the run is then not limited).
     pub rss: ReadResident,
-    /// Called with the message when not even one test thread fits; the command line prints it and exits. Without it
-    /// (or when it returns) the run goes on with one thread.
-    pub stop: Option<StopRun>,
+    /// A hard limit (ADR-066 amendment 10, decision 6; `al-runner test`): a run that cannot fit stops instead of
+    /// going over. `false` (`serve`, `debug`): the run goes on with one thread.
+    pub hard: bool,
 }
 
 impl std::fmt::Debug for MemoryBudget {
@@ -57,6 +74,7 @@ impl std::fmt::Debug for MemoryBudget {
         f.debug_struct("MemoryBudget")
             .field("limit", &self.limit)
             .field("source", &self.source)
+            .field("hard", &self.hard)
             .finish_non_exhaustive()
     }
 }
@@ -70,15 +88,17 @@ pub struct MemoryReport {
     pub after_compile: Option<u64>,
     /// Resident bytes once the install baseline was loaded (the fixed part).
     pub after_baseline: Option<u64>,
-    /// The estimated cost of one test thread, in bytes.
+    /// The learned cost of one running codeunit, in bytes (0: none ended).
     pub per_worker: u64,
-    /// The threads asked for (cores or `AL_TEST_THREADS`) and the threads chosen.
+    /// The threads asked for (cores or `AL_TEST_THREADS`).
     pub asked: usize,
-    pub workers: usize,
-    /// How many times a thread waited for memory before it started a codeunit.
-    pub waits: usize,
-    /// How many times optional caches were dropped because memory was tight.
-    pub caches_dropped: usize,
+    /// The most test threads that ran at once, and how many ran at the end.
+    pub most: usize,
+    pub at_end: usize,
+    /// How many threads ended because there was no room for another codeunit.
+    pub ended: usize,
+    /// Why the run stopped for its hard limit (the message the front end prints before it exits with code 2).
+    pub halted: Option<String>,
 }
 
 impl MemoryReport {
@@ -89,23 +109,22 @@ impl MemoryReport {
         let at = |b: Option<u64>| b.map_or("?".to_string(), |b| format!("{} MB", mb(b)));
         Some(format!(
             "memory: budget {} MB ({source}); resident after compile {}, after install baseline {}; about {} MB per \
-             test thread; test threads {} of {}; waited for memory {} times, dropped caches {} times",
+             test thread; test threads at most {} of {}, {} at the end, {} ended for memory{}",
             mb(*limit),
             at(self.after_compile),
             at(self.after_baseline),
             mb(self.per_worker),
-            self.workers,
+            self.most,
             self.asked,
-            self.waits,
-            self.caches_dropped
+            self.at_end,
+            self.ended,
+            if self.halted.is_some() {
+                "; stopped at the limit"
+            } else {
+                ""
+            }
         ))
     }
-}
-
-/// How many test threads fit: `(limit - fixed) / per_worker`, at least one, at most `asked`.
-pub fn workers_for(limit: u64, fixed: u64, per_worker: u64, asked: usize) -> usize {
-    let room = limit.saturating_sub(fixed) / per_worker.max(1);
-    (room.min(asked as u64) as usize).max(1)
 }
 
 /// The message when not even one test thread fits beside `resident` bytes; `None` when one does.
@@ -125,16 +144,62 @@ pub fn below_minimum(budget: &MemoryBudget, resident: u64, when: &str) -> Option
     })
 }
 
-/// The budget of one run phase: the thread count, worked out after the compile and again after the install baseline.
+/// A run stopped for its hard memory limit: the flag the running tests' watchdogs read (`run.rs`), the reason the
+/// tests not reached get, and the message the front end prints.
+#[derive(Debug)]
+pub struct Halt {
+    flag: Arc<AtomicBool>,
+    reason: String,
+    message: Mutex<Option<String>>,
+}
+
+impl Halt {
+    fn new(reason: String) -> Halt {
+        Halt {
+            flag: Arc::default(),
+            reason,
+            message: Mutex::new(None),
+        }
+    }
+
+    /// Stops the run with `message`; the first stop wins.
+    fn set(&self, message: String) {
+        let mut m = self.message.lock().unwrap_or_else(|e| e.into_inner());
+        if m.is_none() {
+            *m = Some(message);
+            self.flag.store(true, Ordering::SeqCst);
+        }
+    }
+
+    pub fn is_set(&self) -> bool {
+        self.flag.load(Ordering::Relaxed)
+    }
+
+    /// The reason of a test not reached: "memory limit (--max-memory 2048 MB)".
+    pub fn reason(&self) -> &str {
+        &self.reason
+    }
+
+    /// The flag set when the run stops: the watchdog of a running test stops it.
+    pub fn flag(&self) -> Arc<AtomicBool> {
+        self.flag.clone()
+    }
+
+    pub fn message(&self) -> Option<String> {
+        self.message.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
+/// The budget of one run phase: what the process holds after the compile and the install baseline, and the [`Pool`].
 pub(crate) struct Plan {
     budget: Option<MemoryBudget>,
     report: MemoryReport,
-    gate: Gate,
+    pool: Pool,
 }
 
 impl Plan {
-    /// Once the apps are compiled: one thread for a traced or debugged run (ADR-048 decision 3), else `asked`, fewer when
-    /// the budget cannot hold that many test threads of [`WORKER_FLOOR`] beside what the process holds now.
+    /// Once the apps are compiled: one thread for a traced or debugged run (ADR-048 decision 3), else at most `asked`.
+    /// Stops the run when not even one thread fits beside what the process holds now.
     pub(crate) fn after_compile(opts: &super::RunOptions, asked: usize) -> Plan {
         let asked = if opts.trace || opts.hooks.debugger.is_some() {
             1
@@ -143,169 +208,327 @@ impl Plan {
         };
         let mut report = MemoryReport {
             asked,
-            workers: asked,
-            per_worker: PER_WORKER_START,
             ..Default::default()
         };
         let budget = opts.memory.clone();
+        let mut fixed = 0;
         if let Some(b) = &budget {
             report.limit = Some((b.limit, b.source.clone()));
             report.after_compile = (b.rss)();
-            if let Some(now) = report.after_compile {
-                stop_when_below(b, now, "once the apps are compiled");
-                report.workers = workers_for(usable(b.limit), now, PER_WORKER_START, asked);
+            fixed = report.after_compile.unwrap_or(0);
+        }
+        let pool = Pool::new(budget.clone(), fixed, asked);
+        if let (Some(b), Some(now)) = (&budget, report.after_compile) {
+            pool.stop_when_below(b, now, "once the apps are compiled");
+        }
+        Plan { budget, report, pool }
+    }
+
+    /// The threads asked for: the most the run may use.
+    pub(crate) fn workers(&self) -> usize {
+        self.report.asked
+    }
+
+    /// Whether the run stopped for its hard limit.
+    pub(crate) fn halted(&self) -> bool {
+        self.pool.halted()
+    }
+
+    /// Once the install baseline is loaded: what the process holds now is the fixed part. Returns the most threads.
+    pub(crate) fn after_baseline(&mut self) -> usize {
+        if let Some(b) = &self.budget {
+            self.report.after_baseline = (b.rss)();
+            if let Some(now) = self.report.after_baseline {
+                self.pool.s.fixed.store(now, Ordering::Relaxed);
+                self.pool.stop_when_below(b, now, "once the install baseline is loaded");
             }
         }
-        let gate = Gate::new(budget.clone(), report.after_compile.unwrap_or(0), PER_WORKER_START);
-        Plan { budget, report, gate }
+        self.report.asked
     }
 
-    pub(crate) fn workers(&self) -> usize {
-        self.report.workers
+    /// The test threads of the run.
+    pub(crate) fn pool(&self) -> &Pool {
+        &self.pool
     }
 
-    /// Once the install baseline is loaded: what the process holds now is the fixed part; as many threads as fit beside
-    /// it at [`PER_WORKER_START`] each. Returns the thread count.
-    pub(crate) fn after_baseline(&mut self) -> usize {
-        let Some(b) = &self.budget else {
-            return self.report.workers;
-        };
-        self.report.after_baseline = (b.rss)();
-        if let Some(now) = self.report.after_baseline {
-            stop_when_below(b, now, "once the install baseline is loaded");
-            self.report.workers = workers_for(usable(b.limit), now, PER_WORKER_START, self.report.workers);
-            self.gate = Gate::new(self.budget.clone(), now, PER_WORKER_START);
+    /// The hooks of the run's units: `hooks` with the run's [`Halt`], so that a stop reaches every running test.
+    pub(crate) fn hooks(&self, hooks: &crate::events::Hooks) -> crate::events::Hooks {
+        let mut h = hooks.clone();
+        if self.budget.as_ref().is_some_and(|b| b.hard) {
+            h.halt = Some(self.pool.halt());
         }
-        self.report.workers
-    }
-
-    /// The gate the test threads enter before each codeunit.
-    pub(crate) fn gate(&self) -> &Gate {
-        &self.gate
+        h
     }
 
     /// What the budget did.
     pub(crate) fn report(&self) -> MemoryReport {
-        MemoryReport {
-            waits: self.gate.waits(),
-            per_worker: self.gate.per_worker(),
-            caches_dropped: self.gate.dropped.load(Ordering::Relaxed),
-            ..self.report.clone()
-        }
+        self.pool.report_into(self.report.clone())
     }
 }
 
-/// Stops the run ([`MemoryBudget::stop`]) when not even one test thread fits beside `resident` bytes. Without a stop, or
-/// when it returns, the message goes to stderr and the run goes on with one thread.
-fn stop_when_below(b: &MemoryBudget, resident: u64, when: &str) {
-    if let Some(message) = below_minimum(b, resident, when) {
-        match &b.stop {
-            Some(stop) => stop(&message),
-            None => eprintln!("al-runner: {message}"),
-        }
-    }
-}
-
-/// Admission of test codeunits by memory: a thread [`Gate::enter`]s before it runs a codeunit and leaves when the
-/// returned [`Pass`] is dropped. Without a budget every thread enters at once.
-pub struct Gate {
+/// The shared part of a [`Pool`], also read by its watcher thread.
+struct Shared {
     budget: Option<MemoryBudget>,
-    /// Resident bytes with no codeunit running (the fixed part), and the cost of one running codeunit: at least the
-    /// start value, else what the process grew beyond `fixed` per running codeunit when last seen.
-    fixed: u64,
-    start: u64,
-    per_worker: AtomicU64,
-    running: Mutex<usize>,
-    done: Condvar,
-    waits: AtomicUsize,
-    /// Set when a thread had to wait; the owner of an optional cache drops it ([`Gate::take_tight`]).
-    tight: AtomicBool,
-    /// How many times an optional cache was dropped for it ([`Gate::dropped_cache`]).
-    dropped: AtomicUsize,
+    /// Resident bytes with no codeunit running (the fixed part).
+    fixed: AtomicU64,
+    /// The most threads the run may use.
+    max: usize,
+    /// The learned cost of one running codeunit; `learned` once a codeunit ended.
+    cost: AtomicU64,
+    learned: AtomicBool,
+    /// Test threads alive (the first one included), the most at once, the ones ended for memory, codeunits running.
+    live: AtomicUsize,
+    most: AtomicUsize,
+    ended: AtomicUsize,
+    running: AtomicUsize,
+    halt: Arc<Halt>,
 }
 
-impl Gate {
-    /// A gate that lets every thread in.
-    pub fn open() -> Gate {
-        Gate::new(None, 0, 0)
+/// The test threads of a run and the memory they may use (ADR-066 amendment 10). The thread that creates it is the
+/// first one; [`Pool::try_add`] lets another start, [`Pool::keep`] tells one whether it goes on, [`Pool::enter`] counts a
+/// running codeunit. Under a hard limit [`Pool::watch`] samples the resident memory while the tests run.
+pub struct Pool {
+    s: Arc<Shared>,
+    watcher: Mutex<Option<(std::sync::mpsc::Sender<()>, std::thread::JoinHandle<()>)>>,
+}
+
+impl Pool {
+    /// A pool without a budget for `max` threads.
+    pub fn open(max: usize) -> Pool {
+        Pool::new(None, 0, max)
     }
 
-    pub fn new(budget: Option<MemoryBudget>, fixed: u64, per_worker: u64) -> Gate {
-        Gate {
-            budget,
-            fixed,
-            start: per_worker,
-            per_worker: AtomicU64::new(per_worker),
-            running: Mutex::new(0),
-            done: Condvar::new(),
-            waits: AtomicUsize::new(0),
-            tight: AtomicBool::new(false),
-            dropped: AtomicUsize::new(0),
+    pub fn new(budget: Option<MemoryBudget>, fixed: u64, max: usize) -> Pool {
+        let reason = budget
+            .as_ref()
+            .map_or(String::new(), |b| format!("{REASON}{} {} MB)", b.source, b.limit >> 20));
+        Pool {
+            s: Arc::new(Shared {
+                budget,
+                fixed: AtomicU64::new(fixed),
+                max: max.max(1),
+                cost: AtomicU64::new(0),
+                learned: AtomicBool::new(false),
+                live: AtomicUsize::new(1),
+                most: AtomicUsize::new(1),
+                ended: AtomicUsize::new(0),
+                running: AtomicUsize::new(0),
+                halt: Arc::new(Halt::new(reason)),
+            }),
+            watcher: Mutex::new(None),
         }
     }
 
-    /// Waits until memory leaves room for one more codeunit, or until none runs.
-    pub fn enter(&self) -> Pass<'_> {
-        let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(b) = &self.budget {
-            let mut waited = false;
-            while *running > 0 && !self.fits(b, *running) {
-                if !waited {
-                    waited = true;
-                    self.waits.fetch_add(1, Ordering::Relaxed);
-                }
-                self.tight.store(true, Ordering::Relaxed);
-                running = self
-                    .done
-                    .wait_timeout(running, Duration::from_millis(20))
-                    .unwrap_or_else(|e| e.into_inner())
-                    .0;
+    /// The test threads alive.
+    pub fn live(&self) -> usize {
+        self.s.live.load(Ordering::SeqCst)
+    }
+
+    /// The most threads the run may use.
+    pub fn max(&self) -> usize {
+        self.s.max
+    }
+
+    /// The learned cost of one running codeunit, in bytes.
+    pub fn cost(&self) -> u64 {
+        self.s.cost.load(Ordering::Relaxed)
+    }
+
+    pub fn halted(&self) -> bool {
+        self.s.halt.is_set()
+    }
+
+    pub fn halt(&self) -> Arc<Halt> {
+        self.s.halt.clone()
+    }
+
+    /// The resident memory now, when the budget can read it.
+    fn resident(&self) -> Option<(&MemoryBudget, u64)> {
+        let b = self.s.budget.as_ref()?;
+        Some((b, (b.rss)()?))
+    }
+
+    /// Whether `next` more codeunits fit in nine tenths of the limit beside the resident memory, and the live threads
+    /// and `extra` more fit at the learned cost of a codeunit each beside the fixed part (a thread just started has
+    /// not grown yet). Without a budget (or where the resident memory cannot be read) always; with one, only once a
+    /// codeunit ended (the cost is known).
+    fn room(&self, next: usize, extra: usize) -> bool {
+        let Some((b, now)) = self.resident() else {
+            return true;
+        };
+        if !self.s.learned.load(Ordering::SeqCst) || self.halted() {
+            return false;
+        }
+        let (fixed, cost) = (self.s.fixed.load(Ordering::Relaxed), self.cost());
+        let threads = (self.live() + extra) as u64;
+        (now + cost * next as u64).max(fixed + cost * threads) <= usable(b.limit)
+    }
+
+    /// Lets one more test thread start when the run may use another and its codeunit fits beside the resident memory
+    /// and the `extra` threads the caller just started. The thread is counted until the returned [`Member`] drops.
+    pub fn try_add(&self, extra: usize) -> Option<Member<'_>> {
+        if self.live() >= self.s.max || !self.room(extra + 1, extra + 1) {
+            return None;
+        }
+        let live = self.s.live.fetch_add(1, Ordering::SeqCst) + 1;
+        self.s.most.fetch_max(live, Ordering::SeqCst);
+        Some(Member { pool: self })
+    }
+
+    /// Asked by a thread other than the first after each codeunit: whether it takes another. `false`: there is no
+    /// room, and the thread ends (decision 3), giving back what it holds.
+    pub fn keep(&self) -> bool {
+        if self.room(1, 0) {
+            return true;
+        }
+        self.s.ended.fetch_add(1, Ordering::SeqCst);
+        false
+    }
+
+    /// Counts a running codeunit until the returned guard drops; the cost is learned when it ends.
+    pub fn enter(&self) -> Running<'_> {
+        self.s.running.fetch_add(1, Ordering::SeqCst);
+        Running { pool: self }
+    }
+
+    /// Reads the resident memory: learns the cost of a running codeunit, and under a hard limit stops the run before
+    /// the resident memory passes the limit (the watcher calls it while the tests run).
+    pub fn sample(&self) {
+        let Some((b, now)) = self.resident() else { return };
+        let running = self.s.running.load(Ordering::SeqCst);
+        if running > 0 {
+            let fixed = self.s.fixed.load(Ordering::Relaxed);
+            let per = (now.saturating_sub(fixed) / running as u64).max(WORKER_FLOOR);
+            self.s.cost.fetch_max(per, Ordering::Relaxed);
+        }
+        let line = if self.live() > 1 {
+            last_line(b.limit)
+        } else {
+            stop_line(b.limit)
+        };
+        if b.hard && now > line {
+            self.stop(
+                b,
+                format!(
+                    "the run held {} MB with {} test thread(s) and was still growing",
+                    now >> 20,
+                    self.live()
+                ),
+            );
+        }
+    }
+
+    /// A codeunit ended: the cost is known now. Under a hard limit, stops the run when the fixed part and the cost of
+    /// one codeunit do not fit (decision 6, after the first codeunit). Only with one thread left: with more, the cost
+    /// seen per running codeunit also holds what the other threads set up, and they end first when there is no room.
+    fn ended(&self) {
+        self.sample();
+        self.s.learned.store(true, Ordering::SeqCst);
+        let Some(b) = self.s.budget.as_ref().filter(|b| b.hard && self.live() == 1) else {
+            return;
+        };
+        let need = self.s.fixed.load(Ordering::Relaxed) + self.cost();
+        if need > stop_line(b.limit) {
+            self.stop(
+                b,
+                format!(
+                    "one test thread needs about {} MB (the fixed part and its largest codeunit)",
+                    need >> 20
+                ),
+            );
+        }
+    }
+
+    /// Under a hard limit: not even one test thread fits beside `resident` bytes, so the run stops before its tests.
+    fn stop_when_below(&self, b: &MemoryBudget, resident: u64, when: &str) {
+        if let Some(message) = below_minimum(b, resident, when) {
+            if b.hard {
+                self.s.halt.set(message);
+            } else {
+                eprintln!("al-runner: {message}");
             }
         }
-        *running += 1;
-        Pass { gate: self }
     }
 
-    /// Whether one more codeunit fits beside `running` ones in [`usable`] memory: the larger of the resident memory and
-    /// the estimate of what the running ones hold (one just let in has not grown yet), plus one more.
-    fn fits(&self, b: &MemoryBudget, running: usize) -> bool {
-        let Some(now) = (b.rss)() else { return true };
-        let seen = now.saturating_sub(self.fixed) / running.max(1) as u64;
-        let per = seen.max(self.start);
-        self.per_worker.store(per, Ordering::Relaxed);
-        now.max(self.fixed + per * running as u64) + per <= usable(b.limit)
+    fn stop(&self, b: &MemoryBudget, needed: String) {
+        self.s.halt.set(format!(
+            "not enough memory to run the tests: {needed}, but the limit is {} MB ({}). The tests not reached are \
+             reported as not run. Free memory, or raise the limit with --max-memory.",
+            b.limit >> 20,
+            b.source
+        ));
     }
 
-    /// Whether a thread waited for memory since the last call.
-    pub fn take_tight(&self) -> bool {
-        self.tight.swap(false, Ordering::Relaxed)
+    /// Starts the watcher that samples the resident memory ([`Pool::sample`]) until [`Pool::unwatch`] or the pool
+    /// drops; only under a hard limit whose resident memory can be read.
+    pub fn watch(&self) {
+        if self.resident().is_none_or(|(b, _)| !b.hard) {
+            return;
+        }
+        let mut w = self.watcher.lock().unwrap_or_else(|e| e.into_inner());
+        if w.is_some() {
+            return;
+        }
+        let (done, rx) = std::sync::mpsc::channel::<()>();
+        let pool = Pool {
+            s: self.s.clone(),
+            watcher: Mutex::new(None),
+        };
+        let thread = std::thread::spawn(move || {
+            while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = rx.recv_timeout(SAMPLE) {
+                pool.sample();
+            }
+        });
+        *w = Some((done, thread));
     }
 
-    /// Notes that an optional cache was dropped because a thread waited for memory.
-    pub fn dropped_cache(&self) {
-        self.dropped.fetch_add(1, Ordering::Relaxed);
+    /// Stops the watcher.
+    pub fn unwatch(&self) {
+        if let Some((done, thread)) = self.watcher.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            let _ = done.send(());
+            let _ = thread.join();
+        }
     }
 
-    /// The cost of one running codeunit the gate assumes now, in bytes.
-    pub fn per_worker(&self) -> u64 {
-        self.per_worker.load(Ordering::Relaxed)
-    }
-
-    pub fn waits(&self) -> usize {
-        self.waits.load(Ordering::Relaxed)
+    /// `report` with what the pool saw.
+    pub fn report_into(&self, report: MemoryReport) -> MemoryReport {
+        MemoryReport {
+            per_worker: self.cost(),
+            most: self.s.most.load(Ordering::SeqCst),
+            at_end: self.live(),
+            ended: self.s.ended.load(Ordering::SeqCst),
+            halted: self.s.halt.message(),
+            ..report
+        }
     }
 }
 
-/// A codeunit let in by a [`Gate`]; dropping it lets the next one in.
-pub struct Pass<'a> {
-    gate: &'a Gate,
-}
-
-impl Drop for Pass<'_> {
+impl Drop for Pool {
     fn drop(&mut self) {
-        let mut running = self.gate.running.lock().unwrap_or_else(|e| e.into_inner());
-        *running = running.saturating_sub(1);
-        self.gate.done.notify_all();
+        self.unwatch();
+    }
+}
+
+/// A test thread other than the first, counted by its [`Pool`] while it lives.
+pub struct Member<'a> {
+    pool: &'a Pool,
+}
+
+impl Drop for Member<'_> {
+    fn drop(&mut self) {
+        self.pool.s.live.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// A running codeunit, counted by its [`Pool`] while it runs.
+pub struct Running<'a> {
+    pool: &'a Pool,
+}
+
+impl Drop for Running<'_> {
+    fn drop(&mut self) {
+        self.pool.ended();
+        self.pool.s.running.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -315,35 +538,22 @@ mod tests {
 
     const MB: u64 = 1 << 20;
 
-    fn budget(limit: u64, rss: Arc<AtomicUsize>) -> MemoryBudget {
+    fn budget(limit: u64, rss: Arc<AtomicU64>, hard: bool) -> MemoryBudget {
         MemoryBudget {
             limit,
             source: "--max-memory".into(),
-            rss: Arc::new(move || Some(rss.load(Ordering::SeqCst) as u64)),
-            stop: None,
+            rss: Arc::new(move || Some(rss.load(Ordering::SeqCst))),
+            hard,
         }
     }
 
-    #[test]
-    fn workers_fit_the_room_left_by_the_fixed_part() {
-        assert_eq!(workers_for(6000 * MB, 2000 * MB, 500 * MB, 12), 8);
-        assert_eq!(
-            workers_for(6000 * MB, 2000 * MB, 100 * MB, 12),
-            12,
-            "never more than asked"
-        );
-        assert_eq!(workers_for(2100 * MB, 2000 * MB, 500 * MB, 12), 1, "at least one");
-        assert_eq!(
-            workers_for(1000 * MB, 2000 * MB, 500 * MB, 12),
-            1,
-            "over the limit: one"
-        );
-        assert_eq!(workers_for(1000 * MB, 0, 0, 4), 4, "no cost known: as asked");
+    fn rss(mb: u64) -> Arc<AtomicU64> {
+        Arc::new(AtomicU64::new(mb * MB))
     }
 
     #[test]
     fn below_minimum_names_what_is_needed_and_the_limit() {
-        let b = budget(1000 * MB, Arc::default());
+        let b = budget(1000 * MB, rss(0), true);
         assert!(below_minimum(&b, 900 * MB, "after the compile").is_none());
         let m = below_minimum(&b, 990 * MB, "after the compile").expect("does not fit");
         assert!(
@@ -352,87 +562,187 @@ mod tests {
         );
     }
 
+    /// ADR-066 amendment 10, decisions 1 and 2: the run starts with one thread; a second starts only once the first
+    /// codeunit ended, and only when the cost learned from it fits.
     #[test]
-    fn a_thread_waits_while_memory_is_tight_and_one_always_runs() {
-        let rss = Arc::new(AtomicUsize::new((980 * MB) as usize));
-        let gate = Gate::new(Some(budget(1000 * MB, rss.clone())), 0, 50 * MB);
-        // Nothing runs: the first codeunit is let in even over the limit.
-        let first = gate.enter();
-        assert_eq!(gate.waits(), 0);
-        std::thread::scope(|s| {
-            let second = s.spawn(|| {
-                let _p = gate.enter();
-            });
-            std::thread::sleep(Duration::from_millis(100));
-            assert!(!second.is_finished(), "waits while 980 + 50 MB exceed 1000 MB");
-            drop(first);
-            second.join().unwrap();
-        });
-        assert_eq!(gate.waits(), 1);
-        assert!(gate.take_tight());
-        assert!(!gate.take_tight());
+    fn the_run_starts_one_thread_and_adds_one_only_after_the_first_codeunit_when_its_cost_fits() {
+        let now = rss(500);
+        let pool = Pool::new(Some(budget(10_000 * MB, now.clone(), true)), 500 * MB, 4);
+        assert_eq!(pool.live(), 1);
+        assert!(
+            pool.try_add(0).is_none(),
+            "no codeunit ended yet: the cost is not known"
+        );
+        let first = pool.enter();
+        now.store(1500 * MB, Ordering::SeqCst);
+        drop(first);
+        assert_eq!(pool.cost() >> 20, 1000, "learned from the first codeunit");
+        // 1500 MB held, 1000 MB per codeunit: 2500 MB fits in 9000 MB.
+        let second = pool.try_add(0).expect("room for a second thread");
+        assert_eq!(pool.live(), 2);
+        // A third beside it, counted with the one just added: 1500 + 2 x 1000 MB.
+        let third = pool.try_add(1).expect("room for a third thread");
+        drop((second, third));
+        assert_eq!(pool.live(), 1);
+        assert_eq!(pool.report_into(MemoryReport::default()).most, 3);
     }
 
     #[test]
-    fn a_thread_enters_at_once_when_memory_has_room() {
-        let rss = Arc::new(AtomicUsize::new((100 * MB) as usize));
-        let gate = Gate::new(Some(budget(1000 * MB, rss)), 100 * MB, 50 * MB);
-        let _a = gate.enter();
-        let _b = gate.enter();
-        let _c = gate.enter();
-        assert_eq!(gate.waits(), 0);
+    fn a_thread_is_not_added_when_its_learned_cost_does_not_fit() {
+        let now = rss(500);
+        let pool = Pool::new(Some(budget(3000 * MB, now.clone(), true)), 500 * MB, 4);
+        let first = pool.enter();
+        now.store(2000 * MB, Ordering::SeqCst);
+        drop(first);
+        // 2000 + 1500 MB pass nine tenths of 3000 MB.
+        assert!(pool.try_add(0).is_none());
+        assert_eq!(pool.live(), 1);
+    }
+
+    /// Decision 3: a thread with no room ends instead of waiting; the run's first thread never ends this way.
+    #[test]
+    fn a_thread_ends_instead_of_waiting_when_there_is_no_room() {
+        let now = rss(500);
+        let pool = Pool::new(Some(budget(4000 * MB, now.clone(), false)), 500 * MB, 4);
+        drop(pool.enter());
+        now.store(1000 * MB, Ordering::SeqCst);
+        let helper = pool.try_add(0).expect("room");
+        assert!(pool.keep(), "room left: the thread goes on");
+        // 3560 MB and the cost of one more codeunit (at least 64 MB) pass nine tenths of 4000 MB.
+        now.store(3560 * MB, Ordering::SeqCst);
+        assert!(!pool.keep(), "no room: the thread ends");
+        drop(helper);
+        assert_eq!(pool.live(), 1, "one thread always runs");
+        assert_eq!(pool.report_into(MemoryReport::default()).ended, 1);
+        assert!(!pool.halted(), "a soft limit never stops the run");
+    }
+
+    /// Without a budget every thread the work can use starts at once.
+    #[test]
+    fn without_a_budget_threads_start_without_a_learned_cost() {
+        let pool = Pool::new(None, 0, 3);
+        let a = pool.try_add(0).expect("a second");
+        let b = pool.try_add(1).expect("a third");
+        assert!(pool.try_add(2).is_none(), "never more than the threads asked for");
+        assert!(pool.keep());
+        drop((a, b));
+    }
+
+    /// Decision 6: a hard limit stops the run before the resident memory passes it, with the numbers and the reason
+    /// the tests not reached get.
+    #[test]
+    fn a_hard_limit_stops_the_run_before_the_resident_memory_passes_it() {
+        let now = rss(500);
+        let pool = Pool::new(Some(budget(2048 * MB, now.clone(), true)), 500 * MB, 1);
+        let running = pool.enter();
+        now.store(1700 * MB, Ordering::SeqCst);
+        pool.sample();
+        assert!(!pool.halted(), "1700 MB is still under the stop line of 2048 MB");
+        now.store(1850 * MB, Ordering::SeqCst);
+        pool.sample();
+        assert!(pool.halted());
+        let halt = pool.halt();
+        assert_eq!(halt.reason(), "memory limit (--max-memory 2048 MB)");
+        let m = halt.message().expect("a message");
+        assert!(m.contains("1850 MB") && m.contains("2048 MB (--max-memory)"), "{m}");
+        assert!(halt.flag().load(Ordering::SeqCst), "the running test is stopped");
+        drop(running);
+    }
+
+    /// With more than one thread the stop comes closer to the limit: the other threads end when there is no room.
+    #[test]
+    fn with_more_threads_the_run_stops_closer_to_the_limit() {
+        let now = rss(500);
+        let pool = Pool::new(Some(budget(2048 * MB, now.clone(), true)), 500 * MB, 2);
+        drop(pool.enter());
+        let helper = pool.try_add(0).expect("room");
+        now.store(1950 * MB, Ordering::SeqCst);
+        pool.sample();
+        assert!(!pool.halted(), "1950 MB with two threads: the helper ends first");
+        drop(helper);
+        pool.sample();
+        assert!(pool.halted(), "1950 MB with one thread: past the stop line");
     }
 
     #[test]
-    fn the_cost_of_a_thread_is_learned_from_what_the_running_ones_hold() {
-        // One codeunit runs and the process grew from 100 MB to 1100 MB: a second would need about as much again.
-        let rss = Arc::new(AtomicUsize::new((100 * MB) as usize));
-        let gate = Gate::new(Some(budget(2000 * MB, rss.clone())), 100 * MB, 64 * MB);
-        let first = gate.enter();
-        rss.store((1100 * MB) as usize, Ordering::SeqCst);
-        std::thread::scope(|s| {
-            let second = s.spawn(|| drop(gate.enter()));
-            std::thread::sleep(Duration::from_millis(100));
-            assert!(!second.is_finished(), "1100 + 1000 MB exceed the 2000 MB limit");
-            drop(first);
-            second.join().unwrap();
-        });
-        assert_eq!(gate.per_worker() >> 20, 1000);
+    fn a_soft_limit_never_stops_the_run() {
+        let now = rss(500);
+        let pool = Pool::new(Some(budget(1000 * MB, now.clone(), false)), 500 * MB, 1);
+        let _running = pool.enter();
+        now.store(5000 * MB, Ordering::SeqCst);
+        pool.sample();
+        assert!(!pool.halted());
+    }
+
+    /// Decision 6, after the first codeunit: the cost of one thread beside the fixed part does not fit.
+    #[test]
+    fn a_hard_limit_stops_the_run_when_one_threads_cost_cannot_fit() {
+        let now = rss(500);
+        let pool = Pool::new(Some(budget(2048 * MB, now.clone(), true)), 500 * MB, 4);
+        let first = pool.enter();
+        now.store(2040 * MB, Ordering::SeqCst);
+        drop(first);
+        assert!(pool.halted(), "500 + 1540 MB do not fit under the stop line");
     }
 
     #[test]
-    fn a_tenth_of_the_limit_is_kept_free() {
-        let rss = Arc::new(AtomicUsize::new((850 * MB) as usize));
-        let gate = Gate::new(Some(budget(1000 * MB, rss)), 850 * MB, 64 * MB);
-        let _first = gate.enter();
-        std::thread::scope(|s| {
-            let second = s.spawn(|| drop(gate.enter()));
-            std::thread::sleep(Duration::from_millis(100));
-            assert!(!second.is_finished(), "850 + 64 MB pass 90 % of 1000 MB");
-            drop(_first);
-            second.join().unwrap();
-        });
-    }
-
-    #[test]
-    fn the_first_thread_count_assumes_the_measured_cost_of_a_thread() {
-        let rss = Arc::new(AtomicUsize::new((1000 * MB) as usize));
+    fn a_hard_limit_stops_the_run_at_start_when_one_thread_does_not_fit() {
         let opts = crate::runtime::RunOptions {
-            memory: Some(budget(3000 * MB, rss)),
+            memory: Some(budget(100 * MB, rss(90), true)),
             ..Default::default()
         };
-        let mut plan = Plan::after_compile(&opts, 12);
-        // 90 % of 3000 MB less 1000 MB held, at PER_WORKER_START (200 MB) each.
-        assert_eq!(plan.after_baseline(), 8);
-        let plan = Plan::after_compile(&crate::runtime::RunOptions::default(), 12);
-        assert_eq!(plan.workers(), 12, "no budget: as asked");
+        let plan = Plan::after_compile(&opts, 12);
+        assert!(plan.pool().halted());
+        let m = plan.pool().halt().message().expect("a message");
+        assert!(
+            m.contains("not enough memory to run the tests") && m.contains("the limit is 100 MB"),
+            "{m}"
+        );
+        let soft = crate::runtime::RunOptions {
+            memory: Some(budget(100 * MB, rss(90), false)),
+            ..Default::default()
+        };
+        assert!(
+            !Plan::after_compile(&soft, 12).pool().halted(),
+            "serve and debug go on with one thread"
+        );
+    }
+
+    /// A test not reached before the stop keeps the limit as its reason when a later step refuses the whole codeunit
+    /// (a chain member after one the stop left not run as a whole).
+    #[test]
+    fn a_refusal_of_the_whole_codeunit_keeps_the_memory_limit_as_the_reason() {
+        use crate::Outcome;
+        let mut done = vec![
+            ("Ran".to_string(), Outcome::Pass),
+            (
+                "NotReached".to_string(),
+                Outcome::NotRun("memory limit (--max-memory 2048 MB)".into()),
+            ),
+        ];
+        crate::runtime::corpus::refuse_all(&mut done, "an earlier test codeunit was not run");
+        assert_eq!(
+            done[0].1,
+            Outcome::NotRun("an earlier test codeunit was not run".into())
+        );
+        assert_eq!(done[1].1, Outcome::NotRun("memory limit (--max-memory 2048 MB)".into()));
     }
 
     #[test]
-    fn an_open_gate_never_waits() {
-        let gate = Gate::open();
-        let _a = gate.enter();
-        let _b = gate.enter();
-        assert_eq!(gate.waits(), 0);
+    fn the_report_line_names_the_most_threads_and_how_many_ended_for_memory() {
+        let r = MemoryReport {
+            limit: Some((3072 * MB, "--max-memory".into())),
+            after_compile: Some(700 * MB),
+            after_baseline: Some(710 * MB),
+            per_worker: 1600 * MB,
+            asked: 12,
+            most: 2,
+            at_end: 1,
+            ended: 1,
+            halted: None,
+        };
+        let line = r.line().expect("a budget");
+        assert!(line.contains("test threads at most 2 of 12, 1 at the end"), "{line}");
+        assert!(line.contains("1 ended for memory"), "{line}");
     }
 }

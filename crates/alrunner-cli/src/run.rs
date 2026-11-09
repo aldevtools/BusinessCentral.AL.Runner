@@ -1510,8 +1510,7 @@ fn test_inner(
                 }),
                 on_start: w.on_start.clone(),
                 cancel: w.cancel.clone(),
-                debugger: None,
-                paused: None,
+                ..Default::default()
             }
         }
         None => match &debug {
@@ -1525,10 +1524,9 @@ fn test_inner(
                             on_test(e)
                         }
                     })),
-                    on_start: None,
-                    cancel: None,
                     debugger: Some(d.debugger.clone()),
                     paused: Some(d.paused.clone()),
+                    ..Default::default()
                 }
             }
             None => Default::default(),
@@ -2412,6 +2410,7 @@ fn test_inner(
         }
         code = crate::stability::exit_code(code, out.flips, a.stability_allow_flips);
     }
+    code = crate::memory_budget::exit_code(p.memory.halted.as_deref(), code); // Stopped at the memory limit: 2.
     let verdict = match code {
         0 => "PASSED",
         1 => "FAILED",

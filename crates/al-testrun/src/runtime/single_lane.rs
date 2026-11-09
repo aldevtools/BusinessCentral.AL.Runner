@@ -383,8 +383,8 @@ pub(super) struct Lane<'a> {
     /// A worker thread's own copy of the install baseline from `snapshot` (a baseline holds `Rc`s and stays on its
     /// thread).
     pub thread_baseline: &'a (dyn Fn(Option<&[u8]>) -> Option<al_vm::Baseline> + Sync),
-    /// The memory budget's admission (`memory.rs`): a session starts when memory leaves room for it.
-    pub gate: &'a super::memory::Gate,
+    /// The run's test threads and their memory (`memory.rs`): a worker starts and goes on only while memory has room.
+    pub pool: &'a super::memory::Pool,
     /// ADR-066 amendment 8: the chain walk kept the single instances from member to member (`ChainWalk::keep_singles`),
     /// so a chain member's result is already its run in BC's order: it is never dependent here, never runs again and is
     /// not flagged. It still counts as a writer for the codeunits that are no members.
@@ -644,6 +644,17 @@ impl Lane<'_> {
         report.strict = self.strict;
         let chains = self.chains(slots, report);
         report.chains = chains.len();
+        // A run stopped at its hard memory limit runs nothing again: the codeunits whose result is their serial run
+        // here were not reached, so their tests are not run, for the limit (ADR-066 amendment 10, decision 6).
+        if self.pool.halted() {
+            let halt = self.pool.halt();
+            for k in chains.iter().flat_map(|c| c.chosen.iter()) {
+                if let Some(Ok(done)) = slots[*k].as_mut().map(|r| &mut r.result) {
+                    super::corpus::refuse_all(&mut done.0, halt.reason());
+                }
+            }
+            return;
+        }
         let runs = self.run_chains(&chains, report);
         for (chain, (done, took)) in chains.iter().zip(runs) {
             report.longest = report.longest.max(took);
@@ -838,68 +849,101 @@ impl Lane<'_> {
                 units: self.units,
                 limit: self.limit,
             };
-            let (thread_baseline, gate) = (self.thread_baseline, self.gate);
+            let (thread_baseline, pool) = (self.thread_baseline, self.pool);
             let (ask, asked) = std::sync::mpsc::channel::<Ask>();
+            // Worker threads alive, and the most at once.
+            let live = std::sync::atomic::AtomicUsize::new(0);
             std::thread::scope(|scope| {
                 let mut handles = Vec::new();
-                for _ in 0..helpers {
-                    let ask = ask.clone();
-                    let (next, worker, taken) = (&next, &worker, &taken);
-                    let spawned = std::thread::Builder::new()
-                        .stack_size(TEST_STACK)
-                        .spawn_scoped(scope, move || {
-                            let own = thread_baseline(snapshot);
-                            let (reply, replies) = std::sync::mpsc::channel();
-                            let mut fetch = |carry: usize, whole: bool| {
-                                ask.send((carry, whole, reply.clone())).ok()?;
-                                replies.recv().ok()
-                            };
-                            // The one carried start this thread holds (issue 6924).
-                            let mut held: Held = None;
-                            let mut start = |carry: usize| {
-                                carried_start(carry, &mut held, own.as_ref(), worker.engine, &mut fetch)
-                                    .map_err(|()| NoBytes)
-                            };
-                            let mut done = Vec::new();
-                            loop {
-                                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                let Some(&c) = taken.get(i) else { return done };
-                                let chain = &chains[c];
-                                let _room = gate.enter();
-                                let mut at = chain.steps.iter();
-                                let runs = run_in_order(&chain.order, &mut |_| {
-                                    worker.run(own.as_ref(), &mut start, at.next().expect("a step per codeunit"))
+                // ADR-066 amendment 10, decisions 1 and 3: a worker starts while a session waits and memory has room,
+                // and ends after a session when there is none; the sessions no worker ran run on this thread below.
+                let mut grow = |handles: &mut Vec<_>| {
+                    let mut added = 0;
+                    while live.load(std::sync::atomic::Ordering::SeqCst) < helpers
+                        && next.load(std::sync::atomic::Ordering::Relaxed) + added < taken.len()
+                    {
+                        let Some(member) = pool.try_add(added) else { break };
+                        let ask = ask.clone();
+                        let (next, worker, taken, live) = (&next, &worker, &taken, &live);
+                        live.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        let spawned =
+                            std::thread::Builder::new()
+                                .stack_size(TEST_STACK)
+                                .spawn_scoped(scope, move || {
+                                    let _member = member;
+                                    let own = thread_baseline(snapshot);
+                                    let (reply, replies) = std::sync::mpsc::channel();
+                                    let mut fetch = |carry: usize, whole: bool| {
+                                        ask.send((carry, whole, reply.clone())).ok()?;
+                                        replies.recv().ok()
+                                    };
+                                    // The one carried start this thread holds (issue 6924).
+                                    let mut held: Held = None;
+                                    let mut start = |carry: usize| {
+                                        carried_start(carry, &mut held, own.as_ref(), worker.engine, &mut fetch)
+                                            .map_err(|()| NoBytes)
+                                    };
+                                    let mut done = Vec::new();
+                                    loop {
+                                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                        let Some(&c) = taken.get(i) else { break };
+                                        let chain = &chains[c];
+                                        let running = pool.enter();
+                                        let mut at = chain.steps.iter();
+                                        let runs = run_in_order(&chain.order, &mut |_| {
+                                            worker.run(
+                                                own.as_ref(),
+                                                &mut start,
+                                                at.next().expect("a step per codeunit"),
+                                            )
+                                        });
+                                        drop(running);
+                                        done.push((c, runs.ok()));
+                                        if !pool.keep() {
+                                            break;
+                                        }
+                                    }
+                                    live.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                                    done
                                 });
-                                done.push((c, runs.ok()));
+                        match spawned {
+                            Ok(h) => handles.push(h),
+                            // No room for another thread (an address space limit): fewer will do.
+                            Err(_) => {
+                                live.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                                break;
                             }
-                        });
-                    match spawned {
-                        Ok(h) => handles.push(h),
-                        // No room for another thread (an address space limit): fewer will do.
-                        Err(_) => break,
+                        }
+                        added += 1;
+                        ran_on = ran_on.max(live.load(std::sync::atomic::Ordering::SeqCst));
+                    }
+                };
+                grow(&mut handles);
+                // Serves the workers' asks until none is alive and no other can start.
+                loop {
+                    match asked.recv_timeout(std::time::Duration::from_millis(20)) {
+                        Ok((carry, whole, reply)) => {
+                            let delta = if whole { None } else { deltas.get(carry) };
+                            let answer = match delta {
+                                Some((d, base)) => Reply::Delta(d, base),
+                                None => Reply::Whole(
+                                    self.carried[carry]
+                                        .3
+                                        .baseline
+                                        .as_ref()
+                                        .and_then(|b| starts.get(carry, b)),
+                                ),
+                            };
+                            let _ = reply.send(answer);
+                        }
+                        Err(_) => {
+                            grow(&mut handles);
+                            if live.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+                                break;
+                            }
+                        }
                     }
                 }
-                drop(ask);
-                // Ends when every worker thread is done (each holds a sender).
-                for (carry, whole, reply) in asked {
-                    // Memory is tight: the deltas kept for later sessions go first (they are made again on demand).
-                    if self.gate.take_tight() && deltas.forget() {
-                        self.gate.dropped_cache();
-                    }
-                    let delta = if whole { None } else { deltas.get(carry) };
-                    let answer = match delta {
-                        Some((d, base)) => Reply::Delta(d, base),
-                        None => Reply::Whole(
-                            self.carried[carry]
-                                .3
-                                .baseline
-                                .as_ref()
-                                .and_then(|b| starts.get(carry, b)),
-                        ),
-                    };
-                    let _ = reply.send(answer);
-                }
-                ran_on = handles.len().max(1);
                 for h in handles {
                     for (c, runs) in h.join().expect("a lane worker panicked") {
                         out[c] = runs;
