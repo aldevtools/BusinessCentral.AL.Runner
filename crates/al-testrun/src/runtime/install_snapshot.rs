@@ -75,7 +75,13 @@ impl InstallSnapshots {
     /// (one test thread, or no baseline). It says whether the shared baseline still holds at the end of the run what it
     /// held when it was frozen ("Base unchanged" of ADR-069); debug builds stop when it does not.
     pub(crate) fn line(&self) -> Option<String> {
-        match self.get()? {
+        let Some(made) = self.once.get()?.as_ref() else {
+            // A baseline that is neither shared nor written as bytes: each test thread runs the install code again.
+            return self.why_private.get().map(|why| {
+                format!("install baseline: run again by each test thread ({why}; it cannot be written as bytes either)")
+            });
+        };
+        match made {
             InstallSnapshot::Shared(s) => {
                 let unchanged = s.unchanged();
                 debug_assert!(
