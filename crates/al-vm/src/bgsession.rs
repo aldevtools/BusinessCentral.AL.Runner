@@ -153,8 +153,8 @@ impl Session {
         self.ui_state.scope = parked.ui_scope;
         // Rows the new session committed move the minimum active row version only while the isolation transaction has
         // not written: not pinned.
-        if self.iso_min_row_version.is_some() && committed_row_version != parked.tx.committed_row_version {
-            self.iso_min_unpinned = true;
+        if committed_row_version != parked.tx.committed_row_version {
+            self.note_background_commit_for_min_row_version();
         }
         self.tx = parked.tx;
         // The rows the new session committed are durable for the starting session too.

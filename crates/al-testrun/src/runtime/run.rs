@@ -538,10 +538,10 @@ fn run_codeunit_inner(
         // Function isolation returns the database to its state after OnRun when each test ends
         // (corpus isolation probe T5 and T6; oracle/28/xunit-isolation-function.xml).
         let checkpoint = (isolation == TestIsolation::Function).then(|| Checkpoint::take(session));
-        // TestIsolation = Codeunit keeps one transaction open for the tests: MinimumActiveRowVersion stays at its value now. When
-        // OnRun wrote rows, whether they belong to that transaction is not pinned, and nothing is frozen.
-        if isolation == TestIsolation::Codeunit && !execute && runner.none_handed_out(session, row_versions_from) {
-            session.freeze_min_active_row_version();
+        // MinimumActiveRowVersion across the tests (al-vm `min_row_version.rs`). When OnRun wrote rows, whether they belong to
+        // the isolation transaction is not pinned, and no value is taken.
+        if !execute && runner.none_handed_out(session, row_versions_from) {
+            start_min_row_version(session, isolation, scratch.hub);
         }
         if scratch.capture.any() {
             session.enable_capture(scratch.capture);
@@ -1724,5 +1724,17 @@ fn on_run_time_limit<T>(
             limit.map_or(0, |l| l.as_secs())
         ))),
         r => r,
+    }
+}
+
+/// TestIsolation = Codeunit keeps one transaction open for the tests: MinimumActiveRowVersion takes its value now.
+/// RequiredTestIsolation = Function on the hub: it takes its value at the codeunit's first read (corpus probe
+/// metadata/platform-tables/MinimumActiveRowVersionStages.al, branch al-runtime-rs-staging-minrowver, codeunit 97989 at
+/// lines 142-168). Other isolations are not probed.
+fn start_min_row_version(session: &mut Session, isolation: TestIsolation, hub: bool) {
+    match isolation {
+        TestIsolation::Codeunit => session.freeze_min_active_row_version(),
+        TestIsolation::Function if hub => session.take_min_active_row_version_at_first_read(),
+        _ => {}
     }
 }
