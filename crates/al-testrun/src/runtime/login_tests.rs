@@ -155,3 +155,64 @@ codeunit 51021 "Repro Row Test"
         vec![("RowExists".to_string(), Outcome::Pass)]
     );
 }
+
+// A test codeunit that reads only what the subscribers of events raised inside the login subscriber's calls write runs
+// without the login (corpus Y64InstallSubscribers.al reads a table a telemetry logger subscriber of another app writes):
+// what counts is what the login subscriber writes through its own calls, not the event fan-out of its reach, which in
+// Microsoft's apps covers most of Base Application. Here the dependency's login code stops with an error, so a codeunit
+// that raised the login would not run.
+#[test]
+fn a_test_that_reads_only_the_event_fan_out_of_the_login_subscriber_runs_without_the_login() {
+    let dep = DEP.replace(
+        "        G.\"Object ID\" := ObjectID; G.Insert();\n",
+        "        G.\"Object ID\" := ObjectID; G.Insert();\n        OnAfterInsertAssistedSetup();\n",
+    ) + r#"
+codeunit 1991 "Guided Experience Events"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Company Triggers", 'OnCompanyOpenCompleted', '', false, false)]
+    local procedure StopsHere()
+    begin
+        Error('The login code cannot run here.');
+    end;
+}
+"#;
+    let dep = dep.replace(
+        "    [IntegrationEvent(false, false)] local procedure OnRegisterAssistedSetup() begin end;",
+        "    [IntegrationEvent(false, false)] local procedure OnRegisterAssistedSetup() begin end;\n    [IntegrationEvent(false, false)] local procedure OnAfterInsertAssistedSetup() begin end;",
+    );
+    let main = r#"
+table 51030 "Fan Out Log" { fields { field(1; K; Integer) { } } keys { key(PK; K) { Clustered = true; } } }
+codeunit 51030 "Fan Out Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterAssistedSetup', '', false, false)]
+    local procedure HandleOnRegisterAssistedSetup()
+    var G: Codeunit "Guided Experience";
+    begin
+        G.InsertAssistedSetup(51030);
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnAfterInsertAssistedSetup', '', false, false)]
+    local procedure Logs()
+    var L: Record "Fan Out Log";
+    begin
+        L.K := 1;
+        if L.Insert() then;
+    end;
+}
+codeunit 51031 "Fan Out Test"
+{
+    Subtype = Test;
+    [Test]
+    procedure ReadsTheLog()
+    var L: Record "Fan Out Log";
+    begin
+        if L.Count() > 1 then
+            Error('more than one log row');
+    end;
+}
+"#;
+    assert_eq!(
+        super::tests::outcomes_over_dependency(main, &dep),
+        vec![("ReadsTheLog".to_string(), Outcome::Pass)]
+    );
+}
