@@ -60,15 +60,24 @@ machine or the memory limit of its container, whichever is smaller. On a build
 agent that also runs other jobs, set the limit yourself with `--max-memory`, for
 example `--max-memory 3G`. The run then uses fewer threads and may take longer.
 
-The limit is a hard limit. One test thread needs a fixed amount of memory: the
-compiled apps, the install baseline, and the state a test suite builds up. If that
-does not fit, AL Runner stops instead of going over the limit:
+The limit is a hard limit, for the whole run. One test thread needs a fixed amount
+of memory: the compiled apps, the install baseline, and the state a test suite
+builds up. The compile needs memory too, most of all the first run after an update,
+when AL Runner builds its compile cache of Microsoft's apps (about 3.4 GB with Base
+Application, against about 1 GB for a run that reads the cache). If that does not
+fit, AL Runner stops instead of going over the limit, also in the middle of the
+compile:
 
 - It exits with code 2 and prints how much memory the run needed and what the
   limit allowed.
 - The tests it did not reach are reported as not run, with the reason
   `memory limit (--max-memory 2048 MB)` (or `cgroup memory.max`, `free memory`).
   They are never reported as failures. Results it already reported stay.
+
+When the compile was stopped, the message says "while the apps were compiled".
+A run that stopped there with a limit that is enough for its tests needs the
+compile cache: run it once with a higher limit (or none) to build the cache, then
+run it again with the limit.
 
 To get a result, raise the limit or free memory. `--timings` prints a `memory:`
 line: the limit and where it comes from, the memory held after the compile and

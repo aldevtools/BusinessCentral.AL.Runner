@@ -5,6 +5,7 @@ pub mod base_access;
 pub mod calcformula;
 pub mod check;
 pub mod features;
+pub mod halt;
 pub mod incremental;
 pub mod lower;
 pub mod members;

@@ -455,19 +455,11 @@ fn check_inner(
         let (tx, rx) = std::sync::mpsc::channel::<usize>();
         let rx = std::sync::Mutex::new(rx);
         let workers = std::thread::available_parallelism().map_or(2, |n| n.get().min(8));
+        let token = crate::halt::current();
         std::thread::scope(|scope| {
             for _ in 0..workers {
-                scope.spawn(|| {
-                    loop {
-                        let next = rx.lock().expect("prefetch queue").recv();
-                        match next {
-                            Ok(fi) => {
-                                ws.green(fi);
-                            }
-                            Err(_) => break,
-                        }
-                    }
-                });
+                let (token, rx) = (token.clone(), &rx);
+                scope.spawn(move || prefetch_files(ws, rx, token));
             }
             c.prefetch = Some(tx);
             // The workspace's own objects are the first round of the demand: they are checked
@@ -696,6 +688,31 @@ fn left_out_diagnostics(
         .filter(|d| !seen.contains(&(d.file.as_str(), d.offset, d.code)))
         .collect();
     (diags, Some(c.resolutions))
+}
+
+/// A thread that parses the files the checker will reach, ahead of it (`check_inner`). A compile the memory limit stops
+/// (`halt.rs`) unwinds the checker while the queue's sender is still alive: the thread then stops on its own instead of
+/// waiting for it.
+fn prefetch_files(
+    ws: &Workspace,
+    rx: &std::sync::Mutex<std::sync::mpsc::Receiver<usize>>,
+    token: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+) {
+    let _armed = crate::halt::arm(token);
+    loop {
+        let next = rx
+            .lock()
+            .expect("prefetch queue")
+            .recv_timeout(std::time::Duration::from_millis(20));
+        match next {
+            Ok(fi) => {
+                crate::halt::check();
+                ws.green(fi);
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => crate::halt::check(),
+            Err(_) => break,
+        }
+    }
 }
 
 /// The complete check of fewer objects than this stays on the calling thread.

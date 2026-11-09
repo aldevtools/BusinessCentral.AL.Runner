@@ -668,6 +668,7 @@ pub fn open_or_build_mode(
             if entries[li].is_some() {
                 continue;
             }
+            al_sema::halt::check(); // A hard memory limit stops the build between layers too (`al_sema::halt`).
             let started = std::time::Instant::now();
             let layer = {
                 let below: Vec<&dyn LayerSource> = entries[..li]
@@ -705,6 +706,7 @@ pub fn open_or_build_mode(
                     b.lower(range.start, &stack)?
                 }
             };
+            al_sema::halt::check();
             // The layers above the first compress with its dictionary: training one takes most of
             // the time of a small layer, and the blocks are the same kind of data.
             let bytes = match entries.first().and_then(Option::as_ref).filter(|_| li > 0) {
