@@ -833,7 +833,6 @@
 74431 P137_Evaluate_BracketsInsideTheText
 74432 P137_SetDefault_NotRegistered
 74449 Register_Crm_Result
-74451 RF_CompanyInformationPicture_GetWithoutCalcFields_Write
 74466 SetFilter_EnumField_UnknownText
 74513 QS_Columns_DataItemNamedLikeTable
 74513 QS_Labels_DataItemNamedLikeTable
@@ -1301,7 +1300,6 @@
 85780 Item50_YamlRoundTrip_NestedList
 85841 Item63_MediaAfterChangeCompany
 85841 Item64_OutStreamWriteInStream
-85902 ToRecordRef_Modify_FreshGet
 85905 Get_WithoutBoolean_EmptyList
 85905 Get_WithoutBoolean_Indexes
 85907 WriteToOutStream_EncodingNameCasing
