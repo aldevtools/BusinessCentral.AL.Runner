@@ -1,6 +1,6 @@
 # ADR-066: Run the test runner codeunit's own AL
 
-- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07); amendment 4 (order-dependent codeunits run in parallel, serial run only after a failure, `--strict-order`) Accepted (owner, 2026-11-07); amendment 5 (each serial re-run is a session of its own, the sessions run in parallel; a test refused before it starts triggers no re-run) Accepted (owner, 2026-11-07); amendment 7 (a re-run only when a failed test could have seen the changed state; a replay cap only with `--max-replay N`, changed by the owner the same day) Accepted (owner, 2026-11-08); amendment 8 (the carry chain walk keeps the SingleInstance state; chain members are never re-run or flagged) Accepted (owner, 2026-11-08, variant A); amendment 9 (the number of test threads follows the memory budget, `--max-memory`) Proposed (2026-11-08)
+- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07); amendment 4 (order-dependent codeunits run in parallel, serial run only after a failure, `--strict-order`) Accepted (owner, 2026-11-07); amendment 5 (each serial re-run is a session of its own, the sessions run in parallel; a test refused before it starts triggers no re-run) Accepted (owner, 2026-11-07); amendment 7 (a re-run only when a failed test could have seen the changed state; a replay cap only with `--max-replay N`, changed by the owner the same day) Accepted (owner, 2026-11-08); amendment 8 (the carry chain walk keeps the SingleInstance state; chain members are never re-run or flagged) Accepted (owner, 2026-11-08, variant A); amendment 9 (the number of test threads follows the memory budget, `--max-memory`) Accepted (owner, 2026-11-09, as a safety net near the limit; redesign in a follow-up)
 - Date: 2026-11-05
 
 ## Context
@@ -933,7 +933,7 @@ chain), amendment 7 (the per-test rule and `--max-replay`), and the `single-inst
   Function, on the same hub session), since chain members no longer run again.
 - `crates/al-testrun/src/runtime/chain_walk.rs` unit test: `starts_fresh` (suite and hub leg boundaries, a refused link).
 
-## Amendment 9 (Proposed, 2026-11-08): the number of test threads follows the memory budget
+## Amendment 9 (Accepted, owner 2026-11-09): the number of test threads follows the memory budget
 
 - Status: Proposed. Owner request (2026-11-08): a run must fit on any machine, by running more of its work one after
   the other when memory is short, and a user can cap the memory with a flag. Amendments 7 and 8 are other changes; this
