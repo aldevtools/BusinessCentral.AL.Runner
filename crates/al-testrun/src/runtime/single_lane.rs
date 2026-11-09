@@ -378,11 +378,12 @@ pub(super) struct Lane<'a> {
     /// A worker thread can make its own copy of the install baseline (`corpus.rs` `baseline_engine`); without it and
     /// with a baseline, the sessions run one after the other on this thread.
     pub install_copies: bool,
-    /// The install baseline as bytes, written once per run (shared with the parallel run).
-    pub snapshot: &'a std::cell::OnceCell<Option<Vec<u8>>>,
-    /// A worker thread's own copy of the install baseline from `snapshot` (a baseline holds `Rc`s and stays on its
-    /// thread).
-    pub thread_baseline: &'a (dyn Fn(Option<&[u8]>) -> Option<al_vm::Baseline> + Sync),
+    /// The install baseline the test threads start from, made once per run (shared with the parallel run).
+    pub snapshot: &'a super::install_snapshot::InstallSnapshots,
+    /// A worker thread's own baseline from `snapshot` (a baseline holds `Rc`s and stays on its thread; ADR-069: over
+    /// the shared frozen one).
+    pub thread_baseline:
+        &'a (dyn Fn(Option<&super::install_snapshot::InstallSnapshot>) -> Option<al_vm::Baseline> + Sync),
     /// The run's test threads and their memory (`memory.rs`): a worker starts and goes on only while memory has room.
     pub pool: &'a super::memory::Pool,
     /// ADR-066 amendment 8: the chain walk kept the single instances from member to member (`ChainWalk::keep_singles`),
@@ -837,9 +838,7 @@ impl Lane<'_> {
         let mut deltas = Deltas::new(self.carried, self.baseline.unwrap_or(&empty));
         let mut ran_on = 1;
         if helpers > 0 {
-            self.snapshot
-                .get_or_init(|| self.baseline.and_then(al_vm::Baseline::to_bytes));
-            let snapshot: Option<&[u8]> = self.snapshot.get().and_then(|s| s.as_deref());
+            let snapshot = self.snapshot.get_or_make(self.baseline);
             let next = std::sync::atomic::AtomicUsize::new(0);
             // The costliest sessions first: the lane's wall time is then close to the longest session's.
             let taken = dispatch_order(&chains.iter().map(|c| c.cost).collect::<Vec<_>>());

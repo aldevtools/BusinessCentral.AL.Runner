@@ -1338,10 +1338,10 @@ impl CorpusRuntime {
             .map(|a| (a.id.clone(), a.name.clone(), a.version.clone()))
             .collect();
         let mut suite_work: Vec<(usize, std::time::Duration)> = Vec::new();
-        // Each test thread starts from its own copy of the baseline (a baseline holds `Rc`s and cannot be shared
-        // between threads), and reading a snapshot is far cheaper than running the install code again. It is written
-        // when a pass first runs on several threads.
-        let snapshot_once: std::cell::OnceCell<Option<Vec<u8>>> = std::cell::OnceCell::new();
+        // Every test thread starts from one frozen install baseline (ADR-069), or from a copy of its own read from
+        // bytes (`install_snapshot.rs`); either is far cheaper than running the install code again. It is made when a
+        // pass first runs on several threads.
+        let snapshot_once = super::install_snapshot::InstallSnapshots::new(opts.private_baseline);
         // The passes of the run: one, or one per entry (issue 5635), each over the same compile and install baseline.
         let passes: Vec<Pass> = if opts.entries.is_empty() {
             vec![Pass {
@@ -1603,26 +1603,19 @@ impl CorpusRuntime {
             }
             // A test thread's own copy of the install baseline: the baseline the first run left, as its snapshot says (over
             // the engine's test data, if it has any); only a baseline that has no snapshot is run again, once per thread.
-            let thread_baseline = |snapshot: Option<&[u8]>| {
+            let thread_baseline = |snapshot: Option<&super::install_snapshot::InstallSnapshot>| {
                 let reset_started = std::time::Instant::now();
                 let own = baseline_engine.as_ref().and_then(|e| {
-                    snapshot
-                        .and_then(al_vm::Baseline::from_bytes)
-                        // The bytes are those of the first run's baseline.
-                        .map(|b| match first_origin {
-                            Some(origin) => b.backed_by(e).with_origin(origin),
-                            None => b.backed_by(e),
-                        })
-                        .or_else(|| {
-                            crate::baseline::run_traced(e, lowered, false, opts.company_data.as_ref(), &opts.perturb)
-                                .map(|b| b.baseline)
-                        })
+                    snapshot.and_then(|s| s.thread_copy(e, first_origin)).or_else(|| {
+                        crate::baseline::run_traced(e, lowered, false, opts.company_data.as_ref(), &opts.perturb)
+                            .map(|b| b.baseline)
+                    })
                 });
                 let took = reset_started.elapsed().as_nanos().min(u64::MAX as u128) as u64;
                 reset_ns.fetch_max(took, std::sync::atomic::Ordering::Relaxed);
                 own
             };
-            let ahead_snapshot: Option<&[u8]> = snapshot_once.get().and_then(|s| s.as_deref());
+            let ahead_snapshot = snapshot_once.get();
             // ADR-066 amendment 8: the walk keeps the SingleInstance state along each BC session's members.
             // `--test-suites` orders a session by the file, not by the walk's id order: there the walk keeps fresh
             // state per member and the lane handles the members as before (amendment 8, decision 6).
@@ -1645,14 +1638,9 @@ impl CorpusRuntime {
                 // Test codeunits run on a session each and do not share anything (the install baseline is put back for
                 // each), so worker threads take them in turn, each with its own copy of the baseline (`threads.rs`).
                 let encode_started = std::time::Instant::now();
-                let snapshot: &Option<Vec<u8>> = snapshot_once.get_or_init(|| {
-                    baseline_engine
-                        .is_some()
-                        .then(|| baseline.as_ref().and_then(al_vm::Baseline::to_bytes))
-                        .flatten()
-                });
+                let snapshot = snapshot_once.get_or_make(baseline.as_ref().filter(|_| baseline_engine.is_some()));
                 encode_time += encode_started.elapsed();
-                let own = || thread_baseline(snapshot.as_deref());
+                let own = || thread_baseline(snapshot);
                 let run =
                     |b: Option<&al_vm::Baseline>, k: usize| run_unit(&engine, lowered, b, &units[rest[k]], None, limit);
                 super::threads::run_parallel(memory.pool(), rest.len(), baseline.as_ref(), &own, &run)
@@ -1948,6 +1936,7 @@ impl CorpusRuntime {
                 warm_compile: None,
                 baseline_source,
                 passes: pass_times,
+                install_snapshot: snapshot_once.line(),
                 engine_kept,
                 decoded_on_touch: lowered.cached_objects.as_ref().map(|c| c.decoded()),
                 work: RunWork {
@@ -2418,11 +2407,11 @@ fn run_serially(
 /// have an install baseline of their own.
 /// Encodes `baseline` into `snapshot` once (the start the helper threads read back); returns the time it took.
 fn encode_snapshot(
-    snapshot: &std::cell::OnceCell<Option<Vec<u8>>>,
+    snapshot: &super::install_snapshot::InstallSnapshots,
     baseline: Option<&al_vm::Baseline>,
 ) -> std::time::Duration {
     let started = std::time::Instant::now();
-    snapshot.get_or_init(|| baseline.and_then(al_vm::Baseline::to_bytes));
+    snapshot.get_or_make(baseline);
     started.elapsed()
 }
 

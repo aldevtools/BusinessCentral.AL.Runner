@@ -11,7 +11,9 @@ mod delta;
 mod install_orders;
 pub use delta::{Delta, DeltaPart, Fingerprint};
 mod row_delta;
+mod shared;
 pub use row_delta::RowDelta;
+pub use shared::SharedBaseline;
 
 /// What a session keeps of the baseline run; see the module comment.
 #[derive(Clone)]
