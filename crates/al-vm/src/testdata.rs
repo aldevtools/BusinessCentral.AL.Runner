@@ -430,8 +430,10 @@ pub(crate) struct TestBacking {
     /// `Engine::uid` of the engine whose program and tables these are.
     engine_uid: u64,
     data: TestData,
-    /// By table object: the table built from the restored rows, once per thread.
+    /// By table object: this thread's handle on the table built from the restored rows.
     cache: RefCell<HashMap<u32, Option<Rows>>>,
+    /// The engine's rows, built once for all threads (ADR-069 decision 4).
+    shared: Arc<crate::test_rows::TestRows>,
 }
 
 impl TestBacking {
@@ -442,6 +444,7 @@ impl TestBacking {
             engine_uid: engine.uid,
             data,
             cache: RefCell::default(),
+            shared: engine.test_rows.clone(),
         }
     }
 
@@ -822,7 +825,7 @@ impl Backing for TestBacking {
         if let Some(hit) = self.cache.borrow().get(&object) {
             return hit.clone();
         }
-        let built = self.load(object, t);
+        let built = self.shared.get(self.data.id, object, || self.load(object, t));
         self.cache.borrow_mut().insert(object, built.clone());
         built
     }

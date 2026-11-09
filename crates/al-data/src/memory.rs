@@ -9,7 +9,7 @@ mod frozen;
 mod order_carry;
 mod replace;
 mod row_changes;
-pub use frozen::{FrozenStore, shareable};
+pub use frozen::{FrozenRows, FrozenStore, shareable};
 pub use row_changes::{RowChanges, TableRows};
 
 /// A primary-key tuple ordered field by field.

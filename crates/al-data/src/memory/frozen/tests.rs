@@ -141,3 +141,20 @@ fn a_blob_write_in_one_thread_does_not_reach_the_base() {
     let Value::Blob(b) = &r[0][1] else { panic!() };
     assert_eq!(b.borrow().bytes, vec![1, 2, 3]);
 }
+
+#[test]
+fn frozen_rows_are_shared_and_refuse_a_handle() {
+    fn check<T: Send + Sync>() {}
+    check::<FrozenRows>();
+    let t = table();
+    let rows = Rows::from_rows(&t, vec![row("A", 1, 1), row("B", 2, 1)]).unwrap();
+    let f = std::sync::Arc::new(FrozenRows::freeze(rows).ok().unwrap());
+    let g = f.clone();
+    assert_eq!(std::thread::spawn(move || g.thaw().len()).join().unwrap(), 2);
+    let with_list = vec![
+        Value::Code("C".into()),
+        Value::List(Default::default()),
+        Value::Integer(1),
+    ];
+    assert!(FrozenRows::freeze(Rows::from_rows(&t, vec![with_list]).unwrap()).is_err());
+}
