@@ -1,945 +1,945 @@
-FMNumeric.al:58	0	ok:0
-FMNumeric.al:59	1	ok:0
-FMNumeric.al:60	2	ok:0
-FMNumeric.al:61	3	err:InvalidStandardFormat
-FMNumeric.al:62	4	err:InvalidStandardFormat
-FMNumeric.al:63	5	err:InvalidStandardFormat
-FMNumeric.al:64	6	err:InvalidStandardFormat
-FMNumeric.al:65	7	err:InvalidStandardFormat
-FMNumeric.al:66	8	err:InvalidStandardFormat
-FMNumeric.al:67	9	ok:0
-FMNumeric.al:68	10	err:InvalidStandardFormat
-FMNumeric.al:69	11	ok:0
-FMNumeric.al:70	12	ok:0
-FMNumeric.al:71	13	ok:     0
-FMNumeric.al:72	14	ok:000000
-FMNumeric.al:73	15	ok:0
-FMNumeric.al:74	16	ok: 0
-FMNumeric.al:75	17	err:InvalidFormatString
-FMNumeric.al:76	18	err:InvalidFormatString
-FMNumeric.al:77	19	err:InvalidFormatString
-FMNumeric.al:78	20	err:InvalidFormatString
-FMNumeric.al:79	21	err:InvalidFormatString
-FMNumeric.al:80	22	ok:0
-FMNumeric.al:81	23	err:InvalidFormatString
-FMNumeric.al:120	24	err:InvalidFormatString
-FMNumeric.al:121	25	err:InvalidFormatString
-FMNumeric.al:122	26	err:InvalidFormatString
-FMNumeric.al:123	27	ok:0
-FMNumeric.al:124	28	err:InvalidFormatString
-FMNumeric.al:125	29	err:InvalidFormatString
-FMNumeric.al:126	30	ok:
-FMNumeric.al:127	31	ok:0
-FMNumeric.al:128	32	ok:0
-FMNumeric.al:129	33	ok:0
-FMNumeric.al:130	34	ok:0
-FMNumeric.al:131	35	ok:0
-FMNumeric.al:132	36	ok:0
-FMNumeric.al:133	37	ok:0
-FMNumeric.al:134	38	err:InvalidStandardFormat
-FMNumeric.al:135	39	ok:x0y
-FMNumeric.al:136	40	ok:literal
-FMNumeric.al:137	41	ok:
-FMNumeric.al:138	42	err:InvalidFormatString
-FMNumeric.al:139	43	err:InvalidFormatString
-FMNumeric.al:140	44	err:InvalidFormatString
-FMNumeric.al:176	45	ok:1
-FMNumeric.al:177	46	ok:1
-FMNumeric.al:178	47	ok:1
-FMNumeric.al:179	48	err:InvalidStandardFormat
-FMNumeric.al:180	49	err:InvalidStandardFormat
-FMNumeric.al:181	50	err:InvalidStandardFormat
-FMNumeric.al:182	51	err:InvalidStandardFormat
-FMNumeric.al:183	52	err:InvalidStandardFormat
-FMNumeric.al:184	53	err:InvalidStandardFormat
-FMNumeric.al:185	54	ok:1
-FMNumeric.al:186	55	err:InvalidStandardFormat
-FMNumeric.al:187	56	ok:1
-FMNumeric.al:188	57	ok:1
-FMNumeric.al:189	58	ok:     1
-FMNumeric.al:190	59	ok:000001
-FMNumeric.al:191	60	ok:1
-FMNumeric.al:192	61	ok: 1
-FMNumeric.al:193	62	err:InvalidFormatString
-FMNumeric.al:194	63	err:InvalidFormatString
-FMNumeric.al:195	64	err:InvalidFormatString
-FMNumeric.al:196	65	err:InvalidFormatString
-FMNumeric.al:197	66	err:InvalidFormatString
-FMNumeric.al:198	67	ok:1
-FMNumeric.al:199	68	err:InvalidFormatString
-FMNumeric.al:238	69	err:InvalidFormatString
-FMNumeric.al:239	70	err:InvalidFormatString
-FMNumeric.al:240	71	err:InvalidFormatString
-FMNumeric.al:241	72	ok:1
-FMNumeric.al:242	73	err:InvalidFormatString
-FMNumeric.al:243	74	err:InvalidFormatString
-FMNumeric.al:244	75	ok:
-FMNumeric.al:245	76	ok:1
-FMNumeric.al:246	77	ok:1
-FMNumeric.al:247	78	ok:1
-FMNumeric.al:248	79	ok:1
-FMNumeric.al:249	80	ok:1
-FMNumeric.al:250	81	ok:1
-FMNumeric.al:251	82	ok:1
-FMNumeric.al:252	83	err:InvalidStandardFormat
-FMNumeric.al:253	84	ok:x1y
-FMNumeric.al:254	85	ok:literal
-FMNumeric.al:255	86	ok:
-FMNumeric.al:256	87	err:InvalidFormatString
-FMNumeric.al:257	88	err:InvalidFormatString
-FMNumeric.al:258	89	err:InvalidFormatString
-FMNumeric.al:294	90	ok:-1
-FMNumeric.al:295	91	ok:-1
-FMNumeric.al:296	92	ok:-1
-FMNumeric.al:297	93	err:InvalidStandardFormat
-FMNumeric.al:298	94	err:InvalidStandardFormat
-FMNumeric.al:299	95	err:InvalidStandardFormat
-FMNumeric.al:300	96	err:InvalidStandardFormat
-FMNumeric.al:301	97	err:InvalidStandardFormat
-FMNumeric.al:302	98	err:InvalidStandardFormat
-FMNumeric.al:303	99	ok:-1
-FMNumeric.al:304	100	err:InvalidStandardFormat
-FMNumeric.al:305	101	ok:1
-FMNumeric.al:306	102	ok:1
-FMNumeric.al:307	103	ok:     1
-FMNumeric.al:308	104	ok:000001
-FMNumeric.al:309	105	ok:-1
-FMNumeric.al:310	106	ok:-1
-FMNumeric.al:311	107	err:InvalidFormatString
-FMNumeric.al:312	108	err:InvalidFormatString
-FMNumeric.al:313	109	err:InvalidFormatString
-FMNumeric.al:314	110	err:InvalidFormatString
-FMNumeric.al:315	111	err:InvalidFormatString
-FMNumeric.al:316	112	ok:1
-FMNumeric.al:317	113	err:InvalidFormatString
-FMNumeric.al:356	114	err:InvalidFormatString
-FMNumeric.al:357	115	err:InvalidFormatString
-FMNumeric.al:358	116	err:InvalidFormatString
-FMNumeric.al:359	117	ok:1
-FMNumeric.al:360	118	err:InvalidFormatString
-FMNumeric.al:361	119	err:InvalidFormatString
-FMNumeric.al:362	120	ok:-
-FMNumeric.al:363	121	ok:-1
-FMNumeric.al:364	122	ok:-1
-FMNumeric.al:365	123	ok:-1
-FMNumeric.al:366	124	ok:-1
-FMNumeric.al:367	125	ok:-1
-FMNumeric.al:368	126	ok:-1
-FMNumeric.al:369	127	ok:-1
-FMNumeric.al:370	128	err:InvalidStandardFormat
-FMNumeric.al:371	129	ok:x1y
-FMNumeric.al:372	130	ok:literal
-FMNumeric.al:373	131	ok:
-FMNumeric.al:374	132	err:InvalidFormatString
-FMNumeric.al:375	133	err:InvalidFormatString
-FMNumeric.al:376	134	err:InvalidFormatString
-FMNumeric.al:412	135	ok:1234
-FMNumeric.al:413	136	ok:1234
-FMNumeric.al:414	137	ok:1234
-FMNumeric.al:415	138	err:InvalidStandardFormat
-FMNumeric.al:416	139	err:InvalidStandardFormat
-FMNumeric.al:417	140	err:InvalidStandardFormat
-FMNumeric.al:418	141	err:InvalidStandardFormat
-FMNumeric.al:419	142	err:InvalidStandardFormat
-FMNumeric.al:420	143	err:InvalidStandardFormat
-FMNumeric.al:421	144	ok:1234
-FMNumeric.al:422	145	err:InvalidStandardFormat
-FMNumeric.al:423	146	ok:1234
-FMNumeric.al:424	147	ok:1,234
-FMNumeric.al:425	148	ok:  1234
-FMNumeric.al:426	149	ok:001234
-FMNumeric.al:427	150	ok:1234
-FMNumeric.al:428	151	ok: 1234
-FMNumeric.al:429	152	err:InvalidFormatString
-FMNumeric.al:430	153	err:InvalidFormatString
-FMNumeric.al:431	154	err:InvalidFormatString
-FMNumeric.al:432	155	err:InvalidFormatString
-FMNumeric.al:433	156	err:InvalidFormatString
-FMNumeric.al:434	157	ok:1.234
-FMNumeric.al:435	158	err:InvalidFormatString
-FMNumeric.al:474	159	err:InvalidFormatString
-FMNumeric.al:475	160	err:InvalidFormatString
-FMNumeric.al:476	161	err:InvalidFormatString
-FMNumeric.al:477	162	ok:1,234
-FMNumeric.al:478	163	err:InvalidFormatString
-FMNumeric.al:479	164	err:InvalidFormatString
-FMNumeric.al:480	165	ok:
-FMNumeric.al:481	166	ok:1234
-FMNumeric.al:482	167	ok:1234
-FMNumeric.al:483	168	ok:1234
-FMNumeric.al:484	169	ok:1234
-FMNumeric.al:485	170	ok:1234
-FMNumeric.al:486	171	ok:1234
-FMNumeric.al:487	172	ok:1234
-FMNumeric.al:488	173	err:InvalidStandardFormat
-FMNumeric.al:489	174	ok:x1234y
-FMNumeric.al:490	175	ok:literal
-FMNumeric.al:491	176	ok:
-FMNumeric.al:492	177	err:InvalidFormatString
-FMNumeric.al:493	178	err:InvalidFormatString
-FMNumeric.al:494	179	err:InvalidFormatString
-FMNumeric.al:530	180	ok:2147483647
-FMNumeric.al:531	181	ok:2147483647
-FMNumeric.al:532	182	ok:2147483647
-FMNumeric.al:533	183	err:InvalidStandardFormat
-FMNumeric.al:534	184	err:InvalidStandardFormat
-FMNumeric.al:535	185	err:InvalidStandardFormat
-FMNumeric.al:536	186	err:InvalidStandardFormat
-FMNumeric.al:537	187	err:InvalidStandardFormat
-FMNumeric.al:538	188	err:InvalidStandardFormat
-FMNumeric.al:539	189	ok:2147483647
-FMNumeric.al:540	190	err:InvalidStandardFormat
-FMNumeric.al:541	191	ok:2147483647
-FMNumeric.al:542	192	ok:2,147,483,647
-FMNumeric.al:543	193	ok:******
-FMNumeric.al:544	194	ok:******
-FMNumeric.al:545	195	ok:2147483647
-FMNumeric.al:546	196	ok: 2147483647
-FMNumeric.al:547	197	err:InvalidFormatString
-FMNumeric.al:548	198	err:InvalidFormatString
-FMNumeric.al:549	199	err:InvalidFormatString
-FMNumeric.al:550	200	err:InvalidFormatString
-FMNumeric.al:551	201	err:InvalidFormatString
-FMNumeric.al:552	202	ok:2.147.483.647
-FMNumeric.al:553	203	err:InvalidFormatString
-FMNumeric.al:592	204	err:InvalidFormatString
-FMNumeric.al:593	205	err:InvalidFormatString
-FMNumeric.al:594	206	err:InvalidFormatString
-FMNumeric.al:595	207	ok:2,147,483,647
-FMNumeric.al:596	208	err:InvalidFormatString
-FMNumeric.al:597	209	err:InvalidFormatString
-FMNumeric.al:598	210	ok:
-FMNumeric.al:599	211	ok:2147483647
-FMNumeric.al:600	212	ok:2147483647
-FMNumeric.al:601	213	ok:2147483647
-FMNumeric.al:602	214	ok:2147483647
-FMNumeric.al:603	215	ok:2147483647
-FMNumeric.al:604	216	ok:2147483647
-FMNumeric.al:605	217	ok:2147483647
-FMNumeric.al:606	218	err:InvalidStandardFormat
-FMNumeric.al:607	219	ok:x2147483647y
-FMNumeric.al:608	220	ok:literal
-FMNumeric.al:609	221	ok:
-FMNumeric.al:610	222	err:InvalidFormatString
-FMNumeric.al:611	223	err:InvalidFormatString
-FMNumeric.al:612	224	err:InvalidFormatString
-FMNumeric.al:648	225	ok:-2147483648
-FMNumeric.al:649	226	ok:-2147483648
-FMNumeric.al:650	227	ok:-2147483648
-FMNumeric.al:651	228	err:InvalidStandardFormat
-FMNumeric.al:652	229	err:InvalidStandardFormat
-FMNumeric.al:653	230	err:InvalidStandardFormat
-FMNumeric.al:654	231	err:InvalidStandardFormat
-FMNumeric.al:655	232	err:InvalidStandardFormat
-FMNumeric.al:656	233	err:InvalidStandardFormat
-FMNumeric.al:657	234	ok:-2147483648
-FMNumeric.al:658	235	err:InvalidStandardFormat
-FMNumeric.al:659	236	ok:2147483648
-FMNumeric.al:660	237	ok:2,147,483,648
-FMNumeric.al:661	238	ok:******
-FMNumeric.al:662	239	ok:******
-FMNumeric.al:663	240	ok:-2147483648
-FMNumeric.al:664	241	ok:-2147483648
-FMNumeric.al:665	242	err:InvalidFormatString
-FMNumeric.al:666	243	err:InvalidFormatString
-FMNumeric.al:667	244	err:InvalidFormatString
-FMNumeric.al:668	245	err:InvalidFormatString
-FMNumeric.al:669	246	err:InvalidFormatString
-FMNumeric.al:670	247	ok:2.147.483.648
-FMNumeric.al:671	248	err:InvalidFormatString
-FMNumeric.al:710	249	err:InvalidFormatString
-FMNumeric.al:711	250	err:InvalidFormatString
-FMNumeric.al:712	251	err:InvalidFormatString
-FMNumeric.al:713	252	ok:2,147,483,648
-FMNumeric.al:714	253	err:InvalidFormatString
-FMNumeric.al:715	254	err:InvalidFormatString
-FMNumeric.al:716	255	ok:-
-FMNumeric.al:717	256	ok:-2147483648
-FMNumeric.al:718	257	ok:-2147483648
-FMNumeric.al:719	258	ok:-2147483648
-FMNumeric.al:720	259	ok:-2147483648
-FMNumeric.al:721	260	ok:-2147483648
-FMNumeric.al:722	261	ok:-2147483648
-FMNumeric.al:723	262	ok:-2147483648
-FMNumeric.al:724	263	err:InvalidStandardFormat
-FMNumeric.al:725	264	ok:x2147483648y
-FMNumeric.al:726	265	ok:literal
-FMNumeric.al:727	266	ok:
-FMNumeric.al:728	267	err:InvalidFormatString
-FMNumeric.al:729	268	err:InvalidFormatString
-FMNumeric.al:730	269	err:InvalidFormatString
-FMNumeric.al:766	270	ok:0
-FMNumeric.al:767	271	ok:0
-FMNumeric.al:768	272	ok:0
-FMNumeric.al:769	273	err:InvalidStandardFormat
-FMNumeric.al:770	274	err:InvalidStandardFormat
-FMNumeric.al:771	275	err:InvalidStandardFormat
-FMNumeric.al:772	276	err:InvalidStandardFormat
-FMNumeric.al:773	277	err:InvalidStandardFormat
-FMNumeric.al:774	278	err:InvalidStandardFormat
-FMNumeric.al:775	279	ok:0
-FMNumeric.al:776	280	err:InvalidStandardFormat
-FMNumeric.al:777	281	ok:0
-FMNumeric.al:778	282	ok:0
-FMNumeric.al:779	283	ok:     0
-FMNumeric.al:780	284	ok:000000
-FMNumeric.al:781	285	ok:0
-FMNumeric.al:782	286	ok: 0
-FMNumeric.al:783	287	err:InvalidFormatString
-FMNumeric.al:784	288	err:InvalidFormatString
-FMNumeric.al:785	289	err:InvalidFormatString
-FMNumeric.al:786	290	err:InvalidFormatString
-FMNumeric.al:787	291	err:InvalidFormatString
-FMNumeric.al:788	292	ok:0
-FMNumeric.al:789	293	err:InvalidFormatString
-FMNumeric.al:828	294	err:InvalidFormatString
-FMNumeric.al:829	295	err:InvalidFormatString
-FMNumeric.al:830	296	err:InvalidFormatString
-FMNumeric.al:831	297	ok:0
-FMNumeric.al:832	298	err:InvalidFormatString
-FMNumeric.al:833	299	err:InvalidFormatString
-FMNumeric.al:834	300	ok:
-FMNumeric.al:835	301	ok:0
-FMNumeric.al:836	302	ok:0
-FMNumeric.al:837	303	ok:0
-FMNumeric.al:838	304	ok:0
-FMNumeric.al:839	305	ok:0
-FMNumeric.al:840	306	ok:0
-FMNumeric.al:841	307	ok:0
-FMNumeric.al:842	308	err:InvalidStandardFormat
-FMNumeric.al:843	309	ok:x0y
-FMNumeric.al:844	310	ok:literal
-FMNumeric.al:845	311	ok:
-FMNumeric.al:846	312	err:InvalidFormatString
-FMNumeric.al:847	313	err:InvalidFormatString
-FMNumeric.al:848	314	err:InvalidFormatString
-FMNumeric.al:884	315	ok:-1
-FMNumeric.al:885	316	ok:-1
-FMNumeric.al:886	317	ok:-1
-FMNumeric.al:887	318	err:InvalidStandardFormat
-FMNumeric.al:888	319	err:InvalidStandardFormat
-FMNumeric.al:889	320	err:InvalidStandardFormat
-FMNumeric.al:890	321	err:InvalidStandardFormat
-FMNumeric.al:891	322	err:InvalidStandardFormat
-FMNumeric.al:892	323	err:InvalidStandardFormat
-FMNumeric.al:893	324	ok:-1
-FMNumeric.al:894	325	err:InvalidStandardFormat
-FMNumeric.al:895	326	ok:1
-FMNumeric.al:896	327	ok:1
-FMNumeric.al:897	328	ok:     1
-FMNumeric.al:898	329	ok:000001
-FMNumeric.al:899	330	ok:-1
-FMNumeric.al:900	331	ok:-1
-FMNumeric.al:901	332	err:InvalidFormatString
-FMNumeric.al:902	333	err:InvalidFormatString
-FMNumeric.al:903	334	err:InvalidFormatString
-FMNumeric.al:904	335	err:InvalidFormatString
-FMNumeric.al:905	336	err:InvalidFormatString
-FMNumeric.al:906	337	ok:1
-FMNumeric.al:907	338	err:InvalidFormatString
-FMNumeric.al:946	339	err:InvalidFormatString
-FMNumeric.al:947	340	err:InvalidFormatString
-FMNumeric.al:948	341	err:InvalidFormatString
-FMNumeric.al:949	342	ok:1
-FMNumeric.al:950	343	err:InvalidFormatString
-FMNumeric.al:951	344	err:InvalidFormatString
-FMNumeric.al:952	345	ok:-
-FMNumeric.al:953	346	ok:-1
-FMNumeric.al:954	347	ok:-1
-FMNumeric.al:955	348	ok:-1
-FMNumeric.al:956	349	ok:-1
-FMNumeric.al:957	350	ok:-1
-FMNumeric.al:958	351	ok:-1
-FMNumeric.al:959	352	ok:-1
-FMNumeric.al:960	353	err:InvalidStandardFormat
-FMNumeric.al:961	354	ok:x1y
-FMNumeric.al:962	355	ok:literal
-FMNumeric.al:963	356	ok:
-FMNumeric.al:964	357	err:InvalidFormatString
-FMNumeric.al:965	358	err:InvalidFormatString
-FMNumeric.al:966	359	err:InvalidFormatString
-FMNumeric.al:1002	360	ok:1234567890123
-FMNumeric.al:1003	361	ok:1234567890123
-FMNumeric.al:1004	362	ok:1234567890123
-FMNumeric.al:1005	363	err:InvalidStandardFormat
-FMNumeric.al:1006	364	err:InvalidStandardFormat
-FMNumeric.al:1007	365	err:InvalidStandardFormat
-FMNumeric.al:1008	366	err:InvalidStandardFormat
-FMNumeric.al:1009	367	err:InvalidStandardFormat
-FMNumeric.al:1010	368	err:InvalidStandardFormat
-FMNumeric.al:1011	369	ok:1234567890123
-FMNumeric.al:1012	370	err:InvalidStandardFormat
-FMNumeric.al:1013	371	ok:1234567890123
-FMNumeric.al:1014	372	ok:1,234,567,890,123
-FMNumeric.al:1015	373	ok:******
-FMNumeric.al:1016	374	ok:******
-FMNumeric.al:1017	375	ok:1234567890123
-FMNumeric.al:1018	376	ok: 1234567890123
-FMNumeric.al:1019	377	err:InvalidFormatString
-FMNumeric.al:1020	378	err:InvalidFormatString
-FMNumeric.al:1021	379	err:InvalidFormatString
-FMNumeric.al:1022	380	err:InvalidFormatString
-FMNumeric.al:1023	381	err:InvalidFormatString
-FMNumeric.al:1024	382	ok:1.234.567.890.123
-FMNumeric.al:1025	383	err:InvalidFormatString
-FMNumeric.al:1064	384	err:InvalidFormatString
-FMNumeric.al:1065	385	err:InvalidFormatString
-FMNumeric.al:1066	386	err:InvalidFormatString
-FMNumeric.al:1067	387	ok:1,234,567,890,123
-FMNumeric.al:1068	388	err:InvalidFormatString
-FMNumeric.al:1069	389	err:InvalidFormatString
-FMNumeric.al:1070	390	ok:
-FMNumeric.al:1071	391	ok:1234567890123
-FMNumeric.al:1072	392	ok:1234567890123
-FMNumeric.al:1073	393	ok:1234567890123
-FMNumeric.al:1074	394	ok:1234567890123
-FMNumeric.al:1075	395	ok:1234567890123
-FMNumeric.al:1076	396	ok:1234567890123
-FMNumeric.al:1077	397	ok:1234567890123
-FMNumeric.al:1078	398	err:InvalidStandardFormat
-FMNumeric.al:1079	399	ok:x1234567890123y
-FMNumeric.al:1080	400	ok:literal
-FMNumeric.al:1081	401	ok:
-FMNumeric.al:1082	402	err:InvalidFormatString
-FMNumeric.al:1083	403	err:InvalidFormatString
-FMNumeric.al:1084	404	err:InvalidFormatString
-FMNumeric.al:1120	405	ok:9223372036854775807
-FMNumeric.al:1121	406	ok:9223372036854775807
-FMNumeric.al:1122	407	ok:9223372036854775807
-FMNumeric.al:1123	408	err:InvalidStandardFormat
-FMNumeric.al:1124	409	err:InvalidStandardFormat
-FMNumeric.al:1125	410	err:InvalidStandardFormat
-FMNumeric.al:1126	411	err:InvalidStandardFormat
-FMNumeric.al:1127	412	err:InvalidStandardFormat
-FMNumeric.al:1128	413	err:InvalidStandardFormat
-FMNumeric.al:1129	414	ok:9223372036854775807
-FMNumeric.al:1130	415	err:InvalidStandardFormat
-FMNumeric.al:1131	416	ok:9223372036854775807
-FMNumeric.al:1132	417	ok:9,223,372,036,854,775,807
-FMNumeric.al:1133	418	ok:******
-FMNumeric.al:1134	419	ok:******
-FMNumeric.al:1135	420	ok:9223372036854775807
-FMNumeric.al:1136	421	ok: 9223372036854775807
-FMNumeric.al:1137	422	err:InvalidFormatString
-FMNumeric.al:1138	423	err:InvalidFormatString
-FMNumeric.al:1139	424	err:InvalidFormatString
-FMNumeric.al:1140	425	err:InvalidFormatString
-FMNumeric.al:1141	426	err:InvalidFormatString
-FMNumeric.al:1142	427	ok:9.223.372.036.854.775.807
-FMNumeric.al:1143	428	err:InvalidFormatString
-FMNumeric.al:1182	429	err:InvalidFormatString
-FMNumeric.al:1183	430	err:InvalidFormatString
-FMNumeric.al:1184	431	err:InvalidFormatString
-FMNumeric.al:1185	432	ok:9,223,372,036,854,775,807
-FMNumeric.al:1186	433	err:InvalidFormatString
-FMNumeric.al:1187	434	err:InvalidFormatString
-FMNumeric.al:1188	435	ok:
-FMNumeric.al:1189	436	ok:9223372036854775807
-FMNumeric.al:1190	437	ok:9223372036854775807
-FMNumeric.al:1191	438	ok:9223372036854775807
-FMNumeric.al:1192	439	ok:9223372036854775807
-FMNumeric.al:1193	440	ok:9223372036854775807
-FMNumeric.al:1194	441	ok:9223372036854775807
-FMNumeric.al:1195	442	ok:9223372036854775807
-FMNumeric.al:1196	443	err:InvalidStandardFormat
-FMNumeric.al:1197	444	ok:x9223372036854775807y
-FMNumeric.al:1198	445	ok:literal
-FMNumeric.al:1199	446	ok:
-FMNumeric.al:1200	447	err:InvalidFormatString
-FMNumeric.al:1201	448	err:InvalidFormatString
-FMNumeric.al:1202	449	err:InvalidFormatString
-FMNumeric.al:1238	450	ok:0
-FMNumeric.al:1239	451	ok:0
-FMNumeric.al:1240	452	ok:0
-FMNumeric.al:1241	453	err:InvalidStandardFormat
-FMNumeric.al:1242	454	err:InvalidStandardFormat
-FMNumeric.al:1243	455	err:InvalidStandardFormat
-FMNumeric.al:1244	456	err:InvalidStandardFormat
-FMNumeric.al:1245	457	err:InvalidStandardFormat
-FMNumeric.al:1246	458	err:InvalidStandardFormat
-FMNumeric.al:1247	459	ok:0
-FMNumeric.al:1248	460	err:InvalidStandardFormat
-FMNumeric.al:1249	461	ok:0
-FMNumeric.al:1250	462	ok:0
-FMNumeric.al:1251	463	ok:     0
-FMNumeric.al:1252	464	ok:000000
-FMNumeric.al:1253	465	ok:0
-FMNumeric.al:1254	466	ok: 0
-FMNumeric.al:1255	467	ok:0
-FMNumeric.al:1256	468	ok:0.00
-FMNumeric.al:1257	469	ok:0
-FMNumeric.al:1258	470	ok:0
-FMNumeric.al:1259	471	ok:0.0
-FMNumeric.al:1260	472	ok:0
-FMNumeric.al:1261	473	ok:0
-FMNumeric.al:1300	474	ok:0,00
-FMNumeric.al:1301	475	ok:0.00
-FMNumeric.al:1302	476	err:InvalidFormatString
-FMNumeric.al:1303	477	ok:0
-FMNumeric.al:1304	478	ok:
-FMNumeric.al:1305	479	ok:.0
-FMNumeric.al:1306	480	ok:
-FMNumeric.al:1307	481	ok:0.00
-FMNumeric.al:1308	482	ok:0
-FMNumeric.al:1309	483	ok:0.00
-FMNumeric.al:1310	484	ok:0
-FMNumeric.al:1311	485	ok:0
-FMNumeric.al:1312	486	ok:0
-FMNumeric.al:1313	487	ok:0
-FMNumeric.al:1314	488	ok:0 
-FMNumeric.al:1315	489	ok:x0y
-FMNumeric.al:1316	490	ok:literal
-FMNumeric.al:1317	491	ok:
-FMNumeric.al:1318	492	err:InvalidFormatString
-FMNumeric.al:1319	493	err:InvalidFormatString
-FMNumeric.al:1320	494	err:InvalidFormatString
-FMNumeric.al:1356	495	ok:0.5
-FMNumeric.al:1357	496	ok:0.5
-FMNumeric.al:1358	497	ok:0.5
-FMNumeric.al:1359	498	err:InvalidStandardFormat
-FMNumeric.al:1360	499	err:InvalidStandardFormat
-FMNumeric.al:1361	500	err:InvalidStandardFormat
-FMNumeric.al:1362	501	err:InvalidStandardFormat
-FMNumeric.al:1363	502	err:InvalidStandardFormat
-FMNumeric.al:1364	503	err:InvalidStandardFormat
-FMNumeric.al:1365	504	ok:0.5
-FMNumeric.al:1366	505	err:InvalidStandardFormat
-FMNumeric.al:1367	506	ok:0
-FMNumeric.al:1368	507	ok:0
-FMNumeric.al:1369	508	ok:     0
-FMNumeric.al:1370	509	ok:000000
-FMNumeric.al:1371	510	ok:0
-FMNumeric.al:1372	511	ok: 0
-FMNumeric.al:1373	512	ok:0.5
-FMNumeric.al:1374	513	ok:0.50
-FMNumeric.al:1375	514	ok:0,5
-FMNumeric.al:1376	515	ok:0.5
-FMNumeric.al:1377	516	ok:0.5
-FMNumeric.al:1378	517	ok:0
-FMNumeric.al:1379	518	ok:0,5
-FMNumeric.al:1418	519	ok:0,50
-FMNumeric.al:1419	520	ok:0.50
-FMNumeric.al:1420	521	err:InvalidFormatString
-FMNumeric.al:1421	522	ok:0
-FMNumeric.al:1422	523	ok:.5
-FMNumeric.al:1423	524	ok:.5
-FMNumeric.al:1424	525	ok:
-FMNumeric.al:1425	526	ok:0.50
-FMNumeric.al:1426	527	ok:0.5
-FMNumeric.al:1427	528	ok:0.50
-FMNumeric.al:1428	529	ok:0.5
-FMNumeric.al:1429	530	ok:0.5
-FMNumeric.al:1430	531	ok:0.5
-FMNumeric.al:1431	532	ok:0.5
-FMNumeric.al:1432	533	ok:0.5 
-FMNumeric.al:1433	534	ok:x0y
-FMNumeric.al:1434	535	ok:literal
-FMNumeric.al:1435	536	ok:
-FMNumeric.al:1436	537	err:InvalidFormatString
-FMNumeric.al:1437	538	err:InvalidFormatString
-FMNumeric.al:1438	539	err:InvalidFormatString
-FMNumeric.al:1474	540	ok:-1,234.5
-FMNumeric.al:1475	541	ok:-1234.5
-FMNumeric.al:1476	542	ok:-1234.5
-FMNumeric.al:1477	543	err:InvalidStandardFormat
-FMNumeric.al:1478	544	err:InvalidStandardFormat
-FMNumeric.al:1479	545	err:InvalidStandardFormat
-FMNumeric.al:1480	546	err:InvalidStandardFormat
-FMNumeric.al:1481	547	err:InvalidStandardFormat
-FMNumeric.al:1482	548	err:InvalidStandardFormat
-FMNumeric.al:1483	549	ok:-1234.5
-FMNumeric.al:1484	550	err:InvalidStandardFormat
-FMNumeric.al:1485	551	ok:1234
-FMNumeric.al:1486	552	ok:1,234
-FMNumeric.al:1487	553	ok:  1234
-FMNumeric.al:1488	554	ok:001234
-FMNumeric.al:1489	555	ok:-1234
-FMNumeric.al:1490	556	ok:-1234
-FMNumeric.al:1491	557	ok:-1234.5
-FMNumeric.al:1492	558	ok:-1234.50
-FMNumeric.al:1493	559	ok:1234,5
-FMNumeric.al:1494	560	ok:1234.5
-FMNumeric.al:1495	561	ok:1,234.5
-FMNumeric.al:1496	562	ok:1.234
-FMNumeric.al:1497	563	ok:1.234,5
-FMNumeric.al:1536	564	ok:-1.234,50
-FMNumeric.al:1537	565	ok:1,234.50
-FMNumeric.al:1538	566	err:InvalidFormatString
-FMNumeric.al:1539	567	ok:1,234
-FMNumeric.al:1540	568	ok:.5
-FMNumeric.al:1541	569	ok:.5
-FMNumeric.al:1542	570	ok:-
-FMNumeric.al:1543	571	ok:-1,234.50
-FMNumeric.al:1544	572	ok:-1234.5
-FMNumeric.al:1545	573	ok:-1234.50
-FMNumeric.al:1546	574	ok:-1,234.5
-FMNumeric.al:1547	575	ok:-1234.5
-FMNumeric.al:1548	576	ok:-1234.5
-FMNumeric.al:1549	577	ok:-1234.5
-FMNumeric.al:1550	578	ok:1,234.5-
-FMNumeric.al:1551	579	ok:x1234y
-FMNumeric.al:1552	580	ok:literal
-FMNumeric.al:1553	581	ok:
-FMNumeric.al:1554	582	err:InvalidFormatString
-FMNumeric.al:1555	583	err:InvalidFormatString
-FMNumeric.al:1556	584	err:InvalidFormatString
-FMNumeric.al:1592	585	ok:1,234,567.891
-FMNumeric.al:1593	586	ok:1234567.891
-FMNumeric.al:1594	587	ok:1234567.891
-FMNumeric.al:1595	588	err:InvalidStandardFormat
-FMNumeric.al:1596	589	err:InvalidStandardFormat
-FMNumeric.al:1597	590	err:InvalidStandardFormat
-FMNumeric.al:1598	591	err:InvalidStandardFormat
-FMNumeric.al:1599	592	err:InvalidStandardFormat
-FMNumeric.al:1600	593	err:InvalidStandardFormat
-FMNumeric.al:1601	594	ok:1234567.891
-FMNumeric.al:1602	595	err:InvalidStandardFormat
-FMNumeric.al:1603	596	ok:1234567
-FMNumeric.al:1604	597	ok:1,234,567
-FMNumeric.al:1605	598	ok:******
-FMNumeric.al:1606	599	ok:******
-FMNumeric.al:1607	600	ok:1234567
-FMNumeric.al:1608	601	ok: 1234567
-FMNumeric.al:1609	602	ok:1234567.891
-FMNumeric.al:1610	603	ok:1234567***
-FMNumeric.al:1611	604	ok:1234567,891
-FMNumeric.al:1612	605	ok:1234567.891
-FMNumeric.al:1613	606	ok:1,234,567**
-FMNumeric.al:1614	607	ok:1.234.567
-FMNumeric.al:1615	608	ok:1.234.567,891
-FMNumeric.al:1654	609	ok:1.234.567***
-FMNumeric.al:1655	610	ok:1,234,567***
-FMNumeric.al:1656	611	err:InvalidFormatString
-FMNumeric.al:1657	612	ok:1,234,567
-FMNumeric.al:1658	613	ok:.891
-FMNumeric.al:1659	614	ok:**
-FMNumeric.al:1660	615	ok:
-FMNumeric.al:1661	616	ok:1,234,567.89
-FMNumeric.al:1662	617	ok:1234567.891
-FMNumeric.al:1663	618	ok:1234567.89
-FMNumeric.al:1664	619	ok:1,234,567.891
-FMNumeric.al:1665	620	ok:1234567.891
-FMNumeric.al:1666	621	ok:1234567.891
-FMNumeric.al:1667	622	ok:1234567.891
-FMNumeric.al:1668	623	ok:1,234,567.891 
-FMNumeric.al:1669	624	ok:x1234567y
-FMNumeric.al:1670	625	ok:literal
-FMNumeric.al:1671	626	ok:
-FMNumeric.al:1672	627	err:InvalidFormatString
-FMNumeric.al:1673	628	err:InvalidFormatString
-FMNumeric.al:1674	629	err:InvalidFormatString
-FMNumeric.al:1710	630	ok:0.000001
-FMNumeric.al:1711	631	ok:0.000001
-FMNumeric.al:1712	632	ok:0.000001
-FMNumeric.al:1713	633	err:InvalidStandardFormat
-FMNumeric.al:1714	634	err:InvalidStandardFormat
-FMNumeric.al:1715	635	err:InvalidStandardFormat
-FMNumeric.al:1716	636	err:InvalidStandardFormat
-FMNumeric.al:1717	637	err:InvalidStandardFormat
-FMNumeric.al:1718	638	err:InvalidStandardFormat
-FMNumeric.al:1719	639	ok:0.000001
-FMNumeric.al:1720	640	err:InvalidStandardFormat
-FMNumeric.al:1721	641	ok:0
-FMNumeric.al:1722	642	ok:0
-FMNumeric.al:1723	643	ok:     0
-FMNumeric.al:1724	644	ok:000000
-FMNumeric.al:1725	645	ok:0
-FMNumeric.al:1726	646	ok: 0
-FMNumeric.al:1727	647	ok:0.000001
-FMNumeric.al:1728	648	ok:0***
-FMNumeric.al:1729	649	ok:0,000001
-FMNumeric.al:1730	650	ok:0.000001
-FMNumeric.al:1731	651	ok:0**
-FMNumeric.al:1732	652	ok:0
-FMNumeric.al:1733	653	ok:0,000001
-FMNumeric.al:1772	654	ok:0***
-FMNumeric.al:1773	655	ok:0***
-FMNumeric.al:1774	656	err:InvalidFormatString
-FMNumeric.al:1775	657	ok:0
-FMNumeric.al:1776	658	ok:.000001
-FMNumeric.al:1777	659	ok:**
-FMNumeric.al:1778	660	ok:
-FMNumeric.al:1779	661	ok:0.00
-FMNumeric.al:1780	662	ok:0
-FMNumeric.al:1781	663	ok:0.00
-FMNumeric.al:1782	664	ok:0.000001
-FMNumeric.al:1783	665	ok:0.000001
-FMNumeric.al:1784	666	ok:0.000001
-FMNumeric.al:1785	667	ok:0.000001
-FMNumeric.al:1786	668	ok:0.000001 
-FMNumeric.al:1787	669	ok:x0y
-FMNumeric.al:1788	670	ok:literal
-FMNumeric.al:1789	671	ok:
-FMNumeric.al:1790	672	err:InvalidFormatString
-FMNumeric.al:1791	673	err:InvalidFormatString
-FMNumeric.al:1792	674	err:InvalidFormatString
-FMNumeric.al:1828	675	ok:1,234,567,890,123.45
-FMNumeric.al:1829	676	ok:1234567890123.45
-FMNumeric.al:1830	677	ok:1234567890123.45
-FMNumeric.al:1831	678	err:InvalidStandardFormat
-FMNumeric.al:1832	679	err:InvalidStandardFormat
-FMNumeric.al:1833	680	err:InvalidStandardFormat
-FMNumeric.al:1834	681	err:InvalidStandardFormat
-FMNumeric.al:1835	682	err:InvalidStandardFormat
-FMNumeric.al:1836	683	err:InvalidStandardFormat
-FMNumeric.al:1837	684	ok:1234567890123.45
-FMNumeric.al:1838	685	err:InvalidStandardFormat
-FMNumeric.al:1839	686	ok:1234567890123
-FMNumeric.al:1840	687	ok:1,234,567,890,123
-FMNumeric.al:1841	688	ok:******
-FMNumeric.al:1842	689	ok:******
-FMNumeric.al:1843	690	ok:1234567890123
-FMNumeric.al:1844	691	ok: 1234567890123
-FMNumeric.al:1845	692	ok:1234567890123.45
-FMNumeric.al:1846	693	ok:1234567890123.45
-FMNumeric.al:1847	694	ok:1234567890123,45
-FMNumeric.al:1848	695	ok:1234567890123.45
-FMNumeric.al:1849	696	ok:1,234,567,890,123**
-FMNumeric.al:1850	697	ok:1.234.567.890.123
-FMNumeric.al:1851	698	ok:1.234.567.890.123,45
-FMNumeric.al:1890	699	ok:1.234.567.890.123,45
-FMNumeric.al:1891	700	ok:1,234,567,890,123.45
-FMNumeric.al:1892	701	err:InvalidFormatString
-FMNumeric.al:1893	702	ok:1,234,567,890,123
-FMNumeric.al:1894	703	ok:.45
-FMNumeric.al:1895	704	ok:**
-FMNumeric.al:1896	705	ok:
-FMNumeric.al:1897	706	ok:1,234,567,890,123.45
-FMNumeric.al:1898	707	ok:1234567890123.45
-FMNumeric.al:1899	708	ok:1234567890123.45
-FMNumeric.al:1900	709	ok:1,234,567,890,123.45
-FMNumeric.al:1901	710	ok:1234567890123.45
-FMNumeric.al:1902	711	ok:1234567890123.45
-FMNumeric.al:1903	712	ok:1234567890123.45
-FMNumeric.al:1904	713	ok:1,234,567,890,123.45 
-FMNumeric.al:1905	714	ok:x1234567890123y
-FMNumeric.al:1906	715	ok:literal
-FMNumeric.al:1907	716	ok:
-FMNumeric.al:1908	717	err:InvalidFormatString
-FMNumeric.al:1909	718	err:InvalidFormatString
-FMNumeric.al:1910	719	err:InvalidFormatString
-FMNumeric.al:1946	720	ok:-0.5
-FMNumeric.al:1947	721	ok:-0.5
-FMNumeric.al:1948	722	ok:-0.5
-FMNumeric.al:1949	723	err:InvalidStandardFormat
-FMNumeric.al:1950	724	err:InvalidStandardFormat
-FMNumeric.al:1951	725	err:InvalidStandardFormat
-FMNumeric.al:1952	726	err:InvalidStandardFormat
-FMNumeric.al:1953	727	err:InvalidStandardFormat
-FMNumeric.al:1954	728	err:InvalidStandardFormat
-FMNumeric.al:1955	729	ok:-0.5
-FMNumeric.al:1956	730	err:InvalidStandardFormat
-FMNumeric.al:1957	731	ok:0
-FMNumeric.al:1958	732	ok:0
-FMNumeric.al:1959	733	ok:     0
-FMNumeric.al:1960	734	ok:000000
-FMNumeric.al:1961	735	ok:-0
-FMNumeric.al:1962	736	ok:-0
-FMNumeric.al:1963	737	ok:-0.5
-FMNumeric.al:1964	738	ok:-0.50
-FMNumeric.al:1965	739	ok:0,5
-FMNumeric.al:1966	740	ok:0.5
-FMNumeric.al:1967	741	ok:0.5
-FMNumeric.al:1968	742	ok:0
-FMNumeric.al:1969	743	ok:0,5
-FMNumeric.al:2008	744	ok:-0,50
-FMNumeric.al:2009	745	ok:0.50
-FMNumeric.al:2010	746	err:InvalidFormatString
-FMNumeric.al:2011	747	ok:0
-FMNumeric.al:2012	748	ok:.5
-FMNumeric.al:2013	749	ok:.5
-FMNumeric.al:2014	750	ok:-
-FMNumeric.al:2015	751	ok:-0.50
-FMNumeric.al:2016	752	ok:-0.5
-FMNumeric.al:2017	753	ok:-0.50
-FMNumeric.al:2018	754	ok:-0.5
-FMNumeric.al:2019	755	ok:-0.5
-FMNumeric.al:2020	756	ok:-0.5
-FMNumeric.al:2021	757	ok:-0.5
-FMNumeric.al:2022	758	ok:0.5-
-FMNumeric.al:2023	759	ok:x0y
-FMNumeric.al:2024	760	ok:literal
-FMNumeric.al:2025	761	ok:
-FMNumeric.al:2026	762	err:InvalidFormatString
-FMNumeric.al:2027	763	err:InvalidFormatString
-FMNumeric.al:2028	764	err:InvalidFormatString
-FMNumeric.al:2064	765	ok:1,000
-FMNumeric.al:2065	766	ok:1000
-FMNumeric.al:2066	767	ok:1000
-FMNumeric.al:2067	768	err:InvalidStandardFormat
-FMNumeric.al:2068	769	err:InvalidStandardFormat
-FMNumeric.al:2069	770	err:InvalidStandardFormat
-FMNumeric.al:2070	771	err:InvalidStandardFormat
-FMNumeric.al:2071	772	err:InvalidStandardFormat
-FMNumeric.al:2072	773	err:InvalidStandardFormat
-FMNumeric.al:2073	774	ok:1000
-FMNumeric.al:2074	775	err:InvalidStandardFormat
-FMNumeric.al:2075	776	ok:1000
-FMNumeric.al:2076	777	ok:1,000
-FMNumeric.al:2077	778	ok:  1000
-FMNumeric.al:2078	779	ok:001000
-FMNumeric.al:2079	780	ok:1000
-FMNumeric.al:2080	781	ok: 1000
-FMNumeric.al:2081	782	ok:1000
-FMNumeric.al:2082	783	ok:1000.00
-FMNumeric.al:2083	784	ok:1000
-FMNumeric.al:2084	785	ok:1000
-FMNumeric.al:2085	786	ok:1,000.0
-FMNumeric.al:2086	787	ok:1.000
-FMNumeric.al:2087	788	ok:1.000
-FMNumeric.al:2126	789	ok:1.000,00
-FMNumeric.al:2127	790	ok:1,000.00
-FMNumeric.al:2128	791	err:InvalidFormatString
-FMNumeric.al:2129	792	ok:1,000
-FMNumeric.al:2130	793	ok:
-FMNumeric.al:2131	794	ok:.0
-FMNumeric.al:2132	795	ok:
-FMNumeric.al:2133	796	ok:1,000.00
-FMNumeric.al:2134	797	ok:1000
-FMNumeric.al:2135	798	ok:1000.00
-FMNumeric.al:2136	799	ok:1,000
-FMNumeric.al:2137	800	ok:1000
-FMNumeric.al:2138	801	ok:1000
-FMNumeric.al:2139	802	ok:1000
-FMNumeric.al:2140	803	ok:1,000 
-FMNumeric.al:2141	804	ok:x1000y
-FMNumeric.al:2142	805	ok:literal
-FMNumeric.al:2143	806	ok:
-FMNumeric.al:2144	807	err:InvalidFormatString
-FMNumeric.al:2145	808	err:InvalidFormatString
-FMNumeric.al:2146	809	err:InvalidFormatString
-FMNumeric.al:2182	810	ok:1234
-FMNumeric.al:2183	811	ok:1234
-FMNumeric.al:2184	812	ok:1234
-FMNumeric.al:2185	813	err:InvalidStandardFormat
-FMNumeric.al:2186	814	err:InvalidStandardFormat
-FMNumeric.al:2187	815	err:InvalidStandardFormat
-FMNumeric.al:2188	816	err:InvalidStandardFormat
-FMNumeric.al:2189	817	err:InvalidStandardFormat
-FMNumeric.al:2190	818	err:InvalidStandardFormat
-FMNumeric.al:2191	819	ok:1234
-FMNumeric.al:2192	820	err:InvalidStandardFormat
-FMNumeric.al:2193	821	ok:1234
-FMNumeric.al:2194	822	ok:1,234
-FMNumeric.al:2195	823	ok:  1234
-FMNumeric.al:2196	824	ok:001234
-FMNumeric.al:2197	825	ok:1234
-FMNumeric.al:2198	826	ok: 1234
-FMNumeric.al:2199	827	err:InvalidFormatString
-FMNumeric.al:2200	828	err:InvalidFormatString
-FMNumeric.al:2201	829	err:InvalidFormatString
-FMNumeric.al:2202	830	err:InvalidFormatString
-FMNumeric.al:2203	831	err:InvalidFormatString
-FMNumeric.al:2204	832	ok:1.234
-FMNumeric.al:2205	833	err:InvalidFormatString
-FMNumeric.al:2244	834	err:InvalidFormatString
-FMNumeric.al:2245	835	err:InvalidFormatString
-FMNumeric.al:2246	836	err:InvalidFormatString
-FMNumeric.al:2247	837	ok:1,234
-FMNumeric.al:2248	838	err:InvalidFormatString
-FMNumeric.al:2249	839	err:InvalidFormatString
-FMNumeric.al:2250	840	ok:
-FMNumeric.al:2251	841	ok:1234
-FMNumeric.al:2252	842	ok:1234
-FMNumeric.al:2253	843	ok:1234
-FMNumeric.al:2254	844	ok:1234
-FMNumeric.al:2255	845	ok:1234
-FMNumeric.al:2256	846	ok:1234
-FMNumeric.al:2257	847	ok:1234
-FMNumeric.al:2258	848	err:InvalidStandardFormat
-FMNumeric.al:2259	849	ok:x1234y
-FMNumeric.al:2260	850	ok:literal
-FMNumeric.al:2261	851	ok:
-FMNumeric.al:2262	852	err:InvalidFormatString
-FMNumeric.al:2263	853	err:InvalidFormatString
-FMNumeric.al:2264	854	err:InvalidFormatString
-FMNumeric.al:2300	855	ok:1234567890123
-FMNumeric.al:2301	856	ok:1234567890123
-FMNumeric.al:2302	857	ok:1234567890123
-FMNumeric.al:2303	858	err:InvalidStandardFormat
-FMNumeric.al:2304	859	err:InvalidStandardFormat
-FMNumeric.al:2305	860	err:InvalidStandardFormat
-FMNumeric.al:2306	861	err:InvalidStandardFormat
-FMNumeric.al:2307	862	err:InvalidStandardFormat
-FMNumeric.al:2308	863	err:InvalidStandardFormat
-FMNumeric.al:2309	864	ok:1234567890123
-FMNumeric.al:2310	865	err:InvalidStandardFormat
-FMNumeric.al:2311	866	ok:1234567890123
-FMNumeric.al:2312	867	ok:1,234,567,890,123
-FMNumeric.al:2313	868	ok:******
-FMNumeric.al:2314	869	ok:******
-FMNumeric.al:2315	870	ok:1234567890123
-FMNumeric.al:2316	871	ok: 1234567890123
-FMNumeric.al:2317	872	err:InvalidFormatString
-FMNumeric.al:2318	873	err:InvalidFormatString
-FMNumeric.al:2319	874	err:InvalidFormatString
-FMNumeric.al:2320	875	err:InvalidFormatString
-FMNumeric.al:2321	876	err:InvalidFormatString
-FMNumeric.al:2322	877	ok:1.234.567.890.123
-FMNumeric.al:2323	878	err:InvalidFormatString
-FMNumeric.al:2362	879	err:InvalidFormatString
-FMNumeric.al:2363	880	err:InvalidFormatString
-FMNumeric.al:2364	881	err:InvalidFormatString
-FMNumeric.al:2365	882	ok:1,234,567,890,123
-FMNumeric.al:2366	883	err:InvalidFormatString
-FMNumeric.al:2367	884	err:InvalidFormatString
-FMNumeric.al:2368	885	ok:
-FMNumeric.al:2369	886	ok:1234567890123
-FMNumeric.al:2370	887	ok:1234567890123
-FMNumeric.al:2371	888	ok:1234567890123
-FMNumeric.al:2372	889	ok:1234567890123
-FMNumeric.al:2373	890	ok:1234567890123
-FMNumeric.al:2374	891	ok:1234567890123
-FMNumeric.al:2375	892	ok:1234567890123
-FMNumeric.al:2376	893	err:InvalidStandardFormat
-FMNumeric.al:2377	894	ok:x1234567890123y
-FMNumeric.al:2378	895	ok:literal
-FMNumeric.al:2379	896	ok:
-FMNumeric.al:2380	897	err:InvalidFormatString
-FMNumeric.al:2381	898	err:InvalidFormatString
-FMNumeric.al:2382	899	err:InvalidFormatString
-FMNumeric.al:2418	900	ok:1,234,567.891
-FMNumeric.al:2419	901	ok:1234567.891
-FMNumeric.al:2420	902	ok:1234567.891
-FMNumeric.al:2421	903	err:InvalidStandardFormat
-FMNumeric.al:2422	904	err:InvalidStandardFormat
-FMNumeric.al:2423	905	err:InvalidStandardFormat
-FMNumeric.al:2424	906	err:InvalidStandardFormat
-FMNumeric.al:2425	907	err:InvalidStandardFormat
-FMNumeric.al:2426	908	err:InvalidStandardFormat
-FMNumeric.al:2427	909	ok:1234567.891
-FMNumeric.al:2428	910	err:InvalidStandardFormat
-FMNumeric.al:2429	911	ok:1234567
-FMNumeric.al:2430	912	ok:1,234,567
-FMNumeric.al:2431	913	ok:******
-FMNumeric.al:2432	914	ok:******
-FMNumeric.al:2433	915	ok:1234567
-FMNumeric.al:2434	916	ok: 1234567
-FMNumeric.al:2435	917	ok:1234567.891
-FMNumeric.al:2436	918	ok:1234567***
-FMNumeric.al:2437	919	ok:1234567,891
-FMNumeric.al:2438	920	ok:1234567.891
-FMNumeric.al:2439	921	ok:1,234,567**
-FMNumeric.al:2440	922	ok:1.234.567
-FMNumeric.al:2441	923	ok:1.234.567,891
-FMNumeric.al:2480	924	ok:1.234.567***
-FMNumeric.al:2481	925	ok:1,234,567***
-FMNumeric.al:2482	926	err:InvalidFormatString
-FMNumeric.al:2483	927	ok:1,234,567
-FMNumeric.al:2484	928	ok:.891
-FMNumeric.al:2485	929	ok:**
-FMNumeric.al:2486	930	ok:
-FMNumeric.al:2487	931	ok:1,234,567.89
-FMNumeric.al:2488	932	ok:1234567.891
-FMNumeric.al:2489	933	ok:1234567.89
-FMNumeric.al:2490	934	ok:1,234,567.891
-FMNumeric.al:2491	935	ok:1234567.891
-FMNumeric.al:2492	936	ok:1234567.891
-FMNumeric.al:2493	937	ok:1234567.891
-FMNumeric.al:2494	938	ok:1,234,567.891 
-FMNumeric.al:2495	939	ok:x1234567y
-FMNumeric.al:2496	940	ok:literal
-FMNumeric.al:2497	941	ok:
-FMNumeric.al:2498	942	err:InvalidFormatString
-FMNumeric.al:2499	943	err:InvalidFormatString
-FMNumeric.al:2500	944	err:InvalidFormatString
+FMNumeric.al:58	1033	Integer	V := 0;	N	0	ok:0
+FMNumeric.al:59	1033	Integer	V := 0;	N	1	ok:0
+FMNumeric.al:60	1033	Integer	V := 0;	N	2	ok:0
+FMNumeric.al:61	1033	Integer	V := 0;	N	3	err:InvalidStandardFormat
+FMNumeric.al:62	1033	Integer	V := 0;	N	4	err:InvalidStandardFormat
+FMNumeric.al:63	1033	Integer	V := 0;	N	5	err:InvalidStandardFormat
+FMNumeric.al:64	1033	Integer	V := 0;	N	6	err:InvalidStandardFormat
+FMNumeric.al:65	1033	Integer	V := 0;	N	7	err:InvalidStandardFormat
+FMNumeric.al:66	1033	Integer	V := 0;	N	8	err:InvalidStandardFormat
+FMNumeric.al:67	1033	Integer	V := 0;	N	9	ok:0
+FMNumeric.al:68	1033	Integer	V := 0;	N	10	err:InvalidStandardFormat
+FMNumeric.al:69	1033	Integer	V := 0;	S	'<Integer>'	ok:0
+FMNumeric.al:70	1033	Integer	V := 0;	S	'<Integer Thousand>'	ok:0
+FMNumeric.al:71	1033	Integer	V := 0;	S	'<Integer,6>'	ok:     0
+FMNumeric.al:72	1033	Integer	V := 0;	S	'<Integer,6><Filler Character,0>'	ok:000000
+FMNumeric.al:73	1033	Integer	V := 0;	S	'<Sign><Integer>'	ok:0
+FMNumeric.al:74	1033	Integer	V := 0;	S	'<Sign,1><Integer>'	ok: 0
+FMNumeric.al:75	1033	Integer	V := 0;	S	'<Sign><Integer><Decimals>'	err:InvalidFormatString
+FMNumeric.al:76	1033	Integer	V := 0;	S	'<Sign><Integer><Decimals,3>'	err:InvalidFormatString
+FMNumeric.al:77	1033	Integer	V := 0;	S	'<Integer><Decimals><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:78	1033	Integer	V := 0;	S	'<Integer><Comma,.><Decimals>'	err:InvalidFormatString
+FMNumeric.al:79	1033	Integer	V := 0;	S	'<Integer Thousand><Decimals,2>'	err:InvalidFormatString
+FMNumeric.al:80	1033	Integer	V := 0;	S	'<Integer><1000Character,.>'	ok:0
+FMNumeric.al:81	1033	Integer	V := 0;	S	'<Integer><1000Character,.><Decimals><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:120	1033	Integer	V := 0;	S	'<Sign><Integer><1000Character,.><Decimal,3><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:121	1033	Integer	V := 0;	S	'<Integer><1000Character,,><Decimal,3><Comma,.>'	err:InvalidFormatString
+FMNumeric.al:122	1033	Integer	V := 0;	S	'<Integer><Decimals><Comma>'	err:InvalidFormatString
+FMNumeric.al:123	1033	Integer	V := 0;	S	'<Integer Thousand><Comma,.>'	ok:0
+FMNumeric.al:124	1033	Integer	V := 0;	S	'<Decimals>'	err:InvalidFormatString
+FMNumeric.al:125	1033	Integer	V := 0;	S	'<Decimals,2>'	err:InvalidFormatString
+FMNumeric.al:126	1033	Integer	V := 0;	S	'<Sign>'	ok:
+FMNumeric.al:127	1033	Integer	V := 0;	S	'<Precision,2:2><Standard Format,0>'	ok:0
+FMNumeric.al:128	1033	Integer	V := 0;	S	'<Precision,0:3><Standard Format,1>'	ok:0
+FMNumeric.al:129	1033	Integer	V := 0;	S	'<Precision,2><Standard Format,2>'	ok:0
+FMNumeric.al:130	1033	Integer	V := 0;	S	'<Standard Format,0>'	ok:0
+FMNumeric.al:131	1033	Integer	V := 0;	S	'<Standard Format,1>'	ok:0
+FMNumeric.al:132	1033	Integer	V := 0;	S	'<Standard Format,2>'	ok:0
+FMNumeric.al:133	1033	Integer	V := 0;	S	'<Standard Format,9>'	ok:0
+FMNumeric.al:134	1033	Integer	V := 0;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMNumeric.al:135	1033	Integer	V := 0;	S	'x<Integer>y'	ok:x0y
+FMNumeric.al:136	1033	Integer	V := 0;	S	'literal'	ok:literal
+FMNumeric.al:137	1033	Integer	V := 0;	S	''	ok:
+FMNumeric.al:138	1033	Integer	V := 0;	S	'<Text>'	err:InvalidFormatString
+FMNumeric.al:139	1033	Integer	V := 0;	S	'<Day>'	err:InvalidFormatString
+FMNumeric.al:140	1033	Integer	V := 0;	S	'<Hours24>'	err:InvalidFormatString
+FMNumeric.al:176	1033	Integer	V := 1;	N	0	ok:1
+FMNumeric.al:177	1033	Integer	V := 1;	N	1	ok:1
+FMNumeric.al:178	1033	Integer	V := 1;	N	2	ok:1
+FMNumeric.al:179	1033	Integer	V := 1;	N	3	err:InvalidStandardFormat
+FMNumeric.al:180	1033	Integer	V := 1;	N	4	err:InvalidStandardFormat
+FMNumeric.al:181	1033	Integer	V := 1;	N	5	err:InvalidStandardFormat
+FMNumeric.al:182	1033	Integer	V := 1;	N	6	err:InvalidStandardFormat
+FMNumeric.al:183	1033	Integer	V := 1;	N	7	err:InvalidStandardFormat
+FMNumeric.al:184	1033	Integer	V := 1;	N	8	err:InvalidStandardFormat
+FMNumeric.al:185	1033	Integer	V := 1;	N	9	ok:1
+FMNumeric.al:186	1033	Integer	V := 1;	N	10	err:InvalidStandardFormat
+FMNumeric.al:187	1033	Integer	V := 1;	S	'<Integer>'	ok:1
+FMNumeric.al:188	1033	Integer	V := 1;	S	'<Integer Thousand>'	ok:1
+FMNumeric.al:189	1033	Integer	V := 1;	S	'<Integer,6>'	ok:     1
+FMNumeric.al:190	1033	Integer	V := 1;	S	'<Integer,6><Filler Character,0>'	ok:000001
+FMNumeric.al:191	1033	Integer	V := 1;	S	'<Sign><Integer>'	ok:1
+FMNumeric.al:192	1033	Integer	V := 1;	S	'<Sign,1><Integer>'	ok: 1
+FMNumeric.al:193	1033	Integer	V := 1;	S	'<Sign><Integer><Decimals>'	err:InvalidFormatString
+FMNumeric.al:194	1033	Integer	V := 1;	S	'<Sign><Integer><Decimals,3>'	err:InvalidFormatString
+FMNumeric.al:195	1033	Integer	V := 1;	S	'<Integer><Decimals><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:196	1033	Integer	V := 1;	S	'<Integer><Comma,.><Decimals>'	err:InvalidFormatString
+FMNumeric.al:197	1033	Integer	V := 1;	S	'<Integer Thousand><Decimals,2>'	err:InvalidFormatString
+FMNumeric.al:198	1033	Integer	V := 1;	S	'<Integer><1000Character,.>'	ok:1
+FMNumeric.al:199	1033	Integer	V := 1;	S	'<Integer><1000Character,.><Decimals><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:238	1033	Integer	V := 1;	S	'<Sign><Integer><1000Character,.><Decimal,3><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:239	1033	Integer	V := 1;	S	'<Integer><1000Character,,><Decimal,3><Comma,.>'	err:InvalidFormatString
+FMNumeric.al:240	1033	Integer	V := 1;	S	'<Integer><Decimals><Comma>'	err:InvalidFormatString
+FMNumeric.al:241	1033	Integer	V := 1;	S	'<Integer Thousand><Comma,.>'	ok:1
+FMNumeric.al:242	1033	Integer	V := 1;	S	'<Decimals>'	err:InvalidFormatString
+FMNumeric.al:243	1033	Integer	V := 1;	S	'<Decimals,2>'	err:InvalidFormatString
+FMNumeric.al:244	1033	Integer	V := 1;	S	'<Sign>'	ok:
+FMNumeric.al:245	1033	Integer	V := 1;	S	'<Precision,2:2><Standard Format,0>'	ok:1
+FMNumeric.al:246	1033	Integer	V := 1;	S	'<Precision,0:3><Standard Format,1>'	ok:1
+FMNumeric.al:247	1033	Integer	V := 1;	S	'<Precision,2><Standard Format,2>'	ok:1
+FMNumeric.al:248	1033	Integer	V := 1;	S	'<Standard Format,0>'	ok:1
+FMNumeric.al:249	1033	Integer	V := 1;	S	'<Standard Format,1>'	ok:1
+FMNumeric.al:250	1033	Integer	V := 1;	S	'<Standard Format,2>'	ok:1
+FMNumeric.al:251	1033	Integer	V := 1;	S	'<Standard Format,9>'	ok:1
+FMNumeric.al:252	1033	Integer	V := 1;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMNumeric.al:253	1033	Integer	V := 1;	S	'x<Integer>y'	ok:x1y
+FMNumeric.al:254	1033	Integer	V := 1;	S	'literal'	ok:literal
+FMNumeric.al:255	1033	Integer	V := 1;	S	''	ok:
+FMNumeric.al:256	1033	Integer	V := 1;	S	'<Text>'	err:InvalidFormatString
+FMNumeric.al:257	1033	Integer	V := 1;	S	'<Day>'	err:InvalidFormatString
+FMNumeric.al:258	1033	Integer	V := 1;	S	'<Hours24>'	err:InvalidFormatString
+FMNumeric.al:294	1033	Integer	V := -1;	N	0	ok:-1
+FMNumeric.al:295	1033	Integer	V := -1;	N	1	ok:-1
+FMNumeric.al:296	1033	Integer	V := -1;	N	2	ok:-1
+FMNumeric.al:297	1033	Integer	V := -1;	N	3	err:InvalidStandardFormat
+FMNumeric.al:298	1033	Integer	V := -1;	N	4	err:InvalidStandardFormat
+FMNumeric.al:299	1033	Integer	V := -1;	N	5	err:InvalidStandardFormat
+FMNumeric.al:300	1033	Integer	V := -1;	N	6	err:InvalidStandardFormat
+FMNumeric.al:301	1033	Integer	V := -1;	N	7	err:InvalidStandardFormat
+FMNumeric.al:302	1033	Integer	V := -1;	N	8	err:InvalidStandardFormat
+FMNumeric.al:303	1033	Integer	V := -1;	N	9	ok:-1
+FMNumeric.al:304	1033	Integer	V := -1;	N	10	err:InvalidStandardFormat
+FMNumeric.al:305	1033	Integer	V := -1;	S	'<Integer>'	ok:1
+FMNumeric.al:306	1033	Integer	V := -1;	S	'<Integer Thousand>'	ok:1
+FMNumeric.al:307	1033	Integer	V := -1;	S	'<Integer,6>'	ok:     1
+FMNumeric.al:308	1033	Integer	V := -1;	S	'<Integer,6><Filler Character,0>'	ok:000001
+FMNumeric.al:309	1033	Integer	V := -1;	S	'<Sign><Integer>'	ok:-1
+FMNumeric.al:310	1033	Integer	V := -1;	S	'<Sign,1><Integer>'	ok:-1
+FMNumeric.al:311	1033	Integer	V := -1;	S	'<Sign><Integer><Decimals>'	err:InvalidFormatString
+FMNumeric.al:312	1033	Integer	V := -1;	S	'<Sign><Integer><Decimals,3>'	err:InvalidFormatString
+FMNumeric.al:313	1033	Integer	V := -1;	S	'<Integer><Decimals><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:314	1033	Integer	V := -1;	S	'<Integer><Comma,.><Decimals>'	err:InvalidFormatString
+FMNumeric.al:315	1033	Integer	V := -1;	S	'<Integer Thousand><Decimals,2>'	err:InvalidFormatString
+FMNumeric.al:316	1033	Integer	V := -1;	S	'<Integer><1000Character,.>'	ok:1
+FMNumeric.al:317	1033	Integer	V := -1;	S	'<Integer><1000Character,.><Decimals><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:356	1033	Integer	V := -1;	S	'<Sign><Integer><1000Character,.><Decimal,3><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:357	1033	Integer	V := -1;	S	'<Integer><1000Character,,><Decimal,3><Comma,.>'	err:InvalidFormatString
+FMNumeric.al:358	1033	Integer	V := -1;	S	'<Integer><Decimals><Comma>'	err:InvalidFormatString
+FMNumeric.al:359	1033	Integer	V := -1;	S	'<Integer Thousand><Comma,.>'	ok:1
+FMNumeric.al:360	1033	Integer	V := -1;	S	'<Decimals>'	err:InvalidFormatString
+FMNumeric.al:361	1033	Integer	V := -1;	S	'<Decimals,2>'	err:InvalidFormatString
+FMNumeric.al:362	1033	Integer	V := -1;	S	'<Sign>'	ok:-
+FMNumeric.al:363	1033	Integer	V := -1;	S	'<Precision,2:2><Standard Format,0>'	ok:-1
+FMNumeric.al:364	1033	Integer	V := -1;	S	'<Precision,0:3><Standard Format,1>'	ok:-1
+FMNumeric.al:365	1033	Integer	V := -1;	S	'<Precision,2><Standard Format,2>'	ok:-1
+FMNumeric.al:366	1033	Integer	V := -1;	S	'<Standard Format,0>'	ok:-1
+FMNumeric.al:367	1033	Integer	V := -1;	S	'<Standard Format,1>'	ok:-1
+FMNumeric.al:368	1033	Integer	V := -1;	S	'<Standard Format,2>'	ok:-1
+FMNumeric.al:369	1033	Integer	V := -1;	S	'<Standard Format,9>'	ok:-1
+FMNumeric.al:370	1033	Integer	V := -1;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMNumeric.al:371	1033	Integer	V := -1;	S	'x<Integer>y'	ok:x1y
+FMNumeric.al:372	1033	Integer	V := -1;	S	'literal'	ok:literal
+FMNumeric.al:373	1033	Integer	V := -1;	S	''	ok:
+FMNumeric.al:374	1033	Integer	V := -1;	S	'<Text>'	err:InvalidFormatString
+FMNumeric.al:375	1033	Integer	V := -1;	S	'<Day>'	err:InvalidFormatString
+FMNumeric.al:376	1033	Integer	V := -1;	S	'<Hours24>'	err:InvalidFormatString
+FMNumeric.al:412	1033	Integer	V := 1234;	N	0	ok:1234
+FMNumeric.al:413	1033	Integer	V := 1234;	N	1	ok:1234
+FMNumeric.al:414	1033	Integer	V := 1234;	N	2	ok:1234
+FMNumeric.al:415	1033	Integer	V := 1234;	N	3	err:InvalidStandardFormat
+FMNumeric.al:416	1033	Integer	V := 1234;	N	4	err:InvalidStandardFormat
+FMNumeric.al:417	1033	Integer	V := 1234;	N	5	err:InvalidStandardFormat
+FMNumeric.al:418	1033	Integer	V := 1234;	N	6	err:InvalidStandardFormat
+FMNumeric.al:419	1033	Integer	V := 1234;	N	7	err:InvalidStandardFormat
+FMNumeric.al:420	1033	Integer	V := 1234;	N	8	err:InvalidStandardFormat
+FMNumeric.al:421	1033	Integer	V := 1234;	N	9	ok:1234
+FMNumeric.al:422	1033	Integer	V := 1234;	N	10	err:InvalidStandardFormat
+FMNumeric.al:423	1033	Integer	V := 1234;	S	'<Integer>'	ok:1234
+FMNumeric.al:424	1033	Integer	V := 1234;	S	'<Integer Thousand>'	ok:1,234
+FMNumeric.al:425	1033	Integer	V := 1234;	S	'<Integer,6>'	ok:  1234
+FMNumeric.al:426	1033	Integer	V := 1234;	S	'<Integer,6><Filler Character,0>'	ok:001234
+FMNumeric.al:427	1033	Integer	V := 1234;	S	'<Sign><Integer>'	ok:1234
+FMNumeric.al:428	1033	Integer	V := 1234;	S	'<Sign,1><Integer>'	ok: 1234
+FMNumeric.al:429	1033	Integer	V := 1234;	S	'<Sign><Integer><Decimals>'	err:InvalidFormatString
+FMNumeric.al:430	1033	Integer	V := 1234;	S	'<Sign><Integer><Decimals,3>'	err:InvalidFormatString
+FMNumeric.al:431	1033	Integer	V := 1234;	S	'<Integer><Decimals><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:432	1033	Integer	V := 1234;	S	'<Integer><Comma,.><Decimals>'	err:InvalidFormatString
+FMNumeric.al:433	1033	Integer	V := 1234;	S	'<Integer Thousand><Decimals,2>'	err:InvalidFormatString
+FMNumeric.al:434	1033	Integer	V := 1234;	S	'<Integer><1000Character,.>'	ok:1.234
+FMNumeric.al:435	1033	Integer	V := 1234;	S	'<Integer><1000Character,.><Decimals><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:474	1033	Integer	V := 1234;	S	'<Sign><Integer><1000Character,.><Decimal,3><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:475	1033	Integer	V := 1234;	S	'<Integer><1000Character,,><Decimal,3><Comma,.>'	err:InvalidFormatString
+FMNumeric.al:476	1033	Integer	V := 1234;	S	'<Integer><Decimals><Comma>'	err:InvalidFormatString
+FMNumeric.al:477	1033	Integer	V := 1234;	S	'<Integer Thousand><Comma,.>'	ok:1,234
+FMNumeric.al:478	1033	Integer	V := 1234;	S	'<Decimals>'	err:InvalidFormatString
+FMNumeric.al:479	1033	Integer	V := 1234;	S	'<Decimals,2>'	err:InvalidFormatString
+FMNumeric.al:480	1033	Integer	V := 1234;	S	'<Sign>'	ok:
+FMNumeric.al:481	1033	Integer	V := 1234;	S	'<Precision,2:2><Standard Format,0>'	ok:1234
+FMNumeric.al:482	1033	Integer	V := 1234;	S	'<Precision,0:3><Standard Format,1>'	ok:1234
+FMNumeric.al:483	1033	Integer	V := 1234;	S	'<Precision,2><Standard Format,2>'	ok:1234
+FMNumeric.al:484	1033	Integer	V := 1234;	S	'<Standard Format,0>'	ok:1234
+FMNumeric.al:485	1033	Integer	V := 1234;	S	'<Standard Format,1>'	ok:1234
+FMNumeric.al:486	1033	Integer	V := 1234;	S	'<Standard Format,2>'	ok:1234
+FMNumeric.al:487	1033	Integer	V := 1234;	S	'<Standard Format,9>'	ok:1234
+FMNumeric.al:488	1033	Integer	V := 1234;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMNumeric.al:489	1033	Integer	V := 1234;	S	'x<Integer>y'	ok:x1234y
+FMNumeric.al:490	1033	Integer	V := 1234;	S	'literal'	ok:literal
+FMNumeric.al:491	1033	Integer	V := 1234;	S	''	ok:
+FMNumeric.al:492	1033	Integer	V := 1234;	S	'<Text>'	err:InvalidFormatString
+FMNumeric.al:493	1033	Integer	V := 1234;	S	'<Day>'	err:InvalidFormatString
+FMNumeric.al:494	1033	Integer	V := 1234;	S	'<Hours24>'	err:InvalidFormatString
+FMNumeric.al:530	1033	Integer	V := 2147483647;	N	0	ok:2147483647
+FMNumeric.al:531	1033	Integer	V := 2147483647;	N	1	ok:2147483647
+FMNumeric.al:532	1033	Integer	V := 2147483647;	N	2	ok:2147483647
+FMNumeric.al:533	1033	Integer	V := 2147483647;	N	3	err:InvalidStandardFormat
+FMNumeric.al:534	1033	Integer	V := 2147483647;	N	4	err:InvalidStandardFormat
+FMNumeric.al:535	1033	Integer	V := 2147483647;	N	5	err:InvalidStandardFormat
+FMNumeric.al:536	1033	Integer	V := 2147483647;	N	6	err:InvalidStandardFormat
+FMNumeric.al:537	1033	Integer	V := 2147483647;	N	7	err:InvalidStandardFormat
+FMNumeric.al:538	1033	Integer	V := 2147483647;	N	8	err:InvalidStandardFormat
+FMNumeric.al:539	1033	Integer	V := 2147483647;	N	9	ok:2147483647
+FMNumeric.al:540	1033	Integer	V := 2147483647;	N	10	err:InvalidStandardFormat
+FMNumeric.al:541	1033	Integer	V := 2147483647;	S	'<Integer>'	ok:2147483647
+FMNumeric.al:542	1033	Integer	V := 2147483647;	S	'<Integer Thousand>'	ok:2,147,483,647
+FMNumeric.al:543	1033	Integer	V := 2147483647;	S	'<Integer,6>'	ok:******
+FMNumeric.al:544	1033	Integer	V := 2147483647;	S	'<Integer,6><Filler Character,0>'	ok:******
+FMNumeric.al:545	1033	Integer	V := 2147483647;	S	'<Sign><Integer>'	ok:2147483647
+FMNumeric.al:546	1033	Integer	V := 2147483647;	S	'<Sign,1><Integer>'	ok: 2147483647
+FMNumeric.al:547	1033	Integer	V := 2147483647;	S	'<Sign><Integer><Decimals>'	err:InvalidFormatString
+FMNumeric.al:548	1033	Integer	V := 2147483647;	S	'<Sign><Integer><Decimals,3>'	err:InvalidFormatString
+FMNumeric.al:549	1033	Integer	V := 2147483647;	S	'<Integer><Decimals><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:550	1033	Integer	V := 2147483647;	S	'<Integer><Comma,.><Decimals>'	err:InvalidFormatString
+FMNumeric.al:551	1033	Integer	V := 2147483647;	S	'<Integer Thousand><Decimals,2>'	err:InvalidFormatString
+FMNumeric.al:552	1033	Integer	V := 2147483647;	S	'<Integer><1000Character,.>'	ok:2.147.483.647
+FMNumeric.al:553	1033	Integer	V := 2147483647;	S	'<Integer><1000Character,.><Decimals><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:592	1033	Integer	V := 2147483647;	S	'<Sign><Integer><1000Character,.><Decimal,3><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:593	1033	Integer	V := 2147483647;	S	'<Integer><1000Character,,><Decimal,3><Comma,.>'	err:InvalidFormatString
+FMNumeric.al:594	1033	Integer	V := 2147483647;	S	'<Integer><Decimals><Comma>'	err:InvalidFormatString
+FMNumeric.al:595	1033	Integer	V := 2147483647;	S	'<Integer Thousand><Comma,.>'	ok:2,147,483,647
+FMNumeric.al:596	1033	Integer	V := 2147483647;	S	'<Decimals>'	err:InvalidFormatString
+FMNumeric.al:597	1033	Integer	V := 2147483647;	S	'<Decimals,2>'	err:InvalidFormatString
+FMNumeric.al:598	1033	Integer	V := 2147483647;	S	'<Sign>'	ok:
+FMNumeric.al:599	1033	Integer	V := 2147483647;	S	'<Precision,2:2><Standard Format,0>'	ok:2147483647
+FMNumeric.al:600	1033	Integer	V := 2147483647;	S	'<Precision,0:3><Standard Format,1>'	ok:2147483647
+FMNumeric.al:601	1033	Integer	V := 2147483647;	S	'<Precision,2><Standard Format,2>'	ok:2147483647
+FMNumeric.al:602	1033	Integer	V := 2147483647;	S	'<Standard Format,0>'	ok:2147483647
+FMNumeric.al:603	1033	Integer	V := 2147483647;	S	'<Standard Format,1>'	ok:2147483647
+FMNumeric.al:604	1033	Integer	V := 2147483647;	S	'<Standard Format,2>'	ok:2147483647
+FMNumeric.al:605	1033	Integer	V := 2147483647;	S	'<Standard Format,9>'	ok:2147483647
+FMNumeric.al:606	1033	Integer	V := 2147483647;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMNumeric.al:607	1033	Integer	V := 2147483647;	S	'x<Integer>y'	ok:x2147483647y
+FMNumeric.al:608	1033	Integer	V := 2147483647;	S	'literal'	ok:literal
+FMNumeric.al:609	1033	Integer	V := 2147483647;	S	''	ok:
+FMNumeric.al:610	1033	Integer	V := 2147483647;	S	'<Text>'	err:InvalidFormatString
+FMNumeric.al:611	1033	Integer	V := 2147483647;	S	'<Day>'	err:InvalidFormatString
+FMNumeric.al:612	1033	Integer	V := 2147483647;	S	'<Hours24>'	err:InvalidFormatString
+FMNumeric.al:648	1033	Integer	V := -2147483647-1;	N	0	ok:-2147483648
+FMNumeric.al:649	1033	Integer	V := -2147483647-1;	N	1	ok:-2147483648
+FMNumeric.al:650	1033	Integer	V := -2147483647-1;	N	2	ok:-2147483648
+FMNumeric.al:651	1033	Integer	V := -2147483647-1;	N	3	err:InvalidStandardFormat
+FMNumeric.al:652	1033	Integer	V := -2147483647-1;	N	4	err:InvalidStandardFormat
+FMNumeric.al:653	1033	Integer	V := -2147483647-1;	N	5	err:InvalidStandardFormat
+FMNumeric.al:654	1033	Integer	V := -2147483647-1;	N	6	err:InvalidStandardFormat
+FMNumeric.al:655	1033	Integer	V := -2147483647-1;	N	7	err:InvalidStandardFormat
+FMNumeric.al:656	1033	Integer	V := -2147483647-1;	N	8	err:InvalidStandardFormat
+FMNumeric.al:657	1033	Integer	V := -2147483647-1;	N	9	ok:-2147483648
+FMNumeric.al:658	1033	Integer	V := -2147483647-1;	N	10	err:InvalidStandardFormat
+FMNumeric.al:659	1033	Integer	V := -2147483647-1;	S	'<Integer>'	ok:2147483648
+FMNumeric.al:660	1033	Integer	V := -2147483647-1;	S	'<Integer Thousand>'	ok:2,147,483,648
+FMNumeric.al:661	1033	Integer	V := -2147483647-1;	S	'<Integer,6>'	ok:******
+FMNumeric.al:662	1033	Integer	V := -2147483647-1;	S	'<Integer,6><Filler Character,0>'	ok:******
+FMNumeric.al:663	1033	Integer	V := -2147483647-1;	S	'<Sign><Integer>'	ok:-2147483648
+FMNumeric.al:664	1033	Integer	V := -2147483647-1;	S	'<Sign,1><Integer>'	ok:-2147483648
+FMNumeric.al:665	1033	Integer	V := -2147483647-1;	S	'<Sign><Integer><Decimals>'	err:InvalidFormatString
+FMNumeric.al:666	1033	Integer	V := -2147483647-1;	S	'<Sign><Integer><Decimals,3>'	err:InvalidFormatString
+FMNumeric.al:667	1033	Integer	V := -2147483647-1;	S	'<Integer><Decimals><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:668	1033	Integer	V := -2147483647-1;	S	'<Integer><Comma,.><Decimals>'	err:InvalidFormatString
+FMNumeric.al:669	1033	Integer	V := -2147483647-1;	S	'<Integer Thousand><Decimals,2>'	err:InvalidFormatString
+FMNumeric.al:670	1033	Integer	V := -2147483647-1;	S	'<Integer><1000Character,.>'	ok:2.147.483.648
+FMNumeric.al:671	1033	Integer	V := -2147483647-1;	S	'<Integer><1000Character,.><Decimals><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:710	1033	Integer	V := -2147483647-1;	S	'<Sign><Integer><1000Character,.><Decimal,3><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:711	1033	Integer	V := -2147483647-1;	S	'<Integer><1000Character,,><Decimal,3><Comma,.>'	err:InvalidFormatString
+FMNumeric.al:712	1033	Integer	V := -2147483647-1;	S	'<Integer><Decimals><Comma>'	err:InvalidFormatString
+FMNumeric.al:713	1033	Integer	V := -2147483647-1;	S	'<Integer Thousand><Comma,.>'	ok:2,147,483,648
+FMNumeric.al:714	1033	Integer	V := -2147483647-1;	S	'<Decimals>'	err:InvalidFormatString
+FMNumeric.al:715	1033	Integer	V := -2147483647-1;	S	'<Decimals,2>'	err:InvalidFormatString
+FMNumeric.al:716	1033	Integer	V := -2147483647-1;	S	'<Sign>'	ok:-
+FMNumeric.al:717	1033	Integer	V := -2147483647-1;	S	'<Precision,2:2><Standard Format,0>'	ok:-2147483648
+FMNumeric.al:718	1033	Integer	V := -2147483647-1;	S	'<Precision,0:3><Standard Format,1>'	ok:-2147483648
+FMNumeric.al:719	1033	Integer	V := -2147483647-1;	S	'<Precision,2><Standard Format,2>'	ok:-2147483648
+FMNumeric.al:720	1033	Integer	V := -2147483647-1;	S	'<Standard Format,0>'	ok:-2147483648
+FMNumeric.al:721	1033	Integer	V := -2147483647-1;	S	'<Standard Format,1>'	ok:-2147483648
+FMNumeric.al:722	1033	Integer	V := -2147483647-1;	S	'<Standard Format,2>'	ok:-2147483648
+FMNumeric.al:723	1033	Integer	V := -2147483647-1;	S	'<Standard Format,9>'	ok:-2147483648
+FMNumeric.al:724	1033	Integer	V := -2147483647-1;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMNumeric.al:725	1033	Integer	V := -2147483647-1;	S	'x<Integer>y'	ok:x2147483648y
+FMNumeric.al:726	1033	Integer	V := -2147483647-1;	S	'literal'	ok:literal
+FMNumeric.al:727	1033	Integer	V := -2147483647-1;	S	''	ok:
+FMNumeric.al:728	1033	Integer	V := -2147483647-1;	S	'<Text>'	err:InvalidFormatString
+FMNumeric.al:729	1033	Integer	V := -2147483647-1;	S	'<Day>'	err:InvalidFormatString
+FMNumeric.al:730	1033	Integer	V := -2147483647-1;	S	'<Hours24>'	err:InvalidFormatString
+FMNumeric.al:766	1033	BigInteger	V := 0;	N	0	ok:0
+FMNumeric.al:767	1033	BigInteger	V := 0;	N	1	ok:0
+FMNumeric.al:768	1033	BigInteger	V := 0;	N	2	ok:0
+FMNumeric.al:769	1033	BigInteger	V := 0;	N	3	err:InvalidStandardFormat
+FMNumeric.al:770	1033	BigInteger	V := 0;	N	4	err:InvalidStandardFormat
+FMNumeric.al:771	1033	BigInteger	V := 0;	N	5	err:InvalidStandardFormat
+FMNumeric.al:772	1033	BigInteger	V := 0;	N	6	err:InvalidStandardFormat
+FMNumeric.al:773	1033	BigInteger	V := 0;	N	7	err:InvalidStandardFormat
+FMNumeric.al:774	1033	BigInteger	V := 0;	N	8	err:InvalidStandardFormat
+FMNumeric.al:775	1033	BigInteger	V := 0;	N	9	ok:0
+FMNumeric.al:776	1033	BigInteger	V := 0;	N	10	err:InvalidStandardFormat
+FMNumeric.al:777	1033	BigInteger	V := 0;	S	'<Integer>'	ok:0
+FMNumeric.al:778	1033	BigInteger	V := 0;	S	'<Integer Thousand>'	ok:0
+FMNumeric.al:779	1033	BigInteger	V := 0;	S	'<Integer,6>'	ok:     0
+FMNumeric.al:780	1033	BigInteger	V := 0;	S	'<Integer,6><Filler Character,0>'	ok:000000
+FMNumeric.al:781	1033	BigInteger	V := 0;	S	'<Sign><Integer>'	ok:0
+FMNumeric.al:782	1033	BigInteger	V := 0;	S	'<Sign,1><Integer>'	ok: 0
+FMNumeric.al:783	1033	BigInteger	V := 0;	S	'<Sign><Integer><Decimals>'	err:InvalidFormatString
+FMNumeric.al:784	1033	BigInteger	V := 0;	S	'<Sign><Integer><Decimals,3>'	err:InvalidFormatString
+FMNumeric.al:785	1033	BigInteger	V := 0;	S	'<Integer><Decimals><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:786	1033	BigInteger	V := 0;	S	'<Integer><Comma,.><Decimals>'	err:InvalidFormatString
+FMNumeric.al:787	1033	BigInteger	V := 0;	S	'<Integer Thousand><Decimals,2>'	err:InvalidFormatString
+FMNumeric.al:788	1033	BigInteger	V := 0;	S	'<Integer><1000Character,.>'	ok:0
+FMNumeric.al:789	1033	BigInteger	V := 0;	S	'<Integer><1000Character,.><Decimals><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:828	1033	BigInteger	V := 0;	S	'<Sign><Integer><1000Character,.><Decimal,3><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:829	1033	BigInteger	V := 0;	S	'<Integer><1000Character,,><Decimal,3><Comma,.>'	err:InvalidFormatString
+FMNumeric.al:830	1033	BigInteger	V := 0;	S	'<Integer><Decimals><Comma>'	err:InvalidFormatString
+FMNumeric.al:831	1033	BigInteger	V := 0;	S	'<Integer Thousand><Comma,.>'	ok:0
+FMNumeric.al:832	1033	BigInteger	V := 0;	S	'<Decimals>'	err:InvalidFormatString
+FMNumeric.al:833	1033	BigInteger	V := 0;	S	'<Decimals,2>'	err:InvalidFormatString
+FMNumeric.al:834	1033	BigInteger	V := 0;	S	'<Sign>'	ok:
+FMNumeric.al:835	1033	BigInteger	V := 0;	S	'<Precision,2:2><Standard Format,0>'	ok:0
+FMNumeric.al:836	1033	BigInteger	V := 0;	S	'<Precision,0:3><Standard Format,1>'	ok:0
+FMNumeric.al:837	1033	BigInteger	V := 0;	S	'<Precision,2><Standard Format,2>'	ok:0
+FMNumeric.al:838	1033	BigInteger	V := 0;	S	'<Standard Format,0>'	ok:0
+FMNumeric.al:839	1033	BigInteger	V := 0;	S	'<Standard Format,1>'	ok:0
+FMNumeric.al:840	1033	BigInteger	V := 0;	S	'<Standard Format,2>'	ok:0
+FMNumeric.al:841	1033	BigInteger	V := 0;	S	'<Standard Format,9>'	ok:0
+FMNumeric.al:842	1033	BigInteger	V := 0;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMNumeric.al:843	1033	BigInteger	V := 0;	S	'x<Integer>y'	ok:x0y
+FMNumeric.al:844	1033	BigInteger	V := 0;	S	'literal'	ok:literal
+FMNumeric.al:845	1033	BigInteger	V := 0;	S	''	ok:
+FMNumeric.al:846	1033	BigInteger	V := 0;	S	'<Text>'	err:InvalidFormatString
+FMNumeric.al:847	1033	BigInteger	V := 0;	S	'<Day>'	err:InvalidFormatString
+FMNumeric.al:848	1033	BigInteger	V := 0;	S	'<Hours24>'	err:InvalidFormatString
+FMNumeric.al:884	1033	BigInteger	V := -1;	N	0	ok:-1
+FMNumeric.al:885	1033	BigInteger	V := -1;	N	1	ok:-1
+FMNumeric.al:886	1033	BigInteger	V := -1;	N	2	ok:-1
+FMNumeric.al:887	1033	BigInteger	V := -1;	N	3	err:InvalidStandardFormat
+FMNumeric.al:888	1033	BigInteger	V := -1;	N	4	err:InvalidStandardFormat
+FMNumeric.al:889	1033	BigInteger	V := -1;	N	5	err:InvalidStandardFormat
+FMNumeric.al:890	1033	BigInteger	V := -1;	N	6	err:InvalidStandardFormat
+FMNumeric.al:891	1033	BigInteger	V := -1;	N	7	err:InvalidStandardFormat
+FMNumeric.al:892	1033	BigInteger	V := -1;	N	8	err:InvalidStandardFormat
+FMNumeric.al:893	1033	BigInteger	V := -1;	N	9	ok:-1
+FMNumeric.al:894	1033	BigInteger	V := -1;	N	10	err:InvalidStandardFormat
+FMNumeric.al:895	1033	BigInteger	V := -1;	S	'<Integer>'	ok:1
+FMNumeric.al:896	1033	BigInteger	V := -1;	S	'<Integer Thousand>'	ok:1
+FMNumeric.al:897	1033	BigInteger	V := -1;	S	'<Integer,6>'	ok:     1
+FMNumeric.al:898	1033	BigInteger	V := -1;	S	'<Integer,6><Filler Character,0>'	ok:000001
+FMNumeric.al:899	1033	BigInteger	V := -1;	S	'<Sign><Integer>'	ok:-1
+FMNumeric.al:900	1033	BigInteger	V := -1;	S	'<Sign,1><Integer>'	ok:-1
+FMNumeric.al:901	1033	BigInteger	V := -1;	S	'<Sign><Integer><Decimals>'	err:InvalidFormatString
+FMNumeric.al:902	1033	BigInteger	V := -1;	S	'<Sign><Integer><Decimals,3>'	err:InvalidFormatString
+FMNumeric.al:903	1033	BigInteger	V := -1;	S	'<Integer><Decimals><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:904	1033	BigInteger	V := -1;	S	'<Integer><Comma,.><Decimals>'	err:InvalidFormatString
+FMNumeric.al:905	1033	BigInteger	V := -1;	S	'<Integer Thousand><Decimals,2>'	err:InvalidFormatString
+FMNumeric.al:906	1033	BigInteger	V := -1;	S	'<Integer><1000Character,.>'	ok:1
+FMNumeric.al:907	1033	BigInteger	V := -1;	S	'<Integer><1000Character,.><Decimals><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:946	1033	BigInteger	V := -1;	S	'<Sign><Integer><1000Character,.><Decimal,3><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:947	1033	BigInteger	V := -1;	S	'<Integer><1000Character,,><Decimal,3><Comma,.>'	err:InvalidFormatString
+FMNumeric.al:948	1033	BigInteger	V := -1;	S	'<Integer><Decimals><Comma>'	err:InvalidFormatString
+FMNumeric.al:949	1033	BigInteger	V := -1;	S	'<Integer Thousand><Comma,.>'	ok:1
+FMNumeric.al:950	1033	BigInteger	V := -1;	S	'<Decimals>'	err:InvalidFormatString
+FMNumeric.al:951	1033	BigInteger	V := -1;	S	'<Decimals,2>'	err:InvalidFormatString
+FMNumeric.al:952	1033	BigInteger	V := -1;	S	'<Sign>'	ok:-
+FMNumeric.al:953	1033	BigInteger	V := -1;	S	'<Precision,2:2><Standard Format,0>'	ok:-1
+FMNumeric.al:954	1033	BigInteger	V := -1;	S	'<Precision,0:3><Standard Format,1>'	ok:-1
+FMNumeric.al:955	1033	BigInteger	V := -1;	S	'<Precision,2><Standard Format,2>'	ok:-1
+FMNumeric.al:956	1033	BigInteger	V := -1;	S	'<Standard Format,0>'	ok:-1
+FMNumeric.al:957	1033	BigInteger	V := -1;	S	'<Standard Format,1>'	ok:-1
+FMNumeric.al:958	1033	BigInteger	V := -1;	S	'<Standard Format,2>'	ok:-1
+FMNumeric.al:959	1033	BigInteger	V := -1;	S	'<Standard Format,9>'	ok:-1
+FMNumeric.al:960	1033	BigInteger	V := -1;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMNumeric.al:961	1033	BigInteger	V := -1;	S	'x<Integer>y'	ok:x1y
+FMNumeric.al:962	1033	BigInteger	V := -1;	S	'literal'	ok:literal
+FMNumeric.al:963	1033	BigInteger	V := -1;	S	''	ok:
+FMNumeric.al:964	1033	BigInteger	V := -1;	S	'<Text>'	err:InvalidFormatString
+FMNumeric.al:965	1033	BigInteger	V := -1;	S	'<Day>'	err:InvalidFormatString
+FMNumeric.al:966	1033	BigInteger	V := -1;	S	'<Hours24>'	err:InvalidFormatString
+FMNumeric.al:1002	1033	BigInteger	V := 1234567890123L;	N	0	ok:1234567890123
+FMNumeric.al:1003	1033	BigInteger	V := 1234567890123L;	N	1	ok:1234567890123
+FMNumeric.al:1004	1033	BigInteger	V := 1234567890123L;	N	2	ok:1234567890123
+FMNumeric.al:1005	1033	BigInteger	V := 1234567890123L;	N	3	err:InvalidStandardFormat
+FMNumeric.al:1006	1033	BigInteger	V := 1234567890123L;	N	4	err:InvalidStandardFormat
+FMNumeric.al:1007	1033	BigInteger	V := 1234567890123L;	N	5	err:InvalidStandardFormat
+FMNumeric.al:1008	1033	BigInteger	V := 1234567890123L;	N	6	err:InvalidStandardFormat
+FMNumeric.al:1009	1033	BigInteger	V := 1234567890123L;	N	7	err:InvalidStandardFormat
+FMNumeric.al:1010	1033	BigInteger	V := 1234567890123L;	N	8	err:InvalidStandardFormat
+FMNumeric.al:1011	1033	BigInteger	V := 1234567890123L;	N	9	ok:1234567890123
+FMNumeric.al:1012	1033	BigInteger	V := 1234567890123L;	N	10	err:InvalidStandardFormat
+FMNumeric.al:1013	1033	BigInteger	V := 1234567890123L;	S	'<Integer>'	ok:1234567890123
+FMNumeric.al:1014	1033	BigInteger	V := 1234567890123L;	S	'<Integer Thousand>'	ok:1,234,567,890,123
+FMNumeric.al:1015	1033	BigInteger	V := 1234567890123L;	S	'<Integer,6>'	ok:******
+FMNumeric.al:1016	1033	BigInteger	V := 1234567890123L;	S	'<Integer,6><Filler Character,0>'	ok:******
+FMNumeric.al:1017	1033	BigInteger	V := 1234567890123L;	S	'<Sign><Integer>'	ok:1234567890123
+FMNumeric.al:1018	1033	BigInteger	V := 1234567890123L;	S	'<Sign,1><Integer>'	ok: 1234567890123
+FMNumeric.al:1019	1033	BigInteger	V := 1234567890123L;	S	'<Sign><Integer><Decimals>'	err:InvalidFormatString
+FMNumeric.al:1020	1033	BigInteger	V := 1234567890123L;	S	'<Sign><Integer><Decimals,3>'	err:InvalidFormatString
+FMNumeric.al:1021	1033	BigInteger	V := 1234567890123L;	S	'<Integer><Decimals><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:1022	1033	BigInteger	V := 1234567890123L;	S	'<Integer><Comma,.><Decimals>'	err:InvalidFormatString
+FMNumeric.al:1023	1033	BigInteger	V := 1234567890123L;	S	'<Integer Thousand><Decimals,2>'	err:InvalidFormatString
+FMNumeric.al:1024	1033	BigInteger	V := 1234567890123L;	S	'<Integer><1000Character,.>'	ok:1.234.567.890.123
+FMNumeric.al:1025	1033	BigInteger	V := 1234567890123L;	S	'<Integer><1000Character,.><Decimals><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:1064	1033	BigInteger	V := 1234567890123L;	S	'<Sign><Integer><1000Character,.><Decimal,3><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:1065	1033	BigInteger	V := 1234567890123L;	S	'<Integer><1000Character,,><Decimal,3><Comma,.>'	err:InvalidFormatString
+FMNumeric.al:1066	1033	BigInteger	V := 1234567890123L;	S	'<Integer><Decimals><Comma>'	err:InvalidFormatString
+FMNumeric.al:1067	1033	BigInteger	V := 1234567890123L;	S	'<Integer Thousand><Comma,.>'	ok:1,234,567,890,123
+FMNumeric.al:1068	1033	BigInteger	V := 1234567890123L;	S	'<Decimals>'	err:InvalidFormatString
+FMNumeric.al:1069	1033	BigInteger	V := 1234567890123L;	S	'<Decimals,2>'	err:InvalidFormatString
+FMNumeric.al:1070	1033	BigInteger	V := 1234567890123L;	S	'<Sign>'	ok:
+FMNumeric.al:1071	1033	BigInteger	V := 1234567890123L;	S	'<Precision,2:2><Standard Format,0>'	ok:1234567890123
+FMNumeric.al:1072	1033	BigInteger	V := 1234567890123L;	S	'<Precision,0:3><Standard Format,1>'	ok:1234567890123
+FMNumeric.al:1073	1033	BigInteger	V := 1234567890123L;	S	'<Precision,2><Standard Format,2>'	ok:1234567890123
+FMNumeric.al:1074	1033	BigInteger	V := 1234567890123L;	S	'<Standard Format,0>'	ok:1234567890123
+FMNumeric.al:1075	1033	BigInteger	V := 1234567890123L;	S	'<Standard Format,1>'	ok:1234567890123
+FMNumeric.al:1076	1033	BigInteger	V := 1234567890123L;	S	'<Standard Format,2>'	ok:1234567890123
+FMNumeric.al:1077	1033	BigInteger	V := 1234567890123L;	S	'<Standard Format,9>'	ok:1234567890123
+FMNumeric.al:1078	1033	BigInteger	V := 1234567890123L;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMNumeric.al:1079	1033	BigInteger	V := 1234567890123L;	S	'x<Integer>y'	ok:x1234567890123y
+FMNumeric.al:1080	1033	BigInteger	V := 1234567890123L;	S	'literal'	ok:literal
+FMNumeric.al:1081	1033	BigInteger	V := 1234567890123L;	S	''	ok:
+FMNumeric.al:1082	1033	BigInteger	V := 1234567890123L;	S	'<Text>'	err:InvalidFormatString
+FMNumeric.al:1083	1033	BigInteger	V := 1234567890123L;	S	'<Day>'	err:InvalidFormatString
+FMNumeric.al:1084	1033	BigInteger	V := 1234567890123L;	S	'<Hours24>'	err:InvalidFormatString
+FMNumeric.al:1120	1033	BigInteger	V := 9223372036854775807L;	N	0	ok:9223372036854775807
+FMNumeric.al:1121	1033	BigInteger	V := 9223372036854775807L;	N	1	ok:9223372036854775807
+FMNumeric.al:1122	1033	BigInteger	V := 9223372036854775807L;	N	2	ok:9223372036854775807
+FMNumeric.al:1123	1033	BigInteger	V := 9223372036854775807L;	N	3	err:InvalidStandardFormat
+FMNumeric.al:1124	1033	BigInteger	V := 9223372036854775807L;	N	4	err:InvalidStandardFormat
+FMNumeric.al:1125	1033	BigInteger	V := 9223372036854775807L;	N	5	err:InvalidStandardFormat
+FMNumeric.al:1126	1033	BigInteger	V := 9223372036854775807L;	N	6	err:InvalidStandardFormat
+FMNumeric.al:1127	1033	BigInteger	V := 9223372036854775807L;	N	7	err:InvalidStandardFormat
+FMNumeric.al:1128	1033	BigInteger	V := 9223372036854775807L;	N	8	err:InvalidStandardFormat
+FMNumeric.al:1129	1033	BigInteger	V := 9223372036854775807L;	N	9	ok:9223372036854775807
+FMNumeric.al:1130	1033	BigInteger	V := 9223372036854775807L;	N	10	err:InvalidStandardFormat
+FMNumeric.al:1131	1033	BigInteger	V := 9223372036854775807L;	S	'<Integer>'	ok:9223372036854775807
+FMNumeric.al:1132	1033	BigInteger	V := 9223372036854775807L;	S	'<Integer Thousand>'	ok:9,223,372,036,854,775,807
+FMNumeric.al:1133	1033	BigInteger	V := 9223372036854775807L;	S	'<Integer,6>'	ok:******
+FMNumeric.al:1134	1033	BigInteger	V := 9223372036854775807L;	S	'<Integer,6><Filler Character,0>'	ok:******
+FMNumeric.al:1135	1033	BigInteger	V := 9223372036854775807L;	S	'<Sign><Integer>'	ok:9223372036854775807
+FMNumeric.al:1136	1033	BigInteger	V := 9223372036854775807L;	S	'<Sign,1><Integer>'	ok: 9223372036854775807
+FMNumeric.al:1137	1033	BigInteger	V := 9223372036854775807L;	S	'<Sign><Integer><Decimals>'	err:InvalidFormatString
+FMNumeric.al:1138	1033	BigInteger	V := 9223372036854775807L;	S	'<Sign><Integer><Decimals,3>'	err:InvalidFormatString
+FMNumeric.al:1139	1033	BigInteger	V := 9223372036854775807L;	S	'<Integer><Decimals><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:1140	1033	BigInteger	V := 9223372036854775807L;	S	'<Integer><Comma,.><Decimals>'	err:InvalidFormatString
+FMNumeric.al:1141	1033	BigInteger	V := 9223372036854775807L;	S	'<Integer Thousand><Decimals,2>'	err:InvalidFormatString
+FMNumeric.al:1142	1033	BigInteger	V := 9223372036854775807L;	S	'<Integer><1000Character,.>'	ok:9.223.372.036.854.775.807
+FMNumeric.al:1143	1033	BigInteger	V := 9223372036854775807L;	S	'<Integer><1000Character,.><Decimals><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:1182	1033	BigInteger	V := 9223372036854775807L;	S	'<Sign><Integer><1000Character,.><Decimal,3><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:1183	1033	BigInteger	V := 9223372036854775807L;	S	'<Integer><1000Character,,><Decimal,3><Comma,.>'	err:InvalidFormatString
+FMNumeric.al:1184	1033	BigInteger	V := 9223372036854775807L;	S	'<Integer><Decimals><Comma>'	err:InvalidFormatString
+FMNumeric.al:1185	1033	BigInteger	V := 9223372036854775807L;	S	'<Integer Thousand><Comma,.>'	ok:9,223,372,036,854,775,807
+FMNumeric.al:1186	1033	BigInteger	V := 9223372036854775807L;	S	'<Decimals>'	err:InvalidFormatString
+FMNumeric.al:1187	1033	BigInteger	V := 9223372036854775807L;	S	'<Decimals,2>'	err:InvalidFormatString
+FMNumeric.al:1188	1033	BigInteger	V := 9223372036854775807L;	S	'<Sign>'	ok:
+FMNumeric.al:1189	1033	BigInteger	V := 9223372036854775807L;	S	'<Precision,2:2><Standard Format,0>'	ok:9223372036854775807
+FMNumeric.al:1190	1033	BigInteger	V := 9223372036854775807L;	S	'<Precision,0:3><Standard Format,1>'	ok:9223372036854775807
+FMNumeric.al:1191	1033	BigInteger	V := 9223372036854775807L;	S	'<Precision,2><Standard Format,2>'	ok:9223372036854775807
+FMNumeric.al:1192	1033	BigInteger	V := 9223372036854775807L;	S	'<Standard Format,0>'	ok:9223372036854775807
+FMNumeric.al:1193	1033	BigInteger	V := 9223372036854775807L;	S	'<Standard Format,1>'	ok:9223372036854775807
+FMNumeric.al:1194	1033	BigInteger	V := 9223372036854775807L;	S	'<Standard Format,2>'	ok:9223372036854775807
+FMNumeric.al:1195	1033	BigInteger	V := 9223372036854775807L;	S	'<Standard Format,9>'	ok:9223372036854775807
+FMNumeric.al:1196	1033	BigInteger	V := 9223372036854775807L;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMNumeric.al:1197	1033	BigInteger	V := 9223372036854775807L;	S	'x<Integer>y'	ok:x9223372036854775807y
+FMNumeric.al:1198	1033	BigInteger	V := 9223372036854775807L;	S	'literal'	ok:literal
+FMNumeric.al:1199	1033	BigInteger	V := 9223372036854775807L;	S	''	ok:
+FMNumeric.al:1200	1033	BigInteger	V := 9223372036854775807L;	S	'<Text>'	err:InvalidFormatString
+FMNumeric.al:1201	1033	BigInteger	V := 9223372036854775807L;	S	'<Day>'	err:InvalidFormatString
+FMNumeric.al:1202	1033	BigInteger	V := 9223372036854775807L;	S	'<Hours24>'	err:InvalidFormatString
+FMNumeric.al:1238	1033	Decimal	V := 0;	N	0	ok:0
+FMNumeric.al:1239	1033	Decimal	V := 0;	N	1	ok:0
+FMNumeric.al:1240	1033	Decimal	V := 0;	N	2	ok:0
+FMNumeric.al:1241	1033	Decimal	V := 0;	N	3	err:InvalidStandardFormat
+FMNumeric.al:1242	1033	Decimal	V := 0;	N	4	err:InvalidStandardFormat
+FMNumeric.al:1243	1033	Decimal	V := 0;	N	5	err:InvalidStandardFormat
+FMNumeric.al:1244	1033	Decimal	V := 0;	N	6	err:InvalidStandardFormat
+FMNumeric.al:1245	1033	Decimal	V := 0;	N	7	err:InvalidStandardFormat
+FMNumeric.al:1246	1033	Decimal	V := 0;	N	8	err:InvalidStandardFormat
+FMNumeric.al:1247	1033	Decimal	V := 0;	N	9	ok:0
+FMNumeric.al:1248	1033	Decimal	V := 0;	N	10	err:InvalidStandardFormat
+FMNumeric.al:1249	1033	Decimal	V := 0;	S	'<Integer>'	ok:0
+FMNumeric.al:1250	1033	Decimal	V := 0;	S	'<Integer Thousand>'	ok:0
+FMNumeric.al:1251	1033	Decimal	V := 0;	S	'<Integer,6>'	ok:     0
+FMNumeric.al:1252	1033	Decimal	V := 0;	S	'<Integer,6><Filler Character,0>'	ok:000000
+FMNumeric.al:1253	1033	Decimal	V := 0;	S	'<Sign><Integer>'	ok:0
+FMNumeric.al:1254	1033	Decimal	V := 0;	S	'<Sign,1><Integer>'	ok: 0
+FMNumeric.al:1255	1033	Decimal	V := 0;	S	'<Sign><Integer><Decimals>'	ok:0
+FMNumeric.al:1256	1033	Decimal	V := 0;	S	'<Sign><Integer><Decimals,3>'	ok:0.00
+FMNumeric.al:1257	1033	Decimal	V := 0;	S	'<Integer><Decimals><Comma,,>'	ok:0
+FMNumeric.al:1258	1033	Decimal	V := 0;	S	'<Integer><Comma,.><Decimals>'	ok:0
+FMNumeric.al:1259	1033	Decimal	V := 0;	S	'<Integer Thousand><Decimals,2>'	ok:0.0
+FMNumeric.al:1260	1033	Decimal	V := 0;	S	'<Integer><1000Character,.>'	ok:0
+FMNumeric.al:1261	1033	Decimal	V := 0;	S	'<Integer><1000Character,.><Decimals><Comma,,>'	ok:0
+FMNumeric.al:1300	1033	Decimal	V := 0;	S	'<Sign><Integer><1000Character,.><Decimal,3><Comma,,>'	ok:0,00
+FMNumeric.al:1301	1033	Decimal	V := 0;	S	'<Integer><1000Character,,><Decimal,3><Comma,.>'	ok:0.00
+FMNumeric.al:1302	1033	Decimal	V := 0;	S	'<Integer><Decimals><Comma>'	err:InvalidFormatString
+FMNumeric.al:1303	1033	Decimal	V := 0;	S	'<Integer Thousand><Comma,.>'	ok:0
+FMNumeric.al:1304	1033	Decimal	V := 0;	S	'<Decimals>'	ok:
+FMNumeric.al:1305	1033	Decimal	V := 0;	S	'<Decimals,2>'	ok:.0
+FMNumeric.al:1306	1033	Decimal	V := 0;	S	'<Sign>'	ok:
+FMNumeric.al:1307	1033	Decimal	V := 0;	S	'<Precision,2:2><Standard Format,0>'	ok:0.00
+FMNumeric.al:1308	1033	Decimal	V := 0;	S	'<Precision,0:3><Standard Format,1>'	ok:0
+FMNumeric.al:1309	1033	Decimal	V := 0;	S	'<Precision,2><Standard Format,2>'	ok:0.00
+FMNumeric.al:1310	1033	Decimal	V := 0;	S	'<Standard Format,0>'	ok:0
+FMNumeric.al:1311	1033	Decimal	V := 0;	S	'<Standard Format,1>'	ok:0
+FMNumeric.al:1312	1033	Decimal	V := 0;	S	'<Standard Format,2>'	ok:0
+FMNumeric.al:1313	1033	Decimal	V := 0;	S	'<Standard Format,9>'	ok:0
+FMNumeric.al:1314	1033	Decimal	V := 0;	S	'<Standard Format,3>'	ok:0 
+FMNumeric.al:1315	1033	Decimal	V := 0;	S	'x<Integer>y'	ok:x0y
+FMNumeric.al:1316	1033	Decimal	V := 0;	S	'literal'	ok:literal
+FMNumeric.al:1317	1033	Decimal	V := 0;	S	''	ok:
+FMNumeric.al:1318	1033	Decimal	V := 0;	S	'<Text>'	err:InvalidFormatString
+FMNumeric.al:1319	1033	Decimal	V := 0;	S	'<Day>'	err:InvalidFormatString
+FMNumeric.al:1320	1033	Decimal	V := 0;	S	'<Hours24>'	err:InvalidFormatString
+FMNumeric.al:1356	1033	Decimal	V := 0.5;	N	0	ok:0.5
+FMNumeric.al:1357	1033	Decimal	V := 0.5;	N	1	ok:0.5
+FMNumeric.al:1358	1033	Decimal	V := 0.5;	N	2	ok:0.5
+FMNumeric.al:1359	1033	Decimal	V := 0.5;	N	3	err:InvalidStandardFormat
+FMNumeric.al:1360	1033	Decimal	V := 0.5;	N	4	err:InvalidStandardFormat
+FMNumeric.al:1361	1033	Decimal	V := 0.5;	N	5	err:InvalidStandardFormat
+FMNumeric.al:1362	1033	Decimal	V := 0.5;	N	6	err:InvalidStandardFormat
+FMNumeric.al:1363	1033	Decimal	V := 0.5;	N	7	err:InvalidStandardFormat
+FMNumeric.al:1364	1033	Decimal	V := 0.5;	N	8	err:InvalidStandardFormat
+FMNumeric.al:1365	1033	Decimal	V := 0.5;	N	9	ok:0.5
+FMNumeric.al:1366	1033	Decimal	V := 0.5;	N	10	err:InvalidStandardFormat
+FMNumeric.al:1367	1033	Decimal	V := 0.5;	S	'<Integer>'	ok:0
+FMNumeric.al:1368	1033	Decimal	V := 0.5;	S	'<Integer Thousand>'	ok:0
+FMNumeric.al:1369	1033	Decimal	V := 0.5;	S	'<Integer,6>'	ok:     0
+FMNumeric.al:1370	1033	Decimal	V := 0.5;	S	'<Integer,6><Filler Character,0>'	ok:000000
+FMNumeric.al:1371	1033	Decimal	V := 0.5;	S	'<Sign><Integer>'	ok:0
+FMNumeric.al:1372	1033	Decimal	V := 0.5;	S	'<Sign,1><Integer>'	ok: 0
+FMNumeric.al:1373	1033	Decimal	V := 0.5;	S	'<Sign><Integer><Decimals>'	ok:0.5
+FMNumeric.al:1374	1033	Decimal	V := 0.5;	S	'<Sign><Integer><Decimals,3>'	ok:0.50
+FMNumeric.al:1375	1033	Decimal	V := 0.5;	S	'<Integer><Decimals><Comma,,>'	ok:0,5
+FMNumeric.al:1376	1033	Decimal	V := 0.5;	S	'<Integer><Comma,.><Decimals>'	ok:0.5
+FMNumeric.al:1377	1033	Decimal	V := 0.5;	S	'<Integer Thousand><Decimals,2>'	ok:0.5
+FMNumeric.al:1378	1033	Decimal	V := 0.5;	S	'<Integer><1000Character,.>'	ok:0
+FMNumeric.al:1379	1033	Decimal	V := 0.5;	S	'<Integer><1000Character,.><Decimals><Comma,,>'	ok:0,5
+FMNumeric.al:1418	1033	Decimal	V := 0.5;	S	'<Sign><Integer><1000Character,.><Decimal,3><Comma,,>'	ok:0,50
+FMNumeric.al:1419	1033	Decimal	V := 0.5;	S	'<Integer><1000Character,,><Decimal,3><Comma,.>'	ok:0.50
+FMNumeric.al:1420	1033	Decimal	V := 0.5;	S	'<Integer><Decimals><Comma>'	err:InvalidFormatString
+FMNumeric.al:1421	1033	Decimal	V := 0.5;	S	'<Integer Thousand><Comma,.>'	ok:0
+FMNumeric.al:1422	1033	Decimal	V := 0.5;	S	'<Decimals>'	ok:.5
+FMNumeric.al:1423	1033	Decimal	V := 0.5;	S	'<Decimals,2>'	ok:.5
+FMNumeric.al:1424	1033	Decimal	V := 0.5;	S	'<Sign>'	ok:
+FMNumeric.al:1425	1033	Decimal	V := 0.5;	S	'<Precision,2:2><Standard Format,0>'	ok:0.50
+FMNumeric.al:1426	1033	Decimal	V := 0.5;	S	'<Precision,0:3><Standard Format,1>'	ok:0.5
+FMNumeric.al:1427	1033	Decimal	V := 0.5;	S	'<Precision,2><Standard Format,2>'	ok:0.50
+FMNumeric.al:1428	1033	Decimal	V := 0.5;	S	'<Standard Format,0>'	ok:0.5
+FMNumeric.al:1429	1033	Decimal	V := 0.5;	S	'<Standard Format,1>'	ok:0.5
+FMNumeric.al:1430	1033	Decimal	V := 0.5;	S	'<Standard Format,2>'	ok:0.5
+FMNumeric.al:1431	1033	Decimal	V := 0.5;	S	'<Standard Format,9>'	ok:0.5
+FMNumeric.al:1432	1033	Decimal	V := 0.5;	S	'<Standard Format,3>'	ok:0.5 
+FMNumeric.al:1433	1033	Decimal	V := 0.5;	S	'x<Integer>y'	ok:x0y
+FMNumeric.al:1434	1033	Decimal	V := 0.5;	S	'literal'	ok:literal
+FMNumeric.al:1435	1033	Decimal	V := 0.5;	S	''	ok:
+FMNumeric.al:1436	1033	Decimal	V := 0.5;	S	'<Text>'	err:InvalidFormatString
+FMNumeric.al:1437	1033	Decimal	V := 0.5;	S	'<Day>'	err:InvalidFormatString
+FMNumeric.al:1438	1033	Decimal	V := 0.5;	S	'<Hours24>'	err:InvalidFormatString
+FMNumeric.al:1474	1033	Decimal	V := -1234.5;	N	0	ok:-1,234.5
+FMNumeric.al:1475	1033	Decimal	V := -1234.5;	N	1	ok:-1234.5
+FMNumeric.al:1476	1033	Decimal	V := -1234.5;	N	2	ok:-1234.5
+FMNumeric.al:1477	1033	Decimal	V := -1234.5;	N	3	err:InvalidStandardFormat
+FMNumeric.al:1478	1033	Decimal	V := -1234.5;	N	4	err:InvalidStandardFormat
+FMNumeric.al:1479	1033	Decimal	V := -1234.5;	N	5	err:InvalidStandardFormat
+FMNumeric.al:1480	1033	Decimal	V := -1234.5;	N	6	err:InvalidStandardFormat
+FMNumeric.al:1481	1033	Decimal	V := -1234.5;	N	7	err:InvalidStandardFormat
+FMNumeric.al:1482	1033	Decimal	V := -1234.5;	N	8	err:InvalidStandardFormat
+FMNumeric.al:1483	1033	Decimal	V := -1234.5;	N	9	ok:-1234.5
+FMNumeric.al:1484	1033	Decimal	V := -1234.5;	N	10	err:InvalidStandardFormat
+FMNumeric.al:1485	1033	Decimal	V := -1234.5;	S	'<Integer>'	ok:1234
+FMNumeric.al:1486	1033	Decimal	V := -1234.5;	S	'<Integer Thousand>'	ok:1,234
+FMNumeric.al:1487	1033	Decimal	V := -1234.5;	S	'<Integer,6>'	ok:  1234
+FMNumeric.al:1488	1033	Decimal	V := -1234.5;	S	'<Integer,6><Filler Character,0>'	ok:001234
+FMNumeric.al:1489	1033	Decimal	V := -1234.5;	S	'<Sign><Integer>'	ok:-1234
+FMNumeric.al:1490	1033	Decimal	V := -1234.5;	S	'<Sign,1><Integer>'	ok:-1234
+FMNumeric.al:1491	1033	Decimal	V := -1234.5;	S	'<Sign><Integer><Decimals>'	ok:-1234.5
+FMNumeric.al:1492	1033	Decimal	V := -1234.5;	S	'<Sign><Integer><Decimals,3>'	ok:-1234.50
+FMNumeric.al:1493	1033	Decimal	V := -1234.5;	S	'<Integer><Decimals><Comma,,>'	ok:1234,5
+FMNumeric.al:1494	1033	Decimal	V := -1234.5;	S	'<Integer><Comma,.><Decimals>'	ok:1234.5
+FMNumeric.al:1495	1033	Decimal	V := -1234.5;	S	'<Integer Thousand><Decimals,2>'	ok:1,234.5
+FMNumeric.al:1496	1033	Decimal	V := -1234.5;	S	'<Integer><1000Character,.>'	ok:1.234
+FMNumeric.al:1497	1033	Decimal	V := -1234.5;	S	'<Integer><1000Character,.><Decimals><Comma,,>'	ok:1.234,5
+FMNumeric.al:1536	1033	Decimal	V := -1234.5;	S	'<Sign><Integer><1000Character,.><Decimal,3><Comma,,>'	ok:-1.234,50
+FMNumeric.al:1537	1033	Decimal	V := -1234.5;	S	'<Integer><1000Character,,><Decimal,3><Comma,.>'	ok:1,234.50
+FMNumeric.al:1538	1033	Decimal	V := -1234.5;	S	'<Integer><Decimals><Comma>'	err:InvalidFormatString
+FMNumeric.al:1539	1033	Decimal	V := -1234.5;	S	'<Integer Thousand><Comma,.>'	ok:1,234
+FMNumeric.al:1540	1033	Decimal	V := -1234.5;	S	'<Decimals>'	ok:.5
+FMNumeric.al:1541	1033	Decimal	V := -1234.5;	S	'<Decimals,2>'	ok:.5
+FMNumeric.al:1542	1033	Decimal	V := -1234.5;	S	'<Sign>'	ok:-
+FMNumeric.al:1543	1033	Decimal	V := -1234.5;	S	'<Precision,2:2><Standard Format,0>'	ok:-1,234.50
+FMNumeric.al:1544	1033	Decimal	V := -1234.5;	S	'<Precision,0:3><Standard Format,1>'	ok:-1234.5
+FMNumeric.al:1545	1033	Decimal	V := -1234.5;	S	'<Precision,2><Standard Format,2>'	ok:-1234.50
+FMNumeric.al:1546	1033	Decimal	V := -1234.5;	S	'<Standard Format,0>'	ok:-1,234.5
+FMNumeric.al:1547	1033	Decimal	V := -1234.5;	S	'<Standard Format,1>'	ok:-1234.5
+FMNumeric.al:1548	1033	Decimal	V := -1234.5;	S	'<Standard Format,2>'	ok:-1234.5
+FMNumeric.al:1549	1033	Decimal	V := -1234.5;	S	'<Standard Format,9>'	ok:-1234.5
+FMNumeric.al:1550	1033	Decimal	V := -1234.5;	S	'<Standard Format,3>'	ok:1,234.5-
+FMNumeric.al:1551	1033	Decimal	V := -1234.5;	S	'x<Integer>y'	ok:x1234y
+FMNumeric.al:1552	1033	Decimal	V := -1234.5;	S	'literal'	ok:literal
+FMNumeric.al:1553	1033	Decimal	V := -1234.5;	S	''	ok:
+FMNumeric.al:1554	1033	Decimal	V := -1234.5;	S	'<Text>'	err:InvalidFormatString
+FMNumeric.al:1555	1033	Decimal	V := -1234.5;	S	'<Day>'	err:InvalidFormatString
+FMNumeric.al:1556	1033	Decimal	V := -1234.5;	S	'<Hours24>'	err:InvalidFormatString
+FMNumeric.al:1592	1033	Decimal	V := 1234567.891;	N	0	ok:1,234,567.891
+FMNumeric.al:1593	1033	Decimal	V := 1234567.891;	N	1	ok:1234567.891
+FMNumeric.al:1594	1033	Decimal	V := 1234567.891;	N	2	ok:1234567.891
+FMNumeric.al:1595	1033	Decimal	V := 1234567.891;	N	3	err:InvalidStandardFormat
+FMNumeric.al:1596	1033	Decimal	V := 1234567.891;	N	4	err:InvalidStandardFormat
+FMNumeric.al:1597	1033	Decimal	V := 1234567.891;	N	5	err:InvalidStandardFormat
+FMNumeric.al:1598	1033	Decimal	V := 1234567.891;	N	6	err:InvalidStandardFormat
+FMNumeric.al:1599	1033	Decimal	V := 1234567.891;	N	7	err:InvalidStandardFormat
+FMNumeric.al:1600	1033	Decimal	V := 1234567.891;	N	8	err:InvalidStandardFormat
+FMNumeric.al:1601	1033	Decimal	V := 1234567.891;	N	9	ok:1234567.891
+FMNumeric.al:1602	1033	Decimal	V := 1234567.891;	N	10	err:InvalidStandardFormat
+FMNumeric.al:1603	1033	Decimal	V := 1234567.891;	S	'<Integer>'	ok:1234567
+FMNumeric.al:1604	1033	Decimal	V := 1234567.891;	S	'<Integer Thousand>'	ok:1,234,567
+FMNumeric.al:1605	1033	Decimal	V := 1234567.891;	S	'<Integer,6>'	ok:******
+FMNumeric.al:1606	1033	Decimal	V := 1234567.891;	S	'<Integer,6><Filler Character,0>'	ok:******
+FMNumeric.al:1607	1033	Decimal	V := 1234567.891;	S	'<Sign><Integer>'	ok:1234567
+FMNumeric.al:1608	1033	Decimal	V := 1234567.891;	S	'<Sign,1><Integer>'	ok: 1234567
+FMNumeric.al:1609	1033	Decimal	V := 1234567.891;	S	'<Sign><Integer><Decimals>'	ok:1234567.891
+FMNumeric.al:1610	1033	Decimal	V := 1234567.891;	S	'<Sign><Integer><Decimals,3>'	ok:1234567***
+FMNumeric.al:1611	1033	Decimal	V := 1234567.891;	S	'<Integer><Decimals><Comma,,>'	ok:1234567,891
+FMNumeric.al:1612	1033	Decimal	V := 1234567.891;	S	'<Integer><Comma,.><Decimals>'	ok:1234567.891
+FMNumeric.al:1613	1033	Decimal	V := 1234567.891;	S	'<Integer Thousand><Decimals,2>'	ok:1,234,567**
+FMNumeric.al:1614	1033	Decimal	V := 1234567.891;	S	'<Integer><1000Character,.>'	ok:1.234.567
+FMNumeric.al:1615	1033	Decimal	V := 1234567.891;	S	'<Integer><1000Character,.><Decimals><Comma,,>'	ok:1.234.567,891
+FMNumeric.al:1654	1033	Decimal	V := 1234567.891;	S	'<Sign><Integer><1000Character,.><Decimal,3><Comma,,>'	ok:1.234.567***
+FMNumeric.al:1655	1033	Decimal	V := 1234567.891;	S	'<Integer><1000Character,,><Decimal,3><Comma,.>'	ok:1,234,567***
+FMNumeric.al:1656	1033	Decimal	V := 1234567.891;	S	'<Integer><Decimals><Comma>'	err:InvalidFormatString
+FMNumeric.al:1657	1033	Decimal	V := 1234567.891;	S	'<Integer Thousand><Comma,.>'	ok:1,234,567
+FMNumeric.al:1658	1033	Decimal	V := 1234567.891;	S	'<Decimals>'	ok:.891
+FMNumeric.al:1659	1033	Decimal	V := 1234567.891;	S	'<Decimals,2>'	ok:**
+FMNumeric.al:1660	1033	Decimal	V := 1234567.891;	S	'<Sign>'	ok:
+FMNumeric.al:1661	1033	Decimal	V := 1234567.891;	S	'<Precision,2:2><Standard Format,0>'	ok:1,234,567.89
+FMNumeric.al:1662	1033	Decimal	V := 1234567.891;	S	'<Precision,0:3><Standard Format,1>'	ok:1234567.891
+FMNumeric.al:1663	1033	Decimal	V := 1234567.891;	S	'<Precision,2><Standard Format,2>'	ok:1234567.89
+FMNumeric.al:1664	1033	Decimal	V := 1234567.891;	S	'<Standard Format,0>'	ok:1,234,567.891
+FMNumeric.al:1665	1033	Decimal	V := 1234567.891;	S	'<Standard Format,1>'	ok:1234567.891
+FMNumeric.al:1666	1033	Decimal	V := 1234567.891;	S	'<Standard Format,2>'	ok:1234567.891
+FMNumeric.al:1667	1033	Decimal	V := 1234567.891;	S	'<Standard Format,9>'	ok:1234567.891
+FMNumeric.al:1668	1033	Decimal	V := 1234567.891;	S	'<Standard Format,3>'	ok:1,234,567.891 
+FMNumeric.al:1669	1033	Decimal	V := 1234567.891;	S	'x<Integer>y'	ok:x1234567y
+FMNumeric.al:1670	1033	Decimal	V := 1234567.891;	S	'literal'	ok:literal
+FMNumeric.al:1671	1033	Decimal	V := 1234567.891;	S	''	ok:
+FMNumeric.al:1672	1033	Decimal	V := 1234567.891;	S	'<Text>'	err:InvalidFormatString
+FMNumeric.al:1673	1033	Decimal	V := 1234567.891;	S	'<Day>'	err:InvalidFormatString
+FMNumeric.al:1674	1033	Decimal	V := 1234567.891;	S	'<Hours24>'	err:InvalidFormatString
+FMNumeric.al:1710	1033	Decimal	V := 0.000001;	N	0	ok:0.000001
+FMNumeric.al:1711	1033	Decimal	V := 0.000001;	N	1	ok:0.000001
+FMNumeric.al:1712	1033	Decimal	V := 0.000001;	N	2	ok:0.000001
+FMNumeric.al:1713	1033	Decimal	V := 0.000001;	N	3	err:InvalidStandardFormat
+FMNumeric.al:1714	1033	Decimal	V := 0.000001;	N	4	err:InvalidStandardFormat
+FMNumeric.al:1715	1033	Decimal	V := 0.000001;	N	5	err:InvalidStandardFormat
+FMNumeric.al:1716	1033	Decimal	V := 0.000001;	N	6	err:InvalidStandardFormat
+FMNumeric.al:1717	1033	Decimal	V := 0.000001;	N	7	err:InvalidStandardFormat
+FMNumeric.al:1718	1033	Decimal	V := 0.000001;	N	8	err:InvalidStandardFormat
+FMNumeric.al:1719	1033	Decimal	V := 0.000001;	N	9	ok:0.000001
+FMNumeric.al:1720	1033	Decimal	V := 0.000001;	N	10	err:InvalidStandardFormat
+FMNumeric.al:1721	1033	Decimal	V := 0.000001;	S	'<Integer>'	ok:0
+FMNumeric.al:1722	1033	Decimal	V := 0.000001;	S	'<Integer Thousand>'	ok:0
+FMNumeric.al:1723	1033	Decimal	V := 0.000001;	S	'<Integer,6>'	ok:     0
+FMNumeric.al:1724	1033	Decimal	V := 0.000001;	S	'<Integer,6><Filler Character,0>'	ok:000000
+FMNumeric.al:1725	1033	Decimal	V := 0.000001;	S	'<Sign><Integer>'	ok:0
+FMNumeric.al:1726	1033	Decimal	V := 0.000001;	S	'<Sign,1><Integer>'	ok: 0
+FMNumeric.al:1727	1033	Decimal	V := 0.000001;	S	'<Sign><Integer><Decimals>'	ok:0.000001
+FMNumeric.al:1728	1033	Decimal	V := 0.000001;	S	'<Sign><Integer><Decimals,3>'	ok:0***
+FMNumeric.al:1729	1033	Decimal	V := 0.000001;	S	'<Integer><Decimals><Comma,,>'	ok:0,000001
+FMNumeric.al:1730	1033	Decimal	V := 0.000001;	S	'<Integer><Comma,.><Decimals>'	ok:0.000001
+FMNumeric.al:1731	1033	Decimal	V := 0.000001;	S	'<Integer Thousand><Decimals,2>'	ok:0**
+FMNumeric.al:1732	1033	Decimal	V := 0.000001;	S	'<Integer><1000Character,.>'	ok:0
+FMNumeric.al:1733	1033	Decimal	V := 0.000001;	S	'<Integer><1000Character,.><Decimals><Comma,,>'	ok:0,000001
+FMNumeric.al:1772	1033	Decimal	V := 0.000001;	S	'<Sign><Integer><1000Character,.><Decimal,3><Comma,,>'	ok:0***
+FMNumeric.al:1773	1033	Decimal	V := 0.000001;	S	'<Integer><1000Character,,><Decimal,3><Comma,.>'	ok:0***
+FMNumeric.al:1774	1033	Decimal	V := 0.000001;	S	'<Integer><Decimals><Comma>'	err:InvalidFormatString
+FMNumeric.al:1775	1033	Decimal	V := 0.000001;	S	'<Integer Thousand><Comma,.>'	ok:0
+FMNumeric.al:1776	1033	Decimal	V := 0.000001;	S	'<Decimals>'	ok:.000001
+FMNumeric.al:1777	1033	Decimal	V := 0.000001;	S	'<Decimals,2>'	ok:**
+FMNumeric.al:1778	1033	Decimal	V := 0.000001;	S	'<Sign>'	ok:
+FMNumeric.al:1779	1033	Decimal	V := 0.000001;	S	'<Precision,2:2><Standard Format,0>'	ok:0.00
+FMNumeric.al:1780	1033	Decimal	V := 0.000001;	S	'<Precision,0:3><Standard Format,1>'	ok:0
+FMNumeric.al:1781	1033	Decimal	V := 0.000001;	S	'<Precision,2><Standard Format,2>'	ok:0.00
+FMNumeric.al:1782	1033	Decimal	V := 0.000001;	S	'<Standard Format,0>'	ok:0.000001
+FMNumeric.al:1783	1033	Decimal	V := 0.000001;	S	'<Standard Format,1>'	ok:0.000001
+FMNumeric.al:1784	1033	Decimal	V := 0.000001;	S	'<Standard Format,2>'	ok:0.000001
+FMNumeric.al:1785	1033	Decimal	V := 0.000001;	S	'<Standard Format,9>'	ok:0.000001
+FMNumeric.al:1786	1033	Decimal	V := 0.000001;	S	'<Standard Format,3>'	ok:0.000001 
+FMNumeric.al:1787	1033	Decimal	V := 0.000001;	S	'x<Integer>y'	ok:x0y
+FMNumeric.al:1788	1033	Decimal	V := 0.000001;	S	'literal'	ok:literal
+FMNumeric.al:1789	1033	Decimal	V := 0.000001;	S	''	ok:
+FMNumeric.al:1790	1033	Decimal	V := 0.000001;	S	'<Text>'	err:InvalidFormatString
+FMNumeric.al:1791	1033	Decimal	V := 0.000001;	S	'<Day>'	err:InvalidFormatString
+FMNumeric.al:1792	1033	Decimal	V := 0.000001;	S	'<Hours24>'	err:InvalidFormatString
+FMNumeric.al:1828	1033	Decimal	V := 1234567890123.45;	N	0	ok:1,234,567,890,123.45
+FMNumeric.al:1829	1033	Decimal	V := 1234567890123.45;	N	1	ok:1234567890123.45
+FMNumeric.al:1830	1033	Decimal	V := 1234567890123.45;	N	2	ok:1234567890123.45
+FMNumeric.al:1831	1033	Decimal	V := 1234567890123.45;	N	3	err:InvalidStandardFormat
+FMNumeric.al:1832	1033	Decimal	V := 1234567890123.45;	N	4	err:InvalidStandardFormat
+FMNumeric.al:1833	1033	Decimal	V := 1234567890123.45;	N	5	err:InvalidStandardFormat
+FMNumeric.al:1834	1033	Decimal	V := 1234567890123.45;	N	6	err:InvalidStandardFormat
+FMNumeric.al:1835	1033	Decimal	V := 1234567890123.45;	N	7	err:InvalidStandardFormat
+FMNumeric.al:1836	1033	Decimal	V := 1234567890123.45;	N	8	err:InvalidStandardFormat
+FMNumeric.al:1837	1033	Decimal	V := 1234567890123.45;	N	9	ok:1234567890123.45
+FMNumeric.al:1838	1033	Decimal	V := 1234567890123.45;	N	10	err:InvalidStandardFormat
+FMNumeric.al:1839	1033	Decimal	V := 1234567890123.45;	S	'<Integer>'	ok:1234567890123
+FMNumeric.al:1840	1033	Decimal	V := 1234567890123.45;	S	'<Integer Thousand>'	ok:1,234,567,890,123
+FMNumeric.al:1841	1033	Decimal	V := 1234567890123.45;	S	'<Integer,6>'	ok:******
+FMNumeric.al:1842	1033	Decimal	V := 1234567890123.45;	S	'<Integer,6><Filler Character,0>'	ok:******
+FMNumeric.al:1843	1033	Decimal	V := 1234567890123.45;	S	'<Sign><Integer>'	ok:1234567890123
+FMNumeric.al:1844	1033	Decimal	V := 1234567890123.45;	S	'<Sign,1><Integer>'	ok: 1234567890123
+FMNumeric.al:1845	1033	Decimal	V := 1234567890123.45;	S	'<Sign><Integer><Decimals>'	ok:1234567890123.45
+FMNumeric.al:1846	1033	Decimal	V := 1234567890123.45;	S	'<Sign><Integer><Decimals,3>'	ok:1234567890123.45
+FMNumeric.al:1847	1033	Decimal	V := 1234567890123.45;	S	'<Integer><Decimals><Comma,,>'	ok:1234567890123,45
+FMNumeric.al:1848	1033	Decimal	V := 1234567890123.45;	S	'<Integer><Comma,.><Decimals>'	ok:1234567890123.45
+FMNumeric.al:1849	1033	Decimal	V := 1234567890123.45;	S	'<Integer Thousand><Decimals,2>'	ok:1,234,567,890,123**
+FMNumeric.al:1850	1033	Decimal	V := 1234567890123.45;	S	'<Integer><1000Character,.>'	ok:1.234.567.890.123
+FMNumeric.al:1851	1033	Decimal	V := 1234567890123.45;	S	'<Integer><1000Character,.><Decimals><Comma,,>'	ok:1.234.567.890.123,45
+FMNumeric.al:1890	1033	Decimal	V := 1234567890123.45;	S	'<Sign><Integer><1000Character,.><Decimal,3><Comma,,>'	ok:1.234.567.890.123,45
+FMNumeric.al:1891	1033	Decimal	V := 1234567890123.45;	S	'<Integer><1000Character,,><Decimal,3><Comma,.>'	ok:1,234,567,890,123.45
+FMNumeric.al:1892	1033	Decimal	V := 1234567890123.45;	S	'<Integer><Decimals><Comma>'	err:InvalidFormatString
+FMNumeric.al:1893	1033	Decimal	V := 1234567890123.45;	S	'<Integer Thousand><Comma,.>'	ok:1,234,567,890,123
+FMNumeric.al:1894	1033	Decimal	V := 1234567890123.45;	S	'<Decimals>'	ok:.45
+FMNumeric.al:1895	1033	Decimal	V := 1234567890123.45;	S	'<Decimals,2>'	ok:**
+FMNumeric.al:1896	1033	Decimal	V := 1234567890123.45;	S	'<Sign>'	ok:
+FMNumeric.al:1897	1033	Decimal	V := 1234567890123.45;	S	'<Precision,2:2><Standard Format,0>'	ok:1,234,567,890,123.45
+FMNumeric.al:1898	1033	Decimal	V := 1234567890123.45;	S	'<Precision,0:3><Standard Format,1>'	ok:1234567890123.45
+FMNumeric.al:1899	1033	Decimal	V := 1234567890123.45;	S	'<Precision,2><Standard Format,2>'	ok:1234567890123.45
+FMNumeric.al:1900	1033	Decimal	V := 1234567890123.45;	S	'<Standard Format,0>'	ok:1,234,567,890,123.45
+FMNumeric.al:1901	1033	Decimal	V := 1234567890123.45;	S	'<Standard Format,1>'	ok:1234567890123.45
+FMNumeric.al:1902	1033	Decimal	V := 1234567890123.45;	S	'<Standard Format,2>'	ok:1234567890123.45
+FMNumeric.al:1903	1033	Decimal	V := 1234567890123.45;	S	'<Standard Format,9>'	ok:1234567890123.45
+FMNumeric.al:1904	1033	Decimal	V := 1234567890123.45;	S	'<Standard Format,3>'	ok:1,234,567,890,123.45 
+FMNumeric.al:1905	1033	Decimal	V := 1234567890123.45;	S	'x<Integer>y'	ok:x1234567890123y
+FMNumeric.al:1906	1033	Decimal	V := 1234567890123.45;	S	'literal'	ok:literal
+FMNumeric.al:1907	1033	Decimal	V := 1234567890123.45;	S	''	ok:
+FMNumeric.al:1908	1033	Decimal	V := 1234567890123.45;	S	'<Text>'	err:InvalidFormatString
+FMNumeric.al:1909	1033	Decimal	V := 1234567890123.45;	S	'<Day>'	err:InvalidFormatString
+FMNumeric.al:1910	1033	Decimal	V := 1234567890123.45;	S	'<Hours24>'	err:InvalidFormatString
+FMNumeric.al:1946	1033	Decimal	V := -0.5;	N	0	ok:-0.5
+FMNumeric.al:1947	1033	Decimal	V := -0.5;	N	1	ok:-0.5
+FMNumeric.al:1948	1033	Decimal	V := -0.5;	N	2	ok:-0.5
+FMNumeric.al:1949	1033	Decimal	V := -0.5;	N	3	err:InvalidStandardFormat
+FMNumeric.al:1950	1033	Decimal	V := -0.5;	N	4	err:InvalidStandardFormat
+FMNumeric.al:1951	1033	Decimal	V := -0.5;	N	5	err:InvalidStandardFormat
+FMNumeric.al:1952	1033	Decimal	V := -0.5;	N	6	err:InvalidStandardFormat
+FMNumeric.al:1953	1033	Decimal	V := -0.5;	N	7	err:InvalidStandardFormat
+FMNumeric.al:1954	1033	Decimal	V := -0.5;	N	8	err:InvalidStandardFormat
+FMNumeric.al:1955	1033	Decimal	V := -0.5;	N	9	ok:-0.5
+FMNumeric.al:1956	1033	Decimal	V := -0.5;	N	10	err:InvalidStandardFormat
+FMNumeric.al:1957	1033	Decimal	V := -0.5;	S	'<Integer>'	ok:0
+FMNumeric.al:1958	1033	Decimal	V := -0.5;	S	'<Integer Thousand>'	ok:0
+FMNumeric.al:1959	1033	Decimal	V := -0.5;	S	'<Integer,6>'	ok:     0
+FMNumeric.al:1960	1033	Decimal	V := -0.5;	S	'<Integer,6><Filler Character,0>'	ok:000000
+FMNumeric.al:1961	1033	Decimal	V := -0.5;	S	'<Sign><Integer>'	ok:-0
+FMNumeric.al:1962	1033	Decimal	V := -0.5;	S	'<Sign,1><Integer>'	ok:-0
+FMNumeric.al:1963	1033	Decimal	V := -0.5;	S	'<Sign><Integer><Decimals>'	ok:-0.5
+FMNumeric.al:1964	1033	Decimal	V := -0.5;	S	'<Sign><Integer><Decimals,3>'	ok:-0.50
+FMNumeric.al:1965	1033	Decimal	V := -0.5;	S	'<Integer><Decimals><Comma,,>'	ok:0,5
+FMNumeric.al:1966	1033	Decimal	V := -0.5;	S	'<Integer><Comma,.><Decimals>'	ok:0.5
+FMNumeric.al:1967	1033	Decimal	V := -0.5;	S	'<Integer Thousand><Decimals,2>'	ok:0.5
+FMNumeric.al:1968	1033	Decimal	V := -0.5;	S	'<Integer><1000Character,.>'	ok:0
+FMNumeric.al:1969	1033	Decimal	V := -0.5;	S	'<Integer><1000Character,.><Decimals><Comma,,>'	ok:0,5
+FMNumeric.al:2008	1033	Decimal	V := -0.5;	S	'<Sign><Integer><1000Character,.><Decimal,3><Comma,,>'	ok:-0,50
+FMNumeric.al:2009	1033	Decimal	V := -0.5;	S	'<Integer><1000Character,,><Decimal,3><Comma,.>'	ok:0.50
+FMNumeric.al:2010	1033	Decimal	V := -0.5;	S	'<Integer><Decimals><Comma>'	err:InvalidFormatString
+FMNumeric.al:2011	1033	Decimal	V := -0.5;	S	'<Integer Thousand><Comma,.>'	ok:0
+FMNumeric.al:2012	1033	Decimal	V := -0.5;	S	'<Decimals>'	ok:.5
+FMNumeric.al:2013	1033	Decimal	V := -0.5;	S	'<Decimals,2>'	ok:.5
+FMNumeric.al:2014	1033	Decimal	V := -0.5;	S	'<Sign>'	ok:-
+FMNumeric.al:2015	1033	Decimal	V := -0.5;	S	'<Precision,2:2><Standard Format,0>'	ok:-0.50
+FMNumeric.al:2016	1033	Decimal	V := -0.5;	S	'<Precision,0:3><Standard Format,1>'	ok:-0.5
+FMNumeric.al:2017	1033	Decimal	V := -0.5;	S	'<Precision,2><Standard Format,2>'	ok:-0.50
+FMNumeric.al:2018	1033	Decimal	V := -0.5;	S	'<Standard Format,0>'	ok:-0.5
+FMNumeric.al:2019	1033	Decimal	V := -0.5;	S	'<Standard Format,1>'	ok:-0.5
+FMNumeric.al:2020	1033	Decimal	V := -0.5;	S	'<Standard Format,2>'	ok:-0.5
+FMNumeric.al:2021	1033	Decimal	V := -0.5;	S	'<Standard Format,9>'	ok:-0.5
+FMNumeric.al:2022	1033	Decimal	V := -0.5;	S	'<Standard Format,3>'	ok:0.5-
+FMNumeric.al:2023	1033	Decimal	V := -0.5;	S	'x<Integer>y'	ok:x0y
+FMNumeric.al:2024	1033	Decimal	V := -0.5;	S	'literal'	ok:literal
+FMNumeric.al:2025	1033	Decimal	V := -0.5;	S	''	ok:
+FMNumeric.al:2026	1033	Decimal	V := -0.5;	S	'<Text>'	err:InvalidFormatString
+FMNumeric.al:2027	1033	Decimal	V := -0.5;	S	'<Day>'	err:InvalidFormatString
+FMNumeric.al:2028	1033	Decimal	V := -0.5;	S	'<Hours24>'	err:InvalidFormatString
+FMNumeric.al:2064	1033	Decimal	V := 1000;	N	0	ok:1,000
+FMNumeric.al:2065	1033	Decimal	V := 1000;	N	1	ok:1000
+FMNumeric.al:2066	1033	Decimal	V := 1000;	N	2	ok:1000
+FMNumeric.al:2067	1033	Decimal	V := 1000;	N	3	err:InvalidStandardFormat
+FMNumeric.al:2068	1033	Decimal	V := 1000;	N	4	err:InvalidStandardFormat
+FMNumeric.al:2069	1033	Decimal	V := 1000;	N	5	err:InvalidStandardFormat
+FMNumeric.al:2070	1033	Decimal	V := 1000;	N	6	err:InvalidStandardFormat
+FMNumeric.al:2071	1033	Decimal	V := 1000;	N	7	err:InvalidStandardFormat
+FMNumeric.al:2072	1033	Decimal	V := 1000;	N	8	err:InvalidStandardFormat
+FMNumeric.al:2073	1033	Decimal	V := 1000;	N	9	ok:1000
+FMNumeric.al:2074	1033	Decimal	V := 1000;	N	10	err:InvalidStandardFormat
+FMNumeric.al:2075	1033	Decimal	V := 1000;	S	'<Integer>'	ok:1000
+FMNumeric.al:2076	1033	Decimal	V := 1000;	S	'<Integer Thousand>'	ok:1,000
+FMNumeric.al:2077	1033	Decimal	V := 1000;	S	'<Integer,6>'	ok:  1000
+FMNumeric.al:2078	1033	Decimal	V := 1000;	S	'<Integer,6><Filler Character,0>'	ok:001000
+FMNumeric.al:2079	1033	Decimal	V := 1000;	S	'<Sign><Integer>'	ok:1000
+FMNumeric.al:2080	1033	Decimal	V := 1000;	S	'<Sign,1><Integer>'	ok: 1000
+FMNumeric.al:2081	1033	Decimal	V := 1000;	S	'<Sign><Integer><Decimals>'	ok:1000
+FMNumeric.al:2082	1033	Decimal	V := 1000;	S	'<Sign><Integer><Decimals,3>'	ok:1000.00
+FMNumeric.al:2083	1033	Decimal	V := 1000;	S	'<Integer><Decimals><Comma,,>'	ok:1000
+FMNumeric.al:2084	1033	Decimal	V := 1000;	S	'<Integer><Comma,.><Decimals>'	ok:1000
+FMNumeric.al:2085	1033	Decimal	V := 1000;	S	'<Integer Thousand><Decimals,2>'	ok:1,000.0
+FMNumeric.al:2086	1033	Decimal	V := 1000;	S	'<Integer><1000Character,.>'	ok:1.000
+FMNumeric.al:2087	1033	Decimal	V := 1000;	S	'<Integer><1000Character,.><Decimals><Comma,,>'	ok:1.000
+FMNumeric.al:2126	1033	Decimal	V := 1000;	S	'<Sign><Integer><1000Character,.><Decimal,3><Comma,,>'	ok:1.000,00
+FMNumeric.al:2127	1033	Decimal	V := 1000;	S	'<Integer><1000Character,,><Decimal,3><Comma,.>'	ok:1,000.00
+FMNumeric.al:2128	1033	Decimal	V := 1000;	S	'<Integer><Decimals><Comma>'	err:InvalidFormatString
+FMNumeric.al:2129	1033	Decimal	V := 1000;	S	'<Integer Thousand><Comma,.>'	ok:1,000
+FMNumeric.al:2130	1033	Decimal	V := 1000;	S	'<Decimals>'	ok:
+FMNumeric.al:2131	1033	Decimal	V := 1000;	S	'<Decimals,2>'	ok:.0
+FMNumeric.al:2132	1033	Decimal	V := 1000;	S	'<Sign>'	ok:
+FMNumeric.al:2133	1033	Decimal	V := 1000;	S	'<Precision,2:2><Standard Format,0>'	ok:1,000.00
+FMNumeric.al:2134	1033	Decimal	V := 1000;	S	'<Precision,0:3><Standard Format,1>'	ok:1000
+FMNumeric.al:2135	1033	Decimal	V := 1000;	S	'<Precision,2><Standard Format,2>'	ok:1000.00
+FMNumeric.al:2136	1033	Decimal	V := 1000;	S	'<Standard Format,0>'	ok:1,000
+FMNumeric.al:2137	1033	Decimal	V := 1000;	S	'<Standard Format,1>'	ok:1000
+FMNumeric.al:2138	1033	Decimal	V := 1000;	S	'<Standard Format,2>'	ok:1000
+FMNumeric.al:2139	1033	Decimal	V := 1000;	S	'<Standard Format,9>'	ok:1000
+FMNumeric.al:2140	1033	Decimal	V := 1000;	S	'<Standard Format,3>'	ok:1,000 
+FMNumeric.al:2141	1033	Decimal	V := 1000;	S	'x<Integer>y'	ok:x1000y
+FMNumeric.al:2142	1033	Decimal	V := 1000;	S	'literal'	ok:literal
+FMNumeric.al:2143	1033	Decimal	V := 1000;	S	''	ok:
+FMNumeric.al:2144	1033	Decimal	V := 1000;	S	'<Text>'	err:InvalidFormatString
+FMNumeric.al:2145	1033	Decimal	V := 1000;	S	'<Day>'	err:InvalidFormatString
+FMNumeric.al:2146	1033	Decimal	V := 1000;	S	'<Hours24>'	err:InvalidFormatString
+FMNumeric.al:2182	1031	Integer	V := 1234;	N	0	ok:1234
+FMNumeric.al:2183	1031	Integer	V := 1234;	N	1	ok:1234
+FMNumeric.al:2184	1031	Integer	V := 1234;	N	2	ok:1234
+FMNumeric.al:2185	1031	Integer	V := 1234;	N	3	err:InvalidStandardFormat
+FMNumeric.al:2186	1031	Integer	V := 1234;	N	4	err:InvalidStandardFormat
+FMNumeric.al:2187	1031	Integer	V := 1234;	N	5	err:InvalidStandardFormat
+FMNumeric.al:2188	1031	Integer	V := 1234;	N	6	err:InvalidStandardFormat
+FMNumeric.al:2189	1031	Integer	V := 1234;	N	7	err:InvalidStandardFormat
+FMNumeric.al:2190	1031	Integer	V := 1234;	N	8	err:InvalidStandardFormat
+FMNumeric.al:2191	1031	Integer	V := 1234;	N	9	ok:1234
+FMNumeric.al:2192	1031	Integer	V := 1234;	N	10	err:InvalidStandardFormat
+FMNumeric.al:2193	1031	Integer	V := 1234;	S	'<Integer>'	ok:1234
+FMNumeric.al:2194	1031	Integer	V := 1234;	S	'<Integer Thousand>'	ok:1,234
+FMNumeric.al:2195	1031	Integer	V := 1234;	S	'<Integer,6>'	ok:  1234
+FMNumeric.al:2196	1031	Integer	V := 1234;	S	'<Integer,6><Filler Character,0>'	ok:001234
+FMNumeric.al:2197	1031	Integer	V := 1234;	S	'<Sign><Integer>'	ok:1234
+FMNumeric.al:2198	1031	Integer	V := 1234;	S	'<Sign,1><Integer>'	ok: 1234
+FMNumeric.al:2199	1031	Integer	V := 1234;	S	'<Sign><Integer><Decimals>'	err:InvalidFormatString
+FMNumeric.al:2200	1031	Integer	V := 1234;	S	'<Sign><Integer><Decimals,3>'	err:InvalidFormatString
+FMNumeric.al:2201	1031	Integer	V := 1234;	S	'<Integer><Decimals><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:2202	1031	Integer	V := 1234;	S	'<Integer><Comma,.><Decimals>'	err:InvalidFormatString
+FMNumeric.al:2203	1031	Integer	V := 1234;	S	'<Integer Thousand><Decimals,2>'	err:InvalidFormatString
+FMNumeric.al:2204	1031	Integer	V := 1234;	S	'<Integer><1000Character,.>'	ok:1.234
+FMNumeric.al:2205	1031	Integer	V := 1234;	S	'<Integer><1000Character,.><Decimals><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:2244	1031	Integer	V := 1234;	S	'<Sign><Integer><1000Character,.><Decimal,3><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:2245	1031	Integer	V := 1234;	S	'<Integer><1000Character,,><Decimal,3><Comma,.>'	err:InvalidFormatString
+FMNumeric.al:2246	1031	Integer	V := 1234;	S	'<Integer><Decimals><Comma>'	err:InvalidFormatString
+FMNumeric.al:2247	1031	Integer	V := 1234;	S	'<Integer Thousand><Comma,.>'	ok:1,234
+FMNumeric.al:2248	1031	Integer	V := 1234;	S	'<Decimals>'	err:InvalidFormatString
+FMNumeric.al:2249	1031	Integer	V := 1234;	S	'<Decimals,2>'	err:InvalidFormatString
+FMNumeric.al:2250	1031	Integer	V := 1234;	S	'<Sign>'	ok:
+FMNumeric.al:2251	1031	Integer	V := 1234;	S	'<Precision,2:2><Standard Format,0>'	ok:1234
+FMNumeric.al:2252	1031	Integer	V := 1234;	S	'<Precision,0:3><Standard Format,1>'	ok:1234
+FMNumeric.al:2253	1031	Integer	V := 1234;	S	'<Precision,2><Standard Format,2>'	ok:1234
+FMNumeric.al:2254	1031	Integer	V := 1234;	S	'<Standard Format,0>'	ok:1234
+FMNumeric.al:2255	1031	Integer	V := 1234;	S	'<Standard Format,1>'	ok:1234
+FMNumeric.al:2256	1031	Integer	V := 1234;	S	'<Standard Format,2>'	ok:1234
+FMNumeric.al:2257	1031	Integer	V := 1234;	S	'<Standard Format,9>'	ok:1234
+FMNumeric.al:2258	1031	Integer	V := 1234;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMNumeric.al:2259	1031	Integer	V := 1234;	S	'x<Integer>y'	ok:x1234y
+FMNumeric.al:2260	1031	Integer	V := 1234;	S	'literal'	ok:literal
+FMNumeric.al:2261	1031	Integer	V := 1234;	S	''	ok:
+FMNumeric.al:2262	1031	Integer	V := 1234;	S	'<Text>'	err:InvalidFormatString
+FMNumeric.al:2263	1031	Integer	V := 1234;	S	'<Day>'	err:InvalidFormatString
+FMNumeric.al:2264	1031	Integer	V := 1234;	S	'<Hours24>'	err:InvalidFormatString
+FMNumeric.al:2300	1031	BigInteger	V := 1234567890123L;	N	0	ok:1234567890123
+FMNumeric.al:2301	1031	BigInteger	V := 1234567890123L;	N	1	ok:1234567890123
+FMNumeric.al:2302	1031	BigInteger	V := 1234567890123L;	N	2	ok:1234567890123
+FMNumeric.al:2303	1031	BigInteger	V := 1234567890123L;	N	3	err:InvalidStandardFormat
+FMNumeric.al:2304	1031	BigInteger	V := 1234567890123L;	N	4	err:InvalidStandardFormat
+FMNumeric.al:2305	1031	BigInteger	V := 1234567890123L;	N	5	err:InvalidStandardFormat
+FMNumeric.al:2306	1031	BigInteger	V := 1234567890123L;	N	6	err:InvalidStandardFormat
+FMNumeric.al:2307	1031	BigInteger	V := 1234567890123L;	N	7	err:InvalidStandardFormat
+FMNumeric.al:2308	1031	BigInteger	V := 1234567890123L;	N	8	err:InvalidStandardFormat
+FMNumeric.al:2309	1031	BigInteger	V := 1234567890123L;	N	9	ok:1234567890123
+FMNumeric.al:2310	1031	BigInteger	V := 1234567890123L;	N	10	err:InvalidStandardFormat
+FMNumeric.al:2311	1031	BigInteger	V := 1234567890123L;	S	'<Integer>'	ok:1234567890123
+FMNumeric.al:2312	1031	BigInteger	V := 1234567890123L;	S	'<Integer Thousand>'	ok:1,234,567,890,123
+FMNumeric.al:2313	1031	BigInteger	V := 1234567890123L;	S	'<Integer,6>'	ok:******
+FMNumeric.al:2314	1031	BigInteger	V := 1234567890123L;	S	'<Integer,6><Filler Character,0>'	ok:******
+FMNumeric.al:2315	1031	BigInteger	V := 1234567890123L;	S	'<Sign><Integer>'	ok:1234567890123
+FMNumeric.al:2316	1031	BigInteger	V := 1234567890123L;	S	'<Sign,1><Integer>'	ok: 1234567890123
+FMNumeric.al:2317	1031	BigInteger	V := 1234567890123L;	S	'<Sign><Integer><Decimals>'	err:InvalidFormatString
+FMNumeric.al:2318	1031	BigInteger	V := 1234567890123L;	S	'<Sign><Integer><Decimals,3>'	err:InvalidFormatString
+FMNumeric.al:2319	1031	BigInteger	V := 1234567890123L;	S	'<Integer><Decimals><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:2320	1031	BigInteger	V := 1234567890123L;	S	'<Integer><Comma,.><Decimals>'	err:InvalidFormatString
+FMNumeric.al:2321	1031	BigInteger	V := 1234567890123L;	S	'<Integer Thousand><Decimals,2>'	err:InvalidFormatString
+FMNumeric.al:2322	1031	BigInteger	V := 1234567890123L;	S	'<Integer><1000Character,.>'	ok:1.234.567.890.123
+FMNumeric.al:2323	1031	BigInteger	V := 1234567890123L;	S	'<Integer><1000Character,.><Decimals><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:2362	1031	BigInteger	V := 1234567890123L;	S	'<Sign><Integer><1000Character,.><Decimal,3><Comma,,>'	err:InvalidFormatString
+FMNumeric.al:2363	1031	BigInteger	V := 1234567890123L;	S	'<Integer><1000Character,,><Decimal,3><Comma,.>'	err:InvalidFormatString
+FMNumeric.al:2364	1031	BigInteger	V := 1234567890123L;	S	'<Integer><Decimals><Comma>'	err:InvalidFormatString
+FMNumeric.al:2365	1031	BigInteger	V := 1234567890123L;	S	'<Integer Thousand><Comma,.>'	ok:1,234,567,890,123
+FMNumeric.al:2366	1031	BigInteger	V := 1234567890123L;	S	'<Decimals>'	err:InvalidFormatString
+FMNumeric.al:2367	1031	BigInteger	V := 1234567890123L;	S	'<Decimals,2>'	err:InvalidFormatString
+FMNumeric.al:2368	1031	BigInteger	V := 1234567890123L;	S	'<Sign>'	ok:
+FMNumeric.al:2369	1031	BigInteger	V := 1234567890123L;	S	'<Precision,2:2><Standard Format,0>'	ok:1234567890123
+FMNumeric.al:2370	1031	BigInteger	V := 1234567890123L;	S	'<Precision,0:3><Standard Format,1>'	ok:1234567890123
+FMNumeric.al:2371	1031	BigInteger	V := 1234567890123L;	S	'<Precision,2><Standard Format,2>'	ok:1234567890123
+FMNumeric.al:2372	1031	BigInteger	V := 1234567890123L;	S	'<Standard Format,0>'	ok:1234567890123
+FMNumeric.al:2373	1031	BigInteger	V := 1234567890123L;	S	'<Standard Format,1>'	ok:1234567890123
+FMNumeric.al:2374	1031	BigInteger	V := 1234567890123L;	S	'<Standard Format,2>'	ok:1234567890123
+FMNumeric.al:2375	1031	BigInteger	V := 1234567890123L;	S	'<Standard Format,9>'	ok:1234567890123
+FMNumeric.al:2376	1031	BigInteger	V := 1234567890123L;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMNumeric.al:2377	1031	BigInteger	V := 1234567890123L;	S	'x<Integer>y'	ok:x1234567890123y
+FMNumeric.al:2378	1031	BigInteger	V := 1234567890123L;	S	'literal'	ok:literal
+FMNumeric.al:2379	1031	BigInteger	V := 1234567890123L;	S	''	ok:
+FMNumeric.al:2380	1031	BigInteger	V := 1234567890123L;	S	'<Text>'	err:InvalidFormatString
+FMNumeric.al:2381	1031	BigInteger	V := 1234567890123L;	S	'<Day>'	err:InvalidFormatString
+FMNumeric.al:2382	1031	BigInteger	V := 1234567890123L;	S	'<Hours24>'	err:InvalidFormatString
+FMNumeric.al:2418	1031	Decimal	V := 1234567.891;	N	0	ok:1,234,567.891
+FMNumeric.al:2419	1031	Decimal	V := 1234567.891;	N	1	ok:1234567.891
+FMNumeric.al:2420	1031	Decimal	V := 1234567.891;	N	2	ok:1234567.891
+FMNumeric.al:2421	1031	Decimal	V := 1234567.891;	N	3	err:InvalidStandardFormat
+FMNumeric.al:2422	1031	Decimal	V := 1234567.891;	N	4	err:InvalidStandardFormat
+FMNumeric.al:2423	1031	Decimal	V := 1234567.891;	N	5	err:InvalidStandardFormat
+FMNumeric.al:2424	1031	Decimal	V := 1234567.891;	N	6	err:InvalidStandardFormat
+FMNumeric.al:2425	1031	Decimal	V := 1234567.891;	N	7	err:InvalidStandardFormat
+FMNumeric.al:2426	1031	Decimal	V := 1234567.891;	N	8	err:InvalidStandardFormat
+FMNumeric.al:2427	1031	Decimal	V := 1234567.891;	N	9	ok:1234567.891
+FMNumeric.al:2428	1031	Decimal	V := 1234567.891;	N	10	err:InvalidStandardFormat
+FMNumeric.al:2429	1031	Decimal	V := 1234567.891;	S	'<Integer>'	ok:1234567
+FMNumeric.al:2430	1031	Decimal	V := 1234567.891;	S	'<Integer Thousand>'	ok:1,234,567
+FMNumeric.al:2431	1031	Decimal	V := 1234567.891;	S	'<Integer,6>'	ok:******
+FMNumeric.al:2432	1031	Decimal	V := 1234567.891;	S	'<Integer,6><Filler Character,0>'	ok:******
+FMNumeric.al:2433	1031	Decimal	V := 1234567.891;	S	'<Sign><Integer>'	ok:1234567
+FMNumeric.al:2434	1031	Decimal	V := 1234567.891;	S	'<Sign,1><Integer>'	ok: 1234567
+FMNumeric.al:2435	1031	Decimal	V := 1234567.891;	S	'<Sign><Integer><Decimals>'	ok:1234567.891
+FMNumeric.al:2436	1031	Decimal	V := 1234567.891;	S	'<Sign><Integer><Decimals,3>'	ok:1234567***
+FMNumeric.al:2437	1031	Decimal	V := 1234567.891;	S	'<Integer><Decimals><Comma,,>'	ok:1234567,891
+FMNumeric.al:2438	1031	Decimal	V := 1234567.891;	S	'<Integer><Comma,.><Decimals>'	ok:1234567.891
+FMNumeric.al:2439	1031	Decimal	V := 1234567.891;	S	'<Integer Thousand><Decimals,2>'	ok:1,234,567**
+FMNumeric.al:2440	1031	Decimal	V := 1234567.891;	S	'<Integer><1000Character,.>'	ok:1.234.567
+FMNumeric.al:2441	1031	Decimal	V := 1234567.891;	S	'<Integer><1000Character,.><Decimals><Comma,,>'	ok:1.234.567,891
+FMNumeric.al:2480	1031	Decimal	V := 1234567.891;	S	'<Sign><Integer><1000Character,.><Decimal,3><Comma,,>'	ok:1.234.567***
+FMNumeric.al:2481	1031	Decimal	V := 1234567.891;	S	'<Integer><1000Character,,><Decimal,3><Comma,.>'	ok:1,234,567***
+FMNumeric.al:2482	1031	Decimal	V := 1234567.891;	S	'<Integer><Decimals><Comma>'	err:InvalidFormatString
+FMNumeric.al:2483	1031	Decimal	V := 1234567.891;	S	'<Integer Thousand><Comma,.>'	ok:1,234,567
+FMNumeric.al:2484	1031	Decimal	V := 1234567.891;	S	'<Decimals>'	ok:.891
+FMNumeric.al:2485	1031	Decimal	V := 1234567.891;	S	'<Decimals,2>'	ok:**
+FMNumeric.al:2486	1031	Decimal	V := 1234567.891;	S	'<Sign>'	ok:
+FMNumeric.al:2487	1031	Decimal	V := 1234567.891;	S	'<Precision,2:2><Standard Format,0>'	ok:1,234,567.89
+FMNumeric.al:2488	1031	Decimal	V := 1234567.891;	S	'<Precision,0:3><Standard Format,1>'	ok:1234567.891
+FMNumeric.al:2489	1031	Decimal	V := 1234567.891;	S	'<Precision,2><Standard Format,2>'	ok:1234567.89
+FMNumeric.al:2490	1031	Decimal	V := 1234567.891;	S	'<Standard Format,0>'	ok:1,234,567.891
+FMNumeric.al:2491	1031	Decimal	V := 1234567.891;	S	'<Standard Format,1>'	ok:1234567.891
+FMNumeric.al:2492	1031	Decimal	V := 1234567.891;	S	'<Standard Format,2>'	ok:1234567.891
+FMNumeric.al:2493	1031	Decimal	V := 1234567.891;	S	'<Standard Format,9>'	ok:1234567.891
+FMNumeric.al:2494	1031	Decimal	V := 1234567.891;	S	'<Standard Format,3>'	ok:1,234,567.891 
+FMNumeric.al:2495	1031	Decimal	V := 1234567.891;	S	'x<Integer>y'	ok:x1234567y
+FMNumeric.al:2496	1031	Decimal	V := 1234567.891;	S	'literal'	ok:literal
+FMNumeric.al:2497	1031	Decimal	V := 1234567.891;	S	''	ok:
+FMNumeric.al:2498	1031	Decimal	V := 1234567.891;	S	'<Text>'	err:InvalidFormatString
+FMNumeric.al:2499	1031	Decimal	V := 1234567.891;	S	'<Day>'	err:InvalidFormatString
+FMNumeric.al:2500	1031	Decimal	V := 1234567.891;	S	'<Hours24>'	err:InvalidFormatString

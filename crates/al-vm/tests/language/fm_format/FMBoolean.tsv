@@ -1,93 +1,93 @@
-FMBoolean.al:58	0	ok:Yes
-FMBoolean.al:59	1	ok:Yes
-FMBoolean.al:60	2	ok:1
-FMBoolean.al:61	3	err:InvalidStandardFormat
-FMBoolean.al:62	4	err:InvalidStandardFormat
-FMBoolean.al:63	5	err:InvalidStandardFormat
-FMBoolean.al:64	6	err:InvalidStandardFormat
-FMBoolean.al:65	7	err:InvalidStandardFormat
-FMBoolean.al:66	8	err:InvalidStandardFormat
-FMBoolean.al:67	9	ok:true
-FMBoolean.al:68	10	err:InvalidStandardFormat
-FMBoolean.al:69	11	ok:Yes
-FMBoolean.al:70	12	ok:Yes       
-FMBoolean.al:71	13	ok:Yes
-FMBoolean.al:72	14	ok:Yesxxxxxxx
-FMBoolean.al:73	15	err:InvalidFormatString
-FMBoolean.al:74	16	err:InvalidFormatString
-FMBoolean.al:75	17	err:InvalidFormatString
-FMBoolean.al:76	18	err:InvalidFormatString
-FMBoolean.al:77	19	err:InvalidFormatString
-FMBoolean.al:78	20	err:InvalidFormatString
-FMBoolean.al:79	21	ok:Yes
-FMBoolean.al:80	22	ok:Yes
-FMBoolean.al:81	23	ok:1
-FMBoolean.al:82	24	err:InvalidStandardFormat
-FMBoolean.al:83	25	err:InvalidStandardFormat
-FMBoolean.al:124	26	ok:true
-FMBoolean.al:125	27	ok:xYesy
-FMBoolean.al:126	28	ok:literal
-FMBoolean.al:127	29	ok:
-FMBoolean.al:128	30	ok:
-FMBoolean.al:148	31	ok:No
-FMBoolean.al:149	32	ok:No
-FMBoolean.al:150	33	ok:0
-FMBoolean.al:151	34	err:InvalidStandardFormat
-FMBoolean.al:152	35	err:InvalidStandardFormat
-FMBoolean.al:153	36	err:InvalidStandardFormat
-FMBoolean.al:154	37	err:InvalidStandardFormat
-FMBoolean.al:155	38	err:InvalidStandardFormat
-FMBoolean.al:156	39	err:InvalidStandardFormat
-FMBoolean.al:157	40	ok:false
-FMBoolean.al:158	41	err:InvalidStandardFormat
-FMBoolean.al:159	42	ok:No
-FMBoolean.al:160	43	ok:No        
-FMBoolean.al:161	44	ok:No 
-FMBoolean.al:162	45	ok:Noxxxxxxxx
-FMBoolean.al:163	46	err:InvalidFormatString
-FMBoolean.al:164	47	err:InvalidFormatString
-FMBoolean.al:165	48	err:InvalidFormatString
-FMBoolean.al:166	49	err:InvalidFormatString
-FMBoolean.al:167	50	err:InvalidFormatString
-FMBoolean.al:168	51	err:InvalidFormatString
-FMBoolean.al:169	52	ok:No
-FMBoolean.al:170	53	ok:No
-FMBoolean.al:171	54	ok:0
-FMBoolean.al:172	55	err:InvalidStandardFormat
-FMBoolean.al:173	56	err:InvalidStandardFormat
-FMBoolean.al:214	57	ok:false
-FMBoolean.al:215	58	ok:xNoy
-FMBoolean.al:216	59	ok:literal
-FMBoolean.al:217	60	ok:
-FMBoolean.al:218	61	ok:
-FMBoolean.al:238	62	ok:Nein
-FMBoolean.al:239	63	ok:Nein
-FMBoolean.al:240	64	ok:0
-FMBoolean.al:241	65	err:InvalidStandardFormat
-FMBoolean.al:242	66	err:InvalidStandardFormat
-FMBoolean.al:243	67	err:InvalidStandardFormat
-FMBoolean.al:244	68	err:InvalidStandardFormat
-FMBoolean.al:245	69	err:InvalidStandardFormat
-FMBoolean.al:246	70	err:InvalidStandardFormat
-FMBoolean.al:247	71	ok:false
-FMBoolean.al:248	72	err:InvalidStandardFormat
-FMBoolean.al:249	73	ok:Nein
-FMBoolean.al:250	74	ok:Nein      
-FMBoolean.al:251	75	ok:Nei
-FMBoolean.al:252	76	ok:Neinxxxxxx
-FMBoolean.al:253	77	err:InvalidFormatString
-FMBoolean.al:254	78	err:InvalidFormatString
-FMBoolean.al:255	79	err:InvalidFormatString
-FMBoolean.al:256	80	err:InvalidFormatString
-FMBoolean.al:257	81	err:InvalidFormatString
-FMBoolean.al:258	82	err:InvalidFormatString
-FMBoolean.al:259	83	ok:Nein
-FMBoolean.al:260	84	ok:Nein
-FMBoolean.al:261	85	ok:0
-FMBoolean.al:262	86	err:InvalidStandardFormat
-FMBoolean.al:263	87	err:InvalidStandardFormat
-FMBoolean.al:304	88	ok:false
-FMBoolean.al:305	89	ok:xNeiny
-FMBoolean.al:306	90	ok:literal
-FMBoolean.al:307	91	ok:
-FMBoolean.al:308	92	ok:
+FMBoolean.al:58	1033	Boolean	V := true;	N	0	ok:Yes
+FMBoolean.al:59	1033	Boolean	V := true;	N	1	ok:Yes
+FMBoolean.al:60	1033	Boolean	V := true;	N	2	ok:1
+FMBoolean.al:61	1033	Boolean	V := true;	N	3	err:InvalidStandardFormat
+FMBoolean.al:62	1033	Boolean	V := true;	N	4	err:InvalidStandardFormat
+FMBoolean.al:63	1033	Boolean	V := true;	N	5	err:InvalidStandardFormat
+FMBoolean.al:64	1033	Boolean	V := true;	N	6	err:InvalidStandardFormat
+FMBoolean.al:65	1033	Boolean	V := true;	N	7	err:InvalidStandardFormat
+FMBoolean.al:66	1033	Boolean	V := true;	N	8	err:InvalidStandardFormat
+FMBoolean.al:67	1033	Boolean	V := true;	N	9	ok:true
+FMBoolean.al:68	1033	Boolean	V := true;	N	10	err:InvalidStandardFormat
+FMBoolean.al:69	1033	Boolean	V := true;	S	'<Text>'	ok:Yes
+FMBoolean.al:70	1033	Boolean	V := true;	S	'<Text,10>'	ok:Yes       
+FMBoolean.al:71	1033	Boolean	V := true;	S	'<Text,3>'	ok:Yes
+FMBoolean.al:72	1033	Boolean	V := true;	S	'<Filler Character,x><Text,10>'	ok:Yesxxxxxxx
+FMBoolean.al:73	1033	Boolean	V := true;	S	'<Integer>'	err:InvalidFormatString
+FMBoolean.al:74	1033	Boolean	V := true;	S	'<Integer,5>'	err:InvalidFormatString
+FMBoolean.al:75	1033	Boolean	V := true;	S	'<Sign>'	err:InvalidFormatString
+FMBoolean.al:76	1033	Boolean	V := true;	S	'<Decimals>'	err:InvalidFormatString
+FMBoolean.al:77	1033	Boolean	V := true;	S	'<Day>'	err:InvalidFormatString
+FMBoolean.al:78	1033	Boolean	V := true;	S	'<Hours24>'	err:InvalidFormatString
+FMBoolean.al:79	1033	Boolean	V := true;	S	'<Standard Format,0>'	ok:Yes
+FMBoolean.al:80	1033	Boolean	V := true;	S	'<Standard Format,1>'	ok:Yes
+FMBoolean.al:81	1033	Boolean	V := true;	S	'<Standard Format,2>'	ok:1
+FMBoolean.al:82	1033	Boolean	V := true;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMBoolean.al:83	1033	Boolean	V := true;	S	'<Standard Format,4>'	err:InvalidStandardFormat
+FMBoolean.al:124	1033	Boolean	V := true;	S	'<Standard Format,9>'	ok:true
+FMBoolean.al:125	1033	Boolean	V := true;	S	'x<Text>y'	ok:xYesy
+FMBoolean.al:126	1033	Boolean	V := true;	S	'literal'	ok:literal
+FMBoolean.al:127	1033	Boolean	V := true;	S	''	ok:
+FMBoolean.al:128	1033	Boolean	V := true;	S	'<Precision,2:2>'	ok:
+FMBoolean.al:148	1033	Boolean	V := false;	N	0	ok:No
+FMBoolean.al:149	1033	Boolean	V := false;	N	1	ok:No
+FMBoolean.al:150	1033	Boolean	V := false;	N	2	ok:0
+FMBoolean.al:151	1033	Boolean	V := false;	N	3	err:InvalidStandardFormat
+FMBoolean.al:152	1033	Boolean	V := false;	N	4	err:InvalidStandardFormat
+FMBoolean.al:153	1033	Boolean	V := false;	N	5	err:InvalidStandardFormat
+FMBoolean.al:154	1033	Boolean	V := false;	N	6	err:InvalidStandardFormat
+FMBoolean.al:155	1033	Boolean	V := false;	N	7	err:InvalidStandardFormat
+FMBoolean.al:156	1033	Boolean	V := false;	N	8	err:InvalidStandardFormat
+FMBoolean.al:157	1033	Boolean	V := false;	N	9	ok:false
+FMBoolean.al:158	1033	Boolean	V := false;	N	10	err:InvalidStandardFormat
+FMBoolean.al:159	1033	Boolean	V := false;	S	'<Text>'	ok:No
+FMBoolean.al:160	1033	Boolean	V := false;	S	'<Text,10>'	ok:No        
+FMBoolean.al:161	1033	Boolean	V := false;	S	'<Text,3>'	ok:No 
+FMBoolean.al:162	1033	Boolean	V := false;	S	'<Filler Character,x><Text,10>'	ok:Noxxxxxxxx
+FMBoolean.al:163	1033	Boolean	V := false;	S	'<Integer>'	err:InvalidFormatString
+FMBoolean.al:164	1033	Boolean	V := false;	S	'<Integer,5>'	err:InvalidFormatString
+FMBoolean.al:165	1033	Boolean	V := false;	S	'<Sign>'	err:InvalidFormatString
+FMBoolean.al:166	1033	Boolean	V := false;	S	'<Decimals>'	err:InvalidFormatString
+FMBoolean.al:167	1033	Boolean	V := false;	S	'<Day>'	err:InvalidFormatString
+FMBoolean.al:168	1033	Boolean	V := false;	S	'<Hours24>'	err:InvalidFormatString
+FMBoolean.al:169	1033	Boolean	V := false;	S	'<Standard Format,0>'	ok:No
+FMBoolean.al:170	1033	Boolean	V := false;	S	'<Standard Format,1>'	ok:No
+FMBoolean.al:171	1033	Boolean	V := false;	S	'<Standard Format,2>'	ok:0
+FMBoolean.al:172	1033	Boolean	V := false;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMBoolean.al:173	1033	Boolean	V := false;	S	'<Standard Format,4>'	err:InvalidStandardFormat
+FMBoolean.al:214	1033	Boolean	V := false;	S	'<Standard Format,9>'	ok:false
+FMBoolean.al:215	1033	Boolean	V := false;	S	'x<Text>y'	ok:xNoy
+FMBoolean.al:216	1033	Boolean	V := false;	S	'literal'	ok:literal
+FMBoolean.al:217	1033	Boolean	V := false;	S	''	ok:
+FMBoolean.al:218	1033	Boolean	V := false;	S	'<Precision,2:2>'	ok:
+FMBoolean.al:238	1031	Boolean	V := false;	N	0	ok:Nein
+FMBoolean.al:239	1031	Boolean	V := false;	N	1	ok:Nein
+FMBoolean.al:240	1031	Boolean	V := false;	N	2	ok:0
+FMBoolean.al:241	1031	Boolean	V := false;	N	3	err:InvalidStandardFormat
+FMBoolean.al:242	1031	Boolean	V := false;	N	4	err:InvalidStandardFormat
+FMBoolean.al:243	1031	Boolean	V := false;	N	5	err:InvalidStandardFormat
+FMBoolean.al:244	1031	Boolean	V := false;	N	6	err:InvalidStandardFormat
+FMBoolean.al:245	1031	Boolean	V := false;	N	7	err:InvalidStandardFormat
+FMBoolean.al:246	1031	Boolean	V := false;	N	8	err:InvalidStandardFormat
+FMBoolean.al:247	1031	Boolean	V := false;	N	9	ok:false
+FMBoolean.al:248	1031	Boolean	V := false;	N	10	err:InvalidStandardFormat
+FMBoolean.al:249	1031	Boolean	V := false;	S	'<Text>'	ok:Nein
+FMBoolean.al:250	1031	Boolean	V := false;	S	'<Text,10>'	ok:Nein      
+FMBoolean.al:251	1031	Boolean	V := false;	S	'<Text,3>'	ok:Nei
+FMBoolean.al:252	1031	Boolean	V := false;	S	'<Filler Character,x><Text,10>'	ok:Neinxxxxxx
+FMBoolean.al:253	1031	Boolean	V := false;	S	'<Integer>'	err:InvalidFormatString
+FMBoolean.al:254	1031	Boolean	V := false;	S	'<Integer,5>'	err:InvalidFormatString
+FMBoolean.al:255	1031	Boolean	V := false;	S	'<Sign>'	err:InvalidFormatString
+FMBoolean.al:256	1031	Boolean	V := false;	S	'<Decimals>'	err:InvalidFormatString
+FMBoolean.al:257	1031	Boolean	V := false;	S	'<Day>'	err:InvalidFormatString
+FMBoolean.al:258	1031	Boolean	V := false;	S	'<Hours24>'	err:InvalidFormatString
+FMBoolean.al:259	1031	Boolean	V := false;	S	'<Standard Format,0>'	ok:Nein
+FMBoolean.al:260	1031	Boolean	V := false;	S	'<Standard Format,1>'	ok:Nein
+FMBoolean.al:261	1031	Boolean	V := false;	S	'<Standard Format,2>'	ok:0
+FMBoolean.al:262	1031	Boolean	V := false;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMBoolean.al:263	1031	Boolean	V := false;	S	'<Standard Format,4>'	err:InvalidStandardFormat
+FMBoolean.al:304	1031	Boolean	V := false;	S	'<Standard Format,9>'	ok:false
+FMBoolean.al:305	1031	Boolean	V := false;	S	'x<Text>y'	ok:xNeiny
+FMBoolean.al:306	1031	Boolean	V := false;	S	'literal'	ok:literal
+FMBoolean.al:307	1031	Boolean	V := false;	S	''	ok:
+FMBoolean.al:308	1031	Boolean	V := false;	S	'<Precision,2:2>'	ok:

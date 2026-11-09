@@ -1,186 +1,186 @@
-FMText.al:58	0	ok:
-FMText.al:59	1	ok:
-FMText.al:60	2	ok:
-FMText.al:61	3	err:InvalidStandardFormat
-FMText.al:62	4	err:InvalidStandardFormat
-FMText.al:63	5	err:InvalidStandardFormat
-FMText.al:64	6	err:InvalidStandardFormat
-FMText.al:65	7	err:InvalidStandardFormat
-FMText.al:66	8	err:InvalidStandardFormat
-FMText.al:67	9	ok:
-FMText.al:68	10	err:InvalidStandardFormat
-FMText.al:69	11	ok:
-FMText.al:70	12	ok:          
-FMText.al:71	13	ok:   
-FMText.al:72	14	ok:xxxxxxxxxx
-FMText.al:73	15	err:InvalidFormatString
-FMText.al:74	16	err:InvalidFormatString
-FMText.al:75	17	err:InvalidFormatString
-FMText.al:76	18	err:InvalidFormatString
-FMText.al:77	19	err:InvalidFormatString
-FMText.al:78	20	err:InvalidFormatString
-FMText.al:79	21	ok:
-FMText.al:80	22	ok:
-FMText.al:81	23	ok:
-FMText.al:82	24	err:InvalidStandardFormat
-FMText.al:83	25	err:InvalidStandardFormat
-FMText.al:124	26	ok:
-FMText.al:125	27	ok:xy
-FMText.al:126	28	ok:literal
-FMText.al:127	29	ok:
-FMText.al:128	30	ok:
-FMText.al:148	31	ok:abc
-FMText.al:149	32	ok:abc
-FMText.al:150	33	ok:abc
-FMText.al:151	34	err:InvalidStandardFormat
-FMText.al:152	35	err:InvalidStandardFormat
-FMText.al:153	36	err:InvalidStandardFormat
-FMText.al:154	37	err:InvalidStandardFormat
-FMText.al:155	38	err:InvalidStandardFormat
-FMText.al:156	39	err:InvalidStandardFormat
-FMText.al:157	40	ok:abc
-FMText.al:158	41	err:InvalidStandardFormat
-FMText.al:159	42	ok:abc
-FMText.al:160	43	ok:abc       
-FMText.al:161	44	ok:abc
-FMText.al:162	45	ok:abcxxxxxxx
-FMText.al:163	46	err:InvalidFormatString
-FMText.al:164	47	err:InvalidFormatString
-FMText.al:165	48	err:InvalidFormatString
-FMText.al:166	49	err:InvalidFormatString
-FMText.al:167	50	err:InvalidFormatString
-FMText.al:168	51	err:InvalidFormatString
-FMText.al:169	52	ok:abc
-FMText.al:170	53	ok:abc
-FMText.al:171	54	ok:abc
-FMText.al:172	55	err:InvalidStandardFormat
-FMText.al:173	56	err:InvalidStandardFormat
-FMText.al:214	57	ok:abc
-FMText.al:215	58	ok:xabcy
-FMText.al:216	59	ok:literal
-FMText.al:217	60	ok:
-FMText.al:218	61	ok:
-FMText.al:238	62	ok:Hello World
-FMText.al:239	63	ok:Hello World
-FMText.al:240	64	ok:Hello World
-FMText.al:241	65	err:InvalidStandardFormat
-FMText.al:242	66	err:InvalidStandardFormat
-FMText.al:243	67	err:InvalidStandardFormat
-FMText.al:244	68	err:InvalidStandardFormat
-FMText.al:245	69	err:InvalidStandardFormat
-FMText.al:246	70	err:InvalidStandardFormat
-FMText.al:247	71	ok:Hello World
-FMText.al:248	72	err:InvalidStandardFormat
-FMText.al:249	73	ok:Hello World
-FMText.al:250	74	ok:Hello Worl
-FMText.al:251	75	ok:Hel
-FMText.al:252	76	ok:Hello Worl
-FMText.al:253	77	err:InvalidFormatString
-FMText.al:254	78	err:InvalidFormatString
-FMText.al:255	79	err:InvalidFormatString
-FMText.al:256	80	err:InvalidFormatString
-FMText.al:257	81	err:InvalidFormatString
-FMText.al:258	82	err:InvalidFormatString
-FMText.al:259	83	ok:Hello World
-FMText.al:260	84	ok:Hello World
-FMText.al:261	85	ok:Hello World
-FMText.al:262	86	err:InvalidStandardFormat
-FMText.al:263	87	err:InvalidStandardFormat
-FMText.al:304	88	ok:Hello World
-FMText.al:305	89	ok:xHello Worldy
-FMText.al:306	90	ok:literal
-FMText.al:307	91	ok:
-FMText.al:308	92	ok:
-FMText.al:328	93	ok:Ärger
-FMText.al:329	94	ok:Ärger
-FMText.al:330	95	ok:Ärger
-FMText.al:331	96	err:InvalidStandardFormat
-FMText.al:332	97	err:InvalidStandardFormat
-FMText.al:333	98	err:InvalidStandardFormat
-FMText.al:334	99	err:InvalidStandardFormat
-FMText.al:335	100	err:InvalidStandardFormat
-FMText.al:336	101	err:InvalidStandardFormat
-FMText.al:337	102	ok:Ärger
-FMText.al:338	103	err:InvalidStandardFormat
-FMText.al:339	104	ok:Ärger
-FMText.al:340	105	ok:Ärger     
-FMText.al:341	106	ok:Ärg
-FMText.al:342	107	ok:Ärgerxxxxx
-FMText.al:343	108	err:InvalidFormatString
-FMText.al:344	109	err:InvalidFormatString
-FMText.al:345	110	err:InvalidFormatString
-FMText.al:346	111	err:InvalidFormatString
-FMText.al:347	112	err:InvalidFormatString
-FMText.al:348	113	err:InvalidFormatString
-FMText.al:349	114	ok:Ärger
-FMText.al:350	115	ok:Ärger
-FMText.al:351	116	ok:Ärger
-FMText.al:352	117	err:InvalidStandardFormat
-FMText.al:353	118	err:InvalidStandardFormat
-FMText.al:394	119	ok:Ärger
-FMText.al:395	120	ok:xÄrgery
-FMText.al:396	121	ok:literal
-FMText.al:397	122	ok:
-FMText.al:398	123	ok:
-FMText.al:418	124	ok:123456789012345678901234567890
-FMText.al:419	125	ok:123456789012345678901234567890
-FMText.al:420	126	ok:123456789012345678901234567890
-FMText.al:421	127	err:InvalidStandardFormat
-FMText.al:422	128	err:InvalidStandardFormat
-FMText.al:423	129	err:InvalidStandardFormat
-FMText.al:424	130	err:InvalidStandardFormat
-FMText.al:425	131	err:InvalidStandardFormat
-FMText.al:426	132	err:InvalidStandardFormat
-FMText.al:427	133	ok:123456789012345678901234567890
-FMText.al:428	134	err:InvalidStandardFormat
-FMText.al:429	135	ok:123456789012345678901234567890
-FMText.al:430	136	ok:1234567890
-FMText.al:431	137	ok:123
-FMText.al:432	138	ok:1234567890
-FMText.al:433	139	err:InvalidFormatString
-FMText.al:434	140	err:InvalidFormatString
-FMText.al:435	141	err:InvalidFormatString
-FMText.al:436	142	err:InvalidFormatString
-FMText.al:437	143	err:InvalidFormatString
-FMText.al:438	144	err:InvalidFormatString
-FMText.al:439	145	ok:123456789012345678901234567890
-FMText.al:440	146	ok:123456789012345678901234567890
-FMText.al:441	147	ok:123456789012345678901234567890
-FMText.al:442	148	err:InvalidStandardFormat
-FMText.al:443	149	err:InvalidStandardFormat
-FMText.al:484	150	ok:123456789012345678901234567890
-FMText.al:485	151	ok:x123456789012345678901234567890y
-FMText.al:486	152	ok:literal
-FMText.al:487	153	ok:
-FMText.al:488	154	ok:
-FMText.al:508	155	ok:abc
-FMText.al:509	156	ok:abc
-FMText.al:510	157	ok:abc
-FMText.al:511	158	err:InvalidStandardFormat
-FMText.al:512	159	err:InvalidStandardFormat
-FMText.al:513	160	err:InvalidStandardFormat
-FMText.al:514	161	err:InvalidStandardFormat
-FMText.al:515	162	err:InvalidStandardFormat
-FMText.al:516	163	err:InvalidStandardFormat
-FMText.al:517	164	ok:abc
-FMText.al:518	165	err:InvalidStandardFormat
-FMText.al:519	166	ok:abc
-FMText.al:520	167	ok:abc       
-FMText.al:521	168	ok:abc
-FMText.al:522	169	ok:abcxxxxxxx
-FMText.al:523	170	err:InvalidFormatString
-FMText.al:524	171	err:InvalidFormatString
-FMText.al:525	172	err:InvalidFormatString
-FMText.al:526	173	err:InvalidFormatString
-FMText.al:527	174	err:InvalidFormatString
-FMText.al:528	175	err:InvalidFormatString
-FMText.al:529	176	ok:abc
-FMText.al:530	177	ok:abc
-FMText.al:531	178	ok:abc
-FMText.al:532	179	err:InvalidStandardFormat
-FMText.al:533	180	err:InvalidStandardFormat
-FMText.al:574	181	ok:abc
-FMText.al:575	182	ok:xabcy
-FMText.al:576	183	ok:literal
-FMText.al:577	184	ok:
-FMText.al:578	185	ok:
+FMText.al:58	1033	Text	V := '';	N	0	ok:
+FMText.al:59	1033	Text	V := '';	N	1	ok:
+FMText.al:60	1033	Text	V := '';	N	2	ok:
+FMText.al:61	1033	Text	V := '';	N	3	err:InvalidStandardFormat
+FMText.al:62	1033	Text	V := '';	N	4	err:InvalidStandardFormat
+FMText.al:63	1033	Text	V := '';	N	5	err:InvalidStandardFormat
+FMText.al:64	1033	Text	V := '';	N	6	err:InvalidStandardFormat
+FMText.al:65	1033	Text	V := '';	N	7	err:InvalidStandardFormat
+FMText.al:66	1033	Text	V := '';	N	8	err:InvalidStandardFormat
+FMText.al:67	1033	Text	V := '';	N	9	ok:
+FMText.al:68	1033	Text	V := '';	N	10	err:InvalidStandardFormat
+FMText.al:69	1033	Text	V := '';	S	'<Text>'	ok:
+FMText.al:70	1033	Text	V := '';	S	'<Text,10>'	ok:          
+FMText.al:71	1033	Text	V := '';	S	'<Text,3>'	ok:   
+FMText.al:72	1033	Text	V := '';	S	'<Filler Character,x><Text,10>'	ok:xxxxxxxxxx
+FMText.al:73	1033	Text	V := '';	S	'<Integer>'	err:InvalidFormatString
+FMText.al:74	1033	Text	V := '';	S	'<Integer,5>'	err:InvalidFormatString
+FMText.al:75	1033	Text	V := '';	S	'<Sign>'	err:InvalidFormatString
+FMText.al:76	1033	Text	V := '';	S	'<Decimals>'	err:InvalidFormatString
+FMText.al:77	1033	Text	V := '';	S	'<Day>'	err:InvalidFormatString
+FMText.al:78	1033	Text	V := '';	S	'<Hours24>'	err:InvalidFormatString
+FMText.al:79	1033	Text	V := '';	S	'<Standard Format,0>'	ok:
+FMText.al:80	1033	Text	V := '';	S	'<Standard Format,1>'	ok:
+FMText.al:81	1033	Text	V := '';	S	'<Standard Format,2>'	ok:
+FMText.al:82	1033	Text	V := '';	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMText.al:83	1033	Text	V := '';	S	'<Standard Format,4>'	err:InvalidStandardFormat
+FMText.al:124	1033	Text	V := '';	S	'<Standard Format,9>'	ok:
+FMText.al:125	1033	Text	V := '';	S	'x<Text>y'	ok:xy
+FMText.al:126	1033	Text	V := '';	S	'literal'	ok:literal
+FMText.al:127	1033	Text	V := '';	S	''	ok:
+FMText.al:128	1033	Text	V := '';	S	'<Precision,2:2>'	ok:
+FMText.al:148	1033	Text	V := 'abc';	N	0	ok:abc
+FMText.al:149	1033	Text	V := 'abc';	N	1	ok:abc
+FMText.al:150	1033	Text	V := 'abc';	N	2	ok:abc
+FMText.al:151	1033	Text	V := 'abc';	N	3	err:InvalidStandardFormat
+FMText.al:152	1033	Text	V := 'abc';	N	4	err:InvalidStandardFormat
+FMText.al:153	1033	Text	V := 'abc';	N	5	err:InvalidStandardFormat
+FMText.al:154	1033	Text	V := 'abc';	N	6	err:InvalidStandardFormat
+FMText.al:155	1033	Text	V := 'abc';	N	7	err:InvalidStandardFormat
+FMText.al:156	1033	Text	V := 'abc';	N	8	err:InvalidStandardFormat
+FMText.al:157	1033	Text	V := 'abc';	N	9	ok:abc
+FMText.al:158	1033	Text	V := 'abc';	N	10	err:InvalidStandardFormat
+FMText.al:159	1033	Text	V := 'abc';	S	'<Text>'	ok:abc
+FMText.al:160	1033	Text	V := 'abc';	S	'<Text,10>'	ok:abc       
+FMText.al:161	1033	Text	V := 'abc';	S	'<Text,3>'	ok:abc
+FMText.al:162	1033	Text	V := 'abc';	S	'<Filler Character,x><Text,10>'	ok:abcxxxxxxx
+FMText.al:163	1033	Text	V := 'abc';	S	'<Integer>'	err:InvalidFormatString
+FMText.al:164	1033	Text	V := 'abc';	S	'<Integer,5>'	err:InvalidFormatString
+FMText.al:165	1033	Text	V := 'abc';	S	'<Sign>'	err:InvalidFormatString
+FMText.al:166	1033	Text	V := 'abc';	S	'<Decimals>'	err:InvalidFormatString
+FMText.al:167	1033	Text	V := 'abc';	S	'<Day>'	err:InvalidFormatString
+FMText.al:168	1033	Text	V := 'abc';	S	'<Hours24>'	err:InvalidFormatString
+FMText.al:169	1033	Text	V := 'abc';	S	'<Standard Format,0>'	ok:abc
+FMText.al:170	1033	Text	V := 'abc';	S	'<Standard Format,1>'	ok:abc
+FMText.al:171	1033	Text	V := 'abc';	S	'<Standard Format,2>'	ok:abc
+FMText.al:172	1033	Text	V := 'abc';	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMText.al:173	1033	Text	V := 'abc';	S	'<Standard Format,4>'	err:InvalidStandardFormat
+FMText.al:214	1033	Text	V := 'abc';	S	'<Standard Format,9>'	ok:abc
+FMText.al:215	1033	Text	V := 'abc';	S	'x<Text>y'	ok:xabcy
+FMText.al:216	1033	Text	V := 'abc';	S	'literal'	ok:literal
+FMText.al:217	1033	Text	V := 'abc';	S	''	ok:
+FMText.al:218	1033	Text	V := 'abc';	S	'<Precision,2:2>'	ok:
+FMText.al:238	1033	Text	V := 'Hello World';	N	0	ok:Hello World
+FMText.al:239	1033	Text	V := 'Hello World';	N	1	ok:Hello World
+FMText.al:240	1033	Text	V := 'Hello World';	N	2	ok:Hello World
+FMText.al:241	1033	Text	V := 'Hello World';	N	3	err:InvalidStandardFormat
+FMText.al:242	1033	Text	V := 'Hello World';	N	4	err:InvalidStandardFormat
+FMText.al:243	1033	Text	V := 'Hello World';	N	5	err:InvalidStandardFormat
+FMText.al:244	1033	Text	V := 'Hello World';	N	6	err:InvalidStandardFormat
+FMText.al:245	1033	Text	V := 'Hello World';	N	7	err:InvalidStandardFormat
+FMText.al:246	1033	Text	V := 'Hello World';	N	8	err:InvalidStandardFormat
+FMText.al:247	1033	Text	V := 'Hello World';	N	9	ok:Hello World
+FMText.al:248	1033	Text	V := 'Hello World';	N	10	err:InvalidStandardFormat
+FMText.al:249	1033	Text	V := 'Hello World';	S	'<Text>'	ok:Hello World
+FMText.al:250	1033	Text	V := 'Hello World';	S	'<Text,10>'	ok:Hello Worl
+FMText.al:251	1033	Text	V := 'Hello World';	S	'<Text,3>'	ok:Hel
+FMText.al:252	1033	Text	V := 'Hello World';	S	'<Filler Character,x><Text,10>'	ok:Hello Worl
+FMText.al:253	1033	Text	V := 'Hello World';	S	'<Integer>'	err:InvalidFormatString
+FMText.al:254	1033	Text	V := 'Hello World';	S	'<Integer,5>'	err:InvalidFormatString
+FMText.al:255	1033	Text	V := 'Hello World';	S	'<Sign>'	err:InvalidFormatString
+FMText.al:256	1033	Text	V := 'Hello World';	S	'<Decimals>'	err:InvalidFormatString
+FMText.al:257	1033	Text	V := 'Hello World';	S	'<Day>'	err:InvalidFormatString
+FMText.al:258	1033	Text	V := 'Hello World';	S	'<Hours24>'	err:InvalidFormatString
+FMText.al:259	1033	Text	V := 'Hello World';	S	'<Standard Format,0>'	ok:Hello World
+FMText.al:260	1033	Text	V := 'Hello World';	S	'<Standard Format,1>'	ok:Hello World
+FMText.al:261	1033	Text	V := 'Hello World';	S	'<Standard Format,2>'	ok:Hello World
+FMText.al:262	1033	Text	V := 'Hello World';	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMText.al:263	1033	Text	V := 'Hello World';	S	'<Standard Format,4>'	err:InvalidStandardFormat
+FMText.al:304	1033	Text	V := 'Hello World';	S	'<Standard Format,9>'	ok:Hello World
+FMText.al:305	1033	Text	V := 'Hello World';	S	'x<Text>y'	ok:xHello Worldy
+FMText.al:306	1033	Text	V := 'Hello World';	S	'literal'	ok:literal
+FMText.al:307	1033	Text	V := 'Hello World';	S	''	ok:
+FMText.al:308	1033	Text	V := 'Hello World';	S	'<Precision,2:2>'	ok:
+FMText.al:328	1033	Text	V := 'Ärger';	N	0	ok:Ärger
+FMText.al:329	1033	Text	V := 'Ärger';	N	1	ok:Ärger
+FMText.al:330	1033	Text	V := 'Ärger';	N	2	ok:Ärger
+FMText.al:331	1033	Text	V := 'Ärger';	N	3	err:InvalidStandardFormat
+FMText.al:332	1033	Text	V := 'Ärger';	N	4	err:InvalidStandardFormat
+FMText.al:333	1033	Text	V := 'Ärger';	N	5	err:InvalidStandardFormat
+FMText.al:334	1033	Text	V := 'Ärger';	N	6	err:InvalidStandardFormat
+FMText.al:335	1033	Text	V := 'Ärger';	N	7	err:InvalidStandardFormat
+FMText.al:336	1033	Text	V := 'Ärger';	N	8	err:InvalidStandardFormat
+FMText.al:337	1033	Text	V := 'Ärger';	N	9	ok:Ärger
+FMText.al:338	1033	Text	V := 'Ärger';	N	10	err:InvalidStandardFormat
+FMText.al:339	1033	Text	V := 'Ärger';	S	'<Text>'	ok:Ärger
+FMText.al:340	1033	Text	V := 'Ärger';	S	'<Text,10>'	ok:Ärger     
+FMText.al:341	1033	Text	V := 'Ärger';	S	'<Text,3>'	ok:Ärg
+FMText.al:342	1033	Text	V := 'Ärger';	S	'<Filler Character,x><Text,10>'	ok:Ärgerxxxxx
+FMText.al:343	1033	Text	V := 'Ärger';	S	'<Integer>'	err:InvalidFormatString
+FMText.al:344	1033	Text	V := 'Ärger';	S	'<Integer,5>'	err:InvalidFormatString
+FMText.al:345	1033	Text	V := 'Ärger';	S	'<Sign>'	err:InvalidFormatString
+FMText.al:346	1033	Text	V := 'Ärger';	S	'<Decimals>'	err:InvalidFormatString
+FMText.al:347	1033	Text	V := 'Ärger';	S	'<Day>'	err:InvalidFormatString
+FMText.al:348	1033	Text	V := 'Ärger';	S	'<Hours24>'	err:InvalidFormatString
+FMText.al:349	1033	Text	V := 'Ärger';	S	'<Standard Format,0>'	ok:Ärger
+FMText.al:350	1033	Text	V := 'Ärger';	S	'<Standard Format,1>'	ok:Ärger
+FMText.al:351	1033	Text	V := 'Ärger';	S	'<Standard Format,2>'	ok:Ärger
+FMText.al:352	1033	Text	V := 'Ärger';	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMText.al:353	1033	Text	V := 'Ärger';	S	'<Standard Format,4>'	err:InvalidStandardFormat
+FMText.al:394	1033	Text	V := 'Ärger';	S	'<Standard Format,9>'	ok:Ärger
+FMText.al:395	1033	Text	V := 'Ärger';	S	'x<Text>y'	ok:xÄrgery
+FMText.al:396	1033	Text	V := 'Ärger';	S	'literal'	ok:literal
+FMText.al:397	1033	Text	V := 'Ärger';	S	''	ok:
+FMText.al:398	1033	Text	V := 'Ärger';	S	'<Precision,2:2>'	ok:
+FMText.al:418	1033	Text	V := '123456789012345678901234567890';	N	0	ok:123456789012345678901234567890
+FMText.al:419	1033	Text	V := '123456789012345678901234567890';	N	1	ok:123456789012345678901234567890
+FMText.al:420	1033	Text	V := '123456789012345678901234567890';	N	2	ok:123456789012345678901234567890
+FMText.al:421	1033	Text	V := '123456789012345678901234567890';	N	3	err:InvalidStandardFormat
+FMText.al:422	1033	Text	V := '123456789012345678901234567890';	N	4	err:InvalidStandardFormat
+FMText.al:423	1033	Text	V := '123456789012345678901234567890';	N	5	err:InvalidStandardFormat
+FMText.al:424	1033	Text	V := '123456789012345678901234567890';	N	6	err:InvalidStandardFormat
+FMText.al:425	1033	Text	V := '123456789012345678901234567890';	N	7	err:InvalidStandardFormat
+FMText.al:426	1033	Text	V := '123456789012345678901234567890';	N	8	err:InvalidStandardFormat
+FMText.al:427	1033	Text	V := '123456789012345678901234567890';	N	9	ok:123456789012345678901234567890
+FMText.al:428	1033	Text	V := '123456789012345678901234567890';	N	10	err:InvalidStandardFormat
+FMText.al:429	1033	Text	V := '123456789012345678901234567890';	S	'<Text>'	ok:123456789012345678901234567890
+FMText.al:430	1033	Text	V := '123456789012345678901234567890';	S	'<Text,10>'	ok:1234567890
+FMText.al:431	1033	Text	V := '123456789012345678901234567890';	S	'<Text,3>'	ok:123
+FMText.al:432	1033	Text	V := '123456789012345678901234567890';	S	'<Filler Character,x><Text,10>'	ok:1234567890
+FMText.al:433	1033	Text	V := '123456789012345678901234567890';	S	'<Integer>'	err:InvalidFormatString
+FMText.al:434	1033	Text	V := '123456789012345678901234567890';	S	'<Integer,5>'	err:InvalidFormatString
+FMText.al:435	1033	Text	V := '123456789012345678901234567890';	S	'<Sign>'	err:InvalidFormatString
+FMText.al:436	1033	Text	V := '123456789012345678901234567890';	S	'<Decimals>'	err:InvalidFormatString
+FMText.al:437	1033	Text	V := '123456789012345678901234567890';	S	'<Day>'	err:InvalidFormatString
+FMText.al:438	1033	Text	V := '123456789012345678901234567890';	S	'<Hours24>'	err:InvalidFormatString
+FMText.al:439	1033	Text	V := '123456789012345678901234567890';	S	'<Standard Format,0>'	ok:123456789012345678901234567890
+FMText.al:440	1033	Text	V := '123456789012345678901234567890';	S	'<Standard Format,1>'	ok:123456789012345678901234567890
+FMText.al:441	1033	Text	V := '123456789012345678901234567890';	S	'<Standard Format,2>'	ok:123456789012345678901234567890
+FMText.al:442	1033	Text	V := '123456789012345678901234567890';	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMText.al:443	1033	Text	V := '123456789012345678901234567890';	S	'<Standard Format,4>'	err:InvalidStandardFormat
+FMText.al:484	1033	Text	V := '123456789012345678901234567890';	S	'<Standard Format,9>'	ok:123456789012345678901234567890
+FMText.al:485	1033	Text	V := '123456789012345678901234567890';	S	'x<Text>y'	ok:x123456789012345678901234567890y
+FMText.al:486	1033	Text	V := '123456789012345678901234567890';	S	'literal'	ok:literal
+FMText.al:487	1033	Text	V := '123456789012345678901234567890';	S	''	ok:
+FMText.al:488	1033	Text	V := '123456789012345678901234567890';	S	'<Precision,2:2>'	ok:
+FMText.al:508	1031	Text	V := 'abc';	N	0	ok:abc
+FMText.al:509	1031	Text	V := 'abc';	N	1	ok:abc
+FMText.al:510	1031	Text	V := 'abc';	N	2	ok:abc
+FMText.al:511	1031	Text	V := 'abc';	N	3	err:InvalidStandardFormat
+FMText.al:512	1031	Text	V := 'abc';	N	4	err:InvalidStandardFormat
+FMText.al:513	1031	Text	V := 'abc';	N	5	err:InvalidStandardFormat
+FMText.al:514	1031	Text	V := 'abc';	N	6	err:InvalidStandardFormat
+FMText.al:515	1031	Text	V := 'abc';	N	7	err:InvalidStandardFormat
+FMText.al:516	1031	Text	V := 'abc';	N	8	err:InvalidStandardFormat
+FMText.al:517	1031	Text	V := 'abc';	N	9	ok:abc
+FMText.al:518	1031	Text	V := 'abc';	N	10	err:InvalidStandardFormat
+FMText.al:519	1031	Text	V := 'abc';	S	'<Text>'	ok:abc
+FMText.al:520	1031	Text	V := 'abc';	S	'<Text,10>'	ok:abc       
+FMText.al:521	1031	Text	V := 'abc';	S	'<Text,3>'	ok:abc
+FMText.al:522	1031	Text	V := 'abc';	S	'<Filler Character,x><Text,10>'	ok:abcxxxxxxx
+FMText.al:523	1031	Text	V := 'abc';	S	'<Integer>'	err:InvalidFormatString
+FMText.al:524	1031	Text	V := 'abc';	S	'<Integer,5>'	err:InvalidFormatString
+FMText.al:525	1031	Text	V := 'abc';	S	'<Sign>'	err:InvalidFormatString
+FMText.al:526	1031	Text	V := 'abc';	S	'<Decimals>'	err:InvalidFormatString
+FMText.al:527	1031	Text	V := 'abc';	S	'<Day>'	err:InvalidFormatString
+FMText.al:528	1031	Text	V := 'abc';	S	'<Hours24>'	err:InvalidFormatString
+FMText.al:529	1031	Text	V := 'abc';	S	'<Standard Format,0>'	ok:abc
+FMText.al:530	1031	Text	V := 'abc';	S	'<Standard Format,1>'	ok:abc
+FMText.al:531	1031	Text	V := 'abc';	S	'<Standard Format,2>'	ok:abc
+FMText.al:532	1031	Text	V := 'abc';	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMText.al:533	1031	Text	V := 'abc';	S	'<Standard Format,4>'	err:InvalidStandardFormat
+FMText.al:574	1031	Text	V := 'abc';	S	'<Standard Format,9>'	ok:abc
+FMText.al:575	1031	Text	V := 'abc';	S	'x<Text>y'	ok:xabcy
+FMText.al:576	1031	Text	V := 'abc';	S	'literal'	ok:literal
+FMText.al:577	1031	Text	V := 'abc';	S	''	ok:
+FMText.al:578	1031	Text	V := 'abc';	S	'<Precision,2:2>'	ok:

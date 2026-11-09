@@ -1,217 +1,217 @@
-FMChar.al:58	0	ok:A
-FMChar.al:59	1	ok:A
-FMChar.al:60	2	ok:A
-FMChar.al:61	3	err:InvalidStandardFormat
-FMChar.al:62	4	err:InvalidStandardFormat
-FMChar.al:63	5	err:InvalidStandardFormat
-FMChar.al:64	6	err:InvalidStandardFormat
-FMChar.al:65	7	err:InvalidStandardFormat
-FMChar.al:66	8	err:InvalidStandardFormat
-FMChar.al:67	9	ok:A
-FMChar.al:68	10	err:InvalidStandardFormat
-FMChar.al:69	11	err:InvalidFormatString
-FMChar.al:70	12	err:InvalidFormatString
-FMChar.al:71	13	err:InvalidFormatString
-FMChar.al:72	14	err:InvalidFormatString
-FMChar.al:73	15	err:InvalidFormatString
-FMChar.al:74	16	err:InvalidFormatString
-FMChar.al:75	17	err:InvalidFormatString
-FMChar.al:76	18	err:InvalidFormatString
-FMChar.al:77	19	err:InvalidFormatString
-FMChar.al:78	20	err:InvalidFormatString
-FMChar.al:79	21	ok:A
-FMChar.al:80	22	ok:A
-FMChar.al:81	23	ok:A
-FMChar.al:82	24	err:InvalidStandardFormat
-FMChar.al:83	25	err:InvalidStandardFormat
-FMChar.al:124	26	ok:A
-FMChar.al:125	27	err:InvalidFormatString
-FMChar.al:126	28	ok:literal
-FMChar.al:127	29	ok:
-FMChar.al:128	30	ok:
-FMChar.al:148	31	ok:\\u0000
-FMChar.al:149	32	ok:\\u0000
-FMChar.al:150	33	ok:\\u0000
-FMChar.al:151	34	err:InvalidStandardFormat
-FMChar.al:152	35	err:InvalidStandardFormat
-FMChar.al:153	36	err:InvalidStandardFormat
-FMChar.al:154	37	err:InvalidStandardFormat
-FMChar.al:155	38	err:InvalidStandardFormat
-FMChar.al:156	39	err:InvalidStandardFormat
-FMChar.al:157	40	ok:\\u0000
-FMChar.al:158	41	err:InvalidStandardFormat
-FMChar.al:159	42	err:InvalidFormatString
-FMChar.al:160	43	err:InvalidFormatString
-FMChar.al:161	44	err:InvalidFormatString
-FMChar.al:162	45	err:InvalidFormatString
-FMChar.al:163	46	err:InvalidFormatString
-FMChar.al:164	47	err:InvalidFormatString
-FMChar.al:165	48	err:InvalidFormatString
-FMChar.al:166	49	err:InvalidFormatString
-FMChar.al:167	50	err:InvalidFormatString
-FMChar.al:168	51	err:InvalidFormatString
-FMChar.al:169	52	ok:\\u0000
-FMChar.al:170	53	ok:\\u0000
-FMChar.al:171	54	ok:\\u0000
-FMChar.al:172	55	err:InvalidStandardFormat
-FMChar.al:173	56	err:InvalidStandardFormat
-FMChar.al:214	57	ok:\\u0000
-FMChar.al:215	58	err:InvalidFormatString
-FMChar.al:216	59	ok:literal
-FMChar.al:217	60	ok:
-FMChar.al:218	61	ok:
-FMChar.al:238	62	ok: 
-FMChar.al:239	63	ok: 
-FMChar.al:240	64	ok: 
-FMChar.al:241	65	err:InvalidStandardFormat
-FMChar.al:242	66	err:InvalidStandardFormat
-FMChar.al:243	67	err:InvalidStandardFormat
-FMChar.al:244	68	err:InvalidStandardFormat
-FMChar.al:245	69	err:InvalidStandardFormat
-FMChar.al:246	70	err:InvalidStandardFormat
-FMChar.al:247	71	ok: 
-FMChar.al:248	72	err:InvalidStandardFormat
-FMChar.al:249	73	err:InvalidFormatString
-FMChar.al:250	74	err:InvalidFormatString
-FMChar.al:251	75	err:InvalidFormatString
-FMChar.al:252	76	err:InvalidFormatString
-FMChar.al:253	77	err:InvalidFormatString
-FMChar.al:254	78	err:InvalidFormatString
-FMChar.al:255	79	err:InvalidFormatString
-FMChar.al:256	80	err:InvalidFormatString
-FMChar.al:257	81	err:InvalidFormatString
-FMChar.al:258	82	err:InvalidFormatString
-FMChar.al:259	83	ok: 
-FMChar.al:260	84	ok: 
-FMChar.al:261	85	ok: 
-FMChar.al:262	86	err:InvalidStandardFormat
-FMChar.al:263	87	err:InvalidStandardFormat
-FMChar.al:304	88	ok: 
-FMChar.al:305	89	err:InvalidFormatString
-FMChar.al:306	90	ok:literal
-FMChar.al:307	91	ok:
-FMChar.al:308	92	ok:
-FMChar.al:328	93	ok:¶
-FMChar.al:329	94	ok:¶
-FMChar.al:330	95	ok:¶
-FMChar.al:331	96	err:InvalidStandardFormat
-FMChar.al:332	97	err:InvalidStandardFormat
-FMChar.al:333	98	err:InvalidStandardFormat
-FMChar.al:334	99	err:InvalidStandardFormat
-FMChar.al:335	100	err:InvalidStandardFormat
-FMChar.al:336	101	err:InvalidStandardFormat
-FMChar.al:337	102	ok:¶
-FMChar.al:338	103	err:InvalidStandardFormat
-FMChar.al:339	104	err:InvalidFormatString
-FMChar.al:340	105	err:InvalidFormatString
-FMChar.al:341	106	err:InvalidFormatString
-FMChar.al:342	107	err:InvalidFormatString
-FMChar.al:343	108	err:InvalidFormatString
-FMChar.al:344	109	err:InvalidFormatString
-FMChar.al:345	110	err:InvalidFormatString
-FMChar.al:346	111	err:InvalidFormatString
-FMChar.al:347	112	err:InvalidFormatString
-FMChar.al:348	113	err:InvalidFormatString
-FMChar.al:349	114	ok:¶
-FMChar.al:350	115	ok:¶
-FMChar.al:351	116	ok:¶
-FMChar.al:352	117	err:InvalidStandardFormat
-FMChar.al:353	118	err:InvalidStandardFormat
-FMChar.al:394	119	ok:¶
-FMChar.al:395	120	err:InvalidFormatString
-FMChar.al:396	121	ok:literal
-FMChar.al:397	122	ok:
-FMChar.al:398	123	ok:
-FMChar.al:418	124	ok:ÿ
-FMChar.al:419	125	ok:ÿ
-FMChar.al:420	126	ok:ÿ
-FMChar.al:421	127	err:InvalidStandardFormat
-FMChar.al:422	128	err:InvalidStandardFormat
-FMChar.al:423	129	err:InvalidStandardFormat
-FMChar.al:424	130	err:InvalidStandardFormat
-FMChar.al:425	131	err:InvalidStandardFormat
-FMChar.al:426	132	err:InvalidStandardFormat
-FMChar.al:427	133	ok:ÿ
-FMChar.al:428	134	err:InvalidStandardFormat
-FMChar.al:429	135	err:InvalidFormatString
-FMChar.al:430	136	err:InvalidFormatString
-FMChar.al:431	137	err:InvalidFormatString
-FMChar.al:432	138	err:InvalidFormatString
-FMChar.al:433	139	err:InvalidFormatString
-FMChar.al:434	140	err:InvalidFormatString
-FMChar.al:435	141	err:InvalidFormatString
-FMChar.al:436	142	err:InvalidFormatString
-FMChar.al:437	143	err:InvalidFormatString
-FMChar.al:438	144	err:InvalidFormatString
-FMChar.al:439	145	ok:ÿ
-FMChar.al:440	146	ok:ÿ
-FMChar.al:441	147	ok:ÿ
-FMChar.al:442	148	err:InvalidStandardFormat
-FMChar.al:443	149	err:InvalidStandardFormat
-FMChar.al:484	150	ok:ÿ
-FMChar.al:485	151	err:InvalidFormatString
-FMChar.al:486	152	ok:literal
-FMChar.al:487	153	ok:
-FMChar.al:488	154	ok:
-FMChar.al:508	155	ok:€
-FMChar.al:509	156	ok:€
-FMChar.al:510	157	ok:€
-FMChar.al:511	158	err:InvalidStandardFormat
-FMChar.al:512	159	err:InvalidStandardFormat
-FMChar.al:513	160	err:InvalidStandardFormat
-FMChar.al:514	161	err:InvalidStandardFormat
-FMChar.al:515	162	err:InvalidStandardFormat
-FMChar.al:516	163	err:InvalidStandardFormat
-FMChar.al:517	164	ok:€
-FMChar.al:518	165	err:InvalidStandardFormat
-FMChar.al:519	166	err:InvalidFormatString
-FMChar.al:520	167	err:InvalidFormatString
-FMChar.al:521	168	err:InvalidFormatString
-FMChar.al:522	169	err:InvalidFormatString
-FMChar.al:523	170	err:InvalidFormatString
-FMChar.al:524	171	err:InvalidFormatString
-FMChar.al:525	172	err:InvalidFormatString
-FMChar.al:526	173	err:InvalidFormatString
-FMChar.al:527	174	err:InvalidFormatString
-FMChar.al:528	175	err:InvalidFormatString
-FMChar.al:529	176	ok:€
-FMChar.al:530	177	ok:€
-FMChar.al:531	178	ok:€
-FMChar.al:532	179	err:InvalidStandardFormat
-FMChar.al:533	180	err:InvalidStandardFormat
-FMChar.al:574	181	ok:€
-FMChar.al:575	182	err:InvalidFormatString
-FMChar.al:576	183	ok:literal
-FMChar.al:577	184	ok:
-FMChar.al:578	185	ok:
-FMChar.al:598	186	ok:\\u0000
-FMChar.al:599	187	ok:\\u0000
-FMChar.al:600	188	ok:\\u0000
-FMChar.al:601	189	err:InvalidStandardFormat
-FMChar.al:602	190	err:InvalidStandardFormat
-FMChar.al:603	191	err:InvalidStandardFormat
-FMChar.al:604	192	err:InvalidStandardFormat
-FMChar.al:605	193	err:InvalidStandardFormat
-FMChar.al:606	194	err:InvalidStandardFormat
-FMChar.al:607	195	ok:\\u0000
-FMChar.al:608	196	err:InvalidStandardFormat
-FMChar.al:609	197	err:InvalidFormatString
-FMChar.al:610	198	err:InvalidFormatString
-FMChar.al:611	199	err:InvalidFormatString
-FMChar.al:612	200	err:InvalidFormatString
-FMChar.al:613	201	err:InvalidFormatString
-FMChar.al:614	202	err:InvalidFormatString
-FMChar.al:615	203	err:InvalidFormatString
-FMChar.al:616	204	err:InvalidFormatString
-FMChar.al:617	205	err:InvalidFormatString
-FMChar.al:618	206	err:InvalidFormatString
-FMChar.al:619	207	ok:\\u0000
-FMChar.al:620	208	ok:\\u0000
-FMChar.al:621	209	ok:\\u0000
-FMChar.al:622	210	err:InvalidStandardFormat
-FMChar.al:623	211	err:InvalidStandardFormat
-FMChar.al:664	212	ok:\\u0000
-FMChar.al:665	213	err:InvalidFormatString
-FMChar.al:666	214	ok:literal
-FMChar.al:667	215	ok:
-FMChar.al:668	216	ok:
+FMChar.al:58	1033	Char	V := 65;	N	0	ok:A
+FMChar.al:59	1033	Char	V := 65;	N	1	ok:A
+FMChar.al:60	1033	Char	V := 65;	N	2	ok:A
+FMChar.al:61	1033	Char	V := 65;	N	3	err:InvalidStandardFormat
+FMChar.al:62	1033	Char	V := 65;	N	4	err:InvalidStandardFormat
+FMChar.al:63	1033	Char	V := 65;	N	5	err:InvalidStandardFormat
+FMChar.al:64	1033	Char	V := 65;	N	6	err:InvalidStandardFormat
+FMChar.al:65	1033	Char	V := 65;	N	7	err:InvalidStandardFormat
+FMChar.al:66	1033	Char	V := 65;	N	8	err:InvalidStandardFormat
+FMChar.al:67	1033	Char	V := 65;	N	9	ok:A
+FMChar.al:68	1033	Char	V := 65;	N	10	err:InvalidStandardFormat
+FMChar.al:69	1033	Char	V := 65;	S	'<Text>'	err:InvalidFormatString
+FMChar.al:70	1033	Char	V := 65;	S	'<Text,10>'	err:InvalidFormatString
+FMChar.al:71	1033	Char	V := 65;	S	'<Text,3>'	err:InvalidFormatString
+FMChar.al:72	1033	Char	V := 65;	S	'<Filler Character,x><Text,10>'	err:InvalidFormatString
+FMChar.al:73	1033	Char	V := 65;	S	'<Integer>'	err:InvalidFormatString
+FMChar.al:74	1033	Char	V := 65;	S	'<Integer,5>'	err:InvalidFormatString
+FMChar.al:75	1033	Char	V := 65;	S	'<Sign>'	err:InvalidFormatString
+FMChar.al:76	1033	Char	V := 65;	S	'<Decimals>'	err:InvalidFormatString
+FMChar.al:77	1033	Char	V := 65;	S	'<Day>'	err:InvalidFormatString
+FMChar.al:78	1033	Char	V := 65;	S	'<Hours24>'	err:InvalidFormatString
+FMChar.al:79	1033	Char	V := 65;	S	'<Standard Format,0>'	ok:A
+FMChar.al:80	1033	Char	V := 65;	S	'<Standard Format,1>'	ok:A
+FMChar.al:81	1033	Char	V := 65;	S	'<Standard Format,2>'	ok:A
+FMChar.al:82	1033	Char	V := 65;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMChar.al:83	1033	Char	V := 65;	S	'<Standard Format,4>'	err:InvalidStandardFormat
+FMChar.al:124	1033	Char	V := 65;	S	'<Standard Format,9>'	ok:A
+FMChar.al:125	1033	Char	V := 65;	S	'x<Text>y'	err:InvalidFormatString
+FMChar.al:126	1033	Char	V := 65;	S	'literal'	ok:literal
+FMChar.al:127	1033	Char	V := 65;	S	''	ok:
+FMChar.al:128	1033	Char	V := 65;	S	'<Precision,2:2>'	ok:
+FMChar.al:148	1033	Char	V := 0;	N	0	ok:\\u0000
+FMChar.al:149	1033	Char	V := 0;	N	1	ok:\\u0000
+FMChar.al:150	1033	Char	V := 0;	N	2	ok:\\u0000
+FMChar.al:151	1033	Char	V := 0;	N	3	err:InvalidStandardFormat
+FMChar.al:152	1033	Char	V := 0;	N	4	err:InvalidStandardFormat
+FMChar.al:153	1033	Char	V := 0;	N	5	err:InvalidStandardFormat
+FMChar.al:154	1033	Char	V := 0;	N	6	err:InvalidStandardFormat
+FMChar.al:155	1033	Char	V := 0;	N	7	err:InvalidStandardFormat
+FMChar.al:156	1033	Char	V := 0;	N	8	err:InvalidStandardFormat
+FMChar.al:157	1033	Char	V := 0;	N	9	ok:\\u0000
+FMChar.al:158	1033	Char	V := 0;	N	10	err:InvalidStandardFormat
+FMChar.al:159	1033	Char	V := 0;	S	'<Text>'	err:InvalidFormatString
+FMChar.al:160	1033	Char	V := 0;	S	'<Text,10>'	err:InvalidFormatString
+FMChar.al:161	1033	Char	V := 0;	S	'<Text,3>'	err:InvalidFormatString
+FMChar.al:162	1033	Char	V := 0;	S	'<Filler Character,x><Text,10>'	err:InvalidFormatString
+FMChar.al:163	1033	Char	V := 0;	S	'<Integer>'	err:InvalidFormatString
+FMChar.al:164	1033	Char	V := 0;	S	'<Integer,5>'	err:InvalidFormatString
+FMChar.al:165	1033	Char	V := 0;	S	'<Sign>'	err:InvalidFormatString
+FMChar.al:166	1033	Char	V := 0;	S	'<Decimals>'	err:InvalidFormatString
+FMChar.al:167	1033	Char	V := 0;	S	'<Day>'	err:InvalidFormatString
+FMChar.al:168	1033	Char	V := 0;	S	'<Hours24>'	err:InvalidFormatString
+FMChar.al:169	1033	Char	V := 0;	S	'<Standard Format,0>'	ok:\\u0000
+FMChar.al:170	1033	Char	V := 0;	S	'<Standard Format,1>'	ok:\\u0000
+FMChar.al:171	1033	Char	V := 0;	S	'<Standard Format,2>'	ok:\\u0000
+FMChar.al:172	1033	Char	V := 0;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMChar.al:173	1033	Char	V := 0;	S	'<Standard Format,4>'	err:InvalidStandardFormat
+FMChar.al:214	1033	Char	V := 0;	S	'<Standard Format,9>'	ok:\\u0000
+FMChar.al:215	1033	Char	V := 0;	S	'x<Text>y'	err:InvalidFormatString
+FMChar.al:216	1033	Char	V := 0;	S	'literal'	ok:literal
+FMChar.al:217	1033	Char	V := 0;	S	''	ok:
+FMChar.al:218	1033	Char	V := 0;	S	'<Precision,2:2>'	ok:
+FMChar.al:238	1033	Char	V := 32;	N	0	ok: 
+FMChar.al:239	1033	Char	V := 32;	N	1	ok: 
+FMChar.al:240	1033	Char	V := 32;	N	2	ok: 
+FMChar.al:241	1033	Char	V := 32;	N	3	err:InvalidStandardFormat
+FMChar.al:242	1033	Char	V := 32;	N	4	err:InvalidStandardFormat
+FMChar.al:243	1033	Char	V := 32;	N	5	err:InvalidStandardFormat
+FMChar.al:244	1033	Char	V := 32;	N	6	err:InvalidStandardFormat
+FMChar.al:245	1033	Char	V := 32;	N	7	err:InvalidStandardFormat
+FMChar.al:246	1033	Char	V := 32;	N	8	err:InvalidStandardFormat
+FMChar.al:247	1033	Char	V := 32;	N	9	ok: 
+FMChar.al:248	1033	Char	V := 32;	N	10	err:InvalidStandardFormat
+FMChar.al:249	1033	Char	V := 32;	S	'<Text>'	err:InvalidFormatString
+FMChar.al:250	1033	Char	V := 32;	S	'<Text,10>'	err:InvalidFormatString
+FMChar.al:251	1033	Char	V := 32;	S	'<Text,3>'	err:InvalidFormatString
+FMChar.al:252	1033	Char	V := 32;	S	'<Filler Character,x><Text,10>'	err:InvalidFormatString
+FMChar.al:253	1033	Char	V := 32;	S	'<Integer>'	err:InvalidFormatString
+FMChar.al:254	1033	Char	V := 32;	S	'<Integer,5>'	err:InvalidFormatString
+FMChar.al:255	1033	Char	V := 32;	S	'<Sign>'	err:InvalidFormatString
+FMChar.al:256	1033	Char	V := 32;	S	'<Decimals>'	err:InvalidFormatString
+FMChar.al:257	1033	Char	V := 32;	S	'<Day>'	err:InvalidFormatString
+FMChar.al:258	1033	Char	V := 32;	S	'<Hours24>'	err:InvalidFormatString
+FMChar.al:259	1033	Char	V := 32;	S	'<Standard Format,0>'	ok: 
+FMChar.al:260	1033	Char	V := 32;	S	'<Standard Format,1>'	ok: 
+FMChar.al:261	1033	Char	V := 32;	S	'<Standard Format,2>'	ok: 
+FMChar.al:262	1033	Char	V := 32;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMChar.al:263	1033	Char	V := 32;	S	'<Standard Format,4>'	err:InvalidStandardFormat
+FMChar.al:304	1033	Char	V := 32;	S	'<Standard Format,9>'	ok: 
+FMChar.al:305	1033	Char	V := 32;	S	'x<Text>y'	err:InvalidFormatString
+FMChar.al:306	1033	Char	V := 32;	S	'literal'	ok:literal
+FMChar.al:307	1033	Char	V := 32;	S	''	ok:
+FMChar.al:308	1033	Char	V := 32;	S	'<Precision,2:2>'	ok:
+FMChar.al:328	1033	Char	V := 182;	N	0	ok:¶
+FMChar.al:329	1033	Char	V := 182;	N	1	ok:¶
+FMChar.al:330	1033	Char	V := 182;	N	2	ok:¶
+FMChar.al:331	1033	Char	V := 182;	N	3	err:InvalidStandardFormat
+FMChar.al:332	1033	Char	V := 182;	N	4	err:InvalidStandardFormat
+FMChar.al:333	1033	Char	V := 182;	N	5	err:InvalidStandardFormat
+FMChar.al:334	1033	Char	V := 182;	N	6	err:InvalidStandardFormat
+FMChar.al:335	1033	Char	V := 182;	N	7	err:InvalidStandardFormat
+FMChar.al:336	1033	Char	V := 182;	N	8	err:InvalidStandardFormat
+FMChar.al:337	1033	Char	V := 182;	N	9	ok:¶
+FMChar.al:338	1033	Char	V := 182;	N	10	err:InvalidStandardFormat
+FMChar.al:339	1033	Char	V := 182;	S	'<Text>'	err:InvalidFormatString
+FMChar.al:340	1033	Char	V := 182;	S	'<Text,10>'	err:InvalidFormatString
+FMChar.al:341	1033	Char	V := 182;	S	'<Text,3>'	err:InvalidFormatString
+FMChar.al:342	1033	Char	V := 182;	S	'<Filler Character,x><Text,10>'	err:InvalidFormatString
+FMChar.al:343	1033	Char	V := 182;	S	'<Integer>'	err:InvalidFormatString
+FMChar.al:344	1033	Char	V := 182;	S	'<Integer,5>'	err:InvalidFormatString
+FMChar.al:345	1033	Char	V := 182;	S	'<Sign>'	err:InvalidFormatString
+FMChar.al:346	1033	Char	V := 182;	S	'<Decimals>'	err:InvalidFormatString
+FMChar.al:347	1033	Char	V := 182;	S	'<Day>'	err:InvalidFormatString
+FMChar.al:348	1033	Char	V := 182;	S	'<Hours24>'	err:InvalidFormatString
+FMChar.al:349	1033	Char	V := 182;	S	'<Standard Format,0>'	ok:¶
+FMChar.al:350	1033	Char	V := 182;	S	'<Standard Format,1>'	ok:¶
+FMChar.al:351	1033	Char	V := 182;	S	'<Standard Format,2>'	ok:¶
+FMChar.al:352	1033	Char	V := 182;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMChar.al:353	1033	Char	V := 182;	S	'<Standard Format,4>'	err:InvalidStandardFormat
+FMChar.al:394	1033	Char	V := 182;	S	'<Standard Format,9>'	ok:¶
+FMChar.al:395	1033	Char	V := 182;	S	'x<Text>y'	err:InvalidFormatString
+FMChar.al:396	1033	Char	V := 182;	S	'literal'	ok:literal
+FMChar.al:397	1033	Char	V := 182;	S	''	ok:
+FMChar.al:398	1033	Char	V := 182;	S	'<Precision,2:2>'	ok:
+FMChar.al:418	1033	Char	V := 255;	N	0	ok:ÿ
+FMChar.al:419	1033	Char	V := 255;	N	1	ok:ÿ
+FMChar.al:420	1033	Char	V := 255;	N	2	ok:ÿ
+FMChar.al:421	1033	Char	V := 255;	N	3	err:InvalidStandardFormat
+FMChar.al:422	1033	Char	V := 255;	N	4	err:InvalidStandardFormat
+FMChar.al:423	1033	Char	V := 255;	N	5	err:InvalidStandardFormat
+FMChar.al:424	1033	Char	V := 255;	N	6	err:InvalidStandardFormat
+FMChar.al:425	1033	Char	V := 255;	N	7	err:InvalidStandardFormat
+FMChar.al:426	1033	Char	V := 255;	N	8	err:InvalidStandardFormat
+FMChar.al:427	1033	Char	V := 255;	N	9	ok:ÿ
+FMChar.al:428	1033	Char	V := 255;	N	10	err:InvalidStandardFormat
+FMChar.al:429	1033	Char	V := 255;	S	'<Text>'	err:InvalidFormatString
+FMChar.al:430	1033	Char	V := 255;	S	'<Text,10>'	err:InvalidFormatString
+FMChar.al:431	1033	Char	V := 255;	S	'<Text,3>'	err:InvalidFormatString
+FMChar.al:432	1033	Char	V := 255;	S	'<Filler Character,x><Text,10>'	err:InvalidFormatString
+FMChar.al:433	1033	Char	V := 255;	S	'<Integer>'	err:InvalidFormatString
+FMChar.al:434	1033	Char	V := 255;	S	'<Integer,5>'	err:InvalidFormatString
+FMChar.al:435	1033	Char	V := 255;	S	'<Sign>'	err:InvalidFormatString
+FMChar.al:436	1033	Char	V := 255;	S	'<Decimals>'	err:InvalidFormatString
+FMChar.al:437	1033	Char	V := 255;	S	'<Day>'	err:InvalidFormatString
+FMChar.al:438	1033	Char	V := 255;	S	'<Hours24>'	err:InvalidFormatString
+FMChar.al:439	1033	Char	V := 255;	S	'<Standard Format,0>'	ok:ÿ
+FMChar.al:440	1033	Char	V := 255;	S	'<Standard Format,1>'	ok:ÿ
+FMChar.al:441	1033	Char	V := 255;	S	'<Standard Format,2>'	ok:ÿ
+FMChar.al:442	1033	Char	V := 255;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMChar.al:443	1033	Char	V := 255;	S	'<Standard Format,4>'	err:InvalidStandardFormat
+FMChar.al:484	1033	Char	V := 255;	S	'<Standard Format,9>'	ok:ÿ
+FMChar.al:485	1033	Char	V := 255;	S	'x<Text>y'	err:InvalidFormatString
+FMChar.al:486	1033	Char	V := 255;	S	'literal'	ok:literal
+FMChar.al:487	1033	Char	V := 255;	S	''	ok:
+FMChar.al:488	1033	Char	V := 255;	S	'<Precision,2:2>'	ok:
+FMChar.al:508	1033	Char	V := 8364;	N	0	ok:€
+FMChar.al:509	1033	Char	V := 8364;	N	1	ok:€
+FMChar.al:510	1033	Char	V := 8364;	N	2	ok:€
+FMChar.al:511	1033	Char	V := 8364;	N	3	err:InvalidStandardFormat
+FMChar.al:512	1033	Char	V := 8364;	N	4	err:InvalidStandardFormat
+FMChar.al:513	1033	Char	V := 8364;	N	5	err:InvalidStandardFormat
+FMChar.al:514	1033	Char	V := 8364;	N	6	err:InvalidStandardFormat
+FMChar.al:515	1033	Char	V := 8364;	N	7	err:InvalidStandardFormat
+FMChar.al:516	1033	Char	V := 8364;	N	8	err:InvalidStandardFormat
+FMChar.al:517	1033	Char	V := 8364;	N	9	ok:€
+FMChar.al:518	1033	Char	V := 8364;	N	10	err:InvalidStandardFormat
+FMChar.al:519	1033	Char	V := 8364;	S	'<Text>'	err:InvalidFormatString
+FMChar.al:520	1033	Char	V := 8364;	S	'<Text,10>'	err:InvalidFormatString
+FMChar.al:521	1033	Char	V := 8364;	S	'<Text,3>'	err:InvalidFormatString
+FMChar.al:522	1033	Char	V := 8364;	S	'<Filler Character,x><Text,10>'	err:InvalidFormatString
+FMChar.al:523	1033	Char	V := 8364;	S	'<Integer>'	err:InvalidFormatString
+FMChar.al:524	1033	Char	V := 8364;	S	'<Integer,5>'	err:InvalidFormatString
+FMChar.al:525	1033	Char	V := 8364;	S	'<Sign>'	err:InvalidFormatString
+FMChar.al:526	1033	Char	V := 8364;	S	'<Decimals>'	err:InvalidFormatString
+FMChar.al:527	1033	Char	V := 8364;	S	'<Day>'	err:InvalidFormatString
+FMChar.al:528	1033	Char	V := 8364;	S	'<Hours24>'	err:InvalidFormatString
+FMChar.al:529	1033	Char	V := 8364;	S	'<Standard Format,0>'	ok:€
+FMChar.al:530	1033	Char	V := 8364;	S	'<Standard Format,1>'	ok:€
+FMChar.al:531	1033	Char	V := 8364;	S	'<Standard Format,2>'	ok:€
+FMChar.al:532	1033	Char	V := 8364;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMChar.al:533	1033	Char	V := 8364;	S	'<Standard Format,4>'	err:InvalidStandardFormat
+FMChar.al:574	1033	Char	V := 8364;	S	'<Standard Format,9>'	ok:€
+FMChar.al:575	1033	Char	V := 8364;	S	'x<Text>y'	err:InvalidFormatString
+FMChar.al:576	1033	Char	V := 8364;	S	'literal'	ok:literal
+FMChar.al:577	1033	Char	V := 8364;	S	''	ok:
+FMChar.al:578	1033	Char	V := 8364;	S	'<Precision,2:2>'	ok:
+FMChar.al:598	1031	Char	V := 0;	N	0	ok:\\u0000
+FMChar.al:599	1031	Char	V := 0;	N	1	ok:\\u0000
+FMChar.al:600	1031	Char	V := 0;	N	2	ok:\\u0000
+FMChar.al:601	1031	Char	V := 0;	N	3	err:InvalidStandardFormat
+FMChar.al:602	1031	Char	V := 0;	N	4	err:InvalidStandardFormat
+FMChar.al:603	1031	Char	V := 0;	N	5	err:InvalidStandardFormat
+FMChar.al:604	1031	Char	V := 0;	N	6	err:InvalidStandardFormat
+FMChar.al:605	1031	Char	V := 0;	N	7	err:InvalidStandardFormat
+FMChar.al:606	1031	Char	V := 0;	N	8	err:InvalidStandardFormat
+FMChar.al:607	1031	Char	V := 0;	N	9	ok:\\u0000
+FMChar.al:608	1031	Char	V := 0;	N	10	err:InvalidStandardFormat
+FMChar.al:609	1031	Char	V := 0;	S	'<Text>'	err:InvalidFormatString
+FMChar.al:610	1031	Char	V := 0;	S	'<Text,10>'	err:InvalidFormatString
+FMChar.al:611	1031	Char	V := 0;	S	'<Text,3>'	err:InvalidFormatString
+FMChar.al:612	1031	Char	V := 0;	S	'<Filler Character,x><Text,10>'	err:InvalidFormatString
+FMChar.al:613	1031	Char	V := 0;	S	'<Integer>'	err:InvalidFormatString
+FMChar.al:614	1031	Char	V := 0;	S	'<Integer,5>'	err:InvalidFormatString
+FMChar.al:615	1031	Char	V := 0;	S	'<Sign>'	err:InvalidFormatString
+FMChar.al:616	1031	Char	V := 0;	S	'<Decimals>'	err:InvalidFormatString
+FMChar.al:617	1031	Char	V := 0;	S	'<Day>'	err:InvalidFormatString
+FMChar.al:618	1031	Char	V := 0;	S	'<Hours24>'	err:InvalidFormatString
+FMChar.al:619	1031	Char	V := 0;	S	'<Standard Format,0>'	ok:\\u0000
+FMChar.al:620	1031	Char	V := 0;	S	'<Standard Format,1>'	ok:\\u0000
+FMChar.al:621	1031	Char	V := 0;	S	'<Standard Format,2>'	ok:\\u0000
+FMChar.al:622	1031	Char	V := 0;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMChar.al:623	1031	Char	V := 0;	S	'<Standard Format,4>'	err:InvalidStandardFormat
+FMChar.al:664	1031	Char	V := 0;	S	'<Standard Format,9>'	ok:\\u0000
+FMChar.al:665	1031	Char	V := 0;	S	'x<Text>y'	err:InvalidFormatString
+FMChar.al:666	1031	Char	V := 0;	S	'literal'	ok:literal
+FMChar.al:667	1031	Char	V := 0;	S	''	ok:
+FMChar.al:668	1031	Char	V := 0;	S	'<Precision,2:2>'	ok:

@@ -1,124 +1,124 @@
-FMOption.al:58	0	ok: 
-FMOption.al:59	1	ok: 
-FMOption.al:60	2	ok:0
-FMOption.al:61	3	err:InvalidStandardFormat
-FMOption.al:62	4	err:InvalidStandardFormat
-FMOption.al:63	5	err:InvalidStandardFormat
-FMOption.al:64	6	err:InvalidStandardFormat
-FMOption.al:65	7	err:InvalidStandardFormat
-FMOption.al:66	8	err:InvalidStandardFormat
-FMOption.al:67	9	ok:0
-FMOption.al:68	10	err:InvalidStandardFormat
-FMOption.al:69	11	ok: 
-FMOption.al:70	12	ok:          
-FMOption.al:71	13	ok:   
-FMOption.al:72	14	ok: xxxxxxxxx
-FMOption.al:73	15	err:InvalidFormatString
-FMOption.al:74	16	err:InvalidFormatString
-FMOption.al:75	17	err:InvalidFormatString
-FMOption.al:76	18	err:InvalidFormatString
-FMOption.al:77	19	err:InvalidFormatString
-FMOption.al:78	20	err:InvalidFormatString
-FMOption.al:79	21	ok: 
-FMOption.al:80	22	ok: 
-FMOption.al:81	23	ok:0
-FMOption.al:82	24	err:InvalidStandardFormat
-FMOption.al:83	25	err:InvalidStandardFormat
-FMOption.al:124	26	ok:0
-FMOption.al:125	27	ok:x y
-FMOption.al:126	28	ok:literal
-FMOption.al:127	29	ok:
-FMOption.al:128	30	ok:
-FMOption.al:148	31	ok:Draft
-FMOption.al:149	32	ok:Draft
-FMOption.al:150	33	ok:1
-FMOption.al:151	34	err:InvalidStandardFormat
-FMOption.al:152	35	err:InvalidStandardFormat
-FMOption.al:153	36	err:InvalidStandardFormat
-FMOption.al:154	37	err:InvalidStandardFormat
-FMOption.al:155	38	err:InvalidStandardFormat
-FMOption.al:156	39	err:InvalidStandardFormat
-FMOption.al:157	40	ok:1
-FMOption.al:158	41	err:InvalidStandardFormat
-FMOption.al:159	42	ok:Draft
-FMOption.al:160	43	ok:Draft     
-FMOption.al:161	44	ok:Dra
-FMOption.al:162	45	ok:Draftxxxxx
-FMOption.al:163	46	err:InvalidFormatString
-FMOption.al:164	47	err:InvalidFormatString
-FMOption.al:165	48	err:InvalidFormatString
-FMOption.al:166	49	err:InvalidFormatString
-FMOption.al:167	50	err:InvalidFormatString
-FMOption.al:168	51	err:InvalidFormatString
-FMOption.al:169	52	ok:Draft
-FMOption.al:170	53	ok:Draft
-FMOption.al:171	54	ok:1
-FMOption.al:172	55	err:InvalidStandardFormat
-FMOption.al:173	56	err:InvalidStandardFormat
-FMOption.al:214	57	ok:1
-FMOption.al:215	58	ok:xDrafty
-FMOption.al:216	59	ok:literal
-FMOption.al:217	60	ok:
-FMOption.al:218	61	ok:
-FMOption.al:238	62	ok:Active
-FMOption.al:239	63	ok:Active
-FMOption.al:240	64	ok:2
-FMOption.al:241	65	err:InvalidStandardFormat
-FMOption.al:242	66	err:InvalidStandardFormat
-FMOption.al:243	67	err:InvalidStandardFormat
-FMOption.al:244	68	err:InvalidStandardFormat
-FMOption.al:245	69	err:InvalidStandardFormat
-FMOption.al:246	70	err:InvalidStandardFormat
-FMOption.al:247	71	ok:2
-FMOption.al:248	72	err:InvalidStandardFormat
-FMOption.al:249	73	ok:Active
-FMOption.al:250	74	ok:Active    
-FMOption.al:251	75	ok:Act
-FMOption.al:252	76	ok:Activexxxx
-FMOption.al:253	77	err:InvalidFormatString
-FMOption.al:254	78	err:InvalidFormatString
-FMOption.al:255	79	err:InvalidFormatString
-FMOption.al:256	80	err:InvalidFormatString
-FMOption.al:257	81	err:InvalidFormatString
-FMOption.al:258	82	err:InvalidFormatString
-FMOption.al:259	83	ok:Active
-FMOption.al:260	84	ok:Active
-FMOption.al:261	85	ok:2
-FMOption.al:262	86	err:InvalidStandardFormat
-FMOption.al:263	87	err:InvalidStandardFormat
-FMOption.al:304	88	ok:2
-FMOption.al:305	89	ok:xActivey
-FMOption.al:306	90	ok:literal
-FMOption.al:307	91	ok:
-FMOption.al:308	92	ok:
-FMOption.al:328	93	ok:Draft
-FMOption.al:329	94	ok:Draft
-FMOption.al:330	95	ok:1
-FMOption.al:331	96	err:InvalidStandardFormat
-FMOption.al:332	97	err:InvalidStandardFormat
-FMOption.al:333	98	err:InvalidStandardFormat
-FMOption.al:334	99	err:InvalidStandardFormat
-FMOption.al:335	100	err:InvalidStandardFormat
-FMOption.al:336	101	err:InvalidStandardFormat
-FMOption.al:337	102	ok:1
-FMOption.al:338	103	err:InvalidStandardFormat
-FMOption.al:339	104	ok:Draft
-FMOption.al:340	105	ok:Draft     
-FMOption.al:341	106	ok:Dra
-FMOption.al:342	107	ok:Draftxxxxx
-FMOption.al:343	108	err:InvalidFormatString
-FMOption.al:344	109	err:InvalidFormatString
-FMOption.al:345	110	err:InvalidFormatString
-FMOption.al:346	111	err:InvalidFormatString
-FMOption.al:347	112	err:InvalidFormatString
-FMOption.al:348	113	err:InvalidFormatString
-FMOption.al:349	114	ok:Draft
-FMOption.al:350	115	ok:Draft
-FMOption.al:351	116	ok:1
-FMOption.al:352	117	err:InvalidStandardFormat
-FMOption.al:353	118	err:InvalidStandardFormat
-FMOption.al:394	119	ok:1
-FMOption.al:395	120	ok:xDrafty
-FMOption.al:396	121	ok:literal
-FMOption.al:397	122	ok:
-FMOption.al:398	123	ok:
+FMOption.al:58	1033	Option " ",Draft,Active	V := 0;	N	0	ok: 
+FMOption.al:59	1033	Option " ",Draft,Active	V := 0;	N	1	ok: 
+FMOption.al:60	1033	Option " ",Draft,Active	V := 0;	N	2	ok:0
+FMOption.al:61	1033	Option " ",Draft,Active	V := 0;	N	3	err:InvalidStandardFormat
+FMOption.al:62	1033	Option " ",Draft,Active	V := 0;	N	4	err:InvalidStandardFormat
+FMOption.al:63	1033	Option " ",Draft,Active	V := 0;	N	5	err:InvalidStandardFormat
+FMOption.al:64	1033	Option " ",Draft,Active	V := 0;	N	6	err:InvalidStandardFormat
+FMOption.al:65	1033	Option " ",Draft,Active	V := 0;	N	7	err:InvalidStandardFormat
+FMOption.al:66	1033	Option " ",Draft,Active	V := 0;	N	8	err:InvalidStandardFormat
+FMOption.al:67	1033	Option " ",Draft,Active	V := 0;	N	9	ok:0
+FMOption.al:68	1033	Option " ",Draft,Active	V := 0;	N	10	err:InvalidStandardFormat
+FMOption.al:69	1033	Option " ",Draft,Active	V := 0;	S	'<Text>'	ok: 
+FMOption.al:70	1033	Option " ",Draft,Active	V := 0;	S	'<Text,10>'	ok:          
+FMOption.al:71	1033	Option " ",Draft,Active	V := 0;	S	'<Text,3>'	ok:   
+FMOption.al:72	1033	Option " ",Draft,Active	V := 0;	S	'<Filler Character,x><Text,10>'	ok: xxxxxxxxx
+FMOption.al:73	1033	Option " ",Draft,Active	V := 0;	S	'<Integer>'	err:InvalidFormatString
+FMOption.al:74	1033	Option " ",Draft,Active	V := 0;	S	'<Integer,5>'	err:InvalidFormatString
+FMOption.al:75	1033	Option " ",Draft,Active	V := 0;	S	'<Sign>'	err:InvalidFormatString
+FMOption.al:76	1033	Option " ",Draft,Active	V := 0;	S	'<Decimals>'	err:InvalidFormatString
+FMOption.al:77	1033	Option " ",Draft,Active	V := 0;	S	'<Day>'	err:InvalidFormatString
+FMOption.al:78	1033	Option " ",Draft,Active	V := 0;	S	'<Hours24>'	err:InvalidFormatString
+FMOption.al:79	1033	Option " ",Draft,Active	V := 0;	S	'<Standard Format,0>'	ok: 
+FMOption.al:80	1033	Option " ",Draft,Active	V := 0;	S	'<Standard Format,1>'	ok: 
+FMOption.al:81	1033	Option " ",Draft,Active	V := 0;	S	'<Standard Format,2>'	ok:0
+FMOption.al:82	1033	Option " ",Draft,Active	V := 0;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMOption.al:83	1033	Option " ",Draft,Active	V := 0;	S	'<Standard Format,4>'	err:InvalidStandardFormat
+FMOption.al:124	1033	Option " ",Draft,Active	V := 0;	S	'<Standard Format,9>'	ok:0
+FMOption.al:125	1033	Option " ",Draft,Active	V := 0;	S	'x<Text>y'	ok:x y
+FMOption.al:126	1033	Option " ",Draft,Active	V := 0;	S	'literal'	ok:literal
+FMOption.al:127	1033	Option " ",Draft,Active	V := 0;	S	''	ok:
+FMOption.al:128	1033	Option " ",Draft,Active	V := 0;	S	'<Precision,2:2>'	ok:
+FMOption.al:148	1033	Option " ",Draft,Active	V := 1;	N	0	ok:Draft
+FMOption.al:149	1033	Option " ",Draft,Active	V := 1;	N	1	ok:Draft
+FMOption.al:150	1033	Option " ",Draft,Active	V := 1;	N	2	ok:1
+FMOption.al:151	1033	Option " ",Draft,Active	V := 1;	N	3	err:InvalidStandardFormat
+FMOption.al:152	1033	Option " ",Draft,Active	V := 1;	N	4	err:InvalidStandardFormat
+FMOption.al:153	1033	Option " ",Draft,Active	V := 1;	N	5	err:InvalidStandardFormat
+FMOption.al:154	1033	Option " ",Draft,Active	V := 1;	N	6	err:InvalidStandardFormat
+FMOption.al:155	1033	Option " ",Draft,Active	V := 1;	N	7	err:InvalidStandardFormat
+FMOption.al:156	1033	Option " ",Draft,Active	V := 1;	N	8	err:InvalidStandardFormat
+FMOption.al:157	1033	Option " ",Draft,Active	V := 1;	N	9	ok:1
+FMOption.al:158	1033	Option " ",Draft,Active	V := 1;	N	10	err:InvalidStandardFormat
+FMOption.al:159	1033	Option " ",Draft,Active	V := 1;	S	'<Text>'	ok:Draft
+FMOption.al:160	1033	Option " ",Draft,Active	V := 1;	S	'<Text,10>'	ok:Draft     
+FMOption.al:161	1033	Option " ",Draft,Active	V := 1;	S	'<Text,3>'	ok:Dra
+FMOption.al:162	1033	Option " ",Draft,Active	V := 1;	S	'<Filler Character,x><Text,10>'	ok:Draftxxxxx
+FMOption.al:163	1033	Option " ",Draft,Active	V := 1;	S	'<Integer>'	err:InvalidFormatString
+FMOption.al:164	1033	Option " ",Draft,Active	V := 1;	S	'<Integer,5>'	err:InvalidFormatString
+FMOption.al:165	1033	Option " ",Draft,Active	V := 1;	S	'<Sign>'	err:InvalidFormatString
+FMOption.al:166	1033	Option " ",Draft,Active	V := 1;	S	'<Decimals>'	err:InvalidFormatString
+FMOption.al:167	1033	Option " ",Draft,Active	V := 1;	S	'<Day>'	err:InvalidFormatString
+FMOption.al:168	1033	Option " ",Draft,Active	V := 1;	S	'<Hours24>'	err:InvalidFormatString
+FMOption.al:169	1033	Option " ",Draft,Active	V := 1;	S	'<Standard Format,0>'	ok:Draft
+FMOption.al:170	1033	Option " ",Draft,Active	V := 1;	S	'<Standard Format,1>'	ok:Draft
+FMOption.al:171	1033	Option " ",Draft,Active	V := 1;	S	'<Standard Format,2>'	ok:1
+FMOption.al:172	1033	Option " ",Draft,Active	V := 1;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMOption.al:173	1033	Option " ",Draft,Active	V := 1;	S	'<Standard Format,4>'	err:InvalidStandardFormat
+FMOption.al:214	1033	Option " ",Draft,Active	V := 1;	S	'<Standard Format,9>'	ok:1
+FMOption.al:215	1033	Option " ",Draft,Active	V := 1;	S	'x<Text>y'	ok:xDrafty
+FMOption.al:216	1033	Option " ",Draft,Active	V := 1;	S	'literal'	ok:literal
+FMOption.al:217	1033	Option " ",Draft,Active	V := 1;	S	''	ok:
+FMOption.al:218	1033	Option " ",Draft,Active	V := 1;	S	'<Precision,2:2>'	ok:
+FMOption.al:238	1033	Option " ",Draft,Active	V := 2;	N	0	ok:Active
+FMOption.al:239	1033	Option " ",Draft,Active	V := 2;	N	1	ok:Active
+FMOption.al:240	1033	Option " ",Draft,Active	V := 2;	N	2	ok:2
+FMOption.al:241	1033	Option " ",Draft,Active	V := 2;	N	3	err:InvalidStandardFormat
+FMOption.al:242	1033	Option " ",Draft,Active	V := 2;	N	4	err:InvalidStandardFormat
+FMOption.al:243	1033	Option " ",Draft,Active	V := 2;	N	5	err:InvalidStandardFormat
+FMOption.al:244	1033	Option " ",Draft,Active	V := 2;	N	6	err:InvalidStandardFormat
+FMOption.al:245	1033	Option " ",Draft,Active	V := 2;	N	7	err:InvalidStandardFormat
+FMOption.al:246	1033	Option " ",Draft,Active	V := 2;	N	8	err:InvalidStandardFormat
+FMOption.al:247	1033	Option " ",Draft,Active	V := 2;	N	9	ok:2
+FMOption.al:248	1033	Option " ",Draft,Active	V := 2;	N	10	err:InvalidStandardFormat
+FMOption.al:249	1033	Option " ",Draft,Active	V := 2;	S	'<Text>'	ok:Active
+FMOption.al:250	1033	Option " ",Draft,Active	V := 2;	S	'<Text,10>'	ok:Active    
+FMOption.al:251	1033	Option " ",Draft,Active	V := 2;	S	'<Text,3>'	ok:Act
+FMOption.al:252	1033	Option " ",Draft,Active	V := 2;	S	'<Filler Character,x><Text,10>'	ok:Activexxxx
+FMOption.al:253	1033	Option " ",Draft,Active	V := 2;	S	'<Integer>'	err:InvalidFormatString
+FMOption.al:254	1033	Option " ",Draft,Active	V := 2;	S	'<Integer,5>'	err:InvalidFormatString
+FMOption.al:255	1033	Option " ",Draft,Active	V := 2;	S	'<Sign>'	err:InvalidFormatString
+FMOption.al:256	1033	Option " ",Draft,Active	V := 2;	S	'<Decimals>'	err:InvalidFormatString
+FMOption.al:257	1033	Option " ",Draft,Active	V := 2;	S	'<Day>'	err:InvalidFormatString
+FMOption.al:258	1033	Option " ",Draft,Active	V := 2;	S	'<Hours24>'	err:InvalidFormatString
+FMOption.al:259	1033	Option " ",Draft,Active	V := 2;	S	'<Standard Format,0>'	ok:Active
+FMOption.al:260	1033	Option " ",Draft,Active	V := 2;	S	'<Standard Format,1>'	ok:Active
+FMOption.al:261	1033	Option " ",Draft,Active	V := 2;	S	'<Standard Format,2>'	ok:2
+FMOption.al:262	1033	Option " ",Draft,Active	V := 2;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMOption.al:263	1033	Option " ",Draft,Active	V := 2;	S	'<Standard Format,4>'	err:InvalidStandardFormat
+FMOption.al:304	1033	Option " ",Draft,Active	V := 2;	S	'<Standard Format,9>'	ok:2
+FMOption.al:305	1033	Option " ",Draft,Active	V := 2;	S	'x<Text>y'	ok:xActivey
+FMOption.al:306	1033	Option " ",Draft,Active	V := 2;	S	'literal'	ok:literal
+FMOption.al:307	1033	Option " ",Draft,Active	V := 2;	S	''	ok:
+FMOption.al:308	1033	Option " ",Draft,Active	V := 2;	S	'<Precision,2:2>'	ok:
+FMOption.al:328	1031	Option " ",Draft,Active	V := 1;	N	0	ok:Draft
+FMOption.al:329	1031	Option " ",Draft,Active	V := 1;	N	1	ok:Draft
+FMOption.al:330	1031	Option " ",Draft,Active	V := 1;	N	2	ok:1
+FMOption.al:331	1031	Option " ",Draft,Active	V := 1;	N	3	err:InvalidStandardFormat
+FMOption.al:332	1031	Option " ",Draft,Active	V := 1;	N	4	err:InvalidStandardFormat
+FMOption.al:333	1031	Option " ",Draft,Active	V := 1;	N	5	err:InvalidStandardFormat
+FMOption.al:334	1031	Option " ",Draft,Active	V := 1;	N	6	err:InvalidStandardFormat
+FMOption.al:335	1031	Option " ",Draft,Active	V := 1;	N	7	err:InvalidStandardFormat
+FMOption.al:336	1031	Option " ",Draft,Active	V := 1;	N	8	err:InvalidStandardFormat
+FMOption.al:337	1031	Option " ",Draft,Active	V := 1;	N	9	ok:1
+FMOption.al:338	1031	Option " ",Draft,Active	V := 1;	N	10	err:InvalidStandardFormat
+FMOption.al:339	1031	Option " ",Draft,Active	V := 1;	S	'<Text>'	ok:Draft
+FMOption.al:340	1031	Option " ",Draft,Active	V := 1;	S	'<Text,10>'	ok:Draft     
+FMOption.al:341	1031	Option " ",Draft,Active	V := 1;	S	'<Text,3>'	ok:Dra
+FMOption.al:342	1031	Option " ",Draft,Active	V := 1;	S	'<Filler Character,x><Text,10>'	ok:Draftxxxxx
+FMOption.al:343	1031	Option " ",Draft,Active	V := 1;	S	'<Integer>'	err:InvalidFormatString
+FMOption.al:344	1031	Option " ",Draft,Active	V := 1;	S	'<Integer,5>'	err:InvalidFormatString
+FMOption.al:345	1031	Option " ",Draft,Active	V := 1;	S	'<Sign>'	err:InvalidFormatString
+FMOption.al:346	1031	Option " ",Draft,Active	V := 1;	S	'<Decimals>'	err:InvalidFormatString
+FMOption.al:347	1031	Option " ",Draft,Active	V := 1;	S	'<Day>'	err:InvalidFormatString
+FMOption.al:348	1031	Option " ",Draft,Active	V := 1;	S	'<Hours24>'	err:InvalidFormatString
+FMOption.al:349	1031	Option " ",Draft,Active	V := 1;	S	'<Standard Format,0>'	ok:Draft
+FMOption.al:350	1031	Option " ",Draft,Active	V := 1;	S	'<Standard Format,1>'	ok:Draft
+FMOption.al:351	1031	Option " ",Draft,Active	V := 1;	S	'<Standard Format,2>'	ok:1
+FMOption.al:352	1031	Option " ",Draft,Active	V := 1;	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMOption.al:353	1031	Option " ",Draft,Active	V := 1;	S	'<Standard Format,4>'	err:InvalidStandardFormat
+FMOption.al:394	1031	Option " ",Draft,Active	V := 1;	S	'<Standard Format,9>'	ok:1
+FMOption.al:395	1031	Option " ",Draft,Active	V := 1;	S	'x<Text>y'	ok:xDrafty
+FMOption.al:396	1031	Option " ",Draft,Active	V := 1;	S	'literal'	ok:literal
+FMOption.al:397	1031	Option " ",Draft,Active	V := 1;	S	''	ok:
+FMOption.al:398	1031	Option " ",Draft,Active	V := 1;	S	'<Precision,2:2>'	ok:

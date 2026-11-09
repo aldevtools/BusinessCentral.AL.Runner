@@ -1,7 +1,8 @@
 //! The Format matrix of corpus master format-evaluate/format-matrix/FM<Type>.al (corpus PRs 1249, 1250 and 1256): every cell of
-//! `Format(V, 0, N)` and `Format(V, 0, S)` (in a TryFunction: `ok:<text>` or `err:<code>`). `fm_format/FM<Type>.al` holds one
-//! procedure per cell, generated from the corpus file (the value assignment, the session language and the call), and
-//! `fm_format/FM<Type>.tsv` what BC gave (`file:line` of the cell, the procedure number, the observed text or `IGNORE`).
+//! `Format(V, 0, N)` and `Format(V, 0, S)` (in a TryFunction: `ok:<text>` or `err:<code>`). `fm_format/FM<Type>.tsv` holds the
+//! cells, generated from the corpus file (`file:line`, the session language, the variable's type, its assignment, `N` or `S`, the
+//! argument as AL code, and what BC gave or `IGNORE`); `fm_format/FM<Type>.al` the file's helper procedures. The test builds one
+//! procedure per cell.
 //!
 //! The rule (hard rules 3 and 4): a cell either gives what BC gave or is refused; never another value. The number of refused
 //! cells per file only goes down (`REFUSED_AT_MOST`).
@@ -59,21 +60,35 @@ fn unescape(s: &str) -> String {
     s.replace("\\t", "\t").replace("\\\\", "\\")
 }
 
-fn check(file: &str, al: &str, tsv: &str) {
-    let src = if file == "FMEnum" {
-        format!("{WAREHOUSE_ACTIVITY_TYPE}{al}")
-    } else {
-        al.to_string()
-    };
-    let mut b = Built::from_source(&src);
+/// One procedure per cell: the value, the session language and the call of the corpus helper.
+fn source(file: &str, helpers: &str, tsv: &str) -> String {
+    let mut src = String::new();
+    if file == "FMEnum" {
+        src.push_str(WAREHOUSE_ACTIVITY_TYPE);
+    }
+    src.push_str("codeunit 50980 FMC\n{\n");
+    src.push_str(helpers);
+    for (k, line) in tsv.lines().enumerate() {
+        let f: Vec<&str> = line.splitn(7, '\t').collect();
+        let (lang, decl, assign, kind, arg) = (f[1], f[2], f[3], f[4], f[5]);
+        src.push_str(&format!(
+            "    procedure C{k}(): Text\n    var\n        R: Text;\n        V: {decl};\n    begin\n        GlobalLanguage({lang});\n        {assign}\n        if Try{kind}(V, {arg}, R) then\n            R := 'ok:' + R\n        else\n            R := 'err:' + GetLastErrorCode();\n        GlobalLanguage(1033);\n        exit(R);\n    end;\n"
+        ));
+    }
+    src.push_str("}\n");
+    src
+}
+
+fn check(file: &str, helpers: &str, tsv: &str) {
+    let mut b = Built::from_source(&source(file, helpers, tsv));
     let (mut wrong, mut refused) = (Vec::new(), Vec::new());
-    for line in tsv.lines() {
-        let f: Vec<&str> = line.splitn(3, '\t').collect();
-        let expected = unescape(f[2]);
+    for (k, line) in tsv.lines().enumerate() {
+        let f: Vec<&str> = line.splitn(7, '\t').collect();
+        let expected = unescape(f[6]);
         if expected == "IGNORE" {
             continue;
         }
-        let (oi, ri) = b.routine_in("FMC", &format!("C{}", f[1]));
+        let (oi, ri) = b.routine_in("FMC", &format!("C{k}"));
         match b.call(oi, ri, vec![]) {
             Ok((Value::Text(got), _)) if observed(got.as_ref()) == expected => {}
             Ok((got, _)) => wrong.push(format!("{}: expected {expected:?}, got {got:?}", f[0])),

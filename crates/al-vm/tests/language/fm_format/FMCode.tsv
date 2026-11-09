@@ -1,124 +1,124 @@
-FMCode.al:58	0	ok:
-FMCode.al:59	1	ok:
-FMCode.al:60	2	ok:
-FMCode.al:61	3	err:InvalidStandardFormat
-FMCode.al:62	4	err:InvalidStandardFormat
-FMCode.al:63	5	err:InvalidStandardFormat
-FMCode.al:64	6	err:InvalidStandardFormat
-FMCode.al:65	7	err:InvalidStandardFormat
-FMCode.al:66	8	err:InvalidStandardFormat
-FMCode.al:67	9	ok:
-FMCode.al:68	10	err:InvalidStandardFormat
-FMCode.al:69	11	ok:
-FMCode.al:70	12	ok:          
-FMCode.al:71	13	ok:   
-FMCode.al:72	14	ok:xxxxxxxxxx
-FMCode.al:73	15	err:InvalidFormatString
-FMCode.al:74	16	err:InvalidFormatString
-FMCode.al:75	17	err:InvalidFormatString
-FMCode.al:76	18	err:InvalidFormatString
-FMCode.al:77	19	err:InvalidFormatString
-FMCode.al:78	20	err:InvalidFormatString
-FMCode.al:79	21	ok:
-FMCode.al:80	22	ok:
-FMCode.al:81	23	ok:
-FMCode.al:82	24	err:InvalidStandardFormat
-FMCode.al:83	25	err:InvalidStandardFormat
-FMCode.al:124	26	ok:
-FMCode.al:125	27	ok:xy
-FMCode.al:126	28	ok:literal
-FMCode.al:127	29	ok:
-FMCode.al:128	30	ok:
-FMCode.al:148	31	ok:ABC
-FMCode.al:149	32	ok:ABC
-FMCode.al:150	33	ok:ABC
-FMCode.al:151	34	err:InvalidStandardFormat
-FMCode.al:152	35	err:InvalidStandardFormat
-FMCode.al:153	36	err:InvalidStandardFormat
-FMCode.al:154	37	err:InvalidStandardFormat
-FMCode.al:155	38	err:InvalidStandardFormat
-FMCode.al:156	39	err:InvalidStandardFormat
-FMCode.al:157	40	ok:ABC
-FMCode.al:158	41	err:InvalidStandardFormat
-FMCode.al:159	42	ok:ABC
-FMCode.al:160	43	ok:       ABC
-FMCode.al:161	44	ok:ABC
-FMCode.al:162	45	ok:xxxxxxxABC
-FMCode.al:163	46	err:InvalidFormatString
-FMCode.al:164	47	err:InvalidFormatString
-FMCode.al:165	48	err:InvalidFormatString
-FMCode.al:166	49	err:InvalidFormatString
-FMCode.al:167	50	err:InvalidFormatString
-FMCode.al:168	51	err:InvalidFormatString
-FMCode.al:169	52	ok:ABC
-FMCode.al:170	53	ok:ABC
-FMCode.al:171	54	ok:ABC
-FMCode.al:172	55	err:InvalidStandardFormat
-FMCode.al:173	56	err:InvalidStandardFormat
-FMCode.al:214	57	ok:ABC
-FMCode.al:215	58	ok:xABCy
-FMCode.al:216	59	ok:literal
-FMCode.al:217	60	ok:
-FMCode.al:218	61	ok:
-FMCode.al:238	62	ok:ABC
-FMCode.al:239	63	ok:ABC
-FMCode.al:240	64	ok:ABC
-FMCode.al:241	65	err:InvalidStandardFormat
-FMCode.al:242	66	err:InvalidStandardFormat
-FMCode.al:243	67	err:InvalidStandardFormat
-FMCode.al:244	68	err:InvalidStandardFormat
-FMCode.al:245	69	err:InvalidStandardFormat
-FMCode.al:246	70	err:InvalidStandardFormat
-FMCode.al:247	71	ok:ABC
-FMCode.al:248	72	err:InvalidStandardFormat
-FMCode.al:249	73	ok:ABC
-FMCode.al:250	74	ok:       ABC
-FMCode.al:251	75	ok:ABC
-FMCode.al:252	76	ok:xxxxxxxABC
-FMCode.al:253	77	err:InvalidFormatString
-FMCode.al:254	78	err:InvalidFormatString
-FMCode.al:255	79	err:InvalidFormatString
-FMCode.al:256	80	err:InvalidFormatString
-FMCode.al:257	81	err:InvalidFormatString
-FMCode.al:258	82	err:InvalidFormatString
-FMCode.al:259	83	ok:ABC
-FMCode.al:260	84	ok:ABC
-FMCode.al:261	85	ok:ABC
-FMCode.al:262	86	err:InvalidStandardFormat
-FMCode.al:263	87	err:InvalidStandardFormat
-FMCode.al:304	88	ok:ABC
-FMCode.al:305	89	ok:xABCy
-FMCode.al:306	90	ok:literal
-FMCode.al:307	91	ok:
-FMCode.al:308	92	ok:
-FMCode.al:328	93	ok:ABC
-FMCode.al:329	94	ok:ABC
-FMCode.al:330	95	ok:ABC
-FMCode.al:331	96	err:InvalidStandardFormat
-FMCode.al:332	97	err:InvalidStandardFormat
-FMCode.al:333	98	err:InvalidStandardFormat
-FMCode.al:334	99	err:InvalidStandardFormat
-FMCode.al:335	100	err:InvalidStandardFormat
-FMCode.al:336	101	err:InvalidStandardFormat
-FMCode.al:337	102	ok:ABC
-FMCode.al:338	103	err:InvalidStandardFormat
-FMCode.al:339	104	ok:ABC
-FMCode.al:340	105	ok:       ABC
-FMCode.al:341	106	ok:ABC
-FMCode.al:342	107	ok:xxxxxxxABC
-FMCode.al:343	108	err:InvalidFormatString
-FMCode.al:344	109	err:InvalidFormatString
-FMCode.al:345	110	err:InvalidFormatString
-FMCode.al:346	111	err:InvalidFormatString
-FMCode.al:347	112	err:InvalidFormatString
-FMCode.al:348	113	err:InvalidFormatString
-FMCode.al:349	114	ok:ABC
-FMCode.al:350	115	ok:ABC
-FMCode.al:351	116	ok:ABC
-FMCode.al:352	117	err:InvalidStandardFormat
-FMCode.al:353	118	err:InvalidStandardFormat
-FMCode.al:394	119	ok:ABC
-FMCode.al:395	120	ok:xABCy
-FMCode.al:396	121	ok:literal
-FMCode.al:397	122	ok:
-FMCode.al:398	123	ok:
+FMCode.al:58	1033	Code[20]	V := '';	N	0	ok:
+FMCode.al:59	1033	Code[20]	V := '';	N	1	ok:
+FMCode.al:60	1033	Code[20]	V := '';	N	2	ok:
+FMCode.al:61	1033	Code[20]	V := '';	N	3	err:InvalidStandardFormat
+FMCode.al:62	1033	Code[20]	V := '';	N	4	err:InvalidStandardFormat
+FMCode.al:63	1033	Code[20]	V := '';	N	5	err:InvalidStandardFormat
+FMCode.al:64	1033	Code[20]	V := '';	N	6	err:InvalidStandardFormat
+FMCode.al:65	1033	Code[20]	V := '';	N	7	err:InvalidStandardFormat
+FMCode.al:66	1033	Code[20]	V := '';	N	8	err:InvalidStandardFormat
+FMCode.al:67	1033	Code[20]	V := '';	N	9	ok:
+FMCode.al:68	1033	Code[20]	V := '';	N	10	err:InvalidStandardFormat
+FMCode.al:69	1033	Code[20]	V := '';	S	'<Text>'	ok:
+FMCode.al:70	1033	Code[20]	V := '';	S	'<Text,10>'	ok:          
+FMCode.al:71	1033	Code[20]	V := '';	S	'<Text,3>'	ok:   
+FMCode.al:72	1033	Code[20]	V := '';	S	'<Filler Character,x><Text,10>'	ok:xxxxxxxxxx
+FMCode.al:73	1033	Code[20]	V := '';	S	'<Integer>'	err:InvalidFormatString
+FMCode.al:74	1033	Code[20]	V := '';	S	'<Integer,5>'	err:InvalidFormatString
+FMCode.al:75	1033	Code[20]	V := '';	S	'<Sign>'	err:InvalidFormatString
+FMCode.al:76	1033	Code[20]	V := '';	S	'<Decimals>'	err:InvalidFormatString
+FMCode.al:77	1033	Code[20]	V := '';	S	'<Day>'	err:InvalidFormatString
+FMCode.al:78	1033	Code[20]	V := '';	S	'<Hours24>'	err:InvalidFormatString
+FMCode.al:79	1033	Code[20]	V := '';	S	'<Standard Format,0>'	ok:
+FMCode.al:80	1033	Code[20]	V := '';	S	'<Standard Format,1>'	ok:
+FMCode.al:81	1033	Code[20]	V := '';	S	'<Standard Format,2>'	ok:
+FMCode.al:82	1033	Code[20]	V := '';	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMCode.al:83	1033	Code[20]	V := '';	S	'<Standard Format,4>'	err:InvalidStandardFormat
+FMCode.al:124	1033	Code[20]	V := '';	S	'<Standard Format,9>'	ok:
+FMCode.al:125	1033	Code[20]	V := '';	S	'x<Text>y'	ok:xy
+FMCode.al:126	1033	Code[20]	V := '';	S	'literal'	ok:literal
+FMCode.al:127	1033	Code[20]	V := '';	S	''	ok:
+FMCode.al:128	1033	Code[20]	V := '';	S	'<Precision,2:2>'	ok:
+FMCode.al:148	1033	Code[20]	V := 'ABC';	N	0	ok:ABC
+FMCode.al:149	1033	Code[20]	V := 'ABC';	N	1	ok:ABC
+FMCode.al:150	1033	Code[20]	V := 'ABC';	N	2	ok:ABC
+FMCode.al:151	1033	Code[20]	V := 'ABC';	N	3	err:InvalidStandardFormat
+FMCode.al:152	1033	Code[20]	V := 'ABC';	N	4	err:InvalidStandardFormat
+FMCode.al:153	1033	Code[20]	V := 'ABC';	N	5	err:InvalidStandardFormat
+FMCode.al:154	1033	Code[20]	V := 'ABC';	N	6	err:InvalidStandardFormat
+FMCode.al:155	1033	Code[20]	V := 'ABC';	N	7	err:InvalidStandardFormat
+FMCode.al:156	1033	Code[20]	V := 'ABC';	N	8	err:InvalidStandardFormat
+FMCode.al:157	1033	Code[20]	V := 'ABC';	N	9	ok:ABC
+FMCode.al:158	1033	Code[20]	V := 'ABC';	N	10	err:InvalidStandardFormat
+FMCode.al:159	1033	Code[20]	V := 'ABC';	S	'<Text>'	ok:ABC
+FMCode.al:160	1033	Code[20]	V := 'ABC';	S	'<Text,10>'	ok:       ABC
+FMCode.al:161	1033	Code[20]	V := 'ABC';	S	'<Text,3>'	ok:ABC
+FMCode.al:162	1033	Code[20]	V := 'ABC';	S	'<Filler Character,x><Text,10>'	ok:xxxxxxxABC
+FMCode.al:163	1033	Code[20]	V := 'ABC';	S	'<Integer>'	err:InvalidFormatString
+FMCode.al:164	1033	Code[20]	V := 'ABC';	S	'<Integer,5>'	err:InvalidFormatString
+FMCode.al:165	1033	Code[20]	V := 'ABC';	S	'<Sign>'	err:InvalidFormatString
+FMCode.al:166	1033	Code[20]	V := 'ABC';	S	'<Decimals>'	err:InvalidFormatString
+FMCode.al:167	1033	Code[20]	V := 'ABC';	S	'<Day>'	err:InvalidFormatString
+FMCode.al:168	1033	Code[20]	V := 'ABC';	S	'<Hours24>'	err:InvalidFormatString
+FMCode.al:169	1033	Code[20]	V := 'ABC';	S	'<Standard Format,0>'	ok:ABC
+FMCode.al:170	1033	Code[20]	V := 'ABC';	S	'<Standard Format,1>'	ok:ABC
+FMCode.al:171	1033	Code[20]	V := 'ABC';	S	'<Standard Format,2>'	ok:ABC
+FMCode.al:172	1033	Code[20]	V := 'ABC';	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMCode.al:173	1033	Code[20]	V := 'ABC';	S	'<Standard Format,4>'	err:InvalidStandardFormat
+FMCode.al:214	1033	Code[20]	V := 'ABC';	S	'<Standard Format,9>'	ok:ABC
+FMCode.al:215	1033	Code[20]	V := 'ABC';	S	'x<Text>y'	ok:xABCy
+FMCode.al:216	1033	Code[20]	V := 'ABC';	S	'literal'	ok:literal
+FMCode.al:217	1033	Code[20]	V := 'ABC';	S	''	ok:
+FMCode.al:218	1033	Code[20]	V := 'ABC';	S	'<Precision,2:2>'	ok:
+FMCode.al:238	1033	Code[20]	V := 'abc';	N	0	ok:ABC
+FMCode.al:239	1033	Code[20]	V := 'abc';	N	1	ok:ABC
+FMCode.al:240	1033	Code[20]	V := 'abc';	N	2	ok:ABC
+FMCode.al:241	1033	Code[20]	V := 'abc';	N	3	err:InvalidStandardFormat
+FMCode.al:242	1033	Code[20]	V := 'abc';	N	4	err:InvalidStandardFormat
+FMCode.al:243	1033	Code[20]	V := 'abc';	N	5	err:InvalidStandardFormat
+FMCode.al:244	1033	Code[20]	V := 'abc';	N	6	err:InvalidStandardFormat
+FMCode.al:245	1033	Code[20]	V := 'abc';	N	7	err:InvalidStandardFormat
+FMCode.al:246	1033	Code[20]	V := 'abc';	N	8	err:InvalidStandardFormat
+FMCode.al:247	1033	Code[20]	V := 'abc';	N	9	ok:ABC
+FMCode.al:248	1033	Code[20]	V := 'abc';	N	10	err:InvalidStandardFormat
+FMCode.al:249	1033	Code[20]	V := 'abc';	S	'<Text>'	ok:ABC
+FMCode.al:250	1033	Code[20]	V := 'abc';	S	'<Text,10>'	ok:       ABC
+FMCode.al:251	1033	Code[20]	V := 'abc';	S	'<Text,3>'	ok:ABC
+FMCode.al:252	1033	Code[20]	V := 'abc';	S	'<Filler Character,x><Text,10>'	ok:xxxxxxxABC
+FMCode.al:253	1033	Code[20]	V := 'abc';	S	'<Integer>'	err:InvalidFormatString
+FMCode.al:254	1033	Code[20]	V := 'abc';	S	'<Integer,5>'	err:InvalidFormatString
+FMCode.al:255	1033	Code[20]	V := 'abc';	S	'<Sign>'	err:InvalidFormatString
+FMCode.al:256	1033	Code[20]	V := 'abc';	S	'<Decimals>'	err:InvalidFormatString
+FMCode.al:257	1033	Code[20]	V := 'abc';	S	'<Day>'	err:InvalidFormatString
+FMCode.al:258	1033	Code[20]	V := 'abc';	S	'<Hours24>'	err:InvalidFormatString
+FMCode.al:259	1033	Code[20]	V := 'abc';	S	'<Standard Format,0>'	ok:ABC
+FMCode.al:260	1033	Code[20]	V := 'abc';	S	'<Standard Format,1>'	ok:ABC
+FMCode.al:261	1033	Code[20]	V := 'abc';	S	'<Standard Format,2>'	ok:ABC
+FMCode.al:262	1033	Code[20]	V := 'abc';	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMCode.al:263	1033	Code[20]	V := 'abc';	S	'<Standard Format,4>'	err:InvalidStandardFormat
+FMCode.al:304	1033	Code[20]	V := 'abc';	S	'<Standard Format,9>'	ok:ABC
+FMCode.al:305	1033	Code[20]	V := 'abc';	S	'x<Text>y'	ok:xABCy
+FMCode.al:306	1033	Code[20]	V := 'abc';	S	'literal'	ok:literal
+FMCode.al:307	1033	Code[20]	V := 'abc';	S	''	ok:
+FMCode.al:308	1033	Code[20]	V := 'abc';	S	'<Precision,2:2>'	ok:
+FMCode.al:328	1031	Code[20]	V := 'ABC';	N	0	ok:ABC
+FMCode.al:329	1031	Code[20]	V := 'ABC';	N	1	ok:ABC
+FMCode.al:330	1031	Code[20]	V := 'ABC';	N	2	ok:ABC
+FMCode.al:331	1031	Code[20]	V := 'ABC';	N	3	err:InvalidStandardFormat
+FMCode.al:332	1031	Code[20]	V := 'ABC';	N	4	err:InvalidStandardFormat
+FMCode.al:333	1031	Code[20]	V := 'ABC';	N	5	err:InvalidStandardFormat
+FMCode.al:334	1031	Code[20]	V := 'ABC';	N	6	err:InvalidStandardFormat
+FMCode.al:335	1031	Code[20]	V := 'ABC';	N	7	err:InvalidStandardFormat
+FMCode.al:336	1031	Code[20]	V := 'ABC';	N	8	err:InvalidStandardFormat
+FMCode.al:337	1031	Code[20]	V := 'ABC';	N	9	ok:ABC
+FMCode.al:338	1031	Code[20]	V := 'ABC';	N	10	err:InvalidStandardFormat
+FMCode.al:339	1031	Code[20]	V := 'ABC';	S	'<Text>'	ok:ABC
+FMCode.al:340	1031	Code[20]	V := 'ABC';	S	'<Text,10>'	ok:       ABC
+FMCode.al:341	1031	Code[20]	V := 'ABC';	S	'<Text,3>'	ok:ABC
+FMCode.al:342	1031	Code[20]	V := 'ABC';	S	'<Filler Character,x><Text,10>'	ok:xxxxxxxABC
+FMCode.al:343	1031	Code[20]	V := 'ABC';	S	'<Integer>'	err:InvalidFormatString
+FMCode.al:344	1031	Code[20]	V := 'ABC';	S	'<Integer,5>'	err:InvalidFormatString
+FMCode.al:345	1031	Code[20]	V := 'ABC';	S	'<Sign>'	err:InvalidFormatString
+FMCode.al:346	1031	Code[20]	V := 'ABC';	S	'<Decimals>'	err:InvalidFormatString
+FMCode.al:347	1031	Code[20]	V := 'ABC';	S	'<Day>'	err:InvalidFormatString
+FMCode.al:348	1031	Code[20]	V := 'ABC';	S	'<Hours24>'	err:InvalidFormatString
+FMCode.al:349	1031	Code[20]	V := 'ABC';	S	'<Standard Format,0>'	ok:ABC
+FMCode.al:350	1031	Code[20]	V := 'ABC';	S	'<Standard Format,1>'	ok:ABC
+FMCode.al:351	1031	Code[20]	V := 'ABC';	S	'<Standard Format,2>'	ok:ABC
+FMCode.al:352	1031	Code[20]	V := 'ABC';	S	'<Standard Format,3>'	err:InvalidStandardFormat
+FMCode.al:353	1031	Code[20]	V := 'ABC';	S	'<Standard Format,4>'	err:InvalidStandardFormat
+FMCode.al:394	1031	Code[20]	V := 'ABC';	S	'<Standard Format,9>'	ok:ABC
+FMCode.al:395	1031	Code[20]	V := 'ABC';	S	'x<Text>y'	ok:xABCy
+FMCode.al:396	1031	Code[20]	V := 'ABC';	S	'literal'	ok:literal
+FMCode.al:397	1031	Code[20]	V := 'ABC';	S	''	ok:
+FMCode.al:398	1031	Code[20]	V := 'ABC';	S	'<Precision,2:2>'	ok:
