@@ -8,7 +8,7 @@
 //!    and stops when not even one test thread fits beside it ([`below_minimum`]);
 //! 2. starts with one test thread. Another starts only when there is work it can use (the caller's part) and the
 //!    resident memory plus the cost of one codeunit stays under nine tenths of the limit ([`Pool::try_add`]). The cost
-//!    is learned in the run: the largest growth above the fixed part per running codeunit, seen from the first codeunit
+//!    is learned in the run: the largest growth above the fixed part per live test thread, seen from the first codeunit
 //!    on, at least [`WORKER_FLOOR`]; until the first codeunit ends only one thread runs. Nothing is kept between runs;
 //! 3. a thread other than the first that finishes a codeunit when there is no room ends ([`Pool::keep`]) and gives
 //!    back its session, baseline copy and runs ahead; it never waits holding them. One thread always runs;
@@ -569,7 +569,11 @@ impl Pool {
         let Some((b, now)) = self.resident() else { return };
         let running = self.s.running.load(Ordering::SeqCst);
         if running > 0 {
-            let per = (now.saturating_sub(self.fixed()) / running as u64).max(WORKER_FLOOR);
+            // Divide by the threads alive, not the codeunits running: a thread between codeunits (building its own
+            // baseline copy and session) holds memory too, and charging it to the one codeunit that runs made the
+            // learned cost several times the real one (issue 6924).
+            let threads = self.live().max(running) as u64;
+            let per = (now.saturating_sub(self.fixed()) / threads).max(WORKER_FLOOR);
             self.s.cost.fetch_max(per, Ordering::Relaxed);
         }
         let line = if self.live() > 1 {
@@ -803,6 +807,31 @@ mod tests {
         drop((second, third));
         assert_eq!(pool.live(), 1);
         assert_eq!(pool.report_into(MemoryReport::default()).most, 3);
+    }
+
+    /// A thread that is alive but not inside a codeunit (it is building its own baseline copy and session, `own()` in
+    /// `threads.rs`) already holds memory: it is part of the cost of its thread, never of the one running codeunit
+    /// (issue 6924: 6328 MB learned per thread where the whole process peaked at 8.9 GB with 8 threads).
+    #[test]
+    fn memory_of_threads_not_yet_in_a_codeunit_is_not_charged_to_the_running_one() {
+        let now = rss(500);
+        let pool = Pool::new(Some(budget(100_000 * MB, now.clone(), true)), 500 * MB, 8);
+        let first = pool.enter();
+        now.store(700 * MB, Ordering::SeqCst);
+        drop(first);
+        let members: Vec<_> = (0..7).map(|k| pool.try_add(k).expect("room")).collect();
+        assert_eq!(pool.live(), 8);
+        // One codeunit runs; the other seven threads are setting up. Every thread holds 300 MB.
+        let running = pool.enter();
+        now.store((500 + 8 * 300) * MB, Ordering::SeqCst);
+        pool.sample();
+        assert_eq!(
+            pool.cost() >> 20,
+            300,
+            "a thread costs 300 MB, not the whole growth (2400 MB)"
+        );
+        drop(running);
+        drop(members);
     }
 
     #[test]
