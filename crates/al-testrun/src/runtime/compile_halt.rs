@@ -37,7 +37,11 @@ impl CorpusRuntime {
         let tests = scan_tests(&apps, &kinds, suites, opts);
         let flag = watch.flag();
         let armed = flag.clone();
+        // The compile ran on the front end's runner thread before it ran in this pool; a pool thread's default stack
+        // (2 MB) overflowed on the 1,374 operands of one `+` chain in Base Application 28 while the compile cache was
+        // built, so the pool's threads get the runner thread's stack.
         let pool = rayon::ThreadPoolBuilder::new()
+            .stack_size(crate::RUNNER_STACK)
             .start_handler(move |_| al_sema::halt::arm_thread(Some(armed.clone())))
             .build()
             .map_err(|e| format!("the compile could not start its threads: {e}"))?;

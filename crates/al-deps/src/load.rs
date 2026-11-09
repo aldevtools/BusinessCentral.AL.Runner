@@ -319,6 +319,10 @@ pub struct DependencyApp {
     pub logo: Option<al_ir::AppLogo>,
     /// The description the manifest declares.
     pub description: String,
+    /// The app ships package data (`*.navxdata`, [`ships_package_data`]), in a folder or a package.
+    pub package_data: bool,
+    /// The package data files of an app folder ([`package_data_files`]); empty for a package, whose files are not read.
+    pub package_data_files: Resources,
 }
 
 #[derive(Debug, Default)]
@@ -510,32 +514,45 @@ pub fn plan_dependencies_labeled(
 /// Packaged resources: name relative to the resource folder, content.
 pub type Resources = Vec<(String, Vec<u8>)>;
 
-/// What [`read_resources_at`] reads besides the sources: resources, whether a translation file ships, the logo.
-type PackageExtras = (Resources, bool, Option<al_ir::AppLogo>);
+/// What [`read_resources_at`] reads besides the sources.
+struct PackageExtras {
+    resources: Resources,
+    /// A translation file ships ([`ships_translations`]).
+    translations: bool,
+    logo: Option<al_ir::AppLogo>,
+    /// Package data ships ([`ships_package_data`]).
+    package_data: bool,
+    /// The package data files of a folder ([`package_data_files`]); empty for a package.
+    package_data_files: Resources,
+}
 
 /// The packaged resources of the package at `path`, whether it ships a translation file ([`ships_translations`]) and
-/// its logo ([`crate::package::read_logo`], [`folder_logo`]). A folder has no resources; a package file is read a second
-/// time here.
+/// package data ([`ships_package_data`]), its logo ([`crate::package::read_logo`], [`folder_logo`]) and the package data
+/// files of a folder. A folder has no resources; a package file is read a second time here.
 fn read_resources_at(path: &Path, hint: Option<&str>) -> Result<PackageExtras, String> {
     if !path.is_file() {
         let declared = read_text(&path.join("app.json"))
             .ok()
             .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
             .and_then(|v| v["logo"].as_str().map(String::from));
-        return Ok((
-            Vec::new(),
-            ships_translations(path),
-            folder_logo(path, declared.as_deref()),
-        ));
+        return Ok(PackageExtras {
+            resources: Vec::new(),
+            translations: ships_translations(path),
+            logo: folder_logo(path, declared.as_deref()),
+            package_data: ships_package_data(path),
+            package_data_files: package_data_files(path)?,
+        });
     }
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let vars = vars_for(path, hint);
     let at = |e: crate::package::PackageError| format!("{}: {e}", path.display());
-    Ok((
-        crate::package::read_resources(&bytes, &vars).map_err(at)?,
-        crate::package::ships_translations(&bytes, &vars).map_err(at)?,
-        crate::package::read_logo(&bytes, &vars).map_err(at)?,
-    ))
+    Ok(PackageExtras {
+        resources: crate::package::read_resources(&bytes, &vars).map_err(at)?,
+        translations: crate::package::ships_translations(&bytes, &vars).map_err(at)?,
+        logo: crate::package::read_logo(&bytes, &vars).map_err(at)?,
+        package_data: crate::package::ships_package_data(&bytes, &vars).map_err(at)?,
+        package_data_files: Vec::new(),
+    })
 }
 
 /// The logo of the app folder `dir` whose app.json declares `declared` (its `logo`): none when the name is absent or
@@ -743,7 +760,7 @@ pub fn read_planned(planned: Planned, req: &Request<'_>) -> Result<Loaded, Strin
                 Read::Eager(m, s) => (*m, Some(s), None),
                 Read::Lazy(l) => (l.manifest.clone(), None, Some(*l)),
             };
-        let (app_resources, translations, logo) = resources.pop_front().expect("one read per package")?;
+        let extras = resources.pop_front().expect("one read per package")?;
         let role = if manifest.id.eq_ignore_ascii_case(SYSTEM_APP_ID) {
             Role::Platform
         } else {
@@ -781,10 +798,12 @@ pub fn read_planned(planned: Planned, req: &Request<'_>) -> Result<Loaded, Strin
             role,
             lazy: lazy.map(|l| l.source),
             preprocessor_symbols: manifest.preprocessor_symbols.clone(),
-            resources: app_resources,
-            translations,
-            logo,
+            resources: extras.resources,
+            translations: extras.translations,
+            logo: extras.logo,
             description: manifest.description.clone(),
+            package_data: extras.package_data,
+            package_data_files: extras.package_data_files,
         });
     }
     loaded.notes = notes;
@@ -1398,6 +1417,36 @@ mod tests {
         // The folder is not a directory of packages: nothing else under it is scanned.
         let (found, _) = scan_path(dir.path(), None);
         assert!(found.is_empty());
+    }
+
+    /// A dependency app folder hands its data files to NavApp.LoadPackageData in its install code (al-runner issue 6649); a
+    /// package says it ships data but its files are not read (where a package keeps them is not measured).
+    #[test]
+    fn a_dependency_folder_gives_its_package_data_files_and_a_package_only_says_it_ships_some() {
+        let dir = tempfile::tempdir().unwrap();
+        let app_json = r#"{"id":"ZZ","name":"Zed","publisher":"P","version":"2.0.0.0","dependencies":[]}"#;
+        let app = dir.path().join("zed");
+        std::fs::create_dir_all(app.join("res")).unwrap();
+        std::fs::write(app.join("app.json"), app_json).unwrap();
+        std::fs::write(app.join("res/Tab50100.navxdata"), b"data").unwrap();
+        let extras = read_resources_at(&app, None).unwrap();
+        assert!(extras.package_data);
+        assert_eq!(
+            extras.package_data_files,
+            vec![("res/Tab50100.navxdata".to_string(), b"data".to_vec())]
+        );
+        let zip = Builder::new()
+            .add("app.json", app_json.as_bytes(), true)
+            .add("Tab50100.navxdata", b"data", true)
+            .finish();
+        std::fs::write(dir.path().join("Zed.Source.zip"), &zip).unwrap();
+        let extras = read_resources_at(&dir.path().join("Zed.Source.zip"), None).unwrap();
+        assert!(extras.package_data);
+        assert!(extras.package_data_files.is_empty());
+        // A folder without a data file ships none.
+        std::fs::remove_file(app.join("res/Tab50100.navxdata")).unwrap();
+        let extras = read_resources_at(&app, None).unwrap();
+        assert!(!extras.package_data && extras.package_data_files.is_empty());
     }
 
     #[test]
