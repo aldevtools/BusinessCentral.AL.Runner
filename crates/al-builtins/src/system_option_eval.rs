@@ -161,6 +161,19 @@ pub fn hidden_name(members: &[String], position: i32) -> Option<&'static str> {
         .map(|(n, _, _)| *n)
 }
 
+/// The name `Format` shows for member `name` of these members when another member has its ordinal first: Updated is the code
+/// 200 of Get and shows as Get (SoEvaluateSystemOptionsHidden.al:1576 WebServiceActionResultCode_FormatOfMembers `Updated`
+/// `Get/Get/200/200`).
+pub fn shown_name(members: &[String], name: &str) -> Option<&'static str> {
+    let (_, table) = type_of(members)?;
+    let (_, ordinal, _) = table.iter().find(|(n, _, _)| *n == name)?;
+    table
+        .iter()
+        .find(|(_, o, _)| o == ordinal)
+        .map(|(n, _, _)| *n)
+        .filter(|n| *n != name)
+}
+
 /// The position in `members` of the member with platform ordinal `ordinal`.
 fn position_of(members: &[String], table: &[Member], ordinal: i32) -> Option<i32> {
     let (name, _, named) = table.iter().find(|(_, o, _)| *o == ordinal)?;
@@ -194,7 +207,10 @@ pub fn evaluate(c: &dyn Ctx, members: &std::sync::Arc<[String]>, text: &str) -> 
     let found = if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) {
         // The HTTP codes of WebServiceActionResultCode read as numbers like any ordinal, 200 as Get
         // (SoEvaluateSystemOptionsHidden.al:1519 HttpNumbers, :1538 HttpNumberForms).
-        digits.parse::<i32>().ok().and_then(|o| table.iter().find(|m| m.1 == o).copied())
+        digits
+            .parse::<i32>()
+            .ok()
+            .and_then(|o| table.iter().find(|m| m.1 == o).copied())
     } else {
         let exact = table.iter().find(|m| m.0.eq_ignore_ascii_case(t));
         let prefix = || {

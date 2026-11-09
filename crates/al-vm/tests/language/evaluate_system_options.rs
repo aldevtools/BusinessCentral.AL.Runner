@@ -202,7 +202,9 @@ fn web_service_action_result_codes_read_their_http_numbers() {
         evals(
             "WebServiceActionResultCode",
             "Deleted",
-            &["200", "201", "202", "203", "204", "205", "400", "+200", " 200 ", "0200", "204\t", "200.0", "-200"],
+            &[
+                "200", "201", "202", "203", "204", "205", "400", "+200", " 200 ", "0200", "204\t", "200.0", "-200"
+            ],
             None
         ),
         "Yes/Get/200|Yes/Created/201|No/Deleted/204|No/Deleted/204|Yes/Deleted/204|No/Deleted/204|No/Deleted/204|\
@@ -216,7 +218,12 @@ fn the_names_of_members_al_cannot_name_are_read_in_any_case_and_as_a_prefix() {
     // SoEvaluateSystemOptionsHidden.al:120 ObjectType_UnnamableNames1, :144 (Enum), :640-806 (ReportFormat), :1286
     // (ExecutionContext), :1722 (FieldClass, BC 28 and later; a context with no target has every gate).
     assert_eq!(
-        evals("ObjectType", "Page", &["Form", "form", "FORM", "  Form  ", "Fo", "En"], None),
+        evals(
+            "ObjectType",
+            "Page",
+            &["Form", "form", "FORM", "  Form  ", "Fo", "En"],
+            None
+        ),
         "Yes/Form/2|Yes/Form/2|Yes/Form/2|Yes/Form/2|Yes/Form/2|Yes/Enum/10|"
     );
     assert_eq!(
@@ -253,4 +260,12 @@ fn a_rejected_text_with_blanks_around_it_names_the_text_without_them() {
         statement("Verbosity", "Verbose", " -1 "),
         "No/Verbose/'-1' is not an option. The existing options are: Critical, Error, Warning, Normal, Verbose/InvalidOptionString"
     );
+}
+
+#[test]
+fn web_service_action_result_code_updated_formats_as_get() {
+    // SoEvaluateSystemOptionsHidden.al:1576 WebServiceActionResultCode_FormatOfMembers `Updated` `Get/Get/200/200`.
+    let src = "codeunit 50100 C { procedure F(): Text var V: WebServiceActionResultCode; begin V := WebServiceActionResultCode::Updated; \
+               exit(Format(V) + '/' + Format(V, 0, 1) + '/' + Format(V, 0, 2) + '/' + Format(V, 0, 9)); end; }";
+    assert_eq!(run(src), "Get/Get/200/200");
 }
