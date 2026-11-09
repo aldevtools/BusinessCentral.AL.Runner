@@ -328,6 +328,32 @@ fn same_kind(a: &Value, b: &Value) -> bool {
     std::mem::discriminant(a) == std::mem::discriminant(b)
 }
 
+/// A text value of nothing but spaces (or nothing).
+fn blank_text(v: &Value) -> bool {
+    matches!(v, Value::Text(s) | Value::Code(s) if !s.has_marker() && s.bytes().all(|c| c == b' '))
+}
+
+/// The blank value a point filter holds field `fld` to (`SetRange(F, '')`: `Eq('')` or `''..''`), when no other filter on
+/// the field gives a bound. Such a bound is only ever a point, which `Seek::cmp_to` compares in the key order: every row the
+/// filter finds ('' and texts of spaces, `FilterExpr::matches` via `blank_if_spaces`; or a Code the key order ties with '',
+/// `hyphen_filter_order`) is equal to '' in `text_key_order`, so those rows sit together in the key's order. A range or a
+/// comparison with a blank end stays unbounded (`usable_bound`): `cmp_to` compares those by code point, where ' ' > ''.
+/// Tests-SCM codeunit 137380 FiveThousandSerialNos: "Entry Summary" in the key "Lot No.", "Serial No.", "Package No."
+/// filtered on "Lot No." = '' and one serial number read the whole table at each step.
+fn blank_point<'a>(t: &TableDef, fld: usize, filters: &'a [FieldFilter], sample: Option<&Row>) -> Option<&'a Value> {
+    use al_builtins::filter::{FilterExpr as E, OR_GROUP};
+    filters
+        .iter()
+        .filter(|f| f.field == fld && f.group != OR_GROUP)
+        .find_map(|f| match &f.expr {
+            E::Eq(x) => Some(x),
+            E::Range(Some(l), Some(h)) if same_kind(l, h) && blank_text(h) => Some(l),
+            _ => None,
+        })
+        .filter(|v| blank_text(v) && t.fields[fld].code_storage == CodeStorage::Text)
+        .filter(|v| sample.is_none_or(|r| same_kind(v, &r[fld])))
+}
+
 impl Seek {
     /// The bounds the filters give for key `key` of `t`; `None` when they give none.
     pub fn of(t: &TableDef, key: usize, filters: &[FieldFilter], sample: Option<&Row>) -> Option<Seek> {
@@ -363,10 +389,15 @@ impl Seek {
                 lo = lo.or(l.filter(|v| fits(v)));
                 hi = hi.or(h.filter(|v| fits(v)));
             }
-            let point = match (lo, hi) {
+            let mut point = match (lo, hi) {
                 (Some(l), Some(h)) => same_kind(l, h) && al_builtins::ops::compare(l, h).ok() == Some(Ordering::Equal),
                 _ => false,
             };
+            if lo.is_none() && hi.is_none() {
+                if let Some(b) = blank_point(t, fld, filters, sample) {
+                    (lo, hi, point) = (Some(b), Some(b), true);
+                }
+            }
             if !lo_open || !hi_open {
                 seek.points.push(point);
             }
@@ -1121,21 +1152,30 @@ impl MemStore {
         }
     }
 
-    /// The primary keys of `table` in the order of key `key`, kept while the shape of the table stays.
-    fn order_of(&self, slot: &Slot, key: usize, t: &TableDef, table: &Table) -> std::rc::Rc<Vec<OrderKey>> {
+    /// The order of key `key` that `order_of` cached for the table as it is now, without sorting; `None` when none fits.
+    fn cached_order(&self, slot: &Slot, key: usize, t: &TableDef, table: &Table) -> Option<std::rc::Rc<Vec<OrderKey>>> {
         let shape = self.shapes.get(slot).copied().unwrap_or(0);
         let ck = (slot.clone(), key);
         let moved = self.moves.get(&ck).copied().unwrap_or(0);
         let fits =
             |e: &OrderEntry| e.shape == shape && e.moved == moved && e.rows == table.len() && e.fields == t.keys[key];
-        if let Some(kept) = self.order_cache.borrow_mut().get_mut(&ck) {
-            if let Some(i) = kept.iter().position(fits) {
-                // The order used last goes first, so the snapshot's order stays while sessions write.
-                kept[..=i].rotate_right(1);
-                kept[0].used = true;
-                return kept[0].order.clone();
-            }
+        let mut cache = self.order_cache.borrow_mut();
+        let kept = cache.get_mut(&ck)?;
+        let i = kept.iter().position(fits)?;
+        // The order used last goes first, so the snapshot's order stays while sessions write.
+        kept[..=i].rotate_right(1);
+        kept[0].used = true;
+        Some(kept[0].order.clone())
+    }
+
+    /// The primary keys of `table` in the order of key `key`, kept while the shape of the table stays.
+    fn order_of(&self, slot: &Slot, key: usize, t: &TableDef, table: &Table) -> std::rc::Rc<Vec<OrderKey>> {
+        if let Some(order) = self.cached_order(slot, key, t, table) {
+            return order;
         }
+        let shape = self.shapes.get(slot).copied().unwrap_or(0);
+        let ck = (slot.clone(), key);
+        let moved = self.moves.get(&ck).copied().unwrap_or(0);
         ORDER_BUILDS.with(|n| n.set(n.get() + 1));
         let mut rows: Vec<(&Key, &Row)> = table.iter().collect();
         rows.sort_by(|a, b| cmp_rows(t, key, a.1, b.1));
@@ -1163,7 +1203,7 @@ impl MemStore {
     }
 
     /// The band of key `j` that the filters leave, and how many rows it holds; `None` when the filters bound no
-    /// leading field of the key or the order cannot be trusted.
+    /// leading field of the key or the order cannot be trusted, or (`sort` false) when no order of the key is cached.
     fn band_of(
         &self,
         slot: &Slot,
@@ -1171,13 +1211,18 @@ impl MemStore {
         t: &TableDef,
         table: &Table,
         filters: &[FieldFilter],
+        sort: bool,
     ) -> Option<(Band, usize)> {
         let seek = Seek::of(t, j, filters, table.values().next())?;
         if j == 0 {
             let n = pk_band(table, t, filters).count();
             return Some((Band::Pk, n));
         }
-        let order = self.order_of(slot, j, t, table);
+        let order = if sort {
+            self.order_of(slot, j, t, table)
+        } else {
+            self.cached_order(slot, j, t, table)?
+        };
         if order.len() != table.len() || !order.iter().take(1).all(|k| table.get(k).is_some()) {
             return None;
         }
@@ -1203,8 +1248,20 @@ impl MemStore {
     ///
     /// The first step of a scan reads the band; the second builds the sorted list; later steps search it. The step
     /// right after a write walks (a loop that writes in every step must not pay for a band in every step).
-    fn alt_next(&self, cx: &AccessContext, t: &TableDef, scan: &Scan, table: &Table) -> Option<Option<Row>> {
-        if scan.filters.is_empty() || Seek::of(t, scan.key, scan.filters, table.values().next()).is_some() {
+    ///
+    /// `own`: the number of rows of the band of the scan's own key, when the filters bound it (`None`: they do not). Another
+    /// key's band is then read only when it is a clear gain over that band.
+    fn alt_next(
+        &self,
+        cx: &AccessContext,
+        t: &TableDef,
+        scan: &Scan,
+        table: &Table,
+        own: Option<usize>,
+    ) -> Option<Option<Row>> {
+        if scan.filters.is_empty()
+            || (own.is_none() && Seek::of(t, scan.key, scan.filters, table.values().next()).is_some())
+        {
             return None;
         }
         let sample = table.values().next();
@@ -1281,16 +1338,20 @@ impl MemStore {
                 }
             }
         }
-        // The narrowest band of any key, if it is a clear gain over the walk.
+        // The narrowest band of any key, if it is a clear gain over the walk. Against a narrow band of the scan's own key, a
+        // key is sorted only when that band holds at least a quarter of the table: a scan that runs after each write
+        // (an Insert of two rows, then a Find; the Insert test of Tests-SCM codeunit 137380) would sort every such key
+        // each time, which costs more than walking the band.
+        let sort = own.is_none_or(|m| m * 4 >= table.len());
         let mut best: Option<(Band, usize)> = None;
-        for j in 0..t.keys.len() {
-            if let Some((b, n)) = self.band_of(&slot, j, t, table, scan.filters) {
+        for j in (0..t.keys.len()).filter(|&j| own.is_none() || j != scan.key) {
+            if let Some((b, n)) = self.band_of(&slot, j, t, table, scan.filters, sort) {
                 if best.as_ref().is_none_or(|(_, m)| n < *m) {
                     best = Some((b, n));
                 }
             }
         }
-        let Some((band, _)) = best.filter(|(_, n)| *n * 4 <= table.len()) else {
+        let Some((band, _)) = best.filter(|(_, n)| *n * 4 <= own.unwrap_or(table.len())) else {
             if let Some(e) = self.alt_cache.borrow_mut().get_mut(&ck) {
                 e.not_applicable = true;
             }
@@ -1575,7 +1636,7 @@ impl Store for MemStore {
             ..scan.clone()
         };
         if table.len() >= INDEX_MIN_ROWS {
-            if let Some(found) = self.alt_next(cx, t, scan, &table) {
+            if let Some(found) = self.alt_next(cx, t, scan, &table, None) {
                 return Ok(found);
             }
         }
@@ -1636,6 +1697,13 @@ impl Store for MemStore {
                     // Rows that do not compare: the order cannot be trusted, so the whole of it is looked at.
                     if trusted.get() && start <= end {
                         band = start..end;
+                    }
+                    // A wide band of this key: another key the filters bound may hold far fewer rows
+                    // (Tests-SCM codeunit 137380 TenThousandSerialNos: "Reservation Entry" by source line and serial number).
+                    if band.len() >= INDEX_MIN_ROWS {
+                        if let Some(found) = self.alt_next(cx, t, scan, &table, Some(band.len())) {
+                            return Ok(found);
+                        }
                     }
                 }
                 let found = if scan.ascending {

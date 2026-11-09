@@ -1072,7 +1072,6 @@ impl Session {
                                         version: now,
                                         read_in_write_tx: false,
                                         own_modified: true,
-                                        unpinned_read: false,
                                         ..o
                                     });
                                 }
@@ -1492,12 +1491,11 @@ impl Session {
                 };
                 match found {
                     Some(row) => {
-                        // Only FindFirst, FindLast and FindSet are pinned (Y76StaleBuffers.al Y76_Part1_*).
+                        // Every form of Find gives the origin FindFirst gives (record/stale-find/Y89StaleFind.al:256-480,
+                        // Y89_Part1_find_*, against record/crud/Y76StaleBuffers.al Y76_Part1_*).
                         self.find_load = true;
-                        self.unpinned_find_load = method == RecordOp::Find;
                         let loaded = self.load(rec, row);
                         self.find_load = false;
-                        self.unpinned_find_load = false;
                         loaded?;
                         Ok(Value::Boolean(true))
                     }
@@ -1681,7 +1679,12 @@ impl Session {
                     let pos = position(&t, key, &rec.borrow().fields);
                     match self.scan(rec, &t, forward, Some(pos))? {
                         Some(row) => {
-                            self.load(rec, row)?;
+                            // A row Next loads gives the origin FindFirst gives (record/stale-find/Y89StaleFind.al:408-484,
+                            // Y89_Part1_next, Y89_Part1_findset_next, Y89_Part1_descending_next; :560-578 transfer_next).
+                            self.find_load = true;
+                            let loaded = self.load(rec, row);
+                            self.find_load = false;
+                            loaded?;
                             moved += 1;
                         }
                         None => break,

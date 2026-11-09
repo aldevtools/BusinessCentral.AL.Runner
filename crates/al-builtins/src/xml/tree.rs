@@ -182,7 +182,7 @@ pub(super) fn reject_unassigned_element_content(h: &Handle, a: &[Value], method:
 }
 
 pub(super) fn add_after_self(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    let h = recv(r)?;
+    let h = recv_text_kind_or_uninit(r)?;
     reject_unassigned_sibling_arg(&h, a)?;
     reject_unassigned_element_content(&h, a, "AddAfterSelf")?;
     let (p, i) = position_in_parent(&h, a)?;
@@ -192,7 +192,7 @@ pub(super) fn add_after_self(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
 }
 
 pub(super) fn add_before_self(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    let h = recv(r)?;
+    let h = recv_text_kind_or_uninit(r)?;
     reject_unassigned_sibling_arg(&h, a)?;
     reject_unassigned_element_content(&h, a, "AddBeforeSelf")?;
     let (p, i) = position_in_parent(&h, a)?;
@@ -233,7 +233,7 @@ pub(super) fn remove(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) ->
 }
 
 pub(super) fn replace_with(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    let h = recv(r)?;
+    let h = recv_text_kind_or_uninit(r)?;
     reject_unassigned_sibling_arg(&h, a)?;
     if parent_of(&h).is_none() && with(&h, |d| matches!(d, XData::DocType { .. })) {
         // DocTypeNode.al:ReplaceWith_DetachedDocType.
