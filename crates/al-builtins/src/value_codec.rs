@@ -1,6 +1,7 @@
 //! Plain values as bytes, for the install baseline's snapshot on disk and between threads
-//! (`al_vm::Baseline::to_bytes`). Only [`Value::is_plain`] values have a form: a handle (`Rc`)
-//! cannot leave its thread. Little-endian, a tag byte per value, lengths as `u32`.
+//! (`al_vm::Baseline::to_bytes`). Only [`Value::is_plain`] values and a RecordId of plain key
+//! values have a form: a handle (`Rc`) cannot leave its thread; a RecordId is read back as one of
+//! its own. Little-endian, a tag byte per value, lengths as `u32`.
 
 use crate::value::Value;
 use rust_decimal::Decimal;
@@ -174,6 +175,29 @@ fn encode_in(v: &Value, out: &mut Vec<u8>) -> bool {
             put_u8(out, 18);
             put_str(out, why);
         }
+        // A RecordId (a stored row's RecordId field): its table, number, name and plain key, or that it is empty. Read
+        // back as a RecordId of its own (a new handle), as a copy of the row on another thread needs.
+        Value::Library(kind, cell) if *kind == crate::library_kind::LibraryKind::RecordId => {
+            put_u8(out, 19);
+            match &*cell.borrow() {
+                crate::value::LibraryValue::Empty => put_u8(out, 0),
+                crate::value::LibraryValue::RecordId {
+                    table,
+                    table_no,
+                    name,
+                    key,
+                } => {
+                    put_u8(out, 1);
+                    put_u32(out, *table);
+                    put_u32(out, *table_no);
+                    put_str(out, name);
+                    if !encode_row(key, out) {
+                        return false;
+                    }
+                }
+                _ => return false,
+            }
+        }
         // Handles (`Rc`) have no form: they cannot leave their thread. Every variant is named, so a new one is a
         // compile error here and has to be placed (plain, with a tag, or in this list), never a silent fallback.
         // A counter value is tied to the session whose reads it compares with (`sqlcount`).
@@ -216,6 +240,22 @@ pub fn decode(r: &mut Reader) -> Option<Value> {
         13 => Value::Guid(r.take(16)?.try_into().ok()?),
         14 => Value::DateFormula(r.str()?),
         18 => Value::Unknown(r.str()?.into()),
+        19 => {
+            let value = match r.u8()? {
+                0 => crate::value::LibraryValue::Empty,
+                1 => crate::value::LibraryValue::RecordId {
+                    table: r.u32()?,
+                    table_no: r.u32()?,
+                    name: r.str()?,
+                    key: decode_row(r)?,
+                },
+                _ => return None,
+            };
+            Value::Library(
+                crate::library_kind::LibraryKind::RecordId,
+                std::rc::Rc::new(std::cell::RefCell::new(value)),
+            )
+        }
         15 => {
             let ord = i32::from_le_bytes(r.take(4)?.try_into().ok()?);
             let n = r.u32()? as usize;
@@ -323,6 +363,39 @@ mod tests {
             assert!(r.is_empty(), "{v:?}: all bytes used");
             assert_eq!(format!("{v:?}"), format!("{back:?}"));
         }
+    }
+
+    /// A RecordId field of a stored row (the install code of a large partner app leaves Job Queue Entry rows with a
+    /// `Record ID to Process`): written as its table, number, name and key, read back as a RecordId of its own.
+    #[test]
+    fn a_record_id_round_trips_and_one_with_a_handle_in_its_key_has_no_form() {
+        let rid = |key: Vec<Value>| {
+            Value::Library(
+                crate::library_kind::LibraryKind::RecordId,
+                std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::RecordId {
+                    table: 12,
+                    table_no: 18,
+                    name: "Customer".into(),
+                    key,
+                })),
+            )
+        };
+        let v = rid(vec![Value::Code("10000".into()), Value::Integer(3)]);
+        let mut out = Vec::new();
+        assert!(encode(&v, &mut out));
+        let mut r = Reader::new(&out);
+        let back = decode(&mut r).expect("decodes");
+        assert!(r.is_empty());
+        assert_eq!(format!("{v:?}"), format!("{back:?}"));
+        let (Value::Library(_, a), Value::Library(_, b)) = (&v, &back) else {
+            panic!("a RecordId")
+        };
+        assert!(!std::rc::Rc::ptr_eq(a, b), "a RecordId of its own");
+        let mut out = vec![42];
+        assert!(!encode(&rid(vec![Value::List(Default::default())]), &mut out));
+        assert_eq!(out, vec![42]);
+        let other = Value::Library("JsonObject".into(), Default::default());
+        assert!(!encode(&other, &mut Vec::new()), "other library values are handles");
     }
 
     #[test]

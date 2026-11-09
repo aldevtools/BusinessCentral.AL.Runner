@@ -35,7 +35,19 @@ fn freeze_refuses_a_value_that_is_not_plain() {
         object: 311,
         rows: vec![(vec![Value::Code("".into())], vec![Value::Code("".into()), list])],
     }]);
-    assert!(b.freeze().is_err(), "each thread then keeps a copy of its own");
+    let Err(NotShared::Value(why)) = b.freeze() else {
+        panic!("each thread then keeps a copy of its own")
+    };
+    assert_eq!(
+        (
+            why.company.as_str(),
+            why.object,
+            why.in_key,
+            why.position,
+            why.kind.as_str()
+        ),
+        ("CRONUS", 311, false, 1, "List")
+    );
 }
 
 #[test]
