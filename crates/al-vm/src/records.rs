@@ -1819,7 +1819,6 @@ impl Session {
         let via_get = std::mem::take(&mut self.get_load);
         let via_sysid = std::mem::take(&mut self.sysid_load);
         let via_find = std::mem::take(&mut self.find_load);
-        let unpinned_find = std::mem::take(&mut self.unpinned_find_load);
         // A temporary record loads every field whatever SetLoadFields asked for (record/load-fields/
         // AreFieldsLoadedUnfetched.al:174-221, partial_name and partial_qty after FindFirst and Get).
         if rec.borrow().load.request.is_some() && !rec.borrow().temporary {
@@ -1844,7 +1843,7 @@ impl Session {
         // PnC02Filters.al:FindEqual_OutsideFilter and record/crud/RcAMisc.al:MarkedOnly_With_Find_Get_And_Order).
         let passes = self.row_passes(rec, &t, &row)?;
         let version = t.fields.iter().position(|f| f.id == 2_000_000_005).map(|i| &row[i]);
-        let origin = self.load_origin(version, [via_get, via_sysid, via_find, unpinned_find]);
+        let origin = self.load_origin(version, [via_get, via_sysid, via_find]);
         let temporary = rec.borrow().temporary;
         if via_get && !temporary && self.tx.locked_tables.contains(&t.object) {
             let company = rec.borrow().company.clone();
