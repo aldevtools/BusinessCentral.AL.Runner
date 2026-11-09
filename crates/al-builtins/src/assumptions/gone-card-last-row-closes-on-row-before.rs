@@ -1,0 +1,6 @@
+GoneCardLastRowClosesOnRowBefore => {
+    id: "gone-card-last-row-closes-on-row-before",
+    assumed: "A card whose row an action deleted closes by force when that row was the last row of its view and rows are left before it, as it does when a row after it is left: OnQueryClosePage gets OK (LookupCancel when run modally in lookup mode), and Rec stands on the nearest row before the deleted one, without OnAfterGetRecord for that row. A veto stays refused.",
+    tests: "Tests-ERM-Purchase: Purchase Documents (134099) PostPurchaseInvoiceCardWithBlankQuantityIsFoundationFALSE and PostPurchaseCreditMemoCardWithBlankQuantityIsFoundationFALSE; ERM Purchase Order (134327) VerifyManuallyCreatedPurchaseCrMemoUpdateExistingPurchaseOrder, VerifyPurchaseCrMemoUpdateExistingPurchaseOrderForNonInventoryAndServiceItem, VerifyPurchaseOrderUpdatedAfterCorrectPostedPurchaseInvoiceApplyEntries and others (they post the last purchase document from its card).",
+    probe: "pages/deleted-rows-navigation/Y89GoneSingleMove.al: rows 10, 20, 30; a card (OpenEdit, OpenView, and Page.RunModal) on row 30 whose action deletes it: the CloseAction and Rec.Id that OnQueryClosePage logs, and whether OnAfterGetRecord runs before it.",
+}

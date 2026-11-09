@@ -1705,7 +1705,7 @@ impl Session {
             } else if reads_rows && !st.borrow().open && !self.is_list(st) && !self.declares(st, "onaftergetcurrrecord")
             {
                 let rec = self.page_rec(st);
-                if self.stored_row(&rec)?.is_some() {
+                if self.reads_row_after_close(st, &rec)? {
                     self.populate_current(st)?;
                 }
             }

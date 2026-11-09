@@ -736,6 +736,9 @@ pub struct PageState {
     pub rec_moved_other: bool,
     /// CurrPage.Close() in the running action put the shown row back into Rec (PnGRefresh.al:608): one more read follows the action.
     pub close_restored_row: bool,
+    /// A card closed by its deleted row stands on the row before it (assumption gone-card-last-row-closes-on-row-before): the
+    /// read of the row that follows a close in the action is not made for it.
+    pub gone_closed_on_row_before: bool,
     /// The blank line of a top-level list took key filter values (a journal filtered to one template and batch, open on no row or
     /// after its only row went): its first line is numbered 10000 by AutoSplitKey, not 20000 (misc/lt-probes-needed-7/
     /// PnGRefresh.al:672, :792 `P.INSR(T1/B1/10000,typed)`).
@@ -1142,6 +1145,7 @@ impl PageState {
             action_shown_row: None,
             rec_moved_other: false,
             close_restored_row: false,
+            gone_closed_on_row_before: false,
             split_starts_low: false,
             save_after_first_read: false,
             walk_synced_parts: false,
