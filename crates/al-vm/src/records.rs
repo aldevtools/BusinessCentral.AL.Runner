@@ -1934,7 +1934,11 @@ impl Session {
             // with `Get` and written in memory is read back from the row too (record/flowfields/
             // BlobCalcFieldsLength.al:BlobCalcFields_UnsavedContent_Result, 17 bytes in memory, 6 after CalcFields): see `BlobBuf::fetched`.
             let temporary = rec.borrow().temporary;
-            let keeps_content = buf.borrow().fetched && !buf.borrow().refetch && !temporary;
+            // A record assignment's copy (`refetch`) of a buffer that holds an unsaved stream write keeps the write when the
+            // row is stored, as the buffer it was copied from does (al-runner issue 7360). A copy of a row that is not stored
+            // reads empty (types/ProbeTypeFormsAndFilters.al:228-250 FormatRecord_AssignmentCopiesBlobBytes): see `copied_write`.
+            let copied_write = buf.borrow().refetch && buf.borrow().written;
+            let keeps_content = buf.borrow().fetched && (!buf.borrow().refetch || copied_write) && !temporary;
             if stored.is_none() {
                 let fields = rec.borrow().fields.clone();
                 let pk = Self::exact_key(rec, &t, &fields, "a Blob read")?;
@@ -1965,6 +1969,13 @@ impl Session {
                 };
             if stale {
                 // Pinned: streams/CalcFieldsBlobStaleBuffer.al (empty, loaded-earlier and unsaved-write buffers).
+            } else if copied_write {
+                if keeps_content && stored.is_some() {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::BlobCopiedWriteKeptByCalcfields,
+                    );
+                    continue;
+                }
             } else if keeps_content && (stored.is_some() || !rec.borrow().inserted) {
                 continue;
             }

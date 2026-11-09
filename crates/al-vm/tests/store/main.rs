@@ -8,6 +8,7 @@ mod blob_length_large;
 mod blob_length_sign;
 mod blob_roundtrip_after_insert;
 mod blob_stored_size_contents;
+mod blob_write_then_record_copies;
 mod blob_write_unloaded;
 mod bump_36_transferfields_system_fields;
 mod calcsums_duration;
