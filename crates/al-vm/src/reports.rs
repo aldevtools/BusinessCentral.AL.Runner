@@ -666,10 +666,10 @@ impl Session {
                 // PW_RaisedEvents_ProcessingOnlyRuns `SubstituteReport(86147,Execute,in=-1)`).
                 let number = self.substitute_static(args.first(), 2, parameters.as_deref().unwrap_or(""))?;
                 let (inst, schema) = self.report_by_number(id, number.as_ref().or(args.first()))?;
-                let quit = self.report_init(&inst)?;
-                if quit {
+                if self.report_init(&inst)? {
                     return Ok(Value::Null);
                 }
+                self.execute_record_ref_view(&inst, &schema, args.get(2))?;
                 self.report.execute_parameters = parameters;
                 let ran = self.report_run(&inst, &schema, Entry::Execute, false);
                 self.report.execute_parameters = None;
@@ -1039,37 +1039,6 @@ impl Session {
         inst.borrow_mut().initialized = false;
         let schema = self.report_schema(&inst)?;
         Ok((inst, schema))
-    }
-
-    /// `Execute(Parameters, ?RecordRef)`: only the empty parameter string is pinned
-    /// (record/TestTxModelReportExec.al:138-211).
-    fn report_execute_args(
-        &self,
-        id: al_ir::BuiltinId,
-        parameters: Option<&Value>,
-        record_ref: Option<&Value>,
-    ) -> Result<Option<String>, Signal> {
-        // A parameters string with `<Options><Field name=..>` sets the request page's Text, Boolean and Integer variables
-        // before OnPreReport, and a field name no control has is skipped (reports/WdReportExecuteParams.al:50-77, corpus
-        // branch al-runtime-rs-staging-1030c, al-runner issue 6306). Only the form `RunRequestPage` writes is read
-        // (`apply_request_parameters`).
-        let parameters = match parameters {
-            Some(Value::Text(s)) if s.is_empty() => None,
-            // A `<DataItem name="..">VIEW</DataItem>` replaces the item's view for this run only, over a SetTableView; an
-            // unknown item name is skipped and an empty view clears it (corpus master, corpus PR 886:
-            // reports/request-page/ExecuteParamsTwiceAndViews.al:185-235; `apply_request_parameters`).
-            Some(Value::Text(s)) => Some(s.to_string()),
-            other => {
-                return unsupported(format!(
-                    "{id} with the parameters {} (only a text is pinned)",
-                    other.describe()
-                ));
-            }
-        };
-        if record_ref.is_some() {
-            return unsupported(format!("{id} with a RecordRef (not pinned)"));
-        }
-        Ok(parameters)
     }
 
     // ------------------------------------------------------------------ OnInitReport
@@ -4736,6 +4705,7 @@ fn header_extension_name(name: &str, publisher: &str) -> String {
     }
 }
 
+mod execute_args;
 pub(crate) mod format_region;
 #[cfg(test)]
 mod header_tests;

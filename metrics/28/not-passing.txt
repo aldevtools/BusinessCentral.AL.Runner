@@ -93,7 +93,6 @@
 67708 RunRequestPage_SeededWithExtensionControlValues
 67708 Run_Cancel_OnlyTheRequestPageTriggersRun
 67708 Run_ExtensionControls_ReachTheVariablesAndTheRunIsUnchanged
-67726 Execute_WithRecordRef
 67726 SaveAs_InstanceTwice_GlobalsAndSecondCall
 67726 SaveAs_NotXmlParameters
 67726 SaveAs_ParametersOfAnotherReport
@@ -475,7 +474,6 @@
 71575 P175_Written_Utf16
 71575 P175_Written_Utf8
 71575 P175_Written_Windows
-71612 Execute_WithRecord
 71613 CurrReport_NewPagePerRecord_PaperSource
 71618 P102_Date
 71618 P102_DateFormula
