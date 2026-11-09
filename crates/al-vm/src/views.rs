@@ -47,7 +47,10 @@ impl Session {
     /// GetView_Field_Types `date`).
     fn filter_value_with(&self, v: &Value, iso: bool) -> Result<String, Signal> {
         // An enum value with a `CaptionML` shows its caption in the session language, as Format does
-        // (format-evaluate/EnumCaptionReaders.al ECR_FilterTexts_1033, _2067).
+        // (format-evaluate/EnumCaptionReaders.al ECR_FilterTexts_1033, _2067), when the filter was set under that language.
+        if let Some(why) = self.enum_ml_filter_refusal(v) {
+            return Err(Signal::Unsupported(why));
+        }
         // A blank date shows as two single quotes, like a blank text (record/crud/RcAMisc.al:
         // SetRecFilter_Composite_And_Text_Keys `dateBlank`).
         // A blank DateTime too, in a view and in GetFilters (record/views/Y71SetViewDateTime.al:105-134
