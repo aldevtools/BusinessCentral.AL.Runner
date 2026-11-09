@@ -129,6 +129,7 @@ mod pagemisc;
 mod part_after_modal_close;
 mod part_after_self_close;
 mod part_array_element_control;
+mod part_visible_rec_field;
 mod perm_compose;
 mod prepush_script;
 mod printer_table;
