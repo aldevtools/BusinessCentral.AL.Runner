@@ -58,7 +58,6 @@
 67064 GetResourceAsJson_NotJson
 67064 GetResourceAsText_Encodings
 67066 ExecutionMode_CurrentAndMemberList
-67066 ObjectType_MemberList
 67066 WebServiceActionResultCode_MemberList
 67067 SessionSettings_Init_FollowsGlobalLanguage
 67067 SessionSettings_Update_SaveTrue_WithHandler

@@ -69,6 +69,7 @@ mod evaluate_guid_fieldref;
 mod evaluate_option_captions;
 mod evaluate_option_no_caption;
 mod evaluate_option_rejects;
+mod evaluate_system_options;
 mod evaluate_table_filter;
 mod evaluate_table_filter_caption_blank;
 mod evaluate_table_filter_code_chained;
