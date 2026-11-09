@@ -106,7 +106,7 @@ fn oracle_pinned_to_a_different_corpus_commit_is_refused() {
     std::fs::write(
         &bad,
         t.replace(
-            "5835cf4a2545d09a9264d23faf2a003e2a9960d7",
+            "abd2a0aaaab28124d5cc6eedc69331a8b04f1ed1",
             "0000000000000000000000000000000000000000",
         ),
     )
