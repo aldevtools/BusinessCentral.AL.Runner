@@ -285,7 +285,9 @@ impl Session {
                         ));
                     }
                     let engine = self.engine.clone();
-                    let enums = |id: u32| crate::views::enum_filter_members(&engine.program.objects[id as usize]);
+                    let language = al_builtins::format::FormatCtx::language(self);
+                    let enums =
+                        |id: u32| crate::views::enum_filter_members(&engine.program.objects[id as usize], language);
                     let date_ctx = self.query_date_context();
                     Some(
                         al_builtins::filter::with_date_context(date_ctx, || {

@@ -849,7 +849,8 @@ impl Session {
         let table = rec.borrow().table as usize;
         let own = &engine.program.objects[table].table.as_ref().expect("table").fields;
         let src = &engine.program.objects[calc.table].table.as_ref().expect("table").fields;
-        let enums = |id: u32| crate::views::enum_filter_members(&engine.program.objects[id as usize]);
+        let language = al_builtins::format::FormatCtx::language(self);
+        let enums = |id: u32| crate::views::enum_filter_members(&engine.program.objects[id as usize], language);
         let parse = |text: &str, ty: &RtType| {
             parse_filter_with(text, &[], ty, &enums)
                 .map_err(|e| Signal::Unsupported(format!("CalcFormula filter: {e}")))

@@ -45,6 +45,7 @@ mod general_journal;
 mod get_by_system_id_unused;
 mod get_recordid_other_table;
 mod get_variant_key_conversions;
+mod getview_enum_ordinal;
 mod getview_option_ordinal;
 mod global_filter_group;
 mod hostvalues;
