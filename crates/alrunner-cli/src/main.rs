@@ -27,6 +27,7 @@ mod service_tier;
 mod sources;
 mod sources_report;
 mod stability;
+mod stability_si;
 mod style;
 mod test_suites;
 mod testdata;

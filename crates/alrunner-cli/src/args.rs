@@ -295,12 +295,19 @@ pub struct StabilityArg {
     pub config: al_testrun::stability::Config,
 }
 
+/// The value of `--stability`: the next argument when it is a preset name or a `.json` file, else the preset `all`
+/// (ADR-058 amendment 1, decision 7; owner, 2026-11-09: a bare `--stability` runs every safe dimension).
+fn stability_value(it: &mut std::iter::Peekable<impl Iterator<Item = String>>) -> Result<StabilityArg, String> {
+    let v = it.next_if(|v| al_testrun::stability::preset(v).is_some() || v.to_lowercase().ends_with(".json"));
+    stability_config(v.as_deref().unwrap_or("all"))
+}
+
 /// Reads the config `--stability` names: a preset name, else a file. The error is a refusal (exit 2).
 fn stability_config(source: &str) -> Result<StabilityArg, String> {
     let text = match al_testrun::stability::preset(source) {
         Some(t) => t.to_string(),
         None => std::fs::read_to_string(source).map_err(|e| {
-            format!("--stability: cannot read the config file {source}: {e} (the preset is `microsoft`)")
+            format!("--stability: cannot read the config file {source}: {e} (the presets are `microsoft` and `all`)")
         })?,
     };
     let config = al_testrun::stability::parse_config(&text).map_err(|e| format!("--stability {source}: {e}"))?;
@@ -1566,7 +1573,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
                 a.coverage_json = Some(text()?.into());
             }
             "--test-exact" => a.exact.push(text()?),
-            "--stability" => a.stability = Some(stability_config(&text()?)?),
+            "--stability" => a.stability = Some(stability_value(&mut it)?),
             "--stability-replay" => a.stability_replay = Some(text()?),
             "--seed" => {
                 let v = text()?;
@@ -1579,7 +1586,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
                 return al_testrun::stability::preset(&name)
                     .map(|t| Command::PrintText(t.to_string()))
                     .ok_or_else(|| {
-                        format!("--stability-print-preset: no preset `{name}` (the preset is `microsoft`)")
+                        format!("--stability-print-preset: no preset `{name}` (the presets are `microsoft` and `all`)")
                     });
             }
             "--exclude-test" => a.excludes.push(text()?),

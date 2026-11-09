@@ -141,56 +141,6 @@ pub(super) fn rerun_fresh(
     r
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn fp(b: u8) -> Fp {
-        Fp::Val(vec![b].into())
-    }
-
-    #[test]
-    fn a_carried_read_is_a_suspect_only_when_it_differs_from_a_fresh_instance() {
-        let (a, b, c, d) = ((1, 0), (1, 1), (2, 0), (3, 0));
-        let observed = BTreeMap::from([(a, fp(5)), (b, fp(0)), (c, Fp::Opaque("x".into())), (d, fp(9))]);
-        // `d` was read but no earlier member wrote it; `b` holds what a fresh instance holds.
-        let last = BTreeMap::from([(a, 7), (b, 8), (c, 9)]);
-        let fresh = BTreeMap::from([(a, fp(0)), (b, fp(0)), (c, Fp::Opaque("x".into()))]);
-        assert_eq!(carried_reads(&observed, &last, &fresh), vec![(a, 7), (c, 9)]);
-        // No fresh value known: different.
-        assert_eq!(carried_reads(&observed, &last, &BTreeMap::new()).len(), 3);
-    }
-
-    #[test]
-    fn a_fresh_variant_is_formed_from_its_carried_twin_or_runs_as_its_own_twin() {
-        use crate::stability::{MethodOrder, Perturb};
-        let base = Perturb::default();
-        let fresh = Perturb {
-            single_fresh: true,
-            ..Default::default()
-        };
-        let reverse = Perturb {
-            method_order: MethodOrder::Reverse,
-            ..Default::default()
-        };
-        let reverse_fresh = Perturb {
-            single_fresh: true,
-            ..reverse.clone()
-        };
-        let (from, check) = fresh_plan(&[base, reverse, fresh, reverse_fresh.clone()]);
-        assert_eq!(from, [None, None, Some(0), Some(1)]);
-        assert_eq!(check, [true, true, true, true]);
-        // Without its twin among the variants, a fresh variant runs as its own twin; the others run without the check.
-        let other = Perturb {
-            alone: true,
-            ..Default::default()
-        };
-        let (from, check) = fresh_plan(&[Perturb::default(), other, reverse_fresh]);
-        assert_eq!(from, [None, None, Some(2)]);
-        assert_eq!(check, [false, false, true]);
-    }
-}
-
 impl super::CorpusRuntime {
     /// ADR-058 amendment 1: every test codeunit of the run that read SingleInstance state an earlier codeunit of its
     /// BC session left (chain members first, then the dependent codeunits outside the chain).
@@ -266,4 +216,54 @@ pub(super) fn fresh_plan(perturbs: &[crate::stability::Perturb]) -> (Vec<Option<
         .collect();
     let check = perturbs.iter().map(|p| p.single_fresh || twins.contains(p)).collect();
     (from, check)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fp(b: u8) -> Fp {
+        Fp::Val(vec![b].into())
+    }
+
+    #[test]
+    fn a_carried_read_is_a_suspect_only_when_it_differs_from_a_fresh_instance() {
+        let (a, b, c, d) = ((1, 0), (1, 1), (2, 0), (3, 0));
+        let observed = BTreeMap::from([(a, fp(5)), (b, fp(0)), (c, Fp::Opaque("x".into())), (d, fp(9))]);
+        // `d` was read but no earlier member wrote it; `b` holds what a fresh instance holds.
+        let last = BTreeMap::from([(a, 7), (b, 8), (c, 9)]);
+        let fresh = BTreeMap::from([(a, fp(0)), (b, fp(0)), (c, Fp::Opaque("x".into()))]);
+        assert_eq!(carried_reads(&observed, &last, &fresh), vec![(a, 7), (c, 9)]);
+        // No fresh value known: different.
+        assert_eq!(carried_reads(&observed, &last, &BTreeMap::new()).len(), 3);
+    }
+
+    #[test]
+    fn a_fresh_variant_is_formed_from_its_carried_twin_or_runs_as_its_own_twin() {
+        use crate::stability::{MethodOrder, Perturb};
+        let base = Perturb::default();
+        let fresh = Perturb {
+            single_fresh: true,
+            ..Default::default()
+        };
+        let reverse = Perturb {
+            method_order: MethodOrder::Reverse,
+            ..Default::default()
+        };
+        let reverse_fresh = Perturb {
+            single_fresh: true,
+            ..reverse.clone()
+        };
+        let (from, check) = fresh_plan(&[base, reverse, fresh, reverse_fresh.clone()]);
+        assert_eq!(from, [None, None, Some(0), Some(1)]);
+        assert_eq!(check, [true, true, true, true]);
+        // Without its twin among the variants, a fresh variant runs as its own twin; the others run without the check.
+        let other = Perturb {
+            alone: true,
+            ..Default::default()
+        };
+        let (from, check) = fresh_plan(&[Perturb::default(), other, reverse_fresh]);
+        assert_eq!(from, [None, None, Some(2)]);
+        assert_eq!(check, [false, false, true]);
+    }
 }
