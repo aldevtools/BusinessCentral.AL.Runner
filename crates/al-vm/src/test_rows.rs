@@ -18,10 +18,13 @@ enum Built {
     Own,
 }
 
+/// One table's slot: built once, by the first thread that asks.
+type Slot = Arc<OnceLock<Built>>;
+
 /// One engine's cache of the test data's rows (see the module comment).
 #[derive(Default)]
 pub(crate) struct TestRows {
-    slots: Mutex<HashMap<(u64, u32), Arc<OnceLock<Built>>>>,
+    slots: Mutex<HashMap<(u64, u32), Slot>>,
 }
 
 impl TestRows {
