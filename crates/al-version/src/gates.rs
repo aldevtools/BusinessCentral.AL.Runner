@@ -159,7 +159,7 @@ pub enum Gate {
     EnvironmentPreviewRingsFrom28,
     /// The platform's FieldClass option has a fourth member, KeyFieldReference (ordinal 3), from BC 28: `Evaluate` of `3` into a
     /// FieldClass gives it and the error of a rejected text lists it (format-evaluate/SoEvaluateSystemOptions.al:3560-3564,
-    /// :3657-3747, corpus PR 1219). Before, `3` is rejected and the list ends at FlowFilter. Not consumed yet.
+    /// :3657-3747, corpus PR 1219). Before, `3` is rejected and the list ends at FlowFilter. Consumed by `al_builtins::system_option_eval`.
     FieldClassKeyFieldReferenceFrom28,
     /// The system table Windows Language has 212 rows from BC 29 (208 before) on the Linux CI containers before bc-linux image
     /// 1a121fc6 (metadata/platform-tables/AgWindowsLanguage.al, corpus bump 26). Not consumed yet.
