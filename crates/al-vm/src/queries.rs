@@ -745,14 +745,16 @@ impl Session {
     ///
     /// With a filter element among them the order depends on the order of setting. Each filter is
     /// placed when it is set: a column goes before the first column already filtered that comes
-    /// after it in column order (filter elements do not count), else last; the filter element goes
-    /// before the first filter already set whose field number is higher, else last. This rule
-    /// matches every case of record/PnAQueryFiltersColumnNo.al:59-118 (filter
-    /// element on field 2 between columns on fields 1 and 3) and
-    /// queries/TestQueryRuntimeContracts.al:219-268 (same shape, other query). Outside that shape it
-    /// is not pinned and is refused: more than one filter element, filters on several dataitems or
-    /// on aggregated columns, columns whose column order differs from their field order, a field
-    /// filtered twice, or a filter set again or removed (`filter_replaced`).
+    /// after it in column order (filter elements do not count), else last; a filter element goes
+    /// before the first column already filtered that is not the first column of the query (other
+    /// filter elements do not count), else last. This rule matches every case of
+    /// record/PnAQueryFiltersColumnNo.al:59-118 and :182-260 (one filter element after the columns),
+    /// :263-342 (two filter elements, columns whose column order differs from their field order),
+    /// queries/TestQueryRuntimeContracts.al:219-268 (one filter element between the columns) and
+    /// queries/P133QueryOuterFilters.al:657-718 (two filter elements on two dataitems, every order
+    /// of four filters). Outside those shapes it is not pinned and is refused: more than two filter
+    /// elements, filters on more than two dataitems or on aggregated columns, a field filtered
+    /// twice, or a filter set again or removed (`filter_replaced`).
     fn filters_in_text_order(
         &self,
         def: &ir::Query,
@@ -768,43 +770,42 @@ impl Session {
         if filter_replaced {
             return refuse("a filter was set again or removed");
         }
-        if filters.iter().filter(|(c, _)| def.columns[*c].filter_element).count() > 1 {
-            return refuse("more than one filter element");
+        if filters.iter().filter(|(c, _)| def.columns[*c].filter_element).count() > 2 {
+            return refuse("more than two filter elements");
         }
-        let item = def.columns[filters[0].0].item;
-        let mut field_no = Vec::with_capacity(filters.len());
+        let mut items: Vec<usize> = Vec::new();
+        let mut fields: Vec<(usize, usize)> = Vec::with_capacity(filters.len());
         for (c, _) in filters {
             let col = &def.columns[*c];
-            let Some(field) = col.field.filter(|_| col.item == item && col.method.is_none()) else {
-                return refuse("a filter on another dataitem or on an aggregated column");
+            let Some(field) = col.field.filter(|_| col.method.is_none()) else {
+                return refuse("a filter on an aggregated column");
             };
-            let table = def.items[item].table;
-            let id = self.engine.program.objects[table].table.as_ref().expect("table").fields[field].id;
-            if field_no.contains(&id) {
+            if !items.contains(&col.item) {
+                items.push(col.item);
+            }
+            if fields.contains(&(col.item, field)) {
                 return refuse("one field filtered twice");
             }
-            field_no.push(id);
+            fields.push((col.item, field));
         }
-        let mut columns: Vec<(usize, u32)> = filters
-            .iter()
-            .zip(&field_no)
-            .filter(|((c, _), _)| !def.columns[*c].filter_element)
-            .map(|((c, _), n)| (*c, *n))
-            .collect();
-        columns.sort_by_key(|(c, _)| *c);
-        if columns.windows(2).any(|w| w[0].1 > w[1].1) {
-            return refuse("columns whose column order differs from their field order");
+        if items.len() > 2 {
+            return refuse("filters on more than two dataitems");
         }
+        let first_column = def.columns.iter().position(|c| !c.filter_element);
         // Positions in `filters` (set order), placed one by one.
         let mut placed: Vec<usize> = Vec::with_capacity(filters.len());
         for (i, (c, _)) in filters.iter().enumerate() {
-            let at = if def.columns[*c].filter_element {
-                placed.iter().position(|&j| field_no[j] > field_no[i])
-            } else {
-                placed
-                    .iter()
-                    .position(|&j| !def.columns[filters[j].0].filter_element && filters[j].0 > *c)
-            };
+            let at = placed.iter().position(|&j| {
+                let other = filters[j].0;
+                if def.columns[other].filter_element {
+                    return false;
+                }
+                if def.columns[*c].filter_element {
+                    Some(other) != first_column
+                } else {
+                    other > *c
+                }
+            });
             placed.insert(at.unwrap_or(placed.len()), i);
         }
         Ok(placed.into_iter().map(|i| filters[i].clone()).collect())

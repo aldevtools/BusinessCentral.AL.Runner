@@ -301,7 +301,6 @@
 70117 Duplicate_TemporaryAndClosed
 70118 Text_ValuesNeedingQuotes
 70119 Evaluate_IntoPlatformOptions
-70127 PW_GetFilters_Order_Mixed
 70127 PW_GetFilters_SetAgain
 70129 Aggregates_PerGroup
 70129 BigIntegerAndDuration_SumAndAverage
@@ -746,8 +745,6 @@
 74053 P133_Lookup_SeveralArms_SecondArmMatches
 74053 P133_Lookup_ThreeArms_OneWithWhere
 74053 P133_Lookup_WhereFieldOfTheSameRecord
-74062 PX_Query_GetFilters_TwoDataItems_FilterElements_1
-74062 PX_Query_GetFilters_TwoDataItems_FilterElements_2
 74068 TRX_Plain_ExtFieldOtherForms
 74068 TRX_Plain_ExtNotQuote_ErrorText
 74134 P134_TestFilter_Date_InvalidTexts
