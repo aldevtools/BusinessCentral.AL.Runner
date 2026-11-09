@@ -349,3 +349,46 @@ fn a_soft_limit_does_not_stop_the_compile() {
     assert!(soft.phases.memory.halted.is_none(), "{:?}", soft.phases.memory);
     assert!(soft.phases.memory.after_compile.is_some());
 }
+
+/// The compile under a hard limit runs in a rayon pool of its own (`compile_halt.rs`). Its threads get the stack of
+/// the main thread the compile ran on before: the checker and the lowerer recurse once per operand of a chain of
+/// binary operators, and Base Application 28 holds a text built from 1,374 `+` operands
+/// (`IntelligentInfoManifest.Codeunit.al`, `DefaultManifestText`), which overflowed a pool thread's default 2 MB
+/// stack while the compile cache was built.
+#[test]
+fn a_hard_limit_compiles_a_long_operator_chain() {
+    let operands: Vec<String> = (0..2000).map(|i| format!("'p{i}'")).collect();
+    let src = format!(
+        r#"
+codeunit 60700 "Long Chain"
+{{
+    Subtype = Test;
+    [Test] procedure Chain()
+    var T: Text;
+    begin
+        T := {};
+        if StrLen(T) = 0 then Error('empty');
+    end;
+}}
+"#,
+        operands.join(" +\n            ")
+    );
+    // On a thread with the front end's stack, as `al-runner` runs it: only the compile's pool threads are under test.
+    let outcomes = std::thread::Builder::new()
+        .stack_size(al_testrun::RUNNER_STACK)
+        .spawn(move || {
+            let rt = run(
+                &src,
+                &RunOptions {
+                    memory: budget(1000, true, || 100),
+                    ..Default::default()
+                },
+            );
+            assert!(rt.phases.memory.halted.is_none(), "{:?}", rt.phases.memory);
+            outcomes(&rt)
+        })
+        .expect("spawn the runner thread")
+        .join()
+        .expect("the run ends");
+    assert_eq!(outcomes, vec![(60700, "Chain".into(), "Pass".into())]);
+}

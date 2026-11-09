@@ -43,6 +43,13 @@ pub mod stability;
 pub mod target;
 pub mod test_suites;
 
+/// Stack of the thread a front end runs the whole run on (`al-runner`, `al-test-cli`), and of every thread of the
+/// compile's own rayon pool (`runtime::compile_halt`): the checker and the lowerer recurse once per level of the code's
+/// nesting, operands of a chain of binary operators included, and an AL call nests native frames of the bytecode loop.
+/// The depth is bounded by the source (the longest chain in Base Application 28 has 1,374 operands, a few MB of
+/// stack in a release build).
+pub const RUNNER_STACK: usize = 512 << 20;
+
 /// What one test did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
