@@ -91,8 +91,9 @@ before you open a source file.
   `--all-versions` corpus run locally before a pull request: on this shared machine they cost up to an
   hour, and PR CI runs the full corpus on every major in about 6 to 12 minutes. Locally run
   `cargo test -p` and `cargo clippy -p ... -- -D warnings` for the crates you touched, and `cargo fmt --all`.
-  Open the pull request ready (not as a draft) and without auto-merge; the orchestrator reviews and
-  lands it. Fix what CI reports. `./check.sh` (fmt, clippy, all tests, the lists) stays for a person who
+  Open the pull request as a draft and without auto-merge (owner, 2026-11-09): CI runs no job on a draft,
+  so it takes no place in the CI queue. The orchestrator reviews it and lands it in a merge train, whose
+  pull request runs CI once for several drafts; it fixes or hands back what that run reports. `./check.sh` (fmt, clippy, all tests, the lists) stays for a person who
   wants the full check on their own machine.
 - **Corpus bumps**: `tools/corpus_bump.sh RUN_ID` takes the oracle from a green corpus master run.
   `tools/corpus_bump.sh --from-pr N[,N...]` (owner, 2026-11-05) does not wait for that run (about 55
