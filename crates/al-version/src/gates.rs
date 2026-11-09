@@ -1220,10 +1220,16 @@ impl Gate {
                 file: "types/PVEnvironment.al",
                 lines: "35,55",
             }],
-            Gate::FieldClassKeyFieldReferenceFrom28 => &[Evidence {
-                file: "format-evaluate/SoEvaluateSystemOptions.al",
-                lines: "3560,3657,3669,3674,3679,3685,3692,3699,3706,3713,3743",
-            }],
+            Gate::FieldClassKeyFieldReferenceFrom28 => &[
+                Evidence {
+                    file: "format-evaluate/SoEvaluateSystemOptions.al",
+                    lines: "3560,3657,3669,3674,3679,3685,3692,3699,3706,3713,3743",
+                },
+                Evidence {
+                    file: "format-evaluate/SoEvaluateSystemOptionsHidden.al",
+                    lines: "1646,1691,1733",
+                },
+            ],
             Gate::JsonSelectTokensListFrom28 => &[
                 Evidence {
                     file: "json/DcJsonLeads.al",
