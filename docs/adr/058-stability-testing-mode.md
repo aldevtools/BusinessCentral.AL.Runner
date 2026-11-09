@@ -358,3 +358,252 @@ Implementation choices inside sections 3 and 4; no seam changes.
 - **Report.** Each cell is compared with its own base variant. The matrix report adds a table of the stability cells
   and the flips within each; differences between the base variants of cells stay in ADR-052's "Differs between cells"
   (not computed between the environment cells of one process).
+
+## Amendment 1 (Proposed, 2026-11-09): order dependence through SingleInstance state
+
+- Status: Proposed. Owner request (2026-11-09): stability mode should find the test codeunits that depend on the
+  order they run in, because of SingleInstance state that earlier codeunits left, and report it so that teams can fix
+  their tests. It adds one dimension and two parts of the report. It changes no default result.
+- Why an amendment to this ADR, and not a new ADR or an ADR-066 amendment: the feature is part of stability mode (a
+  variant, flips against the base variant, a report and exit code 1 on a flip). ADR-066 decides what the default run
+  does, and that does not change here. This amendment only reads what ADR-066's amendments 3, 7 and 8 already track.
+- Related: ADR-066 amendments 2 to 8 (SingleInstance state across test codeunits, the carry chain walk), hard rule 6
+  and ADR-009 (match BC where it is observable).
+
+### What BC does, and why the default does not change
+
+1. **BC cannot reset SingleInstance state.** Within one test runner run, a SingleInstance codeunit's globals that
+   test codeunit A left are still there in test codeunit B (P7, `al-language/codeunits/TestCuP7ASetter.al:24-58`,
+   `TestCuP7BReader.al:24-37`; the same on BC 27.5, 28.5 and 29.0). Test isolation (`TestIsolation`,
+   `RequiredTestIsolation`) rolls back the database, not SingleInstance globals. No setting, attribute or runner
+   option of BC starts a codeunit with fresh SingleInstance state inside one session.
+2. **The default stays BC-exact.** The carry chain walk (ADR-066 amendment 8) gives every chain member the
+   SingleInstance state the members before it left, as BC's single session does. The other codeunits keep ADR-066
+   amendments 4, 5 and 7. Changing that default would report outcomes BC does not give, against hard rule 6.
+3. **Why teams still need this.** Many of these tests are broken: they pass only because another codeunit ran first.
+   The same test fails on BC as soon as the codeunit starts with fresh SingleInstance state, and that happens in real
+   runs: the codeunit run alone (a developer runs one codeunit from the test tool), another test selection
+   (`--affected`, a pipeline that runs only changed tests), another order (a new codeunit with a lower id), or a run per
+   app or per test suite (ALOps, ADR-066 amendment 6). Some of the caches sit in dependency apps the team does not
+   own (Sequence No. Mgt. in Base Application, ADR-066 amendment 3). BC itself gives no way to see which codeunit
+   read which SingleInstance global and who wrote it last. al-runner already tracks exactly that.
+
+### What stability mode cannot show today (checked)
+
+- `orderDependent` (ADR-066 amendment 4, decision 5) lists only codeunits outside the carry chain that the analysis
+  found dependent. Since amendment 8 chain members are never flagged, so they are never listed (amendment 8, risk 4).
+  On the stress suite below that is 789 of the 821 chain members that read a global an earlier member wrote.
+- No entry says which global, of which SingleInstance codeunit in which app, or which earlier codeunit wrote it.
+- `isolation.alone` resets everything for each test method (session, codeunit globals, database). `order.codeunits`
+  also moves rows of the database carry chain. Neither can say that a flip comes from SingleInstance state and from
+  nothing else.
+
+### What the base variant already knows per codeunit
+
+| Codeunit | Base result comes from | Result with fresh SingleInstance state |
+|---|---|---|
+| Read no global an earlier codeunit of its BC session left with another value | its run | the same: nothing it read can differ |
+| Outside the chain, dependent, re-run in the lane after a failure (ADR-066 amendments 4, 7) | the lane (BC's order) | already known: its parallel run started fresh |
+| Outside the chain, dependent, passed in parallel (not re-run) | the parallel run (fresh state) | already known; but the BC-order result is not, unless the lane replays it (`--strict-order`) |
+| Chain member that read a global an earlier member left (amendment 8) | the walk (BC's order) | unknown: it needs one more run |
+
+### Decision
+
+1. **New dimension `isolation.singleInstance`**, values `carried` (default; what BC does) and `fresh`. Class: safe.
+   Under `fresh`, each test codeunit starts with fresh SingleInstance state: new globals, empty temporary tables and no
+   manual bindings in every SingleInstance codeunit, of every app, including Microsoft's. Nothing else changes: the
+   database start of each codeunit, the carry chain's rows, the install baseline, the order, seeds, clock and identity
+   are those of the base variant. So a flip under this dimension says one thing: the test depends on SingleInstance
+   state an earlier codeunit left. The dimension does not model a BC setting (there is none, see above). It models
+   the real situations where a codeunit starts fresh: run alone, another selection, another order, a run per app or
+   suite. The reset is per test codeunit, not per test method: methods of one codeunit still share SingleInstance
+   state, as on BC in every one of those situations (`isolation.alone` covers per method).
+2. **The variant reruns only suspects.** A suspect is a codeunit whose first read of a watched global got a value an
+   earlier codeunit of its BC session left, where that value differs from what a fresh instance holds (the
+   fingerprint comparison of ADR-066 amendment 2; a value without a comparable form counts as different). Every other
+   codeunit takes its base result in the `fresh` variant: it read nothing that a reset would change.
+   - A chain member that is a suspect runs once more, from the very database start the walk gave it (the carried
+     starts of ADR-066 amendment 5, decision 5), with fresh SingleInstance state. What that run leaves is not handed
+     to later members: each suspect is compared on its own, so a flip never comes from a changed row.
+   - A dependent codeunit outside the chain costs no run: its parallel run started fresh.
+   Rejected: the variant as a full run with fresh state everywhere. It cost less than the base on the stress suite
+   (measured below), but there later chain members also start from rows that earlier fresh runs left, so a flip could
+   come from the database and not from the SingleInstance state. A full fresh run is what `--test-suites` with one
+   codeunit per suite already gives.
+3. **The base variant replays every dependent codeunit outside the chain** when the config names this dimension
+   (`--strict-order` for the base variant only). Without it, a dependent codeunit that passed in parallel has no
+   BC-order result, and the base result of a stability run would be the fresh one (ADR-066 amendment 4, "Risk: a
+   false pass"). With it, both sides of the comparison are known for every suspect, and the base variant is BC's
+   order. A normal run does not change.
+4. **Each flip under this dimension carries a reason**: the test, the outcome and message in each variant, and for
+   each global the codeunit read first with a carried value: the SingleInstance codeunit (id, name, and the app that
+   holds it, with publisher, so a cache in a dependency app is named as such), the global's name, and the earlier test
+   codeunit that last wrote it (id and name). The data exists: `Found::dependent`, `Found::changed` and
+   `Found::writers` outside the chain (ADR-066 amendments 3 and 7); in the walk, `KeptSingles` already holds the
+   globals the members wrote and needs, as an additive change, the member that wrote each one last. A flip is labeled
+   "passes only after earlier codeunits" (fails with fresh state) or "fails only after earlier codeunits" (passes with
+   fresh state). A dependency app's SingleInstance codeunit is marked "in a dependency app": the team cannot change
+   that code, but it can make its test set up what it reads.
+5. **"Reads carried state" without a variant.** Every stability run (with or without this dimension) lists, from the
+   base variant's tracking alone, the suspects whose outcome did not flip: same fields as decision 4, the base
+   outcome, and "checked" (the dimension ran and the outcome stayed) or "not checked" (no `fresh` variant in the
+   config). This list costs no run. It replaces `orderDependent`, which lists a subset of it without reasons; the JSON
+   keeps `orderDependent` for one release, filled from the new list, then drops it.
+6. **Report.**
+   - Console: after the flips table, a section "Order dependence (SingleInstance state)" with two parts: "Breaks with
+     fresh SingleInstance state" (the flips of decision 4, one block per test codeunit, its tests below it) and "Reads
+     carried state, outcome unchanged" (decision 5, one line per codeunit, at most 50 lines, then "and N more"; the JSON
+     holds all). Entries are grouped by the app of the SingleInstance codeunit, the team's own apps first.
+   - JSON (`--output-json`, `stability` object, format stays 1, fields added): `flips[].reason` for flips under this
+     dimension, and `readsCarried`:
+
+```json
+{
+  "flips": [
+    {
+      "test": "Codeunit50120.NeedsEarlierState",
+      "base": "pass", "variant": "29.0-w1/1", "outcome": "fail",
+      "message": "SW 50120: no earlier writer of SW Single 2",
+      "minimal": { "isolation.singleInstance": "fresh" },
+      "reason": {
+        "kind": "passesOnlyAfterEarlierCodeunits",
+        "reads": [
+          { "singleInstance": { "id": 50002, "name": "SW Single 2", "app": "Stress Suite", "publisher": "Example",
+                                "dependencyApp": false },
+            "global": "Counter",
+            "lastWriter": { "id": 50102, "name": "SW Test 50102" } }
+        ]
+      }
+    }
+  ],
+  "readsCarried": [
+    { "codeunit": { "id": 50121, "name": "SW Test 50121" }, "outcome": "pass", "checked": true,
+      "reads": [ { "singleInstance": { "...": "..." }, "global": "Counter", "lastWriter": { "...": "..." } } ] }
+  ]
+}
+```
+
+   - JUnit: the `fresh` variant's testsuite as today; a flipped test's `failure` message adds the reason in one line
+     ("reads Counter of SW Single 2 (app Stress Suite) that SW Test 50102 left"). Each test of a codeunit in `readsCarried`
+     gets the property `singleInstanceCarried` in the base variant's testsuite with the same line.
+7. **Not in the `microsoft` preset.** The preset is Microsoft's own mode, and Microsoft's mode has no such check;
+   adding it would make the preset differ from what it says it is. A second preset `order` holds
+   `{"isolation.singleInstance": ["carried", "fresh"]}` (`--stability order`, `--stability-print-preset order`).
+   Decision 5's list is in every stability run, also with the `microsoft` preset, since it costs nothing.
+8. **Exit code** as owner decision 1 of this ADR: a flip under this dimension is a flip (exit 1; `--stability-allow-flips`
+   keeps 0). A codeunit only in `readsCarried` does not change the exit code.
+9. **No `serve` field.** Stability mode is not offered in `serve` (section 6 and the CLI reference). This amendment
+   keeps that; `serve` gets the dimension when stability mode comes to `serve`.
+
+### Edge cases
+
+- **RequiredTestIsolation Disabled** (carry chain members): decision 2, a run from the carried database start with fresh
+  SingleInstance state. **Codeunit and Function**: the codeunit runs outside the chain; its parallel run is already
+  fresh, so it costs nothing. Function isolation is treated as Codeunit: the reset of this dimension is per test
+  codeunit either way, and test isolation does not roll back SingleInstance globals (P7). The test isolation of the codeunit is printed in its report entry, so a team sees
+  whether the database or only SingleInstance state crosses codeunits.
+- **`--test-suites`**: SingleInstance state crosses only within a suite (ADR-066 amendment 6). A codeunit first in its
+  suite is never a suspect, and the last writer is always in the same suite. With `--test-suites` the walk already
+  starts each chain member fresh (amendment 8, decision 6), so only the lane's codeunits can be suspects.
+- **A writer that is itself a suspect** (a chain of dependence: B reads what A left, C reads what B left): each suspect
+  reruns alone from its own start and keeps the others' base state, so the report names the direct last writer only.
+  A team that fixes B's test may still see C flip; the report lists both.
+- **Fails in both variants**: no flip. If the message differs, the codeunit is listed in `readsCarried` with both
+  messages ("fails either way, with another message"), because another message often means the test reached another
+  line. If the message is the same, it is listed as unchanged.
+- **Refused or not run in either variant**: never a flip (section 6: refusals never become passes). A codeunit with a
+  test refused while it ran hands nothing on (ADR-066 amendment 3, R3), so later codeunits never read its state.
+- **Flaky outcomes**: runs are deterministic (run seed, ADR-061; stepping clock, ADR-045), so the same start gives the
+  same outcome. The one known source of noise is the per-test CPU time limit (ADR-066 amendment 5, `FiveThousandSerialNos`).
+  A test stopped by the time limit in either variant is not compared and is listed as "not compared (time limit)".
+  No second run to confirm a flip.
+- **Combined with other dimensions**: `isolation.alone=true` already starts every test fresh, so the pair
+  (`alone`, `fresh`) is the same run as `alone`; a `matrix` strategy runs it once. With `order.codeunits` the suspects
+  are worked out in the variant's own order.
+
+### Measured (prototype)
+
+Prototype: a local build of main (not committed; a print in the walk names each chain member that read a global an
+earlier member wrote, with its run time). Release build, 12 threads, cores 0-2 and 5-11, `--seed 1`, shared machine
+(load average 15 to 30, so wall times carry noise). "Fresh, all" is a full run with one codeunit per suite
+(`--test-suites`), which starts every codeunit fresh: an upper bound for decision 2 and a check of which tests flip.
+
+| | Stress suite (synthetic, 868 test codeunits, 1616 tests) | Tests-SCM-Costing (BC 29.0.54011.55816, 43 test codeunits, 1002 tests) |
+|---|---|---|
+| Base run (today's default), wall / peak | 22.1 s / 2.0 GB | 218.7 s / 3.9 GB (compile cache built in this run, 9.8 s) |
+| Carry chain members | 821 | 43 (all) |
+| Chain members that read a global an earlier member wrote (suspects by the cruder rule of the prototype) | 789 | 36 |
+| Dependent codeunits outside the chain (ADR-066 amendment 3) | 47, all already re-run in the lane | 0 |
+| Base with `--strict-order` (decision 3) | 21.2 s, 0 outcome changes: no extra cost here | no dependent codeunit outside the chain: no extra cost |
+| Summed run time of the suspect chain members in the walk (the reruns of decision 2, before threads) | 2.3 s | 171 s; the longest member 32.4 s, so about 32 s of wall time on 12 threads (about 15 % of the base run) |
+| "Fresh, all" run (rejected variant shape), wall / peak | 7.8 s / 1.1 GB | 149.0 s / 4.9 GB |
+| Tests whose outcome differs, base against "fresh, all" | 36 tests in 36 codeunits: pass in BC's order, fail fresh ("no earlier writer of SW Single N"); all are dependent codeunits outside the chain; no chain member flips | 0 flips; 16 tests of one codeunit (SCM Inventory Costing II) fail either way, with another entry number in the message (Entry No.=2348 against 2349) |
+
+- The "fresh, all" run is faster than the base because the walk can use its runs ahead again when no member keeps
+  SingleInstance state (ADR-066 amendment 8, accepted cost). On SCM-Costing 40 of 43 members ran ahead.
+- The 16 changed messages on SCM-Costing come from a run where earlier members also ran fresh, so the database start of
+  later members differs as well (an entry-number range of Sequence No. Mgt. is left otherwise). That is why decision 2
+  reruns each suspect from the walk's own database start. Whether these 16 still differ under decision 2 is not
+  measured; they would be listed under "fails either way, with another message", not as flips.
+- The prototype's suspect rule is cruder than decision 2's: it counts any read of a global an earlier member wrote, not
+  only a value that differs from a fresh instance. So 789 and 36 are upper bounds for the number of reruns. On the
+  stress suite every one of the 789 passes in both runs: they belong in "reads carried state, outcome unchanged".
+- Report size: on the stress suite the console part of decision 5 would list 789 + 11 codeunits, so the cap of 50 lines
+  matters; the JSON holds all.
+
+### Decisions for the owner
+
+Each can be accepted or rejected on its own.
+
+1. **Amend ADR-058**, not a new ADR or an ADR-066 amendment: the feature is part of stability mode; ADR-066's default
+   run does not change.
+2. **The default stays BC-exact.** The carry chain and ADR-066 amendments 4 to 8 are unchanged; this amendment only adds
+   a stability dimension and report parts.
+3. **Dimension `isolation.singleInstance` = `carried` | `fresh`**, class safe, reset per test codeunit (not per method),
+   every app's SingleInstance codeunits, nothing else changed. Stated as modelling "run alone, another selection,
+   another order, a run per app or suite", not a BC setting.
+4. **The `fresh` variant reruns only suspects** (a first read of a carried value that differs from a fresh instance);
+   chain members from the walk's own database start, nothing handed on; codeunits outside the chain cost nothing. A
+   full fresh run is rejected.
+5. **With this dimension the base variant replays every dependent codeunit outside the chain** (`--strict-order` for
+   the base variant), so both sides are known.
+6. **Each flip carries a reason**: SingleInstance codeunit with its app and publisher (dependency apps marked), the
+   global(s), the codeunit that last wrote each, outcome and message in both variants, and the direction ("passes only
+   after earlier codeunits" or "fails only after earlier codeunits"). Needs one additive field in the walk (last writer
+   per global).
+7. **"Reads carried state, outcome unchanged" in every stability run**, from the base variant's tracking, no extra run;
+   marked "checked" or "not checked". It replaces `orderDependent` after one release.
+8. **Report shape**: a console section with the two parts (at most 50 lines for the second), JSON `flips[].reason` and
+   `readsCarried` in format 1, the JUnit property `singleInstanceCarried` and the reason in a flip's failure message.
+9. **Not in the `microsoft` preset**; a new preset `order` with just this dimension.
+10. **Exit code**: a flip under this dimension is exit 1, like every flip; `readsCarried` alone does not change it.
+11. **No `serve` field** until stability mode comes to `serve`.
+12. **Fail in both variants with another message**: listed under "reads carried state" as "fails either way, with
+    another message", not a flip.
+13. **No confirmation rerun for flaky outcomes**: runs are deterministic; a test stopped by the CPU time limit in either
+    variant is "not compared (time limit)".
+
+### Consequences
+
+- A team gets, from one stability run, the tests that pass only because others ran first, with the SingleInstance
+  codeunit, its app, the global and the codeunit that wrote it: what it needs to fix the test, and what BC cannot tell it.
+- Default runs and every normal outcome stay BC-exact. The new list in decision 5 makes chain members visible again
+  (amendment 8, risk 4) without running them again.
+- Cost when the dimension is on: the base variant's lane replays every dependent codeunit (decision 3) plus one run per
+  suspect chain member (decision 2).
+- Risk: the suspect rule is only as good as the tracking. A link ADR-066 amendment 3 misses (a flag that guards a cache
+  in another codeunit) is neither a suspect nor rerun; that codeunit keeps its base result in the `fresh` variant, so a
+  real flip is missed, never invented.
+
+### Conformance
+
+- `al-testrun` config tests: `isolation.singleInstance` takes `carried` and `fresh` only; the `order` preset expands to
+  two variants; the `microsoft` preset is unchanged.
+- `crates/al-testrun/tests/suite/single_instance_lane.rs` (or a stability suite module): the corpus P7 pair
+  (`TestCuP7ASetter.al`, `TestCuP7BReader.al`) flips under `fresh` with a reason naming the SingleInstance codeunit,
+  its global and P7A; a chain member reading a carried value flips and later members keep their base start; a codeunit
+  that read nothing carried is not rerun; a fail-fail pair with another message is listed in `readsCarried`; a
+  dependency app's SingleInstance codeunit is marked as such.
+- `crates/alrunner-cli/tests/cli/onrun_stability.rs`: the console section, the JSON `reason` and `readsCarried`, the
+  JUnit property, exit 1 on such a flip.
+- A differential test: the base variant of a run with this dimension equals a normal `--strict-order` run.
