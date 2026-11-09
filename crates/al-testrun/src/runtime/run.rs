@@ -1727,14 +1727,13 @@ fn on_run_time_limit<T>(
     }
 }
 
-/// TestIsolation = Codeunit keeps one transaction open for the tests: MinimumActiveRowVersion takes its value now.
-/// RequiredTestIsolation = Function on the hub: it takes its value at the codeunit's first read (corpus probe
-/// metadata/platform-tables/MinimumActiveRowVersionStages.al, branch al-runtime-rs-staging-minrowver, codeunit 97989 at
-/// lines 142-168). Other isolations are not probed.
+/// MinimumActiveRowVersion takes its value when the codeunit's tests begin, under TestIsolation = Codeunit and under
+/// RequiredTestIsolation = Function on the hub (corpus metadata/platform-tables/MinimumActiveRowVersionStages.al:4-8, codeunits
+/// 97988 and 97989 at lines 152-206). Other isolations are not probed.
 fn start_min_row_version(session: &mut Session, isolation: TestIsolation, hub: bool) {
     match isolation {
         TestIsolation::Codeunit => session.freeze_min_active_row_version(),
-        TestIsolation::Function if hub => session.take_min_active_row_version_at_first_read(),
+        TestIsolation::Function if hub => session.freeze_min_active_row_version(),
         _ => {}
     }
 }

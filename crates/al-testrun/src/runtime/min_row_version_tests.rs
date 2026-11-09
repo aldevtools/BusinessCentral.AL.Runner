@@ -4,11 +4,11 @@ use super::*;
 use al_sema::workspace::AppSource;
 
 // Database.MinimumActiveRowVersion across the tests of a test codeunit, as the corpus probe
-// tests/al-language/metadata/platform-tables/MinimumActiveRowVersionStages.al (corpus branch
-// al-runtime-rs-staging-minrowver, MRV Sequence.Run, lines 47-84) observed it on BC 28.5 and 29.0: the first read of the
-// codeunit returns LastUsedRowVersion() + 1; the value then stays the same through an open Insert and Modify, Commit,
-// further writes and a DeleteAll, also in the next test of the codeunit, under RequiredTestIsolation Codeunit and Function
-// alike; the first row inserted after the first read carries the value as its SystemRowVersion, later rows a greater one.
+// tests/al-language/metadata/platform-tables/MinimumActiveRowVersionStages.al (corpus PR 1236) measured it on BC 27.5, 28.5
+// and 29.0: the value is LastUsedRowVersion() + 1 when the codeunit starts, before any write of the codeunit, and stays the
+// same through an open Insert and Modify, Commit, further writes and a DeleteAll, also in the next test, under
+// RequiredTestIsolation Codeunit and Function alike (lines 4-8, 66-206); the first row inserted after the codeunit starts
+// carries the value as its SystemRowVersion, later rows a greater one; a first read after writes still gets it (lines 208-287).
 
 /// The outcomes of test codeunit `test` under `isolation`, through test runner codeunit `runner` or al-runner's own runner,
 /// on BC's TestRunnerHub when `hub`.
@@ -192,16 +192,42 @@ codeunit 60344 \"MRV Write First\"
     Subtype = Test;
 
     [Test]
-    procedure WritesThenReads()
+    procedure OpenWritesThenReads()
     var
         Row: Record \"MRV Row\";
         Min: BigInteger;
     begin
         Row.Id := 10;
         Row.Insert();
-        Commit();
+        Row.Id := 11;
+        Row.Insert();
+        Row.Id := 12;
+        Row.Insert();
+        Row.Get(12);
         Min := MinimumActiveRowVersion();
-        if MinimumActiveRowVersion() <> Min then Error('min moved');
+        if Min >= LastUsedRowVersion() + 1 then Error('open: min not below last + 1');
+        if Row.SystemRowVersion <= Min then Error('open: row not above min');
+        if MinimumActiveRowVersion() <> Min then Error('open: min moved');
+    end;
+
+    [Test]
+    procedure CommittedWritesThenReads()
+    var
+        Row: Record \"MRV Row\";
+        Min: BigInteger;
+    begin
+        Row.Id := 20;
+        Row.Insert();
+        Row.Id := 21;
+        Row.Insert();
+        Row.Id := 22;
+        Row.Insert();
+        Commit();
+        Row.Get(22);
+        Min := MinimumActiveRowVersion();
+        if Min >= LastUsedRowVersion() + 1 then Error('committed: min not below last + 1');
+        if Row.SystemRowVersion <= Min then Error('committed: row not above min');
+        if MinimumActiveRowVersion() <> Min then Error('committed: min moved');
     end;
 }
 ";
@@ -226,22 +252,18 @@ fn min_active_row_version_follows_the_probe_under_function_isolation() {
     assert_eq!(got, passes(&["A_FirstReadThenWrites", "B_NextTestSeesTheSameValue"]));
 }
 
-// Under Codeunit isolation a test that wrote before its first read reads the value taken when the codeunit's tests began,
-// also when the runner's codeunit-level OnBeforeTestRun wrote and committed a row before them (as before that call was
-// made, PR 7336).
+// The value is taken when the codeunit starts, not at the first read: a first read after three writes, open or committed,
+// is below LastUsedRowVersion() + 1 and the last row is above it (probe MinimumActiveRowVersionStages.al:208-246, codeunit
+// 97990, and :248-287, codeunit 97991), also after the runner's codeunit-level OnBeforeTestRun wrote and committed a row.
 #[test]
-fn min_active_row_version_read_after_own_writes_under_codeunit_isolation_with_a_writing_runner() {
+fn min_active_row_version_first_read_after_own_writes_under_codeunit_isolation() {
     let got = outcomes(FIXTURE, 60344, Some(60345), TestIsolation::Codeunit, false);
-    assert_eq!(got, passes(&["WritesThenReads"]));
+    assert_eq!(got, passes(&["OpenWritesThenReads", "CommittedWritesThenReads"]));
 }
 
-// A first read after the codeunit's tests wrote rows is not covered by the probe's observations under Function isolation:
-// refused.
+// The same under RequiredTestIsolation = Function on the hub.
 #[test]
-fn min_active_row_version_first_read_after_own_writes_under_function_isolation_is_refused() {
+fn min_active_row_version_first_read_after_own_writes_under_function_isolation() {
     let got = outcomes(FIXTURE, 60344, Some(60345), TestIsolation::Function, true);
-    assert!(
-        matches!(&got[..], [(n, Outcome::NotRun(_))] if n == "WritesThenReads"),
-        "{got:?}"
-    );
+    assert_eq!(got, passes(&["OpenWritesThenReads", "CommittedWritesThenReads"]));
 }

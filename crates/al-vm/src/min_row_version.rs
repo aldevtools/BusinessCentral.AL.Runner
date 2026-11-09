@@ -1,23 +1,21 @@
 //! `Database.MinimumActiveRowVersion` while the tests of a test codeunit run.
 //!
-//! What BC shows (corpus probe tests/al-language/metadata/platform-tables/MinimumActiveRowVersionStages.al on the corpus
-//! branch al-runtime-rs-staging-minrowver, `MRV Sequence`.Run at lines 47-84, observed on BC 28.5 and 29.0 for the test
-//! codeunits 97987, 97988 and 97989 at lines 87-168): the first read of the codeunit returns LastUsedRowVersion() + 1
-//! (`first min-last` 1); the value then stays the same through an open Insert and Modify, Commit, further writes, a
-//! DeleteAll and its Commit (`min/first same` at every stage); the first row inserted after the first read carries the
-//! value as its SystemRowVersion (`ins row/min same`), later rows a greater one, no row is above LastUsedRowVersion; the
-//! next test of the codeunit reads the same value (`b first min-last` below 1), under the default isolation and under
-//! RequiredTestIsolation Codeunit and Function alike. The probe's first read always comes before the codeunit's tests
-//! wrote; a first read after they wrote (codeunits 97990 and 97991, lines 170-219) has no observed value yet and stays
-//! refused under Function isolation. BC 27.5 was observed in part only: nothing here depends on a 27.5-only difference.
+//! What BC shows (corpus probe tests/al-language/metadata/platform-tables/MinimumActiveRowVersionStages.al, corpus PR 1236,
+//! measured on BC 27.5, 28.5 and 29.0; header at lines 4-8): the value is fixed when the test codeunit starts, at
+//! LastUsedRowVersion() + 1 before any write of the codeunit, and does not move for the rest of the codeunit. `MRV Sequence`.Run
+//! (lines 66-122): the first read in a codeunit is LastUsedRowVersion() + 1, the value stays the same through an open Insert
+//! and Modify, Commit, more writes, a DeleteAll and its Commit, and in the next test (codeunits 97987, 97988 and 97989 at
+//! lines 125-206: the default isolation, RequiredTestIsolation = Codeunit and = Function); the first row inserted after it
+//! carries the value as its SystemRowVersion, later rows a greater one, no row is above LastUsedRowVersion(). A first read
+//! after three writes of the codeunit, open or committed, is below LastUsedRowVersion() + 1 and the last row is above it
+//! (codeunit 97990 at lines 208-246, 97991 at lines 248-287). A new test codeunit takes a new value.
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
 
 use crate::Session;
 
-/// The minimum active row version of the running test codeunit ([`Session::freeze_min_active_row_version`],
-/// [`Session::take_min_active_row_version_at_first_read`]).
+/// The minimum active row version of the running test codeunit ([`Session::freeze_min_active_row_version`]).
 #[derive(Default, Clone, Debug)]
 pub(crate) struct IsoMin {
     /// The value, once taken.
@@ -27,10 +25,6 @@ pub(crate) struct IsoMin {
     mark: i64,
     /// A test read the value, or wrote a row, since it was taken: a test runner trigger no longer moves it.
     held: bool,
-    /// The value is taken at the codeunit's first read.
-    at_first_read: bool,
-    /// The codeunit's tests wrote rows before its first read.
-    tests_wrote: bool,
     /// A background session committed rows after the value was taken: what the value is then is not pinned.
     unpinned: bool,
 }
@@ -52,26 +46,13 @@ impl Session {
             .then(|| self.tx.committed_row_version.max(1) + 1)
     }
 
-    /// The test runner starts the tests of a codeunit under TestIsolation = Codeunit: `MinimumActiveRowVersion` takes the
-    /// value it has now (LastUsedRowVersion() + 1) and keeps it until the codeunit ends, through Insert, Modify and Commit
-    /// (corpus metadata/platform-tables/PlTRowVersionValue.al:157-226, TV_MinimumActiveRowVersion_AcrossInsertModifyCommit,
-    /// and 228-264, _ReadOnlyAfterCommittedWrite: `min = start` after each step, the rows written not below it; the probe
-    /// in the head of this module). Nothing is taken while the session holds rows it has not committed, nor over test
-    /// data whose last row version is not known.
+    /// The test runner starts the tests of a test codeunit (TestIsolation = Codeunit, or RequiredTestIsolation = Function on
+    /// the hub): `MinimumActiveRowVersion` takes the value it has now (LastUsedRowVersion() + 1) and keeps it until the
+    /// codeunit ends (the probe in the head of this module). Nothing is taken while the session holds rows it has not
+    /// committed, nor over test data whose last row version is not known.
     pub fn freeze_min_active_row_version(&mut self) {
         self.iso_min = IsoMin {
             value: self.min_row_version_now(),
-            mark: self.next_row_version,
-            ..IsoMin::default()
-        };
-    }
-
-    /// The test runner starts the tests of a codeunit under RequiredTestIsolation = Function: `MinimumActiveRowVersion`
-    /// takes its value at the codeunit's first read and keeps it, also in the later tests (the probe in the head of this
-    /// module, codeunit 97989). A first read after the codeunit's tests wrote is refused.
-    pub fn take_min_active_row_version_at_first_read(&mut self) {
-        self.iso_min = IsoMin {
-            at_first_read: true,
             mark: self.next_row_version,
             ..IsoMin::default()
         };
@@ -83,23 +64,18 @@ impl Session {
     /// metadata/platform-tables/PlTRowVersionValue.al, through runner 130450, whose triggers write rows before each test;
     /// the commit after OnBeforeTestRun is pinned by tests/al-language-isolation-probe/src/RpReader.Codeunit.al:94-98,
     /// ADR-066 P4). Once a test read the value or wrote a row, the value stays: the next test of the codeunit reads the
-    /// same value (the probe in the head of this module, `b first min/first`).
+    /// same value (the probe in the head of this module, lines 105-111).
     pub fn runner_trigger_ran(&mut self, before: i64) {
         let m = &mut self.iso_min;
-        if (m.value.is_none() && !m.at_first_read) || m.held || m.tests_wrote {
+        if m.value.is_none() || m.held {
             return;
         }
         if before != m.mark {
-            match m.value {
-                Some(_) => m.held = true,
-                None => m.tests_wrote = true,
-            }
+            m.held = true;
             return;
         }
         m.mark = self.next_row_version;
-        if self.iso_min.value.is_some()
-            && let Some(v) = self.min_row_version_now()
-        {
+        if let Some(v) = self.min_row_version_now() {
             self.iso_min.value = Some(v);
         }
     }
@@ -131,18 +107,6 @@ impl Session {
             }
             self.iso_min.held = true;
             return Ok(Value::BigInteger(min));
-        }
-        if self.iso_min.at_first_read {
-            if self.iso_min.tests_wrote || self.next_row_version != self.iso_min.mark {
-                return unsupported(
-                    "Database.MinimumActiveRowVersion read first after the test codeunit's tests wrote rows (not pinned; probe pending)",
-                );
-            }
-            if let Some(v) = self.min_row_version_now() {
-                self.iso_min.value = Some(v);
-                self.iso_min.held = true;
-                return Ok(Value::BigInteger(v));
-            }
         }
         // After a Commit that ended a transaction without writes, and with no write since, it is LastUsedRowVersion() + 1
         // (platform/lt-platform-members/PlTRowVersionValue.al:MinimumActiveRowVersion_NoWrite_Committed line 40 and
