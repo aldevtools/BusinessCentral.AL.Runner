@@ -43,6 +43,7 @@ mod install_partner_order;
 mod install_refused_package_data_rows;
 mod install_stopped_rows;
 mod install_trigger_setup_order;
+mod install_try_write_allowed;
 mod lean_selection;
 mod login_work_date_lean;
 mod media_export_file_lazy;

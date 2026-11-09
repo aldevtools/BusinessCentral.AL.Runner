@@ -42,23 +42,56 @@ fn real_bc(file: &str) -> Vec<oracle::XunitCase> {
     oracle::parse_xunit(&text).unwrap()
 }
 
+fn mask_digits(text: &str) -> String {
+    text.chars().map(|c| if c.is_ascii_digit() { '#' } else { c }).collect()
+}
+
 fn agree(rt: &CorpusRuntime, suite: &str, file: &str) {
     // The app has 49 test methods per runner since writer SD's runners 61304-61320 (corpus PR 735, al-runner issues
     // 5607/5609), 85 since the ADR-066 runner-trigger probes P1-P8 and P5b (corpus PRs 1146 and 1148, 36 `[Test]` methods),
-    // 90 since corpus PR 1221 (a failing P4 method, two P4 reader tests, probe P8b and its reader test); BC's isolation
+    // 90 since corpus PR 1221 (a failing P4 method, two P4 reader tests, probe P8b and its reader test), 97 since corpus PR 1222
+    // (SwOnRunRunner.al: four OnRun probe methods and three reader tests); BC's isolation
     // oracle covers the eleven of the first probe codeunits.
     assert_eq!(
         rt.cases_in(suite),
-        90,
-        "the probe app runs 90 methods under {suite} isolation"
+        97,
+        "the probe app runs 97 methods under {suite} isolation"
     );
     let bc = real_bc(file);
-    assert_eq!(bc.len(), 11, "the oracle has eleven methods");
+    assert_eq!(bc.len(), 49, "the oracle has 49 methods");
     for c in &bc {
         let ours = rt.outcome_in(suite, &c.case.id);
+        // Known gap, same as in the ignored test below: under TestIsolation = Codeunit a NumberSequence.Insert of S3 is gone in
+        // S8 and S9 on BC (the oracle fails them); this runtime keeps it. BC's result stays the expectation: the test asserts
+        // the runtime still differs, so it fails (and the entry goes) when the gap is closed.
+        if suite == "codeunit"
+            && matches!(
+                c.case.id.name.as_str(),
+                "S8_NumberSequenceStillExists" | "S9_NumberSequenceNotReset"
+            )
+        {
+            assert!(
+                c.message.is_some() && matches!(ours, Outcome::Pass),
+                "known gap closed or changed: {} {ours:?}",
+                c.case.id.name
+            );
+            continue;
+        }
         match (&c.message, &ours) {
             (None, Outcome::Pass) => {}
             // BC's text is the message of the AL `Error` the fixture raises; ours is the same.
+            // The AutoIncrement counter of the probe table (61309 S4) is the Entry No. the oracle run's database had reached
+            // (4: the earlier probe runs advanced it, and AutoIncrement is never rolled back); ours starts at 1. Only that
+            // number is environment state, so it is masked there; the sentence must still match.
+            (Some(m), Outcome::Fail(f)) if c.case.id.codeunit == 61309 && c.case.id.name.starts_with("S4_") => {
+                assert_eq!(
+                    mask_digits(f),
+                    mask_digits(m),
+                    "{} {}",
+                    c.case.id.codeunit,
+                    c.case.id.name
+                )
+            }
             (Some(m), Outcome::Fail(f)) => assert_eq!(f, m, "{} {}", c.case.id.codeunit, c.case.id.name),
             _ => panic!("{suite} {}: BC {:?}, runtime {ours:?}", c.case.id.name, c.message),
         }

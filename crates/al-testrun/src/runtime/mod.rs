@@ -969,6 +969,8 @@ mod handlers;
 mod install_snapshot;
 mod lane_starts;
 pub mod memory;
+#[cfg(test)]
+mod min_row_version_tests;
 mod numbers_taken;
 mod run;
 mod runner_reset;

@@ -2,3 +2,4 @@
 # CI fails when a case that is not listed does not pass, and when a listed case passes or left the oracle.
 # `al-test-cli --prune-not-passing` deletes stale lines; a corpus bump adds new cases with `--list-new-cases`.
 # A line for a case the oracle already had is a regression: it needs the owner's OK (CLAUDE.md hard rule 2).
+81704 Install_MissingResourceInTryFunction_NoWrite

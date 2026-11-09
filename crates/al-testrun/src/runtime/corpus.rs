@@ -1287,6 +1287,15 @@ impl CorpusRuntime {
                 }
             }
         }
+        // ADR-069 decision 10: the test data rows the threads build once count once, in the fixed part of the budget. The
+        // first thread reads them through the test engine, the others through the engine that ran the install code.
+        let (tests, others) = (
+            engine.shared_test_rows_meter(),
+            baseline_engine.as_ref().map(|e| e.shared_test_rows_meter()),
+        );
+        memory
+            .pool()
+            .share(Arc::new(move || tests() + others.as_ref().map_or(0, |m| m())));
         let baseline_time = started.elapsed();
         let baseline_rows = baseline_run.as_ref().map(|b| b.baseline.rows());
         let mut baseline_run = baseline_run;
@@ -1341,7 +1350,8 @@ impl CorpusRuntime {
         // Every test thread starts from one frozen install baseline (ADR-069), or from a copy of its own read from
         // bytes (`install_snapshot.rs`); either is far cheaper than running the install code again. It is made when a
         // pass first runs on several threads.
-        let snapshot_once = super::install_snapshot::InstallSnapshots::new(opts.private_baseline);
+        let snapshot_once =
+            super::install_snapshot::InstallSnapshots::new(opts.private_baseline, memory.pool().fixed_adder());
         // The passes of the run: one, or one per entry (issue 5635), each over the same compile and install baseline.
         let passes: Vec<Pass> = if opts.entries.is_empty() {
             vec![Pass {
@@ -1936,7 +1946,7 @@ impl CorpusRuntime {
                 warm_compile: None,
                 baseline_source,
                 passes: pass_times,
-                install_snapshot: snapshot_once.line(),
+                install_snapshot: snapshot_once.line(&lowered.program),
                 engine_kept,
                 decoded_on_touch: lowered.cached_objects.as_ref().map(|c| c.decoded()),
                 work: RunWork {

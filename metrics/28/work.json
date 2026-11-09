@@ -12,9 +12,9 @@
       "dependency_objects_lowered": 160,
       "dependency_routines_lowered": 4176,
       "objects_from_cache": 0,
-      "objects_from_kept": 18419,
-      "objects_loaded": 22095,
-      "objects_lowered": 3369,
+      "objects_from_kept": 18465,
+      "objects_loaded": 22166,
+      "objects_lowered": 3394,
       "routines_lowered": 158,
       "tests_run": 51
     },
@@ -30,13 +30,13 @@
       "dependency_routines_lowered": 105781,
       "objects_from_cache": 0,
       "objects_from_kept": 0,
-      "objects_loaded": 22171,
-      "objects_lowered": 12193,
-      "routines_lowered": 55713,
-      "tests_run": 23363
+      "objects_loaded": 22248,
+      "objects_lowered": 12270,
+      "routines_lowered": 56252,
+      "tests_run": 23742
     },
     "server settings: DisableWriteInsideTryFunctions=false": {
-      "baseline_rows": 2796,
+      "baseline_rows": 2834,
       "cache_layers_built": 0,
       "cache_layers_hit": 0,
       "compiles": 1,
@@ -46,14 +46,14 @@
       "dependency_objects_lowered": 32,
       "dependency_routines_lowered": 3789,
       "objects_from_cache": 0,
-      "objects_from_kept": 21750,
-      "objects_loaded": 21789,
-      "objects_lowered": 5,
-      "routines_lowered": 20,
-      "tests_run": 13
+      "objects_from_kept": 21821,
+      "objects_loaded": 21864,
+      "objects_lowered": 9,
+      "routines_lowered": 54,
+      "tests_run": 33
     },
     "total": {
-      "baseline_rows": 8326,
+      "baseline_rows": 8364,
       "cache_layers_built": 0,
       "cache_layers_hit": 0,
       "compiles": 3,
@@ -63,11 +63,11 @@
       "dependency_objects_lowered": 9314,
       "dependency_routines_lowered": 113746,
       "objects_from_cache": 0,
-      "objects_from_kept": 40169,
-      "objects_loaded": 66055,
-      "objects_lowered": 15567,
-      "routines_lowered": 55891,
-      "tests_run": 23427
+      "objects_from_kept": 40286,
+      "objects_loaded": 66278,
+      "objects_lowered": 15673,
+      "routines_lowered": 56464,
+      "tests_run": 23826
     }
   }
 }

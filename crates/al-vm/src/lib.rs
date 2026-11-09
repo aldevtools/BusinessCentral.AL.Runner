@@ -29,7 +29,7 @@ mod ctx;
 mod debug;
 mod exec;
 mod interp;
-pub use baseline::{Baseline, Delta, DeltaPart, Fingerprint, RowDelta, SequenceSteps, SharedBaseline};
+pub use baseline::{Baseline, Delta, DeltaPart, Fingerprint, NotShared, RowDelta, SequenceSteps, SharedBaseline};
 pub use capture::{CaptureConfig, Captured, ClosedBy, LoopRecord, MAX_RECORDS, MessageRecord, Rendered, ValueRecord};
 pub(crate) use ctx::base_slot_missing;
 pub use debug::{DebugFrame, DebugHook, DebugView, Resume};
@@ -86,6 +86,7 @@ mod isdirty;
 mod license_ceiling;
 mod load_fields_request;
 mod media_orphans;
+mod min_row_version;
 mod native_rows;
 mod pages;
 mod partial;
@@ -332,6 +333,13 @@ fn routine_facts(r: &ir::Routine, publisher: bool) -> RoutineFacts {
 }
 
 impl Engine {
+    /// Reads about how many bytes the test data rows this engine's threads share hold now (ADR-069 decisions 4 and
+    /// 10), for the memory budget, which counts them once. Holds the rows' cache, not the engine.
+    pub fn shared_test_rows_meter(&self) -> impl Fn() -> u64 + Send + Sync + 'static {
+        let rows = self.test_rows.clone();
+        move || rows.bytes()
+    }
+
     pub fn new(program: impl Into<Arc<ir::Program>>, blocked: Vec<Vec<Option<String>>>) -> Arc<Engine> {
         Engine::with_config(program, blocked, None, dotnet::DotNetConfig::default())
     }
@@ -913,12 +921,8 @@ pub struct Session {
     /// The test codeunit runs under Disabled isolation: from the hub (`isolation_from_hub` set) or from a test runner's
     /// TestIsolation = Disabled.
     pub hub_disabled: bool,
-    /// `MinimumActiveRowVersion` while the test codeunit runs under TestIsolation = Codeunit: the isolation keeps one
-    /// transaction open across `Commit()`, so the value stays at what it was when the codeunit's tests began
-    /// (`freeze_min_active_row_version`).
-    pub(crate) iso_min_row_version: Option<i64>,
-    /// A background session committed rows after `iso_min_row_version` was taken: what the value is then is not pinned.
-    pub(crate) iso_min_unpinned: bool,
+    /// `MinimumActiveRowVersion` while the tests of a test codeunit run (`min_row_version.rs`).
+    pub(crate) iso_min: min_row_version::IsoMin,
     /// The test runner's step that assigns the permission sets of a test method runs (codeunit 130302 "Set State Test
     /// Run", al-testrun `runner_reset.rs`): `PermissionTestHelper.AddEffectivePermissionSet` runs there on the assumption
     /// `runner-permission-sets-grant-all` instead of refusing.
@@ -1290,8 +1294,7 @@ impl Session {
             tx_model: TxModel::default(),
             in_test_codeunit: false,
             isolation_from_hub: false,
-            iso_min_row_version: None,
-            iso_min_unpinned: false,
+            iso_min: Default::default(),
             hub_disabled: false,
             runner_permission_step: false,
             runner_host: Default::default(),
@@ -1892,22 +1895,6 @@ impl Session {
     /// How many row versions the session has handed out so far.
     pub fn row_versions_handed_out(&self) -> i64 {
         self.next_row_version
-    }
-
-    /// The test runner starts the tests of a codeunit under TestIsolation = Codeunit: `MinimumActiveRowVersion` keeps the
-    /// value it has now (LastUsedRowVersion() + 1) until the codeunit ends, through Insert, Modify and Commit (corpus
-    /// metadata/platform-tables/PlTRowVersionValue.al:157-226, TV_MinimumActiveRowVersion_AcrossInsertModifyCommit,
-    /// and 228-264, _ReadOnlyAfterCommittedWrite: `min = start` after each step, the rows written not below it). Nothing
-    /// is frozen while the session holds rows it has not committed, nor over test data whose last row version is not
-    /// known (a configuration package, a `.bacpac`): its rows would sort after the session's own.
-    pub fn freeze_min_active_row_version(&mut self) {
-        self.iso_min_unpinned = false;
-        // With no row version handed out yet LastUsedRowVersion() reports 1 while the first row gets 1: nothing is frozen.
-        self.iso_min_row_version = ((self.engine.test_data.is_none() || self.restored_row_version > 0)
-            && self.tx.committed_row_version > 0
-            && self.tx.tx_phase != crate::transactions::TX_WRITE
-            && self.tx.committed_row_version == self.next_row_version)
-            .then(|| self.tx.committed_row_version.max(1) + 1);
     }
 
     pub fn mark_install_end(&mut self) {

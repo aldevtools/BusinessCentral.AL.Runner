@@ -393,3 +393,7 @@
 29 2980-columnfilter-filter-qualified-enum
 29 2982-columnfilter-or-qualified-enum
 29 2984-columnfilter-same-name-field-qualified-enum
+# corpus bump to f2853bf3 (corpus PR 1234, FlowField and FlowFilter matrix): new case the front end does not decide yet
+27 3109-calcformula-option-value-not-defined
+28 3109-calcformula-option-value-not-defined
+29 3109-calcformula-option-value-not-defined

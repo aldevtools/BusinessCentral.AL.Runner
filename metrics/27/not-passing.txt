@@ -924,6 +924,8 @@
 77099 ReqPageBaseReportQueryCloseVeto
 77099 ReqPageNoRequestPageHandler
 77099 ReqPagePlainReportOkWithExtensionTriggers
+77323 LoginChecklist_FirstTest_WhatTheSessionSaw
+77323 LoginChecklist_SecondTest_NotRaisedAgain
 77512 AC_AuditCategory_Case
 77512 AC_AuditCategory_FormatNumber
 77512 AC_AuditCategory_FormatOrdinal

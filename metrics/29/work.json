@@ -12,9 +12,9 @@
       "dependency_objects_lowered": 161,
       "dependency_routines_lowered": 4182,
       "objects_from_cache": 0,
-      "objects_from_kept": 18539,
-      "objects_loaded": 22299,
-      "objects_lowered": 3448,
+      "objects_from_kept": 18585,
+      "objects_loaded": 22370,
+      "objects_lowered": 3473,
       "routines_lowered": 315,
       "tests_run": 121
     },
@@ -30,13 +30,13 @@
       "dependency_routines_lowered": 106190,
       "objects_from_cache": 0,
       "objects_from_kept": 0,
-      "objects_loaded": 22276,
-      "objects_lowered": 12211,
-      "routines_lowered": 55894,
-      "tests_run": 23296
+      "objects_loaded": 22347,
+      "objects_lowered": 12282,
+      "routines_lowered": 56409,
+      "tests_run": 23653
     },
     "server settings: DisableWriteInsideTryFunctions=false": {
-      "baseline_rows": 2842,
+      "baseline_rows": 2880,
       "cache_layers_built": 0,
       "cache_layers_hit": 0,
       "compiles": 1,
@@ -46,14 +46,14 @@
       "dependency_objects_lowered": 33,
       "dependency_routines_lowered": 3794,
       "objects_from_cache": 0,
-      "objects_from_kept": 21896,
-      "objects_loaded": 21938,
-      "objects_lowered": 5,
-      "routines_lowered": 20,
-      "tests_run": 13
+      "objects_from_kept": 21967,
+      "objects_loaded": 22013,
+      "objects_lowered": 9,
+      "routines_lowered": 54,
+      "tests_run": 33
     },
     "total": {
-      "baseline_rows": 8464,
+      "baseline_rows": 8502,
       "cache_layers_built": 0,
       "cache_layers_hit": 0,
       "compiles": 3,
@@ -63,11 +63,11 @@
       "dependency_objects_lowered": 9404,
       "dependency_routines_lowered": 114166,
       "objects_from_cache": 0,
-      "objects_from_kept": 40435,
-      "objects_loaded": 66513,
-      "objects_lowered": 15664,
-      "routines_lowered": 56229,
-      "tests_run": 23430
+      "objects_from_kept": 40552,
+      "objects_loaded": 66730,
+      "objects_lowered": 15764,
+      "routines_lowered": 56778,
+      "tests_run": 23807
     }
   }
 }

@@ -15,6 +15,14 @@ pub(crate) struct BgWorker {
     result: Option<V>,
 }
 
+/// The test session's state a worker's child session does not have, kept aside while it runs.
+struct ChildParked {
+    singletons: std::collections::HashMap<usize, Rc<RefCell<al_builtins::value::Instance>>>,
+    si_track: Option<Box<crate::single_track::Track>>,
+    bindings: Vec<crate::dispatch::Binding>,
+    session_id_override: Option<i32>,
+}
+
 /// A new dictionary with the entries of `v` (the worker gets its own copy of the parameters).
 fn copy_dictionary(v: &V) -> V {
     match v {
@@ -131,14 +139,43 @@ impl Session {
             return unsupported("a background task started from a background task");
         }
         self.pages.bg_worker = Some(BgWorker { params, result: None });
+        let parked = self.bg_enter_child_session();
         let inst = self.instance(object);
         let ran = self.call(object, on_run, inst, Vec::new());
+        self.bg_leave_child_session(parked);
         let worker = self.pages.bg_worker.take().expect("the worker is still set");
         match ran {
             Ok(_) => Ok(Ok(worker.result.unwrap_or_else(|| V::Dictionary(Default::default())))),
             Err(Signal::Error(e)) => Ok(Err(*e)),
             Err(other) => Err(other),
         }
+    }
+
+    /// The worker runs in a child session (al-runner issue 7342; corpus master
+    /// pages/background-tasks/PbtChildSession.al, measured on BC 27.5, 28.5 and 29.0): its `SessionId()` is not the test
+    /// session's (:209-229, :334-367); its SingleInstance codeunits start empty in every task and what it sets there is
+    /// not seen by the test afterwards (:231-248, :250-270 `1;1;1;`); a manual binding of the test does not answer there
+    /// while an automatic subscriber does (:272-305, :334-367), so a worker that needs the binding fails and raises
+    /// OnPageBackgroundTaskError with ErrorCode `Dialog` (:307-332). The Completed and Error triggers run in the test
+    /// session (:222, :323): the state is put back before they run. The database and the transaction stay as they were:
+    /// what the worker reads and may not write is pinned by testpage/TestPageBgTaskTx_Tests.al and TestPageBgTask_Tests.al.
+    fn bg_enter_child_session(&mut self) -> ChildParked {
+        self.sessions_started += 1;
+        let id = self.session_id().saturating_add(self.sessions_started);
+        ChildParked {
+            singletons: std::mem::take(&mut self.singletons),
+            si_track: self.si_track.take(),
+            bindings: std::mem::take(&mut self.events.bindings),
+            session_id_override: self.session_id_override.replace(id),
+        }
+    }
+
+    /// Puts the test session's state back after a worker ran ([`Session::bg_enter_child_session`]).
+    fn bg_leave_child_session(&mut self, parked: ChildParked) {
+        self.singletons = parked.singletons;
+        self.si_track = parked.si_track;
+        self.events.bindings = parked.bindings;
+        self.session_id_override = parked.session_id_override;
     }
 
     /// `TestPage.RunPageBackgroundTask(CodeunitId; [var Parameters]; [RunCompletionTriggers])`: runs the

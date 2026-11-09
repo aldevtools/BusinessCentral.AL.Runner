@@ -35,12 +35,9 @@ fn freeze_refuses_a_row_with_a_handle() {
     let list = Value::List(Default::default());
     s.insert(&c, &t, vec![Value::Code("D".into()), list, Value::Integer(1)])
         .unwrap();
-    assert!(
-        FrozenStore::freeze(&s).is_some(),
-        "an uncommitted row is not part of it"
-    );
+    assert!(FrozenStore::freeze(&s).is_ok(), "an uncommitted row is not part of it");
     s.commit();
-    assert!(FrozenStore::freeze(&s).is_none(), "a List is an Rc handle");
+    assert!(FrozenStore::freeze(&s).is_err(), "a List is an Rc handle");
     assert!(shareable(&Value::Blob(al_builtins::stream::new_blob())));
     assert!(
         !shareable(&Value::TextConst("x".into())),
@@ -157,4 +154,57 @@ fn frozen_rows_are_shared_and_refuse_a_handle() {
         Value::Integer(1),
     ];
     assert!(FrozenRows::freeze(Rows::from_rows(&t, vec![with_list]).unwrap()).is_err());
+}
+
+#[test]
+fn freeze_names_the_table_field_and_kind_that_block_it() {
+    let (c, t) = (cx("C"), table());
+    let mut s = base();
+    s.insert(
+        &c,
+        &t,
+        vec![
+            Value::Code("D".into()),
+            Value::Integer(1),
+            Value::List(Default::default()),
+        ],
+    )
+    .unwrap();
+    s.commit();
+    let why = FrozenStore::freeze(&s).err().expect("a List blocks it");
+    assert_eq!(
+        why,
+        NotShareable {
+            company: "C".into(),
+            object: t.object,
+            in_key: false,
+            position: 2,
+            kind: "List of 0 elements".into()
+        }
+    );
+    assert_eq!(not_shareable(&Value::Integer(1)), None);
+    assert_eq!(not_shareable(&Value::TextConst("x".into())), Some("TextConst"));
+}
+
+#[test]
+fn a_frozen_store_and_frozen_rows_say_about_how_many_bytes_they_hold() {
+    let small = FrozenStore::freeze(&base()).unwrap();
+    let (c, t) = (cx("C"), table());
+    let mut s = base();
+    for k in 0..100 {
+        s.insert(&c, &t, row(&format!("N{k:03}"), k, 1)).unwrap();
+    }
+    s.commit();
+    let big = FrozenStore::freeze(&s).unwrap();
+    let per_row = std::mem::size_of::<Value>() as u64 * 3;
+    assert!(small.bytes() >= 3 * per_row, "{}", small.bytes());
+    assert!(
+        big.bytes() >= small.bytes() + 100 * per_row,
+        "{} vs {}",
+        big.bytes(),
+        small.bytes()
+    );
+    let rows = Rows::from_rows(&t, (0..103).map(|k| row(&format!("N{k:03}"), k, 1)).collect()).unwrap();
+    let frozen = FrozenRows::freeze(rows).ok().unwrap();
+    assert!(frozen.bytes() >= 103 * per_row);
 }

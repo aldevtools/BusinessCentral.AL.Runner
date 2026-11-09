@@ -298,49 +298,8 @@ impl Session {
                     Err(why) => unsupported(format!("Database.LastUsedRowVersion after {why} (not pinned)")),
                 };
             }
-            // After a Commit that ended a transaction without writes, and with no write since, it is LastUsedRowVersion() + 1
-            // (metadata/platform-tables/PlTRowVersionValue.al:MinimumActiveRowVersion_NoWrite_Committed line 40 and
-            // _PrefixedCallEqualsBareCall). Inside a write transaction, or after a Commit that made writes durable, the value is not
-            // pinned (the file shows it below LastUsedRowVersion() + 1 after a committed insert, line 108, and unchanged by an open insert,
-            // line 77, but the first read in each test follows a DeleteAll): refused. metadata/platform-tables/PlTDatabase.al:250-264
-            // pins the bounds 0 <= value <= LastUsedRowVersion() + 1 only.
-            ids::DATABASE_MINIMUMACTIVEROWVERSION_1 => {
-                // Under TestIsolation = Codeunit the value taken when the codeunit's tests began (`freeze_min_active_row_version`).
-                if let Some(min) = self.iso_min_row_version {
-                    // LastUsedRowVersion() above counts committed rows only. After an Insert and a read of its table it grows
-                    // on BC (PlTRowVersionValue.al:157-172, `insert open last > start last`), and after a Modify too
-                    // (PlTDatabase.al:220-245, `after_modify_greater`): tests compare the two, so the value is refused while
-                    // the open transaction holds such a write, or a Delete, Rename or bulk write whose effect is not pinned.
-                    // It stays at the start value through Insert, Insert + Get, Modify + Get and Commit (PlTRowVersionValue.al:
-                    // 157-226): where LastUsedRowVersion() is not pinned, tests that compare the two are not either.
-                    if let Err(why) = self.last_used_row_version() {
-                        return unsupported(format!(
-                            "Database.MinimumActiveRowVersion after {why} (LastUsedRowVersion is not pinned there)"
-                        ));
-                    }
-                    if self.iso_min_unpinned {
-                        return unsupported(
-                            "Database.MinimumActiveRowVersion after a background session committed rows (not pinned)",
-                        );
-                    }
-                    return Ok(Value::BigInteger(min));
-                }
-                if self.tx.tx_phase == crate::transactions::TX_WRITE
-                    || self.tx.last_commit_wrote
-                    || self.tx.lock_tx
-                    || self.tx.lock_unpinned.is_some()
-                {
-                    return unsupported(
-                        "Database.MinimumActiveRowVersion in a write transaction or after a Commit that made writes durable (the exact value is not pinned; probe wanted)",
-                    );
-                }
-                return match self.last_used_row_version() {
-                    Ok(last) => Ok(Value::BigInteger(last + 1)),
-                    Err(why) => unsupported(format!(
-                        "Database.MinimumActiveRowVersion after {why} (LastUsedRowVersion is not pinned there)"
-                    )),
-                };
-            }
+            // `min_row_version.rs`.
+            ids::DATABASE_MINIMUMACTIVEROWVERSION_1 => return self.minimum_active_row_version(),
             // Set when given a value, read otherwise; the default is the documented one
             // (docs/probes-needed.md). session-system/TestSystemExtended.al:608-630 only calls it.
             ids::DATABASE_LOCKTIMEOUT_1 => {

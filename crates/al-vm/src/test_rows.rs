@@ -25,6 +25,8 @@ type Slot = Arc<OnceLock<Built>>;
 #[derive(Default)]
 pub(crate) struct TestRows {
     slots: Mutex<HashMap<(u64, u32), Slot>>,
+    /// About how many bytes the shared rows hold (`FrozenRows::bytes`), for the memory budget (decision 10).
+    bytes: std::sync::atomic::AtomicU64,
 }
 
 impl TestRows {
@@ -42,7 +44,10 @@ impl TestRows {
         let built = slot.get_or_init(|| match build() {
             None => Built::Shared(None),
             Some(rows) => match FrozenRows::freeze(rows) {
-                Ok(f) => Built::Shared(Some(f)),
+                Ok(f) => {
+                    self.bytes.fetch_add(f.bytes(), std::sync::atomic::Ordering::Relaxed);
+                    Built::Shared(Some(f))
+                }
                 Err(rows) => {
                     own = Some(rows);
                     Built::Own
@@ -58,6 +63,12 @@ impl TestRows {
     /// Forgets every table built (a warm engine reset for its next request).
     pub(crate) fn clear(&self) {
         self.slots.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        self.bytes.store(0, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// About how many bytes the shared rows hold: what the memory budget counts once for all threads (decision 10).
+    pub(crate) fn bytes(&self) -> u64 {
+        self.bytes.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// How many tables were built and are shared.
@@ -99,6 +110,13 @@ mod tests {
         }
         assert_eq!(builds.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert_eq!(cache.shared(), 1);
+        let once = cache.bytes();
+        assert!(
+            once > 0,
+            "the memory budget counts the shared rows once (ADR-069 decision 10)"
+        );
+        cache.get(1, 7, || None);
+        assert_eq!(cache.bytes(), once, "a table already built is not counted again");
         assert_eq!(
             cache.get(2, 7, || None).map(|r| r.len()),
             None,
@@ -123,5 +141,6 @@ mod tests {
         assert_eq!(cache.get(1, 7, build).map(|r| r.len()), Some(1));
         assert_eq!(builds.get(), 2, "the first build is used, a later ask builds again");
         assert_eq!(cache.shared(), 0);
+        assert_eq!(cache.bytes(), 0, "rows per thread are a thread's own cost");
     }
 }
