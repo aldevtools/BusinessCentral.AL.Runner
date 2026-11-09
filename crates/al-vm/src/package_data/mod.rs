@@ -11,7 +11,10 @@
 //!   does not define, the last Date and the file's Decimal 1E-28 (as 0) load (Y88_Option_UndefinedOrdinal,
 //!   Y88_Enum_UndefinedOrdinal, Y88_Date_LastDay, Y88_Decimal_OutOfRange; `reader.rs`).
 //!
-//! Refused: a table of another app, a table with a table extension of another app or a field with `ObsoleteState = Removed`
+//! - the install code of an app that is only a dependency of the run (AL source, `--dep`) loads the same way: the fixture
+//!   app A of Y85 is a dependency of the test app (Y85PackageData.al:3-6).
+//!
+//! Refused: the data files of a compiled package (where a package keeps them is not measured), a table of another app, a table with a table extension of another app or a field with `ObsoleteState = Removed`
 //! (the file layout of those is not pinned), a table whose database insert trigger is on (whether the load raises
 //! OnDatabaseInsert is not pinned), a per-company table loaded in the per-database part (BC fails the publish, the error
 //! text is not pinned: install-upgrade/install-triggers/PkgDataParts.al:5), a row whose key exists, and every file content
@@ -46,8 +49,12 @@ impl Session {
                 "{what}: a table of another app than the running code (not pinned)"
             ));
         }
+        // A dependency app (AL source passed with `--dep`) loads its data files as an app under test does: the install
+        // codeunit of the corpus fixture app A, which the test app depends on, loads them
+        // (install-upgrade/install-triggers/Y85PackageData.al:3-6, al-runner issue 6649). A compiled package's files are
+        // not read (`package_data_files` stays empty for it).
         let info = &self.engine.program.apps[app];
-        if info.dependency || (info.package_data && info.package_data_files.is_empty()) {
+        if info.package_data && info.package_data_files.is_empty() {
             return refuse(format!("{what}: package data of a package is not read (not pinned)"));
         }
         let mut files = info

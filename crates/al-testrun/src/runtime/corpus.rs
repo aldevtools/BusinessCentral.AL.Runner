@@ -2282,6 +2282,16 @@ fn baseline_key(
     key.text("skipped_dependencies", &opts.skipped_dependencies.join("\n"));
     key.text("dependencies", &report.file.file_name()?.to_string_lossy());
     for (i, app) in ws.apps.iter().enumerate() {
+        // The install code of a dependency app loads its data files (NavApp.LoadPackageData, al-runner issue 6649); an app
+        // folder's files can change without a new dependency layer.
+        if ws.kinds.get(i) == Some(&al_sema::AppKind::Dependency)
+            && let Some(a) = lowered.program.apps.get(i)
+        {
+            for (name, content) in &a.package_data_files {
+                key.text("package_data", name);
+                key.bytes("package_data_content", content);
+            }
+        }
         if ws.kinds.get(i) != Some(&al_sema::AppKind::Dependency) {
             key.text("app", &app.id);
             key.text("app_name", &app.name);
