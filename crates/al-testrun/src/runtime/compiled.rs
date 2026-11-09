@@ -194,6 +194,11 @@ pub struct RunOptions {
     /// it failed or was refused while it ran there. Either way each re-run is a serial session of its own (its chain),
     /// and the sessions run in parallel.
     pub strict_order: bool,
+    /// Stability mode with the dimension `isolation.singleInstance` (ADR-058 amendment 1, decision 2): each chain member
+    /// that read a carried SingleInstance value also runs once with fresh single instances, from the same database
+    /// start, and the lane keeps the parallel (fresh) run of each dependent codeunit it runs again
+    /// (`ChainReport::carried`). Outcomes of the run itself do not change.
+    pub single_fresh_check: bool,
     /// `al-runner test --max-replay N` (ADR-066 amendment 7, option 2, opt-in since the owner's change of 2026-11-08):
     /// a serial re-run whose replay chain holds more than `N` test codeunits is skipped; the codeunit keeps its parallel
     /// run, flagged (`Assumption::SingleInstanceRerunSkipped`). `None` (the default): no cap, every re-run the per-test

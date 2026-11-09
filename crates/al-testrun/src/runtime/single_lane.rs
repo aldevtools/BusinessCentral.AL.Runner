@@ -120,6 +120,9 @@ pub(super) struct Found {
     /// Per dependent codeunit (position), the globals it read first that the earlier codeunits left with another value
     /// (ADR-066 amendment 7, option 1: only a failed test that read one, or a test before it, makes it run again).
     pub changed: BTreeMap<usize, BTreeSet<GlobalKey>>,
+    /// Per dependent codeunit (position), each global of `changed` with the position of the codeunit that wrote it
+    /// last (ADR-058 amendment 1, decision 4: the reason of a flip).
+    pub last: BTreeMap<usize, Vec<(GlobalKey, usize)>>,
 }
 
 /// Step 3, the decision: from what each codeunit of a BC session (in order) noted, which depend on state an earlier one
@@ -201,6 +204,7 @@ pub(super) fn analyse(outs: &[Option<&SingleOut>]) -> Found {
             mine.insert(c.0);
             mine.extend(diff.iter().map(|(_, w)| *w));
             found.changed.insert(p, diff.iter().map(|(k, _)| *k).collect());
+            found.last.insert(p, diff.clone());
         } else if let Some(a) = assumed {
             found.refill_assumed.insert(p, a);
         }
@@ -385,6 +389,9 @@ pub(super) struct Lane<'a> {
     /// so a chain member's result is already its run in BC's order: it is never dependent here, never runs again and is
     /// not flagged. It still counts as a writer for the codeunits that are no members.
     pub kept_chain: bool,
+    /// `RunOptions::single_fresh_check` (ADR-058 amendment 1): keep the parallel (fresh) run of each dependent codeunit
+    /// the lane runs again, in `LaneReport::carried`.
+    pub fresh_check: bool,
 }
 
 /// What the lane did, for `--timings` and the stability report.
@@ -435,6 +442,9 @@ pub struct LaneReport {
     pub delta_bytes_peak: usize,
     /// ADR-066 amendment 8: chain members that read first a global a codeunit outside the chain wrote before them.
     pub chain_missed: usize,
+    /// ADR-058 amendment 1: the dependent codeunits outside the carry chain, with what they read and (under
+    /// `Lane::fresh_check`) their parallel run's outcomes.
+    pub carried: Vec<super::CarriedCodeunit>,
 }
 
 impl LaneReport {
@@ -674,6 +684,16 @@ impl Lane<'_> {
                     }
                     flag_all(done, Assumption::SingleInstanceOrder);
                 }
+                if let Some(first) = slots[k].as_ref().filter(|_| self.fresh_check) {
+                    let u = &self.units[k];
+                    if let Some(c) = report
+                        .carried
+                        .iter_mut()
+                        .find(|c| c.suite == u.si && c.codeunit == u.id)
+                    {
+                        c.fresh = Some(super::single_fresh::outcomes_of(first));
+                    }
+                }
                 slots[k] = Some(r);
             }
         }
@@ -734,6 +754,7 @@ impl Lane<'_> {
                 if let Some(Ok(done)) = slots[ks[p]].as_mut().map(|r| &mut r.result) {
                     flag_all(done, Assumption::SingleInstanceOrder);
                 }
+                self.note_carried(&ks, &found, p, report);
             }
             // Decision 2: only a dependent codeunit with a failure or a test refused while it ran in parallel runs again
             // serially; `--strict-order` (decision 4) runs them all again. Amendment 7, option 1: and only when such a
@@ -1045,6 +1066,19 @@ impl Lane<'_> {
             }
         }
         n
+    }
+
+    /// ADR-058 amendment 1, decision 4: dependent codeunit `p` of session `ks` and what it read, for the report.
+    fn note_carried(&self, ks: &[usize], found: &Found, p: usize, report: &mut LaneReport) {
+        let reads: Vec<(GlobalKey, usize)> = found
+            .last
+            .get(&p)
+            .into_iter()
+            .flatten()
+            .map(|&(g, w)| (g, ks[w]))
+            .collect();
+        let c = super::single_fresh::carried_codeunit(self.lowered, self.units, ks[p], false, &reads);
+        report.carried.push(c);
     }
 
     fn name(&self, k: usize) -> String {
