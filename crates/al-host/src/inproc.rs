@@ -14,6 +14,9 @@
 
 use crate::dotnet::*;
 use md5::Md5;
+
+mod math;
+mod regex;
 use sha1::Sha1;
 use sha2::{Digest, Sha256, Sha384, Sha512};
 use std::cell::RefCell;
@@ -56,12 +59,7 @@ impl DotNetHost for InprocHost {
         self.inner.identity().map(|i| format!("{i} in-process stand-ins"))
     }
     fn open_session(&self, cfg: &DotNetSessionConfig) -> Box<dyn DotNetSession> {
-        Box::new(InprocSession {
-            inner: self.inner.open_session(cfg),
-            locals: HashMap::new(),
-            next: LOCAL_BASE,
-            zones: HashMap::new(),
-        })
+        Box::new(InprocSession::over(self.inner.open_session(cfg)))
     }
 }
 
@@ -185,6 +183,12 @@ enum Local {
         clock: i64,
         offset: i64,
     },
+    /// A `Regex` made from constructor arguments the sidecar already accepted (`regex.rs`): the arguments, and the
+    /// canonical sidecar object its matching members go to.
+    Regex {
+        args: Vec<DotNetValue>,
+        canonical: u64,
+    },
     /// The object moved to the sidecar: its handle there.
     Forward(u64),
 }
@@ -197,6 +201,8 @@ pub struct InprocSession {
     next: u64,
     /// One `TimeZoneInfo` object per id (upper-cased key), as .NET caches them (reference equality is observable).
     zones: HashMap<String, Cell>,
+    /// The canonical sidecar `Regex` per constructor key (`regex::key`), made by the first construction that succeeded.
+    regexes: HashMap<String, u64>,
 }
 
 /// `DateTime.MaxValue` in ticks.
@@ -324,6 +330,16 @@ fn format_integer(v: i64, unsigned_bits: Option<u32>, format: Option<&str>) -> O
 }
 
 impl InprocSession {
+    fn over(inner: Box<dyn DotNetSession>) -> InprocSession {
+        InprocSession {
+            inner,
+            locals: HashMap::new(),
+            next: LOCAL_BASE,
+            zones: HashMap::new(),
+            regexes: HashMap::new(),
+        }
+    }
+
     fn local(&self, h: u64) -> Option<Cell> {
         self.locals.get(&h).cloned()
     }
@@ -414,6 +430,12 @@ impl InprocSession {
     }
 
     fn try_static(&mut self, target: &DotNetTarget, member: &str, vals: &[&DotNetValue]) -> Option<Reply> {
+        if is_static(target, "System.Math") {
+            return math::math(member, vals).map(|v| Ok(DotNetReply::value(v)));
+        }
+        if is_static(target, "System.TimeSpan") {
+            return math::time_span(member, vals).map(|v| Ok(DotNetReply::value(v)));
+        }
         if is_static(target, "System.Text.Encoding") && vals.is_empty() {
             let enc = match member {
                 "UTF8" => Enc::Utf8,
@@ -563,7 +585,7 @@ impl InprocSession {
                     ("ToLocalTime", []) => Act::Fresh(offset_of(*clock - *offset, 0)?, "System.DateTimeOffset"),
                     _ => return None,
                 },
-                Local::Forward(_) => return None,
+                Local::Forward(_) | Local::Regex { .. } => return None,
             }
         };
         Some(match act {
@@ -608,6 +630,9 @@ impl InprocSession {
                 "Create",
                 vec![arg(DotNetValue::Str(algo.name().into()))],
             ),
+            Local::Regex { args, .. } => self
+                .inner
+                .construct(&net_type(regex::REGEX), args.iter().cloned().map(arg).collect()),
         }?;
         let DotNetValue::Handle { handle: r, .. } = made.value else {
             return Err(DotNetFailure::Refused(
@@ -619,6 +644,51 @@ impl InprocSession {
         }
         *cell.borrow_mut() = Local::Forward(r);
         Ok(r)
+    }
+
+    /// `new Regex(...)` (`regex.rs`): a local object when these arguments were accepted before, else the sidecar's
+    /// construction, whose object becomes the canonical one when it succeeds.
+    fn construct_regex(&mut self, ty: &DotNetType, args: Vec<DotNetArg>) -> Reply {
+        let vals: Vec<&DotNetValue> = args.iter().map(|a| &a.value).collect();
+        let Some(key) = regex::key(&vals) else {
+            let args = self.args_out(args)?;
+            return self.inner.construct(ty, args);
+        };
+        let values: Vec<DotNetValue> = args.iter().map(|a| a.value.clone()).collect();
+        let canonical = match self.regexes.get(&key) {
+            Some(&c) => c,
+            None => {
+                let made = self.inner.construct(ty, args)?;
+                let DotNetValue::Handle { handle, ty: made_ty } = made.value else {
+                    return Ok(made);
+                };
+                if made_ty != regex::REGEX || !made.by_ref.is_empty() || made.streams != StreamEffects::default() {
+                    return Ok(DotNetReply {
+                        value: DotNetValue::Handle { handle, ty: made_ty },
+                        ..made
+                    });
+                }
+                self.regexes.insert(key, handle);
+                handle
+            }
+        };
+        self.make(
+            Local::Regex {
+                args: values,
+                canonical,
+            },
+            regex::REGEX,
+        )
+    }
+
+    /// The canonical sidecar object a matching member of a local `Regex` goes to.
+    fn canonical_regex(&self, target: &DotNetTarget, member: &str) -> Option<u64> {
+        let DotNetTarget::Instance(h) = target else { return None };
+        let cell = self.locals.get(h)?;
+        match &*cell.borrow() {
+            Local::Regex { canonical, .. } if regex::is_matching(member) => Some(*canonical),
+            _ => None,
+        }
     }
 
     fn value_out(&mut self, v: DotNetValue) -> Result<DotNetValue, DotNetFailure> {
@@ -675,6 +745,9 @@ impl DotNetSession for InprocSession {
                 return self.make(state, "System.DateTimeOffset");
             }
         }
+        if ty.name == regex::REGEX {
+            return self.construct_regex(ty, args);
+        }
         let args = self.args_out(args)?;
         self.inner.construct(ty, args)
     }
@@ -683,7 +756,10 @@ impl DotNetSession for InprocSession {
         if let Some(r) = self.try_local(&target, member, &args) {
             return r;
         }
-        let target = self.target_out(target)?;
+        let target = match self.canonical_regex(&target, member) {
+            Some(c) => DotNetTarget::Instance(c),
+            None => self.target_out(target)?,
+        };
         let args = self.args_out(args)?;
         self.inner.invoke(target, member, args)
     }
@@ -744,7 +820,12 @@ impl DotNetSession for InprocSession {
         }
     }
 
-    fn close(self: Box<Self>) {
+    fn close(mut self: Box<Self>) {
+        let mut canonical: Vec<u64> = self.regexes.values().copied().collect();
+        if !canonical.is_empty() {
+            canonical.sort_unstable();
+            self.inner.release(&canonical);
+        }
         self.inner.close();
     }
 }
@@ -784,12 +865,7 @@ mod tests {
 
     fn session() -> (InprocSession, Arc<Mutex<Vec<String>>>) {
         let seen = Arc::new(Mutex::new(Vec::new()));
-        let s = InprocSession {
-            inner: Box::new(Stub(seen.clone())),
-            locals: HashMap::new(),
-            next: LOCAL_BASE,
-            zones: HashMap::new(),
-        };
+        let s = InprocSession::over(Box::new(Stub(seen.clone())));
         (s, seen)
     }
 
@@ -1003,6 +1079,184 @@ mod tests {
         assert!(seen.iter().any(|m| m == "new System.IO.MemoryStream"), "{seen:?}");
         assert!(seen.iter().any(|m| m == "new System.Text.StringBuilder"), "{seen:?}");
         assert!(seen.iter().any(|m| m == "ToString"), "{seen:?}");
+    }
+
+    /// A sidecar that answers every construction with a new handle and every call with `true`, and writes down what
+    /// reached it.
+    struct Answering(Arc<Mutex<Vec<String>>>, u64);
+
+    impl DotNetSession for Answering {
+        fn construct(&mut self, ty: &DotNetType, args: Vec<DotNetArg>) -> Reply {
+            self.0.lock().unwrap().push(format!("new {}", ty.name));
+            if matches!(args.first().map(|a| &a.value), Some(DotNetValue::Str(p)) if p == "(") {
+                return Err(DotNetFailure::Refused("invalid pattern".into()));
+            }
+            self.1 += 1;
+            Ok(DotNetReply::value(DotNetValue::Handle {
+                handle: self.1,
+                ty: ty.name.clone(),
+            }))
+        }
+        fn invoke(&mut self, t: DotNetTarget, member: &str, _: Vec<DotNetArg>) -> Reply {
+            self.0.lock().unwrap().push(format!("{member} on {t:?}"));
+            Ok(DotNetReply::value(DotNetValue::Bool(true)))
+        }
+        fn invoke_generic(&mut self, _: DotNetTarget, member: &str, _: &DotNetType, _: Vec<DotNetArg>) -> Reply {
+            self.0.lock().unwrap().push(member.to_string());
+            Ok(DotNetReply::value(DotNetValue::Null))
+        }
+        fn get_property(&mut self, t: DotNetTarget, name: &str) -> Reply {
+            self.0.lock().unwrap().push(format!("get {name} on {t:?}"));
+            Ok(DotNetReply::value(DotNetValue::Int32(0)))
+        }
+        fn set_property(&mut self, _: DotNetTarget, name: &str, _: DotNetValue) -> Reply {
+            self.0.lock().unwrap().push(name.to_string());
+            Ok(DotNetReply::value(DotNetValue::Null))
+        }
+        fn release(&mut self, h: &[DotNetHandle]) {
+            self.0.lock().unwrap().push(format!("release {h:?}"));
+        }
+        fn close(self: Box<Self>) {
+            self.0.lock().unwrap().push("close".into());
+        }
+    }
+
+    fn answering() -> (InprocSession, Arc<Mutex<Vec<String>>>) {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let s = InprocSession::over(Box::new(Answering(seen.clone(), 0)));
+        (s, seen)
+    }
+
+    fn dec(t: &str) -> DotNetArg {
+        arg(DotNetValue::Decimal(t.into()))
+    }
+
+    #[test]
+    fn exact_math_members_and_from_ticks_are_answered_without_the_sidecar() {
+        let (mut s, seen) = session();
+        let math = || DotNetTarget::Static(net_type("System.Math"));
+        let cases: Vec<(&str, Vec<DotNetArg>, DotNetValue)> = vec![
+            ("Abs", vec![dec("-1.50")], DotNetValue::Decimal("1.50".into())),
+            ("Floor", vec![dec("-0.5")], DotNetValue::Decimal("-1".into())),
+            ("Ceiling", vec![dec("2.5")], DotNetValue::Decimal("3".into())),
+            ("Truncate", vec![dec("-2.5")], DotNetValue::Decimal("-2".into())),
+            ("Sign", vec![dec("-0.1")], DotNetValue::Int32(-1)),
+            ("Max", vec![dec("1.0"), dec("1.00")], DotNetValue::Decimal("1.0".into())),
+            (
+                "Min",
+                vec![dec("1.0"), dec("1.00")],
+                DotNetValue::Decimal("1.00".into()),
+            ),
+        ];
+        for (m, args, want) in cases {
+            assert_eq!(s.invoke(math(), m, args).unwrap().value, want, "{m}");
+        }
+        let ts = s.invoke(
+            DotNetTarget::Static(net_type("System.TimeSpan")),
+            "FromTicks",
+            vec![arg(DotNetValue::Int64(10_000_000))],
+        );
+        assert_eq!(ts.unwrap().value, DotNetValue::TimeSpan(10_000_000));
+        assert!(seen.lock().unwrap().is_empty(), "forwarded: {:?}", seen.lock().unwrap());
+    }
+
+    #[test]
+    fn math_through_a_double_goes_to_the_sidecar() {
+        let (mut s, seen) = session();
+        for m in ["Sqrt", "Sin", "Log", "Exp", "Pow"] {
+            let _ = s.invoke(DotNetTarget::Static(net_type("System.Math")), m, vec![dec("2")]);
+        }
+        let _ = s.invoke(
+            DotNetTarget::Static(net_type("System.Math")),
+            "Abs",
+            vec![arg(DotNetValue::Int32(i32::MIN))],
+        );
+        assert_eq!(seen.lock().unwrap().len(), 6, "{:?}", seen.lock().unwrap());
+    }
+
+    fn regex_args(p: &str) -> Vec<DotNetArg> {
+        vec![
+            arg(DotNetValue::Str(p.into())),
+            arg(DotNetValue::Int32(0)),
+            arg(DotNetValue::TimeSpan(10_000_000)),
+        ]
+    }
+
+    #[test]
+    fn a_regex_built_again_from_the_same_arguments_costs_no_request() {
+        let (mut s, seen) = answering();
+        let ty = net_type(regex::REGEX);
+        let first = handle_of(s.construct(&ty, regex_args("^a$")));
+        let _ = s.invoke(
+            DotNetTarget::Instance(first),
+            "IsMatch",
+            vec![arg(DotNetValue::Str("a".into()))],
+        );
+        s.release(&[first]);
+        for _ in 0..3 {
+            let again = handle_of(s.construct(&ty, regex_args("^a$")));
+            assert!(again >= LOCAL_BASE);
+            let r = s.invoke(
+                DotNetTarget::Instance(again),
+                "IsMatch",
+                vec![arg(DotNetValue::Str("a".into()))],
+            );
+            assert_eq!(r.unwrap().value, DotNetValue::Bool(true));
+            s.release(&[again]);
+        }
+        let seen = seen.lock().unwrap().clone();
+        // One construction in the sidecar, then only the matches, all on that one object.
+        assert_eq!(
+            seen,
+            [
+                "new System.Text.RegularExpressions.Regex",
+                "IsMatch on Instance(1)",
+                "IsMatch on Instance(1)",
+                "IsMatch on Instance(1)",
+                "IsMatch on Instance(1)",
+            ],
+            "{seen:?}"
+        );
+    }
+
+    #[test]
+    fn a_regex_member_that_can_see_identity_builds_the_object_for_real() {
+        let (mut s, seen) = answering();
+        let ty = net_type(regex::REGEX);
+        let _ = handle_of(s.construct(&ty, regex_args("^a$")));
+        let two = handle_of(s.construct(&ty, regex_args("^a$")));
+        let _ = s.invoke(DotNetTarget::Instance(two), "GetHashCode", vec![]);
+        let _ = s.get_property(DotNetTarget::Instance(two), "Options");
+        s.release(&[two]);
+        Box::new(s).close();
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(
+            seen,
+            [
+                "new System.Text.RegularExpressions.Regex",
+                "new System.Text.RegularExpressions.Regex",
+                "GetHashCode on Instance(2)",
+                "get Options on Instance(2)",
+                "release [2]",
+                "release [1]",
+                "close",
+            ],
+            "{seen:?}"
+        );
+    }
+
+    #[test]
+    fn an_invalid_pattern_is_sent_every_time() {
+        let (mut s, seen) = answering();
+        let ty = net_type(regex::REGEX);
+        for _ in 0..2 {
+            assert!(s.construct(&ty, regex_args("(")).is_err());
+        }
+        // A case-insensitive pattern depends on the culture current at construction: never proxied.
+        for _ in 0..2 {
+            let _ = s.construct(&ty, vec![arg(DotNetValue::Str("a".into())), arg(DotNetValue::Int32(1))]);
+        }
+        assert_eq!(seen.lock().unwrap().len(), 4, "{:?}", seen.lock().unwrap());
     }
 
     #[test]

@@ -465,7 +465,7 @@ impl al_builtins::native::Ctx for Session {
             .iter()
             .find(|o| o.is_kind(al_ir::ObjKind::Table) && o.id.is_some_and(|id| i64::from(id) == i64::from(number)))
             .and_then(|o| self.engine.program.apps.get(o.app as usize))
-            .is_some_and(|a| !a.dependency && !a.package_data)
+            .is_some_and(|a| !a.package_data)
     }
     fn load_package_data(&mut self, table: i32) -> Result<Value, Signal> {
         Session::load_package_data(self, table)
