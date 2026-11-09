@@ -9,11 +9,10 @@ Rules:
   for a hotfix (below).
 - The `edge` pre-release is the newest build of `release`. Each build replaces
   the assets of the one release named `edge` and moves its tag.
-- Every night at 02:17 UTC, `nightly-edge.yml` fast-forwards `release` to the
-  newest commit of `main` whose scheduled (nightly) CI run passed, and builds
-  `edge` from it. That run starts at 00:17 UTC and holds the slow comparisons
-  that no longer run on a push to main (owner decision 2026-11-04; before, edge
-  took the newest commit whose CI passed on a push).
+- `nightly-edge.yml` has no schedule (owner decision 2026-11-08): every edge build
+  goes through a local check that compares the candidate with the previous edge on
+  large test suites, and then starts the workflow with that commit as `sha`. Before
+  2026-11-09 a run at 02:17 UTC published the newest commit whose nightly CI passed.
 - A manual run of "Nightly edge" (workflow_dispatch) keeps the old rule: it
   takes the newest commit of `main` whose CI passed on a push. Use it during the
   day so outside reporters can test fresh fixes. That push run has the pull
