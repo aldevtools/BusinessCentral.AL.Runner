@@ -1,6 +1,6 @@
 # ADR-069: One install baseline for all test threads
 
-- Status: Proposed
+- Status: Accepted (owner, 2026-11-09, all 11 decisions)
 - Date: 2026-11-09
 - Amends: ADR-013 decision 5 (install baseline), ADR-020 (test data rows per thread), ADR-066 amendments 5, 8 and 10
   (carried starts, carry chain, threads one at a time). Each decision below can be accepted or rejected on its own.
