@@ -255,6 +255,31 @@ impl Session {
         bind: Option<UiKind>,
         as_part: bool,
     ) -> Result<Option<Handler>, Signal> {
+        let source = self.page_source_table(st);
+        let saved = std::mem::replace(&mut self.permission_opening_source, source);
+        let r = self.open_page_as_inner(st, mode, record, bind, as_part);
+        self.permission_opening_source = saved;
+        r
+    }
+
+    /// The object index of the source table of the page `st` runs; `None` for a page without one.
+    fn page_source_table(&self, st: &St) -> Option<usize> {
+        let engine = self.engine();
+        let o = &engine.program.objects[st.borrow().object as usize];
+        o.rec_slot.and_then(|s| match o.globals.get(s).map(|g| &g.ty) {
+            Some(al_builtins::value::RtType::Record(t, _)) => Some(*t as usize),
+            _ => None,
+        })
+    }
+
+    fn open_page_as_inner(
+        &mut self,
+        st: &St,
+        mode: PageMode,
+        record: Option<Rec>,
+        bind: Option<UiKind>,
+        as_part: bool,
+    ) -> Result<Option<Handler>, Signal> {
         let test_open = std::mem::take(&mut self.pages.test_open);
         let rec_unpinned = st.borrow_mut().open_rec_unpinned.take();
         st.borrow_mut().run_page_link_opened = rec_unpinned.is_some();

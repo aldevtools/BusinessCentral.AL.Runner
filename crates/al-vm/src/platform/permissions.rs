@@ -770,7 +770,9 @@ fn content_of<O: al_ir::ObjectInfo + ?Sized>(
 /// The permission set objects of the program, and their indexes by lower-case object name.
 pub(crate) fn raw_sets(engine: &crate::Engine) -> (Vec<RawSet>, HashMap<String, Vec<usize>>) {
     let c = Catalog::new(engine);
-    let ids = |ty: al_ir::ObjKind, name: &str| c.id_of(ty, name);
+    // A line names the object its own app sees (`Catalog::id_of_from`).
+    let c = &c;
+    let ids_from = |app: u32| move |ty: al_ir::ObjKind, name: &str| c.id_of_from(ty, name, Some(app));
     // An extension whose base set the program does not hold extends none of the sets composed here.
     let extensions: Vec<&al_ir::ObjectHead> = c
         .objects
@@ -785,7 +787,7 @@ pub(crate) fn raw_sets(engine: &crate::Engine) -> (Vec<RawSet>, HashMap<String, 
         .filter(|o| o.kind == al_ir::ObjKind::PermissionSet && o.id.is_some())
     {
         let mut includes = name_list(o, "IncludedPermissionSets");
-        let mut declared = content_of(o, &ids);
+        let mut declared = content_of(o, &ids_from(o.app));
         let mut incomplete = None;
         for e in extensions.iter().filter(|e| e.extends_id == o.id) {
             includes.extend(name_list(*e, "IncludedPermissionSets"));
@@ -795,7 +797,7 @@ pub(crate) fn raw_sets(engine: &crate::Engine) -> (Vec<RawSet>, HashMap<String, 
                     o.name
                 ));
             }
-            match (&mut declared, content_of(*e, &ids)) {
+            match (&mut declared, content_of(*e, &ids_from(e.app))) {
                 (Ok(have), Ok(add)) => have.union(&add),
                 (Ok(_), Err(why)) => declared = Err(why),
                 (Err(_), _) => {}
@@ -816,8 +818,9 @@ pub(crate) fn raw_sets(engine: &crate::Engine) -> (Vec<RawSet>, HashMap<String, 
 /// The grants of object `object`'s own `Permissions` property (an object grant, ADR-062 section 1 rule 3).
 pub(crate) fn object_grants(engine: &crate::Engine, object: usize) -> Result<crate::permissions::Content, String> {
     let c = Catalog::new(engine);
-    let ids = |ty: al_ir::ObjKind, name: &str| c.id_of(ty, name);
-    content_of(&engine.program.objects.heads()[object], &ids)
+    let o = &engine.program.objects.heads()[object];
+    let ids = |ty: al_ir::ObjKind, name: &str| c.id_of_from(ty, name, Some(o.app));
+    content_of(o, &ids)
 }
 
 /// One `[InherentPermissions(Type, Id, 'Mask'[, Scope])]` attribute: what it grants, as (object type ordinal, object id,

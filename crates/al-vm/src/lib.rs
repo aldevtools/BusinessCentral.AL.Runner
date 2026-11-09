@@ -968,6 +968,9 @@ pub struct Session {
     /// True while a page calculates the FlowFields of its controls: BC drops such a control when the session cannot read the
     /// source table (Y24PermReads.al Y24_P15, `testpage_field`), which the runtime does not model, so a denial refuses.
     pub(crate) permission_page_calc: bool,
+    /// The source table (object index) of a page while it opens (`open_page_as`): a read the page makes of it, when the table is
+    /// empty, raises nothing (`Session::page_open_read_allowed`).
+    pub(crate) permission_opening_source: Option<usize>,
     /// Why a report the running test reaches cannot run (set by the test runner from the static reach, `None`: no such
     /// report). A permission denial the test would catch is refused when it is set: the test goes on to the report, is
     /// refused there, and by then has changed state a later test of the codeunit reads (ADR-062 stage 2).
@@ -1320,6 +1323,7 @@ impl Session {
             permission_from_al: false,
             permission_autocalc: false,
             permission_page_calc: false,
+            permission_opening_source: None,
             report_refusal_after_denial: None,
             permission_caller: None,
             permission_run_object: None,

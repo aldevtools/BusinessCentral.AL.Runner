@@ -1432,6 +1432,9 @@ impl Session {
         if !Stage::of(access.op).on_by_default() {
             return refuse("ADR-062 stage 3, probes P20-P22");
         }
+        if !from_al && access.op == Op::Read && self.page_open_read_allowed(rec)? {
+            return Ok(());
+        }
         if !from_al {
             return refuse("made by the runtime for a page, report, xmlport or validation; ADR-062 probes P16-P18");
         }
@@ -1543,6 +1546,27 @@ impl Session {
     /// - on an empty table nothing raises a permission error and the method answers as usual.
     ///
     /// A method that finds no row on a table that has rows, a Next, and an indirect CalcSums are not pinned: they refuse.
+    /// Whether a denied read the runtime makes of `rec` raises nothing: a page that opens reads its own source table, a table of
+    /// the app under test with no rows. Y94AbpActionRef.al Y94_Ref_GrantsB ('set d365 basic', 'exact d365 basic', 'exact d365 full
+    /// access': none of the sets grants Read on "LT Y94 Row", which holds no row; OpenView opens the card and its controls answer),
+    /// the page form of the empty-table rule of AL reads (Y24PermReads.al Y24_P14_ReadShapesEmptyTable). With rows (probe P18), on
+    /// a table of a dependency app (Cronus may hold rows there) and for every other read the runtime makes, it stays refused.
+    fn page_open_read_allowed(&mut self, rec: &crate::records::Rec) -> Result<bool, Signal> {
+        let table = rec.borrow().table as usize;
+        if self.permission_opening_source != Some(table) {
+            return Ok(false);
+        }
+        let app = self.engine.program.objects.heads()[table].app as usize;
+        if self.engine.program.apps.get(app).is_none_or(|a| a.dependency) {
+            return Ok(false);
+        }
+        let t = self.table(rec)?;
+        let cx = self.cx_for(rec, &t)?;
+        let total = al_data::Store::count(&*self.store_for(rec), &cx, &t, &[])
+            .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+        Ok(total == 0)
+    }
+
     fn read_denied(
         &mut self,
         method: al_builtins::record_op::RecordOp,

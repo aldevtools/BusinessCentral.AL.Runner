@@ -22,6 +22,22 @@ impl Session {
     pub(super) fn access_by_permission_check(&self, st: &St, idx: usize, m: PageMethod) -> Result<(), Signal> {
         self.check_removed_pinned(st, idx, m)?;
         self.access_by_permission_off(st, idx)?;
+        // An actionref of a guarded action that the guard leaves off the page: the corpus reaches the action only by its own name
+        // (Y94AbpActionRef.al, Y90PermActionRef.al), so whether the TestPage still finds the actionref is not pinned.
+        let target = match page_of(&self.engine(), st).controls[idx].action_ref {
+            Some(ir::ActionRef::Target(t)) => Some(t),
+            _ => None,
+        };
+        if let Some(t) = target
+            && self.access_by_permission_off(st, t)?
+        {
+            let engine = self.engine();
+            let page = page_of(&engine, st);
+            return Err(Signal::Unsupported(format!(
+                "TestPage {m:?} on actionref `{}` of action `{}`, which AccessByPermission leaves off the page under the session's permission sets (not pinned, ADR-062 probe P21)",
+                page.controls[idx].name, page.controls[t].name
+            )));
+        }
         Ok(())
     }
 
