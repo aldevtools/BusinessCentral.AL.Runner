@@ -1914,8 +1914,6 @@
 97910 ECR_FieldRefValue_2067
 97910 ECR_FieldRefs_1033
 97910 ECR_FieldRefs_2067
-97910 ECR_FilterTexts_1033
-97910 ECR_FilterTexts_2067
 97910 ECR_FilterWordsEnuOnly_1033
 97910 ECR_FilterWordsEnuOnly_2067
 97910 ECR_FilterWordsMixed_1033
