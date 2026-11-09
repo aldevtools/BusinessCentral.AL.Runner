@@ -103,9 +103,18 @@ pub(super) fn carried_codeunit(
         codeunit: u.id,
         name: lowered.program.objects[u.oi].name.clone(),
         in_chain,
-        isolation: format!("{:?}", u.isolation),
+        isolation: isolation_name(u.isolation).to_string(),
         reads: name_reads(lowered, units, reads),
         fresh: None,
+    }
+}
+
+/// The test isolation as BC names it in `RequiredTestIsolation`.
+fn isolation_name(i: crate::isolation::TestIsolation) -> &'static str {
+    match i {
+        crate::isolation::TestIsolation::Disabled => "Disabled",
+        crate::isolation::TestIsolation::Codeunit => "Codeunit",
+        crate::isolation::TestIsolation::Function => "Function",
     }
 }
 
