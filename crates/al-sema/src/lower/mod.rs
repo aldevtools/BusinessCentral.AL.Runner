@@ -586,6 +586,8 @@ mod dotnet_arg;
 mod expr;
 mod extend;
 
+#[cfg(test)]
+mod abp_refusal_tests;
 mod localize;
 #[cfg(test)]
 mod object_hash_tests;

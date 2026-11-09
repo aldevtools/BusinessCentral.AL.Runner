@@ -1307,9 +1307,7 @@
 86237 PX_TableNo_BareNamesOutsideOnRun
 86384 FindSet_Plain_DatabaseLocks_QB
 86386 LockTable_FindSet_DatabaseLocks_QB
-86450 RunnerSets_BaseApplicationTable
 86450 RunnerSets_SystemTable
-86450 RunnerSets_TestAppTable
 86504 QF_GLSetup_CorpusRow
 86504 SF_Doc_OpenEdit_ActionWithoutUpdate
 86504 SF_Doc_OpenEdit_PartSetValueThenRefresh
@@ -1438,7 +1436,6 @@
 91951 Y19_P0_SetExactSuper
 91951 Y19_P0_SetSuper
 91952 Y19_P10_ExpandedPermissionRows
-91952 Y19_P10_ExtensionsAtRunTime
 91954 Y19_P13_SystemTablesNarrowSet
 91976 Y24_P17_ReportNoRequestPage
 91976 Y24_P17_ReportPermRequestPage
@@ -1678,9 +1675,6 @@
 94739 Y89_Part2_5Commits_OwnModify
 94741 Y89_DF_Single
 94741 Y89_Date_ZeroOffsets
-94807 Y90_ActionRef_NoSetAndNone
-94807 Y90_ActionRef_NotExact
-94807 Y90_ActionRef_RimdIndirectCodeunit
 94810 Y90_Sys_Effective
 94810 Y90_Sys_EffectiveMixedLetters
 94810 Y90_Sys_ExactNone
@@ -1759,17 +1753,6 @@
 95042 StoredSize_RepeatedByte_Result
 95042 StoredSize_SmallText_Result
 95042 StoredSize_Xml_Result
-95120 Y94_Ref_GrantsA
-95120 Y94_Ref_GrantsB
-95120 Y94_Ref_Methods_ar_1
-95120 Y94_Ref_Methods_ar_2
-95120 Y94_Ref_Methods_cu_1
-95120 Y94_Ref_Methods_cu_2
-95120 Y94_Ref_Methods_none_1
-95120 Y94_Ref_Methods_none_2
-95120 Y94_Ref_OpenModes
-95121 Y94_List_GrantsA
-95124 Y94_PageLevel_GrantsA
 95342 TreeInTable_ContainerOwnText
 95438 Name_LeaveFirstMarked_GoTo
 95438 Name_LeaveFirstMarked_Walk

@@ -1302,9 +1302,13 @@ fn object_properties(obj: &ast::Object, request_section: Option<&ast::Section>) 
 /// own layout with an AccessByPermission property is decided when it is used (Y24PermExecute.al Y24_P21_*, Y84PermAbp.al: BC leaves
 /// it off the page when the sets do not grant the permission; `Session::access_by_permission_hidden_decided` reads the guards). So
 /// is a control over a table field that carries the property (the control takes the field's guard, see `inherited`), and the
-/// property on the page or report object itself, which has no effect on a run (Y84_Abp_PageAndReportLevel). Any other mention is not
-/// pinned and refuses: a group (it does not compile), an action reference to a guarded action, a control with a guard of its own over a
-/// guarded field. Read from the object's text, so a mention in a comment refuses too: only a restricted session is affected.
+/// property on the page or report object itself, which has no effect on a run (Y84_Abp_PageAndReportLevel). An actionref to a guarded
+/// action (in area(Promoted) or any other area, in a group, added by a page extension) changes nothing a test sees: the action is
+/// decided by its own guard (Y90PermActionRef.al:31-53, Y94AbpActionRef.al:23-110 for every guard kind, Y94AbpList.al:19-41,
+/// Y94AbpPageLevel.al), and a TestPage call on the actionref itself is decided at run time (`Session::access_by_permission_check`).
+/// Any other mention is not pinned and refuses: a group (it does not compile), an actionref that states a guard of its own, a control
+/// with a guard of its own over a guarded field. Read from the object's text, so a mention in a comment refuses too: only a
+/// restricted session is affected.
 /// The controls that took the guard of their table field carry the marker property [`FIELD_GUARD`].
 pub(crate) fn access_by_permission_refusals(
     ws: &crate::workspace::Workspace,
@@ -1334,11 +1338,27 @@ pub(crate) fn access_by_permission_refusals(
         .properties()
         .filter(|p| p.name().eq_ignore_ascii_case("accessbypermission"))
         .count();
+    if let Some(c) = controls.iter().find(|c| marked(c, FIELD_GUARD_CONFLICT)) {
+        return vec![format!(
+            "control `{}` of page `{}` states AccessByPermission over a table field that states one too (which one BC applies is not pinned, ADR-062 probe P21)",
+            c.name,
+            obj.name()
+        )];
+    }
+    // An actionref with a guard of its own: no corpus test pins whose guard BC applies.
+    if let Some(c) = controls.iter().find(|c| c.action_ref.is_some() && guarded(c)) {
+        return vec![format!(
+            "actionref `{}` of page `{}` states AccessByPermission of its own, which BC applies to the permissions of a restricted session (not pinned, ADR-062 probe P21)",
+            c.name,
+            obj.name()
+        )];
+    }
     let pinned = object_level
         + controls
             .iter()
             .filter(|c| {
                 c.owner.is_none()
+                    && c.action_ref.is_none()
                     && guarded(c)
                     && matches!(
                         c.kind,
@@ -1347,16 +1367,13 @@ pub(crate) fn access_by_permission_refusals(
             })
             .count()
         - inherited;
-    if controls.iter().any(|c| marked(c, FIELD_GUARD_CONFLICT)) {
-        return vec!["a control states AccessByPermission over a table field that states one too (which one BC applies is not pinned, ADR-062 probe P21)".into()];
-    }
-    let via_reference = controls
-        .iter()
-        .any(|c| matches!(&c.action_ref, Some(ir::ActionRef::Target(t)) if guarded(&controls[*t])));
-    if pinned == mentions && !via_reference {
+    if pinned == mentions {
         Vec::new()
     } else {
-        vec!["the page has AccessByPermission on something other than a field or action of its own layout, which BC applies to the permissions of a restricted session (ADR-062 probe P21)".into()]
+        vec![format!(
+            "page `{}` has AccessByPermission on something other than a field, action or part of its own layout or the page itself (a group, a comment), which BC applies to the permissions of a restricted session (not pinned, ADR-062 probe P21)",
+            obj.name()
+        )]
     }
 }
 
