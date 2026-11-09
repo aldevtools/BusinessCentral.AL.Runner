@@ -30,3 +30,12 @@ System.DateTimeOffset.Offset
 System.DateTimeOffset.LocalDateTime
 System.DateTimeOffset.DateTime
 System.DateTimeOffset.ToLocalTime
+System.Math.Abs
+System.Math.Floor
+System.Math.Ceiling
+System.Math.Truncate
+System.Math.Max
+System.Math.Min
+System.Math.Sign
+System.TimeSpan.FromTicks
+System.Text.RegularExpressions.Regex..ctor
