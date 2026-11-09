@@ -244,10 +244,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2.0.20
-        with:
-          command: check
-          command-arguments: licenses
+      - uses: dtolnay/rust-toolchain@1.98.1
+      # The prebuilt cargo-deny release binary with a checksum check. It replaced EmbarkStudios/cargo-deny-action, whose
+      # container image build failed now and then. 0.19.8 is the version that action (v2.0.20) installed.
+      - name: Install cargo-deny 0.19.8
+        env:
+          DENY_VERSION: 0.19.8
+          DENY_SHA256: 70e769ae3872e34d45132b17040859175e11401dc12dddb0303e0b8c7d088f3f
+        run: |
+          set -euo pipefail
+          name="cargo-deny-${DENY_VERSION}-x86_64-unknown-linux-musl"
+          curl --fail --silent --show-error --location --retry 3 -o "$RUNNER_TEMP/$name.tar.gz" \
+            "https://github.com/EmbarkStudios/cargo-deny/releases/download/${DENY_VERSION}/$name.tar.gz"
+          echo "${DENY_SHA256}  $RUNNER_TEMP/$name.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/$name.tar.gz" -C "$RUNNER_TEMP"
+          install -m 0755 "$RUNNER_TEMP/$name/cargo-deny" "$HOME/.cargo/bin/cargo-deny"
+      # The same command the action ran: its default arguments plus `check licenses`, with deny.toml.
+      - run: cargo-deny --log-level warn --manifest-path ./Cargo.toml --all-features check licenses
 
   # The release builds macOS and Windows binaries. A compile error that only those targets show
   # (a Unix-only call, a missing OS function) must fail the push, not the release. Check only: no

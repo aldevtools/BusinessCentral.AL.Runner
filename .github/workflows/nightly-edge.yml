@@ -9,7 +9,7 @@ name: Nightly edge
 # runs CI and then edge.yml, as before.
 #
 # Which commit (owner decision 2026-11-04):
-#   - The scheduled run (02:17 UTC) takes the newest commit of main whose scheduled (nightly) CI run
+#   - (Removed 2026-11-09, see `on:`.) The scheduled run (02:17 UTC) took the newest commit of main whose scheduled (nightly) CI run
 #     passed. Since 2026-11-04 the slow comparisons (eager, fresh, compile cache, baseline rule, perf
 #     budgets, affected differential) run only in that CI run, and CI's schedule (00:17 UTC) ends
 #     before this one. When the night's CI run failed or has not finished, the newest earlier one
@@ -24,8 +24,8 @@ name: Nightly edge
 #     main moved on meanwhile.
 
 on:
-  schedule:
-    - cron: "17 2 * * *"
+  # No schedule (owner decision 2026-11-08): every edge build goes through the local edge gate, which
+  # starts this workflow with the gated `sha`. A scheduled run published an ungated build on 2026-11-09.
   workflow_dispatch:
     inputs:
       sha:
