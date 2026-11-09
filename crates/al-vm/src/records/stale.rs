@@ -271,7 +271,6 @@ impl Session {
                 self.stale_own_insert_new_tx_shape(t, &company, pk, newer)
             });
         match origin.filter(|o| o.version == mine) {
-            Some(o) if o.unpinned_read => Err(Self::stale_unpinned_find(t)),
             // A buffer that only got TransferFields from a record (Y76StaleBuffers.al Y76_Part1_Copy_TransferFromRecord).
             Some(o) if o.own_write && o.lock_only => {
                 self.stale_lock_only_verdict(t, &company, pk, o.commits, touched, contact)
