@@ -1,6 +1,6 @@
 # ADR-066: Run the test runner codeunit's own AL
 
-- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07); amendment 4 (order-dependent codeunits run in parallel, serial run only after a failure, `--strict-order`) Accepted (owner, 2026-11-07); amendment 5 (each serial re-run is a session of its own, the sessions run in parallel; a test refused before it starts triggers no re-run) Accepted (owner, 2026-11-07); amendment 7 (a re-run only when a failed test could have seen the changed state; a replay cap only with `--max-replay N`, changed by the owner the same day) Accepted (owner, 2026-11-08); amendment 8 (the carry chain walk keeps the SingleInstance state; chain members are never re-run or flagged) Accepted (owner, 2026-11-08, variant A); amendment 9 (the number of test threads follows the memory budget, `--max-memory`) Accepted (owner, 2026-11-09, as a safety net near the limit; redesign in a follow-up); amendment 10 (the run holds a memory limit by running more of its work one after the other: threads start one at a time, the cost is learned in the run, a thread that cannot go on ends and gives its memory back) Accepted (owner, 2026-11-09; decision 6 changed by the owner: `--max-memory` is a hard limit, a run that cannot fit stops with exit code 2); amendment 11 (run ahead again for chain members that are there only for the numbers they take) Proposed (2026-11-09)
+- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07); amendment 4 (order-dependent codeunits run in parallel, serial run only after a failure, `--strict-order`) Accepted (owner, 2026-11-07); amendment 5 (each serial re-run is a session of its own, the sessions run in parallel; a test refused before it starts triggers no re-run) Accepted (owner, 2026-11-07); amendment 7 (a re-run only when a failed test could have seen the changed state; a replay cap only with `--max-replay N`, changed by the owner the same day) Accepted (owner, 2026-11-08); amendment 8 (the carry chain walk keeps the SingleInstance state; chain members are never re-run or flagged) Accepted (owner, 2026-11-08, variant A); amendment 9 (the number of test threads follows the memory budget, `--max-memory`) Accepted (owner, 2026-11-09, as a safety net near the limit; redesign in a follow-up); amendment 10 (the run holds a memory limit by running more of its work one after the other: threads start one at a time, the cost is learned in the run, a thread that cannot go on ends and gives its memory back) Accepted (owner, 2026-11-09; decision 6 changed by the owner: `--max-memory` is a hard limit, a run that cannot fit stops with exit code 2); amendment 11 (numbers-only chain members run with fresh single instances and run ahead; only wrong predictions count toward MISSES) Accepted (owner, 2026-11-09, options 1 and 4)
 - Date: 2026-11-05
 
 ## Context
@@ -1195,11 +1195,11 @@ What this shows:
 - `crates/alrunner-cli/tests/cli/memory.rs`: the `memory:` line names the most threads that ran, how many ended for
   memory, and a limit below one thread's need.
 
-## Amendment 11 (Proposed, 2026-11-09): run ahead again for chain members that are there only for the numbers they take
+## Amendment 11 (Accepted, owner, 2026-11-09: options 1 and 4): run ahead again for chain members that are there only for the numbers they take
 
-- Status: Proposed. Needs the owner's decision on the options below before anything is built. It would amend
-  amendment 8, decision 3 (when the walk takes a run ahead) and possibly amendment 10, decision 4 (which dropped runs
-  ahead count against `MISSES`).
+- Status: Accepted by the owner on 2026-11-09: options 1 and 4 below; options 2 and 3 not now. Amends amendment 8
+  (decisions 1, 3 and 5, for "numbers only" members) and amendment 10, decision 4 (which dropped runs ahead count
+  against `MISSES`).
 
 ### Why
 
@@ -1281,6 +1281,28 @@ Recommendation: option 4 in any case (it changes only time). Then option 1 if th
 "numbers only" members; otherwise options 2 and 3 together, which keep the exact order but are a larger change with no
 gain until both are built.
 
+### Decision (owner, 2026-11-09: options 1 and 4)
+
+1. **Numbers-only members run with fresh single instances (option 1).** A chain member whose carry is
+   `ChainWhy::TestsTakeNumbers` and whose isolation is not Disabled (`chain::numbers_only`) runs in the walk with the
+   walk's kept single instances set aside (`chain_walk.rs` `without_kept_singles`): its session starts with fresh ones
+   and hands none on, and the next member that keeps them gets what the member before it left. Its run ahead is taken
+   on the fingerprint rule alone, whatever SingleInstance state it read (`ahead_ignores_singles` is not asked). In the
+   lane it counts as a codeunit outside the chain for SingleInstance purposes (`single_lane.rs` `keeps_singles`): it is
+   flagged `single-instance-order` when dependent, runs again when a failed test read a changed global, and
+   `--strict-order` and `--max-replay` apply to it (amendments 4, 5 and 7). Its database start in the lane is still
+   the chain's carried state, as for every chain member.
+2. **Only wrong predictions count toward `MISSES` (option 4).** A dropped run ahead counts when it was wrong
+   (`Dropped::Wrong`) or when the walk got it and could not take it (its change not rebuilt, or it read kept
+   SingleInstance state). A run made too early (`Dropped::Early`) or one resting on another wrong run ahead
+   (`Dropped::Guessed`) does not (`chain_walk.rs` `Track::note`).
+
+### Measured after the build
+
+See the pull request of branch `rt-numseq-chain` for the repro, the BC 29 corpus `--baseline-diff` and the
+Tests-ERM-Sales check (amendment 10 counted early and guessed drops because Tests-ERM-Sales never stopped its
+helpers).
+
 ### What stays serial in every option
 
 - The first member from a suite's start (the helpers start a suite only after one member ran there).
@@ -1289,4 +1311,12 @@ gain until both are built.
 
 ### Conformance
 
-To be written red first once an option is chosen.
+- `crates/al-testrun/src/runtime/chain_walk.rs` unit test
+  `a_suite_stops_being_run_ahead_after_more_than_misses_wrong_runs_beyond_the_runs_taken`: early and guessed drops do
+  not count, wrong ones and runs got but not taken do.
+- `crates/al-testrun/tests/suite/chain_singles_ahead.rs`: numbers-only members that read and write SingleInstance
+  state run ahead (every member after the first, waiting for the helpers) and keep no walk single instances; a
+  numbers-only member that needs an earlier member's SingleInstance state (the P7 shape) runs again in the lane,
+  passes and is flagged; members whose OnRun takes the number keep amendment 8 (no run ahead taken, the suite is given
+  up). `memory_threads.rs` `a_chain_whose_runs_ahead_are_never_taken_uses_at_most_one_helper` uses such OnRun
+  members.

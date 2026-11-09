@@ -285,6 +285,14 @@ pub(super) fn member_why(isolation: TestIsolation, carry: Option<ChainWhy>) -> C
     }
 }
 
+/// Whether a chain member with isolation `isolation` and carry `carry` is in the chain only for the numbers its tests
+/// take ([`ChainWhy::TestsTakeNumbers`]). ADR-066 amendment 11, option 1: such a member runs with fresh single instances
+/// in the walk and ahead, and its SingleInstance order dependence is handled as for codeunits outside the chain
+/// (amendments 4, 5 and 7). A member with Disabled isolation or an OnRun that writes keeps amendment 8.
+pub(super) fn numbers_only(isolation: TestIsolation, carry: Option<ChainWhy>) -> bool {
+    isolation != TestIsolation::Disabled && carry == Some(ChainWhy::TestsTakeNumbers)
+}
+
 /// Whether the `OnRun` trigger of test codeunit `oi` can write a table ([`ChainWhy::OnRunWritesTable`]) or isolated
 /// storage or a number sequence ([`ChainWhy::OnRunWritesState`]). Under Microsoft's runner 130450 it runs outside the
 /// codeunit isolation: what it writes, committed or not, reaches the later codeunits (codeunits/run-onrun/
