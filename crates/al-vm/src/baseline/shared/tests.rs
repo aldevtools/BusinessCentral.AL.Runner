@@ -96,7 +96,7 @@ fn a_baseline_that_cannot_be_written_as_bytes_names_the_value() {
         rows: vec![(vec![Value::Code("".into())], vec![Value::Code("".into()), rid, json])],
     }]);
     assert!(
-        matches!(b.freeze(), Err(NotShared::Value(ref why)) if why.kind == "Library JsonObject holding Empty"),
+        matches!(b.freeze(), Err(NotShared::Value(ref why)) if why.kind == "JsonObject"),
         "the JsonObject has no plain form; the RecordId has one"
     );
     assert!(b.to_bytes().is_none());

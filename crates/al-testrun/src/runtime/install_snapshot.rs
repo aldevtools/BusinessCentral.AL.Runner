@@ -183,7 +183,7 @@ fn held_note(held: &[(String, u32, usize)], program: &al_ir::Program) -> String 
         .map(|(company, object, rows)| {
             let o = program.objects.get(*object as usize);
             format!(
-                "table {} {:?} of {company:?} ({rows} rows)",
+                "table {} '{}' of company '{company}' ({rows} rows)",
                 o.and_then(|o| o.id).map_or("?".into(), |id| id.to_string()),
                 o.map_or("?", |o| o.name.as_str())
             )
