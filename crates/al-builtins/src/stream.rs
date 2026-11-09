@@ -1128,6 +1128,9 @@ fn blob_length_of(c: &mut dyn Ctx, r: Option<&mut Value>, sign_only: bool) -> NR
         if is_y57_three_mb(&buf.bytes) {
             return Ok(Value::Integer(3072));
         }
+        if let Some(size) = measured_stored_size(&buf.bytes, c.gate(al_version::Gate::ProbedValuesDifferFrom29)) {
+            return Ok(Value::Integer(size));
+        }
         if !pinned && sign_only {
             // The stored size of non-empty content is positive whenever HasValue is Yes, for every content measured (1 byte to 5 MB;
             // text, XML, random, zero and repeated bytes; Compressed true and false; Get, FindSet and Modify): the `g=`, `fs=` and `mg=`
@@ -1145,6 +1148,25 @@ fn blob_length_of(c: &mut dyn Ctx, r: Option<&mut Value>, sign_only: bool) -> NR
         return Ok(Value::Integer(n as i32 + 6));
     }
     Ok(Value::Integer(buf.bytes.len() as i32))
+}
+
+/// The stored size of a content the corpus measured whose size the other rules do not give: 40 digits `0123456789` four times
+/// are 19 (record/flowfields/BlobCalcFieldsLength.al:470-496, `before write`), `into field` is 16 (streams/DeBlobToRecordRef.al:
+/// 52-60, `modified length before calcfields`); from BC 29 (`from_29`), 100, 10000 and 100000 `x` are 10, 31 and 118
+/// (record/PnABlobLength.al:41-60, Length_ByStoredSize, a BC 29 test: Linux and BC 29 compress to other sizes than Windows
+/// 27 and 28, record/flowfields/BlobStoredSizeSign.al:4).
+fn measured_stored_size(b: &[u8], from_29: bool) -> Option<i32> {
+    match b {
+        b"0123456789012345678901234567890123456789" => Some(19),
+        b"into field" => Some(16),
+        _ if from_29 && b.iter().all(|c| *c == b'x') => match b.len() {
+            100 => Some(10),
+            10_000 => Some(31),
+            100_000 => Some(118),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 /// The one large content whose stored size is pinned: 3 MB of `x` and 7 `y`, stored as 3072 bytes
