@@ -1836,6 +1836,12 @@
 96249 WF3_PlusNoBoth_Line3_Action
 96249 WF3_Plus_Line2_Action
 96249 WF3_Plus_Line3_Action
+96500 Stored_AssignThenWriteCopyNoClearThenParameterRoundTrip
+96500 Stored_AssignThenWriteCopyThenParameterRoundTrip
+96500 Stored_ClearWriteThenAssign
+96500 Stored_ClearWriteThenParameterRoundTrip
+96500 Stored_WriteThenAssign
+96500 Stored_WriteThenParameterRoundTrip
 97000 Insert_Excel_MsReport
 97000 Insert_Excel_OwnReport
 97000 Insert_Rdlc_MsReport

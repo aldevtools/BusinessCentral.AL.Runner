@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<testsuites name="hybrid" tests="24948" failures="0" errors="0" skipped="0" time="3921.303" timestamp="2026-11-09T16:20:31Z"><testsuite name="Codeunit 60002" tests="5" failures="0" errors="0" skipped="0" time="2.339" timestamp="2026-11-09T15:50:13Z">
+<testsuites name="hybrid" tests="24959" failures="0" errors="0" skipped="0" time="10851.220" timestamp="2026-11-09T16:20:31Z"><testsuite name="Codeunit 60002" tests="5" failures="0" errors="0" skipped="0" time="2.339" timestamp="2026-11-09T15:50:13Z">
     <testcase classname="Codeunit 60002" name="OnRun" time="0.157" />
     <testcase classname="Codeunit 60002" name="TestCodeunitOnRun_GlobalSetInOnRun_IsVisibleToTest" time="0.788" />
     <testcase classname="Codeunit 60002" name="TestCodeunitOnRun_RunsExactlyOncePerCodeunit" time="0.308" />
@@ -30930,10 +30930,10 @@
     <testcase classname="Codeunit 92981" name="SetView_DoubleEquals_TwoFields" time="0.020" />
     <testcase classname="Codeunit 92981" name="SetView_DoubleEquals_RoundTrip" time="0.054" />
   </testsuite>
-  <testsuite name="Codeunit 93011" tests="1" failures="0" errors="0" skipped="0" time="0.007" timestamp="2026-11-09T16:19:22Z">
-    <testcase classname="Codeunit 93011" name="RequestOptionsPage_InRequestPageCode_Compiles" time="0.007" />
+  <testsuite name="Codeunit 93011" tests="1" failures="0" errors="0" skipped="0" time="0.190" timestamp="2026-11-09T14:42:50Z">
+    <testcase classname="Codeunit 93011" name="RequestOptionsPage_InRequestPageCode_Compiles" time="0.190" />
   </testsuite>
-  <testsuite name="Codeunit 93241" tests="7" failures="0" errors="0" skipped="0" time="0.654" timestamp="2026-11-09T16:19:22Z">
+<testsuite name="Codeunit 93241" tests="7" failures="0" errors="0" skipped="0" time="0.654" timestamp="2026-11-09T16:19:22Z">
     <testcase classname="Codeunit 93241" name="G612_Composite_ViewIsDestination_SetRecordOk" time="0.190" />
     <testcase classname="Codeunit 93241" name="G612_Composite_OtherDestination" time="0.037" />
     <testcase classname="Codeunit 93241" name="G612_Composite_TestPageGoToOk" time="0.046" />
@@ -31670,5 +31670,18 @@
   <testsuite name="Codeunit 97538" tests="2" failures="0" errors="0" skipped="0" time="0.180" timestamp="2026-11-09T16:20:31Z">
     <testcase classname="Codeunit 97538" name="PageRunModal_NoHandler_RefusedBeforeOnOpenPage" time="0.160" />
     <testcase classname="Codeunit 97538" name="PageRun_NoHandler_RefusedBeforeOnOpenPage" time="0.020" />
+  </testsuite>
+<testsuite name="Codeunit 96500" tests="11" failures="0" errors="0" skipped="0" time="5.902" timestamp="2026-11-09T14:42:40Z">
+    <testcase classname="Codeunit 96500" name="Stored_WriteThenAssign" time="0.872" />
+    <testcase classname="Codeunit 96500" name="Stored_ClearWriteThenAssign" time="0.138" />
+    <testcase classname="Codeunit 96500" name="Stored_WriteThenParameterRoundTrip" time="0.683" />
+    <testcase classname="Codeunit 96500" name="Stored_ClearWriteThenParameterRoundTrip" time="0.323" />
+    <testcase classname="Codeunit 96500" name="Stored_AssignThenWriteCopyThenParameterRoundTrip" time="0.010" />
+    <testcase classname="Codeunit 96500" name="Stored_AssignThenWriteCopyNoClearThenParameterRoundTrip" time="0.081" />
+    <testcase classname="Codeunit 96500" name="Unstored_WriteThenAssign" time="0.426" />
+    <testcase classname="Codeunit 96500" name="Unstored_ClearWriteThenAssign" time="0.779" />
+    <testcase classname="Codeunit 96500" name="Unstored_WriteThenParameterRoundTrip" time="0.827" />
+    <testcase classname="Codeunit 96500" name="Unstored_ClearWriteThenParameterRoundTrip" time="0.831" />
+    <testcase classname="Codeunit 96500" name="Unstored_AssignThenWriteCopyThenParameterRoundTrip" time="0.932" />
   </testsuite>
 </testsuites>

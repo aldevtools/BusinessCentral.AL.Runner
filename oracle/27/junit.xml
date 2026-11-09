@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<testsuites name="DEFAULT" tests="24774" failures="0" errors="0" skipped="0" time="3249.000" timestamp="2026-11-09T16:05:51Z"><testsuite name="Codeunit 68392" tests="1" failures="0" errors="0" skipped="0" time="102.363" timestamp="2026-11-09T15:45:25Z">
+<testsuites name="DEFAULT" tests="24785" failures="0" errors="0" skipped="0" time="2312.990" timestamp="2026-11-09T16:05:51Z"><testsuite name="Codeunit 68392" tests="1" failures="0" errors="0" skipped="0" time="102.363" timestamp="2026-11-09T15:45:25Z">
     <testcase classname="Codeunit 68392" name="Rename_TakesTheData_AndDeleteDropsIt" time="102.363" />
   </testsuite>
   <testsuite name="Codeunit 68393" tests="3" failures="0" errors="0" skipped="0" time="0.030" timestamp="2026-11-09T15:47:20Z">
@@ -27550,8 +27550,8 @@
     <testcase classname="Codeunit 92983" name="RecRefCopy_RecordIntoTemporary_ShareTableTrue" time="0.023" />
     <testcase classname="Codeunit 92983" name="RecRefCopy_RecordRefIntoTemporary_InsertFalse" time="0.017" />
   </testsuite>
-  <testsuite name="Codeunit 93011" tests="1" failures="0" errors="0" skipped="0" time="0.003" timestamp="2026-11-09T16:02:26Z">
-    <testcase classname="Codeunit 93011" name="RequestOptionsPage_InRequestPageCode_Compiles" time="0.003" />
+  <testsuite name="Codeunit 93011" tests="1" failures="0" errors="0" skipped="0" time="0.137" timestamp="2026-11-09T14:39:18Z">
+    <testcase classname="Codeunit 93011" name="RequestOptionsPage_InRequestPageCode_Compiles" time="0.137" />
   </testsuite>
   <testsuite name="Codeunit 93104" tests="7" failures="0" errors="0" skipped="0" time="0.098" timestamp="2026-11-09T16:02:26Z">
     <testcase classname="Codeunit 93104" name="ByteChar_Codes_128_159" time="0.020" />
@@ -31468,5 +31468,18 @@
   <testsuite name="Codeunit 99851" tests="2" failures="0" errors="0" skipped="0" time="0.100" timestamp="2026-11-09T16:05:50Z">
     <testcase classname="Codeunit 99851" name="Ternary_TextNTrue_BuiltinFalse_ValuesAndLengths" time="0.077" />
     <testcase classname="Codeunit 99851" name="Ternary_TextNTrue_BuiltinFalse_IntoShorterTarget" time="0.023" />
+  </testsuite>
+<testsuite name="Codeunit 96500" tests="11" failures="0" errors="0" skipped="0" time="2.605" timestamp="2026-11-09T14:39:19Z">
+    <testcase classname="Codeunit 96500" name="Stored_WriteThenAssign" time="2.324" />
+    <testcase classname="Codeunit 96500" name="Stored_ClearWriteThenAssign" time="0.023" />
+    <testcase classname="Codeunit 96500" name="Stored_WriteThenParameterRoundTrip" time="0.054" />
+    <testcase classname="Codeunit 96500" name="Stored_ClearWriteThenParameterRoundTrip" time="0.030" />
+    <testcase classname="Codeunit 96500" name="Stored_AssignThenWriteCopyThenParameterRoundTrip" time="0.024" />
+    <testcase classname="Codeunit 96500" name="Stored_AssignThenWriteCopyNoClearThenParameterRoundTrip" time="0.023" />
+    <testcase classname="Codeunit 96500" name="Unstored_WriteThenAssign" time="0.023" />
+    <testcase classname="Codeunit 96500" name="Unstored_ClearWriteThenAssign" time="0.024" />
+    <testcase classname="Codeunit 96500" name="Unstored_WriteThenParameterRoundTrip" time="0.027" />
+    <testcase classname="Codeunit 96500" name="Unstored_ClearWriteThenParameterRoundTrip" time="0.027" />
+    <testcase classname="Codeunit 96500" name="Unstored_AssignThenWriteCopyThenParameterRoundTrip" time="0.026" />
   </testsuite>
 </testsuites>
