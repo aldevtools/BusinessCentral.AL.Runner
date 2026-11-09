@@ -1457,6 +1457,8 @@ fn system_option_of_property(base: &SyntaxNode, member: &str) -> Option<(&'stati
 mod calls;
 pub(crate) use calls::BARE_REPORT_MEMBERS;
 mod conv;
+mod enum_overload;
+pub(crate) use enum_overload::EnumFit;
 mod fit;
 mod infer;
 mod member;

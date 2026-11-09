@@ -142,6 +142,36 @@ impl<'a> Checker<'a> {
             Some(r) => since_of(c).is_some_and(|s| s > r),
             None => c.hidden.is_some(),
         };
+        // How many arguments fit a candidate, how many count, and whether one needs an enum conversion (`enum_overload`).
+        let fit_of = |c: &Cand| {
+            let is_proc = matches!(c.target, Res::Proc { .. });
+            let mut converts = false;
+            let counted: Vec<bool> = args
+                .iter()
+                .zip(&c.param_tys)
+                .enumerate()
+                .filter(|(i, _)| !(is_proc && field_only.contains(i)))
+                .map(|(i, (a, p))| {
+                    if is_proc && variant_args.contains(&i) {
+                        fits_proc(&Ty::Variant, p)
+                    } else if is_proc {
+                        match self.enum_arg_fit(sc, &c.target, i, a) {
+                            EnumFit::Same => true,
+                            EnumFit::Converts => {
+                                converts = true;
+                                true
+                            }
+                            EnumFit::No => false,
+                            EnumFit::NotEnum => fits_proc(a, p) || self.implements_param(sc.file, a, p),
+                        }
+                    } else {
+                        fits(a, p)
+                    }
+                })
+                .collect();
+            let fit = counted.iter().filter(|f| **f).count();
+            (fit, fit == counted.len(), converts)
+        };
         let best_of = |hidden: bool| {
             let mut best: Option<(&Cand, usize)> = None;
             for c in cands
@@ -151,22 +181,7 @@ impl<'a> Checker<'a> {
                 // How many arguments fit decides; among equals, the overload whose parameter types are the arguments'
                 // own types wins over one that only takes them as a Variant (Reservation Management has
                 // `SetReservSource(Variant)` and `SetReservSource(RecordRef)`; passing a RecordRef picks the latter).
-                let is_proc = matches!(c.target, Res::Proc { .. });
-                let fit = args
-                    .iter()
-                    .zip(&c.param_tys)
-                    .enumerate()
-                    .filter(|(i, _)| !(is_proc && field_only.contains(i)))
-                    .filter(|(i, (a, p))| {
-                        if is_proc && variant_args.contains(i) {
-                            fits_proc(&Ty::Variant, p)
-                        } else if is_proc {
-                            fits_proc(a, p) || self.implements_param(sc.file, a, p)
-                        } else {
-                            fits(a, p)
-                        }
-                    })
-                    .count();
+                let fit = fit_of(c).0;
                 // Only among the procedures AL code declares: the catalog's overloads keep their order.
                 let exact = if matches!(c.target, Res::Proc { .. }) {
                     args.iter()
@@ -189,6 +204,18 @@ impl<'a> Checker<'a> {
             best
         };
         let (best, newer) = (best_of(false), best_of(true));
+        let full: Vec<(&Cand, bool)> = cands
+            .iter()
+            .filter(|c| matches!(c.target, Res::Proc { .. }) && !is_hidden(c) && c.min <= argc && argc <= c.max)
+            .filter_map(|c| {
+                let (_, all, converts) = fit_of(c);
+                all.then_some((c, converts))
+            })
+            .collect();
+        let best = match self.enum_overload_verdict(sc, node, name, &full, args) {
+            Some(c) => Some((c, usize::MAX)),
+            None => best,
+        };
         let floor = al_version::Runtime::floor();
         // An overload of a newer runtime that fits strictly better than every visible one
         // is what the author meant: BC's compiler refuses the call (ADR-015 3.3 point 4).
