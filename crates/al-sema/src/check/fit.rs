@@ -98,6 +98,9 @@ pub(crate) fn fits_proc(arg: &Ty, param: &str) -> bool {
         (Ty::Char, "text") => true,
         // An Option takes the Integer overload over the Variant one (`option_var`).
         (Ty::Option(_), "integer") => true,
+        // An Integer converts to an Option parameter (codeunits/CwInterfaceLeads.al:143-167 `CW_Overload_OptionVsEnum`:
+        // `P(1)` and `P(I)` take `P(O: Option A,B,C)`).
+        (Ty::Integer, "option") => true,
         _ => fits(arg, param),
     }
 }

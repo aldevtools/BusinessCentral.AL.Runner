@@ -141,7 +141,7 @@ impl Lowerer<'_> {
                 self.interface_call(object, offset, receiver_node.as_ref(), args)
             }
             Some(Res::Proc { object, offset }) => {
-                self.twin_call_refusal(object, offset)?;
+                self.proc_call_refusal(node, object, offset)?;
                 let routine = self.routine_at.get(&(object, offset)).ok_or("procedure not found")?;
                 let sig = self.request_proc_refusal(object, offset)?;
                 let instance = match &receiver_node {
@@ -1011,6 +1011,28 @@ impl Lowerer<'_> {
             Some(d) => Err(d.message.clone()),
             None => Ok(()),
         }
+    }
+
+    /// A call of a procedure AL code declares that the lowering refuses: two overloads take the arguments and one needs an
+    /// enum conversion (the checker's AR1008, `check/enum_overload.rs`), or the procedure has a twin in a page or report
+    /// extension (`twin_call_refusal`). An overload chosen by an assumed rule (AR1009) marks the assumption.
+    fn proc_call_refusal(&mut self, node: &SyntaxNode, object: usize, offset: usize) -> L<()> {
+        let path = &self.ws.files[self.file].path;
+        let at: usize = node.text_range().start().into();
+        let here = |code: &str| {
+            self.checked
+                .diagnostics
+                .iter()
+                .find(|d| d.code == code && d.offset == at && &d.file == path)
+        };
+        if let Some(d) = here("AR1008") {
+            return Err(d.message.clone());
+        }
+        // The overload choice an enum argument made by the assumed Integer rule (`enum_overload_verdict`).
+        if here("AR1009").is_some() {
+            self.assume(al_builtins::assumptions::Assumption::EnumOverloadInteger);
+        }
+        self.twin_call_refusal(object, offset)
     }
 
     /// The checker's runtime refusal of this call, if any: AL0666 (a builtin newer than the app's runtime) or AR1007
