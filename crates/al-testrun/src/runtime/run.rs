@@ -612,8 +612,8 @@ fn run_codeunit_inner(
             }
             let last_case =
                 !matches!(queue.front(), Some(n) if n.routine == r && matches!(n.step, data_driven::Step::Case { .. }));
-            // A cancelled run starts no further test (the one running finishes).
-            if crate::events::cancelled() {
+            // A cancelled run starts no further test (the one running finishes), nor does one stopped at its memory limit.
+            if crate::events::cancelled() || crate::events::halted().is_some() {
                 break;
             }
             crate::events::starting(obj.id.unwrap_or(0), &obj.routines[r].name);
@@ -737,7 +737,7 @@ fn run_codeunit_inner(
                         session.tx_model = model;
                         session.clear_stop();
                         // A scratch run is stopped by `cancel` too, and has a watchdog for that even without a limit.
-                        let cancel = if execute { crate::events::cancel_flag() } else { None };
+                        let cancel = watched_stop(execute);
                         let watchdog = match (limit, &cancel) {
                             (None, None) => None,
                             (l, _) => Some(Watchdog::start_paused(
@@ -944,7 +944,7 @@ fn run_codeunit_inner(
                             Err(Signal::Unsupported(r)) => {
                                 session.rollback_transaction();
                                 session.restore_carried(carried);
-                                Outcome::NotRun(r)
+                                Outcome::NotRun(not_run_reason(r))
                             }
                             Err(other) => Outcome::Fail(format!("unexpected signal {}", other.describe())),
                         };
@@ -1500,6 +1500,24 @@ impl Carried {
 pub(crate) struct Watchdog {
     pub(crate) done: std::sync::mpsc::Sender<()>,
     pub(crate) thread: std::thread::JoinHandle<bool>,
+}
+
+/// The flag the watchdog of a test also stops it for: `cancel` for a scratch run (`execute`), else the run's stop at its
+/// hard memory limit (ADR-066 amendment 10, decision 6; `Hooks::halt`).
+fn watched_stop(execute: bool) -> Option<Arc<std::sync::atomic::AtomicBool>> {
+    if execute {
+        crate::events::cancel_flag()
+    } else {
+        crate::events::halt_flag()
+    }
+}
+
+/// The reason of a test refused with `r`: the run's memory limit when the run stopped there and stopped this test.
+fn not_run_reason(r: String) -> String {
+    match crate::events::halted() {
+        Some(why) if r == al_vm::STOPPED => why,
+        _ => r,
+    }
 }
 
 /// How the reason of a test the time limit stopped starts (the outputs turn it into `Test exceeded <N>s timeout.`).

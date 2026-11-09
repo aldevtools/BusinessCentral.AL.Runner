@@ -43,6 +43,7 @@ mod install_trigger_setup_order;
 mod lean_selection;
 mod login_work_date_lean;
 mod media_export_file_lazy;
+mod memory_threads;
 mod modify_without_change;
 mod page_insert_by_code;
 mod page_run_view;
