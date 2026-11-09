@@ -823,6 +823,30 @@ impl Workspace {
         self.codeunit_subscribers(&["company triggers", "2000000003"])
     }
 
+    /// Whether object `oi` (of an app under test, whose file is parsed) declares a subscriber to a login event the test
+    /// session raises (al-testrun `login.rs`): "System Initialization" (150) `OnAfterLogin` or "Guided Experience" (1990)
+    /// `OnRegisterAssistedSetup`.
+    pub fn declares_login_subscriber(&self, oi: usize) -> bool {
+        if self.objects[oi].kind != ObjKind::Codeunit {
+            return false;
+        }
+        ast::routines_in(self.object_ast(oi).syntax()).iter().any(|r| {
+            r.attributes().any(|a| {
+                a.name().eq_ignore_ascii_case("EventSubscriber") && {
+                    let t = a.syntax().text().to_string().to_lowercase();
+                    [
+                        ("system initialization", "150", "onafterlogin"),
+                        ("guided experience", "1990", "onregisterassistedsetup"),
+                    ]
+                    .iter()
+                    .any(|(name, id, event)| {
+                        (t.contains(&format!("\"{name}\"")) || t.contains(&format!("::{id},"))) && t.contains(event)
+                    })
+                }
+            })
+        })
+    }
+
     fn codeunit_subscribers(&self, keys: &[&str]) -> Vec<(usize, usize)> {
         keys.iter()
             .flat_map(|k| {

@@ -258,6 +258,17 @@ fn walk_tests(lowered: &Lowered, tests: &[usize], login_left_out: bool, evaluate
             return Some(at(why));
         }
     }
+    // A test that reads the state a login subscriber of an app under test keeps: the test session's login, Microsoft's
+    // code that reads the database, set it (`login.rs`, al-runner issue 7343).
+    if let Some(&o) = crate::login::state_objects(lowered)
+        .iter()
+        .find(|o| walk.seen_objects.contains(o))
+    {
+        return Some(format!(
+            "reaches codeunit {}, whose state a login subscriber keeps, and the test session's login reads the database",
+            objects[o].name
+        ));
+    }
     *evaluates = walk.evaluates;
     None
 }
