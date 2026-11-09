@@ -28,6 +28,17 @@ pub(crate) fn datetime_of_unix_millis(ms: i64) -> Value {
     Value::DateTime((unix_epoch_day() - 1) * MS_PER_DAY + ms + 1)
 }
 
+/// The instant in milliseconds since the Unix epoch of a defined `DateTime` value (the inverse of
+/// [`datetime_of_unix_millis`]).
+pub(crate) fn unix_millis_of_datetime(v: i64) -> i64 {
+    v - 1 - (unix_epoch_day() - 1) * MS_PER_DAY
+}
+
+/// The day number (1 = 0001-01-01) of an instant in milliseconds since the Unix epoch, as `Today` gives it.
+pub(crate) fn day_number_of_unix_millis(ms: i64) -> i64 {
+    ms.div_euclid(MS_PER_DAY) + unix_epoch_day()
+}
+
 impl Session {
     /// One reading of the clock, in milliseconds since the Unix epoch, plus the time `Sleep` has
     /// waited.

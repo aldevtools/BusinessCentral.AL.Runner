@@ -30,7 +30,8 @@ impl Session {
             ));
         }
         self.table_op_checks(&t, rec, method, args)?;
-        self.note_table(t.object, method.writes());
+        // The impact trace, and a subscriber whose install order is not known run once under watch (order_trial.rs).
+        self.note_table_op(t.object, method.writes(), rec.borrow().temporary)?;
         if matches!(
             method,
             RecordOp::Find

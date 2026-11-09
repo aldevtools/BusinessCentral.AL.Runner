@@ -114,7 +114,9 @@ fixes that came with that work stay on. Details: [alrunner-buckets.md](alrunner-
   Microsoft's apps install before partner apps; two partner apps whose install code reaches the other's code are
   installed in every order (at most three apps) and the databases compared: the same rows run, different rows refuse
   the tests that touch the tables that differ; two Microsoft apps stay refused (ADR-046 amendment 7,
-  `al-testrun/src/install_orders.rs`).
+  `al-testrun/src/install_orders.rs`). A subscriber of such an app that writes nothing, reads only tables no such install
+  code writes and leaves its arguments unchanged (or only registers with `Sender`) runs without counting as a meeting;
+  values read from the clock do not count as a difference (amendment 8, `al-vm/src/order_trial.rs`).
 - **`--dev-endpoint-ui`** answers unhandled UI as BC 28 and 29's dev-endpoint test runner does (flagged pass).
 
 ## Largest remaining blockers
