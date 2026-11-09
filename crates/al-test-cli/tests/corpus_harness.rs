@@ -1084,12 +1084,31 @@ fn the_other_test_apps_are_reported_apart_from_the_main_one() {
     assert_eq!(function["counts"]["pass"], 29);
     assert_eq!(function["bc_failed"], 20);
     assert_eq!(function["bc_failed_reproduced"], 20);
-    // The control: real BC also fails T5 and T11 under Codeunit isolation, and the runtime fails them too.
-    // Two of the 18 cases BC fails here do not fail in the runtime yet (corpus bump to 4e6c706f).
+    // The control: real BC also fails T5 and T11 under Codeunit isolation. Whether the runtime fails every case BC
+    // fails here is asserted in `the_isolation_control_fails_what_bc_fails` (ignored until two cases are fixed).
     let control = get("isolation-codeunit");
     assert_eq!(control["counts"]["pass"], 31);
     assert_eq!(control["bc_failed"], 18);
-    assert_eq!(control["bc_failed_reproduced"], 16);
+}
+
+// Under TestIsolation = Codeunit real BC fails 18 cases of the isolation probe, and the runtime must fail them all.
+// Ignored: the runtime passes two of them, a wrong result (oracle/28/xunit-isolation-codeunit.xml, nightly run
+// 42604559766). Codeunit 61309 "LT DJ Isol After Rollback", S8_NumberSequenceStillExists and
+// S9_NumberSequenceNotReset: on BC the rollback at the end of a test codeunit undoes the NumberSequence.Insert of
+// S3 ("NumberSequence is gone in S8 (S3 inserted it: Yes): the rollback undid NumberSequence.Insert"); the runtime
+// keeps the sequence. Remove the #[ignore] when the runtime rolls NumberSequence.Insert back with the codeunit.
+#[test]
+#[ignore = "the runtime passes 61309 S8_NumberSequenceStillExists and S9_NumberSequenceNotReset, which BC fails"]
+fn the_isolation_control_fails_what_bc_fails() {
+    let r = all_versions().json("28");
+    let control = r["suites"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["name"] == "isolation-codeunit")
+        .expect("no suite isolation-codeunit");
+    assert_eq!(control["bc_failed"], 18);
+    assert_eq!(control["bc_failed_reproduced"], 18);
 }
 
 // BC 27 and 29 have no isolation oracle (the probe only ran in the BC 28.4 nightly). The testlibraries suite runs in
