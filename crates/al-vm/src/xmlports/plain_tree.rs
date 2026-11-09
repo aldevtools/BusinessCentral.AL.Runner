@@ -12,8 +12,9 @@ pub(super) fn plain_text_tree(schema: &Schema, c: usize) -> bool {
     let kids = schema.children(c);
     // Text elements with their own value (`valued_leaf`) are pinned next to a table element, each once, in a `valued_place`.
     let valued = kids.iter().filter(|&&k| valued_leaf(schema, k)).count();
-    let valued_ok =
-        valued == 0 || (valued_place(schema, c) && kids.iter().any(|&k| schema.node(k).kind == ir::XmlNodeKind::Table));
+    let valued_ok = valued == 0
+        || (valued_place(schema, c)
+            && (kids.iter().any(|&k| schema.node(k).kind == ir::XmlNodeKind::Table) || table_in_text_above(schema, c)));
     n.kind == ir::XmlNodeKind::Text
         && n.triggers.is_empty()
         && !kids.is_empty()
@@ -30,6 +31,32 @@ pub(super) fn plain_text_tree(schema: &Schema, c: usize) -> bool {
                 _ => false,
             }
         })
+}
+
+/// Whether a text element above text element `c`, below the nearest table element, holds a table element itself, and that nearest
+/// table element is not the root (al-runner issue 7349; xmlports/shapes-properties/XpTextValueNestedTable.al, in the row of a table
+/// element below the root text element: :1255 XTN_R1_Export, :1271 XTN_R2_Export, :1287 XTN_R3_Export, :1303 XTN_Around_Export,
+/// :1319 XTN_TwoTexts_Export, :1335 XTN_TwoTables_Export, :1351 XTN_Mixed_Export, :1367 XTN_DeepTable_Export, :1383
+/// XTN_DeepValue_Export, :1399 XTN_FieldValueAround_Export). BC writes the text element with content once and whole where the schema
+/// places it. The same shapes below the root table element are not pinned and stay refused.
+fn table_in_text_above(schema: &Schema, c: usize) -> bool {
+    let mut at = schema.node(c).parent;
+    let mut found = false;
+    while let Some(p) = at {
+        let n = schema.node(p);
+        match n.kind {
+            ir::XmlNodeKind::Table => return found && n.parent.is_some(),
+            ir::XmlNodeKind::Text => {
+                found |= schema
+                    .children(p)
+                    .iter()
+                    .any(|&k| schema.node(k).kind == ir::XmlNodeKind::Table);
+                at = n.parent;
+            }
+            _ => return false,
+        }
+    }
+    false
 }
 
 /// A leaf text element whose only trigger is OnBeforePassVariable: the value it sets is written, once.
