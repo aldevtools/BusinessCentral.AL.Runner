@@ -561,6 +561,7 @@ pub(super) fn grants_mat(
     which: GrantTable,
     filters: &[FieldFilter],
 ) -> Result<Rc<Mat>, StoreError> {
+    super::refuse_unpinned(filters)?;
     // The Expanded Permission rows of tenant sets are composed from the stored rows on every read (`tenant_compose.rs`); the
     // legacy Permission table of tenant sets is not pinned.
     let tenant = match which {
@@ -586,9 +587,9 @@ pub(super) fn grants_mat(
             }
             filters.iter().all(|f| {
                 if Some(f.field) == app_pos {
-                    f.expr.matches(&Value::Guid(s.app))
+                    f.expr.matches_checked(&Value::Guid(s.app))
                 } else if f.field == role_pos {
-                    f.expr.matches(&Value::Code(if which == GrantTable::Legacy {
+                    f.expr.matches_checked(&Value::Code(if which == GrantTable::Legacy {
                         upper_trunc(&s.role, 20).into()
                     } else {
                         upper_trunc(&s.role, 30).into()

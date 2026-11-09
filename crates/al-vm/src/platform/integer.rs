@@ -44,13 +44,14 @@ pub(super) fn get(t: &TableDef, pk: &[Value]) -> Result<Option<Row>, StoreError>
 }
 
 pub(super) fn next(t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError> {
+    super::refuse_unpinned(scan.filters)?;
     let set = set(t, scan.filters)?;
     let others: Vec<&FieldFilter> = scan.filters.iter().filter(|f| f.field != pos(t, NUMBER)).collect();
     let mut after = scan.after.and_then(|a| a.first()).and_then(num);
     let mut examined = 0;
     while let Some(n) = ranges::step(&set, after, scan.ascending) {
         let r = row(t, n);
-        if others.iter().all(|f| f.expr.matches(&r[f.field])) {
+        if others.iter().all(|f| f.expr.matches_checked(&r[f.field])) {
             return Ok(Some(r));
         }
         examined += 1;
@@ -63,6 +64,7 @@ pub(super) fn next(t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError>
 }
 
 pub(super) fn count(t: &TableDef, filters: &[FieldFilter]) -> Result<usize, StoreError> {
+    super::refuse_unpinned(filters)?;
     let set = set(t, filters)?;
     if filters.iter().all(|f| f.field == pos(t, NUMBER)) {
         return Ok(ranges::size(&set) as usize);
@@ -76,7 +78,7 @@ pub(super) fn count(t: &TableDef, filters: &[FieldFilter]) -> Result<usize, Stor
         .flat_map(|&(a, b)| a..=b)
         .filter(|&n| {
             let r = row(t, n);
-            others.iter().all(|f| f.expr.matches(&r[f.field]))
+            others.iter().all(|f| f.expr.matches_checked(&r[f.field]))
         })
         .count())
 }

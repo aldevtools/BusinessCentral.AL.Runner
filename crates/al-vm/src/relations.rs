@@ -169,7 +169,7 @@ impl Session {
         if let Some(e) = expr.compare_error(value) {
             return cond_refusal(e, &format!("{}.{field_name}", t.name));
         }
-        Ok(expr.matches(value))
+        expr.matches(value)
     }
 
     /// `FieldRef.Relation`: the id of the related table, 0 without a relation.

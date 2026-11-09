@@ -928,7 +928,7 @@ impl Session {
                     if let Some(why) = row[*field].unknown() {
                         return unsupported(why.to_string());
                     }
-                    ok &= expr.matches(&row[*field]);
+                    ok &= expr.matches(&row[*field])?;
                 }
                 if ok {
                     kept.push(j);
@@ -944,7 +944,7 @@ impl Session {
             let mut rows = Vec::new();
             for j in joined {
                 let columns = self.project(def, &plan, &j)?;
-                if plan.post.iter().all(|(c, e)| e.matches(&columns[*c])) {
+                if columns_pass(&plan.post, &columns)? {
                     // Order by the OrderBy columns, then the primary key of each dataitem.
                     let mut key: Vec<Value> = def.order_by.iter().map(|(c, _)| columns[*c].clone()).collect();
                     for (item, row) in def.items.iter().zip(&j) {
@@ -1366,7 +1366,7 @@ impl Session {
         let mut keyed: Vec<(Vec<Value>, JoinedRow)> = Vec::new();
         for j in joined {
             let columns = self.project(def, plan, &j)?;
-            if !plan.post.iter().all(|(c, e)| e.matches(&columns[*c])) {
+            if !columns_pass(&plan.post, &columns)? {
                 continue;
             }
             let key = group_cols.iter().map(|c| columns[*c].clone()).collect();
@@ -1508,7 +1508,7 @@ impl Session {
             }
             // HAVING: the filters on aggregated columns see the group's result (corpus
             // queries/TestQueryAggregation.al:182-221, TestQueryColumnFilter.al:36-100).
-            if !plan.having.iter().all(|(c, e)| e.matches(&columns[*c])) {
+            if !columns_pass(&plan.having, &columns)? {
                 continue;
             }
             // Order by the OrderBy columns, then the remaining grouping columns.
@@ -1518,4 +1518,14 @@ impl Session {
         }
         Ok(out)
     }
+}
+
+/// Whether every column filter `(column, filter)` matches its column; a filter whose matching is not pinned refuses.
+fn columns_pass(filters: &[(usize, al_builtins::filter::FilterExpr)], columns: &[Value]) -> Result<bool, Signal> {
+    for (c, e) in filters {
+        if !e.matches(&columns[*c])? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }

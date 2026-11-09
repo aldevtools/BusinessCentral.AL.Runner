@@ -152,7 +152,7 @@ impl Session {
                     if let Some(e) = expr.compare_error(&new[*related]) {
                         return Err(rename_refusal(e));
                     }
-                    parent_ok &= expr.matches(&new[*related]);
+                    parent_ok &= expr.matches(&new[*related])?;
                 }
             }
             if !parent_ok {

@@ -208,7 +208,7 @@ thread_local! {
 fn passes(row: &Row, filters: &[FieldFilter]) -> bool {
     #[cfg(test)]
     ROWS_LOOKED_AT.with(|c| c.set(c.get() + 1));
-    al_builtins::filter::row_passes(row, filters)
+    al_builtins::filter::row_passes_checked(row, filters)
 }
 
 /// Whether a row known only by its key can pass: the filters on key columns are decided, the
@@ -220,7 +220,7 @@ fn may_pass(t: &TableDef, row: &Row, known: usize, known_cols: &[usize], filters
         .filter(|f| {
             known_cols.contains(&f.field) || t.keys[0].iter().position(|k| *k == f.field).is_some_and(|i| i < known)
         })
-        .all(|f| f.expr.matches(&row[f.field]))
+        .all(|f| f.expr.matches_checked(&row[f.field]))
 }
 
 /// Why a filter on the row cannot be decided: it reads a column the row leaves unknown, and the filters on the
@@ -231,7 +231,7 @@ fn unknown_filtered<'a>(row: &'a Row, filters: &[FieldFilter]) -> Option<&'a str
     let left_out = !or_group
         && filters
             .iter()
-            .any(|f| row[f.field].unknown().is_none() && !f.expr.matches(&row[f.field]));
+            .any(|f| row[f.field].unknown().is_none() && !f.expr.matches_checked(&row[f.field]));
     (!left_out).then_some(why)
 }
 
@@ -480,6 +480,7 @@ impl Mat {
     }
 
     pub(crate) fn next(&self, t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError> {
+        super::refuse_unpinned(scan.filters)?;
         let later = |r: &Row| match scan.after {
             None => true,
             Some(a) => {
@@ -585,6 +586,7 @@ impl Mat {
     /// the name does not see it (:712-717), nor does a not-equal, an `&` of not-equals, a comparison or a range
     /// (metadata/FieldNameNotEqualFilter.al:57-120); another form of name filter, and a filter in the OR group, refuse.
     fn found_by_name(&self, t: &TableDef, i: usize, filters: &[FieldFilter], key: usize) -> Result<bool, StoreError> {
+        super::refuse_unpinned(filters)?;
         use al_builtins::filter::FilterExpr;
         let r = &self.rows[i];
         let Some((col, refuse)) = &self.name_only[i] else {
@@ -593,9 +595,9 @@ impl Mat {
         let col = *col;
         if self.name_set.get(i).copied().unwrap_or(false) {
             let known = |c: usize| c == col || t.keys[0].contains(&c) || self.known_cols[i].contains(&c);
-            let left_out = filters
-                .iter()
-                .any(|f| f.group != al_builtins::filter::OR_GROUP && known(f.field) && !f.expr.matches(&r[f.field]));
+            let left_out = filters.iter().any(|f| {
+                f.group != al_builtins::filter::OR_GROUP && known(f.field) && !f.expr.matches_checked(&r[f.field])
+            });
             return match (left_out, refuse) {
                 (true, _) => Ok(false),
                 (false, Some(why)) => Err(refusal(t, why)),
@@ -610,7 +612,7 @@ impl Mat {
         if !or_group {
             for f in filters.iter().filter(|f| f.field == col) {
                 let unseen = match &f.expr {
-                    e if single_value(e) => !e.matches(&r[col]),
+                    e if single_value(e) => !e.matches_checked(&r[col]),
                     FilterExpr::Like(..) => true,
                     FilterExpr::Or(alts) => alts.iter().all(|a| matches!(a, FilterExpr::Eq(_))),
                     // A not-equal, an `&` of not-equals, a comparison and a range of two names do not see it either, with or
@@ -636,10 +638,9 @@ impl Mat {
             }
             // A table number the filters leave out: the row is not seen.
             let lead = t.keys[0].first().copied();
-            if filters
-                .iter()
-                .any(|f| Some(f.field) == lead && r[f.field].unknown().is_none() && !f.expr.matches(&r[f.field]))
-            {
+            if filters.iter().any(|f| {
+                Some(f.field) == lead && r[f.field].unknown().is_none() && !f.expr.matches_checked(&r[f.field])
+            }) {
                 return Ok(false);
             }
         }
@@ -662,6 +663,7 @@ impl Mat {
     }
 
     pub(crate) fn count(&self, t: &TableDef, filters: &[FieldFilter]) -> Result<usize, StoreError> {
+        super::refuse_unpinned(filters)?;
         let mut n = 0;
         let band = self.band(t, filters);
         let check_unknown = self.filters_unknown(filters);

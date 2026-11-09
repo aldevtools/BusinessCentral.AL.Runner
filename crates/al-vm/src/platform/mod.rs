@@ -810,6 +810,15 @@ pub(crate) fn option(t: &TableDef, id: u32, n: i32) -> Value {
     }
 }
 
+/// A read of a platform table through a filter whose matching is not pinned is refused once at its entry; the rows are then
+/// checked with `FilterExpr::matches_checked`.
+pub(crate) fn refuse_unpinned(filters: &[al_builtins::filter::FieldFilter]) -> Result<(), StoreError> {
+    match al_builtins::filter::unpinned_match(filters) {
+        Some(why) => Err(refused(why)),
+        None => Ok(()),
+    }
+}
+
 pub(crate) fn refused(why: impl Into<String>) -> StoreError {
     StoreError::Refused(why.into())
 }

@@ -1716,7 +1716,7 @@ impl Session {
     /// MarkedOnly.
     fn row_passes(&mut self, rec: &Rec, t: &TableDef, row: &[Value]) -> Result<bool, Signal> {
         let (filters, flow_field_filters) = self.split_filters(rec);
-        if filters.iter().any(|f| !f.expr.matches(&row[f.field])) {
+        if !al_builtins::filter::all_match(&filters, row)? {
             return Ok(false);
         }
         if rec.borrow().marked_only && !Self::is_marked(rec, t, row) {
