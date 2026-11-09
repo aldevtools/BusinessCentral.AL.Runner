@@ -76,6 +76,8 @@ pub(super) struct ChainWalk<'a> {
     /// ADR-058 amendment 1, decision 2 (`RunOptions::single_fresh_check`): a member that read a carried
     /// SingleInstance value runs once more with fresh single instances, from the same database start.
     pub fresh_check: bool,
+    /// `RunOptions::chain_wait_for_runs_ahead`: the walk waits for the helpers' runs (`Runs::wait_for_helpers`).
+    pub wait_for_helpers: bool,
 }
 
 /// A helper thread's part of a [`ChainWalk`].
@@ -401,6 +403,7 @@ impl ChainWalk<'_> {
         };
         let thread_baseline = self.thread_baseline;
         std::thread::scope(|scope| {
+            let mut spawned_any = false;
             for _ in 0..self.helpers.min(runs.order.len() - 1) {
                 let (helper, runs) = (&helper, &runs);
                 let spawned = std::thread::Builder::new()
@@ -410,6 +413,10 @@ impl ChainWalk<'_> {
                     // No room for another thread: fewer will do.
                     break;
                 }
+                spawned_any = true;
+            }
+            if self.wait_for_helpers && spawned_any {
+                runs.wait_for_helpers();
             }
             let out = self.walk_on(chain, slots, details, report, Some(&runs));
             runs.close();
@@ -507,8 +514,9 @@ impl ChainWalk<'_> {
                     }
                     let epoch = track.epochs.get(&si).copied();
                     // The fingerprint of where it starts, when a helper runs or ran it in this epoch.
+                    // Waiting for the helpers, a helper may start it only after this point.
                     let actual = runs
-                        .filter(|r| r.has_run(k, epoch))
+                        .filter(|r| r.patient() || r.has_run(k, epoch))
                         .and(start)
                         .and_then(|b| b.fingerprint_apart(&apart));
                     // Whether the helpers ran the suite when the walk reached the member (`SerialWhy::Closed`).
