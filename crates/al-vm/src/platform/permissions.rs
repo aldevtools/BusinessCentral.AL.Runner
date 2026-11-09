@@ -716,6 +716,7 @@ pub(super) fn key_filters(t: &TableDef, which: GrantTable, pk: &[Value]) -> Vec<
     cols.iter()
         .zip(pk)
         .map(|(&id, v)| FieldFilter {
+            lang: al_builtins::filter::filter_language(),
             field: pos(t, id),
             expr: FilterExpr::Eq(v.clone()),
             group: 0,

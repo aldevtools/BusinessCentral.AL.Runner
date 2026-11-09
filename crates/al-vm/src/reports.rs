@@ -2207,11 +2207,8 @@ impl Session {
                     let mut t = rec.borrow_mut();
                     t.filters.retain(|f| !(f.group == LINK_GROUP && f.field == own));
                     if let Some(f) = given.into_iter().next() {
-                        t.filters.push(al_builtins::filter::FieldFilter {
-                            field: own,
-                            expr: f.expr,
-                            group: LINK_GROUP,
-                        });
+                        t.filters
+                            .push(al_builtins::filter::FieldFilter::new(own, f.expr, LINK_GROUP));
                     }
                     continue;
                 }
@@ -2219,11 +2216,9 @@ impl Session {
                 let v = ops::convert(parent.borrow().fields[other].clone(), &ty)?;
                 let mut t = rec.borrow_mut();
                 t.filters.retain(|f| !(f.group == LINK_GROUP && f.field == own));
-                t.filters.push(al_builtins::filter::FieldFilter {
-                    field: own,
-                    expr: al_builtins::filter::FilterExpr::Range(Some(v.clone()), Some(v)),
-                    group: LINK_GROUP,
-                });
+                let range = al_builtins::filter::FilterExpr::Range(Some(v.clone()), Some(v));
+                t.filters
+                    .push(al_builtins::filter::FieldFilter::new(own, range, LINK_GROUP));
             }
         }
         // The `modify` blocks of the extensions that name this item, in object id order.

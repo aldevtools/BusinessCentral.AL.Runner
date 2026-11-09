@@ -327,6 +327,7 @@ impl Session {
         let group = r.filter_group;
         r.filters.retain(|f| !(f.field == pos && f.group == group));
         r.filters.push(FieldFilter {
+            lang: al_builtins::filter::filter_language(),
             field: pos,
             expr,
             group,

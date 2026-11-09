@@ -1961,6 +1961,7 @@ mod tests {
 
     fn range(field: usize, lo: Option<Value>, hi: Option<Value>) -> FieldFilter {
         FieldFilter {
+            lang: al_builtins::filter::filter_language(),
             field,
             expr: FilterExpr::Range(lo, hi),
             group: 0,
@@ -2214,6 +2215,7 @@ mod tests {
         let mut s = MemStore::default();
         assert!(!s.emptied(&cx, &t));
         let filter = FieldFilter {
+            lang: al_builtins::filter::filter_language(),
             field: 0,
             expr: al_builtins::filter::FilterExpr::Eq(Value::Integer(1)),
             group: 0,

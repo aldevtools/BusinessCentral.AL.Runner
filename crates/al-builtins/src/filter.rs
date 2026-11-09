@@ -1473,10 +1473,40 @@ impl Parser<'_> {
 /// A filter on the field at position `field` of the table's field list.
 #[derive(Debug, Clone)]
 pub struct FieldFilter {
+    /// The GlobalLanguage in force on this thread when the filter was set ([`filter_language`]): a filter text shows an enum
+    /// value's CaptionML caption only under that language (al-vm enum_caption_ml.rs).
+    pub lang: i32,
     pub field: usize,
     pub expr: FilterExpr,
     /// The filter group it was set in (`FilterGroup(n)`); every group applies at once.
     pub group: i32,
+}
+
+impl FieldFilter {
+    /// A filter set now: it records the language of this thread ([`filter_language`]).
+    pub fn new(field: usize, expr: FilterExpr, group: i32) -> Self {
+        FieldFilter {
+            lang: filter_language(),
+            field,
+            expr,
+            group,
+        }
+    }
+}
+
+thread_local! {
+    /// The session language of this thread, which a new [`FieldFilter`] records; the VM sets it with the GlobalLanguage.
+    static FILTER_LANGUAGE: std::cell::Cell<i32> = const { std::cell::Cell::new(1033) };
+}
+
+/// Sets the language a new [`FieldFilter`] records; the VM calls it when the session language changes.
+pub fn set_filter_language(language: i32) {
+    FILTER_LANGUAGE.with(|c| c.set(language));
+}
+
+/// The language a new [`FieldFilter`] records.
+pub fn filter_language() -> i32 {
+    FILTER_LANGUAGE.with(|c| c.get())
 }
 
 /// The filter group `FilterGroup(-1)` writes to: its filters on different fields are alternatives
@@ -2091,6 +2121,7 @@ mod tests {
     #[test]
     fn the_or_group_is_alternatives_and_the_other_groups_all_apply() {
         let ff = |field, v: i32, group| FieldFilter {
+            lang: crate::filter::filter_language(),
             field,
             expr: FilterExpr::Eq(Value::Integer(v)),
             group,

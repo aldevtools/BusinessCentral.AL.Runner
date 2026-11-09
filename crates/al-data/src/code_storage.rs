@@ -177,6 +177,7 @@ pub fn number_filters<'a>(
     for f in filters {
         if numeric(f) && compares_numbers(&f.expr) {
             mapped.push(FieldFilter {
+                lang: al_builtins::filter::filter_language(),
                 field: f.field,
                 expr: map_expr(&f.expr, &t.fields[f.field].name, stored(f) == CodeStorage::Variant)?,
                 group: f.group,

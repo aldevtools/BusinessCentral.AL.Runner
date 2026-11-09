@@ -448,6 +448,7 @@ impl Session {
                     r.filters.retain(|f| !(f.group == RUN_LINK_GROUP && f.field == *pf));
                     if let Some(expr) = expr {
                         r.filters.push(FieldFilter {
+                            lang: al_builtins::filter::filter_language(),
                             field: *pf,
                             expr,
                             group: RUN_LINK_GROUP,
@@ -493,6 +494,7 @@ impl Session {
                 let mut r = rec.borrow_mut();
                 r.filters.retain(|f| !(f.group == RUN_LINK_GROUP && f.field == field));
                 r.filters.push(FieldFilter {
+                    lang: al_builtins::filter::filter_language(),
                     field,
                     expr,
                     group: RUN_LINK_GROUP,

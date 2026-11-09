@@ -133,6 +133,7 @@ impl Session {
         for (id, v) in [(1, app), (2, profile_id)] {
             let field = pos(&m, id);
             filters.push(al_builtins::filter::FieldFilter {
+                lang: al_builtins::filter::filter_language(),
                 field,
                 expr: al_builtins::filter::FilterExpr::Eq(al_builtins::ops::convert(v.clone(), &m.fields[field].ty)?),
                 group: 0,

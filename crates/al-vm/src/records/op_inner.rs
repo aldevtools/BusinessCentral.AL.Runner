@@ -1737,11 +1737,8 @@ impl Session {
                         Some(v) => ops::convert(v.clone(), &ty)?,
                         None => from.clone(),
                     };
-                    r.filters.push(FieldFilter {
-                        field: pos,
-                        expr: FilterExpr::Range(Some(from), Some(to)),
-                        group,
-                    });
+                    r.filters
+                        .push(FieldFilter::new(pos, FilterExpr::Range(Some(from), Some(to)), group));
                 }
                 Ok(Value::Null)
             }
@@ -1960,6 +1957,7 @@ impl Session {
                     return Ok(Value::Null);
                 }
                 r.filters.push(FieldFilter {
+                    lang: al_builtins::filter::filter_language(),
                     field: pos,
                     expr,
                     group,

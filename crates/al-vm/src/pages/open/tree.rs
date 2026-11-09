@@ -173,6 +173,7 @@ impl Session {
             && top.iter().zip(&shown).all(|(a, b)| Self::same_key(a, b));
         let cut = match level {
             Some(level) if plain => al_builtins::filter::FieldFilter {
+                lang: al_builtins::filter::filter_language(),
                 field: level,
                 expr: al_builtins::filter::FilterExpr::Eq(Value::Integer(0)),
                 group: TREE_GROUP,
@@ -309,6 +310,7 @@ impl Session {
         st.borrow_mut().tree_shown = shown_keys.clone();
         let cut = match level {
             Some(level) if expanded.is_empty() => al_builtins::filter::FieldFilter {
+                lang: al_builtins::filter::filter_language(),
                 field: level,
                 expr: al_builtins::filter::FilterExpr::Eq(Value::Integer(0)),
                 group: TREE_GROUP,

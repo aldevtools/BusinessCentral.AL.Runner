@@ -952,7 +952,12 @@ impl Session {
         Ok(parts
             .into_iter()
             .filter(|(field, _, is_override)| *is_override || !overridden.contains(field))
-            .map(|(field, expr, _)| FieldFilter { field, expr, group: 0 })
+            .map(|(field, expr, _)| FieldFilter {
+                lang: al_builtins::filter::filter_language(),
+                field,
+                expr,
+                group: 0,
+            })
             .collect())
     }
 
@@ -1211,6 +1216,7 @@ mod tests {
 
     fn eq(field: usize, v: i32) -> FieldFilter {
         FieldFilter {
+            lang: al_builtins::filter::filter_language(),
             field,
             expr: FilterExpr::Eq(Value::Integer(v)),
             group: 0,
@@ -1219,6 +1225,7 @@ mod tests {
 
     fn range(field: usize) -> FieldFilter {
         FieldFilter {
+            lang: al_builtins::filter::filter_language(),
             field,
             expr: FilterExpr::Range(Some(Value::Integer(1)), None),
             group: 0,

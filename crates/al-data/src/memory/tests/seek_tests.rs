@@ -185,6 +185,7 @@ fn a_scan_through_another_keys_band_follows_writes_between_the_steps() {
         let filters = vec![
             range(3, Some(Value::Integer(lo)), Some(Value::Integer(lo + (round % 4)))),
             FieldFilter {
+                lang: al_builtins::filter::filter_language(),
                 field: 1,
                 expr: FilterExpr::Ne(Value::Integer(7)),
                 group: 0,
@@ -306,7 +307,12 @@ fn seek_matches_walk(codes: &[&str], lead: usize) {
                     _ => FilterExpr::Le(v(rnd(100))),
                 };
                 let group = [0, 0, 0, 2, -1][rnd(5) as usize];
-                filters.push(FieldFilter { field, expr, group });
+                filters.push(FieldFilter {
+                    lang: al_builtins::filter::filter_language(),
+                    field,
+                    expr,
+                    group,
+                });
             }
             for key in 0..2 {
                 for ascending in [true, false] {
@@ -351,6 +357,7 @@ fn a_point_filter_on_a_blank_code_still_lets_the_next_key_fields_bound_the_scan(
     ] {
         let f = [
             FieldFilter {
+                lang: al_builtins::filter::filter_language(),
                 field: 2,
                 expr: expr.clone(),
                 group: 0,
