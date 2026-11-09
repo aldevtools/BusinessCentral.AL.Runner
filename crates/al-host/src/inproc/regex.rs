@@ -43,14 +43,28 @@ pub(super) fn is_matching(member: &str) -> bool {
 pub(super) fn key(args: &[&DotNetValue]) -> Option<String> {
     let mut key = String::new();
     for v in args {
-        match v {
-            DotNetValue::Str(_) | DotNetValue::TimeSpan(_) | DotNetValue::Bool(_) => {}
-            DotNetValue::Int32(o) => culture_free(i64::from(*o))?,
-            DotNetValue::Int64(o) => culture_free(*o)?,
-            DotNetValue::Enum { ordinal, .. } => culture_free(*ordinal)?,
+        // One tagged field per argument, `\u{1}` between them (a pattern cannot hold `\u{1}` ambiguously: the tag and
+        // the field count fix where each argument ends).
+        let part = match v {
+            DotNetValue::Str(s) => format!("s{}:{s}", s.len()),
+            DotNetValue::TimeSpan(t) => format!("t{t}"),
+            DotNetValue::Bool(b) => format!("b{}", u8::from(*b)),
+            DotNetValue::Int32(o) => {
+                culture_free(i64::from(*o))?;
+                format!("i{o}")
+            }
+            DotNetValue::Int64(o) => {
+                culture_free(*o)?;
+                format!("l{o}")
+            }
+            DotNetValue::Enum { ty, ordinal, .. } => {
+                culture_free(*ordinal)?;
+                format!("e{}:{ty}:{ordinal}", ty.len())
+            }
             _ => return None,
-        }
-        key.push_str(&format!("{v:?}\u{1}"));
+        };
+        key.push_str(&part);
+        key.push('\u{1}');
     }
     Some(key)
 }
