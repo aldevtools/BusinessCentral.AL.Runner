@@ -554,8 +554,10 @@ fn the_stored_length_of_a_blob_is_given_only_for_the_pinned_sizes() {
     assert_eq!(r("27.5", "Five"), "11");
     // record/flowfields/BlobCalcFieldsLength.al:222 ('new' 9, every major).
     assert_eq!(r("27.5", "Three"), "9");
+    // 100 `x` are 10 on BC 29 (PnABlobLength.al:55); on BC 27 and 28 that content is not measured.
+    assert_eq!(r("29.0", "Hundred"), "10");
     // Six bytes are pinned only as the text 'stored' (:350): six repeated bytes compress.
-    for (bc, routine) in [("27.5", "One"), ("28.5", "One"), ("29.0", "Six"), ("29.0", "Hundred")] {
+    for (bc, routine) in [("27.5", "One"), ("28.5", "One"), ("29.0", "Six"), ("27.5", "Hundred")] {
         assert!(
             r(bc, routine).starts_with("refused:"),
             "{bc} {routine}: {}",

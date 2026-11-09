@@ -270,26 +270,51 @@ fn the_unmeasured_own_insert_shapes_are_refused() {
     assert!(matches!(r, Err(al_builtins::native::Signal::Unsupported(_))), "{r:?}");
 }
 
-// Only FindFirst, FindLast and FindSet are pinned (Y76StaleBuffers.al Y76_Part1_*): the other forms of Find, and a TransferFields out
-// of a record they read, are refused where the stale write would be decided (needs probe: Find('='), Find('-'), Find('+'), Find('>')).
+// Every other form of Find follows the rule of FindFirst, and a TransferFields out of a record one read follows the rule of a
+// TransferFields out of a record read by Get (record/stale-find/Y89StaleFind.al:256-560, Y89_Part1_find_* and
+// Y89_Part1_transfer_find_*).
 #[test]
-fn a_buffer_read_by_another_form_of_find_is_refused_when_its_write_is_stale() {
-    for origin in [
-        "find_equal",
-        "find_minus",
-        "find_plus",
-        "find_next",
-        "transfer_from_find_equal",
-    ] {
-        for same_tx in [true, false] {
-            let src = format!(
-                "{SRC}\ncodeunit 69962 Caller {{ procedure Go(): Text var C: Codeunit C; begin exit(C.Case('{origin}', 'nothing', false, {same_tx})); end; }}"
-            );
-            let r = al_testkit::run_in(&src, "Caller", "Go");
-            assert!(
-                matches!(r, Err(al_builtins::native::Signal::Unsupported(_))),
-                "{origin}/{same_tx}: {r:?}"
-            );
-        }
+fn a_buffer_read_by_another_form_of_find_follows_the_get_rule() {
+    for origin in ["find_equal", "find_minus", "find_plus", "find_next"] {
+        let c = |what, del, same| case(origin, what, del, same);
+        assert_eq!(c("nothing", false, true), RC, "{origin}/nothing");
+        assert_eq!(c("get", false, true), RC, "{origin}/get");
+        assert_eq!(
+            c("modify_changed", false, true),
+            "ok stored=start|5",
+            "{origin}/modify_changed"
+        );
+        assert_eq!(
+            c("modify_unchanged", false, true),
+            "ok stored=start|5",
+            "{origin}/modify_unchanged"
+        );
+        assert_eq!(c("lock", false, true), "ok stored=start|5", "{origin}/lock");
+        assert_eq!(c("nothing", true, true), RC, "{origin}/delete_nothing");
+        assert_eq!(
+            c("modify_changed", true, true),
+            "ok stored=none",
+            "{origin}/delete_modify_changed"
+        );
+        assert_eq!(c("nothing", false, false), RC, "{origin}/committed_nothing");
+        assert_eq!(
+            c("modify_changed", false, false),
+            RC,
+            "{origin}/committed_modify_changed"
+        );
     }
+}
+
+#[test]
+fn a_buffer_that_got_transfer_fields_from_a_found_record_is_written_after_a_lock_only() {
+    let c = |what, del, same| case("transfer_from_find_equal", what, del, same);
+    assert_eq!(c("nothing", false, true), RC);
+    assert_eq!(c("get", false, true), RC);
+    assert_eq!(c("modify_changed", false, true), RC);
+    assert_eq!(c("modify_unchanged", false, true), RC);
+    assert_eq!(c("lock", false, true), "ok stored=start|5");
+    assert_eq!(c("nothing", true, true), RC);
+    assert_eq!(c("modify_changed", true, true), RC);
+    assert_eq!(c("nothing", false, false), RC);
+    assert_eq!(c("modify_changed", false, false), RC);
 }
