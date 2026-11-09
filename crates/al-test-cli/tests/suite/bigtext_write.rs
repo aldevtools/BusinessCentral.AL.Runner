@@ -79,13 +79,14 @@ fn write_of_a_pinned_non_ascii_character_is_one_byte_on_a_default_stream() {
     assert_eq!(r[0].1, Outcome::Pass, "{:?}", r[0]);
 }
 
-// A character no probe shows (a CJK character on a default stream) is refused.
+// A character no probe shows (A with breve, U+0102, on a default stream) is refused. A CJK character is `?` there
+// (streams/AuEdgeTests.al:279).
 #[test]
 fn write_of_an_unpinned_character_is_refused() {
     let r = run(
         "[Test] procedure W() var Rec: Record \"BW Rec\"; Big: BigText; Out: OutStream; T: Text; begin
             Rec.Init(); Rec.Id := 1; Rec.Insert();
-            T[1] := 20013; Big.AddText(T);
+            T[1] := 258; Big.AddText(T);
             Rec.Data.CreateOutStream(Out);
             Big.Write(Out);
          end;",

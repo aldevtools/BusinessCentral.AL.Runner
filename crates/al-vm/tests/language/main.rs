@@ -232,6 +232,7 @@ mod xml_prefix_of_undeclared_namespace;
 mod xml_reserved_prefix;
 mod xml_sibling_unparented;
 mod xml_text_into_document;
+mod xml_text_kind_uninit;
 mod xml_value_assign;
 mod xml_write_kinds;
 mod xml_xmlns_attribute;
