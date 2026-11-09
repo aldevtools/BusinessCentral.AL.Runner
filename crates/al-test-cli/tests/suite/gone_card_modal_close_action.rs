@@ -1,8 +1,9 @@
 //! A card run by Page.RunModal whose row the handler's action deletes: OnQueryClosePage gets LookupCancel and the next row
 //! (or a blank Rec), then OnClosePage runs and RunModal returns LookupCancel (corpus pages/deleted-rows-navigation/
 //! Y89GoneSingleMove.al, codeunit 94730, Y89_CA_Modal_True_1Row_DeleteCurrent `D:10/Q:LookupCancel:0;X`,
-//! Y89_CA_Modal_True_2Row_DeleteCurrent `D:10/Q:LookupCancel:20;X`, result LookupCancel). The last of three rows (rows only
-//! before it) is not pinned: assumption gone-card-last-row-closes-on-row-before, the row before (`LastOfThree`).
+//! Y89_CA_Modal_True_2Row_DeleteCurrent `D:10/Q:LookupCancel:20;X`, result LookupCancel). On the last of three rows (rows only
+//! before it) Rec stands on the row before (`LastOfThree`; Y89GoneSingleMove.al:4398 Y89_CA_Modal_True_3Row_DeleteCurrentLast
+//! `D:30/Q:LookupCancel:20;X:20`).
 
 use al_testkit::outcomes_in;
 use al_testrun::Outcome;

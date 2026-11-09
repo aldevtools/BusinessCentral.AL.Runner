@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<testsuites name="DEFAULT" tests="24665" failures="0" errors="0" skipped="0" time="3682.000" timestamp="2026-11-09T00:37:50Z"><testsuite name="Codeunit 60002" tests="4" failures="0" errors="0" skipped="0" time="0.262" timestamp="2026-11-09T00:18:32Z">
+<testsuites name="DEFAULT" tests="24671" failures="0" errors="0" skipped="0" time="2620.692" timestamp="2026-11-09T02:02:04Z"><testsuite name="Codeunit 60002" tests="4" failures="0" errors="0" skipped="0" time="0.262" timestamp="2026-11-09T00:18:32Z">
     <testcase classname="Codeunit 60002" name="TestCodeunitOnRun_GlobalSetInOnRun_IsVisibleToTest" time="0.213" />
     <testcase classname="Codeunit 60002" name="TestCodeunitOnRun_RunsExactlyOncePerCodeunit" time="0.006" />
     <testcase classname="Codeunit 60002" name="TestCodeunitOnRun_RowInsertedInOnRun_IsVisibleToTest" time="0.020" />
@@ -11233,8 +11233,8 @@
     <testcase classname="Codeunit 92983" name="RecRefCopy_RecordIntoTemporary_ShareTableTrue" time="0.030" />
     <testcase classname="Codeunit 92983" name="RecRefCopy_RecordRefIntoTemporary_InsertFalse" time="0.024" />
   </testsuite>
-  <testsuite name="Codeunit 93011" tests="1" failures="0" errors="0" skipped="0" time="0.000" timestamp="2026-11-09T00:30:25Z">
-    <testcase classname="Codeunit 93011" name="RequestOptionsPage_InRequestPageCode_Compiles" time="0.000" />
+  <testsuite name="Codeunit 93011" tests="1" failures="0" errors="0" skipped="0" time="0.177" timestamp="2026-11-09T02:01:54Z">
+    <testcase classname="Codeunit 93011" name="RequestOptionsPage_InRequestPageCode_Compiles" time="0.177" />
   </testsuite>
   <testsuite name="Codeunit 93104" tests="7" failures="0" errors="0" skipped="0" time="0.101" timestamp="2026-11-09T00:30:26Z">
     <testcase classname="Codeunit 93104" name="ByteChar_Codes_128_159" time="0.023" />
@@ -13231,143 +13231,149 @@
   <testsuite name="Codeunit 94724" tests="1" failures="0" errors="0" skipped="0" time="0.070" timestamp="2026-11-09T00:32:30Z">
     <testcase classname="Codeunit 94724" name="Y88_Profile_EnabledForms" time="0.070" />
   </testsuite>
-  <testsuite name="Codeunit 94730" tests="134" failures="0" errors="0" skipped="0" time="6.260" timestamp="2026-11-09T00:32:31Z">
-    <testcase classname="Codeunit 94730" name="Y89_All_OpenEdit_delallupd_next" time="0.114" />
-    <testcase classname="Codeunit 94730" name="Y89_All_OpenEdit_delallupd_previous" time="0.050" />
-    <testcase classname="Codeunit 94730" name="Y89_All_OpenEdit_delallupd_first" time="0.054" />
-    <testcase classname="Codeunit 94730" name="Y89_All_OpenEdit_delallupd_last" time="0.057" />
-    <testcase classname="Codeunit 94730" name="Y89_All_OpenEdit_delallupd_goto" time="0.053" />
-    <testcase classname="Codeunit 94730" name="Y89_All_OpenEdit_delall_next" time="0.054" />
-    <testcase classname="Codeunit 94730" name="Y89_All_OpenEdit_delall_previous" time="0.050" />
-    <testcase classname="Codeunit 94730" name="Y89_All_OpenEdit_delall_first" time="0.050" />
-    <testcase classname="Codeunit 94730" name="Y89_All_OpenEdit_delall_last" time="0.053" />
-    <testcase classname="Codeunit 94730" name="Y89_All_OpenEdit_delall_goto" time="0.054" />
-    <testcase classname="Codeunit 94730" name="Y89_All_OpenView_delallupd_next" time="0.046" />
-    <testcase classname="Codeunit 94730" name="Y89_All_OpenView_delallupd_previous" time="0.040" />
-    <testcase classname="Codeunit 94730" name="Y89_All_OpenView_delallupd_first" time="0.047" />
-    <testcase classname="Codeunit 94730" name="Y89_All_OpenView_delallupd_last" time="0.047" />
-    <testcase classname="Codeunit 94730" name="Y89_All_OpenView_delallupd_goto" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_All_OpenView_delall_next" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_All_OpenView_delall_previous" time="0.044" />
+  <testsuite name="Codeunit 94730" tests="140" failures="0" errors="0" skipped="0" time="9.125" timestamp="2026-11-09T02:01:54Z">
+    <testcase classname="Codeunit 94730" name="Y89_All_OpenEdit_delallupd_next" time="1.816" />
+    <testcase classname="Codeunit 94730" name="Y89_All_OpenEdit_delallupd_previous" time="0.060" />
+    <testcase classname="Codeunit 94730" name="Y89_All_OpenEdit_delallupd_first" time="0.057" />
+    <testcase classname="Codeunit 94730" name="Y89_All_OpenEdit_delallupd_last" time="0.060" />
+    <testcase classname="Codeunit 94730" name="Y89_All_OpenEdit_delallupd_goto" time="0.056" />
+    <testcase classname="Codeunit 94730" name="Y89_All_OpenEdit_delall_next" time="0.056" />
+    <testcase classname="Codeunit 94730" name="Y89_All_OpenEdit_delall_previous" time="0.053" />
+    <testcase classname="Codeunit 94730" name="Y89_All_OpenEdit_delall_first" time="0.054" />
+    <testcase classname="Codeunit 94730" name="Y89_All_OpenEdit_delall_last" time="0.057" />
+    <testcase classname="Codeunit 94730" name="Y89_All_OpenEdit_delall_goto" time="0.057" />
+    <testcase classname="Codeunit 94730" name="Y89_All_OpenView_delallupd_next" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_All_OpenView_delallupd_previous" time="0.043" />
+    <testcase classname="Codeunit 94730" name="Y89_All_OpenView_delallupd_first" time="0.043" />
+    <testcase classname="Codeunit 94730" name="Y89_All_OpenView_delallupd_last" time="0.044" />
+    <testcase classname="Codeunit 94730" name="Y89_All_OpenView_delallupd_goto" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_All_OpenView_delall_next" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_All_OpenView_delall_previous" time="0.050" />
     <testcase classname="Codeunit 94730" name="Y89_All_OpenView_delall_first" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_All_OpenView_delall_last" time="0.046" />
-    <testcase classname="Codeunit 94730" name="Y89_All_OpenView_delall_goto" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenEdit_delallupd_next" time="0.060" />
+    <testcase classname="Codeunit 94730" name="Y89_All_OpenView_delall_last" time="0.044" />
+    <testcase classname="Codeunit 94730" name="Y89_All_OpenView_delall_goto" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenEdit_delallupd_next" time="0.156" />
     <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenEdit_delallupd_previous" time="0.046" />
-    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenEdit_delallupd_first" time="0.046" />
-    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenEdit_delallupd_last" time="0.046" />
-    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenEdit_delallupd_goto" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenEdit_delall_next" time="0.054" />
+    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenEdit_delallupd_first" time="0.050" />
+    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenEdit_delallupd_last" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenEdit_delallupd_goto" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenEdit_delall_next" time="0.050" />
     <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenEdit_delall_previous" time="0.050" />
-    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenEdit_delall_first" time="0.047" />
-    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenEdit_delall_last" time="0.047" />
-    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenEdit_delall_goto" time="0.050" />
-    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenView_delallupd_next" time="0.044" />
-    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenView_delallupd_previous" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenView_delallupd_first" time="0.046" />
-    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenView_delallupd_last" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenView_delallupd_goto" time="0.040" />
+    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenEdit_delall_first" time="0.056" />
+    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenEdit_delall_last" time="0.053" />
+    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenEdit_delall_goto" time="0.046" />
+    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenView_delallupd_next" time="0.046" />
+    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenView_delallupd_previous" time="0.046" />
+    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenView_delallupd_first" time="0.043" />
+    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenView_delallupd_last" time="0.044" />
+    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenView_delallupd_goto" time="0.047" />
     <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenView_delall_next" time="0.046" />
-    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenView_delall_previous" time="0.050" />
-    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenView_delall_first" time="0.050" />
+    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenView_delall_previous" time="0.043" />
+    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenView_delall_first" time="0.047" />
     <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenView_delall_last" time="0.044" />
-    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenView_delall_goto" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenEdit_delallupd_next" time="0.054" />
-    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenEdit_delallupd_previous" time="0.043" />
+    <testcase classname="Codeunit 94730" name="Y89_NoNew_OpenView_delall_goto" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenEdit_delallupd_next" time="0.123" />
+    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenEdit_delallupd_previous" time="0.046" />
     <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenEdit_delallupd_first" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenEdit_delallupd_last" time="0.044" />
-    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenEdit_delallupd_goto" time="0.046" />
-    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenEdit_delall_next" time="0.040" />
+    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenEdit_delallupd_last" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenEdit_delallupd_goto" time="0.044" />
+    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenEdit_delall_next" time="0.047" />
     <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenEdit_delall_previous" time="0.047" />
-    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenEdit_delall_first" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenEdit_delall_last" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenEdit_delall_goto" time="0.044" />
-    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenView_delallupd_next" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenView_delallupd_previous" time="0.044" />
+    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenEdit_delall_first" time="0.044" />
+    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenEdit_delall_last" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenEdit_delall_goto" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenView_delallupd_next" time="0.046" />
+    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenView_delallupd_previous" time="0.046" />
     <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenView_delallupd_first" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenView_delallupd_last" time="0.044" />
-    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenView_delallupd_goto" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenView_delall_next" time="0.044" />
-    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenView_delall_previous" time="0.046" />
-    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenView_delall_first" time="0.044" />
-    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenView_delall_last" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenView_delall_goto" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenEdit_delallupd_next" time="0.057" />
-    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenEdit_delallupd_previous" time="0.044" />
-    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenEdit_delallupd_first" time="0.047" />
-    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenEdit_delallupd_last" time="0.047" />
-    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenEdit_delallupd_goto" time="0.047" />
-    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenEdit_delall_next" time="0.047" />
-    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenEdit_delall_previous" time="0.047" />
-    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenEdit_delall_first" time="0.047" />
-    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenEdit_delall_last" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenEdit_delall_goto" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenView_delallupd_next" time="0.044" />
-    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenView_delallupd_previous" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenView_delallupd_first" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenView_delallupd_last" time="0.044" />
-    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenView_delallupd_goto" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenView_delall_next" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenView_delall_previous" time="0.044" />
-    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenView_delall_first" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenView_delall_last" time="0.043" />
+    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenView_delallupd_last" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenView_delallupd_goto" time="0.044" />
+    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenView_delall_next" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenView_delall_previous" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenView_delall_first" time="0.043" />
+    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenView_delall_last" time="0.046" />
+    <testcase classname="Codeunit 94730" name="Y89_ReadOnly_OpenView_delall_goto" time="0.046" />
+    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenEdit_delallupd_next" time="0.150" />
+    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenEdit_delallupd_previous" time="0.053" />
+    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenEdit_delallupd_first" time="0.046" />
+    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenEdit_delallupd_last" time="0.050" />
+    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenEdit_delallupd_goto" time="0.057" />
+    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenEdit_delall_next" time="0.054" />
+    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenEdit_delall_previous" time="0.057" />
+    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenEdit_delall_first" time="0.057" />
+    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenEdit_delall_last" time="0.050" />
+    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenEdit_delall_goto" time="0.050" />
+    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenView_delallupd_next" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenView_delallupd_previous" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenView_delallupd_first" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenView_delallupd_last" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenView_delallupd_goto" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenView_delall_next" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenView_delall_previous" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenView_delall_first" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenView_delall_last" time="0.047" />
     <testcase classname="Codeunit 94730" name="Y89_NoInsMod_OpenView_delall_goto" time="0.047" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenEdit_1Row_delcur" time="0.167" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenEdit_1Row_delcur" time="0.237" />
     <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenEdit_1Row_delallupd" time="0.054" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenEdit_1Row_delall" time="0.050" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenEdit_1Row_closeact" time="0.047" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenEdit_1Row_close" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenEdit_2Row_delcur" time="0.044" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenEdit_2Row_delallupd" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenEdit_2Row_delall" time="0.056" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenEdit_2Row_closeact" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenEdit_2Row_close" time="0.044" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenView_1Row_delcur" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenView_1Row_delallupd" time="0.044" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenView_1Row_delall" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenView_1Row_closeact" time="0.050" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenEdit_1Row_delall" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenEdit_1Row_closeact" time="0.057" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenEdit_1Row_close" time="0.044" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenEdit_2Row_delcur" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenEdit_2Row_delallupd" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenEdit_2Row_delall" time="0.050" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenEdit_2Row_closeact" time="0.044" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenEdit_2Row_close" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenView_1Row_delcur" time="0.046" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenView_1Row_delallupd" time="0.046" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenView_1Row_delall" time="0.046" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenView_1Row_closeact" time="0.046" />
     <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenView_1Row_close" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenView_2Row_delcur" time="0.046" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenView_2Row_delallupd" time="0.043" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenView_2Row_delcur" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenView_2Row_delallupd" time="0.047" />
     <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenView_2Row_delall" time="0.047" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenView_2Row_closeact" time="0.044" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenView_2Row_close" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenEdit_1Row_delcur" time="0.113" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenView_2Row_closeact" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenView_2Row_close" time="0.044" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenEdit_1Row_delcur" time="0.137" />
     <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenEdit_1Row_delallupd" time="0.050" />
     <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenEdit_1Row_delall" time="0.050" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenEdit_1Row_closeact" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenEdit_1Row_close" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenEdit_2Row_delcur" time="0.047" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenEdit_2Row_delallupd" time="0.050" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenEdit_2Row_delall" time="0.046" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenEdit_2Row_closeact" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenEdit_2Row_close" time="0.044" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenView_1Row_delcur" time="0.046" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenView_1Row_delallupd" time="0.046" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenView_1Row_delall" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenView_1Row_closeact" time="0.044" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenView_1Row_close" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenView_2Row_delcur" time="0.046" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenView_2Row_delallupd" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenView_2Row_delall" time="0.044" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenView_2Row_closeact" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenView_2Row_close" time="0.040" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_True_1Row_DeleteCurrent" time="0.037" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_True_1Row_DeleteAllUpdate" time="0.043" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_True_1Row_DeleteAll" time="0.033" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_False_1Row_DeleteCurrent" time="0.044" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_False_1Row_DeleteAllUpdate" time="0.036" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_True_2Row_DeleteCurrent" time="0.033" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_True_2Row_DeleteAllUpdate" time="0.034" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_True_2Row_DeleteAll" time="0.040" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_False_2Row_DeleteCurrent" time="0.034" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_False_2Row_DeleteAllUpdate" time="0.033" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_True_CloseAct" time="0.033" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_True_Ok" time="0.030" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_True_Cancel" time="0.033" />
-    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_False_CloseAct" time="0.034" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenEdit_1Row_closeact" time="0.053" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenEdit_1Row_close" time="0.060" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenEdit_2Row_delcur" time="0.057" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenEdit_2Row_delallupd" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenEdit_2Row_delall" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenEdit_2Row_closeact" time="0.044" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenEdit_2Row_close" time="0.043" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenView_1Row_delcur" time="0.050" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenView_1Row_delallupd" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenView_1Row_delall" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenView_1Row_closeact" time="0.046" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenView_1Row_close" time="0.040" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenView_2Row_delcur" time="0.050" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenView_2Row_delallupd" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenView_2Row_delall" time="0.047" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenView_2Row_closeact" time="0.044" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_False_OpenView_2Row_close" time="0.043" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_True_1Row_DeleteCurrent" time="0.060" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_True_1Row_DeleteAllUpdate" time="0.040" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_True_1Row_DeleteAll" time="0.037" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_False_1Row_DeleteCurrent" time="0.034" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_False_1Row_DeleteAllUpdate" time="0.037" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_True_2Row_DeleteCurrent" time="0.037" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_True_2Row_DeleteAllUpdate" time="0.033" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_True_2Row_DeleteAll" time="0.036" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_False_2Row_DeleteCurrent" time="0.036" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_False_2Row_DeleteAllUpdate" time="0.036" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_True_CloseAct" time="0.030" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_True_Ok" time="0.034" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_True_Cancel" time="0.030" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_False_CloseAct" time="0.036" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenEdit_3Row_delcur_last" time="0.196" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_True_OpenView_3Row_delcur_last" time="0.040" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_Get_OpenEdit_3Row_delcur_last" time="0.137" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_Get_OpenEdit_3Row_delcur_first" time="0.063" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_True_3Row_DeleteCurrentLast" time="0.036" />
+    <testcase classname="Codeunit 94730" name="Y89_CA_Modal_Get_3Row_DeleteCurrentLast" time="0.036" />
   </testsuite>
-  <testsuite name="Codeunit 94737" tests="18" failures="0" errors="0" skipped="0" time="1.632" timestamp="2026-11-09T00:32:38Z">
+<testsuite name="Codeunit 94737" tests="18" failures="0" errors="0" skipped="0" time="1.632" timestamp="2026-11-09T00:32:38Z">
     <testcase classname="Codeunit 94737" name="Y89_Part1_find_def" time="0.163" />
     <testcase classname="Codeunit 94737" name="Y89_Part1_find_eq" time="0.080" />
     <testcase classname="Codeunit 94737" name="Y89_Part1_find_gt" time="0.090" />

@@ -27,7 +27,13 @@ page 51623 "Y9 CardGet" { PageType = Card; SourceTable = "Y9 Row";
     actions { area(Processing) { action(DelCur) { trigger OnAction() begin Rec.Delete(true); end; } } }
     trigger OnAfterGetRecord() begin L.Add('G:' + Format(Rec.Id)); end;
     trigger OnQueryClosePage(CloseAction: Action): Boolean begin L.Add('Q:' + Format(CloseAction) + ':' + Format(Rec.Id)); exit(true); end;
-    trigger OnClosePage() begin L.Add('X'); end;
+    trigger OnClosePage() begin L.Add('X:' + Format(Rec.Id)); end;
+    var L: Codeunit "Y9 Log"; }
+page 51624 "Y9 CardLast" { PageType = Card; SourceTable = "Y9 Row";
+    layout { area(Content) { field(IdCtl; Rec.Id) { } } }
+    actions { area(Processing) { action(DelCur) { trigger OnAction() begin Rec.Delete(true); end; } } }
+    trigger OnQueryClosePage(CloseAction: Action): Boolean begin L.Add('Q:' + Format(CloseAction) + ':' + Format(Rec.Id)); exit(true); end;
+    trigger OnClosePage() begin L.Add('X:' + Format(Rec.Id)); end;
     var L: Codeunit "Y9 Log"; }
 codeunit 51625 C
 {
@@ -50,7 +56,7 @@ codeunit 51625 C
         exit(L.Take());
     end;
     local procedure LastCell(View: Boolean): Text
-    var L: Codeunit "Y9 Log"; P: TestPage "Y9 Card";
+    var L: Codeunit "Y9 Log"; P: TestPage "Y9 CardLast";
     begin
         Seed(3);
         if View then P.OpenView() else P.OpenEdit();
@@ -63,12 +69,16 @@ codeunit 51625 C
     begin
         exit(LastCell(false) + '|' + LastCell(true));
     end;
-    procedure LastRowGet(): Text
+    procedure GetLastAndFirst(): Text
+    begin
+        exit(RowGet(30) + '|' + RowGet(10));
+    end;
+    local procedure RowGet(Id: Integer): Text
     var L: Codeunit "Y9 Log"; P: TestPage "Y9 CardGet";
     begin
         Seed(3);
         P.OpenEdit();
-        P.GoToKey(30);
+        P.GoToKey(Id);
         L.Take();
         P.DelCur.Invoke();
         exit(L.Take());
@@ -91,17 +101,20 @@ fn a_forced_close_of_a_card_passes_ok_and_the_next_row() {
     );
 }
 
-// A card whose deleted row was the last row of its view, with rows before it: not pinned by the corpus. Microsoft's tests
-// (Tests-ERM-Purchase, codeunit 134099 PostPurchaseInvoiceCardWithBlankQuantityIsFoundationFALSE and others) post the last
-// purchase document from its card and need the forced close to finish. Assumed (flagged): OnQueryClosePage gets the same
-// action as when a row after it is left, and Rec stands on the nearest row before the deleted one, without OnAfterGetRecord.
+/// Y89_CA_True_{OpenEdit,OpenView}_3Row_delcur_last `action log` `D:30/Q:OK:20;X:20`: a card on the last of rows 10, 20, 30
+/// whose action deletes it closes with OK, and Rec stands on the row before it in OnQueryClosePage and OnClosePage.
 #[test]
 fn a_forced_close_of_a_card_whose_deleted_row_was_last_passes_ok_and_the_row_before() {
-    use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
-    clear_hits();
-    assert_eq!(text(run_in(SRC, "C", "LastRow")), "Q:OK:20;X|Q:OK:20;X");
-    assert!(take_hits().contains(&Assumption::GoneCardLastRowClosesOnRowBefore));
-    // `G:30` is the read of the row as the action left it, before the page finds it gone (as before this assumption); no read
-    // of row 20 follows, before or after the close.
-    assert_eq!(text(run_in(SRC, "C", "LastRowGet")), "G:30;Q:OK:20;X");
+    assert_eq!(text(run_in(SRC, "C", "LastRow")), "Q:OK:20;X:20|Q:OK:20;X:20");
+}
+
+/// Y89_CA_Get_OpenEdit_3Row_delcur_last `D:30/G:30;G:20;Q:OK:20;X:20` and _delcur_first `D:10/G:10;G:20;Q:OK:20;X:20`: after
+/// the read of the deleted row as the action left it, OnAfterGetRecord runs for the row the card moves to (before or after
+/// the deleted one), then OnQueryClosePage and OnClosePage; no read follows the close.
+#[test]
+fn a_forced_close_of_a_card_runs_on_after_get_record_for_the_row_it_moves_to() {
+    assert_eq!(
+        text(run_in(SRC, "C", "GetLastAndFirst")),
+        "G:30;G:20;Q:OK:20;X:20|G:10;G:20;Q:OK:20;X:20"
+    );
 }
