@@ -78,6 +78,7 @@ codeunit 50200 "OB Subscriber"
 
     procedure Note()
     begin
+        IsolatedStorage.Set('note', 'x');
     end;
 
     procedure Register(TableId: Integer)
@@ -366,6 +367,7 @@ codeunit 50200 "OB Subscriber"
 
     procedure Note()
     begin
+        IsolatedStorage.Set('note', 'x');
     end;
 }}
 "#
@@ -475,6 +477,7 @@ codeunit 50201 "OB Helper"
 {{
     procedure Note()
     begin
+        IsolatedStorage.Set('note', 'x');
     end;
 }}
 "#

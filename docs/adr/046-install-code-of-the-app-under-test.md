@@ -1137,3 +1137,66 @@ this refused, while they pass on real BC:
 - An app whose manifest gives no publisher counts as Microsoft's side, so nothing changes where the fact is missing.
 - System fields and the GUID and row version counters are left out of the comparison; every other value counts, so a
   `CurrentDateTime` or `CreateGuid` value that install code writes in both apps is a difference (refused).
+
+## Amendment 8 (2026-11-09): subscribers that cannot make the order visible; clock values in the comparison
+
+Status: decided without owner review (2026-11-09), following the plan stated on al-runner issue 6644. al-runner issues
+6972 and 6644. It changes no seam: the comparison of amendment 7 and the refusal of amendment 6 item 2 stay; this
+amendment narrows when they apply.
+
+### Context
+
+After amendment 7 the reporter's suite (about 45 partner apps) still stopped, mostly because many partner apps meet
+through a few events, so the set of interacting apps grows past three and the comparison is not tried. Three shapes,
+none of which can change the database between the orders:
+
+1. A `GlobalTriggerManagement.OnAfterGetDatabaseTableTriggerSetup` subscriber that answers from its own app's setup table
+   through a SingleInstance cache; no install code writes that table (issue 6972).
+2. A subscriber that only calls `Sender.Register(MyLogger)` of System Application's "Telemetry Loggers", whose logger
+   keeps messages in memory (issue 6644 a).
+3. Upgrade tags whose rows are the same in every order except a timestamp read from the clock (issue 6644 b).
+
+### Decision
+
+1. **A watched run instead of an immediate refusal** (`al-vm/src/order_trial.rs`). Where amendment 6 item 2 refuses a
+   subscriber of an app whose order is open, a raise (not a question whether the event has listeners) runs it once and
+   keeps the result when running it and not running it leave the same database:
+   - it wrote no row of a table that is not temporary, no isolated storage, number sequence or AutoIncrement counter,
+     committed nothing, changed neither WorkDate nor the language, and used no page, report or .NET;
+   - it read only tables that no install code of the apps whose order is open may write (in the install baseline: the
+     partner dependency apps' install code; for apps under test: theirs, as in amendment 6 item 8). Its inputs are then
+     the same in both orders, and its SingleInstance state starts fresh in each install session (A4);
+   - every `var` argument but `Sender` holds a plain value that is the same after the run, every other argument is a
+     plain value or a record, and it entered no codeunit of another app that holds state;
+   - or the only state of another app it entered is a codeunit of the publisher's app that is not SingleInstance, with
+     `Sender` passed: it handed something to the publisher's instance. Then, until the next app installs, a write of a
+     non-temporary row while code of the subscriber's app is on the call stack is refused as before, so what the
+     publisher later calls on what was handed over (the logger) writes nothing.
+   Anything else (an error, a refusal inside it, a write, a read of a table install code may write, a changed argument)
+   is the refusal of amendment 6 item 2, and the apps join the comparison of amendment 7.
+2. **Values read from the clock are left out of the comparison** (`al-vm/src/baseline/install_orders.rs`). Each order
+   notes the clock before and after its install code. A DateTime inside that window, a Time at a time of day of it and a
+   Date of a day of it count as read from the clock, in key and row alike; two rows whose values differ only there are
+   the same. BC keeps no order between two apps with no dependency path, so no test can depend on which of the two read
+   the clock first. The undefined values (0D, 0T, 0DT) and every value outside the window still count, so a stamp
+   written in one order only is still a difference.
+3. **Every difference is named.** The baseline notes (`--verbose`) list each difference as
+   `install order difference: <table>, key <values>, field <name>: <value> against <value>` (or a row in one order only),
+   and the refusal names the first three.
+
+### Decided without owner review (2026-11-09)
+
+- The publisher's own code is taken to write the same rows whether or not a subscriber handed it something (item 1, last
+  case). The watched run sees only the subscriber; it does not run the publisher both ways. This is the argument stated
+  on issue 6644 for `Sender.Register`; a SingleInstance publisher codeunit (state the installing code can read back) is
+  not covered and stays refused.
+- A value inside the clock window that is not a clock reading (a constant equal to the current instant) is treated as a
+  clock value. The window is the run's own duration, so only a constant naming that moment can match.
+- Old static tests that refused a subscriber which provably changes nothing (a flag copied from a flag that is false, a
+  call of an empty procedure) now pass; their sources were changed so the refused cases write isolated storage.
+
+### Tests
+
+`al-testrun/tests/suite/install_order_independent.rs`: shapes 1 and 2 with five interacting apps (more than amendment 7 tries), shape 3 with two,
+in the install baseline and as apps under test; the counter-shapes (the setup table written by install code, a logger that
+writes a row) stay refused with the table named.

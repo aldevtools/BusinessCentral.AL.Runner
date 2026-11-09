@@ -61,6 +61,7 @@ pub mod dotnet;
 mod effects;
 mod empty_reads;
 mod enum_caption_ml;
+mod order_trial;
 mod page_held_bindings;
 pub use empty_reads::{InstallRows, KnownValue};
 mod caller_writes;
@@ -1373,6 +1374,7 @@ impl Session {
                 install_written: None,
                 install_rows: None,
                 setup_no_ops: Default::default(),
+                trial: Default::default(),
                 global_setups: Default::default(),
             },
             coverage: CoverageState {
@@ -1766,6 +1768,8 @@ impl Session {
             }
         }
         self.events.order_unknown_apps = apps;
+        // What a subscriber handed to its publisher lives in the install session of the app that installed (order_trial.rs).
+        self.events.trial.guarded.clear();
     }
 
     /// The tables (object indexes) the install code of the apps under test may write. A subscriber whose install order is
