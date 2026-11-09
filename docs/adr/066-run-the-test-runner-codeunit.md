@@ -1171,7 +1171,8 @@ What this shows:
   Note (2026-11-09, after the owner's requirement "if I say maximum, then that has to be the maximum"): the compile
   is now held to the limit too. A watcher reads the resident memory from before the apps load; past the stop line the
   compile's threads stop at their next file or object (`al_sema::halt`) and every test is not run with the limit as
-  the reason (exit code 2). The cold compile cache still needs about 3.4 GB on Tests-SCM: fewer compile threads did
+  the reason (exit code 2). The run's own watcher starts before the install baseline, and a stop ends the install
+  code too (its session's stop flag). The cold compile cache still needs about 3.4 GB on Tests-SCM: fewer compile threads did
   not lower it (3389 MB with one thread against 3456 MB), and lending the sources to the first layer instead of copying
   them did not either (3456 MB): the memory is the data the compile holds. Making it smaller is a change of its own.
 - A thread that ends and starts again pays one decode of its baseline copy.

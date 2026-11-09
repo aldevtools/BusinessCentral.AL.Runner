@@ -891,6 +891,42 @@ fn foreign_request_control<'a>(
     })
 }
 
+/// The heads, positions, drivers and (with `export`) the blocks of a cache layer, from the objects as linked
+/// (`lower_core`). A block holds a copy of its object, so this doubles the program for a moment: a hard memory limit
+/// stops it at the next object (`halt.rs`).
+fn export_blocks(
+    set: &mut crate::provided::DepSet,
+    program: &ir::Program,
+    pos_ranges: &[(u32, u32)],
+    export: bool,
+    prov: &dyn Fn(usize) -> bool,
+) {
+    set.heads = program.objects.iter().map(ir::ObjectHead::of).collect();
+    for (oi, o) in program.objects.iter().enumerate() {
+        crate::halt::check();
+        let (start, len) = pos_ranges[oi];
+        let facts = &mut set.facts[oi];
+        facts.positions = len;
+        facts.drivers = o
+            .routines
+            .iter()
+            .map(|r| driver_types(r.locals.iter().chain(&o.globals)))
+            .collect();
+        if !export {
+            continue;
+        }
+        set.blocks.push(if prov(oi) {
+            crate::provided::DepBlock::placeholder()
+        } else {
+            crate::provided::DepBlock {
+                object: Some(o.clone()),
+                pos_start: start,
+                positions: (start..start + len).map(|id| program.positions[id as usize]).collect(),
+            }
+        });
+    }
+}
+
 /// What a lowering exports beside the program (`Lowered::exported`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Export {
@@ -1069,7 +1105,6 @@ pub(crate) fn lower_core(
             if k >= theirs.len() {
                 return out;
             }
-            crate::halt::check();
             for &oi in &theirs[k..(k + LOWER_CHUNK).min(theirs.len())] {
                 out.push((oi, lower_object(&shared, local, seq, oi, &mut line_cache)));
             }
@@ -1213,6 +1248,7 @@ pub(crate) fn lower_core(
         .map(|p| p.as_ref().map_or_else(Vec::new, |p| p.embeds.clone()))
         .collect();
     for (oi, piece) in pieces.into_iter().enumerate() {
+        crate::halt::check(); // The export of a cache layer grows too (`halt.rs`).
         if let Some(p) = piece.as_ref().filter(|_| shared.active[oi]) {
             if ws.is_dependency(oi) {
                 out.work.dependency_objects_lowered += 1;
@@ -1222,7 +1258,7 @@ pub(crate) fn lower_core(
                 out.work.routines_lowered += p.lowered_routines;
             }
         }
-        let Some(piece) = piece else {
+        let Some(piece) = piece.map(|p| *p) else {
             // Supplied by the cache: its refusals and calls are read from the facts, or copied without them kept.
             let facts = src.expect("a supplied object has a source").facts(oi);
             // `ndirect` stays aligned with `calls` by object (al-runner issue 6031). The facts hold only the calls the code
@@ -1257,7 +1293,6 @@ pub(crate) fn lower_core(
             staged.slots.push(None);
             continue;
         };
-        let piece = *piece;
         if let Some(set) = exported.as_mut() {
             let o = &ws.objects[oi];
             let recorded: std::collections::BTreeSet<usize> = embeds_of_all[oi].iter().copied().collect();
@@ -1449,29 +1484,7 @@ pub(crate) fn lower_core(
     if let Some(set) = exported.as_mut() {
         // Heads and blocks from the objects as linked, after the relations (ADR-054 decision 2, owner decision
         // 2026-10-27): a run decodes a block and has the object, with no link.
-        set.heads = program.objects.iter().map(ir::ObjectHead::of).collect();
-        for (oi, o) in program.objects.iter().enumerate() {
-            let (start, len) = out.pos_ranges[oi];
-            let facts = &mut set.facts[oi];
-            facts.positions = len;
-            facts.drivers = o
-                .routines
-                .iter()
-                .map(|r| driver_types(r.locals.iter().chain(&o.globals)))
-                .collect();
-            if !export {
-                continue;
-            }
-            set.blocks.push(if prov(oi) {
-                crate::provided::DepBlock::placeholder()
-            } else {
-                crate::provided::DepBlock {
-                    object: Some(o.clone()),
-                    pos_start: start,
-                    positions: (start..start + len).map(|id| program.positions[id as usize]).collect(),
-                }
-            });
-        }
+        export_blocks(set, &program, &out.pos_ranges, export, &prov);
     }
     out.exported = exported;
     if src.is_some() {

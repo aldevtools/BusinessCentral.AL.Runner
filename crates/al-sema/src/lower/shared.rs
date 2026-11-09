@@ -257,6 +257,7 @@ pub(crate) fn lower_object<'a>(
     oi: usize,
     line_cache: &mut HashMap<usize, std::rc::Rc<FileLines>>,
 ) -> Piece {
+    crate::halt::check(); // A hard memory limit stops the compile at the next object (`halt.rs`).
     let ws = sh.ws;
     let members = sh.members;
     let checked = sh.checked;

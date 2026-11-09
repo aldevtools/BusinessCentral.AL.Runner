@@ -1003,7 +1003,6 @@ impl CorpusRuntime {
         let limit = opts.test_time_limit;
         // A debugged run is one thread, so the tests stop one at a time (ADR-048 decision 3); the memory budget may cut.
         let mut memory = super::memory::Plan::after_compile(opts, test_workers());
-        memory.pool().watch(); // A hard limit stops the run before the resident memory passes it, baseline included.
         let mut workers = memory.workers();
         let baseline = baseline && !memory.halted(); // A run stopped at its memory limit builds no install baseline.
         let baseline_skipped = baseline_wanted && !baseline;
@@ -1115,12 +1114,13 @@ impl CorpusRuntime {
                 .flatten();
             let run = if baseline {
                 kept.or_else(|| {
-                    crate::baseline::run_traced(
+                    crate::baseline::run_traced_halting(
                         &engine,
                         lowered,
                         opts.impact_trace || opts.narrow.is_some(),
                         opts.company_data.as_ref(),
                         &opts.perturb,
+                        memory.halt_flag(),
                     )
                 })
             } else {
@@ -1153,7 +1153,7 @@ impl CorpusRuntime {
         // run runs the install code again (`al_vm::dotnet::pure`).
         let install_called_dotnet = engine.dotnet_called.load(std::sync::atomic::Ordering::Relaxed);
         if let (false, false, Some(key), Some(cc), Some(run)) = (
-            from_cache,
+            from_cache || memory.halted(), // A baseline the memory limit stopped is not kept.
             install_called_dotnet,
             baseline_key.as_ref(),
             opts.compile_cache.as_ref(),

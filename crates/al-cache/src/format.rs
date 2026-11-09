@@ -142,7 +142,10 @@ fn build_parts(base_len: usize, objects: &[u32], set: &DepSet, key: &Key, shared
     let raw: Vec<Vec<u8>> = set
         .blocks
         .par_iter()
-        .map(|b| postcard::to_stdvec(b).expect("a block serializes"))
+        .map(|b| {
+            al_sema::halt::check(); // A hard memory limit stops a compile cache build here (`al_sema::halt`).
+            postcard::to_stdvec(b).expect("a block serializes")
+        })
         .collect();
     // Train the dictionary on blocks taken evenly across the set.
     let total: usize = raw.iter().map(Vec::len).sum();
@@ -163,7 +166,10 @@ fn build_parts(base_len: usize, objects: &[u32], set: &DepSet, key: &Key, shared
                 c.include_checksum(true).expect("checksum flag");
                 c
             },
-            |c, bytes| c.compress(bytes).expect("a block compresses"),
+            |c, bytes| {
+                al_sema::halt::check();
+                c.compress(bytes).expect("a block compresses")
+            },
         )
         .collect();
     // The layout: header, dictionary, blocks, index. The index holds the offsets and comes last,
