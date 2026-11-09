@@ -2117,6 +2117,7 @@ impl Lowerer<'_> {
                 _ => Err(self
                     .base_member(n)
                     .or_else(|| self.control_add_in(n))
+                    .or_else(|| self.bare_report_method_without_call(n))
                     .unwrap_or_else(|| format!("`{}` is not assignable", n.text()))),
             },
         }
