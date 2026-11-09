@@ -190,6 +190,126 @@ impl Halt {
     }
 }
 
+/// The watcher of the compile (decision 6 for the whole run; owner, 2026-11-09): under a hard limit it reads the
+/// resident memory from before the apps are loaded until they are compiled, and sets its flag before the resident
+/// memory passes the stop line. The compile's threads are armed with the flag (`al_sema::halt`) and stop at their next
+/// object or file; the caller reports every test as not run.
+pub(crate) struct CompileWatch {
+    flag: Arc<AtomicBool>,
+    message: Arc<Mutex<Option<String>>>,
+    reason: String,
+    watcher: Option<(std::sync::mpsc::Sender<()>, std::thread::JoinHandle<()>)>,
+}
+
+impl CompileWatch {
+    /// Starts the watcher under a hard limit whose resident memory can be read; `None` otherwise. A process that holds
+    /// more than the stop line already has its flag set at once.
+    pub(crate) fn start(budget: Option<&MemoryBudget>) -> Option<CompileWatch> {
+        let b = budget.filter(|b| b.hard)?.clone();
+        (b.rss)()?;
+        let flag: Arc<AtomicBool> = Arc::default();
+        let message: Arc<Mutex<Option<String>>> = Arc::default();
+        let sample = {
+            let (flag, message, b) = (flag.clone(), message.clone(), b.clone());
+            move || {
+                if let Some(m) = (b.rss)().and_then(|now| compile_stop(&b, now)) {
+                    message.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert(m);
+                    flag.store(true, Ordering::SeqCst);
+                }
+            }
+        };
+        sample();
+        let (done, rx) = std::sync::mpsc::channel::<()>();
+        let thread = std::thread::spawn(move || {
+            while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = rx.recv_timeout(SAMPLE) {
+                sample();
+            }
+        });
+        Some(CompileWatch {
+            flag,
+            message,
+            reason: format!("{REASON}{} {} MB)", b.source, b.limit >> 20),
+            watcher: Some((done, thread)),
+        })
+    }
+
+    /// The flag the compile's threads are armed with.
+    pub(crate) fn flag(&self) -> Arc<AtomicBool> {
+        self.flag.clone()
+    }
+
+    /// The reason of the tests not run once the compile stopped: "memory limit (--max-memory 2048 MB)".
+    pub(crate) fn reason(&self) -> &str {
+        &self.reason
+    }
+
+    /// Stops the watcher: the message when the compile was stopped.
+    pub(crate) fn stop(&mut self) -> Option<String> {
+        if let Some((done, thread)) = self.watcher.take() {
+            let _ = done.send(());
+            let _ = thread.join();
+        }
+        self.message.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
+impl Drop for CompileWatch {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// Sets a session's stop flag once the run stops at its hard limit (`halt`), while it lives: the install baseline's
+/// code then stops at its next loop iteration, as a running test does through its watchdog.
+pub(crate) struct StopBridge {
+    done: Option<(std::sync::mpsc::Sender<()>, std::thread::JoinHandle<()>)>,
+}
+
+impl StopBridge {
+    /// `None` without a `halt` flag (no hard limit).
+    pub(crate) fn start(halt: Option<Arc<AtomicBool>>, stop: Arc<AtomicBool>) -> Option<StopBridge> {
+        let halt = halt?;
+        let (done, rx) = std::sync::mpsc::channel::<()>();
+        let thread = std::thread::spawn(move || {
+            while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = rx.recv_timeout(SAMPLE) {
+                if halt.load(Ordering::SeqCst) {
+                    stop.store(true, Ordering::SeqCst);
+                    return;
+                }
+            }
+        });
+        Some(StopBridge {
+            done: Some((done, thread)),
+        })
+    }
+}
+
+impl Drop for StopBridge {
+    fn drop(&mut self) {
+        if let Some((done, thread)) = self.done.take() {
+            let _ = done.send(());
+            let _ = thread.join();
+        }
+    }
+}
+
+/// The message when the compile must stop: the resident memory `now` passed the stop line of a hard limit. The
+/// compile's threads stop at their next file or object, but the process still grows a little first: on Tests-SCM a
+/// cold compile cache passed a line a thirty-second under the limit by 92 MB (3068 MB of 3072), so the compile keeps
+/// the one-thread line ([`stop_line`]), an eighth under it.
+fn compile_stop(b: &MemoryBudget, now: u64) -> Option<String> {
+    (now > stop_line(b.limit)).then(|| {
+        format!(
+            "not enough memory to run the tests: the process held {} MB while the apps were compiled and was still \
+             growing, but the limit is {} MB ({}). The compile was stopped and the tests are reported as not run. \
+             Free memory, or raise the limit with --max-memory.",
+            now >> 20,
+            b.limit >> 20,
+            b.source
+        )
+    })
+}
+
 /// The budget of one run phase: what the process holds after the compile and the install baseline, and the [`Pool`].
 pub(crate) struct Plan {
     budget: Option<MemoryBudget>,
@@ -221,6 +341,7 @@ impl Plan {
         if let (Some(b), Some(now)) = (&budget, report.after_compile) {
             pool.stop_when_below(b, now, "once the apps are compiled");
         }
+        pool.watch(); // A hard limit stops the run before the resident memory passes it, baseline included.
         Plan { budget, report, pool }
     }
 
@@ -244,6 +365,11 @@ impl Plan {
             }
         }
         self.report.asked
+    }
+
+    /// The flag of the run's stop under a hard limit; `None` without one.
+    pub(crate) fn halt_flag(&self) -> Option<Arc<AtomicBool>> {
+        self.budget.as_ref().filter(|b| b.hard).map(|_| self.pool.halt().flag())
     }
 
     /// The test threads of the run.
@@ -534,6 +660,52 @@ impl Drop for Running<'_> {
 
 #[cfg(test)]
 mod tests {
+
+    /// Decision 6 during the install baseline: once the run stops at its hard limit, the install code stops too (the
+    /// bridge sets its session's stop flag), so the baseline does not grow past the limit.
+    #[test]
+    fn the_install_baseline_stops_when_the_run_stops() {
+        let halt = Arc::new(AtomicBool::new(false));
+        let stop = Arc::new(AtomicBool::new(false));
+        let bridge = StopBridge::start(Some(halt.clone()), stop.clone());
+        std::thread::sleep(SAMPLE * 3);
+        assert!(!stop.load(Ordering::SeqCst));
+        halt.store(true, Ordering::SeqCst);
+        let waited = std::time::Instant::now();
+        while !stop.load(Ordering::SeqCst) && waited.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(SAMPLE);
+        }
+        assert!(stop.load(Ordering::SeqCst), "the session's stop flag is set");
+        drop(bridge);
+        assert!(StopBridge::start(None, stop).is_none());
+    }
+
+    /// Decision 6 for the compile: the watcher sets its flag once the resident memory passes the stop line of a hard
+    /// limit, at once when the process already holds more; a soft limit has no watcher.
+    #[test]
+    fn the_compile_watch_stops_past_the_stop_line_of_a_hard_limit_only() {
+        let at = |mb: u64, hard: bool| MemoryBudget {
+            limit: 1000 * MB,
+            source: "--max-memory".into(),
+            rss: Arc::new(move || Some(mb * MB)),
+            hard,
+        };
+        // The compile's line is the one-thread line (`stop_line`): 875 MB of 1000.
+        assert!(compile_stop(&at(870, true), 870 * MB).is_none());
+        let m = compile_stop(&at(880, true), 880 * MB).expect("past the line");
+        assert!(
+            m.contains("880 MB while the apps were compiled") && m.contains("1000 MB (--max-memory)"),
+            "{m}"
+        );
+        assert!(CompileWatch::start(Some(&at(990, false))).is_none());
+        let mut w = CompileWatch::start(Some(&at(990, true))).expect("hard");
+        assert!(w.flag().load(Ordering::SeqCst), "the first read already stops it");
+        assert_eq!(w.reason(), "memory limit (--max-memory 1000 MB)");
+        assert!(w.stop().is_some_and(|m| m.contains("990 MB")));
+        let mut fits = CompileWatch::start(Some(&at(500, true))).expect("hard");
+        assert!(!fits.flag().load(Ordering::SeqCst));
+        assert_eq!(fits.stop(), None);
+    }
     use super::*;
 
     const MB: u64 = 1 << 20;
