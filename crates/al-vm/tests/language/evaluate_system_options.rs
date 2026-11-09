@@ -2,8 +2,6 @@
 //! 29.0): a member name in any case or a prefix of one, an ordinal, blanks and TABs around the text; the value kept after a
 //! rejected text; the error text of the statement form.
 
-use al_builtins::native::Signal;
-
 fn run(src: &str) -> String {
     al_testkit::text(al_testkit::run_with(src, "C", "F", vec![]).map(|(v, _)| v))
 }
@@ -197,26 +195,79 @@ fn the_statement_form_raises_the_list_of_every_member() {
 }
 
 #[test]
-fn unpinned_forms_are_refused() {
-    // A name of a member AL cannot name, a code other than 0 of a web service result, a rejected text with blanks around it.
-    for (ty, start, text) in [
-        ("ObjectType", "Page", "Form"),
-        ("ReportFormat", "Html", "Jpeg"),
-        ("WebServiceActionResultCode", "Deleted", "200"),
-    ] {
-        let src = format!(
-            "codeunit 50100 C {{ procedure F(): Boolean var V: {ty}; begin V := {ty}::{start}; exit(Evaluate(V, '{text}')); end; }}"
+fn web_service_action_result_codes_read_their_http_numbers() {
+    // SoEvaluateSystemOptionsHidden.al:1519 HttpNumbers and :1538 HttpNumberForms: 200, 201 and 204 read with a plus sign,
+    // blanks, a leading zero or a TAB; the numbers between and around them, a decimal point and a minus are rejected.
+    assert_eq!(
+        evals(
+            "WebServiceActionResultCode",
+            "Deleted",
+            &[
+                "200", "201", "202", "203", "204", "205", "400", "+200", " 200 ", "0200", "204\t", "200.0", "-200"
+            ],
+            None
+        ),
+        "Yes/Get/200|Yes/Created/201|No/Deleted/204|No/Deleted/204|Yes/Deleted/204|No/Deleted/204|No/Deleted/204|\
+         Yes/Get/200|Yes/Get/200|Yes/Get/200|Yes/Deleted/204|No/Deleted/204|No/Deleted/204|"
+    );
+    assert_eq!(statement("WebServiceActionResultCode", "Deleted", "200"), "Yes/Get//");
+}
+
+#[test]
+fn the_names_of_members_al_cannot_name_are_read_in_any_case_and_as_a_prefix() {
+    // SoEvaluateSystemOptionsHidden.al:120 ObjectType_UnnamableNames1, :144 (Enum), :640-806 (ReportFormat), :1286
+    // (ExecutionContext), :1722 (FieldClass, BC 28 and later; a context with no target has every gate).
+    assert_eq!(
+        evals(
+            "ObjectType",
+            "Page",
+            &["Form", "form", "FORM", "  Form  ", "Fo", "En"],
+            None
+        ),
+        "Yes/Form/2|Yes/Form/2|Yes/Form/2|Yes/Form/2|Yes/Form/2|Yes/Enum/10|"
+    );
+    assert_eq!(
+        evals(
+            "ReportFormat",
+            "Html",
+            &["None", "No", "Jp", "X", "Me", "ExcelDatas", "Cust", "Z"],
+            Some(9)
+        ),
+        "Yes/None/0|Yes/None/0|Yes/Jpeg/6|Yes/Xml/4|Yes/Meta/8|Yes/ExcelDataset/9|Yes/Custom/10|Yes/Zip/11|"
+    );
+    assert_eq!(
+        evals("ExecutionContext", "Normal", &["Uninsta"], None),
+        "Yes/Uninstall/2|"
+    );
+    assert_eq!(
+        evals("FieldClass", "FlowFilter", &["  keyfieldreference  "], None),
+        "Yes/KeyFieldReference/KeyFieldReference|"
+    );
+    assert_eq!(statement("ObjectType", "Page", "Form"), "Yes/Form//");
+}
+
+#[test]
+fn a_rejected_text_with_blanks_around_it_names_the_text_without_them() {
+    // SoEvaluateSystemOptionsHidden.al:68 ObjectType_StatementBlanksText, :96 _StatementBlanksNumber (all 14 types alike).
+    for text in [" zzz", "zzz ", " zzz ", "\tzzz", "zzz\t"] {
+        assert_eq!(
+            statement("Verbosity", "Verbose", text),
+            "No/Verbose/'zzz' is not an option. The existing options are: Critical, Error, Warning, Normal, Verbose/InvalidOptionString",
+            "{text:?}"
         );
-        match al_testkit::run_with(&src, "C", "F", vec![]) {
-            Err(Signal::Unsupported(_)) => {}
-            other => panic!("{ty} {text}: {other:?}"),
-        }
     }
-    let src = "codeunit 50100 C { procedure F() var V: Verbosity; begin Evaluate(V, ' zzz'); end; }";
-    match al_testkit::run_with(src, "C", "F", vec![]) {
-        Err(Signal::Unsupported(_)) => {}
-        other => panic!("blank around a rejected text: {other:?}"),
-    }
+    assert_eq!(
+        statement("Verbosity", "Verbose", " -1 "),
+        "No/Verbose/'-1' is not an option. The existing options are: Critical, Error, Warning, Normal, Verbose/InvalidOptionString"
+    );
+}
+
+#[test]
+fn web_service_action_result_code_updated_formats_as_get() {
+    // SoEvaluateSystemOptionsHidden.al:1576 WebServiceActionResultCode_FormatOfMembers `Updated` `Get/Get/200/200`.
+    let src = "codeunit 50100 C { procedure F(): Text var V: WebServiceActionResultCode; begin V := WebServiceActionResultCode::Updated; \
+               exit(Format(V) + '/' + Format(V, 0, 1) + '/' + Format(V, 0, 2) + '/' + Format(V, 0, 9)); end; }";
+    assert_eq!(run(src), "Get/Get/200/200");
 }
 
 #[test]

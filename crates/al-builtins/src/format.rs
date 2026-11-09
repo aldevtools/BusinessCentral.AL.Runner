@@ -405,7 +405,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                 // An unquoted empty member shows its number (text/P69OptionInText.al:Option_StrSubstNo
                 // `subst_2`; record/crud/RcBInit.al:Props_BlankZero_Option_Caption `opt blank member`).
                 Some(m) if m.is_empty() => unnamed_member_text(members, *o),
-                Some(m) => m.clone(),
+                Some(m) => crate::system_option_eval::shown_name(members, m).map_or_else(|| m.clone(), str::to_string),
                 None => unnamed_member_text(members, *o),
             },
         },
