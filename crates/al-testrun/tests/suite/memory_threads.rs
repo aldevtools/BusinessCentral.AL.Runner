@@ -24,8 +24,10 @@ codeunit 50272 "Memory Threads Count"
 }
 "#;
 
-/// Chain members whose runs ahead are never taken: each takes a number of the install code's sequence (so it is in
-/// the carry chain) and reads and writes a SingleInstance global (so the walk cannot take a run ahead of it).
+/// Chain members whose runs ahead are never taken: the OnRun of each takes a number of the install code's sequence (so
+/// it is in the carry chain and keeps the walk's single instances, ADR-066 amendment 8; a member whose tests take the
+/// number runs with fresh ones, amendment 11) and its test reads and writes a SingleInstance global (so the walk cannot
+/// take a run ahead of it).
 fn never_ahead(n: u32) -> String {
     (0..n)
         .map(|i| {
@@ -35,11 +37,11 @@ fn never_ahead(n: u32) -> String {
 codeunit {id} "Never Ahead {id}"
 {{
     Subtype = Test;
+    trigger OnRun() var N: BigInteger; begin N := NumberSequence.Next('SHARED'); end;
     [Test] procedure Bumps{id}()
-    var I: Integer; N: BigInteger; W: BigInteger; S: Codeunit "Memory Threads Count";
+    var I: Integer; W: BigInteger; S: Codeunit "Memory Threads Count";
     begin
         for I := 1 to 30000 do W += I;
-        N := NumberSequence.Next('SHARED');
         S.Bump();
     end;
 }}
