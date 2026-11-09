@@ -211,7 +211,10 @@ fn every_task_starts_with_a_fresh_single_instance_codeunit() {
     // Three completions on BC (PbtChildSession.al:266): whatever the runtime's count of tasks, each saw a counter of 1.
     let got = run("SecondTask");
     let (calls, rest) = got.split_once('|').unwrap();
-    assert!(!calls.is_empty() && calls.split(';').filter(|c| !c.is_empty()).all(|c| c == "1"), "{got}");
+    assert!(
+        !calls.is_empty() && calls.split(';').filter(|c| !c.is_empty()).all(|c| c == "1"),
+        "{got}"
+    );
     assert_eq!(rest, "[]|1");
 }
 
