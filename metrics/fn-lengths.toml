@@ -25,7 +25,7 @@
 "crates/al-testrun/src/impact_static.rs::build" = 332
 "crates/al-testrun/src/reach.rs::report" = 315
 "crates/al-testrun/src/runtime/corpus.rs::compile_suites_once" = 446
-"crates/al-testrun/src/runtime/corpus.rs::run_compiled_kept" = 1002
+"crates/al-testrun/src/runtime/corpus.rs::run_compiled_kept" = 1001
 "crates/al-testrun/src/runtime/run.rs::run_codeunit_inner" = 840
 "crates/al-version/src/gates.rs::evidence" = 460
 "crates/al-vm/src/exec/compile.rs::expr_into" = 318
