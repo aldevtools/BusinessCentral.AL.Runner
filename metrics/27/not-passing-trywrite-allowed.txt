@@ -2,3 +2,23 @@
 # CI fails when a case that is not listed does not pass, and when a listed case passes or left the oracle.
 # `al-test-cli --prune-not-passing` deletes stale lines; a corpus bump adds new cases with `--list-new-cases`.
 # A line for a case the oracle already had is a regression: it needs the owner's OK (CLAUDE.md hard rule 2).
+81700 RecRefDeleteAll_InTryFunction_ErrorAfter
+81700 RecRefDeleteAll_InTryFunction_Succeeds
+81700 RecRefDelete_InTryFunction_ErrorAfter
+81700 RecRefDelete_InTryFunction_Succeeds
+81700 RecRefInsert_InTryFunction_ErrorAfter
+81700 RecRefInsert_InTryFunction_Succeeds
+81700 RecRefModify_InTryFunction_ErrorAfter
+81700 RecRefModify_InTryFunction_Succeeds
+81700 RecRefRename_InTryFunction_ErrorAfter
+81700 RecRefRename_InTryFunction_Succeeds
+81704 Install_DeleteAllInTryFunction_Kept
+81704 Install_DeleteInTryFunction_Kept
+81704 Install_InsertInTryFunction_Kept
+81704 Install_MissingResourceInTryFunction_NoWrite
+81704 Install_ModifyAllInTryFunction_Kept
+81704 Install_ModifyInTryFunction_ErrorAfter_Kept
+81704 Install_ModifyInTryFunction_Kept
+81704 Install_RecRefModifyInTryFunction_Kept
+81704 Install_RenameInTryFunction_Kept
+81704 Install_ResourceThumbnailInTryFunction_Kept
