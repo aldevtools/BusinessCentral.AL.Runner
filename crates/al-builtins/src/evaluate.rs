@@ -1501,6 +1501,10 @@ pub fn evaluate_option_field(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Va
             n.trim().eq_ignore_ascii_case(t)
         }
     };
+    // A blank text against a blank member at a place no corpus test pins is refused (`crate::optname`).
+    if t.is_empty() && crate::optname::read_blank(&names) == crate::optname::BlankRead::Unpinned {
+        return crate::optname::refuse("Evaluate of a blank text into an Option field");
+    }
     let by_caption = captions.split(',').position(same);
     let by_name = names.iter().position(|n| same(n));
     let digits = t.strip_prefix('+').unwrap_or(t);
@@ -1521,7 +1525,13 @@ pub fn evaluate_option_field(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Va
             ))))
         }
         None => crate::native::raise(
-            format!("'{t}' is not an option. The existing options are: {captions}"),
+            format!(
+                "'{t}' is not an option. The existing options are: {}",
+                captions.replace(
+                    crate::optname::QUOTED_EMPTY,
+                    crate::optname::listed(crate::optname::QUOTED_EMPTY)
+                )
+            ),
             "InvalidOptionString",
         ),
     }
@@ -2291,12 +2301,17 @@ fn evaluate_with_max(
         Value::Option(_, members) if variable_option => {
             // NUL alone reads as the empty text (format-evaluate/format-matrix/FMEvalOption.al:222-224, corpus PR 1256).
             let t = if text.as_str() == "\0" { "" } else { text.trim() };
-            // The empty text and a blank name a first member declared as " " (format-evaluate/format-matrix/FMEvalOption.al:64-69,
+            // The empty text and a blank name a lone first member declared as " " (format-evaluate/format-matrix/FMEvalOption.al:64-69,
             // :262-267, corpus PR 1256), and no member declared as "" at the end (types/decimal-integer/ScT70062.al:
-            // Option_EvaluateByName `empty`). The syntax keeps both as one space (`TypeRef::option_members`), so only the first
-            // place reads: a blank member at another place is the pinned `""` case.
+            // Option_EvaluateByName `empty`). Another place of a blank member is refused (`crate::optname`).
             let by_name = if t.is_empty() {
-                members.first().is_some_and(|m| m == " ").then_some(0)
+                match crate::optname::read_blank(members) {
+                    crate::optname::BlankRead::Member(i) => Some(i),
+                    crate::optname::BlankRead::None => None,
+                    crate::optname::BlankRead::Unpinned => {
+                        return crate::optname::refuse("Evaluate of a blank text into an Option");
+                    }
+                }
             } else {
                 members.iter().position(|m| m.eq_ignore_ascii_case(t))
             };
@@ -2326,7 +2341,11 @@ fn evaluate_with_max(
                         format!(
                             "'{}' is not an option. The existing options are: {}",
                             text.replace('\t', "\\t"),
-                            members.join(",")
+                            members
+                                .iter()
+                                .map(|m| crate::optname::listed(m))
+                                .collect::<Vec<_>>()
+                                .join(",")
                         ),
                         "InvalidOptionString",
                     );

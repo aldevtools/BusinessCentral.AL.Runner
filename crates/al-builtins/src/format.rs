@@ -406,6 +406,14 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                 // An unquoted empty member shows its number (text/P69OptionInText.al:Option_StrSubstNo
                 // `subst_2`; record/crud/RcBInit.al:Props_BlankZero_Option_Caption `opt blank member`).
                 Some(m) if m.is_empty() => unnamed_member_text(members, *o),
+                // A member declared `""` shows as one character only as the last member (ScT70053.al:Option_Format
+                // `blank_len`); another place is refused (`crate::optname`).
+                Some(m) if m == crate::optname::QUOTED_EMPTY && *o as usize + 1 != members.len() => {
+                    return Err(FormatFail::Unsupported(
+                        "Format of an Option member declared as \"\" except as the last member (probe OPTBLANK)".into(),
+                    ));
+                }
+                Some(m) if m == crate::optname::QUOTED_EMPTY => " ".to_string(),
                 Some(m) => crate::system_option_eval::shown_name(members, m).map_or_else(|| m.clone(), str::to_string),
                 None => unnamed_member_text(members, *o),
             },

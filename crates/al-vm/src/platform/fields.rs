@@ -606,6 +606,11 @@ fn field_row(
     }
     // OptionString: the member names of an option or enum field, comma-joined (TestFieldEnumTypeVirtualTable.al:19-47).
     let option_string = match &f.ty {
+        RtType::Option(m) if al_builtins::optname::has_quoted_empty(m) => {
+            return Err(
+                "OptionString of an Option field with a member declared as \"\" (probe OPTBLANK, not pinned)".into(),
+            );
+        }
         RtType::Option(m) => m.join(","),
         RtType::Enum(e) => c.objects[*e as usize]
             .enum_values
