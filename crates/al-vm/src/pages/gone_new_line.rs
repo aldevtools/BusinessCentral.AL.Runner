@@ -94,37 +94,30 @@ impl Session {
         Ok(())
     }
 
-    /// The Rec of a card whose row is gone, as its OnQueryClosePage sees it: the next row of the view, or a blank record when
-    /// no row is left (Y89GoneSingleMove.al Y89_CA_True_*_2Row_delcur `Q:OK:20`, _1Row_* and _2Row_delall{,upd} `Q:OK:0`).
-    /// Only rows after the deleted one are pinned: a row before it, a page that finds its own rows and whether
-    /// OnAfterGetRecord runs for the next row are not, and are refused.
+    /// The Rec of a card whose row is gone, as its OnQueryClosePage sees it: the next row of the view, else the nearest row
+    /// before it, else a blank record (Y89GoneSingleMove.al Y89_CA_True_*_2Row_delcur `Q:OK:20`, _1Row_* and
+    /// _2Row_delall{,upd} `Q:OK:0`; corpus pages/deleted-rows-navigation/Y89GoneSingleMove.al:4328 Y89_CA_True_*_3Row_delcur_last
+    /// `D:30/Q:OK:20;X:20`). OnAfterGetRecord runs for the row the card moves to, before OnQueryClosePage, whether it lies
+    /// after or before the deleted one (:4372 Y89_CA_Get_OpenEdit_3Row_delcur_last `D:30/G:30;G:20;Q:OK:20;X:20`, :4378
+    /// _delcur_first `D:10/G:10;G:20;Q:OK:20;X:20`, :4420 Y89_CA_Modal_Get_3Row_DeleteCurrentLast; OnAfterGetCurrRecord does
+    /// not run for it). A page that finds its own rows is not pinned and is refused.
     fn rec_after_forced_close(&mut self, st: &St) -> Result<(), Signal> {
         if self.declares(st, "onfindrecord") || self.declares(st, "onnextrecord") {
             return unsupported("a card that finds its own rows, closed by its deleted row (not pinned)");
         }
         let rec = self.page_rec(st);
-        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
-        self.ret_used = true;
-        if matches!(
-            self.record_op(RecordOp::Find, &probe, &mut [Value::Text(">".into())])?,
-            Value::Boolean(true)
-        ) {
-            if self.declares(st, "onaftergetrecord") {
-                return unsupported(
-                    "a card closed by its deleted row with a row after it and OnAfterGetRecord (not pinned)",
-                );
+        for which in [">", "<"] {
+            let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+            self.ret_used = true;
+            if matches!(
+                self.record_op(RecordOp::Find, &probe, &mut [Value::Text(which.into())])?,
+                Value::Boolean(true)
+            ) {
+                let found = probe.borrow().clone();
+                *rec.borrow_mut() = found;
+                st.borrow_mut().gone_closed_on_row = true;
+                return self.populate_current(st);
             }
-            let found = probe.borrow().clone();
-            *rec.borrow_mut() = found;
-            return Ok(());
-        }
-        let back = Rc::new(RefCell::new(rec.borrow().clone()));
-        self.ret_used = true;
-        if matches!(
-            self.record_op(RecordOp::Find, &back, &mut [Value::Text("<".into())])?,
-            Value::Boolean(true)
-        ) {
-            return unsupported("a card closed by its deleted row with rows only before it (not pinned)");
         }
         let table = rec.borrow().table as usize;
         let fresh = self.initial_fields(table);
@@ -132,5 +125,15 @@ impl Session {
         r.fields = fresh;
         r.position = None;
         Ok(())
+    }
+
+    /// Whether the client reads the row once more after an action closed a card: a stored row, unless the card was closed by
+    /// its deleted row and moved to another row, which OnAfterGetRecord already read before OnQueryClosePage (no read follows
+    /// the close: Y89GoneSingleMove.al:4372 and :4378, the log ends `X:20`).
+    pub(super) fn reads_row_after_close(&mut self, st: &St, rec: &Rec) -> Result<bool, Signal> {
+        if std::mem::take(&mut st.borrow_mut().gone_closed_on_row) {
+            return Ok(false);
+        }
+        Ok(self.stored_row(rec)?.is_some())
     }
 }

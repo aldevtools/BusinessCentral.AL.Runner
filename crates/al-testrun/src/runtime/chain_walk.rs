@@ -30,8 +30,10 @@ use std::sync::Mutex;
 /// depends on it.
 const RESTARTS: usize = 2;
 
-/// How many runs ahead from another start than the walk's (wrong predictions) the walk drops in a suite beyond the
-/// runs ahead it took there before the suite is not run ahead any more: wasted runs take the machine from the walk.
+/// How many runs ahead from another start than the walk's (wrong predictions), or that read or wrote a watched global
+/// while the walk keeps the single instances (ADR-066 amendment 8), the walk drops in a suite beyond the runs ahead it
+/// took there before the suite is not run ahead any more: wasted runs take the machine (and the memory of a session and
+/// a baseline copy per helper) from the walk.
 /// Only the time of the run depends on it.
 const MISSES: usize = 4;
 
@@ -319,6 +321,10 @@ struct Track {
     restarts: std::collections::HashMap<usize, usize>,
     taken: std::collections::HashMap<usize, usize>,
     misses: std::collections::HashMap<usize, usize>,
+    /// Per suite: the runs ahead dropped because they read or wrote a watched global while the walk keeps the single
+    /// instances (`ahead_ignores_singles`). Counted with `misses`: each one cost a helper a session and its own copy of
+    /// the install baseline next to the walk's run, for nothing.
+    unkept: std::collections::HashMap<usize, usize>,
     /// The suites whose leg 1 started: their first leg-1 member told the helpers its start.
     started: std::collections::HashSet<usize>,
 }
@@ -512,6 +518,8 @@ impl ChainWalk<'_> {
                     let took_ahead = kept.is_some();
                     if took_ahead {
                         *track.taken.entry(si).or_default() += 1;
+                    } else if keep && ahead.as_ref().is_some_and(|a| !ahead_ignores_singles(a)) {
+                        *track.unkept.entry(si).or_default() += 1;
                     }
                     let serial = match runs {
                         _ if took_ahead => None,
@@ -681,8 +689,9 @@ impl ChainWalk<'_> {
         report: &mut super::ChainReport,
     ) {
         let taken = track.taken.get(&si).copied().unwrap_or(0);
-        if track.misses.get(&si).copied().unwrap_or(0) > MISSES + taken {
-            // Its predictions are wrong too often.
+        let dropped = track.misses.get(&si).copied().unwrap_or(0) + track.unkept.get(&si).copied().unwrap_or(0);
+        if dropped > MISSES + taken {
+            // Its predictions are wrong too often, or its runs ahead read or wrote single instances the walk keeps.
             track.epochs.remove(&si);
             r.taint(si);
             return;

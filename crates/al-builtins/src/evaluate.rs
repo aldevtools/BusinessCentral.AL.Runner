@@ -5,6 +5,7 @@
 //! way the corpus shows, and every other form raises `Signal::Unsupported`.
 
 mod datetime_forms;
+mod platform_options;
 use crate::describe::Describe;
 use crate::format::day_from_civil;
 use crate::native::{Ctx, Signal};
@@ -2227,6 +2228,8 @@ fn pinned_number(number: i64, target: &Value, variable_option: bool) -> Option<i
         // An Option variable reads number 2 as 0 (format-evaluate/OptionEvaluateCaptions.al:270 FormatNumber
         // `var 2 lower`).
         || (number == 2 && variable_option && matches!(target, Value::Option(..)))
+        // So do the platform's option types (format-evaluate/SoEvaluateSystemOptions.al:264 Format9 `f2 1`).
+        || (number == 2 && matches!(target, Value::Option(_, m) if crate::system_option_eval::reads(m)))
         // Number 10 is the bookmark of a RecordId (`into_record_id`).
         || (number == 10 && matches!(target, Value::Library(crate::library_kind::LibraryKind::RecordId, _)));
     // A Text, an Integer and a Guid read number 10 as the default (format-evaluate/Y49RecordIdFormat10.al:265-301
@@ -2404,34 +2407,7 @@ fn evaluate_with_max(
                 }
             }
         }
-        // Evaluate into PageBackgroundTaskErrorLevel is not pinned: collections/QbEvaluateBgTask.al is an observe-only probe, not a case.
-        Value::Option(_, members) if crate::sysenum::is_page_background_task_error_level(members) => {
-            return unsupported(format!(
-                "Evaluate of `{text}` into PageBackgroundTaskErrorLevel (not pinned)"
-            ));
-        }
-        // An ordinal into SecurityFilter: `Evaluate(Filter, '3')` gives Disallowed
-        // (recordref-fieldref/recordref/TestPlatformOptionsLockingContracts.al:42-43). Other options are not pinned.
-        Value::Option(_, members) if crate::sysenum::is_security_filter(members) => {
-            match text.trim().parse::<usize>().ok().filter(|n| *n < members.len()) {
-                Some(n) => Parsed::Value(Value::Option(n as i32, members.clone())),
-                None => {
-                    return unsupported(format!(
-                        "Evaluate of `{text}` into SecurityFilter (only an ordinal is pinned)"
-                    ));
-                }
-            }
-        }
-        // ClientType has no OptionCaption: a number below 16 or a member name evaluates, any other text answers false
-        // (types/PWMisc.al:ClientType_OrdinalsAndNames: 16 to 30 are rejected).
-        Value::Option(_, members) if crate::sysenum::is_client_type(members) => {
-            let t = text.trim();
-            let by_name = members.iter().position(|m| m.eq_ignore_ascii_case(t));
-            match (t.parse::<usize>().ok().filter(|n| *n < members.len()), by_name) {
-                (Some(n), _) | (None, Some(n)) => Parsed::Value(Value::Option(n as i32, members.clone())),
-                _ => Parsed::Rejected,
-            }
-        }
+        Value::Option(_, members) if platform_options::reads(members) => platform_options::read(c, members, &text)?,
         // An Option reads an ordinal or a member name (types/PROptionInteger.al:Option_InCaseAndLoopBounds: `1` is B, `C` is C).
         // A variable: an ordinal of any size is kept (`3` of three members formats as `3`), a text that is neither an ordinal
         // nor a member name is rejected, and the error names the members (P86Eval.al, codeunit "LT P86 Eval Option").

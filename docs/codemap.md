@@ -427,6 +427,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `platform/ranges.rs` (164): Filters on one integer-like field as a sorted set of closed intervals, for the generated tables (Integer, Date), whose r. Entry: `Iv` 8, `Set` 11, `intersect` 26, `of_expr` 60.
 - `platform/seed.rs` (73): The rows a tenant holds before any AL runs, for the stored platform tables whose rows AL reads as facts about the sessio.
 - `queries.rs` (881): Query objects: Open, Read, column values, SaveAs. Entry: `query_op` 107, `query_column` 350.
+- `query_save_as.rs`: the bytes Query.SaveAsXml (a .NET DataSet) and SaveAsJson write. Entry: `render`.
 - `recmeta.rs` (734): Record builtins that read table metadata or guard on session state. Entry: `string_literal` 29, `mentions_table` 49, `is_blank` 60.
 - `records.rs` (2694): Record.* on the store: Insert, Modify, Delete, Get, Find, filters, triggers, events. Entry: `record_op` 733, `table_event` 205, `run_trigger` 499, `delete_row` 297, `scan` 545, `unique_violation` 346.
 - `records/op_inner.rs` (2545): `record_op_inner`, the dispatch of every Record method (moved out of `records.rs`). Entry: `record_op_inner`.

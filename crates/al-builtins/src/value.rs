@@ -736,6 +736,9 @@ pub struct PageState {
     pub rec_moved_other: bool,
     /// CurrPage.Close() in the running action put the shown row back into Rec (PnGRefresh.al:608): one more read follows the action.
     pub close_restored_row: bool,
+    /// A card closed by its deleted row moved to another row and read it before OnQueryClosePage: the read of the row that
+    /// follows a close in the action is not made for it (corpus pages/deleted-rows-navigation/Y89GoneSingleMove.al:4372).
+    pub gone_closed_on_row: bool,
     /// The blank line of a top-level list took key filter values (a journal filtered to one template and batch, open on no row or
     /// after its only row went): its first line is numbered 10000 by AutoSplitKey, not 20000 (misc/lt-probes-needed-7/
     /// PnGRefresh.al:672, :792 `P.INSR(T1/B1/10000,typed)`).
@@ -1142,6 +1145,7 @@ impl PageState {
             action_shown_row: None,
             rec_moved_other: false,
             close_restored_row: false,
+            gone_closed_on_row: false,
             split_starts_low: false,
             save_after_first_read: false,
             walk_synced_parts: false,
@@ -1387,9 +1391,6 @@ pub struct RowOrigin {
     /// The variable's own Modify followed its Insert or Get in the same transaction (a buffer with a Modify and one without are
     /// told apart by record/crud/Y76StaleBuffers.al Y76_Part2_*).
     pub own_modified: bool,
-    /// The buffer was read by a form of Find no test pins (anything but FindFirst, FindLast and FindSet), or got TransferFields out
-    /// of such a record: a stale write of it is refused (Y76StaleBuffers.al Y76_Part1_* pins FindFirst, FindLast and FindSet only).
-    pub unpinned_read: bool,
 }
 
 impl RowOrigin {
@@ -1402,7 +1403,6 @@ impl RowOrigin {
             read_in_write_tx: false,
             lock_only: false,
             own_modified: false,
-            unpinned_read: false,
         }
     }
 }

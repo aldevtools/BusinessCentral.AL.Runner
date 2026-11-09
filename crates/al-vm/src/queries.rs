@@ -150,31 +150,8 @@ impl Session {
         if method == "SaveAsCsvStatic" {
             return self.query_save_csv_static(args);
         }
-        // `Query.SaveAsXml(Number, OutStream)` of an id no query has: No, and nothing raises
-        // (reports/request-page/P105QryXml.al:163-177). The file it writes for a query is not pinned
-        // (that test file only observes it): refused.
         if method == "SaveAsXmlStatic" {
-            let known = match args.first() {
-                Some(Value::Integer(id)) => self
-                    .engine
-                    .program
-                    .objects
-                    .heads()
-                    .iter()
-                    .any(|o| o.is_kind(al_ir::ObjKind::Query) && o.id == u32::try_from(*id).ok()),
-                _ => return unsupported("Query.SaveAsXml with an id that is not an integer"),
-            };
-            if known || !self.ret_used {
-                return unsupported(
-                    "Query.SaveAsXml(Number, OutStream) of a query, or with the answer dropped (not pinned)",
-                );
-            }
-            if let Some(Value::Integer(id)) = args.first()
-                && let Some(why) = self.missing_may_be_skipped("Query", i64::from(*id))
-            {
-                return unsupported(why);
-            }
-            return Ok(Value::Boolean(false));
+            return self.query_save_xml_static_op(args);
         }
         let qs: Qs = match recv {
             Some(Value::Query(q)) => q.clone(),
@@ -439,15 +416,25 @@ impl Session {
         }
     }
 
-    /// `SaveAsXml(OutStream)` writes the rows as a .NET DataSet, `SaveAsJson(OutStream)` as an array
-    /// of objects keyed by column name. Both run the query with the filters set now, whether it is
-    /// open or not (queries/TestQueryOuterJoinDescendingSaveAsContracts.al:Query_SaveAsXml_And_SaveAsJson_Output,
-    /// corpus: . Pinned for Integer columns; the lines of the XML are
-    /// not pinned (the probe trims and joins them), the bytes are UTF-8 without a byte order mark whatever the
-    /// stream's text encoding (not pinned).
+    /// `SaveAsXml(OutStream)` and `SaveAsJson(OutStream)` run the query with the filters set now, whether it is open or not
+    /// (queries/TestQueryOuterJoinDescendingSaveAsContracts.al:Query_SaveAsXml_And_SaveAsJson_Output); the bytes are
+    /// `query_save_as.rs`.
     fn query_save_as(&mut self, def: &ir::Query, qs: &Qs, method: &str, args: &[Value]) -> Result<Value, Signal> {
-        let Some(Value::Library(_, h)) = args.first() else {
-            return unsupported(format!("{method} with {}", args.first().describe()));
+        let filters = qs.borrow().filters.clone();
+        let top = qs.borrow().top.unwrap_or(def.top);
+        self.query_save_as_with(def, &filters, top, method, args.first())
+    }
+
+    fn query_save_as_with(
+        &mut self,
+        def: &ir::Query,
+        filters: &[(usize, FilterExpr)],
+        top: i32,
+        method: &str,
+        stream: Option<&Value>,
+    ) -> Result<Value, Signal> {
+        let Some(Value::Library(_, h)) = stream else {
+            return unsupported(format!("{method} with {}", stream.describe()));
         };
         let blob = match &*h.borrow() {
             al_builtins::value::LibraryValue::OutStream(blob, _) => blob.clone(),
@@ -456,67 +443,71 @@ impl Session {
         let cols: Vec<usize> = (0..def.columns.len())
             .filter(|&c| !def.columns[c].filter_element)
             .collect();
-        let json = method == "SaveAsJson";
-        for &c in &cols {
-            if !matches!(def.columns[c].ty, RtType::Integer) {
-                return unsupported(format!(
-                    "{method} of the column {} of type {} (only Integer columns are pinned)",
-                    def.columns[c].name,
-                    def.columns[c].ty.describe()
-                ));
-            }
-        }
-        let filters = qs.borrow().filters.clone();
-        let (rows, _) = self.query_rows(def, &filters)?;
-        let top = qs.borrow().top.unwrap_or(def.top);
-        let rows: Vec<&QueryRow> = rows
+        let columns: Vec<(&str, &RtType)> = cols
+            .iter()
+            .map(|&c| (def.columns[c].name.as_str(), &def.columns[c].ty))
+            .collect();
+        let (rows, _) = self.query_rows(def, filters)?;
+        let rows: Vec<Vec<&Value>> = rows
             .iter()
             .take(if top > 0 { top as usize } else { usize::MAX })
+            .map(|r: &QueryRow| cols.iter().map(|&c| &r.columns[c]).collect())
             .collect();
-        let cell = |r: &QueryRow, c: usize| match &r.columns[c] {
-            Value::Integer(i) => i.to_string(),
-            _ => String::new(),
-        };
-        let mut out = String::new();
-        if json {
-            out.push('[');
-            for (i, r) in rows.iter().enumerate() {
-                if i > 0 {
-                    out.push(',');
-                }
-                out.push('{');
-                for (k, &c) in cols.iter().enumerate() {
-                    if k > 0 {
-                        out.push(',');
-                    }
-                    out.push_str(&format!("\"{}\":{}", def.columns[c].name, cell(r, c)));
-                }
-                out.push('}');
-            }
-            out.push(']');
-        } else {
-            out.push_str(r#"<?xml version="1.0" standalone="yes"?><DataSet><xs:schema id="NewDataSet" xmlns="" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata"><xs:element name="NewDataSet" msdata:IsDataSet="true" msdata:MainDataTable="Result" msdata:Locale=""><xs:complexType><xs:choice minOccurs="0" maxOccurs="unbounded"><xs:element name="Result" msdata:Locale=""><xs:complexType><xs:sequence>"#);
-            for &c in &cols {
-                out.push_str(&format!(
-                    r#"<xs:element name="{}" type="xs:int" minOccurs="0" />"#,
-                    def.columns[c].name
-                ));
-            }
-            out.push_str(
-                "</xs:sequence></xs:complexType></xs:element></xs:choice></xs:complexType></xs:element></xs:schema>",
-            );
-            for r in &rows {
-                out.push_str("<Result>");
-                for &c in &cols {
-                    let n = &def.columns[c].name;
-                    out.push_str(&format!("<{n}>{}</{n}>", cell(r, c)));
-                }
-                out.push_str("</Result>");
-            }
-            out.push_str("</DataSet>");
-        }
-        al_builtins::stream::write_bytes(&blob, out.as_bytes());
+        let bytes = crate::query_save_as::render(method, &columns, &rows, method == "SaveAsJson")?;
+        al_builtins::stream::write_bytes(&blob, &bytes);
         Ok(Value::Boolean(true))
+    }
+
+    /// `Query.SaveAsXml(Number, OutStream)` of an id no query has: No, and nothing raises
+    /// (reports/request-page/P105QryXml.al:163-177). With the answer dropped it raises MetadataNotFound
+    /// (queries/CgQueryLeads.al:656-690), which is not built: refused.
+    fn query_save_xml_static_op(&mut self, args: &[Value]) -> Result<Value, Signal> {
+        let known = match args.first() {
+            Some(Value::Integer(id)) => self
+                .engine
+                .program
+                .objects
+                .heads()
+                .iter()
+                .any(|o| o.is_kind(al_ir::ObjKind::Query) && o.id == u32::try_from(*id).ok()),
+            _ => return unsupported("Query.SaveAsXml with an id that is not an integer"),
+        };
+        // Of a query: the file of the instance call with no filters, and Yes
+        // (reports/request-page/P105QryXmlContentSM.al:115-131 SaveAsXml_Static_Content).
+        if known {
+            return self.query_save_xml_static(args);
+        }
+        if !self.ret_used {
+            return unsupported(
+                "Query.SaveAsXml(Number, OutStream) of an unknown id with the answer dropped (not pinned)",
+            );
+        }
+        if let Some(Value::Integer(id)) = args.first()
+            && let Some(why) = self.missing_may_be_skipped("Query", i64::from(*id))
+        {
+            return unsupported(why);
+        }
+        Ok(Value::Boolean(false))
+    }
+
+    /// `Query.SaveAsXml(Number, OutStream)` of a query object.
+    fn query_save_xml_static(&mut self, args: &[Value]) -> Result<Value, Signal> {
+        let Some(Value::Integer(id)) = args.first() else {
+            return unsupported("Query.SaveAsXml with an id that is not an integer");
+        };
+        let engine = self.engine.clone();
+        let def = engine
+            .program
+            .objects
+            .heads()
+            .iter()
+            .position(|o| o.is_kind(al_ir::ObjKind::Query) && o.id == u32::try_from(*id).ok())
+            .and_then(|o| engine.program.objects[o].query.as_ref())
+            .expect("a known query");
+        for a in &def.assumes {
+            al_builtins::assumptions::assume(*a);
+        }
+        self.query_save_as_with(def, &[], def.top, "SaveAsXml", args.get(1))
     }
 
     /// `Query.SaveAsCsv(Number, OutStream)`: the query of that id with no filters. An id no query has writes nothing and

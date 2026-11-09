@@ -1,6 +1,6 @@
 //! Text elements with a value next to a table element, three or more text levels below the root table element, several of them in
 //! one text element, and deeper inside the row of a table element (al-runner issue 7309; corpus
-//! xmlports/shapes-properties/XpTextValueNestedTable.al on branch al-runtime-rs-staging-7309, corpus PR 1218, BC 27.5, 28.5, 29.0).
+//! xmlports/shapes-properties/XpTextValueNestedTable.al, BC 27.5, 28.5, 29.0).
 //! BC writes the plain tree in schema order; each value element once.
 
 use super::xmlport_text_value_nested_table::{DECL, ORDERS, REFS, T1, USERNAME, export};

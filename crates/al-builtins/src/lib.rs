@@ -75,3 +75,4 @@ pub mod sessionfns;
 pub mod sessiontypes;
 pub mod sqlcount;
 pub mod sysenum;
+pub mod system_option_eval;

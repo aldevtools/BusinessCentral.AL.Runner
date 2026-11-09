@@ -157,6 +157,10 @@ pub enum Gate {
     /// BC 28 on, BC 27.5 refuses the methods at compile time (AL0132), and a container is on no preview ring
     /// (types/PVEnvironment.al:35-47, :55-67, corpus PR 1211). Not consumed yet.
     EnvironmentPreviewRingsFrom28,
+    /// The platform's FieldClass option has a fourth member, KeyFieldReference (ordinal 3), from BC 28: `Evaluate` of `3` into a
+    /// FieldClass gives it and the error of a rejected text lists it (format-evaluate/SoEvaluateSystemOptions.al:3560-3564,
+    /// :3657-3747, corpus PR 1219). Before, `3` is rejected and the list ends at FlowFilter. Consumed by `al_builtins::system_option_eval`.
+    FieldClassKeyFieldReferenceFrom28,
     /// The system table Windows Language has 212 rows from BC 29 (208 before) on the Linux CI containers before bc-linux image
     /// 1a121fc6 (metadata/platform-tables/AgWindowsLanguage.al, corpus bump 26). Not consumed yet.
     WindowsLanguageRowsFrom29,
@@ -433,6 +437,7 @@ impl Gate {
         Gate::ControlAddInNotInstantiatedErrorFrom28,
         Gate::JsonSelectTokensListFrom28,
         Gate::EnvironmentPreviewRingsFrom28,
+        Gate::FieldClassKeyFieldReferenceFrom28,
         Gate::WindowsLanguageRowsFrom29,
         Gate::DatasetHeaderCompanyAddressLinesFrom29,
         Gate::ReportSaveAsInherentPermissionsFrom29,
@@ -540,6 +545,7 @@ impl Gate {
             | Gate::ControlAddInNotInstantiatedErrorFrom28
             | Gate::JsonSelectTokensListFrom28
             | Gate::EnvironmentPreviewRingsFrom28
+            | Gate::FieldClassKeyFieldReferenceFrom28
             | Gate::DataTransferAddDestinationFilterFrom28
             | Gate::HttpHeaderNameRulesProbedFrom28
             | Gate::AutoFormatAmountFieldRoundsFrom28
@@ -562,6 +568,7 @@ impl Gate {
             | Gate::FieldRefTextNumberEvaluateErrorFrom28
             | Gate::JsonSelectTokensListFrom28
             | Gate::EnvironmentPreviewRingsFrom28
+            | Gate::FieldClassKeyFieldReferenceFrom28
             | Gate::DocxMediaRezippedFrom29
             | Gate::MovedOntoDeletedStaysFrom28
             | Gate::MovedOntoDeletedRefreshesAgainFrom29
@@ -1192,6 +1199,10 @@ impl Gate {
             Gate::EnvironmentPreviewRingsFrom28 => &[Evidence {
                 file: "types/PVEnvironment.al",
                 lines: "35,55",
+            }],
+            Gate::FieldClassKeyFieldReferenceFrom28 => &[Evidence {
+                file: "format-evaluate/SoEvaluateSystemOptions.al",
+                lines: "3560,3657,3669,3674,3679,3685,3692,3699,3706,3713,3743",
             }],
             Gate::JsonSelectTokensListFrom28 => &[
                 Evidence {

@@ -7,7 +7,7 @@ pub(super) fn write_to_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Val
     if unassigned(&r, "XmlElement") {
         return Err(uninitialized("XmlNode"));
     }
-    let h = recv_or_uninit(r, "XmlNode")?;
+    let h = recv_write_to(r)?;
     a[0] = Value::Text(serialize(&h)?.into());
     Ok(Value::Boolean(true))
 }
@@ -21,7 +21,7 @@ pub(super) fn write_to_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Val
 ///   (xml/XmlDocReadWrite.al:392 WriteTo_Options, :418 WriteTo_Options_Whitespace; P104WriteNode.al `v2_m2`).
 /// - An attribute is not pinned (P97AttrWrite.al:WriteTo_TextOptions asserts nothing).
 pub(super) fn write_to_text_options(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    let h = recv_or_uninit(r, "XmlNode")?;
+    let h = recv_write_to(r)?;
     let indent = match &a[0] {
         Value::Library(_, cell) => match &*cell.borrow() {
             LibraryValue::XmlWriteOptions { unindented, .. } => !unindented,
@@ -68,7 +68,7 @@ pub(super) fn declaration_write_to_outstream(_: &mut dyn Ctx, r: Option<&mut Val
 /// (xml/TestXmlDocumentWriteToOutStreamContracts.al). A document without a `utf-8` declaration is written as
 /// [`outstream_declaration`] says; another shape is refused.
 pub(super) fn write_to_outstream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    let h = recv(r)?;
+    let h = recv_write_to(r)?;
     let (options, stream) = match a.len() {
         1 => (None, 0),
         _ => (Some(&a[0]), 1),

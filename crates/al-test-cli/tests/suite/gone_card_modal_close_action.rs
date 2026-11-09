@@ -1,7 +1,9 @@
 //! A card run by Page.RunModal whose row the handler's action deletes: OnQueryClosePage gets LookupCancel and the next row
 //! (or a blank Rec), then OnClosePage runs and RunModal returns LookupCancel (corpus pages/deleted-rows-navigation/
 //! Y89GoneSingleMove.al, codeunit 94730, Y89_CA_Modal_True_1Row_DeleteCurrent `D:10/Q:LookupCancel:0;X`,
-//! Y89_CA_Modal_True_2Row_DeleteCurrent `D:10/Q:LookupCancel:20;X`, result LookupCancel).
+//! Y89_CA_Modal_True_2Row_DeleteCurrent `D:10/Q:LookupCancel:20;X`, result LookupCancel). On the last of three rows (rows only
+//! before it) Rec stands on the row before (`LastOfThree`; Y89GoneSingleMove.al:4398 Y89_CA_Modal_True_3Row_DeleteCurrentLast
+//! `D:30/Q:LookupCancel:20;X:20`).
 
 use al_testkit::outcomes_in;
 use al_testrun::Outcome;
@@ -25,12 +27,16 @@ codeunit 51635 T
 {
     Subtype = Test;
     local procedure Run(Count: Integer): Text
+    begin
+        exit(RunOn(Count, false));
+    end;
+    local procedure RunOn(Count: Integer; OnLast: Boolean): Text
     var R: Record "Y9M Row"; L: Codeunit "Y9M Log"; I: Integer; Result: Action;
     begin
         R.DeleteAll();
         for I := 1 to Count do begin R.Id := I * 10; R.Insert(); end;
         L.Take();
-        R.FindFirst();
+        if OnLast then R.FindLast() else R.FindFirst();
         Result := Page.RunModal(Page::"Y9M Card", R);
         exit(Format(Result) + '|' + L.Take());
     end;
@@ -50,6 +56,14 @@ codeunit 51635 T
         S := Run(2);
         if S <> 'LookupCancel|Q:LookupCancel:20;X' then Error('two rows: %1', S);
     end;
+    [Test]
+    [HandlerFunctions('DelCurModal')]
+    procedure LastOfThree()
+    var S: Text;
+    begin
+        S := RunOn(3, true);
+        if S <> 'LookupCancel|Q:LookupCancel:20;X' then Error('last of three: %1', S);
+    end;
     [ModalPageHandler]
     procedure DelCurModal(var P: TestPage "Y9M Card")
     begin
@@ -64,5 +78,5 @@ fn a_forced_close_of_a_modal_card_passes_lookup_cancel_and_the_next_row() {
     for (name, o) in &out {
         assert_eq!(*o, Outcome::Pass, "{name}: {o:?}");
     }
-    assert_eq!(out.len(), 2);
+    assert_eq!(out.len(), 3);
 }

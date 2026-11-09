@@ -312,6 +312,12 @@ fn char_text(c: u16) -> Result<String, FormatFail> {
         .ok_or_else(|| FormatFail::Unsupported("Format of half of a surrogate pair here (not pinned)".into()))
 }
 
+/// An option value with no member name at its place: the name of a platform member AL cannot name
+/// (format-evaluate/SoEvaluateSystemOptions.al:114 Numbers `num 2` Form), else its number.
+fn unnamed_member_text(members: &[String], o: i32) -> String {
+    crate::system_option_eval::hidden_name(members, o).map_or_else(|| o.to_string(), str::to_string)
+}
+
 /// `Format(Value, Length, Standard)` with BC's own errors kept apart from refusals.
 pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) -> Result<String, FormatFail> {
     if let Some(r) = format_unread(v, length, standard) {
@@ -390,7 +396,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                     Some(m) => m.to_string(),
                 }
             }
-            2 | 9 if !crate::sysenum::ordinals_hidden(members) => o.to_string(),
+            2 | 9 if !crate::sysenum::ordinals_hidden(members, standard) => o.to_string(),
             // `Option` declared without members is the one empty name: it shows the number
             // (types/decimal-integer/ScT70062.al:Option_Defaults `nomembers_len`, `nomembers_3`).
             _ if members.len() == 1 && members[0].is_empty() => o.to_string(),
@@ -398,9 +404,9 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
             _ => match members.get(*o as usize) {
                 // An unquoted empty member shows its number (text/P69OptionInText.al:Option_StrSubstNo
                 // `subst_2`; record/crud/RcBInit.al:Props_BlankZero_Option_Caption `opt blank member`).
-                Some(m) if m.is_empty() => o.to_string(),
+                Some(m) if m.is_empty() => unnamed_member_text(members, *o),
                 Some(m) => m.clone(),
-                None => o.to_string(),
+                None => unnamed_member_text(members, *o),
             },
         },
         // Nor for an enum, named 'Option' (the enum test Enum_FormatNumbers `blue3`).

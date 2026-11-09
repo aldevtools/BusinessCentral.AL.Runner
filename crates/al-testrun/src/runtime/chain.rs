@@ -65,7 +65,8 @@ pub enum SerialWhy {
     NeverAhead,
     /// Its suite had no start the helpers knew (its state could not be written for them).
     NoStart,
-    /// Its suite was not run ahead any more: too many wrong predictions or new starts there (`MISSES`, `RESTARTS`).
+    /// Its suite was not run ahead any more: too many wrong predictions, new starts, or runs ahead that
+    /// used the single instances the walk keeps, there (`MISSES`, `RESTARTS`).
     GaveUp,
     /// The helpers did not run its suite when the walk reached it: it is the first member from the suite's start (the
     /// install baseline or a new start), and the helpers run a suite's members only once one member ran from there.
@@ -89,7 +90,9 @@ impl SerialWhy {
             SerialWhy::NoHelpers => "no helper threads for the chain",
             SerialWhy::NeverAhead => "isolation Disabled or no baseline, never run ahead",
             SerialWhy::NoStart => "its suite had no start the helpers knew",
-            SerialWhy::GaveUp => "its suite was not run ahead any more (too many wrong predictions or new starts)",
+            SerialWhy::GaveUp => {
+                "its suite was not run ahead any more (too many wrong predictions, new starts or runs ahead that used SingleInstance state)"
+            }
             SerialWhy::Closed => "first member from its suite's start, which the helpers do not run",
             SerialWhy::NotRun => "no helper had run it yet",
             SerialWhy::Guessed => "its run ahead rested on an earlier member's run ahead, which was wrong",

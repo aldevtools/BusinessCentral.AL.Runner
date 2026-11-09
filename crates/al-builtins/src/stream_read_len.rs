@@ -65,7 +65,9 @@ pub(crate) fn utf8(s: &mut InState, n: i32) -> Result<LenRead, Signal> {
             0xC2..=0xDF => 2,
             0xE0..=0xEF => 3,
             0xF0..=0xF4 => 4,
-            0xFF => return Err(invalid_data()),
+            // A byte that cannot start a character raises: FF (StreamReadMatrix.al:325-327 Matrix_ByteFF), FC and a continuation
+            // byte 80 alone (streams/instream-outstream/StreamRawBytes.al P175_Raw_UUml_Read and P175_Raw_Euro_Read `single utf8`).
+            0x80..=0xBF | 0xF5..=0xFF => return Err(invalid_data()),
             _ => {
                 return unsupported(
                     "InStream.Read(Text, Length) of a byte that cannot start a UTF-8 character (not pinned)",
@@ -76,6 +78,11 @@ pub(crate) fn utf8(s: &mut InState, n: i32) -> Result<LenRead, Signal> {
             if i + 1 == body.len() {
                 extra = 1;
                 break;
+            }
+            // A lead byte whose missing bytes run past the end and that a byte other than a continuation byte follows raises:
+            // 61 F0 9F 62 (streams/instream-outstream/StreamRawBytes.al P175_Raw_Emoji_Read `trunc utf8` InvalidStreamData).
+            if body[i + 1..].iter().any(|b| !(0x80..=0xBF).contains(b)) {
+                return Err(invalid_data());
             }
             return unsupported(
                 "InStream.Read(Text, Length) of a UTF-8 character cut at the end of the stream (not pinned)",
@@ -137,7 +144,7 @@ pub(crate) fn single_byte(s: &mut InState, n: i32) -> Result<LenRead, Signal> {
 ///   :382-391; session-system/Y18NavAppResourceEncodings.al:73).
 /// - A byte order mark FF FE at the start is skipped and not counted (:539-541 Matrix_Utf16Bom `4 [97]`).
 ///
-/// Not pinned, refused: surrogates, a mark followed by a zero unit, a zero unit right after Length characters (UTF-8 leaves it, the
+/// Not pinned, refused: a surrogate alone and a surrogate pair with a Length (a pair without one is pinned, see the loop), a mark followed by a zero unit, a zero unit right after Length characters (UTF-8 leaves it, the
 /// single-byte encodings take it), a negative Length, and bytes a Write of a value other than a Text put through a UTF-16
 /// OutStream (`BlobBuf::utf16_binary`).
 pub(crate) fn utf16(s: &mut InState, n: Option<i32>) -> Result<LenRead, Signal> {
@@ -169,19 +176,27 @@ pub(crate) fn utf16(s: &mut InState, n: Option<i32>) -> Result<LenRead, Signal> 
     let mut units = Vec::new();
     let mut consumed = 0;
     let mut terminated = false;
-    for pair in body.chunks_exact(2) {
+    let unit_at = |i: usize| body.get(i..i + 2).map(|p| u16::from_le_bytes([p[0], p[1]]));
+    let mut low_due = false;
+    while let Some(u) = unit_at(consumed) {
         if units.len() == n {
             break;
         }
-        let u = u16::from_le_bytes([pair[0], pair[1]]);
         consumed += 2;
         if u == 0 {
             terminated = true;
             break;
         }
-        if (0xD800..=0xDFFF).contains(&u) {
+        // A surrogate pair read without a Length is its two units, two characters of the count (streams/instream-outstream/
+        // StreamRawBytes.al P175_Raw_Emoji_Read `utf16 utf16` `ret=10;len=4;codes=97,55357,56832,98`). A surrogate alone and a
+        // pair with a Length are not pinned.
+        let pair_starts = (0xD800..=0xDBFF).contains(&u)
+            && n == usize::MAX
+            && unit_at(consumed).is_some_and(|l| (0xDC00..=0xDFFF).contains(&l));
+        if (0xD800..=0xDFFF).contains(&u) && !pair_starts && !low_due {
             return unsupported("InStream.Read into a Text of a surrogate on a UTF-16 stream (not pinned)");
         }
+        low_due = pair_starts;
         units.push(u);
     }
     let after = &body[consumed..];

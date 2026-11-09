@@ -324,3 +324,92 @@ fn seek_matches_walk(codes: &[&str], lead: usize) {
         }
     }
 }
+
+/// A point filter on a blank Code key field (`SetRange("Lot No.", '')` on "Entry Summary" in the key "Lot No.",
+/// "Serial No.", "Package No.", Tests-SCM codeunit 137380 FiveThousandSerialNos): the rows the filter finds ('' and texts
+/// of spaces, `FilterExpr::matches`) are equal to '' in the key order, so they sit together and the filters on the
+/// next key fields still bound the scan. Before, a blank value gave no bound and every step read the whole table.
+#[test]
+fn a_point_filter_on_a_blank_code_still_lets_the_next_key_fields_bound_the_scan() {
+    let t = seek_table(vec![vec![0, 1], vec![2, 3, 0, 1]]);
+    let mut s = MemStore::default();
+    for a in 0..2000 {
+        let lot = if a % 100 == 7 { "L1" } else { "" };
+        let row = vec![
+            Value::Integer(a),
+            Value::Integer(0),
+            Value::Code(lot.into()),
+            Value::Integer(a),
+        ];
+        s.insert(&cx(), &t, row).unwrap();
+    }
+    let looked = || ROWS_LOOKED_AT.with(|c| c.get());
+    let blank = || Some(Value::Code("".into()));
+    for expr in [
+        FilterExpr::Range(blank(), blank()),
+        FilterExpr::Eq(Value::Code("".into())),
+    ] {
+        let f = [
+            FieldFilter {
+                field: 2,
+                expr: expr.clone(),
+                group: 0,
+            },
+            range(3, Some(Value::Integer(1500)), Some(Value::Integer(1500))),
+        ];
+        for ascending in [true, false] {
+            let before = looked();
+            let got = scan_all(&s, &t, 1, &f, ascending);
+            assert_eq!(format!("{got:?}"), format!("{:?}", reference(&s, &t, 1, &f, ascending)));
+            assert_eq!(got.len(), 1);
+            assert!(
+                looked() - before <= 6,
+                "{expr:?} ascending {ascending}: {} rows looked at",
+                looked() - before
+            );
+        }
+    }
+}
+
+/// Random tables and filters with blank and space-only Codes leading the second key: the seek returns what a walk returns.
+#[test]
+fn a_seek_over_blank_codes_returns_the_rows_a_walk_returns() {
+    seek_matches_walk(&["", " ", "  ", "", "A", "-", "a", "\u{200b}", "A B"], 2);
+}
+
+/// A scan in a key the filters bound only loosely, while another key's band holds one row ("Reservation Entry" in the
+/// source key filtered on one source line and one "Serial No.", which leads another key; Tests-SCM codeunit 137380
+/// TenThousandSerialNos: every serial number of the line sits in the band of the scan's key). The scan reads the
+/// narrower band, and returns what a walk returns.
+#[test]
+fn a_scan_in_a_loosely_bounded_key_uses_a_much_narrower_band_of_another_key() {
+    let t = seek_table(vec![vec![0, 1], vec![2, 0, 1], vec![3, 0, 1]]);
+    let mut s = MemStore::default();
+    for a in 0..2000 {
+        let row = vec![
+            Value::Integer(a),
+            Value::Integer(0),
+            Value::Code(if a < 1800 { "LINE1" } else { "LINE2" }.into()),
+            Value::Integer(a),
+        ];
+        s.insert(&cx(), &t, row).unwrap();
+    }
+    let looked = || ROWS_LOOKED_AT.with(|c| c.get());
+    for d in [1500, 1799, 1800, 3] {
+        let f = [
+            range(2, Some(Value::Code("LINE1".into())), Some(Value::Code("LINE1".into()))),
+            range(3, Some(Value::Integer(d)), Some(Value::Integer(d))),
+        ];
+        for ascending in [true, false] {
+            let before = looked();
+            let got = scan_all(&s, &t, 1, &f, ascending);
+            assert_eq!(format!("{got:?}"), format!("{:?}", reference(&s, &t, 1, &f, ascending)));
+            assert_eq!(got.len(), usize::from(d < 1800));
+            assert!(
+                looked() - before <= 20,
+                "D = {d} ascending {ascending}: {} rows looked at",
+                looked() - before
+            );
+        }
+    }
+}

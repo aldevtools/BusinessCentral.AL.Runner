@@ -109,16 +109,18 @@ pub fn members(name: &str) -> Option<&'static [&'static str]> {
             "Api",
             "ChildSession",
         ]),
-        // The report's default layout and a test codeunit's TestPermissions, in the documentation's order. The corpus only
-        // formats and tests the type of them (types/variant/LTP89IsEnumsA.al, LTP89IsEnumsB.al); the
-        // ordinals are not pinned and nothing may print them. Report.DefaultLayout(Number) formats RDLC, Word, Excel and None
-        // (metadata/platform-tables/ReportMetadata.al:272, reports/runtime/YReportPropsTests.al:236); Custom
-        // is the fourth member of the Report Metadata column.
-        "defaultlayout" => Some(&["RDLC", "Word", "Excel", "Custom", "None"]),
-        "testpermissions" => Some(&["Disabled", "Restrictive", "NonRestrictive", "InheritFromTestCodeunit"]),
+        // The report's default layout and a test codeunit's TestPermissions at their platform ordinals: None 0, RDLC 1, Word 2,
+        // Excel 3; InheritFromTestCodeunit 0, Restrictive 1, NonRestrictive 2, Disabled 3 (format-evaluate/
+        // SoEvaluateSystemOptions.al:1888 and :2154, Names and Numbers). Report.DefaultLayout(Number) formats RDLC, Word, Excel
+        // and None (metadata/platform-tables/ReportMetadata.al:272, reports/runtime/YReportPropsTests.al:236); Custom is a
+        // member of the Report Metadata column that Evaluate does not read, its ordinal is not pinned.
+        "defaultlayout" => Some(&["None", "RDLC", "Word", "Excel", "Custom"]),
+        "testpermissions" => Some(&["InheritFromTestCodeunit", "Restrictive", "NonRestrictive", "Disabled"]),
         "datascope" => Some(&["Module", "Company", "User", "CompanyAndUser"]),
-        // Normal and Install are pinned (install-upgrade/TestInstallEnvVisible_Tests.al:90-127).
-        "executioncontext" => Some(&["Normal", "Install", "Upgrade"]),
+        // Normal and Install are pinned (install-upgrade/TestInstallEnvVisible_Tests.al:90-127). The ordinals are Normal 0,
+        // Install 1, Uninstall 2, Upgrade 3 (format-evaluate/SoEvaluateSystemOptions.al:2678); the blank name is Uninstall,
+        // which the runtime does not let AL name (`system_option_eval::hidden_name`).
+        "executioncontext" => Some(&["Normal", "Install", "", "Upgrade"]),
         // Standard and Debug only (corpus must-not-compile 0010 to 0013 and 0019: Install, Uninstall, Upgrade,
         // Report and Profile do not exist). A test run formats as `Standard`
         // (session-system/TestEnvironmentUserTenantContracts.al:247); the ordinals are not pinned.
@@ -227,11 +229,14 @@ pub fn is_field_table_type(members: &[String]) -> bool {
 /// Whether `members` is the `FieldType` option. AL cannot read its ordinals, so `Format(x, 0, 2)`
 /// prints the member name like any other format (recordref-fieldref/recordref/TestPlatformOptionsLockingContracts.al:
 /// 76, "format 2 prints the name too, not an ordinal").
-pub fn ordinals_hidden(members: &[String]) -> bool {
+pub fn ordinals_hidden(members: &[String], standard: i32) -> bool {
     let known = members_static("fieldtype");
     let same = |known: &[&str]| members.len() == known.len() && members.iter().zip(known).all(|(a, b)| a == b);
-    // The Action option too: `Format(Action::OK, 0, 2)` is `OK` (ui-handlers/PnGActionOrdinals.al:MemberOrdinals).
-    same(known) || same(&crate::value::ACTION_MEMBERS)
+    // The Action option too: `Format(Action::OK, 0, 2)` is `OK` (ui-handlers/PnGActionOrdinals.al:MemberOrdinals). FieldClass
+    // with number 2 (format-evaluate/SoEvaluateSystemOptions.al:3505 Names: `Yes/Normal/Normal`); number 9 prints the ordinal
+    // of the Field table's Class column, which has the same members (metadata/platform-tables/R6890SystemFieldClassification.al:50,
+    // :103 `Class=0`). Number 9 of a FieldClass variable and number 2 of the column are not pinned.
+    same(known) || same(&crate::value::ACTION_MEMBERS) || (standard == 2 && same(members_static("fieldclass")))
 }
 
 /// Whether `members` is the `PageBackgroundTaskErrorLevel` option.

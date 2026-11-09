@@ -1603,6 +1603,7 @@ impl Session {
                                             dotnet_view: 0,
                                             unread_content: false,
                                             utf16_binary: b.utf16_binary,
+                                            unicode_read: None,
                                         },
                                     )))
                                 }

@@ -176,6 +176,16 @@ pub trait Ctx: FormatCtx {
     fn xrec_holds_blob(&self, _b: &crate::stream::BlobRef) -> bool {
         false
     }
+    /// `Clear` of a TestPage variable that is open or waits for `Trap()`: closes it without running anything and drops its
+    /// trap, or refuses the shapes that are not pinned (al-vm `pages/clear_test_page.rs`).
+    fn clear_test_page(
+        &mut self,
+        _st: &std::rc::Rc<std::cell::RefCell<crate::value::PageState>>,
+    ) -> Result<(), Signal> {
+        Err(Signal::Unsupported(
+            "Clear of a TestPage that is open, trapping or a part (not pinned)".into(),
+        ))
+    }
     /// `Format` of a record variable, a `RecordRef` or a `FieldRef` (standard format 0): needs the
     /// table's fields. `None` where the context has no program.
     fn format_composite(&mut self, _v: &Value) -> Option<Result<String, Signal>> {

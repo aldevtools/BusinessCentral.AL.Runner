@@ -87,6 +87,10 @@ pub struct BlobBuf {
     /// (streams/PnE04Streams.al:162-183 `utf16` and `utf16terminated` read `4|w` of 77 00 F6 00 72 00, :237-250 `utf16len4`
     /// reads `4|h` of `hey!`), and what it reads then is not pinned (`stream_read_len::utf16`). A copy keeps it.
     pub utf16_binary: bool,
+    /// The encoding (UTF-8 or UTF-16) of the first `ReadText` through a UTF-8 or UTF-16 stream on this buffer since it was
+    /// last written, while a stream write is not saved or fetched yet (`written`). A later `ReadText` through a stream of the other of the two encodings does not decode as that stream
+    /// says, and what it does is not pinned (`refuse_unicode_switch`). A copy does not keep it.
+    pub unicode_read: Option<Encoding>,
 }
 
 thread_local! {
@@ -361,6 +365,7 @@ pub fn new_blob() -> BlobRef {
         dotnet_view: 0,
         unread_content: false,
         utf16_binary: false,
+        unicode_read: None,
     }))
 }
 
@@ -402,6 +407,7 @@ pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
         dotnet_view: 0,
         unread_content: false,
         utf16_binary: b.utf16_binary,
+        unicode_read: None,
     }))
 }
 
@@ -437,6 +443,7 @@ pub fn copy_blob_db_row_of(b: &BlobRef, uncompressed: bool) -> BlobRef {
 /// moves the position on.
 pub fn write_bytes(b: &BlobRef, bytes: &[u8]) {
     let mut buf = b.borrow_mut();
+    buf.unicode_read = None;
     if !buf.written {
         buf.written_base = Some(buf.bytes.clone());
     }
@@ -693,16 +700,20 @@ impl Encoding {
     /// UTF-16 stream, every character of the Basic Multilingual Plane as its plain encoding, and on a Windows, MS-DOS or default
     /// stream a Cyrillic or Japanese character as '?' (streams/instream-outstream/Y38Utf8Write.al UW_Write_Utf8_Cyrillic_TableBlob,
     /// UW_Write_Cyrillic_PerEncoding; streams/P132OutStreamUnicode.al:81-83, :127-134). Other characters a
-    /// code page lacks may take a best-fit byte instead ('α' is 61 on MS-DOS, :84 `greek`) and stay refused.
+    /// code page lacks may take a best-fit byte instead ('α' is 61 on MS-DOS, :84 `greek`): `write_best_fit` gives those the
+    /// corpus measured, the others stay refused.
     pub fn write_text_pinned(self, t: &str) -> bool {
         let question_mark =
             |c: char| matches!(c, '\u{410}'..='\u{44F}' | '\u{3040}'..='\u{30FF}' | '\u{4E00}'..='\u{9FFF}');
         self.encode_pinned(t)
             || match self {
-                Encoding::Utf8 | Encoding::Utf16 => t.chars().all(|c| (c as u32) <= 0xFFFF),
+                // A character outside the Basic Multilingual Plane: its plain encoding on a UTF-8 or UTF-16 stream, two `?` on
+                // a Windows or MS-DOS stream (streams/P129StreamWriteText.al:126-141 P129_WriteText_Surrogate_PerEncoding;
+                // P132OutStreamUnicode.al:95-112 on the default stream).
+                Encoding::Utf8 | Encoding::Utf16 => true,
                 Encoding::Windows | Encoding::MsDos => t
                     .chars()
-                    .all(|c| question_mark(c) || self.encode_pinned(c.encode_utf8(&mut [0; 4]))),
+                    .all(|c| question_mark(c) || (c as u32) > 0xFFFF || self.encode_pinned(c.encode_utf8(&mut [0; 4]))),
             }
     }
 
@@ -852,6 +863,39 @@ impl InState {
         }
     }
 
+    /// Remembers the encoding of a `ReadText` through a UTF-8 or UTF-16 stream on a Blob a stream wrote since it was last saved
+    /// or fetched, and refuses one through the other of the two encodings after it. BC then does not decode as the new stream says: on the 7 bytes of a text written with no
+    /// encoding, `ReadText` through a UTF-16 stream raises InvalidStreamData after one through a UTF-8 stream raised
+    /// (streams/instream-outstream/StreamWrittenText.al:87-88 P175_Written_None), where the same kind of bytes on a Blob read
+    /// only as UTF-16 decode with the odd byte dropped (streams/StTEncodings.al CrossEncodingWindowsToOthers
+    /// `windows-as-utf16`); 13 UTF-8 bytes read through a UTF-16 stream after a UTF-8 one give the UTF-8 text
+    /// (StreamWrittenText.al:127), and 14 UTF-16 bytes through a UTF-8 stream after a UTF-16 one the UTF-16 text (:165).
+    /// Which read decides, and whether the write's encoding counts, is not pinned.
+    fn refuse_unicode_switch(&self) -> Result<(), Signal> {
+        let Source::Live(b) = &self.source else {
+            return Ok(());
+        };
+        if !matches!(self.enc, Encoding::Utf8 | Encoding::Utf16) {
+            return Ok(());
+        }
+        let mut buf = b.borrow_mut();
+        // Once the content was saved or fetched, each stream decodes as it says: E9 00 68 00 reads `éh` through a UTF-16 stream
+        // after a UTF-8 one raised (errors/Y68Small.al Q6_ReadText_Utf8_OfUtf16Bytes `e-acute utf16`, after Insert and CalcFields).
+        if !buf.written {
+            return Ok(());
+        }
+        match buf.unicode_read {
+            Some(e) if e != self.enc => unsupported(
+                "InStream.ReadText through a UTF-8 or UTF-16 stream on a Blob that an earlier ReadText read with the other of the two encodings (not pinned)",
+            ),
+            Some(_) => Ok(()),
+            None => {
+                buf.unicode_read = Some(self.enc);
+                Ok(())
+            }
+        }
+    }
+
     pub fn rest(&self) -> Vec<u8> {
         let pos = self.pos;
         self.with_data(|d| d[pos.min(d.len())..].to_vec())
@@ -978,6 +1022,7 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
         dotnet_view: 0,
         unread_content: false,
         utf16_binary: false,
+        unicode_read: None,
     });
     set_stream(
         &a[0],
@@ -1087,6 +1132,9 @@ fn blob_length_of(c: &mut dyn Ctx, r: Option<&mut Value>, sign_only: bool) -> NR
         if is_y57_three_mb(&buf.bytes) {
             return Ok(Value::Integer(3072));
         }
+        if let Some(size) = measured_stored_size(&buf.bytes, c.gate(al_version::Gate::ProbedValuesDifferFrom29)) {
+            return Ok(Value::Integer(size));
+        }
         if !pinned && sign_only {
             // The stored size of non-empty content is positive whenever HasValue is Yes, for every content measured (1 byte to 5 MB;
             // text, XML, random, zero and repeated bytes; Compressed true and false; Get, FindSet and Modify): the `g=`, `fs=` and `mg=`
@@ -1104,6 +1152,45 @@ fn blob_length_of(c: &mut dyn Ctx, r: Option<&mut Value>, sign_only: bool) -> NR
         return Ok(Value::Integer(n as i32 + 6));
     }
     Ok(Value::Integer(buf.bytes.len() as i32))
+}
+
+/// The stored size of a content the corpus measured whose size the other rules do not give: 40 digits `0123456789` four times
+/// are 19 (record/flowfields/BlobCalcFieldsLength.al:470-496, `before write`), `into field` is 16 (streams/DeBlobToRecordRef.al:
+/// 52-60, `modified length before calcfields`); from BC 29 (`from_29`), 100, 10000 and 100000 `x` are 10, 31 and 118
+/// (record/PnABlobLength.al:41-60, Length_ByStoredSize, a BC 29 test: Linux and BC 29 compress to other sizes than Windows
+/// 27 and 28, record/flowfields/BlobStoredSizeSign.al:4).
+fn measured_stored_size(b: &[u8], from_29: bool) -> Option<i32> {
+    match b {
+        b"0123456789012345678901234567890123456789" => Some(19),
+        b"into field" => Some(16),
+        _ if from_29 && b.iter().all(|c| *c == b'x') => match b.len() {
+            100 => Some(10),
+            10_000 => Some(31),
+            100_000 => Some(118),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The characters `OutStream.Write(Text)` on an MS-DOS (or default) stream writes as another character of code page 437 (.NET's
+/// best fit), for those streams/P132OutStreamUnicode.al:67-92 P132_Write_Default_NonLatin measured: `αβγ` is `61 E1 3F`
+/// (`a`, `ß`, `?`), `Āā` is `41 61`; and `Ω` is `O` on an MS-DOS and a Windows stream (streams/AuEdgeTests.al:257, :279, :295).
+/// Other encodings, and other characters, are left as they are.
+fn write_best_fit(enc: Encoding, t: &str) -> std::borrow::Cow<'_, str> {
+    let fit = |c: char| match (c, enc) {
+        ('Ω', Encoding::MsDos | Encoding::Windows) => Some('O'),
+        (_, Encoding::Utf8 | Encoding::Utf16 | Encoding::Windows) => None,
+        ('α' | 'ā', _) => Some('a'),
+        ('β', _) => Some('ß'),
+        ('γ', _) => Some('?'),
+        ('Ā', _) => Some('A'),
+        _ => None,
+    };
+    if !t.chars().any(|c| fit(c).is_some()) {
+        return std::borrow::Cow::Borrowed(t);
+    }
+    std::borrow::Cow::Owned(t.chars().map(|c| fit(c).unwrap_or(c)).collect())
 }
 
 /// The one large content whose stored size is pinned: 3 MB of `x` and 7 `y`, stored as 3072 bytes
@@ -1401,6 +1488,7 @@ fn in_read_text(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
     let mut enc_used = Encoding::Windows;
     crate::stream_cleared::refuse_cleared(r.as_deref())?;
     let text = with_in_of(r, false, |s| {
+        s.refuse_unicode_switch()?;
         // A UTF-8 mark is taken as one only by a stream created with `TextEncoding::UTF8` (handlers/
         // TestReportSaveAsDatasetContracts.al:DatasetLines); a stream with the default encoding reads it as the three
         // characters 239, 187, 191 (al-language-onprem/reports/TestRequestPageSaveAsXmlContracts.al:FileText). A UTF-16 mark
@@ -1641,12 +1729,10 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
             // same file's TO_ReadText_NonAscii_NoTerminator `7|wörld` with no terminator,
             // `5|äö` then `5|€A`). A UTF-16 stream reads in `stream_read_len::utf16`.
             // A call stack text reads back whole on every encoding (errors/WdCallStackWriteText.al:148-149 `read equal`).
-            let decoded = s.enc.decode(body);
-            let call_stack = crate::stream_call_stack::holds_mark(&decoded)
-                && decoded.replace(crate::native::CALL_STACK_MARK, "").is_ascii();
-            if !call_stack && !s.enc.decode_pinned(body) {
-                return unsupported("InStream.Read into a Text of MS-DOS bytes whose character is not pinned");
-            }
+            // Every MS-DOS byte from 128 up reads as `decode` gives it, as for ReadText: the 128 bytes in
+            // session-system/Y18NavAppResourceEncodings.al HighBytesMsDos `msdos read`, and F0 9F 98 80 through a Blob
+            // stream of the default and the MS-DOS encoding (streams/instream-outstream/StreamRawBytes.al P175_Raw_Emoji_Read
+            // `utf8 none`, `utf8 msdos`, `trunc none`).
             s.pos += consumed;
             Ok((s.enc.decode(body), counted))
         })?;
@@ -1837,18 +1923,14 @@ pub(crate) fn write_serialised_text(stream: &mut Value, text: &str) -> Result<()
 /// pin (`Encoding::encode_pinned`) is refused.
 pub(crate) fn write_bigtext(stream: &mut Value, text: &str) -> Result<(), Signal> {
     let (b, enc) = out_buf(Some(stream))?;
-    let pinned = |c: char| {
-        c.is_ascii()
-            || c == '\u{416}'
-            || match enc {
-                Encoding::Utf8 | Encoding::Utf16 => (c as u32) <= 0xFFFF,
-                _ => enc.encode_pinned(c.encode_utf8(&mut [0; 4])),
-            }
-    };
-    if !text.chars().all(pinned) {
+    // The characters `OutStream.Write(Text)` pins are written the same way, best fit included: é, ß, “, Ω, 中, a surrogate pair
+    // and a no-break space on a default, MS-DOS, Windows and UTF-16 stream (streams/AuEdgeTests.al:250-318,
+    // BigText_Write_OtherChars_*).
+    let text = write_best_fit(enc, text);
+    if !enc.write_text_pinned(&text) {
         return unsupported("BigText.Write of a character whose bytes in this encoding are not pinned");
     }
-    write_bytes(&b, &enc.encode(text));
+    write_bytes(&b, &enc.encode(&text));
     Ok(())
 }
 
@@ -1907,19 +1989,39 @@ pub(crate) fn read_serialised_text(stream: &mut Value) -> Result<String, Signal>
     })
 }
 
+/// The number of characters `WriteText(Text, Length)` writes, `None` for all of them. On a UTF-8 and a UTF-16 stream the length
+/// changes nothing: the whole text is written for 3, 6, 10, 1, 0, -1 and 2147483647 (streams/P130WriteText.al:54-110,
+/// P130_WriteText_WithLength_Utf8 and _NonAscii; :112-160 P130_WriteText_Sequences; :162-185 a Code argument). On a Windows and
+/// an MS-DOS stream it cuts the text to that many characters: `äöü€` with 3 writes `äöü` (:94-95, :102-103); a length equal to
+/// that of the text writes it (al-language-onprem-dotnet/dotnet/blob-stream-position/Y51BlobStreamPosition.al:245-247,
+/// `writetext_len1`). A length beyond the text, below 1, or of another type, on those streams, is not pinned.
+fn write_text_length(enc: Encoding, a: &[Value]) -> Result<Option<usize>, Signal> {
+    let Some(len) = a.get(1) else {
+        return Ok(None);
+    };
+    let Value::Integer(n) = len else {
+        return unsupported(format!(
+            "OutStream.WriteText with a length of {} (not pinned)",
+            len.describe()
+        ));
+    };
+    if matches!(enc, Encoding::Utf8 | Encoding::Utf16) {
+        return Ok(None);
+    }
+    let chars = a.first().and_then(crate::native::text_of).map(|t| t.chars().count());
+    match (usize::try_from(*n), chars) {
+        (Ok(n), Some(chars)) if n >= 1 && n <= chars => Ok(Some(n)),
+        _ => unsupported(
+            "OutStream.WriteText with a length beyond the text or below 1 on a Windows or MS-DOS stream (not pinned)",
+        ),
+    }
+}
+
 /// `WriteText(Text)` writes the text in the stream's encoding and no terminator; `WriteText()` writes
 /// CR LF (:OutStream_WriteText_WithoutArgument_WritesCarriageReturnLineFeed).
 fn out_write_text(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    if a.len() > 1 {
-        // A length equal to that of an ASCII text writes the text (al-language-onprem-dotnet/dotnet/blob-stream-position/
-        // Y51BlobStreamPosition.al:245-247, `writetext_len1` 9|9: WriteText('x', 1) wrote one byte).
-        let whole = matches!((crate::native::text_of(&a[0]), &a[1]), (Some(t), Value::Integer(n))
-            if t.is_ascii() && usize::try_from(*n).ok() == Some(t.len()));
-        if !whole {
-            return unsupported("OutStream.WriteText with a length (not pinned)");
-        }
-    }
     let (b, enc) = out_buf(r)?;
+    let cut = write_text_length(enc, a)?;
     let text = match a.first() {
         None => "\r\n".to_string(),
         Some(v) => match crate::native::text_of_carrying_call_stack(v) {
@@ -1943,6 +2045,14 @@ fn out_write_text(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
     if crate::stream_call_stack::holds_mark(&text) && c.ret_used() {
         crate::stream_call_stack::refuse_count("OutStream.WriteText")?;
     }
+    let text = match cut {
+        // The characters of a call stack text's untracked frames are not known.
+        Some(_) if crate::stream_call_stack::holds_mark(&text) => {
+            return unsupported("OutStream.WriteText of a call stack text with a length (not pinned)");
+        }
+        Some(n) => text.chars().take(n).collect(),
+        None => text,
+    };
     let bytes = enc.encode(&text);
     write_bytes(&b, &bytes);
     Ok(Value::Integer(bytes.len() as i32))
@@ -2133,16 +2243,14 @@ fn out_write(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NRe
         // A call stack text is written on every encoding (errors/WdCallStackWriteText.al:130, WD_*_Collected_Write).
         Value::Text(t) | Value::Code(t)
             if enc.write_text_pinned(
-                &t.split('\0')
-                    .next()
-                    .unwrap_or_default()
+                &write_best_fit(enc, t.split('\0').next().unwrap_or_default())
                     .replace(crate::native::CALL_STACK_MARK, ""),
             ) =>
         {
             if crate::stream_call_stack::holds_mark(t.as_str()) && c.ret_used() {
                 crate::stream_call_stack::refuse_count("OutStream.Write")?;
             }
-            let mut v = enc.encode(t.split('\0').next().unwrap_or_default());
+            let mut v = enc.encode(&write_best_fit(enc, t.split('\0').next().unwrap_or_default()));
             v.extend(std::iter::repeat_n(0, enc.unit()));
             v
         }
