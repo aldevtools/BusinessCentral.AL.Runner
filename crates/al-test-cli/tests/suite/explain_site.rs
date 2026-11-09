@@ -25,7 +25,7 @@ codeunit 63100 T
         a: Integer; d: Date;
     begin
         a := 0;
-        a := Date2DMY(d, 2);
+        a := Date2DMY(d, 5);
     end;
 
     [Test]
