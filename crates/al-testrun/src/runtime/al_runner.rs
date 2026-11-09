@@ -206,6 +206,7 @@ impl Steps {
         let Steps::Al {
             runner,
             instance,
+            rows_from,
             on_run_error,
             ..
         } = self
@@ -216,7 +217,8 @@ impl Steps {
         // What the platform does when the runner answers false for the codeunit itself is not probed; Microsoft's
         // runner answers true for '' (TestRunnerMgt.Codeunit.al, PlatformBeforeTestRun).
         match before_test_run(session, *runner, instance, obj, "", &permissions) {
-            Ok(true) => {}
+            // The runner's rows are committed before the codeunit's OnRun and tests: what they hand out counts from here.
+            Ok(true) => rows_from.set(session.row_versions_handed_out()),
             Ok(false) => {
                 return (
                     Err(refuse(format!(
@@ -363,6 +365,7 @@ fn before_test_run(
     // The permission sets codeunit 130302 assigns from Microsoft's runner (ALTestRunnerResetEnvironment.Codeunit.al:54-62,
     // reached from this trigger through OnBeforeTestMethodRun) are the runner's, as in `runner_reset.rs`.
     session.runner_permission_step = true;
+    let before = session.row_versions_handed_out();
     let ran = session.call(runner, r, instance.clone(), trigger_args(obj, function, permissions));
     session.runner_permission_step = false;
     let answer = match ran {
@@ -374,7 +377,7 @@ fn before_test_run(
     // The platform commits after the trigger: its rows survive the isolation rollback and the method sees them
     // (RpReader.Codeunit.al:73-98 P4, under TestIsolation Codeunit and Function, also for a failing method).
     session.commit_transaction();
-    session.refreeze_min_active_row_version();
+    session.runner_trigger_ran(before);
     Ok(answer)
 }
 
@@ -392,8 +395,12 @@ fn after_test_run(
     };
     let mut args = trigger_args(obj, function, permissions);
     args.push(Value::Boolean(success));
+    let before = session.row_versions_handed_out();
     match session.call(runner, r, instance.clone(), args) {
-        Ok(_) => Ok(()),
+        Ok(_) => {
+            session.runner_trigger_ran(before);
+            Ok(())
+        }
         Err(e) => Err(trigger_failed(session, runner, "OnAfterTestRun", e)),
     }
 }

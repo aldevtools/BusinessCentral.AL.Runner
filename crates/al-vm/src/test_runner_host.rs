@@ -71,17 +71,6 @@ impl Session {
         }
     }
 
-    /// After a test runner's trigger wrote and committed (ADR-066): a MinimumActiveRowVersion that TestIsolation =
-    /// Codeunit froze moves to the state after the trigger, as the trigger's writes are not the tests' (BC passes the
-    /// corpus's MinimumActiveRowVersion cases, metadata/platform-tables/PlTRowVersionValue.al, through runner 130450,
-    /// whose triggers write rows before each test; the trigger's commit before the method is pinned by
-    /// tests/al-language-isolation-probe/src/RpReader.Codeunit.al:94-98, ADR-066 P4).
-    pub fn refreeze_min_active_row_version(&mut self) {
-        if self.iso_min_row_version.is_some() {
-            self.freeze_min_active_row_version();
-        }
-    }
-
     /// Whether a host is installed: a `Subtype = TestRunner` codeunit's OnRun is then noted
     /// ([`Session::enter_test_runner`]).
     pub(crate) fn has_test_codeunit_host(&self) -> bool {
