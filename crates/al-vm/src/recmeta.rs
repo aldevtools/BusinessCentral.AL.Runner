@@ -2225,6 +2225,9 @@ impl Session {
         if captions.iter().any(|c| c.eq_ignore_ascii_case(v)) {
             return refuse("a caption in another case");
         }
+        if al_builtins::optname::has_quoted_empty(&captions) {
+            return al_builtins::optname::refuse("the error text of Evaluate into a RecordId with an Option key");
+        }
         al_builtins::native::raise(
             format!(
                 "'{v}' is not an option. The existing options are: {}",
