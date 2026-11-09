@@ -1,0 +1,11 @@
+# Corpus files that pin what carries from one test codeunit to the next on BC (ADR-066 amendment 12).
+# The corpus runs in AL Runner's default order (fresh SingleInstance state and the install baseline's
+# NumberSequence values per test codeunit). Each pass runs the test codeunits of these files once more,
+# alone, with --strict-order, and their cases take that outcome. They must pass there; they get no
+# not-passing line. One path per line, relative to corpus/tests. Owner decision, 2026-11-09.
+# List a file whose codeunits write the state too (the P7 setter), so the strict run holds the writer.
+al-language/codeunits/TestCuP7ASetter.al
+al-language/codeunits/TestCuP7BReader.al
+al-language/codeunits/run-onrun/SeqCarry.al
+al-language-testlibraries/test-framework/onrun-storage/Y35OnRunStorage.al
+al-language-testlibraries/test-framework/data-driven-tests-and-handlers/BiTestHandlerCrossApp.al

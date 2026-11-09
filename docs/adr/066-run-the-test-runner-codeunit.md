@@ -1421,3 +1421,16 @@ helpers).
    (`chain.rs` `tests_take_numbers`, the rule that chained it) and an earlier codeunit of its BC session can too; the
    property goes on each of its tests. A walk per test method costs 11 % of the corpus run (see `tests_take_numbers`).
 4. **The hint goes to failed tests only** (owner answer 1), not to tests refused while they ran.
+
+### Corpus order probes run in BC's order (owner, 2026-11-09)
+
+CI runs the corpus in the default order. The corpus files that exist to pin what carries from one test codeunit to the
+next are listed in `metrics/strict-order-files.txt` (paths relative to `corpus/tests`). In every pass `al-test-cli`
+runs the test codeunits of the listed files once more, alone, with `strict_order` (`main.rs` `StrictOrder`,
+`al_test_cli::strict_order`), and their cases take that run's outcome (`CorpusRuntime::adopt_cases`). They must pass
+there; they get no not-passing line. A file whose codeunits write the state the probe reads is listed too
+(`TestCuP7ASetter.al` for `TestCuP7BReader.al`). Listed on 2026-11-09: `TestCuP7ASetter.al`, `TestCuP7BReader.al`,
+`run-onrun/SeqCarry.al`, `onrun-storage/Y35OnRunStorage.al`, `data-driven-tests-and-handlers/BiTestHandlerCrossApp.al`
+(the seven cases that failed in the default order: P7B, D2/D3/R3, C302_B2, BiXh_Plain_Final and BiXh_Own_Final). The
+extra run costs one compile rooted at the listed codeunits per pass (BC 29 `--baseline-diff`: 45 s in all on a loaded
+machine).

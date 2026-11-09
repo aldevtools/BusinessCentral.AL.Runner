@@ -2100,6 +2100,32 @@ impl CorpusRuntime {
 }
 
 impl CorpusRuntime {
+    /// ADR-066 amendment 12 (owner, 2026-11-09): the cases of the test codeunits `listed` (run name, codeunit id) take
+    /// their outcome, time and assumptions from `from`, a `--strict-order` run of those codeunits alone. The corpus
+    /// harness does this for the order probes of `metrics/strict-order-files.txt`. What this run recorded for them is
+    /// dropped first, so a case `from` did not record has no outcome.
+    pub fn adopt_cases(&mut self, from: &CorpusRuntime, listed: &BTreeSet<(String, u32)>) {
+        let picked =
+            |suites: &[String], si: usize, cu: u32| suites.get(si).is_some_and(|s| listed.contains(&(s.clone(), cu)));
+        let suites = self.suites.clone();
+        self.outcomes.retain(|(si, cu, _), _| !picked(&suites, *si, *cu));
+        self.times.retain(|(si, cu, _), _| !picked(&suites, *si, *cu));
+        self.marks.retain(|(si, cu, _), _| !picked(&suites, *si, *cu));
+        let to = |si: usize| suites.iter().position(|s| Some(s) == from.suites.get(si));
+        for ((si, cu, name), o) in &from.outcomes {
+            if let (true, Some(mine)) = (picked(&from.suites, *si, *cu), to(*si)) {
+                let key = (mine, *cu, name.clone());
+                self.outcomes.insert(key.clone(), o.clone());
+                if let Some(t) = from.times.get(&(*si, *cu, name.clone())) {
+                    self.times.insert(key.clone(), *t);
+                }
+                if let Some(m) = from.marks.get(&(*si, *cu, name.clone())) {
+                    self.marks.insert(key, m.clone());
+                }
+            }
+        }
+    }
+
     /// The outcome of `case` in the first run (the main corpus app, or the only run).
     pub fn first_outcome(&self, case: &CaseId) -> Outcome {
         self.first_recorded(case)

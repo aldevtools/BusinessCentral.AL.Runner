@@ -239,3 +239,29 @@ fn with_strict_order_the_numbers_chain_as_on_bc() {
     assert!(rt.phases.chain.numbers_order.is_empty());
     assert!(!rt.phases.chain.members.is_empty());
 }
+
+/// The corpus's order probes (`metrics/strict-order-files.txt`): a default run takes the outcomes of the listed
+/// codeunits from a `--strict-order` run of them alone.
+#[test]
+fn a_default_run_takes_the_outcomes_of_listed_codeunits_from_a_strict_run() {
+    let mut rt = run(PAIR, &RunOptions::default());
+    assert!(matches!(result(&rt, "ReadsTheFlag").outcome, Outcome::Fail(_)));
+    let only = RunOptions {
+        strict_order: true,
+        only: Some(vec![(0, 60471), (0, 60472)]),
+        ..Default::default()
+    };
+    let strict = run(PAIR, &only);
+    let listed: std::collections::BTreeSet<(String, u32)> = [(String::new(), 60471), (String::new(), 60472)].into();
+    rt.adopt_cases(&strict, &listed);
+    let case = |name: &str, codeunit| al_testrun::CaseId {
+        codeunit,
+        name: name.into(),
+    };
+    assert_eq!(rt.outcome_in("", &case("ReadsTheFlag", 60472)), Outcome::Pass);
+    assert!(
+        rt.assumptions_in("", &case("ReadsTheFlag", 60472))
+            .contains(&Assumption::SingleInstanceOrder)
+    );
+    assert_eq!(rt.outcome_in("", &case("SetsTheFlag", 60471)), Outcome::Pass);
+}

@@ -64,6 +64,10 @@ before you open a source file.
   `./target/release/al-test-cli --root . --prune-not-passing` (it only deletes). A corpus bump adds lines
   for new cases with `--list-new-cases HEAD`. Adding a line for a case the oracle already had needs the
   owner's OK; CI shows it in the job summary. No bot pushes to `main`.
+- **Order probes** (ADR-066 amendment 12): the corpus runs in the default order (fresh SingleInstance state and the
+  install baseline's NumberSequence values per test codeunit). Corpus files that pin what carries from one test
+  codeunit to the next are listed in `metrics/strict-order-files.txt`; each pass runs their codeunits once more,
+  alone, with `--strict-order`, and their cases take that outcome. They must pass there and get no not-passing line.
 - The table in `docs/probes-needed.md` is regenerated in the PR that changes the assumption registry
   (`al-test-cli --root . --assumptions-doc`); a test fails while it is stale. The coverage maps
   (`docs/corpus-coverage.*`, `docs/corpus-behavior-coverage.*`) are not committed: `--coverage-map` and
