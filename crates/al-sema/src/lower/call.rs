@@ -1030,7 +1030,7 @@ impl Lowerer<'_> {
         }
         // The overload choice an enum argument made by the assumed Integer rule (`enum_overload_verdict`).
         if here("AR1009").is_some() {
-            self.assume(al_builtins::assumptions::Assumption::EnumOverloadInteger);
+            self.assume(al_builtins::assumptions::Assumption::EnumOverloadOwnType);
         }
         self.twin_call_refusal(object, offset)
     }

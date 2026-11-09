@@ -69,9 +69,11 @@ impl<'a> Checker<'a> {
     /// another that declares the same parameter types except where it takes an argument less directly:
     /// - pinned (codeunits/CwInterfaceLeads.al:143-167 `CW_Overload_OptionVsEnum`): an Integer or Option argument takes an
     ///   Option parameter over an enum one; an enum argument takes its own enum over an Option parameter;
-    /// - assumed (`enum-overload-integer`, needed by System Application's Email Account Impl. `IsValidConnector(Enum)` and
-    ///   `IsValidConnector(Integer)`, which the Email tests and Company-Initialize reach): an Integer argument takes an
-    ///   Integer parameter over an enum one; an enum argument takes its own enum over an Integer parameter.
+    /// - assumed (`enum-overload-own-type`, needed by System Application's Email Account Impl. `IsValidConnector(Enum)` and
+    ///   `IsValidConnector(Integer)`, which the Email tests and Company-Initialize reach, and Base Application's Non-Deductible
+    ///   VAT `GetNonDeductibleVATPct` on a General Posting Type or a Deferral Document Type, which Gen. Jnl.-Post Line
+    ///   reaches): an Integer argument takes an Integer parameter over an enum one; an enum argument takes its own enum
+    ///   over an Integer parameter or another enum.
     ///
     /// One overload left: it is returned (AR1009 notes an assumed choice for the lowering to mark). More than one left:
     /// AR1008, the lowering refuses the call, and `None`. No enum conversion involved: `None`, the usual choice stands.
@@ -152,7 +154,9 @@ impl<'a> Checker<'a> {
                 (Ty::Integer | Ty::Option(_), Ty::Option(_), Ty::Enum(_)) => Beat::Pinned,
                 (Ty::Enum(_), Ty::Enum(_), Ty::Option(_)) if ae.is_some() && ae == enum_of(dfile, dt) => Beat::Pinned,
                 (Ty::Integer, Ty::Integer, Ty::Enum(_)) => Beat::Assumed,
-                (Ty::Enum(_), Ty::Enum(_), Ty::Integer) if ae.is_some() && ae == enum_of(dfile, dt) => Beat::Assumed,
+                (Ty::Enum(_), Ty::Enum(_), Ty::Integer | Ty::Enum(_)) if ae.is_some() && ae == enum_of(dfile, dt) => {
+                    Beat::Assumed
+                }
                 _ => return Beat::No,
             };
             beat = match (beat, here) {

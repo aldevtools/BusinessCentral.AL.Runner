@@ -3,7 +3,8 @@
 //! `AssignmentCompatibility = true` (must-not-compile 0074, 0406; types/enum-option/PnE13EnumConv.al:81-111), an Integer
 //! converts to an enum (PnE13EnumConv.al:70-73 `TakeDst(I)`), and an enum to an Integer (compile matrix, `check/conv.rs`).
 //! When exactly one overload takes every argument, BC calls it: the other ones do not compile. When two take every
-//! argument and one of them needs one of these conversions, which one BC calls is not pinned: the call is refused.
+//! argument and one of them needs one of these conversions, the one that declares the argument's own type wins (Option
+//! against enum pinned, the rest the assumption `enum-overload-own-type`); with no such overload the call is refused.
 
 use al_builtins::native::Signal;
 use al_testkit::text;
@@ -89,9 +90,30 @@ fn an_integer_goes_to_the_enum_overload_over_a_text_one() {
     assert_eq!(text(al_testkit::run_in(&s, "C", "F")), "enum Order");
 }
 
-/// Two overloads take the argument, one as it is and one by AssignmentCompatibility: not pinned, so refused.
+/// Two overloads take the argument, one as it is and one by AssignmentCompatibility: its own enum wins (assumption
+/// `enum-overload-own-type`, needed by Base Application's Non-Deductible VAT `GetNonDeductibleVATPct`).
 #[test]
-fn two_overloads_that_both_take_an_enum_argument_are_refused() {
+fn an_enum_goes_to_its_own_enum_over_a_compatible_one() {
+    let s = src(r#"
+    local procedure Take(L: Enum "EO Other Line"): Text
+    begin
+        exit('other');
+    end;
+    local procedure Take(L: Enum "EO Line"): Text
+    begin
+        exit('line');
+    end;
+    procedure F(): Text
+    var L: Enum "EO Line";
+    begin
+        exit(Take(L));
+    end;"#);
+    assert_eq!(text(al_testkit::run_in(&s, "C", "F")), "line");
+}
+
+/// Two overloads take the argument, both by AssignmentCompatibility: not pinned, so refused.
+#[test]
+fn two_overloads_that_both_convert_an_enum_argument_are_refused() {
     let s = src(r#"
     local procedure Take(L: Enum "EO Line"): Text
     begin
@@ -102,9 +124,9 @@ fn two_overloads_that_both_take_an_enum_argument_are_refused() {
         exit('other');
     end;
     procedure F(): Text
-    var L: Enum "EO Line";
+    var D: Enum "EO Sales Doc";
     begin
-        exit(Take(L));
+        exit(Take(D));
     end;"#);
     let r = al_testkit::run_in(&s, "C", "F");
     match r {
@@ -114,7 +136,7 @@ fn two_overloads_that_both_take_an_enum_argument_are_refused() {
 }
 
 /// An Integer argument where an Integer and an enum overload both take it, and an enum argument there: each goes to the
-/// overload of its own type (assumption `enum-overload-integer`, needed by System Application's Email Account Impl.).
+/// overload of its own type (assumption `enum-overload-own-type`, needed by System Application's Email Account Impl.).
 #[test]
 fn an_integer_and_an_enum_go_to_the_overload_of_their_own_type() {
     let s = src(r#"
