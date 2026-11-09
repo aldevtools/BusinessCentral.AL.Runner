@@ -101,8 +101,5 @@ fn a_baseline_that_cannot_be_written_as_bytes_names_the_value() {
     );
     assert!(b.to_bytes().is_none());
     let why = b.first_without_bytes().expect("the JsonObject has no form");
-    assert_eq!(
-        (why.position, why.kind.as_str()),
-        (2, "JsonObject")
-    );
+    assert_eq!((why.position, why.kind.as_str()), (2, "JsonObject"));
 }
