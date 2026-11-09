@@ -24,6 +24,8 @@ pub mod single_track;
 mod state;
 pub(crate) use state::*;
 mod baseline;
+mod sequence_start;
+pub use sequence_start::SequenceStart;
 mod capture;
 mod ctx;
 mod debug;
