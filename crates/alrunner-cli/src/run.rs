@@ -519,7 +519,7 @@ fn profiled(a: &TestArgs, f: impl FnOnce() -> Result<u8, String>) -> Result<u8, 
     let Some(r) = &a.profile else { return f() };
     crate::profile::begin(r);
     let out = f();
-    crate::profile::end(r, &a.apps);
+    crate::profile::end(r, &a.apps, a.max_memory);
     out
 }
 

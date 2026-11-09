@@ -81,7 +81,7 @@ pub fn render(c: &Collected) -> String {
     for p in &c.codeunits {
         for (i, n) in p.nodes.iter().enumerate().skip(1) {
             let hits = if p.sampling { n.samples } else { n.calls };
-            let e = own.entry(n.frame_name.clone()).or_default();
+            let e = own.entry(n.frame_name.to_string()).or_default();
             e.0 += self_ns(n);
             e.1 += hits;
             // Inclusive once per path: a recursive frame counts at its outermost node only.
@@ -92,7 +92,7 @@ pub fn render(c: &Collected) -> String {
                 up = p.nodes[q].parent;
             }
             if !nested {
-                let e = incl.entry(n.frame_name.clone()).or_default();
+                let e = incl.entry(n.frame_name.to_string()).or_default();
                 e.0 += inclusive(&p.nodes, i);
                 e.1 += n.calls.max(n.samples);
             }
@@ -109,7 +109,7 @@ pub fn render(c: &Collected) -> String {
             }
             for d in &n.db {
                 let e = db
-                    .entry((n.frame_name.clone(), super::alcpuprofile::db_label(d)))
+                    .entry((n.frame_name.to_string(), super::alcpuprofile::db_label(d)))
                     .or_default();
                 e.0 += d.ns;
                 e.1 += d.count;

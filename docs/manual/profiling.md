@@ -52,7 +52,11 @@ shows. The file is written exactly as the AL extension writes it from a BC snaps
 statement, builtin return or record operation takes it, and the time since the last
 sample goes to the routine that is running. The file has `kind: 1` and self times in
 `timeDeltas`, as BC's sampling profiler writes it. Every thread is sampled on every
-tick (the old `AL_PROFILE` sampled one thread per tick).
+tick (the old `AL_PROFILE` sampled one thread per tick). The file holds only the call
+paths a sample landed in, as BC's sampling profiler builds its tree from the sampled
+stacks: a path that took no sample has no time, so it is left out, and so is a record
+operation no sample landed in. This keeps the profile of a long run small: one test
+codeunit of Tests-ERM-Purchase entered about 700 000 call paths for about 5 000 samples.
 
 Which to use:
 
@@ -76,6 +80,18 @@ same way. For exact self times:
 
 - use sampling mode (VS Code reads self times straight from the file), or
 - read `summary.txt`, which computes self time as total minus the children's totals.
+
+## Memory
+
+The profiler keeps the tree of every test codeunit until the run ends, and that memory
+counts toward `--max-memory` like the rest of the run. An instrumentation profile holds
+every call path the tests entered, so on a large suite it can need several GB; sampling
+holds only the sampled paths. The files are written to disk node by node, so writing
+them needs only a few MB more. Under `--max-memory` (or a cgroup's `memory.max`) the
+write also stops before the process would pass the limit: the files already complete
+stay, a file that was not finished is removed, and a line says how many test codeunits
+were not written. The results files (`--junit`, `--output-json`) are written before the
+profile.
 
 ## Threads and test codeunits
 
