@@ -1175,8 +1175,7 @@ impl Session {
             None => host,
         };
         let (company, user) = (host.identity.company_name(), host.identity.user_id());
-        let random_seed = host.random_seed;
-        let guid_seed = host.guid_seed;
+        let (random_seed, guid_seed) = (host.random_seed, host.guid_seed);
         let clock_key = al_host::seed::clock_key(host.run_seed, 0, "");
         let mut ident = platform::Ident::of(&host);
         let declared = host.identity.companies();

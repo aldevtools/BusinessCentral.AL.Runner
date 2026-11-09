@@ -1029,7 +1029,10 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // EnvironmentPreviewRingsFrom28); on 28 and 29 it calls Environment Information of the System Application.
     // Branch rt-notrun-7 (FormatRegion after Language) leaves it at 39 in this run: CI on the merge train reported 39, the
     // Y89_Old_*/BdProperty_*/BdSetter_* cases of 81070 already counted the same on every version here.
-    assert!(out.contains("runtime: 39 case(s) differ between versions"), "{out}");
+    // Merge train l (profiler memory, ADR-066 amendment 12, SetFilter quote, login chain, shared baseline 3, AccessByPermission
+    // actionref) makes it 49 in the local run of the train: ten more cases pass on some BC versions only. The count was
+    // not measured on main alone; CI on the train is the check.
+    assert!(out.contains("runtime: 49 case(s) differ between versions"), "{out}");
     assert!(out.contains("71500 Get_Uses_Primary_Key_Not_Current_Key: 27"), "{out}");
 }
 
