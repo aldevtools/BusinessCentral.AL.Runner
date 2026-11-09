@@ -1,5 +1,5 @@
-//! The memory budget of a test run (ADR-066 amendment 9): `--max-memory`, the `--timings` line, and the stop
-//! with a clear message when not even one test thread fits.
+//! The memory budget of a test run (ADR-066 amendments 9 and 10): `--max-memory`, the `--timings` line, and the stop
+//! with a clear message and exit code 2 when the run cannot fit under a hard limit.
 
 use super::*;
 
@@ -44,6 +44,29 @@ fn a_limit_below_what_one_test_thread_needs_stops_the_run_with_the_numbers() {
     assert!(!t.contains("PASS"), "no test ran: {t}");
 }
 
+/// ADR-066 amendment 10, decision 6: the tests a stopped run did not reach are reported as not run, with the limit as
+/// the reason, never as failures.
+#[test]
+fn the_tests_a_stopped_run_did_not_reach_are_not_run_with_the_limit_as_the_reason() {
+    let d = tempfile::tempdir().unwrap();
+    let app = budget_app(d.path());
+    let junit = d.path().join("out.xml");
+    let o = alrunner(&[
+        "test",
+        app.to_str().unwrap(),
+        "--no-download",
+        "--max-memory",
+        "1M",
+        "--junit",
+        junit.to_str().unwrap(),
+    ]);
+    let t = text(&o);
+    assert_eq!(code(&o), 2, "{t}");
+    let xml = std::fs::read_to_string(&junit).unwrap_or_else(|e| panic!("{e}: {t}"));
+    assert_eq!(xml.matches("memory limit (--max-memory 1 MB)").count(), 2, "{xml}");
+    assert!(!xml.contains("<failure"), "{xml}");
+}
+
 #[test]
 fn timings_print_the_budget_its_source_and_the_threads_chosen() {
     let d = tempfile::tempdir().unwrap();
@@ -63,7 +86,9 @@ fn timings_print_the_budget_its_source_and_the_threads_chosen() {
         .find(|l| l.starts_with("memory: budget"))
         .unwrap_or_else(|| panic!("{t}"));
     assert!(line.contains("budget 1500 MB (--max-memory)"), "{line}");
-    assert!(line.contains("test threads"), "{line}");
+    // ADR-066 amendment 10: the most threads that ran and how many ended for memory.
+    assert!(line.contains("test threads at most 1 of"), "{line}");
+    assert!(line.contains("0 ended for memory"), "{line}");
 }
 
 #[test]

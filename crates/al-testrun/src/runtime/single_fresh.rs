@@ -134,13 +134,13 @@ pub(super) fn rerun_fresh(
     start: Option<&al_vm::Baseline>,
     u: &super::Unit,
     limit: Option<std::time::Duration>,
-    gate: &super::memory::Gate,
+    pool: &super::memory::Pool,
 ) -> super::UnitResult {
     use super::run::{CARRIED, LANE_SINGLES};
     let kept = LANE_SINGLES.with(|c| c.borrow_mut().as_mut().and_then(Option::take));
-    let room = gate.enter();
+    let running = pool.enter();
     let r = super::run_unit(engine, lowered, start, u, None, limit);
-    drop(room);
+    drop(running);
     CARRIED.with(|c| c.borrow_mut().take());
     LANE_SINGLES.with(|c| {
         if let Some(slot) = c.borrow_mut().as_mut() {
