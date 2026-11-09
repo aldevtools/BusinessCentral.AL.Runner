@@ -10,6 +10,7 @@
 //! - A second action that leaves the table empty again raises the pair twice (`second action log`).
 
 use super::*;
+use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::page_op::PageMethod;
 use al_builtins::record_op::RecordOp;
 
@@ -96,8 +97,8 @@ impl Session {
 
     /// The Rec of a card whose row is gone, as its OnQueryClosePage sees it: the next row of the view, or a blank record when
     /// no row is left (Y89GoneSingleMove.al Y89_CA_True_*_2Row_delcur `Q:OK:20`, _1Row_* and _2Row_delall{,upd} `Q:OK:0`).
-    /// Only rows after the deleted one are pinned: a row before it, a page that finds its own rows and whether
-    /// OnAfterGetRecord runs for the next row are not, and are refused.
+    /// Only rows after the deleted one are pinned: a page that finds its own rows and whether OnAfterGetRecord runs for the
+    /// next row are not, and are refused. Rows only before it are an assumption (gone-card-last-row-closes-on-row-before).
     fn rec_after_forced_close(&mut self, st: &St) -> Result<(), Signal> {
         if self.declares(st, "onfindrecord") || self.declares(st, "onnextrecord") {
             return unsupported("a card that finds its own rows, closed by its deleted row (not pinned)");
@@ -124,7 +125,16 @@ impl Session {
             self.record_op(RecordOp::Find, &back, &mut [Value::Text("<".into())])?,
             Value::Boolean(true)
         ) {
-            return unsupported("a card closed by its deleted row with rows only before it (not pinned)");
+            // Not pinned (the corpus pins only a row after the deleted one, or none). Microsoft's tests post the last
+            // purchase document from its card and need the forced close to finish (Tests-ERM-Purchase, Purchase Documents
+            // 134099 PostPurchaseInvoiceCardWithBlankQuantityIsFoundationFALSE, ERM Purchase Order 134327
+            // VerifyManuallyCreatedPurchaseCrMemoUpdateExistingPurchaseOrder and others). Assumed, by the pinned next row:
+            // Rec stands on the nearest row before, and OnAfterGetRecord does not run for it.
+            assume(Assumption::GoneCardLastRowClosesOnRowBefore);
+            let found = back.borrow().clone();
+            *rec.borrow_mut() = found;
+            st.borrow_mut().gone_closed_on_row_before = true;
+            return Ok(());
         }
         let table = rec.borrow().table as usize;
         let fresh = self.initial_fields(table);
@@ -132,5 +142,15 @@ impl Session {
         r.fields = fresh;
         r.position = None;
         Ok(())
+    }
+
+    /// Whether the client reads the row once more after an action closed a card: a stored row, unless the card was closed by
+    /// its deleted row and stands on the row before it (assumption gone-card-last-row-closes-on-row-before: OnAfterGetRecord
+    /// does not run for that row).
+    pub(super) fn reads_row_after_close(&mut self, st: &St, rec: &Rec) -> Result<bool, Signal> {
+        if std::mem::take(&mut st.borrow_mut().gone_closed_on_row_before) {
+            return Ok(false);
+        }
+        Ok(self.stored_row(rec)?.is_some())
     }
 }
