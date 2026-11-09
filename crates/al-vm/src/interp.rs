@@ -1591,8 +1591,10 @@ impl Session {
                                             persisted: false,
                                             temp_row: b.temp_row,
                                             uncompressed: b.uncompressed,
-                                            written: false,
-                                            written_base: None,
+                                            // An unsaved stream write comes over as unsaved: CalcFields keeps it on a stored row
+                                            // (`Session::load_blobs`, al-runner issue 7360).
+                                            written: b.written,
+                                            written_base: b.written_base.clone(),
                                             render_pending: b.render_pending.clone(),
                                             inserted: b.inserted,
                                             temp_inserted: false,
