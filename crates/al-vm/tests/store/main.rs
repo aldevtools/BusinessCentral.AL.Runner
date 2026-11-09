@@ -105,6 +105,7 @@ mod rename_trigger_before_autoincrement;
 mod row_version_shapes;
 mod scm_round2;
 mod scm_service_41;
+mod sequence_failed_test;
 mod set_view_adhoc;
 mod set_view_caption;
 mod set_view_retention_shapes;

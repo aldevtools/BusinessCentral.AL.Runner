@@ -1085,20 +1085,17 @@ fn the_other_test_apps_are_reported_apart_from_the_main_one() {
     assert_eq!(function["bc_failed"], 20);
     assert_eq!(function["bc_failed_reproduced"], 20);
     // The control: real BC also fails T5 and T11 under Codeunit isolation. Whether the runtime fails every case BC
-    // fails here is asserted in `the_isolation_control_fails_what_bc_fails` (ignored until two cases are fixed).
+    // fails here is asserted in `the_isolation_control_fails_what_bc_fails`.
     let control = get("isolation-codeunit");
     assert_eq!(control["counts"]["pass"], 31);
     assert_eq!(control["bc_failed"], 18);
 }
 
-// Under TestIsolation = Codeunit real BC fails 18 cases of the isolation probe, and the runtime must fail them all.
-// Ignored: the runtime passes two of them, a wrong result (oracle/28/xunit-isolation-codeunit.xml, nightly run
-// 42604559766). Codeunit 61309 "LT DJ Isol After Rollback", S8_NumberSequenceStillExists and
-// S9_NumberSequenceNotReset: on BC the rollback at the end of a test codeunit undoes the NumberSequence.Insert of
-// S3 ("NumberSequence is gone in S8 (S3 inserted it: Yes): the rollback undid NumberSequence.Insert"); the runtime
-// keeps the sequence. Remove the #[ignore] when the runtime rolls NumberSequence.Insert back with the codeunit.
+// Under TestIsolation = Codeunit real BC fails 18 cases of the isolation probe, and the runtime must fail them all
+// (oracle/28/xunit-isolation-codeunit.xml, nightly run 42604559766). Among them codeunit 61309 "LT DJ Isol After
+// Rollback", S8_NumberSequenceStillExists and S9_NumberSequenceNotReset: the failed S4 takes back the
+// NumberSequence.Insert of S3 (al-vm `sequence_start.rs`).
 #[test]
-#[ignore = "the runtime passes 61309 S8_NumberSequenceStillExists and S9_NumberSequenceNotReset, which BC fails"]
 fn the_isolation_control_fails_what_bc_fails() {
     let r = all_versions().json("28");
     let control = r["suites"]
