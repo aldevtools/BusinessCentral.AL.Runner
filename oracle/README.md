@@ -8,13 +8,13 @@ pass rate is measured against: every `<testcase>` in it passed on real BC.
 | Field | Value |
 |---|---|
 | Corpus repo | aldevtools/BusinessCentral.AL.Language.Tests (until 2026-10-21 StefanMaron/BusinessCentral.AL.Language.Tests), branch `master` (the default branch; until 2026-10-19 the side branch `al-runtime-rs`, whose commits are all on `master`) |
-| Corpus pin | `7976f56a1e4c543d4c6e043c8de5c2f134b9525c` (the `corpus` submodule, master merge of corpus PR 706; must equal `corpus_commit` in `oracle.toml`) |
+| Corpus pin | `f2853bf3aa24f7dbde48acf338c1b619d48ffe7f` (the `corpus` submodule, master merge of corpus PR 706; must equal `corpus_commit` in `oracle.toml`) |
 
 | Major | Oracle leg | Corpus commit of the run | Workflow run | Artifact | Artifact id | Cases |
 |---|---|---|---|---|---|---|
-| 27 | 27.5 | `4e6c706` (full run; PR results on top, see below) | 42636820882 | `junit-test-results-27.5` | 13690326605 | 24785 |
-| 28 | 28.5 | `4e6c706` (full run; PR results on top, see below) | 42636820882 | `junit-test-results-28.5` | 13691077642 | 24926 (+26 `OnRun`) |
-| 29 | 29.0 | `4e6c706` (full run; PR results on top, see below) | 42636820882 | `junit-test-results-29.0` | 13689628302 | 25069 (+26 `OnRun`) |
+| 27 | 27.5 | `4e6c706` (full run; PR results on top, see below) | 42636820882 | `junit-test-results-27.5` | 13690326605 | 24793 |
+| 28 | 28.5 | `4e6c706` (full run; PR results on top, see below) | 42636820882 | `junit-test-results-28.5` | 13691077642 | 24934 (+26 `OnRun`) |
+| 29 | 29.0 | `4e6c706` (full run; PR results on top, see below) | 42636820882 | `junit-test-results-29.0` | 13689628302 | 25077 (+26 `OnRun`) |
 
 The files come from the green full run of corpus PR 706 ("full run: the pull request has the label full-run"), whose head `f64dfd8` has the same tree
 (`cff97a3c`) as the pin `2be1140`.
@@ -95,4 +95,5 @@ results. The table above still names the last full run. The next bump from a gre
 section.
 
 - pin `7976f56` (was `4e6c706`): corpus PR 1233 (head `bd81655`, merge `7976f56`, run 42624859717: BC 27 2 codeunit(s) of junit.xml, BC 28 2 codeunit(s) of junit.xml, BC 29 2 codeunit(s) of junit.xml)
+- pin `f2853bf` (was `7976f56`): corpus PR 1236 (head `83f5e22`, merge `f2853bf`, run 42651534837: BC 27 6 codeunit(s) of junit.xml, BC 28 6 codeunit(s) of junit.xml, BC 29 6 codeunit(s) of junit.xml)
 <!-- pr-results-bump:end -->

@@ -1902,3 +1902,5 @@
 97910 ECR_TestFields_2067
 97910 ECR_ViewWords_1033
 97910 ECR_ViewWords_2067
+97989 MinRowVersion_FunctionIsolation_FirstTest
+97989 MinRowVersion_FunctionIsolation_SecondTest

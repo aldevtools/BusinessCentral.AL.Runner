@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<testsuites name="hybrid" tests="25102" failures="0" errors="0" skipped="0" time="2493.641" timestamp="2026-11-09T16:14:48Z"><testsuite name="Codeunit 60002" tests="5" failures="0" errors="0" skipped="0" time="0.088" timestamp="2026-11-09T15:45:22Z">
+<testsuites name="hybrid" tests="25110" failures="0" errors="0" skipped="0" time="2494.127" timestamp="2026-11-09T16:41:43Z"><testsuite name="Codeunit 60002" tests="5" failures="0" errors="0" skipped="0" time="0.088" timestamp="2026-11-09T15:45:22Z">
     <testcase classname="Codeunit 60002" name="OnRun" time="0.008" />
     <testcase classname="Codeunit 60002" name="TestCodeunitOnRun_GlobalSetInOnRun_IsVisibleToTest" time="0.048" />
     <testcase classname="Codeunit 60002" name="TestCodeunitOnRun_RunsExactlyOncePerCodeunit" time="0.001" />
@@ -31121,8 +31121,8 @@
     <testcase classname="Codeunit 92981" name="SetView_DoubleEquals_TwoFields" time="0.017" />
     <testcase classname="Codeunit 92981" name="SetView_DoubleEquals_RoundTrip" time="0.050" />
   </testsuite>
-  <testsuite name="Codeunit 93011" tests="1" failures="0" errors="0" skipped="0" time="0.130" timestamp="2026-11-09T14:35:04Z">
-    <testcase classname="Codeunit 93011" name="RequestOptionsPage_InRequestPageCode_Compiles" time="0.130" />
+  <testsuite name="Codeunit 93011" tests="1" failures="0" errors="0" skipped="0" time="0.216" timestamp="2026-11-09T16:41:42Z">
+    <testcase classname="Codeunit 93011" name="RequestOptionsPage_InRequestPageCode_Compiles" time="0.216" />
   </testsuite>
 <testsuite name="Codeunit 93241" tests="7" failures="0" errors="0" skipped="0" time="0.387" timestamp="2026-11-09T16:14:00Z">
     <testcase classname="Codeunit 93241" name="G612_Composite_ViewIsDestination_SetRecordOk" time="0.094" />
@@ -31874,5 +31874,23 @@
     <testcase classname="Codeunit 96500" name="Unstored_WriteThenParameterRoundTrip" time="0.013" />
     <testcase classname="Codeunit 96500" name="Unstored_ClearWriteThenParameterRoundTrip" time="0.013" />
     <testcase classname="Codeunit 96500" name="Unstored_AssignThenWriteCopyThenParameterRoundTrip" time="0.012" />
+  </testsuite>
+<testsuite name="Codeunit 97987" tests="2" failures="0" errors="0" skipped="0" time="0.240" timestamp="2026-11-09T16:41:35Z">
+    <testcase classname="Codeunit 97987" name="MinRowVersion_DefaultIsolation_FirstTest" time="0.222" />
+    <testcase classname="Codeunit 97987" name="MinRowVersion_DefaultIsolation_SecondTest" time="0.018" />
+  </testsuite>
+  <testsuite name="Codeunit 97988" tests="2" failures="0" errors="0" skipped="0" time="0.056" timestamp="2026-11-09T16:41:36Z">
+    <testcase classname="Codeunit 97988" name="MinRowVersion_CodeunitIsolation_FirstTest" time="0.038" />
+    <testcase classname="Codeunit 97988" name="MinRowVersion_CodeunitIsolation_SecondTest" time="0.018" />
+  </testsuite>
+  <testsuite name="Codeunit 97989" tests="2" failures="0" errors="0" skipped="0" time="0.051" timestamp="2026-11-09T16:41:36Z">
+    <testcase classname="Codeunit 97989" name="MinRowVersion_FunctionIsolation_FirstTest" time="0.026" />
+    <testcase classname="Codeunit 97989" name="MinRowVersion_FunctionIsolation_SecondTest" time="0.025" />
+  </testsuite>
+  <testsuite name="Codeunit 97990" tests="1" failures="0" errors="0" skipped="0" time="0.023" timestamp="2026-11-09T16:41:36Z">
+    <testcase classname="Codeunit 97990" name="MinRowVersion_OpenWriteBeforeFirstRead" time="0.023" />
+  </testsuite>
+  <testsuite name="Codeunit 97991" tests="1" failures="0" errors="0" skipped="0" time="0.030" timestamp="2026-11-09T16:41:36Z">
+    <testcase classname="Codeunit 97991" name="MinRowVersion_CommittedWriteBeforeFirstRead" time="0.030" />
   </testsuite>
 </testsuites>
