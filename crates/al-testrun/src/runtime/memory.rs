@@ -8,7 +8,7 @@
 //!    and stops when not even one test thread fits beside it ([`below_minimum`]);
 //! 2. starts with one test thread. Another starts only when there is work it can use (the caller's part) and the
 //!    resident memory plus the cost of one codeunit stays under nine tenths of the limit ([`Pool::try_add`]). The cost
-//!    is learned in the run: the largest growth above the fixed part per live test thread, seen from the first codeunit
+//!    is learned in the run: the ninetieth percentile of what each codeunit grew the process by over its own run, per live test thread, shared parts left out, seen from the first codeunit
 //!    on, at least [`WORKER_FLOOR`]; until the first codeunit ends only one thread runs. Nothing is kept between runs;
 //! 3. a thread other than the first that finishes a codeunit when there is no room ends ([`Pool::keep`]) and gives
 //!    back its session, baseline copy and runs ahead; it never waits holding them. One thread always runs;
@@ -50,6 +50,37 @@ fn stop_line(limit: u64) -> u64 {
 /// memory without a stop.
 fn last_line(limit: u64) -> u64 {
     limit.saturating_sub((limit / 32).max(32 << 20))
+}
+
+/// How many codeunit costs the learning keeps: the newest ones.
+const KEEP: usize = 512;
+
+/// The cost of one codeunit from its window: the resident memory grew from `rss_in` to `now` while it ran. What the
+/// shared parts grew in that time (`fixed_in` to `fixed_now`: shared rows, the frozen baseline, state held once) is not
+/// a thread's cost. The other `threads` grew in the same window, so each counts an equal part. At least [`WORKER_FLOOR`].
+fn window_cost(rss_in: u64, fixed_in: u64, now: u64, fixed_now: u64, threads: usize) -> u64 {
+    let grew = now
+        .saturating_sub(rss_in)
+        .saturating_sub(fixed_now.saturating_sub(fixed_in));
+    let threads = threads.max(1) as u64;
+    // A window sees only growth: memory the allocator reuses never shows in it. With several threads alive, what the
+    // process holds above the fixed part, shared by them, is what a thread really costs (never less than the window).
+    let held = if threads > 1 {
+        now.saturating_sub(fixed_now) / threads
+    } else {
+        0
+    };
+    (grew / threads).max(held).max(WORKER_FLOOR)
+}
+
+/// The statistic of the learned cost: the ninetieth percentile of the codeunits seen (`sorted` ascending, not empty
+/// unless nothing ended). One large codeunit or a codeunit that ran beside a growing neighbour does not set the cost
+/// of every thread; the hard stop on the resident memory still catches a codeunit that outgrows it.
+fn percentile(sorted: &[u64]) -> u64 {
+    match sorted.len() {
+        0 => 0,
+        n => sorted[(n * 9).div_ceil(10) - 1],
+    }
 }
 
 /// Reads the process's resident memory in bytes.
@@ -415,6 +446,8 @@ struct Shared {
     /// The learned cost of one running codeunit; `learned` once a codeunit ended.
     cost: AtomicU64,
     learned: AtomicBool,
+    /// The cost each ended codeunit showed over its own window ([`window_cost`]), the newest [`KEEP`] of them.
+    samples: Mutex<std::collections::VecDeque<u64>>,
     /// Test threads alive (the first one included), the most at once, the ones ended for memory, codeunits running.
     live: AtomicUsize,
     most: AtomicUsize,
@@ -450,6 +483,7 @@ impl Pool {
                 max: max.max(1),
                 cost: AtomicU64::new(0),
                 learned: AtomicBool::new(false),
+                samples: Mutex::default(),
                 live: AtomicUsize::new(1),
                 most: AtomicUsize::new(1),
                 ended: AtomicUsize::new(0),
@@ -560,22 +594,21 @@ impl Pool {
     /// Counts a running codeunit until the returned guard drops; the cost is learned when it ends.
     pub fn enter(&self) -> Running<'_> {
         self.s.running.fetch_add(1, Ordering::SeqCst);
-        Running { pool: self }
+        Running {
+            pool: self,
+            window: self.resident().map(|(_, now)| (now, self.fixed(), self.live())),
+        }
     }
 
     /// Reads the resident memory: learns the cost of a running codeunit, and under a hard limit stops the run before
     /// the resident memory passes the limit (the watcher calls it while the tests run).
     pub fn sample(&self) {
-        let Some((b, now)) = self.resident() else { return };
-        let running = self.s.running.load(Ordering::SeqCst);
-        if running > 0 {
-            // Divide by the threads alive, not the codeunits running: a thread between codeunits (building its own
-            // baseline copy and session) holds memory too, and charging it to the one codeunit that runs made the
-            // learned cost several times the real one (issue 6924).
-            let threads = self.live().max(running) as u64;
-            let per = (now.saturating_sub(self.fixed()) / threads).max(WORKER_FLOOR);
-            self.s.cost.fetch_max(per, Ordering::Relaxed);
+        if let Some((b, now)) = self.resident() {
+            self.sample_at(b, now);
         }
+    }
+
+    fn sample_at(&self, b: &MemoryBudget, now: u64) {
         let line = if self.live() > 1 {
             last_line(b.limit)
         } else {
@@ -596,8 +629,23 @@ impl Pool {
     /// A codeunit ended: the cost is known now. Under a hard limit, stops the run when the fixed part and the cost of
     /// one codeunit do not fit (decision 6, after the first codeunit). Only with one thread left: with more, the cost
     /// seen per running codeunit also holds what the other threads set up, and they end first when there is no room.
-    fn ended(&self) {
-        self.sample();
+    fn ended(&self, window: Option<(u64, u64, usize)>) {
+        let read = self.resident();
+        if let Some((b, now)) = read {
+            self.sample_at(b, now);
+        }
+        if let (Some((rss_in, fixed_in, live_in)), Some((_, now))) = (window, read) {
+            let threads = self.live().max(live_in).max(self.s.running.load(Ordering::SeqCst));
+            let per = window_cost(rss_in, fixed_in, now, self.fixed(), threads);
+            let mut v = self.s.samples.lock().unwrap_or_else(|e| e.into_inner());
+            if v.len() == KEEP {
+                v.pop_front();
+            }
+            v.push_back(per);
+            let mut sorted: Vec<u64> = v.iter().copied().collect();
+            sorted.sort_unstable();
+            self.s.cost.store(percentile(&sorted), Ordering::Relaxed);
+        }
         self.s.learned.store(true, Ordering::SeqCst);
         let Some(b) = self.s.budget.as_ref().filter(|b| b.hard && self.live() == 1) else {
             return;
@@ -699,11 +747,13 @@ impl Drop for Member<'_> {
 /// A running codeunit, counted by its [`Pool`] while it runs.
 pub struct Running<'a> {
     pool: &'a Pool,
+    /// The resident memory, the fixed part and the live threads when the codeunit started.
+    window: Option<(u64, u64, usize)>,
 }
 
 impl Drop for Running<'_> {
     fn drop(&mut self) {
-        self.pool.ended();
+        self.pool.ended(self.window);
         self.pool.s.running.fetch_sub(1, Ordering::SeqCst);
     }
 }
@@ -821,16 +871,79 @@ mod tests {
         drop(first);
         let members: Vec<_> = (0..7).map(|k| pool.try_add(k).expect("room")).collect();
         assert_eq!(pool.live(), 8);
-        // One codeunit runs; the other seven threads are setting up. Every thread holds 300 MB.
+        // One codeunit runs; the other seven threads are setting up. The process grows by 2200 MB in its window.
         let running = pool.enter();
         now.store((500 + 8 * 300) * MB, Ordering::SeqCst);
-        pool.sample();
+        drop(running);
         assert_eq!(
             pool.cost() >> 20,
             300,
-            "a thread costs 300 MB, not the whole growth (2400 MB)"
+            "2400 MB held by 8 threads, not all of it for one codeunit"
         );
+        let running = pool.enter();
         drop(running);
+        drop(members);
+    }
+
+    /// Issue 6924, whole area: the first codeunit runs alone and the state a chain carries (held once, counted with the
+    /// fixed part through `add_fixed`) is not the cost of a thread.
+    #[test]
+    fn state_a_chain_holds_once_is_not_the_cost_of_a_thread() {
+        let now = rss(500);
+        let pool = Pool::new(Some(budget(100_000 * MB, now.clone(), true)), 500 * MB, 8);
+        let first = pool.enter();
+        pool.add_fixed(1000 * MB);
+        now.store(1900 * MB, Ordering::SeqCst); // 1000 MB carried state and 400 MB its own
+        drop(first);
+        assert_eq!(pool.cost() >> 20, 400);
+    }
+
+    /// One large codeunit among many small ones does not set the cost of every thread (ninetieth percentile).
+    #[test]
+    fn one_large_codeunit_does_not_set_the_cost_of_every_thread() {
+        let now = rss(500);
+        let pool = Pool::new(Some(budget(100_000 * MB, now.clone(), false)), 500 * MB, 8);
+        let mut at = 500;
+        for grew in std::iter::repeat_n(100, 10).chain([1000]) {
+            let r = pool.enter();
+            at += grew;
+            now.store(at * MB, Ordering::SeqCst);
+            drop(r);
+        }
+        assert_eq!(pool.cost() >> 20, 100);
+    }
+
+    /// The safety stays when the estimate is low: the cost is only used to admit threads; a run whose resident memory
+    /// climbs past the stop line is stopped (exit code 2) whatever was learned.
+    #[test]
+    fn a_low_estimate_does_not_let_the_run_pass_a_hard_limit() {
+        let now = rss(500);
+        let pool = Pool::new(Some(budget(2048 * MB, now.clone(), true)), 500 * MB, 4);
+        let first = pool.enter();
+        now.store(564 * MB, Ordering::SeqCst);
+        drop(first);
+        assert_eq!(pool.cost() >> 20, 64, "a low estimate");
+        let helper = pool.try_add(0).expect("room at the low estimate");
+        let running = pool.enter();
+        now.store(2040 * MB, Ordering::SeqCst); // the codeunits grow far past it
+        pool.sample();
+        assert!(pool.halted(), "stopped before the limit");
+        assert!(!pool.keep(), "and no room to go on");
+        drop((running, helper));
+    }
+
+    /// A window of a codeunit that reuses freed memory shows no growth; with several threads alive the memory the
+    /// process holds above the fixed part, divided by them, is the cost (issue 6924: about 360 MB real, not the floor).
+    #[test]
+    fn a_flat_window_beside_other_threads_still_learns_what_a_thread_holds() {
+        let now = rss(500);
+        let pool = Pool::new(Some(budget(100_000 * MB, now.clone(), true)), 500 * MB, 8);
+        drop(pool.enter());
+        let members: Vec<_> = (0..7).map(|k| pool.try_add(k).expect("room")).collect();
+        now.store((500 + 8 * 360) * MB, Ordering::SeqCst);
+        let r = pool.enter(); // the process already holds it: no growth in the window
+        drop(r);
+        assert_eq!(pool.cost() >> 20, 360);
         drop(members);
     }
 
@@ -856,6 +969,7 @@ mod tests {
         let reader = shared.clone();
         pool.share(Arc::new(move || reader.load(Ordering::SeqCst)));
         pool.add_fixed(100 * MB); // the frozen install baseline, made after the fixed part was read
+        now.store(1100 * MB, Ordering::SeqCst); // the frozen baseline is in the resident memory by now
         let first = pool.enter();
         // The first codeunit built 1500 MB of shared test data rows and holds 200 MB of its own.
         shared.store(1500 * MB, Ordering::SeqCst);
