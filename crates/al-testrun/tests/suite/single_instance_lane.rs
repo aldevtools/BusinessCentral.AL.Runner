@@ -1453,3 +1453,89 @@ fn the_fresh_variant_takes_each_suspects_fresh_outcome_and_every_other_base_outc
     // The base variant ran with the check, so its list holds the fresh outcomes ("checked").
     assert!(rts[0].single_carried().all(|c| c.fresh.is_some()));
 }
+
+/// Codeunits outside the carry chain and in it whose outcome or message depends on the SingleInstance state that
+/// earlier codeunits left: some pass only in BC's order, some fail only in it, one fails either way with a message
+/// that names what it read.
+const DIFFERENTIAL: &str = r#"
+codeunit 60720 "Diff Setter"
+{
+    Subtype = Test;
+    [Test] procedure DiffSetsTheFlag() var S: Codeunit "Lane State"; begin S.SetFlag('left'); end;
+}
+codeunit 60721 "Diff Needs Flag"
+{
+    Subtype = Test;
+    [Test] procedure DiffNeedsTheFlag() var S: Codeunit "Lane State"; begin if S.GetFlag() <> 'left' then Error('no flag [%1]', S.GetFlag()); end;
+}
+codeunit 60722 "Diff Hates Flag"
+{
+    Subtype = Test;
+    [Test] procedure DiffFailsAfterTheSetter() var S: Codeunit "Lane State"; begin if S.GetFlag() = 'left' then Error('saw [%1]', S.GetFlag()); end;
+}
+codeunit 60723 "Diff Always Fails"
+{
+    Subtype = Test;
+    [Test] procedure DiffFailsEitherWay() var S: Codeunit "Lane State"; begin Error('flag [%1]', S.GetFlag()); end;
+}
+codeunit 60724 "Diff Lenient"
+{
+    Subtype = Test;
+    [Test] procedure DiffReadsAnyFlag() var S: Codeunit "Lane State"; begin if StrLen(S.GetFlag()) > 10 then Error('long'); end;
+}
+codeunit 60725 "Diff Chain Setter"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure DiffChainSets() var S: Codeunit "Lane State"; begin S.SetFlag('chain'); end;
+}
+codeunit 60726 "Diff Chain Needs"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure DiffChainNeeds() var S: Codeunit "Lane State"; begin if S.GetFlag() <> 'chain' then Error('chain flag [%1]', S.GetFlag()); end;
+}
+codeunit 60727 "Diff Chain Hates"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure DiffChainFailsAfter() var S: Codeunit "Lane State"; begin if S.GetFlag() = 'chain' then Error('chain saw [%1]', S.GetFlag()); end;
+}
+"#;
+
+fn outcomes(rt: &CorpusRuntime) -> Vec<(u32, String, Outcome)> {
+    let mut v: Vec<_> = rt
+        .results()
+        .iter()
+        .map(|r| (r.codeunit, r.test.clone(), r.outcome.clone()))
+        .collect();
+    v.sort_by(|a, b| (a.0, &a.1).cmp(&(b.0, &b.1)));
+    v
+}
+
+/// ADR-058 amendment 1, decision 3 (differential conformance): the base variant of a stability run with
+/// `isolation.singleInstance` gives every test the outcome and message of a normal `--strict-order` run.
+#[test]
+fn the_base_variant_with_the_single_instance_check_matches_a_strict_order_run() {
+    let base = al_testrun::stability::Perturb::default();
+    let fresh = al_testrun::stability::Perturb {
+        single_fresh: true,
+        ..Default::default()
+    };
+    let rts = variants_of(DIFFERENTIAL, &[base, fresh]);
+    let strict = runtime_opts(
+        DIFFERENTIAL,
+        STATE,
+        &RunOptions {
+            required_isolation: true,
+            strict_order: true,
+            ..Default::default()
+        },
+    );
+    let want = outcomes(&strict);
+    assert_eq!(want.len(), 8, "{want:?}");
+    // The suite is not trivial: in BC's order some tests fail, and the fresh variant changes some outcomes.
+    assert!(want.iter().any(|w| matches!(w.2, Outcome::Fail(_))), "{want:?}");
+    assert_ne!(outcomes(&rts[1]), want, "the fresh variant differs");
+    assert_eq!(outcomes(&rts[0]), want);
+}
