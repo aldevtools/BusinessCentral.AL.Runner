@@ -32,6 +32,27 @@ pub(super) fn option_caption_ml(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mu
     Ok(Value::Option(*o, captions.into()))
 }
 
+/// `Format(Field.Class, Length, Number)`: the Field table's Class column is an Option field, not a FieldClass value. It shows the
+/// member name in formats 0 and 1 and the number in 2 and 9, and an ordinal past the members as its number
+/// (format-evaluate/SoEvaluateSystemOptions.al:3826 FormatOfFieldTableClassColumn, :3843 FieldTableClassColumn_Evaluate
+/// `Yes/3|3|3|3|3`). A length is not pinned for it.
+pub(super) fn format_option_column(
+    ctx: &mut dyn Ctx,
+    r: Option<&mut Value>,
+    args: &mut [Value],
+) -> Result<Value, Signal> {
+    let std = int_arg(args, 2).unwrap_or(0);
+    if let Some(Value::Option(o, members)) = args.first() {
+        if int_arg(args, 1).unwrap_or(0) != 0 {
+            return unsupported("Format of the Field table's Class column with a length (not pinned)");
+        }
+        if matches!(std, 2 | 9) || usize::try_from(*o).map_or(true, |i| i >= members.len()) {
+            return Ok(Value::Text(o.to_string().into()));
+        }
+    }
+    format_1(ctx, r, args)
+}
+
 /// `Format(Rec.Field)` of a Decimal field that declares its places (`DecimalPlaces` or an `AutoFormatExpression` precision;
 /// lowering appends them as a fourth argument `min:max`). The standard formats 0 and 1 and the XML format 9 show those places; 0 groups
 /// thousands (pages/run-modal/P113AutoFormat.al:P113_AF_TableFieldFormatIsPlain, `1,234.500` and, for 1 and 9,

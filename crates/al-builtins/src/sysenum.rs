@@ -232,11 +232,19 @@ pub fn is_field_table_type(members: &[String]) -> bool {
 pub fn ordinals_hidden(members: &[String], standard: i32) -> bool {
     let known = members_static("fieldtype");
     let same = |known: &[&str]| members.len() == known.len() && members.iter().zip(known).all(|(a, b)| a == b);
-    // The Action option too: `Format(Action::OK, 0, 2)` is `OK` (ui-handlers/PnGActionOrdinals.al:MemberOrdinals). FieldClass
-    // with number 2 (format-evaluate/SoEvaluateSystemOptions.al:3505 Names: `Yes/Normal/Normal`); number 9 prints the ordinal
-    // of the Field table's Class column, which has the same members (metadata/platform-tables/R6890SystemFieldClassification.al:50,
-    // :103 `Class=0`). Number 9 of a FieldClass variable and number 2 of the column are not pinned.
-    same(known) || same(&crate::value::ACTION_MEMBERS) || (standard == 2 && same(members_static("fieldclass")))
+    // The Action option too: `Format(Action::OK, 0, 2)` is `OK` (ui-handlers/PnGActionOrdinals.al:MemberOrdinals). A FieldClass
+    // value shows its name in numbers 2 and 9 (format-evaluate/SoEvaluateSystemOptions.al:3769 FormatOfVariable_Members
+    // `Normal|Normal|Normal|Normal|Normal`). The Field table's Class column has the same members but shows its number: the
+    // lowering sends it to `System.FormatOptionColumn#1` (:3826, metadata/platform-tables/R6890SystemFieldClassification.al:103).
+    same(known)
+        || same(&crate::value::ACTION_MEMBERS)
+        || (matches!(standard, 2 | 9) && same(members_static("fieldclass")))
+}
+
+/// Whether `members` is the `FieldClass` option (also the members of the Field table's Class column).
+pub fn is_field_class(members: &[String]) -> bool {
+    let known = members_static("fieldclass");
+    members.len() == known.len() && members.iter().zip(known).all(|(a, b)| a == b)
 }
 
 /// Whether `members` is the `PageBackgroundTaskErrorLevel` option.
