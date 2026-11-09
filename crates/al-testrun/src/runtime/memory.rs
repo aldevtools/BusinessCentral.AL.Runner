@@ -38,11 +38,11 @@ fn usable(limit: u64) -> u64 {
     limit / 10 * 9
 }
 
-/// Where a hard limit stops the run with one test thread left: a sixteenth of the limit (at least 64 MB) under it. The
-/// running test is stopped within the watchdog's poll (50 ms) of the stop, and the process grows meanwhile: on
-/// Tests-SCM up to about 90 MB after a stop at 3 GB.
+/// Where a hard limit stops the run with one test thread left: an eighth of the limit (at least 64 MB) under it. The
+/// process still grows after the stop until the running test has ended: on Tests-SCM by up to about 165 MB after a
+/// stop at 2880 MB (it grew by about 450 MB a second there).
 fn stop_line(limit: u64) -> u64 {
-    limit.saturating_sub((limit / 16).max(64 << 20))
+    limit.saturating_sub((limit / 8).max(64 << 20))
 }
 
 /// Where a hard limit stops the run while more threads run: closer to the limit (a thirty-second, at least 32 MB),
@@ -635,16 +635,16 @@ mod tests {
         let now = rss(500);
         let pool = Pool::new(Some(budget(2048 * MB, now.clone(), true)), 500 * MB, 1);
         let running = pool.enter();
-        now.store(1900 * MB, Ordering::SeqCst);
+        now.store(1700 * MB, Ordering::SeqCst);
         pool.sample();
-        assert!(!pool.halted(), "1900 MB is still under the stop line of 2048 MB");
-        now.store(2000 * MB, Ordering::SeqCst);
+        assert!(!pool.halted(), "1700 MB is still under the stop line of 2048 MB");
+        now.store(1850 * MB, Ordering::SeqCst);
         pool.sample();
         assert!(pool.halted());
         let halt = pool.halt();
         assert_eq!(halt.reason(), "memory limit (--max-memory 2048 MB)");
         let m = halt.message().expect("a message");
-        assert!(m.contains("2000 MB") && m.contains("2048 MB (--max-memory)"), "{m}");
+        assert!(m.contains("1850 MB") && m.contains("2048 MB (--max-memory)"), "{m}");
         assert!(halt.flag().load(Ordering::SeqCst), "the running test is stopped");
         drop(running);
     }
