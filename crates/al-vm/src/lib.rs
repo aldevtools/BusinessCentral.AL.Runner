@@ -95,6 +95,7 @@ mod platform;
 mod profile;
 mod queries;
 mod query_date_filter;
+mod query_save_as;
 mod rdlc_fields;
 mod read_only_tables;
 mod recmeta;

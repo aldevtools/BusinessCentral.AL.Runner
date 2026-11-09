@@ -17,10 +17,7 @@
 60193 QW_Ternary_EnumOptionPairs
 60193 QW_Ternary_LabelIntoVariant
 60199 SetFilter_UnquotedParenthesis_Throws
-60205 Query_SaveAsJson_OutStream_ExportsFilteredDataset
 60205 Query_SaveAsJson_StaticOutStream_ExportsDataset
-60205 Query_SaveAsXml_OutStream_ExportsFilteredDataset
-60205 Query_SaveAsXml_StaticOutStream_ExportsDataset
 60233 AfterHostGotoKey_FirstNextLandsOnTheGLLine
 60233 AfterHostGotoKey_ReadsTheItemLineBeforeAnyNext
 60233 AfterHostGotoKey_SecondNextAnswersFalse
@@ -174,9 +171,6 @@
 68392 Rename_TakesTheData_AndDeleteDropsIt
 68511 Open_AfterTheFirstRead
 68511 SaveAsCsv_NonIntegerColumns
-68511 SaveAsJson_NonIntegerColumns
-68511 SaveAsXml_IntegerColumns
-68511 SaveAsXml_NonIntegerColumns
 68511 WriteWhileAnAggregatedQueryIsOpen_InsertAfterFirstRead
 68512 Aggregates_OverBigInteger
 68512 Aggregates_OverDuration
@@ -538,8 +532,6 @@
 71877 P192_IndexOf_DateTime_Stored
 71878 P192_ArrayAdd_DateTime_Get0
 71878 P192_SetValue_DateTime_Then_Others
-71923 SaveAsJson_RawBytes
-71923 SaveAsXml_RawBytes
 71923 SaveAs_NoRows_RawBytes
 71941 Aggregated_DeleteAllBetweenReads
 71941 Aggregated_DeleteAndModifyBetweenReads
@@ -573,12 +565,6 @@
 72244 P105_RequestPage_Close
 72247 P105_RequestPage_SaveRecord
 72250 P105_RequestPage_SetSelectionFilter
-72276 P105_SaveAsXml_Stream_Default
-72276 P105_SaveAsXml_Stream_EmptyResult
-72276 P105_SaveAsXml_Stream_NameFilter
-72276 P105_SaveAsXml_Stream_Static
-72276 P105_SaveAsXml_Stream_Top1
-72276 P105_SaveAsXml_Stream_WithFilter
 72307 TableExt_CrossApp_NoParenCallSelectsLocal
 72307 TableExt_CrossApp_NoParenCaptionSelectsLocal
 72416 P106_Invoke_DrillDown
@@ -698,8 +684,6 @@
 73506 Static_ExportWrongId
 73506 Static_ImportWrongId
 73510 Open_TwiceAfterRead
-73516 SaveAsXml_Seeded
-73516 SaveAsXml_UnknownQueryId
 73520 SetTables_UnknownTable
 73535 SetView_IntegerPlaces
 73535 SetView_Malformed
@@ -1279,8 +1263,6 @@
 84475 SaveAs_UnknownQueryId_Errors
 84524 OnBeforeOpen_CallsSaveAsXml
 84524 SaveAsXml_AfterOpenAndOneRead_ThenRead
-84524 SaveAsXml_Twice
-84524 SaveAsXml_WithoutOpen_ThenRead
 84549 CloseError_RunModal_Cancel
 84549 CloseError_RunModal_Ok
 84549 CloseError_Run_Ok
@@ -1446,12 +1428,6 @@
 89030 Y76_QuotedStrings_AndEntityTags
 89030 Y76_Ranges_Hosts_Via
 89030 Y76_Via_Warning_Upgrade
-89241 SaveAsXml_Default_Content
-89241 SaveAsXml_EmptyResult_Content
-89241 SaveAsXml_SetRange_Content
-89241 SaveAsXml_Static_Content
-89241 SaveAsXml_TextFilter_Content
-89241 SaveAsXml_Top1_Content
 89244 FreshInstance_DefaultLayoutThenExecute_OnInitReport
 89244 InstanceLayoutMembers_OnInitReport
 89244 MissingId_DefaultLayout_FromTestMethod
