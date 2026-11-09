@@ -23,7 +23,12 @@ impl Session {
     /// Update()` all `ok:on B Inserted A|C`).
     ///
     /// Pinned for a top-level list that held its whole view and whose view only gained rows; the rows it gains are held as
-    /// stored, without a read (what the client reads for them is not pinned). A view of more rows than a window, a row the action
+    /// stored, without a read (what the client reads for them is not pinned). A list that held a full first window of a longer
+    /// view holds the first window of the new view the same way: a row inserted before every row or among the rows it held is
+    /// found by GoToKey and GoToRecord, with 20, 21 and 60 rows, with and without `CurrPage.Update()`, on a Worksheet with both
+    /// row triggers (corpus pages/long-list-open/Y7344ListFirstWindow.al:311 Y7344_Both_InsertBeforeAll_Update, :337
+    /// _NoUpdate, :381 Y7344_Both_InsertMiddle_Update `found=Yes now=A|R1010A`; al-runner issue 7344); the rows it held that
+    /// the new row pushes past the window are dropped, as a block read past the window reads them again. A row the action
     /// deleted, a tree and a list that serves its rows from OnFindRecord or OnNextRecord keep the rows as they were.
     pub(super) fn hold_rows_an_action_inserted(&mut self, st: &St) -> Result<(), Signal> {
         let shape = {
@@ -35,7 +40,8 @@ impl Session {
                 && !s.dirty
                 && s.window_from_start
                 && !s.window.is_empty()
-                && s.window.len() < Self::WINDOW
+                && !s.window_whole
+                && s.window.len() <= Self::WINDOW
         };
         if !shape
             || !self.has_source(st)
@@ -51,6 +57,7 @@ impl Session {
             return Ok(());
         }
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        let full = st.borrow().window.len() == Self::WINDOW;
         let mut rows: Vec<al_builtins::value::WindowRow> = Vec::new();
         self.ret_used = true;
         let mut at = matches!(
@@ -59,7 +66,10 @@ impl Session {
         );
         while at {
             if rows.len() == Self::WINDOW {
-                return Ok(());
+                if !full {
+                    return Ok(());
+                }
+                break;
             }
             let key = self.row_key(&probe)?;
             let stored = probe.borrow().fields.clone();
@@ -72,8 +82,18 @@ impl Session {
             at = matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(1)])?, Value::Integer(n) if n != 0);
         }
         let held = st.borrow().window.clone();
-        let keeps_every_row = held.iter().all(|h| rows.iter().any(|r| Self::same_key(&r.key, &h.key)));
-        if !keeps_every_row || rows.len() <= held.len() {
+        let kept = |h: &al_builtins::value::WindowRow| rows.iter().any(|r| Self::same_key(&r.key, &h.key));
+        if full {
+            // The rows held that the new first window no longer holds must be the last ones held (pushed past the window), and
+            // the window must hold a row it did not hold before.
+            let pushed_from = held.iter().position(|h| !kept(h)).unwrap_or(held.len());
+            let gained = rows
+                .iter()
+                .any(|r| !held.iter().any(|h| Self::same_key(&h.key, &r.key)));
+            if held[pushed_from..].iter().any(kept) || !gained {
+                return Ok(());
+            }
+        } else if !held.iter().all(kept) || rows.len() <= held.len() {
             return Ok(());
         }
         let window = rows
@@ -85,7 +105,12 @@ impl Session {
                     .unwrap_or(r)
             })
             .collect();
-        st.borrow_mut().window = window;
+        let mut s = st.borrow_mut();
+        s.window = window;
+        if full {
+            // The view gained a row past a full window: it goes on after the window.
+            s.window_eof = false;
+        }
         Ok(())
     }
 
