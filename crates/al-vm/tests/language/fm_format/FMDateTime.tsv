@@ -1,0 +1,1425 @@
+FMDateTime.al:109	0	ok:
+FMDateTime.al:110	1	ok:
+FMDateTime.al:111	2	ok:
+FMDateTime.al:112	3	err:InvalidStandardFormat
+FMDateTime.al:113	4	err:InvalidStandardFormat
+FMDateTime.al:114	5	err:InvalidStandardFormat
+FMDateTime.al:115	6	err:InvalidStandardFormat
+FMDateTime.al:116	7	err:InvalidStandardFormat
+FMDateTime.al:117	8	err:InvalidStandardFormat
+FMDateTime.al:118	9	ok:
+FMDateTime.al:119	10	err:InvalidStandardFormat
+FMDateTime.al:120	11	ok:
+FMDateTime.al:121	12	ok:
+FMDateTime.al:122	13	ok:
+FMDateTime.al:123	14	ok:
+FMDateTime.al:124	15	ok:
+FMDateTime.al:125	16	ok:
+FMDateTime.al:126	17	ok:
+FMDateTime.al:127	18	ok:
+FMDateTime.al:128	19	ok:
+FMDateTime.al:129	20	ok:
+FMDateTime.al:130	21	ok:
+FMDateTime.al:131	22	ok:
+FMDateTime.al:132	23	ok:
+FMDateTime.al:133	24	ok:
+FMDateTime.al:134	25	ok:
+FMDateTime.al:135	26	ok:
+FMDateTime.al:177	27	ok:
+FMDateTime.al:178	28	ok:
+FMDateTime.al:179	29	err:InvalidFormatString
+FMDateTime.al:180	30	ok:
+FMDateTime.al:181	31	ok:
+FMDateTime.al:182	32	ok:
+FMDateTime.al:183	33	ok:
+FMDateTime.al:184	34	ok:
+FMDateTime.al:185	35	ok:
+FMDateTime.al:186	36	ok:
+FMDateTime.al:187	37	ok:
+FMDateTime.al:188	38	ok:
+FMDateTime.al:189	39	ok:
+FMDateTime.al:190	40	ok:
+FMDateTime.al:191	41	ok:
+FMDateTime.al:192	42	err:InvalidFormatString
+FMDateTime.al:193	43	err:InvalidFormatString
+FMDateTime.al:194	44	err:InvalidFormatString
+FMDateTime.al:195	45	ok:
+FMDateTime.al:196	46	ok:
+FMDateTime.al:231	47	ok:03/09/26
+FMDateTime.al:232	48	ok:03/09/26
+FMDateTime.al:233	49	ok:030926D
+FMDateTime.al:234	50	err:InvalidStandardFormat
+FMDateTime.al:235	51	err:InvalidStandardFormat
+FMDateTime.al:236	52	err:InvalidStandardFormat
+FMDateTime.al:237	53	err:InvalidStandardFormat
+FMDateTime.al:238	54	err:InvalidStandardFormat
+FMDateTime.al:239	55	err:InvalidStandardFormat
+FMDateTime.al:240	56	ok:2026-03-09
+FMDateTime.al:241	57	err:InvalidStandardFormat
+FMDateTime.al:242	58	ok:9
+FMDateTime.al:243	59	ok:09
+FMDateTime.al:244	60	ok:09
+FMDateTime.al:245	61	ok:3
+FMDateTime.al:246	62	ok:03
+FMDateTime.al:247	63	ok:March
+FMDateTime.al:248	64	ok:Mar
+FMDateTime.al:249	65	ok:26
+FMDateTime.al:250	66	ok:26
+FMDateTime.al:251	67	ok:2026
+FMDateTime.al:252	68	ok:2026
+FMDateTime.al:253	69	ok:
+FMDateTime.al:254	70	ok:9
+FMDateTime.al:255	71	ok:1
+FMDateTime.al:256	72	ok:Monday
+FMDateTime.al:257	73	ok:Mon
+FMDateTime.al:299	74	ok:11
+FMDateTime.al:300	75	ok:11
+FMDateTime.al:301	76	err:InvalidFormatString
+FMDateTime.al:302	77	ok:03/09/26
+FMDateTime.al:303	78	ok:03/09/26
+FMDateTime.al:304	79	ok:March 9, 2026
+FMDateTime.al:305	80	ok:2026-03-09
+FMDateTime.al:306	81	ok:3/9/2026
+FMDateTime.al:307	82	ok:9.3.2026
+FMDateTime.al:308	83	ok:09.03.26
+FMDateTime.al:309	84	ok:9 March, 2026
+FMDateTime.al:310	85	ok:March 9, 2026
+FMDateTime.al:311	86	ok:9. 3. 2026
+FMDateTime.al:312	87	ok:2026-03-09
+FMDateTime.al:313	88	ok:Monday, 9 March 2026
+FMDateTime.al:314	89	err:InvalidFormatString
+FMDateTime.al:315	90	err:InvalidFormatString
+FMDateTime.al:316	91	err:InvalidFormatString
+FMDateTime.al:317	92	ok:literal
+FMDateTime.al:318	93	ok:
+FMDateTime.al:353	94	ok:02/29/24
+FMDateTime.al:354	95	ok:02/29/24
+FMDateTime.al:355	96	ok:022924D
+FMDateTime.al:356	97	err:InvalidStandardFormat
+FMDateTime.al:357	98	err:InvalidStandardFormat
+FMDateTime.al:358	99	err:InvalidStandardFormat
+FMDateTime.al:359	100	err:InvalidStandardFormat
+FMDateTime.al:360	101	err:InvalidStandardFormat
+FMDateTime.al:361	102	err:InvalidStandardFormat
+FMDateTime.al:362	103	ok:2024-02-29
+FMDateTime.al:363	104	err:InvalidStandardFormat
+FMDateTime.al:364	105	ok:29
+FMDateTime.al:365	106	ok:29
+FMDateTime.al:366	107	ok:29
+FMDateTime.al:367	108	ok:2
+FMDateTime.al:368	109	ok:02
+FMDateTime.al:369	110	ok:February
+FMDateTime.al:370	111	ok:Feb
+FMDateTime.al:371	112	ok:24
+FMDateTime.al:372	113	ok:24
+FMDateTime.al:373	114	ok:2024
+FMDateTime.al:374	115	ok:2024
+FMDateTime.al:375	116	ok:
+FMDateTime.al:376	117	ok:29
+FMDateTime.al:377	118	ok:4
+FMDateTime.al:378	119	ok:Thursday
+FMDateTime.al:379	120	ok:Thu
+FMDateTime.al:421	121	ok:9
+FMDateTime.al:422	122	ok:09
+FMDateTime.al:423	123	err:InvalidFormatString
+FMDateTime.al:424	124	ok:02/29/24
+FMDateTime.al:425	125	ok:02/29/24
+FMDateTime.al:426	126	ok:February 29, 2024
+FMDateTime.al:427	127	ok:2024-02-29
+FMDateTime.al:428	128	ok:2/29/2024
+FMDateTime.al:429	129	ok:29.2.2024
+FMDateTime.al:430	130	ok:29.02.24
+FMDateTime.al:431	131	ok:29 February, 2024
+FMDateTime.al:432	132	ok:February 29, 2024
+FMDateTime.al:433	133	ok:29. 2. 2024
+FMDateTime.al:434	134	ok:2024-02-29
+FMDateTime.al:435	135	ok:Thursday, 29 February 2024
+FMDateTime.al:436	136	err:InvalidFormatString
+FMDateTime.al:437	137	err:InvalidFormatString
+FMDateTime.al:438	138	err:InvalidFormatString
+FMDateTime.al:439	139	ok:literal
+FMDateTime.al:440	140	ok:
+FMDateTime.al:475	141	ok:12/31/26
+FMDateTime.al:476	142	ok:12/31/26
+FMDateTime.al:477	143	ok:123126D
+FMDateTime.al:478	144	err:InvalidStandardFormat
+FMDateTime.al:479	145	err:InvalidStandardFormat
+FMDateTime.al:480	146	err:InvalidStandardFormat
+FMDateTime.al:481	147	err:InvalidStandardFormat
+FMDateTime.al:482	148	err:InvalidStandardFormat
+FMDateTime.al:483	149	err:InvalidStandardFormat
+FMDateTime.al:484	150	ok:2026-12-31
+FMDateTime.al:485	151	err:InvalidStandardFormat
+FMDateTime.al:486	152	ok:31
+FMDateTime.al:487	153	ok:31
+FMDateTime.al:488	154	ok:31
+FMDateTime.al:489	155	ok:12
+FMDateTime.al:490	156	ok:12
+FMDateTime.al:491	157	ok:December
+FMDateTime.al:492	158	ok:Dec
+FMDateTime.al:493	159	ok:26
+FMDateTime.al:494	160	ok:26
+FMDateTime.al:495	161	ok:2026
+FMDateTime.al:496	162	ok:2026
+FMDateTime.al:497	163	ok:
+FMDateTime.al:498	164	ok:31
+FMDateTime.al:499	165	ok:4
+FMDateTime.al:500	166	ok:Thursday
+FMDateTime.al:501	167	ok:Thu
+FMDateTime.al:543	168	ok:53
+FMDateTime.al:544	169	ok:53
+FMDateTime.al:545	170	err:InvalidFormatString
+FMDateTime.al:546	171	ok:12/31/26
+FMDateTime.al:547	172	ok:12/31/26
+FMDateTime.al:548	173	ok:December 31, 2026
+FMDateTime.al:549	174	ok:2026-12-31
+FMDateTime.al:550	175	ok:12/31/2026
+FMDateTime.al:551	176	ok:31.12.2026
+FMDateTime.al:552	177	ok:31.12.26
+FMDateTime.al:553	178	ok:31 December, 2026
+FMDateTime.al:554	179	ok:December 31, 2026
+FMDateTime.al:555	180	ok:31. 12. 2026
+FMDateTime.al:556	181	ok:2026-12-31
+FMDateTime.al:557	182	ok:Thursday, 31 December 2026
+FMDateTime.al:558	183	err:InvalidFormatString
+FMDateTime.al:559	184	err:InvalidFormatString
+FMDateTime.al:560	185	err:InvalidFormatString
+FMDateTime.al:561	186	ok:literal
+FMDateTime.al:562	187	ok:
+FMDateTime.al:597	188	ok:01/01/1753
+FMDateTime.al:598	189	ok:01/01/1753
+FMDateTime.al:599	190	ok:01011753D
+FMDateTime.al:600	191	err:InvalidStandardFormat
+FMDateTime.al:601	192	err:InvalidStandardFormat
+FMDateTime.al:602	193	err:InvalidStandardFormat
+FMDateTime.al:603	194	err:InvalidStandardFormat
+FMDateTime.al:604	195	err:InvalidStandardFormat
+FMDateTime.al:605	196	err:InvalidStandardFormat
+FMDateTime.al:606	197	ok:1753-01-01
+FMDateTime.al:607	198	err:InvalidStandardFormat
+FMDateTime.al:608	199	ok:1
+FMDateTime.al:609	200	ok:01
+FMDateTime.al:610	201	ok:01
+FMDateTime.al:611	202	ok:1
+FMDateTime.al:612	203	ok:01
+FMDateTime.al:613	204	ok:January
+FMDateTime.al:614	205	ok:Jan
+FMDateTime.al:615	206	ok:1753
+FMDateTime.al:616	207	ok:**
+FMDateTime.al:617	208	ok:1753
+FMDateTime.al:618	209	ok:1753
+FMDateTime.al:619	210	ok:
+FMDateTime.al:620	211	ok:1
+FMDateTime.al:621	212	ok:1
+FMDateTime.al:622	213	ok:Monday
+FMDateTime.al:623	214	ok:Mon
+FMDateTime.al:665	215	ok:1
+FMDateTime.al:666	216	ok:01
+FMDateTime.al:667	217	err:InvalidFormatString
+FMDateTime.al:668	218	ok:01/01/1753
+FMDateTime.al:669	219	ok:01/01/1753
+FMDateTime.al:670	220	ok:January 1, 1753
+FMDateTime.al:671	221	ok:1753-01-01
+FMDateTime.al:672	222	ok:1/1/1753
+FMDateTime.al:673	223	ok:1.1.1753
+FMDateTime.al:674	224	ok:01.01.**
+FMDateTime.al:675	225	ok:1 January, 1753
+FMDateTime.al:676	226	ok:January 1, 1753
+FMDateTime.al:677	227	ok:1. 1. 1753
+FMDateTime.al:678	228	ok:1753-01-01
+FMDateTime.al:679	229	ok:Monday, 1 January 1753
+FMDateTime.al:680	230	err:InvalidFormatString
+FMDateTime.al:681	231	err:InvalidFormatString
+FMDateTime.al:682	232	err:InvalidFormatString
+FMDateTime.al:683	233	ok:literal
+FMDateTime.al:684	234	ok:
+FMDateTime.al:719	235	ok:12/31/9999
+FMDateTime.al:720	236	ok:12/31/9999
+FMDateTime.al:721	237	ok:12319999D
+FMDateTime.al:722	238	err:InvalidStandardFormat
+FMDateTime.al:723	239	err:InvalidStandardFormat
+FMDateTime.al:724	240	err:InvalidStandardFormat
+FMDateTime.al:725	241	err:InvalidStandardFormat
+FMDateTime.al:726	242	err:InvalidStandardFormat
+FMDateTime.al:727	243	err:InvalidStandardFormat
+FMDateTime.al:728	244	ok:9999-12-31
+FMDateTime.al:729	245	err:InvalidStandardFormat
+FMDateTime.al:730	246	ok:31
+FMDateTime.al:731	247	ok:31
+FMDateTime.al:732	248	ok:31
+FMDateTime.al:733	249	ok:12
+FMDateTime.al:734	250	ok:12
+FMDateTime.al:735	251	ok:December
+FMDateTime.al:736	252	ok:Dec
+FMDateTime.al:737	253	ok:9999
+FMDateTime.al:738	254	ok:**
+FMDateTime.al:739	255	ok:9999
+FMDateTime.al:740	256	ok:9999
+FMDateTime.al:741	257	ok:
+FMDateTime.al:742	258	ok:31
+FMDateTime.al:743	259	ok:5
+FMDateTime.al:744	260	ok:Friday
+FMDateTime.al:745	261	ok:Fri
+FMDateTime.al:787	262	ok:52
+FMDateTime.al:788	263	ok:52
+FMDateTime.al:789	264	err:InvalidFormatString
+FMDateTime.al:790	265	ok:12/31/9999
+FMDateTime.al:791	266	ok:12/31/9999
+FMDateTime.al:792	267	ok:December 31, 9999
+FMDateTime.al:793	268	ok:9999-12-31
+FMDateTime.al:794	269	ok:12/31/9999
+FMDateTime.al:795	270	ok:31.12.9999
+FMDateTime.al:796	271	ok:31.12.**
+FMDateTime.al:797	272	ok:31 December, 9999
+FMDateTime.al:798	273	ok:December 31, 9999
+FMDateTime.al:799	274	ok:31. 12. 9999
+FMDateTime.al:800	275	ok:9999-12-31
+FMDateTime.al:801	276	ok:Friday, 31 December 9999
+FMDateTime.al:802	277	err:InvalidFormatString
+FMDateTime.al:803	278	err:InvalidFormatString
+FMDateTime.al:804	279	err:InvalidFormatString
+FMDateTime.al:805	280	ok:literal
+FMDateTime.al:806	281	ok:
+FMDateTime.al:841	282	ok:03/09/26
+FMDateTime.al:842	283	ok:03/09/26
+FMDateTime.al:843	284	ok:030926D
+FMDateTime.al:844	285	err:InvalidStandardFormat
+FMDateTime.al:845	286	err:InvalidStandardFormat
+FMDateTime.al:846	287	err:InvalidStandardFormat
+FMDateTime.al:847	288	err:InvalidStandardFormat
+FMDateTime.al:848	289	err:InvalidStandardFormat
+FMDateTime.al:849	290	err:InvalidStandardFormat
+FMDateTime.al:850	291	ok:2026-03-09
+FMDateTime.al:851	292	err:InvalidStandardFormat
+FMDateTime.al:852	293	ok:9
+FMDateTime.al:853	294	ok:09
+FMDateTime.al:854	295	ok:09
+FMDateTime.al:855	296	ok:3
+FMDateTime.al:856	297	ok:03
+FMDateTime.al:857	298	ok:März
+FMDateTime.al:858	299	ok:Mär
+FMDateTime.al:859	300	ok:26
+FMDateTime.al:860	301	ok:26
+FMDateTime.al:861	302	ok:2026
+FMDateTime.al:862	303	ok:2026
+FMDateTime.al:863	304	ok:
+FMDateTime.al:864	305	ok:9
+FMDateTime.al:865	306	ok:1
+FMDateTime.al:866	307	ok:Montag
+FMDateTime.al:867	308	ok:Mon
+FMDateTime.al:909	309	ok:11
+FMDateTime.al:910	310	ok:11
+FMDateTime.al:911	311	err:InvalidFormatString
+FMDateTime.al:912	312	ok:03/09/26
+FMDateTime.al:913	313	ok:03/09/26
+FMDateTime.al:914	314	ok:März 9, 2026
+FMDateTime.al:915	315	ok:2026-03-09
+FMDateTime.al:916	316	ok:3/9/2026
+FMDateTime.al:917	317	ok:9.3.2026
+FMDateTime.al:918	318	ok:09.03.26
+FMDateTime.al:919	319	ok:9 März, 2026
+FMDateTime.al:920	320	ok:März 9, 2026
+FMDateTime.al:921	321	ok:9. 3. 2026
+FMDateTime.al:922	322	ok:2026-03-09
+FMDateTime.al:923	323	ok:Montag, 9 März 2026
+FMDateTime.al:924	324	err:InvalidFormatString
+FMDateTime.al:925	325	err:InvalidFormatString
+FMDateTime.al:926	326	err:InvalidFormatString
+FMDateTime.al:927	327	ok:literal
+FMDateTime.al:928	328	ok:
+FMDateTime.al:963	329	ok:
+FMDateTime.al:964	330	ok:
+FMDateTime.al:965	331	ok:
+FMDateTime.al:966	332	err:InvalidStandardFormat
+FMDateTime.al:967	333	err:InvalidStandardFormat
+FMDateTime.al:968	334	err:InvalidStandardFormat
+FMDateTime.al:969	335	err:InvalidStandardFormat
+FMDateTime.al:970	336	err:InvalidStandardFormat
+FMDateTime.al:971	337	err:InvalidStandardFormat
+FMDateTime.al:972	338	ok:
+FMDateTime.al:973	339	err:InvalidStandardFormat
+FMDateTime.al:974	340	ok:
+FMDateTime.al:975	341	ok:
+FMDateTime.al:976	342	ok:
+FMDateTime.al:977	343	ok:
+FMDateTime.al:978	344	ok:
+FMDateTime.al:979	345	ok:
+FMDateTime.al:980	346	ok:
+FMDateTime.al:981	347	ok:
+FMDateTime.al:982	348	ok:
+FMDateTime.al:983	349	ok:
+FMDateTime.al:984	350	ok:
+FMDateTime.al:985	351	ok:
+FMDateTime.al:986	352	ok:
+FMDateTime.al:987	353	ok:
+FMDateTime.al:988	354	ok:
+FMDateTime.al:989	355	ok:
+FMDateTime.al:1031	356	ok:
+FMDateTime.al:1032	357	ok:
+FMDateTime.al:1033	358	err:InvalidFormatString
+FMDateTime.al:1034	359	ok:
+FMDateTime.al:1035	360	ok:
+FMDateTime.al:1036	361	ok:
+FMDateTime.al:1037	362	ok:
+FMDateTime.al:1038	363	ok:
+FMDateTime.al:1039	364	ok:
+FMDateTime.al:1040	365	ok:
+FMDateTime.al:1041	366	ok:
+FMDateTime.al:1042	367	ok:
+FMDateTime.al:1043	368	ok:
+FMDateTime.al:1044	369	ok:
+FMDateTime.al:1045	370	ok:
+FMDateTime.al:1046	371	err:InvalidFormatString
+FMDateTime.al:1047	372	err:InvalidFormatString
+FMDateTime.al:1048	373	err:InvalidFormatString
+FMDateTime.al:1049	374	ok:
+FMDateTime.al:1050	375	ok:
+FMDateTime.al:1085	376	ok:
+FMDateTime.al:1086	377	ok:
+FMDateTime.al:1087	378	ok:
+FMDateTime.al:1088	379	err:InvalidStandardFormat
+FMDateTime.al:1089	380	err:InvalidStandardFormat
+FMDateTime.al:1090	381	err:InvalidStandardFormat
+FMDateTime.al:1091	382	err:InvalidStandardFormat
+FMDateTime.al:1092	383	err:InvalidStandardFormat
+FMDateTime.al:1093	384	err:InvalidStandardFormat
+FMDateTime.al:1094	385	ok:
+FMDateTime.al:1095	386	err:InvalidStandardFormat
+FMDateTime.al:1096	387	ok:0
+FMDateTime.al:1097	388	ok: 0
+FMDateTime.al:1098	389	ok:00
+FMDateTime.al:1099	390	ok:12
+FMDateTime.al:1100	391	ok:12
+FMDateTime.al:1101	392	ok:0
+FMDateTime.al:1102	393	ok:00
+FMDateTime.al:1103	394	ok:0
+FMDateTime.al:1104	395	ok:00
+FMDateTime.al:1105	396	ok:0
+FMDateTime.al:1106	397	ok:  0
+FMDateTime.al:1107	398	ok:
+FMDateTime.al:1108	399	ok:00
+FMDateTime.al:1109	400	ok:AM
+FMDateTime.al:1110	401	ok:A
+FMDateTime.al:1151	402	ok: 0:00:00
+FMDateTime.al:1152	403	ok: 0:00:00.  0
+FMDateTime.al:1153	404	ok:12:00 AM
+FMDateTime.al:1154	405	ok:12:00AM
+FMDateTime.al:1155	406	ok:12:00:00 AM
+FMDateTime.al:1156	407	ok: 0
+FMDateTime.al:1157	408	ok:0
+FMDateTime.al:1158	409	ok:00
+FMDateTime.al:1159	410	ok:00
+FMDateTime.al:1160	411	ok:
+FMDateTime.al:1161	412	ok:12:00:00 AM
+FMDateTime.al:1162	413	ok:12:00:00 AM
+FMDateTime.al:1163	414	ok:000000T
+FMDateTime.al:1164	415	err:InvalidStandardFormat
+FMDateTime.al:1165	416	err:InvalidStandardFormat
+FMDateTime.al:1166	417	ok:00:00:00
+FMDateTime.al:1167	418	err:InvalidFormatString
+FMDateTime.al:1168	419	err:InvalidFormatString
+FMDateTime.al:1169	420	ok:literal
+FMDateTime.al:1170	421	ok:
+FMDateTime.al:1205	422	ok:12:34:56 PM
+FMDateTime.al:1206	423	ok:12:34:56 PM
+FMDateTime.al:1207	424	ok:123456T
+FMDateTime.al:1208	425	err:InvalidStandardFormat
+FMDateTime.al:1209	426	err:InvalidStandardFormat
+FMDateTime.al:1210	427	err:InvalidStandardFormat
+FMDateTime.al:1211	428	err:InvalidStandardFormat
+FMDateTime.al:1212	429	err:InvalidStandardFormat
+FMDateTime.al:1213	430	err:InvalidStandardFormat
+FMDateTime.al:1214	431	ok:12:34:56
+FMDateTime.al:1215	432	err:InvalidStandardFormat
+FMDateTime.al:1216	433	ok:12
+FMDateTime.al:1217	434	ok:12
+FMDateTime.al:1218	435	ok:12
+FMDateTime.al:1219	436	ok:12
+FMDateTime.al:1220	437	ok:12
+FMDateTime.al:1221	438	ok:34
+FMDateTime.al:1222	439	ok:34
+FMDateTime.al:1223	440	ok:56
+FMDateTime.al:1224	441	ok:56
+FMDateTime.al:1225	442	ok:0
+FMDateTime.al:1226	443	ok:  0
+FMDateTime.al:1227	444	ok:
+FMDateTime.al:1228	445	ok:00
+FMDateTime.al:1229	446	ok:PM
+FMDateTime.al:1230	447	ok:P
+FMDateTime.al:1271	448	ok:12:34:56
+FMDateTime.al:1272	449	ok:12:34:56.  0
+FMDateTime.al:1273	450	ok:12:34 PM
+FMDateTime.al:1274	451	ok:12:34PM
+FMDateTime.al:1275	452	ok:12:34:56 PM
+FMDateTime.al:1276	453	ok:12
+FMDateTime.al:1277	454	ok:12
+FMDateTime.al:1278	455	ok:34
+FMDateTime.al:1279	456	ok:56
+FMDateTime.al:1280	457	ok:
+FMDateTime.al:1281	458	ok:12:34:56 PM
+FMDateTime.al:1282	459	ok:12:34:56 PM
+FMDateTime.al:1283	460	ok:123456T
+FMDateTime.al:1284	461	err:InvalidStandardFormat
+FMDateTime.al:1285	462	err:InvalidStandardFormat
+FMDateTime.al:1286	463	ok:12:34:56
+FMDateTime.al:1287	464	err:InvalidFormatString
+FMDateTime.al:1288	465	err:InvalidFormatString
+FMDateTime.al:1289	466	ok:literal
+FMDateTime.al:1290	467	ok:
+FMDateTime.al:1325	468	ok:11:59:59 PM
+FMDateTime.al:1326	469	ok:11:59:59.999 PM
+FMDateTime.al:1327	470	ok:235959.999T
+FMDateTime.al:1328	471	err:InvalidStandardFormat
+FMDateTime.al:1329	472	err:InvalidStandardFormat
+FMDateTime.al:1330	473	err:InvalidStandardFormat
+FMDateTime.al:1331	474	err:InvalidStandardFormat
+FMDateTime.al:1332	475	err:InvalidStandardFormat
+FMDateTime.al:1333	476	err:InvalidStandardFormat
+FMDateTime.al:1334	477	ok:23:59:59.999
+FMDateTime.al:1335	478	err:InvalidStandardFormat
+FMDateTime.al:1336	479	ok:23
+FMDateTime.al:1337	480	ok:23
+FMDateTime.al:1338	481	ok:23
+FMDateTime.al:1339	482	ok:11
+FMDateTime.al:1340	483	ok:11
+FMDateTime.al:1341	484	ok:59
+FMDateTime.al:1342	485	ok:59
+FMDateTime.al:1343	486	ok:59
+FMDateTime.al:1344	487	ok:59
+FMDateTime.al:1345	488	ok:999
+FMDateTime.al:1346	489	ok:999
+FMDateTime.al:1347	490	ok:.999
+FMDateTime.al:1348	491	ok:**
+FMDateTime.al:1349	492	ok:PM
+FMDateTime.al:1350	493	ok:P
+FMDateTime.al:1391	494	ok:23:59:59
+FMDateTime.al:1392	495	ok:23:59:59.999
+FMDateTime.al:1393	496	ok:11:59 PM
+FMDateTime.al:1394	497	ok:11:59PM
+FMDateTime.al:1395	498	ok:11:59:59 PM
+FMDateTime.al:1396	499	ok:23
+FMDateTime.al:1397	500	ok:23
+FMDateTime.al:1398	501	ok:59
+FMDateTime.al:1399	502	ok:59
+FMDateTime.al:1400	503	ok:
+FMDateTime.al:1401	504	ok:11:59:59 PM
+FMDateTime.al:1402	505	ok:11:59:59.999 PM
+FMDateTime.al:1403	506	ok:235959.999T
+FMDateTime.al:1404	507	err:InvalidStandardFormat
+FMDateTime.al:1405	508	err:InvalidStandardFormat
+FMDateTime.al:1406	509	ok:23:59:59.999
+FMDateTime.al:1407	510	err:InvalidFormatString
+FMDateTime.al:1408	511	err:InvalidFormatString
+FMDateTime.al:1409	512	ok:literal
+FMDateTime.al:1410	513	ok:
+FMDateTime.al:1445	514	ok:12:00:00 PM
+FMDateTime.al:1446	515	ok:12:00:00 PM
+FMDateTime.al:1447	516	ok:120000T
+FMDateTime.al:1448	517	err:InvalidStandardFormat
+FMDateTime.al:1449	518	err:InvalidStandardFormat
+FMDateTime.al:1450	519	err:InvalidStandardFormat
+FMDateTime.al:1451	520	err:InvalidStandardFormat
+FMDateTime.al:1452	521	err:InvalidStandardFormat
+FMDateTime.al:1453	522	err:InvalidStandardFormat
+FMDateTime.al:1454	523	ok:12:00:00
+FMDateTime.al:1455	524	err:InvalidStandardFormat
+FMDateTime.al:1456	525	ok:12
+FMDateTime.al:1457	526	ok:12
+FMDateTime.al:1458	527	ok:12
+FMDateTime.al:1459	528	ok:12
+FMDateTime.al:1460	529	ok:12
+FMDateTime.al:1461	530	ok:0
+FMDateTime.al:1462	531	ok:00
+FMDateTime.al:1463	532	ok:0
+FMDateTime.al:1464	533	ok:00
+FMDateTime.al:1465	534	ok:0
+FMDateTime.al:1466	535	ok:  0
+FMDateTime.al:1467	536	ok:
+FMDateTime.al:1468	537	ok:00
+FMDateTime.al:1469	538	ok:PM
+FMDateTime.al:1470	539	ok:P
+FMDateTime.al:1511	540	ok:12:00:00
+FMDateTime.al:1512	541	ok:12:00:00.  0
+FMDateTime.al:1513	542	ok:12:00 PM
+FMDateTime.al:1514	543	ok:12:00PM
+FMDateTime.al:1515	544	ok:12:00:00 PM
+FMDateTime.al:1516	545	ok:12
+FMDateTime.al:1517	546	ok:12
+FMDateTime.al:1518	547	ok:00
+FMDateTime.al:1519	548	ok:00
+FMDateTime.al:1520	549	ok:
+FMDateTime.al:1521	550	ok:12:00:00 PM
+FMDateTime.al:1522	551	ok:12:00:00 PM
+FMDateTime.al:1523	552	ok:120000T
+FMDateTime.al:1524	553	err:InvalidStandardFormat
+FMDateTime.al:1525	554	err:InvalidStandardFormat
+FMDateTime.al:1526	555	ok:12:00:00
+FMDateTime.al:1527	556	err:InvalidFormatString
+FMDateTime.al:1528	557	err:InvalidFormatString
+FMDateTime.al:1529	558	ok:literal
+FMDateTime.al:1530	559	ok:
+FMDateTime.al:1565	560	ok:12:00:00 AM
+FMDateTime.al:1566	561	ok:12:00:00.001 AM
+FMDateTime.al:1567	562	ok:000000.001T
+FMDateTime.al:1568	563	err:InvalidStandardFormat
+FMDateTime.al:1569	564	err:InvalidStandardFormat
+FMDateTime.al:1570	565	err:InvalidStandardFormat
+FMDateTime.al:1571	566	err:InvalidStandardFormat
+FMDateTime.al:1572	567	err:InvalidStandardFormat
+FMDateTime.al:1573	568	err:InvalidStandardFormat
+FMDateTime.al:1574	569	ok:00:00:00.001
+FMDateTime.al:1575	570	err:InvalidStandardFormat
+FMDateTime.al:1576	571	ok:0
+FMDateTime.al:1577	572	ok: 0
+FMDateTime.al:1578	573	ok:00
+FMDateTime.al:1579	574	ok:12
+FMDateTime.al:1580	575	ok:12
+FMDateTime.al:1581	576	ok:0
+FMDateTime.al:1582	577	ok:00
+FMDateTime.al:1583	578	ok:0
+FMDateTime.al:1584	579	ok:00
+FMDateTime.al:1585	580	ok:1
+FMDateTime.al:1586	581	ok:  1
+FMDateTime.al:1587	582	ok:.001
+FMDateTime.al:1588	583	ok:**
+FMDateTime.al:1589	584	ok:AM
+FMDateTime.al:1590	585	ok:A
+FMDateTime.al:1631	586	ok: 0:00:00
+FMDateTime.al:1632	587	ok: 0:00:00.  1
+FMDateTime.al:1633	588	ok:12:00 AM
+FMDateTime.al:1634	589	ok:12:00AM
+FMDateTime.al:1635	590	ok:12:00:00 AM
+FMDateTime.al:1636	591	ok: 0
+FMDateTime.al:1637	592	ok:0
+FMDateTime.al:1638	593	ok:00
+FMDateTime.al:1639	594	ok:00
+FMDateTime.al:1640	595	ok:
+FMDateTime.al:1641	596	ok:12:00:00 AM
+FMDateTime.al:1642	597	ok:12:00:00.001 AM
+FMDateTime.al:1643	598	ok:000000.001T
+FMDateTime.al:1644	599	err:InvalidStandardFormat
+FMDateTime.al:1645	600	err:InvalidStandardFormat
+FMDateTime.al:1646	601	ok:00:00:00.001
+FMDateTime.al:1647	602	err:InvalidFormatString
+FMDateTime.al:1648	603	err:InvalidFormatString
+FMDateTime.al:1649	604	ok:literal
+FMDateTime.al:1650	605	ok:
+FMDateTime.al:1685	606	ok: 1:00:00 PM
+FMDateTime.al:1686	607	ok: 1:00:00 PM
+FMDateTime.al:1687	608	ok:130000T
+FMDateTime.al:1688	609	err:InvalidStandardFormat
+FMDateTime.al:1689	610	err:InvalidStandardFormat
+FMDateTime.al:1690	611	err:InvalidStandardFormat
+FMDateTime.al:1691	612	err:InvalidStandardFormat
+FMDateTime.al:1692	613	err:InvalidStandardFormat
+FMDateTime.al:1693	614	err:InvalidStandardFormat
+FMDateTime.al:1694	615	ok:13:00:00
+FMDateTime.al:1695	616	err:InvalidStandardFormat
+FMDateTime.al:1696	617	ok:13
+FMDateTime.al:1697	618	ok:13
+FMDateTime.al:1698	619	ok:13
+FMDateTime.al:1699	620	ok:1
+FMDateTime.al:1700	621	ok: 1
+FMDateTime.al:1701	622	ok:0
+FMDateTime.al:1702	623	ok:00
+FMDateTime.al:1703	624	ok:0
+FMDateTime.al:1704	625	ok:00
+FMDateTime.al:1705	626	ok:0
+FMDateTime.al:1706	627	ok:  0
+FMDateTime.al:1707	628	ok:
+FMDateTime.al:1708	629	ok:00
+FMDateTime.al:1709	630	ok:PM
+FMDateTime.al:1710	631	ok:P
+FMDateTime.al:1751	632	ok:13:00:00
+FMDateTime.al:1752	633	ok:13:00:00.  0
+FMDateTime.al:1753	634	ok: 1:00 PM
+FMDateTime.al:1754	635	ok:1:00PM
+FMDateTime.al:1755	636	ok: 1:00:00 PM
+FMDateTime.al:1756	637	ok:13
+FMDateTime.al:1757	638	ok:13
+FMDateTime.al:1758	639	ok:00
+FMDateTime.al:1759	640	ok:00
+FMDateTime.al:1760	641	ok:
+FMDateTime.al:1761	642	ok: 1:00:00 PM
+FMDateTime.al:1762	643	ok: 1:00:00 PM
+FMDateTime.al:1763	644	ok:130000T
+FMDateTime.al:1764	645	err:InvalidStandardFormat
+FMDateTime.al:1765	646	err:InvalidStandardFormat
+FMDateTime.al:1766	647	ok:13:00:00
+FMDateTime.al:1767	648	err:InvalidFormatString
+FMDateTime.al:1768	649	err:InvalidFormatString
+FMDateTime.al:1769	650	ok:literal
+FMDateTime.al:1770	651	ok:
+FMDateTime.al:1805	652	ok:12:05:00 AM
+FMDateTime.al:1806	653	ok:12:05:00 AM
+FMDateTime.al:1807	654	ok:000500T
+FMDateTime.al:1808	655	err:InvalidStandardFormat
+FMDateTime.al:1809	656	err:InvalidStandardFormat
+FMDateTime.al:1810	657	err:InvalidStandardFormat
+FMDateTime.al:1811	658	err:InvalidStandardFormat
+FMDateTime.al:1812	659	err:InvalidStandardFormat
+FMDateTime.al:1813	660	err:InvalidStandardFormat
+FMDateTime.al:1814	661	ok:00:05:00
+FMDateTime.al:1815	662	err:InvalidStandardFormat
+FMDateTime.al:1816	663	ok:0
+FMDateTime.al:1817	664	ok: 0
+FMDateTime.al:1818	665	ok:00
+FMDateTime.al:1819	666	ok:12
+FMDateTime.al:1820	667	ok:12
+FMDateTime.al:1821	668	ok:5
+FMDateTime.al:1822	669	ok:05
+FMDateTime.al:1823	670	ok:0
+FMDateTime.al:1824	671	ok:00
+FMDateTime.al:1825	672	ok:0
+FMDateTime.al:1826	673	ok:  0
+FMDateTime.al:1827	674	ok:
+FMDateTime.al:1828	675	ok:00
+FMDateTime.al:1829	676	ok:AM
+FMDateTime.al:1830	677	ok:A
+FMDateTime.al:1871	678	ok: 0:05:00
+FMDateTime.al:1872	679	ok: 0:05:00.  0
+FMDateTime.al:1873	680	ok:12:05 AM
+FMDateTime.al:1874	681	ok:12:05AM
+FMDateTime.al:1875	682	ok:12:05:00 AM
+FMDateTime.al:1876	683	ok: 0
+FMDateTime.al:1877	684	ok:0
+FMDateTime.al:1878	685	ok:05
+FMDateTime.al:1879	686	ok:00
+FMDateTime.al:1880	687	ok:
+FMDateTime.al:1881	688	ok:12:05:00 AM
+FMDateTime.al:1882	689	ok:12:05:00 AM
+FMDateTime.al:1883	690	ok:000500T
+FMDateTime.al:1884	691	err:InvalidStandardFormat
+FMDateTime.al:1885	692	err:InvalidStandardFormat
+FMDateTime.al:1886	693	ok:00:05:00
+FMDateTime.al:1887	694	err:InvalidFormatString
+FMDateTime.al:1888	695	err:InvalidFormatString
+FMDateTime.al:1889	696	ok:literal
+FMDateTime.al:1890	697	ok:
+FMDateTime.al:1925	698	ok: 1:04:56 PM
+FMDateTime.al:1926	699	ok: 1:04:56.789 PM
+FMDateTime.al:1927	700	ok:130456.789T
+FMDateTime.al:1928	701	err:InvalidStandardFormat
+FMDateTime.al:1929	702	err:InvalidStandardFormat
+FMDateTime.al:1930	703	err:InvalidStandardFormat
+FMDateTime.al:1931	704	err:InvalidStandardFormat
+FMDateTime.al:1932	705	err:InvalidStandardFormat
+FMDateTime.al:1933	706	err:InvalidStandardFormat
+FMDateTime.al:1934	707	ok:13:04:56.789
+FMDateTime.al:1935	708	err:InvalidStandardFormat
+FMDateTime.al:1936	709	ok:13
+FMDateTime.al:1937	710	ok:13
+FMDateTime.al:1938	711	ok:13
+FMDateTime.al:1939	712	ok:1
+FMDateTime.al:1940	713	ok: 1
+FMDateTime.al:1941	714	ok:4
+FMDateTime.al:1942	715	ok:04
+FMDateTime.al:1943	716	ok:56
+FMDateTime.al:1944	717	ok:56
+FMDateTime.al:1945	718	ok:789
+FMDateTime.al:1946	719	ok:789
+FMDateTime.al:1947	720	ok:.789
+FMDateTime.al:1948	721	ok:**
+FMDateTime.al:1949	722	ok:PM
+FMDateTime.al:1950	723	ok:P
+FMDateTime.al:1991	724	ok:13:04:56
+FMDateTime.al:1992	725	ok:13:04:56.789
+FMDateTime.al:1993	726	ok: 1:04 PM
+FMDateTime.al:1994	727	ok:1:04PM
+FMDateTime.al:1995	728	ok: 1:04:56 PM
+FMDateTime.al:1996	729	ok:13
+FMDateTime.al:1997	730	ok:13
+FMDateTime.al:1998	731	ok:04
+FMDateTime.al:1999	732	ok:56
+FMDateTime.al:2000	733	ok:
+FMDateTime.al:2001	734	ok: 1:04:56 PM
+FMDateTime.al:2002	735	ok: 1:04:56.789 PM
+FMDateTime.al:2003	736	ok:130456.789T
+FMDateTime.al:2004	737	err:InvalidStandardFormat
+FMDateTime.al:2005	738	err:InvalidStandardFormat
+FMDateTime.al:2006	739	ok:13:04:56.789
+FMDateTime.al:2007	740	err:InvalidFormatString
+FMDateTime.al:2008	741	err:InvalidFormatString
+FMDateTime.al:2009	742	ok:literal
+FMDateTime.al:2010	743	ok:
+FMDateTime.al:2045	744	ok:
+FMDateTime.al:2046	745	ok:
+FMDateTime.al:2047	746	ok:
+FMDateTime.al:2048	747	err:InvalidStandardFormat
+FMDateTime.al:2049	748	err:InvalidStandardFormat
+FMDateTime.al:2050	749	err:InvalidStandardFormat
+FMDateTime.al:2051	750	err:InvalidStandardFormat
+FMDateTime.al:2052	751	err:InvalidStandardFormat
+FMDateTime.al:2053	752	err:InvalidStandardFormat
+FMDateTime.al:2054	753	ok:
+FMDateTime.al:2055	754	err:InvalidStandardFormat
+FMDateTime.al:2056	755	ok:
+FMDateTime.al:2057	756	ok:
+FMDateTime.al:2058	757	ok:
+FMDateTime.al:2059	758	ok:
+FMDateTime.al:2060	759	ok:
+FMDateTime.al:2061	760	ok:
+FMDateTime.al:2062	761	ok:
+FMDateTime.al:2063	762	ok:
+FMDateTime.al:2064	763	ok:
+FMDateTime.al:2065	764	ok:
+FMDateTime.al:2066	765	ok:
+FMDateTime.al:2067	766	err:InvalidFormatString
+FMDateTime.al:2068	767	err:InvalidFormatString
+FMDateTime.al:2069	768	ok:
+FMDateTime.al:2070	769	ok:
+FMDateTime.al:2071	770	ok:
+FMDateTime.al:2113	771	ok:
+FMDateTime.al:2114	772	ok:
+FMDateTime.al:2115	773	ok:
+FMDateTime.al:2116	774	ok:
+FMDateTime.al:2117	775	ok:
+FMDateTime.al:2118	776	ok:
+FMDateTime.al:2119	777	ok:
+FMDateTime.al:2120	778	ok:
+FMDateTime.al:2121	779	ok:
+FMDateTime.al:2122	780	ok:
+FMDateTime.al:2123	781	ok:
+FMDateTime.al:2124	782	ok:
+FMDateTime.al:2125	783	ok:
+FMDateTime.al:2126	784	ok:
+FMDateTime.al:2127	785	ok:
+FMDateTime.al:2128	786	ok:
+FMDateTime.al:2129	787	ok:
+FMDateTime.al:2130	788	ok:
+FMDateTime.al:2131	789	ok:
+FMDateTime.al:2132	790	ok:
+FMDateTime.al:2167	791	ok:
+FMDateTime.al:2168	792	ok:
+FMDateTime.al:2169	793	err:InvalidFormatString
+FMDateTime.al:2170	794	err:InvalidFormatString
+FMDateTime.al:2171	795	ok:
+FMDateTime.al:2172	796	ok:
+FMDateTime.al:2193	797	ok:03/09/26 01:45 PM
+FMDateTime.al:2194	798	ok:03/09/26 01:45:12.123 PM
+FMDateTime.al:2195	799	ok:03/09/26 01:45 PM
+FMDateTime.al:2196	800	err:InvalidStandardFormat
+FMDateTime.al:2197	801	err:InvalidStandardFormat
+FMDateTime.al:2198	802	err:InvalidStandardFormat
+FMDateTime.al:2199	803	err:InvalidStandardFormat
+FMDateTime.al:2200	804	err:InvalidStandardFormat
+FMDateTime.al:2201	805	err:InvalidStandardFormat
+FMDateTime.al:2202	806	ok:2026-03-09T13:45:12.123Z
+FMDateTime.al:2203	807	err:InvalidStandardFormat
+FMDateTime.al:2204	808	ok:9
+FMDateTime.al:2205	809	ok:09
+FMDateTime.al:2206	810	ok:09
+FMDateTime.al:2207	811	ok:3
+FMDateTime.al:2208	812	ok:03
+FMDateTime.al:2209	813	ok:March
+FMDateTime.al:2210	814	ok:Mar
+FMDateTime.al:2211	815	ok:26
+FMDateTime.al:2212	816	ok:26
+FMDateTime.al:2213	817	ok:2026
+FMDateTime.al:2214	818	ok:2026
+FMDateTime.al:2215	819	err:InvalidFormatString
+FMDateTime.al:2216	820	err:InvalidFormatString
+FMDateTime.al:2217	821	ok:1
+FMDateTime.al:2218	822	ok:13:45:12
+FMDateTime.al:2219	823	ok:1
+FMDateTime.al:2261	824	ok:01
+FMDateTime.al:2262	825	ok:45
+FMDateTime.al:2263	826	ok:12
+FMDateTime.al:2264	827	ok:123
+FMDateTime.al:2265	828	ok:.123
+FMDateTime.al:2266	829	ok:PM
+FMDateTime.al:2267	830	ok:13
+FMDateTime.al:2268	831	ok:13
+FMDateTime.al:2269	832	ok:45
+FMDateTime.al:2270	833	ok:12
+FMDateTime.al:2271	834	ok:03/09/26 01:45 PM
+FMDateTime.al:2272	835	ok:03/09/26 01:45:12.123 PM
+FMDateTime.al:2273	836	ok:03/09/26 01:45 PM
+FMDateTime.al:2274	837	ok:03/09/26 01:45:12 PM
+FMDateTime.al:2275	838	err:InvalidStandardFormat
+FMDateTime.al:2276	839	ok:2026-03-09T13:45:12.123Z
+FMDateTime.al:2277	840	ok:3/9/2026
+FMDateTime.al:2278	841	ok:2026/03/09 13:45:12 PM
+FMDateTime.al:2279	842	ok:2026/03/09 01:45:12 PM
+FMDateTime.al:2280	843	ok:2026/03/09 13:45:12
+FMDateTime.al:2315	844	ok:2026-03-09T13:45:12.123
+FMDateTime.al:2316	845	ok:9. March 2026 13:45
+FMDateTime.al:2317	846	err:InvalidFormatString
+FMDateTime.al:2318	847	err:InvalidFormatString
+FMDateTime.al:2319	848	ok:literal
+FMDateTime.al:2320	849	ok:
+FMDateTime.al:2341	850	ok:03/09/26 12:00 AM
+FMDateTime.al:2342	851	ok:03/09/26 12:00:00 AM
+FMDateTime.al:2343	852	ok:03/09/26 12:00 AM
+FMDateTime.al:2344	853	err:InvalidStandardFormat
+FMDateTime.al:2345	854	err:InvalidStandardFormat
+FMDateTime.al:2346	855	err:InvalidStandardFormat
+FMDateTime.al:2347	856	err:InvalidStandardFormat
+FMDateTime.al:2348	857	err:InvalidStandardFormat
+FMDateTime.al:2349	858	err:InvalidStandardFormat
+FMDateTime.al:2350	859	ok:2026-03-09T00:00:00Z
+FMDateTime.al:2351	860	err:InvalidStandardFormat
+FMDateTime.al:2352	861	ok:9
+FMDateTime.al:2353	862	ok:09
+FMDateTime.al:2354	863	ok:09
+FMDateTime.al:2355	864	ok:3
+FMDateTime.al:2356	865	ok:03
+FMDateTime.al:2357	866	ok:March
+FMDateTime.al:2358	867	ok:Mar
+FMDateTime.al:2359	868	ok:26
+FMDateTime.al:2360	869	ok:26
+FMDateTime.al:2361	870	ok:2026
+FMDateTime.al:2362	871	ok:2026
+FMDateTime.al:2363	872	err:InvalidFormatString
+FMDateTime.al:2364	873	err:InvalidFormatString
+FMDateTime.al:2365	874	ok:1
+FMDateTime.al:2366	875	ok:00:00:00
+FMDateTime.al:2367	876	ok:12
+FMDateTime.al:2409	877	ok:12
+FMDateTime.al:2410	878	ok:00
+FMDateTime.al:2411	879	ok:00
+FMDateTime.al:2412	880	ok:0
+FMDateTime.al:2413	881	ok:
+FMDateTime.al:2414	882	ok:AM
+FMDateTime.al:2415	883	ok:00
+FMDateTime.al:2416	884	ok:0
+FMDateTime.al:2417	885	ok:00
+FMDateTime.al:2418	886	ok:00
+FMDateTime.al:2419	887	ok:03/09/26 12:00 AM
+FMDateTime.al:2420	888	ok:03/09/26 12:00:00 AM
+FMDateTime.al:2421	889	ok:03/09/26 12:00 AM
+FMDateTime.al:2422	890	ok:03/09/26 12:00:00 AM
+FMDateTime.al:2423	891	err:InvalidStandardFormat
+FMDateTime.al:2424	892	ok:2026-03-09T00:00:00Z
+FMDateTime.al:2425	893	ok:3/9/2026
+FMDateTime.al:2426	894	ok:2026/03/09 00:00:00 AM
+FMDateTime.al:2427	895	ok:2026/03/09 12:00:00 AM
+FMDateTime.al:2428	896	ok:2026/03/09 00:00:00
+FMDateTime.al:2463	897	ok:2026-03-09T00:00:00.000
+FMDateTime.al:2464	898	ok:9. March 2026 00:00
+FMDateTime.al:2465	899	err:InvalidFormatString
+FMDateTime.al:2466	900	err:InvalidFormatString
+FMDateTime.al:2467	901	ok:literal
+FMDateTime.al:2468	902	ok:
+FMDateTime.al:2489	903	ok:12/31/26 11:59 PM
+FMDateTime.al:2490	904	ok:12/31/26 11:59:59.999 PM
+FMDateTime.al:2491	905	ok:12/31/26 11:59 PM
+FMDateTime.al:2492	906	err:InvalidStandardFormat
+FMDateTime.al:2493	907	err:InvalidStandardFormat
+FMDateTime.al:2494	908	err:InvalidStandardFormat
+FMDateTime.al:2495	909	err:InvalidStandardFormat
+FMDateTime.al:2496	910	err:InvalidStandardFormat
+FMDateTime.al:2497	911	err:InvalidStandardFormat
+FMDateTime.al:2498	912	ok:2026-12-31T23:59:59.999Z
+FMDateTime.al:2499	913	err:InvalidStandardFormat
+FMDateTime.al:2500	914	ok:31
+FMDateTime.al:2501	915	ok:31
+FMDateTime.al:2502	916	ok:31
+FMDateTime.al:2503	917	ok:12
+FMDateTime.al:2504	918	ok:12
+FMDateTime.al:2505	919	ok:December
+FMDateTime.al:2506	920	ok:Dec
+FMDateTime.al:2507	921	ok:26
+FMDateTime.al:2508	922	ok:26
+FMDateTime.al:2509	923	ok:2026
+FMDateTime.al:2510	924	ok:2026
+FMDateTime.al:2511	925	err:InvalidFormatString
+FMDateTime.al:2512	926	err:InvalidFormatString
+FMDateTime.al:2513	927	ok:4
+FMDateTime.al:2514	928	ok:23:59:59
+FMDateTime.al:2515	929	ok:11
+FMDateTime.al:2557	930	ok:11
+FMDateTime.al:2558	931	ok:59
+FMDateTime.al:2559	932	ok:59
+FMDateTime.al:2560	933	ok:999
+FMDateTime.al:2561	934	ok:.999
+FMDateTime.al:2562	935	ok:PM
+FMDateTime.al:2563	936	ok:23
+FMDateTime.al:2564	937	ok:23
+FMDateTime.al:2565	938	ok:59
+FMDateTime.al:2566	939	ok:59
+FMDateTime.al:2567	940	ok:12/31/26 11:59 PM
+FMDateTime.al:2568	941	ok:12/31/26 11:59:59.999 PM
+FMDateTime.al:2569	942	ok:12/31/26 11:59 PM
+FMDateTime.al:2570	943	ok:12/31/26 11:59:59 PM
+FMDateTime.al:2571	944	err:InvalidStandardFormat
+FMDateTime.al:2572	945	ok:2026-12-31T23:59:59.999Z
+FMDateTime.al:2573	946	ok:12/31/2026
+FMDateTime.al:2574	947	ok:2026/12/31 23:59:59 PM
+FMDateTime.al:2575	948	ok:2026/12/31 11:59:59 PM
+FMDateTime.al:2576	949	ok:2026/12/31 23:59:59
+FMDateTime.al:2611	950	ok:2026-12-31T23:59:59.999
+FMDateTime.al:2612	951	ok:31. December 2026 23:59
+FMDateTime.al:2613	952	err:InvalidFormatString
+FMDateTime.al:2614	953	err:InvalidFormatString
+FMDateTime.al:2615	954	ok:literal
+FMDateTime.al:2616	955	ok:
+FMDateTime.al:2637	956	ok:03/09/26 12:00 PM
+FMDateTime.al:2638	957	ok:03/09/26 12:00:00 PM
+FMDateTime.al:2639	958	ok:03/09/26 12:00 PM
+FMDateTime.al:2640	959	err:InvalidStandardFormat
+FMDateTime.al:2641	960	err:InvalidStandardFormat
+FMDateTime.al:2642	961	err:InvalidStandardFormat
+FMDateTime.al:2643	962	err:InvalidStandardFormat
+FMDateTime.al:2644	963	err:InvalidStandardFormat
+FMDateTime.al:2645	964	err:InvalidStandardFormat
+FMDateTime.al:2646	965	ok:2026-03-09T12:00:00Z
+FMDateTime.al:2647	966	err:InvalidStandardFormat
+FMDateTime.al:2648	967	ok:9
+FMDateTime.al:2649	968	ok:09
+FMDateTime.al:2650	969	ok:09
+FMDateTime.al:2651	970	ok:3
+FMDateTime.al:2652	971	ok:03
+FMDateTime.al:2653	972	ok:March
+FMDateTime.al:2654	973	ok:Mar
+FMDateTime.al:2655	974	ok:26
+FMDateTime.al:2656	975	ok:26
+FMDateTime.al:2657	976	ok:2026
+FMDateTime.al:2658	977	ok:2026
+FMDateTime.al:2659	978	err:InvalidFormatString
+FMDateTime.al:2660	979	err:InvalidFormatString
+FMDateTime.al:2661	980	ok:1
+FMDateTime.al:2662	981	ok:12:00:00
+FMDateTime.al:2663	982	ok:12
+FMDateTime.al:2705	983	ok:12
+FMDateTime.al:2706	984	ok:00
+FMDateTime.al:2707	985	ok:00
+FMDateTime.al:2708	986	ok:0
+FMDateTime.al:2709	987	ok:
+FMDateTime.al:2710	988	ok:PM
+FMDateTime.al:2711	989	ok:12
+FMDateTime.al:2712	990	ok:12
+FMDateTime.al:2713	991	ok:00
+FMDateTime.al:2714	992	ok:00
+FMDateTime.al:2715	993	ok:03/09/26 12:00 PM
+FMDateTime.al:2716	994	ok:03/09/26 12:00:00 PM
+FMDateTime.al:2717	995	ok:03/09/26 12:00 PM
+FMDateTime.al:2718	996	ok:03/09/26 12:00:00 PM
+FMDateTime.al:2719	997	err:InvalidStandardFormat
+FMDateTime.al:2720	998	ok:2026-03-09T12:00:00Z
+FMDateTime.al:2721	999	ok:3/9/2026
+FMDateTime.al:2722	1000	ok:2026/03/09 12:00:00 PM
+FMDateTime.al:2723	1001	ok:2026/03/09 12:00:00 PM
+FMDateTime.al:2724	1002	ok:2026/03/09 12:00:00
+FMDateTime.al:2759	1003	ok:2026-03-09T12:00:00.000
+FMDateTime.al:2760	1004	ok:9. March 2026 12:00
+FMDateTime.al:2761	1005	err:InvalidFormatString
+FMDateTime.al:2762	1006	err:InvalidFormatString
+FMDateTime.al:2763	1007	ok:literal
+FMDateTime.al:2764	1008	ok:
+FMDateTime.al:2785	1009	ok:03/09/26 12:00 AM
+FMDateTime.al:2786	1010	ok:03/09/26 12:00:00 AM
+FMDateTime.al:2787	1011	ok:03/09/26 12:00 AM
+FMDateTime.al:2788	1012	err:InvalidStandardFormat
+FMDateTime.al:2789	1013	err:InvalidStandardFormat
+FMDateTime.al:2790	1014	err:InvalidStandardFormat
+FMDateTime.al:2791	1015	err:InvalidStandardFormat
+FMDateTime.al:2792	1016	err:InvalidStandardFormat
+FMDateTime.al:2793	1017	err:InvalidStandardFormat
+FMDateTime.al:2794	1018	ok:2026-03-09T00:00:00Z
+FMDateTime.al:2795	1019	err:InvalidStandardFormat
+FMDateTime.al:2796	1020	ok:9
+FMDateTime.al:2797	1021	ok:09
+FMDateTime.al:2798	1022	ok:09
+FMDateTime.al:2799	1023	ok:3
+FMDateTime.al:2800	1024	ok:03
+FMDateTime.al:2801	1025	ok:March
+FMDateTime.al:2802	1026	ok:Mar
+FMDateTime.al:2803	1027	ok:26
+FMDateTime.al:2804	1028	ok:26
+FMDateTime.al:2805	1029	ok:2026
+FMDateTime.al:2806	1030	ok:2026
+FMDateTime.al:2807	1031	err:InvalidFormatString
+FMDateTime.al:2808	1032	err:InvalidFormatString
+FMDateTime.al:2809	1033	ok:1
+FMDateTime.al:2810	1034	ok:00:00:00
+FMDateTime.al:2811	1035	ok:12
+FMDateTime.al:2853	1036	ok:12
+FMDateTime.al:2854	1037	ok:00
+FMDateTime.al:2855	1038	ok:00
+FMDateTime.al:2856	1039	ok:0
+FMDateTime.al:2857	1040	ok:
+FMDateTime.al:2858	1041	ok:AM
+FMDateTime.al:2859	1042	ok:00
+FMDateTime.al:2860	1043	ok:0
+FMDateTime.al:2861	1044	ok:00
+FMDateTime.al:2862	1045	ok:00
+FMDateTime.al:2863	1046	ok:03/09/26 12:00 AM
+FMDateTime.al:2864	1047	ok:03/09/26 12:00:00 AM
+FMDateTime.al:2865	1048	ok:03/09/26 12:00 AM
+FMDateTime.al:2866	1049	ok:03/09/26 12:00:00 AM
+FMDateTime.al:2867	1050	err:InvalidStandardFormat
+FMDateTime.al:2868	1051	ok:2026-03-09T00:00:00Z
+FMDateTime.al:2869	1052	ok:3/9/2026
+FMDateTime.al:2870	1053	ok:2026/03/09 00:00:00 AM
+FMDateTime.al:2871	1054	ok:2026/03/09 12:00:00 AM
+FMDateTime.al:2872	1055	ok:2026/03/09 00:00:00
+FMDateTime.al:2907	1056	ok:2026-03-09T00:00:00.000
+FMDateTime.al:2908	1057	ok:9. March 2026 00:00
+FMDateTime.al:2909	1058	err:InvalidFormatString
+FMDateTime.al:2910	1059	err:InvalidFormatString
+FMDateTime.al:2911	1060	ok:literal
+FMDateTime.al:2912	1061	ok:
+FMDateTime.al:2947	1062	ok:03/09/26 01:45 PM
+FMDateTime.al:2948	1063	ok:03/09/26 01:45:12.123 PM
+FMDateTime.al:2949	1064	ok:03/09/26 01:45 PM
+FMDateTime.al:2950	1065	err:InvalidStandardFormat
+FMDateTime.al:2951	1066	err:InvalidStandardFormat
+FMDateTime.al:2952	1067	err:InvalidStandardFormat
+FMDateTime.al:2953	1068	err:InvalidStandardFormat
+FMDateTime.al:2954	1069	err:InvalidStandardFormat
+FMDateTime.al:2955	1070	err:InvalidStandardFormat
+FMDateTime.al:2956	1071	ok:2026-03-09T13:45:12.123Z
+FMDateTime.al:2957	1072	err:InvalidStandardFormat
+FMDateTime.al:2958	1073	ok:9
+FMDateTime.al:2959	1074	ok:09
+FMDateTime.al:2960	1075	ok:09
+FMDateTime.al:2961	1076	ok:3
+FMDateTime.al:2962	1077	ok:03
+FMDateTime.al:2963	1078	ok:März
+FMDateTime.al:2964	1079	ok:Mär
+FMDateTime.al:2965	1080	ok:26
+FMDateTime.al:2966	1081	ok:26
+FMDateTime.al:2967	1082	ok:2026
+FMDateTime.al:2968	1083	ok:2026
+FMDateTime.al:2969	1084	err:InvalidFormatString
+FMDateTime.al:2970	1085	err:InvalidFormatString
+FMDateTime.al:2971	1086	ok:1
+FMDateTime.al:2972	1087	ok:13:45:12
+FMDateTime.al:2973	1088	ok:1
+FMDateTime.al:3015	1089	ok:01
+FMDateTime.al:3016	1090	ok:45
+FMDateTime.al:3017	1091	ok:12
+FMDateTime.al:3018	1092	ok:123
+FMDateTime.al:3019	1093	ok:.123
+FMDateTime.al:3020	1094	ok:PM
+FMDateTime.al:3021	1095	ok:13
+FMDateTime.al:3022	1096	ok:13
+FMDateTime.al:3023	1097	ok:45
+FMDateTime.al:3024	1098	ok:12
+FMDateTime.al:3025	1099	ok:03/09/26 01:45 PM
+FMDateTime.al:3026	1100	ok:03/09/26 01:45:12.123 PM
+FMDateTime.al:3027	1101	ok:03/09/26 01:45 PM
+FMDateTime.al:3028	1102	ok:03/09/26 01:45:12 PM
+FMDateTime.al:3029	1103	err:InvalidStandardFormat
+FMDateTime.al:3030	1104	ok:2026-03-09T13:45:12.123Z
+FMDateTime.al:3031	1105	ok:3/9/2026
+FMDateTime.al:3032	1106	ok:2026/03/09 13:45:12 PM
+FMDateTime.al:3033	1107	ok:2026/03/09 01:45:12 PM
+FMDateTime.al:3034	1108	ok:2026/03/09 13:45:12
+FMDateTime.al:3069	1109	ok:2026-03-09T13:45:12.123
+FMDateTime.al:3070	1110	ok:9. März 2026 13:45
+FMDateTime.al:3071	1111	err:InvalidFormatString
+FMDateTime.al:3072	1112	err:InvalidFormatString
+FMDateTime.al:3073	1113	ok:literal
+FMDateTime.al:3074	1114	ok:
+FMDateTime.al:3095	1115	ok:
+FMDateTime.al:3096	1116	ok:
+FMDateTime.al:3097	1117	ok:
+FMDateTime.al:3098	1118	err:InvalidStandardFormat
+FMDateTime.al:3099	1119	err:InvalidStandardFormat
+FMDateTime.al:3100	1120	err:InvalidStandardFormat
+FMDateTime.al:3101	1121	err:InvalidStandardFormat
+FMDateTime.al:3102	1122	err:InvalidStandardFormat
+FMDateTime.al:3103	1123	err:InvalidStandardFormat
+FMDateTime.al:3104	1124	ok:P0DT0H0M0.0S
+FMDateTime.al:3105	1125	err:InvalidStandardFormat
+FMDateTime.al:3106	1126	err:InvalidFormatString
+FMDateTime.al:3107	1127	err:InvalidFormatString
+FMDateTime.al:3108	1128	err:InvalidFormatString
+FMDateTime.al:3109	1129	err:InvalidFormatString
+FMDateTime.al:3110	1130	err:InvalidFormatString
+FMDateTime.al:3111	1131	err:InvalidFormatString
+FMDateTime.al:3112	1132	err:InvalidFormatString
+FMDateTime.al:3113	1133	err:InvalidFormatString
+FMDateTime.al:3114	1134	err:InvalidFormatString
+FMDateTime.al:3115	1135	err:InvalidFormatString
+FMDateTime.al:3116	1136	err:InvalidFormatString
+FMDateTime.al:3117	1137	ok:
+FMDateTime.al:3118	1138	ok:
+FMDateTime.al:3119	1139	ok:
+FMDateTime.al:3120	1140	err:InvalidStandardFormat
+FMDateTime.al:3161	1141	err:InvalidStandardFormat
+FMDateTime.al:3162	1142	ok:P0DT0H0M0.0S
+FMDateTime.al:3163	1143	err:InvalidFormatString
+FMDateTime.al:3164	1144	ok:literal
+FMDateTime.al:3165	1145	ok:
+FMDateTime.al:3185	1146	ok:1 millisecond
+FMDateTime.al:3186	1147	ok:1 millisecond
+FMDateTime.al:3187	1148	ok:1 8
+FMDateTime.al:3188	1149	err:InvalidStandardFormat
+FMDateTime.al:3189	1150	err:InvalidStandardFormat
+FMDateTime.al:3190	1151	err:InvalidStandardFormat
+FMDateTime.al:3191	1152	err:InvalidStandardFormat
+FMDateTime.al:3192	1153	err:InvalidStandardFormat
+FMDateTime.al:3193	1154	err:InvalidStandardFormat
+FMDateTime.al:3194	1155	ok:P0DT0H0M0.001S
+FMDateTime.al:3195	1156	err:InvalidStandardFormat
+FMDateTime.al:3196	1157	err:InvalidFormatString
+FMDateTime.al:3197	1158	err:InvalidFormatString
+FMDateTime.al:3198	1159	err:InvalidFormatString
+FMDateTime.al:3199	1160	err:InvalidFormatString
+FMDateTime.al:3200	1161	err:InvalidFormatString
+FMDateTime.al:3201	1162	err:InvalidFormatString
+FMDateTime.al:3202	1163	err:InvalidFormatString
+FMDateTime.al:3203	1164	err:InvalidFormatString
+FMDateTime.al:3204	1165	err:InvalidFormatString
+FMDateTime.al:3205	1166	err:InvalidFormatString
+FMDateTime.al:3206	1167	err:InvalidFormatString
+FMDateTime.al:3207	1168	ok:1 millisecond
+FMDateTime.al:3208	1169	ok:1 millisecond
+FMDateTime.al:3209	1170	ok:1 8
+FMDateTime.al:3210	1171	err:InvalidStandardFormat
+FMDateTime.al:3251	1172	err:InvalidStandardFormat
+FMDateTime.al:3252	1173	ok:P0DT0H0M0.001S
+FMDateTime.al:3253	1174	err:InvalidFormatString
+FMDateTime.al:3254	1175	ok:literal
+FMDateTime.al:3255	1176	ok:
+FMDateTime.al:3275	1177	ok:-1 millisecond
+FMDateTime.al:3276	1178	ok:-1 millisecond
+FMDateTime.al:3277	1179	ok:-1 8
+FMDateTime.al:3278	1180	err:InvalidStandardFormat
+FMDateTime.al:3279	1181	err:InvalidStandardFormat
+FMDateTime.al:3280	1182	err:InvalidStandardFormat
+FMDateTime.al:3281	1183	err:InvalidStandardFormat
+FMDateTime.al:3282	1184	err:InvalidStandardFormat
+FMDateTime.al:3283	1185	err:InvalidStandardFormat
+FMDateTime.al:3284	1186	ok:-P0DT0H0M0.001S
+FMDateTime.al:3285	1187	err:InvalidStandardFormat
+FMDateTime.al:3286	1188	err:InvalidFormatString
+FMDateTime.al:3287	1189	err:InvalidFormatString
+FMDateTime.al:3288	1190	err:InvalidFormatString
+FMDateTime.al:3289	1191	err:InvalidFormatString
+FMDateTime.al:3290	1192	err:InvalidFormatString
+FMDateTime.al:3291	1193	err:InvalidFormatString
+FMDateTime.al:3292	1194	err:InvalidFormatString
+FMDateTime.al:3293	1195	err:InvalidFormatString
+FMDateTime.al:3294	1196	err:InvalidFormatString
+FMDateTime.al:3295	1197	err:InvalidFormatString
+FMDateTime.al:3296	1198	err:InvalidFormatString
+FMDateTime.al:3297	1199	ok:-1 millisecond
+FMDateTime.al:3298	1200	ok:-1 millisecond
+FMDateTime.al:3299	1201	ok:-1 8
+FMDateTime.al:3300	1202	err:InvalidStandardFormat
+FMDateTime.al:3341	1203	err:InvalidStandardFormat
+FMDateTime.al:3342	1204	ok:-P0DT0H0M0.001S
+FMDateTime.al:3343	1205	err:InvalidFormatString
+FMDateTime.al:3344	1206	ok:literal
+FMDateTime.al:3345	1207	ok:
+FMDateTime.al:3365	1208	ok:1 second
+FMDateTime.al:3366	1209	ok:1 second
+FMDateTime.al:3367	1210	ok:1 6
+FMDateTime.al:3368	1211	err:InvalidStandardFormat
+FMDateTime.al:3369	1212	err:InvalidStandardFormat
+FMDateTime.al:3370	1213	err:InvalidStandardFormat
+FMDateTime.al:3371	1214	err:InvalidStandardFormat
+FMDateTime.al:3372	1215	err:InvalidStandardFormat
+FMDateTime.al:3373	1216	err:InvalidStandardFormat
+FMDateTime.al:3374	1217	ok:P0DT0H0M1.0S
+FMDateTime.al:3375	1218	err:InvalidStandardFormat
+FMDateTime.al:3376	1219	err:InvalidFormatString
+FMDateTime.al:3377	1220	err:InvalidFormatString
+FMDateTime.al:3378	1221	err:InvalidFormatString
+FMDateTime.al:3379	1222	err:InvalidFormatString
+FMDateTime.al:3380	1223	err:InvalidFormatString
+FMDateTime.al:3381	1224	err:InvalidFormatString
+FMDateTime.al:3382	1225	err:InvalidFormatString
+FMDateTime.al:3383	1226	err:InvalidFormatString
+FMDateTime.al:3384	1227	err:InvalidFormatString
+FMDateTime.al:3385	1228	err:InvalidFormatString
+FMDateTime.al:3386	1229	err:InvalidFormatString
+FMDateTime.al:3387	1230	ok:1 second
+FMDateTime.al:3388	1231	ok:1 second
+FMDateTime.al:3389	1232	ok:1 6
+FMDateTime.al:3390	1233	err:InvalidStandardFormat
+FMDateTime.al:3431	1234	err:InvalidStandardFormat
+FMDateTime.al:3432	1235	ok:P0DT0H0M1.0S
+FMDateTime.al:3433	1236	err:InvalidFormatString
+FMDateTime.al:3434	1237	ok:literal
+FMDateTime.al:3435	1238	ok:
+FMDateTime.al:3455	1239	ok:1 minute
+FMDateTime.al:3456	1240	ok:1 minute
+FMDateTime.al:3457	1241	ok:1 4
+FMDateTime.al:3458	1242	err:InvalidStandardFormat
+FMDateTime.al:3459	1243	err:InvalidStandardFormat
+FMDateTime.al:3460	1244	err:InvalidStandardFormat
+FMDateTime.al:3461	1245	err:InvalidStandardFormat
+FMDateTime.al:3462	1246	err:InvalidStandardFormat
+FMDateTime.al:3463	1247	err:InvalidStandardFormat
+FMDateTime.al:3464	1248	ok:P0DT0H1M0.0S
+FMDateTime.al:3465	1249	err:InvalidStandardFormat
+FMDateTime.al:3466	1250	err:InvalidFormatString
+FMDateTime.al:3467	1251	err:InvalidFormatString
+FMDateTime.al:3468	1252	err:InvalidFormatString
+FMDateTime.al:3469	1253	err:InvalidFormatString
+FMDateTime.al:3470	1254	err:InvalidFormatString
+FMDateTime.al:3471	1255	err:InvalidFormatString
+FMDateTime.al:3472	1256	err:InvalidFormatString
+FMDateTime.al:3473	1257	err:InvalidFormatString
+FMDateTime.al:3474	1258	err:InvalidFormatString
+FMDateTime.al:3475	1259	err:InvalidFormatString
+FMDateTime.al:3476	1260	err:InvalidFormatString
+FMDateTime.al:3477	1261	ok:1 minute
+FMDateTime.al:3478	1262	ok:1 minute
+FMDateTime.al:3479	1263	ok:1 4
+FMDateTime.al:3480	1264	err:InvalidStandardFormat
+FMDateTime.al:3521	1265	err:InvalidStandardFormat
+FMDateTime.al:3522	1266	ok:P0DT0H1M0.0S
+FMDateTime.al:3523	1267	err:InvalidFormatString
+FMDateTime.al:3524	1268	ok:literal
+FMDateTime.al:3525	1269	ok:
+FMDateTime.al:3545	1270	ok:1 hour 2 minutes 3 seconds
+FMDateTime.al:3546	1271	ok:1 hour 2 minutes 3 seconds
+FMDateTime.al:3547	1272	ok:1 2 2 5 3 7
+FMDateTime.al:3548	1273	err:InvalidStandardFormat
+FMDateTime.al:3549	1274	err:InvalidStandardFormat
+FMDateTime.al:3550	1275	err:InvalidStandardFormat
+FMDateTime.al:3551	1276	err:InvalidStandardFormat
+FMDateTime.al:3552	1277	err:InvalidStandardFormat
+FMDateTime.al:3553	1278	err:InvalidStandardFormat
+FMDateTime.al:3554	1279	ok:P0DT1H2M3.0S
+FMDateTime.al:3555	1280	err:InvalidStandardFormat
+FMDateTime.al:3556	1281	err:InvalidFormatString
+FMDateTime.al:3557	1282	err:InvalidFormatString
+FMDateTime.al:3558	1283	err:InvalidFormatString
+FMDateTime.al:3559	1284	err:InvalidFormatString
+FMDateTime.al:3560	1285	err:InvalidFormatString
+FMDateTime.al:3561	1286	err:InvalidFormatString
+FMDateTime.al:3562	1287	err:InvalidFormatString
+FMDateTime.al:3563	1288	err:InvalidFormatString
+FMDateTime.al:3564	1289	err:InvalidFormatString
+FMDateTime.al:3565	1290	err:InvalidFormatString
+FMDateTime.al:3566	1291	err:InvalidFormatString
+FMDateTime.al:3567	1292	ok:1 hour 2 minutes 3 seconds
+FMDateTime.al:3568	1293	ok:1 hour 2 minutes 3 seconds
+FMDateTime.al:3569	1294	ok:1 2 2 5 3 7
+FMDateTime.al:3570	1295	err:InvalidStandardFormat
+FMDateTime.al:3611	1296	err:InvalidStandardFormat
+FMDateTime.al:3612	1297	ok:P0DT1H2M3.0S
+FMDateTime.al:3613	1298	err:InvalidFormatString
+FMDateTime.al:3614	1299	ok:literal
+FMDateTime.al:3615	1300	ok:
+FMDateTime.al:3635	1301	ok:1 day 1 hour 1 minute 1 second 1 millisecond
+FMDateTime.al:3636	1302	ok:1 day 1 hour 1 minute 1 second 1 millisecond
+FMDateTime.al:3637	1303	ok:1 0 1 2 1 4 1 6 1 8
+FMDateTime.al:3638	1304	err:InvalidStandardFormat
+FMDateTime.al:3639	1305	err:InvalidStandardFormat
+FMDateTime.al:3640	1306	err:InvalidStandardFormat
+FMDateTime.al:3641	1307	err:InvalidStandardFormat
+FMDateTime.al:3642	1308	err:InvalidStandardFormat
+FMDateTime.al:3643	1309	err:InvalidStandardFormat
+FMDateTime.al:3644	1310	ok:P1DT1H1M1.001S
+FMDateTime.al:3645	1311	err:InvalidStandardFormat
+FMDateTime.al:3646	1312	err:InvalidFormatString
+FMDateTime.al:3647	1313	err:InvalidFormatString
+FMDateTime.al:3648	1314	err:InvalidFormatString
+FMDateTime.al:3649	1315	err:InvalidFormatString
+FMDateTime.al:3650	1316	err:InvalidFormatString
+FMDateTime.al:3651	1317	err:InvalidFormatString
+FMDateTime.al:3652	1318	err:InvalidFormatString
+FMDateTime.al:3653	1319	err:InvalidFormatString
+FMDateTime.al:3654	1320	err:InvalidFormatString
+FMDateTime.al:3655	1321	err:InvalidFormatString
+FMDateTime.al:3656	1322	err:InvalidFormatString
+FMDateTime.al:3657	1323	ok:1 day 1 hour 1 minute 1 second 1 millisecond
+FMDateTime.al:3658	1324	ok:1 day 1 hour 1 minute 1 second 1 millisecond
+FMDateTime.al:3659	1325	ok:1 0 1 2 1 4 1 6 1 8
+FMDateTime.al:3660	1326	err:InvalidStandardFormat
+FMDateTime.al:3701	1327	err:InvalidStandardFormat
+FMDateTime.al:3702	1328	ok:P1DT1H1M1.001S
+FMDateTime.al:3703	1329	err:InvalidFormatString
+FMDateTime.al:3704	1330	ok:literal
+FMDateTime.al:3705	1331	ok:
+FMDateTime.al:3725	1332	ok:-1 day 1 hour 1 minute 1 second 1 millisecond
+FMDateTime.al:3726	1333	ok:-1 day 1 hour 1 minute 1 second 1 millisecond
+FMDateTime.al:3727	1334	ok:-1 0 1 2 1 4 1 6 1 8
+FMDateTime.al:3728	1335	err:InvalidStandardFormat
+FMDateTime.al:3729	1336	err:InvalidStandardFormat
+FMDateTime.al:3730	1337	err:InvalidStandardFormat
+FMDateTime.al:3731	1338	err:InvalidStandardFormat
+FMDateTime.al:3732	1339	err:InvalidStandardFormat
+FMDateTime.al:3733	1340	err:InvalidStandardFormat
+FMDateTime.al:3734	1341	ok:-P1DT1H1M1.001S
+FMDateTime.al:3735	1342	err:InvalidStandardFormat
+FMDateTime.al:3736	1343	err:InvalidFormatString
+FMDateTime.al:3737	1344	err:InvalidFormatString
+FMDateTime.al:3738	1345	err:InvalidFormatString
+FMDateTime.al:3739	1346	err:InvalidFormatString
+FMDateTime.al:3740	1347	err:InvalidFormatString
+FMDateTime.al:3741	1348	err:InvalidFormatString
+FMDateTime.al:3742	1349	err:InvalidFormatString
+FMDateTime.al:3743	1350	err:InvalidFormatString
+FMDateTime.al:3744	1351	err:InvalidFormatString
+FMDateTime.al:3745	1352	err:InvalidFormatString
+FMDateTime.al:3746	1353	err:InvalidFormatString
+FMDateTime.al:3747	1354	ok:-1 day 1 hour 1 minute 1 second 1 millisecond
+FMDateTime.al:3748	1355	ok:-1 day 1 hour 1 minute 1 second 1 millisecond
+FMDateTime.al:3749	1356	ok:-1 0 1 2 1 4 1 6 1 8
+FMDateTime.al:3750	1357	err:InvalidStandardFormat
+FMDateTime.al:3791	1358	err:InvalidStandardFormat
+FMDateTime.al:3792	1359	ok:-P1DT1H1M1.001S
+FMDateTime.al:3793	1360	err:InvalidFormatString
+FMDateTime.al:3794	1361	ok:literal
+FMDateTime.al:3795	1362	ok:
+FMDateTime.al:3815	1363	ok:1 hour
+FMDateTime.al:3816	1364	ok:1 hour
+FMDateTime.al:3817	1365	ok:1 2
+FMDateTime.al:3818	1366	err:InvalidStandardFormat
+FMDateTime.al:3819	1367	err:InvalidStandardFormat
+FMDateTime.al:3820	1368	err:InvalidStandardFormat
+FMDateTime.al:3821	1369	err:InvalidStandardFormat
+FMDateTime.al:3822	1370	err:InvalidStandardFormat
+FMDateTime.al:3823	1371	err:InvalidStandardFormat
+FMDateTime.al:3824	1372	ok:P0DT1H0M0.0S
+FMDateTime.al:3825	1373	err:InvalidStandardFormat
+FMDateTime.al:3826	1374	err:InvalidFormatString
+FMDateTime.al:3827	1375	err:InvalidFormatString
+FMDateTime.al:3828	1376	err:InvalidFormatString
+FMDateTime.al:3829	1377	err:InvalidFormatString
+FMDateTime.al:3830	1378	err:InvalidFormatString
+FMDateTime.al:3831	1379	err:InvalidFormatString
+FMDateTime.al:3832	1380	err:InvalidFormatString
+FMDateTime.al:3833	1381	err:InvalidFormatString
+FMDateTime.al:3834	1382	err:InvalidFormatString
+FMDateTime.al:3835	1383	err:InvalidFormatString
+FMDateTime.al:3836	1384	err:InvalidFormatString
+FMDateTime.al:3837	1385	ok:1 hour
+FMDateTime.al:3838	1386	ok:1 hour
+FMDateTime.al:3839	1387	ok:1 2
+FMDateTime.al:3840	1388	err:InvalidStandardFormat
+FMDateTime.al:3881	1389	err:InvalidStandardFormat
+FMDateTime.al:3882	1390	ok:P0DT1H0M0.0S
+FMDateTime.al:3883	1391	err:InvalidFormatString
+FMDateTime.al:3884	1392	ok:literal
+FMDateTime.al:3885	1393	ok:
+FMDateTime.al:3905	1394	ok:1 Tag 1 Stunde 1 Minute 1 Sekunde 1 Millisekunde
+FMDateTime.al:3906	1395	ok:1 Tag 1 Stunde 1 Minute 1 Sekunde 1 Millisekunde
+FMDateTime.al:3907	1396	ok:1 0 1 2 1 4 1 6 1 8
+FMDateTime.al:3908	1397	err:InvalidStandardFormat
+FMDateTime.al:3909	1398	err:InvalidStandardFormat
+FMDateTime.al:3910	1399	err:InvalidStandardFormat
+FMDateTime.al:3911	1400	err:InvalidStandardFormat
+FMDateTime.al:3912	1401	err:InvalidStandardFormat
+FMDateTime.al:3913	1402	err:InvalidStandardFormat
+FMDateTime.al:3914	1403	ok:P1DT1H1M1.001S
+FMDateTime.al:3915	1404	err:InvalidStandardFormat
+FMDateTime.al:3916	1405	err:InvalidFormatString
+FMDateTime.al:3917	1406	err:InvalidFormatString
+FMDateTime.al:3918	1407	err:InvalidFormatString
+FMDateTime.al:3919	1408	err:InvalidFormatString
+FMDateTime.al:3920	1409	err:InvalidFormatString
+FMDateTime.al:3921	1410	err:InvalidFormatString
+FMDateTime.al:3922	1411	err:InvalidFormatString
+FMDateTime.al:3923	1412	err:InvalidFormatString
+FMDateTime.al:3924	1413	err:InvalidFormatString
+FMDateTime.al:3925	1414	err:InvalidFormatString
+FMDateTime.al:3926	1415	err:InvalidFormatString
+FMDateTime.al:3927	1416	ok:1 Tag 1 Stunde 1 Minute 1 Sekunde 1 Millisekunde
+FMDateTime.al:3928	1417	ok:1 Tag 1 Stunde 1 Minute 1 Sekunde 1 Millisekunde
+FMDateTime.al:3929	1418	ok:1 0 1 2 1 4 1 6 1 8
+FMDateTime.al:3930	1419	err:InvalidStandardFormat
+FMDateTime.al:3971	1420	err:InvalidStandardFormat
+FMDateTime.al:3972	1421	ok:P1DT1H1M1.001S
+FMDateTime.al:3973	1422	err:InvalidFormatString
+FMDateTime.al:3974	1423	ok:literal
+FMDateTime.al:3975	1424	ok:
