@@ -418,6 +418,9 @@ pub struct Phases {
     pub baseline_source: Option<&'static str>,
     /// One per pass over the test codeunits (one per entry of a server request, else one).
     pub passes: Vec<PassTime>,
+    /// How the test threads took the install baseline: shared (ADR-069), or a copy each and why; `None` with one
+    /// test thread or no baseline.
+    pub install_snapshot: Option<String>,
     /// A warm server ran the request on the engines an earlier request over the same compile kept.
     pub engine_kept: bool,
     /// What the run did, counted (the work ratchet of `al-test-cli`).
@@ -483,14 +486,27 @@ impl Phases {
     /// With partner dependency apps installed in several orders (ADR-046 amendment 7), one more line per group of them.
     pub fn baseline_line(&self) -> Option<String> {
         let line = self.baseline_rule_line();
-        if self.baseline_install_orders.is_empty() {
+        if self.baseline_install_orders.is_empty() && self.install_snapshot.is_none() {
             return line;
         }
         let orders = self
             .baseline_install_orders
             .iter()
             .map(|l| format!("install baseline: {l}"));
-        Some(line.into_iter().chain(orders).collect::<Vec<_>>().join("\n"))
+        let lines: Vec<String> = line
+            .into_iter()
+            .chain(orders)
+            .chain(self.install_snapshot_line())
+            .collect();
+        (!lines.is_empty()).then(|| lines.join("\n"))
+    }
+
+    /// `install_snapshot` with the time the test threads took to set up their baseline (`PassTime::reset`, the longest
+    /// pass).
+    fn install_snapshot_line(&self) -> Option<String> {
+        let reset = self.passes.iter().map(|p| p.reset).max().unwrap_or_default();
+        let line = self.install_snapshot.as_ref()?;
+        Some(format!("{line}; test thread setup {:.3} s", reset.as_secs_f64()))
     }
 
     fn baseline_rule_line(&self) -> Option<String> {
@@ -950,6 +966,7 @@ mod corpus;
 mod data_driven;
 mod grow;
 mod handlers;
+mod install_snapshot;
 mod lane_starts;
 pub mod memory;
 mod numbers_taken;

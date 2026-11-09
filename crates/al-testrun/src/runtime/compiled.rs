@@ -216,6 +216,10 @@ pub struct RunOptions {
     /// ahead does not depend on how the threads are scheduled. Slower; no front end sets it. Only the time of the run
     /// depends on it.
     pub chain_wait_for_runs_ahead: bool,
+    /// ADR-069 decision 11: each test thread reads its own copy of the install baseline from bytes, as before the
+    /// shared baseline, instead of sharing one frozen baseline. The reference side of the differential check
+    /// (`AL_PRIVATE_BASELINE=1`, read by the front ends); not documented for users. Only time and memory depend on it.
+    pub private_baseline: bool,
 }
 
 /// One entry of a run (`RunOptions::entries`).
