@@ -100,8 +100,9 @@ fn workers() -> usize {
         .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get()))
 }
 
-#[test]
-fn chain_codeunits_that_hand_on_numbers_run_ahead_from_a_predicted_start_with_the_serial_outcome() {
+/// Runs the chain codeunits with `opts` and checks the outcome is the serial one: every test passes (each checks the
+/// exact numbers the serial run gives it), and every codeunit takes numbers and hands them on.
+fn run_chain(opts: &RunOptions) -> CorpusRuntime {
     let rt = CorpusRuntime::try_run_suites_with(
         vec![app("main", &["base"], &source()), app("base", &[], BASE)],
         vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
@@ -110,7 +111,7 @@ fn chain_codeunits_that_hand_on_numbers_run_ahead_from_a_predicted_start_with_th
         None,
         Default::default(),
         &[SuiteRun::everything()],
-        &RunOptions::default(),
+        opts,
     )
     .expect("the run starts");
     for r in rt.results() {
@@ -120,13 +121,36 @@ fn chain_codeunits_that_hand_on_numbers_run_ahead_from_a_predicted_start_with_th
     let chain = &rt.phases.chain;
     assert_eq!(chain.members.len(), IDS.len(), "every codeunit takes numbers");
     assert!(chain.members.iter().all(|m| m.left), "every codeunit hands on numbers");
-    if workers() > 2 {
-        assert!(
-            chain.members.iter().any(|m| m.ahead),
-            "no chain codeunit ran ahead: {:?}",
-            chain.members.iter().map(|m| (m.id, m.ahead)).collect::<Vec<_>>()
-        );
+    rt
+}
+
+/// With the threads scheduled as they come, whatever ran ahead gives the serial outcome. Which codeunits run ahead
+/// depends on the timing here (a helper must start a member before the walk reaches it), so this test does not count
+/// them; the next one does.
+#[test]
+fn chain_codeunits_that_hand_on_numbers_run_ahead_from_a_predicted_start_with_the_serial_outcome() {
+    run_chain(&RunOptions::default());
+}
+
+/// When the walk waits for the helpers' runs (`RunOptions::chain_wait_for_runs_ahead`), every codeunit after the first
+/// runs ahead: the first runs before any start is known (`SerialWhy::Closed`), and each later one, the codeunit whose
+/// count depends on its start among them, is run from the walk's own state at the latest once the walk reaches it.
+#[test]
+fn every_chain_codeunit_after_the_first_runs_ahead_when_the_walk_waits_for_the_helpers() {
+    if workers() < 2 {
+        // No helper thread.
+        return;
     }
+    let rt = run_chain(&RunOptions {
+        chain_wait_for_runs_ahead: true,
+        ..Default::default()
+    });
+    let chain = &rt.phases.chain;
+    let ahead: Vec<(u32, bool)> = chain.members.iter().map(|m| (m.id, m.ahead)).collect();
+    let expected: Vec<(u32, bool)> = IDS.iter().enumerate().map(|(i, id)| (*id, i > 0)).collect();
+    assert_eq!(ahead, expected);
+    let serial: Vec<(u32, SerialWhy)> = chain.not_ahead.iter().map(|m| (m.id, m.why)).collect();
+    assert_eq!(serial, vec![(IDS[0], SerialWhy::Closed)]);
 }
 
 /// `--timings` says why each chain codeunit that ran on the walk's thread did not run ahead: one cause per serial

@@ -136,6 +136,9 @@ struct RunsState {
     /// ahead, so a suite whose members leave rows costs the helpers nothing.
     open: std::collections::HashSet<usize>,
     closed: bool,
+    /// `RunOptions::chain_wait_for_runs_ahead`, once a helper runs: [`Runs::take`] waits for a run a helper can still
+    /// make instead of leaving the member to the walk.
+    patient: bool,
 }
 
 /// The runs ahead of one walk.
@@ -174,6 +177,7 @@ impl Runs {
                 walked: 0,
                 open: Default::default(),
                 closed: false,
+                patient: false,
             }),
             ready: Condvar::new(),
             place,
@@ -232,21 +236,11 @@ impl Runs {
                 return Claim::Done;
             }
             let rest = &self.order[s.walked.min(self.order.len())..];
-            let next = rest.iter().take(self.window).copied().find_map(|k| {
-                let si = self.suite[k];
-                if s.tainted.contains(&si) || !s.open.contains(&si) || s.tries[k] >= TRIES {
-                    return None;
-                }
-                let (epoch, start) = s.starts.get(&si)?;
-                let (delta, complete, sure) = self.guess_sure(&s, k)?;
-                let run = match &s.slots[k] {
-                    Slot::Pending => true,
-                    // Run again from a better prediction: every count before it is known now, and it differs.
-                    Slot::Done(e, from, _) => e == epoch && complete && *from != delta,
-                    _ => false,
-                };
-                run.then(|| (k, *epoch, start.clone(), delta, complete, sure))
-            });
+            let next = rest
+                .iter()
+                .take(self.window)
+                .copied()
+                .find_map(|k| self.claimable(&s, k, &s.slots[k]).map(|c| (k, c.0, c.1, c.2, c.3, c.4)));
             let waiting = rest
                 .iter()
                 .any(|k| !matches!(s.slots[*k], Slot::Taken) && !s.tainted.contains(&self.suite[*k]));
@@ -265,6 +259,37 @@ impl Runs {
                 None => return Claim::Done,
             }
         }
+    }
+
+    /// Whether a helper should run member `k`, whose slot is `slot`, now: where it starts (epoch, start, delta) and
+    /// whether that prediction is complete and sure (`guess_sure`). The window is `claim`'s part.
+    fn claimable(&self, s: &RunsState, k: usize, slot: &Slot) -> Option<(u32, Start, al_vm::Delta, bool, bool)> {
+        let si = self.suite[k];
+        if s.tainted.contains(&si) || !s.open.contains(&si) || s.tries[k] >= TRIES {
+            return None;
+        }
+        let (epoch, start) = s.starts.get(&si)?;
+        let (delta, complete, sure) = self.guess_sure(s, k)?;
+        let run = match slot {
+            Slot::Pending => true,
+            // Run again from a better prediction: every count before it is known now, and it differs.
+            Slot::Done(e, from, _) => e == epoch && complete && *from != delta,
+            _ => false,
+        };
+        run.then(|| (*epoch, start.clone(), delta, complete, sure))
+    }
+
+    /// `RunOptions::chain_wait_for_runs_ahead`: from now on [`Runs::take`] waits for each run a helper can still make.
+    /// Called once a helper thread runs (with none, nothing would make the run it waits for).
+    pub fn wait_for_helpers(&self) {
+        if let Ok(mut s) = self.state.lock() {
+            s.patient = true;
+        }
+    }
+
+    /// Whether [`Runs::take`] waits for the helpers (`wait_for_helpers`).
+    pub fn patient(&self) -> bool {
+        self.state.lock().is_ok_and(|s| s.patient)
     }
 
     /// Tells the helpers the new start of suite `si`, which holds for the members from place `from` of `order` on;
@@ -348,6 +373,23 @@ impl Runs {
                 // Its fingerprint is not known yet, or it is the walk's (but perhaps for those rows): wait.
                 Slot::Running(e, d, fp) if Some(e) == epoch && (fp.is_none() || same(&e, fp.as_deref()).is_some()) => {
                     s.slots[k] = Slot::Running(e, d, fp);
+                    s = match self.ready.wait(s) {
+                        Ok(g) => g,
+                        Err(_) => return (None, Dropped::Nothing),
+                    };
+                }
+                // `RunOptions::chain_wait_for_runs_ahead`: a run a helper still makes from another start ends, and then
+                // a helper runs the member (again) when it can: the walk is at it, so from the walk's own state.
+                slot @ Slot::Running(..) if s.patient => {
+                    s.slots[k] = slot;
+                    s = match self.ready.wait(s) {
+                        Ok(g) => g,
+                        Err(_) => return (None, Dropped::Nothing),
+                    };
+                }
+                slot @ (Slot::Pending | Slot::Done(..)) if s.patient && self.claimable(&s, k, &slot).is_some() => {
+                    s.slots[k] = slot;
+                    self.ready.notify_all();
                     s = match self.ready.wait(s) {
                         Ok(g) => g,
                         Err(_) => return (None, Dropped::Nothing),
@@ -497,6 +539,41 @@ mod tests {
             runs.take(2, Some(0), Some(&fp(b"s2", b""))).0.is_none(),
             "and it is gone"
         );
+    }
+
+    /// `RunOptions::chain_wait_for_runs_ahead`: the walk waits for a member no helper started yet, and for a member
+    /// whose run started elsewhere to run again from the walk's state, instead of running either itself. A member no
+    /// helper may run (here one of a suite that is not open) is not waited for.
+    #[test]
+    fn a_patient_walk_waits_for_the_helpers_run_from_its_own_state() {
+        let runs = Runs::new(vec![0, 1, 2], vec![0, 0, 0], vec![0], 6);
+        runs.wait_for_helpers();
+        // The suite is not open: no helper may run member 0, so the walk does not wait.
+        assert!(matches!(
+            runs.take(0, Some(0), Some(&fp(b"s0", b""))),
+            (None, Dropped::Nothing)
+        ));
+        runs.reached(0);
+        runs.advance(0, 0, Default::default(), Some(Default::default()));
+        std::thread::scope(|scope| {
+            let helper = scope.spawn(|| {
+                // Member 1 first runs from another start, then again from the walk's.
+                for start in [b"other".as_slice(), b"s1".as_slice()] {
+                    let Claim::Run(1, 0, _, from) = runs.claim() else {
+                        panic!("member 1")
+                    };
+                    if start == b"other" {
+                        // While it runs, the walk's state turns out other than predicted.
+                        runs.state.lock().unwrap().at.insert(0, (1, al_vm::Delta::of_guids(1)));
+                    }
+                    runs.finish(1, 0, *from, Some(ahead(start)));
+                }
+            });
+            let (got, dropped) = runs.take(1, Some(0), Some(&fp(b"s1", b"")));
+            assert!(got.is_some(), "the walk took the run from its own state ({dropped:?})");
+            helper.join().unwrap();
+        });
+        runs.close();
     }
 
     fn changed(n: u64) -> Option<Ahead> {

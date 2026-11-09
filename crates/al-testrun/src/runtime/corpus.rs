@@ -1572,9 +1572,7 @@ impl CorpusRuntime {
             let helpers = helper_threads(workers, baseline_engine.is_some());
             let first_origin = baseline.as_ref().map(al_vm::Baseline::origin);
             if helpers > 0 {
-                let encode_started = std::time::Instant::now();
-                snapshot_once.get_or_init(|| baseline.as_ref().and_then(al_vm::Baseline::to_bytes));
-                encode_time += encode_started.elapsed();
+                encode_time += encode_snapshot(&snapshot_once, baseline.as_ref());
             }
             // A test thread's own copy of the install baseline: the baseline the first run left, as its snapshot says (over
             // the engine's test data, if it has any); only a baseline that has no snapshot is run again, once per thread.
@@ -1613,6 +1611,7 @@ impl CorpusRuntime {
                 thread_baseline: &|| thread_baseline(ahead_snapshot),
                 gate: memory.gate(),
                 keep_singles,
+                wait_for_helpers: opts.chain_wait_for_runs_ahead,
             }
             .walk(chain, &mut slots, &mut details, &mut chain_report);
             // The other codeunits run as before; one that comes after a Disabled codeunit notes whether it reads a table that
@@ -2433,6 +2432,16 @@ fn run_serially(
 
 /// How many helper threads run the carry chain's codeunits ahead: every worker but the walk's, when the threads can
 /// have an install baseline of their own.
+/// Encodes `baseline` into `snapshot` once (the start the helper threads read back); returns the time it took.
+fn encode_snapshot(
+    snapshot: &std::cell::OnceCell<Option<Vec<u8>>>,
+    baseline: Option<&al_vm::Baseline>,
+) -> std::time::Duration {
+    let started = std::time::Instant::now();
+    snapshot.get_or_init(|| baseline.and_then(al_vm::Baseline::to_bytes));
+    started.elapsed()
+}
+
 fn helper_threads(workers: usize, own_baseline: bool) -> usize {
     if workers > 1 && own_baseline { workers - 1 } else { 0 }
 }
