@@ -380,7 +380,12 @@ pub(super) fn value_prop(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]
     if a.is_empty() && unassigned(&r, "XmlAttribute") {
         return Err(uninitialized("XmlAttribute"));
     }
-    let h = recv(r)?;
+    // A text, CDATA section or comment names its type, read or set (`recv_or_uninit`).
+    let own = match r.as_deref() {
+        Some(Value::Library(name, _)) => name.to_string(),
+        _ => String::new(),
+    };
+    let h = recv_or_uninit(r, &own)?;
     if let Some(v) = a.first() {
         let t = crate::native::text_of(v).ok_or_else(|| Signal::Unsupported("non-text XML value".into()))?;
         with(&h, |d| match d {
@@ -413,7 +418,7 @@ pub(super) fn pi_get_target(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Val
 }
 
 pub(super) fn pi_get_data(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    let h = recv(r)?;
+    let h = recv_or_uninit(r, "XmlProcessingInstruction")?;
     // What GetData reads of data holding the end marker is not pinned (only how it is written).
     if with(&h, |d| matches!(d, XData::Pi { data, .. } if data.contains("?>"))) {
         return unsupported("XmlProcessingInstruction.GetData of data holding `?>` (not pinned)");
@@ -466,7 +471,7 @@ pub(super) fn pi_set_target(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Val
 /// `XmlProcessingInstruction.SetData(Data)`: an empty text leaves `<?t2?>` and GetData reads it empty (P90PIRead.al:2215
 /// `doc-after-empty-data`; xml/XmlNodes.al:199 `setdata`); `?>` is taken and written `? >` (P90PIRead.al:2110 `pi-end-doc`).
 pub(super) fn pi_set_data(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    let h = recv(r)?;
+    let h = recv_or_uninit(r, "XmlProcessingInstruction")?;
     let v = arg_text(a, 0)?;
     with(&h, |d| {
         if let XData::Pi { data, .. } = d {
