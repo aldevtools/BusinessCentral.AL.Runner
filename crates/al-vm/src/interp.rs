@@ -630,7 +630,12 @@ impl Session {
         }
     }
 
-    /// An Option, Enum or Boolean bound of a `for` loop as the Integer it stands for.
+    /// An Option, Enum or Boolean bound of a `for` loop as the Integer it stands for. A loop over a Boolean
+    /// (`for Stepwise := false to true do`, 27 Microsoft codeunits) runs for false and then for true, the variable
+    /// holding the Boolean each round (registry entry for-boolean). Not pinned. Option bounds of an Integer loop take
+    /// its type as an assignment does: the ordinal (Microsoft's "Library - Manufacturing" loops
+    /// `for Day := FromDay to ToDay` with Option parameters; pinned by the corpus Option_InCaseAndLoopBounds,
+    /// types/ for_to_option).
     #[inline(always)]
     pub(crate) fn for_bound(v: Value) -> Value {
         match v {
@@ -638,27 +643,6 @@ impl Session {
             Value::Boolean(b) => Value::Integer(i32::from(b)),
             v => v,
         }
-    }
-
-    /// The first and last counter value of a `for` loop from its evaluated bounds. A loop over a Boolean
-    /// (`for Stepwise := false to true do`, 27 Microsoft codeunits) runs for false and then for true, the variable
-    /// holding the Boolean each round (registry entry for-boolean). Not pinned. Option bounds of an Integer loop take
-    /// its type as an assignment does: the ordinal (Microsoft's "Library - Manufacturing" loops
-    /// `for Day := FromDay to ToDay` with Option parameters; pinned by the corpus Option_InCaseAndLoopBounds,
-    /// types/ for_to_option).
-    #[inline(always)]
-    pub(crate) fn for_limits(from: Value, to: Value) -> Result<(i64, i64), Signal> {
-        match (&from, &to) {
-            (Value::Date(..), Value::Date(..)) => return Ok((date_key(&from), date_key(&to))),
-            (Value::Date(..), _) | (_, Value::Date(..)) => {
-                return Err(Signal::Unsupported(
-                    "a for loop with a Date bound and a bound of another type (not pinned)".into(),
-                ));
-            }
-            _ => {}
-        }
-        let (from, to) = (Self::for_bound(from), Self::for_bound(to));
-        Ok((int(&from)?, int(&to)?))
     }
 
     /// The value the counter variable of a `for` loop holds in the round with counter `i`.

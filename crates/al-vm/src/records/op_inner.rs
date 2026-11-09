@@ -1761,8 +1761,7 @@ impl Session {
                     r.filters.retain(|f| !(f.field == pos && f.group == group));
                     return Ok(Value::Null);
                 }
-                let engine = self.engine.clone();
-                let enums = |id: u32| crate::views::enum_filter_members(&engine.program.objects[id as usize]);
+                let enums = self.enum_members_fn();
                 let date_ctx = self.date_filter_context_for(&text);
                 let parse = |text: &str| {
                     al_builtins::filter::with_date_context(date_ctx, || {

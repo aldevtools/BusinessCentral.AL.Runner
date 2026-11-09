@@ -28,19 +28,27 @@ fn needs_quotes(s: &str) -> bool {
 }
 
 impl Session {
+    /// `enum_filter_members` of an enum id in the session language, for `filter::parse_filter_with`.
+    pub(crate) fn enum_members_fn(&self) -> impl Fn(u32) -> Result<Vec<(i32, String)>, String> + use<> {
+        let engine = self.engine.clone();
+        let language = al_builtins::format::FormatCtx::language(self);
+        move |id: u32| crate::views::enum_filter_members(&engine.program.objects[id as usize], language)
+    }
+
     /// A filter expression over a field of type `ty`, enum members by name included.
     pub(crate) fn parse_filter_text(&self, text: &str, ty: &al_builtins::value::RtType) -> Result<FilterExpr, String> {
         let engine = self.engine.clone();
-        let enums = |id: u32| crate::views::enum_filter_members(&engine.program.objects[id as usize]);
+        let language = al_builtins::format::FormatCtx::language(self);
+        let enums = |id: u32| crate::views::enum_filter_members(&engine.program.objects[id as usize], language);
         al_builtins::filter::parse_filter_with(text, &[], ty, &enums)
     }
 
     /// `filter_value`; with `iso` a Date reads `yyyy-mm-dd`, as a view writes it (record/crud/RcAMisc.al:
     /// GetView_Field_Types `date`).
     fn filter_value_with(&self, v: &Value, iso: bool) -> Result<String, Signal> {
-        if let (false, Value::Enum(id, o)) = (iso, v)
-            && let Some(why) = self.enum_ml_unpinned(*id, Some(*o), "GetFilter and GetFilters")
-        {
+        // An enum value with a `CaptionML` shows its caption in the session language, as Format does
+        // (format-evaluate/EnumCaptionReaders.al ECR_FilterTexts_1033, _2067), when the filter was set under that language.
+        if let Some(why) = self.enum_ml_filter_refusal(v) {
             return Err(Signal::Unsupported(why));
         }
         // A blank date shows as two single quotes, like a blank text (record/crud/RcAMisc.al:
@@ -432,8 +440,10 @@ impl Session {
             let mut items = Vec::new();
             for f in &filters {
                 // The numeric form of a record writes an Option filter as its ordinal (record/keys-sorting/
-                // Y43SetAscendingFlowField.al:234 `WHERE(Field1=1(1))`); an Enum there is not pinned and keeps its name.
-                let numeric_option = !use_names && record_form && matches!(t.fields[f.field].ty, RtType::Option(_));
+                // Y43SetAscendingFlowField.al:234 `WHERE(Field1=1(1))`), and an Enum filter too, from a Record and a RecordRef
+                // (corpus master format-evaluate/EnumCaptionReaders.al:1530-1551, ECR_RecordRefSetViewEnumName_GetViewFalseWritesTheOrdinal).
+                let numeric_option =
+                    !use_names && record_form && matches!(t.fields[f.field].ty, RtType::Option(_) | RtType::Enum(_));
                 let text = if option_ordinals || numeric_option {
                     // A Date or DateTime value takes the XML form here too (events/platform-triggers/PtObserve.al:600
                     // `WHERE(Field5=1(2020-01-01..))`); a Boolean of this form is not pinned and keeps its session form.
@@ -1007,16 +1017,23 @@ fn field_by_name(t: &TableDef, name: &str) -> Option<usize> {
         .and_then(|id| t.fields.iter().position(|f| f.id == id))
 }
 
-/// The members of an enum for a text filter: the captions first, then the names (see `filter::parse_filter_with`).
-pub(crate) fn enum_filter_members(o: &al_ir::Object) -> Result<Vec<(i32, String)>, String> {
-    // A value with a `CaptionML` is matched by its caption in the session language; no corpus test pins that for a filter text.
-    if let Some((v, _)) = o.enum_captions_ml.first() {
-        return Err(format!(
-            "the caption of enum value {v} of enum {} (CaptionML; not pinned for a filter text)",
-            o.name
-        ));
-    }
+/// The members of an enum for a text filter: the captions first, then the names (see `filter::parse_filter_with`). A value
+/// with a `CaptionML` is matched by its caption in the session language `language`, not by another language's caption
+/// (format-evaluate/EnumCaptionReaders.al ECR_FilterWordsStatus_1033, _2067, ECR_FilterWordsMixed_*, ECR_ViewWords_*).
+pub(crate) fn enum_filter_members(o: &al_ir::Object, language: i32) -> Result<Vec<(i32, String)>, String> {
     let mut out: Vec<(i32, String)> = o.enum_captions.iter().filter(|(_, c)| !c.is_empty()).cloned().collect();
+    for (v, ml) in &o.enum_captions_ml {
+        // A value with both a Caption and a CaptionML is not pinned (as `Session::enum_ml_captions`).
+        if out.iter().any(|(w, _)| w == v) {
+            return Err(format!(
+                "the caption of value {v} of enum {}: it declares a Caption and a CaptionML (not pinned)",
+                o.name
+            ));
+        }
+        let text = al_builtins::format::ml_text_in_language(ml, language)
+            .map_err(|e| format!("the CaptionML of enum {} {e}", o.name))?;
+        out.push((*v, text));
+    }
     out.extend(o.enum_values.iter().cloned());
     Ok(out)
 }

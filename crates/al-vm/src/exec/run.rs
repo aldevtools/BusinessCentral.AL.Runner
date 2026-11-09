@@ -350,6 +350,7 @@ impl Session {
                     }
                 }
                 Op::Pos { p } => self.at_pos_checked(p)?,
+                Op::ForStart { s } => self.for_start(&chunk.fors[s as usize], f, nl)?,
                 Op::ForInit { s } => self.for_init(&chunk.fors[s as usize], f, nl)?,
                 Op::ForTest { s, t } => {
                     let site = &chunk.fors[s as usize];
@@ -725,10 +726,13 @@ impl Session {
         Ok(())
     }
 
+    /// The start of a `for` loop: the counter takes the start value and the loop variable holds it before the end
+    /// bound is evaluated (corpus master language/ControlFlow.al:667-743: `for i := One() to i + n - 1` with `i = 0`,
+    /// `n = 10` runs 1..10). A loop over an empty range so keeps the start value too
+    /// (language/ControlFlow.al:ForLoop_VariableAfterLoop: `for i := 5 to 4` leaves 5).
     #[inline(never)]
-    fn for_init(&mut self, site: &ForSite, f: &mut Frame, nl: u16) -> Result<(), Signal> {
+    fn for_start(&mut self, site: &ForSite, f: &mut Frame, nl: u16) -> Result<(), Signal> {
         let from = take(f, site.from, nl);
-        let to = take(f, site.to, nl);
         // Only Date bounds on a Date variable are pinned (language/ControlFlow.al:607).
         if site.int_local.is_none()
             && (matches!(from, Value::Date(..))
@@ -739,12 +743,32 @@ impl Session {
                     .into(),
             ));
         }
+        let start = match from {
+            Value::Date(..) => crate::interp::date_key(&from),
+            v => crate::int(&Self::for_bound(v))?,
+        };
+        f.locals[site.i as usize] = Value::BigInteger(start);
+        self.for_set(site, f)
+    }
+
+    #[inline(never)]
+    fn for_init(&mut self, site: &ForSite, f: &mut Frame, nl: u16) -> Result<(), Signal> {
+        let to = take(f, site.to, nl);
+        let date_var =
+            site.int_local.is_none() && matches!(self.place_type(&site.var, f), al_builtins::value::RtType::Date);
+        if date_var != matches!(to, Value::Date(..)) {
+            return Err(Signal::Unsupported(
+                "a for loop with a Date bound and a bound of another type (not pinned)".into(),
+            ));
+        }
         let big_end = match to {
             Value::BigInteger(e) if i32::try_from(e).is_err() => Some(e),
             _ => None,
         };
-        let (start, end) = Self::for_limits(from, to)?;
-        f.locals[site.i as usize] = Value::BigInteger(start);
+        let end = match to {
+            Value::Date(..) => crate::interp::date_key(&to),
+            v => crate::int(&Self::for_bound(v))?,
+        };
         f.locals[site.end as usize] = Value::BigInteger(end);
         // The end bound takes the type of the counter once the counter holds the start value: a BigInteger end beyond
         // Integer on an Integer counter raises ConversionCast, the counter keeps the start and no round runs
@@ -760,17 +784,11 @@ impl Session {
                             .into(),
                     ));
                 }
-                self.for_set(site, f)?;
                 return al_builtins::native::raise(
                     format!("Overflow under conversion of System.Int64 value {e} to System.Int32."),
                     "ConversionCast",
                 );
             }
-        }
-        // A loop over an empty range still gives the counter the start value
-        // (language/ControlFlow.al:ForLoop_VariableAfterLoop: `for i := 5 to 4` leaves 5).
-        if if site.down { start < end } else { start > end } {
-            self.for_set(site, f)?;
         }
         Ok(())
     }

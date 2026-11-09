@@ -189,6 +189,7 @@ impl Session {
         rec: &Rec,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
+        self.note_enum_ml_filter(method, rec);
         let effect = effect(method);
         match effect {
             Effect::Keep => return self.record_op_inner(method, rec, args),

@@ -312,14 +312,15 @@ fn dt2time(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
 /// Any other part raises (types/TestDateRoundFormatStringContracts.al:Date2DMY_Part4_Throws, measured for 4).
 fn date2dmy(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let day = match &a[0] {
-        // The undefined date raises for part 1 (errors/PnBDateFormat.al:135-163, Date2DWY_PartsOutOfRange
-        // `undefinedDmy`); the other parts are not pinned.
-        // The parts 0 and 4 raise the same for it (types/date-time/DateFuncs.al Date2DMY_Invalid `0D what 0`, `0D what 4`).
-        Value::Date(0, _) if matches!(int_of(a.get(1)), Some(0 | 1 | 4)) => {
+        // The undefined date raises DateInvalid for the parts 1, 2 and 3 (errors/PnBDateFormat.al:135-163,
+        // Date2DWY_PartsOutOfRange `undefinedDmy`; corpus master types/date-time/DateFuncs.al:507-530,
+        // Date2DMY_UndefinedDate_DayMonthYear_RaiseDateInvalid) and the same for 0 and 4 (types/date-time/DateFuncs.al
+        // Date2DMY_Invalid `0D what 0`, `0D what 4`).
+        Value::Date(0, _) if matches!(int_of(a.get(1)), Some(0..=4)) => {
             return raise("The date is not valid.", "DateInvalid");
         }
         Value::Date(0, _) => {
-            return unsupported("Date2DMY of an undefined date with a part other than 0, 1 and 4 (not pinned)");
+            return unsupported("Date2DMY of an undefined date with a part other than 0 to 4 (not pinned)");
         }
         Value::Date(n, _) if *n > 0 => *n,
         other => return plain_date(other, "Date2DMY").map(|_| unreachable!()),
@@ -1320,10 +1321,11 @@ mod tests {
     }
 
     /// types/date-time/DateFuncs.al Date2DMY_Invalid `0D what 0`, `0D what 4`: the undefined date raises DateInvalid for the parts
-    /// 0 and 4 as for 1.
+    /// 0 and 4 as for 1. Corpus master types/date-time/DateFuncs.al:507-530 (Date2DMY_UndefinedDate_DayMonthYear_RaiseDateInvalid,
+    /// al-runner issue 7468): the parts 2 and 3 raise the same.
     #[test]
-    fn date2dmy_of_the_undefined_date_raises_for_parts_0_1_and_4() {
-        for part in [0, 1, 4] {
+    fn date2dmy_of_the_undefined_date_raises_for_parts_0_to_4() {
+        for part in [0, 1, 2, 3, 4] {
             match call("System.Date2DMY#1", vec![Value::Date(0, false), Value::Integer(part)]) {
                 Err(Signal::Error(e)) => {
                     assert_eq!(
@@ -1680,10 +1682,6 @@ mod tests {
             panic!("0D must raise");
         };
         assert_eq!(e.code, "DateInvalid");
-        refused(call(
-            "System.Date2DMY#1",
-            vec![Value::Date(0, false), Value::Integer(2)],
-        ));
     }
 
     #[test]
