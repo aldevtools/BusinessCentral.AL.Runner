@@ -150,6 +150,9 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 
 ### al-host
 
+- `inproc.rs` (~1270): In-process stand-ins for a closed set of .NET members in front of the sidecar (ADR-038), the list in `inproc.txt`. Entry: `wrap`, `InprocHost`, `InprocSession`.
+- `inproc/math.rs` (~280): Exact decimal `System.Math` members and `TimeSpan.FromTicks` (ADR-038 amendment 2026-11-09). Entry: `math`, `time_span`.
+- `inproc/regex.rs` (~80): Which `Regex` constructions may be built again locally and which members go to the canonical sidecar object (ADR-038 amendment 2026-11-09). Entry: `key`, `is_matching`.
 - `dotnet.rs` (238): The `DotNet` provider seam (ADR-014 section 2). Entry: `DotNetType` 10, `DotNetHandle` 26, `DotNetValue` 30, `DotNetArg` 65.
 - `lib.rs` (350): The host seam: clock, identity, client type, file system (ADR-006). Entry: `Clock` 21, `Identity` 70, `ClientType` 54, `Host` 258.
 - `testdata.rs` (330): Test data capability (ADR-020): `TableProvider`, `Cell`, `TestData` (reads each table once for all threads) and `LoadStats` (the counts behind the summary line). Entry: `TableProvider`, `TestData`, `LoadStats`, `Summary`.

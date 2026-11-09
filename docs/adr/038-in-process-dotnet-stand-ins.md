@@ -217,3 +217,58 @@ of the host, which the sidecar has and the stand-in does not claim to match.
 
 `crates/al-test-cli/tests/suite/dotnet_diff.rs` calls `GetUtcOffset` on every id of the zone list (the stand-in must forward all
 but `UTC`) and on `UTC` and `utc` for every tick of the edge list, and compares each answer with the sidecar's.
+
+## Amendment 2026-11-09: exact System.Math members, TimeSpan.FromTicks, and Regex objects built again
+
+- Status: Decided without owner review (2026-11-09). The owner rule for moving .NET work out of the sidecar is "measured
+  run-time cost"; this is that case.
+- Reason: an outside user's large partner app spent 292 s of a 1,359 s test run on 8.2 million sidecar requests
+  (about 36 microseconds each). The app declares no `DotNet` variable: a formula engine calls System Application's `Regex`
+  and `Math` codeunits for every expression and subexpression. "Regex Impl." makes a new `Regex` for every
+  `IsMatch(Input, Pattern)`: `TimeSpan.FromTicks`, the constructor, the match and a release of the previous object, four
+  requests per match. `Math` is one `System.Math` call per procedure.
+
+### Members added
+
+| Type | Member | Served in process |
+|---|---|---|
+| `System.Math` | `Abs`, `Floor`, `Ceiling`, `Truncate`, `Sign` (one `decimal`), `Max`, `Min` (two `decimal`) | yes, when every argument is a decimal text read exactly (optional `-`, digits, optional `.` and up to 28 decimals, mantissa below 2^96); integer arithmetic on mantissa and scale, no rounding |
+| `System.TimeSpan` | `FromTicks(Int64)` | yes, every value |
+| `System.Text.RegularExpressions.Regex` | constructor | a local object when the same arguments made a `Regex` in the sidecar before in this session (below) |
+
+Not served, and why:
+
+- `Sqrt`, `Pow`, `Sin`, `Cos`, `Log`, `Exp` and every other member that takes a `double`. The AL Decimal goes to a
+  `double` and the result back to a `decimal` through .NET's own conversions, and the transcendental functions come from
+  the C library of the platform (glibc, the Windows UCRT, Apple's libm). Equal answers on Linux x64 and arm64, macOS arm64
+  and Windows x64 are not shown, so they stay in the sidecar. `Sqrt` itself is exact in IEEE, but the two conversions
+  would have to be ported from .NET, which the repository does not copy.
+- Other overloads than the decimal one (`Abs(Int32)` throws for `Int32.MinValue`).
+
+### Regex: the matching stays in .NET
+
+No pattern is interpreted in Rust. The first `Regex` made from a set of constructor arguments is made in the sidecar as
+before, so an invalid pattern or timeout fails there with .NET's own exception, every time. When it succeeds, the session
+keeps that sidecar object (the canonical one) and AL code gets a local object. Every later `Regex` made from the same
+arguments is a local object without a request. A `Regex` is immutable, so its matching members (`IsMatch`, `Match`,
+`Matches`, `Replace`, `Split`, `GetGroupNames`, `GetGroupNumbers`, `GroupNameFromNumber`, `GroupNumberFromName`) go to
+the canonical object and answer what a new instance would. Any other member (`GetHashCode`, `Equals`, `ToString`, a
+property) and passing the object as an argument first build the object in the sidecar for real (section 2), so identity
+stays as in .NET. A case-insensitive pattern without `CultureInvariant` is never proxied: its case table is the culture
+current when it is made, and AL code can change the culture. The canonical objects are released when the session ends.
+
+`IsMatch` itself stays one request. A memo of its answers would cut it further but is a cache (ADR-016); not done.
+
+### Measured
+
+Synthetic app (a recursive formula evaluator over System Application `Regex.IsMatch` and `Math`, 2,000 rounds of three
+formulas, BC 28, load average about 12): 184,000 requests in 5.2 to 10.1 s and a test of 6.6 to 12.7 s before; 52,004
+requests in 1.8 to 2.7 s and a test of 2.7 to 3.8 s after. What is left per round: 21 `IsMatch` and 5 double `Math` calls.
+
+### Conformance
+
+`dotnet_diff.rs` (`math_checks`, `regex_checks`) runs the members on edge decimals (zeros with a sign and a scale, the
+largest mantissa, the smallest step, halves, texts the stand-in does not read) and 200 random decimals, every `Max`/`Min`
+pair both ways, equal values in different scales, `FromTicks` at the `Int64` limits, and `Regex` constructions repeated
+three times with valid, invalid and case-insensitive patterns, matches, replaces, splits, null input, a start past the
+end, and the members that build the object for real. Each answer must equal the bare sidecar's.

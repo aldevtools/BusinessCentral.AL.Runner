@@ -718,6 +718,10 @@ fn the_stand_ins_answer_what_the_sidecar_answers() {
     // ---- TimeZoneInfo and DateTimeOffset (ADR-038 amendment 2026-10-17) ----
     covered.extend(time_zone_checks(&mut pair));
 
+    // ---- System.Math, TimeSpan.FromTicks and Regex (ADR-038 amendment 2026-11-09) ----
+    covered.extend(math_checks(&mut pair, &mut rng));
+    covered.extend(regex_checks(&mut pair));
+
     // ---- the list of members equals what was covered ----
     let listed: BTreeSet<String> = MEMBERS
         .lines()
@@ -1065,6 +1069,179 @@ fn time_zone_checks(pair: &mut Pair) -> BTreeSet<String> {
         r.get("System.DateTimeOffset.LocalDateTime", me.clone(), "LocalDateTime");
         r.get("System.DateTimeOffset.DateTime", me, "DateTime");
         r.inst("System.DateTimeOffset.ToLocalTime", &p, "ToLocalTime", vec![]);
+    }));
+    covered
+}
+
+fn dec(t: &str) -> DotNetArg {
+    a(DotNetValue::Decimal(t.into()))
+}
+
+/// Decimal texts at the edges of a .NET decimal: zeros with and without a sign and a scale, the largest mantissa, the
+/// smallest step, halves (no rounding mode is involved, but a wrong one would show), and texts the stand-in does not
+/// read (an exponent, too many decimals, a mantissa past 96 bits), which must reach the sidecar and answer as before.
+/// An AL Decimal has no NaN or infinity; the double members (`Sqrt`, `Sin`, ...) are in the script so a stand-in that
+/// took them would show.
+const DECIMALS: &[&str] = &[
+    "0",
+    "-0",
+    "0.0",
+    "-0.000",
+    "1",
+    "-1",
+    "0.5",
+    "-0.5",
+    "1.5",
+    "-1.5",
+    "2.5",
+    "-2.5",
+    "1.50",
+    "-1.50",
+    "1024",
+    "0.997494986604054",
+    "12.1824939607035",
+    "79228162514264337593543950335",
+    "-79228162514264337593543950335",
+    "7922816251426433759354395033.5",
+    "0.0000000000000000000000000001",
+    "-0.0000000000000000000000000001",
+    "0.9999999999999999999999999999",
+    "-0.9999999999999999999999999999",
+    "1E3",
+    "0.00000000000000000000000000001",
+    "79228162514264337593543950336",
+];
+
+fn math_checks(pair: &mut Pair, rng: &mut Rng) -> BTreeSet<String> {
+    let mut covered = BTreeSet::new();
+    let mut xs: Vec<String> = DECIMALS.iter().map(|t| t.to_string()).collect();
+    for _ in 0..200 {
+        let mantissa = (u128::from(rng.next()) << 32 | u128::from(rng.next() as u32)) >> rng.below(90);
+        let scale = rng.below(29) as usize;
+        let digits = format!("{mantissa:0>width$}", width = scale + 1);
+        let (int, frac) = digits.split_at(digits.len() - scale);
+        let sign = if rng.below(2) == 0 { "" } else { "-" };
+        xs.push(if scale == 0 {
+            format!("{sign}{int}")
+        } else {
+            format!("{sign}{int}.{frac}")
+        });
+    }
+    let xs = &xs;
+    covered.extend(both(pair, &|r| {
+        for x in xs {
+            for m in ["Abs", "Floor", "Ceiling", "Truncate", "Sign"] {
+                r.invoke(&format!("System.Math.{m}"), st("System.Math"), m, vec![dec(x)]);
+            }
+            for m in ["Sqrt", "Sin", "Log", "Exp"] {
+                r.invoke(&format!("(sidecar) Math.{m}"), st("System.Math"), m, vec![dec(x)]);
+            }
+        }
+        // Pairs: neighbours in the list and each value with itself in another scale.
+        for w in xs.windows(2) {
+            for m in ["Max", "Min"] {
+                r.invoke(
+                    &format!("System.Math.{m}"),
+                    st("System.Math"),
+                    m,
+                    vec![dec(&w[0]), dec(&w[1])],
+                );
+                r.invoke(
+                    &format!("System.Math.{m}"),
+                    st("System.Math"),
+                    m,
+                    vec![dec(&w[1]), dec(&w[0])],
+                );
+            }
+            r.invoke(
+                "(sidecar) Math.Pow",
+                st("System.Math"),
+                "Pow",
+                vec![dec(&w[0]), dec(&w[1])],
+            );
+        }
+        for (x, y) in [
+            ("1.0", "1.00"),
+            ("-0", "0"),
+            ("0.000", "-0"),
+            ("-2.50", "-2.5"),
+            ("5", "5.000"),
+        ] {
+            for m in ["Max", "Min"] {
+                r.invoke(&format!("System.Math.{m}"), st("System.Math"), m, vec![dec(x), dec(y)]);
+                r.invoke(&format!("System.Math.{m}"), st("System.Math"), m, vec![dec(y), dec(x)]);
+            }
+        }
+        // Other overloads than the decimal one stay in the sidecar (Abs(Int32.MinValue) throws).
+        r.invoke("(sidecar) Math.Abs(Int32)", st("System.Math"), "Abs", vec![i(i32::MIN)]);
+        r.invoke("(sidecar) Math.Max(Int32)", st("System.Math"), "Max", vec![i(3), i(-4)]);
+        for t in [0i64, 1, -1, 10_000_000, i64::MAX, i64::MIN] {
+            r.invoke(
+                "System.TimeSpan.FromTicks",
+                st("System.TimeSpan"),
+                "FromTicks",
+                vec![a(DotNetValue::Int64(t))],
+            );
+        }
+    }));
+    covered
+}
+
+fn regex_checks(pair: &mut Pair) -> BTreeSet<String> {
+    let mut covered = BTreeSet::new();
+    let timeout = || a(DotNetValue::TimeSpan(10_000_000));
+    covered.extend(both(pair, &|r| {
+        let ctor = "System.Text.RegularExpressions.Regex..ctor";
+        let rx = "System.Text.RegularExpressions.Regex";
+        for round in 0..3 {
+            for (pattern, options) in [
+                ("^-?[0-9]+(\\.[0-9]+)?$", 0),
+                ("(?<word>\\w+)\\s(\\d+)", 0),
+                ("^(sqrt|sin)\\(.*\\)$", 2),
+                ("a", 1),
+                ("A", 513),
+                ("(", 0),
+                ("[z-a]", 0),
+            ] {
+                let Some(o) = r.construct(ctor, rx, vec![s(pattern), i(options), timeout()]) else {
+                    continue;
+                };
+                for input in ["12.5", "sqrt(2)", "abc 42", "A", "", "-3"] {
+                    r.inst("(sidecar) Regex.IsMatch", &o, "IsMatch", vec![s(input)]);
+                    r.inst("(sidecar) Regex.IsMatch", &o, "IsMatch", vec![s(input), i(1)]);
+                    r.inst("(sidecar) Regex.Replace", &o, "Replace", vec![s(input), s("<$0>")]);
+                }
+                r.inst("(sidecar) Regex.IsMatch", &o, "IsMatch", vec![a(DotNetValue::Null)]);
+                r.inst("(sidecar) Regex.IsMatch", &o, "IsMatch", vec![s("x"), i(99)]);
+                if let Some(m) = r.inst("(sidecar) Regex.Matches", &o, "Matches", vec![s("abc 42 de 7")]) {
+                    r.inst("(sidecar) MatchCollection.Count", &m, "get_Count", vec![]);
+                }
+                r.inst("(sidecar) Regex.Split", &o, "Split", vec![s("1a2b3")]);
+                r.inst(
+                    "(sidecar) Regex.GroupNumberFromName",
+                    &o,
+                    "GroupNumberFromName",
+                    vec![s("word")],
+                );
+                r.inst(
+                    "(sidecar) Regex.GroupNameFromNumber",
+                    &o,
+                    "GroupNameFromNumber",
+                    vec![i(1)],
+                );
+                // Members that do not only match: the object is built for real in the sidecar first.
+                if round == 1 {
+                    r.inst("(sidecar) Regex.ToString", &o, "ToString", vec![]);
+                    r.get("(sidecar) Regex.Options", DotNetTarget::Instance(o.0), "Options");
+                    r.inst("(sidecar) Regex.IsMatch", &o, "IsMatch", vec![s("12")]);
+                }
+                r.session.release(&[o.0]);
+            }
+        }
+        // A timeout outside .NET's range fails in the constructor, every time.
+        for _ in 0..2 {
+            r.construct(ctor, rx, vec![s("a"), i(0), a(DotNetValue::TimeSpan(-5))]);
+        }
     }));
     covered
 }
