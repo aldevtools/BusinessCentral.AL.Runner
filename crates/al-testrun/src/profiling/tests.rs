@@ -17,14 +17,15 @@ fn node(function: &str, parent: Option<usize>, children: Vec<usize>, total_ms: u
             name: "Calib".into(),
             publisher: "Me".into(),
             version: "1.0.0.0".into(),
-        },
+        }
+        .into(),
         file: Some("src/Calib.al".into()),
         line: 9,
         column: 8,
         calls: 1,
         total_ns: total_ms * 1_000_000,
         child_ns: child_ms * 1_000_000,
-        frame_name: format!("codeunit Calib.{function}"),
+        frame_name: format!("codeunit Calib.{function}").into(),
         ..Node::default()
     }
 }
@@ -381,4 +382,165 @@ fn modes_parse() {
     assert_eq!(Mode::parse("Sampling"), Ok(Mode::Sampling));
     assert_eq!(Mode::parse("instrumentation"), Ok(Mode::Instrumentation));
     assert!(Mode::parse("trace").is_err());
+}
+
+fn streamed(f: impl FnOnce(&mut Vec<u8>) -> std::io::Result<()>) -> Value {
+    let mut out = Vec::new();
+    f(&mut out).unwrap();
+    serde_json::from_slice(&out).unwrap()
+}
+
+/// al-runner issue 6924: the files are streamed to disk node by node; they are the files built in memory.
+#[test]
+fn streamed_files_are_the_files_built_in_memory() {
+    let mut with_db = chain();
+    with_db.nodes[1].db = vec![al_vm::DbStat {
+        op: al_builtins::record_op::RecordOp::FindSet,
+        table: "Calib Line".into(),
+        temporary: false,
+        count: 3,
+        ns: 30_000,
+        samples: 1,
+    }];
+    let mut sampled = with_db.clone();
+    sampled.sampling = true;
+    sampled.nodes[2].samples = 4;
+    sampled.nodes[2].sample_ns = 4_000_000;
+    let url = |n: &Node| n.file.as_ref().map(|f| format!("file:///w/{f}"));
+    for (p, o) in [(chain(), instr()), (with_db, instr()), (sampled, sampling_opts())] {
+        let built = codeunit_file(&p, &o, &url);
+        let s = streamed(|w| super::stream::write_codeunit(w, &p, &o, &url, &|| false));
+        assert_eq!(s, built);
+        let mut b = p.clone();
+        b.codeunit = 50121;
+        b.thread = Thread {
+            id: 2,
+            label: "Thread 2 (worker)".into(),
+        };
+        let c = Collected {
+            options: o,
+            codeunits: vec![p.clone(), b, p],
+        };
+        let s = streamed(|w| super::stream::write_merged(w, &c, &url, &|| false));
+        assert_eq!(s, merged_file(&c, &url));
+    }
+}
+
+/// A write that is told to stop (the run's memory limit) leaves no file, says how many codeunits it left out, and
+/// still writes the summary of a folder.
+#[test]
+fn a_stopped_write_leaves_no_half_file() {
+    let dir = std::env::temp_dir().join(format!("al-profile-stop-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let c = Collected {
+        options: instr(),
+        codeunits: vec![chain()],
+    };
+    let merged = dir.join("run.alcpuprofile");
+    let w = write::write(&merged, &c, &|_| None, &|| true).unwrap();
+    assert!(w.files.is_empty());
+    assert_eq!(w.left_out, 1);
+    assert!(!merged.exists());
+    assert!(!dir.join("run.alcpuprofile.part").exists());
+    let folder = dir.join("out");
+    let w = write::write(&folder, &c, &|_| None, &|| true).unwrap();
+    assert_eq!(w.left_out, 1);
+    assert_eq!(w.files, vec![folder.join("summary.txt")]);
+    let w = write::write(&merged, &c, &|_| None, &|| false).unwrap();
+    assert_eq!((w.files.len(), w.left_out), (1, 0));
+    assert_schema(&serde_json::from_str(&std::fs::read_to_string(&merged).unwrap()).unwrap());
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+fn prof(parent: Option<usize>, children: Vec<usize>, samples: u64) -> al_vm::ProfNode {
+    al_vm::ProfNode {
+        parent,
+        frame: parent.map(|_| al_vm::ProfFrame {
+            object: 0,
+            routine: children.len(),
+            event: false,
+        }),
+        children,
+        calls: 1,
+        samples,
+        sample_ns: samples * 1000,
+        ..al_vm::ProfNode::default()
+    }
+}
+
+fn db(samples: u64) -> al_vm::DbStat {
+    al_vm::DbStat {
+        op: al_builtins::record_op::RecordOp::FindSet,
+        table: format!("T{samples}"),
+        temporary: false,
+        count: 7,
+        ns: samples * 1000,
+        samples,
+    }
+}
+
+/// al-runner issue 6924: a sampling profile keeps the paths a sample landed in, not every path the run entered.
+#[test]
+fn a_sampling_tree_keeps_only_the_sampled_paths() {
+    // root -> A -> {B (2 samples), C -> D (no samples)}, root -> E (no samples, a sampled record operation below:
+    // F), root -> G (no samples, an unsampled record operation).
+    let mut nodes = vec![
+        prof(None, vec![1, 5, 7], 0),
+        prof(Some(0), vec![2, 3], 0),
+        prof(Some(1), vec![], 2),
+        prof(Some(1), vec![4], 0),
+        prof(Some(3), vec![], 0),
+        prof(Some(0), vec![6], 0),
+        prof(Some(5), vec![], 0),
+        prof(Some(0), vec![], 0),
+    ];
+    nodes[6].db = vec![db(1), db(0)];
+    nodes[7].db = vec![db(0)];
+    let tree = al_vm::ProfileTree {
+        nodes,
+        sampling: true,
+        samples: 3,
+        wall_ns: 5000,
+    };
+    let kept = super::prune::sampled_paths(tree.clone());
+    let calls: Vec<(Option<usize>, Vec<usize>, u64)> = kept
+        .nodes
+        .iter()
+        .map(|n| (n.parent, n.children.clone(), n.samples))
+        .collect();
+    assert_eq!(
+        calls,
+        vec![
+            (None, vec![1, 3], 0),
+            (Some(0), vec![2], 0),
+            (Some(1), vec![], 2),
+            (Some(0), vec![4], 0),
+            (Some(3), vec![], 0),
+        ]
+    );
+    assert_eq!(kept.nodes[4].db, vec![db(1)], "the unsampled record operation goes");
+    assert_eq!(kept.nodes[2].frame, tree.nodes[2].frame);
+    assert_eq!((kept.samples, kept.wall_ns), (3, 5000));
+    // Instrumentation: every path has its calls and times.
+    let instr = al_vm::ProfileTree {
+        sampling: false,
+        ..tree.clone()
+    };
+    assert_eq!(super::prune::sampled_paths(instr).nodes.len(), 8);
+}
+
+/// al-runner issue 6924: the nodes of a run share their texts and apps instead of a copy each.
+#[test]
+fn the_interner_keeps_each_text_and_app_once() {
+    let mut i = Interner::default();
+    let a = i.text("codeunit Calib.A");
+    assert!(std::sync::Arc::ptr_eq(&a, &i.text(&String::from("codeunit Calib.A"))));
+    assert!(!std::sync::Arc::ptr_eq(&a, &i.text("codeunit Calib.B")));
+    let app = || AppRef {
+        id: "x".into(),
+        name: "Calib".into(),
+        ..AppRef::default()
+    };
+    let x = i.app(app());
+    assert!(std::sync::Arc::ptr_eq(&x, &i.app(app())));
 }

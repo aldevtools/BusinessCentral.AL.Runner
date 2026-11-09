@@ -50,6 +50,32 @@ pub fn budget(max_memory: Option<u64>, hard: bool) -> Option<MemoryBudget> {
     })
 }
 
+/// An explicit limit of the process (`--max-memory` or the cgroup's `memory.max`, the smaller) for the work after the
+/// tests (the profile write, al-runner issue 6924), with the resident memory to compare it with. Free memory is not
+/// one: the work after the tests holds what the run already holds.
+pub struct HardLimit {
+    pub limit: u64,
+    pub source: &'static str,
+    rss: fn() -> Option<u64>,
+}
+
+impl HardLimit {
+    /// The resident memory is within a thirty-second of the limit (at least 32 MB): the streamed write needs a few MB.
+    pub fn reached(&self) -> bool {
+        (self.rss)().is_some_and(|now| now > self.limit.saturating_sub((self.limit / 32).max(32 << 20)))
+    }
+}
+
+/// The explicit limit of the process, if any ([`HardLimit`]).
+pub fn hard_limit(max_memory: Option<u64>) -> Option<HardLimit> {
+    hard_limit_of(max_memory, cgroup_limit(), resident)
+}
+
+fn hard_limit_of(max_memory: Option<u64>, cgroup: Option<u64>, rss: fn() -> Option<u64>) -> Option<HardLimit> {
+    let (limit, source) = smallest(&[(max_memory, "--max-memory"), (cgroup, "cgroup memory.max")])?;
+    Some(HardLimit { limit, source, rss })
+}
+
 /// The exit code of a run that ended with `code`: 2 when it stopped at its hard memory limit (`halted`, ADR-066
 /// amendment 10, decision 6), after the message that says how much memory it needed and what the limit allowed. The
 /// tests it did not reach are already reported as not run.
@@ -131,6 +157,19 @@ fn memory_max(text: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The profile write after the tests (al-runner issue 6924) stops near the explicit limit, not at free memory.
+    #[test]
+    fn the_work_after_the_tests_stops_near_the_explicit_limit() {
+        assert!(hard_limit_of(None, None, || Some(1)).is_none());
+        let l = hard_limit_of(Some(18 << 30), Some(20 << 30), || Some(17 << 30)).unwrap();
+        assert_eq!((l.limit, l.source), (18 << 30, "--max-memory"));
+        assert!(!l.reached(), "17 GB of 18 GB leaves room for a streamed write");
+        let l = hard_limit_of(Some(18 << 30), Some(16 << 30), || Some((16 << 30) - (100 << 20))).unwrap();
+        assert_eq!(l.source, "cgroup memory.max");
+        assert!(l.reached(), "within a thirty-second of the limit");
+        assert!(!hard_limit_of(Some(1 << 30), None, || None).unwrap().reached());
+    }
 
     #[test]
     fn sizes_read_with_units() {
