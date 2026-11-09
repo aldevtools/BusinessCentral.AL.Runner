@@ -314,6 +314,24 @@ pub(crate) fn reach_facts(
     walk_reach(events, lowered, index, &[(object, routine)], &|_| false)
 }
 
+/// The facts of the joined reach of the routines `roots`, one walk of the union of their reaches, that does not enter
+/// the routines `skip` (nor what only they reach).
+pub(crate) fn union_reach_facts_skipping(
+    events: &al_vm::events::Registry,
+    lowered: &Lowered,
+    index: &ReachIndex,
+    roots: &[(usize, usize)],
+    skip: &[(usize, usize)],
+) -> ReachFacts {
+    let mut walk = Walk::new(events, lowered, index);
+    for &(o, r) in skip {
+        walk.first_visit(o, r);
+    }
+    walk.stack.extend(roots.iter().rev().copied());
+    walk.run(&|_| false);
+    walk.out
+}
+
 /// Whether `fact` holds of the joined reach of the routines `roots`: one walk of the union of their reaches, which
 /// stops as soon as `fact` holds. `fact` must be one that, once it holds of part of a reach, holds of all of it (a
 /// table, a state bit, a part not known); it then holds of the union exactly when it holds of the reach of one of the

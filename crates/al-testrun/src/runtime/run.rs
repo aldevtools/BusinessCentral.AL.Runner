@@ -398,7 +398,7 @@ fn run_codeunit_inner(
     // Company Triggers subscribers each session writes on its own when it opens the company, and how those writes
     // meet the ones carried over is not pinned.
     let carries = isolation == TestIsolation::Disabled && !execute;
-    if carries && company_open.who.is_some() {
+    if carries && (company_open.who.is_some() || company_open.login.is_some()) {
         return all(Outcome::NotRun(
             "Disabled test isolation with a Company Triggers subscriber that writes when the test session opens \
              the company: how its writes meet what an earlier codeunit left is not pinned"

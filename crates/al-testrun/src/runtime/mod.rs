@@ -968,6 +968,8 @@ mod grow;
 mod handlers;
 mod install_snapshot;
 mod lane_starts;
+#[cfg(test)]
+mod login_tests;
 pub mod memory;
 #[cfg(test)]
 mod min_row_version_tests;

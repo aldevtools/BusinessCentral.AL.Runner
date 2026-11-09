@@ -555,7 +555,10 @@ impl Checker<'_> {
     /// events of `Extension Triggers`, which run with its install codeunits; with `install_code` (an app under test has
     /// install code that runs), the dependency apps' subscribers to `OnCompanyOpen` and `OnCompanyOpenCompleted` of
     /// `Company Triggers`, which the install session raises before the per-company install code.
-    pub(super) fn reach_install_events(&self, baseline: bool, install_code: bool) {
+    ///
+    /// With `login` (an app under test subscribes to a login event, al-testrun `login.rs`), the dependency apps'
+    /// subscribers to `OnCompanyOpenCompleted`, which raise the login in the test session.
+    pub(super) fn reach_install_events(&self, baseline: bool, install_code: bool, login: bool) {
         if baseline {
             for (o, k) in self.ws.extension_triggers_subscribers() {
                 let event = &self.ws.objects[o].subscribers[k].event;
@@ -567,11 +570,11 @@ impl Checker<'_> {
                 }
             }
         }
-        if install_code {
+        if install_code || login {
             for (o, k) in self.ws.company_triggers_subscribers() {
                 let event = &self.ws.objects[o].subscribers[k].event;
                 if self.ws.is_dependency(o)
-                    && (event.eq_ignore_ascii_case("OnCompanyOpen")
+                    && ((install_code && event.eq_ignore_ascii_case("OnCompanyOpen"))
                         || event.eq_ignore_ascii_case("OnCompanyOpenCompleted"))
                 {
                     self.reach_subscriber(o, k);
