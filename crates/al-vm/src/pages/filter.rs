@@ -69,6 +69,7 @@ impl Session {
                     }
                 }
                 if let (RtType::Enum(id), Some(f)) = (&table.fields[pos].ty, first.as_ref()) {
+                    self.enum_ml_filter_check(&table, f)?;
                     if let Some(t) = self.enum_filter_text(*id, &f.expr, f.group)? {
                         return Ok(Value::Text(t.into()));
                     }
@@ -161,6 +162,7 @@ impl Session {
                     match r.filters.iter().position(|f| f.field == pos && f.group == 0) {
                         Some(i) => r.filters[i].expr = expr,
                         None => r.filters.push(FieldFilter {
+                            lang: al_builtins::filter::filter_language(),
                             field: pos,
                             expr,
                             group: 0,

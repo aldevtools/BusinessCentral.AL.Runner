@@ -3731,11 +3731,8 @@ impl Session {
         for (n, &f) in table.keys[0].iter().enumerate() {
             let mut p = probe.borrow_mut();
             p.filters.retain(|x| x.field != f);
-            p.filters.push(al_builtins::filter::FieldFilter {
-                field: f,
-                expr: al_builtins::filter::FilterExpr::Range(Some(pk[n].clone()), Some(pk[n].clone())),
-                group: 0,
-            });
+            let range = al_builtins::filter::FilterExpr::Range(Some(pk[n].clone()), Some(pk[n].clone()));
+            p.filters.push(al_builtins::filter::FieldFilter::new(f, range, 0));
         }
         self.ret_used = true;
         if matches!(

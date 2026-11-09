@@ -69,6 +69,15 @@ const CASES: &[(&str, &str)] = &[
         "GetFilter",
         "Row.SetRange(Status, Row.Status::Closed); GlobalLanguage(2067); Error('%1', Row.GetFilter(Status));",
     ),
+    // A FieldRef filter set under 1033, then another filter on the table under 2067: the entry keeps the language it was set under.
+    (
+        "FieldRefSetRange",
+        "Fld := RecRef.Field(2); Fld.SetRange(Row.Status::Closed); GlobalLanguage(2067); Other.SetRange(\"No.\", 'A'); Error('%1', Fld.GetFilter());",
+    ),
+    (
+        "FieldRefGetFilters",
+        "Fld := RecRef.Field(2); Fld.SetRange(Row.Status::Closed); GlobalLanguage(2067); Other.SetRange(\"No.\", 'A'); Error('%1', RecRef.GetFilters());",
+    ),
     (
         "FieldRefOptionString",
         "GlobalLanguage(2067); Error('%1', RecRef.Field(2).OptionCaption);",
@@ -80,10 +89,14 @@ fn tests() -> String {
     let all = CASES.iter().copied().chain(PINNED.iter().map(|(n, b, _)| (*n, *b)));
     for (i, (name, body)) in all.enumerate() {
         s.push_str(&format!(
-            "codeunit {} \"EM {name}\"\n{{\n    Subtype = Test;\n    [Test]\n    procedure T_{name}()\n    var\n        Row: Record \"EM Row\";\n        Card: TestPage \"EM Card\";\n        RecRef: RecordRef;\n    begin\n        RecRef.Open(Database::\"EM Row\");\n        {body}\n    end;\n}}\n",
+            "codeunit {} \"EM {name}\"\n{{\n    Subtype = Test;\n    [Test]\n    procedure T_{name}()\n    var\n        Row: Record \"EM Row\";\n        Card: TestPage \"EM Card\";\n        RecRef: RecordRef;\n        Fld: FieldRef;\n        Other: Record \"EM Row\";\n    begin\n        RecRef.Open(Database::\"EM Row\");\n        {body}\n    end;\n}}\n",
             50820 + i
         ));
     }
+    // A global record keeps the filter an earlier test method set under 1033; the next one reads it under 2067.
+    s.push_str(
+        "codeunit 50841 \"EM Carried\"\n{\n    Subtype = Test;\n    var\n        G: Record \"EM Row\";\n    [Test]\n    procedure T_CarryA()\n    begin\n        G.SetRange(Status, G.Status::Closed);\n    end;\n    [Test]\n    procedure T_CarryB()\n    var\n        Other: Record \"EM Row\";\n    begin\n        GlobalLanguage(2067); Other.SetRange(\"No.\", 'A'); Error('%1', G.GetFilter(Status));\n    end;\n}\n",
+    );
     s.push_str(
         "codeunit 50840 \"EM Plain Reads\"\n{\n    Subtype = Test;\n    [Test]\n    procedure T_Plain()\n    var\n        Row: Record \"EM Row\";\n        Card: TestPage \"EM Card\";\n    begin\n        Row.\"No.\" := 'A'; Row.Insert(); Card.OpenView(); Error('%1', Card.Plain.Value);\n    end;\n}\n",
     );
@@ -136,6 +149,18 @@ fn readers_of_an_enum_caption_ml_other_than_format_and_evaluate_refuse_the_test(
             "{t}: {o:?}"
         );
     }
+}
+
+#[test]
+fn a_filter_a_global_record_carried_from_an_earlier_test_under_another_language_refuses() {
+    let got = run();
+    let (_, a) = got.iter().find(|(x, _)| x == "T_CarryA").expect("T_CarryA");
+    assert!(matches!(a, Outcome::Pass), "T_CarryA: {a:?}");
+    let (_, o) = got.iter().find(|(x, _)| x == "T_CarryB").expect("T_CarryB");
+    assert!(
+        matches!(o, Outcome::NotRun(why) if why.contains("CaptionML; not pinned for")),
+        "T_CarryB: {o:?}"
+    );
 }
 
 #[test]

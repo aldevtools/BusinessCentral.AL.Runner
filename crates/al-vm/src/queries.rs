@@ -996,6 +996,7 @@ impl Session {
                     _ => return unsupported("a table filter condition of this form"),
                 };
                 plan.scan[i].push(FieldFilter {
+                    lang: al_builtins::filter::filter_language(),
                     field: c.field,
                     expr,
                     group: 0,
@@ -1038,13 +1039,23 @@ impl Session {
             if c.filter_element && schema.flow_filter {
                 // Corpus queries/TestQueryFlowFieldColumn.al:150-200: it sets the flow filter of the
                 // FlowFields of the dataitem; it never constrains the rows.
-                plan.flow[c.item].push(FieldFilter { field, expr, group: 0 });
+                plan.flow[c.item].push(FieldFilter {
+                    lang: al_builtins::filter::filter_language(),
+                    field,
+                    expr,
+                    group: 0,
+                });
             } else if schema.stored && ((item.left_outer && item.parent.is_some()) || has_right) {
                 // With a right or full outer join in the query a filter acts on the joined rows: a root row filtered before the join
                 // would turn the child rows it linked into unlinked ones (queries/joins-links/P71FilterRightFull.al).
                 plan.outer.push((c.item, field, expr));
             } else if schema.stored {
-                plan.scan[c.item].push(FieldFilter { field, expr, group: 0 });
+                plan.scan[c.item].push(FieldFilter {
+                    lang: al_builtins::filter::filter_language(),
+                    field,
+                    expr,
+                    group: 0,
+                });
             } else {
                 // A filter() element over a FlowField is calculated on the rows of its own data item, before the join and the
                 // grouping (queries/CgQueryLeads.al:759,792 for one data item; queries/joins-links/
@@ -1159,6 +1170,7 @@ impl Session {
                 let linked = item.link_items.get(k).copied().unwrap_or(parent);
                 let v = ops::convert(chosen[linked][*theirs].clone(), &t.fields[*own].ty)?;
                 filters.push(FieldFilter {
+                    lang: al_builtins::filter::filter_language(),
                     field: *own,
                     expr: FilterExpr::Eq(v),
                     group: 0,

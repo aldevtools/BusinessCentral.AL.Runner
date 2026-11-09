@@ -769,6 +769,7 @@ mod tests {
 
     fn id_filter(lo: i32, hi: i32) -> FieldFilter {
         FieldFilter {
+            lang: al_builtins::filter::filter_language(),
             field: 0,
             expr: FilterExpr::Range(Some(Value::Integer(lo)), Some(Value::Integer(hi))),
             group: 0,
@@ -792,6 +793,7 @@ mod tests {
         assert_eq!(m.count(&t, &[id_filter(1, 1)]).ok(), Some(1));
         // A filter on Name would read row 2's value: refused, with the reason.
         let name_is_a = FieldFilter {
+            lang: al_builtins::filter::filter_language(),
             field: 1,
             expr: FilterExpr::Eq(Value::Text("a".into())),
             group: 0,
@@ -833,6 +835,7 @@ mod tests {
             ],
         );
         let name_is_a = FieldFilter {
+            lang: al_builtins::filter::filter_language(),
             field: 1,
             expr: FilterExpr::Eq(Value::Text("a".into())),
             group: 0,
@@ -894,6 +897,7 @@ mod tests {
             ],
         );
         let name_is_a = FieldFilter {
+            lang: al_builtins::filter::filter_language(),
             field: 1,
             expr: FilterExpr::Eq(Value::Text("a".into())),
             group: 0,
@@ -937,6 +941,7 @@ mod tests {
             ],
         );
         let name = |n: &str| FieldFilter {
+            lang: al_builtins::filter::filter_language(),
             field: 1,
             expr: FilterExpr::Eq(Value::Text(n.into())),
             group: 0,
@@ -995,6 +1000,7 @@ mod tests {
     fn a_big_listing_scanned_again_with_the_same_filters_does_not_look_at_every_row_again() {
         let (t, m) = (table(), big_of(5000));
         let name3 = [FieldFilter {
+            lang: al_builtins::filter::filter_language(),
             field: 1,
             expr: FilterExpr::Eq(Value::Text("n3".into())),
             group: 0,
@@ -1023,6 +1029,7 @@ mod tests {
         let f = [
             id_filter(1000, 1099),
             FieldFilter {
+                lang: al_builtins::filter::filter_language(),
                 field: 1,
                 expr: FilterExpr::Eq(Value::Text("n3".into())),
                 group: 0,
@@ -1053,7 +1060,12 @@ mod tests {
 
     fn the_band_changes_no_answer_on(t: &TableDef, m: &Mat) {
         use FilterExpr as E;
-        let flt = |field, expr| FieldFilter { field, expr, group: 0 };
+        let flt = |field, expr| FieldFilter {
+            lang: al_builtins::filter::filter_language(),
+            field,
+            expr,
+            group: 0,
+        };
         let int = |i| Value::Integer(i);
         let cases: Vec<Vec<FieldFilter>> = vec![
             vec![flt(0, E::Eq(int(7)))],

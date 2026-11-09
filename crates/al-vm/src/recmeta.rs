@@ -524,6 +524,7 @@ impl Session {
                     let want_max = method == RecordOp::GetRangeMax;
                     let text = || -> Result<String, Signal> {
                         let table = self.table(rec)?;
+                        self.enum_ml_filter_check(&table, only)?;
                         self.filter_text(&self.with_option_captions(&table, pos, &only.expr))
                     };
                     let no_bound = |side: &str| -> Result<Value, Signal> {
@@ -904,6 +905,7 @@ impl Session {
                 for &p in pk {
                     let v = r.fields[p].clone();
                     r.filters.push(al_builtins::filter::FieldFilter {
+                        lang: al_builtins::filter::filter_language(),
                         field: p,
                         expr: al_builtins::filter::FilterExpr::Range(Some(v.clone()), Some(v)),
                         group,
@@ -1839,6 +1841,7 @@ impl Session {
             None
         } else {
             let filters = [al_builtins::filter::FieldFilter {
+                lang: al_builtins::filter::filter_language(),
                 field: i,
                 expr: al_builtins::filter::FilterExpr::Eq(Value::Guid(*g)),
                 group: 0,

@@ -771,6 +771,7 @@ impl Session {
                 match r.filters.iter().position(|f| f.field == pos && f.group == 0) {
                     Some(i) => r.filters[i].expr = expr,
                     None => r.filters.push(FieldFilter {
+                        lang: al_builtins::filter::filter_language(),
                         field: pos,
                         expr,
                         group: 0,
@@ -1256,6 +1257,7 @@ impl Session {
                             .parse_filter_text(text, &ty)
                             .map_err(|e| Signal::Unsupported(format!("a parameter filter: {e}")))?;
                         filters.push(FieldFilter {
+                            lang: al_builtins::filter::filter_language(),
                             field: pos,
                             expr,
                             group: 0,

@@ -1130,6 +1130,7 @@ impl Session {
                 for &p in &t.keys[0] {
                     let v = d.fields[p].clone();
                     d.filters.push(al_builtins::filter::FieldFilter {
+                        lang: al_builtins::filter::filter_language(),
                         field: p,
                         expr: al_builtins::filter::FilterExpr::Range(Some(v.clone()), Some(v)),
                         group,

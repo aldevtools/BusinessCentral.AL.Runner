@@ -74,6 +74,7 @@ impl Session {
             p.marked_only = false;
             for &k in lead {
                 p.filters.push(al_builtins::filter::FieldFilter {
+                    lang: al_builtins::filter::filter_language(),
                     field: k,
                     expr: al_builtins::filter::FilterExpr::Eq(fields[k].clone()),
                     group: 0,
@@ -81,6 +82,7 @@ impl Session {
             }
             if let Some(n) = after {
                 p.filters.push(al_builtins::filter::FieldFilter {
+                    lang: al_builtins::filter::filter_language(),
                     field: last,
                     expr: al_builtins::filter::FilterExpr::Gt(Value::Integer(n)),
                     group: 0,

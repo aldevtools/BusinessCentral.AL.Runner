@@ -1076,9 +1076,6 @@ pub struct Session {
     pub(crate) work_date: Option<i32>,
     /// The language `GlobalLanguage(Id)` set.
     pub(crate) global_language: i32,
-    /// Since the test method started: `GlobalLanguage` changed the language, and the languages filters were set under on a
-    /// table with a CaptionML enum field (enum_caption_ml.rs, `Session::enum_ml_filter_refusal`).
-    pub(crate) enum_ml_filter_langs: (bool, std::cell::RefCell<Vec<i32>>),
     /// What `CaptionClassTranslate` translated in this session: (class text, GlobalLanguage then, caption). Cleared by
     /// `SelectLatestVersion` (types/PSCaptionClass.al:94-115).
     pub(crate) caption_translations: Vec<(String, i32, String)>,
@@ -1197,9 +1194,9 @@ impl Session {
             .and_then(|td| td.provider.last_row_version())
             .map_or(0, |v| i64::try_from(v).unwrap_or(i64::MAX));
         al_builtins::ops::set_turkic_code(al_builtins::native::is_turkic_language(host.identity.global_language()));
+        al_builtins::filter::set_filter_language(host.identity.global_language());
         let mut session = Session {
             global_language: host.identity.global_language(),
-            enum_ml_filter_langs: Default::default(),
             caption_translations: Vec::new(),
             ui_caption_translated: Vec::new(),
             get_load: false,
@@ -1429,7 +1426,6 @@ impl Session {
         self.shadow_roles = shadow_roles;
         self.shadow_begin();
         self.application_areas.clear();
-        self.enum_ml_filter_langs = Default::default();
         self.isolated_set_in_test.clear();
         self.demo_written.clear();
         self.gl_setup_written = false;
@@ -1838,6 +1834,7 @@ impl Session {
         self.global_language = state.language;
         self.events.event_stats.language.set(state.language);
         al_builtins::ops::set_turkic_code(al_builtins::native::is_turkic_language(state.language));
+        al_builtins::filter::set_filter_language(state.language);
         self.work_date = state.work_date;
     }
 

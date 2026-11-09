@@ -47,10 +47,8 @@ impl Session {
     /// GetView_Field_Types `date`).
     fn filter_value_with(&self, v: &Value, iso: bool) -> Result<String, Signal> {
         // An enum value with a `CaptionML` shows its caption in the session language, as Format does
-        // (format-evaluate/EnumCaptionReaders.al ECR_FilterTexts_1033, _2067), when the filter was set under that language.
-        if let Some(why) = self.enum_ml_filter_refusal(v) {
-            return Err(Signal::Unsupported(why));
-        }
+        // (format-evaluate/EnumCaptionReaders.al ECR_FilterTexts_1033, _2067), when the filter was set under that language
+        // (`Session::enum_ml_filter_check`, called by the readers of a filter entry).
         // A blank date shows as two single quotes, like a blank text (record/crud/RcAMisc.al:
         // SetRecFilter_Composite_And_Text_Keys `dateBlank`).
         // A blank DateTime too, in a view and in GetFilters (record/views/Y71SetViewDateTime.al:105-134
@@ -273,7 +271,10 @@ impl Session {
             .filters
             .iter()
             .filter(|f| f.field == pos && f.group == r.filter_group)
-            .map(|f| self.filter_text(&self.with_option_captions(&table, pos, &f.expr)))
+            .map(|f| {
+                self.enum_ml_filter_check(&table, f)?;
+                self.filter_text(&self.with_option_captions(&table, pos, &f.expr))
+            })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(parts.join(""))
     }
@@ -350,6 +351,7 @@ impl Session {
             parts.push("Marked: Yes".to_string());
         }
         for f in Self::filters_in_field_order(rec) {
+            self.enum_ml_filter_check(t, &f)?;
             parts.push(format!(
                 "{}: {}",
                 self.field_caption(t, f.field),
@@ -450,6 +452,7 @@ impl Session {
                     let iso = !matches!(t.fields[f.field].ty, RtType::Boolean);
                     self.filter_text_with(&ordinals(&f.expr), iso)?
                 } else {
+                    self.enum_ml_filter_check(t, f)?;
                     self.filter_text_with(&f.expr, true)?
                 };
                 // The numeric form writes the kind as a number: FILTER is 1, CONST is 0.
@@ -645,6 +648,7 @@ impl Session {
                         };
                         filters.retain(|f| f.field != pos);
                         filters.push(FieldFilter {
+                            lang: al_builtins::filter::filter_language(),
                             field: pos,
                             expr,
                             group,

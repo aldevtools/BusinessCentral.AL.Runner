@@ -422,6 +422,7 @@ impl Session {
                     let mut p = probe.borrow_mut();
                     for &k in &table.keys[0][..table.keys[0].len() - 1] {
                         p.filters.push(al_builtins::filter::FieldFilter {
+                            lang: al_builtins::filter::filter_language(),
                             field: k,
                             expr: al_builtins::filter::FilterExpr::Range(
                                 Some(fields[k].clone()),
@@ -432,6 +433,7 @@ impl Session {
                     }
                     let lv = ops::convert(Value::Decimal(l), &ty)?;
                     p.filters.push(al_builtins::filter::FieldFilter {
+                        lang: al_builtins::filter::filter_language(),
                         field: last,
                         expr: al_builtins::filter::FilterExpr::Gt(lv),
                         group: 99,
