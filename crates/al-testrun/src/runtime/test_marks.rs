@@ -19,6 +19,13 @@ impl Scratch {
         (reached, answered)
     }
 
+    /// Moves the order hint of test `name` (ADR-066 amendment 12, decision 2; set by the lane) onto its result.
+    pub(super) fn move_order_hint(&mut self, name: &str, result: Option<&mut TestResult>) {
+        if let (Some(i), Some(r)) = (self.order_hints.iter().position(|(n, _)| n == name), result) {
+            r.order_hint = Some(self.order_hints.swap_remove(i).1);
+        }
+    }
+
     /// Moves what `take_marks` kept for the test `name` onto its result.
     pub(super) fn move_marks(&mut self, name: &str, result: Option<&mut TestResult>) {
         let Some(r) = result else {

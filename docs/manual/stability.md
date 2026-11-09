@@ -192,14 +192,14 @@ How to read it:
   (kept for one release; it now also holds the tests of `readsCarried`, see "Order
   dependence through SingleInstance state").
   Their result depends on whether Business Central runs their codeunit alone or after
-  the codeunit that left the state. They are listed with and without `--strict-order`:
-  by default they keep their parallel run (fresh state) and run again in order only
-  after a failure or a test refused while it ran (not one refused before it starts);
-  with `--strict-order` they always run again in order. Each such run is a serial
+  the codeunit that left the state. A stability run always runs in Business Central's
+  order, as `--strict-order` does (ADR-066 amendment 12): they keep their parallel run
+  (fresh state) and run again in order only after a failure or a test refused while it
+  ran (not one refused before it starts). Each such run is a serial
   session of the codeunit and the codeunits it depends on; the sessions run in parallel.
   A failure triggers the run again only when the failed test, or a test before it, read
   a value an earlier codeunit left otherwise. With `--max-replay N`, a re-run whose
-  chain holds more than `N` codeunits is skipped (not with `--strict-order`): those tests are listed again under
+  chain holds more than `N` codeunits is skipped: those tests are listed again under
   "Tests whose serial re-run was skipped", also in `--output-json` as `rerunSkipped`.
   With `--test-suites FILE` only a dependence within one suite counts: a codeunit that
   relies on state a codeunit of another suite left is not listed.
@@ -246,8 +246,8 @@ instance holds. Every other codeunit keeps its base result in the `fresh` varian
 A member of the chain that runs one after the other runs once more, from the same
 database start, with fresh SingleInstance state; what that run leaves is dropped.
 A codeunit outside that chain costs no extra run: its parallel run already started
-fresh. When the config names this dimension, the base variant runs as
-`--strict-order`, so the result in Business Central's order is known for every such
+fresh. When the config names this dimension, the base variant replays every such
+codeunit in Business Central's order, so the result in Business Central's order is known for every such
 codeunit. To run this check alone, use a config with only
 `{"isolation.singleInstance": ["carried", "fresh"]}`.
 

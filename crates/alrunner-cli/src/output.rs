@@ -303,6 +303,10 @@ pub fn json_tdd(results: &[&TestResult], exit_code: u8, wall_s: f64, tdd_stubs: 
             if matches!(r.outcome, Outcome::Pass) && !r.assumptions.is_empty() {
                 row.insert("flagged".into(), json!(true));
             }
+            // ADR-066 amendment 12, decision 2 (additive): why a failed test may pass in BC's order.
+            if let Some(h) = &r.order_hint {
+                row.insert("orderHint".into(), json!(h.text()));
+            }
             Value::Object(row)
         })
         .collect();
@@ -453,12 +457,31 @@ pub fn junit(
     })
 }
 
-/// The JUnit property of a test whose codeunit's serial re-run was skipped for the length of its chain (ADR-066
-/// amendment 7, option 2): `singleInstanceRerun` with the text the run output prints.
-pub fn rerun_skipped_property(lane: &al_testrun::runtime::LaneReport, r: &TestResult) -> Vec<(String, String)> {
-    lane.skipped_text(r.suite, r.codeunit)
-        .map(|t| vec![("singleInstanceRerun".to_string(), t)])
-        .unwrap_or_default()
+/// The lines under a failed test's line in the run output: its call stack, then the order hint (ADR-066 amendment 12,
+/// decision 2: why the test may pass in BC's order).
+pub fn failure_tail(r: &TestResult) -> String {
+    let mut tail: String = stack_lines(&r.call_stack)
+        .iter()
+        .map(|frame| format!("\n          {frame}"))
+        .collect();
+    if let Some(h) = &r.order_hint {
+        tail.push_str(&format!("\n          order hint: {}", h.text()));
+    }
+    tail
+}
+
+/// The JUnit properties of a test that come from BC's order: `singleInstanceRerun` when its codeunit's serial re-run
+/// was skipped for the length of its chain (ADR-066 amendment 7, option 2), with the text the run output prints, and
+/// `numberSequenceOrder` when its codeunit is on the numbers list of a default run (amendment 12, decision 3).
+pub fn order_properties(chain: &al_testrun::runtime::ChainReport, r: &TestResult) -> Vec<(String, String)> {
+    let skipped = chain
+        .single_lane
+        .skipped_text(r.suite, r.codeunit)
+        .map(|t| ("singleInstanceRerun".to_string(), t));
+    let numbers = chain
+        .numbers_text(r.suite, r.codeunit)
+        .map(|t| ("numberSequenceOrder".to_string(), t));
+    skipped.into_iter().chain(numbers).collect()
 }
 
 /// [`junit`], with further properties per test (an impact run's change class, ADR-043 step 3).
@@ -522,6 +545,10 @@ fn suites_of<'a>(
                                 p.push(("stubbed".into(), r.stubs.join(", ")));
                             }
                             p.extend(crate::dev_endpoint_ui::junit_property(r));
+                            // ADR-066 amendment 12, decision 2: why a failed test may pass in BC's order.
+                            if let Some(h) = &r.order_hint {
+                                p.push(("orderHint".into(), h.text()));
+                            }
                             p
                         },
                     }
@@ -661,6 +688,7 @@ mod tests {
             slept_ms: 0,
             entered: Vec::new(),
             dotnet: false,
+            order_hint: None,
         }
     }
 

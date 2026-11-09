@@ -236,7 +236,11 @@ fn run() -> CorpusRuntime {
         None,
         Default::default(),
         &[SuiteRun::everything()],
-        &RunOptions::default(),
+        // ADR-066 amendment 12: the order log is SingleInstance state across codeunits (BC's order, `--strict-order`).
+        &RunOptions {
+            strict_order: true,
+            ..Default::default()
+        },
     )
     .expect("the run starts")
 }

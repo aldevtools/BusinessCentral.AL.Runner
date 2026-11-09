@@ -154,6 +154,7 @@ fn halted(
             slept_ms: 0,
             entered: Vec::new(),
             dotnet: false,
+            order_hint: None,
         });
     }
     let memory = super::memory::MemoryReport {

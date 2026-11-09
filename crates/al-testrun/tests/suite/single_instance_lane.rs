@@ -281,7 +281,14 @@ fn runtime(src: &str) -> CorpusRuntime {
 }
 
 fn runtime_over(src: &str, base: &str) -> CorpusRuntime {
-    runtime_opts(src, base, &RunOptions::default())
+    runtime_opts(
+        src,
+        base,
+        &RunOptions {
+            strict_order: true,
+            ..Default::default()
+        },
+    )
 }
 
 fn runtime_opts(src: &str, base: &str, opts: &RunOptions) -> CorpusRuntime {
@@ -422,6 +429,7 @@ fn a_dependent_codeunit_that_passes_in_parallel_is_not_run_again_and_is_flagged(
 fn strict_order_runs_every_dependent_codeunit_again_serially() {
     let opts = RunOptions {
         strict_order: true,
+        replay_every_dependent: true,
         ..Default::default()
     };
     let rt = runtime_opts(DEPENDENT_BUT_PASSES, STATE, &opts);
@@ -600,6 +608,7 @@ fn a_test_refused_while_it_runs_triggers_a_serial_run() {
 /// ADR-066 amendment 6 (al-runner issue 6924): a run with `--test-suites` treats each suite as a BC session of its own.
 fn with_suites(src: &str, suites: &str) -> CorpusRuntime {
     let opts = RunOptions {
+        strict_order: true,
         test_suites: Some(std::sync::Arc::new(
             al_testrun::test_suites::TestSuites::parse(suites).expect("a valid suites file"),
         )),
@@ -716,8 +725,16 @@ codeunit 60492 "Lane Seed Reader B"
 fn suites_share_one_compile_and_one_install_baseline() {
     let src = format!("{DEPENDENT_PAIR}{SEEDED_READERS}");
     let base = format!("{STATE}{INSTALLED}");
-    let plain = runtime_opts(&src, &base, &RunOptions::default());
+    let plain = runtime_opts(
+        &src,
+        &base,
+        &RunOptions {
+            strict_order: true,
+            ..Default::default()
+        },
+    );
     let opts = RunOptions {
+        strict_order: true,
         test_suites: Some(std::sync::Arc::new(
             al_testrun::test_suites::TestSuites::parse("A: 60451 60491\nB: 60452 60492\nC: 60451 60452\n").unwrap(),
         )),
@@ -803,6 +820,7 @@ fn carried_starts_are_written_when_a_session_needs_them_and_freed_after() {
     let opts = RunOptions {
         required_isolation: true,
         strict_order: true,
+        replay_every_dependent: true,
         ..Default::default()
     };
     let rt = runtime_opts(&carry_chain(READERS), STATE, &opts);
@@ -884,6 +902,7 @@ fn a_carried_start_that_sessions_share_is_made_once() {
     let opts = RunOptions {
         required_isolation: true,
         strict_order: true,
+        replay_every_dependent: true,
         ..Default::default()
     };
     // An install baseline, as in the partner's suite: a start goes as the rows it holds apart from it.
@@ -943,6 +962,7 @@ fn a_failed_test_that_read_no_changed_global_triggers_no_serial_run() {
     // `--strict-order` still runs it again.
     let opts = RunOptions {
         strict_order: true,
+        replay_every_dependent: true,
         ..Default::default()
     };
     let rt = runtime_opts(FAILS_BEFORE_IT_READS, STATE, &opts);
@@ -981,6 +1001,7 @@ const MAX_REPLAY: usize = 50;
 
 fn max_replay(n: usize) -> RunOptions {
     RunOptions {
+        strict_order: true,
         max_replay: Some(n),
         ..Default::default()
     }
@@ -1055,6 +1076,7 @@ fn a_rerun_whose_chain_is_over_max_replay_is_skipped_and_flagged_unless_strict_o
     // `--strict-order` wins over `--max-replay`.
     let opts = RunOptions {
         strict_order: true,
+        replay_every_dependent: true,
         ..max_replay(limit)
     };
     let rt = runtime_opts(&src, STATE, &opts);
@@ -1088,6 +1110,7 @@ codeunit 60701 "Chain SI Reader"
 }
 "#;
     let opts = RunOptions {
+        strict_order: true,
         required_isolation: true,
         ..Default::default()
     };
@@ -1150,6 +1173,7 @@ fn a_failed_chain_member_hands_its_single_instance_state_on() {
     ]
     .concat();
     let opts = RunOptions {
+        strict_order: true,
         required_isolation: true,
         ..Default::default()
     };
@@ -1183,6 +1207,7 @@ fn a_chain_member_of_another_hub_leg_starts_with_fresh_single_instances() {
         chain_reporter(60724, &on_run(2), "runner2"),
     );
     let opts = RunOptions {
+        strict_order: true,
         required_isolation: true,
         ..Default::default()
     };
@@ -1248,6 +1273,7 @@ fn a_chain_member_of_the_next_suite_starts_with_fresh_single_instances() {
             },
         ],
         &RunOptions {
+            strict_order: true,
             required_isolation: true,
             ..Default::default()
         },
@@ -1280,6 +1306,7 @@ codeunit 60741 "Chain Refusing Member"
     ]
     .concat();
     let opts = RunOptions {
+        strict_order: true,
         required_isolation: true,
         ..Default::default()
     };
@@ -1328,6 +1355,7 @@ fn fresh_opts() -> RunOptions {
         required_isolation: true,
         single_fresh_check: true,
         strict_order: true,
+        replay_every_dependent: true,
         ..Default::default()
     }
 }
@@ -1361,6 +1389,7 @@ fn a_chain_member_that_reads_a_carried_value_runs_again_fresh_and_names_the_glob
 #[test]
 fn without_the_check_a_suspect_is_listed_but_not_run_again() {
     let opts = RunOptions {
+        strict_order: true,
         required_isolation: true,
         ..Default::default()
     };
@@ -1414,6 +1443,7 @@ fn variants_of(src: &str, perturbs: &[al_testrun::stability::Perturb]) -> Vec<Co
         Default::default(),
         &[SuiteRun::everything()],
         &RunOptions {
+            strict_order: true,
             required_isolation: true,
             ..Default::default()
         },
@@ -1529,6 +1559,7 @@ fn the_base_variant_with_the_single_instance_check_matches_a_strict_order_run() 
         &RunOptions {
             required_isolation: true,
             strict_order: true,
+            replay_every_dependent: true,
             ..Default::default()
         },
     );

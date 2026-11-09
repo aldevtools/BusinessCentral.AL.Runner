@@ -27,6 +27,7 @@
 
 use super::chain_walk::Carry as ChainCarry;
 use super::lane_starts::{Ask, Deltas, Held, Reply, Starts, carried_start};
+use super::order_hint::STRICT_FLAG;
 use super::*;
 use al_vm::single_track::{GlobalKey, SingleOut};
 use std::collections::{BTreeMap, BTreeSet};
@@ -36,7 +37,7 @@ use std::collections::{BTreeMap, BTreeSet};
 /// ADR-066 amendment 6 (al-runner issue 6924): with `--test-suites` each listed suite is a BC session of its own (per
 /// suite and hub leg), its codeunits in the file's order; a codeunit listed in two suites is in both sessions, and one
 /// in no suite is a session of its own (no earlier codeunit, so no link). Without it, the whole run is one session.
-fn streams(
+pub(super) fn streams(
     units: &[Unit],
     place: &dyn Fn(usize, u32) -> u32,
     has: &dyn Fn(usize) -> bool,
@@ -366,7 +367,12 @@ pub(super) struct Lane<'a> {
     pub sees: &'a dyn Fn(usize, u32, u8, &Unit) -> bool,
     pub place: &'a dyn Fn(usize, u32) -> u32,
     pub limit: Option<std::time::Duration>,
-    /// `--strict-order` (ADR-066 amendment 4, decision 4): every dependent codeunit runs again serially.
+    /// `--strict-order` (ADR-066 amendment 12, decision 4): BC's order. Flags dependent codeunits and runs them again
+    /// as amendments 4, 5 and 7 say. Without it (the default, decisions 1 and 2) nothing is flagged or run again: a
+    /// failed test that read a changed global gets a hint (`order_hint.rs`).
+    pub bc_order: bool,
+    /// `RunOptions::replay_every_dependent` (with `bc_order`; what `--strict-order` meant before amendment 12):
+    /// every dependent codeunit runs again serially.
     pub strict: bool,
     /// `--max-replay N` (amendment 7, option 2, opt-in since 2026-11-08): a re-run whose chain holds more than `N`
     /// codeunits is skipped. `None`: every re-run is replayed in full. `strict` wins over it.
@@ -417,8 +423,12 @@ pub struct LaneReport {
     /// Dependent codeunits that ran again serially because a test of theirs failed or was refused while it ran in the
     /// parallel run (amendments 4 and 5). With `strict`, every dependent codeunit runs again and this counts them all.
     pub rerun: usize,
-    /// `--strict-order`: every dependent codeunit ran again serially.
+    /// Every dependent codeunit ran again serially (`Lane::strict`).
     pub strict: bool,
+    /// `--strict-order` (ADR-066 amendment 12): the lane flagged and ran again; `false`: it only gave hints.
+    pub bc_order: bool,
+    /// Default run (amendment 12, decision 2): the failed tests that got an order hint.
+    pub hinted: usize,
     /// Dependent codeunits with a failed or unfinished test that kept their parallel run because no such test, and no
     /// test before it, read a global the chain leaves otherwise (ADR-066 amendment 7, option 1).
     pub kept: usize,
@@ -452,6 +462,14 @@ impl LaneReport {
     pub fn lines(&self) -> Vec<String> {
         if self.watched == 0 {
             return Vec::new();
+        }
+        if !self.bc_order {
+            let mut out = vec![format!(
+                "SingleInstance order: each test codeunit starts with fresh SingleInstance state ({STRICT_FLAG} runs them in BC's order): {} test codeunits watched, {} read state an earlier codeunit would have left, {} failed tests got an order hint",
+                self.watched, self.dependent, self.hinted
+            )];
+            out.extend(self.notes.iter().cloned());
+            return out;
         }
         let why = if self.strict {
             "(strict order: every dependent codeunit)"
@@ -643,6 +661,7 @@ impl Lane<'_> {
         }
         let started = std::time::Instant::now();
         report.strict = self.strict;
+        report.bc_order = self.bc_order;
         let chains = self.chains(slots, report);
         report.chains = chains.len();
         // A run stopped at its hard memory limit runs nothing again: the codeunits whose result is their serial run
@@ -721,7 +740,8 @@ impl Lane<'_> {
                     .collect();
                 analyse(&outs)
             };
-            for &p in found.refill_assumed.keys() {
+            // Amendment 12: the default claims no BC order, so nothing is flagged.
+            for &p in found.refill_assumed.keys().filter(|_| self.bc_order) {
                 if !refill_counted.insert(ks[p]) {
                     continue;
                 }
@@ -752,10 +772,18 @@ impl Lane<'_> {
                     self.name(ks[p]),
                     self.dependent_why(&ks, &found, p)
                 ));
-                if let Some(Ok(done)) = slots[ks[p]].as_mut().map(|r| &mut r.result) {
+                if let Some(Ok(done)) = slots[ks[p]].as_mut().map(|r| &mut r.result).filter(|_| self.bc_order) {
                     flag_all(done, Assumption::SingleInstanceOrder);
                 }
                 self.note_carried(&ks, &found, p, report);
+            }
+            // Amendment 12, decisions 1 and 2: by default nothing runs again; a failed test that read a changed global
+            // gets the hint.
+            if !self.bc_order {
+                for &p in &fresh {
+                    report.hinted += self.hint(&ks, &found, p, slots);
+                }
+                continue;
             }
             // Decision 2: only a dependent codeunit with a failure or a test refused while it ran in parallel runs again
             // serially; `--strict-order` (decision 4) runs them all again. Amendment 7, option 1: and only when such a
@@ -1064,6 +1092,41 @@ impl Lane<'_> {
                 wrote.extend(o.wrote.iter().copied());
             }
         }
+        n
+    }
+
+    /// ADR-066 amendment 12, decision 2: the hint of each failed test of dependent codeunit `p` of session `ks` that
+    /// read first, in it or in a test before it, a global the earlier codeunits left otherwise. Returns how many tests
+    /// got one.
+    fn hint(&self, ks: &[usize], found: &Found, p: usize, slots: &mut [Option<UnitResult>]) -> usize {
+        let Some(Ok(done)) = slots[ks[p]].as_mut().map(|r| &mut r.result) else {
+            return 0;
+        };
+        let failed: Vec<(String, Option<u32>)> = done
+            .0
+            .iter()
+            .filter(|(_, o)| matches!(o, Outcome::Fail(_)))
+            .map(|(t, _)| {
+                let n = done.5.unfinished_at.iter().find(|(_, name)| name == t).map(|(n, _)| *n);
+                (t.clone(), n)
+            })
+            .collect();
+        if failed.is_empty() {
+            return 0;
+        }
+        let empty = BTreeSet::new();
+        let changed = found.changed.get(&p).unwrap_or(&empty);
+        let writers: Vec<(GlobalKey, usize)> = found
+            .last
+            .get(&p)
+            .into_iter()
+            .flatten()
+            .map(|&(g, w)| (g, ks[w]))
+            .collect();
+        let read_in = done.5.singles_out.as_ref().map(|o| &o.read_in);
+        let hints = super::order_hint::hints_for(self.lowered, self.units, changed, &writers, read_in, &failed);
+        let n = hints.len();
+        done.5.order_hints.extend(hints);
         n
     }
 

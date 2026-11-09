@@ -486,9 +486,11 @@ codeunit 50877 "Suite Lenient Reader"
     assert!(text(&o).contains("line 1: `x` is not a codeunit id"), "{}", text(&o));
 }
 
-/// ADR-066 amendment 7, option 2, opt-in since the owner's change of 2026-11-08: by default the chain of 51 codeunits is
-/// replayed in full and the checker passes. With `--max-replay 50` the dependent codeunit keeps its parallel run; the run
-/// output and the JUnit file say why, `--stability` lists it, and `--strict-order` replays it.
+/// ADR-066 amendment 7, option 2, opt-in since the owner's change of 2026-11-08: with `--strict-order` the chain of 51
+/// codeunits is replayed in full and the checker passes. With `--max-replay 50` too the dependent codeunit keeps its
+/// parallel run; the run output and the JUnit file say why, and `--stability` (BC's order) lists it. ADR-066 amendment
+/// 12: without `--strict-order` nothing is replayed (the checker fails with an order hint) and `--max-replay` has no
+/// effect.
 #[test]
 fn a_rerun_over_max_replay_is_reported_in_the_output_junit_and_stability() {
     let d = tempfile::tempdir().unwrap();
@@ -515,8 +517,18 @@ fn a_rerun_over_max_replay_is_reported_in_the_output_junit_and_stability() {
     );
     let a = app.to_str().unwrap();
     let text_of = "re-run skipped (chain of 51 codeunits over the limit of 50)";
-    // Default: no cap, the whole chain is replayed.
-    let o = alrunner(&["test", a, "--no-download"]);
+    // Default (amendment 12): fresh state, nothing replayed, the checker fails with a hint; `--max-replay` changes nothing.
+    for extra in [&[][..], &["--max-replay", "50"][..]] {
+        let o = alrunner(&[&["test", a, "--no-download"][..], extra].concat());
+        assert_eq!(code(&o), 1, "{}", text(&o));
+        assert!(
+            text(&o).contains("order hint: ") && !text(&o).contains("re-run skipped"),
+            "{}",
+            text(&o)
+        );
+    }
+    // `--strict-order`: no cap, the whole chain is replayed.
+    let o = alrunner(&["test", a, "--no-download", "--strict-order"]);
     assert_eq!(code(&o), 0, "{}", text(&o));
     assert!(!text(&o).contains("re-run skipped"), "{}", text(&o));
     let o = alrunner(&["test", a, "--no-download", "--max-replay", "x"]);
@@ -531,6 +543,7 @@ fn a_rerun_over_max_replay_is_reported_in_the_output_junit_and_stability() {
         "test",
         a,
         "--no-download",
+        "--strict-order",
         "--max-replay",
         "50",
         "--junit",
@@ -559,10 +572,6 @@ fn a_rerun_over_max_replay_is_reported_in_the_output_junit_and_stability() {
             .any(|l| l.contains("name=\"Step3\"") && l.contains("singleInstanceRerun")),
         "{x}"
     );
-    // `--strict-order` wins over `--max-replay`: the checker passes and nothing is skipped.
-    let o = alrunner(&["test", a, "--no-download", "--max-replay", "50", "--strict-order"]);
-    assert_eq!(code(&o), 0, "{}", text(&o));
-    assert!(!text(&o).contains("re-run skipped"), "{}", text(&o));
     // `--stability` lists the codeunit whose re-run was skipped.
     let json = d.path().join("s.json");
     let o = alrunner(&[

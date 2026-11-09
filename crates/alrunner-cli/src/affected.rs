@@ -495,6 +495,7 @@ impl Report {
                     ui_answered: Vec::new(),
                     entered: Vec::new(),
                     dotnet: false,
+                    order_hint: None,
                 }
             })
             .collect()

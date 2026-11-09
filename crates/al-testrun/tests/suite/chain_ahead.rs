@@ -102,7 +102,10 @@ fn run() -> CorpusRuntime {
         None,
         Default::default(),
         &[SuiteRun::everything()],
-        &RunOptions::default(),
+        &RunOptions {
+            strict_order: true,
+            ..Default::default()
+        },
     )
     .expect("the run starts")
 }

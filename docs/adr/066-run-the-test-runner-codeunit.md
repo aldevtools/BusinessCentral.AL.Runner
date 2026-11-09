@@ -1391,3 +1391,33 @@ helpers).
 2. **CI runs the corpus in the default order** ("let's use default and see how it goes"). A case that passes on BC
    only because another codeunit ran first shows up as a regression in the PR that builds this amendment; each such
    case is listed there for the owner, who decides per case (a not-passing line needs the owner's OK, hard rule 2).
+
+### Built (branch rt-a12, 2026-11-09)
+
+- `RunOptions::strict_order` (`--strict-order`, `serve` `strictOrder`) is BC's order: `ChainWhy::TestsTakeNumbers`
+  chains (`corpus.rs`), the walk keeps the single instances (`keep_singles`), and the lane flags and re-runs as
+  amendments 4 to 7 say (`single_lane.rs` `Lane::bc_order`). Without it: `Unit::carry` drops `TestsTakeNumbers`
+  (`Unit::takes_numbers` notes it), no walk single instances, and the lane only analyses: no flag
+  (`single-instance-order`, `single-instance-refill`, `single-instance-rerun-skipped`), no re-run, a hint on each failed
+  test (`order_hint.rs` `OrderHint`, `TestResult::order_hint`; console `order hint:`, JUnit `orderHint`, JSON
+  `orderHint`) and the numbers list (`NumbersOrder`, `ChainReport::numbers_order`; console `number order:`, JUnit
+  `numberSequenceOrder`).
+- Conformance: `crates/al-testrun/tests/suite/order_default.rs` (test plan 1 to 4) and
+  `crates/alrunner-cli/tests/cli/order_default.rs` (console, JUnit, JSON). The tests of amendments 2 to 11 run with
+  `strict_order: true`.
+
+### Decided without owner review (2026-11-09)
+
+1. **`--strict-order` restores the old default, not the old "replay every dependent codeunit".** Decision 4 says the
+   flag "restores today's behavior", the test plan says it "reproduces today's re-run counts" and `--max-replay` "only
+   has an effect with it"; before this amendment `--strict-order` replayed every dependent codeunit and `--max-replay`
+   had no effect under it. So `--strict-order` now means: carry, chain, run ahead, and a re-run after a failure that
+   read a changed global (`--max-replay` applies). Replaying every dependent codeunit stays for the base variant of a
+   stability run with `isolation.singleInstance` (ADR-058 amendment 1, decision 3) as the internal
+   `RunOptions::replay_every_dependent`; no front end flag sets it.
+2. **A stability run runs every variant in BC's order** (`strict_order` for all of them, not only the base variant), so a
+   flip never comes from the order mode alone.
+3. **The numbers list is per codeunit.** A codeunit is listed when the static reach of its tests can take numbers
+   (`chain.rs` `tests_take_numbers`, the rule that chained it) and an earlier codeunit of its BC session can too; the
+   property goes on each of its tests. A walk per test method costs 11 % of the corpus run (see `tests_take_numbers`).
+4. **The hint goes to failed tests only** (owner answer 1), not to tests refused while they ran.

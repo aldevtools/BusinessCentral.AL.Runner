@@ -124,13 +124,13 @@ pub struct TestArgs {
     /// `--permissions off` (ADR-062 section 5): no access kind is enforced, whatever stage is on by default. `on`,
     /// the default, enforces the stages that are on; none is yet.
     pub permissions_off: bool,
-    /// `--strict-order` (ADR-066 amendment 4): every order-dependent test codeunit runs again serially in BC's order.
-    /// Default: it keeps its parallel run and runs again only after a failure or a test not run there that could have
-    /// seen the changed state (amendment 7).
+    /// `--strict-order` (ADR-066 amendment 12, decision 4): run the test codeunits in BC's order (SingleInstance state
+    /// and NumberSequence numbers carry; an order-dependent codeunit runs again serially after a failure, amendments 4
+    /// to 7). Default: fresh SingleInstance state and the baseline's numbers per codeunit, no re-run, hints.
     pub strict_order: bool,
     /// `--max-replay N` (ADR-066 amendment 7, option 2, opt-in since the owner's change of 2026-11-08): a serial
-    /// re-run whose chain holds more than `N` test codeunits is skipped and flagged. Default: no cap.
-    /// `--strict-order` wins over it.
+    /// re-run whose chain holds more than `N` test codeunits is skipped and flagged. Default: no cap. Only has an
+    /// effect with `--strict-order` (ADR-066 amendment 12, decision 4).
     pub max_replay: Option<usize>,
     /// `--test-suites FILE` (ADR-066 amendment 6): each suite of the file is a BC session of its own for order dependence.
     pub test_suites: Option<PathBuf>,
@@ -927,35 +927,33 @@ ISOLATION
                          test codeunit runs under its own RequiredTestIsolation, as Business
                          Central runs it without a test runner codeunit from version 28 (on
                          version 27 as `codeunit`).
-    --strict-order       Run every order-dependent test codeunit again, one after the other in
-                         Business Central's order. A test codeunit is order dependent when it reads
-                         a variable of a SingleInstance codeunit that an earlier test codeunit left
-                         with another value: Business Central runs all test codeunits in one
-                         session, so the value carries over. AL Runner runs the codeunits in
-                         parallel, each with fresh SingleInstance state, the result Business Central
-                         gives when the codeunit runs alone or first. By default it keeps that
-                         result and runs such a codeunit again in order only when one of its tests
-                         failed or was refused while it ran (not one refused before it starts) and
-                         that test, or one before it, read a value an earlier codeunit left
-                         otherwise. Each such re-run replays its whole chain, however long, unless
-                         --max-replay is given; with this option every codeunit runs again, and
-                         --max-replay has no effect.
-                         Each such run is a serial session of the codeunit and the codeunits it
-                         depends on; the sessions run in parallel, with this option too. Every
-                         test of such a codeunit is a flagged pass, `single-instance-order`.
-                         Without this option a test that passes alone but fails in the full order
-                         passes here, flagged; with it, the result is the one of the full order
-                         after its chain, at a cost. Fix such a test: set up the state it needs in its
-                         own codeunit's Initialize, or clear the SingleInstance codeunit there.
-                         AL_TEST_THREADS=1 runs one codeunit at a time but still with fresh state.
+    --strict-order       Run the test codeunits in Business Central's order. Business Central runs
+                         all test codeunits in one session, so the variables of SingleInstance
+                         codeunits and the NumberSequence numbers a test took carry from one test
+                         codeunit to the next. By default AL Runner gives every test codeunit
+                         fresh SingleInstance state and the NumberSequence values of the install
+                         baseline, runs the codeunits in parallel and runs nothing again. A test
+                         that fails because it needs state an earlier codeunit sets on Business
+                         Central gets an order hint: the SingleInstance codeunit, its app, the
+                         variable, the codeunit that sets it and this option (console, JUnit
+                         property `orderHint`, JSON `orderHint`). Test codeunits that take numbers
+                         after another codeunit took some are listed (`number order:` lines, JUnit
+                         property `numberSequenceOrder`). Fix such a test: set up the state it needs
+                         in its own codeunit's Initialize, or clear the SingleInstance codeunit there.
+                         With this option the state and the numbers carry as on Business Central.
+                         A test codeunit that reads SingleInstance state an earlier one left keeps
+                         its parallel result, flagged `single-instance-order`, and runs again in
+                         order with the codeunits it depends on when one of its tests failed or was
+                         refused while it ran and that test, or one before it, read such a value.
+                         Within one test codeunit the order is always Business Central's.
                          In `serve`: the runTests field `strictOrder`.
-    --max-replay N       Skip a re-run of an order-dependent test codeunit (see --strict-order)
+    --max-replay N       With --strict-order: skip a re-run of an order-dependent test codeunit
                          whose chain holds more than N test codeunits. The codeunit keeps its
                          parallel result, flagged `single-instance-rerun-skipped`, and the run
                          prints `re-run skipped (chain of M codeunits over the limit of N)`. A test
                          that passes only in the full order then fails here. Use it when long
                          chains cost too much time; default: no limit, every re-run is replayed
-                         in full and the result is exact. --strict-order wins over it.
+                         in full. Without --strict-order it has no effect.
                          In `serve`: the runTests field `maxReplay`.
     --max-memory SIZE    The most memory the run may use, such as 6G or 800M. AL Runner runs fewer
                          test codeunits at once to stay under it, down to one at a time, and stops

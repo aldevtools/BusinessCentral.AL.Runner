@@ -65,7 +65,49 @@ is a **flagged pass**, counted apart:
 - `--top-assumptions [N]` ranks the assumptions a run went through.
 - `al-runner --list-assumptions` describes all of them, with the counts of the last run.
 
-### Flagged: relies on SingleInstance state another test codeunit left
+### Order hints: fresh state per test codeunit by default
+
+Business Central runs all test codeunits of a run in one session, one after the
+other. The globals of a `SingleInstance` codeunit, and the numbers a test took from
+a `NumberSequence`, carry from one test codeunit to the next.
+
+By default AL Runner does not follow that order (ADR-066 amendment 12, owner
+decision of 2026-11-09). Every test codeunit starts with fresh SingleInstance state
+and with the NumberSequence values the install code left. The codeunits run in
+parallel and nothing runs again. A test should not depend on state or numbers
+another test codeunit left. Within one test codeunit, Business Central's order is
+always kept. Codeunits with `RequiredTestIsolation = Disabled` still hand their
+database rows to the later codeunits.
+
+Two reports say where the result may differ from Business Central's:
+
+- **Order hint.** A failed test that read a SingleInstance global an earlier test
+  codeunit would have set to another value gets a hint. It names the SingleInstance
+  codeunit, its app and publisher, the global, the test codeunit that sets it, and
+  the option `--strict-order`. It is printed under the failure, written to the
+  JUnit property `orderHint` and to `orderHint` on the test's `--output-json` row
+  (in `serve`: the summary's `orderHints`). A passing test gets no hint.
+
+  ```
+  FAIL   50972 Order Cli Reader.ReadsTheFlag: flag is empty
+            order hint: this test read global Flag of SingleInstance codeunit 50961 "Order Cli State" (app Order by Me), which test codeunit 50971 "Order Cli Setter" sets before this test on BC; each test codeunit starts with fresh SingleInstance state here; --strict-order runs the test codeunits in BC's order
+  ```
+
+- **Number order.** A test codeunit whose tests can take NumberSequence numbers and
+  that comes after another such codeunit gets one `number order:` line and the
+  JUnit property `numberSequenceOrder` on each of its tests. On Business Central
+  it would take its numbers after the ones the earlier codeunit took. It is a note,
+  not a failure.
+
+`--strict-order` (in `serve`: the `runTests` field `strictOrder`) runs the test
+codeunits in Business Central's order: the state and the numbers carry, and the
+rest of this section applies. `--stability` always runs in Business Central's
+order.
+
+### Flagged: relies on SingleInstance state another test codeunit left (`--strict-order`)
+
+Everything in this section applies with `--strict-order` only.
+
 
 Business Central runs all test codeunits of a run in one session. The globals of a
 `SingleInstance` codeunit that one test codeunit left are still there when the
@@ -107,7 +149,7 @@ Everything below is about the other codeunits, the ones that run in parallel.
 AL Runner follows one principle: a test should give the same result whether its
 codeunit runs alone or inside the whole suite. A parallel run with fresh state is a
 real Business Central result: the one you get when the codeunit runs alone, or
-first. So, by default:
+first. So, with `--strict-order`:
 
 1. Order-dependent codeunits run in parallel like all others.
 2. When such a codeunit has a failed test, or a test that started and was refused
@@ -147,8 +189,8 @@ first. So, by default:
 
    Its tests also carry the assumption `single-instance-rerun-skipped`, and in the
    JUnit file the property `singleInstanceRerun` with the text
-   `re-run skipped (chain of 51 codeunits over the limit of 50)`. `--strict-order`
-   replays every chain, however long, and wins over `--max-replay`. Nothing is kept
+   `re-run skipped (chain of 51 codeunits over the limit of 50)`. Without
+   `--strict-order`, `--max-replay` has no effect. Nothing is kept
    from one run to the next: each run decides its re-runs on its own.
 
 `--timings` names the codeunit whose state each test relies on. Its
@@ -167,15 +209,10 @@ runs the test codeunits. The stability mode (`--stability`) lists these tests ap
 with and without `--strict-order`, and lists the tests whose re-run was skipped in
 a list of their own.
 
-The risk of the default: a test that passes alone but fails on Business Central in
-the full order is reported as a flagged pass here. To remove that risk, use
-`--strict-order` (in `serve`: the `runTests` field `strictOrder`). Every
-order-dependent codeunit then runs again in Business Central's order, after the
-codeunits it depends on, and that result is the one reported. It uses the same
-parallel sessions as the default, so state from codeunits outside a codeunit's chain
-is not carried with it either. It costs time on suites with many such codeunits,
-because the entry-number buffers of Sequence No. Mgt. make most posting codeunits
-order dependent (see ADR-066 amendment 5 for measured times).
+The risk: a test that passes alone but fails on Business Central in the full order
+is reported as a flagged pass here. A stability run with the dimension
+`isolation.singleInstance` replays every order-dependent codeunit in its base
+variant, so its result in the full order is known.
 
 `AL_TEST_THREADS=1` runs one test codeunit at a time, but each one still starts with
 fresh SingleInstance state. It does not reproduce Business Central's order; only
