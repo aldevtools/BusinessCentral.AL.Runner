@@ -1971,9 +1971,7 @@ impl Session {
                 // Pinned: streams/CalcFieldsBlobStaleBuffer.al (empty, loaded-earlier and unsaved-write buffers).
             } else if copied_write {
                 if keeps_content && stored.is_some() {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::BlobCopiedWriteKeptByCalcfields,
-                    );
+                    // Pinned: streams/BlobWriteThenRecordCopy.al:48-155 (Stored_*), the unsaved write survives the copy.
                     continue;
                 }
             } else if keeps_content && (stored.is_some() || !rec.borrow().inserted) {
