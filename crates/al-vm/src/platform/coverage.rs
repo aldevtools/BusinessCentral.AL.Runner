@@ -36,7 +36,7 @@ use crate::Session;
 use al_builtins::filter::FieldFilter;
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
-use al_data::{Row, Store, TableDef};
+use al_data::{Row, TableDef};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) const CODE_COVERAGE: u32 = 2_000_000_049;
@@ -233,14 +233,10 @@ impl Session {
                 _ => self.tests_run_rows(t),
             };
             let cx = self.cx.clone();
+            // One DeleteAll and one Insert per row, in one pass (al-data `memory/replace.rs`).
             self.store
-                .delete_all(&cx, t, &[])
+                .replace_all(&cx, t, rows)
                 .map_err(|e| Signal::Unsupported(format!("{e}")))?;
-            for row in rows {
-                self.store
-                    .insert(&cx, t, row)
-                    .map_err(|e| Signal::Unsupported(format!("{e}")))?;
-            }
         }
         Ok(())
     }
@@ -274,18 +270,23 @@ impl Session {
         let program = &self.engine.program;
         let rec = &self.coverage.recorder;
         let mut out = Vec::new();
-        let mut row = |oi: usize, line: u32, text: Option<&str>, kind: &str, hits: u32, status: &str| {
-            let o = &program.objects[oi];
-            let mut r = super::blank(t);
-            r[super::pos(t, 1)] = Self::option_member(t, 1, o.kind.label());
-            r[super::pos(t, 2)] = Value::Integer(o.id.unwrap_or(0) as i32);
-            r[super::pos(t, 3)] = Value::Integer(line as i32);
-            r[super::pos(t, 4)] = Self::option_member(t, 4, kind);
-            r[super::pos(t, 5)] = Value::Text(text.unwrap_or(NO_SOURCE).into());
-            r[super::pos(t, 6)] = Value::Integer(hits as i32);
-            r[super::pos(t, 7)] = Self::option_member(t, 7, status);
-            out.push(r);
-        };
+        // What every row shares, made once per write (a table of about 200,000 rows after a posting test): the blank row,
+        // the column positions, the option values and the text of an app without its source.
+        let template = super::blank(t);
+        let [p_type, p_id, p_line, p_kind, p_text, p_hits, p_status] =
+            [1, 2, 3, 4, 5, 6, 7].map(|id| super::pos(t, id));
+        let no_source = Value::Text(NO_SOURCE.into());
+        let mut types: BTreeMap<&str, Value> = BTreeMap::new();
+        let kind = |name: &str| Self::option_member(t, 4, name);
+        let (object_kind, header_kind, code_kind, empty_kind) =
+            (kind("Object"), kind("Trigger/Function"), kind("Code"), kind("Empty"));
+        let status = |name: &str| Self::option_member(t, 7, name);
+        let (not_applicable, not_covered, covered, partially_covered) = (
+            status("NonApplicable"),
+            status("NotCovered"),
+            status("Covered"),
+            status("PartiallyCovered"),
+        );
         // The positions of each object, found once per engine: a scan of all positions per entered object, on every read
         // of the Code Coverage table, was positions x objects. The positions a cache supplies are not read for it
         // (ADR-054): only those of the entered objects are, below.
@@ -293,11 +294,38 @@ impl Session {
             .engine
             .positions_by_object
             .get_or_init(|| program.positions.ids_by_object(program.objects.len()));
-        for &oi in &rec.entered {
+        // In primary key order (Object Type, Object ID; the lines of an object come in order), so the store's sort of the
+        // rows finds them sorted. A stable sort: of two objects with one key the first written stays first.
+        let mut entered: Vec<(i32, i32, usize)> = rec
+            .entered
+            .iter()
+            .filter_map(|&oi| {
+                let o = &program.objects[oi];
+                let ty = match types
+                    .entry(o.kind.label())
+                    .or_insert_with(|| Self::option_member(t, 1, o.kind.label()))
+                {
+                    Value::Option(n, _) => *n,
+                    _ => 0,
+                };
+                Some((ty, o.id? as i32, oi))
+            })
+            .collect();
+        entered.sort_by_key(|&(ty, id, _)| (ty, id));
+        let mut row = |oi: usize, line: u32, text: Option<&str>, kind: &Value, hits: u32, status: &Value| {
             let o = &program.objects[oi];
-            if o.id.is_none() {
-                continue;
-            }
+            let mut r = template.clone();
+            r[p_type] = types[o.kind.label()].clone();
+            r[p_id] = Value::Integer(o.id.unwrap_or(0) as i32);
+            r[p_line] = Value::Integer(line as i32);
+            r[p_kind] = kind.clone();
+            r[p_text] = text.map_or_else(|| no_source.clone(), |s| Value::Text(s.into()));
+            r[p_hits] = Value::Integer(hits as i32);
+            r[p_status] = status.clone();
+            out.push(r);
+        };
+        for &(_, _, oi) in &entered {
+            let o = &program.objects[oi];
             // The positions that are no statement: the declaration, `begin` and `end` of each routine.
             let mut frame: BTreeSet<u32> = BTreeSet::new();
             for r in &o.routines {
@@ -317,15 +345,23 @@ impl Session {
                 e.1 += u32::from(hits > 0);
                 e.2 = e.2.max(hits);
             }
-            let mut headers: BTreeSet<u32> = BTreeSet::new();
-            let mut lines: BTreeSet<u32> = BTreeSet::new();
+            // The lines from each routine's declaration to its `end`, in order and each once.
+            let mut headers: Vec<u32> = Vec::with_capacity(o.routines.len());
+            let mut spans: Vec<(u32, u32)> = Vec::with_capacity(o.routines.len());
             for r in &o.routines {
                 let Some(first) = program.pos(r.pos).map(|p| p.line) else {
                     continue;
                 };
                 let last = program.pos(r.end_pos).map_or(first, |p| p.line).max(first);
-                headers.insert(first);
-                lines.extend(first..=last);
+                headers.push(first);
+                spans.push((first, last));
+            }
+            headers.sort_unstable();
+            spans.sort_unstable();
+            let mut lines: Vec<u32> = Vec::new();
+            for (first, last) in spans {
+                let from = lines.last().map_or(first, |&l| first.max(l + 1));
+                lines.extend(from..=last);
             }
             // An app that includes its source in the symbols shows the line as written
             // (onprem test-framework/code-coverage/TestCodeCoverageSourceLinesContracts.al:60-74); any other shows the platform's text.
@@ -339,20 +375,20 @@ impl Session {
                 })
                 .map(|sf| &sf.lines);
             let text = |line: u32| source.map(|l| l.get(line as usize - 1).map_or("", String::as_str));
-            row(oi, 0, None, "Object", 0, "NonApplicable");
+            row(oi, 0, None, &object_kind, 0, &not_applicable);
             for &line in &lines {
                 let text = text(line);
                 match statements.get(&line) {
-                    _ if headers.contains(&line) => row(oi, line, text, "Trigger/Function", 0, "NonApplicable"),
+                    _ if headers.binary_search(&line).is_ok() => row(oi, line, text, &header_kind, 0, &not_applicable),
                     Some(&(total, ran, max)) => {
                         let status = match (ran, total) {
-                            (0, _) => "NotCovered",
-                            (r, t) if r == t => "Covered",
-                            _ => "PartiallyCovered",
+                            (0, _) => &not_covered,
+                            (r, t) if r == t => &covered,
+                            _ => &partially_covered,
                         };
-                        row(oi, line, text, "Code", max, status)
+                        row(oi, line, text, &code_kind, max, status)
                     }
-                    None => row(oi, line, text, "Empty", 0, "NonApplicable"),
+                    None => row(oi, line, text, &empty_kind, 0, &not_applicable),
                 }
             }
         }
