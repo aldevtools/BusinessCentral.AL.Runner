@@ -272,6 +272,15 @@ fn ahead_ignores_singles(a: &Ahead) -> bool {
         })
 }
 
+/// Runs `f` with the walk's kept single instances set aside (`run::LANE_SINGLES` empty): the session starts with fresh
+/// ones and hands none on, and the kept ones go to the next member that keeps them (ADR-066 amendment 11, option 1).
+fn without_kept_singles<R>(f: impl FnOnce() -> R) -> R {
+    let kept = super::run::LANE_SINGLES.with(|c| c.borrow_mut().take());
+    let r = f();
+    super::run::LANE_SINGLES.with(|c| *c.borrow_mut() = kept);
+    r
+}
+
 /// The single instances the walk keeps from member to member (`ChainWalk::keep_singles`): which BC session they belong
 /// to, the globals the members of that session wrote so far with the member (unit) that wrote each last, and what a
 /// fresh instance holds in each global (ADR-058 amendment 1, decision 4: the reason of a flip names the last writer).
@@ -360,12 +369,15 @@ struct Track {
 
 impl Track {
     /// The walk reached a member of suite `si`: it took its run ahead (`took`), or `take` dropped `dropped`, or a run
-    /// ahead it got (`had`) was not taken. Every run ahead not taken counts toward `MISSES` (ADR-066 amendment 10,
-    /// decision 4): each cost a helper a session and its baseline copy next to the walk's run.
+    /// ahead it got (`had`) was not taken. A wrong prediction and a run ahead the walk got but could not take count
+    /// toward `MISSES`; a run made too early or resting on another wrong run ahead does not (ADR-066 amendment 11,
+    /// option 4, amending amendment 10, decision 4): at a suite's start the helpers run members before the walk ran the
+    /// ones before them, and in a chain whose members all take numbers those runs are all wrong, which gave the suite up
+    /// before one prediction could be right.
     fn note(&mut self, si: usize, took: bool, dropped: &Dropped, had: bool) {
         if took {
             *self.taken.entry(si).or_default() += 1;
-        } else if had || !matches!(dropped, Dropped::Nothing) {
+        } else if had || matches!(dropped, Dropped::Wrong(_)) {
             *self.misses.entry(si).or_default() += 1;
         }
     }
@@ -535,7 +547,14 @@ impl ChainWalk<'_> {
             super::run::LANE_SINGLES.with(|c| *c.borrow_mut() = Some(None));
         }
         for (si, leg, id, link) in chain {
-            if keep {
+            // ADR-066 amendment 11, option 1: a member in the chain only for the numbers its tests take runs with fresh
+            // single instances, in the walk and ahead, and hands none on (`chain::numbers_only`).
+            let keep_member = keep
+                && match &link {
+                    Link::Run(k) => !super::chain::numbers_only(units[*k].isolation, units[*k].carry),
+                    Link::Refused(..) => true,
+                };
+            if keep_member {
                 singles.enter(match &link {
                     Link::Run(k) => Some((si, units[*k].hub_leg)),
                     // BC runs it and it may change the single instances: what it would leave is not known (R3).
@@ -589,7 +608,7 @@ impl ChainWalk<'_> {
                     // counters are set as the run from the walk's start leaves them (`Baseline::with_delta_apart`).
                     let kept = ahead
                         .as_ref()
-                        .filter(|a| !keep || ahead_ignores_singles(a))
+                        .filter(|a| !keep_member || ahead_ignores_singles(a))
                         .and_then(|a| {
                             let differ = a.start.as_deref().map(|f| &f.rows) != actual.map(|f| &f.rows);
                             left_of(a.kept.as_ref()?, start, differ.then_some(counters.as_slice()))
@@ -625,12 +644,16 @@ impl ChainWalk<'_> {
                             // The walk's own run counts as a running codeunit (ADR-066 amendment 10): its growth is
                             // the cost of a thread. The walk's thread never ends for memory.
                             let running = self.pool.enter();
-                            let r = run_unit(engine, lowered, start, &u, trace, self.limit);
+                            let r = if keep && !keep_member {
+                                without_kept_singles(|| run_unit(engine, lowered, start, &u, trace, self.limit))
+                            } else {
+                                run_unit(engine, lowered, start, &u, trace, self.limit)
+                            };
                             drop(running);
                             (r, super::run::CARRIED.with(|c| c.borrow_mut().take()))
                         }
                     };
-                    let reads = if keep {
+                    let reads = if keep_member {
                         singles.left(k, &r, took_ahead, report)
                     } else {
                         Vec::new()
@@ -859,24 +882,30 @@ impl ChainWalk<'_> {
 mod tests {
     use super::{Dropped, MISSES, Track, helpers_wanted, starts_fresh};
 
-    /// ADR-066 amendment 10, decision 4: every run ahead the walk drops counts, whatever the reason, and a suite stops
-    /// being run ahead after more than `MISSES` drops beyond the runs taken.
+    /// ADR-066 amendment 11, option 4 (amending amendment 10, decision 4): only a run ahead that was wrong, or one the
+    /// walk got and could not take, counts; one made too early or resting on another wrong run ahead does not. A suite
+    /// stops being run ahead after more than `MISSES` such drops beyond the runs taken.
     #[test]
-    fn a_suite_stops_being_run_ahead_after_more_than_misses_drops_of_any_kind_beyond_the_runs_taken() {
+    fn a_suite_stops_being_run_ahead_after_more_than_misses_wrong_runs_beyond_the_runs_taken() {
         let mut t = Track::default();
         t.note(0, false, &Dropped::Early, false);
         t.note(0, false, &Dropped::Guessed, false);
+        // No run ahead at all: nothing wasted.
+        t.note(0, false, &Dropped::Nothing, false);
+        assert_eq!(t.misses.get(&0), None, "early and guessed runs ahead do not count");
+        t.note(0, false, &Dropped::Wrong(Box::default()), false);
+        t.note(0, false, &Dropped::Wrong(Box::default()), false);
         t.note(0, false, &Dropped::Wrong(Box::default()), false);
         // A run ahead it got but could not take (its change not rebuilt, or it read kept single instances).
         t.note(0, false, &Dropped::Nothing, true);
-        // No run ahead at all: nothing wasted.
-        t.note(0, false, &Dropped::Nothing, false);
         assert_eq!(t.misses[&0], 4);
         assert!(!t.gives_up(0), "{MISSES} drops are allowed");
         t.note(0, true, &Dropped::Nothing, true);
-        t.note(0, false, &Dropped::Early, false);
+        t.note(0, false, &Dropped::Wrong(Box::default()), false);
         assert!(!t.gives_up(0), "a run taken allows one more drop");
         t.note(0, false, &Dropped::Early, false);
+        assert!(!t.gives_up(0), "an early run ahead still does not count");
+        t.note(0, false, &Dropped::Wrong(Box::default()), false);
         assert!(t.gives_up(0));
         assert!(!t.gives_up(1), "another suite");
     }

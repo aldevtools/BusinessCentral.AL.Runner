@@ -1,6 +1,6 @@
 # ADR-066: Run the test runner codeunit's own AL
 
-- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07); amendment 4 (order-dependent codeunits run in parallel, serial run only after a failure, `--strict-order`) Accepted (owner, 2026-11-07); amendment 5 (each serial re-run is a session of its own, the sessions run in parallel; a test refused before it starts triggers no re-run) Accepted (owner, 2026-11-07); amendment 7 (a re-run only when a failed test could have seen the changed state; a replay cap only with `--max-replay N`, changed by the owner the same day) Accepted (owner, 2026-11-08); amendment 8 (the carry chain walk keeps the SingleInstance state; chain members are never re-run or flagged) Accepted (owner, 2026-11-08, variant A); amendment 9 (the number of test threads follows the memory budget, `--max-memory`) Accepted (owner, 2026-11-09, as a safety net near the limit; redesign in a follow-up); amendment 10 (the run holds a memory limit by running more of its work one after the other: threads start one at a time, the cost is learned in the run, a thread that cannot go on ends and gives its memory back) Accepted (owner, 2026-11-09; decision 6 changed by the owner: `--max-memory` is a hard limit, a run that cannot fit stops with exit code 2)
+- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07); amendment 4 (order-dependent codeunits run in parallel, serial run only after a failure, `--strict-order`) Accepted (owner, 2026-11-07); amendment 5 (each serial re-run is a session of its own, the sessions run in parallel; a test refused before it starts triggers no re-run) Accepted (owner, 2026-11-07); amendment 7 (a re-run only when a failed test could have seen the changed state; a replay cap only with `--max-replay N`, changed by the owner the same day) Accepted (owner, 2026-11-08); amendment 8 (the carry chain walk keeps the SingleInstance state; chain members are never re-run or flagged) Accepted (owner, 2026-11-08, variant A); amendment 9 (the number of test threads follows the memory budget, `--max-memory`) Accepted (owner, 2026-11-09, as a safety net near the limit; redesign in a follow-up); amendment 10 (the run holds a memory limit by running more of its work one after the other: threads start one at a time, the cost is learned in the run, a thread that cannot go on ends and gives its memory back) Accepted (owner, 2026-11-09; decision 6 changed by the owner: `--max-memory` is a hard limit, a run that cannot fit stops with exit code 2); amendment 11 (numbers-only chain members run with fresh single instances and run ahead; only wrong predictions count toward MISSES) Accepted (owner, 2026-11-09, options 1 and 4)
 - Date: 2026-11-05
 
 ## Context
@@ -1194,3 +1194,129 @@ What this shows:
   test as a run with no budget and a run with one thread.
 - `crates/alrunner-cli/tests/cli/memory.rs`: the `memory:` line names the most threads that ran, how many ended for
   memory, and a limit below one thread's need.
+
+## Amendment 11 (Accepted, owner, 2026-11-09: options 1 and 4): run ahead again for chain members that are there only for the numbers they take
+
+- Status: Accepted by the owner on 2026-11-09: options 1 and 4 below; options 2 and 3 not now. Amends amendment 8
+  (decisions 1, 3 and 5, for "numbers only" members) and amendment 10, decision 4 (which dropped runs ahead count
+  against `MISSES`).
+
+### Why
+
+An outside user's partner suite reported, for one app: "serial carry chain by reason: 44 tests can take NumberSequence
+numbers (1221.64 s)". Those codeunits ran one after the other for about 20 minutes while the other threads were idle.
+The reason line says why they are in the chain (runner 130450 does not give back numbers a test took:
+`Y35OnRunStorage.al:30-31`, `C302_B2_TestWritesStorage` :457; `IsolProbeAfterRollback.Codeunit.al` S9). It does not say
+why they did not run ahead. The "by cause" line of that run is not known yet.
+
+Measured on a synthetic app (40 test codeunits, 3 tests each, about 1 s of work per codeunit; 12 take numbers through
+a SingleInstance codeunit that keeps a `List of [Integer]` like Sequence No. Mgt.'s `LastSeqNoChecked`, 12 call
+`NumberSequence.Next` directly, 12 can take numbers by their static reach but never do at run time, 4 take none;
+Microsoft's System, Base and Test Runner apps as dependencies; main 83cf751eb; release; 12 cores with load 10 to 19
+from other work, so wall times are rough):
+
+| Run | Chain members ran ahead / serially | Wall time |
+|---|---|---|
+| main (amendment 8) | 0 / 36 | 29 to 33 s |
+| main, without the SingleInstance list | 0 / 36 | 25 to 55 s |
+| local build: chain walk with fresh single instances (amendment 8 off) | 29 to 31 / 5 to 7 | 15 to 18 s |
+| same, without the SingleInstance list | 0 / 36 (2 of 2 runs) | 25 to 29 s |
+| same, and early or guessed drops not counted against `MISSES` | 11 to 31 / 5 to 25 | 18 to 23 s |
+
+Every test passed in every run. What this shows:
+
+1. **The numbers are not the problem.** The helpers predict the numbers each member takes, and the walk takes a run
+   ahead only when its start has the walk's fingerprint. With fresh single instances most members ran ahead. Members
+   that take no numbers at run time leave nothing and are predicted right too, so a rule per sequence name would add
+   nothing here.
+2. **Amendment 8, decision 3 drops every run ahead.** Every chain member under runner 130450 with Microsoft's Test
+   Runner reads a watched SingleInstance global first: Server Setting, Server Setting Impl., Change Log Management, AL
+   Code Coverage Subscribers, Test Input and Test Output (a local trace, not committed). So no run ahead is "quiet",
+   and after more than `MISSES` drops the suite is not run ahead any more ("its suite was not run ahead any more").
+   This holds for any app on Microsoft's Test Runner, whatever its tests do. It is the cost amendment 8 accepted
+   ("Microsoft's suites lose run ahead"); the partner suite is most likely this case.
+3. **After the first member, only Test Output still changes.** Comparing each member's first reads and end values
+   with what the member before it left: from the second member on, every global is unchanged except two globals of
+   Test Output (Microsoft's Test Runner app). `GlobalTestJson` gets one more entry per test (its subscriber calls
+   `ReplaceElement` with a name unique per test), and `CurrentTestJson` holds the last test's entry. Both hold JSON
+   inside a codeunit and have no comparable form today.
+4. **`MISSES` also gives up on a chain where every member takes numbers.** At a suite's start one helper runs members
+   ahead before the walk ran the members before them ("counted as changing nothing"). In such a chain these runs are
+   all wrong, and since amendment 10 they count against `MISSES`. With fresh single instances the variant without the
+   SingleInstance list still ran 0 of 36 ahead.
+
+### Options for the owner
+
+1. **Fresh single instances for "numbers only" chain members.** A codeunit in the chain only because its tests take
+   numbers (`ChainWhy::TestsTakeNumbers`: isolation not Disabled, its OnRun writes nothing) runs in the walk and ahead
+   with fresh single instances, as before amendment 8. Its SingleInstance order dependence is handled as for codeunits
+   outside the chain (amendments 4, 5 and 7): flagged `single-instance-order` when dependent, run again in the lane
+   when a failed test read a changed global, all of it replayed under `--strict-order`. Numbers stay exact (unchanged
+   fingerprint rule). Members with Disabled isolation or an OnRun that writes keep amendment 8.
+   - Gain on the repro: 29 to 31 of 36 ahead, wall time about half.
+   - What AL code can see changes for these members, as amendment 4 accepted for the others: a test that passes with
+     fresh state but fails in BC's full order is a flagged pass by default (amendment 4, "Risk: a false pass").
+     Amendment 8 gives the exact BC result for chain members today. Flagged passes come back for such members (NP
+     Retail went from 5224 flagged tests to 0 with amendment 8; how many of its 333 chain members are "numbers only"
+     is not measured).
+2. **Exact run ahead with single instances, no copying.** Each helper keeps its own single instances from one run
+   ahead to its next (moved within its thread, never copied between threads). The walk takes a run ahead only when
+   every global it read first held exactly the value the walk's instance holds there, and every global it ended with
+   ends with exactly the walk's value (so the walk's instances need no change). This keeps BC's order exact. The
+   fingerprints of amendment 3 are not exact enough for this (a record leaves out its system fields and counts its
+   filters), so an exact comparison form is needed.
+   - Gain: about none on suites with Microsoft's Test Runner. Test Output's `GlobalTestJson` changes in every member
+     and has no comparable form, so every run ahead is still dropped. It helps only together with option 3.
+3. **Note reads of a JSON object or dictionary per key.** A first read of `GlobalTestJson` would then be "key K was
+   absent" instead of "the whole value", and K is unique per test, so the read matches whatever other tests added. This
+   is exact. It is a deep change to the read notes in `al-vm` (`single_track.rs`), through the Test Output Json
+   codeunit that holds the JSON. Not sized.
+4. **`MISSES` counts only wrong predictions again** (separate from 1 to 3, internal; only time changes). Early and
+   guessed drops do not count, as before amendment 10, decision 4. Amendment 10 counted them because Tests-ERM-Sales
+   never stopped its helpers. A narrower variant: an early drop counts only once every member before it has run in the
+   walk once. On the repro (with option 1) the variant without the SingleInstance list went from 0 to 11 to 31 of 36
+   ahead.
+
+Recommendation: option 4 in any case (it changes only time). Then option 1 if the owner accepts amendment 4's risk for
+"numbers only" members; otherwise options 2 and 3 together, which keep the exact order but are a larger change with no
+gain until both are built.
+
+### Decision (owner, 2026-11-09: options 1 and 4)
+
+1. **Numbers-only members run with fresh single instances (option 1).** A chain member whose carry is
+   `ChainWhy::TestsTakeNumbers` and whose isolation is not Disabled (`chain::numbers_only`) runs in the walk with the
+   walk's kept single instances set aside (`chain_walk.rs` `without_kept_singles`): its session starts with fresh ones
+   and hands none on, and the next member that keeps them gets what the member before it left. Its run ahead is taken
+   on the fingerprint rule alone, whatever SingleInstance state it read (`ahead_ignores_singles` is not asked). In the
+   lane it counts as a codeunit outside the chain for SingleInstance purposes (`single_lane.rs` `keeps_singles`): it is
+   flagged `single-instance-order` when dependent, runs again when a failed test read a changed global, and
+   `--strict-order` and `--max-replay` apply to it (amendments 4, 5 and 7). Its database start in the lane is still
+   the chain's carried state, as for every chain member.
+2. **Only wrong predictions count toward `MISSES` (option 4).** A dropped run ahead counts when it was wrong
+   (`Dropped::Wrong`) or when the walk got it and could not take it (its change not rebuilt, or it read kept
+   SingleInstance state). A run made too early (`Dropped::Early`) or one resting on another wrong run ahead
+   (`Dropped::Guessed`) does not (`chain_walk.rs` `Track::note`).
+
+### Measured after the build
+
+See the pull request of branch `rt-numseq-chain` for the repro, the BC 29 corpus `--baseline-diff` and the
+Tests-ERM-Sales check (amendment 10 counted early and guessed drops because Tests-ERM-Sales never stopped its
+helpers).
+
+### What stays serial in every option
+
+- The first member from a suite's start (the helpers start a suite only after one member ran there).
+- Members whose run ahead started before the members before them had run and was not run again in time.
+- Members with Disabled isolation or an OnRun that writes: their state is not a prediction the helpers can make.
+
+### Conformance
+
+- `crates/al-testrun/src/runtime/chain_walk.rs` unit test
+  `a_suite_stops_being_run_ahead_after_more_than_misses_wrong_runs_beyond_the_runs_taken`: early and guessed drops do
+  not count, wrong ones and runs got but not taken do.
+- `crates/al-testrun/tests/suite/chain_singles_ahead.rs`: numbers-only members that read and write SingleInstance
+  state run ahead (every member after the first, waiting for the helpers) and keep no walk single instances; a
+  numbers-only member that needs an earlier member's SingleInstance state (the P7 shape) runs again in the lane,
+  passes and is flagged; members whose OnRun takes the number keep amendment 8 (no run ahead taken, the suite is given
+  up). `memory_threads.rs` `a_chain_whose_runs_ahead_are_never_taken_uses_at_most_one_helper` uses such OnRun
+  members.

@@ -737,7 +737,7 @@ impl Lane<'_> {
                 .dependent
                 .keys()
                 .copied()
-                .filter(|&p| !(self.kept_chain && self.is_member(ks[p])))
+                .filter(|&p| !(self.kept_chain && self.keeps_singles(ks[p])))
                 .filter(|&p| counted.insert(ks[p]))
                 .collect();
             if fresh.is_empty() {
@@ -1056,7 +1056,7 @@ impl Lane<'_> {
                 continue;
             };
             let Some(o) = done.5.singles_out.as_ref() else { continue };
-            if self.is_member(k) {
+            if self.keeps_singles(k) {
                 if o.observed.keys().any(|g| wrote.contains(g)) {
                     n += 1;
                 }
@@ -1090,6 +1090,14 @@ impl Lane<'_> {
     fn is_member(&self, k: usize) -> bool {
         let u = &self.units[k];
         u.carry.is_some() || u.isolation == TestIsolation::Disabled
+    }
+
+    /// Whether codeunit `k` is a chain member whose walk run kept the single instances of the members before it
+    /// (ADR-066 amendment 8). A member in the chain only for the numbers its tests take ran with fresh ones (amendment
+    /// 11, option 1, `chain::numbers_only`): it is flagged and run again here like a codeunit outside the chain.
+    fn keeps_singles(&self, k: usize) -> bool {
+        let u = &self.units[k];
+        self.is_member(k) && !super::chain::numbers_only(u.isolation, u.carry)
     }
 
     /// What the dependent codeunit at position `p` relies on, for its note.
