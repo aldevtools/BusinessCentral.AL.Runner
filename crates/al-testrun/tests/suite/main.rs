@@ -33,6 +33,7 @@ mod impact_static;
 mod impact_trace;
 mod incremental;
 mod install_db_event_order;
+mod install_dep_package_data;
 mod install_hold_back;
 mod install_load_package_data;
 mod install_order_independent;

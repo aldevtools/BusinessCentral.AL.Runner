@@ -447,9 +447,10 @@ pub fn load_project_with(
             id_ranges: Vec::new(),
             symbols: d.preprocessor_symbols.clone(),
             translations: d.translations,
-            // A dependency app: NavApp.LoadPackageData of its tables is refused whatever it ships.
-            package_data: false,
-            package_data_files: Vec::new(),
+            // NavApp.LoadPackageData in its install code reads the data files of an app folder; a package's are not
+            // read and its load stays refused (al-vm `package_data`, al-runner issue 6649).
+            package_data: d.package_data,
+            package_data_files: std::mem::take(&mut d.package_data_files),
             translation_files: Vec::new(),
             runtime: None,
             app_json_keys: Vec::new(),
@@ -641,6 +642,29 @@ mod tests {
                 .any(|d| d.eq_ignore_ascii_case(al_deps::select::APPLICATION_APP_ID)),
             "{:?}",
             app.dependencies
+        );
+    }
+
+    /// An AL source app passed with `--dep` hands its data files to the manifest, so NavApp.LoadPackageData in its install
+    /// code reads them in the install baseline (al-runner issue 6649).
+    #[test]
+    fn a_dependency_app_folder_hands_its_package_data_files_to_the_manifest() {
+        let tmp = tempfile::tempdir().unwrap();
+        let lib = app_folder(
+            tmp.path(),
+            "Lib",
+            &json("lib", &[]),
+            &[("Lib.al", "codeunit 50100 Lib { }")],
+        );
+        std::fs::create_dir_all(lib.join("res")).unwrap();
+        std::fs::write(lib.join("res/Tab50100.navxdata"), b"data").unwrap();
+        let project = app_folder(tmp.path(), "project", &json("p", &["lib"]), &[]);
+        let deps = load(&project, &[], &[lib]).unwrap();
+        let i = deps.apps.iter().position(|a| a.id == "lib").expect("lib loaded");
+        assert!(deps.manifests[i].package_data);
+        assert_eq!(
+            deps.manifests[i].package_data_files,
+            vec![("res/Tab50100.navxdata".to_string(), b"data".to_vec())]
         );
     }
 
