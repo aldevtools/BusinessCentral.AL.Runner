@@ -5,7 +5,7 @@
 //! copies the table's spine and the one chunk it changes (`pmap.rs`), so a write never reaches the frozen maps, and a
 //! rollback drops only what the thread's store changed (decision 2).
 
-use super::{MemStore, Slot, Tables};
+use super::{MemStore, Rows, Slot, Tables};
 use al_builtins::value::Value;
 
 /// Committed tables, with their stamps and marks, that every thread may read and none writes (see the module comment).
@@ -123,6 +123,30 @@ impl FrozenStore {
     /// How many rows the frozen tables hold.
     pub fn row_count(&self) -> usize {
         self.tables.values().map(|t| t.len()).sum()
+    }
+}
+
+/// The rows of one table of the test data, built once per process and read by every thread (ADR-069 decision 4).
+pub struct FrozenRows(Rows);
+
+// SAFETY: the argument of `FrozenStore` above: `FrozenRows::freeze` checks every key and row value with `shareable`,
+// nothing writes through a `&FrozenRows`, and `thaw` clones the map's root, whose writers copy what they change.
+unsafe impl Send for FrozenRows {}
+unsafe impl Sync for FrozenRows {}
+
+impl FrozenRows {
+    /// `rows` frozen; `Err` gives them back when a key or a row holds a value that is not [`shareable`].
+    pub fn freeze(rows: Rows) -> Result<FrozenRows, Rows> {
+        let plain = rows
+            .0
+            .iter()
+            .all(|(k, r)| k.0.iter().all(shareable) && r.iter().all(shareable));
+        if plain { Ok(FrozenRows(rows)) } else { Err(rows) }
+    }
+
+    /// A thread's own handle on the rows: a clone of the map's root.
+    pub fn thaw(&self) -> Rows {
+        self.0.clone()
     }
 }
 

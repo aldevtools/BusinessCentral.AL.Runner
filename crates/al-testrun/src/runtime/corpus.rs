@@ -1016,7 +1016,7 @@ impl CorpusRuntime {
             );
             global_triggers_find_unavailable(&mut engine, lowered);
             if let Some(e) = Arc::get_mut(&mut engine) {
-                e.test_data = opts.test_data.clone();
+                (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
                 e.license = opts.license.clone();
                 e.write_in_try_allowed = opts.allow_write_in_try_functions;
                 e.dependencies_published_global = opts.dependencies_published_global;
@@ -1029,7 +1029,7 @@ impl CorpusRuntime {
         let sibling_of = |engine: &Arc<Engine>| {
             let mut sibling = engine.sibling();
             if let Some(e) = Arc::get_mut(&mut sibling) {
-                e.test_data = opts.test_data.clone();
+                (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
                 e.license = opts.license.clone();
                 e.write_in_try_allowed = opts.allow_write_in_try_functions;
                 e.dependencies_published_global = opts.dependencies_published_global;
@@ -2179,7 +2179,7 @@ fn take_kept_engines(
         // Every field a run sets, back to what `Engine::with_config` makes; then what `make_engine` sets.
         e.reset_run_state();
         e.dotnet = dotnet.clone();
-        e.test_data = opts.test_data.clone();
+        (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
         e.license = opts.license.clone();
         e.write_in_try_allowed = opts.allow_write_in_try_functions;
         e.dependencies_published_global = opts.dependencies_published_global;
