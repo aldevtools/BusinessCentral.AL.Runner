@@ -92,15 +92,57 @@ pub(crate) fn uninitialized(nav_type: &str) -> Signal {
 }
 
 /// The node behind a receiver that may be a variable nobody assigned: the node-level methods (`WriteTo`, `Remove`) name
-/// `XmlNode` in the error, the type's own methods name the type.
+/// `XmlNode` in the error, the type's own methods name the type. Pinned for a document type and a declaration
+/// (xml/xml/DocTypeErrors.al:Uninitialised_SettersAndMethods, P104WriteDecl.al:340), and for a text, CDATA section, comment
+/// and processing instruction (xml/xml/P90{Text,CData,Comment,PI}Read.al UninitialisedVariable_2 and _3: Remove, AddAfterSelf,
+/// AddBeforeSelf, GetDocument, GetParent, ReplaceWith, SelectNodes, SelectSingleNode and WriteTo name `XmlNode`; Value,
+/// GetData and SetData name the type; P104TreeB{Text,CData,Comment,PI}.al P104_Remove_Uninitialised).
 pub(super) fn recv_or_uninit(r: Option<&mut Value>, nav_type: &str) -> Result<Handle, Signal> {
     if let Some(Value::Library(name, h)) = r.as_deref() {
-        if matches!(&*h.borrow(), LibraryValue::Empty) && matches!(name.as_str(), "XmlDocumentType" | "XmlDeclaration")
+        if matches!(&*h.borrow(), LibraryValue::Empty)
+            && matches!(
+                name.as_str(),
+                "XmlDocumentType"
+                    | "XmlDeclaration"
+                    | "XmlText"
+                    | "XmlCData"
+                    | "XmlComment"
+                    | "XmlProcessingInstruction"
+            )
         {
             return Err(uninitialized(nav_type));
         }
     }
     recv(r)
+}
+
+/// The node behind the receiver of a node-level method that only the text kinds pin for an unassigned variable (AddAfterSelf,
+/// AddBeforeSelf, ReplaceWith, SelectNodes, SelectSingleNode; xml/xml/P90{Text,CData,Comment,PI}Read.al
+/// UninitialisedVariable_2): an unassigned text, CDATA section, comment or processing instruction raises `NotInitialized`
+/// naming `XmlNode`; another unassigned kind is refused as before.
+pub(super) fn recv_text_kind_or_uninit(r: Option<&mut Value>) -> Result<Handle, Signal> {
+    if let Some(Value::Library(name, h)) = r.as_deref() {
+        if matches!(&*h.borrow(), LibraryValue::Empty)
+            && matches!(
+                name.as_str(),
+                "XmlText" | "XmlCData" | "XmlComment" | "XmlProcessingInstruction"
+            )
+        {
+            return Err(uninitialized("XmlNode"));
+        }
+    }
+    recv(r)
+}
+
+/// The node behind the receiver of `WriteTo`: an unassigned node of the kinds [`recv_or_uninit`] names, or an unassigned
+/// `XmlNode`, raises `NotInitialized` naming `XmlNode` (xml/xml/P104WriteNode.al:337-355 P104_WriteTo_Uninitialised,
+/// `WriteTo(Text)`, `WriteTo(XmlWriteOptions, Text)`, `WriteTo(OutStream)` and `WriteTo(XmlWriteOptions, OutStream)`; the
+/// same for a document type, P104WriteDocType.al:337-355).
+pub(super) fn recv_write_to(r: Option<&mut Value>) -> Result<Handle, Signal> {
+    if unassigned(&r, "XmlNode") {
+        return Err(uninitialized("XmlNode"));
+    }
+    recv_or_uninit(r, "XmlNode")
 }
 
 pub(super) fn new_node(data: XData) -> Handle {

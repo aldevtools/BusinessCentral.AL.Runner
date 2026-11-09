@@ -115,7 +115,7 @@ pub(super) fn xpath_error_text(why: &str, path: &str) -> Option<String> {
 }
 
 pub(super) fn select_single_node(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    let h = recv(r)?;
+    let h = recv_text_kind_or_uninit(r)?;
     let found = select(c, &h, &arg_text(a, 0)?, None)?;
     single_result(c, found, a, 1)
 }
@@ -137,7 +137,7 @@ pub(super) fn single_result(c: &mut dyn Ctx, found: Option<Vec<Handle>>, a: &mut
 }
 
 pub(super) fn select_nodes(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    let h = recv(r)?;
+    let h = recv_text_kind_or_uninit(r)?;
     // A document type has no nodes to select: false and an empty list (DocTypeNode.al:SelectNodes_OnDocType).
     if with(&h, |d| matches!(d, XData::DocType { .. })) {
         a[1] = list_of(Vec::new());
@@ -161,7 +161,7 @@ pub(super) fn manager_prefixes(a: &[Value], i: usize) -> Result<Vec<(String, Str
 }
 
 pub(super) fn select_nodes_ns(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    let h = recv(r)?;
+    let h = recv_text_kind_or_uninit(r)?;
     let prefixes = manager_prefixes(a, 1)?;
     let found = select(c, &h, &arg_text(a, 0)?, Some(&prefixes))?;
     a[2] = list_of(found.clone().unwrap_or_default());
@@ -169,7 +169,7 @@ pub(super) fn select_nodes_ns(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [V
 }
 
 pub(super) fn select_single_node_ns(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    let h = recv(r)?;
+    let h = recv_text_kind_or_uninit(r)?;
     let prefixes = manager_prefixes(a, 1)?;
     let found = select(c, &h, &arg_text(a, 0)?, Some(&prefixes))?;
     single_result(c, found, a, 2)
