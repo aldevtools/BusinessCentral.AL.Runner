@@ -6,9 +6,10 @@
 //! trigger and each test method it calls the runner's `OnBeforeTestRun` and `OnAfterTestRun` triggers on the
 //! runner's instance ([`Steps::Al`]) in place of the four steps `runner_reset.rs` replays by hand ([`Steps::Builtin`]).
 //!
-//! What the platform does with the triggers is not probed yet (ADR-066 probes P1-P5); it runs under the assumptions
-//! `test-runner-trigger-calls` and `test-runner-trigger-transactions` (hard rule 3 exception: Microsoft's CI runs
-//! every Microsoft test through runner 130450, `TestRunnerIsolCodeunit.Codeunit.al:16-40`).
+//! How the platform calls the triggers is pinned by ADR-066 probes P1-P5 and P8 (the isolation-probe app's runners 61330
+//! and 61331 and its reader, corpus tests/al-language-isolation-probe/src/RpReader.Codeunit.al, Windows nightly on BC
+//! 27.5, 28.5 and 29.0): once for the codeunit itself with FunctionName '' around everything, then around a declared
+//! OnRun and each method; their writes are committed and survive the isolation rollback (probe P4).
 
 use super::runner_reset::{RunnerReset, test_permissions};
 use super::*;
@@ -36,6 +37,8 @@ pub(crate) enum Steps {
         /// The Test Runner's tables when the runner reads its tests from their rows (`suite_rows.rs`): the test's own
         /// code may not touch them (ADR-066 decision 4).
         rows: std::collections::BTreeSet<u32>,
+        /// Whether the test codeunit's OnRun trigger raised an error (`Steps::after_on_run`).
+        on_run_error: std::cell::Cell<bool>,
     },
 }
 
@@ -57,6 +60,7 @@ impl Steps {
                     true => super::suite_rows::tables(&engine.program),
                     false => Default::default(),
                 },
+                on_run_error: Default::default(),
             },
             None if execute => Steps::Builtin(RunnerReset::default()),
             None => Steps::Builtin(RunnerReset::of(engine)),
@@ -150,13 +154,14 @@ impl Steps {
         ))
     }
 
-    /// After test method `routine`, which passed when `success`; nothing for a method the runner `skipped`.
+    /// After test method `routine`, which ended with `outcome` (OnAfterTestRun gets IsSuccess true for a pass) and failed
+    /// with `failure`; nothing for a method the runner `skipped`.
     pub(crate) fn after(
         &self,
         session: &mut Session,
         obj: &al_ir::Object,
         routine: &al_ir::Routine,
-        success: bool,
+        (outcome, failure): (&Outcome, Option<&AlError>),
         skipped: bool,
     ) -> Result<(), String> {
         if skipped {
@@ -166,15 +171,85 @@ impl Steps {
             Steps::Builtin(reset) => reset.after(session),
             Steps::Al { runner, instance, .. } => {
                 session.clear_stop();
+                // OnAfterTestRun reads the failure as the last error (RpReader.Codeunit.al:44-53 P2).
+                if let Some(e) = failure {
+                    session.last_error = e.clone();
+                }
                 let permissions = test_permissions(obj, routine);
-                after_test_run(session, *runner, instance, obj, &routine.name, &permissions, success)
+                after_test_run(
+                    session,
+                    *runner,
+                    instance,
+                    obj,
+                    &routine.name,
+                    &permissions,
+                    *outcome == Outcome::Pass,
+                )
             }
         }
     }
 
+    /// The test codeunit run `run`, with the runner's calls for the codeunit itself around it: `OnBeforeTestRun` and
+    /// `OnAfterTestRun` with FunctionName '' before the OnRun trigger and the first method and after the last, the one
+    /// after with IsSuccess false when a method failed (RpReader.Codeunit.al:56-69 P3, :111-116 P5). After a failed OnRun
+    /// (`run` ends with no outcome) BC 29 makes no call after, BC 27.5 and 28.5 one with IsSuccess false
+    /// (RpReader.Codeunit.al:119-125, :195-202; [`al_version::Gate::NoCodeunitAfterTestRunAfterFailedOnRunFrom29`]).
+    /// `refuse` makes the outcomes of a codeunit whose tests are not run, with the reason. The flag: whether the OnRun
+    /// trigger raised an error.
+    pub(crate) fn around_codeunit(
+        &self,
+        session: &mut Session,
+        obj: &al_ir::Object,
+        refuse: impl Fn(String) -> Outcomes,
+        run: impl FnOnce(&mut Session) -> Result<Outcomes, Outcomes>,
+    ) -> (Result<Outcomes, Outcomes>, bool) {
+        let Steps::Al {
+            runner,
+            instance,
+            on_run_error,
+            ..
+        } = self
+        else {
+            return (run(session), false);
+        };
+        let permissions = codeunit_permissions(obj);
+        // What the platform does when the runner answers false for the codeunit itself is not probed; Microsoft's
+        // runner answers true for '' (TestRunnerMgt.Codeunit.al, PlatformBeforeTestRun).
+        match before_test_run(session, *runner, instance, obj, "", &permissions) {
+            Ok(true) => {}
+            Ok(false) => {
+                return (
+                    Err(refuse(format!(
+                        "the test runner codeunit {} answered false from OnBeforeTestRun for the test codeunit itself (FunctionName ''): what the platform does then is not probed (ADR-066 P3)",
+                        runner_name(session, *runner)
+                    ))),
+                    false,
+                );
+            }
+            Err(why) => return (Err(refuse(why)), false),
+        }
+        let ran = run(session);
+        let failed = on_run_error.get();
+        if failed
+            && al_version::gate_on(
+                session.engine.target.as_ref(),
+                al_version::Gate::NoCodeunitAfterTestRunAfterFailedOnRunFrom29,
+            )
+        {
+            return (ran, true);
+        }
+        let success = matches!(&ran, Ok(out) if out.iter().all(|(_, o)| *o == Outcome::Pass));
+        session.clear_stop();
+        match after_test_run(session, *runner, instance, obj, "", &permissions, success) {
+            Ok(()) => (ran, failed),
+            // What BC reports when this trigger fails is not probed.
+            Err(why) => (Err(refuse(why)), failed),
+        }
+    }
+
     /// Before the test codeunit's declared OnRun trigger: the runner gets `OnBeforeTestRun` with FunctionName
-    /// `OnRun` (assumption `test-runner-trigger-calls`; `TestRunnerMgt.Codeunit.al:92-96` answers true for it). An
-    /// answer of false is not probed and refuses the codeunit.
+    /// `OnRun` (RpReader.Codeunit.al:56-62 P3; `TestRunnerMgt.Codeunit.al:92-96` answers true for it). An answer of
+    /// false is not probed and refuses the codeunit.
     pub(crate) fn before_on_run(&self, session: &mut Session, obj: &al_ir::Object) -> Result<(), String> {
         let Steps::Al {
             runner,
@@ -199,8 +274,15 @@ impl Steps {
         }
     }
 
-    /// After the test codeunit's declared OnRun trigger, which ended without an error when `success`.
-    pub(crate) fn after_on_run(&self, session: &mut Session, obj: &al_ir::Object, success: bool) -> Result<(), String> {
+    /// After the test codeunit's declared OnRun trigger, which ended without an error when `success`, and raised the AL
+    /// error `error`.
+    pub(crate) fn after_on_run(
+        &self,
+        session: &mut Session,
+        obj: &al_ir::Object,
+        success: bool,
+        error: Option<&AlError>,
+    ) -> Result<(), String> {
         if let Some(why) = self.take_rows(session) {
             return Err(format!("OnRun: {why}"));
         }
@@ -208,11 +290,18 @@ impl Steps {
             runner,
             instance,
             rows_from,
+            on_run_error,
             ..
         } = self
         else {
             return Ok(());
         };
+        on_run_error.set(error.is_some());
+        // The OnRun error stays the last error: `Ok := Codeunit.Run(...)` in the runner finds it
+        // (RpReader.Codeunit.al:119-125 P5).
+        if let Some(e) = error {
+            session.last_error = e.clone();
+        }
         let permissions = codeunit_permissions(obj);
         let on_run_wrote = session.row_versions_handed_out() != rows_from.get();
         after_test_run(session, *runner, instance, obj, "OnRun", &permissions, success)?;
@@ -267,8 +356,6 @@ fn before_test_run(
     function: &str,
     permissions: &str,
 ) -> Result<bool, String> {
-    al_builtins::assumptions::assume(Assumption::TestRunnerTriggerCalls);
-    al_builtins::assumptions::assume(Assumption::TestRunnerTriggerTransactions);
     // A runner without the trigger runs every method (the platform calls no code).
     let Some(r) = trigger(session, runner, "OnBeforeTestRun") else {
         return Ok(true);
@@ -284,8 +371,8 @@ fn before_test_run(
         Ok(_) => false,
         Err(e) => return Err(trigger_failed(session, runner, "OnBeforeTestRun", e)),
     };
-    // NavTestExecution.BeforeTestRunAsync commits after the trigger (AL Runner v2 TestExecutor.cs; assumption
-    // `test-runner-trigger-transactions`).
+    // The platform commits after the trigger: its rows survive the isolation rollback and the method sees them
+    // (RpReader.Codeunit.al:73-98 P4, under TestIsolation Codeunit and Function, also for a failing method).
     session.commit_transaction();
     session.refreeze_min_active_row_version();
     Ok(answer)
@@ -332,6 +419,8 @@ struct Host<'a, R> {
     object: usize,
     /// The test codeunit run of `run.rs`, with the runner and its instance.
     body: &'a mut dyn FnMut(&mut Session, RunnerRef) -> R,
+    /// What `Ok := Codeunit.Run(...)` returns for what `body` returned, or why that is not known.
+    verdict: &'a dyn Fn(&R) -> Result<bool, String>,
     /// What `body` returned; `Some` once the runner ran the test codeunit.
     ran: Option<R>,
 }
@@ -355,9 +444,70 @@ impl<R> al_vm::TestCodeunitHost for Host<'_, R> {
         let r = (self.body)(session, runner);
         session.in_test_codeunit = false;
         self.ran = Some(r);
-        // The runner's Codeunit.Run returns and raises nothing, whatever the tests did (assumption
-        // `test-runner-trigger-calls`, ADR-066 P5).
+        // The runner's Codeunit.Run raises nothing, whatever the tests did (RpRunnerLogic.Codeunit.al:34-43 P5b, read by
+        // RpReaderB.Codeunit.al:21-30: `asserterror Codeunit.Run(...)` fails for want of an error).
         Ok(())
+    }
+
+    fn run_result(&self) -> Result<bool, String> {
+        match &self.ran {
+            Some(r) => (self.verdict)(r),
+            None => Err("the test codeunit did not run".into()),
+        }
+    }
+}
+
+/// What `Ok := Codeunit.Run(test codeunit)` returns in a runner for the outcomes of its run and whether its OnRun trigger
+/// raised an error (`on_run_error`): false when a method failed or the OnRun trigger failed, with the OnRun error as the
+/// last error (RpReader.Codeunit.al:109-125, ADR-066 P5 on BC 27.5, 28.5 and 29.0). P5 measures nothing else: when every
+/// test passed, or a test was not run and none failed, the answer is not known.
+pub(crate) fn run_result(ran: &Result<Outcomes, Outcomes>, on_run_error: bool) -> Result<bool, String> {
+    if on_run_error {
+        return Ok(false);
+    }
+    let (Ok(out) | Err(out)) = ran;
+    if out.iter().any(|(_, o)| matches!(o, Outcome::Fail(_))) {
+        return Ok(false);
+    }
+    let why = match out.iter().all(|(_, o)| *o == Outcome::Pass) {
+        true => "every test passed",
+        false => "a test was not run and none failed",
+    };
+    Err(format!(
+        "Codeunit.Run of a test codeunit from a test runner, with its result used, when {why}: what it returns then is not probed (ADR-066 P5 measures a failing method and a failing OnRun)"
+    ))
+}
+
+/// Runs test codeunit `object` on `session` (`inner`, given the steps around each method), through test runner codeunit
+/// `runner` when there is one ([`drive`]), with the runner's calls for the codeunit itself around it
+/// ([`Steps::around_codeunit`]). `refuse` makes the outcomes of a codeunit whose tests are not run, with the reason.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run_unit(
+    session: &mut Session,
+    engine: &Engine,
+    execute: bool,
+    object: usize,
+    runner: Option<usize>,
+    tests: &[usize],
+    refuse: &dyn Fn(String) -> Outcomes,
+    inner: &mut dyn FnMut(&mut Session, &Steps) -> Result<Outcomes, Outcomes>,
+) -> Result<Outcomes, Outcomes> {
+    let obj = &engine.program.objects[object];
+    let mut body = |session: &mut Session, al: Option<RunnerRef>| {
+        let steps = Steps::new(engine, execute, al, session);
+        steps.around_codeunit(session, obj, refuse, |s| inner(s, &steps))
+    };
+    match runner {
+        None => body(session, None).0,
+        Some(runner) => drive(
+            session,
+            runner,
+            object,
+            tests,
+            &mut |s, al| body(s, Some(al)),
+            &|(ran, on_run_error)| run_result(ran, *on_run_error),
+        )
+        .map_or_else(|why| Err(refuse(why)), |(ran, _)| ran),
     }
 }
 
@@ -371,6 +521,7 @@ pub(crate) fn drive<R>(
     object: usize,
     selected: &[usize],
     body: &mut dyn FnMut(&mut Session, RunnerRef) -> R,
+    verdict: &dyn Fn(&R) -> Result<bool, String>,
 ) -> Result<R, String> {
     let name = runner_name(session, runner);
     let Some(id) = session.engine.program.objects[runner].id else {
@@ -384,6 +535,7 @@ pub(crate) fn drive<R>(
     let mut host = Host {
         object,
         body,
+        verdict,
         ran: None,
     };
     // The runner's own code runs outside the test codeunit (the nesting check of `Codeunit.Run` holds only inside it).

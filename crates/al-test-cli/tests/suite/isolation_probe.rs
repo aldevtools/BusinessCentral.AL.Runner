@@ -44,12 +44,13 @@ fn real_bc(file: &str) -> Vec<oracle::XunitCase> {
 
 fn agree(rt: &CorpusRuntime, suite: &str, file: &str) {
     // The app has 49 test methods per runner since writer SD's runners 61304-61320 (corpus PR 735, al-runner issues
-    // 5607/5609), 85 since the ADR-066 runner-trigger probes P1-P8 and P5b (corpus PRs 1146 and 1148, 36 `[Test]` methods);
-    // BC's isolation oracle covers the eleven of the first probe codeunits.
+    // 5607/5609), 85 since the ADR-066 runner-trigger probes P1-P8 and P5b (corpus PRs 1146 and 1148, 36 `[Test]` methods),
+    // 90 since corpus PR 1221 (a failing P4 method, two P4 reader tests, probe P8b and its reader test); BC's isolation
+    // oracle covers the eleven of the first probe codeunits.
     assert_eq!(
         rt.cases_in(suite),
-        85,
-        "the probe app runs 85 methods under {suite} isolation"
+        90,
+        "the probe app runs 90 methods under {suite} isolation"
     );
     let bc = real_bc(file);
     assert_eq!(bc.len(), 11, "the oracle has eleven methods");

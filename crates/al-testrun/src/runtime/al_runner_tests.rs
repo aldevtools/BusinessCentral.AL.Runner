@@ -6,6 +6,11 @@ use al_sema::workspace::AppSource;
 /// The outcomes of test codeunit `test` run through test runner codeunit `runner` (ADR-066 decision 1), or through
 /// al-runner's own runner when `runner` is `None`.
 fn outcomes_through(src: &str, test: u32, runner: Option<u32>) -> Vec<(String, Outcome)> {
+    outcomes_through_on(src, test, runner, None)
+}
+
+/// [`outcomes_through`] on BC `bc` (a version such as "28.5"); `None` is the newest behavior.
+fn outcomes_through_on(src: &str, test: u32, runner: Option<u32>, bc: Option<&str>) -> Vec<(String, Outcome)> {
     let (ws, l) = al_sema::lower::compile(
         vec![AppSource {
             id: "a".into(),
@@ -16,7 +21,8 @@ fn outcomes_through(src: &str, test: u32, runner: Option<u32>) -> Vec<(String, O
         &Default::default(),
     );
     assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
-    let engine = Engine::new(l.program.clone(), Vec::new().into_iter().collect());
+    let target = bc.map(|v| al_version::Target::for_bc(al_version::BcVersion::parse(v).unwrap()));
+    let engine = Engine::with_target(l.program.clone(), Vec::new().into_iter().collect(), target);
     let index = |id: u32| {
         l.program
             .objects
@@ -131,14 +137,16 @@ codeunit 60302 \"Logged Tests\"
                 else
                     Got += '-' + L.FunctionName + ':' + Format(L.IsSuccess) + ' ';
             until L.Next() = 0;
-        if Got <> '+OnRun -OnRun:Yes +A_Passes -A_Passes:Yes +B_Fails -B_Fails:No +C_Skipped +D_SeesTheLog ' then
+        if Got <> '+ +OnRun -OnRun:Yes +A_Passes -A_Passes:Yes +B_Fails -B_Fails:No +C_Skipped +D_SeesTheLog ' then
             Error('log %1', Got);
     end;
 }
 ";
 
-// ADR-066 decision 1: the runner's OnBeforeTestRun and OnAfterTestRun run around the OnRun trigger and each method; an
-// answer of false skips the method (no row), and OnAfterTestRun gets IsSuccess (assumption `test-runner-trigger-calls`).
+// ADR-066 decision 1: the runner's OnBeforeTestRun and OnAfterTestRun run for the codeunit itself (FunctionName ''), then
+// around the OnRun trigger and each method; an answer of false skips the method (no row, no OnAfterTestRun), and
+// OnAfterTestRun gets IsSuccess. Pinned on BC 27.5, 28.5 and 29.0 by the isolation-probe reader
+// (corpus tests/al-language-isolation-probe/src/RpReader.Codeunit.al:21-62).
 #[test]
 fn a_runner_codeunit_gets_its_triggers_around_each_test_and_can_skip_one() {
     let got = outcomes_through(LOGGING_RUNNER, 60302, Some(60301));
@@ -344,5 +352,192 @@ fn a_runner_subscriber_that_logs_a_sql_counter_change_through_strsubstno_runs() 
     assert_eq!(
         outcomes_through(PERF_RUNNER, 60323, Some(60320)),
         vec![("OnePlusOne".to_string(), Outcome::Pass)]
+    );
+}
+
+/// A runner that logs every trigger call and what its `Ok := Codeunit.Run(...)` returned, then fails its own OnRun with
+/// the log when the log is not `EXPECTED`: a wrong log turns every test into "not run" with the log in the reason. The
+/// shape of the probe runners 61330 and 61331 (corpus tests/al-language-isolation-probe/src/RpRunnerLogic.Codeunit.al:24-33),
+/// with the ClearLastError of Microsoft's bookkeeping after a method.
+const CHECKING_RUNNER: &str = "
+table 60330 \"Check Log\"
+{
+    fields
+    {
+        field(1; No; Integer) { }
+        field(2; Entry; Text[250]) { }
+    }
+    keys { key(PK; No) { } }
+}
+
+codeunit 60331 \"Checking Runner\"
+{
+    Subtype = TestRunner;
+
+    trigger OnRun()
+    var
+        L: Record \"Check Log\";
+        Ok: Boolean;
+        Got: Text;
+    begin
+        Commit();
+        ClearLastError();
+        Ok := Codeunit.Run(TESTCODEUNIT);
+        Log('RUN:' + Format(Ok) + ' err=[' + GetLastErrorText() + ']');
+        if L.FindSet() then
+            repeat
+                Got += L.Entry + ' ';
+            until L.Next() = 0;
+        if Got <> 'EXPECTED ' then
+            Error('log %1', Got);
+    end;
+
+    trigger OnBeforeTestRun(CodeunitId: Integer; CodeunitName: Text; FunctionName: Text; FunctionTestPermissions: TestPermissions): Boolean
+    begin
+        Log('+' + FunctionName);
+        exit(true);
+    end;
+
+    trigger OnAfterTestRun(CodeunitId: Integer; CodeunitName: Text; FunctionName: Text; FunctionTestPermissions: TestPermissions; IsSuccess: Boolean)
+    begin
+        Log('-' + FunctionName + ':' + Format(IsSuccess));
+        // What Microsoft's PlatformAfterTestRun does for a method, and not for '' or OnRun (TestRunnerMgt.Codeunit.al).
+        if (FunctionName <> '') and (FunctionName <> 'OnRun') then
+            ClearLastError();
+    end;
+
+    local procedure Log(Entry: Text)
+    var
+        L: Record \"Check Log\";
+        N: Integer;
+    begin
+        if L.FindLast() then
+            N := L.No;
+        L.Init();
+        L.No := N + 1;
+        L.Entry := CopyStr(Entry, 1, 250);
+        L.Insert();
+        Commit();
+    end;
+}
+
+codeunit 60332 \"Failing Tests\"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure A_Passes()
+    begin
+    end;
+
+    [Test]
+    procedure B_Fails()
+    begin
+        Error('B fails');
+    end;
+}
+
+codeunit 60333 \"OnRun Raises\"
+{
+    Subtype = Test;
+
+    trigger OnRun()
+    begin
+        Error('OnRun fails');
+    end;
+
+    [Test]
+    procedure NeverRuns()
+    begin
+    end;
+}
+
+codeunit 60334 \"Passing Tests\"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure A_Passes()
+    begin
+    end;
+}
+";
+
+fn checking_runner(test: u32, expected: &str) -> String {
+    CHECKING_RUNNER
+        .replace("TESTCODEUNIT", &test.to_string())
+        .replace("EXPECTED", expected)
+}
+
+// The codeunit's own '' calls come before its first method and after its last, the one after with IsSuccess false when a
+// method failed; `Ok := Codeunit.Run(...)` returns false and raises nothing (RpReader.Codeunit.al:111-116, P5 under the
+// probe runners on BC 27.5, 28.5 and 29.0; the empty last error comes from the ClearLastError of Microsoft's bookkeeping,
+// which this runner copies).
+#[test]
+fn a_failing_method_makes_codeunit_run_return_false_after_the_codeunit_level_trigger_calls() {
+    let src = checking_runner(
+        60332,
+        "+ +A_Passes -A_Passes:Yes +B_Fails -B_Fails:No -:No RUN:No err=[]",
+    );
+    let got = outcomes_through(&src, 60332, Some(60331));
+    assert_eq!(
+        got,
+        vec![
+            ("A_Passes".to_string(), Outcome::Pass),
+            ("B_Fails".to_string(), Outcome::Fail("B fails".into())),
+        ]
+    );
+}
+
+// A failing OnRun: the OnRun calls with IsSuccess false, no method runs, and `Ok := Codeunit.Run(...)` returns false with
+// the OnRun error as the last error. BC 27.5 and 28.5 call OnAfterTestRun for the codeunit itself ('') after it, BC 29.0
+// does not (RpReader.Codeunit.al:119-125 and :195-202, the `#if BC29PLUS` guard).
+#[test]
+fn a_failing_on_run_makes_codeunit_run_return_false_and_bc_29_skips_the_codeunit_level_after_call() {
+    // The runner did not fail its own OnRun (the log was right): the test is not run for its OnRun error alone.
+    let on_run_failed = |got: Vec<(String, Outcome)>| {
+        assert!(
+            matches!(&got[..], [(n, Outcome::NotRun(why))] if n == "NeverRuns" && why.starts_with("OnRun failed")),
+            "{got:?}"
+        );
+    };
+    let before_29 = checking_runner(60333, "+ +OnRun -OnRun:No -:No RUN:No err=[OnRun fails]");
+    on_run_failed(outcomes_through_on(&before_29, 60333, Some(60331), Some("28.5")));
+    on_run_failed(outcomes_through_on(&before_29, 60333, Some(60331), Some("27.5")));
+    let from_29 = checking_runner(60333, "+ +OnRun -OnRun:No RUN:No err=[OnRun fails]");
+    on_run_failed(outcomes_through_on(&from_29, 60333, Some(60331), Some("29.0")));
+}
+
+// What `Ok := Codeunit.Run(...)` returns when every method passes is not probed (P5 measures only a failing method and a
+// failing OnRun): the runner is refused, so its tests are not run.
+#[test]
+fn codeunit_run_of_a_passing_test_codeunit_with_its_result_used_is_refused() {
+    let src = checking_runner(60334, "+ +A_Passes -A_Passes:Yes -:Yes RUN:Yes err=[]");
+    let got = outcomes_through(&src, 60334, Some(60331));
+    assert!(
+        matches!(&got[..], [(n, Outcome::NotRun(why))] if n == "A_Passes" && why.contains("every test passed")),
+        "{got:?}"
+    );
+}
+
+// OnAfterTestRun of a failed method reads the failure as the last error; of a passing one an empty text
+// (RpReader.Codeunit.al:44-53 P2, on BC 27.5, 28.5 and 29.0).
+#[test]
+fn on_after_test_run_of_a_failed_method_reads_the_failure_as_the_last_error() {
+    let src = checking_runner(
+        60332,
+        "+ +A_Passes -A_Passes:Yes[] +B_Fails -B_Fails:No[B fails] -:No[] RUN:No err=[]",
+    )
+    .replace(
+        "Log('-' + FunctionName + ':' + Format(IsSuccess));",
+        "Log('-' + FunctionName + ':' + Format(IsSuccess) + '[' + GetLastErrorText() + ']');",
+    );
+    let got = outcomes_through(&src, 60332, Some(60331));
+    assert_eq!(
+        got,
+        vec![
+            ("A_Passes".to_string(), Outcome::Pass),
+            ("B_Fails".to_string(), Outcome::Fail("B fails".into())),
+        ]
     );
 }
