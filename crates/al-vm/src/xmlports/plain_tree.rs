@@ -51,13 +51,13 @@ fn is_root_table(schema: &Schema, node: Option<usize>) -> bool {
 ///   XNT_TextTbl_*);
 /// - two text levels below it (al-runner issue 7263; xmlports/shapes-properties/XpTextValueNestedTable.al:954
 ///   XTV_RootTextsTableThenValue_Export, :969 XTV_RootTextsValueThenTable_Export, :984 XTV_RootTextsNamespaces_Export);
-/// - three and four text levels below it, and two value elements in one text element (al-runner issue 7309; the same file on corpus
-///   branch al-runtime-rs-staging-7309, corpus PR 1218: :1060 XTV_Root3TextsTableThenValue_Export, :1073
+/// - three and four text levels below it, and two value elements in one text element (al-runner issue 7309; the same file:
+///   :1060 XTV_Root3TextsTableThenValue_Export, :1073
 ///   XTV_Root3TextsValueThenTable_Export, :1089 XTV_Root3TextsNamespaces_Export, :1109 XTV_Root4TextsTableThenValue_Export, :1122
 ///   XTV_Root3TextsTwoValues_Export, :1135 XTV_Root2TextsTwoValues_Export);
 /// - one to three text levels inside the row of a table element that is not the root, with one to three value elements before,
 ///   around or after the table element (:999 XTV_RowTextValueThenTable_Export, :1029 XTV_RowTextTableThenValue_Export, :1044
-///   XTV_RowTextFieldValueThenTable_Export; branch al-runtime-rs-staging-7309: :1148 XTV_RowTextTwoValuesThenTable_Export, :1164
+///   XTV_RowTextFieldValueThenTable_Export, :1148 XTV_RowTextTwoValuesThenTable_Export, :1164
 ///   XTV_RowTextValueTableValue_Export, :1177 XTV_RowTextTableThenTwoValues_Export, :1190 XTV_RowTextThreeValuesThenTable_Export,
 ///   :1216 XTV_RowDeepTwoValuesThenTable_Export, :1229 XTV_RowDeep3OneValueThenTable_Export, :1242
 ///   XTV_RowFieldTwoValuesThenTable_Export); one row of the outer table element.
