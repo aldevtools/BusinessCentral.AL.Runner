@@ -43,6 +43,7 @@ mod format_test_control;
 mod gone_row;
 mod gone_row_key_filter;
 mod goto_next_call;
+mod gotokey_action_insert_long_list;
 mod gotokey_edges;
 mod gotokey_walk_parts;
 mod gotorecord_action_insert;
