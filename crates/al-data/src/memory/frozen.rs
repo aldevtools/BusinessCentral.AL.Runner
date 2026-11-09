@@ -4,6 +4,11 @@
 //! store of its own with [`FrozenStore::thaw`]: a clone of the maps' roots. The first write of that store to a table
 //! copies the table's spine and the one chunk it changes (`pmap.rs`), so a write never reaches the frozen maps, and a
 //! rollback drops only what the thread's store changed (decision 2).
+//!
+//! A table whose rows hold a value that is not [`shareable`] but has a plain form in `value_codec` (a RecordId, a
+//! TableFilter: a large partner app's install code leaves Job Queue Entry rows with a `Record ID to Process`) is held as
+//! those bytes instead, and each thread's [`FrozenStore::thaw`] reads its own copy of it: the copy per thread of
+//! decision 3, for that table alone. Every other table stays shared.
 
 use super::{MemStore, Rows, Slot, Tables};
 use al_builtins::describe::Describe;
@@ -19,6 +24,15 @@ pub struct FrozenStore {
     emptied: crate::pmap::PMap<Slot, ()>,
     unknown_cols: std::collections::HashMap<u32, Vec<usize>>,
     counter: u64,
+    /// The tables whose rows hold a value that is not [`shareable`], as bytes (see the module comment).
+    held: Vec<Held>,
+}
+
+/// A table held as bytes: its place, its rows written with `value_codec::encode_row` (key, then row), and how many.
+struct Held {
+    slot: Slot,
+    bytes: Vec<u8>,
+    rows: usize,
 }
 
 // SAFETY (ADR-069 decision 3; a change here needs the owner, ADR-069 risk 2):
@@ -28,7 +42,9 @@ pub struct FrozenStore {
 // The values it accepts hold no `Rc` and no `Cell`/`RefCell`: plain data, or `Arc`s of `Sync` contents (a text's
 // `Arc<Inner>` whose only interior mutability is two atomic hint flags; an Option's `Arc<[String]>`; an unknown column's
 // `Arc<str>`; a Blob's `Arc<BlobCell>`, a `RwLock`). A key's code storage is an `Arc<[CodeStorage]>` of plain enums. The
-// maps themselves are `Arc`-shared spines, chunks and entries (`pmap.rs`).
+// maps themselves are `Arc`-shared spines, chunks and entries (`pmap.rs`). A table with a value `shareable` refuses
+// is not in the maps at all: `freeze` writes it as plain bytes (`Held`: an `Arc<str>` company, a `Vec<u8>`), and each
+// `thaw` reads a new copy of it on the calling thread, so its handles are made on, and never leave, that thread.
 // Nothing writes through a `&FrozenStore`: there is no method that hands out `&mut` to its maps. `thaw` clones the
 // roots (atomic count increments). The thawed store's writes go through `Arc::make_mut` / `Arc::try_unwrap`, which copy
 // the spine, chunk or entry whenever another owner holds it, and the `FrozenStore` holds every one of them for as long
@@ -139,12 +155,42 @@ impl FrozenStore {
     /// The committed tables of `store`, frozen; `Err` names the first key or row value that is not [`shareable`].
     /// What `store` has not committed is not part of it. The provider of virtual tables, the backing, the caches, the
     /// access watch and the log of restored changes stay with `store` (decision 9): [`FrozenStore::thaw`] gives none.
+    /// A table that holds a value that is not shareable is held as bytes (see the module comment); `Err` only when
+    /// such a value has no bytes form either.
     pub fn freeze(store: &MemStore) -> Result<FrozenStore, NotShareable> {
-        if let Some(why) = store.first_not_shareable() {
+        let no_form = |v: &Value| !shareable(v) && !al_builtins::value_codec::encode(v, &mut Vec::new());
+        if let Some(why) = store.first_value_where(no_form) {
             return Err(why);
         }
+        let mut tables = store.committed.clone();
+        let mut held = Vec::new();
+        for (slot, rows) in store.committed.iter() {
+            if rows
+                .iter()
+                .all(|(k, r)| k.0.iter().all(shareable) && r.iter().all(shareable))
+            {
+                continue;
+            }
+            let mut bytes = Vec::new();
+            for (k, r) in rows.iter() {
+                if !al_builtins::value_codec::encode_row(&k.0, &mut bytes)
+                    || !al_builtins::value_codec::encode_row(r, &mut bytes)
+                {
+                    unreachable!("every value has a bytes form (checked above)");
+                }
+            }
+            held.push(Held {
+                slot: slot.clone(),
+                bytes,
+                rows: rows.len(),
+            });
+        }
+        for h in &held {
+            tables.remove(&h.slot);
+        }
         Ok(FrozenStore {
-            tables: store.committed.clone(),
+            held,
+            tables,
             versions: store.committed_versions.clone(),
             shapes: store.committed_shapes.clone(),
             moves: store.committed_moves.clone(),
@@ -157,10 +203,24 @@ impl FrozenStore {
 
     /// A store of this thread's own holding the frozen tables, committed, with fresh caches and no provider or backing
     /// (`MemStore::with_backing` adds one). A clone of the maps' roots: no row is copied.
+    /// A table held as bytes is read into a copy of this thread's own; its key's code storage is empty, as in a store
+    /// read from bytes (`MemStore::from_exported`), which is what `Baseline::freeze` freezes.
     pub fn thaw(&self) -> MemStore {
+        let mut tables = self.tables.clone();
+        for h in &self.held {
+            let mut r = al_builtins::value_codec::Reader::new(&h.bytes);
+            let table: super::Table = (0..h.rows)
+                .map(|_| {
+                    let k = al_builtins::value_codec::decode_row(&mut r).expect("bytes `freeze` wrote");
+                    let row = al_builtins::value_codec::decode_row(&mut r).expect("bytes `freeze` wrote");
+                    (super::Key(k, None), row)
+                })
+                .collect();
+            tables.insert(h.slot.clone(), table);
+        }
         MemStore {
-            tables: self.tables.clone(),
-            committed: self.tables.clone(),
+            tables: tables.clone(),
+            committed: tables,
             versions: self.versions.clone(),
             committed_versions: self.versions.clone(),
             shapes: self.shapes.clone(),
@@ -179,11 +239,19 @@ impl FrozenStore {
 
     /// How many rows the frozen tables hold.
     pub fn row_count(&self) -> usize {
-        self.tables.values().map(|t| t.len()).sum()
+        self.tables.values().map(|t| t.len()).sum::<usize>() + self.held.iter().map(|h| h.rows).sum::<usize>()
+    }
+
+    /// The tables held as bytes, a copy per thread (see the module comment): (company, table object index, rows).
+    pub fn held_tables(&self) -> Vec<(String, u32, usize)> {
+        self.held
+            .iter()
+            .map(|h| (h.slot.0.to_string(), h.slot.1, h.rows))
+            .collect()
     }
 
     /// About how many bytes the frozen tables hold (see [`table_bytes`]): what the memory budget counts once for the
-    /// whole run (ADR-069 decision 10).
+    /// whole run (ADR-069 decision 10). A table held as bytes is each thread's own cost, not counted here.
     pub fn bytes(&self) -> u64 {
         self.tables.values().map(table_bytes).sum()
     }

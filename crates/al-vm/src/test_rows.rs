@@ -1,10 +1,12 @@
 //! The rows of the test data built once per process (ADR-069 decision 4).
 //!
 //! Each thread's `TestBacking` used to convert the raw cells of every table it touched into rows of its own. The rows
-//! are a pure function of the test data and the program, so one engine keeps one cache for all its threads: one
-//! `OnceLock` per (test data, table). The first thread that touches a table builds it; a thread that arrives meanwhile
-//! waits for it, and tables nobody builds yet go on in parallel. The engine names the program (`Backing::identity` is
-//! the test data's id and the engine's uid), so rows built for another program are never reused (risk 3).
+//! are a pure function of the test data and the program, so one engine keeps one cache for all its threads, and shares
+//! it with its siblings over the same program (`Engine::sibling`: the install engine and the tests engine of a run), so
+//! a table is built once per process: one `OnceLock` per (test data, table). The first thread that touches a table
+//! builds it; a thread that arrives meanwhile waits for it, and tables nobody builds yet go on in parallel. An engine
+//! made for another program (`Engine::with_config`) has a cache of its own, so rows built for another program are never
+//! reused (risk 3).
 
 use al_data::memory::{FrozenRows, Rows};
 use std::collections::HashMap;
@@ -122,6 +124,27 @@ mod tests {
             None,
             "another test data builds its own"
         );
+    }
+
+    /// With several test threads the first runs on the tests' engine and the others on the engine that ran the install
+    /// code (`Engine::sibling`): one program, so one cache, and each table is built once per process.
+    #[test]
+    fn an_engine_and_its_sibling_build_each_table_once() {
+        let engine = crate::Engine::new(al_ir::Program::default(), Vec::new());
+        let sibling = engine.sibling();
+        let builds = std::cell::Cell::new(0);
+        let build = || {
+            builds.set(builds.get() + 1);
+            Some(Rows::from_rows(&table(), vec![row("A", 1, 1)]).unwrap())
+        };
+        engine.test_rows.get(1, 7, build);
+        sibling.test_rows.get(1, 7, build);
+        assert_eq!(builds.get(), 1);
+        assert!(
+            sibling.shares_test_rows_with(&engine),
+            "the memory budget counts them once"
+        );
+        assert!(!crate::Engine::new(al_ir::Program::default(), Vec::new()).shares_test_rows_with(&engine));
     }
 
     #[test]
