@@ -28,19 +28,37 @@ pub struct SharedBaseline {
     bytes: Vec<u8>,
 }
 
+/// Why an install baseline is not frozen (each thread then keeps a copy of its own).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NotShared {
+    /// A key or row of the install baseline holds a value that is not plain (decision 3): where, and what it is.
+    Value(al_data::memory::NotShareable),
+    /// The baseline does not read back from its bytes.
+    NoReadBack,
+}
+
 impl Baseline {
+    /// Where the first value the bytes (`to_bytes`) have no form for sits, and what it is; `None` when every value has
+    /// one. Names why a baseline that is not shared is not written as bytes either.
+    pub fn first_without_bytes(&self) -> Option<al_data::memory::NotShareable> {
+        self.store
+            .first_value_where(|v| !al_builtins::value_codec::encode(v, &mut Vec::new()))
+    }
+
     /// This baseline frozen for every test thread to share (ADR-069 decision 1), or why it cannot be: a row holds a
     /// value that is not plain (decision 3), and each thread then keeps a copy of its own.
     ///
     /// The frozen tables are those a copy read from this baseline's bytes holds (`to_bytes`, `from_bytes`), so each
     /// thread starts from exactly what the copy per thread it replaces held: the same rows, keys and counters, and
     /// Blobs that no store of the install thread shares. That is one copy of the install rows per run (a few MB).
-    pub fn freeze(&self) -> Result<SharedBaseline, &'static str> {
-        const NOT_PLAIN: &str = "a row of the install baseline holds a value that is not plain";
-        let bytes = self.to_bytes().ok_or(NOT_PLAIN)?;
-        let copy = Baseline::from_bytes(&bytes).ok_or("the install baseline does not read back from its bytes")?;
+    pub fn freeze(&self) -> Result<SharedBaseline, NotShared> {
+        if let Some(why) = self.store.first_not_shareable() {
+            return Err(NotShared::Value(why));
+        }
+        let bytes = self.to_bytes().ok_or(NotShared::NoReadBack)?;
+        let copy = Baseline::from_bytes(&bytes).ok_or(NotShared::NoReadBack)?;
         Ok(SharedBaseline {
-            store: al_data::memory::FrozenStore::freeze(&copy.store).ok_or(NOT_PLAIN)?,
+            store: al_data::memory::FrozenStore::freeze(&copy.store).map_err(NotShared::Value)?,
             next_guid: copy.next_guid,
             next_row_version: copy.next_row_version,
             committed_row_version: copy.committed_row_version,
@@ -83,6 +101,12 @@ impl SharedBaseline {
             Some(e) => b.backed_by(e),
             None => b,
         }
+    }
+
+    /// About how many bytes the frozen install baseline's rows hold (`FrozenStore::bytes`): the memory budget counts
+    /// them once (decision 10).
+    pub fn bytes(&self) -> u64 {
+        self.store.bytes()
     }
 
     /// How many rows the frozen install baseline holds.

@@ -55,6 +55,9 @@ fn last_line(limit: u64) -> u64 {
 /// Reads the process's resident memory in bytes.
 pub type ReadResident = Arc<dyn Fn() -> Option<u64> + Send + Sync>;
 
+/// Reads how many bytes the run's shared rows hold now ([`Pool::share`]).
+pub type SharedBytes = Arc<dyn Fn() -> u64 + Send + Sync>;
+
 /// The limit of a run and how to read the process's resident memory, from the front end.
 #[derive(Clone)]
 pub struct MemoryBudget {
@@ -99,6 +102,9 @@ pub struct MemoryReport {
     pub ended: usize,
     /// Why the run stopped for its hard limit (the message the front end prints before it exits with code 2).
     pub halted: Option<String>,
+    /// About how many bytes the threads share and the fixed part counts once: the frozen install baseline and the test
+    /// data rows built once (ADR-069 decision 10).
+    pub shared: u64,
 }
 
 impl MemoryReport {
@@ -108,11 +114,13 @@ impl MemoryReport {
         let mb = |b: u64| b >> 20;
         let at = |b: Option<u64>| b.map_or("?".to_string(), |b| format!("{} MB", mb(b)));
         Some(format!(
-            "memory: budget {} MB ({source}); resident after compile {}, after install baseline {}; about {} MB per \
-             test thread; test threads at most {} of {}, {} at the end, {} ended for memory{}",
+            "memory: budget {} MB ({source}); resident after compile {}, after install baseline {}; shared by the \
+             threads once {} MB; about {} MB per test thread; test threads at most {} of {}, {} at the end, {} ended \
+             for memory{}",
             mb(*limit),
             at(self.after_compile),
             at(self.after_baseline),
+            mb(self.shared),
             mb(self.per_worker),
             self.most,
             self.asked,
@@ -395,8 +403,13 @@ impl Plan {
 /// The shared part of a [`Pool`], also read by its watcher thread.
 struct Shared {
     budget: Option<MemoryBudget>,
-    /// Resident bytes with no codeunit running (the fixed part).
+    /// Resident bytes with no codeunit running (the fixed part, without what the threads share: [`Pool::fixed`]).
     fixed: AtomicU64,
+    /// About how many bytes the test data rows that every thread shares hold now ([`Pool::share`]); they grow as the
+    /// threads first touch tables, and count once, in the fixed part, never in the cost of a thread.
+    shared: std::sync::OnceLock<(SharedBytes, u64)>,
+    /// [`Pool::add_fixed`]: what the run made after the fixed part was read, shared by every thread.
+    added: AtomicU64,
     /// The most threads the run may use.
     max: usize,
     /// The learned cost of one running codeunit; `learned` once a codeunit ended.
@@ -432,6 +445,8 @@ impl Pool {
             s: Arc::new(Shared {
                 budget,
                 fixed: AtomicU64::new(fixed),
+                shared: Default::default(),
+                added: AtomicU64::new(0),
                 max: max.max(1),
                 cost: AtomicU64::new(0),
                 learned: AtomicBool::new(false),
@@ -468,6 +483,37 @@ impl Pool {
         self.s.halt.clone()
     }
 
+    /// Counts `bytes` the run made after the fixed part was read, shared by every thread, in the fixed part (ADR-069
+    /// decision 10).
+    pub fn add_fixed(&self, bytes: u64) {
+        self.s.added.fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    /// [`Pool::add_fixed`] as a function that holds the pool's shared part, not the pool.
+    pub fn fixed_adder(&self) -> impl Fn(u64) + 'static {
+        let s = self.s.clone();
+        move |bytes| {
+            s.added.fetch_add(bytes, Ordering::Relaxed);
+        }
+    }
+
+    /// Counts what `bytes` reads, the rows every thread shares, in the fixed part as they grow (decision 10): what it
+    /// reads now is already in the fixed part. Only the first call counts.
+    pub fn share(&self, bytes: SharedBytes) {
+        let at = bytes();
+        let _ = self.s.shared.set((bytes, at));
+    }
+
+    /// What the threads share and the fixed part counts once beyond what the process held when it was read.
+    fn shared(&self) -> u64 {
+        self.s.added.load(Ordering::Relaxed) + self.s.shared.get().map_or(0, |(b, at)| b().saturating_sub(*at))
+    }
+
+    /// The fixed part now: what the process held with no codeunit running, with the shared rows built since.
+    fn fixed(&self) -> u64 {
+        self.s.fixed.load(Ordering::Relaxed) + self.shared()
+    }
+
     /// The resident memory now, when the budget can read it.
     fn resident(&self) -> Option<(&MemoryBudget, u64)> {
         let b = self.s.budget.as_ref()?;
@@ -485,7 +531,7 @@ impl Pool {
         if !self.s.learned.load(Ordering::SeqCst) || self.halted() {
             return false;
         }
-        let (fixed, cost) = (self.s.fixed.load(Ordering::Relaxed), self.cost());
+        let (fixed, cost) = (self.fixed(), self.cost());
         let threads = (self.live() + extra) as u64;
         (now + cost * next as u64).max(fixed + cost * threads) <= usable(b.limit)
     }
@@ -523,8 +569,7 @@ impl Pool {
         let Some((b, now)) = self.resident() else { return };
         let running = self.s.running.load(Ordering::SeqCst);
         if running > 0 {
-            let fixed = self.s.fixed.load(Ordering::Relaxed);
-            let per = (now.saturating_sub(fixed) / running as u64).max(WORKER_FLOOR);
+            let per = (now.saturating_sub(self.fixed()) / running as u64).max(WORKER_FLOOR);
             self.s.cost.fetch_max(per, Ordering::Relaxed);
         }
         let line = if self.live() > 1 {
@@ -553,7 +598,7 @@ impl Pool {
         let Some(b) = self.s.budget.as_ref().filter(|b| b.hard && self.live() == 1) else {
             return;
         };
-        let need = self.s.fixed.load(Ordering::Relaxed) + self.cost();
+        let need = self.fixed() + self.cost();
         if need > stop_line(b.limit) {
             self.stop(
                 b,
@@ -624,6 +669,7 @@ impl Pool {
             at_end: self.live(),
             ended: self.s.ended.load(Ordering::SeqCst),
             halted: self.s.halt.message(),
+            shared: self.shared(),
             ..report
         }
     }
@@ -771,6 +817,28 @@ mod tests {
         assert_eq!(pool.live(), 1);
     }
 
+    /// ADR-069 decision 10: what every thread shares (the frozen install baseline, the test data rows built once) is part
+    /// of the fixed part, counted once, so the cost a thread learns holds only its own sessions.
+    #[test]
+    fn the_shared_rows_count_once_in_the_fixed_part_not_in_the_cost_of_a_thread() {
+        let now = rss(1000);
+        let shared = Arc::new(AtomicU64::new(0));
+        let pool = Pool::new(Some(budget(4000 * MB, now.clone(), false)), 1000 * MB, 8);
+        let reader = shared.clone();
+        pool.share(Arc::new(move || reader.load(Ordering::SeqCst)));
+        pool.add_fixed(100 * MB); // the frozen install baseline, made after the fixed part was read
+        let first = pool.enter();
+        // The first codeunit built 1500 MB of shared test data rows and holds 200 MB of its own.
+        shared.store(1500 * MB, Ordering::SeqCst);
+        now.store(2800 * MB, Ordering::SeqCst);
+        drop(first);
+        assert_eq!(pool.cost(), 200 * MB, "the shared rows are not a thread's cost");
+        // 2800 + 2 x 200 MB fit in nine tenths of 4000 MB; with the rows in the cost (1700 MB) not even one would.
+        let a = pool.try_add(0).expect("a second thread");
+        let b = pool.try_add(1).expect("a third thread");
+        drop((a, b));
+    }
+
     /// Decision 3: a thread with no room ends instead of waiting; the run's first thread never ends this way.
     #[test]
     fn a_thread_ends_instead_of_waiting_when_there_is_no_room() {
@@ -912,8 +980,10 @@ mod tests {
             at_end: 1,
             ended: 1,
             halted: None,
+            shared: 150 * MB,
         };
         let line = r.line().expect("a budget");
+        assert!(line.contains("shared by the threads once 150 MB"), "{line}");
         assert!(line.contains("test threads at most 2 of 12, 1 at the end"), "{line}");
         assert!(line.contains("1 ended for memory"), "{line}");
     }

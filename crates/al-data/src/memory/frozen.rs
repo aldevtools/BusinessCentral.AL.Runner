@@ -38,9 +38,15 @@ pub struct FrozenStore {
 unsafe impl Send for FrozenStore {}
 unsafe impl Sync for FrozenStore {}
 
-/// Whether a value may sit in a [`FrozenStore`]: the plain values `Baseline::to_bytes` writes. Every variant is named
-/// (no `_` arm): a new one does not compile here until someone decides whether it holds a thread-bound handle.
+/// Whether a value may sit in a [`FrozenStore`]: the plain values `Baseline::to_bytes` writes.
 pub fn shareable(v: &Value) -> bool {
+    not_shareable(v).is_none()
+}
+
+/// The kind of a value that may not sit in a [`FrozenStore`], for the message that says why a store was not frozen;
+/// `None` for a plain value (see [`shareable`]). Every variant is named (no `_` arm): a new one does not compile here
+/// until someone decides whether it holds a thread-bound handle.
+pub fn not_shareable(v: &Value) -> Option<&'static str> {
     match v {
         Value::Null
         | Value::Boolean(_)
@@ -60,33 +66,92 @@ pub fn shareable(v: &Value) -> bool {
         | Value::Option(..)
         | Value::Enum(..)
         | Value::Blob(_)
-        | Value::Unknown(_) => true,
+        | Value::Unknown(_) => None,
         // Not in a stored row, and `to_bytes` does not write them either (the same rule, decision 3).
-        Value::TextConst(_) | Value::SqlCount(_) => false,
+        Value::TextConst(_) => Some("TextConst"),
+        Value::SqlCount(_) => Some("SqlCount"),
         // Handles: `Rc`, bound to their thread.
-        Value::List(_)
-        | Value::Dictionary(_)
-        | Value::Array(_)
-        | Value::Codeunit(_)
-        | Value::Library(..)
-        | Value::Record(_)
-        | Value::TestPage(_)
-        | Value::TestControl(_)
-        | Value::Query(_)
-        | Value::DotNet(_) => false,
+        Value::List(_) => Some("List"),
+        Value::Dictionary(_) => Some("Dictionary"),
+        Value::Array(_) => Some("Array"),
+        Value::Codeunit(_) => Some("Codeunit"),
+        Value::Library(..) => Some("Library"),
+        Value::Record(_) => Some("Record"),
+        Value::TestPage(_) => Some("TestPage"),
+        Value::TestControl(_) => Some("TestControl"),
+        Value::Query(_) => Some("Query"),
+        Value::DotNet(_) => Some("DotNet"),
+    }
+}
+
+/// Where a store's committed tables first hold a value that is not [`shareable`]: why it cannot be frozen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotShareable {
+    pub company: String,
+    /// The table's object index (as `TableDef::object`).
+    pub object: u32,
+    /// The value is in the row's primary key (`position` counts the key's fields), not in the row (`position` counts
+    /// the table's fields).
+    pub in_key: bool,
+    pub position: usize,
+    /// What the value is: its variant, a library type with its name and what its handle holds
+    /// (`Library RecordId holding RecordId`).
+    pub kind: String,
+}
+
+impl MemStore {
+    /// The first value of the committed tables that is not [`shareable`], in table and key order; `None` when every
+    /// value is plain.
+    pub fn first_not_shareable(&self) -> Option<NotShareable> {
+        self.first_value_where(|v| !shareable(v))
+    }
+
+    /// The first value of the committed tables, in table and key order, for which `blocks` says true: where it is and
+    /// what it is.
+    pub fn first_value_where(&self, blocks: impl Fn(&Value) -> bool) -> Option<NotShareable> {
+        self.committed.iter().find_map(|((company, object), rows)| {
+            rows.iter().find_map(|(k, r)| {
+                let at = |in_key: bool, vals: &[Value]| {
+                    vals.iter()
+                        .enumerate()
+                        .find(|(_, v)| blocks(v))
+                        .map(|(position, v)| NotShareable {
+                            company: company.to_string(),
+                            object: *object,
+                            in_key,
+                            position,
+                            kind: kind_of(v),
+                        })
+                };
+                at(true, &k.0).or_else(|| at(false, r))
+            })
+        })
+    }
+}
+
+/// What a value is, for a message: its variant, a library type by its name and what its handle holds
+/// (`Library RecordId holding RecordId`).
+fn kind_of(v: &Value) -> String {
+    let variant = |debug: String| debug.split(['(', ' ', '{']).next().unwrap_or_default().to_string();
+    match v {
+        Value::Library(lib, cell) => format!(
+            "Library {} holding {}",
+            lib.name(),
+            variant(format!("{:?}", cell.borrow()))
+        ),
+        other => variant(format!("{other:?}")),
     }
 }
 
 impl FrozenStore {
-    /// The committed tables of `store`, frozen; `None` when a key or a row holds a value that is not [`shareable`].
+    /// The committed tables of `store`, frozen; `Err` names the first key or row value that is not [`shareable`].
     /// What `store` has not committed is not part of it. The provider of virtual tables, the backing, the caches, the
     /// access watch and the log of restored changes stay with `store` (decision 9): [`FrozenStore::thaw`] gives none.
-    pub fn freeze(store: &MemStore) -> Option<FrozenStore> {
-        let plain = store.committed.values().all(|t| {
-            t.iter()
-                .all(|(k, r)| k.0.iter().all(shareable) && r.iter().all(shareable))
-        });
-        plain.then(|| FrozenStore {
+    pub fn freeze(store: &MemStore) -> Result<FrozenStore, NotShareable> {
+        if let Some(why) = store.first_not_shareable() {
+            return Err(why);
+        }
+        Ok(FrozenStore {
             tables: store.committed.clone(),
             versions: store.committed_versions.clone(),
             shapes: store.committed_shapes.clone(),
@@ -124,6 +189,39 @@ impl FrozenStore {
     pub fn row_count(&self) -> usize {
         self.tables.values().map(|t| t.len()).sum()
     }
+
+    /// About how many bytes the frozen tables hold (see [`table_bytes`]): what the memory budget counts once for the
+    /// whole run (ADR-069 decision 10).
+    pub fn bytes(&self) -> u64 {
+        self.tables.values().map(table_bytes).sum()
+    }
+}
+
+/// About how many bytes a table's rows hold: per row its key and row vectors with their values, the text, Blob and other
+/// heap contents the values own, and the map's entry. An estimate for the memory budget, never compared exactly.
+fn table_bytes(t: &super::Table) -> u64 {
+    const ENTRY: usize = 48; // the map's `Arc`-held entry and its share of a chunk
+    let vec = std::mem::size_of::<Vec<Value>>();
+    let value = std::mem::size_of::<Value>();
+    t.iter()
+        .map(|(k, r)| {
+            let values = k.0.iter().chain(r.iter());
+            (ENTRY + 2 * vec + (k.0.len() + r.len()) * value + values.map(heap_bytes).sum::<usize>()) as u64
+        })
+        .sum()
+}
+
+/// About how many bytes on the heap a value owns beyond its own size.
+fn heap_bytes(v: &Value) -> usize {
+    const ARC: usize = 16; // an `Arc`'s two counts
+    match v {
+        // `Txt`: an `Arc` of the string and two flags, and the string's bytes.
+        Value::Text(t) | Value::Code(t) => ARC + std::mem::size_of::<String>() + 8 + t.as_str().len(),
+        Value::Blob(b) => ARC + 64 + b.borrow().bytes.len(),
+        Value::DateFormula(f) => f.len(),
+        Value::Unknown(why) => why.len(),
+        _ => 0,
+    }
 }
 
 /// The rows of one table of the test data, built once per process and read by every thread (ADR-069 decision 4).
@@ -142,6 +240,11 @@ impl FrozenRows {
             .iter()
             .all(|(k, r)| k.0.iter().all(shareable) && r.iter().all(shareable));
         if plain { Ok(FrozenRows(rows)) } else { Err(rows) }
+    }
+
+    /// About how many bytes the rows hold (as `FrozenStore::bytes`).
+    pub fn bytes(&self) -> u64 {
+        table_bytes(&(self.0).0)
     }
 
     /// A thread's own handle on the rows: a clone of the map's root.
