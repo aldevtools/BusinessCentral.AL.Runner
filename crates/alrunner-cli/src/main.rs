@@ -64,7 +64,7 @@ fn main() -> ExitCode {
         eprintln!("{}", al_testrun::profiling::LEGACY_NOTE);
     }
     let worker = std::thread::Builder::new()
-        .stack_size(512 << 20)
+        .stack_size(al_testrun::RUNNER_STACK)
         .spawn(real_main)
         .expect("spawn runner thread");
     let joined = worker.join();
