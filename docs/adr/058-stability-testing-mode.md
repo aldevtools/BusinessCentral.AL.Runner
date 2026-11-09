@@ -359,9 +359,9 @@ Implementation choices inside sections 3 and 4; no seam changes.
   and the flips within each; differences between the base variants of cells stay in ADR-052's "Differs between cells"
   (not computed between the environment cells of one process).
 
-## Amendment 1 (Proposed, 2026-11-09): order dependence through SingleInstance state
+## Amendment 1 (Accepted, owner 2026-11-09): order dependence through SingleInstance state
 
-- Status: Proposed. Owner request (2026-11-09): stability mode should find the test codeunits that depend on the
+- Status: Accepted (owner, 2026-11-09; decision 9 changed by the owner: bare `--stability` runs every safe dimension). Owner request (2026-11-09): stability mode should find the test codeunits that depend on the
   order they run in, because of SingleInstance state that earlier codeunits left, and report it so that teams can fix
   their tests. It adds one dimension and two parts of the report. It changes no default result.
 - Why an amendment to this ADR, and not a new ADR or an ADR-066 amendment: the feature is part of stability mode (a
@@ -486,10 +486,12 @@ Implementation choices inside sections 3 and 4; no seam changes.
    - JUnit: the `fresh` variant's testsuite as today; a flipped test's `failure` message adds the reason in one line
      ("reads Counter of SW Single 2 (app Stress Suite) that SW Test 50102 left"). Each test of a codeunit in `readsCarried`
      gets the property `singleInstanceCarried` in the base variant's testsuite with the same line.
-7. **Not in the `microsoft` preset.** The preset is Microsoft's own mode, and Microsoft's mode has no such check;
-   adding it would make the preset differ from what it says it is. A second preset `order` holds
-   `{"isolation.singleInstance": ["carried", "fresh"]}` (`--stability order`, `--stability-print-preset order`).
-   Decision 5's list is in every stability run, also with the `microsoft` preset, since it costs nothing.
+7. **Not in the `microsoft` preset; `--stability` without a value runs every safe dimension** (owner, 2026-11-09).
+   The `microsoft` preset is Microsoft's own mode, and Microsoft's mode has no such check, so it stays Microsoft's
+   four. A bare `--stability` (no file, no preset name) becomes the built-in preset `all`: every dimension of class
+   safe, `oneAtATime`, including `isolation.singleInstance` (`--stability-print-preset all` writes it out). No
+   separate `order` preset; a config file with only `{"isolation.singleInstance": ["carried", "fresh"]}` runs the
+   check alone. Decision 5's list is in every stability run, also with the `microsoft` preset, since it costs nothing.
 8. **Exit code** as owner decision 1 of this ADR: a flip under this dimension is a flip (exit 1; `--stability-allow-flips`
    keeps 0). A codeunit only in `readsCarried` does not change the exit code.
 9. **No `serve` field.** Stability mode is not offered in `serve` (section 6 and the CLI reference). This amendment
@@ -575,7 +577,7 @@ Each can be accepted or rejected on its own.
    marked "checked" or "not checked". It replaces `orderDependent` after one release.
 8. **Report shape**: a console section with the two parts (at most 50 lines for the second), JSON `flips[].reason` and
    `readsCarried` in format 1, the JUnit property `singleInstanceCarried` and the reason in a flip's failure message.
-9. **Not in the `microsoft` preset**; a new preset `order` with just this dimension.
+9. **Not in the `microsoft` preset**; a bare `--stability` runs the preset `all` (every safe dimension, this one included).
 10. **Exit code**: a flip under this dimension is exit 1, like every flip; `readsCarried` alone does not change it.
 11. **No `serve` field** until stability mode comes to `serve`.
 12. **Fail in both variants with another message**: listed under "reads carried state" as "fails either way, with
@@ -597,8 +599,8 @@ Each can be accepted or rejected on its own.
 
 ### Conformance
 
-- `al-testrun` config tests: `isolation.singleInstance` takes `carried` and `fresh` only; the `order` preset expands to
-  two variants; the `microsoft` preset is unchanged.
+- `al-testrun` config tests: `isolation.singleInstance` takes `carried` and `fresh` only; a bare `--stability` expands to the
+  preset `all` (every safe dimension, `isolation.singleInstance` included); the `microsoft` preset is unchanged.
 - `crates/al-testrun/tests/suite/single_instance_lane.rs` (or a stability suite module): the corpus P7 pair
   (`TestCuP7ASetter.al`, `TestCuP7BReader.al`) flips under `fresh` with a reason naming the SingleInstance codeunit,
   its global and P7A; a chain member reading a carried value flips and later members keep their base start; a codeunit
