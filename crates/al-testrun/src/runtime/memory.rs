@@ -38,9 +38,17 @@ fn usable(limit: u64) -> u64 {
     limit / 10 * 9
 }
 
-/// Where a hard limit stops the run: a thirty-second of the limit (at least 32 MB) under it, so that the growth
-/// between two samples of the watcher stays under the limit.
+/// Where a hard limit stops the run with one test thread left: a sixteenth of the limit (at least 64 MB) under it. The
+/// running test is stopped within the watchdog's poll (50 ms) of the stop, and the process grows meanwhile: on
+/// Tests-SCM up to about 90 MB after a stop at 3 GB.
 fn stop_line(limit: u64) -> u64 {
+    limit.saturating_sub((limit / 16).max(64 << 20))
+}
+
+/// Where a hard limit stops the run while more threads run: closer to the limit (a thirty-second, at least 32 MB),
+/// since the threads other than the first end after their codeunit when there is no room (`Pool::keep`), and so free
+/// memory without a stop.
+fn last_line(limit: u64) -> u64 {
     limit.saturating_sub((limit / 32).max(32 << 20))
 }
 
@@ -393,7 +401,12 @@ impl Pool {
             let per = (now.saturating_sub(fixed) / running as u64).max(WORKER_FLOOR);
             self.s.cost.fetch_max(per, Ordering::Relaxed);
         }
-        if b.hard && now > stop_line(b.limit) {
+        let line = if self.live() > 1 {
+            last_line(b.limit)
+        } else {
+            stop_line(b.limit)
+        };
+        if b.hard && now > line {
             self.stop(
                 b,
                 format!(
@@ -634,6 +647,21 @@ mod tests {
         assert!(m.contains("2000 MB") && m.contains("2048 MB (--max-memory)"), "{m}");
         assert!(halt.flag().load(Ordering::SeqCst), "the running test is stopped");
         drop(running);
+    }
+
+    /// With more than one thread the stop comes closer to the limit: the other threads end when there is no room.
+    #[test]
+    fn with_more_threads_the_run_stops_closer_to_the_limit() {
+        let now = rss(500);
+        let pool = Pool::new(Some(budget(2048 * MB, now.clone(), true)), 500 * MB, 2);
+        drop(pool.enter());
+        let helper = pool.try_add(0).expect("room");
+        now.store(1950 * MB, Ordering::SeqCst);
+        pool.sample();
+        assert!(!pool.halted(), "1950 MB with two threads: the helper ends first");
+        drop(helper);
+        pool.sample();
+        assert!(pool.halted(), "1950 MB with one thread: past the stop line");
     }
 
     #[test]
