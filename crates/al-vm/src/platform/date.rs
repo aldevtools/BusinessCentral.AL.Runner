@@ -218,6 +218,7 @@ pub(super) fn get(t: &TableDef, pk: &[Value]) -> Result<Option<Row>, StoreError>
 }
 
 pub(super) fn next(t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError> {
+    super::refuse_unpinned(scan.filters)?;
     let plan = plan(t, scan.filters)?;
     let (after_ty, after_start) = match scan.after {
         Some(a) => (a.first().and_then(key_of), a.get(1).and_then(key_of)),
@@ -239,7 +240,7 @@ pub(super) fn next(t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError>
         let mut cur = from;
         while let Some(s) = next_start(ty, &plan.starts, cur, scan.ascending) {
             let r = row(t, ty, s);
-            if plan.others.iter().all(|f| f.expr.matches(&r[f.field])) {
+            if plan.others.iter().all(|f| f.expr.matches_checked(&r[f.field])) {
                 return Ok(Some(r));
             }
             examined += 1;
@@ -255,6 +256,7 @@ pub(super) fn next(t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError>
 }
 
 pub(super) fn count(t: &TableDef, filters: &[FieldFilter]) -> Result<usize, StoreError> {
+    super::refuse_unpinned(filters)?;
     let plan = plan(t, filters)?;
     let mut n = 0usize;
     let mut examined = 0u32;
@@ -272,7 +274,7 @@ pub(super) fn count(t: &TableDef, filters: &[FieldFilter]) -> Result<usize, Stor
             }
             if plan.others.is_empty() || {
                 let r = row(t, ty, s);
-                plan.others.iter().all(|f| f.expr.matches(&r[f.field]))
+                plan.others.iter().all(|f| f.expr.matches_checked(&r[f.field]))
             } {
                 n += 1;
             }

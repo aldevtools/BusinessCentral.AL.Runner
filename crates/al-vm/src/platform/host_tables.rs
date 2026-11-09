@@ -1298,7 +1298,7 @@ fn license_row_passes(row: &Row, rest: &[FieldFilter]) -> Result<bool, StoreErro
                 "License Permission: a filter on a column whose value is not known: {why}"
             )));
         }
-        if !f.expr.matches(&row[f.field]) {
+        if !f.expr.matches(&row[f.field]).map_err(signal_refused)? {
             return Ok(false);
         }
     }
@@ -1317,7 +1317,16 @@ fn license_exact_passes(row: &Row, filters: &[FieldFilter]) -> Result<bool, Stor
             "License Permission: a filter on a column whose value is not known: {why}"
         )));
     }
-    Ok(al_builtins::filter::row_passes(row, filters))
+    al_builtins::filter::row_passes(row, filters).map_err(signal_refused)
+}
+
+/// A filter's refusal (`FilterExpr::matches`) as the store's.
+fn signal_refused(s: al_builtins::native::Signal) -> StoreError {
+    match s {
+        al_builtins::native::Signal::Unsupported(why) => super::refused(why),
+        // `matches` refuses only with Unsupported.
+        _ => super::refused("a filter whose matching is not pinned"),
+    }
 }
 
 fn license_known(t: &TableDef, object_type: i64, number: i64, cx: LicenseCx) -> Result<Option<Row>, StoreError> {

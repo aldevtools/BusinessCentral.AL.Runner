@@ -204,12 +204,15 @@ impl Session {
             FilterExpr::Like(p, ci) if needs_quotes(p) && !p.contains('\'') => {
                 format!("'{}{p}'", if *ci { "@" } else { "" })
             }
+            // `@''` reads back as written (corpus master record/crud/RcAFilters.al:1011, :1026 `at two apos`).
+            FilterExpr::Like(p, true) if p.is_empty() => "@''".to_string(),
             FilterExpr::Like(p, ci) => format!("{}{p}", if *ci { "@" } else { "" }),
             // record/filters/WildcardGetFilter.al:125-171: `<>*`, `<>A*`, `<>@a*` read back as written.
             FilterExpr::NotLike(p, ci) => format!("<>{}{p}", if *ci { "@" } else { "" }),
             // record/filters/WcInvalidFilterExpr.al:84-111: `@` and `<>@` read back as written.
             FilterExpr::AtSignAlone(negated) => if *negated { "<>@" } else { "@" }.to_string(),
             FilterExpr::EmptyViewValue => "==".to_string(),
+            FilterExpr::UnpinnedMatch(inner, _) => self.filter_text_with(inner, iso)?,
             FilterExpr::NumCode(inner) => self.filter_text_with(inner, iso)?,
             // The parts of an OR list each show as alone: a quoted empty text on a DateTime field as `''..''` (record/views/
             // Y71SetViewDateTime.al:125-127 dt_empty_or, :207-209 sca_empty_or), the blank DateTime given as %1 as `''`
@@ -743,6 +746,7 @@ fn ordinals(e: &FilterExpr) -> FilterExpr {
         FilterExpr::NotLike(p, ci) => FilterExpr::NotLike(p.clone(), *ci),
         FilterExpr::AtSignAlone(n) => FilterExpr::AtSignAlone(*n),
         FilterExpr::EmptyViewValue => FilterExpr::EmptyViewValue,
+        FilterExpr::UnpinnedMatch(..) => e.clone(),
         FilterExpr::NumCode(e) => FilterExpr::NumCode(e.clone()),
     }
 }

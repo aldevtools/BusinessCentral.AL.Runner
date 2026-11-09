@@ -741,7 +741,7 @@ impl Session {
             if single && (populate_all || t.keys[0].contains(&f.field)) {
                 continue;
             }
-            if f.expr.matches(&fresh[f.field]) {
+            if f.expr.matches(&fresh[f.field])? {
                 continue;
             }
             let typed_single = matches!(&f.expr, al_builtins::filter::FilterExpr::Range(Some(_), Some(_))) && single;

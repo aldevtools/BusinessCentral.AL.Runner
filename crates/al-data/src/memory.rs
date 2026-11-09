@@ -512,10 +512,11 @@ fn pk_band<'a>(
     )
 }
 
+/// Every read that checks rows here refused a filter whose matching is not pinned first (`unpinned_match_read`).
 fn passes(row: &Row, filters: &[FieldFilter]) -> bool {
     #[cfg(test)]
     ROWS_LOOKED_AT.with(|c| c.set(c.get() + 1));
-    al_builtins::filter::row_passes(row, filters)
+    al_builtins::filter::row_passes_checked(row, filters)
 }
 
 impl MemStore {
@@ -557,6 +558,14 @@ impl MemStore {
     /// A read that filters a Code field with another SQLDataType than Varchar, Integer, BigInteger or Variant at all, or sorts by one
     /// whose first key field it is, is refused: the order and the comparison of such a field are not pinned (see [`CodeStorage`]).
     /// The Writes, Get by exact key and the other keys run.
+    /// A read that selects rows through a filter whose matching is not pinned is refused (see `FilterExpr::UnpinnedMatch`).
+    fn unpinned_match_read(filters: &[FieldFilter]) -> Result<(), StoreError> {
+        match al_builtins::filter::unpinned_match(filters) {
+            Some(why) => Err(StoreError::Refused(why)),
+            None => Ok(()),
+        }
+    }
+
     fn code_storage_read(t: &TableDef, filters: &[FieldFilter], order: &[usize]) -> Result<(), StoreError> {
         let stored_as = |i: usize| t.fields.get(i).map_or(CodeStorage::Text, |f| f.code_storage);
         if let Some(f) = filters.iter().find(|f| stored_as(f.field) == CodeStorage::Other) {
@@ -1629,6 +1638,7 @@ impl Store for MemStore {
             return v.next(self, cx, t, scan);
         }
         self.unknown_read(cx, t, scan.filters, t.keys.get(scan.key).map_or(&[], |k| k.as_slice()))?;
+        Self::unpinned_match_read(scan.filters)?;
         Self::code_storage_read(t, scan.filters, t.keys.get(scan.key).map_or(&[], |k| k.as_slice()))?;
         let Some(table) = self.table(cx, t) else {
             return Ok(None);
@@ -1769,6 +1779,7 @@ impl Store for MemStore {
             return v.count(self, cx, t, f);
         }
         self.unknown_read(cx, t, f, &[])?;
+        Self::unpinned_match_read(f)?;
         Self::code_storage_read(t, f, &[])?;
         let Some(table) = self.table(cx, t) else {
             return Ok(0);
@@ -1783,6 +1794,7 @@ impl Store for MemStore {
             return Err(self.read_only(t, "DeleteAll"));
         }
         self.unknown_read(cx, t, f, &[])?;
+        Self::unpinned_match_read(f)?;
         Self::code_storage_read(t, f, &[])?;
         let doomed: Vec<Key> = match self.table(cx, t) {
             Some(table) => {
@@ -1985,7 +1997,7 @@ mod tests {
         if !ascending {
             rows.reverse();
         }
-        rows.retain(|r| al_builtins::filter::row_passes(r, filters));
+        rows.retain(|r| al_builtins::filter::row_passes_checked(r, filters));
         rows
     }
 

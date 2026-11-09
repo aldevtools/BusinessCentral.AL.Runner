@@ -31,6 +31,7 @@ mod filter_invalid_expr;
 mod filter_placeholder_at_sign;
 mod filter_placeholder_no_argument;
 mod filter_text_quoting;
+mod filter_unclosed_quote;
 mod find_directions;
 mod find_other_key;
 mod fix_records;

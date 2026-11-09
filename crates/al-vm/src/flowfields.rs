@@ -609,7 +609,7 @@ impl Session {
                 for c in &flow {
                     self.check_calc_field(calc.table, c.field)?;
                     let v = self.calc_value(&probe, c.field, &mut Vec::new())?;
-                    if !c.expr.matches(&v) {
+                    if !c.expr.matches(&v)? {
                         pass = false;
                         break;
                     }
@@ -1109,7 +1109,7 @@ impl Session {
         for f in filters {
             self.check_calc_field(table, f.field)?;
             let v = self.calc_value(&probe, f.field, &mut Vec::new())?;
-            if !f.expr.matches(&v) {
+            if !f.expr.matches(&v)? {
                 return Ok(false);
             }
         }

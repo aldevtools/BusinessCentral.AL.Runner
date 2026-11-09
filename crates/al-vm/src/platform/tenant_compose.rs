@@ -305,6 +305,7 @@ pub(super) fn tenant_expanded_entries(
     t: &TableDef,
     filters: &[FieldFilter],
 ) -> Result<Vec<Entry>, StoreError> {
+    super::refuse_unpinned(filters)?;
     let sets = p.tenant_sets(store, cx)?;
     let (app_pos, role_pos) = (pos(t, 1), pos(t, 2));
     let mut out = Vec::new();
@@ -313,9 +314,9 @@ pub(super) fn tenant_expanded_entries(
     for key in keys {
         let passes = filters.iter().all(|f| {
             if f.field == app_pos {
-                f.expr.matches(&Value::Guid(key.0))
+                f.expr.matches_checked(&Value::Guid(key.0))
             } else if f.field == role_pos {
-                f.expr.matches(&Value::Code(key.1.clone().into()))
+                f.expr.matches_checked(&Value::Code(key.1.clone().into()))
             } else {
                 true
             }
