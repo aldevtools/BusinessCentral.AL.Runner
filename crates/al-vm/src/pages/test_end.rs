@@ -25,15 +25,12 @@ impl Session {
         }
         let mut pages: Vec<St> = Vec::new();
         for v in frame.locals.iter().take(routine.locals.len()) {
-            // Only a page that declares a close trigger and was opened with OpenEdit or OpenView: what the close does to
-            // another (a save of a changed row, an OpenNew page) is not measured, and those pages stay as they were.
             if let Value::TestPage(st) = v
                 && st.borrow().open
-                && st.borrow().mode != al_builtins::value::PageMode::New
                 // A page whose save failed at Close() is left alone (pages/close_save_failed.rs).
                 && !st.borrow().close_save_failed
                 && !pages.iter().any(|p| Rc::ptr_eq(p, st))
-                && ["onqueryclosepage", "onclosepage"].iter().any(|t| self.declares(st, t))
+                && self.closes_at_test_end(st)?
             {
                 pages.push(st.clone());
             }
@@ -57,5 +54,48 @@ impl Session {
             }
         }
         outcome
+    }
+
+    /// Whether an open TestPage closes at the end of the test. A page that declares a close trigger and was opened with
+    /// OpenEdit or OpenView does (Y47CloseAtTestEnd.al). A Card does too, with or without OnQueryClosePage, opened with
+    /// OpenEdit or OpenNew (on a new key, or then moved to a stored row with GoToRecord): the value set on it is saved as
+    /// `Close()` saves it, and OnQueryClosePage runs with CloseAction OK after the value is set (corpus
+    /// pages/lifecycle/Y7345SaveOnLeftOpen.al:153 Y7345_Write1_EditValid_NoQuery, :172 _Write2_EditValid_Query, :217
+    /// _Write6_OpenNewNewKey_NoQuery, :227 _Write7, :237 _Write8_OpenNewGoToExisting_NoQuery, :248 _Write9, read by :291
+    /// Y7345_Read2_RowsAfterAllCards; al-runner issue 7345). A Card whose last SetValue failed in OnValidate does not close:
+    /// nothing is saved, a valid value set before the failed one neither, and OnQueryClosePage does not run (:183
+    /// _Write3_EditInvalid_NoQuery, :194 _Write4, :205 _Write5_EditValidThenInvalid_Query, :271 _Write11, :281 _Write12).
+    ///
+    /// The probe measured a Card that stands on a stored row and may modify it. A Card without a close trigger, or opened with
+    /// OpenNew, in another state (its row is no longer stored or changed its key, ModifyAllowed is false, a save already
+    /// failed, a new row not inserted yet) is not measured, nor is another page type without a close trigger or opened with
+    /// OpenNew: those pages stay as they were.
+    fn closes_at_test_end(&mut self, st: &St) -> Result<bool, Signal> {
+        let top_card = self.is_card(st) && st.borrow().host.is_none();
+        if top_card && !st.borrow().errors.is_empty() {
+            return Ok(false);
+        }
+        if st.borrow().mode != al_builtins::value::PageMode::New
+            && ["onqueryclosepage", "onclosepage"].iter().any(|t| self.declares(st, t))
+        {
+            return Ok(true);
+        }
+        let measured = {
+            let s = st.borrow();
+            top_card && s.cursor == Cursor::Row && !s.draft && !s.save_failed && !s.refused
+        };
+        if !measured
+            || !self.has_source(st)
+            || flag_denied(&self.engine(), st.borrow().object as usize, "ModifyAllowed")?
+        {
+            return Ok(false);
+        }
+        let probe = Rc::new(RefCell::new(self.page_rec(st).borrow().clone()));
+        let mut key = self.row_key(&probe)?;
+        self.ret_used = true;
+        Ok(matches!(
+            self.record_op(al_builtins::record_op::RecordOp::Get, &probe, &mut key)?,
+            Value::Boolean(true)
+        ))
     }
 }

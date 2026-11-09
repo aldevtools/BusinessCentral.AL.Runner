@@ -87,6 +87,7 @@ mod start_session_record;
 mod testfilter_qualified_field;
 mod testpage_close_at_test_end;
 mod testpage_close_query_close_unhandled;
+mod testpage_save_left_open_at_test_end;
 mod timeout_after_refused_test;
 mod translated_reads;
 mod unknown_reach_reason_stable;
