@@ -403,7 +403,15 @@ pub fn run_traced_halting(
                 from: partner_from,
                 to: early_installs,
             };
+            // What the partner apps' install code may write: a subscriber of one of them whose order is open reads nothing
+            // else when it runs under watch (al-vm order_trial.rs, al-runner issue 6972). Microsoft's install code ran
+            // before, the same in every order.
+            let written = crate::install::tables_install_code_of_may_write(lowered, engine, |o| {
+                partner_group.contains(&objs[o].app)
+            });
+            session.set_install_written_tables(written);
             crate::install_orders::install_partner_apps(lowered, &mut session, &group, &mut inst);
+            session.set_install_written_tables(None);
             k = early_installs;
             continue;
         }
