@@ -1,6 +1,6 @@
 # ADR-066: Run the test runner codeunit's own AL
 
-- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07); amendment 4 (order-dependent codeunits run in parallel, serial run only after a failure, `--strict-order`) Accepted (owner, 2026-11-07); amendment 5 (each serial re-run is a session of its own, the sessions run in parallel; a test refused before it starts triggers no re-run) Accepted (owner, 2026-11-07); amendment 7 (a re-run only when a failed test could have seen the changed state; a replay cap only with `--max-replay N`, changed by the owner the same day) Accepted (owner, 2026-11-08); amendment 8 (the carry chain walk keeps the SingleInstance state; chain members are never re-run or flagged) Accepted (owner, 2026-11-08, variant A); amendment 9 (the number of test threads follows the memory budget, `--max-memory`) Accepted (owner, 2026-11-09, as a safety net near the limit; redesign in a follow-up)
+- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07); amendment 4 (order-dependent codeunits run in parallel, serial run only after a failure, `--strict-order`) Accepted (owner, 2026-11-07); amendment 5 (each serial re-run is a session of its own, the sessions run in parallel; a test refused before it starts triggers no re-run) Accepted (owner, 2026-11-07); amendment 7 (a re-run only when a failed test could have seen the changed state; a replay cap only with `--max-replay N`, changed by the owner the same day) Accepted (owner, 2026-11-08); amendment 8 (the carry chain walk keeps the SingleInstance state; chain members are never re-run or flagged) Accepted (owner, 2026-11-08, variant A); amendment 9 (the number of test threads follows the memory budget, `--max-memory`) Accepted (owner, 2026-11-09, as a safety net near the limit; redesign in a follow-up); amendment 10 (the run holds a memory limit by running more of its work one after the other: threads start one at a time, the cost is learned in the run, a thread that cannot go on ends and gives its memory back) Proposed (2026-11-09)
 - Date: 2026-11-05
 
 ## Context
@@ -1056,3 +1056,129 @@ What this shows:
   `memory.max` (also `max`) are read; `args.rs` and `serve.rs` tests for `--max-memory` and `maxMemory`.
 - `crates/alrunner-cli/tests/cli/memory.rs`: `--max-memory 1M` stops with exit code 2 and the numbers; the `memory:`
   line of `--timings`; the default source; the same outcomes under a tight budget; a bad size exits with code 2.
+
+## Amendment 10 (Proposed, 2026-11-09): the run holds a memory limit by running more of its work one after the other
+
+- Status: Proposed. This is the redesign the owner asked for when he accepted amendment 9 ("as a safety net near the
+  limit; redesign in a follow-up"). It replaces decisions 3 and 4 of amendment 9 (the thread count at start, the
+  admission per codeunit). Decisions 1, 2, 5, 6 and 7 of amendment 9 stay: parallel by default, the budget and its
+  sources, exit code 2 at start, the `memory:` line, outcomes unchanged. Each decision below can be accepted or
+  rejected on its own.
+
+### Why
+
+Amendment 9 limits how many test codeunits *run* at once. It does not limit what a thread *holds*. All threads start
+at once, and each keeps its session state, its copy of the install baseline, the starts and results of its runs ahead,
+and the memory the allocator keeps for it, also while it waits at the gate. So `--max-memory` cannot hold a limit
+below the unconstrained peak, and the learned cost per thread then lets about one codeunit run at a time while the
+other threads still hold their memory.
+
+I measured main as of 05d692e5e (amendments 8 and 9 and commit 389f977bf, which stops running a chain suite ahead
+when its runs ahead read SingleInstance state the walk keeps). BC 29, Microsoft's apps, release build, cores 0-2 and
+5-11, one run at a time, each in a 10 GB cgroup. The machine was shared (load average 17 to 30), so the wall times
+carry noise; the peaks do not depend on load. Peak = highest resident memory, sampled every 0.25 s.
+
+| Suite | Test threads | Budget | Peak MB | Wall s |
+|---|---|---|---|---|
+| Tests-ERM-Sales (1426 tests) | 1 | none | 2350 | 152 |
+| | 2 | none | 2641 | 205 |
+| | 4 | none | 4217 | 195 |
+| | 12 | none | 5073 | 238 |
+| | 12 asked (10 started) | `--max-memory 3G` | 4749 | 422 |
+| Tests-SCM (2777 tests) | 1 | none | 4139 | 310 |
+| | 12 | none | 4826 (4.4 GB after the cold compile) | 401 |
+| stress app, no Microsoft apps (1474 tests) | 1 | none | 182 | 0.5 |
+| | 12 | none | 758 | 1.5 |
+
+Every run of a suite gives the same outcome for each test (0 differences between the JUnit files), except one
+performance test of Tests-SCM that runs into its time limit on some runs (load, not thread count).
+
+What this shows:
+
+- **The extra threads do no useful work on these suites.** Since amendment 8 every codeunit of Tests-ERM-Sales (25 of
+  25) and Tests-SCM (76 of 76) is a carry chain member, and the walk ran every one of them on its own thread: 0 runs
+  ahead taken in every run. The parallel part and the lane ran nothing. The other threads were chain helpers whose
+  runs ahead were all dropped (on Tests-ERM-Sales with 12 threads: 17 rested on another wrong run ahead, 5 read kept
+  SingleInstance state, 2 started too early). Each dropped run is a second copy of a member's run, with its own
+  session and baseline copy. That is the memory above the one-thread run, and the CPU it takes from the walk is why
+  12 threads are slower than one.
+- **Fewer threads are faster and smaller.** On Tests-ERM-Sales one thread needs 46 % of the memory of 12 threads and
+  64 % of the time. The `--max-memory 3G` run under amendment 9 peaks at 4.7 GB and takes 2.8 times as long as the
+  one-thread run, which stays under 3 GB without a flag.
+- **The start cost per thread depends on the suite.** Amendment 9 assumes 200 MB (measured on Tests-ERM-Purchase
+  before amendment 8, when its runs ahead were still taken). The cost it learned in these runs was 1.3 to 4.2 GB.
+- **One thread has a floor that no scheduling can cut.** On Tests-SCM the resident memory with one thread grows from
+  1.8 GB to 2.7 GB over the first 200 s (the carried state of the chain), then one member (137380 SCM Performance
+  Tests, 123 s of the run) adds up to 1.4 GB for a while (peak 4.1 GB).
+- **The allocator is not the cause.** mimalloc with `MIMALLOC_PURGE_DELAY=0` (return freed pages to the OS at once)
+  changed the 12-thread peak from 5073 to 4956 MB on Tests-ERM-Sales and from 4826 to 4608 MB on Tests-SCM, within the
+  noise of two runs. The memory is held by live data (sessions, baseline copies, results of runs ahead), not by freed
+  memory the allocator keeps.
+
+### Decisions
+
+1. **Threads start one at a time.** The run starts with one test thread (the walk, or one parallel worker). It adds
+   another only when (a) there is work the new thread can do that the run can use (decision 4), and (b) the resident
+   memory plus the cost of one codeunit (decision 2) stays under nine tenths of the limit. The run checks this each
+   time a codeunit or a run ahead ends, so the count grows while there is room and stops where the room ends. Without
+   a limit that bites and with usable work, it reaches one thread per core (or `AL_TEST_THREADS`) within the first
+   codeunits, as today.
+2. **The cost of a thread is learned in the run, before the second thread starts.** It is the largest growth of the
+   resident memory above the fixed part seen while one codeunit ran, later the largest per running codeunit, and at
+   least `WORKER_FLOOR` (64 MB). Until the first codeunit ends only one thread runs. The fixed start cost of 200 MB
+   (`PER_WORKER_START`) goes away. The cost is not kept between runs: that would be a cache, and ADR-016 allows only
+   the compile cache.
+3. **A thread that cannot go on ends and gives back what it holds.** When there is no room, a thread that finishes a
+   codeunit does not wait at the gate while it keeps its state: it drops its session, its baseline copy, its decoded
+   starts and its runs ahead that the walk has not taken, and the thread ends. When there is room again, decision 1
+   starts a new thread, which decodes its own baseline copy again (time only). The walk's thread never ends this way.
+   One thread always runs, so the run always moves on. The gate's waiting (amendment 9, decision 4) and the dropping
+   of the lane's delta cache then go away.
+4. **The thread count follows usable work, not the core count.** A thread for the parallel part or the lane is usable
+   while a codeunit there is waiting. A chain helper is usable only while run ahead pays off: the walk starts one
+   helper per chain, adds another only after the walk took one of its runs ahead, and stops running a suite ahead
+   (its helpers end) once the walk dropped more than `MISSES` of its runs ahead beyond those it took, for any reason.
+   Today only wrong predictions and runs that read kept SingleInstance state count; runs that rested on another wrong run ahead or
+   started too early do not, which is why Tests-ERM-Sales never stops. On a suite that is all carry chain with no run
+   ahead taken, the run then uses one thread by default: on the numbers above, the fastest and smallest run, without
+   a flag. The gain is not measured across runs (decision 2); `AL_TEST_THREADS` stays the upper bound.
+5. **The allocator stays as it is.** mimalloc 2 with its default settings: returning freed memory sooner changed the
+   peak by 2 to 5 % (within noise). A thread that ends (decision 3) leaves its heap to mimalloc, which reuses or frees
+   it. No allocator setting and no call to return memory to the OS is added; this is checked again after decision 3 is
+   built, and an allocator change would come back as its own proposal.
+6. **A limit below what one thread needs is reported, not enforced by stopping mid-run.** One thread's need (the
+   fixed part, the carried state of the chain, the largest codeunit) cannot be cut by scheduling. When the resident
+   memory passes the limit while one thread runs, the run goes on (a cgroup, if there is one, stays the hard limit),
+   and the `memory:` line of `--timings` says "the limit (X MB) is below what one thread needed (Y MB)". Exit code 2
+   stays only for the check at start (amendment 9, decision 5). Making the carried state of a long chain smaller is a
+   separate change, not part of this amendment.
+7. **Outcomes do not change, and a test checks it for every way the threads can go.** Only which thread runs a
+   codeunit, and when, changes. Each codeunit still runs on a session of its own from the same baseline. A run ahead is
+   still taken only when its start has the fingerprint of the walk's state, and a dropped or abandoned run ahead only
+   costs time. Time and memory are internals of the runner (ADR-009), so no corpus probe pins this. The known
+   exception stays: a test that runs into its time limit depends on the machine's load, whatever the thread count.
+
+### Limits
+
+- The floor of decision 6: a limit below one thread's need still runs slowly or is killed by the cgroup. On Tests-SCM
+  that floor is about 4.1 GB, on Tests-ERM-Sales about 2.35 GB.
+- The compile phase is still not gated (a cold compile cache peaks at about 3.3 to 3.9 GB).
+- A thread that ends and starts again pays one decode of its baseline copy.
+- Resident memory is still read on Linux only. Elsewhere decisions 3 and 6 do not apply; decisions 1, 2 and 4 still
+  start threads only for usable work.
+- Suites whose codeunits run outside the carry chain (the parallel part) still gain from threads; decision 4 keeps
+  them parallel. I did not measure such a Microsoft suite here: under amendment 8 the suites I ran are all chain.
+
+### Conformance (to be written red first)
+
+- `crates/al-testrun/src/runtime/memory.rs` unit tests: the run starts one thread; a second starts only after the
+  first codeunit ended and only when its learned cost fits; a thread ends instead of waiting when there is no room;
+  one thread always runs.
+- `crates/al-testrun/src/runtime/chain_walk.rs` / `chain_runs.rs` unit tests: a suite whose runs ahead are dropped for
+  any reason stops being run ahead after more than `MISSES` drops beyond the runs taken, and its helpers end; a second helper starts only after a run
+  ahead was taken.
+- `crates/al-testrun/tests/suite/`: a chain whose runs ahead are never taken ends with one thread (`--timings`: "test
+  threads 1 of N"); a run under a budget tight enough to end and start threads again gives the same outcome for each
+  test as a run with no budget and a run with one thread.
+- `crates/alrunner-cli/tests/cli/memory.rs`: the `memory:` line names the most threads that ran, how many ended for
+  memory, and a limit below one thread's need.
