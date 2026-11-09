@@ -1142,6 +1142,47 @@ impl<'a> Checker<'a> {
         m
     }
 
+    /// A call `X.Name()` is the platform's method `Name` even when the object has a member of that name that cannot be
+    /// called: a page action or control, a query column, or a table field. The bare `X.Name` stays the member.
+    fn called_builtin_over_member(&mut self, sc: &Scope, node: &SyntaxNode, base_ty: &Ty, mname: &str) -> Option<E> {
+        if !(node.parent().is_some_and(|p| p.kind() == SyntaxKind::CallExpr) && node.prev_sibling().is_none()) {
+            return None;
+        }
+        let named_member = match base_ty {
+            // `CurrPage.Update(true)` is the page's method even when the page has an action or control of
+            // that name (System Application's "Schedule Feature Data Update" has an action `Update`): a
+            // control is not called. Real BC compiles that code; no corpus test names a control like a method.
+            Ty::Object(ObjKind::Page, page) => self
+                .resolve(sc, ObjKind::Page, page)
+                .is_some_and(|oi| self.named_section(oi, mname).is_some()),
+            // `Q.Open()` is the query's method even when the query has a column named Open (Base
+            // Application's "Summarized Stock By Item Trkg." has one): a column is not called.
+            // Compiles in real BC; no corpus test names a column like a method (docs/probes-needed.md).
+            Ty::Object(ObjKind::Query, _) => self.field_res(sc, base_ty, mname).is_some(),
+            // `Rec.RecordId()` is the Record method even when the table has a field named RecordID (al-runner issue 6162;
+            // real BC compiles the reporter's app, hard rule 6): a field is not called. A table procedure of the name is
+            // left to `member`, which sees the field first as before. No corpus test names a field like a called method.
+            // As in `member`, writing runs the table's triggers and the subscribers to its events.
+            Ty::Record { table, .. } => match self.resolve(sc, ObjKind::Table, table) {
+                Some(ti)
+                    if self.members[ti].field(mname).is_some()
+                        && self.members[ti].procedures_named(mname).is_empty() =>
+                {
+                    self.touch_ops(ti, super::demand::record_ops(mname));
+                    true
+                }
+                _ => false,
+            },
+            _ => false,
+        };
+        if !named_member {
+            return None;
+        }
+        let recv = receiver_of(base_ty)?;
+        let c = self.catalog_cands(&recv, mname, true, base_ty);
+        (!c.is_empty()).then_some(E::Callable(c))
+    }
+
     pub(crate) fn infer(&mut self, sc: &mut Scope, node: &SyntaxNode) -> E {
         use SyntaxKind::*;
         // A literal and a bare name read no child node here: walking their children was most of the
@@ -1553,38 +1594,8 @@ impl<'a> Checker<'a> {
                 let r = kids[0].text_range();
                 self.types
                     .insert((sc.file, r.start().into(), r.end().into()), base_ty.clone());
-                // `CurrPage.Update(true)` is the page's method even when the page has an action or control of
-                // that name (System Application's "Schedule Feature Data Update" has an action `Update`): a
-                // control is not called. Real BC compiles that code; no corpus test names a control like a method.
-                if let Ty::Object(ObjKind::Page, page) = &base_ty {
-                    if node.parent().is_some_and(|p| p.kind() == CallExpr)
-                        && node.prev_sibling().is_none()
-                        && self
-                            .resolve(sc, ObjKind::Page, page)
-                            .is_some_and(|oi| self.named_section(oi, &mname).is_some())
-                    {
-                        if let Some(recv) = receiver_of(&base_ty) {
-                            let c = self.catalog_cands(&recv, &mname, true, &base_ty);
-                            if !c.is_empty() {
-                                return E::Callable(c);
-                            }
-                        }
-                    }
-                }
-                // `Q.Open()` is the query's method even when the query has a column named Open (Base
-                // Application's "Summarized Stock By Item Trkg." has one): a column is not called.
-                // Compiles in real BC; no corpus test names a column like a method (docs/probes-needed.md).
-                if matches!(base_ty, Ty::Object(ObjKind::Query, _))
-                    && node.parent().is_some_and(|p| p.kind() == CallExpr)
-                    && node.prev_sibling().is_none()
-                    && self.field_res(sc, &base_ty, &mname).is_some()
-                {
-                    if let Some(recv) = receiver_of(&base_ty) {
-                        let c = self.catalog_cands(&recv, &mname, true, &base_ty);
-                        if !c.is_empty() {
-                            return E::Callable(c);
-                        }
-                    }
+                if let Some(e) = self.called_builtin_over_member(sc, node, &base_ty, &mname) {
+                    return e;
                 }
                 if let Some(r) = self.field_res(sc, &base_ty, &mname) {
                     self.record(sc, node, r);
