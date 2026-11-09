@@ -79,12 +79,12 @@ fn describe_value(n: &al_data::memory::NotShareable, program: &al_ir::Program) -
     });
     let where_ = if n.in_key { "key field" } else { "field" };
     format!(
-        "table {} {:?}, company {:?}, {where_} {}, a {}",
+        "table {} '{}', company '{}', {where_} {}, {}",
         table.and_then(|o| o.id).map_or("?".into(), |id| id.to_string()),
         table.map_or("?", |o| o.name.as_str()),
         n.company,
         field
-            .map(|f| format!("{} {:?}", f.id, f.name))
+            .map(|f| format!("{} '{}'", f.id, f.name))
             .unwrap_or_else(|| format!("at position {}", n.position)),
         n.kind
     )

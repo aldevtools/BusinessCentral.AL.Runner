@@ -6,6 +6,7 @@
 //! rollback drops only what the thread's store changed (decision 2).
 
 use super::{MemStore, Rows, Slot, Tables};
+use al_builtins::describe::Describe;
 use al_builtins::value::Value;
 
 /// Committed tables, with their stamps and marks, that every thread may read and none writes (see the module comment).
@@ -129,18 +130,9 @@ impl MemStore {
     }
 }
 
-/// What a value is, for a message: its variant, a library type by its name and what its handle holds
-/// (`Library RecordId holding RecordId`).
+/// What a value is, for a message: `Describe::describe`, which names a library handle by its type.
 fn kind_of(v: &Value) -> String {
-    let variant = |debug: String| debug.split(['(', ' ', '{']).next().unwrap_or_default().to_string();
-    match v {
-        Value::Library(lib, cell) => format!(
-            "Library {} holding {}",
-            lib.name(),
-            variant(format!("{:?}", cell.borrow()))
-        ),
-        other => variant(format!("{other:?}")),
-    }
+    v.describe()
 }
 
 impl FrozenStore {

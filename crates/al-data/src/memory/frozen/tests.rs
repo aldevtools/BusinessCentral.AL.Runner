@@ -179,7 +179,7 @@ fn freeze_names_the_table_field_and_kind_that_block_it() {
             object: t.object,
             in_key: false,
             position: 2,
-            kind: "List".into()
+            kind: "List of 0 elements".into()
         }
     );
     assert_eq!(not_shareable(&Value::Integer(1)), None);
