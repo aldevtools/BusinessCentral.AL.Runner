@@ -1168,6 +1168,12 @@ What this shows:
 - The floor of decision 6: a limit below one thread's need still runs slowly or is killed by the cgroup. On Tests-SCM
   that floor is about 4.1 GB, on Tests-ERM-Sales about 2.35 GB.
 - The compile phase is still not gated (a cold compile cache peaks at about 3.3 to 3.9 GB).
+  Note (2026-11-09, after the owner's requirement "if I say maximum, then that has to be the maximum"): the compile
+  is now held to the limit too. A watcher reads the resident memory from before the apps load; past the stop line the
+  compile's threads stop at their next file or object (`al_sema::halt`) and every test is not run with the limit as
+  the reason (exit code 2). The cold compile cache still needs about 3.4 GB on Tests-SCM: fewer compile threads did
+  not lower it (3389 MB with one thread against 3456 MB), and lending the sources to the first layer instead of copying
+  them did not either (3456 MB): the memory is the data the compile holds. Making it smaller is a change of its own.
 - A thread that ends and starts again pays one decode of its baseline copy.
 - Resident memory is still read on Linux only. Elsewhere decisions 3 and 6 do not apply; decisions 1, 2 and 4 still
   start threads only for usable work.

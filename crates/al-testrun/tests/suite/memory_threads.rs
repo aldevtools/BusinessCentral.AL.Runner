@@ -290,3 +290,62 @@ fn a_hard_limit_stops_the_run_and_the_tests_not_reached_are_not_run() {
         );
     }
 }
+
+/// Decision 6 holds for the whole run, the compile included (owner, 2026-11-09: "if I say maximum, then that has to be
+/// the maximum I can spend on this task"): a run whose resident memory passes the stop line while the apps compile
+/// stops there, before the compile ends. Every test is not run with the limit as the reason, never failed, and the
+/// message says that it stopped while compiling.
+#[test]
+fn a_hard_limit_stops_the_compile_and_every_test_is_not_run() {
+    let src = mixed();
+    let free = run(&src, &RunOptions::default());
+    let stopped = run(
+        &src,
+        &RunOptions {
+            memory: budget(1000, true, || 990),
+            ..Default::default()
+        },
+    );
+    let memory = &stopped.phases.memory;
+    let halted = memory.halted.clone().expect("the run stopped");
+    assert!(halted.contains("while the apps were compiled"), "{halted}");
+    assert!(
+        halted.contains("990 MB") && halted.contains("1000 MB (--max-memory)"),
+        "{halted}"
+    );
+    assert_eq!(memory.after_compile, None, "the compile did not end: {memory:?}");
+    assert_eq!(
+        stopped.results().len(),
+        free.results().len(),
+        "every test has an outcome"
+    );
+    for (_, t, o) in outcomes(&stopped) {
+        assert_eq!(o, "NotRun(\"memory limit (--max-memory 1000 MB)\")", "{t}");
+    }
+    // The tests are the ones a complete run reports, codeunit names included.
+    let names = |rt: &CorpusRuntime| {
+        let mut v: Vec<_> = rt
+            .results()
+            .iter()
+            .map(|r| (r.app, r.codeunit, r.codeunit_name.clone(), r.test.clone()))
+            .collect();
+        v.sort();
+        v
+    };
+    assert_eq!(names(&stopped), names(&free));
+}
+
+/// A soft limit (`serve`, `debug`) never stops the compile.
+#[test]
+fn a_soft_limit_does_not_stop_the_compile() {
+    let src = mixed();
+    let soft = run(
+        &src,
+        &RunOptions {
+            memory: budget(1000, false, || 990),
+            ..Default::default()
+        },
+    );
+    assert!(soft.phases.memory.halted.is_none(), "{:?}", soft.phases.memory);
+    assert!(soft.phases.memory.after_compile.is_some());
+}

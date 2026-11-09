@@ -236,6 +236,7 @@ pub(crate) fn build_shared<'a>(
         let both: Vec<(Vec<usize>, Vec<u8>)> = (0..ws.objects.len())
             .into_par_iter()
             .map(|oi| {
+                crate::halt::check();
                 if prov(oi) {
                     let f = src.expect("provided").facts(oi);
                     return (
@@ -1058,7 +1059,9 @@ pub(crate) fn lower_core(
     theirs.extend((0..n).filter(|&oi| shared.active[oi] && ws.is_dependency(oi) && !prov(oi)));
     let workers = workers.min(theirs.len() / PARALLEL_OBJECTS_PER_WORKER);
     let next = std::sync::atomic::AtomicUsize::new(0);
+    let token = crate::halt::current();
     let take_some = |local: &Local<'_>, seq: &Seq<'_>| -> Vec<(usize, Piece)> {
+        let _armed = crate::halt::arm(token.clone()); // A stop reaches the workers too (`halt.rs`).
         let mut out = Vec::new();
         let mut line_cache: HashMap<usize, std::rc::Rc<FileLines>> = HashMap::default();
         loop {
@@ -1066,6 +1069,7 @@ pub(crate) fn lower_core(
             if k >= theirs.len() {
                 return out;
             }
+            crate::halt::check();
             for &oi in &theirs[k..(k + LOWER_CHUNK).min(theirs.len())] {
                 out.push((oi, lower_object(&shared, local, seq, oi, &mut line_cache)));
             }
@@ -1092,7 +1096,7 @@ pub(crate) fn lower_core(
         done.extend(
             handles
                 .into_iter()
-                .map(|h| h.join().expect("a lowering worker panicked")),
+                .map(|h| crate::halt::join(h, "a lowering worker panicked")),
         );
         done
     });

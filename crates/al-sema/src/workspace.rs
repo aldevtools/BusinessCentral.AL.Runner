@@ -38,7 +38,10 @@ impl LazySource {
     pub fn fill(&self, app: &mut AppSource) {
         let texts: Vec<String> = (0..app.files.len())
             .into_par_iter()
-            .map(|i| self.loader.text(i))
+            .map(|i| {
+                crate::halt::check();
+                self.loader.text(i)
+            })
             .collect();
         for ((_, slot), text) in app.files.iter_mut().zip(texts) {
             *slot = text;
@@ -502,6 +505,7 @@ impl Workspace {
             .par_iter()
             .zip(given.into_par_iter())
             .map(|(&(ai, _, lazy, _, src), given)| {
+                crate::halt::check(); // A hard memory limit stops the compile here (`halt.rs`).
                 if let Some(file) = given {
                     return (file, Vec::new());
                 }
@@ -1411,7 +1415,10 @@ impl Workspace {
     fn resolve_references(&mut self, first: usize) {
         let per_object: Vec<Vec<Diagnostic>> = self.objects[first..]
             .par_iter()
-            .map(|o| self.unresolved_references_of(o))
+            .map(|o| {
+                crate::halt::check();
+                self.unresolved_references_of(o)
+            })
             .collect();
         self.diagnostics.extend(per_object.into_iter().flatten());
     }

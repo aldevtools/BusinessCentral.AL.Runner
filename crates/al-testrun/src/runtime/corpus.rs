@@ -172,8 +172,12 @@ impl CorpusRuntime {
     ) -> Result<(CorpusRuntime, Option<KeptCompile>), String> {
         // A lean compile leaves workspace objects out: `--affected` needs the hash of each.
         let lean = !opts.object_hashes;
+        // A hard memory limit may stop the compile (`compile_halt.rs`): the run ends there.
         let mut compiled =
-            Self::compile_suites_with(apps, kinds, manifests, symbols, target, suites, opts, lean, &mut grow)?;
+            match Self::compile_within_limit(apps, kinds, manifests, symbols, target, suites, opts, lean, &mut grow)? {
+                Ok(c) => c,
+                Err(stopped) => return Ok((stopped, None)),
+            };
         // A lean run may be run again below: its engines are freed then, the process does not end after it.
         let first_opts;
         let first = if compiled.lean.is_some() && opts.process_ends_after {
@@ -192,7 +196,7 @@ impl CorpusRuntime {
         if compiled.lean.is_some() && rt.met_left_out() {
             let lean_time = rt.phases.compile + rt.phases.tests;
             let (apps, kinds) = compiled.into_apps();
-            let compiled = Self::compile_suites_with(
+            let compiled = match Self::compile_within_limit(
                 apps,
                 kinds,
                 manifests,
@@ -202,7 +206,10 @@ impl CorpusRuntime {
                 opts,
                 false,
                 &mut Grow::Off,
-            )?;
+            )? {
+                Ok(c) => c,
+                Err(stopped) => return Ok((stopped, None)),
+            };
             let mut rt = Self::run_compiled(&compiled, target, dotnet, opts);
             rt.phases.lean_redone = true;
             rt.phases.compile += lean_time;
@@ -255,7 +262,7 @@ impl CorpusRuntime {
         mut each: impl FnMut(usize),
     ) -> Result<Vec<CorpusRuntime>, String> {
         // A complete compile: a lean one may need a second compile when a test meets what it left out.
-        let compiled = Self::compile_suites_with(
+        let compiled = match Self::compile_within_limit(
             apps,
             kinds,
             manifests,
@@ -265,7 +272,10 @@ impl CorpusRuntime {
             opts,
             false,
             &mut Grow::Off,
-        )?;
+        )? {
+            Ok(c) => c,
+            Err(stopped) => return Ok(vec![stopped]), // A hard memory limit stopped the compile (`compile_halt.rs`).
+        };
         let mut out: Vec<CorpusRuntime> = Vec::with_capacity(perturbs.len());
         // ADR-058 amendment 1: a `fresh` variant is formed from its carried twin's run.
         let (from, check) = super::single_fresh::fresh_plan(perturbs);
@@ -330,7 +340,7 @@ impl CorpusRuntime {
     /// the workspace objects they do not name (`al_sema::check::Roots::lean`). Only a caller that runs the tests again
     /// on a complete compile when they meet what was left out (`CorpusRuntime::met_left_out`) may ask for it.
     #[allow(clippy::too_many_arguments)]
-    fn compile_suites_with(
+    pub(super) fn compile_suites_with(
         apps: Vec<al_sema::workspace::AppSource>,
         kinds: Vec<al_sema::AppKind>,
         manifests: &[Manifest],
@@ -993,6 +1003,7 @@ impl CorpusRuntime {
         let limit = opts.test_time_limit;
         // A debugged run is one thread, so the tests stop one at a time (ADR-048 decision 3); the memory budget may cut.
         let mut memory = super::memory::Plan::after_compile(opts, test_workers());
+        memory.pool().watch(); // A hard limit stops the run before the resident memory passes it, baseline included.
         let mut workers = memory.workers();
         let baseline = baseline && !memory.halted(); // A run stopped at its memory limit builds no install baseline.
         let baseline_skipped = baseline_wanted && !baseline;
@@ -1307,7 +1318,6 @@ impl CorpusRuntime {
             });
         }
         let tests_started = std::time::Instant::now();
-        memory.pool().watch(); // A hard limit stops the run before the resident memory passes it (`memory.rs`).
         let mut outcomes = std::collections::HashMap::new();
         let mut marks_by_test: std::collections::HashMap<(usize, u32, String), Vec<Assumption>> =
             std::collections::HashMap::new();

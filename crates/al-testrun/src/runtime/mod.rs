@@ -944,6 +944,7 @@ mod cache;
 mod chain;
 mod chain_runs;
 mod chain_walk;
+mod compile_halt;
 mod compiled;
 mod corpus;
 mod data_driven;

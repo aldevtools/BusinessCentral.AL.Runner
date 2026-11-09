@@ -150,3 +150,28 @@ fn a_bad_size_is_a_bad_invocation() {
     assert_eq!(code(&o), 2, "{t}");
     assert!(t.contains("--max-memory"), "{t}");
 }
+
+/// Decision 6 holds while the apps compile too (owner, 2026-11-09): a limit the process passes before its compile ends
+/// stops the compile, says so with the numbers, and reports every test as not run (exit code 2).
+#[test]
+fn a_limit_the_compile_passes_stops_the_compile_and_no_test_runs() {
+    let d = tempfile::tempdir().unwrap();
+    let app = budget_app(d.path());
+    let junit = d.path().join("out.xml");
+    let o = alrunner(&[
+        "test",
+        app.to_str().unwrap(),
+        "--no-download",
+        "--max-memory",
+        "1M",
+        "--junit",
+        junit.to_str().unwrap(),
+    ]);
+    let t = text(&o);
+    assert_eq!(code(&o), 2, "{t}");
+    assert!(t.contains("while the apps were compiled"), "{t}");
+    assert!(t.contains("the limit is 1 MB (--max-memory)"), "{t}");
+    let xml = std::fs::read_to_string(&junit).unwrap_or_else(|e| panic!("{e}: {t}"));
+    assert_eq!(xml.matches("memory limit (--max-memory 1 MB)").count(), 2, "{xml}");
+    assert!(xml.contains("Budget Tests"), "the codeunit name is reported: {xml}");
+}
