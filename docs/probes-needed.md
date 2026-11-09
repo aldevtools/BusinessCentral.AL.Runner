@@ -1456,3 +1456,11 @@ text/textbuilder-bigtext, format-evaluate, format-evaluate, types/date-time).
 | Shape | Status | Probe wanted |
 |---|---|---|
 | `ReadText` through a UTF-8 or UTF-16 InStream on a Blob a stream wrote and nothing saved or fetched since, after a `ReadText` through a stream of the other of the two encodings | REFUSED (al-builtins/src/stream.rs `refuse_unicode_switch`). streams/instream-outstream/StreamWrittenText.al (Temp Blob) shows BC does not decode as the second stream says: 7 single-byte bytes raise InvalidStreamData through UTF-16 after UTF-8 raised (:87-88, :204-205, :243-244), 13 UTF-8 bytes read as UTF-8 through UTF-16 (:127), 14 UTF-16 bytes as UTF-16 through UTF-8 (:165). After Insert and CalcFields each stream decodes as it says (errors/Y68Small.al Q6_ReadText_Utf8_OfUtf16Bytes), and a single read through UTF-16 drops an odd last byte (streams/StTEncodings.al CrossEncoding*). | Whether the first Unicode read or the write's encoding decides: write with no encoding and with Windows, then read through UTF-16 first and UTF-8 second; write as UTF-8 and read only through UTF-16; the same after Modify without CalcFields. |
+
+## NumberSequence after a failed test under TestIsolation = Codeunit (2026-11-09)
+
+| Shape | Status | Probe wanted |
+|---|---|---|
+| A test inserts a NumberSequence, a later test of the same codeunit fails, a test after it reads the sequence | BUILT (al-vm/src/sequence_start.rs `drop_sequences_inserted_since`): the sequence is gone (isolation probe IsolProbeAfterRollback.Codeunit.al S3, S4, S8, S9 under runner 61301, oracle of BC 28.4). Without a failed test in between it stays (codeunits/run-onrun/SeqCarry.al:20-21). | Whether `asserterror` inside a test (not a failed test) also takes back an Insert made by an earlier test of the codeunit; the runtime does not |
+| A sequence that existed when the codeunit's tests began is restarted or deleted, then a test fails | REFUSED: the later tests of the codeunit are not run (al-testrun/src/isolation.rs `after_test`) | Exists, Current and Next of such a sequence in the test after the failed one |
+| Numbers taken by `Next` from such a sequence, then a test fails | KEPT, as at the codeunit's end (SeqCarry.al:26-27); not measured after a failed test | Next in the test after the failed one |

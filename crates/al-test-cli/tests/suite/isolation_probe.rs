@@ -61,22 +61,6 @@ fn agree(rt: &CorpusRuntime, suite: &str, file: &str) {
     assert_eq!(bc.len(), 49, "the oracle has 49 methods");
     for c in &bc {
         let ours = rt.outcome_in(suite, &c.case.id);
-        // Known gap, same as in the ignored test below: under TestIsolation = Codeunit a NumberSequence.Insert of S3 is gone in
-        // S8 and S9 on BC (the oracle fails them); this runtime keeps it. BC's result stays the expectation: the test asserts
-        // the runtime still differs, so it fails (and the entry goes) when the gap is closed.
-        if suite == "codeunit"
-            && matches!(
-                c.case.id.name.as_str(),
-                "S8_NumberSequenceStillExists" | "S9_NumberSequenceNotReset"
-            )
-        {
-            assert!(
-                c.message.is_some() && matches!(ours, Outcome::Pass),
-                "known gap closed or changed: {} {ours:?}",
-                c.case.id.name
-            );
-            continue;
-        }
         match (&c.message, &ours) {
             (None, Outcome::Pass) => {}
             // BC's text is the message of the AL `Error` the fixture raises; ours is the same.

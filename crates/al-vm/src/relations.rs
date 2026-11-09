@@ -156,7 +156,8 @@ impl Session {
             _ => text,
         };
         let engine = self.engine.clone();
-        let enums = |id: u32| crate::views::enum_filter_members(&engine.program.objects[id as usize]);
+        let language = al_builtins::format::FormatCtx::language(self);
+        let enums = |id: u32| crate::views::enum_filter_members(&engine.program.objects[id as usize], language);
         let expr = al_builtins::filter::parse_filter_with(text, &[], &t.fields[c.field].ty, &enums).map_err(|e| {
             Signal::Unsupported(format!(
                 "the filter condition `{text}` of the TableRelation of {}.{field_name}: {e}",

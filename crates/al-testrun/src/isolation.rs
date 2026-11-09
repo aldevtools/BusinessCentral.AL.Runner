@@ -136,6 +136,44 @@ impl Checkpoint {
     }
 }
 
+/// What the end of a test puts back besides its transaction, by the runner's TestIsolation. Under Function the
+/// checkpoint (with the isolated storage and the number sequences for a runner codeunit, `runner_function`). Under
+/// Codeunit (`sequences`, taken after OnRun) a failed test takes back every NumberSequence.Insert since the codeunit's
+/// tests began ([`Session::drop_sequences_inserted_since`]). `Some(reason)`: what the later tests of the codeunit start
+/// from is not measured, and they are not run.
+pub fn after_test(
+    session: &mut Session,
+    checkpoint: Option<&Checkpoint>,
+    runner_function: bool,
+    sequences: Option<&al_vm::SequenceStart>,
+    failed: bool,
+    routine: &str,
+) -> Option<String> {
+    if let Some(cp) = checkpoint {
+        if !runner_function {
+            cp.restore(session);
+            return None;
+        }
+        // A new key's IsolatedStorage.Set and a new NumberSequence.Insert are rolled back
+        // (IsolProbeAfterRollback.Codeunit.al S1-S9 under runner 61300).
+        return (cp.restore_for_runner(session) == Some(false)).then(|| {
+            format!(
+                "an earlier test of this codeunit, {routine}, changed an isolated storage key or a number sequence \
+                 that existed before it: what the rollback of TestIsolation = Function leaves of it is not \
+                 measured (only a new key's IsolatedStorage.Set and a new NumberSequence.Insert are)"
+            )
+        });
+    }
+    let start = sequences.filter(|_| failed)?;
+    (session.drop_sequences_inserted_since(start) == Some(false)).then(|| {
+        format!(
+            "a test of this codeunit, {routine}, failed after a number sequence that existed when the codeunit's tests \
+             began was restarted, deleted or changed: what the rollback of the failed test leaves of it under \
+             TestIsolation = Codeunit is not measured (only a new NumberSequence.Insert is)"
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

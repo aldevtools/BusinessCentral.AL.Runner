@@ -538,6 +538,8 @@ fn run_codeunit_inner(
         // Function isolation returns the database to its state after OnRun when each test ends
         // (corpus isolation probe T5 and T6; oracle/28/xunit-isolation-function.xml).
         let checkpoint = (isolation == TestIsolation::Function).then(|| Checkpoint::take(session));
+        // Under Codeunit isolation a failed test takes back the NumberSequence.Insert calls since here (isolation::after_test).
+        let sequences_at_start = (isolation == TestIsolation::Codeunit).then(|| session.sequences_at_start());
         // MinimumActiveRowVersion across the tests (al-vm `min_row_version.rs`). When OnRun wrote rows, whether they belong to
         // the isolation transaction is not pinned, and no value is taken.
         if !execute && runner.none_handed_out(session, row_versions_from) {
@@ -1126,26 +1128,15 @@ fn run_codeunit_inner(
                     },
                 );
             }
-            if let Some(cp) = &checkpoint {
-                if runner_function {
-                    match cp.restore_for_runner(session) {
-                        // A new key's IsolatedStorage.Set and a new NumberSequence.Insert are rolled back
-                        // (IsolProbeAfterRollback.Codeunit.al S1-S9 under runner 61300).
-                        None | Some(true) => {}
-                        Some(false) => {
-                            unmeasured_restore.get_or_insert_with(|| {
-                            format!(
-                                "an earlier test of this codeunit, {}, changed an isolated storage key or a number sequence \
-                                 that existed before it: what the rollback of TestIsolation = Function leaves of it is not \
-                                 measured (only a new key's IsolatedStorage.Set and a new NumberSequence.Insert are)",
-                                routine.name
-                            )
-                        });
-                        }
-                    }
-                } else {
-                    cp.restore(session);
-                }
+            if let Some(why) = crate::isolation::after_test(
+                session,
+                checkpoint.as_ref(),
+                runner_function,
+                sequences_at_start.as_ref(),
+                matches!(outcome, Outcome::Fail(_)),
+                &routine.name,
+            ) {
+                unmeasured_restore.get_or_insert(why);
             }
             if let (Outcome::Fail(_), Some(e)) = (&outcome, &failure) {
                 if !e.call_stack.is_empty() {
