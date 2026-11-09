@@ -96,10 +96,53 @@ fn a_baseline_that_cannot_be_written_as_bytes_names_the_value() {
         rows: vec![(vec![Value::Code("".into())], vec![Value::Code("".into()), rid, json])],
     }]);
     assert!(
-        matches!(b.freeze(), Err(NotShared::Value(_))),
-        "a RecordId is not shared"
+        matches!(b.freeze(), Err(NotShared::Value(ref why)) if why.kind == "Library JsonObject holding Empty"),
+        "the JsonObject has no plain form; the RecordId has one"
     );
     assert!(b.to_bytes().is_none());
     let why = b.first_without_bytes().expect("the JsonObject has no form");
     assert_eq!((why.position, why.kind.as_str()), (2, "JsonObject"));
+}
+
+/// The install baseline of a large partner app holds Job Queue Entry rows with a RecordId field and rows with a
+/// TableFilter field. It is still shared: those tables are a copy per thread, read from their bytes.
+#[test]
+fn a_baseline_with_a_record_id_and_a_table_filter_is_shared() {
+    let mut b = sample();
+    let rid = Value::Library(
+        al_builtins::library_kind::LibraryKind::RecordId,
+        std::rc::Rc::new(std::cell::RefCell::new(al_builtins::value::LibraryValue::RecordId {
+            table: 1,
+            table_no: 18,
+            name: "Customer".into(),
+            key: vec![Value::Code("10000".into())],
+        })),
+    );
+    let filter = Value::Library(
+        "TableFilter".into(),
+        std::rc::Rc::new(std::cell::RefCell::new(al_builtins::value::LibraryValue::Text(
+            "Customer: No.=10000".into(),
+        ))),
+    );
+    b.store = al_data::memory::MemStore::from_exported(vec![
+        ExportedTable {
+            company: "CRONUS".into(),
+            object: 311,
+            rows: vec![(
+                vec![Value::Code("".into())],
+                vec![Value::Code("".into()), Value::Integer(1)],
+            )],
+        },
+        ExportedTable {
+            company: "CRONUS".into(),
+            object: 472,
+            rows: vec![(vec![Value::Integer(1)], vec![Value::Integer(1), rid, filter])],
+        },
+    ]);
+    let shared = b.freeze().expect("a RecordId and a TableFilter have a plain form");
+    assert_eq!(shared.rows(), 2);
+    assert_eq!(shared.held_tables(), vec![("CRONUS".to_string(), 472, 1)]);
+    let copy = Baseline::from_bytes(&b.to_bytes().unwrap()).unwrap();
+    assert_eq!(shared.thaw(None).to_bytes(), copy.to_bytes());
+    assert!(shared.unchanged());
 }
