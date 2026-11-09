@@ -1,6 +1,6 @@
 # ADR-066: Run the test runner codeunit's own AL
 
-- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07); amendment 4 (order-dependent codeunits run in parallel, serial run only after a failure, `--strict-order`) Accepted (owner, 2026-11-07); amendment 5 (each serial re-run is a session of its own, the sessions run in parallel; a test refused before it starts triggers no re-run) Accepted (owner, 2026-11-07); amendment 7 (a re-run only when a failed test could have seen the changed state; a replay cap only with `--max-replay N`, changed by the owner the same day) Accepted (owner, 2026-11-08); amendment 8 (the carry chain walk keeps the SingleInstance state; chain members are never re-run or flagged) Accepted (owner, 2026-11-08, variant A); amendment 9 (the number of test threads follows the memory budget, `--max-memory`) Accepted (owner, 2026-11-09, as a safety net near the limit; redesign in a follow-up); amendment 10 (the run holds a memory limit by running more of its work one after the other: threads start one at a time, the cost is learned in the run, a thread that cannot go on ends and gives its memory back) Proposed (2026-11-09)
+- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07); amendment 4 (order-dependent codeunits run in parallel, serial run only after a failure, `--strict-order`) Accepted (owner, 2026-11-07); amendment 5 (each serial re-run is a session of its own, the sessions run in parallel; a test refused before it starts triggers no re-run) Accepted (owner, 2026-11-07); amendment 7 (a re-run only when a failed test could have seen the changed state; a replay cap only with `--max-replay N`, changed by the owner the same day) Accepted (owner, 2026-11-08); amendment 8 (the carry chain walk keeps the SingleInstance state; chain members are never re-run or flagged) Accepted (owner, 2026-11-08, variant A); amendment 9 (the number of test threads follows the memory budget, `--max-memory`) Accepted (owner, 2026-11-09, as a safety net near the limit; redesign in a follow-up); amendment 10 (the run holds a memory limit by running more of its work one after the other: threads start one at a time, the cost is learned in the run, a thread that cannot go on ends and gives its memory back) Accepted (owner, 2026-11-09; decision 6 changed by the owner: `--max-memory` is a hard limit, a run that cannot fit stops with exit code 2)
 - Date: 2026-11-05
 
 ## Context
@@ -1057,9 +1057,9 @@ What this shows:
 - `crates/alrunner-cli/tests/cli/memory.rs`: `--max-memory 1M` stops with exit code 2 and the numbers; the `memory:`
   line of `--timings`; the default source; the same outcomes under a tight budget; a bad size exits with code 2.
 
-## Amendment 10 (Proposed, 2026-11-09): the run holds a memory limit by running more of its work one after the other
+## Amendment 10 (Accepted, 2026-11-09): the run holds a memory limit by running more of its work one after the other
 
-- Status: Proposed. This is the redesign the owner asked for when he accepted amendment 9 ("as a safety net near the
+- Status: Accepted (owner, 2026-11-09; decision 6 changed: `--max-memory` is a hard limit). This is the redesign the owner asked for when he accepted amendment 9 ("as a safety net near the
   limit; redesign in a follow-up"). It replaces decisions 3 and 4 of amendment 9 (the thread count at start, the
   admission per codeunit). Decisions 1, 2, 5, 6 and 7 of amendment 9 stay: parallel by default, the budget and its
   sources, exit code 2 at start, the `memory:` line, outcomes unchanged. Each decision below can be accepted or
@@ -1146,12 +1146,17 @@ What this shows:
    peak by 2 to 5 % (within noise). A thread that ends (decision 3) leaves its heap to mimalloc, which reuses or frees
    it. No allocator setting and no call to return memory to the OS is added; this is checked again after decision 3 is
    built, and an allocator change would come back as its own proposal.
-6. **A limit below what one thread needs is reported, not enforced by stopping mid-run.** One thread's need (the
-   fixed part, the carried state of the chain, the largest codeunit) cannot be cut by scheduling. When the resident
-   memory passes the limit while one thread runs, the run goes on (a cgroup, if there is one, stays the hard limit),
-   and the `memory:` line of `--timings` says "the limit (X MB) is below what one thread needed (Y MB)". Exit code 2
-   stays only for the check at start (amendment 9, decision 5). Making the carried state of a long chain smaller is a
-   separate change, not part of this amendment.
+6. **`--max-memory` is a hard limit: a run that cannot fit does not run** (owner, 2026-11-09: "if I say maximum, then
+   that has to be the maximum I can spend on this task"). One thread's need (the fixed part, the carried state of the
+   chain, the largest codeunit) cannot be cut by scheduling, so the runner stops instead of going over:
+   - at start, when the compile and install baseline plus the smallest thread do not fit, as amendment 9 decision 5;
+   - after the first codeunit, as soon as the learned cost of one thread shows it cannot fit;
+   - during the run, before the resident memory would pass the limit while only one thread is left.
+   Each stop exits with code 2 and says how much memory the run needed and how much the limit allowed; the tests not
+   reached are reported as not run with the reason "memory limit (--max-memory X MB)", never as failures. Results
+   already reported stay. Without `--max-memory` the limit is free memory and the cgroup as in amendment 9, and the
+   same rule applies to an explicit cgroup `memory.max`. Making the carried state of a long chain smaller is a separate
+   change, not part of this amendment.
 7. **Outcomes do not change, and a test checks it for every way the threads can go.** Only which thread runs a
    codeunit, and when, changes. Each codeunit still runs on a session of its own from the same baseline. A run ahead is
    still taken only when its start has the fingerprint of the walk's state, and a dropped or abandoned run ahead only
