@@ -52,6 +52,7 @@ pub mod formatstr;
 pub mod http;
 pub mod iso;
 pub mod json;
+mod marked_text;
 pub mod mathfns;
 mod mcp_natives;
 pub mod media;

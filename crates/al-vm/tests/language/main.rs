@@ -17,6 +17,7 @@ mod byte_char_table;
 mod byte_overflow;
 mod calc_const_guid;
 mod call_stack;
+mod call_stack_prefix;
 mod call_stack_text_carried;
 mod call_stack_text_write_text;
 mod caption_after_resolve;

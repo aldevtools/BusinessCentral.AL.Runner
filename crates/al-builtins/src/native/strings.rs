@@ -4,7 +4,17 @@ pub(super) fn strlen(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value])
     Ok(Value::Integer(text_arg(args, 0)?.utf16_len() as i32))
 }
 
-pub(super) fn strpos(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+pub(super) fn strpos(c: &mut dyn Ctx, r: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+    if let Some(v) = crate::marked_text::dispatch(
+        crate::marked_text::Kind::Find,
+        crate::marked_text::At::Arg0,
+        strpos,
+        c,
+        &r,
+        args,
+    ) {
+        return v;
+    }
     let (s, sub) = (text_arg(args, 0)?, text_arg(args, 1)?);
     // text/TestTextProcessingContracts.al StrPos_EmptySubstring_ReturnsZero.
     if sub.utf16_len() == 0 {
@@ -78,7 +88,17 @@ pub(super) fn strchecksum(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Va
     Ok(Value::Integer(((modulus - sum % modulus) % modulus) as i32))
 }
 
-pub(super) fn copystr(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+pub(super) fn copystr(c: &mut dyn Ctx, r: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+    if let Some(v) = crate::marked_text::dispatch(
+        crate::marked_text::Kind::Range,
+        crate::marked_text::At::Arg0,
+        copystr,
+        c,
+        &r,
+        args,
+    ) {
+        return v;
+    }
     let whole = text_arg(args, 0)?;
     // A Decimal position or length: `textfns::decimal_as_int`, the position first (CopyStr.Codeunit.al CopyStrDecimalPosLen1
     // `c2_2.5_3.4` names 2.5, on writer TG's branch).
@@ -217,7 +237,17 @@ pub fn is_turkic_language(language: i32) -> bool {
     matches!(language, 1055 | 1068)
 }
 
-pub(super) fn uppercase(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+pub(super) fn uppercase(ctx: &mut dyn Ctx, r: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+    if let Some(v) = crate::marked_text::dispatch(
+        crate::marked_text::Kind::Map,
+        crate::marked_text::At::Arg0,
+        uppercase,
+        ctx,
+        &r,
+        args,
+    ) {
+        return v;
+    }
     let t = text_arg(args, 0)?;
     if is_turkic_language(ctx.language()) {
         return Ok(Value::Text(simple_upper(&t.replace('i', "İ")).into()));
@@ -225,7 +255,17 @@ pub(super) fn uppercase(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Va
     Ok(Value::Text(simple_upper(&t).into()))
 }
 
-pub(super) fn lowercase(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+pub(super) fn lowercase(ctx: &mut dyn Ctx, r: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+    if let Some(v) = crate::marked_text::dispatch(
+        crate::marked_text::Kind::Map,
+        crate::marked_text::At::Arg0,
+        lowercase,
+        ctx,
+        &r,
+        args,
+    ) {
+        return v;
+    }
     let t = text_arg(args, 0)?;
     if is_turkic_language(ctx.language()) {
         return Ok(Value::Text(simple_lower(&t.replace('I', "ı")).into()));
