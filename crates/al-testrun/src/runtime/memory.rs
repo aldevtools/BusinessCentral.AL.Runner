@@ -448,6 +448,8 @@ struct Shared {
     learned: AtomicBool,
     /// The cost each ended codeunit showed over its own window ([`window_cost`]), the newest [`KEEP`] of them.
     samples: Mutex<std::collections::VecDeque<u64>>,
+    /// The largest of those costs: the codeunit that spiked, which the percentile leaves out ([`Pool::room`]).
+    spike: AtomicU64,
     /// Test threads alive (the first one included), the most at once, the ones ended for memory, codeunits running.
     live: AtomicUsize,
     most: AtomicUsize,
@@ -484,6 +486,7 @@ impl Pool {
                 cost: AtomicU64::new(0),
                 learned: AtomicBool::new(false),
                 samples: Mutex::default(),
+                spike: AtomicU64::new(0),
                 live: AtomicUsize::new(1),
                 most: AtomicUsize::new(1),
                 ended: AtomicUsize::new(0),
@@ -567,7 +570,10 @@ impl Pool {
         }
         let (fixed, cost) = (self.fixed(), self.cost());
         let threads = (self.live() + extra) as u64;
-        (now + cost * next as u64).max(fixed + cost * threads) <= usable(b.limit)
+        // One codeunit may be a spike (the largest seen, beyond the typical cost the percentile gives): keep room for
+        // one beside the typical ones, so a rare large codeunit does not meet a full process and a hard stop.
+        let spike = self.s.spike.load(Ordering::Relaxed).saturating_sub(cost);
+        (now + cost * next as u64 + spike).max(fixed + cost * threads + spike) <= usable(b.limit)
     }
 
     /// Lets one more test thread start when the run may use another and its codeunit fits beside the resident memory
@@ -645,6 +651,9 @@ impl Pool {
             let mut sorted: Vec<u64> = v.iter().copied().collect();
             sorted.sort_unstable();
             self.s.cost.store(percentile(&sorted), Ordering::Relaxed);
+            self.s
+                .spike
+                .store(sorted.last().copied().unwrap_or(0), Ordering::Relaxed);
         }
         self.s.learned.store(true, Ordering::SeqCst);
         let Some(b) = self.s.budget.as_ref().filter(|b| b.hard && self.live() == 1) else {
@@ -945,6 +954,34 @@ mod tests {
         drop(r);
         assert_eq!(pool.cost() >> 20, 360);
         drop(members);
+    }
+
+    /// A codeunit that spikes rarely (under a tenth of them) is left out of the percentile, so the cost is low; threads
+    /// are still only admitted while one spike fits beside the typical ones.
+    #[test]
+    fn room_is_kept_for_one_spiking_codeunit_the_percentile_leaves_out() {
+        let now = rss(500);
+        let pool = Pool::new(Some(budget(3000 * MB, now.clone(), true)), 500 * MB, 8);
+        let mut at = 500;
+        for grew in std::iter::repeat_n(100, 19).chain([1000]) {
+            let r = pool.enter();
+            at += grew;
+            now.store(at * MB, Ordering::SeqCst);
+            drop(r);
+            now.store(500 * MB, Ordering::SeqCst);
+            at = 500;
+        }
+        assert_eq!(pool.cost() >> 20, 100, "typical cost");
+        now.store(1500 * MB, Ordering::SeqCst);
+        let a = pool
+            .try_add(0)
+            .expect("typical codeunit and a spike fit: 1500 + 100 + 900 MB");
+        now.store(1900 * MB, Ordering::SeqCst);
+        assert!(
+            pool.try_add(1).is_none(),
+            "1900 + 100 + 900 MB pass nine tenths of 3000 MB"
+        );
+        drop(a);
     }
 
     #[test]
