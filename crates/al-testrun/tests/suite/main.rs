@@ -38,6 +38,7 @@ mod install_load_package_data;
 mod install_own_table_guard;
 mod install_own_table_rows;
 mod install_partner_order;
+mod install_refused_package_data_rows;
 mod install_stopped_rows;
 mod install_trigger_setup_order;
 mod lean_selection;

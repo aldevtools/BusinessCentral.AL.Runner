@@ -115,8 +115,10 @@ impl RootRun<'_> {
                         }
                     ));
                 }
-                self.stopped
-                    .push((crate::baseline::tables_written(self.lowered, oi, ri), keep_prefix));
+                self.stopped.push((
+                    crate::baseline::tables_written_or_loaded(self.lowered, oi, ri),
+                    keep_prefix,
+                ));
             }
         }
     }
