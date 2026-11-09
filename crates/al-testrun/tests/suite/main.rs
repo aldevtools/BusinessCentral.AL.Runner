@@ -13,6 +13,7 @@ mod baseline_rule_carry;
 mod baseline_skip;
 mod capture;
 mod chain_ahead;
+mod chain_singles_ahead;
 mod chain_speculate;
 mod code_coverage_refresh;
 mod compile_cache;
