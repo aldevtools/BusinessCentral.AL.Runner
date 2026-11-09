@@ -29,7 +29,7 @@ mod ctx;
 mod debug;
 mod exec;
 mod interp;
-pub use baseline::{Baseline, Delta, DeltaPart, Fingerprint, RowDelta, SequenceSteps, SharedBaseline};
+pub use baseline::{Baseline, Delta, DeltaPart, Fingerprint, NotShared, RowDelta, SequenceSteps, SharedBaseline};
 pub use capture::{CaptureConfig, Captured, ClosedBy, LoopRecord, MAX_RECORDS, MessageRecord, Rendered, ValueRecord};
 pub(crate) use ctx::base_slot_missing;
 pub use debug::{DebugFrame, DebugHook, DebugView, Resume};
@@ -332,6 +332,13 @@ fn routine_facts(r: &ir::Routine, publisher: bool) -> RoutineFacts {
 }
 
 impl Engine {
+    /// Reads about how many bytes the test data rows this engine's threads share hold now (ADR-069 decisions 4 and
+    /// 10), for the memory budget, which counts them once. Holds the rows' cache, not the engine.
+    pub fn shared_test_rows_meter(&self) -> impl Fn() -> u64 + Send + Sync + 'static {
+        let rows = self.test_rows.clone();
+        move || rows.bytes()
+    }
+
     pub fn new(program: impl Into<Arc<ir::Program>>, blocked: Vec<Vec<Option<String>>>) -> Arc<Engine> {
         Engine::with_config(program, blocked, None, dotnet::DotNetConfig::default())
     }
