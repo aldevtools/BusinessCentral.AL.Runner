@@ -2,6 +2,10 @@
 //! session language; corpus format-evaluate/EvalLanguageBoolean.al EL_Enum_* pins only them). A page control, a filter text,
 //! a key value and a field's members would show the name or the plain caption under another GlobalLanguage, a silent wrong
 //! result, so they refuse the test (hard rule 4) until a corpus probe pins them.
+//!
+//! Filter texts are pinned since corpus format-evaluate/EnumCaptionReaders.al (ECR_FilterTexts_1033 and _2067, :573-662;
+//! ECR_FilterWordsStatus_2067, :738-753): a filter set and read under the same GlobalLanguage shows and accepts the caption of
+//! that language. A filter set under one language and read under another is not pinned and still refuses.
 
 use al_sema::workspace::AppSource;
 use al_testrun::Outcome;
@@ -37,6 +41,20 @@ page 50810 "EM Card"
 }
 "#;
 
+/// Test name, body and the error text it ends with: shapes the corpus pins (see the module comment).
+const PINNED: &[(&str, &str, &str)] = &[
+    (
+        "GetFilterSameLanguage",
+        "GlobalLanguage(2067); Row.SetRange(Status, Row.Status::Closed); Error('%1', Row.GetFilter(Status));",
+        "Gesloten BE",
+    ),
+    (
+        "SetFilterCaption",
+        "GlobalLanguage(2067); Row.SetFilter(Status, 'Gesloten BE'); Error('%1', Row.Count());",
+        "0",
+    ),
+];
+
 /// Test name and body; each test is a codeunit of its own because a refused test leaves the session language changed.
 const CASES: &[(&str, &str)] = &[
     (
@@ -52,10 +70,6 @@ const CASES: &[(&str, &str)] = &[
         "Row.SetRange(Status, Row.Status::Closed); GlobalLanguage(2067); Error('%1', Row.GetFilter(Status));",
     ),
     (
-        "SetFilterCaption",
-        "GlobalLanguage(2067); Row.SetFilter(Status, 'Gesloten BE'); Error('%1', Row.Count());",
-    ),
-    (
         "FieldRefOptionString",
         "GlobalLanguage(2067); Error('%1', RecRef.Field(2).OptionCaption);",
     ),
@@ -63,7 +77,8 @@ const CASES: &[(&str, &str)] = &[
 
 fn tests() -> String {
     let mut s = String::new();
-    for (i, (name, body)) in CASES.iter().enumerate() {
+    let all = CASES.iter().copied().chain(PINNED.iter().map(|(n, b, _)| (*n, *b)));
+    for (i, (name, body)) in all.enumerate() {
         s.push_str(&format!(
             "codeunit {} \"EM {name}\"\n{{\n    Subtype = Test;\n    [Test]\n    procedure T_{name}()\n    var\n        Row: Record \"EM Row\";\n        Card: TestPage \"EM Card\";\n        RecRef: RecordRef;\n    begin\n        RecRef.Open(Database::\"EM Row\");\n        {body}\n    end;\n}}\n",
             50820 + i
@@ -120,6 +135,19 @@ fn readers_of_an_enum_caption_ml_other_than_format_and_evaluate_refuse_the_test(
             matches!(o, Outcome::NotRun(why) if why.contains("CaptionML; not pinned for")),
             "{t}: {o:?}"
         );
+    }
+}
+
+#[test]
+fn a_filter_set_and_read_under_the_same_language_shows_and_accepts_its_caption() {
+    let got = run();
+    for (name, _, want) in PINNED {
+        let t = format!("T_{name}");
+        let (_, o) = got
+            .iter()
+            .find(|(x, _)| *x == t)
+            .unwrap_or_else(|| panic!("no {t}: {got:?}"));
+        assert!(matches!(o, Outcome::Fail(m) if m == want), "{t}: {o:?}");
     }
 }
 

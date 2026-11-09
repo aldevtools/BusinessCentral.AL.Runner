@@ -47,4 +47,54 @@ impl Session {
             al_builtins::format::FormatCtx::language(self)
         ))
     }
+
+    /// Notes the language a filter is set under (`SetRange`, `SetFilter`, `SetView`, `SetRecFilter`, `CopyFilter(s)`) on a
+    /// table with a CaptionML enum field, for [`Session::enum_ml_filter_refusal`].
+    pub(crate) fn note_enum_ml_filter(
+        &self,
+        method: al_builtins::record_op::RecordOp,
+        rec: &std::rc::Rc<std::cell::RefCell<al_builtins::value::RecordState>>,
+    ) {
+        use al_builtins::record_op::RecordOp::*;
+        if !matches!(
+            method,
+            SetRange | SetFilter | SetView | SetRecFilter | CopyFilter | CopyFilters
+        ) {
+            return;
+        }
+        let objects = &self.engine.program.objects;
+        let Some(t) = objects.get(rec.borrow().table as usize).and_then(|o| o.table.as_ref()) else {
+            return;
+        };
+        let ml = |ty: &RtType| matches!(ty, RtType::Enum(id) if objects.get(*id as usize).is_some_and(|o| !o.enum_captions_ml.is_empty()));
+        if t.fields.iter().any(|f| ml(&f.ty)) {
+            let language = al_builtins::format::FormatCtx::language(self);
+            let mut langs = self.enum_ml_filter_langs.1.borrow_mut();
+            if !langs.contains(&language) {
+                langs.push(language);
+            }
+        }
+    }
+
+    /// The refusal of a filter text (GetFilter, GetFilters, GetView) showing the CaptionML caption of enum value `v` when the
+    /// filter may have been set under another GlobalLanguage than the current one: the corpus pins only a filter set and read
+    /// under the same language (format-evaluate/EnumCaptionReaders.al:573-609, ECR_FilterTexts_1033 and _2067). Whether BC
+    /// shows the caption of the language the filter was set under or of the current one is not pinned (hard rule 4). Without
+    /// a language change since the test method started, the filter was set under the current language.
+    pub(crate) fn enum_ml_filter_refusal(&self, v: &Value) -> Option<String> {
+        let Value::Enum(id, ordinal) = v else {
+            return None;
+        };
+        let (changed, langs) = &self.enum_ml_filter_langs;
+        let language = al_builtins::format::FormatCtx::language(self);
+        let langs = langs.borrow();
+        if !*changed || (!langs.is_empty() && langs.iter().all(|l| *l == language)) {
+            return None;
+        }
+        self.enum_ml_unpinned(
+            *id,
+            Some(*ordinal),
+            "a filter set under another GlobalLanguage than the one GetFilter runs under",
+        )
+    }
 }

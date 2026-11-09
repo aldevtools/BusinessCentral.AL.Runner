@@ -1784,7 +1784,8 @@ impl Session {
                 Some(b) => Ok(Value::Boolean(b)),
                 None => Ok(Value::Boolean(self.control_enabled(st, idx)?)),
             },
-            PageMethod::Visible => Ok(Value::Boolean(self.control_visible(st, idx)?)),
+            // A control of a part also answers what its part control says (see `part_visible_gate`).
+            PageMethod::Visible => Ok(Value::Boolean(self.control_visible_in_part(st, idx)?)),
             PageMethod::Invoke => self.action_invoke(st, idx),
             PageMethod::DrillDown | PageMethod::AssistEdit | PageMethod::Lookup => self.navigate_settled(st, idx, m),
             // SetValue on a field of a cuegroup does nothing and raises nothing

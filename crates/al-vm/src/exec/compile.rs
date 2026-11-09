@@ -1110,7 +1110,9 @@ impl<'a> Compiler<'a> {
                 let i = self.alloc()?;
                 let end_reg = self.alloc()?;
                 let lid = if self.captured { Some(self.alloc()?) } else { None };
-                let (fr, tr) = self.pair(from, to)?;
+                // The loop variable holds the start value before the end bound is evaluated, so an end bound that reads
+                // it sees the start (corpus master language/ControlFlow.al:667-743, al-runner issue 7458).
+                let fr = self.expr_copy(from)?;
                 let rvar = self.rplace(var)?;
                 let int_local = match var {
                     ir::Place::Local(v) if matches!(self.locals_ty.get(*v), Some(RtType::Integer)) => {
@@ -1122,13 +1124,16 @@ impl<'a> Compiler<'a> {
                     var: rvar,
                     down: *down,
                     from: fr,
-                    to: tr,
+                    to: 0,
                     i,
                     end: end_reg,
                     int_local,
                     cap_loop: lid,
                 });
                 let site = (self.chunk.fors.len() - 1) as u32;
+                self.emit(Op::ForStart { s: site });
+                let tr = self.expr_any(to)?;
+                self.chunk.fors[site as usize].to = tr;
                 self.emit(Op::ForInit { s: site });
                 if let Some(d) = lid {
                     self.emit(Op::CapLoopEnter { d });
