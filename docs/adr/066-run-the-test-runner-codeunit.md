@@ -960,7 +960,7 @@ no result at all, although the same tests run fine on fewer threads.
    starts as many threads as fit in nine tenths of the limit beside it at 200 MB each (`PER_WORKER_START`, measured
    below), at least one, at most the threads asked for.
 4. **Admission per codeunit.** Before a thread starts the next test codeunit (the parallel run, the serial sessions of
-   the lane, the chain-walk helpers), it checks that one more fits: the larger of the resident memory and
+   the lane, the chain walk's own runs and its helpers), it checks that one more fits: the larger of the resident memory and
    fixed part + running codeunits x cost, plus one more cost, must stay under nine tenths of the limit. The cost is what
    the process grew beyond the fixed part per running codeunit, at least 200 MB. Otherwise the thread waits until a
    running codeunit ends. One codeunit always runs, so a run always moves on. When a thread had to wait, the lane drops
@@ -995,7 +995,36 @@ runs give the same outcomes (1472 passed, 6 failed, 246 not run):
 - With one thread the resident memory still climbs from 1.3 to 2.3 GB: the carry chain of this suite keeps its state
   for the whole run, whatever the thread count.
 
-<!-- SCM -->
+Tests-SCM (2777 tests), after the merge with amendment 8, each run in a 10 GB cgroup (`memory.max`), 12 cores, shared
+machine (load 2 to 6). "main" is the build without the budget, "branch" the build with it. Every finished run gives the
+same outcomes (2294 passed, 103 failed, 380 not run; 0 differences between the JUnit files), except main at 4 threads,
+where one performance test passed under the CPU time limit instead of being stopped:
+
+| Build | Test threads | Budget | Peak MB | Wall s | Result |
+|---|---|---|---|---|---|
+| main | 12 | none | 10070 | 311 | killed at the 10 GB cgroup limit |
+| main | 4 | none | 7478 | 363 | finished |
+| main | 1 | none | 4203 | 294 | finished |
+| branch | 12 asked | 10240 MB (cgroup) | 9303 | 832 | finished; waited for memory 150 times |
+| branch | 12 asked | 4096 MB (`--max-memory 4G`) | 9746 | 1049 | finished; waited for memory 243 times |
+
+A stress app without Microsoft's apps (1474 tests) peaks at about 250 MB with 1 and 4 threads; the budget does not
+bite there.
+
+What this shows:
+
+- Where main is killed by a 10 GB limit, the branch finishes under it with the same outcomes.
+- The budget does not hold a limit below what the run needs: with `--max-memory 4G` the peak is still 9.7 GB, above
+  even the one-thread peak of 4.2 GB. The resident memory grows with run time, not with the number of running
+  codeunits: 12 threads that each keep their own state (their copy of the install baseline, the carried starts they
+  hold, freed memory the allocator keeps per thread) grow while most of them wait. The gate limits how many codeunits
+  run, not what an idle thread holds. The learned cost per thread (6.5 to 7 GB) then lets about one codeunit run at a
+  time, so the run takes 2.8 to 3.6 times as long as main with one thread, which is the fastest run of this suite.
+- The start cost of 200 MB per thread, measured on Tests-ERM-Purchase, is far too low for Tests-SCM (about 1.1 GB per
+  thread from 1 to 4 threads), so the run still starts all 12 threads.
+- Open: the thread count must drop when memory is short (fewer threads, not only fewer running codeunits), and the start
+  cost must come from the suite or be learned before all threads start. Until then the budget is a safety net against
+  an out-of-memory kill near the limit, not a way to run in much less memory.
 
 ### Limits
 
