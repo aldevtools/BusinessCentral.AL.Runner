@@ -94,6 +94,7 @@ mod fieldref_text_into_integer;
 mod filtergroup_assign;
 mod find_filtered_miss;
 mod for_date;
+mod for_start_before_end;
 mod foreach_fresh_xml_node_list;
 mod format_auto_format_field;
 mod format_auto_format_procedure;

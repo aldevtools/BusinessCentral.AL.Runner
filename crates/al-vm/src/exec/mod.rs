@@ -231,6 +231,10 @@ pub(crate) enum Op {
     Pos {
         p: u32,
     },
+    /// The start of a `for` loop: the start value goes into the loop variable before the end bound is evaluated.
+    ForStart {
+        s: u32,
+    },
     ForInit {
         s: u32,
     },
