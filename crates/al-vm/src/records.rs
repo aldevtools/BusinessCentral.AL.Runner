@@ -2248,7 +2248,9 @@ impl Session {
     /// `GetFilters` of a copy that holds no filter reads '' (testpage/TestActionRunPageLinkFilterGroup.al:292-369, `filters=`),
     /// the names of its table run. On such a copy `Count` counts every row of the table and `Get` finds the current row and a
     /// row outside the link (testpage/R7138RunPageLinkCopyGet.al:136-151, :218 `copy[] n=4;copy.get own O3;copy.get O1 O1`, in
-    /// OnAfterGetCurrRecord; not for a copy taken in OnOpenPage, [`RUN_PAGE_LINK_OPEN_COPY`]). Every other method refuses.
+    /// OnAfterGetCurrRecord; not for a copy taken in OnOpenPage, [`RUN_PAGE_LINK_OPEN_COPY`]). `TestField` reads only the copy's
+    /// fields, which TestActionRunPageLinkFilterGroup.al:292-369 and R7138RunPageLinkCopyGet.al pin as Rec's. Every other
+    /// method refuses.
     fn run_page_link_copy_op(
         &mut self,
         method: RecordOp,
@@ -2260,6 +2262,8 @@ impl Session {
             RecordOp::GetFilters => rec.borrow().filters.is_empty(),
             RecordOp::Count | RecordOp::Get => why == RUN_PAGE_LINK_COPY && rec.borrow().filters.is_empty(),
             RecordOp::FieldNo | RecordOp::IsTemporary | RecordOp::TableName | RecordOp::TableCaption => true,
+            // TestField reads only the copy's own field, and the copy holds Rec's fields (al-runner issue 7444).
+            RecordOp::TestField => true,
             _ => false,
         };
         if !runs {

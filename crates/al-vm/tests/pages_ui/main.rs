@@ -120,6 +120,7 @@ mod rp1_read_only_var_control;
 mod rp1_temp_refill;
 mod rp2_close_veto_last_error;
 mod run_page_link_copy_filter;
+mod run_page_link_copy_testfield;
 mod run_record_group2;
 mod runpagelink_flowfilter_host;
 mod save_abort_move_answer;
