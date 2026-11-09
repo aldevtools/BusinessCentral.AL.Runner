@@ -1381,8 +1381,8 @@ helpers).
 3. NumberSequence corpus tests that take numbers in one codeunit and read them in another: default starts from the
    baseline value (parallel) and the tests are on the report list; with the flag the exact numbers match BC.
 4. No re-run happens by default (timings show 0 re-runs); the flag reproduces today's re-run counts.
-5. Baseline: a full corpus run with `--baseline-diff` before and after, run by CI. Cases that pass only in BC's order
-   leave the default baseline and would stay in a run with the flag (see decision point 2).
+5. Baseline: CI runs the corpus in the default order (owner answer 2). Cases that pass only in BC's order show up as
+   regressions in the building PR and are listed for the owner, case by case.
 
 ### Owner answers on the open points (2026-11-09)
 
