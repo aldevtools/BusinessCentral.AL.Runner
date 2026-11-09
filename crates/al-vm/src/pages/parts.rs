@@ -1246,7 +1246,16 @@ impl Session {
         let engine = self.engine();
         let page = page_of(&engine, host);
         if let (Some(link), true) = (page.controls[control].part_link.as_ref(), self.has_source(child)) {
-            let source = self.link_page(host, control).and_then(|p| {
+            let link_page = self.link_page(host, control);
+            // Why the link has no page to read, for the refusals below: a Provider part that is not among the host's open
+            // parts (hidden by its Visible expression, removed, or closed) is not a page without a source table (al-runner
+            // issue 7362). How BC links a part to a hidden provider is not pinned.
+            let no_source = if link.provider.is_some() && link_page.is_none() {
+                "a SubPageLink through a Provider part that is not open on the page (hidden, removed or closed; not pinned)"
+            } else {
+                "a SubPageLink to a page without a source table"
+            };
+            let source = link_page.and_then(|p| {
                 self.has_source(&p).then(|| {
                     let t = self.page_rec(&p).borrow().table as usize;
                     (p, t)
@@ -1263,7 +1272,7 @@ impl Session {
                         fields.push(*pf);
                         let ty = table.fields[*pf].ty.clone();
                         let Some((src_page, src_table)) = source.as_ref() else {
-                            return unsupported("a SubPageLink to a page without a source table");
+                            return unsupported(no_source);
                         };
                         // The row the link reads, else the type's blank value: a page that shows
                         // no row links to nothing (corpus testpage/parts/TestPartProviderMove.al:
@@ -1295,7 +1304,7 @@ impl Session {
                     ir::LinkEntry::FieldFilter(pf, hf) => {
                         fields.push(*pf);
                         let Some((src_page, _)) = source.as_ref() else {
-                            return unsupported("a SubPageLink to a page without a source table");
+                            return unsupported(no_source);
                         };
                         let unsaved_host = {
                             let p = src_page.borrow();
