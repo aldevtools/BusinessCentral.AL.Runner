@@ -38,6 +38,13 @@ pub enum NotShared {
 }
 
 impl Baseline {
+    /// Where the first value the bytes (`to_bytes`) have no form for sits, and what it is; `None` when every value has
+    /// one. Names why a baseline that is not shared is not written as bytes either.
+    pub fn first_without_bytes(&self) -> Option<al_data::memory::NotShareable> {
+        self.store
+            .first_value_where(|v| !al_builtins::value_codec::encode(v, &mut Vec::new()))
+    }
+
     /// This baseline frozen for every test thread to share (ADR-069 decision 1), or why it cannot be: a row holds a
     /// value that is not plain (decision 3), and each thread then keeps a copy of its own.
     ///

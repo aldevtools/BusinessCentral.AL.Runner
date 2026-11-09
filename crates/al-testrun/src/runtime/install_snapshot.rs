@@ -35,6 +35,8 @@ pub(crate) struct InstallSnapshots {
     private: bool,
     /// Why the baseline is not shared, when it is not.
     why_private: std::cell::RefCell<Option<WhyPrivate>>,
+    /// Why it is not written as bytes either, when it is not: the first value the bytes have no form for.
+    why_no_bytes: std::cell::RefCell<Option<al_data::memory::NotShareable>>,
     /// Counts the frozen baseline once in the fixed part of the memory budget (ADR-069 decision 10, `Pool::add_fixed`).
     count_fixed: Box<dyn Fn(u64)>,
 }
@@ -56,28 +58,36 @@ impl WhyPrivate {
             }
             WhyPrivate::NotShared(al_vm::NotShared::Value(n)) => n,
         };
-        let table = program.objects.get(n.object as usize);
-        let def = table.and_then(|o| o.table.as_ref());
-        let field = def.and_then(|t| {
-            let at = if n.in_key {
-                *t.keys.first()?.get(n.position)?
-            } else {
-                n.position
-            };
-            t.fields.get(at)
-        });
-        let where_ = if n.in_key { "key field" } else { "field" };
         format!(
-            "a row of the install baseline holds a value that is not plain: table {} {:?}, company {:?}, {where_} {}, a {}",
-            table.and_then(|o| o.id).map_or("?".into(), |id| id.to_string()),
-            table.map_or("?", |o| o.name.as_str()),
-            n.company,
-            field
-                .map(|f| format!("{} {:?}", f.id, f.name))
-                .unwrap_or_else(|| format!("at position {}", n.position)),
-            n.kind
+            "a row of the install baseline holds a value that is not plain: {}",
+            describe_value(n, program)
         )
     }
+}
+
+/// Where a value sits (table, company, field) and what it is, with the names `program` gives them.
+fn describe_value(n: &al_data::memory::NotShareable, program: &al_ir::Program) -> String {
+    let table = program.objects.get(n.object as usize);
+    let def = table.and_then(|o| o.table.as_ref());
+    let field = def.and_then(|t| {
+        let at = if n.in_key {
+            *t.keys.first()?.get(n.position)?
+        } else {
+            n.position
+        };
+        t.fields.get(at)
+    });
+    let where_ = if n.in_key { "key field" } else { "field" };
+    format!(
+        "table {} {:?}, company {:?}, {where_} {}, a {}",
+        table.and_then(|o| o.id).map_or("?".into(), |id| id.to_string()),
+        table.map_or("?", |o| o.name.as_str()),
+        n.company,
+        field
+            .map(|f| format!("{} {:?}", f.id, f.name))
+            .unwrap_or_else(|| format!("at position {}", n.position)),
+        n.kind
+    )
 }
 
 impl InstallSnapshots {
@@ -87,6 +97,7 @@ impl InstallSnapshots {
             once: Default::default(),
             private,
             why_private: Default::default(),
+            why_no_bytes: Default::default(),
             count_fixed: Box::new(count_fixed),
         }
     }
@@ -107,7 +118,11 @@ impl InstallSnapshots {
                     }
                     Err(why) => {
                         self.why_private.replace(Some(WhyPrivate::NotShared(why)));
-                        b.to_bytes().map(InstallSnapshot::Bytes)
+                        let bytes = b.to_bytes();
+                        if bytes.is_none() {
+                            self.why_no_bytes.replace(b.first_without_bytes());
+                        }
+                        bytes.map(InstallSnapshot::Bytes)
                     }
                 }
             })
@@ -127,9 +142,11 @@ impl InstallSnapshots {
         let why = || self.why_private.borrow().as_ref().map(|w| w.describe(program));
         let Some(made) = self.once.get()?.as_ref() else {
             // A baseline that is neither shared nor written as bytes: each test thread runs the install code again.
-            return why().map(|why| {
-                format!("install baseline: run again by each test thread ({why}; it cannot be written as bytes either)")
-            });
+            let no_bytes = match &*self.why_no_bytes.borrow() {
+                Some(n) => format!("; it cannot be written as bytes either: {}", describe_value(n, program)),
+                None => "; it cannot be written as bytes either".into(),
+            };
+            return why().map(|why| format!("install baseline: run again by each test thread ({why}{no_bytes})"));
         };
         match made {
             InstallSnapshot::Shared(s) => {

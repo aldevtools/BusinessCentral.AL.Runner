@@ -76,3 +76,33 @@ fn a_write_on_one_thread_never_reaches_the_base_or_another_thread() {
     assert_eq!(shared.thaw(None).to_bytes(), before);
     assert!(shared.unchanged());
 }
+
+#[test]
+fn a_baseline_that_cannot_be_written_as_bytes_names_the_value() {
+    let mut b = sample();
+    let rid = Value::Library(
+        al_builtins::library_kind::LibraryKind::RecordId,
+        std::rc::Rc::new(std::cell::RefCell::new(al_builtins::value::LibraryValue::RecordId {
+            table: 1,
+            table_no: 18,
+            name: "Customer".into(),
+            key: vec![Value::Code("10000".into())],
+        })),
+    );
+    let json = Value::Library("JsonObject".into(), Default::default());
+    b.store = al_data::memory::MemStore::from_exported(vec![ExportedTable {
+        company: "CRONUS".into(),
+        object: 311,
+        rows: vec![(vec![Value::Code("".into())], vec![Value::Code("".into()), rid, json])],
+    }]);
+    assert!(
+        matches!(b.freeze(), Err(NotShared::Value(_))),
+        "a RecordId is not shared"
+    );
+    assert!(b.to_bytes().is_none());
+    let why = b.first_without_bytes().expect("the JsonObject has no form");
+    assert_eq!(
+        (why.position, why.kind.as_str()),
+        (2, "Library JsonObject holding Empty")
+    );
+}

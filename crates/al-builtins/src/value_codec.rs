@@ -1,7 +1,7 @@
 //! Plain values as bytes, for the install baseline's snapshot on disk and between threads
-//! (`al_vm::Baseline::to_bytes`). Only [`Value::is_plain`] values and a RecordId of plain key
-//! values have a form: a handle (`Rc`) cannot leave its thread; a RecordId is read back as one of
-//! its own. Little-endian, a tag byte per value, lengths as `u32`.
+//! (`al_vm::Baseline::to_bytes`). Only [`Value::is_plain`] values and the library values of a
+//! stored row (a RecordId of plain key values, a TableFilter) have a form: a handle (`Rc`) cannot
+//! leave its thread; a RecordId or TableFilter is read back as one of its own.
 
 use crate::value::Value;
 use rust_decimal::Decimal;
@@ -175,18 +175,24 @@ fn encode_in(v: &Value, out: &mut Vec<u8>) -> bool {
             put_u8(out, 18);
             put_str(out, why);
         }
-        // A RecordId (a stored row's RecordId field): its table, number, name and plain key, or that it is empty. Read
-        // back as a RecordId of its own (a new handle), as a copy of the row on another thread needs.
-        Value::Library(kind, cell) if *kind == crate::library_kind::LibraryKind::RecordId => {
+        // The library values a stored row's field holds: a RecordId (its table, number, name and plain key) and a
+        // TableFilter (its text), or either empty. Read back as a value of its own (a new handle), as a copy of the
+        // row on another thread needs.
+        Value::Library(kind, cell) if stored_library(kind) => {
             put_u8(out, 19);
+            put_str(out, kind.name());
             match &*cell.borrow() {
                 crate::value::LibraryValue::Empty => put_u8(out, 0),
+                crate::value::LibraryValue::Text(text) if kind.as_str() == "TableFilter" => {
+                    put_u8(out, 2);
+                    put_str(out, text);
+                }
                 crate::value::LibraryValue::RecordId {
                     table,
                     table_no,
                     name,
                     key,
-                } => {
+                } if *kind == crate::library_kind::LibraryKind::RecordId => {
                     put_u8(out, 1);
                     put_u32(out, *table);
                     put_u32(out, *table_no);
@@ -218,6 +224,11 @@ fn encode_in(v: &Value, out: &mut Vec<u8>) -> bool {
     true
 }
 
+/// Whether a library value of this kind can sit in a stored row and has a form here (RecordId, TableFilter).
+fn stored_library(kind: &crate::library_kind::LibraryKind) -> bool {
+    *kind == crate::library_kind::LibraryKind::RecordId || kind.as_str() == "TableFilter"
+}
+
 /// Reads one value.
 pub fn decode(r: &mut Reader) -> Option<Value> {
     Some(match r.u8()? {
@@ -241,8 +252,13 @@ pub fn decode(r: &mut Reader) -> Option<Value> {
         14 => Value::DateFormula(r.str()?),
         18 => Value::Unknown(r.str()?.into()),
         19 => {
+            let kind = crate::library_kind::LibraryKind::from_name(&r.str()?);
+            if !stored_library(&kind) {
+                return None;
+            }
             let value = match r.u8()? {
                 0 => crate::value::LibraryValue::Empty,
+                2 => crate::value::LibraryValue::Text(r.str()?),
                 1 => crate::value::LibraryValue::RecordId {
                     table: r.u32()?,
                     table_no: r.u32()?,
@@ -251,10 +267,7 @@ pub fn decode(r: &mut Reader) -> Option<Value> {
                 },
                 _ => return None,
             };
-            Value::Library(
-                crate::library_kind::LibraryKind::RecordId,
-                std::rc::Rc::new(std::cell::RefCell::new(value)),
-            )
+            Value::Library(kind, std::rc::Rc::new(std::cell::RefCell::new(value)))
         }
         15 => {
             let ord = i32::from_le_bytes(r.take(4)?.try_into().ok()?);
@@ -394,6 +407,17 @@ mod tests {
         let mut out = vec![42];
         assert!(!encode(&rid(vec![Value::List(Default::default())]), &mut out));
         assert_eq!(out, vec![42]);
+        // A TableFilter field (the same partner app's report selection rows): empty, or the filter text.
+        for held in [
+            crate::value::LibraryValue::Empty,
+            crate::value::LibraryValue::Text("Customer: No.=10000".into()),
+        ] {
+            let v = Value::Library("TableFilter".into(), std::rc::Rc::new(std::cell::RefCell::new(held)));
+            let mut out = Vec::new();
+            assert!(encode(&v, &mut out), "{v:?}");
+            let back = decode(&mut Reader::new(&out)).expect("decodes");
+            assert_eq!(format!("{v:?}"), format!("{back:?}"));
+        }
         let other = Value::Library("JsonObject".into(), Default::default());
         assert!(!encode(&other, &mut Vec::new()), "other library values are handles");
     }

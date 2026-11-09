@@ -94,7 +94,8 @@ pub struct NotShareable {
     /// the table's fields).
     pub in_key: bool,
     pub position: usize,
-    /// What the value is (`not_shareable`; a library type by its name, `Library RecordId`).
+    /// What the value is: its variant, a library type with its name and what its handle holds
+    /// (`Library RecordId holding RecordId`).
     pub kind: String,
 }
 
@@ -102,25 +103,43 @@ impl MemStore {
     /// The first value of the committed tables that is not [`shareable`], in table and key order; `None` when every
     /// value is plain.
     pub fn first_not_shareable(&self) -> Option<NotShareable> {
+        self.first_value_where(|v| !shareable(v))
+    }
+
+    /// The first value of the committed tables, in table and key order, for which `blocks` says true: where it is and
+    /// what it is.
+    pub fn first_value_where(&self, blocks: impl Fn(&Value) -> bool) -> Option<NotShareable> {
         self.committed.iter().find_map(|((company, object), rows)| {
             rows.iter().find_map(|(k, r)| {
                 let at = |in_key: bool, vals: &[Value]| {
-                    vals.iter().enumerate().find_map(|(position, v)| {
-                        not_shareable(v).map(|kind| NotShareable {
+                    vals.iter()
+                        .enumerate()
+                        .find(|(_, v)| blocks(v))
+                        .map(|(position, v)| NotShareable {
                             company: company.to_string(),
                             object: *object,
                             in_key,
                             position,
-                            kind: match v {
-                                Value::Library(lib, _) => format!("{kind} {}", lib.name()),
-                                _ => kind.to_string(),
-                            },
+                            kind: kind_of(v),
                         })
-                    })
                 };
                 at(true, &k.0).or_else(|| at(false, r))
             })
         })
+    }
+}
+
+/// What a value is, for a message: its variant, a library type by its name and what its handle holds
+/// (`Library RecordId holding RecordId`).
+fn kind_of(v: &Value) -> String {
+    let variant = |debug: String| debug.split(['(', ' ', '{']).next().unwrap_or_default().to_string();
+    match v {
+        Value::Library(lib, cell) => format!(
+            "Library {} holding {}",
+            lib.name(),
+            variant(format!("{:?}", cell.borrow()))
+        ),
+        other => variant(format!("{other:?}")),
     }
 }
 
