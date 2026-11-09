@@ -9,6 +9,7 @@ mod dependencies;
 mod diagnostics;
 mod isolation;
 mod json_interface;
+mod memory;
 mod onrun_stability;
 mod package_target_resources;
 mod path_note;

@@ -203,6 +203,9 @@ pub struct RunOptions {
     /// its own for order dependence, the codeunits in the suite's order. No SingleInstance link, serial re-run or
     /// chain crosses a suite; a codeunit in no suite is a session of its own. `None`: the whole run is one session.
     pub test_suites: Option<std::sync::Arc<crate::test_suites::TestSuites>>,
+    /// The memory the run may use (ADR-066 amendment 9, `runtime::memory`). `None`: no budget, the threads
+    /// `AL_TEST_THREADS` or the cores say.
+    pub memory: Option<super::memory::MemoryBudget>,
 }
 
 /// One entry of a run (`RunOptions::entries`).

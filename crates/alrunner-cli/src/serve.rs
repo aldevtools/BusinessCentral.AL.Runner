@@ -34,6 +34,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "allowWriteInTryFunctions",
     "strictOrder",
     "maxReplay",
+    "maxMemory",
     "testSuites",
     "dependenciesPublishedGlobal",
     "affectedOnly",
@@ -347,6 +348,13 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
         Some(Value::String(p)) if !p.is_empty() => Some(PathBuf::from(p)),
         Some(_) => return Err("`testSuites` is the path of a test suites file".into()),
     };
+    // Owner decision 2026-11-08: `maxMemory` caps this request's memory, as `--max-memory`; absent, the server's.
+    if let Some(v) = fields.get("maxMemory").filter(|v| !v.is_null()) {
+        a.max_memory =
+            Some(v.as_str().ok_or("`maxMemory` is a size such as \"6G\"").and_then(|t| {
+                crate::memory_budget::parse_size(t).map_err(|_| "`maxMemory` is a size such as \"6G\"")
+            })?);
+    }
     // Issue 7169: "Published As" of a dependency by another publisher is Global, as `--dependencies-published-global`.
     a.dependencies_published_global = flag(fields, "dependenciesPublishedGlobal")?;
     // ADR-062 section 5: `permissions: "off"` is `--permissions off`.
@@ -1043,6 +1051,17 @@ mod tests {
                 .strict_order
         );
         assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.strict_order);
+        // Owner decision 2026-11-08: `maxMemory` is `--max-memory` for one request.
+        assert_eq!(
+            run(json!({"sourcePaths": ["/a"], "maxMemory": "6G"}))
+                .unwrap()
+                .0
+                .max_memory,
+            Some(6 << 30)
+        );
+        assert_eq!(run(json!({"sourcePaths": ["/a"]})).unwrap().0.max_memory, None);
+        assert!(run(json!({"sourcePaths": ["/a"], "maxMemory": 6})).is_err());
+        assert!(run(json!({"sourcePaths": ["/a"], "maxMemory": "lots"})).is_err());
         // ADR-066 amendment 6: `testSuites` is `--test-suites FILE` for one request.
         assert_eq!(
             run(json!({"sourcePaths": ["/a"], "testSuites": "/s/suites.txt"}))

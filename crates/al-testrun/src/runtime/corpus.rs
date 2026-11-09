@@ -976,12 +976,9 @@ impl CorpusRuntime {
             .map(|o| o.iter().map(|r| r.first().cloned()).collect())
             .collect();
         let limit = opts.test_time_limit;
-        // A debugged run is one thread, so the tests stop one at a time (ADR-048 decision 3).
-        let workers = if opts.trace || opts.hooks.debugger.is_some() {
-            1
-        } else {
-            test_workers()
-        };
+        // A debugged run is one thread, so the tests stop one at a time (ADR-048 decision 3); the memory budget may cut.
+        let mut memory = super::memory::Plan::after_compile(opts, test_workers());
+        let mut workers = memory.workers();
         let baseline_skipped = baseline_wanted && !baseline;
         let engine_started = std::time::Instant::now();
         let make_engine = || {
@@ -1154,6 +1151,7 @@ impl CorpusRuntime {
             .as_ref()
             .map(|b| b.unseeded.iter().map(|&t| t as usize).collect())
             .unwrap_or_default();
+        workers = memory.after_baseline(); // The fixed part is loaded: as many threads as fit beside it.
         let baseline_engine = (workers > 1 && baseline_run.is_some()).then(|| engine.clone());
         let mut baseline_ids = crate::baseline::NoteFacts::default();
         let baseline_roots = baseline_run.as_ref().map(|b| (b.ran, b.total));
@@ -1613,6 +1611,7 @@ impl CorpusRuntime {
                 limit,
                 helpers,
                 thread_baseline: &|| thread_baseline(ahead_snapshot),
+                gate: memory.gate(),
                 keep_singles,
             }
             .walk(chain, &mut slots, &mut details, &mut chain_report);
@@ -1627,16 +1626,7 @@ impl CorpusRuntime {
             }
             let rest: Vec<usize> = (0..units.len()).filter(|k| slots[*k].is_none()).collect();
             let results: Vec<UnitResult> = if workers <= 1 || rest.len() < 2 {
-                rest.iter()
-                    .map(|&k| &units[k])
-                    .map(|u| {
-                        let mut observe = |name: &str, _: &Outcome, seen: &Observed| {
-                            details.insert((u.si, u.id, name.to_lowercase()), observed_detail(lowered, seen));
-                        };
-                        let trace: Option<&mut Observer> = opts.trace.then_some(&mut observe);
-                        run_unit(&engine, lowered, baseline.as_ref(), u, trace, limit)
-                    })
-                    .collect()
+                run_serially(&engine, lowered, baseline.as_ref(), &units, &rest, &mut details, opts)
             } else {
                 // Test codeunits run on a session each and do not share anything (the install
                 // baseline is put back for each), so worker threads take them in turn. A worker
@@ -1657,6 +1647,7 @@ impl CorpusRuntime {
                         let Some(u) = rest.get(k).map(|&i| &units[i]) else {
                             return done;
                         };
+                        let _room = memory.gate().enter(); // Waits while memory is tight (`memory.rs`).
                         done.push((k, run_unit(&engine, lowered, baseline, u, None, limit)));
                     }
                 };
@@ -1744,7 +1735,7 @@ impl CorpusRuntime {
                 slots[k] = Some(r);
             }
             #[rustfmt::skip]
-            let lane = super::single_lane::Lane { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, carried: &carried, sees: &sees, place: &place, limit, strict: opts.strict_order, max_replay: opts.max_replay, suites: opts.test_suites.as_deref(), workers, install_copies: baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline, kept_chain: keep_singles };
+            let lane = super::single_lane::Lane { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, carried: &carried, sees: &sees, place: &place, limit, strict: opts.strict_order, max_replay: opts.max_replay, suites: opts.test_suites.as_deref(), workers, install_copies: baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline, kept_chain: keep_singles, gate: memory.gate() };
             lane.run(&mut slots, &mut chain_report.single_lane);
             let results: Vec<UnitResult> = slots.into_iter().flatten().collect();
             for r in results {
@@ -1952,6 +1943,7 @@ impl CorpusRuntime {
             panics,
             phases: Phases {
                 chain: chain_report,
+                memory: memory.report(),
                 baseline_assumptions: baseline_ids.assumptions,
                 baseline_install_orders: baseline_ids.install_orders,
                 baseline_roots,
@@ -2414,6 +2406,29 @@ fn hub_isolation(lowered: &Lowered, oi: usize) -> Result<Option<TestIsolation>, 
     // An OnRun trigger runs once, before the first test, with no write open; under Function its writes are part of the
     // state each test returns to, under Disabled they persist like the tests' (RqIsolationModes.al:396-472, :532-616).
     Ok(Some(isolation))
+}
+
+/// Runs the codeunits `rest` of `units` one after the other on this thread; with `--trace` it notes what each test
+/// observed for `--explain`.
+fn run_serially(
+    engine: &Arc<al_vm::Engine>,
+    lowered: &Lowered,
+    baseline: Option<&al_vm::Baseline>,
+    units: &[Unit],
+    rest: &[usize],
+    details: &mut std::collections::HashMap<(usize, u32, String), explain::TestDetail>,
+    opts: &RunOptions,
+) -> Vec<UnitResult> {
+    rest.iter()
+        .map(|&k| &units[k])
+        .map(|u| {
+            let mut observe = |name: &str, _: &Outcome, seen: &Observed| {
+                details.insert((u.si, u.id, name.to_lowercase()), observed_detail(lowered, seen));
+            };
+            let trace: Option<&mut Observer> = opts.trace.then_some(&mut observe);
+            run_unit(engine, lowered, baseline, u, trace, opts.test_time_limit)
+        })
+        .collect()
 }
 
 /// How many helper threads run the carry chain's codeunits ahead: every worker but the walk's, when the threads can

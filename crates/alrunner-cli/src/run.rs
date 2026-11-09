@@ -1600,6 +1600,7 @@ fn test_inner(
         strict_order: a.strict_order, // `--strict-order` (ADR-066 amendment 4)
         max_replay: a.max_replay,     // `--max-replay N` (ADR-066 amendment 7)
         test_suites,                  // `--test-suites FILE` (ADR-066 amendment 6)
+        memory: crate::memory_budget::budget(a.max_memory, warm.is_none() && debug.is_none()), // `--max-memory`
         perturb: Default::default(),
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
         run_only: (selection.active() && !a.execute)
@@ -1980,6 +1981,9 @@ fn test_inner(
             secs(p.engine)
         );
         if let Some(line) = p.baseline_line() {
+            eprintln!("{line}");
+        }
+        if let Some(line) = p.memory.line() {
             eprintln!("{line}");
         }
         if let Some(line) = p.compile_line() {

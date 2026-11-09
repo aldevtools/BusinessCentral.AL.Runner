@@ -134,6 +134,9 @@ pub struct TestArgs {
     pub max_replay: Option<usize>,
     /// `--test-suites FILE` (ADR-066 amendment 6): each suite of the file is a BC session of its own for order dependence.
     pub test_suites: Option<PathBuf>,
+    /// `--max-memory SIZE` (ADR-066 amendment 9): the most memory the run may use, in bytes; the run then uses
+    /// fewer test threads. The free memory and the cgroup limit apply as well (`memory_budget.rs`).
+    pub max_memory: Option<u64>,
     /// `--affected` (ADR-050): run only the test codeunits a change since the stored result of the last run can
     /// affect; the others keep their stored outcome.
     pub affected: bool,
@@ -934,6 +937,11 @@ ISOLATION
                          chains cost too much time; default: no limit, every re-run is replayed
                          in full and the result is exact. --strict-order wins over it.
                          In `serve`: the runTests field `maxReplay`.
+    --max-memory SIZE    The most memory the run may use, such as 6G or 800M. AL Runner runs fewer
+                         test codeunits at once to stay under it, down to one at a time, and stops
+                         with exit code 2 when not even one fits. Without it the limit is the free
+                         memory or the container's limit, whichever is smaller. Outcomes do not
+                         change, only the time. In `serve`: the runTests field `maxMemory`.
     --test-suites FILE   Treat each test suite in FILE as a Business Central session of its own, as
                          a pipeline that runs one test-tool run per suite does (ALOps). One suite
                          per line: an optional name and `:`, then its test codeunit ids in run
@@ -1700,6 +1708,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--strict-order" => a.strict_order = true,
             "--max-replay" => a.max_replay = Some(number(&flag, &text()?)?),
             "--test-suites" => a.test_suites = Some(text()?.into()),
+            "--max-memory" => a.max_memory = Some(crate::memory_budget::parse_size(&text()?)?),
             "--dependencies-published-global" => a.dependencies_published_global = true,
             "--permissions" => a.permissions_off = permissions_off(&text()?)?,
             "--affected" => a.affected = true,

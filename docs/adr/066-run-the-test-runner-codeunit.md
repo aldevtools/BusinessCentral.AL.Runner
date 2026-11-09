@@ -1,6 +1,6 @@
 # ADR-066: Run the test runner codeunit's own AL
 
-- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07); amendment 4 (order-dependent codeunits run in parallel, serial run only after a failure, `--strict-order`) Accepted (owner, 2026-11-07); amendment 5 (each serial re-run is a session of its own, the sessions run in parallel; a test refused before it starts triggers no re-run) Accepted (owner, 2026-11-07); amendment 7 (a re-run only when a failed test could have seen the changed state; a replay cap only with `--max-replay N`, changed by the owner the same day) Accepted (owner, 2026-11-08); amendment 8 (the carry chain walk keeps the SingleInstance state; chain members are never re-run or flagged) Accepted (owner, 2026-11-08, variant A)
+- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07); amendment 4 (order-dependent codeunits run in parallel, serial run only after a failure, `--strict-order`) Accepted (owner, 2026-11-07); amendment 5 (each serial re-run is a session of its own, the sessions run in parallel; a test refused before it starts triggers no re-run) Accepted (owner, 2026-11-07); amendment 7 (a re-run only when a failed test could have seen the changed state; a replay cap only with `--max-replay N`, changed by the owner the same day) Accepted (owner, 2026-11-08); amendment 8 (the carry chain walk keeps the SingleInstance state; chain members are never re-run or flagged) Accepted (owner, 2026-11-08, variant A); amendment 9 (the number of test threads follows the memory budget, `--max-memory`) Accepted (owner, 2026-11-09, as a safety net near the limit; redesign in a follow-up)
 - Date: 2026-11-05
 
 ## Context
@@ -932,3 +932,114 @@ chain), amendment 7 (the per-test rule and `--max-replay`), and the `single-inst
   `a_carried_start_that_sessions_share_is_made_once`) now use readers outside the chain (RequiredTestIsolation =
   Function, on the same hub session), since chain members no longer run again.
 - `crates/al-testrun/src/runtime/chain_walk.rs` unit test: `starts_fresh` (suite and hub leg boundaries, a refused link).
+
+## Amendment 9 (Accepted, owner 2026-11-09): the number of test threads follows the memory budget
+
+- Status: Proposed. Owner request (2026-11-08): a run must fit on any machine, by running more of its work one after
+  the other when memory is short, and a user can cap the memory with a flag. Amendments 7 and 8 are other changes; this
+  one changes only how many test codeunits run at once. Which codeunits run, from which state, and every re-run of
+  amendments 4, 5 and 7 are unchanged.
+
+### Why
+
+The parallel run (amendment 4) starts one test thread per core. Each running codeunit holds its own session, so the
+peak grows with the thread count. On a 12-core machine Tests-SCM peaks at about 9 GB and a partner suite (NP Retail,
+amendment 7) at 13.8 GB. A machine or CI container with less memory kills the process (out of memory) and the user gets
+no result at all, although the same tests run fine on fewer threads.
+
+### Decision
+
+1. **Parallel by default, unchanged.** Without a limit that bites, the run uses one thread per core (or
+   `AL_TEST_THREADS`), as before.
+2. **The budget.** The front end works out the limit as the smallest of the machine's free memory (`MemAvailable`), the
+   `memory.max` of the process's cgroup and its parents (a container or a systemd scope), and `--max-memory SIZE`
+   (`serve`: the `runTests` field `maxMemory`, or `serve --max-memory` for every request). Reading these is OS access,
+   so it lives in `alrunner-cli` (`memory_budget.rs`, ADR-006); `al-testrun` gets the number and a way to read the
+   resident memory (`runtime/memory.rs` `MemoryBudget`).
+3. **The thread count follows the budget.** After the install baseline the resident memory is the fixed part. The run
+   starts as many threads as fit in nine tenths of the limit beside it at 200 MB each (`PER_WORKER_START`, measured
+   below), at least one, at most the threads asked for.
+4. **Admission per codeunit.** Before a thread starts the next test codeunit (the parallel run, the serial sessions of
+   the lane, the chain walk's own runs and its helpers), it checks that one more fits: the larger of the resident memory and
+   fixed part + running codeunits x cost, plus one more cost, must stay under nine tenths of the limit. The cost is what
+   the process grew beyond the fixed part per running codeunit, at least 200 MB. Otherwise the thread waits until a
+   running codeunit ends. One codeunit always runs, so a run always moves on. When a thread had to wait, the lane drops
+   its cache of carried-state deltas (they are made again on demand).
+5. **Stop with exit code 2** when not even one test thread fits: after the compile, the resident memory plus 64 MB
+   (`WORKER_FLOOR`) is over the limit. The message gives the numbers and names `--max-memory`. `serve` and `debug` do not
+   stop: they go on with one thread.
+6. **`--timings`** prints a `memory:` line: the budget and its source, resident memory after the compile and after the
+   install baseline, the cost per thread, the threads chosen of those asked for, how often a thread waited and how often
+   a cache was dropped.
+7. **Outcomes do not change.** Each codeunit still runs on a session of its own from the same baseline (the rule "one
+   build, one result" of `docs/agents/brief.md`). Only the wall time changes. The budget is scheduling, an internal of
+   the runner (ADR-009), so no corpus probe pins it.
+
+### Measured
+
+BC 29, Microsoft's apps, release build, 12 cores, one run at a time, peak = highest resident memory sampled every
+0.25 s. Tests-ERM-Purchase (1724 tests) on the first build of this change with a budget that did not bite; all four
+runs give the same outcomes (1472 passed, 6 failed, 246 not run):
+
+| Test threads | Peak MB | Wall s |
+|---|---|---|
+| 12 (cold compile cache) | 4887 | 100.6 |
+| 4 | 3314 | 90.3 |
+| 2 | 3019 | 122.8 |
+| 1 | 2285 | 134.9 |
+
+- Resident memory after the compile and the install baseline (the fixed part): about 750 to 900 MB. A cold compile
+  peaks at about 3.3 GB before it.
+- Each thread from 2 to 4 added about 150 MB to the peak, each from 4 to 12 about 195 MB: hence 200 MB as the start
+  cost.
+- With one thread the resident memory still climbs from 1.3 to 2.3 GB: the carry chain of this suite keeps its state
+  for the whole run, whatever the thread count.
+
+Tests-SCM (2777 tests), after the merge with amendment 8, each run in a 10 GB cgroup (`memory.max`), 12 cores, shared
+machine (load 2 to 6). "main" is the build without the budget, "branch" the build with it. Every finished run gives the
+same outcomes (2294 passed, 103 failed, 380 not run; 0 differences between the JUnit files), except main at 4 threads,
+where one performance test passed under the CPU time limit instead of being stopped:
+
+| Build | Test threads | Budget | Peak MB | Wall s | Result |
+|---|---|---|---|---|---|
+| main | 12 | none | 10070 | 311 | killed at the 10 GB cgroup limit |
+| main | 4 | none | 7478 | 363 | finished |
+| main | 1 | none | 4203 | 294 | finished |
+| branch | 12 asked | 10240 MB (cgroup) | 9303 | 832 | finished; waited for memory 150 times |
+| branch | 12 asked | 4096 MB (`--max-memory 4G`) | 9746 | 1049 | finished; waited for memory 243 times |
+
+A stress app without Microsoft's apps (1474 tests) peaks at about 250 MB with 1 and 4 threads; the budget does not
+bite there.
+
+What this shows:
+
+- Where main is killed by a 10 GB limit, the branch finishes under it with the same outcomes.
+- The budget does not hold a limit below what the run needs: with `--max-memory 4G` the peak is still 9.7 GB, above
+  even the one-thread peak of 4.2 GB. The resident memory grows with run time, not with the number of running
+  codeunits: 12 threads that each keep their own state (their copy of the install baseline, the carried starts they
+  hold, freed memory the allocator keeps per thread) grow while most of them wait. The gate limits how many codeunits
+  run, not what an idle thread holds. The learned cost per thread (6.5 to 7 GB) then lets about one codeunit run at a
+  time, so the run takes 2.8 to 3.6 times as long as main with one thread, which is the fastest run of this suite.
+- The start cost of 200 MB per thread, measured on Tests-ERM-Purchase, is far too low for Tests-SCM (about 1.1 GB per
+  thread from 1 to 4 threads), so the run still starts all 12 threads.
+- Open: the thread count must drop when memory is short (fewer threads, not only fewer running codeunits), and the start
+  cost must come from the suite or be learned before all threads start. Until then the budget is a safety net against
+  an out-of-memory kill near the limit, not a way to run in much less memory.
+
+### Limits
+
+- The budget cannot cut what does not depend on threads: the carried state of a long carry chain grows for the whole
+  run (Tests-ERM-Purchase: from 1.3 to 2.3 GB with one thread). A limit below that still stops or runs slowly; it never
+  changes an outcome.
+- The compile phase is not gated: a cold compile cache peaks at about 3.3 GB for Microsoft's apps before the test threads
+  start.
+- Resident memory is read on Linux only (`/proc/self/status`). Elsewhere the run is not gated, as before.
+
+### Conformance
+
+- `crates/al-testrun/src/runtime/memory.rs` unit tests: the thread count from limit, fixed part and cost; the stop
+  message; the gate waits when one more does not fit, always lets one codeunit in, and learns the cost from what it sees.
+- `crates/alrunner-cli/src/memory_budget.rs` unit tests: sizes, the smallest limit wins, `MemAvailable` and cgroup
+  `memory.max` (also `max`) are read; `args.rs` and `serve.rs` tests for `--max-memory` and `maxMemory`.
+- `crates/alrunner-cli/tests/cli/memory.rs`: `--max-memory 1M` stops with exit code 2 and the numbers; the `memory:`
+  line of `--timings`; the default source; the same outcomes under a tight budget; a bad size exits with code 2.
