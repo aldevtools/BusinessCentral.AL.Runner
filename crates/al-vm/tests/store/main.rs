@@ -148,4 +148,5 @@ mod validate_xrec_table_procedure;
 mod variant_record_reassign_view;
 mod work_date_expression;
 mod write_in_try_allowed;
+mod write_in_try_allowed_recref;
 mod xrec;
