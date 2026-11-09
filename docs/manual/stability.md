@@ -30,9 +30,11 @@ it as a starting point for your own file, then run `--stability my-config.json`.
 `--stability` without a value runs the preset `all`: every safe dimension this runner
 applies, one at a time (18 variants, `isolation.singleInstance` included; the data
 axes are not part of any preset). `--stability-print-preset all` prints it. The
-value after `--stability` is read as a preset only when it is `microsoft` or `all`,
-and as a config file only when its name ends in `.json`. Anything else is the next
-argument, for example an app folder.
+value after `--stability` is read as a preset when it is `microsoft` or `all`, and
+as a config file when it is an existing file, whatever its name. A folder is never a
+config file, so an app folder after `--stability` is still the app folder. A name
+ending in `.json` that does not exist is an error ("config file not found"). Anything
+else is the next argument.
 
 ## The config file
 
