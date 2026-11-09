@@ -218,3 +218,26 @@ fn unpinned_forms_are_refused() {
         other => panic!("blank around a rejected text: {other:?}"),
     }
 }
+
+#[test]
+fn a_field_class_variable_formats_its_name_in_every_standard_format() {
+    // format-evaluate/SoEvaluateSystemOptions.al:3769 FormatOfVariable_Members, :3786 _Default, :3806 _FromEvaluate (BC 28 and
+    // later: KeyFieldReference; a context with no target has every gate).
+    let src = "codeunit 50100 C { local procedure S(V: FieldClass): Text begin exit(Format(V) + '|' + Format(V, 0, 0) + '|' + \
+               Format(V, 0, 1) + '|' + Format(V, 0, 2) + '|' + Format(V, 0, 9)); end; \
+               procedure F(): Text var V: FieldClass; R: Text; begin R := S(V) + '/' + Format(V, 3) + '/'; \
+               V := FieldClass::FlowField; R += S(V) + '/'; V := FieldClass::FlowFilter; R += S(V) + '/'; \
+               Evaluate(V, '3'); R += S(V); exit(R); end; }";
+    assert_eq!(
+        run(src),
+        "Normal|Normal|Normal|Normal|Normal/Nor/FlowField|FlowField|FlowField|FlowField|FlowField/\
+         FlowFilter|FlowFilter|FlowFilter|FlowFilter|FlowFilter/\
+         KeyFieldReference|KeyFieldReference|KeyFieldReference|KeyFieldReference|KeyFieldReference"
+    );
+    let src = "codeunit 50100 C { procedure F(): Text var V: FieldClass; begin asserterror Message(Format(V, 0, '<Text>')); \
+               exit(GetLastErrorText() + '/' + GetLastErrorCode()); end; }";
+    assert_eq!(
+        run(src),
+        "An invalid field or attribute has been specified for the 'Format' property.\\\\<Text>/InvalidFormatString"
+    );
+}
