@@ -1384,11 +1384,10 @@ helpers).
 5. Baseline: a full corpus run with `--baseline-diff` before and after, run by CI. Cases that pass only in BC's order
    leave the default baseline and would stay in a run with the flag (see decision point 2).
 
-### Open decision points
+### Owner answers on the open points (2026-11-09)
 
-1. **Hint on passing tests?** The decision names failing tests only. A passing test that read carried state is
-   order dependent too, but flagging all of them costs noise. Proposal: failing only; `--stability` still lists the
-   passing ones (ADR-058 amendment 1).
-2. **Baseline file.** Some `metrics/<major>/passing.txt` cases may pass only in BC's order. Hard rule 2 forbids
-   removing lines. Proposal: CI runs the ratchet with the flag, so no line leaves, and the default run is measured
-   apart. The owner confirms.
+1. **Hint on failing tests only.** A passing test that read carried state gets no hint; `--stability` still lists
+   the passing ones (ADR-058 amendment 1).
+2. **CI runs the corpus in the default order** ("let's use default and see how it goes"). A case that passes on BC
+   only because another codeunit ran first shows up as a regression in the PR that builds this amendment; each such
+   case is listed there for the owner, who decides per case (a not-passing line needs the owner's OK, hard rule 2).
