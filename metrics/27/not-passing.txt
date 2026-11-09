@@ -706,9 +706,6 @@
 73975 GetUrl_OData
 73975 GetUrl_ODataV4
 73975 GetUrl_SOAP
-73979 GetUrl_Windows
-73981 CY_GetUrl_ServiceClients_UseFilters_And_TypeWithoutId
-73981 GetUrl_Object_Types_OtherClients
 74024 CodeCoverageLoadOnly
 74026 CodeCoverageIncludeObj
 74039 P133_ConfirmHandler_RaisesMessage
@@ -806,7 +803,6 @@
 74644 Duration_BytesWritten
 74644 Duration_RoundTrip_PastEnd
 74644 Time_RoundTrip_PastEnd
-74645 Char_BytesWritten
 74646 Text_ReadIntoBoundedTypes
 74646 Text_ReadWithLength
 74657 P143_LocalizedFormulas_Arithmetic_BQ

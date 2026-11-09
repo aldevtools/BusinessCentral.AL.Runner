@@ -227,6 +227,36 @@ fn filter_upper(s: &str) -> Result<String, String> {
     Ok(s.to_uppercase())
 }
 
+/// A Duration filter value (al-runner issue 7388; recordref-fieldref/fieldref/TestFieldRefFilter.al FieldRef_SetFilter_Zero_Duration,
+/// _DurationTexts, corpus PR 1248): a whole number, with blanks around it and a minus, counts hours as Evaluate reads it (`0`,
+/// ` 0 `, `1000` is 41 days 16 hours, `-1` is -1 hour); a number with `S` is seconds and with `M` minutes (`1S`, `0S`, `1M`);
+/// a number, a blank and a unit word is what Evaluate reads (`1 minute`). The milliseconds, or `None` for another text.
+fn duration_filter_value(t: &str) -> Option<i64> {
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    let n = |s: &str| s.parse::<i64>().ok();
+    if digits(t.strip_prefix('-').unwrap_or(t)) {
+        return n(t)?.checked_mul(3_600_000);
+    }
+    if let Some(s) = t.strip_suffix('S').filter(|s| digits(s)) {
+        return n(s)?.checked_mul(1000);
+    }
+    if let Some(m) = t.strip_suffix('M').filter(|m| digits(m)) {
+        return n(m)?.checked_mul(60_000);
+    }
+    let (num, word) = t.split_once(' ')?;
+    let per = match word {
+        "minute" | "minutes" => 60_000,
+        "second" | "seconds" => 1000,
+        "hour" | "hours" => 3_600_000,
+        "day" | "days" => 86_400_000,
+        _ => return None,
+    };
+    if !digits(num) {
+        return None;
+    }
+    n(num)?.checked_mul(per)
+}
+
 fn not_evaluated(ty: &str, text: &str) -> String {
     format!("{NOT_EVALUATED}{ty}\t{text}")
 }
@@ -1038,6 +1068,11 @@ impl Parser<'_> {
             },
             // InvalidDecimalFilter.al:135 (Other_Types): `NOT-A-NUMBER` on a Duration field. Other Duration texts are not pinned.
             T::Duration if letters_or_hyphens(text.trim()) => return Err(not_evaluated("Duration", text.trim())),
+            // `<>''` is every Duration but zero (TestFieldRefFilter.al FieldRef_SetFilter_Zero_Duration `dur_ne_empty`).
+            T::Duration if text.trim().is_empty() => Value::Duration(0),
+            T::Duration if duration_filter_value(text.trim()).is_some() => {
+                Value::Duration(duration_filter_value(text.trim()).expect("checked"))
+            }
             // A Time filter of letters raises the evaluate error (PtObserve.al:262), also with hyphens (InvalidDecimalFilter.al:137,
             // `NOT-A-NUMBER`); `12:00:00` is noon (PtObserve.al:268, the text the MakeTimeFilter subscriber writes). Other times are not pinned.
             T::Time if letters_or_hyphens(text.trim()) => return Err(not_evaluated("Time", text.trim())),

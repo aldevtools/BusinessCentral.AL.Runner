@@ -180,9 +180,15 @@ fn the_places_are_lost_through_an_expression() {
 #[test]
 fn field_shapes_the_corpus_does_not_measure_are_refused() {
     refused("SubstAmt2NoExpr");
-    refused("SubstDp33Amt2");
-    refused("FormatDp33Amt2");
     refused("SubstAmtCurrency");
+}
+
+// A unit amount with a blank AutoFormatExpression takes 2:5 places, DecimalPlaces beside it or not (format-evaluate/format-matrix/
+// FMFields.al StrSubstNo_Format_DecimalField_DecAf2Expr, corpus PR 1256; al-runner issue 7404).
+#[test]
+fn a_unit_amount_with_a_blank_expression_wins_over_decimal_places() {
+    assert_eq!(text(run_in(SRC, "C", "SubstDp33Amt2")), "70.00");
+    assert_eq!(text(run_in(SRC, "C", "FormatDp33Amt2")), "70.00");
 }
 
 #[test]

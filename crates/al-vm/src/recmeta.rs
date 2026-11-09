@@ -376,6 +376,9 @@ impl Session {
             // time as nothing (record/testfield/P96Temporal.al:111-128, recordref-fieldref/fieldref/
             // FieldRefTestFieldTime.al:36 ` 1:00:00 PM`).
             | Value::Time(_)
+            // A Duration reads as Format gives it: `41 days 16 hours`, `1 second`, the zero Duration as nothing (`''` in a filter
+            // text; recordref-fieldref/fieldref/TestFieldRefFilter.al FieldRef_SetFilter_Zero_Duration, corpus PR 1248).
+            | Value::Duration(_)
             | Value::DateFormula(_) => al_builtins::format::try_format(v, 0, 0, self).map_err(Signal::Unsupported),
             // A RecordId reads as Format gives it (`Table: key`, record/TestProbeRecordRefContracts.al:472-502); an error
             // message shows it the same way (record/filters/RecordIdInMessage.al:P168_Error_RecordIdAsArgument_PlainKey and siblings).
