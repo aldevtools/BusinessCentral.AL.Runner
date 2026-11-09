@@ -118,3 +118,57 @@ fn a_forced_close_of_a_card_runs_on_after_get_record_for_the_row_it_moves_to() {
         "G:30;G:20;Q:OK:20;X:20|G:10;G:20;Q:OK:20;X:20"
     );
 }
+
+const SRC_NQ: &str = r#"
+table 51630 "Y9N Row" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+codeunit 51631 "Y9N Log"
+{
+    SingleInstance = true;
+    var E: Text;
+    procedure Add(T: Text) begin if E <> '' then E += ';'; E += T; end;
+    procedure Take() R: Text begin R := E; E := ''; end;
+}
+page 51632 "Y9N Card" { PageType = Card; SourceTable = "Y9N Row";
+    layout { area(Content) { field(IdCtl; Rec.Id) { } } }
+    actions { area(Processing) {
+        action(DelAll) { trigger OnAction() var R: Record "Y9N Row"; begin R.DeleteAll(true); end; }
+        action(DelCur) { trigger OnAction() begin Rec.Delete(true); end; } } }
+    trigger OnAfterGetRecord() begin L.Add('R:' + Format(Rec.Id)); end;
+    trigger OnClosePage() begin L.Add('X:' + Format(Rec.Id)); end;
+    var L: Codeunit "Y9N Log"; }
+codeunit 51633 C
+{
+    local procedure Seed(Count: Integer)
+    var R: Record "Y9N Row"; I: Integer;
+    begin
+        R.DeleteAll();
+        for I := 1 to Count do begin R.Id := I * 10; R.Insert(); end;
+    end;
+    local procedure Cell(Count: Integer; View: Boolean; At: Integer; W: Integer): Text
+    var L: Codeunit "Y9N Log"; P: TestPage "Y9N Card";
+    begin
+        Seed(Count);
+        if View then P.OpenView() else P.OpenEdit();
+        if At <> 0 then P.GoToKey(At);
+        L.Take();
+        if W = 1 then P.DelCur.Invoke() else P.DelAll.Invoke();
+        exit(L.Take());
+    end;
+    procedure Matrix(): Text
+    begin
+        exit(Cell(3, false, 20, 1) + '|' + Cell(3, false, 20, 2) + '|' + Cell(3, true, 30, 1) + '|' + Cell(3, true, 30, 2) + '|'
+            + Cell(1, false, 0, 1) + '|' + Cell(1, true, 0, 2));
+    end;
+}
+"#;
+
+/// Y89_NQ_{OpenEdit,OpenView}_On20_delcur `action log` `D:20/R:20;R:30;X:30`, _On20_delall `R:20;X:0`, _On30_delcur
+/// `R:30;R:20;X:20`, _On30_delall `R:30;X:0`, _Only_{delcur,delall} `R:10;X:0`: a card without OnQueryClosePage closed by its
+/// deleted row moves to the next row, else the row before, and runs OnAfterGetRecord for it; with no row left Rec is blank.
+#[test]
+fn a_forced_close_of_a_card_without_on_query_close_page_moves_to_the_next_row() {
+    assert_eq!(
+        text(run_in(SRC_NQ, "C", "Matrix")),
+        "R:20;R:30;X:30|R:20;X:0|R:30;R:20;X:20|R:30;X:0|R:10;X:0|R:10;X:0"
+    );
+}

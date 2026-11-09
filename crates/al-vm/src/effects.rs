@@ -40,6 +40,7 @@ const PLAIN_SYSTEM: &[&str] = &[
     "Format",
     "FormatAutoFormatField",
     "FormatDecimalField",
+    "FormatOptionColumn",
     "FormatVariant",
     "GlobalLanguage",
     "GuiAllowed",

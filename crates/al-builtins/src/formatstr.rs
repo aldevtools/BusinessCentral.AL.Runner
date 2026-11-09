@@ -253,6 +253,11 @@ pub fn format_with_field_places(
     {
         return Err(format!("{INVALID_FORMAT_MARK}{template}"));
     }
+    // `<Text>` on a FieldClass value is the invalid-format error (format-evaluate/SoEvaluateSystemOptions.al:3793
+    // FormatOfVariable_Default `default text error`). Other codes on it, and `<Text>` on other options, are not pinned.
+    if matches!(v, Value::Option(_, m) if crate::sysenum::is_field_class(m)) && template == "<Text>" {
+        return Err(format!("{INVALID_FORMAT_MARK}{template}"));
+    }
     if let Value::Text(t) = v {
         if let Some(out) = text_template(t.as_str(), &pieces)? {
             return Ok(crate::format::pad(out, length));

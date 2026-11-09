@@ -4679,3 +4679,33 @@ codeunit 50000 "T" { Subtype = Test;
         }
     }
 }
+
+// The Field table's Class column is an Option field, not a FieldClass value: it shows the member name in formats 0 and 1 and
+// the number in 2 and 9; Evaluate reads `3` into it and shows 3, rejects the name KeyFieldReference, and its error lists the
+// members joined by `,` (format-evaluate/SoEvaluateSystemOptions.al:3826 FormatOfFieldTableClassColumn, :3843
+// FieldTableClassColumn_Evaluate; BC 27.5, 28.5 and 29.0).
+#[test]
+fn the_class_column_of_the_field_table_formats_and_evaluates_as_an_option_field() {
+    let o = outcomes(
+        r#"table 50001 "Cls Host" { fields { field(1; Id; Integer) { } field(2; Amt; Decimal) { FieldClass = FlowField; CalcFormula = sum("Cls Host".Id); }
+  field(3; Flt; Integer) { FieldClass = FlowFilter; } } keys { key(PK; Id) { } } }
+codeunit 50000 "T" { Subtype = Test;
+  local procedure S(var F: Record Field): Text begin
+    exit(Format(F.Class) + '|' + Format(F.Class, 0, 0) + '|' + Format(F.Class, 0, 1) + '|' + Format(F.Class, 0, 2) + '|' + Format(F.Class, 0, 9)); end;
+  local procedure Check(Got: Text; Want: Text) begin if Got <> Want then Error('%1 <> %2', Got, Want); end;
+  [Test] procedure Formats() var F: Record Field; begin
+    F.Get(50001, 1); Check(S(F), 'Normal|Normal|Normal|0|0');
+    F.Get(50001, 2); Check(S(F), 'FlowField|FlowField|FlowField|1|1');
+    F.Get(50001, 3); Check(S(F), 'FlowFilter|FlowFilter|FlowFilter|2|2'); end;
+  [Test] procedure Evaluates() var F: Record Field; Ok: Boolean; begin
+    F.Get(50001, 1);
+    Ok := Evaluate(F.Class, 'KeyFieldReference'); Check(Format(Ok) + '/' + S(F), 'No/Normal|Normal|Normal|0|0');
+    Ok := Evaluate(F.Class, '3'); Check(Format(Ok) + '/' + S(F), 'Yes/3|3|3|3|3');
+    Ok := Evaluate(F.Class, 'FlowField'); Check(Format(Ok) + '/' + S(F), 'Yes/FlowField|FlowField|FlowField|1|1');
+    Ok := Evaluate(F.Class, '2', 9); Check(Format(Ok) + '/' + S(F), 'Yes/FlowFilter|FlowFilter|FlowFilter|2|2');
+    asserterror Evaluate(F.Class, 'zzz');
+    Check(GetLastErrorText() + '/' + GetLastErrorCode(), '''zzz'' is not an option. The existing options are: Normal,FlowField,FlowFilter/InvalidOptionString'); end; }"#,
+    );
+    passes(&o, "Formats");
+    passes(&o, "Evaluates");
+}
