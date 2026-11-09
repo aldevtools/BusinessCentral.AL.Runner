@@ -139,6 +139,8 @@ struct RunsState {
     /// `RunOptions::chain_wait_for_runs_ahead`, once a helper runs: [`Runs::take`] waits for a run a helper can still
     /// make instead of leaving the member to the walk.
     patient: bool,
+    /// The member a patient [`Runs::take`] waits for: a helper runs it from the walk's state whatever its tries.
+    awaited: Option<usize>,
 }
 
 /// The runs ahead of one walk.
@@ -178,6 +180,7 @@ impl Runs {
                 open: Default::default(),
                 closed: false,
                 patient: false,
+                awaited: None,
             }),
             ready: Condvar::new(),
             place,
@@ -265,7 +268,8 @@ impl Runs {
     /// whether that prediction is complete and sure (`guess_sure`). The window is `claim`'s part.
     fn claimable(&self, s: &RunsState, k: usize, slot: &Slot) -> Option<(u32, Start, al_vm::Delta, bool, bool)> {
         let si = self.suite[k];
-        if s.tainted.contains(&si) || !s.open.contains(&si) || s.tries[k] >= TRIES {
+        let tried = s.tries[k] >= TRIES && s.awaited != Some(k);
+        if s.tainted.contains(&si) || !s.open.contains(&si) || tried {
             return None;
         }
         let (epoch, start) = s.starts.get(&si)?;
@@ -360,6 +364,24 @@ impl Runs {
         let Ok(mut s) = self.state.lock() else {
             return (None, Dropped::Nothing);
         };
+        if s.patient {
+            s.awaited = Some(k);
+        }
+        let got = self.take_locked(s, k, epoch, actual);
+        if let Ok(mut s) = self.state.lock() {
+            s.awaited = None;
+        }
+        got
+    }
+
+    /// [`Runs::take`] with the state locked.
+    fn take_locked(
+        &self,
+        mut s: std::sync::MutexGuard<'_, RunsState>,
+        k: usize,
+        epoch: Option<u32>,
+        actual: Option<&al_vm::Fingerprint>,
+    ) -> (Option<Ahead>, Dropped) {
         // The same start but for the Test Runner's rows, and whether those are the same too.
         let same = |e: &u32, fp: Option<&al_vm::Fingerprint>| match (fp, actual) {
             (Some(fp), Some(actual)) if Some(*e) == epoch && fp.main == actual.main => Some(fp.rows == actual.rows),
@@ -568,6 +590,38 @@ mod tests {
                     }
                     runs.finish(1, 0, *from, Some(ahead(start)));
                 }
+            });
+            let (got, dropped) = runs.take(1, Some(0), Some(&fp(b"s1", b"")));
+            assert!(got.is_some(), "the walk took the run from its own state ({dropped:?})");
+            helper.join().unwrap();
+        });
+        runs.close();
+    }
+
+    /// A patient walk waits for a run from its own state also when the member already ran `TRIES` times from other
+    /// starts (a run still going when the walk passed the member before it gets no extra try from `advance`).
+    #[test]
+    fn a_patient_walk_waits_for_a_member_that_used_up_its_tries() {
+        let g = al_vm::Delta::of_guids;
+        let runs = Runs::new(vec![0, 1], vec![0, 0], vec![0], 6);
+        runs.wait_for_helpers();
+        runs.reached(0);
+        runs.advance(0, 0, g(0), Some(g(0)));
+        for n in 1..=TRIES as u64 {
+            let Claim::Run(1, 0, _, from) = runs.claim() else {
+                panic!("member 1, run {n}")
+            };
+            // The walk's state turns out other than each run's prediction.
+            runs.state.lock().unwrap().at.insert(0, (1, g(n)));
+            runs.finish(1, 0, *from, Some(ahead(b"other")));
+        }
+        std::thread::scope(|scope| {
+            let helper = scope.spawn(|| {
+                let Claim::Run(1, 0, _, from) = runs.claim() else {
+                    panic!("member 1 from the walk's state")
+                };
+                assert_eq!(*from, g(TRIES as u64));
+                runs.finish(1, 0, *from, Some(ahead(b"s1")));
             });
             let (got, dropped) = runs.take(1, Some(0), Some(&fp(b"s1", b"")));
             assert!(got.is_some(), "the walk took the run from its own state ({dropped:?})");

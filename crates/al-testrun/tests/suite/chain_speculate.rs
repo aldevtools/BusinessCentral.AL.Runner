@@ -148,8 +148,8 @@ fn every_chain_codeunit_after_the_first_runs_ahead_when_the_walk_waits_for_the_h
     let chain = &rt.phases.chain;
     let ahead: Vec<(u32, bool)> = chain.members.iter().map(|m| (m.id, m.ahead)).collect();
     let expected: Vec<(u32, bool)> = IDS.iter().enumerate().map(|(i, id)| (*id, i > 0)).collect();
-    assert_eq!(ahead, expected);
     let serial: Vec<(u32, SerialWhy)> = chain.not_ahead.iter().map(|m| (m.id, m.why)).collect();
+    assert_eq!(ahead, expected, "ran serially: {serial:?}; {:?}", chain.lines());
     assert_eq!(serial, vec![(IDS[0], SerialWhy::Closed)]);
 }
 
