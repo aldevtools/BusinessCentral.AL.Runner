@@ -934,6 +934,7 @@ mod numbers_taken;
 mod run;
 mod runner_reset;
 mod session_flags;
+mod single_fresh;
 mod single_lane;
 mod suite_rows;
 #[cfg(test)]
@@ -952,6 +953,7 @@ use self::grow::{Grow, GrowKept};
 pub use self::grow::{KeptCompile, fresh_pass_compile};
 use self::handlers::*;
 pub use self::run::*;
+pub use self::single_fresh::{CarriedCodeunit, CarriedRead};
 pub use self::single_lane::{LaneReport, RerunSkipped, rerun_skipped_text};
 
 /// The translation files of the app folder `dir`, as the IR keeps them (ADR-053 step 2). A file that cannot be read keeps its

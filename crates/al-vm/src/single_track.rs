@@ -72,6 +72,10 @@ pub struct SingleOut {
     /// [`Session::single_test_begins`] (0: before the first test, for example in `OnRun`). ADR-066 amendment 7, option 1:
     /// a re-run is needed only when a failed test, or a test before it, read a global the chain leaves otherwise.
     pub read_in: BTreeMap<GlobalKey, u32>,
+    /// The fingerprint each global of a single instance this session made itself held when it was made: what a fresh
+    /// instance holds (ADR-058 amendment 1, decision 2: a carried value is a suspect only when it differs from this).
+    /// An instance moved in from an earlier codeunit (`adopt_single_instances`) has no entry.
+    pub fresh: BTreeMap<GlobalKey, Fp>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -101,6 +105,8 @@ pub(crate) struct Track {
     /// The test method that runs now ([`Session::single_test_begins`]; 0 before the first).
     test: u32,
     read_in: BTreeMap<GlobalKey, u32>,
+    /// `SingleOut::fresh`: taken when an instance is made in this session.
+    fresh: BTreeMap<GlobalKey, Fp>,
 }
 
 /// Whether `a` and `b` are the same value: equal simple values, or the same handle.
@@ -252,7 +258,14 @@ impl Session {
     pub fn track_single_instances(&mut self) {
         let mut t = Track::default();
         let made: Vec<(usize, Rc<RefCell<Instance>>)> = self.singletons.iter().map(|(o, i)| (*o, i.clone())).collect();
-        self.si_track = Some(Box::new(t_snapshot_all(&mut t, &made)));
+        let mut t = t_snapshot_all(&mut t, &made);
+        // The instances the session made itself (not moved in from an earlier codeunit) hold what a fresh one holds.
+        for (o, inst) in &made {
+            if !self.singles_unclaimed.contains(o) {
+                note_fresh(&mut t, *o, inst, &self.engine);
+            }
+        }
+        self.si_track = Some(Box::new(t));
     }
 
     /// A test method of the codeunit begins: the first reads from now on count for it (`SingleOut::read_in`). Returns
@@ -269,6 +282,7 @@ impl Session {
         if !inst.borrow().globals.is_empty() {
             inst.borrow_mut().single = true;
             snapshot(t, object, inst);
+            note_fresh(t, object, inst, &self.engine);
         }
     }
 
@@ -405,6 +419,7 @@ impl Session {
             guarded: t.guarded.clone(),
             refill: t.refill.clone(),
             read_in: t.read_in.clone(),
+            fresh: t.fresh.clone(),
             ..Default::default()
         };
         for (&object, inst) in &self.singletons {
@@ -459,6 +474,13 @@ fn t_snapshot_all(t: &mut Track, made: &[(usize, Rc<RefCell<Instance>>)]) -> Tra
         }
     }
     std::mem::take(t)
+}
+
+/// `SingleOut::fresh` of an instance the session made: the fingerprint of each global now.
+fn note_fresh(t: &mut Track, object: usize, inst: &Rc<RefCell<Instance>>, e: &crate::Engine) {
+    for (g, v) in inst.borrow().globals.iter().enumerate() {
+        t.fresh.insert((object, g), fp(v, e));
+    }
 }
 
 fn snapshot(t: &mut Track, object: usize, inst: &Rc<RefCell<Instance>>) {

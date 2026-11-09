@@ -587,3 +587,138 @@ fn a_rerun_over_max_replay_is_reported_in_the_output_junit_and_stability() {
         .collect();
     assert!(listed.contains(&"Codeunit50999.NeedsTheChain"), "{doc}");
 }
+
+const SI_PAIR: &str = r#"
+codeunit 50890 "Si Order State"
+{
+    SingleInstance = true;
+    procedure SetFlag(V: Text) begin Flag := V; end;
+    procedure GetFlag(): Text begin exit(Flag); end;
+    var Flag: Text;
+}
+codeunit 50891 "Si Order Setter"
+{
+    Subtype = Test;
+    [Test] procedure SiSetsTheFlag() var S: Codeunit "Si Order State"; begin S.SetFlag('left'); end;
+}
+codeunit 50892 "Si Order Reader"
+{
+    Subtype = Test;
+    [Test] procedure SiNeedsTheFlag() var S: Codeunit "Si Order State"; begin if S.GetFlag() <> 'left' then Error('no flag [%1]', S.GetFlag()); end;
+}
+codeunit 50893 "Si Order Lenient"
+{
+    Subtype = Test;
+    [Test] procedure SiReadsAnyFlag() var S: Codeunit "Si Order State"; begin if StrLen(S.GetFlag()) > 10 then Error('long'); end;
+}
+"#;
+
+/// ADR-058 amendment 1: a test that passes only after an earlier codeunit left SingleInstance state flips under
+/// `isolation.singleInstance = fresh`, with a reason that names the global and its last writer; a codeunit that reads
+/// carried state with an unchanged outcome is listed in `readsCarried` (checked) and gets the JUnit property.
+#[test]
+fn stability_reports_order_dependence_through_single_instance_state_with_a_reason() {
+    let d = tempfile::tempdir().unwrap();
+    let app = one_file_app(
+        d.path(),
+        "siorder",
+        "11111111-0000-0000-0000-000000006930",
+        "SiOrder",
+        "src/Tests.al",
+        SI_PAIR,
+    );
+    let cfg = d.path().join("si.json");
+    std::fs::write(
+        &cfg,
+        r#"{"format":1,"dimensions":{"isolation.singleInstance":["carried","fresh"]}}"#,
+    )
+    .unwrap();
+    let (json, junit) = (d.path().join("out.json"), d.path().join("out.xml"));
+    let o = alrunner(&[
+        "test",
+        app.to_str().unwrap(),
+        "--no-download",
+        "--stability",
+        cfg.to_str().unwrap(),
+        "--output-json",
+        json.to_str().unwrap(),
+        "--junit",
+        junit.to_str().unwrap(),
+    ]);
+    let out = text(&o);
+    assert_eq!(code(&o), 1, "a flip is exit 1: {out}");
+    assert!(out.contains("Order dependence (SingleInstance state):"), "{out}");
+    assert!(out.contains("Breaks with fresh SingleInstance state:"), "{out}");
+    assert!(
+        out.contains("SiNeedsTheFlag: passes only after earlier codeunits"),
+        "{out}"
+    );
+    assert!(
+        out.contains("Reads carried state, outcome unchanged (checked):"),
+        "{out}"
+    );
+    let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&json).unwrap()).unwrap();
+    let st = &doc["stability"];
+    let flip = st["flips"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["test"] == "Codeunit50892.SiNeedsTheFlag")
+        .unwrap_or_else(|| panic!("{st}"));
+    assert_eq!(flip["reason"]["kind"], "passesOnlyAfterEarlierCodeunits", "{flip}");
+    let read = &flip["reason"]["reads"][0];
+    assert_eq!(read["global"], "Flag", "{flip}");
+    assert_eq!(read["singleInstance"]["name"], "Si Order State");
+    assert_eq!(read["singleInstance"]["dependencyApp"], false);
+    assert_eq!(read["lastWriter"]["id"], 50891);
+    let carried = st["readsCarried"].as_array().unwrap();
+    assert!(
+        carried
+            .iter()
+            .any(|c| c["codeunit"]["id"] == 50893 && c["checked"] == true && c["outcome"] == "pass"),
+        "{st}"
+    );
+    assert!(
+        !carried.iter().any(|c| c["codeunit"]["id"] == 50892),
+        "a flip is not listed again: {st}"
+    );
+    let x = std::fs::read_to_string(&junit).unwrap();
+    assert!(x.contains("singleInstanceCarried"), "{x}");
+    assert!(x.contains("reads Flag of Si Order State"), "{x}");
+}
+
+/// ADR-058 amendment 1, decision 7 (owner, 2026-11-09): a bare `--stability` runs the preset `all`.
+#[test]
+fn a_bare_stability_runs_the_preset_all() {
+    let o = alrunner(&["test", "--stability-print-preset", "all"]);
+    assert_eq!(code(&o), 0, "{}", text(&o));
+    assert!(text(&o).contains("\"isolation.singleInstance\""), "{}", text(&o));
+    let d = tempfile::tempdir().unwrap();
+    let app = one_file_app(
+        d.path(),
+        "siall",
+        "11111111-0000-0000-0000-000000006931",
+        "SiAll",
+        "src/Tests.al",
+        SI_PAIR,
+    );
+    let json = d.path().join("all.json");
+    let o = alrunner(&[
+        "test",
+        "--no-download",
+        "--stability",
+        app.to_str().unwrap(),
+        "--stability-allow-flips",
+        "--output-json",
+        json.to_str().unwrap(),
+    ]);
+    assert_eq!(code(&o), 0, "{}", text(&o));
+    let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&json).unwrap()).unwrap();
+    let variants = doc["stability"]["variants"].as_array().unwrap();
+    assert_eq!(variants.len(), 18, "base and one per safe dimension: {variants:?}");
+    assert!(
+        variants
+            .iter()
+            .any(|v| v["values"]["isolation.singleInstance"] == "fresh")
+    );
+}

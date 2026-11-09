@@ -1598,6 +1598,7 @@ fn test_inner(
         allow_write_in_try_functions: a.allow_write_in_try_functions,                                   // issue 7143
         dependencies_published_global: a.dependencies_published_global,                                 // issue 7169
         strict_order: a.strict_order, // `--strict-order` (ADR-066 amendment 4)
+        single_fresh_check: false,    // set per variant in stability mode (ADR-058 amendment 1)
         max_replay: a.max_replay,     // `--max-replay N` (ADR-066 amendment 7)
         test_suites,                  // `--test-suites FILE` (ADR-066 amendment 6)
         memory: crate::memory_budget::budget(a.max_memory, warm.is_none() && debug.is_none()), // `--max-memory`
@@ -1896,7 +1897,11 @@ fn test_inner(
             per_variant.push(rs);
         }
         let seen: Vec<_> = per_variant.iter().map(|rs| crate::stability::seen(rs)).collect();
-        let out = crate::stability::compare(plan, &seen);
+        let mut out = crate::stability::compare(plan, &seen);
+        // ADR-058 amendment 1: order dependence through SingleInstance state, from the base variant's tracking.
+        let own: Vec<String> = inputs.iter().map(|i| i.json.id.clone()).collect();
+        let si = crate::stability_si::SiReport::new(rt.single_carried(), &own, plan);
+        out.with_single_instance(plan, si, &seen[0]);
         (plan, per_variant, seen, out)
     });
     // A request with entries: the results of each entry, picked by its own selection, in the order of the entries.

@@ -295,12 +295,30 @@ pub struct StabilityArg {
     pub config: al_testrun::stability::Config,
 }
 
+/// The value of `--stability`: the next argument when it is a preset name, an existing regular file (any name) or a
+/// name ending in `.json` (a missing one is an error, "config file not found"); else the preset `all` (ADR-058
+/// amendment 1, decision 7; owner, 2026-11-09: a bare `--stability` runs every safe dimension). A folder is never a
+/// config, so an app folder after `--stability` stays the next argument.
+fn stability_value(it: &mut std::iter::Peekable<impl Iterator<Item = String>>) -> Result<StabilityArg, String> {
+    let v = it.next_if(|v| {
+        al_testrun::stability::preset(v).is_some()
+            || std::path::Path::new(v).is_file()
+            || v.to_lowercase().ends_with(".json")
+    });
+    stability_config(v.as_deref().unwrap_or("all"))
+}
+
 /// Reads the config `--stability` names: a preset name, else a file. The error is a refusal (exit 2).
 fn stability_config(source: &str) -> Result<StabilityArg, String> {
     let text = match al_testrun::stability::preset(source) {
         Some(t) => t.to_string(),
+        None if !std::path::Path::new(source).exists() => {
+            return Err(format!(
+                "--stability: config file not found: {source} (the presets are `microsoft` and `all`)"
+            ));
+        }
         None => std::fs::read_to_string(source).map_err(|e| {
-            format!("--stability: cannot read the config file {source}: {e} (the preset is `microsoft`)")
+            format!("--stability: cannot read the config file {source}: {e} (the presets are `microsoft` and `all`)")
         })?,
     };
     let config = al_testrun::stability::parse_config(&text).map_err(|e| format!("--stability {source}: {e}"))?;
@@ -612,11 +630,13 @@ selects only the tests both match)
                          the test methods that are enabled: the other tests do not run, so their
                          globals, rows, time and refusals do not reach the selected ones. The
                          codeunit's OnRun still runs first. In `serve`: the runTests field `runSelectedOnly`.
-    --stability FILE|microsoft
+    --stability [FILE|microsoft|all]
                          Stability mode (ADR-058): run the selected tests once per variant of a
                          JSON config (or the preset `microsoft`: another Library - Random seed,
                          each test alone, reverse order, work date plus one year) over one
-                         compile, and list the tests whose outcome changes. Exit 1 on a change
+                         compile, and list the tests whose outcome changes. The value is a preset
+                         or an existing file of any name (never a folder); without one, the preset
+                         `all` (every safe dimension, one at a time). Exit 1 on a change
                          between pass and fail. The matrix object of the config (bcVersion, country,
                          companies: one child process per cell, as --matrix; environment: cells
                          that share the compile) runs every variant in every cell; a version or
@@ -1566,7 +1586,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
                 a.coverage_json = Some(text()?.into());
             }
             "--test-exact" => a.exact.push(text()?),
-            "--stability" => a.stability = Some(stability_config(&text()?)?),
+            "--stability" => a.stability = Some(stability_value(&mut it)?),
             "--stability-replay" => a.stability_replay = Some(text()?),
             "--seed" => {
                 let v = text()?;
@@ -1579,7 +1599,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
                 return al_testrun::stability::preset(&name)
                     .map(|t| Command::PrintText(t.to_string()))
                     .ok_or_else(|| {
-                        format!("--stability-print-preset: no preset `{name}` (the preset is `microsoft`)")
+                        format!("--stability-print-preset: no preset `{name}` (the presets are `microsoft` and `all`)")
                     });
             }
             "--exclude-test" => a.excludes.push(text()?),
@@ -2212,6 +2232,26 @@ mod tests {
     fn ignore_permission_mock_is_opt_in() {
         assert!(!test_args("test A").ignore_permission_mock);
         assert!(test_args("test A --ignore-permission-mock").ignore_permission_mock);
+    }
+
+    /// ADR-058 amendment 1, decision 7: the value after `--stability` is a preset name or an existing regular file
+    /// (any name), never a folder; a missing `.json` file is an error, not the next argument.
+    #[test]
+    fn stability_takes_an_existing_file_of_any_name_but_never_a_folder() {
+        let d = tempfile::tempdir().unwrap();
+        let cfg = d.path().join("stability.cfg");
+        std::fs::write(&cfg, r#"{"format":1,"dimensions":{"order.methods":["reverse"]}}"#).unwrap();
+        let a = test_args(&format!("test A --stability {}", cfg.display()));
+        assert_eq!(a.stability.unwrap().source, cfg.display().to_string());
+        assert_eq!(a.apps, vec![PathBuf::from("A")]);
+        let app = d.path().join("app");
+        std::fs::create_dir(&app).unwrap();
+        let a = test_args(&format!("test --stability {}", app.display()));
+        assert_eq!(a.stability.unwrap().source, "all");
+        assert_eq!(a.apps, vec![app.clone()]);
+        let missing = d.path().join("missing.json");
+        let e = p(&format!("test A --stability {}", missing.display())).unwrap_err();
+        assert!(e.contains("config file not found"), "{e}");
     }
 
     /// ADR-066 amendment 4: `--strict-order` is off unless given.

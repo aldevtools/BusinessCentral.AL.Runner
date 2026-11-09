@@ -307,6 +307,25 @@ pub struct Outcome {
     pub lines: Vec<String>,
     pub changes: Vec<Change>,
     pub flips: usize,
+    /// Order dependence through SingleInstance state (ADR-058 amendment 1), set after `compare` with
+    /// [`Outcome::with_single_instance`].
+    pub si: crate::stability_si::SiReport,
+}
+
+impl Outcome {
+    /// Adds the order dependence part (ADR-058 amendment 1, decision 6): the console section goes after the flips and
+    /// the lists of tests not run, before the variants with the most flips and the summary.
+    pub fn with_single_instance(&mut self, plan: &Plan, si: crate::stability_si::SiReport, base: &[Seen]) {
+        let section = si.lines(plan, &self.changes, base);
+        let at = self
+            .lines
+            .iter()
+            .position(|l| l.starts_with("Variants with the most flips:"))
+            .or_else(|| self.lines.iter().rposition(|l| l.starts_with("Stability")))
+            .map_or(self.lines.len(), |i| i.saturating_sub(1));
+        self.lines.splice(at..at, section);
+        self.si = si;
+    }
 }
 
 /// The changes of every cell: each variant compared with its own cell's base variant (ADR-058 section 3: a cell
@@ -490,7 +509,12 @@ pub fn compare(plan: &Plan, per_variant: &[Vec<Seen>]) -> Outcome {
         "Stability: {tests} tests, {stable} stable, {flipped} flipped, {not_run} changed to or from not run; master seed {}, config {}",
         plan.master_seed, plan.config_hash
     ));
-    Outcome { lines, changes, flips }
+    Outcome {
+        lines,
+        changes,
+        flips,
+        si: Default::default(),
+    }
 }
 
 /// The tests flagged as order-dependent (`Assumption::SingleInstanceOrder`) and the variants in which each was.
@@ -502,6 +526,22 @@ pub fn order_dependent(plan: &Plan, per_variant: &[Vec<Seen>]) -> std::collectio
         }
     }
     out
+}
+
+/// [`order_dependent`] and the tests of every codeunit that read carried state (ADR-058 amendment 1, decision 5).
+fn order_dependent_all(
+    plan: &Plan,
+    out: &Outcome,
+    per_variant: &[Vec<Seen>],
+) -> std::collections::BTreeMap<String, Vec<String>> {
+    let mut all = order_dependent(plan, per_variant);
+    for t in out.si.tests(per_variant.first().map_or(&[], Vec::as_slice)) {
+        let ids = all.entry(t).or_default();
+        if !ids.contains(&plan.id_at(0)) {
+            ids.insert(0, plan.id_at(0));
+        }
+    }
+    all
 }
 
 /// The tests whose codeunit's serial re-run was skipped for the length of its chain
@@ -563,6 +603,7 @@ pub fn json(plan: &Plan, out: &Outcome, per_variant: &[Vec<Seen>]) -> serde_json
                 "dataAxis": false,
                 "finding": c.is_flip(),
                 "reliesOnAssumption": c.assumption,
+                "reason": out.si.reason(plan, c),
             })
         })
         .collect();
@@ -597,10 +638,12 @@ pub fn json(plan: &Plan, out: &Outcome, per_variant: &[Vec<Seen>]) -> serde_json
         "variants": variants,
         "cells": cells,
         "flips": flips,
-        "orderDependent": order_dependent(plan, per_variant)
+        // Kept for one release (ADR-058 amendment 1, decision 5), now also filled from `readsCarried`.
+        "orderDependent": order_dependent_all(plan, out, per_variant)
             .into_iter()
             .map(|(test, variants)| serde_json::json!({ "test": test, "variants": variants }))
             .collect::<Vec<_>>(),
+        "readsCarried": out.si.reads_carried(plan, &out.changes, per_variant.first().map_or(&[], Vec::as_slice)),
         "rerunSkipped": rerun_skipped(plan, per_variant)
             .into_iter()
             .map(|(test, variants)| serde_json::json!({ "test": test, "variants": variants }))
@@ -671,6 +714,17 @@ pub fn junit(plan: &Plan, results: &[Vec<&TestResult>], out: &Outcome) -> String
                 xml(&r.test),
                 r.time.as_secs_f64()
             ));
+            // ADR-058 amendment 1, decision 6: a test of a codeunit that read carried state, in the base variant.
+            let props = (v.index == 0)
+                .then(|| out.si.carried_property(plan, &out.changes, r.codeunit))
+                .flatten()
+                .map(|p| {
+                    format!(
+                        ">\n      <properties><property name=\"singleInstanceCarried\" value=\"{}\"/></properties",
+                        xml(&p)
+                    )
+                })
+                .unwrap_or_default();
             let flip = out
                 .changes
                 .iter()
@@ -681,30 +735,36 @@ pub fn junit(plan: &Plan, results: &[Vec<&TestResult>], out: &Outcome) -> String
                         al_testrun::Outcome::Fail(m) => format!(": {m}"),
                         _ => String::new(),
                     };
+                    let reason = out
+                        .si
+                        .reason_line(plan, c)
+                        .map(|l| format!(" ({l})"))
+                        .unwrap_or_default();
                     let msg = format!(
-                        "outcome changed from {} under {}: {}{original}",
+                        "outcome changed from {} under {}: {}{reason}{original}",
                         c.base.text(),
                         id,
                         v.describe()
                     );
                     x.push_str(&format!(
-                        ">\n      <failure message=\"{}\"/>\n    </testcase>\n",
+                        "{props}>\n      <failure message=\"{}\"/>\n    </testcase>\n",
                         xml(&msg)
                     ));
                 }
                 (al_testrun::Outcome::Fail(m), None) => {
                     x.push_str(&format!(
-                        ">\n      <failure message=\"{}\"/>\n    </testcase>\n",
+                        "{props}>\n      <failure message=\"{}\"/>\n    </testcase>\n",
                         xml(m)
                     ));
                 }
                 (al_testrun::Outcome::NotRun(m), None) => {
                     x.push_str(&format!(
-                        ">\n      <skipped message=\"{}\"/>\n    </testcase>\n",
+                        "{props}>\n      <skipped message=\"{}\"/>\n    </testcase>\n",
                         xml(m)
                     ));
                 }
-                (al_testrun::Outcome::Pass, None) => x.push_str("/>\n"),
+                (al_testrun::Outcome::Pass, None) if props.is_empty() => x.push_str("/>\n"),
+                (al_testrun::Outcome::Pass, None) => x.push_str(&format!("{props}>\n    </testcase>\n")),
             }
         }
         x.push_str("  </testsuite>\n");
