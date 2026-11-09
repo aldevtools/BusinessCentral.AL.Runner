@@ -172,8 +172,12 @@ impl CorpusRuntime {
     ) -> Result<(CorpusRuntime, Option<KeptCompile>), String> {
         // A lean compile leaves workspace objects out: `--affected` needs the hash of each.
         let lean = !opts.object_hashes;
+        // A hard memory limit may stop the compile (`compile_halt.rs`): the run ends there.
         let mut compiled =
-            Self::compile_suites_with(apps, kinds, manifests, symbols, target, suites, opts, lean, &mut grow)?;
+            match Self::compile_within_limit(apps, kinds, manifests, symbols, target, suites, opts, lean, &mut grow)? {
+                Ok(c) => c,
+                Err(stopped) => return Ok((stopped, None)),
+            };
         // A lean run may be run again below: its engines are freed then, the process does not end after it.
         let first_opts;
         let first = if compiled.lean.is_some() && opts.process_ends_after {
@@ -192,7 +196,7 @@ impl CorpusRuntime {
         if compiled.lean.is_some() && rt.met_left_out() {
             let lean_time = rt.phases.compile + rt.phases.tests;
             let (apps, kinds) = compiled.into_apps();
-            let compiled = Self::compile_suites_with(
+            let compiled = match Self::compile_within_limit(
                 apps,
                 kinds,
                 manifests,
@@ -202,7 +206,10 @@ impl CorpusRuntime {
                 opts,
                 false,
                 &mut Grow::Off,
-            )?;
+            )? {
+                Ok(c) => c,
+                Err(stopped) => return Ok((stopped, None)),
+            };
             let mut rt = Self::run_compiled(&compiled, target, dotnet, opts);
             rt.phases.lean_redone = true;
             rt.phases.compile += lean_time;
@@ -255,7 +262,7 @@ impl CorpusRuntime {
         mut each: impl FnMut(usize),
     ) -> Result<Vec<CorpusRuntime>, String> {
         // A complete compile: a lean one may need a second compile when a test meets what it left out.
-        let compiled = Self::compile_suites_with(
+        let compiled = match Self::compile_within_limit(
             apps,
             kinds,
             manifests,
@@ -265,12 +272,27 @@ impl CorpusRuntime {
             opts,
             false,
             &mut Grow::Off,
-        )?;
-        let mut out = Vec::with_capacity(perturbs.len());
+        )? {
+            Ok(c) => c,
+            Err(stopped) => return Ok(vec![stopped]), // A hard memory limit stopped the compile (`compile_halt.rs`).
+        };
+        let mut out: Vec<CorpusRuntime> = Vec::with_capacity(perturbs.len());
+        // ADR-058 amendment 1: a `fresh` variant is formed from its carried twin's run.
+        let (from, check) = super::single_fresh::fresh_plan(perturbs);
         for (i, p) in perturbs.iter().enumerate() {
             each(i);
+            if let Some(j) = from[i].filter(|&j| j < i) {
+                let rt = out[j].fresh_variant();
+                out.push(rt);
+                continue;
+            }
             let o = RunOptions {
-                perturb: p.clone(),
+                perturb: crate::stability::Perturb {
+                    single_fresh: false,
+                    ..p.clone()
+                },
+                single_fresh_check: check[i],
+                strict_order: opts.strict_order || check[i],
                 process_ends_after: false,
                 hooks: if i == 0 { opts.hooks.clone() } else { Default::default() },
                 ..opts.clone()
@@ -279,6 +301,9 @@ impl CorpusRuntime {
             if i > 0 {
                 // The compile counts once, for the base variant.
                 rt.phases.compile = std::time::Duration::ZERO;
+            }
+            if from[i] == Some(i) {
+                rt = rt.fresh_variant();
             }
             out.push(rt);
         }
@@ -315,7 +340,7 @@ impl CorpusRuntime {
     /// the workspace objects they do not name (`al_sema::check::Roots::lean`). Only a caller that runs the tests again
     /// on a complete compile when they meet what was left out (`CorpusRuntime::met_left_out`) may ask for it.
     #[allow(clippy::too_many_arguments)]
-    fn compile_suites_with(
+    pub(super) fn compile_suites_with(
         apps: Vec<al_sema::workspace::AppSource>,
         kinds: Vec<al_sema::AppKind>,
         manifests: &[Manifest],
@@ -979,6 +1004,7 @@ impl CorpusRuntime {
         // A debugged run is one thread, so the tests stop one at a time (ADR-048 decision 3); the memory budget may cut.
         let mut memory = super::memory::Plan::after_compile(opts, test_workers());
         let mut workers = memory.workers();
+        let baseline = baseline && !memory.halted(); // A run stopped at its memory limit builds no install baseline.
         let baseline_skipped = baseline_wanted && !baseline;
         let engine_started = std::time::Instant::now();
         let make_engine = || {
@@ -1088,12 +1114,13 @@ impl CorpusRuntime {
                 .flatten();
             let run = if baseline {
                 kept.or_else(|| {
-                    crate::baseline::run_traced(
+                    crate::baseline::run_traced_halting(
                         &engine,
                         lowered,
                         opts.impact_trace || opts.narrow.is_some(),
                         opts.company_data.as_ref(),
                         &opts.perturb,
+                        memory.halt_flag(),
                     )
                 })
             } else {
@@ -1126,7 +1153,7 @@ impl CorpusRuntime {
         // run runs the install code again (`al_vm::dotnet::pure`).
         let install_called_dotnet = engine.dotnet_called.load(std::sync::atomic::Ordering::Relaxed);
         if let (false, false, Some(key), Some(cc), Some(run)) = (
-            from_cache,
+            from_cache || memory.halted(), // A baseline the memory limit stopped is not kept.
             install_called_dotnet,
             baseline_key.as_ref(),
             opts.compile_cache.as_ref(),
@@ -1151,7 +1178,7 @@ impl CorpusRuntime {
             .as_ref()
             .map(|b| b.unseeded.iter().map(|&t| t as usize).collect())
             .unwrap_or_default();
-        workers = memory.after_baseline(); // The fixed part is loaded: as many threads as fit beside it.
+        workers = memory.after_baseline(); // The fixed part is loaded (`memory.rs`).
         let baseline_engine = (workers > 1 && baseline_run.is_some()).then(|| engine.clone());
         let mut baseline_ids = crate::baseline::NoteFacts::default();
         let baseline_roots = baseline_run.as_ref().map(|b| (b.ran, b.total));
@@ -1320,7 +1347,7 @@ impl CorpusRuntime {
             vec![Pass {
                 only: opts_only.clone(),
                 run_only: opts.run_only.clone(),
-                hooks: opts.hooks.clone(),
+                hooks: memory.hooks(&opts.hooks),
                 resources: Default::default(),
             }]
         } else {
@@ -1329,7 +1356,7 @@ impl CorpusRuntime {
                 .map(|e| Pass {
                     only: e.only.as_deref().map(in_program_order).or_else(|| opts_only.clone()),
                     run_only: e.run_only.clone(),
-                    hooks: e.hooks.clone(),
+                    hooks: memory.hooks(&e.hooks),
                     resources: e
                         .resources
                         .iter()
@@ -1600,20 +1627,8 @@ impl CorpusRuntime {
             // `--test-suites` orders a session by the file, not by the walk's id order: there the walk keeps fresh
             // state per member and the lane handles the members as before (amendment 8, decision 6).
             let keep_singles = chain_report.single_lane.watched > 0 && opts.test_suites.is_none();
-            let carried = super::chain_walk::ChainWalk {
-                engine: &engine,
-                lowered,
-                baseline: baseline.as_ref(),
-                units: &units,
-                trace: opts.trace,
-                limit,
-                helpers,
-                thread_baseline: &|| thread_baseline(ahead_snapshot),
-                gate: memory.gate(),
-                keep_singles,
-                wait_for_helpers: opts.chain_wait_for_runs_ahead,
-            }
-            .walk(chain, &mut slots, &mut details, &mut chain_report);
+            #[rustfmt::skip]
+            let carried = super::chain_walk::ChainWalk { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, trace: opts.trace, limit, helpers, thread_baseline: &|| thread_baseline(ahead_snapshot), pool: memory.pool(), keep_singles, fresh_check: opts.single_fresh_check, wait_for_helpers: opts.chain_wait_for_runs_ahead }.walk(chain, &mut slots, &mut details, &mut chain_report);
             // The other codeunits run as before; one that comes after a Disabled codeunit notes whether it reads a table that
             // codeunit left rows in, and then runs again below, from what it left.
             for u in units.iter_mut() {
@@ -1627,9 +1642,8 @@ impl CorpusRuntime {
             let results: Vec<UnitResult> = if workers <= 1 || rest.len() < 2 {
                 run_serially(&engine, lowered, baseline.as_ref(), &units, &rest, &mut details, opts)
             } else {
-                // Test codeunits run on a session each and do not share anything (the install
-                // baseline is put back for each), so worker threads take them in turn. A worker
-                // sets up its own copy of the baseline.
+                // Test codeunits run on a session each and do not share anything (the install baseline is put back for
+                // each), so worker threads take them in turn, each with its own copy of the baseline (`threads.rs`).
                 let encode_started = std::time::Instant::now();
                 let snapshot: &Option<Vec<u8>> = snapshot_once.get_or_init(|| {
                     baseline_engine
@@ -1638,41 +1652,10 @@ impl CorpusRuntime {
                         .flatten()
                 });
                 encode_time += encode_started.elapsed();
-                let next = std::sync::atomic::AtomicUsize::new(0);
-                let pull = |baseline: Option<&al_vm::Baseline>| {
-                    let mut done = Vec::new();
-                    loop {
-                        let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let Some(u) = rest.get(k).map(|&i| &units[i]) else {
-                            return done;
-                        };
-                        let _room = memory.gate().enter(); // Waits while memory is tight (`memory.rs`).
-                        done.push((k, run_unit(&engine, lowered, baseline, u, None, limit)));
-                    }
-                };
-                std::thread::scope(|scope| {
-                    let mut handles = Vec::new();
-                    for _ in 1..workers.min(rest.len()) {
-                        let spawned = std::thread::Builder::new()
-                            .stack_size(TEST_STACK)
-                            .spawn_scoped(scope, || {
-                                let own = thread_baseline(snapshot.as_deref());
-                                pull(own.as_ref())
-                            });
-                        match spawned {
-                            Ok(h) => handles.push(h),
-                            // No room for another thread (an address space limit): fewer will do.
-                            Err(_) => break,
-                        }
-                    }
-                    let mut done = pull(baseline.as_ref());
-                    for h in handles {
-                        done.extend(h.join().expect("a test worker panicked"));
-                    }
-                    // Results in the order of the units, whichever worker finished first.
-                    done.sort_by_key(|(k, _)| *k);
-                    done.into_iter().map(|(_, r)| r).collect()
-                })
+                let own = || thread_baseline(snapshot.as_deref());
+                let run =
+                    |b: Option<&al_vm::Baseline>, k: usize| run_unit(&engine, lowered, b, &units[rest[k]], None, limit);
+                super::threads::run_parallel(memory.pool(), rest.len(), baseline.as_ref(), &own, &run)
             };
             for (k, mut r) in rest.into_iter().zip(results) {
                 let before = carried
@@ -1734,7 +1717,7 @@ impl CorpusRuntime {
                 slots[k] = Some(r);
             }
             #[rustfmt::skip]
-            let lane = super::single_lane::Lane { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, carried: &carried, sees: &sees, place: &place, limit, strict: opts.strict_order, max_replay: opts.max_replay, suites: opts.test_suites.as_deref(), workers, install_copies: baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline, kept_chain: keep_singles, gate: memory.gate() };
+            let lane = super::single_lane::Lane { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, carried: &carried, sees: &sees, place: &place, limit, strict: opts.strict_order, max_replay: opts.max_replay, suites: opts.test_suites.as_deref(), workers, install_copies: baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline, kept_chain: keep_singles, pool: memory.pool(), fresh_check: opts.single_fresh_check };
             lane.run(&mut slots, &mut chain_report.single_lane);
             let results: Vec<UnitResult> = slots.into_iter().flatten().collect();
             for r in results {
@@ -1883,6 +1866,7 @@ impl CorpusRuntime {
             o.clear();
         }
         let tests_time = tests_started.elapsed();
+        memory.pool().unwatch();
         if let (Some((key, _)), Some(cc), Some((origin, read))) = (
             baseline_key.as_ref(),
             opts.compile_cache.as_ref(),
@@ -2518,7 +2502,10 @@ pub(super) fn reaches_session_storage(engine: &Arc<al_vm::Engine>, lowered: &Low
 /// Every outcome of a codeunit becomes not run, for `why`.
 pub(super) fn refuse_all(done: &mut [(String, Outcome)], why: &str) {
     for (_, o) in done.iter_mut() {
-        *o = Outcome::NotRun(why.to_string());
+        // A test the run did not reach before it stopped at its memory limit keeps that reason (ADR-066 amendment 10).
+        if !matches!(o, Outcome::NotRun(r) if r.starts_with(super::memory::REASON)) {
+            *o = Outcome::NotRun(why.to_string());
+        }
     }
 }
 

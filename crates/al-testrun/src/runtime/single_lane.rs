@@ -120,6 +120,9 @@ pub(super) struct Found {
     /// Per dependent codeunit (position), the globals it read first that the earlier codeunits left with another value
     /// (ADR-066 amendment 7, option 1: only a failed test that read one, or a test before it, makes it run again).
     pub changed: BTreeMap<usize, BTreeSet<GlobalKey>>,
+    /// Per dependent codeunit (position), each global of `changed` with the position of the codeunit that wrote it
+    /// last (ADR-058 amendment 1, decision 4: the reason of a flip).
+    pub last: BTreeMap<usize, Vec<(GlobalKey, usize)>>,
 }
 
 /// Step 3, the decision: from what each codeunit of a BC session (in order) noted, which depend on state an earlier one
@@ -201,6 +204,7 @@ pub(super) fn analyse(outs: &[Option<&SingleOut>]) -> Found {
             mine.insert(c.0);
             mine.extend(diff.iter().map(|(_, w)| *w));
             found.changed.insert(p, diff.iter().map(|(k, _)| *k).collect());
+            found.last.insert(p, diff.clone());
         } else if let Some(a) = assumed {
             found.refill_assumed.insert(p, a);
         }
@@ -379,12 +383,15 @@ pub(super) struct Lane<'a> {
     /// A worker thread's own copy of the install baseline from `snapshot` (a baseline holds `Rc`s and stays on its
     /// thread).
     pub thread_baseline: &'a (dyn Fn(Option<&[u8]>) -> Option<al_vm::Baseline> + Sync),
-    /// The memory budget's admission (`memory.rs`): a session starts when memory leaves room for it.
-    pub gate: &'a super::memory::Gate,
+    /// The run's test threads and their memory (`memory.rs`): a worker starts and goes on only while memory has room.
+    pub pool: &'a super::memory::Pool,
     /// ADR-066 amendment 8: the chain walk kept the single instances from member to member (`ChainWalk::keep_singles`),
     /// so a chain member's result is already its run in BC's order: it is never dependent here, never runs again and is
     /// not flagged. It still counts as a writer for the codeunits that are no members.
     pub kept_chain: bool,
+    /// `RunOptions::single_fresh_check` (ADR-058 amendment 1): keep the parallel (fresh) run of each dependent codeunit
+    /// the lane runs again, in `LaneReport::carried`.
+    pub fresh_check: bool,
 }
 
 /// What the lane did, for `--timings` and the stability report.
@@ -435,6 +442,9 @@ pub struct LaneReport {
     pub delta_bytes_peak: usize,
     /// ADR-066 amendment 8: chain members that read first a global a codeunit outside the chain wrote before them.
     pub chain_missed: usize,
+    /// ADR-058 amendment 1: the dependent codeunits outside the carry chain, with what they read and (under
+    /// `Lane::fresh_check`) their parallel run's outcomes.
+    pub carried: Vec<super::CarriedCodeunit>,
 }
 
 impl LaneReport {
@@ -634,6 +644,17 @@ impl Lane<'_> {
         report.strict = self.strict;
         let chains = self.chains(slots, report);
         report.chains = chains.len();
+        // A run stopped at its hard memory limit runs nothing again: the codeunits whose result is their serial run
+        // here were not reached, so their tests are not run, for the limit (ADR-066 amendment 10, decision 6).
+        if self.pool.halted() {
+            let halt = self.pool.halt();
+            for k in chains.iter().flat_map(|c| c.chosen.iter()) {
+                if let Some(Ok(done)) = slots[*k].as_mut().map(|r| &mut r.result) {
+                    super::corpus::refuse_all(&mut done.0, halt.reason());
+                }
+            }
+            return;
+        }
         let runs = self.run_chains(&chains, report);
         for (chain, (done, took)) in chains.iter().zip(runs) {
             report.longest = report.longest.max(took);
@@ -662,6 +683,16 @@ impl Lane<'_> {
                         }
                     }
                     flag_all(done, Assumption::SingleInstanceOrder);
+                }
+                if let Some(first) = slots[k].as_ref().filter(|_| self.fresh_check) {
+                    let u = &self.units[k];
+                    if let Some(c) = report
+                        .carried
+                        .iter_mut()
+                        .find(|c| c.suite == u.si && c.codeunit == u.id)
+                    {
+                        c.fresh = Some(super::single_fresh::outcomes_of(first));
+                    }
                 }
                 slots[k] = Some(r);
             }
@@ -723,6 +754,7 @@ impl Lane<'_> {
                 if let Some(Ok(done)) = slots[ks[p]].as_mut().map(|r| &mut r.result) {
                     flag_all(done, Assumption::SingleInstanceOrder);
                 }
+                self.note_carried(&ks, &found, p, report);
             }
             // Decision 2: only a dependent codeunit with a failure or a test refused while it ran in parallel runs again
             // serially; `--strict-order` (decision 4) runs them all again. Amendment 7, option 1: and only when such a
@@ -817,68 +849,101 @@ impl Lane<'_> {
                 units: self.units,
                 limit: self.limit,
             };
-            let (thread_baseline, gate) = (self.thread_baseline, self.gate);
+            let (thread_baseline, pool) = (self.thread_baseline, self.pool);
             let (ask, asked) = std::sync::mpsc::channel::<Ask>();
+            // Worker threads alive, and the most at once.
+            let live = std::sync::atomic::AtomicUsize::new(0);
             std::thread::scope(|scope| {
                 let mut handles = Vec::new();
-                for _ in 0..helpers {
-                    let ask = ask.clone();
-                    let (next, worker, taken) = (&next, &worker, &taken);
-                    let spawned = std::thread::Builder::new()
-                        .stack_size(TEST_STACK)
-                        .spawn_scoped(scope, move || {
-                            let own = thread_baseline(snapshot);
-                            let (reply, replies) = std::sync::mpsc::channel();
-                            let mut fetch = |carry: usize, whole: bool| {
-                                ask.send((carry, whole, reply.clone())).ok()?;
-                                replies.recv().ok()
-                            };
-                            // The one carried start this thread holds (issue 6924).
-                            let mut held: Held = None;
-                            let mut start = |carry: usize| {
-                                carried_start(carry, &mut held, own.as_ref(), worker.engine, &mut fetch)
-                                    .map_err(|()| NoBytes)
-                            };
-                            let mut done = Vec::new();
-                            loop {
-                                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                let Some(&c) = taken.get(i) else { return done };
-                                let chain = &chains[c];
-                                let _room = gate.enter();
-                                let mut at = chain.steps.iter();
-                                let runs = run_in_order(&chain.order, &mut |_| {
-                                    worker.run(own.as_ref(), &mut start, at.next().expect("a step per codeunit"))
+                // ADR-066 amendment 10, decisions 1 and 3: a worker starts while a session waits and memory has room,
+                // and ends after a session when there is none; the sessions no worker ran run on this thread below.
+                let mut grow = |handles: &mut Vec<_>| {
+                    let mut added = 0;
+                    while live.load(std::sync::atomic::Ordering::SeqCst) < helpers
+                        && next.load(std::sync::atomic::Ordering::Relaxed) + added < taken.len()
+                    {
+                        let Some(member) = pool.try_add(added) else { break };
+                        let ask = ask.clone();
+                        let (next, worker, taken, live) = (&next, &worker, &taken, &live);
+                        live.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        let spawned =
+                            std::thread::Builder::new()
+                                .stack_size(TEST_STACK)
+                                .spawn_scoped(scope, move || {
+                                    let _member = member;
+                                    let own = thread_baseline(snapshot);
+                                    let (reply, replies) = std::sync::mpsc::channel();
+                                    let mut fetch = |carry: usize, whole: bool| {
+                                        ask.send((carry, whole, reply.clone())).ok()?;
+                                        replies.recv().ok()
+                                    };
+                                    // The one carried start this thread holds (issue 6924).
+                                    let mut held: Held = None;
+                                    let mut start = |carry: usize| {
+                                        carried_start(carry, &mut held, own.as_ref(), worker.engine, &mut fetch)
+                                            .map_err(|()| NoBytes)
+                                    };
+                                    let mut done = Vec::new();
+                                    loop {
+                                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                        let Some(&c) = taken.get(i) else { break };
+                                        let chain = &chains[c];
+                                        let running = pool.enter();
+                                        let mut at = chain.steps.iter();
+                                        let runs = run_in_order(&chain.order, &mut |_| {
+                                            worker.run(
+                                                own.as_ref(),
+                                                &mut start,
+                                                at.next().expect("a step per codeunit"),
+                                            )
+                                        });
+                                        drop(running);
+                                        done.push((c, runs.ok()));
+                                        if !pool.keep() {
+                                            break;
+                                        }
+                                    }
+                                    live.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                                    done
                                 });
-                                done.push((c, runs.ok()));
+                        match spawned {
+                            Ok(h) => handles.push(h),
+                            // No room for another thread (an address space limit): fewer will do.
+                            Err(_) => {
+                                live.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                                break;
                             }
-                        });
-                    match spawned {
-                        Ok(h) => handles.push(h),
-                        // No room for another thread (an address space limit): fewer will do.
-                        Err(_) => break,
+                        }
+                        added += 1;
+                        ran_on = ran_on.max(live.load(std::sync::atomic::Ordering::SeqCst));
+                    }
+                };
+                grow(&mut handles);
+                // Serves the workers' asks until none is alive and no other can start.
+                loop {
+                    match asked.recv_timeout(std::time::Duration::from_millis(20)) {
+                        Ok((carry, whole, reply)) => {
+                            let delta = if whole { None } else { deltas.get(carry) };
+                            let answer = match delta {
+                                Some((d, base)) => Reply::Delta(d, base),
+                                None => Reply::Whole(
+                                    self.carried[carry]
+                                        .3
+                                        .baseline
+                                        .as_ref()
+                                        .and_then(|b| starts.get(carry, b)),
+                                ),
+                            };
+                            let _ = reply.send(answer);
+                        }
+                        Err(_) => {
+                            grow(&mut handles);
+                            if live.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+                                break;
+                            }
+                        }
                     }
                 }
-                drop(ask);
-                // Ends when every worker thread is done (each holds a sender).
-                for (carry, whole, reply) in asked {
-                    // Memory is tight: the deltas kept for later sessions go first (they are made again on demand).
-                    if self.gate.take_tight() && deltas.forget() {
-                        self.gate.dropped_cache();
-                    }
-                    let delta = if whole { None } else { deltas.get(carry) };
-                    let answer = match delta {
-                        Some((d, base)) => Reply::Delta(d, base),
-                        None => Reply::Whole(
-                            self.carried[carry]
-                                .3
-                                .baseline
-                                .as_ref()
-                                .and_then(|b| starts.get(carry, b)),
-                        ),
-                    };
-                    let _ = reply.send(answer);
-                }
-                ran_on = handles.len().max(1);
                 for h in handles {
                     for (c, runs) in h.join().expect("a lane worker panicked") {
                         out[c] = runs;
@@ -1001,6 +1066,19 @@ impl Lane<'_> {
             }
         }
         n
+    }
+
+    /// ADR-058 amendment 1, decision 4: dependent codeunit `p` of session `ks` and what it read, for the report.
+    fn note_carried(&self, ks: &[usize], found: &Found, p: usize, report: &mut LaneReport) {
+        let reads: Vec<(GlobalKey, usize)> = found
+            .last
+            .get(&p)
+            .into_iter()
+            .flatten()
+            .map(|&(g, w)| (g, ks[w]))
+            .collect();
+        let c = super::single_fresh::carried_codeunit(self.lowered, self.units, ks[p], false, &reads);
+        report.carried.push(c);
     }
 
     fn name(&self, k: usize) -> String {

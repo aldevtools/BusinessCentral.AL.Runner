@@ -27,6 +27,15 @@ normal run, plus one compile.
 `al-runner test --stability-print-preset microsoft` prints the preset as JSON. Save
 it as a starting point for your own file, then run `--stability my-config.json`.
 
+`--stability` without a value runs the preset `all`: every safe dimension this runner
+applies, one at a time (18 variants, `isolation.singleInstance` included; the data
+axes are not part of any preset). `--stability-print-preset all` prints it. The
+value after `--stability` is read as a preset when it is `microsoft` or `all`, and
+as a config file when it is an existing file, whatever its name. A folder is never a
+config file, so an app folder after `--stability` is still the app folder. A name
+ending in `.json` that does not exist is an error ("config file not found"). Anything
+else is the next argument.
+
 ## The config file
 
 ```json
@@ -109,6 +118,7 @@ to run on. Every combination is a cell, and every cell runs all variants:
 | `order.methods` | Order of the test methods in a codeunit: `declared`, `reverse`, `shuffle` or `shuffle:SEED` |
 | `order.codeunits` | Order of the test codeunits. It changes results only with `--isolation disabled`. Otherwise every codeunit starts from the same database and the report says so. |
 | `isolation.alone` | `true` runs each test alone, on a fresh session |
+| `isolation.singleInstance` | `fresh` judges each test codeunit with fresh SingleInstance state: see "Order dependence through SingleInstance state" below. `carried` (the default) is what Business Central does. |
 | `random.librarySeed` | The seed `Library - Random` gets before each test |
 | `random.hostSeed` | The seed of the session's `Random` before AL calls `Randomize` |
 | `guid.seed` | The seed of `CreateGuid` and new SystemIds |
@@ -178,7 +188,9 @@ How to read it:
 - **Changed to or from not run** is listed apart. It is not a finding by itself. A
   test refused in the base variant is refused in every variant.
 - **Order-dependent tests** have a list of their own, "Tests that rely on SingleInstance
-  state an earlier test codeunit left", also in `--output-json` as `orderDependent`.
+  state an earlier test codeunit left", also in `--output-json` as `orderDependent`
+  (kept for one release; it now also holds the tests of `readsCarried`, see "Order
+  dependence through SingleInstance state").
   Their result depends on whether Business Central runs their codeunit alone or after
   the codeunit that left the state. They are listed with and without `--strict-order`:
   by default they keep their parallel run (fresh state) and run again in order only
@@ -198,6 +210,46 @@ How to read it:
   SingleInstance state another test codeunit left" in the results chapter.
 - A flip that only happens where an unprobed assumption ran is marked "relies on an
   unprobed assumption". The runtime may be wrong there, not the test.
+
+### Order dependence through SingleInstance state
+
+Business Central runs all test codeunits of a run in one session. The globals of a
+`SingleInstance = true` codeunit that one test codeunit left are still there in the
+next one. Test isolation rolls back the database, not these globals. So a test can
+pass only because another codeunit ran first. The same test fails as soon as its
+codeunit starts fresh: run alone from the test tool, in another selection, in
+another order, or in a run per app or per test suite.
+
+The report has a section "Order dependence (SingleInstance state)" with two parts:
+
+- **Breaks with fresh SingleInstance state.** The flips under
+  `isolation.singleInstance = fresh`, one block per test codeunit. Each block names
+  the SingleInstance codeunit, its app (marked "in a dependency app" when it is not
+  one of your apps), the global, and the earlier test codeunit that wrote it last.
+  Each test says "passes only after earlier codeunits" (it fails with fresh state)
+  or "fails only after earlier codeunits" (it passes with fresh state), with its
+  outcome in both runs. Fix the test so that it sets up what it reads. For a cache
+  in a dependency app you cannot change the code, but your test can still set up
+  the state it reads.
+- **Reads carried state, outcome unchanged.** Test codeunits that read such a value
+  and keep their outcome. "checked" means the run had a `fresh` variant; "not
+  checked" means it did not. This part is in every stability run, also with the
+  `microsoft` preset, and costs no extra run. The console shows at most 50 lines;
+  `--output-json` lists all as `readsCarried`. A codeunit that fails in both runs
+  with another message is listed here with both messages ("fails either way, with
+  another message"). A test stopped by the time limit in either run is "not
+  compared (time limit)".
+
+Which codeunits are checked: only those whose first read of a SingleInstance global
+got a value an earlier codeunit left, where that value differs from what a fresh
+instance holds. Every other codeunit keeps its base result in the `fresh` variant.
+A member of the chain that runs one after the other runs once more, from the same
+database start, with fresh SingleInstance state; what that run leaves is dropped.
+A codeunit outside that chain costs no extra run: its parallel run already started
+fresh. When the config names this dimension, the base variant runs as
+`--strict-order`, so the result in Business Central's order is known for every such
+codeunit. To run this check alone, use a config with only
+`{"isolation.singleInstance": ["carried", "fresh"]}`.
 
 ### With matrix axes
 
@@ -250,9 +302,16 @@ the runtime is deterministic.
 - Exit 1 when a test changes between pass and fail. `--stability-allow-flips` keeps
   the exit code of the base variant, for reports only.
 - `--junit FILE` writes one test suite per variant. The variant's values are its
-  properties. A flipped test fails with `outcome changed from pass under <id>`.
-- `--output-json FILE` adds a `stability` object with the variants, the flips and
-  the summary.
+  properties. A flipped test fails with `outcome changed from pass under <id>`. Under
+  `isolation.singleInstance` the message adds the reason in one line ("reads Flag of
+  My Cache (app My App) that My Setter Test (50100) left"). In the base variant's
+  test suite, each test of a codeunit in `readsCarried` has the property
+  `singleInstanceCarried` with the same line.
+- `--output-json FILE` adds a `stability` object with the variants, the flips, the
+  summary and `readsCarried`. A flip under `isolation.singleInstance` has a `reason`
+  (`kind`: `passesOnlyAfterEarlierCodeunits` or `failsOnlyAfterEarlierCodeunits`;
+  `reads`: the SingleInstance codeunit with `app`, `publisher` and `dependencyApp`,
+  the `global` and its `lastWriter`).
 
 ## Limits
 

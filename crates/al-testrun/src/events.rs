@@ -88,6 +88,9 @@ pub struct Hooks {
     /// With `debugger`: the wall time the tests have spent stopped by it. The per-test time limit does not count it
     /// (ADR-048 decision 9).
     pub paused: Option<Arc<PauseClock>>,
+    /// The run's stop for its hard memory limit (ADR-066 amendment 10, decision 6; `runtime::memory::Halt`): once set,
+    /// the running test is stopped and no further test starts; the tests not reached are not run, with its reason.
+    pub halt: Option<Arc<crate::runtime::memory::Halt>>,
 }
 
 /// The wall time a debugger kept the tests stopped: the debugger calls `stop` when it stops a test and `resume` when it
@@ -150,6 +153,7 @@ impl std::fmt::Debug for Hooks {
             .field("on_start", &self.on_start.is_some())
             .field("cancel", &self.cancel.is_some())
             .field("debugger", &self.debugger.is_some())
+            .field("halt", &self.halt.is_some())
             .finish()
     }
 }
@@ -173,6 +177,24 @@ pub(crate) fn reported() -> Vec<String> {
 
 pub(crate) fn cancelled() -> bool {
     CURRENT.with(|c| c.borrow().0.cancel.as_ref().is_some_and(|f| f.load(Ordering::Relaxed)))
+}
+
+/// The reason of the tests not reached once the run stopped for its hard memory limit (`Hooks::halt`); `None` while
+/// it runs on.
+pub(crate) fn halted() -> Option<String> {
+    CURRENT.with(|c| {
+        c.borrow()
+            .0
+            .halt
+            .as_ref()
+            .filter(|h| h.is_set())
+            .map(|h| h.reason().to_string())
+    })
+}
+
+/// The flag of `Hooks::halt`, which the watchdog of a running test reads.
+pub(crate) fn halt_flag() -> Option<Arc<AtomicBool>> {
+    CURRENT.with(|c| c.borrow().0.halt.as_ref().map(|h| h.flag()))
 }
 
 /// The flag that stops the run (for a scratch run, whose one routine is stopped while it runs).

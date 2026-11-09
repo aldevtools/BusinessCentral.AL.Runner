@@ -30,11 +30,11 @@ use std::sync::Mutex;
 /// depends on it.
 const RESTARTS: usize = 2;
 
-/// How many runs ahead from another start than the walk's (wrong predictions), or that read or wrote a watched global
-/// while the walk keeps the single instances (ADR-066 amendment 8), the walk drops in a suite beyond the runs ahead it
-/// took there before the suite is not run ahead any more: wasted runs take the machine (and the memory of a session and
-/// a baseline copy per helper) from the walk.
-/// Only the time of the run depends on it.
+/// How many runs ahead the walk drops in a suite, for any reason (a wrong prediction, one that rested on another wrong
+/// run ahead, one made too early, one that read or wrote a watched global while the walk keeps the single instances, one
+/// whose change it cannot rebuild), beyond the runs ahead it took there, before the suite is not run ahead any more
+/// (ADR-066 amendment 10, decision 4): wasted runs take the machine, and the memory of a session and a baseline copy
+/// per helper, from the walk. Only the time of the run depends on it.
 const MISSES: usize = 4;
 
 /// How many members per helper thread the helpers run ahead of the walk at most: a new start makes their runs useless,
@@ -65,14 +65,17 @@ pub(super) struct ChainWalk<'a> {
     pub helpers: usize,
     /// A helper thread's own copy of the install baseline.
     pub thread_baseline: &'a (dyn Fn() -> Option<al_vm::Baseline> + Sync),
-    /// The memory budget's admission (`memory.rs`): a helper runs a member ahead when memory leaves room for it.
-    pub gate: &'a super::memory::Gate,
+    /// The run's test threads and their memory (`memory.rs`): a helper starts and goes on only while memory has room.
+    pub pool: &'a super::memory::Pool,
     /// ADR-066 amendment 8: the walk keeps the SingleInstance state from member to member of a BC
     /// session (suite and hub leg), as BC's one test-runner session does (P7: `TestCuP7BReader.al:24-37`), instead of
     /// starting each member with fresh single instances. The single instances move as in the lane (`run.rs`
     /// `LANE_SINGLES`). A run ahead (fresh single instances, another thread) is taken only when it read and wrote no
     /// watched global and the walk's single instances hold no manual binding: then its run cannot differ.
     pub keep_singles: bool,
+    /// ADR-058 amendment 1, decision 2 (`RunOptions::single_fresh_check`): a member that read a carried
+    /// SingleInstance value runs once more with fresh single instances, from the same database start.
+    pub fresh_check: bool,
     /// `RunOptions::chain_wait_for_runs_ahead`: the walk waits for the helpers' runs (`Runs::wait_for_helpers`).
     pub wait_for_helpers: bool,
 }
@@ -85,15 +88,16 @@ struct Helper<'a> {
     limit: Option<std::time::Duration>,
     /// The Test Runner's tables, whose rows the fingerprints hold apart (`suite_rows::tables`).
     apart: Vec<u32>,
-    gate: &'a super::memory::Gate,
+    pool: &'a super::memory::Pool,
 }
 
 impl Helper<'_> {
     /// Runs the members `runs` hands out until it has none left.
+    /// Ends for memory (ADR-066 amendment 10, decision 3) when there is no room for another run after one: its baseline
+    /// copies go with it, and so do the runs ahead the walk has not taken.
     fn serve(&self, runs: &Runs, thread_baseline: &(dyn Fn() -> Option<al_vm::Baseline> + Sync)) {
-        let Some(install) = thread_baseline() else {
-            return;
-        };
+        // Its copy of the install baseline, made once it has a member to run.
+        let mut install: Option<Option<al_vm::Baseline>> = None;
         // The helper's copies of the starts it read back, per suite and epoch.
         let mut copies: std::collections::HashMap<(usize, u32), Option<al_vm::Baseline>> = Default::default();
         loop {
@@ -108,9 +112,13 @@ impl Helper<'_> {
                 Start::Install => None,
                 Start::Bytes(b) => Some(b.leak.clone()),
             };
+            let Some(install) = install.get_or_insert_with(thread_baseline).as_ref() else {
+                runs.finish(k, epoch, from, None);
+                return;
+            };
             let own = copies
                 .entry((si, epoch))
-                .or_insert_with(|| self.own_start(&start, &install));
+                .or_insert_with(|| self.own_start(&start, install));
             // The predicted start: the epoch's start with what the members before it change applied.
             let predicted = own.as_ref().and_then(|own| own.with_delta(&from));
             let fingerprint = predicted
@@ -123,6 +131,10 @@ impl Helper<'_> {
                 _ => None,
             };
             runs.finish(k, epoch, from, ahead);
+            if !self.pool.keep() {
+                runs.drop_untaken();
+                return;
+            }
         }
     }
 
@@ -169,9 +181,9 @@ impl Helper<'_> {
             f
         });
         super::suite_rows::take_unseen();
-        let room = self.gate.enter();
+        let running = self.pool.enter();
         let result = run_unit(self.engine, self.lowered, Some(start), &u, None, self.limit);
-        drop(room);
+        drop(running);
         let unseen = super::suite_rows::take_unseen();
         let left = super::run::CARRIED.with(|c| c.borrow_mut().take());
         let events = std::mem::take(&mut *kept.lock().unwrap_or_else(|e| e.into_inner()));
@@ -261,11 +273,13 @@ fn ahead_ignores_singles(a: &Ahead) -> bool {
 }
 
 /// The single instances the walk keeps from member to member (`ChainWalk::keep_singles`): which BC session they belong
-/// to, and the globals the members of that session wrote so far (for the count of members that read them).
+/// to, the globals the members of that session wrote so far with the member (unit) that wrote each last, and what a
+/// fresh instance holds in each global (ADR-058 amendment 1, decision 4: the reason of a flip names the last writer).
 #[derive(Default)]
 struct KeptSingles {
     session: Option<(usize, bool)>,
-    wrote: std::collections::BTreeSet<al_vm::single_track::GlobalKey>,
+    last: std::collections::BTreeMap<al_vm::single_track::GlobalKey, usize>,
+    fresh: std::collections::BTreeMap<al_vm::single_track::GlobalKey, al_vm::single_track::Fp>,
 }
 
 impl KeptSingles {
@@ -278,29 +292,46 @@ impl KeptSingles {
                     *slot = None;
                 }
             });
-            self.wrote.clear();
+            self.last.clear();
+            self.fresh.clear();
         }
         self.session = key;
     }
 
-    /// Member run `r` ended (`ahead`: its run ahead was taken; the walk's single instances are unchanged then). Counts a
-    /// member that read first a global an earlier member of its session wrote.
-    fn left(&mut self, r: &UnitResult, ahead: bool, report: &mut super::ChainReport) {
+    /// Member run `r` of unit `k` ended (`ahead`: its run ahead was taken; the walk's single instances are unchanged
+    /// then). Counts a member that read first a global an earlier member of its session wrote, and returns the globals
+    /// it read with a carried value that differs from a fresh instance's, each with its last writer (ADR-058 amendment
+    /// 1, decision 2: a suspect).
+    fn left(
+        &mut self,
+        k: usize,
+        r: &UnitResult,
+        ahead: bool,
+        report: &mut super::ChainReport,
+    ) -> Vec<(al_vm::single_track::GlobalKey, usize)> {
         report.singles_kept += 1;
         let Ok(done) = &r.result else {
             self.enter(None);
-            return;
+            return Vec::new();
         };
-        let Some(o) = done.5.singles_out.as_ref() else { return };
-        if o.observed.keys().any(|k| self.wrote.contains(k)) {
+        let Some(o) = done.5.singles_out.as_ref() else {
+            return Vec::new();
+        };
+        if o.observed.keys().any(|g| self.last.contains_key(g)) {
             report.singles_read_carried += 1;
         }
+        for (g, f) in &o.fresh {
+            self.fresh.entry(*g).or_insert_with(|| f.clone());
+        }
+        let reads = super::single_fresh::carried_reads(&o.observed, &self.last, &self.fresh);
         if o.refused && !ahead {
             // `run.rs` `singles_out` handed nothing on (R3): the next member starts fresh.
-            self.wrote.clear();
+            self.last.clear();
+            self.fresh.clear();
         } else {
-            self.wrote.extend(o.wrote.iter().copied());
+            self.last.extend(o.wrote.iter().map(|g| (*g, k)));
         }
+        reads
     }
 }
 
@@ -318,17 +349,38 @@ struct Track {
     epochs: std::collections::HashMap<usize, u32>,
     /// Per suite: that start, as the walk's own baseline.
     bases: std::collections::HashMap<usize, al_vm::Baseline>,
-    /// Per suite: the new starts told after the first, the runs ahead taken and the runs ahead dropped because they
-    /// started elsewhere (see `RESTARTS`, `MISSES`).
+    /// Per suite: the new starts told after the first, the runs ahead taken and the runs ahead dropped for any reason
+    /// (see `RESTARTS`, `MISSES`).
     restarts: std::collections::HashMap<usize, usize>,
     taken: std::collections::HashMap<usize, usize>,
     misses: std::collections::HashMap<usize, usize>,
-    /// Per suite: the runs ahead dropped because they read or wrote a watched global while the walk keeps the single
-    /// instances (`ahead_ignores_singles`). Counted with `misses`: each one cost a helper a session and its own copy of
-    /// the install baseline next to the walk's run, for nothing.
-    unkept: std::collections::HashMap<usize, usize>,
     /// The suites whose leg 1 started: their first leg-1 member told the helpers its start.
     started: std::collections::HashSet<usize>,
+}
+
+impl Track {
+    /// The walk reached a member of suite `si`: it took its run ahead (`took`), or `take` dropped `dropped`, or a run
+    /// ahead it got (`had`) was not taken. Every run ahead not taken counts toward `MISSES` (ADR-066 amendment 10,
+    /// decision 4): each cost a helper a session and its baseline copy next to the walk's run.
+    fn note(&mut self, si: usize, took: bool, dropped: &Dropped, had: bool) {
+        if took {
+            *self.taken.entry(si).or_default() += 1;
+        } else if had || !matches!(dropped, Dropped::Nothing) {
+            *self.misses.entry(si).or_default() += 1;
+        }
+    }
+
+    /// Whether suite `si` stops being run ahead: more than `MISSES` runs ahead dropped beyond those taken.
+    fn gives_up(&self, si: usize) -> bool {
+        let get = |m: &std::collections::HashMap<usize, usize>| m.get(&si).copied().unwrap_or(0);
+        get(&self.misses) > MISSES + get(&self.taken)
+    }
+}
+
+/// How many helpers the walk wants (ADR-066 amendment 10, decision 4): one, and one more for each run ahead it took, at
+/// most `most`.
+fn helpers_wanted(taken: usize, most: usize) -> usize {
+    (1 + taken).min(most)
 }
 
 /// One member of leg 1 (runner 130450) the walk just ran: its unit, and the state it started from.
@@ -356,7 +408,7 @@ impl ChainWalk<'_> {
             })
             .collect();
         if self.helpers == 0 || self.trace || order.len() < 2 || self.baseline.is_none() {
-            return self.walk_on(chain, slots, details, report, None);
+            return self.walk_on(chain, slots, details, report, None, &|_| {});
         }
         // A suite whose chain has no codeunit with Disabled isolation: its members start from the install baseline.
         let install: std::collections::BTreeSet<usize> = chain
@@ -368,7 +420,7 @@ impl ChainWalk<'_> {
             order,
             self.units.iter().map(|u| u.si).collect(),
             install.into_iter().collect(),
-            self.helpers * WINDOW_PER_HELPER,
+            WINDOW_PER_HELPER,
         );
         // What a helper thread needs (a baseline stays on its thread, so not the walk's).
         let helper = Helper {
@@ -377,26 +429,41 @@ impl ChainWalk<'_> {
             units: self.units,
             limit: self.limit,
             apart: self.apart(),
-            gate: self.gate,
+            pool: self.pool,
         };
         let thread_baseline = self.thread_baseline;
+        let most = self.helpers.min(runs.order.len() - 1);
+        let live = std::sync::atomic::AtomicUsize::new(0);
         std::thread::scope(|scope| {
-            let mut spawned_any = false;
-            for _ in 0..self.helpers.min(runs.order.len() - 1) {
-                let (helper, runs) = (&helper, &runs);
-                let spawned = std::thread::Builder::new()
-                    .stack_size(TEST_STACK)
-                    .spawn_scoped(scope, move || helper.serve(runs, thread_baseline));
-                if spawned.is_err() {
-                    // No room for another thread: fewer will do.
-                    break;
+            // ADR-066 amendment 10, decisions 1 and 4: helpers start one at a time, while run ahead pays off (one, and
+            // one more for each run ahead the walk took), a member is left to run ahead, and memory has room.
+            let grow = |taken: usize| {
+                let mut added = 0;
+                while live.load(std::sync::atomic::Ordering::SeqCst) < helpers_wanted(taken, most) && runs.usable() {
+                    let Some(member) = self.pool.try_add(added) else { break };
+                    let (helper, runs, live) = (&helper, &runs, &live);
+                    live.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let spawned = std::thread::Builder::new()
+                        .stack_size(TEST_STACK)
+                        .spawn_scoped(scope, move || {
+                            let _member = member;
+                            helper.serve(runs, thread_baseline);
+                            live.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                        });
+                    if spawned.is_err() {
+                        // No room for another thread (an address space limit): fewer will do.
+                        live.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                        break;
+                    }
+                    added += 1;
+                    if self.wait_for_helpers {
+                        runs.wait_for_helpers();
+                    }
                 }
-                spawned_any = true;
-            }
-            if self.wait_for_helpers && spawned_any {
-                runs.wait_for_helpers();
-            }
-            let out = self.walk_on(chain, slots, details, report, Some(&runs));
+                runs.set_window(live.load(std::sync::atomic::Ordering::SeqCst).max(1) * WINDOW_PER_HELPER);
+            };
+            grow(0);
+            let out = self.walk_on(chain, slots, details, report, Some(&runs), &grow);
             runs.close();
             out
         })
@@ -446,6 +513,7 @@ impl ChainWalk<'_> {
         details: &mut std::collections::HashMap<(usize, u32, String), explain::TestDetail>,
         report: &mut super::ChainReport,
         runs: Option<&Runs>,
+        grow: &dyn Fn(usize),
     ) -> Vec<Carry> {
         let (engine, lowered, units) = (self.engine, self.lowered, self.units);
         let apart = self.apart();
@@ -493,15 +561,18 @@ impl ChainWalk<'_> {
                     let epoch = track.epochs.get(&si).copied();
                     // The fingerprint of where it starts, when a helper runs or ran it in this epoch.
                     // Waiting for the helpers, a helper may start it only after this point.
-                    let actual = runs
-                        .filter(|r| r.patient() || r.has_run(k, epoch))
-                        .and(start)
-                        .and_then(|b| b.fingerprint_apart(&apart));
+                    // `Runs::take_with` reads it under the lock it takes the run with.
+                    let fingerprint = std::cell::OnceCell::new();
+                    let read = || {
+                        fingerprint
+                            .get_or_init(|| start.and_then(|b| b.fingerprint_apart(&apart)))
+                            .as_ref()
+                    };
                     // Whether the helpers ran the suite when the walk reached the member (`SerialWhy::Closed`).
                     let open = runs.is_some_and(|r| r.is_open(si));
-                    let (ahead, dropped) = runs.map_or((None, Dropped::Nothing), |r| r.take(k, epoch, actual.as_ref()));
+                    let (ahead, dropped) = runs.map_or((None, Dropped::Nothing), |r| r.take_with(k, epoch, &read));
+                    let actual = fingerprint.get().and_then(Option::as_ref);
                     if let Dropped::Wrong(predicted) = &dropped {
-                        *track.misses.entry(si).or_default() += 1;
                         self.note_miss(predicted, start, track.bases.get(&si), report);
                     }
                     if let Some(r) = runs {
@@ -520,15 +591,11 @@ impl ChainWalk<'_> {
                         .as_ref()
                         .filter(|a| !keep || ahead_ignores_singles(a))
                         .and_then(|a| {
-                            let differ = a.start.as_deref().map(|f| &f.rows) != actual.as_ref().map(|f| &f.rows);
+                            let differ = a.start.as_deref().map(|f| &f.rows) != actual.map(|f| &f.rows);
                             left_of(a.kept.as_ref()?, start, differ.then_some(counters.as_slice()))
                         });
                     let took_ahead = kept.is_some();
-                    if took_ahead {
-                        *track.taken.entry(si).or_default() += 1;
-                    } else if keep && ahead.as_ref().is_some_and(|a| !ahead_ignores_singles(a)) {
-                        *track.unkept.entry(si).or_default() += 1;
-                    }
+                    track.note(si, took_ahead, &dropped, ahead.is_some());
                     let serial = match runs {
                         _ if took_ahead => None,
                         _ if units[k].carry.is_none() || units[k].without_baseline => Some(SerialWhy::NeverAhead),
@@ -555,16 +622,21 @@ impl ChainWalk<'_> {
                                 details.insert((si, id, name.to_lowercase()), observed_detail(lowered, seen));
                             };
                             let trace: Option<&mut Observer> = self.trace.then_some(&mut observe);
-                            // The walk's own run also waits for memory (ADR-066 amendment 9): under amendment 8 it runs
-                            // most members itself, beside the helpers' runs ahead.
-                            let room = self.gate.enter();
+                            // The walk's own run counts as a running codeunit (ADR-066 amendment 10): its growth is
+                            // the cost of a thread. The walk's thread never ends for memory.
+                            let running = self.pool.enter();
                             let r = run_unit(engine, lowered, start, &u, trace, self.limit);
-                            drop(room);
+                            drop(running);
                             (r, super::run::CARRIED.with(|c| c.borrow_mut().take()))
                         }
                     };
-                    if keep {
-                        singles.left(&r, took_ahead, report);
+                    let reads = if keep {
+                        singles.left(k, &r, took_ahead, report)
+                    } else {
+                        Vec::new()
+                    };
+                    if !reads.is_empty() {
+                        self.suspect(k, &reads, start, before.map(|(_, _, _, c)| c), &r, report);
                     }
                     report.members.push(super::ChainEntry {
                         id,
@@ -637,11 +709,33 @@ impl ChainWalk<'_> {
             if let (Some(leg1), Some(r), Some((_, _, _, c))) = (leg1, runs, carried.last()) {
                 self.after(r, si, leg1, c, &mut track, report);
             }
+            grow(track.taken.values().sum());
         }
         if keep {
             super::run::LANE_SINGLES.with(|c| *c.borrow_mut() = None);
         }
         carried
+    }
+
+    /// Member `k` read carried SingleInstance values (`reads`): noted in `report.carried`, and under `fresh_check` run
+    /// once more from `start` with fresh single instances (ADR-058 amendment 1, decision 2; the run hands nothing on).
+    fn suspect(
+        &self,
+        k: usize,
+        reads: &[(al_vm::single_track::GlobalKey, usize)],
+        start: Option<&al_vm::Baseline>,
+        before: Option<&super::run::Carried>,
+        r: &UnitResult,
+        report: &mut super::ChainReport,
+    ) {
+        let mut c = super::single_fresh::carried_codeunit(self.lowered, self.units, k, true, reads);
+        if self.fresh_check && r.result.is_ok() {
+            let mut u = self.units[k].clone();
+            u.leak = before.map(|c| Arc::new(c.tables.clone()));
+            let fresh = super::single_fresh::rerun_fresh(self.engine, self.lowered, start, &u, self.limit, self.pool);
+            c.fresh = Some(super::single_fresh::outcomes_of(&fresh));
+        }
+        report.carried.push(c);
     }
 
     /// A run ahead from the prediction `predicted` (a delta on the suite's epoch start `base`) was dropped because the
@@ -697,9 +791,8 @@ impl ChainWalk<'_> {
         report: &mut super::ChainReport,
     ) {
         let taken = track.taken.get(&si).copied().unwrap_or(0);
-        let dropped = track.misses.get(&si).copied().unwrap_or(0) + track.unkept.get(&si).copied().unwrap_or(0);
-        if dropped > MISSES + taken {
-            // Its predictions are wrong too often, or its runs ahead read or wrote single instances the walk keeps.
+        if track.gives_up(si) {
+            // Its runs ahead are dropped too often (ADR-066 amendment 10, decision 4).
             track.epochs.remove(&si);
             r.taint(si);
             return;
@@ -764,7 +857,38 @@ impl ChainWalk<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::starts_fresh;
+    use super::{Dropped, MISSES, Track, helpers_wanted, starts_fresh};
+
+    /// ADR-066 amendment 10, decision 4: every run ahead the walk drops counts, whatever the reason, and a suite stops
+    /// being run ahead after more than `MISSES` drops beyond the runs taken.
+    #[test]
+    fn a_suite_stops_being_run_ahead_after_more_than_misses_drops_of_any_kind_beyond_the_runs_taken() {
+        let mut t = Track::default();
+        t.note(0, false, &Dropped::Early, false);
+        t.note(0, false, &Dropped::Guessed, false);
+        t.note(0, false, &Dropped::Wrong(Box::default()), false);
+        // A run ahead it got but could not take (its change not rebuilt, or it read kept single instances).
+        t.note(0, false, &Dropped::Nothing, true);
+        // No run ahead at all: nothing wasted.
+        t.note(0, false, &Dropped::Nothing, false);
+        assert_eq!(t.misses[&0], 4);
+        assert!(!t.gives_up(0), "{MISSES} drops are allowed");
+        t.note(0, true, &Dropped::Nothing, true);
+        t.note(0, false, &Dropped::Early, false);
+        assert!(!t.gives_up(0), "a run taken allows one more drop");
+        t.note(0, false, &Dropped::Early, false);
+        assert!(t.gives_up(0));
+        assert!(!t.gives_up(1), "another suite");
+    }
+
+    /// Decision 4: the walk starts one helper, and another only after it took a run ahead.
+    #[test]
+    fn a_second_helper_is_wanted_only_after_a_run_ahead_was_taken() {
+        assert_eq!(helpers_wanted(0, 11), 1);
+        assert_eq!(helpers_wanted(1, 11), 2);
+        assert_eq!(helpers_wanted(30, 11), 11);
+        assert_eq!(helpers_wanted(0, 0), 0);
+    }
 
     /// ADR-066 amendment 8, decision 2: which member of the walk starts with fresh single instances.
     #[test]

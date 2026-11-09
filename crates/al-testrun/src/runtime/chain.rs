@@ -137,6 +137,9 @@ pub struct ChainReport {
     pub differed: std::collections::BTreeMap<String, usize>,
     /// The SingleInstance lane (`single_lane.rs`, ADR-066 amendment 2).
     pub single_lane: super::LaneReport,
+    /// ADR-058 amendment 1: the test codeunits that read SingleInstance state an earlier codeunit of their BC session
+    /// left, with what they read (chain members from the walk, the others from the lane).
+    pub carried: Vec<super::CarriedCodeunit>,
     /// ADR-066 amendment 8: members the walk ran with the single instances the members before them left.
     pub singles_kept: usize,
     /// Of `singles_kept`, those that read first a global an earlier member of their BC session wrote.

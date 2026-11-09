@@ -20,8 +20,39 @@ pub const PRESET_MICROSOFT: &str = r#"{
 }
 "#;
 
-/// The text of a preset by name.
+/// The built-in preset `all` (ADR-058 amendment 1, decision 7; owner, 2026-11-09): every safe dimension this runner
+/// applies, one at a time; what a bare `--stability` runs. The data axes (`numberSeries.offset`, `data.setup`) are
+/// opt-in only and never part of a preset (owner decision 3).
+pub const PRESET_ALL: &str = r#"{
+  "format": 1,
+  "dimensions": {
+    "random.librarySeed": { "range": [2, 2147483647], "samples": 1 },
+    "isolation.alone": [false, true],
+    "isolation.singleInstance": ["carried", "fresh"],
+    "order.methods": ["declared", "reverse"],
+    "workDate.offset": ["+0D", "+1Y"],
+    "order.codeunits": ["declared", "reverse"],
+    "random.hostSeed": { "range": [2, 2147483647], "samples": 1 },
+    "guid.seed": { "range": [2, 2147483647], "samples": 1 },
+    "clock.date": ["+0D", "+1Y"],
+    "clock.timeOfDay": ["12:00:00.000", "23:59:59.500"],
+    "clock.stepMs": [1, 250],
+    "identity.userId": ["TESTUSER", "STABILITYUSER"],
+    "identity.userSecurityId": ["{5A7B1C3D-2E4F-4A6B-8C9D-0E1F2A3B4C5D}"],
+    "identity.sessionId": [1, 4711],
+    "identity.serviceInstanceId": [1, 4711],
+    "identity.tenantId": ["default", "stability"],
+    "company.name": ["STABILITY COMPANY"]
+  },
+  "strategy": "oneAtATime"
+}
+"#;
+
+/// The text of a preset by name: `microsoft` or `all`.
 pub fn preset(name: &str) -> Option<&'static str> {
+    if name.eq_ignore_ascii_case("all") {
+        return Some(PRESET_ALL);
+    }
     name.eq_ignore_ascii_case("microsoft").then_some(PRESET_MICROSOFT)
 }
 
@@ -64,6 +95,8 @@ pub const DIMENSIONS: &[Dimension] = &[
     // Microsoft's four first, in the order its stability mode lists them (ADR-058 Context).
     dim("random.librarySeed", Class::Safe, true, "1"),
     dim("isolation.alone", Class::Safe, true, "false"),
+    // ADR-058 amendment 1: each test codeunit starts with fresh SingleInstance state (`carried`: what BC does).
+    dim("isolation.singleInstance", Class::Safe, true, "carried"),
     dim("order.methods", Class::Safe, true, "declared"),
     dim("workDate.offset", Class::Safe, true, "+0D"),
     dim("order.codeunits", Class::Safe, true, "declared"),
@@ -359,6 +392,10 @@ pub struct Perturb {
     pub identity: al_host::IdentityOverrides,
     /// `company.name`: the session company's name (no test data).
     pub company_name: Option<String>,
+    /// `isolation.singleInstance` = `fresh` (ADR-058 amendment 1): each suspect test codeunit (one that read a
+    /// SingleInstance value an earlier codeunit of its BC session left) is judged with fresh SingleInstance state. The
+    /// variant is formed from its carried twin's run (`CorpusRuntime::try_run_variants`), not run as a whole.
+    pub single_fresh: bool,
     /// The `environment` matrix axis: the server kind of the cell (ADR-058 section 3). `None`: the run's own
     /// (`--environment`).
     pub environment: Option<al_host::Environment>,
@@ -873,6 +910,15 @@ pub fn apply(p: &mut Perturb, name: &str, v: &Json) -> Result<String, String> {
             };
             p.alone = b;
             Ok(b.to_string())
+        }
+        "isolation.singleInstance" => {
+            let fresh = match v.as_str() {
+                Some("carried") => false,
+                Some("fresh") => true,
+                _ => return Err(bad("\"carried\" or \"fresh\"")),
+            };
+            p.single_fresh = fresh;
+            Ok(v.as_str().unwrap_or_default().to_string())
         }
         "random.librarySeed" => {
             let n = match v {
@@ -1643,5 +1689,44 @@ mod tests {
         assert!(c[0].is_flip() && c[0].test == "A" && c[0].variant == 1);
         assert!(!c[1].is_flip(), "pass -> not run is listed apart");
         assert!(c[2].is_flip() && c[2].assumption);
+    }
+
+    /// ADR-058 amendment 1, decision 7 (owner, 2026-11-09): a bare `--stability` runs the preset `all`, every safe
+    /// dimension this runner applies (the data axes are opt-in only), one at a time, `isolation.singleInstance`
+    /// included.
+    #[test]
+    fn the_all_preset_holds_every_safe_dimension_one_at_a_time() {
+        let text = preset("all").expect("the preset all");
+        let c = cfg(text);
+        assert_eq!(c.strategy, Strategy::OneAtATime);
+        let vs = variants(&c, 4711, DEFAULT_MAX_VARIANTS).unwrap();
+        let lines: Vec<String> = vs[1..].iter().map(Variant::describe).collect();
+        for d in DIMENSIONS.iter().filter(|d| d.class == Class::Safe && d.built) {
+            assert!(
+                lines.iter().any(|l| l.starts_with(&format!("{}=", d.name))),
+                "{} has no variant: {lines:?}",
+                d.name
+            );
+        }
+        assert!(lines.iter().any(|l| l == "isolation.singleInstance=fresh"), "{lines:?}");
+        assert!(
+            lines.iter().all(|l| l.matches('=').count() == 1),
+            "one dimension per variant: {lines:?}"
+        );
+        assert_eq!(preset("ALL"), Some(text));
+        assert_eq!(preset("microsoft"), Some(PRESET_MICROSOFT));
+    }
+
+    #[test]
+    fn the_single_instance_dimension_takes_carried_or_fresh() {
+        let c = cfg(r#"{"format":1,"dimensions":{"isolation.singleInstance":["carried","fresh"]}}"#);
+        let vs = variants(&c, 1, DEFAULT_MAX_VARIANTS).unwrap();
+        assert_eq!(vs.len(), 2, "carried is the base variant: {vs:#?}");
+        assert!(vs[1].perturb.single_fresh && !vs[0].perturb.single_fresh);
+        assert!(refused(r#"{"format":1,"dimensions":{"isolation.singleInstance":["reset"]}}"#).contains("\"fresh\""));
+        assert!(
+            !PRESET_MICROSOFT.contains("singleInstance"),
+            "Microsoft's mode has no such check"
+        );
     }
 }

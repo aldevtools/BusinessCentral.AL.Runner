@@ -151,8 +151,8 @@ pub(super) struct Runs {
     place: Vec<Option<usize>>,
     /// The suite of each unit index.
     suite: Vec<usize>,
-    /// How far ahead of the walk the helpers run (members of `order`).
-    window: usize,
+    /// How far ahead of the walk the helpers run (members of `order`); it follows the helpers that run (`set_window`).
+    window: std::sync::atomic::AtomicUsize,
     state: Mutex<RunsState>,
     ready: Condvar,
 }
@@ -185,7 +185,7 @@ impl Runs {
             ready: Condvar::new(),
             place,
             suite,
-            window,
+            window: std::sync::atomic::AtomicUsize::new(window),
             order,
         }
     }
@@ -241,7 +241,7 @@ impl Runs {
             let rest = &self.order[s.walked.min(self.order.len())..];
             let next = rest
                 .iter()
-                .take(self.window)
+                .take(self.window.load(std::sync::atomic::Ordering::Relaxed))
                 .copied()
                 .find_map(|k| self.claimable(&s, k, &s.slots[k]).map(|c| (k, c.0, c.1, c.2, c.3, c.4)));
             let waiting = rest
@@ -289,11 +289,6 @@ impl Runs {
         if let Ok(mut s) = self.state.lock() {
             s.patient = true;
         }
-    }
-
-    /// Whether [`Runs::take`] waits for the helpers (`wait_for_helpers`).
-    pub fn patient(&self) -> bool {
-        self.state.lock().is_ok_and(|s| s.patient)
     }
 
     /// Tells the helpers the new start of suite `si`, which holds for the members from place `from` of `order` on;
@@ -349,21 +344,28 @@ impl Runs {
         self.ready.notify_all();
     }
 
-    /// Whether a helper runs or ran member `k` in `epoch` (the walk then needs its state's fingerprint).
-    pub fn has_run(&self, k: usize, epoch: Option<u32>) -> bool {
-        self.state.lock().is_ok_and(|s| match &s.slots[k] {
-            Slot::Running(e, ..) | Slot::Done(e, ..) => Some(*e) == epoch,
-            _ => false,
-        })
-    }
-
     /// The run ahead of member `k` from the start of `epoch` whose fingerprint is `actual`, the walk's state, waiting
     /// for it while a helper runs it; `None` when there is none (or `epoch` or `actual` is `None`: the walk runs it
     /// itself). The second part says what was dropped instead ([`Dropped`]). No helper runs the member after this.
+    #[cfg(test)]
     pub fn take(&self, k: usize, epoch: Option<u32>, actual: Option<&al_vm::Fingerprint>) -> (Option<Ahead>, Dropped) {
+        self.take_with(k, epoch, &|| actual)
+    }
+
+    /// [`Runs::take`] that reads the walk's fingerprint (`actual`, which costs) only when a helper runs or ran the member
+    /// in `epoch`, or the walk waits for the helpers. It decides that and takes the run under one lock: a helper that
+    /// claims the member while the walk reaches it is waited for, never counted as a run from a wrong prediction.
+    pub fn take_with<'f>(
+        &self,
+        k: usize,
+        epoch: Option<u32>,
+        actual: &dyn Fn() -> Option<&'f al_vm::Fingerprint>,
+    ) -> (Option<Ahead>, Dropped) {
         let Ok(mut s) = self.state.lock() else {
             return (None, Dropped::Nothing);
         };
+        let ran = matches!(&s.slots[k], Slot::Running(e, ..) | Slot::Done(e, ..) if Some(*e) == epoch);
+        let actual = if ran || s.patient { actual() } else { None };
         if s.patient {
             s.awaited = Some(k);
         }
@@ -425,6 +427,36 @@ impl Runs {
                 _ => return (None, Dropped::Nothing),
             }
         }
+    }
+
+    /// How far ahead of the walk the helpers run from now on (members of `order`).
+    pub fn set_window(&self, window: usize) {
+        self.window.store(window, std::sync::atomic::Ordering::Relaxed);
+        self.ready.notify_all();
+    }
+
+    /// Whether a helper can still find a member to run: one the walk has not reached whose suite is run ahead. A
+    /// helper is started only then (ADR-066 amendment 10, decision 4).
+    pub fn usable(&self) -> bool {
+        self.state.lock().is_ok_and(|s| {
+            !s.closed
+                && self.order[s.walked.min(self.order.len())..]
+                    .iter()
+                    .any(|k| !s.tainted.contains(&self.suite[*k]) && !matches!(s.slots[*k], Slot::Taken))
+        })
+    }
+
+    /// A helper ended for memory (ADR-066 amendment 10, decision 3): the runs ahead the walk has not taken are dropped
+    /// with it (a helper may run those members again).
+    pub fn drop_untaken(&self) {
+        if let Ok(mut s) = self.state.lock() {
+            for slot in s.slots.iter_mut() {
+                if matches!(slot, Slot::Done(..)) {
+                    *slot = Slot::Pending;
+                }
+            }
+        }
+        self.ready.notify_all();
     }
 
     /// The walk reached member `k`: the helpers may run up to `window` members past it.
@@ -541,7 +573,6 @@ mod tests {
             panic!("member 1 first")
         };
         runs.starting(1, Some(Arc::new(fp(b"s1", b""))));
-        assert!(runs.has_run(1, Some(0)));
         runs.finish(1, 0, *from, Some(ahead(b"s1")));
         let Claim::Run(2, 0, _, from) = runs.claim() else {
             panic!("then member 2")
@@ -627,6 +658,39 @@ mod tests {
             assert!(got.is_some(), "the walk took the run from its own state ({dropped:?})");
             helper.join().unwrap();
         });
+        runs.close();
+    }
+
+    /// A helper claims a member while the walk reaches it (after the walk looked, before it took): the walk reads its
+    /// fingerprint under the same lock and waits for that run, instead of taking it for a run from a wrong prediction
+    /// (which counts toward `MISSES`).
+    #[test]
+    fn a_member_a_helper_claims_as_the_walk_reaches_it_is_waited_for() {
+        let runs = Runs::new(vec![0, 1, 2], vec![0, 0, 0], vec![0], 6);
+        runs.reached(0);
+        runs.advance(0, 0, Default::default(), Some(Default::default()));
+        // The helper claimed member 1 just now: no fingerprint of its start yet.
+        let Claim::Run(1, 0, _, from) = runs.claim() else {
+            panic!("member 1")
+        };
+        let walks = fp(b"s1", b"");
+        let read = std::sync::atomic::AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                runs.starting(1, Some(Arc::new(fp(b"s1", b""))));
+                runs.finish(1, 0, *from, Some(ahead(b"s1")));
+            });
+            let (got, dropped) = runs.take_with(1, Some(0), &|| {
+                read.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Some(&walks)
+            });
+            assert!(got.is_some(), "the walk took the run from its own state ({dropped:?})");
+        });
+        assert_eq!(read.load(std::sync::atomic::Ordering::SeqCst), 1);
+        // A member no helper ran: the walk does not read its fingerprint.
+        let (got, dropped) = runs.take_with(2, Some(0), &|| panic!("not read"));
+        assert!(got.is_none() && matches!(dropped, Dropped::Nothing));
         runs.close();
     }
 

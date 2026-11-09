@@ -99,6 +99,7 @@ mod xmlport_text_encoding;
 mod xmlport_text_in_table;
 mod xmlport_text_value_deep;
 mod xmlport_text_value_nested_table;
+mod xmlport_text_value_nested_text;
 mod xmlport_text_wrap;
 mod xmlport_time_ms_xml;
 mod xmlport_tree_in_table;

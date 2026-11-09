@@ -257,6 +257,7 @@ pub(crate) fn lower_object<'a>(
     oi: usize,
     line_cache: &mut HashMap<usize, std::rc::Rc<FileLines>>,
 ) -> Piece {
+    crate::halt::check(); // A hard memory limit stops the compile at the next object (`halt.rs`).
     let ws = sh.ws;
     let members = sh.members;
     let checked = sh.checked;
@@ -652,6 +653,7 @@ pub(crate) fn lower_object<'a>(
             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| lw.routine(r))) {
                 Ok(routine) => routine,
                 Err(p) => {
+                    let p = crate::halt::rethrow_halt(p);
                     lw.calls.clear();
                     lw.reasons = global_reasons.clone();
                     lw.refused(

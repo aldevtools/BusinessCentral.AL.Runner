@@ -27,8 +27,14 @@ pub fn test_codeunit_types(src: &str) -> Vec<(u32, Option<String>)> {
     scan(src).into_iter().map(|c| (c.0, c.2)).collect()
 }
 
-/// One test codeunit of [`scan`]: id, `[Test]` procedures, `TestType`, `RequiredTestIsolation` (as written).
-type Scanned = (u32, Vec<String>, Option<String>, Option<String>);
+/// `(codeunit id, codeunit name, [Test] procedure names)` for every `Subtype = Test` codeunit in `src`: the tests a run
+/// stopped at its memory limit before its compile ended reports as not run (ADR-066 amendment 10, decision 6).
+pub fn test_codeunits_named(src: &str) -> Vec<(u32, String, Vec<String>)> {
+    scan(src).into_iter().map(|c| (c.0, c.4, c.1)).collect()
+}
+
+/// One test codeunit of [`scan`]: id, `[Test]` procedures, `TestType`, `RequiredTestIsolation` (as written), name.
+type Scanned = (u32, Vec<String>, Option<String>, Option<String>, String);
 
 /// Blanks `//` line comments and `/* */` block comments and the text of string
 /// literals, so a `//` inside quotes is not mistaken for a comment and words in a string are not code.
@@ -137,7 +143,9 @@ fn scan(original: &str) -> Vec<Scanned> {
         if w.eq_ignore_ascii_case("codeunit") {
             if let Some(id) = words.get(i + 1).and_then(|n| n.parse::<u32>().ok()) {
                 // Only an object header is followed by an id; `Record Codeunit` etc. is not.
-                out.push(((id, Vec::new(), None, None), false));
+                let (at, kw) = spans[i + 1];
+                let name = name_at(original, at + kw.len()).unwrap_or_default().to_string();
+                out.push(((id, Vec::new(), None, None, name), false));
                 i += 2;
                 continue;
             }
@@ -175,6 +183,18 @@ fn scan(original: &str) -> Vec<Scanned> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_name_of_a_test_codeunit_is_read_quoted_or_plain() {
+        let src = "codeunit 50100 \"My Tests\"\n{\n Subtype = Test;\n [Test]\n procedure A()\n begin end;\n}\ncodeunit 50101 Plain\n{\n Subtype = Test;\n}\n";
+        assert_eq!(
+            test_codeunits_named(src),
+            vec![
+                (50100, "My Tests".to_string(), vec!["A".to_string()]),
+                (50101, "Plain".to_string(), vec![])
+            ]
+        );
+    }
 
     #[test]
     fn a_codeunit_with_only_data_driven_procedures_is_a_test_codeunit() {

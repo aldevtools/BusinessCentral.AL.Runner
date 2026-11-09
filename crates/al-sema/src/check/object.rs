@@ -42,6 +42,7 @@ impl<'a> Checker<'a> {
     /// more than the routine reached (types, calls, reached objects), never less.
     pub(crate) fn guard(&mut self, key: (usize, usize), f: impl FnOnce(&mut Self)) {
         if let Err(p) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(self))) {
+            let p = crate::halt::rethrow_halt(p);
             self.panicked.insert(key, panic_message(&*p));
         }
     }

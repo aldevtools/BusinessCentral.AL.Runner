@@ -1431,6 +1431,7 @@ impl Checker<'_> {
             let (ws, members, catalog) = (self.ws, self.members, self.catalog);
             let enums = self.system_enums.clone();
             let tdd_shared = self.tdd_apps.clone();
+            let token = crate::halt::current();
             let outs = std::thread::scope(|scope| {
                 let mut pool = Pool::default();
                 let mut handles = Vec::new();
@@ -1439,9 +1440,11 @@ impl Checker<'_> {
                     let (delta_tx, delta_rx) = std::sync::mpsc::channel::<Delta>();
                     let enums = enums.clone();
                     let tdd_apps = tdd_shared.clone();
+                    let token = token.clone();
                     let handle = std::thread::Builder::new()
                         .stack_size(WORKER_STACK)
                         .spawn_scoped(scope, move || {
+                            let _armed = crate::halt::arm(token);
                             worker(ws, members, catalog, enums, tdd_apps, batch_rx, delta_tx)
                         })
                         .expect("spawn a check worker");
@@ -1454,7 +1457,7 @@ impl Checker<'_> {
                 drop(pool);
                 handles
                     .into_iter()
-                    .map(|h| h.join().expect("a check worker panicked"))
+                    .map(|h| crate::halt::join(h, "a check worker panicked"))
                     .collect::<Vec<WorkerOut>>()
             });
             let mut types = vec![std::mem::take(&mut self.types)];
@@ -1489,14 +1492,17 @@ impl Checker<'_> {
         let tdd_apps = &self.tdd_apps;
         let all_routines = self.all_routines;
         let next = std::sync::atomic::AtomicUsize::new(0);
+        let token = crate::halt::current();
         let outs: Vec<WorkerOut> = std::thread::scope(|scope| {
             let handles: Vec<_> = (0..workers)
                 .map(|_| {
                     let enums = enums.clone();
                     let next = &next;
+                    let token = token.clone();
                     std::thread::Builder::new()
                         .stack_size(WORKER_STACK)
                         .spawn_scoped(scope, move || {
+                            let _armed = crate::halt::arm(token);
                             let mut c = Checker::new(ws, members, catalog, enums, false);
                             c.tdd_apps = tdd_apps.clone();
                             c.all_routines = all_routines;
@@ -1505,6 +1511,7 @@ impl Checker<'_> {
                                 if k >= objects.len() {
                                     break;
                                 }
+                                crate::halt::check(); // A hard memory limit stops the compile here (`halt.rs`).
                                 for &oi in &objects[k..(k + OBJECT_CHUNK).min(objects.len())] {
                                     c.guard((oi, ANY_ROUTINE), |c| c.check_object(oi));
                                     c.take_calls();
@@ -1522,7 +1529,7 @@ impl Checker<'_> {
                 .collect();
             handles
                 .into_iter()
-                .map(|h| h.join().expect("a check worker panicked"))
+                .map(|h| crate::halt::join(h, "a check worker panicked"))
                 .collect()
         });
         let mut types = vec![std::mem::take(&mut self.types)];
@@ -1594,6 +1601,7 @@ impl Checker<'_> {
     fn run_round(&mut self, mut tasks: Vec<Task>, pool: Option<&Pool>) {
         let Some(pool) = pool.filter(|p| tasks.len() >= PARALLEL_MIN && !p.senders.is_empty()) else {
             for task in tasks {
+                crate::halt::check(); // A hard memory limit stops the compile here (`halt.rs`).
                 self.run_task(task);
             }
             return;
@@ -1619,7 +1627,11 @@ impl Checker<'_> {
         }
         // Applied in worker order, whatever order they finish in.
         for receiver in &pool.receivers {
-            let delta = receiver.recv().expect("a check worker stopped");
+            // A worker the memory limit stopped (`halt.rs`) stops this thread too.
+            let delta = receiver.recv().unwrap_or_else(|_| {
+                crate::halt::check();
+                panic!("a check worker stopped")
+            });
             self.apply(delta);
         }
     }
@@ -1782,6 +1794,7 @@ fn worker(
         loop {
             let k = work.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let Some(chunk) = work.chunks.get(k) else { break };
+            crate::halt::check(); // A hard memory limit stops the compile here (`halt.rs`).
             for &task in chunk {
                 c.run_task(task);
             }
