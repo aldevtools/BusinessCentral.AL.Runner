@@ -1600,13 +1600,11 @@ codeunit 50100 C
          |dynamicsnav://localhost:7085/BC//runpage?page=21&$filter=%27Name%27%20IS%20%27Alpha%27"
     );
     // Windows is probed for letters, digits, space and the dot only (GetUrlObjects.al, al-runner issue 7370); a comma is refused.
-    for routine in ["WindowsCompany"] {
-        let r = al_testkit::run(src, routine);
-        assert!(
-            matches!(&r, Err(Signal::Unsupported(w)) if w.contains("Windows")),
-            "{routine}: {r:?}"
-        );
-    }
+    let r = al_testkit::run(src, "WindowsCompany");
+    assert!(
+        matches!(&r, Err(Signal::Unsupported(w)) if w.contains("Windows")),
+        "WindowsCompany: {r:?}"
+    );
 }
 
 // metadata/platform-tables/GetUrlObjects.al (corpus PR 1248; al-runner issues 7370 and 7429):
