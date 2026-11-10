@@ -117,6 +117,7 @@ mod set_view_caption;
 mod set_view_retention_shapes;
 mod set_view_unknown_name;
 mod setfilter_guid_value;
+mod sort_non_key_modify_window;
 mod sql_data_type;
 mod sql_data_type_numeric;
 mod sql_data_type_scope;
