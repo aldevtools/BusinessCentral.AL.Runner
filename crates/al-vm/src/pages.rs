@@ -916,14 +916,12 @@ impl Session {
         if o != object || !is_platform_event || action_event || engine.program.objects[object].rec_slot.is_some() {
             return None;
         }
-        let kind = engine.object_facts[object].page_type.as_ref();
+        let kind = engine.object_facts[object]
+            .page_type
+            .as_ref()
+            .map_or("card", |k| k.lower());
         Some(format!(
-            "page event {ev} on a page without a source table (PageType {}): when the test client raises it there is not pinned",
-            match kind {
-                Some(al_ir::PageType::Other(t)) => t.clone(),
-                Some(k) => format!("{k:?}"),
-                None => "Card".to_string(),
-            }
+            "page event {ev} on a page without a source table (PageType {kind}): when the test client raises it there is not pinned"
         ))
     }
 
