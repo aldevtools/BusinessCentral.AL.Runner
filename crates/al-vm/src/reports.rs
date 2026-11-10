@@ -2641,19 +2641,19 @@ impl Session {
             Some(Value::Text(s) | Value::Code(s)) => s.to_string(),
             other => return unsupported(format!("{id} with the file name {}", other.describe())),
         };
-        if args.get(at + 1).is_some() {
-            return unsupported(format!("{id} with a record argument (what it filters is not pinned)"));
+        // With a record argument only the Html save an RDLC layout refuses is pinned: the same error, and no file
+        // (al-language-onprem/reports/layouts-saveas/AMRdlcSaveAs.al:454-469 `static html filtered`).
+        let record = args.get(at + 1).is_some();
+        let refused = || unsupported(format!("{id} with a record argument (what it filters is not pinned)"));
+        if record && format != "Html" {
+            return refused();
         }
-        self.report_save_core(
-            id,
-            receiver,
-            args,
-            at,
-            String::new().into(),
-            format,
-            SaveTarget::File(name),
-            None,
-        )
+        let target = SaveTarget::File(name);
+        let answer = self.report_save_core(id, receiver, args, at, String::new().into(), format, target, None)?;
+        if record && !(matches!(answer, Value::Boolean(false)) && self.last_error.code == "ReportUnsupportedFormat") {
+            return refused();
+        }
+        Ok(answer)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2726,9 +2726,8 @@ impl Session {
             }
             // An Html SaveAs of a report with an RDLC layout raises SubstituteReport with the parameters as RequestPageXml before it
             // fails for the layout, and nothing after (reports/layouts-saveas/AMRdlcOutput.al:TextRdlc_SaveAsHtml_IsRefused,
-            // `SubstituteReport(79256,SaveAs,req=Yes);`). Only that RequestPageXml contains the parameters is pinned, not its
-            // text: the subscriber gets an unknown value, so a subscriber that reads it is refused where it reads it. A subscriber
-            // that substitutes another report is not pinned.
+            // `SubstituteReport(79256,SaveAs,req=Yes);`; :460-484 the text is the parameters as given, empty for none). A
+            // subscriber that substitutes another report is not pinned.
             if format == "Html"
                 && record_ref.is_none()
                 && matches!(target, SaveTarget::Stream(_))
@@ -2739,13 +2738,7 @@ impl Session {
                     .events
                     .is_subscribed(crate::events::REPORTING_TRIGGERS, "substitutereport")
                 && self
-                    .raise_substitute_report(
-                        &schema,
-                        Value::Unknown(
-                            "RequestPageXml of SubstituteReport for an Html SaveAs: only that it contains the parameters is pinned"
-                                .into(),
-                        ),
-                    )?
+                    .raise_substitute_report(&schema, Value::Text(parameters.to_string().into()))?
                     .is_some()
             {
                 return unsupported("SubstituteReport set another report for an Html SaveAs (not pinned)");
@@ -2828,9 +2821,10 @@ impl Session {
                         "Report.SaveAs as Html of a report with an RDLC layout, as a statement (the layout events BC raises before its error are not raised here)",
                     );
                 }
+                // The code: al-language-onprem/reports/layouts-saveas/AMRdlcSaveAs.al:461-483, reports/layouts-saveas/AMRdlcOutput.al:386.
                 self.last_error = al_builtins::native::AlError {
                     message: FORMAT_NOT_SUPPORTED_BY_LAYOUT.into(),
-                    code: "Dialog".into(),
+                    code: "ReportUnsupportedFormat".into(),
                     call_stack: String::new(),
                     ..Default::default()
                 };
@@ -3802,12 +3796,12 @@ impl Session {
     /// The element name of item `r` in the dataset. Items of one parent whose names give the same element get a number in dataset
     /// order: X_Y, X_Y1, X_Y2 (ReportDatasetNames.al:SaveAsXml_Names_MappingToTheSameElement).
     fn dataset_item_name(run: &Run, r: ItemRef) -> Result<String, Signal> {
-        let mut name = dataset::dataset_name(&run.item(r).name)?;
+        let mut name = dataset::data_item_name(&run.item(r).name)?;
         if let ItemRef::Base(i) = r {
             let items = &run.report().items;
             let earlier = (0..i)
                 .filter(|&j| {
-                    items[j].parent == items[i].parent && dataset::dataset_name(&items[j].name).is_ok_and(|n| n == name)
+                    items[j].parent == items[i].parent && dataset::data_item_name(&items[j].name).is_ok_and(|n| n == name)
                 })
                 .count();
             if earlier > 0 {

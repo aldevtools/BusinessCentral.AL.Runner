@@ -27,8 +27,19 @@ pub(crate) fn dataset_name(name: &str) -> Result<String, Signal> {
     // Dots, slashes and spaces: a run of them is one underscore; a single trailing dot is dropped; a single leading dot is an
     // underscore (ReportDatasetNames.al:SaveAsXml_DataItemNames_DotsAndSlashes `A. B`, `C/D`, `G..H`, `I./J`, `K  L`, `M.`, `.N`,
     // `O. . P`, `Q//R`). A name that also has a parenthesis is read by the example below.
-    if !name.contains(['(', ')']) && name.contains(['.', '/', ' ']) {
+    // A hyphen between two letters or digits is an underscore too (reports/W3ReportDataset.al:88, :395 `Child-Item.1` is
+    // `Child_Item_1`); next to a dot, slash, space or another hyphen, or at an end, it is not pinned.
+    if !name.contains(['(', ')']) && name.contains(['.', '/', ' ', '-']) {
         let separator = |c: char| matches!(c, '.' | '/' | ' ');
+        let lone_hyphens = name.char_indices().filter(|(_, c)| *c == '-').all(|(i, _)| {
+            let around = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
+            around(name[..i].chars().next_back()) && around(name[i + 1..].chars().next())
+        });
+        if !lone_hyphens {
+            return unsupported(format!(
+                "the dataset name of `{name}` (a hyphen is pinned only between two letters, digits or underscores)"
+            ));
+        }
         let body = name
             .strip_suffix('.')
             .filter(|b| !b.ends_with(separator))
@@ -41,12 +52,12 @@ pub(crate) fn dataset_name(name: &str) -> Result<String, Signal> {
                     out.push('_');
                 }
                 in_run = true;
-            } else if c.is_alphanumeric() || c == '_' {
-                out.push(c);
+            } else if c.is_alphanumeric() || c == '_' || c == '-' {
+                out.push(if c == '-' { '_' } else { c });
                 in_run = false;
             } else {
                 return unsupported(format!(
-                    "the dataset name of `{name}` (only letters, digits, underscores, dots, slashes, spaces and parentheses are pinned)"
+                    "the dataset name of `{name}` (only letters, digits, underscores, hyphens, dots, slashes, spaces and parentheses are pinned)"
                 ));
             }
         }
@@ -88,6 +99,22 @@ pub(crate) fn dataset_name(name: &str) -> Result<String, Signal> {
         ));
     }
     Ok(one)
+}
+
+/// The name of a data item as the dataset spells it: [`dataset_name`], and a digit the name starts with is written as its
+/// character code, `2nd item` as `_x0032_nd_item` (reports/W3ReportDataset.al:95, :395; pinned for `2`, the other digits
+/// follow the same spelling of the code). A column name that starts with a digit is not pinned and not changed here.
+pub(crate) fn data_item_name(name: &str) -> Result<String, Signal> {
+    let spelled = dataset_name(name)?;
+    match (spelled.chars().next(), name.chars().next()) {
+        (Some(d), Some(first)) if d.is_ascii_digit() && first == d => {
+            Ok(format!("_x{:04X}_{}", u32::from(d), &spelled[1..]))
+        }
+        (Some(d), _) if d.is_ascii_digit() => unsupported(format!(
+            "the dataset name of `{name}` (a digit that comes first only after other characters were dropped is not pinned)"
+        )),
+        _ => Ok(spelled),
+    }
 }
 
 /// Text as an XML element writes it: `&`, `<` and `>` become entities
@@ -1233,6 +1260,12 @@ mod tests {
         ] {
             assert_eq!(dataset_name(name).unwrap(), want, "{name}");
         }
+        // reports/W3ReportDataset.al:395.
+        assert_eq!(dataset_name("Child-Item.1").unwrap(), "Child_Item_1");
+        assert_eq!(data_item_name("2nd item").unwrap(), "_x0032_nd_item");
+        assert_eq!(data_item_name("My Item (x)").unwrap(), "My_Item_x");
+        assert!(dataset_name("A-.B").is_err());
+        assert!(dataset_name("-A B").is_err());
         assert!(dataset_name("M..").is_err());
         assert!(dataset_name("/M").is_err());
     }
