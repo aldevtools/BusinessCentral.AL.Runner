@@ -49,7 +49,7 @@ fn run_request_page_with_a_root_without_name_and_id_is_refused() {
         name: "SeedWithoutNameAndId".into(),
     });
     assert!(
-        matches!(&o, Outcome::NotRun(m) if m.contains("root has no name and id, given to RunRequestPage")),
+        matches!(&o, Outcome::NotRun(m) if m.contains("root has no name and id, given to Report.RunRequestPage")),
         "{o:?}"
     );
 }

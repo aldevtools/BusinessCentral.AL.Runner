@@ -1059,7 +1059,8 @@ impl Session {
         let options = match bare {
             Some(_) if !call.accepts_root_without_name() => {
                 return unsupported(format!(
-                    "a parameters string whose root has no name and id, given to {call:?} (not pinned)"
+                    "a parameters string whose root has no name and id, given to {} (not pinned)",
+                    call.method_name()
                 ));
             }
             Some(Err(why)) => return unsupported(why),

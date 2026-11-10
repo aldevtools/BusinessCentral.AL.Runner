@@ -32,6 +32,15 @@ pub(crate) enum UnknownField {
 }
 
 impl ParamsCall {
+    /// The AL method, for a refusal text.
+    pub(crate) fn method_name(self) -> &'static str {
+        match self {
+            ParamsCall::SaveAs => "Report.SaveAs",
+            ParamsCall::Execute => "Report.Execute",
+            ParamsCall::RunRequestPage => "Report.RunRequestPage",
+        }
+    }
+
     /// Whether a root without name and id (after the declaration, holding one `<Options>`) is this report's parameters.
     /// SaveAs: pinned (reports/layouts-saveas/AMRdlcOutput.al:153 with :350 and :372 `REQ:AMREQ42`; AMReportOutputTests.al:24
     /// with :250 `request_value_in_sheet1`). Execute and RunRequestPage: not pinned (Y64XappRunOrder.al:156 only shows the
