@@ -1,5 +1,5 @@
 //! The run options that each test session takes as they are (`RunOptions::ignore_permission_mock`,
-//! `RunOptions::permissions_off`, `RunOptions::dev_endpoint_ui`), carried as one value from the options to the session.
+//! `RunOptions::permissions_off`, `RunOptions::dev_endpoint_ui`, `RunOptions::no_client`), carried as one value from the options to the session.
 use super::RunOptions;
 use al_vm::Session;
 
@@ -8,6 +8,7 @@ pub(super) struct SessionFlags {
     ignore_permission_mock: bool,
     permissions_off: bool,
     dev_endpoint_ui: bool,
+    no_client: bool,
 }
 
 impl SessionFlags {
@@ -16,6 +17,7 @@ impl SessionFlags {
             ignore_permission_mock: o.ignore_permission_mock,
             permissions_off: o.permissions_off,
             dev_endpoint_ui: o.dev_endpoint_ui,
+            no_client: o.no_client,
         }
     }
 
@@ -23,5 +25,6 @@ impl SessionFlags {
         s.ignore_permission_mock = self.ignore_permission_mock;
         s.permissions_off = self.permissions_off;
         s.set_dev_endpoint_ui(self.dev_endpoint_ui);
+        s.set_clientless_session(self.no_client);
     }
 }
