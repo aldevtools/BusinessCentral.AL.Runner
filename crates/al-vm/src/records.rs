@@ -20,8 +20,11 @@ use std::sync::Arc;
 mod boolean_filter_error;
 mod delete_all_flow;
 mod flowfield_key;
+mod insert_buffer;
+pub(crate) use insert_buffer::InsertQueue;
 mod nested_validate;
 mod op_inner;
+mod own_rolled_back_modify;
 mod platform_rows;
 mod stale;
 mod stale_own_insert;
@@ -1511,6 +1514,11 @@ impl Session {
                 let fields = self.initial_fields(table);
                 let mut st = state_with_fields(&rec, fields);
                 st.globals = rec.borrow().globals.xrec();
+                // The blank xRec of a record that a partial fetch filled loads nothing from the row: every field reads empty, the
+                // key too (record/load-fields/XRecUnloadedFieldRead.al PartialGet_XRecFields_ReadInTableMethod,
+                // PartialGet_RowChangedAfterGet_XRecReadFirst, PartialGet_KeyAssignedAfterGet_ReadInTableMethod, al-runner issue
+                // 7375). It is marked as after an Init, which loads no field from the row.
+                crate::partial::note_init(&mut st);
                 Some(Value::Record(Rc::new(RefCell::new(st))))
             }
             (None, None) => None,
@@ -2327,10 +2335,14 @@ impl Session {
             let from_al = std::mem::take(&mut self.permission_from_al);
             self.permission_gate_record(method, rec, args, from_al)?;
         }
+        // A statement-form Insert is queued by the platform (`insert_buffer.rs`); a table with a Blob or AutoIncrement field is not.
+        let queued = method == RecordOp::Insert && !self.ret_used && self.insert_is_queued(rec);
         if self.sql.active {
-            return self.record_op_counted(method, rec, args);
+            let r = self.record_op_counted(method, rec, args);
+            return self.note_insert_buffer(method, rec, queued, r);
         }
         let r = self.record_op_tracked(method, rec, args);
+        let r = self.note_insert_buffer(method, rec, queued, r);
         if matches!(r, Ok(Value::Boolean(false)))
             && matches!(method, RecordOp::FindSet | RecordOp::FindFirst | RecordOp::FindLast)
         {

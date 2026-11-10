@@ -2005,7 +2005,9 @@ impl Session {
                 let r = rec.borrow();
                 RecordState {
                     fields: row,
-                    filters: Vec::new(),
+                    // The caller's filters and current key stay: the Rec and xRec of the modify events show them (corpus
+                    // record/events/Y7408XRecInModifyEvent.al:310 `ModifyAll(true) under a filter`, al-runner issue 7408).
+                    filters: r.filters.clone(),
                     marks: Vec::new(),
                     marked_only: false,
                     position: None,

@@ -1478,6 +1478,7 @@ impl Session {
         self.tx.tables_inserted.clear();
         self.tx.locked_tables.clear();
         self.tx.writes.clear();
+        self.tx.insert_buffer.clear();
         self.tx.find_set_tables.clear();
         self.tx.commit_counter = self.store.change_counter();
         self.tx.rolled_back = false;
@@ -1579,6 +1580,7 @@ impl Session {
         self.tx.tables_inserted.clear();
         self.tx.locked_tables.clear();
         self.tx.writes.clear();
+        self.tx.insert_buffer.clear();
         self.tx.find_set_tables.clear();
         self.tx.commit_counter = self.store.change_counter();
         self.tx.rolled_back = true;
