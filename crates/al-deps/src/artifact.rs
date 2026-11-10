@@ -561,6 +561,9 @@ pub fn load_with_artifacts<C: Cdn>(req: &Request<'_>, fetch: &Fetch, cdn: &C) ->
             &label,
         )
         .map_err(|e| offline_hint(e, fetch.download))?;
+        // One `Missing` per dependent: an app several apps of the round need is asked for once (it was read from the
+        // feed once per dependent).
+        let mut asked: HashSet<String> = HashSet::new();
         let required: Vec<DepDecl> = round
             .skipped
             .iter()
@@ -571,6 +574,7 @@ pub fn load_with_artifacts<C: Cdn>(req: &Request<'_>, fetch: &Fetch, cdn: &C) ->
             .filter(|d| !tried.contains(&dep_key(d)))
             // The feed holds only Microsoft's apps: do not select a build for anything else.
             .filter(|d| d.publisher.is_empty() || d.publisher.eq_ignore_ascii_case("Microsoft"))
+            .filter(|d| asked.insert(dep_key(d)))
             .collect();
         // When a build is needed anyway, the optional roots (the platform's `System`, the `Application` floor) come from it
         // too if no directory holds them: without `System` the platform tables are missing, and a run whose cache another
@@ -1467,6 +1471,39 @@ mod tests {
                 .any(|l| l.contains("27.5.46862.56249") && l.contains("downloaded")),
             "{:?}",
             p.log
+        );
+    }
+
+    /// Two apps of one round need the same app: one `Missing` each, one fetch.
+    #[test]
+    fn an_app_two_dependents_miss_in_one_round_is_fetched_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let cdn = FixtureCdn::new(dir.path(), &["27.5.46862.56249"]);
+        let alpkg = dir.path().join(".alpackages");
+        std::fs::create_dir_all(&alpkg).unwrap();
+        let mut p = project();
+        // Both depend on System Application, which the project does not name: the second round misses it twice.
+        p.dependencies = vec![
+            dep(SATL, "System Application Test Library"),
+            dep("437dbf0e-84ff-417a-965d-ed2bb9650972", "Base Application"),
+        ];
+        let cache = dir.path().join("cache");
+        let out = run(
+            &alpkg,
+            &fetch(&cache, true, Some("27.5")),
+            &cdn,
+            MissingPolicy::Error,
+            &p,
+        )
+        .unwrap();
+        let fetched = &out.artifact.as_ref().unwrap().fetched;
+        let mut distinct = fetched.clone();
+        distinct.sort();
+        distinct.dedup();
+        assert_eq!(fetched.len(), distinct.len(), "an entry was fetched twice: {fetched:?}");
+        assert!(
+            fetched.iter().any(|f| f.ends_with("System Application.Source.zip")),
+            "{fetched:?}"
         );
     }
 
