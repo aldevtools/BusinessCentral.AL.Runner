@@ -397,6 +397,13 @@ fn check_inner(
             }
         },
     };
+    // The install code runs before every test, so a test codeunit it runs by a computed id stays (issue 6924).
+    let skipped: Vec<bool> = match &roots.only_tests {
+        Some(_) if skipped.iter().any(|s| *s) && install_dynamic::install_runs_by_computed_id(ws, &skipped) => {
+            vec![false; ws.objects.len()]
+        }
+        _ => skipped,
+    };
     // A lean compile also leaves out the workspace objects no selected test names (`Roots::lean`); a test codeunit
     // the selection left out keeps its own reason.
     let left_out: Vec<bool> = match &roots.only_tests {
@@ -1466,6 +1473,7 @@ mod enum_overload;
 pub(crate) use enum_overload::EnumFit;
 mod fit;
 mod infer;
+mod install_dynamic;
 mod member;
 mod object;
 pub(crate) mod posmap;
