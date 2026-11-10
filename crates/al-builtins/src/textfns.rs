@@ -141,13 +141,33 @@ fn find(hay: &[u16], needle: &[u16], from: usize) -> Option<usize> {
 
 // ------------------------------------------------------ searching
 
-fn contains(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+fn contains(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    if let Some(v) = crate::marked_text::dispatch(
+        crate::marked_text::Kind::Contains,
+        crate::marked_text::At::Receiver,
+        contains,
+        c,
+        &r,
+        a,
+    ) {
+        return v;
+    }
     let (s, sub) = (recv_text(&r)?, text_or_guid(a, 0)?);
     // An empty text is found (types/TestFormatEvaluateTextContracts.al:Text_EmptyArguments_ContainsStartsEndsAreTrueIndexOfIsOne).
     Ok(Value::Boolean(s.contains(sub.as_str())))
 }
 
-fn starts_with(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+fn starts_with(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    if let Some(v) = crate::marked_text::dispatch(
+        crate::marked_text::Kind::StartsWith,
+        crate::marked_text::At::Receiver,
+        starts_with,
+        c,
+        &r,
+        a,
+    ) {
+        return v;
+    }
     let (s, sub) = (recv_text(&r)?, text_or_guid(a, 0)?);
     // types/TestFormatEvaluateTextContracts.al:Text_EmptyArguments_ContainsStartsEndsAreTrueIndexOfIsOne.
     Ok(Value::Boolean(s.starts_with(sub.as_str())))
@@ -214,7 +234,17 @@ fn find_ascii(hay: &[u8], needle: &[u8]) -> Option<usize> {
 }
 
 /// 1-based, 0 when absent (TestTextExtended.al TextIndexOf_*).
-fn index_of(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+fn index_of(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    if let Some(v) = crate::marked_text::dispatch(
+        crate::marked_text::Kind::Find,
+        crate::marked_text::At::Receiver,
+        index_of,
+        c,
+        &r,
+        a,
+    ) {
+        return v;
+    }
     let (st, sb) = (recv_text(&r)?, text_or_guid(a, 0)?);
     // Text of ASCII only is searched where it lies, with no copy of it (the length and the flag are cached).
     if st.is_ascii() && sb.is_ascii() {
@@ -353,7 +383,17 @@ fn index_of_any(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NRes
 /// two a start below 1 or a negative count is the non-negative error of `startIndex` (start - 1) or `count`, and a count past the
 /// end is `count ('C') must be less than or equal to 'R'.`. Two arguments with a start further than just past the end are not
 /// pinned.
-fn remove(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+fn remove(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    if let Some(v) = crate::marked_text::dispatch(
+        crate::marked_text::Kind::Delete,
+        crate::marked_text::At::Receiver,
+        remove,
+        c,
+        &r,
+        a,
+    ) {
+        return v;
+    }
     let s = recv_text(&r)?.units();
     let start = int(a, 0)?;
     let len = s.len() as i64;
@@ -397,11 +437,31 @@ fn remove(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
 
 // ---------------------------------------------------- transforming
 
-fn to_upper(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+fn to_upper(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    if let Some(v) = crate::marked_text::dispatch(
+        crate::marked_text::Kind::Map,
+        crate::marked_text::At::Receiver,
+        to_upper,
+        c,
+        &r,
+        a,
+    ) {
+        return v;
+    }
     Ok(Value::Text(crate::native::method_upper(&recv_text(&r)?).into()))
 }
 
-fn to_lower(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+fn to_lower(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    if let Some(v) = crate::marked_text::dispatch(
+        crate::marked_text::Kind::Map,
+        crate::marked_text::At::Receiver,
+        to_lower,
+        c,
+        &r,
+        a,
+    ) {
+        return v;
+    }
     Ok(Value::Text(crate::native::method_lower(&recv_text(&r)?).into()))
 }
 
@@ -443,7 +503,17 @@ fn trim_end(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult 
     trim_with(&r, a, false, true)
 }
 
-fn replace(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+fn replace(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    if let Some(v) = crate::marked_text::dispatch(
+        crate::marked_text::Kind::Replace,
+        crate::marked_text::At::Receiver,
+        replace,
+        c,
+        &r,
+        a,
+    ) {
+        return v;
+    }
     let (s, old, new) = (recv_text(&r)?, text_or_guid(a, 0)?, text(a, 1)?);
     if old.utf16_len() == 0 {
         // types/TestFormatEvaluateTextContracts.al:Text_EmptyArguments_ContainsStartsEndsAreTrueIndexOfIsOne.
@@ -465,7 +535,17 @@ fn replace(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
 }
 
 /// 1-based `StartIndex`; `Count` defaults to the rest. Out-of-range arguments are not pinned.
-fn substring(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+fn substring(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    if let Some(v) = crate::marked_text::dispatch(
+        crate::marked_text::Kind::Range,
+        crate::marked_text::At::Receiver,
+        substring,
+        c,
+        &r,
+        a,
+    ) {
+        return v;
+    }
     let st = recv_text(&r)?;
     let ascii = st.is_ascii();
     // Text of ASCII only is sliced where it lies; anything else goes through its UTF-16 units.
@@ -587,7 +667,17 @@ fn split(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
 
 /// Simultaneous mapping: each character of `FromCharacters` becomes the character at the same
 /// position of `ToCharacters` (TestTextProcessingContracts.al ConvertStr_Swap_IsSimultaneous).
-fn convert_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
+fn convert_str(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    if let Some(v) = crate::marked_text::dispatch(
+        crate::marked_text::Kind::Map,
+        crate::marked_text::At::Arg0,
+        convert_str,
+        c,
+        &r,
+        a,
+    ) {
+        return v;
+    }
     let (s, from, to) = (text_or_guid(a, 0)?, u16s(&text(a, 1)?), u16s(&text(a, 2)?));
     if from.len() != to.len() {
         // types/TestFormatEvaluateTextContracts.al:Text_OutOfRangeArguments.
@@ -703,7 +793,17 @@ fn pad_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
 
 // A cut through a pair keeps the half, and a half of the text stays (ADR-068; text/CrTextLeads.al:428,442 `delstr_2_1`,
 // text/text-methods/Index1.Codeunit.al:371,380).
-fn del_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
+fn del_str(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    if let Some(v) = crate::marked_text::dispatch(
+        crate::marked_text::Kind::Delete,
+        crate::marked_text::At::Arg0,
+        del_str,
+        c,
+        &r,
+        a,
+    ) {
+        return v;
+    }
     let s = text_or_guid(a, 0)?.units();
     let pos = int_or_decimal(a, 1)?;
     // text/TestProbeTextDateFormatContracts.al:Text_DelStrInsStr: the position must be 1 or more (the upper bound the
@@ -755,7 +855,10 @@ fn ins_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
 
 /// An index outside the list raises with the text and code of
 /// types/TestFormatEvaluateTextContracts.al:SelectStr_IndexOutsideTheList_Throws (indexes 4, 0 and -1).
-fn select_str(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
+fn select_str(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    if let Some(v) = crate::marked_text::dispatch_select_str(select_str, c, a) {
+        return v;
+    }
     let n = int_or_decimal(a, 0)?;
     let list = text_or_guid(a, 1)?;
     let parts: Vec<&str> = list.split(',').collect();
