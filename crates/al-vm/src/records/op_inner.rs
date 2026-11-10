@@ -70,7 +70,7 @@ impl Session {
         if !rec.borrow().temporary && self.engine.demo_tables.contains(&(t.object as usize)) {
             if method.writes() {
                 if !self.install_scope {
-                    self.demo_written.insert(t.object);
+                    self.guards.demo_written.insert(t.object);
                 }
             } else if (matches!(method, RecordOp::Count | RecordOp::IsEmpty)
                 || (self.engine.program.objects[t.object as usize].id == Some(crate::platform::MEDIA_RESOURCES)
@@ -86,7 +86,7 @@ impl Session {
                             | RecordOp::CountApprox
                             | RecordOp::CalcSums
                     )))
-                && !self.demo_written.contains(&t.object)
+                && !self.guards.demo_written.contains(&t.object)
             {
                 return unsupported(format!(
                     "{} on {} before the test wrote to it: the corpus database holds demo rows there that the runtime does not have (ADR-047 rejected)",

@@ -96,8 +96,9 @@ Under 200 words plus the table.
 
 ## Moved code
 - **Page state** (ADR-072): `PageState`, `PageMode`, `WindowRow`, `Cursor`, `ReadBackwards`, `ControlRef` and `ControlTarget`
-  live in `crates/al-vm/src/pages/state.rs`, not in `crates/al-builtins/src/value.rs`. A branch that added a field in
-  `value.rs`: after you merge `main`, put the field and its `closed` line into `state.rs`. `Value::TestPage` and
+  live in `crates/al-vm/src/pages/state/mod.rs`, not in `crates/al-builtins/src/value.rs`. A branch that added a field in
+  `value.rs`: after you merge `main`, put the field into `state/mod.rs`. It starts at its type's default; `PageState::closed`
+  gets a line only for another starting value. `Value::TestPage` and
   `Value::TestControl` hold a handle: read it with `st_of` / `control_of`, build a value with `page_value` / `test_control`.
 
 ## Other files

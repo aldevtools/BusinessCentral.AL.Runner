@@ -28,16 +28,30 @@ impl Session {
         let offered = has_repeater
             && !tree
             && (st.borrow().mode == PageMode::Edit || temp_worksheet_view)
-            // A list handed over in lookup mode has no new-row line (corpus
-            // ui-handlers/TestPageModalNewRowLine_Tests.al:209 Plain_LookupModeTrue_HasNoNewRowLine). A LookupMode(true) call
-            // does that, and so does Page.RunModal(id, Rec) whose return value is used; called as a statement it keeps the
-            // line (:180; pages/triggers/BeRunModalOnLookup.al:616, :916).
-            && !(st.borrow().lookup_set && st.borrow().lookup && self.is_list_page(st))
+            && !self.lookup_list(st)
             && !prop_false("Editable")
             && !flag_denied(&engine, object, "InsertAllowed")?;
         drop(engine);
         // A repeater whose Editable is false shows no line (`repeater_line`).
         Ok(offered && self.repeater_line(st)? != RepeaterLine::Denied)
+    }
+
+    /// Whether `st` is a List page in lookup mode. Such a list has no new-row line, pinned for each kind of lookup:
+    /// `LookupMode(true)` on a page variable (ui-handlers/TestPageModalNewRowLine_Tests.al:209
+    /// Plain_LookupModeTrue_HasNoNewRowLine), the static `Page.RunModal(Id, Rec)` whose return value is used (called as a
+    /// statement it is no lookup and keeps the line: :180; pages/triggers/BeRunModalOnLookup.al:616, :916) and the page a
+    /// TableRelation lookup opens (testpage/P133RelationLookups.al:271-284: Next from its last row answers false). A page
+    /// in lookup mode always has one of the three kinds (`PageState::open_as_lookup`, `set_lookup_mode`): the list of
+    /// kinds says what is pinned, it filters nothing today.
+    pub(in crate::pages) fn lookup_list(&self, st: &St) -> bool {
+        let (on, kind) = {
+            let s = st.borrow();
+            (s.lookup, s.lookup_kind)
+        };
+        on && matches!(
+            kind,
+            LookupKind::Variable | LookupKind::StaticRunModal | LookupKind::Relation
+        ) && self.is_list_page(st)
     }
 
     /// Whether a repeater of the page declares `Editable` with anything but the literal `true`.
@@ -177,12 +191,17 @@ impl Session {
             // QgGoToKeyNextCall.al:629 Nav_LookupHandler_GoToKey_ThenOK `log` `F:=>=Yes;R:R1001;N:1=1;...`). So is a list the
             // static Page.RunModal(0 or Id, Rec) runs in lookup mode, positioned or not (corpus branch al-runtime-rs-staging-r6962,
             // pages/run-modal/StaticRunModalFindRecordLookup.al StaticRunModalZero_FilteredNotPositioned_FirstThenOK `F:=>=Yes;R:V2;...`,
-            // _FilteredOnRow_, _NoFilterNotPositioned_, StaticRunModalPageId_; issue 6992). A TableRelation lookup keeps `=><`.
-            let (lookup, lookup_set, static_lookup) = {
+            // _FilteredOnRow_, _NoFilterNotPositioned_, StaticRunModalPageId_; issue 6992). What the list of a TableRelation
+            // lookup is asked nothing pins: that lookup is refused before the page opens
+            // (`refuse_relation_lookup_onto_find_list`), so the `=><` below is never the answer for that kind.
+            let (lookup, asks_forward) = {
                 let s = st.borrow();
-                (s.lookup, s.lookup_set, s.static_lookup)
+                (
+                    s.lookup,
+                    matches!(s.lookup_kind, LookupKind::Variable | LookupKind::StaticRunModal),
+                )
             };
-            if lookup && (lookup_set || static_lookup) && self.is_list(st) {
+            if lookup && asks_forward && self.is_list(st) {
                 "=>"
             } else if !lookup && self.is_list(st) && self.onopenpage_left_rec_past_the_first_row(st)? {
                 // A list whose OnOpenPage left Rec on a row that is not the first of its view is asked `=>`

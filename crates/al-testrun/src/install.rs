@@ -1079,10 +1079,13 @@ pub(crate) fn test_session_company_open(lowered: &Lowered, session: &mut Session
     let mut subs = Vec::new();
     // The login (`login.rs`, al-runner issue 7343): the dependency apps' OnCompanyOpenCompleted subscribers raise
     // "System Initialization".OnAfterLogin, in codeunit id order with the apps under test's own, for a test codeunit that
-    // can see what the login leaves (`login::observed_by`).
-    let login = session
+    // can see what the login leaves (`login::decide`).
+    let decision = session
         .test_object
-        .is_some_and(|t| crate::login::observed_by(&engine, lowered, t));
+        .map_or(crate::login::Login::Skip(Default::default()), |t| {
+            crate::login::decide(&engine, lowered, t)
+        });
+    let login = matches!(decision, crate::login::Login::Raise);
     for event in ["oncompanyopen", "oncompanyopencompleted"] {
         let mut of_event: Vec<(usize, usize)> = engine
             .events
@@ -1145,6 +1148,10 @@ pub(crate) fn test_session_company_open(lowered: &Lowered, session: &mut Session
             wrote.tables.extend(changed);
             wrote.who.get_or_insert(who);
         }
+    }
+    // Without the login, a read of a table its subscribers add rows to is refused from here on (`login::Login::Skip`).
+    if let crate::login::Login::Skip(guarded) = decision {
+        session.guard_login_tables(guarded);
     }
     Ok(wrote)
 }
