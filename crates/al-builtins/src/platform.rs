@@ -77,6 +77,9 @@ pub enum Virtual {
     Unprovided,
     /// No rows (metadata/platform-tables/Y21EnvColumns.al:30-40 Y21_Printer_NoRows).
     Printer,
+    /// One row, the server instance the session runs on (al-language-onprem
+    /// metadata/platform-tables/Y21EnvColumnsOnPrem.al:276-301 Y21_ServerInstance_OwnRow).
+    ServerInstance,
 }
 
 /// (table id, table name, provider). Every entry is a table of the platform `System` app.
@@ -122,6 +125,11 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
         Provider::Virtual(Virtual::PageControlField),
     ),
     (2_000_000_039, "Printer", Provider::Virtual(Virtual::Printer)),
+    (
+        2_000_000_112,
+        "Server Instance",
+        Provider::Virtual(Virtual::ServerInstance),
+    ),
     (2_000_000_164, "Time Zone", Provider::Virtual(Virtual::TimeZone)),
     (
         2_000_000_045,

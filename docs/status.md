@@ -33,7 +33,7 @@ Each check rejects only the shape its case pins; the wider rules are in `docs/pr
 
 ## Platform tables (ADR-019)
 
-The platform `System` app loads with every app. Providers answer Integer, Date, Session, Active Session, AllObj,
+The platform `System` app loads with every app. Providers answer Integer, Date, Session, Active Session, Server Instance, AllObj,
 AllObjWithCaption, CodeUnit Metadata, Table Metadata, Page Metadata, Page Control Field, Page Action, Field, Key,
 Time Zone, Windows Language, NAV App Installed App, Published Application, the permission tables, Report Layout
 List, Report Metadata, Report Data Items, XmlPort Metadata, Query Metadata, Event Subscription (compiled

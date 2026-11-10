@@ -82,3 +82,23 @@ pub(super) fn active_session_row(t: &TableDef, i: &Ident) -> Row {
     r[pos(t, 11)] = Value::Guid(session_unique_id(i.session_id));
     r
 }
+
+/// The one row of Server Instance, the instance the session runs on (al-language-onprem
+/// metadata/platform-tables/Y21EnvColumnsOnPrem.al:276-301 Y21_ServerInstance_OwnRow, BC 27, 28, 29): keyed by
+/// `ServiceInstanceId()`, service `MicrosoftDynamicsNavServer`, instance name and computer name those of the session's
+/// Active Session row, server port 7085, management port 7086, Status 0 (Started), "Last Tenant Config Version" 0 and
+/// a "Last Active" that is set and not after the current time (the session's start here).
+pub(super) fn server_instance_row(t: &TableDef, i: &Ident) -> Row {
+    let mut r = blank(t);
+    r[pos(t, 1)] = Value::Integer(i.instance_id);
+    r[pos(t, 2)] = Value::Text("MicrosoftDynamicsNavServer".into());
+    // The texts of `active_session_row` columns 5 and 4.
+    r[pos(t, 3)] = Value::Text(i.host_name.clone().into());
+    r[pos(t, 4)] = crate::hostvalues::datetime_of_unix_millis(i.login_millis);
+    r[pos(t, 5)] = Value::Text("BC".into());
+    r[pos(t, 6)] = Value::Integer(7085);
+    r[pos(t, 7)] = Value::Integer(7086);
+    r[pos(t, 8)] = option(t, 8, 0);
+    r[pos(t, 9)] = Value::BigInteger(0);
+    r
+}
