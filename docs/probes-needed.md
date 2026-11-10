@@ -1472,3 +1472,9 @@ text/textbuilder-bigtext, format-evaluate, format-evaluate, types/date-time).
 | Shape | Status | Probe wanted |
 |---|---|---|
 | Which rows `@'`, `@'abc` and `@'''` keep on a Text field | REFUSED wherever such a filter selects rows: `FilterExpr::matches` returns Signal::Unsupported for `FilterExpr::UnpinnedMatch` (al-builtins/src/filter.rs), so record reads, FlowField filters, pages, query columns, relations and platform tables all refuse with one reason; a store refuses the read once at its entry. SetFilter accepts them and GetFilter shows them as given, which corpus master record/crud/RcAFilters.al:996-1027 pins. | Rows holding `'`, `''`, `'abc`, `'ABC`, `abc` and blank under each of the three filters, on a Text and a Code field; also `<>'`, `a\|'` and `=''abc` (an unclosed quote after other operators is refused at SetFilter). |
+
+## A worksheet switched from the new-row line of an empty view to another empty view (al-runner issue 6924, 2026-11-10)
+
+| Shape | Status | Probe wanted | Code |
+|---|---|---|---|
+| A control's OnValidate changes the filters of a list that stands on its untouched new-row line over an empty view, and the new view is empty too (the Movement Worksheet: `CurrentLocationCode` and `CurrentWkshName` set with SetValue, OnValidate with SaveRecord, filters in group 2, Find('-'), `CurrPage.Update(false)`); then an action reads Rec | REFUSED. Pinned: from a stored row to an empty batch (Y17JournalBatchSwitch.al:485 `N;C;N;C` with the key from the filter) and from the new-row line to a batch with rows (Y50UpdateFromNewLine.al:556). Without the refusal the refresh waited until after the action, so the action saw the old worksheet in Rec. | Corpus pull request 1282 (pages/journal-batch-switch/EmptyToEmptyBatchSwitch.al, observing form): the OnNewRecord and OnAfterGetCurrRecord runs at the switch, Rec in the action, with and without AutoSplitKey. | `pages/refresh_new_line.rs` `validate_refresh_start` |
