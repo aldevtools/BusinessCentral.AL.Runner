@@ -6,6 +6,7 @@ mod append_char;
 mod array_params;
 mod assumption_truth;
 mod autoformat_type11;
+mod autoinc_integer_past_int32;
 mod bigint_div_into_integer;
 mod bigtext_copystream_count;
 mod bigtext_value_copy;
