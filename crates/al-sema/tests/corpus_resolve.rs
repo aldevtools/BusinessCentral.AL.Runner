@@ -151,6 +151,10 @@ const KNOWN_GAP_FILES: &[(&str, &str)] = &[
         "record/ProbePropertyAssignmentForms.al",
         "the checker does not resolve the assignment form of a call (`Sleep := 1`, `Target.SetCounter := 7`) (corpus bump to 92031e20)",
     ),
+    (
+        "format-evaluate/format-matrix/FMEnum.al",
+        "the enum `Warehouse Activity Type` is a Base Application enum, outside the workspace this test resolves against (corpus bump e01709f4)",
+    ),
 ];
 
 /// Milestone 1: every name, member and call in every corpus body resolves,

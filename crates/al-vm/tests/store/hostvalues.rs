@@ -1570,7 +1570,7 @@ fn about_two_thirds_of_clock_reads_right_after_a_write_are_off_the_grid_and_the_
 
 // Corpus branch al-runtime-rs-staging-r6985, session-system/session/R7002GetUrlDefaultCompany.al (al-runner issue 7002): the Default
 // form writes the company percent-encoded as the Web form does ('CRONUS International Ltd.' keeps its dot), and a page with a record
-// and UseFilters true adds `&$filter=` with the encoded filter text, or nothing without a filter. Windows is not probed for these forms.
+// and UseFilters true adds `&$filter=` with the encoded filter text, or nothing without a filter. Windows is probed apart (GetUrlObjects.al).
 #[test]
 fn geturl_default_encodes_any_company_and_writes_the_filter_of_a_record() {
     let src = r#"
@@ -1588,8 +1588,7 @@ codeunit 50100 C
         Row.SetRange(Name, 'Alpha');
         exit(R + '|' + GetUrl(ClientType::Default, '', ObjectType::Page, 21, Row, true));
     end;
-    procedure WindowsCompany(): Text begin exit(GetUrl(ClientType::Windows, 'A.B')); end;
-    procedure WindowsFilters(): Text var Row: Record "Gu Row"; begin exit(GetUrl(ClientType::Windows, '', ObjectType::Page, 21, Row, true)); end;
+    procedure WindowsCompany(): Text begin exit(GetUrl(ClientType::Windows, 'A,B')); end;
 }
 "#;
     assert_eq!(
@@ -1600,7 +1599,8 @@ codeunit 50100 C
          |dynamicsnav://localhost:7085/BC/CRONUS%20International%20Ltd./runpage?page=21\
          |dynamicsnav://localhost:7085/BC//runpage?page=21&$filter=%27Name%27%20IS%20%27Alpha%27"
     );
-    for routine in ["WindowsCompany", "WindowsFilters"] {
+    // Windows is probed for letters, digits, space and the dot only (GetUrlObjects.al, al-runner issue 7370); a comma is refused.
+    for routine in ["WindowsCompany"] {
         let r = al_testkit::run(src, routine);
         assert!(
             matches!(&r, Err(Signal::Unsupported(w)) if w.contains("Windows")),

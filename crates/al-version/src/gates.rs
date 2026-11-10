@@ -308,6 +308,9 @@ pub enum Gate {
     /// (format-evaluate/AtPrecisionStandardFormat2.al:684-723, :749-788; corpus bump 49). Consumed by
     /// `al-builtins` `format_decimal_field` through `FormatCtx::format_gate`, for a type 1 field without AutoFormatExpression.
     AutoFormatAmountFieldRoundsFrom28,
+    /// Microsoft's test runner leaves six frames below the test procedure in the full call stack text on BC 27.5 and none from
+    /// BC 28 (session-system/callstack/CallstackFullText.al:106, corpus bump e01709f4). Not consumed yet.
+    CallStackRunnerFramesGoneFrom28,
     /// The corpus CI runs a test codeunit without handlers through BC's TestRunnerHub from BC 28, under the codeunit's
     /// `RequiredTestIsolation`; on BC 27 it runs every codeunit under runner 130450 (Codeunit isolation). A difference of the
     /// CI's harness, not of the platform (codeunits/run-onrun/QuCommitIsolation.al:10-16, 36-39; the BC28PLUS
@@ -415,6 +418,7 @@ pub enum Gate {
 impl Gate {
     pub const ALL: &'static [Gate] = &[
         Gate::AutoFormatAmountFieldRoundsFrom28,
+        Gate::CallStackRunnerFramesGoneFrom28,
         Gate::FlowFieldCountFilterBigIntegerFromIntegerFrom29,
         Gate::CaseTimeZeroLabelFrom29,
         Gate::DataTransferAddDestinationFilterFrom28,
@@ -568,6 +572,7 @@ impl Gate {
             | Gate::DataTransferAddDestinationFilterFrom28
             | Gate::HttpHeaderNameRulesProbedFrom28
             | Gate::AutoFormatAmountFieldRoundsFrom28
+            | Gate::CallStackRunnerFramesGoneFrom28
             | Gate::TestRunnerHubRequiredIsolationFrom28
             | Gate::LicensePermissionTopRangePageFrom28
             | Gate::ReportLayoutListColumnsFrom28
@@ -598,6 +603,10 @@ impl Gate {
             | Gate::EmptyActionViewEveryRowFrom28
             | Gate::EmptyActionViewOneRowAgainFrom29
             | Gate::ReportSaveAsXmlHeaderHasCompanyBlock => self.evidence_of_first_gates(),
+            Gate::CallStackRunnerFramesGoneFrom28 => &[Evidence {
+                file: "session-system/callstack/CallstackFullText.al",
+                lines: "106",
+            }],
             Gate::JpegMediaSetKeptFrom29 => &[Evidence {
                 file: "../al-language-onprem/streams/media/MediaFiles.al",
                 lines: "515",
@@ -1130,6 +1139,10 @@ impl Gate {
                 },
             ],
             Gate::AutoFormatAmountFieldRoundsFrom28 => &[
+                Evidence {
+                    file: "format-evaluate/format-matrix/FMFields.al",
+                    lines: "235,273",
+                },
                 Evidence {
                     file: "format-evaluate/AtPrecisionStandardFormat2.al",
                     lines: "684,697,749,762",

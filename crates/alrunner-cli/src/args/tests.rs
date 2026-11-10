@@ -1,3 +1,5 @@
+// The unit tests of `args.rs`, a `#[cfg(test)]` module; the version-literal scan skips everything from the marker on.
+// #[cfg(test)]
 use super::*;
 
 fn p(s: &str) -> Result<Command, String> {
