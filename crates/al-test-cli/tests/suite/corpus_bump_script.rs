@@ -518,7 +518,7 @@ fn the_bump_adds_lines_only_for_cases_the_base_oracle_lacks() {
     let script = std::fs::read_to_string(root().join("tools/corpus_bump.sh")).unwrap();
     let step = script
         .lines()
-        .find(|l| l.contains("./target/release/al-test-cli --root . --list-new-cases"))
+        .find(|l| l.trim_start().starts_with("list_pass --list-new-cases"))
         .expect("the list step");
     assert!(
         step.contains("--list-new-cases HEAD") && step.contains("--prune-not-passing"),
@@ -545,6 +545,25 @@ fn the_bump_prints_the_assumptions_whose_pin_landed_after_the_lists() {
     assert!(check > baseline, "the check runs after the list step");
     let line = script[check..].lines().next().unwrap();
     assert!(line.contains("||"), "a landed pin must not stop the bump: {line}");
+}
+
+/// The bump finishes itself: golden files regenerated and named for the commit, the lists pruned again after them,
+/// the version gates checked (never edited), and what is left printed as a to-do list before the exit 1.
+#[test]
+fn the_bump_regenerates_golden_prunes_again_checks_gates_and_prints_a_todo_list() {
+    let script = std::fs::read_to_string(root().join("tools/corpus_bump.sh")).unwrap();
+    let at = |needle: &str| script.find(needle).unwrap_or_else(|| panic!("missing: {needle}"));
+    let first = at("list_pass --list-new-cases HEAD --prune-not-passing");
+    let golden = at("UPDATE_GOLDEN=1 cargo test --release -q -p al-test-cli --test corpus_resolve_deps -- --ignored");
+    let second = at("list_pass --prune-not-passing");
+    let gates = at("cargo test -q -p al-version");
+    let todo = at("TO DO before the pull request");
+    assert!(first < golden && golden < second && second < gates && gates < todo);
+    assert!(script.contains("pinned_columns.rs") && script.contains("expected-unresolved.txt"));
+    // A pass that exits 1 prints its cases and goes on; only an exit above 1 stops the bump.
+    assert!(script.contains(r#"[ "$rc" -gt 1 ]"#) && script.contains("--baseline-diff"));
+    assert!(!script.contains("gates.rs\" "), "gates are never edited by the script");
+    assert!(!script.contains("sed -i") || !script.contains("gates.rs"));
 }
 
 // ISOL_IDS names the artifact of each leg's Isolation Disabled file. A version without the suite gets it (the suite

@@ -82,11 +82,55 @@ finish() {
 # oracle did not have, and a case it had that does not pass is a regression (exit 1).
 cd "$root"
 cargo build --release -q
-# CORPUS_BUMP_LISTS=0 leaves the lists alone: the bump bot (tools/corpus_bump_bot.sh) updates them in its own run.
-if [ "${CORPUS_BUMP_LISTS:-1}" != 0 ]; then
+# Problems that need a person are collected and printed at the end as a to-do list; the script exits 1 after the
+# last step then, never in the middle (a bump that stops at the first one leaves the rest undone).
+todo=()
+# One pass over the three BC versions. Arguments: extra al-test-cli flags. Prints the lines of the lists; when the
+# check exits 1 (a regression or a case without an outcome) it prints the whole output first, so the cases are named.
+# An exit above 1 is a setup error and stops the bump. Sets list_rc to 1 when a version still has a problem.
+list_pass() {
+  local major out rc
+  list_rc=0
   for major in 27 28 29; do
-    ./target/release/al-test-cli --root . --list-new-cases HEAD --prune-not-passing --bc-version "$major" | grep -E "^BC [0-9.]+[: ]" || die "not-passing lists for BC $major"
+    rc=0
+    out="$(./target/release/al-test-cli --root . --baseline-diff "$@" --bc-version "$major" 2>&1)" || rc=$?
+    printf '%s\n' "$out" | grep -E "^BC [0-9.]+[: ]" || true
+    if [ "$rc" -gt 1 ]; then printf '%s\n' "$out" >&2; die "not-passing lists for BC $major (exit $rc)"; fi
+    if [ "$rc" = 1 ]; then
+      printf '%s\n' "$out" | grep -vE "^BC [0-9.]+[: ]" || true
+      list_rc=1
+    fi
   done
+}
+# CORPUS_BUMP_LISTS=0 leaves the lists, the golden files and the gate check alone: the bump bot
+# (tools/corpus_bump_bot.sh) does them in its own run.
+if [ "${CORPUS_BUMP_LISTS:-1}" != 0 ]; then
+  # Lines for the new cases that do not pass, stale lines deleted. A pass that exits 1 is not final: the golden files
+  # below change what the runtime compiles, so the lists are pruned again after them.
+  list_pass --list-new-cases HEAD --prune-not-passing
+
+  # 6a. The golden files that depend on the corpus (pinned_columns.rs, expected-unresolved.txt): regenerated here, so
+  # the pull request does not fail on stale ones. They belong in the bump commit.
+  echo "regenerating the golden files (corpus_resolve_deps):"
+  UPDATE_GOLDEN=1 cargo test --release -q -p al-test-cli --test corpus_resolve_deps -- --ignored \
+    || die "regenerating the golden files failed (output above)"
+  golden="crates/al-builtins/src/pinned_columns.rs crates/al-sema/tests/expected-unresolved.txt"
+  # shellcheck disable=SC2086
+  git -C "$root" diff --stat -- $golden
+  echo "add to the bump commit: $golden"
+  cargo build --release -q
+  list_pass --prune-not-passing
+  if [ "$list_rc" = 1 ]; then
+    todo+=("the not-passing lists: fix each regression and each case without an outcome listed above (the bump added no line for them)")
+  fi
+
+  # 6c. The version gates: a new `#if BC28PLUS` file needs a gate that cites it. Never extended here.
+  gates_out="$(cargo test -q -p al-version 2>&1)" || {
+    printf '%s\n' "$gates_out"
+    echo "files with a guard above the floor and no gate:"
+    printf '%s\n' "$gates_out" | sed -n '/corpus guards with no gate/,/^$/p' | grep -E "\(BC[0-9]+PLUS\)" | sed 's/^/  /' || true
+    todo+=("version gates: extend a Gate in crates/al-version/src/gates.rs (its evidence list) for each file above, then cargo test -p al-version")
+  }
 fi
 
 # 6b. The assumptions that waited for a corpus pin now in the corpus (Info::awaiting in
@@ -107,6 +151,11 @@ python3 -I "$here/corpus_bump_harness.py" "$root" "$dir" "$old" "$sha" "${hargs[
 rm -rf "$dir"
 echo "docs/probes-needed.md table rows after: $(probe_rows) (strike the rows the new probes settle by hand)"
 echo "bumped to $sha from $1; review git diff and open the pull request (its CI is the gate)"
+if [ "${#todo[@]}" -gt 0 ]; then
+  echo "TO DO before the pull request (the bump is not finished):" >&2
+  printf '  - %s\n' "${todo[@]}" >&2
+  exit 1
+fi
 }
 
 # The PR-results bump (--from-pr): tools/corpus_bump_pr.py checks, merges the oracle, moves the pin; then steps 6 and 7.

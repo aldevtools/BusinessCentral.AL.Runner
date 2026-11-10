@@ -330,7 +330,7 @@ run locally; on the shared machine they cost up to an hour.
    It does not replace PR CI, and it installs no git hook; `tools/prepush.sh -h`
    shows how to add one yourself.
 10. Open the pull request as a draft and without auto-merge (owner,
-    2026-11-09): CI runs no job on a draft, so it takes no place in the CI
+    2026-11-09): CI runs only the `test` job on a draft (2026-11-10), so it takes little of the CI
     queue. Do not wait for CI and do not mark it ready. The orchestrator reviews
     it and lands it in a merge train; the train's pull request runs CI once for
     several drafts and is the gate.
