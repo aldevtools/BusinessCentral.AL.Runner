@@ -23,7 +23,7 @@
 
 use super::registry::{MemberKind, Pin, RegistryMember, RegistryType};
 use crate::Session;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::{DotNetKind, DotNetObject, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -35,10 +35,6 @@ const PIN: &str =
 
 const SECRET: &str = "s";
 const CERTIFICATE: &str = "c";
-
-fn unsupported<T>(why: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(why.into()))
-}
 
 fn object(type_name: &str, state: Vec<Value>) -> Value {
     Value::DotNet(Rc::new(DotNetObject::new(DotNetKind::Internal {

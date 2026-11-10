@@ -12,6 +12,7 @@ use crate::ui::UiKind;
 use crate::{Session, Signal};
 use al_builtins::builtin_id::ids;
 use al_builtins::describe::Describe;
+use al_builtins::native::unsupported;
 use al_builtins::ops;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{Instance, Value};
@@ -25,10 +26,6 @@ use std::sync::Arc;
 
 type Inst = Rc<RefCell<Instance>>;
 type Rec = Rc<RefCell<al_builtins::value::RecordState>>;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 /// What a report trigger asked for with `CurrReport.Skip`, `Break` or `Quit`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -4182,7 +4179,7 @@ impl Session {
                 let ml = c.option_caption_ml.as_deref().expect("checked");
                 let list =
                     al_builtins::format::ml_text_in_language(ml, al_builtins::format::FormatCtx::language(&*self))
-                        .map_err(|e| Signal::Unsupported(format!("OptionCaptionML of report column {} {e}", c.name)))?;
+                        .map_err(|e| Signal::unsupported(format!("OptionCaptionML of report column {} {e}", c.name)))?;
                 match usize::try_from(*n).ok().and_then(|i| list.split(',').nth(i)) {
                     Some(caption) => dataset::escape(caption)?,
                     None => n.to_string(),
@@ -4208,7 +4205,7 @@ impl Session {
                 }
             }
             Value::Option(..) | Value::Enum(..) | Value::Duration(_) => {
-                dataset::escape(&al_builtins::format::try_format(&value, 0, 0, self).map_err(Signal::Unsupported)?)?
+                dataset::escape(&al_builtins::format::try_format(&value, 0, 0, self).map_err(Signal::unsupported)?)?
             }
             Value::Blob(b) => self.blob_column_text(c, rec, b)?,
             // An empty Media or MediaSet field is an empty element (reports/layouts-saveas/BcXmlBlob.al:102); one with content holds a
@@ -4223,7 +4220,7 @@ impl Session {
                 String::new()
             }
             Value::Guid(_) => {
-                let g = al_builtins::format::try_format(&value, 0, 0, self).map_err(Signal::Unsupported)?;
+                let g = al_builtins::format::try_format(&value, 0, 0, self).map_err(Signal::unsupported)?;
                 // Lower case, braces dropped (streams/TestReportSaveAsColumnDetailsContracts.al:
                 // UndefinedTimesGuidsHoursAndDecimalPlaces, streams/PWReportSaveAsColumns.al:
                 // Undefined_TimeDateTime_SingleDigitHour_GuidWithHexLetters); the null Guid is zeros, not blank.
@@ -4313,7 +4310,7 @@ impl Session {
         let cx = self.cx_for(rec, &t)?;
         let pk = t.primary_key(&rec.borrow().fields);
         let stored =
-            al_data::Store::get(self.store_for(rec), &cx, &t, &pk).map_err(|e| Signal::Unsupported(format!("{e}")))?;
+            al_data::Store::get(self.store_for(rec), &cx, &t, &pk).map_err(|e| Signal::unsupported(format!("{e}")))?;
         match stored.map(|row| row[pos].clone()) {
             Some(Value::Blob(src)) if src.borrow().render_pending.is_none() => {
                 Ok(al_builtins::platform_native::b64_encode(&src.borrow().bytes, false))

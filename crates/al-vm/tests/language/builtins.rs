@@ -1032,7 +1032,7 @@ fn run_two_apps(dep_src: &str, main_src: &str, routine: &str) -> Result<Value, S
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l
         .program

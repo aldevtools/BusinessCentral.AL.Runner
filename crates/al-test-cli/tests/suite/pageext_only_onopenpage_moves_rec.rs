@@ -78,7 +78,7 @@ fn issue_6924_extension_only_open_page_moves_rec() {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let results = run_codeunit(&Engine::new(l.program.clone(), blocked), &l, oi);
     assert!(!results.is_empty());

@@ -10,7 +10,7 @@ use crate::Session;
 use al_builtins::catalog::Catalog;
 use al_builtins::describe::Describe;
 use al_builtins::filter::FilterExpr;
-use al_builtins::native::{AlError, Signal};
+use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{LibraryValue, RecordState, RtType, Value};
@@ -49,10 +49,6 @@ pub(crate) fn al_field_no(id: u32) -> i32 {
 
 /// The internal id of SystemRowVersion, which AL code sees as field 0.
 pub(crate) const SYSTEM_ROW_VERSION_ID: u32 = 2_000_000_005;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 fn catalog() -> &'static Catalog {
     static C: OnceLock<Catalog> = OnceLock::new();
@@ -752,7 +748,7 @@ impl Session {
                 let stored = self
                     .store_for(rec)
                     .get(&cx, t, &pk)
-                    .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                    .map_err(|e| Signal::unsupported(format!("{e}")))?;
                 match stored {
                     // A row stored again since the record read it: BC compares with what the record read, not with the stored
                     // row (recordref-fieldref/AsGetTableIsDirty.al:87-107 StoredRowChangedAfterRead `dirty_unchanged` No), and
@@ -1983,7 +1979,7 @@ impl Session {
                     (Some(ml), _) if session_language => {
                         let language = al_builtins::format::FormatCtx::language(self);
                         al_builtins::format::ml_text_in_language(&ml, language)
-                            .map_err(|e| Signal::Unsupported(format!("OptionCaptionML {e}")))?
+                            .map_err(|e| Signal::unsupported(format!("OptionCaptionML {e}")))?
                             .split(',')
                             .map(str::to_string)
                             .collect()

@@ -41,7 +41,7 @@ impl Session {
             ("1" | "FILTER", RtType::Text(_) | RtType::Date | RtType::Integer) => Some(FilterExpr::EmptyViewValue),
             ("CONST", RtType::Text(_)) => Some(
                 self.parse_filter_text(literal, ty)
-                    .map_err(|e| Signal::Unsupported(format!("SetView: {e}")))?,
+                    .map_err(|e| Signal::unsupported(format!("SetView: {e}")))?,
             ),
             _ => None,
         })

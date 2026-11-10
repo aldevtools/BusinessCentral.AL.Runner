@@ -65,7 +65,7 @@ impl FilterExpr {
     /// asks (hard rule 4).
     pub fn matches(&self, v: &Value) -> Result<bool, Signal> {
         if let Some(why) = self.unpinned_match() {
-            return Err(Signal::Unsupported(why));
+            return Err(Signal::unsupported(why));
         }
         Ok(self.matches_checked(v))
     }
@@ -157,14 +157,14 @@ impl FilterExpr {
             | FilterExpr::Gt(x)
             | FilterExpr::Ge(x) => cmp(x),
             FilterExpr::Like(..) | FilterExpr::NotLike(..) => match v {
-                Value::Unknown(why) => Some(Signal::Unsupported(why.to_string())),
+                Value::Unknown(why) => Some(Signal::unsupported(why.to_string())),
                 Value::Text(t) | Value::Code(t) if t.has_marker() => Some(Signal::Unsupported(
                     "a wildcard filter on a text that is not known".into(),
                 )),
                 _ => None,
             },
             FilterExpr::AtSignAlone(_) | FilterExpr::EmptyViewValue => None,
-            FilterExpr::UnpinnedMatch(..) => self.unpinned_match().map(Signal::Unsupported),
+            FilterExpr::UnpinnedMatch(..) => self.unpinned_match().map(Signal::unsupported),
             FilterExpr::Or(xs) | FilterExpr::And(xs) => xs.iter().find_map(|x| x.compare_error(v)),
             FilterExpr::NumCode(inner) => match code_number(v) {
                 Some(n) => inner.compare_error(&Value::BigInteger(n)),
@@ -1590,7 +1590,7 @@ pub fn unpinned_match(filters: &[FieldFilter]) -> Option<String> {
 /// group holds filters, at least one of them does. A filter whose matching is not pinned refuses.
 pub fn row_passes(row: &[Value], filters: &[FieldFilter]) -> Result<bool, Signal> {
     if let Some(why) = unpinned_match(filters) {
-        return Err(Signal::Unsupported(why));
+        return Err(Signal::unsupported(why));
     }
     Ok(row_passes_checked(row, filters))
 }

@@ -6,14 +6,10 @@
 //! are not implemented, so no code path here has to model them.
 
 use crate::Session;
-use al_builtins::native::{AlError, Signal};
+use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::value::{RtType, Value};
 use al_data::TableDef;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 fn number(v: &Value) -> Option<i64> {
     match v {
@@ -205,7 +201,7 @@ impl Session {
             return error("Truncate does not support filters on FlowFields.");
         }
         let cx = self.cx_for(rec, t)?;
-        let store_err = |e: al_data::StoreError| Signal::Unsupported(format!("store error {e}"));
+        let store_err = |e: al_data::StoreError| Signal::unsupported(format!("store error {e}"));
         // A filter on a normal field limits what Truncate deletes (corpus
         // record/TestCalcFieldsTruncateUniqueContracts.al:Truncate_WithFilterOnANormalField_RemovesOnlyTheFilteredRows).
         let slot = Self::counter_slot(t, &cx.company);

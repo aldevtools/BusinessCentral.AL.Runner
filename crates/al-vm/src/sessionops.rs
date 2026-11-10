@@ -3,7 +3,7 @@
 use crate::Session;
 use al_builtins::builtin_id::ids;
 use al_builtins::describe::Describe;
-use al_builtins::native::{AlError, Signal};
+use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::value::Value;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -25,10 +25,6 @@ pub(crate) struct Sequence {
     pub seed: i64,
     /// The last value handed out (by `Next` or the end of a `Range`).
     pub last: Option<i64>,
-}
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
 }
 
 /// An error with a pinned code.

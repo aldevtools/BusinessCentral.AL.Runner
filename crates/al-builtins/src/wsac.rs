@@ -2,15 +2,11 @@
 //! A mutable in-memory value shared by assignment (corpus session-system/TestWebServiceActionContext.al).
 
 use crate::describe::Describe;
-use crate::native::{Ctx, NativeFn, Signal};
+use crate::native::{Ctx, NativeFn, Signal, unsupported};
 use crate::signature::Signature;
 use crate::value::{LibraryValue, Value, WebServiceActionState};
 
 type Out = Result<Value, Signal>;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 /// The state behind the receiver; an untouched context becomes an explicit default on first use.
 fn with_state<R>(r: Option<&mut Value>, f: impl FnOnce(&mut WebServiceActionState) -> R) -> Result<R, Signal> {

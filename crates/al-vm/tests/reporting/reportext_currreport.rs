@@ -133,7 +133,7 @@ codeunit 69214 C
         let blocked: Vec<Vec<Option<String>>> = l
             .unsupported
             .iter()
-            .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+            .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
             .collect();
         let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
         let ri = l.program.objects[oi]

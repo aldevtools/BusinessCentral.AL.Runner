@@ -276,7 +276,7 @@ pub(crate) fn list(session: &mut Session, lowered: &Lowered, object: usize, rout
         }
         Err(Signal::Unsupported(why)) => {
             session.rollback_transaction();
-            return decided(Outcome::NotRun(why));
+            return decided(Outcome::NotRun(why.into_reason()));
         }
         Err(other) => return decided(Outcome::NotRun(format!("ListTestCases: {}", other.describe()))),
     };
@@ -341,7 +341,7 @@ pub(crate) fn run_case(
     }
     // BiDataDriven.al:20: the ITestContext GetTestCase returns is what the procedure receives.
     if !matches!(got, Value::Codeunit(_)) {
-        return Err(Signal::Unsupported(format!(
+        return Err(Signal::unsupported(format!(
             "GetTestCase returned {} instead of a codeunit",
             al_builtins::describe::Describe::describe(&got)
         )));

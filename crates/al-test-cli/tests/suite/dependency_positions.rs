@@ -51,7 +51,7 @@ fn a_frame_of_a_dependency_routine_names_its_line() {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(std::sync::Arc::new((*l.program).clone()), blocked);
     let oi = l

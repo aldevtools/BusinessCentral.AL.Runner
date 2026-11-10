@@ -3,15 +3,11 @@
 //! session-system/TestMiscTypes.al).
 
 use crate::describe::Describe;
-use crate::native::{Ctx, NativeFn, Signal};
+use crate::native::{Ctx, NativeFn, Signal, unsupported};
 use crate::signature::Signature;
 use crate::value::{LibraryValue, NotificationState, SessionSettingsState, Value};
 
 type Out = Result<Value, Signal>;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 fn with_settings<R>(r: Option<&mut Value>, f: impl FnOnce(&mut SessionSettingsState) -> R) -> Result<R, Signal> {
     let Some(Value::Library(_, cell)) = r else {

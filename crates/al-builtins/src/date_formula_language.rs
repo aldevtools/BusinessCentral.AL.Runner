@@ -100,7 +100,7 @@ pub(crate) fn evaluate(text: &str, language: i32) -> Result<crate::datefns::Eval
         Ok(None) if language == 1033 && text.contains(['Å', 'å']) => Ok(crate::datefns::Evaluated::Rejected(None)),
         Ok(None) => crate::datefns::evaluate_formula(text),
         Ok(Some(english)) => crate::datefns::evaluate_formula(&english),
-        Err(why) => Err(crate::native::Signal::Unsupported(why)),
+        Err(why) => Err(crate::native::Signal::unsupported(why)),
     }
 }
 

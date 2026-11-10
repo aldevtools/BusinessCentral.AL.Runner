@@ -9,14 +9,10 @@
 
 use crate::Session;
 use crate::records::Rec;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{RtType, Value};
 use al_data::TableDef;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 /// The field ids of the system fields (SystemId and the four audit fields), which every load holds.
 const FIRST_SYSTEM_FIELD: u32 = 2_000_000_000;

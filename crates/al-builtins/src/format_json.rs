@@ -72,7 +72,7 @@ fn write(l: &Handle) -> Result<String, FormatFail> {
     let mut out = String::new();
     match crate::json::write_text(l, &mut out) {
         Ok(()) => Ok(out),
-        Err(crate::native::Signal::Unsupported(why)) => Err(FormatFail::Unsupported(why)),
+        Err(crate::native::Signal::Unsupported(why)) => Err(FormatFail::Unsupported(why.into_reason())),
         Err(_) => Err("Format of a JSON value the writer refuses".to_string().into()),
     }
 }

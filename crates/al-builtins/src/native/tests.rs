@@ -435,3 +435,40 @@ fn variant_type_tests_use_the_receiver() {
         Ok(Value::Boolean(true))
     ));
 }
+
+// ADR-071 step 1 pins: the refusal payload must not make `Signal` (and so every interpreter step's
+// `Result<Value, Signal>`) larger.
+const SIGNAL_SIZE: usize = 40;
+const RESULT_VALUE_SIGNAL_SIZE: usize = 48;
+const RESULT_UNIT_SIGNAL_SIZE: usize = 40;
+
+#[test]
+fn the_size_of_a_signal_is_pinned() {
+    use std::mem::size_of;
+    // Not larger than on main before ADR-071 step 1 (40, 48, 40 bytes); the Refusal payload is the size of a String.
+    let now = (
+        size_of::<Signal>(),
+        size_of::<Result<Value, Signal>>(),
+        size_of::<Result<(), Signal>>(),
+    );
+    assert!(
+        now.0 <= SIGNAL_SIZE && now.1 <= RESULT_VALUE_SIGNAL_SIZE && now.2 <= RESULT_UNIT_SIGNAL_SIZE,
+        "{now:?}"
+    );
+}
+
+#[test]
+fn an_unsupported_signal_prints_as_its_text() {
+    assert_eq!(
+        format!("{:?}", Signal::Unsupported("a \"b\"".into())),
+        "Unsupported(\"a \\\"b\\\"\")"
+    );
+}
+
+#[test]
+fn an_unsupported_signal_describes_as_its_text() {
+    use crate::describe::Describe;
+    let s = Signal::Unsupported("not pinned: X".into());
+    assert_eq!(s.describe(), "not pinned: X");
+    assert_eq!(s.clone().describe(), "not pinned: X");
+}

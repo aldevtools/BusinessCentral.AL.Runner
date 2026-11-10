@@ -918,7 +918,7 @@ impl Session {
             }
         }
         match refused {
-            Some(why) => Err(Signal::Unsupported(why)),
+            Some(why) => Err(Signal::unsupported(why)),
             None => Ok(true),
         }
     }
@@ -969,8 +969,8 @@ impl Session {
                 ));
         if unpinned_site {
             return match self.execute_verdict(object) {
-                Verdict::Refuse(why) => Err(Signal::Unsupported(why)),
-                Verdict::Deny { .. } => Err(Signal::Unsupported(unpinned_denial(
+                Verdict::Refuse(why) => Err(Signal::unsupported(why)),
+                Verdict::Deny { .. } => Err(Signal::unsupported(unpinned_denial(
                     self.execute_access(object),
                     "an Execute denial on a trigger or an event subscriber",
                 ))),
@@ -987,7 +987,7 @@ impl Session {
         }
         match self.execute_verdict(object) {
             Verdict::Allow => Ok(false),
-            Verdict::Refuse(why) => Err(Signal::Unsupported(why)),
+            Verdict::Refuse(why) => Err(Signal::unsupported(why)),
             Verdict::Deny { .. } => Ok(true),
         }
     }
@@ -1022,7 +1022,7 @@ impl Session {
         let access = self.execute_access(object);
         match self.execute_verdict(object) {
             Verdict::Allow => Ok(()),
-            Verdict::Refuse(why) => Err(Signal::Unsupported(why)),
+            Verdict::Refuse(why) => Err(Signal::unsupported(why)),
             Verdict::Deny { by, .. } => {
                 let heads = self.engine.program.objects.heads();
                 let o = &heads[object];
@@ -1033,7 +1033,7 @@ impl Session {
                     6 => "XmlPort",
                     9 => "Query",
                     _ => {
-                        return Err(Signal::Unsupported(unpinned_denial(
+                        return Err(Signal::unsupported(unpinned_denial(
                             access,
                             "an Execute denial on a page: BC ends with FormAbort:Permission when it opens (probe P20)",
                         )));
@@ -1081,7 +1081,7 @@ impl Session {
         let system_by_wildcard =
             kind == 10 && SYSTEM_OBJECTS_MEASURED.contains(&id) && eff.content.unread_system.is_empty();
         if !matches!(kind, 0 | 1 | 3 | 5 | 6 | 8 | 9) && !system_by_wildcard {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "GetEffectivePermission of an object of type {kind} under assigned permission sets (only TableData, Table, Report, Codeunit, XmlPort, Page and Query are pinned, ADR-062 probe P22)"
             )));
         }
@@ -1108,7 +1108,7 @@ impl Session {
             }
         }
         if !eff.complete && out.contains(&0) {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "GetEffectivePermission under assigned permission sets that are not fully composed, so BC may grant more: {}",
                 eff.why_incomplete.join("; ")
             )));
@@ -1141,7 +1141,7 @@ impl Session {
                 "the permission sets changed while a page with AccessByPermission was open (not pinned, ADR-062 probe P21)".into(),
             ));
         }
-        let g = crate::platform::parse_guard(&self.engine, guard).map_err(Signal::Unsupported)?;
+        let g = crate::platform::parse_guard(&self.engine, guard).map_err(Signal::unsupported)?;
         let ops = [Op::Read, Op::Insert, Op::Modify, Op::Delete, Op::Execute];
         // The control is there when the session holds at least one letter of the mask at level Yes; a level of Indirect does
         // not count (Y84PermAbp.al Y84_Abp_LettersA/B: guard RIMD under a set with only R is there, an indirect-only session
@@ -1173,7 +1173,7 @@ impl Session {
         if eff.complete {
             Ok(true)
         } else {
-            Err(Signal::Unsupported(format!(
+            Err(Signal::unsupported(format!(
                 "AccessByPermission under assigned permission sets that are not fully composed, so BC may grant it: {}",
                 eff.why_incomplete.join("; ")
             )))
@@ -1202,14 +1202,14 @@ impl Session {
         };
         match self.permission_verdict(access, Some(table), true) {
             Verdict::Allow => Ok(()),
-            Verdict::Refuse(why) => Err(Signal::Unsupported(why)),
-            Verdict::Deny { .. } if self.permission_page_calc => Err(Signal::Unsupported(unpinned_denial(
+            Verdict::Refuse(why) => Err(Signal::unsupported(why)),
+            Verdict::Deny { .. } if self.permission_page_calc => Err(Signal::unsupported(unpinned_denial(
                 access,
                 "a page control over a FlowField the session cannot read: BC leaves the control off the page",
             ))),
             Verdict::Deny { by, .. } => {
                 if id >= 2_000_000_000 {
-                    return Err(Signal::Unsupported(unpinned_denial(
+                    return Err(Signal::unsupported(unpinned_denial(
                         access,
                         "a FlowField over a system table",
                     )));
@@ -1217,9 +1217,9 @@ impl Session {
                 let src_t = self.engine.tables[table].clone().expect("table");
                 let cx = self.cx_for(rec, &src_t)?;
                 let rows = al_data::Store::count(&*self.store_for(rec), &cx, &src_t, &[])
-                    .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+                    .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
                 if rows == 0 {
-                    return Err(Signal::Unsupported(unpinned_denial(
+                    return Err(Signal::unsupported(unpinned_denial(
                         access,
                         "a FlowField over an empty source table; Y24PermReads.al pins it with rows",
                     )));
@@ -1263,7 +1263,7 @@ impl Session {
         if eff.complete {
             Ok(true)
         } else {
-            Err(Signal::Unsupported(format!(
+            Err(Signal::unsupported(format!(
                 "a part page under assigned permission sets that are not fully composed, so BC may execute it: {}",
                 eff.why_incomplete.join("; ")
             )))
@@ -1289,8 +1289,8 @@ impl Session {
                 self.shadow_note("unknown", "flowfield page control", &why);
                 Ok(false)
             }
-            Verdict::Refuse(why) => Err(Signal::Unsupported(why)),
-            Verdict::Deny { .. } if id >= 2_000_000_000 => Err(Signal::Unsupported(unpinned_denial(
+            Verdict::Refuse(why) => Err(Signal::unsupported(why)),
+            Verdict::Deny { .. } if id >= 2_000_000_000 => Err(Signal::unsupported(unpinned_denial(
                 access,
                 "a page control over a FlowField of a system table",
             ))),
@@ -1334,13 +1334,13 @@ impl Session {
             }
             match self.permission_verdict(access, Some(table), false) {
                 Verdict::Allow => {}
-                Verdict::Refuse(why) => return Err(Signal::Unsupported(why)),
+                Verdict::Refuse(why) => return Err(Signal::unsupported(why)),
                 Verdict::Deny { indirect, by } => {
                     let t = self.engine.tables[table].clone().expect("table");
                     let rows = al_data::Store::count(&self.store, &self.cx, &t, &[])
-                        .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+                        .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
                     if id >= 2_000_000_000 {
-                        return Err(Signal::Unsupported(unpinned_denial(
+                        return Err(Signal::unsupported(unpinned_denial(
                             access,
                             "an object reading a system table",
                         )));
@@ -1400,7 +1400,7 @@ impl Session {
         self.permission_caller = None;
         match verdict {
             Verdict::Allow => Ok(()),
-            Verdict::Refuse(why) => Err(Signal::Unsupported(why)),
+            Verdict::Refuse(why) => Err(Signal::unsupported(why)),
             Verdict::Deny { indirect, by } => self.write_denied(method, rec, args, access, indirect, by, from_al),
         }
     }
@@ -1428,7 +1428,7 @@ impl Session {
     ) -> Result<(), Signal> {
         use al_builtins::record_op::RecordOp as R;
         use al_builtins::value::Value;
-        let refuse = |why: &str| Err(Signal::Unsupported(unpinned_denial(access, why)));
+        let refuse = |why: &str| Err(Signal::unsupported(unpinned_denial(access, why)));
         if !Stage::of(access.op).on_by_default() {
             return refuse("ADR-062 stage 3, probes P20-P22");
         }
@@ -1465,7 +1465,7 @@ impl Session {
                 let t = self.table(rec)?;
                 let cx = self.cx_for(rec, &t)?;
                 let rows = al_data::Store::count(&*self.store_for(rec), &cx, &t, &[])
-                    .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+                    .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
                 let triggers = match method {
                     R::ModifyAll => args.len() > 2 && matches!(args.last(), Some(Value::Boolean(true))),
                     _ => matches!(args.last(), Some(Value::Boolean(true))),
@@ -1511,7 +1511,7 @@ impl Session {
         // (reports/runtime/UPropertyTests.al Report_RequestPagePermissions_AndInherentPermissions and the test
         // after it, Query_InherentPermissions_UnderTheMock). Report permissions are not pinned (P17).
         if let Some(why) = &self.report_refusal_after_denial {
-            return Signal::Unsupported(unpinned_denial(
+            return Signal::unsupported(unpinned_denial(
                 access,
                 &format!("the test goes on to a report that cannot run ({why})"),
             ));
@@ -1563,7 +1563,7 @@ impl Session {
         let t = self.table(rec)?;
         let cx = self.cx_for(rec, &t)?;
         let total = al_data::Store::count(&*self.store_for(rec), &cx, &t, &[])
-            .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+            .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
         Ok(total == 0)
     }
 
@@ -1577,11 +1577,11 @@ impl Session {
         by: usize,
     ) -> Result<(), Signal> {
         use al_builtins::record_op::RecordOp as R;
-        let refuse = |why: &str| Err(Signal::Unsupported(unpinned_denial(access, why)));
+        let refuse = |why: &str| Err(Signal::unsupported(unpinned_denial(access, why)));
         let t = self.table(rec)?;
         let cx = self.cx_for(rec, &t)?;
         let total = al_data::Store::count(&*self.store_for(rec), &cx, &t, &[])
-            .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+            .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
         if total == 0 {
             // Pinned for a table of the app under test (Y24PermReads.al Y24_P14_ReadShapesEmptyTable). A table of a dependency
             // app that is empty here may hold rows in BC's Cronus database (Y69SystemGrants.al Y69_SY_ReporterShapes reads
@@ -1614,7 +1614,7 @@ impl Session {
             }
             let cx = self.cx_for(rec, &t)?;
             let found = al_data::Store::get(&*self.store_for(rec), &cx, &t, &pk)
-                .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+                .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
             return if found.is_some() {
                 Err(self.denial_error(access, "Read", "Read", by))
             } else {
@@ -1638,7 +1638,7 @@ impl Session {
             }];
             let cx = self.cx_for(rec, &t)?;
             let found = al_data::Store::count(&*self.store_for(rec), &cx, &t, &filters)
-                .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+                .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
             return if found > 0 && *g != [0; 16] {
                 Err(self.denial_error(access, "Read", "Read", by))
             } else {
@@ -1665,7 +1665,7 @@ impl Session {
             return refuse("a read with a FlowField filter or marked records only");
         }
         let n = al_data::Store::count(&*self.store_for(rec), &cx, &t, &filters)
-            .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+            .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
         if n == 0 {
             // FindFirst with a filter that matches no row is denied (AEDependencyTableReads.al `Customer_filter_no_match`); the
             // other methods are not pinned for it.
@@ -1742,7 +1742,7 @@ impl Session {
             t.keys[0].iter().map(|&i| r.fields[i].clone()).collect()
         };
         let found = al_data::Store::get(&*self.store_for(rec), &cx, &t, &pk)
-            .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+            .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
         Ok(found.is_some())
     }
 

@@ -29,7 +29,7 @@ fn run(src: &str, routine: &str) -> Result<Value, Signal> {
     let blocked: Vec<Vec<Option<String>>> = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
     let ri = l.program.objects[oi]
@@ -45,7 +45,12 @@ fn run(src: &str, routine: &str) -> Result<Value, Signal> {
 
 fn reasons(src: &str) -> Vec<String> {
     let (_, l) = compile(src);
-    l.unsupported.iter().flatten().flatten().cloned().collect()
+    l.unsupported
+        .iter()
+        .flatten()
+        .flatten()
+        .map(|r| r.to_string())
+        .collect()
 }
 
 #[test]

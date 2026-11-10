@@ -394,7 +394,7 @@ impl Session {
                     return unsupported("OptionCaptionML on a page that has not opened");
                 };
                 let list = al_builtins::format::ml_text_in_language(&ml, language)
-                    .map_err(|e| Signal::Unsupported(format!("OptionCaptionML on a page field {e}")))?;
+                    .map_err(|e| Signal::unsupported(format!("OptionCaptionML on a page field {e}")))?;
                 f.option_captions = Some(list.split(',').map(str::to_string).collect());
             }
         }
@@ -650,7 +650,7 @@ impl Session {
         let row = self
             .store
             .get(&self.cx, &t, &[key])
-            .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+            .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
         Ok(row.is_some())
     }
 
@@ -683,7 +683,7 @@ impl Session {
             Ok(key) => self
                 .store
                 .get(&self.cx, &t, &[key])
-                .map_err(|e| Signal::Unsupported(format!("store error {e}")))?,
+                .map_err(|e| Signal::unsupported(format!("store error {e}")))?,
             Err(_) => None,
         };
         let Some(row) = row else {
@@ -748,7 +748,7 @@ impl Session {
         let row = self
             .store
             .get(&self.cx, &t, &[key])
-            .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+            .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
         let Some(row) = row else {
             return refused("General Ledger Setup has no row");
         };
@@ -942,7 +942,7 @@ impl Session {
                             }
                             Value::Decimal(d) => Value::Text(
                                 al_builtins::format::try_format(&Value::Decimal(d.normalize()), 0, 0, self)
-                                    .map_err(Signal::Unsupported)?
+                                    .map_err(Signal::unsupported)?
                                     .into(),
                             ),
                             _ => unreachable!(),

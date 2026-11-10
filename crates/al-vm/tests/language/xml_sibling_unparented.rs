@@ -139,3 +139,35 @@ fn replace_with_removes_a_text_like_node_first() {
         "Argument|No|<r>\r\n  <a />\r\n  <b />\r\n</r>|Yes|<r>\r\n  <a />\r\n  <b />\r\n</r>"
     );
 }
+
+#[test]
+fn a_sibling_operation_on_an_attribute_is_refused_with_its_text() {
+    // xml/edit.rs `position_in_parent`: an attribute has an owner element but is no child of it; no corpus case
+    // pins a sibling operation there. ADR-071 step 1 keeps this text while the site gets a key.
+    let src = "codeunit 50100 C { procedure F(): Text var E: XmlElement; A: XmlAttribute; begin
+        E := XmlElement.Create('r'); A := XmlAttribute.Create('x', '2'); E.Add(A);
+        A.AddAfterSelf(XmlElement.Create('b')); exit('ok'); end; }";
+    let r = al_testkit::run_with(src, "C", "F", vec![]).map(|(v, _)| v);
+    match r {
+        Err(al_builtins::native::Signal::Unsupported(why)) => {
+            assert_eq!(why, "a sibling operation on an attribute or declaration")
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_refused_xml_sibling_operation_carries_its_key() {
+    // ADR-071 step 1: the proof site of the refusal key registry (al-builtins/src/refusals/).
+    let src = "codeunit 50100 C { procedure F(): Text var E: XmlElement; A: XmlAttribute; begin
+        E := XmlElement.Create('r'); A := XmlAttribute.Create('x', '2'); E.Add(A);
+        A.AddBeforeSelf(XmlElement.Create('b')); exit('ok'); end; }";
+    let r = al_testkit::run_with(src, "C", "F", vec![]).map(|(v, _)| v);
+    match r {
+        Err(al_builtins::native::Signal::Unsupported(why)) => {
+            assert_eq!(why.key(), "xml.sibling.attribute-or-declaration");
+            assert_eq!(why.area(), "xml");
+        }
+        other => panic!("{other:?}"),
+    }
+}

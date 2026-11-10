@@ -33,7 +33,7 @@ const TENANT_REPORT_LAYOUT: u32 = 2_000_000_232;
 const TENANT_REPORT_DEFAULTS: u32 = 2_000_000_001;
 
 fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(format!(
+    Err(Signal::unsupported(format!(
         "Tenant Report Layout Cfg: {}",
         what.into()
     )))
