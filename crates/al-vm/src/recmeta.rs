@@ -4,7 +4,7 @@
 
 use crate::Session;
 use al_builtins::describe::Describe;
-use al_builtins::native::{AlError, Signal};
+use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{RecordState, RtType, Value};
@@ -14,10 +14,6 @@ use std::cmp::Ordering;
 use std::rc::Rc;
 
 type Rec = Rc<RefCell<RecordState>>;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 /// [`error`] with the text `GetLastErrorText(true)` answers for it.
 fn error_redacted(message: String, code: &str, redacted: String) -> Signal {
@@ -161,7 +157,7 @@ impl Session {
                         .find(|(ord, _, _)| ord == o)
                         .map_or_else(|| o.to_string(), |(_, _, caption)| caption.clone()))
                 }
-                _ => al_builtins::format::try_format(value, 0, 0, self).map_err(Signal::Unsupported),
+                _ => al_builtins::format::try_format(value, 0, 0, self).map_err(Signal::unsupported),
             }
         };
         if let Some(pos) = only {
@@ -379,11 +375,11 @@ impl Session {
             // A Duration reads as Format gives it: `41 days 16 hours`, `1 second`, the zero Duration as nothing (`''` in a filter
             // text; recordref-fieldref/fieldref/TestFieldRefFilter.al FieldRef_SetFilter_Zero_Duration, corpus PR 1248).
             | Value::Duration(_)
-            | Value::DateFormula(_) => al_builtins::format::try_format(v, 0, 0, self).map_err(Signal::Unsupported),
+            | Value::DateFormula(_) => al_builtins::format::try_format(v, 0, 0, self).map_err(Signal::unsupported),
             // A RecordId reads as Format gives it (`Table: key`, record/TestProbeRecordRefContracts.al:472-502); an error
             // message shows it the same way (record/filters/RecordIdInMessage.al:P168_Error_RecordIdAsArgument_PlainKey and siblings).
             Value::Library(al_builtins::library_kind::LibraryKind::RecordId, _) => {
-                al_builtins::format::try_format(v, 0, 0, self).map_err(Signal::Unsupported)
+                al_builtins::format::try_format(v, 0, 0, self).map_err(Signal::unsupported)
             }
             other => unsupported(format!("a {} value in an error message", other.describe())),
         }
@@ -1583,7 +1579,7 @@ impl Session {
                     .as_ref()
                     .expect("table");
                 if let Some(why) = &from_schema.fields[sp].tdd_length_unknown {
-                    return Err(Signal::Unsupported(why.clone()));
+                    return Err(Signal::unsupported(why.clone()));
                 }
                 return Err(self.transfer_too_small(rec, t, &from, (dp, sp), updates));
             }
@@ -1866,7 +1862,7 @@ impl Session {
                         after: None,
                     },
                 )
-                .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                .map_err(|e| Signal::unsupported(format!("{e}")))?
         };
         match found {
             Some(row) => {
@@ -1893,7 +1889,7 @@ impl Session {
             // (PXEnumRecordRef.al:264-267; the probe masks what stands between the braces, here
             // the Guid as Format writes it: docs/probes-needed.md).
             None => {
-                let id = al_builtins::format::try_format(&Value::Guid(*g), 0, 0, self).map_err(Signal::Unsupported)?;
+                let id = al_builtins::format::try_format(&Value::Guid(*g), 0, 0, self).map_err(Signal::unsupported)?;
                 Err(Signal::Error(Box::new(AlError {
                     message: format!(
                         "The {} does not exist. Identification fields and values: {id}",
@@ -2406,7 +2402,7 @@ pub(crate) fn tdd_fits(f: &al_ir::Field, v: &Value) -> Result<(), Signal> {
         return Ok(());
     };
     match v {
-        Value::Text(s) | Value::Code(s) if Value::text_len(s) > max as usize => Err(Signal::Unsupported(why.clone())),
+        Value::Text(s) | Value::Code(s) if Value::text_len(s) > max as usize => Err(Signal::unsupported(why.clone())),
         _ => Ok(()),
     }
 }

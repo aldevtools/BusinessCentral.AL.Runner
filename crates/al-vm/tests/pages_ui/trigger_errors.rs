@@ -221,7 +221,7 @@ fn case(name: &str) -> String {
 
 fn refused(name: &str) -> String {
     match al_testkit::run_in(SRC, "C", name) {
-        Err(Signal::Unsupported(why)) => why,
+        Err(Signal::Unsupported(why)) => why.into_reason(),
         other => panic!("expected a refusal, got {other:?}"),
     }
 }

@@ -1955,7 +1955,7 @@ impl Session {
     pub fn call_parameterless_subscriber(&mut self, object: usize, routine: usize) -> Result<(), Signal> {
         let r = &self.engine.program.objects[object].routines[routine];
         if r.params != 0 {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "subscriber {}.{} declares parameters, and the event it subscribes to has none",
                 self.engine.program.objects[object].name, r.name
             )));
@@ -2238,7 +2238,7 @@ impl Session {
             self.permission_gate_call(object, routine, &instance)?;
         }
         if let Some(Some(reason)) = self.engine.blocked.get(object).and_then(|o| o.get(routine)) {
-            return Err(Signal::Unsupported(reason.clone()));
+            return Err(Signal::unsupported(reason.clone()));
         }
         // A report procedure that names the request page's `Rec`, called while OnInitReport runs: in OnInitReport itself a read
         // of Rec raises ReportRequestPageNotInitialized (reports/request-page/YRequestPageTests.al:551); through a procedure
@@ -2539,7 +2539,7 @@ impl Session {
                 match transactions::CommitBehavior::from_attribute(&a.text) {
                     Some(b) => self.tx.commit_behavior = self.tx.commit_behavior.nested(b),
                     None => {
-                        return Err(Signal::Unsupported(format!(
+                        return Err(Signal::unsupported(format!(
                             "{} (only Ignore and Error are pinned)",
                             a.text
                         )));
@@ -2595,7 +2595,7 @@ impl Session {
             self.run_chunk(chunk, &mut frame)
         } else {
             // The bytecode names a register with 16 bits; a routine that needs more is refused, never run in part.
-            Err(Signal::Unsupported(format!(
+            Err(Signal::unsupported(format!(
                 "routine `{}` needs more than 65,535 registers (locals and temporaries); the executable form cannot name them",
                 r.name
             )))
@@ -2628,7 +2628,7 @@ impl Session {
         self.end_trap_scope(&frame, r.params, &r.by_var);
         if let Some(why) = self.end_unpinned_page_scope(&frame, r.params, &r.by_var) {
             self.fault_site_lost = true;
-            outcome = Err(Signal::Unsupported(why));
+            outcome = Err(Signal::unsupported(why));
         }
         outcome = self.close_test_pages_at_test_end(&frame, r, outcome);
         let ret = match outcome {
@@ -2679,7 +2679,7 @@ impl Session {
                 "Der Ausdruck Microsoft.Dynamics.Nav.Runtime.NavIndirectValue kann nicht in einen Microsoft.Dynamics.Nav.Runtime.NavText-Wert typkonvertiert werden.",
                 "TypeConversion",
             ),
-            (lang, _) => Signal::Unsupported(format!(
+            (lang, _) => Signal::unsupported(format!(
                 "the TypeConversion text of a Variant into {kind} in language {lang} (not pinned)"
             )),
         }
@@ -2819,8 +2819,8 @@ fn int(v: &Value) -> Result<i64, Signal> {
         Value::Option(n, _) => Ok(i64::from(*n)),
         // A Decimal with a whole value is a for-loop bound (`for x := 1 to ServLine."Qty. to Ship"`); a fractional one is not pinned.
         Value::Decimal(d) if d.fract() == rust_decimal::Decimal::ZERO => rust_decimal::prelude::ToPrimitive::to_i64(d)
-            .ok_or_else(|| Signal::Unsupported(format!("Decimal {d} used as an integer"))),
-        other => Err(Signal::Unsupported(format!("{} used as an integer", other.describe()))),
+            .ok_or_else(|| Signal::unsupported(format!("Decimal {d} used as an integer"))),
+        other => Err(Signal::unsupported(format!("{} used as an integer", other.describe()))),
     }
 }
 

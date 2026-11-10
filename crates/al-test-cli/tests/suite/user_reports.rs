@@ -32,7 +32,7 @@ pub(crate) fn run_with_deps(apps: &[&str], objects: &str) -> Vec<(String, Outcom
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
     run_codeunit(&engine, &l, oi)
@@ -261,7 +261,7 @@ fn codes_and_outcomes(apps: &[&str], objects: &str) -> (Vec<&'static str>, Vec<(
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
     (codes, run_codeunit(&engine, &l, oi))
@@ -1662,7 +1662,7 @@ fn run_over_system(
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let mut program = (*l.program).clone();
     for a in program.apps.iter_mut() {

@@ -28,8 +28,8 @@ type Rec = Rc<RefCell<al_builtins::value::RecordState>>;
 /// A table, the rows a scan kept, and the buffer it read them with.
 type Scanned = (Arc<TableDef>, Vec<Vec<Value>>, Rec);
 
-fn refuse<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
+fn refuse<T>(what: impl Into<al_builtins::refusal::Refusal>) -> Result<T, Signal> {
+    Err(Signal::unsupported(what))
 }
 
 fn int(args: &[Value], i: usize, method: &str) -> Result<i32, Signal> {
@@ -221,7 +221,7 @@ impl Session {
                 return refuse("DataTransfer.CopyRows onto a row that already exists (not pinned)");
             }
             Store::insert(&mut self.store, &cx, &dt, row)
-                .map_err(|e| Signal::Unsupported(format!("DataTransfer.CopyRows: {e}")))?;
+                .map_err(|e| Signal::unsupported(format!("DataTransfer.CopyRows: {e}")))?;
         }
         Ok(())
     }
@@ -281,7 +281,7 @@ impl Session {
         let cx = self.cx_for(&drec, &dt)?;
         for row in changed {
             Store::modify(&mut self.store, &cx, &dt, row)
-                .map_err(|e| Signal::Unsupported(format!("DataTransfer.CopyFields: {e}")))?;
+                .map_err(|e| Signal::unsupported(format!("DataTransfer.CopyFields: {e}")))?;
         }
         Ok(())
     }

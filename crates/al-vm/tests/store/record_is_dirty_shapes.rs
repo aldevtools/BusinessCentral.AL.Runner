@@ -77,7 +77,7 @@ fn got(vars: &str, body: &str) -> String {
 
 fn refused(vars: &str, body: &str) -> String {
     match run(&with(vars, body), "Probe") {
-        Err(al_builtins::native::Signal::Unsupported(why)) => why,
+        Err(al_builtins::native::Signal::Unsupported(why)) => why.into_reason(),
         other => panic!("expected a refusal, got {other:?}"),
     }
 }

@@ -1,6 +1,8 @@
 //! Inserting, detaching and replacing nodes in a tree.
 
 use super::*;
+use crate::refusal::keys;
+use crate::refuse;
 
 /// Nodes from `Content: Any*` arguments; a node that already has a parent is copied.
 pub(super) fn content_nodes(args: &[Value]) -> Result<Vec<Handle>, Signal> {
@@ -254,7 +256,7 @@ pub(super) fn unparented_sibling_error(h: &Handle, args: &[Value]) -> Signal {
                         if name == "XmlNode" {
                             return uninitialized("XmlNode");
                         }
-                        return Signal::Unsupported(format!(
+                        return Signal::unsupported(format!(
                             "a sibling operation on a document with an unassigned {name} argument (not pinned)"
                         ));
                     }
@@ -295,6 +297,9 @@ pub(super) fn position_in_parent(h: &Handle, args: &[Value]) -> Result<(Handle, 
             "The requested operation cannot be performed in this context.",
             "InvalidOperation",
         )),
-        None => unsupported("a sibling operation on an attribute or declaration"),
+        None => unsupported(refuse!(
+            keys::XML_SIBLING_ATTRIBUTE_OR_DECLARATION,
+            "a sibling operation on an attribute or declaration"
+        )),
     }
 }

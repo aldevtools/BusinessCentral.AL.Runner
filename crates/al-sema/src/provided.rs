@@ -71,7 +71,7 @@ pub struct DepFacts {
     /// How many source positions the object has (ADR-054): a run keeps their ids free and reads them with the block.
     pub positions: u32,
     /// Per routine: why it cannot run (empty: it can).
-    pub unsupported: Vec<Vec<String>>,
+    pub unsupported: Vec<Vec<al_builtins::refusal::Refusal>>,
     /// Per routine: the routines it calls directly, as (object, routine). What a variable of a
     /// page, report or xmlport can drive is added when asked (`Lowered::calls_of`), from `drivers`.
     pub calls: Vec<Vec<(u32, u32)>>,
@@ -666,6 +666,56 @@ codeunit 60004 WUse { procedure W() var R: Record T; begin R.WX := 1; R.DX := 2;
         assert_eq!(eager.dependency, cached.dependency);
         assert_heads_match(&set, &cached);
         relowered
+    }
+
+    /// What `compile_dump` prints of the refusal lists (`{:?}` and the JSON it hashes): lists of plain strings. ADR-071
+    /// step 1 changes the type of the lists and must keep both forms.
+    #[test]
+    fn the_refusal_lists_dump_as_lists_of_strings() {
+        let src = "codeunit 50100 C { procedure P() var X: DotNet Missing; begin end; procedure Q() begin end; }";
+        let roots = Roots {
+            eager: true,
+            ..Default::default()
+        };
+        let apps = vec![app("w", &[], src)];
+        let (_, l) = compile_apps_with(apps, vec![AppKind::Workspace], &BTreeSet::new(), None, roots);
+        let debug = format!("{:?}", l.unsupported);
+        let json = serde_json::to_string(&l.unsupported).unwrap();
+        let why = "`X`: DotNet 'Missing' has no dotnet { } declaration in this app or its dependencies";
+        assert_eq!(debug, format!("[[[\"{why}\"], []]]"));
+        assert_eq!(json, format!("[[[\"{why}\"],[]]]"));
+    }
+
+    /// ADR-071 conformance: a refusal the compile cache stores comes back with its key and text (postcard, the cache's
+    /// format), and in JSON a legacy one stays a plain string.
+    #[test]
+    fn a_stored_refusal_round_trips_with_its_key() {
+        use al_builtins::refusal::{KeyInfo, Probe, Refusal, RefusalKey};
+        const KEY: RefusalKey = RefusalKey::new(&KeyInfo {
+            name: "KEY",
+            key: "compile.test.only-key",
+            probe: Probe::Wanted,
+        });
+        let facts = DepFacts {
+            unsupported: vec![
+                vec![Refusal::from("free text"), Refusal::keyed(KEY, "keyed text".into())],
+                vec![],
+            ],
+            ..Default::default()
+        };
+        let bytes = postcard::to_stdvec(&facts).unwrap();
+        let back: DepFacts = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(back, facts);
+        let r = &back.unsupported[0];
+        assert_eq!((r[0].key(), r[0].reason()), ("legacy", "free text"));
+        assert_eq!((r[1].key(), r[1].reason()), ("compile.test.only-key", "keyed text"));
+        let json = serde_json::to_string(&facts.unsupported).unwrap();
+        assert_eq!(
+            json,
+            r#"[["free text",{"key":"compile.test.only-key","reason":"keyed text"}],[]]"#
+        );
+        let back: Vec<Vec<Refusal>> = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, facts.unsupported);
     }
 
     fn deps() -> Vec<AppSource> {

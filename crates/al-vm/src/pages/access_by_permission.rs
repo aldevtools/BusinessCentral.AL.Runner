@@ -33,7 +33,7 @@ impl Session {
         {
             let engine = self.engine();
             let page = page_of(&engine, st);
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "TestPage {} on actionref `{}` of action `{}`, which AccessByPermission leaves off the page under the session's permission sets (not pinned, ADR-062 probe P21)",
                 m.name(),
                 page.controls[idx].name,

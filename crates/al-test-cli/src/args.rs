@@ -103,6 +103,8 @@ pub struct Args {
     pub list_assumptions: bool,
     /// `--assumptions-doc`: rewrite the generated table of `docs/probes-needed.md` from the registry, then stop.
     pub assumptions_doc: bool,
+    /// `--refusals-doc`: rewrite the refusal keys table of `docs/probes-needed.md` from the key lists, then stop.
+    pub refusals_doc: bool,
     /// `--awaiting-assumptions`: check the assumptions that wait for a corpus pin against the pinned corpus.
     pub awaiting_assumptions: bool,
     /// `--summary` (with `--awaiting-assumptions`): one line, the oldest entry first.
@@ -190,6 +192,10 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
         }
         if flag == "--assumptions-doc" {
             a.assumptions_doc = true;
+            continue;
+        }
+        if flag == "--refusals-doc" {
+            a.refusals_doc = true;
             continue;
         }
         if flag == "--awaiting-assumptions" {
@@ -416,6 +422,8 @@ DIAGNOSE
                               run, then stop
   --assumptions-doc           rewrite the generated table of docs/probes-needed.md from the registry
                               of unprobed assumptions, then stop
+  --refusals-doc              rewrite the refusal keys table of docs/probes-needed.md from the
+                              refusal key lists (ADR-071), then stop
   --awaiting-assumptions      the assumptions that wait for a corpus pin (`awaiting` in the registry):
                               when every awaited file is in the pinned corpus, run those files and
                               fail with one line per assumption, `the pin landed: remove the
@@ -538,6 +546,12 @@ mod tests {
     fn assumptions_doc_is_a_flag() {
         assert!(run(&["--assumptions-doc"]).unwrap().assumptions_doc);
         assert!(!run(&["--no-deps"]).unwrap().assumptions_doc);
+    }
+
+    #[test]
+    fn refusals_doc_is_a_flag() {
+        assert!(run(&["--refusals-doc"]).unwrap().refusals_doc);
+        assert!(!run(&["--assumptions-doc"]).unwrap().refusals_doc);
     }
 
     #[test]

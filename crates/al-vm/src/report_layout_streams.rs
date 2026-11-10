@@ -1,12 +1,8 @@
 //! `Report.RdlcLayout`, `WordLayout` and `ExcelLayout` of a report with a rendering section (reports/runtime/TrlResourceRows.al).
 
 use crate::Session;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::Value;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 impl Session {
     /// The bytes of the RDLC layout file report `object` names with `DefaultRenderingLayout`, when it declares no

@@ -25,6 +25,7 @@ mod values;
 use crate::describe::Describe;
 use crate::format::{FormatCtx, FormatFail, format_value, try_format};
 use crate::record_op::RecordOp;
+use crate::refusal::Refusal;
 use crate::value::{LibraryValue, Value};
 use dialog::{dialog_close, dialog_hide_subsequent, dialog_open, dialog_update};
 use std::rc::Rc;

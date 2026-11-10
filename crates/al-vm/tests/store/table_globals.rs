@@ -275,7 +275,7 @@ fn run(body: &str, routine: &str) -> Result<Value, Signal> {
     let blocked: Vec<Vec<Option<String>>> = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
     let ri = l.program.objects[oi]
@@ -290,7 +290,7 @@ fn run(body: &str, routine: &str) -> Result<Value, Signal> {
             continue;
         }
         if let Some(why) = l.unsupported[o][r].first() {
-            return Err(Signal::Unsupported(why.clone()));
+            return Err(Signal::unsupported(why.clone()));
         }
     }
     let engine = Engine::new(l.program, blocked);

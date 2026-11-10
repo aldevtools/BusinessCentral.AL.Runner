@@ -4,13 +4,9 @@
 use crate::Session;
 use crate::records::{RUN_PAGE_LINK_OPEN, RUN_PAGE_LINK_OPEN_FILLED, Rec, arg_pos};
 use al_builtins::filter::FieldFilter;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::Value;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 impl Session {
     /// A record method on Rec in the OnOpenPage of a page an action opens through `RunPageLink`. Real BC fills the linked fields

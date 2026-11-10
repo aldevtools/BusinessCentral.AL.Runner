@@ -303,7 +303,7 @@ impl Session {
                 }
                 Op::Fault { k } => {
                     return Err(match &chunk.faults[k as usize] {
-                        FaultKind::Unsupported(why) => Signal::Unsupported(why.clone()),
+                        FaultKind::Unsupported(why) => Signal::unsupported(why.clone()),
                         FaultKind::Error { message, code } => Signal::Error(Box::new(al_builtins::native::AlError {
                             message: message.clone(),
                             code: code.clone(),
@@ -654,7 +654,7 @@ impl Session {
     fn op_char_at(&mut self, f: &mut Frame, d: u16, a: u16, b: u16, nl: u16) -> Result<(), Signal> {
         let v = {
             let Some(t) = al_builtins::native::text_of(&f.locals[a as usize]) else {
-                return Err(Signal::Unsupported(format!(
+                return Err(Signal::unsupported(format!(
                     "indexing {} as a text",
                     f.locals[a as usize].describe()
                 )));
@@ -707,7 +707,7 @@ impl Session {
             AuxSite::QueryColumn { column } => self.query_column(v, *column)?,
             AuxSite::Fit { max, why } => match &v {
                 Value::Text(s) | Value::Code(s) if Value::text_len(s) > *max as usize => {
-                    return Err(Signal::Unsupported(why.clone()));
+                    return Err(Signal::unsupported(why.clone()));
                 }
                 _ => v,
             },
@@ -961,7 +961,7 @@ impl Session {
     fn name_builtin_refusal(site: &BuiltinSite, e: Signal) -> Signal {
         match e {
             Signal::Unsupported(m) if m.starts_with("text argument ") => {
-                Signal::Unsupported(format!("{}: {m}", site.id.name()))
+                Signal::unsupported(format!("{}: {m}", site.id.name()))
             }
             other => other,
         }
@@ -1093,7 +1093,7 @@ impl Session {
             return self.vm_class_call(site.id, site.class, recv, values, site.ret_used, f);
         }
         let Some(native) = site.native else {
-            return Err(Signal::Unsupported(format!("builtin {}", site.id)));
+            return Err(Signal::unsupported(format!("builtin {}", site.id)));
         };
         let dotnet_stream = self.dotnet_stream_into_instream(site.id, &mut values)?;
         if matches!(

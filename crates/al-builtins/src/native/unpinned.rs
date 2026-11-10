@@ -67,10 +67,10 @@ pub(super) fn unpinned_refusal(e: &AlError, what: &str) -> Signal {
         .strip_prefix(UNPINNED_ERROR)
         .map(|p| p.trim_start_matches(PINNED_CODE));
     match probe.filter(|p| !p.is_empty()) {
-        Some(probe) => Signal::Unsupported(format!(
+        Some(probe) => Signal::unsupported(format!(
             "{what} of an error whose text is not pinned (probe wanted: {probe}, docs/probes-needed.md)"
         )),
-        None => Signal::Unsupported(format!("{what} of an error whose text is not pinned")),
+        None => Signal::unsupported(format!("{what} of an error whose text is not pinned")),
     }
 }
 

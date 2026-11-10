@@ -127,7 +127,7 @@ fn run_with(fixtures: &str, body: &str, routine: &str, enums: &[(&str, i32)]) ->
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect::<Vec<_>>())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect::<Vec<_>>())
         .collect::<Vec<_>>();
     let oi = l.program.objects.iter().position(|o| o.name == "T").expect("object");
     let ri = l.program.objects[oi]

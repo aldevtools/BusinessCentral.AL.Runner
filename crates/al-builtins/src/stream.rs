@@ -13,7 +13,7 @@
 //! Windows-1252 unless an encoding says otherwise (:WriteText_DefaultEncodingIsWindows1252_NotUtf8).
 
 use crate::describe::Describe;
-use crate::native::{Ctx, NativeFn, Signal, raise};
+use crate::native::{Ctx, NativeFn, Signal, raise, unsupported};
 use crate::signature::Signature;
 use crate::value::{LibraryValue, Value};
 use std::cell::RefCell;
@@ -279,9 +279,9 @@ pub fn render_pending_error(report: &str) -> Signal {
     }
     // ADR-044 uses the same mark for the picture a `System.Drawing.Bitmap` was asked to save: the name is the .NET type.
     if report.starts_with("System.Drawing.") {
-        return Signal::Unsupported(format!("picture drawn by {report} is not produced"));
+        return Signal::unsupported(format!("picture drawn by {report} is not produced"));
     }
-    Signal::Unsupported(format!("rendered output of report {report} is not produced"))
+    Signal::unsupported(format!("rendered output of report {report} is not produced"))
 }
 
 /// Records that AL looked at a pending buffer.
@@ -919,10 +919,6 @@ impl InState {
 }
 
 type NResult = Result<Value, Signal>;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 fn blob_of(r: Option<&mut Value>) -> Result<BlobRef, Signal> {
     match r {

@@ -65,7 +65,7 @@ impl Session {
         let stored = self
             .store_for(rec)
             .get(&cx, &t, &pk)
-            .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+            .map_err(|e| Signal::unsupported(format!("{e}")))?;
         Ok(stored.is_none().then_some((t, fields, have)))
     }
 

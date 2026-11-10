@@ -20,7 +20,7 @@ use al_builtins::native::Signal;
 use al_builtins::value::Value;
 
 fn unpinned<T>(why: &str) -> Result<T, Signal> {
-    Err(Signal::Unsupported(format!("MakeDateFilter: {why} (not pinned)")))
+    Err(Signal::unsupported(format!("MakeDateFilter: {why} (not pinned)")))
 }
 
 impl Session {
@@ -161,7 +161,7 @@ impl Session {
     ) -> Result<Option<String>, Signal> {
         let t = text.trim();
         let refuse = || {
-            Err(Signal::Unsupported(format!(
+            Err(Signal::unsupported(format!(
                 "SetFilter of `{t}`, which does not evaluate, with {} subscribers (whether BC raises the event for it is not pinned)",
                 event_name(event)
             )))

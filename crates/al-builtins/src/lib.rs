@@ -74,6 +74,7 @@ pub mod querybuiltins;
 pub mod record_into_recordref;
 pub mod record_op;
 pub mod refs;
+pub mod refusal;
 pub mod sessionfns;
 pub mod sessiontypes;
 pub mod sqlcount;

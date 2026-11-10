@@ -47,7 +47,7 @@ impl Session {
         };
         let o = &self.engine.program.objects[f.object];
         if o.kind != al_ir::ObjKind::Codeunit || o.uncompiled {
-            return Some(Err(Signal::Unsupported(format!(
+            return Some(Err(Signal::unsupported(format!(
                 "{called} on a DotNet variable that holds no object, outside a codeunit (the object kind's spelling in the error is not pinned)"
             ))));
         }

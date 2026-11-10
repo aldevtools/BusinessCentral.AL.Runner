@@ -23,17 +23,13 @@ use crate::Session;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::dotnet_sigs::{BITMAP, COLOR, COLOR_TRANSLATOR, GRAPHICS, IMAGE_FORMAT, SOLID_BRUSH};
 use al_builtins::library_kind::LibraryKind;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::{DotNetKind, DotNetObject, LibraryValue, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 
 const PIN: &str =
     "Microsoft tests/Tests-Invoicing O365BrandColorTests.Codeunit.al:74 (HasValue after MakePicture; ADR-044)";
-
-fn unsupported<T>(why: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(why.into()))
-}
 
 fn object(type_name: &str, state: Vec<Value>) -> Value {
     Value::DotNet(Rc::new(DotNetObject::new(DotNetKind::Internal {

@@ -12,7 +12,7 @@
 use super::registry::{MemberKind, Pin, RegistryMember, RegistryType};
 use crate::Session;
 use al_builtins::dotnet_sigs::BUSINESS_CHART_DATA;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::{DotNetKind, DotNetObject, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -22,10 +22,6 @@ const PIN: &str = "tests/al-language/streams/AuEdgeTests.al:608-631";
 /// State slots: the x dimension caption, and how many measures were added since the last `ClearMeasures`.
 const X_DIMENSION: usize = 0;
 const MEASURES: usize = 1;
-
-fn unsupported<T>(why: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(why.into()))
-}
 
 fn state(this: Option<&Rc<DotNetObject>>) -> Result<&RefCell<Vec<Value>>, Signal> {
     match this.map(|o| &o.kind) {

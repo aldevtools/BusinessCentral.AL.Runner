@@ -8,7 +8,7 @@ use crate::globaltriggers::GlobalOp;
 use al_builtins::date_filter_forms::datetime_rejected as dt_rejected;
 use al_builtins::describe::Describe;
 use al_builtins::filter::{FieldFilter, FilterExpr, key_cmp};
-use al_builtins::native::{AlError, Signal};
+use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{Instance, RecordState, RtType, Value};
@@ -44,10 +44,6 @@ pub(crate) const REPEATABLE_READ_ASSIGNED_AGAIN: &str =
 
 /// BC's line break inside error texts: a carriage return and a backslash.
 pub(crate) const BR: &str = "\\";
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 /// The `RecordState::unpinned_buffer` reason of Rec while the OnOpenPage of a page an action opens through `RunPageLink` runs
 /// (set in pages/runobject.rs, its methods in [`Session::run_page_link_open_op`]).
@@ -291,7 +287,7 @@ impl Session {
         let listened =
             self.listened(t, "onbeforeinsertevent", None)? || self.listened(t, "onafterinsertevent", None)?;
         if method != RecordOp::Insert || !arg_bool(args, 0)? || listened || self.tx.try_depth > 0 {
-            return Ok(Signal::Unsupported(format!(
+            return Ok(Signal::unsupported(format!(
                 "{method} on the platform table Device (only an Insert with triggers, outside a TryFunction and with no \
                  event subscribers, is pinned: al-language-onprem/metadata/PtOnPremTables.al:172-190)"
             )));
@@ -496,7 +492,7 @@ impl Session {
     /// tableextension sets it over another caption (`al_ir::CAPTION_REFUSED`).
     pub(crate) fn caption_checked(&self, t: &TableDef) -> Result<String, Signal> {
         match self.caption_refused(t.object as usize) {
-            Some(why) => Err(Signal::Unsupported(why)),
+            Some(why) => Err(Signal::unsupported(why)),
             None => Ok(self.caption(t)),
         }
     }
@@ -557,7 +553,7 @@ impl Session {
     pub(crate) fn identification(&self, t: &TableDef, fields: &[Value]) -> Result<String, Signal> {
         let mut parts = Vec::new();
         for &i in &t.keys[0] {
-            let v = al_builtins::format::try_format(&fields[i], 0, 0, self).map_err(Signal::Unsupported)?;
+            let v = al_builtins::format::try_format(&fields[i], 0, 0, self).map_err(Signal::unsupported)?;
             // The field's caption names it (recordref-fieldref/recordref + records/lt-record-meta: `Code Caption='A1'`).
             parts.push(format!("{}='{}'", self.field_caption(t, i), v));
         }
@@ -985,7 +981,7 @@ impl Session {
             };
             Ok(s.store
                 .next(cx, table, &scan)
-                .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                .map_err(|e| Signal::unsupported(format!("{e}")))?
                 .is_some())
         };
         // Another row of the same table holding it in the same field keeps it (streams/media/TestMediaPngImport.al:297-334
@@ -1067,7 +1063,7 @@ impl Session {
         let shared = self
             .store
             .next(cx, t, &scan)
-            .map_err(|e| Signal::Unsupported(format!("{e}")))?
+            .map_err(|e| Signal::unsupported(format!("{e}")))?
             .is_some();
         if shared {
             return unsupported(
@@ -1093,7 +1089,7 @@ impl Session {
             let stored = self
                 .store_for(rec)
                 .get(&cx, t, &pk)
-                .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                .map_err(|e| Signal::unsupported(format!("{e}")))?;
             let i = t.fields.iter().position(|f| f.id == 2_000_000_005).expect("checked");
             if let Some(Value::BigInteger(theirs)) = stored.as_ref().map(|r| r[i].clone()) {
                 let verdict = self.stale_verdict(t, rec, &cx, &pk, theirs, true)?;
@@ -1207,7 +1203,7 @@ impl Session {
                     let stored = self
                         .store_for(rec)
                         .get(&cx, t, &pk)
-                        .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                        .map_err(|e| Signal::unsupported(format!("{e}")))?;
                     // The Delete removes the Tenant Media rows of the items still in a MediaSet; an item removed from the set
                     // earlier keeps its row (streams/media/TestMediaPngImport.al:340-378 MediaSet_Remove_KeepsTheTenantMediaRow:
                     // 'removed_item_after_delete' Yes, 'kept_item_after_delete' No).
@@ -1232,7 +1228,7 @@ impl Session {
         match self
             .store_for(rec)
             .delete(&cx, t, &pk)
-            .map_err(|e| Signal::Unsupported(format!("{e}")))?
+            .map_err(|e| Signal::unsupported(format!("{e}")))?
         {
             WriteOutcome::Done => {
                 self.deletes += 1;
@@ -1319,7 +1315,7 @@ impl Session {
             if self
                 .store_for(rec)
                 .get(&cx, t, &pk)
-                .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                .map_err(|e| Signal::unsupported(format!("{e}")))?
                 .is_some()
             {
                 return Ok(None);
@@ -1329,7 +1325,7 @@ impl Session {
             Some(pk) => self
                 .store_for(rec)
                 .get(&cx, t, pk)
-                .map_err(|e| Signal::Unsupported(format!("{e}")))?,
+                .map_err(|e| Signal::unsupported(format!("{e}")))?,
             None => None,
         };
         for k in unique {
@@ -1345,7 +1341,7 @@ impl Session {
             let mut n = self
                 .store_for(rec)
                 .count(&cx, t, &filters)
-                .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                .map_err(|e| Signal::unsupported(format!("{e}")))?;
             // The row being rewritten matches itself when its key values do not change.
             if let Some(old) = &current {
                 if t.keys[k]
@@ -1383,7 +1379,7 @@ impl Session {
         // record/TestCalcFieldsTruncateUniqueContracts.al:UniqueIndex_Violation_FullTextAndCode_...).
         let mut parts = Vec::new();
         for &i in &t.keys[key] {
-            let v = al_builtins::format::try_format(&row[i], 0, 0, self).map_err(Signal::Unsupported)?;
+            let v = al_builtins::format::try_format(&row[i], 0, 0, self).map_err(Signal::unsupported)?;
             parts.push(format!("{}='{}'", t.fields[i].name, v));
         }
         Err(Signal::Error(Box::new(AlError {
@@ -1719,7 +1715,7 @@ impl Session {
                         after: after.as_deref(),
                     },
                 )
-                .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+                .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
             match row {
                 // MarkedOnly narrows the set to the marked rows (corpus record/TestRecordFind.al:258-290).
                 Some(row) if marked_only && !Self::is_marked(rec, t, &row) => after = Some(position(t, key, &row)),
@@ -1782,7 +1778,7 @@ impl Session {
         let taken = self
             .store_for(rec)
             .count(&cx, t, &filters)
-            .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+            .map_err(|e| Signal::unsupported(format!("{e}")))?;
         Ok(taken > 0)
     }
 
@@ -1796,7 +1792,7 @@ impl Session {
             return Ok(());
         }
         let id = rec.borrow().fields[i].clone();
-        let shown = al_builtins::format::try_format(&id, 0, 0, self).map_err(Signal::Unsupported)?;
+        let shown = al_builtins::format::try_format(&id, 0, 0, self).map_err(Signal::unsupported)?;
         Err(Signal::Error(Box::new(AlError {
             // record/TestSystemFieldStampsContracts.al:153 (SystemId_Duplicate_And_ModifyAll_Texts;
             // the caption of the field is "System ID").
@@ -1919,7 +1915,7 @@ impl Session {
     fn exact_key(rec: &Rec, t: &TableDef, fields: &[Value], what: &str) -> Result<Vec<Value>, Signal> {
         let pk = t.primary_key(fields);
         if !rec.borrow().temporary && crate::sqltime::key_rounds(&pk) {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "{what} of a record whose Time or DateTime primary key value the SQL column rounds (not pinned)"
             )));
         }
@@ -1968,7 +1964,7 @@ impl Session {
                 stored = self
                     .store_for(rec)
                     .get(&cx, &t, &pk)
-                    .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                    .map_err(|e| Signal::unsupported(format!("{e}")))?;
             }
             // A row this variable inserted and that is gone (an error inside ASSERTERROR rolled the Insert back) leaves the Blob empty, whatever a
             // stream wrote since (recordref-fieldref/PnE08RecordMisc.al:TestField_Blob `af219`).

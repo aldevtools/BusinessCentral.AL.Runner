@@ -1,14 +1,10 @@
 //! `FieldRef.Value := V`: the value converted into the field's type, or the error BC raises (moved out of `refs.rs`).
 
 use crate::Session;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::value::{RtType, Value};
 use al_data::TableDef;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 impl Session {
     /// The value `v` for the field at `pos` of type `ty`: a Variant of a kind the field does not take converts or raises as

@@ -44,7 +44,7 @@ page 50100 P { SourceTable = T; layout { area(Content) { field(X; Assign-to No.)
         )],
         true,
     );
-    let reasons: Vec<&String> = l.unsupported.iter().flatten().flatten().collect();
+    let reasons: Vec<&Refusal> = l.unsupported.iter().flatten().flatten().collect();
     assert!(reasons.iter().any(|r| r.contains("missing operand")), "{reasons:?}");
 }
 
@@ -76,7 +76,7 @@ fn a_statement_with_missing_parts_is_refused_not_a_panic() {
         );
         // A panic while lowering a routine is caught and becomes this reason (shared.rs); it is still a bug.
         let (_, l) = lower_pos(&src);
-        let reasons: Vec<&String> = l.unsupported.iter().flatten().flatten().collect();
+        let reasons: Vec<&Refusal> = l.unsupported.iter().flatten().flatten().collect();
         assert!(
             !reasons.iter().any(|r| r.contains("internal error")),
             "`{body}`: {reasons:?}"
@@ -94,7 +94,7 @@ page 50100 P { SourceTable = T; layout { area(Content) { field(\"Assign-to No.\"
         )],
         true,
     );
-    let reasons: Vec<&String> = l.unsupported.iter().flatten().flatten().collect();
+    let reasons: Vec<&Refusal> = l.unsupported.iter().flatten().flatten().collect();
     assert!(reasons.is_empty(), "{reasons:?}");
 }
 
@@ -143,7 +143,7 @@ page 50100 P { PageType = Card; layout { area(Content) { usercontrol(BusinessCha
         )],
         true,
     );
-    let reasons: Vec<&String> = l.unsupported.iter().flatten().flatten().collect();
+    let reasons: Vec<&Refusal> = l.unsupported.iter().flatten().flatten().collect();
     assert!(reasons.is_empty(), "{reasons:?}");
     let page = l.program.objects.iter().find(|o| o.name == "P").expect("page P");
     let body = format!(
@@ -174,7 +174,7 @@ pageextension 50102 Ext2 extends Base { trigger OnOpenPage() begin Hidden := 1; 
             )],
             true,
         );
-    let reasons: Vec<&String> = l.unsupported.iter().flatten().flatten().collect();
+    let reasons: Vec<&Refusal> = l.unsupported.iter().flatten().flatten().collect();
     assert_eq!(reasons.len(), 1, "{reasons:?}");
     assert!(
         reasons[0].contains("'Hidden' is inaccessible due to its protection level"),
@@ -202,7 +202,7 @@ reportextension 50101 Ext extends Base
             )],
             true,
         );
-    let reasons: Vec<&String> = l.unsupported.iter().flatten().flatten().collect();
+    let reasons: Vec<&Refusal> = l.unsupported.iter().flatten().flatten().collect();
     assert_eq!(reasons.len(), 1, "{reasons:?}");
     assert!(
         reasons[0].contains("'Priv()' is inaccessible due to its protection level"),
@@ -226,7 +226,7 @@ reportextension 50101 Ext extends Base
         )],
         true,
     );
-    let reasons: Vec<&String> = l.unsupported.iter().flatten().flatten().collect();
+    let reasons: Vec<&Refusal> = l.unsupported.iter().flatten().flatten().collect();
     assert!(reasons.is_empty(), "{reasons:?}");
 }
 
@@ -462,8 +462,8 @@ fn lean_leaves_out_the_workspace_objects_no_selected_test_names() {
             v
         };
         let by_reason = ids(&|oi| {
-            let refusals: Vec<&String> = l.unsupported[oi].iter().flatten().collect();
-            !refusals.is_empty() && refusals.iter().all(|why| why.as_str() == crate::check::LEFT_OUT)
+            let refusals: Vec<&Refusal> = l.unsupported[oi].iter().flatten().collect();
+            !refusals.is_empty() && refusals.iter().all(|why| why.reason() == crate::check::LEFT_OUT)
         });
         assert_eq!(
             by_reason,
@@ -2107,7 +2107,7 @@ fn a_number_variable_into_text_is_refused_but_a_variant_into_text_lowers() {
             .iter()
             .flatten()
             .flatten()
-            .cloned()
+            .map(|r| r.to_string())
             .collect::<Vec<String>>()
     };
     for bad in ["T := I;", "T := B;", "T := D;", "K := B;"] {
@@ -2273,7 +2273,7 @@ pageextension 50102 X extends P {
     procedure XQual() var R: Record T; begin CurrPage.Update(false); CurrPage.Close(); CurrPage.SetSelectionFilter(R); end;
 }"#;
     let (ws, l) = lower_src(src);
-    let reasons: Vec<&String> = l.unsupported.iter().flatten().flatten().collect();
+    let reasons: Vec<&Refusal> = l.unsupported.iter().flatten().flatten().collect();
     assert!(reasons.is_empty(), "{reasons:?}");
     let obj = |name: &str| {
         let i = ws.objects.iter().position(|o| o.name.as_str() == name).unwrap();
@@ -2309,7 +2309,7 @@ pageextension 50102 X extends P {
     procedure XQual() begin if Rec.No = '' then CurrPage.Caption := 'Cash' else CurrPage.Caption := 'Normal'; end;
 }"#;
     let (ws, l) = lower_src(src);
-    let reasons: Vec<&String> = l.unsupported.iter().flatten().flatten().collect();
+    let reasons: Vec<&Refusal> = l.unsupported.iter().flatten().flatten().collect();
     assert!(reasons.is_empty(), "{reasons:?}");
     let obj = |name: &str| {
         let i = ws.objects.iter().position(|o| o.name.as_str() == name).unwrap();
@@ -2335,7 +2335,7 @@ page 50100 P {
     procedure Qual(): Boolean begin CurrPage.LookupMode(true); CurrPage.RunModal(); if CurrPage.RunModal() = Action::LookupOK then exit(true); end;
 }"#;
     let (ws, l) = lower_src(src);
-    let reasons: Vec<&String> = l.unsupported.iter().flatten().flatten().collect();
+    let reasons: Vec<&Refusal> = l.unsupported.iter().flatten().flatten().collect();
     assert!(reasons.is_empty(), "{reasons:?}");
     let i = ws.objects.iter().position(|o| o.name.as_str() == "P").unwrap();
     let p = &l.program.objects[i];
@@ -2356,7 +2356,7 @@ page 50100 P {
     procedure Qual() var R: Record T; begin Page.Run(Page::L, R); Page.Run(Page::L); end;
 }"#;
     let (ws, l) = lower_src(src);
-    let reasons: Vec<&String> = l.unsupported.iter().flatten().flatten().collect();
+    let reasons: Vec<&Refusal> = l.unsupported.iter().flatten().flatten().collect();
     assert!(reasons.is_empty(), "{reasons:?}");
     let i = ws.objects.iter().position(|o| o.name.as_str() == "P").unwrap();
     let p = &l.program.objects[i];
@@ -2489,7 +2489,7 @@ page 50101 Card { SourceTable = \"Demo Mapping\"; layout { area(Content) { part(
         )],
         true,
     );
-    let reasons: Vec<&String> = l.unsupported.iter().flatten().flatten().collect();
+    let reasons: Vec<&Refusal> = l.unsupported.iter().flatten().flatten().collect();
     assert!(reasons.is_empty(), "{reasons:?}");
     let pages: Vec<_> = l
         .program
