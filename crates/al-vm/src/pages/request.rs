@@ -15,6 +15,9 @@ use al_builtins::page_op::PageOp;
 
 type Inst = Rc<RefCell<al_builtins::value::Instance>>;
 
+pub(crate) use super::request_options::ParamsCall;
+use super::request_options::{PARAMETERS_DECLARATION, UnknownField};
+
 /// How the request page closed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RequestClosed {
@@ -997,15 +1000,15 @@ impl Session {
             format!("<DataItems>{items}</DataItems>")
         };
         Ok(format!(
-            "<?xml version=\"1.0\" standalone=\"yes\"?><ReportParameters name=\"{}\" id=\"{id}\">{options}{items}</ReportParameters>",
+            "{PARAMETERS_DECLARATION}<ReportParameters name=\"{}\" id=\"{id}\">{options}{items}</ReportParameters>",
             xml_escape(&o.name)
         ))
     }
 
     /// Loads a parameters string into the request page before it opens: the report's options and
-    /// the view of every data item. Only the text this runtime hands out is understood (its own
-    /// `RunRequestPage` result), because the corpus pins nothing else: a string it cannot read, or
-    /// that names another report, is refused
+    /// the view of every data item. Understood: the text this runtime hands out (its own `RunRequestPage` result), and
+    /// under SaveAs a root without name and id holding Options (`ParamsCall::accepts_root_without_name`). A string in
+    /// another form is refused
     /// (reports/TestReportInstanceRunReqPage.al:TestReport_InstanceRunRequestPage_SeededWithParameters_StillRunsTheHandler
     /// pins only that the handler still runs and its own filter comes back).
     pub(crate) fn apply_request_parameters(
@@ -1014,13 +1017,13 @@ impl Session {
         exts: &[(usize, Inst)],
         object: usize,
         xml: &str,
-        skip_unknown: bool,
+        call: ParamsCall,
     ) -> Result<(), Signal> {
         let engine = self.engine();
         let o = &engine.program.objects[object];
         let page = o.page.as_ref().expect("a request page");
         let head = format!(
-            "<?xml version=\"1.0\" standalone=\"yes\"?><ReportParameters name=\"{}\" id=\"{}\">",
+            "{PARAMETERS_DECLARATION}<ReportParameters name=\"{}\" id=\"{}\">",
             xml_escape(&o.name),
             o.id.map_or(String::new(), |i| i.to_string())
         );
@@ -1030,7 +1033,8 @@ impl Session {
         // RunRequestPage_SeededWithTextOfAnotherReport `opt=Alpha`).
         if xml.ends_with("</ReportParameters>") && !xml.starts_with(&head) {
             let other = xml
-                .strip_prefix("<?xml version=\"1.0\" standalone=\"yes\"?><ReportParameters name=\"")
+                .strip_prefix(PARAMETERS_DECLARATION)
+                .and_then(|r| r.strip_prefix("<ReportParameters name=\""))
                 .and_then(|r| r.split_once("\" id=\""))
                 .and_then(|(_, r)| r.split_once('"'))
                 .and_then(|(id, _)| id.parse::<u32>().ok());
@@ -1051,17 +1055,33 @@ impl Session {
         if head.strip_suffix("\">").is_some_and(|h| xml == format!("{h}\" />")) {
             return Ok(());
         }
-        if !xml.starts_with(&head) || !xml.ends_with("</ReportParameters>") {
-            return unsupported(
-                "a parameters string this runtime did not produce for this report (its format is not pinned)",
-            );
-        }
-        let options = xml
-            .split("<Options>")
-            .nth(1)
-            .and_then(|r| r.split("</Options>").next())
-            .unwrap_or("");
-        for (name, text) in super::request_options::option_fields(options) {
+        let bare = super::request_options::bare_root_options(xml);
+        let options = match bare {
+            Some(_) if !call.accepts_root_without_name() => {
+                return unsupported(format!(
+                    "a parameters string whose root has no name and id, given to {} (not pinned)",
+                    call.method_name()
+                ));
+            }
+            Some(Err(why)) => return unsupported(why),
+            Some(Ok(options)) => options,
+            None if !xml.starts_with(PARAMETERS_DECLARATION) => {
+                return unsupported(
+                    "a parameters string without the XML declaration (BC raises an error whose text the corpus does not have)",
+                );
+            }
+            None if !xml.starts_with(&head) || !xml.ends_with("</ReportParameters>") => {
+                return unsupported(
+                    "a parameters string this runtime did not produce for this report (its format is not pinned)",
+                );
+            }
+            None => xml
+                .split("<Options>")
+                .nth(1)
+                .and_then(|r| r.split("</Options>").next())
+                .unwrap_or(""),
+        };
+        for (name, text) in super::request_options::option_fields(options).or_else(unsupported)? {
             // A control bound to a place written as an expression, named by its source (`request_expr_params`).
             let expr = page.controls.iter().find(|c| {
                 c.kind == ir::ControlKind::Field
@@ -1098,8 +1118,17 @@ impl Session {
                             .is_some_and(|g| g.name == name)
                     })
             }) else {
-                if skip_unknown {
-                    continue;
+                match call.unknown_field(bare.is_some()) {
+                    UnknownField::Skip => continue,
+                    // Only a name the report has nowhere, as the reporter measured (al-runner issue 7590): a name that
+                    // matches a control or a global of the report in another letter case is not measured.
+                    UnknownField::SkipAssumed if !names_report_member(&engine, object, &name) => {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::ReportSaveAsUnknownFieldIgnored,
+                        );
+                        continue;
+                    }
+                    _ => {}
                 }
                 return unsupported(format!(
                     "a parameter for the variable {name}, which no control of the request page shows"
@@ -1126,17 +1155,14 @@ impl Session {
             else {
                 // An Execute skips a data item name the report does not have (corpus master, corpus PR 886:
                 // ExecuteParamsTwiceAndViews.al:217 `unknown data item name`).
-                if skip_unknown {
+                if call.skips_unknown_data_item() {
                     continue;
                 }
                 return unsupported(format!(
                     "a parameter for the data item {name}, which the request page does not have"
                 ));
             };
-            // An Execute (`skip_unknown`) applies the view also where the request page hides the filters
-            // (session-system/company/Y22CopyCompany.al:301-323: report 357 "Copy Company" has `ShowFilter = false`
-            // and copies only the company its parameters' view names).
-            if !skip_unknown {
+            if !call.applies_hidden_view() {
                 self.require_filters_shown(object)?;
             }
             let ir::Binding::Var(slot) = c.binding else { continue };
@@ -1395,6 +1421,19 @@ pub(crate) fn xml_unescape(s: &str) -> String {
 }
 
 /// Splits `Field1=1(a),Field2=1(b)` at the commas outside parentheses.
+/// Whether `name` matches, in any letter case, a control of the report's request page or a global of the report or of an
+/// extension of its request page.
+fn names_report_member(engine: &crate::Engine, object: usize, name: &str) -> bool {
+    let objects = &engine.program.objects;
+    let o = &objects[object];
+    let page = o.page.as_ref();
+    let control = page.is_some_and(|p| p.controls.iter().any(|c| c.name.eq_ignore_ascii_case(name)));
+    let global = std::iter::once(object)
+        .chain(page.into_iter().flat_map(|p| p.extensions.iter().copied()))
+        .any(|i| objects[i].globals.iter().any(|g| g.name.eq_ignore_ascii_case(name)));
+    control || global
+}
+
 fn split_conditions(s: &str) -> Vec<&str> {
     let (mut out, mut depth, mut start) = (Vec::new(), 0i32, 0usize);
     for (i, c) in s.char_indices() {
