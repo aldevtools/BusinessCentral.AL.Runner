@@ -368,6 +368,19 @@ pub const LATER_MAJORS: &[(u32, &str, Provider)] = &[
     (2_000_000_248, "Tenant Report Layout Override", Provider::Stored),
 ];
 
+/// The registered tables of scope OnPrem whose `RecordRef.Open` depends on the target of the app that opens them
+/// (`al-vm` refs/open_target.rs): an OnPrem app opens them; from a Cloud app Document Service Scenario fails from BC 28 on
+/// and opens on BC 27 (al-language-onprem metadata/PtOnPremTables.al:290-312, :467-490 CloudRunner_RefusesOnPremTables),
+/// and the others are not pinned and refuse. A new provider of an OnPrem-scope table is added here with its registry row.
+pub const ONPREM_OPEN_BY_TARGET: &[u32] = &[
+    2_000_000_112,
+    2_000_000_115,
+    2_000_000_130,
+    2_000_000_170,
+    2_000_000_177,
+    2_000_000_228,
+];
+
 /// The provider of platform table `id`, if it has one.
 pub fn provider(id: u32) -> Option<Provider> {
     REGISTRY
