@@ -104,6 +104,7 @@ mod rename;
 mod rename_filter_arm;
 mod rename_trigger_before_autoincrement;
 mod row_version_shapes;
+mod run_failed_record_state;
 mod scm_round2;
 mod scm_service_41;
 mod sequence_failed_test;

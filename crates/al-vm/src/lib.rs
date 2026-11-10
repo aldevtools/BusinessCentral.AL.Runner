@@ -20,6 +20,7 @@ mod blob_copy;
 mod get_key_value;
 mod package_data;
 mod partial_gone;
+mod run_restore;
 pub mod single_track;
 mod state;
 pub(crate) use state::*;

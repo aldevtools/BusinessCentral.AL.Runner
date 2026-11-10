@@ -764,6 +764,7 @@ impl Session {
         // (codeunits/TestCodeunitRunErrorTextsAndModels.al:198-220). What Rec holds when no record is passed is not pinned and is refused
         // before the run (docs/probes-needed.md).
         let mut record_ref_row = None;
+        let mut caller_rec = None;
         if has_property("TableNo") {
             let Some(slot) = obj.rec_slot else {
                 return unsupported(format!(
@@ -823,6 +824,9 @@ impl Session {
             }
             if let Some(Value::Record(rc)) = record_arg {
                 inst.borrow_mut().globals[slot] = Value::Record(rc.clone());
+            }
+            if guarded {
+                caller_rec = crate::run_restore::caller_record(record_arg);
             }
         }
 
@@ -904,6 +908,9 @@ impl Session {
                     }
                     self.error_finals = None;
                     self.last_error = *e;
+                    if let Some(c) = caller_rec.take() {
+                    c.restore();
+                }
                     return Ok(Value::Boolean(false));
                 }
                 if self.pages.bg_worker.is_none() {
@@ -943,6 +950,9 @@ impl Session {
                 }
                 self.error_finals = None;
                 self.last_error = *e;
+                if let Some(c) = caller_rec.take() {
+                    c.restore();
+                }
                 Ok(Value::Boolean(false))
             }
             // An unguarded run lets the error through (:UnguardedRun_PropagatesInnerError).
