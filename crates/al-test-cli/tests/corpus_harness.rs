@@ -938,14 +938,14 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // Corpus bumps 33 and 34 make it 195. Six leave: the BC 27 only tests of 85660 and 85661 in
     // http/client/LtDaSendFailure.al are now compiled under `#if BC28PLUS and LT_HELD_BCLINUX_165`, which the
     // Linux CI does not define, so no major has them. Three come: PW_RaisedEvents_OtherFormats and PW_RaisedEvents_RunRunModal
-    // of 25536 (events/platform-triggers/PeVTests.al:750, the RDLC holds lifted to `#if BC28PLUS`) and 85312
+    // of 25077 (events/platform-triggers/PeVTests.al:750, the RDLC holds lifted to `#if BC28PLUS`) and 85312
     // CodeunitRun_ByQualifiedName (session-system/isolated-storage/CuWriteTxTests.al, hold LT_HELD_BCLINUX_159 lifted inside its BC28PLUS
-    // guard). Corpus bump 42 makes it 196: PW_RaisedEvents_Execute of 25536 (PeVTests.al:725, hold LT_HELD_BCLINUX_158 lifted
+    // guard). Corpus bump 42 makes it 196: PW_RaisedEvents_Execute of 25077 (PeVTests.al:725, hold LT_HELD_BCLINUX_158 lifted
     // inside the BC28PLUS guard) now runs on BC 28 and 29. Corpus bump 43 makes it 202: the six tests of 85660 and 85661 in
     // LtDaSendFailure.al come back under `#if BC28PLUS` (hold LT_HELD_BCLINUX_165 lifted), on BC 28 and 29 only.
     // The multi-app corpus bump (corpus PR 710) makes it 203: 78603 QV_Header_CompanyLogo_PictureVariants
     // (reports/dataset/AhDatasetHeader.al:220, inside the file's `#if BC29PLUS`) runs on BC 29 only.
-    // Corpus bump 55 makes it 209: the six RB_Header_AddressFormat_* tests of 25536 (AhDatasetHeader.al:309-430), BC 29 only.
+    // Corpus bump 55 makes it 209: the six RB_Header_AddressFormat_* tests of 25077 (AhDatasetHeader.al:309-430), BC 29 only.
     // Corpus bump to master 2db2dbd5 makes it 211: the two tests of 99830 in collections/SsCallerModulesTestRunner.al run on
     // BC 27 only (`#if not BC28PLUS`, the Test Runner app path of the CI; gate TestRunnerHubRequiredIsolationFrom28).
     // Corpus bump to master 28de3f39 makes it 214: the three tests of 90645 in metadata/WcFieldRowCopy.al run on BC 29
@@ -953,7 +953,7 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // Corpus bump to master 09855762 makes it 224: the nine Y8_IsDirty_* tests of 91415 in record/Y8RecordIsDirtyShapes.al run
     // on BC 29 only (`#if BC29PLUS`; gate RecordIsDirtyFrom29), and 90775 WD_BareNameExt_ValueReadError in
     // testpage/WdBareQuotedField.al on BC 28 and 29 only (`#if BC28PLUS`; gate ExtControlBareQuotedSourceNotFoundFrom28).
-    // Corpus bump to master 92031e20 makes it 238: five tests of 25536 (Y17_TenantReportLayoutCfg_InsertModifyDelete, _Shapes,
+    // Corpus bump to master 92031e20 makes it 238: five tests of 25077 (Y17_TenantReportLayoutCfg_InsertModifyDelete, _Shapes,
     // Y40_TenantReportLayoutOverride_InsertModifyDelete, _SeenByReportLayoutList, _TypedRecord) and nine BigInteger and Enum
     // conversions of the Y31 conversion matrix (types/operators-expressions/, `#if BC29PLUS`; gate
     // BigIntegerToEnumVariableFrom29) run on BC 29 only. Corpus bump to master 7f7cdc2a makes it 239:
@@ -995,7 +995,7 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // ControlAddInNotInstantiatedErrorFrom28) and refuses on BC 27, so 77540 AC_ControlAddIn_ProcedureCallFromFieldTrigger,
     // 79590 AddinProcedureFromAction, 67122 Addin_PageOpened_OnOpenPageCallsProcedure and Addin_PageVariableNeverOpened_Calls
     // pass on BC 28 and 29 only.
-    // Corpus bump to 21a41286 makes it 27: eight new TZ_* cases of 25536 (control add-in calls from page triggers and
+    // Corpus bump to 21a41286 makes it 27: eight new TZ_* cases of 25077 (control add-in calls from page triggers and
     // actions) pass on BC 28 and 29 only, behind the same gate ControlAddInNotInstantiatedErrorFrom28.
     // Branch fix-left makes it 17: the numbers a Required-isolation codeunit takes are carried over, so the ten
     // remaining RqIsolationModes.al cases (88512-88515 and the ones after them) now run and pass on BC 28 and 29 too.
