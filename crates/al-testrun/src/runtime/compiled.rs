@@ -167,6 +167,9 @@ pub struct RunOptions {
     /// pinned is reported as failed, its message marked "[error text not pinned]", instead of not run. The test did run and
     /// fail; only the wording BC gives is not known, so a run with it set is not a conformance result. Default `false`.
     pub report_unpinned_errors: bool,
+    /// `--skip-after-timeout` (al-runner issue 7517, opt-in, tooling): once a test is stopped at the time limit, the later tests
+    /// of its codeunit are not run and end as not run, naming that test. Default `false`: a later pass is still reported.
+    pub skip_after_timeout: bool,
     /// `al-runner test --permissions off` (ADR-062 section 5): no access kind is enforced, whatever stages are on by
     /// default. While no stage is on (today) it changes nothing.
     pub permissions_off: bool,

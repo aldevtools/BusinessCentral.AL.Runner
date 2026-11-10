@@ -140,6 +140,7 @@ fn options_hash(a: &TestArgs) -> Result<String, String> {
             a.environment.as_ref().map(std::mem::discriminant),
             (&a.server_url, a.test_timeout_secs),
             a.tdd,
+            a.skip_after_timeout,
         )
     );
     let mut h = Sha256::new();

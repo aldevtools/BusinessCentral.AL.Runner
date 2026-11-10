@@ -210,6 +210,31 @@ pub(crate) enum Listed {
     SessionEnds,
 }
 
+/// The session ends (`Listed::SessionEnds`): the rows already made for data-driven procedures and every procedure still
+/// queued (`r` included) end as not run with `SESSION_ENDS`.
+pub(crate) fn end_session(
+    out: &mut [(String, Outcome)],
+    rows: &[usize],
+    queue: &mut VecDeque<Item>,
+    r: usize,
+    routines: &[al_ir::Routine],
+) {
+    let why = || Outcome::NotRun(SESSION_ENDS.into());
+    for &row in rows {
+        out[row].1 = why();
+    }
+    // Only data-driven procedures are left: the plain tests ran first.
+    let rest: Vec<_> = std::iter::once(r).chain(queue.drain(..).map(|i| i.routine)).collect();
+    let mut seen = std::collections::BTreeSet::new();
+    for p in rest.into_iter().filter(|p| seen.insert(*p)) {
+        queue.push_back(Item {
+            routine: p,
+            name: routines[p].name.clone(),
+            step: Step::Decided(why()),
+        });
+    }
+}
+
 /// Calls `ListTestCases` for data-driven procedure `routine` and turns its answer into the cases to run.
 pub(crate) fn list(session: &mut Session, lowered: &Lowered, object: usize, routine: usize, name: &str) -> Listed {
     let decided = |o: Outcome| {

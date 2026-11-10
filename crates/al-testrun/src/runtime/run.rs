@@ -568,6 +568,8 @@ fn run_codeunit_inner(
         // Why the tests after one are not run: under a runner's TestIsolation = Function, that test changed an isolated
         // storage key or a number sequence that was there before it, and what the rollback leaves of it is not measured.
         let mut unmeasured_restore: Option<String> = None;
+        // `--skip-after-timeout` (al-runner issue 7517): the test the time limit stopped; the tests after it are not run.
+        let mut stopped_at_limit: Option<String> = None;
         let mut queue = data_driven::queue(lowered, object, &tests, &data_driven);
         // The rows of `out` that are results of data-driven procedures: BC reports none of them when it ends the session.
         let mut data_driven_rows: Vec<usize> = Vec::new();
@@ -583,20 +585,7 @@ fn run_codeunit_inner(
                         }
                     }
                     data_driven::Listed::SessionEnds => {
-                        let why = || Outcome::NotRun(data_driven::SESSION_ENDS.into());
-                        for &row in &data_driven_rows {
-                            out[row].1 = why();
-                        }
-                        // Only data-driven procedures are left: the plain tests ran first.
-                        let rest: Vec<_> = std::iter::once(r).chain(queue.drain(..).map(|i| i.routine)).collect();
-                        let mut seen = BTreeSet::new();
-                        for p in rest.into_iter().filter(|p| seen.insert(*p)) {
-                            queue.push_back(data_driven::Item {
-                                routine: p,
-                                name: obj.routines[p].name.clone(),
-                                step: data_driven::Step::Decided(why()),
-                            });
-                        }
+                        data_driven::end_session(&mut out, &data_driven_rows, &mut queue, r, &obj.routines)
                     }
                 }
                 continue;
@@ -654,6 +643,10 @@ fn run_codeunit_inner(
                 o
             } else if let Some(why) = &unmeasured_restore {
                 Outcome::NotRun(why.clone())
+            } else if let Some(n) = &stopped_at_limit {
+                Outcome::NotRun(format!(
+                    "an earlier test of this codeunit ({n}) was stopped at the time limit, and --skip-after-timeout does not run the rest of the codeunit"
+                ))
             } else if let Some(b) = case
                 .as_ref()
                 .and_then(|(src, ..)| blocked_site(lowered, src.object, src.get))
@@ -997,6 +990,12 @@ fn run_codeunit_inner(
             session.store_mut().watch(Default::default());
             // A test the time limit stopped started from the same state as a failure does, so it is judged alike (al-runner
             // issue 5776): `kind` names it in the reason.
+            if scratch.skip_after_timeout
+                && began
+                && matches!(&outcome, Outcome::NotRun(m) if m.starts_with(TIME_LIMIT_REASON))
+            {
+                stopped_at_limit.get_or_insert_with(|| routine.name.clone());
+            }
             let judged = match outcome {
                 Outcome::Fail(m) if !unfinished.is_empty() => Ok(("failure", m)),
                 Outcome::NotRun(m) if !unfinished.is_empty() && m.starts_with(TIME_LIMIT_REASON) => Ok(("timeout", m)),

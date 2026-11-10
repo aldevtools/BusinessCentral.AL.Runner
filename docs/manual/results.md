@@ -290,7 +290,7 @@ release and is deprecated.
   (the time the test's `Sleep` calls asked for, summed; `Sleep` returns at once, so
   `durationMs` does not hold it; absent when the test did not sleep), `message`
   and `stackTrace`, plus `passed`, `failed`, `errors`, `skipped`, `total`, `notRun`,
-  `exitCode`, `wallSeconds`, and the run seed as `seed` and `seedSource` (`option`, `env` or `fresh`). A test that did not run is `error` with the message
+  `exitCode`, `wallSeconds`, `notRunSeconds` (the time the tests that ended not run took), and the run seed as `seed` and `seedSource` (`option`, `env` or `fresh`). A test that did not run is `error` with the message
   `NotRun: out-of-scope: <reason>`. A test the time limit stopped is `error` with
   `Test exceeded <N>s timeout.` and a `clock` field (`cpu` or `virtual`). Without FILE, the document is the only thing on
   stdout and the report goes to stderr.

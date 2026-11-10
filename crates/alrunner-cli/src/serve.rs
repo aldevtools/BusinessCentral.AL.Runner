@@ -40,6 +40,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "affectedOnly",
     "includeFailing",
     "strictEnvironment",
+    "skipAfterTimeout",
     "entries",
     "seed",
     "profile",
@@ -327,6 +328,10 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     a.single_test_alone = true;
     // Issue 5996: tests that lower their own permissions run with every access granted, as `--ignore-permission-mock`.
     a.ignore_permission_mock = flag(fields, "ignorePermissionMock")?;
+    // Issue 7517: absent, the server's `--skip-after-timeout`.
+    if fields.get("skipAfterTimeout").is_some_and(|v| !v.is_null()) {
+        a.skip_after_timeout = flag(fields, "skipAfterTimeout")?;
+    }
     // Issue 3697: UI calls no handler takes get the dev-endpoint runner's answer, as `--dev-endpoint-ui`.
     a.dev_endpoint_ui = flag(fields, "devEndpointUi")?;
     // Issue 7143: the service-tier setting DisableWriteInsideTryFunctions is off, as `--allow-write-in-try-functions`.
@@ -1043,6 +1048,15 @@ mod tests {
                 .ignore_permission_mock
         );
         assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.ignore_permission_mock);
+        // Issue 7517: `skipAfterTimeout` is `--skip-after-timeout` for one request; absent, the server's setting.
+        assert!(
+            run(json!({"sourcePaths": ["/a"], "skipAfterTimeout": true}))
+                .unwrap()
+                .0
+                .skip_after_timeout
+        );
+        assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.skip_after_timeout);
+        assert!(run(json!({"sourcePaths": ["/a"], "skipAfterTimeout": 1})).is_err());
         // ADR-066 amendment 4: `strictOrder` is `--strict-order` for one request.
         assert!(
             run(json!({"sourcePaths": ["/a"], "strictOrder": true}))

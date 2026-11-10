@@ -582,6 +582,8 @@ pub(crate) struct Unit {
     flags: session_flags::SessionFlags,
     /// See `RunOptions::report_unpinned_errors`.
     report_unpinned_errors: bool,
+    /// See `RunOptions::skip_after_timeout`.
+    skip_after_timeout: bool,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
@@ -634,6 +636,8 @@ pub(crate) struct Scratch {
     flags: session_flags::SessionFlags,
     /// See `RunOptions::report_unpinned_errors`.
     report_unpinned_errors: bool,
+    /// See `RunOptions::skip_after_timeout`.
+    skip_after_timeout: bool,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
@@ -754,6 +758,7 @@ fn run_unit(
             on_run_rows: u.on_run_rows,
             flags: u.flags,
             report_unpinned_errors: u.report_unpinned_errors,
+            skip_after_timeout: u.skip_after_timeout,
             perturb: u.perturb.clone(),
             run_seed: u.run_seed,
             runner: u.runner,
