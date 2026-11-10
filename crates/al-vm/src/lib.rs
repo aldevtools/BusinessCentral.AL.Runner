@@ -17,6 +17,7 @@ use std::sync::Arc;
 mod autoinc;
 mod bgsession;
 mod blob_copy;
+mod clientless;
 mod get_key_value;
 mod package_data;
 mod partial_gone;
@@ -798,6 +799,8 @@ pub struct Session {
     company_build: bool,
     /// The code runs in a session without a client (`set_no_client`).
     no_client: bool,
+    /// The whole test session is a session without a client (`--no-client`, `set_clientless_session`).
+    clientless_session: bool,
     /// The code runs in a session `StartSession` started (`bgsession.rs`).
     pub(crate) background_session: bool,
     /// How many sessions `StartSession` started in this session (`bgsession.rs`).
@@ -1296,6 +1299,7 @@ impl Session {
             install_scope: false,
             company_build: false,
             no_client: false,
+            clientless_session: false,
             background_session: false,
             sessions_started: 0,
             install_without_client: false,
@@ -1826,6 +1830,14 @@ impl Session {
         self.no_client = on;
     }
 
+    /// `--no-client` (al-runner issue 7564): the test session is a session without a client. `GuiAllowed` answers false,
+    /// `Message` returns and reaches no handler, `Confirm` raises CallbackNotAllowed whatever its default (all three as a page
+    /// background task worker does, pages/background-tasks/BjNoGuiDialogs.al:8-10; that a web-service session does the same is
+    /// the assumption `no-client-session`), and every other dialog is refused (`clientless_guard`).
+    pub fn set_clientless_session(&mut self, on: bool) {
+        self.clientless_session = on;
+    }
+
     /// An install routine of an app runs (or no longer runs): BC runs it in a session without a client. `GuiAllowed()` is
     /// false, `CurrentClientType()` is SOAP, a `Message` does not stop it, and StrMenu, Confirm and `Page.Run` raise
     /// CallbackNotAllowed (errors/RlInstallUi.al:210-241, metadata/CmInstallLeads.al:54-61).
@@ -1900,6 +1912,7 @@ impl Session {
     pub fn has_interactive_client(&self) -> bool {
         !self.install_without_client
             && !self.no_client
+            && !self.clientless_session
             && self.host.identity.gui_allowed()
             && self.host.identity.current_client_type() != al_host::ClientType::Background
     }

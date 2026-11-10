@@ -1,0 +1,11 @@
+NoClientSession => {
+    id: "no-client-session",
+    assumed: "Opt-in, `al-runner test --no-client`: the test session is a session without a client, as a web-service session is (the reporter's mutation-testing runs go through one). GuiAllowed answers false, Message returns without an error and reaches no MessageHandler, and Confirm raises CallbackNotAllowed whatever its default and reaches no ConfirmHandler. The corpus pins exactly this for a page background task worker (pages/background-tasks/BjNoGuiDialogs.al:8-10, BC 28.5 and 29.0); that a web-service session answers the same is assumed. The error text of Confirm is the one install code gets (`Data Services`), not the worker's (`Server`). A Report.Run or Report.RunModal whose request page would open and for which the test bound a RequestPageHandler or ReportHandler runs with that handler as in a session with a client, which is assumed too (flagged). Every other dialog (StrMenu, Page.Run and RunModal, the request page of a Report.Run or Report.RunModal with no such handler, the request window of an Xmlport.Run, Report.RunRequestPage, Dialog.Open, Update and Close, Hyperlink, file upload, download and view, Notification.Send and Recall, FilterPageBuilder.RunModal, SessionSettings.RequestSessionUpdate) and CurrentClientType (the option does not say which kind of session) are refused while the option is on.",
+    tests: "No Microsoft test needs it: the option is the user's choice of session type, so every pass through GuiAllowed, Message, Confirm or a handled request page with it on is flagged.",
+    probe: "BjNoGuiDialogs.al in a web-service session (an OData or SOAP call into a codeunit that runs the same calls) next to the page background task worker: GuiAllowed, Message, Confirm with default true and false and the error text, then CurrentClientType, StrMenu, Page.RunModal, Report.RunModal with and without a RequestPageHandler, Dialog.Open and Update, Hyperlink, Notification.Send and the file dialogs. Corpus probe branch: no-client-session-dialogs.",
+    awaiting: Awaiting {
+        issues: &[7564],
+        files: &["tests/al-language/pages/background-tasks/BjNoClientDialogs.al"],
+        since: "2026-11-10",
+    },
+}

@@ -191,6 +191,10 @@ pub struct RunOptions {
     /// "Unhandled UI". Each such test hits the assumption `dev-endpoint-ui` (a flagged pass), and its answered calls are in
     /// `TestResult::ui_answered`. Default `false`: the TestRunner codeunit mode, as the corpus runs.
     pub dev_endpoint_ui: bool,
+    /// `al-runner test --no-client` (al-runner issue 7564): the test session is a session without a client (`al_vm`
+    /// `clientless.rs`). GuiAllowed answers false, Message returns and reaches no handler, Confirm raises CallbackNotAllowed;
+    /// every other dialog is refused. Each pass through the three is flagged (`no-client-session`). Default `false`.
+    pub no_client: bool,
     /// `al-runner test --allow-write-in-try-functions` (al-runner issue 7143): the service-tier setting
     /// DisableWriteInsideTryFunctions is off, as on Business Central online (`al_vm::Engine::write_in_try_allowed`). Default
     /// `false`: the setting's default, as the corpus CI runs.

@@ -153,6 +153,10 @@ fn options_hash(a: &TestArgs) -> Result<String, String> {
     if a.ignore_permission_mock {
         h.update(b"ignore_permission_mock");
     }
+    // `--no-client` (issue 7564) changes outcomes (Message, Confirm, GuiAllowed, refused dialogs); off keeps the hash.
+    if a.no_client {
+        h.update(b"no_client");
+    }
     // `--strict-order` (ADR-066 amendment 4) can change outcomes (the serial run is reported); off keeps the hash.
     if a.strict_order {
         h.update(b"strict_order");

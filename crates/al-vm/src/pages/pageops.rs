@@ -10,6 +10,9 @@ impl Session {
         recv: Option<&mut Value>,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
+        if self.clientless_session {
+            self.clientless_page_guard(method)?;
+        }
         // CurrPage calls from the page's own code do not count as the test code touching the page.
         if let (Some(Value::TestPage(st)), al_builtins::page_op::PageRecv::TestPage) = (recv.as_deref(), method.recv())
         {

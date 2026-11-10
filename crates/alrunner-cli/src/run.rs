@@ -1593,6 +1593,7 @@ fn test_inner(
         report_unpinned_errors: crate::unpinned::enabled(),
         permissions_off: a.permissions_off, // `--permissions off` (ADR-062 section 5).
         dev_endpoint_ui: crate::dev_endpoint_ui::for_major(a.dev_endpoint_ui, chosen.target.bc.major)?, // issue 3697
+        no_client: a.no_client,             // issue 7564
         allow_write_in_try_functions: a.allow_write_in_try_functions, // issue 7143
         dependencies_published_global: a.dependencies_published_global, // issue 7169
         strict_order: a.strict_order,       // `--strict-order` (ADR-066 amendment 12)

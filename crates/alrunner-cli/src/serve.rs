@@ -31,6 +31,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "runSelectedOnly",
     "ignorePermissionMock",
     "devEndpointUi",
+    "noClient",
     "allowWriteInTryFunctions",
     "strictOrder",
     "maxReplay",
@@ -334,6 +335,8 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     }
     // Issue 3697: UI calls no handler takes get the dev-endpoint runner's answer, as `--dev-endpoint-ui`.
     a.dev_endpoint_ui = flag(fields, "devEndpointUi")?;
+    // Issue 7564: the test session has no client, as `--no-client`.
+    a.no_client = flag(fields, "noClient")?;
     // Issue 7143: the service-tier setting DisableWriteInsideTryFunctions is off, as `--allow-write-in-try-functions`.
     a.allow_write_in_try_functions = flag(fields, "allowWriteInTryFunctions")?;
     // ADR-066 amendment 4: every order-dependent test codeunit runs again serially, as `--strict-order`.

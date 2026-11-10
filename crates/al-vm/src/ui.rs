@@ -738,6 +738,11 @@ impl Session {
         if self.pages.bg_worker.is_some() {
             return Ok(());
         }
+        // `--no-client`: the same, assumed for a web-service session (assumption `no-client-session`).
+        if self.clientless_session {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NoClientSession);
+            return Ok(());
+        }
         if self.ui_state.scope.is_none() && self.scratch_messages.is_some() {
             self.cap_message(&text);
             if let Some(log) = self.scratch_messages.as_mut() {
@@ -768,6 +773,10 @@ impl Session {
         // A page background task worker raises it too, whatever the default, and no ConfirmHandler sees it
         // (pages/background-tasks/BjNoGuiDialogs.al:204-205).
         if (self.ui_state.scope.is_none() && self.install_without_client) || self.pages.bg_worker.is_some() {
+            return Err(self.callback_not_allowed(&format!("show a confirmation dialog box: {question}"), true));
+        }
+        if self.clientless_session {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NoClientSession);
             return Err(self.callback_not_allowed(&format!("show a confirmation dialog box: {question}"), true));
         }
         let finals = self.dispatch_ui(
