@@ -997,6 +997,50 @@ impl Session {
                         Some(_) => return unsupported("upperlimit() of a filter that is not a range"),
                     }
                 }
+                ir::CalcValue::FieldFilter(q) if own[*q].flow_filter => {
+                    // `field(filter(F))` over a FlowFilter: the caller's filter on F applies, and none set means no constraint
+                    // (record/flowfields/FfmSumAverage.al:66, :780-844 and FfmCountExist.al:66, :640-712: an Integer range, a
+                    // Decimal `>=`, a Date range of two dates, a Code value, an Option value, two Enum values, two Text values).
+                    // On a Date FlowFilter only the range of two dates is pinned; one date and the other forms wait for a probe
+                    // (al-runner issue 7433, docs/probes-needed.md). Another type is not pinned.
+                    let pf = &own[*q];
+                    match (&pf.ty, flow(*q)) {
+                        (_, None) => {}
+                        (RtType::Date, Some(e)) if !matches!(e, FilterExpr::Range(Some(_), Some(_))) => {
+                            return unsupported(
+                                "field(filter()) of a Date FlowFilter whose filter is not a range of two dates (not pinned, docs/probes-needed.md)",
+                            );
+                        }
+                        (
+                            RtType::Integer
+                            | RtType::Decimal
+                            | RtType::Date
+                            | RtType::Code(_)
+                            | RtType::Text(_)
+                            | RtType::Option(_)
+                            | RtType::Enum(_),
+                            Some(e),
+                        ) => {
+                            if !same_kind(&pf.ty, sty) {
+                                return unsupported("a flow filter of another type than the source field");
+                            }
+                            // Whether it takes over from another condition on the same source field, as a normal field's
+                            // filter text does, is not pinned.
+                            if calc.conds.iter().filter(|o| o.field == c.field).count() > 1 {
+                                return unsupported(
+                                    "field(filter()) of a FlowFilter beside another condition on the same field (not pinned)",
+                                );
+                            }
+                            parts.push((c.field, e, false));
+                        }
+                        (other, Some(_)) => {
+                            return unsupported(format!(
+                                "field(filter()) of a FlowFilter of type {} (not pinned)",
+                                other.describe()
+                            ));
+                        }
+                    }
+                }
                 ir::CalcValue::FieldFilter(q) => {
                     let v = rec.borrow().fields[*q].clone();
                     let Some(text) = text_of(&v) else {
