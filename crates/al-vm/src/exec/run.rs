@@ -454,12 +454,15 @@ impl Session {
         let nl = chunk.nlocals;
         let open = self.cap_stmt_depth();
         match self.run_range::<true>(chunk, f, pc, stop) {
-            Ok(at) if at == stop => Err(Signal::Error(Box::new(al_builtins::native::AlError {
-                message: "An error was expected inside an ASSERTERROR statement.".into(),
-                code: "AssertError".into(),
-                call_stack: String::new(),
-                ..Default::default()
-            }))),
+            Ok(at) if at == stop => match self.pending_duplicate_in_full_buffer() {
+                Some(what) => Err(Signal::Unsupported(what)),
+                None => Err(Signal::Error(Box::new(al_builtins::native::AlError {
+                    message: "An error was expected inside an ASSERTERROR statement.".into(),
+                    code: "AssertError".into(),
+                    call_stack: String::new(),
+                    ..Default::default()
+                }))),
+            },
             Ok(at) => Ok(at),
             Err(Signal::Error(mut e)) => {
                 self.rollback_in_run()?;

@@ -20,6 +20,7 @@ use std::sync::Arc;
 mod boolean_filter_error;
 mod delete_all_flow;
 mod flowfield_key;
+mod insert_buffer;
 mod nested_validate;
 mod op_inner;
 mod platform_rows;
@@ -1511,6 +1512,11 @@ impl Session {
                 let fields = self.initial_fields(table);
                 let mut st = state_with_fields(&rec, fields);
                 st.globals = rec.borrow().globals.xrec();
+                // The blank xRec of a record that a partial fetch filled loads nothing from the row: every field reads empty, the
+                // key too (record/load-fields/XRecUnloadedFieldRead.al PartialGet_XRecFields_ReadInTableMethod,
+                // PartialGet_RowChangedAfterGet_XRecReadFirst, PartialGet_KeyAssignedAfterGet_ReadInTableMethod, al-runner issue
+                // 7375). It is marked as after an Init, which loads no field from the row.
+                crate::partial::note_init(&mut st);
                 Some(Value::Record(Rc::new(RefCell::new(st))))
             }
             (None, None) => None,
