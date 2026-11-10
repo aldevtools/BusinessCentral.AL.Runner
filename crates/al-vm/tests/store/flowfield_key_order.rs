@@ -7,7 +7,7 @@ use al_testkit::text;
 const SRC: &str = r#"
 table 69960 "FK Line"
 {
-    fields { field(1; Id; Integer) { } field(2; DocType; Option) { OptionMembers = Quote,Order; } field(3; DocNo; Code[20]) { } field(4; Amount; Decimal) { } }
+    fields { field(1; Id; Integer) { } field(2; DocType; Option) { OptionMembers = Quote,Order; } field(3; DocNo; Code[20]) { } field(4; Amount; Decimal) { } field(5; Name; Text[30]) { } }
     keys { key(PK; Id) { } }
 }
 table 69961 "FK Header"
@@ -21,6 +21,12 @@ table 69961 "FK Header"
         field(5; Lines; Integer) { FieldClass = FlowField; CalcFormula = count("FK Line" where(DocType = field(DocType), DocNo = field("No."))); }
         field(6; Any; Boolean) { FieldClass = FlowField; CalcFormula = exist("FK Line" where(DocType = field(DocType), DocNo = field("No."))); }
         field(7; FirstAmount; Decimal) { FieldClass = FlowField; CalcFormula = lookup("FK Line".Amount where(DocType = field(DocType), DocNo = field("No."))); }
+        field(8; FirstName; Text[30]) { FieldClass = FlowField; CalcFormula = lookup("FK Line".Name where(DocType = field(DocType), DocNo = field("No."))); }
+        field(9; FirstId; Integer) { FieldClass = FlowField; CalcFormula = lookup("FK Line".Id where(DocType = field(DocType), DocNo = field("No."))); }
+        field(10; Top; Decimal) { FieldClass = FlowField; CalcFormula = max("FK Line".Amount where(DocType = field(DocType), DocNo = field("No."))); }
+        field(11; Low; Decimal) { FieldClass = FlowField; CalcFormula = min("FK Line".Amount where(DocType = field(DocType), DocNo = field("No."))); }
+        field(12; Mean; Decimal) { FieldClass = FlowField; CalcFormula = average("FK Line".Amount where(DocType = field(DocType), DocNo = field("No."))); }
+        field(13; NegFirst; Decimal) { FieldClass = FlowField; CalcFormula = -lookup("FK Line".Amount where(DocType = field(DocType), DocNo = field("No."))); }
     }
     keys { key(PK; DocType, "No.") { } }
 }
@@ -148,12 +154,54 @@ codeunit 69962 "FK Probe"
         exit(T);
     end;
 
-    // A lookup, min, max and average are not pinned.
-    procedure LookupKey(): Boolean
+    local procedure Codes(var R: Record "FK Header"): Text
+    var T: Text;
+    begin
+        if R.FindSet() then
+            repeat
+                T += R."No." + ' ';
+            until R.Next() = 0;
+        exit(T);
+    end;
+
+    // A lookup of a Decimal or a Text field, a min, a max and an average order by their value (record/flowfields/
+    // FfmOperations.al:930-1092). H1 holds 10 and 20, H2 50, H4 30, H5 -5, H3 nothing.
+    procedure OtherKinds(): Text
+    var R: Record "FK Header"; L: Record "FK Line"; T: Text;
+    begin
+        Seed();
+        L.Get(1); L.Name := 'delta'; L.Modify();
+        L.Get(5); L.Name := 'alpha'; L.Modify();
+        L.Get(7); L.Name := 'echo'; L.Modify();
+        Filter(R);
+        R.SetCurrentKey(FirstAmount);
+        T := Codes(R) + '|';
+        R.SetCurrentKey(FirstName);
+        T += Codes(R) + '|';
+        R.SetCurrentKey(Top);
+        T += Codes(R) + '|';
+        R.SetCurrentKey(Low);
+        T += Codes(R) + '|';
+        R.SetCurrentKey(Mean, PostDate);
+        R.Ascending(false);
+        exit(T + R.CurrentKey() + ':' + Codes(R));
+    end;
+
+    // A lookup of an Integer field is not pinned.
+    procedure IntegerLookupKey(): Boolean
     var R: Record "FK Header";
     begin
         Seed();
-        R.SetCurrentKey(FirstAmount);
+        R.SetCurrentKey(FirstId);
+        exit(R.FindFirst());
+    end;
+
+    // A signed lookup is refused when it is calculated.
+    procedure SignedLookupKey(): Boolean
+    var R: Record "FK Header";
+    begin
+        Seed();
+        R.SetCurrentKey(NegFirst);
         exit(R.FindFirst());
     end;
 }
@@ -189,9 +237,22 @@ fn an_exist_flowfield_key() {
 }
 
 #[test]
-fn another_flowfield_kind_stays_refused() {
-    let r = al_testkit::run_in(SRC, "FK Probe", "LookupKey");
-    assert!(matches!(r, Err(al_builtins::native::Signal::Unsupported(_))), "{r:?}");
+fn a_lookup_min_max_and_average_flowfield_key() {
+    assert_eq!(
+        text(al_testkit::run_in(SRC, "FK Probe", "OtherKinds")),
+        "H5 H3 H1 H4 H2 |H3 H5 H2 H1 H4 |H5 H3 H1 H4 H2 |H5 H3 H1 H4 H2 |Mean,PostDate:H2 H4 H1 H3 H5 "
+    );
+}
+
+#[test]
+fn a_lookup_of_another_type_stays_refused() {
+    for routine in ["IntegerLookupKey", "SignedLookupKey"] {
+        let r = al_testkit::run_in(SRC, "FK Probe", routine);
+        assert!(
+            matches!(r, Err(al_builtins::native::Signal::Unsupported(_))),
+            "{routine}: {r:?}"
+        );
+    }
 }
 
 #[test]
