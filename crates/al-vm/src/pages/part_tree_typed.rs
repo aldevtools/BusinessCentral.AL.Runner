@@ -75,7 +75,7 @@ impl Session {
     }
 
     /// The part holds `window`, its whole view read from the start, and stands on a stored row of it.
-    fn hold_whole_view(st: &St, window: Vec<al_builtins::value::WindowRow>) {
+    fn hold_whole_view(st: &St, window: Vec<crate::pages::WindowRow>) {
         let mut s = st.borrow_mut();
         s.window = window;
         s.window_from_start = true;

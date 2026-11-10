@@ -26,6 +26,7 @@ impl Session {
         let mut pages: Vec<St> = Vec::new();
         for v in frame.locals.iter().take(routine.locals.len()) {
             if let Value::TestPage(st) = v
+                && let st = st_of(st)
                 && st.borrow().open
                 // A page whose save failed at Close() is left alone (pages/close_save_failed.rs).
                 && !st.borrow().close_save_failed
@@ -75,7 +76,7 @@ impl Session {
         if top_card && !st.borrow().errors.is_empty() {
             return Ok(false);
         }
-        if st.borrow().mode != al_builtins::value::PageMode::New
+        if st.borrow().mode != crate::pages::PageMode::New
             && ["onqueryclosepage", "onclosepage"].iter().any(|t| self.declares(st, t))
         {
             return Ok(true);
