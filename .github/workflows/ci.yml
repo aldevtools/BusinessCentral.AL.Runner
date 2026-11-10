@@ -52,7 +52,7 @@ on:
     # corpus-bump/**: the corpus bump bot (.github/workflows/corpus-bump-bot.yml) opens its pull request with the
     # workflow token, which starts no pull_request run; the push of its branch (deploy key) runs CI instead.
     branches: [main, release, 'corpus-bump/**']
-  # ready_for_review: a draft pull request runs no job (see `jobs` below); marking it ready starts the run.
+  # ready_for_review: a draft pull request runs only the job `test` (see `jobs` below); marking it ready starts the full set.
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   # 00:17 UTC: the nightly run (with the nightly set) ends before nightly-edge.yml (02:17 UTC), which advances
@@ -84,9 +84,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Owner, 2026-11-01: a draft pull request runs no job. Agents open their feature pull requests as drafts (a merge
+# Owner, 2026-11-01: a draft pull request runs no job; owner, 2026-11-10: it runs the job `test` again (about 8 minutes)
+# and no other. Agents open their feature pull requests as drafts (a merge
 # train lands them, and its own pull request runs CI); the free plan allows 20 Linux jobs at once for the whole
-# organisation. Every job below has `if: github.event.pull_request.draft != true`, which is true on every other
+# organisation. Every job below except `test` has `if: github.event.pull_request.draft != true`, which is true on every other
 # event. A skipped job counts as passed for the ruleset, and a draft cannot merge anyway.
 #
 # The jobs `test`, `licenses`, `portable` and `release-tests` wait for `merge-check` and run unless it says the pull
@@ -198,7 +199,8 @@ jobs:
 
   test:
     needs: merge-check
-    if: ${{ !cancelled() && github.event.pull_request.draft != true && needs.merge-check.outputs.skip != 'true' }}
+    # No draft condition (owner, 2026-11-10): `test` runs on a draft pull request too.
+    if: ${{ !cancelled() && needs.merge-check.outputs.skip != 'true' }}
     runs-on: ubuntu-latest
     env:
       # Line tables are enough for a panic's location; full debug info made the debug test build
