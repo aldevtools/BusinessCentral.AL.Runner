@@ -360,6 +360,8 @@ pub struct TestResult {
     /// ADR-066 amendment 12, decision 2: a failed test of a default run (no `--strict-order`) that read first a
     /// SingleInstance global an earlier test codeunit would have left with another value on BC (`order_hint.rs`).
     pub order_hint: Option<OrderHint>,
+    /// With `RunOptions::cell_tap`: the `Expect` cells the test matched (`al_vm::observer_tap`); `None` when it did not use the fixture.
+    pub cells: Option<al_vm::observer_tap::CellRecord>,
 }
 
 /// Wall time of the phases of a run (`--timings`).
@@ -622,6 +624,8 @@ pub(crate) struct Scratch {
     stubbed: Vec<(String, Vec<String>)>,
     /// `--dev-endpoint-ui`: the UI calls answered for each test (`TestResult::ui_answered`).
     ui_answered: Vec<(String, Vec<String>)>,
+    /// `RunOptions::cell_tap`: the cells each test matched (`TestResult::cells`).
+    cells: Vec<(String, al_vm::observer_tap::CellRecord)>,
     /// The time each test that slept asked `Sleep` for (`TestResult::slept_ms`).
     slept: Vec<(String, u64)>,
     /// With `trace`: the workspace objects each test entered and whether it ran DotNet (`TestResult::entered`).

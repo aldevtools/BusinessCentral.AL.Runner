@@ -7,8 +7,8 @@ use al_host::dotnet::DotNetHost;
 use al_test_cli::args::{self, Args, Parsed};
 use al_test_cli::dotnet::{SidecarConfig, SidecarHost};
 use al_test_cli::{
-    config, corpus, deps, drift, explain, insight, not_passing, oracle, output, pin, report, runner::Runner, runtime,
-    select, target, work,
+    cell_report, config, corpus, deps, drift, explain, insight, not_passing, oracle, output, pin, report,
+    runner::Runner, runtime, select, target, work,
 };
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -1195,6 +1195,7 @@ fn run_version_inner(
         clock_starts: (!clocks.is_empty()).then(|| std::sync::Arc::new(clocks)),
         quiet_baseline: false,
         impact_trace: false,
+        cell_tap: args.junit.is_some() || args.cell_report.is_some(),
         narrow: None,
         // The oracle leaves the runner's OnRun row out (oracle::RUNNER_PSEUDO_CASE).
         on_run_rows: runtime::OnRunRows::PerTest,
@@ -1410,17 +1411,25 @@ fn run_version_inner(
 
     // `--json` and `--markdown` are written by `run_version_passes`, from the reports of every pass.
     let all = args.all_versions;
+    let suite_name = |i: usize| rt.phases.suites.get(i).map(|s| s.0.clone()).unwrap_or_default();
+    let cells = cell_report::index(rt.results(), &suite_name);
     if let Some(p) = args.junit.as_ref().filter(|_| pass.main) {
         write(
             &per_version(p, version.major, all),
-            &output::junit_with(
+            &output::junit_with_properties(
                 &cases,
                 &outcome,
                 &|c| rt.first_time(c).as_secs_f64(),
                 &marks_of,
+                &|c| cell_report::properties_of(&cells, "", c),
                 bc_build.as_deref(),
             ),
         )?;
+    }
+    if let Some(p) = &args.cell_report {
+        let (path, json, line) = cell_report::prepare(p, pass.main, &pass.work_name(), rt.results(), &suite_name);
+        write(&per_version(&path, version.major, all), &json)?;
+        println!("BC {} ({}): {line}", version.bc_version, pass.work_name());
     }
     if let Some(p) = &args.junit {
         for (suite, cases) in version.suites.iter().zip(&suite_cases) {
@@ -1432,11 +1441,12 @@ fn run_version_inner(
             );
             write(
                 &per_version(&p.with_file_name(name), version.major, all),
-                &output::junit_with(
+                &output::junit_with_properties(
                     cases,
                     &|c| rt.outcome_in(&suite.name, c),
                     &|c| rt.time_in(&suite.name, c).as_secs_f64(),
                     &|c| rt.assumptions_in(&suite.name, c).to_vec(),
+                    &|c| cell_report::properties_of(&cells, &suite.name, c),
                     bc_build.as_deref(),
                 ),
             )?;

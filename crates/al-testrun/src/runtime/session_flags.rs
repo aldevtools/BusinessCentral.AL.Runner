@@ -8,6 +8,7 @@ pub(super) struct SessionFlags {
     ignore_permission_mock: bool,
     permissions_off: bool,
     dev_endpoint_ui: bool,
+    cell_tap: bool,
 }
 
 impl SessionFlags {
@@ -16,6 +17,7 @@ impl SessionFlags {
             ignore_permission_mock: o.ignore_permission_mock,
             permissions_off: o.permissions_off,
             dev_endpoint_ui: o.dev_endpoint_ui,
+            cell_tap: o.cell_tap,
         }
     }
 
@@ -23,5 +25,8 @@ impl SessionFlags {
         s.ignore_permission_mock = self.ignore_permission_mock;
         s.permissions_off = self.permissions_off;
         s.set_dev_endpoint_ui(self.dev_endpoint_ui);
+        if self.cell_tap {
+            s.enable_cell_tap();
+        }
     }
 }

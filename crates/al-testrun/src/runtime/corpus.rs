@@ -1550,6 +1550,7 @@ impl CorpusRuntime {
                                     entered: Vec::new(),
                                     dotnet: false,
                                     order_hint: None,
+                                    cells: None,
                                 });
                             }
                         }
@@ -1787,6 +1788,7 @@ impl CorpusRuntime {
                         entered: Vec::new(),
                         dotnet: false,
                         order_hint: None,
+                        cells: None,
                     })
                 };
                 match r.result {

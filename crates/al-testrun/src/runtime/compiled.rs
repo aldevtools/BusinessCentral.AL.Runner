@@ -129,6 +129,9 @@ pub struct RunOptions {
     /// The baseline then runs instead of being read from the compile cache. Off, a run pays one branch per raise and
     /// record operation.
     pub impact_trace: bool,
+    /// Count, per test, the `Expect` cells of the corpus fixture codeunit 69160 that matched (`TestResult::cells`, report only;
+    /// `al-test-cli --cell-report`).
+    pub cell_tap: bool,
     /// Called once the compile is done and the install baseline has run, before any test runs: it may narrow the test
     /// codeunits to run (an impact run that selects the codeunits that reach the extension's impact points). The
     /// baseline then runs with the trace on (`NarrowInput::baseline`) instead of being read from the compile cache.
