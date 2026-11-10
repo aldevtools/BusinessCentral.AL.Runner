@@ -21,7 +21,7 @@ mod boolean_filter_error;
 mod delete_all_flow;
 mod flowfield_key;
 mod insert_buffer;
-pub(crate) use insert_buffer::InsertQueue;
+pub(crate) use insert_buffer::{InsertKind, InsertQueue};
 mod nested_validate;
 mod op_inner;
 mod own_rolled_back_modify;
@@ -2330,19 +2330,26 @@ impl Session {
         rec: &Rec,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
+        let insert_from_al = std::mem::take(&mut self.tx.insert_from_al);
         // ADR-062: a record method of a restricted session, or of any session when the license limits a table (license_ceiling.rs).
         if self.permission_checks() {
             let from_al = std::mem::take(&mut self.permission_from_al);
             self.permission_gate_record(method, rec, args, from_al)?;
         }
-        // A statement-form Insert is queued by the platform (`insert_buffer.rs`); a table with a Blob or AutoIncrement field is not.
-        let queued = method == RecordOp::Insert && !self.ret_used && self.insert_is_queued(rec);
+        // A statement-form Insert of AL code is queued by the platform (`insert_buffer.rs`); a table with a Blob or AutoIncrement
+        // field is not, and an Insert the platform makes itself stays out of the queue.
+        let from_al = insert_from_al;
+        let insert = match method {
+            RecordOp::Insert if !from_al => InsertKind::Platform,
+            RecordOp::Insert if !self.ret_used && self.insert_is_queued(rec) => InsertKind::Queued,
+            _ => InsertKind::Other,
+        };
         if self.sql.active {
             let r = self.record_op_counted(method, rec, args);
-            return self.note_insert_buffer(method, rec, queued, r);
+            return self.note_insert_buffer(method, rec, insert, r);
         }
         let r = self.record_op_tracked(method, rec, args);
-        let r = self.note_insert_buffer(method, rec, queued, r);
+        let r = self.note_insert_buffer(method, rec, insert, r);
         if matches!(r, Ok(Value::Boolean(false)))
             && matches!(method, RecordOp::FindSet | RecordOp::FindFirst | RecordOp::FindLast)
         {
@@ -2638,7 +2645,7 @@ impl Session {
         if self.permission_checks() {
             self.permission_from_al = true;
         }
-        self.record_op(method, rec, args)
+        self.record_op_of_al(method, rec, args)
     }
 
     /// The filters of `rec` in filter group 1, as text to compare.

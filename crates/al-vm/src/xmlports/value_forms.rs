@@ -22,6 +22,12 @@ impl Session {
     ) -> Option<Result<String, Signal>> {
         let attribute = schema.node(node).kind == ir::XmlNodeKind::FieldAttr;
         match v {
+            // Format 0 writes the letters of the global language; the pins run under 1033 (Export_Xml_PopulatedRow `CM+1D`), and
+            // what a port writes under another language is not pinned (the import side refuses it too, `xp_date_formula`).
+            Value::DateFormula(f) if !f.is_empty() && self.global_language != 1033 => Some(unsupported(format!(
+                "XmlPort export of a DateFormula under the language {} (not pinned)",
+                self.global_language
+            ))),
             Value::DateFormula(_) => Some(
                 al_builtins::format::try_format(v, 0, 0, self)
                     .or_else(|why| unsupported(format!("XmlPort export of a DateFormula: {why}"))),
@@ -62,13 +68,17 @@ impl Session {
         }
     }
 
-    /// An import into a Format = Xml port with a Blob, Media or MediaSet field fails with NotSupportedType whatever the document
-    /// holds, also a blank value (Import_Xml_Blob_MediaAndMediaSet: `The type BLOB is not supported.`, `The type Media is not
-    /// supported.`, `The type MediaSet is not supported.`, nothing stored). Pinned for FormatEvaluate = Xml and Legacy.
-    pub(super) fn xp_import_unsupported_types(&self, schema: &Schema) -> Result<(), Signal> {
+    /// An import into a Format = Xml port with a Blob, Media or MediaSet field element fails with NotSupportedType when the
+    /// document holds that element, also with a blank value (Import_Xml_Blob_MediaAndMediaSet: `The type BLOB is not
+    /// supported.`, `The type Media is not supported.`, `The type MediaSet is not supported.`, nothing stored). Pinned for
+    /// FormatEvaluate = Xml and Legacy, for a port with one such field element, and for documents that hold the element in their
+    /// one row (`XmlOne`, :526-529). Whether BC raises for the port or for the element is not known, so the rest is refused: a
+    /// document without the element, a field attribute, and a port with several such fields.
+    pub(super) fn xp_import_unsupported_types(&mut self, inst: &Inst, schema: &Schema) -> Result<(), Signal> {
         if schema.xp().format != ir::XmlFormat::Xml {
             return Ok(());
         }
+        let mut found: Vec<(&'static str, &ir::XmlNode)> = Vec::new();
         for n in &schema.xp().nodes {
             let (Some(tn), Some(pos)) = (n.table_node, n.field) else {
                 continue;
@@ -85,14 +95,47 @@ impl Session {
                 RtType::Library(LibraryKind::MediaSet) => "MediaSet",
                 _ => continue,
             };
-            if !schema.xp().format_evaluate_declared {
+            found.push((name, n));
+        }
+        let (name, node) = match found[..] {
+            [] => return Ok(()),
+            [one] => one,
+            _ => {
                 return unsupported(format!(
-                    "XmlPort import with a {name} field and no FormatEvaluate (not pinned, {FILE} declares it)"
+                    "XmlPort import with several Blob, Media or MediaSet fields (not pinned, {FILE} has one per port)"
                 ));
             }
-            return Err(xerr(format!("The type {name} is not supported."), "NotSupportedType"));
+        };
+        if !schema.xp().format_evaluate_declared {
+            return unsupported(format!(
+                "XmlPort import with a {name} field and no FormatEvaluate (not pinned, {FILE} declares it)"
+            ));
         }
-        Ok(())
+        if node.kind != ir::XmlNodeKind::Field {
+            return unsupported(format!(
+                "XmlPort import with a {name} field attribute (not pinned, {FILE} pins the field element)"
+            ));
+        }
+        // The document, read as the import reads it; the source stream keeps its position (`xp_read_source`).
+        let stashed = inst
+            .borrow()
+            .xp_text
+            .iter()
+            .find(|(k, _)| *k == 12)
+            .map(|(_, t)| t.clone());
+        let text = match stashed {
+            Some(t) => Ok(t),
+            None => self.xp_read_source(inst, schema.xp()),
+        };
+        match text {
+            Ok(t) if document_holds_element(&t, &node.xml_name) => {
+                Err(xerr(format!("The type {name} is not supported."), "NotSupportedType"))
+            }
+            _ => unsupported(format!(
+                "XmlPort import with a {name} field whose element `{}` is not in the document (not pinned, {FILE}: every document holds it)",
+                node.xml_name
+            )),
+        }
     }
 
     /// A DateFormula text read as Evaluate does: `<1D>`, `<CM+1D>`, `<-1W>` and `1D` store the formula, the empty text the empty
@@ -160,6 +203,21 @@ impl Session {
     }
 }
 
+/// Whether `text` holds a start tag of an element named `name`, with or without a namespace prefix. A document with a comment,
+/// a CDATA section or a DOCTYPE (`<!`) answers false: what looks like a tag there may be text.
+fn document_holds_element(text: &str, name: &str) -> bool {
+    if text.contains("<!") {
+        return false;
+    }
+    text.split('<').skip(1).any(|rest| {
+        let tag = rest
+            .split(|ch: char| ch.is_whitespace() || ch == '>' || ch == '/')
+            .next()
+            .unwrap_or("");
+        tag.rsplit(':').next() == Some(name) && !tag.is_empty()
+    })
+}
+
 /// A BigInteger element of a FormatEvaluate = Legacy port that holds digit groups (`1,234`) reads as a number and then fails the
 /// schema's `long` check (Import_Legacy_BigInteger `big_thousands`); a text with letters fails with Evaluate (`big_text`).
 pub(super) fn legacy_big_thousands(text: &str) -> bool {
@@ -177,7 +235,20 @@ pub(super) fn legacy_big_thousands(text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::legacy_big_thousands;
+    use super::{document_holds_element, legacy_big_thousands};
+
+    #[test]
+    fn a_start_tag_is_found_by_its_name() {
+        assert!(document_holds_element("<Root><T><Id>1</Id><Bl></Bl></T></Root>", "Bl"));
+        assert!(document_holds_element("<Root><T><x:Bl /></T></Root>", "Bl"));
+        assert!(document_holds_element("<Root><T><Bl/></T></Root>", "Bl"));
+        assert!(!document_holds_element("<Root><T><Id>1</Id></T></Root>", "Bl"));
+        assert!(!document_holds_element(
+            "<Root><T><Blob>1</Blob><Id>Bl</Id></T></Root>",
+            "Bl"
+        ));
+        assert!(!document_holds_element("<Root><!-- <Bl> --></Root>", "Bl"));
+    }
 
     #[test]
     fn digit_groups_are_thousands() {

@@ -1504,6 +1504,17 @@ pub fn evaluate_option_field(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Va
     };
     let by_caption = captions.split(',').position(same);
     let by_name = names.iter().position(|n| same(n));
+    // A blank text that names a member only by its blank caption, while the member has a name (`OptionMembers = None,First`,
+    // `OptionCaption = ' ,First cap'`): the pins are members named " " or "" (P131EvalOption.al:107-108, FMOptionBlankField.al).
+    // Not pinned, listed by the probe of corpus pull request 1283 (EvalNamedBlankCaption.al:41-58): refused.
+    if t.is_empty()
+        && by_name.is_none()
+        && by_caption.is_some_and(|p| names.get(p).is_some_and(|n| !n.trim().is_empty()))
+    {
+        return unsupported(
+            "Evaluate of a blank text into an Option field whose member has a name and a blank OptionCaption (not pinned)",
+        );
+    }
     let digits = t.strip_prefix('+').unwrap_or(t);
     let ordinal = (!digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
         .then(|| digits.parse::<i32>().ok())

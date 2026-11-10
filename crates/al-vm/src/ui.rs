@@ -668,8 +668,9 @@ impl Session {
     /// Caption is pinned there; any other caller is refused.
     /// A page background task worker has no client either; its texts name the `Server` instead of `Data Services`
     /// (pages/background-tasks/BjNoGuiDialogs.al:204, EnqueueBackgroundTask_WithHandlers `completion log`).
-    fn callback_not_allowed(&self, what: &str, named: bool) -> Signal {
-        let product = if self.pages.bg_worker.is_some() {
+    pub(crate) fn callback_not_allowed(&self, what: &str, named: bool) -> Signal {
+        // `--no-client` answers as the worker does (`clientless.rs`); install code keeps its own text.
+        let product = if self.pages.bg_worker.is_some() || (self.ui_state.clientless && !self.install_without_client) {
             "Microsoft Dynamics 365 Business Central Server"
         } else {
             "Microsoft Dynamics 365 Business Central Data Services"
@@ -738,6 +739,11 @@ impl Session {
         if self.pages.bg_worker.is_some() {
             return Ok(());
         }
+        // `--no-client`: the same, assumed for a web-service session (assumption `no-client-session`).
+        if self.ui_state.clientless {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NoClientSession);
+            return Ok(());
+        }
         if self.ui_state.scope.is_none() && self.scratch_messages.is_some() {
             self.cap_message(&text);
             if let Some(log) = self.scratch_messages.as_mut() {
@@ -770,6 +776,10 @@ impl Session {
         if (self.ui_state.scope.is_none() && self.install_without_client) || self.pages.bg_worker.is_some() {
             return Err(self.callback_not_allowed(&format!("show a confirmation dialog box: {question}"), true));
         }
+        if self.ui_state.clientless {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NoClientSession);
+            return Err(self.callback_not_allowed(&format!("show a confirmation dialog box: {question}"), true));
+        }
         let finals = self.dispatch_ui(
             UiKind::Confirm,
             &question.clone(),
@@ -789,6 +799,13 @@ impl Session {
             return Err(Signal::Unsupported(
                 "StrMenu in a page background task worker (not pinned)".into(),
             ));
+        }
+        // `--no-client`: CallbackNotAllowed with and without an instruction, and no StrMenuHandler sees the call (pages/
+        // background-tasks/BjNoClientDialogs.al `01 StrMenu with instruction`, `02 StrMenu without instruction`, corpus pull
+        // request 1286), assumed for a web-service session (`no-client-session`).
+        if self.ui_state.clientless && !self.install_without_client {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NoClientSession);
+            return Err(self.callback_not_allowed(&format!("show a selection menu: {instruction}"), true));
         }
         if self.ui_state.scope.is_none() && self.install_without_client {
             // Pinned with an instruction (RlInstallUi.al:219); what the text shows without one is not.

@@ -929,6 +929,11 @@ impl Session {
         if self.sql.active {
             crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
         }
+        if self.ui_state.clientless
+            && let Some(answer) = self.clientless_guard(site.id, &values)?
+        {
+            return Ok(answer);
+        }
         self.ret_used = site.ret_used;
         let result = native(self, recv.as_mut(), &mut values);
         // In the order `run_native` lets go of them: the receiver, then the operands.
@@ -1065,6 +1070,11 @@ impl Session {
         }
         if self.sql.active {
             crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
+        }
+        if self.ui_state.clientless
+            && let Some(answer) = self.clientless_guard(site.id, &values)?
+        {
+            return Ok(answer);
         }
         if site.vm_class {
             // `Report.Run` on a variable: the variable gets a new instance afterwards (see `report_fresh_instance`).

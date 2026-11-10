@@ -79,7 +79,7 @@ impl Session {
         self.tx.tx_world += 1;
         let result = self
             .xp_import_view_keys(inst, schema)
-            .and_then(|()| self.xp_import_unsupported_types(schema))
+            .and_then(|()| self.xp_import_unsupported_types(inst, schema))
             .and_then(|()| self.xp_import_document(inst, schema));
         self.tx.tx_world -= 1;
         if result.is_err() && inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_IMPORTED) {

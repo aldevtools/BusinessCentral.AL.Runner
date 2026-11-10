@@ -59,6 +59,13 @@ pub(crate) struct TxState {
     pub(crate) deferred_insert: Option<(usize, AlError)>,
     /// The rows each table's insert queue holds since it was last sent (`Session::note_insert_buffer`).
     pub(crate) insert_buffer: Vec<crate::records::InsertQueue>,
+    /// Set by an Insert that AL code calls on a Record or a RecordRef, taken by the record method it starts
+    /// (`Session::record_op_unprofiled`): only such an Insert goes into the insert queue. The platform's own inserts (an XmlPort
+    /// import, a page's new row, a FlowField's row, a record link) are not measured and stay out of it.
+    pub(crate) insert_from_al: bool,
+    /// The record (its address) whose Insert was the last to leave a duplicate key pending: the insert queue asks whether the
+    /// Insert that sends it was itself a duplicate (`Session::note_insert_buffer`).
+    pub(crate) deferred_by: Option<usize>,
     /// How many deferred duplicate-key Inserts have come out so far (a TestPage action wraps the code of one its own
     /// Insert left, `action_invoke`).
     pub(crate) deferred_raised: u32,
@@ -164,6 +171,8 @@ impl TxState {
             last_commit_wrote: false,
             deferred_insert: None,
             insert_buffer: Vec::new(),
+            insert_from_al: false,
+            deferred_by: None,
             deferred_raised: 0,
             immediate_errors: false,
             try_depth: 0,
@@ -192,6 +201,10 @@ pub(crate) struct UiState {
     pub(crate) sent_notifications: Vec<[u8; 16]>,
     /// `--dev-endpoint-ui` (al-runner issue 3697).
     pub(crate) dev_endpoint: crate::dev_endpoint_ui::DevEndpointUi,
+    /// The whole test session is a session without a client (`--no-client`, `Session::set_clientless_session`).
+    pub(crate) clientless: bool,
+    /// The login code that sets WorkDate did not run because of `clientless` (`clientless.rs`).
+    pub(crate) clientless_login_skipped: bool,
 }
 
 /// What the TestPage client keeps between calls.
