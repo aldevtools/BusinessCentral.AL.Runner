@@ -103,8 +103,11 @@ What was built, and where it differs from the text above. None of this changes a
   `al-test-cli/src/refusal_keys.rs` `LISTS`. Reason: a new key in the bottom crate rebuilds every crate; a key in
   `al-vm` rebuilds five. A key that lowering and the VM both use sits in `al-builtins`. Step 1 has one list
   (`al-builtins`) with one key.
-- **`Refusal`** (`al-builtins/src/refusal.rs`) is one pointer (`Box` of key and text), so `Signal` does not grow (a test
-  pins `Signal` at 40 bytes and `Result<Value, Signal>` at 48, "not larger than"). `key()`, `area()` (the key up to the
+- **`Refusal`** (`al-builtins/src/refusal.rs`) is the size of a `String`: free text is stored as its `String` (no
+  allocation more than before), a keyed refusal as a `Box` of key and text. `Signal` does not grow (a test pins `Signal`
+  at 40 bytes and `Result<Value, Signal>` at 48, "not larger than"). The plan's first layout, one `Box` for every
+  refusal, cost `CallLoop` 0.4 % after ADR-072 step A merged; this layout is the plan's fallback and costs nothing
+  measurable. `key()`, `area()` (the key up to the
   first dot), `reason()`, `into_reason()`, `map_reason()` (keeps the key behind a site prefix). There is no
   `From<Refusal> for String`: it would overlap the blanket `From<S: Into<String>>`; owned text is `into_reason()`.
 - **Decision 5, "old sites keep compiling"**, is not true for a construction that passes a `String` straight to the
@@ -139,4 +142,5 @@ What was built, and where it differs from the text above. None of this changes a
 - **ADR-072.** Its step 5 moves `Signal` and `Describe` to `al-value`; `refusal.rs` moves with them.
 - **Proof site.** `xml.sibling.attribute-or-declaration` (`al-builtins/src/xml/edit.rs`, `position_in_parent`), text
   unchanged.
-- **Speed.** `perf_vm` instructions per round, `main` against this branch: no bench higher (table in the pull request).
+- **Speed.** `perf_vm` instructions per round, `main` against this branch: no bench more than 0.2 % higher (table in the
+  pull request).

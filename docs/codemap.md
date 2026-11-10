@@ -74,7 +74,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `collation.rs` (135): Text order for `<`, `>`, `<=` and `>=`. Entry: `compare` 74.
 - `collections.rs` (286): List and Dictionary methods.
 - `describe.rs` (330): How a value or type reads in a refusal reason or internal error (AL type and a short value, never a debug dump). Entry: `Describe` 12.
-- `refusal.rs` (426): Typed refusals (ADR-071): `Refusal` (a key and a text, one pointer; free text converts with the key `legacy` and reads, prints and stores as the `String` did), `refuse!` (arguments through `Describe`, a named placeholder does not compile), `Shown`, `Probe`, `AREAS`, and `refusal_keys!`, which turns this crate's list `src/refusals/<key>.rs` (one file per key, collected by `build.rs`) into `keys` and `ALL`. Entry: `Refusal`, `refuse!`, `refusal_keys!`, `positional_only`.
+- `refusal.rs` (444): Typed refusals (ADR-071): `Refusal` (a key and a text, the size of a `String`; free text converts with the key `legacy` and reads, prints and stores as the `String` did), `refuse!` (arguments through `Describe`, a named placeholder does not compile), `Shown`, `Probe`, `AREAS`, and `refusal_keys!`, which turns this crate's list `src/refusals/<key>.rs` (one file per key, collected by `build.rs`) into `keys` and `ALL`. Entry: `Refusal`, `refuse!`, `refusal_keys!`, `positional_only`.
 - `datatransfer.rs` (74): DataTransfer (install and upgrade code only). Entry: `native_for` 58.
 - `datefns.rs` (769): Date, Time and DateTime builtins. Entry: `formula_text` 237, `check_formula` 323.
 - `datefns/brackets.rs` (95): angle brackets inside a term of a date formula (`-62<D>`, `1<>D`, `C<M>`). Entry: `open`, `close`.

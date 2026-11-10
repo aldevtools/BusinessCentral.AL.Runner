@@ -97,6 +97,6 @@ fn a_legacy_refusal_dumps_as_a_plain_string() {
 }
 
 #[test]
-fn a_refusal_is_one_pointer() {
-    assert_eq!(std::mem::size_of::<Refusal>(), std::mem::size_of::<usize>());
+fn a_refusal_is_no_larger_than_a_string() {
+    assert_eq!(std::mem::size_of::<Refusal>(), std::mem::size_of::<String>());
 }

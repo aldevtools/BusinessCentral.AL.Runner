@@ -445,7 +445,7 @@ const RESULT_UNIT_SIGNAL_SIZE: usize = 40;
 #[test]
 fn the_size_of_a_signal_is_pinned() {
     use std::mem::size_of;
-    // Not larger than on main before ADR-071 step 1 (40, 48, 40 bytes); the Refusal payload is one pointer.
+    // Not larger than on main before ADR-071 step 1 (40, 48, 40 bytes); the Refusal payload is the size of a String.
     let now = (
         size_of::<Signal>(),
         size_of::<Result<Value, Signal>>(),

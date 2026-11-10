@@ -127,9 +127,17 @@ pub const AREAS: &[&str] = &[
     "runner",
 ];
 
-/// A refusal: the key of the refused shape and the text for the user. One pointer, so `Signal` does not grow.
+/// A refusal: the key of the refused shape and the text for the user. The size of a `String`, so `Signal` does not
+/// grow; free text is stored as its `String`, with no allocation more than before.
 #[derive(Clone, PartialEq, Eq, Hash)]
-pub struct Refusal(Box<Data>);
+pub struct Refusal(Repr);
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum Repr {
+    /// Free text: the key [`LEGACY`].
+    Legacy(String),
+    Keyed(Box<Data>),
+}
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct Data {
@@ -140,19 +148,22 @@ struct Data {
 impl Refusal {
     /// A refusal with a registered key; what `refuse!` calls.
     pub fn keyed(key: RefusalKey, reason: String) -> Refusal {
-        Refusal(Box::new(Data {
+        Refusal(Repr::Keyed(Box::new(Data {
             key: Cow::Borrowed(key.key()),
             reason,
-        }))
+        })))
     }
 
     /// The key; [`LEGACY`] for free text.
     pub fn key(&self) -> &str {
-        &self.0.key
+        match &self.0 {
+            Repr::Legacy(_) => LEGACY,
+            Repr::Keyed(d) => &d.key,
+        }
     }
 
     pub fn is_legacy(&self) -> bool {
-        self.key() == LEGACY
+        matches!(self.0, Repr::Legacy(_))
     }
 
     /// The key up to its first dot.
@@ -163,17 +174,26 @@ impl Refusal {
 
     /// The text for the user.
     pub fn reason(&self) -> &str {
-        &self.0.reason
+        match &self.0 {
+            Repr::Legacy(s) => s,
+            Repr::Keyed(d) => &d.reason,
+        }
     }
 
     pub fn into_reason(self) -> String {
-        self.0.reason
+        match self.0 {
+            Repr::Legacy(s) => s,
+            Repr::Keyed(d) => d.reason,
+        }
     }
 
     /// The same key with a new text (a site prefix such as `OnRun: `).
     pub fn map_reason(mut self, f: impl FnOnce(String) -> String) -> Refusal {
-        let reason = std::mem::take(&mut self.0.reason);
-        self.0.reason = f(reason);
+        let reason = match &mut self.0 {
+            Repr::Legacy(s) => s,
+            Repr::Keyed(d) => &mut d.reason,
+        };
+        *reason = f(std::mem::take(reason));
         self
     }
 }
@@ -181,10 +201,7 @@ impl Refusal {
 /// Free text: the key `legacy` (ADR-071 decision 5). Deleted in the last migration step.
 impl<S: Into<String>> From<S> for Refusal {
     fn from(text: S) -> Refusal {
-        Refusal(Box::new(Data {
-            key: Cow::Borrowed(LEGACY),
-            reason: text.into(),
-        }))
+        Refusal(Repr::Legacy(text.into()))
     }
 }
 
@@ -268,12 +285,13 @@ impl<'de> serde::Deserialize<'de> for Refusal {
 struct RefusalVisitor;
 
 fn stored(key: String, reason: String) -> Refusal {
-    let key = if key == LEGACY {
-        Cow::Borrowed(LEGACY)
-    } else {
-        Cow::Owned(key)
-    };
-    Refusal(Box::new(Data { key, reason }))
+    if key == LEGACY {
+        return Refusal(Repr::Legacy(reason));
+    }
+    Refusal(Repr::Keyed(Box::new(Data {
+        key: Cow::Owned(key),
+        reason,
+    })))
 }
 
 impl<'de> serde::de::Visitor<'de> for RefusalVisitor {
