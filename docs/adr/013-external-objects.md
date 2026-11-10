@@ -1482,3 +1482,48 @@ demand-driven. Both the corpus job and `alrunner test` go through this function.
 - This is not a seam change: no interface changes (`Dependencies`, `AppSource`, `Request` stay as they are). The optional
   root is the mechanism the platform's `System` and the `Application` floor already use. Reviewer: if the owner sees an app
   that no project declares as a change of decision 2, this section becomes an amendment to accept.
+
+## Amendment 2026-11-10 (owner decision, branch `rt-bump-tests-ci`): a corpus run does not search the corpus tree's `.alpackages`
+
+**Why.** The corpus repository removed Microsoft's packages from `tests/al-language/.alpackages` (a license decision of
+its owner; corpus pull request "Remove Microsoft symbol packages from the tree, add MIT license"). Until then BC 27.5 took
+System, System Application, Business Foundation, Base Application and Application from that folder (build
+27.5.46862.48827), and BC 28 and 29 took every Microsoft app from the artifact cache. A Rust test in three crates read
+`System.app` from the folder too.
+
+**Decision (owner, 2026-11-10).** A corpus run (`al-test-cli --root`) does not search the `.alpackages` folder of the
+corpus app. Microsoft's apps come only from the build `oracle/oracle.toml` pins for the BC major (`bc_build`), read from
+the artifact cache (`~/.cache/al-runtime/artifacts/<build>/apps/`), which `--fetch-deps` fills from Microsoft's feed.
+`--deps` directories are still searched first, as before.
+
+This replaces, for the corpus only, answer 2 of 2026-10-13 ("the project's own `.alpackages` folder is the first place
+dependency apps are looked up") and the corpus bullet of decision 2 that names the folder as the offline fallback.
+
+1. **Corpus runs** (`al-testrun` `deps::load_corpus`, called by `al-test-cli`). The search list is `--deps`, then the
+   artifact cache of the pinned build. A package someone stages into the corpus checkout (the compile symbols the AL
+   compiler needs, `docs/agents/corpus-writer.md`) changes no result, so a local run and CI load the same apps by
+   construction.
+2. **Any other project is unchanged** (`deps::load_with`, `alrunner-cli`): its own `.alpackages` stays the first place,
+   with the amendments of 2026-10-15 and 2026-10-20.
+3. **The coverage maps, the golden files and the examples** (`al-test-cli` `coverage::corpus_dependencies`) load the
+   pinned build of the oldest major from the cache and never download. It is an error when the System app or Base
+   Application is not loaded: a map or a golden file made without Microsoft's apps looks complete and is wrong.
+4. **Rust tests** read a Microsoft file through one helper, the dev-only crate `al-testfiles`
+   (`<cache>/artifacts/<bc_build of BC 27>/apps/<file>`). A test never downloads. A missing file fails the test with the
+   command that fills the cache; it never skips. Only this crate and `al-test-cli` read `oracle.toml`; the runtime crates
+   still do not.
+5. **CI.** The composite action `.github/actions/bc-artifacts` (the pinned builds, the cache restore, `--fetch-deps`) runs
+   in the jobs `test`, `release-tests` and `corpus` and in the bump bot.
+6. **Offline.** A corpus run with `--no-download` needs a filled cache; with an empty one the Microsoft apps are skipped
+   and logged, as on BC 28 and 29 before. There is no corpus run without a download on a new machine any more.
+
+**Consequences.**
+
+- Nothing from Microsoft is in the corpus tree or in this repository (hard rule 7). The test
+  `no_code_reads_a_microsoft_file_from_the_corpus_tree` keeps the path from coming back.
+- BC 27.5 depends on the feed keeping the pinned build, as BC 28 and 29 always did. If Microsoft drops the build and the
+  CI cache entry is gone, runs fail with the URL (decision 12) until the owner moves `bc_build`.
+- The Microsoft apps of BC 27.5 are now the pinned build 27.5.46862.56249, not 27.5.46862.48827 from the corpus tree.
+
+**Not a seam change.** `Dependencies`, `Provision`, `Request` and the search-list order of `al-deps` stay as they are; the
+corpus front end passes one entry less.

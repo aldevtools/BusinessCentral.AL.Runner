@@ -566,6 +566,27 @@ fn the_bump_regenerates_golden_prunes_again_checks_gates_and_prints_a_todo_list(
     assert!(!script.contains("sed -i") || !script.contains("gates.rs"));
 }
 
+/// ADR-013 amendment of 2026-11-10: Microsoft's apps come only from the pinned builds in the artifact cache. The bump
+/// fills the cache after the build and before the first list pass and the golden files, and a fetch that fails stops
+/// it there: a list pass without the apps would record every case that needs one, and the golden files would be
+/// written without them (the tests refuse that too, `corpus_resolve_deps`).
+#[test]
+fn the_bump_fetches_microsofts_apps_before_the_lists_and_the_golden_files() {
+    let script = std::fs::read_to_string(root().join("tools/corpus_bump.sh")).unwrap();
+    let at = |needle: &str| script.find(needle).unwrap_or_else(|| panic!("missing: {needle}"));
+    let finish = at("finish() {");
+    let build = finish
+        + script[finish..]
+            .find("cargo build --release -q")
+            .expect("finish builds");
+    let fetch = at("./target/release/al-test-cli --root . --all-versions --fetch-deps \\\n    || die ");
+    let lists = at("list_pass --list-new-cases HEAD --prune-not-passing");
+    let golden = at("UPDATE_GOLDEN=1 cargo test --release -q -p al-test-cli --test corpus_resolve_deps -- --ignored");
+    assert!(build < fetch && fetch < lists && lists < golden);
+    // The build the golden files were made against is printed.
+    assert!(script[golden..].contains("golden files generated against BC build $golden_build"));
+}
+
 // ISOL_IDS names the artifact of each leg's Isolation Disabled file. A version without the suite gets it (the suite
 // cannot be in oracle.toml before the pinned corpus holds its app); a version with it moves it to the run.
 #[test]

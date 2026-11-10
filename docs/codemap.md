@@ -22,6 +22,7 @@ al-data        Store trait and the in-memory store         al-host   clock, iden
 al-ir          the typed IR (plain data)                   al-version  BC versions, run target, gates
 al-syntax      lexer, preprocessor, parser, rowan tree, AST views, cheap declaration scan
 al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, package/zip reading
+al-testkit     dev only: compile AL from a string and run a routine     al-testfiles  dev only: Microsoft's files of the pinned build, for tests
 ```
 
 ## Crates and modules
@@ -475,8 +476,9 @@ functions or methods; the file is in the module list above.
 1. `main` (al-test-cli/main.rs) starts a thread with a large stack and calls `run`.
 2. `run`: `args::parse` -> `config::OracleFile::parse` (oracle/oracle.toml) -> per BC version `run_version`.
 3. `run_version`: `pin::check` -> `oracle::parse_junit` (cases of real BC) -> `corpus::discover` ->
-   `select::Selection::filter` / `find_explained` -> `runtime::load_app` per app -> `deps::load_with`
-   (Microsoft apps from `.alpackages`, `--deps` or the artifact feed) -> `CorpusRuntime::run_suites_with`.
+   `select::Selection::filter` / `find_explained` -> `runtime::load_app` per app -> `deps::load_corpus`
+   (Microsoft apps from `--deps` or the artifact cache of the pinned build; the corpus tree's `.alpackages` is not
+   searched, ADR-013 amendment of 2026-11-10) -> `CorpusRuntime::run_suites_with`.
 4. `run_suites_with`: `al_sema::lower::compile_apps_with` (compile pipeline below) -> `Engine::with_config`
    (`events::Registry::build`) -> `global_triggers_find_unavailable` -> `baseline::run` (install roots, once) ->
    for each test codeunit `run_codeunit_isolated` -> `run_codeunit_observed`. Test codeunits run on worker threads
@@ -623,6 +625,12 @@ functions or methods; the file is in the module list above.
 
 ## Test layout (moved from the agent brief)
 
+- **Tests that need a file Microsoft ships use `al-testfiles`** (`crates/al-testfiles`, a dev-dependency):
+  `al_testfiles::system_app()` is the path of the platform's `System.app`, `file(NAME)` of any file of the pinned BC 27
+  build in the artifact cache, `sources(NAME)` its AL files. A test never downloads and never reads the corpus tree for
+  a Microsoft file; a missing file fails the test with the command that fills the cache
+  (`./target/release/al-test-cli --root . --all-versions --fetch-deps`). Outside tests, `al-test-cli`
+  `coverage::corpus_dependencies` loads the same build (coverage maps, golden files, the examples).
 - **Tests of the interpreter use `al-testkit`** (`crates/al-testkit`, a dev-dependency): `al_testkit::run(src, routine)`,
   `run_in(src, object, routine)`, `Built` for several calls on one session, and `text`/`int`/`boolean`/`error_message` to
   read a result. Do not write another compile-and-call helper. The tests of `al-vm` are five area binaries

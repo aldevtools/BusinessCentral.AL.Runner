@@ -880,9 +880,7 @@ fn a_country_other_than_w1_has_layers_of_its_own() {
 /// A run of the test codeunit `main` over the fixture of item 5, uncached and then on a cache hit: the outcomes of both,
 /// how many dependency objects the cached run decoded on first touch, and how many the cache holds.
 fn decoded_by(main: &str) -> (Vec<String>, Vec<String>, usize, usize) {
-    let packages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/tests/al-language/.alpackages");
-    let bytes = std::fs::read(packages.join("System.app"))
-        .expect("corpus submodule not checked out: run `git submodule update --init`");
+    let bytes = std::fs::read(al_testfiles::system_app()).unwrap();
     let system = al_deps::package::read_package(&bytes).expect("System.app reads").1;
     let mut base = String::from(BASE);
     base.push_str(

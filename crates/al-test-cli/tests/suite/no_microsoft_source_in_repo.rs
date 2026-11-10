@@ -81,3 +81,47 @@ fn no_compile_cache_file_is_tracked_and_git_ignores_them() {
         ".gitignore must list *.alcc"
     );
 }
+
+/// ADR-013 amendment of 2026-11-10: Microsoft's files come only from the pinned build in the artifact cache. The corpus
+/// tree holds none, a corpus run does not search its `.alpackages`, and tests read them through `al_testfiles`. No
+/// Rust file under `crates/` and no file under `tools/` or `.github/` may name a path into the corpus tree's package
+/// folder: a line that names both the corpus tree (the `tree` needles below) and the package folder, comments
+/// included, so that no stale instruction stays behind either. The tools of the corpus writers are the exception: they stage
+/// compile symbols into a corpus checkout for the AL compiler (`docs/agents/corpus-writer.md`), which the runner never reads.
+#[test]
+fn no_code_reads_a_microsoft_file_from_the_corpus_tree() {
+    // Assembled so that this file does not contain the needle itself.
+    let folder = [".alpack", "ages"].concat();
+    let tree = ["corpus/tests", "al-language", "corpus_app", "corpus_tests()"];
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(root())
+        .args(["ls-files", "-z", "--", "crates", "tools", ".github"])
+        .output()
+        .expect("git runs");
+    assert!(out.status.success(), "git ls-files failed");
+    let names = String::from_utf8_lossy(&out.stdout).into_owned();
+    let mut checked = 0;
+    let mut hits = Vec::new();
+    for name in names.split('\0').filter(|n| !n.is_empty()) {
+        if name.starts_with("tools/corpus-writer/") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(root().join(name)) else {
+            continue;
+        };
+        checked += 1;
+        for (i, line) in text.lines().enumerate() {
+            if line.contains(&folder) && tree.iter().any(|t| line.contains(t)) {
+                hits.push(format!("{name}:{}: {}", i + 1, line.trim()));
+            }
+        }
+    }
+    assert!(checked > 500, "only {checked} tracked files were looked at");
+    assert!(
+        hits.is_empty(),
+        "a path into the corpus tree's package folder; read Microsoft's files through al_testfiles (tests) or \
+         coverage::corpus_dependencies:\n{}",
+        hits.join("\n")
+    );
+}

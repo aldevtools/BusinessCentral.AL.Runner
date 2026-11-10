@@ -26,6 +26,7 @@ mod caller_modules_test_runner;
 mod caption_class_empty_count;
 mod caption_class_goto;
 mod card_onfindrecord;
+mod ci_bc_artifacts;
 mod ci_compile_cache;
 mod clear_trapping_test_page;
 mod close_save_error;

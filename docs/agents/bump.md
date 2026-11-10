@@ -67,5 +67,6 @@ reviewed list depends on them, and CI fails while they are stale:
   these ids, so a new builtin does not work without them.
 - `crates/al-builtins/src/pinned_columns.rs` and `catalog/signatures.txt`
   (`UPDATE_GOLDEN=1`): compiled into the runtime; a corpus bump regenerates them.
+  `pinned_columns.rs` does not name the corpus commit, so it changes only when a pinned column changes.
 - `crates/al-sema/tests/expected-unresolved.txt`: a reviewed list that never
   grows without a decision.
