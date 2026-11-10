@@ -1592,16 +1592,19 @@ fn test_inner(
         // `ALRUNNER_REPORT_UNPINNED_ERRORS=1` (issue 6487, opt-in): an unpinned error text fails the test, marked.
         report_unpinned_errors: crate::unpinned::enabled(),
         permissions_off: a.permissions_off, // `--permissions off` (ADR-062 section 5).
+        check_baseline_rule: false,
         dev_endpoint_ui: crate::dev_endpoint_ui::for_major(a.dev_endpoint_ui, chosen.target.bc.major)?, // issue 3697
-        allow_write_in_try_functions: a.allow_write_in_try_functions, // issue 7143
-        dependencies_published_global: a.dependencies_published_global, // issue 7169
-        strict_order: a.strict_order,       // `--strict-order` (ADR-066 amendment 12)
+        allow_write_in_try_functions: a.allow_write_in_try_functions,                                   // issue 7143
+        dependencies_published_global: a.dependencies_published_global,                                 // issue 7169
+        strict_order: a.strict_order, // `--strict-order` (ADR-066 amendment 12)
         strict_after: None,
         replay_every_dependent: false, // only a stability run sets it (ADR-058 amendment 1)
         single_fresh_check: false,     // set per variant in stability mode (ADR-058 amendment 1)
         max_replay: a.max_replay,      // `--max-replay N` (ADR-066 amendment 7)
         test_suites,                   // `--test-suites FILE` (ADR-066 amendment 6)
         memory: crate::memory_budget::budget(a.max_memory, warm.is_none() && debug.is_none()), // `--max-memory`
+        perturb: Default::default(),
+        chain_wait_for_runs_ahead: false, // for tests of the carry chain only
         private_baseline: std::env::var_os("AL_PRIVATE_BASELINE").is_some(), // ADR-069 decision 11
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
         run_only: (selection.active() && !a.execute)
@@ -1626,9 +1629,6 @@ fn test_inner(
             rebuild: a.rebuild_compile_cache,
             country: country.clone(),
         }),
-        // Left at their defaults: `single_fresh_check` (set per variant in stability mode, ADR-058 amendment 1),
-        // `perturb`, `chain_wait_for_runs_ahead` (tests of the carry chain only) and `check_baseline_rule`.
-        ..Default::default()
     };
     if let Some(w) = warm.as_deref() {
         let cfg = a.capture;
