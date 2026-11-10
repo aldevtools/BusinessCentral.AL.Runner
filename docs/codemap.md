@@ -201,6 +201,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `lower/shared.rs` (880): What the lowering of an object reads (`Shared`) and the per-object state (`Nodes`, `Local`, `Seq`), `lower_object`, the constants and literal helpers. Entry: `Shared` 6, `make_lowerer` 173, `lower_object` 211.
 - `lower/tables.rs` (518): Table schemas: relations, field triggers, CalcFormulas. Entry: `table_schema` 311, `relation_arms` 10, `lower_calc` 445.
 - `lower/pages.rs` (458): Page control trees, `RunObject`, part links. Entry: `page` 8, `run_object` 292.
+- `lower/page_client_expr.rs`: the client-compile check of a Boolean control expression (refused forms, BigInteger literal, the typed check of a qualified value through a member). Entry: `client_expr_reasons`.
 - `lower/convert.rs` (359): Name resolution helpers, runtime types, conversion of a value to a target type. Entry: `rt` 67, `convert_to` 186.
 - `lower/copy_array.rs` (30): The array arguments of `CopyArray`: a procedure result as the source (al-runner issue 6658). Entry: `ref_arg`.
 - `lower/conv_matrix.rs` (~160): The run matrix cells (`al_builtins::conv`) in the lowering: the false branch of `?:` converts to
