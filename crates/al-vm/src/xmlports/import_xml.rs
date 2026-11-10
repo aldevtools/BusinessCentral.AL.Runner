@@ -1127,6 +1127,14 @@ impl Session {
                 Err(other) => return Err(other),
             }
         } else {
+            // NotSupportedType for a RecordId is pinned for a Format = Xml port only (Import_Xml_RecordId); a text format is not.
+            if matches!(&ty, RtType::Library(k) if *k == al_builtins::library_kind::LibraryKind::RecordId)
+                && schema.xp().format != ir::XmlFormat::Xml
+            {
+                return unsupported(
+                    "XmlPort import into a RecordId field of a text format with FormatEvaluate = Legacy (not pinned)",
+                );
+            }
             // A BigInteger element with digit groups passes Evaluate and fails the schema's `long` check
             // (xmlports/PWXmlPortFormatEvaluateMoreTypes.al:Import_Legacy_BigInteger `big_thousands`, :656).
             if ty == RtType::BigInteger && super::value_forms::legacy_big_thousands(text) {
