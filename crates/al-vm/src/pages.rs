@@ -904,6 +904,28 @@ impl Session {
         self.raise(&call, &mut args)
     }
 
+    /// The reason to refuse the open of a page without a source table that a subscriber of a platform page event listens to.
+    /// No corpus test pins which of these events BC raises on such a page, in which order, or what `Rec` holds in the
+    /// subscriber (every pinned page event test has a SourceTable; docs/probes-needed.md "page events without a source
+    /// table"), so the page is refused before any of its code runs, whatever its type.
+    fn no_source_event_refusal(&self, engine: &Engine, st: &St, o: usize, ev: &str) -> Option<String> {
+        let object = st.borrow().object as usize;
+        let is_platform_event = al_ir::RAISED_PAGE_EVENTS.contains(&ev) || ev == "ondeleterecordevent";
+        let action_event = matches!(ev, "onbeforeactionevent" | "onafteractionevent");
+        if o != object || !is_platform_event || action_event || engine.program.objects[object].rec_slot.is_some() {
+            return None;
+        }
+        let kind = engine.object_facts[object].page_type.as_ref();
+        Some(format!(
+            "page event {ev} on a page without a source table (PageType {}): when the test client raises it there is not pinned",
+            match kind {
+                Some(al_ir::PageType::Other(t)) => t.clone(),
+                Some(k) => format!("{k:?}"),
+                None => "Card".to_string(),
+            }
+        ))
+    }
+
     /// Refuses a page some subscriber listens to for an event the client does not raise yet.
     fn check_page_events(&self, st: &St) -> Result<(), Signal> {
         let engine = self.engine();
@@ -920,6 +942,11 @@ impl Session {
         // Hash order must not pick which refusal reason is reported (`outcomes_do_not_depend_on_threads_or_home`).
         let mut declared: Vec<_> = declared.collect();
         declared.sort();
+        for (o, ev) in &declared {
+            if let Some(why) = self.no_source_event_refusal(&engine, st, **o, ev) {
+                return unsupported(why);
+            }
+        }
         for (o, ev) in declared {
             // The client raises the action events when it invokes an action that has behavior (an OnAction trigger or a
             // RunObject: the others are not on the runtime page). A subscriber for every action, or for one that is not
