@@ -25,6 +25,7 @@ mod report_members_lane;
 mod report_no_output;
 mod report_obsolete_properties;
 mod report_option_caption_ml;
+mod report_params_bare_root;
 mod report_params_self_closing;
 mod report_pdf_placeholder;
 mod report_properties;

@@ -82,6 +82,7 @@ mod report_view_over_stored_filters;
 mod request_page_array_source;
 mod request_page_expression_setvalue;
 mod request_page_filter_blank;
+mod request_page_seed_bare_root;
 mod request_page_source_rec;
 mod request_page_source_table_props;
 mod required_isolation;
