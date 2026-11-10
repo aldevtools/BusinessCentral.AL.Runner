@@ -3,7 +3,6 @@
 mod lane_report_pages;
 mod multi_reportext;
 mod queries;
-mod report_save_html_record;
 mod query_get_filters_elements;
 mod query_outer_link;
 mod report_bare_run;
@@ -32,6 +31,7 @@ mod report_pdf_placeholder;
 mod report_properties;
 mod report_region_after_language;
 mod report_request_rec_in_init;
+mod report_save_html_record;
 mod report_saveas;
 mod report_saveas_events;
 mod report_saveas_language;

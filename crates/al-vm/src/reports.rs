@@ -2639,7 +2639,7 @@ impl Session {
             other => return unsupported(format!("{id} with the file name {}", other.describe())),
         };
         // With a record argument only the Html save an RDLC layout refuses is pinned (`html_record_save_is_pinned`).
-        if args.get(at + 1).is_some() && !(by_number && format == "Html" && self.html_record_save_is_pinned(id, args)?) {
+        if args.get(at + 1).is_some() && !self.html_record_save_is_pinned(id, args, format, by_number)? {
             return unsupported(format!("{id} with a record argument (what it filters is not pinned)"));
         }
         let target = SaveTarget::File(name);

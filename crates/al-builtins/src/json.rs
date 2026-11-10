@@ -642,7 +642,9 @@ pub(crate) enum ObjectRead {
 }
 
 pub(crate) fn read_object(text: &str) -> Result<ObjectRead, Signal> {
-    let Some(h) = parse(text)? else { return Ok(ObjectRead::NotJson) };
+    let Some(h) = parse(text)? else {
+        return Ok(ObjectRead::NotJson);
+    };
     if with_node(&h, |n| matches!(n, JsonNode::Object(_))) {
         Ok(ObjectRead::Object(Value::Library("JsonObject".into(), h)))
     } else {

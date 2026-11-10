@@ -139,7 +139,10 @@ fn a_big_integer_sum_that_overflows_raises_the_pinned_error_from_bc_29() {
 fn a_big_integer_sum_that_overflows_is_refused_below_bc_29() {
     for bc in ["27.5", "28.5"] {
         let got = run_on(bc, "SumBig");
-        assert!(got.starts_with("unsupported:") && got.contains("overflow"), "BC {bc}: {got}");
+        assert!(
+            got.starts_with("unsupported:") && got.contains("overflow"),
+            "BC {bc}: {got}"
+        );
     }
 }
 
@@ -147,6 +150,9 @@ fn a_big_integer_sum_that_overflows_is_refused_below_bc_29() {
 fn an_average_whose_sum_overflows_is_refused() {
     for routine in ["AvgBig", "AvgDur", "AvgInt"] {
         let got = run_on("29.0", routine);
-        assert!(got.starts_with("unsupported:") && got.contains("overflow"), "{routine}: {got}");
+        assert!(
+            got.starts_with("unsupported:") && got.contains("overflow"),
+            "{routine}: {got}"
+        );
     }
 }

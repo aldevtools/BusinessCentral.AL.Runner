@@ -1501,7 +1501,11 @@ impl Session {
                                             "CalculationOverflow:Sql",
                                         ));
                                     }
-                                    Err(_) => return unsupported("a Sum that overflows a BigInteger column before BC 29"),
+                                    Err(_) => {
+                                        return unsupported(
+                                            "a Sum that overflows a BigInteger column on this BC major (its error is not pinned here)",
+                                        );
+                                    }
                                 }
                             }
                             RtType::Duration => {
