@@ -443,16 +443,31 @@ fn name_arg(a: &[Value]) -> Result<String, Signal> {
     }
 }
 
-/// The `TextEncoding` argument at `at`: UTF-8 when omitted (ordinals as documented: MSDos 0, UTF8 1,
-/// UTF16 2, Windows 3); only UTF-8 is pinned for GetResourceAsText and GetResourceAsJson.
-fn encoding_arg(a: &[Value], at: usize) -> Result<crate::stream::Encoding, Signal> {
-    match a.get(at) {
-        None | Some(Value::Option(1, _)) => Ok(crate::stream::Encoding::Utf8),
-        Some(other) => unsupported(format!(
-            "a resource read with text encoding {other} (only UTF8 is pinned)",
-            other = other.describe()
-        )),
+/// The `TextEncoding` argument at `at` of GetResourceAsText and GetResourceAsJson, checked against the resource's `bytes`:
+/// UTF-8 when omitted (ordinals as documented: MSDos 0, UTF8 1, UTF16 2, Windows 3). UTF8 is pinned by
+/// session-system/TestNavAppGetResource.al:33. The other three are pinned for ASCII bytes of an even count without a byte
+/// order mark: MSDos and Windows give the same text as UTF8, UTF16 reads two bytes as one little-endian character
+/// (session-system/W5NavAppResources.al:52-64: 28 bytes read as 28, 14, 28 and 28 characters). Other bytes are not pinned.
+fn encoding_arg(a: &[Value], at: usize, name: &str, bytes: &[u8]) -> Result<crate::stream::Encoding, Signal> {
+    use crate::stream::Encoding;
+    let enc = match a.get(at) {
+        None | Some(Value::Option(1, _)) => return Ok(Encoding::Utf8),
+        Some(Value::Option(0, _)) => Encoding::MsDos,
+        Some(Value::Option(2, _)) => Encoding::Utf16,
+        Some(Value::Option(3, _)) => Encoding::Windows,
+        Some(other) => {
+            return unsupported(format!(
+                "a resource read with text encoding {other}",
+                other = other.describe()
+            ));
+        }
+    };
+    if !bytes.is_ascii() || (enc == Encoding::Utf16 && bytes.len() % 2 != 0) {
+        return unsupported(format!(
+            "a read of resource `{name}` as text with an encoding other than UTF8: only ASCII bytes are pinned, and for UTF16 an even count of them"
+        ));
     }
+    Ok(enc)
 }
 
 fn get_resource(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
@@ -490,8 +505,8 @@ fn get_resource(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out 
 
 fn get_resource_as_text(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let name = name_arg(a)?;
-    let enc = encoding_arg(a, 1)?;
     let bytes = resource(c, &name)?;
+    let enc = encoding_arg(a, 1, &name, &bytes)?;
     // Without an encoding BC reads one character per byte (corpus al-language-testlibraries/test-framework/data-driven-tests-and-handlers/
     // BiDataDriven.al:481-482: 47 characters for the 45 of UTF-8, corpus PR 861). Which character a byte from 128 up
     // becomes is not pinned.
@@ -508,12 +523,19 @@ fn get_resource_as_text(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value])
 
 fn get_resource_as_json(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let name = name_arg(a)?;
-    let enc = encoding_arg(a, 1)?;
-    let text = enc.decode(&resource(c, &name)?);
-    match crate::json::object_from_text(&text)? {
-        Some(v) => Ok(v),
-        None => unsupported(format!(
-            "resource `{name}` is not a JSON object (error text not pinned)"
+    let bytes = resource(c, &name)?;
+    let text = encoding_arg(a, 1, &name, &bytes)?.decode(&bytes);
+    match crate::json::read_object(&text)? {
+        crate::json::ObjectRead::Object(v) => Ok(v),
+        // An ASCII text that is no JSON at all fails as ReadFrom does (session-system/W5NavAppResources.al:67-80
+        // GetResourceAsJson_NotJson: `Hello from packaged resource`, code InvalidJsonData). Other bytes (a byte order
+        // mark, a non-ASCII character) are not pinned.
+        crate::json::ObjectRead::NotJson if bytes.is_ascii() => Err(crate::json::invalid_json()),
+        crate::json::ObjectRead::NotJson => unsupported(format!(
+            "resource `{name}` holds bytes that are not ASCII and do not read as JSON (not pinned)"
+        )),
+        crate::json::ObjectRead::OtherKind => unsupported(format!(
+            "resource `{name}` is JSON but not a JSON object (error text not pinned)"
         )),
     }
 }

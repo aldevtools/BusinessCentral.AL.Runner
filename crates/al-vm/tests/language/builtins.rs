@@ -1178,6 +1178,24 @@ fn resource_bytes_without_an_encoding() {
 }
 
 #[test]
+fn get_resource_as_json_raises_invalid_json_data_only_for_ascii_text() {
+    // session-system/W5NavAppResources.al:67-80: an ASCII text that is no JSON raises InvalidJsonData.
+    let r = module_text(
+        "asserterror o := NavApp.GetResourceAsJson('greeting.txt'); exit(GetLastErrorText() + '|' + GetLastErrorCode());",
+    );
+    assert_eq!(
+        r.unwrap(),
+        "The data does not represent a valid JSON token.|InvalidJsonData"
+    );
+    // Bytes that are not ASCII (here a UTF-8 byte order mark) are not pinned: refused, not raised.
+    let r = module_text("asserterror o := NavApp.GetResourceAsJson('bom.csv'); exit(GetLastErrorText());");
+    assert!(
+        matches!(&r, Err(Signal::Unsupported(w)) if w.contains("not pinned")),
+        "{r:?}"
+    );
+}
+
+#[test]
 fn a_missing_resource_is_named_in_the_error() {
     // session-system/TestNavAppGetResource.al:62-85: "A resource matching 'missing.txt' could not be found in app".
     let r = module_text(
