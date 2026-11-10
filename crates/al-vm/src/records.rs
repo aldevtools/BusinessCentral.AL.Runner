@@ -17,6 +17,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
+mod blob_filter;
 mod boolean_filter_error;
 mod delete_all_flow;
 mod flowfield_key;

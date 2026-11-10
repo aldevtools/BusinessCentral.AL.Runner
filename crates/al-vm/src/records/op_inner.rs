@@ -1694,6 +1694,7 @@ impl Session {
                 let pos = arg_pos(args, 0)?;
                 let ty = t.fields[pos].ty.clone();
                 let or_flowfield = self.is_flowfield(&t, pos);
+                self.blob_setrange_check(&ty, &args[1..])?;
                 let mut r = rec.borrow_mut();
                 r.position = None;
                 let group = r.filter_group;
@@ -2169,8 +2170,8 @@ impl Session {
                 let sum_flowfield = !field.stored && !field.flow_filter && field.id < 2_000_000_000;
                 // The error of a FlowField that is no Decimal, raised after OnValidate ran (FfmOperations.al:520-566).
                 let mut flowfield_error = None;
-                    let value = args.get(1).cloned();
                 if sum_flowfield {
+                    let value = args.get(1).cloned();
                     flowfield_error = self.validate_flowfield(rec, &t, pos, value.as_ref())?;
                 }
                 // A Validate nested in an OnValidate of the same record keeps the outer call's
