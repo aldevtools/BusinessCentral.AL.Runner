@@ -103,30 +103,7 @@ for leg in $legs; do
   major="${leg%%.*}"
   hargs+=("$major" 0 0 "$(run_cases "$root/oracle/$major/junit.xml")" "$(run_cases "$root/oracle/$major/junit-onprem.xml")")
 done
-python3 - "$root" "$dir" "$old" "$sha" "${hargs[@]}" <<'PY'
-import json, os, re, sys
-root, out, old, new, rest = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5:]
-legs = {rest[i]: rest[i + 3] for i in range(0, len(rest), 5)}
-onprem = {rest[i]: rest[i + 4] for i in range(0, len(rest), 5)}
-p = root + "/crates/al-test-cli/tests/corpus_harness.rs"
-t = open(p).read()
-t = re.sub(r'\[\("27", \d+\), \("28", \d+\), \("29", \d+\)\]',
-           f'[("27", {legs["27"]}), ("28", {legs["28"]}), ("29", {legs["29"]})]', t)
-# The BC 29 totals, and the BC 28 total of the test that reads the other test apps; the OnPrem total of BC 28.
-t = re.sub(r'(json\("29"\);\n\s*assert_eq!\(r\["overall"\]\["total"\], )\d+\);', rf'\g<1>{legs["29"]});', t)
-t = re.sub(r'(json\("28"\);\n\s*assert_eq!\(r\["overall"\]\["total"\], )\d+\);', rf'\g<1>{legs["28"]});', t)
-t = re.sub(r'(get\("onprem"\)\["counts"\]\["total"\], )\d+\);', rf'\g<1>{onprem["28"]});', t)
-if old != new:
-    t = t.replace(old, new)
-t = re.sub(r'( of )\d+( \()', rf'\g<1>{legs["29"]}\2', t)
-f = os.path.join(out, "pass-rate-29.json")
-if os.path.exists(f):
-    areas = json.load(open(f))["areas"]
-    for area in ("json", "record"):
-        t = re.sub(rf'(assert_eq!\(r\["areas"\]\["{area}"\]\["total"\], )\d+\);',
-                   rf'\g<1>{areas[area]["total"]});', t)
-open(p, "w").write(t)
-PY
+python3 -I "$here/corpus_bump_harness.py" "$root" "$dir" "$old" "$sha" "${hargs[@]}"
 rm -rf "$dir"
 echo "docs/probes-needed.md table rows after: $(probe_rows) (strike the rows the new probes settle by hand)"
 echo "bumped to $sha from $1; review git diff and open the pull request (its CI is the gate)"

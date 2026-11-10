@@ -210,4 +210,3 @@
 98991 BG_File_Download_ReturnAndToFile
 98992 BG_DataFileInformation_RaisesNotSupported
 98992 BG_ImportData_RaisesNotSupported
-98993 BG_ExportData_ReturnFileNameAndFile

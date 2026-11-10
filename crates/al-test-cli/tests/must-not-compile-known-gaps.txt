@@ -397,3 +397,22 @@
 27 3109-calcformula-option-value-not-defined
 28 3109-calcformula-option-value-not-defined
 29 3109-calcformula-option-value-not-defined
+# corpus bump to 2056f4b9 (blank option and enum member names): AL0132 is not reported for the blank-name member cases yet
+27 3126-option-quoted-empty-member-has-no-name
+28 3126-option-quoted-empty-member-has-no-name
+29 3126-option-quoted-empty-member-has-no-name
+27 3127-option-unquoted-empty-member-has-no-name
+28 3127-option-unquoted-empty-member-has-no-name
+29 3127-option-unquoted-empty-member-has-no-name
+27 3128-option-space-member-is-not-the-empty-name
+28 3128-option-space-member-is-not-the-empty-name
+29 3128-option-space-member-is-not-the-empty-name
+27 3129-option-quoted-empty-member-is-not-the-space-name
+28 3129-option-quoted-empty-member-is-not-the-space-name
+29 3129-option-quoted-empty-member-is-not-the-space-name
+27 3130-option-field-quoted-empty-member-has-no-name
+28 3130-option-field-quoted-empty-member-has-no-name
+29 3130-option-field-quoted-empty-member-has-no-name
+27 3131-enum-quoted-empty-value-has-no-name
+28 3131-enum-quoted-empty-value-has-no-name
+29 3131-enum-quoted-empty-value-has-no-name

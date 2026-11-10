@@ -916,6 +916,9 @@ impl Session {
             .filter(|(_, subs)| !subs.is_empty())
             .map(|((o, ev), _)| (o, ev))
             .chain(engine.events.missing.keys().map(|(o, ev)| (o, ev)));
+        // Hash order must not pick which refusal reason is reported (`outcomes_do_not_depend_on_threads_or_home`).
+        let mut declared: Vec<_> = declared.collect();
+        declared.sort();
         for (o, ev) in declared {
             // The client raises the action events when it invokes an action that has behavior (an OnAction trigger or a
             // RunObject: the others are not on the runtime page). A subscriber for every action, or for one that is not
