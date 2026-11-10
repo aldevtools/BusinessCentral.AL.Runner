@@ -415,6 +415,15 @@ fn other_companies_are_a_full_run() {
     an_option_that_changes_outcomes_is_a_full_run("opt_companies", &["--companies", "all"]);
 }
 
+/// A replay without `--stability` is a normal run with one variant's values; the values change what a test answers.
+#[test]
+fn a_stability_replay_is_a_full_run() {
+    an_option_that_changes_outcomes_is_a_full_run(
+        "opt_stability_replay",
+        &["--stability-replay", "company.name=Other Company"],
+    );
+}
+
 #[test]
 fn flags_that_cannot_go_with_affected_are_refused() {
     let dir = scratch("refused");

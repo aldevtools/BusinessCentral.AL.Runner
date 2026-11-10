@@ -1,6 +1,7 @@
-//! The inputs of a run, classified once (al-runner issue 7610). Every key the command line keeps over the options of
-//! a run is made here: the options hash of the `--affected` stored result (ADR-050), the key of the impact index
-//! (ADR-043) and the options part of the key of `al-runner serve`'s kept compile.
+//! The inputs of a run, classified once (al-runner issue 7610). Three keys over the command line options of a run are
+//! made here: the options hash of the `--affected` stored result (ADR-050), the key of the impact index (ADR-043) and
+//! the options part of the key of `al-runner serve`'s kept compile. The other keys still list their inputs by hand
+//! (the kept dependencies of `serve`, the manifest part of `run::warm_key`, `kept_engine_key`); issue 7650 has them.
 //!
 //! [`RunInputs::of`] destructures `TestArgs` without `..`, as `al_cache::Key::digest` does with its key: a field added
 //! to `TestArgs` does not compile until it is put into a class here. The classes:
@@ -32,6 +33,8 @@ pub enum Purpose {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Content {
     name: &'static str,
+    /// The command line flag, for an error message.
+    flag: &'static str,
     /// `None`: the option is not given.
     path: Option<PathBuf>,
     /// A path that cannot be read is an error of the run; else it counts as empty.
@@ -111,8 +114,8 @@ impl RunInputs {
             no_compile_cache: _,
             require_compile_cache: _,
             rebuild_compile_cache: _,
-            // The selection. `--affected` and `impact-index build` refuse one; a kept compile takes a new selection
-            // in as an edit (`run::warm_key`).
+            // The selection. `--affected` refuses one; the index key never held it (a lane's index run passes its
+            // codeunits); a kept compile takes a new selection in as an edit (`run::warm_key`).
             codeunits: _,
             filters: _,
             excludes: _,
@@ -156,7 +159,10 @@ impl RunInputs {
             strict_order,
             max_replay,
             test_suites,
-            // The number of test threads. The budget also follows the free memory of the machine, which no key holds.
+            // The memory budget: the number of test threads, and in a plain run a hard limit (ADR-066 amendment 10,
+            // decision 6) that stops a run which cannot fit, its tests not reached not run. Not a key: the budget also
+            // follows the free memory of the machine, which no key holds. A halted run must not leave a stored result
+            // (follow-up to issue 7610).
             max_memory: _,
             affected,
             // The stored result itself and how it is used.
@@ -210,16 +216,18 @@ impl RunInputs {
             matrix_parallel: _,
             matrix_memory_gb: _,
             matrix_cell: _,
-            // A stability run is refused with `--affected` and with an impact run (ADR-058 section 6).
+            // A stability run is refused with `--affected` and with an impact run (ADR-058 section 6). A replay is
+            // an outcome input: it runs without `--stability` as a normal run with one variant's values.
             stability: _,
-            stability_replay: _,
+            stability_replay,
             stability_max: _,
             stability_allow_flips: _,
             // The run seed is recorded with each stored codeunit and is no part of a key (ADR-061 section 5 and
             // decision 5): a changed seed alone is no reason to run unchanged tests again.
             seed: _,
-            seed_library: _,
             run_seed: _,
+            // The switch that seeds `Library - Random` from the run seed: the same reason (ADR-061 decision 5).
+            seed_library: _,
         } = a;
 
         // ---- outcome ----
@@ -248,9 +256,14 @@ impl RunInputs {
         // The serial run is reported (ADR-066 amendments 4, 7 and 12).
         r.outcome.push(("strict_order", text(strict_order)));
         r.outcome.push(("max_replay", text(max_replay)));
+        // The values of one stability variant (ADR-058): company name, work date, order and more. Without
+        // `--stability` the text holds the values themselves; an id needs `--stability`, which `--affected` and an
+        // impact run refuse.
+        r.outcome.push(("stability_replay", text(stability_replay)));
         // Which codeunits are order dependent (ADR-066 amendment 6): the file's text counts.
         r.content.push(Content {
             name: "test_suites",
+            flag: "--test-suites",
             path: test_suites.clone(),
             must_exist: false,
         });
@@ -273,6 +286,7 @@ impl RunInputs {
         // What License Permission answers (ADR-060).
         r.content.push(Content {
             name: "license",
+            flag: "--license",
             path: license.clone(),
             must_exist: true,
         });
@@ -287,6 +301,7 @@ impl RunInputs {
         r.outcome.push(("test_data_path", text(&file_name(test_data_path))));
         r.content.push(Content {
             name: "test_data_path",
+            flag: "--test-data",
             path: test_data_path.clone(),
             must_exist: true,
         });
@@ -295,6 +310,7 @@ impl RunInputs {
         r.outcome.push(("package_path", text(&file_name(package_path))));
         r.content.push(Content {
             name: "package_path",
+            flag: "--package",
             path: package_path.clone(),
             must_exist: true,
         });
@@ -305,6 +321,7 @@ impl RunInputs {
         // The tests Microsoft turns off are marked or skipped.
         r.content.push(Content {
             name: "disabled_tests_dir",
+            flag: "--disabled-tests",
             path: disabled_tests_dir.clone(),
             must_exist: true,
         });
@@ -376,7 +393,7 @@ impl RunInputs {
             let mut tree = Sha256::new();
             match hash_tree(path, "", &mut tree) {
                 Ok(()) => {}
-                Err(e) if c.must_exist => return Err(format!("{} {e}", flag_of(c.name))),
+                Err(e) if c.must_exist => return Err(format!("{} {e}", c.flag)),
                 Err(_) => tree = Sha256::new(),
             }
             put(&mut h, &tree.finalize());
@@ -399,17 +416,6 @@ impl RunInputs {
     }
 }
 
-/// The command line flag of a content input, for an error message.
-fn flag_of(name: &str) -> &'static str {
-    match name {
-        "license" => "--license",
-        "test_data_path" => "--test-data",
-        "package_path" => "--package",
-        "disabled_tests_dir" => "--disabled-tests",
-        _ => "--test-suites",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -417,7 +423,7 @@ mod tests {
     type Change = fn(&mut TestArgs, &Path);
 
     /// One change per outcome input, by the name `RunInputs::of` gives it. The path is a file that exists.
-    const CHANGES: [(&str, Change); 39] = [
+    const CHANGES: [(&str, Change); 40] = [
         ("country", |a, _| a.country = Some("de".into())),
         ("bc_version", |a, _| a.bc_version = Some("27.5".into())),
         ("isolation", |a, _| {
@@ -441,6 +447,9 @@ mod tests {
         ("permissions_off", |a, _| a.permissions_off = true),
         ("strict_order", |a, _| a.strict_order = true),
         ("max_replay", |a, _| a.max_replay = Some(3)),
+        ("stability_replay", |a, _| {
+            a.stability_replay = Some("company.name=Other Company".into())
+        }),
         ("test_suites", |a, f| a.test_suites = Some(f.to_path_buf())),
         ("dotnet_sidecar", |a, f| a.dotnet_sidecar = Some(f.to_path_buf())),
         ("dotnet_assembly_dirs", |a, f| {
@@ -474,7 +483,7 @@ mod tests {
         ("parity", |a, _| a.parity = true),
     ];
 
-    /// `disabled_tests_apps` has its change apart: 40 entries would pass the array above by one line of rustfmt.
+    /// The change of the one stored result only input.
     const STORED_ONLY: [(&str, Change); 1] = [("disabled_tests_apps", |a, _| {
         a.disabled_tests_apps = vec!["Tests-ERM".into()]
     })];

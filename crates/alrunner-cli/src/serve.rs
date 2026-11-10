@@ -295,9 +295,13 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
             }
         };
     }
-    if let Some(r) = fields.get("testRunner").and_then(Value::as_str) {
-        a.test_runner =
-            Some(crate::args::parse_test_runner(r).map_err(|e| e.replace("--test-runner", "`testRunner`"))?);
+    match fields.get("testRunner") {
+        None | Some(Value::Null) => {}
+        Some(Value::String(r)) => {
+            a.test_runner =
+                Some(crate::args::parse_test_runner(r).map_err(|e| e.replace("--test-runner", "`testRunner`"))?);
+        }
+        Some(_) => return Err("`testRunner` is a codeunit id as text or `builtin`".into()),
     }
     a.coverage = flag(fields, "coverage")? || flag(fields, "perTestCoverage")?;
     a.profile = crate::profile::from_json(fields.get("profile").unwrap_or(&Value::Null))?;

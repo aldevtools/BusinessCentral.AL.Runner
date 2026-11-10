@@ -176,6 +176,11 @@ fn bad_requests_get_an_error_line_and_the_server_goes_on() {
             json!({"command": "runTests", "sourcePaths": [a], "bogus": 1}),
             "unknown field",
         ),
+        // A codeunit id is given as text (docs/manual/tool-protocol.md); a number is not taken in silence.
+        (
+            json!({"command": "runTests", "sourcePaths": [a], "testRunner": 130450}),
+            "`testRunner`",
+        ),
         (
             json!({"command": "runTests", "sourcePaths": [a], "affectedOnly": true, "test": "Passes"}),
             "cannot be combined",
