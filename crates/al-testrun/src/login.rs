@@ -132,7 +132,8 @@ pub(crate) fn observed_by(engine: &Engine, lowered: &Lowered, test: usize) -> bo
     {
         return true;
     }
-    // A write that cannot add a row does not give the test a row of its own (the post-merge review of issue 7574). The
+    // A write that cannot add a row does not give the test a row of its own (al-runner issue 7605, whose repro passes on
+    // BC 29.0 with a Finish action it never invokes; the review of issue 7574 found the same). The
     // Finish action of a standard wizard calls "Guided Experience".CompleteAssistedSetup, which modifies the row the
     // login registered (System Application: FindSet, then ModifyAll(Completed, true)); the page's OnQueryClosePage still
     // reads that row, and the pin above says it is there. So the login is also raised for a table the login subscribers

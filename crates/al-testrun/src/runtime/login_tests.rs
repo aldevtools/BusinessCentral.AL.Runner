@@ -343,10 +343,11 @@ codeunit 1991 "Guided Experience Events"
     );
 }
 
-// The standard wizard (post-merge review of al-runner issue 7574): its Finish action calls
+// The standard wizard (al-runner issue 7605, and the review of issue 7574 before it): its Finish action calls
 // `Guided Experience.CompleteAssistedSetup`, which modifies the row the login registered (System Application: FindSet,
 // then ModifyAll(Completed, true)). A Modify cannot create the row, so the test still has it only from the login:
-// LgnLoginChecklistTests.al:137-138 pins that it is there before the first test.
+// LgnLoginChecklistTests.al:137-138 pins that it is there before the first test. The page and the first two tests are
+// the reporter's repro of issue 7605 (both pass on BC 29.0), which never invokes Finish; the third test invokes it.
 const FINISH_WIZARD: &str = r#"
 page 51150 "Repro Finish Wizard"
 {
@@ -364,6 +365,16 @@ page 51150 "Repro Finish Wizard"
                 begin
                     G.CompleteAssistedSetup(51150);
                     CurrPage.Close();
+                end;
+            }
+            action(ActionCheck)
+            {
+                InFooterBar = true;
+                trigger OnAction()
+                var G: Codeunit "Guided Experience";
+                begin
+                    if not G.AssistedSetupExistsAndIsNotComplete(51150) then
+                        Error('The assisted setup row of the wizard does not exist.');
                 end;
             }
         }
@@ -397,6 +408,14 @@ codeunit 51151 "Repro Finish Wizard Test"
     begin
         Wizard.OpenEdit();
         Wizard.Close();
+    end;
+
+    [Test]
+    procedure AnActionOfTheWizardSeesTheRow()
+    var Wizard: TestPage "Repro Finish Wizard";
+    begin
+        Wizard.OpenView();
+        Wizard.ActionCheck.Invoke();
     end;
 
     [Test]
@@ -449,6 +468,7 @@ fn a_wizard_whose_finish_action_completes_the_row_sees_the_row_the_login_registe
         super::tests::outcomes_over_dependency(FINISH_WIZARD, &dep),
         vec![
             ("ClosingTheWizardAsksToConfirm".to_string(), Outcome::Pass),
+            ("AnActionOfTheWizardSeesTheRow".to_string(), Outcome::Pass),
             ("FinishCompletesTheRow".to_string(), Outcome::Pass)
         ]
     );
