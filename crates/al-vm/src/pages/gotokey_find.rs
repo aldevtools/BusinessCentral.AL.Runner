@@ -148,7 +148,7 @@ impl Session {
             let shown = rec.borrow().fields.clone();
             st.borrow_mut()
                 .window
-                .push(al_builtins::value::WindowRow { key, stored, shown });
+                .push(crate::pages::WindowRow { key, stored, shown });
             new_rows += 1;
             if new_rows == Self::WINDOW {
                 return unsupported(

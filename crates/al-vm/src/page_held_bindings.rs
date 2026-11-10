@@ -23,8 +23,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 
+use crate::pages::{PageState, st_of};
 use al_builtins::native::Signal;
-use al_builtins::value::{Instance, PageState, Value};
+use al_builtins::value::{Instance, Value};
 
 use crate::Session;
 
@@ -231,7 +232,7 @@ fn page_outside_refs(st: &St) -> usize {
     for inst in tree_instances(st) {
         for g in &inst.borrow().globals {
             if let Value::TestPage(p) = g
-                && Rc::ptr_eq(p, st)
+                && Rc::ptr_eq(st_of(p), st)
             {
                 own += 1;
             }

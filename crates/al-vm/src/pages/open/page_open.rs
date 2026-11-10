@@ -62,7 +62,7 @@ impl Session {
             }
         }
         let inst = self.instance(object);
-        inst.borrow_mut().globals[page.curr_page_slot] = Value::TestPage(st.clone());
+        inst.borrow_mut().globals[page.curr_page_slot] = page_value(st);
         // Each extension runs on an instance of its own that shares the page's Rec, xRec and CurrPage.
         let mut exts = Vec::new();
         for &e in &page.extensions {
@@ -78,7 +78,7 @@ impl Session {
                 }
             }
             if let Some(slot) = ext_object.globals.iter().position(|g| g.name == "CurrPage") {
-                ext.borrow_mut().globals[slot] = Value::TestPage(st.clone());
+                ext.borrow_mut().globals[slot] = page_value(st);
             }
             exts.push((e, ext));
         }
@@ -161,11 +161,11 @@ impl Session {
         let engine = self.engine();
         if let Some(inst) = &instance {
             let page = page_of(&engine, to);
-            inst.borrow_mut().globals[page.curr_page_slot] = Value::TestPage(to.clone());
+            inst.borrow_mut().globals[page.curr_page_slot] = page_value(to);
             for (e, ext) in &exts {
                 let obj = &engine.program.objects[*e];
                 if let Some(slot) = obj.globals.iter().position(|g| g.name == "CurrPage") {
-                    ext.borrow_mut().globals[slot] = Value::TestPage(to.clone());
+                    ext.borrow_mut().globals[slot] = page_value(to);
                 }
             }
         }
@@ -1513,7 +1513,7 @@ impl Session {
 
 /// The flags a new host row, a first part access and New() on a request page set; a page that runs again starts without them.
 /// The flags a list's earlier run left about its rows and its new-row line.
-fn reset_row_line_flags(s: &mut al_builtins::value::PageState) {
+fn reset_row_line_flags(s: &mut crate::pages::PageState) {
     s.gone_blank_no_new_line = false;
     s.gone_blank_shows_line = false;
     s.gone_view_list = false;
@@ -1521,7 +1521,7 @@ fn reset_row_line_flags(s: &mut al_builtins::value::PageState) {
     s.list_edit_back = false;
 }
 
-fn reset_host_row_flags(s: &mut al_builtins::value::PageState) {
+fn reset_host_row_flags(s: &mut crate::pages::PageState) {
     s.new_host_part_rows = false;
     s.host_stored_blank_key = false;
     s.part_insert_swallowed = false;

@@ -563,7 +563,7 @@ impl Session {
                 return refuse();
             }
             let stored = probe.borrow().fields.clone();
-            rows.push(al_builtins::value::WindowRow {
+            rows.push(crate::pages::WindowRow {
                 key: table.primary_key(&stored),
                 stored: stored.clone(),
                 shown: stored,
@@ -1974,7 +1974,7 @@ impl Session {
             let key = self.row_key(&rec)?;
             let shown = rec.borrow().fields.clone();
             let mut s = st.borrow_mut();
-            s.window = vec![al_builtins::value::WindowRow {
+            s.window = vec![crate::pages::WindowRow {
                 key,
                 stored: fields,
                 shown,
@@ -2024,7 +2024,7 @@ impl Session {
                 break;
             }
             let f = probe.borrow().fields.clone();
-            rest.push(al_builtins::value::WindowRow {
+            rest.push(crate::pages::WindowRow {
                 key: self.table(&probe)?.primary_key(&f),
                 stored: f.clone(),
                 shown: f,
@@ -2041,7 +2041,7 @@ impl Session {
         {
             let shown = rec.borrow().fields.clone();
             let mut s = st.borrow_mut();
-            s.window = vec![al_builtins::value::WindowRow {
+            s.window = vec![crate::pages::WindowRow {
                 key,
                 stored: fields,
                 shown,
@@ -2503,11 +2503,11 @@ impl Session {
             // The forward reads start with `=>` (pages/currpage/UpdateOnFindRecord.al:P168_List_UpdateFalse).
             self.nav_find(st, "=>")?;
         }
-        let row = |this: &mut Self| -> Result<al_builtins::value::WindowRow, Signal> {
+        let row = |this: &mut Self| -> Result<crate::pages::WindowRow, Signal> {
             let key = this.row_key(rec)?;
             let stored = rec.borrow().fields.clone();
             this.populate_current(st)?;
-            Ok(al_builtins::value::WindowRow {
+            Ok(crate::pages::WindowRow {
                 key,
                 stored,
                 shown: rec.borrow().fields.clone(),
@@ -2558,7 +2558,7 @@ impl Session {
                 let key = self.row_key(rec)?;
                 let stored = rec.borrow().fields.clone();
                 self.populate_current(st)?;
-                back.push(al_builtins::value::WindowRow {
+                back.push(crate::pages::WindowRow {
                     key,
                     stored,
                     shown: rec.borrow().fields.clone(),
@@ -2976,7 +2976,7 @@ impl Session {
             let key = self.row_key(&rec)?;
             let stored = rec.borrow().fields.clone();
             self.populate_current(st)?;
-            forward.push(al_builtins::value::WindowRow {
+            forward.push(crate::pages::WindowRow {
                 key,
                 stored,
                 shown: rec.borrow().fields.clone(),
@@ -3000,7 +3000,7 @@ impl Session {
             let key = self.row_key(&rec)?;
             let stored = rec.borrow().fields.clone();
             self.populate_current(st)?;
-            before.push(al_builtins::value::WindowRow {
+            before.push(crate::pages::WindowRow {
                 key,
                 stored,
                 shown: rec.borrow().fields.clone(),

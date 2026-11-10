@@ -16,7 +16,7 @@ impl Session {
         // CurrPage calls from the page's own code do not count as the test code touching the page.
         if let (Some(Value::TestPage(st)), al_builtins::page_op::PageRecv::TestPage) = (recv.as_deref(), method.recv())
         {
-            let st = st.clone();
+            let st = st_of(st).clone();
             self.flush_data_caption(&st)?;
         }
         let r = self.outside_used_tries(|s| s.page_op_outer(method, recv, args));
@@ -262,7 +262,7 @@ impl Session {
                 self.run_page_ui_with(&st, record, method == PageOp::PageRunModalStatic, field)
             }
             Some(Value::TestPage(st)) => {
-                let st = st.clone();
+                let st = st_of(st).clone();
                 self.pending_add_in_reread(&st, method.method())?;
                 let arg_false = matches!(args.first(), Some(Value::Boolean(false)));
                 self.lookup_refresh_deferred_call(method, &st, None)?;
@@ -275,7 +275,7 @@ impl Session {
                 Ok(moved)
             }
             Some(Value::TestControl(c)) => {
-                let c = c.clone();
+                let c = control_of(c).clone();
                 let page = c.page.clone();
                 self.pending_add_in_reread(&page, method.method())?;
                 self.lookup_refresh_deferred_call(method, &page, Some(&c.target))?;
@@ -765,17 +765,11 @@ impl Session {
                         "TestActionNotFound",
                     ));
                 }
-                Ok(Value::TestControl(Rc::new(ControlRef {
-                    page: st.clone(),
-                    target: ControlTarget::BuiltIn(m.to_string()),
-                })))
+                Ok(test_control(st.clone(), ControlTarget::BuiltIn(m.to_string())))
             }
             m @ (PageMethod::Edit | PageMethod::View) => {
                 self.require_open(st)?;
-                Ok(Value::TestControl(Rc::new(ControlRef {
-                    page: st.clone(),
-                    target: ControlTarget::BuiltIn(m.to_string()),
-                })))
+                Ok(test_control(st.clone(), ControlTarget::BuiltIn(m.to_string())))
             }
             // `ObjectId(UseNames)`: `Page <id>`, or with names (the default) `Page <Caption>`, the object name when
             // the page has no Caption. Taken from the probed report form (recordref-fieldref/PWRefusedBuiltins.al:78-107,

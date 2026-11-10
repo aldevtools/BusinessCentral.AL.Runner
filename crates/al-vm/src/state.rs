@@ -216,15 +216,15 @@ pub(crate) struct PageClients {
     pub(crate) saved_values: std::collections::HashMap<u32, Vec<(Option<usize>, usize, Value)>>,
     /// `saved_values` at the last commit: a rollback goes back to it (`Session::rollback_transaction`).
     pub(crate) saved_values_committed: std::collections::HashMap<u32, Vec<(Option<usize>, usize, Value)>>,
-    pub(crate) traps: Vec<Rc<RefCell<al_builtins::value::PageState>>>,
+    pub(crate) traps: Vec<Rc<RefCell<crate::pages::PageState>>>,
     /// Open TestPages in a state whose end of scope is not pinned (what BC saves when the variable goes away): a routine
     /// whose local holds the last reference to one is refused when it returns.
-    pub(crate) scope_unpinned: Vec<Rc<RefCell<al_builtins::value::PageState>>>,
+    pub(crate) scope_unpinned: Vec<Rc<RefCell<crate::pages::PageState>>>,
     /// A page background task worker is running: its parameters and the result it set.
     pub(crate) bg_worker: Option<pages::BgWorker>,
     /// The page whose enqueued background tasks run once the `EnqueueBackgroundTask` call that queued them has
     /// written its by-reference task id back (see `Session::bg_enqueue`).
-    pub(crate) bg_drain_after_call: Option<Rc<RefCell<al_builtins::value::PageState>>>,
+    pub(crate) bg_drain_after_call: Option<Rc<RefCell<crate::pages::PageState>>>,
     /// The xRec fields the next `Modify` hands the table's triggers instead of the stored row: a
     /// page saving a row passes its own xRec (corpus
     /// testpage/TestPageActionRunObjectPageRec_Tests.al:HostSaveAfterTheTargetEditedTheRowCarriesXRec).
@@ -258,20 +258,17 @@ pub(crate) struct PageClients {
     pub(crate) close_save_error: bool,
     /// The TestPage calls running now, innermost last: the root page of the call's page tree and what the pages' own code
     /// did to that tree meanwhile (`pages/shown.rs`).
-    pub(crate) shown_frames: Vec<(
-        *const RefCell<al_builtins::value::PageState>,
-        Vec<crate::pages::ShownNote>,
-    )>,
+    pub(crate) shown_frames: Vec<(*const RefCell<crate::pages::PageState>, Vec<crate::pages::ShownNote>)>,
     /// Per page object, the expression controls whose value the page keeps between refreshes (`pages/shown.rs`).
     pub(crate) shown_controls: std::collections::HashMap<u32, Rc<Vec<usize>>>,
     /// The page triggers running now, innermost last, with their page (`pages/code_close_veto.rs`).
-    pub(crate) trigger_kinds: Vec<(*const RefCell<al_builtins::value::PageState>, crate::pages::TriggerKind)>,
+    pub(crate) trigger_kinds: Vec<(*const RefCell<crate::pages::PageState>, crate::pages::TriggerKind)>,
     /// How many TestPage calls run now, nested (`pages/code_close_veto.rs`).
     pub(crate) client_depth: u32,
     /// Vetoed `CurrPage.Close()` calls waiting for the end of their TestPage call (`pages/code_close_veto.rs`).
     pub(crate) code_close_vetoes: Vec<crate::pages::CodeCloseVeto>,
     /// Pages whose close, requested by OnAfterGetCurrRecord at OpenView, OnQueryClosePage refused twice (`pages/code_close_veto.rs`).
-    pub(crate) open_vetoed: Vec<std::rc::Weak<RefCell<al_builtins::value::PageState>>>,
+    pub(crate) open_vetoed: Vec<std::rc::Weak<RefCell<crate::pages::PageState>>>,
 }
 
 /// Event subscriptions and what the Event Subscription table reports.
@@ -282,9 +279,9 @@ pub(crate) struct EventState {
     /// al-runner issue 6924).
     pub(crate) page_held: Vec<crate::page_held_bindings::PageHeld>,
     /// The pages that have an instance and may still run code (`page_held_bindings.rs`).
-    pub(crate) pages_with_instance: Vec<std::rc::Weak<RefCell<al_builtins::value::PageState>>>,
+    pub(crate) pages_with_instance: Vec<std::rc::Weak<RefCell<crate::pages::PageState>>>,
     /// The pages a Page variable's non-modal `Run` showed last (`page_held_bindings.rs`).
-    pub(crate) page_var_runs: Vec<std::rc::Weak<RefCell<al_builtins::value::PageState>>>,
+    pub(crate) page_var_runs: Vec<std::rc::Weak<RefCell<crate::pages::PageState>>>,
     /// What the Event Subscription table reports (calls handled, bound instances).
     pub(crate) event_stats: Rc<platform::EventStats>,
     /// `publish` is about to raise its event: the next `raise` has an event frame on the stack.
