@@ -96,12 +96,11 @@ Work on one issue at a time. Repeat until no issue is left.
    review round), continue on it instead: merge `origin/main` into it first.
 5. **Do the work** under `docs/agents/brief.md`: red/green TDD, no guessing,
    refuse what you cannot pin, never weaken an oracle.
-6. **Run the finishing gates** from the brief, in order: baselines for 27, 28
-   and 29, `./check.sh`, the release-only tests, the demand/eager differential
-   when it applies, then merge `origin/main`, regenerate the baselines and run
-   `./check.sh` again. All must be green.
+6. **Run the hand-back steps** of the brief, in order: merge `origin/main`,
+   `--baseline-diff` on BC 27, 28 and 29, prune, crate tests, clippy, fmt.
+   Do not run `./check.sh` or an `--all-versions` run; PR CI is the gate.
 7. **Push the branch only:** `git push -u origin remote/N-slug`.
-   Never push `main`. Never merge. Never open the merge yourself.
+   Never push `main`. Never merge. Open the pull request as a draft, without auto-merge.
 8. **Report on the issue** (format below).
    `gh issue edit N --add-label ready-for-review --remove-label in-progress`
 9. **Clean up:** `cd` back to the clone and `git worktree remove .worktrees/N-slug`.
@@ -125,7 +124,7 @@ Counts (passed / failed / not run), before -> after
 No baseline case regressed: yes/no.
 
 Gates
-- check.sh: green
+- crate tests, clippy, fmt: green
 - release-only tests: green
 - demand/eager differential: green / not needed (reason)
 
@@ -163,7 +162,8 @@ oracle, or something you cannot reproduce.
 - No new issues, except for a bug you found while working. Label those
   `found-by-agent`. Say in the issue how to reproduce it.
 - No force pushes. No rewriting of history on a branch that is already pushed.
-- No attribution or session lines in commit messages or comments.
+- No `pkill`, `git stash`, `git commit -a` or `git add -A`, and no workflow runs (see the brief).
+- Commit messages end with the session attribution line your task gives you.
 - No Microsoft code and no third-party project code in the repository.
 - Public comments stay factual and short. No promises, no praise, no
   speculation about the owner's plans.
@@ -176,7 +176,7 @@ Paste this into the session on the laptop, from the repository clone. It uses
 `/loop` without an interval, so the session paces itself.
 
 ```
-/loop Work through the GitHub issues of aldevtools/BusinessCentral.AL.Runner, one at a time, following docs/agents/remote-worker.md. Before the first issue, read docs/agents/remote-worker.md, docs/agents/brief.md, CLAUDE.md, docs/architecture.md, docs/status.md, docs/codemap.md and docs/adr/README.md. Each round: find the oldest open issue with label agent-ready and without the labels in-progress, ready-for-review and blocked; claim it (label in-progress, comment "Taking this."); make a worktree and branch remote/<number>-<slug> from origin/main; do the work with red/green TDD under the rules in docs/agents/brief.md; run all finishing gates (baselines for BC 27, 28 and 29, ./check.sh, the release-only tests, tools/demand_vs_eager.sh run when it applies, merge origin/main, regenerate baselines, ./check.sh again); push the branch only; comment the report in the format of docs/agents/remote-worker.md on the issue; add label ready-for-review and remove in-progress; remove the worktree; then take the next issue. If an issue is blocked (needs a probe, an ADR decision, an oracle change, or is unclear), comment why, label it blocked, remove in-progress, and move on. Never push main or the corpus repo, never merge, never close issues, never edit corpus/ or oracle/, never weaken a baseline, run corpus runs one at a time under a memory cap or timeout, and keep public comments factual and short. Open a new issue only for a bug you found or for self-picked work when the queue is empty, with label found-by-agent. Never stop the loop. If an issue you labelled in-progress is still open from an earlier round, resume it first. When no matching issue is left: (1) fetch origin, run `al-runner test` on Tests-ERM of the BC 27.5 artifact with `--top-refusals 40` (the plain command loads test data), (2) pick the highest-ranked refusal that no open issue and no recent commit on main mentions, (3) open an issue for it with labels agent-ready and found-by-agent (goal, facts with counts, scope, done-when, as in the other issues), and take it. If even that finds nothing, schedule the next round in 15 minutes and look again. Each round ends with the next round scheduled, never with a stop.
+/loop Work through the GitHub issues of aldevtools/BusinessCentral.AL.Runner, one at a time, following docs/agents/remote-worker.md. Before the first issue, read docs/agents/remote-worker.md, docs/agents/brief.md, CLAUDE.md, docs/architecture.md, docs/status.md, docs/codemap.md and docs/adr/README.md. Each round: find the oldest open issue with label agent-ready and without the labels in-progress, ready-for-review and blocked; claim it (label in-progress, comment "Taking this."); make a worktree and branch remote/<number>-<slug> from origin/main; do the work with red/green TDD under the rules in docs/agents/brief.md; run the hand-back steps of the brief (merge origin/main, --baseline-diff on BC 27, 28 and 29, prune, crate tests, clippy, fmt; no ./check.sh, no --all-versions run); never use pkill, git stash, git commit -a, git add -A or start a workflow run; push the branch only and open a draft PR without auto-merge; comment the report in the format of docs/agents/remote-worker.md on the issue; add label ready-for-review and remove in-progress; remove the worktree; then take the next issue. If an issue is blocked (needs a probe, an ADR decision, an oracle change, or is unclear), comment why, label it blocked, remove in-progress, and move on. Never push main or the corpus repo, never merge, never close issues, never edit corpus/ or oracle/, never weaken a baseline, run corpus runs one at a time under a memory cap or timeout, and keep public comments factual and short. Open a new issue only for a bug you found or for self-picked work when the queue is empty, with label found-by-agent. Never stop the loop. If an issue you labelled in-progress is still open from an earlier round, resume it first. When no matching issue is left: (1) fetch origin, run `al-runner test` on Tests-ERM of the BC 27.5 artifact with `--top-refusals 40` (the plain command loads test data), (2) pick the highest-ranked refusal that no open issue and no recent commit on main mentions, (3) open an issue for it with labels agent-ready and found-by-agent (goal, facts with counts, scope, done-when, as in the other issues), and take it. If even that finds nothing, schedule the next round in 15 minutes and look again. Each round ends with the next round scheduled, never with a stop.
 ```
 
 ## Corpus writer mode (from 2026-10-15)
