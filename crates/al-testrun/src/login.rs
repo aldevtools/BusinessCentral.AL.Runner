@@ -16,7 +16,9 @@
 //! ([`observed_by`]); otherwise those subscribers stay out of the test session, as before. What the login writes stays
 //! in the session, committed before the first test. Microsoft's code that cannot run here refuses the codeunit.
 
-use crate::runtime::written::{ReachIndex, call_reach_facts, union_reach_facts_skipping};
+use crate::runtime::written::{
+    ReachIndex, call_reach_facts, union_reach_facts_skipping, union_reach_facts_without_database_events,
+};
 use al_sema::lower::Lowered;
 use al_vm::Engine;
 use al_vm::events::Registry;
@@ -62,9 +64,10 @@ fn workspace_subscribers(lowered: &Lowered, events: &Registry) -> Vec<(usize, us
 /// Whether the test session of test codeunit `test` raises the login: an app under test has an automatic subscriber to
 /// "System Initialization".`OnAfterLogin` or "Guided Experience".`OnRegisterAssistedSetup`, and the test codeunit's reach
 /// can see what those subscribers leave: it touches a table they write through their own calls and does not write
-/// itself, or reads a global of the subscriber's codeunit or of an app under test's codeunit the subscriber's codeunit
-/// holds in a variable (the state of a SingleInstance codeunit, LgnLoginChecklistTests.al:19-64). The subscribers of the
-/// events raised inside those calls, the table triggers and the database events do not count: in Microsoft's apps that
+/// itself (in its whole reach, or in its reach without the subscribers of the database events), or reads a global of
+/// the subscriber's codeunit or of an app under test's codeunit the subscriber's codeunit holds in a variable (the
+/// state of a SingleInstance codeunit, LgnLoginChecklistTests.al:19-64). The subscribers of the events raised inside
+/// the login subscribers' calls, the table triggers and the database events do not count: in Microsoft's apps that
 /// fan-out writes most of Base Application (Guided Experience's telemetry reaches every telemetry logger subscriber),
 /// and a test codeunit that only reads what it writes is not one the login is modelled for (corpus
 /// Y64InstallSubscribers.al reads a table a telemetry logger subscriber of a cross-app fixture writes, guarded so that
@@ -99,10 +102,26 @@ pub(crate) fn observed_by(engine: &Engine, lowered: &Lowered, test: usize) -> bo
     let mine = union_reach_facts_skipping(events, lowered, &index, &roots, &subs);
     // A table the test codeunit writes itself is not one whose rows it can only have from the login: an insert reaches
     // the database trigger subscribers of Microsoft's apps, which write the same tables in both reaches.
-    mine.touched
+    if mine
+        .touched
         .iter()
         .any(|t| writes.contains(t) && !mine.writes.contains(t))
         || mine.globals_read.iter().any(|g| left.state.contains(&g.0))
+    {
+        return true;
+    }
+    // The same question without the subscribers of the `Global Triggers` database events (al-runner issue 7574). A page
+    // variable counts as a write (the page client writes the page's source table; a page without one writes a table
+    // that is not known), and any write brings those subscribers into the reach above. In Microsoft's apps they write
+    // the tables the login subscribers write, so a test that reads the login's row only through the page it opens (the
+    // page's OnQueryClosePage, an action) looked like one that writes the table itself. What the test writes through
+    // its calls, the objects it runs, the table triggers and the other events still counts as its own. That the row is
+    // there before the first test, whoever reads it, is LgnLoginChecklistTests.al:137-138; the read from a page's
+    // triggers is the reporter's repro, which passes on BC 29.0.
+    let own = union_reach_facts_without_database_events(events, lowered, &index, &roots, &subs);
+    own.touched
+        .iter()
+        .any(|t| writes.contains(t) && !own.writes.contains(t))
 }
 
 /// The codeunits of the apps under test whose state a login subscriber keeps: the codeunit that declares a subscriber to
