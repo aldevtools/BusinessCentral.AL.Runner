@@ -198,13 +198,13 @@ fn validate_on_a_count_or_exist_flowfield_raises() {
     );
 }
 
-// Validate on a Max FlowField is not pinned.
+// Validate on a Decimal Max FlowField raises the "must start with 'Sum(...'" error (record/flowfields/FfmOperations.al:551).
 #[test]
-fn validate_on_a_max_flowfield_is_refused() {
-    assert!(matches!(
-        run_in(SRC, "T", "ValidateMax"),
-        Err(al_builtins::native::Signal::Unsupported(_))
-    ));
+fn validate_on_a_max_flowfield_raises() {
+    assert_eq!(
+        al_testkit::error_message(run_in(SRC, "T", "ValidateMax")),
+        "The Calculation formula for the Max Amount FlowField in the P table must start with 'Sum(...'."
+    );
 }
 
 // DiFwWriteTests.al:812-819: Validate on a Sum FlowField inserts the difference into the source table.

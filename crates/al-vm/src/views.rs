@@ -56,6 +56,21 @@ impl Session {
         if matches!(v, Value::Date(0, false) | Value::DateTime(0)) {
             return Ok("''".into());
         }
+        // An empty DateFormula and an empty RecordId show as two single quotes in GetFilter(s), set by SetRange or by a filter
+        // text (recordref-fieldref/fieldref/FieldRefFilterEmptyText.al:139-150, :172-189; record/filters/
+        // FilterEmptyDateFormula.al:109-118; al-runner issue 7437). In a view they are written as before.
+        if !iso {
+            let empty = match v {
+                Value::DateFormula(f) => f.is_empty(),
+                Value::Library(al_builtins::library_kind::LibraryKind::RecordId, _) => {
+                    self.message_value(v)?.is_empty()
+                }
+                _ => false,
+            };
+            if empty {
+                return Ok("''".into());
+            }
+        }
         // The zero Duration in GetFilter(s) (recordref-fieldref/fieldref/TestFieldRefFilter.al FieldRef_SetFilter_Zero_Duration, corpus
         // PR 1248: `''`, `<>''`, `''..41 days 16 hours`); in a view it is not pinned.
         if matches!(v, Value::Duration(0)) {

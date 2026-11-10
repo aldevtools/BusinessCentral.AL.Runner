@@ -102,7 +102,7 @@ impl Session {
     }
 
     /// Reads row `fields` with OnAfterGetRecord and gives the row the client then holds.
-    fn read_refilled_row(&mut self, st: &St, rec: &Rec, fields: &[Value]) -> Result<WindowRow, Signal> {
+    pub(super) fn read_refilled_row(&mut self, st: &St, rec: &Rec, fields: &[Value]) -> Result<WindowRow, Signal> {
         rec.borrow_mut().fields = fields.to_vec();
         let key = self.row_key(rec)?;
         self.populate_current(st)?;
