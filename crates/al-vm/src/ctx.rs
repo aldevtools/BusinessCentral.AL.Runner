@@ -604,9 +604,21 @@ impl al_builtins::native::Ctx for Session {
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
+        let option_caption = self.field_property(&t, pos, "OptionCaption").is_some();
+        let option_captions = match (option_caption, &t.fields[pos].ty) {
+            (true, al_builtins::value::RtType::Option(_)) => match self.members_of_field(&t, pos) {
+                Ok(Some((_, members))) => {
+                    Some(members.iter().map(|(_, _, c)| c.as_str()).collect::<Vec<_>>().join(","))
+                }
+                Ok(None) => None,
+                Err(e) => return Some(Err(e)),
+            },
+            _ => None,
+        };
         Some(Ok(al_builtins::native::FieldTarget {
             ty: t.fields[pos].ty.clone(),
-            option_caption: self.field_property(&t, pos, "OptionCaption").is_some(),
+            option_caption,
+            option_captions,
             rec,
             pos,
         }))

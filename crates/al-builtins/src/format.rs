@@ -374,8 +374,9 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
             }
             f => f,
         })?,
-        // A NUL character does not show (types/variant/LTP89StreamText.al:Text_BytesWritten `nul_between`).
-        Value::Text(t) | Value::TextConst(t) | Value::Code(t) if t.contains('\0') => t.replace('\0', ""),
+        // A NUL character inside a text is kept (format-evaluate/format-matrix/FMEvalText.al:141-143 and FMEvalCode3.al:141-143,
+        // corpus PR 1256: `Format(V, 0, 9)` of a text holding NUL shows it). LTP89StreamText.al `nul_between` gets no NUL here:
+        // `Wide[1] := 0` ends the text (interp `write_char`).
         Value::Text(t) | Value::TextConst(t) | Value::Code(t) => t.to_string(),
         Value::Option(o, members) => match standard {
             2 | 9 if crate::sysenum::is_field_table_type(members) => FIELD_TABLE_TYPE_ORDINALS
@@ -1133,6 +1134,8 @@ fn unit_word(lang: i32, unit: usize, plural: bool) -> Option<String> {
         (1031, 2, false) => Some("Minute".into()),
         (1031, 3, false) => Some("Sekunde".into()),
         (1031, 4, false) => Some("Millisekunde".into()),
+        // `7 Millisekunden` (format-evaluate/format-matrix/FMEvalDuration.al:353-433, corpus PR 1250).
+        (1031, 4, true) => Some("Millisekunden".into()),
         (1036, 0, false) => Some("jour".into()),
         (1036, 0, true) => Some("jours".into()),
         (1036, 1, true) => Some("heures".into()),
@@ -1479,13 +1482,17 @@ mod tests {
             "1 heure 2 minutes 3 secondes"
         );
         assert_eq!(format_value(&du, 0, 0, &L(1033)).unwrap(), "1 hour 2 minutes 3 seconds");
-        // AxLanguageFormats.al:151; the plural of a millisecond in German is not pinned.
+        // AxLanguageFormats.al:151; the plural of a millisecond in German: format-matrix/FMEvalDuration.al:353.
         assert_eq!(
             format_value(&Value::Duration(86_400_000), 0, 0, &L(1031)).unwrap(),
             "1 Tag"
         );
+        assert_eq!(
+            format_value(&Value::Duration(7), 0, 0, &L(1031)).unwrap(),
+            "7 Millisekunden"
+        );
         assert!(matches!(
-            format_value(&Value::Duration(2), 0, 0, &L(1031)),
+            format_value(&Value::Duration(2), 0, 0, &L(1036)),
             Err(FormatFail::Unsupported(_))
         ));
         assert_eq!(format_value(&Value::Boolean(false), 0, 0, &L(1036)).unwrap(), "Non");

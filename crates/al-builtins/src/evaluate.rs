@@ -4,7 +4,11 @@
 //! plainly is not a value of the type (no digits for a number, empty) fails the
 //! way the corpus shows, and every other form raises `Signal::Unsupported`.
 
+mod date_forms;
 mod datetime_forms;
+mod duration;
+mod enum_text;
+use duration::duration;
 mod platform_options;
 use crate::describe::Describe;
 use crate::format::day_from_civil;
@@ -68,184 +72,6 @@ enum Parsed {
     RejectedUsedRefused(String),
 }
 
-/// A Duration as `Evaluate` reads it (types/date-time/Evaluate.al:380-447 Duration_Evaluate, :566-605 BT_Duration_UnitAbbreviations,
-/// :640-670 BT_Duration_BeyondTimeSpan; types/duration/D_Duration.al:421-443). Only the pinned forms are
-/// read; every other text is refused.
-/// - Format 0: the empty text is 0; a plain whole number counts hours (`1500` is 62 days 12 hours, `-1500`, numbers beyond an
-///   Integer), and so does an unsigned decimal (`1.5` is 90 minutes). Otherwise terms of a number and a unit, in any order, with or
-///   without a blank between them (`1h`, `2days 4hours`): the units spelled `day`, `days`, `d`, `D`, `hour`, `hours`, `h`, `HOUR`,
-///   `minute`, `minutes`, `min`, `m`, `second`, `seconds`, `sec`, `s`, `millisecond`, `milliseconds`, `milli`, `millis`; a fraction of
-///   hours and of seconds (`1.5 hours`, `3.7 seconds`); a minus before a single hour or second term (`-1 hour`, `-1 second`). A plain
-///   number may have blanks around it (`  7 `). Rejected: the same unit word twice (`1 hour 1 hour`), the words `mins`, `ms`, `week`
-///   and `abc` (`12abc`), a fraction of milliseconds, a text of lower-case letters only (`abc`), a plus sign (`+5`), a comma or an
-///   exponent in a number (`1,5`, `1e3`) (types/P131EvalScalars.al:144-226).
-/// - Formats 1 to 3: a plain unsigned whole number, read as with format 0.
-/// - Format 9: the form Format 9 gives (`P0DT1H30M0.0S`), unsigned. Rejected: the empty text, a text that starts with a digit or
-///   with `-` and a digit, and a text of lower-case letters only.
-fn duration(text: &str, number: i64) -> Result<Parsed, Signal> {
-    let refuse = || {
-        unsupported(format!(
-            "Evaluate of `{text}` into Duration with format {number} (not pinned)"
-        ))
-    };
-    let ms_of = |d: Decimal| -> Option<i64> {
-        if !d.fract().is_zero() {
-            return None;
-        }
-        i64::try_from(d.mantissa() / 10i128.pow(d.scale())).ok()
-    };
-    let digits = |t: &str| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit());
-    let lower_letters = |t: &str| !t.is_empty() && t.bytes().all(|b| b.is_ascii_lowercase());
-    let hours = |t: &str| -> Result<Parsed, Signal> {
-        match t
-            .parse::<Decimal>()
-            .ok()
-            .and_then(|d| d.checked_mul(Decimal::from(3_600_000)))
-            .and_then(ms_of)
-        {
-            Some(ms) => Ok(Parsed::Value(Value::Duration(ms))),
-            None => refuse(),
-        }
-    };
-    if number == 9 {
-        if let Some(body) = text.strip_prefix('P') {
-            let parse = || -> Option<Decimal> {
-                let (d, rest) = body.split_once("DT")?;
-                let (h, rest) = rest.split_once('H')?;
-                let (m, rest) = rest.split_once('M')?;
-                let sec = rest.strip_suffix('S')?;
-                let (whole, frac) = sec.split_once('.').unwrap_or((sec, "0"));
-                if !(digits(d) && digits(h) && digits(m) && digits(whole) && digits(frac)) {
-                    return None;
-                }
-                let n = |t: &str| t.parse::<Decimal>().ok();
-                Some(
-                    n(d)? * Decimal::from(86_400_000)
-                        + n(h)? * Decimal::from(3_600_000)
-                        + n(m)? * Decimal::from(60_000)
-                        + n(&format!("{whole}.{frac}"))? * Decimal::from(1000),
-                )
-            };
-            return match parse().and_then(ms_of) {
-                Some(ms) => Ok(Parsed::Value(Value::Duration(ms))),
-                None => refuse(),
-            };
-        }
-        let first_digit = |t: &str| t.as_bytes().first().is_some_and(u8::is_ascii_digit);
-        let rejected = text.is_empty()
-            || first_digit(text)
-            || text.strip_prefix('-').is_some_and(first_digit)
-            || (lower_letters(text) && !text.starts_with('p'));
-        return if rejected { Ok(Parsed::Rejected) } else { refuse() };
-    }
-    if number != 0 {
-        // Formats 1 to 3: `1500` only (Evaluate.al:440-446).
-        return if digits(text) { hours(text) } else { refuse() };
-    }
-    if text.is_empty() {
-        return Ok(Parsed::Value(Value::Duration(0)));
-    }
-    let plain = text.trim_matches(' ');
-    if digits(plain.strip_prefix('-').unwrap_or(plain)) {
-        return hours(plain);
-    }
-    if let Some((w, f)) = plain.split_once('.') {
-        if digits(w) && digits(f) {
-            return hours(plain);
-        }
-    }
-    let split_by = |c: char| plain.split_once(c).is_some_and(|(a, b)| digits(a) && digits(b));
-    if lower_letters(text) || plain.strip_prefix('+').is_some_and(digits) || split_by(',') || split_by('e') {
-        return Ok(Parsed::Rejected);
-    }
-    let b = text.as_bytes();
-    let mut i = 0;
-    let mut total = Decimal::ZERO;
-    let mut words: Vec<&str> = Vec::new();
-    let mut units: Vec<i64> = Vec::new();
-    let mut negative = false;
-    let mut rejected = false;
-    let mut terms = 0;
-    while i < b.len() {
-        while b.get(i) == Some(&b' ') {
-            i += 1;
-        }
-        if i == b.len() {
-            break;
-        }
-        if b[i] == b'-' {
-            if terms > 0 || negative {
-                return refuse();
-            }
-            negative = true;
-            i += 1;
-        }
-        let start = i;
-        while b.get(i).is_some_and(|c| c.is_ascii_digit() || *c == b'.') {
-            i += 1;
-        }
-        if start == i {
-            return refuse();
-        }
-        let num = &text[start..i];
-        let (w, f) = num.split_once('.').unwrap_or((num, "0"));
-        if !digits(w) || !digits(f) {
-            return refuse();
-        }
-        let Ok(n) = num.parse::<Decimal>() else {
-            return refuse();
-        };
-        while b.get(i) == Some(&b' ') {
-            i += 1;
-        }
-        let ustart = i;
-        while b.get(i).is_some_and(u8::is_ascii_alphabetic) {
-            i += 1;
-        }
-        let word = &text[ustart..i];
-        let per: i64 = match word {
-            "day" | "days" | "d" | "D" => 86_400_000,
-            "hour" | "hours" | "h" | "HOUR" => 3_600_000,
-            "minute" | "minutes" | "min" | "m" => 60_000,
-            "second" | "seconds" | "sec" | "s" => 1000,
-            "millisecond" | "milliseconds" | "milli" | "millis" => 1,
-            "mins" | "ms" | "week" | "abc" => {
-                rejected = true;
-                terms += 1;
-                continue;
-            }
-            _ => return refuse(),
-        };
-        let fraction = !n.fract().is_zero();
-        if fraction && matches!(per, 86_400_000 | 60_000) {
-            return refuse();
-        }
-        if fraction && per == 1 {
-            rejected = true;
-        }
-        if words.contains(&word) {
-            rejected = true;
-        } else if units.contains(&per) {
-            // The same unit in another spelling (`1 h 1 hour`) is not pinned.
-            return refuse();
-        }
-        words.push(word);
-        units.push(per);
-        terms += 1;
-        total += n * Decimal::from(per);
-    }
-    if negative && (terms > 1 || !matches!(units.as_slice(), [3_600_000 | 1000])) {
-        return refuse();
-    }
-    if rejected {
-        return Ok(Parsed::Rejected);
-    }
-    let Some(ms) = ms_of(total) else {
-        return refuse();
-    };
-    Ok(Parsed::Value(Value::Duration(if negative { -ms } else { ms })))
-}
-
 /// A whole number as `Evaluate` reads it into an Integer. Spaces around it are dropped, one sign is allowed and the
 /// digits are ASCII; number 0 also reads properly grouped thousands (`1,234`), number 9 does not. Everything else is
 /// rejected, an overflow too (format-evaluate/P86Eval.al, codeunit "LT P86 Eval Integer":
@@ -281,12 +107,23 @@ fn integer(text: &str, number: i64) -> Result<Parsed, Signal> {
             _ => Parsed::Rejected,
         });
     }
+    // Number 9 drops a TAB before the number and reads a point with no fraction (`\t5`, `5.`: format-evaluate/format-matrix/
+    // FMEvalInteger.al:152, :232, corpus PR 1249).
+    let text = if number == 9 {
+        text.trim_start_matches(['\t', ' '])
+    } else {
+        text
+    };
     if text.chars().any(|c| c.is_whitespace() && c != ' ') {
         return unsupported(format!(
             "Evaluate of `{text}` into Integer with white space other than spaces (not pinned)"
         ));
     }
     let t = text.trim_matches(' ');
+    let t = match t.strip_suffix('.') {
+        Some(w) if number == 9 && !w.is_empty() && w.bytes().all(|b| b.is_ascii_digit()) => w,
+        _ => t,
+    };
     let (negative, digits) = match t.strip_prefix('-') {
         Some(rest) => (true, rest),
         None => (false, t.strip_prefix('+').unwrap_or(t)),
@@ -330,6 +167,28 @@ fn integer(text: &str, number: i64) -> Result<Parsed, Signal> {
 /// P129_Evaluate_IntegerAndBigInteger_BlanksAndOddForms; the BigInteger cases of types/TestProbeBigInteger: `%PDF-1.4`).
 /// An exponent, commas in format number 9, a `-` followed by blanks and a point with no fraction are not pinned.
 fn big_integer(text: &str, number: i64) -> Result<Parsed, Signal> {
+    // The matrix (format-evaluate/format-matrix/FMEvalBigInteger.al, corpus PR 1249): a TAB before the number is dropped (`\t5`
+    // :231-233); NUL, `?` and `1''000` are rejected (:225-230, :301-303); `(5)` is -5 with format 0 and rejected with 9 (:304,
+    // :340-341); an exponent reads with format 0 when the value is whole and in range (`1e3`, `1E3` :163-168), else it is
+    // rejected (`09e738195`, `1e-5` :169-215), and format 9 rejects it; commas with format 9 are rejected (:99, :146); a point
+    // with no fraction is dropped (`5.` :151-153).
+    let text = text.strip_prefix('\t').unwrap_or(text);
+    if matches!(text, "\0" | "?" | "1''000") {
+        return Ok(Parsed::Rejected);
+    }
+    if let Some(inner) = text.strip_prefix('(').and_then(|r| r.strip_suffix(')')) {
+        if !inner.is_empty() && inner.bytes().all(|b| b.is_ascii_digit()) {
+            return Ok(match (number, format!("-{inner}").parse::<i64>()) {
+                (0, Ok(n)) => Parsed::Value(Value::BigInteger(n)),
+                (0, Err(_)) => {
+                    return unsupported(format!(
+                        "Evaluate of `{text}` into BigInteger beyond its range (not pinned)"
+                    ));
+                }
+                _ => Parsed::Rejected,
+            });
+        }
+    }
     if text.chars().any(|c| c.is_whitespace() && c != ' ') {
         return unsupported(format!(
             "Evaluate of `{text}` into BigInteger with white space other than spaces (not pinned)"
@@ -340,9 +199,18 @@ fn big_integer(text: &str, number: i64) -> Result<Parsed, Signal> {
         && t.bytes()
             .all(|b| b.is_ascii_digit() || matches!(b, b'e' | b'E' | b'+' | b'-' | b'.'));
     if exponent_shape {
-        return unsupported(format!(
-            "Evaluate of `{text}` into BigInteger with an exponent (not pinned)"
-        ));
+        if number == 9 {
+            return Ok(Parsed::Rejected);
+        }
+        return match decimal(t, 0)? {
+            Parsed::Value(Value::Decimal(d)) if d.fract().is_zero() => Ok(d
+                .to_i64()
+                .map_or(Parsed::Rejected, |n| Parsed::Value(Value::BigInteger(n)))),
+            Parsed::Value(_) | Parsed::Rejected => Ok(Parsed::Rejected),
+            _ => unsupported(format!(
+                "Evaluate of `{text}` into BigInteger with an exponent (not pinned)"
+            )),
+        };
     }
     if t.bytes().any(|b| b.is_ascii_alphabetic() || matches!(b, b'%' | b'_')) || (number == 0 && number_list(t)) {
         return Ok(Parsed::Rejected);
@@ -385,17 +253,11 @@ fn big_integer(text: &str, number: i64) -> Result<Parsed, Signal> {
         None => (rest, None),
     };
     if int.contains(',') && number == 9 {
-        return unsupported(format!(
-            "Evaluate of `{text}` into BigInteger with commas and format number 9 (not pinned)"
-        ));
+        return Ok(Parsed::Rejected);
     }
     let int: String = int.chars().filter(|c| *c != ',').collect();
     match frac {
-        Some("") => {
-            return unsupported(format!(
-                "Evaluate of `{text}` into BigInteger with a point and no fraction (not pinned)"
-            ));
-        }
+        Some("") if !int.is_empty() => {}
         Some(f) if f.contains([',', '.']) => return Ok(Parsed::Rejected),
         Some(f) if f.bytes().any(|b| b != b'0') => return Ok(Parsed::Rejected),
         _ => {}
@@ -418,7 +280,8 @@ fn big_integer(text: &str, number: i64) -> Result<Parsed, Signal> {
 /// the same in German), types/decimal-integer/ScT70055.al:EvaluateDecimal_Valid and EvaluateDecimal_Invalid
 /// (`+1.5`, `.5`, `5.`, `1E3`, `1.5e-2`, `1E`, `1E40`, `1.2.3`, `.`, `50%`, `$5`, `NaN`), format-evaluate.
 fn decimal(text: &str, number: i64) -> Result<Parsed, Signal> {
-    if rejected_characters(text) {
+    // NUL and `?` are no number (format-evaluate/format-matrix/FMEvalDecimal.al:225-230, FMEvalInteger.al:225-230, corpus PR 1249).
+    if rejected_characters(text) || matches!(text, "\0" | "?") {
         return Ok(Parsed::Rejected);
     }
     // Tab, carriage return and line feed around the number are dropped like spaces, with format number 0 and 9
@@ -590,6 +453,9 @@ fn decimal(text: &str, number: i64) -> Result<Parsed, Signal> {
                         v
                     }
                 }
+                // A huge positive exponent of a number that is not zero is beyond the range: rejected (format-evaluate/format-matrix/
+                // FMEvalDecimal.al:169-171, FMEvalInteger.al:169-171 `09e738195`, corpus PR 1249).
+                _ if !eneg && format!("{int}{frac}").bytes().any(|b| b != b'0') => return Ok(Parsed::Rejected),
                 _ => {
                     return unsupported(format!(
                         "Evaluate of `{text}` into Decimal with a huge exponent (not pinned)"
@@ -658,13 +524,26 @@ fn decimal(text: &str, number: i64) -> Result<Parsed, Signal> {
 fn boolean(text: &str, number: i64) -> Result<Parsed, Signal> {
     // Format number 9 reads `true`, `false`, `1` and `0`, and rejects `Yes`, `No` and the empty text (misc/lt-system-functions/
     // EvalLastError.al:Evaluate_Boolean_Format9); other texts are read as with number 0 and `Maybe`-like garbage is rejected.
+    // The matrix (format-evaluate/format-matrix/FMEvalBoolean.al, corpus PR 1256) pins number 9 in English and German: `true`,
+    // `false` in any case, `1`, `0`, `T` and `F` read; `yes`, `Y`, `n`, `Yes `, ` No`, `-1`, `2`, `Ja`, `on`, NUL, `?`, blanks
+    // and the empty text are rejected. Lower-case `t` and `f` and blanks around a word that reads are not pinned.
     if number == 9 {
-        match text {
-            "true" | "1" => return Ok(Parsed::Value(Value::Boolean(true))),
-            "false" | "0" => return Ok(Parsed::Value(Value::Boolean(false))),
-            "Yes" | "No" | "" => return Ok(Parsed::Rejected),
-            _ => {}
-        }
+        return match text {
+            t if t.eq_ignore_ascii_case("true") || t == "1" || t == "T" => Ok(Parsed::Value(Value::Boolean(true))),
+            t if t.eq_ignore_ascii_case("false") || t == "0" || t == "F" => Ok(Parsed::Value(Value::Boolean(false))),
+            "t" | "f" => unsupported(format!(
+                "Evaluate of `{text}` into a Boolean with format 9 (not pinned)"
+            )),
+            t if ["true", "false", "1", "0"]
+                .iter()
+                .any(|w| t.trim().eq_ignore_ascii_case(w)) =>
+            {
+                unsupported(format!(
+                    "Evaluate of `{text}` into a Boolean with format 9 (not pinned)"
+                ))
+            }
+            _ => Ok(Parsed::Rejected),
+        };
     }
     // text/TestEvaluate.al: 'true' / 'false'; types/TestFormatBooleanContracts.al:112
     // evaluates Format(true), which is 'Yes' (Format(false) is 'No'). In any case, `1` and `T` are
@@ -816,6 +695,11 @@ fn date_month_first(text: &str, today: Option<i32>) -> Option<Result<Parsed, Sig
     let ymd = |y: i32, m: u32, d: u32| -> Result<Parsed, Signal> {
         if !(1..=12).contains(&m) || d < 1 {
             return Ok(Parsed::Rejected);
+        }
+        // The first day of the calendar is the empty date, as in the ISO form (format-evaluate/format-matrix/FMEvalDate.al:196-198
+        // `1/1/0001`, corpus PR 1250).
+        if (y, m, d) == (1, 1, 1) {
+            return Ok(Parsed::Value(Value::Date(0, false)));
         }
         let first = day_from_civil(y, m, 1);
         let next = if m == 12 {
@@ -1035,6 +919,9 @@ fn date(text: &str, number: i64, today: Option<i32>, work: Option<i32>, month_fi
         };
     }
     if month_first {
+        if let Some(r) = date_forms::date_text(text, today, work) {
+            return r;
+        }
         // Blanks before and after a date of three numbers split by `-`, `.` or `/`, or an ISO date, are dropped
         // (format-evaluate/Y71EvaluateDashedDates.al:73-145: `01-01-2012 `, ` 01-01-2012 `, `11-11-12 `,
         // `2012-01-31 `, `05.03.2024 `, ` 3/5/24 `, and the statement form with one or two trailing blanks).
@@ -1181,6 +1068,28 @@ fn time(text: &str, number: i64) -> Result<Parsed, Signal> {
         Some(n * 10_i64.pow(3 - s.len() as u32))
     };
     let in_range = |h: i64, m: i64, s: i64| h < 24 && m < 60 && s < 60;
+    // Format 0 (format-evaluate/format-matrix/FMEvalTime.al, corpus PR 1250): a clock followed by `T` or `D` (`12:00:00T`
+    // :196-201), a colon at either end (`12:`, `:30` :271-276, :385-390) and four digits of a second (`12:00:00.1234` :145-147)
+    // are rejected; a comma before the milliseconds reads as a point (`12:00:00,123` :148-150).
+    if number != 9 {
+        let clock = |c: &str| {
+            let p: Vec<&str> = c.split(':').collect();
+            p.len() == 3 && p.iter().all(|x| x.len() == 2 && x.bytes().all(|b| b.is_ascii_digit()))
+        };
+        if t.strip_suffix(['T', 'D']).is_some_and(clock) || t.starts_with(':') || t.ends_with(':') {
+            return Ok(Parsed::Rejected);
+        }
+        if let Some((c, f)) = t.split_once(['.', ',']) {
+            if clock(c) && f.bytes().all(|b| b.is_ascii_digit()) {
+                if f.len() == 4 {
+                    return Ok(Parsed::Rejected);
+                }
+                if t.contains(',') && f.len() == 3 {
+                    return time(&format!("{c}.{f}"), number);
+                }
+            }
+        }
+    }
     if number == 9 {
         let body = t.strip_suffix('Z').unwrap_or(t);
         let (clock, frac) = match body.split_once('.') {
@@ -1426,6 +1335,9 @@ fn datetime(text: &str, number: i64, today: Option<i32>) -> Result<Parsed, Signa
             None => Parsed::Rejected,
         });
     }
+    if let Some(r) = date_forms::datetime_text(t, today) {
+        return r;
+    }
     if let Some((d, clock)) = t.split_once(' ') {
         if d.contains('/') {
             return Ok(match (date(d, 0, None, None, false)?, time(clock, 0)?) {
@@ -1601,9 +1513,13 @@ pub fn evaluate_option_field(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Va
             Ok(Value::Boolean(true))
         }
         None if c.ret_used() => Ok(Value::Boolean(false)),
-        None if text.as_str() != t || text.chars().any(char::is_control) => unsupported(
-            "Evaluate into an Option field failing with the result unused, of a text with blanks or control characters (not pinned)",
-        ),
+        // The code is pinned for a FieldRef (FMFields.al:510-511 `Draft `, ` Draft`), the text is not.
+        None if text.as_str() != t || text.chars().any(char::is_control) => {
+            Err(Signal::Error(Box::new(crate::native::unpinned_text_error(
+                "InvalidOptionString",
+                "the text of the Option error of a text with blanks or control characters",
+            ))))
+        }
         None => crate::native::raise(
             format!("'{t}' is not an option. The existing options are: {captions}"),
             "InvalidOptionString",
@@ -2177,6 +2093,27 @@ fn into_field_ref(c: &mut dyn Ctx, a: &mut [Value], number: i64) -> Result<Value
         crate::value::RtType::Text(m) | crate::value::RtType::Code(m) => *m,
         _ => None,
     };
+    // An Option field with an OptionCaption reads as `evaluate_option_field` does: the empty text, a blank and NUL name the blank
+    // member, an ordinal of any size is kept, a member name or a caption names its member, and every other text raises
+    // InvalidOptionString with the result unused (format-evaluate/format-matrix/FMFields.al:467-521 FieldRef_Evaluate_Option_1,
+    // corpus PR 1256; al-runner issue 7472).
+    if let (Some(captions), Value::Option(..)) = (&target.option_captions, &current) {
+        let text = match crate::native::text_of(&a[1]) {
+            Some(t) if t.as_str() == "\0" => Value::Text(String::new().into()),
+            _ => a[1].clone(),
+        };
+        let mut args = vec![
+            current,
+            text,
+            Value::Integer(number as i32),
+            Value::Text(captions.clone().into()),
+        ];
+        let ok = evaluate_option_field(c, None, &mut args)?;
+        if matches!(ok, Value::Boolean(true)) {
+            target.rec.borrow_mut().fields[target.pos] = args.swap_remove(0);
+        }
+        return Ok(ok);
+    }
     let mut tmp = vec![current, a[1].clone(), Value::Integer(number as i32)];
     // A Date field names any text in the date error, letters too (N582EvalFieldRefUnused.al:92, `abc`).
     let ok = evaluate_with_max(c, &mut tmp, !target.option_caption, max, true)?;
@@ -2287,16 +2224,35 @@ fn evaluate_with_max(
         Value::Integer(_) => integer(&text, number)?,
         Value::BigInteger(_) => big_integer(&text, number)?,
         Value::Decimal(_) => decimal(&text, number)?,
-        Value::Duration(_) => duration(&text, number)?,
+        Value::Duration(_) => duration(&text, number, c.language())?,
         Value::Boolean(_) => boolean_in_language(c.session_locale().map(|l| l.0), &text, number)?,
         Value::Guid(_) => guid(&text)?,
-        Value::Byte(_) | Value::Char(_) if number == 0 => byte_or_char(&a[0], &text)?,
+        // A Char reads one character, any (a blank, `?`, NUL, `é`, `¶`, `€`), with format 0 and 9 alike, in English and German; the
+        // empty text, two characters and more (`AB`, `65`, `256`, `-1`, `a b`, `1D`) are rejected (format-evaluate/format-matrix/
+        // FMEvalChar.al, corpus PR 1256). A character outside the 16-bit range is not pinned.
+        Value::Char(_) if matches!(number, 0 | 9) => {
+            let mut chars = text.chars();
+            match (chars.next(), chars.next()) {
+                (Some(ch), None) => match u16::try_from(u32::from(ch)) {
+                    Ok(u) => Parsed::Value(Value::Char(u)),
+                    Err(_) => {
+                        return unsupported(format!(
+                            "Evaluate of `{text}` into a Char (a character beyond 16 bits, not pinned)"
+                        ));
+                    }
+                },
+                _ => Parsed::Rejected,
+            }
+        }
+        Value::Byte(_) if number == 0 => byte_or_char(&a[0], &text)?,
         // Every number but 9 reads a Date as the default does (types/date-time/Evaluate.al:Date_Other_Formats `fmt 1` to `fmt 8`,
         // `fmt 10`, `fmt -1`; types/P130EvaluateDate.al:P130_EvaluateDate_EveryFormat_*).
         // Evaluate reads a TAB, two TABs and one space as the empty date (corpus master, corpus PR 871:
         // format-evaluate/Np4Misc.al NP4_Evaluate_Tab_Date). Pinned for
         // Evaluate only: `read_text` and the other readers of `date` do not take it.
         Value::Date(..) if number != 9 && is_blank_tabs(&text) => Parsed::Value(Value::Date(0, false)),
+        // In German `T` is no date (format-evaluate/format-matrix/FMEvalDate.al:376-378, corpus PR 1250).
+        Value::Date(..) if text.as_str() == "T" && c.language() == 1031 => Parsed::Rejected,
         Value::Date(..) => date(
             &text,
             if number == 9 { 9 } else { 0 },
@@ -2327,94 +2283,23 @@ fn evaluate_with_max(
                 None => return unsupported(format!("Evaluate of `{text}` into Version (only a.b.c.d is pinned)")),
             }
         }
-        // An enum reads an ordinal (also one no member has), a member name in any case or a caption, with
-        // format 0 and with format 9 (types/ProbeTypeFormsAndFilters.al:Enum_Evaluate_Forms, BC 27.5; the
-        // InitValue of a field reads a name the same way, types/TestBlankEnumInitTests.Codeunit.al:92). A
-        // text that is none of these is rejected.
-        Value::Enum(id, _) => {
-            let Some(members) = c.enum_members(*id) else {
-                return unsupported("Evaluate into an Enum without its members");
-            };
-            // White space around the text is ignored (types/W7EvaluateTests.al:EvaluateIntoAnEnum_DefaultFormat,
-            // ` Second ` gives Second).
-            let original = text.clone();
-            let text = text.trim();
-            let digits = text.strip_prefix('+').unwrap_or(text);
-            let ordinal = (!digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
-                .then(|| digits.parse::<i32>().ok())
-                .flatten();
-            // A sign is allowed before the digits and an ordinal no member has is kept, with format 9 too
-            // (P86Eval.al, codeunit "LT P86 Eval Enum": `+5`, `00`, `11`).
-            // The captions a translation file could change in the language in force are refused (ADR-053 step 1).
-            if let Some(why) = c.enum_caption_refused(*id, None) {
-                return unsupported(why);
-            }
-            let captions = c.enum_captions(*id);
-            // Under a translation file (ADR-053 step 2) only a translated caption is accepted, as al-runner issue 5772's real-BC
-            // run shows (`Vrijgegeven` under 2067); whether an ordinal, a member name or the source caption is still accepted,
-            // and what the error lists, is not pinned (ADR-053 P11).
-            let mut forced = None;
-            if let Some(source) = c.enum_source_captions(*id) {
-                let translated = captions.iter().find(|(o, n)| {
-                    !text.is_empty() && n.eq_ignore_ascii_case(text) && source.iter().any(|(so, sn)| so == o && sn != n)
-                });
-                match translated {
-                    Some((o, _)) => forced = Some(*o),
-                    None => {
-                        return unsupported(format!(
-                            "Evaluate of `{text}` into an Enum whose captions a translation file changes (only a translated caption is pinned)"
-                        ));
-                    }
-                }
-            }
-            let found = forced
-                .or(ordinal)
-                .or_else(|| {
-                    members
-                        .iter()
-                        // A blank member matches the blank text (types/TestBlankEnumInitTests.Codeunit.al:
-                        // EvaluateMatchesBlankMemberAndRejectsNonMember).
-                        .find(|(_, n)| n.trim().eq_ignore_ascii_case(text))
-                        .map(|(o, _)| *o)
-                })
-                .or_else(|| {
-                    captions
-                        .iter()
-                        .find(|(_, n)| !text.is_empty() && n.eq_ignore_ascii_case(text))
-                        .map(|(o, _)| *o)
-                });
-            match found {
-                Some(o) => Parsed::Value(Value::Enum(*id, o)),
-                None if c.ret_used() => Parsed::Rejected,
-                // The error names every member by its caption, in ordinal order, and quotes the text as given.
-                None => {
-                    let options: Vec<String> = members
-                        .iter()
-                        .map(|(o, n)| {
-                            captions
-                                .iter()
-                                .find(|(co, _)| co == o)
-                                .map_or(n.clone(), |(_, cap)| cap.clone())
-                        })
-                        .collect();
-                    return crate::native::raise(
-                        format!(
-                            "'{original}' is not an option. The existing options are: {}",
-                            options.join(",")
-                        ),
-                        "InvalidOptionString",
-                    );
-                }
-            }
-        }
+        Value::Enum(id, _) => enum_text::enum_text(c, id, &text)?,
         Value::Option(_, members) if platform_options::reads(members) => platform_options::read(c, members, &text)?,
         // An Option reads an ordinal or a member name (types/PROptionInteger.al:Option_InCaseAndLoopBounds: `1` is B, `C` is C).
         // A variable: an ordinal of any size is kept (`3` of three members formats as `3`), a text that is neither an ordinal
         // nor a member name is rejected, and the error names the members (P86Eval.al, codeunit "LT P86 Eval Option").
         Value::Option(_, members) if variable_option => {
-            let t = text.trim();
-            // An empty text names no member, not even one declared as "" (types/decimal-integer/ScT70062.al:Option_EvaluateByName `empty`).
-            let by_name = members.iter().position(|m| !t.is_empty() && m.eq_ignore_ascii_case(t));
+            // NUL alone reads as the empty text (format-evaluate/format-matrix/FMEvalOption.al:222-224, corpus PR 1256).
+            let t = if text.as_str() == "\0" { "" } else { text.trim() };
+            // The empty text and a blank name a first member declared as " " (format-evaluate/format-matrix/FMEvalOption.al:64-69,
+            // :262-267, corpus PR 1256), and no member declared as "" at the end (types/decimal-integer/ScT70062.al:
+            // Option_EvaluateByName `empty`). The syntax keeps both as one space (`TypeRef::option_members`), so only the first
+            // place reads: a blank member at another place is the pinned `""` case.
+            let by_name = if t.is_empty() {
+                members.first().is_some_and(|m| m == " ").then_some(0)
+            } else {
+                members.iter().position(|m| m.eq_ignore_ascii_case(t))
+            };
             let ordinal = if t.starts_with(|ch: char| ch.is_ascii_digit() || ch == '+') {
                 t.parse::<u64>().ok()
             } else {
@@ -2473,6 +2358,11 @@ fn evaluate_with_max(
         // The blank-like texts store the empty formula; garbage fails and leaves the value
         // (types/TestDateFormulaDurationFormatContracts.al:28-74, TestDateFormulaEvaluateLeftoversContracts.al).
         // The letters of the global language (format-evaluate/Y62DateFormulaFormat.al, `date_formula_language`).
+        // A comparison operator before a slashed date is no formula, with the result used: Filter Tokens.MakeDateFilter gives
+        // `<=11/09/26`, `>=11/09/26` and `<=11/09/2026` back unchanged, which needs its Evaluate into a DateFormula to answer
+        // false (format-evaluate/Y71EvaluateDashedDates.al FilterTokens_MakeDateFilter_OperatorTexts, corpus PR 1247; System
+        // Application Filter Tokens Impl.ResolveDateFilterToken). The statement form is not pinned.
+        Value::DateFormula(_) if c.ret_used() && date_forms::operator_before_slashed_date(&text) => Parsed::Rejected,
         Value::DateFormula(_) => match crate::date_formula_language::evaluate(&text, c.language())? {
             crate::datefns::Evaluated::Stored(f) => Parsed::Value(Value::DateFormula(f)),
             // A statement form raises the formula's error (types/date-time/DateFormulaEdges.al:SignsAndDigits_ErrorTexts).
@@ -2542,7 +2432,12 @@ fn evaluate_with_max(
                     format!("Der Wert „{text}“ kann nicht in Typ {ty} ausgewertet werden."),
                     "Evaluate",
                 ),
-                (Some(1031), _) => unsupported(format!("the Evaluate error of {ty} in German (not pinned)")),
+                // The code of the other types is pinned (format-evaluate/format-matrix/FMEvalInteger.al:370-447, FMEvalDateTime.al:372-442,
+                // corpus PRs 1249 and 1250), the German text is not.
+                (Some(1031), _) => Err(Signal::Error(Box::new(crate::native::unpinned_text_error(
+                    "Evaluate",
+                    "the German text of the Evaluate error of a number, a Time or a DateTime",
+                )))),
                 // format-evaluate/EvalLanguageBoolean.al EL_Errors_NLB_2067, _NLD_1043, _FRA_1036, _DAN_1030 (the quotes of the
                 // French text are « and » with a no-break space inside).
                 (Some(n @ (1030 | 1036 | 1043 | 2067)), "Boolean") => raise_boolean_error(n, &text),
@@ -2601,6 +2496,14 @@ fn evaluate_with_max(
         }
         // With format 9 (types/date-time/Evaluate.al:640-661 `eval 3000000000 fmt 9`) and 0 (format-evaluate/
         // Y49EvaluateDateBlanks.al:251-297 `abc`). With another format it is not pinned.
+        // In German the code is pinned and the text is not (format-evaluate/format-matrix/FMEvalDuration.al:375-433,
+        // FMEvalDate.al:442 `March 9, 2026`, corpus PR 1250).
+        Parsed::Rejected if matches!(a[0], Value::Duration(_) | Value::Date(..)) && c.language() == 1031 => {
+            Err(Signal::Error(Box::new(crate::native::unpinned_text_error(
+                "Evaluate",
+                "the German text of the Evaluate error of a Duration or a Date",
+            ))))
+        }
         Parsed::Rejected if matches!(a[0], Value::Duration(_)) && matches!(number, 0 | 9) => crate::native::raise(
             format!("The value \"{text}\" can't be evaluated into type Duration."),
             "Evaluate",
@@ -2894,7 +2797,7 @@ mod tests {
     // types/date-time/Evaluate.al:380-447, 566-605, 640-670.
     #[test]
     fn evaluate_into_a_duration() {
-        let ms = |t: &str, n: i64| match duration(t, n) {
+        let ms = |t: &str, n: i64| match duration(t, n, 1033) {
             Ok(Parsed::Value(Value::Duration(ms))) => Some(ms),
             Ok(Parsed::Rejected) => None,
             other => panic!("{t}: {}", other.is_err()),
@@ -2933,10 +2836,8 @@ mod tests {
             ("1 Hour", 0),
             ("1.5 days", 0),
             ("1.5 minutes", 0),
-            ("-1 minute", 0),
             ("+5 hours", 0),
             ("1;5", 0),
-            ("-1 hour 2 minutes", 0),
             ("-1.5", 0),
             ("1 h 1 hour", 0),
             ("5 ms 1 foo", 0),
@@ -2946,7 +2847,7 @@ mod tests {
             ("-P0DT1H0M0.0S", 9),
             ("Abc", 9),
         ] {
-            assert!(matches!(duration(t, n), Err(Signal::Unsupported(_))), "{t} {n}");
+            assert!(matches!(duration(t, n, 1033), Err(Signal::Unsupported(_))), "{t} {n}");
         }
     }
 }

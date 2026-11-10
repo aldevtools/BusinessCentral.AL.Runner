@@ -19,7 +19,8 @@ fn byte_and_char_read_one_character_as_its_code() {
 
 #[test]
 fn the_unpinned_byte_and_char_texts_are_refused() {
-    for (ty, text) in [("Byte", "ab"), ("Byte", ""), ("Char", "ab"), ("Byte", "é")] {
+    // A Char reads `ab` as rejected since the matrix pinned it (format-evaluate/format-matrix/FMEvalChar.al:73 `AB`).
+    for (ty, text) in [("Byte", "ab"), ("Byte", ""), ("Byte", "é")] {
         let src = format!(
             "codeunit 50100 C {{ procedure F(): Boolean var V: {ty}; begin exit(Evaluate(V, '{text}')); end; }}"
         );
