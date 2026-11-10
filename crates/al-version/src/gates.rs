@@ -243,7 +243,8 @@ pub enum Gate {
     /// (testpage/AoTests.al:786) and the Reporting Triggers events of Report.Run/RunModal/Execute
     /// (events/platform-triggers/PeVTests.al:725). Corpus bump 37 pins the corpus database's General Ledger Setup: its
     /// Additional Reporting Currency is EUR from BC 28 and blank on BC 27 (record/captions/QdCaptionClassAreas.al:808,
-    /// QF_GLSetup_CorpusRow). Not consumed yet.
+    /// QF_GLSetup_CorpusRow). Corpus bump 1110b: assigning text to an Option FieldRef.Value raises NotSupportedType on BC 27
+    /// and an Evaluate:Format error from BC 28 (format-evaluate/format-matrix/FMOptionBlankField.al:254). Not consumed yet.
     ProbedValuesDifferFrom28,
     /// A BigInteger literal in a Boolean control expression (`Enabled = 0L <> Rec.Big`) compiles on the client and runs.
     /// Before, the page fails to open ("Error compiling dynamic control expression ... Not a valid number."); the runtime
@@ -1453,6 +1454,10 @@ const PROBED_VALUES_DIFFER_FROM_29: &[Evidence] = &[
 ];
 
 const PROBED_VALUES_DIFFER_FROM_28: &[Evidence] = &[
+    Evidence {
+        file: "format-evaluate/format-matrix/FMOptionBlankField.al",
+        lines: "254,519,784",
+    },
     Evidence {
         file: "pages/run-modal/Y74FqnRunForms.al",
         lines: "7",

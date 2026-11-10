@@ -293,15 +293,11 @@ fn format_unread(v: &Value, length: i32, standard: i32) -> Option<Result<String,
     }
 }
 
-/// A first member with an empty name formats as its ordinal `0`
-/// (format-evaluate/EvalLanguageBoolean.al:1233 WA_BlankEnum3_ES_1034, `Format blank` is `[0]`). Another member with an
-/// empty name is not pinned.
+/// A member with an empty name (a value named `""`) formats as its ordinal, at any position, and so does an ordinal no member has
+/// (format-evaluate/EvalLanguageBoolean.al:1233 WA_BlankEnum3_ES_1034, `Format blank` is `[0]`; format-evaluate/format-matrix/
+/// FMOptionBlankEnum.al `EnumBlank_MQ_Format`, `EnumBlank_LQ_Format`). A Caption on the value replaces the empty name before this.
 fn enum_member_text(name: String, ordinal: i32) -> String {
-    if name.is_empty() && ordinal == 0 {
-        "0".to_string()
-    } else {
-        name
-    }
+    if name.is_empty() { ordinal.to_string() } else { name }
 }
 
 /// The text of a Char. Half of a surrogate pair is no character of a Rust string: `native::format_fns::format_1` keeps it

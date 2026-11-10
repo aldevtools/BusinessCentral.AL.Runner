@@ -135,7 +135,11 @@ codeunit 50427 "RR Provider Tests"
     end;
 }
 "#;
-    let r = reason(src, "RR Provider Tests");
-    assert!(!r.contains("without a source table"), "{r}");
-    assert!(r.contains("Provider") && r.contains("not pinned"), "{r}");
+    // Parts hidden by a Visible expression follow their Provider now (ProviderLinkedPartsMatrix.al), so the test runs to its
+    // own Error('stop'); whatever it ends as, no refusal may blame a missing source table.
+    for (test, outcome) in al_testkit::outcomes_in(src, "RR Provider Tests") {
+        if let Outcome::NotRun(r) = outcome {
+            assert!(!r.contains("without a source table"), "{test}: {r}");
+        }
+    }
 }

@@ -647,7 +647,8 @@ codeunit 50993 "PX Perm Tests"
             Error('value');
     end;
 
-    // A read that finds no row on a table that has rows is not pinned (Y24PermReads.al pins reads that find one): not run.
+    // A read other than FindFirst that finds no row on a table that has rows is not pinned (Y24PermReads.al pins reads that find
+    // one; AEDependencyTableReads.al `Customer_filter_no_match` pins FindFirst, which raises): not run.
     [Test]
     procedure DeniedReadIsRefused()
     var
@@ -655,7 +656,7 @@ codeunit 50993 "PX Perm Tests"
     begin
         Lower('PX None');
         Row.SetRange(Id, 100);
-        Row.FindFirst();
+        Row.FindLast();
     end;
 
     // Y24PermReads.al Y24_P14_ReadShapesWithRows: Get, FindFirst, Count and CalcSums of a table with rows.

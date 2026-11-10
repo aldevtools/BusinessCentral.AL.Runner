@@ -1691,7 +1691,7 @@ impl<'a> Checker<'a> {
                         if matches!(&t, Ty::DotNet(alias) if !alias.is_empty()) {
                             self.record(sc, node, Res::DotNetMember(rhs.clone()));
                         }
-                        self.scope_member(sc, node, &t, &rhs);
+                        self.scope_member_named(sc, node, &kids[0], &t, &rhs);
                         E::Val(if via_array { Ty::Integer } else { t })
                     }
                     // `Rec.ReadIsolation::ReadUncommitted`: the property name is also the way to name the

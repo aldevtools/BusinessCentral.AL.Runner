@@ -1133,13 +1133,24 @@ impl Session {
                 // request is kept for it.
                 let mut a = key;
                 let request = rec.borrow_mut().load.request.take();
+                // RecordRef.Get(RecordId) of an existing row is a denied read like Record.Get (AEDependencyTableReads.al
+                // `Customer_recref_get_recordid`).
+                if self.permission_checks() {
+                    self.permission_from_al = true;
+                }
                 let got = self.record_op(RecordOp::Get, &rec, &mut a);
                 rec.borrow_mut().load.request = request;
                 got
             }
             // As Record.GetBySystemId, and a miss with the result unused raises "The <table> does not
             // exist" naming the Guid (PXEnumRecordRef.al:199-301).
-            "GetBySystemId" => self.get_by_system_id(&rec, &t, args),
+            "GetBySystemId" => {
+                // The same read as Record.GetBySystemId (AEDependencyTableReads.al `Customer_getbysystemid_*`).
+                if self.permission_checks() {
+                    self.permission_gate_record(RecordOp::GetBySystemId, &rec, args, true)?;
+                }
+                self.get_by_system_id(&rec, &t, args)
+            }
             "AddLink" | "DeleteLink" | "DeleteLinks" | "HasLinks" | "CopyLinks" => {
                 self.record_links(record_method(method), &rec, &t, args)
             }
