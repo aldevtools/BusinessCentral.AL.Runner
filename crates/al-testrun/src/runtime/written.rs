@@ -112,9 +112,10 @@ pub(crate) struct ReachFacts {
     /// Tables a reached routine writes: Insert, Modify, Delete, DeleteAll, ModifyAll and Rename on a record of a known
     /// table, and the source table of a page variable.
     pub writes: BTreeSet<u32>,
-    /// The tables of `writes` a reached routine can add a row to: Insert on a record of a known table, and the source
-    /// table of a page variable (the page client inserts). Modify, Delete, DeleteAll, ModifyAll and Rename need a row
-    /// that is already there (`login.rs`).
+    /// The tables of `writes` a reached routine can add a row to: Insert on a record of a known table that is not
+    /// declared temporary, and the source table of a page variable unless the page says SourceTableTemporary (the page
+    /// client inserts). Modify, Delete, DeleteAll, ModifyAll and Rename need a row that is already there, and a
+    /// temporary record adds no row to the table (`login.rs`).
     pub inserts: BTreeSet<u32>,
     /// A write whose table is not known statically (a `RecordRef`, an xmlport import, media): it may write any table.
     pub writes_any: bool,
@@ -355,9 +356,10 @@ pub(crate) fn union_reach_facts_skipping(
 }
 
 /// The facts of what the routines `roots` reach through calls alone, one walk of the union: the routines they call, those
-/// they call, and what their page, report and xmlport variables drive (`Lowered::calls_into`), without the routines
-/// `skip`. As [`call_reach_facts`], it leaves out the table triggers, the subscribers of every event and the objects run by
-/// id. What a test does itself, apart from what any write or event brings into its reach (`login.rs`).
+/// they call, what their page, report and xmlport variables drive (`Lowered::calls_into`), and the routines of the
+/// objects they run by a constant id or through a codeunit variable (a codeunit's OnRun, a page's routines), without the
+/// routines `skip`. As [`call_reach_facts`], it leaves out the table triggers and the subscribers of every event. What
+/// a test does itself, apart from what any write or event brings into its reach (`login.rs`).
 pub(crate) fn union_call_reach_facts(
     events: &al_vm::events::Registry,
     lowered: &Lowered,
@@ -367,6 +369,7 @@ pub(crate) fn union_call_reach_facts(
 ) -> ReachFacts {
     let mut walk = Walk::new(events, lowered, index);
     walk.calls_only = true;
+    walk.runs_in_calls = true;
     for &(o, r) in skip {
         walk.first_visit(o, r);
     }
@@ -721,6 +724,8 @@ struct Walk<'a> {
     facts: bool,
     /// Whether the walk follows calls only ([`call_reach_facts`]).
     calls_only: bool,
+    /// Whether a walk of calls only also enters the routines of the objects run ([`union_call_reach_facts`]).
+    runs_in_calls: bool,
 }
 
 impl<'a> Walk<'a> {
@@ -739,6 +744,7 @@ impl<'a> Walk<'a> {
             global_triggers: false,
             facts: true,
             calls_only: false,
+            runs_in_calls: false,
         }
     }
 
@@ -884,7 +890,8 @@ impl<'a> Walk<'a> {
                     .map(|(r, _)| (x, r)),
             );
         }
-        if obj.kind == ObjKind::Page {
+        // A walk of calls only enters the routines of the object, not its table's triggers nor its event subscribers.
+        if obj.kind == ObjKind::Page && !self.calls_only {
             if let Some(RtType::Record(t, _)) = obj.rec_slot.map(|i| &obj.globals[i].ty) {
                 self.table_ops(*t as usize, ops::ALL);
             }
@@ -894,7 +901,9 @@ impl<'a> Walk<'a> {
                 self.touch(i.table as u32);
             }
         }
-        self.events(o);
+        if !self.calls_only {
+            self.events(o);
+        }
     }
 
     fn note_table_write(&mut self, table: Option<u32>, insert: bool) {
@@ -954,6 +963,7 @@ impl<'a> Walk<'a> {
                         self.out.unknown = Some(why.to_string());
                     }
                 }
+                Step::Run(x) if self.calls_only && self.runs_in_calls => self.run_object(*x),
                 Step::Events(_) | Step::TableOps(..) | Step::Run(_) if self.calls_only => {}
                 Step::Events(t) => self.events(*t),
                 Step::TableOps(t, ops) => self.table_ops(*t, *ops),
@@ -1142,9 +1152,14 @@ impl Rec<'_> {
             RtType::Page(p) | RtType::TestPage(p) => {
                 let page = &objs[*p as usize];
                 match page.rec_slot.map(|i| &page.globals[i].ty) {
-                    Some(RtType::Record(t, _)) => {
+                    Some(RtType::Record(t, temporary)) => {
                         self.out.touched.insert(*t);
-                        self.note_table_insert(*t);
+                        // A page over a temporary source adds no row to the table.
+                        if *temporary {
+                            self.note_table_write(Some(*t));
+                        } else {
+                            self.note_table_insert(*t);
+                        }
                         // The page client inserts, modifies, deletes and validates with the triggers.
                         self.table_ops(*t as usize, ops::ALL);
                     }
@@ -1319,12 +1334,13 @@ impl Rec<'_> {
             "Record" => {
                 let op = ops::of(method);
                 if op != 0 {
-                    let table = match receiver.and_then(|p| self.slot_ty(o, r, p)) {
-                        Some(RtType::Record(t, _)) => Some(t),
-                        _ => None,
+                    let (table, temporary) = match receiver.and_then(|p| self.slot_ty(o, r, p)) {
+                        Some(RtType::Record(t, temporary)) => (Some(t), temporary),
+                        _ => (None, false),
                     };
                     match table {
-                        Some(t) if op == ops::INSERT => self.note_table_insert(t),
+                        // An Insert on a record declared temporary adds no row to the table.
+                        Some(t) if op == ops::INSERT && !temporary => self.note_table_insert(t),
                         _ if op != ops::VALIDATE => self.note_table_write(table),
                         _ => {}
                     }

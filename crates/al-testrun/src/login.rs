@@ -147,7 +147,7 @@ pub(crate) fn observed_by(engine: &Engine, lowered: &Lowered, test: usize) -> bo
     calls
         .touched
         .iter()
-        .any(|t| left.inserts.contains(t) && !own.inserts.contains(t))
+        .any(|t| left.inserts.contains(t) && !calls.inserts.contains(t))
 }
 
 /// The codeunits of the apps under test whose state a login subscriber keeps: the codeunit that declares a subscriber to
