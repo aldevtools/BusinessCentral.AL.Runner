@@ -6,16 +6,22 @@
 //! `Rc<ControlRef>`) in and borrows it back with `get`, so a `Value` holds exactly the references it held before the
 //! state moved: one `Rc` per value, cloned when the value is cloned. The page client counts those references
 //! (al-vm `page_held_bindings.rs`, `pages/rows.rs`), so a handle never adds one of its own.
+//!
+//! The value sits in a cell that this handle alone owns: an `Rc` that is never shared (a clone of the handle makes a new
+//! cell). An `Rc` and not a `Box`, because dropping a `Value` is on the interpreter's hot path: the drop of an `Rc` is a
+//! counter and one call that is never inlined, as the drop of the `Rc<RefCell<PageState>>` was. With a `Box` the code
+//! that drops any `Value` grew, and the VM benchmarks (`perf_vm`) used 1 to 3 % more instructions.
 
 use std::any::Any;
 use std::fmt;
+use std::rc::Rc;
 use std::sync::OnceLock;
 
 /// What a handle can do with the value it owns without knowing its type.
 trait Held: Any {
     fn as_any(&self) -> &dyn Any;
-    fn into_any(self: Box<Self>) -> Box<dyn Any>;
-    fn clone_held(&self) -> Box<dyn Held>;
+    fn into_any(self: Rc<Self>) -> Rc<dyn Any>;
+    fn clone_held(&self) -> Rc<dyn Held>;
     fn fmt_held(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
 }
 
@@ -23,11 +29,11 @@ impl<T: Any + Clone + fmt::Debug> Held for T {
     fn as_any(&self) -> &dyn Any {
         self
     }
-    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+    fn into_any(self: Rc<Self>) -> Rc<dyn Any> {
         self
     }
-    fn clone_held(&self) -> Box<dyn Held> {
-        Box::new(self.clone())
+    fn clone_held(&self) -> Rc<dyn Held> {
+        Rc::new(self.clone())
     }
     fn fmt_held(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(self, f)
@@ -37,12 +43,15 @@ impl<T: Any + Clone + fmt::Debug> Held for T {
 macro_rules! opaque_handle {
     ($(#[$doc:meta])* $name:ident) => {
         $(#[$doc])*
-        pub struct $name(Box<dyn Held>);
+        pub struct $name(
+            // Never shared: one owner per cell (see the module text).
+            Rc<dyn Held>,
+        );
 
         impl $name {
             /// A handle that owns `held`. Cloning the handle clones `held`; printing it prints `held`.
             pub fn new<T: Any + Clone + fmt::Debug>(held: T) -> $name {
-                $name(Box::new(held))
+                $name(Rc::new(held))
             }
 
             /// The value the handle owns, when it is a `T`.
@@ -53,9 +62,9 @@ macro_rules! opaque_handle {
             /// Takes the value out of the handle, when it is a `T`.
             pub fn into_inner<T: Any>(self) -> Result<T, $name> {
                 if (*self.0).as_any().is::<T>() {
-                    match self.0.into_any().downcast::<T>() {
-                        Ok(held) => Ok(*held),
-                        Err(_) => unreachable!("the type was checked on the line above"),
+                    match self.0.into_any().downcast::<T>().map(Rc::into_inner) {
+                        Ok(Some(held)) => Ok(held),
+                        _ => unreachable!("the type was checked on the line above, and a cell has one owner"),
                     }
                 } else {
                     Err(self)
