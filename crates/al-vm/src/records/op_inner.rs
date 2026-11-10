@@ -1899,10 +1899,13 @@ impl Session {
                     }
                     Err(e) if e.starts_with(al_builtins::filter::FILTER_SYNTAX) && self.global_language == 1033 => {
                         let inner = &e[al_builtins::filter::FILTER_SYNTAX.len()..];
+                        let (shown, inner) = match inner.strip_prefix(al_builtins::filter::AS_WRITTEN) {
+                            Some(i) => (text.as_str(), i),
+                            None => (text.trim(), inner),
+                        };
                         return Err(Signal::Error(Box::new(AlError {
                             message: format!(
-                                "The filter \"{}\" is not valid for the {} field on the {} table. {inner}",
-                                text,
+                                "The filter \"{shown}\" is not valid for the {} field on the {} table. {inner}",
                                 self.field_caption(&t, pos),
                                 self.caption(&t)
                             ),

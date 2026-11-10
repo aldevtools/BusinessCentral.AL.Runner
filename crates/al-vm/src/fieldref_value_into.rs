@@ -43,9 +43,12 @@ impl Session {
                 // Any text that is not all digits fails, a member name and a blank one too (format-evaluate/format-matrix/
                 // FMOptionBlankField.al `fr_empty`, `fr_sp`, `fr_A` in every OptionBlank_*_Field_Evaluate; UTableCdsOrdinals.al
                 // `fieldref_set_alpha` names a member as well).
-                RtType::Option(_) if !(!s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())) => {
-                    ("Option", "NavOption", true)
+                RtType::Option(_) if !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) => {
+                    return unsupported(format!(
+                        "FieldRef.Value := '{s}' on an Option field (an ordinal text is not pinned)"
+                    ));
                 }
+                RtType::Option(_) => ("Option", "NavOption", true),
                 _ => ("", "", false),
             };
             // A text of letters into a Date field: the date format error with code Evaluate:Conversion from BC 28,

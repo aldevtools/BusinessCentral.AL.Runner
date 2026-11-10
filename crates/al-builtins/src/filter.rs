@@ -227,6 +227,9 @@ pub const INVALID_DATE: &str = "invalid Date filter value: ";
 /// The prefix of the error for a Date filter text with an empty side; the English message follows (record/load-fields/
 /// P81DateFilters.al:SetFilter_Date_RangeForms `..`, SetFilter_Date_InvalidTexts `|`, `&`, `||`).
 pub const FILTER_SYNTAX: &str = "invalid Date filter syntax: ";
+/// Follows [`FILTER_SYNTAX`] in the errors of an Option filter: the filter text is shown as written, blanks kept
+/// (FMOptionBlankField.al `flt_neg`); the Date errors keep the trimmed text.
+pub const AS_WRITTEN: &str = "\u{1}";
 
 /// The prefix of the error for a filter value BC cannot evaluate into the field's type: the type's name, a tab, the value
 /// (`The value "abc" can't be evaluated into type Integer.`, record/crud/RcAFilters.al:SetFilter_Integer_Invalid,
@@ -1448,7 +1451,9 @@ impl Parser<'_> {
                     }
                     // The same on an Option field (FMOptionBlankField.al `flt_neg`, all eleven tables).
                     None if op == "<>" && matches!(self.ty, crate::value::RtType::Option(_)) => {
-                        return Err(format!("{FILTER_SYNTAX}A value is expected after the '<>'."));
+                        return Err(format!(
+                            "{FILTER_SYNTAX}{AS_WRITTEN}A value is expected after the '<>'."
+                        ));
                     }
                     None => return Err(format!("value expected after `{op}`")),
                 };
