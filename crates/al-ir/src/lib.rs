@@ -352,6 +352,10 @@ pub enum DotNetOp {
     /// argument (the target, by place) it is one when it holds the client null. Then the assignment raises or is refused;
     /// otherwise the result is the receiver, which the lowering stores.
     ClientAssign,
+    /// `X.Member(args)` on a `[RunOnClient]` variable, for a member no corpus test pins (the argument of the op is the
+    /// reason text). The call runs on the client, which a test session does not have: it is refused when it runs. The
+    /// receiver is the client null (`ClientNull`). It touches nothing on the service tier except through its arguments.
+    ClientCall(String),
 }
 
 impl Object {

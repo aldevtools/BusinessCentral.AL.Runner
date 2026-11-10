@@ -308,6 +308,7 @@ impl Session {
         match op {
             ir::DotNetOp::ClientNull => return Ok(run_on_client_null()),
             ir::DotNetOp::ClientAssign => return self.run_on_client_assign(recv, &values),
+            ir::DotNetOp::ClientCall(why) => return unsupported(why.clone()),
             _ => {}
         }
         self.note_dotnet();
@@ -325,7 +326,9 @@ impl Session {
         let decl = ty.map(declared);
         let result_decl = self.dotnet.result_ty.take().map(declared);
         let (kind, member) = match op {
-            ir::DotNetOp::ClientNull | ir::DotNetOp::ClientAssign => unreachable!("answered above"),
+            ir::DotNetOp::ClientNull | ir::DotNetOp::ClientAssign | ir::DotNetOp::ClientCall(_) => {
+                unreachable!("answered above")
+            }
             ir::DotNetOp::Construct => (
                 MemberKind::Construct,
                 decl.as_ref().map_or(String::new(), |d| d.name.clone()),
