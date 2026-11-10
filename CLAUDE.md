@@ -33,6 +33,12 @@ before you open a source file.
    relies on an unprobed assumption"), counted apart from clean passes. The
    assumptions are registered in the runtime code itself (one registry, ids
    checked by the compiler and a test), not only in a document.
+   Second exception (owner, 2026-11-10): a behavior an outside reporter's own repro shows (the
+   reporter's test passes on real BC and needs exactly this behavior) may be implemented before a
+   probe exists, under the same conditions: cite the repro or issue in the code comment, add the
+   `docs/probes-needed.md` row, queue the probe, mark the path through the assumption registry
+   (flagged pass), and the probe wins. Partner test suites do not qualify. Error texts still come
+   only from the corpus.
 4. **Unsupported is refused explicitly, never run silently.** Refuse
    statically wherever possible: a lowering reason, or a diagnostic in
    `al-sema`, so the runner reports the test as not run before it starts.
@@ -83,7 +89,7 @@ before you open a source file.
      `--file SUFFIX` (repeatable, union). Only the selected test codeunits are compiled and run,
      and only the selected cases are checked against the lists. Add `--no-deps` for a run of about half a
      second when the test needs no Microsoft app.
-  4. Before committing, one run with `--baseline-diff` on the newest major only (about 20 s): it lists,
+  4. Before committing, one run with `--baseline-diff` on each of BC 27, 28 and 29 (`--bc-version N`, about 20 s each; owner, 2026-11-10): it lists,
      by area, the regressions, the stale lines, the cases still listed and the cases without an
      outcome. Then `--prune-not-passing` deletes the stale lines (it refuses while a selection is active).
   5. `--timings` says where a run spent its time (load, compile, install baseline, tests).
@@ -96,8 +102,11 @@ before you open a source file.
   hour, and PR CI runs the full corpus on every major in about 6 to 12 minutes. Locally run
   `cargo test -p` and `cargo clippy -p ... -- -D warnings` for the crates you touched, and `cargo fmt --all`.
   Open the pull request as a draft and without auto-merge (owner, 2026-11-09): CI runs no job on a draft,
-  so it takes no place in the CI queue. The orchestrator reviews it and lands it in a merge train, whose
-  pull request runs CI once for several drafts; it fixes or hands back what that run reports. `./check.sh` (fmt, clippy, all tests, the lists) stays for a person who
+  so it takes no place in the CI queue. The orchestrator reviews it. A single reviewed PR is marked ready
+  with auto-merge and lands on its own (owner, 2026-11-10); a merge train is used only when two or more
+  PRs are ready, and its pull request runs CI once for all of them. The orchestrator fixes or hands back
+  what that run reports. Agents never run `pkill`, `git stash`, `git commit -a` / `git add -A`, or start a
+  workflow run; observation runs are local, and CI is only the PR's own run. `./check.sh` (fmt, clippy, all tests, the lists) stays for a person who
   wants the full check on their own machine.
 - **Corpus bumps**: `tools/corpus_bump.sh RUN_ID` takes the oracle from a green corpus master run.
   `tools/corpus_bump.sh --from-pr N[,N...]` (owner, 2026-11-05) does not wait for that run (about 55
