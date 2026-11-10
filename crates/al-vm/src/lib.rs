@@ -829,8 +829,8 @@ pub struct Session {
     /// The session's data comes from a baseline in which the company data codeunit built the company to its end
     /// (`Baseline::company_built`).
     pub(crate) company_built: bool,
-    /// The `Engine::demo_tables` the running test's own code (not install code) wrote to.
-    demo_written: std::collections::HashSet<u32>,
+    /// What decides whether a read of a table is refused (`records/login_guard.rs`).
+    guards: records::ReadGuards,
     /// The running test's own code (not install code) wrote General Ledger Setup (table 98), before any caption of areas 1 or 101
     /// was resolved (`setup_caption_read_early`): such captions read the test's row (`refuse_setup_caption`).
     pub(crate) gl_setup_written: bool,
@@ -1323,7 +1323,7 @@ impl Session {
             sessions_started: 0,
             install_without_client: false,
             company_built: false,
-            demo_written: Default::default(),
+            guards: Default::default(),
             gl_setup_written: false,
             setup_caption_read_early: false,
             sequences,
@@ -1465,7 +1465,7 @@ impl Session {
         self.shadow_begin();
         self.application_areas.clear();
         self.isolated_set_in_test.clear();
-        self.demo_written.clear();
+        self.guards.demo_written.clear();
         self.gl_setup_written = false;
         self.tx.transaction_type = 0;
         self.tx.tx_phase = crate::transactions::TX_FRESH;

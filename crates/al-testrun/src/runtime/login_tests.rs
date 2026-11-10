@@ -342,3 +342,274 @@ codeunit 1991 "Guided Experience Events"
         ]
     );
 }
+
+// The standard wizard (al-runner issue 7605, and the review of issue 7574 before it): its Finish action calls
+// `Guided Experience.CompleteAssistedSetup`, which modifies the row the login registered (System Application: FindSet,
+// then ModifyAll(Completed, true)). A Modify cannot create the row, so the test still has it only from the login:
+// LgnLoginChecklistTests.al:137-138 pins that it is there before the first test. The page and the first two tests are
+// the reporter's repro of issue 7605 (both pass on BC 29.0), which never invokes Finish; the third test invokes it.
+const FINISH_WIZARD: &str = r#"
+page 51150 "Repro Finish Wizard"
+{
+    PageType = NavigatePage;
+    layout { area(Content) { group(Step1) { InstructionalText = 'Step 1'; } } }
+    actions
+    {
+        area(Processing)
+        {
+            action(ActionFinish)
+            {
+                InFooterBar = true;
+                trigger OnAction()
+                var G: Codeunit "Guided Experience";
+                begin
+                    G.CompleteAssistedSetup(51150);
+                    CurrPage.Close();
+                end;
+            }
+            action(ActionCheck)
+            {
+                InFooterBar = true;
+                trigger OnAction()
+                var G: Codeunit "Guided Experience";
+                begin
+                    if not G.AssistedSetupExistsAndIsNotComplete(51150) then
+                        Error('The assisted setup row of the wizard does not exist.');
+                end;
+            }
+        }
+    }
+    trigger OnQueryClosePage(CloseAction: Action): Boolean
+    var G: Codeunit "Guided Experience";
+    begin
+        if CloseAction = Action::OK then
+            if G.AssistedSetupExistsAndIsNotComplete(51150) then
+                exit(Confirm('Setup is not complete. Exit anyway?', false));
+    end;
+}
+codeunit 51150 "Repro Finish Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterAssistedSetup', '', false, false)]
+    local procedure HandleOnRegisterAssistedSetup()
+    var G: Codeunit "Guided Experience";
+    begin
+        G.InsertAssistedSetup(51150);
+    end;
+}
+codeunit 51151 "Repro Finish Wizard Test"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    [HandlerFunctions('ConfirmHandler')]
+    procedure ClosingTheWizardAsksToConfirm()
+    var Wizard: TestPage "Repro Finish Wizard";
+    begin
+        Wizard.OpenEdit();
+        Wizard.Close();
+    end;
+
+    [Test]
+    procedure AnActionOfTheWizardSeesTheRow()
+    var Wizard: TestPage "Repro Finish Wizard";
+    begin
+        Wizard.OpenView();
+        Wizard.ActionCheck.Invoke();
+    end;
+
+    [Test]
+    procedure FinishCompletesTheRow()
+    var Wizard: TestPage "Repro Finish Wizard"; G: Codeunit "Guided Experience";
+    begin
+        Wizard.OpenEdit();
+        Wizard.ActionFinish.Invoke();
+        if not G.Exists(51150) then
+            Error('The assisted setup row does not exist after Finish.');
+        if G.AssistedSetupExistsAndIsNotComplete(51150) then
+            Error('The assisted setup is still not complete.');
+    end;
+
+    [ConfirmHandler]
+    procedure ConfirmHandler(Question: Text; var Reply: Boolean)
+    begin
+        Reply := true;
+    end;
+}
+"#;
+
+/// `DEP` with `CompleteAssistedSetup` and `Exists` on "Guided Experience", in the shape of System Application's code.
+fn dep_with_complete() -> String {
+    let dep = DEP.replace(
+        "    procedure Register() begin OnRegisterAssistedSetup(); end;\n",
+        r#"    procedure CompleteAssistedSetup(ObjectID: Integer)
+    var G: Record "Guided Experience Item";
+    begin
+        G.SetRange("Object ID", ObjectID);
+        if G.FindSet() then
+            G.ModifyAll(Completed, true);
+    end;
+    procedure Exists(ObjectID: Integer): Boolean
+    var G: Record "Guided Experience Item";
+    begin
+        exit(G.Get(ObjectID));
+    end;
+    procedure Register() begin OnRegisterAssistedSetup(); end;
+"#,
+    );
+    assert_ne!(dep, DEP);
+    dep
+}
+
+#[test]
+fn a_wizard_whose_finish_action_completes_the_row_sees_the_row_the_login_registered() {
+    let dep = format!("{}{DATABASE_SUBSCRIBER}", dep_with_complete());
+    assert_eq!(
+        super::tests::outcomes_over_dependency(FINISH_WIZARD, &dep),
+        vec![
+            ("ClosingTheWizardAsksToConfirm".to_string(), Outcome::Pass),
+            ("AnActionOfTheWizardSeesTheRow".to_string(), Outcome::Pass),
+            ("FinishCompletesTheRow".to_string(), Outcome::Pass)
+        ]
+    );
+}
+
+// The review of the fix for issue 7605: variants of the reporter's wizard. Each adds code the tests never run; the row
+// is there before the first test whatever the test does (LgnLoginChecklistTests.al:137-138), so all of them pass on BC.
+
+/// `dep_with_complete` plus a Base Application table whose event subscriber registers an assisted setup, as Microsoft's
+/// apps do somewhere behind the events of most of their tables, and the `Global Triggers` subscriber.
+fn dep_with_fan_out() -> String {
+    format!(
+        r#"{}{DATABASE_SUBSCRIBER}
+table 18 Customer {{ fields {{ field(1; "No."; Code[20]) {{ }} }} keys {{ key(PK; "No.") {{ Clustered = true; }} }} }}
+codeunit 1993 "Customer Checklist"
+{{
+    [EventSubscriber(ObjectType::Table, Database::Customer, 'OnAfterInsertEvent', '', false, false)]
+    local procedure OnAfterInsertCustomer(var Rec: Record Customer)
+    var G: Codeunit "Guided Experience";
+    begin
+        G.InsertAssistedSetup(18);
+    end;
+}}
+"#,
+        dep_with_complete()
+    )
+}
+
+fn all_pass() -> Vec<(String, Outcome)> {
+    [
+        "ClosingTheWizardAsksToConfirm",
+        "AnActionOfTheWizardSeesTheRow",
+        "FinishCompletesTheRow",
+    ]
+    .iter()
+    .map(|n| (n.to_string(), Outcome::Pass))
+    .collect()
+}
+
+/// `FINISH_WIZARD` with `old` replaced by `new`.
+fn variant(old: &str, new: &str) -> String {
+    let main = FINISH_WIZARD.replace(old, new);
+    assert_ne!(main, FINISH_WIZARD);
+    main
+}
+
+// The Finish action also reads a Base Application table: the events of that table are not the test's own calls.
+#[test]
+fn a_finish_action_that_also_reads_a_base_application_table_keeps_the_login() {
+    let main = variant(
+        "                var G: Codeunit \"Guided Experience\";\n                begin\n                    G.CompleteAssistedSetup(51150);\n",
+        "                var G: Codeunit \"Guided Experience\"; Cust: Record Customer;\n                begin\n                    if Cust.Get('NOPE') then;\n                    G.CompleteAssistedSetup(51150);\n",
+    );
+    assert_eq!(
+        super::tests::outcomes_over_dependency(&main, &dep_with_fan_out()),
+        all_pass()
+    );
+}
+
+// The Finish action also inserts into a Base Application table, with its triggers.
+#[test]
+fn a_finish_action_that_also_inserts_into_a_base_application_table_keeps_the_login() {
+    let main = variant(
+        "                var G: Codeunit \"Guided Experience\";\n                begin\n                    G.CompleteAssistedSetup(51150);\n",
+        "                var G: Codeunit \"Guided Experience\"; Cust: Record Customer;\n                begin\n                    Cust.\"No.\" := 'C1'; Cust.Insert(true);\n                    G.CompleteAssistedSetup(51150);\n",
+    );
+    assert_eq!(
+        super::tests::outcomes_over_dependency(&main, &dep_with_fan_out()),
+        all_pass()
+    );
+}
+
+// A temporary record of the table the login adds rows to, and a wizard over that table as a temporary source, insert
+// nothing into the table.
+#[test]
+fn a_temporary_record_or_page_source_of_the_login_table_keeps_the_login() {
+    let temp_record = variant(
+        "    [ConfirmHandler]\n",
+        "    local procedure FillBuffer()\n    var Temp: Record \"Guided Experience Item\" temporary;\n    begin\n        Temp.\"Object ID\" := 1; Temp.Insert();\n    end;\n\n    [ConfirmHandler]\n",
+    );
+    assert_eq!(
+        super::tests::outcomes_over_dependency(&temp_record, &dep_with_fan_out()),
+        all_pass()
+    );
+    let temp_source = variant(
+        "    PageType = NavigatePage;\n",
+        "    PageType = NavigatePage; SourceTable = \"Guided Experience Item\"; SourceTableTemporary = true;\n",
+    );
+    assert_eq!(
+        super::tests::outcomes_over_dependency(&temp_source, &dep_with_fan_out()),
+        all_pass()
+    );
+}
+
+// The guard: a test that reads and completes the row only in the subscriber of an event it raises. Its own calls do not
+// touch the table and its reach writes it, so the login is not raised; the read is refused, it does not find an empty table.
+#[test]
+fn a_read_of_the_login_table_without_the_login_is_refused() {
+    let main = r#"
+codeunit 51160 "Guard Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterAssistedSetup', '', false, false)]
+    local procedure HandleOnRegisterAssistedSetup()
+    var G: Codeunit "Guided Experience";
+    begin
+        G.InsertAssistedSetup(51160);
+    end;
+}
+codeunit 51161 "Guard Events"
+{
+    procedure Raise() begin OnCheck(); end;
+    [IntegrationEvent(false, false)] local procedure OnCheck() begin end;
+}
+codeunit 51162 "Guard Subscriber"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guard Events", 'OnCheck', '', false, false)]
+    local procedure Check()
+    var G: Codeunit "Guided Experience";
+    begin
+        if not G.Exists(51160) then
+            Error('The assisted setup row does not exist.');
+        G.CompleteAssistedSetup(51160);
+    end;
+}
+codeunit 51163 "Guard Test"
+{
+    Subtype = Test;
+    [Test]
+    procedure TheSubscriberSeesTheRow()
+    var E: Codeunit "Guard Events";
+    begin
+        E.Raise();
+    end;
+}
+"#;
+    let got = super::tests::outcomes_over_dependency(main, &dep_with_fan_out());
+    match got.as_slice() {
+        [(name, Outcome::NotRun(why))] if name == "TheSubscriberSeesTheRow" => assert!(
+            why.contains("the login was not raised") && why.contains("Guided Experience Item"),
+            "{why}"
+        ),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
