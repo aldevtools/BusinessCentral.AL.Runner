@@ -488,10 +488,7 @@ impl Session {
                         .any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, &inst)))
                 {
                     self.report_clear(&inst);
-                    return Err(crate::transactions::al_error_code(
-                        "The object has been run. Use the function CLEAR(Report).",
-                        "ObjectHasAlreadyBeenRun",
-                    ));
+                    return Err(running::already_run());
                 }
                 // A variable whose RunModal ran to its end cannot RunModal again: the error, and nothing runs
                 // (reports/request-page/P105TotArray.al:97-105). A Run after it is not pinned.
@@ -505,10 +502,7 @@ impl Session {
                         if !Rc::ptr_eq(&running, &inst) {
                             self.report_clear(&inst);
                         }
-                        return Err(crate::transactions::al_error_code(
-                            "The object has been run. Use the function CLEAR(Report).",
-                            "ObjectHasAlreadyBeenRun",
-                        ));
+                        return Err(running::already_run());
                     }
                     return unsupported("Report.Run on a report variable after its RunModal (not pinned)");
                 }
@@ -629,10 +623,7 @@ impl Session {
                 // variable raises, with or without a parameters string in either call, and runs nothing; after Clear it runs
                 // again (corpus master, corpus PR 886: reports/request-page/ExecuteParamsTwiceAndViews.al:146-183).
                 if is(&self.report.report_executed) {
-                    return Err(crate::transactions::al_error_code(
-                        "The object has been run. Use the function CLEAR(Report).",
-                        "ObjectHasAlreadyBeenRun",
-                    ));
+                    return Err(running::already_run());
                 }
                 self.report.report_executed.retain(|w| w.strong_count() > 0);
                 self.report.report_executed.push(Rc::downgrade(&inst));
@@ -722,10 +713,7 @@ impl Session {
                     // After a RunModal of the variable: the error, and no page opens
                     // (reports/request-page/RptRequestPage.al:990-1009 UseRequestPageFalse_RunModalAndRunRequestPage).
                     if self.report_run_modal_done_on(&inst) {
-                        return Err(crate::transactions::al_error_code(
-                            "The object has been run. Use the function CLEAR(Report).",
-                            "ObjectHasAlreadyBeenRun",
-                        ));
+                        return Err(running::already_run());
                     }
                     let schema = self.report_schema(&inst)?;
                     (inst, schema, args.first())
@@ -2704,13 +2692,8 @@ impl Session {
                 if !result_used {
                     return unsupported("a second SaveAs on one report variable, with the answer dropped (not pinned)");
                 }
-                // The text is pinned (PnBReportSaveAs.al:387); the code is not, so GetLastErrorCode is refused.
-                self.last_error = al_builtins::native::AlError {
-                    message: "The object has been run. Use the function CLEAR(Report).".into(),
-                    code: al_builtins::native::UNPINNED_ERROR.into(),
-                    call_stack: String::new(),
-                    ..Default::default()
-                };
+                // The text is pinned (PnBReportSaveAs.al:387), and the code (:749-750, :755-756 PW_SecondSaveAs_LastErrorCode).
+                self.last_error = running::already_run_error();
                 return Ok(Value::Boolean(false));
             }
             if tried {

@@ -1449,7 +1449,9 @@ impl Session {
                             let avg = sum / Decimal::from(vs.len() as i64);
                             match &c.ty {
                                 // An Integer column averages to an Integer, truncated: 1.33 and 1.5
-                                // both give 1 (Query_Average_IntegerColumnTruncates_...).
+                                // both give 1 (Query_Average_IntegerColumnTruncates_...). So do a BigInteger column
+                                // (queries/W7QueryAggregates.al:163 `1`, :172 -14 / 3 = `-4`; CgQueryLeads.al:128) and
+                                // a Duration column (W7QueryAggregates.al:239 5000 / 3 = 1.666 s).
                                 RtType::Decimal => {
                                     // A Decimal column keeps 18 places less the digits before the point:
                                     // 1.33333333333333333 (17 places), and -0.333333333333333333 (18) for the
@@ -1488,7 +1490,14 @@ impl Session {
                             RtType::BigInteger => {
                                 match i64::try_from(total.trunc().mantissa() / 10i128.pow(total.trunc().scale())) {
                                     Ok(i) => Value::BigInteger(i),
-                                    Err(_) => return unsupported("a Sum that overflows a BigInteger column"),
+                                    // queries/W7QueryAggregates.al:168: the Sum of 9223372036854775807 and 1.
+                                    Err(_) if method == M::Sum => {
+                                        return Err(crate::transactions::al_error_code(
+                                            "An arithmetic overflow occurred while calculating a value, for example when a sum of an Integer field exceeds the maximum value the data type can hold. Use a larger data type, such as BigInteger or Decimal, for the field or the calculation.",
+                                            "CalculationOverflow:Sql",
+                                        ));
+                                    }
+                                    Err(_) => return unsupported("an Average that overflows a BigInteger column"),
                                 }
                             }
                             RtType::Duration => {

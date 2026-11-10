@@ -604,7 +604,7 @@ impl Parser<'_> {
 }
 
 /// `Ok(None)`: not valid JSON.
-fn parse(text: &str) -> Result<Option<Handle>, Signal> {
+pub(crate) fn parse(text: &str) -> Result<Option<Handle>, Signal> {
     let mut p = Parser {
         s: text.as_bytes(),
         i: 0,

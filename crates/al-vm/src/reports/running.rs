@@ -18,10 +18,7 @@ impl Session {
         if id == ids::REPORT_RUN_1 {
             return unsupported("Report.Run of the report instance that is running (not pinned)");
         }
-        Err(crate::transactions::al_error_code(
-            "The object has been run. Use the function CLEAR(Report).",
-            "ObjectHasAlreadyBeenRun",
-        ))
+        Err(already_run())
     }
 }
 
@@ -44,4 +41,19 @@ impl Session {
         }
         Ok(Value::Boolean(Self::report_shows_page(inst, schema)?))
     }
+}
+
+/// The error of a report variable that already ran (reports/request-page/P105TotArray.al:97-105; the code:
+/// reports/runtime/Y40BareReportRun.al:252, text/PnBReportSaveAs.al:749-750).
+pub(super) fn already_run_error() -> al_builtins::native::AlError {
+    al_builtins::native::AlError {
+        message: "The object has been run. Use the function CLEAR(Report).".into(),
+        code: "ObjectHasAlreadyBeenRun".into(),
+        call_stack: String::new(),
+        ..Default::default()
+    }
+}
+
+pub(super) fn already_run() -> Signal {
+    Signal::Error(Box::new(already_run_error()))
 }
