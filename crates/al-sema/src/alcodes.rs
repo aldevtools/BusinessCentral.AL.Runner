@@ -147,6 +147,10 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
 /// a case that finds its code matches.
 pub const NOT_CHECKED: &[(&str, &str)] = &[
     (
+        "AL0271",
+        "reported only for an event subscriber of OnBeforeActionEvent or OnAfterActionEvent whose element names no action of a page of the workspace or of its page extensions (alcodes/action_subscriber.rs; case 3113); an unknown promoted category group, an actionref of an unpromoted action and the other shapes are not judged.",
+    ),
+    (
         "AL0275",
         "reported for a variable of type DotNet N, N bare, in a file without a namespace, where the app declares the alias N outside a namespace and a loaded dependency declares it in namespace System (case 2359); a case is compiled without System Application, so the case cannot find it.",
     ),
@@ -547,6 +551,7 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
             page_customization_variables(ws, oi, &obj, &mut out);
         }
         subscriber_publishers(ws, oi, &obj, &mut out);
+        action_subscriber::check(ws, oi, &obj, &mut out);
         platform_integer_without_using(ws, oi, &obj, &types, &mut out);
         unknown_codeunit_variables(ws, oi, &decls, &mut out);
         test_request_pages_of_no_report(ws, oi, &obj, &mut out);
@@ -2513,6 +2518,7 @@ fn typed_names(d: &ast::VarDecl) -> Vec<(String, String)> {
         .collect()
 }
 
+mod action_subscriber;
 mod control_visible;
 mod count_flowfield;
 mod permissions_property;
