@@ -1,6 +1,6 @@
 //! Opaque handles on the test client's state (ADR-072 decision 3): what `Value::TestPage` and `Value::TestControl`
 //! hold. The state of a page (`PageState`) and of a control handle (`ControlRef`) belongs to the crate that runs the
-//! page client (al-vm, `pages/state.rs`). This crate only stores the handle, clones it, drops it and prints it.
+//! page client (al-vm, `pages/state/mod.rs`). This crate only stores the handle, clones it, drops it and prints it.
 //!
 //! A handle owns one value of a type this crate does not know. The VM puts its `Rc<RefCell<PageState>>` (or
 //! `Rc<ControlRef>`) in and borrows it back with `get`, so a `Value` holds exactly the references it held before the

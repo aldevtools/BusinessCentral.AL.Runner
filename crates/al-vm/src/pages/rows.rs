@@ -2371,10 +2371,7 @@ impl Session {
                 && matches!(key.get(n), Some(Value::Text(t)) if *t != t.to_uppercase())
         });
         if lowercase_code {
-            if !result_used {
-                return Err(error_code("The row does not exist on the TestPage.", "TestRowNotFound"));
-            }
-            return Ok(Value::Boolean(false));
+            return self.go_to_key_miss(st, result_used);
         }
         let want: Result<Vec<Value>, Signal> = table.keys[0]
             .iter()
@@ -2388,12 +2385,7 @@ impl Session {
         // `wrong-type`: GoToKey(1) over a Code key raises the row error).
         let want = match want {
             Ok(w) => w,
-            Err(Signal::Error(_)) => {
-                if !result_used {
-                    return Err(error_code("The row does not exist on the TestPage.", "TestRowNotFound"));
-                }
-                return Ok(Value::Boolean(false));
-            }
+            Err(Signal::Error(_)) => return self.go_to_key_miss(st, result_used),
             Err(e) => return Err(e),
         };
         st.borrow_mut().go_to_want = Some(want.clone());
@@ -2596,6 +2588,7 @@ impl Session {
             }
         }
         if !found {
+            self.refuse_statement_miss_off_list(st, result_used)?;
             // A miss reads on to the end of the view and then the last two rows once more
             // (testpage/TestPageSystemPartListWindowContracts.al:194, key 100).
             if block.is_some() && !st.borrow().window_eof {
@@ -2622,9 +2615,7 @@ impl Session {
             s.cursor = before_cursor;
             s.draft = before_draft;
             drop(s);
-            if self.go_to_key_miss_raises(st, result_used) {
-                return Err(error_code("The row does not exist on the TestPage.", "TestRowNotFound"));
-            }
+            return self.go_to_key_miss(st, result_used);
         }
         Ok(Value::Boolean(found))
     }
@@ -3023,7 +3014,7 @@ impl Session {
             Err(Signal::Error(e))
                 if e.code == "TestActionNotFound"
                     && e.message.starts_with("The built-in action = OK ")
-                    && st.borrow().static_lookup =>
+                    && st.borrow().lookup_kind == LookupKind::StaticRunModal =>
             {
                 // Page.RunModal(0, Rec) over the table's LookupPageId with a FilterGroup 2 filter and a view on the key leaves the
                 // record's filters as they were (ui-handlers/Y14LookupNoRow.al:148 `rows rows` 0, corpus master). Which of

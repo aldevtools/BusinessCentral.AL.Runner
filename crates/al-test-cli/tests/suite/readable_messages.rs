@@ -215,7 +215,7 @@ const KEPT: &[(&str, &str, &str)] = &[
         "`flow` is a unit enum (Skip, Break, Quit): the debug text is the variant name",
     ),
     (
-        "al-vm/src/pages/state.rs",
+        "al-vm/src/pages/state/mod.rs",
         r#""PageState(page {}, open {}, mode {:?})","#,
         "the Debug impl of PageState prints facts only; `mode` is a unit enum",
     ),
