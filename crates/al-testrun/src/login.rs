@@ -13,7 +13,8 @@
 //! The runtime raises the login by running the dependency apps' Company Triggers `OnCompanyOpenCompleted` subscribers
 //! with the apps under test's own (`install::test_session_company_open`), the real code of Microsoft's apps. It does so
 //! for a test codeunit that can see what an app under test's subscriber to one of the two events leaves
-//! ([`observed_by`]); otherwise those subscribers stay out of the test session, as before. What the login writes stays
+//! ([`decide`]); otherwise those subscribers stay out of the test session, as before, and a read of a table the login
+//! would add rows to is refused (`Login::Skip`). What the login writes stays
 //! in the session, committed before the first test. Microsoft's code that cannot run here refuses the codeunit.
 
 use crate::runtime::written::{
@@ -24,6 +25,17 @@ use al_sema::lower::Lowered;
 use al_vm::Engine;
 use al_vm::events::Registry;
 use std::collections::BTreeSet;
+
+/// Whether the test session of a test codeunit raises the login ([`decide`]).
+pub(crate) enum Login {
+    /// The login is raised before the first test.
+    Raise,
+    /// The login is not raised. The tables hold rows only the login would add: those the apps under test's login
+    /// subscribers insert into and the test codeunit's own calls cannot. The static reach did not show that the test
+    /// reads them; if it does while it runs, the read is refused (`al_vm` `records/login_guard.rs`), so a wrong answer
+    /// here costs a test that is not run and never a read of a table without the login's rows.
+    Skip(BTreeSet<u32>),
+}
 
 /// The publishers of the login events an app under test can subscribe to: (codeunit id, name, event in lower case).
 const LOGIN_EVENTS: &[(u32, &str, &str)] = &[
@@ -79,11 +91,11 @@ fn workspace_subscribers(lowered: &Lowered, events: &Registry) -> Vec<(usize, us
 /// the login writes nothing). Another test codeunit runs as before, without the login: whatever Microsoft's login code
 /// leaves that no app under test subscribes to is not modelled in the test session (Microsoft's login subscribers read
 /// the corpus database's demo rows, al-runner issue 7343).
-pub(crate) fn observed_by(engine: &Engine, lowered: &Lowered, test: usize) -> bool {
+pub(crate) fn decide(engine: &Engine, lowered: &Lowered, test: usize) -> Login {
     let events = &engine.events;
     let subs = workspace_subscribers(lowered, events);
     if subs.is_empty() {
-        return false;
+        return Login::Skip(BTreeSet::new());
     }
     let index = engine.derived(|| ReachIndex::new(events, lowered));
     let left = engine.derived(|| {
@@ -114,7 +126,7 @@ pub(crate) fn observed_by(engine: &Engine, lowered: &Lowered, test: usize) -> bo
         .any(|t| writes.contains(t) && !mine.writes.contains(t))
         || mine.globals_read.iter().any(|g| left.state.contains(&g.0))
     {
-        return true;
+        return Login::Raise;
     }
     // The same question without the subscribers of the `Global Triggers` database events (al-runner issue 7574). A page
     // variable counts as a write (the page client writes the page's source table; a page without one writes a table
@@ -130,24 +142,29 @@ pub(crate) fn observed_by(engine: &Engine, lowered: &Lowered, test: usize) -> bo
         .iter()
         .any(|t| writes.contains(t) && !own.writes.contains(t))
     {
-        return true;
+        return Login::Raise;
     }
     // A write that cannot add a row does not give the test a row of its own (al-runner issue 7605, whose repro passes on
     // BC 29.0 with a Finish action it never invokes; the review of issue 7574 found the same). The
     // Finish action of a standard wizard calls "Guided Experience".CompleteAssistedSetup, which modifies the row the
     // login registered (System Application: FindSet, then ModifyAll(Completed, true)); the page's OnQueryClosePage still
     // reads that row, and the pin above says it is there. So the login is also raised for a table the login subscribers
-    // add rows to, that the test touches through its own calls (what it calls and what its page variables drive, without
-    // triggers, events and objects run by id), and that nothing in the reach above can insert into. The two limits keep
-    // the rule to that shape: a table the subscribers only modify or delete in holds no row of theirs, and a table the
-    // test reaches only through the subscribers of an event is not one it is written against. A test that inserts the
-    // row itself runs without the login, as before. On the corpus this gives the login to no further test codeunit; with
-    // the test's inserts as the only limit it gave it to 188, whose Microsoft login code cannot run there.
+    // add rows to, that the test touches through its own calls, and that those calls cannot insert into. "Its own calls"
+    // is what it calls, what its page variables drive and the objects it runs by id, without table triggers and event
+    // subscribers: both sides are asked on that reach, because a record variable of a Base Application table brings that
+    // table's event subscribers into the wider reach, and somewhere in them Microsoft's code inserts into the Guided
+    // Experience tables (a wizard whose Finish action reads Customer then looked like one that registers itself). A
+    // table the subscribers only modify or delete in holds no row of theirs. A record declared temporary and a page over
+    // a temporary source insert nothing. A test that inserts the row itself runs without the login, as before.
+    //
+    // The answer is still a guess about what the test will read. The tables the guess leaves out go to the session,
+    // which refuses a read of them (`Login::Skip`).
     let calls = union_call_reach_facts(events, lowered, &index, &roots, &subs);
-    calls
-        .touched
-        .iter()
-        .any(|t| left.inserts.contains(t) && !calls.inserts.contains(t))
+    let theirs: BTreeSet<u32> = left.inserts.difference(&calls.inserts).copied().collect();
+    if calls.touched.iter().any(|t| theirs.contains(t)) {
+        return Login::Raise;
+    }
+    Login::Skip(theirs)
 }
 
 /// The codeunits of the apps under test whose state a login subscriber keeps: the codeunit that declares a subscriber to

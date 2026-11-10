@@ -29,7 +29,7 @@ impl Session {
             return Ok(());
         }
         unsupported(
-            "GoToKey or GoToRecord as a statement for a key no row has, on a page that is neither a list nor a part (not pinned)",
+            "GoToKey, GoToRecord or the move back of a Find...Field call, as a statement for a key no row has, on a page that is neither a list nor a part (not pinned)",
         )
     }
 

@@ -40,7 +40,9 @@ impl Session {
     /// `LookupMode(true)` on a page variable (ui-handlers/TestPageModalNewRowLine_Tests.al:209
     /// Plain_LookupModeTrue_HasNoNewRowLine), the static `Page.RunModal(Id, Rec)` whose return value is used (called as a
     /// statement it is no lookup and keeps the line: :180; pages/triggers/BeRunModalOnLookup.al:616, :916) and the page a
-    /// TableRelation lookup opens (testpage/P133RelationLookups.al:271-284: Next from its last row answers false).
+    /// TableRelation lookup opens (testpage/P133RelationLookups.al:271-284: Next from its last row answers false). A page
+    /// in lookup mode always has one of the three kinds (`PageState::open_as_lookup`, `set_lookup_mode`): the list of
+    /// kinds says what is pinned, it filters nothing today.
     pub(in crate::pages) fn lookup_list(&self, st: &St) -> bool {
         let (on, kind) = {
             let s = st.borrow();
@@ -191,7 +193,7 @@ impl Session {
             // pages/run-modal/StaticRunModalFindRecordLookup.al StaticRunModalZero_FilteredNotPositioned_FirstThenOK `F:=>=Yes;R:V2;...`,
             // _FilteredOnRow_, _NoFilterNotPositioned_, StaticRunModalPageId_; issue 6992). What the list of a TableRelation
             // lookup is asked nothing pins: that lookup is refused before the page opens
-            // (`refuse_relation_lookup_onto_find_list`).
+            // (`refuse_relation_lookup_onto_find_list`), so the `=><` below is never the answer for that kind.
             let (lookup, asks_forward) = {
                 let s = st.borrow();
                 (
