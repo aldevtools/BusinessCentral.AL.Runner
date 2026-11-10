@@ -971,6 +971,7 @@ mod al_runner_tests;
 mod apply_manifests;
 mod blocked;
 mod cache;
+mod case_lookup;
 mod chain;
 mod chain_runs;
 mod chain_walk;
