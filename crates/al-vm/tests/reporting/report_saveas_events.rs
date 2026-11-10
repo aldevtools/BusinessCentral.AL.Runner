@@ -159,19 +159,21 @@ fn an_html_saveas_of_an_rdlc_report_raises_substitutereport_then_fails() {
     );
 }
 
-/// AMRdlcOutput.al:TextRdlc_SaveAsHtml_IsRefused pins only that RequestPageXml of an Html SaveAs contains the parameters, not
-/// its text: a SubstituteReport subscriber that reads it is refused.
+/// The RequestPageXml of an Html SaveAs is the parameters as given (corpus reports/layouts-saveas/AMRdlcOutput.al:460-484
+/// QD_TextRdlc_SaveAsHtml_RequestPageXml, _EmptyParameters_): a SubstituteReport subscriber reads it.
 #[test]
-fn an_html_saveas_whose_substitutereport_subscriber_reads_requestpagexml_is_refused() {
-    assert_refused(run("Html"), "RequestPageXml");
-    for read in [
-        "Format(StrPos(RequestPageXml, 'MARK') > 0)",
-        "Format(StrLen(RequestPageXml))",
-        "Format(RequestPageXml.Contains('MARK'))",
-        "Format(RequestPageXml)",
+fn an_html_saveas_gives_its_substitutereport_subscriber_the_parameters_as_requestpagexml() {
+    assert_eq!(
+        text(run("Html")),
+        "No|The Html output format is not supported by the current report layout format.|SubstituteReport(50972,SaveAs,in=-1);req=MARK;"
+    );
+    for (read, want) in [
+        ("Format(StrPos(RequestPageXml, 'MARK') > 0)", "Yes"),
+        ("Format(StrLen(RequestPageXml))", "4"),
     ] {
         let fixture = FIXTURE.replace("L.Add('req=' + RequestPageXml);", &format!("L.Add({read});"));
-        assert_refused(al_testkit::run_in(&fixture, "SE Tests", "Html"), "RequestPageXml");
+        let got = text(al_testkit::run_in(&fixture, "SE Tests", "Html"));
+        assert!(got.ends_with(&format!("{want};")), "{read}: {got}");
     }
 }
 

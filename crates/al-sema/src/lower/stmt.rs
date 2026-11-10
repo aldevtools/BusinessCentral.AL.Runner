@@ -158,11 +158,10 @@ impl Lowerer<'_> {
                 self.stream_scope = scope;
             }
         }
-        // OnQueryClosePage with a Boolean return that ends without giving a value lets the page close. Not pinned (the corpus
-        // triggers all `exit(true)` or `exit(false)`); Item Tracking Lines' ends with `Result` untouched when the availability
-        // check finds nothing to warn about, and Microsoft's tests close it (Tests-SCM, about 1,100 tests; assumption
-        // query-close-page-falls-through-as-true). A named return value starts unassigned: a read of it before an assignment is
-        // refused, and the trigger's answer is Yes when it ends without an `exit(value)` and without an assignment.
+        // OnQueryClosePage with a named Boolean return value (pages/triggers/QcrNamedResult.al): never assigned, the trigger
+        // answers Yes and the page closes (:204-242); read before an assignment it reads as Yes (:248-286, see the Load in
+        // lower/expr.rs); assigned false and ending without `exit`, the page stays open (:292-331). The `__assigned` flag
+        // tells an unassigned value from an assigned one.
         let qcp =
             r.is_trigger() && r.name().eq_ignore_ascii_case("onqueryclosepage") && matches!(ret, Some(RtType::Boolean));
         if qcp {

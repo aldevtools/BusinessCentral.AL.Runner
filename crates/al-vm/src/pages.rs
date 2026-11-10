@@ -756,9 +756,20 @@ impl Session {
         }
         let mut failure = None;
         for (obj, routine, owner) in calls {
-            let states = has_value_exit(&engine.program.objects[obj].routines[routine].body);
+            let r = &engine.program.objects[obj].routines[routine];
+            // A named return value the page's own trigger assigned and did not `exit` with is its answer: `Result := false`
+            // and the end of the trigger refuse the close (pages/triggers/QcrNamedResult.al:114-119, :288-331; the lowering
+            // makes an unassigned one Yes). In a page extension's trigger that is not pinned.
+            let named = r.ret_local.is_some();
+            let states = has_value_exit(&r.body) || (named && owner.is_none());
             let inst = self.owner_instance(st, owner);
             match self.page_call(st, obj, routine, inst, args.clone()) {
+                Ok((Value::Boolean(false), _)) if named && !states => {
+                    failure = Some(Signal::Unsupported(
+                        "a page extension's OnQueryClosePage that ends with its named return value set to false (not pinned)".into(),
+                    ));
+                    break;
+                }
                 Ok((Value::Boolean(b), _)) if states => answers.push(b),
                 Ok(_) => {}
                 Err(e) => {
