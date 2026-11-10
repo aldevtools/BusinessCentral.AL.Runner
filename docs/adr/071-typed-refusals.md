@@ -89,3 +89,54 @@ An agent that touches a refusal site in an area not yet migrated may migrate tha
 - A compile-fail test (or `trybuild`-style check): a `Debug`-only argument in `refuse!` does not compile.
 - `refusal_free_text_ratchet` (PR 2): counts per area, only goes down.
 - A cache test: a stored refusal round-trips with its key.
+
+## Implementation notes (step 1, PR 1a: the type and the seam)
+
+What was built, and where it differs from the text above. None of this changes a decision.
+
+- **Key lists (owner decision, 2026-11-10).** Decision 2 allows "one `enum RefusalKey` (or one entry per key)". The
+  owner chose **one list per crate that refuses**, one file per key in `crates/<crate>/src/refusals/<key>.rs`, collected
+  by that crate's `build.rs` into one `refusal_keys!` call (`keys::NAME` constants and `ALL`). One test in `al-test-cli`
+  (`tests/suite/refusal_keys.rs`) checks all lists together (unique keys, lower case and dotted, known area, no `legacy`
+  entry, one file per key, every key used as `keys::NAME`) and that the generated table in `docs/probes-needed.md` is
+  current (`al-test-cli --refusals-doc` rewrites it). A crate that starts a list adds it to
+  `al-test-cli/src/refusal_keys.rs` `LISTS`. Reason: a new key in the bottom crate rebuilds every crate; a key in
+  `al-vm` rebuilds five. A key that lowering and the VM both use sits in `al-builtins`. Step 1 has one list
+  (`al-builtins`) with one key.
+- **`Refusal`** (`al-builtins/src/refusal.rs`) is one pointer (`Box` of key and text), so `Signal` does not grow (a test
+  pins `Signal` at 40 bytes and `Result<Value, Signal>` at 48, "not larger than"). `key()`, `area()` (the key up to the
+  first dot), `reason()`, `into_reason()`, `map_reason()` (keeps the key behind a site prefix). There is no
+  `From<Refusal> for String`: it would overlap the blanket `From<S: Into<String>>`; owned text is `into_reason()`.
+- **Decision 5, "old sites keep compiling"**, is not true for a construction that passes a `String` straight to the
+  variant. Those 349 sites became `Signal::unsupported(..)` (`#[cold]`, `#[inline(never)]`), one character each, so no
+  line moved and no cap changed. `Signal::Unsupported(format!(..))` no longer compiles; patterns are unchanged.
+- **Legacy reads as before.** `Display` is the text; `Debug` of a legacy refusal is the `Debug` of its `String` (tests
+  compare the `Debug` of `Signal`); `Deref<Target = str>` and `==` with `str` and `String` keep the about 290 readers
+  that match wording. `Deref` and the comparisons are shims and go with `From<String>` in the last step.
+- **Serialization.** postcard (the compile cache): the pair (key, text). JSON: a legacy refusal is its plain text and a
+  keyed one `{"key", "reason"}`, so `compile_dump` of `main` and of the branch are identical.
+- **`refuse!` and decision 3.** `format!` reads a named placeholder (`{x:?}`) from the scope, past any wrapper. `refuse!`
+  therefore takes positional placeholders only, checked at compile time (`positional_only` in a `const` assertion);
+  each argument is wrapped in `Shown`, which has `Display` through `Describe` and no `Debug`. Three `compile_fail` doc
+  tests show it (a `{:?}`, a `Debug`-only argument, a named placeholder). The `readable_messages` scan stays until the
+  last step.
+- **Decision 4, one helper.** `al_builtins::native::unsupported` takes free text or a keyed refusal. The 67 private
+  copies of `fn unsupported` without a text prefix are deleted. Kept: the two that add a prefix (`Tenant Profile
+  Setting: `, `Tenant Report Layout Cfg: `) and two private helpers named `refuse` (`al-vm` `package_data`,
+  `datatransfer`), which now take `impl Into<Refusal>`. PR 2's count includes these four.
+- **Static refusals (decision 4) and the cache (decision 6), storage only.** `Lowered::unsupported`,
+  `DepFacts::unsupported` and the assembler's pieces hold `Refusal`; the lowerer keeps `Result<T, String>` and its
+  `Vec<String>` reasons, which become legacy refusals where they leave it. The other reason strings in the IR and the
+  facts (`Expr::Refused`, the page, report and xmlport reasons) change with their area; each such change bumps the
+  cache `FORMAT` again (19 to 20 here). `Engine::blocked`, read on every call, stays a `String` table until the first
+  static key, which needs a CallLoop measurement.
+- **Not in PR 1a.** `Outcome::NotRun` carrying the `Refusal` and `--top-refusals` grouping by key need the key in the
+  outcome, which the seam note did not name: they are PR 1b. The key as its own field in JUnit and JSON, and the
+  unpinned-shape report, are later pull requests (they change the JUnit bytes).
+- **Areas** (`AREAS`): the corpus folder names in key form plus `dotnet`, `builtin`, `compile` and `runner`. A
+  `Probe::ByDesign` for refusals that wait on nothing (time limit, memory limit) is added when the first such site gets
+  a key.
+- **ADR-072.** Its step 5 moves `Signal` and `Describe` to `al-value`; `refusal.rs` moves with them.
+- **Proof site.** `xml.sibling.attribute-or-declaration` (`al-builtins/src/xml/edit.rs`, `position_in_parent`), text
+  unchanged.
+- **Speed.** `perf_vm` instructions per round, `main` against this branch: no bench higher (table in the pull request).
