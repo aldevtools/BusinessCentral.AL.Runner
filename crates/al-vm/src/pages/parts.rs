@@ -578,7 +578,13 @@ impl Session {
                 // those (ProviderLinkedPartsMatrix.al), and no test pins a hidden part outside every chain there. Such a
                 // part ran no trigger on a key typed on a new host before (issue 6924, Data Check factbox; probe pending).
                 let follows = opening || matches!(how, Sync::Move { .. }) || self.part_in_provider_chain(st, *i);
-                follows && !self.part_eliminated(st, *i) && (opening || c.borrow().open)
+                let kept = !self.part_eliminated(st, *i) && (opening || c.borrow().open);
+                if kept && !follows {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::HiddenPartOutsideChainSkipsSync,
+                    );
+                }
+                follows && kept
             }));
             parts.sort_by_key(|(i, _)| *i);
         }

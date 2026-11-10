@@ -75,3 +75,16 @@ fn a_key_typed_on_a_new_host_runs_no_trigger_of_a_hidden_part_outside_the_chain(
     // As on 4e20bf926: neither the open of the new host nor the key typed on it runs the hidden part's OnAfterGetCurrRecord.
     assert_eq!(al_testkit::text(r), "");
 }
+
+#[test]
+fn the_skipped_sync_is_a_flagged_assumption() {
+    let mut b = al_testkit::Built::from_source(SRC);
+    let (oi, ri) = b.routine_in("C", "NewKeyed");
+    al_builtins::assumptions::clear_hits();
+    b.call(oi, ri, vec![]).unwrap();
+    let hits = al_builtins::assumptions::take_hits();
+    assert!(
+        hits.contains(&al_builtins::assumptions::Assumption::HiddenPartOutsideChainSkipsSync),
+        "{hits:?}"
+    );
+}
