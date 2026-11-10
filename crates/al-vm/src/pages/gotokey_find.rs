@@ -5,16 +5,32 @@ use super::*;
 use al_builtins::page_op::PageMethod;
 
 impl Session {
-    /// Whether the generic walk of `page_go_to_key` raises the row error for a key it did not find.
-    /// With the result unused a miss raises the row error: on a part, and on a list page (al-runner issue 7412;
-    /// pages/run-modal/Y7412PageRunRecordFilters.al:337 Y7412_Run0_StatementForm: a list without triggers run by
-    /// Page.Run(0, Rec), the three rows outside the record's filters each `error:The row does not exist on the
-    /// TestPage.|TestRowNotFound`). The same for GoToRecord and GoToKey on a row the list's OnFindRecord and
-    /// OnNextRecord skip, and for a key no row has (al-runner issue 7409;
-    /// pages/list-key-navigation/Y7409GoToRecordSkippedRow.al:435 Y7409_StatementForm_HiddenAndShownRow). A card is not
-    /// pinned there and answers as before.
-    pub(super) fn go_to_key_miss_raises(&self, st: &St, result_used: bool) -> bool {
-        (st.borrow().host.is_some() || self.is_list(st)) && !result_used
+    /// What GoToKey and GoToRecord answer for a key `page_go_to_key` did not find, whatever made it a miss (no row has the key, a
+    /// lowercase text for a Code field, a value of another type). With the result used: false. With the result unused the row
+    /// error: on a part (testpage/parts/TestTestPart.al TestPart_GoToKey_ErrorsForAMissingKeyWhenTheReturnIsDiscarded), and
+    /// on a list page (al-runner issue 7412; pages/run-modal/Y7412PageRunRecordFilters.al:337 Y7412_Run0_StatementForm: a list
+    /// without triggers run by Page.Run(0, Rec), the three rows outside the record's filters each `error:The row does not exist
+    /// on the TestPage.|TestRowNotFound`; pages/run-modal/P82TestPage.al:96 `wrong-type` on a list). The same for GoToRecord and
+    /// GoToKey on a row the list's OnFindRecord and OnNextRecord skip, and for a key no row has (al-runner issue 7409;
+    /// pages/list-key-navigation/Y7409GoToRecordSkippedRow.al:435 Y7409_StatementForm_HiddenAndShownRow).
+    pub(super) fn go_to_key_miss(&self, st: &St, result_used: bool) -> Result<Value, Signal> {
+        self.refuse_statement_miss_off_list(st, result_used)?;
+        if result_used {
+            return Ok(Value::Boolean(false));
+        }
+        Err(error_code("The row does not exist on the TestPage.", "TestRowNotFound"))
+    }
+
+    /// A page that is neither a list nor a part (a Card, a Document) is pinned for a miss whose result is used only
+    /// (pages/W1Navigation.al:284 GoToKey_Card_WhichRowsAreRead `goto_99_miss` `No ... id=4`). Whether the statement form
+    /// raises the row error there, as it does on a list, nothing pins: refused, before the walk back to the row it started from.
+    pub(super) fn refuse_statement_miss_off_list(&self, st: &St, result_used: bool) -> Result<(), Signal> {
+        if result_used || st.borrow().host.is_some() || self.is_list(st) {
+            return Ok(());
+        }
+        unsupported(
+            "GoToKey or GoToRecord as a statement for a key no row has, on a page that is neither a list nor a part (not pinned)",
+        )
     }
 
     /// GoToKey on a list that declares OnAfterGetCurrRecord and no OnAfterGetRecord: from a row other than the first the client goes to the
