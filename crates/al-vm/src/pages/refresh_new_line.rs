@@ -21,7 +21,16 @@ impl Session {
             }
             Cursor::None => Ok(Some(false)),
             Cursor::NewLine => {
-                if !st.borrow().placeholder_line || self.view_row_count(st)? == 0 {
+                if st.borrow().placeholder_line && self.view_row_count(st)? == 0 {
+                    // From the untouched new-row line of an empty view to another empty view (a Movement Worksheet switched to a
+                    // worksheet without lines, al-runner issue 6924): the page code that reads Rec next (an action) would
+                    // see the buffer of the old view, where BC's new row has the values of the new one. Nothing in the corpus
+                    // pins it (Y17JournalBatchSwitch.al:485 starts on a stored row, Y50UpdateFromNewLine.al:556 ends on rows).
+                    return unsupported(
+                        "CurrPage.Update in a control's OnValidate that changed the filters of a list on its new-row line, to a view without rows (whether the new row is read again with the values of the new filters is not pinned)",
+                    );
+                }
+                if !st.borrow().placeholder_line {
                     return Ok(None);
                 }
                 let mut s = st.borrow_mut();
