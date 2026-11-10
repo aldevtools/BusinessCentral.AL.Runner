@@ -1032,7 +1032,9 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // Merge train l (profiler memory, ADR-066 amendment 12, SetFilter quote, login chain, shared baseline 3, AccessByPermission
     // actionref) makes it 49 in the local run of the train: ten more cases pass on some BC versions only. The count was
     // not measured on main alone; CI on the train is the check.
-    assert!(out.contains("runtime: 49 case(s) differ between versions"), "{out}");
+    // Exact runner frames by routing (CallstackRunnerFrames.al, corpus pin c4efa9eb) add the eight
+    // CallstackRunnerFrames_Plain_* cases of 69950: a codeunit without handlers has no runner frames from BC 28 on.
+    assert!(out.contains("runtime: 57 case(s) differ between versions"), "{out}");
     assert!(out.contains("71500 Get_Uses_Primary_Key_Not_Current_Key: 27"), "{out}");
 }
 
