@@ -48,7 +48,8 @@ impl Lowerer<'_> {
     /// `E."Mode Two"::"Gamma Delta"` (testpage/CcPageLeads.al:1051 VisibleExpr_V1, :1118 V2, :1185 V3, :1386 V6). BC replaces the
     /// value by its constant before the client compile; the lowering does too (a `Res::EnumValue` lowers to a constant), so
     /// the record is never read. Not pinned, so refused: an Option field (`Res::OptionValue`), a namespace-qualified enum
-    /// (`Ns."Kind"::Beta`, its base is no variable), a variable of the base page in an extension (`Res::BaseGlobal`), a
+    /// (`Ns."Kind"::Beta`, its base is no variable), a table procedure named without parentheses that returns the Enum
+    /// (`E.GetMode::Beta`, the member is no field), a variable of the base page in an extension (`Res::BaseGlobal`), a
     /// local, and a member of anything but a name (`this.E.Mode::Beta`, `E[1].Mode::Beta`). A missing resolution refuses.
     fn qualified_values_pinned(&self, owner: usize, routine: &ast::Routine) -> bool {
         let file = self.ws.objects[owner].file;
@@ -77,6 +78,7 @@ impl Lowerer<'_> {
                     return true;
                 }
                 matches!(res(&scope), Some(Res::EnumValue { .. }))
+                    && matches!(res(&qualifier), Some(Res::Field { .. }))
                     && matches!(res(&base), Some(Res::Global(_)))
                     && matches!(self.checked.types.get(&key(file, &base)), Some(Ty::Record { .. }))
             })

@@ -294,13 +294,15 @@ fn qualified_src(own: &str, ext: &str) -> String {
     format!(
         r#"
 enum 69984 "CP QKind" {{ value(0; Alpha) {{ }} value(1; Beta) {{ }} }}
-table 69985 "CP QRow" {{ fields {{ field(1; Id; Integer) {{ }} field(2; Mode; Enum "CP QKind") {{ }} field(3; Opt; Option) {{ OptionMembers = A,B; }} }} keys {{ key(PK; Id) {{ }} }} }}
+table 69985 "CP QRow" {{ fields {{ field(1; Id; Integer) {{ }} field(2; Mode; Enum "CP QKind") {{ }} field(3; Opt; Option) {{ OptionMembers = A,B; }} }} keys {{ key(PK; Id) {{ }} }}
+    procedure GetMode(): Enum "CP QKind" begin exit(Mode); end; }}
 page 69986 "CP QCard"
 {{
     PageType = Card; SourceTable = "CP QRow";
     layout {{ area(Content) {{ field(Name; Rec.Id) {{ {own} }} }} }}
     trigger OnOpenPage() begin Dir := Dir::Beta; end;
     var GlobalRow: Record "CP QRow"; Dir: Enum "CP QKind";
+    protected var BaseRow: Record "CP QRow";
 }}
 pageextension 69987 "CP QCard Ext" extends "CP QCard"
 {{
@@ -340,18 +342,52 @@ fn an_enum_value_through_a_global_record_runs_and_marks_the_extension_case() {
 }
 
 /// Not pinned, so refused: an Option field through a global Record (the form is used by a Microsoft page no test opens),
-/// a nested member and a member of `this.`.
+/// a nested member, a member of `this.`, a table procedure named without parentheses that returns the Enum, and, in an
+/// extension, the base page's protected Record variable.
 #[test]
 fn qualified_values_through_other_members_stay_refused() {
-    for prop in [
-        "Editable = GlobalRow.Opt = GlobalRow.Opt::B;",
-        "Editable = this.GlobalRow.Mode::Beta = Dir;",
-        "Editable = GlobalRow.Mode.X::Beta = Dir;",
+    for (own, ext) in [
+        ("Editable = GlobalRow.Opt = GlobalRow.Opt::B;", "Editable = true;"),
+        ("Editable = this.GlobalRow.Mode::Beta = Dir;", "Editable = true;"),
+        ("Editable = GlobalRow.Mode.X::Beta = Dir;", "Editable = true;"),
+        ("Editable = Dir = GlobalRow.GetMode::Beta;", "Editable = true;"),
+        ("Editable = true;", "Editable = ExtDir = BaseRow.Mode::Beta;"),
     ] {
-        match al_testkit::run_in(&qualified_src(prop, "Editable = true;"), "C", "Open") {
-            Err(Signal::Unsupported(why)) => assert!(why.contains("dynamic control expression"), "{prop}: {why}"),
-            other => panic!("expected a refusal for `{prop}`, got {other:?}"),
+        match al_testkit::run_in(&qualified_src(own, ext), "C", "Open") {
+            Err(Signal::Unsupported(why)) => assert!(why.contains("dynamic control expression"), "{own} {ext}: {why}"),
+            other => panic!("expected a refusal for `{own}` `{ext}`, got {other:?}"),
         }
+    }
+}
+
+/// Not pinned, so refused: an enum named through its namespace (`QNs."CP NKind"::Beta`), on a page of that namespace.
+#[test]
+fn a_namespace_qualified_enum_in_a_control_expression_stays_refused() {
+    let src = r#"
+namespace QNs;
+enum 69974 "CP NKind" { value(0; Alpha) { } value(1; Beta) { } }
+table 69975 "CP NRow" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+page 69976 "CP NCard"
+{
+    PageType = Card; SourceTable = "CP NRow";
+    layout { area(Content) { field(Name; Rec.Id) { Editable = Dir = QNs."CP NKind"::Beta; } } }
+    trigger OnOpenPage() begin Dir := Dir::Beta; end;
+    var Dir: Enum QNs."CP NKind";
+}
+codeunit 69977 C
+{
+    procedure Open(): Text
+    var R: Record "CP NRow"; P: TestPage "CP NCard";
+    begin
+        R.Id := 1; R.Insert();
+        P.OpenEdit();
+        exit(Format(P.Name.Editable()));
+    end;
+}
+"#;
+    match al_testkit::run_in(src, "C", "Open") {
+        Err(Signal::Unsupported(why)) => assert!(why.contains("dynamic control expression"), "{why}"),
+        other => panic!("expected a refusal, got {other:?}"),
     }
 }
 
