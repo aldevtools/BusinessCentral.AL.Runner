@@ -124,10 +124,13 @@ impl Session {
                 hidden.push((i, child));
             }
         }
-        // A new row on a host with a part a Visible expression hid, whose page declares OnAfterGetCurrRecord: BC runs that
-        // trigger on the new row and again around the first action (pages/parts/HeldSenderPartAccess.al HS07, HS09:
-        // `f4.open;sub.curr;f4.curr(0)`, staging branch al-runtime-rs-staging-probe-train-1110b); the runtime does not.
+        // A new row on a host with a part a Visible expression hid, whose page declares OnAfterGetCurrRecord, and no part linked
+        // through a Provider: BC runs that trigger on the new row and again around the first action (pages/parts/
+        // HeldSenderPartAccess.al HS07, HS09: `f4.open;sub.curr;f4.curr(0)`, staging branch
+        // al-runtime-rs-staging-probe-train-1110b); the runtime does not. With a Provider link the hidden parts read as BC
+        // reads them (testpage/parts/ProviderLinkedPartsMatrix.al:1232 Provider_BothHidden_OpenNewSetKeyClose).
         if st.borrow().mode == PageMode::New
+            && !self.has_provider_link(st)
             && hidden
                 .iter()
                 .any(|(_, c)| self.declares_or_ext_declares(c, "onaftergetcurrrecord"))
@@ -509,6 +512,15 @@ impl Session {
         self.sync_parts_with(st, Sync::Stayed)
     }
 
+    /// Whether a part of `st`'s page is linked through a Provider.
+    fn has_provider_link(&self, st: &St) -> bool {
+        let engine = self.engine();
+        page_of(&engine, st)
+            .controls
+            .iter()
+            .any(|c| c.part_link.as_ref().is_some_and(|l| l.provider.is_some()))
+    }
+
     fn sync_parts_with(&mut self, st: &St, how: Sync) -> Result<(), Signal> {
         let engine = self.engine();
         let page = page_of(&engine, st);
@@ -518,10 +530,7 @@ impl Session {
         // GoToRecord too (testpage/parts/ProviderLinkedPartsMatrix.al Provider_BothHidden_OpenViewAndGoToKey `h2` after GoToKey:
         // `lines-row(0) | detail-row()`). Without a Provider link in the page the older rule stays, which pinned no hidden part
         // for the other moves.
-        let provider_page = page
-            .controls
-            .iter()
-            .any(|c| c.part_link.as_ref().is_some_and(|l| l.provider.is_some()));
+        let provider_page = self.has_provider_link(st);
         if opening || matches!(how, Sync::Move { .. }) || provider_page {
             let hidden = st.borrow().hidden_parts.clone();
             parts.extend(

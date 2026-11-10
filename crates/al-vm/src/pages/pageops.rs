@@ -1190,10 +1190,7 @@ impl Session {
                 let a = self.close_action(st, "Close");
                 let restored = st.borrow().close_restored_row;
                 let fields = restored.then(|| self.page_rec(st).borrow().fields.clone());
-                let r = self.close_with(st, &a, false, false)?;
-                if !st.borrow().open {
-                    st.borrow_mut().closed_by = Some(ClosedBy::PageCode);
-                }
+                let r = self.close_by_page_code(st, &a)?;
                 self.note_code_close_veto(st, &a)?;
                 // Under Page.RunModal the record variable gets the shown row the call read back, although the page closes with
                 // LookupCancel (testpage/PnGRefresh.al:996 QN_CloseQ_Sheet_RunModal_OtherChanged_CloseInAction

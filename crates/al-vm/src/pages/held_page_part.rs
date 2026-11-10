@@ -2,12 +2,13 @@
 //! which its state keeps after the close (`PageState::closed_parts` for the shown parts, `hidden_parts` for the ones a
 //! Visible expression hid). What closed the page (`PageState::closed_by`, set where the close happens) decides whether the
 //! part answers or the call is refused:
-//! - a modal run closed by an action (OK, Cancel): pages/parts/WdPartAfterRunModal.al, Y37PartAfterClose.al;
+//! - a modal run closed by an action (OK, Cancel) or by the platform after its handler: pages/parts/WdPartAfterRunModal.al,
+//!   Y37PartAfterClose.al, NeverRanReadRec.al;
 //! - the page's own `CurrPage.Close`: Y37PartAfterClose.al;
 //! - `TestPage.Close()` of a page the test opened: assumption `held-page-part-after-testpage-close` (al-runner issue 6924).
 //!
 //! Every other close is refused: the close at the end of the test, a refused or failed `TestPage.Close()`, the built-in OK
-//! action on a TestPage, the platform's close after a handler, a modal page closed after its handler raised an error.
+//! action on a TestPage the test opened, a modal page closed after its handler raised an error.
 //! Inside a part reached after `TestPage.Close()` only what the probe measured runs: the part's procedures, its globals, the
 //! fields of its Rec and `Rec.Count()`; a page method on the part and any other method of its Rec refuse.
 
@@ -23,6 +24,15 @@ impl Session {
     pub(super) fn mark_closed_as(&mut self, st: &St, by: ClosedBy) {
         self.mark_closed(st);
         st.borrow_mut().closed_by = Some(by);
+    }
+
+    /// `CurrPage.Close()` or `Close()` of a Page variable: closes as `close_with` does, the cause `ClosedBy::PageCode`.
+    pub(super) fn close_by_page_code(&mut self, st: &St, action: &str) -> Result<Value, Signal> {
+        let r = self.close_with(st, action, false, false)?;
+        if !st.borrow().open {
+            st.borrow_mut().closed_by = Some(ClosedBy::PageCode);
+        }
+        Ok(r)
     }
 
     /// `TestPage.Close()` ended and the page is closed: `ClosedBy::TestClose` when it ran to its end on a page the test opened
@@ -77,8 +87,10 @@ impl Session {
             // reads `CurrPage.PostedRcpts.PAGE` after its RunModal returned.
             // A part a Visible expression hid while the page was open (it opened with the page) hands out its row at close
             // too (pages/parts/Y37PartAfterClose.al:376-395 LT_C314_AfterRunModalOK_OtherPartShown: part A, hidden when an
-            // option switched to part B, gives its row 10000).
-            Some(ClosedBy::Action | ClosedBy::PageCode) if modal_run => shown.or_else(hidden),
+            // option switched to part B, gives its row 10000). A handler that does nothing leaves the close to the platform,
+            // and the part answers the same (pages/parts/NeverRanReadRec.al:101 P182b_HostRanAndClosed_PartReadRec
+            // `id=1 name=one`).
+            Some(ClosedBy::Action | ClosedBy::PageCode | ClosedBy::Platform) if modal_run => shown.or_else(hidden),
             // A page that closed itself with CurrPage.Close in a trigger or an action, opened by a TestPage, and whose code goes
             // on to call a procedure of a part it showed: the part answers, its globals as its OnClosePage left them
             // (pages/parts/Y37PartAfterClose.al:652 CLP_AGCR_CloseAllowed_PartAccess_Observe, :668
