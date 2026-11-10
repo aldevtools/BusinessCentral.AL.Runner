@@ -81,7 +81,7 @@ impl Session {
     }
 
     /// The arm of field `pos`'s relation that applies to the buffer, if any.
-    fn relation_arm(&self, rec: &Rec, t: &TableDef, pos: usize) -> Result<Option<ir::RelationArm>, Signal> {
+    pub(crate) fn relation_arm(&self, rec: &Rec, t: &TableDef, pos: usize) -> Result<Option<ir::RelationArm>, Signal> {
         let schema = self.engine.program.objects[t.object as usize]
             .table
             .as_ref()
