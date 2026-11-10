@@ -1488,16 +1488,7 @@ impl Lowerer<'_> {
                         None => format!("builtin {id} is not implemented"),
                     });
                 }
-                let compound = sig_tokens(n).iter().any(|t| {
-                    matches!(
-                        t.kind(),
-                        SyntaxKind::PlusAssign
-                            | SyntaxKind::MinusAssign
-                            | SyntaxKind::StarAssign
-                            | SyntaxKind::SlashAssign
-                    )
-                });
-                if compound {
+                if super::is_compound_assign(n) {
                     return Err("compound assignment to a setter-form builtin is not lowered yet".into());
                 }
                 // The assignment form of `ApplicationArea` is the reporter's measurement, not a corpus pin (al-runner
@@ -1560,16 +1551,7 @@ impl Lowerer<'_> {
         // session-system/TestSessionSettings.al:534): a builtin call, not a place.
         if let Some(Res::Builtin(id)) = self.res(&kids[0]).cloned() {
             if id == "System.GlobalLanguage#1" && kids[0].kind() != SyntaxKind::MemberExpr {
-                if sig_tokens(n).iter().any(|t| {
-                    t.kind() != SyntaxKind::Assign
-                        && matches!(
-                            t.kind(),
-                            SyntaxKind::PlusAssign
-                                | SyntaxKind::MinusAssign
-                                | SyntaxKind::StarAssign
-                                | SyntaxKind::SlashAssign
-                        )
-                }) {
+                if super::is_compound_assign(n) {
                     return Err("compound assignment to GlobalLanguage is not lowered yet".into());
                 }
                 let rhs = self.expr(&kids[1])?;

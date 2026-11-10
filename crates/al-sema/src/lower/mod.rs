@@ -576,6 +576,16 @@ fn sig_tokens(n: &SyntaxNode) -> Vec<ast::GreenTok<'_>> {
     ast::significant_green_tokens(n).collect()
 }
 
+/// Whether the assignment statement `n` is a compound assignment (`+=`, `-=`, `*=`, `/=`).
+fn is_compound_assign(n: &SyntaxNode) -> bool {
+    sig_tokens(n).iter().any(|t| {
+        matches!(
+            t.kind(),
+            SyntaxKind::PlusAssign | SyntaxKind::MinusAssign | SyntaxKind::StarAssign | SyntaxKind::SlashAssign
+        )
+    })
+}
+
 mod assemble;
 mod bare_report_name;
 mod blob_length_sign;
