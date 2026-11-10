@@ -68,7 +68,7 @@ Your task prompt holds only the task. Read both files from YOUR worktree: the ma
    If you touched dependency loading, lowering, the checker, `observe.rs` or lazy package reading:
    run the check that `docs/agents/checks.md` names for it.
 7. `cargo fmt --all` LAST, after every edit. Then `tools/prepush.sh`.
-8. Push your branch. `gh pr create --draft`. No auto-merge. Do not wait for CI. Do not mark it ready.
+8. Push your branch. `gh pr create --draft`. No auto-merge. CI runs only the `test` job on a draft (owner, 2026-11-10). Do not wait for CI. Do not mark it ready.
    The orchestrator reviews it. A single reviewed PR is marked ready with auto-merge and lands on
    its own. Merge trains are only for two or more ready PRs.
 9. Stop every monitor and background process you started.

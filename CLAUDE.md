@@ -106,8 +106,8 @@ before you open a source file.
   `--all-versions` corpus run locally before a pull request: on this shared machine they cost up to an
   hour, and PR CI runs the full corpus on every major in about 6 to 12 minutes. Locally run
   `cargo test -p` and `cargo clippy -p ... -- -D warnings` for the crates you touched, and `cargo fmt --all`.
-  Open the pull request as a draft and without auto-merge (owner, 2026-11-09): CI runs no job on a draft,
-  so it takes no place in the CI queue. The orchestrator reviews it. A single reviewed PR is marked ready
+  Open the pull request as a draft and without auto-merge (owner, 2026-11-09): CI runs only the `test` job on a draft (owner, 2026-11-10),
+  so it takes little of the CI queue. The orchestrator reviews it. A single reviewed PR is marked ready
   with auto-merge and lands on its own (owner, 2026-11-10); a merge train is used only when two or more
   PRs are ready, and its pull request runs CI once for all of them. The orchestrator fixes or hands back
   what that run reports. Agents never run `pkill`, `git stash`, `git commit -a` / `git add -A`, or start a
@@ -119,7 +119,10 @@ before you open a source file.
   CI runs ran get those runs' results; every other case keeps the current oracle. It refuses when a run is
   not green, a BC version is missing, a shared fixture changed, or it cannot show the run tested the merged
   files. `--dry-run` shows what it would take, `--body FILE` writes the pull request body (which runs the
-  oracle came from). The next bump from a master run corrects anything only master shows.
+  oracle came from). The next bump from a master run corrects anything only master shows. After the oracle, a
+  bump also regenerates the golden files (`pinned_columns.rs`, `expected-unresolved.txt`; commit them with the bump),
+  prunes the lists again, runs `cargo test -p al-version`, and prints what a person must fix (a regression, a case
+  without an outcome, a gate to extend) as a to-do list before it exits 1.
 - Perf budgets (cold compile of the corpus ≤ 695 000 instructions per KiB of corpus source; the full corpus run with Microsoft's apps ≤ 83.2 G instructions for the Microsoft apps plus 4 210 000 per KiB of the corpus source it compiles; wall time printed for information only; parser ≥ 50 MB/s) are
   `#[ignore]`d tests that need release:
   `cargo test --release --no-fail-fast -p al-syntax --test perf_parse_throughput -p al-test-cli --test perf_budget -p al-test-cli --test perf_vm -p al-data --lib -- --ignored --nocapture`.

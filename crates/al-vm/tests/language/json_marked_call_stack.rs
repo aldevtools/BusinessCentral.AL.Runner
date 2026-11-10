@@ -7,6 +7,13 @@
 const SRC: &str = r#"
 codeunit 70551 "LT Marked Json"
 {
+    // The hyphen in the name is a frame format the corpus has not measured: the call stack of the collected error ends
+    // with the untracked mark below this frame.
+    local procedure "Hop-Collect"(var Info: ErrorInfo)
+    begin
+        Collect(Info);
+    end;
+
     [ErrorBehavior(ErrorBehavior::Collect)]
     local procedure Collect(var Info: ErrorInfo)
     var
@@ -32,7 +39,7 @@ codeunit 70551 "LT Marked Json"
     var
         Info: ErrorInfo;
     begin
-        Collect(Info);
+        "Hop-Collect"(Info);
         exit('null' <> JsonOf(Info));
     end;
 
@@ -42,7 +49,7 @@ codeunit 70551 "LT Marked Json"
         JObject: JsonObject;
         Token: JsonToken;
     begin
-        Collect(Info);
+        "Hop-Collect"(Info);
         JObject.ReadFrom(JsonOf(Info));
         JObject.Get('Description', Token);
         exit(Token.AsValue().AsText());
@@ -54,7 +61,7 @@ codeunit 70551 "LT Marked Json"
         JObject: JsonObject;
         Token: JsonToken;
     begin
-        Collect(Info);
+        "Hop-Collect"(Info);
         JObject.ReadFrom(JsonOf(Info));
         JObject.Get('CallStack', Token);
         exit(Token.AsValue().AsText() <> '');
@@ -65,7 +72,7 @@ codeunit 70551 "LT Marked Json"
         Info: ErrorInfo;
         JObject: JsonObject;
     begin
-        Collect(Info);
+        "Hop-Collect"(Info);
         exit(JObject.ReadFrom('{"' + Info.Callstack + '":1}'));
     end;
 
@@ -74,7 +81,7 @@ codeunit 70551 "LT Marked Json"
         Info: ErrorInfo;
         JObject: JsonObject;
     begin
-        Collect(Info);
+        "Hop-Collect"(Info);
         exit(JObject.ReadFrom('{"a":' + Info.Callstack + '}'));
     end;
 }

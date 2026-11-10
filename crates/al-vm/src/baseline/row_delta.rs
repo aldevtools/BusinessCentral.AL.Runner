@@ -195,6 +195,18 @@ mod tests {
     use al_builtins::value::Value;
     use al_data::memory::ExportedTable;
 
+    /// What a session restored from `b` starts from: its bytes without the last stamp, the install rows, and the marks
+    /// (the tables a DeleteAll emptied, the company copies).
+    fn fingerprint(b: &super::super::Baseline) -> Option<Vec<u8>> {
+        let mut b = b.clone();
+        b.last_stamp = 0;
+        let mut out = b.to_bytes()?;
+        let rows = b.install_rows.clone().unwrap_or_else(|| b.nonempty_tables());
+        out.extend(rows.iter().flat_map(|t| t.to_le_bytes()));
+        out.extend(format!("{:?}", b.store.committed_marks()).into_bytes());
+        Some(out)
+    }
+
     fn rows(object: u32, keys: impl Iterator<Item = i32>, v: i32) -> ExportedTable {
         ExportedTable {
             company: "CRONUS".into(),
@@ -231,7 +243,7 @@ mod tests {
         let d = later.row_delta_from(&base).expect("plain rows");
         let copy = super::super::Baseline::from_bytes(&base.to_bytes().unwrap()).unwrap();
         let got = copy.with_row_delta(&d).expect("applies");
-        assert_eq!(got.fingerprint(), later.fingerprint());
+        assert_eq!(fingerprint(&got), fingerprint(&later));
         assert_eq!(got.to_bytes(), later.to_bytes());
         assert_eq!(got.origin(), later.origin());
         // Only the rows that differ are in it, not the 500 of table 18.
@@ -241,6 +253,6 @@ mod tests {
         // Without an install baseline: from nothing, every row is in the delta.
         let empty = super::super::Baseline::empty();
         let all = later.row_delta_from(&empty).unwrap();
-        assert_eq!(empty.with_row_delta(&all).unwrap().fingerprint(), later.fingerprint());
+        assert_eq!(fingerprint(&empty.with_row_delta(&all).unwrap()), fingerprint(&later));
     }
 }
