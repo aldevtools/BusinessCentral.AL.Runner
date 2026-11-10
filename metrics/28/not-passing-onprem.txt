@@ -76,7 +76,6 @@
 61261 PlatformTable_PerformanceProfileScheduler
 61261 PlatformTable_ReportLayoutList
 61261 PlatformTable_UserPersonalization
-61262 TenantId_OfCorpusAndMicrosoftApps
 61263 P110_CloseTwiceAndName
 61263 P110_Closed_File_Never_Opened
 61263 P110_CreateCloseExists

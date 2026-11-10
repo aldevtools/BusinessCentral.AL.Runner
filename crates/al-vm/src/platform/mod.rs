@@ -106,6 +106,8 @@ pub(crate) struct Ident {
     pub user_sid: [u8; 16],
     pub company: String,
     pub company_id: [u8; 16],
+    /// `TenantId()` of the session.
+    pub tenant_id: String,
     pub session_id: i32,
     pub instance_id: i32,
     pub host_name: String,
@@ -131,6 +133,7 @@ impl Ident {
             user_sid: id.user_security_id(),
             company: id.company_name(),
             company_id: id.company_id(),
+            tenant_id: id.tenant_id(),
             time_zone: id.time_zone(),
             session_id: id.session_id(),
             instance_id: id.service_instance_id(),
@@ -420,7 +423,7 @@ impl Providers {
     }
 
     /// Whether the listing of `kind` is the same for every session of the engine. Session, Active
-    /// Session and Time Zone list the host's identity of this session.
+    /// Session and Time Zone list the host's identity of this session, and Published Application its tenant id.
     fn shares(kind: Virtual) -> bool {
         !matches!(
             kind,
@@ -429,6 +432,7 @@ impl Providers {
                 | Virtual::ServerInstance
                 | Virtual::TimeZone
                 | Virtual::TenantMedia
+                | Virtual::PublishedApplication
         )
     }
 

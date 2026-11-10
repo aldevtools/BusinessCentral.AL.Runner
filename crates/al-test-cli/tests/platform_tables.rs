@@ -1585,13 +1585,15 @@ codeunit 50000 "T" { Subtype = Test;
 fn a_published_application_row_passes_the_tenant_filter_of_the_retention_policy_module() {
     // install-upgrade/TestRetenPolAllowedTables_Tests.al: Base Application registers table 405 only when
     // System Application finds its Published Application row through
-    // SetFilter("Tenant ID", '%1|%2', '', TenantId). The row must therefore satisfy that filter.
+    // SetFilter("Tenant ID", '%1|%2', '', TenantId). The row must therefore satisfy that filter. The row of an app
+    // under test carries TenantId() (onprem session-system/PZPublishedApplicationColumns.al:106), so the filter names
+    // it as Microsoft's code does.
     let o = outcomes_app(
         "5d86850b-0d76-4eca-bd7b-951ad998e997",
         r#"codeunit 50000 "T" { Subtype = Test;
   [Test] procedure OwnRowPassesTheTenantFilter() var P: Record "Published Application"; begin
     P.SetRange(ID, '5d86850b-0d76-4eca-bd7b-951ad998e997');
-    P.SetFilter("Tenant ID", '%1|%2', '', 'any-tenant');
+    P.SetFilter("Tenant ID", '%1|%2', '', TenantId());
     if not P.FindFirst() then Error('no row'); end; }"#,
         al_sema::check::Roots::default(),
     );
