@@ -147,6 +147,10 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
 /// a case that finds its code matches.
 pub const NOT_CHECKED: &[(&str, &str)] = &[
     (
+        "AL0156",
+        "reported only for a table field of type Char or Byte (alcodes/field_types.rs; case 3112); other invalid field types, and a page field bound to an Enum object name (case 1403), are not judged.",
+    ),
+    (
         "AL0271",
         "reported only for an event subscriber of OnBeforeActionEvent or OnAfterActionEvent whose element names no action of a page of the workspace or of its page extensions (alcodes/action_subscriber.rs; case 3113); an unknown promoted category group, an actionref of an unpromoted action and the other shapes are not judged.",
     ),
@@ -580,7 +584,10 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
                 control_visible::check(ws, oi, &obj, &page_procedures(&obj), &mut out);
             }
             ObjKind::Query => query_joins(ws, o.file, obj.sections(), &mut out),
-            ObjKind::Table => count_flowfield::check(ws, oi, &obj, &mut out),
+            ObjKind::Table => {
+                count_flowfield::check(ws, oi, &obj, &mut out);
+                field_types::check(ws, oi, &obj, &mut out);
+            }
             ObjKind::Report => {
                 let globals = report_variable_columns(ws, o.file, &obj);
                 report_columns(ws, o.file, obj.sections(), &globals, &mut out)
@@ -2521,6 +2528,7 @@ fn typed_names(d: &ast::VarDecl) -> Vec<(String, String)> {
 mod action_subscriber;
 mod control_visible;
 mod count_flowfield;
+mod field_types;
 mod permissions_property;
 #[cfg(test)]
 mod tests;

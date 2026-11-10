@@ -1,6 +1,6 @@
 # ADR-008: Builtins catalog — signatures from the docs, implementations by id
 
-- Status: Accepted (project owner, 2026-10-13)
+- Status: Accepted (project owner, 2026-10-13); decision 4 amended by ADR-072 (the value model and the catalog move to a stable `al-value` crate; natives and `Ctx` stay in `al-builtins`)
 - Date: 2026-10-13
 
 ## Context
