@@ -31,6 +31,12 @@ must stay cheap and safe for the next person or agent to change. In practice tha
 When correctness and ease of change pull in different directions, correctness wins, but the pull
 request says what it made harder and opens the follow-up.
 
+**Take the extra time (owner, 2026-11-10).** A slower, less frequent release with a stronger
+solution is better than a fast fix that needs rework or regresses later. Spend more time and more
+tokens up front, on design, on reading the code and the corpus, and on review, when that gives a
+cleaner, more readable solution with fewer regressions and less token waste later. On every open
+question, choose the better long-term solution over the quicker one.
+
 **3. Then features, then speed** (within the perf budgets).
 
 ## Hard rules
