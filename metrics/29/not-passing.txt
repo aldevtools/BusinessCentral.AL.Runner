@@ -138,8 +138,6 @@
 67057 TableConnection_OtherConnectionString
 67057 TableConnection_ScopedDefault
 67057 TableConnection_UnregisteredName
-67064 GetResourceAsJson_NotJson
-67064 GetResourceAsText_Encodings
 67066 ExecutionMode_CurrentAndMemberList
 67067 SessionSettings_Init_FollowsGlobalLanguage
 67067 SessionSettings_Update_SaveTrue_WithHandler
@@ -198,7 +196,6 @@
 67749 TransactionTypeBrowse_ReportThatWrites
 67749 TransactionTypeReport_ReportThatWrites
 67749 TransactionTypeSnapshot_ReportThatWrites
-67755 Names_DataItemsWithSpacesAndPunctuation
 67761 FormatRegion_OddValues
 67761 Language_RejectedValues
 67761 Language_Set1031_FormatAndColumns
@@ -250,8 +247,6 @@
 68511 Open_AfterTheFirstRead
 68511 SaveAsCsv_NonIntegerColumns
 68511 WriteWhileAnAggregatedQueryIsOpen_InsertAfterFirstRead
-68512 Aggregates_OverBigInteger
-68512 Aggregates_OverDuration
 68512 Average_Decimal_QuotientsWhereCutAndRoundDiffer
 68520 GuardedStaticImport_BadDocumentWhileAWriteIsPending
 68520 GuardedStaticImport_RefusedBecauseAWriteIsPending
@@ -456,7 +451,6 @@
 70119 Evaluate_IntoPlatformOptions
 70127 PW_GetFilters_SetAgain
 70129 Aggregates_PerGroup
-70129 BigIntegerAndDuration_SumAndAverage
 70171 GridAndFixedFieldsAreReachable
 70171 LabelSetValueAndAssert
 70173 ExtensionControlReadsBaseProtectedVar
@@ -495,7 +489,6 @@
 70515 CodeComparison
 70515 PYC_CodeAgainstTextLiteral
 70515 TextOrdering
-70535 PW_SecondSaveAs_LastErrorCode
 70535 PW_TriggerError_InPreReport_LastError
 70540 Decimal_QuotientDigits
 70540 TextOrder_BaseLetterAccentCase
@@ -595,10 +588,6 @@
 71254 PYB_OnePart_KeyTyped
 71254 PYB_TwoParts_KeyNotInGroupTable
 71254 PYB_TwoParts_KeyTyped_WhatIsShownAndStored
-71344 OnQueryClosePage_NamedFalseThenFallThroughHandlerCancel_Observed
-71344 OnQueryClosePage_NamedFalseThenFallThroughHandlerOk_Observed
-71344 OnQueryClosePage_NamedReadsResultFirstHandlerCancel_Observed
-71344 OnQueryClosePage_NamedReadsResultFirstHandlerOk_Observed
 71367 SaveRecord_LiteralInvisible_OpenEdit
 71408 MaxIterationZero_IntegerItem_FilteredToThree
 71408 MaxIterationZero_TableItem_ThreeRows
@@ -1145,7 +1134,6 @@
 79013 SG_FieldTable_RowVersion_NameAlone
 79255 ExcelLayout_SaveAsExcel
 79255 ExcelLayout_SaveAsPdf
-79255 RdlcLayout_SaveAsHtml_IsRefused
 79255 WordLayout_SaveAsExcel
 79255 WordLayout_SaveAsHtml
 79255 WordLayout_SaveAsPdf
@@ -1154,7 +1142,6 @@
 79257 QD_TextRdlc_SaveAsHtml_RequestPageXml
 79257 QD_TextRdlc_SaveAsXml_RequestPageXml
 79257 TextRdlc_SaveAsExcel
-79257 TextRdlc_SaveAsHtml_IsRefused
 79257 TextRdlc_SaveAsWord
 79257 TextRdlc_SaveAsXml_DoesNotRender
 79450 An11_DeleteInLongView
@@ -1336,7 +1323,6 @@
 84409 MaxStrLen_OfQueryColumn_BeforeAndAfterOpen
 84409 ReverseSign_OnTextColumn_Runtime
 84439 FlowFieldRelation_LookupFilter
-84475 Aggregates_OverIntegerAndBigInteger_TypesAndValues
 84475 DataItemLink_OnAChildFlowField_OpenReadErrors
 84475 DataItemLink_OnAParentFlowField_OpenReadErrors
 84475 DateMethods_DayMonthYear_OnDateTimeDateAndBlank
