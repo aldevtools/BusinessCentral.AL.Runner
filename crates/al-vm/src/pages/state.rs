@@ -756,6 +756,22 @@ impl std::fmt::Debug for PageState {
 }
 
 impl PageState {
+    /// The platform runs the page as a lookup of `kind`: the static `Page.RunModal` whose return value is used, or a
+    /// TableRelation lookup.
+    pub(crate) fn open_as_lookup(&mut self, kind: LookupKind) {
+        self.lookup = true;
+        self.lookup_kind = kind;
+    }
+
+    /// `LookupMode(on)` called from AL, on the page variable or on `CurrPage`. A page the platform opened as a lookup
+    /// (`open_as_lookup`) keeps its kind, also when its code switches the mode off.
+    pub(crate) fn set_lookup_mode(&mut self, on: bool) {
+        self.lookup = on;
+        if self.lookup_kind == LookupKind::None {
+            self.lookup_kind = LookupKind::Variable;
+        }
+    }
+
     pub fn closed(object: u32) -> PageState {
         PageState {
             object,

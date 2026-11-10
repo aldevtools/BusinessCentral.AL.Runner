@@ -9,8 +9,7 @@ impl Session {
     /// (testpage/P133RelationLookups.al:271-284; `lookup_list`).
     pub(super) fn relation_lookup_page(page_object: usize) -> St {
         let related = Rc::new(RefCell::new(PageState::closed(page_object as u32)));
-        related.borrow_mut().lookup = true;
-        related.borrow_mut().lookup_kind = LookupKind::Relation;
+        related.borrow_mut().open_as_lookup(LookupKind::Relation);
         related
     }
 
