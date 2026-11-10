@@ -2631,7 +2631,11 @@ impl Session {
             s.cursor = before_cursor;
             s.draft = before_draft;
             drop(s);
-            if st.borrow().host.is_some() && !result_used {
+            // With the result unused a miss raises the row error: on a part, and on a list page (al-runner issue 7412;
+            // pages/run-modal/Y7412PageRunRecordFilters.al:337 Y7412_Run0_StatementForm: a list without triggers run by
+            // Page.Run(0, Rec), the three rows outside the record's filters each `error:The row does not exist on the
+            // TestPage.|TestRowNotFound`). A card is not pinned there and answers as before.
+            if (st.borrow().host.is_some() || self.is_list(st)) && !result_used {
                 return Err(error_code("The row does not exist on the TestPage.", "TestRowNotFound"));
             }
         }
