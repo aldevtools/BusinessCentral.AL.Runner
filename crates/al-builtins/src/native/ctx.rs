@@ -69,6 +69,8 @@ pub struct FieldTarget {
     pub pos: usize,
     pub ty: crate::value::RtType,
     pub option_caption: bool,
+    /// The captions of an Option field that declares an OptionCaption (not OptionCaptionML), as a comma list in member order.
+    pub option_captions: Option<String>,
 }
 
 pub trait Ctx: FormatCtx {

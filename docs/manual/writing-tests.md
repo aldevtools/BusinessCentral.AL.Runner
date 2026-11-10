@@ -556,6 +556,10 @@ times the limit in wall time. A run of Microsoft's recipe (`--recipe microsoft`,
 changes the limit for any run, and `0` removes it. Later failures in the same codeunit are then not trusted; see
 [Reading results](results.md).
 
+A codeunit with a test that never ends can use the limit once per test. `--skip-after-timeout` runs
+no further test of a codeunit once one of its tests was stopped at the limit: the rest end as not run,
+and the reason names the stopped test. The summary shows how much time went to tests that ended not run.
+
 ## Examples
 
 The [AL language test corpus](https://github.com/aldevtools/BusinessCentral.AL.Language.Tests)

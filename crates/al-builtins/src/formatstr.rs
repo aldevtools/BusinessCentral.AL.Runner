@@ -10,7 +10,9 @@
 //! Any other code, or one of these on another type or in another width, is refused.
 
 mod second_dec;
+mod separators;
 mod std_comma;
+mod text_codes;
 use crate::describe::Describe;
 use crate::format::{FormatCtx, civil_from_day, format_value};
 use crate::value::Value;
@@ -208,6 +210,11 @@ pub fn format_with_field_places(
     if template == "<Text>" && matches!(v, Value::Library(crate::library_kind::LibraryKind::TextBuilder, _)) {
         return format_value(v, length, 0, ctx).map_err(fail);
     }
+    if template.contains("<1000Character,") && !template.contains("<Comma") {
+        if let Some(r) = separators_template(v, length, template) {
+            return r;
+        }
+    }
     if template.contains("<Comma") {
         if let Some(r) = std_comma::standard_comma(v, length, template, ctx) {
             return r;
@@ -244,6 +251,10 @@ pub fn format_with_field_places(
     {
         return Err(format!("{INVALID_FORMAT_MARK}{template}"));
     }
+    // A code the type does not take (format-evaluate/format-matrix/FMDateTime.al, corpus PR 1250; `code_invalid_on`).
+    if pieces.iter().any(|(c, t)| *c && code_invalid_on(v, t)) {
+        return Err(format!("{INVALID_FORMAT_MARK}{template}"));
+    }
     // `<Integer,6><Filler Character,0>` on a Byte is the invalid-format error (types/decimal-integer/ScT70052.al:182,197).
     if matches!(v, Value::Byte(_))
         && pieces.iter().any(|(c, _)| *c)
@@ -258,50 +269,61 @@ pub fn format_with_field_places(
     if matches!(v, Value::Option(_, m) if crate::sysenum::is_field_class(m)) && template == "<Text>" {
         return Err(format!("{INVALID_FORMAT_MARK}{template}"));
     }
+    // A filler after the `<Text,N>` on a Text stays with `text_template` (AxFillerBuilderAutoFormat.al:101-136).
+    let filler_after_text = pieces
+        .iter()
+        .filter(|(c, _)| *c)
+        .map(|(_, t)| *t)
+        .skip_while(|t| !t.starts_with("Text"))
+        .any(|t| t.starts_with("Filler Character,"));
+    if !filler_after_text {
+        if let Some(r) = text_codes::format(v, template, &pieces, ctx) {
+            return r.map(|out| crate::format::pad(out, length));
+        }
+    }
     if let Value::Text(t) = v {
         if let Some(out) = text_template(t.as_str(), &pieces)? {
             return Ok(crate::format::pad(out, length));
         }
     }
-    // The undefined DateTime and Date format as the empty text, their separators too (types/date-time/Format.al:
-    // QR_DateTime_Format_StampStrings_Undefined `u1`-`u8`, QR_Date_Format_StampStrings `z1`-`z9`). Pinned for these codes only.
-    let undefined_codes: &[&str] = match v {
-        Value::DateTime(0) => &[
-            "Year4",
-            "Year,2",
-            "Month,2",
-            "Day,2",
-            "Hours24,2",
-            "Hours24",
-            "Minutes,2",
-            "Seconds,2",
-            "Filler Character,0",
-        ],
-        Value::Date(0, false) => &[
-            "Year4",
-            "Year,2",
-            "Month,2",
-            "Day,2",
-            "Day",
-            "Month Text",
-            "Weekday Text",
-            "Week",
-            // FormatQuarterDuration.al:83,94 (`undefined_date`).
-            "Quarter",
-        ],
-        _ => &[],
+    // The undefined Date and DateTime format as the empty text, literal text and separators too, for every code that is valid on
+    // the type: the same string on a defined value tells which codes are valid (format-evaluate/P144DateTextWidth.al
+    // Format_UndefinedDate_IssueStrings, _SingleCodes, _TextAndStandardCodes, _FormatStrings_De, corpus PR 1247, al-runner issue
+    // 7378; format-evaluate/format-matrix/FMDateTime.al:100-221, :2044-2180, corpus PR 1250: `<Day Text>`, `<Hours24>`,
+    // `<Integer>` and `<Text>` on 0D, `<Closing>` and `<Text>` on 0DT are the invalid-format error; every standard format code
+    // on 0DT is the empty text). Earlier pins: types/date-time/Format.al QR_DateTime_Format_StampStrings_Undefined,
+    // QR_Date_Format_StampStrings.
+    let defined = match v {
+        Value::Date(0, false) => Some(Value::Date(crate::format::day_from_civil(2024, 3, 5), false)),
+        Value::DateTime(0) => {
+            let day = i64::from(crate::format::day_from_civil(2026, 3, 9));
+            Some(Value::DateTime(
+                (day - 1) * 86_400_000 + ((13 * 60 + 45) * 60 + 12) * 1000 + 123 + 1,
+            ))
+        }
+        _ => None,
     };
-    if !undefined_codes.is_empty()
-        && pieces.iter().any(|(is_code, _)| *is_code)
-        && pieces.iter().all(|(is_code, text)| {
-            !is_code
-                    || undefined_codes.contains(text)
-                    // `<Second dec>` and `<Thousands>` on 0DT (types/date-time/Format.al:1293, corpus
-                    // master 3eb812ed; al-runner issue 6976).
-                    || (matches!(v, Value::DateTime(0)) && (second_dec::is_plain_code(text) || *text == "Thousands"))
-        })
-    {
-        return Ok(crate::format::pad(String::new(), length));
+    if let Some(defined) = defined {
+        return match format_with_field_places(&defined, 0, template, (min_decimals, negative_zero), ctx) {
+            Ok(_) => Ok(crate::format::pad(String::new(), length)),
+            Err(e) if matches!(v, Value::DateTime(0)) && e.contains("InvalidStandardFormat") => {
+                Ok(crate::format::pad(String::new(), length))
+            }
+            Err(e) if e.starts_with(INVALID_FORMAT_MARK) || e.starts_with(RAISE_MARK) => Err(e),
+            // The defined value's text is not pinned here (a German weekday name), the code is valid on the type all the same
+            // (FMDateTime.al:988-989, :1045 `<Weekday Text>` on 0D under 1031; :2069 `<Weekday>` on 0DT).
+            Err(_) if pieces.iter().all(|(c, t)| !c || valid_on_undefined(v, t)) => {
+                Ok(crate::format::pad(String::new(), length))
+            }
+            Err(e) => Err(format!(
+                "{e} (on the undefined {})",
+                if matches!(v, Value::Date(..)) {
+                    "Date"
+                } else {
+                    "DateTime"
+                }
+            )),
+        };
     }
     let numeric = numeric_of(v, &pieces, min_decimals, negative_zero).map_err(|e| {
         if e == INVALID_FORMAT_MARK {
@@ -404,6 +426,24 @@ pub fn format_with_field_places(
         return Ok(out.chars().take(length as usize).collect());
     }
     Ok(crate::format::pad(out, length))
+}
+
+/// A template with `<1000Character,x>` or `<Comma,y>` on a number, read by [`separators::format`]; `None` when it is not of that family.
+fn separators_template(v: &Value, length: i32, template: &str) -> Option<Result<String, String>> {
+    // Only Length 0 is pinned for this family.
+    if length != 0 {
+        return None;
+    }
+    let (value, whole) = match v {
+        Value::Decimal(d) => (*d, false),
+        Value::Integer(i) => (Decimal::from(*i), true),
+        Value::BigInteger(i) => (Decimal::from(*i), true),
+        _ => return None,
+    };
+    Some(match separators::format(value, whole, template)? {
+        Ok(out) => Ok(crate::format::pad(out, length)),
+        Err(()) => Err(format!("{INVALID_FORMAT_MARK}{template}")),
+    })
 }
 
 /// The format strings with a `<Comma,...>` element that the corpus pins (format-evaluate/
@@ -510,6 +550,9 @@ fn comma_template(v: &Value, length: i32, template: &str, ctx: &dyn FormatCtx) -
                     return Ok(crate::format::pad(format_with_string(v, 0, plain, ctx)?, length));
                 }
                 _ => {
+                    if let Some(r) = separators_template(v, length, template) {
+                        return r;
+                    }
                     return Err(format!(
                         "format string `{template}`: the `<Comma` element is pinned for six strings only"
                     ));
@@ -523,6 +566,9 @@ fn comma_template(v: &Value, length: i32, template: &str, ctx: &dyn FormatCtx) -
                 out.replacen('.', &point.to_string(), 1)
             };
             Ok(crate::format::pad(out, length))
+        }
+        Value::Integer(_) if separators_template(v, length, template).is_some() => {
+            separators_template(v, length, template).expect("checked")
         }
         Value::Integer(_) | Value::Text(_) | Value::Date(..) => {
             if template == "<Comma,.>" {
@@ -548,6 +594,9 @@ fn comma_template(v: &Value, length: i32, template: &str, ctx: &dyn FormatCtx) -
             | "<Integer Thousand><Comma,.><Decimals>"
             | "<Integer><Comma,,><Decimals>" => invalid(),
             _ if matches!(v, Value::DateTime(_)) => time_comma(v, length, template, ctx),
+            _ if matches!(v, Value::BigInteger(_)) && separators_template(v, length, template).is_some() => {
+                separators_template(v, length, template).expect("checked")
+            }
             _ => Err(format!(
                 "format string `{template}`: the `<Comma` element is pinned for six strings only"
             )),
@@ -788,8 +837,10 @@ fn numeric_code(n: &Numeric, code: &str, v: &Value, ctx: &dyn FormatCtx) -> Resu
             None => grouped,
         });
     }
-    // `<Decimals>` on an Integer is the invalid-format error (types/decimal-integer/ScT70052.al:85,96 `af52`).
-    if code == "Decimals" && matches!(v, Value::Integer(_)) {
+    // `<Decimals>` on an Integer is the invalid-format error (types/decimal-integer/ScT70052.al:85,96 `af52`), and so is every
+    // decimals code with a width on an Integer and every decimals code on a BigInteger (format-evaluate/format-matrix/
+    // FMNumeric.al:76-125, :783-833, corpus PR 1249).
+    if (code == "Decimals" || code.starts_with("Decimals,")) && matches!(v, Value::Integer(_) | Value::BigInteger(_)) {
         return Err(INVALID_FORMAT_MARK.to_string());
     }
     if code == "Decimals" || code == "Decimals,0" {
@@ -833,7 +884,9 @@ fn numeric_code(n: &Numeric, code: &str, v: &Value, ctx: &dyn FormatCtx) -> Resu
     // A name that is no code at all (`<Decimal Separator>`, `<1000 Separator>`, `<Unknown>`, `<Standard Format>`) is an invalid
     // format (P86FormatDecimal.al:Str_Mid_2 to Str_Mid_5).
     let name = code.split_once(',').map_or(code, |(n, _)| n);
-    if !CODE_NAMES.contains(&name) || code == "Standard Format" {
+    // `<Day>` and `<Hours24>` on a number are the invalid-format error (format-evaluate/format-matrix/FMNumeric.al:139-140,
+    // corpus PR 1249).
+    if !CODE_NAMES.contains(&name) || code == "Standard Format" || matches!(code, "Day" | "Hours24") {
         return Err(INVALID_FORMAT_MARK.to_string());
     }
     refuse()
@@ -934,6 +987,71 @@ fn fail(f: crate::format::FormatFail) -> String {
     }
 }
 
+/// The code names the matrix shows as valid, writing nothing, on the undefined Date and DateTime (FMDateTime.al:100-221,
+/// :2044-2180, corpus PR 1250).
+fn valid_on_undefined(v: &Value, code: &str) -> bool {
+    let name = code.split_once(',').map_or(code, |(n, _)| n);
+    let date = matches!(
+        name,
+        "Day"
+            | "Month"
+            | "Month Text"
+            | "Year"
+            | "Year4"
+            | "Weekday"
+            | "Weekday Text"
+            | "Week"
+            | "Standard Format"
+            | "Filler Character"
+    );
+    match v {
+        Value::Date(..) => date || name == "Closing",
+        Value::DateTime(_) => {
+            date || matches!(
+                name,
+                "Hours24"
+                    | "Hours12"
+                    | "Minutes"
+                    | "Seconds"
+                    | "Thousands"
+                    | "Second dec."
+                    | "AM/PM"
+                    | "Hour"
+                    | "Minute"
+                    | "Second"
+            )
+        }
+        _ => false,
+    }
+}
+
+/// The codes the matrix shows as the invalid-format error on a type (format-evaluate/format-matrix/FMDateTime.al, corpus PR 1250):
+/// on a Date `<Hours24>`, `<Integer>`, `<Text>` and `<Day Text>` (also P144DateTextWidth.al `z_day_text`); on a Time `<Day>` and
+/// `<Text>`; on a DateTime `<Text>`; on a Duration `<Days>`, `<Hours>`, `<Minutes>`, `<Seconds>`, `<Thousands>`, `<Day>`,
+/// `<Hours24>`, `<Integer>`, `<Decimals>`, `<Sign>` and `<Text>`.
+fn code_invalid_on(v: &Value, code: &str) -> bool {
+    match v {
+        Value::Date(..) => matches!(code, "Hours24" | "Integer" | "Text" | "Day Text"),
+        Value::Time(_) => matches!(code, "Day" | "Text"),
+        Value::DateTime(_) => code == "Text",
+        Value::Duration(_) => matches!(
+            code,
+            "Days"
+                | "Hours"
+                | "Minutes"
+                | "Seconds"
+                | "Thousands"
+                | "Day"
+                | "Hours24"
+                | "Integer"
+                | "Decimals"
+                | "Sign"
+                | "Text"
+        ),
+        _ => false,
+    }
+}
+
 fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -> Result<String, String> {
     // `<C,GBP>`: the currency code Base Application's Amount Auto Format puts in front of a format string. Format accepts it
     // and writes nothing for it (corpus format-evaluate/FormatCurrencyPrefix.al: P157_Gbp_AmountAutoFormatShape,
@@ -952,6 +1070,22 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
     }
     if let Some(n) = code.strip_prefix("Standard Format,") {
         return match n.trim().parse::<i32>() {
+            // The undefined Time is midnight here: `12:00:00 AM`, `000000T`, `00:00:00` (format-evaluate/format-matrix/
+            // FMDateTime.al:1161-1166, corpus PR 1250).
+            Ok(n) if matches!(v, Value::Time(0)) => format_value(&Value::Time(1), 0, n, ctx).map_err(fail),
+            // On a DateTime `<Standard Format,3>` is format 0 with the seconds (`03/09/26 01:45:12 PM`, FMDateTime.al:2295,
+            // :2443, :2591, :2739, :2887, :3049).
+            Ok(3) if matches!(v, Value::DateTime(t) if *t > 0) => {
+                let Value::DateTime(t) = v else { unreachable!() };
+                let plain = format_value(v, 0, 0, ctx).map_err(fail)?;
+                match plain.rsplit_once(' ').filter(|(_, ampm)| matches!(*ampm, "AM" | "PM")) {
+                    Some((head, ampm)) => Ok(format!("{head}:{:02} {ampm}", (t - 1).rem_euclid(60_000) / 1000)),
+                    None => Err(format!(
+                        "code `<{code}>` on {} in this language (not pinned)",
+                        v.describe()
+                    )),
+                }
+            }
             Ok(n) => format_value(v, 0, n, ctx).map_err(fail),
             Err(_) => Err(format!("code `<{code}>`")),
         };
@@ -990,6 +1124,12 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
             "Minutes,2" | "Seconds,2" => Ok("00".into()),
             "Hours12,2" => Ok("12".into()),
             "AM/PM" => Ok("AM".into()),
+            // FMDateTime.al:1099-1110: `<Hours12>` 12, `<Minutes>`, `<Seconds>`, `<Thousands>` 0, `<Thousands,3>` `  0`,
+            // `<AM/PM,1>` A (corpus PR 1250).
+            "Hours12" => Ok("12".into()),
+            "Minutes" | "Seconds" | "Thousands" => Ok("0".into()),
+            "Thousands,3" => Ok("  0".into()),
+            "AM/PM,1" => Ok("A".into()),
             _ if invalid_time_code(code) => Err(INVALID_FORMAT_MARK.to_string()),
             _ => Err(format!("code `<{code}>` on {}", v.describe())),
         };
@@ -999,6 +1139,10 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
         Value::DateTime(t) if *t > 0 => Some((t - 1).rem_euclid(86_400_000)),
         _ => None,
     };
+    // `<Closing>` on a DateTime is the invalid-format error (FMDateTime.al:2215-2216, :2317, corpus PR 1250).
+    if code == "Closing" && matches!(v, Value::DateTime(_)) {
+        return Err(INVALID_FORMAT_MARK.to_string());
+    }
     if code == "Closing" {
         return match day_no {
             Some(_) => Ok(if closing { "C".into() } else { String::new() }),
@@ -1117,7 +1261,8 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
         }
         // `<Weekday>` is the ISO day number, Monday 1 to Sunday 7: 2024-01-17 is `3` (types/date-time/DateFuncs.al:415,425),
         // 2021-01-03 `7` (FormatWeekCodeIso.al:121,128). On a DateTime it is not pinned.
-        ("Weekday", Some(_), _) if matches!(v, Value::Date(..)) => {
+        // On a DateTime the same (FMDateTime.al:2217 `1` for 2026-03-09, :2513 `4` for 2026-12-31, corpus PR 1250).
+        ("Weekday", Some(_), _) if matches!(v, Value::Date(..) | Value::DateTime(_)) => {
             // Every weekday is Date2DWY's day (record/Y70Probes.al:84-121).
             let weekday = (day_no.unwrap_or(1) - 1).rem_euclid(7) + 1;
             format!("{weekday}")
@@ -1126,6 +1271,8 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
         // (types/date-time/FormatQuarterDuration.al:30-110). On a DateTime it is not pinned.
         ("Quarter", Some((_, m, _)), _) if matches!(v, Value::Date(..)) => format!("{}", (m - 1) / 3 + 1),
         ("AM/PM", _, Some(ms)) => (if ms / 3_600_000 < 12 { "AM" } else { "PM" }).to_string(),
+        // `<AM/PM,1>` is the first letter (FMDateTime.al:1230, :1590, corpus PR 1250).
+        ("AM/PM,1", _, Some(ms)) => (if ms / 3_600_000 < 12 { "A" } else { "P" }).to_string(),
         // A name that is no code at all is an invalid format, as for a number: only the pinned names (`invalid_time_code`).
         _ if matches!(v, Value::Time(_)) && invalid_time_code(code) => {
             return Err(INVALID_FORMAT_MARK.to_string());
@@ -1170,18 +1317,26 @@ fn time_code_alias(v: &Value, code: &str) -> Result<Option<String>, String> {
     let refuse = || Err(format!("code `<{code}>` on {} (not pinned)", v.describe()));
     let ms = match v {
         Value::DateTime(t) if *t > 0 => {
-            if name == "Hours" && width == Some("2") {
-                // Pinned by types/date-time/Format.al TU_Time_Format_CodeNames (was assumption `format-time-code-names`).
-                return Ok(Some(format!("{:02}", (t - 1).rem_euclid(86_400_000) / 3_600_000)));
-            }
-            return refuse();
+            let ms = (t - 1).rem_euclid(86_400_000);
+            // `<Hours,2>`: types/date-time/Format.al TU_Time_Format_CodeNames. `<Hour,2>` and `<Hour>` are the 24-hour hour, the
+            // first with a zero to two digits; `<Minute,2>` and `<Second,2>` two digits (format-evaluate/format-matrix/
+            // FMDateTime.al:2288-2299, :2436-2447, corpus PR 1250; al-runner issue 7393).
+            return match (lname.as_str(), width) {
+                ("hours" | "hour", Some("2")) => Ok(Some(format!("{:02}", ms / 3_600_000))),
+                ("hour", None) => Ok(Some((ms / 3_600_000).to_string())),
+                ("minute", Some("2")) => Ok(Some(format!("{:02}", ms / 60_000 % 60))),
+                ("second", Some("2")) => Ok(Some(format!("{:02}", ms / 1000 % 60))),
+                _ => refuse(),
+            };
         }
         Value::Time(0) => {
-            if lname == "hours" && width == Some("2") {
-                // Pinned by types/date-time/Format.al TU_Time_Format_CodeNames (was assumption `format-time-code-names`).
-                return Ok(Some(" 0".into()));
-            }
-            return refuse();
+            // `<Hours,2>`: TU_Time_Format_CodeNames; `<Hour,2>`, `<Hour>`, `<Minute,2>`, `<Second,2>`: FMDateTime.al:1177-1180.
+            return match (lname.as_str(), width) {
+                ("hours" | "hour", Some("2")) => Ok(Some(" 0".into())),
+                ("hour", None) => Ok(Some("0".into())),
+                ("minute" | "second", Some("2")) => Ok(Some("00".into())),
+                _ => refuse(),
+            };
         }
         Value::Time(t) => t - 1,
         _ => return Ok(None),
@@ -1197,6 +1352,11 @@ fn time_code_alias(v: &Value, code: &str) -> Result<Option<String>, String> {
         ("minute" | "min", None) => (ms / 60_000 % 60).to_string(),
         ("second" | "sec", None) => (ms / 1000 % 60).to_string(),
         ("thou", None) => (ms % 1000).to_string(),
+        // `<Hour,2>` pads with a blank as `<Hours,2>` does; `<Minute,2>` and `<Second,2>` are two digits (FMDateTime.al:1297-1300,
+        // :1657-1660, :1897-1900).
+        ("hour", Some("2")) => format!("{hour:>2}"),
+        ("minute", Some("2")) => format!("{:02}", ms / 60_000 % 60),
+        ("second", Some("2")) => format!("{:02}", ms / 1000 % 60),
         _ => return refuse(),
     };
     // Pinned by types/date-time/Format.al TU_Time_Format_CodeNames (was assumption `format-time-code-names`).
@@ -1674,9 +1834,10 @@ mod tests {
         // `<Thousands>` on 0DT writes nothing (types/date-time/Format.al:1293 `0DT thousands`, corpus
         // master 3eb812ed). Codes the corpus does not pin on an undefined value stay refused.
         assert_eq!(text(fmt(Value::DateTime(0), "<Thousands>")), "");
-        for (v, f) in [(Value::Time(0), "<Thousands>"), (Value::Date(0, false), "<Closing>")] {
-            assert!(matches!(fmt(v, f), Err(Signal::Unsupported(_))), "{f}");
-        }
+        // `<Thousands>` on 0T is `0` (format-matrix/FMDateTime.al:1105), `<Closing>` on 0D the empty text
+        // (P144DateTextWidth.al Format_UndefinedDate_SingleCodes `z_closing`).
+        assert_eq!(text(fmt(Value::Time(0), "<Thousands>")), "0");
+        assert_eq!(text(fmt(Value::Date(0, false), "<Closing>")), "");
     }
 
     // types/date-time/Format.al:QR_DateTime_Format_StampStrings_Morning, _Afternoon, QR_Time_Format_StampStrings,
@@ -1756,8 +1917,8 @@ mod tests {
         assert_eq!(text(fmt(t("ab"), "<Text,5>")), "ab   ");
         assert_eq!(text(fmt(t("ab"), "<Text,5><Filler Character,0>")), "ab000");
         assert_eq!(text(fmt(t("ab"), "<Text,5><Filler Character,*>")), "ab***");
-        // Cutting a longer text is not pinned.
-        assert!(matches!(fmt(t("abcdefg"), "<Text,5>"), Err(Signal::Unsupported(_))));
+        // A longer text is cut (format-matrix/FMText.al:250 `Hello World` with `<Text,10>` is `Hello Worl`).
+        assert_eq!(text(fmt(t("abcdefg"), "<Text,5>")), "abcde");
     }
     // record/Y70Probes.al:31-79: any leading part of `Filler Character` names it, in any case; a longer
     // name, or a blank after the comma of a short spelling, is invalid.

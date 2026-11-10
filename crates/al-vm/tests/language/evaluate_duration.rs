@@ -49,8 +49,9 @@ fn a_duration_rejects_what_is_no_duration_and_keeps_its_value() {
 fn the_unpinned_duration_texts_are_refused() {
     for (text, number) in [
         ("1.5 days", ""),
-        ("-1 day 2 hours", ""),
-        ("P1D", ", 9"),
+        // `-1 day 2 hours` and `P1DT2H` read since format-matrix/FMEvalDuration.al:195, :277 pinned them.
+        ("1 hour -1 minute", ""),
+        ("P1W", ", 9"),
         ("1 hour", ", 2"),
         ("1500", ", 4"),
     ] {

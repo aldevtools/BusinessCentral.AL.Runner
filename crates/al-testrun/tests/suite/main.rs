@@ -91,6 +91,7 @@ mod runner_permission_sets;
 mod runner_reset;
 mod single_instance_lane;
 mod single_instance_test_codeunit;
+mod skip_after_timeout;
 mod start_session_record;
 mod testfilter_qualified_field;
 mod testpage_close_at_test_end;

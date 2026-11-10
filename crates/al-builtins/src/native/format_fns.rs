@@ -189,13 +189,17 @@ pub(super) fn format_field_string(
         }
         return Ok(Value::Text(crate::format::pad(text, len).into()));
     }
-    format_string_out(crate::formatstr::format_with_field_places(
-        &Value::Decimal(rounded),
-        len,
-        template,
-        (min, rounded.is_zero() && d.is_sign_negative() && !d.is_zero()),
-        ctx,
-    ))
+    let language = ctx.language();
+    format_string_out(
+        crate::formatstr::format_with_field_places(
+            &Value::Decimal(rounded),
+            len,
+            template,
+            (min, rounded.is_zero() && d.is_sign_negative() && !d.is_zero()),
+            ctx,
+        ),
+        language,
+    )
 }
 
 /// `Format(Rec.Field[, Length, FormatNumber])` of a Decimal table field whose AutoFormatExpression is an expression: the
@@ -421,13 +425,31 @@ fn format_fail(f: FormatFail) -> Signal {
 pub(super) fn format_2(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
     let len = int_arg(args, 1).unwrap_or(0) as i32;
     let template = text_arg(args, 2)?;
-    format_string_out(crate::formatstr::format_with_string(&args[0], len, &template, ctx))
+    let language = ctx.language();
+    format_string_out(
+        crate::formatstr::format_with_string(&args[0], len, &template, ctx),
+        language,
+    )
 }
 
 /// The result of a format string: the text, or the error or refusal `formatstr` marks in its `Err`.
-pub(super) fn format_string_out(r: Result<String, String>) -> Result<Value, Signal> {
+/// The invalid-format error is in German under GlobalLanguage 1031 (format-evaluate/FormatCommaMore.al
+/// Format_CommaAfterIntegerAndThousandChar_De, corpus PR 1247); other languages than English are not pinned.
+pub(super) fn format_string_out(r: Result<String, String>, language: i32) -> Result<Value, Signal> {
     r.map(|s| Value::Text(s.into()))
         .map_err(|e| match e.strip_prefix(crate::formatstr::INVALID_FORMAT_MARK) {
+            Some(template) if language == 1031 => Signal::Error(Box::new(AlError {
+                message: format!(
+                    "Ein ung\u{fc}ltiges Feld oder Attribut wurde f\u{fc}r die Eigenschaft 'Format' angegeben.\\\\{template}"
+                ),
+                code: "InvalidFormatString".into(),
+                call_stack: String::new(),
+                ..Default::default()
+            })),
+            Some(_) if language != 1033 => Signal::Error(Box::new(crate::native::unpinned_text_error(
+                "InvalidFormatString",
+                "the text of the invalid-format error in a language other than English and German",
+            ))),
             Some(template) => Signal::Error(Box::new(AlError {
                 message: format!(
                     "An invalid field or attribute has been specified for the 'Format' property.\\\\{template}"

@@ -555,6 +555,12 @@ impl Encoding {
                     // The euro sign is written as 0xB1 (streams/TestStreamsRuntimeContracts.al:
                     // WriteText_ExplicitEncodings_Bytes, streams/TestProbeStreamContracts.al `61 84 94 B1 00`).
                     '€' => vec![0xB1],
+                    // `¶` is the code page's 0x14, U+0080 has no byte and is `?`, `Ā` (U+0100) is written as `A`
+                    // (streams/instream-outstream/StreamLengthOthers.al Char_WriteReadLength_High_1, _2, Text_WriteLength_NonAscii,
+                    // corpus PR 1248; al-runner issue 7387).
+                    '\u{B6}' => vec![0x14],
+                    '\u{80}' => vec![b'?'],
+                    '\u{100}' => vec![b'A'],
                     // The call stack mark, kept as for a Windows stream (`CALL_STACK_MARK_BYTES`). It stands for untracked
                     // frames whose bytes are not known; what reads them is refused (`stream_call_stack`).
                     crate::native::CALL_STACK_MARK => CALL_STACK_MARK_BYTES.to_vec(),
@@ -689,9 +695,12 @@ impl Encoding {
                     let one = c.to_string();
                     c == 'π' || self.decode(&self.encode(&one)) == one
                 }),
-                Encoding::MsDos => t
-                    .chars()
-                    .all(|c| c.is_ascii() || c == '€' || c == 'π' || msdos_table_byte(c).is_some()),
+                // `é` (0x82), `ÿ` (0x98), `¶`, U+0080 and `Ā` (StreamLengthOthers.al, corpus PR 1248).
+                Encoding::MsDos => t.chars().all(|c| {
+                    c.is_ascii()
+                        || matches!(c, '€' | 'π' | 'é' | 'ÿ' | '\u{B6}' | '\u{80}' | '\u{100}')
+                        || msdos_table_byte(c).is_some()
+                }),
                 _ => false,
             }
     }
@@ -2189,9 +2198,17 @@ fn out_write(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NRe
             usize::try_from(*n).unwrap_or(0)
         };
         let cut: String = t.chars().take(take).collect();
-        if !cut.is_ascii() {
-            return unsupported("OutStream.Write(Text, Length) of non-ASCII characters (not pinned)");
-        }
+        // Non-ASCII characters are written as the text without a length writes them (streams/instream-outstream/StreamLengthOthers.al
+        // Text_WriteLength_NonAscii, corpus PR 1248: `¶` is 14, `é` 82, `€` B1, then the terminator; al-runner issue 7387).
+        let cut = if cut.is_ascii() {
+            cut
+        } else {
+            let fit = write_best_fit(enc, &cut);
+            if !enc.write_text_pinned(&fit) {
+                return unsupported("OutStream.Write(Text, Length) of non-ASCII characters (not pinned)");
+            }
+            fit.to_string()
+        };
         let mut v = enc.encode(&cut);
         v.extend(std::iter::repeat_n(0, enc.unit()));
         write_bytes(&b, &v);
@@ -2210,6 +2227,17 @@ fn out_write(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NRe
                 && char::from_u32(u32::from(*c)).is_some_and(|ch| enc.encode_pinned(&ch.to_string())) =>
         {
             enc.encode(&char::from_u32(u32::from(*c)).expect("checked").to_string())
+        }
+        // Another Char is the byte the text of that one character writes (StreamLengthOthers.al Char_WriteReadLength_High_1, _2,
+        // corpus PR 1248: 182 is 14, 128 is 3F, 255 is 98, 256 is 41, 8364 is B1; al-runner issue 7387).
+        Value::Char(c)
+            if char::from_u32(u32::from(*c))
+                .is_some_and(|ch| enc.write_text_pinned(&write_best_fit(enc, &ch.to_string()))) =>
+        {
+            enc.encode(&write_best_fit(
+                enc,
+                &char::from_u32(u32::from(*c)).expect("checked").to_string(),
+            ))
         }
         // A Guid is written as .NET writes it: the first three groups little endian
         // (streams/TestProbeStreamContracts.al:WriteBooleanGuidBigIntegerOthers).

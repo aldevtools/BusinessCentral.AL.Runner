@@ -318,6 +318,69 @@ fn unnamed_member_text(members: &[String], o: i32) -> String {
     crate::system_option_eval::hidden_name(members, o).map_or_else(|| o.to_string(), str::to_string)
 }
 
+/// The text of an Option value in a standard format (an arm of [`format_value`]).
+fn option_text(o: &i32, members: &[String], standard: i32) -> Result<String, FormatFail> {
+    Ok(match standard {
+        2 | 9 if crate::sysenum::is_field_table_type(members) => FIELD_TABLE_TYPE_ORDINALS
+            .get(*o as usize)
+            .map_or_else(|| o.to_string(), |v| v.to_string()),
+        2 | 9 if crate::sysenum::platform_ordinal(members, *o).is_some() => {
+            crate::sysenum::platform_ordinal(members, *o).unwrap_or(*o).to_string()
+        }
+        // The IsolationLevel option shows member names for format 2 (format-evaluate/PnAPlatformOptions.al:
+        // IsolationLevel_Members: Default, UpdLock, ReadCommitted, RepeatableRead). ReadUncommitted is not pinned.
+        2 | 9 if crate::sysenum::is_isolation_level(members) => match members.get(*o as usize).map(String::as_str) {
+            Some("ReadUncommitted") | None => {
+                return Err(FormatFail::Unsupported(
+                    "Format 2 of IsolationLevel::ReadUncommitted (not pinned)".into(),
+                ));
+            }
+            Some(m) => m.to_string(),
+        },
+        2 | 9 if !crate::sysenum::ordinals_hidden(members, standard) => o.to_string(),
+        // `Option` declared without members is the one empty name: it shows the number
+        // (types/decimal-integer/ScT70062.al:Option_Defaults `nomembers_len`, `nomembers_3`).
+        _ if members.len() == 1 && members[0].is_empty() => o.to_string(),
+        // A member with a blank name shows as one space (types/decimal-integer/ScT70053.al:Option_Format `blank_len`).
+        _ => match members.get(*o as usize) {
+            // An unquoted empty member shows its number (text/P69OptionInText.al:Option_StrSubstNo
+            // `subst_2`; record/crud/RcBInit.al:Props_BlankZero_Option_Caption `opt blank member`).
+            Some(m) if m.is_empty() => unnamed_member_text(members, *o),
+            Some(m) => crate::system_option_eval::shown_name(members, m).map_or_else(|| m.clone(), str::to_string),
+            None => unnamed_member_text(members, *o),
+        },
+    })
+}
+
+/// The text of a Guid in a standard format (an arm of [`format_value`]).
+fn guid_text(g: &[u8; 16], standard: i32) -> Result<String, FormatFail> {
+    Ok(match standard {
+        0 | 1 | 2 | 9 => format_guid(g),
+        3 => format_guid(g).replace(['{', '}', '-'], ""),
+        4 => format_guid(g).replace(['{', '}'], ""),
+        // 5 is in parentheses, 6 the C struct form `{0X12345678,0X1234,0X5678,{0X9A,...}}`; 7, 8 and 10 do not exist
+        // (format-evaluate/format-matrix/FMGuid.al:78-83, :168-173, :258-263, corpus PR 1256, English and German).
+        5 => format!("({})", format_guid(g).trim_matches(['{', '}'])),
+        6 => {
+            let hex = format_guid(g).replace(['{', '}', '-'], "");
+            let bytes: Vec<String> = (16..32).step_by(2).map(|i| format!("0X{}", &hex[i..i + 2])).collect();
+            format!(
+                "{{0X{},0X{},0X{},{{{}}}}}",
+                &hex[..8],
+                &hex[8..12],
+                &hex[12..16],
+                bytes.join(",")
+            )
+        }
+        7 | 8 | 10 => return Err(no_such_format_unpinned()),
+        n => {
+            return Err(FormatFail::Unsupported(format!(
+                "Format of a Guid with the standard format {n} (not pinned)"
+            )));
+        }
+    })
+}
+
 /// `Format(Value, Length, Standard)` with BC's own errors kept apart from refusals.
 pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) -> Result<String, FormatFail> {
     if let Some(r) = format_unread(v, length, standard) {
@@ -343,6 +406,22 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         // The standard formats 3 to 8 do not exist for a Boolean, which the platform names 'Char' (types/lt-boolean-format/
         // Boolean_FormatNumbers: `Standard format number 3 does not exist for the type 'Char'.`).
         Value::Boolean(_) if (3..=8).contains(&standard) => return Err(no_such_format(standard, "Char")),
+        // Standard format 10 does not exist for a Boolean or an Enum, nor 3 to 8 and 10 for a Text, a Code, a Char, an Option, an
+        // Integer and a BigInteger (format-evaluate/format-matrix/FMBoolean.al:68, FMEnum.al:68, FMText.al:61-83, FMCode.al:61-83,
+        // FMChar.al:61-83, FMOption.al:61-83, FMNumeric.al:134 `<Standard Format,3>`, corpus PRs 1249 and 1256). The type name
+        // in the error text is not pinned for them.
+        Value::Boolean(_) | Value::Enum(..) if standard == 10 => return Err(no_such_format_unpinned()),
+        Value::Text(_)
+        | Value::TextConst(_)
+        | Value::Code(_)
+        | Value::Char(_)
+        | Value::Option(..)
+        | Value::Integer(_)
+        | Value::BigInteger(_)
+            if matches!(standard, 3..=8 | 10) =>
+        {
+            return Err(no_such_format_unpinned());
+        }
         Value::Boolean(b) => crate::format_boolean::boolean_text(*b, standard, ctx.language())?,
         Value::Integer(i) => i.to_string(),
         Value::BigInteger(i) => i.to_string(),
@@ -374,41 +453,11 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
             }
             f => f,
         })?,
-        // A NUL character does not show (types/variant/LTP89StreamText.al:Text_BytesWritten `nul_between`).
-        Value::Text(t) | Value::TextConst(t) | Value::Code(t) if t.contains('\0') => t.replace('\0', ""),
+        // A NUL character inside a text is kept (format-evaluate/format-matrix/FMEvalText.al:141-143 and FMEvalCode3.al:141-143,
+        // corpus PR 1256: `Format(V, 0, 9)` of a text holding NUL shows it). LTP89StreamText.al `nul_between` gets no NUL here:
+        // `Wide[1] := 0` ends the text (interp `write_char`).
         Value::Text(t) | Value::TextConst(t) | Value::Code(t) => t.to_string(),
-        Value::Option(o, members) => match standard {
-            2 | 9 if crate::sysenum::is_field_table_type(members) => FIELD_TABLE_TYPE_ORDINALS
-                .get(*o as usize)
-                .map_or_else(|| o.to_string(), |v| v.to_string()),
-            2 | 9 if crate::sysenum::platform_ordinal(members, *o).is_some() => {
-                crate::sysenum::platform_ordinal(members, *o).unwrap_or(*o).to_string()
-            }
-            // The IsolationLevel option shows member names for format 2 (format-evaluate/PnAPlatformOptions.al:
-            // IsolationLevel_Members: Default, UpdLock, ReadCommitted, RepeatableRead). ReadUncommitted is not pinned.
-            2 | 9 if crate::sysenum::is_isolation_level(members) => {
-                match members.get(*o as usize).map(String::as_str) {
-                    Some("ReadUncommitted") | None => {
-                        return Err(FormatFail::Unsupported(
-                            "Format 2 of IsolationLevel::ReadUncommitted (not pinned)".into(),
-                        ));
-                    }
-                    Some(m) => m.to_string(),
-                }
-            }
-            2 | 9 if !crate::sysenum::ordinals_hidden(members, standard) => o.to_string(),
-            // `Option` declared without members is the one empty name: it shows the number
-            // (types/decimal-integer/ScT70062.al:Option_Defaults `nomembers_len`, `nomembers_3`).
-            _ if members.len() == 1 && members[0].is_empty() => o.to_string(),
-            // A member with a blank name shows as one space (types/decimal-integer/ScT70053.al:Option_Format `blank_len`).
-            _ => match members.get(*o as usize) {
-                // An unquoted empty member shows its number (text/P69OptionInText.al:Option_StrSubstNo
-                // `subst_2`; record/crud/RcBInit.al:Props_BlankZero_Option_Caption `opt blank member`).
-                Some(m) if m.is_empty() => unnamed_member_text(members, *o),
-                Some(m) => crate::system_option_eval::shown_name(members, m).map_or_else(|| m.clone(), str::to_string),
-                None => unnamed_member_text(members, *o),
-            },
-        },
+        Value::Option(o, members) => option_text(o, members, standard)?,
         // Nor for an enum, named 'Option' (the enum test Enum_FormatNumbers `blue3`).
         Value::Enum(..) if (3..=8).contains(&standard) => return Err(no_such_format(standard, "Option")),
         Value::Enum(id, o) => match standard {
@@ -422,16 +471,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         },
         // Numbers 0, 1, 2 and 9 are the braced form; 3 has neither braces nor dashes, 4 only the dashes (metadata/platform-tables/
         // PlTGuid.al:Format_Numbers, NullGuid_Values); the others are not pinned for a Guid.
-        Value::Guid(g) => match standard {
-            0 | 1 | 2 | 9 => format_guid(g),
-            3 => format_guid(g).replace(['{', '}', '-'], ""),
-            4 => format_guid(g).replace(['{', '}'], ""),
-            n => {
-                return Err(FormatFail::Unsupported(format!(
-                    "Format of a Guid with the standard format {n} (not pinned)"
-                )));
-            }
-        },
+        Value::Guid(g) => guid_text(g, standard)?,
         Value::Blob(b) => blob_text(b, ctx),
         // The bookmark (`recordid_number`).
         Value::Library(crate::library_kind::LibraryKind::RecordId, l) if standard == 10 => {
@@ -970,6 +1010,18 @@ fn millis(ms: i64) -> String {
 /// space; format 1 adds the milliseconds (a time without any is not measured: refused); format 2 is
 /// the AL literal; format 9 the round-trip form.
 /// A standard format number the type does not have (text/TestProbeTextDateFormatContracts.al:Format_StandardNumbers_Time).
+/// [`no_such_format`] where the type name the platform puts in the text is not pinned: the code is, the text is marked unpinned.
+pub(crate) fn no_such_format_unpinned() -> FormatFail {
+    FormatFail::Error {
+        message: crate::native::unpinned_text_error(
+            "InvalidStandardFormat",
+            "the type name in the error of a standard format number a Text, Code, Char, Option, Integer or BigInteger lacks",
+        )
+        .message,
+        code: "InvalidStandardFormat".into(),
+    }
+}
+
 pub(crate) fn no_such_format(n: i32, ty: &str) -> FormatFail {
     FormatFail::Error {
         message: format!("Standard format number {n} does not exist for the type '{ty}'."),
@@ -1133,6 +1185,8 @@ fn unit_word(lang: i32, unit: usize, plural: bool) -> Option<String> {
         (1031, 2, false) => Some("Minute".into()),
         (1031, 3, false) => Some("Sekunde".into()),
         (1031, 4, false) => Some("Millisekunde".into()),
+        // `7 Millisekunden` (format-evaluate/format-matrix/FMEvalDuration.al:353-433, corpus PR 1250).
+        (1031, 4, true) => Some("Millisekunden".into()),
         (1036, 0, false) => Some("jour".into()),
         (1036, 0, true) => Some("jours".into()),
         (1036, 1, true) => Some("heures".into()),
@@ -1299,7 +1353,10 @@ fn format_date(day: i32, closing: bool, standard: i32, lang: i32) -> Result<Stri
         // types/date-time/Y49DateTime9999.al:172-209).
         0 | 1 if TWO_DIGIT_YEARS.contains(&y) => format!("{c}{m:02}/{d:02}/{yy:02}"),
         0 | 1 => format!("{c}{m:02}/{d:02}/{y:04}"),
-        2 => format!("{m:02}{d:02}{yy:02}{c}D"),
+        // Format 2 too: 1753-01-01 and 9999-12-31 give `01011753D` and `12319999D` (format-evaluate/format-matrix/FMDateTime.al:599,
+        // :721, corpus PR 1250); the two-digit form from 1950 to 2049 is the one format 0 has.
+        2 if TWO_DIGIT_YEARS.contains(&y) => format!("{m:02}{d:02}{yy:02}{c}D"),
+        2 => format!("{m:02}{d:02}{y:04}{c}D"),
         3 => format!("{yy:02}/{m:02}/{d:02}"),
         // The year has four digits: `June 15, 0001` (types/Y81DMY2Date.al:94-114 Y81_DMY2Date_Year1_Arithmetic
         // `format 4`; needs corpus bump).
@@ -1479,13 +1536,17 @@ mod tests {
             "1 heure 2 minutes 3 secondes"
         );
         assert_eq!(format_value(&du, 0, 0, &L(1033)).unwrap(), "1 hour 2 minutes 3 seconds");
-        // AxLanguageFormats.al:151; the plural of a millisecond in German is not pinned.
+        // AxLanguageFormats.al:151; the plural of a millisecond in German: format-matrix/FMEvalDuration.al:353.
         assert_eq!(
             format_value(&Value::Duration(86_400_000), 0, 0, &L(1031)).unwrap(),
             "1 Tag"
         );
+        assert_eq!(
+            format_value(&Value::Duration(7), 0, 0, &L(1031)).unwrap(),
+            "7 Millisekunden"
+        );
         assert!(matches!(
-            format_value(&Value::Duration(2), 0, 0, &L(1031)),
+            format_value(&Value::Duration(2), 0, 0, &L(1036)),
             Err(FormatFail::Unsupported(_))
         ));
         assert_eq!(format_value(&Value::Boolean(false), 0, 0, &L(1036)).unwrap(), "Non");

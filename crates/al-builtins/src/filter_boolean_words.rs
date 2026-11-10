@@ -66,6 +66,8 @@ pub(crate) fn evaluate_boolean_word(language: i32, text: &str) -> Option<Evaluat
     } else if matches!(w, "false" | "0" | "n") || no.contains(&w) {
         EvaluateWord::Value(false)
     } else if matches!(w, "yes" | "no" | "y" | "ja" | "nee" | "nein" | "nej" | "oui" | "non")
+        // The empty text and a blank in German (format-evaluate/format-matrix/FMEvalBoolean.al:274-279, corpus PR 1256).
+        || (language == 1031 && w.is_empty())
         || (language == 1031 && matches!(w, "vielleicht" | "wahr" | "falsch" | "x"))
     {
         EvaluateWord::Rejected

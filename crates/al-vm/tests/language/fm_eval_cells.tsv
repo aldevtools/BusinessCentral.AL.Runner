@@ -1,0 +1,1708 @@
+# file:line	language	form	text	number	expected  (corpus master format-evaluate/format-matrix/FMEval*.al, corpus PRs 1249, 1250, 1256; generated)
+FMEvalBigInteger.al:74	1033	b		0	No|7
+FMEvalBigInteger.al:75	1033	b		9	No|7
+FMEvalBigInteger.al:76	1033	st		0	err:Evaluate|7
+FMEvalBigInteger.al:77	1033	b	 	0	No|7
+FMEvalBigInteger.al:78	1033	b	 	9	No|7
+FMEvalBigInteger.al:79	1033	st	 	0	err:Evaluate|7
+FMEvalBigInteger.al:80	1033	b	  	0	No|7
+FMEvalBigInteger.al:81	1033	b	  	9	No|7
+FMEvalBigInteger.al:82	1033	st	  	0	err:Evaluate|7
+FMEvalBigInteger.al:83	1033	b	0	0	Yes|0
+FMEvalBigInteger.al:84	1033	b	0	9	Yes|0
+FMEvalBigInteger.al:85	1033	st	0	0	ok|0
+FMEvalBigInteger.al:86	1033	b	-0	0	Yes|0
+FMEvalBigInteger.al:87	1033	b	-0	9	Yes|0
+FMEvalBigInteger.al:88	1033	st	-0	0	ok|0
+FMEvalBigInteger.al:89	1033	b	+5	0	Yes|5
+FMEvalBigInteger.al:90	1033	b	+5	9	Yes|5
+FMEvalBigInteger.al:91	1033	st	+5	0	ok|5
+FMEvalBigInteger.al:92	1033	b	1	0	Yes|1
+FMEvalBigInteger.al:93	1033	b	1	9	Yes|1
+FMEvalBigInteger.al:94	1033	st	1	0	ok|1
+FMEvalBigInteger.al:95	1033	b	 5 	0	Yes|5
+FMEvalBigInteger.al:96	1033	b	 5 	9	Yes|5
+FMEvalBigInteger.al:97	1033	st	 5 	0	ok|5
+FMEvalBigInteger.al:98	1033	b	1,234	0	Yes|1234
+FMEvalBigInteger.al:99	1033	b	1,234	9	No|7
+FMEvalBigInteger.al:100	1033	st	1,234	0	ok|1234
+FMEvalBigInteger.al:101	1033	b	1.5	0	No|7
+FMEvalBigInteger.al:102	1033	b	1.5	9	No|7
+FMEvalBigInteger.al:144	1033	st	1.5	0	err:Evaluate|7
+FMEvalBigInteger.al:145	1033	b	1,5	0	Yes|15
+FMEvalBigInteger.al:146	1033	b	1,5	9	No|7
+FMEvalBigInteger.al:147	1033	st	1,5	0	ok|15
+FMEvalBigInteger.al:148	1033	b	.5	0	No|7
+FMEvalBigInteger.al:149	1033	b	.5	9	No|7
+FMEvalBigInteger.al:150	1033	st	.5	0	err:Evaluate|7
+FMEvalBigInteger.al:151	1033	b	5.	0	Yes|5
+FMEvalBigInteger.al:152	1033	b	5.	9	Yes|5
+FMEvalBigInteger.al:153	1033	st	5.	0	ok|5
+FMEvalBigInteger.al:154	1033	b	12abc	0	No|7
+FMEvalBigInteger.al:155	1033	b	12abc	9	No|7
+FMEvalBigInteger.al:156	1033	st	12abc	0	err:Evaluate|7
+FMEvalBigInteger.al:157	1033	b	abc	0	No|7
+FMEvalBigInteger.al:158	1033	b	abc	9	No|7
+FMEvalBigInteger.al:159	1033	st	abc	0	err:Evaluate|7
+FMEvalBigInteger.al:160	1033	b	--1	0	No|7
+FMEvalBigInteger.al:161	1033	b	--1	9	No|7
+FMEvalBigInteger.al:162	1033	st	--1	0	err:Evaluate|7
+FMEvalBigInteger.al:163	1033	b	1e3	0	Yes|1000
+FMEvalBigInteger.al:164	1033	b	1e3	9	No|7
+FMEvalBigInteger.al:165	1033	st	1e3	0	ok|1000
+FMEvalBigInteger.al:166	1033	b	1E3	0	Yes|1000
+FMEvalBigInteger.al:167	1033	b	1E3	9	No|7
+FMEvalBigInteger.al:168	1033	st	1E3	0	ok|1000
+FMEvalBigInteger.al:169	1033	b	09e738195	0	No|7
+FMEvalBigInteger.al:170	1033	b	09e738195	9	No|7
+FMEvalBigInteger.al:171	1033	st	09e738195	0	err:Evaluate|7
+FMEvalBigInteger.al:172	1033	b	1e-5	0	No|7
+FMEvalBigInteger.al:214	1033	b	1e-5	9	No|7
+FMEvalBigInteger.al:215	1033	st	1e-5	0	err:Evaluate|7
+FMEvalBigInteger.al:216	1033	b	0x10	0	No|7
+FMEvalBigInteger.al:217	1033	b	0x10	9	No|7
+FMEvalBigInteger.al:218	1033	st	0x10	0	err:Evaluate|7
+FMEvalBigInteger.al:219	1033	b	5D	0	No|7
+FMEvalBigInteger.al:220	1033	b	5D	9	No|7
+FMEvalBigInteger.al:221	1033	st	5D	0	err:Evaluate|7
+FMEvalBigInteger.al:222	1033	b	5T	0	No|7
+FMEvalBigInteger.al:223	1033	b	5T	9	No|7
+FMEvalBigInteger.al:224	1033	st	5T	0	err:Evaluate|7
+FMEvalBigInteger.al:225	1033	b	\0	0	No|7
+FMEvalBigInteger.al:226	1033	b	\0	9	No|7
+FMEvalBigInteger.al:227	1033	st	\0	0	err:Evaluate|7
+FMEvalBigInteger.al:228	1033	b	?	0	No|7
+FMEvalBigInteger.al:229	1033	b	?	9	No|7
+FMEvalBigInteger.al:230	1033	st	?	0	err:Evaluate|7
+FMEvalBigInteger.al:231	1033	b	\t5	0	Yes|5
+FMEvalBigInteger.al:232	1033	b	\t5	9	Yes|5
+FMEvalBigInteger.al:233	1033	st	\t5	0	ok|5
+FMEvalBigInteger.al:234	1033	b	2147483647	0	Yes|2147483647
+FMEvalBigInteger.al:235	1033	b	2147483647	9	Yes|2147483647
+FMEvalBigInteger.al:236	1033	st	2147483647	0	ok|2147483647
+FMEvalBigInteger.al:237	1033	b	2147483648	0	Yes|2147483648
+FMEvalBigInteger.al:238	1033	b	2147483648	9	Yes|2147483648
+FMEvalBigInteger.al:239	1033	st	2147483648	0	ok|2147483648
+FMEvalBigInteger.al:240	1033	b	-2147483648	0	Yes|-2147483648
+FMEvalBigInteger.al:241	1033	b	-2147483648	9	Yes|-2147483648
+FMEvalBigInteger.al:282	1033	st	-2147483648	0	ok|-2147483648
+FMEvalBigInteger.al:283	1033	b	-2147483649	0	Yes|-2147483649
+FMEvalBigInteger.al:284	1033	b	-2147483649	9	Yes|-2147483649
+FMEvalBigInteger.al:285	1033	st	-2147483649	0	ok|-2147483649
+FMEvalBigInteger.al:286	1033	b	9223372036854775807	0	Yes|9223372036854775807
+FMEvalBigInteger.al:287	1033	b	9223372036854775807	9	Yes|9223372036854775807
+FMEvalBigInteger.al:288	1033	st	9223372036854775807	0	ok|9223372036854775807
+FMEvalBigInteger.al:289	1033	b	9223372036854775808	0	No|7
+FMEvalBigInteger.al:290	1033	b	9223372036854775808	9	No|7
+FMEvalBigInteger.al:291	1033	st	9223372036854775808	0	err:Evaluate|7
+FMEvalBigInteger.al:292	1033	b	79228162514264337593543950335	0	No|7
+FMEvalBigInteger.al:293	1033	b	79228162514264337593543950335	9	No|7
+FMEvalBigInteger.al:294	1033	st	79228162514264337593543950335	0	err:Evaluate|7
+FMEvalBigInteger.al:295	1033	b	99999999999999999999999999999	0	No|7
+FMEvalBigInteger.al:296	1033	b	99999999999999999999999999999	9	No|7
+FMEvalBigInteger.al:297	1033	st	99999999999999999999999999999	0	err:Evaluate|7
+FMEvalBigInteger.al:298	1033	b	1 000	0	No|7
+FMEvalBigInteger.al:299	1033	b	1 000	9	No|7
+FMEvalBigInteger.al:300	1033	st	1 000	0	err:Evaluate|7
+FMEvalBigInteger.al:301	1033	b	1''000	0	No|7
+FMEvalBigInteger.al:302	1033	b	1''000	9	No|7
+FMEvalBigInteger.al:303	1033	st	1''000	0	err:Evaluate|7
+FMEvalBigInteger.al:304	1033	b	(5)	0	Yes|-5
+FMEvalBigInteger.al:340	1033	b	(5)	9	No|7
+FMEvalBigInteger.al:341	1033	st	(5)	0	ok|-5
+FMEvalBigInteger.al:342	1033	b	5-	0	Yes|-5
+FMEvalBigInteger.al:343	1033	b	5-	9	No|7
+FMEvalBigInteger.al:344	1033	st	5-	0	ok|-5
+FMEvalBigInteger.al:345	1033	b	true	0	No|7
+FMEvalBigInteger.al:346	1033	b	true	9	No|7
+FMEvalBigInteger.al:347	1033	st	true	0	err:Evaluate|7
+FMEvalBigInteger.al:368	1031	b		0	Nein|7
+FMEvalBigInteger.al:369	1031	b		9	Nein|7
+FMEvalBigInteger.al:370	1031	st		0	err:Evaluate|7
+FMEvalBigInteger.al:371	1031	b	 	0	Nein|7
+FMEvalBigInteger.al:372	1031	b	 	9	Nein|7
+FMEvalBigInteger.al:373	1031	st	 	0	err:Evaluate|7
+FMEvalBigInteger.al:374	1031	b	  	0	Nein|7
+FMEvalBigInteger.al:375	1031	b	  	9	Nein|7
+FMEvalBigInteger.al:376	1031	st	  	0	err:Evaluate|7
+FMEvalBigInteger.al:377	1031	b	0	0	Ja|0
+FMEvalBigInteger.al:378	1031	b	0	9	Ja|0
+FMEvalBigInteger.al:379	1031	st	0	0	ok|0
+FMEvalBigInteger.al:380	1031	b	-0	0	Ja|0
+FMEvalBigInteger.al:381	1031	b	-0	9	Ja|0
+FMEvalBigInteger.al:382	1031	st	-0	0	ok|0
+FMEvalBigInteger.al:383	1031	b	+5	0	Ja|5
+FMEvalBigInteger.al:384	1031	b	+5	9	Ja|5
+FMEvalBigInteger.al:385	1031	st	+5	0	ok|5
+FMEvalBigInteger.al:386	1031	b	1	0	Ja|1
+FMEvalBigInteger.al:387	1031	b	1	9	Ja|1
+FMEvalBigInteger.al:388	1031	st	1	0	ok|1
+FMEvalBigInteger.al:389	1031	b	 5 	0	Ja|5
+FMEvalBigInteger.al:390	1031	b	 5 	9	Ja|5
+FMEvalBigInteger.al:391	1031	st	 5 	0	ok|5
+FMEvalBigInteger.al:392	1031	b	1,234	0	Ja|1234
+FMEvalBigInteger.al:393	1031	b	1,234	9	Nein|7
+FMEvalBigInteger.al:394	1031	st	1,234	0	ok|1234
+FMEvalBigInteger.al:395	1031	b	1.5	0	Nein|7
+FMEvalBigInteger.al:396	1031	b	1.5	9	Nein|7
+FMEvalBigInteger.al:438	1031	st	1.5	0	err:Evaluate|7
+FMEvalBigInteger.al:439	1031	b	1,5	0	Ja|15
+FMEvalBigInteger.al:440	1031	b	1,5	9	Nein|7
+FMEvalBigInteger.al:441	1031	st	1,5	0	ok|15
+FMEvalBigInteger.al:442	1031	b	.5	0	Nein|7
+FMEvalBigInteger.al:443	1031	b	.5	9	Nein|7
+FMEvalBigInteger.al:444	1031	st	.5	0	err:Evaluate|7
+FMEvalBigInteger.al:445	1031	b	5T	0	Nein|7
+FMEvalBigInteger.al:446	1031	b	5T	9	Nein|7
+FMEvalBigInteger.al:447	1031	st	5T	0	err:Evaluate|7
+FMEvalBigInteger.al:448	1031	b	\0	0	Nein|7
+FMEvalBigInteger.al:449	1031	b	\0	9	Nein|7
+FMEvalBigInteger.al:450	1031	st	\0	0	err:Evaluate|7
+FMEvalBigInteger.al:451	1031	b	?	0	Nein|7
+FMEvalBigInteger.al:452	1031	b	?	9	Nein|7
+FMEvalBigInteger.al:453	1031	st	?	0	err:Evaluate|7
+FMEvalBoolean.al:64	1033	b		0	No|true
+FMEvalBoolean.al:65	1033	b		9	No|true
+FMEvalBoolean.al:66	1033	st		0	err:Evaluate|true
+FMEvalBoolean.al:67	1033	b	 	0	No|true
+FMEvalBoolean.al:68	1033	b	 	9	No|true
+FMEvalBoolean.al:69	1033	st	 	0	err:Evaluate|true
+FMEvalBoolean.al:70	1033	b	Yes	0	Yes|true
+FMEvalBoolean.al:71	1033	b	Yes	9	No|true
+FMEvalBoolean.al:72	1033	st	Yes	0	ok|true
+FMEvalBoolean.al:73	1033	b	No	0	Yes|false
+FMEvalBoolean.al:74	1033	b	No	9	No|true
+FMEvalBoolean.al:75	1033	st	No	0	ok|false
+FMEvalBoolean.al:76	1033	b	yes	0	Yes|true
+FMEvalBoolean.al:77	1033	b	yes	9	No|true
+FMEvalBoolean.al:78	1033	st	yes	0	ok|true
+FMEvalBoolean.al:79	1033	b	YES	0	Yes|true
+FMEvalBoolean.al:80	1033	b	YES	9	No|true
+FMEvalBoolean.al:81	1033	st	YES	0	ok|true
+FMEvalBoolean.al:82	1033	b	true	0	Yes|true
+FMEvalBoolean.al:83	1033	b	true	9	Yes|true
+FMEvalBoolean.al:84	1033	st	true	0	ok|true
+FMEvalBoolean.al:85	1033	b	false	0	Yes|false
+FMEvalBoolean.al:86	1033	b	false	9	Yes|false
+FMEvalBoolean.al:87	1033	st	false	0	ok|false
+FMEvalBoolean.al:88	1033	b	True	0	Yes|true
+FMEvalBoolean.al:89	1033	b	True	9	Yes|true
+FMEvalBoolean.al:90	1033	st	True	0	ok|true
+FMEvalBoolean.al:91	1033	b	FALSE	0	Yes|false
+FMEvalBoolean.al:92	1033	b	FALSE	9	Yes|false
+FMEvalBoolean.al:93	1033	st	FALSE	0	ok|false
+FMEvalBoolean.al:136	1033	b	1	0	Yes|true
+FMEvalBoolean.al:137	1033	b	1	9	Yes|true
+FMEvalBoolean.al:138	1033	st	1	0	ok|true
+FMEvalBoolean.al:139	1033	b	0	0	Yes|false
+FMEvalBoolean.al:140	1033	b	0	9	Yes|false
+FMEvalBoolean.al:141	1033	st	0	0	ok|false
+FMEvalBoolean.al:142	1033	b	-1	0	No|true
+FMEvalBoolean.al:143	1033	b	-1	9	No|true
+FMEvalBoolean.al:144	1033	st	-1	0	err:Evaluate|true
+FMEvalBoolean.al:145	1033	b	2	0	No|true
+FMEvalBoolean.al:146	1033	b	2	9	No|true
+FMEvalBoolean.al:147	1033	st	2	0	err:Evaluate|true
+FMEvalBoolean.al:148	1033	b	Ja	0	No|true
+FMEvalBoolean.al:149	1033	b	Ja	9	No|true
+FMEvalBoolean.al:150	1033	st	Ja	0	err:Evaluate|true
+FMEvalBoolean.al:151	1033	b	Nein	0	No|true
+FMEvalBoolean.al:152	1033	b	Nein	9	No|true
+FMEvalBoolean.al:153	1033	st	Nein	0	err:Evaluate|true
+FMEvalBoolean.al:154	1033	b	y	0	Yes|true
+FMEvalBoolean.al:155	1033	b	y	9	No|true
+FMEvalBoolean.al:156	1033	st	y	0	ok|true
+FMEvalBoolean.al:157	1033	b	n	0	Yes|false
+FMEvalBoolean.al:158	1033	b	n	9	No|true
+FMEvalBoolean.al:159	1033	st	n	0	ok|false
+FMEvalBoolean.al:160	1033	b	abc	0	No|true
+FMEvalBoolean.al:161	1033	b	abc	9	No|true
+FMEvalBoolean.al:162	1033	st	abc	0	err:Evaluate|true
+FMEvalBoolean.al:163	1033	b	Yes 	0	Yes|true
+FMEvalBoolean.al:164	1033	b	Yes 	9	No|true
+FMEvalBoolean.al:165	1033	st	Yes 	0	ok|true
+FMEvalBoolean.al:208	1033	b	 No	0	Yes|false
+FMEvalBoolean.al:209	1033	b	 No	9	No|true
+FMEvalBoolean.al:210	1033	st	 No	0	ok|false
+FMEvalBoolean.al:211	1033	b	Y	0	Yes|true
+FMEvalBoolean.al:212	1033	b	Y	9	No|true
+FMEvalBoolean.al:213	1033	st	Y	0	ok|true
+FMEvalBoolean.al:214	1033	b	N	0	Yes|false
+FMEvalBoolean.al:215	1033	b	N	9	No|true
+FMEvalBoolean.al:216	1033	st	N	0	ok|false
+FMEvalBoolean.al:217	1033	b	T	0	Yes|true
+FMEvalBoolean.al:218	1033	b	T	9	Yes|true
+FMEvalBoolean.al:219	1033	st	T	0	ok|true
+FMEvalBoolean.al:220	1033	b	F	0	Yes|false
+FMEvalBoolean.al:221	1033	b	F	9	Yes|false
+FMEvalBoolean.al:222	1033	st	F	0	ok|false
+FMEvalBoolean.al:223	1033	b	on	0	No|true
+FMEvalBoolean.al:224	1033	b	on	9	No|true
+FMEvalBoolean.al:225	1033	st	on	0	err:Evaluate|true
+FMEvalBoolean.al:226	1033	b	off	0	No|true
+FMEvalBoolean.al:227	1033	b	off	9	No|true
+FMEvalBoolean.al:228	1033	st	off	0	err:Evaluate|true
+FMEvalBoolean.al:229	1033	b	\0	0	No|true
+FMEvalBoolean.al:230	1033	b	\0	9	No|true
+FMEvalBoolean.al:231	1033	st	\0	0	err:Evaluate|true
+FMEvalBoolean.al:232	1033	b	?	0	No|true
+FMEvalBoolean.al:233	1033	b	?	9	No|true
+FMEvalBoolean.al:234	1033	st	?	0	err:Evaluate|true
+FMEvalBoolean.al:274	1031	b		0	Nein|true
+FMEvalBoolean.al:275	1031	b		9	Nein|true
+FMEvalBoolean.al:276	1031	st		0	err:Evaluate|true
+FMEvalBoolean.al:277	1031	b	 	0	Nein|true
+FMEvalBoolean.al:278	1031	b	 	9	Nein|true
+FMEvalBoolean.al:279	1031	st	 	0	err:Evaluate|true
+FMEvalBoolean.al:280	1031	b	Yes	0	Nein|true
+FMEvalBoolean.al:281	1031	b	Yes	9	Nein|true
+FMEvalBoolean.al:282	1031	st	Yes	0	err:Evaluate|true
+FMEvalBoolean.al:283	1031	b	No	0	Nein|true
+FMEvalBoolean.al:284	1031	b	No	9	Nein|true
+FMEvalBoolean.al:285	1031	st	No	0	err:Evaluate|true
+FMEvalBoolean.al:286	1031	b	yes	0	Nein|true
+FMEvalBoolean.al:287	1031	b	yes	9	Nein|true
+FMEvalBoolean.al:288	1031	st	yes	0	err:Evaluate|true
+FMEvalBoolean.al:289	1031	b	YES	0	Nein|true
+FMEvalBoolean.al:290	1031	b	YES	9	Nein|true
+FMEvalBoolean.al:291	1031	st	YES	0	err:Evaluate|true
+FMEvalBoolean.al:292	1031	b	true	0	Ja|true
+FMEvalBoolean.al:293	1031	b	true	9	Ja|true
+FMEvalBoolean.al:294	1031	st	true	0	ok|true
+FMEvalBoolean.al:295	1031	b	false	0	Ja|false
+FMEvalBoolean.al:296	1031	b	false	9	Ja|false
+FMEvalBoolean.al:297	1031	st	false	0	ok|false
+FMEvalChar.al:64	1033	b		0	No|Z/Z
+FMEvalChar.al:65	1033	b		9	No|Z/Z
+FMEvalChar.al:66	1033	st		0	err:Evaluate|Z/Z
+FMEvalChar.al:67	1033	b	 	0	Yes| / 
+FMEvalChar.al:68	1033	b	 	9	Yes| / 
+FMEvalChar.al:69	1033	st	 	0	ok| / 
+FMEvalChar.al:70	1033	b	A	0	Yes|A/A
+FMEvalChar.al:71	1033	b	A	9	Yes|A/A
+FMEvalChar.al:72	1033	st	A	0	ok|A/A
+FMEvalChar.al:73	1033	b	AB	0	No|Z/Z
+FMEvalChar.al:74	1033	b	AB	9	No|Z/Z
+FMEvalChar.al:75	1033	st	AB	0	err:Evaluate|Z/Z
+FMEvalChar.al:76	1033	b	65	0	No|Z/Z
+FMEvalChar.al:77	1033	b	65	9	No|Z/Z
+FMEvalChar.al:78	1033	st	65	0	err:Evaluate|Z/Z
+FMEvalChar.al:79	1033	b	0	0	Yes|0/0
+FMEvalChar.al:80	1033	b	0	9	Yes|0/0
+FMEvalChar.al:81	1033	st	0	0	ok|0/0
+FMEvalChar.al:82	1033	b	256	0	No|Z/Z
+FMEvalChar.al:83	1033	b	256	9	No|Z/Z
+FMEvalChar.al:84	1033	st	256	0	err:Evaluate|Z/Z
+FMEvalChar.al:85	1033	b	-1	0	No|Z/Z
+FMEvalChar.al:86	1033	b	-1	9	No|Z/Z
+FMEvalChar.al:87	1033	st	-1	0	err:Evaluate|Z/Z
+FMEvalChar.al:88	1033	b	é	0	Yes|é/é
+FMEvalChar.al:89	1033	b	é	9	Yes|é/é
+FMEvalChar.al:90	1033	st	é	0	ok|é/é
+FMEvalChar.al:91	1033	b	¶	0	Yes|¶/¶
+FMEvalChar.al:92	1033	b	¶	9	Yes|¶/¶
+FMEvalChar.al:93	1033	st	¶	0	ok|¶/¶
+FMEvalChar.al:94	1033	b	€	0	Yes|€/€
+FMEvalChar.al:138	1033	b	€	9	Yes|€/€
+FMEvalChar.al:139	1033	st	€	0	ok|€/€
+FMEvalChar.al:140	1033	b	a b	0	No|Z/Z
+FMEvalChar.al:141	1033	b	a b	9	No|Z/Z
+FMEvalChar.al:142	1033	st	a b	0	err:Evaluate|Z/Z
+FMEvalChar.al:143	1033	b	1D	0	No|Z/Z
+FMEvalChar.al:144	1033	b	1D	9	No|Z/Z
+FMEvalChar.al:145	1033	st	1D	0	err:Evaluate|Z/Z
+FMEvalChar.al:146	1033	b	1T	0	No|Z/Z
+FMEvalChar.al:147	1033	b	1T	9	No|Z/Z
+FMEvalChar.al:148	1033	st	1T	0	err:Evaluate|Z/Z
+FMEvalChar.al:149	1033	b	?	0	Yes|?/?
+FMEvalChar.al:150	1033	b	?	9	Yes|?/?
+FMEvalChar.al:151	1033	st	?	0	ok|?/?
+FMEvalChar.al:152	1033	b	\0	0	Yes|\\u0000/\\u0000
+FMEvalChar.al:153	1033	b	\0	9	Yes|\\u0000/\\u0000
+FMEvalChar.al:154	1033	st	\0	0	ok|\\u0000/\\u0000
+FMEvalChar.al:184	1031	b		0	Nein|Z/Z
+FMEvalChar.al:185	1031	b		9	Nein|Z/Z
+FMEvalChar.al:186	1031	st		0	err:Evaluate|Z/Z
+FMEvalChar.al:187	1031	b	 	0	Ja| / 
+FMEvalChar.al:188	1031	b	 	9	Ja| / 
+FMEvalChar.al:189	1031	st	 	0	ok| / 
+FMEvalChar.al:190	1031	b	A	0	Ja|A/A
+FMEvalChar.al:191	1031	b	A	9	Ja|A/A
+FMEvalChar.al:192	1031	st	A	0	ok|A/A
+FMEvalChar.al:193	1031	b	AB	0	Nein|Z/Z
+FMEvalChar.al:194	1031	b	AB	9	Nein|Z/Z
+FMEvalChar.al:195	1031	st	AB	0	err:Evaluate|Z/Z
+FMEvalChar.al:196	1031	b	65	0	Nein|Z/Z
+FMEvalChar.al:197	1031	b	65	9	Nein|Z/Z
+FMEvalChar.al:198	1031	st	65	0	err:Evaluate|Z/Z
+FMEvalChar.al:199	1031	b	0	0	Ja|0/0
+FMEvalChar.al:200	1031	b	0	9	Ja|0/0
+FMEvalChar.al:201	1031	st	0	0	ok|0/0
+FMEvalChar.al:202	1031	b	256	0	Nein|Z/Z
+FMEvalChar.al:203	1031	b	256	9	Nein|Z/Z
+FMEvalChar.al:204	1031	st	256	0	err:Evaluate|Z/Z
+FMEvalChar.al:205	1031	b	-1	0	Nein|Z/Z
+FMEvalChar.al:206	1031	b	-1	9	Nein|Z/Z
+FMEvalChar.al:207	1031	st	-1	0	err:Evaluate|Z/Z
+FMEvalCode3.al:64	1033	b		0	Yes|
+FMEvalCode3.al:65	1033	b		9	Yes|
+FMEvalCode3.al:66	1033	st		0	ok|
+FMEvalCode3.al:67	1033	b	 	0	Yes|
+FMEvalCode3.al:68	1033	b	 	9	Yes|
+FMEvalCode3.al:69	1033	st	 	0	ok|
+FMEvalCode3.al:70	1033	b	abc	0	Yes|ABC
+FMEvalCode3.al:71	1033	b	abc	9	Yes|ABC
+FMEvalCode3.al:72	1033	st	abc	0	ok|ABC
+FMEvalCode3.al:73	1033	b	 abc 	0	Yes|ABC
+FMEvalCode3.al:74	1033	b	 abc 	9	Yes|ABC
+FMEvalCode3.al:75	1033	st	 abc 	0	ok|ABC
+FMEvalCode3.al:76	1033	b	a,b	0	Yes|A,B
+FMEvalCode3.al:77	1033	b	a,b	9	Yes|A,B
+FMEvalCode3.al:78	1033	st	a,b	0	ok|A,B
+FMEvalCode3.al:79	1033	b	1D	0	Yes|1D
+FMEvalCode3.al:80	1033	b	1D	9	Yes|1D
+FMEvalCode3.al:81	1033	st	1D	0	ok|1D
+FMEvalCode3.al:82	1033	b	1T	0	Yes|1T
+FMEvalCode3.al:83	1033	b	1T	9	Yes|1T
+FMEvalCode3.al:84	1033	st	1T	0	ok|1T
+FMEvalCode3.al:85	1033	b	?	0	Yes|?
+FMEvalCode3.al:86	1033	b	?	9	Yes|?
+FMEvalCode3.al:87	1033	st	?	0	ok|?
+FMEvalCode3.al:88	1033	b	ABCDEFGHIJKLMNOPQRSTUVWXYZ	0	No|SEN
+FMEvalCode3.al:89	1033	b	ABCDEFGHIJKLMNOPQRSTUVWXYZ	9	No|SEN
+FMEvalCode3.al:90	1033	st	ABCDEFGHIJKLMNOPQRSTUVWXYZ	0	err:StringLengthExceeded|SEN
+FMEvalCode3.al:91	1033	b	ä	0	Yes|Ä
+FMEvalCode3.al:92	1033	b	ä	9	Yes|Ä
+FMEvalCode3.al:134	1033	st	ä	0	ok|Ä
+FMEvalCode3.al:135	1033	b	"q"	0	Yes|"Q"
+FMEvalCode3.al:136	1033	b	"q"	9	Yes|"Q"
+FMEvalCode3.al:137	1033	st	"q"	0	ok|"Q"
+FMEvalCode3.al:138	1033	b	it's	0	No|SEN
+FMEvalCode3.al:139	1033	b	it's	9	No|SEN
+FMEvalCode3.al:140	1033	st	it's	0	err:StringLengthExceeded|SEN
+FMEvalCode3.al:141	1033	b	\0	0	Yes|\\u0000
+FMEvalCode3.al:142	1033	b	\0	9	Yes|\\u0000
+FMEvalCode3.al:143	1033	st	\0	0	ok|\\u0000
+FMEvalCode3.al:166	1031	b		0	Ja|
+FMEvalCode3.al:167	1031	b		9	Ja|
+FMEvalCode3.al:168	1031	st		0	ok|
+FMEvalCode3.al:169	1031	b	 	0	Ja|
+FMEvalCode3.al:170	1031	b	 	9	Ja|
+FMEvalCode3.al:171	1031	st	 	0	ok|
+FMEvalCode3.al:172	1031	b	abc	0	Ja|ABC
+FMEvalCode3.al:173	1031	b	abc	9	Ja|ABC
+FMEvalCode3.al:174	1031	st	abc	0	ok|ABC
+FMEvalCode3.al:175	1031	b	 abc 	0	Ja|ABC
+FMEvalCode3.al:176	1031	b	 abc 	9	Ja|ABC
+FMEvalCode3.al:177	1031	st	 abc 	0	ok|ABC
+FMEvalCode3.al:178	1031	b	a,b	0	Ja|A,B
+FMEvalCode3.al:179	1031	b	a,b	9	Ja|A,B
+FMEvalCode3.al:180	1031	st	a,b	0	ok|A,B
+FMEvalCode3.al:181	1031	b	1D	0	Ja|1D
+FMEvalCode3.al:182	1031	b	1D	9	Ja|1D
+FMEvalCode3.al:183	1031	st	1D	0	ok|1D
+FMEvalCode3.al:184	1031	b	1T	0	Ja|1T
+FMEvalCode3.al:185	1031	b	1T	9	Ja|1T
+FMEvalCode3.al:186	1031	st	1T	0	ok|1T
+FMEvalCode3.al:187	1031	b	?	0	Ja|?
+FMEvalCode3.al:188	1031	b	?	9	Ja|?
+FMEvalCode3.al:189	1031	st	?	0	ok|?
+FMEvalDate.al:64	1033	b		0	Yes|
+FMEvalDate.al:65	1033	b		9	Yes|
+FMEvalDate.al:66	1033	st		0	ok|
+FMEvalDate.al:67	1033	b	 	0	Yes|
+FMEvalDate.al:68	1033	b	 	9	Yes|
+FMEvalDate.al:69	1033	st	 	0	ok|
+FMEvalDate.al:70	1033	b	0D	0	No|2000-01-01
+FMEvalDate.al:71	1033	b	0D	9	No|2000-01-01
+FMEvalDate.al:72	1033	st	0D	0	err:Evaluate|2000-01-01
+FMEvalDate.al:73	1033	b	D	0	IGNORE
+FMEvalDate.al:74	1033	b	D	9	No|2000-01-01
+FMEvalDate.al:75	1033	st	D	0	IGNORE
+FMEvalDate.al:76	1033	b	T	0	IGNORE
+FMEvalDate.al:77	1033	b	T	9	No|2000-01-01
+FMEvalDate.al:78	1033	st	T	0	IGNORE
+FMEvalDate.al:79	1033	b	12/09/26	0	Yes|2026-12-09
+FMEvalDate.al:80	1033	b	12/09/26	9	No|2000-01-01
+FMEvalDate.al:81	1033	st	12/09/26	0	ok|2026-12-09
+FMEvalDate.al:82	1033	b	12/09/26D	0	Yes|2026-12-09
+FMEvalDate.al:83	1033	b	12/09/26D	9	No|2000-01-01
+FMEvalDate.al:84	1033	st	12/09/26D	0	ok|2026-12-09
+FMEvalDate.al:85	1033	b	12/09/26T	0	Yes|2026-12-09
+FMEvalDate.al:86	1033	b	12/09/26T	9	No|2000-01-01
+FMEvalDate.al:87	1033	st	12/09/26T	0	ok|2026-12-09
+FMEvalDate.al:88	1033	b	12/09/2026D	0	Yes|2026-12-09
+FMEvalDate.al:89	1033	b	12/09/2026D	9	No|2000-01-01
+FMEvalDate.al:90	1033	st	12/09/2026D	0	ok|2026-12-09
+FMEvalDate.al:91	1033	b	12.09.26D	0	Yes|2026-12-09
+FMEvalDate.al:132	1033	b	12.09.26D	9	No|2000-01-01
+FMEvalDate.al:133	1033	st	12.09.26D	0	ok|2026-12-09
+FMEvalDate.al:134	1033	b	12/09/26 D	0	Yes|2026-12-09
+FMEvalDate.al:135	1033	b	12/09/26 D	9	No|2000-01-01
+FMEvalDate.al:136	1033	st	12/09/26 D	0	ok|2026-12-09
+FMEvalDate.al:137	1033	b	32/01/26	0	No|2000-01-01
+FMEvalDate.al:138	1033	b	32/01/26	9	No|2000-01-01
+FMEvalDate.al:139	1033	st	32/01/26	0	err:Evaluate|2000-01-01
+FMEvalDate.al:140	1033	b	02/30/26	0	No|2000-01-01
+FMEvalDate.al:141	1033	b	02/30/26	9	No|2000-01-01
+FMEvalDate.al:142	1033	st	02/30/26	0	err:Evaluate|2000-01-01
+FMEvalDate.al:143	1033	b	00/00/00	0	No|2000-01-01
+FMEvalDate.al:144	1033	b	00/00/00	9	No|2000-01-01
+FMEvalDate.al:145	1033	st	00/00/00	0	err:Evaluate|2000-01-01
+FMEvalDate.al:146	1033	b	13/01/26	0	No|2000-01-01
+FMEvalDate.al:147	1033	b	13/01/26	9	No|2000-01-01
+FMEvalDate.al:148	1033	st	13/01/26	0	err:Evaluate|2000-01-01
+FMEvalDate.al:149	1033	b	01/13/26	0	Yes|2026-01-13
+FMEvalDate.al:150	1033	b	01/13/26	9	No|2000-01-01
+FMEvalDate.al:151	1033	st	01/13/26	0	ok|2026-01-13
+FMEvalDate.al:152	1033	b	1/1/1753	0	Yes|1753-01-01
+FMEvalDate.al:153	1033	b	1/1/1753	9	No|2000-01-01
+FMEvalDate.al:154	1033	st	1/1/1753	0	ok|1753-01-01
+FMEvalDate.al:155	1033	b	12/31/9999	0	Yes|9999-12-31
+FMEvalDate.al:156	1033	b	12/31/9999	9	No|2000-01-01
+FMEvalDate.al:157	1033	st	12/31/9999	0	ok|9999-12-31
+FMEvalDate.al:196	1033	b	1/1/0001	0	Yes|
+FMEvalDate.al:197	1033	b	1/1/0001	9	No|2000-01-01
+FMEvalDate.al:198	1033	st	1/1/0001	0	ok|
+FMEvalDate.al:199	1033	b	12/31/10000	0	No|2000-01-01
+FMEvalDate.al:200	1033	b	12/31/10000	9	No|2000-01-01
+FMEvalDate.al:201	1033	st	12/31/10000	0	err:Evaluate|2000-01-01
+FMEvalDate.al:202	1033	b	abc	0	No|2000-01-01
+FMEvalDate.al:203	1033	b	abc	9	No|2000-01-01
+FMEvalDate.al:204	1033	st	abc	0	err:Evaluate|2000-01-01
+FMEvalDate.al:205	1033	b	<=11/09/26	0	No|2000-01-01
+FMEvalDate.al:206	1033	b	<=11/09/26	9	No|2000-01-01
+FMEvalDate.al:207	1033	st	<=11/09/26	0	err:Evaluate|2000-01-01
+FMEvalDate.al:208	1033	b	>=11/09/26	0	No|2000-01-01
+FMEvalDate.al:209	1033	b	>=11/09/26	9	No|2000-01-01
+FMEvalDate.al:210	1033	st	>=11/09/26	0	err:Evaluate|2000-01-01
+FMEvalDate.al:211	1033	b	11/09/26..12/09/26	0	Yes|2026-11-09
+FMEvalDate.al:212	1033	b	11/09/26..12/09/26	9	No|2000-01-01
+FMEvalDate.al:213	1033	st	11/09/26..12/09/26	0	ok|2026-11-09
+FMEvalDate.al:214	1033	b	%today	0	No|2000-01-01
+FMEvalDate.al:215	1033	b	%today	9	No|2000-01-01
+FMEvalDate.al:216	1033	st	%today	0	err:Evaluate|2000-01-01
+FMEvalDate.al:217	1033	b	W	0	IGNORE
+FMEvalDate.al:218	1033	b	W	9	No|2000-01-01
+FMEvalDate.al:219	1033	st	W	0	IGNORE
+FMEvalDate.al:220	1033	b	1D	0	IGNORE
+FMEvalDate.al:221	1033	b	1D	9	No|2000-01-01
+FMEvalDate.al:222	1033	st	1D	0	IGNORE
+FMEvalDate.al:262	1033	b	CM	0	No|2000-01-01
+FMEvalDate.al:263	1033	b	CM	9	No|2000-01-01
+FMEvalDate.al:264	1033	st	CM	0	err:Evaluate|2000-01-01
+FMEvalDate.al:265	1033	b	12-09-26	0	Yes|2026-12-09
+FMEvalDate.al:266	1033	b	12-09-26	9	No|2000-01-01
+FMEvalDate.al:267	1033	st	12-09-26	0	ok|2026-12-09
+FMEvalDate.al:268	1033	b	2026-12-09	0	Yes|2026-12-09
+FMEvalDate.al:269	1033	b	2026-12-09	9	Yes|2026-12-09
+FMEvalDate.al:270	1033	st	2026-12-09	0	ok|2026-12-09
+FMEvalDate.al:271	1033	b	20261209	0	No|2000-01-01
+FMEvalDate.al:272	1033	b	20261209	9	No|2000-01-01
+FMEvalDate.al:273	1033	st	20261209	0	err:Evaluate|2000-01-01
+FMEvalDate.al:274	1033	b	121226	0	Yes|2026-12-12
+FMEvalDate.al:275	1033	b	121226	9	No|2000-01-01
+FMEvalDate.al:276	1033	st	121226	0	ok|2026-12-12
+FMEvalDate.al:277	1033	b	12/09	0	IGNORE
+FMEvalDate.al:278	1033	b	12/09	9	No|2000-01-01
+FMEvalDate.al:279	1033	st	12/09	0	IGNORE
+FMEvalDate.al:280	1033	b	12	0	IGNORE
+FMEvalDate.al:281	1033	b	12	9	No|2000-01-01
+FMEvalDate.al:282	1033	st	12	0	IGNORE
+FMEvalDate.al:283	1033	b	\0	0	No|2000-01-01
+FMEvalDate.al:284	1033	b	\0	9	No|2000-01-01
+FMEvalDate.al:285	1033	st	\0	0	err:Evaluate|2000-01-01
+FMEvalDate.al:286	1033	b	?	0	No|2000-01-01
+FMEvalDate.al:287	1033	b	?	9	No|2000-01-01
+FMEvalDate.al:288	1033	st	?	0	err:Evaluate|2000-01-01
+FMEvalDate.al:289	1033	b	Monday	0	IGNORE
+FMEvalDate.al:330	1033	b	Monday	9	No|2000-01-01
+FMEvalDate.al:331	1033	st	Monday	0	IGNORE
+FMEvalDate.al:332	1033	b	9 Mar 2026	0	Yes|2026-09-20
+FMEvalDate.al:333	1033	b	9 Mar 2026	9	No|2000-01-01
+FMEvalDate.al:334	1033	st	9 Mar 2026	0	ok|2026-09-20
+FMEvalDate.al:335	1033	b	March 9, 2026	0	No|2000-01-01
+FMEvalDate.al:336	1033	b	March 9, 2026	9	No|2000-01-01
+FMEvalDate.al:337	1033	st	March 9, 2026	0	err:Evaluate|2000-01-01
+FMEvalDate.al:338	1033	b	12/09/26 12:00	0	Yes|2026-12-09
+FMEvalDate.al:339	1033	b	12/09/26 12:00	9	No|2000-01-01
+FMEvalDate.al:340	1033	st	12/09/26 12:00	0	ok|2026-12-09
+FMEvalDate.al:364	1031	b		0	Ja|
+FMEvalDate.al:365	1031	b		9	Ja|
+FMEvalDate.al:366	1031	st		0	ok|
+FMEvalDate.al:367	1031	b	 	0	Ja|
+FMEvalDate.al:368	1031	b	 	9	Ja|
+FMEvalDate.al:369	1031	st	 	0	ok|
+FMEvalDate.al:370	1031	b	0D	0	Nein|2000-01-01
+FMEvalDate.al:371	1031	b	0D	9	Nein|2000-01-01
+FMEvalDate.al:372	1031	st	0D	0	err:Evaluate|2000-01-01
+FMEvalDate.al:373	1031	b	D	0	IGNORE
+FMEvalDate.al:374	1031	b	D	9	Nein|2000-01-01
+FMEvalDate.al:375	1031	st	D	0	IGNORE
+FMEvalDate.al:376	1031	b	T	0	Nein|2000-01-01
+FMEvalDate.al:377	1031	b	T	9	Nein|2000-01-01
+FMEvalDate.al:378	1031	st	T	0	err:Evaluate|2000-01-01
+FMEvalDate.al:379	1031	b	12/09/26	0	Ja|2026-12-09
+FMEvalDate.al:380	1031	b	12/09/26	9	Nein|2000-01-01
+FMEvalDate.al:381	1031	st	12/09/26	0	ok|2026-12-09
+FMEvalDate.al:382	1031	b	12/09/26D	0	Ja|2026-12-09
+FMEvalDate.al:383	1031	b	12/09/26D	9	Nein|2000-01-01
+FMEvalDate.al:384	1031	st	12/09/26D	0	ok|2026-12-09
+FMEvalDate.al:385	1031	b	12/09/26T	0	Ja|2026-12-09
+FMEvalDate.al:386	1031	b	12/09/26T	9	Nein|2000-01-01
+FMEvalDate.al:387	1031	st	12/09/26T	0	ok|2026-12-09
+FMEvalDate.al:388	1031	b	12/09/2026D	0	Ja|2026-12-09
+FMEvalDate.al:389	1031	b	12/09/2026D	9	Nein|2000-01-01
+FMEvalDate.al:390	1031	st	12/09/2026D	0	ok|2026-12-09
+FMEvalDate.al:391	1031	b	12.09.26D	0	Ja|2026-12-09
+FMEvalDate.al:432	1031	b	12.09.26D	9	Nein|2000-01-01
+FMEvalDate.al:433	1031	st	12.09.26D	0	ok|2026-12-09
+FMEvalDate.al:434	1031	b	Monday	0	Nein|2000-01-01
+FMEvalDate.al:435	1031	b	Monday	9	Nein|2000-01-01
+FMEvalDate.al:436	1031	st	Monday	0	err:Evaluate|2000-01-01
+FMEvalDate.al:437	1031	b	9 Mar 2026	0	Ja|2026-09-20
+FMEvalDate.al:438	1031	b	9 Mar 2026	9	Nein|2000-01-01
+FMEvalDate.al:439	1031	st	9 Mar 2026	0	ok|2026-09-20
+FMEvalDate.al:440	1031	b	March 9, 2026	0	Nein|2000-01-01
+FMEvalDate.al:441	1031	b	March 9, 2026	9	Nein|2000-01-01
+FMEvalDate.al:442	1031	st	March 9, 2026	0	err:Evaluate|2000-01-01
+FMEvalDate.al:443	1031	b	12/09/26 12:00	0	Ja|2026-12-09
+FMEvalDate.al:444	1031	b	12/09/26 12:00	9	Nein|2000-01-01
+FMEvalDate.al:445	1031	st	12/09/26 12:00	0	ok|2026-12-09
+FMEvalDateTime.al:64	1033	b		0	Yes|
+FMEvalDateTime.al:65	1033	b		9	Yes|
+FMEvalDateTime.al:66	1033	st		0	ok|
+FMEvalDateTime.al:67	1033	b	 	0	Yes|
+FMEvalDateTime.al:68	1033	b	 	9	Yes|
+FMEvalDateTime.al:69	1033	st	 	0	ok|
+FMEvalDateTime.al:70	1033	b	0DT	0	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:71	1033	b	0DT	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:72	1033	st	0DT	0	err:Evaluate|2000-01-01T07:08:09Z
+FMEvalDateTime.al:73	1033	b	T	0	IGNORE
+FMEvalDateTime.al:74	1033	b	T	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:75	1033	st	T	0	IGNORE
+FMEvalDateTime.al:76	1033	b	D	0	IGNORE
+FMEvalDateTime.al:77	1033	b	D	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:78	1033	st	D	0	IGNORE
+FMEvalDateTime.al:79	1033	b	01/01/26	0	Yes|2026-01-01T00:00:00Z
+FMEvalDateTime.al:80	1033	b	01/01/26	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:81	1033	st	01/01/26	0	ok|2026-01-01T00:00:00Z
+FMEvalDateTime.al:82	1033	b	01/01/23	0	Yes|2023-01-01T00:00:00Z
+FMEvalDateTime.al:83	1033	b	01/01/23	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:84	1033	st	01/01/23	0	ok|2023-01-01T00:00:00Z
+FMEvalDateTime.al:85	1033	b	11/01/26	0	Yes|2026-11-01T00:00:00Z
+FMEvalDateTime.al:86	1033	b	11/01/26	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:87	1033	st	11/01/26	0	ok|2026-11-01T00:00:00Z
+FMEvalDateTime.al:88	1033	b	01/01/2026	0	Yes|2026-01-01T00:00:00Z
+FMEvalDateTime.al:89	1033	b	01/01/2026	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:90	1033	st	01/01/2026	0	ok|2026-01-01T00:00:00Z
+FMEvalDateTime.al:91	1033	b	01/01/26D	0	Yes|2026-01-01T00:00:00Z
+FMEvalDateTime.al:132	1033	b	01/01/26D	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:133	1033	st	01/01/26D	0	ok|2026-01-01T00:00:00Z
+FMEvalDateTime.al:134	1033	b	01/01/26T	0	Yes|2026-01-01T00:00:00Z
+FMEvalDateTime.al:135	1033	b	01/01/26T	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:136	1033	st	01/01/26T	0	ok|2026-01-01T00:00:00Z
+FMEvalDateTime.al:137	1033	b	01/01/26 12:00	0	Yes|2026-01-01T12:00:00Z
+FMEvalDateTime.al:138	1033	b	01/01/26 12:00	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:139	1033	st	01/01/26 12:00	0	ok|2026-01-01T12:00:00Z
+FMEvalDateTime.al:140	1033	b	01/01/26 12:00:00	0	Yes|2026-01-01T12:00:00Z
+FMEvalDateTime.al:141	1033	b	01/01/26 12:00:00	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:142	1033	st	01/01/26 12:00:00	0	ok|2026-01-01T12:00:00Z
+FMEvalDateTime.al:143	1033	b	01/01/26 12:00:00 AM	0	Yes|2026-01-01T00:00:00Z
+FMEvalDateTime.al:144	1033	b	01/01/26 12:00:00 AM	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:145	1033	st	01/01/26 12:00:00 AM	0	ok|2026-01-01T00:00:00Z
+FMEvalDateTime.al:146	1033	b	01/01/26 12:00 PM	0	Yes|2026-01-01T12:00:00Z
+FMEvalDateTime.al:147	1033	b	01/01/26 12:00 PM	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:148	1033	st	01/01/26 12:00 PM	0	ok|2026-01-01T12:00:00Z
+FMEvalDateTime.al:149	1033	b	01/01/26 12:00:00T	0	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:150	1033	b	01/01/26 12:00:00T	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:151	1033	st	01/01/26 12:00:00T	0	err:Evaluate|2000-01-01T07:08:09Z
+FMEvalDateTime.al:152	1033	b	01/01/26 24:00	0	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:153	1033	b	01/01/26 24:00	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:154	1033	st	01/01/26 24:00	0	err:Evaluate|2000-01-01T07:08:09Z
+FMEvalDateTime.al:190	1033	b	01/01/26 25:00	0	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:191	1033	b	01/01/26 25:00	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:192	1033	st	01/01/26 25:00	0	err:Evaluate|2000-01-01T07:08:09Z
+FMEvalDateTime.al:193	1033	b	01/01/26 12:60	0	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:194	1033	b	01/01/26 12:60	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:195	1033	st	01/01/26 12:60	0	err:Evaluate|2000-01-01T07:08:09Z
+FMEvalDateTime.al:196	1033	b	01/01/26 12:00:00.123	0	Yes|2026-01-01T12:00:00.123Z
+FMEvalDateTime.al:197	1033	b	01/01/26 12:00:00.123	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:198	1033	st	01/01/26 12:00:00.123	0	ok|2026-01-01T12:00:00.123Z
+FMEvalDateTime.al:199	1033	b	13/01/26 12:00	0	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:200	1033	b	13/01/26 12:00	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:201	1033	st	13/01/26 12:00	0	err:Evaluate|2000-01-01T07:08:09Z
+FMEvalDateTime.al:202	1033	b	02/30/26 12:00	0	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:203	1033	b	02/30/26 12:00	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:204	1033	st	02/30/26 12:00	0	err:Evaluate|2000-01-01T07:08:09Z
+FMEvalDateTime.al:205	1033	b	12:00:00	0	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:206	1033	b	12:00:00	9	IGNORE
+FMEvalDateTime.al:207	1033	st	12:00:00	0	err:DateInvalid|2000-01-01T07:08:09Z
+FMEvalDateTime.al:208	1033	b	12:00 AM	0	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:209	1033	b	12:00 AM	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:210	1033	st	12:00 AM	0	err:DateInvalid|2000-01-01T07:08:09Z
+FMEvalDateTime.al:211	1033	b	2026-01-01	0	Yes|2026-01-01T00:00:00Z
+FMEvalDateTime.al:212	1033	b	2026-01-01	9	Yes|2026-01-01T00:00:00Z
+FMEvalDateTime.al:213	1033	st	2026-01-01	0	ok|2026-01-01T00:00:00Z
+FMEvalDateTime.al:250	1033	b	2026-01-01T12:00:00	0	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:251	1033	b	2026-01-01T12:00:00	9	Yes|2026-01-01T12:00:00Z
+FMEvalDateTime.al:252	1033	st	2026-01-01T12:00:00	0	err:DateInvalid|2000-01-01T07:08:09Z
+FMEvalDateTime.al:253	1033	b	2026-01-01T12:00:00Z	0	Yes|2026-01-01T12:00:00Z
+FMEvalDateTime.al:254	1033	b	2026-01-01T12:00:00Z	9	Yes|2026-01-01T12:00:00Z
+FMEvalDateTime.al:255	1033	st	2026-01-01T12:00:00Z	0	ok|2026-01-01T12:00:00Z
+FMEvalDateTime.al:256	1033	b	2026-01-01T12:00:00.123Z	0	Yes|2026-01-01T12:00:00.123Z
+FMEvalDateTime.al:257	1033	b	2026-01-01T12:00:00.123Z	9	Yes|2026-01-01T12:00:00.123Z
+FMEvalDateTime.al:258	1033	st	2026-01-01T12:00:00.123Z	0	ok|2026-01-01T12:00:00.123Z
+FMEvalDateTime.al:259	1033	b	2026-13-01T00:00:00Z	0	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:260	1033	b	2026-13-01T00:00:00Z	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:261	1033	st	2026-13-01T00:00:00Z	0	err:Evaluate|2000-01-01T07:08:09Z
+FMEvalDateTime.al:262	1033	b	2026-01-01T12:00:00+01:00	0	Yes|2026-01-01T11:00:00Z
+FMEvalDateTime.al:263	1033	b	2026-01-01T12:00:00+01:00	9	Yes|2026-01-01T11:00:00Z
+FMEvalDateTime.al:264	1033	st	2026-01-01T12:00:00+01:00	0	ok|2026-01-01T11:00:00Z
+FMEvalDateTime.al:265	1033	b	2026-01-01T24:00:00Z	0	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:266	1033	b	2026-01-01T24:00:00Z	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:267	1033	st	2026-01-01T24:00:00Z	0	err:Evaluate|2000-01-01T07:08:09Z
+FMEvalDateTime.al:268	1033	b	20260101T120000Z	0	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:269	1033	b	20260101T120000Z	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:270	1033	st	20260101T120000Z	0	err:Evaluate|2000-01-01T07:08:09Z
+FMEvalDateTime.al:304	1033	b	abc	0	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:305	1033	b	abc	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:306	1033	st	abc	0	err:Evaluate|2000-01-01T07:08:09Z
+FMEvalDateTime.al:307	1033	b	\0	0	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:308	1033	b	\0	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:309	1033	st	\0	0	err:Evaluate|2000-01-01T07:08:09Z
+FMEvalDateTime.al:310	1033	b	?	0	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:311	1033	b	?	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:312	1033	st	?	0	err:Evaluate|2000-01-01T07:08:09Z
+FMEvalDateTime.al:313	1033	b	01/01/26 	0	Yes|2026-01-01T00:00:00Z
+FMEvalDateTime.al:314	1033	b	01/01/26 	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:315	1033	st	01/01/26 	0	ok|2026-01-01T00:00:00Z
+FMEvalDateTime.al:316	1033	b	 01/01/26	0	Yes|2026-01-01T00:00:00Z
+FMEvalDateTime.al:317	1033	b	 01/01/26	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:318	1033	st	 01/01/26	0	ok|2026-01-01T00:00:00Z
+FMEvalDateTime.al:319	1033	b	01/xx/26	0	Yes|2026-01-26T00:00:00Z
+FMEvalDateTime.al:320	1033	b	01/xx/26	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:321	1033	st	01/xx/26	0	ok|2026-01-26T00:00:00Z
+FMEvalDateTime.al:322	1033	b	Mon, 01 Jan 2026 12:00:00 GMT	0	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:323	1033	b	Mon, 01 Jan 2026 12:00:00 GMT	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:324	1033	st	Mon, 01 Jan 2026 12:00:00 GMT	0	err:Evaluate|2000-01-01T07:08:09Z
+FMEvalDateTime.al:325	1033	b	01/01/26 12:00:00 12:00:00	0	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:326	1033	b	01/01/26 12:00:00 12:00:00	9	No|2000-01-01T07:08:09Z
+FMEvalDateTime.al:327	1033	st	01/01/26 12:00:00 12:00:00	0	err:Evaluate|2000-01-01T07:08:09Z
+FMEvalDateTime.al:364	1031	b		0	Ja|
+FMEvalDateTime.al:365	1031	b		9	Ja|
+FMEvalDateTime.al:366	1031	st		0	ok|
+FMEvalDateTime.al:367	1031	b	 	0	Ja|
+FMEvalDateTime.al:368	1031	b	 	9	Ja|
+FMEvalDateTime.al:369	1031	st	 	0	ok|
+FMEvalDateTime.al:370	1031	b	0DT	0	Nein|2000-01-01T07:08:09Z
+FMEvalDateTime.al:371	1031	b	0DT	9	Nein|2000-01-01T07:08:09Z
+FMEvalDateTime.al:372	1031	st	0DT	0	err:Evaluate|2000-01-01T07:08:09Z
+FMEvalDateTime.al:373	1031	b	T	0	Nein|2000-01-01T07:08:09Z
+FMEvalDateTime.al:374	1031	b	T	9	Nein|2000-01-01T07:08:09Z
+FMEvalDateTime.al:375	1031	st	T	0	err:Evaluate|2000-01-01T07:08:09Z
+FMEvalDateTime.al:376	1031	b	D	0	IGNORE
+FMEvalDateTime.al:377	1031	b	D	9	Nein|2000-01-01T07:08:09Z
+FMEvalDateTime.al:378	1031	st	D	0	IGNORE
+FMEvalDateTime.al:379	1031	b	01/01/26	0	Ja|2026-01-01T00:00:00Z
+FMEvalDateTime.al:380	1031	b	01/01/26	9	Nein|2000-01-01T07:08:09Z
+FMEvalDateTime.al:381	1031	st	01/01/26	0	ok|2026-01-01T00:00:00Z
+FMEvalDateTime.al:382	1031	b	01/01/23	0	Ja|2023-01-01T00:00:00Z
+FMEvalDateTime.al:383	1031	b	01/01/23	9	Nein|2000-01-01T07:08:09Z
+FMEvalDateTime.al:384	1031	st	01/01/23	0	ok|2023-01-01T00:00:00Z
+FMEvalDateTime.al:385	1031	b	11/01/26	0	Ja|2026-11-01T00:00:00Z
+FMEvalDateTime.al:386	1031	b	11/01/26	9	Nein|2000-01-01T07:08:09Z
+FMEvalDateTime.al:387	1031	st	11/01/26	0	ok|2026-11-01T00:00:00Z
+FMEvalDateTime.al:388	1031	b	01/01/2026	0	Ja|2026-01-01T00:00:00Z
+FMEvalDateTime.al:389	1031	b	01/01/2026	9	Nein|2000-01-01T07:08:09Z
+FMEvalDateTime.al:390	1031	st	01/01/2026	0	ok|2026-01-01T00:00:00Z
+FMEvalDateTime.al:391	1031	b	01/01/26D	0	Ja|2026-01-01T00:00:00Z
+FMEvalDateTime.al:432	1031	b	01/01/26D	9	Nein|2000-01-01T07:08:09Z
+FMEvalDateTime.al:433	1031	st	01/01/26D	0	ok|2026-01-01T00:00:00Z
+FMEvalDateTime.al:434	1031	b	 01/01/26	0	Ja|2026-01-01T00:00:00Z
+FMEvalDateTime.al:435	1031	b	 01/01/26	9	Nein|2000-01-01T07:08:09Z
+FMEvalDateTime.al:436	1031	st	 01/01/26	0	ok|2026-01-01T00:00:00Z
+FMEvalDateTime.al:437	1031	b	01/xx/26	0	Ja|2026-01-26T00:00:00Z
+FMEvalDateTime.al:438	1031	b	01/xx/26	9	Nein|2000-01-01T07:08:09Z
+FMEvalDateTime.al:439	1031	st	01/xx/26	0	ok|2026-01-26T00:00:00Z
+FMEvalDateTime.al:440	1031	b	Mon, 01 Jan 2026 12:00:00 GMT	0	Nein|2000-01-01T07:08:09Z
+FMEvalDateTime.al:441	1031	b	Mon, 01 Jan 2026 12:00:00 GMT	9	Nein|2000-01-01T07:08:09Z
+FMEvalDateTime.al:442	1031	st	Mon, 01 Jan 2026 12:00:00 GMT	0	err:Evaluate|2000-01-01T07:08:09Z
+FMEvalDateTime.al:443	1031	b	01/01/26 12:00:00 12:00:00	0	Nein|2000-01-01T07:08:09Z
+FMEvalDateTime.al:444	1031	b	01/01/26 12:00:00 12:00:00	9	Nein|2000-01-01T07:08:09Z
+FMEvalDateTime.al:445	1031	st	01/01/26 12:00:00 12:00:00	0	err:Evaluate|2000-01-01T07:08:09Z
+FMEvalDecimal.al:74	1033	b		0	No|7
+FMEvalDecimal.al:75	1033	b		9	No|7
+FMEvalDecimal.al:76	1033	st		0	err:Evaluate|7
+FMEvalDecimal.al:77	1033	b	 	0	No|7
+FMEvalDecimal.al:78	1033	b	 	9	No|7
+FMEvalDecimal.al:79	1033	st	 	0	err:Evaluate|7
+FMEvalDecimal.al:80	1033	b	  	0	No|7
+FMEvalDecimal.al:81	1033	b	  	9	No|7
+FMEvalDecimal.al:82	1033	st	  	0	err:Evaluate|7
+FMEvalDecimal.al:83	1033	b	0	0	Yes|0
+FMEvalDecimal.al:84	1033	b	0	9	Yes|0
+FMEvalDecimal.al:85	1033	st	0	0	ok|0
+FMEvalDecimal.al:86	1033	b	-0	0	Yes|0
+FMEvalDecimal.al:87	1033	b	-0	9	Yes|0
+FMEvalDecimal.al:88	1033	st	-0	0	ok|0
+FMEvalDecimal.al:89	1033	b	+5	0	Yes|5
+FMEvalDecimal.al:90	1033	b	+5	9	Yes|5
+FMEvalDecimal.al:91	1033	st	+5	0	ok|5
+FMEvalDecimal.al:92	1033	b	1	0	Yes|1
+FMEvalDecimal.al:93	1033	b	1	9	Yes|1
+FMEvalDecimal.al:94	1033	st	1	0	ok|1
+FMEvalDecimal.al:95	1033	b	 5 	0	Yes|5
+FMEvalDecimal.al:96	1033	b	 5 	9	Yes|5
+FMEvalDecimal.al:97	1033	st	 5 	0	ok|5
+FMEvalDecimal.al:98	1033	b	1,234	0	Yes|1234
+FMEvalDecimal.al:99	1033	b	1,234	9	No|7
+FMEvalDecimal.al:100	1033	st	1,234	0	ok|1234
+FMEvalDecimal.al:101	1033	b	1.5	0	Yes|1.5
+FMEvalDecimal.al:102	1033	b	1.5	9	Yes|1.5
+FMEvalDecimal.al:144	1033	st	1.5	0	ok|1.5
+FMEvalDecimal.al:145	1033	b	1,5	0	Yes|15
+FMEvalDecimal.al:146	1033	b	1,5	9	No|7
+FMEvalDecimal.al:147	1033	st	1,5	0	ok|15
+FMEvalDecimal.al:148	1033	b	.5	0	Yes|0.5
+FMEvalDecimal.al:149	1033	b	.5	9	Yes|0.5
+FMEvalDecimal.al:150	1033	st	.5	0	ok|0.5
+FMEvalDecimal.al:151	1033	b	5.	0	Yes|5
+FMEvalDecimal.al:152	1033	b	5.	9	Yes|5
+FMEvalDecimal.al:153	1033	st	5.	0	ok|5
+FMEvalDecimal.al:154	1033	b	12abc	0	No|7
+FMEvalDecimal.al:155	1033	b	12abc	9	No|7
+FMEvalDecimal.al:156	1033	st	12abc	0	err:Evaluate|7
+FMEvalDecimal.al:157	1033	b	abc	0	No|7
+FMEvalDecimal.al:158	1033	b	abc	9	No|7
+FMEvalDecimal.al:159	1033	st	abc	0	err:Evaluate|7
+FMEvalDecimal.al:160	1033	b	--1	0	No|7
+FMEvalDecimal.al:161	1033	b	--1	9	No|7
+FMEvalDecimal.al:162	1033	st	--1	0	err:Evaluate|7
+FMEvalDecimal.al:163	1033	b	1e3	0	Yes|1000
+FMEvalDecimal.al:164	1033	b	1e3	9	Yes|1000
+FMEvalDecimal.al:165	1033	st	1e3	0	ok|1000
+FMEvalDecimal.al:166	1033	b	1E3	0	Yes|1000
+FMEvalDecimal.al:167	1033	b	1E3	9	Yes|1000
+FMEvalDecimal.al:168	1033	st	1E3	0	ok|1000
+FMEvalDecimal.al:169	1033	b	09e738195	0	No|7
+FMEvalDecimal.al:170	1033	b	09e738195	9	No|7
+FMEvalDecimal.al:171	1033	st	09e738195	0	err:Evaluate|7
+FMEvalDecimal.al:172	1033	b	1e-5	0	Yes|0.00001
+FMEvalDecimal.al:214	1033	b	1e-5	9	Yes|0.00001
+FMEvalDecimal.al:215	1033	st	1e-5	0	ok|0.00001
+FMEvalDecimal.al:216	1033	b	0x10	0	No|7
+FMEvalDecimal.al:217	1033	b	0x10	9	No|7
+FMEvalDecimal.al:218	1033	st	0x10	0	err:Evaluate|7
+FMEvalDecimal.al:219	1033	b	5D	0	No|7
+FMEvalDecimal.al:220	1033	b	5D	9	No|7
+FMEvalDecimal.al:221	1033	st	5D	0	err:Evaluate|7
+FMEvalDecimal.al:222	1033	b	5T	0	No|7
+FMEvalDecimal.al:223	1033	b	5T	9	No|7
+FMEvalDecimal.al:224	1033	st	5T	0	err:Evaluate|7
+FMEvalDecimal.al:225	1033	b	\0	0	No|7
+FMEvalDecimal.al:226	1033	b	\0	9	No|7
+FMEvalDecimal.al:227	1033	st	\0	0	err:Evaluate|7
+FMEvalDecimal.al:228	1033	b	?	0	No|7
+FMEvalDecimal.al:229	1033	b	?	9	No|7
+FMEvalDecimal.al:230	1033	st	?	0	err:Evaluate|7
+FMEvalDecimal.al:231	1033	b	\t5	0	Yes|5
+FMEvalDecimal.al:232	1033	b	\t5	9	Yes|5
+FMEvalDecimal.al:233	1033	st	\t5	0	ok|5
+FMEvalDecimal.al:234	1033	b	2147483647	0	Yes|2147483647
+FMEvalDecimal.al:235	1033	b	2147483647	9	Yes|2147483647
+FMEvalDecimal.al:236	1033	st	2147483647	0	ok|2147483647
+FMEvalDecimal.al:237	1033	b	2147483648	0	Yes|2147483648
+FMEvalDecimal.al:238	1033	b	2147483648	9	Yes|2147483648
+FMEvalDecimal.al:239	1033	st	2147483648	0	ok|2147483648
+FMEvalDecimal.al:240	1033	b	-2147483648	0	Yes|-2147483648
+FMEvalDecimal.al:241	1033	b	-2147483648	9	Yes|-2147483648
+FMEvalDecimal.al:282	1033	st	-2147483648	0	ok|-2147483648
+FMEvalDecimal.al:283	1033	b	-2147483649	0	Yes|-2147483649
+FMEvalDecimal.al:284	1033	b	-2147483649	9	Yes|-2147483649
+FMEvalDecimal.al:285	1033	st	-2147483649	0	ok|-2147483649
+FMEvalDecimal.al:286	1033	b	9223372036854775807	0	No|7
+FMEvalDecimal.al:287	1033	b	9223372036854775807	9	No|7
+FMEvalDecimal.al:288	1033	st	9223372036854775807	0	err:Evaluate|7
+FMEvalDecimal.al:289	1033	b	9223372036854775808	0	No|7
+FMEvalDecimal.al:290	1033	b	9223372036854775808	9	No|7
+FMEvalDecimal.al:291	1033	st	9223372036854775808	0	err:Evaluate|7
+FMEvalDecimal.al:292	1033	b	79228162514264337593543950335	0	No|7
+FMEvalDecimal.al:293	1033	b	79228162514264337593543950335	9	No|7
+FMEvalDecimal.al:294	1033	st	79228162514264337593543950335	0	err:Evaluate|7
+FMEvalDecimal.al:295	1033	b	99999999999999999999999999999	0	No|7
+FMEvalDecimal.al:296	1033	b	99999999999999999999999999999	9	No|7
+FMEvalDecimal.al:297	1033	st	99999999999999999999999999999	0	err:Evaluate|7
+FMEvalDecimal.al:298	1033	b	1 000	0	No|7
+FMEvalDecimal.al:299	1033	b	1 000	9	No|7
+FMEvalDecimal.al:300	1033	st	1 000	0	err:Evaluate|7
+FMEvalDecimal.al:301	1033	b	1''000	0	No|7
+FMEvalDecimal.al:302	1033	b	1''000	9	No|7
+FMEvalDecimal.al:303	1033	st	1''000	0	err:Evaluate|7
+FMEvalDecimal.al:304	1033	b	(5)	0	Yes|-5
+FMEvalDecimal.al:340	1033	b	(5)	9	No|7
+FMEvalDecimal.al:341	1033	st	(5)	0	ok|-5
+FMEvalDecimal.al:342	1033	b	5-	0	Yes|-5
+FMEvalDecimal.al:343	1033	b	5-	9	No|7
+FMEvalDecimal.al:344	1033	st	5-	0	ok|-5
+FMEvalDecimal.al:345	1033	b	true	0	No|7
+FMEvalDecimal.al:346	1033	b	true	9	No|7
+FMEvalDecimal.al:347	1033	st	true	0	err:Evaluate|7
+FMEvalDecimal.al:368	1031	b		0	Nein|7
+FMEvalDecimal.al:369	1031	b		9	Nein|7
+FMEvalDecimal.al:370	1031	st		0	err:Evaluate|7
+FMEvalDecimal.al:371	1031	b	 	0	Nein|7
+FMEvalDecimal.al:372	1031	b	 	9	Nein|7
+FMEvalDecimal.al:373	1031	st	 	0	err:Evaluate|7
+FMEvalDecimal.al:374	1031	b	  	0	Nein|7
+FMEvalDecimal.al:375	1031	b	  	9	Nein|7
+FMEvalDecimal.al:376	1031	st	  	0	err:Evaluate|7
+FMEvalDecimal.al:377	1031	b	0	0	Ja|0
+FMEvalDecimal.al:378	1031	b	0	9	Ja|0
+FMEvalDecimal.al:379	1031	st	0	0	ok|0
+FMEvalDecimal.al:380	1031	b	-0	0	Ja|0
+FMEvalDecimal.al:381	1031	b	-0	9	Ja|0
+FMEvalDecimal.al:382	1031	st	-0	0	ok|0
+FMEvalDecimal.al:383	1031	b	+5	0	Ja|5
+FMEvalDecimal.al:384	1031	b	+5	9	Ja|5
+FMEvalDecimal.al:385	1031	st	+5	0	ok|5
+FMEvalDecimal.al:386	1031	b	1	0	Ja|1
+FMEvalDecimal.al:387	1031	b	1	9	Ja|1
+FMEvalDecimal.al:388	1031	st	1	0	ok|1
+FMEvalDecimal.al:389	1031	b	 5 	0	Ja|5
+FMEvalDecimal.al:390	1031	b	 5 	9	Ja|5
+FMEvalDecimal.al:391	1031	st	 5 	0	ok|5
+FMEvalDecimal.al:392	1031	b	1,234	0	Ja|1234
+FMEvalDecimal.al:393	1031	b	1,234	9	Nein|7
+FMEvalDecimal.al:394	1031	st	1,234	0	ok|1234
+FMEvalDecimal.al:395	1031	b	1.5	0	Ja|1.5
+FMEvalDecimal.al:396	1031	b	1.5	9	Ja|1.5
+FMEvalDecimal.al:438	1031	st	1.5	0	ok|1.5
+FMEvalDecimal.al:439	1031	b	1,5	0	Ja|15
+FMEvalDecimal.al:440	1031	b	1,5	9	Nein|7
+FMEvalDecimal.al:441	1031	st	1,5	0	ok|15
+FMEvalDecimal.al:442	1031	b	.5	0	Ja|0.5
+FMEvalDecimal.al:443	1031	b	.5	9	Ja|0.5
+FMEvalDecimal.al:444	1031	st	.5	0	ok|0.5
+FMEvalDecimal.al:445	1031	b	5T	0	Nein|7
+FMEvalDecimal.al:446	1031	b	5T	9	Nein|7
+FMEvalDecimal.al:447	1031	st	5T	0	err:Evaluate|7
+FMEvalDecimal.al:448	1031	b	\0	0	Nein|7
+FMEvalDecimal.al:449	1031	b	\0	9	Nein|7
+FMEvalDecimal.al:450	1031	st	\0	0	err:Evaluate|7
+FMEvalDecimal.al:451	1031	b	?	0	Nein|7
+FMEvalDecimal.al:452	1031	b	?	9	Nein|7
+FMEvalDecimal.al:453	1031	st	?	0	err:Evaluate|7
+FMEvalDuration.al:64	1033	b		0	Yes|P0DT0H0M0.0S/
+FMEvalDuration.al:65	1033	b		9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:66	1033	st		0	ok|P0DT0H0M0.0S/
+FMEvalDuration.al:67	1033	b	 	0	Yes|P0DT0H0M0.0S/
+FMEvalDuration.al:68	1033	b	 	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:69	1033	st	 	0	ok|P0DT0H0M0.0S/
+FMEvalDuration.al:70	1033	b	0	0	Yes|P0DT0H0M0.0S/
+FMEvalDuration.al:71	1033	b	0	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:72	1033	st	0	0	ok|P0DT0H0M0.0S/
+FMEvalDuration.al:73	1033	b	1	0	Yes|P0DT1H0M0.0S/1 hour
+FMEvalDuration.al:74	1033	b	1	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:75	1033	st	1	0	ok|P0DT1H0M0.0S/1 hour
+FMEvalDuration.al:76	1033	b	-1	0	Yes|-P0DT1H0M0.0S/-1 hour
+FMEvalDuration.al:77	1033	b	-1	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:78	1033	st	-1	0	ok|-P0DT1H0M0.0S/-1 hour
+FMEvalDuration.al:79	1033	b	1000	0	Yes|P41DT16H0M0.0S/41 days 16 hours
+FMEvalDuration.al:80	1033	b	1000	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:81	1033	st	1000	0	ok|P41DT16H0M0.0S/41 days 16 hours
+FMEvalDuration.al:82	1033	b	90061001	0	Yes|P3752541DT17H0M0.0S/3752541 days 17 hours
+FMEvalDuration.al:83	1033	b	90061001	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:84	1033	st	90061001	0	ok|P3752541DT17H0M0.0S/3752541 days 17 hours
+FMEvalDuration.al:85	1033	b	1 millisecond	0	Yes|P0DT0H0M0.001S/1 millisecond
+FMEvalDuration.al:86	1033	b	1 millisecond	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:87	1033	st	1 millisecond	0	ok|P0DT0H0M0.001S/1 millisecond
+FMEvalDuration.al:88	1033	b	-1 millisecond	0	Yes|-P0DT0H0M0.001S/-1 millisecond
+FMEvalDuration.al:89	1033	b	-1 millisecond	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:90	1033	st	-1 millisecond	0	ok|-P0DT0H0M0.001S/-1 millisecond
+FMEvalDuration.al:91	1033	b	1 milliseconds	0	Yes|P0DT0H0M0.001S/1 millisecond
+FMEvalDuration.al:132	1033	b	1 milliseconds	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:133	1033	st	1 milliseconds	0	ok|P0DT0H0M0.001S/1 millisecond
+FMEvalDuration.al:134	1033	b	1 second	0	Yes|P0DT0H0M1.0S/1 second
+FMEvalDuration.al:135	1033	b	1 second	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:136	1033	st	1 second	0	ok|P0DT0H0M1.0S/1 second
+FMEvalDuration.al:137	1033	b	2 seconds	0	Yes|P0DT0H0M2.0S/2 seconds
+FMEvalDuration.al:138	1033	b	2 seconds	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:139	1033	st	2 seconds	0	ok|P0DT0H0M2.0S/2 seconds
+FMEvalDuration.al:140	1033	b	1 minute	0	Yes|P0DT0H1M0.0S/1 minute
+FMEvalDuration.al:141	1033	b	1 minute	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:142	1033	st	1 minute	0	ok|P0DT0H1M0.0S/1 minute
+FMEvalDuration.al:143	1033	b	1 hour	0	Yes|P0DT1H0M0.0S/1 hour
+FMEvalDuration.al:144	1033	b	1 hour	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:145	1033	st	1 hour	0	ok|P0DT1H0M0.0S/1 hour
+FMEvalDuration.al:146	1033	b	1 day	0	Yes|P1DT0H0M0.0S/1 day
+FMEvalDuration.al:147	1033	b	1 day	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:148	1033	st	1 day	0	ok|P1DT0H0M0.0S/1 day
+FMEvalDuration.al:149	1033	b	2 days	0	Yes|P2DT0H0M0.0S/2 days
+FMEvalDuration.al:150	1033	b	2 days	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:151	1033	st	2 days	0	ok|P2DT0H0M0.0S/2 days
+FMEvalDuration.al:152	1033	b	1 day 2 hours	0	Yes|P1DT2H0M0.0S/1 day 2 hours
+FMEvalDuration.al:153	1033	b	1 day 2 hours	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:154	1033	st	1 day 2 hours	0	ok|P1DT2H0M0.0S/1 day 2 hours
+FMEvalDuration.al:155	1033	b	1 day 2 hours 3 minutes 4 seconds 5 milliseconds	0	Yes|P1DT2H3M4.005S/1 day 2 hours 3 minutes 4 seconds 5 milliseconds
+FMEvalDuration.al:156	1033	b	1 day 2 hours 3 minutes 4 seconds 5 milliseconds	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:194	1033	st	1 day 2 hours 3 minutes 4 seconds 5 milliseconds	0	ok|P1DT2H3M4.005S/1 day 2 hours 3 minutes 4 seconds 5 milliseconds
+FMEvalDuration.al:195	1033	b	-1 day 2 hours	0	Yes|-P1DT2H0M0.0S/-1 day 2 hours
+FMEvalDuration.al:196	1033	b	-1 day 2 hours	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:197	1033	st	-1 day 2 hours	0	ok|-P1DT2H0M0.0S/-1 day 2 hours
+FMEvalDuration.al:198	1033	b	1.5 seconds	0	Yes|P0DT0H0M1.5S/1 second 500 milliseconds
+FMEvalDuration.al:199	1033	b	1.5 seconds	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:200	1033	st	1.5 seconds	0	ok|P0DT0H0M1.5S/1 second 500 milliseconds
+FMEvalDuration.al:201	1033	b	1h	0	Yes|P0DT1H0M0.0S/1 hour
+FMEvalDuration.al:202	1033	b	1h	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:203	1033	st	1h	0	ok|P0DT1H0M0.0S/1 hour
+FMEvalDuration.al:204	1033	b	1h 2m	0	Yes|P0DT1H2M0.0S/1 hour 2 minutes
+FMEvalDuration.al:205	1033	b	1h 2m	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:206	1033	st	1h 2m	0	ok|P0DT1H2M0.0S/1 hour 2 minutes
+FMEvalDuration.al:207	1033	b	1s	0	Yes|P0DT0H0M1.0S/1 second
+FMEvalDuration.al:208	1033	b	1s	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:209	1033	st	1s	0	ok|P0DT0H0M1.0S/1 second
+FMEvalDuration.al:210	1033	b	1 ms	0	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:211	1033	b	1 ms	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:212	1033	st	1 ms	0	err:Evaluate|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:213	1033	b	1 sec	0	Yes|P0DT0H0M1.0S/1 second
+FMEvalDuration.al:214	1033	b	1 sec	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:215	1033	st	1 sec	0	ok|P0DT0H0M1.0S/1 second
+FMEvalDuration.al:216	1033	b	1 min	0	Yes|P0DT0H1M0.0S/1 minute
+FMEvalDuration.al:217	1033	b	1 min	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:218	1033	st	1 min	0	ok|P0DT0H1M0.0S/1 minute
+FMEvalDuration.al:219	1033	b	1 Second	0	Yes|P0DT0H0M1.0S/1 second
+FMEvalDuration.al:220	1033	b	1 Second	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:260	1033	st	1 Second	0	ok|P0DT0H0M1.0S/1 second
+FMEvalDuration.al:261	1033	b	abc	0	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:262	1033	b	abc	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:263	1033	st	abc	0	err:Evaluate|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:264	1033	b	1D	0	Yes|P1DT0H0M0.0S/1 day
+FMEvalDuration.al:265	1033	b	1D	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:266	1033	st	1D	0	ok|P1DT0H0M0.0S/1 day
+FMEvalDuration.al:267	1033	b	1T	0	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:268	1033	b	1T	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:269	1033	st	1T	0	err:Evaluate|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:270	1033	b	\0	0	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:271	1033	b	\0	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:272	1033	st	\0	0	err:Evaluate|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:273	1033	b	?	0	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:274	1033	b	?	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:275	1033	st	?	0	err:Evaluate|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:276	1033	b	P1DT2H	0	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:277	1033	b	P1DT2H	9	Yes|P1DT2H0M0.0S/1 day 2 hours
+FMEvalDuration.al:278	1033	st	P1DT2H	0	err:Evaluate|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:279	1033	b	PT1.5S	0	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:280	1033	b	PT1.5S	9	Yes|P0DT0H0M1.5S/1 second 500 milliseconds
+FMEvalDuration.al:281	1033	st	PT1.5S	0	err:Evaluate|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:282	1033	b	0 milliseconds	0	Yes|P0DT0H0M0.0S/
+FMEvalDuration.al:283	1033	b	0 milliseconds	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:284	1033	st	0 milliseconds	0	ok|P0DT0H0M0.0S/
+FMEvalDuration.al:285	1033	b	9223372036854775807	0	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:286	1033	b	9223372036854775807	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:287	1033	st	9223372036854775807	0	err:Evaluate|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:328	1033	b	9223372036854775808	0	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:329	1033	b	9223372036854775808	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:330	1033	st	9223372036854775808	0	err:Evaluate|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:331	1033	b	999999999999 days	0	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:332	1033	b	999999999999 days	9	No|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:333	1033	st	999999999999 days	0	err:Evaluate|P0DT0H0M0.007S/7 milliseconds
+FMEvalDuration.al:352	1031	b		0	Ja|P0DT0H0M0.0S/
+FMEvalDuration.al:353	1031	b		9	Nein|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:354	1031	st		0	ok|P0DT0H0M0.0S/
+FMEvalDuration.al:355	1031	b	 	0	Ja|P0DT0H0M0.0S/
+FMEvalDuration.al:356	1031	b	 	9	Nein|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:357	1031	st	 	0	ok|P0DT0H0M0.0S/
+FMEvalDuration.al:358	1031	b	0	0	Ja|P0DT0H0M0.0S/
+FMEvalDuration.al:359	1031	b	0	9	Nein|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:360	1031	st	0	0	ok|P0DT0H0M0.0S/
+FMEvalDuration.al:361	1031	b	1	0	Ja|P0DT1H0M0.0S/1 Stunde
+FMEvalDuration.al:362	1031	b	1	9	Nein|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:363	1031	st	1	0	ok|P0DT1H0M0.0S/1 Stunde
+FMEvalDuration.al:364	1031	b	-1	0	Ja|-P0DT1H0M0.0S/-1 Stunde
+FMEvalDuration.al:365	1031	b	-1	9	Nein|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:366	1031	st	-1	0	ok|-P0DT1H0M0.0S/-1 Stunde
+FMEvalDuration.al:367	1031	b	1000	0	Ja|P41DT16H0M0.0S/41 Tage 16 Stunden
+FMEvalDuration.al:368	1031	b	1000	9	Nein|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:369	1031	st	1000	0	ok|P41DT16H0M0.0S/41 Tage 16 Stunden
+FMEvalDuration.al:370	1031	b	90061001	0	Ja|P3752541DT17H0M0.0S/3752541 Tage 17 Stunden
+FMEvalDuration.al:371	1031	b	90061001	9	Nein|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:372	1031	st	90061001	0	ok|P3752541DT17H0M0.0S/3752541 Tage 17 Stunden
+FMEvalDuration.al:373	1031	b	1 millisecond	0	Nein|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:374	1031	b	1 millisecond	9	Nein|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:375	1031	st	1 millisecond	0	err:Evaluate|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:376	1031	b	-1 millisecond	0	Nein|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:377	1031	b	-1 millisecond	9	Nein|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:378	1031	st	-1 millisecond	0	err:Evaluate|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:379	1031	b	1 milliseconds	0	Nein|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:420	1031	b	1 milliseconds	9	Nein|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:421	1031	st	1 milliseconds	0	err:Evaluate|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:422	1031	b	0 milliseconds	0	Nein|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:423	1031	b	0 milliseconds	9	Nein|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:424	1031	st	0 milliseconds	0	err:Evaluate|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:425	1031	b	9223372036854775807	0	Nein|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:426	1031	b	9223372036854775807	9	Nein|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:427	1031	st	9223372036854775807	0	err:Evaluate|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:428	1031	b	9223372036854775808	0	Nein|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:429	1031	b	9223372036854775808	9	Nein|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:430	1031	st	9223372036854775808	0	err:Evaluate|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:431	1031	b	999999999999 days	0	Nein|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:432	1031	b	999999999999 days	9	Nein|P0DT0H0M0.007S/7 Millisekunden
+FMEvalDuration.al:433	1031	st	999999999999 days	0	err:Evaluate|P0DT0H0M0.007S/7 Millisekunden
+FMEvalEnum.al:64	1033	b		0	Yes|0/ 
+FMEvalEnum.al:65	1033	b		9	Yes|0/ 
+FMEvalEnum.al:66	1033	st		0	ok|0/ 
+FMEvalEnum.al:67	1033	b	 	0	Yes|0/ 
+FMEvalEnum.al:68	1033	b	 	9	Yes|0/ 
+FMEvalEnum.al:69	1033	st	 	0	ok|0/ 
+FMEvalEnum.al:70	1033	b	Put-away	0	Yes|1/Put-away
+FMEvalEnum.al:71	1033	b	Put-away	9	Yes|1/Put-away
+FMEvalEnum.al:72	1033	st	Put-away	0	ok|1/Put-away
+FMEvalEnum.al:73	1033	b	put-away	0	Yes|1/Put-away
+FMEvalEnum.al:74	1033	b	put-away	9	Yes|1/Put-away
+FMEvalEnum.al:75	1033	st	put-away	0	ok|1/Put-away
+FMEvalEnum.al:76	1033	b	PUT-AWAY	0	Yes|1/Put-away
+FMEvalEnum.al:77	1033	b	PUT-AWAY	9	Yes|1/Put-away
+FMEvalEnum.al:78	1033	st	PUT-AWAY	0	ok|1/Put-away
+FMEvalEnum.al:79	1033	b	Pick	0	Yes|2/Pick
+FMEvalEnum.al:80	1033	b	Pick	9	Yes|2/Pick
+FMEvalEnum.al:81	1033	st	Pick	0	ok|2/Pick
+FMEvalEnum.al:82	1033	b	Movement	0	Yes|3/Movement
+FMEvalEnum.al:83	1033	b	Movement	9	Yes|3/Movement
+FMEvalEnum.al:84	1033	st	Movement	0	ok|3/Movement
+FMEvalEnum.al:85	1033	b	Invt. Pick	0	Yes|5/Invt. Pick
+FMEvalEnum.al:86	1033	b	Invt. Pick	9	Yes|5/Invt. Pick
+FMEvalEnum.al:87	1033	st	Invt. Pick	0	ok|5/Invt. Pick
+FMEvalEnum.al:88	1033	b	1	0	Yes|1/Put-away
+FMEvalEnum.al:89	1033	b	1	9	Yes|1/Put-away
+FMEvalEnum.al:90	1033	st	1	0	ok|1/Put-away
+FMEvalEnum.al:91	1033	b	2	0	Yes|2/Pick
+FMEvalEnum.al:132	1033	b	2	9	Yes|2/Pick
+FMEvalEnum.al:133	1033	st	2	0	ok|2/Pick
+FMEvalEnum.al:134	1033	b	0	0	Yes|0/ 
+FMEvalEnum.al:135	1033	b	0	9	Yes|0/ 
+FMEvalEnum.al:136	1033	st	0	0	ok|0/ 
+FMEvalEnum.al:137	1033	b	99	0	Yes|99/99
+FMEvalEnum.al:138	1033	b	99	9	Yes|99/99
+FMEvalEnum.al:139	1033	st	99	0	ok|99/99
+FMEvalEnum.al:140	1033	b	-1	0	No|2/Pick
+FMEvalEnum.al:141	1033	b	-1	9	No|2/Pick
+FMEvalEnum.al:142	1033	st	-1	0	err:InvalidOptionString|2/Pick
+FMEvalEnum.al:143	1033	b	1.0	0	No|2/Pick
+FMEvalEnum.al:144	1033	b	1.0	9	No|2/Pick
+FMEvalEnum.al:145	1033	st	1.0	0	err:InvalidOptionString|2/Pick
+FMEvalEnum.al:146	1033	b	 1	0	Yes|1/Put-away
+FMEvalEnum.al:147	1033	b	 1	9	Yes|1/Put-away
+FMEvalEnum.al:148	1033	st	 1	0	ok|1/Put-away
+FMEvalEnum.al:149	1033	b	1 	0	Yes|1/Put-away
+FMEvalEnum.al:150	1033	b	1 	9	Yes|1/Put-away
+FMEvalEnum.al:151	1033	st	1 	0	ok|1/Put-away
+FMEvalEnum.al:152	1033	b	abc	0	No|2/Pick
+FMEvalEnum.al:153	1033	b	abc	9	No|2/Pick
+FMEvalEnum.al:154	1033	st	abc	0	err:InvalidOptionString|2/Pick
+FMEvalEnum.al:155	1033	b	Put_away	0	No|2/Pick
+FMEvalEnum.al:156	1033	b	Put_away	9	No|2/Pick
+FMEvalEnum.al:157	1033	st	Put_away	0	err:InvalidOptionString|2/Pick
+FMEvalEnum.al:158	1033	b	Putaway	0	No|2/Pick
+FMEvalEnum.al:159	1033	b	Putaway	9	No|2/Pick
+FMEvalEnum.al:160	1033	st	Putaway	0	err:InvalidOptionString|2/Pick
+FMEvalEnum.al:202	1033	b	Put-away 	0	Yes|1/Put-away
+FMEvalEnum.al:203	1033	b	Put-away 	9	Yes|1/Put-away
+FMEvalEnum.al:204	1033	st	Put-away 	0	ok|1/Put-away
+FMEvalEnum.al:205	1033	b	 Put-away	0	Yes|1/Put-away
+FMEvalEnum.al:206	1033	b	 Put-away	9	Yes|1/Put-away
+FMEvalEnum.al:207	1033	st	 Put-away	0	ok|1/Put-away
+FMEvalEnum.al:208	1033	b	1D	0	No|2/Pick
+FMEvalEnum.al:209	1033	b	1D	9	No|2/Pick
+FMEvalEnum.al:210	1033	st	1D	0	err:InvalidOptionString|2/Pick
+FMEvalEnum.al:211	1033	b	1T	0	No|2/Pick
+FMEvalEnum.al:212	1033	b	1T	9	No|2/Pick
+FMEvalEnum.al:213	1033	st	1T	0	err:InvalidOptionString|2/Pick
+FMEvalEnum.al:214	1033	b	\0	0	Yes|0/ 
+FMEvalEnum.al:215	1033	b	\0	9	Yes|0/ 
+FMEvalEnum.al:216	1033	st	\0	0	ok|0/ 
+FMEvalEnum.al:217	1033	b	?	0	No|2/Pick
+FMEvalEnum.al:218	1033	b	?	9	No|2/Pick
+FMEvalEnum.al:219	1033	st	?	0	err:InvalidOptionString|2/Pick
+FMEvalEnum.al:250	1031	b		0	Ja|0/ 
+FMEvalEnum.al:251	1031	b		9	Ja|0/ 
+FMEvalEnum.al:252	1031	st		0	ok|0/ 
+FMEvalEnum.al:253	1031	b	 	0	Ja|0/ 
+FMEvalEnum.al:254	1031	b	 	9	Ja|0/ 
+FMEvalEnum.al:255	1031	st	 	0	ok|0/ 
+FMEvalEnum.al:256	1031	b	Put-away	0	Ja|1/Put-away
+FMEvalEnum.al:257	1031	b	Put-away	9	Ja|1/Put-away
+FMEvalEnum.al:258	1031	st	Put-away	0	ok|1/Put-away
+FMEvalEnum.al:259	1031	b	put-away	0	Ja|1/Put-away
+FMEvalEnum.al:260	1031	b	put-away	9	Ja|1/Put-away
+FMEvalEnum.al:261	1031	st	put-away	0	ok|1/Put-away
+FMEvalEnum.al:262	1031	b	PUT-AWAY	0	Ja|1/Put-away
+FMEvalEnum.al:263	1031	b	PUT-AWAY	9	Ja|1/Put-away
+FMEvalEnum.al:264	1031	st	PUT-AWAY	0	ok|1/Put-away
+FMEvalEnum.al:265	1031	b	Pick	0	Ja|2/Pick
+FMEvalEnum.al:266	1031	b	Pick	9	Ja|2/Pick
+FMEvalEnum.al:267	1031	st	Pick	0	ok|2/Pick
+FMEvalEnum.al:268	1031	b	Movement	0	Ja|3/Movement
+FMEvalEnum.al:269	1031	b	Movement	9	Ja|3/Movement
+FMEvalEnum.al:270	1031	st	Movement	0	ok|3/Movement
+FMEvalEnum.al:271	1031	b	Invt. Pick	0	Ja|5/Invt. Pick
+FMEvalEnum.al:272	1031	b	Invt. Pick	9	Ja|5/Invt. Pick
+FMEvalEnum.al:273	1031	st	Invt. Pick	0	ok|5/Invt. Pick
+FMEvalGuid.al:64	1033	b		0	No|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:65	1033	b		9	No|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:66	1033	st		0	err:InvalidGuidFormat|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:67	1033	b	 	0	No|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:68	1033	b	 	9	No|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:69	1033	st	 	0	err:InvalidGuidFormat|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:70	1033	b	{12345678-1234-5678-9ABC-DEF012345678}	0	Yes|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:71	1033	b	{12345678-1234-5678-9ABC-DEF012345678}	9	Yes|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:72	1033	st	{12345678-1234-5678-9ABC-DEF012345678}	0	ok|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:73	1033	b	12345678-1234-5678-9ABC-DEF012345678	0	Yes|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:74	1033	b	12345678-1234-5678-9ABC-DEF012345678	9	Yes|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:75	1033	st	12345678-1234-5678-9ABC-DEF012345678	0	ok|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:76	1033	b	{12345678-1234-5678-9abc-def012345678}	0	Yes|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:77	1033	b	{12345678-1234-5678-9abc-def012345678}	9	Yes|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:78	1033	st	{12345678-1234-5678-9abc-def012345678}	0	ok|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:79	1033	b	12345678123456789ABCDEF012345678	0	Yes|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:80	1033	b	12345678123456789ABCDEF012345678	9	Yes|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:81	1033	st	12345678123456789ABCDEF012345678	0	ok|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:82	1033	b	{00000000-0000-0000-0000-000000000000}	0	Yes|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:114	1033	b	{00000000-0000-0000-0000-000000000000}	9	Yes|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:115	1033	st	{00000000-0000-0000-0000-000000000000}	0	ok|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:116	1033	b	00000000-0000-0000-0000-000000000000	0	Yes|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:117	1033	b	00000000-0000-0000-0000-000000000000	9	Yes|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:118	1033	st	00000000-0000-0000-0000-000000000000	0	ok|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:119	1033	b	abc	0	No|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:120	1033	b	abc	9	No|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:121	1033	st	abc	0	err:InvalidGuidFormat|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:122	1033	b	{12345678-1234-5678-9ABC-DEF01234567}	0	No|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:123	1033	b	{12345678-1234-5678-9ABC-DEF01234567}	9	No|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:124	1033	st	{12345678-1234-5678-9ABC-DEF01234567}	0	err:InvalidGuidFormat|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:125	1033	b	{12345678-1234-5678-9ABC-DEF0123456789}	0	No|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:126	1033	b	{12345678-1234-5678-9ABC-DEF0123456789}	9	No|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:127	1033	st	{12345678-1234-5678-9ABC-DEF0123456789}	0	err:InvalidGuidFormat|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:128	1033	b	{12345678-1234-5678-9ABC-DEF012345678	0	No|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:129	1033	b	{12345678-1234-5678-9ABC-DEF012345678	9	No|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:130	1033	st	{12345678-1234-5678-9ABC-DEF012345678	0	err:InvalidGuidFormat|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:131	1033	b	12345678-1234-5678-9ABC-DEF012345678}	0	No|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:162	1033	b	12345678-1234-5678-9ABC-DEF012345678}	9	No|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:163	1033	st	12345678-1234-5678-9ABC-DEF012345678}	0	err:InvalidGuidFormat|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:164	1033	b	{GGGGGGGG-1234-5678-9ABC-DEF012345678}	0	No|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:165	1033	b	{GGGGGGGG-1234-5678-9ABC-DEF012345678}	9	No|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:166	1033	st	{GGGGGGGG-1234-5678-9ABC-DEF012345678}	0	err:InvalidGuidFormat|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:167	1033	b	 {12345678-1234-5678-9ABC-DEF012345678}	0	Yes|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:168	1033	b	 {12345678-1234-5678-9ABC-DEF012345678}	9	Yes|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:169	1033	st	 {12345678-1234-5678-9ABC-DEF012345678}	0	ok|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:170	1033	b	{12345678-1234-5678-9ABC-DEF012345678} 	0	Yes|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:171	1033	b	{12345678-1234-5678-9ABC-DEF012345678} 	9	Yes|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:172	1033	st	{12345678-1234-5678-9ABC-DEF012345678} 	0	ok|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:173	1033	b	1D	0	No|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:174	1033	b	1D	9	No|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:175	1033	st	1D	0	err:InvalidGuidFormat|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:176	1033	b	1T	0	No|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:177	1033	b	1T	9	No|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:178	1033	st	1T	0	err:InvalidGuidFormat|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:179	1033	b	\0	0	No|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:180	1033	b	\0	9	No|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:181	1033	st	\0	0	err:InvalidGuidFormat|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:182	1033	b	?	0	No|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:216	1033	b	?	9	No|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:217	1033	st	?	0	err:InvalidGuidFormat|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:232	1031	b		0	Nein|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:233	1031	b		9	Nein|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:234	1031	st		0	err:InvalidGuidFormat|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:235	1031	b	 	0	Nein|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:236	1031	b	 	9	Nein|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:237	1031	st	 	0	err:InvalidGuidFormat|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:238	1031	b	{12345678-1234-5678-9ABC-DEF012345678}	0	Ja|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:239	1031	b	{12345678-1234-5678-9ABC-DEF012345678}	9	Ja|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:240	1031	st	{12345678-1234-5678-9ABC-DEF012345678}	0	ok|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:241	1031	b	12345678-1234-5678-9ABC-DEF012345678	0	Ja|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:242	1031	b	12345678-1234-5678-9ABC-DEF012345678	9	Ja|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:243	1031	st	12345678-1234-5678-9ABC-DEF012345678	0	ok|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:244	1031	b	{12345678-1234-5678-9abc-def012345678}	0	Ja|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:245	1031	b	{12345678-1234-5678-9abc-def012345678}	9	Ja|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:246	1031	st	{12345678-1234-5678-9abc-def012345678}	0	ok|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:247	1031	b	12345678123456789ABCDEF012345678	0	Ja|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:248	1031	b	12345678123456789ABCDEF012345678	9	Ja|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:249	1031	st	12345678123456789ABCDEF012345678	0	ok|{12345678-1234-5678-9ABC-DEF012345678}
+FMEvalGuid.al:250	1031	b	{00000000-0000-0000-0000-000000000000}	0	Ja|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:282	1031	b	{00000000-0000-0000-0000-000000000000}	9	Ja|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:283	1031	st	{00000000-0000-0000-0000-000000000000}	0	ok|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:284	1031	b	00000000-0000-0000-0000-000000000000	0	Ja|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:285	1031	b	00000000-0000-0000-0000-000000000000	9	Ja|{00000000-0000-0000-0000-000000000000}
+FMEvalGuid.al:286	1031	st	00000000-0000-0000-0000-000000000000	0	ok|{00000000-0000-0000-0000-000000000000}
+FMEvalInteger.al:74	1033	b		0	No|7
+FMEvalInteger.al:75	1033	b		9	No|7
+FMEvalInteger.al:76	1033	st		0	err:Evaluate|7
+FMEvalInteger.al:77	1033	b	 	0	No|7
+FMEvalInteger.al:78	1033	b	 	9	No|7
+FMEvalInteger.al:79	1033	st	 	0	err:Evaluate|7
+FMEvalInteger.al:80	1033	b	  	0	No|7
+FMEvalInteger.al:81	1033	b	  	9	No|7
+FMEvalInteger.al:82	1033	st	  	0	err:Evaluate|7
+FMEvalInteger.al:83	1033	b	0	0	Yes|0
+FMEvalInteger.al:84	1033	b	0	9	Yes|0
+FMEvalInteger.al:85	1033	st	0	0	ok|0
+FMEvalInteger.al:86	1033	b	-0	0	Yes|0
+FMEvalInteger.al:87	1033	b	-0	9	Yes|0
+FMEvalInteger.al:88	1033	st	-0	0	ok|0
+FMEvalInteger.al:89	1033	b	+5	0	Yes|5
+FMEvalInteger.al:90	1033	b	+5	9	Yes|5
+FMEvalInteger.al:91	1033	st	+5	0	ok|5
+FMEvalInteger.al:92	1033	b	1	0	Yes|1
+FMEvalInteger.al:93	1033	b	1	9	Yes|1
+FMEvalInteger.al:94	1033	st	1	0	ok|1
+FMEvalInteger.al:95	1033	b	 5 	0	Yes|5
+FMEvalInteger.al:96	1033	b	 5 	9	Yes|5
+FMEvalInteger.al:97	1033	st	 5 	0	ok|5
+FMEvalInteger.al:98	1033	b	1,234	0	Yes|1234
+FMEvalInteger.al:99	1033	b	1,234	9	No|7
+FMEvalInteger.al:100	1033	st	1,234	0	ok|1234
+FMEvalInteger.al:101	1033	b	1.5	0	No|7
+FMEvalInteger.al:102	1033	b	1.5	9	No|7
+FMEvalInteger.al:144	1033	st	1.5	0	err:Evaluate|7
+FMEvalInteger.al:145	1033	b	1,5	0	Yes|15
+FMEvalInteger.al:146	1033	b	1,5	9	No|7
+FMEvalInteger.al:147	1033	st	1,5	0	ok|15
+FMEvalInteger.al:148	1033	b	.5	0	No|7
+FMEvalInteger.al:149	1033	b	.5	9	No|7
+FMEvalInteger.al:150	1033	st	.5	0	err:Evaluate|7
+FMEvalInteger.al:151	1033	b	5.	0	Yes|5
+FMEvalInteger.al:152	1033	b	5.	9	Yes|5
+FMEvalInteger.al:153	1033	st	5.	0	ok|5
+FMEvalInteger.al:154	1033	b	12abc	0	No|7
+FMEvalInteger.al:155	1033	b	12abc	9	No|7
+FMEvalInteger.al:156	1033	st	12abc	0	err:Evaluate|7
+FMEvalInteger.al:157	1033	b	abc	0	No|7
+FMEvalInteger.al:158	1033	b	abc	9	No|7
+FMEvalInteger.al:159	1033	st	abc	0	err:Evaluate|7
+FMEvalInteger.al:160	1033	b	--1	0	No|7
+FMEvalInteger.al:161	1033	b	--1	9	No|7
+FMEvalInteger.al:162	1033	st	--1	0	err:Evaluate|7
+FMEvalInteger.al:163	1033	b	1e3	0	Yes|1000
+FMEvalInteger.al:164	1033	b	1e3	9	No|7
+FMEvalInteger.al:165	1033	st	1e3	0	ok|1000
+FMEvalInteger.al:166	1033	b	1E3	0	Yes|1000
+FMEvalInteger.al:167	1033	b	1E3	9	No|7
+FMEvalInteger.al:168	1033	st	1E3	0	ok|1000
+FMEvalInteger.al:169	1033	b	09e738195	0	No|7
+FMEvalInteger.al:170	1033	b	09e738195	9	No|7
+FMEvalInteger.al:171	1033	st	09e738195	0	err:Evaluate|7
+FMEvalInteger.al:172	1033	b	1e-5	0	No|7
+FMEvalInteger.al:214	1033	b	1e-5	9	No|7
+FMEvalInteger.al:215	1033	st	1e-5	0	err:Evaluate|7
+FMEvalInteger.al:216	1033	b	0x10	0	No|7
+FMEvalInteger.al:217	1033	b	0x10	9	No|7
+FMEvalInteger.al:218	1033	st	0x10	0	err:Evaluate|7
+FMEvalInteger.al:219	1033	b	5D	0	No|7
+FMEvalInteger.al:220	1033	b	5D	9	No|7
+FMEvalInteger.al:221	1033	st	5D	0	err:Evaluate|7
+FMEvalInteger.al:222	1033	b	5T	0	No|7
+FMEvalInteger.al:223	1033	b	5T	9	No|7
+FMEvalInteger.al:224	1033	st	5T	0	err:Evaluate|7
+FMEvalInteger.al:225	1033	b	\0	0	No|7
+FMEvalInteger.al:226	1033	b	\0	9	No|7
+FMEvalInteger.al:227	1033	st	\0	0	err:Evaluate|7
+FMEvalInteger.al:228	1033	b	?	0	No|7
+FMEvalInteger.al:229	1033	b	?	9	No|7
+FMEvalInteger.al:230	1033	st	?	0	err:Evaluate|7
+FMEvalInteger.al:231	1033	b	\t5	0	Yes|5
+FMEvalInteger.al:232	1033	b	\t5	9	Yes|5
+FMEvalInteger.al:233	1033	st	\t5	0	ok|5
+FMEvalInteger.al:234	1033	b	2147483647	0	Yes|2147483647
+FMEvalInteger.al:235	1033	b	2147483647	9	Yes|2147483647
+FMEvalInteger.al:236	1033	st	2147483647	0	ok|2147483647
+FMEvalInteger.al:237	1033	b	2147483648	0	No|7
+FMEvalInteger.al:238	1033	b	2147483648	9	No|7
+FMEvalInteger.al:239	1033	st	2147483648	0	err:Evaluate|7
+FMEvalInteger.al:240	1033	b	-2147483648	0	Yes|-2147483648
+FMEvalInteger.al:241	1033	b	-2147483648	9	Yes|-2147483648
+FMEvalInteger.al:282	1033	st	-2147483648	0	ok|-2147483648
+FMEvalInteger.al:283	1033	b	-2147483649	0	No|7
+FMEvalInteger.al:284	1033	b	-2147483649	9	No|7
+FMEvalInteger.al:285	1033	st	-2147483649	0	err:Evaluate|7
+FMEvalInteger.al:286	1033	b	9223372036854775807	0	No|7
+FMEvalInteger.al:287	1033	b	9223372036854775807	9	No|7
+FMEvalInteger.al:288	1033	st	9223372036854775807	0	err:Evaluate|7
+FMEvalInteger.al:289	1033	b	9223372036854775808	0	No|7
+FMEvalInteger.al:290	1033	b	9223372036854775808	9	No|7
+FMEvalInteger.al:291	1033	st	9223372036854775808	0	err:Evaluate|7
+FMEvalInteger.al:292	1033	b	79228162514264337593543950335	0	No|7
+FMEvalInteger.al:293	1033	b	79228162514264337593543950335	9	No|7
+FMEvalInteger.al:294	1033	st	79228162514264337593543950335	0	err:Evaluate|7
+FMEvalInteger.al:295	1033	b	99999999999999999999999999999	0	No|7
+FMEvalInteger.al:296	1033	b	99999999999999999999999999999	9	No|7
+FMEvalInteger.al:297	1033	st	99999999999999999999999999999	0	err:Evaluate|7
+FMEvalInteger.al:298	1033	b	1 000	0	No|7
+FMEvalInteger.al:299	1033	b	1 000	9	No|7
+FMEvalInteger.al:300	1033	st	1 000	0	err:Evaluate|7
+FMEvalInteger.al:301	1033	b	1''000	0	No|7
+FMEvalInteger.al:302	1033	b	1''000	9	No|7
+FMEvalInteger.al:303	1033	st	1''000	0	err:Evaluate|7
+FMEvalInteger.al:304	1033	b	(5)	0	Yes|-5
+FMEvalInteger.al:340	1033	b	(5)	9	No|7
+FMEvalInteger.al:341	1033	st	(5)	0	ok|-5
+FMEvalInteger.al:342	1033	b	5-	0	Yes|-5
+FMEvalInteger.al:343	1033	b	5-	9	No|7
+FMEvalInteger.al:344	1033	st	5-	0	ok|-5
+FMEvalInteger.al:345	1033	b	true	0	No|7
+FMEvalInteger.al:346	1033	b	true	9	No|7
+FMEvalInteger.al:347	1033	st	true	0	err:Evaluate|7
+FMEvalInteger.al:368	1031	b		0	Nein|7
+FMEvalInteger.al:369	1031	b		9	Nein|7
+FMEvalInteger.al:370	1031	st		0	err:Evaluate|7
+FMEvalInteger.al:371	1031	b	 	0	Nein|7
+FMEvalInteger.al:372	1031	b	 	9	Nein|7
+FMEvalInteger.al:373	1031	st	 	0	err:Evaluate|7
+FMEvalInteger.al:374	1031	b	  	0	Nein|7
+FMEvalInteger.al:375	1031	b	  	9	Nein|7
+FMEvalInteger.al:376	1031	st	  	0	err:Evaluate|7
+FMEvalInteger.al:377	1031	b	0	0	Ja|0
+FMEvalInteger.al:378	1031	b	0	9	Ja|0
+FMEvalInteger.al:379	1031	st	0	0	ok|0
+FMEvalInteger.al:380	1031	b	-0	0	Ja|0
+FMEvalInteger.al:381	1031	b	-0	9	Ja|0
+FMEvalInteger.al:382	1031	st	-0	0	ok|0
+FMEvalInteger.al:383	1031	b	+5	0	Ja|5
+FMEvalInteger.al:384	1031	b	+5	9	Ja|5
+FMEvalInteger.al:385	1031	st	+5	0	ok|5
+FMEvalInteger.al:386	1031	b	1	0	Ja|1
+FMEvalInteger.al:387	1031	b	1	9	Ja|1
+FMEvalInteger.al:388	1031	st	1	0	ok|1
+FMEvalInteger.al:389	1031	b	 5 	0	Ja|5
+FMEvalInteger.al:390	1031	b	 5 	9	Ja|5
+FMEvalInteger.al:391	1031	st	 5 	0	ok|5
+FMEvalInteger.al:392	1031	b	1,234	0	Ja|1234
+FMEvalInteger.al:393	1031	b	1,234	9	Nein|7
+FMEvalInteger.al:394	1031	st	1,234	0	ok|1234
+FMEvalInteger.al:395	1031	b	1.5	0	Nein|7
+FMEvalInteger.al:396	1031	b	1.5	9	Nein|7
+FMEvalInteger.al:438	1031	st	1.5	0	err:Evaluate|7
+FMEvalInteger.al:439	1031	b	1,5	0	Ja|15
+FMEvalInteger.al:440	1031	b	1,5	9	Nein|7
+FMEvalInteger.al:441	1031	st	1,5	0	ok|15
+FMEvalInteger.al:442	1031	b	.5	0	Nein|7
+FMEvalInteger.al:443	1031	b	.5	9	Nein|7
+FMEvalInteger.al:444	1031	st	.5	0	err:Evaluate|7
+FMEvalInteger.al:445	1031	b	5T	0	Nein|7
+FMEvalInteger.al:446	1031	b	5T	9	Nein|7
+FMEvalInteger.al:447	1031	st	5T	0	err:Evaluate|7
+FMEvalInteger.al:448	1031	b	\0	0	Nein|7
+FMEvalInteger.al:449	1031	b	\0	9	Nein|7
+FMEvalInteger.al:450	1031	st	\0	0	err:Evaluate|7
+FMEvalInteger.al:451	1031	b	?	0	Nein|7
+FMEvalInteger.al:452	1031	b	?	9	Nein|7
+FMEvalInteger.al:453	1031	st	?	0	err:Evaluate|7
+FMEvalOption.al:64	1033	b		0	Yes|0/ 
+FMEvalOption.al:65	1033	b		9	Yes|0/ 
+FMEvalOption.al:66	1033	st		0	ok|0/ 
+FMEvalOption.al:67	1033	b	 	0	Yes|0/ 
+FMEvalOption.al:68	1033	b	 	9	Yes|0/ 
+FMEvalOption.al:69	1033	st	 	0	ok|0/ 
+FMEvalOption.al:70	1033	b	Draft	0	Yes|1/Draft
+FMEvalOption.al:71	1033	b	Draft	9	Yes|1/Draft
+FMEvalOption.al:72	1033	st	Draft	0	ok|1/Draft
+FMEvalOption.al:73	1033	b	draft	0	Yes|1/Draft
+FMEvalOption.al:74	1033	b	draft	9	Yes|1/Draft
+FMEvalOption.al:75	1033	st	draft	0	ok|1/Draft
+FMEvalOption.al:76	1033	b	DRAFT	0	Yes|1/Draft
+FMEvalOption.al:77	1033	b	DRAFT	9	Yes|1/Draft
+FMEvalOption.al:78	1033	st	DRAFT	0	ok|1/Draft
+FMEvalOption.al:79	1033	b	Active	0	Yes|2/Active
+FMEvalOption.al:80	1033	b	Active	9	Yes|2/Active
+FMEvalOption.al:81	1033	st	Active	0	ok|2/Active
+FMEvalOption.al:82	1033	b	Closed	0	No|2/Active
+FMEvalOption.al:83	1033	b	Closed	9	No|2/Active
+FMEvalOption.al:84	1033	st	Closed	0	err:InvalidOptionString|2/Active
+FMEvalOption.al:85	1033	b	1	0	Yes|1/Draft
+FMEvalOption.al:86	1033	b	1	9	Yes|1/Draft
+FMEvalOption.al:87	1033	st	1	0	ok|1/Draft
+FMEvalOption.al:88	1033	b	2	0	Yes|2/Active
+FMEvalOption.al:89	1033	b	2	9	Yes|2/Active
+FMEvalOption.al:90	1033	st	2	0	ok|2/Active
+FMEvalOption.al:91	1033	b	3	0	Yes|3/3
+FMEvalOption.al:92	1033	b	3	9	Yes|3/3
+FMEvalOption.al:93	1033	st	3	0	ok|3/3
+FMEvalOption.al:136	1033	b	0	0	Yes|0/ 
+FMEvalOption.al:137	1033	b	0	9	Yes|0/ 
+FMEvalOption.al:138	1033	st	0	0	ok|0/ 
+FMEvalOption.al:139	1033	b	4	0	Yes|4/4
+FMEvalOption.al:140	1033	b	4	9	Yes|4/4
+FMEvalOption.al:141	1033	st	4	0	ok|4/4
+FMEvalOption.al:142	1033	b	-1	0	No|2/Active
+FMEvalOption.al:143	1033	b	-1	9	No|2/Active
+FMEvalOption.al:144	1033	st	-1	0	err:InvalidOptionString|2/Active
+FMEvalOption.al:145	1033	b	abc	0	No|2/Active
+FMEvalOption.al:146	1033	b	abc	9	No|2/Active
+FMEvalOption.al:147	1033	st	abc	0	err:InvalidOptionString|2/Active
+FMEvalOption.al:148	1033	b	test123	0	No|2/Active
+FMEvalOption.al:149	1033	b	test123	9	No|2/Active
+FMEvalOption.al:150	1033	st	test123	0	err:InvalidOptionString|2/Active
+FMEvalOption.al:151	1033	b	Draft 	0	Yes|1/Draft
+FMEvalOption.al:152	1033	b	Draft 	9	Yes|1/Draft
+FMEvalOption.al:153	1033	st	Draft 	0	ok|1/Draft
+FMEvalOption.al:154	1033	b	 Draft	0	Yes|1/Draft
+FMEvalOption.al:155	1033	b	 Draft	9	Yes|1/Draft
+FMEvalOption.al:156	1033	st	 Draft	0	ok|1/Draft
+FMEvalOption.al:157	1033	b	,	0	No|2/Active
+FMEvalOption.al:158	1033	b	,	9	No|2/Active
+FMEvalOption.al:159	1033	st	,	0	err:InvalidOptionString|2/Active
+FMEvalOption.al:160	1033	b	Dra	0	No|2/Active
+FMEvalOption.al:161	1033	b	Dra	9	No|2/Active
+FMEvalOption.al:162	1033	st	Dra	0	err:InvalidOptionString|2/Active
+FMEvalOption.al:163	1033	b	Draft,Active	0	No|2/Active
+FMEvalOption.al:164	1033	b	Draft,Active	9	No|2/Active
+FMEvalOption.al:206	1033	st	Draft,Active	0	err:InvalidOptionString|2/Active
+FMEvalOption.al:207	1033	b	1D	0	No|2/Active
+FMEvalOption.al:208	1033	b	1D	9	No|2/Active
+FMEvalOption.al:209	1033	st	1D	0	err:InvalidOptionString|2/Active
+FMEvalOption.al:210	1033	b	1T	0	No|2/Active
+FMEvalOption.al:211	1033	b	1T	9	No|2/Active
+FMEvalOption.al:212	1033	st	1T	0	err:InvalidOptionString|2/Active
+FMEvalOption.al:213	1033	b	male	0	No|2/Active
+FMEvalOption.al:214	1033	b	male	9	No|2/Active
+FMEvalOption.al:215	1033	st	male	0	err:InvalidOptionString|2/Active
+FMEvalOption.al:216	1033	b	non-binary	0	No|2/Active
+FMEvalOption.al:217	1033	b	non-binary	9	No|2/Active
+FMEvalOption.al:218	1033	st	non-binary	0	err:InvalidOptionString|2/Active
+FMEvalOption.al:219	1033	b	nonbinary	0	No|2/Active
+FMEvalOption.al:220	1033	b	nonbinary	9	No|2/Active
+FMEvalOption.al:221	1033	st	nonbinary	0	err:InvalidOptionString|2/Active
+FMEvalOption.al:222	1033	b	\0	0	Yes|0/ 
+FMEvalOption.al:223	1033	b	\0	9	Yes|0/ 
+FMEvalOption.al:224	1033	st	\0	0	ok|0/ 
+FMEvalOption.al:225	1033	b	?	0	No|2/Active
+FMEvalOption.al:226	1033	b	?	9	No|2/Active
+FMEvalOption.al:227	1033	st	?	0	err:InvalidOptionString|2/Active
+FMEvalOption.al:262	1031	b		0	Ja|0/ 
+FMEvalOption.al:263	1031	b		9	Ja|0/ 
+FMEvalOption.al:264	1031	st		0	ok|0/ 
+FMEvalOption.al:265	1031	b	 	0	Ja|0/ 
+FMEvalOption.al:266	1031	b	 	9	Ja|0/ 
+FMEvalOption.al:267	1031	st	 	0	ok|0/ 
+FMEvalOption.al:268	1031	b	Draft	0	Ja|1/Draft
+FMEvalOption.al:269	1031	b	Draft	9	Ja|1/Draft
+FMEvalOption.al:270	1031	st	Draft	0	ok|1/Draft
+FMEvalOption.al:271	1031	b	draft	0	Ja|1/Draft
+FMEvalOption.al:272	1031	b	draft	9	Ja|1/Draft
+FMEvalOption.al:273	1031	st	draft	0	ok|1/Draft
+FMEvalOption.al:274	1031	b	DRAFT	0	Ja|1/Draft
+FMEvalOption.al:275	1031	b	DRAFT	9	Ja|1/Draft
+FMEvalOption.al:276	1031	st	DRAFT	0	ok|1/Draft
+FMEvalOption.al:277	1031	b	Active	0	Ja|2/Active
+FMEvalOption.al:278	1031	b	Active	9	Ja|2/Active
+FMEvalOption.al:279	1031	st	Active	0	ok|2/Active
+FMEvalOption.al:280	1031	b	Closed	0	Nein|2/Active
+FMEvalOption.al:281	1031	b	Closed	9	Nein|2/Active
+FMEvalOption.al:282	1031	st	Closed	0	err:InvalidOptionString|2/Active
+FMEvalOption.al:283	1031	b	1	0	Ja|1/Draft
+FMEvalOption.al:284	1031	b	1	9	Ja|1/Draft
+FMEvalOption.al:285	1031	st	1	0	ok|1/Draft
+FMEvalText.al:64	1033	b		0	Yes|
+FMEvalText.al:65	1033	b		9	Yes|
+FMEvalText.al:66	1033	st		0	ok|
+FMEvalText.al:67	1033	b	 	0	Yes| 
+FMEvalText.al:68	1033	b	 	9	Yes| 
+FMEvalText.al:69	1033	st	 	0	ok| 
+FMEvalText.al:70	1033	b	abc	0	Yes|abc
+FMEvalText.al:71	1033	b	abc	9	Yes|abc
+FMEvalText.al:72	1033	st	abc	0	ok|abc
+FMEvalText.al:73	1033	b	 abc 	0	Yes| abc 
+FMEvalText.al:74	1033	b	 abc 	9	Yes| abc 
+FMEvalText.al:75	1033	st	 abc 	0	ok| abc 
+FMEvalText.al:76	1033	b	a,b	0	Yes|a,b
+FMEvalText.al:77	1033	b	a,b	9	Yes|a,b
+FMEvalText.al:78	1033	st	a,b	0	ok|a,b
+FMEvalText.al:79	1033	b	1D	0	Yes|1D
+FMEvalText.al:80	1033	b	1D	9	Yes|1D
+FMEvalText.al:81	1033	st	1D	0	ok|1D
+FMEvalText.al:82	1033	b	1T	0	Yes|1T
+FMEvalText.al:83	1033	b	1T	9	Yes|1T
+FMEvalText.al:84	1033	st	1T	0	ok|1T
+FMEvalText.al:85	1033	b	?	0	Yes|?
+FMEvalText.al:86	1033	b	?	9	Yes|?
+FMEvalText.al:87	1033	st	?	0	ok|?
+FMEvalText.al:88	1033	b	ABCDEFGHIJKLMNOPQRSTUVWXYZ	0	Yes|ABCDEFGHIJKLMNOPQRSTUVWXYZ
+FMEvalText.al:89	1033	b	ABCDEFGHIJKLMNOPQRSTUVWXYZ	9	Yes|ABCDEFGHIJKLMNOPQRSTUVWXYZ
+FMEvalText.al:90	1033	st	ABCDEFGHIJKLMNOPQRSTUVWXYZ	0	ok|ABCDEFGHIJKLMNOPQRSTUVWXYZ
+FMEvalText.al:91	1033	b	ä	0	Yes|ä
+FMEvalText.al:92	1033	b	ä	9	Yes|ä
+FMEvalText.al:134	1033	st	ä	0	ok|ä
+FMEvalText.al:135	1033	b	"q"	0	Yes|"q"
+FMEvalText.al:136	1033	b	"q"	9	Yes|"q"
+FMEvalText.al:137	1033	st	"q"	0	ok|"q"
+FMEvalText.al:138	1033	b	it's	0	Yes|it's
+FMEvalText.al:139	1033	b	it's	9	Yes|it's
+FMEvalText.al:140	1033	st	it's	0	ok|it's
+FMEvalText.al:141	1033	b	\0	0	Yes|\\u0000
+FMEvalText.al:142	1033	b	\0	9	Yes|\\u0000
+FMEvalText.al:143	1033	st	\0	0	ok|\\u0000
+FMEvalText.al:166	1031	b		0	Ja|
+FMEvalText.al:167	1031	b		9	Ja|
+FMEvalText.al:168	1031	st		0	ok|
+FMEvalText.al:169	1031	b	 	0	Ja| 
+FMEvalText.al:170	1031	b	 	9	Ja| 
+FMEvalText.al:171	1031	st	 	0	ok| 
+FMEvalText.al:172	1031	b	abc	0	Ja|abc
+FMEvalText.al:173	1031	b	abc	9	Ja|abc
+FMEvalText.al:174	1031	st	abc	0	ok|abc
+FMEvalText.al:175	1031	b	 abc 	0	Ja| abc 
+FMEvalText.al:176	1031	b	 abc 	9	Ja| abc 
+FMEvalText.al:177	1031	st	 abc 	0	ok| abc 
+FMEvalText.al:178	1031	b	a,b	0	Ja|a,b
+FMEvalText.al:179	1031	b	a,b	9	Ja|a,b
+FMEvalText.al:180	1031	st	a,b	0	ok|a,b
+FMEvalText.al:181	1031	b	1D	0	Ja|1D
+FMEvalText.al:182	1031	b	1D	9	Ja|1D
+FMEvalText.al:183	1031	st	1D	0	ok|1D
+FMEvalText.al:184	1031	b	1T	0	Ja|1T
+FMEvalText.al:185	1031	b	1T	9	Ja|1T
+FMEvalText.al:186	1031	st	1T	0	ok|1T
+FMEvalText.al:187	1031	b	?	0	Ja|?
+FMEvalText.al:188	1031	b	?	9	Ja|?
+FMEvalText.al:189	1031	st	?	0	ok|?
+FMEvalTime.al:64	1033	b		0	Yes|
+FMEvalTime.al:65	1033	b		9	Yes|
+FMEvalTime.al:66	1033	st		0	ok|
+FMEvalTime.al:67	1033	b	 	0	Yes|
+FMEvalTime.al:68	1033	b	 	9	Yes|
+FMEvalTime.al:69	1033	st	 	0	ok|
+FMEvalTime.al:70	1033	b	12:00:00	0	Yes|12:00:00
+FMEvalTime.al:71	1033	b	12:00:00	9	Yes|12:00:00
+FMEvalTime.al:72	1033	st	12:00:00	0	ok|12:00:00
+FMEvalTime.al:73	1033	b	12:00	0	Yes|12:00:00
+FMEvalTime.al:74	1033	b	12:00	9	No|07:08:09
+FMEvalTime.al:75	1033	st	12:00	0	ok|12:00:00
+FMEvalTime.al:76	1033	b	12:00 AM	0	Yes|00:00:00
+FMEvalTime.al:77	1033	b	12:00 AM	9	No|07:08:09
+FMEvalTime.al:78	1033	st	12:00 AM	0	ok|00:00:00
+FMEvalTime.al:79	1033	b	12:00 PM	0	Yes|12:00:00
+FMEvalTime.al:80	1033	b	12:00 PM	9	No|07:08:09
+FMEvalTime.al:81	1033	st	12:00 PM	0	ok|12:00:00
+FMEvalTime.al:82	1033	b	12:00:00 AM	0	Yes|00:00:00
+FMEvalTime.al:83	1033	b	12:00:00 AM	9	No|07:08:09
+FMEvalTime.al:84	1033	st	12:00:00 AM	0	ok|00:00:00
+FMEvalTime.al:85	1033	b	1:05 pm	0	Yes|13:05:00
+FMEvalTime.al:86	1033	b	1:05 pm	9	No|07:08:09
+FMEvalTime.al:87	1033	st	1:05 pm	0	ok|13:05:00
+FMEvalTime.al:88	1033	b	0:00	0	Yes|00:00:00
+FMEvalTime.al:89	1033	b	0:00	9	No|07:08:09
+FMEvalTime.al:90	1033	st	0:00	0	ok|00:00:00
+FMEvalTime.al:130	1033	b	24:00:00	0	No|07:08:09
+FMEvalTime.al:131	1033	b	24:00:00	9	No|07:08:09
+FMEvalTime.al:132	1033	st	24:00:00	0	err:Evaluate|07:08:09
+FMEvalTime.al:133	1033	b	25:00:00	0	No|07:08:09
+FMEvalTime.al:134	1033	b	25:00:00	9	No|07:08:09
+FMEvalTime.al:135	1033	st	25:00:00	0	err:Evaluate|07:08:09
+FMEvalTime.al:136	1033	b	12:60:00	0	No|07:08:09
+FMEvalTime.al:137	1033	b	12:60:00	9	No|07:08:09
+FMEvalTime.al:138	1033	st	12:60:00	0	err:Evaluate|07:08:09
+FMEvalTime.al:139	1033	b	12:00:60	0	No|07:08:09
+FMEvalTime.al:140	1033	b	12:00:60	9	No|07:08:09
+FMEvalTime.al:141	1033	st	12:00:60	0	err:Evaluate|07:08:09
+FMEvalTime.al:142	1033	b	12:00:00.123	0	Yes|12:00:00.123
+FMEvalTime.al:143	1033	b	12:00:00.123	9	Yes|12:00:00.123
+FMEvalTime.al:144	1033	st	12:00:00.123	0	ok|12:00:00.123
+FMEvalTime.al:145	1033	b	12:00:00.1234	0	No|07:08:09
+FMEvalTime.al:146	1033	b	12:00:00.1234	9	Yes|12:00:00.123
+FMEvalTime.al:147	1033	st	12:00:00.1234	0	err:Evaluate|07:08:09
+FMEvalTime.al:148	1033	b	12:00:00,123	0	Yes|12:00:00.123
+FMEvalTime.al:149	1033	b	12:00:00,123	9	No|07:08:09
+FMEvalTime.al:150	1033	st	12:00:00,123	0	ok|12:00:00.123
+FMEvalTime.al:151	1033	b	T	0	IGNORE
+FMEvalTime.al:152	1033	b	T	9	No|07:08:09
+FMEvalTime.al:153	1033	st	T	0	IGNORE
+FMEvalTime.al:154	1033	b	0T	0	No|07:08:09
+FMEvalTime.al:155	1033	b	0T	9	No|07:08:09
+FMEvalTime.al:156	1033	st	0T	0	err:Evaluate|07:08:09
+FMEvalTime.al:196	1033	b	12:00:00T	0	No|07:08:09
+FMEvalTime.al:197	1033	b	12:00:00T	9	No|07:08:09
+FMEvalTime.al:198	1033	st	12:00:00T	0	err:Evaluate|07:08:09
+FMEvalTime.al:199	1033	b	12:00:00D	0	No|07:08:09
+FMEvalTime.al:200	1033	b	12:00:00D	9	No|07:08:09
+FMEvalTime.al:201	1033	st	12:00:00D	0	err:Evaluate|07:08:09
+FMEvalTime.al:202	1033	b	1200	0	Yes|12:00:00
+FMEvalTime.al:203	1033	b	1200	9	No|07:08:09
+FMEvalTime.al:204	1033	st	1200	0	ok|12:00:00
+FMEvalTime.al:205	1033	b	120000	0	Yes|12:00:00
+FMEvalTime.al:206	1033	b	120000	9	No|07:08:09
+FMEvalTime.al:207	1033	st	120000	0	ok|12:00:00
+FMEvalTime.al:208	1033	b	abc	0	No|07:08:09
+FMEvalTime.al:209	1033	b	abc	9	No|07:08:09
+FMEvalTime.al:210	1033	st	abc	0	err:Evaluate|07:08:09
+FMEvalTime.al:211	1033	b	-1:00	0	No|07:08:09
+FMEvalTime.al:212	1033	b	-1:00	9	No|07:08:09
+FMEvalTime.al:213	1033	st	-1:00	0	err:Evaluate|07:08:09
+FMEvalTime.al:214	1033	b	12.00.00	0	Yes|12:00:00
+FMEvalTime.al:215	1033	b	12.00.00	9	No|07:08:09
+FMEvalTime.al:216	1033	st	12.00.00	0	ok|12:00:00
+FMEvalTime.al:217	1033	b	12:00:00 	0	Yes|12:00:00
+FMEvalTime.al:218	1033	b	12:00:00 	9	Yes|12:00:00
+FMEvalTime.al:219	1033	st	12:00:00 	0	ok|12:00:00
+FMEvalTime.al:220	1033	b	 12:00:00	0	Yes|12:00:00
+FMEvalTime.al:221	1033	b	 12:00:00	9	Yes|12:00:00
+FMEvalTime.al:222	1033	st	 12:00:00	0	ok|12:00:00
+FMEvalTime.al:262	1033	b	\0	0	No|07:08:09
+FMEvalTime.al:263	1033	b	\0	9	No|07:08:09
+FMEvalTime.al:264	1033	st	\0	0	err:Evaluate|07:08:09
+FMEvalTime.al:265	1033	b	?	0	No|07:08:09
+FMEvalTime.al:266	1033	b	?	9	No|07:08:09
+FMEvalTime.al:267	1033	st	?	0	err:Evaluate|07:08:09
+FMEvalTime.al:268	1033	b	12	0	Yes|12:00:00
+FMEvalTime.al:269	1033	b	12	9	No|07:08:09
+FMEvalTime.al:270	1033	st	12	0	ok|12:00:00
+FMEvalTime.al:271	1033	b	12:	0	No|07:08:09
+FMEvalTime.al:272	1033	b	12:	9	No|07:08:09
+FMEvalTime.al:273	1033	st	12:	0	err:Evaluate|07:08:09
+FMEvalTime.al:274	1033	b	:30	0	No|07:08:09
+FMEvalTime.al:275	1033	b	:30	9	No|07:08:09
+FMEvalTime.al:276	1033	st	:30	0	err:Evaluate|07:08:09
+FMEvalTime.al:277	1033	b	1:2:3	0	Yes|01:02:03
+FMEvalTime.al:278	1033	b	1:2:3	9	No|07:08:09
+FMEvalTime.al:279	1033	st	1:2:3	0	ok|01:02:03
+FMEvalTime.al:280	1033	b	11:59:59.999 PM	0	Yes|23:59:59.999
+FMEvalTime.al:281	1033	b	11:59:59.999 PM	9	No|07:08:09
+FMEvalTime.al:282	1033	st	11:59:59.999 PM	0	ok|23:59:59.999
+FMEvalTime.al:316	1031	b		0	Ja|
+FMEvalTime.al:317	1031	b		9	Ja|
+FMEvalTime.al:318	1031	st		0	ok|
+FMEvalTime.al:319	1031	b	 	0	Ja|
+FMEvalTime.al:320	1031	b	 	9	Ja|
+FMEvalTime.al:321	1031	st	 	0	ok|
+FMEvalTime.al:322	1031	b	12:00:00	0	Ja|12:00:00
+FMEvalTime.al:323	1031	b	12:00:00	9	Ja|12:00:00
+FMEvalTime.al:324	1031	st	12:00:00	0	ok|12:00:00
+FMEvalTime.al:325	1031	b	12:00	0	Ja|12:00:00
+FMEvalTime.al:326	1031	b	12:00	9	Nein|07:08:09
+FMEvalTime.al:327	1031	st	12:00	0	ok|12:00:00
+FMEvalTime.al:328	1031	b	12:00 AM	0	Ja|00:00:00
+FMEvalTime.al:329	1031	b	12:00 AM	9	Nein|07:08:09
+FMEvalTime.al:330	1031	st	12:00 AM	0	ok|00:00:00
+FMEvalTime.al:331	1031	b	12:00 PM	0	Ja|12:00:00
+FMEvalTime.al:332	1031	b	12:00 PM	9	Nein|07:08:09
+FMEvalTime.al:333	1031	st	12:00 PM	0	ok|12:00:00
+FMEvalTime.al:334	1031	b	12:00:00 AM	0	Ja|00:00:00
+FMEvalTime.al:335	1031	b	12:00:00 AM	9	Nein|07:08:09
+FMEvalTime.al:336	1031	st	12:00:00 AM	0	ok|00:00:00
+FMEvalTime.al:337	1031	b	1:05 pm	0	Ja|13:05:00
+FMEvalTime.al:338	1031	b	1:05 pm	9	Nein|07:08:09
+FMEvalTime.al:339	1031	st	1:05 pm	0	ok|13:05:00
+FMEvalTime.al:340	1031	b	0:00	0	Ja|00:00:00
+FMEvalTime.al:341	1031	b	0:00	9	Nein|07:08:09
+FMEvalTime.al:342	1031	st	0:00	0	ok|00:00:00
+FMEvalTime.al:382	1031	b	24:00:00	0	Nein|07:08:09
+FMEvalTime.al:383	1031	b	24:00:00	9	Nein|07:08:09
+FMEvalTime.al:384	1031	st	24:00:00	0	err:Evaluate|07:08:09
+FMEvalTime.al:385	1031	b	12:	0	Nein|07:08:09
+FMEvalTime.al:386	1031	b	12:	9	Nein|07:08:09
+FMEvalTime.al:387	1031	st	12:	0	err:Evaluate|07:08:09
+FMEvalTime.al:388	1031	b	:30	0	Nein|07:08:09
+FMEvalTime.al:389	1031	b	:30	9	Nein|07:08:09
+FMEvalTime.al:390	1031	st	:30	0	err:Evaluate|07:08:09
+FMEvalTime.al:391	1031	b	1:2:3	0	Ja|01:02:03
+FMEvalTime.al:392	1031	b	1:2:3	9	Nein|07:08:09
+FMEvalTime.al:393	1031	st	1:2:3	0	ok|01:02:03
+FMEvalTime.al:394	1031	b	11:59:59.999 PM	0	Ja|23:59:59.999
+FMEvalTime.al:395	1031	b	11:59:59.999 PM	9	Nein|07:08:09
+FMEvalTime.al:396	1031	st	11:59:59.999 PM	0	ok|23:59:59.999

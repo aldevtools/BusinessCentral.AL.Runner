@@ -21,6 +21,7 @@ mod last_error_frames;
 mod last_error_object;
 mod media;
 mod media_export_unchanged;
+mod outstream_char_high_duration_filter;
 mod outstream_write_text_unicode;
 mod platform_members;
 mod server_helpers;
