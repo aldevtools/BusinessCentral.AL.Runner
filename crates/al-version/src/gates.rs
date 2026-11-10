@@ -244,7 +244,9 @@ pub enum Gate {
     /// (events/platform-triggers/PeVTests.al:725). Corpus bump 37 pins the corpus database's General Ledger Setup: its
     /// Additional Reporting Currency is EUR from BC 28 and blank on BC 27 (record/captions/QdCaptionClassAreas.al:808,
     /// QF_GLSetup_CorpusRow). Corpus bump 1110b: assigning text to an Option FieldRef.Value raises NotSupportedType on BC 27
-    /// and an Evaluate:Format error from BC 28 (format-evaluate/format-matrix/FMOptionBlankField.al:254). Not consumed yet.
+    /// and an Evaluate:Format error from BC 28 (format-evaluate/format-matrix/FMOptionBlankField.al:254). Corpus bump 1110c: FieldRef.SetFilter errors on an Integer, Blob and other
+    /// fields word the failing value differently on BC 27 (recordref-fieldref/fieldref/FieldRefFilterMatrix.al:440,
+    /// FieldRefFilterEmptyText.al:235). Not consumed yet.
     ProbedValuesDifferFrom28,
     /// A BigInteger literal in a Boolean control expression (`Enabled = 0L <> Rec.Big`) compiles on the client and runs.
     /// Before, the page fails to open ("Error compiling dynamic control expression ... Not a valid number."); the runtime
@@ -310,7 +312,8 @@ pub enum Gate {
     /// `al-builtins` `format_decimal_field` through `FormatCtx::format_gate`, for a type 1 field without AutoFormatExpression.
     AutoFormatAmountFieldRoundsFrom28,
     /// Microsoft's test runner leaves six frames below the test procedure in the full call stack text on BC 27.5 and none from
-    /// BC 28 (session-system/callstack/CallstackFullText.al:106, corpus bump e01709f4). Not consumed yet.
+    /// BC 28 (session-system/callstack/CallstackFullText.al:106, corpus bump e01709f4). Corpus bump 1110c adds the per-frame pins
+    /// (session-system/callstack/CallstackRunnerFrames.al:31). Not consumed yet.
     CallStackRunnerFramesGoneFrom28,
     /// The corpus CI runs a test codeunit without handlers through BC's TestRunnerHub from BC 28, under the codeunit's
     /// `RequiredTestIsolation`; on BC 27 it runs every codeunit under runner 130450 (Codeunit isolation). A difference of the
@@ -604,10 +607,16 @@ impl Gate {
             | Gate::EmptyActionViewEveryRowFrom28
             | Gate::EmptyActionViewOneRowAgainFrom29
             | Gate::ReportSaveAsXmlHeaderHasCompanyBlock => self.evidence_of_first_gates(),
-            Gate::CallStackRunnerFramesGoneFrom28 => &[Evidence {
-                file: "session-system/callstack/CallstackFullText.al",
-                lines: "106",
-            }],
+            Gate::CallStackRunnerFramesGoneFrom28 => &[
+                Evidence {
+                    file: "session-system/callstack/CallstackFullText.al",
+                    lines: "106",
+                },
+                Evidence {
+                    file: "session-system/callstack/CallstackRunnerFrames.al",
+                    lines: "31,69,107,145,183,221,259,297,694",
+                },
+            ],
             Gate::JpegMediaSetKeptFrom29 => &[Evidence {
                 file: "../al-language-onprem/streams/media/MediaFiles.al",
                 lines: "515",
@@ -1457,6 +1466,14 @@ const PROBED_VALUES_DIFFER_FROM_28: &[Evidence] = &[
     Evidence {
         file: "format-evaluate/format-matrix/FMOptionBlankField.al",
         lines: "254,519,784",
+    },
+    Evidence {
+        file: "recordref-fieldref/fieldref/FieldRefFilterEmptyText.al",
+        lines: "235",
+    },
+    Evidence {
+        file: "recordref-fieldref/fieldref/FieldRefFilterMatrix.al",
+        lines: "440,445,618,623,796,801,974,979,1000,1503,1508,1513,1518,1537,1700,1705,1710,1715,1734,1890,1895,1900,1905,1924,2080,2085,2090,2095,2114,2447,2452,2473,2629,2634,2655,2811,2816,2837,3166,3171,3176,3181,3186,3191,3196,3213,3218,3223,3385,3390,3395,3400,3577,3582,3587,3592",
     },
     Evidence {
         file: "pages/run-modal/Y74FqnRunForms.al",
