@@ -337,6 +337,28 @@ pub(crate) fn call_reach_facts(
     walk.out
 }
 
+/// What a login subscriber (routine `routine` of `object`) leaves through its own code (`login.rs`): its calls, the
+/// objects it runs by a constant id or through a codeunit variable (login code that runs in a codeunit of its own, so an
+/// error cannot stop the login), and the triggers of the tables those write, without the subscribers of any event.
+/// The test side asks its own calls with the objects run ([`union_call_reach_facts`]); the table triggers are followed
+/// here too because what a subscriber's insert leaves in another table through its OnInsert trigger is there before the
+/// first test as well (al-runner issue 7717).
+pub(crate) fn login_subscriber_reach_facts(
+    events: &al_vm::events::Registry,
+    lowered: &Lowered,
+    index: &ReachIndex,
+    object: usize,
+    routine: usize,
+) -> ReachFacts {
+    let mut walk = Walk::new(events, lowered, index);
+    walk.calls_only = true;
+    walk.runs_in_calls = true;
+    walk.triggers_in_calls = true;
+    walk.stack.push((object, routine));
+    walk.run(&|_| false);
+    walk.out
+}
+
 /// The facts of the joined reach of the routines `roots`, one walk of the union of their reaches, that does not enter
 /// the routines `skip` (nor what only they reach).
 pub(crate) fn union_reach_facts_skipping(
@@ -726,6 +748,9 @@ struct Walk<'a> {
     calls_only: bool,
     /// Whether a walk of calls only also enters the routines of the objects run ([`union_call_reach_facts`]).
     runs_in_calls: bool,
+    /// Whether a walk of calls only also enters the table triggers, without the table's events
+    /// ([`login_subscriber_reach_facts`]).
+    triggers_in_calls: bool,
 }
 
 impl<'a> Walk<'a> {
@@ -745,6 +770,7 @@ impl<'a> Walk<'a> {
             facts: true,
             calls_only: false,
             runs_in_calls: false,
+            triggers_in_calls: false,
         }
     }
 
@@ -824,8 +850,15 @@ impl<'a> Walk<'a> {
             .unwrap_or_default()
     }
 
-    /// The triggers of table `t` and of its extensions that the operations `ops` (bits of [`ops`]) run.
+    /// The triggers of table `t` and of its extensions that the operations `ops` (bits of [`ops`]) run, and the
+    /// subscribers of the table's events.
     fn table_ops(&mut self, t: usize, ops: u8) {
+        self.table_triggers(t, ops);
+        self.events(t);
+    }
+
+    /// The triggers of table `t` and of its extensions that the operations `ops` (bits of [`ops`]) run.
+    fn table_triggers(&mut self, t: usize, ops: u8) {
         let lowered = self.lowered;
         let objs = &lowered.program.objects;
         for bit in [ops::INSERT, ops::MODIFY, ops::DELETE, ops::RENAME, ops::VALIDATE] {
@@ -854,7 +887,6 @@ impl<'a> Walk<'a> {
                 );
             }
         }
-        self.events(t);
     }
 
     /// What running object `o` reaches: a codeunit's `OnRun`, every routine of a page (and its source table's
@@ -964,6 +996,7 @@ impl<'a> Walk<'a> {
                     }
                 }
                 Step::Run(x) if self.calls_only && self.runs_in_calls => self.run_object(*x),
+                Step::TableOps(t, ops) if self.calls_only && self.triggers_in_calls => self.table_triggers(*t, *ops),
                 Step::Events(_) | Step::TableOps(..) | Step::Run(_) if self.calls_only => {}
                 Step::Events(t) => self.events(*t),
                 Step::TableOps(t, ops) => self.table_ops(*t, *ops),

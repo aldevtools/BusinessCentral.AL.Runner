@@ -698,12 +698,12 @@ fn company_triggers_run_in_the_install_session_before_the_per_company_routines()
     assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
 }
 
-/// Per test, the ids of the assumptions it hit.
-type TestHits = Vec<(String, Vec<&'static str>)>;
+/// The outcomes, and per test the ids of the assumptions it hit.
+pub(super) type OutcomesAndHits = (Vec<(String, Outcome)>, Vec<(String, Vec<&'static str>)>);
 
 /// The outcomes and the assumption ids each test hit, of the test codeunit `codeunit` of a program of several apps (id,
 /// dependencies, source); the app with id `dep` is a dependency app (ADR-013), the others are under test.
-fn outcomes_and_hits_of_apps(apps: &[(&str, &[&str], &str)], codeunit: &str) -> (Vec<(String, Outcome)>, TestHits) {
+pub(super) fn outcomes_and_hits_of_apps(apps: &[(&str, &[&str], &str)], codeunit: &str) -> OutcomesAndHits {
     let (ws, l) = al_sema::lower::compile_apps(
         apps.iter()
             .map(|(id, deps, src)| AppSource {

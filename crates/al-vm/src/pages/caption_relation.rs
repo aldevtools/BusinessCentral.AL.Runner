@@ -61,6 +61,7 @@ impl Session {
         let key = ops::convert(value.clone(), &related.fields[at].ty)?;
         let cx = self.cx_for(rec, &related)?;
         self.unseeded_read(&related, false, "the caption of a list")?;
+        self.login_guard_table(related.object, "the caption of a list")?;
         let found = if one_key {
             self.store.get(&cx, &related, std::slice::from_ref(&key))
         } else {

@@ -613,3 +613,374 @@ codeunit 51163 "Guard Test"
         other => panic!("expected a refusal, got {other:?}"),
     }
 }
+
+// al-runner issue 7717: the cases where a wrong "no login" decision still gave a wrong result, from the variant apps of
+// the second review of the fix for issue 7605. BC raises the login before the first test, so the login's rows are there
+// (LgnLoginChecklistTests.al:137-138).
+
+/// The outcomes and the assumption ids of test codeunit `codeunit` of `main` over the dependency `dep`.
+fn outcomes_and_hits(main: &str, dep: &str, codeunit: &str) -> super::tests::OutcomesAndHits {
+    super::tests::outcomes_and_hits_of_apps(&[("main", &["dep"], main), ("dep", &[], dep)], codeunit)
+}
+
+const OWN_INSERT_ASSUMED: &str = "login-rows-not-needed-by-own-inserter";
+
+/// An app under test whose `OnRegisterAssistedSetup` subscriber registers object 51200, and `tests`.
+fn registration_and(tests: &str) -> String {
+    format!(
+        r#"
+codeunit 51200 "Own Insert Registration"
+{{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterAssistedSetup', '', false, false)]
+    local procedure HandleOnRegisterAssistedSetup()
+    var G: Codeunit "Guided Experience";
+    begin
+        G.InsertAssistedSetup(51200);
+    end;
+}}
+{tests}"#
+    )
+}
+
+// Gap 1: one test of the codeunit inserts into the table the login adds rows to, so the codeunit runs without the login
+// and the table is not guarded. A read of it marks the assumption: the test that misses the login's row is not run (it
+// failed on main), the test that inserts its own row is a flagged pass.
+#[test]
+fn a_test_whose_codeunit_can_insert_into_the_login_table_is_flagged_and_its_failure_not_run() {
+    let main = registration_and(
+        r#"
+codeunit 51201 "Own Insert Tests"
+{
+    Subtype = Test;
+    [Test]
+    procedure ReadsTheRowOfTheLogin()
+    var G: Codeunit "Guided Experience";
+    begin
+        if not G.AssistedSetupExistsAndIsNotComplete(51200) then
+            Error('The assisted setup row does not exist.');
+    end;
+
+    [Test]
+    procedure InsertsARowOfItsOwn()
+    var G: Codeunit "Guided Experience";
+    begin
+        G.InsertAssistedSetup(51201);
+    end;
+}
+"#,
+    );
+    let (o, hits) = outcomes_and_hits(&main, DEP, "Own Insert Tests");
+    match o.as_slice() {
+        [(a, Outcome::NotRun(why)), (b, Outcome::Pass)]
+            if a == "ReadsTheRowOfTheLogin" && b == "InsertsARowOfItsOwn" =>
+        {
+            assert!(
+                why.contains(OWN_INSERT_ASSUMED)
+                    && why.contains("Guided Experience Item")
+                    && why.contains("does not exist"),
+                "{why}"
+            )
+        }
+        other => panic!("expected a refused failure and a pass, got {other:?}"),
+    }
+    assert!(hits.iter().all(|(_, h)| h.contains(&OWN_INSERT_ASSUMED)), "{hits:?}");
+}
+
+// Gap 1, a wrong pass on main: the count after the test's own insert is 2 on BC. It still passes here, now flagged.
+#[test]
+fn a_count_after_the_tests_own_insert_into_the_login_table_is_a_flagged_pass() {
+    let main = registration_and(
+        r#"
+codeunit 51202 "Own Insert Count"
+{
+    Subtype = Test;
+    [Test]
+    procedure CountAfterOwnInsertIsOne()
+    var R: Record "Guided Experience Item";
+    begin
+        R."Object ID" := 51202;
+        R.Insert();
+        if R.Count() <> 1 then
+            Error('Count is %1', R.Count());
+    end;
+}
+"#,
+    );
+    let (o, hits) = outcomes_and_hits(&main, DEP, "Own Insert Count");
+    assert_eq!(o, vec![("CountAfterOwnInsertIsOne".to_string(), Outcome::Pass)]);
+    assert_eq!(
+        hits,
+        vec![("CountAfterOwnInsertIsOne".to_string(), vec![OWN_INSERT_ASSUMED])]
+    );
+}
+
+/// Gap 2: an app under test whose `OnAfterLogin` subscriber adds a row to "H Login Row", tables that read it other than
+/// through a record method, and one test codeunit per read whose own calls never touch it (no login, the table is
+/// guarded).
+const READS_PAST_THE_GUARD: &str = r#"
+table 51250 "H Login Row"
+{
+    fields { field(1; Code; Code[20]) { } field(2; Name; Text[50]) { } }
+    keys { key(PK; Code) { Clustered = true; } }
+}
+codeunit 51250 "H Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"System Initialization", 'OnAfterLogin', '', false, false)]
+    local procedure HandleOnAfterLogin()
+    var Row: Record "H Login Row";
+    begin
+        if Row.Get('LOGIN') then
+            exit;
+        Row.Code := 'LOGIN';
+        Row.Name := 'from login';
+        Row.Insert();
+    end;
+}
+table 51251 "H Status"
+{
+    fields
+    {
+        field(1; PK; Code[10]) { }
+        field(2; "Login Rows"; Integer) { FieldClass = FlowField; CalcFormula = count("H Login Row"); Editable = false; }
+        field(3; "Has Login Row"; Boolean) { FieldClass = FlowField; CalcFormula = exist("H Login Row" where(Code = const('LOGIN'))); Editable = false; }
+        field(4; "Login Name"; Text[50]) { FieldClass = FlowField; CalcFormula = lookup("H Login Row".Name where(Code = const('LOGIN'))); Editable = false; }
+    }
+    keys { key(PK; PK) { Clustered = true; } }
+}
+table 51252 "H Doc"
+{
+    fields
+    {
+        field(1; PK; Code[10]) { }
+        field(2; "Row Code"; Code[20]) { TableRelation = "H Login Row"; }
+    }
+    keys { key(PK; PK) { Clustered = true; } }
+}
+page 51252 "H Doc Card"
+{
+    PageType = Card;
+    SourceTable = "H Doc";
+    layout
+    {
+        area(Content)
+        {
+            group(General)
+            {
+                field(PK; Rec.PK) { ApplicationArea = All; }
+                field("Row Code"; Rec."Row Code") { ApplicationArea = All; }
+            }
+        }
+    }
+}
+query 51253 "H Rows"
+{
+    QueryType = Normal;
+    elements
+    {
+        dataitem(Row; "H Login Row")
+        {
+            column(Code; Code) { }
+        }
+    }
+}
+// The trigger also modifies the login's rows, on a path the test never takes: the test's reach then writes the table,
+// so that is no reason to raise the login.
+table 51254 "H Trig"
+{
+    fields { field(1; PK; Code[10]) { } field(2; Cnt; Integer) { } field(3; Stamp; Boolean) { } }
+    keys { key(PK; PK) { Clustered = true; } }
+    trigger OnInsert()
+    var Rows: Query "H Rows"; Row: Record "H Login Row";
+    begin
+        Rows.Open();
+        while Rows.Read() do
+            Cnt += 1;
+        Rows.Close();
+        if Stamp then
+            Row.ModifyAll(Name, 'stamped');
+    end;
+}
+codeunit 51260 "H Read 1"
+{
+    Subtype = Test;
+    [Test]
+    procedure CountFlowField()
+    var S: Record "H Status";
+    begin
+        S.PK := 'A1'; S.Insert();
+        S.CalcFields("Login Rows");
+        if S."Login Rows" <> 1 then Error('Login Rows is %1', S."Login Rows");
+    end;
+}
+codeunit 51261 "H Read 2"
+{
+    Subtype = Test;
+    [Test]
+    procedure ExistFlowField()
+    var S: Record "H Status";
+    begin
+        S.PK := 'A2'; S.Insert();
+        S.CalcFields("Has Login Row");
+        if not S."Has Login Row" then Error('Has Login Row is No');
+    end;
+}
+codeunit 51262 "H Read 3"
+{
+    Subtype = Test;
+    [Test]
+    procedure LookupFlowField()
+    var S: Record "H Status";
+    begin
+        S.PK := 'A3'; S.Insert();
+        S.CalcFields("Login Name");
+        if S."Login Name" <> 'from login' then Error('Login Name is %1', S."Login Name");
+    end;
+}
+codeunit 51263 "H Read 4"
+{
+    Subtype = Test;
+    [Test]
+    procedure FilterOnFlowFieldFindsNothing()
+    var S: Record "H Status";
+    begin
+        S.PK := 'A5'; S.Insert();
+        S.SetRange("Has Login Row", true);
+        if not S.IsEmpty() then Error('A status row has the login row.');
+    end;
+}
+codeunit 51264 "H Read 5"
+{
+    Subtype = Test;
+    [Test]
+    procedure TableRelationCheckOfAPageField()
+    var Doc: TestPage "H Doc Card";
+    begin
+        Doc.OpenNew();
+        Doc.PK.SetValue('B1');
+        Doc."Row Code".SetValue('LOGIN');
+        Doc."Row Code".AssertEquals('LOGIN');
+        Doc.Close();
+    end;
+}
+codeunit 51265 "H Read 6"
+{
+    Subtype = Test;
+    [Test]
+    procedure QueryInATableTrigger()
+    var T: Record "H Trig";
+    begin
+        T.PK := 'C1';
+        T.Insert(true);
+        if T.Cnt <> 1 then Error('Cnt is %1', T.Cnt);
+    end;
+}
+codeunit 51266 "H Read 7"
+{
+    Subtype = Test;
+    [Test]
+    procedure RecordRefNextWithoutFind()
+    var Ref: RecordRef;
+    begin
+        Ref.Open(51250);
+        if Ref.Next() = 0 then Error('No row.');
+    end;
+}
+codeunit 51267 "H Read 8"
+{
+    Subtype = Test;
+    [Test]
+    procedure RecordRefGetBySystemId()
+    var Ref: RecordRef;
+    begin
+        Ref.Open(51250);
+        if Ref.GetBySystemId(CreateGuid()) then Error('A row with a new SystemId.');
+    end;
+}
+"#;
+
+// Gap 2: each read is refused, none finds an empty table (on main: 6 wrong failures and 1 wrong pass of these 8).
+#[test]
+fn reads_of_the_login_table_that_are_not_record_methods_are_refused_without_the_login() {
+    for n in 1..=8 {
+        let (o, _) = outcomes_and_hits(READS_PAST_THE_GUARD, DEP, &format!("H Read {n}"));
+        match o.as_slice() {
+            [(_, Outcome::NotRun(why))] if why.contains("the login was not raised") && why.contains("H Login Row") => {}
+            other => panic!("H Read {n}: expected a refusal, got {other:?}"),
+        }
+    }
+}
+
+/// Gap 3: an app under test whose `OnAfterLogin` subscriber fills "K Run Row" through `Codeunit.Run` and "K Child"
+/// through the OnInsert trigger of "K Parent".
+const SUBSCRIBER_RUNS_AND_TRIGGERS: &str = r#"
+table 51300 "K Run Row" { fields { field(1; Code; Code[20]) { } } keys { key(PK; Code) { Clustered = true; } } }
+table 51301 "K Parent"
+{
+    fields { field(1; Code; Code[20]) { } }
+    keys { key(PK; Code) { Clustered = true; } }
+    trigger OnInsert()
+    var Child: Record "K Child";
+    begin
+        Child.Code := Rec.Code;
+        Child.Insert();
+    end;
+}
+table 51302 "K Child" { fields { field(1; Code; Code[20]) { } } keys { key(PK; Code) { Clustered = true; } } }
+codeunit 51300 "K Seed"
+{
+    trigger OnRun()
+    var Row: Record "K Run Row";
+    begin
+        if Row.Get('LOGIN') then
+            exit;
+        Row.Code := 'LOGIN';
+        Row.Insert();
+    end;
+}
+codeunit 51301 "K Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"System Initialization", 'OnAfterLogin', '', false, false)]
+    local procedure HandleOnAfterLogin()
+    var Parent: Record "K Parent";
+    begin
+        Codeunit.Run(Codeunit::"K Seed");
+        if not Parent.Get('LOGIN') then begin
+            Parent.Code := 'LOGIN';
+            Parent.Insert(true);
+        end;
+    end;
+}
+codeunit 51310 "K Run Row Test"
+{
+    Subtype = Test;
+    [Test]
+    procedure ReadsTheRowTheLoginLeftThroughCodeunitRun()
+    var Row: Record "K Run Row";
+    begin
+        Row.Get('LOGIN');
+    end;
+}
+codeunit 51311 "K Child Test"
+{
+    Subtype = Test;
+    [Test]
+    procedure ReadsTheRowTheLoginLeftThroughOnInsert()
+    var Child: Record "K Child";
+    begin
+        Child.Get('LOGIN');
+    end;
+}
+"#;
+
+// Gap 3: what the login subscriber writes through the codeunit it runs and through a table trigger is what it leaves, so
+// a test codeunit that reads it raises the login and finds the row (on main both failed with "does not exist").
+#[test]
+fn a_test_sees_what_the_login_subscriber_wrote_through_codeunit_run_and_a_table_trigger() {
+    for (codeunit, test) in [
+        ("K Run Row Test", "ReadsTheRowTheLoginLeftThroughCodeunitRun"),
+        ("K Child Test", "ReadsTheRowTheLoginLeftThroughOnInsert"),
+    ] {
+        let (o, _) = outcomes_and_hits(SUBSCRIBER_RUNS_AND_TRIGGERS, DEP, codeunit);
+        assert_eq!(o, vec![(test.to_string(), Outcome::Pass)]);
+    }
+}

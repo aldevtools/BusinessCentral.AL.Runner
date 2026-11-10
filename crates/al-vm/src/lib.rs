@@ -1465,7 +1465,7 @@ impl Session {
         self.shadow_begin();
         self.application_areas.clear();
         self.isolated_set_in_test.clear();
-        self.guards.demo_written.clear();
+        self.guards.start_test();
         self.gl_setup_written = false;
         self.tx.transaction_type = 0;
         self.tx.tx_phase = crate::transactions::TX_FRESH;

@@ -1009,7 +1009,8 @@ fn run_codeunit_inner(
             {
                 stopped_at_limit.get_or_insert_with(|| routine.name.clone());
             }
-            let judged = match outcome {
+            // A failure after a read of a table the login would add rows to, without the login (`login.rs`), is not trusted.
+            let judged = match crate::login::untrusted_failure(session, outcome) {
                 Outcome::Fail(m) if !unfinished.is_empty() => Ok(("failure", m)),
                 Outcome::NotRun(m) if !unfinished.is_empty() && m.starts_with(TIME_LIMIT_REASON) => Ok(("timeout", m)),
                 o => Err(o),

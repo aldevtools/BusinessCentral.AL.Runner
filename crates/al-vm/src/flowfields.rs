@@ -634,6 +634,8 @@ impl Session {
         let filters = self.calc_filters(rec, calc, stack)?;
         let src_t = self.engine.tables[calc.table].clone().expect("table");
         self.unseeded_read(&src_t, rec.borrow().temporary, "a FlowField")?;
+        // The source rows are the stored table's, also for a temporary record (`records/login_guard.rs`).
+        self.login_guard_table(src_t.object, "a FlowField")?;
         // ADR-062: a FlowField reads its source table indirectly (CpPermLeads.al:29-63).
         if self.permission_checks() {
             self.permission_gate_flowfield(rec, calc.table)?;
