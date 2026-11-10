@@ -45,9 +45,9 @@ pub fn set_callstack_of(v: &Value, stack: &str) {
 }
 
 /// `Callstack`: empty until the error is raised (session-system/TestProbeSessionMiscContracts.al:ErrorInfo_Callstack_IsAvailable); a
-/// collected error has the frames of its `Error` call and then the untracked mark, so it is not empty and no text function reads
-/// it (errors/PnBErrorsCollections.al:329-358 pins only the frames of the test's own app; al-vm
-/// `collected_call_stack`).
+/// collected error has the frames of its `Error` call, a CR LF after each, and on BC 27.5 the runner's frames after them
+/// (session-system/callstack/CallstackFullText.al; al-vm `collected_call_stack`). A frame whose format is not pinned stands as
+/// the untracked mark, so no text function reads past it.
 fn callstack(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     let cell = match &r {
         Some(Value::Library(_, cell)) => Some(cell.clone()),
