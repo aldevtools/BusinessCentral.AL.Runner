@@ -161,6 +161,12 @@ impl Session {
                     ),
                 }
             }
+            RtType::DateFormula => self.xp_date_formula(text),
+            // A Legacy port does not support RecordId, a blank or garbage text alike
+            // (xmlports/PWXmlPortFormatEvaluateMoreTypes.al:Import_Xml_RecordId `rid_legacy_display`, `rid_legacy_garbage`).
+            RtType::Library(k) if *k == al_builtins::library_kind::LibraryKind::RecordId => {
+                Err(xerr("The type RecordID is not supported.", "NotSupportedType"))
+            }
             other => unsupported(format!(
                 "XmlPort import into a field of type {} (not pinned)",
                 other.describe()
@@ -307,6 +313,15 @@ impl Session {
                         "XmlPort import of `{text}` into a Guid field with FormatEvaluate = Xml (this form is not pinned)"
                     )),
                 }
+            }
+            RtType::DateFormula => self.xp_date_formula(text),
+            RtType::Library(k) if *k == al_builtins::library_kind::LibraryKind::RecordId => {
+                self.xp_record_id_xml(text, ty)
+            }
+            // A Blob in a VariableText port reads its text as Evaluate would: base64 text fails (Import_VariableText_XmlAndLegacy
+            // `vt_xml_blob`); a blank one is not pinned.
+            RtType::Library(k) if *k == al_builtins::library_kind::LibraryKind::Blob && !text.is_empty() => {
+                Err(evaluate_error(text, "BLOB"))
             }
             // A TableFilter field reads and fails as with FormatEvaluate = Legacy (xmlports/shapes-properties/Y83XpMiscTests.al:
             // TableFilter_Import, the port keeps the default; needs the corpus bump).

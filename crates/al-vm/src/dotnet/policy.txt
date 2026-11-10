@@ -60,6 +60,9 @@ deny-member System.IO.Path.GetFullPath | reads the current directory
 deny-member System.IO.Path.GetRandomFileName | randomness that bypasses the host
 # Owner decision 2026-10-18 (ADR-024): exactly this type, pinned by AfMailAddress.al. It only parses text.
 allow-type System.Net.Mail.MailAddress | owner decision 2026-10-18: parses text, no network
+# Pinned by corpus tests/al-language/xml/xml-buffer/XmlBufferLoad.al (passes on BC 27.5, 28.5 and 29.0): XML Buffer Writer reads
+# CredentialCache.DefaultNetworkCredentials (al-runner issue 7386). The type holds credentials in memory and opens no connection.
+allow-type System.Net.CredentialCache | pinned by XmlBufferLoad.al: holds credentials in memory, no network
 deny-type System.Net. | touches the network
 deny-type System.Diagnostics.Process | starts processes
 # Owner 2026-10-30 (issue 6222): GetEnvironmentVariable is served by the registry before this rule (every variable reads

@@ -836,6 +836,18 @@ impl Session {
         if let Some(why) = v.unknown() {
             return Err(Signal::Unsupported(why.to_string()));
         }
+        // DateFormula, BigInteger, RecordId, Blob, Media and MediaSet (xmlports/value_forms.rs).
+        if matches!(
+            self.table(&rec)?.fields[pos].ty,
+            RtType::Library(
+                al_builtins::library_kind::LibraryKind::Media | al_builtins::library_kind::LibraryKind::MediaSet
+            )
+        ) {
+            return self.xp_media_text(&v, schema, node);
+        }
+        if let Some(text) = self.xp_new_type_text(&v, schema, node) {
+            return text;
+        }
         if schema.xp().format_evaluate_xml {
             return self.xp_field_text_xml(&v);
         }
