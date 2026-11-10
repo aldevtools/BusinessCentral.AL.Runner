@@ -110,17 +110,17 @@ fn a_switch_to_an_empty_batch_shows_the_new_row_line() {
     );
 }
 
-/// From the untouched new-row line of an empty batch to another empty batch: the corpus pins the switch from a stored row to an empty
-/// batch (Y17JournalBatchSwitch.al:485) and from the line to a batch with rows (Y50UpdateFromNewLine.al:556), not this one. Reading
-/// Rec after it would give the buffer of the old batch, so it is refused (al-runner issue 6924: a page action read Rec after
-/// such a switch of Movement Worksheet).
+/// From the untouched new-row line of an empty batch to another empty batch: the page shows the new-row line of the new batch,
+/// OnNewRecord and OnAfterGetCurrRecord twice with the batch of the new filter (measured by corpus pull request 1282,
+/// pages/journal-batch-switch/EmptyToEmptyBatchSwitch.al JournalWs_EmptyToEmpty_ThenAction `V:start;V:done;N:T1/B/L2;C:B/L2;
+/// N:T1/B/L2;C:B/L2;`, current `T1/B/L2/0`; al-runner issue 6924). The probe does not log BelowxRec: `below=Yes` is what the
+/// pinned switch from a stored row gives (Y17JournalBatchSwitch.al:485).
 #[test]
-fn a_switch_from_the_new_row_line_of_an_empty_batch_to_another_empty_batch_is_refused() {
-    let r = al_testkit::run_in(SRC, "C", "EmptyToEmpty");
-    match r {
-        Err(al_builtins::native::Signal::Unsupported(why)) => assert!(why.contains("new-row line"), "{why}"),
-        other => panic!("expected a refusal, got {other:?}"),
-    }
+fn a_switch_from_the_new_row_line_of_an_empty_batch_to_another_empty_batch_shows_the_new_row_line_of_that_batch() {
+    assert_eq!(
+        run("EmptyToEmpty"),
+        "V:start 0;V:done 0;N:B3/0 below=Yes;C:B3/0;N:B3/0 below=Yes;C:B3/0;|0"
+    );
 }
 
 #[test]
