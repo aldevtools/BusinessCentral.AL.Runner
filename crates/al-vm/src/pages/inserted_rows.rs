@@ -58,7 +58,7 @@ impl Session {
         }
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
         let full = st.borrow().window.len() == Self::WINDOW;
-        let mut rows: Vec<al_builtins::value::WindowRow> = Vec::new();
+        let mut rows: Vec<crate::pages::WindowRow> = Vec::new();
         self.ret_used = true;
         let mut at = matches!(
             self.record_op(RecordOp::Find, &probe, &mut [Value::Text("-".into())])?,
@@ -73,7 +73,7 @@ impl Session {
             }
             let key = self.row_key(&probe)?;
             let stored = probe.borrow().fields.clone();
-            rows.push(al_builtins::value::WindowRow {
+            rows.push(crate::pages::WindowRow {
                 key,
                 stored: stored.clone(),
                 shown: stored,
@@ -82,7 +82,7 @@ impl Session {
             at = matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(1)])?, Value::Integer(n) if n != 0);
         }
         let held = st.borrow().window.clone();
-        let kept = |h: &al_builtins::value::WindowRow| rows.iter().any(|r| Self::same_key(&r.key, &h.key));
+        let kept = |h: &crate::pages::WindowRow| rows.iter().any(|r| Self::same_key(&r.key, &h.key));
         if full {
             // The rows held that the new first window no longer holds must be the last ones held (pushed past the window), and
             // the window must hold a row it did not hold before.

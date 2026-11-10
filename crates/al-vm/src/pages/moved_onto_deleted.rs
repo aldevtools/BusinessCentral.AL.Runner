@@ -129,31 +129,30 @@ impl Session {
             return Ok(Some(true));
         }
         // BC 27 and BC 29: read the rows again around the cursor row.
-        let read_from_c =
-            |s: &mut Self, up: bool, expect: usize| -> Result<Vec<al_builtins::value::WindowRow>, Signal> {
-                let mut rows = Vec::new();
-                if expect == 0 {
-                    return Ok(rows);
-                }
-                on_row(s, &rec)?;
+        let read_from_c = |s: &mut Self, up: bool, expect: usize| -> Result<Vec<crate::pages::WindowRow>, Signal> {
+            let mut rows = Vec::new();
+            if expect == 0 {
+                return Ok(rows);
+            }
+            on_row(s, &rec)?;
+            s.populate_current(st)?;
+            while s.nav_next(st, if up { -1 } else { 1 })? {
+                let key = s.row_key(&rec)?;
+                let stored = rec.borrow().fields.clone();
                 s.populate_current(st)?;
-                while s.nav_next(st, if up { -1 } else { 1 })? {
-                    let key = s.row_key(&rec)?;
-                    let stored = rec.borrow().fields.clone();
-                    s.populate_current(st)?;
-                    let shown = rec.borrow().fields.clone();
-                    rows.push(al_builtins::value::WindowRow { key, stored, shown });
-                    if rows.len() > expect {
-                        break;
-                    }
+                let shown = rec.borrow().fields.clone();
+                rows.push(crate::pages::WindowRow { key, stored, shown });
+                if rows.len() > expect {
+                    break;
                 }
-                if rows.len() != expect {
-                    return unsupported(
-                        "a move onto a deleted row where the rows read again differ from the rows held (not pinned)",
-                    );
-                }
-                Ok(rows)
-            };
+            }
+            if rows.len() != expect {
+                return unsupported(
+                    "a move onto a deleted row where the rows read again differ from the rows held (not pinned)",
+                );
+            }
+            Ok(rows)
+        };
         let after = read_from_c(self, false, kept.len() - 1 - c_in_kept)?;
         let above = read_from_c(self, true, c_in_kept)?;
         on_row(self, &rec)?;
@@ -163,8 +162,8 @@ impl Session {
         let stored = st.borrow().window[at].stored.clone();
         let key = st.borrow().window[at].key.clone();
         self.current_record_trigger(st, before)?;
-        let mut window: Vec<al_builtins::value::WindowRow> = above.into_iter().rev().collect();
-        window.push(al_builtins::value::WindowRow { key, stored, shown });
+        let mut window: Vec<crate::pages::WindowRow> = above.into_iter().rev().collect();
+        window.push(crate::pages::WindowRow { key, stored, shown });
         window.extend(after);
         {
             let mut s = st.borrow_mut();

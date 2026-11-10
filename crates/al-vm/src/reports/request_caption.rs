@@ -118,7 +118,7 @@ impl Session {
 
     /// The caption the request page's OnInit set, for a page that opened without OnOpenPage setting one: what a handler reads
     /// (Y86RequestCaption.al; OnOpenPage wins over OnInit).
-    pub(crate) fn request_page_takes_init_caption(&self, inst: &Inst, st: &Rc<RefCell<al_builtins::value::PageState>>) {
+    pub(crate) fn request_page_takes_init_caption(&self, inst: &Inst, st: &Rc<RefCell<crate::pages::PageState>>) {
         if st.borrow().caption.is_some() {
             return;
         }

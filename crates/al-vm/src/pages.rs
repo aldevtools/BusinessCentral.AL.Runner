@@ -11,7 +11,7 @@ use al_builtins::describe::Describe;
 use al_builtins::native::{AlError, Signal};
 use al_builtins::ops;
 use al_builtins::pagefmt::{self, Blank, ControlFormat};
-use al_builtins::value::{ControlRef, ControlTarget, Cursor, PageMode, PageState, RecordState, RtType, Value};
+use al_builtins::value::{RecordState, RtType, Value};
 use al_data::Store as _;
 use al_ir as ir;
 use rust_decimal::prelude::ToPrimitive;
@@ -247,28 +247,31 @@ mod rows_client;
 mod runobject;
 mod server_row_lag;
 mod shown;
+pub(crate) mod state;
 mod table_values_allowed;
 mod test_end;
 mod typed_handler_temp;
 pub(crate) use shown::ShownNote;
+pub(crate) use state::{
+    ControlRef, ControlTarget, Cursor, PageMode, PageState, ReadBackwards, WindowRow, control_of, into_st, page_value,
+    st_of, test_control,
+};
 
 impl Session {
     /// `TP.Ctl`: a handle on control `control` of the test page `page`.
     pub(crate) fn page_control(&mut self, page: Value, control: usize, runtime: bool) -> Result<Value, Signal> {
         match page {
             Value::TestPage(p) => {
+                let p = into_st(p);
                 // A part control reads as the page it shows (a `TestPart`).
                 let is_part = {
                     let engine = self.engine();
                     page_of(&engine, &p).controls[control].kind == ir::ControlKind::Part
                 };
                 if is_part {
-                    return self.part_page(&p, control, runtime).map(Value::TestPage);
+                    return self.part_page(&p, control, runtime).map(|part| page_value(&part));
                 }
-                Ok(Value::TestControl(Rc::new(ControlRef {
-                    page: p,
-                    target: ControlTarget::Control(control),
-                })))
+                Ok(test_control(p, ControlTarget::Control(control)))
             }
             other => Err(Signal::Unsupported(format!("control of {}", other.describe()))),
         }
