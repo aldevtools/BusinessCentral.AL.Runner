@@ -121,6 +121,8 @@ fn asserterror_does_not_absorb_it() {
 
 #[test]
 fn the_last_integer_value_and_a_biginteger_key_still_count_on() {
+    // The refusal must not fire one value early. That the counter continues above an explicit key is the general rule
+    // (record/TestAutoIncrementExplicitKey.al:43); the value 2147483647 itself is not probed.
     assert_eq!(run("LastThatFits"), "2147483647");
     assert_eq!(run("Big"), "2147483648");
 }

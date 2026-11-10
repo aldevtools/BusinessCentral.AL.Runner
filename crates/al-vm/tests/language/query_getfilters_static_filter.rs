@@ -1,7 +1,7 @@
 //! `GetFilters` of a query with a static ColumnFilter on a plain (not aggregated) column (al-runner issue 5199). No
 //! corpus test reads the getters on such a column (queries/TestQueryColumnFilter.al:40-100 pins the rows only), so
-//! `GetFilter` of the column is refused, and `GetFilters` is refused the same way: it used to leave the column out
-//! and answer as if the query had no such filter. Runtime filters alone stay pinned
+//! both getters refuse, in every state of the query (also after a SetRange on that column). `GetFilters` used to leave
+//! the column out and answer as if the query had no such filter. Runtime filters alone stay pinned
 //! (queries/TestQueryRuntimeContracts.al:203-229).
 
 use al_builtins::native::Signal;
@@ -36,6 +36,18 @@ query 50100 "QF Static"
         {
             column(Id; Id) { }
             column(Kind; Kind) { ColumnFilter = Kind = const(2); }
+        }
+    }
+}
+
+query 50102 "QF Element"
+{
+    elements
+    {
+        dataitem(Row; "QF Row")
+        {
+            column(Id; Id) { }
+            filter(KindFilter; Kind) { ColumnFilter = KindFilter = const(2); }
         }
     }
 }
@@ -76,6 +88,37 @@ codeunit 50100 C
         exit(Q.GetFilter(Kind));
     end;
 
+    procedure RuntimeOnTheSameColumn(): Text
+    var
+        Q: Query "QF Static";
+    begin
+        Q.SetRange(Kind, 3);
+        exit(Q.GetFilters());
+    end;
+
+    procedure GetFilterAfterRuntimeOnTheSameColumn(): Text
+    var
+        Q: Query "QF Static";
+    begin
+        Q.SetRange(Kind, 3);
+        exit(Q.GetFilter(Kind));
+    end;
+
+    procedure GetFilterOfAnotherColumn(): Text
+    var
+        Q: Query "QF Static";
+    begin
+        Q.SetRange(Id, 1, 5);
+        exit(Q.GetFilter(Id));
+    end;
+
+    procedure FilterElement(): Text
+    var
+        Q: Query "QF Element";
+    begin
+        exit(Q.GetFilters());
+    end;
+
     procedure RuntimeOnly(): Text
     var
         Q: Query "QF Plain";
@@ -97,20 +140,27 @@ fn run(routine: &str) -> String {
     out(al_testkit::run_in(SRC, "C", routine))
 }
 
-const REFUSED: &str = "refused:GetFilters of a query with a static ColumnFilter on a plain column (not pinned)";
+const GET_FILTERS: &str = "refused:GetFilters on a query column or filter element that is not aggregated and has a static ColumnFilter (not pinned)";
+const GET_FILTER: &str = "refused:GetFilter on a query column or filter element that is not aggregated and has a static ColumnFilter (not pinned)";
 
 #[test]
-fn getfilters_refuses_a_static_filter_on_a_plain_column_as_getfilter_does() {
-    assert_eq!(
-        run("GetFilterOfTheColumn"),
-        "refused:GetFilter of a column with a static ColumnFilter (not pinned)"
-    );
-    assert_eq!(run("StaticOnly"), REFUSED);
-    assert_eq!(run("StaticAndRuntimeOnAnotherColumn"), REFUSED);
+fn both_getters_refuse_a_static_filter_that_is_not_aggregated() {
+    assert_eq!(run("GetFilterOfTheColumn"), GET_FILTER);
+    assert_eq!(run("StaticOnly"), GET_FILTERS);
+    assert_eq!(run("StaticAndRuntimeOnAnotherColumn"), GET_FILTERS);
+    assert_eq!(run("FilterElement"), GET_FILTERS);
+}
+
+#[test]
+fn a_runtime_filter_on_that_column_does_not_lift_the_refusal() {
+    assert_eq!(run("RuntimeOnTheSameColumn"), GET_FILTERS);
+    assert_eq!(run("GetFilterAfterRuntimeOnTheSameColumn"), GET_FILTER);
 }
 
 #[test]
 fn getfilters_without_a_static_filter_answers_as_before() {
     assert_eq!(run("RuntimeOnly"), "[Id: 1..5]");
     assert_eq!(run("NoFilter"), "[]");
+    // GetFilter of another column of the query with the static filter: a runtime filter reads back as on any query.
+    assert_eq!(run("GetFilterOfAnotherColumn"), "[1..5]");
 }
