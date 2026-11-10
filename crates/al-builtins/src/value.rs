@@ -712,6 +712,9 @@ pub struct PageState {
     /// move reads next is not pinned (testpage/PnGShowRow.al:144 NonEmptyListInsertViaRec `first-after` reads
     /// nothing, the Next after it reads the row it lands on twice); a move is refused.
     pub action_landed_on_new_row: bool,
+    /// The action of a tree part that showed no row left rows and the part read them (al-vm `pages/part_tree_typed.rs`
+    /// `land_empty_tree_part_after_action`); read and cleared by `action_invoke`.
+    pub empty_tree_part_landed: bool,
     /// A refresh after a control's OnValidate changed a list's filters read more rows than a window holds: what the client holds
     /// then is not pinned, a move is refused (assumption validate-filter-refresh-window, al-runner issue 5914).
     pub validate_refresh_unheld: bool,
@@ -1139,6 +1142,7 @@ impl PageState {
             read_after_goto_prev: false,
             empty_list_row_behind: false,
             action_landed_on_new_row: false,
+            empty_tree_part_landed: false,
             validate_refresh_unheld: false,
             action_refresh_unheld: false,
             server_lag: None,

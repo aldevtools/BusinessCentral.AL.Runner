@@ -338,16 +338,19 @@ impl Session {
     }
 
     /// `Validate` on the FlowField at `pos` (record/flowfields/DiFwWriteTests.al). A Count, Exist or Lookup FlowField
-    /// raises FlowFieldValidation before OnValidate runs (DiFwWriteTests.al:284, :439, :693-694). A Decimal Sum FlowField
-    /// inserts the difference between `value` and the current sum into the source table, then holds `value`
-    /// (DiFwWriteTests.al:812-819, :293). Every other shape is refused: it is not pinned.
+    /// that is no Decimal raises FlowFieldValidation (DiFwWriteTests.al:284, :439, :693-694) after its OnValidate ran with the
+    /// new value: the error comes back as `Some` for the caller to raise then (record/flowfields/FfmOperations.al:520-566 CntF,
+    /// `CntF.log` is `CntF=7;`; ExF and LkF alike). A Decimal Sum FlowField inserts the difference between `value` and the
+    /// current sum into the source table, then holds `value` (DiFwWriteTests.al:812-819, :293), a negated sum with the sign
+    /// turned (FfmOperations.al:381-399). A Decimal FlowField with another formula raises the "must start with 'Sum(...'"
+    /// error. Every other shape is refused: it is not pinned.
     pub(crate) fn validate_flowfield(
         &mut self,
         rec: &Rec,
         t: &TableDef,
         pos: usize,
         value: Option<&Value>,
-    ) -> Result<(), Signal> {
+    ) -> Result<Option<Signal>, Signal> {
         let engine = self.engine.clone();
         let table = t.object as usize;
         let schema = engine.program.objects[table].table.as_ref().expect("table");
@@ -364,6 +367,31 @@ impl Session {
             (calc.method, &f.ty),
             (M::Count, RtType::Integer) | (M::Exist, RtType::Boolean) | (M::Lookup, RtType::Text(_) | RtType::Code(_))
         );
+        // A Decimal FlowField whose formula is no sum raises and keeps its value: an average, a min, a max and a lookup,
+        // negated or not (record/flowfields/FfmOperations.al:445-449 AvgF, :542-555 MinF and MaxF, :712-725 LkDecF and NLkDecF,
+        // with a value and without). The text is pinned, the code is not, so GetLastErrorCode is refused. None of the pinned
+        // fields has an OnValidate trigger, so whether one runs first is not pinned.
+        let not_a_sum = f.ty == RtType::Decimal && matches!(calc.method, M::Average | M::Min | M::Max | M::Lookup);
+        if not_a_sum {
+            if f.name != self.field_caption(t, pos) || t.name != self.caption(t) {
+                return unsupported("the FlowField formula error of a field or table with a caption (not pinned)");
+            }
+            if self.validate_is_hooked(t, f)? {
+                return unsupported(format!(
+                    "Validate on the FlowField {}, which is no sum and has an OnValidate trigger or subscriber (whether it runs before the error is not pinned)",
+                    f.name
+                ));
+            }
+            return Err(Signal::Error(Box::new(AlError {
+                message: format!(
+                    "The Calculation formula for the {} FlowField in the {} table must start with 'Sum(...'.",
+                    f.name, t.name
+                ),
+                code: al_builtins::native::UNPINNED_ERROR.into(),
+                call_stack: String::new(),
+                ..Default::default()
+            })));
+        }
         if !decimal_sum && !typed_error {
             return unsupported(format!(
                 "Validate on the FlowField {} of type {} with this CalcFormula method (not pinned)",
@@ -378,22 +406,19 @@ impl Session {
             if field != caption || t.name != table_caption {
                 return unsupported("the FlowFieldValidation error of a field or table with a caption (not pinned)");
             }
-            return Err(crate::transactions::al_error_code(
+            return Ok(Some(crate::transactions::al_error_code(
                 &format!(
                     "The type of the {field} FlowField in the {} table must be Decimal.",
                     t.name
                 ),
                 "FlowFieldValidation",
-            ));
+            )));
         }
         // The one-argument Validate takes the value the variable holds: 0 without CalcFields, the sum after it, or an assigned
         // value (DiFwWriteTests.al:860-926, QB_ValidateOneArgFlowFieldWithOnValidate).
         let held = rec.borrow().fields[pos].clone();
         let new = ops::convert(value.cloned().unwrap_or(held), &f.ty)?;
         let refuse = |why: &str| unsupported(format!("Validate on the Sum FlowField {}: {why} (not pinned)", f.name));
-        if calc.negate {
-            return refuse("a negated sum");
-        }
         if rec.borrow().temporary || rec.borrow().company.is_some() {
             return refuse("a temporary record or another company");
         }
@@ -405,7 +430,42 @@ impl Session {
             return refuse("a source table whose key is not one Integer field");
         }
         let _ = new;
-        Ok(())
+        Ok(None)
+    }
+
+    /// The end of a Validate on a FlowField, after its OnValidate ran: raises `error`, the one [`Session::validate_flowfield`]
+    /// held back, with the variable holding the value from before the call again (FfmOperations.al:563 `CntF.value` is 4 after
+    /// Validate with 7; DiFwWriteTests.al:877-878, :908 `count value` 0 for a field that was not calculated); else writes the
+    /// difference of a Decimal Sum FlowField.
+    pub(crate) fn finish_flowfield_validate(
+        &mut self,
+        rec: &Rec,
+        t: &TableDef,
+        pos: usize,
+        error: Option<Signal>,
+        value: Option<Value>,
+        old_value: Value,
+    ) -> Result<(), Signal> {
+        if let Some(e) = error {
+            rec.borrow_mut().fields[pos] = old_value;
+            return Err(e);
+        }
+        let target = ops::convert(value.unwrap_or(old_value), &t.fields[pos].ty)?;
+        if ops::compare(&rec.borrow().fields[pos], &target).ok() != Some(Ordering::Equal) {
+            return unsupported("an OnValidate that changes the value of the Sum FlowField it validates (not pinned)");
+        }
+        self.write_sum_difference(rec, t, pos, target)
+    }
+
+    /// Whether a Validate of `f` runs code: an OnValidate trigger of the table or a table extension, or a subscriber to its
+    /// validate events.
+    fn validate_is_hooked(&mut self, t: &TableDef, f: &ir::Field) -> Result<bool, Signal> {
+        let (before, after) = self.ext_validate_order(t, f)?;
+        Ok(f.on_validate.is_some()
+            || !before.is_empty()
+            || !after.is_empty()
+            || self.listened(t, "onbeforevalidateevent", Some(&f.name))?
+            || self.listened(t, "onaftervalidateevent", Some(&f.name))?)
     }
 
     /// After the OnValidate of a Decimal Sum FlowField (`validate_flowfield` checked it): inserts the difference between
@@ -463,7 +523,15 @@ impl Session {
         let (Value::Decimal(cur), Value::Decimal(target)) = (&current, &new) else {
             return refuse("a sum that is not a Decimal");
         };
-        let diff = *target - *cur;
+        // A negated sum holds the value too: the new row takes the difference with the sign turned, so `-sum` is the value
+        // afterwards (record/flowfields/FfmOperations.al:381-399, :433-441 NSumF: Validate with 5.5, CalcFields gives 5.5;
+        // al-runner issue 7422).
+        // Pinned with the sum at 0 (Validate with 5.5) and with the value 0 (Validate without a value while the FlowField is
+        // 5.5: CalcFields gives 0, :391-399, :438-441). A value and a sum that are both not 0 are not pinned.
+        if calc.negate && !cur.is_zero() && !target.is_zero() {
+            return refuse("a negated sum whose current value and new value are both not 0");
+        }
+        let diff = if calc.negate { *cur - *target } else { *target - *cur };
         // No row when the value is the sum already (DiFwWriteTests.al:816 `p1 same src`).
         if !diff.is_zero() {
             let Some(at) = calc.field else {
@@ -932,6 +1000,50 @@ impl Session {
                             ));
                         }
                         Some(_) => return unsupported("upperlimit() of a filter that is not a range"),
+                    }
+                }
+                ir::CalcValue::FieldFilter(q) if own[*q].flow_filter => {
+                    // `field(filter(F))` over a FlowFilter: the caller's filter on F applies, and none set means no constraint
+                    // (record/flowfields/FfmSumAverage.al:66, :780-844 and FfmCountExist.al:66, :640-712: an Integer range, a
+                    // Decimal `>=`, a Date range of two dates, a Code value, an Option value, two Enum values, two Text values).
+                    // On a Date FlowFilter only the range of two dates is pinned; one date and the other forms wait for a probe
+                    // (al-runner issue 7433, docs/probes-needed.md). Another type is not pinned.
+                    let pf = &own[*q];
+                    match (&pf.ty, flow(*q)) {
+                        (_, None) => {}
+                        (RtType::Date, Some(e)) if !matches!(e, FilterExpr::Range(Some(_), Some(_))) => {
+                            return unsupported(
+                                "field(filter()) of a Date FlowFilter whose filter is not a range of two dates (not pinned, docs/probes-needed.md)",
+                            );
+                        }
+                        (
+                            RtType::Integer
+                            | RtType::Decimal
+                            | RtType::Date
+                            | RtType::Code(_)
+                            | RtType::Text(_)
+                            | RtType::Option(_)
+                            | RtType::Enum(_),
+                            Some(e),
+                        ) => {
+                            if !same_kind(&pf.ty, sty) {
+                                return unsupported("a flow filter of another type than the source field");
+                            }
+                            // Whether it takes over from another condition on the same source field, as a normal field's
+                            // filter text does, is not pinned.
+                            if calc.conds.iter().filter(|o| o.field == c.field).count() > 1 {
+                                return unsupported(
+                                    "field(filter()) of a FlowFilter beside another condition on the same field (not pinned)",
+                                );
+                            }
+                            parts.push((c.field, e, false));
+                        }
+                        (other, Some(_)) => {
+                            return unsupported(format!(
+                                "field(filter()) of a FlowFilter of type {} (not pinned)",
+                                other.describe()
+                            ));
+                        }
                     }
                 }
                 ir::CalcValue::FieldFilter(q) => {

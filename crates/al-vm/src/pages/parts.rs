@@ -1950,7 +1950,9 @@ impl Session {
         let mut h = host.borrow_mut();
         h.refresh = true;
         h.refresh_by_update = false;
-        h.refresh_without_parts = without_parts || later.is_some();
+        // A tree part that keeps its typed row reads its rows after the host, here, on its first row too
+        // (pages/parts/R6889RealShape.al:1400 PG6889RS_Step4_ `log type` `TV;TY.V;TY.V.end;HR;HC;SE;M10:Resource/N10;R10;...`).
+        h.refresh_without_parts = without_parts || later.is_some() || kept.is_some();
         h.read_keeps_xrec = true;
         drop(h);
         let r = self.run_refresh(host);
@@ -1959,10 +1961,17 @@ impl Session {
         let later = match (later, kept) {
             // The typed row of a tree part is saved after the host read, before the part reads its rows (`part_tree_typed.rs`).
             (Some(_), Some(before)) => Some(self.save_typed_tree_row(st, before)?),
-            (None, Some(_)) => {
-                return unsupported(
-                    "a tree part on its first row whose code ran CurrPage.Update after a typed value (not pinned)",
-                );
+            // On its first row (`read_typed_tree_first_row`).
+            (None, Some(before)) => {
+                let (rows, at) = self.save_typed_tree_row(st, before)?;
+                if at != 0 {
+                    return unsupported(
+                        "a tree part on its first row whose code ran CurrPage.Update after a typed value (not pinned)",
+                    );
+                }
+                self.read_typed_tree_first_row(st, &rows)?;
+                self.set_xrec(host);
+                return Ok(());
             }
             (later, None) => later,
         };

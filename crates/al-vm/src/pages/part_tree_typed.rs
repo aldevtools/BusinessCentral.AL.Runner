@@ -9,8 +9,8 @@ use super::*;
 
 impl Session {
     /// A part over a table, standing on no row, whose repeater is a tree and whose view is sorted by another key than the primary
-    /// key. Its action that leaves rows is refused: pages/parts/R6889RealShape.al:1213 RunStep4, :1406 PG6889RS_Step4_ pin the reads
-    /// after it (`R20;R20;R20;R10;R20;R20;R20;C20;R10;R10;R10;C10`), a walk that is not modelled.
+    /// key. Its action that leaves rows is read by `land_empty_tree_part_after_action` in the one shape
+    /// pages/parts/R6889RealShape.al:1213 RunStep4, :1400 PG6889RS_Step4_ pin; any other is refused.
     pub(super) fn empty_tree_part_in_key(&self, st: &St) -> bool {
         if st.borrow().host.is_none() || st.borrow().cursor != Cursor::None || !self.has_source(st) {
             return false;
@@ -27,6 +27,101 @@ impl Session {
         unsupported(
             "an action of a tree part in another key than the primary key that showed no row before it and left rows (the reads are not modelled)",
         )
+    }
+
+    /// The action of an `empty_tree_part_in_key` left rows: the part reads the row the action left in Rec, then the rows around
+    /// it as a part in another key does (the row twice more, the row before it, the row three times, OnAfterGetCurrRecord), and
+    /// then goes to the first row of its view: that row three times and OnAfterGetCurrRecord on it. Pinned for an action that
+    /// leaves two rows with Rec on the second, on a part with both row triggers and without OnFindRecord or OnNextRecord
+    /// (al-runner issue 6889; pages/parts/R6889RealShape.al:1213 RunStep4, :1400 PG6889RS_Step4_ `line after action`
+    /// `10000/O10000/L0`, `log action` `...;T.INS(20);R20;R20;R20;R10;R20;R20;R20;C20;R10;R10;R10;C10`). Another row count or
+    /// place of Rec is refused.
+    pub(super) fn land_empty_tree_part_after_action(&mut self, st: &St) -> Result<(), Signal> {
+        let rec = self.page_rec(st);
+        let rows = self.view_rows(&rec, 3)?;
+        let table = self.table(&rec)?;
+        let held = self.row_key(&rec)?;
+        let pinned = rows.len() == 2
+            && Self::same_key(&table.primary_key(&rows[1]), &held)
+            && self.is_list(st)
+            && !st.borrow().dirty
+            && !st.borrow().draft
+            && self.declares(st, "onaftergetrecord")
+            && self.declares(st, "onaftergetcurrrecord")
+            && !self.declares(st, "onfindrecord")
+            && !self.declares(st, "onnextrecord");
+        if !pinned {
+            return self.refuse_empty_tree_part_action().map(|_| ());
+        }
+        st.borrow_mut().cursor = Cursor::Row;
+        let before = self.xrec_before_move(st);
+        for _ in 0..3 {
+            self.read_refilled_row(st, &rec, &rows[1])?;
+        }
+        self.read_refilled_row(st, &rec, &rows[0])?;
+        let mut second = self.read_refilled_row(st, &rec, &rows[1])?;
+        for _ in 0..2 {
+            second = self.read_refilled_row(st, &rec, &rows[1])?;
+        }
+        self.current_record_trigger(st, before)?;
+        let before = self.xrec_before_move(st);
+        let mut first = self.read_refilled_row(st, &rec, &rows[0])?;
+        for _ in 0..2 {
+            first = self.read_refilled_row(st, &rec, &rows[0])?;
+        }
+        Self::hold_whole_view(st, vec![first, second]);
+        st.borrow_mut().empty_tree_part_landed = true;
+        self.current_record_trigger(st, before)
+    }
+
+    /// The part holds `window`, its whole view read from the start, and stands on a stored row of it.
+    fn hold_whole_view(st: &St, window: Vec<al_builtins::value::WindowRow>) {
+        let mut s = st.borrow_mut();
+        s.window = window;
+        s.window_from_start = true;
+        s.window_eof = true;
+        s.window_whole = true;
+        s.view_read_to_end = false;
+        s.window_read_up = false;
+        s.window_top_unread = false;
+        s.read_up_from_last = None;
+        s.opened_on_moved_rec = false;
+        s.settled_first_row = false;
+        s.refresh = false;
+        s.cursor = Cursor::Row;
+    }
+
+    /// A tree part in another key than the primary key that saved its typed row on the first of the two rows of its view
+    /// (`save_typed_tree_row`): it reads the row twice, the row after it, the row three times, then OnAfterGetCurrRecord
+    /// (pages/parts/R6889RealShape.al:1400 PG6889RS_Step4_ `log type` `...;SE;M10:Resource/N10;R10;R10;R20;R10;R10;R10;C10`,
+    /// `after type` `10000 Resource`). Another view is refused.
+    pub(super) fn read_typed_tree_first_row(&mut self, st: &St, rows: &[Vec<Value>]) -> Result<(), Signal> {
+        let rec = self.page_rec(st);
+        let other_key = {
+            let r = rec.borrow();
+            r.key != 0 || r.adhoc.is_some()
+        };
+        let pinned = rows.len() == 2
+            && other_key
+            && self.declares(st, "onaftergetrecord")
+            && self.declares(st, "onaftergetcurrrecord")
+            && !self.declares(st, "onfindrecord")
+            && !self.declares(st, "onnextrecord");
+        if !pinned {
+            return unsupported(
+                "a tree part on its first row whose code ran CurrPage.Update after a typed value, other than on the first of two rows in another key than the primary key (not pinned)",
+            );
+        }
+        let before = self.xrec_before_move(st);
+        self.read_refilled_row(st, &rec, &rows[0])?;
+        self.read_refilled_row(st, &rec, &rows[0])?;
+        let second = self.read_refilled_row(st, &rec, &rows[1])?;
+        let mut first = self.read_refilled_row(st, &rec, &rows[0])?;
+        for _ in 0..2 {
+            first = self.read_refilled_row(st, &rec, &rows[0])?;
+        }
+        Self::hold_whole_view(st, vec![first, second]);
+        self.current_record_trigger(st, before)
     }
 
     /// Whether the part's repeater is a tree (`ShowAsTree = true`).
