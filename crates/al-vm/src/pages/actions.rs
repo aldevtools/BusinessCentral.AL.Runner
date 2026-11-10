@@ -18,6 +18,9 @@ impl Session {
                 .ext_triggers
                 .iter()
                 .any(|(n, _, _)| matches!(n.as_str(), "onaction" | "onafteraction" | "onbeforeaction"))
+            // A subscriber that names the action keeps it on the page: it opens, and Invoke raises the action's events
+            // (events/page-events/PageActionEventsWithoutTrigger.al:493 ActionEvents_Invoke_PlainActionWithAndWithoutTrigger).
+            && !self.names_action_subscriber(st, &ctl.name)
     }
 
     /// The `OnAfterAction` triggers that `modify(action)` blocks of page extensions add to action `idx`, in the order the
@@ -41,7 +44,7 @@ impl Session {
     /// the order the extensions apply; an error in the action runs none (pages/extensions/
     /// PageExtensionActionOnAfterAction.al:149 P195_ActionWithOnAction_RunsBaseThenExtensions, :176
     /// P195_ActionWithoutBaseOnAction_RunsOnAfterAction, :199 P195_BaseOnActionRaises_OnAfterActionSkipped, :227 _InvokedTwice).
-    fn run_ext_after_action(&mut self, st: &St, after: &[(usize, usize)]) -> Result<(), Signal> {
+    pub(super) fn run_ext_after_action(&mut self, st: &St, after: &[(usize, usize)]) -> Result<(), Signal> {
         for &(e, r) in after {
             self.owner_routine(st, Some(e), r)?;
         }
@@ -1246,6 +1249,7 @@ impl Session {
         // OnAfterActionEvent, after a RunObject, and what an action without OnAction does to the row of a page with a source
         // table, are not pinned.
         let after = self.ext_after_action(st, idx);
+        self.refuse_unpinned_action_subscribers(st)?;
         // OnBeforeAction of a page extension runs before the action's OnAction, and an error in it stops the action with the
         // test framework's prefix on its code, on a card with a source table (testpage/ABTests.al:979-1018,
         // ActionAddInErrorInBeforeActionStopsOnAction, ActionAddInBeforeActionRunsBeforeOnAction); also on an action without
@@ -1257,6 +1261,11 @@ impl Session {
         // without OnAction, and the shapes refused for OnAfterAction below are not.
         let before_ext = self.ext_action_triggers(st, idx, "onbeforeaction");
         let element = page_of(&engine, st).controls[idx].name.clone();
+        if page_of(&engine, st).controls[idx].run_object.is_none()
+            && page_of(&engine, st).controls[idx].trigger("onaction").is_none()
+        {
+            return self.triggerless_action(st, &element, &before_ext, &after);
+        }
         if !before_ext.is_empty() {
             if before_ext.len() > 1 {
                 return unsupported(format!(
@@ -1275,11 +1284,6 @@ impl Session {
                     "page extension trigger OnBeforeAction of action {element} with a subscriber to the action's events (the order is not pinned)"
                 ));
             }
-            if page_of(&engine, st).controls[idx].trigger("onaction").is_none() && after.is_empty() {
-                return unsupported(format!(
-                    "page extension trigger OnBeforeAction of action {element} that has neither OnAction nor OnAfterAction (not pinned)"
-                ));
-            }
         }
         if !after.is_empty() {
             if page_of(&engine, st).controls[idx].run_object.is_some() {
@@ -1293,23 +1297,6 @@ impl Session {
                 return unsupported(format!(
                     "page extension trigger OnAfterAction of action {element} with a subscriber to the action's events (the order is not pinned)"
                 ));
-            }
-            if page_of(&engine, st).controls[idx].trigger("onaction").is_none() {
-                if self.has_source(st) {
-                    return unsupported(format!(
-                        "page extension trigger OnAfterAction of action {element} that has no OnAction, on a page with a source table (not pinned)"
-                    ));
-                }
-                return match self
-                    .run_ext_after_action(st, &before_ext)
-                    .and_then(|()| self.run_ext_after_action(st, &after))
-                {
-                    Err(Signal::Error(mut e)) => {
-                        e.code = action_error_code(&e.code, &e.message);
-                        Err(Signal::Error(e))
-                    }
-                    other => other.map(|()| Value::Null),
-                };
             }
         }
         // RunObject wins over OnAction when an action declares both (testpage/TestPageRunObjectContracts.al:371-390).
@@ -1336,6 +1323,9 @@ impl Session {
             let (before_pinned, after_pinned) = match ro.kind {
                 ir::RunKind::Page => (true, true),
                 ir::RunKind::Codeunit => (true, true),
+                // The report is refused before any event (events/page-events/PageActionEventsWithoutTrigger.al:529
+                // ActionEvents_Invoke_RunObjectReportAndPageWithLink `run_report.log` `[]`).
+                ir::RunKind::Report => (true, true),
                 _ => (false, false),
             };
             for (ev, pinned) in [
@@ -3795,7 +3785,7 @@ fn simple_relation(text: &str) -> Option<(String, Option<String>)> {
 ///
 /// A code that is already wrapped, or already unpinned, stays. Every other code has no pinned wrapped form: it becomes the
 /// unpinned mark, so a read of it refuses the test (docs/probes-needed.md, "TestPage action error codes").
-fn action_error_code(code: &str, message: &str) -> String {
+pub(super) fn action_error_code(code: &str, message: &str) -> String {
     match code {
         "Dialog" | "MissingUIHandler" | "TestField" => format!("TestWrapped:{code}"),
         // A control add-in procedure call (testpage/ACControlAddIn.al TZ_TwoProceduresFromActions_PageStaysUsable, AoTests.al:794).

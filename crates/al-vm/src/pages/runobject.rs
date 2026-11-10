@@ -29,7 +29,13 @@ impl Session {
         // ...ReportWithNoRequestPageIsRefusedTheSameWay, ...AnXmlPortIsRefused..., ...AQueryIsRefusedBeforeItsMetadataIsResolved;
         // the same texts for objects of a precompiled app: ...KindsPrecompiled_Tests.al).
         match ro.kind {
-            ir::RunKind::Report => return Err(error("The method RunReport is not supported for TestPages.")),
+            // The code is pinned by events/page-events/PageActionEventsWithoutTrigger.al:529 `run_report.code`.
+            ir::RunKind::Report => {
+                return Err(error_code(
+                    "The method RunReport is not supported for TestPages.",
+                    "TestMethodNotSupportedInPageTest",
+                ));
+            }
             ir::RunKind::XmlPort => return Err(error("The method RunXmlPort is not supported for TestPages.")),
             ir::RunKind::Query => {
                 return Err(error(
@@ -207,7 +213,16 @@ impl Session {
                 // An ordinary page opens with nobody to answer it and AL is told nothing: it ran
                 // OnInit and OnOpenPage and is dropped without its close triggers
                 // (testpage/TestPageRunObjectContracts.al:330-346, TestPageActionRunObjectNoHandler_Tests.al arm 1).
+                // The platform's missing-handler error is raised off AL's call stack: the Invoke goes on, and the error is the last
+                // error, `Unhandled UI: Page <id>` with the code MissingUIHandler (events/page-events/PageActionEventsWithoutTrigger.al:
+                // 529 ActionEvents_Invoke_RunObjectReportAndPageWithLink `run_page_link.err`/`.code`, a Card target with a
+                // RunPageLink). The target opened with the link's filter before the error (`target-OnOpenPage(filter=1)`). Without a
+                // link the last error is not pinned and stays blank, as before.
                 self.mark_closed(&target_state);
+                if let (Some(_), Signal::Error(e)) = (&ro.link, self.unhandled_page(kind, target as u32)) {
+                    self.error_finals = None;
+                    self.last_error = *e;
+                }
                 Ok(())
             }
         };

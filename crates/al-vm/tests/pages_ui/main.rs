@@ -79,6 +79,7 @@ mod moved_onto_deleted_y80;
 mod new_card_descr_then_key;
 mod new_record_key_xrec;
 mod no_source_card;
+mod no_source_page_events;
 mod open_moved_find_which;
 mod open_onopenpage_moves_rec;
 mod open_temp_worksheet_rec_row;

@@ -196,6 +196,7 @@ mod caption_translation;
 mod clear_test_page;
 mod close_save_failed;
 mod code_close_veto;
+mod triggerless_action;
 pub(crate) use code_close_veto::{CodeCloseVeto, TriggerKind};
 mod controls;
 mod data_caption_run;
@@ -904,6 +905,26 @@ impl Session {
         self.raise(&call, &mut args)
     }
 
+    /// The reason to refuse the open of a page without a source table that a subscriber of a platform page event listens to.
+    /// No corpus test pins which of these events BC raises on such a page, in which order, or what `Rec` holds in the
+    /// subscriber (every pinned page event test has a SourceTable; docs/probes-needed.md "page events without a source
+    /// table"), so the page is refused before any of its code runs, whatever its type.
+    fn no_source_event_refusal(&self, engine: &Engine, st: &St, o: usize, ev: &str) -> Option<String> {
+        let object = st.borrow().object as usize;
+        let is_platform_event = al_ir::RAISED_PAGE_EVENTS.contains(&ev) || ev == "ondeleterecordevent";
+        let action_event = matches!(ev, "onbeforeactionevent" | "onafteractionevent");
+        if o != object || !is_platform_event || action_event || engine.program.objects[object].rec_slot.is_some() {
+            return None;
+        }
+        let kind = engine.object_facts[object]
+            .page_type
+            .as_ref()
+            .map_or("card", |k| k.lower());
+        Some(format!(
+            "page event {ev} on a page without a source table (PageType {kind}): when the test client raises it there is not pinned"
+        ))
+    }
+
     /// Refuses a page some subscriber listens to for an event the client does not raise yet.
     fn check_page_events(&self, st: &St) -> Result<(), Signal> {
         let engine = self.engine();
@@ -920,38 +941,15 @@ impl Session {
         // Hash order must not pick which refusal reason is reported (`outcomes_do_not_depend_on_threads_or_home`).
         let mut declared: Vec<_> = declared.collect();
         declared.sort();
-        for (o, ev) in declared {
-            // The client raises the action events when it invokes an action that has behavior (an OnAction trigger or a
-            // RunObject: the others are not on the runtime page). A subscriber for every action, or for one that is not
-            // on the page, would run in BC and is not reached.
-            if *o == object && matches!(ev.as_str(), "onbeforeactionevent" | "onafteractionevent") {
-                let on_page =
-                    |element: &str| {
-                        !element.is_empty()
-                            && page_of(&engine, st).controls.iter().enumerate().any(|(i, c)| {
-                                c.name.eq_ignore_ascii_case(element) && !self.action_without_behaviour(st, i)
-                            })
-                    };
-                let compiled = engine
-                    .events
-                    .subscribers
-                    .get(&(object, ev.clone()))
-                    .into_iter()
-                    .flatten()
-                    .map(|s| s.element.as_str());
-                let missing = engine
-                    .events
-                    .missing
-                    .get(&(object, ev.clone()))
-                    .into_iter()
-                    .flatten()
-                    .map(|m| m.element.as_str());
-                if let Some(e) = compiled.chain(missing).find(|e| !on_page(e)) {
-                    return unsupported(format!(
-                        "page event {ev} of action `{e}`: the action has no behavior of ours on the page, and the test client does not raise it"
-                    ));
-                }
+        for (o, ev) in &declared {
+            if let Some(why) = self.no_source_event_refusal(&engine, st, **o, ev) {
+                return unsupported(why);
             }
+        }
+        for (o, ev) in declared {
+            // The action events are checked when an action is invoked (`refuse_unpinned_action_subscribers`): a page that
+            // nothing invokes opens (events/page-events/PageActionEventsWithoutTrigger.al:
+            // ActionEvents_OpenWithoutInvoke_SubscribersOfTriggerlessActions).
             if *o == object && ev == "onaftergetrecordevent" && !self.declares(st, "onaftergetrecord") {
                 return unsupported(
                     "page event onaftergetrecordevent on a page that does not declare OnAfterGetRecord: when the test client \
