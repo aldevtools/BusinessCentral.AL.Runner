@@ -581,11 +581,7 @@ impl Session {
             parts.sort_by_key(|(i, _)| *i);
         }
         if opening {
-            self.refuse_provider_part_turning_visible(st)?;
-        } else {
-            for (i, child) in &parts {
-                self.refuse_provider_part_back_walk(st, *i, child)?;
-            }
+            self.read_blank_before_parts_turning_visible(st)?;
         }
         if let Sync::Move { .. } = how {
             let mut linked = Vec::new();
@@ -653,12 +649,23 @@ impl Session {
                             child.borrow_mut().read_backwards = Some(al_builtins::value::ReadBackwards::AfterMove);
                         }
                     }
+                    // A FactBox part of a Provider chain does not read again when the host it stands on is inserted by the first
+                    // call on a part (ProviderLinkedPartsMatrix.al Provider_PartsAddedByPageExtensionInFactBoxes_OpenNew `new`
+                    // ends at `detail-row()`, the read follows with the key: `keyed` `lines-row(0)`).
+                    if how == Sync::Plain && child.borrow().chain_refill == 1 {
+                        continue;
+                    }
+                    if how == Sync::Plain && self.chain_part_back_walk(st, *i, child) {
+                        child.borrow_mut().read_backwards = Some(al_builtins::value::ReadBackwards::AfterMove);
+                    }
                     // Such a part reads nothing on a host move that keeps its link values, forward or back (PartReadsOpen.al
                     // SH_FindRecordPart_HostNextLastPrevious `next x3 part log`: one read for three moves, two of them inside
                     // H1).
                     self.part_sync_keeps_same_link = (matches!(how, Sync::Move { .. })
                         && (self.declares(child, "onfindrecord") || self.declares(child, "onnextrecord")))
-                    .then_some(false);
+                    .then_some(false)
+                    // A part linked through a Provider whose row did not change keeps what it shows (see `keeps_provider_link`).
+                    .or_else(|| (has_provider(*i) && self.link_by_fields_only(st, *i)).then_some(true));
                     let r = self.sync_part(st, *i, child);
                     self.part_sync_keeps_same_link = None;
                     r?;
@@ -1236,7 +1243,7 @@ impl Session {
     /// The shown parts of `host` and the open ones a Visible expression hid, in control order: a part hidden by an
     /// expression stays in the TestPage tree and follows its Provider like a shown one
     /// (testpage/parts/ProviderLinkedPartsMatrix.al Provider_BothHidden_OpenViewAndGoToKey).
-    fn open_parts_with_hidden(host: &St) -> Vec<(usize, St)> {
+    pub(in crate::pages) fn open_parts_with_hidden(host: &St) -> Vec<(usize, St)> {
         let h = host.borrow();
         let mut parts = h.parts.clone();
         parts.extend(h.hidden_parts.iter().filter(|(_, c)| c.borrow().open).cloned());
@@ -1269,7 +1276,7 @@ impl Session {
     }
 
     /// The page part `control` of `host` reads its link from: the Provider part, else the host.
-    fn link_page(&self, host: &St, control: usize) -> Option<St> {
+    pub(in crate::pages) fn link_page(&self, host: &St, control: usize) -> Option<St> {
         let engine = self.engine();
         let page = page_of(&engine, host);
         match page.controls[control].part_link.as_ref().and_then(|l| l.provider) {
@@ -1289,7 +1296,7 @@ impl Session {
 
     /// Points part `child` (control `control` of `host`) at the host's current row and loads its
     /// first row.
-    fn sync_part(&mut self, host: &St, control: usize, child: &St) -> Result<(), Signal> {
+    pub(in crate::pages) fn sync_part(&mut self, host: &St, control: usize, child: &St) -> Result<(), Signal> {
         if !child.borrow().open {
             return Ok(());
         }
@@ -1493,6 +1500,7 @@ impl Session {
         before: Option<&[Value]>,
     ) -> Result<(), Signal> {
         self.resync_dependents_linked_by(st, control, before)?;
+        self.read_chain_parts_skipped_at_refill(st)?;
         // A part a Visible expression hid at open is a part of the host here (testpage/parts/ProviderLinkedPartsMatrix.al:1225
         // Provider_BothVisible_OpenNewSetKeyClose: the key typed on a stored blank-key host is dropped, whatever the expressions say).
         let no_parts = st.borrow().parts.is_empty() && !st.borrow().hidden_parts.iter().any(|(_, c)| c.borrow().open);

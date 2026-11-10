@@ -436,6 +436,9 @@ pub struct PageState {
     /// The refill comes from a SetValue of the host's link field: when it finds no row it runs nothing
     /// (QdCaptionClassAreas.al:1068-1100 QO_Doc_OpenNew `no_setvalue`).
     pub field_captions_link_refill: bool,
+    /// A FactBox part of a Provider chain at the refill after its host was inserted by the first call on a part: 1 while the refill
+    /// skips it, 2 until the key typed into the host reads it (`provider_hidden.rs`).
+    pub chain_refill: u8,
     /// Where an action of a Document page stands that saved a SetValue of the host before its trigger: 0 none, 1 that save's
     /// refresh is running, 2 the save is done and a CurrPage.Update in the trigger has not refreshed yet, 3 it has
     /// (record/captions/QdCaptionClassAreas.al:1015-1049 QO_Doc_OpenEdit_HostSteps `update`).
@@ -1034,6 +1037,7 @@ impl PageState {
             moving_next: false,
             field_captions_fill_first: false,
             field_captions_link_refill: false,
+            chain_refill: 0,
             field_captions_action_save: 0,
             window: Vec::new(),
             window_from_start: false,
