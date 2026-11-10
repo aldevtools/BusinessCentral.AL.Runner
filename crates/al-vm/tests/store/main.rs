@@ -70,6 +70,7 @@ mod media_resources;
 mod modify_all_event_filters;
 mod modify_all_partial;
 mod modify_all_unchanged;
+mod modify_own_rolled_back_events;
 mod np_blockers;
 mod option_init_ordinal;
 mod partial_own_delete_event;

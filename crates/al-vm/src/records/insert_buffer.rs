@@ -1,38 +1,133 @@
-//! The insert buffer of a table and a duplicate-key Insert that is still pending (al-runner issue 7407).
+//! The insert queue of a table: a duplicate-key Insert that is pending raises when the queue is sent (al-runner issue 7407).
+//!
+//! BC queues the statement-form Inserts of a table without a Blob or AutoIncrement field and sends the queue with its 5th row, with
+//! a Commit and with the next access to the table. A duplicate key shows when the queue is sent. Measured on BC 27.5, 28.5 and
+//! 29.0 (corpus pull request 1279, record/duplicate-insert/Y7407DuplicateInsertBuffer.al): a duplicate that is the 5th insert after
+//! 4 queued rows raises at that Insert (Dup_5thInsert_OfFirstRow); a duplicate that is the 6th insert after 5 inserts, the 7th
+//! after 6, and one right after a Commit is pending until the next access (Dup_6thInsert_*, Dup_7thInsert_*,
+//! Dup_5thInsert_OfCommittedRow_CommitAfter4, Dup_6thInsert_OfCommittedRow_CommitAfter3); four inserts, then the same four keys
+//! again, raise inside the asserterror at the first of the second four (Report_FourRowsTwice_NoRead), five and five at the
+//! last of the second five (Report_FiveRowsTwice_NoRead), and four, a Commit and the same four keys raise nothing before the next
+//! read (Report_FourRowsTwice_CommitBetween).
 
 use super::*;
-use crate::state::TxWriteKind;
+use al_builtins::assumptions::{Assumption, assume};
 
-/// Microsoft Learn on `BufferedInsertEnabled`: "up to 5 rows will be buffered in the table queue before they are inserted".
-const BUFFER_ROWS: usize = 5;
+/// Rows the queue holds when it is sent.
+const SEND_AT: usize = 5;
+
+/// The rows one table (object index, company) has queued since its queue was last sent, and whether it was sent in this transaction.
+#[derive(Clone, Debug)]
+pub(crate) struct InsertQueue {
+    table: u32,
+    company: Option<String>,
+    rows: usize,
+    sent: bool,
+}
+
+/// The methods that read or write the table and so send its queue (the ones that also raise a deferred duplicate, `record_op_inner`).
+fn sends_queue(method: RecordOp) -> bool {
+    matches!(
+        method,
+        RecordOp::Modify
+            | RecordOp::Delete
+            | RecordOp::DeleteAll
+            | RecordOp::ModifyAll
+            | RecordOp::Rename
+            | RecordOp::Truncate
+            | RecordOp::Get
+            | RecordOp::LoadFields
+            | RecordOp::Find
+            | RecordOp::FindFirst
+            | RecordOp::FindLast
+            | RecordOp::FindSet
+            | RecordOp::Next
+            | RecordOp::Count
+            | RecordOp::IsEmpty
+            | RecordOp::CalcFields
+            | RecordOp::CalcSums
+    )
+}
 
 impl Session {
-    /// The refusal for an asserterror body that ended with a duplicate-key Insert pending, when that Insert was the 5th or a
-    /// later insert into its table since the table was last read, written otherwise or committed. A duplicate that BC finds while
-    /// the insert buffer is sent may raise inside the asserterror, so the runner's answer, no error, is not known to be right.
-    /// The corpus pins the deferred error only for fewer inserts in a row (errors/last-error/InsertDuplicateKeyExcludeFlag.al,
-    /// record/TestRecordRuntimeTextsAndViews.al); the probe for the rest is corpus pull request 1279 (docs/probes-needed.md,
-    /// `duplicate-insert-buffer-flush`).
-    pub(crate) fn pending_duplicate_in_full_buffer(&self) -> Option<String> {
-        let (object, _) = self.tx.deferred_insert.as_ref()?;
-        let table = *object as u32;
-        // The pending duplicate counts as an insert; the writes since the last Modify, Delete or Rename of the table are inserts.
-        let mut inserts = 1;
-        for w in self.tx.writes.iter().rev() {
-            if w.table != table {
-                continue;
-            }
-            if w.kind != TxWriteKind::Insert {
-                break;
-            }
-            inserts += 1;
+    /// Whether an unguarded Insert into `rec`'s table is queued by the platform: a database table without a Blob or AutoIncrement
+    /// field, outside the page client and XmlPort imports (which raise a duplicate at once).
+    pub(super) fn insert_is_queued(&mut self, rec: &Rec) -> bool {
+        if rec.borrow().temporary || rec.borrow().crm || self.tx.immediate_errors {
+            return false;
         }
-        (inserts >= BUFFER_ROWS).then(|| {
-            format!(
-                "an asserterror body that ends with a pending duplicate-key Insert into {} after {} inserts in one transaction: whether BC raises it inside the asserterror once the insert buffer is full is not pinned",
-                self.engine.program.objects[*object].name,
-                inserts - 1
-            )
-        })
+        match self.table(rec) {
+            Ok(t) => !self.has_blob_field(&t) && matches!(self.auto_increment_field(&t), Ok(None)),
+            Err(_) => false,
+        }
+    }
+
+    /// Follows the insert queue of `rec`'s table after `method` ran (`Session::record_op`). `queued` says the Insert was a statement
+    /// form that BC queues. The 5th queued row sends the queue: a duplicate-key Insert pending for the table raises here.
+    pub(crate) fn note_insert_buffer(
+        &mut self,
+        method: RecordOp,
+        rec: &Rec,
+        queued: bool,
+        r: Result<Value, Signal>,
+    ) -> Result<Value, Signal> {
+        if rec.borrow().temporary || (method != RecordOp::Insert && !sends_queue(method)) {
+            return r;
+        }
+        let (table, company) = {
+            let s = rec.borrow();
+            (s.table, s.company.clone())
+        };
+        let at = self
+            .tx
+            .insert_buffer
+            .iter()
+            .position(|q| q.table == table && q.company == company);
+        if method != RecordOp::Insert || r.is_err() || !queued {
+            // A read or a write of the table, a guarded Insert or a failed one sends what is queued.
+            if let Some(i) = at {
+                self.tx.insert_buffer[i].rows = 0;
+            }
+            return r;
+        }
+        let i = at.unwrap_or_else(|| {
+            self.tx.insert_buffer.push(InsertQueue {
+                table,
+                company,
+                rows: 0,
+                sent: false,
+            });
+            self.tx.insert_buffer.len() - 1
+        });
+        self.tx.insert_buffer[i].rows += 1;
+        let pending = self
+            .tx
+            .deferred_insert
+            .as_ref()
+            .is_some_and(|(o, _)| *o == table as usize);
+        if self.tx.insert_buffer[i].rows < SEND_AT {
+            // A duplicate that stays pending after the queue was sent once in this transaction is the other half of the rule.
+            if pending && self.tx.insert_buffer[i].sent {
+                assume(Assumption::InsertQueueSentAtFifthRow);
+            }
+            return r;
+        }
+        self.tx.insert_buffer[i].rows = 0;
+        self.tx.insert_buffer[i].sent = true;
+        if !pending {
+            return r;
+        }
+        assume(Assumption::InsertQueueSentAtFifthRow);
+        // The After event and trigger of the Insert that sent the queue: whether they run is not measured.
+        let t = self.table(rec)?;
+        if self.listened(&t, "onafterinsertevent", None)? || !self.ext_triggers(&t, "OnAfterInsert").is_empty() {
+            return unsupported(format!(
+                "a duplicate-key Insert into {} sent with the 5th queued row, with an OnAfterInsert subscriber or trigger: not pinned",
+                t.name
+            ));
+        }
+        let (_, e) = self.tx.deferred_insert.take().expect("checked");
+        self.tx.deferred_raised += 1;
+        Err(Signal::Error(Box::new(e)))
     }
 }

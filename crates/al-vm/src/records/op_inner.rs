@@ -874,37 +874,9 @@ impl Session {
                     let (mine, theirs) = (rec.borrow().fields[i].clone(), row[i].clone());
                     let version = |v: &Value| if let Value::BigInteger(n) = v { *n } else { 0 };
                     self.refuse_stale_modify(&t, rec, &cx, &pk, run, (version(&mine), version(&theirs)))?;
-                    // The buffer still holds what its own last Modify wrote and a rollback undid that write: the Modify answers
-                    // true and writes nothing, so the row keeps what the rollback restored (StaleBuffer.al:76-86); a buffer
-                    // changed since writes the whole row (:167-168). The triggers, events and database triggers of such a
-                    // Modify are not pinned: refused when there are any.
-                    let own_image = {
-                        let r = rec.borrow();
-                        !r.temporary
-                            && version(&mine) > version(&theirs)
-                            && r.last_modify
-                                .as_ref()
-                                .is_some_and(|img| version(&img[i]) == version(&mine))
-                    };
-                    if own_image {
-                        let img = rec.borrow().last_modify.clone().expect("checked");
-                        if Session::modify_changes_nothing(&t, &img, rec) {
-                            let mut trigger = run && self.table_trigger(&t, "OnModify").is_some();
-                            for n in ["OnBeforeModify", "OnModify", "OnAfterModify"] {
-                                trigger |= run && !self.ext_triggers(&t, n).is_empty();
-                            }
-                            if trigger
-                                || self.listened(&t, "onbeforemodifyevent", None)?
-                                || self.listened(&t, "onaftermodifyevent", None)?
-                                || self.global_enabled(&t, GlobalOp::Modify)?
-                            {
-                                return unsupported(format!(
-                                    "a Modify of a {} buffer that its own rolled-back write left, with triggers or events: not pinned",
-                                    t.name
-                                ));
-                            }
-                            return Ok(Value::Boolean(true));
-                        }
+                    let v = (version(&mine), version(&theirs));
+                    if let Some(answer) = self.modify_own_rolled_back_write(&t, rec, i, v, run)? {
+                        return Ok(answer);
                     }
                 }
                 // Modify never changes the stored SystemId, whatever the buffer carries
