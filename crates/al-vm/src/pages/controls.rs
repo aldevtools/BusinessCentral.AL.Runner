@@ -1972,7 +1972,11 @@ impl Session {
     fn cancel_refinds_static_lookup_row(&mut self, st: &St) -> Result<(), Signal> {
         let shape = {
             let s = st.borrow();
-            s.lookup && s.static_lookup && s.host.is_none() && s.cursor == Cursor::Row && !s.draft
+            s.lookup
+                && s.lookup_kind == LookupKind::StaticRunModal
+                && s.host.is_none()
+                && s.cursor == Cursor::Row
+                && !s.draft
         };
         if shape && self.is_list(st) && self.declares(st, "onfindrecord") && self.nav_find(st, "=")? {
             self.populate_current(st)?;

@@ -139,7 +139,7 @@ pub(super) fn plain_valued_leaf(schema: &Schema, k: usize) -> bool {
 /// with the record as it stands when there is none; MaxOccurs = Once writes the first row only (XpTableRootNestedText.al
 /// XNT_TxtField_Export, XNT_TxtTxtTbl_Export, XNT_FieldTxt_Export, XNT_Rows_Export).
 pub(super) fn plain_tree_root(schema: &Schema, top: usize) -> bool {
-    schema.node(top).triggers.is_empty() && plain_export_root(schema, top)
+    schema.node(top).triggers.is_empty() && plain_tree_shape(schema, top)
 }
 
 /// A `plain_tree_root` as an export takes it: the root may also have triggers, and it may be a `value_then_table_root`. Its
@@ -148,11 +148,14 @@ pub(super) fn plain_tree_root(schema: &Schema, top: usize) -> bool {
 /// xmlports/shapes-properties/XpTextValueNestedTable.al:1499 XTT_TableTriggers_Export
 /// `Pre;orders.OnPreXmlItem;orders.OnAfterGetRecord;T1.BeforePass;r.OnPreXmlItem;r.OnAfterGetRecord;Post;`).
 pub(super) fn plain_export_root(schema: &Schema, top: usize) -> bool {
+    value_then_table_root(schema, top) || plain_tree_shape(schema, top)
+}
+
+/// The shape of a `plain_tree_root`, whatever triggers the root has. A `value_then_table_root` is not one: only its export is
+/// pinned, so `plain_export_root` alone takes it and an import never sees it as a table root.
+fn plain_tree_shape(schema: &Schema, top: usize) -> bool {
     let n = schema.node(top);
     let kids = schema.children(top);
-    if value_then_table_root(schema, top) {
-        return true;
-    }
     schema.xp().format == ir::XmlFormat::Xml
         && n.kind == ir::XmlNodeKind::Table
         && n.link_node.is_none()
@@ -172,7 +175,7 @@ pub(super) fn plain_export_root(schema: &Schema, top: usize) -> bool {
 /// triggers: BC writes the text element once, then the rows of the table element (al-runner issue 7355;
 /// xmlports/shapes-properties/XpTextValueNestedTable.al:1535 XTT_RootTableValue_Export, :1559 XTT_RowDirect_Export
 /// `<T1>x</T1>` with `Pre;T1.BeforePass;Post;`, :1571 XTT_RootTableAfterOnly_Export `<T1 />` with `Pre;Post;`). Pinned with one
-/// row of the inner table element (`xp_export_table_pass` refuses another count); export only.
+/// row of the inner table element (`xp_export_table_pass` refuses another count); export only: `xp_import` refuses the shape.
 pub(super) fn value_then_table_root(schema: &Schema, top: usize) -> bool {
     let n = schema.node(top);
     let [leaf, table] = schema.children(top)[..] else {

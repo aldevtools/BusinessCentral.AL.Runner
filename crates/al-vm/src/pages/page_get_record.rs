@@ -78,7 +78,7 @@ impl Session {
     pub(super) fn cancelled_lookup_key_fields(&mut self, st: &St, src: &Rec) -> Result<Option<Vec<Value>>, Signal> {
         {
             let s = st.borrow();
-            if !s.ran || s.static_lookup || s.result.as_deref() != Some("LookupCancel") {
+            if !s.ran || s.lookup_kind == LookupKind::StaticRunModal || s.result.as_deref() != Some("LookupCancel") {
                 return Ok(None);
             }
         }
