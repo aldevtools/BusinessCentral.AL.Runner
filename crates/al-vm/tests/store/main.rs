@@ -41,6 +41,7 @@ mod flowfield_lookup_enum_into_option;
 mod flowfield_signed_recordid_lookup;
 mod flowfield_write;
 mod flowfields;
+mod flowfield_validate_negated_sum;
 mod format_record_std9;
 mod fresh_record_template;
 mod general_journal;
