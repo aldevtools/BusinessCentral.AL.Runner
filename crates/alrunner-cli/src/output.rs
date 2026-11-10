@@ -21,6 +21,9 @@ pub struct Counts {
     /// `--affected` (ADR-050 decision 11): the skipped tests whose stored outcome is not a pass. They are not counted
     /// in `fail`; the failed count says them apart.
     pub still_failing: usize,
+    /// The time the tests that ended not run took (al-runner issue 7517): a test the time limit stopped counts its full
+    /// limit, a test refused before it started counts nothing.
+    pub not_run_time: std::time::Duration,
 }
 
 impl Counts {
@@ -41,6 +44,7 @@ impl Counts {
                 }
                 Outcome::NotRun(ref why) => {
                     c.not_run += 1;
+                    c.not_run_time += r.time;
                     c.stubbed_not_run += stubbed;
                     if why.starts_with(al_vm::dotnet::UNAVAILABLE) {
                         c.dotnet_unavailable += 1;
@@ -239,11 +243,25 @@ pub fn summary_table(c: &Counts) -> Vec<String> {
     } else {
         String::new()
     };
-    vec![
+    let mut rows = vec![
         row("passed", c.pass, flagged),
         row("failed", c.fail, String::new()),
         row("not run", c.not_run, String::new()),
-    ]
+    ];
+    // Time that went to tests which ended not run (a test the time limit stopped): shown from one second on, so that a
+    // run can see what `--skip-after-timeout` would save.
+    if c.not_run_time >= std::time::Duration::from_secs(1) {
+        rows.push(format!(
+            "  spent {:.1} s on tests that ended not run",
+            c.not_run_time.as_secs_f64()
+        ));
+    }
+    rows
+}
+
+/// `notRunSeconds` of the JSON document: the time the tests that ended not run took, in seconds to the millisecond.
+pub fn not_run_seconds(c: &Counts) -> f64 {
+    (c.not_run_time.as_secs_f64() * 1000.0).round() / 1000.0
 }
 
 /// JUnit XML grouped by test codeunit. A test that did not run is `<skipped>` with its reason.
@@ -282,7 +300,7 @@ pub fn json(results: &[&TestResult], exit_code: u8, wall_s: f64) -> String {
 
 /// The counts of a part of a run (an entry of a `serve` request), named as in the summary.
 pub fn json_counts(c: &Counts) -> serde_json::Value {
-    serde_json::json!({"passed": c.pass, "failed": c.fail, "errors": c.not_run, "notRun": c.not_run, "total": c.total})
+    serde_json::json!({"passed": c.pass, "failed": c.fail, "errors": c.not_run, "notRun": c.not_run, "total": c.total, "notRunSeconds": not_run_seconds(c)})
 }
 
 /// [`json`] of a run with `--tdd` (ADR-051 decision 8) when `tdd_stubs` (every stub of the program) is given: the
@@ -320,6 +338,7 @@ pub fn json_tdd(results: &[&TestResult], exit_code: u8, wall_s: f64, tdd_stubs: 
         "total": c.total,
         "exitCode": exit_code,
         "wallSeconds": (wall_s * 1000.0).round() / 1000.0,
+        "notRunSeconds": not_run_seconds(&c),
     });
     if let Some(all) = tdd_stubs {
         doc["stubbed"] = json!({"passed": c.stubbed_pass, "failed": c.stubbed_fail, "error": c.stubbed_not_run});
@@ -623,6 +642,28 @@ mod tests {
         use std::time::Duration as D;
         let line = time_line(D::from_millis(2280), D::from_millis(1240), D::from_millis(730), 440.0);
         assert_eq!(line, "  time        2.28 s   (compile 1.24 s, run 0.73 s, 440 tests/s)");
+    }
+
+    #[test]
+    fn the_time_of_tests_that_ended_not_run_is_in_the_summary_and_the_json() {
+        let c = Counts {
+            total: 3,
+            pass: 1,
+            not_run: 2,
+            not_run_time: std::time::Duration::from_millis(40_250),
+            ..Default::default()
+        };
+        assert_eq!(
+            summary_table(&c).last().unwrap(),
+            "  spent 40.2 s on tests that ended not run"
+        );
+        assert_eq!(json_counts(&c)["notRunSeconds"], 40.25);
+        // Under a second it stays out of the table.
+        let quick = Counts {
+            not_run_time: std::time::Duration::from_millis(900),
+            ..c
+        };
+        assert_eq!(summary_table(&quick).len(), 3);
     }
 
     #[test]
