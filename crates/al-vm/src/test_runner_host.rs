@@ -131,7 +131,7 @@ impl Session {
                 false => Ok(Value::Null),
                 true => unsafe { (*ptr).run_result() }
                     .map(Value::Boolean)
-                    .map_err(Signal::Unsupported),
+                    .map_err(Signal::unsupported),
             });
             self.depth = depth;
             self.tx.tx_world = world;

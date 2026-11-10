@@ -7,17 +7,13 @@ use crate::Session;
 use al_builtins::builtin_id::ids;
 use al_builtins::describe::Describe;
 use al_builtins::filter::FieldFilter;
-use al_builtins::native::{AlError, Signal};
+use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::value::{FilterControl, FilterPageState, LibraryValue, RtType, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 
 type Lib = Rc<RefCell<LibraryValue>>;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 /// An argument error: code `Argument` (pages/filterpagebuilder/W3FilterPageBuilder.al, BC 27.5 and 29.0).
 fn arg_error(message: String) -> Signal {
@@ -322,7 +318,7 @@ impl Session {
         let ty = t.fields[pos].ty.clone();
         let expr = self
             .parse_filter_text(filter, &ty)
-            .map_err(|e| Signal::Unsupported(format!("FilterPageBuilder.AddField: {e}")))?;
+            .map_err(|e| Signal::unsupported(format!("FilterPageBuilder.AddField: {e}")))?;
         let mut r = control.record.borrow_mut();
         let group = r.filter_group;
         r.filters.retain(|f| !(f.field == pos && f.group == group));

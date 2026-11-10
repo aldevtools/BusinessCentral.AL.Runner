@@ -551,7 +551,7 @@ impl Session {
         let stored = self
             .store_for(&rec)
             .get(&cx, &t, &pk)
-            .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+            .map_err(|e| Signal::unsupported(format!("{e}")))?;
         if again && stored.is_none() {
             return unsupported(format!(
                 "XmlPort import: the row of table element {} stored before its child rows is gone after them (not pinned)",

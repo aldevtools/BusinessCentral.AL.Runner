@@ -18,7 +18,7 @@
 //! a buffer.
 
 use crate::describe::Describe;
-use crate::native::{Ctx, NativeFn, Signal};
+use crate::native::{Ctx, NativeFn, Signal, unsupported};
 use crate::signature::Signature;
 use crate::stream::{BlobRef, Encoding, InState, write_bytes};
 use crate::value::{LibraryValue, Value};
@@ -56,10 +56,6 @@ impl Default for FileState {
             temp: false,
         }
     }
-}
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
 }
 
 fn with_file<R>(r: Option<&mut Value>, f: impl FnOnce(&mut FileState) -> Result<R, Signal>) -> Result<R, Signal> {

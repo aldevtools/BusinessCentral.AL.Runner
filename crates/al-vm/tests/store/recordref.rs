@@ -90,7 +90,7 @@ fn run(body: &str, routine: &str) -> Result<Value, Signal> {
     let blocked: Vec<Vec<Option<String>>> = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
     let ri = l.program.objects[oi]
@@ -129,7 +129,7 @@ fn err(r: Result<Value, Signal>) -> String {
 
 fn unsupported(r: Result<Value, Signal>) -> String {
     match r {
-        Err(Signal::Unsupported(m)) => m,
+        Err(Signal::Unsupported(m)) => m.into_reason(),
         other => panic!("expected Unsupported, got {other:?}"),
     }
 }

@@ -4,10 +4,6 @@ pub(super) fn vm_only(_: &mut dyn Ctx, _: Option<&mut Value>, _: &mut [Value]) -
     unsupported("a builtin the VM runs itself")
 }
 
-pub(super) fn unsupported<T>(what: &str) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.to_string()))
-}
-
 pub(super) fn int_arg(args: &[Value], i: usize) -> Option<i64> {
     match args.get(i)? {
         Value::Integer(n) => Some(i64::from(*n)),
@@ -54,7 +50,7 @@ pub(super) fn text_arg(args: &[Value], i: usize) -> Result<crate::text::Txt, Sig
         return Ok(crate::format::format_guid(g).into());
     }
     args.get(i).and_then(text_of).map_or_else(
-        || unsupported(&format!("text argument {i} of type {}", args.get(i).describe())),
+        || unsupported(format!("text argument {i} of type {}", args.get(i).describe())),
         Ok,
     )
 }

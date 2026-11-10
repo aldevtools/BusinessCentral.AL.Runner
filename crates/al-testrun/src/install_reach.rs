@@ -20,6 +20,7 @@
 //! codeunits that are neither install nor upgrade codeunits. Anything else, or anything this module cannot compare,
 //! runs the install code again.
 
+use al_builtins::refusal::Refusal;
 use al_ir::{ObjKind, Object, Program, Routine};
 use al_sema::lower::Lowered;
 use std::collections::{HashMap, HashSet};
@@ -30,10 +31,10 @@ use std::collections::{HashMap, HashSet};
 struct Face {
     routine: Routine,
     positions: Vec<Option<(u32, u32, u32, u32)>>,
-    refused: Vec<String>,
+    refused: Vec<Refusal>,
 }
 
-fn face(program: &Program, routine: &Routine, refused: Option<&Vec<String>>) -> Face {
+fn face(program: &Program, routine: &Routine, refused: Option<&Vec<Refusal>>) -> Face {
     let ids = routine.position_ids();
     let mut r = routine.clone();
     if let Some(&first) = ids.first() {

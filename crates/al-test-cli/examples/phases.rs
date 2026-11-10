@@ -87,7 +87,7 @@ fn main() {
         let blocked = lowered
             .unsupported
             .iter()
-            .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+            .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
             .collect();
         let engine = al_vm::Engine::new(lowered.program.clone(), blocked);
         laps.mark(7);

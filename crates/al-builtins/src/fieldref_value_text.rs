@@ -15,7 +15,7 @@ pub fn fieldref_value_into_text(
     if let (Value::Option(o, names), RtType::Text(_) | RtType::Code(_)) = (v, t) {
         // The Option a FieldRef hands out carries its captions; an ordinal past them is not pinned.
         let Some(caption) = usize::try_from(*o).ok().and_then(|i| names.get(i)) else {
-            return Some(Err(Signal::Unsupported(format!(
+            return Some(Err(Signal::unsupported(format!(
                 "FieldRef.Value of Option ordinal {o} without a caption into a {}",
                 crate::describe::Describe::describe(t)
             ))));
@@ -44,7 +44,7 @@ pub fn variant_into_text_field(
         Value::Date(..) | Value::Boolean(_) | Value::Duration(_) => {
             let text = match crate::format::try_format(v, 0, 0, ctx) {
                 Ok(text) => text,
-                Err(e) => return Some(Err(Signal::Unsupported(e))),
+                Err(e) => return Some(Err(Signal::unsupported(e))),
             };
             Some(crate::ops::convert(Value::Text(text.into()), t))
         }
@@ -71,7 +71,7 @@ pub fn fieldref_value_into_blob(
         Value::Date(..) => "NavDate",
         Value::Guid(_) => "NavGuid",
         other => {
-            return Some(Err(Signal::Unsupported(format!(
+            return Some(Err(Signal::unsupported(format!(
                 "FieldRef.Value of {} into a Blob (not pinned)",
                 crate::describe::Describe::describe(other)
             ))));
@@ -89,6 +89,6 @@ pub fn fieldref_value_into_blob(
             format!("The value \"{text}\" can't be evaluated into type BLOB."),
             "Evaluate:Argument",
         ),
-        Err(e) => Err(Signal::Unsupported(e)),
+        Err(e) => Err(Signal::unsupported(e)),
     })
 }

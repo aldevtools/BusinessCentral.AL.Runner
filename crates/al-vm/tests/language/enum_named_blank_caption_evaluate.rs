@@ -125,7 +125,7 @@ codeunit 69810 C
 
 fn refused(routine: &str) -> String {
     match al_testkit::run_in(SRC, "C", routine) {
-        Err(al_builtins::native::Signal::Unsupported(why)) => why,
+        Err(al_builtins::native::Signal::Unsupported(why)) => why.into_reason(),
         other => panic!("expected a refusal, got {other:?}"),
     }
 }

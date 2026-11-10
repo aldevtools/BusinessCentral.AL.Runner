@@ -11,6 +11,7 @@ use crate::transactions::TxModel;
 use crate::{AlError, Session, Signal};
 use al_builtins::builtin_id::ids;
 use al_builtins::describe::Describe;
+use al_builtins::native::unsupported;
 use al_builtins::ops;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{Instance, LibraryValue, RtType, Value};
@@ -55,10 +56,6 @@ use self::value::*;
 use self::wraps::*;
 
 type Inst = Rc<RefCell<Instance>>;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 fn xerr(message: impl Into<String>, code: &str) -> Signal {
     Signal::Error(Box::new(AlError {

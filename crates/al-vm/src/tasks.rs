@@ -25,7 +25,7 @@
 use crate::Session;
 use al_builtins::builtin_id::ids;
 use al_builtins::describe::Describe;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::Value;
 
 /// The tasks this session created.
@@ -55,10 +55,6 @@ impl Tasks {
 
 /// Table "Scheduled Task" (al-builtins platform.rs).
 const SCHEDULED_TASK: u32 = 2_000_000_175;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 impl Session {
     /// A TaskScheduler builtin, or `None` for any other id.

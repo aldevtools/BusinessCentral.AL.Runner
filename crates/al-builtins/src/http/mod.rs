@@ -11,7 +11,7 @@
 //! measure is refused or marked in the assumption registry.
 
 use crate::describe::Describe;
-use crate::native::{Ctx, HttpOutgoing, NativeFn, Signal, raise};
+use crate::native::{Ctx, HttpOutgoing, NativeFn, Signal, raise, unsupported};
 use crate::signature::Signature;
 use crate::value::{
     CookieState, HeaderBag, HeaderKind, HttpClientState, HttpContentState, HttpHeaderList, HttpRequestState,
@@ -21,10 +21,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 type Out = Result<Value, Signal>;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 fn assume(a: crate::assumptions::Assumption) {
     crate::assumptions::assume(a);

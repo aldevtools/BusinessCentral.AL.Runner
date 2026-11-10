@@ -99,7 +99,7 @@ pub(crate) fn read_tree(text: &str) -> Result<Result<crate::xmlport::Elem, Optio
     let doc = match parse_document_detail(text, false) {
         Ok(Ok(d)) => d,
         Ok(Err(f)) => return Ok(Err(f.map(|f| f.message))),
-        Err(Signal::Unsupported(why)) => return Err(why),
+        Err(Signal::Unsupported(why)) => return Err(why.into_reason()),
         Err(other) => return Err(other.describe()),
     };
     let root = children_of(&doc)
@@ -191,7 +191,7 @@ pub(crate) fn read_tree_in(
     let doc = match parse_document_detail(text, false) {
         Ok(Ok(d)) => d,
         Ok(Err(f)) => return Ok(Err(f.map(|f| f.message))),
-        Err(Signal::Unsupported(why)) => return Err(why),
+        Err(Signal::Unsupported(why)) => return Err(why.into_reason()),
         Err(other) => return Err(other.describe()),
     };
     let root = elements(&doc)

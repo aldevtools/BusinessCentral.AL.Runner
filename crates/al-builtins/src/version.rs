@@ -10,12 +10,12 @@ fn part(r: Option<&mut Value>, i: usize) -> Result<Value, Signal> {
     match r {
         Some(Value::Library(_, cell)) => match &*cell.borrow() {
             LibraryValue::Version(v) => Ok(Value::Integer(v[i])),
-            other => Err(Signal::Unsupported(format!(
+            other => Err(Signal::unsupported(format!(
                 "a Version part of {other} (never evaluated)",
                 other = other.describe()
             ))),
         },
-        other => Err(Signal::Unsupported(format!("a Version part of {}", other.describe()))),
+        other => Err(Signal::unsupported(format!("a Version part of {}", other.describe()))),
     }
 }
 
@@ -33,7 +33,7 @@ fn create_parts(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Resu
     for (i, x) in a.iter().enumerate().take(4) {
         match x {
             Value::Integer(n) if *n >= 0 => v[i] = *n,
-            other => return Err(Signal::Unsupported(format!("Version.Create with {}", other.describe()))),
+            other => return Err(Signal::unsupported(format!("Version.Create with {}", other.describe()))),
         }
     }
     Ok(version_value(v))
@@ -69,12 +69,12 @@ fn to_text(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Result<Va
     match r {
         Some(Value::Library(_, cell)) => match &*cell.borrow() {
             LibraryValue::Version(v) => Ok(Value::Text(format!("{}.{}.{}.{}", v[0], v[1], v[2], v[3]).into())),
-            other => Err(Signal::Unsupported(format!(
+            other => Err(Signal::unsupported(format!(
                 "ToText of a Version nobody set ({})",
                 other.describe()
             ))),
         },
-        other => Err(Signal::Unsupported(format!("Version.ToText on {}", other.describe()))),
+        other => Err(Signal::unsupported(format!("Version.ToText on {}", other.describe()))),
     }
 }
 

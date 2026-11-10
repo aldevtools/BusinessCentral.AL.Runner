@@ -306,7 +306,7 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
 /// Refuses a use of the Boolean result of `what`, which no corpus test pins.
 fn refuse_result(ret_used: bool, what: &str) -> Result<(), Signal> {
     if ret_used {
-        return Err(Signal::Unsupported(format!("the result of {what} (not pinned)")));
+        return Err(Signal::unsupported(format!("the result of {what} (not pinned)")));
     }
     Ok(())
 }
@@ -451,7 +451,7 @@ fn count(v: &Value) -> Result<usize, Signal> {
 fn list_items(v: &Value) -> Result<Vec<Value>, Signal> {
     match v {
         Value::List(l) => Ok(l.borrow().to_vec()),
-        other => Err(Signal::Unsupported(format!("{} is not a list", other.describe()))),
+        other => Err(Signal::unsupported(format!("{} is not a list", other.describe()))),
     }
 }
 
@@ -462,7 +462,7 @@ fn list_items(v: &Value) -> Result<Vec<Value>, Signal> {
 fn read_list<T>(r: Option<&mut Value>, f: impl FnOnce(&[Value]) -> Result<T, Signal>) -> Result<T, Signal> {
     match r {
         Some(Value::List(l)) => f(&l.borrow()),
-        other => Err(Signal::Unsupported(format!("list method on {}", other.describe()))),
+        other => Err(Signal::unsupported(format!("list method on {}", other.describe()))),
     }
 }
 
@@ -473,14 +473,14 @@ fn with_list<T>(r: Option<&mut Value>, f: impl FnOnce(&mut Vec<Value>) -> Result
             error_code("The requested operation is not supported.", "NotSupportedOperation")
         }
         Some(Value::List(l)) => f(&mut l.borrow_mut()),
-        other => Err(Signal::Unsupported(format!("list method on {}", other.describe()))),
+        other => Err(Signal::unsupported(format!("list method on {}", other.describe()))),
     }
 }
 
 /// A change to a read-only list that is not pinned is refused (`ListVec::read_only`).
 fn refuse_read_only(r: &Option<&mut Value>, what: &str) -> Result<(), Signal> {
     match r {
-        Some(Value::List(l)) if l.borrow().read_only => Err(Signal::Unsupported(format!(
+        Some(Value::List(l)) if l.borrow().read_only => Err(Signal::unsupported(format!(
             "{what} on the list of Enum.Names or Enum.Ordinals (not pinned)"
         ))),
         _ => Ok(()),
@@ -493,7 +493,7 @@ fn with_dict<T>(
 ) -> Result<T, Signal> {
     match r {
         Some(Value::Dictionary(d)) => f(&mut d.borrow_mut()),
-        other => Err(Signal::Unsupported(format!(
+        other => Err(Signal::unsupported(format!(
             "dictionary method on {}",
             other.describe()
         ))),

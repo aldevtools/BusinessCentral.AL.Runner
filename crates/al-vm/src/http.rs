@@ -8,14 +8,10 @@ use crate::Session;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::describe::Describe;
 use al_builtins::http::{fresh_test_response, split_url};
-use al_builtins::native::{HttpOutgoing, Signal, raise};
+use al_builtins::native::{HttpOutgoing, Signal, raise, unsupported};
 use al_builtins::value::{LibraryValue, TestHttpRequestState, TestHttpResponseState, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 /// The policy a `TestHttpRequestPolicy` property names, in the casing BC prints it.
 fn canonical_policy(written: &str) -> Option<&'static str> {

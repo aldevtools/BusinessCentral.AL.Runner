@@ -21,15 +21,11 @@
 //! a character that Windows-1252 and Latin-1 encode differently) is refused.
 
 use crate::describe::Describe;
-use crate::native::{Ctx, NativeFn, Signal, raise};
+use crate::native::{Ctx, NativeFn, Signal, raise, unsupported};
 use crate::stream::{drain_in, write_raw_bytes};
 use crate::value::Value;
 
 type Out = Result<Value, Signal>;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 /// One platform native: where it is declared, how it is called, what runs.
 pub struct Entry {

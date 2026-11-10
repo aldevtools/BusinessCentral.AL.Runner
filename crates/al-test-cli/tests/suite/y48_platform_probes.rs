@@ -43,7 +43,7 @@ fn outcomes_app(app_id: &str, main: &str) -> Vec<(String, Outcome)> {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let mut program = (*l.program).clone();
     for a in program.apps.iter_mut().filter(|a| a.version.is_empty()) {

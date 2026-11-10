@@ -834,7 +834,7 @@ impl Session {
         let v = rec.borrow().fields[pos].clone();
         // A column the platform row leaves unknown is not exported.
         if let Some(why) = v.unknown() {
-            return Err(Signal::Unsupported(why.to_string()));
+            return Err(Signal::unsupported(why.to_string()));
         }
         // DateFormula, BigInteger, RecordId, Blob, Media and MediaSet (xmlports/value_forms.rs).
         if matches!(
