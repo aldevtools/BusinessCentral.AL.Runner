@@ -30,7 +30,7 @@ fn run_with(header: &str, body: &str) -> Vec<(String, Outcome)> {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
     run_codeunit(&engine, &l, oi)
@@ -289,7 +289,7 @@ fn run_on(bc: &str, header: &str, body: &str) -> Vec<(String, Outcome)> {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::with_target(l.program.clone(), blocked, Some(target));
     run_codeunit(&engine, &l, oi)

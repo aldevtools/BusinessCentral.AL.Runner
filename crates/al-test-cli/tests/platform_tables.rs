@@ -176,7 +176,7 @@ fn engine_with_layouts(
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     // The two sources above carry no manifest, so no version; the app tables list an app only with one.
     let mut program = (*l.program).clone();

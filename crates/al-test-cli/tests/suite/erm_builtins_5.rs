@@ -58,7 +58,7 @@ fn refusal(routine: &str) -> String {
         .iter()
         .position(|r| r.name == routine)
         .unwrap();
-    l.unsupported[oi][ri].first().cloned().unwrap_or_default()
+    l.unsupported[oi][ri].first().map(|r| r.to_string()).unwrap_or_default()
 }
 
 // AboutTitle and AboutText are help texts of the object; they change neither the rows nor their order

@@ -32,7 +32,7 @@ fn run(body: &str, routine: &str) -> Result<Value, Signal> {
     let blocked: Vec<Vec<Option<String>>> = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
     let ri = l.program.objects[oi]
@@ -343,7 +343,7 @@ fn date_and_time_init_values() {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let mut s = Session::new(Engine::new(l.program, blocked));
     let inst = s.instance(oi);
@@ -370,7 +370,7 @@ fn rename_of_a_table_other_fields_relate_to_rewrites_them() {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let mut s = Session::new(Engine::new(l.program, blocked));
     let inst = s.instance(oi);
@@ -413,7 +413,7 @@ fn manual_subscribers_that_nothing_binds_do_not_block_writes() {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let mut s = Session::new(Engine::new(l.program, blocked));
     let inst = s.instance(oi);
@@ -437,7 +437,7 @@ fn extension_field_triggers_do_not_block_other_writes() {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let mut s = Session::new(Engine::new(l.program, blocked));
     let inst = s.instance(oi);
@@ -506,7 +506,7 @@ codeunit 50100 C
         let blocked: Vec<Vec<Option<String>>> = l
             .unsupported
             .iter()
-            .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+            .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
             .collect();
         let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
         let ri = l.program.objects[oi].routines.iter().position(|x| x.name == r).unwrap();
@@ -663,7 +663,7 @@ codeunit 50101 D {
     let blocked: Vec<Vec<Option<String>>> = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "D").unwrap();
     let ri = l.program.objects[oi]
@@ -742,7 +742,7 @@ fn set_current_key_on_a_flow_field_works_and_on_a_flow_filter_or_blob_raises() {
     let blocked: Vec<Vec<Option<String>>> = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "C2").unwrap();
     let engine = Engine::new(l.program, blocked);

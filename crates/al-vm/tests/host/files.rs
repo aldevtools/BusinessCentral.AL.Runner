@@ -27,7 +27,7 @@ fn compile(body: &str) -> (std::sync::Arc<Engine>, usize) {
     let blocked: Vec<Vec<Option<String>>> = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
     for (ri, r) in l.program.objects[oi].routines.iter().enumerate() {
@@ -207,7 +207,7 @@ fn blob_import_reads_the_file_into_the_blob() {
         let blocked: Vec<Vec<Option<String>>> = l
             .unsupported
             .iter()
-            .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+            .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
             .collect();
         let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
         let mut s = Session::with_host(Engine::new(l.program, blocked), Host::deterministic().with_files(fs));

@@ -543,7 +543,7 @@ enum 50101 "Color"
         l.unsupported[oi.expect("test codeunit")]
             .iter()
             .flatten()
-            .cloned()
+            .map(|r| r.to_string())
             .collect()
     }
 

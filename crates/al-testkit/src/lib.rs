@@ -50,7 +50,7 @@ pub fn compile(src: &str) -> Lowered {
 pub fn blocked(l: &Lowered) -> Vec<Vec<Option<String>>> {
     l.unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect()
 }
 

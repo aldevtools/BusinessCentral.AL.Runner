@@ -7,6 +7,7 @@ use crate::check::{CheckResult, Res};
 use crate::members::MemberTable;
 use crate::types::Ty;
 use crate::workspace::{ObjKind, Resolution, Workspace};
+use al_builtins::refusal::Refusal;
 use al_builtins::value::RtType;
 use al_ir as ir;
 use al_syntax::{SyntaxKind, SyntaxNode, ast};
