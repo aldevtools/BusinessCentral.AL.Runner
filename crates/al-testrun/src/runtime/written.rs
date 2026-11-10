@@ -1197,6 +1197,15 @@ impl Rec<'_> {
                 }
             }
             Expr::InterfaceCall { args, .. } => self.arg_writes(o, args),
+            // A `[RunOnClient]` variable's bookkeeping and a call on it write nothing on the service tier: the call runs on
+            // the client, which a test session has not, so it is refused when it runs, and the variable never holds an
+            // object (onprem-dotnet/runonclient/BgRunOnClient.al:122-150, :186-209, :282-302, :395-483). Only the arguments
+            // can be written (Office Host Provider.OnGetHostType, al-runner issue 6924).
+            Expr::DotNet {
+                op: al_ir::DotNetOp::ClientNull | al_ir::DotNetOp::ClientAssign | al_ir::DotNetOp::ClientCall(_),
+                args,
+                ..
+            } => self.arg_writes(o, args),
             Expr::DotNet { args, .. } => {
                 self.arg_writes(o, args);
                 self.out.state_writes |= state::OTHER;

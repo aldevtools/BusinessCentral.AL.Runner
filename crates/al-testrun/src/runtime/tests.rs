@@ -104,7 +104,7 @@ fn unreachable_code_does_not_block_but_reachable_unsupported_code_does() {
     );
 }
 
-fn outcomes_of(src: &str, codeunit: &str) -> Vec<(String, Outcome)> {
+pub(super) fn outcomes_of(src: &str, codeunit: &str) -> Vec<(String, Outcome)> {
     let (ws, l) = al_sema::lower::compile(
         vec![AppSource {
             id: "a".into(),

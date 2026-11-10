@@ -57,6 +57,8 @@ pub(crate) struct TxState {
     /// or at Commit (corpus record/TestRecordRuntimeTextsAndViews.al:
     /// Record_Insert_DuplicateKey_WithoutBlobField_IsDeferred_AndSurfacesAtTheNextAccess).
     pub(crate) deferred_insert: Option<(usize, AlError)>,
+    /// The rows each table's insert queue holds since it was last sent (`Session::note_insert_buffer`).
+    pub(crate) insert_buffer: Vec<crate::records::InsertQueue>,
     /// How many deferred duplicate-key Inserts have come out so far (a TestPage action wraps the code of one its own
     /// Insert left, `action_invoke`).
     pub(crate) deferred_raised: u32,
@@ -161,6 +163,7 @@ impl TxState {
             rolled_back: false,
             last_commit_wrote: false,
             deferred_insert: None,
+            insert_buffer: Vec::new(),
             deferred_raised: 0,
             immediate_errors: false,
             try_depth: 0,
