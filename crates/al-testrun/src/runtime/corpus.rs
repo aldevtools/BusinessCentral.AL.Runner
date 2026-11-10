@@ -1605,8 +1605,8 @@ impl CorpusRuntime {
                 })
                 .chain(
                     refused_disabled
-                        .into_iter()
-                        .map(|(si, id, oi, why)| (si, 0, id, Link::Refused(oi, why))),
+                        .iter()
+                        .map(|(si, id, oi, why)| (*si, 0, *id, Link::Refused(*oi, why.clone()))),
                 )
                 .collect();
             // `order.codeunits` of a stability run (ADR-058): under al-runner's `--isolation disabled` the runner picks the
@@ -1660,8 +1660,10 @@ impl CorpusRuntime {
             // ADR-066 amendment 12, decision 1: by default every test codeunit starts with fresh single instances; the walk
             // keeps them only under `--strict-order`.
             let keep_singles = opts.strict_order && chain_report.single_lane.watched > 0 && opts.test_suites.is_none();
+            // ADR-070 step 2 (`RunOptions::strict_sequential`): the sequential strict run walks every BC session on a thread of its
+            // own (`strict_walk.rs`) and leaves nothing for `note_leaks`, the parallel part and the lane to do.
             #[rustfmt::skip]
-            let carried = super::chain_walk::ChainWalk { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, trace: opts.trace, limit, pool: memory.pool(), keep_singles, fresh_check: opts.single_fresh_check }.walk(chain, &mut slots, &mut details, &mut chain_report);
+            let carried = { let walk = super::chain_walk::ChainWalk { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, trace: opts.trace, limit, pool: memory.pool(), keep_singles: keep_singles || opts.sequential_strict(), fresh_check: opts.single_fresh_check && !opts.sequential_strict(), sequential: opts.sequential_strict() }; if opts.sequential_strict() { super::strict_walk::StrictRun { walk, place: &place, suites: opts.test_suites.as_deref(), refused: &refused_disabled, workers, copies: baseline.is_none() || baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline }.run(&mut slots, &mut details, &mut chain_report); Vec::new() } else { walk.walk(chain, &mut |k, r| slots[k] = Some(r), &mut details, &mut chain_report) } };
             // The other codeunits run as before; one that comes after a Disabled codeunit notes whether it reads a table that
             // codeunit left rows in, and then runs again below, from what it left.
             note_leaks(&mut units, &carried, &sees);
@@ -1739,7 +1741,7 @@ impl CorpusRuntime {
             }
             #[rustfmt::skip]
             let lane = super::single_lane::Lane { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, carried: &carried, sees: &sees, place: &place, limit, bc_order: opts.strict_order, strict: opts.replay_every_dependent, max_replay: opts.max_replay, suites: opts.test_suites.as_deref(), workers, install_copies: baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline, kept_chain: keep_singles, pool: memory.pool(), fresh_check: opts.single_fresh_check };
-            lane.run(&mut slots, &mut chain_report.single_lane);
+            (!opts.sequential_strict()).then(|| lane.run(&mut slots, &mut chain_report.single_lane));
             let results: Vec<UnitResult> = slots.into_iter().flatten().collect();
             for r in results {
                 suite_work.push((r.si, r.took));

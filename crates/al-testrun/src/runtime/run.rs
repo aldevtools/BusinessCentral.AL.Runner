@@ -1233,7 +1233,7 @@ fn run_codeunit_inner(
         &mut inner,
     );
     scratch.singles_out = ended(&mut session, lowered, object, times, execute, refused_mid_run.get());
-    scratch.unfinished_after_start = unfinished_after_start.get();
+    scratch.note_ended(unfinished_after_start.get(), refused_mid_run.get());
     let out = match ran {
         Ok(out) => out,
         Err(early) => return early,

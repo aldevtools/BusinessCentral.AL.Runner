@@ -660,11 +660,22 @@ pub(crate) struct Scratch {
     /// refused while it ran. A test refused before it started does not count (ADR-066 amendment 5, decision 2:
     /// only this, or a failed test, makes a dependent codeunit run again serially).
     pub(crate) unfinished_after_start: bool,
+    /// A test of the codeunit was refused while it ran, or stopped by the time limit (`Ended::RefusedMidRun`): what it left
+    /// is not what BC's run of it to its end would have left (ADR-070: the later codeunits of a strict session are flagged).
+    pub(crate) refused_mid_run: bool,
     /// The tests that started and did not run to their end (as for `unfinished_after_start`), each with the number
     /// `Session::single_test_begins` gave it (from 1) and its name (ADR-066 amendment 7, option 1).
     pub(crate) unfinished_at: Vec<(u32, String)>,
     /// ADR-066 amendment 12, decision 2: the hint of each failed test (`TestResult::order_hint`), set by the lane.
     pub(crate) order_hints: Vec<(String, OrderHint)>,
+}
+
+impl Scratch {
+    /// How the codeunit's tests ended (`unfinished_after_start`, `refused_mid_run`).
+    pub(crate) fn note_ended(&mut self, unfinished_after_start: bool, refused_mid_run: bool) {
+        self.unfinished_after_start = unfinished_after_start;
+        self.refused_mid_run = refused_mid_run;
+    }
 }
 
 /// What a test codeunit left: each test's outcome, the call stack of each AL error that failed one, how long
@@ -994,6 +1005,7 @@ mod runner_reset;
 mod session_flags;
 mod single_fresh;
 mod single_lane;
+mod strict_walk;
 mod suite_rows;
 #[cfg(test)]
 mod suite_rows_tests;

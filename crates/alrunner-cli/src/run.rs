@@ -845,6 +845,26 @@ fn no_test_selected(a: &TestArgs, selected: bool, started: Instant, warm: Option
     Ok(6)
 }
 
+/// `--run-selected-only` (issue 5611): the selected tests of the selected codeunits (`RunOptions::run_only`); the rest do
+/// not run. `serve` only (issue 7207): exactly one picked test runs alone, as an entry's does.
+fn run_only_picks(
+    a: &TestArgs,
+    selection: &Selection,
+    found: &[Found],
+) -> Option<Arc<std::collections::BTreeSet<(u32, String)>>> {
+    (selection.active() && !a.execute)
+        .then(|| {
+            let picked: std::collections::BTreeSet<(u32, String)> = found
+                .iter()
+                .flat_map(|f| f.tests.iter().map(move |t| (f.id, t)))
+                .filter(|(id, t)| selection.picks(*id, t))
+                .map(|(id, t)| (id, t.to_lowercase()))
+                .collect();
+            (a.run_selected_only || (a.single_test_alone && picked.len() == 1)).then(|| Arc::new(picked))
+        })
+        .flatten()
+}
+
 fn test_inner(
     a: &TestArgs,
     mut warm: Option<&mut WarmCtx>,
@@ -1602,19 +1622,9 @@ fn test_inner(
         test_suites,                   // `--test-suites FILE` (ADR-066 amendment 6)
         memory: crate::memory_budget::budget(a.max_memory, warm.is_none() && debug.is_none()), // `--max-memory`
         private_baseline: std::env::var_os("AL_PRIVATE_BASELINE").is_some(), // ADR-069 decision 11
+        strict_sequential: std::env::var_os("AL_STRICT_SEQUENTIAL").is_some(), // ADR-070 step 2 (internal)
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
-        run_only: (selection.active() && !a.execute)
-            .then(|| {
-                let picked: std::collections::BTreeSet<(u32, String)> = found
-                    .iter()
-                    .flat_map(|f| f.tests.iter().map(move |t| (f.id, t)))
-                    .filter(|(id, t)| selection.picks(*id, t))
-                    .map(|(id, t)| (id, t.to_lowercase()))
-                    .collect();
-                // `serve` only (issue 7207): exactly one picked test runs alone, as an entry's does.
-                (a.run_selected_only || (a.single_test_alone && picked.len() == 1)).then(|| Arc::new(picked))
-            })
-            .flatten(),
+        run_only: run_only_picks(a, &selection, &found),
         test_data: test_data.as_ref().map(|(d, _)| d.clone()),
         company_data: company_data.clone(),
         compile_cache: compile_cache_on.then(|| al_testrun::compile_cache::CompileCache {
