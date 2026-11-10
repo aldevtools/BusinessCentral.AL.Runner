@@ -51,15 +51,15 @@ codeunit 50402 "T"
     end;
     [Test]
     [HandlerFunctions('OkReads')]
-    procedure ReadBeforeAssignIsRefused()
+    procedure ReadBeforeAssignReadsYes()
     begin
-        Page.RunModal(Page::"QCF Reads");
+        if Page.RunModal(Page::"QCF Reads") <> Action::LookupOK then Error('did not close');
     end;
     [Test]
     [HandlerFunctions('OkFalse')]
     procedure AssignedFalseKeepsThePageOpen()
     begin
-        if Page.RunModal(Page::"QCF False") = Action::LookupOK then Error('closed with OK');
+        if Page.RunModal(Page::"QCF False") <> Action::None then Error('closed');
     end;
     [ModalPageHandler]
     procedure OkReads(var P: TestPage "QCF Reads") begin P.OK().Invoke(); end;
@@ -89,26 +89,18 @@ fn a_query_close_page_that_falls_through_lets_the_page_close() {
         &[SuiteRun::everything()],
         &RunOptions::default(),
     );
-    for name in ["NamedFallThroughCloses", "PlainFallThroughCloses"] {
+    // A read of the named return value before it has one gives Yes, and an assigned false at the end of the trigger refuses
+    // the close: RunModal answers None (corpus pages/triggers/QcrNamedResult.al:248-286, :288-331).
+    for name in [
+        "NamedFallThroughCloses",
+        "PlainFallThroughCloses",
+        "ReadBeforeAssignReadsYes",
+        "AssignedFalseKeepsThePageOpen",
+    ] {
         let o = rt.first_outcome(&CaseId {
             codeunit: 50402,
             name: name.into(),
         });
         assert_eq!(o, Outcome::Pass, "{name}");
     }
-    // A read of the named return value before it has one is refused, and an assigned false is still a veto (a modal page
-    // that stays open may be refused or answer something other than LookupOK).
-    let o = rt.first_outcome(&CaseId {
-        codeunit: 50402,
-        name: "ReadBeforeAssignIsRefused".into(),
-    });
-    assert!(matches!(o, Outcome::NotRun(_)), "{o:?}");
-    let o = rt.first_outcome(&CaseId {
-        codeunit: 50402,
-        name: "AssignedFalseKeepsThePageOpen".into(),
-    });
-    assert!(
-        !matches!(o, Outcome::Fail(_)),
-        "an assigned false closed the page: {o:?}"
-    );
 }

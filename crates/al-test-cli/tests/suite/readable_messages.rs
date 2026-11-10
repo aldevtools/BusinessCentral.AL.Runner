@@ -45,9 +45,54 @@ const KEPT: &[(&str, &str, &str)] = &[
         "the .NET host's identity in the key of the cached install state, hashed, never shown",
     ),
     (
-        "al-testrun/src/runtime/corpus.rs",
+        "al-testrun/src/runtime/baseline_key.rs",
+        r#"put("logo", format!("{logo:?}").as_bytes());"#,
+        "a cache key text, not a message",
+    ),
+    (
+        "al-testrun/src/runtime/baseline_key.rs",
+        r#"put("description", format!("{description:?}").as_bytes());"#,
+        "a cache key text, not a message",
+    ),
+    (
+        "al-testrun/src/runtime/baseline_key.rs",
+        r#"put("symbols", format!("{symbols:?}").as_bytes());"#,
+        "a cache key text, not a message",
+    ),
+    (
+        "al-testrun/src/runtime/baseline_key.rs",
+        r#"put("id_ranges", format!("{id_ranges:?}").as_bytes());"#,
+        "a cache key text, not a message",
+    ),
+    (
+        "al-testrun/src/runtime/baseline_key.rs",
+        r#"put("translation_files", format!("{translation_files:?}").as_bytes());"#,
+        "a cache key text, not a message",
+    ),
+    (
+        "al-testrun/src/runtime/baseline_key.rs",
+        r#"put("runtime", format!("{runtime:?}").as_bytes());"#,
+        "a cache key text, not a message",
+    ),
+    (
+        "al-testrun/src/runtime/baseline_key.rs",
+        r#"put("app_json_keys", format!("{app_json_keys:?}").as_bytes());"#,
+        "a cache key text, not a message",
+    ),
+    (
+        "al-testrun/src/runtime/baseline_key.rs",
         r#"Some(c) => key.text("company_data", &format!("{c:?}")),"#,
-        "the company-data settings in the key of the cached install state, hashed, never shown",
+        "a cache key text, not a message",
+    ),
+    (
+        "alrunner-cli/src/run_inputs.rs",
+        r#"let text = |v: &dyn std::fmt::Debug| format!("{v:?}");"#,
+        "a cache key text, not a message",
+    ),
+    (
+        "alrunner-cli/src/run_inputs.rs",
+        r#"format!("{target:?} {}", self.compile_text())"#,
+        "a cache key text, not a message",
     ),
     (
         "al-vm/src/records.rs",
