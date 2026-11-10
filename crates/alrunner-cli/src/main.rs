@@ -21,6 +21,7 @@ mod profile;
 mod recipe;
 mod recipe_run;
 mod run;
+mod run_inputs;
 mod seed;
 mod serve;
 mod service_tier;

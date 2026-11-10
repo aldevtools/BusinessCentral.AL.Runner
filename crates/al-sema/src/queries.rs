@@ -478,11 +478,12 @@ impl Builder<'_> {
                 // Decimal sources (corpus queries/TestQueryAggregation.al) and Integer sources keep
                 // their type: Sum of an Integer column is an Integer and its Average is truncated
                 // (queries/TestQueryRuntimeContracts.al:Query_Average_IntegerColumnTruncates_...,
-                // :Query_ScalarAggregates_OverNoRows_...). BigInteger and Duration sources are legal
-                // AL (AL0347) but their column type is not pinned.
-                if ty != Ty::Decimal && ty != Ty::Integer {
+                // :Query_ScalarAggregates_OverNoRows_...). BigInteger and Duration sources keep their type too, the
+                // Average truncated (queries/CgQueryLeads.al:127-149 `3 BigInteger`, `1 BigInteger`;
+                // queries/W7QueryAggregates.al:160-173 Aggregates_OverBigInteger, :237-249 Aggregates_OverDuration).
+                if !matches!(ty, Ty::Decimal | Ty::Integer | Ty::BigInteger | Ty::Duration) {
                     self.reason(format!(
-                        "column {name}: Sum and Average over a field that is not Decimal or Integer"
+                        "column {name}: Sum and Average over a field that is not Decimal, Integer, BigInteger or Duration"
                     ));
                 }
             }
@@ -905,10 +906,11 @@ table 50001 "U" { fields { field(1; "No."; Code[20]) { } field(2; Amount; Decima
             .reasons
             .is_empty()
         );
-        // Sum over a BigInteger field (an Integer field is pinned: queries/TestQueryRuntimeContracts.al).
-        has(
-            "query 50100 Q { elements { dataitem(A; T) { column(S; Big) { Method = Sum; } } } }",
-            "not Decimal or Integer",
+        // Sum over a BigInteger field is taken (queries/CgQueryLeads.al:127 `3 BigInteger`).
+        assert!(
+            layout_of("query 50100 Q { elements { dataitem(A; T) { column(S; Big) { Method = Sum; } } } }")
+                .reasons
+                .is_empty()
         );
         // A table outside the workspace.
         has(

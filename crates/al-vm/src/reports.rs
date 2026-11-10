@@ -485,10 +485,7 @@ impl Session {
                         .any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, &inst)))
                 {
                     self.report_clear(&inst);
-                    return Err(crate::transactions::al_error_code(
-                        "The object has been run. Use the function CLEAR(Report).",
-                        "ObjectHasAlreadyBeenRun",
-                    ));
+                    return Err(running::already_run());
                 }
                 // A variable whose RunModal ran to its end cannot RunModal again: the error, and nothing runs
                 // (reports/request-page/P105TotArray.al:97-105). A Run after it is not pinned.
@@ -502,10 +499,7 @@ impl Session {
                         if !Rc::ptr_eq(&running, &inst) {
                             self.report_clear(&inst);
                         }
-                        return Err(crate::transactions::al_error_code(
-                            "The object has been run. Use the function CLEAR(Report).",
-                            "ObjectHasAlreadyBeenRun",
-                        ));
+                        return Err(running::already_run());
                     }
                     return unsupported("Report.Run on a report variable after its RunModal (not pinned)");
                 }
@@ -626,10 +620,7 @@ impl Session {
                 // variable raises, with or without a parameters string in either call, and runs nothing; after Clear it runs
                 // again (corpus master, corpus PR 886: reports/request-page/ExecuteParamsTwiceAndViews.al:146-183).
                 if is(&self.report.report_executed) {
-                    return Err(crate::transactions::al_error_code(
-                        "The object has been run. Use the function CLEAR(Report).",
-                        "ObjectHasAlreadyBeenRun",
-                    ));
+                    return Err(running::already_run());
                 }
                 self.report.report_executed.retain(|w| w.strong_count() > 0);
                 self.report.report_executed.push(Rc::downgrade(&inst));
@@ -719,10 +710,7 @@ impl Session {
                     // After a RunModal of the variable: the error, and no page opens
                     // (reports/request-page/RptRequestPage.al:990-1009 UseRequestPageFalse_RunModalAndRunRequestPage).
                     if self.report_run_modal_done_on(&inst) {
-                        return Err(crate::transactions::al_error_code(
-                            "The object has been run. Use the function CLEAR(Report).",
-                            "ObjectHasAlreadyBeenRun",
-                        ));
+                        return Err(running::already_run());
                     }
                     let schema = self.report_schema(&inst)?;
                     (inst, schema, args.first())
@@ -2650,19 +2638,12 @@ impl Session {
             Some(Value::Text(s) | Value::Code(s)) => s.to_string(),
             other => return unsupported(format!("{id} with the file name {}", other.describe())),
         };
-        if args.get(at + 1).is_some() {
+        // With a record argument only the Html save an RDLC layout refuses is pinned (`html_record_save_is_pinned`).
+        if args.get(at + 1).is_some() && !self.html_record_save_is_pinned(id, args, format, by_number)? {
             return unsupported(format!("{id} with a record argument (what it filters is not pinned)"));
         }
-        self.report_save_core(
-            id,
-            receiver,
-            args,
-            at,
-            String::new().into(),
-            format,
-            SaveTarget::File(name),
-            None,
-        )
+        let target = SaveTarget::File(name);
+        self.report_save_core(id, receiver, args, at, String::new().into(), format, target, None)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2701,13 +2682,8 @@ impl Session {
                 if !result_used {
                     return unsupported("a second SaveAs on one report variable, with the answer dropped (not pinned)");
                 }
-                // The text is pinned (PnBReportSaveAs.al:387); the code is not, so GetLastErrorCode is refused.
-                self.last_error = al_builtins::native::AlError {
-                    message: "The object has been run. Use the function CLEAR(Report).".into(),
-                    code: al_builtins::native::UNPINNED_ERROR.into(),
-                    call_stack: String::new(),
-                    ..Default::default()
-                };
+                // The text is pinned (PnBReportSaveAs.al:387), and the code (:749-750, :755-756 PW_SecondSaveAs_LastErrorCode).
+                self.last_error = running::already_run_error();
                 return Ok(Value::Boolean(false));
             }
             if tried {
@@ -2740,9 +2716,8 @@ impl Session {
             }
             // An Html SaveAs of a report with an RDLC layout raises SubstituteReport with the parameters as RequestPageXml before it
             // fails for the layout, and nothing after (reports/layouts-saveas/AMRdlcOutput.al:TextRdlc_SaveAsHtml_IsRefused,
-            // `SubstituteReport(79256,SaveAs,req=Yes);`). Only that RequestPageXml contains the parameters is pinned, not its
-            // text: the subscriber gets an unknown value, so a subscriber that reads it is refused where it reads it. A subscriber
-            // that substitutes another report is not pinned.
+            // `SubstituteReport(79256,SaveAs,req=Yes);`; :460-484 the text is the parameters as given, empty for none). A
+            // subscriber that substitutes another report is not pinned.
             if format == "Html"
                 && record_ref.is_none()
                 && matches!(target, SaveTarget::Stream(_))
@@ -2753,13 +2728,7 @@ impl Session {
                     .events
                     .is_subscribed(crate::events::REPORTING_TRIGGERS, "substitutereport")
                 && self
-                    .raise_substitute_report(
-                        &schema,
-                        Value::Unknown(
-                            "RequestPageXml of SubstituteReport for an Html SaveAs: only that it contains the parameters is pinned"
-                                .into(),
-                        ),
-                    )?
+                    .raise_substitute_report(&schema, Value::Text(parameters.to_string().into()))?
                     .is_some()
             {
                 return unsupported("SubstituteReport set another report for an Html SaveAs (not pinned)");
@@ -2842,9 +2811,10 @@ impl Session {
                         "Report.SaveAs as Html of a report with an RDLC layout, as a statement (the layout events BC raises before its error are not raised here)",
                     );
                 }
+                // The code: al-language-onprem/reports/layouts-saveas/AMRdlcSaveAs.al:461-483, reports/layouts-saveas/AMRdlcOutput.al:386.
                 self.last_error = al_builtins::native::AlError {
                     message: FORMAT_NOT_SUPPORTED_BY_LAYOUT.into(),
-                    code: "Dialog".into(),
+                    code: "ReportUnsupportedFormat".into(),
                     call_stack: String::new(),
                     ..Default::default()
                 };
@@ -3816,12 +3786,13 @@ impl Session {
     /// The element name of item `r` in the dataset. Items of one parent whose names give the same element get a number in dataset
     /// order: X_Y, X_Y1, X_Y2 (ReportDatasetNames.al:SaveAsXml_Names_MappingToTheSameElement).
     fn dataset_item_name(run: &Run, r: ItemRef) -> Result<String, Signal> {
-        let mut name = dataset::dataset_name(&run.item(r).name)?;
+        let mut name = dataset::data_item_name(&run.item(r).name)?;
         if let ItemRef::Base(i) = r {
             let items = &run.report().items;
             let earlier = (0..i)
                 .filter(|&j| {
-                    items[j].parent == items[i].parent && dataset::dataset_name(&items[j].name).is_ok_and(|n| n == name)
+                    items[j].parent == items[i].parent
+                        && dataset::data_item_name(&items[j].name).is_ok_and(|n| n == name)
                 })
                 .count();
             if earlier > 0 {
@@ -4702,6 +4673,7 @@ mod execute_args;
 pub(crate) mod format_region;
 #[cfg(test)]
 mod header_tests;
+mod html_record;
 mod request_caption;
 mod running;
 mod word_xml_part;

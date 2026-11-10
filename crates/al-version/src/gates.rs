@@ -118,7 +118,8 @@ pub enum Gate {
     /// (permissions/W6PermissionColumns.al, corpus bump 9). Not consumed yet.
     PermissionObjectNameLongerFrom29,
     /// A query aggregate (Sum, Average, Min, Max) over a BigInteger column is accepted from BC 29
-    /// (queries/W7QueryAggregates.al, corpus bump 9). Not consumed yet.
+    /// (queries/W7QueryAggregates.al, corpus bump 9). Consumed by the query engine: a BigInteger Sum that
+    /// overflows raises `CalculationOverflow:Sql` from BC 29 and is refused before.
     QueryAggregateOverBigInteger,
     /// Typing the key of a card after a line was entered in its list part raises an error that cannot be caught on BC 27
     /// (an uncatchable CLR exception), so the corpus probe exists only from BC 28

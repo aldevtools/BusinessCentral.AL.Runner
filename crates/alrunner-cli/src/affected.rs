@@ -75,33 +75,6 @@ fn sha(text: &[u8]) -> String {
     hex(&Sha256::digest(text))
 }
 
-/// The files of a folder (or one file), with their names relative to it, in path order.
-fn hash_tree(path: &Path, rel: &str, h: &mut Sha256) -> Result<(), String> {
-    let meta = std::fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    if meta.is_dir() {
-        let mut kids: Vec<PathBuf> = std::fs::read_dir(path)
-            .map_err(|e| format!("{}: {e}", path.display()))?
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .collect();
-        kids.sort();
-        for k in kids {
-            let name = k
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            hash_tree(&k, &format!("{rel}/{name}"), h)?;
-        }
-    } else {
-        h.update(rel.as_bytes());
-        h.update([0]);
-        // Streamed: a backup is about 1 GB.
-        let mut file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        std::io::copy(&mut file, h).map_err(|e| format!("{}: {e}", path.display()))?;
-        h.update([0]);
-    }
-    Ok(())
-}
-
 /// The workspace apps as (id in lower case, version), in the order of the run.
 fn workspace_apps(inputs: &[AppInput]) -> Vec<(String, String)> {
     inputs
@@ -110,100 +83,14 @@ fn workspace_apps(inputs: &[AppInput]) -> Vec<(String, String)> {
         .collect()
 }
 
-/// The hash of the run options that change outcomes (the set the impact index hashes, ADR-043, with `--tdd`). Paths
-/// count by their file name only, so the hash does not depend on where a checkout is (decision 10). The files they
-/// name count by their content: a backup, package or disabled-tests folder that keeps its name but changes its
-/// content is a full run (decision 7). A backup of about 1 GB costs about half a second to hash; the backup that
+/// The hash of the run options that change outcomes, `--tdd` among them: the outcome inputs of `run_inputs.rs`, the
+/// one list every key over the options is made from. Paths count by their file name only, so the hash does not depend
+/// on where a checkout is (decision 10). The files they name count by their content: a backup, package or
+/// disabled-tests folder that keeps its name but changes its content is a full run (decision 7). The backup that
 /// comes from the artifact cache is not named here and counts through the BC build of the environment.
 fn options_hash(a: &TestArgs) -> Result<String, String> {
-    let name = |p: &Option<PathBuf>| {
-        p.as_ref()
-            .and_then(|p| p.file_name())
-            .map(|n| n.to_string_lossy().into_owned())
-    };
-    let text = format!(
-        "{:?}",
-        (
-            a.country(),
-            &a.bc_version,
-            (
-                a.wants_test_data(),
-                a.no_test_data,
-                name(&a.test_data_path),
-                &a.test_data_company,
-                a.company_package,
-                name(&a.package_path),
-                &a.company_name,
-            ),
-            a.isolation,
-            &a.defines,
-            a.environment.as_ref().map(std::mem::discriminant),
-            (&a.server_url, a.test_timeout_secs),
-            a.tdd,
-            a.skip_after_timeout,
-        )
-    );
-    let mut h = Sha256::new();
-    h.update(text.as_bytes());
-    // `--isolation required` (added after the other options; off, the hash is the one it was before).
-    if a.required_isolation {
-        h.update(b"required_isolation");
-    }
-    // `--ignore-permission-mock` changes outcomes (not run becomes a flagged pass); a run without it keeps the hash.
-    if a.ignore_permission_mock {
-        h.update(b"ignore_permission_mock");
-    }
-    // `--no-client` (issue 7564) changes outcomes (Message, Confirm, GuiAllowed, refused dialogs); off keeps the hash.
-    if a.no_client {
-        h.update(b"no_client");
-    }
-    // `--strict-order` (ADR-066 amendment 4) can change outcomes (the serial run is reported); off keeps the hash.
-    if a.strict_order {
-        h.update(b"strict_order");
-    }
-    // `--max-replay N` (ADR-066 amendment 7) can change outcomes (a skipped re-run keeps its parallel result).
-    if let Some(n) = a.max_replay {
-        h.update(format!("max_replay={n}").as_bytes());
-    }
-    // `--test-suites FILE` (ADR-066 amendment 6) changes which codeunits are order dependent: the file's text counts.
-    if let Some(p) = &a.test_suites {
-        h.update(b"test_suites ");
-        h.update(std::fs::read(p).unwrap_or_default());
-    }
-    // `ALRUNNER_REPORT_UNPINNED_ERRORS=1` (issue 6487) changes outcomes (not run becomes failed); off keeps the hash.
-    if crate::unpinned::enabled() {
-        h.update(b"report_unpinned_errors");
-    }
-    // `--permissions off` can change outcomes once a stage of ADR-062 is on; a run without it keeps the hash.
-    if a.permissions_off {
-        h.update(b"permissions_off");
-    }
-    // The DemoTool company (`--company-data demotool`); a run without it keeps the hash it had.
-    if a.company_demotool {
-        h.update(b"company-data demotool ");
-        h.update(name(&a.demotool_dir).unwrap_or_default().as_bytes());
-    }
-    // The Contoso company (`--company-data contoso-*`); a run without it keeps the hash it had.
-    if let Some(c) = a.company_contoso {
-        h.update(match c {
-            crate::args::ContosoData::Setup => b"company-data contoso-setup".as_slice(),
-            crate::args::ContosoData::All => b"company-data contoso-all".as_slice(),
-        });
-    }
-    for (path, flag) in [
-        (&a.test_data_path, "--test-data"),
-        (&a.package_path, "--package"),
-        (&a.disabled_tests_dir, "--disabled-tests"),
-        // ADR-060: another license can change what License Permission answers; a run without one keeps the hash.
-        (&a.license, "--license"),
-    ] {
-        if let Some(p) = path {
-            h.update(flag.as_bytes());
-            h.update([0]);
-            hash_tree(p, "", &mut h).map_err(|e| format!("{flag} {e}"))?;
-        }
-    }
-    Ok(hex(&h.finalize()))
+    let inputs = crate::run_inputs::RunInputs::of(a);
+    Ok(hex(&inputs.outcome_digest(crate::run_inputs::Purpose::StoredResult)?))
 }
 
 /// The hash of each workspace app's `app.json` (the file of an app folder; the manifest read from a package).
