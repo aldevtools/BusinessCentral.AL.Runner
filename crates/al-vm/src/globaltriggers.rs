@@ -24,7 +24,7 @@ use crate::Session;
 use crate::dispatch::EventCall;
 use crate::records::Rec;
 use al_builtins::describe::Describe;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::Value;
 use al_data::TableDef;
 
@@ -50,10 +50,6 @@ pub(crate) enum GlobalOp {
 /// The Rename bit of the table trigger mask. The corpus sets all four bits (15) and nothing else.
 const MASK_RENAME: i32 = 8;
 const MASK_ALL: i32 = 15;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 fn names(list: &[&str]) -> Vec<String> {
     list.iter().map(|n| n.to_string()).collect()

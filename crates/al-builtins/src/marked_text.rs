@@ -72,7 +72,7 @@ fn prefix_of(v: Option<&Value>) -> Option<Txt> {
 }
 
 fn refuse() -> NResult {
-    Err(Signal::Unsupported(REASON.to_string()))
+    Err(Signal::unsupported(REASON.to_string()))
 }
 
 fn with_mark(v: NResult) -> NResult {

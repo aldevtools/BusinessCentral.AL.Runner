@@ -1,6 +1,7 @@
 //! Per-phase timings of compiling the corpus, for profiling (issue #1):
 //! `cargo run --release -p al-test-cli --example phases [-- ROOT [RUNS [deps]]]`.
-//! With `deps`, the dependency apps of the corpus's `.alpackages` are loaded too (ADR-013).
+//! With `deps`, the Microsoft apps of the pinned build are loaded too, from the artifact cache (ADR-013;
+//! `al-test-cli --root . --all-versions --fetch-deps` fills it).
 //!
 //! Prints the best of RUNS (default 5) for each phase. "lex only" and "parse
 //! only" repeat work that "workspace load" also does, shown to separate the
@@ -53,7 +54,7 @@ fn main() {
         apps.push(runtime::load_app(&tests.join("al-language")).unwrap());
         let mut kinds = vec![al_sema::AppKind::Workspace; apps.len()];
         if with_deps {
-            let deps = al_test_cli::deps::load(&tests.join("al-language"), &corpus_deps, &[]).unwrap();
+            let deps = al_test_cli::coverage::corpus_dependencies(&root, &corpus_deps).unwrap();
             kinds.extend(deps.apps.iter().map(|_| al_sema::AppKind::Dependency));
             apps.extend(deps.apps);
         }
@@ -86,7 +87,7 @@ fn main() {
         let blocked = lowered
             .unsupported
             .iter()
-            .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+            .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
             .collect();
         let engine = al_vm::Engine::new(lowered.program.clone(), blocked);
         laps.mark(7);

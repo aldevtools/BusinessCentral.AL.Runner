@@ -29,7 +29,7 @@ fn run(src: &str, routine: &str) -> Result<Value, Signal> {
     let blocked: Vec<Vec<Option<String>>> = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
     let ri = l.program.objects[oi]
@@ -45,7 +45,12 @@ fn run(src: &str, routine: &str) -> Result<Value, Signal> {
 
 fn reasons(src: &str) -> Vec<String> {
     let (_, l) = compile(src);
-    l.unsupported.iter().flatten().flatten().cloned().collect()
+    l.unsupported
+        .iter()
+        .flatten()
+        .flatten()
+        .map(|r| r.to_string())
+        .collect()
 }
 
 #[test]
@@ -249,7 +254,8 @@ codeunit 69342 C
 "#;
     // No zone: any bin of the location (B1 and B2 exist). Zone Z1: the bins of that zone only (B2).
     assert_eq!(text(run(src, "F")), "okok|ok");
-    // A failing check with several where() conditions is refused: the error code BC answers is not pinned.
+    // A failing check with a key and a non-key where() condition inside an if() arm is refused: the error code is pinned for a
+    // plain relation only (record/table-relation/RelationWhereMulti.al:214-236).
     assert!(matches!(
         run(src, "G"),
         Err(al_builtins::native::Signal::Unsupported(_))
@@ -257,8 +263,7 @@ codeunit 69342 C
 }
 
 // A failing TableRelation check with several where() conditions, none on a primary key field of the related table, answers
-// DB:NothingInsideFilter like one condition on a non-key field does (record/table-relation/RelationWhereEmptyTerm.al:173-177);
-// the several-condition form is an assumption (table-relation-several-where-non-key). A mix of key and non-key conditions stays refused.
+// DB:NothingInsideFilter (record/table-relation/RelationWhereMulti.al:187-209, TwoNonKeyConditions_Validate).
 #[test]
 fn a_failing_relation_with_several_non_key_conditions_answers_nothing_inside_filter() {
     let src = r#"
@@ -280,6 +285,77 @@ codeunit 69347 C
 }
 "#;
     assert_eq!(text(run(src, "F")), "DB:NothingInsideFilter");
+}
+
+// A failing TableRelation check with a condition on a primary key field and one on another field answers
+// DB:NothingInsideFilter, for a missing value, a value the non-key condition excludes and one the key condition excludes
+// (record/table-relation/RelationWhereMulti.al:85, :214-236, MixedKeyAndNonKey_Validate), in a plain relation. Three
+// conditions, two of them non-key, answer the same (:241-262). Key conditions alone that name the whole key answer
+// DB:RecordNotFound (:160-182).
+#[test]
+fn a_failing_relation_with_a_key_and_a_non_key_condition() {
+    let src = r#"
+table 69348 "Vr" { fields { field(1; ItemNo; Code[10]) { } field(2; Code; Code[10]) { } field(3; Blocked; Boolean) { } field(4; Zone; Code[10]) { } } keys { key(PK; ItemNo, Code) { } } }
+table 69349 "Ln2"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; ItemNo; Code[10]) { }
+        field(3; Kind; Option) { OptionMembers = None,Item; }
+        field(4; V; Code[10]) { TableRelation = Vr.Code where(ItemNo = field(ItemNo), Blocked = const(false)); }
+        field(7; VArm; Code[10]) { TableRelation = if (Kind = const(Item)) Vr.Code where(ItemNo = field(ItemNo), Blocked = const(false)); }
+        field(5; V3; Code[10]) { TableRelation = Vr.Code where(ItemNo = field(ItemNo), Blocked = const(false), Zone = const('Z')); }
+        field(6; K2; Code[10]) { TableRelation = Vr.Code where(ItemNo = field(ItemNo), Code = filter(<> 'ZZ')); }
+    }
+    keys { key(PK; Id) { } }
+}
+codeunit 69344 C
+{
+    [TryFunction]
+    local procedure Try(var L: Record Ln2; F: Integer; V: Code[10])
+    begin
+        case F of
+            4: L.Validate(V, V);
+            5: L.Validate(V3, V);
+            6: L.Validate(K2, V);
+            7: L.Validate(VArm, V);
+        end;
+    end;
+    procedure InArm(): Text
+    var R: Record Vr; L: Record Ln2;
+    begin
+        R.ItemNo := 'I1'; R.Code := 'V1'; R.Insert();
+        L.ItemNo := 'I1'; L.Kind := L.Kind::Item;
+        exit(P(L, 7, 'V1') + P(L, 7, 'MISSING'));
+    end;
+    local procedure P(var L: Record Ln2; F: Integer; V: Code[10]): Text
+    begin
+        ClearLastError();
+        if Try(L, F, V) then exit('ok ');
+        exit(GetLastErrorCode() + ' ');
+    end;
+    procedure F(): Text
+    var R: Record Vr; L: Record Ln2;
+    begin
+        R.ItemNo := 'I1'; R.Code := 'V1'; R.Zone := 'Z'; R.Insert();
+        R.ItemNo := 'I1'; R.Code := 'V2'; R.Blocked := true; R.Insert();
+        R.ItemNo := 'I2'; R.Code := 'V3'; R.Blocked := false; R.Insert();
+        L.ItemNo := 'I1'; L.Kind := L.Kind::Item;
+        exit(P(L, 4, 'V1') + P(L, 4, 'MISSING') + P(L, 4, 'V2') + P(L, 4, 'V3') + '|' + P(L, 5, 'V1') + P(L, 5, 'MISSING') + '|' + P(L, 6, 'V1') + P(L, 6, 'MISSING'));
+    end;
+}
+"#;
+    assert_eq!(
+        text(run(src, "F")),
+        "ok DB:NothingInsideFilter DB:NothingInsideFilter DB:NothingInsideFilter |ok DB:NothingInsideFilter |ok DB:RecordNotFound "
+    );
+    // Inside an if() arm the code of this mix is not pinned (the reported shape of al-runner issue 7438 waits for the probe
+    // record/table-relation/RelationWhereKeyCoverage.al).
+    assert!(matches!(
+        run(src, "InArm"),
+        Err(al_builtins::native::Signal::Unsupported(_))
+    ));
 }
 
 #[test]

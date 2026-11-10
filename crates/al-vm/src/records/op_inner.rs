@@ -70,7 +70,7 @@ impl Session {
         if !rec.borrow().temporary && self.engine.demo_tables.contains(&(t.object as usize)) {
             if method.writes() {
                 if !self.install_scope {
-                    self.demo_written.insert(t.object);
+                    self.guards.demo_written.insert(t.object);
                 }
             } else if (matches!(method, RecordOp::Count | RecordOp::IsEmpty)
                 || (self.engine.program.objects[t.object as usize].id == Some(crate::platform::MEDIA_RESOURCES)
@@ -86,7 +86,7 @@ impl Session {
                             | RecordOp::CountApprox
                             | RecordOp::CalcSums
                     )))
-                && !self.demo_written.contains(&t.object)
+                && !self.guards.demo_written.contains(&t.object)
             {
                 return unsupported(format!(
                     "{} on {} before the test wrote to it: the corpus database holds demo rows there that the runtime does not have (ADR-047 rejected)",
@@ -662,7 +662,7 @@ impl Session {
                     }
                     Self::restore_row_version(rec, old_version);
                     Self::unstamp(rec, stamped);
-                    self.tx.deferred_insert.get_or_insert((t.object as usize, e));
+                    self.defer_insert(rec, t.object, e);
                     return Ok(Value::Boolean(true));
                 }
                 // A temporary table holds the record's own Blob object (streams/TestBlobUncommittedWriteIsolation.al:171); one
@@ -682,7 +682,7 @@ impl Session {
                 match self
                     .store_for(rec)
                     .insert(&cx, &t, stored)
-                    .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                    .map_err(|e| Signal::unsupported(format!("{e}")))?
                 {
                     InsertOutcome::Inserted => {
                         if let Some(ops) = pre_ops {
@@ -781,7 +781,7 @@ impl Session {
                         {
                             match self.fail(&t, &row, true) {
                                 Err(Signal::Error(e)) => {
-                                    self.tx.deferred_insert.get_or_insert((t.object as usize, *e));
+                                    self.defer_insert(rec, t.object, *e);
                                 }
                                 // A key whose format is not pinned stays a refusal.
                                 Err(other) => return Err(other),
@@ -860,7 +860,7 @@ impl Session {
                 let stored = self
                     .store_for(rec)
                     .get(&cx, &t, &pk)
-                    .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                    .map_err(|e| Signal::unsupported(format!("{e}")))?;
                 self.feature_key_read_only_change(&t, rec, stored.as_deref())?;
                 if let Some(e) = self.read_only_platform_table(&t, rec, RecordOp::Modify) {
                     return match stored {
@@ -874,37 +874,9 @@ impl Session {
                     let (mine, theirs) = (rec.borrow().fields[i].clone(), row[i].clone());
                     let version = |v: &Value| if let Value::BigInteger(n) = v { *n } else { 0 };
                     self.refuse_stale_modify(&t, rec, &cx, &pk, run, (version(&mine), version(&theirs)))?;
-                    // The buffer still holds what its own last Modify wrote and a rollback undid that write: the Modify answers
-                    // true and writes nothing, so the row keeps what the rollback restored (StaleBuffer.al:76-86); a buffer
-                    // changed since writes the whole row (:167-168). The triggers, events and database triggers of such a
-                    // Modify are not pinned: refused when there are any.
-                    let own_image = {
-                        let r = rec.borrow();
-                        !r.temporary
-                            && version(&mine) > version(&theirs)
-                            && r.last_modify
-                                .as_ref()
-                                .is_some_and(|img| version(&img[i]) == version(&mine))
-                    };
-                    if own_image {
-                        let img = rec.borrow().last_modify.clone().expect("checked");
-                        if Session::modify_changes_nothing(&t, &img, rec) {
-                            let mut trigger = run && self.table_trigger(&t, "OnModify").is_some();
-                            for n in ["OnBeforeModify", "OnModify", "OnAfterModify"] {
-                                trigger |= run && !self.ext_triggers(&t, n).is_empty();
-                            }
-                            if trigger
-                                || self.listened(&t, "onbeforemodifyevent", None)?
-                                || self.listened(&t, "onaftermodifyevent", None)?
-                                || self.global_enabled(&t, GlobalOp::Modify)?
-                            {
-                                return unsupported(format!(
-                                    "a Modify of a {} buffer that its own rolled-back write left, with triggers or events: not pinned",
-                                    t.name
-                                ));
-                            }
-                            return Ok(Value::Boolean(true));
-                        }
+                    let v = (version(&mine), version(&theirs));
+                    if let Some(answer) = self.modify_own_rolled_back_write(&t, rec, i, v, run)? {
+                        return Ok(answer);
                     }
                 }
                 // Modify never changes the stored SystemId, whatever the buffer carries
@@ -1034,7 +1006,7 @@ impl Session {
                 match self
                     .store_for(rec)
                     .modify(&cx, &t, stored)
-                    .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                    .map_err(|e| Signal::unsupported(format!("{e}")))?
                 {
                     WriteOutcome::Done => {
                         self.note_write(rec, &t, crate::state::TxWriteKind::Modify, &pk, before);
@@ -1130,7 +1102,7 @@ impl Session {
                     let exists = self
                         .store_for(rec)
                         .get(&cx, &t, &pk)
-                        .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                        .map_err(|e| Signal::unsupported(format!("{e}")))?
                         .is_some();
                     return if exists {
                         Err(Signal::Error(Box::new(e)))
@@ -1176,7 +1148,7 @@ impl Session {
                 let n = self
                     .store_for(rec)
                     .count(&cx, &t, &filters)
-                    .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                    .map_err(|e| Signal::unsupported(format!("{e}")))?;
                 // A platform table whose fresh-tenant rows nothing pins (`UNSEEDED_ROWS`): a DeleteAll without filters removes
                 // them in BC too, so the store marks the table emptied (`Session::is_unseeded`), even when it holds no row
                 // itself. With delete events or database triggers BC would run them for those rows: not known, refused.
@@ -1197,7 +1169,7 @@ impl Session {
                     }
                     self.store_for(rec)
                         .delete_all(&cx, &t, &filters)
-                        .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                        .map_err(|e| Signal::unsupported(format!("{e}")))?;
                     self.deletes += 1;
                     return Ok(Value::Null);
                 }
@@ -1245,7 +1217,7 @@ impl Session {
                         let still_there = self
                             .store_for(rec)
                             .get(&cx, &t, &pk)
-                            .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                            .map_err(|e| Signal::unsupported(format!("{e}")))?
                             .is_some();
                         if !still_there {
                             // record/crud/DeleteAllSkipsDeleted.al:DeleteAllTrue_FirstDeletesAnEarlierSibling_NoneEarlier.
@@ -1265,7 +1237,7 @@ impl Session {
                 }
                 self.store_for(rec)
                     .delete_all(&cx, &t, &filters)
-                    .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                    .map_err(|e| Signal::unsupported(format!("{e}")))?;
                 self.deletes += 1;
                 Ok(Value::Null)
             }
@@ -1336,7 +1308,7 @@ impl Session {
                 match self
                     .store_for(rec)
                     .get(&cx, &t, &pk)
-                    .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                    .map_err(|e| Signal::unsupported(format!("{e}")))?
                 {
                     Some(row) => {
                         self.get_load = true;
@@ -1430,7 +1402,7 @@ impl Session {
                         let row = self
                             .store_for(rec)
                             .get(&cx, &t, &pk)
-                            .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                            .map_err(|e| Signal::unsupported(format!("{e}")))?;
                         match row {
                             Some(row) if self.row_passes(rec, &t, &row)? || Self::on_own_row(rec, &pk) => Some(row),
                             _ => None,
@@ -1467,7 +1439,7 @@ impl Session {
                                     let exact = self
                                         .store_for(rec)
                                         .get(&cx, &t, &pk)
-                                        .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                                        .map_err(|e| Signal::unsupported(format!("{e}")))?;
                                     match exact {
                                         Some(row) if self.row_passes(rec, &t, &row)? => {
                                             if key == 0 || Self::same_key_values(&t, key, &row, &pos) {
@@ -1546,7 +1518,7 @@ impl Session {
                             && self
                                 .store_for(rec)
                                 .count(&cx, &t, &[])
-                                .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                                .map_err(|e| Signal::unsupported(format!("{e}")))?
                                 == 0;
                         // A set filtered down to nothing says the same (recordref-fieldref/Y81EmptySetFinds.al:224-:520
                         // Y81_RecRef_FilteredOut_Unused: `=`, `>` and `<` on a RecordRef and a temporary Record; needs corpus bump).
@@ -1625,7 +1597,7 @@ impl Session {
                         let empty = self
                             .store_for(rec)
                             .count(&cx, &t, &[])
-                            .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                            .map_err(|e| Signal::unsupported(format!("{e}")))?
                             == 0;
                         let origin = if rec.borrow().temporary || empty {
                             al_builtins::native::ErrorOrigin::Unknown
@@ -1698,7 +1670,7 @@ impl Session {
                 let n = if flow_field_filters.is_empty() && !rec.borrow().marked_only {
                     self.store_for(rec)
                         .count(&cx, &t, &filters)
-                        .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                        .map_err(|e| Signal::unsupported(format!("{e}")))?
                 } else {
                     // Rows are tested one by one against the calculated FlowFields.
                     let mut n = 0;
@@ -1722,6 +1694,7 @@ impl Session {
                 let pos = arg_pos(args, 0)?;
                 let ty = t.fields[pos].ty.clone();
                 let or_flowfield = self.is_flowfield(&t, pos);
+                self.blob_setrange_check(&ty, &args[1..])?;
                 let mut r = rec.borrow_mut();
                 r.position = None;
                 let group = r.filter_group;
@@ -1949,7 +1922,7 @@ impl Session {
                             ..Default::default()
                         })));
                     }
-                    Err(e) => return Err(Signal::Unsupported(format!("SetFilter: {e}"))),
+                    Err(e) => return Err(Signal::unsupported(format!("SetFilter: {e}"))),
                 };
                 let or_flowfield = self.is_flowfield(&t, pos);
                 let mut r = rec.borrow_mut();
@@ -2195,9 +2168,11 @@ impl Session {
                 // A FlowField (record/flowfields/DiFwWriteTests.al): flowfields.rs `validate_flowfield` raises or refuses
                 // what is not a Decimal Sum; for that one the value goes in, OnValidate runs, then `write_sum_difference`.
                 let sum_flowfield = !field.stored && !field.flow_filter && field.id < 2_000_000_000;
+                // The error of a FlowField that is no Decimal, raised after OnValidate ran (FfmOperations.al:520-566).
+                let mut flowfield_error = None;
                 if sum_flowfield {
                     let value = args.get(1).cloned();
-                    self.validate_flowfield(rec, &t, pos, value.as_ref())?;
+                    flowfield_error = self.validate_flowfield(rec, &t, pos, value.as_ref())?;
                 }
                 // A Validate nested in an OnValidate of the same record keeps the outer call's
                 // before-image as xRec (corpus record/TestXRecContracts.al:133).
@@ -2258,13 +2233,7 @@ impl Session {
                 }
                 r?;
                 if sum_flowfield {
-                    let target = ops::convert(args.get(1).cloned().unwrap_or(old_value), &field.ty)?;
-                    if ops::compare(&rec.borrow().fields[pos], &target).ok() != Some(std::cmp::Ordering::Equal) {
-                        return unsupported(
-                            "an OnValidate that changes the value of the Sum FlowField it validates (not pinned)",
-                        );
-                    }
-                    self.write_sum_difference(rec, &t, pos, target)?;
+                    self.finish_flowfield_validate(rec, &t, pos, flowfield_error, args.get(1).cloned(), old_value)?;
                 }
                 Ok(Value::Null)
             }
@@ -2368,7 +2337,7 @@ impl Session {
                         let stored_old = self
                             .store_for(rec)
                             .get(&cx, &t, &old_pk)
-                            .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                            .map_err(|e| Signal::unsupported(format!("{e}")))?;
                         if let Some(o) = stored_old
                             && ff.iter().any(|&i| {
                                 ops::compare(&o[i], &self.default_value(&t.fields[i].ty)).ok()
@@ -2393,7 +2362,7 @@ impl Session {
                     match self
                         .store_for(rec)
                         .modify(&cx, &t, stored.clone())
-                        .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                        .map_err(|e| Signal::unsupported(format!("{e}")))?
                     {
                         WriteOutcome::Done => RenameOutcome::Renamed,
                         WriteOutcome::NotFound => RenameOutcome::NotFound,
@@ -2401,7 +2370,7 @@ impl Session {
                 } else {
                     self.store_for(rec)
                         .rename(&cx, &t, &old_pk, stored.clone())
-                        .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                        .map_err(|e| Signal::unsupported(format!("{e}")))?
                 };
                 match outcome {
                     RenameOutcome::Renamed => {

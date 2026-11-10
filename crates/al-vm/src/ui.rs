@@ -292,13 +292,13 @@ impl Session {
         args: Vec<Value>,
     ) -> Result<(Value, Vec<Value>), Signal> {
         let Some(scope) = self.ui_state.scope.as_mut() else {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "{} outside a test method (what the runner does then is not pinned)",
                 kind.label()
             )));
         };
         if scope.in_handler {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "{} raised from inside a handler function (not pinned)",
                 kind.label()
             )));
@@ -408,7 +408,7 @@ impl Session {
         }
         match answer {
             Value::Boolean(b) => Ok(b),
-            other => Err(Signal::Unsupported(format!(
+            other => Err(Signal::unsupported(format!(
                 "a [FilterPageHandler] that answers {}",
                 other.describe()
             ))),
@@ -482,7 +482,7 @@ impl Session {
             // A handler that answers false is called once and nothing is raised (session/
             // TestProbeSessionMiscContracts.al:SessionSettings_RequestUpdateFalse_Handler).
             Value::Boolean(_) => Ok(finals.pop()),
-            other => Err(Signal::Unsupported(format!(
+            other => Err(Signal::unsupported(format!(
                 "a [SessionSettingsHandler] that answers {other}",
                 other = other.describe()
             ))),
@@ -558,7 +558,7 @@ impl Session {
     ) -> Result<(usize, usize, Rc<RefCell<Instance>>), Signal> {
         let shown_id = self.object_id_of(page);
         let Some(scope) = self.ui_state.scope.as_mut() else {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "{} outside a test method (what the runner does then is not pinned)",
                 kind.label()
             )));
@@ -632,7 +632,7 @@ impl Session {
     /// one differently from `Page.Run` (corpus testpage/TestPageActionRunObjectNoHandler_Tests.al).
     pub(crate) fn try_bind_page_handler(&mut self, kind: UiKind, page: u32) -> Result<Option<BoundHandler>, Signal> {
         let Some(scope) = self.ui_state.scope.as_mut() else {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "{} outside a test method (what the runner does then is not pinned)",
                 kind.label()
             )));
@@ -668,8 +668,9 @@ impl Session {
     /// Caption is pinned there; any other caller is refused.
     /// A page background task worker has no client either; its texts name the `Server` instead of `Data Services`
     /// (pages/background-tasks/BjNoGuiDialogs.al:204, EnqueueBackgroundTask_WithHandlers `completion log`).
-    fn callback_not_allowed(&self, what: &str, named: bool) -> Signal {
-        let product = if self.pages.bg_worker.is_some() {
+    pub(crate) fn callback_not_allowed(&self, what: &str, named: bool) -> Signal {
+        // `--no-client` answers as the worker does (`clientless.rs`); install code keeps its own text.
+        let product = if self.pages.bg_worker.is_some() || (self.ui_state.clientless && !self.install_without_client) {
             "Microsoft Dynamics 365 Business Central Server"
         } else {
             "Microsoft Dynamics 365 Business Central Data Services"
@@ -677,11 +678,11 @@ impl Session {
         let mut text = format!("{product} attempted to issue a client callback to {what}");
         if named {
             let Some(o) = self.frames.last().and_then(|&o| self.engine.program.objects.get(o)) else {
-                return Signal::Unsupported(format!("a client callback ({what}) outside any routine (not pinned)"));
+                return Signal::unsupported(format!("a client callback ({what}) outside any routine (not pinned)"));
             };
             let captioned = o.properties.iter().any(|(k, _)| k.eq_ignore_ascii_case("Caption"));
             if o.kind != al_ir::ObjKind::Codeunit || captioned || o.id.is_none() {
-                return Signal::Unsupported(format!(
+                return Signal::unsupported(format!(
                     "a client callback ({what}) from install code in {}: only the text for a codeunit without a Caption is pinned",
                     o.name
                 ));
@@ -710,7 +711,7 @@ impl Session {
         let p = o.page.as_ref()?;
         let captioned = o.properties.iter().any(|(k, _)| k.eq_ignore_ascii_case("Caption"));
         if !p.triggers.is_empty() || !p.extensions.is_empty() || captioned || o.id.is_none() {
-            return Some(Signal::Unsupported(format!(
+            return Some(Signal::unsupported(format!(
                 "Page.Run or RunModal of {} in install code: the error is pinned only for a page without triggers, extensions or Caption",
                 o.name
             )));
@@ -736,6 +737,11 @@ impl Session {
         // Nor does it stop a page background task worker, and no MessageHandler of the test sees it
         // (pages/background-tasks/BjNoGuiDialogs.al:204-205, `message=returned` and the handler log).
         if self.pages.bg_worker.is_some() {
+            return Ok(());
+        }
+        // `--no-client`: the same, assumed for a web-service session (assumption `no-client-session`).
+        if self.ui_state.clientless {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NoClientSession);
             return Ok(());
         }
         if self.ui_state.scope.is_none() && self.scratch_messages.is_some() {
@@ -770,6 +776,10 @@ impl Session {
         if (self.ui_state.scope.is_none() && self.install_without_client) || self.pages.bg_worker.is_some() {
             return Err(self.callback_not_allowed(&format!("show a confirmation dialog box: {question}"), true));
         }
+        if self.ui_state.clientless {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NoClientSession);
+            return Err(self.callback_not_allowed(&format!("show a confirmation dialog box: {question}"), true));
+        }
         let finals = self.dispatch_ui(
             UiKind::Confirm,
             &question.clone(),
@@ -777,7 +787,7 @@ impl Session {
         )?;
         match finals.get(1) {
             Some(Value::Boolean(b)) => Ok(*b),
-            other => Err(Signal::Unsupported(format!(
+            other => Err(Signal::unsupported(format!(
                 "Confirm handler returned {}",
                 other.describe()
             ))),
@@ -789,6 +799,13 @@ impl Session {
             return Err(Signal::Unsupported(
                 "StrMenu in a page background task worker (not pinned)".into(),
             ));
+        }
+        // `--no-client`: CallbackNotAllowed with and without an instruction, and no StrMenuHandler sees the call (pages/
+        // background-tasks/BjNoClientDialogs.al `01 StrMenu with instruction`, `02 StrMenu without instruction`, corpus pull
+        // request 1286), assumed for a web-service session (`no-client-session`).
+        if self.ui_state.clientless && !self.install_without_client {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NoClientSession);
+            return Err(self.callback_not_allowed(&format!("show a selection menu: {instruction}"), true));
         }
         if self.ui_state.scope.is_none() && self.install_without_client {
             // Pinned with an instruction (RlInstallUi.al:219); what the text shows without one is not.
@@ -810,7 +827,7 @@ impl Session {
         )?;
         match finals.get(1) {
             Some(Value::Integer(n)) => Ok(*n),
-            other => Err(Signal::Unsupported(format!(
+            other => Err(Signal::unsupported(format!(
                 "StrMenu handler returned {}",
                 other.describe()
             ))),

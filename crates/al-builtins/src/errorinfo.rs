@@ -3,7 +3,7 @@
 //! callback of an action are not here: they need the error pipeline.
 
 use crate::describe::Describe;
-use crate::native::{Ctx, NativeFn, Signal};
+use crate::native::{Ctx, NativeFn, Signal, unsupported};
 use crate::signature::Signature;
 use crate::value::{ErrorInfoState, LibraryValue, Value};
 use std::cell::RefCell;
@@ -56,10 +56,6 @@ fn callstack(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     with_state(r, |_| ())?;
     let stack = cell.and_then(|c| callstack_of(&c));
     Ok(Value::Text(stack.as_deref().unwrap_or_default().to_string().into()))
-}
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
 }
 
 fn option(type_name: &str, ordinal: i32) -> Value {

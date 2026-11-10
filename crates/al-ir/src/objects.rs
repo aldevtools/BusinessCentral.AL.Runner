@@ -96,6 +96,7 @@ impl Objects {
     }
 
     /// The object of slot `i`, made now if it is not yet.
+    #[inline]
     pub fn get(&self, i: usize) -> Option<&Object> {
         let slot = self.slots.get(i)?;
         Some(slot.get_or_init(|| {
@@ -198,6 +199,7 @@ impl Extend<Object> for Objects {
 
 impl std::ops::Index<usize> for Objects {
     type Output = Object;
+    #[inline]
     fn index(&self, i: usize) -> &Object {
         match self.get(i) {
             Some(o) => o,

@@ -125,7 +125,7 @@ fn go(p: &Probe, mode: Mode) -> Outcome {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
     let oi = l
@@ -1232,7 +1232,7 @@ fn raising_an_event_with_a_declared_but_uncompiled_subscriber_is_refused() {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
     let oi = l.program.objects.iter().position(|o| o.name == "T").unwrap();
@@ -1384,7 +1384,7 @@ fn outcomes_with_selection(
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
     let oi = l

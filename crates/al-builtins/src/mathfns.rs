@@ -1,17 +1,13 @@
 //! `Round` and `Power`. Only the forms a corpus test pins are computed; the rest is refused.
 
 use crate::describe::Describe;
-use crate::native::{Ctx, NativeFn, Signal};
+use crate::native::{Ctx, NativeFn, Signal, unsupported};
 use crate::value::Value;
 use rust_decimal::{Decimal, RoundingStrategy};
 
 pub const REGISTRY: &[(&str, NativeFn)] = &[("System.Round#1", round), ("System.Power#1", power)];
 
 type Out = Result<Value, Signal>;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 fn dec(v: &Value) -> Option<Decimal> {
     match v {

@@ -28,7 +28,7 @@ fn run(src: &str, routine: &str) -> Result<Value, Signal> {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l
         .program

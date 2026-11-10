@@ -17,7 +17,7 @@ fn outcomes(src: &str) -> Vec<(String, Outcome)> {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
     let oi = l
@@ -104,7 +104,7 @@ fn unreachable_code_does_not_block_but_reachable_unsupported_code_does() {
     );
 }
 
-fn outcomes_of(src: &str, codeunit: &str) -> Vec<(String, Outcome)> {
+pub(super) fn outcomes_of(src: &str, codeunit: &str) -> Vec<(String, Outcome)> {
     let (ws, l) = al_sema::lower::compile(
         vec![AppSource {
             id: "a".into(),
@@ -118,7 +118,7 @@ fn outcomes_of(src: &str, codeunit: &str) -> Vec<(String, Outcome)> {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
     let oi = l.program.objects.iter().position(|o| o.name == codeunit).unwrap();
@@ -434,7 +434,7 @@ fn outcomes_of_apps(apps: &[(&str, &[&str], &str)], codeunit: &str) -> Vec<(Stri
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
     let oi = l.program.objects.iter().position(|o| o.name == codeunit).unwrap();
@@ -728,7 +728,7 @@ fn outcomes_and_hits_of_apps(apps: &[(&str, &[&str], &str)], codeunit: &str) -> 
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
     let oi = l.program.objects.iter().position(|o| o.name == codeunit).unwrap();
@@ -950,7 +950,7 @@ fn login_engine(src: &str) -> (Arc<Engine>, Lowered) {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     (Engine::new(l.program.clone(), blocked), l)
 }
@@ -1736,7 +1736,7 @@ pub(super) fn outcomes_over_dependency(main: &str, dep: &str) -> Vec<(String, Ou
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
     let oi = l
@@ -2122,7 +2122,7 @@ fn outcomes_isolated(src: &str, isolation: TestIsolation) -> Vec<(String, Outcom
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
     let oi = l
@@ -2327,7 +2327,7 @@ fn a_test_over_its_time_limit_is_stopped_and_not_run() {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
     let oi = l.program.objects.iter().position(|o| o.name == "Endless").unwrap();
@@ -2368,7 +2368,7 @@ fn run_with_limit(src: &str, name: &str, limit: std::time::Duration) -> (Vec<(St
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
     let oi = l.program.objects.iter().position(|o| o.name == name).unwrap();
@@ -2802,7 +2802,7 @@ fn a_failure_after_a_test_refused_before_it_started_for_a_construct_in_its_reach
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
     let oi = l.program.objects.iter().position(|o| o.name == "Shared").unwrap();

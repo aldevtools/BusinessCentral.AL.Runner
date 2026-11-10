@@ -133,7 +133,7 @@ impl Session {
         // Without namespaces, a table element root whose text elements below it hold content (`plain_tree_root`, plain_tree.rs).
         let table_root = root_table_element(schema, top)
             || (declares && table_root_with_content(schema, top))
-            || plain_tree_root(schema, top);
+            || plain_export_root(schema, top);
         if !table_top && !table_root && (xp.nodes[top].kind != ir::XmlNodeKind::Text || schema.children(top).is_empty())
         {
             return unsupported("XmlPort export whose root is not a text element with content (not pinned)");
@@ -834,7 +834,7 @@ impl Session {
         let v = rec.borrow().fields[pos].clone();
         // A column the platform row leaves unknown is not exported.
         if let Some(why) = v.unknown() {
-            return Err(Signal::Unsupported(why.to_string()));
+            return Err(Signal::unsupported(why.to_string()));
         }
         // DateFormula, BigInteger, RecordId, Blob, Media and MediaSet (xmlports/value_forms.rs).
         if matches!(

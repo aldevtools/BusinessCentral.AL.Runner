@@ -137,8 +137,8 @@ fn cold_compile_of_the_pinned_corpus_stays_within_its_instruction_budget() {
     );
 }
 
-/// A full corpus run with Microsoft's apps (Base Application and the rest of `.alpackages`, the
-/// test libraries from the artifact cache). Not the owner's target of one second: a guard against
+/// A full corpus run with Microsoft's apps (Base Application, the other apps and the test libraries of the
+/// pinned build, from the artifact cache). Not the owner's target of one second: a guard against
 /// the big regressions found by profiling it (a run took 14 to 27 s before; see the commit log of
 /// branch perf-1). It is on the runtime phases of `--timings` (compile, install baseline, run tests), not on
 /// the whole process: "load apps and dependencies" reads the artifact cache and the network, and took 9.9 s of a

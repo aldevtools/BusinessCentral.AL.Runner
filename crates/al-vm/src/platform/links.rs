@@ -12,16 +12,12 @@
 use crate::Session;
 use crate::records::Rec;
 use al_builtins::describe::Describe;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{RtType, Value};
 use al_data::TableDef;
 
 const RECORD_LINK: u32 = 2_000_000_068;
-
-fn unsupported<T>(why: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(why.into()))
-}
 
 impl Session {
     /// A rename moves the record's links to its new key: the current company's rows of a

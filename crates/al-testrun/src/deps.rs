@@ -1,5 +1,7 @@
-//! Dependency apps for a corpus run (ADR-013): the project's `.alpackages` is
-//! the first place looked up, then any `--deps` directories.
+//! Dependency apps for a run (ADR-013). A project's `.alpackages` is the first place looked up, then any `--deps`
+//! directories, then the artifact cache of the chosen Microsoft build ([`load_with`]). A corpus run does not look in
+//! the corpus tree's `.alpackages` (ADR-013 amendment of 2026-11-10, [`load_corpus`]): its Microsoft apps come only
+//! from the build `oracle/oracle.toml` pins.
 
 use al_deps::artifact::{ArtifactUse, Fetch, HttpCdn, load_with_artifacts};
 use al_deps::build::BuildQuery;
@@ -244,38 +246,53 @@ fn in_dependency_order(apps: &[(PathBuf, AppJson)], roots: &[usize]) -> Result<V
     Ok(order.into_iter().map(|i| apps[i].0.clone()).collect())
 }
 
-/// Resolves and reads the dependencies of the app in `app_dir`. Apps in
-/// `source_dirs` are built from source by the caller and satisfy their own dependents.
+/// Resolves and reads the dependencies of the project in `app_dir`: its own `.alpackages` first, then `extra_dirs`
+/// (`--deps`). Apps in `source_dirs` are built from source by the caller and satisfy their own dependents.
 ///
-/// A dependency no package supplies is skipped and logged, not an error: the objects it would
-/// supply stay unresolved and are refused. This is the offline form, with no feed (the golden
-/// test of the unresolved references uses it); see [`load_with`].
-pub fn load(app_dir: &Path, source_dirs: &[PathBuf], extra_dirs: &[PathBuf]) -> Result<Dependencies, String> {
-    load_with(app_dir, source_dirs, extra_dirs, None)
-}
-
-/// Like [`load`], and with `Some(provision)` a dependency that `.alpackages` and `--deps` do not
-/// supply is downloaded from Microsoft's artifact feed (the test libraries the corpus names, for
-/// one). With `download: false` it is skipped and logged, as in the offline form. A feed that does
-/// not answer is an error: a run that expected the test libraries must not quietly lose them.
+/// A dependency no package supplies is skipped and logged, not an error: the objects it would supply stay unresolved
+/// and are refused. With `Some(provision)` such a dependency is downloaded from Microsoft's artifact feed; with
+/// `download: false` it is taken from the artifact cache or skipped and logged. A feed that does not answer is an
+/// error: a run that expected an app must not quietly lose it.
 pub fn load_with(
     app_dir: &Path,
     source_dirs: &[PathBuf],
     extra_dirs: &[PathBuf],
     provision: Option<&Provision>,
 ) -> Result<Dependencies, String> {
-    load_with_extra(app_dir, source_dirs, extra_dirs, provision, &[])
+    let mut search_dirs = vec![app_dir.join(".alpackages")];
+    search_dirs.extend(extra_dirs.iter().cloned());
+    load_app_dir(app_dir, source_dirs, &search_dirs, provision, &[])
 }
 
-/// [`load_with`] where the environment also has `extra` installed, given as (id, name): apps the corpus CI installs for
-/// a test app although no app declares them (oracle.toml `extra_apps`, corpus `.github/workflows/ci.yml` job
-/// test-testlibraries). They are looked up by id like declared dependencies of the app in `app_dir`, with their own
-/// dependencies; one that is not found is skipped and reported like a missing dependency. As for the Test Runner app
-/// (`with_test_environment`), loading them does not make them visible to an app that does not declare them.
-pub fn load_with_extra(
+/// The dependencies of the corpus app in `app_dir`, for a corpus run and for everything else that reads the corpus
+/// with Microsoft's apps (the coverage maps, the golden files).
+///
+/// ADR-013 amendment of 2026-11-10 (owner): the corpus tree's `.alpackages` is not searched. The only places are
+/// `extra_dirs` (`--deps`) and the artifact cache of the build `provision` asks for, which is the build
+/// `oracle/oracle.toml` pins. So a local run and CI load the same Microsoft apps, and a package someone staged into
+/// the corpus checkout (compile symbols for the AL compiler) changes no result.
+///
+/// The environment also has `extra` installed, given as (id, name): apps the corpus CI installs for a test app although
+/// no app declares them (oracle.toml `extra_apps`, corpus `.github/workflows/ci.yml` job test-testlibraries). They are
+/// looked up by id like declared dependencies of the app in `app_dir`, with their own dependencies; one that is not
+/// found is skipped and reported like a missing dependency. As for the Test Runner app (`with_test_environment`),
+/// loading them does not make them visible to an app that does not declare them.
+pub fn load_corpus(
     app_dir: &Path,
     source_dirs: &[PathBuf],
     extra_dirs: &[PathBuf],
+    provision: Option<&Provision>,
+    extra: &[(String, String)],
+) -> Result<Dependencies, String> {
+    load_app_dir(app_dir, source_dirs, extra_dirs, provision, extra)
+}
+
+/// The dependencies of the app in `app_dir` and of the `extra` apps of its environment, from the search list `search`
+/// and then the artifact feed of `provision`.
+fn load_app_dir(
+    app_dir: &Path,
+    source_dirs: &[PathBuf],
+    search: &[PathBuf],
     provision: Option<&Provision>,
     extra: &[(String, String)],
 ) -> Result<Dependencies, String> {
@@ -298,13 +315,11 @@ pub fn load_with_extra(
             origin: format!("source {}", d.display()),
         });
     }
-    let mut search_dirs = vec![app_dir.join(".alpackages")];
-    search_dirs.extend(extra_dirs.iter().cloned());
     // A dependency package with an `application` floor sees the `Application` aggregate and what it depends on, as
     // alc compiles it (`a_dependency_package_with_an_application_floor_sees_the_application`: Tests-TestLibraries
     // names Base Application's `Notification Context` without declaring Base Application). The corpus apps declare
     // their own dependencies; the flag changes only what the packages see.
-    load_project(&project, &workspace_apps, &search_dirs, provision, None, true)
+    load_project(&project, &workspace_apps, search, provision, None, true)
 }
 
 /// `project` with the apps BC's test environment has installed although no test app declares them: Microsoft's Test
@@ -634,7 +649,7 @@ mod tests {
         let project = tmp.path().join("project");
         std::fs::create_dir_all(&project).unwrap();
         std::fs::write(project.join("app.json"), json("p", &[])).unwrap();
-        let deps = load_with_extra(&project, &[], &[lib], None, &[("lib".into(), "Lib".into())]).unwrap();
+        let deps = load_corpus(&project, &[], &[lib], None, &[("lib".into(), "Lib".into())]).unwrap();
         let app = deps.apps.iter().find(|a| a.id == "lib").expect("lib loaded");
         assert!(
             app.dependencies
@@ -643,6 +658,29 @@ mod tests {
             "{:?}",
             app.dependencies
         );
+    }
+
+    /// ADR-013 amendment of 2026-11-10: a corpus run does not search the `.alpackages` of the corpus app, and an
+    /// ordinary project still does. The folder here is an app folder (it holds an `app.json`), which a search list
+    /// entry may be (`al_deps::load::scan_path`), so the test needs no compiled package.
+    #[test]
+    fn a_corpus_run_does_not_search_the_alpackages_of_the_corpus_app() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project = tmp.path().join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(project.join("app.json"), json("p", &["staged"])).unwrap();
+        app_folder(
+            &project,
+            ".alpackages",
+            r#"{"id":"staged","name":"Staged","publisher":"Microsoft","version":"27.5.0.0","dependencies":[]}"#,
+            &[("Staged.Codeunit.al", "codeunit 50100 Staged { }")],
+        );
+        let names = |d: &Dependencies| d.apps.iter().map(|a| a.name.clone()).collect::<Vec<_>>();
+        let as_project = load_with(&project, &[], &[], None).unwrap();
+        assert_eq!(names(&as_project), ["Staged"], "{:?}", as_project.log);
+        let as_corpus = load_corpus(&project, &[], &[], None, &[]).unwrap();
+        assert!(names(&as_corpus).is_empty(), "{:?}", names(&as_corpus));
+        assert_eq!(as_corpus.skipped, ["`staged` by X"], "{:?}", as_corpus.log);
     }
 
     /// An AL source app passed with `--dep` hands its data files to the manifest, so NavApp.LoadPackageData in its install
@@ -659,7 +697,7 @@ mod tests {
         std::fs::create_dir_all(lib.join("res")).unwrap();
         std::fs::write(lib.join("res/Tab50100.navxdata"), b"data").unwrap();
         let project = app_folder(tmp.path(), "project", &json("p", &["lib"]), &[]);
-        let deps = load(&project, &[], &[lib]).unwrap();
+        let deps = load_with(&project, &[], &[lib], None).unwrap();
         let i = deps.apps.iter().position(|a| a.id == "lib").expect("lib loaded");
         assert!(deps.manifests[i].package_data);
         assert_eq!(

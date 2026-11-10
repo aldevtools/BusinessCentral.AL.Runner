@@ -19,8 +19,9 @@ AL source
 Anything the pipeline cannot handle is refused. Lowering records a reason per
 routine, and the runner reports a test as **not run** if anything it can reach
 statically is refused. What can only be discovered while running raises
-`Signal::Unsupported`, which is also reported as not run. Nothing unsupported
-runs with a guessed behaviour.
+`Signal::Unsupported`, which is also reported as not run. Both carry a `Refusal`
+(ADR-071): the text for the user and a stable key (`legacy` for free text).
+Nothing unsupported runs with a guessed behaviour.
 
 The IR is compiled to register bytecode per routine on its first call (ADR-034); the bytecode is the only executor
 (the tree walker was retired on 2026-10-16).
@@ -33,13 +34,14 @@ The IR is compiled to register bytecode per routine on its first call (ADR-034);
 | `al-sema` | Workspace of apps and objects with namespace resolution; members (fields, keys, CalcFormula, TableRelation, page controls); type checker; lowering to IR |
 | `al-builtins` | Builtin catalog, generated from the corpus surface file plus evidence-backed overrides, keyed by overload id (`Record.Insert#2`); the value model; natives for text, format/evaluate, filters, JSON, XML, streams, collections, refs |
 | `al-ir` | Typed IR: program, objects, routines, places, expressions, table and page schemas |
-| `al-vm` | Engine (immutable, `Arc`) and Session (all mutable state). Records, triggers, events and subscribers, FlowFields, AutoIncrement, RecordRef/FieldRef, relations and rename propagation, UI dialogs and handlers, the headless page client |
+| `al-vm` | Engine (immutable, `Arc`) and Session (all mutable state). Records, triggers, events and subscribers, FlowFields, AutoIncrement, RecordRef/FieldRef, relations and rename propagation, UI dialogs and handlers, the headless page client and its state (`pages/state/mod.rs`; a `Value::TestPage` holds it behind an opaque handle, ADR-072) |
 | `al-data` | The `Store` trait (ADR-003), `MemStore` on `im` persistent maps, and its contract suite |
 | `al-host` | Capability traits for the host (ADR-006): `Clock` and `Identity` with AL Runner's defaults (ADR-013); the session reads them for `Today`, `UserId`, the system field stamps and the like. The command line injects the system clock (`al-test-cli/src/host.rs`). Also `DotNetHost` / `DotNetSession` and the default `NoDotNet` (ADR-014) |
 | `al-deps` | Dependency apps (ADR-013): version selection, the ZIP and NAVX reader (CRC checked), the `.alpackages` pool. May touch the OS |
 | `al-bcdb` | Reads BC data straight from a SQL Server backup (`.bak`) or a cloud export (`.bacpac`): backup container, page map, system catalog, row and page decompression, off-page BLOBs, zip and `model.xml`, native BCP rows. A port of the owner's `bcdb` (C#). Core crate: works on a `ByteSource`, no OS access (ADR-006). Not wired into test runs yet; ADR-020 proposes how. See `docs/bcdb.md` |
 | `al-bcdb-std` | The OS side of `al-bcdb`: the pread file source and `BackupProvider`, the table provider behind `al-runner test --test-data` (ADR-020). May touch the OS |
 | `al-bcdb-cli` | The `al-bcdb` development command line: the bcdb read commands over `al-bcdb`, a parallel `export`, and the parity tests against the published bcdb. May touch the OS |
+| `al-testfiles` | Dev-dependency only: the path of a Microsoft file of the pinned build in the artifact cache, for tests (ADR-013 amendment of 2026-11-10). Tests never download; a missing file fails with the `--fetch-deps` command |
 | `al-test-cli` | Corpus discovery, oracle reading, the BC test-runner semantics, reports (text, Markdown, JSON, JUnit), the ratchet; `SidecarHost` (`dotnet.rs`), the one place that starts a process (the .NET sidecar) |
 
 ## Runtime model

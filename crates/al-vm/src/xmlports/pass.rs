@@ -145,6 +145,14 @@ impl Session {
             usize::MAX
         };
         self.xp_rows_upto(inst, schema, node, &mut rows, cap)?;
+        // The table element of a `value_then_table_root` (plain_tree.rs) is pinned with one row (XpTextValueNestedTable.al:1535
+        // XTT_RootTableValue_Export, :1559 XTT_RowDirect_Export, :1571 XTT_RootTableAfterOnly_Export).
+        if rows.len() != 1 && n.parent.is_some_and(|p| value_then_table_root(schema, p)) {
+            return unsupported(format!(
+                "XmlPort export of table element {} after a text element right below the root table element, with no row or more than one (not pinned)",
+                n.name
+            ));
+        }
         // LinkTable naming the table element right before it: the lines of the header element's record as its loop left it (the
         // last header) are written, and none without a header row (xmlports/shapes-properties/R6924eLinkSibling.al:224
         // LinkSibling_Export_TwoHeaders, :240 LinkSibling_Export_NoHeader). A header record whose link fields hold their initial

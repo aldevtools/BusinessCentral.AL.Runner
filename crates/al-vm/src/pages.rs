@@ -8,10 +8,10 @@
 
 use crate::{Engine, Session, UiKind};
 use al_builtins::describe::Describe;
-use al_builtins::native::{AlError, Signal};
+use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::pagefmt::{self, Blank, ControlFormat};
-use al_builtins::value::{ControlRef, ControlTarget, Cursor, PageMode, PageState, RecordState, RtType, Value};
+use al_builtins::value::{RecordState, RtType, Value};
 use al_data::Store as _;
 use al_ir as ir;
 use rust_decimal::prelude::ToPrimitive;
@@ -66,10 +66,6 @@ fn error_code(message: impl Into<String>, code: &str) -> Signal {
 /// `Ignore Status on Service Docs.` of page extension 6478 (1790009997).
 pub(crate) fn control_id(object_id: u32, name: &str) -> i64 {
     request::action_id(object_id, name)
-}
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
 }
 
 fn page_of<'a>(engine: &'a Engine, st: &St) -> &'a ir::Page {
@@ -178,12 +174,13 @@ mod part_tree_typed;
 mod parts;
 mod qualified_name;
 mod read_backwards;
+mod relation_lookup;
 mod text_control_value;
 use text_control_value::TextConv;
 pub(crate) mod request;
 mod request_expr_params;
 pub(crate) mod request_options;
-pub(crate) use request::RequestClosed;
+pub(crate) use request::{ParamsCall, RequestClosed};
 mod access_by_permission;
 mod action_blob_change;
 mod actions;
@@ -211,6 +208,7 @@ mod gone_after_action;
 mod gone_new_line;
 mod gone_read_only_list;
 mod gotokey_find;
+mod held_page_part;
 mod host_follows;
 mod inserted_rows;
 mod list_refresh;
@@ -245,30 +243,33 @@ mod rows_client;
 mod runobject;
 mod server_row_lag;
 mod shown;
+pub(crate) mod state;
 mod table_values_allowed;
 mod test_end;
 mod typed_handler_temp;
 pub(crate) use shown::ShownNote;
+pub(crate) use state::{
+    ClosedBy, ControlRef, ControlTarget, Cursor, LookupKind, PageMode, PageState, ReadBackwards, WindowRow, control_of,
+    into_st, page_value, st_of, test_control,
+};
 
 impl Session {
     /// `TP.Ctl`: a handle on control `control` of the test page `page`.
     pub(crate) fn page_control(&mut self, page: Value, control: usize, runtime: bool) -> Result<Value, Signal> {
         match page {
             Value::TestPage(p) => {
+                let p = into_st(p);
                 // A part control reads as the page it shows (a `TestPart`).
                 let is_part = {
                     let engine = self.engine();
                     page_of(&engine, &p).controls[control].kind == ir::ControlKind::Part
                 };
                 if is_part {
-                    return self.part_page(&p, control, runtime).map(Value::TestPage);
+                    return self.part_page(&p, control, runtime).map(|part| page_value(&part));
                 }
-                Ok(Value::TestControl(Rc::new(ControlRef {
-                    page: p,
-                    target: ControlTarget::Control(control),
-                })))
+                Ok(test_control(p, ControlTarget::Control(control)))
             }
-            other => Err(Signal::Unsupported(format!("control of {}", other.describe()))),
+            other => Err(Signal::unsupported(format!("control of {}", other.describe()))),
         }
     }
 

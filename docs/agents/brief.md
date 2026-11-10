@@ -11,6 +11,10 @@ Your task prompt holds only the task. Read both files from YOUR worktree: the ma
 3. Read `docs/codemap.md` for your crates and the ADR your task names. Do not read all docs.
    Use the LSP tool (`documentSymbol`, `findReferences`) before you read a file over 500 lines.
 4. Build once: `cargo build --release`. Use the binary. `al-test-cli --help` lists every flag.
+5. Once per machine: `./target/release/al-test-cli --root . --all-versions --fetch-deps` fills the artifact cache with
+   Microsoft's apps of the pinned builds (`~/.cache/al-runtime/artifacts`, shared by every worktree). Corpus runs and
+   the Rust tests that read a Microsoft file take them only from there; a test never downloads and fails with this
+   command when a file is missing. Run it again after `bc_build` in `oracle/oracle.toml` moves.
 
 ## Rules
 1. **Cite or refuse.** Every behavior you add or change has a corpus `file:line` in a code comment.
@@ -54,6 +58,16 @@ Your task prompt holds only the task. Read both files from YOUR worktree: the ma
 16. **Commit messages** say what changed and why, in plain American English. End them with the
     session attribution line the orchestrator gives in your prompt.
 
+## Refusals (ADR-071)
+A refusal from free text: `unsupported(text)` or `Signal::unsupported(text)`.
+`Signal::Unsupported(format!(..))` does not compile. Do not add a private `fn unsupported`.
+A new refusal may take a key: one file in `src/refusals/` of the crate that refuses (owner decision: one list per
+crate; the file name is the key), then `unsupported(refuse!(keys::NAME, "text {name}", name = value))`, and
+`al-test-cli --root . --refusals-doc`. Only `al-builtins` has a list today: a crate that starts one copies the
+`refusal_keys` part of `al-builtins/build.rs`, calls `al_builtins::refusal_keys!`, and adds its row to `LISTS` in
+`al-test-cli/src/refusal_keys.rs` (a test fails without it). A key that two crates use sits in the lowest crate both
+depend on.
+
 ## Before you hand back, in this order
 1. `git fetch && git merge origin/main`.
 2. `./target/release/al-test-cli --root . --baseline-diff --bc-version N` for N = 27, 28 and 29
@@ -83,6 +97,13 @@ Your task prompt holds only the task. Read both files from YOUR worktree: the ma
 - Needs probe. Needs CI observation.
 - Decisions you took without the owner.
 Under 200 words plus the table.
+
+## Moved code
+- **Page state** (ADR-072): `PageState`, `PageMode`, `WindowRow`, `Cursor`, `ReadBackwards`, `ControlRef` and `ControlTarget`
+  live in `crates/al-vm/src/pages/state/mod.rs`, not in `crates/al-builtins/src/value.rs`. A branch that added a field in
+  `value.rs`: after you merge `main`, put the field into `state/mod.rs`. It starts at its type's default; `PageState::closed`
+  gets a line only for another starting value. `Value::TestPage` and
+  `Value::TestControl` hold a handle: read it with `st_of` / `control_of`, build a value with `page_value` / `test_control`.
 
 ## Other files
 - `docs/agents/assumptions.md`: register an unprobed behavior.

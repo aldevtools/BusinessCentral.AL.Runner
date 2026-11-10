@@ -1,0 +1,51 @@
+name: Microsoft apps from the artifact feed
+description: >
+  ADR-013 Layer A and the amendment of 2026-11-10: every Microsoft app comes from the build oracle/oracle.toml pins,
+  read from the artifact cache. This action fills that cache for a job: it asks which builds are pinned, restores the
+  cache entry of those builds, and fetches what is missing from Microsoft's feed by range reads (about 41 MB per BC
+  build out of a 1.3 GB artifact). Nothing is committed. The corpus runs and the Rust tests that read a Microsoft file
+  (al-testfiles) both need it; the tests never download and fail when a file is missing.
+
+inputs:
+  binary:
+    description: The built al-test-cli binary.
+    default: ./target/release/al-test-cli
+  versions:
+    description: >
+      The version selection passed to al-test-cli: "--all-versions" (every BC major of the oracle) or
+      "--bc-version N". The cache key names the builds of this selection, so a job that fetches one major does not
+      save an entry under the key of all of them.
+    default: --all-versions
+
+outputs:
+  key:
+    description: The pinned builds of the selection in one word, for the key of another cache that depends on them.
+    value: ${{ steps.bc.outputs.key }}
+
+runs:
+  using: composite
+  steps:
+    # `--print-builds` reads only the 90 KB index: one line per version, `<major> <build>`. The cache is keyed by these
+    # lines, so a run on known builds makes no request for the artifact.
+    - name: Pinned BC builds
+      id: bc
+      shell: bash
+      env:
+        BINARY: ${{ inputs.binary }}
+        VERSIONS: ${{ inputs.versions }}
+      run: |
+        # shellcheck disable=SC2086  # VERSIONS is a flag and its value
+        "$BINARY" $VERSIONS --print-builds | tee "$RUNNER_TEMP/bc-builds.txt"
+        echo "key=$(tr ' \n' '--' < "$RUNNER_TEMP/bc-builds.txt")" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@v4
+      with:
+        path: ~/.cache/al-runtime/artifacts
+        key: bc-artifacts-v2-${{ steps.bc.outputs.key }}
+    - name: Fetch dependency apps (warms the cache)
+      shell: bash
+      env:
+        BINARY: ${{ inputs.binary }}
+        VERSIONS: ${{ inputs.versions }}
+      run: |
+        # shellcheck disable=SC2086
+        "$BINARY" $VERSIONS --fetch-deps

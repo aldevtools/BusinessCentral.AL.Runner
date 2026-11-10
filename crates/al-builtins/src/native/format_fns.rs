@@ -24,7 +24,7 @@ pub(super) fn option_caption_ml(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mu
         return unsupported("OptionCaptionML without an Option value and its property text");
     };
     let list = crate::format::ml_text_in_language(ml.as_str(), ctx.language())
-        .map_err(|e| Signal::Unsupported(format!("OptionCaptionML {e}")))?;
+        .map_err(|e| Signal::unsupported(format!("OptionCaptionML {e}")))?;
     let captions: Vec<String> = list.split(',').map(str::to_string).collect();
     if captions.len() != names.len() {
         return unsupported("OptionCaptionML with another number of entries than the members (not pinned)");
@@ -107,7 +107,7 @@ pub(super) fn format_decimal_field(
                     (Value::Decimal(d), Some(places)) if covered_field_template(t) => {
                         format_field_string(ctx, *d, len, t, places)
                     }
-                    _ => Err(Signal::Unsupported(format!(
+                    _ => Err(Signal::unsupported(format!(
                         "Format of a Decimal field with DecimalPlaces or an AutoFormat with the format string `{t}` (not pinned)"
                     ))),
                 };
@@ -121,7 +121,7 @@ pub(super) fn format_decimal_field(
         // 663-723: 1234.5678, -0.005), and for format 0 on any value (text/text-methods/RwDecimalFieldPlaces.al:83
         // `Amt1NoExpr`: 70, 0, 1234.5 give `70.00`, `0.00`, `1,234.50` from BC 28).
         if gated && (std == 1 || (std != 0 && d.normalize().scale() < 2)) {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "Format of an amount field (AutoFormatType 1 without AutoFormatExpression) of {d} in format {std} (not pinned)"
             )));
         }
@@ -130,7 +130,7 @@ pub(super) fn format_decimal_field(
         // (AtPrecisionStandardFormat2.al:684-723, `b default`, `b S2`, `b number 2`, `b number 9`); format 1 is not pinned.
         if d.is_sign_negative() && !d.is_zero() && !text.starts_with('-') {
             if std == 1 {
-                return Err(Signal::Unsupported(format!(
+                return Err(Signal::unsupported(format!(
                     "Format 1 of a Decimal field with places of {d}, a negative value that rounds to zero (not pinned)"
                 )));
             }
@@ -175,7 +175,7 @@ pub(super) fn format_field_string(
     // Only `<Sign>` shows the minus of a negative value that rounds to zero (`-0`, `-0.00`), no other code does
     // (R6901DecimalFieldFormat.al, v8 of the `<Sign><Integer><Decimal>` and `<Integer><Decimal>` strings); the standard formats are not measured.
     if rounded.is_zero() && d.is_sign_negative() && !d.is_zero() && template.starts_with("<Standard Format,") {
-        return Err(Signal::Unsupported(format!(
+        return Err(Signal::unsupported(format!(
             "Format of a Decimal field with places {min}:{max} of {d}, a negative value that rounds to zero, with `{template}` (not pinned)"
         )));
     }
@@ -264,14 +264,14 @@ pub(super) fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Val
     // length of 5). Other format numbers are not pinned.
     if matches!(&args[0], Value::TestControl(_)) {
         if !matches!(std, 0 | 1 | 2 | 9) {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "Format of a TestPage control with standard format {std} (only 0, 1, 2 and 9 are pinned)"
             )));
         }
         let mut control = args[0].clone();
         let shown = ctx.page(crate::page_op::PageOp::TestFieldValue, Some(&mut control), &mut [])?;
         if !matches!(shown, Value::Text(_)) {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "Format of a TestPage control whose value is {} (not pinned)",
                 shown.describe()
             )));
@@ -315,7 +315,7 @@ pub(super) fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Val
                 crate::value::LibraryValue::FieldRef(..) | crate::value::LibraryValue::KeyFieldRef(..)
             ) {
                 if !matches!(std, 1 | 2 | 9) {
-                    return Err(Signal::Unsupported(format!(
+                    return Err(Signal::unsupported(format!(
                         "Format of a FieldRef with standard format {std} (only 1, 2 and 9 are pinned)"
                     )));
                 }
@@ -364,7 +364,7 @@ pub(super) fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Val
                 };
                 return match out {
                     Some(o) => Ok(Value::Text(o.into())),
-                    None => Err(Signal::Unsupported(format!(
+                    None => Err(Signal::unsupported(format!(
                         "Format of a FieldRef of {} with length {len} (only the cut and the padding of P129FormatFieldRef.al are pinned)",
                         value.describe()
                     ))),
@@ -411,7 +411,7 @@ pub(super) fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Val
 
 fn format_fail(f: FormatFail) -> Signal {
     match f {
-        FormatFail::Unsupported(s) => Signal::Unsupported(s),
+        FormatFail::Unsupported(s) => Signal::unsupported(s),
         FormatFail::Error { message, code } => Signal::Error(Box::new(AlError {
             message,
             code,
@@ -468,7 +468,7 @@ pub(super) fn format_string_out(r: Result<String, String>, language: i32) -> Res
                     call_stack: String::new(),
                     ..Default::default()
                 })),
-                None => Signal::Unsupported(e),
+                None => Signal::unsupported(e),
             },
         })
 }

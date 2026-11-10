@@ -113,15 +113,19 @@ fn run() -> Result<ExitCode, String> {
         al_test_cli::host::set_files_dir(dir.clone());
     }
     let root = args.root.clone().unwrap_or_else(|| PathBuf::from("."));
-    if args.assumptions_doc {
+    if args.assumptions_doc || args.refusals_doc {
         let path = root.join("docs/probes-needed.md");
         let text = read(&path)?;
-        let new = al_builtins::assumptions::probes_needed_doc(&text)?;
+        let (new, what) = if args.assumptions_doc {
+            (al_builtins::assumptions::probes_needed_doc(&text)?, "assumptions")
+        } else {
+            (al_test_cli::refusal_keys::probes_needed_doc(&text)?, "refusal keys")
+        };
         if new != text {
             write(&path, &new)?;
         }
         println!(
-            "{}: assumptions table {}",
+            "{}: {what} table {}",
             path.display(),
             if new == text { "current" } else { "rewritten" }
         );
@@ -1028,7 +1032,8 @@ fn run_version_inner(
             local_artifacts: None,
             country: String::new(),
         };
-        let deps = deps::load_with_extra(
+        // ADR-013 amendment of 2026-11-10: the corpus tree's `.alpackages` is not searched (`deps::load_corpus`).
+        let deps = deps::load_corpus(
             &root.join(&cfg.corpus_app),
             &corpus_deps,
             &args.deps,
@@ -1054,7 +1059,7 @@ fn run_version_inner(
                     &u.build,
                 )?;
             }
-            None => println!("bc build: none needed (every dependency came from .alpackages or --deps)"),
+            None => println!("bc build: none needed (every dependency came from --deps)"),
         }
         kinds.extend(deps.apps.iter().map(|_| al_sema::AppKind::Dependency));
         layout_sources = deps.layout_sources();
@@ -1210,6 +1215,7 @@ fn run_version_inner(
         process_ends_after,
         // The corpus checks permissions where it pins them: a test that lowers its own is never run without them.
         ignore_permission_mock: false,
+        no_client: args.no_client,
         // The corpus run is the conformance result: an unpinned error text is never reported as a failure (issue 6487).
         report_unpinned_errors: false,
         permissions_off: false,
@@ -1727,10 +1733,11 @@ fn report_check(t: &Target, path: &Path, c: &not_passing::Check, pruned: bool) {
     }
     if !pruned && c.stale().next().is_some() {
         eprintln!(
-            "BC {}: {} stale line(s) in {}: delete them with `al-test-cli --root . --prune-not-passing`:",
+            "BC {}: {} stale line(s) in {}: delete them with `al-test-cli --root . --prune-not-passing --bc-version {}`:",
             t.label,
             c.stale_passing.len() + c.stale_gone.len(),
-            path.display()
+            path.display(),
+            t.major
         );
         for x in &c.stale_passing {
             eprintln!("  {} {}  [passes]", x.codeunit, x.name);

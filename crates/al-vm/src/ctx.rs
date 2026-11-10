@@ -149,9 +149,9 @@ impl al_builtins::native::Ctx for Session {
     }
     fn clear_test_page(
         &mut self,
-        st: &std::rc::Rc<std::cell::RefCell<al_builtins::value::PageState>>,
-    ) -> Result<(), Signal> {
-        Session::clear_test_page(self, st)
+        page: &al_builtins::page_handle::PageHandle,
+    ) -> Result<al_builtins::page_handle::PageHandle, Signal> {
+        self.cleared_test_page(page)
     }
     fn now_unix_millis(&self) -> Option<i64> {
         Some(self.now_millis())
@@ -196,7 +196,7 @@ impl al_builtins::native::Ctx for Session {
                 let rc = rc.clone();
                 self.record_op_from_al(method, &rc, args)
             }
-            other => Err(Signal::Unsupported(format!(
+            other => Err(Signal::unsupported(format!(
                 "record method {method} on {}",
                 other.describe()
             ))),
@@ -208,7 +208,7 @@ impl al_builtins::native::Ctx for Session {
                 let rc = rc.clone();
                 Session::record_validate_variant(self, &rc, args)
             }
-            other => Err(Signal::Unsupported(format!("Record.Validate on {}", other.describe()))),
+            other => Err(Signal::unsupported(format!("Record.Validate on {}", other.describe()))),
         }
     }
     fn page(
@@ -541,7 +541,7 @@ impl al_builtins::native::Ctx for Session {
             return Some(Ok(None));
         };
         let Some(def) = self.engine.tables.get(*object).cloned().flatten() else {
-            return Some(Err(Signal::Unsupported(format!(
+            return Some(Err(Signal::unsupported(format!(
                 "Evaluate into TableFilter of a table that was not compiled ({table})"
             ))));
         };
@@ -557,7 +557,7 @@ impl al_builtins::native::Ctx for Session {
                         }
                         Err(format!("the caption of field {} is a CaptionClass", f.name))
                     }
-                    Err(Signal::Unsupported(why)) => Err(why),
+                    Err(Signal::Unsupported(why)) => Err(why.into_reason()),
                     Err(_) => Err(format!("the caption of field {}", f.name)),
                 };
                 let options = match &f.ty {
@@ -565,7 +565,7 @@ impl al_builtins::native::Ctx for Session {
                         match self.members_of_field(&def, pos) {
                             Ok(Some((_, members))) => Ok(Some(members)),
                             Ok(None) => Err(format!("the members of Option field {}", f.name)),
-                            Err(Signal::Unsupported(why)) => Err(why),
+                            Err(Signal::Unsupported(why)) => Err(why.into_reason()),
                             Err(_) => Err(format!("the members of Option field {}", f.name)),
                         }
                     }
@@ -716,7 +716,7 @@ impl Session {
 }
 
 pub(crate) fn base_slot_missing(slot: usize) -> Signal {
-    Signal::Unsupported(format!(
+    Signal::unsupported(format!(
         "internal error: the base object's instance has no global slot {slot}"
     ))
 }

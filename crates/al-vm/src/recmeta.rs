@@ -4,7 +4,7 @@
 
 use crate::Session;
 use al_builtins::describe::Describe;
-use al_builtins::native::{AlError, Signal};
+use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{RecordState, RtType, Value};
@@ -14,10 +14,6 @@ use std::cmp::Ordering;
 use std::rc::Rc;
 
 type Rec = Rc<RefCell<RecordState>>;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 /// [`error`] with the text `GetLastErrorText(true)` answers for it.
 fn error_redacted(message: String, code: &str, redacted: String) -> Signal {
@@ -161,7 +157,7 @@ impl Session {
                         .find(|(ord, _, _)| ord == o)
                         .map_or_else(|| o.to_string(), |(_, _, caption)| caption.clone()))
                 }
-                _ => al_builtins::format::try_format(value, 0, 0, self).map_err(Signal::Unsupported),
+                _ => al_builtins::format::try_format(value, 0, 0, self).map_err(Signal::unsupported),
             }
         };
         if let Some(pos) = only {
@@ -237,11 +233,11 @@ impl Session {
             // Expressions_FieldRefCaption).
             WrittenCaption::Expr(expr) => {
                 let class = self.field_caption_class_value(t, pos, rec, &expr)?;
-                let kind = expression_class(&t.fields[pos].name, &class)?;
-                match kind {
+                match expression_class(&class) {
                     ExprCaption::FieldCaption => Ok(self.field_caption(t, pos)),
                     ExprCaption::Text(c) => self.expression_text_caption(&class, c),
                     ExprCaption::Translate => self.caption_class_translate(&class),
+                    ExprCaption::Plain => self.expression_plain_caption(&t.fields[pos].name, &class),
                 }
             }
         }
@@ -379,11 +375,11 @@ impl Session {
             // A Duration reads as Format gives it: `41 days 16 hours`, `1 second`, the zero Duration as nothing (`''` in a filter
             // text; recordref-fieldref/fieldref/TestFieldRefFilter.al FieldRef_SetFilter_Zero_Duration, corpus PR 1248).
             | Value::Duration(_)
-            | Value::DateFormula(_) => al_builtins::format::try_format(v, 0, 0, self).map_err(Signal::Unsupported),
+            | Value::DateFormula(_) => al_builtins::format::try_format(v, 0, 0, self).map_err(Signal::unsupported),
             // A RecordId reads as Format gives it (`Table: key`, record/TestProbeRecordRefContracts.al:472-502); an error
             // message shows it the same way (record/filters/RecordIdInMessage.al:P168_Error_RecordIdAsArgument_PlainKey and siblings).
             Value::Library(al_builtins::library_kind::LibraryKind::RecordId, _) => {
-                al_builtins::format::try_format(v, 0, 0, self).map_err(Signal::Unsupported)
+                al_builtins::format::try_format(v, 0, 0, self).map_err(Signal::unsupported)
             }
             other => unsupported(format!("a {} value in an error message", other.describe())),
         }
@@ -1583,7 +1579,7 @@ impl Session {
                     .as_ref()
                     .expect("table");
                 if let Some(why) = &from_schema.fields[sp].tdd_length_unknown {
-                    return Err(Signal::Unsupported(why.clone()));
+                    return Err(Signal::unsupported(why.clone()));
                 }
                 return Err(self.transfer_too_small(rec, t, &from, (dp, sp), updates));
             }
@@ -1861,7 +1857,7 @@ impl Session {
                         after: None,
                     },
                 )
-                .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                .map_err(|e| Signal::unsupported(format!("{e}")))?
         };
         match found {
             Some(row) => {
@@ -1888,7 +1884,7 @@ impl Session {
             // (PXEnumRecordRef.al:264-267; the probe masks what stands between the braces, here
             // the Guid as Format writes it: docs/probes-needed.md).
             None => {
-                let id = al_builtins::format::try_format(&Value::Guid(*g), 0, 0, self).map_err(Signal::Unsupported)?;
+                let id = al_builtins::format::try_format(&Value::Guid(*g), 0, 0, self).map_err(Signal::unsupported)?;
                 Err(Signal::Error(Box::new(AlError {
                     message: format!(
                         "The {} does not exist. Identification fields and values: {id}",
@@ -2005,7 +2001,9 @@ impl Session {
                 let r = rec.borrow();
                 RecordState {
                     fields: row,
-                    filters: Vec::new(),
+                    // The caller's filters and current key stay: the Rec and xRec of the modify events show them (corpus
+                    // record/events/Y7408XRecInModifyEvent.al:310 `ModifyAll(true) under a filter`, al-runner issue 7408).
+                    filters: r.filters.clone(),
                     marks: Vec::new(),
                     marked_only: false,
                     position: None,
@@ -2373,19 +2371,19 @@ pub(crate) enum ExprCaption {
     /// A numeric area other than 3, or an empty one: the platform translates it as a literal ('2,0,x', '5,3,', '9,x', '2,x',
     /// '101,0,..', '1,1,1', QdCaptionClassAreas.al:262-296).
     Translate,
+    /// A text with no comma, or with an area that is not a number: the caption is the text as it is
+    /// (`Session::expression_plain_caption`).
+    Plain,
 }
 
-/// The reading of field `field`'s CaptionClass expression result `class`. A text with no comma and an area that is not a
-/// number are not pinned for an expression: refused.
-pub(crate) fn expression_class(field: &str, class: &str) -> Result<ExprCaption, Signal> {
+/// The reading of a CaptionClass expression's result `class`.
+pub(crate) fn expression_class(class: &str) -> ExprCaption {
     match class.split_once(',') {
-        _ if class.is_empty() => Ok(ExprCaption::FieldCaption),
-        Some(("3", "")) => Ok(ExprCaption::FieldCaption),
-        Some(("3", rest)) => Ok(ExprCaption::Text(rest.to_string())),
-        Some((area, _)) if area.is_empty() || area.trim().parse::<u32>().is_ok() => Ok(ExprCaption::Translate),
-        _ => unsupported(format!(
-            "the caption of field {field} whose CaptionClass expression gives `{class}` (an area that is not a number, or no comma, is not pinned)"
-        )),
+        _ if class.is_empty() => ExprCaption::FieldCaption,
+        Some(("3", "")) => ExprCaption::FieldCaption,
+        Some(("3", rest)) => ExprCaption::Text(rest.to_string()),
+        Some((area, _)) if area.is_empty() || area.trim().parse::<u32>().is_ok() => ExprCaption::Translate,
+        _ => ExprCaption::Plain,
     }
 }
 
@@ -2399,7 +2397,7 @@ pub(crate) fn tdd_fits(f: &al_ir::Field, v: &Value) -> Result<(), Signal> {
         return Ok(());
     };
     match v {
-        Value::Text(s) | Value::Code(s) if Value::text_len(s) > max as usize => Err(Signal::Unsupported(why.clone())),
+        Value::Text(s) | Value::Code(s) if Value::text_len(s) > max as usize => Err(Signal::unsupported(why.clone())),
         _ => Ok(()),
     }
 }

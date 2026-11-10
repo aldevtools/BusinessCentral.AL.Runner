@@ -3,6 +3,7 @@
 //! on Base Application takes about ten thousand objects from the cache and reads the lists of a few.
 
 use crate::provided::DepSource;
+use al_builtins::refusal::Refusal;
 use std::sync::Arc;
 
 /// The facts of the objects a compile cache supplies.
@@ -19,16 +20,16 @@ impl CachedFacts {
     }
 }
 
-/// Per object, per routine: why it cannot run (empty = it can). Indexes and iterates as a `Vec<Vec<Vec<String>>>`.
+/// Per object, per routine: why it cannot run (empty = it can). Indexes and iterates as a `Vec<Vec<Vec<Refusal>>>`.
 #[derive(Clone, Default)]
 pub struct Refusals {
     /// The lists of the objects lowered here; empty for an object read from `cached`.
-    own: Vec<Vec<Vec<String>>>,
+    own: Vec<Vec<Vec<Refusal>>>,
     cached: Option<CachedFacts>,
 }
 
 impl Refusals {
-    pub(crate) fn new(own: Vec<Vec<Vec<String>>>, cached: Option<CachedFacts>) -> Refusals {
+    pub(crate) fn new(own: Vec<Vec<Vec<Refusal>>>, cached: Option<CachedFacts>) -> Refusals {
         Refusals { own, cached }
     }
 
@@ -40,18 +41,18 @@ impl Refusals {
         self.own.is_empty()
     }
 
-    pub fn get(&self, o: usize) -> Option<&Vec<Vec<String>>> {
+    pub fn get(&self, o: usize) -> Option<&Vec<Vec<Refusal>>> {
         (o < self.own.len()).then(|| &self[o])
     }
 
-    pub fn iter(&self) -> impl ExactSizeIterator<Item = &Vec<Vec<String>>> + '_ {
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = &Vec<Vec<Refusal>>> + '_ {
         (0..self.own.len()).map(move |o| &self[o])
     }
 }
 
 impl std::ops::Index<usize> for Refusals {
-    type Output = Vec<Vec<String>>;
-    fn index(&self, o: usize) -> &Vec<Vec<String>> {
+    type Output = Vec<Vec<Refusal>>;
+    fn index(&self, o: usize) -> &Vec<Vec<Refusal>> {
         match &self.cached {
             Some(c) if c.has(o) => &c.src.facts(o).unsupported,
             _ => &self.own[o],
@@ -61,7 +62,7 @@ impl std::ops::Index<usize> for Refusals {
 
 impl std::ops::IndexMut<usize> for Refusals {
     /// Only an object lowered here changes (the incremental compile renews workspace objects).
-    fn index_mut(&mut self, o: usize) -> &mut Vec<Vec<String>> {
+    fn index_mut(&mut self, o: usize) -> &mut Vec<Vec<Refusal>> {
         assert!(
             !self.cached.as_ref().is_some_and(|c| c.has(o)),
             "the refusals of an object the cache supplies do not change"
@@ -71,8 +72,8 @@ impl std::ops::IndexMut<usize> for Refusals {
 }
 
 impl<'a> IntoIterator for &'a Refusals {
-    type Item = &'a Vec<Vec<String>>;
-    type IntoIter = Box<dyn ExactSizeIterator<Item = &'a Vec<Vec<String>>> + 'a>;
+    type Item = &'a Vec<Vec<Refusal>>;
+    type IntoIter = Box<dyn ExactSizeIterator<Item = &'a Vec<Vec<Refusal>>> + 'a>;
     fn into_iter(self) -> Self::IntoIter {
         Box::new(self.iter())
     }

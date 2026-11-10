@@ -809,7 +809,7 @@ fn run_in(vars: &str, body: &str, extra: &str, seed: Option<&str>) -> Result<Val
         .position(|r| r.name == "F")
         .unwrap();
     if let Some(Some(r)) = blocked.get(oi).and_then(|o| o.get(ri)) {
-        return Err(Signal::Unsupported(r.clone()));
+        return Err(Signal::unsupported(r.clone()));
     }
     let mut s = al_testkit::session(l);
     let inst = s.instance(oi);
@@ -834,7 +834,7 @@ fn text(vars: &str, body: &str) -> String {
 
 fn refusal(vars: &str, body: &str) -> String {
     match run(vars, body) {
-        Err(Signal::Unsupported(r)) => r,
+        Err(Signal::Unsupported(r)) => r.into_reason(),
         other => panic!("expected a refusal, got {other:?}"),
     }
 }

@@ -3,8 +3,8 @@
 //! and 5780): what the client reads afterwards and which row it shows.
 
 use super::*;
+use crate::pages::WindowRow;
 use al_builtins::record_op::RecordOp;
-use al_builtins::value::WindowRow;
 
 impl Session {
     /// The pinned shape: a top-level Worksheet over a temporary source in its primary key without filters, with OnAfterGetRecord
@@ -102,7 +102,7 @@ impl Session {
     }
 
     /// Reads row `fields` with OnAfterGetRecord and gives the row the client then holds.
-    fn read_refilled_row(&mut self, st: &St, rec: &Rec, fields: &[Value]) -> Result<WindowRow, Signal> {
+    pub(super) fn read_refilled_row(&mut self, st: &St, rec: &Rec, fields: &[Value]) -> Result<WindowRow, Signal> {
         rec.borrow_mut().fields = fields.to_vec();
         let key = self.row_key(rec)?;
         self.populate_current(st)?;

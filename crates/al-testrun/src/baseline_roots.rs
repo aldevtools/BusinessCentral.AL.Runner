@@ -81,7 +81,7 @@ impl RootRun<'_> {
                     let at = crate::explain::describe(&self.lowered.program, f.object, f.routine, f.pos);
                     format!("{r} [in {} at {}]", at.who, at.at)
                 }
-                None => r,
+                None => r.into_reason(),
             }),
             Err(Signal::Error(e)) => Some(format!("failed with an error: {}", e.message)),
             Err(_) => None,

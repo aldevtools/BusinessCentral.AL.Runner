@@ -70,7 +70,7 @@ impl Session {
             None,
             "a filter set under another GlobalLanguage than the one it is read under",
         ) {
-            Some(why) => Err(Signal::Unsupported(format!(
+            Some(why) => Err(Signal::unsupported(format!(
                 "{why}; the filter was set under GlobalLanguage {}",
                 f.lang
             ))),

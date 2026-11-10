@@ -105,15 +105,33 @@ list_pass() {
 # CORPUS_BUMP_LISTS=0 leaves the lists, the golden files and the gate check alone: the bump bot
 # (tools/corpus_bump_bot.sh) does them in its own run.
 if [ "${CORPUS_BUMP_LISTS:-1}" != 0 ]; then
+  # Microsoft's apps come only from the builds oracle/oracle.toml pins, read from the artifact cache (ADR-013 amendment
+  # of 2026-11-10: the corpus tree holds none and its .alpackages is not searched). Fill the cache before the lists and
+  # the golden files: a list pass on a cache without them would record every case that needs a Microsoft app.
+  echo "fetching Microsoft's apps of the pinned builds into the artifact cache:"
+  ./target/release/al-test-cli --root . --all-versions --fetch-deps \
+    || die "Microsoft's apps could not be fetched (output above; is the artifact feed reachable?). Nothing was listed and no golden file was written. Run again when ./target/release/al-test-cli --root . --all-versions --fetch-deps passes"
+
   # Lines for the new cases that do not pass, stale lines deleted. A pass that exits 1 is not final: the golden files
   # below change what the runtime compiles, so the lists are pruned again after them.
   list_pass --list-new-cases HEAD --prune-not-passing
 
   # 6a. The golden files that depend on the corpus (pinned_columns.rs, expected-unresolved.txt): regenerated here, so
   # the pull request does not fail on stale ones. They belong in the bump commit.
-  echo "regenerating the golden files (corpus_resolve_deps):"
+  # The tests read Microsoft's apps of the pinned BC 27 build from the cache and fail before they write when the
+  # System app or Base Application is not loaded: a golden file written without them would list every Microsoft
+  # reference as unresolved and then agree with itself.
+  golden_build="$(python3 - "$root/oracle/oracle.toml" <<'PY'
+import sys, tomllib
+with open(sys.argv[1], "rb") as f:
+    versions = tomllib.load(f)["version"]
+print(min(versions, key=lambda v: v["major"]).get("bc_build", "no pinned build"))
+PY
+)"
+  echo "regenerating the golden files (corpus_resolve_deps) against Microsoft's apps of BC build $golden_build:"
   UPDATE_GOLDEN=1 cargo test --release -q -p al-test-cli --test corpus_resolve_deps -- --ignored \
     || die "regenerating the golden files failed (output above)"
+  echo "golden files generated against BC build $golden_build"
   golden="crates/al-builtins/src/pinned_columns.rs crates/al-sema/tests/expected-unresolved.txt"
   # shellcheck disable=SC2086
   git -C "$root" diff --stat -- $golden

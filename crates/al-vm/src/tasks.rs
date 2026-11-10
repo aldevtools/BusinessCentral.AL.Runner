@@ -19,12 +19,13 @@
 //! A task of the open transaction has its row in the Scheduled Task table: Get answers Yes, a filter on ID counts it, and
 //! CancelTask removes it (session-system/WdScheduledTaskGet.al, corpus branch al-runtime-rs-staging-1030c, al-runner issue
 //! 6315). Its User ID, User Name, Company, Run Codeunit and Is Ready (No for a task created not ready) are pinned by
-//! session-system/CnSessionLeads.al:23-46; every other column is refused when read (`platform::unknown`).
+//! session-system/CnSessionLeads.al:23-46; Company with a company argument is an assumption (`task_company`); every other
+//! column is refused when read (`platform::unknown`).
 
 use crate::Session;
 use al_builtins::builtin_id::ids;
 use al_builtins::describe::Describe;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::Value;
 
 /// The tasks this session created.
@@ -34,6 +35,9 @@ pub(crate) struct Tasks {
     open: std::collections::BTreeSet<[u8; 16]>,
     /// Created in a transaction that was committed: they stay until cancelled.
     committed: std::collections::BTreeSet<[u8; 16]>,
+    /// The tasks whose row holds a Company no corpus test pins (`task_company`): a read of the table marks the assumption
+    /// (`note_task_table_read`), as a read of a platform row does (`platform::mat`, `Mat::seen`).
+    company_assumed: std::collections::BTreeSet<[u8; 16]>,
 }
 
 impl Tasks {
@@ -44,15 +48,13 @@ impl Tasks {
 
     pub(crate) fn rollback(&mut self) {
         self.open.clear();
+        let committed = &self.committed;
+        self.company_assumed.retain(|t| committed.contains(t));
     }
 }
 
 /// Table "Scheduled Task" (al-builtins platform.rs).
 const SCHEDULED_TASK: u32 = 2_000_000_175;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 impl Session {
     /// A TaskScheduler builtin, or `None` for any other id.
@@ -67,6 +69,7 @@ impl Session {
                 if removed {
                     self.tasks.open.remove(&t);
                     self.tasks.committed.remove(&t);
+                    self.tasks.company_assumed.remove(&t);
                     self.remove_task_row(t);
                 }
                 Value::Boolean(removed)
@@ -162,8 +165,9 @@ impl Session {
                 Value::Boolean(!matches!(args.get(2), Some(Value::Boolean(false)))),
             );
         }
-        if args.len() < 4 {
-            set("Company", Value::Text(self.cx.company.clone().into()));
+        let company = self.task_company(args.get(3));
+        if let Some((company, _)) = &company {
+            set("Company", company.clone());
         }
         // Y43TaskAfterCommit.al:139-148 (blank without one), :302-317 (the value given).
         match args.get(4) {
@@ -173,6 +177,84 @@ impl Session {
         }
         let cx = self.cx.clone();
         let _ = al_data::Store::insert(&mut self.store, &cx, &t, row);
+        if let Some((_, true)) = company {
+            self.tasks.company_assumed.insert(id);
+        }
+    }
+
+    /// The position of Company in the Scheduled Task table whose object index is `object`, while a row of it holds an assumed
+    /// Company (`task_company`); `None` otherwise.
+    fn assumed_company_pos(&self, object: u32) -> Option<usize> {
+        if self.tasks.company_assumed.is_empty() {
+            return None;
+        }
+        let t = self.table_def(SCHEDULED_TASK).filter(|t| t.object == object)?;
+        t.fields.iter().position(|f| f.name.eq_ignore_ascii_case("Company"))
+    }
+
+    /// A record method on the Scheduled Task table that reads rows with a filter on Company, while a row holds an assumed
+    /// Company: the filter decides on that Company, so it marks the assumption, as a read of a platform row does
+    /// (`platform::mat`, `Mat::seen`). A read of the field itself marks it in `note_task_company_field`.
+    pub(crate) fn note_task_table_read(
+        &self,
+        method: al_builtins::record_op::RecordOp,
+        rec: &std::cell::RefCell<al_builtins::value::RecordState>,
+    ) {
+        use al_builtins::record_op::RecordOp as R;
+        let reads = matches!(
+            method,
+            R::Get
+                | R::GetBySystemId
+                | R::Find
+                | R::FindFirst
+                | R::FindLast
+                | R::FindSet
+                | R::Next
+                | R::IsEmpty
+                | R::Count
+                | R::CountApprox
+                | R::DeleteAll
+                | R::ModifyAll
+        );
+        if !reads {
+            return;
+        }
+        let r = rec.borrow();
+        if let Some(pos) = self.assumed_company_pos(r.table) {
+            if r.filters.iter().any(|f| f.field == pos) {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ScheduledTaskCompanyArgument);
+            }
+        }
+    }
+
+    /// A read of field `pos` of a record of table object `object`: Company of the Scheduled Task table while a row holds an
+    /// assumed Company marks the assumption.
+    pub(crate) fn note_task_company_field(&self, object: u32, pos: usize) {
+        if self.assumed_company_pos(object) == Some(pos) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ScheduledTaskCompanyArgument);
+        }
+    }
+
+    /// The Company of a task's row and whether it is assumed, or `None` while it is not known. Without a company argument:
+    /// the current company (session-system/CnSessionLeads.al:34, :42). With one that differs from the session's own company
+    /// only in ASCII letter case: the argument as given, so an upper-cased CompanyName() stays upper case; a blank one: the
+    /// current company (al-runner issue 7589, the reporter's measurement, not in the corpus yet: assumed). Another company,
+    /// existing or not, is not measured.
+    fn task_company(&self, arg: Option<&Value>) -> Option<(Value, bool)> {
+        let current = &self.cx.company;
+        let Some(arg) = arg else {
+            return Some((Value::Text(current.clone().into()), false));
+        };
+        let given = al_builtins::native::text_of(arg)?;
+        let given = given.as_str();
+        let value = if given.is_empty() {
+            &current[..]
+        } else if given.eq_ignore_ascii_case(current) {
+            given
+        } else {
+            return None;
+        };
+        Some((Value::Text(value.into()), true))
     }
 
     fn remove_task_row(&mut self, id: [u8; 16]) {

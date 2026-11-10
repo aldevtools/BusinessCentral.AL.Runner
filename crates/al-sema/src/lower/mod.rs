@@ -7,6 +7,7 @@ use crate::check::{CheckResult, Res};
 use crate::members::MemberTable;
 use crate::types::Ty;
 use crate::workspace::{ObjKind, Resolution, Workspace};
+use al_builtins::refusal::Refusal;
 use al_builtins::value::RtType;
 use al_ir as ir;
 use al_syntax::{SyntaxKind, SyntaxNode, ast};
@@ -510,6 +511,10 @@ pub(crate) fn is_property_setter(receiver: &str, name: &str) -> bool {
                 "UseRequestPage" | "Language" | "FormatRegion" | "PrintOnlyIfDetail"
             )
             | ("System", "WorkDate")
+            // `ApplicationArea := '#All,#Basic'` (al-runner issue 7597, the reporter's repro on real BC; assumption
+            // `application-area-assign-is-call`): the call form is pinned by
+            // pages/application-area/TestPageApplicationAreaControlRemoval.al:87-93.
+            | ("Session", "ApplicationArea")
             | ("HttpRequestMessage", "Method" | "Content")
             | (
                 "TestHttpResponseMessage",
@@ -572,6 +577,16 @@ fn sig_tokens(n: &SyntaxNode) -> Vec<ast::GreenTok<'_>> {
     ast::significant_green_tokens(n).collect()
 }
 
+/// Whether the assignment statement `n` is a compound assignment (`+=`, `-=`, `*=`, `/=`).
+fn is_compound_assign(n: &SyntaxNode) -> bool {
+    sig_tokens(n).iter().any(|t| {
+        matches!(
+            t.kind(),
+            SyntaxKind::PlusAssign | SyntaxKind::MinusAssign | SyntaxKind::StarAssign | SyntaxKind::SlashAssign
+        )
+    })
+}
+
 mod assemble;
 mod bare_report_name;
 mod blob_length_sign;
@@ -591,6 +606,7 @@ mod abp_refusal_tests;
 mod localize;
 #[cfg(test)]
 mod object_hash_tests;
+mod page_client_expr;
 mod pages;
 mod request_procs;
 mod routine_lists;

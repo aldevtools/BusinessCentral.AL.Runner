@@ -61,7 +61,6 @@
 61248 P109_CheckLicenseFile_UnknownKeys
 61249 P109_DataFileInformation_NoFile
 61250 P109_EnableVerboseTelemetry_Durations
-61251 P109_LogAuditMessage_Overload2_Dimensions
 61253 P109_SendTraceTag_DataClassification
 61253 P109_SendTraceTag_Texts
 61253 P109_SendTraceTag_Verbosities
@@ -69,7 +68,6 @@
 61255 P109_LogInternalError_Basic
 61256 P109_LogInternalError_Substitution
 61257 O_SessionInformation_AITokensUsed
-61257 O_Session_LogSecurityAudit
 61258 O_Database_AlterKey
 61258 O_Database_ChangeUserPassword_SetUserPassword_Errors
 61258 O_Database_ExportData_ImportData_Files
@@ -78,7 +76,6 @@
 61261 PlatformTable_PerformanceProfileScheduler
 61261 PlatformTable_ReportLayoutList
 61261 PlatformTable_UserPersonalization
-61262 TenantId_OfCorpusAndMicrosoftApps
 61263 P110_CloseTwiceAndName
 61263 P110_Closed_File_Never_Opened
 61263 P110_CreateCloseExists
@@ -171,7 +168,6 @@
 98453 ApiWebhookEntity_RowOfOwnApiPage
 98453 MovedTable_TableInformation
 98453 PerformanceProfileScheduler_RowsInsertDelete
-98453 PublishedApplication_TenantId
 98550 PY_NoBaseAddress_Paths_1
 98550 PY_NoBaseAddress_Paths_2
 98550 PY_ReasonPhrase_1
@@ -196,7 +192,6 @@
 98660 Y21_File_TemporaryPathFilter
 98660 Y21_PermissionRange_Rows
 98660 Y21_ReportPrinter_Rows
-98660 Y21_ServerInstance_OwnRow
 98660 Y21_TableInformation_Sizes
 98669 C303_McpTool_ParentChecks
 98702 PA_AppJsonFields_ReachTheRow

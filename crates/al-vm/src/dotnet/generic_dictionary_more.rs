@@ -15,7 +15,7 @@ use std::rc::Rc;
 pub(super) fn remove(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: &[Value]) -> Result<Value, Signal> {
     let state = filled(this, "Remove")?;
     if args.len() != 1 {
-        return Err(Signal::Unsupported(format!(
+        return Err(Signal::unsupported(format!(
             "DotNet {GENERIC_DICTIONARY}.Remove: only the form with one key is pinned"
         )));
     }
@@ -29,7 +29,7 @@ pub(super) fn remove(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: &[V
 pub(super) fn values(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: &[Value]) -> Result<Value, Signal> {
     let state = filled(this, "Values")?;
     if !args.is_empty() {
-        return Err(Signal::Unsupported(format!(
+        return Err(Signal::unsupported(format!(
             "DotNet {GENERIC_DICTIONARY}.Values takes no arguments"
         )));
     }
@@ -40,7 +40,7 @@ pub(super) fn values(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: &[V
 fn try_get(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: &mut [Value]) -> Result<Value, Signal> {
     let state = filled(this, "TryGetValue")?;
     if args.len() != 2 {
-        return Err(Signal::Unsupported(format!(
+        return Err(Signal::unsupported(format!(
             "DotNet {GENERIC_DICTIONARY}.TryGetValue takes a key and a var argument"
         )));
     }

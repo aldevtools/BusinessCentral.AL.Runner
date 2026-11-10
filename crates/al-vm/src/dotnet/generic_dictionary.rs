@@ -30,7 +30,7 @@ use crate::Session;
 use al_builtins::dotnet_sigs::{
     GENERIC_DICTIONARY, GENERIC_DICTIONARY_ENUMERATOR, GENERIC_DICTIONARY_VALUES, GENERIC_KEY_VALUE_PAIR,
 };
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::{DotNetKind, DotNetObject, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -42,10 +42,6 @@ pub(super) const FILL_PIN: &str = "tests/al-language-onprem-dotnet/dotnet/dotnet
 
 /// What BC names the closed type in the message of a failed member call (Y17DotNetDictionary.al:126, :147).
 const CLOSED: &str = "System.Collections.Generic.Dictionary`2[System.Object,System.Object]";
-
-fn unsupported<T>(why: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(why.into()))
-}
 
 fn new_dictionary(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: &[Value]) -> Result<Value, Signal> {
     match args {

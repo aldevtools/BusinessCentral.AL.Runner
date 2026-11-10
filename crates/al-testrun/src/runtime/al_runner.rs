@@ -132,7 +132,7 @@ impl Steps {
     /// al-runner does not write). A refusal it ended with already stays.
     pub(crate) fn rows_touched<T>(&self, session: &mut Session, result: Result<T, Signal>) -> Result<T, Signal> {
         match self.take_rows(session) {
-            Some(why) if !matches!(result, Err(Signal::Unsupported(_))) => Err(Signal::Unsupported(why)),
+            Some(why) if !matches!(result, Err(Signal::Unsupported(_))) => Err(Signal::unsupported(why)),
             _ => result,
         }
     }
@@ -438,7 +438,7 @@ impl<R> al_vm::TestCodeunitHost for Host<'_, R> {
     ) -> Result<(), Signal> {
         if object != self.object || self.ran.is_some() {
             let o = &session.engine.program.objects[object];
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "the test runner runs test codeunit {} \"{}\" while al-runner runs another one or the same one again: a runner that picks its own test codeunits is not supported yet (ADR-066 decision 5)",
                 o.id.unwrap_or(0),
                 o.name

@@ -102,6 +102,34 @@ impl MemStore {
         kept.truncate(ORDERS_PER_KEY);
     }
 
+    /// The key indexes, other than `moved`, whose cached orders a Modify from `old` to `new` leaves out of place: an
+    /// order of a sort that `t` does not list under that index (an ad-hoc key of a record) and some field of it changed.
+    pub(super) fn stale_adhoc_orders(
+        &self,
+        sl: &Slot,
+        t: &TableDef,
+        moved: &[usize],
+        old: Option<&Row>,
+        new: &Row,
+    ) -> Vec<usize> {
+        let Some(old) = old else { return Vec::new() };
+        let cache = self.order_cache.borrow();
+        let mut out: Vec<usize> = Vec::new();
+        for ((s, j), kept) in cache.iter() {
+            if s != sl || moved.contains(j) || out.contains(j) {
+                continue;
+            }
+            let foreign = |f: &Vec<usize>| t.keys.get(*j) != Some(f);
+            if kept
+                .iter()
+                .any(|e| foreign(&e.fields) && super::key_fields_differ(&e.fields, old, new))
+            {
+                out.push(*j);
+            }
+        }
+        out
+    }
+
     /// Whether some order of table `slot` is cached, so a write needs to look at `carry_order` at all.
     pub(super) fn has_orders(&self, slot: &Slot, t: &TableDef) -> bool {
         let cache = self.order_cache.borrow();

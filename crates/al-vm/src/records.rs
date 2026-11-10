@@ -8,7 +8,7 @@ use crate::globaltriggers::GlobalOp;
 use al_builtins::date_filter_forms::datetime_rejected as dt_rejected;
 use al_builtins::describe::Describe;
 use al_builtins::filter::{FieldFilter, FilterExpr, key_cmp};
-use al_builtins::native::{AlError, Signal};
+use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{Instance, RecordState, RtType, Value};
@@ -17,11 +17,17 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
+mod blob_filter;
 mod boolean_filter_error;
 mod delete_all_flow;
 mod flowfield_key;
+mod insert_buffer;
+mod login_guard;
+pub(crate) use insert_buffer::{InsertKind, InsertQueue};
+pub(crate) use login_guard::ReadGuards;
 mod nested_validate;
 mod op_inner;
+mod own_rolled_back_modify;
 mod platform_rows;
 mod stale;
 mod stale_own_insert;
@@ -39,13 +45,16 @@ pub(crate) const REPEATABLE_READ_ASSIGNED_AGAIN: &str =
 /// BC's line break inside error texts: a carriage return and a backslash.
 pub(crate) const BR: &str = "\\";
 
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
-
 /// The `RecordState::unpinned_buffer` reason of Rec while the OnOpenPage of a page an action opens through `RunPageLink` runs
 /// (set in pages/runobject.rs, its methods in [`Session::run_page_link_open_op`]).
 pub(crate) const RUN_PAGE_LINK_OPEN: &str = "in the OnOpenPage of a page an action opens through RunPageLink: real BC fills the linked fields of Rec and GetFilters() reads '' there, the runtime holds the link as a filter (corpus issue 712)";
+
+/// The `RecordState::unpinned_buffer` reason of Rec of a part page reached through a page the test client closed (set in
+/// pages/held_page_part.rs): its fields read and `Count()` counts (pages/parts/HeldSenderPartAccess.al HS01, HS02, staging
+/// branch al-runtime-rs-staging-probe-train-1110b, assumption `held-page-part-after-testpage-close`); no other method of it
+/// is measured there, so they refuse.
+pub(crate) const HELD_PART_REC: &str =
+    "on Rec of a part of a page the test client closed: only its fields and Count() are measured there";
 
 /// The `RecordState::unpinned_buffer` reason of a table element record after an export under `SourceTableView` (set in
 /// xmlports.rs `xp_export_table`). The export order is pinned (xmlports/shapes-properties/RaXmlPortExport.al:416, :448, :474,
@@ -278,7 +287,7 @@ impl Session {
         let listened =
             self.listened(t, "onbeforeinsertevent", None)? || self.listened(t, "onafterinsertevent", None)?;
         if method != RecordOp::Insert || !arg_bool(args, 0)? || listened || self.tx.try_depth > 0 {
-            return Ok(Signal::Unsupported(format!(
+            return Ok(Signal::unsupported(format!(
                 "{method} on the platform table Device (only an Insert with triggers, outside a TryFunction and with no \
                  event subscribers, is pinned: al-language-onprem/metadata/PtOnPremTables.al:172-190)"
             )));
@@ -483,7 +492,7 @@ impl Session {
     /// tableextension sets it over another caption (`al_ir::CAPTION_REFUSED`).
     pub(crate) fn caption_checked(&self, t: &TableDef) -> Result<String, Signal> {
         match self.caption_refused(t.object as usize) {
-            Some(why) => Err(Signal::Unsupported(why)),
+            Some(why) => Err(Signal::unsupported(why)),
             None => Ok(self.caption(t)),
         }
     }
@@ -544,7 +553,7 @@ impl Session {
     pub(crate) fn identification(&self, t: &TableDef, fields: &[Value]) -> Result<String, Signal> {
         let mut parts = Vec::new();
         for &i in &t.keys[0] {
-            let v = al_builtins::format::try_format(&fields[i], 0, 0, self).map_err(Signal::Unsupported)?;
+            let v = al_builtins::format::try_format(&fields[i], 0, 0, self).map_err(Signal::unsupported)?;
             // The field's caption names it (recordref-fieldref/recordref + records/lt-record-meta: `Code Caption='A1'`).
             parts.push(format!("{}='{}'", self.field_caption(t, i), v));
         }
@@ -972,7 +981,7 @@ impl Session {
             };
             Ok(s.store
                 .next(cx, table, &scan)
-                .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                .map_err(|e| Signal::unsupported(format!("{e}")))?
                 .is_some())
         };
         // Another row of the same table holding it in the same field keeps it (streams/media/TestMediaPngImport.al:297-334
@@ -1054,7 +1063,7 @@ impl Session {
         let shared = self
             .store
             .next(cx, t, &scan)
-            .map_err(|e| Signal::Unsupported(format!("{e}")))?
+            .map_err(|e| Signal::unsupported(format!("{e}")))?
             .is_some();
         if shared {
             return unsupported(
@@ -1080,7 +1089,7 @@ impl Session {
             let stored = self
                 .store_for(rec)
                 .get(&cx, t, &pk)
-                .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                .map_err(|e| Signal::unsupported(format!("{e}")))?;
             let i = t.fields.iter().position(|f| f.id == 2_000_000_005).expect("checked");
             if let Some(Value::BigInteger(theirs)) = stored.as_ref().map(|r| r[i].clone()) {
                 let verdict = self.stale_verdict(t, rec, &cx, &pk, theirs, true)?;
@@ -1194,7 +1203,7 @@ impl Session {
                     let stored = self
                         .store_for(rec)
                         .get(&cx, t, &pk)
-                        .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                        .map_err(|e| Signal::unsupported(format!("{e}")))?;
                     // The Delete removes the Tenant Media rows of the items still in a MediaSet; an item removed from the set
                     // earlier keeps its row (streams/media/TestMediaPngImport.al:340-378 MediaSet_Remove_KeepsTheTenantMediaRow:
                     // 'removed_item_after_delete' Yes, 'kept_item_after_delete' No).
@@ -1219,7 +1228,7 @@ impl Session {
         match self
             .store_for(rec)
             .delete(&cx, t, &pk)
-            .map_err(|e| Signal::Unsupported(format!("{e}")))?
+            .map_err(|e| Signal::unsupported(format!("{e}")))?
         {
             WriteOutcome::Done => {
                 self.deletes += 1;
@@ -1306,7 +1315,7 @@ impl Session {
             if self
                 .store_for(rec)
                 .get(&cx, t, &pk)
-                .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                .map_err(|e| Signal::unsupported(format!("{e}")))?
                 .is_some()
             {
                 return Ok(None);
@@ -1316,7 +1325,7 @@ impl Session {
             Some(pk) => self
                 .store_for(rec)
                 .get(&cx, t, pk)
-                .map_err(|e| Signal::Unsupported(format!("{e}")))?,
+                .map_err(|e| Signal::unsupported(format!("{e}")))?,
             None => None,
         };
         for k in unique {
@@ -1332,7 +1341,7 @@ impl Session {
             let mut n = self
                 .store_for(rec)
                 .count(&cx, t, &filters)
-                .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                .map_err(|e| Signal::unsupported(format!("{e}")))?;
             // The row being rewritten matches itself when its key values do not change.
             if let Some(old) = &current {
                 if t.keys[k]
@@ -1370,7 +1379,7 @@ impl Session {
         // record/TestCalcFieldsTruncateUniqueContracts.al:UniqueIndex_Violation_FullTextAndCode_...).
         let mut parts = Vec::new();
         for &i in &t.keys[key] {
-            let v = al_builtins::format::try_format(&row[i], 0, 0, self).map_err(Signal::Unsupported)?;
+            let v = al_builtins::format::try_format(&row[i], 0, 0, self).map_err(Signal::unsupported)?;
             parts.push(format!("{}='{}'", t.fields[i].name, v));
         }
         Err(Signal::Error(Box::new(AlError {
@@ -1511,6 +1520,11 @@ impl Session {
                 let fields = self.initial_fields(table);
                 let mut st = state_with_fields(&rec, fields);
                 st.globals = rec.borrow().globals.xrec();
+                // The blank xRec of a record that a partial fetch filled loads nothing from the row: every field reads empty, the
+                // key too (record/load-fields/XRecUnloadedFieldRead.al PartialGet_XRecFields_ReadInTableMethod,
+                // PartialGet_RowChangedAfterGet_XRecReadFirst, PartialGet_KeyAssignedAfterGet_ReadInTableMethod, al-runner issue
+                // 7375). It is marked as after an Init, which loads no field from the row.
+                crate::partial::note_init(&mut st);
                 Some(Value::Record(Rc::new(RefCell::new(st))))
             }
             (None, None) => None,
@@ -1700,7 +1714,7 @@ impl Session {
                         after: after.as_deref(),
                     },
                 )
-                .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+                .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
             match row {
                 // MarkedOnly narrows the set to the marked rows (corpus record/TestRecordFind.al:258-290).
                 Some(row) if marked_only && !Self::is_marked(rec, t, &row) => after = Some(position(t, key, &row)),
@@ -1763,7 +1777,7 @@ impl Session {
         let taken = self
             .store_for(rec)
             .count(&cx, t, &filters)
-            .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+            .map_err(|e| Signal::unsupported(format!("{e}")))?;
         Ok(taken > 0)
     }
 
@@ -1777,7 +1791,7 @@ impl Session {
             return Ok(());
         }
         let id = rec.borrow().fields[i].clone();
-        let shown = al_builtins::format::try_format(&id, 0, 0, self).map_err(Signal::Unsupported)?;
+        let shown = al_builtins::format::try_format(&id, 0, 0, self).map_err(Signal::unsupported)?;
         Err(Signal::Error(Box::new(AlError {
             // record/TestSystemFieldStampsContracts.al:153 (SystemId_Duplicate_And_ModifyAll_Texts;
             // the caption of the field is "System ID").
@@ -1900,7 +1914,7 @@ impl Session {
     fn exact_key(rec: &Rec, t: &TableDef, fields: &[Value], what: &str) -> Result<Vec<Value>, Signal> {
         let pk = t.primary_key(fields);
         if !rec.borrow().temporary && crate::sqltime::key_rounds(&pk) {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "{what} of a record whose Time or DateTime primary key value the SQL column rounds (not pinned)"
             )));
         }
@@ -1949,7 +1963,7 @@ impl Session {
                 stored = self
                     .store_for(rec)
                     .get(&cx, &t, &pk)
-                    .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                    .map_err(|e| Signal::unsupported(format!("{e}")))?;
             }
             // A row this variable inserted and that is gone (an error inside ASSERTERROR rolled the Insert back) leaves the Blob empty, whatever a
             // stream wrote since (recordref-fieldref/PnE08RecordMisc.al:TestField_Blob `af219`).
@@ -2140,6 +2154,15 @@ impl Session {
         if why == RUN_PAGE_LINK_VARIANT {
             return unsupported(format!("Record.{}(): {RUN_PAGE_LINK_VARIANT}", method.name()));
         }
+        if why == HELD_PART_REC {
+            if method != RecordOp::Count || !args.is_empty() {
+                return unsupported(format!("Record.{}(): {HELD_PART_REC}", method.name()));
+            }
+            let flag = rec.borrow_mut().unpinned_buffer.take();
+            let r = self.record_op_inner(method, rec, args);
+            rec.borrow_mut().unpinned_buffer = flag;
+            return r;
+        }
         if why == MEDIA_KEY || why == FLOWFIELD_KEY {
             return self.media_key_op(method, rec, args, why);
         }
@@ -2309,6 +2332,8 @@ impl Session {
     /// A record method: [`Session::record_op_inner`], with what it does to the snapshot `Record.IsDirty` compares with
     /// (isdirty.rs).
     pub(crate) fn record_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
+        self.note_task_table_read(method, rec);
+        self.login_guard_read(method, rec)?;
         if self.coverage.profiler.is_some() {
             return self.record_op_profiled(method, rec, args);
         }
@@ -2322,15 +2347,26 @@ impl Session {
         rec: &Rec,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
+        let insert_from_al = std::mem::take(&mut self.tx.insert_from_al);
         // ADR-062: a record method of a restricted session, or of any session when the license limits a table (license_ceiling.rs).
         if self.permission_checks() {
             let from_al = std::mem::take(&mut self.permission_from_al);
             self.permission_gate_record(method, rec, args, from_al)?;
         }
+        // A statement-form Insert of AL code is queued by the platform (`insert_buffer.rs`); a table with a Blob or AutoIncrement
+        // field is not, and an Insert the platform makes itself stays out of the queue.
+        let from_al = insert_from_al;
+        let insert = match method {
+            RecordOp::Insert if !from_al => InsertKind::Platform,
+            RecordOp::Insert if !self.ret_used && self.insert_is_queued(rec) => InsertKind::Queued,
+            _ => InsertKind::Other,
+        };
         if self.sql.active {
-            return self.record_op_counted(method, rec, args);
+            let r = self.record_op_counted(method, rec, args);
+            return self.note_insert_buffer(method, rec, insert, r);
         }
         let r = self.record_op_tracked(method, rec, args);
+        let r = self.note_insert_buffer(method, rec, insert, r);
         if matches!(r, Ok(Value::Boolean(false)))
             && matches!(method, RecordOp::FindSet | RecordOp::FindFirst | RecordOp::FindLast)
         {
@@ -2626,7 +2662,7 @@ impl Session {
         if self.permission_checks() {
             self.permission_from_al = true;
         }
-        self.record_op(method, rec, args)
+        self.record_op_of_al(method, rec, args)
     }
 
     /// The filters of `rec` in filter group 1, as text to compare.

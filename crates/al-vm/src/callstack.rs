@@ -67,8 +67,8 @@ impl Session {
     }
 
     /// The frames of the test runner below the test in a call stack text, with a backslash after each. The run sets them
-    /// per test codeunit by its routing (`al-testrun` `runner_frames`): six where Microsoft's runner runs the codeunit (it has
-    /// handlers, or BC 27), none on BC 28 and later without handlers (session-system/callstack/CallstackRunnerFrames.al,
+    /// per test codeunit by its routing (`al-testrun` `runner_frames`): six where Microsoft's runner 130450 runs the codeunit, none
+    /// on BC 28 and later for a codeunit on the TestRunnerHub leg (session-system/callstack/CallstackRunnerFrames.al,
     /// CallstackFullText.al:116-122).
     pub(crate) fn runner_text_frames(&self) -> String {
         self.runner_frames.clone()

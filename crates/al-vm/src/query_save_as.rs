@@ -16,12 +16,8 @@
 //! pinned by streams/ChQueryLeads.al:350-389 (`<Grp>B</Grp>`). Every other type, a closing date, and a text with a
 //! control character or (in JSON) a backslash are refused: how .NET writes them there is not pinned.
 
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::{RtType, Value};
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 /// The type tag of a query column of type `ty`, or a refusal naming the column.
 fn column_type(method: &str, name: &str, ty: &RtType) -> Result<&'static str, Signal> {

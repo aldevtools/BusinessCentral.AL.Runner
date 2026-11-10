@@ -104,6 +104,9 @@ codeunit 92579 C
     var Src: Record "Tf Source"; Dst: Record "Xa Target"; R: Text;
     begin
         Source(Src, Flag, CodValue);
+        // Each call starts without the row an earlier call inserted: a fifth Insert of one key into the table sends the insert queue
+        // and raises the duplicate (al-runner issue 7407).
+        Dst.DeleteAll();
         if Mode <> 2 then begin
             Dst."No." := 'T1'; Dst.Factor := 1.5; Dst.Qty := 2.5; Dst.CustNo := 'OLD'; Dst.Cod := 'KEEP'; Dst.Insert();
         end;

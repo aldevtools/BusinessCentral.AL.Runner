@@ -1013,7 +1013,7 @@ fn run_subscribers(lowered: &Lowered, session: &mut Session, subs: &[(usize, usi
         }
         match session.call_parameterless_subscriber(o, r) {
             Ok(()) => {}
-            Err(Signal::Unsupported(r)) => return Err(r),
+            Err(Signal::Unsupported(r)) => return Err(r.into_reason()),
             Err(Signal::Error(e)) => return Err(format!("failed (behaviour not pinned): {}", e.message)),
             Err(_) => return Ok(()),
         }
@@ -1079,10 +1079,13 @@ pub(crate) fn test_session_company_open(lowered: &Lowered, session: &mut Session
     let mut subs = Vec::new();
     // The login (`login.rs`, al-runner issue 7343): the dependency apps' OnCompanyOpenCompleted subscribers raise
     // "System Initialization".OnAfterLogin, in codeunit id order with the apps under test's own, for a test codeunit that
-    // can see what the login leaves (`login::observed_by`).
-    let login = session
+    // can see what the login leaves (`login::decide`).
+    let decision = session
         .test_object
-        .is_some_and(|t| crate::login::observed_by(&engine, lowered, t));
+        .map_or(crate::login::Login::Skip(Default::default()), |t| {
+            crate::login::decide(&engine, lowered, t)
+        });
+    let login = matches!(decision, crate::login::Login::Raise);
     for event in ["oncompanyopen", "oncompanyopencompleted"] {
         let mut of_event: Vec<(usize, usize)> = engine
             .events
@@ -1146,6 +1149,10 @@ pub(crate) fn test_session_company_open(lowered: &Lowered, session: &mut Session
             wrote.who.get_or_insert(who);
         }
     }
+    // Without the login, a read of a table its subscribers add rows to is refused from here on (`login::Login::Skip`).
+    if let crate::login::Login::Skip(guarded) = decision {
+        session.guard_login_tables(guarded);
+    }
     Ok(wrote)
 }
 
@@ -1156,7 +1163,11 @@ pub(crate) fn test_session_company_open(lowered: &Lowered, session: &mut Session
 /// (errors/RlInstallUi.al:212, :240). The rest of the login code (language, user personalization,
 /// application areas) does not run here, as before. Without the codeunit, or in a session without a client, nothing changes.
 pub(crate) fn login_work_date(engine: &Engine, lowered: &Lowered, session: &mut Session) -> Result<(), String> {
-    if !session.has_interactive_client() {
+    // `--no-client`: the login code is skipped as in every session without a client, but that the session answers
+    // GuiAllowed with false is assumed (`no-client-session`): the session marks its WorkDate reads when there is login
+    // code that a session with a client would have run.
+    let clientless = session.is_clientless_session();
+    if !clientless && !session.has_interactive_client() {
         return Ok(());
     }
     let objs = &lowered.program.objects;
@@ -1172,6 +1183,10 @@ pub(crate) fn login_work_date(engine: &Engine, lowered: &Lowered, session: &mut 
     }) else {
         return Ok(());
     };
+    if clientless {
+        session.note_clientless_login_skipped();
+        return Ok(());
+    }
     let why =
         |what: String| format!("the login code that sets WorkDate when the test session opens the company: {what}");
     if let Some(reason) = crate::runtime::blocked_reason(lowered, object, routine) {
@@ -1298,7 +1313,7 @@ fn finish(
             Ok(())
         }
         Ok((other, _)) => Err(why(format!("GetDefaultWorkDate answered {}", other.describe()))),
-        Err(Signal::Unsupported(r)) => Err(why(r)),
+        Err(Signal::Unsupported(r)) => Err(why(r.into_reason())),
         Err(Signal::Error(e)) => Err(why(format!("failed (not pinned): {}", e.message))),
         Err(_) => Err(why("stopped (not pinned)".into())),
     }
@@ -1507,7 +1522,7 @@ fn run_routine(lowered: &Lowered, session: &mut Session, oi: usize, ri: usize) -
     };
     match called {
         Ok(()) => None,
-        Err(Signal::Unsupported(r)) => Some(r),
+        Err(Signal::Unsupported(r)) => Some(r.into_reason()),
         Err(Signal::Error(e)) => Some(format!("failed (behaviour not pinned): {}", e.message)),
         Err(_) => None,
     }

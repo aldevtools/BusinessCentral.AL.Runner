@@ -10,7 +10,7 @@
 
 use crate::describe::Describe;
 use crate::format::{civil_from_day, day_from_civil};
-use crate::native::{Ctx, NativeFn, Signal, raise};
+use crate::native::{Ctx, NativeFn, Signal, raise, unsupported};
 use crate::value::Value;
 
 mod brackets;
@@ -46,10 +46,6 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
 ];
 
 type Out = Result<Value, Signal>;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 const MS_PER_DAY: i64 = 86_400_000;
 const LAST_DAY: i32 = 3_652_059; // 9999-12-31

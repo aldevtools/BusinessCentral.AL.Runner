@@ -695,7 +695,7 @@ pub(crate) fn lower_object<'a>(
         // see either.
         ndirect.push(lw.calls.len() as u32);
         driven_edges(&sh.driven, routine.locals.iter().chain(&globals), &mut lw.calls);
-        unsupported.push(std::mem::take(&mut lw.reasons));
+        unsupported.push(std::mem::take(&mut lw.reasons).into_iter().map(Refusal::from).collect());
         refusal_at.push(lw.refusal_at.take());
         calls.push(std::mem::take(&mut lw.calls));
         routines.push(routine);

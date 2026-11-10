@@ -153,7 +153,7 @@ pub(crate) fn write(session: &mut Session, runner: usize, object: usize, selecte
 pub(crate) fn run_next_test(session: &mut Session, rec: Value) -> Result<(), Signal> {
     let engine = session.engine.clone();
     let Some(object) = engine.compiled_codeunit(Some(TEST_SUITE_MGT)) else {
-        return Err(Signal::Unsupported(format!(
+        return Err(Signal::unsupported(format!(
             "codeunit {TEST_SUITE_MGT} \"Test Suite Mgt.\" of the Test Runner app was not compiled"
         )));
     };
@@ -163,7 +163,7 @@ pub(crate) fn run_next_test(session: &mut Session, rec: Value) -> Result<(), Sig
         .iter()
         .position(|r| !r.is_trigger && r.name.eq_ignore_ascii_case("RunNextTest"))
     else {
-        return Err(Signal::Unsupported(format!(
+        return Err(Signal::unsupported(format!(
             "codeunit {TEST_SUITE_MGT} \"{}\" has no RunNextTest procedure",
             obj.name
         )));

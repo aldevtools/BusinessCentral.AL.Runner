@@ -4,8 +4,9 @@
 //! reverse, and the row read carries the FlowField's value without CalcFields. Pinned by record/keys-sorting/
 //! Y43SetAscendingFlowField.al (a sum with two `field()` conditions: Count, FindFirst, FindSet, FindLast and `Next(-1)`,
 //! SetAscending, Ascending, GetAscending; corpus PR 966) and SetCurrentKeyFlowFieldOrder.al:85-180 (a count with one
-//! condition, `Ascending(false)`, `SetCurrentKey(Cnt, Id)`). An exist is pinned by PwFlowFieldKeyRule.al:172. Other FlowField kinds, a FlowField after another key field
-//! and a second FlowField in the key are refused.
+//! condition, `Ascending(false)`, `SetCurrentKey(Cnt, Id)`). An exist is pinned by PwFlowFieldKeyRule.al:172; a Decimal average, min
+//! and max and a lookup of a Text or Decimal field by record/flowfields/FfmOperations.al:930-1092. Other FlowField kinds, a
+//! FlowField after another key field and a second FlowField in the key are refused.
 
 use super::*;
 
@@ -64,15 +65,30 @@ impl Session {
         let first = fields[0];
         let pinned = at == 0
             && calc(first).is_some_and(|c| {
-                matches!(
-                    c.method,
-                    al_ir::CalcMethod::Sum | al_ir::CalcMethod::Count | al_ir::CalcMethod::Exist
-                )
+                use al_ir::CalcMethod as M;
+                // An average, a min and a max of a Decimal field, and a lookup of a Text or a Decimal field (negated or not),
+                // order by their value like a sum: record/flowfields/FfmOperations.al:930-985 (SetCurrentKey(FlowField)) and
+                // :987-1092 (FlowField, then a stored field, with a filter on it, ascending and descending); al-runner issue
+                // 7427. A lookup of another type (Boolean, Integer, Date, Code) is not pinned.
+                // Not these: a lookup of a FlowField is no key at all (SetCurrentKey answers false, record/keys-sorting/
+                // SetCurrentKeyFlowFieldOrder.al:236-262 `nestedFlowField`), and on a temporary record SetCurrentKey with a
+                // lookup FlowField raises "Sorting cannot be done" (:299-322); both stay refused here.
+                let plain_source = !rec.borrow().temporary
+                    && c.field.is_some_and(|at| {
+                        self.engine.tables[c.table]
+                            .as_ref()
+                            .is_some_and(|s| s.fields[at].stored)
+                    });
+                match c.method {
+                    M::Sum | M::Count | M::Exist => true,
+                    M::Average | M::Min | M::Max => plain_source && t.fields[first].ty == RtType::Decimal,
+                    M::Lookup => plain_source && matches!(t.fields[first].ty, RtType::Decimal | RtType::Text(_)),
+                }
             })
             && fields[1..].iter().all(|&p| calc(p).is_none() && t.fields[p].stored);
         if !pinned {
             return unsupported(format!(
-                "the order of the rows by the FlowField {} of key {}: only a sum, count or exist FlowField first, then stored fields, is pinned",
+                "the order of the rows by the FlowField {} of key {}: only a sum, count, exist, Decimal average, min or max, or a lookup of a Text or Decimal field first, then stored fields, is pinned",
                 t.fields[fields[at]].name,
                 fields
                     .iter()

@@ -188,7 +188,7 @@ fn fixture() -> Fixture {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
     Fixture {
@@ -214,7 +214,7 @@ impl Fixture {
             .position(|r| r.name == name)
             .unwrap_or_else(|| panic!("no routine {name}"));
         if let Some(Some(r)) = self.blocked[self.oi].get(ri) {
-            return Err(Signal::Unsupported(format!("lowering: {r}")));
+            return Err(Signal::unsupported(format!("lowering: {r}")));
         }
         let inst = s.instance(self.oi);
         s.call(self.oi, ri, inst, args).map(|(v, _)| v)
@@ -230,7 +230,7 @@ fn text(v: Result<Value, Signal>) -> String {
 
 fn why(v: Result<Value, Signal>) -> String {
     match v {
-        Err(Signal::Unsupported(s)) => s,
+        Err(Signal::Unsupported(s)) => s.into_reason(),
         other => panic!("expected Unsupported, got {other:?}"),
     }
 }

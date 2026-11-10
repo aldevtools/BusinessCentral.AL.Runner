@@ -501,7 +501,7 @@ impl Session {
                         let ty = table.fields[*pf].ty.clone();
                         let expr = self
                             .parse_filter_text(text, &ty)
-                            .map_err(|e| Signal::Unsupported(format!("RunPageLink filter: {e}")))?;
+                            .map_err(|e| Signal::unsupported(format!("RunPageLink filter: {e}")))?;
                         (*pf, expr)
                     }
                     ir::LinkEntry::FieldFilter(..) => unreachable!("handled above"),

@@ -4,7 +4,7 @@ use super::*;
 pub(super) fn enum_as_integer(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Result<Value, Signal> {
     match r {
         Some(Value::Enum(_, o)) => Ok(Value::Integer(*o)),
-        other => unsupported(&format!("AsInteger of {}", other.describe())),
+        other => unsupported(format!("AsInteger of {}", other.describe())),
     }
 }
 
@@ -16,13 +16,12 @@ pub(super) fn enum_receiver(
     what: &str,
 ) -> Result<(u32, Vec<(i32, String)>), Signal> {
     let Some(Value::Enum(id, _)) = r else {
-        return unsupported(&format!("{what} without an enum receiver"));
+        return unsupported(format!("{what} without an enum receiver"));
     };
     let id = *id;
-    ctx.enum_members(id).map(|m| (id, m)).map_or_else(
-        || unsupported(&format!("{what}: this context has no enum metadata")),
-        Ok,
-    )
+    ctx.enum_members(id)
+        .map(|m| (id, m))
+        .map_or_else(|| unsupported(format!("{what}: this context has no enum metadata")), Ok)
 }
 
 /// `Enum.Names()`: every declared name, the blank ordinal included

@@ -17,7 +17,7 @@
 
 use crate::Session;
 use crate::records::Rec;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::Value;
 use al_data::TableDef;
@@ -36,10 +36,6 @@ pub(crate) struct CrmStore {
     written: bool,
     /// A rollback came after a write: whether it took the write back is not pinned.
     after_rollback: bool,
-}
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
 }
 
 const MUST_REGISTER: &str = "Table connection  for table type CRM must be registered using RegisterTableConnection or cmdlet New-NAVTableConnection before it can be used.";

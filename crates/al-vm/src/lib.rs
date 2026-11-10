@@ -17,6 +17,7 @@ use std::sync::Arc;
 mod autoinc;
 mod bgsession;
 mod blob_copy;
+mod clientless;
 mod get_key_value;
 mod package_data;
 mod partial_gone;
@@ -109,6 +110,7 @@ mod recordid_code_text;
 mod recordid_table_name;
 mod recordref_copy;
 mod recordref_load_fields;
+mod recordref_variant;
 mod records;
 mod refs;
 mod relations;
@@ -378,6 +380,8 @@ impl Engine {
         target: Option<al_version::Target>,
         dotnet: dotnet::DotNetConfig,
     ) -> Arc<Engine> {
+        // A declared TestPage or Page variable holds a page state of this crate (ADR-072 decision 3).
+        pages::state::register_closed_page();
         let program: Arc<ir::Program> = program.into();
         // Every pass here reads heads, so a program whose objects are made on first read makes none (ADR-054).
         let heads = program.objects.heads();
@@ -426,6 +430,12 @@ impl Engine {
                         })
                         .map(|(i, _)| i)
                         .collect()
+                }),
+                insert_unqueued: o.table.as_ref().is_none_or(|t| {
+                    t.fields.iter().any(|f| {
+                        f.auto_increment
+                            || matches!(f.ty, RtType::Library(al_builtins::library_kind::LibraryKind::Blob))
+                    })
                 }),
                 code_sql_type: o.table.as_ref().is_some_and(|t| {
                     t.fields.iter().any(|f| {
@@ -728,6 +738,18 @@ fn plain_default(t: &RtType) -> bool {
     )
 }
 
+/// An Integer, BigInteger or Boolean for a parameter of its own type: `ops::convert_plain` hands it back unchanged, so a
+/// call binds it without a look at the other kinds of argument.
+#[inline]
+fn passed_unchanged(a: &Value, t: &RtType) -> bool {
+    matches!(
+        (a, t),
+        (Value::Integer(_), RtType::Integer)
+            | (Value::BigInteger(_), RtType::BigInteger)
+            | (Value::Boolean(_), RtType::Boolean)
+    )
+}
+
 /// The session's encryption key.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum EncryptionKey {
@@ -807,8 +829,8 @@ pub struct Session {
     /// The session's data comes from a baseline in which the company data codeunit built the company to its end
     /// (`Baseline::company_built`).
     pub(crate) company_built: bool,
-    /// The `Engine::demo_tables` the running test's own code (not install code) wrote to.
-    demo_written: std::collections::HashSet<u32>,
+    /// What decides whether a read of a table is refused (`records/login_guard.rs`).
+    guards: records::ReadGuards,
     /// The running test's own code (not install code) wrote General Ledger Setup (table 98), before any caption of areas 1 or 101
     /// was resolved (`setup_caption_read_early`): such captions read the test's row (`refuse_setup_caption`).
     pub(crate) gl_setup_written: bool,
@@ -1028,8 +1050,9 @@ pub struct Session {
     /// A `ModifyAll(Field, Value, false)` of a table without modify events is running: every row is written, also one whose value
     /// does not change (recmeta.rs `modify_all`).
     pub(crate) bulk_modify: bool,
-    /// The `RecordRef.GetTable` that runs was given a Variant (refs.rs `ref_op`).
-    pub(crate) get_table_from_variant: bool,
+    /// The RecordRefs that Variants hold, and whether the `RecordRef.GetTable` that runs was given a Variant
+    /// (`recordref_variant.rs`).
+    pub(crate) variant_refs: recordref_variant::VariantRefs,
     /// Set while a `TestField.SetValue` written with a Variant argument runs (`TestField.SetValueVariant#1`).
     pub(crate) set_value_from_variant: bool,
     /// Set while a host page's `TestPage.New()` runs: the parts it links afresh run no OnNewRecord.
@@ -1300,7 +1323,7 @@ impl Session {
             sessions_started: 0,
             install_without_client: false,
             company_built: false,
-            demo_written: Default::default(),
+            guards: Default::default(),
             gl_setup_written: false,
             setup_caption_read_early: false,
             sequences,
@@ -1348,7 +1371,7 @@ impl Session {
             media,
             media_removed: Default::default(),
             bulk_modify: false,
-            get_table_from_variant: false,
+            variant_refs: Default::default(),
             set_value_from_variant: false,
             host_new_running: false,
             part_open_running: false,
@@ -1361,31 +1384,7 @@ impl Session {
                 ..TxState::fresh()
             },
             ui_state: UiState::default(),
-            pages: PageClients {
-                shown_frames: Vec::new(),
-                shown_controls: std::collections::HashMap::new(),
-                trigger_kinds: Vec::new(),
-                client_depth: 0,
-                code_close_vetoes: Vec::new(),
-                open_vetoed: Vec::new(),
-                saved_values: std::collections::HashMap::new(),
-                saved_values_committed: std::collections::HashMap::new(),
-                traps: Vec::new(),
-                scope_unpinned: Vec::new(),
-                bg_worker: None,
-                bg_drain_after_call: None,
-                page_xrec: None,
-                curr_field_no: Vec::new(),
-                lenient_bind: false,
-                failed_trigger: None,
-                ext_answers: Vec::new(),
-                ext_vetoed: false,
-                test_open: false,
-                run_page_link_open_moved: false,
-                run_page_link_opening: 0,
-                test_close: false,
-                close_save_error: false,
-            },
+            pages: PageClients::default(),
             events: EventState {
                 bindings: Vec::new(),
                 page_held: Vec::new(),
@@ -1442,7 +1441,7 @@ impl Session {
         self.shadow_begin();
         self.application_areas.clear();
         self.isolated_set_in_test.clear();
-        self.demo_written.clear();
+        self.guards.demo_written.clear();
         self.gl_setup_written = false;
         self.tx.transaction_type = 0;
         self.tx.tx_phase = crate::transactions::TX_FRESH;
@@ -1478,6 +1477,7 @@ impl Session {
         self.tx.tables_inserted.clear();
         self.tx.locked_tables.clear();
         self.tx.writes.clear();
+        self.tx.insert_buffer.clear();
         self.tx.find_set_tables.clear();
         self.tx.commit_counter = self.store.change_counter();
         self.tx.rolled_back = false;
@@ -1579,6 +1579,7 @@ impl Session {
         self.tx.tables_inserted.clear();
         self.tx.locked_tables.clear();
         self.tx.writes.clear();
+        self.tx.insert_buffer.clear();
         self.tx.find_set_tables.clear();
         self.tx.commit_counter = self.store.change_counter();
         self.tx.rolled_back = true;
@@ -1826,6 +1827,14 @@ impl Session {
         self.no_client = on;
     }
 
+    /// `--no-client` (al-runner issue 7564): the test session is a session without a client. `GuiAllowed` answers false,
+    /// `Message` returns and reaches no handler, `Confirm` raises CallbackNotAllowed whatever its default (all three as a page
+    /// background task worker does, pages/background-tasks/BjNoGuiDialogs.al:8-10; that a web-service session does the same is
+    /// the assumption `no-client-session`), and the other dialogs answer as that worker does or are refused (`clientless.rs`).
+    pub fn set_clientless_session(&mut self, on: bool) {
+        self.ui_state.clientless = on;
+    }
+
     /// An install routine of an app runs (or no longer runs): BC runs it in a session without a client. `GuiAllowed()` is
     /// false, `CurrentClientType()` is SOAP, a `Message` does not stop it, and StrMenu, Confirm and `Page.Run` raise
     /// CallbackNotAllowed (errors/RlInstallUi.al:210-241, metadata/CmInstallLeads.al:54-61).
@@ -1900,6 +1909,7 @@ impl Session {
     pub fn has_interactive_client(&self) -> bool {
         !self.install_without_client
             && !self.no_client
+            && !self.ui_state.clientless
             && self.host.identity.gui_allowed()
             && self.host.identity.current_client_type() != al_host::ClientType::Background
     }
@@ -1945,7 +1955,7 @@ impl Session {
     pub fn call_parameterless_subscriber(&mut self, object: usize, routine: usize) -> Result<(), Signal> {
         let r = &self.engine.program.objects[object].routines[routine];
         if r.params != 0 {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "subscriber {}.{} declares parameters, and the event it subscribes to has none",
                 self.engine.program.objects[object].name, r.name
             )));
@@ -2228,7 +2238,7 @@ impl Session {
             self.permission_gate_call(object, routine, &instance)?;
         }
         if let Some(Some(reason)) = self.engine.blocked.get(object).and_then(|o| o.get(routine)) {
-            return Err(Signal::Unsupported(reason.clone()));
+            return Err(Signal::unsupported(reason.clone()));
         }
         // A report procedure that names the request page's `Rec`, called while OnInitReport runs: in OnInitReport itself a read
         // of Rec raises ReportRequestPageNotInitialized (reports/request-page/YRequestPageTests.al:551); through a procedure
@@ -2357,6 +2367,11 @@ impl Session {
         }
         let mut args = args;
         for (i, a) in args.drain(..).enumerate().take(r.params) {
+            // No arm below is for these pairs, and the last one hands them back unchanged.
+            if passed_unchanged(&a, &r.locals[i].ty) {
+                locals[i] = a;
+                continue;
+            }
             locals[i] = match (a, r.by_var.get(i).copied().unwrap_or(false)) {
                 // A temporary record handed to a Variant parameter keeps its table: the callee counts the
                 // caller's rows through the Variant, though a by-value copy is an empty buffer
@@ -2524,7 +2539,7 @@ impl Session {
                 match transactions::CommitBehavior::from_attribute(&a.text) {
                     Some(b) => self.tx.commit_behavior = self.tx.commit_behavior.nested(b),
                     None => {
-                        return Err(Signal::Unsupported(format!(
+                        return Err(Signal::unsupported(format!(
                             "{} (only Ignore and Error are pinned)",
                             a.text
                         )));
@@ -2580,7 +2595,7 @@ impl Session {
             self.run_chunk(chunk, &mut frame)
         } else {
             // The bytecode names a register with 16 bits; a routine that needs more is refused, never run in part.
-            Err(Signal::Unsupported(format!(
+            Err(Signal::unsupported(format!(
                 "routine `{}` needs more than 65,535 registers (locals and temporaries); the executable form cannot name them",
                 r.name
             )))
@@ -2613,7 +2628,7 @@ impl Session {
         self.end_trap_scope(&frame, r.params, &r.by_var);
         if let Some(why) = self.end_unpinned_page_scope(&frame, r.params, &r.by_var) {
             self.fault_site_lost = true;
-            outcome = Err(Signal::Unsupported(why));
+            outcome = Err(Signal::unsupported(why));
         }
         outcome = self.close_test_pages_at_test_end(&frame, r, outcome);
         let ret = match outcome {
@@ -2664,7 +2679,7 @@ impl Session {
                 "Der Ausdruck Microsoft.Dynamics.Nav.Runtime.NavIndirectValue kann nicht in einen Microsoft.Dynamics.Nav.Runtime.NavText-Wert typkonvertiert werden.",
                 "TypeConversion",
             ),
-            (lang, _) => Signal::Unsupported(format!(
+            (lang, _) => Signal::unsupported(format!(
                 "the TypeConversion text of a Variant into {kind} in language {lang} (not pinned)"
             )),
         }
@@ -2743,6 +2758,8 @@ pub(crate) struct TableFacts {
     pub(crate) sql_timestamp: Vec<usize>,
     /// Some Code field declares an `SQLDataType` other than `Varchar`: a write checks its value.
     pub(crate) code_sql_type: bool,
+    /// The table has a Blob field or an AutoIncrement field: its Inserts are not queued (`records/insert_buffer.rs`).
+    pub(crate) insert_unqueued: bool,
 }
 
 /// The shared storage of an array value.
@@ -2802,8 +2819,8 @@ fn int(v: &Value) -> Result<i64, Signal> {
         Value::Option(n, _) => Ok(i64::from(*n)),
         // A Decimal with a whole value is a for-loop bound (`for x := 1 to ServLine."Qty. to Ship"`); a fractional one is not pinned.
         Value::Decimal(d) if d.fract() == rust_decimal::Decimal::ZERO => rust_decimal::prelude::ToPrimitive::to_i64(d)
-            .ok_or_else(|| Signal::Unsupported(format!("Decimal {d} used as an integer"))),
-        other => Err(Signal::Unsupported(format!("{} used as an integer", other.describe()))),
+            .ok_or_else(|| Signal::unsupported(format!("Decimal {d} used as an integer"))),
+        other => Err(Signal::unsupported(format!("{} used as an integer", other.describe()))),
     }
 }
 

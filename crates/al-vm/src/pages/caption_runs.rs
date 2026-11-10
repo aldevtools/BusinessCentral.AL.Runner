@@ -41,7 +41,18 @@ impl Session {
             _ => return None,
         };
         let same_text = exprs.iter().all(|(_, e)| e.trim() == exprs[0].1.trim());
+        // A Card over a table with three fields, one of them with an expression, runs it 9 times (record/captions/
+        // CaptionExpressionPlainText.al:368 CountCard_AsIntegerExpression_RunsAtOpen `open empty=9 rows=1`, two cycles, BC 27.5,
+        // 28.5 and 29.0); SX's table has two fields (SxCaptionClassCount.al:19).
+        let fields = {
+            let rec = self.page_rec(st);
+            let table = rec.borrow().table as usize;
+            self.engine.tables[table]
+                .as_ref()
+                .map_or(0, |t| t.fields.iter().filter(|f| f.id < 2_000_000_000).count())
+        };
         match (card, exprs.len()) {
+            (true, 1) if fields == 3 => Some(9),
             (true, 1) => Some(8),
             (true, 2) if same_text => Some(9),
             (false, 1) => Some(7),

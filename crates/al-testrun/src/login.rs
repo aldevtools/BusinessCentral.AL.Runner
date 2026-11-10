@@ -13,14 +13,31 @@
 //! The runtime raises the login by running the dependency apps' Company Triggers `OnCompanyOpenCompleted` subscribers
 //! with the apps under test's own (`install::test_session_company_open`), the real code of Microsoft's apps. It does so
 //! for a test codeunit that can see what an app under test's subscriber to one of the two events leaves
-//! ([`observed_by`]); otherwise those subscribers stay out of the test session, as before. What the login writes stays
+//! ([`decide`]); otherwise those subscribers stay out of the test session, as before, and a read of a table the login
+//! would add rows to is refused (`Login::Skip`). What the login writes stays
 //! in the session, committed before the first test. Microsoft's code that cannot run here refuses the codeunit.
 
-use crate::runtime::written::{ReachIndex, call_reach_facts, union_reach_facts_skipping};
+use crate::runtime::written::{
+    ReachIndex, call_reach_facts, union_call_reach_facts, union_reach_facts_skipping,
+    union_reach_facts_without_database_events,
+};
 use al_sema::lower::Lowered;
 use al_vm::Engine;
 use al_vm::events::Registry;
 use std::collections::BTreeSet;
+
+/// Whether the test session of a test codeunit raises the login ([`decide`]).
+pub(crate) enum Login {
+    /// The login is raised before the first test.
+    Raise,
+    /// The login is not raised. The tables hold rows only the login would add: those the apps under test's login
+    /// subscribers insert into and the test codeunit's own calls cannot. The static reach did not show that the test
+    /// reads them; if it does through a record method while it runs, the read is refused (`al_vm`
+    /// `records/login_guard.rs`). Known limits, where a wrong answer can still give a wrong result: a table the test's
+    /// own calls can insert into is not guarded; FlowField, TableRelation and query reads and `RecordRef.Next` are not
+    /// guarded; what a login subscriber writes through `Codeunit.Run` or a table trigger is not seen. Follow-up issue.
+    Skip(BTreeSet<u32>),
+}
 
 /// The publishers of the login events an app under test can subscribe to: (codeunit id, name, event in lower case).
 const LOGIN_EVENTS: &[(u32, &str, &str)] = &[
@@ -29,10 +46,13 @@ const LOGIN_EVENTS: &[(u32, &str, &str)] = &[
 ];
 
 /// What the apps under test's login subscribers leave: the tables they write through their own calls
-/// ([`call_reach_facts`]), and the codeunits of the apps under test whose state they keep. Made once per engine.
+/// ([`call_reach_facts`]), those of them they add rows to, and the codeunits of the apps under test whose state they
+/// keep. Made once per engine.
 #[derive(Default)]
 struct LoginLeaves {
     writes: BTreeSet<u32>,
+    /// The tables of `writes` the subscribers add rows to (Insert).
+    inserts: BTreeSet<u32>,
     state: BTreeSet<usize>,
 }
 
@@ -62,27 +82,30 @@ fn workspace_subscribers(lowered: &Lowered, events: &Registry) -> Vec<(usize, us
 /// Whether the test session of test codeunit `test` raises the login: an app under test has an automatic subscriber to
 /// "System Initialization".`OnAfterLogin` or "Guided Experience".`OnRegisterAssistedSetup`, and the test codeunit's reach
 /// can see what those subscribers leave: it touches a table they write through their own calls and does not write
-/// itself, or reads a global of the subscriber's codeunit or of an app under test's codeunit the subscriber's codeunit
-/// holds in a variable (the state of a SingleInstance codeunit, LgnLoginChecklistTests.al:19-64). The subscribers of the
-/// events raised inside those calls, the table triggers and the database events do not count: in Microsoft's apps that
+/// itself (in its whole reach, or in its reach without the subscribers of the database events), or touches through its
+/// own calls a table they add rows to and that its reach cannot insert into, or reads a global of the subscriber's
+/// codeunit or of an app under test's codeunit the subscriber's codeunit holds in a variable (the
+/// state of a SingleInstance codeunit, LgnLoginChecklistTests.al:19-64). The subscribers of the events raised inside
+/// the login subscribers' calls, the table triggers and the database events do not count: in Microsoft's apps that
 /// fan-out writes most of Base Application (Guided Experience's telemetry reaches every telemetry logger subscriber),
 /// and a test codeunit that only reads what it writes is not one the login is modelled for (corpus
 /// Y64InstallSubscribers.al reads a table a telemetry logger subscriber of a cross-app fixture writes, guarded so that
 /// the login writes nothing). Another test codeunit runs as before, without the login: whatever Microsoft's login code
 /// leaves that no app under test subscribes to is not modelled in the test session (Microsoft's login subscribers read
 /// the corpus database's demo rows, al-runner issue 7343).
-pub(crate) fn observed_by(engine: &Engine, lowered: &Lowered, test: usize) -> bool {
+pub(crate) fn decide(engine: &Engine, lowered: &Lowered, test: usize) -> Login {
     let events = &engine.events;
     let subs = workspace_subscribers(lowered, events);
     if subs.is_empty() {
-        return false;
+        return Login::Skip(BTreeSet::new());
     }
     let index = engine.derived(|| ReachIndex::new(events, lowered));
     let left = engine.derived(|| {
         let mut left = LoginLeaves::default();
         for &(o, r) in &subs {
-            left.writes
-                .extend(call_reach_facts(events, lowered, &index, o, r).writes);
+            let facts = call_reach_facts(events, lowered, &index, o, r);
+            left.writes.extend(facts.writes);
+            left.inserts.extend(facts.inserts);
             // The codeunits whose state the subscriber keeps: its own, and those its codeunit holds in a variable (the
             // SingleInstance codeunit of LgnLoginChecklistTests.al:87-89), of the apps under test.
             left.state.insert(o);
@@ -99,10 +122,51 @@ pub(crate) fn observed_by(engine: &Engine, lowered: &Lowered, test: usize) -> bo
     let mine = union_reach_facts_skipping(events, lowered, &index, &roots, &subs);
     // A table the test codeunit writes itself is not one whose rows it can only have from the login: an insert reaches
     // the database trigger subscribers of Microsoft's apps, which write the same tables in both reaches.
-    mine.touched
+    if mine
+        .touched
         .iter()
         .any(|t| writes.contains(t) && !mine.writes.contains(t))
         || mine.globals_read.iter().any(|g| left.state.contains(&g.0))
+    {
+        return Login::Raise;
+    }
+    // The same question without the subscribers of the `Global Triggers` database events (al-runner issue 7574). A page
+    // variable counts as a write (the page client writes the page's source table; a page without one writes a table
+    // that is not known), and any write brings those subscribers into the reach above. In Microsoft's apps they write
+    // the tables the login subscribers write, so a test that reads the login's row only through the page it opens (the
+    // page's OnQueryClosePage, an action) looked like one that writes the table itself. What the test writes through
+    // its calls, the objects it runs, the table triggers and the other events still counts as its own. That the row is
+    // there before the first test, whoever reads it, is LgnLoginChecklistTests.al:137-138; the read from a page's
+    // triggers is the reporter's repro, which passes on BC 29.0.
+    let own = union_reach_facts_without_database_events(events, lowered, &index, &roots, &subs);
+    if own
+        .touched
+        .iter()
+        .any(|t| writes.contains(t) && !own.writes.contains(t))
+    {
+        return Login::Raise;
+    }
+    // A write that cannot add a row does not give the test a row of its own (al-runner issue 7605, whose repro passes on
+    // BC 29.0 with a Finish action it never invokes; the review of issue 7574 found the same). The
+    // Finish action of a standard wizard calls "Guided Experience".CompleteAssistedSetup, which modifies the row the
+    // login registered (System Application: FindSet, then ModifyAll(Completed, true)); the page's OnQueryClosePage still
+    // reads that row, and the pin above says it is there. So the login is also raised for a table the login subscribers
+    // add rows to, that the test touches through its own calls, and that those calls cannot insert into. "Its own calls"
+    // is what it calls, what its page variables drive and the objects it runs by id, without table triggers and event
+    // subscribers: both sides are asked on that reach, because a record variable of a Base Application table brings that
+    // table's event subscribers into the wider reach, and somewhere in them Microsoft's code inserts into the Guided
+    // Experience tables (a wizard whose Finish action reads Customer then looked like one that registers itself). A
+    // table the subscribers only modify or delete in holds no row of theirs. A record declared temporary and a page over
+    // a temporary source insert nothing. A test that inserts the row itself runs without the login, as before.
+    //
+    // The answer is still a guess about what the test will read. The tables the guess leaves out go to the session,
+    // which refuses a read of them (`Login::Skip`).
+    let calls = union_call_reach_facts(events, lowered, &index, &roots, &subs);
+    let theirs: BTreeSet<u32> = left.inserts.difference(&calls.inserts).copied().collect();
+    if calls.touched.iter().any(|t| theirs.contains(t)) {
+        return Login::Raise;
+    }
+    Login::Skip(theirs)
 }
 
 /// The codeunits of the apps under test whose state a login subscriber keeps: the codeunit that declares a subscriber to

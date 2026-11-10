@@ -5,6 +5,40 @@ al-runtime-rs is a Rust-native AL runtime (see `README.md`). Read
 `docs/codemap.md` (which module owns what, and the call chains of the main flows)
 before you open a source file.
 
+## Priorities: correct first, then easy to change
+
+**1. Correct.** The runner gives Business Central's result, or it refuses (the hard rules below).
+
+**2. Easy to change, second only to correctness, and ahead of new features and speed.** The code
+must stay cheap and safe for the next person or agent to change. In practice that means:
+
+- **One behavior, one place.** Each rule and each piece of state has one owner module. A fix
+  changes that owner; it does not add a second copy of the rule somewhere else. If a fix would
+  need a second copy, refactor first.
+- **Small change, small rebuild.** A change in one area rebuilds and retests only the crates that
+  area belongs to. Keep the crate and module boundaries that make this true (ADR-008, ADR-010,
+  ADR-072).
+- **Readable without the history.** A new reader finds the owner of a behavior from
+  `docs/codemap.md` and understands it from its names and its corpus citation, without reading
+  old pull requests.
+- **The numbers only go down.** File size, function length, OS access and refusal counts are
+  ratchets (see Workflow). Never raise a cap; split, extract or delete instead.
+- **Leave it easier than you found it.** Every pull request may fix one nearby thing that makes
+  the code harder to change: a stale comment, a duplicate helper, a too-long function.
+- **Delete before adding.** Prefer removing code, special cases and workarounds over adding new
+  ones.
+
+When correctness and ease of change pull in different directions, correctness wins, but the pull
+request says what it made harder and opens the follow-up.
+
+**Take the extra time (owner, 2026-11-10).** A slower, less frequent release with a stronger
+solution is better than a fast fix that needs rework or regresses later. Spend more time and more
+tokens up front, on design, on reading the code and the corpus, and on review, when that gives a
+cleaner, more readable solution with fewer regressions and less token waste later. On every open
+question, choose the better long-term solution over the quicker one.
+
+**3. Then features, then speed** (within the perf budgets).
+
 ## Hard rules
 
 1. **Red/green TDD, no exceptions.** Every behaviour starts as a failing test;
@@ -96,7 +130,8 @@ before you open a source file.
      second when the test needs no Microsoft app.
   4. Before committing, one run with `--baseline-diff` on each of BC 27, 28 and 29 (`--bc-version N`, about 20 s each; owner, 2026-11-10): it lists,
      by area, the regressions, the stale lines, the cases still listed and the cases without an
-     outcome. Then `--prune-not-passing` deletes the stale lines (it refuses while a selection is active).
+     outcome. Then `--prune-not-passing --bc-version N`, one run per major, deletes the stale lines of that major (without
+     `--bc-version` it prunes only the newest; it refuses while a selection is active).
   5. `--timings` says where a run spent its time (load, compile, install baseline, tests).
   6. `AL_REACH_REPORT=1` prints, after the compile, how many routines each kind of root pulls in, which are refused,
      and how many only matter through a refused routine (slow on a bucket: it walks every test).

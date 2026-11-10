@@ -570,7 +570,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                         code: e.code,
                     });
                 }
-                Err(Signal::Unsupported(why)) => return Err(why.into()),
+                Err(Signal::Unsupported(why)) => return Err(why.into_reason().into()),
                 Err(_) => return Err(format!("Format of a {name} that is neither a result nor an error").into()),
             }
         }
