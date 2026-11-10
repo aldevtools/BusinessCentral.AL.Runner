@@ -717,24 +717,80 @@ codeunit 50220 C
         Txt: Text;
     begin
         Content := Req.Content;
-        exit(Format(Content.ReadAs(Txt)));
+        Txt := 'kept';
+        exit(Format(Content.ReadAs(Txt)) + '|' + Txt);
+    end;
+
+    procedure StreamStatement(): Text
+    var
+        Req: HttpRequestMessage;
+        Ins: InStream;
+    begin
+        Req.Content.ReadAs(Ins);
+        exit('ran');
+    end;
+
+    procedure CopyStreamUsed(): Text
+    var
+        Req: HttpRequestMessage;
+        Content: HttpContent;
+        Ins: InStream;
+    begin
+        Content := Req.Content;
+        exit(Format(Content.ReadAs(Ins)));
+    end;
+
+    procedure CopyStreamStatement(): Text
+    var
+        Req: HttpRequestMessage;
+        Content: HttpContent;
+        Ins: InStream;
+    begin
+        Content := Req.Content;
+        Content.ReadAs(Ins);
+        exit('ran');
+    end;
+
+    procedure CopyGetHeadersUsed(): Text
+    var
+        Req: HttpRequestMessage;
+        Content: HttpContent;
+        Headers: HttpHeaders;
+    begin
+        Content := Req.Content;
+        exit(Format(Content.GetHeaders(Headers)));
     end;
 }
 "#;
 
 #[test]
-fn read_as_of_an_uninitialized_content_runs_only_the_two_pinned_shapes() {
+fn read_as_of_an_uninitialized_content_runs_the_pinned_shapes() {
     // http/HttpRequest.al:220 (FreshRequestContent): `Req.Content.ReadAs(Txt)` with its result used answers No and leaves
     // the text. http/PnE12HttpContent.al:192: the same call as a statement raises. json/W4XmlJsonHttp.al:342-343
     // (RequestWithoutContent_ReadAs): a copy in a variable, called as a statement, raises
-    // (read_as_of_an_uninitialized_content_as_a_statement_raises). A copy with the result used is pinned by none, so it is refused.
+    // (read_as_of_an_uninitialized_content_as_a_statement_raises).
     let r = |routine: &str| out(al_testkit::run_in(READ_AS_SHAPES, "C", routine));
+    let not_initialized =
+        "error:Microsoft.Dynamics.Nav.Runtime.NavHttpContent variable not initialized.|NotInitialized";
     assert_eq!(r("DirectUsed"), "No|preset");
-    assert_eq!(
-        r("DirectStatement"),
-        "error:Microsoft.Dynamics.Nav.Runtime.NavHttpContent variable not initialized.|NotInitialized"
+    assert_eq!(r("DirectStatement"), not_initialized);
+    // http/PnE12HttpContent.al:201-273 (PW_RequestWithoutContent_CopyAndStream, al-runner issue 7466): a copy with the
+    // result used answers No and leaves the text (`copyTextUsed`); ReadAs into an InStream with the result used answers No
+    // on the request's content (`streamUsed`) and on a copy (`copyStreamUsed`), and raises as a statement on the request's
+    // content (`streamStatement`). This test expected a refusal for CopyUsed and StreamUsed before that probe existed.
+    assert_eq!(r("CopyUsed"), "No|kept");
+    assert_eq!(r("StreamUsed"), "No");
+    assert_eq!(r("CopyStreamUsed"), "No");
+    assert_eq!(r("StreamStatement"), not_initialized);
+    // Not pinned: ReadAs(InStream) as a statement on a copy, and GetHeaders on a copy with the result used.
+    assert!(
+        r("CopyStreamStatement").starts_with("refused:"),
+        "{}",
+        r("CopyStreamStatement")
     );
-    assert!(r("CopyUsed").starts_with("refused:"), "{}", r("CopyUsed"));
-    // ReadAs into an InStream on such a content is pinned by neither.
-    assert!(r("StreamUsed").starts_with("refused:"), "{}", r("StreamUsed"));
+    assert!(
+        r("CopyGetHeadersUsed").starts_with("refused:"),
+        "{}",
+        r("CopyGetHeadersUsed")
+    );
 }
