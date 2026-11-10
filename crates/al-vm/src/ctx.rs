@@ -196,7 +196,7 @@ impl al_builtins::native::Ctx for Session {
                 let rc = rc.clone();
                 self.record_op_from_al(method, &rc, args)
             }
-            other => Err(Signal::Unsupported(format!(
+            other => Err(Signal::unsupported(format!(
                 "record method {method} on {}",
                 other.describe()
             ))),
@@ -208,7 +208,7 @@ impl al_builtins::native::Ctx for Session {
                 let rc = rc.clone();
                 Session::record_validate_variant(self, &rc, args)
             }
-            other => Err(Signal::Unsupported(format!("Record.Validate on {}", other.describe()))),
+            other => Err(Signal::unsupported(format!("Record.Validate on {}", other.describe()))),
         }
     }
     fn page(
@@ -541,7 +541,7 @@ impl al_builtins::native::Ctx for Session {
             return Some(Ok(None));
         };
         let Some(def) = self.engine.tables.get(*object).cloned().flatten() else {
-            return Some(Err(Signal::Unsupported(format!(
+            return Some(Err(Signal::unsupported(format!(
                 "Evaluate into TableFilter of a table that was not compiled ({table})"
             ))));
         };
@@ -716,7 +716,7 @@ impl Session {
 }
 
 pub(crate) fn base_slot_missing(slot: usize) -> Signal {
-    Signal::Unsupported(format!(
+    Signal::unsupported(format!(
         "internal error: the base object's instance has no global slot {slot}"
     ))
 }

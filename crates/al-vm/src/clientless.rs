@@ -34,7 +34,7 @@ fn refused_name(id: BuiltinId) -> Option<&'static str> {
 }
 
 pub(crate) fn refusal(what: &str) -> Signal {
-    Signal::Unsupported(format!(
+    Signal::unsupported(format!(
         "{what} in a session without a client (--no-client): what BC does there is not pinned (probe wanted, docs/probes-needed.md `no-client-session`)"
     ))
 }

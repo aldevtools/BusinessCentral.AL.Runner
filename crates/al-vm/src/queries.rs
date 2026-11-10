@@ -289,7 +289,7 @@ impl Session {
                         al_builtins::filter::with_date_context(date_ctx, || {
                             al_builtins::filter::parse_filter_with(&text, &args[2..], &ty, &enums)
                         })
-                        .map_err(|e| Signal::Unsupported(format!("SetFilter: {e}")))?,
+                        .map_err(|e| Signal::unsupported(format!("SetFilter: {e}")))?,
                     )
                 };
                 let mut q = qs.borrow_mut();
@@ -1133,7 +1133,7 @@ impl Session {
     fn parse_query_filter(&self, text: &str, ty: &RtType) -> Result<FilterExpr, Signal> {
         let text = crate::query_date_filter::static_text(text, ty)?;
         self.parse_filter_text(&text, ty)
-            .map_err(|e| Signal::Unsupported(format!("query filter: {e}")))
+            .map_err(|e| Signal::unsupported(format!("query filter: {e}")))
     }
 
     /// Nested-loop join: every row of dataitem `level` that passes its filters and links to the

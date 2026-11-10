@@ -397,7 +397,7 @@ pub(crate) fn simple_lower(s: &str) -> String {
 pub(super) fn guid_to_text(r: Option<&mut Value>) -> Result<Value, Signal> {
     match r.as_deref() {
         Some(Value::Guid(g)) => Ok(Value::Text(crate::format::format_guid(g).into())),
-        other => Err(Signal::Unsupported(format!("Guid.ToText on {}", other.describe()))),
+        other => Err(Signal::unsupported(format!("Guid.ToText on {}", other.describe()))),
     }
 }
 
@@ -405,9 +405,9 @@ pub(super) fn byte_to_text(c: &mut dyn Ctx, r: Option<&mut Value>) -> Result<Val
     match r.as_deref() {
         Some(v @ Value::Byte(_)) => match crate::format::try_format(v, 0, 0, &*c) {
             Ok(t) => Ok(Value::Text(t.into())),
-            Err(e) => Err(Signal::Unsupported(e)),
+            Err(e) => Err(Signal::unsupported(e)),
         },
-        other => Err(Signal::Unsupported(format!("Byte.ToText on {}", other.describe()))),
+        other => Err(Signal::unsupported(format!("Byte.ToText on {}", other.describe()))),
     }
 }
 
@@ -427,7 +427,7 @@ pub(super) fn primitive_to_text(
             }
             match crate::format::try_format(v, 0, if iso { 9 } else { 0 }, &*c) {
                 Ok(t) => Ok(Value::Text(t.into())),
-                Err(e) => Err(Signal::Unsupported(e)),
+                Err(e) => Err(Signal::unsupported(e)),
             }
         }
         // The text of a Time, DateTime, Duration, Boolean and Decimal is `Format` with the default format, and with `true` the
@@ -440,9 +440,9 @@ pub(super) fn primitive_to_text(
             let inv = matches!(a.first(), Some(Value::Boolean(true)));
             match crate::format::try_format(v, 0, if inv { 9 } else { 0 }, &*c) {
                 Ok(t) => Ok(Value::Text(t.into())),
-                Err(e) => Err(Signal::Unsupported(e)),
+                Err(e) => Err(Signal::unsupported(e)),
             }
         }
-        other => Err(Signal::Unsupported(format!("{what}.ToText on {}", other.describe()))),
+        other => Err(Signal::unsupported(format!("{what}.ToText on {}", other.describe()))),
     }
 }

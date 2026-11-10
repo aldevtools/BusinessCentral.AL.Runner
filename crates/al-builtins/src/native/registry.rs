@@ -301,11 +301,11 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     // P93ScalarToText.al:180-300, P93Guid.al:28-102; record/PZFindDirections.al:91).
     ("Integer.ToText#1", |_, r, _| match r.as_deref() {
         Some(Value::Integer(n)) => Ok(Value::Text(n.to_string().into())),
-        other => Err(Signal::Unsupported(format!("Integer.ToText on {}", other.describe()))),
+        other => Err(Signal::unsupported(format!("Integer.ToText on {}", other.describe()))),
     }),
     ("BigInteger.ToText#1", |_, r, _| match r.as_deref() {
         Some(Value::BigInteger(n)) => Ok(Value::Text(n.to_string().into())),
-        other => Err(Signal::Unsupported(format!(
+        other => Err(Signal::unsupported(format!(
             "BigInteger.ToText on {}",
             other.describe()
         ))),

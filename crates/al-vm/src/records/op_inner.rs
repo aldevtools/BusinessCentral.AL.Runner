@@ -682,7 +682,7 @@ impl Session {
                 match self
                     .store_for(rec)
                     .insert(&cx, &t, stored)
-                    .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                    .map_err(|e| Signal::unsupported(format!("{e}")))?
                 {
                     InsertOutcome::Inserted => {
                         if let Some(ops) = pre_ops {
@@ -860,7 +860,7 @@ impl Session {
                 let stored = self
                     .store_for(rec)
                     .get(&cx, &t, &pk)
-                    .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                    .map_err(|e| Signal::unsupported(format!("{e}")))?;
                 self.feature_key_read_only_change(&t, rec, stored.as_deref())?;
                 if let Some(e) = self.read_only_platform_table(&t, rec, RecordOp::Modify) {
                     return match stored {
@@ -1006,7 +1006,7 @@ impl Session {
                 match self
                     .store_for(rec)
                     .modify(&cx, &t, stored)
-                    .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                    .map_err(|e| Signal::unsupported(format!("{e}")))?
                 {
                     WriteOutcome::Done => {
                         self.note_write(rec, &t, crate::state::TxWriteKind::Modify, &pk, before);
@@ -1102,7 +1102,7 @@ impl Session {
                     let exists = self
                         .store_for(rec)
                         .get(&cx, &t, &pk)
-                        .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                        .map_err(|e| Signal::unsupported(format!("{e}")))?
                         .is_some();
                     return if exists {
                         Err(Signal::Error(Box::new(e)))
@@ -1148,7 +1148,7 @@ impl Session {
                 let n = self
                     .store_for(rec)
                     .count(&cx, &t, &filters)
-                    .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                    .map_err(|e| Signal::unsupported(format!("{e}")))?;
                 // A platform table whose fresh-tenant rows nothing pins (`UNSEEDED_ROWS`): a DeleteAll without filters removes
                 // them in BC too, so the store marks the table emptied (`Session::is_unseeded`), even when it holds no row
                 // itself. With delete events or database triggers BC would run them for those rows: not known, refused.
@@ -1169,7 +1169,7 @@ impl Session {
                     }
                     self.store_for(rec)
                         .delete_all(&cx, &t, &filters)
-                        .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                        .map_err(|e| Signal::unsupported(format!("{e}")))?;
                     self.deletes += 1;
                     return Ok(Value::Null);
                 }
@@ -1217,7 +1217,7 @@ impl Session {
                         let still_there = self
                             .store_for(rec)
                             .get(&cx, &t, &pk)
-                            .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                            .map_err(|e| Signal::unsupported(format!("{e}")))?
                             .is_some();
                         if !still_there {
                             // record/crud/DeleteAllSkipsDeleted.al:DeleteAllTrue_FirstDeletesAnEarlierSibling_NoneEarlier.
@@ -1237,7 +1237,7 @@ impl Session {
                 }
                 self.store_for(rec)
                     .delete_all(&cx, &t, &filters)
-                    .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                    .map_err(|e| Signal::unsupported(format!("{e}")))?;
                 self.deletes += 1;
                 Ok(Value::Null)
             }
@@ -1308,7 +1308,7 @@ impl Session {
                 match self
                     .store_for(rec)
                     .get(&cx, &t, &pk)
-                    .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                    .map_err(|e| Signal::unsupported(format!("{e}")))?
                 {
                     Some(row) => {
                         self.get_load = true;
@@ -1402,7 +1402,7 @@ impl Session {
                         let row = self
                             .store_for(rec)
                             .get(&cx, &t, &pk)
-                            .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                            .map_err(|e| Signal::unsupported(format!("{e}")))?;
                         match row {
                             Some(row) if self.row_passes(rec, &t, &row)? || Self::on_own_row(rec, &pk) => Some(row),
                             _ => None,
@@ -1439,7 +1439,7 @@ impl Session {
                                     let exact = self
                                         .store_for(rec)
                                         .get(&cx, &t, &pk)
-                                        .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                                        .map_err(|e| Signal::unsupported(format!("{e}")))?;
                                     match exact {
                                         Some(row) if self.row_passes(rec, &t, &row)? => {
                                             if key == 0 || Self::same_key_values(&t, key, &row, &pos) {
@@ -1518,7 +1518,7 @@ impl Session {
                             && self
                                 .store_for(rec)
                                 .count(&cx, &t, &[])
-                                .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                                .map_err(|e| Signal::unsupported(format!("{e}")))?
                                 == 0;
                         // A set filtered down to nothing says the same (recordref-fieldref/Y81EmptySetFinds.al:224-:520
                         // Y81_RecRef_FilteredOut_Unused: `=`, `>` and `<` on a RecordRef and a temporary Record; needs corpus bump).
@@ -1597,7 +1597,7 @@ impl Session {
                         let empty = self
                             .store_for(rec)
                             .count(&cx, &t, &[])
-                            .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                            .map_err(|e| Signal::unsupported(format!("{e}")))?
                             == 0;
                         let origin = if rec.borrow().temporary || empty {
                             al_builtins::native::ErrorOrigin::Unknown
@@ -1670,7 +1670,7 @@ impl Session {
                 let n = if flow_field_filters.is_empty() && !rec.borrow().marked_only {
                     self.store_for(rec)
                         .count(&cx, &t, &filters)
-                        .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                        .map_err(|e| Signal::unsupported(format!("{e}")))?
                 } else {
                     // Rows are tested one by one against the calculated FlowFields.
                     let mut n = 0;
@@ -1922,7 +1922,7 @@ impl Session {
                             ..Default::default()
                         })));
                     }
-                    Err(e) => return Err(Signal::Unsupported(format!("SetFilter: {e}"))),
+                    Err(e) => return Err(Signal::unsupported(format!("SetFilter: {e}"))),
                 };
                 let or_flowfield = self.is_flowfield(&t, pos);
                 let mut r = rec.borrow_mut();
@@ -2337,7 +2337,7 @@ impl Session {
                         let stored_old = self
                             .store_for(rec)
                             .get(&cx, &t, &old_pk)
-                            .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                            .map_err(|e| Signal::unsupported(format!("{e}")))?;
                         if let Some(o) = stored_old
                             && ff.iter().any(|&i| {
                                 ops::compare(&o[i], &self.default_value(&t.fields[i].ty)).ok()
@@ -2362,7 +2362,7 @@ impl Session {
                     match self
                         .store_for(rec)
                         .modify(&cx, &t, stored.clone())
-                        .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                        .map_err(|e| Signal::unsupported(format!("{e}")))?
                     {
                         WriteOutcome::Done => RenameOutcome::Renamed,
                         WriteOutcome::NotFound => RenameOutcome::NotFound,
@@ -2370,7 +2370,7 @@ impl Session {
                 } else {
                     self.store_for(rec)
                         .rename(&cx, &t, &old_pk, stored.clone())
-                        .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                        .map_err(|e| Signal::unsupported(format!("{e}")))?
                 };
                 match outcome {
                     RenameOutcome::Renamed => {

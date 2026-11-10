@@ -154,7 +154,7 @@ fn char_to_byte(c: u16) -> Result<Value, Signal> {
     let shown = point(Kind::Char, Kind::Byte, u32::from(c)).filter(|s| s.chars().count() == 1);
     match shown.map(|s| crate::stream::Encoding::MsDos.encode(s)) {
         Some(b) if b.len() == 1 => Ok(Value::Byte(b[0])),
-        _ => Err(Signal::Unsupported(format!(
+        _ => Err(Signal::unsupported(format!(
             "Char {c} into a Byte: the byte of a character from 128 up is pinned only for the characters the conversion matrix tries"
         ))),
     }

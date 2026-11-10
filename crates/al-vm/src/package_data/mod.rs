@@ -85,7 +85,7 @@ impl Session {
         let positions = self.package_columns(&def);
         let columns = self.columns_of(&def, &positions)?;
         let rows = reader::read(&bytes, table as u32, &columns)
-            .map_err(|e| Signal::Unsupported(format!("{what} ({name}): {e}")))?;
+            .map_err(|e| Signal::unsupported(format!("{what} ({name}): {e}")))?;
         // Whether the load raises the database trigger events (Global Triggers OnDatabaseInsert) is not pinned.
         if !rows.is_empty() && self.global_enabled(&def, crate::globaltriggers::GlobalOp::Insert)? {
             return refuse(format!(

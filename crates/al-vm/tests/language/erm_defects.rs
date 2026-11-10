@@ -28,7 +28,7 @@ fn run(body: &str) -> Result<Value, Signal> {
         .position(|r| r.name == "F")
         .unwrap();
     if let Some(Some(r)) = blocked.get(oi).and_then(|o| o.get(ri)) {
-        return Err(Signal::Unsupported(r.clone()));
+        return Err(Signal::unsupported(r.clone()));
     }
     let engine = Engine::new(l.program, blocked);
     let mut s = Session::new(engine);

@@ -66,7 +66,7 @@ impl Session {
         let row = self
             .store
             .get(&self.cx, &t, &[key])
-            .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+            .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
         // The store matches a text key without regard to case; the company's own spelling must match.
         Ok(row
             .and_then(|r| al_builtins::native::text_of(&r[0]))
@@ -393,7 +393,7 @@ impl Session {
         let Some(source_row) = self
             .store
             .get(&self.cx, &t, &[key])
-            .map_err(|e| Signal::Unsupported(format!("store error {e}")))?
+            .map_err(|e| Signal::unsupported(format!("store error {e}")))?
         else {
             return unsupported("Database.CopyCompany of a company that has no row in the Company table");
         };
@@ -456,7 +456,7 @@ impl Session {
         let row = self
             .store
             .get(&self.cx, &t, &[key])
-            .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+            .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
         Ok(row.is_none().then_some(false))
     }
 

@@ -138,14 +138,14 @@ impl Session {
             return Ok(false);
         }
         if let Some(who) = self.layout_event_subscriber() {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "Report.SaveAs of \"{}\" as Pdf with {who} (BC raises the layout events before it renders; this runtime \
                  writes a placeholder PDF and raises none of them)",
                 schema.name()
             )));
         }
         if let Some(what) = self.layout_selection(schema)? {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "Report.SaveAs of \"{}\" as Pdf while {what} (BC may render another layout, and an Excel one writes no \
                  output; this runtime writes a placeholder PDF only for the report's own RDLC or Word layout)",
                 schema.name()

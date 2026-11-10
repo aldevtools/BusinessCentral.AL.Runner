@@ -86,7 +86,7 @@ pub fn variant_into(v: Value, t: &RtType) -> Result<Value, Signal> {
                 Some(r) => r,
                 None => match super::variant_error(&v, t) {
                     Some(e) => Err(e),
-                    None => Err(Signal::Unsupported(why)),
+                    None => Err(Signal::unsupported(why)),
                 },
             }
         }

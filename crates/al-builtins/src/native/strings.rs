@@ -292,6 +292,6 @@ pub(super) fn array_len(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Valu
 pub(super) fn array_len_of(args: &[Value]) -> Result<Value, Signal> {
     match args.first() {
         Some(Value::Array(a)) => Ok(Value::Integer(a.borrow().len() as i32)),
-        other => Err(Signal::Unsupported(format!("ArrayLen of {}", other.describe()))),
+        other => Err(Signal::unsupported(format!("ArrayLen of {}", other.describe()))),
     }
 }

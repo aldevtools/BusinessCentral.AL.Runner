@@ -31,7 +31,7 @@ impl Session {
             return Ok((before, after));
         }
         let refuse = || {
-            Err(Signal::Unsupported(format!(
+            Err(Signal::unsupported(format!(
                 "Validate of {}.{}: more than one table extension declares OnBeforeValidate or OnAfterValidate for it (their order is not pinned)",
                 t.name, field.name
             )))

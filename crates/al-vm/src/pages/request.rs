@@ -766,7 +766,7 @@ impl Session {
                 }
                 let expr = self
                     .parse_filter_text(&text, &ty)
-                    .map_err(|e| Signal::Unsupported(format!("TestFilter.SetFilter: {e}")))?;
+                    .map_err(|e| Signal::unsupported(format!("TestFilter.SetFilter: {e}")))?;
                 let mut r = rec.borrow_mut();
                 match r.filters.iter().position(|f| f.field == pos && f.group == 0) {
                     Some(i) => r.filters[i].expr = expr,
@@ -1255,7 +1255,7 @@ impl Session {
                         let ty = t.fields[pos].ty.clone();
                         let expr = self
                             .parse_filter_text(text, &ty)
-                            .map_err(|e| Signal::Unsupported(format!("a parameter filter: {e}")))?;
+                            .map_err(|e| Signal::unsupported(format!("a parameter filter: {e}")))?;
                         filters.push(FieldFilter {
                             lang: al_builtins::filter::filter_language(),
                             field: pos,

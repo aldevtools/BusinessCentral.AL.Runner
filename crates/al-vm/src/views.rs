@@ -581,17 +581,17 @@ impl Session {
                     for item in items {
                         let (field, cond) = item
                             .split_once('=')
-                            .ok_or_else(|| Signal::Unsupported(format!("view condition `{item}`")))?;
+                            .ok_or_else(|| Signal::unsupported(format!("view condition `{item}`")))?;
                         let Some(pos) = self.view_where_field(t, field.trim(), cond, runtime, alone)? else {
                             continue;
                         };
                         let cond = cond.trim();
                         let open = cond
                             .find('(')
-                            .ok_or_else(|| Signal::Unsupported(format!("view condition `{item}`")))?;
+                            .ok_or_else(|| Signal::unsupported(format!("view condition `{item}`")))?;
                         let kind = cond[..open].trim().to_ascii_uppercase();
                         let (value, tail) = balanced(&cond[open..])
-                            .ok_or_else(|| Signal::Unsupported(format!("view condition `{item}`")))?;
+                            .ok_or_else(|| Signal::unsupported(format!("view condition `{item}`")))?;
                         if !tail.trim().is_empty() || !matches!(kind.as_str(), "FILTER" | "CONST" | "0" | "1") {
                             return unsupported(format!("view condition `{item}`"));
                         }
@@ -665,7 +665,7 @@ impl Session {
                             Some(e) => e,
                             None => {
                                 al_builtins::filter::with_date_context(date_ctx, || self.parse_filter_text(value, &ty))
-                                    .map_err(|e| Signal::Unsupported(format!("SetView: {e}")))?
+                                    .map_err(|e| Signal::unsupported(format!("SetView: {e}")))?
                             }
                         };
                         filters.retain(|f| f.field != pos);

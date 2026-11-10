@@ -290,7 +290,7 @@ fn run(body: &str, routine: &str) -> Result<Value, Signal> {
             continue;
         }
         if let Some(why) = l.unsupported[o][r].first() {
-            return Err(Signal::Unsupported(why.clone()));
+            return Err(Signal::unsupported(why.clone()));
         }
     }
     let engine = Engine::new(l.program, blocked);

@@ -99,7 +99,7 @@ impl Session {
                 .ok_or_else(refused),
             Value::Enum(id, value) => {
                 if let Some(why) = self.enum_ml_unpinned(*id, Some(*value), "the key value of an enum") {
-                    return Err(Signal::Unsupported(why));
+                    return Err(Signal::unsupported(why));
                 }
                 let o = &self.engine.program.objects[*id as usize];
                 let name = o

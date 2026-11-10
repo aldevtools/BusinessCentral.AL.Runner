@@ -46,7 +46,7 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         if matches!(t, T::Text(None)) {
             return Ok(v);
         }
-        return Err(Signal::Unsupported(why.to_string()));
+        return Err(Signal::unsupported(why.to_string()));
     }
     // A counter value stays tainted in a Variant and in a number slot, with the slot's type (`sqlcount`, SqlCounters.al
     // P6924_Counters_StoredInInteger_NotNegative, P6924_Counters_StoredInDecimal_NotNegativeAndWhole); any other type would
@@ -315,7 +315,7 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
             let n: i64 = s
                 .trim()
                 .parse()
-                .map_err(|_| Signal::Unsupported(format!("text `{s}` into a number (out of range)")))?;
+                .map_err(|_| Signal::unsupported(format!("text `{s}` into a number (out of range)")))?;
             crate::assumptions::assume(crate::assumptions::Assumption::TextDigitsToInteger);
             match t {
                 T::Integer => match i32::try_from(n) {
@@ -752,7 +752,7 @@ pub fn number_into_text_field(
     };
     let text = match crate::format::try_format(v, 0, 0, ctx) {
         Ok(text) => text,
-        Err(e) => return Some(Err(Signal::Unsupported(e))),
+        Err(e) => return Some(Err(Signal::unsupported(e))),
     };
     // The length is checked before the upper-casing: the error shows the caption as written (`Value: Beta Cap`,
     // text/text-methods/Y49FieldRefIntoText.al:229-230).
@@ -1565,7 +1565,7 @@ pub fn compare(l: &Value, r: &Value) -> Result<Ordering, Signal> {
         // A column a platform row leaves unknown equals itself (a Modify that writes the row back unchanged, `IsDirty` of an
         // untouched field); any other comparison would read it.
         (V::Unknown(a), V::Unknown(b)) if a == b => return Ok(Ordering::Equal),
-        (V::Unknown(why), _) | (_, V::Unknown(why)) => return Err(Signal::Unsupported(why.to_string())),
+        (V::Unknown(why), _) | (_, V::Unknown(why)) => return Err(Signal::unsupported(why.to_string())),
         (V::SqlCount(_), _) | (_, V::SqlCount(_)) => return crate::sqlcount::order(l, r),
         // A text with half of a surrogate pair is equal only to the same units, and the empty text comes before any other
         // (ADR-068; `R <> ''` in the corpus's `Codes`, streams/StTEncodings.al:70 on the values of :233-244). Any other order

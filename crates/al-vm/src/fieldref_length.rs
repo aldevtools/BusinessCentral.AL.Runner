@@ -26,7 +26,7 @@ pub(crate) fn length(ty: &RtType) -> Result<Value, Signal> {
         RtType::DateFormula | RtType::Library(al_builtins::library_kind::LibraryKind::RecordId) => {
             Ok(Value::Integer(if matches!(ty, RtType::DateFormula) { 32 } else { 448 }))
         }
-        other => Err(Signal::Unsupported(format!(
+        other => Err(Signal::unsupported(format!(
             "FieldRef.Length of a {} field",
             other.describe()
         ))),

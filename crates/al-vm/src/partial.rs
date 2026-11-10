@@ -247,7 +247,7 @@ impl Session {
         let stored = self
             .store_for(rec)
             .get(&cx, &t, &pk)
-            .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+            .map_err(|e| Signal::unsupported(format!("{e}")))?;
         let Some(stored) = stored else {
             if key_changed {
                 return unsupported(

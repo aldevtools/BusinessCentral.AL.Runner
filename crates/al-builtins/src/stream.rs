@@ -279,9 +279,9 @@ pub fn render_pending_error(report: &str) -> Signal {
     }
     // ADR-044 uses the same mark for the picture a `System.Drawing.Bitmap` was asked to save: the name is the .NET type.
     if report.starts_with("System.Drawing.") {
-        return Signal::Unsupported(format!("picture drawn by {report} is not produced"));
+        return Signal::unsupported(format!("picture drawn by {report} is not produced"));
     }
-    Signal::Unsupported(format!("rendered output of report {report} is not produced"))
+    Signal::unsupported(format!("rendered output of report {report} is not produced"))
 }
 
 /// Records that AL looked at a pending buffer.

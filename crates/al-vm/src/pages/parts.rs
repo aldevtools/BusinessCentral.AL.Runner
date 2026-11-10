@@ -326,7 +326,7 @@ impl Session {
         }
         self.parse_filter_text(&text, ty)
             .map(Some)
-            .map_err(|e| Signal::Unsupported(format!("SubPageLink field(filter(...)): {e}")))
+            .map_err(|e| Signal::unsupported(format!("SubPageLink field(filter(...)): {e}")))
     }
 
     /// Whether the link of part control `control` of `host` has a `field(filter(F))` entry whose host (or provider) value is blank.
@@ -1409,7 +1409,7 @@ impl Session {
                             Some(expr) => expr,
                             None => self
                                 .parse_filter_text(text, &ty)
-                                .map_err(|e| Signal::Unsupported(format!("SubPageLink filter: {e}")))?,
+                                .map_err(|e| Signal::unsupported(format!("SubPageLink filter: {e}")))?,
                         };
                         fresh.push(FieldFilter {
                             lang: al_builtins::filter::filter_language(),

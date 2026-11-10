@@ -151,7 +151,7 @@ impl Session {
             let Some(row) = self
                 .store
                 .next(&cx, &m, &scan)
-                .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                .map_err(|e| Signal::unsupported(format!("{e}")))?
             else {
                 break;
             };
@@ -189,7 +189,7 @@ impl Session {
             match self
                 .store
                 .rename(&cx, &m, &old_pk, changed)
-                .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                .map_err(|e| Signal::unsupported(format!("{e}")))?
             {
                 al_data::RenameOutcome::Renamed => {}
                 _ => {

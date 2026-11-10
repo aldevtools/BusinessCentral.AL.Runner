@@ -1025,7 +1025,7 @@ impl Session {
             Ok(r) => self
                 .apply_reply(r, &StreamBook::default(), &[], member, f)
                 .map_err(MoveNextFailure::Refused),
-            Err(DotNetFailure::Refused(why)) => Err(MoveNextFailure::Refused(Signal::Unsupported(why))),
+            Err(DotNetFailure::Refused(why)) => Err(MoveNextFailure::Refused(Signal::unsupported(why))),
             Err(DotNetFailure::Exception(e)) => Err(MoveNextFailure::Exception(e)),
         }
     }
@@ -1055,7 +1055,7 @@ impl Session {
         match session.invoke(DotNetTarget::Static(ty.clone()), member, wire) {
             Ok(r) => self.wire_to_value(r.value).map_err(|e| prefix(e, &shown)),
             Err(e) => Err(match e {
-                DotNetFailure::Refused(why) => MoveNextFailure::Refused(Signal::Unsupported(why)),
+                DotNetFailure::Refused(why) => MoveNextFailure::Refused(Signal::unsupported(why)),
                 DotNetFailure::Exception(e) => MoveNextFailure::Exception(e),
             }
             .signal(&ty.name, member)),
@@ -1075,7 +1075,7 @@ impl Session {
             Ok(r) => self
                 .apply_reply(r, &StreamBook::default(), &[], member, f)
                 .map_err(MoveNextFailure::Refused),
-            Err(DotNetFailure::Refused(why)) => Err(MoveNextFailure::Refused(Signal::Unsupported(why))),
+            Err(DotNetFailure::Refused(why)) => Err(MoveNextFailure::Refused(Signal::unsupported(why))),
             Err(DotNetFailure::Exception(e)) => Err(MoveNextFailure::Exception(e)),
         }
     }
@@ -1624,7 +1624,7 @@ impl MoveNextFailure {
     fn signal(self, clr_type: &str, member: &str) -> Signal {
         match self {
             MoveNextFailure::Refused(s) => s,
-            MoveNextFailure::Exception(e) => Signal::Unsupported(format!(
+            MoveNextFailure::Exception(e) => Signal::unsupported(format!(
                 "DotNet {clr_type}.{member} raised the .NET exception {}: {}; the text AL would see is not pinned (ADR-014 section 7)",
                 e.clr_type, e.message
             )),
@@ -1671,7 +1671,7 @@ fn host_target(t: &Target) -> DotNetTarget {
 
 fn prefix(e: Signal, shown: &str) -> Signal {
     match e {
-        Signal::Unsupported(s) => Signal::Unsupported(format!("DotNet {shown}: {s}")),
+        Signal::Unsupported(s) => Signal::unsupported(format!("DotNet {shown}: {s}")),
         other => other,
     }
 }

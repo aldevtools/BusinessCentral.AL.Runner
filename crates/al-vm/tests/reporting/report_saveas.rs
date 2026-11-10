@@ -719,7 +719,7 @@ fn run_on(bc: Option<&str>, body: &str) -> Result<Value, Signal> {
         .position(|r| r.name == "F")
         .unwrap();
     if let Some(Some(r)) = blocked.get(oi).and_then(|o| o.get(ri)) {
-        return Err(Signal::Unsupported(r.clone()));
+        return Err(Signal::unsupported(r.clone()));
     }
     let engine = Engine::with_target(l.program, blocked, target);
     let mut s = Session::new(engine);

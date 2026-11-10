@@ -63,7 +63,7 @@ impl Session {
             // (al-runner issue 6645; corpus branch al-runtime-rs-staging-y64 85d86e7b, record/system-fields/
             // Y64UserNameFilters.al:154-191). A table whose schema holds them (al-sema `USER_NAME_FIELDS`) found the field above; a
             // table compiled without them (a target below BC 29 with the gate on) refuses, never drops.
-            Err(_) if user_name_field(name) => Err(Signal::Unsupported(format!(
+            Err(_) if user_name_field(name) => Err(Signal::unsupported(format!(
                 "a view condition on the user-name system FlowField `{name}` (filters on it are not supported yet)"
             ))),
             Err(_) if runtime && alone && !unpinned_unknown(name) && plain_condition(name, cond) => Ok(None),

@@ -138,7 +138,7 @@ pub trait Ctx: FormatCtx {
         _recv: Option<&mut Value>,
         _args: &mut [Value],
     ) -> Result<Value, Signal> {
-        Err(Signal::Unsupported(format!("{method} needs a page runtime")))
+        Err(Signal::unsupported(format!("{method} needs a page runtime")))
     }
 
     /// Set around a `TestField.SetValue` whose argument is written as a Variant (lowering picks
@@ -148,14 +148,14 @@ pub trait Ctx: FormatCtx {
     /// `Query` variable methods: the VM executes the query (`al-vm/src/queries.rs`).
     /// `method` is the catalog name (`Open`, `SetRange`, ...).
     fn query(&mut self, method: &str, _recv: Option<&mut Value>, _args: &mut [Value]) -> Result<Value, Signal> {
-        Err(Signal::Unsupported(format!("Query.{method} needs a query runtime")))
+        Err(Signal::unsupported(format!("Query.{method} needs a query runtime")))
     }
 
     /// `RecordRef`, `FieldRef` and `KeyRef` methods need the table schema and
     /// the store, like record methods. `id` is the catalog overload id
     /// (`RecordRef.Open#2`); the VM resolves it to the method.
     fn ref_op(&mut self, id: &str, _receiver: Option<&mut Value>, _args: &mut [Value]) -> Result<Value, Signal> {
-        Err(Signal::Unsupported(format!("builtin {id}")))
+        Err(Signal::unsupported(format!("builtin {id}")))
     }
     /// Today's day number (1 = 0001-01-01) on the host's clock; `None` where there is no host.
     fn today_day(&self) -> Option<i32> {
@@ -247,7 +247,7 @@ pub trait Ctx: FormatCtx {
     /// VM implements them. `id` is the catalog overload id (`NumberSequence.Next#1`); `args` holds
     /// the call's arguments, with `var` parameters written back in place.
     fn session_op(&mut self, id: crate::builtin_id::BuiltinId, _args: &mut [Value]) -> Result<Value, Signal> {
-        Err(Signal::Unsupported(format!("builtin {id} needs a session")))
+        Err(Signal::unsupported(format!("builtin {id} needs a session")))
     }
     /// The language id, locale id and Windows time zone name of the running session, which
     /// `SessionSettings.Init` reads. `None` where the context has no host.
@@ -316,7 +316,7 @@ pub trait Ctx: FormatCtx {
     }
     /// `NavApp.LoadPackageData(table)` in install code with the data file of the running app (al-vm `package_data`).
     fn load_package_data(&mut self, table: i32) -> Result<Value, Signal> {
-        Err(Signal::Unsupported(format!("NavApp.LoadPackageData of table {table}")))
+        Err(Signal::unsupported(format!("NavApp.LoadPackageData of table {table}")))
     }
     /// Whether an install codeunit is running (DataTransfer works there and only there).
     fn install_scope(&self) -> bool {

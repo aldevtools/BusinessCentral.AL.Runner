@@ -748,7 +748,7 @@ impl Session {
                 let stored = self
                     .store_for(rec)
                     .get(&cx, t, &pk)
-                    .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                    .map_err(|e| Signal::unsupported(format!("{e}")))?;
                 match stored {
                     // A row stored again since the record read it: BC compares with what the record read, not with the stored
                     // row (recordref-fieldref/AsGetTableIsDirty.al:87-107 StoredRowChangedAfterRead `dirty_unchanged` No), and
@@ -1979,7 +1979,7 @@ impl Session {
                     (Some(ml), _) if session_language => {
                         let language = al_builtins::format::FormatCtx::language(self);
                         al_builtins::format::ml_text_in_language(&ml, language)
-                            .map_err(|e| Signal::Unsupported(format!("OptionCaptionML {e}")))?
+                            .map_err(|e| Signal::unsupported(format!("OptionCaptionML {e}")))?
                             .split(',')
                             .map(str::to_string)
                             .collect()

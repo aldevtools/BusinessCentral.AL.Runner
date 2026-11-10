@@ -341,7 +341,7 @@ pub(crate) fn run_case(
     }
     // BiDataDriven.al:20: the ITestContext GetTestCase returns is what the procedure receives.
     if !matches!(got, Value::Codeunit(_)) {
-        return Err(Signal::Unsupported(format!(
+        return Err(Signal::unsupported(format!(
             "GetTestCase returned {} instead of a codeunit",
             al_builtins::describe::Describe::describe(&got)
         )));

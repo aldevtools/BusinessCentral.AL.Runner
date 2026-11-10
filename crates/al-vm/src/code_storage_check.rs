@@ -78,7 +78,7 @@ impl Session {
         let exists = self
             .store_for(rec)
             .get(cx, t, old_pk)
-            .map_err(|e| Signal::Unsupported(format!("{e}")))?
+            .map_err(|e| Signal::unsupported(format!("{e}")))?
             .is_some();
         if exists {
             rec.borrow_mut().fields = old.to_vec();

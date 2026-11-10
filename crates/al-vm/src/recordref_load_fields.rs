@@ -22,7 +22,7 @@ fn args_of(method: &str, t: &TableDef, args: &[Value]) -> Result<Vec<Arg>, Signa
     args.iter()
         .map(|a| {
             let Value::Integer(n) = a else {
-                return Err(Signal::Unsupported(format!("RecordRef.{method} with {}", a.describe())));
+                return Err(Signal::unsupported(format!("RecordRef.{method} with {}", a.describe())));
             };
             Ok(match t.fields.iter().position(|f| i64::from(f.id) == i64::from(*n)) {
                 Some(p) => Arg::Field(p),
@@ -101,7 +101,7 @@ impl Session {
                     return Err(self.field_not_found(t, &n.to_string()));
                 }
                 if zero && self.ret_used {
-                    return Err(Signal::Unsupported(format!(
+                    return Err(Signal::unsupported(format!(
                         "the result of RecordRef.{method} with field number 0 (not pinned)"
                     )));
                 }

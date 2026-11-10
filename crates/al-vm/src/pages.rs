@@ -265,7 +265,7 @@ impl Session {
                     target: ControlTarget::Control(control),
                 })))
             }
-            other => Err(Signal::Unsupported(format!("control of {}", other.describe()))),
+            other => Err(Signal::unsupported(format!("control of {}", other.describe()))),
         }
     }
 

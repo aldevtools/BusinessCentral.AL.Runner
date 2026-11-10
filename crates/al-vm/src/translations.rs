@@ -85,7 +85,7 @@ impl Session {
             .iter()
             .any(|a| translates_into(a, language) && a.id.eq_ignore_ascii_case(app));
         if shipped {
-            return Err(Signal::Unsupported(refusal(what, language)));
+            return Err(Signal::unsupported(refusal(what, language)));
         }
         Ok(())
     }

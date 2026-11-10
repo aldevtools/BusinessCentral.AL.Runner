@@ -24,7 +24,7 @@ fn u16s(s: &str) -> Vec<u16> {
 /// cannot hold it until ADR-068 is built, and U+FFFD in its place would be a guessed value (hard rule 4).
 fn from_u16(u: &[u16], op: &str) -> Result<String, Signal> {
     String::from_utf16(u)
-        .map_err(|_| Signal::Unsupported(format!("{op} that ends up with half of a surrogate pair (not pinned)")))
+        .map_err(|_| Signal::unsupported(format!("{op} that ends up with half of a surrogate pair (not pinned)")))
 }
 
 /// `Text.Substring` and `Text.Remove` through a pair keep the half (ADR-068); the corpus reads the length of the result
@@ -57,7 +57,7 @@ fn text(a: &[Value], i: usize) -> Result<crate::text::Txt, Signal> {
     }
     a.get(i)
         .and_then(text_of)
-        .ok_or_else(|| Signal::Unsupported(format!("text argument {i} of type {}", a.get(i).describe())))
+        .ok_or_else(|| Signal::unsupported(format!("text argument {i} of type {}", a.get(i).describe())))
 }
 
 /// A Text argument that may be a Guid: the Guid's upper-case text form, as in an assignment. Pinned for the functions that

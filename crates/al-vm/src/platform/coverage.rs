@@ -140,7 +140,7 @@ impl Session {
             return Ok(());
         };
         if table != CODE_COVERAGE && self.several_recorded_tests() {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "a read of {}: several [Test] procedures were recorded and BC gives them one Test ID, which the Tests Run \
                  table keys its rows by (test-framework/code-coverage/W6CodeCoverageIds.al:111-112); the runtime cannot hold those rows",
                 t.name
@@ -236,7 +236,7 @@ impl Session {
             // One DeleteAll and one Insert per row, in one pass (al-data `memory/replace.rs`).
             self.store
                 .replace_all(&cx, t, rows)
-                .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                .map_err(|e| Signal::unsupported(format!("{e}")))?;
         }
         Ok(())
     }

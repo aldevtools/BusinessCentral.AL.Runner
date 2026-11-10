@@ -714,7 +714,7 @@ struct Engine0 {
 fn run_model(body: &str, model: TxModel) -> Result<Value, Signal> {
     let (e, oi, ri) = build(body);
     if let Some(Some(r)) = e.blocked.get(oi).and_then(|o| o.get(ri)) {
-        return Err(Signal::Unsupported(r.clone()));
+        return Err(Signal::unsupported(r.clone()));
     }
     let setup = e.program.objects[oi].routines.iter().position(|r| r.name == "Setup");
     let engine = Engine::new(e.program, e.blocked);

@@ -47,13 +47,13 @@ impl Session {
                 continue;
             }
             if let Some(why) = self.install_unknown(t.object) {
-                return Err(Signal::Unsupported(format!(
+                return Err(Signal::unsupported(format!(
                     "FindOrphans: the rows of {} are not known ({why})",
                     t.name
                 )));
             }
             if self.is_unseeded(&t) {
-                return Err(Signal::Unsupported(format!(
+                return Err(Signal::unsupported(format!(
                     "FindOrphans: the rows of {} could not be created (ADR-013 decision 5)",
                     t.name
                 )));

@@ -243,7 +243,7 @@ impl Session {
             // reports/runtime/P128ClearAllReport.al, reports/runtime/P135ClearAllReport.al).
             al_ir::ObjKind::Report => Vec::new(),
             _ => {
-                return Err(Signal::Unsupported(format!("ClearAll in a {} (not pinned)", o.kind)));
+                return Err(Signal::unsupported(format!("ClearAll in a {} (not pinned)", o.kind)));
             }
         };
         let table_like = matches!(o.kind, al_ir::ObjKind::Table | al_ir::ObjKind::TableExtension);
@@ -462,7 +462,7 @@ impl Session {
                 self.application_areas = t.to_string();
                 Ok(Value::Null)
             }
-            Some(other) => Err(Signal::Unsupported(format!("ApplicationArea({})", other.describe()))),
+            Some(other) => Err(Signal::unsupported(format!("ApplicationArea({})", other.describe()))),
         }
     }
 
@@ -520,7 +520,7 @@ impl Session {
             other => match al_builtins::json::array_items(&other).or_else(|| al_builtins::xml::node_list_items(&other))
             {
                 Some(items) => items,
-                None => return Err(Signal::Unsupported(format!("foreach over {}", other.describe()))),
+                None => return Err(Signal::unsupported(format!("foreach over {}", other.describe()))),
             },
         })
     }
@@ -757,7 +757,7 @@ impl Session {
                     self.shared_instance(ext.unwrap_or(i))
                 }
                 other => {
-                    return Err(Signal::Unsupported(format!(
+                    return Err(Signal::unsupported(format!(
                         "a procedure call on a {} value",
                         value_kind(&other)
                     )));
@@ -1049,7 +1049,7 @@ impl Session {
 
     fn alias_refusal(&self, i: usize, f: &Frame, why: &str) -> Signal {
         let name = &self.engine.program.objects[f.instance.borrow().object as usize].globals[i].name;
-        Signal::Unsupported(format!(
+        Signal::unsupported(format!(
             "the global variable {name} is read or changed by its name while a procedure it was passed to by var runs {why}"
         ))
     }
@@ -1377,7 +1377,7 @@ impl Session {
                             Some((arr, start, len)) => Ok(Value::Array(Rc::new(RefCell::new(
                                 arr.borrow()[start..start + len].to_vec(),
                             )))),
-                            None => Err(Signal::Unsupported(m)),
+                            None => Err(Signal::unsupported(m)),
                         };
                     }
                     Err(e) => return Err(e),
@@ -1405,7 +1405,7 @@ impl Session {
                     .filter(|w| !crate::records::run_page_link_fields_read(w))
                 {
                     if why == crate::records::RUN_PAGE_LINK_OPEN {
-                        return Err(Signal::Unsupported(format!("a read of a field of Rec {why}")));
+                        return Err(Signal::unsupported(format!("a read of a field of Rec {why}")));
                     }
                     return Err(Signal::Unsupported(why.into()));
                 }
@@ -1431,7 +1431,7 @@ impl Session {
                     if let Some(message) = engine.unevaluable_init.get(&(r.table, *pos)) {
                         let pristine = self.initial_fields(r.table as usize);
                         if ops::compare(&r.fields[*pos], &pristine[*pos]).ok() == Some(std::cmp::Ordering::Equal) {
-                            return Err(Signal::Unsupported(format!(
+                            return Err(Signal::unsupported(format!(
                                 "a read of the field whose InitValue BC cannot evaluate (`{message}`), in a record where another field was written (not pinned)"
                             )));
                         }
@@ -1439,10 +1439,10 @@ impl Session {
                 }
                 let v = r.fields[*pos].clone();
                 if let Value::Unknown(why) = &v {
-                    return Err(Signal::Unsupported(why.to_string()));
+                    return Err(Signal::unsupported(why.to_string()));
                 }
                 if let Some(why) = self.install_row_order(r.table, r.temporary, *pos, &r.fields) {
-                    return Err(Signal::Unsupported(why));
+                    return Err(Signal::unsupported(why));
                 }
                 if r.load.partial {
                     // A Blob counts as loaded (partial.rs `AreFieldsLoaded`), and a FlowField is no column of the row: their
@@ -1461,7 +1461,7 @@ impl Session {
                         self.load_missing_fields(&rc, Some(*pos))?;
                         let v = rc.borrow().fields[*pos].clone();
                         if let Value::Unknown(why) = &v {
-                            return Err(Signal::Unsupported(why.to_string()));
+                            return Err(Signal::unsupported(why.to_string()));
                         }
                         return Ok(v);
                     }
@@ -1469,7 +1469,7 @@ impl Session {
                 }
                 Ok(v)
             }
-            other => Err(Signal::Unsupported(format!("field of {}", other.describe()))),
+            other => Err(Signal::unsupported(format!("field of {}", other.describe()))),
         }
     }
 
@@ -1488,7 +1488,7 @@ impl Session {
         // A column a platform row leaves unknown never reaches a variable: every read of one is refused where it happens; this
         // catches a reader that missed it.
         if let Value::Unknown(why) = &v {
-            return Err(Signal::Unsupported(why.to_string()));
+            return Err(Signal::unsupported(why.to_string()));
         }
         // A counter value in a field would reach the database and every reader of the row (`al_builtins::sqlcount`).
         if let (Value::SqlCount(_), ir::Place::Field(..)) = (&v, p) {
@@ -1551,7 +1551,7 @@ impl Session {
                         // The source's buffer after an export under SourceTableView is not pinned (records.rs
                         // `XP_VIEW_AFTER_EXPORT`).
                         if let Some(why) = crate::records::xp_export_marked(src) {
-                            return Err(Signal::Unsupported(format!("an assignment from a record: {why}")));
+                            return Err(Signal::unsupported(format!("an assignment from a record: {why}")));
                         }
                         // A copied record holds copies of its Blobs (value semantics). The corpus
                         // does not tell a copy from a shared Blob (record/TestFormatRecordContracts.al
@@ -1650,7 +1650,7 @@ impl Session {
                     }
                     Ok(())
                 }
-                other => Err(Signal::Unsupported(format!("field of {}", other.describe()))),
+                other => Err(Signal::unsupported(format!("field of {}", other.describe()))),
             };
         }
         // A record assigned to a Variant is a by-value copy: a temporary record's copy is an empty table of its own
@@ -1716,7 +1716,7 @@ impl Session {
                     // The row a callee wrote through a `var` array parameter goes back into the row.
                     Err(Signal::Unsupported(m)) if m.starts_with(ROW_REFUSAL) => {
                         let (Some((arr, start, len)), Value::Array(row)) = (self.row_range(base, idx, f)?, &v) else {
-                            return Err(Signal::Unsupported(m));
+                            return Err(Signal::unsupported(m));
                         };
                         if row.borrow().len() != len {
                             return Err(Signal::Unsupported(
@@ -1765,7 +1765,7 @@ impl Session {
             Value::Byte(b) if *b >= 0x80 => {
                 let enc = al_builtins::stream::Encoding::MsDos;
                 if !enc.decode_pinned(&[*b]) {
-                    return Err(Signal::Unsupported(format!(
+                    return Err(Signal::unsupported(format!(
                         "assigning Byte {b} to a character of a text (its character is not pinned)"
                     )));
                 }
@@ -1798,7 +1798,7 @@ impl Session {
         };
         let mut units: Vec<u16> = s.units();
         let Some(unit) = unit else {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "assigning {v} to a character of a text (only a UTF-16 character is pinned)",
                 v = v.describe()
             )));
@@ -1892,7 +1892,7 @@ impl Session {
         let len: usize = dims[idx.len()..].iter().map(|d| *d as usize).product();
         let arr = match self.read(base, f)? {
             Value::Array(a) => a,
-            other => return Err(Signal::Unsupported(format!("indexing {}", other.describe()))),
+            other => return Err(Signal::unsupported(format!("indexing {}", other.describe()))),
         };
         if start + len > arr.borrow().len() {
             return Err(Signal::Unsupported(
@@ -1942,7 +1942,7 @@ impl Session {
         // `A[x]` of a two-dimensional array is a row; what BC does with one (Clear, assignment, an argument) is
         // not pinned (docs/probes-needed.md). It used to be read as the cell at flat position x.
         if idx.len() != dims.len() {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "a row of a {}-dimensional array (indexed by {} of its dimensions): what BC does with it is not pinned (docs/probes-needed.md)",
                 dims.len(),
                 idx.len()
@@ -1950,7 +1950,7 @@ impl Session {
         }
         let arr = match self.read(base, f)? {
             Value::Array(a) => a,
-            other => return Err(Signal::Unsupported(format!("indexing {}", other.describe()))),
+            other => return Err(Signal::unsupported(format!("indexing {}", other.describe()))),
         };
         let mut flat = 0usize;
         for (d, e) in dims.iter().zip(idx) {
@@ -1974,7 +1974,7 @@ impl Session {
             return al_builtins::native::raise("Index out of bounds.", "IndexOutOfBounds");
         }
         if flat >= arr.borrow().len() {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "array element {} of an argument that has {} elements, passed to a parameter declared with {}; not pinned (docs/probes-needed.md)",
                 flat + 1,
                 arr.borrow().len(),

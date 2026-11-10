@@ -292,13 +292,13 @@ impl Session {
         args: Vec<Value>,
     ) -> Result<(Value, Vec<Value>), Signal> {
         let Some(scope) = self.ui_state.scope.as_mut() else {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "{} outside a test method (what the runner does then is not pinned)",
                 kind.label()
             )));
         };
         if scope.in_handler {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "{} raised from inside a handler function (not pinned)",
                 kind.label()
             )));
@@ -408,7 +408,7 @@ impl Session {
         }
         match answer {
             Value::Boolean(b) => Ok(b),
-            other => Err(Signal::Unsupported(format!(
+            other => Err(Signal::unsupported(format!(
                 "a [FilterPageHandler] that answers {}",
                 other.describe()
             ))),
@@ -482,7 +482,7 @@ impl Session {
             // A handler that answers false is called once and nothing is raised (session/
             // TestProbeSessionMiscContracts.al:SessionSettings_RequestUpdateFalse_Handler).
             Value::Boolean(_) => Ok(finals.pop()),
-            other => Err(Signal::Unsupported(format!(
+            other => Err(Signal::unsupported(format!(
                 "a [SessionSettingsHandler] that answers {other}",
                 other = other.describe()
             ))),
@@ -558,7 +558,7 @@ impl Session {
     ) -> Result<(usize, usize, Rc<RefCell<Instance>>), Signal> {
         let shown_id = self.object_id_of(page);
         let Some(scope) = self.ui_state.scope.as_mut() else {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "{} outside a test method (what the runner does then is not pinned)",
                 kind.label()
             )));
@@ -632,7 +632,7 @@ impl Session {
     /// one differently from `Page.Run` (corpus testpage/TestPageActionRunObjectNoHandler_Tests.al).
     pub(crate) fn try_bind_page_handler(&mut self, kind: UiKind, page: u32) -> Result<Option<BoundHandler>, Signal> {
         let Some(scope) = self.ui_state.scope.as_mut() else {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "{} outside a test method (what the runner does then is not pinned)",
                 kind.label()
             )));
@@ -678,11 +678,11 @@ impl Session {
         let mut text = format!("{product} attempted to issue a client callback to {what}");
         if named {
             let Some(o) = self.frames.last().and_then(|&o| self.engine.program.objects.get(o)) else {
-                return Signal::Unsupported(format!("a client callback ({what}) outside any routine (not pinned)"));
+                return Signal::unsupported(format!("a client callback ({what}) outside any routine (not pinned)"));
             };
             let captioned = o.properties.iter().any(|(k, _)| k.eq_ignore_ascii_case("Caption"));
             if o.kind != al_ir::ObjKind::Codeunit || captioned || o.id.is_none() {
-                return Signal::Unsupported(format!(
+                return Signal::unsupported(format!(
                     "a client callback ({what}) from install code in {}: only the text for a codeunit without a Caption is pinned",
                     o.name
                 ));
@@ -711,7 +711,7 @@ impl Session {
         let p = o.page.as_ref()?;
         let captioned = o.properties.iter().any(|(k, _)| k.eq_ignore_ascii_case("Caption"));
         if !p.triggers.is_empty() || !p.extensions.is_empty() || captioned || o.id.is_none() {
-            return Some(Signal::Unsupported(format!(
+            return Some(Signal::unsupported(format!(
                 "Page.Run or RunModal of {} in install code: the error is pinned only for a page without triggers, extensions or Caption",
                 o.name
             )));
@@ -787,7 +787,7 @@ impl Session {
         )?;
         match finals.get(1) {
             Some(Value::Boolean(b)) => Ok(*b),
-            other => Err(Signal::Unsupported(format!(
+            other => Err(Signal::unsupported(format!(
                 "Confirm handler returned {}",
                 other.describe()
             ))),
@@ -827,7 +827,7 @@ impl Session {
         )?;
         match finals.get(1) {
             Some(Value::Integer(n)) => Ok(*n),
-            other => Err(Signal::Unsupported(format!(
+            other => Err(Signal::unsupported(format!(
                 "StrMenu handler returned {}",
                 other.describe()
             ))),

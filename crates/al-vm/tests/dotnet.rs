@@ -233,7 +233,7 @@ fn run_setup(cfg: DotNetConfig, vars: &str, body: &str, ret: &str, setup: impl F
     let (program, blocked, oi, ri) = compile(vars, body, ret);
     if let Some(Some(r)) = blocked.get(oi).and_then(|o| o.get(ri)) {
         return Ran {
-            result: Err(Signal::Unsupported(r.clone())),
+            result: Err(Signal::unsupported(r.clone())),
             session: None,
         };
     }
@@ -3449,7 +3449,7 @@ fn run_as_with(bc: &str, host: &Fake, vars: &str, body: &str, ret: &str) -> Ran 
     let (program, blocked, oi, ri) = compile(vars, body, ret);
     if let Some(Some(r)) = blocked.get(oi).and_then(|o| o.get(ri)) {
         return Ran {
-            result: Err(Signal::Unsupported(r.clone())),
+            result: Err(Signal::unsupported(r.clone())),
             session: None,
         };
     }

@@ -134,7 +134,7 @@ fn text_into(s: &str, t: &RtType) -> Option<Result<Value, Signal>> {
             return Some(if digits {
                 s.parse::<i64>()
                     .map(Value::Duration)
-                    .map_err(|_| Signal::Unsupported(format!("text `{s}` into a Duration (out of range)")))
+                    .map_err(|_| Signal::unsupported(format!("text `{s}` into a Duration (out of range)")))
             } else {
                 raise(
                     format!("The input string '{s}' was not in a correct format."),

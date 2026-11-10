@@ -109,3 +109,12 @@ pub enum Signal {
     /// case no corpus test pins). The runner reports the test as not run.
     Unsupported(String),
 }
+
+impl Signal {
+    /// A refusal from free text (ADR-071 decision 5: the key `legacy`).
+    #[cold]
+    #[inline(never)]
+    pub fn unsupported(what: impl Into<String>) -> Signal {
+        Signal::Unsupported(what.into())
+    }
+}

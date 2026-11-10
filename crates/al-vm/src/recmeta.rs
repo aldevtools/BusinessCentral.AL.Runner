@@ -1579,7 +1579,7 @@ impl Session {
                     .as_ref()
                     .expect("table");
                 if let Some(why) = &from_schema.fields[sp].tdd_length_unknown {
-                    return Err(Signal::Unsupported(why.clone()));
+                    return Err(Signal::unsupported(why.clone()));
                 }
                 return Err(self.transfer_too_small(rec, t, &from, (dp, sp), updates));
             }
@@ -1857,7 +1857,7 @@ impl Session {
                         after: None,
                     },
                 )
-                .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                .map_err(|e| Signal::unsupported(format!("{e}")))?
         };
         match found {
             Some(row) => {
@@ -2397,7 +2397,7 @@ pub(crate) fn tdd_fits(f: &al_ir::Field, v: &Value) -> Result<(), Signal> {
         return Ok(());
     };
     match v {
-        Value::Text(s) | Value::Code(s) if Value::text_len(s) > max as usize => Err(Signal::Unsupported(why.clone())),
+        Value::Text(s) | Value::Code(s) if Value::text_len(s) > max as usize => Err(Signal::unsupported(why.clone())),
         _ => Ok(()),
     }
 }

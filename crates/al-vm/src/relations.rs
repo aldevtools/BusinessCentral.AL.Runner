@@ -165,7 +165,7 @@ impl Session {
         let language = al_builtins::format::FormatCtx::language(self);
         let enums = |id: u32| crate::views::enum_filter_members(&engine.program.objects[id as usize], language);
         let expr = al_builtins::filter::parse_filter_with(text, &[], &t.fields[c.field].ty, &enums).map_err(|e| {
-            Signal::Unsupported(format!(
+            Signal::unsupported(format!(
                 "the filter condition `{text}` of the TableRelation of {}.{field_name}: {e}",
                 t.name
             ))
@@ -278,7 +278,7 @@ impl Session {
                     field: *p,
                     expr: self
                         .parse_filter_text(text, &related.fields[*p].ty)
-                        .map_err(|e| Signal::Unsupported(format!("where() of a relation: {e}")))?,
+                        .map_err(|e| Signal::unsupported(format!("where() of a relation: {e}")))?,
                     group: 0,
                 },
                 ir::RelationWhere::Field { related: p, own } => FieldFilter {
@@ -311,7 +311,7 @@ impl Session {
         let found = if flow_field_filters.is_empty() {
             self.store
                 .count(&cx, &related, &filters)
-                .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                .map_err(|e| Signal::unsupported(format!("{e}")))?
         } else {
             self.count_passing_flow_fields(&cx, &related, &filters, &flow_field_filters)?
         };

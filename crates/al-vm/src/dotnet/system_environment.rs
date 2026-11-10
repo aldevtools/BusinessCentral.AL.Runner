@@ -34,7 +34,7 @@ fn no_args(args: &[Value], what: &str) -> Result<(), Signal> {
     if args.is_empty() {
         Ok(())
     } else {
-        Err(Signal::Unsupported(format!(
+        Err(Signal::unsupported(format!(
             "DotNet {TYPE}.{what} with arguments (not pinned)"
         )))
     }
@@ -59,7 +59,7 @@ fn to_string(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: &[Value]) -
     no_args(args, "ToString")?;
     match this {
         Some(_) => Ok(Value::Text(TYPE.into())),
-        None => Err(Signal::Unsupported(format!(
+        None => Err(Signal::unsupported(format!(
             "DotNet {TYPE}.ToString on a variable never constructed (not pinned)"
         ))),
     }
@@ -68,7 +68,7 @@ fn to_string(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: &[Value]) -
 fn equals(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: &[Value]) -> Result<Value, Signal> {
     match (this, args) {
         (Some(a), [Value::DotNet(b)]) => Ok(Value::Boolean(Rc::ptr_eq(a, b))),
-        _ => Err(Signal::Unsupported(format!(
+        _ => Err(Signal::unsupported(format!(
             "DotNet {TYPE}.Equals other than between two constructed instances (not pinned)"
         ))),
     }

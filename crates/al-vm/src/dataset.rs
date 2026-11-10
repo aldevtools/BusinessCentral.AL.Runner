@@ -786,7 +786,7 @@ impl Dataset {
             .or(self.culture_unpinned)
             .or(self.language_wants_region)
         {
-            return Err(Signal::Unsupported(why));
+            return Err(Signal::unsupported(why));
         }
         let mut out = String::new();
         // The header names the run's language and region as the data items do (reports/runtime/BdRegionTests.al:809,

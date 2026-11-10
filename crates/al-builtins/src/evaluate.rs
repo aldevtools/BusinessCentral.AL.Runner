@@ -1477,7 +1477,7 @@ pub fn evaluate_option_field(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Va
     }
     let captions: String = if matches!(a.get(4), Some(Value::Integer(1))) {
         let list = crate::format::ml_text_in_language(captions.as_str(), c.language())
-            .map_err(|e| Signal::Unsupported(format!("Evaluate into an Option field with OptionCaptionML {e}")))?;
+            .map_err(|e| Signal::unsupported(format!("Evaluate into an Option field with OptionCaptionML {e}")))?;
         if list.split(',').count() != names.len() {
             return unsupported("OptionCaptionML with another number of entries than the members (not pinned)");
         }

@@ -254,7 +254,7 @@ pub(super) fn unparented_sibling_error(h: &Handle, args: &[Value]) -> Signal {
                         if name == "XmlNode" {
                             return uninitialized("XmlNode");
                         }
-                        return Signal::Unsupported(format!(
+                        return Signal::unsupported(format!(
                             "a sibling operation on a document with an unassigned {name} argument (not pinned)"
                         ));
                     }

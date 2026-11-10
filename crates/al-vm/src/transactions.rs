@@ -206,7 +206,7 @@ impl Session {
     /// The missing-object error with the object it names as the caller.
     pub(crate) fn missing_object_from(&self, kind: &str, id: i64, caller: &str) -> Signal {
         if let Some(why) = self.missing_may_be_skipped(kind, id) {
-            return Signal::Unsupported(why);
+            return Signal::unsupported(why);
         }
         let major = self.engine.target.as_ref().map_or(29, |t| t.bc.major);
         al_error_code(
@@ -258,7 +258,7 @@ impl Session {
             other => other,
         };
         match unpinned {
-            Some(what) => Err(Signal::Unsupported(format!(
+            Some(what) => Err(Signal::unsupported(format!(
                 "whether {what} starts a write transaction (not pinned)"
             ))),
             // A ReadUncommitted read opens none either (record/Y70Probes.al:839-866).
@@ -320,7 +320,7 @@ impl Session {
             .find(|(k, _)| k.eq_ignore_ascii_case("Caption"))
             .map(|(_, v)| v.trim().trim_matches('\'').to_string());
         if caption.is_some_and(|c| c != t.name) {
-            return Signal::Unsupported(format!(
+            return Signal::unsupported(format!(
                 "Commit after Consistent(false) on table {}, which has a caption other than its name (which one the error names is not pinned)",
                 t.name
             ));
@@ -364,7 +364,7 @@ impl Session {
     /// pinned (only `Commit()` is, errors/CuCommitTests.al:405-419), so it is refused.
     pub(crate) fn refuse_inconsistent_end(&self, how: &str) -> Result<(), Signal> {
         match self.tx.inconsistent.first() {
-            Some(&t) => Err(Signal::Unsupported(format!(
+            Some(&t) => Err(Signal::unsupported(format!(
                 "{how} ends a transaction while Consistent(false) marks table {} (only Commit() is pinned)",
                 self.engine.program.objects[t as usize].name
             ))),
@@ -454,12 +454,12 @@ impl Session {
             if function == "COMMIT" {
                 return Ok(());
             }
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "{function} inside a TryFunction whose result is used, in install code (not pinned)"
             )));
         }
         if self.tx.xp_export_try_world == Some(self.tx.tx_world) && function != "INSERT" && function != "MODIFY" {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "{function} in an XmlPort export started inside a TryFunction whose result is used (only Insert and Modify are pinned)"
             )));
         }
@@ -467,7 +467,7 @@ impl Session {
             return r;
         }
         if self.tx_model == TxModel::AutoRollback {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "{function} inside a TryFunction whose result is used, under TransactionModel::AutoRollback (not pinned)"
             )));
         }
@@ -523,7 +523,7 @@ impl Session {
                 || self.listened(t, events[1], None)?
                 || triggers.iter().any(|n| !self.ext_triggers(t, n).is_empty()))
         {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "{what} inside a TryFunction whose result is used, on a table with {} event subscribers or table-extension {} triggers (whether they run before the TryFunctionWrite error is not pinned)",
                 what.to_lowercase(),
                 what.to_lowercase()
@@ -593,7 +593,7 @@ impl Session {
             .iter()
             .any(|n| self.table_trigger(t, n).is_some() || !self.ext_triggers(t, n).is_empty());
         if code {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "{} inside a TryFunction whose result is used, on a table with triggers or event subscribers for it (whether they run before the TryFunctionWrite error is not pinned)",
                 method.name()
             )));
@@ -619,7 +619,7 @@ impl Session {
             return r;
         }
         if self.tx.xp_export_try_world == Some(self.tx.tx_world) && method != RecordOp::Modify {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "{} in an XmlPort export started inside a TryFunction whose result is used (only Insert and Modify are pinned)",
                 method.name()
             )));
@@ -627,7 +627,7 @@ impl Session {
         if let Some(r) = self.used_try_nested_world()? {
             return r;
         }
-        Err(Signal::Unsupported(format!(
+        Err(Signal::unsupported(format!(
             "{} of a database table inside a TryFunction whose result is used (only Insert, Modify and Commit are pinned)",
             method.name()
         )))
@@ -667,7 +667,7 @@ impl Session {
 
     /// `Codeunit.Run(id)` in its statement form, as the test runner's own AL code calls it (an error is not trapped).
     pub fn run_codeunit_by_id(&mut self, id: u32) -> Result<(), Signal> {
-        let n = i32::try_from(id).map_err(|_| Signal::Unsupported(format!("codeunit id {id} out of range")))?;
+        let n = i32::try_from(id).map_err(|_| Signal::unsupported(format!("codeunit id {id} out of range")))?;
         self.codeunit_run(ids::CODEUNIT_RUN_3, None, &[Value::Integer(n)], false)
             .map(|_| ())
     }
