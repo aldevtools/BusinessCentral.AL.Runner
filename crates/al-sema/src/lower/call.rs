@@ -467,25 +467,9 @@ impl Lowerer<'_> {
                 {
                     "System.EvaluateBounded#1".to_string()
                 } else if id == "Dialog.Error#2" && args.first().is_some_and(|a| a.kind() != SyntaxKind::Literal) {
-                    // `Error(Label, ...)`, `Error(Variable, ...)`: the text `GetLastErrorText(true)` answers depends on how the
-                    // text is written (al_builtins::native::ErrorTextForm); a string literal keeps `Dialog.Error#2`
-                    // (corpus P86LastError.al:PlainError_Exclude).
-                    use al_builtins::native::ErrorTextForm;
-                    match args.first().map_or(ErrorTextForm::Other, |a| self.error_text_form(a)) {
-                        ErrorTextForm::Constant => "Dialog.ErrorConstant#1",
-                        ErrorTextForm::Computed | ErrorTextForm::Literal => "Dialog.ErrorComputed#1",
-                        ErrorTextForm::Other => "Dialog.ErrorNotLiteral#1",
-                    }
-                    .to_string()
+                    self.error_variant_id(args)
                 } else if matches!(id.as_str(), "Record.FieldError#1" | "Record.FieldError#2") && args.len() == 2 {
-                    // `FieldError(Field, Text)`: as for `Error`, the flag's text depends on how the text is written.
-                    use al_builtins::native::ErrorTextForm;
-                    match args.get(1).map_or(ErrorTextForm::Other, |a| self.error_text_form(a)) {
-                        ErrorTextForm::Constant => "Record.FieldErrorConstant#1",
-                        ErrorTextForm::Computed | ErrorTextForm::Literal => "Record.FieldErrorComputed#1",
-                        ErrorTextForm::Other => id.as_str(),
-                    }
-                    .to_string()
+                    self.field_error_variant_id(&id, args)
                 } else if let Some(variant_id) = self.variant_argument_id(&id, args) {
                     variant_id.to_string()
                 } else if id == "TextBuilder.Append#1"
@@ -1052,12 +1036,51 @@ impl Lowerer<'_> {
 /// this fails only when `builtin_ids.rs` is stale.
 impl Lowerer<'_> {
     /// How the text argument `a` of `Error` or `FieldError` is written, as far as the corpus tells the forms apart for
-    /// `GetLastErrorText(true)`: a string literal; a Label or TextConst variable of the object
+    /// `GetLastErrorText(true)`: a string literal; a Label or TextConst variable of the object or of the routine
     /// (errors/last-error/LastErrorTextExcludeLabel.al:28-32, lt-last-error-text-forms/
     /// LastErrorTextExcludeTextConst.al:15-17, FieldErrorTextConst.al:28); a Text or Code variable of the routine, a
     /// concatenation with `+` or a `StrSubstNo` call (LastErrorTextExcludeTextVariable.al:16-54, :129,
     /// FieldErrorTextVariable.al:43-63, LastErrorTextExcludeLabel.al:55). Anything else (a global Text variable, a field,
-    /// a local Label, another call) is `Other`.
+    /// another call that is not a procedure with a Text result) is `Other`.
+    /// The catalog id of `Error(Label, ...)` or `Error(Variable, ...)`: the text `GetLastErrorText(true)` answers depends on
+    /// how the text is written (al_builtins::native::ErrorTextForm); a string literal keeps `Dialog.Error#2` (corpus
+    /// P86LastError.al:PlainError_Exclude).
+    fn error_variant_id(&mut self, args: &[SyntaxNode]) -> String {
+        use al_builtins::native::ErrorTextForm;
+        if args.first().is_some_and(|a| self.is_user_proc_text(a)) {
+            self.assume(al_builtins::assumptions::Assumption::ErrorTextProcedureResult);
+        }
+        match args.first().map_or(ErrorTextForm::Other, |a| self.error_text_form(a)) {
+            ErrorTextForm::Constant => "Dialog.ErrorConstant#1",
+            ErrorTextForm::Computed | ErrorTextForm::Literal => "Dialog.ErrorComputed#1",
+            ErrorTextForm::Other => "Dialog.ErrorNotLiteral#1",
+        }
+        .to_string()
+    }
+
+    /// The catalog id of `FieldError(Field, Text)`: as for `Error`, the flag's text depends on how the text is written.
+    /// Only a Label or TextConst of the object is pinned (FieldErrorTextConst.al:28); a local one stays refused.
+    fn field_error_variant_id(&self, id: &str, args: &[SyntaxNode]) -> String {
+        use al_builtins::native::ErrorTextForm;
+        let local_label = args
+            .get(1)
+            .is_some_and(|a| matches!(self.res(a), Some(Res::Local(_))) && matches!(self.ty_of(a), Ty::Label));
+        match args.get(1).map_or(ErrorTextForm::Other, |a| self.error_text_form(a)) {
+            ErrorTextForm::Constant if local_label => id,
+            ErrorTextForm::Constant => "Record.FieldErrorConstant#1",
+            ErrorTextForm::Computed | ErrorTextForm::Literal => "Record.FieldErrorComputed#1",
+            ErrorTextForm::Other => id,
+        }
+        .to_string()
+    }
+
+    /// `a` is a call of an AL procedure that returns a Text or a Code.
+    fn is_user_proc_text(&self, a: &SyntaxNode) -> bool {
+        a.kind() == SyntaxKind::CallExpr
+            && matches!(self.res(a), Some(Res::Proc { .. }))
+            && matches!(self.ty_of(a), Ty::Text(_) | Ty::Code(_))
+    }
+
     pub(crate) fn error_text_form(&self, a: &SyntaxNode) -> al_builtins::native::ErrorTextForm {
         use al_builtins::native::ErrorTextForm;
         if a.kind() == SyntaxKind::Literal {
@@ -1073,7 +1096,12 @@ impl Lowerer<'_> {
             }
             SyntaxKind::CallExpr => {
                 let strsubstno = matches!(self.res(a), Some(Res::Builtin(i)) if i.starts_with("Text.StrSubstNo#"));
-                return if strsubstno {
+                // A procedure's Text or Code result is a value: a Label returned as text answers the redacted text
+                // (errors/last-error/LastErrorTextExcludeLabel.al:510-540, :631-634, ExcludeFlag_LabelHandedOnAsText
+                // `proc_true`). Only that shape is pinned (`error-text-procedure-result`).
+                let user_proc_text =
+                    matches!(self.res(a), Some(Res::Proc { .. })) && matches!(ty, Ty::Text(_) | Ty::Code(_));
+                return if strsubstno || user_proc_text {
                     ErrorTextForm::Computed
                 } else {
                     ErrorTextForm::Other
@@ -1082,7 +1110,9 @@ impl Lowerer<'_> {
             _ => {}
         }
         match (self.res(a), ty) {
-            (Some(Res::Global(_)), Ty::Label) => ErrorTextForm::Constant,
+            // A local Label or TextConst answers as a global one does, for every argument type and property
+            // (LastErrorTextExcludeLabel.al:423-540, :564-585; LastErrorTextExcludeTextConst.al:107-125).
+            (Some(Res::Global(_) | Res::Local(_)), Ty::Label) => ErrorTextForm::Constant,
             (Some(Res::Local(_)), Ty::Text(_) | Ty::Code(_)) => ErrorTextForm::Computed,
             _ => ErrorTextForm::Other,
         }
