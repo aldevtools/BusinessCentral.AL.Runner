@@ -976,14 +976,20 @@ impl Session {
         // gave it (corpus testpage/TestPageOpenNewPartLink.al).
         // That refill is a link change: a part that then has no row runs no CaptionClass expression (QdCaptionClassAreas.al:
         // 1068-1100 QO_Doc_OpenNew `close = empty>0=No ... rest=`).
-        if !st.borrow().parts.is_empty() {
+        if !st.borrow().parts.is_empty() || st.borrow().hidden_parts.iter().any(|(_, c)| c.borrow().open) {
             let parts: Vec<St> = st.borrow().parts.iter().map(|(_, c)| c.clone()).collect();
             for c in &parts {
                 c.borrow_mut().field_captions_link_refill = true;
+                if self.chain_part_in_factbox(c) {
+                    c.borrow_mut().chain_refill = 1;
+                }
             }
             let r = self.sync_parts(st);
             for c in &parts {
                 c.borrow_mut().field_captions_link_refill = false;
+                if c.borrow().chain_refill == 1 {
+                    c.borrow_mut().chain_refill = 2;
+                }
             }
             r?;
         }

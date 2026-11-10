@@ -14,6 +14,19 @@ impl Session {
     /// OnNewRecord, never the part's (:827 PYB_OpenEdit_HostWithoutLines `host_new`, :879 PYB_OpenEdit_ThenHostNew, :861
     /// PYB_OpenNew_ThenHostNew); whether its OnAfterGetCurrRecord runs then is not pinned, so a part that can observe it is refused.
     pub(super) fn land_on_part_open_line(&mut self, st: &St) -> Result<(), Signal> {
+        self.land_on_part_open_line_runs(st, 3)
+    }
+
+    /// [`Self::land_on_part_open_line`] with `runs` of the three runs (the first one or two for a part turning visible, see
+    /// `provider_hidden.rs`). A part linked through a Provider whose page shows no row reads its blank line once, not three times
+    /// (testpage/parts/ProviderLinkedPartsMatrix.al Provider_PageRun_OnRowWithoutLines `lines-row(0) | lines-row(0) | detail-row() |
+    /// ...`, one `detail-row()`).
+    pub(in crate::pages) fn land_on_part_open_line_runs(&mut self, st: &St, runs: usize) -> Result<(), Signal> {
+        let runs = if self.provider_shows_no_row(st) || self.chain_part_in_factbox(st) {
+            runs.min(1)
+        } else {
+            runs
+        };
         let rec = self.page_rec(st);
         let table = rec.borrow().table as usize;
         self.note_lower_key(st)?;
@@ -81,7 +94,7 @@ impl Session {
             .and_then(|(h, _)| h.upgrade())
             .is_some_and(|h| h.borrow().blank_on_open && h.borrow().host.is_none())
             && !rec.borrow().temporary;
-        for (n, validate) in [true, false, true].into_iter().enumerate() {
+        for (n, validate) in [true, false, true].into_iter().take(runs).enumerate() {
             let first = n == 0;
             if validate {
                 self.set_xrec_fields(st, held.clone());
