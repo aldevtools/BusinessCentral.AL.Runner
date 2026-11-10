@@ -1,25 +1,25 @@
 //! Finds the diagnostics at one position of one file without scanning the whole list: lowering asks once per call it
 //! lowers whether the checker refused that call (AR1006, AR1008, AR1009, AL0666, AR1007).
 
+use super::posmap::FxMap;
 use crate::workspace::Diagnostic;
 
-/// The positions of a diagnostic list in the order of (file path, offset), with list order kept among equal positions.
-/// It holds indices only and answers for the list it was built from. The file path alone decides the file, not the app,
-/// as the scans it replaced did.
+/// The positions of a diagnostic list by offset, each in list order. It holds indices only and answers for the list it
+/// was built from. Most calls have no diagnostic at their offset, so a lookup is one hash probe; the file path is
+/// compared only on a hit. The file path alone decides the file, not the app, as the scans it replaced did.
 #[derive(Debug, Default)]
 pub struct DiagIndex {
-    order: Vec<u32>,
+    at: FxMap<usize, Vec<u32>>,
+    len: usize,
 }
 
 impl DiagIndex {
     pub fn build(diags: &[Diagnostic]) -> DiagIndex {
-        let mut order: Vec<u32> = (0..diags.len() as u32).collect();
-        // A stable sort: among the diagnostics at one position, list order stays.
-        order.sort_by(|&a, &b| {
-            let (a, b) = (&diags[a as usize], &diags[b as usize]);
-            (a.file.as_str(), a.offset).cmp(&(b.file.as_str(), b.offset))
-        });
-        DiagIndex { order }
+        let mut at: FxMap<usize, Vec<u32>> = FxMap::default();
+        for (i, d) in diags.iter().enumerate() {
+            at.entry(d.offset).or_default().push(i as u32);
+        }
+        DiagIndex { at, len: diags.len() }
     }
 
     /// The first diagnostic of `diags` (in list order) at `offset` of `file` whose code is one of `codes`.
@@ -31,20 +31,15 @@ impl DiagIndex {
         codes: &[&str],
     ) -> Option<&'a Diagnostic> {
         debug_assert_eq!(
-            self.order.len(),
+            self.len,
             diags.len(),
             "the index answers for the list it was built from"
         );
-        let key = |i: &u32| {
-            let d = &diags[*i as usize];
-            (d.file.as_str(), d.offset)
-        };
-        let start = self.order.partition_point(|i| key(i) < (file, offset));
-        self.order[start..]
+        self.at
+            .get(&offset)?
             .iter()
-            .take_while(|i| key(i) == (file, offset))
             .map(|&i| &diags[i as usize])
-            .find(|d| codes.contains(&d.code))
+            .find(|d| d.file == file && codes.contains(&d.code))
     }
 }
 
