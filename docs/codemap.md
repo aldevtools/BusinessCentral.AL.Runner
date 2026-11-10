@@ -400,6 +400,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `pages/draft.rs` (304): New rows, drafts, saving a row, activating a control.
 - `pages/controls.rs` (588): Writing a control and the `TestField` methods. Entry: `control_set_value`, `test_control_op`.
 - `pages/actions.rs` (676): Control navigation, lookups, invoking actions, refresh after an action.
+- `pages/relation_lookup.rs` (~260): TableRelation lookups: the conditional relation arm, a control's own relation, the lookup page and the write-back of the pick.
 - `pages/caption_runs.rs` (~60): How many times a page open runs the CaptionClass expressions with an empty record, where the corpus pins it. Entry: `caption_empty_runs_pinned`.
 - `pages/read_backwards.rs` (~90): A part that reads its rows last to first (SubPageView on the linked field). Entry: `populate_window_backwards`.
 - `pages/text_control_value.rs` (~90): What a Text or Code control makes of a SetValue of a value that is not a Text. Entry: `text_control_value`.
