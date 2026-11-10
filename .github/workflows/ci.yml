@@ -230,6 +230,17 @@ jobs:
       - run: cargo fmt --all --check
       # Default features: clippy also lints the two corpus-wide test files.
       - run: cargo clippy --all-targets -- -D warnings
+      # Tests that read a Microsoft file (the platform's System.app, for one) take it from the pinned build in the
+      # artifact cache and never download (crates/al-testfiles, ADR-013 amendment of 2026-11-10): a missing file fails
+      # them. They read the build of BC 27 only. The binary is built the way the test step builds it (the workspace's
+      # features, without the default ones), so that step does not compile it again.
+      - name: Build the debug binary
+        run: cargo build --workspace --no-default-features --bin al-test-cli
+      - name: Microsoft apps of the pinned BC 27 build
+        uses: ./.github/actions/bc-artifacts
+        with:
+          binary: ./target/debug/al-test-cli
+          versions: --bc-version 27
       # Without the cli-e2e feature: `dev_tooling` runs in the corpus job and `corpus_harness` in the release-tests job.
       # The test binaries run side by side, at most one per core (`cargo test` ran them one after the other).
       # `must_not_compile` runs in release in the release-tests job: in debug it alone took 92 s.
@@ -304,22 +315,11 @@ jobs:
       - name: Build release binary
         run: cargo build --release -p al-test-cli
 
-      # ADR-013 Layer A. The corpus names test-library apps that no .alpackages holds (System
-      # Application Test Library, Permissions Mock, Any). They come from Microsoft's artifact feed
-      # by range reads: about 1.5 MB per BC build out of a 1.3 GB artifact. Nothing is committed.
-      # The cache is keyed by the newest published build of each oracle version, so a run on a
-      # known build makes no request for the artifact. `--print-builds` reads only the 90 KB index.
-      - name: Newest BC builds
+      # ADR-013 Layer A: every Microsoft app the corpus runs on comes from the pinned builds in the artifact cache
+      # (.github/actions/bc-artifacts fills it; the corpus tree holds none).
+      - name: Fetch dependency apps (Microsoft apps of the pinned builds; warms the cache)
         id: bc
-        run: |
-          ./target/release/al-test-cli --all-versions --print-builds | tee bc-builds.txt
-          echo "key=$(tr ' \n' '--' < bc-builds.txt)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/al-runtime/artifacts
-          key: bc-artifacts-${{ steps.bc.outputs.key }}
-      - name: Fetch dependency apps (warms the cache)
-        run: ./target/release/al-test-cli --all-versions --fetch-deps
+        uses: ./.github/actions/bc-artifacts
 
       # ADR-022. The compile cache holds the lowered form of the dependency apps, made on this
       # runner from the downloaded apps; it is saved with actions/cache and never uploaded
@@ -677,6 +677,14 @@ jobs:
         with:
           submodules: true
       - uses: ./.github/actions/setup
+
+      # corpus_resolve_deps, platform_tables and the perf budgets read Microsoft's apps of the pinned builds from the
+      # artifact cache and never download (ADR-013 amendment of 2026-11-10). The release binary is the one
+      # corpus_harness needs below, so the build is not extra work.
+      - name: Build release binary
+        run: cargo build --release -p al-test-cli
+      - name: Microsoft apps of the pinned builds
+        uses: ./.github/actions/bc-artifacts
 
       # Budgets (issue #1): the cold compile of the corpus in instructions per object (wall time is printed only: a shared runner
       # varies by 20 % from day to day), parser throughput at

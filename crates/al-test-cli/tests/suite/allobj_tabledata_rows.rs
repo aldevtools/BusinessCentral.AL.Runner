@@ -3,18 +3,16 @@
 //! app under test, a temporary one, Base Application's Customer, the platform's Company and the virtual Integer and AllObj).
 //! al-runner issue 6643: an install code's OnValidate reads `AllObjWithCaption.Get(TableData, Database::Contact)`.
 //!
-//! Needs the `corpus` submodule, including its `.alpackages` (`System.app`).
+//! Needs `System.app` of the pinned build in the artifact cache (`al_testfiles`).
 
 use al_deps::package::read_package;
 use al_test_cli::report::Outcome;
 use al_test_cli::runtime::run_codeunit;
 use al_vm::Engine;
-use std::path::Path;
 
 fn outcomes(main: &str) -> Vec<(String, Outcome)> {
     use al_sema::workspace::{AppKind, AppSource};
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/tests/al-language/.alpackages");
-    let bytes = std::fs::read(dir.join("System.app")).expect("corpus submodule not checked out");
+    let bytes = std::fs::read(al_testfiles::system_app()).unwrap();
     let system = read_package(&bytes).expect("System.app reads").1;
     let app = |id: &str, name: &str, files: Vec<(String, String)>| AppSource {
         id: id.into(),

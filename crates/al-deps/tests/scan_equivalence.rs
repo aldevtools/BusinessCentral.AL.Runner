@@ -1,8 +1,9 @@
 //! The cheap declaration scan reports what a full parse reports about object
-//! headers, on every file of the corpus and of the dependency apps in the
-//! corpus's `.alpackages` (ADR-013, demand-driven loading).
+//! headers, on every file of the corpus and of the Microsoft apps of the pinned
+//! build in the artifact cache (ADR-013, demand-driven loading).
 //!
-//! These need the `corpus` submodule; a missing checkout fails loudly.
+//! These need the `corpus` submodule and the pinned build's files (`al_testfiles`);
+//! a missing checkout or file fails loudly.
 
 use al_syntax::{ast, scan::scan};
 use std::path::{Path, PathBuf};
@@ -151,17 +152,14 @@ fn the_scan_matches_the_parse_on_every_corpus_file() {
 
 #[test]
 fn the_scan_matches_the_parse_on_every_file_of_the_dependency_apps() {
-    let dir = corpus_tests().join("al-language/.alpackages");
     let mut files = Vec::new();
     for app in [
-        "System Application.app",
-        "Business Foundation.app",
-        "Base Application.app",
-        "System.app",
+        al_testfiles::SYSTEM_APPLICATION,
+        al_testfiles::BUSINESS_FOUNDATION,
+        al_testfiles::BASE_APPLICATION,
+        al_testfiles::SYSTEM,
     ] {
-        let bytes = std::fs::read(dir.join(app)).unwrap();
-        let (_, sources) = al_deps::package::read_package(&bytes).unwrap();
-        files.extend(sources);
+        files.extend(al_testfiles::sources(app));
     }
     assert_equivalent(&files, 9000, 12);
 }

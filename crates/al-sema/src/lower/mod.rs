@@ -605,6 +605,7 @@ mod abp_refusal_tests;
 mod localize;
 #[cfg(test)]
 mod object_hash_tests;
+mod page_client_expr;
 mod pages;
 mod request_procs;
 mod routine_lists;
