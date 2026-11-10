@@ -1330,10 +1330,6 @@
 84275 TriggerError_OnInsertRecord
 84275 TriggerError_OnModifyRecord
 84275 TriggerError_OnNewRecord
-84275 VisibleExpr_V1_MemberEnumValue
-84275 VisibleExpr_V2_MemberEnumValue
-84275 VisibleExpr_V3_MemberEnumValue
-84275 VisibleExpr_V6_MemberEnumValue
 84282 TD_SourceTableView_Const_Decimal
 84282 TD_SourceTableView_Const_OtherTypes
 84282 TD_SourceTableView_Filter_Forms
