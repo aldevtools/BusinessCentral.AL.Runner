@@ -55,56 +55,6 @@ impl RerunWhy {
     }
 }
 
-/// Why a member of the carry chain ran on the walk's thread, not ahead on a helper thread (`chain_walk.rs`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum SerialWhy {
-    /// The run had no helper threads for the chain: one thread, `--explain`, fewer than two members that can run ahead, or
-    /// no install baseline.
-    NoHelpers,
-    /// Its isolation is Disabled, or it runs without a baseline: such a member is never run ahead.
-    NeverAhead,
-    /// Its suite had no start the helpers knew (its state could not be written for them).
-    NoStart,
-    /// Its suite was not run ahead any more: too many wrong predictions, new starts, or runs ahead that
-    /// used the single instances the walk keeps, there (`MISSES`, `RESTARTS`).
-    GaveUp,
-    /// The helpers did not run its suite when the walk reached it: it is the first member from the suite's start (the
-    /// install baseline or a new start), and the helpers run a suite's members only once one member ran from there.
-    Closed,
-    /// No helper had run it yet: the helpers were behind the walk or past their tries (`TRIES`).
-    NotRun,
-    /// Its run ahead started from a prediction made before a member before it had run, and was not run again in time.
-    Early,
-    /// Its run ahead started from a prediction that rested on an earlier member's own run ahead, which turned out wrong
-    /// (that member's change depends on its start); not counted against `MISSES`.
-    Guessed,
-    /// Its run ahead started from another state than the walk's (a wrong prediction).
-    Missed,
-    /// Its run ahead started from the walk's state, but what it left cannot be rebuilt on the walk's thread.
-    NotRebuilt,
-}
-
-impl SerialWhy {
-    pub fn text(self) -> &'static str {
-        match self {
-            SerialWhy::NoHelpers => "no helper threads for the chain",
-            SerialWhy::NeverAhead => "isolation Disabled or no baseline, never run ahead",
-            SerialWhy::NoStart => "its suite had no start the helpers knew",
-            SerialWhy::GaveUp => {
-                "its suite was not run ahead any more (too many wrong predictions, new starts or runs ahead that used SingleInstance state)"
-            }
-            SerialWhy::Closed => "first member from its suite's start, which the helpers do not run",
-            SerialWhy::NotRun => "no helper had run it yet",
-            SerialWhy::Guessed => "its run ahead rested on an earlier member's run ahead, which was wrong",
-            SerialWhy::Early => {
-                "its run ahead started before the members before it had run, and was not run again in time"
-            }
-            SerialWhy::Missed => "its run ahead started from another state than the walk's",
-            SerialWhy::NotRebuilt => "what its run ahead left could not be rebuilt",
-        }
-    }
-}
-
 /// One codeunit of the carry chain, or one that ran again after the parallel part.
 #[derive(Debug, Clone)]
 pub struct ChainEntry<W> {
@@ -114,9 +64,6 @@ pub struct ChainEntry<W> {
     pub took: std::time::Duration,
     /// It left state the later codeunits can start from (always false for a re-run).
     pub left: bool,
-    /// A helper thread ran it ahead of the chain's walk, and the walk took that run (`chain_walk.rs`); false: it ran on
-    /// the walk's thread, serially.
-    pub ahead: bool,
 }
 
 /// The test codeunits of a run that ran serially (`Phases::chain`).
@@ -128,13 +75,6 @@ pub struct ChainReport {
     pub members: Vec<ChainEntry<ChainWhy>>,
     /// The codeunits that ran again after the parallel part, from what the chain left.
     pub reruns: Vec<ChainEntry<RerunWhy>>,
-    /// The time each new start for the helper threads took to write, after a member left something (`chain_walk.rs`).
-    pub starts: Vec<std::time::Duration>,
-    /// The members that ran serially, with why they did not run ahead.
-    pub not_ahead: Vec<ChainEntry<SerialWhy>>,
-    /// For the runs ahead dropped because they started elsewhere: what differed between the predicted start and the
-    /// walk's state (a sequence, a table, a counter), and how often.
-    pub differed: std::collections::BTreeMap<String, usize>,
     /// The SingleInstance lane (`single_lane.rs`, ADR-066 amendment 2).
     pub single_lane: super::LaneReport,
     /// ADR-058 amendment 1: the test codeunits that read SingleInstance state an earlier codeunit of their BC session
@@ -188,23 +128,14 @@ impl ChainReport {
             .map(|n| n.text())
     }
 
-    /// A run ahead was dropped because its predicted start differed from the walk's state in `part`.
-    pub fn missed_by(&mut self, part: &str) {
-        *self.differed.entry(part.to_string()).or_default() += 1;
-    }
-
-    /// The `--timings` lines: the share of codeunits that ran serially and their time, by reason.
+    /// The `--timings` lines: the codeunits of the chain and their time, by reason.
     pub fn lines(&self) -> Vec<String> {
-        let serial: Vec<ChainEntry<ChainWhy>> = self.members.iter().filter(|m| !m.ahead).cloned().collect();
         let total = |es: &mut dyn Iterator<Item = &std::time::Duration>| secs(es.sum());
         let mut out = vec![format!(
-            "carry chain: {} of {} test codeunits are in it: {} ran serially ({:.2} s), {} ran ahead on other threads ({:.2} s); {} ran again serially after the parallel part ({:.2} s)",
+            "carry chain: {} of {} test codeunits are in it, all ran serially ({:.2} s); {} ran again serially after the parallel part ({:.2} s)",
             self.members.len(),
             self.units,
-            serial.len(),
-            total(&mut serial.iter().map(|m| &m.took)),
-            self.members.len() - serial.len(),
-            total(&mut self.members.iter().filter(|m| m.ahead).map(|m| &m.took)),
+            total(&mut self.members.iter().map(|m| &m.took)),
             self.reruns.len(),
             total(&mut self.reruns.iter().map(|m| &m.took)),
         )];
@@ -213,13 +144,6 @@ impl ChainReport {
             out.push(format!(
                 "carry chain: {} members ran with the SingleInstance state of the members before them (ADR-066 amendment 8); {} of them read first a global an earlier member wrote",
                 self.singles_kept, self.singles_read_carried
-            ));
-        }
-        if !self.starts.is_empty() {
-            out.push(format!(
-                "carry chain: {} new starts written for the helper threads ({:.2} s)",
-                self.starts.len(),
-                total(&mut self.starts.iter())
             ));
         }
         let left: Vec<String> = self
@@ -245,28 +169,11 @@ impl ChainReport {
             }
             out.push(line);
         }
-        if let Some(line) = by_reason("serial carry chain by reason", &serial, ChainWhy::text) {
+        if let Some(line) = by_reason("serial carry chain by reason", &self.members, ChainWhy::text) {
             out.push(line);
         }
         if let Some(line) = by_reason("serial re-runs by reason", &self.reruns, RerunWhy::text) {
             out.push(line);
-        }
-        if let Some(line) = by_reason("serial carry chain by cause", &self.not_ahead, SerialWhy::text) {
-            out.push(line);
-        }
-        if !self.differed.is_empty() {
-            let mut rows: Vec<(&String, &usize)> = self.differed.iter().collect();
-            rows.sort_by_key(|(part, n)| (std::cmp::Reverse(**n), *part));
-            let parts: Vec<String> = rows.iter().take(15).map(|(part, n)| format!("{n} {part}")).collect();
-            let more = if rows.len() > 15 {
-                format!("; {} more", rows.len() - 15)
-            } else {
-                String::new()
-            };
-            out.push(format!(
-                "carry chain wrong predictions by what differed: {}{more}",
-                parts.join("; ")
-            ));
         }
         out.extend(self.single_lane.lines());
         out
@@ -329,7 +236,7 @@ pub(super) fn member_why(isolation: TestIsolation, carry: Option<ChainWhy>) -> C
 
 /// Whether a chain member with isolation `isolation` and carry `carry` is in the chain only for the numbers its tests
 /// take ([`ChainWhy::TestsTakeNumbers`]). ADR-066 amendment 11, option 1: such a member runs with fresh single instances
-/// in the walk and ahead, and its SingleInstance order dependence is handled as for codeunits outside the chain
+/// in the walk, and its SingleInstance order dependence is handled as for codeunits outside the chain
 /// (amendments 4, 5 and 7). A member with Disabled isolation or an OnRun that writes keeps amendment 8.
 pub(super) fn numbers_only(isolation: TestIsolation, carry: Option<ChainWhy>) -> bool {
     isolation != TestIsolation::Disabled && carry == Some(ChainWhy::TestsTakeNumbers)
@@ -396,7 +303,6 @@ mod tests {
             why,
             took: Duration::from_millis(ms),
             left: id == 2,
-            ahead: id == 3,
         }
     }
 
@@ -437,41 +343,10 @@ mod tests {
         assert_eq!(
             r.lines(),
             vec![
-                "carry chain: 3 of 10 test codeunits are in it: 2 ran serially (1.50 s), 1 ran ahead on other threads (1.00 s); 1 ran again serially after the parallel part (0.25 s)",
+                "carry chain: 3 of 10 test codeunits are in it, all ran serially (2.50 s); 1 ran again serially after the parallel part (0.25 s)",
                 "carry chain: 1 of 3 left state for the later codeunits: 2 C2",
-                "serial carry chain by reason: 1 OnRun can write a table (0.50 s); 1 tests can take NumberSequence numbers (1.00 s)",
+                "serial carry chain by reason: 2 tests can take NumberSequence numbers (2.00 s); 1 OnRun can write a table (0.50 s)",
                 "serial re-runs by reason: 1 read a table a chain codeunit wrote (0.25 s)",
-            ]
-        );
-    }
-
-    /// Why each serial member did not run ahead, and for the wrong predictions what differed, so a slow chain can be read
-    /// from `--timings` (al-runner issue 6924).
-    #[test]
-    fn the_report_says_why_a_member_did_not_run_ahead() {
-        let mut r = ChainReport {
-            units: 4,
-            members: vec![
-                entry(1, ChainWhy::TestsTakeNumbers, 1000),
-                entry(2, ChainWhy::TestsTakeNumbers, 500),
-                entry(4, ChainWhy::TestsTakeNumbers, 250),
-            ],
-            not_ahead: vec![
-                entry(1, SerialWhy::Closed, 1000),
-                entry(2, SerialWhy::Missed, 500),
-                entry(4, SerialWhy::Missed, 250),
-            ],
-            ..Default::default()
-        };
-        r.missed_by("number sequence GLOBAL");
-        r.missed_by("number sequence GLOBAL");
-        r.missed_by("table 18 Customer");
-        let lines = r.lines();
-        assert_eq!(
-            lines[lines.len() - 2..],
-            [
-                "serial carry chain by cause: 2 its run ahead started from another state than the walk's (0.75 s); 1 first member from its suite's start, which the helpers do not run (1.00 s)",
-                "carry chain wrong predictions by what differed: 2 number sequence GLOBAL; 1 table 18 Customer",
             ]
         );
     }
@@ -485,7 +360,7 @@ mod tests {
         assert_eq!(
             r.lines(),
             vec![
-                "carry chain: 0 of 4 test codeunits are in it: 0 ran serially (0.00 s), 0 ran ahead on other threads (0.00 s); 0 ran again serially after the parallel part (0.00 s)"
+                "carry chain: 0 of 4 test codeunits are in it, all ran serially (0.00 s); 0 ran again serially after the parallel part (0.00 s)"
             ]
         );
     }

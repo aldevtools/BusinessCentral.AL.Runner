@@ -1,7 +1,8 @@
 //! A Text method answers on a call stack text that holds the untracked-frame mark when its result depends only on the text
 //! before the first mark (al-runner issue 7520, same reasoning as the comparison of marked texts in `ops::known_prefix_order`):
 //! the lines of the tracked frames. Whatever depends on the tail stays refused. The prefix of a collected error's stack is
-//! `"C"(CodeUnit 50100).<routine> line N`, a line feed after each line, then the mark
+//! `"C"(CodeUnit 50100).<routine> line N`, a CR LF after each line, then the mark (a frame of a procedure with a hyphen in its
+//! name stands below the raising routine; its format is not measured, so the text ends there with the mark)
 //! (errors/PnBErrorsCollections.al:282-306 pins the lines of the corpus app's own frames).
 
 use al_builtins::native::Signal;
@@ -10,6 +11,13 @@ use al_testkit::{boolean, int, run_in, text};
 const SRC: &str = r#"
 codeunit 50100 C
 {
+    // The hyphen in the name is a frame format the corpus has not measured: the call stack of the collected error ends
+    // with the untracked mark below this frame.
+    procedure "Hop-Collect"(var Info: ErrorInfo)
+    begin
+        Collect(Info);
+    end;
+
     [ErrorBehavior(ErrorBehavior::Collect)]
     procedure Collect(var Info: ErrorInfo)
     var
@@ -26,7 +34,7 @@ codeunit 50100 C
     var
         Info: ErrorInfo;
     begin
-        Collect(Info);
+        "Hop-Collect"(Info);
         exit(Info.Callstack());
     end;
 
@@ -35,7 +43,7 @@ codeunit 50100 C
         Info: ErrorInfo;
         C: Code[2048];
     begin
-        Collect(Info);
+        "Hop-Collect"(Info);
         C := Info.Callstack();
         exit(C);
     end;
@@ -90,24 +98,43 @@ codeunit 50100 C
         exit(Stack().Substring(1, 8));
     end;
 
+    // Two lines of the stack stand before the mark: the entry's frame carries a hyphen in its name.
+    procedure StackTwoLines(): Text
+    var
+        Info: ErrorInfo;
+    begin
+        Collect(Info);
+        exit(Info.Callstack());
+    end;
+
     procedure ReproShape(): Text
+    begin
+        exit("Hop-ReproShape"());
+    end;
+
+    local procedure "Hop-ReproShape"(): Text
     var
         S: Text;
         LF: Char;
     begin
         LF := 10;
-        S := Stack();
+        S := StackTwoLines();
         S := S.Substring(S.IndexOf(Format(LF)) + 1);
         exit(CopyStr(S, 1, 3));
     end;
 
     procedure ReproShapeKeepsMark(): Boolean
+    begin
+        exit("Hop-ReproShapeKeepsMark"());
+    end;
+
+    local procedure "Hop-ReproShapeKeepsMark"(): Boolean
     var
         S: Text;
         LF: Char;
     begin
         LF := 10;
-        S := Stack();
+        S := StackTwoLines();
         S := S.Substring(S.IndexOf(Format(LF)) + 1);
         // The rest still holds the unknown tail: a needle that is not in its known part stays refused.
         exit(StrPos(S, 'Stack') > 0);
@@ -268,10 +295,12 @@ codeunit 50100 C
 
     procedure StartsWithLongerThanPrefix(): Boolean
     var
+        CR: Char;
         LF: Char;
     begin
+        CR := 13;
         LF := 10;
-        exit(Stack().StartsWith('"C"(CodeUnit 50100).Collect line 6' + Format(LF) + '"C"(CodeUnit 50100).Stack line 4' + Format(LF) + '"C"(CodeUnit 50100).StartsWithLongerThanPrefix line 5' + Format(LF) + 'x'));
+        exit(Stack().StartsWith('"C"(CodeUnit 50100).Collect line 6' + Format(CR) + Format(LF) + 'x'));
     end;
 }
 "#;

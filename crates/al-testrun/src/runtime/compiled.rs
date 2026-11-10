@@ -205,8 +205,8 @@ pub struct RunOptions {
     /// `al-test-cli`'s fixed seed 1.
     pub run_seed: crate::seed::RunSeed,
     /// `al-runner test --strict-order` (ADR-066 amendment 12, decision 4): run the test codeunits in BC's order. The
-    /// single instances and the NumberSequence numbers carry from codeunit to codeunit (the carry chain, its walk and
-    /// runs ahead, amendments 8 and 11), and a codeunit that depends on SingleInstance state an earlier one left keeps
+    /// single instances and the NumberSequence numbers carry from codeunit to codeunit (the carry chain and its walk,
+    /// amendments 8 and 11), and a codeunit that depends on SingleInstance state an earlier one left keeps
     /// its parallel run (flagged) and runs again serially in BC's order when a test of it failed or was refused while
     /// it ran there (amendments 4, 5 and 7; `max_replay` applies). Default `false` (amendment 12, decisions 1 to 3):
     /// every test codeunit starts with fresh single instances and from the install baseline's sequence values, nothing
@@ -236,11 +236,6 @@ pub struct RunOptions {
     /// The memory the run may use (ADR-066 amendment 9, `runtime::memory`). `None`: no budget, the threads
     /// `AL_TEST_THREADS` or the cores say.
     pub memory: Option<super::memory::MemoryBudget>,
-    /// For tests of the carry chain's runs ahead (`chain_walk.rs`): the walk waits for a helper to run each member a
-    /// helper can still run from the walk's own state, instead of running the member itself, so which members run
-    /// ahead does not depend on how the threads are scheduled. Slower; no front end sets it. Only the time of the run
-    /// depends on it.
-    pub chain_wait_for_runs_ahead: bool,
     /// ADR-069 decision 11: each test thread reads its own copy of the install baseline from bytes and builds its own
     /// rows of the test data (`Engine::private_test_rows`), as before the
     /// shared baseline, instead of sharing one frozen baseline. The reference side of the differential check

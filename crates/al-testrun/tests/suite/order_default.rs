@@ -2,7 +2,7 @@
 //! from the install baseline's NumberSequence values; nothing runs again in BC's order. A failed test that read a
 //! SingleInstance global an earlier codeunit would have set on BC gets a hint (the SingleInstance codeunit, its app,
 //! the global, the writer and the flag), and the tests that take numbers after another codeunit took some are listed.
-//! `--strict-order` (`RunOptions::strict_order`) restores the carry, the chain, the runs ahead and the re-run in BC's
+//! `--strict-order` (`RunOptions::strict_order`) restores the carry, the chain and the re-run in BC's
 //! order. BC runs all test codeunits in one session: codeunits/TestCuP7ASetter.al:24-58 against TestCuP7BReader.al:24-37.
 
 use al_builtins::assumptions::Assumption;

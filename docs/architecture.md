@@ -73,11 +73,10 @@ The IR is compiled to register bytecode per routine on its first call (ADR-034);
     130450 an `OnRun` that can write or tests that can take numbers from a number sequence (`chain.rs`
     `carry_why`). They run in id order, each from what the ones before it in its suite left. Most leave nothing:
     their own sequences are rolled back with them and their `OnRun` leaves exactly the state they started from
-    (`Session::holds_what_it_started_from`, `numbers_taken.rs`). Helper threads run the chain's codeunits ahead,
-    from the state the walk is at, and the walk takes such a run while every codeunit before it in its suite left
-    nothing since; otherwise it runs the codeunit itself. A codeunit that takes numbers from a sequence the install
-    code made (Microsoft's ledger entry sequences, a No. Series with gaps) hands them on, so the chain of such a
-    suite stays serial. `--timings` counts the codeunits of the chain, how many ran serially and why.
+    (`Session::holds_what_it_started_from`, `numbers_taken.rs`). The walk is serial on one thread (ADR-070: the
+    helper threads that ran members ahead are gone). A codeunit that takes numbers from a sequence the install
+    code made (Microsoft's ledger entry sequences, a No. Series with gaps) hands them on. `--timings` counts the
+    codeunits of the chain and why each is in it.
   - A passing test commits at the test boundary.
   - `asserterror` rolls back to the last commit.
   - `[HandlerFunctions]` are bound per test method; "Unhandled UI" and unexecuted handlers fail the test.

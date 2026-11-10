@@ -1625,7 +1625,7 @@ fn test_inner(
             rebuild: a.rebuild_compile_cache,
             country: country.clone(),
         }),
-        // Left at their defaults: `single_fresh_check` (set per variant in stability mode, ADR-058 amendment 1), `perturb`, `chain_wait_for_runs_ahead` (tests of the carry chain only), `check_baseline_rule`.
+        // Left at their defaults: `single_fresh_check` (set per variant in stability mode, ADR-058 amendment 1), `perturb`, `check_baseline_rule`.
         ..Default::default()
     };
     if let Some(w) = warm.as_deref() {

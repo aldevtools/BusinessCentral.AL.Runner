@@ -436,3 +436,28 @@ codeunit 50100 C
         format!("\"Sub\"(CodeUnit 50101).Handle line 4 - {APP}\\\"C\"(CodeUnit 50100).Caller line 5 - {APP}\\")
     );
 }
+
+/// The text after a caught error holds the frames of the catcher's callers too, down to the entry (session-system/callstack/
+/// CallstackFullText.al, `lasttry` and `lastassert`: own=3 in a test procedure, one more per frame between).
+#[test]
+fn a_caught_error_keeps_the_frames_below_the_catcher() {
+    let src = r#"codeunit 50100 C
+{
+    procedure Entry(): Text
+    begin
+        exit(Middle());
+    end;
+
+    procedure Middle(): Text
+    begin
+        asserterror Error('x');
+        exit(GetLastErrorCallStack());
+    end;
+}"#;
+    let got = text(run(src, "Entry"));
+    let frames: Vec<&str> = got.split('\\').filter(|f| !f.is_empty()).collect();
+    assert_eq!(frames.len(), 2, "{got:?}");
+    assert!(frames[0].starts_with("\"C\"(CodeUnit 50100).Middle line "), "{got:?}");
+    assert!(frames[1].starts_with("\"C\"(CodeUnit 50100).Entry line "), "{got:?}");
+    assert!(got.ends_with('\\'), "{got:?}");
+}
