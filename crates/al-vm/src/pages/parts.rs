@@ -120,7 +120,9 @@ impl Session {
         }
         st.borrow_mut().parts = kept.clone();
         st.borrow_mut().hidden_parts = hidden.clone();
-        for (_, child) in kept.into_iter().chain(hidden) {
+        let mut all: Vec<(usize, St)> = kept.into_iter().chain(hidden).collect();
+        all.sort_by_key(|(i, _)| *i);
+        for (_, child) in all {
             // A filter the host's OnOpenPage set on the part's Rec (through a procedure of the part) does not narrow the rows the
             // part shows: it opens on all rows and a new line (testpage/Y61RunPageLinkCopyFilter.al:328
             // G616_PartUpdateForm_VarRec `part filters=Parent Code: P1` read in the procedure, `part rows` = `P1/A,P1/B,P2/C,/,`).
@@ -577,6 +579,13 @@ impl Session {
                     .filter(|(i, c)| !self.part_eliminated(st, *i) && (opening || c.borrow().open)),
             );
             parts.sort_by_key(|(i, _)| *i);
+        }
+        if opening {
+            self.refuse_provider_part_turning_visible(st)?;
+        } else {
+            for (i, child) in &parts {
+                self.refuse_provider_part_back_walk(st, *i, child)?;
+            }
         }
         if let Sync::Move { .. } = how {
             let mut linked = Vec::new();
