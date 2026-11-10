@@ -197,7 +197,9 @@ impl ChainWalk<'_> {
                             super::strict_walk::flag_after_refused(&mut r);
                         }
                         let stops = super::strict_walk::stops_session(&r);
-                        if plain && !stops && left.is_none() {
+                        // A codeunit whose tests roll back and whose OnRun cannot write leaves nothing in the database even
+                        // when it was not run: the later codeunits are flagged (`unsure`), not refused.
+                        if plain && left.is_none() {
                             left = Some(super::run::Carried::nothing());
                         }
                         unsure |= stops;

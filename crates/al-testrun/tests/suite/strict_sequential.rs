@@ -333,3 +333,29 @@ codeunit 60672 "Seq After Slow"
     assert_eq!(after.outcome, Outcome::Pass);
     assert!(after.assumptions.contains(&Assumption::StrictAfterRefused));
 }
+
+/// A codeunit that is not run as a whole but could leave nothing in the database (its tests roll back, its OnRun cannot
+/// write) does not hold back the codeunits after it: they run and are flagged, not refused.
+#[test]
+fn a_plain_codeunit_that_is_not_run_as_a_whole_flags_the_later_ones_but_does_not_refuse_them() {
+    let src = r#"
+codeunit 60681 "Seq Not Run"
+{
+    Subtype = Test;
+    [Test] procedure RefusedAsAWhole() begin Sleep(-1); end;
+}
+codeunit 60682 "Seq Reads Numbers After"
+{
+    Subtype = Test;
+    [Test] procedure TakesANumberAfterTheRefusedCodeunit()
+    var N: BigInteger;
+    begin
+        N := NumberSequence.Next('SEQ');
+    end;
+}
+"#;
+    let rt = run(src, &sequential());
+    let after = result(&rt, "TakesANumberAfterTheRefusedCodeunit");
+    assert_eq!(after.outcome, Outcome::Pass, "{:?}", after.outcome);
+    assert!(after.assumptions.contains(&Assumption::StrictAfterRefused));
+}
