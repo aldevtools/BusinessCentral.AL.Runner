@@ -155,7 +155,9 @@ impl Session {
         }
         let mut copy = rec.borrow().clone();
         own_unloaded_blobs(&mut copy);
-        *other.borrow_mut() = LibraryValue::RecordRef(Rc::new(RefCell::new(copy)));
+        // Written into the buffer itself: the RecordRef the Variant was assigned from holds that buffer too and shows the
+        // new filters and row (:118-133 `target after`, :128-138 `variant after target reset`).
+        *dst.borrow_mut() = copy;
         Ok(Value::Null)
     }
 
@@ -241,7 +243,7 @@ impl Session {
 
     pub(crate) fn ref_op(&mut self, id: &str, recv: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
         let id = if id == "RecordRef.GetTableVariant#1" {
-            self.get_table_from_variant = true;
+            self.variant_refs.get_table = true;
             "RecordRef.GetTable#1"
         } else {
             id
@@ -869,7 +871,9 @@ impl Session {
                 self.global_group_check(rec, table, &format!("RecordRef.{method}"))?;
             }
         }
+        let was = self.variant_refs.before(lib);
         let r = self.recordref_op_inner(method, lib, args);
+        self.variant_refs.after(lib, was);
         // What the ref read or wrote is what IsDirty compares with. A read that found nothing leaves the buffer alone.
         let snapshot = match (&r, method) {
             (Ok(Value::Boolean(false)), _) | (Ok(Value::Integer(0)), "Next") => None,
@@ -908,7 +912,7 @@ impl Session {
             // (recordref-fieldref/recordref/TestRecordRefGetSetTableContracts.al:30-60).
             // A ref that was never opened takes its table from the record (Assert.RecordIsEmpty does this).
             "GetTable" => {
-                let from_variant = std::mem::take(&mut self.get_table_from_variant);
+                let from_variant = std::mem::take(&mut self.variant_refs.get_table);
                 if matches!(args.first(), Some(Value::Record(src)) if crate::records::media_key_marked(src)) {
                     return unsupported(format!("RecordRef.GetTable of a record {}", crate::records::MEDIA_KEY));
                 }

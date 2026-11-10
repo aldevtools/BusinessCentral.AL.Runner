@@ -109,6 +109,7 @@ mod recordid_code_text;
 mod recordid_table_name;
 mod recordref_copy;
 mod recordref_load_fields;
+mod recordref_variant;
 mod records;
 mod refs;
 mod relations;
@@ -1028,8 +1029,9 @@ pub struct Session {
     /// A `ModifyAll(Field, Value, false)` of a table without modify events is running: every row is written, also one whose value
     /// does not change (recmeta.rs `modify_all`).
     pub(crate) bulk_modify: bool,
-    /// The `RecordRef.GetTable` that runs was given a Variant (refs.rs `ref_op`).
-    pub(crate) get_table_from_variant: bool,
+    /// The RecordRefs that Variants hold, and whether the `RecordRef.GetTable` that runs was given a Variant
+    /// (`recordref_variant.rs`).
+    pub(crate) variant_refs: recordref_variant::VariantRefs,
     /// Set while a `TestField.SetValue` written with a Variant argument runs (`TestField.SetValueVariant#1`).
     pub(crate) set_value_from_variant: bool,
     /// Set while a host page's `TestPage.New()` runs: the parts it links afresh run no OnNewRecord.
@@ -1348,7 +1350,7 @@ impl Session {
             media,
             media_removed: Default::default(),
             bulk_modify: false,
-            get_table_from_variant: false,
+            variant_refs: Default::default(),
             set_value_from_variant: false,
             host_new_running: false,
             part_open_running: false,
