@@ -227,8 +227,26 @@ fn outcomes_are_the_same_with_no_budget_one_thread_and_threads_that_end_and_star
     let flapping = run(
         &src,
         &RunOptions {
-            // Every third read leaves no room: a thread that reads it after a codeunit ends, and another may start
-            // on the next.
+            // Every seventh read leaves no room: a thread that reads it after a codeunit ends, and another may start
+            // on the next. Rare enough that the cost learned over the codeunits' own windows (a high percentile) stays
+            // small, as the resident memory of a real run does.
+            memory: budget(1000, false, move || {
+                if reads.fetch_add(1, Ordering::SeqCst) % 7 == 0 {
+                    950
+                } else {
+                    100
+                }
+            }),
+            ..Default::default()
+        },
+    );
+    // The original input: every third read leaves no room, so a third of the codeunits' windows show 850 MB of growth.
+    // That is a process that spikes often: the learned cost is high and few threads run (the safe side). What the
+    // test asserts for it is the outcome, which must not depend on how many threads ran.
+    let reads = Arc::new(AtomicU64::new(0));
+    let often = run(
+        &src,
+        &RunOptions {
             memory: budget(1000, false, move || {
                 if reads.fetch_add(1, Ordering::SeqCst) % 3 == 0 {
                     950
@@ -241,6 +259,7 @@ fn outcomes_are_the_same_with_no_budget_one_thread_and_threads_that_end_and_star
     );
     assert_eq!(outcomes(&free), outcomes(&one));
     assert_eq!(outcomes(&free), outcomes(&flapping));
+    assert_eq!(outcomes(&free), outcomes(&often));
     assert_eq!(free.results().len(), 8 + 2 + 24);
     if workers() > 2 {
         let m = &flapping.phases.memory;
