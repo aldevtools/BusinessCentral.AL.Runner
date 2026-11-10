@@ -219,6 +219,12 @@ pub struct RunOptions {
     /// (`TestResult::order_hint`). Within one codeunit BC's order is always kept, and Disabled isolation still carries
     /// its rows.
     pub strict_order: bool,
+    /// ADR-070, migration step 2 (internal, no front end flag; the test CLIs set it from `AL_STRICT_SEQUENTIAL`): with
+    /// `strict_order`, the plain sequential strict run instead of the carry chain and the lane. Each BC session
+    /// (`strict_walk.rs`) runs all its test codeunits one after the other on one thread in BC's order, the single
+    /// instances, rows, sequence values and storage moving along; BC sessions run in parallel with each other. Step 3
+    /// makes this what `--strict-order` does and removes the option.
+    pub strict_sequential: bool,
     /// With `strict_order`: every dependent codeunit runs again serially in BC's order, not only one with a failure
     /// (the meaning `--strict-order` had before ADR-066 amendment 12). Set by a stability run with the dimension
     /// `isolation.singleInstance` for its base variant (ADR-058 amendment 1, decision 3); no front end flag.
@@ -246,6 +252,13 @@ pub struct RunOptions {
     /// shared baseline, instead of sharing one frozen baseline. The reference side of the differential check
     /// (`AL_PRIVATE_BASELINE=1`, read by the front ends); not documented for users. Only time and memory depend on it.
     pub private_baseline: bool,
+}
+
+impl RunOptions {
+    /// ADR-070 step 2: the plain sequential strict run (`strict_order` with `strict_sequential`).
+    pub(crate) fn sequential_strict(&self) -> bool {
+        self.strict_order && self.strict_sequential
+    }
 }
 
 /// One entry of a run (`RunOptions::entries`).
