@@ -73,6 +73,17 @@ codeunit 50970 "Cell Tap Tests"
     end;
 
     [Test]
+    procedure OneExtraObservation()
+    var
+        O: Codeunit "Probe Observer";
+    begin
+        O.Observe('a', '1');
+        O.Observe('b', '2');
+        O.Expect('a', '1');
+        O.Verify();
+    end;
+
+    [Test]
     procedure NoObserver()
     begin
     end;
@@ -80,6 +91,10 @@ codeunit 50970 "Cell Tap Tests"
 "#;
 
 fn run(cell_tap: bool) -> CorpusRuntime {
+    run_src(cell_tap, TESTS)
+}
+
+fn run_src(cell_tap: bool, tests: &str) -> CorpusRuntime {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../corpus/tests/al-language/_fixtures/ProbeObserver.Codeunit.al"
@@ -90,7 +105,7 @@ fn run(cell_tap: bool) -> CorpusRuntime {
             id: "main".into(),
             name: "main".into(),
             dependencies: vec![],
-            files: vec![("fixture.al".into(), fixture), ("tests.al".into(), TESTS.into())],
+            files: vec![("fixture.al".into(), fixture), ("tests.al".into(), tests.into())],
         }],
         vec![al_sema::AppKind::Workspace],
         &[],
@@ -179,4 +194,64 @@ fn outcomes_are_the_same_with_the_tap_off_and_it_records_nothing() {
         assert_eq!((&a.test, &a.outcome), (&b.test, &b.outcome));
         assert!(b.cells.is_none(), "{}", b.test);
     }
+}
+
+/// Review of the draft (finding 2): `Verify` fails a test that observed more than it expected, so the tap must not report
+/// it as a full match. (The fixture splits both lists at the pair separator, so each ends with an empty item; the first extra
+/// observation meets that empty item: `observation 2: expected [] but was [b = 2]`.)
+#[test]
+fn more_observations_than_expected_are_a_mismatch() {
+    let rt = run(true);
+    let r = result(&rt, "OneExtraObservation");
+    assert!(
+        matches!(&r.outcome, Outcome::Fail(m) if m.contains("but was [b = 2]")),
+        "{:?}",
+        r.outcome
+    );
+    let c = r.cells.as_ref().expect("cells");
+    assert_eq!((c.expected, c.matched, c.extra), (1, 1, 1));
+    assert_eq!(
+        c.first_mismatch().as_deref(),
+        Some("1 more observations than expected, the first [b=2]")
+    );
+}
+
+/// Review of the draft (section 2.3, item 1): the tap agrees with the fixture's own `Verify` on every test that reached
+/// it. `Verify` passes exactly when the tap found no wrong, missing or extra cell, and when it fails, its message names the
+/// pair the tap reports first (the expected pair of a wrong or missing cell, else the first extra observation).
+#[test]
+fn the_tap_agrees_with_verify_on_every_test_that_reached_it() {
+    let rt = run(true);
+    let mut seen = 0;
+    for r in rt.results() {
+        let Some(c) = r.cells.as_ref().filter(|c| c.verifies > 0) else {
+            continue;
+        };
+        seen += 1;
+        match (&r.outcome, c.first_mismatch()) {
+            (Outcome::Pass, None) => {}
+            (Outcome::Fail(m), Some(_)) => {
+                let named = match (c.mismatched.first(), &c.first_extra) {
+                    (Some(w), _) => format!("[{} = {}", w.key, w.expected),
+                    (None, Some(x)) => format!("[{}]", x.replacen('=', " = ", 1)),
+                    (None, None) => unreachable!("a first mismatch has a wrong cell or an extra one"),
+                };
+                assert!(m.contains(&named), "{}: {m} does not name {named}", r.test);
+            }
+            (o, f) => panic!("{}: Verify gave {o:?}, the tap {f:?}", r.test),
+        }
+    }
+    assert!(seen >= 5, "{seen} tests reached Verify");
+}
+
+/// Review of the draft (finding 4): a case whose outcome comes from another run (`adopt_cases`, the order probes) keeps no
+/// cells of the run whose outcome it no longer shows.
+#[test]
+fn an_adopted_case_keeps_no_cells_of_the_run_it_left() {
+    let mut rt = run(true);
+    let other = run(true);
+    let listed: std::collections::BTreeSet<(String, u32)> = [(String::new(), 50970)].into();
+    rt.adopt_cases(&other, &listed);
+    let r = result(&rt, "AllMatch");
+    assert!(r.cells.is_none(), "{:?}", r.cells);
 }

@@ -467,7 +467,9 @@ NOT-PASSING LISTS (ADR-065) AND REPORTS
   --junit FILE                write per-test outcomes and refusal reasons as JUnit XML (a test that uses the
                               observer fixture also gets cellsExpected, cellsMatched and firstMismatch properties)
   --cell-report FILE          write, as JSON, the Expect cells of the observer fixture each test matched, the
-                              wrong ones and the ones never reached; prints one `cells:` line (report only)
+                              wrong ones and the ones never reached; prints one `cells:` line (report only).
+                              The expected count is the Expect calls that ran: for a failing test it can grow
+                              when a fix lets the test reach more of them, and it is 0 when it fails before one
 
 DOTNET (ADR-014)
   --dotnet-sidecar PATH       the built sidecar (default: next to this binary)

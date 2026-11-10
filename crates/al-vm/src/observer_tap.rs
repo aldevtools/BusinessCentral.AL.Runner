@@ -7,11 +7,16 @@
 //! compares them cell by cell the way `Verify` does, past the first wrong cell. A cell is one `Expect` pair; "same position" is
 //! the fixture's own rule, so after one missing observation the later cells are wrong too.
 //!
+//! `CellRecord::expected` counts the `Expect` calls that ran (review finding 3): for a failing test it is not a fixed number.
+//! A test with two `Expect`/`Verify` blocks whose first `Verify` raises never runs the second block's `Expect` calls, and a
+//! test that fails before its first `Expect` has no record. Fine for a report; a ratchet needs a static count per test.
+//!
 //! Off unless asked for (`Session::enable_cell_tap`): then a routine call costs one branch.
 
 use al_builtins::value::{Instance, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
 
 /// Pair separator (U+241E) and name/value separator (U+241F) of the fixture.
 const RS: char = '\u{241E}';
@@ -37,6 +42,8 @@ pub struct CellRecord {
     pub mismatched: Vec<CellMismatch>,
     /// Observations beyond the expected ones, summed over the `Verify` calls.
     pub extra: u32,
+    /// The first observation beyond the expected ones, as `key=value` (`Verify` fails on it).
+    pub first_extra: Option<String>,
     /// `Verify` calls that were reached.
     pub verifies: u32,
 }
@@ -48,12 +55,20 @@ impl CellRecord {
             .saturating_sub(self.matched + u32::try_from(self.mismatched.len()).unwrap_or(u32::MAX))
     }
 
-    /// `key: expected X, actual Y` of the first wrong cell.
+    /// `key: expected X, actual Y` of the first wrong cell; with no wrong cell, the first observation beyond the expected
+    /// ones (review finding 2: `Verify` fails then too, `_fixtures/ProbeObserver.Codeunit.al` `Verify`).
     pub fn first_mismatch(&self) -> Option<String> {
-        self.mismatched.first().map(|m| match &m.actual {
-            Some(a) => format!("{}: expected [{}] actual [{}]", m.key, m.expected, a),
-            None => format!("{}: expected [{}] never observed", m.key, m.expected),
-        })
+        if let Some(m) = self.mismatched.first() {
+            return Some(match &m.actual {
+                Some(a) => format!("{}: expected [{}] actual [{}]", m.key, m.expected, a),
+                None => format!("{}: expected [{}] never observed", m.key, m.expected),
+            });
+        }
+        let first = self.first_extra.as_ref()?;
+        Some(format!(
+            "{} more observations than expected, the first [{first}]",
+            self.extra
+        ))
     }
 }
 
@@ -98,6 +113,7 @@ pub fn compare(got: &str, want: &str, ignored: &[String]) -> CellRecord {
         }
     }
     r.extra = u32::try_from(got_pairs.len().saturating_sub(want_pairs.len())).unwrap_or(u32::MAX);
+    r.first_extra = got_pairs.get(want_pairs.len()).map(|g| show(g));
     r
 }
 
@@ -105,9 +121,14 @@ pub fn compare(got: &str, want: &str, ignored: &[String]) -> CellRecord {
 #[derive(Debug, Default)]
 pub(crate) struct Tap {
     /// Objects of the program that are the fixture (id 69160, name "Probe Observer").
-    objects: Vec<usize>,
+    objects: Arc<FixtureObjects>,
     pub(crate) record: CellRecord,
 }
+
+/// The objects of the program that are the fixture, found once per engine (`Engine::derived`) from the object heads, so
+/// turning the tap on makes no object (review finding 1; `tests/language/lazy_objects.rs`).
+#[derive(Debug, Default)]
+struct FixtureObjects(Vec<usize>);
 
 fn text_of(v: &Value) -> String {
     match v {
@@ -119,15 +140,19 @@ fn text_of(v: &Value) -> String {
 impl crate::Session {
     /// Starts counting cells of the fixture codeunit (`al-test-cli --cell-report`, `--junit`).
     pub fn enable_cell_tap(&mut self) {
-        let objects = self
-            .engine
-            .program
-            .objects
-            .iter()
-            .enumerate()
-            .filter(|(_, o)| o.id == Some(69160) && o.name == "Probe Observer")
-            .map(|(i, _)| i)
-            .collect();
+        let program = &self.engine.program;
+        let objects = self.engine.derived(|| {
+            FixtureObjects(
+                program
+                    .objects
+                    .heads()
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, o)| o.id == Some(69160) && o.name == "Probe Observer")
+                    .map(|(i, _)| i)
+                    .collect(),
+            )
+        });
         self.coverage.cells = Some(Box::new(Tap {
             objects,
             record: CellRecord::default(),
@@ -146,7 +171,7 @@ impl crate::Session {
         let Some(tap) = self.coverage.cells.as_mut() else {
             return;
         };
-        if !tap.objects.contains(&object) {
+        if !tap.objects.0.contains(&object) {
             return;
         }
         let obj = &self.engine.program.objects[object];
@@ -173,6 +198,7 @@ impl crate::Session {
             rec.verifies += 1;
             rec.matched += one.matched;
             rec.extra += one.extra;
+            rec.first_extra = rec.first_extra.take().or(one.first_extra);
             rec.mismatched.extend(one.mismatched);
         }
     }

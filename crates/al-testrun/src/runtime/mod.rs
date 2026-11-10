@@ -365,6 +365,41 @@ pub struct TestResult {
     pub cells: Option<al_vm::observer_tap::CellRecord>,
 }
 
+impl TestResult {
+    /// A test with its outcome and nothing else recorded (a test that did not start).
+    pub(crate) fn bare(
+        suite: usize,
+        app: usize,
+        codeunit: u32,
+        codeunit_name: String,
+        test: String,
+        outcome: Outcome,
+    ) -> Self {
+        TestResult {
+            suite,
+            app,
+            codeunit,
+            codeunit_name,
+            test,
+            outcome,
+            call_stack: String::new(),
+            assumptions: Vec::new(),
+            time: std::time::Duration::ZERO,
+            slept_ms: 0,
+            coverage: Vec::new(),
+            messages: Vec::new(),
+            captured: None,
+            impact: Vec::new(),
+            stubs: Vec::new(),
+            ui_answered: Vec::new(),
+            entered: Vec::new(),
+            dotnet: false,
+            order_hint: None,
+            cells: None,
+        }
+    }
+}
+
 /// Wall time of the phases of a run (`--timings`).
 #[derive(Debug, Clone, Default)]
 pub struct Phases {

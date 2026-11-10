@@ -21,6 +21,8 @@ pub struct TestCells {
     pub unreached: u32,
     /// Observations beyond the expected ones.
     pub extra: u32,
+    /// The first of them, as `key=value`.
+    pub first_extra: Option<String>,
     pub mismatched: Vec<Mismatch>,
 }
 
@@ -79,6 +81,7 @@ pub fn build(results: &[TestResult], suite_name: &dyn Fn(usize) -> String) -> Ce
             matched: c.matched,
             unreached: c.unreached(),
             extra: c.extra,
+            first_extra: c.first_extra.clone(),
             mismatched: c
                 .mismatched
                 .iter()
@@ -179,6 +182,7 @@ mod tests {
                 actual: Some("k=2".into()),
             }],
             extra: 0,
+            first_extra: None,
             verifies: 1,
         };
         assert_eq!(

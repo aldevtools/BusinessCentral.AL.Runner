@@ -1530,28 +1530,9 @@ impl CorpusRuntime {
                                     }
                                 }
                                 outcomes.insert((si, id, r.name.to_lowercase()), Outcome::NotRun(why.clone()));
-                                list.push(TestResult {
-                                    suite: si,
-                                    app: order[o.app as usize],
-                                    codeunit: id,
-                                    codeunit_name: o.name.clone(),
-                                    test: r.name.clone(),
-                                    outcome: Outcome::NotRun(why.clone()),
-                                    call_stack: String::new(),
-                                    assumptions: Vec::new(),
-                                    time: std::time::Duration::ZERO,
-                                    coverage: Vec::new(),
-                                    messages: Vec::new(),
-                                    captured: None,
-                                    impact: Vec::new(),
-                                    stubs: Vec::new(),
-                                    ui_answered: Vec::new(),
-                                    slept_ms: 0,
-                                    entered: Vec::new(),
-                                    dotnet: false,
-                                    order_hint: None,
-                                    cells: None,
-                                });
+                                let not_run = Outcome::NotRun(why.clone());
+                                let (app, name) = (order[o.app as usize], o.name.clone());
+                                list.push(TestResult::bare(si, app, id, name, r.name.clone(), not_run));
                             }
                         }
                     }
@@ -2130,6 +2111,11 @@ impl CorpusRuntime {
         self.outcomes.retain(|(si, cu, _), _| !picked(&suites, *si, *cu));
         self.times.retain(|(si, cu, _), _| !picked(&suites, *si, *cu));
         self.marks.retain(|(si, cu, _), _| !picked(&suites, *si, *cu));
+        // The cells of a picked case came from the run whose outcome it no longer shows (review of the cell tap, finding 4).
+        self.results
+            .iter_mut()
+            .filter(|r| picked(&suites, r.suite, r.codeunit))
+            .for_each(|r| r.cells = None);
         let to = |si: usize| suites.iter().position(|s| Some(s) == from.suites.get(si));
         for ((si, cu, name), o) in &from.outcomes {
             if let (true, Some(mine)) = (picked(&from.suites, *si, *cu), to(*si)) {
