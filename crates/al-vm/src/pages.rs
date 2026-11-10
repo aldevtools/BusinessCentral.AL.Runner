@@ -178,6 +178,7 @@ mod part_tree_typed;
 mod parts;
 mod qualified_name;
 mod read_backwards;
+mod relation_lookup;
 mod text_control_value;
 use text_control_value::TextConv;
 pub(crate) mod request;

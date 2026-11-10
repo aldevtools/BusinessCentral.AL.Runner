@@ -424,7 +424,11 @@ impl Providers {
     fn shares(kind: Virtual) -> bool {
         !matches!(
             kind,
-            Virtual::Session | Virtual::ActiveSession | Virtual::TimeZone | Virtual::TenantMedia
+            Virtual::Session
+                | Virtual::ActiveSession
+                | Virtual::ServerInstance
+                | Virtual::TimeZone
+                | Virtual::TenantMedia
         )
     }
 
@@ -695,6 +699,7 @@ impl Providers {
             Virtual::TimeZone => host_tables::time_zone_rows(t, &self.ident),
             Virtual::Session => vec![mat::Entry::ok(identity::session_row(t, &self.ident))],
             Virtual::ActiveSession => vec![mat::Entry::ok(identity::active_session_row(t, &self.ident))],
+            Virtual::ServerInstance => vec![mat::Entry::ok(identity::server_instance_row(t, &self.ident))],
             Virtual::AllObj => objects::all_obj_rows(self, t),
             Virtual::AllObjWithCaption => objects::all_obj_with_caption_rows(self, t),
             Virtual::CodeunitMetadata => objects::codeunit_metadata_rows(self, t),
@@ -1274,7 +1279,12 @@ mod tests {
 
     #[test]
     fn what_depends_on_the_host_is_not_shared() {
-        for kind in [Virtual::Session, Virtual::ActiveSession, Virtual::TimeZone] {
+        for kind in [
+            Virtual::Session,
+            Virtual::ActiveSession,
+            Virtual::ServerInstance,
+            Virtual::TimeZone,
+        ] {
             assert!(!Providers::shares(kind));
         }
         for kind in [

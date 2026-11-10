@@ -5,6 +5,18 @@ use super::*;
 use al_builtins::page_op::PageMethod;
 
 impl Session {
+    /// Whether the generic walk of `page_go_to_key` raises the row error for a key it did not find.
+    /// With the result unused a miss raises the row error: on a part, and on a list page (al-runner issue 7412;
+    /// pages/run-modal/Y7412PageRunRecordFilters.al:337 Y7412_Run0_StatementForm: a list without triggers run by
+    /// Page.Run(0, Rec), the three rows outside the record's filters each `error:The row does not exist on the
+    /// TestPage.|TestRowNotFound`). The same for GoToRecord and GoToKey on a row the list's OnFindRecord and
+    /// OnNextRecord skip, and for a key no row has (al-runner issue 7409;
+    /// pages/list-key-navigation/Y7409GoToRecordSkippedRow.al:435 Y7409_StatementForm_HiddenAndShownRow). A card is not
+    /// pinned there and answers as before.
+    pub(super) fn go_to_key_miss_raises(&self, st: &St, result_used: bool) -> bool {
+        (st.borrow().host.is_some() || self.is_list(st)) && !result_used
+    }
+
     /// GoToKey on a list that declares OnAfterGetCurrRecord and no OnAfterGetRecord: from a row other than the first the client goes to the
     /// first row, then steps on row by row until the key is there, each arrival one current-record read; standing on the first row it
     /// does not read that row again (testpage/ListRowsWindow.al:GoToKeyLastThenRow2_OnlyCurr41Rows `C2;...;C41`, then

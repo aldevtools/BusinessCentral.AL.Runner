@@ -110,6 +110,7 @@ mod recordid_code_text;
 mod recordid_table_name;
 mod recordref_copy;
 mod recordref_load_fields;
+mod recordref_variant;
 mod records;
 mod refs;
 mod relations;
@@ -737,6 +738,18 @@ fn plain_default(t: &RtType) -> bool {
     )
 }
 
+/// An Integer, BigInteger or Boolean for a parameter of its own type: `ops::convert_plain` hands it back unchanged, so a
+/// call binds it without a look at the other kinds of argument.
+#[inline]
+fn passed_unchanged(a: &Value, t: &RtType) -> bool {
+    matches!(
+        (a, t),
+        (Value::Integer(_), RtType::Integer)
+            | (Value::BigInteger(_), RtType::BigInteger)
+            | (Value::Boolean(_), RtType::Boolean)
+    )
+}
+
 /// The session's encryption key.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum EncryptionKey {
@@ -1037,8 +1050,9 @@ pub struct Session {
     /// A `ModifyAll(Field, Value, false)` of a table without modify events is running: every row is written, also one whose value
     /// does not change (recmeta.rs `modify_all`).
     pub(crate) bulk_modify: bool,
-    /// The `RecordRef.GetTable` that runs was given a Variant (refs.rs `ref_op`).
-    pub(crate) get_table_from_variant: bool,
+    /// The RecordRefs that Variants hold, and whether the `RecordRef.GetTable` that runs was given a Variant
+    /// (`recordref_variant.rs`).
+    pub(crate) variant_refs: recordref_variant::VariantRefs,
     /// Set while a `TestField.SetValue` written with a Variant argument runs (`TestField.SetValueVariant#1`).
     pub(crate) set_value_from_variant: bool,
     /// Set while a host page's `TestPage.New()` runs: the parts it links afresh run no OnNewRecord.
@@ -1357,7 +1371,7 @@ impl Session {
             media,
             media_removed: Default::default(),
             bulk_modify: false,
-            get_table_from_variant: false,
+            variant_refs: Default::default(),
             set_value_from_variant: false,
             host_new_running: false,
             part_open_running: false,
@@ -2377,6 +2391,11 @@ impl Session {
         }
         let mut args = args;
         for (i, a) in args.drain(..).enumerate().take(r.params) {
+            // No arm below is for these pairs, and the last one hands them back unchanged.
+            if passed_unchanged(&a, &r.locals[i].ty) {
+                locals[i] = a;
+                continue;
+            }
             locals[i] = match (a, r.by_var.get(i).copied().unwrap_or(false)) {
                 // A temporary record handed to a Variant parameter keeps its table: the callee counts the
                 // caller's rows through the Variant, though a by-value copy is an empty buffer

@@ -901,6 +901,10 @@ impl Session {
         let mut added = 0;
         let same = Rc::ptr_eq(callee, &f.instance);
         for (i, a) in args.iter().enumerate() {
+            // Only an argument that names a variable can be watched; a value needs no look at the parameter.
+            if matches!(a, ir::Arg::Value(_)) {
+                continue;
+            }
             let by_var = self.engine.program.objects[object].routines[routine]
                 .by_var
                 .get(i)
@@ -1654,6 +1658,12 @@ impl Session {
         // (recordref-fieldref/recordref/PWRecordMisc.al:TempRecord_AssignedToVariantVariable and :TempRecord_VariantModifiedAfterAssign).
         let v = match &v {
             Value::Record(rc) if matches!(self.place_type(p, f), RtType::Variant) => self.record_by_value(rc),
+            // A RecordRef assigned to a Variant: the Variant holds a RecordRef of its own (`recordref_variant.rs`).
+            Value::Library(al_builtins::library_kind::LibraryKind::RecordRef, h)
+                if matches!(self.place_type(p, f), RtType::Variant) =>
+            {
+                self.variant_refs.hold(h.clone())
+            }
             _ => v,
         };
         match p {

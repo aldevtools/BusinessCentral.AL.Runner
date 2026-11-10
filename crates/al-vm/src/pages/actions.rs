@@ -645,11 +645,11 @@ impl Session {
             return Ok(Value::Null);
         }
         let engine = self.engine();
-        let [arm] = field.relation_arms.as_slice() else {
-            return unsupported("Lookup over a TableRelation with several arms or an unreadable one (not pinned)");
+        let Some(arm) = self.lookup_relation_arm(st, idx, &field)? else {
+            return Ok(Value::Null);
         };
-        let (Some(table), true, Some(wheres)) = (arm.table, arm.conditions.is_empty(), &arm.wheres) else {
-            return unsupported("Lookup over a conditional TableRelation or one into a table outside the workspace");
+        let (Some(table), Some(wheres)) = (arm.table, &arm.wheres) else {
+            return unsupported("Lookup over a TableRelation into a table outside the workspace");
         };
         // The page is the related table's LookupPageId, else its DrillDownPageId; a table with
         // neither still shows a form, which nobody can answer (testpage/TestPageFieldRelationLookup_Tests.al:253).
@@ -700,179 +700,6 @@ impl Session {
             );
         }
         self.lookup_through_page(st, idx, &field, page_object, arm.field)
-    }
-
-    /// `Lookup()` on a control with its own `TableRelation` (and no OnLookup): the lookup page opens modally and the pick
-    /// writes the relation's field. The page is the control's `LookupPageId` (pages/controls/
-    /// P115Lookups.al:108-124 P115_Lookup_PageIdAndRelation_OK: the related table has none; a pick writes `Descr`, the
-    /// relation's field) or else the related table's `LookupPageId` (pages/run-modal/P113Lookups.al:253-270
-    /// P113_LK_LookupWithPageRelation). Not pinned, so refused: a where() or conditional relation, a control relation over
-    /// a field with its own relation or OnLookup, two different pages, a table with only a DrillDownPageId or no page.
-    fn control_relation_lookup(
-        &mut self,
-        st: &St,
-        idx: usize,
-        field: &ir::Field,
-        text: &str,
-        ctl_page: Option<&str>,
-    ) -> Result<Value, Signal> {
-        if field.relation || field.on_lookup.is_some() {
-            return unsupported(
-                "Lookup on a control with its own TableRelation over a field with a TableRelation or an OnLookup of its own (which one wins is not pinned)",
-            );
-        }
-        let Some((table_name, field_name)) = simple_relation(text) else {
-            return unsupported(format!(
-                "Lookup on a control whose own TableRelation `{text}` is not a plain Table.Field (a where() or conditional control relation is not pinned)"
-            ));
-        };
-        let engine = self.engine();
-        let names =
-            |o: &al_ir::Object, n: &str| o.name.eq_ignore_ascii_case(n) || o.id.is_some_and(|i| i.to_string() == n);
-        let tables: Vec<usize> = (0..engine.program.objects.len())
-            .filter(|&i| {
-                let o = &engine.program.objects[i];
-                o.is_kind(al_ir::ObjKind::Table) && o.table.is_some() && names(o, &table_name)
-            })
-            .collect();
-        let [table] = tables.as_slice() else {
-            return unsupported(format!(
-                "Lookup on a control whose own TableRelation names table {table_name}, which is not one table of the workspace"
-            ));
-        };
-        let table_obj = &engine.program.objects[*table];
-        let pos = match &field_name {
-            None => None,
-            Some(n) => {
-                let Some(p) = table_obj
-                    .table
-                    .as_ref()
-                    .and_then(|t| t.fields.iter().position(|f| f.name.eq_ignore_ascii_case(n)))
-                else {
-                    return unsupported(format!(
-                        "Lookup on a control whose own TableRelation names field {n}, which table {table_name} does not have"
-                    ));
-                };
-                Some(p)
-            }
-        };
-        let table_page = table_obj
-            .properties
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case("LookupPageId"))
-            .map(|(_, v)| v.trim().trim_matches('"').to_string());
-        let ctl_page = ctl_page.map(|p| p.trim_matches('"').to_string());
-        let find_page = |n: &str| {
-            engine
-                .program
-                .objects
-                .iter()
-                .position(|o| o.is_kind(al_ir::ObjKind::Page) && names(o, n))
-        };
-        let wanted = match (&ctl_page, &table_page) {
-            (Some(c), Some(t)) if find_page(c) != find_page(t) => {
-                return unsupported(format!(
-                    "Lookup on a control whose LookupPageId {c} differs from the LookupPageId {t} of the related table (which one opens is not pinned)"
-                ));
-            }
-            (Some(c), _) => c.clone(),
-            (None, Some(t)) => t.clone(),
-            (None, None) => {
-                return unsupported(format!(
-                    "Lookup on a control with its own TableRelation to table {table_name}, which has no LookupPageId, and no LookupPageId on the control (not pinned)"
-                ));
-            }
-        };
-        let Some(page_object) = find_page(&wanted) else {
-            if names_uncompiled_page(&engine, &wanted) {
-                return unsupported(format!(
-                    "the lookup page {wanted} belongs to a dependency app and was not compiled (no code the workspace reaches uses it)"
-                ));
-            }
-            return unsupported(format!("the lookup page {wanted} names no page of the workspace"));
-        };
-        let source_table = engine.program.objects[page_object]
-            .properties
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case("SourceTable"))
-            .map(|(_, v)| v.trim().trim_matches('"').to_string());
-        if !source_table.is_some_and(|t| names(table_obj, &t)) {
-            return unsupported(format!(
-                "Lookup through page {wanted}, whose source table is not the related table {table_name} (not pinned)"
-            ));
-        }
-        self.lookup_through_page(st, idx, field, page_object, pos)
-    }
-
-    /// The lookup page of a relation opens modally on a blank field and a confirmed pick is written back through the
-    /// control: `pos` is the related field (`None`: the first primary key field). Pinned for a table field's relation
-    /// (testpage/TestPageFieldRelationLookup_Tests.al:104, :122, :142) and a control's own relation (P115Lookups.al:108-124,
-    /// P113Lookups.al:253-270).
-    fn lookup_through_page(
-        &mut self,
-        st: &St,
-        idx: usize,
-        field: &ir::Field,
-        page_object: usize,
-        pos: Option<usize>,
-    ) -> Result<Value, Signal> {
-        let current = self.control_value(st, idx)?;
-        let holds_value = !Self::same_values(
-            std::slice::from_ref(&current),
-            std::slice::from_ref(&Value::default_for(&field.ty)),
-        );
-        let related = Rc::new(RefCell::new(PageState::closed(page_object as u32)));
-        related.borrow_mut().lookup = true;
-        self.page_instance(&related)?;
-        // A field that holds a value: the lookup page opens on the related row that holds it, a value that is no row opens on the
-        // first row like a blank field (pages/run-modal/Y80LookupHoldsValue.al Y80_LK_Card_HoldsMiddle, _HoldsNoRow,
-        // _HoldsBlank, _HoldsLowerCase, _AltHoldsMiddle; P82Lookups.al:247 Lookup_TableRelation_Ok for the first row). Pinned for a
-        // related table of up to four rows; a larger table is refused (how much of it the page reads around the row is not pinned).
-        let start = if holds_value {
-            self.lookup_start_row(&related, &current, pos)?
-        } else {
-            None
-        };
-        let blank = Rc::new(RefCell::new(self.page_rec(&related).borrow().clone()));
-        self.lookup_pre_open(&related, &blank, start)?;
-        let outcome = self.run_page_ui(&related, Some(blank), true)?;
-        let confirmed = matches!(&outcome, Value::Option(n, members)
-            if members.get(*n as usize).is_some_and(|m| m == "LookupOK"));
-        if !confirmed {
-            return Ok(Value::Null);
-        }
-        let picked = self.page_rec(&related);
-        let table_def = self.table(&picked)?;
-        let pos = pos.unwrap_or(table_def.keys[0][0]);
-        let value = picked.borrow().fields[pos].clone();
-        st.borrow_mut().refresh = false;
-        // The control's OnAfterLookup(Selected: RecordRef) runs with the picked row before the value is written, so Rec still holds
-        // the old value (pages/pages-xmlports-upload-members/P112Pages.al:P112_Lookup_BasePageField_OK `base afterLookup sel=B rec=[]`,
-        // P112_Lookup_ExtensionField_OK, P112_Lookup_ViewMode).
-        {
-            let engine = self.engine();
-            let ctl = &page_of(&engine, st).controls[idx];
-            let own = ctl.trigger("onafterlookup").map(|r| (ctl.owner, r));
-            let added: Vec<(Option<usize>, usize)> = ctl
-                .ext_triggers
-                .iter()
-                .filter(|(n, _, _)| n == "onafterlookup")
-                .map(|(_, e, r)| (Some(*e), *r))
-                .collect();
-            let selected = Value::Library(
-                "RecordRef".into(),
-                Rc::new(RefCell::new(al_builtins::value::LibraryValue::RecordRef(
-                    picked.clone(),
-                ))),
-            );
-            for (owner, routine) in own.into_iter().chain(added) {
-                let object = owner.unwrap_or(st.borrow().object as usize);
-                let inst = self.owner_instance(st, owner);
-                self.page_call(st, object, routine, inst, vec![selected.clone()])?;
-            }
-        }
-        self.control_set_value(st, idx, &mut [value])?;
-        Ok(Value::Null)
     }
 
     /// `TestField.DrillDown` on a control with a `DrillDownPageId` and no OnDrillDown trigger: that page opens non-modally
@@ -1041,6 +868,8 @@ impl Session {
         let r = self.action_invoke_body(st, idx);
         st.borrow_mut().view_before_action = outer_view;
         let r = match r {
+            // The part read the rows the action left (`land_empty_tree_part_after_action`).
+            Ok(v) if std::mem::take(&mut st.borrow_mut().empty_tree_part_landed) => Ok(v),
             Ok(_) if empty_tree_part_in_key && self.view_row_count(st)? > 0 => self.refuse_empty_tree_part_action(),
             Ok(v) => self.settle_rows_after_action(st, view_before).map(|()| v),
             e => e,
@@ -1360,6 +1189,7 @@ impl Session {
             let stored_before = !st.borrow().never_stored;
             st.borrow_mut().save_record_called = false;
             st.borrow_mut().refresh_update_false = false;
+            let empty_tree_part = self.empty_tree_part_in_key(st);
             let empty_view = self.empty_list_view(st)?;
             let empty = self.empty_page_shape(st)?;
             let held_before = (empty.is_none()
@@ -1417,6 +1247,10 @@ impl Session {
                 st.borrow_mut().refresh = false;
             }
             r?;
+            if empty_tree_part && self.view_row_count(st)? > 0 {
+                self.land_empty_tree_part_after_action(st)?;
+                return Ok(Value::Null);
+            }
             if empty_view && self.update_on_empty_list_view(st)? {
                 return Ok(Value::Null);
             }
@@ -3726,38 +3560,6 @@ impl Session {
             self.torn_down_on_error(st, r)?;
         }
         Ok(())
-    }
-}
-
-/// A `TableRelation` of the plain shape `Table` or `Table.Field` (each name bare or in double quotes): the table and
-/// field names. Any other shape (`where`, `if`, `filter`) gives `None`.
-fn simple_relation(text: &str) -> Option<(String, Option<String>)> {
-    let mut names = Vec::new();
-    let mut rest = text.trim();
-    loop {
-        let (name, after) = if let Some(r) = rest.strip_prefix('"') {
-            let end = r.find('"')?;
-            (r[..end].to_string(), &r[end + 1..])
-        } else {
-            let end = rest
-                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-                .unwrap_or(rest.len());
-            if end == 0 {
-                return None;
-            }
-            (rest[..end].to_string(), &rest[end..])
-        };
-        names.push(name);
-        let after = after.trim_start();
-        if after.is_empty() {
-            break;
-        }
-        rest = after.strip_prefix('.')?.trim_start();
-    }
-    match names.as_slice() {
-        [t] => Some((t.clone(), None)),
-        [t, f] => Some((t.clone(), Some(f.clone()))),
-        _ => None,
     }
 }
 

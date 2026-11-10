@@ -36,11 +36,9 @@ fn a_relation_naming_the_validated_field_and_an_enum_filter_finds_the_row() {
     assert_eq!(text(al_testkit::run_in(SRC, "C", "F")), "V1");
 }
 
+// Conditions on key fields and one on another field: DB:NothingInsideFilter, as with a key and a non-key condition
+// (record/table-relation/RelationWhereMulti.al:214-236, :241-262).
 #[test]
-fn a_row_the_enum_filter_excludes_is_refused() {
-    // Three where() conditions: the error code BC answers is not pinned, so the failing check is refused.
-    assert!(matches!(
-        al_testkit::run_in(SRC, "C", "G"),
-        Err(al_builtins::native::Signal::Unsupported(_))
-    ));
+fn a_row_the_enum_filter_excludes_raises_nothing_inside_filter() {
+    assert_eq!(text(al_testkit::run_in(SRC, "C", "G")), "DB:NothingInsideFilter");
 }

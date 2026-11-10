@@ -195,12 +195,7 @@ impl Session {
                     continue;
                 };
                 let class = self.field_caption_class_value(t, *pos, Some(&rec), expr)?;
-                let kind = crate::recmeta::expression_class(&t.fields[*pos].name, &class)?;
-                let caption = match kind {
-                    crate::recmeta::ExprCaption::FieldCaption => String::new(),
-                    crate::recmeta::ExprCaption::Text(c) => self.expression_text_caption(&class, c)?,
-                    crate::recmeta::ExprCaption::Translate => self.caption_class_translate(&class)?,
-                };
+                let caption = self.control_expression_caption(&t.fields[*pos].name, &class)?;
                 let mut s = st.borrow_mut();
                 s.field_captions.retain(|(i, _)| *i != idx);
                 s.field_captions.push((idx, caption));
@@ -2627,7 +2622,7 @@ impl Session {
             s.cursor = before_cursor;
             s.draft = before_draft;
             drop(s);
-            if st.borrow().host.is_some() && !result_used {
+            if self.go_to_key_miss_raises(st, result_used) {
                 return Err(error_code("The row does not exist on the TestPage.", "TestRowNotFound"));
             }
         }
