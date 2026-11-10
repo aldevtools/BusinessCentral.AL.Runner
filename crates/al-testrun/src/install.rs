@@ -1027,13 +1027,16 @@ fn run_subscribers(lowered: &Lowered, session: &mut Session, subs: &[(usize, usi
 /// does with the database writes of a subscriber is not pinned: the tables they wrote while they ran are returned, and a
 /// test that can read one is not run (`CompanyOpenWrites::refuses` before it starts, `CompanyOpenWrites::touched` after it
 /// ran; al-runner issues 5606, 5641). A subscriber that did not run to its end refuses the codeunit. The subscribers of
-/// dependency apps do not run here (A4 item 10 names the apps under test only).
+/// dependency apps do not run here (A4 item 10 names the apps under test only), except the OnCompanyOpenCompleted ones
+/// when the session raises the login (`login.rs`, al-runner issue 7343).
 /// The tables the Company Triggers subscribers of the test session wrote ([`test_session_company_open`]).
 #[derive(Debug, Default)]
 pub(crate) struct CompanyOpenWrites {
     /// The first subscriber that wrote, for the reason text.
     pub who: Option<String>,
     pub tables: BTreeSet<u32>,
+    /// The first subscriber of the login (a dependency app's, `login.rs`) that wrote: its writes stay in the session.
+    pub login: Option<String>,
 }
 
 impl CompanyOpenWrites {
@@ -1074,6 +1077,12 @@ pub(crate) fn test_session_company_open(lowered: &Lowered, session: &mut Session
     let objs = &lowered.program.objects;
     let mut wrote = CompanyOpenWrites::default();
     let mut subs = Vec::new();
+    // The login (`login.rs`, al-runner issue 7343): the dependency apps' OnCompanyOpenCompleted subscribers raise
+    // "System Initialization".OnAfterLogin, in codeunit id order with the apps under test's own, for a test codeunit that
+    // can see what the login leaves (`login::observed_by`).
+    let login = session
+        .test_object
+        .is_some_and(|t| crate::login::observed_by(&engine, lowered, t));
     for event in ["oncompanyopen", "oncompanyopencompleted"] {
         let mut of_event: Vec<(usize, usize)> = engine
             .events
@@ -1081,7 +1090,7 @@ pub(crate) fn test_session_company_open(lowered: &Lowered, session: &mut Session
             .get(&(al_vm::events::COMPANY_TRIGGERS, event.to_string()))
             .into_iter()
             .flatten()
-            .filter(|s| !s.manual && !lowered.dependency[s.object])
+            .filter(|s| !s.manual && (!lowered.dependency[s.object] || (login && event == "oncompanyopencompleted")))
             .map(|s| (s.object, s.routine))
             .collect();
         of_event.sort_by_key(|&(o, _)| objs[o].id.unwrap_or(0));
@@ -1125,7 +1134,14 @@ pub(crate) fn test_session_company_open(lowered: &Lowered, session: &mut Session
             ));
         }
         let changed = store.tables_changed_since(since);
-        if !changed.is_empty() {
+        if changed.is_empty() {
+            continue;
+        }
+        // What the login wrote is in the session for every test of the codeunit (LgnLoginChecklistTests.al:137-138,
+        // :161): it is not refused, only noted for the carry rule of Disabled isolation (`run.rs`).
+        if lowered.dependency[o] {
+            wrote.login.get_or_insert(who);
+        } else {
             wrote.tables.extend(changed);
             wrote.who.get_or_insert(who);
         }

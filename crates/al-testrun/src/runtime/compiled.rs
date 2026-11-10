@@ -55,9 +55,22 @@ pub const MICROSOFT_ISOL_CODEUNIT: u32 = 130_450;
 /// Codeunit 130451 "Test Runner - Isol. Disabled".
 pub const MICROSOFT_ISOL_DISABLED: u32 = 130_451;
 
+/// Test codeunits that run once more in BC's order over the compile of the run (ADR-066 amendment 12, owner decision
+/// of 2026-11-09), and take the outcomes of that run (`CorpusRuntime::adopt_cases`).
+#[derive(Debug, Clone, Default)]
+pub struct StrictAfter {
+    /// As `RunOptions::only` numbers them: (app index, codeunit id).
+    pub only: Vec<(usize, u32)>,
+    /// (run name, codeunit id) of each, for `CorpusRuntime::adopt_cases`.
+    pub listed: BTreeSet<(String, u32)>,
+}
+
 /// What a run is asked to do beyond running everything.
 #[derive(Debug, Clone, Default)]
 pub struct RunOptions {
+    /// Codeunits that run again with `strict_order` after the run, over the same compile (no second compile). `None`
+    /// or empty `only`: no second run.
+    pub strict_after: Option<StrictAfter>,
     /// The test runner (ADR-066). Default: al-runner's own.
     pub test_runner: TestRunner,
     /// Only these test codeunits (app index of the compile, object id) are roots of the compile
@@ -188,12 +201,20 @@ pub struct RunOptions {
     /// The run seed (ADR-061): each test method's `Random` seed and Guid key derive from it. The default is
     /// `al-test-cli`'s fixed seed 1.
     pub run_seed: crate::seed::RunSeed,
-    /// `al-runner test --strict-order` (ADR-066 amendments 4 and 5): every test codeunit that depends on SingleInstance
-    /// state an earlier one left runs again serially in BC's order, with the codeunits it depends on, and reports that
-    /// run. Default `false`: such a codeunit keeps its parallel run (flagged) and runs again serially only when a test of
-    /// it failed or was refused while it ran there. Either way each re-run is a serial session of its own (its chain),
-    /// and the sessions run in parallel.
+    /// `al-runner test --strict-order` (ADR-066 amendment 12, decision 4): run the test codeunits in BC's order. The
+    /// single instances and the NumberSequence numbers carry from codeunit to codeunit (the carry chain, its walk and
+    /// runs ahead, amendments 8 and 11), and a codeunit that depends on SingleInstance state an earlier one left keeps
+    /// its parallel run (flagged) and runs again serially in BC's order when a test of it failed or was refused while
+    /// it ran there (amendments 4, 5 and 7; `max_replay` applies). Default `false` (amendment 12, decisions 1 to 3):
+    /// every test codeunit starts with fresh single instances and from the install baseline's sequence values, nothing
+    /// runs again, and a failed test that read state another codeunit would have set gets a hint
+    /// (`TestResult::order_hint`). Within one codeunit BC's order is always kept, and Disabled isolation still carries
+    /// its rows.
     pub strict_order: bool,
+    /// With `strict_order`: every dependent codeunit runs again serially in BC's order, not only one with a failure
+    /// (the meaning `--strict-order` had before ADR-066 amendment 12). Set by a stability run with the dimension
+    /// `isolation.singleInstance` for its base variant (ADR-058 amendment 1, decision 3); no front end flag.
+    pub replay_every_dependent: bool,
     /// Stability mode with the dimension `isolation.singleInstance` (ADR-058 amendment 1, decision 2): each chain member
     /// that read a carried SingleInstance value also runs once with fresh single instances, from the same database
     /// start, and the lane keeps the parallel (fresh) run of each dependent codeunit it runs again
@@ -202,7 +223,8 @@ pub struct RunOptions {
     /// `al-runner test --max-replay N` (ADR-066 amendment 7, option 2, opt-in since the owner's change of 2026-11-08):
     /// a serial re-run whose replay chain holds more than `N` test codeunits is skipped; the codeunit keeps its parallel
     /// run, flagged (`Assumption::SingleInstanceRerunSkipped`). `None` (the default): no cap, every re-run the per-test
-    /// rule asks for is replayed in full. `strict_order` wins over it.
+    /// rule asks for is replayed in full. Only has an effect with `strict_order` (ADR-066 amendment 12, decision 4);
+    /// `replay_every_dependent` wins over it.
     pub max_replay: Option<usize>,
     /// `al-runner test --test-suites FILE` (ADR-066 amendment 6, al-runner issue 6924): each suite is a BC session of
     /// its own for order dependence, the codeunits in the suite's order. No SingleInstance link, serial re-run or

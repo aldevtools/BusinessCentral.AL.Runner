@@ -748,6 +748,11 @@ fn run_with(opts: &RunOptions) -> CorpusRuntime {
 
 /// The `base` app (Permissions Mock) with `main` as the workspace app.
 pub(super) fn run_main(main: &str, opts: &RunOptions) -> CorpusRuntime {
+    run_main_on(main, BASE, opts)
+}
+
+/// `main` as the workspace app on the dependency app `base` (which must hold Permissions Mock).
+pub(super) fn run_main_on(main: &str, base: &str, opts: &RunOptions) -> CorpusRuntime {
     let manifest = |p: &str| Manifest {
         publisher: p.into(),
         version: "1.0.0.0".into(),
@@ -767,7 +772,7 @@ pub(super) fn run_main(main: &str, opts: &RunOptions) -> CorpusRuntime {
         symbols: vec![],
     };
     CorpusRuntime::try_run_suites_with(
-        vec![app("main", &["base"], main), app("base", &[], BASE)],
+        vec![app("main", &["base"], main), app("base", &[], base)],
         vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
         &[manifest("Me"), manifest("Microsoft")],
         &Default::default(),

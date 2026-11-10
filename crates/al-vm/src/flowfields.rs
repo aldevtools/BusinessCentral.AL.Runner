@@ -609,7 +609,7 @@ impl Session {
                 for c in &flow {
                     self.check_calc_field(calc.table, c.field)?;
                     let v = self.calc_value(&probe, c.field, &mut Vec::new())?;
-                    if !c.expr.matches(&v) {
+                    if !c.expr.matches(&v)? {
                         pass = false;
                         break;
                     }
@@ -952,7 +952,12 @@ impl Session {
         Ok(parts
             .into_iter()
             .filter(|(field, _, is_override)| *is_override || !overridden.contains(field))
-            .map(|(field, expr, _)| FieldFilter { field, expr, group: 0 })
+            .map(|(field, expr, _)| FieldFilter {
+                lang: al_builtins::filter::filter_language(),
+                field,
+                expr,
+                group: 0,
+            })
             .collect())
     }
 
@@ -1110,7 +1115,7 @@ impl Session {
         for f in filters {
             self.check_calc_field(table, f.field)?;
             let v = self.calc_value(&probe, f.field, &mut Vec::new())?;
-            if !f.expr.matches(&v) {
+            if !f.expr.matches(&v)? {
                 return Ok(false);
             }
         }
@@ -1211,6 +1216,7 @@ mod tests {
 
     fn eq(field: usize, v: i32) -> FieldFilter {
         FieldFilter {
+            lang: al_builtins::filter::filter_language(),
             field,
             expr: FilterExpr::Eq(Value::Integer(v)),
             group: 0,
@@ -1219,6 +1225,7 @@ mod tests {
 
     fn range(field: usize) -> FieldFilter {
         FieldFilter {
+            lang: al_builtins::filter::filter_language(),
             field,
             expr: FilterExpr::Range(Some(Value::Integer(1)), None),
             group: 0,

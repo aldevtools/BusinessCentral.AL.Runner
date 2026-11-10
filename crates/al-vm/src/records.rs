@@ -959,6 +959,7 @@ impl Session {
     ) -> Result<(), Signal> {
         let held = |s: &mut Self, table: &TableDef, field: usize| -> Result<bool, Signal> {
             let filters = [FieldFilter {
+                lang: al_builtins::filter::filter_language(),
                 field,
                 expr: FilterExpr::Eq(Value::Guid(id)),
                 group: 0,
@@ -1039,6 +1040,7 @@ impl Session {
         set: [u8; 16],
     ) -> Result<(), Signal> {
         let filters = [FieldFilter {
+            lang: al_builtins::filter::filter_language(),
             field: pos,
             expr: FilterExpr::Eq(Value::Guid(set)),
             group: 0,
@@ -1321,6 +1323,7 @@ impl Session {
             let filters: Vec<FieldFilter> = t.keys[k]
                 .iter()
                 .map(|&f| FieldFilter {
+                    lang: al_builtins::filter::filter_language(),
                     field: f,
                     expr: FilterExpr::Eq(row[f].clone()),
                     group: 0,
@@ -1716,7 +1719,7 @@ impl Session {
     /// MarkedOnly.
     fn row_passes(&mut self, rec: &Rec, t: &TableDef, row: &[Value]) -> Result<bool, Signal> {
         let (filters, flow_field_filters) = self.split_filters(rec);
-        if filters.iter().any(|f| !f.expr.matches(&row[f.field])) {
+        if !al_builtins::filter::all_match(&filters, row)? {
             return Ok(false);
         }
         if rec.borrow().marked_only && !Self::is_marked(rec, t, row) {
@@ -1751,6 +1754,7 @@ impl Session {
         };
         let id = rec.borrow().fields[i].clone();
         let filters = [FieldFilter {
+            lang: al_builtins::filter::filter_language(),
             field: i,
             expr: FilterExpr::Eq(id),
             group: 0,

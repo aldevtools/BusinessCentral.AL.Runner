@@ -169,7 +169,7 @@ impl Session {
         if let Some(e) = expr.compare_error(value) {
             return cond_refusal(e, &format!("{}.{field_name}", t.name));
         }
-        Ok(expr.matches(value))
+        expr.matches(value)
     }
 
     /// `FieldRef.Relation`: the id of the related table, 0 without a relation.
@@ -241,6 +241,7 @@ impl Session {
         let rel_pos = arm.field.unwrap_or(related.keys[0][0]);
         let mut flow_field_filters: Vec<FieldFilter> = Vec::new();
         let mut filters = vec![FieldFilter {
+            lang: al_builtins::filter::filter_language(),
             field: rel_pos,
             expr: FilterExpr::Eq(ops::convert(value.clone(), &related.fields[rel_pos].ty)?),
             group: 0,
@@ -267,6 +268,7 @@ impl Session {
             };
             target.push(match w {
                 ir::RelationWhere::Value { related: p, text } => FieldFilter {
+                    lang: al_builtins::filter::filter_language(),
                     field: *p,
                     expr: self
                         .parse_filter_text(text, &related.fields[*p].ty)
@@ -274,6 +276,7 @@ impl Session {
                     group: 0,
                 },
                 ir::RelationWhere::Field { related: p, own } => FieldFilter {
+                    lang: al_builtins::filter::filter_language(),
                     field: *p,
                     expr: FilterExpr::Eq({
                         // The check calculates a FlowField the filter names (staging types/PZMisc.al:

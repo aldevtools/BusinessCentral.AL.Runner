@@ -1296,6 +1296,7 @@ impl Session {
                         };
                         let value = ops::convert(value, &ty)?;
                         fresh.push(FieldFilter {
+                            lang: al_builtins::filter::filter_language(),
                             field: *pf,
                             expr: FilterExpr::Range(Some(value.clone()), Some(value)),
                             group: LINK_GROUP,
@@ -1319,6 +1320,7 @@ impl Session {
                         let src_rec = self.page_rec(src_page);
                         if let Some(expr) = self.link_filter_of_host_field(&src_rec, *hf, &ty)? {
                             fresh.push(FieldFilter {
+                                lang: al_builtins::filter::filter_language(),
                                 field: *pf,
                                 expr,
                                 group: LINK_GROUP,
@@ -1337,6 +1339,7 @@ impl Session {
                                 .map_err(|e| Signal::Unsupported(format!("SubPageLink filter: {e}")))?,
                         };
                         fresh.push(FieldFilter {
+                            lang: al_builtins::filter::filter_language(),
                             field: *pf,
                             expr,
                             group: LINK_GROUP,

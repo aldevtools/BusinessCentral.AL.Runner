@@ -1,6 +1,6 @@
 # ADR-066: Run the test runner codeunit's own AL
 
-- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07); amendment 4 (order-dependent codeunits run in parallel, serial run only after a failure, `--strict-order`) Accepted (owner, 2026-11-07); amendment 5 (each serial re-run is a session of its own, the sessions run in parallel; a test refused before it starts triggers no re-run) Accepted (owner, 2026-11-07); amendment 7 (a re-run only when a failed test could have seen the changed state; a replay cap only with `--max-replay N`, changed by the owner the same day) Accepted (owner, 2026-11-08); amendment 8 (the carry chain walk keeps the SingleInstance state; chain members are never re-run or flagged) Accepted (owner, 2026-11-08, variant A); amendment 9 (the number of test threads follows the memory budget, `--max-memory`) Accepted (owner, 2026-11-09, as a safety net near the limit; redesign in a follow-up); amendment 10 (the run holds a memory limit by running more of its work one after the other: threads start one at a time, the cost is learned in the run, a thread that cannot go on ends and gives its memory back) Accepted (owner, 2026-11-09; decision 6 changed by the owner: `--max-memory` is a hard limit, a run that cannot fit stops with exit code 2); amendment 11 (numbers-only chain members run with fresh single instances and run ahead; only wrong predictions count toward MISSES) Accepted (owner, 2026-11-09, options 1 and 4)
+- Status: Accepted (owner, 2026-11-05); amendment 2 (P7, SingleInstance across test codeunits) Accepted (owner, 2026-11-07); amendment 3 (narrow the lane to real order dependence) Accepted (owner, 2026-11-07); amendment 4 (order-dependent codeunits run in parallel, serial run only after a failure, `--strict-order`) Accepted (owner, 2026-11-07); amendment 5 (each serial re-run is a session of its own, the sessions run in parallel; a test refused before it starts triggers no re-run) Accepted (owner, 2026-11-07); amendment 7 (a re-run only when a failed test could have seen the changed state; a replay cap only with `--max-replay N`, changed by the owner the same day) Accepted (owner, 2026-11-08); amendment 8 (the carry chain walk keeps the SingleInstance state; chain members are never re-run or flagged) Accepted (owner, 2026-11-08, variant A); amendment 9 (the number of test threads follows the memory budget, `--max-memory`) Accepted (owner, 2026-11-09, as a safety net near the limit; redesign in a follow-up); amendment 10 (the run holds a memory limit by running more of its work one after the other: threads start one at a time, the cost is learned in the run, a thread that cannot go on ends and gives its memory back) Accepted (owner, 2026-11-09; decision 6 changed by the owner: `--max-memory` is a hard limit, a run that cannot fit stops with exit code 2); amendment 11 (numbers-only chain members run with fresh single instances and run ahead; only wrong predictions count toward MISSES) Accepted (owner, 2026-11-09, options 1 and 4); amendment 12 (fresh SingleInstance state and baseline numbers per test codeunit by default, no automatic re-run, a hint on failures that read carried state; BC's order with `--strict-order`) Accepted (owner, 2026-11-09)
 - Date: 2026-11-05
 
 ## Context
@@ -1320,3 +1320,117 @@ helpers).
   passes and is flagged; members whose OnRun takes the number keep amendment 8 (no run ahead taken, the suite is given
   up). `memory_threads.rs` `a_chain_whose_runs_ahead_are_never_taken_uses_at_most_one_helper` uses such OnRun
   members.
+
+## Amendment 12 (Accepted, owner, 2026-11-09): fresh SingleInstance state and baseline numbers by default; BC's order is opt-in
+
+- Status: Accepted by the owner on 2026-11-09. This is a draft of the text; the build follows in separate pull
+  requests. It reverses the default of amendments 4, 5, 7, 8 and 11. Their mechanisms stay and become the opt-in.
+- Owner's reason: tests should not depend on SingleInstance state or on numbers that another test codeunit left, and a
+  failure should not get slower by default (today a failure can trigger a re-run in BC's order).
+
+### Decision
+
+1. **Default: every test codeunit starts with fresh SingleInstance state.** New globals, empty temporary tables, no
+   manual bindings, in every app's SingleInstance codeunits. The state a codeunit left is handed on to no one. No
+   failure triggers an automatic re-run in BC's order (no lane re-run of amendments 4, 5 and 7, no `--max-replay`
+   cap to apply). Methods of one codeunit still share state, in BC's order, as on BC.
+2. **Hint on a failing test.** When a failed test read a SingleInstance global that, on BC in the same order, an
+   earlier test codeunit would have set to another value, its result carries a hint: the SingleInstance codeunit (id,
+   name), the app that holds it (publisher marks a dependency app), the global, the codeunit that would have written
+   it, and the flag that re-runs in BC's order. It appears in the console, in the JUnit properties and in JSON, and
+   in `serve`. The runner already has what it needs from the watched-global notes of amendments 2, 3 and 7
+   (`Found::changed`, `failure_saw_change`) and from ADR-058 amendment 1, decision 4.
+3. **NumberSequence.** Default: each test codeunit starts from the install baseline's sequence values, so it runs in
+   parallel with no carry chain for numbers (`ChainWhy::TestsTakeNumbers` stops chaining). Exact numbers across
+   codeunits, as on BC, only with the opt-in. The report lists the tests whose result may depend on numbers another
+   codeunit took: tests that call NumberSequence or a Number Series line and whose codeunit sits after a taker in BC's
+   order. The list is a report line and a JUnit property, not a failure.
+4. **One opt-in restores today's behavior.** It turns on the carry of single instances and numbers, the chain walk,
+   run ahead (amendment 11) and the re-run in BC's order after a failure. Nothing else changes with it. The flag is
+   `--strict-order` (`serve`: `strictOrder`), which already means "replay in BC's order" (amendment 4, decision 4;
+   ADR-058 amendment 1, decision 3). Its meaning widens from "replay dependent codeunits" to "run in BC's order". No
+   new flag. `--max-replay N` only has an effect with it.
+5. **Hard rule 6.** This is a deliberate deviation from BC for the default, approved by the owner. A test that passes
+   on BC only because another codeunit ran first can fail here by default, and the hint and the numbers list say so.
+   BC's behavior is one flag away. A flagged pass is no longer needed by default: nothing runs in the wrong order
+   silently, because the default does not claim BC's order.
+
+### What changes in code (build, separate pull requests, red first)
+
+- `chain.rs`, `chain_walk.rs`, `chain_runs.rs`: the walk and its single-instance keeping run only under the flag;
+  by default a numbers-only member is not a chain member.
+- `single_lane.rs`, `lane_starts.rs`: no lane and no re-run by default; they run under the flag as today.
+- Flagged-pass reporting: `single-instance-order` and `single-instance-rerun-skipped` are marked only under the flag.
+- New: the hint (default run) and the numbers list. `--stability` keeps its base variant in BC's order (it implies the
+  flag for the base variant, ADR-058 amendment 1, decision 3); the `isolation.singleInstance` dimension keeps `fresh`.
+- Docs: manual, `--help`, ADR-058 amendment 1 note that the default run now equals its `fresh` variant.
+
+### What stays
+
+- Within one test codeunit, BC's order is always kept.
+- Disabled isolation: the database rows a Disabled codeunit writes still carry to the next codeunits as today (the
+  chain for data is not part of this decision).
+- The memory budget of amendments 9 and 10, `--test-suites` (amendment 6), the install baseline, seeds.
+
+### Test plan
+
+1. P7 corpus pair (`TestCuP7ASetter.al:24-58`, `TestCuP7BReader.al:24-37`): by default the reader fails with fresh
+   state and its result carries the hint naming codeunit, app, global and flag; with the flag it passes and runs in
+   BC's order, as amendment 8 pins.
+2. A reader that passes with fresh state: no hint.
+3. NumberSequence corpus tests that take numbers in one codeunit and read them in another: default starts from the
+   baseline value (parallel) and the tests are on the report list; with the flag the exact numbers match BC.
+4. No re-run happens by default (timings show 0 re-runs); the flag reproduces today's re-run counts.
+5. Baseline: CI runs the corpus in the default order (owner answer 2). Cases that pass only in BC's order show up as
+   regressions in the building PR and are listed for the owner, case by case.
+
+### Owner answers on the open points (2026-11-09)
+
+1. **Hint on failing tests only.** A passing test that read carried state gets no hint; `--stability` still lists
+   the passing ones (ADR-058 amendment 1).
+2. **CI runs the corpus in the default order** ("let's use default and see how it goes"). A case that passes on BC
+   only because another codeunit ran first shows up as a regression in the PR that builds this amendment; each such
+   case is listed there for the owner, who decides per case (a not-passing line needs the owner's OK, hard rule 2).
+
+### Built (branch rt-a12, 2026-11-09)
+
+- `RunOptions::strict_order` (`--strict-order`, `serve` `strictOrder`) is BC's order: `ChainWhy::TestsTakeNumbers`
+  chains (`corpus.rs`), the walk keeps the single instances (`keep_singles`), and the lane flags and re-runs as
+  amendments 4 to 7 say (`single_lane.rs` `Lane::bc_order`). Without it: `Unit::carry` drops `TestsTakeNumbers`
+  (`Unit::takes_numbers` notes it), no walk single instances, and the lane only analyses: no flag
+  (`single-instance-order`, `single-instance-refill`, `single-instance-rerun-skipped`), no re-run, a hint on each failed
+  test (`order_hint.rs` `OrderHint`, `TestResult::order_hint`; console `order hint:`, JUnit `orderHint`, JSON
+  `orderHint`) and the numbers list (`NumbersOrder`, `ChainReport::numbers_order`; console `number order:`, JUnit
+  `numberSequenceOrder`).
+- Conformance: `crates/al-testrun/tests/suite/order_default.rs` (test plan 1 to 4) and
+  `crates/alrunner-cli/tests/cli/order_default.rs` (console, JUnit, JSON). The tests of amendments 2 to 11 run with
+  `strict_order: true`.
+
+### Decided without owner review (2026-11-09)
+
+1. **`--strict-order` restores the old default, not the old "replay every dependent codeunit".** Decision 4 says the
+   flag "restores today's behavior", the test plan says it "reproduces today's re-run counts" and `--max-replay` "only
+   has an effect with it"; before this amendment `--strict-order` replayed every dependent codeunit and `--max-replay`
+   had no effect under it. So `--strict-order` now means: carry, chain, run ahead, and a re-run after a failure that
+   read a changed global (`--max-replay` applies). Replaying every dependent codeunit stays for the base variant of a
+   stability run with `isolation.singleInstance` (ADR-058 amendment 1, decision 3) as the internal
+   `RunOptions::replay_every_dependent`; no front end flag sets it.
+2. **A stability run runs every variant in BC's order** (`strict_order` for all of them, not only the base variant), so a
+   flip never comes from the order mode alone.
+3. **The numbers list is per codeunit.** A codeunit is listed when the static reach of its tests can take numbers
+   (`chain.rs` `tests_take_numbers`, the rule that chained it) and an earlier codeunit of its BC session can too; the
+   property goes on each of its tests. A walk per test method costs 11 % of the corpus run (see `tests_take_numbers`).
+4. **The hint goes to failed tests only** (owner answer 1), not to tests refused while they ran.
+
+### Corpus order probes run in BC's order (owner, 2026-11-09)
+
+CI runs the corpus in the default order. The corpus files that exist to pin what carries from one test codeunit to the
+next are listed in `metrics/strict-order-files.txt` (paths relative to `corpus/tests`). In every pass `al-test-cli`
+runs the test codeunits of the listed files once more, alone, with `strict_order` (`main.rs` `StrictOrder`,
+`al_test_cli::strict_order`), and their cases take that run's outcome (`CorpusRuntime::adopt_cases`). They must pass
+there; they get no not-passing line. A file whose codeunits write the state the probe reads is listed too
+(`TestCuP7ASetter.al` for `TestCuP7BReader.al`). Listed on 2026-11-09: `TestCuP7ASetter.al`, `TestCuP7BReader.al`,
+`run-onrun/SeqCarry.al`, `onrun-storage/Y35OnRunStorage.al`, `data-driven-tests-and-handlers/BiTestHandlerCrossApp.al`
+(the seven cases that failed in the default order: P7B, D2/D3/R3, C302_B2, BiXh_Plain_Final and BiXh_Own_Final). The
+extra run costs one compile rooted at the listed codeunits per pass (BC 29 `--baseline-diff`: 45 s in all on a loaded
+machine).

@@ -129,7 +129,10 @@ fn run_chain(opts: &RunOptions) -> CorpusRuntime {
 /// them; the next one does.
 #[test]
 fn chain_codeunits_that_hand_on_numbers_run_ahead_from_a_predicted_start_with_the_serial_outcome() {
-    run_chain(&RunOptions::default());
+    run_chain(&RunOptions {
+        strict_order: true,
+        ..Default::default()
+    });
 }
 
 /// When the walk waits for the helpers' runs (`RunOptions::chain_wait_for_runs_ahead`), every codeunit after the first
@@ -142,6 +145,7 @@ fn every_chain_codeunit_after_the_first_runs_ahead_when_the_walk_waits_for_the_h
         return;
     }
     let rt = run_chain(&RunOptions {
+        strict_order: true,
         chain_wait_for_runs_ahead: true,
         ..Default::default()
     });
@@ -165,7 +169,10 @@ fn each_chain_codeunit_that_ran_serially_has_a_cause() {
         None,
         Default::default(),
         &[SuiteRun::everything()],
-        &RunOptions::default(),
+        &RunOptions {
+            strict_order: true,
+            ..Default::default()
+        },
     )
     .expect("the run starts");
     let chain = &rt.phases.chain;

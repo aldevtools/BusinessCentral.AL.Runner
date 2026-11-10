@@ -9,7 +9,9 @@
 //! `Database (in memory)` node, and under it one node per operation and table (`FindSet "Sales Line"`), with the
 //! count as `hitCount` and the runner's in-memory time. They carry no SQL text: the runner runs none.
 
-use super::{CodeunitProfile, Collected, Node, Thread, UNIX_EPOCH_FROM_YEAR_1_US};
+use super::{CodeunitProfile, Node, Thread};
+#[cfg(test)]
+use super::{Collected, UNIX_EPOCH_FROM_YEAR_1_US};
 use serde_json::{Value, json};
 
 /// The label of the synthetic node that holds a routine's record operations.
@@ -18,7 +20,8 @@ pub const DATABASE_NODE: &str = "Database (in memory)";
 /// Finds the source link of a node: `file:///...` for code with a file on disk, `None` for the `al-preview` link.
 pub type UrlOf<'a> = &'a dyn Fn(&Node) -> Option<String>;
 
-/// The file of one test codeunit.
+/// The file of one test codeunit, built in memory: the reference the streamed file (`stream.rs`) is checked against.
+#[cfg(test)]
 pub fn codeunit_file(p: &CodeunitProfile, options: &super::Options, url_of: UrlOf) -> Value {
     let body = emit(&p.nodes, p.sampling, url_of);
     let wall_us = p.wall_ns / 1000;
@@ -29,7 +32,9 @@ pub fn codeunit_file(p: &CodeunitProfile, options: &super::Options, url_of: UrlO
 }
 
 /// One file for the whole run: root `al-runner run`, a node per thread, a node per test codeunit, then its frames.
-/// Totals per thread are that thread's busy time, so the threads together exceed the wall time.
+/// Totals per thread are that thread's busy time, so the threads together exceed the wall time. Built in memory: the
+/// reference the streamed file (`stream.rs`) is checked against.
+#[cfg(test)]
 pub fn merged_file(c: &Collected, url_of: UrlOf) -> Value {
     let sampling = c.options.mode == super::Mode::Sampling;
     let nodes = merged_nodes(&c.codeunits);
@@ -51,6 +56,7 @@ pub fn merged_file(c: &Collected, url_of: UrlOf) -> Value {
     v
 }
 
+#[cfg(test)]
 struct Body {
     nodes: Vec<Value>,
     samples: Vec<u64>,
@@ -58,6 +64,7 @@ struct Body {
     totals: Vec<u64>,
 }
 
+#[cfg(test)]
 fn frame(b: Body, sampling: bool, start_unix_us: u64, wall_us: u64) -> Value {
     let start = UNIX_EPOCH_FROM_YEAR_1_US + start_unix_us;
     let mut v = json!({
@@ -83,7 +90,7 @@ fn app_id_n(id: &str) -> String {
 }
 
 /// A 32-bit FNV-1a hash of a node's call path, as BC's `frameIdentifier` (an int).
-fn frame_id(parent: i32, parts: &[&str]) -> i32 {
+pub(super) fn frame_id(parent: i32, parts: &[&str]) -> i32 {
     let mut h: u32 = 0x811c_9dc5;
     for b in parent
         .to_le_bytes()
@@ -96,7 +103,7 @@ fn frame_id(parent: i32, parts: &[&str]) -> i32 {
     h as i32
 }
 
-fn preview_url(n: &Node) -> String {
+pub(super) fn preview_url(n: &Node) -> String {
     if n.object_id == 0 {
         return String::new();
     }
@@ -108,7 +115,7 @@ fn preview_url(n: &Node) -> String {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn node_json(
+pub(super) fn node_json(
     id: usize,
     function: &str,
     n: &Node,
@@ -142,7 +149,7 @@ fn node_json(
         },
         "applicationDefinition": {
             "objectType": if synthetic { "System" } else { n.object_type },
-            "objectName": if synthetic { DATABASE_NODE } else { n.object_name.as_str() },
+            "objectName": if synthetic { DATABASE_NODE } else { &*n.object_name },
             "objectId": if synthetic { 0 } else { n.object_id },
         },
         "frameIdentifier": frame_identifier,
@@ -161,6 +168,7 @@ pub fn db_label(d: &al_vm::DbStat) -> String {
     format!("{} \"{}\"{temp}", d.op, d.table)
 }
 
+#[cfg(test)]
 fn emit(nodes: &[Node], sampling: bool, url_of: UrlOf) -> Body {
     let mut b = Body {
         nodes: Vec::new(),
@@ -187,6 +195,7 @@ fn emit(nodes: &[Node], sampling: bool, url_of: UrlOf) -> Body {
     b
 }
 
+#[cfg(test)]
 /// Emits node `i` and its subtree; returns its file id (1-based, in depth-first order as BC numbers them).
 fn emit_node(nodes: &[Node], i: usize, parent_fid: i32, sampling: bool, url_of: UrlOf, b: &mut Body) -> usize {
     let n = &nodes[i];
@@ -222,6 +231,7 @@ fn emit_node(nodes: &[Node], i: usize, parent_fid: i32, sampling: bool, url_of: 
     id
 }
 
+#[cfg(test)]
 fn emit_db(n: &Node, parent_fid: i32, sampling: bool, b: &mut Body) -> usize {
     let id = b.nodes.len() + 1;
     let slot = id - 1;
@@ -254,13 +264,14 @@ fn emit_db(n: &Node, parent_fid: i32, sampling: bool, b: &mut Body) -> usize {
     id
 }
 
-fn threads(ps: &[CodeunitProfile]) -> Vec<Thread> {
+pub(super) fn threads(ps: &[CodeunitProfile]) -> Vec<Thread> {
     let mut t: Vec<Thread> = ps.iter().map(|p| p.thread.clone()).collect();
     t.sort_by_key(|t| t.id);
     t.dedup();
     t
 }
 
+#[cfg(test)]
 /// The tree of the merged file, as resolved nodes.
 fn merged_nodes(ps: &[CodeunitProfile]) -> Vec<Node> {
     let mut nodes = vec![Node {
@@ -270,7 +281,10 @@ fn merged_nodes(ps: &[CodeunitProfile]) -> Vec<Node> {
         keyword: "Object",
         ..Node::default()
     }];
-    nodes[0].app.name = "System".into();
+    nodes[0].app = std::sync::Arc::new(super::AppRef {
+        name: "System".into(),
+        ..super::AppRef::default()
+    });
     for t in threads(ps) {
         let ti = nodes.len();
         let mut tn = Node {
@@ -279,8 +293,8 @@ fn merged_nodes(ps: &[CodeunitProfile]) -> Vec<Node> {
             child_ns: 0,
             ..nodes[0].clone()
         };
-        tn.function = t.label.clone();
-        tn.object_name = t.label.clone();
+        tn.function = t.label.as_str().into();
+        tn.object_name = t.label.as_str().into();
         tn.parent = Some(0);
         nodes.push(tn);
         nodes[0].children.push(ti);
@@ -290,12 +304,12 @@ fn merged_nodes(ps: &[CodeunitProfile]) -> Vec<Node> {
             let root = &p.nodes[0];
             nodes.push(Node {
                 parent: Some(ti),
-                function: format!("Codeunit {} \"{}\"", p.codeunit, p.name),
+                function: format!("Codeunit {} \"{}\"", p.codeunit, p.name).into(),
                 object_type: "CodeUnit",
                 keyword: "Codeunit",
-                object_name: p.name.clone(),
+                object_name: p.name.as_str().into(),
                 object_id: p.codeunit,
-                app: p.app.clone(),
+                app: std::sync::Arc::new(p.app.clone()),
                 calls: 1,
                 total_ns: root.total_ns,
                 child_ns: root.child_ns,
@@ -321,7 +335,7 @@ fn merged_nodes(ps: &[CodeunitProfile]) -> Vec<Node> {
 }
 
 /// The runner's own block: the unit of every time, the threads and, per test codeunit, its total and its tests.
-fn runner_block(options: &super::Options, ps: &[CodeunitProfile]) -> Value {
+pub(super) fn runner_block(options: &super::Options, ps: &[CodeunitProfile]) -> Value {
     let mut busy: std::collections::BTreeMap<usize, u64> = Default::default();
     for p in ps {
         *busy.entry(p.thread.id).or_default() += p.wall_ns / 1000;

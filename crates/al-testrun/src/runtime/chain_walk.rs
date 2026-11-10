@@ -20,7 +20,8 @@
 
 use super::SerialWhy;
 use super::chain_runs::{Ahead, Claim, Dropped, HookEvent, Kept, Runs, Start, StartBytes};
-use super::corpus::{not_run_link, observed_detail, reaches_session_storage, refuse_all};
+use super::corpus::{observed_detail, reaches_session_storage, refuse_all};
+use super::not_run_link::not_run_link;
 use super::*;
 use std::sync::Mutex;
 
@@ -719,6 +720,12 @@ impl ChainWalk<'_> {
                     not_run_link(engine, lowered, oi, false, why)
                 }
             };
+            // A link that leaves the state it was given (`baseline: None`) and has no link before it in its suite
+            // leaves the walk's start: the first member that was not run would otherwise hand the later ones no
+            // install baseline (tests/suite/refused_chain_link.rs).
+            if before.is_none() && left.baseline.is_none() {
+                left.baseline = self.baseline.cloned();
+            }
             if let Some((_, _, _, b)) = before {
                 left.tables.extend(b.tables.iter().copied());
                 left.unfinished = left.unfinished.or_else(|| b.unfinished.clone());

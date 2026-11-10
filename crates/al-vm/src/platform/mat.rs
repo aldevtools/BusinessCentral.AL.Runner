@@ -208,7 +208,7 @@ thread_local! {
 fn passes(row: &Row, filters: &[FieldFilter]) -> bool {
     #[cfg(test)]
     ROWS_LOOKED_AT.with(|c| c.set(c.get() + 1));
-    al_builtins::filter::row_passes(row, filters)
+    al_builtins::filter::row_passes_checked(row, filters)
 }
 
 /// Whether a row known only by its key can pass: the filters on key columns are decided, the
@@ -220,7 +220,7 @@ fn may_pass(t: &TableDef, row: &Row, known: usize, known_cols: &[usize], filters
         .filter(|f| {
             known_cols.contains(&f.field) || t.keys[0].iter().position(|k| *k == f.field).is_some_and(|i| i < known)
         })
-        .all(|f| f.expr.matches(&row[f.field]))
+        .all(|f| f.expr.matches_checked(&row[f.field]))
 }
 
 /// Why a filter on the row cannot be decided: it reads a column the row leaves unknown, and the filters on the
@@ -231,7 +231,7 @@ fn unknown_filtered<'a>(row: &'a Row, filters: &[FieldFilter]) -> Option<&'a str
     let left_out = !or_group
         && filters
             .iter()
-            .any(|f| row[f.field].unknown().is_none() && !f.expr.matches(&row[f.field]));
+            .any(|f| row[f.field].unknown().is_none() && !f.expr.matches_checked(&row[f.field]));
     (!left_out).then_some(why)
 }
 
@@ -480,6 +480,7 @@ impl Mat {
     }
 
     pub(crate) fn next(&self, t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError> {
+        super::refuse_unpinned(scan.filters)?;
         let later = |r: &Row| match scan.after {
             None => true,
             Some(a) => {
@@ -585,6 +586,7 @@ impl Mat {
     /// the name does not see it (:712-717), nor does a not-equal, an `&` of not-equals, a comparison or a range
     /// (metadata/FieldNameNotEqualFilter.al:57-120); another form of name filter, and a filter in the OR group, refuse.
     fn found_by_name(&self, t: &TableDef, i: usize, filters: &[FieldFilter], key: usize) -> Result<bool, StoreError> {
+        super::refuse_unpinned(filters)?;
         use al_builtins::filter::FilterExpr;
         let r = &self.rows[i];
         let Some((col, refuse)) = &self.name_only[i] else {
@@ -593,9 +595,9 @@ impl Mat {
         let col = *col;
         if self.name_set.get(i).copied().unwrap_or(false) {
             let known = |c: usize| c == col || t.keys[0].contains(&c) || self.known_cols[i].contains(&c);
-            let left_out = filters
-                .iter()
-                .any(|f| f.group != al_builtins::filter::OR_GROUP && known(f.field) && !f.expr.matches(&r[f.field]));
+            let left_out = filters.iter().any(|f| {
+                f.group != al_builtins::filter::OR_GROUP && known(f.field) && !f.expr.matches_checked(&r[f.field])
+            });
             return match (left_out, refuse) {
                 (true, _) => Ok(false),
                 (false, Some(why)) => Err(refusal(t, why)),
@@ -610,7 +612,7 @@ impl Mat {
         if !or_group {
             for f in filters.iter().filter(|f| f.field == col) {
                 let unseen = match &f.expr {
-                    e if single_value(e) => !e.matches(&r[col]),
+                    e if single_value(e) => !e.matches_checked(&r[col]),
                     FilterExpr::Like(..) => true,
                     FilterExpr::Or(alts) => alts.iter().all(|a| matches!(a, FilterExpr::Eq(_))),
                     // A not-equal, an `&` of not-equals, a comparison and a range of two names do not see it either, with or
@@ -636,10 +638,9 @@ impl Mat {
             }
             // A table number the filters leave out: the row is not seen.
             let lead = t.keys[0].first().copied();
-            if filters
-                .iter()
-                .any(|f| Some(f.field) == lead && r[f.field].unknown().is_none() && !f.expr.matches(&r[f.field]))
-            {
+            if filters.iter().any(|f| {
+                Some(f.field) == lead && r[f.field].unknown().is_none() && !f.expr.matches_checked(&r[f.field])
+            }) {
                 return Ok(false);
             }
         }
@@ -662,6 +663,7 @@ impl Mat {
     }
 
     pub(crate) fn count(&self, t: &TableDef, filters: &[FieldFilter]) -> Result<usize, StoreError> {
+        super::refuse_unpinned(filters)?;
         let mut n = 0;
         let band = self.band(t, filters);
         let check_unknown = self.filters_unknown(filters);
@@ -769,6 +771,7 @@ mod tests {
 
     fn id_filter(lo: i32, hi: i32) -> FieldFilter {
         FieldFilter {
+            lang: al_builtins::filter::filter_language(),
             field: 0,
             expr: FilterExpr::Range(Some(Value::Integer(lo)), Some(Value::Integer(hi))),
             group: 0,
@@ -792,6 +795,7 @@ mod tests {
         assert_eq!(m.count(&t, &[id_filter(1, 1)]).ok(), Some(1));
         // A filter on Name would read row 2's value: refused, with the reason.
         let name_is_a = FieldFilter {
+            lang: al_builtins::filter::filter_language(),
             field: 1,
             expr: FilterExpr::Eq(Value::Text("a".into())),
             group: 0,
@@ -833,6 +837,7 @@ mod tests {
             ],
         );
         let name_is_a = FieldFilter {
+            lang: al_builtins::filter::filter_language(),
             field: 1,
             expr: FilterExpr::Eq(Value::Text("a".into())),
             group: 0,
@@ -894,6 +899,7 @@ mod tests {
             ],
         );
         let name_is_a = FieldFilter {
+            lang: al_builtins::filter::filter_language(),
             field: 1,
             expr: FilterExpr::Eq(Value::Text("a".into())),
             group: 0,
@@ -937,6 +943,7 @@ mod tests {
             ],
         );
         let name = |n: &str| FieldFilter {
+            lang: al_builtins::filter::filter_language(),
             field: 1,
             expr: FilterExpr::Eq(Value::Text(n.into())),
             group: 0,
@@ -995,6 +1002,7 @@ mod tests {
     fn a_big_listing_scanned_again_with_the_same_filters_does_not_look_at_every_row_again() {
         let (t, m) = (table(), big_of(5000));
         let name3 = [FieldFilter {
+            lang: al_builtins::filter::filter_language(),
             field: 1,
             expr: FilterExpr::Eq(Value::Text("n3".into())),
             group: 0,
@@ -1023,6 +1031,7 @@ mod tests {
         let f = [
             id_filter(1000, 1099),
             FieldFilter {
+                lang: al_builtins::filter::filter_language(),
                 field: 1,
                 expr: FilterExpr::Eq(Value::Text("n3".into())),
                 group: 0,
@@ -1053,7 +1062,12 @@ mod tests {
 
     fn the_band_changes_no_answer_on(t: &TableDef, m: &Mat) {
         use FilterExpr as E;
-        let flt = |field, expr| FieldFilter { field, expr, group: 0 };
+        let flt = |field, expr| FieldFilter {
+            lang: al_builtins::filter::filter_language(),
+            field,
+            expr,
+            group: 0,
+        };
         let int = |i| Value::Integer(i);
         let cases: Vec<Vec<FieldFilter>> = vec![
             vec![flt(0, E::Eq(int(7)))],

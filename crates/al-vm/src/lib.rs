@@ -342,6 +342,12 @@ impl Engine {
         move || rows.bytes()
     }
 
+    /// Whether this engine and `other` read one cache of test data rows (an engine and its [`Engine::sibling`]): the
+    /// memory budget then counts the rows once (ADR-069 decision 10).
+    pub fn shares_test_rows_with(&self, other: &Engine) -> bool {
+        Arc::ptr_eq(&self.test_rows, &other.test_rows)
+    }
+
     pub fn new(program: impl Into<Arc<ir::Program>>, blocked: Vec<Vec<Option<String>>>) -> Arc<Engine> {
         Engine::with_config(program, blocked, None, dotnet::DotNetConfig::default())
     }
@@ -521,7 +527,8 @@ impl Engine {
     /// works out from the program (table definitions, event registry, per-object and per-routine facts, bytecode), so
     /// it is not worked out again: a run's install baseline and its tests each have an engine. Everything a run sets is
     /// as `with_config` leaves it, and the engine has its own `uid`. The event registry is shared as it is, with what
-    /// the runner set in it (`unavailable_global`), which reads only the compile.
+    /// the runner set in it (`unavailable_global`), which reads only the compile. The cache of test data rows is shared
+    /// too (`test_rows.rs`).
     pub fn sibling(&self) -> Arc<Engine> {
         Arc::new(Engine {
             program: self.program.clone(),
@@ -555,7 +562,9 @@ impl Engine {
             profile_seeds: Default::default(),
             seed_tables: self.seed_tables.clone(),
             seed_rows: Default::default(),
-            test_rows: Default::default(),
+            // The rows are a function of the test data and the program, which the sibling shares: one cache for the
+            // run's install engine and tests engine, so each table is built once per process (ADR-069 decision 4).
+            test_rows: self.test_rows.clone(),
             private_test_rows: false,
             facts: self.facts.clone(),
             exec: self.exec.clone(),
@@ -959,6 +968,9 @@ pub struct Session {
     /// True while a page calculates the FlowFields of its controls: BC drops such a control when the session cannot read the
     /// source table (Y24PermReads.al Y24_P15, `testpage_field`), which the runtime does not model, so a denial refuses.
     pub(crate) permission_page_calc: bool,
+    /// The source table (object index) of a page while it opens (`open_page_as`): a read the page makes of it, when the table is
+    /// empty, raises nothing (`Session::page_open_read_allowed`).
+    pub(crate) permission_opening_source: Option<usize>,
     /// Why a report the running test reaches cannot run (set by the test runner from the static reach, `None`: no such
     /// report). A permission denial the test would catch is refused when it is set: the test goes on to the report, is
     /// refused there, and by then has changed state a later test of the codeunit reads (ADR-062 stage 2).
@@ -1076,9 +1088,6 @@ pub struct Session {
     pub(crate) work_date: Option<i32>,
     /// The language `GlobalLanguage(Id)` set.
     pub(crate) global_language: i32,
-    /// Since the test method started: `GlobalLanguage` changed the language, and the languages filters were set under on a
-    /// table with a CaptionML enum field (enum_caption_ml.rs, `Session::enum_ml_filter_refusal`).
-    pub(crate) enum_ml_filter_langs: (bool, std::cell::RefCell<Vec<i32>>),
     /// What `CaptionClassTranslate` translated in this session: (class text, GlobalLanguage then, caption). Cleared by
     /// `SelectLatestVersion` (types/PSCaptionClass.al:94-115).
     pub(crate) caption_translations: Vec<(String, i32, String)>,
@@ -1166,8 +1175,7 @@ impl Session {
             None => host,
         };
         let (company, user) = (host.identity.company_name(), host.identity.user_id());
-        let random_seed = host.random_seed;
-        let guid_seed = host.guid_seed;
+        let (random_seed, guid_seed) = (host.random_seed, host.guid_seed);
         let clock_key = al_host::seed::clock_key(host.run_seed, 0, "");
         let mut ident = platform::Ident::of(&host);
         let declared = host.identity.companies();
@@ -1197,9 +1205,9 @@ impl Session {
             .and_then(|td| td.provider.last_row_version())
             .map_or(0, |v| i64::try_from(v).unwrap_or(i64::MAX));
         al_builtins::ops::set_turkic_code(al_builtins::native::is_turkic_language(host.identity.global_language()));
+        al_builtins::filter::set_filter_language(host.identity.global_language());
         let mut session = Session {
             global_language: host.identity.global_language(),
-            enum_ml_filter_langs: Default::default(),
             caption_translations: Vec::new(),
             ui_caption_translated: Vec::new(),
             get_load: false,
@@ -1314,6 +1322,7 @@ impl Session {
             permission_from_al: false,
             permission_autocalc: false,
             permission_page_calc: false,
+            permission_opening_source: None,
             report_refusal_after_denial: None,
             permission_caller: None,
             permission_run_object: None,
@@ -1429,7 +1438,6 @@ impl Session {
         self.shadow_roles = shadow_roles;
         self.shadow_begin();
         self.application_areas.clear();
-        self.enum_ml_filter_langs = Default::default();
         self.isolated_set_in_test.clear();
         self.demo_written.clear();
         self.gl_setup_written = false;
@@ -1838,6 +1846,7 @@ impl Session {
         self.global_language = state.language;
         self.events.event_stats.language.set(state.language);
         al_builtins::ops::set_turkic_code(al_builtins::native::is_turkic_language(state.language));
+        al_builtins::filter::set_filter_language(state.language);
         self.work_date = state.work_date;
     }
 

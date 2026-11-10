@@ -484,7 +484,11 @@ fn check_inner(
                 .extension_triggers_subscribers()
                 .into_iter()
                 .any(|(o, _)| !ws.is_dependency(o) && !skip(o));
-            c.reach_install_events(roots.baseline, install_code);
+            // An app under test that subscribes to a login event: the test session raises the login (al-testrun
+            // `login.rs`, al-runner issue 7343).
+            let login = (n_old..ws.objects.len())
+                .any(|oi| !ws.is_dependency(oi) && !skip(oi) && ws.declares_login_subscriber(oi));
+            c.reach_install_events(roots.baseline, install_code, login);
             c.reach_test_runner(&roots.test_runners);
             c.reach_dependencies_on_workspace();
             if !roots.no_login_root {

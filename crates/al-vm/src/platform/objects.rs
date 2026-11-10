@@ -167,6 +167,10 @@ pub(crate) struct Maps {
     /// (base kind, lower-case name) to the ids of the objects of that name, each with whether the object is a stub that
     /// gives way ([`gives_way`]).
     names: HashMap<(al_ir::ObjKind, String), Vec<(u32, bool)>>,
+    /// The same, with the index of the app that declares each object (for [`Catalog::id_of_from`]).
+    named_in: HashMap<(al_ir::ObjKind, String), Vec<u32>>,
+    /// Per app index: the app indexes it sees (itself and its dependencies, transitively).
+    sees: Vec<Vec<bool>>,
     /// Table id to the first table object of that id that is not declared `ObsoleteState = Moved`, else the first.
     tables: HashMap<u32, usize>,
     /// Page id to the page extensions that extend it, in program order.
@@ -196,6 +200,10 @@ impl<'a> Catalog<'a> {
                         .entry((o.kind, o.name.to_lowercase()))
                         .or_default()
                         .push((id, gives_way(o)));
+                    m.named_in
+                        .entry((o.kind, o.name.to_lowercase()))
+                        .or_default()
+                        .push(o.app);
                     if o.kind == al_ir::ObjKind::Table {
                         // A moved table is not in the runtime app (metadata/platform-tables/AwTests.al:426-442): the
                         // table it moved to holds the id (al-runner issue 6716).
@@ -206,6 +214,7 @@ impl<'a> Catalog<'a> {
                     }
                 }
             }
+            m.sees = sees(self.apps);
             m
         })
     }
@@ -235,14 +244,39 @@ impl<'a> Catalog<'a> {
 
     /// The id of the object of `kind` that a property value names: a number, `Page::"X"` or a name.
     pub(super) fn id_of(&self, kind: al_ir::ObjKind, value: &str) -> Result<u32, String> {
+        self.id_of_from(kind, value, None)
+    }
+
+    /// [`id_of`](Self::id_of) as the code of app `from` resolves the name: only objects of that app, of the apps it depends
+    /// on (transitively) and of the platform count, as the AL compiler resolves a name from the declaring app. Corpus
+    /// Y94AbpActionRef.al Y94_Ref_GrantsB: D365 BASIC of the Base Application names table 8613 "Config. Package Table" although
+    /// the corpus app declares a table of that name too (_fixtures/ALTRelationNameCollisionTables.al:28); BC composes the set.
+    pub(super) fn id_of_from(&self, kind: al_ir::ObjKind, value: &str, from: Option<u32>) -> Result<u32, String> {
         let v = value.trim();
         let v = v.split_once("::").map_or(v, |(_, rest)| rest);
         if let Ok(n) = v.parse::<u32>() {
             return Ok(n);
         }
         let name = ident(v);
-        let found = self.maps().names.get(&(kind, name.to_lowercase()));
-        match one_id(found.map_or(&[][..], Vec::as_slice)) {
+        let key = (kind, name.to_lowercase());
+        let maps = self.maps();
+        let all = maps.names.get(&key).map_or(&[][..], Vec::as_slice);
+        let seen: Vec<(u32, bool)>;
+        let found = match (from.and_then(|a| maps.sees.get(a as usize)), maps.named_in.get(&key)) {
+            (Some(sees), Some(apps)) => {
+                seen = all
+                    .iter()
+                    .zip(apps)
+                    .filter(|(_, a)| sees.get(**a as usize).copied().unwrap_or(true))
+                    .map(|(f, _)| *f)
+                    .collect();
+                // The app's code compiled, so a name it sees in none of its apps means the dependency list read here is
+                // short (an app known under another id): the name is looked up in every app, as before.
+                if seen.is_empty() { all } else { &seen[..] }
+            }
+            _ => all,
+        };
+        match one_id(found) {
             Some(Ok(id)) => Ok(id),
             None => Err(format!("no {kind} named `{name}`")),
             Some(Err(())) => Err(format!("more than one {kind} is named `{name}`")),
@@ -263,6 +297,34 @@ fn gives_way(o: &ObjectHead) -> bool {
 /// The one id the objects of a name stand for: the stubs give way to the live objects, and objects of one id are one
 /// object to a grant, which is keyed on (object type, id) (al-runner issue 6716: Base Application 29's moved table 231
 /// "Reason Code" and Business Foundation's). `None` for no object, `Err` for two ids.
+/// Per app index: the app indexes it sees, itself and its dependencies (transitively, by app id), and the platform's own app.
+fn sees(apps: &[al_ir::AppInfo]) -> Vec<Vec<bool>> {
+    let index = |id: &str| apps.iter().position(|a| a.id.eq_ignore_ascii_case(id));
+    let platform = index(al_sema_platform_app_id());
+    (0..apps.len())
+        .map(|from| {
+            let mut seen = vec![false; apps.len()];
+            if let Some(p) = platform {
+                seen[p] = true;
+            }
+            let mut todo = vec![from];
+            while let Some(a) = todo.pop() {
+                if std::mem::replace(&mut seen[a], true) && a != from {
+                    continue;
+                }
+                todo.extend(
+                    apps[a]
+                        .dependencies
+                        .iter()
+                        .filter_map(|d| index(d))
+                        .filter(|&d| !seen[d]),
+                );
+            }
+            seen
+        })
+        .collect()
+}
+
 fn one_id(found: &[(u32, bool)]) -> Option<Result<u32, ()>> {
     let live = found.iter().any(|&(_, stub)| !stub);
     let mut ids = found.iter().filter(|&&(_, stub)| !live || !stub).map(|&(id, _)| id);

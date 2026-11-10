@@ -208,3 +208,47 @@ fn a_frozen_store_and_frozen_rows_say_about_how_many_bytes_they_hold() {
     let frozen = FrozenRows::freeze(rows).ok().unwrap();
     assert!(frozen.bytes() >= 103 * per_row);
 }
+
+fn record_id(no: &str) -> Value {
+    Value::Library(
+        al_builtins::library_kind::LibraryKind::RecordId,
+        std::rc::Rc::new(std::cell::RefCell::new(al_builtins::value::LibraryValue::RecordId {
+            table: 1,
+            table_no: 18,
+            name: "Customer".into(),
+            key: vec![Value::Code(no.into())],
+        })),
+    )
+}
+
+/// A large partner app's install code leaves Job Queue Entry rows with a RecordId field and report selection rows with a
+/// TableFilter field. The store is still frozen: those tables are held as their bytes and each thread reads its own copy.
+#[test]
+fn a_table_with_a_record_id_or_table_filter_is_frozen_and_each_thread_gets_its_own_copy() {
+    let (c, t) = (cx("C"), table());
+    let mut s = base();
+    let filter = Value::Library(
+        "TableFilter".into(),
+        std::rc::Rc::new(std::cell::RefCell::new(al_builtins::value::LibraryValue::Text(
+            "Customer: No.=10000".into(),
+        ))),
+    );
+    s.insert(&c, &t, vec![Value::Code("D".into()), record_id("10000"), filter])
+        .unwrap();
+    s.commit();
+    let f = std::sync::Arc::new(FrozenStore::freeze(&s).expect("a RecordId and a TableFilter have a plain form"));
+    assert_eq!(f.row_count(), 4);
+    assert_eq!(nos(&f.thaw()), nos(&s));
+    let handle = |s: &MemStore| match &s.stored_rows(&c, &t)[3][1] {
+        Value::Library(_, cell) => cell.clone(),
+        other => panic!("a RecordId, not {other:?}"),
+    };
+    let (a, b) = (f.thaw(), f.thaw());
+    assert!(
+        !std::rc::Rc::ptr_eq(&handle(&a), &handle(&b)),
+        "a RecordId of each thread's own"
+    );
+    let other = f.clone();
+    let seen = std::thread::spawn(move || nos(&other.thaw())).join().unwrap();
+    assert_eq!(seen, nos(&s));
+}

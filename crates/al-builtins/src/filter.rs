@@ -37,6 +37,10 @@ pub enum FilterExpr {
     /// by the language: `inner` holds BigInteger bounds and is applied to the number the field's text is (a text that is no
     /// number stays text, which no bound matches).
     NumCode(Box<FilterExpr>),
+    /// A filter that is set and reads back as `inner` does, but whose matching is not pinned (an unclosed quote after `@`, corpus
+    /// master record/crud/RcAFilters.al:996-1027 pins only SetFilter and GetFilter). The text is the filter as given. A store
+    /// refuses a read that selects rows through it ([`FilterExpr::unpinned_match`]).
+    UnpinnedMatch(Box<FilterExpr>, String),
 }
 
 /// The number a Code text of plain digits is.
@@ -57,8 +61,18 @@ pub fn code_number(v: &Value) -> Option<i64> {
 }
 
 impl FilterExpr {
-    /// Whether a field value passes. Values that cannot be compared do not pass.
-    pub fn matches(&self, v: &Value) -> bool {
+    /// Whether a field value passes; a filter whose matching is not pinned ([`FilterExpr::UnpinnedMatch`]) refuses, whoever
+    /// asks (hard rule 4).
+    pub fn matches(&self, v: &Value) -> Result<bool, Signal> {
+        if let Some(why) = self.unpinned_match() {
+            return Err(Signal::Unsupported(why));
+        }
+        Ok(self.matches_checked(v))
+    }
+
+    /// [`FilterExpr::matches`] for a caller that refused a filter with [`FilterExpr::unpinned_match`] first (a store refuses
+    /// the read once, then checks each row). Values that cannot be compared do not pass.
+    pub fn matches_checked(&self, v: &Value) -> bool {
         // A text of spaces only is blank to a filter: `SetRange(Txt, ' ')` finds the rows holding '', ' ' and '  ', and
         // `<> ' '` finds the others (record/filters/W4Filters.al:BlankOnlyFilterValues_MatchOnlyBlankRows, BC 27.5 and 29.0).
         // Other trailing spaces are not pinned.
@@ -94,12 +108,26 @@ impl FilterExpr {
             FilterExpr::NotLike(p, ci) => crate::native::text_of(v).is_some_and(|t| !like(&t, p, *ci)),
             FilterExpr::AtSignAlone(negated) => !negated,
             FilterExpr::EmptyViewValue => true,
-            FilterExpr::Or(xs) => xs.iter().any(|x| x.matches(v)),
-            FilterExpr::And(xs) => xs.iter().all(|x| x.matches(v)),
+            FilterExpr::Or(xs) => xs.iter().any(|x| x.matches_checked(v)),
+            FilterExpr::And(xs) => xs.iter().all(|x| x.matches_checked(v)),
             FilterExpr::NumCode(inner) => match code_number(v) {
-                Some(n) => inner.matches(&Value::BigInteger(n)),
-                None => inner.matches(v),
+                Some(n) => inner.matches_checked(&Value::BigInteger(n)),
+                None => inner.matches_checked(v),
             },
+            // Refused by `matches` and by a store before it asks (see `matches_checked`).
+            FilterExpr::UnpinnedMatch(..) => false,
+        }
+    }
+
+    /// The refusal of a read that selects rows through this filter, when its matching is not pinned.
+    pub fn unpinned_match(&self) -> Option<String> {
+        match self {
+            FilterExpr::UnpinnedMatch(_, text) => Some(format!(
+                "a read through the filter `{text}`, an unclosed quote after `@`: its matching not pinned"
+            )),
+            FilterExpr::Or(xs) | FilterExpr::And(xs) => xs.iter().find_map(FilterExpr::unpinned_match),
+            FilterExpr::NumCode(inner) => inner.unpinned_match(),
+            _ => None,
         }
     }
 }
@@ -133,6 +161,7 @@ impl FilterExpr {
                 _ => None,
             },
             FilterExpr::AtSignAlone(_) | FilterExpr::EmptyViewValue => None,
+            FilterExpr::UnpinnedMatch(..) => self.unpinned_match().map(Signal::Unsupported),
             FilterExpr::Or(xs) | FilterExpr::And(xs) => xs.iter().find_map(|x| x.compare_error(v)),
             FilterExpr::NumCode(inner) => match code_number(v) {
                 Some(n) => inner.compare_error(&Value::BigInteger(n)),
@@ -629,12 +658,14 @@ pub fn parse_filter_with(
     let mut kept_placeholder = false;
     let mut at_placeholder = false;
     let mut missing_placeholder = None;
+    let mut unclosed_after_at = false;
     let toks = tokenize(
         text,
         args,
         &mut kept_placeholder,
         &mut at_placeholder,
         &mut missing_placeholder,
+        &mut unclosed_after_at,
     )?;
     // A placeholder without an argument: on a Code and a Text field it is the text `%n` (`<>%1` keeps the blank row and leaves out
     // the row `%1`; record/filters/PlaceholderWithoutArgument.al:95-132, :155-168); on an Integer and a Decimal field BC raises
@@ -685,6 +716,11 @@ pub fn parse_filter_with(
         }
         return Err(format!("unexpected {} in filter `{text}`", p.toks[p.i].describe()));
     }
+    // Which rows a filter with an unclosed quote after `@` keeps is not pinned (see `unclosed_quote`): the filter is set and reads
+    // back, a read that selects rows through it is refused.
+    if unclosed_after_at {
+        return Ok(FilterExpr::UnpinnedMatch(Box::new(e), text.trim().to_string()));
+    }
     Ok(e)
 }
 
@@ -722,12 +758,34 @@ pub fn placeholder_next_to_wildcard(text: &str) -> bool {
     })
 }
 
+/// A quote that opens a literal and is not closed (`rest` starts at the quote). Only a quote that starts the filter raises
+/// "An single quote (') is missing." (`'`, `'abc`, `'''`); after `@` alone the filter is accepted as written (`@'`, `@'abc`,
+/// `@'''`) (corpus master record/crud/RcAFilters.al:996-1027, SetFilter_Text_UnterminatedQuote_ErrorsOnlyWhenTheQuoteStartsTheFilter).
+/// Returns the text that is the value in that case; `None` when the quote is closed. Anywhere else it is not pinned.
+fn unclosed_quote(rest: &[char], out: &[Tok]) -> Result<Option<String>, String> {
+    let mut j = 1;
+    loop {
+        match rest.get(j) {
+            None => break,
+            Some('\'') if rest.get(j + 1) == Some(&'\'') => j += 2,
+            Some('\'') => return Ok(None),
+            Some(_) => j += 1,
+        }
+    }
+    match out {
+        [] => Err(format!("{FILTER_SYNTAX}An single quote (') is missing.")),
+        [Tok::Op("@")] => Ok(Some(rest.iter().collect())),
+        _ => Err("an unclosed quote after an operator in a filter (not pinned)".into()),
+    }
+}
+
 fn tokenize(
     text: &str,
     args: &[Value],
     kept_placeholder: &mut bool,
     at_placeholder: &mut bool,
     missing_placeholder: &mut Option<String>,
+    unclosed_after_at: &mut bool,
 ) -> Result<Vec<Tok>, String> {
     let c: Vec<char> = text.chars().collect();
     let mut out = Vec::new();
@@ -769,6 +827,12 @@ fn tokenize(
         // GetView_Field_Types `quote`: `it's`).
         } else if c[i] == '\'' && raw.trim().is_empty() {
             flush(&mut raw, &mut out);
+            if let Some(unclosed) = unclosed_quote(&c[i..], &out)? {
+                // After `@` alone an unclosed quote is not a literal: the rest of the text is the value as written.
+                raw.push_str(&unclosed);
+                *unclosed_after_at = true;
+                break;
+            }
             let mut lit = String::new();
             i += 1;
             // A placeholder is replaced inside quotes only when it is the whole quoted text: `'%1'` takes the argument, `'x%1y'` and
@@ -777,7 +841,7 @@ fn tokenize(
             // in as it reads; any other type is not pinned.
             loop {
                 match c.get(i) {
-                    None => return Err("unterminated quote in filter".into()),
+                    None => unreachable!("unclosed_quote checked that the quote is closed"),
                     Some('\'') if c.get(i + 1) == Some(&'\'') => {
                         lit.push('\'');
                         i += 2;
@@ -1409,10 +1473,40 @@ impl Parser<'_> {
 /// A filter on the field at position `field` of the table's field list.
 #[derive(Debug, Clone)]
 pub struct FieldFilter {
+    /// The GlobalLanguage in force on this thread when the filter was set ([`filter_language`]): a filter text shows an enum
+    /// value's CaptionML caption only under that language (al-vm enum_caption_ml.rs).
+    pub lang: i32,
     pub field: usize,
     pub expr: FilterExpr,
     /// The filter group it was set in (`FilterGroup(n)`); every group applies at once.
     pub group: i32,
+}
+
+impl FieldFilter {
+    /// A filter set now: it records the language of this thread ([`filter_language`]).
+    pub fn new(field: usize, expr: FilterExpr, group: i32) -> Self {
+        FieldFilter {
+            lang: filter_language(),
+            field,
+            expr,
+            group,
+        }
+    }
+}
+
+thread_local! {
+    /// The session language of this thread, which a new [`FieldFilter`] records; the VM sets it with the GlobalLanguage.
+    static FILTER_LANGUAGE: std::cell::Cell<i32> = const { std::cell::Cell::new(1033) };
+}
+
+/// Sets the language a new [`FieldFilter`] records; the VM calls it when the session language changes.
+pub fn set_filter_language(language: i32) {
+    FILTER_LANGUAGE.with(|c| c.set(language));
+}
+
+/// The language a new [`FieldFilter`] records.
+pub fn filter_language() -> i32 {
+    FILTER_LANGUAGE.with(|c| c.get())
 }
 
 /// The filter group `FilterGroup(-1)` writes to: its filters on different fields are alternatives
@@ -1420,12 +1514,43 @@ pub struct FieldFilter {
 /// match (corpus record/PWFilterGroupOr.al).
 pub const OR_GROUP: i32 = -1;
 
+/// The refusal of a read that selects rows through `filters`, when one of them has a matching that is not pinned.
+pub fn unpinned_match(filters: &[FieldFilter]) -> Option<String> {
+    filters.iter().find_map(|f| f.expr.unpinned_match())
+}
+
 /// Whether `row` passes `filters`: every filter outside the OR group matches, and, when the OR
-/// group holds filters, at least one of them does.
-pub fn row_passes(row: &[Value], filters: &[FieldFilter]) -> bool {
+/// group holds filters, at least one of them does. A filter whose matching is not pinned refuses.
+pub fn row_passes(row: &[Value], filters: &[FieldFilter]) -> Result<bool, Signal> {
+    if let Some(why) = unpinned_match(filters) {
+        return Err(Signal::Unsupported(why));
+    }
+    Ok(row_passes_checked(row, filters))
+}
+
+/// Whether every filter matches its field of `row`, whatever its group; a filter whose matching is not pinned refuses.
+pub fn all_match(filters: &[FieldFilter], row: &[Value]) -> Result<bool, Signal> {
+    for f in filters {
+        if !f.expr.matches(&row[f.field])? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// `row` when every filter matches it ([`all_match`]), else `None`.
+pub fn passing(filters: &[FieldFilter], row: Option<Vec<Value>>) -> Result<Option<Vec<Value>>, Signal> {
+    match row {
+        Some(r) if all_match(filters, &r)? => Ok(Some(r)),
+        _ => Ok(None),
+    }
+}
+
+/// [`row_passes`] for a caller that refused the filters with [`unpinned_match`] first.
+pub fn row_passes_checked(row: &[Value], filters: &[FieldFilter]) -> bool {
     let (mut or_seen, mut or_matched) = (false, false);
     for f in filters {
-        let matched = f.expr.matches(&row[f.field]);
+        let matched = f.expr.matches_checked(&row[f.field]);
         if f.group == OR_GROUP {
             or_seen = true;
             or_matched |= matched;
@@ -1651,7 +1776,7 @@ mod tests {
         use crate::value::RtType as T;
         let txt = T::Text(Some(30));
         let p = |t: &str, ty: &T| parse_filter(t, &[], ty).unwrap_or_else(|e| panic!("{t}: {e}"));
-        let m = |e: &FilterExpr, v: &str| e.matches(&Value::Text(v.to_string().into()));
+        let m = |e: &FilterExpr, v: &str| e.matches_checked(&Value::Text(v.to_string().into()));
         let e = p("a@b.dk", &txt);
         assert!(m(&e, "a@b.dk") && !m(&e, "A@B.DK"));
         let e = p("@a@b.dk", &txt);
@@ -1685,7 +1810,7 @@ mod tests {
         assert!(!err("1,5,6", &T::Decimal).starts_with(NOT_EVALUATED));
         assert!(!err("13:00:00", &T::Time).starts_with(NOT_EVALUATED));
         let noon = parse_filter("12:00:00", &[], &T::Time).expect("noon");
-        assert!(noon.matches(&Value::Time(12 * 3_600_000 + 1)));
+        assert!(noon.matches_checked(&Value::Time(12 * 3_600_000 + 1)));
     }
 
     /// Microsoft's Tests-SCM and Tests-ERM filter Date and Guid fields with text they built with `Format`
@@ -1697,16 +1822,16 @@ mod tests {
         use crate::value::RtType as T;
         let date = parse_filter("01/17/27", &[], &T::Date).expect("a date in the region's short format");
         let d = Value::Date(crate::format::day_from_civil(2027, 1, 17), false);
-        assert!(date.matches(&d));
-        assert!(!date.matches(&Value::Date(0, false)));
+        assert!(date.matches_checked(&d));
+        assert!(!date.matches_checked(&Value::Date(0, false)));
         let range = parse_filter("..01/17/27", &[], &T::Date).expect("a range up to a date");
-        assert!(range.matches(&d));
+        assert!(range.matches_checked(&d));
         let guid = parse_filter("{261C0957-2EC9-802F-F3FB-808A6781620E}", &[], &T::Guid).expect("a Guid with braces");
         let g = Value::Guid(crate::ops::parse_guid("261C0957-2EC9-802F-F3FB-808A6781620E").unwrap());
-        assert!(guid.matches(&g));
+        assert!(guid.matches_checked(&g));
         let closing = parse_filter("C01/17/27", &[], &T::Date).expect("a closing date as Format writes it");
-        assert!(closing.matches(&Value::Date(crate::format::day_from_civil(2027, 1, 17), true)));
-        assert!(!closing.matches(&d), "the closing date is not the date");
+        assert!(closing.matches_checked(&Value::Date(crate::format::day_from_civil(2027, 1, 17), true)));
+        assert!(!closing.matches_checked(&d), "the closing date is not the date");
         assert!(parse_filter("1M", &[], &T::Date).is_err(), "a formula stays refused");
         // T and W need the session's dates (P143Date_EnFormulas.al).
         assert!(parse_filter("T", &[], &T::Date).is_err());
@@ -1719,11 +1844,13 @@ mod tests {
         };
         with_date_context(ctx, || {
             let t = parse_filter("..t", &[], &T::Date).expect("a range up to today");
-            assert!(t.matches(&Value::Date(today, false)) && !t.matches(&Value::Date(today + 1, false)));
+            assert!(
+                t.matches_checked(&Value::Date(today, false)) && !t.matches_checked(&Value::Date(today + 1, false))
+            );
             let w = parse_filter("W", &[], &T::Date).expect("the work date");
-            assert!(w.matches(&Value::Date(today + 1, false)));
+            assert!(w.matches_checked(&Value::Date(today + 1, false)));
             let cd = parse_filter("CD", &[], &T::Date).expect("the closing date of today");
-            assert!(cd.matches(&Value::Date(today, true)) && !cd.matches(&Value::Date(today, false)));
+            assert!(cd.matches_checked(&Value::Date(today, true)) && !cd.matches_checked(&Value::Date(today, false)));
         });
     }
 
@@ -1763,7 +1890,7 @@ mod tests {
                 ("''", Value::DateTime(0)),
             ] {
                 let f = parse_filter(text, &[], &T::DateTime).unwrap_or_else(|e| panic!("{text}: {e}"));
-                assert!(f.matches(&v), "{text}");
+                assert!(f.matches_checked(&v), "{text}");
             }
             for text in [
                 "11/07/26 1:00 PM",
@@ -1808,7 +1935,10 @@ mod tests {
             ];
             let ids = |text: &str| -> Vec<i32> {
                 let f = parse_filter(text, &[], &T::DateTime).unwrap_or_else(|e| panic!("{text}: {e}"));
-                rows.iter().filter(|(_, v)| f.matches(v)).map(|(i, _)| *i).collect()
+                rows.iter()
+                    .filter(|(_, v)| f.matches_checked(v))
+                    .map(|(i, _)| *i)
+                    .collect()
             };
             for text in ["01/15/25", "1/15/25", "2025-01-15"] {
                 assert_eq!(ids(text), [11, 12, 13, 15, 16], "{text}");
@@ -1865,7 +1995,7 @@ mod tests {
                 ("120000", at(12, 0, 0)),
             ] {
                 let f = parse_filter(text, &[], &T::Time).unwrap_or_else(|e| panic!("{text}: {e}"));
-                assert!(f.matches(&v), "{text}");
+                assert!(f.matches_checked(&v), "{text}");
             }
             for text in ["0", "25:00:00", "1:00:00 PM", "12345"] {
                 let e = parse_filter(text, &[], &T::Time).expect_err(text);
@@ -1877,7 +2007,7 @@ mod tests {
             assert_eq!(not_evaluated_value(&e), Some(text), "{text}");
         }
         let d = parse_filter("1,234.5", &[], &T::Decimal).expect("a thousands comma");
-        assert!(d.matches(&Value::Decimal(rust_decimal::Decimal::new(12345, 1))));
+        assert!(d.matches_checked(&Value::Decimal(rust_decimal::Decimal::new(12345, 1))));
         assert!(matches!(
             parse_filter("5..5", &[], &T::Integer),
             Ok(FilterExpr::RangeSame(Value::Integer(5)))
@@ -1899,12 +2029,12 @@ mod tests {
     fn a_date_formula_filter_reads_the_empty_text_as_the_empty_formula() {
         use crate::value::RtType as T;
         let not_blank = parse_filter("<>''", &[], &T::DateFormula).expect("<> the empty formula");
-        assert!(!not_blank.matches(&Value::DateFormula(String::new())));
-        assert!(not_blank.matches(&Value::DateFormula("<1M>".into())));
+        assert!(!not_blank.matches_checked(&Value::DateFormula(String::new())));
+        assert!(not_blank.matches_checked(&Value::DateFormula("<1M>".into())));
         // A formula without brackets is the stored formula (record/filters/DateFormulaOperatorFilterText.al:116-134, staging r6980).
         let one_month = parse_filter("1M", &[], &T::DateFormula).expect("a formula without brackets");
-        assert!(one_month.matches(&Value::DateFormula("<1M>".into())));
-        assert!(!one_month.matches(&Value::DateFormula("<1D>".into())));
+        assert!(one_month.matches_checked(&Value::DateFormula("<1M>".into())));
+        assert!(!one_month.matches_checked(&Value::DateFormula("<1D>".into())));
     }
 
     /// An angle-bracketed formula is no DateFormula filter: the closing `>` is not expected (errors/lt-ms-refusals-136/
@@ -1938,29 +2068,29 @@ mod tests {
         let blank = Value::Date(0, false);
         let day = Value::Date(crate::format::day_from_civil(2026, 1, 1), false);
         let eq = parse_filter("''", &[], &T::Date).expect("''");
-        assert!(eq.matches(&blank) && !eq.matches(&day));
+        assert!(eq.matches_checked(&blank) && !eq.matches_checked(&day));
         let ne = parse_filter("<>''", &[], &T::Date).expect("<>''");
-        assert!(!ne.matches(&blank) && ne.matches(&day));
+        assert!(!ne.matches_checked(&blank) && ne.matches_checked(&day));
         let upto = parse_filter("''..01/01/26", &[], &T::Date).expect("''..01/01/26");
-        assert!(upto.matches(&blank) && upto.matches(&day));
+        assert!(upto.matches_checked(&blank) && upto.matches_checked(&day));
     }
 
     #[test]
     fn range_and_comparisons() {
         let r = FilterExpr::Range(Some(Value::Integer(2)), Some(Value::Integer(4)));
-        assert!(!r.matches(&Value::Integer(1)));
-        assert!(r.matches(&Value::Integer(2)));
-        assert!(r.matches(&Value::Integer(4)));
-        assert!(!r.matches(&Value::Integer(5)));
-        assert!(FilterExpr::Range(None, Some(Value::Integer(3))).matches(&Value::Integer(-9)));
+        assert!(!r.matches_checked(&Value::Integer(1)));
+        assert!(r.matches_checked(&Value::Integer(2)));
+        assert!(r.matches_checked(&Value::Integer(4)));
+        assert!(!r.matches_checked(&Value::Integer(5)));
+        assert!(FilterExpr::Range(None, Some(Value::Integer(3))).matches_checked(&Value::Integer(-9)));
         assert!(
             FilterExpr::Or(vec![
                 FilterExpr::Eq(Value::Integer(1)),
                 FilterExpr::Gt(Value::Integer(8))
             ])
-            .matches(&Value::Integer(9))
+            .matches_checked(&Value::Integer(9))
         );
-        assert!(!FilterExpr::Ne(Value::Text("a".into())).matches(&Value::Text("a".into())));
+        assert!(!FilterExpr::Ne(Value::Text("a".into())).matches_checked(&Value::Text("a".into())));
     }
 
     // record/filters/UcQuotedValues.al SetView_FilterGreaterB `view_txt_plain_ids` and PageAndQuery_FilterGreaterB
@@ -1978,31 +2108,32 @@ mod tests {
             (">b", false),
             ("B", false),
         ] {
-            assert_eq!(gt.matches(&Value::Text(v.into())), want, "{v}");
+            assert_eq!(gt.matches_checked(&Value::Text(v.into())), want, "{v}");
         }
         assert!(
             FilterExpr::Range(Some(Value::Text("a".into())), Some(Value::Text("B".into())))
-                .matches(&Value::Text("b".into()))
+                .matches_checked(&Value::Text("b".into()))
         );
         // Equality stays exact.
-        assert!(!FilterExpr::Eq(Value::Text("b".into())).matches(&Value::Text("B".into())));
+        assert!(!FilterExpr::Eq(Value::Text("b".into())).matches_checked(&Value::Text("B".into())));
     }
 
     #[test]
     fn the_or_group_is_alternatives_and_the_other_groups_all_apply() {
         let ff = |field, v: i32, group| FieldFilter {
+            lang: crate::filter::filter_language(),
             field,
             expr: FilterExpr::Eq(Value::Integer(v)),
             group,
         };
         let row = [Value::Integer(1), Value::Integer(2), Value::Integer(3)];
         // Either of two fields matches: the row passes.
-        assert!(row_passes(&row, &[ff(0, 9, OR_GROUP), ff(1, 2, OR_GROUP)]));
-        assert!(!row_passes(&row, &[ff(0, 9, OR_GROUP), ff(1, 9, OR_GROUP)]));
+        assert!(row_passes_checked(&row, &[ff(0, 9, OR_GROUP), ff(1, 2, OR_GROUP)]));
+        assert!(!row_passes_checked(&row, &[ff(0, 9, OR_GROUP), ff(1, 9, OR_GROUP)]));
         // A filter of group 0 still has to match next to the OR group.
-        assert!(!row_passes(&row, &[ff(2, 9, 0), ff(1, 2, OR_GROUP)]));
-        assert!(row_passes(&row, &[ff(2, 3, 0), ff(1, 2, OR_GROUP)]));
-        assert!(row_passes(&row, &[]));
+        assert!(!row_passes_checked(&row, &[ff(2, 9, 0), ff(1, 2, OR_GROUP)]));
+        assert!(row_passes_checked(&row, &[ff(2, 3, 0), ff(1, 2, OR_GROUP)]));
+        assert!(row_passes_checked(&row, &[]));
     }
 
     use crate::value::RtType;
@@ -2011,11 +2142,11 @@ mod tests {
         parse_filter(text, args, &ty).unwrap_or_else(|e| panic!("{text}: {e}"))
     }
     fn ints(f: &FilterExpr, vals: &[i32]) -> Vec<bool> {
-        vals.iter().map(|v| f.matches(&Value::Integer(*v))).collect()
+        vals.iter().map(|v| f.matches_checked(&Value::Integer(*v))).collect()
     }
     fn texts(f: &FilterExpr, vals: &[&str]) -> Vec<bool> {
         vals.iter()
-            .map(|v| f.matches(&Value::Code(v.to_string().into())))
+            .map(|v| f.matches_checked(&Value::Code(v.to_string().into())))
             .collect()
     }
 
@@ -2030,7 +2161,7 @@ mod tests {
     #[test]
     fn option_filters_match_member_names_trimmed_and_skip_zero_length_names() {
         let m = ["", "Draft", "Active"];
-        let ord = |f: &FilterExpr, o: i32| f.matches(&Value::Option(o, Vec::<String>::new().into()));
+        let ord = |f: &FilterExpr, o: i32| f.matches_checked(&Value::Option(o, Vec::<String>::new().into()));
         let f = opt(" draft ", &m).unwrap();
         assert!(ord(&f, 1) && !ord(&f, 2));
         // A space-named member (`OptionMembers = " ",Draft`) is not zero length: '' trims to it.
@@ -2076,7 +2207,7 @@ mod tests {
             &[Value::Date(10, false), Value::Date(20, false)],
             RtType::Date,
         );
-        assert!(f.matches(&Value::Date(15, false)) && !f.matches(&Value::Date(21, false)));
+        assert!(f.matches_checked(&Value::Date(15, false)) && !f.matches_checked(&Value::Date(21, false)));
     }
 
     #[test]
@@ -2096,13 +2227,13 @@ mod tests {
     #[test]
     fn filter_empty_and_quoted_literals() {
         let f = pf("''", &[], RtType::Text(None));
-        assert!(f.matches(&Value::Text(String::new().into())) && !f.matches(&Value::Text("x".into())));
+        assert!(f.matches_checked(&Value::Text(String::new().into())) && !f.matches_checked(&Value::Text("x".into())));
         let f = pf("<>''", &[], RtType::Text(None));
-        assert!(!f.matches(&Value::Text(String::new().into())) && f.matches(&Value::Text("x".into())));
+        assert!(!f.matches_checked(&Value::Text(String::new().into())) && f.matches_checked(&Value::Text("x".into())));
         let f = pf("'Smith & Sons'", &[], RtType::Text(None));
-        assert!(f.matches(&Value::Text("Smith & Sons".into())));
+        assert!(f.matches_checked(&Value::Text("Smith & Sons".into())));
         let f = pf("'(Travel|Meals)'", &[], RtType::Text(None));
-        assert!(f.matches(&Value::Text("(Travel|Meals)".into())));
+        assert!(f.matches_checked(&Value::Text("(Travel|Meals)".into())));
     }
 
     fn enum_members(_: u32) -> Vec<(i32, String)> {
@@ -2117,7 +2248,7 @@ mod tests {
     fn enum_hits(text: &str) -> Vec<i32> {
         let f = parse_filter_with(text, &[], &RtType::Enum(7), &|id| Ok(enum_members(id)))
             .unwrap_or_else(|e| panic!("{text}: {e}"));
-        (0..4).filter(|v| f.matches(&Value::Enum(7, *v))).collect()
+        (0..4).filter(|v| f.matches_checked(&Value::Enum(7, *v))).collect()
     }
 
     // corpus record/TestCalcFormulaQuotedFilterHeader.Table.al:21-52: member names with
@@ -2146,7 +2277,7 @@ mod tests {
                 _ => unreachable!(),
             };
             Ok((0..names.len() as i32)
-                .filter(|i| f.matches(&Value::Option(*i, names.clone().into())))
+                .filter(|i| f.matches_checked(&Value::Option(*i, names.clone().into())))
                 .collect())
         };
         // A member named with one space is matched by the empty string.
@@ -2168,7 +2299,7 @@ mod tests {
         let ty = RtType::Option(members.into());
         let ord = |f: &FilterExpr| {
             (0..3)
-                .map(|i| f.matches(&Value::Option(i, Default::default())))
+                .map(|i| f.matches_checked(&Value::Option(i, Default::default())))
                 .collect::<Vec<_>>()
         };
         assert_eq!(ord(&pf(" draft ", &[], ty.clone())), [false, true, false]);
@@ -2187,17 +2318,20 @@ mod tests {
         // record/TestFilterQuotedLiterals.al: `'@*Smith & Sons*'` ("quote so &, (, ), =, | are literal,
         // and keep @ and * active"): a case-insensitive "contains" filter on a value with operators in it.
         let f = pf("'@*Smith & Sons*'", &[], RtType::Text(None));
-        assert!(f.matches(&Value::Text("Mr smith & sons LLC".into())));
-        assert!(!f.matches(&Value::Text("Acme Co".into())));
+        assert!(f.matches_checked(&Value::Text("Mr smith & sons LLC".into())));
+        assert!(!f.matches_checked(&Value::Text("Acme Co".into())));
         let f = pf("'@*(2025)*'", &[], RtType::Text(None));
-        assert!(f.matches(&Value::Text("Expenses (2025) - Diana".into())));
-        assert!(!f.matches(&Value::Text("Expenses 2025".into())));
+        assert!(f.matches_checked(&Value::Text("Expenses (2025) - Diana".into())));
+        assert!(!f.matches_checked(&Value::Text("Expenses 2025".into())));
         // Without @ the quoted wildcard still matches case-sensitively.
         let f = pf("'*A|B*'", &[], RtType::Text(None));
-        assert!(f.matches(&Value::Text("xA|By".into())) && !f.matches(&Value::Text("xa|by".into())));
+        assert!(f.matches_checked(&Value::Text("xA|By".into())) && !f.matches_checked(&Value::Text("xa|by".into())));
         // A quoted expression without wildcards is a plain literal.
         let f = pf("'Smith & Sons'", &[], RtType::Text(None));
-        assert!(f.matches(&Value::Text("Smith & Sons".into())) && !f.matches(&Value::Text("smith & sons".into())));
+        assert!(
+            f.matches_checked(&Value::Text("Smith & Sons".into()))
+                && !f.matches_checked(&Value::Text("smith & sons".into()))
+        );
     }
 
     #[test]
@@ -2252,7 +2386,7 @@ mod compare_error_tests {
             FilterExpr::Like("B*".into(), false),
         ]);
         assert!(f.compare_error(&unknown).is_some());
-        assert!(!f.matches(&unknown));
+        assert!(!f.matches_checked(&unknown));
     }
 
     #[test]

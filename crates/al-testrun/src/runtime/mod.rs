@@ -357,6 +357,9 @@ pub struct TestResult {
     pub entered: Vec<String>,
     /// With `RunOptions::impact_trace`: a DotNet operation ran in the test.
     pub dotnet: bool,
+    /// ADR-066 amendment 12, decision 2: a failed test of a default run (no `--strict-order`) that read first a
+    /// SingleInstance global an earlier test codeunit would have left with another value on BC (`order_hint.rs`).
+    pub order_hint: Option<OrderHint>,
 }
 
 /// Wall time of the phases of a run (`--timings`).
@@ -590,6 +593,10 @@ pub(crate) struct Unit {
     runner: Option<usize>,
     /// The session watches the single instances it makes (`single_lane.rs`).
     watch: bool,
+    /// ADR-066 amendment 12, decision 3: by default its tests can take NumberSequence numbers but it is not in the
+    /// carry chain for that (`ChainWhy::TestsTakeNumbers` without `--strict-order`): it is on the numbers list when
+    /// it comes after another such codeunit (`order_hint::numbers_order`).
+    takes_numbers: bool,
 }
 
 /// What a scratch run or a capture leaves besides outcomes, per test.
@@ -652,6 +659,8 @@ pub(crate) struct Scratch {
     /// The tests that started and did not run to their end (as for `unfinished_after_start`), each with the number
     /// `Session::single_test_begins` gave it (from 1) and its name (ADR-066 amendment 7, option 1).
     pub(crate) unfinished_at: Vec<(u32, String)>,
+    /// ADR-066 amendment 12, decision 2: the hint of each failed test (`TestResult::order_hint`), set by the lane.
+    pub(crate) order_hints: Vec<(String, OrderHint)>,
 }
 
 /// What a test codeunit left: each test's outcome, the call stack of each AL error that failed one, how long
@@ -968,10 +977,14 @@ mod grow;
 mod handlers;
 mod install_snapshot;
 mod lane_starts;
+#[cfg(test)]
+mod login_tests;
 pub mod memory;
 #[cfg(test)]
 mod min_row_version_tests;
+mod not_run_link;
 mod numbers_taken;
+mod order_hint;
 mod run;
 mod runner_reset;
 mod session_flags;
@@ -994,6 +1007,7 @@ pub use self::compiled::*;
 use self::grow::{Grow, GrowKept};
 pub use self::grow::{KeptCompile, fresh_pass_compile};
 use self::handlers::*;
+pub use self::order_hint::{NumbersOrder, OrderHint};
 pub use self::run::*;
 pub use self::single_fresh::{CarriedCodeunit, CarriedRead};
 pub use self::single_lane::{LaneReport, RerunSkipped, rerun_skipped_text};

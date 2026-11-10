@@ -33,6 +33,7 @@ mod install_rows;
 pub mod isolation;
 pub mod junit;
 pub mod license;
+mod login;
 pub mod observe;
 pub mod profiling;
 pub mod reach;

@@ -100,8 +100,10 @@ pub fn begin(r: &Request) {
 }
 
 /// Writes the profile of the run that [`begin`] started; `apps` are the APPs of the command line (their folders give
-/// the source links). Prints where the files went.
-pub fn end(r: &Request, apps: &[PathBuf]) {
+/// the source links). Prints where the files went. The write is streamed (al-runner issue 6924) and held to the run's
+/// hard memory limit (`--max-memory`, or the cgroup's `memory.max`; ADR-066 amendment 10, decision 6): it stops before
+/// the resident memory passes the limit, keeps the files it completed and says what it left out.
+pub fn end(r: &Request, apps: &[PathBuf], max_memory: Option<u64>) {
     let Some(c) = profiling::finish() else { return };
     let roots = app_roots(apps);
     let url_of = |n: &Node| -> Option<String> {
@@ -113,15 +115,26 @@ pub fn end(r: &Request, apps: &[PathBuf]) {
         let file = n.file.as_ref()?;
         Some(file_url(&dir.join(file.replace('\\', "/"))))
     };
-    match profiling::write::write(&r.path, &c, &url_of) {
-        Ok(files) => {
+    let limit = crate::memory_budget::hard_limit(max_memory);
+    let stop = || limit.as_ref().is_some_and(|l| l.reached());
+    match profiling::write::write(&r.path, &c, &url_of, &stop) {
+        Ok(w) => {
             eprintln!(
                 "profile ({}): {} file(s) in {}",
                 r.mode.name(),
-                files.len(),
+                w.files.len(),
                 r.path.display()
             );
-            WRITTEN.with(|w| *w.borrow_mut() = Some(files));
+            if let (Some(l), true) = (&limit, w.left_out > 0) {
+                eprintln!(
+                    "al-runner: profile: {} test codeunit(s) not written: the process reached its memory limit ({} MB, \
+                     {}) while it wrote the profile",
+                    w.left_out,
+                    l.limit >> 20,
+                    l.source
+                );
+            }
+            WRITTEN.with(|x| *x.borrow_mut() = Some(w.files));
         }
         Err(e) => eprintln!("al-runner: profile not written: {e}"),
     }

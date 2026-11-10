@@ -282,6 +282,7 @@ pub fn secondary_key_walks_follow_the_table_as_it_changes<S: Store>(mut s: S) {
     );
     // Filters apply to the walk.
     let f = [FieldFilter {
+        lang: al_builtins::filter::filter_language(),
         field: 2,
         expr: FilterExpr::Eq(Value::Integer(2)),
         group: 0,
@@ -300,6 +301,7 @@ pub fn filters_count_and_delete_all<S: Store>(mut s: S) {
         s.insert(&c, &t, row(n, a, 1)).unwrap();
     }
     let f = [FieldFilter {
+        lang: al_builtins::filter::filter_language(),
         field: 1,
         expr: FilterExpr::Range(Some(Value::Integer(10)), None),
         group: 0,

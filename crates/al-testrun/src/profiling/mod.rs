@@ -10,6 +10,8 @@
 //! thread is sampled on every tick (al-runner issue 6924: the old `AL_PROFILE` took one thread per tick).
 
 pub mod alcpuprofile;
+pub mod prune;
+pub mod stream;
 pub mod summary;
 pub mod write;
 
@@ -87,17 +89,19 @@ pub struct Statement {
 pub struct Node {
     pub parent: Option<usize>,
     pub children: Vec<usize>,
-    /// The routine (`OnValidate` of a field: `Quantity.OnValidate`); for the root, the thread's label.
-    pub function: String,
+    /// The routine (`OnValidate` of a field: `Quantity.OnValidate`); for the root, the thread's label. The texts and the
+    /// app of a node are shared by every node of the same routine in the run ([`Interner`]): a run keeps millions of
+    /// nodes until it ends (al-runner issue 6924).
+    pub function: Arc<str>,
     /// BC's object type name (`CodeUnit`, `Table`, ..., `System` for the root).
     pub object_type: &'static str,
     /// The AL keyword of the object (`Codeunit`), for the `al-preview` link of code without a file.
     pub keyword: &'static str,
-    pub object_name: String,
+    pub object_name: Arc<str>,
     pub object_id: u32,
-    pub app: AppRef,
+    pub app: Arc<AppRef>,
     /// The file the routine is in, as the program names it (relative to its app; a dependency's starts with its name).
-    pub file: Option<String>,
+    pub file: Option<Arc<str>>,
     /// 0-based position of the routine's first statement (BC's entry statement).
     pub line: u32,
     pub column: u32,
@@ -110,7 +114,7 @@ pub struct Node {
     pub statements: Vec<Statement>,
     pub db: Vec<al_vm::DbStat>,
     /// The name the text summary uses (`codeunit Calib.CpuWork`).
-    pub frame_name: String,
+    pub frame_name: Arc<str>,
 }
 
 /// A thread of the run.
@@ -151,6 +155,37 @@ struct State {
     ticks: Vec<Weak<AtomicBool>>,
 }
 
+/// The run's [`Interner`]: a lock of its own, so that resolving a tree does not hold up the ticker.
+static INTERNER: Mutex<Option<Interner>> = Mutex::new(None);
+
+/// The texts and apps of the run's nodes, each kept once (al-runner issue 6924: one codeunit's tree can hold hundreds
+/// of thousands of nodes of a few thousand routines).
+#[derive(Default)]
+pub(crate) struct Interner {
+    texts: std::collections::HashSet<Arc<str>>,
+    apps: Vec<Arc<AppRef>>,
+}
+
+impl Interner {
+    pub(crate) fn text(&mut self, s: &str) -> Arc<str> {
+        if let Some(t) = self.texts.get(s) {
+            return t.clone();
+        }
+        let t: Arc<str> = s.into();
+        self.texts.insert(t.clone());
+        t
+    }
+
+    pub(crate) fn app(&mut self, a: AppRef) -> Arc<AppRef> {
+        if let Some(x) = self.apps.iter().find(|x| ***x == a) {
+            return x.clone();
+        }
+        let x = Arc::new(a);
+        self.apps.push(x.clone());
+        x
+    }
+}
+
 static ON: AtomicBool = AtomicBool::new(false);
 static STATE: Mutex<Option<State>> = Mutex::new(None);
 /// Ticker generation: a ticker stops when it no longer matches (one per `start`).
@@ -170,6 +205,7 @@ pub fn start(options: Options) {
         codeunits: Vec::new(),
         ticks: Vec::new(),
     });
+    *INTERNER.lock().unwrap_or_else(|e| e.into_inner()) = Some(Interner::default());
     ON.store(true, Relaxed);
     if sampling {
         std::thread::Builder::new()
@@ -199,6 +235,7 @@ pub fn finish() -> Option<Collected> {
     ON.store(false, Relaxed);
     GENERATION.fetch_add(1, Relaxed);
     let s = state().take()?;
+    *INTERNER.lock().unwrap_or_else(|e| e.into_inner()) = None;
     let mut codeunits = s.codeunits;
     codeunits.sort_by(|a, b| a.codeunit.cmp(&b.codeunit).then(a.name.cmp(&b.name)));
     Some(Collected {
@@ -236,11 +273,17 @@ pub(crate) fn begin(session: &mut Session) {
 /// A test codeunit's session ends: its tree is resolved and kept.
 pub(crate) fn end(session: &mut Session, program: &Program, object: usize, tests: &[(String, Duration)]) {
     let Some(tree) = session.take_profile() else { return };
+    let tree = prune::sampled_paths(tree);
     let start_unix_us = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_micros() as u64)
         .saturating_sub(tree.wall_ns / 1000);
-    let p = resolve(&tree, program, object, tests, thread(), start_unix_us);
+    let p = {
+        let mut i = INTERNER.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(interner) = i.as_mut() else { return };
+        resolve(&tree, program, object, tests, thread(), start_unix_us, interner)
+    };
+    drop(tree);
     if let Some(s) = state().as_mut() {
         s.codeunits.retain(|c| c.codeunit != p.codeunit || c.name != p.name);
         s.codeunits.push(p);
@@ -340,6 +383,48 @@ fn first_pos(stmts: &[al_ir::Stmt]) -> Option<u32> {
     None
 }
 
+/// What every node of one routine shares.
+#[derive(Clone)]
+struct Routine {
+    function: Arc<str>,
+    object_type: &'static str,
+    keyword: &'static str,
+    object_name: Arc<str>,
+    object_id: u32,
+    app: Arc<AppRef>,
+    file: Option<Arc<str>>,
+    frame_name: Arc<str>,
+    line: u32,
+    column: u32,
+}
+
+fn routine(program: &Program, f: al_vm::ProfFrame, interner: &mut Interner) -> Routine {
+    let o = &program.objects[f.object];
+    let mut r = Routine {
+        function: interner
+            .text(&al_vm::profile_routine_label(program, f.object, f.routine).unwrap_or_else(|| "?".into())),
+        object_type: bc_object_type(o.kind),
+        keyword: keyword(o.kind),
+        object_name: interner.text(&o.name),
+        object_id: o.id.unwrap_or(0),
+        app: interner.app(app_ref(program, o.app)),
+        file: None,
+        frame_name: interner.text(&al_vm::profile_frame_name(program, f.object, f.routine)),
+        line: 0,
+        column: 0,
+    };
+    if let Some(rt) = o.routines.get(f.routine) {
+        let entry = first_pos(rt.body.stmts()).or(Some(rt.pos).filter(|&p| p != al_ir::NO_POS));
+        if let Some(p) = entry.and_then(|p| program.pos(p)) {
+            r.file = program.sources.get(p.file as usize).map(|s| interner.text(&s.path));
+            // The runner's lines and columns start at 1 (al-sema `locate`); the file's start at 0.
+            r.line = p.line.saturating_sub(1);
+            r.column = p.col.saturating_sub(1);
+        }
+    }
+    r
+}
+
 /// Resolves a session's tree against the program it ran.
 pub(crate) fn resolve(
     tree: &ProfileTree,
@@ -348,8 +433,15 @@ pub(crate) fn resolve(
     tests: &[(String, Duration)],
     thread: Thread,
     start_unix_us: u64,
+    interner: &mut Interner,
 ) -> CodeunitProfile {
     let obj = &program.objects[object];
+    let label = interner.text(&thread.label);
+    let system = interner.app(AppRef {
+        name: "System".into(),
+        ..AppRef::default()
+    });
+    let mut routines: std::collections::HashMap<(usize, usize), Routine> = std::collections::HashMap::new();
     let nodes = tree
         .nodes
         .iter()
@@ -368,30 +460,26 @@ pub(crate) fn resolve(
                 ..Node::default()
             };
             let Some(f) = n.frame else {
-                out.function = thread.label.clone();
-                out.object_name = thread.label.clone();
-                out.frame_name = thread.label.clone();
-                out.app.name = "System".into();
+                out.function = label.clone();
+                out.object_name = label.clone();
+                out.frame_name = label.clone();
+                out.app = system.clone();
                 return out;
             };
-            let o = &program.objects[f.object];
+            let r = routines
+                .entry((f.object, f.routine))
+                .or_insert_with(|| routine(program, f, interner));
             out.event = f.event;
-            out.object_type = bc_object_type(o.kind);
-            out.keyword = keyword(o.kind);
-            out.object_name = o.name.clone();
-            out.object_id = o.id.unwrap_or(0);
-            out.app = app_ref(program, o.app);
-            out.function = al_vm::profile_routine_label(program, f.object, f.routine).unwrap_or_else(|| "?".into());
-            out.frame_name = al_vm::profile_frame_name(program, f.object, f.routine);
-            if let Some(r) = o.routines.get(f.routine) {
-                let entry = first_pos(r.body.stmts()).or(Some(r.pos).filter(|&p| p != al_ir::NO_POS));
-                if let Some(p) = entry.and_then(|p| program.pos(p)) {
-                    out.file = program.sources.get(p.file as usize).map(|s| s.path.clone());
-                    // The runner's lines and columns start at 1 (al-sema `locate`); the file's start at 0.
-                    out.line = p.line.saturating_sub(1);
-                    out.column = p.col.saturating_sub(1);
-                }
-            }
+            out.object_type = r.object_type;
+            out.keyword = r.keyword;
+            out.object_name = r.object_name.clone();
+            out.object_id = r.object_id;
+            out.app = r.app.clone();
+            out.function = r.function.clone();
+            out.frame_name = r.frame_name.clone();
+            out.file = r.file.clone();
+            out.line = r.line;
+            out.column = r.column;
             out.statements = n
                 .positions
                 .iter()
@@ -468,7 +556,7 @@ pub fn finish_legacy() {
     let _ = std::fs::write(&path, summary::render(&c));
     let mut merged = path.into_os_string();
     merged.push(".alcpuprofile");
-    let _ = write::write(std::path::Path::new(&merged), &c, &|_| None);
+    let _ = write::write(std::path::Path::new(&merged), &c, &|_| None, &|| false);
 }
 
 #[cfg(test)]

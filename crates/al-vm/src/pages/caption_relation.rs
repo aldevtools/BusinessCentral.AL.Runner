@@ -65,6 +65,7 @@ impl Session {
             self.store.get(&cx, &related, std::slice::from_ref(&key))
         } else {
             let filters = [al_builtins::filter::FieldFilter {
+                lang: al_builtins::filter::filter_language(),
                 field: at,
                 expr: al_builtins::filter::FilterExpr::Eq(key.clone()),
                 group: 0,

@@ -1721,7 +1721,7 @@ codeunit 50001 "T" { Subtype = Test;
 }
 
 /// Outcomes of the test codeunit of a workspace app `main` over a dependency app `dep`.
-fn outcomes_over_dependency(main: &str, dep: &str) -> Vec<(String, Outcome)> {
+pub(super) fn outcomes_over_dependency(main: &str, dep: &str) -> Vec<(String, Outcome)> {
     let app = |id: &str, deps: &[&str], src: &str| AppSource {
         id: id.into(),
         name: id.into(),

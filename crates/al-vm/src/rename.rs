@@ -152,7 +152,7 @@ impl Session {
                     if let Some(e) = expr.compare_error(&new[*related]) {
                         return Err(rename_refusal(e));
                     }
-                    parent_ok &= expr.matches(&new[*related]);
+                    parent_ok &= expr.matches(&new[*related])?;
                 }
             }
             if !parent_ok {
@@ -162,6 +162,7 @@ impl Session {
             let new_value = ops::convert(new[rel].clone(), &child.fields[r.pos].ty)?;
             // The rows carrying the old value, snapshotted before any is rewritten.
             let filters = [FieldFilter {
+                lang: al_builtins::filter::filter_language(),
                 field: r.pos,
                 expr: FilterExpr::Eq(old_value),
                 group: 0,

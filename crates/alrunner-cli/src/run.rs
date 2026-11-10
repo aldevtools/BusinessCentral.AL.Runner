@@ -519,7 +519,7 @@ fn profiled(a: &TestArgs, f: impl FnOnce() -> Result<u8, String>) -> Result<u8, 
     let Some(r) = &a.profile else { return f() };
     crate::profile::begin(r);
     let out = f();
-    crate::profile::end(r, &a.apps);
+    crate::profile::end(r, &a.apps, a.max_memory);
     out
 }
 
@@ -1595,10 +1595,12 @@ fn test_inner(
         dev_endpoint_ui: crate::dev_endpoint_ui::for_major(a.dev_endpoint_ui, chosen.target.bc.major)?, // issue 3697
         allow_write_in_try_functions: a.allow_write_in_try_functions,                                   // issue 7143
         dependencies_published_global: a.dependencies_published_global,                                 // issue 7169
-        strict_order: a.strict_order, // `--strict-order` (ADR-066 amendment 4)
-        single_fresh_check: false,    // set per variant in stability mode (ADR-058 amendment 1)
-        max_replay: a.max_replay,     // `--max-replay N` (ADR-066 amendment 7)
-        test_suites,                  // `--test-suites FILE` (ADR-066 amendment 6)
+        strict_order: a.strict_order, // `--strict-order` (ADR-066 amendment 12)
+        strict_after: None,
+        replay_every_dependent: false, // only a stability run sets it (ADR-058 amendment 1)
+        single_fresh_check: false,     // set per variant in stability mode (ADR-058 amendment 1)
+        max_replay: a.max_replay,      // `--max-replay N` (ADR-066 amendment 7)
+        test_suites,                   // `--test-suites FILE` (ADR-066 amendment 6)
         memory: crate::memory_budget::budget(a.max_memory, warm.is_none() && debug.is_none()), // `--max-memory`
         perturb: Default::default(),
         chain_wait_for_runs_ahead: false, // for tests of the carry chain only
@@ -2076,7 +2078,8 @@ fn test_inner(
     // ADR-066 amendment 7, option 2: a re-run skipped for the length of its chain is said with or without `--timings`
     // (`--timings` prints it with the other lane lines).
     if !a.timings {
-        for line in p.chain.single_lane.skipped_lines() {
+        // ADR-066 amendment 12, decision 3: and the numbers list (`--timings` prints it with the chain lines).
+        for line in p.chain.run_output_lines() {
             eprintln!("{line}");
         }
     }
@@ -2134,9 +2137,7 @@ fn test_inner(
                         r.test,
                         output::first_line(why, 300)
                     );
-                    for frame in output::stack_lines(&r.call_stack) {
-                        line.push_str(&format!("\n          {frame}"));
-                    }
+                    line.push_str(&output::failure_tail(r));
                     line
                 }
                 _ => continue,
@@ -2286,7 +2287,7 @@ fn test_inner(
                             total_time.as_secs_f64(),
                             &|cu, t| disabled.as_ref().is_some_and(|d| d.is_disabled(cu, t)),
                             &rt.phases.baseline_assumptions,
-                            &|r| output::rerun_skipped_property(&rt.phases.chain.single_lane, r),
+                            &|r| output::order_properties(&rt.phases.chain, r),
                         ),
                         run_seed,
                     ),

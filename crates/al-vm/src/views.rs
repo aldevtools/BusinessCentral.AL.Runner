@@ -47,10 +47,8 @@ impl Session {
     /// GetView_Field_Types `date`).
     fn filter_value_with(&self, v: &Value, iso: bool) -> Result<String, Signal> {
         // An enum value with a `CaptionML` shows its caption in the session language, as Format does
-        // (format-evaluate/EnumCaptionReaders.al ECR_FilterTexts_1033, _2067), when the filter was set under that language.
-        if let Some(why) = self.enum_ml_filter_refusal(v) {
-            return Err(Signal::Unsupported(why));
-        }
+        // (format-evaluate/EnumCaptionReaders.al ECR_FilterTexts_1033, _2067), when the filter was set under that language
+        // (`Session::enum_ml_filter_check`, called by the readers of a filter entry).
         // A blank date shows as two single quotes, like a blank text (record/crud/RcAMisc.al:
         // SetRecFilter_Composite_And_Text_Keys `dateBlank`).
         // A blank DateTime too, in a view and in GetFilters (record/views/Y71SetViewDateTime.al:105-134
@@ -212,12 +210,15 @@ impl Session {
             FilterExpr::Like(p, ci) if needs_quotes(p) && !p.contains('\'') => {
                 format!("'{}{p}'", if *ci { "@" } else { "" })
             }
+            // `@''` reads back as written (corpus master record/crud/RcAFilters.al:1011, :1026 `at two apos`).
+            FilterExpr::Like(p, true) if p.is_empty() => "@''".to_string(),
             FilterExpr::Like(p, ci) => format!("{}{p}", if *ci { "@" } else { "" }),
             // record/filters/WildcardGetFilter.al:125-171: `<>*`, `<>A*`, `<>@a*` read back as written.
             FilterExpr::NotLike(p, ci) => format!("<>{}{p}", if *ci { "@" } else { "" }),
             // record/filters/WcInvalidFilterExpr.al:84-111: `@` and `<>@` read back as written.
             FilterExpr::AtSignAlone(negated) => if *negated { "<>@" } else { "@" }.to_string(),
             FilterExpr::EmptyViewValue => "==".to_string(),
+            FilterExpr::UnpinnedMatch(inner, _) => self.filter_text_with(inner, iso)?,
             FilterExpr::NumCode(inner) => self.filter_text_with(inner, iso)?,
             // The parts of an OR list each show as alone: a quoted empty text on a DateTime field as `''..''` (record/views/
             // Y71SetViewDateTime.al:125-127 dt_empty_or, :207-209 sca_empty_or), the blank DateTime given as %1 as `''`
@@ -273,7 +274,10 @@ impl Session {
             .filters
             .iter()
             .filter(|f| f.field == pos && f.group == r.filter_group)
-            .map(|f| self.filter_text(&self.with_option_captions(&table, pos, &f.expr)))
+            .map(|f| {
+                self.enum_ml_filter_check(&table, f)?;
+                self.filter_text(&self.with_option_captions(&table, pos, &f.expr))
+            })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(parts.join(""))
     }
@@ -350,6 +354,7 @@ impl Session {
             parts.push("Marked: Yes".to_string());
         }
         for f in Self::filters_in_field_order(rec) {
+            self.enum_ml_filter_check(t, &f)?;
             parts.push(format!(
                 "{}: {}",
                 self.field_caption(t, f.field),
@@ -450,6 +455,7 @@ impl Session {
                     let iso = !matches!(t.fields[f.field].ty, RtType::Boolean);
                     self.filter_text_with(&ordinals(&f.expr), iso)?
                 } else {
+                    self.enum_ml_filter_check(t, f)?;
                     self.filter_text_with(&f.expr, true)?
                 };
                 // The numeric form writes the kind as a number: FILTER is 1, CONST is 0.
@@ -645,6 +651,7 @@ impl Session {
                         };
                         filters.retain(|f| f.field != pos);
                         filters.push(FieldFilter {
+                            lang: al_builtins::filter::filter_language(),
                             field: pos,
                             expr,
                             group,
@@ -753,6 +760,7 @@ fn ordinals(e: &FilterExpr) -> FilterExpr {
         FilterExpr::NotLike(p, ci) => FilterExpr::NotLike(p.clone(), *ci),
         FilterExpr::AtSignAlone(n) => FilterExpr::AtSignAlone(*n),
         FilterExpr::EmptyViewValue => FilterExpr::EmptyViewValue,
+        FilterExpr::UnpinnedMatch(..) => e.clone(),
         FilterExpr::NumCode(e) => FilterExpr::NumCode(e.clone()),
     }
 }

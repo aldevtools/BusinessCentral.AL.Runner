@@ -31,7 +31,7 @@ pub struct SharedBaseline {
 /// Why an install baseline is not frozen (each thread then keeps a copy of its own).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NotShared {
-    /// A key or row of the install baseline holds a value that is not plain (decision 3): where, and what it is.
+    /// A key or row of the install baseline holds a value that has no bytes form (decision 3): where, and what it is.
     Value(al_data::memory::NotShareable),
     /// The baseline does not read back from its bytes.
     NoReadBack,
@@ -46,13 +46,16 @@ impl Baseline {
     }
 
     /// This baseline frozen for every test thread to share (ADR-069 decision 1), or why it cannot be: a row holds a
-    /// value that is not plain (decision 3), and each thread then keeps a copy of its own.
+    /// value that has no bytes form (decision 3), and each thread then keeps a copy of its own.
     ///
     /// The frozen tables are those a copy read from this baseline's bytes holds (`to_bytes`, `from_bytes`), so each
     /// thread starts from exactly what the copy per thread it replaces held: the same rows, keys and counters, and
     /// Blobs that no store of the install thread shares. That is one copy of the install rows per run (a few MB).
+    ///
+    /// A table whose rows hold a value that is not plain but has a bytes form (a RecordId, a TableFilter) is a copy per
+    /// thread, read from its bytes by each `thaw` (`FrozenStore`); every other table stays shared.
     pub fn freeze(&self) -> Result<SharedBaseline, NotShared> {
-        if let Some(why) = self.store.first_not_shareable() {
+        if let Some(why) = self.first_without_bytes() {
             return Err(NotShared::Value(why));
         }
         let bytes = self.to_bytes().ok_or(NotShared::NoReadBack)?;
@@ -107,6 +110,11 @@ impl SharedBaseline {
     /// them once (decision 10).
     pub fn bytes(&self) -> u64 {
         self.store.bytes()
+    }
+
+    /// The tables held as bytes, a copy per thread (`FrozenStore::held_tables`): (company, table object index, rows).
+    pub fn held_tables(&self) -> Vec<(String, u32, usize)> {
+        self.store.held_tables()
     }
 
     /// How many rows the frozen install baseline holds.

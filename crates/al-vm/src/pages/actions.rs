@@ -1840,9 +1840,8 @@ impl Session {
             return Ok(false);
         }
         let rec = self.page_rec(st);
-        let on_row = self
-            .stored_row(&rec)?
-            .is_some_and(|f| rec.borrow().filters.iter().all(|x| x.expr.matches(&f[x.field])));
+        let row = self.stored_row(&rec)?;
+        let on_row = al_builtins::filter::passing(&rec.borrow().filters, row)?.is_some();
         if on_row {
             return Ok(false);
         }
@@ -2114,9 +2113,8 @@ impl Session {
         }
         st.borrow_mut().refresh = false;
         st.borrow_mut().save_record_called = false;
-        let own = self
-            .stored_row(&rec)?
-            .filter(|f| rec.borrow().filters.iter().all(|x| x.expr.matches(&f[x.field])));
+        let own = self.stored_row(&rec)?;
+        let own = al_builtins::filter::passing(&rec.borrow().filters, own)?;
         let fields = match own.clone() {
             Some(f) => f,
             None => {
@@ -3731,11 +3729,8 @@ impl Session {
         for (n, &f) in table.keys[0].iter().enumerate() {
             let mut p = probe.borrow_mut();
             p.filters.retain(|x| x.field != f);
-            p.filters.push(al_builtins::filter::FieldFilter {
-                field: f,
-                expr: al_builtins::filter::FilterExpr::Range(Some(pk[n].clone()), Some(pk[n].clone())),
-                group: 0,
-            });
+            let range = al_builtins::filter::FilterExpr::Range(Some(pk[n].clone()), Some(pk[n].clone()));
+            p.filters.push(al_builtins::filter::FieldFilter::new(f, range, 0));
         }
         self.ret_used = true;
         if matches!(
@@ -3746,7 +3741,7 @@ impl Session {
             // The probe replaced the view's filters on key fields with the key; the row must still
             // pass the filters the page has (a Get of a row the view hides shows nothing:
             // testpage/parts/BnrBlankPart.al NoRow_Action_GetOfARowTheFilterHides_StaysBlank).
-            if !rec.borrow().filters.iter().all(|f| f.expr.matches(&fields[f.field])) {
+            if !al_builtins::filter::all_match(&rec.borrow().filters, &fields)? {
                 return Ok(());
             }
             rec.borrow_mut().fields = fields;

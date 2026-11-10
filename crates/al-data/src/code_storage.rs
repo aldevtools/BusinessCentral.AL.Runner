@@ -131,7 +131,9 @@ fn map_expr(e: &E, field: &str, variant: bool) -> Result<E, StoreError> {
                 .collect::<Result<_, _>>()?,
         ),
         // Wildcards read the text, which the cell is.
-        E::Like(..) | E::NotLike(..) | E::AtSignAlone(_) | E::EmptyViewValue | E::NumCode(_) => e.clone(),
+        E::Like(..) | E::NotLike(..) | E::AtSignAlone(_) | E::EmptyViewValue | E::NumCode(_) | E::UnpinnedMatch(..) => {
+            e.clone()
+        }
     })
 }
 
@@ -139,7 +141,7 @@ fn map_expr(e: &E, field: &str, variant: bool) -> Result<E, StoreError> {
 fn compares_numbers(e: &E) -> bool {
     match e {
         E::Or(xs) | E::And(xs) => xs.iter().any(compares_numbers),
-        E::Like(..) | E::NotLike(..) | E::AtSignAlone(_) | E::EmptyViewValue => false,
+        E::Like(..) | E::NotLike(..) | E::AtSignAlone(_) | E::EmptyViewValue | E::UnpinnedMatch(..) => false,
         _ => true,
     }
 }
@@ -175,6 +177,7 @@ pub fn number_filters<'a>(
     for f in filters {
         if numeric(f) && compares_numbers(&f.expr) {
             mapped.push(FieldFilter {
+                lang: al_builtins::filter::filter_language(),
                 field: f.field,
                 expr: map_expr(&f.expr, &t.fields[f.field].name, stored(f) == CodeStorage::Variant)?,
                 group: f.group,

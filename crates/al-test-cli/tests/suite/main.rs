@@ -119,6 +119,7 @@ mod page_open_record;
 mod page_run_field_arg;
 mod page_run_fqn_handlers;
 mod page_trigger_errors;
+mod page_unclosed_quote_filter;
 mod page_views;
 mod pageext_implicit_promoted;
 mod pageext_move_actions;

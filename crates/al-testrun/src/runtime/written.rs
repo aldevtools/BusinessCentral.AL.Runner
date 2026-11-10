@@ -314,6 +314,42 @@ pub(crate) fn reach_facts(
     walk_reach(events, lowered, index, &[(object, routine)], &|_| false)
 }
 
+/// The facts of the calls of routine `routine` of `object`: the routines it calls and those they call, without the table
+/// triggers, the subscribers of the events they raise (integration, business, table and object events, and the `Global
+/// Triggers` database events), and the objects run. What a routine writes through its own calls, for the tables whose rows a test can only have from it
+/// (`login.rs`): the event fan-out of a walk reaches most of Base Application from one record variable.
+pub(crate) fn call_reach_facts(
+    events: &al_vm::events::Registry,
+    lowered: &Lowered,
+    index: &ReachIndex,
+    object: usize,
+    routine: usize,
+) -> ReachFacts {
+    let mut walk = Walk::new(events, lowered, index);
+    walk.calls_only = true;
+    walk.stack.push((object, routine));
+    walk.run(&|_| false);
+    walk.out
+}
+
+/// The facts of the joined reach of the routines `roots`, one walk of the union of their reaches, that does not enter
+/// the routines `skip` (nor what only they reach).
+pub(crate) fn union_reach_facts_skipping(
+    events: &al_vm::events::Registry,
+    lowered: &Lowered,
+    index: &ReachIndex,
+    roots: &[(usize, usize)],
+    skip: &[(usize, usize)],
+) -> ReachFacts {
+    let mut walk = Walk::new(events, lowered, index);
+    for &(o, r) in skip {
+        walk.first_visit(o, r);
+    }
+    walk.stack.extend(roots.iter().rev().copied());
+    walk.run(&|_| false);
+    walk.out
+}
+
 /// Whether `fact` holds of the joined reach of the routines `roots`: one walk of the union of their reaches, which
 /// stops as soon as `fact` holds. `fact` must be one that, once it holds of part of a reach, holds of all of it (a
 /// table, a state bit, a part not known); it then holds of the union exactly when it holds of the reach of one of the
@@ -635,6 +671,8 @@ struct Walk<'a> {
     global_triggers: bool,
     /// Whether the walk keeps the tables, globals and state it reaches ([`ReachFacts`]) besides the reasons.
     facts: bool,
+    /// Whether the walk follows calls only ([`call_reach_facts`]).
+    calls_only: bool,
 }
 
 impl<'a> Walk<'a> {
@@ -652,6 +690,7 @@ impl<'a> Walk<'a> {
             stack: Vec::new(),
             global_triggers: false,
             facts: true,
+            calls_only: false,
         }
     }
 
@@ -819,7 +858,7 @@ impl<'a> Walk<'a> {
             None => self.out.writes_any = true,
         }
         // The `Global Triggers` database events fire on writes.
-        if !self.global_triggers {
+        if !self.global_triggers && !self.calls_only {
             self.global_triggers = true;
             self.stack.extend(self.index.global_triggers.iter().copied());
         }
@@ -829,6 +868,10 @@ impl<'a> Walk<'a> {
     /// then its steps in the order the body takes them, so the walk pushes and enters exactly what a walk of the body
     /// would.
     fn routine(&mut self, o: usize, r: usize) {
+        // A walk of calls only does not raise events: a publisher's body is empty, its steps are its subscribers.
+        if self.calls_only && self.events.publishers.contains_key(&(o, r)) {
+            return;
+        }
         let index = self.index;
         let fresh;
         let s = match index.summary(self.events, self.lowered, o, r) {
@@ -860,6 +903,7 @@ impl<'a> Walk<'a> {
                         self.out.unknown = Some(why.to_string());
                     }
                 }
+                Step::Events(_) | Step::TableOps(..) | Step::Run(_) if self.calls_only => {}
                 Step::Events(t) => self.events(*t),
                 Step::TableOps(t, ops) => self.table_ops(*t, *ops),
                 Step::Run(x) => self.run_object(*x),

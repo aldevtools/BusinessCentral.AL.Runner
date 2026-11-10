@@ -59,7 +59,7 @@ impl WhyPrivate {
             WhyPrivate::NotShared(al_vm::NotShared::Value(n)) => n,
         };
         format!(
-            "a row of the install baseline holds a value that is not plain: {}",
+            "a row of the install baseline holds a value that has no plain form: {}",
             describe_value(n, program)
         )
     }
@@ -156,8 +156,9 @@ impl InstallSnapshots {
                     "a test thread wrote to the shared install baseline (ADR-069 risk 1)"
                 );
                 Some(format!(
-                    "install baseline: shared by the test threads, {} rows, {} at the end",
+                    "install baseline: shared by the test threads, {} rows{}, {} at the end",
                     s.rows(),
+                    held_note(&s.held_tables(), program),
                     if unchanged { "unchanged" } else { "CHANGED" }
                 ))
             }
@@ -167,4 +168,34 @@ impl InstallSnapshots {
             )),
         }
     }
+}
+
+/// The tables of a shared baseline that are a copy per thread because a row holds a RecordId or a TableFilter
+/// (`SharedBaseline::held_tables`), for the `--timings` line: empty when there are none.
+fn held_note(held: &[(String, u32, usize)], program: &al_ir::Program) -> String {
+    if held.is_empty() {
+        return String::new();
+    }
+    const SHOWN: usize = 5;
+    let mut names: Vec<String> = held
+        .iter()
+        .take(SHOWN)
+        .map(|(company, object, rows)| {
+            let o = program.objects.get(*object as usize);
+            format!(
+                "table {} '{}' of company '{company}' ({rows} rows)",
+                o.and_then(|o| o.id).map_or("?".into(), |id| id.to_string()),
+                o.map_or("?", |o| o.name.as_str())
+            )
+        })
+        .collect();
+    if held.len() > SHOWN {
+        names.push(format!("and {} more", held.len() - SHOWN));
+    }
+    format!(
+        " ({} of them in {} tables a copy per thread, a RecordId or TableFilter: {})",
+        held.iter().map(|h| h.2).sum::<usize>(),
+        held.len(),
+        names.join(", ")
+    )
 }

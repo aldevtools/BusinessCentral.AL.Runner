@@ -96,6 +96,7 @@ impl Session {
             });
             if tells {
                 return Ok(al_builtins::filter::FieldFilter {
+                    lang: al_builtins::filter::filter_language(),
                     field: *field,
                     expr: al_builtins::filter::FilterExpr::Or(
                         values

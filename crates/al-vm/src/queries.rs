@@ -928,7 +928,7 @@ impl Session {
                     if let Some(why) = row[*field].unknown() {
                         return unsupported(why.to_string());
                     }
-                    ok &= expr.matches(&row[*field]);
+                    ok &= expr.matches(&row[*field])?;
                 }
                 if ok {
                     kept.push(j);
@@ -944,7 +944,7 @@ impl Session {
             let mut rows = Vec::new();
             for j in joined {
                 let columns = self.project(def, &plan, &j)?;
-                if plan.post.iter().all(|(c, e)| e.matches(&columns[*c])) {
+                if columns_pass(&plan.post, &columns)? {
                     // Order by the OrderBy columns, then the primary key of each dataitem.
                     let mut key: Vec<Value> = def.order_by.iter().map(|(c, _)| columns[*c].clone()).collect();
                     for (item, row) in def.items.iter().zip(&j) {
@@ -996,6 +996,7 @@ impl Session {
                     _ => return unsupported("a table filter condition of this form"),
                 };
                 plan.scan[i].push(FieldFilter {
+                    lang: al_builtins::filter::filter_language(),
                     field: c.field,
                     expr,
                     group: 0,
@@ -1038,13 +1039,23 @@ impl Session {
             if c.filter_element && schema.flow_filter {
                 // Corpus queries/TestQueryFlowFieldColumn.al:150-200: it sets the flow filter of the
                 // FlowFields of the dataitem; it never constrains the rows.
-                plan.flow[c.item].push(FieldFilter { field, expr, group: 0 });
+                plan.flow[c.item].push(FieldFilter {
+                    lang: al_builtins::filter::filter_language(),
+                    field,
+                    expr,
+                    group: 0,
+                });
             } else if schema.stored && ((item.left_outer && item.parent.is_some()) || has_right) {
                 // With a right or full outer join in the query a filter acts on the joined rows: a root row filtered before the join
                 // would turn the child rows it linked into unlinked ones (queries/joins-links/P71FilterRightFull.al).
                 plan.outer.push((c.item, field, expr));
             } else if schema.stored {
-                plan.scan[c.item].push(FieldFilter { field, expr, group: 0 });
+                plan.scan[c.item].push(FieldFilter {
+                    lang: al_builtins::filter::filter_language(),
+                    field,
+                    expr,
+                    group: 0,
+                });
             } else {
                 // A filter() element over a FlowField is calculated on the rows of its own data item, before the join and the
                 // grouping (queries/CgQueryLeads.al:759,792 for one data item; queries/joins-links/
@@ -1159,6 +1170,7 @@ impl Session {
                 let linked = item.link_items.get(k).copied().unwrap_or(parent);
                 let v = ops::convert(chosen[linked][*theirs].clone(), &t.fields[*own].ty)?;
                 filters.push(FieldFilter {
+                    lang: al_builtins::filter::filter_language(),
                     field: *own,
                     expr: FilterExpr::Eq(v),
                     group: 0,
@@ -1366,7 +1378,7 @@ impl Session {
         let mut keyed: Vec<(Vec<Value>, JoinedRow)> = Vec::new();
         for j in joined {
             let columns = self.project(def, plan, &j)?;
-            if !plan.post.iter().all(|(c, e)| e.matches(&columns[*c])) {
+            if !columns_pass(&plan.post, &columns)? {
                 continue;
             }
             let key = group_cols.iter().map(|c| columns[*c].clone()).collect();
@@ -1508,7 +1520,7 @@ impl Session {
             }
             // HAVING: the filters on aggregated columns see the group's result (corpus
             // queries/TestQueryAggregation.al:182-221, TestQueryColumnFilter.al:36-100).
-            if !plan.having.iter().all(|(c, e)| e.matches(&columns[*c])) {
+            if !columns_pass(&plan.having, &columns)? {
                 continue;
             }
             // Order by the OrderBy columns, then the remaining grouping columns.
@@ -1518,4 +1530,14 @@ impl Session {
         }
         Ok(out)
     }
+}
+
+/// Whether every column filter `(column, filter)` matches its column; a filter whose matching is not pinned refuses.
+fn columns_pass(filters: &[(usize, al_builtins::filter::FilterExpr)], columns: &[Value]) -> Result<bool, Signal> {
+    for (c, e) in filters {
+        if !e.matches(&columns[*c])? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }

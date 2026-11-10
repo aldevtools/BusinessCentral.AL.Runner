@@ -1464,3 +1464,9 @@ text/textbuilder-bigtext, format-evaluate, format-evaluate, types/date-time).
 | A test inserts a NumberSequence, a later test of the same codeunit fails, a test after it reads the sequence | BUILT (al-vm/src/sequence_start.rs `drop_sequences_inserted_since`): the sequence is gone (isolation probe IsolProbeAfterRollback.Codeunit.al S3, S4, S8, S9 under runner 61301, oracle of BC 28.4). Without a failed test in between it stays (codeunits/run-onrun/SeqCarry.al:20-21). | Whether `asserterror` inside a test (not a failed test) also takes back an Insert made by an earlier test of the codeunit; the runtime does not |
 | A sequence that existed when the codeunit's tests began is restarted or deleted, then a test fails | REFUSED: the later tests of the codeunit are not run (al-testrun/src/isolation.rs `after_test`) | Exists, Current and Next of such a sequence in the test after the failed one |
 | Numbers taken by `Next` from such a sequence, then a test fails | KEPT, as at the codeunit's end (SeqCarry.al:26-27); not measured after a failed test | Next in the test after the failed one |
+
+## SetFilter with an unclosed quote after `@` (al-runner issue 7462, 2026-11-09)
+
+| Shape | Status | Probe wanted |
+|---|---|---|
+| Which rows `@'`, `@'abc` and `@'''` keep on a Text field | REFUSED wherever such a filter selects rows: `FilterExpr::matches` returns Signal::Unsupported for `FilterExpr::UnpinnedMatch` (al-builtins/src/filter.rs), so record reads, FlowField filters, pages, query columns, relations and platform tables all refuse with one reason; a store refuses the read once at its entry. SetFilter accepts them and GetFilter shows them as given, which corpus master record/crud/RcAFilters.al:996-1027 pins. | Rows holding `'`, `''`, `'abc`, `'ABC`, `abc` and blank under each of the three filters, on a Text and a Code field; also `<>'`, `a\|'` and `=''abc` (an unclosed quote after other operators is refused at SetFilter). |
