@@ -320,6 +320,24 @@ mod tests {
         }
     }
 
+    /// Pinned by corpus tests/al-language/xml/xml-buffer/XmlBufferLoad.al (al-runner issue 7386).
+    #[test]
+    fn credential_cache_is_allowed_and_the_rest_of_system_net_is_not() {
+        let p = p();
+        assert_eq!(
+            p.check(
+                None,
+                "System.Net.CredentialCache",
+                Access::Member("DefaultNetworkCredentials")
+            ),
+            Ok(())
+        );
+        refused(
+            p.check(None, "System.Net.NetworkCredential", Access::Construct(2)),
+            &["System.Net.NetworkCredential"],
+        );
+    }
+
     #[test]
     fn environment_touching_types_and_namespaces_are_refused_by_name() {
         let p = p();

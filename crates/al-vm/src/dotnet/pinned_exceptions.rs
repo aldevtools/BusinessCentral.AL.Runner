@@ -47,6 +47,14 @@ pub(super) fn signal(
         (MemberKind::Call, "System.Xml.XmlException") if clr_type.eq_ignore_ascii_case("System.Xml.XmlDocument") => {
             xml_load_member(member).map(|m| (format!("{clr_type}.{m}"), "DotNetInvoke:Xml"))
         }
+        // XML Buffer.LoadFromText of text that is not well formed, or of an empty text: the XmlException of
+        // `XmlTextReaderImpl.Read` reaches AL as `A call to System.Xml.XmlTextReaderImpl.Read failed with this message: ...`
+        // (xml/xml-buffer/XmlBufferLoad.al:123-139 XmlBuffer_LoadFromText_Invalid_Raises; BC 27.5, 28.5, 29.0).
+        (MemberKind::Call, "System.Xml.XmlException")
+            if clr_type.eq_ignore_ascii_case("System.Xml.XmlTextReaderImpl") && member.eq_ignore_ascii_case("Read") =>
+        {
+            Some((format!("{clr_type}.Read"), "DotNetInvoke:Xml"))
+        }
         // The Position of a MemoryStream JsonObject.ReadFrom closed (dotnet/dotnet-builtin-args/Y51DotNetBuiltinArgs.al:
         // DotNetMemoryStream_JsonObjectReadFrom `pos_after_json`).
         (MemberKind::Get, "System.ObjectDisposedException")

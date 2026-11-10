@@ -158,6 +158,8 @@ pub const KEY_VAULT_MOCK_PROVIDER: &str = "MockTest.MockAzureKeyVaultSecret.Mock
 pub const PASSWORD_GENERATOR: &str = "Microsoft.Dynamics.Nav.PasswordGenerator.PasswordGenerator";
 pub const VSCODE_REQUEST_HELPER: &str = "Microsoft.Dynamics.Nav.Runtime.VSCodeRequestHelper";
 pub const AL_SEARCH: &str = "Microsoft.Dynamics.Nav.DataSearch.AL.ALSearch";
+/// The server class behind System Application's "Type Helper".NewLine (al-vm `dotnet/system_environment.rs`).
+pub const SYSTEM_ENVIRONMENT: &str = "Microsoft.Dynamics.Nav.SystemEnvironment.SystemEnvironment";
 
 pub const SIGS: &[(&str, &str, Ret)] = &[
     (GRAPH_QUERY, "GraphQuery", Ret::Object),
@@ -339,6 +341,10 @@ pub const SIGS: &[(&str, &str, Ret)] = &[
     (PASSWORD_GENERATOR, "GeneratePassword", Ret::Text),
     (VSCODE_REQUEST_HELPER, "GetLaunchInformationQueryPart", Ret::Text),
     (AL_SEARCH, "IsItemSearchReady", Ret::Boolean),
+    (SYSTEM_ENVIRONMENT, "SystemEnvironment", Ret::Object),
+    (SYSTEM_ENVIRONMENT, "NewLine", Ret::Text),
+    (SYSTEM_ENVIRONMENT, "ToString", Ret::Text),
+    (SYSTEM_ENVIRONMENT, "Equals", Ret::Boolean),
 ];
 
 /// The declared result of `member` on `clr_type`, if the runtime provides that member.
