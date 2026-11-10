@@ -1234,6 +1234,12 @@ impl Parser<'_> {
             // The empty text is the empty formula: `''` keeps the row without a formula, `<>''` the rows with one
             // (record/Y70Probes.al:218-262, FilterDateFormula_EmptyText `filter_two_quotes`, `filter_ne_two_quotes`).
             T::DateFormula if text.trim().is_empty() => Value::DateFormula(String::new()),
+            // The empty text on a RecordId field is the empty RecordId: `''` keeps the rows without one, `<>''` the rows with one
+            // (recordref-fieldref/fieldref/FieldRefFilterEmptyText.al:153-190, `neq_text_same_field`, `eq_text_same_field`;
+            // al-runner issue 7437).
+            T::Library(crate::library_kind::LibraryKind::RecordId) if text.trim().is_empty() => {
+                Value::default_for(self.ty)
+            }
             // A formula without brackets is the stored formula: `1M` keeps the row of `<1M>`, `<=1M` and `<>1M` compare the
             // stored texts (record/filters/DateFormulaOperatorFilterText.al:116-134, staging r6980). Pinned for a number and an
             // upper-case unit.
