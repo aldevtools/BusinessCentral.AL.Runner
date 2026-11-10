@@ -51,7 +51,7 @@ impl Session {
         let engine = self.engine();
         let page = page_of(&engine, st);
         for (i, c) in page.controls.iter().enumerate() {
-            if c.kind != ir::ControlKind::Part || self.control_eliminated(st, i) || self.part_removed(st, i)? {
+            if c.kind != ir::ControlKind::Part || self.part_eliminated(st, i) || self.part_removed(st, i)? {
                 continue;
             }
             let Some(part_page) = c.part_page else {
@@ -120,7 +120,9 @@ impl Session {
         }
         st.borrow_mut().parts = kept.clone();
         st.borrow_mut().hidden_parts = hidden.clone();
-        for (_, child) in kept.into_iter().chain(hidden) {
+        let mut all: Vec<(usize, St)> = kept.into_iter().chain(hidden).collect();
+        all.sort_by_key(|(i, _)| *i);
+        for (_, child) in all {
             // A filter the host's OnOpenPage set on the part's Rec (through a procedure of the part) does not narrow the rows the
             // part shows: it opens on all rows and a new line (testpage/Y61RunPageLinkCopyFilter.al:328
             // G616_PartUpdateForm_VarRec `part filters=Parent Code: P1` read in the procedure, `part rows` = `P1/A,P1/B,P2/C,/,`).
@@ -397,7 +399,7 @@ impl Session {
                         .iter()
                         .find(|(i, _)| *i == control)
                         .map(|(_, c)| c.clone())
-                        .filter(|_| !(self.control_eliminated(st, control) || self.off_page(st, control)));
+                        .filter(|_| !(self.part_eliminated(st, control) || self.off_page(st, control)));
                     if let Some(c) = hidden {
                         return Ok(c);
                     }
@@ -461,7 +463,7 @@ impl Session {
                 .map(|(_, c)| c.clone())
                 // A part the session's application areas removed is not on the test page either (types/operators-expressions/
                 // P142HiddenPartArea.al:P142_ServiceAreaPartRemoved: `The part with ID = n was not found on the page.`).
-                .filter(|_| runtime || !(self.control_eliminated(st, control) || self.off_page(st, control)))
+                .filter(|_| runtime || !(self.part_eliminated(st, control) || self.off_page(st, control)))
         });
         // A part the control tree dropped (Visible = false, or an ApplicationArea the session does not enable) is
         // still there for the page's own code: Base Application's Sales Credit Memo calls
@@ -561,14 +563,29 @@ impl Session {
         let page = page_of(&engine, st);
         let opening = how == Sync::Open;
         let mut parts = st.borrow().parts.clone();
-        if opening || matches!(how, Sync::Move { .. }) {
+        // A part a Visible expression hid stays in the TestPage tree and follows its host like a shown one, on a GoToKey and a
+        // GoToRecord too (testpage/parts/ProviderLinkedPartsMatrix.al Provider_BothHidden_OpenViewAndGoToKey `h2` after GoToKey:
+        // `lines-row(0) | detail-row()`). Without a Provider link in the page the older rule stays, which pinned no hidden part
+        // for the other moves.
+        let provider_page = page
+            .controls
+            .iter()
+            .any(|c| c.part_link.as_ref().is_some_and(|l| l.provider.is_some()));
+        if opening || matches!(how, Sync::Move { .. }) || provider_page {
             let hidden = st.borrow().hidden_parts.clone();
             parts.extend(
                 hidden
                     .into_iter()
-                    .filter(|(i, c)| !self.control_eliminated(st, *i) && (opening || c.borrow().open)),
+                    .filter(|(i, c)| !self.part_eliminated(st, *i) && (opening || c.borrow().open)),
             );
             parts.sort_by_key(|(i, _)| *i);
+        }
+        if opening {
+            self.refuse_provider_part_turning_visible(st)?;
+        } else {
+            for (i, child) in &parts {
+                self.refuse_provider_part_back_walk(st, *i, child)?;
+            }
         }
         if let Sync::Move { .. } = how {
             let mut linked = Vec::new();
@@ -639,10 +656,11 @@ impl Session {
                     // Such a part reads nothing on a host move that keeps its link values, forward or back (PartReadsOpen.al
                     // SH_FindRecordPart_HostNextLastPrevious `next x3 part log`: one read for three moves, two of them inside
                     // H1).
-                    self.part_sync_keeps_same_link = matches!(how, Sync::Move { .. })
-                        && (self.declares(child, "onfindrecord") || self.declares(child, "onnextrecord"));
+                    self.part_sync_keeps_same_link = (matches!(how, Sync::Move { .. })
+                        && (self.declares(child, "onfindrecord") || self.declares(child, "onnextrecord")))
+                    .then_some(false);
                     let r = self.sync_part(st, *i, child);
-                    self.part_sync_keeps_same_link = false;
+                    self.part_sync_keeps_same_link = None;
                     r?;
                     // A part that found no row to fill does not carry the order to a later fill.
                     child.borrow_mut().read_backwards = None;
@@ -1177,7 +1195,7 @@ impl Session {
                     })
                 })
         };
-        let parts = host.borrow().parts.clone();
+        let parts = Self::open_parts_with_hidden(&host);
         for (i, sibling) in &parts {
             let follows = page.controls[*i].part_link.as_ref().is_some_and(|l| {
                 l.provider == Some(idx) && l.entries.iter().any(|e| e.host_field().is_some_and(changed))
@@ -1189,6 +1207,43 @@ impl Session {
         Ok(())
     }
 
+    /// `control_eliminated` for a part, except that a part a literal `Visible = false` hides stays in the tree while another part
+    /// that is itself in the tree names it as its Provider: it opens, runs its triggers and shows its rows
+    /// (testpage/parts/ProviderLinkedPartsMatrix.al:1358 Provider_LiteralOnlyProviderHidden_OpenView `lines-open()`, `vis(lines=No`;
+    /// when the linked part is hidden too, :1338 Provider_LiteralBothHidden_OpenView, neither is in the tree).
+    pub(super) fn part_eliminated(&self, st: &St, idx: usize) -> bool {
+        if !self.control_eliminated(st, idx) {
+            return false;
+        }
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        let mut seen = vec![idx];
+        let mut at = vec![idx];
+        while let Some(p) = at.pop() {
+            for (j, c) in page.controls.iter().enumerate() {
+                if c.part_link.as_ref().is_some_and(|l| l.provider == Some(p)) && !seen.contains(&j) {
+                    if !self.control_eliminated(st, j) {
+                        return false;
+                    }
+                    seen.push(j);
+                    at.push(j);
+                }
+            }
+        }
+        true
+    }
+
+    /// The shown parts of `host` and the open ones a Visible expression hid, in control order: a part hidden by an
+    /// expression stays in the TestPage tree and follows its Provider like a shown one
+    /// (testpage/parts/ProviderLinkedPartsMatrix.al Provider_BothHidden_OpenViewAndGoToKey).
+    fn open_parts_with_hidden(host: &St) -> Vec<(usize, St)> {
+        let h = host.borrow();
+        let mut parts = h.parts.clone();
+        parts.extend(h.hidden_parts.iter().filter(|(_, c)| c.borrow().open).cloned());
+        parts.sort_by_key(|(i, _)| *i);
+        parts
+    }
+
     /// After part `child` moved, the parts that take their link from it follow.
     pub(super) fn sync_dependents(&mut self, child: &St) -> Result<(), Signal> {
         let Some((host, idx)) = child.borrow().host.clone() else {
@@ -1197,11 +1252,17 @@ impl Session {
         let Some(host) = host.upgrade() else { return Ok(()) };
         let engine = self.engine();
         let page = page_of(&engine, &host);
-        let parts = host.borrow().parts.clone();
+        let parts = Self::open_parts_with_hidden(&host);
         for (i, sibling) in &parts {
             let provider = page.controls[*i].part_link.as_ref().and_then(|l| l.provider);
             if provider == Some(idx) {
-                self.sync_part(&host, *i, sibling)?;
+                // A Provider part that stays on the row it stands on (First on its first row) leaves the part linked to it
+                // alone (testpage/parts/ProviderLinkedPartsMatrix.al:Provider_BothHidden_OpenViewAndGoToKey `lines-row(10) |
+                // detail-row(ten) | lines-row(20)`: no second read of detail for row 10).
+                self.part_sync_keeps_same_link = Some(true);
+                let r = self.sync_part(&host, *i, sibling);
+                self.part_sync_keeps_same_link = None;
+                r?;
             }
         }
         Ok(())
@@ -1212,12 +1273,16 @@ impl Session {
         let engine = self.engine();
         let page = page_of(&engine, host);
         match page.controls[control].part_link.as_ref().and_then(|l| l.provider) {
-            Some(pi) => host
-                .borrow()
-                .parts
-                .iter()
-                .find(|(i, _)| *i == pi)
-                .map(|(_, c)| c.clone()),
+            // A Provider part that a Visible expression hid stays in the tree and keeps its rows, so the linked part reads it
+            // like a visible one (testpage/parts/ProviderLinkedPartsMatrix.al Provider_OnlyProviderHidden_OpenViewAndGoToKey).
+            Some(pi) => {
+                let h = host.borrow();
+                h.parts
+                    .iter()
+                    .chain(h.hidden_parts.iter().filter(|(i, c)| c.borrow().open && *i == pi))
+                    .find(|(i, _)| *i == pi)
+                    .map(|(_, c)| c.clone())
+            }
             None => Some(host.clone()),
         }
     }
@@ -1347,7 +1412,8 @@ impl Session {
                     }
                 }
             }
-            if std::mem::take(&mut self.part_sync_keeps_same_link) && !child.borrow().dirty {
+            let keeps_link = self.part_sync_keeps_same_link.take();
+            if keeps_link.is_some() && !child.borrow().dirty {
                 let same = {
                     let r = rec.borrow();
                     let old: Vec<&FieldFilter> = r
@@ -1367,7 +1433,7 @@ impl Session {
                                 }
                         })
                 };
-                if same && child.borrow().cursor == Cursor::Row {
+                if same && (child.borrow().cursor == Cursor::Row || keeps_link == Some(true)) {
                     return Ok(());
                 }
             }
@@ -1427,13 +1493,16 @@ impl Session {
         before: Option<&[Value]>,
     ) -> Result<(), Signal> {
         self.resync_dependents_linked_by(st, control, before)?;
-        if st.borrow().parts.is_empty() && st.borrow().open {
+        // A part a Visible expression hid at open is a part of the host here (testpage/parts/ProviderLinkedPartsMatrix.al:1225
+        // Provider_BothVisible_OpenNewSetKeyClose: the key typed on a stored blank-key host is dropped, whatever the expressions say).
+        let no_parts = st.borrow().parts.is_empty() && !st.borrow().hidden_parts.iter().any(|(_, c)| c.borrow().open);
+        if no_parts && st.borrow().open {
             let engine = self.engine();
             if let ir::Binding::Field(pos) = page_of(&engine, st).controls[control].binding {
                 self.drop_key_typed_on_stored_blank_row(st, pos)?;
             }
         }
-        if st.borrow().parts.is_empty() || !st.borrow().open {
+        if no_parts || !st.borrow().open {
             return Ok(());
         }
         let engine = self.engine();
