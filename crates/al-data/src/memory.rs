@@ -971,19 +971,6 @@ impl MemStore {
         self
     }
 
-    /// The companies in which the committed store holds an entry for table `object` (sorted; empty for a table that is
-    /// not per company).
-    pub fn committed_companies_of(&self, object: u32) -> Vec<String> {
-        let mut out: Vec<String> = self
-            .committed
-            .keys()
-            .filter(|s| s.1 == object)
-            .map(|s| s.0.to_string())
-            .collect();
-        out.sort();
-        out
-    }
-
     /// The marks of the committed store an export leaves out ([`MemStore::export_committed`]): the tables a DeleteAll
     /// emptied and the company copies, sorted.
     #[allow(clippy::type_complexity)]

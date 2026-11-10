@@ -129,11 +129,6 @@ impl InstallSnapshots {
             .as_ref()
     }
 
-    /// The snapshot, if one was made.
-    pub(crate) fn get(&self) -> Option<&InstallSnapshot> {
-        self.once.get().and_then(Option::as_ref)
-    }
-
     /// One line for `--timings` on how the test threads took the install baseline; `None` when no snapshot was made
     /// (one test thread, or no baseline). It says whether the shared baseline still holds at the end of the run what it
     /// held when it was frozen ("Base unchanged" of ADR-069); debug builds stop when it does not.

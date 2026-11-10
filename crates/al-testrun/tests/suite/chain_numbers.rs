@@ -1,5 +1,5 @@
 //! al-runner issue 6924: test codeunits runner 130450 runs whose tests can take numbers join the carry chain, which runs
-//! one codeunit after the other. Helper threads now run them ahead (`chain_walk.rs`). A codeunit that left nothing for
+//! one codeunit after the other (`chain_walk.rs`, always serial: ADR-070). A codeunit that left nothing for
 //! the later ones (its tests' own sequences are rolled back with it, its OnRun changes nothing) does not hold them back,
 //! while numbers taken from a sequence the install code made still reach the later codeunits, in id order.
 
@@ -26,8 +26,6 @@ codeunit {id} "Own {id}"
     [Test] procedure TakesOwn{id}()
     var I: Integer; N: BigInteger;
     begin
-        // Some work, so that the walk does not finish the chain before the helper threads start.
-        for I := 1 to 200000 do N += I;
         NumberSequence.Insert('OWN');
         if NumberSequence.Next('OWN') <> 0 then Error('the sequence of an earlier codeunit was not rolled back');
     end;
@@ -110,16 +108,8 @@ fn run() -> CorpusRuntime {
     .expect("the run starts")
 }
 
-/// The test threads the run uses (`AL_TEST_THREADS`, else one per core).
-fn workers() -> usize {
-    std::env::var("AL_TEST_THREADS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get()))
-}
-
 #[test]
-fn chain_codeunits_that_leave_nothing_run_ahead_and_taken_numbers_still_carry() {
+fn chain_codeunits_that_leave_nothing_do_not_hold_back_the_later_ones_and_taken_numbers_still_carry() {
     let rt = run();
     for r in rt.results() {
         assert_eq!(r.outcome, Outcome::Pass, "{}", r.test);
@@ -133,11 +123,4 @@ fn chain_codeunits_that_leave_nothing_run_ahead_and_taken_numbers_still_carry() 
         vec![60224, 60228],
         "only the codeunits that took shared numbers left something"
     );
-    if workers() > 2 {
-        assert!(
-            chain.members.iter().any(|m| m.ahead),
-            "no chain codeunit ran ahead: {:?}",
-            chain.members.iter().map(|m| (m.id, m.ahead)).collect::<Vec<_>>()
-        );
-    }
 }

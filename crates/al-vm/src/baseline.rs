@@ -7,9 +7,7 @@
 
 use crate::Session;
 
-mod delta;
 mod install_orders;
-pub use delta::{Delta, DeltaPart, Fingerprint};
 mod row_delta;
 mod shared;
 pub use row_delta::RowDelta;
@@ -271,60 +269,7 @@ impl Baseline {
     pub fn nonempty_tables(&self) -> std::collections::BTreeSet<u32> {
         self.store.nonempty_tables()
     }
-
-    /// How many numbers each sequence of `start` moved on by to reach this baseline's sequences ([`SequenceSteps`],
-    /// sequences that did not move left out). `None` when the two do not hold the same sequences, with the same
-    /// increment and seed, each at or past where `start` has it by whole steps.
-    pub fn steps_since(&self, start: &Baseline) -> Option<SequenceSteps> {
-        if self.sequences.len() != start.sequences.len() {
-            return None;
-        }
-        let mut steps = SequenceSteps::new();
-        for (k, then) in &start.sequences {
-            let now = self.sequences.get(k)?;
-            if now == then {
-                continue;
-            }
-            if now.increment != then.increment || now.seed != then.seed || then.increment == 0 {
-                return None;
-            }
-            // From no number taken, the first `Next` hands out the seed.
-            let (z, from, add) = match (then.last, now.last) {
-                (None, Some(z)) => (z, then.seed, 1),
-                (Some(a), Some(z)) => (z, a, 0),
-                _ => return None,
-            };
-            let moved = z.checked_sub(from)?;
-            if moved % then.increment != 0 || moved / then.increment < 0 {
-                return None;
-            }
-            steps.insert(k.clone(), moved / then.increment + add);
-        }
-        Some(steps)
-    }
-
-    /// A clone of this baseline with each sequence moved on by its count in `steps`, as that many `Next` calls would
-    /// (the inverse of [`Baseline::steps_since`]). `None` when `steps` names a sequence it does not hold, or a count is
-    /// below 1 or out of range.
-    pub fn stepped(&self, steps: &SequenceSteps) -> Option<Baseline> {
-        let mut b = self.clone();
-        for (k, n) in steps {
-            let q = b.sequences.get_mut(k)?;
-            if *n < 1 {
-                return None;
-            }
-            q.last = Some(match q.last {
-                None => q.seed.checked_add((n - 1).checked_mul(q.increment)?)?,
-                Some(l) => l.checked_add(n.checked_mul(q.increment)?)?,
-            });
-        }
-        Some(b)
-    }
 }
-
-/// How many numbers a run took from each number sequence of the state it started from, by (company, name); a sequence
-/// it took none from is left out ([`Baseline::steps_since`], [`Baseline::stepped`]).
-pub type SequenceSteps = std::collections::BTreeMap<(String, String), i64>;
 
 impl Session {
     /// Whether a restored company (test data, ADR-020) has rows for table `object` in the session
@@ -621,39 +566,6 @@ mod tests {
                 built
             );
         }
-    }
-
-    fn seq(increment: i64, seed: i64, last: Option<i64>) -> crate::sessionops::Sequence {
-        crate::sessionops::Sequence { increment, seed, last }
-    }
-
-    #[test]
-    fn steps_count_the_next_calls_between_two_baselines_of_one_origin() {
-        let start = sample();
-        let key = ("".to_string(), "Seq".to_string());
-        // `Seq` is at 9, increment 2: three `Next` calls hand out 11, 13, 15.
-        let steps: SequenceSteps = [(key.clone(), 3)].into_iter().collect();
-        let later = start.stepped(&steps).expect("Seq is held");
-        assert_eq!(later.sequences[&key], seq(2, 5, Some(15)));
-        assert_eq!(later.steps_since(&start), Some(steps.clone()));
-        assert_eq!(start.steps_since(&start), Some(SequenceSteps::new()));
-        assert_eq!(start.steps_since(&later), None, "a sequence does not move back");
-        // From no number taken, the first `Next` hands out the seed.
-        let mut fresh = sample();
-        fresh.sequences.insert(key.clone(), seq(2, 5, None));
-        let one: SequenceSteps = [(key.clone(), 1)].into_iter().collect();
-        assert_eq!(fresh.stepped(&one).unwrap().sequences[&key], seq(2, 5, Some(5)));
-        assert_eq!(fresh.stepped(&one).unwrap().steps_since(&fresh), Some(one));
-        // Another increment, an unknown sequence, or another origin: not steps.
-        let mut other = sample();
-        other.origin = start.origin;
-        other.sequences.insert(key.clone(), seq(3, 5, Some(12)));
-        assert_eq!(other.steps_since(&start), None);
-        assert!(
-            start
-                .stepped(&[(("".into(), "Nope".into()), 1)].into_iter().collect())
-                .is_none()
-        );
     }
 
     #[test]

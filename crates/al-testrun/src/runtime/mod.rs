@@ -972,7 +972,6 @@ mod apply_manifests;
 mod blocked;
 mod cache;
 mod chain;
-mod chain_runs;
 mod chain_walk;
 mod compile_halt;
 mod compiled;
@@ -1007,7 +1006,7 @@ pub(crate) mod written;
 
 pub use self::blocked::*;
 pub use self::cache::*;
-pub use self::chain::{ChainEntry, ChainReport, ChainWhy, RerunWhy, SerialWhy};
+pub use self::chain::{ChainEntry, ChainReport, ChainWhy, RerunWhy};
 pub use self::compiled::*;
 use self::grow::{Grow, GrowKept};
 pub use self::grow::{KeptCompile, fresh_pass_compile};

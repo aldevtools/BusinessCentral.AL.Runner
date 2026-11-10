@@ -1639,12 +1639,7 @@ impl CorpusRuntime {
             super::order_hint::note_numbers_order(lowered, &units, &place, opts, &mut chain_report);
             let mut slots: Vec<Option<UnitResult>> = (0..units.len()).map(|_| None).collect();
             chain_report.units += units.len() + chain.iter().filter(|c| matches!(c.3, Link::Refused(..))).count();
-            // Helper threads run the chain's codeunits ahead while the walk can still use their runs (`chain_walk.rs`).
-            let helpers = helper_threads(workers, baseline_engine.is_some());
             let first_origin = baseline.as_ref().map(al_vm::Baseline::origin);
-            if helpers > 0 {
-                encode_time += encode_snapshot(&snapshot_once, baseline.as_ref());
-            }
             // A test thread's own copy of the install baseline: the baseline the first run left, as its snapshot says (over
             // the engine's test data, if it has any); only a baseline that has no snapshot is run again, once per thread.
             let thread_baseline = |snapshot: Option<&super::install_snapshot::InstallSnapshot>| {
@@ -1659,7 +1654,6 @@ impl CorpusRuntime {
                 reset_ns.fetch_max(took, std::sync::atomic::Ordering::Relaxed);
                 own
             };
-            let ahead_snapshot = snapshot_once.get();
             // ADR-066 amendment 8: the walk keeps the SingleInstance state along each BC session's members.
             // `--test-suites` orders a session by the file, not by the walk's id order: there the walk keeps fresh
             // state per member and the lane handles the members as before (amendment 8, decision 6).
@@ -1667,7 +1661,7 @@ impl CorpusRuntime {
             // keeps them only under `--strict-order`.
             let keep_singles = opts.strict_order && chain_report.single_lane.watched > 0 && opts.test_suites.is_none();
             #[rustfmt::skip]
-            let carried = super::chain_walk::ChainWalk { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, trace: opts.trace, limit, helpers, thread_baseline: &|| thread_baseline(ahead_snapshot), pool: memory.pool(), keep_singles, fresh_check: opts.single_fresh_check, wait_for_helpers: opts.chain_wait_for_runs_ahead }.walk(chain, &mut slots, &mut details, &mut chain_report);
+            let carried = super::chain_walk::ChainWalk { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, trace: opts.trace, limit, pool: memory.pool(), keep_singles, fresh_check: opts.single_fresh_check }.walk(chain, &mut slots, &mut details, &mut chain_report);
             // The other codeunits run as before; one that comes after a Disabled codeunit notes whether it reads a table that
             // codeunit left rows in, and then runs again below, from what it left.
             note_leaks(&mut units, &carried, &sees);
@@ -1737,7 +1731,6 @@ impl CorpusRuntime {
                                 },
                                 took: r.took,
                                 left: false,
-                                ahead: false,
                             });
                         }
                     }
@@ -2490,22 +2483,6 @@ fn run_serially(
             run_unit(engine, lowered, baseline, u, trace, opts.test_time_limit)
         })
         .collect()
-}
-
-/// How many helper threads run the carry chain's codeunits ahead: every worker but the walk's, when the threads can
-/// have an install baseline of their own.
-/// Encodes `baseline` into `snapshot` once (the start the helper threads read back); returns the time it took.
-fn encode_snapshot(
-    snapshot: &super::install_snapshot::InstallSnapshots,
-    baseline: Option<&al_vm::Baseline>,
-) -> std::time::Duration {
-    let started = std::time::Instant::now();
-    snapshot.get_or_make(baseline);
-    started.elapsed()
-}
-
-fn helper_threads(workers: usize, own_baseline: bool) -> usize {
-    if workers > 1 && own_baseline { workers - 1 } else { 0 }
 }
 
 /// Whether BC runs test codeunit `oi` on the TestRunnerHub: `hub` (its RequiredTestIsolation is Function or Disabled), or
