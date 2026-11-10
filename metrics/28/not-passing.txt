@@ -1075,8 +1075,6 @@
 77099 ReqPagePlainReportOkWithExtensionTriggers
 77323 LoginChecklist_FirstTest_WhatTheSessionSaw
 77323 LoginChecklist_SecondTest_NotRaisedAgain
-77532 PX_Attr_SecurityFiltering_ClearAndAssign
-77532 PX_Attr_SecurityFiltering_Global
 78000 Letters_2030_A
 78000 Letters_2030_B
 78000 Letters_Dec31_B

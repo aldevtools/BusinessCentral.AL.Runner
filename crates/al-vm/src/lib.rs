@@ -124,6 +124,7 @@ mod reports;
 mod run_page_link_open;
 mod sessionops;
 mod setup_no_op;
+mod slot_default;
 mod sqlcount;
 mod sqltime;
 mod stale_buffer_origin;
@@ -1637,6 +1638,8 @@ impl Session {
                     read_isolation: 0,
                     // A record in a test run is Validated (corpus record/TestSecurityFilteringContracts.al:161-175).
                     security_filtering: 0,
+                    declared_security_filtering: 0,
+                    security_filtering_unpinned: false,
                     key: 0,
                     adhoc: None,
                     ascending: true,
@@ -2036,12 +2039,8 @@ impl Session {
     }
 
     pub fn instance(&mut self, object: usize) -> Rc<RefCell<Instance>> {
-        let tys: Vec<RtType> = self.engine.program.objects[object]
-            .globals
-            .iter()
-            .map(|g| g.ty.clone())
-            .collect();
-        let globals = tys.iter().map(|t| self.default_value(t)).collect();
+        let engine = self.engine.clone();
+        let globals = self.slot_defaults(&engine.program.objects[object].globals);
         Rc::new(RefCell::new(Instance {
             object: object as u32,
             globals,
@@ -2071,19 +2070,16 @@ impl Session {
             let o = &self.engine.program.objects[object];
             (o.rec_slot, o.xrec_slot)
         };
-        let tys: Vec<RtType> = self.engine.program.objects[object]
+        let engine = self.engine.clone();
+        let globals = engine.program.objects[object]
             .globals
             .iter()
-            .map(|g| g.ty.clone())
-            .collect();
-        let globals = tys
-            .iter()
             .enumerate()
-            .map(|(i, t)| {
+            .map(|(i, s)| {
                 if Some(i) == rs || Some(i) == xs {
                     Value::Null
                 } else {
-                    self.default_value(t)
+                    self.slot_default(s)
                 }
             })
             .collect();
@@ -2362,7 +2358,7 @@ impl Session {
                 // A record of a stored table takes no temporary table: its fresh buffer would only be dropped (issue 6133).
                 locals.push(Value::Null);
             } else {
-                locals.push(self.default_value(&s.ty));
+                locals.push(self.slot_default(s));
             }
         }
         let mut args = args;

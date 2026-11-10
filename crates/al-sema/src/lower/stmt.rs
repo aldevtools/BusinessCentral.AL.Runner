@@ -48,15 +48,12 @@ impl Lowerer<'_> {
         let add = |lw: &mut Self, name: String, ty: Ty, locals: &mut Vec<ir::Slot>| match lw.rt(&ty) {
             Ok(rt) => {
                 lw.locals.insert(name.to_lowercase(), locals.len());
-                locals.push(ir::Slot { name, ty: rt });
+                locals.push(ir::Slot::new(name, rt));
             }
             Err(e) => {
                 lw.reasons.push(format!("`{name}`: {e}"));
                 lw.locals.insert(name.to_lowercase(), locals.len());
-                locals.push(ir::Slot {
-                    name,
-                    ty: RtType::Variant,
-                });
+                locals.push(ir::Slot::new(name, RtType::Variant));
             }
         };
         for p in r.params() {
@@ -85,49 +82,19 @@ impl Lowerer<'_> {
             ret_local = Some(locals.len());
             add(self, n, t.clone(), &mut locals);
         }
-        let mut declared_security: Vec<(String, usize, Result<i32, String>)> = Vec::new();
-        // The lowercased body text without whitespace is built only when a `[SecurityFiltering]` record variable needs it:
-        // building it for every routine cost about 18 % of a cold compile (perf_budget).
-        let mut body_text: Option<String> = None;
         for v in r.local_var_decls() {
             let ty = v.type_ref().map(|t| Ty::from_type_ref(&t)).unwrap_or(Ty::Unknown);
             let label = v.type_ref().as_ref().and_then(label_text);
             let refusal = v.type_ref().as_ref().and_then(textconst_refusal);
             let attrs = var_attribute_names(&v);
-            let security = attrs
-                .iter()
-                .any(|a| a == "securityfiltering")
-                .then(|| security_filtering_attr_member(&v));
+            let declared = declared_security_filtering(&v, &attrs, || matches!(self.rt(&ty), Ok(RtType::Record(..))));
             for n in v.names() {
-                if let Some(m) = &security {
-                    // Only a record keeps the declared value, and only one the routine does not clear or assign
-                    // (what those leave is not pinned): on anything else the read stays refused.
-                    if matches!(self.rt(&ty), Ok(RtType::Record(..)))
-                        && !cleared_or_assigned(
-                            body_text.get_or_insert_with(|| {
-                                r.body()
-                                    .map(|b| {
-                                        b.text()
-                                            .to_string()
-                                            .to_lowercase()
-                                            .chars()
-                                            .filter(|c| !c.is_whitespace())
-                                            .collect()
-                                    })
-                                    .unwrap_or_default()
-                            }),
-                            &n,
-                        )
-                    {
-                        declared_security.push((n.clone(), locals.len(), m.clone()));
-                    }
-                }
                 if !attrs.is_empty() {
-                    let mut attrs = attrs.clone();
-                    if declared_security.last().is_some_and(|(d, ..)| *d == n) {
-                        attrs.retain(|a| a != "securityfiltering");
-                    }
-                    self.local_var_attrs.insert(n.to_lowercase(), attrs);
+                    self.local_var_attrs
+                        .insert(n.to_lowercase(), attrs_left(&attrs, &declared));
+                }
+                if let Some(Err(e)) = &declared {
+                    self.reasons.push(format!("`{n}`: {e}"));
                 }
                 if let Some(l) = &label {
                     self.local_labels.insert(n.to_lowercase(), l.clone());
@@ -151,6 +118,9 @@ impl Lowerer<'_> {
                     self.reasons.push(format!("`{n}`: {why}"));
                 }
                 add(self, n, ty.clone(), &mut locals);
+                if let (Some(Ok(m)), Some(slot)) = (&declared, locals.last_mut()) {
+                    slot.security_filtering = Some(*m);
+                }
             }
         }
         // An InStream handed back (the named return value or a `var` parameter) that the routine created with the Blob or Temp
@@ -198,10 +168,7 @@ impl Lowerer<'_> {
         if qcp {
             if let Some(l) = ret_local {
                 let flag = locals.len();
-                locals.push(ir::Slot {
-                    name: "__assigned".into(),
-                    ty: RtType::Boolean,
-                });
+                locals.push(ir::Slot::new("__assigned", RtType::Boolean));
                 self.qcp_ret = Some((l, flag));
             }
         }
@@ -215,10 +182,6 @@ impl Lowerer<'_> {
         if self.checked.tdd_decls.as_ref().is_some_and(|d| !d.objects.is_empty()) {
             let marks = self.tdd_object_marks(r);
             body.splice(0..0, marks);
-        }
-        if !declared_security.is_empty() {
-            let prologue = self.declared_security_filtering(&declared_security, &locals);
-            body.splice(0..0, prologue);
         }
         locals.append(&mut self.hidden_locals);
         if qcp {
@@ -1917,59 +1880,11 @@ impl Lowerer<'_> {
                 };
                 let tmp = self.hidden_base + self.hidden_locals.len();
                 args.push((tmp, rec));
-                self.hidden_locals.push(ir::Slot {
-                    name: "__currfieldno".into(),
-                    ty: RtType::Integer,
-                });
+                self.hidden_locals.push(ir::Slot::new("__currfieldno", RtType::Integer));
                 Ok(ir::Arg::Ref(ir::Place::Local(tmp)))
             }
             Err(e) => Err(e),
         }
-    }
-
-    /// A local record declared with `[SecurityFiltering(x)]` starts with x: `Rec.SecurityFiltering()` answers it
-    /// (al-language/reports/runtime/ACAttributes.al:176-179, :187-190) and, with no security filter in force, it reads the same
-    /// rows (:184-186). The routine starts by setting it. What `Clear`, `ClearAll` or an assignment of the whole
-    /// variable leaves is not pinned: for a variable the routine names that way (`cleared_or_assigned`), and on anything
-    /// but a record, the read of the value stays refused (`security_filtering_read_refusal`).
-    fn declared_security_filtering(
-        &mut self,
-        declared: &[(String, usize, Result<i32, String>)],
-        locals: &[ir::Slot],
-    ) -> Vec<ir::Stmt> {
-        let mut out = Vec::new();
-        let id = match super::call::builtin_id("Record.SecurityFiltering#1") {
-            Ok(id) => id,
-            Err(e) => {
-                self.reasons.push(e);
-                return out;
-            }
-        };
-        let members: Vec<String> = al_builtins::sysenum::option_members("SecurityFilter")
-            .expect("known")
-            .iter()
-            .map(|m| m.to_string())
-            .collect();
-        for (name, slot, member) in declared {
-            let member = match member {
-                Ok(m) => *m,
-                Err(e) => {
-                    self.reasons.push(format!("`{name}`: {e}"));
-                    continue;
-                }
-            };
-            debug_assert!(matches!(locals[*slot].ty, RtType::Record(..)));
-            out.push(ir::Stmt::Expr(ir::Expr::Builtin {
-                id,
-                receiver: Some(Box::new(ir::Arg::Ref(ir::Place::Local(*slot)))),
-                args: vec![ir::Arg::Value(ir::Expr::Const(ir::Const::Option(
-                    member,
-                    members.clone(),
-                )))],
-                ret_used: false,
-            }));
-        }
-        out
     }
 
     /// Why a use of the variable `name` is refused for an attribute of its declaration: `[RunOnClient]` (BC raises
@@ -2231,43 +2146,6 @@ fn guard_exits(body: Vec<ir::Stmt>, guard: &[ir::Stmt]) -> Vec<ir::Stmt> {
         }
     }
     out
-}
-
-/// The member index of `SecurityFilter` named by `[SecurityFiltering(SecurityFilter::X)]`.
-fn security_filtering_attr_member(v: &ast::VarDecl) -> Result<i32, String> {
-    let attr = v
-        .attributes()
-        .into_iter()
-        .find(|a| a.name().eq_ignore_ascii_case("SecurityFiltering"))
-        .ok_or("no SecurityFiltering attribute")?;
-    let text = attr.args().map(|a| a.text_string()).unwrap_or_default();
-    let inner = text.trim().trim_start_matches('(').trim_end_matches(')').trim();
-    let member = inner.rsplit("::").next().unwrap_or("").trim().trim_matches('"');
-    let members = al_builtins::sysenum::option_members("SecurityFilter").expect("known");
-    members
-        .iter()
-        .position(|m| m.eq_ignore_ascii_case(member))
-        .map(|i| i as i32)
-        .ok_or_else(|| format!("the attribute SecurityFiltering({inner}) is not understood"))
-}
-
-/// Whether the routine body (lower case, without white space) does something to the variable `name` whose effect on
-/// the declared SecurityFiltering value is not pinned: `Clear(name)`, `ClearAll`, `name :=`, passing it as an argument
-/// to any call (a callee may clear or assign it through a `var` parameter), or `Reset`, `Copy` or `TransferFields` on
-/// it. A match inside a string or a comment only makes the check stricter.
-fn cleared_or_assigned(body: &str, name: &str) -> bool {
-    let n = name.to_lowercase();
-    let quoted = format!("\"{n}\"");
-    body.contains("clearall")
-        || [&n, &quoted].iter().any(|v| {
-            body.contains(&format!("{v}:="))
-                || body.contains(&format!("({v},"))
-                || body.contains(&format!("({v})"))
-                || body.contains(&format!(",{v}"))
-                || ["reset(", "copy(", "transferfields("]
-                    .iter()
-                    .any(|m| body.contains(&format!("{v}.{m}")))
-        })
 }
 
 /// `if <cond> then continue else <stmt>`, the then branch a bare `continue` or a block with a `continue` of its own.

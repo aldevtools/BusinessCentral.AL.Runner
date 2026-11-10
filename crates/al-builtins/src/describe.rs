@@ -283,6 +283,8 @@ mod tests {
             marked_only: false,
             read_isolation: 0,
             security_filtering: 0,
+            declared_security_filtering: 0,
+            security_filtering_unpinned: false,
             key: 0,
             adhoc: None,
             ascending: true,

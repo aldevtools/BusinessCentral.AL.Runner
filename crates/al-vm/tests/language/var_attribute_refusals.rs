@@ -1,7 +1,8 @@
 //! Variable attributes the runtime does not implement are refused where the variable is used, never ignored
 //! (hard rule 4): `[RunOnClient]` and `[WithEvents]` on DotNet variables (al-language-onprem-dotnet/dotnet/ac/AcDnAttributes.al:50,
-//! :86, :145-146) and the read of `SecurityFiltering()` on a global record declared with `[SecurityFiltering(...)]`
-//! (al-language/reports/runtime/ACAttributes.al:176-191).
+//! :86, :145-146) and the read of `SecurityFiltering()` where the value is not pinned: on a global record of an object that
+//! is no codeunit declared with `[SecurityFiltering(...)]` (al-language/reports/runtime/ACAttributes.al:176-191 pins locals,
+//! :427-480 a codeunit's globals), and after a TransferFields into the record.
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
@@ -52,8 +53,10 @@ fn a_with_events_variable_is_refused_where_it_is_used() {
 }
 
 // A local record declared with `[SecurityFiltering(x)]` starts with x (al-language/reports/runtime/ACAttributes.al:176-179,
-// :187-190; its counts are unchanged, :184-186). What `Clear` or an assignment leaves on such a variable is not
-// pinned, nor is the attribute on a global: those are refused.
+// :187-190; its counts are unchanged, :184-186). The value stays with the variable: Clear goes back to it (:373-374), Reset
+// keeps it (:375-376), Copy keeps the target's (:385-387), a `var` parameter carries the argument's (:397-398), and a
+// codeunit's global keeps its declared value too (:432, :451-458). What TransferFields leaves is not pinned, nor is the
+// attribute on a global of a table: those reads are refused.
 #[test]
 fn a_local_record_declared_with_security_filtering_starts_with_the_declared_value() {
     let src = "table 50100 T { fields { field(1; Id; Integer) { } } } \
@@ -68,20 +71,20 @@ fn a_local_record_declared_with_security_filtering_starts_with_the_declared_valu
         procedure M3(): Text var [SecurityFiltering(SecurityFilter::Filtered)] R: Record T; begin R.Reset(); exit(Format(R.SecurityFiltering())); end; \
         procedure M4(): Text var [SecurityFiltering(SecurityFilter::Filtered)] R: Record T; P: Record T; begin R.Copy(P); exit(Format(R.SecurityFiltering())); end; \
         procedure M5(): Text var [SecurityFiltering(SecurityFilter::Filtered)] R: Record T; begin R.TransferFields(R); exit(Format(R.SecurityFiltering())); end; \
+        procedure N(): Text var U: Record U; begin exit(U.L2()); end; \
         procedure Pass(var X: Record T) begin end; \
-        procedure Two(N: Integer; var X: Record T) begin end; }";
+        procedure Two(N: Integer; var X: Record T) begin end; } \
+        table 50101 U { fields { field(1; Id; Integer) { } } var [SecurityFiltering(SecurityFilter::Filtered)] GU: Record T; \
+        procedure L2(): Text begin exit(Format(GU.SecurityFiltering())); end; }";
     assert_eq!(
         al_testkit::text(al_testkit::run_in(src, "C", "F")),
         "FilteredIgnoredValidated"
     );
     assert_eq!(al_testkit::text(al_testkit::run_in(src, "C", "G")), "Validated");
     assert!(matches!(al_testkit::run_in(src, "C", "H"), Ok(Value::Integer(0))));
-    // Cleared: the read stays refused, as on main.
-    refused(al_testkit::run_in(src, "C", "K"), "SecurityFiltering");
-    refused(al_testkit::run_in(src, "C", "L"), "SecurityFiltering");
-    // Passed to a call, or the receiver or source of Reset, Copy or TransferFields: what the record keeps is not
-    // pinned, so the read stays refused.
-    for p in ["M1", "M2", "M3", "M4", "M5"] {
-        refused(al_testkit::run_in(src, "C", p), "SecurityFiltering");
+    for p in ["K", "L", "M1", "M2", "M3", "M4"] {
+        assert_eq!(al_testkit::text(al_testkit::run_in(src, "C", p)), "Filtered", "{p}");
     }
+    refused(al_testkit::run_in(src, "C", "M5"), "TransferFields");
+    refused(al_testkit::run_in(src, "C", "N"), "SecurityFiltering");
 }

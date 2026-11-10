@@ -4,8 +4,9 @@ use al_syntax::ast::NodeText;
 
 impl Lowerer<'_> {
     /// `Rec.SecurityFiltering()` read on a variable declared with `[SecurityFiltering(...)]` answers the declared value on
-    /// BC (al-language/reports/runtime/ACAttributes.al:176-191); the runtime keeps it only for a local record
-    /// (`Lowerer::declared_security_filtering`), so the read is refused on anything else.
+    /// BC (al-language/reports/runtime/ACAttributes.al:176-191); the runtime keeps it for a local record and a codeunit's
+    /// global record (`shared::declared_security_filtering`), so the read is refused on anything else (a global of another
+    /// kind of object, an array of records: not pinned).
     fn security_filtering_read_refusal(&self, callee: &SyntaxNode, args: &[SyntaxNode]) -> L<()> {
         if !args.is_empty() || callee.kind() != SyntaxKind::MemberExpr {
             return Ok(());

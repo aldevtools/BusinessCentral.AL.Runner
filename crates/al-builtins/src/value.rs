@@ -388,6 +388,13 @@ pub struct RecordState {
     /// `ReadIsolation` and `SecurityFiltering` as member indexes of their platform option types.
     pub read_isolation: i32,
     pub security_filtering: i32,
+    /// The SecurityFiltering value the variable was declared with (`[SecurityFiltering(x)]`, else Validated): `Clear` sets
+    /// `security_filtering` back to it. An assignment and `Copy` change neither (al-vm `Session::slot_default`).
+    pub declared_security_filtering: i32,
+    /// A TransferFields wrote into the record: what it leaves of SecurityFiltering is not pinned (the corpus pins Clear,
+    /// ClearAll, Reset, Init, assignment and Copy, al-language/reports/runtime/ACAttributes.al:355-360), so the read refuses
+    /// until `Clear` or `SecurityFiltering(x)` gives it a pinned value.
+    pub security_filtering_unpinned: bool,
     /// Index of the current key in the table's keys.
     pub key: usize,
     /// `SetCurrentKey` on fields no key of the table starts with: the key index it stands for (one
