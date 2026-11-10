@@ -313,7 +313,7 @@ pub enum Gate {
     AutoFormatAmountFieldRoundsFrom28,
     /// Microsoft's test runner leaves six frames below the test procedure in the full call stack text on BC 27.5 and none from
     /// BC 28 (session-system/callstack/CallstackFullText.al:106, corpus bump e01709f4). Corpus bump 1110c adds the per-frame pins
-    /// (session-system/callstack/CallstackRunnerFrames.al:31). Not consumed yet.
+    /// (session-system/callstack/CallstackRunnerFrames.al:31). Consumed by `al-testrun` runtime/run.rs `runner_frames`.
     CallStackRunnerFramesGoneFrom28,
     /// The corpus CI runs a test codeunit without handlers through BC's TestRunnerHub from BC 28, under the codeunit's
     /// `RequiredTestIsolation`; on BC 27 it runs every codeunit under runner 130450 (Codeunit isolation). A difference of the

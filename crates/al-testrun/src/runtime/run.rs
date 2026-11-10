@@ -107,7 +107,12 @@ pub(crate) fn runner_frames(program: &al_ir::Program, engine: &Engine, object: u
             .iter()
             .any(|a| a.name.eq_ignore_ascii_case("HandlerFunctions"))
     });
-    if !handlers && engine.target.as_ref().is_some_and(|t| t.bc.major >= 28) {
+    if !handlers
+        && engine
+            .target
+            .as_ref()
+            .is_some_and(|t| t.has(al_version::Gate::CallStackRunnerFramesGoneFrom28))
+    {
         return String::new();
     }
     let version = program
