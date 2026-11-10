@@ -66,6 +66,23 @@ pub enum PageMode {
     New,
 }
 
+/// What put a page into lookup mode. `PageState::lookup` says whether the mode is on (a page's code can switch it with
+/// `LookupMode`); this says who asked for it first. The pins differ by kind, so a reader names the kinds it is pinned for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LookupKind {
+    /// Nothing did: the page is not a lookup.
+    #[default]
+    None,
+    /// `LookupMode(..)` was called on the page variable or on `CurrPage` (the mode it set is `PageState::lookup`).
+    Variable,
+    /// The static `Page.RunModal(Id, Rec)` or `Page.RunModal(0, Rec)` with its return value used: the call sets the mode, not
+    /// `LookupMode(true)` on a page variable. Called as a statement the page is not a lookup
+    /// (pages/triggers/BeRunModalOnLookup.al:916).
+    StaticRunModal,
+    /// `TestField.Lookup()` opened the page over a TableRelation.
+    Relation,
+}
+
 /// A row a repeater has populated: its primary key, the fields as stored when it was read and as
 /// the page showed them after OnAfterGetRecord (the page keeps that buffer for the row while it
 /// stays in the window, corpus testpage/TestPageActionRunObjectPageStoredRow_Tests.al:
@@ -340,7 +357,10 @@ pub struct PageState {
     /// The level of each row of a tree whose IndentationColumn is a page variable, by primary key: the variable's value after
     /// OnAfterGetRecord last ran for the row (`pages/open/tree_var.rs`).
     pub tree_levels: Vec<(Vec<Value>, i32)>,
+    /// The page is in lookup mode (what `LookupMode()` answers). What put it there is `lookup_kind`.
     pub lookup: bool,
+    /// What put the page into lookup mode; it stays when the page's code switches the mode off with `LookupMode(false)`.
+    pub lookup_kind: LookupKind,
     /// The `Action` the page closed with, once it has.
     pub result: Option<String>,
     /// `TestPage.Trap()` was called on this variable and no page has been caught yet.
@@ -456,9 +476,6 @@ pub struct PageState {
     /// The fields the page's server-side Rec still has after the test client moved onto a row it holds without running a read
     /// trigger (`Session::note_server_row_lag`): a procedure called through a held `Page` variable reads this row.
     pub server_lag: Option<Vec<Value>>,
-    /// The page was run by the static `Page.RunModal` with its return value used (lookup mode set by the call, not by
-    /// `LookupMode(true)` on a page variable).
-    pub static_lookup: bool,
     /// The static `Page.RunModal(0, Rec)` found the page from the table's LookupPageId.
     pub lookup_page_from_table: bool,
     /// Page triggers (the page's or an extension's) run on this page so far.
@@ -679,9 +696,6 @@ pub struct PageState {
     /// A page whose rowset OnFindRecord/OnNextRecord serve was refreshed: which row the client
     /// settles on is not modelled, so Rec-bound controls are not read until the cursor moves.
     pub stale: bool,
-    /// The page is a lookup without the new-row line: `LookupMode(true)` was called on this variable, or
-    /// `Page.RunModal(Id, Rec)` / `Page.RunModal(0, Rec)` had its return value used.
-    pub lookup_set: bool,
     /// `Page.RunModal(Id, Rec)` called as a statement: not a lookup (pages/triggers/BeRunModalOnLookup.al:916),
     /// and whether `Rec` takes the row the page closed on is not pinned: a later use of `Rec` refuses when that row differs.
     pub statement_run: bool,
@@ -745,6 +759,22 @@ impl std::fmt::Debug for PageState {
 }
 
 impl PageState {
+    /// The platform runs the page as a lookup of `kind`: the static `Page.RunModal` whose return value is used, or a
+    /// TableRelation lookup.
+    pub(crate) fn open_as_lookup(&mut self, kind: LookupKind) {
+        self.lookup = true;
+        self.lookup_kind = kind;
+    }
+
+    /// `LookupMode(on)` called from AL, on the page variable or on `CurrPage`. A page the platform opened as a lookup
+    /// (`open_as_lookup`) keeps its kind, also when its code switches the mode off.
+    pub(crate) fn set_lookup_mode(&mut self, on: bool) {
+        self.lookup = on;
+        if self.lookup_kind == LookupKind::None {
+            self.lookup_kind = LookupKind::Variable;
+        }
+    }
+
     /// A page that was never opened. Every field starts at its type's default except these (`mode` and `cursor`
     /// name their starting variant with `#[default]`). A new field needs no line here.
     pub fn closed(object: u32) -> PageState {

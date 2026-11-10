@@ -167,6 +167,15 @@ impl Session {
                 enc.to_ascii_uppercase()
             ));
         }
+        // A root table element with a leaf text element and a table element is pinned for the export only
+        // (`value_then_table_root`, plain_tree.rs; xmlports/shapes-properties/XpTextValueNestedTable.al:1535, :1559, :1571).
+        // What its import assigns and inserts nothing pins: the nearest import, XpTableRootNestedText.al:534
+        // XNT_TextTbl_Import, has the text and the table inside a text element.
+        if value_then_table_root(schema, top) {
+            return unsupported(
+                "XmlPort import of a root table element with a leaf text element and a table element right below it (not pinned)",
+            );
+        }
         let table_root = root_table_element(schema, top) || plain_tree_root(schema, top);
         if table_root && !root_table_element(schema, top) && !plain_import_root(schema, top) {
             return unsupported(
