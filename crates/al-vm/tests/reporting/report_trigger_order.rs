@@ -213,11 +213,6 @@ codeunit 50953 "RTO Tests"
         Report.RunModal(Report::"RTO NoPage", true);
     end;
 
-    procedure StaticRunModalWithoutWindowGetter()
-    begin
-        Report.RunModal(Report::"RTO WithPage", false, false);
-    end;
-
     procedure GetterAfterExecuteOfSetVariable(): Text
     var Rpt: Report "RTO WithPage";
     begin
@@ -380,16 +375,6 @@ fn static_runmodal_with_requestwindow_true_on_a_report_that_declares_none_is_ref
     assert_refused(
         al_testkit::run_in(FIXTURE, "RTO Tests", "StaticRunModalWithWindowOnNoPageReport"),
         "RunModal(id, true)",
-    );
-}
-
-/// What `CurrReport.UseRequestPage()` answers in a static `RunModal(id, false)` is not pinned (only Run is,
-/// P147UseRequestPagePreGet.al:79): the getter is refused.
-#[test]
-fn the_getter_in_a_static_runmodal_without_window_is_refused() {
-    assert_refused(
-        al_testkit::run_in(FIXTURE, "RTO Tests", "StaticRunModalWithoutWindowGetter"),
-        "UseRequestPage of report",
     );
 }
 

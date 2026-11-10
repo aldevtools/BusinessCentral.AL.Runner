@@ -45,18 +45,32 @@ pub fn members(name: &str) -> Option<&'static [&'static str]> {
         // Microsoft docs, TelemetryScope: ExtensionPublisher, then All. Only passed to
         // Session.LogMessage, which changes nothing AL can see, so the ordinals are not pinned.
         "telemetryscope" => Some(&["ExtensionPublisher", "All"]),
-        // Only passed to Session.LogSecurityAudit, which changes nothing AL can see. The members are
-        // the ones Microsoft's source uses; their ordinals are not pinned and nothing may print them.
-        "securityoperationresult" => Some(&["Success", "Failure"]),
+        // Four members with the ordinals 1 to 4; a cleared value is 0, which has no name and formats as `0`
+        // (format-evaluate/ACSecurityOperationResult.al:31-38 AC_SecurityOperationResult_Format, :62-68 _Variable). The blank
+        // name is the ordinal AL cannot name.
+        "securityoperationresult" => Some(&["", "Success", "ClientError", "Failure", "Timeout"]),
+        // All 19 members with their ordinals, Other 0 to Euii 18
+        // (format-evaluate/ACAuditCategory.al:83-101 AC_AuditCategory_FormatOrdinal; names :37-55).
         "auditcategory" => Some(&[
-            "ApplicationManagement",
-            "CustomerFacing",
-            "EntitlementManagement",
-            "KeyManagement",
             "Other",
-            "PolicyManagement",
-            "RoleManagement",
             "UserManagement",
+            "GroupManagement",
+            "Authentication",
+            "Authorization",
+            "RoleManagement",
+            "ApplicationManagement",
+            "KeyManagement",
+            "DirectoryManagement",
+            "ResourceManagement",
+            "PolicyManagement",
+            "DeviceManagement",
+            "EntitlementManagement",
+            "PasswordManagement",
+            "IdentityProtection",
+            "ObjectManagement",
+            "ProvisioningManagement",
+            "CustomerFacing",
+            "Euii",
         ]),
         "dataclassification" => Some(&[
             "CustomerContent",
@@ -196,6 +210,24 @@ pub fn rejected_number_past_members(members: &[String]) -> Option<usize> {
             let known = members_static(name);
             (members.len() == known.len() && members.iter().zip(known).all(|(a, b)| a == b)).then_some(last)
         })
+}
+
+/// For `AuditCategory` and `SecurityOperationResult`, the member names in the order the error of a failed `Evaluate` lists
+/// them, which is also the order whose first member the empty text evaluates to: AuditCategory in ordinal order
+/// (format-evaluate/ACAuditCategory.al:486-488), SecurityOperationResult as `Success, Failure, ClientError, Timeout`
+/// (format-evaluate/ACSecurityOperationResult.al:206-208, where the empty text gives ordinal 1).
+pub fn audit_option_listing(members: &[String]) -> Option<&'static [&'static str]> {
+    let same = |name: &str| {
+        let known = members_static(name);
+        members.len() == known.len() && members.iter().zip(known).all(|(a, b)| a == b)
+    };
+    if same("auditcategory") {
+        return Some(members_static("auditcategory"));
+    }
+    if same("securityoperationresult") {
+        return Some(&["Success", "Failure", "ClientError", "Timeout"]);
+    }
+    None
 }
 
 /// Whether `members` are those of the Field table's `Type` option, whose ordinals are not its positions.
