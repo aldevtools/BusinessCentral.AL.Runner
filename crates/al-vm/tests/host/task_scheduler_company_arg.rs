@@ -95,6 +95,51 @@ codeunit 50203 "PX Shapes"
         exit(Read(TaskScheduler.CreateTask(Codeunit::"PX Worker", 0, true, UpperCase(CompanyName()))));
     end;
 
+    procedure Lower(): Text
+    begin
+        exit(Read(TaskScheduler.CreateTask(Codeunit::"PX Worker", 0, true, LowerCase(CompanyName()))));
+    end;
+
+    // Creates the task and reads nothing of the table.
+    procedure CreateOnly()
+    begin
+        TaskScheduler.CreateTask(Codeunit::"PX Worker", 0, true, CompanyName());
+    end;
+
+    // Reads the row but not its Company (Y43TaskAfterCommit.al reads Not Before of such a task).
+    procedure ReadOtherColumn(): Boolean
+    var
+        T: Record "Scheduled Task";
+    begin
+        T.Get(TaskScheduler.CreateTask(Codeunit::"PX Worker", 0, true, CompanyName()));
+        T.SetRange("Run Codeunit", Codeunit::"PX Worker");
+        exit(T."Run Codeunit" = Codeunit::"PX Worker");
+    end;
+
+    procedure CreateAndCommit()
+    begin
+        TaskScheduler.CreateTask(Codeunit::"PX Worker", 0, true, CompanyName());
+        Commit();
+    end;
+
+    // The reporter's guard in a later test: reads the row another routine created.
+    procedure ReadOnly(): Boolean
+    var
+        T: Record "Scheduled Task";
+    begin
+        T.SetRange(Company, CompanyName());
+        T.SetRange("Run Codeunit", Codeunit::"PX Worker");
+        exit(not T.IsEmpty());
+    end;
+
+    procedure CreateAndRollBack()
+    begin
+        asserterror begin
+            TaskScheduler.CreateTask(Codeunit::"PX Worker", 0, true, CompanyName());
+            Error('roll back');
+        end;
+    end;
+
     procedure Other(): Text
     begin
         exit(Read(TaskScheduler.CreateTask(Codeunit::"PX Worker", 0, true, 'No Such Company For Probe')));
@@ -145,6 +190,54 @@ fn company_holds_the_current_company_for_its_name_and_for_a_blank_argument() {
 #[test]
 fn company_holds_an_upper_cased_name_as_given() {
     assert_eq!(text("Upper"), ("No|Yes|No".to_string(), vec![FLAG]));
+}
+
+#[test]
+fn company_holds_a_lower_cased_name_as_given() {
+    assert_eq!(text("Lower"), ("No|No|No".to_string(), vec![FLAG]));
+}
+
+// The mark is made where the row is read, not where it is written: the runner clears the marks before each test, so a
+// task the login or an earlier test created must flag the test that reads it.
+#[test]
+fn creating_the_task_alone_takes_no_assumption() {
+    let (r, hits) = run("PX Shapes", "CreateOnly");
+    assert!(r.is_ok(), "{r:?}");
+    assert!(hits.is_empty(), "{hits:?}");
+}
+
+#[test]
+fn reading_another_column_of_the_row_takes_no_assumption() {
+    let (r, hits) = run("PX Shapes", "ReadOtherColumn");
+    assert!(matches!(r, Ok(Value::Boolean(true))), "{r:?}");
+    assert!(hits.is_empty(), "{hits:?}");
+}
+
+#[test]
+fn a_later_read_of_the_task_takes_the_assumption() {
+    let mut b = Built::from_source(SRC);
+    assert!(b.run_in("PX Shapes", "CreateOnly").is_ok());
+    clear_hits();
+    assert!(matches!(b.run_in("PX Shapes", "ReadOnly"), Ok(Value::Boolean(true))));
+    assert_eq!(take_hits(), vec![FLAG]);
+}
+
+#[test]
+fn a_read_after_the_commit_takes_the_assumption() {
+    let mut b = Built::from_source(SRC);
+    assert!(b.run_in("PX Shapes", "CreateAndCommit").is_ok());
+    clear_hits();
+    assert!(matches!(b.run_in("PX Shapes", "ReadOnly"), Ok(Value::Boolean(true))));
+    assert_eq!(take_hits(), vec![FLAG]);
+}
+
+#[test]
+fn a_rolled_back_task_leaves_no_assumption() {
+    let mut b = Built::from_source(SRC);
+    assert!(b.run_in("PX Shapes", "CreateAndRollBack").is_ok());
+    clear_hits();
+    assert!(matches!(b.run_in("PX Shapes", "ReadOnly"), Ok(Value::Boolean(false))));
+    assert!(take_hits().is_empty());
 }
 
 #[test]

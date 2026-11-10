@@ -3753,8 +3753,8 @@ impl Session {
 
     /// Loads the parameters string of a `SaveAs` into the data items' records, the way a request
     /// page does before the run (reports/TestReportRunRequestPage.al:TestReport_CapturedParameters_
-    /// ReplayThroughSaveAs_FilterTheDataset). Only the text this runtime's `RunRequestPage` hands out
-    /// is understood (`apply_request_parameters`).
+    /// ReplayThroughSaveAs_FilterTheDataset), or of an `Execute`. Which forms of the text are understood,
+    /// per call: `apply_request_parameters` and `ParamsCall`.
     fn apply_run_parameters(
         &mut self,
         inst: &Inst,

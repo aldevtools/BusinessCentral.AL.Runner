@@ -1,8 +1,9 @@
-//! A parameters string with the XML declaration whose `<ReportParameters>` root has no `name` and `id`: its `Field` nodes
-//! set the request page's variables as for a named root (reports/layouts-saveas/AMRdlcOutput.al:153, :394-408
-//! TextRdlc_SaveAsXml_DoesNotRender `req=Yes`; reports/extensions/Y64XappRunOrder.al:156 for Execute). An unknown `Field`
-//! under SaveAs is ignored (al-runner issue 7590, assumption `report-saveas-unknown-field-ignored`). Without the declaration
-//! the string stays refused: BC raises an error the corpus has not measured.
+//! A parameters string with the XML declaration whose `<ReportParameters>` root has no `name` and `id`, under Report.SaveAs:
+//! its `Field` nodes set the request page's variables as for a named root (reports/layouts-saveas/AMRdlcOutput.al:153 with
+//! :350 and :372 `REQ:AMREQ42`; AMReportOutputTests.al:250). An unknown `Field` there is ignored (al-runner issue 7590,
+//! assumption `report-saveas-unknown-field-ignored`). Refused: Execute and RunRequestPage with such a root, a data item view
+//! under it, Options the parser cannot read, an unknown Field outside the reporter's shape, and a string without the
+//! declaration (BC raises an error the corpus has not measured).
 
 use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
 use al_builtins::native::Signal;
@@ -126,6 +127,7 @@ report 50265 "PX Two Options"
     var
         StartDate: Date;
         NoteText: Text[30];
+        Hidden: Text[30];
         L: Codeunit "PX Log";
 }
 
@@ -177,14 +179,19 @@ codeunit 50266 "PX Shapes"
         exit(L.Take());
     end;
 
+    local procedure Bare(Body: Text): Text
+    begin
+        exit(SaveAs('<?xml version="1.0" standalone="yes"?><ReportParameters>' + Body + '</ReportParameters>'));
+    end;
+
     procedure SelfClosing(): Text
     begin
-        exit(SaveAs('<?xml version="1.0" standalone="yes"?><ReportParameters><Options><Field name="StartDate" /><Field name="NoteText" /></Options></ReportParameters>'));
+        exit(Bare('<Options><Field name="StartDate" /><Field name="NoteText" /></Options>'));
     end;
 
     procedure Unknown(): Text
     begin
-        exit(SaveAs('<?xml version="1.0" standalone="yes"?><ReportParameters><Options><Field name="StartDate">2026-01-15</Field><Field name="NoSuchOption">x</Field></Options></ReportParameters>'));
+        exit(Bare('<Options><Field name="StartDate">2026-01-15</Field><Field name="NoSuchOption">x</Field></Options>'));
     end;
 
     procedure NoDeclaration(): Text
@@ -194,7 +201,52 @@ codeunit 50266 "PX Shapes"
 
     procedure UnknownDataItem(): Text
     begin
-        exit(SaveAs('<?xml version="1.0" standalone="yes"?><ReportParameters><Options><Field name="StartDate">2026-01-15</Field></Options><DataItems><DataItem name="NoSuchItem">VERSION(1) SORTING(Field1)</DataItem></DataItems></ReportParameters>'));
+        exit(SaveAs('<?xml version="1.0" standalone="yes"?><ReportParameters name="PX Two Options" id="50265"><Options><Field name="StartDate">2026-01-15</Field></Options><DataItems><DataItem name="NoSuchItem">VERSION(1) SORTING(Field1)</DataItem></DataItems></ReportParameters>'));
+    end;
+
+    procedure DataItemUnderBareRoot(): Text
+    begin
+        exit(Bare('<Options><Field name="StartDate">2026-01-15</Field></Options><DataItems><DataItem name="R">VERSION(1) SORTING(Field1)</DataItem></DataItems>'));
+    end;
+
+    procedure SingleQuotes(): Text
+    begin
+        exit(Bare('<Options><Field name=''StartDate''>2026-01-15</Field><Field name="NoteText">n</Field></Options>'));
+    end;
+
+    procedure ExtraAttribute(): Text
+    begin
+        exit(Bare('<Options><Field name="StartDate" x="1">2026-01-15</Field></Options>'));
+    end;
+
+    procedure FieldOutsideOptions(): Text
+    begin
+        exit(Bare('<Field name="StartDate">2026-01-15</Field>'));
+    end;
+
+    procedure EmptyRoot(): Text
+    begin
+        exit(Bare(''));
+    end;
+
+    procedure NamedUnknown(): Text
+    begin
+        exit(SaveAs('<?xml version="1.0" standalone="yes"?><ReportParameters name="PX Two Options" id="50265"><Options><Field name="StartDate">2026-01-15</Field><Field name="NoSuchOption">x</Field></Options></ReportParameters>'));
+    end;
+
+    procedure HiddenGlobal(): Text
+    begin
+        exit(Bare('<Options><Field name="Hidden">x</Field></Options>'));
+    end;
+
+    procedure CaseOnly(): Text
+    begin
+        exit(Bare('<Options><Field name="startdate">2026-01-15</Field></Options>'));
+    end;
+
+    procedure ControlName(): Text
+    begin
+        exit(Bare('<Options><Field name="StartCtl">2026-01-15</Field></Options>'));
     end;
 
     procedure Execute(): Text
@@ -247,17 +299,49 @@ fn a_string_without_the_xml_declaration_stays_refused() {
     assert!(matches!(&r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
+fn refused(routine: &str, part: &str) {
+    let (r, hits) = run("PX Shapes", routine);
+    assert!(
+        matches!(&r, Err(Signal::Unsupported(m)) if m.contains(part)),
+        "{routine}: {r:?}"
+    );
+    assert!(hits.is_empty(), "{routine}: {hits:?}");
+}
+
 // Only an Execute skips an unknown data item name (ExecuteParamsTwiceAndViews.al:217).
 #[test]
 fn an_unknown_data_item_under_saveas_stays_refused() {
-    let (r, _) = run("PX Shapes", "UnknownDataItem");
-    assert!(
-        matches!(&r, Err(Signal::Unsupported(m)) if m.contains("NoSuchItem")),
-        "{r:?}"
-    );
+    refused("UnknownDataItem", "NoSuchItem");
 }
 
+// The corpus pins and the reporter show the root without name and id with Options only.
 #[test]
-fn execute_applies_a_root_without_name_and_id() {
-    assert_eq!(text("PX Shapes", "Execute"), ("2026-01-15|init".to_string(), vec![]));
+fn a_data_item_view_under_a_root_without_name_and_id_is_refused() {
+    refused("DataItemUnderBareRoot", "data item view");
 }
+
+// A part of the Options the parser cannot read is refused, not dropped.
+#[test]
+fn options_in_a_form_this_runtime_cannot_read_are_refused() {
+    refused("SingleQuotes", "cannot read");
+    refused("ExtraAttribute", "cannot read");
+    refused("FieldOutsideOptions", "exactly one Options");
+    refused("EmptyRoot", "exactly one Options");
+}
+
+// The assumption covers only the reporter's shape: SaveAs, a root without name and id, a name the report has nowhere.
+#[test]
+fn an_unknown_field_outside_the_measured_shape_stays_refused() {
+    refused("NamedUnknown", "NoSuchOption");
+    refused("HiddenGlobal", "Hidden");
+    refused("CaseOnly", "startdate");
+    refused("ControlName", "StartCtl");
+}
+
+// Y64XappRunOrder.al:156 shows only that the Execute runs; what it does with the Fields is not pinned (probe queued).
+#[test]
+fn execute_with_a_root_without_name_and_id_is_refused() {
+    refused("Execute", "Execute");
+}
+
+// RunRequestPage needs a request page handler: al-testrun tests/suite/request_page_seed_bare_root.rs.

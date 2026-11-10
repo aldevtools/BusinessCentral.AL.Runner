@@ -1437,6 +1437,7 @@ impl Session {
                 if let Value::Unknown(why) = &v {
                     return Err(Signal::Unsupported(why.to_string()));
                 }
+                self.note_task_company_field(r.table, *pos);
                 if let Some(why) = self.install_row_order(r.table, r.temporary, *pos, &r.fields) {
                     return Err(Signal::Unsupported(why));
                 }
