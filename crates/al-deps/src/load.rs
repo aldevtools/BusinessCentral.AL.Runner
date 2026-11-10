@@ -1590,7 +1590,7 @@ mod tests {
         }
     }
 
-    /// Any other package without source stays out: its objects are unavailable, and the note says so.
+    /// Any other package without source stays out: it does not serve the dependency, which stays missing.
     #[test]
     fn another_source_archive_without_al_files_is_not_listed() {
         let dir = tempfile::tempdir().unwrap();
@@ -1608,5 +1608,10 @@ mod tests {
         })
         .unwrap();
         assert!(l.apps.is_empty());
+        assert!(
+            matches!(l.skipped.as_slice(), [SelectError::Missing { dep, .. }] if dep.name == "Zed"),
+            "{:?}",
+            l.skipped
+        );
     }
 }

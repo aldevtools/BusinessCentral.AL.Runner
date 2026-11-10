@@ -602,8 +602,9 @@ impl Providers {
             )));
         }
         // The list of installed apps follows the install in progress and the run's setting for dependency apps: listed per read.
-        if kind == Virtual::NavAppInstalledApp
-            && (self.events.install_view.borrow().active() || self.engine().dependencies_published_global)
+        if (kind == Virtual::NavAppInstalledApp
+            && (self.events.install_view.borrow().active() || self.engine().dependencies_published_global))
+            || (kind == Virtual::PublishedApplication && self.engine().dependencies_published_global)
         {
             return Ok(Listed::Own(Rc::new(mat::Mat::new(t, self.list_rows(t, kind)))));
         }
@@ -1288,6 +1289,8 @@ mod tests {
             Virtual::ActiveSession,
             Virtual::ServerInstance,
             Virtual::TimeZone,
+            // Its rows hold the session's tenant id.
+            Virtual::PublishedApplication,
         ] {
             assert!(!Providers::shares(kind));
         }

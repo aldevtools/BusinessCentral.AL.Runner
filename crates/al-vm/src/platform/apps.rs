@@ -17,6 +17,51 @@ fn version(v: &str) -> Option<[i32; 4]> {
     parts.try_into().ok()
 }
 
+/// How BC published an app: what "Published As" and "Tenant ID" of its rows follow.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Route {
+    /// Through the development endpoint, as a per-tenant app: Published As Dev (2), Tenant ID `TenantId()`.
+    Dev,
+    /// As a global app: Published As Global (0), Tenant ID blank.
+    Global,
+}
+
+/// The route of app `a` and the assumption the answer rests on, if any. One rule for NAV App Installed App and
+/// Published Application:
+/// - an app under test, as the corpus apps through the development endpoint, is Dev; Microsoft's apps are Global
+///   (record/table-properties/Y12PublishedAs.al:31-80, al-runner issue 6438; onprem
+///   metadata/platform-tables/AwOnPremTests.al:137-139 `tenant= as=Global` for Base Application, `tenant=default as= Dev`
+///   for the two corpus apps; onprem session-system/PZPublishedApplicationColumns.al:96-109);
+/// - a dependency app of another publisher is Dev as well, as one published through the development endpoint
+///   (record/lt-r7142-installed-app/R7169DepInstallPublishedAs.al:70, al-runner issue 7169: the install codeunit of XApp A
+///   reads it there; AwOnPremTests.al:138, the coverage app the onprem app depends on);
+/// - `--dependencies-published-global` makes such a dependency Global, for a pipeline that publishes dependencies as
+///   compiled apps (a documented setting: assumption `dependency-published-as-global`).
+fn route(a: &al_ir::AppInfo, dependencies_global: bool) -> (Route, Option<al_builtins::assumptions::Assumption>) {
+    if !a.dependency {
+        (Route::Dev, None)
+    } else if a.publisher.eq_ignore_ascii_case("Microsoft") {
+        (Route::Global, None)
+    } else if dependencies_global {
+        (
+            Route::Global,
+            Some(al_builtins::assumptions::Assumption::DependencyPublishedAsGlobal),
+        )
+    } else {
+        (Route::Dev, None)
+    }
+}
+
+impl Route {
+    /// The ordinal of "Published As" (Global, PTE, Dev).
+    fn published_as(self) -> i32 {
+        match self {
+            Route::Dev => 2,
+            Route::Global => 0,
+        }
+    }
+}
+
 /// NAV App Installed App: "App ID" (1), "Package ID" (2), Name (3), Publisher (4), version (5 to 8), compatibility (9 to 12),
 /// "Hash Algorithm" (14), "Extension Type" (15), "Published As" (16).
 pub(super) fn nav_app_installed_app_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
@@ -59,23 +104,9 @@ pub(super) fn nav_app_installed_app_rows(p: &Providers, t: &TableDef) -> Vec<Ent
             if t.fields.iter().any(|f| f.id == 13) {
                 r[pos(t, 13)] = super::unknown(t, 13, &format!("app '{}'", a.name));
             }
-            // "Published As" follows how the app was published: an app under test, as the corpus apps through the development
-            // endpoint, is Dev (2); Microsoft's apps are Global (0) (record/table-properties/Y12PublishedAs.al:31-80, al-runner
-            // issue 6438). A dependency app of another publisher is Dev as well, as one published through the development
-            // endpoint (record/lt-r7142-installed-app/R7169DepInstallPublishedAs.al:70, al-runner issue 7169; the install
-            // codeunit of XApp A reads it there); `--dependencies-published-global` makes it Global, for a pipeline that
-            // publishes dependencies as compiled apps (a documented setting: assumption `dependency-published-as-global`).
-            let mut assumed = None;
-            r[pos(t, 16)] = if !a.dependency {
-                super::option(t, 16, 2)
-            } else if a.publisher == "Microsoft" {
-                super::option(t, 16, 0)
-            } else if global {
-                assumed = Some(al_builtins::assumptions::Assumption::DependencyPublishedAsGlobal);
-                super::option(t, 16, 0)
-            } else {
-                super::option(t, 16, 2)
-            };
+            // "Published As" follows how the app was published ([`route`]).
+            let (route, assumed) = route(a, global);
+            r[pos(t, 16)] = super::option(t, 16, route.published_as());
             if order_unknown {
                 let why = format!(
                     "app '{}': whether BC has installed it while the app whose install runs installs is not known (no dependency path between them)",
@@ -94,11 +125,11 @@ pub(super) fn nav_app_installed_app_rows(p: &Providers, t: &TableDef) -> Vec<Ent
 
 /// Published Application: "Runtime Package ID" (1), "Package ID" (2), ID (3), Name (4), Publisher (5),
 /// version (6 to 9). The two package ids of an app are one value (AL Runner measured that on a real tier
-/// for an app published through the development endpoint). "Tenant ID" (12) is `TenantId()` for an app under test and blank for Microsoft's apps (see below;
-/// install-upgrade/TestRetenPolAllowedTables_Tests.al needs the row of Base Application to satisfy
-/// `SetFilter("Tenant ID", '%1|%2', '', TenantId)`); for a dependency app of another publisher it is unknown
-/// (docs/probes-needed.md).
+/// for an app published through the development endpoint). "Published As" (11) and "Tenant ID" (12) follow how the app was published ([`route`]): Dev and
+/// `TenantId()`, or Global and a blank. Either passes `SetFilter("Tenant ID", '%1|%2', '', TenantId)`, which
+/// install-upgrade/TestRetenPolAllowedTables_Tests.al needs of the row of the app that registers a table.
 pub(super) fn published_application_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
+    let global = p.engine().dependencies_published_global;
     let mut rows = p
         .engine()
         .program
@@ -117,24 +148,14 @@ pub(super) fn published_application_rows(p: &Providers, t: &TableDef) -> Vec<Ent
             for (n, part) in v.iter().enumerate() {
                 r[pos(t, 6 + n as u32)] = Value::Integer(*part);
             }
-            // "Tenant ID" (12) follows how the app was published, as "Published As" does. An app under test, published through
-            // the development endpoint as the corpus apps are, is a per-tenant app and carries `TenantId()`; Microsoft's apps
-            // are global and carry a blank (onprem session-system/PZPublishedApplicationColumns.al:105-109: this app and the
-            // coverage app `[default]`, Base Application and System Application `[]`, and as many rows with a tenant id as the
-            // leg publishes corpus apps, :96-97; onprem metadata/platform-tables/AwOnPremTests.al:137-139 pairs blank with
-            // Global and `default` with Dev). A dependency app of another publisher is not pinned: its value depends on how
-            // it was published, so a read is refused.
-            r[pos(t, 12)] = if !a.dependency {
-                Value::Text(p.ident.tenant_id.clone().into())
-            } else if a.publisher.eq_ignore_ascii_case("Microsoft") {
-                Value::Text(String::new().into())
-            } else {
-                let whose = format!(
-                    "app '{}', a dependency app of another publisher than Microsoft (its tenant id depends on how it was published)",
-                    a.name
-                );
-                super::unknown(t, 12, &whose)
-            };
+            // "Published As" (11) and "Tenant ID" (12) follow how the app was published ([`route`]): a per-tenant app
+            // carries `TenantId()`, a global one a blank.
+            let (route, assumed) = route(a, global);
+            r[pos(t, 11)] = super::option(t, 11, route.published_as());
+            r[pos(t, 12)] = Value::Text(match route {
+                Route::Dev => p.ident.tenant_id.clone().into(),
+                Route::Global => String::new().into(),
+            });
             // Description holds the manifest's description as UTF-8 text (onprem session-system/PZPublishedApplicationColumns.al:55-59:
             // a value for the corpus app, Base Application, System Application and Application; the corpus app's text). An app
             // whose manifest was not read, or whose description is empty, is not pinned: unknown rather than a blank Blob.
@@ -172,8 +193,7 @@ pub(super) fn published_application_rows(p: &Providers, t: &TableDef) -> Vec<Ent
                     r[pos(t, 20)] = super::unknown(t, 20, &whose);
                 }
             }
-            // The columns the row fills above, and those whose default the corpus pins for every app (11 Published As, 13,
-            // 30, 31). The others (Brief, the links, Blob, the source and build columns of
+            // The columns the row fills above, and those whose default the corpus pins for every app (13, 30, 31). The others (Brief, the links, Blob, the source and build columns of
             // Y48PublishedApplication.al) are filled for the Application row only: here unknown, a read is refused.
             const SERVED: [u32; 16] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 15, 20, 30, 31];
             for f in &t.fields {
@@ -181,7 +201,11 @@ pub(super) fn published_application_rows(p: &Providers, t: &TableDef) -> Vec<Ent
                     r[pos(t, f.id)] = super::unknown(t, f.id, &format!("app '{}'", a.name));
                 }
             }
-            Some(Entry::ok(r))
+            let entry = Entry::ok(r);
+            Some(match assumed {
+                Some(x) => entry.assuming(x),
+                None => entry,
+            })
         })
         .collect::<Vec<_>>();
     // The `Application` aggregate (application_row.rs).
