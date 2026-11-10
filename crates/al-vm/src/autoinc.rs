@@ -78,6 +78,15 @@ impl Session {
         }
         let slot = Self::counter_slot(t, company);
         let next = self.counter(t, &slot) + 1;
+        // An Integer key past Int32 does not wrap: on BC the Insert ends the transaction and the test fails, which no
+        // AL code can catch and no passing test can pin (record/TestAutoIncrementEdges.al:21-22). An AL error here
+        // would be caught by `asserterror` and pass a test BC fails, so the Insert is refused (al-runner issue 5521).
+        if t.fields[field].ty == RtType::Integer && next > i64::from(i32::MAX) {
+            return unsupported(format!(
+                "Insert into table '{}': the next value of the Integer AutoIncrement field '{}' is past 2147483647; BC ends the transaction and fails the test, which AL code cannot catch (record/TestAutoIncrementEdges.al:21-22)",
+                t.name, t.fields[field].name
+            ));
+        }
         row[field] = ops::convert(Value::BigInteger(next), &t.fields[field].ty)?;
         self.autoinc.insert(slot, next);
         Ok(true)
