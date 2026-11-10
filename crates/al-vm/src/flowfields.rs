@@ -7,6 +7,7 @@
 //! (ADR-003): a FlowField reads the persistent table, one row at a time.
 
 use crate::Session;
+use crate::records::Addressed;
 use al_builtins::describe::Describe;
 use al_builtins::filter::{FieldFilter, FilterExpr, parse_filter_with};
 use al_builtins::native::{AlError, Signal, text_of};
@@ -595,6 +596,7 @@ impl Session {
             self.permission_gate_flowfield(rec, calc.table)?;
         }
         let cx = self.cx_for(rec, &src_t)?;
+        self.login_guard_table(src_t.object, "a FlowField", Addressed::Filters(&filters))?;
         let n = self
             .store
             .count(&cx, &src_t, &filters)
@@ -635,7 +637,7 @@ impl Session {
         let src_t = self.engine.tables[calc.table].clone().expect("table");
         self.unseeded_read(&src_t, rec.borrow().temporary, "a FlowField")?;
         // The source rows are the stored table's, also for a temporary record (`records/login_guard.rs`).
-        self.login_guard_table(src_t.object, "a FlowField")?;
+        self.login_guard_table(src_t.object, "a FlowField", Addressed::Filters(&filters))?;
         // ADR-062: a FlowField reads its source table indirectly (CpPermLeads.al:29-63).
         if self.permission_checks() {
             self.permission_gate_flowfield(rec, calc.table)?;
@@ -1096,6 +1098,7 @@ impl Session {
         filters: &[FieldFilter],
         mut f: impl FnMut(&[Value]) -> Result<(), Signal>,
     ) -> Result<(), Signal> {
+        self.login_guard_scan(t.object, rec.is_some_and(|r| r.borrow().temporary), filters)?;
         let mut after: Option<Vec<Value>> = None;
         loop {
             let store = match rec {

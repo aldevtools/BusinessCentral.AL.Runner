@@ -1147,11 +1147,14 @@ pub(crate) fn test_session_company_open(lowered: &Lowered, session: &mut Session
             wrote.who.get_or_insert(who);
         }
     }
-    // Without the login, a read of a table its subscribers add rows to is refused or marks an assumption from here on
-    // (`login::Login::Skip`).
+    // Without the login, a read of a table its subscribers add rows to is refused from here on, and for a table the test's
+    // own calls can insert into, an operation that addresses a row they add when they run alone (`login::Login::Skip`).
     if let crate::login::Login::Skip { guarded, assumed } = decision {
         session.guard_login_tables(guarded);
-        session.assume_login_tables(assumed);
+        if !assumed.is_empty() {
+            let rows = session.login_rows_alone(&crate::login::login_subscribers(lowered, &engine.events), &assumed);
+            session.guard_login_rows(assumed, rows);
+        }
     }
     Ok(wrote)
 }

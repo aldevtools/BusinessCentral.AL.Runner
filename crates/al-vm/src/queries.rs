@@ -1193,7 +1193,6 @@ impl Session {
         let mut rows: Vec<Vec<Value>> = Vec::new();
         if !parent_missing {
             let cx = self.cx.clone();
-            self.login_guard_table(t.object, "a query")?;
             self.each_row(&cx, &t, &filters, |row| {
                 rows.push(row.to_vec());
                 Ok(())
@@ -1234,7 +1233,6 @@ impl Session {
         let ct: Arc<TableDef> = self.engine.tables[item.table].clone().expect("table");
         let cx = self.cx.clone();
         let mut children: Vec<Vec<Value>> = Vec::new();
-        self.login_guard_table(ct.object, "a query")?;
         self.each_row(&cx, &ct, &plan.scan[level], |row| {
             children.push(row.to_vec());
             Ok(())

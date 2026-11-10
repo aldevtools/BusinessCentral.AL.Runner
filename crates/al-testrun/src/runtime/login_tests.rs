@@ -313,10 +313,12 @@ fn a_test_that_reads_the_row_only_through_the_page_it_opens_sees_it() {
     );
 }
 
-// A test codeunit that inserts the row itself before the page reads it has it without the login, and runs as before:
-// here the dependency's login code stops with an error, so a codeunit that raised the login would not run.
+// A test codeunit that inserts the row itself before the page reads it runs without the login: here the dependency's
+// login code stops with an error, so a codeunit that raised the login would not run. Its first read asks for the key
+// the login registers (object 51140), which BC finds from the login and the runner would not: that read is refused
+// (al-runner issue 7717). Until that issue this test passed, against a table without the login's row.
 #[test]
-fn a_test_that_registers_the_row_itself_before_the_page_reads_it_runs_without_the_login() {
+fn a_test_that_registers_the_logins_own_row_itself_is_refused_where_it_reads_that_row() {
     let dep = format!(
         r#"{DEP}{DATABASE_SUBSCRIBER}
 codeunit 1991 "Guided Experience Events"
@@ -334,13 +336,10 @@ codeunit 1991 "Guided Experience Events"
         "    var Wizard: TestPage \"Repro Plain Wizard\"; G: Codeunit \"Guided Experience\";\n    begin\n        if not G.AssistedSetupExistsAndIsNotComplete(51140) then G.InsertAssistedSetup(51140);\n",
     );
     assert_ne!(main, WIZARD);
-    assert_eq!(
-        super::tests::outcomes_over_dependency(&main, &dep),
-        vec![
-            ("ClosingTheWizardAsksToConfirm".to_string(), Outcome::Pass),
-            ("AnActionOfTheWizardSeesTheRow".to_string(), Outcome::Pass)
-        ]
-    );
+    let o = super::tests::outcomes_over_dependency(&main, &dep);
+    assert_eq!(o.len(), 2, "{o:?}");
+    refused_on_login_row(&o, "ClosingTheWizardAsksToConfirm");
+    refused_on_login_row(&o, "AnActionOfTheWizardSeesTheRow");
 }
 
 // The standard wizard (al-runner issue 7605, and the review of issue 7574 before it): its Finish action calls
@@ -623,7 +622,8 @@ fn outcomes_and_hits(main: &str, dep: &str, codeunit: &str) -> super::tests::Out
     super::tests::outcomes_and_hits_of_apps(&[("main", &["dep"], main), ("dep", &[], dep)], codeunit)
 }
 
-const OWN_INSERT_ASSUMED: &str = "login-rows-not-needed-by-own-inserter";
+/// The refusal of an operation that addresses a row the login would add.
+const ADDRESSES_LOGIN_ROW: &str = "addresses a row a login subscriber of an app under test adds";
 
 /// An app under test whose `OnRegisterAssistedSetup` subscriber registers object 51200, and `tests`.
 fn registration_and(tests: &str) -> String {
@@ -642,11 +642,24 @@ codeunit 51200 "Own Insert Registration"
     )
 }
 
-// Gap 1: one test of the codeunit inserts into the table the login adds rows to, so the codeunit runs without the login
-// and the table is not guarded. A read of it marks the assumption: the test that misses the login's row is not run (it
-// failed on main), the test that inserts its own row is a flagged pass.
+/// Asserts that test `name` of `o` is not run because it addressed the login's row.
+fn refused_on_login_row(o: &[(String, Outcome)], name: &str) {
+    match o.iter().find(|(n, _)| n == name) {
+        Some((_, Outcome::NotRun(why))) => assert!(
+            why.contains(ADDRESSES_LOGIN_ROW) && why.contains("Guided Experience Item"),
+            "{name}: {why}"
+        ),
+        other => panic!("{name}: expected a refusal, got {other:?}"),
+    }
+}
+
+// Gap 1: tests of the codeunit insert into the table the login adds rows to, so the codeunit runs without the login.
+// The rows the app's login subscriber adds when it runs alone are known (object 51200): an operation that addresses
+// one of them is refused, as it would read or write that row on BC (LgnLoginChecklistTests.al:137-138); one that
+// addresses only the test's own rows runs, and passes clean. On main the first test failed, and the count and the
+// insert of the login's key passed although both fail on BC.
 #[test]
-fn a_test_whose_codeunit_can_insert_into_the_login_table_is_flagged_and_its_failure_not_run() {
+fn an_operation_on_the_login_table_that_addresses_the_logins_row_is_refused() {
     let main = registration_and(
         r#"
 codeunit 51201 "Own Insert Tests"
@@ -665,35 +678,10 @@ codeunit 51201 "Own Insert Tests"
     var G: Codeunit "Guided Experience";
     begin
         G.InsertAssistedSetup(51201);
+        if not G.AssistedSetupExistsAndIsNotComplete(51201) then
+            Error('The own row does not exist.');
     end;
-}
-"#,
-    );
-    let (o, hits) = outcomes_and_hits(&main, DEP, "Own Insert Tests");
-    match o.as_slice() {
-        [(a, Outcome::NotRun(why)), (b, Outcome::Pass)]
-            if a == "ReadsTheRowOfTheLogin" && b == "InsertsARowOfItsOwn" =>
-        {
-            assert!(
-                why.contains(OWN_INSERT_ASSUMED)
-                    && why.contains("Guided Experience Item")
-                    && why.contains("does not exist"),
-                "{why}"
-            )
-        }
-        other => panic!("expected a refused failure and a pass, got {other:?}"),
-    }
-    assert!(hits.iter().all(|(_, h)| h.contains(&OWN_INSERT_ASSUMED)), "{hits:?}");
-}
 
-// Gap 1, a wrong pass on main: the count after the test's own insert is 2 on BC. It still passes here, now flagged.
-#[test]
-fn a_count_after_the_tests_own_insert_into_the_login_table_is_a_flagged_pass() {
-    let main = registration_and(
-        r#"
-codeunit 51202 "Own Insert Count"
-{
-    Subtype = Test;
     [Test]
     procedure CountAfterOwnInsertIsOne()
     var R: Record "Guided Experience Item";
@@ -703,15 +691,109 @@ codeunit 51202 "Own Insert Count"
         if R.Count() <> 1 then
             Error('Count is %1', R.Count());
     end;
+
+    [Test]
+    procedure InsertsTheKeyOfTheLoginRow()
+    var G: Codeunit "Guided Experience";
+    begin
+        G.InsertAssistedSetup(51200);
+    end;
 }
 "#,
     );
-    let (o, hits) = outcomes_and_hits(&main, DEP, "Own Insert Count");
-    assert_eq!(o, vec![("CountAfterOwnInsertIsOne".to_string(), Outcome::Pass)]);
-    assert_eq!(
-        hits,
-        vec![("CountAfterOwnInsertIsOne".to_string(), vec![OWN_INSERT_ASSUMED])]
+    let (o, hits) = outcomes_and_hits(&main, DEP, "Own Insert Tests");
+    assert_eq!(o.len(), 4, "{o:?}");
+    refused_on_login_row(&o, "ReadsTheRowOfTheLogin");
+    refused_on_login_row(&o, "CountAfterOwnInsertIsOne");
+    refused_on_login_row(&o, "InsertsTheKeyOfTheLoginRow");
+    assert_eq!(o[1], ("InsertsARowOfItsOwn".to_string(), Outcome::Pass));
+    assert!(hits.iter().all(|(_, h)| h.is_empty()), "{hits:?}");
+}
+
+// Gap 1 across two tests (review probe "PB Cross Test"): the first test keeps what it read of the login's row in a
+// SingleInstance codeunit, the second fails on what was kept. The first is refused, so the second's failure is not
+// trusted; the test that registers its own row passes.
+#[test]
+fn a_failure_that_rests_on_a_refused_read_of_the_logins_row_is_not_run() {
+    let main = registration_and(
+        r#"
+codeunit 51203 "Own Insert State"
+{
+    SingleInstance = true;
+    var Seen: Boolean;
+    procedure SetSeen(V: Boolean) begin Seen := V; end;
+    procedure GetSeen(): Boolean begin exit(Seen); end;
+}
+codeunit 51204 "Own Insert Cross Test"
+{
+    Subtype = Test;
+    [Test]
+    procedure KeepsWhatTheRowSays()
+    var G: Codeunit "Guided Experience"; S: Codeunit "Own Insert State";
+    begin
+        S.SetSeen(G.AssistedSetupExistsAndIsNotComplete(51200));
+    end;
+
+    [Test]
+    procedure ReadsWhatTheEarlierTestKept()
+    var S: Codeunit "Own Insert State";
+    begin
+        if not S.GetSeen() then
+            Error('The row was not there in the earlier test.');
+    end;
+
+    [Test]
+    procedure RegistersItsOwnRow()
+    var G: Codeunit "Guided Experience";
+    begin
+        G.InsertAssistedSetup(51209);
+    end;
+}
+"#,
     );
+    let (o, _) = outcomes_and_hits(&main, DEP, "Own Insert Cross Test");
+    refused_on_login_row(&o, "KeepsWhatTheRowSays");
+    assert!(
+        matches!(&o[1].1, Outcome::NotRun(why) if why.contains("not trusted")),
+        "{o:?}"
+    );
+    assert_eq!(o[2], ("RegistersItsOwnRow".to_string(), Outcome::Pass));
+}
+
+// Gap 1, fallback: when the login subscriber does not run to its end alone, the rows it adds are not known, and every
+// operation on the table is refused, also one on the test's own row.
+#[test]
+fn every_operation_on_the_login_table_is_refused_when_the_subscriber_cannot_run_alone() {
+    let main = r#"
+codeunit 51205 "Failing Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterAssistedSetup', '', false, false)]
+    local procedure HandleOnRegisterAssistedSetup()
+    var G: Codeunit "Guided Experience";
+    begin
+        G.InsertAssistedSetup(51205);
+        Error('The registration stops here.');
+    end;
+}
+codeunit 51206 "Failing Registration Test"
+{
+    Subtype = Test;
+    [Test]
+    procedure InsertsARowOfItsOwn()
+    var G: Codeunit "Guided Experience";
+    begin
+        G.InsertAssistedSetup(51206);
+    end;
+}
+"#;
+    let (o, _) = outcomes_and_hits(main, DEP, "Failing Registration Test");
+    match o.as_slice() {
+        [(_, Outcome::NotRun(why))] => assert!(
+            why.contains("which rows is not known") && why.contains("The registration stops here."),
+            "{why}"
+        ),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
 }
 
 /// Gap 2: an app under test whose `OnAfterLogin` subscriber adds a row to "H Login Row", tables that read it other than
@@ -720,8 +802,24 @@ codeunit 51202 "Own Insert Count"
 const READS_PAST_THE_GUARD: &str = r#"
 table 51250 "H Login Row"
 {
-    fields { field(1; Code; Code[20]) { } field(2; Name; Text[50]) { } }
+    fields { field(1; Code; Code[20]) { } field(2; Name; Text[50]) { } field(3; Amount; Decimal) { } }
     keys { key(PK; Code) { Clustered = true; } }
+}
+table 51256 "H Blob" { fields { field(1; K; Integer) { } field(2; Data; Blob) { } } keys { key(PK; K) { Clustered = true; } } }
+xmlport 51257 "H Rows Text"
+{
+    Direction = Export;
+    Format = VariableText;
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Row; "H Login Row")
+            {
+                fieldelement(Code; Row.Code) { }
+            }
+        }
+    }
 }
 codeunit 51250 "H Registration"
 {
@@ -733,6 +831,7 @@ codeunit 51250 "H Registration"
             exit;
         Row.Code := 'LOGIN';
         Row.Name := 'from login';
+        Row.Amount := 5;
         Row.Insert();
     end;
 }
@@ -896,12 +995,40 @@ codeunit 51267 "H Read 8"
         if Ref.GetBySystemId(CreateGuid()) then Error('A row with a new SystemId.');
     end;
 }
+codeunit 51268 "H Read 9"
+{
+    Subtype = Test;
+    [Test]
+    procedure FieldRefCalcSum()
+    var Ref: RecordRef; Fld: FieldRef; D: Decimal;
+    begin
+        Ref.Open(51250);
+        Fld := Ref.Field(3);
+        Fld.CalcSum();
+        D := Fld.Value();
+        if D <> 5 then Error('The sum is %1.', D);
+    end;
+}
+codeunit 51269 "H Read 10"
+{
+    Subtype = Test;
+    [Test]
+    procedure XmlportExport()
+    var B: Record "H Blob" temporary; OutS: OutStream; InS: InStream; Txt: Text;
+    begin
+        B.Data.CreateOutStream(OutS);
+        Xmlport.Export(Xmlport::"H Rows Text", OutS);
+        B.Data.CreateInStream(InS);
+        InS.ReadText(Txt);
+        if not Txt.Contains('LOGIN') then Error('The export has no row: %1', Txt);
+    end;
+}
 "#;
 
-// Gap 2: each read is refused, none finds an empty table (on main: 6 wrong failures and 1 wrong pass of these 8).
+// Gap 2: each read is refused, none finds an empty table (on main: 8 wrong failures and 1 wrong pass of these 10).
 #[test]
 fn reads_of_the_login_table_that_are_not_record_methods_are_refused_without_the_login() {
-    for n in 1..=8 {
+    for n in 1..=10 {
         let (o, _) = outcomes_and_hits(READS_PAST_THE_GUARD, DEP, &format!("H Read {n}"));
         match o.as_slice() {
             [(_, Outcome::NotRun(why))] if why.contains("the login was not raised") && why.contains("H Login Row") => {}
