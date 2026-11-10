@@ -76,7 +76,7 @@ codeunit 50871 "XU Tests"
 
 #[test]
 fn xrec_of_a_plain_table_method_reads_empty_after_a_partial_get() {
-    assert_eq!(boolean(run_in(SRC, "XU Tests", "IsBlocked")), true);
+    assert!(boolean(run_in(SRC, "XU Tests", "IsBlocked")));
     assert_eq!(text(run_in(SRC, "XU Tests", "XStatus")), "|");
 }
 
