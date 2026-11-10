@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<testsuites name="hybrid" tests="25411" failures="0" errors="0" skipped="0" time="3680.599" timestamp="2026-11-09T23:36:02Z"><testsuite name="Codeunit 69519" tests="2" failures="0" errors="0" skipped="0" time="1.369" timestamp="2026-11-09T23:06:02Z">
+<testsuites name="hybrid" tests="25419" failures="0" errors="0" skipped="0" time="10718.710" timestamp="2026-11-09T23:36:02Z"><testsuite name="Codeunit 69519" tests="2" failures="0" errors="0" skipped="0" time="1.369" timestamp="2026-11-09T23:06:02Z">
     <testcase classname="Codeunit 69519" name="EventSubscription_TableTriggerEvents_AllRows" time="0.702" />
     <testcase classname="Codeunit 69519" name="FieldTable_RelationTableNo_OfConditionalRelations" time="0.667" />
   </testsuite>
@@ -2933,15 +2933,22 @@
     <testcase classname="Codeunit 70864" name="P114_WithSingleStatementAndNested" time="0.955" />
     <testcase classname="Codeunit 70864" name="P114_WithLocalVariableShadow" time="0.595" />
   </testsuite>
-  <testsuite name="Codeunit 70869" tests="8" failures="0" errors="0" skipped="0" time="4.946" timestamp="2026-11-09T23:10:48Z">
-    <testcase classname="Codeunit 70869" name="ExcludeFlag_LabelNoArgs" time="0.123" />
-    <testcase classname="Codeunit 70869" name="ExcludeFlag_LabelWithArgs" time="0.264" />
-    <testcase classname="Codeunit 70869" name="ExcludeFlag_ErrorInfoMessageFromLabel" time="0.946" />
-    <testcase classname="Codeunit 70869" name="ExcludeFlag_DateTimeBooleanOptionArgs" time="0.713" />
-    <testcase classname="Codeunit 70869" name="ExcludeFlag_NestedTryFunctions" time="0.120" />
-    <testcase classname="Codeunit 70869" name="ExcludeFlag_GetWithCompositeKeyMissing" time="0.895" />
-    <testcase classname="Codeunit 70869" name="ExcludeFlag_FieldErrorWithLabelAndValue" time="0.911" />
-    <testcase classname="Codeunit 70869" name="ExcludeFlag_AsserterrorLabelAndStackAfterwards" time="0.974" />
+  <testsuite name="Codeunit 70869" tests="15" failures="0" errors="0" skipped="0" time="8.052" timestamp="2026-11-09T22:53:47Z">
+    <testcase classname="Codeunit 70869" name="ExcludeFlag_LabelNoArgs" time="0.018" />
+    <testcase classname="Codeunit 70869" name="ExcludeFlag_LabelWithArgs" time="0.032" />
+    <testcase classname="Codeunit 70869" name="ExcludeFlag_ErrorInfoMessageFromLabel" time="0.846" />
+    <testcase classname="Codeunit 70869" name="ExcludeFlag_DateTimeBooleanOptionArgs" time="0.663" />
+    <testcase classname="Codeunit 70869" name="ExcludeFlag_NestedTryFunctions" time="0.765" />
+    <testcase classname="Codeunit 70869" name="ExcludeFlag_GetWithCompositeKeyMissing" time="0.977" />
+    <testcase classname="Codeunit 70869" name="ExcludeFlag_FieldErrorWithLabelAndValue" time="0.850" />
+    <testcase classname="Codeunit 70869" name="ExcludeFlag_AsserterrorLabelAndStackAfterwards" time="0.371" />
+    <testcase classname="Codeunit 70869" name="ExcludeFlag_LocalLabelNoArgsOneArgTwoArgs" time="0.941" />
+    <testcase classname="Codeunit 70869" name="ExcludeFlag_LocalLabelArgumentTypes" time="0.844" />
+    <testcase classname="Codeunit 70869" name="ExcludeFlag_LocalLabelCommentLockedMaxLengthCrLf" time="0.351" />
+    <testcase classname="Codeunit 70869" name="ExcludeFlag_LabelHandedOnAsText" time="0.461" />
+    <testcase classname="Codeunit 70869" name="ExcludeFlag_LocalLabelInErrorInfoMessage" time="0.179" />
+    <testcase classname="Codeunit 70869" name="ExcludeFlag_LocalLabelAsserterrorAndCodeunitRun" time="0.354" />
+    <testcase classname="Codeunit 70869" name="ExcludeFlag_GlobalLabelPropertiesFromAnotherCodeunit" time="0.400" />
   </testsuite>
   <testsuite name="Codeunit 70873" tests="6" failures="0" errors="0" skipped="0" time="3.146" timestamp="2026-11-09T23:10:48Z">
     <testcase classname="Codeunit 70873" name="SetView_SortingNonKeyField_WithWhere" time="0.672" />
@@ -10470,9 +10477,10 @@
     <testcase classname="Codeunit 74850" name="ErrorTextVariableEmpty_TryFunction_ExcludeFlag" time="0.068" />
     <testcase classname="Codeunit 74850" name="ErrorTextVariable_Asserterror_ExcludeFlag" time="0.891" />
   </testsuite>
-  <testsuite name="Codeunit 74851" tests="2" failures="0" errors="0" skipped="0" time="0.600" timestamp="2026-11-09T23:14:16Z">
-    <testcase classname="Codeunit 74851" name="ErrorTextConst_TryFunction_ExcludeFlag" time="0.474" />
-    <testcase classname="Codeunit 74851" name="ErrorTextConst_Asserterror_ExcludeFlag" time="0.126" />
+  <testsuite name="Codeunit 74851" tests="3" failures="0" errors="0" skipped="0" time="1.933" timestamp="2026-11-09T22:53:48Z">
+    <testcase classname="Codeunit 74851" name="ErrorTextConst_TryFunction_ExcludeFlag" time="0.842" />
+    <testcase classname="Codeunit 74851" name="ErrorTextConst_Asserterror_ExcludeFlag" time="0.157" />
+    <testcase classname="Codeunit 74851" name="ErrorTextConst_LocalTextConst_ExcludeFlag" time="0.934" />
   </testsuite>
   <testsuite name="Codeunit 74853" tests="3" failures="0" errors="0" skipped="0" time="0.788" timestamp="2026-11-09T23:14:16Z">
     <testcase classname="Codeunit 74853" name="FieldErrorTextVariable_FilledField_ExcludeFlag" time="0.575" />
@@ -17926,20 +17934,20 @@
     <testcase classname="Codeunit 92620" name="LT_C312_List_21Rows_GetRow20" time="0.844" />
     <testcase classname="Codeunit 92620" name="LT_C312_TempList_40Rows_BufferChanged" time="0.218" />
   </testsuite>
-  <testsuite name="Codeunit 92700" tests="11" failures="0" errors="0" skipped="0" time="4.833" timestamp="2026-11-09T23:15:36Z">
-    <testcase classname="Codeunit 92700" name="WindowsLanguage_Rows_1025_1049" time="0.270" />
-    <testcase classname="Codeunit 92700" name="WindowsLanguage_Rows_1050_1074" time="0.386" />
-    <testcase classname="Codeunit 92700" name="WindowsLanguage_Rows_1076_1102" time="0.642" />
-    <testcase classname="Codeunit 92700" name="WindowsLanguage_Rows_1103_1131" time="0.632" />
-    <testcase classname="Codeunit 92700" name="WindowsLanguage_Rows_1132_1169" time="0.135" />
-    <testcase classname="Codeunit 92700" name="WindowsLanguage_Rows_1170_2118" time="0.153" />
-    <testcase classname="Codeunit 92700" name="WindowsLanguage_Rows_2121_4122" time="0.379" />
-    <testcase classname="Codeunit 92700" name="WindowsLanguage_Rows_4155_8204" time="0.528" />
-    <testcase classname="Codeunit 92700" name="WindowsLanguage_Rows_8218_13321" time="0.980" />
-    <testcase classname="Codeunit 92700" name="WindowsLanguage_Rows_13322_31770" time="0.440" />
-    <testcase classname="Codeunit 92700" name="WindowsLanguage_Walk_KeyOrder_CheckedRows" time="0.288" />
+  <testsuite name="Codeunit 92700" tests="11" failures="0" errors="0" skipped="0" time="4.133" timestamp="2026-11-09T22:53:48Z">
+    <testcase classname="Codeunit 92700" name="WindowsLanguage_Rows_1025_1049" time="0.094" />
+    <testcase classname="Codeunit 92700" name="WindowsLanguage_Rows_1050_1074" time="0.252" />
+    <testcase classname="Codeunit 92700" name="WindowsLanguage_Rows_1076_1102" time="0.621" />
+    <testcase classname="Codeunit 92700" name="WindowsLanguage_Rows_1103_1131" time="0.623" />
+    <testcase classname="Codeunit 92700" name="WindowsLanguage_Rows_1132_1169" time="0.098" />
+    <testcase classname="Codeunit 92700" name="WindowsLanguage_Rows_1170_2118" time="0.083" />
+    <testcase classname="Codeunit 92700" name="WindowsLanguage_Rows_2121_4122" time="0.378" />
+    <testcase classname="Codeunit 92700" name="WindowsLanguage_Rows_4155_8204" time="0.484" />
+    <testcase classname="Codeunit 92700" name="WindowsLanguage_Rows_8218_13321" time="0.957" />
+    <testcase classname="Codeunit 92700" name="WindowsLanguage_Rows_13322_31770" time="0.428" />
+    <testcase classname="Codeunit 92700" name="WindowsLanguage_Walk_KeyOrder_CheckedRows" time="0.115" />
   </testsuite>
-  <testsuite name="Codeunit 92812" tests="7" failures="0" errors="0" skipped="0" time="2.699" timestamp="2026-11-09T23:15:37Z">
+<testsuite name="Codeunit 92812" tests="7" failures="0" errors="0" skipped="0" time="2.699" timestamp="2026-11-09T23:15:37Z">
     <testcase classname="Codeunit 92812" name="GK_FindList_Curr_OpenView" time="0.239" />
     <testcase classname="Codeunit 92812" name="GK_FindList_Curr_PastWindow_GoToRecord" time="0.374" />
     <testcase classname="Codeunit 92812" name="GK_FindList_Curr_PastWindow_GoToKey" time="0.469" />
@@ -22760,10 +22768,10 @@
     <testcase classname="Codeunit 92981" name="SetView_DoubleEquals_TwoFields" time="0.020" />
     <testcase classname="Codeunit 92981" name="SetView_DoubleEquals_RoundTrip" time="0.053" />
   </testsuite>
-  <testsuite name="Codeunit 93011" tests="1" failures="0" errors="0" skipped="0" time="0.003" timestamp="2026-11-09T23:31:47Z">
-    <testcase classname="Codeunit 93011" name="RequestOptionsPage_InRequestPageCode_Compiles" time="0.003" />
+  <testsuite name="Codeunit 93011" tests="1" failures="0" errors="0" skipped="0" time="0.186" timestamp="2026-11-09T22:53:55Z">
+    <testcase classname="Codeunit 93011" name="RequestOptionsPage_InRequestPageCode_Compiles" time="0.186" />
   </testsuite>
-  <testsuite name="Codeunit 93241" tests="7" failures="0" errors="0" skipped="0" time="0.721" timestamp="2026-11-09T23:31:47Z">
+<testsuite name="Codeunit 93241" tests="7" failures="0" errors="0" skipped="0" time="0.721" timestamp="2026-11-09T23:31:47Z">
     <testcase classname="Codeunit 93241" name="G612_Composite_ViewIsDestination_SetRecordOk" time="0.207" />
     <testcase classname="Codeunit 93241" name="G612_Composite_OtherDestination" time="0.037" />
     <testcase classname="Codeunit 93241" name="G612_Composite_TestPageGoToOk" time="0.047" />
@@ -29586,15 +29594,15 @@
     <testcase classname="Codeunit 69338" name="PYC_ContinueElse_ForeachInLoops" time="0.221" />
     <testcase classname="Codeunit 69338" name="PYC_ContinueElse_ForeachInForeach" time="0.042" />
   </testsuite>
-  <testsuite name="Codeunit 69339" tests="8" failures="0" errors="0" skipped="0" time="4.985" timestamp="2026-11-09T23:32:04Z">
-    <testcase classname="Codeunit 69339" name="ToBase64_Text_AsciiUmlautsEmpty" time="0.453" />
-    <testcase classname="Codeunit 69339" name="ToBase64_Text_WithEncodings" time="0.021" />
-    <testcase classname="Codeunit 69339" name="ToBase64_LongText_LineBreaks" time="0.733" />
-    <testcase classname="Codeunit 69339" name="FromBase64_Text_AndEncodings" time="0.892" />
-    <testcase classname="Codeunit 69339" name="FromBase64_Invalid_Text" time="0.965" />
-    <testcase classname="Codeunit 69339" name="Base64_Streams" time="0.074" />
-    <testcase classname="Codeunit 69339" name="Base64Url_Forms" time="0.938" />
-    <testcase classname="Codeunit 69339" name="BT_Base64_BinaryThroughText" time="0.909" />
+  <testsuite name="Codeunit 69339" tests="8" failures="0" errors="0" skipped="0" time="4.288" timestamp="2026-11-09T22:53:47Z">
+    <testcase classname="Codeunit 69339" name="ToBase64_Text_AsciiUmlautsEmpty" time="0.993" />
+    <testcase classname="Codeunit 69339" name="ToBase64_Text_WithEncodings" time="0.658" />
+    <testcase classname="Codeunit 69339" name="ToBase64_LongText_LineBreaks" time="0.593" />
+    <testcase classname="Codeunit 69339" name="FromBase64_Text_AndEncodings" time="0.171" />
+    <testcase classname="Codeunit 69339" name="FromBase64_Invalid_Text" time="0.053" />
+    <testcase classname="Codeunit 69339" name="Base64_Streams" time="0.927" />
+    <testcase classname="Codeunit 69339" name="Base64Url_Forms" time="0.039" />
+    <testcase classname="Codeunit 69339" name="BT_Base64_BinaryThroughText" time="0.854" />
   </testsuite>
   <testsuite name="Codeunit 69340" tests="2" failures="0" errors="0" skipped="0" time="1.729" timestamp="2026-11-09T23:32:05Z">
     <testcase classname="Codeunit 69340" name="EnvironmentInformation_Default" time="0.991" />
