@@ -9,7 +9,12 @@ before you open a source file.
 
 1. **Red/green TDD, no exceptions.** Every behaviour starts as a failing test;
    every bug fix starts with a test that reproduces it. Show the red run before
-   the green one. Nothing merges with `cargo test` red. Corpus cases that are
+   the green one. When a corpus case pins the behaviour, that case is the test:
+   run it with `--file` or `--codeunit`, show it red before and green after, and
+   prune its line from the not-passing list. Write a Rust test only for logic
+   the corpus cannot reach (internal tooling, CLI and report formats,
+   memory and threads, refusal plumbing, regressions that need a minimal
+   reproduction). Owner decision, 2026-11-10. Nothing merges with `cargo test` red. Corpus cases that are
    not yet implemented are tracked by the pass-rate report, not by tests.
 2. **Never weaken an oracle.** Never edit the corpus submodule or `oracle/`,
    and never add a line to `metrics/<major>/not-passing*.txt` for a case the oracle

@@ -2,6 +2,8 @@
 
 Read this when your change touches the areas named below. Moved out of `brief.md`.
 
+Rule 1 in `CLAUDE.md` applies: a corpus case run red then green counts as the red/green test; write a Rust test only for what the corpus cannot reach.
+
 - **One build, one result.** A corpus run must give each case the same outcome whatever the
   thread counts, the run order and HOME hold (`corpus_harness.rs`
   `outcomes_do_not_depend_on_threads_or_home` checks it). Before you call two runs "the same
