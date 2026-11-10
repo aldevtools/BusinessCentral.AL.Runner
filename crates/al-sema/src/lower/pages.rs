@@ -42,6 +42,7 @@ impl Lowerer<'_> {
         reasons: &[String],
     ) -> ir::Page {
         let (mut unsupported, mut big_integer_expressions) = (reasons.to_vec(), Vec::new());
+        let ext_assumes = std::cell::RefCell::new(layout.assumes.clone());
         let table = self.table_of[oi];
         let extensions: Vec<usize> = self.page_extensions.get(&oi).cloned().unwrap_or_default();
         unsupported.extend(super::shared::over_max_length_of(self.ws, oi));
@@ -125,15 +126,8 @@ impl Lowerer<'_> {
             let dynamic = crate::pages::dynamic_type(&name).filter(|t| !crate::pages::is_literal(*t, &value));
             // A Boolean control expression BC compiles on the client when the page opens (see `client_expression`).
             if dynamic == Some(crate::pages::PropType::Boolean) {
-                match crate::pages::client_expression_of(kind.as_ref(), &name, &value) {
-                    Some(crate::pages::ClientExpr::Refused(why)) => {
-                        unsupported.push(format!("property {name} of control {control}: {why}"))
-                    }
-                    Some(crate::pages::ClientExpr::BigIntegerLiteral(why)) => {
-                        big_integer.push(format!("property {name} of control {control}: {why}"))
-                    }
-                    None => {}
-                }
+                let notes = (&mut *unsupported, &mut *big_integer, &ext_assumes);
+                self.client_expr_reasons((ow.object, off), kind.as_ref(), (&name, &value, control), notes);
             }
             let val = match dynamic {
                 Some(_) => match routine_named(ow, &crate::pages::synthetic_name(&name, off)) {
@@ -574,7 +568,7 @@ impl Lowerer<'_> {
             extensions,
             ext_triggers,
             action_areas: layout.action_areas.clone(),
-            assumes: layout.assumes.clone(),
+            assumes: ext_assumes.into_inner(),
             big_integer_expressions,
         }
     }

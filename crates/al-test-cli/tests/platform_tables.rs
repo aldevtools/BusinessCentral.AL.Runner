@@ -2,7 +2,8 @@
 //! the real declarations in the platform `System` app, and a provider never stands in for AL
 //! that exists.
 //!
-//! Needs the `corpus` submodule, including its `.alpackages` (`System.app` and the Microsoft apps).
+//! Needs the pinned build's Microsoft files in the artifact cache (`al_testfiles`: `System.app` and the source
+//! archives of the Microsoft apps); a missing file fails the test with the command that fetches it.
 
 use al_builtins::platform::{Provider, REGISTRY};
 use al_deps::package::read_package;
@@ -10,19 +11,10 @@ use al_syntax::{ast, scan::scan};
 use al_test_cli::report::Outcome;
 use al_test_cli::runtime::run_codeunit;
 use al_vm::Engine;
-use std::path::{Path, PathBuf};
-
-fn packages() -> PathBuf {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/tests/al-language/.alpackages");
-    assert!(
-        dir.join("System.app").exists(),
-        "corpus submodule not checked out: run `git submodule update --init`"
-    );
-    dir
-}
+use std::path::PathBuf;
 
 fn system_app_files() -> Vec<(String, String)> {
-    let bytes = std::fs::read(packages().join("System.app")).unwrap();
+    let bytes = std::fs::read(al_testfiles::system_app()).unwrap();
     read_package(&bytes).expect("System.app reads").1
 }
 
@@ -72,14 +64,17 @@ fn every_registry_entry_is_a_bodiless_table_of_the_system_app_with_that_id_and_n
 #[ignore = "scans 9500 files: cargo test --release -p al-test-cli --test platform_tables -- --ignored"]
 fn no_other_app_supplies_a_table_under_a_registered_id_or_name() {
     let syms = symbols();
-    for entry in std::fs::read_dir(packages()).unwrap() {
-        let path = entry.unwrap().path();
-        if path.extension().is_none_or(|e| e != "app") || path.file_name().is_some_and(|n| n == "System.app") {
-            continue;
-        }
-        let Ok((_, files)) = read_package(&std::fs::read(&path).unwrap()) else {
-            continue;
-        };
+    // The Microsoft apps the corpus runs on besides the System app, by name: the cache holds them as source archives,
+    // and a filter on a file extension that matches nothing would scan nothing and pass.
+    let mut scanned = 0;
+    for app in [
+        al_testfiles::SYSTEM_APPLICATION,
+        al_testfiles::BUSINESS_FOUNDATION,
+        al_testfiles::BASE_APPLICATION,
+    ] {
+        let path = al_testfiles::file(app);
+        let files = al_testfiles::sources(app);
+        scanned += files.len();
         for (file, src) in files {
             for o in scan(&src, &syms).objects.iter().filter(|o| o.kind == "table") {
                 for (id, name, _) in REGISTRY {
@@ -94,6 +89,10 @@ fn no_other_app_supplies_a_table_under_a_registered_id_or_name() {
             }
         }
     }
+    assert!(
+        scanned >= 9000,
+        "only {scanned} files of the Microsoft apps were scanned"
+    );
 }
 
 /// Outcomes of the test codeunit in `main`, compiled over the real platform `System` app.
@@ -1585,13 +1584,15 @@ codeunit 50000 "T" { Subtype = Test;
 fn a_published_application_row_passes_the_tenant_filter_of_the_retention_policy_module() {
     // install-upgrade/TestRetenPolAllowedTables_Tests.al: Base Application registers table 405 only when
     // System Application finds its Published Application row through
-    // SetFilter("Tenant ID", '%1|%2', '', TenantId). The row must therefore satisfy that filter.
+    // SetFilter("Tenant ID", '%1|%2', '', TenantId). The row must therefore satisfy that filter. The row of an app
+    // under test carries TenantId() (onprem session-system/PZPublishedApplicationColumns.al:106), so the filter names
+    // it as Microsoft's code does.
     let o = outcomes_app(
         "5d86850b-0d76-4eca-bd7b-951ad998e997",
         r#"codeunit 50000 "T" { Subtype = Test;
   [Test] procedure OwnRowPassesTheTenantFilter() var P: Record "Published Application"; begin
     P.SetRange(ID, '5d86850b-0d76-4eca-bd7b-951ad998e997');
-    P.SetFilter("Tenant ID", '%1|%2', '', 'any-tenant');
+    P.SetFilter("Tenant ID", '%1|%2', '', TenantId());
     if not P.FindFirst() then Error('no row'); end; }"#,
         al_sema::check::Roots::default(),
     );

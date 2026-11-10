@@ -130,7 +130,8 @@ question, choose the better long-term solution over the quicker one.
      second when the test needs no Microsoft app.
   4. Before committing, one run with `--baseline-diff` on each of BC 27, 28 and 29 (`--bc-version N`, about 20 s each; owner, 2026-11-10): it lists,
      by area, the regressions, the stale lines, the cases still listed and the cases without an
-     outcome. Then `--prune-not-passing` deletes the stale lines (it refuses while a selection is active).
+     outcome. Then `--prune-not-passing --bc-version N`, one run per major, deletes the stale lines of that major (without
+     `--bc-version` it prunes only the newest; it refuses while a selection is active).
   5. `--timings` says where a run spent its time (load, compile, install baseline, tests).
   6. `AL_REACH_REPORT=1` prints, after the compile, how many routines each kind of root pulls in, which are refused,
      and how many only matter through a refused routine (slow on a bucket: it walks every test).

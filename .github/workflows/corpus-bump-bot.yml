@@ -92,21 +92,10 @@ jobs:
       - name: Build release binary
         if: steps.free.outputs.go == 'true'
         run: cargo build --release -p al-test-cli
-      # As in the corpus job of ci.yml: the test-library apps from Microsoft's artifact feed, cached per BC build.
-      - name: Newest BC builds
-        id: bc
+      # As in the corpus job of ci.yml: Microsoft's apps of the pinned builds, from the artifact feed, cached per build.
+      - name: Microsoft apps of the pinned builds
         if: steps.free.outputs.go == 'true'
-        run: |
-          ./target/release/al-test-cli --all-versions --print-builds | tee "$RUNNER_TEMP/bc-builds.txt"
-          echo "key=$(tr ' \n' '--' < "$RUNNER_TEMP/bc-builds.txt")" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
-        if: steps.free.outputs.go == 'true'
-        with:
-          path: ~/.cache/al-runtime/artifacts
-          key: bc-artifacts-${{ steps.bc.outputs.key }}
-      - name: Fetch dependency apps
-        if: steps.free.outputs.go == 'true'
-        run: ./target/release/al-test-cli --all-versions --fetch-deps
+        uses: ./.github/actions/bc-artifacts
 
       - name: Bump
         id: bump

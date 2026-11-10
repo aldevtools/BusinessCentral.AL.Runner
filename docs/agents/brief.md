@@ -11,6 +11,10 @@ Your task prompt holds only the task. Read both files from YOUR worktree: the ma
 3. Read `docs/codemap.md` for your crates and the ADR your task names. Do not read all docs.
    Use the LSP tool (`documentSymbol`, `findReferences`) before you read a file over 500 lines.
 4. Build once: `cargo build --release`. Use the binary. `al-test-cli --help` lists every flag.
+5. Once per machine: `./target/release/al-test-cli --root . --all-versions --fetch-deps` fills the artifact cache with
+   Microsoft's apps of the pinned builds (`~/.cache/al-runtime/artifacts`, shared by every worktree). Corpus runs and
+   the Rust tests that read a Microsoft file take them only from there; a test never downloads and fails with this
+   command when a file is missing. Run it again after `bc_build` in `oracle/oracle.toml` moves.
 
 ## Rules
 1. **Cite or refuse.** Every behavior you add or change has a corpus `file:line` in a code comment.
