@@ -1597,10 +1597,9 @@ fn test_inner(
         allow_write_in_try_functions: a.allow_write_in_try_functions, // issue 7143
         dependencies_published_global: a.dependencies_published_global, // issue 7169
         strict_order: a.strict_order,       // `--strict-order` (ADR-066 amendment 12)
-        strict_after: None,
-        replay_every_dependent: false, // only a stability run sets it (ADR-058 amendment 1)
-        max_replay: a.max_replay,      // `--max-replay N` (ADR-066 amendment 7)
-        test_suites,                   // `--test-suites FILE` (ADR-066 amendment 6)
+        replay_every_dependent: false,      // only a stability run sets it (ADR-058 amendment 1)
+        max_replay: a.max_replay,           // `--max-replay N` (ADR-066 amendment 7)
+        test_suites,                        // `--test-suites FILE` (ADR-066 amendment 6)
         memory: crate::memory_budget::budget(a.max_memory, warm.is_none() && debug.is_none()), // `--max-memory`
         private_baseline: std::env::var_os("AL_PRIVATE_BASELINE").is_some(), // ADR-069 decision 11
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.

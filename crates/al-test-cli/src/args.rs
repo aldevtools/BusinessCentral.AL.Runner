@@ -372,8 +372,8 @@ INPUT
   --all-versions              run every version in the oracle table, then compare them
   --deps DIR, --dep DIR       extra directory of .app packages for the dependencies (repeatable)
   --no-deps                   run the corpus alone, without Microsoft's apps
-  --no-client                 run the tests as a session without a client (GuiAllowed false, Message silent, Confirm
-                              raises CallbackNotAllowed, other dialogs and CurrentClientType refused; as `al-runner test --no-client`)
+  --no-client                 run the tests as a session without a client (dialogs answer as in a page background task
+                              worker, calls not probed there are refused; as `al-runner test --no-client`)
   --test-runner R             builtin (default), microsoft (runner 130450 run as BcContainerHelper runs it;
                               not on the TestRunnerHub path of the newer majors) or a runner codeunit id (ADR-066)
   --no-download               never fetch a dependency app from the artifact feed

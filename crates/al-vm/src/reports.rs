@@ -513,7 +513,7 @@ impl Session {
                     return unsupported("Report.Run on a report variable after its RunModal (not pinned)");
                 }
                 let schema = self.report_schema(&inst)?;
-                let window = Self::report_shows_page(&inst, &schema)?;
+                let window = self.clientless_request_page_guard(Self::report_shows_page(&inst, &schema)?, &schema)?;
                 let result = if quit {
                     Ok(())
                 } else {
@@ -593,7 +593,8 @@ impl Session {
                     ));
                 }
                 let quit = self.report_init(&inst)?;
-                if let Some(b) = explicit {
+                // `--no-client`: a request page that would open raises here; the report has no OnInitReport (`clientless.rs`).
+                if let Some(b) = self.clientless_report(&schema, explicit)? {
                     let slot = schema.report().request_flag_slot;
                     let flag = match (b, id == ids::REPORT_RUNMODAL_3) {
                         (true, _) => REQUEST_PAGE_ON,
@@ -1556,11 +1557,6 @@ impl Session {
         // request page "defaults to true"), or a static call's RequestWindow. A report without a
         // requestpage section opens its page as well (reports/TestReportRuntimeContracts.al:416-440).
         let shows_page = entry == Entry::Run && window;
-        // `--no-client`: a request page that would open has no client to show it (`clientless.rs`); a run with the window off, and
-        // `Execute`, are not touched.
-        if shows_page {
-            self.clientless_request_page_guard(schema.object as u32, schema.name())?;
-        }
         let enters = self.report_enter_world(schema, shows_page)?;
         self.report_run_entered(inst, schema, entry, window, enters)
     }

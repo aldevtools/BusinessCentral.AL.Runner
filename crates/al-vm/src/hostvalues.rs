@@ -198,7 +198,7 @@ impl Session {
             // A page background task worker has no client (pages/background-tasks/BjNoGuiDialogs.al:204 `gui=No`).
             ids::SYSTEM_GUIALLOWED_1 if self.pages.bg_worker.is_some() => Ok(Value::Boolean(false)),
             // `--no-client`: the test session has no client (pages/background-tasks/BjNoGuiDialogs.al:8, as the worker above).
-            ids::SYSTEM_GUIALLOWED_1 if self.clientless_session => {
+            ids::SYSTEM_GUIALLOWED_1 if self.ui_state.clientless => {
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NoClientSession);
                 Ok(Value::Boolean(false))
             }
@@ -314,6 +314,10 @@ impl Session {
     /// date is the session's, so a new session starts at today again (ADR-001).
     /// The work date as a day number: the date set, or today.
     pub(crate) fn work_date_day(&self) -> Option<i32> {
+        // `--no-client`: the date nothing set is the one the skipped login code would have replaced (`clientless.rs`).
+        if self.work_date.is_none() {
+            self.clientless_work_date_read();
+        }
         Some(
             self.work_date
                 .unwrap_or_else(|| (self.now_millis().div_euclid(MS_PER_DAY) + unix_epoch_day()) as i32),

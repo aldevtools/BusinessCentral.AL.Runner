@@ -192,6 +192,10 @@ pub(crate) struct UiState {
     pub(crate) sent_notifications: Vec<[u8; 16]>,
     /// `--dev-endpoint-ui` (al-runner issue 3697).
     pub(crate) dev_endpoint: crate::dev_endpoint_ui::DevEndpointUi,
+    /// The whole test session is a session without a client (`--no-client`, `Session::set_clientless_session`).
+    pub(crate) clientless: bool,
+    /// The login code that sets WorkDate did not run because of `clientless` (`clientless.rs`).
+    pub(crate) clientless_login_skipped: bool,
 }
 
 /// What the TestPage client keeps between calls.
