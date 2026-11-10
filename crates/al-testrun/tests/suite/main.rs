@@ -136,7 +136,7 @@ fn every_file_of_the_suite_is_a_module() {
 
 /// A module of this binary may not change a setting of the process (`al_testrun::host::set_*`): the tests of the
 /// binary run side by side, and a setting such as the company list is part of the kept baseline's key
-/// (`runtime::corpus::baseline_key`), so a test that ran between two runs of another one gave the second run another
+/// (`runtime::baseline_key::baseline_key`), so a test that ran between two runs of another one gave the second run another
 /// key and another baseline (`baseline_cache` then failed now and then). Such a test is a binary of its own.
 #[test]
 fn no_module_of_the_suite_changes_a_setting_of_the_process() {

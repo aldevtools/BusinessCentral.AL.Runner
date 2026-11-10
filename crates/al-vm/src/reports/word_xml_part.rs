@@ -92,7 +92,7 @@ pub(crate) fn xml_tag(name: &str) -> Result<String, Signal> {
         }
         in_run = false;
         match c {
-            '0'..='9' if i == 0 => out.push_str(&format!("_x{:04X}_", c as u32)),
+            '0'..='9' if i == 0 => out.push_str(&crate::dataset::leading_digit(c, body)?),
             '0'..='9' | '_' => out.push(c),
             '%' => out.push_str("Percent"),
             c if encoded(c) => out.push_str(&format!("_x{:04X}_", c as u32)),

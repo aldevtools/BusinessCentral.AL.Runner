@@ -1791,11 +1791,8 @@ fn test_inner(
             }
         }
         Some(w) => {
-            // `--tdd` changes what compiles (ADR-051 decision 9), so it is part of the key.
-            let target_key = format!("{:?} {}", chosen.target, a.execute);
-            let target_key = format!("{target_key} tdd={}", a.tdd);
-            // `affectedOnly` (ADR-050) needs a compile that hashed each object.
-            let target_key = format!("{target_key} affected={}", a.affected);
+            // The options that change what the compile holds (`run_inputs.rs`) are part of the key.
+            let target_key = crate::run_inputs::RunInputs::of(a).compile_key(&chosen.target);
             let key = warm_key(&inputs, &dependencies, &symbols, &target_key);
             let files: Vec<al_testrun::runtime::FileChange> = inputs
                 .iter()

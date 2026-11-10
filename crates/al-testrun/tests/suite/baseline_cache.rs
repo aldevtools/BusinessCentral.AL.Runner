@@ -987,3 +987,144 @@ codeunit 60101 DataTests { Subtype = Test;
     assert_eq!(outcome(&go()), Outcome::Pass, "the run that reads it");
     assert_eq!(file_id(&kept[0]), modified, "read, not written");
 }
+
+// ---- al-runner issue 7610: what the layers of the compile cache do not cover is in the key ----
+
+const KEY_BASE: &str = r#"
+table 50160 "Key Setting" { fields { field(1; Code; Code[20]) { } field(2; Value; Text[50]) { } } keys { key(PK; Code) { } } }
+"#;
+
+/// Install code of the dependency app, so that a run has a baseline to keep.
+const KEY_BASE_INSTALLER: &str = r#"
+codeunit 50162 "Key Base Installer"
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany() var S: Record "Key Setting"; begin S.Code := 'BASE'; S.Value := 'installed'; S.Insert(); end;
+}
+"#;
+
+/// A run of `apps` (kind and manifest version beside each) with the compile cache in `cache`.
+fn run_keyed(apps: Vec<(AppSource, al_sema::AppKind, &str)>, cache: &Path) -> CorpusRuntime {
+    let manifests: Vec<Manifest> = apps
+        .iter()
+        .map(|(_, kind, version)| Manifest {
+            publisher: if *kind == al_sema::AppKind::Dependency {
+                "Microsoft"
+            } else {
+                "Me"
+            }
+            .into(),
+            version: version.to_string(),
+            ..Default::default()
+        })
+        .collect();
+    let kinds: Vec<al_sema::AppKind> = apps.iter().map(|(_, kind, _)| *kind).collect();
+    CorpusRuntime::try_run_suites_with(
+        apps.into_iter().map(|(a, _, _)| a).collect(),
+        kinds,
+        &manifests,
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &RunOptions {
+            compile_cache: Some(CompileCache {
+                dir: cache.to_path_buf(),
+                require: false,
+                rebuild: false,
+                country: String::new(),
+            }),
+            ..Default::default()
+        },
+    )
+    .expect("the run starts")
+}
+
+/// A dependency app that stands on a workspace app is compiled with the workspace, after the cached layers: its
+/// source is in no layer key. A change of its install code is another baseline.
+#[test]
+fn a_changed_dependency_app_that_stands_on_the_workspace_gets_a_baseline_of_its_own() {
+    use al_sema::AppKind::{Dependency, Workspace};
+    let dir = tempfile::tempdir().unwrap();
+    let main = r#"
+codeunit 60160 "Key Tests"
+{
+    Subtype = Test;
+    [Test] procedure ReadsTheAddOnRow() var S: Record "Key Setting"; begin S.Get('ADDON'); if S.Value <> 'one' then Error('got ' + S.Value); end;
+}
+"#;
+    let addon = |value: &str| {
+        format!(
+            r#"
+codeunit 50161 "Key AddOn Installer"
+{{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany() var S: Record "Key Setting"; begin S.Code := 'ADDON'; S.Value := '{value}'; S.Insert(); end;
+}}
+"#
+        )
+    };
+    let go = |value: &str| {
+        run_keyed(
+            vec![
+                (app("main", &["base"], main.to_string()), Workspace, "1.0.0.0"),
+                (app("base", &[], KEY_BASE.to_string()), Dependency, "1.0.0.0"),
+                (app("addon", &["main", "base"], addon(value)), Dependency, "1.0.0.0"),
+            ],
+            dir.path(),
+        )
+    };
+    assert_eq!(outcome_of(&go("one"), "ReadsTheAddOnRow"), Outcome::Pass);
+    assert_eq!(files(dir.path()).len(), 1, "the first run keeps its baseline");
+    let second = outcome_of(&go("two"), "ReadsTheAddOnRow");
+    assert!(
+        format!("{second:?}").contains("got two"),
+        "the add-on's new install code ran: {second:?}"
+    );
+    assert_eq!(files(dir.path()).len(), 2, "a baseline of its own");
+}
+
+/// The version of a workspace app comes from its `app.json`, which is not in the source hash. Install code reads it
+/// through `ModuleInfo`, so a version bump alone is another baseline.
+#[test]
+fn another_version_of_a_workspace_app_gets_a_baseline_of_its_own() {
+    use al_sema::AppKind::{Dependency, Workspace};
+    // `NavApp.GetCurrentModuleInfo` needs an app id that is a Guid.
+    const MAIN_ID: &str = "5a1f0c3e-0000-4000-8000-00000000b001";
+    let dir = tempfile::tempdir().unwrap();
+    let main = r#"
+codeunit 60161 "Key Version Installer"
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany() var S: Record "Key Setting"; Info: ModuleInfo; begin
+        NavApp.GetCurrentModuleInfo(Info);
+        S.Code := 'VERSION'; S.Value := Format(Info.AppVersion); S.Insert(); end;
+}
+codeunit 60162 "Key Version Tests"
+{
+    Subtype = Test;
+    [Test] procedure ReadsTheStoredVersion() var S: Record "Key Setting"; begin S.Get('VERSION'); if S.Value <> '1.0.0.0' then Error('got ' + S.Value); end;
+}
+"#;
+    let go = |version: &'static str| {
+        run_keyed(
+            vec![
+                (app(MAIN_ID, &["base"], main.to_string()), Workspace, version),
+                (
+                    app("base", &[], format!("{KEY_BASE}{KEY_BASE_INSTALLER}")),
+                    Dependency,
+                    "1.0.0.0",
+                ),
+            ],
+            dir.path(),
+        )
+    };
+    assert_eq!(outcome_of(&go("1.0.0.0"), "ReadsTheStoredVersion"), Outcome::Pass);
+    assert_eq!(files(dir.path()).len(), 1, "the first run keeps its baseline");
+    let second = outcome_of(&go("2.0.0.0"), "ReadsTheStoredVersion");
+    assert!(
+        format!("{second:?}").contains("got 2.0.0.0"),
+        "the install code stored the new version: {second:?}"
+    );
+    assert_eq!(files(dir.path()).len(), 2, "a baseline of its own");
+}

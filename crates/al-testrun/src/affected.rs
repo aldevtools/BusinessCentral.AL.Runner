@@ -25,8 +25,7 @@ pub const FORMAT: u64 = 1;
 pub struct Header {
     /// The runtime build (`compile_cache::runtime_build`).
     pub runtime: String,
-    /// A hash of the run options that change outcomes (country, BC version, company and test-data options,
-    /// isolation, defines, environment options, disabled-test files, `--tdd`).
+    /// A hash of the run options that change outcomes; the list is `RunInputs` in `alrunner-cli` (`run_inputs.rs`).
     pub options: String,
     /// The environment: each dependency app's id, version and content hash, and the BC build, as text, sorted.
     pub environment: Vec<String>,

@@ -1143,14 +1143,12 @@ impl Lowerer<'_> {
                     let place = self.place(n)?;
                     if let Some((l, flag)) = self.qcp_ret {
                         if place == ir::Place::Local(l) {
-                            // The named return value of an OnQueryClosePage read before it has one.
+                            // The named return value of an OnQueryClosePage read before it has one reads as Yes, in a Format
+                            // and as a condition (pages/triggers/QcrNamedResult.al:73-80, :248-286 `read=Yes;branch=true`).
                             return Ok(ir::Expr::Ternary(
                                 Box::new(ir::Expr::Load(ir::Place::Local(flag))),
                                 Box::new(ir::Expr::Load(place)),
-                                Box::new(ir::Expr::Refused(
-                                    "OnQueryClosePage reads its return value before it assigned one (not pinned)"
-                                        .into(),
-                                )),
+                                Box::new(ir::Expr::Const(ir::Const::Boolean(true))),
                             ));
                         }
                     }

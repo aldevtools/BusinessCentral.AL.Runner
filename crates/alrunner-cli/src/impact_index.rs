@@ -4,8 +4,8 @@
 //!
 //! The index is internal tooling (ADR-009): a gzip-compressed JSON document with a format number. It is kept under
 //! `<cache dir>/impact/<key>/index.json.gz`, where the key hashes everything the outcomes depend on that is known
-//! before the run: the runtime build (executable hash), the test apps' source, the country, the build asked for,
-//! the company data and test data options, the isolation, the defines and the disabled-tests files. The Microsoft
+//! before the run: the runtime build (executable hash), the test apps' source, and every option that changes
+//! outcomes with the content of the files such an option names (`run_inputs.rs`, the one list of them). The Microsoft
 //! apps the run compiled are stored in the index and checked against the impact run's compile (a different build
 //! of the Base App makes the index stale).
 
@@ -209,27 +209,6 @@ impl Index {
     }
 }
 
-/// Hashes the files of a folder (or one file), in path order.
-fn hash_tree(path: &Path, h: &mut impl Hasher) -> Result<(), String> {
-    let meta = std::fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    if meta.is_dir() {
-        let mut kids: Vec<PathBuf> = std::fs::read_dir(path)
-            .map_err(|e| format!("{}: {e}", path.display()))?
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .collect();
-        kids.sort();
-        for k in kids {
-            k.file_name().hash(h);
-            hash_tree(&k, h)?;
-        }
-    } else {
-        std::fs::read(path)
-            .map_err(|e| format!("{}: {e}", path.display()))?
-            .hash(h);
-    }
-    Ok(())
-}
-
 /// The cache key of the index of the run `a` (its APPs are the test apps): see the module text.
 pub fn key(a: &TestArgs) -> Result<String, String> {
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -243,37 +222,10 @@ pub fn key(a: &TestArgs) -> Result<String, String> {
         files.sort();
         files.hash(&mut h);
     }
-    a.country().hash(&mut h);
-    a.bc_version.hash(&mut h);
-    (
-        a.wants_test_data(),
-        a.no_test_data,
-        &a.test_data_path,
-        &a.test_data_company,
-        a.company_package,
-        &a.package_path,
-        &a.company_name,
-    )
+    // Every option that changes outcomes, and the content of the files they name (`run_inputs.rs`).
+    crate::run_inputs::RunInputs::of(a)
+        .outcome_digest(crate::run_inputs::Purpose::ImpactIndex)?
         .hash(&mut h);
-    // The DemoTool company (`--company-data demotool`); a run without it keeps the key it had.
-    if a.company_demotool {
-        ("company-data demotool", &a.demotool_dir).hash(&mut h);
-    }
-    // The Contoso company (`--company-data contoso-*`); a run without it keeps the key it had.
-    if let Some(c) = a.company_contoso {
-        ("company-data contoso", c).hash(&mut h);
-    }
-    a.isolation.hash(&mut h);
-    // `--isolation required` (off, the hash is the one it was before the option existed).
-    if a.required_isolation {
-        "required_isolation".hash(&mut h);
-    }
-    a.defines.hash(&mut h);
-    a.environment.as_ref().map(std::mem::discriminant).hash(&mut h);
-    (&a.server_url, a.test_timeout_secs).hash(&mut h);
-    if let Some(dir) = &a.disabled_tests_dir {
-        hash_tree(dir, &mut h).map_err(|e| format!("--disabled-tests {e}"))?;
-    }
     Ok(format!("{:016x}", h.finish()))
 }
 
@@ -643,6 +595,50 @@ fn why(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The index of a run with an option that changes outcomes is not the index of a run without it (al-runner issue
+    /// 7610): one case per option the key did not hold.
+    #[test]
+    fn an_option_that_changes_outcomes_gives_another_index() {
+        let dir = std::env::temp_dir().join(format!("alrunner-index-key-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("file.txt");
+        std::fs::write(&file, "text").unwrap();
+        type Change = fn(&mut TestArgs, &Path);
+        let options: [(&str, Change); 13] = [
+            ("test_runner", |a, _| {
+                a.test_runner = Some(al_testrun::runtime::TestRunner::Builtin)
+            }),
+            ("dev_endpoint_ui", |a, _| a.dev_endpoint_ui = true),
+            ("allow_write_in_try_functions", |a, _| {
+                a.allow_write_in_try_functions = true
+            }),
+            ("dependencies_published_global", |a, _| {
+                a.dependencies_published_global = true
+            }),
+            ("companies", |a, _| a.companies = Some(al_host::Companies::All)),
+            ("no_client", |a, _| a.no_client = true),
+            ("strict_order", |a, _| a.strict_order = true),
+            ("permissions_off", |a, _| a.permissions_off = true),
+            ("ignore_permission_mock", |a, _| a.ignore_permission_mock = true),
+            ("license", |a, f| a.license = Some(f.to_path_buf())),
+            ("skip_after_timeout", |a, _| a.skip_after_timeout = true),
+            ("test_suites", |a, f| a.test_suites = Some(f.to_path_buf())),
+            ("max_replay", |a, _| a.max_replay = Some(3)),
+        ];
+        let plain = key(&TestArgs::default()).unwrap();
+        assert_eq!(plain, key(&TestArgs::default()).unwrap());
+        let mut same = Vec::new();
+        for (name, change) in options {
+            let mut a = TestArgs::default();
+            change(&mut a, &file);
+            if key(&a).unwrap() == plain {
+                same.push(name);
+            }
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(same.is_empty(), "the index key does not hold: {same:?}");
+    }
 
     #[test]
     fn an_index_reads_back_what_was_written() {

@@ -354,6 +354,9 @@ pub struct Compiled {
     /// The part of the compile a later run grows by apps (ADR-063), with the symbols of each dependency app, when the
     /// run asked to keep it and the compile can be grown.
     pub(crate) grow_kept: Option<super::grow::GrowKept>,
+    /// What the install baseline key holds of the apps no layer of the compile cache covers; `None` when the
+    /// compile did not use the cache (no baseline is kept then).
+    pub(crate) uncovered: Option<Vec<super::baseline_key::UncoveredApp>>,
 }
 
 /// The engines of a request of a warm server, kept for the next one over the same compile ([`Compiled::kept`]).
