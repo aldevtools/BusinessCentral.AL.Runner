@@ -9,10 +9,7 @@ use al_builtins::page_op::PageMethod;
 
 impl Session {
     pub(super) fn filter_handle(&self, st: &St) -> Value {
-        Value::TestControl(Rc::new(ControlRef {
-            page: st.clone(),
-            target: ControlTarget::Filter,
-        }))
+        test_control(st.clone(), ControlTarget::Filter)
     }
 
     /// The `TestFilter.*` methods on the page `st`.
@@ -152,7 +149,7 @@ impl Session {
                 }
                 let expr = self
                     .parse_filter_text(&text, &ty)
-                    .map_err(|e| Signal::Unsupported(format!("TestFilter.SetFilter: {e}")))?;
+                    .map_err(|e| Signal::unsupported(format!("TestFilter.SetFilter: {e}")))?;
                 // The user filter is group 0, whatever group OnOpenPage left active; setting a
                 // field's filter again replaces the group-0 one.
                 {

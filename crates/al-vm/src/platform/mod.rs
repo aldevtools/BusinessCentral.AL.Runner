@@ -106,6 +106,8 @@ pub(crate) struct Ident {
     pub user_sid: [u8; 16],
     pub company: String,
     pub company_id: [u8; 16],
+    /// `TenantId()` of the session.
+    pub tenant_id: String,
     pub session_id: i32,
     pub instance_id: i32,
     pub host_name: String,
@@ -131,6 +133,7 @@ impl Ident {
             user_sid: id.user_security_id(),
             company: id.company_name(),
             company_id: id.company_id(),
+            tenant_id: id.tenant_id(),
             time_zone: id.time_zone(),
             session_id: id.session_id(),
             instance_id: id.service_instance_id(),
@@ -420,11 +423,16 @@ impl Providers {
     }
 
     /// Whether the listing of `kind` is the same for every session of the engine. Session, Active
-    /// Session and Time Zone list the host's identity of this session.
+    /// Session and Time Zone list the host's identity of this session, and Published Application its tenant id.
     fn shares(kind: Virtual) -> bool {
         !matches!(
             kind,
-            Virtual::Session | Virtual::ActiveSession | Virtual::TimeZone | Virtual::TenantMedia
+            Virtual::Session
+                | Virtual::ActiveSession
+                | Virtual::ServerInstance
+                | Virtual::TimeZone
+                | Virtual::TenantMedia
+                | Virtual::PublishedApplication
         )
     }
 
@@ -462,7 +470,7 @@ impl Providers {
                     else {
                         unreachable!("render_pending_error is a refusal")
                     };
-                    return mat::Entry::poisoned(row, why);
+                    return mat::Entry::poisoned(row, why.into_reason());
                 }
                 row[pos(t, 2)] = Value::Text(description.into());
                 let blob = al_builtins::stream::new_blob();
@@ -594,8 +602,9 @@ impl Providers {
             )));
         }
         // The list of installed apps follows the install in progress and the run's setting for dependency apps: listed per read.
-        if kind == Virtual::NavAppInstalledApp
-            && (self.events.install_view.borrow().active() || self.engine().dependencies_published_global)
+        if (kind == Virtual::NavAppInstalledApp
+            && (self.events.install_view.borrow().active() || self.engine().dependencies_published_global))
+            || (kind == Virtual::PublishedApplication && self.engine().dependencies_published_global)
         {
             return Ok(Listed::Own(Rc::new(mat::Mat::new(t, self.list_rows(t, kind)))));
         }
@@ -695,6 +704,7 @@ impl Providers {
             Virtual::TimeZone => host_tables::time_zone_rows(t, &self.ident),
             Virtual::Session => vec![mat::Entry::ok(identity::session_row(t, &self.ident))],
             Virtual::ActiveSession => vec![mat::Entry::ok(identity::active_session_row(t, &self.ident))],
+            Virtual::ServerInstance => vec![mat::Entry::ok(identity::server_instance_row(t, &self.ident))],
             Virtual::AllObj => objects::all_obj_rows(self, t),
             Virtual::AllObjWithCaption => objects::all_obj_with_caption_rows(self, t),
             Virtual::CodeunitMetadata => objects::codeunit_metadata_rows(self, t),
@@ -1274,7 +1284,14 @@ mod tests {
 
     #[test]
     fn what_depends_on_the_host_is_not_shared() {
-        for kind in [Virtual::Session, Virtual::ActiveSession, Virtual::TimeZone] {
+        for kind in [
+            Virtual::Session,
+            Virtual::ActiveSession,
+            Virtual::ServerInstance,
+            Virtual::TimeZone,
+            // Its rows hold the session's tenant id.
+            Virtual::PublishedApplication,
+        ] {
             assert!(!Providers::shares(kind));
         }
         for kind in [

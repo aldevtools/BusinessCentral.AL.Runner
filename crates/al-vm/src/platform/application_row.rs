@@ -1,5 +1,6 @@
-//! The Published Application row of the `Application` aggregate app. It holds no source, so the program has no app for it,
-//! but a tier always publishes it (onprem session-system/PZPublishedApplicationColumns.al:53, :58).
+//! The Published Application row of the `Application` aggregate app when the program has no app for it (a run without
+//! Microsoft's apps): a tier always publishes it (onprem session-system/PZPublishedApplicationColumns.al:53, :58). When
+//! the dependencies hold its package, al-deps lists it as an app with no files and it gets the row of any other app.
 //!
 //! Pinned by al-language-onprem/metadata/session-system/Y48PublishedApplication.al (corpus Y48, CI BC 27.5, 28.5 and
 //! 29.0): one row (:135 PA_ApplicationRow_Columns `count` 1); Package ID and Runtime Package ID not null and different, equal to

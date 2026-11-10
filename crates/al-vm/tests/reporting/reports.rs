@@ -688,7 +688,7 @@ fn build(body: &str) -> (Engine0, usize, usize) {
     let blocked: Vec<Vec<Option<String>>> = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
     let ri = l.program.objects[oi]
@@ -714,7 +714,7 @@ struct Engine0 {
 fn run_model(body: &str, model: TxModel) -> Result<Value, Signal> {
     let (e, oi, ri) = build(body);
     if let Some(Some(r)) = e.blocked.get(oi).and_then(|o| o.get(ri)) {
-        return Err(Signal::Unsupported(r.clone()));
+        return Err(Signal::unsupported(r.clone()));
     }
     let setup = e.program.objects[oi].routines.iter().position(|r| r.name == "Setup");
     let engine = Engine::new(e.program, e.blocked);
@@ -752,7 +752,7 @@ fn f(vars_and_body: &str) -> String {
 
 fn refusal(vars_and_body: &str) -> String {
     match run_model(&format!("procedure F(): Text {vars_and_body}"), TxModel::AutoCommit) {
-        Err(Signal::Unsupported(r)) => r,
+        Err(Signal::Unsupported(r)) => r.into_reason(),
         other => panic!("expected a refusal, got {other:?}"),
     }
 }

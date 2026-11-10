@@ -17,7 +17,7 @@
 use super::registry::{MemberKind, Pin, RegistryMember, RegistryType};
 use crate::Session;
 use al_builtins::dotnet_sigs::{COMPRESSION_MODE, GZIP_STREAM};
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::stream::{drain_in, new_blob, write_bytes, write_raw_bytes};
 use al_builtins::value::{DotNetKind, DotNetObject, LibraryValue, Value};
 use flate2::Compression;
@@ -38,10 +38,6 @@ const S_DISPOSED: usize = 3;
 
 const DECOMPRESS: i64 = 0;
 const COMPRESS: i64 = 1;
-
-fn unsupported<T>(why: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(why.into()))
-}
 
 fn pin() -> Pin {
     Pin::Corpus(PIN.into())
@@ -138,7 +134,7 @@ fn inflate(bytes: &[u8]) -> Result<Vec<u8>, Signal> {
             let status = d
                 .decompress_vec(&data[d.total_in() as usize..], &mut out, FlushDecompress::None)
                 .map_err(|e| {
-                    Signal::Unsupported(format!(
+                    Signal::unsupported(format!(
                         "GZipStream decompression of corrupt data ({e}): the error BC raises is not pinned"
                     ))
                 })?;
@@ -227,10 +223,10 @@ fn gzip_dispose(_: &mut Session, this: Option<&Rc<DotNetObject>>, _: &[Value]) -
     let mut enc = GzEncoder::new(Vec::new(), Compression::default());
     enc.write_all(&raw)
         .and_then(|()| enc.try_finish())
-        .map_err(|e| Signal::Unsupported(format!("GZipStream compression failed: {e}")))?;
+        .map_err(|e| Signal::unsupported(format!("GZipStream compression failed: {e}")))?;
     let packed = enc
         .finish()
-        .map_err(|e| Signal::Unsupported(format!("GZipStream compression failed: {e}")))?;
+        .map_err(|e| Signal::unsupported(format!("GZipStream compression failed: {e}")))?;
     let mut target = state.borrow()[S_STREAM].clone();
     write_raw_bytes(&mut target, &packed)?;
     Ok(Value::Null)

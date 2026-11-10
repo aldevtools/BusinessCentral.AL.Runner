@@ -6,12 +6,13 @@
 //! page would open is refused: request pages arrive with the page work.
 
 use crate::dataset::{self, Column, Dataset};
-use crate::pages::RequestClosed;
+use crate::pages::{ParamsCall, RequestClosed, into_st, st_of};
 use crate::transactions::TxModel;
 use crate::ui::UiKind;
 use crate::{Session, Signal};
 use al_builtins::builtin_id::ids;
 use al_builtins::describe::Describe;
+use al_builtins::native::unsupported;
 use al_builtins::ops;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{Instance, Value};
@@ -25,10 +26,6 @@ use std::sync::Arc;
 
 type Inst = Rc<RefCell<Instance>>;
 type Rec = Rc<RefCell<al_builtins::value::RecordState>>;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 /// What a report trigger asked for with `CurrReport.Skip`, `Break` or `Quit`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -470,7 +467,7 @@ impl Session {
                 // The getter answers what the next Run does; the setter overrides the report's own
                 // property in both directions (reports/TestReportRuntimeContracts.al:416-440).
                 let Some(Value::Boolean(b)) = args.first() else {
-                    return Ok(Value::Boolean(Self::report_shows_page(&inst, &schema)?));
+                    return self.use_request_page_getter(&inst, &schema);
                 };
                 inst.borrow_mut().globals[slot] = Value::Integer(if *b { REQUEST_PAGE_ON } else { REQUEST_PAGE_OFF });
                 Ok(Value::Null)
@@ -513,7 +510,7 @@ impl Session {
                     return unsupported("Report.Run on a report variable after its RunModal (not pinned)");
                 }
                 let schema = self.report_schema(&inst)?;
-                let window = Self::report_shows_page(&inst, &schema)?;
+                let window = self.clientless_request_page_guard(Self::report_shows_page(&inst, &schema)?, &schema)?;
                 let result = if quit {
                     Ok(())
                 } else {
@@ -582,7 +579,7 @@ impl Session {
                 // For the static RunModal only `true` on a report that shows its page, and `false` hiding the page, are
                 // pinned (reports/TestReportRequestPageSaveValues.al:211, reports/runtime/TestReportRunExecution.al:152). `true` on a
                 // report declaring `UseRequestPage = false` is refused, and what `CurrReport.UseRequestPage()` answers in a
-                // run of `RunModal(id, false)` is not pinned: the getter is refused there.
+                // run of `RunModal(id, false)` is pinned in OnPreReport only (`use_request_page_getter`).
                 if id == ids::REPORT_RUNMODAL_3
                     && explicit == Some(true)
                     && schema.report().use_request_page == Some(false)
@@ -593,7 +590,8 @@ impl Session {
                     ));
                 }
                 let quit = self.report_init(&inst)?;
-                if let Some(b) = explicit {
+                // `--no-client`: a request page that would open raises here; the report has no OnInitReport (`clientless.rs`).
+                if let Some(b) = self.clientless_report(&schema, explicit)? {
                     let slot = schema.report().request_flag_slot;
                     let flag = match (b, id == ids::REPORT_RUNMODAL_3) {
                         (true, _) => REQUEST_PAGE_ON,
@@ -1909,10 +1907,10 @@ impl Session {
             }
         }
         if let Some(xml) = save_as.filter(|x| !x.is_empty()) {
-            self.apply_run_parameters(inst, schema, &run, xml, false)?;
+            self.apply_run_parameters(inst, schema, &run, xml, ParamsCall::SaveAs)?;
         } else if let Some(xml) = &execute_parameters {
             // An Execute skips a field name no control has (WdReportExecuteParams.al:69-77 WD_ReportExecute_UnknownField).
-            self.apply_run_parameters(inst, schema, &run, xml, true)?;
+            self.apply_run_parameters(inst, schema, &run, xml, ParamsCall::Execute)?;
             // The values land after the request page's OnInit; its OnOpenPage and OnClosePage follow (no OnQueryClosePage), and a
             // control the parameters do not name keeps OnInit's value (reports/request-page/Y12ExecuteOnInit.al:117-143,
             // corpus branch al-runtime-rs-staging-y12, al-runner issue 6446; RptRequestPage.al:878-893). An empty string runs
@@ -3670,13 +3668,13 @@ impl Session {
             .as_ref()
             .and_then(|p| inst.borrow().globals.get(p.curr_page_slot).cloned())
         {
-            Some(Value::TestPage(st)) if st.borrow().open && o.report.is_some() => st,
+            Some(Value::TestPage(st)) if st_of(&st).borrow().open && o.report.is_some() => into_st(st),
             _ => return unsupported(format!("{id} outside the code of an open request page (not pinned)")),
         };
         let report_id = self.object_id_of(object as u32);
         const EDITABLE_OFF: &str = "a request page whose code set RequestPage.Editable(false) (not pinned)";
         const LOOKUP_ON: &str = "a request page whose code set RequestPage.LookupMode(true) (not pinned)";
-        let mark = |st: &Rc<RefCell<al_builtins::value::PageState>>, on: bool, why: &str| {
+        let mark = |st: &Rc<RefCell<crate::pages::PageState>>, on: bool, why: &str| {
             let mut s = st.borrow_mut();
             if on {
                 s.unpinned_state.get_or_insert_with(|| why.to_string());
@@ -3719,12 +3717,12 @@ impl Session {
     fn request_page_in_on_open_page(
         &self,
         inst: &Inst,
-    ) -> Option<std::rc::Rc<std::cell::RefCell<al_builtins::value::PageState>>> {
+    ) -> Option<std::rc::Rc<std::cell::RefCell<crate::pages::PageState>>> {
         let object = inst.borrow().object as usize;
         let engine = self.engine.clone();
         let page = engine.program.objects[object].page.as_ref()?;
         let st = match inst.borrow().globals.get(page.curr_page_slot) {
-            Some(Value::TestPage(st)) => st.clone(),
+            Some(Value::TestPage(st)) => st_of(st).clone(),
             _ => return None,
         };
         if !st.borrow().opening {
@@ -3752,15 +3750,15 @@ impl Session {
 
     /// Loads the parameters string of a `SaveAs` into the data items' records, the way a request
     /// page does before the run (reports/TestReportRunRequestPage.al:TestReport_CapturedParameters_
-    /// ReplayThroughSaveAs_FilterTheDataset). Only the text this runtime's `RunRequestPage` hands out
-    /// is understood (`apply_request_parameters`).
+    /// ReplayThroughSaveAs_FilterTheDataset), or of an `Execute`. Which forms of the text are understood,
+    /// per call: `apply_request_parameters` and `ParamsCall`.
     fn apply_run_parameters(
         &mut self,
         inst: &Inst,
         schema: &Schema,
         run: &Run,
         xml: &str,
-        skip_unknown: bool,
+        call: ParamsCall,
     ) -> Result<(), Signal> {
         let engine = self.engine.clone();
         let Some(page) = engine.program.objects[schema.object].page.as_ref() else {
@@ -3780,7 +3778,7 @@ impl Session {
             };
             exts.push((e, ext));
         }
-        self.apply_request_parameters(inst, &exts, schema.object, xml, skip_unknown)
+        self.apply_request_parameters(inst, &exts, schema.object, xml, call)
     }
 
     /// A column bound to a FlowField of the data item's table is calculated for every row before
@@ -4203,7 +4201,7 @@ impl Session {
                 let ml = c.option_caption_ml.as_deref().expect("checked");
                 let list =
                     al_builtins::format::ml_text_in_language(ml, al_builtins::format::FormatCtx::language(&*self))
-                        .map_err(|e| Signal::Unsupported(format!("OptionCaptionML of report column {} {e}", c.name)))?;
+                        .map_err(|e| Signal::unsupported(format!("OptionCaptionML of report column {} {e}", c.name)))?;
                 match usize::try_from(*n).ok().and_then(|i| list.split(',').nth(i)) {
                     Some(caption) => dataset::escape(caption)?,
                     None => n.to_string(),
@@ -4229,7 +4227,7 @@ impl Session {
                 }
             }
             Value::Option(..) | Value::Enum(..) | Value::Duration(_) => {
-                dataset::escape(&al_builtins::format::try_format(&value, 0, 0, self).map_err(Signal::Unsupported)?)?
+                dataset::escape(&al_builtins::format::try_format(&value, 0, 0, self).map_err(Signal::unsupported)?)?
             }
             Value::Blob(b) => self.blob_column_text(c, rec, b)?,
             // An empty Media or MediaSet field is an empty element (reports/layouts-saveas/BcXmlBlob.al:102); one with content holds a
@@ -4244,7 +4242,7 @@ impl Session {
                 String::new()
             }
             Value::Guid(_) => {
-                let g = al_builtins::format::try_format(&value, 0, 0, self).map_err(Signal::Unsupported)?;
+                let g = al_builtins::format::try_format(&value, 0, 0, self).map_err(Signal::unsupported)?;
                 // Lower case, braces dropped (streams/TestReportSaveAsColumnDetailsContracts.al:
                 // UndefinedTimesGuidsHoursAndDecimalPlaces, streams/PWReportSaveAsColumns.al:
                 // Undefined_TimeDateTime_SingleDigitHour_GuidWithHexLetters); the null Guid is zeros, not blank.
@@ -4334,7 +4332,7 @@ impl Session {
         let cx = self.cx_for(rec, &t)?;
         let pk = t.primary_key(&rec.borrow().fields);
         let stored =
-            al_data::Store::get(self.store_for(rec), &cx, &t, &pk).map_err(|e| Signal::Unsupported(format!("{e}")))?;
+            al_data::Store::get(self.store_for(rec), &cx, &t, &pk).map_err(|e| Signal::unsupported(format!("{e}")))?;
         match stored.map(|row| row[pos].clone()) {
             Some(Value::Blob(src)) if src.borrow().render_pending.is_none() => {
                 Ok(al_builtins::platform_native::b64_encode(&src.borrow().bytes, false))
@@ -4683,7 +4681,7 @@ mod ignored_output_tests;
 /// property decides.
 const REQUEST_PAGE_ON: i32 = 1;
 const REQUEST_PAGE_OFF: i32 = 2;
-/// The page is hidden, but what the getter answers is not pinned (a static `RunModal(id, false)`): the getter is refused.
+/// The page is hidden by a static `RunModal(id, false)`: the getter is pinned in OnPreReport only, and refused elsewhere.
 const REQUEST_PAGE_OFF_UNPINNED_GETTER: i32 = 3;
 /// After an `Execute` of a variable whose `UseRequestPage` was set: what the getter answers is not pinned
 /// (reports/PnH2UseRp.al:389 pins only the variable never set), so it is refused.

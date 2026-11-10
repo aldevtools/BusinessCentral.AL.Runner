@@ -325,7 +325,7 @@ fn refusal(body: &str) -> String {
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
     l.unsupported[oi]
         .iter()
-        .find_map(|r| r.first().cloned())
+        .find_map(|r| r.first().map(|r| r.to_string()))
         .expect("a refusal")
 }
 

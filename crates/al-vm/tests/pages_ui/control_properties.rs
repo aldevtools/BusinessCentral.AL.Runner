@@ -268,7 +268,7 @@ codeunit 69982 C
 
 fn refused(prop: &str) -> String {
     match al_testkit::run_in(&expr_src(prop), "C", "Open") {
-        Err(Signal::Unsupported(why)) => why,
+        Err(Signal::Unsupported(why)) => why.into_reason(),
         other => panic!("expected a refusal for `{prop}`, got {other:?}"),
     }
 }
@@ -286,6 +286,109 @@ fn control_expressions_bc_fails_to_compile_are_refused() {
 fn plain_control_expressions_still_run() {
     let r = al_testkit::run_in(&expr_src("Editable = Rec.Flag or (Rec.Id = 1);"), "C", "Open");
     assert!(matches!(r, Ok(Value::Text(ref t)) if t.as_str() == "Yes"), "{r:?}");
+}
+
+/// A page with an Enum and an Option field on table "CP QRow", the page's own control `Name` with `{own}` and a control an
+/// extension adds, `ExtName`, with `{ext}`. `GlobalRow` is the page's global Record, `ExtRow` the extension's.
+fn qualified_src(own: &str, ext: &str) -> String {
+    format!(
+        r#"
+enum 69984 "CP QKind" {{ value(0; Alpha) {{ }} value(1; Beta) {{ }} }}
+table 69985 "CP QRow" {{ fields {{ field(1; Id; Integer) {{ }} field(2; Mode; Enum "CP QKind") {{ }} field(3; Opt; Option) {{ OptionMembers = A,B; }} }} keys {{ key(PK; Id) {{ }} }}
+    procedure GetMode(): Enum "CP QKind" begin exit(Mode); end; }}
+page 69986 "CP QCard"
+{{
+    PageType = Card; SourceTable = "CP QRow";
+    layout {{ area(Content) {{ field(Name; Rec.Id) {{ {own} }} }} }}
+    trigger OnOpenPage() begin Dir := Dir::Beta; end;
+    var GlobalRow: Record "CP QRow"; Dir: Enum "CP QKind";
+    protected var BaseRow: Record "CP QRow";
+}}
+pageextension 69987 "CP QCard Ext" extends "CP QCard"
+{{
+    layout {{ addlast(Content) {{ field(ExtName; Rec.Id) {{ {ext} }} }} }}
+    trigger OnOpenPage() begin ExtDir := ExtDir::Beta; end;
+    var ExtRow: Record "CP QRow"; ExtDir: Enum "CP QKind";
+}}
+codeunit 69988 C
+{{
+    procedure Open(): Text
+    var R: Record "CP QRow"; P: TestPage "CP QCard";
+    begin
+        R.Id := 1; R.Insert();
+        P.OpenEdit();
+        exit(Format(P.Name.Editable()) + '|' + Format(P.ExtName.Editable()));
+    end;
+}}
+"#
+    )
+}
+
+/// testpage/CcPageLeads.al:1051 (VisibleExpr_V1): an Enum value through an Enum field of a global Record runs on the
+/// page's own control with no assumption. On a control an extension adds, through the extension's own global, it runs
+/// too but marks `control-expr-member-enum-in-extension` (al-runner issue 6924; not pinned).
+#[test]
+fn an_enum_value_through_a_global_record_runs_and_marks_the_extension_case() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    take_hits();
+    let src = qualified_src("Editable = Dir = GlobalRow.Mode::Beta;", "Editable = true;");
+    let r = al_testkit::run_in(&src, "C", "Open");
+    assert!(matches!(r, Ok(Value::Text(ref t)) if t.as_str() == "Yes|Yes"), "{r:?}");
+    assert!(!take_hits().contains(&Assumption::ControlExprMemberEnumInExtension));
+    let src = qualified_src("Editable = true;", "Editable = ExtDir = ExtRow.Mode::Alpha;");
+    let r = al_testkit::run_in(&src, "C", "Open");
+    assert!(matches!(r, Ok(Value::Text(ref t)) if t.as_str() == "Yes|No"), "{r:?}");
+    assert!(take_hits().contains(&Assumption::ControlExprMemberEnumInExtension));
+}
+
+/// Not pinned, so refused: an Option field through a global Record (the form is used by a Microsoft page no test opens),
+/// a nested member, a member of `this.`, a table procedure named without parentheses that returns the Enum, and, in an
+/// extension, the base page's protected Record variable.
+#[test]
+fn qualified_values_through_other_members_stay_refused() {
+    for (own, ext) in [
+        ("Editable = GlobalRow.Opt = GlobalRow.Opt::B;", "Editable = true;"),
+        ("Editable = this.GlobalRow.Mode::Beta = Dir;", "Editable = true;"),
+        ("Editable = GlobalRow.Mode.X::Beta = Dir;", "Editable = true;"),
+        ("Editable = Dir = GlobalRow.GetMode::Beta;", "Editable = true;"),
+        ("Editable = true;", "Editable = ExtDir = BaseRow.Mode::Beta;"),
+    ] {
+        match al_testkit::run_in(&qualified_src(own, ext), "C", "Open") {
+            Err(Signal::Unsupported(why)) => assert!(why.contains("dynamic control expression"), "{own} {ext}: {why}"),
+            other => panic!("expected a refusal for `{own}` `{ext}`, got {other:?}"),
+        }
+    }
+}
+
+/// Not pinned, so refused: an enum named through its namespace (`QNs."CP NKind"::Beta`), on a page of that namespace.
+#[test]
+fn a_namespace_qualified_enum_in_a_control_expression_stays_refused() {
+    let src = r#"
+namespace QNs;
+enum 69974 "CP NKind" { value(0; Alpha) { } value(1; Beta) { } }
+table 69975 "CP NRow" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+page 69976 "CP NCard"
+{
+    PageType = Card; SourceTable = "CP NRow";
+    layout { area(Content) { field(Name; Rec.Id) { Editable = Dir = QNs."CP NKind"::Beta; } } }
+    trigger OnOpenPage() begin Dir := Dir::Beta; end;
+    var Dir: Enum QNs."CP NKind";
+}
+codeunit 69977 C
+{
+    procedure Open(): Text
+    var R: Record "CP NRow"; P: TestPage "CP NCard";
+    begin
+        R.Id := 1; R.Insert();
+        P.OpenEdit();
+        exit(Format(P.Name.Editable()));
+    end;
+}
+"#;
+    match al_testkit::run_in(src, "C", "Open") {
+        Err(Signal::Unsupported(why)) => assert!(why.contains("dynamic control expression"), "{why}"),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
 }
 
 fn run_on(bc: &str, src: &str) -> Result<Value, Signal> {

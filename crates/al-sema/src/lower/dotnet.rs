@@ -95,6 +95,22 @@ impl Lowerer<'_> {
                 return Err(key);
             }
         }
+        // Any other call on a `[RunOnClient]` variable runs on the client too, which a test session does not have: it is
+        // refused when it runs (not pinned for a member of a variable that never holds an object). The call keeps its
+        // arguments, so the reach of the routine stays known: it writes nothing on the service tier but through them.
+        if let (Some(why), ir::DotNetOp::Call(_)) = (self.run_on_client_var(&recv), &op) {
+            return Ok(ir::Expr::DotNet {
+                ty: None,
+                receiver: Some(Box::new(ir::Expr::DotNet {
+                    ty: None,
+                    receiver: None,
+                    op: ir::DotNetOp::ClientNull,
+                    args: Vec::new(),
+                })),
+                op: ir::DotNetOp::ClientCall(why),
+                args,
+            });
+        }
         if let (Some(i), ir::DotNetOp::Call(_)) = (ty, &op) {
             // The constructor is named like the alias or like the CLR type: the probe app declares
             // alias `DnStringBuilder` for `System.Text.StringBuilder` and calls `Builder.StringBuilder()`

@@ -4,7 +4,7 @@ members = ["crates/*"]
 
 [workspace.package]
 edition = "2024"
-version = "3.0.0-alpha.13"
+version = "3.0.0-alpha.14"
 license = "BUSL-1.1"
 authors = ["Stefan Maron"]
 repository = "https://github.com/aldevtools/BusinessCentral.AL.Runner"
@@ -24,6 +24,7 @@ al-version = { path = "crates/al-version" }
 al-testrun = { path = "crates/al-testrun" }
 al-cache = { path = "crates/al-cache" }
 al-testkit = { path = "crates/al-testkit" }
+al-testfiles = { path = "crates/al-testfiles" }
 quick-xml = "0.37"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"

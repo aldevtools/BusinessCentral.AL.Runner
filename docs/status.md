@@ -15,9 +15,10 @@ no pass counts, because they go stale within a day. For the current numbers:
 
 One oracle per BC major, and per major and test app a list of the cases the runtime does not pass yet
 (`metrics/<major>/not-passing*.txt`, ADR-065). `al-test-cli --root .` runs the newest;
-`--bc-version N` picks one; `--all-versions` runs all three and compares them. On BC 27.5 the corpus compiles
-Microsoft's apps from the corpus's own `.alpackages`; the other versions take them from the artifact of the
-matching build. The OnPrem app and the isolation probe each have their own oracle, ratchet and report line, and
+`--bc-version N` picks one; `--all-versions` runs all three and compares them. On every version the corpus compiles
+Microsoft's apps of the build `oracle/oracle.toml` pins (`bc_build`), read from the artifact cache
+(`--all-versions --fetch-deps` fills it); the corpus tree holds no Microsoft file and its `.alpackages` is not
+searched (ADR-013 amendment of 2026-11-10). The OnPrem app and the isolation probe each have their own oracle, ratchet and report line, and
 are not part of the overall count (`oracle/README.md`). There is no isolation oracle for BC 27 and 29
 (`docs/probes-needed.md`).
 
@@ -33,7 +34,7 @@ Each check rejects only the shape its case pins; the wider rules are in `docs/pr
 
 ## Platform tables (ADR-019)
 
-The platform `System` app loads with every app. Providers answer Integer, Date, Session, Active Session, AllObj,
+The platform `System` app loads with every app. Providers answer Integer, Date, Session, Active Session, Server Instance, AllObj,
 AllObjWithCaption, CodeUnit Metadata, Table Metadata, Page Metadata, Page Control Field, Page Action, Field, Key,
 Time Zone, Windows Language, NAV App Installed App, Published Application, the permission tables, Report Layout
 List, Report Metadata, Report Data Items, XmlPort Metadata, Query Metadata, Event Subscription (compiled

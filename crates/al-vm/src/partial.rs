@@ -21,14 +21,10 @@
 use crate::Session;
 use crate::records::Rec;
 use al_builtins::describe::Describe;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{Buffer, FieldSet, Value};
 use al_data::{Store, TableDef};
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 fn positions(args: &[Value]) -> Result<Vec<usize>, Signal> {
     let mut out: Vec<usize> = Vec::new();
@@ -238,18 +234,26 @@ impl Session {
         }
         let t = self.table(rec)?;
         let fields = rec.borrow().fields.clone();
-        if held.as_deref() != Some(row_id(&t, &fields).as_str()) {
-            return unsupported(
-                "a load of the missing fields of a partial record whose key changed since the fetch (not pinned)",
-            );
-        }
-        let pk = Self::sql_key(rec, &t, &fields);
+        // A key assigned after the fetch does not move the load: BC reads the missing fields from the row that was fetched
+        // (record/load-fields/XRecUnloadedFieldRead.al PartialGet_KeyAssignedAfterGet_ReadInTableMethod, `rec status` NEW,
+        // al-runner issue 7375). A row that is gone under a changed key is not pinned.
+        let key_changed = held.as_deref() != Some(row_id(&t, &fields).as_str());
+        let pk = if key_changed {
+            Self::sql_key(rec, &t, &fetched)
+        } else {
+            Self::sql_key(rec, &t, &fields)
+        };
         let cx = self.cx.clone();
         let stored = self
             .store_for(rec)
             .get(&cx, &t, &pk)
-            .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+            .map_err(|e| Signal::unsupported(format!("{e}")))?;
         let Some(stored) = stored else {
+            if key_changed {
+                return unsupported(
+                    "a load of the missing fields of a partial record whose key changed since the fetch and whose fetched row is gone (not pinned)",
+                );
+            }
             if let Some(p) = read {
                 return Err(self.jit_row_gone(&t, &fields, &[p]).unwrap_or_else(|e| e));
             }

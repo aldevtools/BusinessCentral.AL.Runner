@@ -112,6 +112,11 @@ pub(crate) struct ReachFacts {
     /// Tables a reached routine writes: Insert, Modify, Delete, DeleteAll, ModifyAll and Rename on a record of a known
     /// table, and the source table of a page variable.
     pub writes: BTreeSet<u32>,
+    /// The tables of `writes` a reached routine can add a row to: Insert on a record of a known table that is not
+    /// declared temporary, and the source table of a page variable unless the page says SourceTableTemporary (the page
+    /// client inserts). Modify, Delete, DeleteAll, ModifyAll and Rename need a row that is already there, and a
+    /// temporary record adds no row to the table (`login.rs`).
+    pub inserts: BTreeSet<u32>,
     /// A write whose table is not known statically (a `RecordRef`, an xmlport import, media): it may write any table.
     pub writes_any: bool,
     /// Global variables of codeunits (object, slot) a reached routine names.
@@ -342,6 +347,50 @@ pub(crate) fn union_reach_facts_skipping(
     skip: &[(usize, usize)],
 ) -> ReachFacts {
     let mut walk = Walk::new(events, lowered, index);
+    for &(o, r) in skip {
+        walk.first_visit(o, r);
+    }
+    walk.stack.extend(roots.iter().rev().copied());
+    walk.run(&|_| false);
+    walk.out
+}
+
+/// The facts of what the routines `roots` reach through calls alone, one walk of the union: the routines they call, those
+/// they call, what their page, report and xmlport variables drive (`Lowered::calls_into`), and the routines of the
+/// objects they run by a constant id or through a codeunit variable (a codeunit's OnRun, a page's routines), without the
+/// routines `skip`. As [`call_reach_facts`], it leaves out the table triggers and the subscribers of every event. What
+/// a test does itself, apart from what any write or event brings into its reach (`login.rs`).
+pub(crate) fn union_call_reach_facts(
+    events: &al_vm::events::Registry,
+    lowered: &Lowered,
+    index: &ReachIndex,
+    roots: &[(usize, usize)],
+    skip: &[(usize, usize)],
+) -> ReachFacts {
+    let mut walk = Walk::new(events, lowered, index);
+    walk.calls_only = true;
+    walk.runs_in_calls = true;
+    for &(o, r) in skip {
+        walk.first_visit(o, r);
+    }
+    walk.stack.extend(roots.iter().rev().copied());
+    walk.run(&|_| false);
+    walk.out
+}
+
+/// [`union_reach_facts_skipping`] without the subscribers of the `Global Triggers` database events, which every write
+/// brings into a reach: the calls, the table triggers, the objects run and the subscribers of the other events are
+/// followed as before. What a test reaches other than through "some table was written" (`login.rs`).
+pub(crate) fn union_reach_facts_without_database_events(
+    events: &al_vm::events::Registry,
+    lowered: &Lowered,
+    index: &ReachIndex,
+    roots: &[(usize, usize)],
+    skip: &[(usize, usize)],
+) -> ReachFacts {
+    let mut walk = Walk::new(events, lowered, index);
+    // As if they were pushed already (`Walk::note_table_write`).
+    walk.global_triggers = true;
     for &(o, r) in skip {
         walk.first_visit(o, r);
     }
@@ -668,11 +717,15 @@ struct Walk<'a> {
     seen_beyond: BTreeSet<(usize, usize)>,
     entered_beyond: BTreeSet<(usize, u8)>,
     stack: Vec<(usize, usize)>,
+    /// The subscribers of the `Global Triggers` database events are pushed, or the walk leaves them out
+    /// ([`union_reach_facts_without_database_events`]).
     global_triggers: bool,
     /// Whether the walk keeps the tables, globals and state it reaches ([`ReachFacts`]) besides the reasons.
     facts: bool,
     /// Whether the walk follows calls only ([`call_reach_facts`]).
     calls_only: bool,
+    /// Whether a walk of calls only also enters the routines of the objects run ([`union_call_reach_facts`]).
+    runs_in_calls: bool,
 }
 
 impl<'a> Walk<'a> {
@@ -691,6 +744,7 @@ impl<'a> Walk<'a> {
             global_triggers: false,
             facts: true,
             calls_only: false,
+            runs_in_calls: false,
         }
     }
 
@@ -836,7 +890,8 @@ impl<'a> Walk<'a> {
                     .map(|(r, _)| (x, r)),
             );
         }
-        if obj.kind == ObjKind::Page {
+        // A walk of calls only enters the routines of the object, not its table's triggers nor its event subscribers.
+        if obj.kind == ObjKind::Page && !self.calls_only {
             if let Some(RtType::Record(t, _)) = obj.rec_slot.map(|i| &obj.globals[i].ty) {
                 self.table_ops(*t as usize, ops::ALL);
             }
@@ -846,14 +901,19 @@ impl<'a> Walk<'a> {
                 self.touch(i.table as u32);
             }
         }
-        self.events(o);
+        if !self.calls_only {
+            self.events(o);
+        }
     }
 
-    fn note_table_write(&mut self, table: Option<u32>) {
+    fn note_table_write(&mut self, table: Option<u32>, insert: bool) {
         match table {
             _ if !self.facts => {}
             Some(t) => {
                 self.out.writes.insert(t);
+                if insert {
+                    self.out.inserts.insert(t);
+                }
             }
             None => self.out.writes_any = true,
         }
@@ -903,11 +963,12 @@ impl<'a> Walk<'a> {
                         self.out.unknown = Some(why.to_string());
                     }
                 }
+                Step::Run(x) if self.calls_only && self.runs_in_calls => self.run_object(*x),
                 Step::Events(_) | Step::TableOps(..) | Step::Run(_) if self.calls_only => {}
                 Step::Events(t) => self.events(*t),
                 Step::TableOps(t, ops) => self.table_ops(*t, *ops),
                 Step::Run(x) => self.run_object(*x),
-                Step::Write(t) => self.note_table_write(*t),
+                Step::Write(t, insert) => self.note_table_write(*t, *insert),
             }
         }
     }
@@ -942,8 +1003,8 @@ enum Step {
     TableOps(usize, u8),
     /// [`Walk::run_object`].
     Run(usize),
-    /// [`Walk::note_table_write`].
-    Write(Option<u32>),
+    /// [`Walk::note_table_write`]: the table, and whether the write can add a row.
+    Write(Option<u32>, bool),
 }
 
 /// Records a routine's [`Summary`]: the analysis of its body, with the steps that depend on the walk deferred.
@@ -1025,7 +1086,12 @@ impl Rec<'_> {
     }
 
     fn note_table_write(&mut self, table: Option<u32>) {
-        self.step(Step::Write(table));
+        self.step(Step::Write(table, false));
+    }
+
+    /// A write that can add a row to `table` ([`ReachFacts::inserts`]).
+    fn note_table_insert(&mut self, table: u32) {
+        self.step(Step::Write(Some(table), true));
     }
 
     /// The object of `kind` with id `id`, run; unknown when there is none.
@@ -1086,9 +1152,14 @@ impl Rec<'_> {
             RtType::Page(p) | RtType::TestPage(p) => {
                 let page = &objs[*p as usize];
                 match page.rec_slot.map(|i| &page.globals[i].ty) {
-                    Some(RtType::Record(t, _)) => {
+                    Some(RtType::Record(t, temporary)) => {
                         self.out.touched.insert(*t);
-                        self.note_table_write(Some(*t));
+                        // A page over a temporary source adds no row to the table.
+                        if *temporary {
+                            self.note_table_write(Some(*t));
+                        } else {
+                            self.note_table_insert(*t);
+                        }
                         // The page client inserts, modifies, deletes and validates with the triggers.
                         self.table_ops(*t as usize, ops::ALL);
                     }
@@ -1197,6 +1268,15 @@ impl Rec<'_> {
                 }
             }
             Expr::InterfaceCall { args, .. } => self.arg_writes(o, args),
+            // A `[RunOnClient]` variable's bookkeeping and a call on it write nothing on the service tier: the call runs on
+            // the client, which a test session has not, so it is refused when it runs, and the variable never holds an
+            // object (onprem-dotnet/runonclient/BgRunOnClient.al:122-150, :186-209, :282-302, :395-483). Only the arguments
+            // can be written (Office Host Provider.OnGetHostType, al-runner issue 6924).
+            Expr::DotNet {
+                op: al_ir::DotNetOp::ClientNull | al_ir::DotNetOp::ClientAssign | al_ir::DotNetOp::ClientCall(_),
+                args,
+                ..
+            } => self.arg_writes(o, args),
             Expr::DotNet { args, .. } => {
                 self.arg_writes(o, args);
                 self.out.state_writes |= state::OTHER;
@@ -1254,12 +1334,15 @@ impl Rec<'_> {
             "Record" => {
                 let op = ops::of(method);
                 if op != 0 {
-                    let table = match receiver.and_then(|p| self.slot_ty(o, r, p)) {
-                        Some(RtType::Record(t, _)) => Some(t),
-                        _ => None,
+                    let (table, temporary) = match receiver.and_then(|p| self.slot_ty(o, r, p)) {
+                        Some(RtType::Record(t, temporary)) => (Some(t), temporary),
+                        _ => (None, false),
                     };
-                    if op != ops::VALIDATE {
-                        self.note_table_write(table);
+                    match table {
+                        // An Insert on a record declared temporary adds no row to the table.
+                        Some(t) if op == ops::INSERT && !temporary => self.note_table_insert(t),
+                        _ if op != ops::VALIDATE => self.note_table_write(table),
+                        _ => {}
                     }
                     if ops::runs_triggers(method, args) {
                         match table {

@@ -11,7 +11,7 @@
 //!    is learned in the run: the ninetieth percentile of what each codeunit grew the process by over its own run, per live test thread, shared parts left out, seen from the first codeunit
 //!    on, at least [`WORKER_FLOOR`]; until the first codeunit ends only one thread runs. Nothing is kept between runs;
 //! 3. a thread other than the first that finishes a codeunit when there is no room ends ([`Pool::keep`]) and gives
-//!    back its session, baseline copy and runs ahead; it never waits holding them. One thread always runs;
+//!    back its session and baseline copy; it never waits holding them. One thread always runs;
 //! 4. under a hard limit ([`MemoryBudget::hard`]: `al-runner test`), stops the run ([`Halt`]) before the resident
 //!    memory passes the limit: a watcher samples it while the tests run. The running tests are stopped, the tests not
 //!    reached are reported as not run with the reason [`Halt::reason`], and the front end exits with code 2.

@@ -453,7 +453,10 @@ impl Walk<'_> {
                 args,
                 ret_used: _,
             } => {
-                if !plain_builtin(*id) && !self.on_confined_collection(*id, receiver.as_deref(), at) {
+                if !plain_builtin(*id)
+                    && !self.on_confined_collection(*id, receiver.as_deref(), at)
+                    && !self.as_integer_in_table(*id, at)
+                {
                     return Err(format!("calls {}", id.name().split('#').next().unwrap_or(id.name())));
                 }
                 if let Some(r) = receiver {
@@ -480,6 +483,22 @@ fn local_slot(arg: &Arg) -> Option<usize> {
 }
 
 impl Walk<'_> {
+    /// `Enum.AsInteger` in a procedure of the table itself reads a value and leaves nothing behind: a Card and a List over a
+    /// table whose CaptionClass expression calls it open as any other (corpus record/captions/CaptionExpressionPlainText.al:296
+    /// CardControlCaptions_PlainExpressions_KindResource, :344 ListControlCaptions_PlainExpressions_KindResource, :368
+    /// CountCard_AsIntegerExpression_RunsAtOpen; BC 27.5, 28.5 and 29.0; al-runner issue 7379). The call inside a codeunit the
+    /// expression calls is not pinned yet (corpus pull request 1289, CaptionClassStateFreeCalls.al): refused as before.
+    fn as_integer_in_table(&self, id: al_builtins::builtin_id::BuiltinId, at: (usize, usize)) -> bool {
+        let name = id.name();
+        name.split('#').next() == Some("Enum.AsInteger")
+            && self
+                .engine
+                .program
+                .objects
+                .get(at.0)
+                .is_some_and(|o| o.kind == ObjKind::Table)
+    }
+
     /// A method of List or Dictionary called on a collection the routine `at` made itself and never shares: what it writes dies
     /// with the call (al-runner issue 6987: a CaptionClass expression that fills a local `List of [Text]` and hands it by `var`
     /// to an integration event no subscriber listens to). A List and a Dictionary are references, so a collection the routine

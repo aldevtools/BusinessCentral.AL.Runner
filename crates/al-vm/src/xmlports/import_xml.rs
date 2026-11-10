@@ -79,6 +79,7 @@ impl Session {
         self.tx.tx_world += 1;
         let result = self
             .xp_import_view_keys(inst, schema)
+            .and_then(|()| self.xp_import_unsupported_types(inst, schema))
             .and_then(|()| self.xp_import_document(inst, schema));
         self.tx.tx_world -= 1;
         if result.is_err() && inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_IMPORTED) {
@@ -165,6 +166,15 @@ impl Session {
                 "XmlPort import into a VariableText port with TextEncoding = {} (not pinned)",
                 enc.to_ascii_uppercase()
             ));
+        }
+        // A root table element with a leaf text element and a table element is pinned for the export only
+        // (`value_then_table_root`, plain_tree.rs; xmlports/shapes-properties/XpTextValueNestedTable.al:1535, :1559, :1571).
+        // What its import assigns and inserts nothing pins: the nearest import, XpTableRootNestedText.al:534
+        // XNT_TextTbl_Import, has the text and the table inside a text element.
+        if value_then_table_root(schema, top) {
+            return unsupported(
+                "XmlPort import of a root table element with a leaf text element and a table element right below it (not pinned)",
+            );
         }
         let table_root = root_table_element(schema, top) || plain_tree_root(schema, top);
         if table_root && !root_table_element(schema, top) && !plain_import_root(schema, top) {
@@ -1091,6 +1101,9 @@ impl Session {
             };
             self.xp_value_xml(text, &ty, members.map(|(_, m)| m))?
         } else if !schema.xp().format_evaluate_declared {
+            if matches!(&ty, RtType::Library(k) if *k == al_builtins::library_kind::LibraryKind::RecordId) {
+                return unsupported("XmlPort import into a RecordId field without FormatEvaluate (not pinned)");
+            }
             // Without a FormatEvaluate the display text is read and, when that is no value, the XML form.
             match self.xp_value(text, &ty, false) {
                 Ok(v) => v,
@@ -1123,6 +1136,28 @@ impl Session {
                 Err(other) => return Err(other),
             }
         } else {
+            // NotSupportedType for a RecordId is pinned for a Format = Xml port only (Import_Xml_RecordId); a text format is not.
+            if matches!(&ty, RtType::Library(k) if *k == al_builtins::library_kind::LibraryKind::RecordId)
+                && schema.xp().format != ir::XmlFormat::Xml
+            {
+                return unsupported(
+                    "XmlPort import into a RecordId field of a text format with FormatEvaluate = Legacy (not pinned)",
+                );
+            }
+            // A BigInteger element with digit groups passes Evaluate and fails the schema's `long` check
+            // (xmlports/PWXmlPortFormatEvaluateMoreTypes.al:Import_Legacy_BigInteger `big_thousands`, :656).
+            if ty == RtType::BigInteger && super::value_forms::legacy_big_thousands(text) {
+                if n.kind != ir::XmlNodeKind::Field {
+                    return unsupported(
+                        "XmlPort import of digit groups into a BigInteger attribute under Legacy (not pinned)",
+                    );
+                }
+                return Err(schema_error(format!(
+                    "The '{x}' element is invalid - The value '{text}' is invalid according to its datatype \
+                     'http://www.w3.org/2001/XMLSchema:long' - The string '{text}' is not a valid Int64 value.",
+                    x = n.xml_name
+                )));
+            }
             match self.xp_value(text, &ty, false) {
                 // FormatEvaluate = Legacy reads a Date in the form yyyy-mm-dd too (xmlports/import/
                 // XpTImportOptions.al:337 Import_FormatEvaluateLegacy_XmlValues, `2024-01-15`). Other XML forms are not pinned

@@ -8,7 +8,7 @@
 
 use crate::Session;
 use al_builtins::filter::{FieldFilter, FilterExpr};
-use al_builtins::native::{AlError, Signal};
+use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::value::{RecordState, Value};
 use al_data::{Store, TableDef};
@@ -23,10 +23,6 @@ type Rec = Rc<RefCell<RecordState>>;
 const USER_TABLE: i32 = 2_000_000_120;
 const SYSTEM_CREATED_BY: u32 = 2_000_000_002;
 const SYSTEM_MODIFIED_BY: u32 = 2_000_000_004;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 impl Session {
     fn is_flow_field(&self, table: u32, pos: usize) -> bool {
@@ -80,8 +76,18 @@ impl Session {
         out
     }
 
+    /// Whether the relation of field `pos` has an `if (...)` condition or more than one arm.
+    fn relation_is_conditional(&self, t: &TableDef, pos: usize) -> bool {
+        let Some(schema) = self.engine.program.objects[t.object as usize].table.as_ref() else {
+            return false;
+        };
+        let field = &schema.fields[pos];
+        let arms = || field.relation_arms.iter().chain(field.relation_runtime.iter());
+        arms().count() > 1 || arms().any(|arm| !arm.conditions.is_empty())
+    }
+
     /// The arm of field `pos`'s relation that applies to the buffer, if any.
-    fn relation_arm(&self, rec: &Rec, t: &TableDef, pos: usize) -> Result<Option<ir::RelationArm>, Signal> {
+    pub(crate) fn relation_arm(&self, rec: &Rec, t: &TableDef, pos: usize) -> Result<Option<ir::RelationArm>, Signal> {
         let schema = self.engine.program.objects[t.object as usize]
             .table
             .as_ref()
@@ -159,7 +165,7 @@ impl Session {
         let language = al_builtins::format::FormatCtx::language(self);
         let enums = |id: u32| crate::views::enum_filter_members(&engine.program.objects[id as usize], language);
         let expr = al_builtins::filter::parse_filter_with(text, &[], &t.fields[c.field].ty, &enums).map_err(|e| {
-            Signal::Unsupported(format!(
+            Signal::unsupported(format!(
                 "the filter condition `{text}` of the TableRelation of {}.{field_name}: {e}",
                 t.name
             ))
@@ -272,7 +278,7 @@ impl Session {
                     field: *p,
                     expr: self
                         .parse_filter_text(text, &related.fields[*p].ty)
-                        .map_err(|e| Signal::Unsupported(format!("where() of a relation: {e}")))?,
+                        .map_err(|e| Signal::unsupported(format!("where() of a relation: {e}")))?,
                     group: 0,
                 },
                 ir::RelationWhere::Field { related: p, own } => FieldFilter {
@@ -305,7 +311,7 @@ impl Session {
         let found = if flow_field_filters.is_empty() {
             self.store
                 .count(&cx, &related, &filters)
-                .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                .map_err(|e| Signal::unsupported(format!("{e}")))?
         } else {
             self.count_passing_flow_fields(&cx, &related, &filters, &flow_field_filters)?
         };
@@ -333,7 +339,7 @@ impl Session {
             {
                 // A single where() on a field of the related table's primary key answers DB:RecordNotFound (corpus
                 // record/table-relation/PnF13RelationFilterConditions.al:122-126, 144-149, 166-169, primary key (Code, Zone)); on
-                // another field DB:NothingInsideFilter (record/table-relation/RelationWhereEmptyTerm.al:173-177). Several conditions are refused.
+                // another field DB:NothingInsideFilter (record/table-relation/RelationWhereEmptyTerm.al:173-177).
                 if related.keys[0].contains(w) {
                     "DB:RecordNotFound".into()
                 } else {
@@ -343,18 +349,36 @@ impl Session {
                 // Conditions on primary key fields only, which with the related field name the whole key, answer RecordNotFound:
                 // `Item Variant.Code where("Item No." = field("Item No."), Code = field("Variant Code"))`
                 // (record/table-relation/RelationWhereValidated.al:Validate_OldBlank_ExistingAndMissing,
-                // Validate_OldNonBlank_NewMissing, Validate_OtherItemNo_SameValue). Any other set of several conditions is refused below.
+                // Validate_OldNonBlank_NewMissing, Validate_OtherItemNo_SameValue; RelationWhereMulti.al:160-182, :267-284).
                 "DB:RecordNotFound".into()
-            } else if wheres.len() > 1 && !wheres.iter().any(|w| related.keys[0].contains(&where_field(w))) {
-                // Several conditions, none on a primary key field: the code of the one-condition form on a non-key field
-                // (record/table-relation/RelationWhereEmptyTerm.al:173-177), on an assumption.
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TableRelationSeveralWhereNonKey);
+            } else if wheres.len() > 1 && wheres.iter().any(|w| !related.keys[0].contains(&where_field(w))) {
+                // Several conditions, at least one on a field outside the related table's primary key, answer
+                // DB:NothingInsideFilter for a missing value and for one the filter excludes: two non-key conditions
+                // (record/table-relation/RelationWhereMulti.al:187-209), a key and a non-key condition (:85, :214-236,
+                // al-runner issue 7438), two non-key and one key condition (:241-262). Every pinned relation is a plain
+                // one. Inside an if() arm the code is not pinned (the probe record/table-relation/RelationWhereKeyCoverage.al
+                // measures it): non-key conditions only answer the same on an assumption, a mix with key fields is refused.
+                if self.relation_is_conditional(t, pos) {
+                    if wheres.iter().any(|w| related.keys[0].contains(&where_field(w))) {
+                        return Err(Signal::Unsupported(
+                            "the error code of a TableRelation check with a key and a non-key where() condition inside an if() arm (not pinned)".into(),
+                        ));
+                    }
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::TableRelationSeveralWhereNonKey,
+                    );
+                }
                 "DB:NothingInsideFilter".into()
             } else if !wheres.is_empty() {
-                // Several conditions: which code BC answers is not pinned for the other mixes, so the error path is refused.
+                // Several conditions on primary key fields that leave a key field unnamed: which code BC answers is not
+                // pinned, so the error path is refused.
                 return Err(Signal::Unsupported(
-                    "the error code of a TableRelation check with several where() conditions (not pinned)".into(),
+                    "the error code of a TableRelation check with several where() conditions on primary key fields that do not name the whole key (not pinned)".into(),
                 ));
+            } else if related.keys.iter().all(|k| !k.contains(&rel_pos)) {
+                // A relation to a field that is in no key of the related table answers DB:NothingInsideFilter
+                // (record/table-relation/RelationWhereMulti.al:289-336, RelationToNonKeyField_Validate).
+                "DB:NothingInsideFilter".into()
             } else {
                 "DB:PrimRecordNotFound".into()
             },
@@ -378,14 +402,15 @@ fn const_cond_holds(value: &Value, c: &ir::Const, relation: impl Fn() -> String)
 
 /// The refusal of a TableRelation condition of `relation` (table.field) whose comparison failed with `e`.
 fn cond_refusal<T>(e: Signal, relation: &str) -> Result<T, Signal> {
-    let why = match e {
+    // A refusal keeps its key behind the prefix (ADR-071).
+    let why: al_builtins::refusal::Refusal = match e {
         Signal::Unsupported(why) => why,
-        Signal::Error(e) => e.message,
-        _ => "the comparison did not give an order".to_string(),
+        Signal::Error(e) => e.message.into(),
+        _ => "the comparison did not give an order".into(),
     };
-    unsupported(format!(
-        "a condition of the TableRelation of {relation} cannot be evaluated: {why}"
-    ))
+    unsupported(
+        why.map_reason(|why| format!("a condition of the TableRelation of {relation} cannot be evaluated: {why}")),
+    )
 }
 
 /// Whether every condition of a relation's `where()` is on a primary key field of the related table and, with the related field

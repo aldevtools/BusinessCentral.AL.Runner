@@ -164,7 +164,7 @@ fn a_caption_class_expression_of_a_tables_own_field_sees_the_record() {
 
 /// An expression result reads as a literal does: a numeric area nobody resolves stays as written, `3,` reads as the field's
 /// Caption, here its name (record/captions/QdCaptionClassAreas.al:262-296 `expr9`, `expr3`). An area that is
-/// not a number is refused.
+/// not a number stays as written.
 #[test]
 fn a_caption_class_expression_with_another_area_reads_as_a_literal() {
     let src = "table 50100 T { fields { field(1; Id; Integer) { } field(2; Amt; Decimal) { CaptionClass = Cc(); } \
@@ -177,7 +177,8 @@ fn a_caption_class_expression_with_another_area_reads_as_a_literal() {
     assert_eq!(text(al_testkit::run_in(src, "C", "G")), "Empty");
     assert_eq!(text(al_testkit::run_in(src, "C", "H")), "Id");
     let other = src.replace("exit('2,0,Amount')", "exit('AB,Amount')");
-    refused(al_testkit::run_in(&other, "C", "F"), "CaptionClass");
+    // CaptionExpressionPlainText.al:238 `nonnumeric=Zed,some text`.
+    assert_eq!(text(al_testkit::run_in(&other, "C", "F")), "AB,Amount");
 }
 
 /// An error text that names a table whose caption is refused (two tableextensions set one) is not pinned: the error is

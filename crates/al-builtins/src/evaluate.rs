@@ -13,7 +13,7 @@ mod option_text;
 mod platform_options;
 use crate::describe::Describe;
 use crate::format::day_from_civil;
-use crate::native::{Ctx, Signal};
+use crate::native::{Ctx, Signal, unsupported};
 use crate::value::Value;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
@@ -54,10 +54,6 @@ fn rejected_characters(text: &str) -> bool {
                 | '\u{A0}' | '\u{202F}' | '\u{FF10}'..='\u{FF19}' | '\u{0660}'..='\u{0669}'
         ) || (!c.is_ascii() && c.is_alphabetic())
     })
-}
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
 }
 
 /// What parsing one text produced.
@@ -1481,7 +1477,7 @@ pub fn evaluate_option_field(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Va
     }
     let captions: String = if matches!(a.get(4), Some(Value::Integer(1))) {
         let list = crate::format::ml_text_in_language(captions.as_str(), c.language())
-            .map_err(|e| Signal::Unsupported(format!("Evaluate into an Option field with OptionCaptionML {e}")))?;
+            .map_err(|e| Signal::unsupported(format!("Evaluate into an Option field with OptionCaptionML {e}")))?;
         if list.split(',').count() != names.len() {
             return unsupported("OptionCaptionML with another number of entries than the members (not pinned)");
         }
@@ -1504,6 +1500,17 @@ pub fn evaluate_option_field(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Va
     };
     let by_caption = captions.split(',').position(same);
     let by_name = names.iter().position(|n| same(n));
+    // A blank text that names a member only by its blank caption, while the member has a name (`OptionMembers = None,First`,
+    // `OptionCaption = ' ,First cap'`): the pins are members named " " or "" (P131EvalOption.al:107-108, FMOptionBlankField.al).
+    // Not pinned, listed by the probe of corpus pull request 1283 (EvalNamedBlankCaption.al:41-58): refused.
+    if t.is_empty()
+        && by_name.is_none()
+        && by_caption.is_some_and(|p| names.get(p).is_some_and(|n| !n.trim().is_empty()))
+    {
+        return unsupported(
+            "Evaluate of a blank text into an Option field whose member has a name and a blank OptionCaption (not pinned)",
+        );
+    }
     let digits = t.strip_prefix('+').unwrap_or(t);
     let ordinal = (!digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
         .then(|| digits.parse::<i32>().ok())

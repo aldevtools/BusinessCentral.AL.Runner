@@ -24,7 +24,7 @@ pub(super) fn plain_text_tree(schema: &Schema, c: usize) -> bool {
             match m.kind {
                 ir::XmlNodeKind::Field => schema.children(k).is_empty(),
                 ir::XmlNodeKind::Text if schema.children(k).is_empty() => {
-                    m.triggers.is_empty() || valued_leaf(schema, k)
+                    no_export_trigger(m) || valued_leaf(schema, k)
                 }
                 ir::XmlNodeKind::Text => plain_text_tree(schema, k),
                 ir::XmlNodeKind::Table => true,
@@ -59,13 +59,36 @@ fn table_in_text_above(schema: &Schema, c: usize) -> bool {
     false
 }
 
-/// A leaf text element whose only trigger is OnBeforePassVariable: the value it sets is written, once.
+/// A leaf text element whose only export trigger is OnBeforePassVariable: the value it sets is written, once. An
+/// OnAfterAssignVariable next to it never runs on export and changes nothing it writes (al-runner issue 7355;
+/// xmlports/shapes-properties/XpTextValueNestedTable.al:1439 XTT_BothValueTable_Export, :1463 XTT_BothTableValue_Export
+/// `Pre;T1.BeforePass;Post;` with `<T1>x</T1>` for 0, 1 and 2 rows, before and after the table element).
 pub(super) fn valued_leaf(schema: &Schema, k: usize) -> bool {
     let m = schema.node(k);
     m.kind == ir::XmlNodeKind::Text
         && schema.children(k).is_empty()
-        && !m.triggers.is_empty()
-        && m.triggers.iter().all(|(name, _)| name == "onbeforepassvariable")
+        && m.triggers.iter().any(|(name, _)| name == "onbeforepassvariable")
+        && m.triggers
+            .iter()
+            .all(|(name, _)| name == "onbeforepassvariable" || name == IMPORT_ONLY)
+}
+
+/// The import trigger of a text element. On export it never runs: a leaf text element with it alone writes its variable as it
+/// is (al-runner issue 7355; XpTextValueNestedTable.al:1427 XTT_AfterOnly_Export `<T1 />` with the log `Pre;Post;`, :1591
+/// XTT_AfterOnlyPreset_Export `<T1>pre</T1>`).
+const IMPORT_ONLY: &str = "onafterassignvariable";
+
+/// Whether leaf text element `m` has no trigger an export runs (none, or OnAfterAssignVariable alone).
+fn no_export_trigger(m: &ir::XmlNode) -> bool {
+    m.triggers.iter().all(|(name, _)| name == IMPORT_ONLY)
+}
+
+/// Whether text element `c` or a text element below it has an OnAfterAssignVariable. The import of a plain tree with one is not
+/// pinned (XpTextValueNestedTable.al pins the export of those ports only) and stays refused.
+fn import_trigger_in(schema: &Schema, c: usize) -> bool {
+    let m = schema.node(c);
+    (m.kind == ir::XmlNodeKind::Text && m.triggers.iter().any(|(name, _)| name == IMPORT_ONLY))
+        || schema.children(c).iter().any(|&k| import_trigger_in(schema, k))
 }
 
 fn is_root_table(schema: &Schema, node: Option<usize>) -> bool {
@@ -107,7 +130,7 @@ pub(super) fn plain_valued_leaf(schema: &Schema, k: usize) -> bool {
         return false;
     };
     valued_leaf(schema, k)
-        && ((is_root_table(schema, Some(p)) && schema.children(p).len() == 1)
+        && ((is_root_table(schema, Some(p)) && (schema.children(p).len() == 1 || value_then_table_root(schema, p)))
             || (schema.node(p).kind == ir::XmlNodeKind::Text && valued_place(schema, p) && plain_text_tree(schema, p)))
 }
 
@@ -116,20 +139,68 @@ pub(super) fn plain_valued_leaf(schema: &Schema, k: usize) -> bool {
 /// with the record as it stands when there is none; MaxOccurs = Once writes the first row only (XpTableRootNestedText.al
 /// XNT_TxtField_Export, XNT_TxtTxtTbl_Export, XNT_FieldTxt_Export, XNT_Rows_Export).
 pub(super) fn plain_tree_root(schema: &Schema, top: usize) -> bool {
+    schema.node(top).triggers.is_empty() && plain_tree_shape(schema, top)
+}
+
+/// A `plain_tree_root` as an export takes it: the root may also have triggers, and it may be a `value_then_table_root`. Its
+/// OnPreXmlItem and OnAfterGetRecord run in document order around the triggers below it, the import triggers (OnAfterInitRecord,
+/// OnBeforeInsertRecord, OnAfterInsertRecord, OnBeforeModifyRecord, OnAfterModifyRecord) never run (al-runner issue 7355;
+/// xmlports/shapes-properties/XpTextValueNestedTable.al:1499 XTT_TableTriggers_Export
+/// `Pre;orders.OnPreXmlItem;orders.OnAfterGetRecord;T1.BeforePass;r.OnPreXmlItem;r.OnAfterGetRecord;Post;`).
+pub(super) fn plain_export_root(schema: &Schema, top: usize) -> bool {
+    value_then_table_root(schema, top) || plain_tree_shape(schema, top)
+}
+
+/// The shape of a `plain_tree_root`, whatever triggers the root has. A `value_then_table_root` is not one: only its export is
+/// pinned, so `plain_export_root` alone takes it and an import never sees it as a table root.
+fn plain_tree_shape(schema: &Schema, top: usize) -> bool {
     let n = schema.node(top);
     let kids = schema.children(top);
     schema.xp().format == ir::XmlFormat::Xml
         && n.kind == ir::XmlNodeKind::Table
-        && n.triggers.is_empty()
         && n.link_node.is_none()
         && !n.min_zero
         && (kids.iter().any(|&k| plain_text_tree(schema, k)) || matches!(kids[..], [only] if valued_leaf(schema, only)))
         && kids.iter().all(|&k| {
             let m = schema.node(k);
             (schema.children(k).is_empty() && m.triggers.is_empty() && !m.min_zero && m.kind == ir::XmlNodeKind::Field)
-                || (m.kind == ir::XmlNodeKind::Text && schema.children(k).is_empty() && m.triggers.is_empty())
+                || (m.kind == ir::XmlNodeKind::Text && schema.children(k).is_empty() && no_export_trigger(m))
                 || (kids.len() == 1 && valued_leaf(schema, k))
                 || plain_text_tree(schema, k)
+        })
+}
+
+/// A root table element with MaxOccurs = Once and no triggers that holds, in this order, one leaf text element (a `valued_leaf`, or
+/// one no export trigger of) and one table element without LinkTable or triggers whose nodes are leaf field elements without
+/// triggers: BC writes the text element once, then the rows of the table element (al-runner issue 7355;
+/// xmlports/shapes-properties/XpTextValueNestedTable.al:1535 XTT_RootTableValue_Export, :1559 XTT_RowDirect_Export
+/// `<T1>x</T1>` with `Pre;T1.BeforePass;Post;`, :1571 XTT_RootTableAfterOnly_Export `<T1 />` with `Pre;Post;`). Pinned with one
+/// row of the inner table element (`xp_export_table_pass` refuses another count); export only: `xp_import` refuses the shape.
+pub(super) fn value_then_table_root(schema: &Schema, top: usize) -> bool {
+    let n = schema.node(top);
+    let [leaf, table] = schema.children(top)[..] else {
+        return false;
+    };
+    let (l, t) = (schema.node(leaf), schema.node(table));
+    schema.xp().format == ir::XmlFormat::Xml
+        && n.kind == ir::XmlNodeKind::Table
+        && n.parent.is_none()
+        && n.triggers.is_empty()
+        && n.link_node.is_none()
+        && !n.min_zero
+        && n.max_unbounded == Some(false)
+        && l.kind == ir::XmlNodeKind::Text
+        && schema.children(leaf).is_empty()
+        && (no_export_trigger(l) || valued_leaf(schema, leaf))
+        && t.kind == ir::XmlNodeKind::Table
+        && t.triggers.is_empty()
+        && t.link_node.is_none()
+        && !t.min_zero
+        && t.source_view.is_none()
+        && !schema.children(table).is_empty()
+        && schema.children(table).iter().all(|&f| {
+            let m = schema.node(f);
+            m.kind == ir::XmlNodeKind::Field && m.triggers.is_empty() && !m.min_zero && schema.children(f).is_empty()
         })
 }
 
@@ -139,6 +210,7 @@ pub(super) fn plain_tree_root(schema: &Schema, top: usize) -> bool {
 /// shapes' export only). Other roots are exported only.
 pub(super) fn plain_import_root(schema: &Schema, top: usize) -> bool {
     plain_tree_root(schema, top)
+        && !import_trigger_in(schema, top)
         && schema.node(top).max_unbounded == Some(false)
         && schema.children(top).iter().all(|&k| {
             schema.node(k).kind != ir::XmlNodeKind::Field
@@ -157,12 +229,12 @@ fn value_below_first_text_level(schema: &Schema, c: usize) -> bool {
 
 /// A `plain_text_tree` below the root table element `table` (its import is pinned there only; below another table element it is not).
 pub(super) fn plain_import_tree(schema: &Schema, table: usize, c: usize) -> bool {
-    is_root_table(schema, Some(table)) && plain_text_tree(schema, c)
+    is_root_table(schema, Some(table)) && plain_text_tree(schema, c) && !import_trigger_in(schema, c)
 }
 
 /// A `plain_valued_leaf` right below the root table element `table`.
 pub(super) fn plain_import_leaf(schema: &Schema, table: usize, c: usize) -> bool {
-    is_root_table(schema, Some(table)) && plain_valued_leaf(schema, c)
+    is_root_table(schema, Some(table)) && plain_valued_leaf(schema, c) && !import_trigger_in(schema, c)
 }
 
 impl Session {

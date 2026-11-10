@@ -31,15 +31,21 @@ enum Sync {
 }
 
 impl Session {
-    /// Sets `open = false` on `st` and on the pages it shows as parts.
+    /// Sets `open = false` on `st` and on the pages it shows as parts, shown or hidden (a part a Visible expression hid
+    /// opened with its host and closes with it, its close triggers included: pages/W1Parts.al:408-411); the shown ones move
+    /// to `closed_parts`, where the page's own code may still reach them (`held_page_part.rs`). Called again on a closed
+    /// page (`page_close` after `close_with`), it keeps them. The close counts as `ClosedBy::Other` unless the caller names
+    /// the cause (`mark_closed_as`).
     pub(super) fn mark_closed(&mut self, st: &St) {
         st.borrow_mut().open = false;
+        st.borrow_mut().closed_by = Some(ClosedBy::Other);
         self.prune_page_held();
         let parts = std::mem::take(&mut st.borrow_mut().parts);
-        for (_, child) in &parts {
+        let hidden = st.borrow().hidden_parts.clone();
+        for (_, child) in parts.iter().chain(&hidden) {
             self.mark_closed(child);
         }
-        st.borrow_mut().closed_parts = parts;
+        st.borrow_mut().closed_parts.extend(parts);
     }
 
     /// Creates the page of every part control, before the host's own triggers run: the host's
@@ -117,6 +123,21 @@ impl Session {
             } else {
                 hidden.push((i, child));
             }
+        }
+        // A new row on a host with a part a Visible expression hid, whose page declares OnAfterGetCurrRecord, and no part linked
+        // through a Provider: BC runs that trigger on the new row and again around the first action (pages/parts/
+        // HeldSenderPartAccess.al HS07, HS09: `f4.open;sub.curr;f4.curr(0)`, staging branch
+        // al-runtime-rs-staging-probe-train-1110b); the runtime does not. With a Provider link the hidden parts read as BC
+        // reads them (testpage/parts/ProviderLinkedPartsMatrix.al:1232 Provider_BothHidden_OpenNewSetKeyClose).
+        if st.borrow().mode == PageMode::New
+            && !self.has_provider_link(st)
+            && hidden
+                .iter()
+                .any(|(_, c)| self.declares_or_ext_declares(c, "onaftergetcurrrecord"))
+        {
+            return unsupported(
+                "a new row on a page with a part hidden by a Visible expression that declares OnAfterGetCurrRecord (BC runs it on the new row; not implemented)",
+            );
         }
         st.borrow_mut().parts = kept.clone();
         st.borrow_mut().hidden_parts = hidden.clone();
@@ -326,7 +347,7 @@ impl Session {
         }
         self.parse_filter_text(&text, ty)
             .map(Some)
-            .map_err(|e| Signal::Unsupported(format!("SubPageLink field(filter(...)): {e}")))
+            .map_err(|e| Signal::unsupported(format!("SubPageLink field(filter(...)): {e}")))
     }
 
     /// Whether the link of part control `control` of `host` has a `field(filter(F))` entry whose host (or provider) value is blank.
@@ -362,81 +383,14 @@ impl Session {
     pub(super) fn part_page(&mut self, st: &St, control: usize, runtime: bool) -> Result<St, Signal> {
         // A Page variable's procedure that reaches a part before the page ever ran (Check Credit Limit.PopulateDataOnNotification,
         // which Cust-Check Cr. Limit calls on a Page variable to fill a notification) gets the part page created and not opened, as
-        // a hidden part is (pages/parts/NeverRanReadRec.al, NeverRanUpdate.al, NeverRanGetRecord.al, NeverRanSetRecord.al); after the page ran and closed it stays refused.
+        // a hidden part is (pages/parts/NeverRanReadRec.al, NeverRanUpdate.al, NeverRanGetRecord.al, NeverRanSetRecord.al); after the page ran and closed, `closed_page_part` decides.
         let never_ran = runtime && !st.borrow().open && !st.borrow().ran;
         if never_ran {
         } else {
             match self.require_open(st) {
-                // The page's own code reaching a part after the page ran and closed is not a TestPage the test closed (Posted Purchase
-                // Document Lines.CopyLineToDoc reads `CurrPage.PostedRcpts.PAGE` after its RunModal returned): refused, as the other
-                // calls of such a page are (see test_page_op).
-                // After its RunModal returned, the page's code reaches a part that was shown: a procedure of the part reads the
-                // rows the part's record holds, after OK and after Cancel alike (pages/parts/WdPartAfterRunModal.al:75-100
-                // WD_Part_ReadAfterRunModalOK `count` 1 `value` A, WD_Part_ReadAfterRunModalCancel `count` 1 `value` B;
-                // corpus branch al-runtime-rs-staging-1030c, al-runner issue 6321). Pinned for a page that ran modally and
-                // a part that was created while it was open; anything else stays refused.
-                Err(Signal::Error(e))
-                    if runtime
-                        && e.code == "TestPageNotOpened"
-                        && st.borrow().ran
-                        && st.borrow().last_run_modal == Some(true) =>
-                {
-                    let kept = st
-                        .borrow()
-                        .closed_parts
-                        .iter()
-                        .find(|(i, _)| *i == control)
-                        .map(|(_, c)| c.clone());
-                    if let Some(c) = kept {
-                        return Ok(c);
-                    }
-                    // A part a Visible expression hid while the page was open (it opened with the page) hands out its row at
-                    // close too (pages/parts/Y37PartAfterClose.al:376-395 LT_C314_AfterRunModalOK_OtherPartShown:
-                    // part A, hidden when an option switched to part B, gives its row 10000).
-                    let hidden = st
-                        .borrow()
-                        .hidden_parts
-                        .iter()
-                        .find(|(i, _)| *i == control)
-                        .map(|(_, c)| c.clone())
-                        .filter(|_| !(self.part_eliminated(st, control) || self.off_page(st, control)));
-                    if let Some(c) = hidden {
-                        return Ok(c);
-                    }
-                    return unsupported(
-                        "a part of a page that is not open, reached by the code of that page (what it does then is not pinned)",
-                    );
-                }
-                // A page that closed itself with CurrPage.Close in a trigger or an action, opened by a TestPage, and whose code
-                // goes on to call a procedure of a part it showed: the part answers, its globals as its OnClosePage left them
-                // (pages/parts/Y37PartAfterClose.al:652 CLP_AGCR_CloseAllowed_PartAccess_Observe, :668
-                // CLP_Action_CloseAllowed_PartAccess_Observe: `PART.CLOSE;PARENT.CLOSE;AFTER.CLOSE;BEFORE.PART;PART.TOUCH:1042:1`,
-                // corpus PR 1205).
-                Err(Signal::Error(e))
-                    if runtime
-                        && e.code == "TestPageNotOpened"
-                        && st.borrow().ran
-                        && st.borrow().last_run_modal != Some(true) =>
-                {
-                    let kept = st
-                        .borrow()
-                        .closed_parts
-                        .iter()
-                        .find(|(i, _)| *i == control)
-                        .map(|(_, c)| c.clone());
-                    match kept {
-                        Some(c) => return Ok(c),
-                        None => {
-                            return unsupported(
-                                "a part of a page that is not open, reached by the code of that page (what it does then is not pinned)",
-                            );
-                        }
-                    }
-                }
+                // The page ran and is closed: what its code reaches through the part (`held_page_part.rs`).
                 Err(Signal::Error(e)) if runtime && e.code == "TestPageNotOpened" => {
-                    return unsupported(
-                        "a part of a page that is not open, reached by the code of that page (what it does then is not pinned)",
-                    );
+                    return self.closed_page_part(st, control);
                 }
                 r => r?,
             }
@@ -558,6 +512,15 @@ impl Session {
         self.sync_parts_with(st, Sync::Stayed)
     }
 
+    /// Whether a part of `st`'s page is linked through a Provider.
+    fn has_provider_link(&self, st: &St) -> bool {
+        let engine = self.engine();
+        page_of(&engine, st)
+            .controls
+            .iter()
+            .any(|c| c.part_link.as_ref().is_some_and(|l| l.provider.is_some()))
+    }
+
     fn sync_parts_with(&mut self, st: &St, how: Sync) -> Result<(), Signal> {
         let engine = self.engine();
         let page = page_of(&engine, st);
@@ -567,10 +530,7 @@ impl Session {
         // GoToRecord too (testpage/parts/ProviderLinkedPartsMatrix.al Provider_BothHidden_OpenViewAndGoToKey `h2` after GoToKey:
         // `lines-row(0) | detail-row()`). Without a Provider link in the page the older rule stays, which pinned no hidden part
         // for the other moves.
-        let provider_page = page
-            .controls
-            .iter()
-            .any(|c| c.part_link.as_ref().is_some_and(|l| l.provider.is_some()));
+        let provider_page = self.has_provider_link(st);
         if opening || matches!(how, Sync::Move { .. }) || provider_page {
             let hidden = st.borrow().hidden_parts.clone();
             parts.extend(
@@ -639,7 +599,7 @@ impl Session {
                         continue;
                     }
                     if opening && self.view_names_link_field(st, *i, child)? {
-                        child.borrow_mut().read_backwards = Some(al_builtins::value::ReadBackwards::AtOpen);
+                        child.borrow_mut().read_backwards = Some(crate::pages::ReadBackwards::AtOpen);
                     }
                     if let Sync::Move { backward: true } = how {
                         // The pinned parts walk the table backwards. A part with its own OnFindRecord or OnNextRecord reads as after
@@ -647,7 +607,7 @@ impl Session {
                         // SH_FindRecordPart_HostFirstAfterGoToKey `first part log`, SH_FindRecordPart_HostNextLastPrevious
                         // `previous part log`).
                         if !(self.declares(child, "onfindrecord") || self.declares(child, "onnextrecord")) {
-                            child.borrow_mut().read_backwards = Some(al_builtins::value::ReadBackwards::AfterMove);
+                            child.borrow_mut().read_backwards = Some(crate::pages::ReadBackwards::AfterMove);
                         }
                     }
                     // A FactBox part of a Provider chain does not read again when the host it stands on is inserted by the first
@@ -657,7 +617,7 @@ impl Session {
                         continue;
                     }
                     if how == Sync::Plain && self.chain_part_back_walk(st, *i, child) {
-                        child.borrow_mut().read_backwards = Some(al_builtins::value::ReadBackwards::AfterMove);
+                        child.borrow_mut().read_backwards = Some(crate::pages::ReadBackwards::AfterMove);
                     }
                     // Such a part reads nothing on a host move that keeps its link values, forward or back (PartReadsOpen.al
                     // SH_FindRecordPart_HostNextLastPrevious `next x3 part log`: one read for three moves, two of them inside
@@ -836,7 +796,7 @@ impl Session {
         view.extend(after);
         let window = view
             .into_iter()
-            .map(|stored| al_builtins::value::WindowRow {
+            .map(|stored| crate::pages::WindowRow {
                 key: table.primary_key(&stored),
                 shown: if Self::same_key(&table.primary_key(&stored), &key) {
                     shown_current.clone()
@@ -1409,7 +1369,7 @@ impl Session {
                             Some(expr) => expr,
                             None => self
                                 .parse_filter_text(text, &ty)
-                                .map_err(|e| Signal::Unsupported(format!("SubPageLink filter: {e}")))?,
+                                .map_err(|e| Signal::unsupported(format!("SubPageLink filter: {e}")))?,
                         };
                         fresh.push(FieldFilter {
                             lang: al_builtins::filter::filter_language(),
@@ -1950,7 +1910,9 @@ impl Session {
         let mut h = host.borrow_mut();
         h.refresh = true;
         h.refresh_by_update = false;
-        h.refresh_without_parts = without_parts || later.is_some();
+        // A tree part that keeps its typed row reads its rows after the host, here, on its first row too
+        // (pages/parts/R6889RealShape.al:1400 PG6889RS_Step4_ `log type` `TV;TY.V;TY.V.end;HR;HC;SE;M10:Resource/N10;R10;...`).
+        h.refresh_without_parts = without_parts || later.is_some() || kept.is_some();
         h.read_keeps_xrec = true;
         drop(h);
         let r = self.run_refresh(host);
@@ -1959,10 +1921,17 @@ impl Session {
         let later = match (later, kept) {
             // The typed row of a tree part is saved after the host read, before the part reads its rows (`part_tree_typed.rs`).
             (Some(_), Some(before)) => Some(self.save_typed_tree_row(st, before)?),
-            (None, Some(_)) => {
-                return unsupported(
-                    "a tree part on its first row whose code ran CurrPage.Update after a typed value (not pinned)",
-                );
+            // On its first row (`read_typed_tree_first_row`).
+            (None, Some(before)) => {
+                let (rows, at) = self.save_typed_tree_row(st, before)?;
+                if at != 0 {
+                    return unsupported(
+                        "a tree part on its first row whose code ran CurrPage.Update after a typed value (not pinned)",
+                    );
+                }
+                self.read_typed_tree_first_row(st, &rows)?;
+                self.set_xrec(host);
+                return Ok(());
             }
             (later, None) => later,
         };

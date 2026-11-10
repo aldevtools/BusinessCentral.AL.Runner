@@ -13,7 +13,7 @@ impl Session {
     pub(crate) fn evaluate_record_id_bookmark(&mut self, text: &str) -> Result<Option<LibraryValue>, Signal> {
         let (table_id, rest) = match bookmark::read(text) {
             Read::NotABookmark => return Ok(None),
-            Read::Refused(why) => return Err(Signal::Unsupported(why)),
+            Read::Refused(why) => return Err(Signal::unsupported(why)),
             Read::Bookmark { table_id, rest } => (table_id, rest),
         };
         let objects: Vec<usize> = (self.engine.program.objects.heads().iter().enumerate())
@@ -21,7 +21,7 @@ impl Session {
             .map(|(i, _)| i)
             .collect();
         let [object] = objects.as_slice() else {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "Evaluate of a bookmark of table number {table_id}, which no single table has (not pinned)"
             )));
         };

@@ -31,7 +31,7 @@ fn no_args(args: Args, what: &str) -> Result<(), Signal> {
     if args.is_empty() {
         Ok(())
     } else {
-        Err(Signal::Unsupported(format!(
+        Err(Signal::unsupported(format!(
             "DotNet {what} takes no arguments here; the call has {}",
             args.len()
         )))
@@ -144,7 +144,7 @@ fn is_production(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> R
 
 fn text(what: &str, args: Args, want: usize, v: &str) -> Result<Value, Signal> {
     if args.len() != want {
-        return Err(Signal::Unsupported(format!(
+        return Err(Signal::unsupported(format!(
             "DotNet {what} takes {want} argument(s) here; the call has {}",
             args.len()
         )));
@@ -246,7 +246,7 @@ fn platform_version(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -
     let text = match text {
         Value::Text(t) | Value::Code(t) => t.to_string(),
         other => {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "DotNet NavTenantSettingsHelper.GetPlatformVersion: PlatformFileVersion gave {}",
                 other.describe()
             )));
@@ -759,7 +759,7 @@ fn environment_variable(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Arg
         args,
         [Value::Text(_) | Value::Code(_)] | [Value::Text(_) | Value::Code(_), _]
     ) {
-        return Err(Signal::Unsupported(format!(
+        return Err(Signal::unsupported(format!(
             "DotNet System.Environment.GetEnvironmentVariable with {} arguments (only (name) and (name, target) are served)",
             args.len()
         )));
@@ -790,6 +790,7 @@ pub fn types() -> Vec<RegistryType> {
     all.extend(super::business_chart_data::types());
     all.extend(super::key_vault::types());
     all.extend(super::server_helpers::types());
+    all.extend(super::system_environment::types());
     all.extend(super::generic_dictionary::types());
     all.extend(own_types());
     all.push(camera_provider());

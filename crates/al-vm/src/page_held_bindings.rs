@@ -23,8 +23,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 
+use crate::pages::{PageState, st_of};
 use al_builtins::native::Signal;
-use al_builtins::value::{Instance, PageState, Value};
+use al_builtins::value::{Instance, Value};
 
 use crate::Session;
 
@@ -203,7 +204,7 @@ impl Session {
             .upgrade()
             .map(|p| program.objects[p.borrow().object as usize].name.clone())
             .unwrap_or_default();
-        Err(Signal::Unsupported(format!(
+        Err(Signal::unsupported(format!(
             "a manual subscription of codeunit {} bound through the globals of page {page} would receive an event, and \
              whether that page still holds it is not pinned (a Page variable after its non-modal Run; al-runner issue \
              6924)",
@@ -226,12 +227,12 @@ fn root_page(st: &St) -> St {
 
 /// The references to `st` from outside its own page tree, plus the caller's own one: the `CurrPage` globals of its
 /// instances do not count.
-fn page_outside_refs(st: &St) -> usize {
+pub(crate) fn page_outside_refs(st: &St) -> usize {
     let mut own = 0;
     for inst in tree_instances(st) {
         for g in &inst.borrow().globals {
             if let Value::TestPage(p) = g
-                && Rc::ptr_eq(p, st)
+                && Rc::ptr_eq(st_of(p), st)
             {
                 own += 1;
             }

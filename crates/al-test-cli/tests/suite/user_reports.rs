@@ -32,7 +32,7 @@ pub(crate) fn run_with_deps(apps: &[&str], objects: &str) -> Vec<(String, Outcom
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
     run_codeunit(&engine, &l, oi)
@@ -261,7 +261,7 @@ fn codes_and_outcomes(apps: &[&str], objects: &str) -> (Vec<&'static str>, Vec<(
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
     (codes, run_codeunit(&engine, &l, oi))
@@ -1635,8 +1635,7 @@ fn run_over_system(
     main: &str,
 ) -> Vec<(String, Outcome)> {
     use al_deps::package::read_package;
-    let packages = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/tests/al-language/.alpackages");
-    let system = read_package(&std::fs::read(packages.join("System.app")).expect("corpus submodule checked out"))
+    let system = read_package(&std::fs::read(al_testfiles::system_app()).unwrap())
         .expect("System.app reads")
         .1;
     let app = |id: &str, deps: Vec<String>, files: Vec<(String, String)>| AppSource {
@@ -1663,7 +1662,7 @@ fn run_over_system(
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let mut program = (*l.program).clone();
     for a in program.apps.iter_mut() {

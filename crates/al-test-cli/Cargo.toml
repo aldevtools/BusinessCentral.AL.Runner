@@ -53,5 +53,6 @@ mimalloc = { version = "0.1", optional = true, features = ["v2"] }
 tempfile = "3"
 libc = "0.2"
 al-testkit = { workspace = true, features = ["runner"] }
+al-testfiles.workspace = true
 al-syntax.workspace = true
 serde_json = "1"

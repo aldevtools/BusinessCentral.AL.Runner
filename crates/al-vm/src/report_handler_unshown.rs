@@ -37,7 +37,7 @@ impl Session {
             return Ok(false);
         }
         if self.has_page_handler(UiKind::RequestPage, schema.object as u32) {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "a [ReportHandler] and a [RequestPageHandler] for report \"{}\" in one test, run without its request page (not pinned)",
                 schema.name()
             )));

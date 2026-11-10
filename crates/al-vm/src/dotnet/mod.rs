@@ -24,12 +24,13 @@ pub mod registry;
 pub mod server_classes;
 mod server_helpers;
 mod staged_dir;
+mod system_environment;
 mod xml_errors;
 mod zip_entry_streams;
 
 use crate::{Frame, Session};
 use al_builtins::describe::Describe;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::stream::BlobRef;
 
@@ -158,10 +159,6 @@ struct StreamBook {
     /// consumed counts from there).
     ins: Vec<(usize, Rc<RefCell<LibraryValue>>, usize)>,
     outs: Vec<(usize, BlobRef)>,
-}
-
-fn unsupported<T>(why: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(why.into()))
 }
 
 /// What a `var` parameter gets in place of a `[RunOnClient]` variable (`ir::DotNetOp::ClientNull`).
@@ -308,6 +305,7 @@ impl Session {
         match op {
             ir::DotNetOp::ClientNull => return Ok(run_on_client_null()),
             ir::DotNetOp::ClientAssign => return self.run_on_client_assign(recv, &values),
+            ir::DotNetOp::ClientCall(why) => return unsupported(why.clone()),
             _ => {}
         }
         self.note_dotnet();
@@ -325,7 +323,9 @@ impl Session {
         let decl = ty.map(declared);
         let result_decl = self.dotnet.result_ty.take().map(declared);
         let (kind, member) = match op {
-            ir::DotNetOp::ClientNull | ir::DotNetOp::ClientAssign => unreachable!("answered above"),
+            ir::DotNetOp::ClientNull | ir::DotNetOp::ClientAssign | ir::DotNetOp::ClientCall(_) => {
+                unreachable!("answered above")
+            }
             ir::DotNetOp::Construct => (
                 MemberKind::Construct,
                 decl.as_ref().map_or(String::new(), |d| d.name.clone()),
@@ -689,7 +689,7 @@ impl Session {
         let bytes = match al_builtins::native::Ctx::fs_read(self, path) {
             Ok(Some(b)) => b,
             Ok(None) => return Err("the file does not exist in the in-memory file system".into()),
-            Err(Signal::Unsupported(why)) => return Err(why),
+            Err(Signal::Unsupported(why)) => return Err(why.into_reason()),
             Err(_) => return Err("the file cannot be read".into()),
         };
         values[0] = lib(
@@ -1025,7 +1025,7 @@ impl Session {
             Ok(r) => self
                 .apply_reply(r, &StreamBook::default(), &[], member, f)
                 .map_err(MoveNextFailure::Refused),
-            Err(DotNetFailure::Refused(why)) => Err(MoveNextFailure::Refused(Signal::Unsupported(why))),
+            Err(DotNetFailure::Refused(why)) => Err(MoveNextFailure::Refused(Signal::unsupported(why))),
             Err(DotNetFailure::Exception(e)) => Err(MoveNextFailure::Exception(e)),
         }
     }
@@ -1055,7 +1055,7 @@ impl Session {
         match session.invoke(DotNetTarget::Static(ty.clone()), member, wire) {
             Ok(r) => self.wire_to_value(r.value).map_err(|e| prefix(e, &shown)),
             Err(e) => Err(match e {
-                DotNetFailure::Refused(why) => MoveNextFailure::Refused(Signal::Unsupported(why)),
+                DotNetFailure::Refused(why) => MoveNextFailure::Refused(Signal::unsupported(why)),
                 DotNetFailure::Exception(e) => MoveNextFailure::Exception(e),
             }
             .signal(&ty.name, member)),
@@ -1075,7 +1075,7 @@ impl Session {
             Ok(r) => self
                 .apply_reply(r, &StreamBook::default(), &[], member, f)
                 .map_err(MoveNextFailure::Refused),
-            Err(DotNetFailure::Refused(why)) => Err(MoveNextFailure::Refused(Signal::Unsupported(why))),
+            Err(DotNetFailure::Refused(why)) => Err(MoveNextFailure::Refused(Signal::unsupported(why))),
             Err(DotNetFailure::Exception(e)) => Err(MoveNextFailure::Exception(e)),
         }
     }
@@ -1169,6 +1169,9 @@ impl Session {
             // A last-error exception: Format is ToString (GetLastErrorObject.al:85).
             DotNetKind::Internal { type_name, .. } if last_error::is_exception(type_name) => {
                 last_error::exception_text(self, o)
+            }
+            DotNetKind::Internal { type_name, .. } if type_name == al_builtins::dotnet_sigs::SYSTEM_ENVIRONMENT => {
+                Ok(type_name.clone())
             }
             DotNetKind::Internal { type_name, .. } => unsupported(format!("Format of a runtime-provided {type_name}")),
             DotNetKind::Host { handle, clr_type } => {
@@ -1621,7 +1624,7 @@ impl MoveNextFailure {
     fn signal(self, clr_type: &str, member: &str) -> Signal {
         match self {
             MoveNextFailure::Refused(s) => s,
-            MoveNextFailure::Exception(e) => Signal::Unsupported(format!(
+            MoveNextFailure::Exception(e) => Signal::unsupported(format!(
                 "DotNet {clr_type}.{member} raised the .NET exception {}: {}; the text AL would see is not pinned (ADR-014 section 7)",
                 e.clr_type, e.message
             )),
@@ -1668,7 +1671,7 @@ fn host_target(t: &Target) -> DotNetTarget {
 
 fn prefix(e: Signal, shown: &str) -> Signal {
     match e {
-        Signal::Unsupported(s) => Signal::Unsupported(format!("DotNet {shown}: {s}")),
+        Signal::Unsupported(s) => Signal::Unsupported(s.map_reason(|s| format!("DotNet {shown}: {s}"))),
         other => other,
     }
 }

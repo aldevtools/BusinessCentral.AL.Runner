@@ -102,7 +102,7 @@ impl Session {
                     al_builtins::native::unpinned_error()
                 };
             }
-            self.mark_closed(st);
+            self.mark_closed_by_test(st);
         }
         r
     }
@@ -470,7 +470,14 @@ impl Session {
             let fields = self.page_rec(st).borrow().fields.clone();
             st.borrow_mut().selection = Some(fields);
         }
-        self.mark_closed(st);
+        let by = if test_close {
+            ClosedBy::TestClose
+        } else if via_action {
+            ClosedBy::Action
+        } else {
+            ClosedBy::Platform
+        };
+        self.mark_closed_as(st, by);
         st.borrow_mut().result = Some(action.to_string());
         Ok(Value::Null)
     }
@@ -486,7 +493,7 @@ impl Session {
     pub(in crate::pages) fn lookup_ok_on_no_row(&mut self, st: &St) -> Result<bool, Signal> {
         let (modal, lookup, static_lookup) = {
             let s = st.borrow();
-            (s.modal, s.lookup, s.static_lookup)
+            (s.modal, s.lookup, s.lookup_kind == LookupKind::StaticRunModal)
         };
         if !modal || !lookup || self.is_request_page(st) || !self.has_source(st) {
             return Ok(false);
@@ -511,7 +518,7 @@ impl Session {
         // Card page variable with LookupMode(true) over a view filtered to no row (pages/run-modal/
         // Y68LookupGetRecord.al:425 Q3_TestPageHandler_OK_NoRow_Card, corpus master 0d01b0cc).
         if !self.is_list_page(st) && page_type != "card" {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "OK of a {page_type} page in lookup mode that shows no row (only a list page is pinned)"
             )));
         }

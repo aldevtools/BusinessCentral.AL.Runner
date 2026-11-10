@@ -13,7 +13,7 @@ use crate::native::{Ctx, Signal, lookup};
 use crate::value::Value;
 
 fn refuse<T>(why: String) -> Result<T, Signal> {
-    Err(Signal::Unsupported(why))
+    Err(Signal::unsupported(why))
 }
 
 /// `args`: the value, length, format number (the arguments of `System.FormatAutoFormatField#1`); `expr`: the format
@@ -30,7 +30,7 @@ pub(crate) fn format(ctx: &mut dyn Ctx, args: &[Value], expr: &str) -> Result<Va
         ));
     };
     let run = |ctx: &mut dyn Ctx, id: &str, mut a: Vec<Value>| {
-        let f = lookup(id).ok_or_else(|| Signal::Unsupported(format!("{id} not registered")))?;
+        let f = lookup(id).ok_or_else(|| Signal::unsupported(format!("{id} not registered")))?;
         f(ctx, None, &mut a)
     };
     if expr.trim().is_empty() {

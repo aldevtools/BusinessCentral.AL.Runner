@@ -101,7 +101,7 @@ fn run(extra: &str, body: &str) -> Result<Value, Signal> {
     let blocked: Vec<Vec<Option<String>>> = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
     let ri = l.program.objects[oi]
@@ -118,7 +118,12 @@ fn run(extra: &str, body: &str) -> Result<Value, Signal> {
 /// Every refusal reason of the objects named `name`, for a source that must not run.
 fn reasons(extra: &str) -> Vec<String> {
     let (_, l) = compile(format!("{BASE}\n{extra}"));
-    l.unsupported.iter().flatten().flatten().cloned().collect()
+    l.unsupported
+        .iter()
+        .flatten()
+        .flatten()
+        .map(|r| r.to_string())
+        .collect()
 }
 
 const OPEN: &str =
@@ -314,7 +319,7 @@ fn a_base_reference_in_a_dependency_app_is_reached_by_the_demand_driven_compile(
     let blocked: Vec<Vec<Option<String>>> = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
     let ri = l.program.objects[oi]
@@ -363,7 +368,7 @@ codeunit 53201 "BA Run 5"
     let blocked: Vec<Vec<Option<String>>> = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
     let ri = l.program.objects[oi]

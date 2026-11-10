@@ -1239,7 +1239,7 @@ pub(crate) fn lower_core(
     let mut staged = StagedList {
         slots: Vec::with_capacity(n),
     };
-    let mut unsupported: Vec<Vec<Vec<String>>> = Vec::with_capacity(n);
+    let mut unsupported: Vec<Vec<Vec<Refusal>>> = Vec::with_capacity(n);
     let mut refusal_at: Vec<Vec<Option<ir::SrcPos>>> = Vec::with_capacity(n);
     let mut calls: Vec<Vec<Vec<(usize, usize)>>> = Vec::with_capacity(n);
     let mut ndirect: Vec<Vec<u32>> = Vec::with_capacity(n);
@@ -2533,7 +2533,7 @@ pub(crate) struct Piece {
     pub(crate) lowered_routines: usize,
     /// The source positions of its statements, numbered from 0.
     pub(crate) positions: Vec<ir::SrcPos>,
-    pub(crate) unsupported: Vec<Vec<String>>,
+    pub(crate) unsupported: Vec<Vec<Refusal>>,
     /// Per routine: where the statement is that gave its first reason (see `Lowered::refusal_at`).
     pub(crate) refusal_at: Vec<Option<ir::SrcPos>>,
     pub(crate) calls: Vec<Vec<(usize, usize)>>,

@@ -995,7 +995,7 @@ interface "Ifc"
             .iter()
             .position(|o| o.id == Some(50110))
             .expect("test codeunit");
-        l.unsupported[oi].iter().flatten().cloned().collect()
+        l.unsupported[oi].iter().flatten().map(|r| r.to_string()).collect()
     }
 
     #[test]
@@ -1079,7 +1079,7 @@ interface "Ifc"
             .iter()
             .position(|o| o.id == Some(50110))
             .expect("test codeunit");
-        l.unsupported[oi].iter().flatten().cloned().collect()
+        l.unsupported[oi].iter().flatten().map(|r| r.to_string()).collect()
     }
 
     #[test]
@@ -1177,13 +1177,6 @@ interface "Ifc"
         );
         assert!(l.program.tdd_stubs.is_empty());
         let oi = ws.objects.iter().position(|o| o.id == Some(50102)).unwrap();
-        assert!(
-            !l.unsupported[oi]
-                .iter()
-                .flatten()
-                .next()
-                .unwrap_or(&String::new())
-                .is_empty()
-        );
+        assert!(!l.unsupported[oi].iter().flatten().next().is_none_or(|r| r.is_empty()));
     }
 }

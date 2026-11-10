@@ -1982,7 +1982,7 @@ mod tests {
             .iter()
             .position(|r| r.name == name)
             .unwrap_or_else(|| panic!("no routine {name}"));
-        l.unsupported[o][r].clone()
+        l.unsupported[o][r].iter().map(|r| r.to_string()).collect()
     }
 
     fn compiled(l: &Lowered, obj: &str, name: &str) -> bool {

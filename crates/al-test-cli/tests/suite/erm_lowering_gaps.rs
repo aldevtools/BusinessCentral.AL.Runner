@@ -24,7 +24,7 @@ fn refusal(src: &str, object: &str, routine: &str) -> String {
         .iter()
         .position(|r| r.name.eq_ignore_ascii_case(routine))
         .unwrap();
-    l.unsupported[oi][ri].first().cloned().unwrap_or_default()
+    l.unsupported[oi][ri].first().map(|r| r.to_string()).unwrap_or_default()
 }
 
 // Base Application's Sales Header passes CurrFieldNo to an event publisher

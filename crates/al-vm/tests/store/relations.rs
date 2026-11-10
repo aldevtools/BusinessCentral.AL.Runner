@@ -70,7 +70,7 @@ fn run(body: &str) -> Result<Value, Signal> {
     let blocked: Vec<Vec<Option<String>>> = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
     if let Some(Some(r)) = blocked.get(oi).and_then(|o| o.first()) {
@@ -220,7 +220,7 @@ codeunit 50100 C { procedure F(): Text var L: Record "RV Line"; H: Record "RV He
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
     let engine = Engine::new(l.program, blocked);

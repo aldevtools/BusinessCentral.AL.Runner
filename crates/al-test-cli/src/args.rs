@@ -36,6 +36,8 @@ pub struct Args {
     pub deps: Vec<PathBuf>,
     /// Run without dependency apps (the corpus alone).
     pub no_deps: bool,
+    /// `--no-client`: run the corpus as a session without a client (`RunOptions::no_client`).
+    pub no_client: bool,
     /// `--bc-version PREFIX`: which oracle to run (default: the newest).
     pub bc_version: Option<String>,
     /// `--all-versions`: run every version in `oracle.toml`, one after the other.
@@ -103,6 +105,8 @@ pub struct Args {
     pub list_assumptions: bool,
     /// `--assumptions-doc`: rewrite the generated table of `docs/probes-needed.md` from the registry, then stop.
     pub assumptions_doc: bool,
+    /// `--refusals-doc`: rewrite the refusal keys table of `docs/probes-needed.md` from the key lists, then stop.
+    pub refusals_doc: bool,
     /// `--awaiting-assumptions`: check the assumptions that wait for a corpus pin against the pinned corpus.
     pub awaiting_assumptions: bool,
     /// `--summary` (with `--awaiting-assumptions`): one line, the oldest entry first.
@@ -192,6 +196,10 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             a.assumptions_doc = true;
             continue;
         }
+        if flag == "--refusals-doc" {
+            a.refusals_doc = true;
+            continue;
+        }
         if flag == "--awaiting-assumptions" {
             a.awaiting_assumptions = true;
             continue;
@@ -241,6 +249,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             "--no-ratchet" => a.no_ratchet = true,
             "--deps" | "--dep" => a.deps.push(text()?.into()),
             "--no-deps" => a.no_deps = true,
+            "--no-client" => a.no_client = true,
             "--test-runner" => {
                 let v = text()?;
                 a.test_runner =
@@ -372,6 +381,8 @@ INPUT
   --all-versions              run every version in the oracle table, then compare them
   --deps DIR, --dep DIR       extra directory of .app packages for the dependencies (repeatable)
   --no-deps                   run the corpus alone, without Microsoft's apps
+  --no-client                 run the tests as a session without a client (dialogs answer as in a page background task
+                              worker, calls not probed there are refused; as `al-runner test --no-client`)
   --test-runner R             builtin (default), microsoft (runner 130450 run as BcContainerHelper runs it;
                               not on the TestRunnerHub path of the newer majors) or a runner codeunit id (ADR-066)
   --no-download               never fetch a dependency app from the artifact feed
@@ -414,6 +425,8 @@ DIAGNOSE
                               run, then stop
   --assumptions-doc           rewrite the generated table of docs/probes-needed.md from the registry
                               of unprobed assumptions, then stop
+  --refusals-doc              rewrite the refusal keys table of docs/probes-needed.md from the
+                              refusal key lists (ADR-071), then stop
   --awaiting-assumptions      the assumptions that wait for a corpus pin (`awaiting` in the registry):
                               when every awaited file is in the pinned corpus, run those files and
                               fail with one line per assumption, `the pin landed: remove the
@@ -539,6 +552,12 @@ mod tests {
     fn assumptions_doc_is_a_flag() {
         assert!(run(&["--assumptions-doc"]).unwrap().assumptions_doc);
         assert!(!run(&["--no-deps"]).unwrap().assumptions_doc);
+    }
+
+    #[test]
+    fn refusals_doc_is_a_flag() {
+        assert!(run(&["--refusals-doc"]).unwrap().refusals_doc);
+        assert!(!run(&["--assumptions-doc"]).unwrap().refusals_doc);
     }
 
     #[test]

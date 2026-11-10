@@ -26,6 +26,7 @@ impl Session {
         let mut pages: Vec<St> = Vec::new();
         for v in frame.locals.iter().take(routine.locals.len()) {
             if let Value::TestPage(st) = v
+                && let st = st_of(st)
                 && st.borrow().open
                 // A page whose save failed at Close() is left alone (pages/close_save_failed.rs).
                 && !st.borrow().close_save_failed
@@ -37,7 +38,13 @@ impl Session {
         }
         pages.reverse();
         for st in pages {
-            match self.page_close(&st) {
+            let closed = self.page_close(&st);
+            // Not `TestPage.Close()`: what the page's code reaches through a part afterwards is not measured
+            // (`pages/held_page_part.rs`).
+            if !st.borrow().open {
+                st.borrow_mut().closed_by = Some(ClosedBy::Other);
+            }
+            match closed {
                 Ok(_) => {}
                 // An error of OnQueryClosePage (a Confirm with no ConfirmHandler, an AL Error with no MessageHandler) stops the
                 // close and the test passes; OnClosePage does not run (corpus CI of branch al-runtime-rs-staging-y65,
@@ -75,7 +82,7 @@ impl Session {
         if top_card && !st.borrow().errors.is_empty() {
             return Ok(false);
         }
-        if st.borrow().mode != al_builtins::value::PageMode::New
+        if st.borrow().mode != crate::pages::PageMode::New
             && ["onqueryclosepage", "onclosepage"].iter().any(|t| self.declares(st, t))
         {
             return Ok(true);

@@ -8,7 +8,7 @@
 //! duplicate keys, out-of-range indexes) raises `Signal::Unsupported`.
 
 use crate::describe::Describe;
-use crate::native::{Ctx, NativeFn, Signal};
+use crate::native::{Ctx, NativeFn, Signal, unsupported};
 use crate::signature::Signature;
 use crate::value::{LibraryValue, Value};
 use rust_decimal::Decimal;
@@ -17,6 +17,7 @@ use std::rc::{Rc, Weak};
 
 mod filter;
 mod text_number;
+mod used_return;
 mod walk;
 
 pub type Handle = Rc<RefCell<LibraryValue>>;
@@ -47,10 +48,6 @@ pub enum Scalar {
     /// A number the way .NET writes it, when no AL value holds it: an exponent form, `-0.0`, an integer beyond a
     /// Decimal (json/TestProbeJsonContracts.al:ExponentNumbers_ReadAndWrite). Written as it is; no AL read of it is pinned.
     Raw(String),
-}
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
 }
 
 fn error(message: impl Into<String>, code: &str) -> Signal {
@@ -1175,15 +1172,16 @@ fn array_get_child(h: &Handle, index: &Value) -> Result<Option<Handle>, Signal> 
     })
 }
 
-fn object_add(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
+fn object_add(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
     let h = recv(r)?;
     let key = key_text(&a[0])?;
     if object_get_child(&h, &a[0])?.is_some() {
-        // json/TestJsonRuntimeContracts.al:JsonObject_Errors_TextAndCode
-        return Err(error(
+        // json/TestJsonRuntimeContracts.al:JsonObject_Errors_TextAndCode, json/JsonObjectBasics.al:35-55 (statement form)
+        let raised = error(
             format!("The JSON object already contains the key '{key}'."),
             "DuplicateJsonProperty",
-        ));
+        );
+        return used_return::failed(c, raised);
     }
     let child = attach(&h, node_for(&a[1])?);
     with_node(&h, |n| {
@@ -1252,7 +1250,7 @@ fn object_values(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Res
 
 /// `RemoveAt(Index)`: the element goes, the rest moves up (json/JsonArrayBasics.al:182-193 `text` [1,3,2]; json/json/
 /// P88ArrayIndex.al:126 answers true). An index outside the array raises "Index out of bounds." (JsonArrayBasics.al:186-195),
-/// pinned in statement form only.
+/// pinned in statement form only; with the result used see [`used_return::failed`].
 fn array_remove_at(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
     let h = recv(r)?;
     let i = array_index(&a[0])?;
@@ -1268,8 +1266,7 @@ fn array_remove_at(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> R
             set_parent(&child, None);
             Ok(Value::Boolean(true))
         }
-        None if c.ret_used() => unsupported("JsonArray.RemoveAt outside the array with the result used (not pinned)"),
-        None => Err(index_out_of_bounds()),
+        None => used_return::failed(c, index_out_of_bounds()),
     }
 }
 
@@ -1544,7 +1541,7 @@ fn array_index(v: &Value) -> Result<i64, Signal> {
 /// `Insert(Index, Value)`: the value goes in before that index; an index from 0 to the count is allowed, another raises
 /// `Index out of bounds.` / IndexOutOfBounds (json/json/P101ArrayInsert.al:P101_Insert_Boolean `ins_oob`, and the
 /// same for every other type).
-fn array_insert(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
+fn array_insert(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
     let h = recv(r)?;
     let i = array_index(&a[0])?;
     let count = with_node(&h, |n| match n {
@@ -1552,7 +1549,7 @@ fn array_insert(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Resu
         _ => unsupported("JsonArray.Insert on a JSON value that is not an array"),
     })?;
     if i < 0 || i > count {
-        return Err(index_out_of_bounds());
+        return used_return::failed(c, index_out_of_bounds());
     }
     let child = attach(&h, node_for(&a[1])?);
     with_node(&h, |n| {
@@ -1560,12 +1557,12 @@ fn array_insert(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Resu
             kids.insert(i as usize, child);
         }
     });
-    Ok(Value::Null)
+    Ok(used_return::done(c))
 }
 
 /// `Set(Index, Value)`: the value replaces the one at that index; an index from 0 to the count minus one is allowed
 /// (P101ArraySet.al:P101_Set_Boolean `set_oob` is the count itself).
-fn array_set(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
+fn array_set(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
     let h = recv(r)?;
     let i = array_index(&a[0])?;
     let count = with_node(&h, |n| match n {
@@ -1573,7 +1570,7 @@ fn array_set(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<
         _ => unsupported("JsonArray.Set on a JSON value that is not an array"),
     })?;
     if i < 0 || i >= count {
-        return Err(index_out_of_bounds());
+        return used_return::failed(c, index_out_of_bounds());
     }
     let child = attach(&h, node_for(&a[1])?);
     let old = with_node(&h, |n| match n {
@@ -1583,7 +1580,7 @@ fn array_set(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<
     if let Some(old) = old {
         set_parent(&old, None);
     }
-    Ok(Value::Null)
+    Ok(used_return::done(c))
 }
 
 /// `IndexOf(Value)`: the index of the first element that is the value, -1 when there is none. A typed value compares by value

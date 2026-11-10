@@ -8,6 +8,7 @@ use crate::{CaseId, Outcome};
 use al_builtins::assumptions::Assumption;
 use al_builtins::describe::Describe;
 use al_builtins::native::{AlError, Signal};
+use al_builtins::refusal::Refusal;
 use al_sema::lower::Lowered;
 use al_vm::{Engine, Session, UiKind};
 use std::collections::BTreeSet;
@@ -634,6 +635,8 @@ pub(crate) struct Scratch {
     run_only: Option<Arc<std::collections::BTreeSet<(u32, String)>>>,
     /// The isolation is the codeunit's `RequiredTestIsolation` under BC's TestRunnerHub (`RunOptions::required_isolation`).
     hub: bool,
+    /// See `Unit::hub_leg`. Not set (a run outside the corpus routing): runner 130450, as before the hub leg existed.
+    hub_leg: bool,
     /// The tables an earlier codeunit with RequiredTestIsolation = Disabled left rows in; reading one sets `leak_hit`.
     leak: Option<Arc<std::collections::BTreeSet<u32>>>,
     /// A test or the `OnRun` trigger read or wrote one of `leak`.
@@ -766,6 +769,7 @@ fn run_unit(
             trace: u.impact,
             run_only: u.run_only.clone(),
             hub: u.hub,
+            hub_leg: u.hub_leg,
             leak: u.leak.clone(),
             onrun_carry: u.carry.is_some(),
             on_run_rows: u.on_run_rows,
@@ -975,8 +979,8 @@ mod al_runner_tests;
 mod apply_manifests;
 mod blocked;
 mod cache;
+mod case_lookup;
 mod chain;
-mod chain_runs;
 mod chain_walk;
 mod compile_halt;
 mod compiled;
@@ -995,6 +999,10 @@ mod not_run_link;
 mod numbers_taken;
 mod order_hint;
 mod run;
+#[cfg(test)]
+mod run_on_client_reach_tests;
+#[cfg(test)]
+mod runner_frames_tests;
 mod runner_reset;
 mod session_flags;
 mod single_fresh;
@@ -1011,7 +1019,7 @@ pub(crate) mod written;
 
 pub use self::blocked::*;
 pub use self::cache::*;
-pub use self::chain::{ChainEntry, ChainReport, ChainWhy, RerunWhy, SerialWhy};
+pub use self::chain::{ChainEntry, ChainReport, ChainWhy, RerunWhy};
 pub use self::compiled::*;
 use self::grow::{Grow, GrowKept};
 pub use self::grow::{KeptCompile, fresh_pass_compile};

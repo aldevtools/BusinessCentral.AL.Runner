@@ -11,14 +11,14 @@ impl Session {
         &mut self,
         st: &St,
         start: Vec<Value>,
-        why: al_builtins::value::ReadBackwards,
+        why: crate::pages::ReadBackwards,
     ) -> Result<bool, Signal> {
         let rec = self.page_rec(st);
-        let mut rows: Vec<al_builtins::value::WindowRow> = Vec::new();
+        let mut rows: Vec<crate::pages::WindowRow> = Vec::new();
         loop {
             let key = self.row_key(&rec)?;
             let stored = rec.borrow().fields.clone();
-            rows.push(al_builtins::value::WindowRow {
+            rows.push(crate::pages::WindowRow {
                 key,
                 stored: stored.clone(),
                 shown: stored,
@@ -29,7 +29,7 @@ impl Session {
         }
         // At open 2 and 3 rows are pinned (see `view_names_link_field`); after a move back 1, 2 and 3
         // (pages/parts/PartReadsOpen.al:358-379).
-        let after_move = why == al_builtins::value::ReadBackwards::AfterMove;
+        let after_move = why == crate::pages::ReadBackwards::AfterMove;
         if after_move && rows.len() > 3 {
             // Kept, not pinned: a part of more than 3 rows after its host moved back reads first to last, as every
             // refill did before the backward order was pinned (keeps testpage/PnGPartRows.al:

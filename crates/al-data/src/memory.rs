@@ -971,19 +971,6 @@ impl MemStore {
         self
     }
 
-    /// The companies in which the committed store holds an entry for table `object` (sorted; empty for a table that is
-    /// not per company).
-    pub fn committed_companies_of(&self, object: u32) -> Vec<String> {
-        let mut out: Vec<String> = self
-            .committed
-            .keys()
-            .filter(|s| s.1 == object)
-            .map(|s| s.0.to_string())
-            .collect();
-        out.sort();
-        out
-    }
-
     /// The marks of the committed store an export leaves out ([`MemStore::export_committed`]): the tables a DeleteAll
     /// emptied and the company copies, sorted.
     #[allow(clippy::type_complexity)]
@@ -1570,11 +1557,22 @@ impl Store for MemStore {
                 .collect(),
             None => Vec::new(),
         };
+        let sl = slot(cx, t);
+        // A cached order of a sort that is no key of this `t` (a record's ad-hoc `SetCurrentKey`, built from another
+        // `TableDef`): when the Modify changes a field of it, its stamp moves too, so the next read sorts again
+        // (al-runner issue 7575: a table of 64 rows or more kept the order from before the Modify).
         // The row it replaces comes back from the map, so a cached order can be carried over the move (order_carry).
         let kept = (carry && !moved.is_empty()).then(|| k.clone());
+        let new_row = carry.then(|| row.clone());
         let old = table.insert(k, row);
+        let stale = match &new_row {
+            Some(new) => self.stale_adhoc_orders(&sl, t, &moved, old.as_ref(), new),
+            None => Vec::new(),
+        };
         self.touch(cx, t);
-        let sl = slot(cx, t);
+        for j in stale {
+            self.moves.insert((sl.clone(), j), self.counter);
+        }
         for j in moved {
             let from = self.moves.get(&(sl.clone(), j)).copied().unwrap_or(0);
             self.moves.insert((sl.clone(), j), self.counter);

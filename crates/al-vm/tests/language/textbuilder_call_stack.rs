@@ -17,6 +17,13 @@ table 50101 "Log"
 
 codeunit 50100 C
 {
+    // The hyphen in the name is a frame format the corpus has not measured: the call stack of the collected error ends
+    // with the untracked mark below this frame.
+    procedure "Hop-Collect"(var Info: ErrorInfo)
+    begin
+        Collect(Info);
+    end;
+
     [ErrorBehavior(ErrorBehavior::Collect)]
     procedure Collect(var Info: ErrorInfo)
     var
@@ -34,7 +41,7 @@ codeunit 50100 C
         Info: ErrorInfo;
         Tb: TextBuilder;
     begin
-        Collect(Info);
+        "Hop-Collect"(Info);
         Tb.Append(Info.Callstack());
         Tb.AppendLine(Info.Callstack());
         Tb.Insert(1, Info.Callstack());
@@ -50,7 +57,7 @@ codeunit 50100 C
         Line: Text;
         Tb: TextBuilder;
     begin
-        Collect(Info);
+        "Hop-Collect"(Info);
         Log."Entry No." := 1;
         Log."Call Stack".CreateOutStream(OutStr, TextEncoding::Windows);
         OutStr.Write(Info.Callstack());

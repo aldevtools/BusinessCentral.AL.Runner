@@ -21,6 +21,13 @@ table 50101 "Log"
 
 codeunit 50100 C
 {
+    // The hyphen in the name is a frame format the corpus has not measured: the call stack of the collected error ends
+    // with the untracked mark below this frame.
+    procedure "Hop-Collect"(var Info: ErrorInfo)
+    begin
+        Collect(Info);
+    end;
+
     [ErrorBehavior(ErrorBehavior::Collect)]
     procedure Collect(var Info: ErrorInfo)
     var
@@ -41,7 +48,7 @@ codeunit 50100 C
         InStr: InStream;
         Line: Text;
     begin
-        Collect(Info);
+        "Hop-Collect"(Info);
         Log."Entry No." := 1;
         if UseEncoding then
             Log."Call Stack".CreateOutStream(OutStr, Encoding)
@@ -92,7 +99,7 @@ codeunit 50100 C
         JsonText: Text;
         OutStr: OutStream;
     begin
-        Collect(Info);
+        "Hop-Collect"(Info);
         Entry.Add('Callstack', Info.Callstack());
         Arr.Add(Entry);
         Arr.WriteTo(JsonText);
@@ -108,7 +115,7 @@ codeunit 50100 C
         Info: ErrorInfo;
         N: Notification;
     begin
-        Collect(Info);
+        "Hop-Collect"(Info);
         N.Message := Info.Callstack();
         N.SetData('k', Info.Callstack());
         exit((N.Message <> '') and (N.GetData('k') <> ''));
@@ -119,7 +126,7 @@ codeunit 50100 C
         Info: ErrorInfo;
         Other: ErrorInfo;
     begin
-        Collect(Info);
+        "Hop-Collect"(Info);
         Other := ErrorInfo.Create(Info.Callstack());
         Other.DetailedMessage := Info.Callstack();
         exit((Other.Message <> '') and (Other.DetailedMessage <> ''));
@@ -129,7 +136,7 @@ codeunit 50100 C
     var
         Info: ErrorInfo;
     begin
-        Collect(Info);
+        "Hop-Collect"(Info);
         exit(StrLen(Info.Callstack()));
     end;
 }

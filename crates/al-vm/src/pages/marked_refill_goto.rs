@@ -82,7 +82,7 @@ impl Session {
         for (k, f) in &above {
             rec.borrow_mut().fields = f.clone();
             self.populate_current(st)?;
-            held.push(al_builtins::value::WindowRow {
+            held.push(crate::pages::WindowRow {
                 key: k.clone(),
                 stored: f.clone(),
                 shown: rec.borrow().fields.clone(),
@@ -102,7 +102,7 @@ impl Session {
             self.populate_current(st)?;
         }
         let shown = rec.borrow().fields.clone();
-        held.push(al_builtins::value::WindowRow {
+        held.push(crate::pages::WindowRow {
             key,
             stored: stored.clone(),
             shown,

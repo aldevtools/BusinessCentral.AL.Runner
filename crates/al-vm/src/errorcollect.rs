@@ -49,7 +49,7 @@ pub(crate) fn declares_collect(attrs: &[al_ir::Attribute]) -> Result<bool, Signa
         match t.split_once("::").map(|(_, v)| v.trim_end_matches([')', ']', ' '])) {
             Some("collect") => collect = true,
             _ => {
-                return Err(Signal::Unsupported(format!(
+                return Err(Signal::unsupported(format!(
                     "{} (only ErrorBehavior::Collect is pinned)",
                     a.text
                 )));
@@ -152,7 +152,7 @@ impl Session {
                     None | Some(Value::Null) => false,
                     Some(Value::Boolean(b)) => *b,
                     Some(other) => {
-                        return Some(Err(Signal::Unsupported(format!(
+                        return Some(Err(Signal::unsupported(format!(
                             "GetCollectedErrors with {}",
                             al_builtins::describe::Describe::describe(other)
                         ))));

@@ -20,7 +20,7 @@ fn run(tests: &str) -> Vec<(String, Outcome)> {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
     run_codeunit(&engine, &l, oi)

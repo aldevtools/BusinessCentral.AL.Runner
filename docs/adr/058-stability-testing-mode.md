@@ -439,6 +439,9 @@ Implementation choices inside sections 3 and 4; no seam changes.
    default, so the default run equals this dimension's `fresh` side. A stability run runs every variant in BC's order
    (as `--strict-order`), and with this dimension the base variant still replays every dependent codeunit
    (`RunOptions::replay_every_dependent`, the meaning `--strict-order` had before amendment 12).
+   Amended by ADR-070, decision 7 (2026-11-10): the two sides of this dimension become two plain runs. `fresh` is the
+   default isolated run and `carried` is the sequential `--strict-order` run (one thread per BC session); the suspect
+   re-runs and `replay_every_dependent` go when ADR-070 step 3 lands. Until then this decision stands as written.
 4. **Each flip under this dimension carries a reason**: the test, the outcome and message in each variant, and for
    each global the codeunit read first with a carried value: the SingleInstance codeunit (id, name, and the app that
    holds it, with publisher, so a cache in a dependency app is named as such), the global's name, and the earlier test

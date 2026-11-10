@@ -518,7 +518,7 @@ fn the_bump_adds_lines_only_for_cases_the_base_oracle_lacks() {
     let script = std::fs::read_to_string(root().join("tools/corpus_bump.sh")).unwrap();
     let step = script
         .lines()
-        .find(|l| l.contains("./target/release/al-test-cli --root . --list-new-cases"))
+        .find(|l| l.trim_start().starts_with("list_pass --list-new-cases"))
         .expect("the list step");
     assert!(
         step.contains("--list-new-cases HEAD") && step.contains("--prune-not-passing"),
@@ -545,6 +545,46 @@ fn the_bump_prints_the_assumptions_whose_pin_landed_after_the_lists() {
     assert!(check > baseline, "the check runs after the list step");
     let line = script[check..].lines().next().unwrap();
     assert!(line.contains("||"), "a landed pin must not stop the bump: {line}");
+}
+
+/// The bump finishes itself: golden files regenerated and named for the commit, the lists pruned again after them,
+/// the version gates checked (never edited), and what is left printed as a to-do list before the exit 1.
+#[test]
+fn the_bump_regenerates_golden_prunes_again_checks_gates_and_prints_a_todo_list() {
+    let script = std::fs::read_to_string(root().join("tools/corpus_bump.sh")).unwrap();
+    let at = |needle: &str| script.find(needle).unwrap_or_else(|| panic!("missing: {needle}"));
+    let first = at("list_pass --list-new-cases HEAD --prune-not-passing");
+    let golden = at("UPDATE_GOLDEN=1 cargo test --release -q -p al-test-cli --test corpus_resolve_deps -- --ignored");
+    let second = at("list_pass --prune-not-passing");
+    let gates = at("cargo test -q -p al-version");
+    let todo = at("TO DO before the pull request");
+    assert!(first < golden && golden < second && second < gates && gates < todo);
+    assert!(script.contains("pinned_columns.rs") && script.contains("expected-unresolved.txt"));
+    // A pass that exits 1 prints its cases and goes on; only an exit above 1 stops the bump.
+    assert!(script.contains(r#"[ "$rc" -gt 1 ]"#) && script.contains("--baseline-diff"));
+    assert!(!script.contains("gates.rs\" "), "gates are never edited by the script");
+    assert!(!script.contains("sed -i") || !script.contains("gates.rs"));
+}
+
+/// ADR-013 amendment of 2026-11-10: Microsoft's apps come only from the pinned builds in the artifact cache. The bump
+/// fills the cache after the build and before the first list pass and the golden files, and a fetch that fails stops
+/// it there: a list pass without the apps would record every case that needs one, and the golden files would be
+/// written without them (the tests refuse that too, `corpus_resolve_deps`).
+#[test]
+fn the_bump_fetches_microsofts_apps_before_the_lists_and_the_golden_files() {
+    let script = std::fs::read_to_string(root().join("tools/corpus_bump.sh")).unwrap();
+    let at = |needle: &str| script.find(needle).unwrap_or_else(|| panic!("missing: {needle}"));
+    let finish = at("finish() {");
+    let build = finish
+        + script[finish..]
+            .find("cargo build --release -q")
+            .expect("finish builds");
+    let fetch = at("./target/release/al-test-cli --root . --all-versions --fetch-deps \\\n    || die ");
+    let lists = at("list_pass --list-new-cases HEAD --prune-not-passing");
+    let golden = at("UPDATE_GOLDEN=1 cargo test --release -q -p al-test-cli --test corpus_resolve_deps -- --ignored");
+    assert!(build < fetch && fetch < lists && lists < golden);
+    // The build the golden files were made against is printed.
+    assert!(script[golden..].contains("golden files generated against BC build $golden_build"));
 }
 
 // ISOL_IDS names the artifact of each leg's Isolation Disabled file. A version without the suite gets it (the suite

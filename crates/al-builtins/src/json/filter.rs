@@ -86,7 +86,7 @@ pub(super) fn parse(inner: &str) -> Result<Filter, FilterErr> {
 
 /// The elements of the array `h` that `f` keeps, in document order.
 fn keep(h: &Handle, f: &Filter) -> Result<Vec<Handle>, Signal> {
-    let refuse = |what: &str| Err(Signal::Unsupported(format!("SelectToken: {what} (not pinned)")));
+    let refuse = |what: &str| Err(Signal::unsupported(format!("SelectToken: {what} (not pinned)")));
     let Some(kids) = with_node(h, |n| match n {
         JsonNode::Array(kids) => Some(kids.clone()),
         _ => None,
