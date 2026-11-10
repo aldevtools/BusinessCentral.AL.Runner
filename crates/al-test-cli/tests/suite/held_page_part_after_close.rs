@@ -1,12 +1,13 @@
-//! al-runner issue 6924 (waldo, 34 `COD ERM CopyPurchSalesDoc Test` tests): a SingleInstance codeunit holds the sender of a
-//! host page's event in a global `Page` variable. The TestPage that opened that host closes, and later code calls a procedure
-//! of the held page that reaches `CurrPage.<part>.Page`. BC raises no error: the call reaches the held page's OWN part
-//! instance (its old row, its globals as they were), not the part of a page that is open now. Measured on BC 27.5, 28.5 and
-//! 29.0 (corpus probe pages/parts/HeldSenderPartAccess.al, staging branch al-runtime-rs-staging-probe-train-1110b; assumption
-//! `held-page-part-after-testpage-close`). The objects are the probe's, the Probe Observer replaced by a text check.
+//! al-runner issue 6924 (34 `COD ERM CopyPurchSalesDoc Test` tests of an outside reporter): a SingleInstance codeunit holds
+//! the sender of a host page's event in a global `Page` variable. The TestPage that opened that host closes, and later code
+//! calls a procedure of the held page that reaches `CurrPage.<part>.Page`. BC raises no error: the call reaches the held
+//! page's OWN part instance (its row, its globals as they were), not the part of a page that is open now. Measured on the
+//! three supported BC majors (corpus probe pages/parts/HeldSenderPartAccess.al, staging branch
+//! al-runtime-rs-staging-probe-train-1110b; assumption `held-page-part-after-testpage-close`). The objects are the probe's,
+//! the Probe Observer replaced by a text check.
 //!
-//! Not here: the second test of each shape codeunit (HS07, HS09, HS11, HS13: OpenNew, SetValue on the key, an action), which
-//! needs the save of a new card row with only its key typed on an extended page with a factbox; the runtime does not do that yet.
+//! Not here: the second test of each shape codeunit (HS07, HS09, HS11, HS13: OpenNew with a hidden or shown factbox,
+//! SetValue on the key, an action). The runtime does not run that shape as BC does and refuses it.
 
 use al_test_cli::report::Outcome;
 use al_testkit::outcomes_in;
@@ -249,6 +250,8 @@ codeunit 99620 "LT HS Holder"
     [TryFunction] procedure TryRead(var Result: Text) begin Result := Held.PartRead(); end;
     [TryFunction] procedure TryMark(var Result: Text) begin Held.PartSetMark('m'); Result := Held.PartGetMark(); end;
     [TryFunction] procedure TryHostRead(var Result: Text) begin Result := Held.HostRead(); end;
+    procedure PartUpdate() begin Held.PartUpdate(); end;
+    procedure PartFind(): Boolean begin exit(Held.PartFind()); end;
 }
 
 page 99621 "LT HS Part"
@@ -261,6 +264,8 @@ page 99621 "LT HS Part"
     procedure Touch(): Integer begin Touches += 1; exit(Touches); end;
     procedure SetMark(NewMark: Text) begin MarkText := NewMark; end;
     procedure GetMark(): Text begin exit(MarkText); end;
+    procedure UpdateMe() begin CurrPage.Update(false); end;
+    procedure FindIt(): Boolean begin exit(Rec.FindFirst()); end;
 }
 
 page 99622 "LT HS Fact"
@@ -286,6 +291,8 @@ page 99623 "LT HS Host"
     procedure PartTouch(): Integer begin exit(CurrPage.Lines.Page.Touch()); end;
     procedure PartSetMark(NewMark: Text) begin CurrPage.Lines.Page.SetMark(NewMark); end;
     procedure PartGetMark(): Text begin exit(CurrPage.Lines.Page.GetMark()); end;
+    procedure PartUpdate() begin CurrPage.Lines.Page.UpdateMe(); end;
+    procedure PartFind(): Boolean begin exit(CurrPage.Lines.Page.FindIt()); end;
     procedure HostRead(): Text begin exit('id=' + Format(Rec.Id) + ' name=' + Rec.Name); end;
     [IntegrationEvent(true, false)] local procedure OnOpened() begin end;
 }
@@ -320,8 +327,7 @@ fn run_simple(tests: &str) -> Vec<(String, Outcome)> {
 
 // HS01 + HS02: the held host reached from the test while its TestPage is open, after TestPage.Close in the same test, and in
 // the next test of the codeunit before any open: the same part instance answers (its counter goes on 1, 2, 3; its mark stays),
-// and its row stays id 1. In the next test BC counts 0 rows through the part's Rec with the row in the table (HS02 `read`
-// `id=1 name=one count=0`): that read is refused, the rest of HS02 answers.
+// its row stays id 1, and the row the first test inserted is still in the table (count 1; corpus commit 75ec185a).
 #[test]
 fn held_page_after_testpage_close_and_in_the_next_test_reaches_its_own_part() {
     let o = run_simple(
@@ -331,25 +337,17 @@ fn held_page_after_testpage_close_and_in_the_next_test_reaches_its_own_part() {
             Host.Close();
             H.Check('touch=2;read=id=1 name=one count=1;mark=m;host=id=1 name=one', H.Reach());
         end;
-        [Test] procedure HS02_NoRead() var Touched: Integer; T1: Text; begin
-            Holder.TryTouch(Touched); H.Check('3', Format(Touched));
-            Holder.TryMark(T1); H.Check('m', T1);
-            Holder.TryHostRead(T1); H.Check('id=1 name=one', T1);
-        end;
-        [Test] procedure HS02_Read() var T1: Text; begin
-            if Holder.TryRead(T1) then; H.Check('id=1 name=one count=0', T1);
+        [Test] procedure HS02() begin
+            H.Check('touch=3;read=id=1 name=one count=1;mark=m;host=id=1 name=one', H.Reach());
         end;",
     );
-    assert_eq!(o.len(), 3, "{o:?}");
-    assert_all_pass(&o[..2]);
-    assert!(
-        matches!(&o[2].1, Outcome::NotRun(why) if why.contains("a part of a page the test client closed in an earlier test")),
-        "{o:?}"
-    );
+    assert_eq!(o.len(), 2, "{o:?}");
+    assert_all_pass(&o);
 }
 
-// HS03: a second TestPage of the host opens while the holder keeps the first, closed one: the factbox event of the open page
-// reaches the held page's part, not the open page's. HS04: the holder took the open page. Both read the first part's row.
+// HS03: the same TestPage variable opens again while the holder keeps the first, closed page: the variable gets a new page
+// and the factbox event of the open page reaches the held first page's part (its counter starts at 1, it was never touched).
+// HS04: the holder took the open page. Both read the part's row.
 #[test]
 fn factbox_event_of_a_second_open_reaches_the_held_closed_pages_part() {
     let o = run_simple(
@@ -364,4 +362,104 @@ fn factbox_event_of_a_second_open_reaches_the_held_closed_pages_part() {
         end;",
     );
     assert_all_pass(&o);
+}
+
+// The same TestPage variable opens again after the held page's part was touched: the holder keeps the first page and its
+// part (touch 3, mark m), the variable shows a new page. Not measured in this exact shape; HS07 and HS09 measure the rule with
+// another TestPage variable (`h1.upd;f2.refresh(id=1,n=2)` while `h3` is open).
+#[test]
+fn reopening_the_same_testpage_variable_leaves_the_held_page_its_part() {
+    let o = run_simple(
+        "[Test] procedure B01() var Host: TestPage \"LT HS Host\"; begin
+            H.Seed(); Holder.Setup(true, false); Host.OpenView();
+            H.Check('touch=1;read=id=1 name=one count=1;mark=m;host=id=1 name=one', H.Reach());
+            Host.Close();
+            Holder.Setup(false, false);
+            Host.OpenView();
+            H.Check('touch=2;read=id=1 name=one count=1;mark=m;host=id=1 name=one', H.Reach());
+            Host.Close();
+        end;",
+    );
+    assert_all_pass(&o);
+}
+
+fn refused(o: &(String, Outcome), why: &str) -> bool {
+    matches!(&o.1, Outcome::NotRun(r) if r.contains(why))
+}
+
+const PART_REFUSED: &str = "a part of a page that is not open, reached by the code of that page";
+
+// Closes the probe does not measure stay refused: the built-in OK action, the close at the end of the test (the next test
+// reaches the page), a modal page closed after its handler raised an error. A modal run closed with OK answers (pinned:
+// WdPartAfterRunModal.al).
+#[test]
+fn closes_the_probe_does_not_measure_stay_refused() {
+    let o = run_simple(
+        "[Test] procedure D1_OkAction() var Host: TestPage \"LT HS Host\"; begin
+            H.Seed(); Holder.Setup(true, false); Host.OpenView(); Host.OK().Invoke(); H.Reach();
+        end;
+        [Test] procedure D5a_LeftOpen() var Host: TestPage \"LT HS Host\"; begin
+            H.Seed(); Holder.Setup(true, false); Host.OpenEdit();
+        end;
+        [Test] procedure D5b_NextTest() begin H.Reach(); end;
+        [Test] [HandlerFunctions('FailingHandler')] procedure F1_HandlerError() var P: Page \"LT HS Host\"; begin
+            H.Seed(); asserterror P.RunModal(); P.PartTouch();
+        end;
+        [Test] [HandlerFunctions('OkHandler')] procedure F2_HandlerOk() var P: Page \"LT HS Host\"; begin
+            H.Seed(); P.RunModal(); H.Check('1', Format(P.PartTouch()));
+        end;
+        [ModalPageHandler] procedure FailingHandler(var Pg: TestPage \"LT HS Host\") begin Error('handler failed'); end;
+        [ModalPageHandler] procedure OkHandler(var Pg: TestPage \"LT HS Host\") begin Pg.OK().Invoke(); end;",
+    );
+    assert_eq!(o.len(), 5, "{o:?}");
+    assert!(refused(&o[0], PART_REFUSED), "{o:?}");
+    assert!(matches!(o[1].1, Outcome::Pass), "{o:?}");
+    assert!(refused(&o[2], PART_REFUSED), "{o:?}");
+    assert!(refused(&o[3], PART_REFUSED), "{o:?}");
+    assert!(matches!(o[4].1, Outcome::Pass), "{o:?}");
+}
+
+// Inside the held part only what the probe measured runs: a page method of the part (CurrPage.Update) and a method of its Rec
+// other than Count (FindFirst) refuse.
+#[test]
+fn unmeasured_calls_inside_the_held_part_refuse() {
+    let o = run_simple(
+        "[Test] procedure E1_Update() var Host: TestPage \"LT HS Host\"; begin
+            H.Seed(); Holder.Setup(true, false); Host.OpenView(); Host.Close(); Holder.PartUpdate();
+        end;
+        [Test] procedure E2_FindFirst() var Host: TestPage \"LT HS Host\"; begin
+            H.Seed(); Holder.Setup(true, false); Host.OpenView(); Host.Close(); Holder.PartFind();
+        end;",
+    );
+    assert_eq!(o.len(), 2, "{o:?}");
+    assert!(refused(&o[0], "on a part of a page the test client closed"), "{o:?}");
+    assert!(
+        refused(&o[1], "only its fields and Count() are measured there"),
+        "{o:?}"
+    );
+}
+
+// HS07 and HS09: OpenNew on the host with the factbox hidden. BC runs the hidden factbox's OnAfterGetCurrRecord on the new row
+// and the host's OnAfterGetRecord around the action; the runtime does not, so the open is refused.
+#[test]
+fn opennew_with_a_hidden_factbox_that_has_onaftergetcurrrecord_is_refused() {
+    for use_try in [false, true] {
+        let src = format!(
+            "{SRC}\ncodeunit 99634 T {{ Subtype = Test; TestPermissions = Disabled;
+            var Run: Codeunit \"LT HS Shape Run\";
+            [Test] procedure First() begin Run.FirstTest(false, {use_try}); end;
+            [Test] procedure Second() begin Run.SecondTest({use_try}); end;
+            }}"
+        );
+        let o = outcomes_in(&src, "T");
+        assert_eq!(o.len(), 2, "{o:?}");
+        assert!(matches!(o[0].1, Outcome::Pass), "{o:?}");
+        assert!(
+            refused(
+                &o[1],
+                "a part hidden by a Visible expression that declares OnAfterGetCurrRecord"
+            ),
+            "{o:?}"
+        );
+    }
 }

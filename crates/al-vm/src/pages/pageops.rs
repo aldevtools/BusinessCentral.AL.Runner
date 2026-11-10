@@ -259,7 +259,9 @@ impl Session {
                 self.run_page_ui_with(&st, record, method == PageOp::PageRunModalStatic, field)
             }
             Some(Value::TestPage(st)) => {
+                self.fresh_page_for_held_reopen(method, st);
                 let st = st_of(st).clone();
+                self.refuse_held_part_page_method(&st, method)?;
                 self.pending_add_in_reread(&st, method.method())?;
                 let arg_false = matches!(args.first(), Some(Value::Boolean(false)));
                 self.lookup_refresh_deferred_call(method, &st, None)?;
@@ -1189,6 +1191,9 @@ impl Session {
                 let restored = st.borrow().close_restored_row;
                 let fields = restored.then(|| self.page_rec(st).borrow().fields.clone());
                 let r = self.close_with(st, &a, false, false)?;
+                if !st.borrow().open {
+                    st.borrow_mut().closed_by = Some(ClosedBy::PageCode);
+                }
                 self.note_code_close_veto(st, &a)?;
                 // Under Page.RunModal the record variable gets the shown row the call read back, although the page closes with
                 // LookupCancel (testpage/PnGRefresh.al:996 QN_CloseQ_Sheet_RunModal_OtherChanged_CloseInAction

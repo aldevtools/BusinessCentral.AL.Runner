@@ -1,33 +1,51 @@
 //! What the code of a page that ran and is closed reaches through `CurrPage.<part>.Page`: the page's own part instances,
 //! which its state keeps after the close (`PageState::closed_parts` for the shown parts, `hidden_parts` for the ones a
-//! Visible expression hid). Which closes are pinned decides whether the part answers or the call is refused:
-//! - after a modal run (OK or Cancel): pages/parts/WdPartAfterRunModal.al, Y37PartAfterClose.al;
-//! - after the page closed itself with `CurrPage.Close`: Y37PartAfterClose.al;
-//! - after the test client closed a page the test opened (`TestPage.Close`, or the close at the end of the test):
-//!   assumption `held-page-part-after-testpage-close` (al-runner issue 6924).
+//! Visible expression hid). What closed the page (`PageState::closed_by`, set where the close happens) decides whether the
+//! part answers or the call is refused:
+//! - a modal run closed by an action (OK, Cancel): pages/parts/WdPartAfterRunModal.al, Y37PartAfterClose.al;
+//! - the page's own `CurrPage.Close`: Y37PartAfterClose.al;
+//! - `TestPage.Close()` of a page the test opened: assumption `held-page-part-after-testpage-close` (al-runner issue 6924).
+//!
+//! Every other close is refused: the close at the end of the test, a refused or failed `TestPage.Close()`, the built-in OK
+//! action on a TestPage, the platform's close after a handler, a modal page closed after its handler raised an error.
+//! Inside a part reached after `TestPage.Close()` only what the probe measured runs: the part's procedures, its globals, the
+//! fields of its Rec and `Rec.Count()`; a page method on the part and any other method of its Rec refuse.
 
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
+use al_builtins::page_op::{PageMethod, PageOp};
+
+const REFUSED: &str =
+    "a part of a page that is not open, reached by the code of that page (what it does then is not pinned)";
 
 impl Session {
-    /// The test client closes `st` (`TestPage.Close`, the close at the end of the test).
-    pub(super) fn mark_closed_by_test(&mut self, st: &St) {
-        st.borrow_mut().closed_by_test = Some(self.pages.test_methods);
+    /// Closes `st` as `mark_closed` does, with `by` as the cause.
+    pub(super) fn mark_closed_as(&mut self, st: &St, by: ClosedBy) {
         self.mark_closed(st);
+        st.borrow_mut().closed_by = Some(by);
+    }
+
+    /// `TestPage.Close()` ended and the page is closed: `ClosedBy::TestClose` when it ran to its end on a page the test opened
+    /// (no veto, no error in OnQueryClosePage, not a modal page in its handler), else `ClosedBy::Other`.
+    pub(super) fn mark_closed_by_test(&mut self, st: &St) {
+        let clean = {
+            let s = st.borrow();
+            s.opened_by_test
+                && !s.modal
+                && !s.close_vetoed
+                && !s.close_error
+                && !s.test_close_vetoed
+                && !s.test_closed_in_handler
+        };
+        let by = if clean { ClosedBy::TestClose } else { ClosedBy::Other };
+        self.mark_closed_as(st, by);
     }
 
     /// The part page of control `control` of `st`, a page that is not open, as the page's own code reaches it.
     pub(super) fn closed_page_part(&mut self, st: &St, control: usize) -> Result<St, Signal> {
-        const REFUSED: &str =
-            "a part of a page that is not open, reached by the code of that page (what it does then is not pinned)";
-        let (ran, modal_run, by_test, test_opened) = {
+        let (ran, modal_run, by) = {
             let s = st.borrow();
-            (
-                s.ran,
-                s.last_run_modal == Some(true),
-                s.closed_by_test,
-                s.opened_by_test,
-            )
+            (s.ran, s.last_run_modal == Some(true), s.closed_by)
         };
         if !ran {
             return unsupported(REFUSED);
@@ -37,61 +55,100 @@ impl Session {
             own_part(&st.borrow().hidden_parts, control)
                 .filter(|_| !(self.part_eliminated(st, control) || self.off_page(st, control)))
         };
-        if let Some(closed_in) = by_test {
-            // A page the test opened and the test client closed (TestPage.Close, or the close at the end of the test), held
-            // in a variable (the sender of its own event a subscriber kept): BC raises no error and the call reaches the
-            // page's own part instance, its row and its globals as they were, also from the next test and while another
-            // page of the same object is open; a part a Visible expression hid answers the same (corpus branch
-            // al-runtime-rs-staging-probe-train-1110b, pages/parts/HeldSenderPartAccess.al HS06-HS13, measured on BC
-            // 27.5, 28.5 and 29.0; al-runner issue 6924).
-            if test_opened {
-                let Some(c) = shown.or_else(hidden) else {
-                    return unsupported(REFUSED);
-                };
-                assume(Assumption::HeldPagePartAfterTestPageClose);
-                if closed_in != self.pages.test_methods {
-                    self.held_part_in_later_test(&c);
+        let found = match by {
+            // A page the test opened and closed with TestPage.Close(), held in a variable (the sender of its own event a
+            // subscriber kept): BC raises no error and the call reaches the page's own part instance, its row and its globals
+            // as they were, in the same test and in a later test of the codeunit; a part a Visible expression hid answers the
+            // same (corpus branch al-runtime-rs-staging-probe-train-1110b, pages/parts/HeldSenderPartAccess.al HS01, HS02,
+            // HS08, HS12, the held page's part in HS07 and HS09, measured on the three supported BC majors; al-runner issue
+            // 6924).
+            Some(ClosedBy::TestClose) => {
+                let found = shown.or_else(hidden);
+                if let Some(c) = &found {
+                    assume(Assumption::HeldPagePartAfterTestPageClose);
+                    self.mark_held_part_rec(c);
                 }
-                return Ok(c);
+                found
             }
-            // A page AL code ran modally and a handler closed with TestPage.Close: only a part a Visible expression hid
-            // answers, as after the modal run below; a shown part is not pinned.
-            if modal_run {
-                return hidden().map_or_else(|| unsupported(REFUSED), Ok);
-            }
-            return unsupported(REFUSED);
-        }
-        if modal_run {
-            // After its RunModal returned, the page's code reaches a part that was shown: a procedure of the part reads the
-            // rows the part's record holds, after OK and after Cancel alike (pages/parts/WdPartAfterRunModal.al:75-100
+            // After its RunModal returned (closed with the OK or Cancel action), the page's code reaches a part that was
+            // shown: a procedure of the part reads the rows the part's record holds (pages/parts/WdPartAfterRunModal.al:75-100
             // WD_Part_ReadAfterRunModalOK `count` 1 `value` A, WD_Part_ReadAfterRunModalCancel `count` 1 `value` B;
             // corpus branch al-runtime-rs-staging-1030c, al-runner issue 6321). Posted Purchase Document Lines.CopyLineToDoc
             // reads `CurrPage.PostedRcpts.PAGE` after its RunModal returned.
             // A part a Visible expression hid while the page was open (it opened with the page) hands out its row at close
             // too (pages/parts/Y37PartAfterClose.al:376-395 LT_C314_AfterRunModalOK_OtherPartShown: part A, hidden when an
             // option switched to part B, gives its row 10000).
-            return shown.or_else(hidden).map_or_else(|| unsupported(REFUSED), Ok);
-        }
-        // A page that closed itself with CurrPage.Close in a trigger or an action, opened by a TestPage, and whose code goes on
-        // to call a procedure of a part it showed: the part answers, its globals as its OnClosePage left them
-        // (pages/parts/Y37PartAfterClose.al:652 CLP_AGCR_CloseAllowed_PartAccess_Observe, :668
-        // CLP_Action_CloseAllowed_PartAccess_Observe: `PART.CLOSE;PARENT.CLOSE;AFTER.CLOSE;BEFORE.PART;PART.TOUCH:1042:1`,
-        // corpus PR 1205).
-        shown.map_or_else(|| unsupported(REFUSED), Ok)
+            Some(ClosedBy::Action | ClosedBy::PageCode) if modal_run => shown.or_else(hidden),
+            // A page that closed itself with CurrPage.Close in a trigger or an action, opened by a TestPage, and whose code goes
+            // on to call a procedure of a part it showed: the part answers, its globals as its OnClosePage left them
+            // (pages/parts/Y37PartAfterClose.al:652 CLP_AGCR_CloseAllowed_PartAccess_Observe, :668
+            // CLP_Action_CloseAllowed_PartAccess_Observe: `PART.CLOSE;PARENT.CLOSE;AFTER.CLOSE;BEFORE.PART;PART.TOUCH:1042:1`,
+            // corpus PR 1205).
+            Some(ClosedBy::PageCode) => shown,
+            _ => None,
+        };
+        found.map_or_else(|| unsupported(REFUSED), Ok)
     }
 
-    /// In a test after the one that closed its host, the part's row and globals answer as they were (HS02 `next-test.touch`
-    /// 3, `read` id=1 name=one; HS07 `f2.refresh(id=1,n=2)`), but its Rec counts 0 rows with the row in the table (HS02
-    /// `count=0`): every method of the part's Rec refuses there (`records::HELD_PART_LATER_TEST`).
-    fn held_part_in_later_test(&mut self, part: &St) {
+    /// The part's Rec answers its fields and `Count()` only (`records::HELD_PART_REC`).
+    fn mark_held_part_rec(&mut self, part: &St) {
         if part.borrow().instance.is_none() || !self.has_source(part) {
             return;
         }
         let rec = self.page_rec(part);
         let mut r = rec.borrow_mut();
         if r.unpinned_buffer.is_none() {
-            r.unpinned_buffer = Some(crate::records::HELD_PART_LATER_TEST);
+            r.unpinned_buffer = Some(crate::records::HELD_PART_REC);
         }
+    }
+
+    /// Refuses a page method (CurrPage.Update, SetRecord, SaveRecord, Close, ...) on a part reached through a page the test
+    /// client closed: HeldSenderPartAccess.al calls only procedures of the part.
+    pub(super) fn refuse_held_part_page_method(&self, st: &St, method: PageOp) -> Result<(), Signal> {
+        let held = {
+            let s = st.borrow();
+            !s.open
+                && s.host
+                    .as_ref()
+                    .and_then(|(h, _)| h.upgrade())
+                    .is_some_and(|h| !h.borrow().open && h.borrow().closed_by == Some(ClosedBy::TestClose))
+        };
+        if held {
+            return unsupported(format!(
+                "{method} on a part of a page the test client closed (only the part's procedures are measured there)"
+            ));
+        }
+        Ok(())
+    }
+
+    /// TestPage.OpenEdit, OpenView or OpenNew on a variable whose page another value still holds (a SingleInstance
+    /// subscriber kept the page's sender) after the page closed: BC opens a new page instance for the variable and the holder
+    /// keeps the old one with its parts (HeldSenderPartAccess.al HS07 and HS09 measure it with another TestPage variable:
+    /// `h1.upd;f2.refresh(id=1,n=2)` while `h3` is open). The variable gets a fresh page, as `Clear` gives it.
+    pub(super) fn fresh_page_for_held_reopen(
+        &mut self,
+        method: PageOp,
+        page: &mut al_builtins::page_handle::PageHandle,
+    ) {
+        if !matches!(
+            method.method(),
+            PageMethod::OpenEdit | PageMethod::OpenView | PageMethod::OpenNew
+        ) {
+            return;
+        }
+        let st = st_of(page);
+        let object = {
+            let s = st.borrow();
+            if s.open || !s.ran || s.trapping || s.host.is_some() || s.closed_by != Some(ClosedBy::TestClose) {
+                return;
+            }
+            s.object
+        };
+        if crate::page_held_bindings::page_outside_refs(st) <= 1 {
+            return;
+        }
+        assume(Assumption::HeldPagePartAfterTestPageClose);
+        *page = state::closed_page(object);
     }
 }
 

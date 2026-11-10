@@ -108,6 +108,22 @@ pub type RowExprs = (Vec<Value>, Vec<(usize, Option<Value>)>);
 /// (`PageState::view_before_action`).
 pub type ActionView = (Vec<al_builtins::filter::FieldFilter>, usize, Option<Vec<usize>>, bool);
 
+/// What closed a page (`PageState::closed_by`), set where the close happens.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClosedBy {
+    /// `TestPage.Close()` ran to its end (no veto, no error) on a page the test opened with OpenEdit, OpenView or OpenNew.
+    TestClose,
+    /// `CurrPage.Close()`, or `Close()` of a Page variable.
+    PageCode,
+    /// An action that closes the page (OK, Cancel, LookupOK, ...), invoked by the test or a handler.
+    Action,
+    /// The platform, after a page handler returned and left the page open.
+    Platform,
+    /// Any other close: a refused or failed `TestPage.Close()`, the close at the end of the test, a modal page closed after
+    /// its handler raised an error, an error while the page opened, a failed save.
+    Other,
+}
+
 /// The test client's state for one page (ADR-012). Fields grow with the
 /// behaviours the corpus pins.
 pub struct PageState {
@@ -533,10 +549,9 @@ pub struct PageState {
     pub test_opened_new: bool,
     /// The last open was the test's own `TestPage.OpenEdit`, `OpenView` or `OpenNew` (not a run by AL code).
     pub opened_by_test: bool,
-    /// The last close was the test client's (`TestPage.Close` or the close at the end of the test), not the page's own
-    /// code (`CurrPage.Close`): the number of the test method it closed in. Reset when the page opens. Decides what the
+    /// What closed the page the last time (`None` before the first close, reset when the page opens). Decides what the
     /// page's code reaches through a part after the close (`pages/held_page_part.rs`).
-    pub closed_by_test: Option<u32>,
+    pub closed_by: Option<ClosedBy>,
     /// On a new row whose key fields were still blank, a field outside the key was typed.
     pub typed_before_key: bool,
     /// The page reached a state whose behavior is not pinned: every later call on it or its parts except Close is refused
@@ -908,7 +923,7 @@ impl PageState {
             new_row_inserted_by_trigger: false,
             test_opened_new: false,
             opened_by_test: false,
-            closed_by_test: None,
+            closed_by: None,
             typed_before_key: false,
             unpinned_state: None,
             unpinned_close: false,

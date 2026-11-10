@@ -31,11 +31,14 @@ enum Sync {
 }
 
 impl Session {
-    /// Sets `open = false` on `st` and on the pages it shows as parts, shown or hidden; the shown ones move to
-    /// `closed_parts`, where the page's own code still reaches them (`held_page_part.rs`). Called again on a closed page
-    /// (`page_close` after `close_with`), it keeps them.
+    /// Sets `open = false` on `st` and on the pages it shows as parts, shown or hidden (a part a Visible expression hid
+    /// opened with its host and closes with it, its close triggers included: pages/W1Parts.al:408-411); the shown ones move
+    /// to `closed_parts`, where the page's own code may still reach them (`held_page_part.rs`). Called again on a closed
+    /// page (`page_close` after `close_with`), it keeps them. The close counts as `ClosedBy::Other` unless the caller names
+    /// the cause (`mark_closed_as`).
     pub(super) fn mark_closed(&mut self, st: &St) {
         st.borrow_mut().open = false;
+        st.borrow_mut().closed_by = Some(ClosedBy::Other);
         self.prune_page_held();
         let parts = std::mem::take(&mut st.borrow_mut().parts);
         let hidden = st.borrow().hidden_parts.clone();
@@ -120,6 +123,18 @@ impl Session {
             } else {
                 hidden.push((i, child));
             }
+        }
+        // A new row on a host with a part a Visible expression hid, whose page declares OnAfterGetCurrRecord: BC runs that
+        // trigger on the new row and again around the first action (pages/parts/HeldSenderPartAccess.al HS07, HS09:
+        // `f4.open;sub.curr;f4.curr(0)`, staging branch al-runtime-rs-staging-probe-train-1110b); the runtime does not.
+        if st.borrow().mode == PageMode::New
+            && hidden
+                .iter()
+                .any(|(_, c)| self.declares_or_ext_declares(c, "onaftergetcurrrecord"))
+        {
+            return unsupported(
+                "a new row on a page with a part hidden by a Visible expression that declares OnAfterGetCurrRecord (BC runs it on the new row; not implemented)",
+            );
         }
         st.borrow_mut().parts = kept.clone();
         st.borrow_mut().hidden_parts = hidden.clone();
