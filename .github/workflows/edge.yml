@@ -128,7 +128,14 @@ jobs:
           NOTES
           sed -i 's/^          //' notes.md
           git tag -f edge "$SHA"
-          git push -f origin refs/tags/edge
+          # One retry: GitHub rejected this push once with "fatal error in commit_refs_rules"
+          # (run 42845780913). nightly-edge.yml compares with this tag, so a run that still fails
+          # here can be started again and publishes the same commit.
+          if ! git push -f origin refs/tags/edge; then
+            echo "Tag push failed; retrying once in 30 s."
+            sleep 30
+            git push -f origin refs/tags/edge
+          fi
           if gh release view edge > /dev/null 2>&1; then
             gh release view edge --json assets -q '.assets[].name' | while read -r a; do
               gh release delete-asset edge "$a" -y

@@ -17,7 +17,9 @@ Rules:
   takes the newest commit of `main` whose CI passed on a push. Use it during the
   day so outside reporters can test fresh fixes. That push run has the pull
   request checks but not the slow comparisons.
-  It does nothing when `release` already has that commit. It fails, and changes
+  It does nothing when the published `edge` tag already has that commit. When
+  `release` is already at the commit but `edge` is not (an earlier publish
+  failed), it publishes that commit again without pushing `release`. It fails, and changes
   nothing, when `release` has commits that `main` lacks (a hotfix without
   merge-back). Numbered alphas stay manual (owner decision 2026-10-20).
 - A numbered alpha is a tag `v3.*` on a commit of `release`. The workflow
