@@ -288,7 +288,7 @@ impl Session {
         if o.kind == al_ir::ObjKind::Page {
             let curr = o.page.as_ref().map(|p| p.curr_page_slot);
             let st = curr.and_then(|c| match &inst.globals[c] {
-                Value::TestPage(st) => Some(st.clone()),
+                Value::TestPage(st) => Some(crate::pages::st_of(st).clone()),
                 _ => None,
             });
             drop(inst);
@@ -745,6 +745,7 @@ impl Session {
                 // The page a part shows (`CurrPage.<Part>.Page`), or a `Page` variable, which
                 // is constructed at first use.
                 Value::TestPage(st) => {
+                    let st = crate::pages::into_st(st);
                     let i = self.construct_page(&st)?;
                     lagged = self.enter_server_row(&st);
                     // A procedure a page extension declares runs on the extension's instance.
@@ -1153,7 +1154,7 @@ impl Session {
         let object = base.borrow().object as usize;
         let page = self.engine.program.objects[object].page.as_ref();
         let st = page.and_then(|p| match base.borrow().globals.get(p.curr_page_slot) {
-            Some(Value::TestPage(st)) => Some(st.clone()),
+            Some(Value::TestPage(st)) => Some(crate::pages::st_of(st).clone()),
             _ => None,
         });
         st.and_then(|st| {

@@ -379,6 +379,8 @@ impl Engine {
         target: Option<al_version::Target>,
         dotnet: dotnet::DotNetConfig,
     ) -> Arc<Engine> {
+        // A declared TestPage or Page variable holds a page state of this crate (ADR-072 decision 3).
+        pages::state::register_closed_page();
         let program: Arc<ir::Program> = program.into();
         // Every pass here reads heads, so a program whose objects are made on first read makes none (ADR-054).
         let heads = program.objects.heads();

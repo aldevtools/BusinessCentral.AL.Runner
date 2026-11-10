@@ -6,7 +6,7 @@
 //! page would open is refused: request pages arrive with the page work.
 
 use crate::dataset::{self, Column, Dataset};
-use crate::pages::RequestClosed;
+use crate::pages::{RequestClosed, into_st, st_of};
 use crate::transactions::TxModel;
 use crate::ui::UiKind;
 use crate::{Session, Signal};
@@ -3671,13 +3671,13 @@ impl Session {
             .as_ref()
             .and_then(|p| inst.borrow().globals.get(p.curr_page_slot).cloned())
         {
-            Some(Value::TestPage(st)) if st.borrow().open && o.report.is_some() => st,
+            Some(Value::TestPage(st)) if st_of(&st).borrow().open && o.report.is_some() => into_st(st),
             _ => return unsupported(format!("{id} outside the code of an open request page (not pinned)")),
         };
         let report_id = self.object_id_of(object as u32);
         const EDITABLE_OFF: &str = "a request page whose code set RequestPage.Editable(false) (not pinned)";
         const LOOKUP_ON: &str = "a request page whose code set RequestPage.LookupMode(true) (not pinned)";
-        let mark = |st: &Rc<RefCell<al_builtins::value::PageState>>, on: bool, why: &str| {
+        let mark = |st: &Rc<RefCell<crate::pages::PageState>>, on: bool, why: &str| {
             let mut s = st.borrow_mut();
             if on {
                 s.unpinned_state.get_or_insert_with(|| why.to_string());
@@ -3720,12 +3720,12 @@ impl Session {
     fn request_page_in_on_open_page(
         &self,
         inst: &Inst,
-    ) -> Option<std::rc::Rc<std::cell::RefCell<al_builtins::value::PageState>>> {
+    ) -> Option<std::rc::Rc<std::cell::RefCell<crate::pages::PageState>>> {
         let object = inst.borrow().object as usize;
         let engine = self.engine.clone();
         let page = engine.program.objects[object].page.as_ref()?;
         let st = match inst.borrow().globals.get(page.curr_page_slot) {
-            Some(Value::TestPage(st)) => st.clone(),
+            Some(Value::TestPage(st)) => st_of(st).clone(),
             _ => return None,
         };
         if !st.borrow().opening {

@@ -116,8 +116,10 @@ impl Session {
                 return Ok(());
             }
             (PageOp::PageRun, ..) => return Err(refusal("Page.Run on a Page variable")),
-            (PageOp::PageRunModal, Some(Value::TestPage(st)), []) if st.borrow().set_record.is_none() => {
-                (st.borrow().object as usize, true)
+            (PageOp::PageRunModal, Some(Value::TestPage(st)), [])
+                if crate::pages::st_of(st).borrow().set_record.is_none() =>
+            {
+                (crate::pages::st_of(st).borrow().object as usize, true)
             }
             (PageOp::PageRunModal, ..) => return Err(refusal("Page.RunModal on a Page variable with a record")),
             (PageOp::PageRunStatic | PageOp::PageRunModalStatic, None, [Value::Integer(id)]) => {

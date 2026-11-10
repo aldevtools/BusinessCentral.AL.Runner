@@ -3,8 +3,8 @@
 //! and 5780): what the client reads afterwards and which row it shows.
 
 use super::*;
+use crate::pages::WindowRow;
 use al_builtins::record_op::RecordOp;
-use al_builtins::value::WindowRow;
 
 impl Session {
     /// The pinned shape: a top-level Worksheet over a temporary source in its primary key without filters, with OnAfterGetRecord

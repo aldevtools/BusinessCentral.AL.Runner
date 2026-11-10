@@ -1,9 +1,29 @@
-//! `Clear` of a TestPage variable that is open or waits for `Trap()` (the variable then holds a fresh, closed page:
-//! `al_builtins::native::values::clear`).
+//! `Clear` of a TestPage variable: the variable then holds a fresh, closed page (`al_builtins::native::values::clear` asks
+//! `Ctx::clear_test_page`). One that is open or waits for `Trap()` is closed first.
 
 use super::*;
 
 impl Session {
+    /// `Clear` of a TestPage or Page variable that holds `page`: the fresh, closed page of the same object the variable holds
+    /// afterwards (corpus testpage/TestPageEditable_Tests.al:93 EditableBoundToPageVariable_FollowsTheRow). A page that is
+    /// open, waits for Trap() or is a part of a host goes through `clear_test_page` first. `al_builtins::native::values::
+    /// clear` did the first and last step itself before the page state moved to this crate (ADR-072 decision 3).
+    pub(crate) fn cleared_test_page(
+        &mut self,
+        page: &al_builtins::page_handle::PageHandle,
+    ) -> Result<al_builtins::page_handle::PageHandle, Signal> {
+        let st = st_of(page);
+        let busy = {
+            let s = st.borrow();
+            s.open || s.trapping || s.host.is_some()
+        };
+        if busy {
+            self.clear_test_page(st)?;
+        }
+        let object = st.borrow().object;
+        Ok(state::closed_page(object))
+    }
+
     /// Closes an open TestPage without running anything and drops its trap, before `Clear` gives the variable a fresh page.
     ///
     /// Pinned: an open card cleared runs nothing, reading or closing the variable then raises TestPageNotOpened and OpenEdit

@@ -16,7 +16,7 @@ impl Session {
         let objects = &engine.program.objects;
         let curr = objects[own].globals.iter().position(|g| g.name == "CurrPage");
         let st = curr.and_then(|c| match f.instance.borrow().globals.get(c) {
-            Some(Value::TestPage(st)) => Some(st.clone()),
+            Some(Value::TestPage(st)) => Some(crate::pages::st_of(st).clone()),
             _ => None,
         });
         let Some(st) = st else {
