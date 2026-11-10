@@ -63,6 +63,9 @@ pub struct CheckResult {
     pub kept_demand: Option<demand::KeptDemand>,
     /// With `Roots::keep_demand`: the findings of the rules of each object and of each app, which a grown check keeps.
     pub kept_codes: Option<KeptCodes>,
+    /// `diagnostics` by position, built on the first [`CheckResult::diagnostic_at`]. Nothing changes `diagnostics`
+    /// after that: lowering only reads it.
+    diag_index: std::sync::OnceLock<diag_index::DiagIndex>,
 }
 
 /// The findings of the diagnostic rules that read one object (`alcodes::check_workspace_parts`, `features::check_from`)
@@ -126,6 +129,14 @@ impl CheckResult {
     /// Whether object `oi` was left out of the check by a test selection.
     pub fn is_skipped(&self, oi: usize) -> bool {
         self.skipped.get(oi).copied().unwrap_or(false)
+    }
+
+    /// The first diagnostic (in `diagnostics` order) at `offset` of the file at `path` whose code is one of `codes`:
+    /// what a scan of `diagnostics` finds, without the scan (lowering asks once per call it lowers).
+    pub fn diagnostic_at(&self, path: &str, offset: usize, codes: &[&str]) -> Option<&Diagnostic> {
+        self.diag_index
+            .get_or_init(|| diag_index::DiagIndex::build(&self.diagnostics))
+            .find(&self.diagnostics, path, offset, codes)
     }
 
     /// Whether object `oi` was left out by a lean compile (`Roots::lean`).
@@ -626,6 +637,7 @@ fn check_inner(
         object_hashes: roots.object_hashes,
         kept_demand: c.kept_demand.take(),
         kept_codes: roots.keep_demand.then_some(kept_codes),
+        diag_index: Default::default(),
     };
     // The context rules that need what the check resolved. They count as the checker's (`from_checker`): an
     // incremental compile resolves the changed objects only and keeps the earlier findings of the other files.
@@ -1469,6 +1481,7 @@ mod blank_member;
 mod calls;
 pub(crate) use calls::BARE_REPORT_MEMBERS;
 mod conv;
+mod diag_index;
 mod enum_overload;
 pub(crate) use enum_overload::EnumFit;
 mod fit;
