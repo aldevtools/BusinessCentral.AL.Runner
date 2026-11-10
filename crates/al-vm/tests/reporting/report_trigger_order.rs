@@ -396,11 +396,11 @@ fn the_last_error_after_a_failed_used_saveas_without_layout_is_refused() {
     );
 }
 
-/// PnBReportSaveAs.al:387 pins the text of the second SaveAs's error, not its code.
+/// The code of the second SaveAs's error (corpus text/PnBReportSaveAs.al:749-756 PW_SecondSaveAs_LastErrorCode).
 #[test]
-fn the_error_code_of_a_second_saveas_is_refused() {
-    assert_refused(
-        al_testkit::run_in(FIXTURE, "RTO Tests", "SecondSaveAsCode"),
-        "GetLastErrorCode",
+fn the_error_code_of_a_second_saveas() {
+    assert_eq!(
+        text(al_testkit::run_in(FIXTURE, "RTO Tests", "SecondSaveAsCode")),
+        "ObjectHasAlreadyBeenRun"
     );
 }

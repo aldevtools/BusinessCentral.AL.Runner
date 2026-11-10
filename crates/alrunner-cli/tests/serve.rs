@@ -176,6 +176,11 @@ fn bad_requests_get_an_error_line_and_the_server_goes_on() {
             json!({"command": "runTests", "sourcePaths": [a], "bogus": 1}),
             "unknown field",
         ),
+        // A codeunit id is given as text (docs/manual/tool-protocol.md); a number is not taken in silence.
+        (
+            json!({"command": "runTests", "sourcePaths": [a], "testRunner": 130450}),
+            "`testRunner`",
+        ),
         (
             json!({"command": "runTests", "sourcePaths": [a], "affectedOnly": true, "test": "Passes"}),
             "cannot be combined",
@@ -348,6 +353,34 @@ fn a_changed_source_is_compiled_again_and_an_unchanged_one_is_not() {
     s.send(json!({"command": "runTests", "sourcePaths": [a], "test": "Codeunit50100.Passes"}));
     let lines = s.until_summary();
     assert_eq!(lines.last().unwrap()["passed"], 1, "{lines:?}");
+}
+
+/// The compile takes the runner codeunits as roots and decides from the runner whether the install baseline runs, so
+/// a request with another `testRunner` does not get the compile an earlier request kept (al-runner issue 7610).
+#[test]
+fn another_test_runner_is_compiled_again() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "runners", MIXED);
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    let run = |s: &mut Server, runner: Option<&str>| {
+        let mut request = json!({"command": "runTests", "sourcePaths": [a]});
+        if let Some(r) = runner {
+            request["testRunner"] = json!(r);
+        }
+        s.send(request);
+        s.until_summary()
+    };
+    let lines = run(&mut s, Some("builtin"));
+    assert_eq!(lines.last().unwrap()["cached"], false, "{lines:?}");
+    assert_eq!(run(&mut s, Some("builtin")).last().unwrap()["cached"], true);
+    let lines = run(&mut s, None);
+    assert_eq!(
+        lines.last().unwrap()["cached"],
+        false,
+        "the default runner after `builtin`: {lines:?}"
+    );
+    assert_eq!(run(&mut s, None).last().unwrap()["cached"], true);
 }
 
 const TWO_UNITS: &str = r#"

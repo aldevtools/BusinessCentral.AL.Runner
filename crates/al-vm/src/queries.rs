@@ -1437,6 +1437,12 @@ impl Session {
                                 other => return unsupported(format!("Sum over {}", other.describe())),
                             }
                         }
+                        // BC averages in SQL over the column's own type, so the sum must fit it. Only the Sum
+                        // overflow is pinned (queries/W7QueryAggregates.al:168, whose query also has a Sum column,
+                        // W7QueryObjects.al:183-186): an Average whose sum does not fit is refused.
+                        if method == M::Average && !sum_fits_column(&c.ty, sum) {
+                            return unsupported("an Average whose sum overflows the column type (not pinned)");
+                        }
                         // Over no rows both give 0 (queries/TestQueryRuntimeContracts.al:
                         // Query_ScalarAggregates_OverNoRows_ReturnOneRowOfZeros).
                         let total = if method == M::Sum || vs.is_empty() {
@@ -1445,7 +1451,9 @@ impl Session {
                             let avg = sum / Decimal::from(vs.len() as i64);
                             match &c.ty {
                                 // An Integer column averages to an Integer, truncated: 1.33 and 1.5
-                                // both give 1 (Query_Average_IntegerColumnTruncates_...).
+                                // both give 1 (Query_Average_IntegerColumnTruncates_...). So do a BigInteger column
+                                // (queries/W7QueryAggregates.al:163 `1`, :172 -14 / 3 = `-4`; CgQueryLeads.al:128) and
+                                // a Duration column (W7QueryAggregates.al:239 5000 / 3 = 1.666 s).
                                 RtType::Decimal => {
                                     // A Decimal column keeps 18 places less the digits before the point:
                                     // 1.33333333333333333 (17 places), and -0.333333333333333333 (18) for the
@@ -1484,7 +1492,20 @@ impl Session {
                             RtType::BigInteger => {
                                 match i64::try_from(total.trunc().mantissa() / 10i128.pow(total.trunc().scale())) {
                                     Ok(i) => Value::BigInteger(i),
-                                    Err(_) => return unsupported("a Sum that overflows a BigInteger column"),
+                                    // queries/W7QueryAggregates.al:168: the Sum of 9223372036854775807 and 1, pinned
+                                    // from BC 29 only (the `#if BC29PLUS` guard at :148). The pin wraps Open and Read
+                                    // in one TryFunction (:120-124), so which of the two raises is not pinned.
+                                    Err(_) if self.has(al_version::Gate::QueryAggregateOverBigInteger) => {
+                                        return Err(crate::transactions::al_error_code(
+                                            "An arithmetic overflow occurred while calculating a value, for example when a sum of an Integer field exceeds the maximum value the data type can hold. Use a larger data type, such as BigInteger or Decimal, for the field or the calculation.",
+                                            "CalculationOverflow:Sql",
+                                        ));
+                                    }
+                                    Err(_) => {
+                                        return unsupported(
+                                            "a Sum that overflows a BigInteger column on this BC major (its error is not pinned here)",
+                                        );
+                                    }
                                 }
                             }
                             RtType::Duration => {
@@ -1549,4 +1570,14 @@ fn columns_pass(filters: &[(usize, al_builtins::filter::FilterExpr)], columns: &
         }
     }
     Ok(true)
+}
+
+/// Whether a Sum or Average total fits the column's own type (Integer, BigInteger, Duration); other types: yes.
+fn sum_fits_column(ty: &RtType, sum: Decimal) -> bool {
+    let whole = sum.trunc();
+    match ty {
+        RtType::Integer => i32::try_from(whole).is_ok(),
+        RtType::BigInteger | RtType::Duration => i64::try_from(whole).is_ok(),
+        _ => true,
+    }
 }
