@@ -237,11 +237,11 @@ impl Session {
             // Expressions_FieldRefCaption).
             WrittenCaption::Expr(expr) => {
                 let class = self.field_caption_class_value(t, pos, rec, &expr)?;
-                let kind = expression_class(&t.fields[pos].name, &class)?;
-                match kind {
+                match expression_class(&class) {
                     ExprCaption::FieldCaption => Ok(self.field_caption(t, pos)),
                     ExprCaption::Text(c) => self.expression_text_caption(&class, c),
                     ExprCaption::Translate => self.caption_class_translate(&class),
+                    ExprCaption::Plain => self.expression_plain_caption(&t.fields[pos].name, &class),
                 }
             }
         }
@@ -2375,19 +2375,19 @@ pub(crate) enum ExprCaption {
     /// A numeric area other than 3, or an empty one: the platform translates it as a literal ('2,0,x', '5,3,', '9,x', '2,x',
     /// '101,0,..', '1,1,1', QdCaptionClassAreas.al:262-296).
     Translate,
+    /// A text with no comma, or with an area that is not a number: the caption is the text as it is
+    /// (`Session::expression_plain_caption`).
+    Plain,
 }
 
-/// The reading of field `field`'s CaptionClass expression result `class`. A text with no comma and an area that is not a
-/// number are not pinned for an expression: refused.
-pub(crate) fn expression_class(field: &str, class: &str) -> Result<ExprCaption, Signal> {
+/// The reading of a CaptionClass expression's result `class`.
+pub(crate) fn expression_class(class: &str) -> ExprCaption {
     match class.split_once(',') {
-        _ if class.is_empty() => Ok(ExprCaption::FieldCaption),
-        Some(("3", "")) => Ok(ExprCaption::FieldCaption),
-        Some(("3", rest)) => Ok(ExprCaption::Text(rest.to_string())),
-        Some((area, _)) if area.is_empty() || area.trim().parse::<u32>().is_ok() => Ok(ExprCaption::Translate),
-        _ => unsupported(format!(
-            "the caption of field {field} whose CaptionClass expression gives `{class}` (an area that is not a number, or no comma, is not pinned)"
-        )),
+        _ if class.is_empty() => ExprCaption::FieldCaption,
+        Some(("3", "")) => ExprCaption::FieldCaption,
+        Some(("3", rest)) => ExprCaption::Text(rest.to_string()),
+        Some((area, _)) if area.is_empty() || area.trim().parse::<u32>().is_ok() => ExprCaption::Translate,
+        _ => ExprCaption::Plain,
     }
 }
 

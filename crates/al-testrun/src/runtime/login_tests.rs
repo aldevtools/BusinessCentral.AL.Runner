@@ -216,3 +216,129 @@ codeunit 51031 "Fan Out Test"
         vec![("ReadsTheLog".to_string(), Outcome::Pass)]
     );
 }
+
+// al-runner issue 7574: the test codeunit reads the row only through the page it opens as a TestPage, in the page's
+// OnQueryClosePage and in an action. The page has no source table, so the page variable counts as a write of a table
+// that is not known, and the reach of the test then holds the subscribers of the `Global Triggers` database events. In
+// Microsoft's apps those write the tables the login subscriber writes; `DATABASE_SUBSCRIBER` stands in for them.
+const WIZARD: &str = r#"
+page 51140 "Repro Plain Wizard"
+{
+    PageType = NavigatePage;
+    layout { area(Content) { group(Step1) { InstructionalText = 'Step 1'; } } }
+    actions
+    {
+        area(Processing)
+        {
+            action(ActionCheck)
+            {
+                trigger OnAction()
+                var G: Codeunit "Guided Experience";
+                begin
+                    if not G.AssistedSetupExistsAndIsNotComplete(51140) then
+                        Error('The assisted setup row of the wizard does not exist.');
+                end;
+            }
+        }
+    }
+    trigger OnQueryClosePage(CloseAction: Action): Boolean
+    var G: Codeunit "Guided Experience";
+    begin
+        if CloseAction = Action::OK then
+            if G.AssistedSetupExistsAndIsNotComplete(51140) then
+                exit(Confirm('Setup is not complete. Exit anyway?', false));
+    end;
+}
+codeunit 51140 "Repro Wizard Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterAssistedSetup', '', false, false)]
+    local procedure HandleOnRegisterAssistedSetup()
+    var G: Codeunit "Guided Experience";
+    begin
+        G.InsertAssistedSetup(51140);
+    end;
+}
+codeunit 51141 "Repro Plain Wizard Test"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    [HandlerFunctions('ConfirmHandler')]
+    procedure ClosingTheWizardAsksToConfirm()
+    var Wizard: TestPage "Repro Plain Wizard";
+    begin
+        Wizard.OpenEdit();
+        Wizard.Close();
+    end;
+
+    [Test]
+    procedure AnActionOfTheWizardSeesTheRow()
+    var Wizard: TestPage "Repro Plain Wizard";
+    begin
+        Wizard.OpenView();
+        Wizard.ActionCheck.Invoke();
+    end;
+
+    [ConfirmHandler]
+    procedure ConfirmHandler(Question: Text; var Reply: Boolean)
+    begin
+        Reply := true;
+    end;
+}
+"#;
+
+const DATABASE_SUBSCRIBER: &str = r#"
+codeunit 1992 "Guided Experience Log"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'OnDatabaseInsert', '', false, false)]
+    local procedure OnInsert(RecRef: RecordRef)
+    var G: Record "Guided Experience Item";
+    begin
+        if G.Get(-1) then
+            G.Modify();
+    end;
+}
+"#;
+
+#[test]
+fn a_test_that_reads_the_row_only_through_the_page_it_opens_sees_it() {
+    let dep = format!("{DEP}{DATABASE_SUBSCRIBER}");
+    assert_eq!(
+        super::tests::outcomes_over_dependency(WIZARD, &dep),
+        vec![
+            ("ClosingTheWizardAsksToConfirm".to_string(), Outcome::Pass),
+            ("AnActionOfTheWizardSeesTheRow".to_string(), Outcome::Pass)
+        ]
+    );
+}
+
+// A test codeunit that inserts the row itself before the page reads it has it without the login, and runs as before:
+// here the dependency's login code stops with an error, so a codeunit that raised the login would not run.
+#[test]
+fn a_test_that_registers_the_row_itself_before_the_page_reads_it_runs_without_the_login() {
+    let dep = format!(
+        r#"{DEP}{DATABASE_SUBSCRIBER}
+codeunit 1991 "Guided Experience Events"
+{{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Company Triggers", 'OnCompanyOpenCompleted', '', false, false)]
+    local procedure StopsHere()
+    begin
+        Error('The login code cannot run here.');
+    end;
+}}
+"#
+    );
+    let main = WIZARD.replace(
+        "    var Wizard: TestPage \"Repro Plain Wizard\";\n    begin\n",
+        "    var Wizard: TestPage \"Repro Plain Wizard\"; G: Codeunit \"Guided Experience\";\n    begin\n        if not G.AssistedSetupExistsAndIsNotComplete(51140) then G.InsertAssistedSetup(51140);\n",
+    );
+    assert_ne!(main, WIZARD);
+    assert_eq!(
+        super::tests::outcomes_over_dependency(&main, &dep),
+        vec![
+            ("ClosingTheWizardAsksToConfirm".to_string(), Outcome::Pass),
+            ("AnActionOfTheWizardSeesTheRow".to_string(), Outcome::Pass)
+        ]
+    );
+}

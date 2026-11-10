@@ -350,6 +350,27 @@ pub(crate) fn union_reach_facts_skipping(
     walk.out
 }
 
+/// [`union_reach_facts_skipping`] without the subscribers of the `Global Triggers` database events, which every write
+/// brings into a reach: the calls, the table triggers, the objects run and the subscribers of the other events are
+/// followed as before. What a test reaches other than through "some table was written" (`login.rs`).
+pub(crate) fn union_reach_facts_without_database_events(
+    events: &al_vm::events::Registry,
+    lowered: &Lowered,
+    index: &ReachIndex,
+    roots: &[(usize, usize)],
+    skip: &[(usize, usize)],
+) -> ReachFacts {
+    let mut walk = Walk::new(events, lowered, index);
+    // As if they were pushed already (`Walk::note_table_write`).
+    walk.global_triggers = true;
+    for &(o, r) in skip {
+        walk.first_visit(o, r);
+    }
+    walk.stack.extend(roots.iter().rev().copied());
+    walk.run(&|_| false);
+    walk.out
+}
+
 /// Whether `fact` holds of the joined reach of the routines `roots`: one walk of the union of their reaches, which
 /// stops as soon as `fact` holds. `fact` must be one that, once it holds of part of a reach, holds of all of it (a
 /// table, a state bit, a part not known); it then holds of the union exactly when it holds of the reach of one of the
@@ -668,6 +689,8 @@ struct Walk<'a> {
     seen_beyond: BTreeSet<(usize, usize)>,
     entered_beyond: BTreeSet<(usize, u8)>,
     stack: Vec<(usize, usize)>,
+    /// The subscribers of the `Global Triggers` database events are pushed, or the walk leaves them out
+    /// ([`union_reach_facts_without_database_events`]).
     global_triggers: bool,
     /// Whether the walk keeps the tables, globals and state it reaches ([`ReachFacts`]) besides the reasons.
     facts: bool,

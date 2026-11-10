@@ -214,3 +214,72 @@ fn bare_report_methods_are_the_currreport_form() {
         "No Yes No Report 50967 No No 2;"
     );
 }
+
+/// The bare `UseRequestPage()` read in the OnPreReport trigger itself (al-runner issue 7413): the setting of the instance, as
+/// the bare form in a procedure OnPreReport calls (reports/bare-report-member/Y36BareReportMember.al:220-282) and the
+/// `CurrReport.` form in the trigger (reports/request-page/P147UseRequestPagePreGet.al:65-131, also for the static
+/// `RunModal(id, false)`). The corpus has no bare read in the trigger body itself.
+const PRE_READ: &str = r#"
+table 50970 "RSM Row4" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+codeunit 50971 "RSM Log" { SingleInstance = true; var T: Text; procedure Add(S: Text) begin T += S + ';'; end; procedure Take() R: Text begin R := T; T := ''; end; }
+report 50972 "RSM Pre Read"
+{
+    ProcessingOnly = true;
+    UsageCategory = None;
+    dataset { dataitem(Row; "RSM Row4") { __ITEM__ } }
+    requestpage { layout { area(Content) { field(D; Dummy) { } } } }
+    trigger OnPreReport()
+    begin
+        __PRE__
+    end;
+    var L: Codeunit "RSM Log"; Dummy: Text[10];
+}
+codeunit 50973 "RSM Caller4"
+{
+    procedure Go(): Text
+    var Rep: Report "RSM Pre Read"; L: Codeunit "RSM Log";
+    begin
+        Rep.UseRequestPage(false);
+        Rep.RunModal();
+        Report.RunModal(Report::"RSM Pre Read", false);
+        Report.Run(Report::"RSM Pre Read", false);
+        exit(L.Take());
+    end;
+}
+"#;
+
+fn pre_read(pre: &str, item: &str) -> String {
+    PRE_READ.replace("__PRE__", pre).replace("__ITEM__", item)
+}
+
+#[test]
+fn a_bare_use_request_page_read_in_on_pre_report_reads_the_instance_setting() {
+    let src = pre_read(
+        "L.Add('bare=' + Format(UseRequestPage()) + ' curr=' + Format(CurrReport.UseRequestPage()));",
+        "",
+    );
+    assert_eq!(
+        al_testkit::text(run_in(&src, "RSM Caller4", "Go")),
+        "bare=No curr=No;bare=No curr=No;bare=No curr=No;"
+    );
+}
+
+/// The bare setter in OnPreReport, and the bare read in a data item trigger, are not pinned (corpus probe
+/// reports/bare-report-member/UseRequestPageReadInTriggers.al): refused.
+#[test]
+fn a_bare_use_request_page_elsewhere_in_a_trigger_is_still_refused() {
+    for (pre, item) in [
+        ("UseRequestPage(false);", ""),
+        (
+            "",
+            "trigger OnPreDataItem() begin if not UseRequestPage() then L.Add('x'); end;",
+        ),
+    ] {
+        match run_in(&pre_read(pre, item), "RSM Caller4", "Go") {
+            Err(al_builtins::native::Signal::Unsupported(why)) => {
+                assert!(why.contains("a bare `UseRequestPage`"), "{why}")
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+}

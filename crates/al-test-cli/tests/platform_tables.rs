@@ -4709,3 +4709,22 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "Formats");
     passes(&o, "Evaluates");
 }
+
+/// Server Instance (2000000112) is an OnPrem-scope table: `RecordRef.Open` of it from an app that is not OnPrem is not pinned
+/// (a sibling OnPrem table fails for a Cloud app from BC 28 on, al-language-onprem metadata/PtOnPremTables.al:467-490), so it
+/// is refused and its row is not read (`Reaches` makes the table part of the program, as in an app that also reads it by
+/// name). The OnPrem read is the corpus case Y21_ServerInstance_OwnRow
+/// (al-language-onprem metadata/platform-tables/Y21EnvColumnsOnPrem.al:276-301).
+#[test]
+fn recordref_open_of_server_instance_from_an_app_that_is_not_onprem_is_refused() {
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure OpenByNumber() var R: RecordRef; begin R.Open(2000000112); if R.Count() <> 1 then Error('count'); end;
+  procedure Reaches() var S: Record "Server Instance"; begin if S.IsEmpty() then; end; }"#,
+    );
+    let why = not_run(&o, "OpenByNumber");
+    assert!(
+        why.contains("RecordRef.Open(2000000112), an OnPrem platform table, from an app whose target is not known"),
+        "{why}"
+    );
+}

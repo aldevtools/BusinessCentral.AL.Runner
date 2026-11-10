@@ -61,7 +61,6 @@
 61248 P109_CheckLicenseFile_UnknownKeys
 61249 P109_DataFileInformation_NoFile
 61250 P109_EnableVerboseTelemetry_Durations
-61251 P109_LogAuditMessage_Overload2_Dimensions
 61253 P109_SendTraceTag_DataClassification
 61253 P109_SendTraceTag_Texts
 61253 P109_SendTraceTag_Verbosities
@@ -69,7 +68,6 @@
 61255 P109_LogInternalError_Basic
 61256 P109_LogInternalError_Substitution
 61257 O_SessionInformation_AITokensUsed
-61257 O_Session_LogSecurityAudit
 61258 O_Database_AlterKey
 61258 O_Database_ChangeUserPassword_SetUserPassword_Errors
 61258 O_Database_ExportData_ImportData_Files
@@ -200,7 +198,6 @@
 98660 Y21_File_TemporaryPathFilter
 98660 Y21_PermissionRange_Rows
 98660 Y21_ReportPrinter_Rows
-98660 Y21_ServerInstance_OwnRow
 98660 Y21_TableInformation_Sizes
 98702 PA_AppJsonFields_ReachTheRow
 98702 PA_ApplicationRow_Columns

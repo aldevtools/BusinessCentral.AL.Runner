@@ -1823,7 +1823,9 @@ pub struct HttpContentState {
     /// A `WriteFrom` has put a body here (a second one may add a Content-Length, see `write_body`).
     pub written: bool,
     /// The value is a copy an assignment or a by-value parameter made (`deep_copy`), not the content a request handed out.
-    /// `ReadAs` on an uninitialized content runs only the shapes the corpus pins, and the two pins differ in this.
+    /// On an uninitialized content it decides what is not pinned for a copy: `ReadAs(InStream)` as a statement and
+    /// `GetHeaders` with the result used refuse (`ReadAs(Text)` answers the same for both). It is also part of the rule
+    /// for a body already handed out as a stream (`read_as`).
     pub copied: bool,
     /// The last `WriteFrom` took an `InStream`.
     pub from_stream: bool,
