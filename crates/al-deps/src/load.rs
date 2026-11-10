@@ -333,8 +333,8 @@ pub struct Loaded {
     pub notes: Vec<String>,
     /// Dependencies no package satisfied.
     pub skipped: Vec<SelectError>,
-    /// The ids the chosen `Application` aggregate depends on (it holds no source, so it is not in
-    /// `apps`); empty when none was chosen.
+    /// The ids the chosen `Application` aggregate depends on (it is in `apps` with no files); empty
+    /// when none was chosen.
     pub application_aggregate: Vec<String>,
 }
 
@@ -707,9 +707,16 @@ pub fn read_planned(planned: Planned, req: &Request<'_>) -> Result<Loaded, Strin
         optional_missing: _,
         application_aggregate,
     } = planned;
+    // The chosen `Application` aggregate is a listed app with no files whatever its package holds: a compiled package
+    // whose symbols list no object ([`crate::empty`]) or the feed's `Application.Source.zip` (an `app.json` and a logo,
+    // no `.al` file, no `SymbolReference.json`). BC publishes it as any other app: Published Application has its row
+    // with a Description and a Logo (onprem session-system/PZPublishedApplicationColumns.al:46 and :150-160; onprem
+    // metadata/session-system/Y48PublishedApplication.al:161), and an app that depends on it has the dependency
+    // resolved (metadata/platform-tables/PlTNavApp.al:164). Only this id: any other package without source is skipped.
+    let listed = |c: &Candidate| c.has_source || c.id.eq_ignore_ascii_case(APPLICATION_APP_ID);
     let to_read: Vec<&PathBuf> = order
         .iter()
-        .filter_map(|&i| paths[i].as_ref().filter(|_| pool[i].has_source))
+        .filter_map(|&i| paths[i].as_ref().filter(|_| listed(&pool[i])))
         .collect();
     // A package read lazily has no sources; its files are named and read later.
     enum Read {
@@ -739,14 +746,9 @@ pub fn read_planned(planned: Planned, req: &Request<'_>) -> Result<Loaded, Strin
     for i in order {
         let Some(path) = paths[i].clone() else { continue };
         let c = &pool[i];
-        if !c.has_source {
-            // Symbols only (or an aggregate such as `Application`): nothing to compile. Its
-            // objects stay unresolved, so what needs them is refused. Say so.
-            // The `Application` aggregate never has any; with its dependencies propagated, that is
-            // expected and not worth a line.
-            if req.application_implies_dependencies && c.id.eq_ignore_ascii_case(APPLICATION_APP_ID) {
-                continue;
-            }
+        if !listed(c) {
+            // Symbols only: nothing to compile. Its objects stay unresolved, so what needs them is
+            // refused. Say so.
             notes.push(format!(
                 "{}: `{}` {} carries no AL source; the runtime compiles source (ADR-013), so its objects are unavailable",
                 path.display(),
@@ -1533,5 +1535,83 @@ mod tests {
             [APPLICATION_APP_ID, "ba", SYSTEM_APP_ID]
         );
         assert_eq!(l.implied_dependencies(false, false), Vec::<String>::new());
+    }
+
+    /// The feed's `Application.Source.zip`: an `app.json` and a logo, no `.al` file and no `SymbolReference.json`.
+    #[test]
+    fn the_application_aggregate_from_a_source_archive_is_a_listed_app_with_no_files() {
+        use crate::select::APPLICATION_APP_ID;
+        let dir = tempfile::tempdir().unwrap();
+        let app_json = format!(
+            r#"{{"id":"{APPLICATION_APP_ID}","name":"Application","publisher":"Microsoft","version":"28.5.0.0",
+            "description":"The aggregate","logo":"ExtensionLogo.png",
+            "dependencies":[{{"id":"ba","name":"Base","publisher":"P","version":"28.0.0.0"}}]}}"#
+        );
+        let zip = Builder::new()
+            .add("app.json", app_json.as_bytes(), true)
+            .add("ExtensionLogo.png", b"picture", true)
+            .finish();
+        std::fs::write(dir.path().join("Application.Source.zip"), zip).unwrap();
+        write_app(
+            dir.path(),
+            "ba.app",
+            "ba",
+            "Base",
+            "28.5.0.0",
+            &[],
+            &[("B.al", "codeunit 1 B { }")],
+        );
+        let mut project = project(&[]);
+        project.application = Some(Version(28, 0, 0, 0));
+        for (implies, lazy_sources) in [(true, false), (true, true), (false, false)] {
+            let l = load_dependencies(&Request {
+                project: &project,
+                workspace_apps: &[],
+                search_dirs: &[dir.path().to_path_buf()],
+                missing: MissingPolicy::Skip,
+                source_build: None,
+                application_implies_dependencies: implies,
+                lazy_sources,
+            })
+            .unwrap();
+            let names: Vec<&str> = l.apps.iter().map(|a| a.app.name.as_str()).collect();
+            assert_eq!(names, ["Base", "Application"], "implies {implies}, lazy {lazy_sources}");
+            let application = &l.apps[1];
+            assert!(application.app.files.is_empty());
+            assert_eq!(application.app.dependencies, ["ba"]);
+            assert_eq!(application.description, "The aggregate");
+            assert!(matches!(&application.logo, Some(al_ir::AppLogo::File(b)) if b == b"picture"));
+            assert!(
+                l.notes.iter().all(|n| !n.contains("carries no AL source")),
+                "{:?}",
+                l.notes
+            );
+            assert_eq!(l.application_aggregate, ["ba"]);
+        }
+    }
+
+    /// Any other package without source stays out: it does not serve the dependency, which stays missing.
+    #[test]
+    fn another_source_archive_without_al_files_is_not_listed() {
+        let dir = tempfile::tempdir().unwrap();
+        let app_json = r#"{"id":"zz","name":"Zed","publisher":"P","version":"2.0.0.0","dependencies":[]}"#;
+        let zip = Builder::new().add("app.json", app_json.as_bytes(), true).finish();
+        std::fs::write(dir.path().join("Zed.Source.zip"), zip).unwrap();
+        let l = load_dependencies(&Request {
+            project: &project(&[("zz", "Zed", "1.0.0.0")]),
+            workspace_apps: &[],
+            search_dirs: &[dir.path().to_path_buf()],
+            missing: MissingPolicy::Skip,
+            source_build: None,
+            application_implies_dependencies: true,
+            lazy_sources: false,
+        })
+        .unwrap();
+        assert!(l.apps.is_empty());
+        assert!(
+            matches!(l.skipped.as_slice(), [SelectError::Missing { dep, .. }] if dep.name == "Zed"),
+            "{:?}",
+            l.skipped
+        );
     }
 }

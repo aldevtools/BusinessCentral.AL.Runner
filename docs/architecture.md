@@ -40,6 +40,7 @@ The IR is compiled to register bytecode per routine on its first call (ADR-034);
 | `al-bcdb` | Reads BC data straight from a SQL Server backup (`.bak`) or a cloud export (`.bacpac`): backup container, page map, system catalog, row and page decompression, off-page BLOBs, zip and `model.xml`, native BCP rows. A port of the owner's `bcdb` (C#). Core crate: works on a `ByteSource`, no OS access (ADR-006). Not wired into test runs yet; ADR-020 proposes how. See `docs/bcdb.md` |
 | `al-bcdb-std` | The OS side of `al-bcdb`: the pread file source and `BackupProvider`, the table provider behind `al-runner test --test-data` (ADR-020). May touch the OS |
 | `al-bcdb-cli` | The `al-bcdb` development command line: the bcdb read commands over `al-bcdb`, a parallel `export`, and the parity tests against the published bcdb. May touch the OS |
+| `al-testfiles` | Dev-dependency only: the path of a Microsoft file of the pinned build in the artifact cache, for tests (ADR-013 amendment of 2026-11-10). Tests never download; a missing file fails with the `--fetch-deps` command |
 | `al-test-cli` | Corpus discovery, oracle reading, the BC test-runner semantics, reports (text, Markdown, JSON, JUnit), the ratchet; `SidecarHost` (`dotnet.rs`), the one place that starts a process (the .NET sidecar) |
 
 ## Runtime model

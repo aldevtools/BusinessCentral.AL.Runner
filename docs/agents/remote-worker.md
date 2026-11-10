@@ -54,16 +54,20 @@ Worktrees share the clone's settings and need nothing else.
    needs: `git -C corpus fetch --unshallow` (skip it if the command says the
    repository is complete).
 3. `cargo build --release`
-4. `./target/release/al-test-cli --root .`
-   The first run downloads Microsoft artifacts and takes longer.
-5. Compare the counts with the table in `docs/manual/what-works.md` ("Status") and
+4. `./target/release/al-test-cli --root . --all-versions --fetch-deps`
+   Once per machine: it downloads Microsoft's apps of the pinned builds into the artifact cache
+   (`~/.cache/al-runtime/artifacts`, about 41 MB per BC version). Corpus runs and the Rust tests that read a
+   Microsoft file take them only from there. A test never downloads; it fails with this command when a file is missing.
+   Run it again after `bc_build` in `oracle/oracle.toml` moves.
+5. `./target/release/al-test-cli --root .`
+6. Compare the counts with the table in `docs/manual/what-works.md` ("Status") and
    `docs/status.md`. On `main` today every BC version (27.5, 28.5 and 29.0)
    shows 0 failing, and the same cases are not run on each. If your numbers
    differ, that table may lag behind `main`. The ratchet is the check: the
    exit code must be 0. Exit code 1 means a baseline case no longer passes,
    and 2 is a setup error. Fix setup problems before you take any task.
-6. `./check.sh` must pass on a clean `main`. It takes minutes.
-7. Create the labels if they are missing, once:
+7. `./check.sh` must pass on a clean `main`. It takes minutes.
+8. Create the labels if they are missing, once:
    `agent-ready`, `in-progress`, `ready-for-review`, `blocked`,
    `found-by-agent` (`gh label create NAME`).
 

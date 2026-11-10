@@ -78,6 +78,7 @@ mod np_blockers;
 mod option_init_ordinal;
 mod partial_own_delete_event;
 mod profile_extension_enabled;
+mod published_application_tenant_id;
 mod query_aggregate_caption;
 mod query_flowfield_filter_join;
 mod query_flowfield_filter_joined_item;
