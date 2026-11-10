@@ -226,10 +226,7 @@ pub fn control_text(v: &Value, f: &ControlFormat, enum_caption: &dyn Fn(u32, i32
         Value::Text(t) | Value::Code(t) => t.to_string(),
         Value::Option(o, members) => match &f.option_captions {
             Some(c) if (*o as usize) < c.len() => c[*o as usize].clone(),
-            _ => members
-                .get(*o as usize)
-                .map(|m| crate::optname::listed(m).to_string())
-                .unwrap_or_else(|| o.to_string()),
+            _ => members.get(*o as usize).cloned().unwrap_or_else(|| o.to_string()),
         },
         Value::Enum(id, o) => enum_caption(*id, *o),
         Value::Date(0, _) | Value::Time(0) | Value::DateTime(0) => String::new(),

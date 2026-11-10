@@ -119,7 +119,7 @@ impl Ty {
             "guid" => Ty::Guid,
             "label" | "textconst" => Ty::Label,
             "variant" => Ty::Variant,
-            "option" => Ty::Option(al_builtins::optname::declared(t.option_member_forms())),
+            "option" => Ty::Option(t.option_members()),
             "action" => Ty::Option(
                 al_builtins::value::ACTION_MEMBERS
                     .iter()
@@ -277,11 +277,6 @@ mod tests {
     fn option_label_variant_and_library_types() {
         assert_eq!(ty("Option A,\"B C\""), Ty::Option(vec!["A".into(), "B C".into()]));
         assert_eq!(ty("Option ,A"), Ty::Option(vec!["".into(), "A".into()]));
-        // `""` and `" "` stay apart (`al_builtins::optname`).
-        assert_eq!(
-            ty("Option \"\",\" \",A"),
-            Ty::Option(vec![al_builtins::optname::QUOTED_EMPTY.into(), " ".into(), "A".into()])
-        );
         assert_eq!(ty("Label 'x', Locked = true"), Ty::Label);
         assert_eq!(ty("Variant"), Ty::Variant);
         assert_eq!(ty("JsonObject"), Ty::Builtin("JsonObject".into()));

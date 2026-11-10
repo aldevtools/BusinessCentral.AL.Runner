@@ -666,12 +666,6 @@ fn control_row(
             r[pos(t, 9)] = Value::Text(f.name.clone().into());
             // The members of an option or enum field (TestPageControlFieldDefaults.al:60-72).
             r[pos(t, 10)] = Value::Text(match &f.ty {
-                RtType::Option(m) if al_builtins::optname::has_quoted_empty(m) => {
-                    return Err(
-                        "the members of an Option field with a member declared as \"\" (probe OPTBLANK, not pinned)"
-                            .into(),
-                    );
-                }
                 RtType::Option(m) => m.join(",").into(),
                 RtType::Enum(e) => c.objects[*e as usize]
                     .enum_values

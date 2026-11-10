@@ -1952,10 +1952,6 @@ impl Session {
                 Ok(Some((true, members)))
             }
             RtType::Option(names) => {
-                // The text of a member declared as `""` is not pinned in a listing (probe OPTBLANK, `al_builtins::optname`).
-                if al_builtins::optname::has_quoted_empty(names) {
-                    return al_builtins::optname::refuse("the members of an Option field");
-                }
                 // A table field's OptionCaptionML gives the captions of the session language (record/table-properties/
                 // XTablePropsTests.al:219-232).
                 let ml = self.field_property(t, pos, "OptionCaptionML");

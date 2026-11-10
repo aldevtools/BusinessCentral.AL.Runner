@@ -81,9 +81,6 @@ impl Session {
                 engine.program.objects[*id as usize].enum_values.clone()
             }
             RtType::Option(members) if ctl.prop("optioncaption").is_none() && !field_prop("OptionCaption") => {
-                if al_builtins::optname::has_quoted_empty(members) {
-                    return al_builtins::optname::refuse("ValuesAllowed on a control of an Option");
-                }
                 members.iter().enumerate().map(|(i, m)| (i as i32, m.clone())).collect()
             }
             _ => {
@@ -721,9 +718,6 @@ impl Session {
                     )));
                 }
             }
-        }
-        if matches!(&ty, RtType::Option(m) if al_builtins::optname::has_quoted_empty(m)) {
-            return al_builtins::optname::refuse("SetValue on a control of an Option");
         }
         let parsed = match blank_enum {
             Some(v) => Ok(v),

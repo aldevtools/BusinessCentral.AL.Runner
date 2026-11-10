@@ -647,8 +647,8 @@ fn split_option_members(text: &str) -> Vec<String> {
     }
     out.into_iter()
         .map(|(name, quoted)| match (quoted, name.is_empty()) {
-            // `""` keeps its own text, apart from `" "` (see `al_builtins::optname`).
-            (true, true) => al_builtins::optname::QUOTED_EMPTY.to_string(),
+            // `""` is one space, an unquoted empty member stays empty (see `TypeRef::option_members`).
+            (true, true) => " ".to_string(),
             (true, false) => name,
             _ => name.trim().to_string(),
         })
@@ -806,7 +806,7 @@ tableextension 50901 "ALT Ext" extends "ALT Universal"
     fn option_fields_take_their_members_from_the_option_members_property() {
         let w = ws(&[(
             "t.al",
-            "table 50902 T { fields { field(1; K; Code[10]) { } field(2; St; Option) { OptionMembers = Open,\"In Progress\",Closed; } field(3; Bl; Option) { OptionMembers = ,A,B; } field(4; Sp; Option) { OptionMembers = \" \",Draft; } field(5; Qe; Option) { OptionMembers = Draft,\"\"; } } }",
+            "table 50902 T { fields { field(1; K; Code[10]) { } field(2; St; Option) { OptionMembers = Open,\"In Progress\",Closed; } field(3; Bl; Option) { OptionMembers = ,A,B; } field(4; Sp; Option) { OptionMembers = \" \",Draft; } } }",
         )]);
         let m = members_of(&w, ObjKind::Table, "T");
         assert_eq!(
@@ -819,11 +819,6 @@ tableextension 50901 "ALT Ext" extends "ALT Universal"
         );
         // A quoted name keeps its spaces: a member named with one space is not a blank one.
         assert_eq!(m.field("Sp").unwrap().ty, Ty::Option(vec![" ".into(), "Draft".into()]));
-        // A member written `""` is not the one written `" "`.
-        assert_eq!(
-            m.field("Qe").unwrap().ty,
-            Ty::Option(vec!["Draft".into(), al_builtins::optname::QUOTED_EMPTY.into()])
-        );
     }
 
     // corpus _fixtures/tables/ALTRelationParentChild.al:49-96: every arm of a conditional

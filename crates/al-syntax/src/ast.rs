@@ -985,17 +985,23 @@ impl TypeRef {
             .filter_map(|l| l.text_string().trim().parse().ok())
             .collect()
     }
-    /// `Option ,A,"B C",""` → `[("", false), ("A", false), ("B C", true), ("", true)]`: the exact text of each member
-    /// and whether it was written quoted. The text of `""` and `" "` stay apart, and an unquoted empty member is told from
-    /// a quoted one (it shows its number: text/P69OptionInText.al:Option_StrSubstNo `subst_2`).
-    pub fn option_member_forms(&self) -> Vec<(String, bool)> {
+    /// `Option ,A,"B C"` → `["", "A", "B C"]`.
+    pub fn option_members(&self) -> Vec<String> {
         let toks: Vec<_> = significant_green_tokens(&self.0).skip(1).collect();
-        let mut out = vec![(String::new(), false)];
+        let mut out = vec![String::new()];
         for t in toks {
             match t.kind() {
-                SyntaxKind::Comma => out.push((String::new(), false)),
+                SyntaxKind::Comma => out.push(String::new()),
                 SyntaxKind::Ident | SyntaxKind::QuotedIdent | SyntaxKind::Integer => {
-                    *out.last_mut().expect("non-empty") = (unquote_ident(t.text), t.kind() == SyntaxKind::QuotedIdent)
+                    // A quoted empty name (`""`) shows as one space; an unquoted empty member shows its number
+                    // (types/decimal-integer/ScT70053.al:Option_Format `blank_len` against text/P69OptionInText.al:
+                    // Option_StrSubstNo `subst_2`). The two are told apart by keeping the quoted one as a space.
+                    let name = unquote_ident(t.text);
+                    *out.last_mut().expect("non-empty") = if name.is_empty() && t.kind() == SyntaxKind::QuotedIdent {
+                        " ".into()
+                    } else {
+                        name
+                    }
                 }
                 _ => {}
             }

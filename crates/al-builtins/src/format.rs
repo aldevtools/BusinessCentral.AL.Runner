@@ -314,20 +314,6 @@ fn char_text(c: u16) -> Result<String, FormatFail> {
 
 /// An option value with no member name at its place: the name of a platform member AL cannot name
 /// (format-evaluate/SoEvaluateSystemOptions.al:114 Numbers `num 2` Form), else its number.
-/// A member declared `""` shows as one character only as the last member (types/decimal-integer/ScT70053.al:Option_Format
-/// `blank_len`); another place is refused (`crate::optname`).
-fn blank_member_text(members: &[String], o: i32, m: &str) -> Result<String, FormatFail> {
-    if m.is_empty() {
-        Ok(unnamed_member_text(members, o))
-    } else if o as usize + 1 == members.len() {
-        Ok(" ".to_string())
-    } else {
-        Err(FormatFail::Unsupported(
-            "Format of an Option member declared as \"\" except as the last member (probe OPTBLANK)".into(),
-        ))
-    }
-}
-
 fn unnamed_member_text(members: &[String], o: i32) -> String {
     crate::system_option_eval::hidden_name(members, o).map_or_else(|| o.to_string(), str::to_string)
 }
@@ -359,7 +345,7 @@ fn option_text(o: &i32, members: &[String], standard: i32) -> Result<String, For
         _ => match members.get(*o as usize) {
             // An unquoted empty member shows its number (text/P69OptionInText.al:Option_StrSubstNo
             // `subst_2`; record/crud/RcBInit.al:Props_BlankZero_Option_Caption `opt blank member`).
-            Some(m) if m.is_empty() || m == crate::optname::QUOTED_EMPTY => blank_member_text(members, *o, m)?,
+            Some(m) if m.is_empty() => unnamed_member_text(members, *o),
             Some(m) => crate::system_option_eval::shown_name(members, m).map_or_else(|| m.clone(), str::to_string),
             None => unnamed_member_text(members, *o),
         },
