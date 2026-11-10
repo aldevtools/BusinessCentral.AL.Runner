@@ -117,7 +117,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `stream.rs` (549): In-memory streams over Blob fields, plus the array helpers that share their corpus folder (`streams/`). Entry: `BlobBuf` 23, `BlobRef` 33, `new_blob` 35, `copy_blob` 44.
 - `sysenum.rs` (119): Platform option types whose values AL writes `FieldClass::Normal`. Entry: `members` 9, `option_members` 116.
 - `textfns.rs` (724): Text functions and methods, TextBuilder and BigText. Entry: `secret_or_text` 493, `native_for` 679.
-- `value.rs` (1658): Runtime values (ADR-010). The state of a page is not here (ADR-072: al-vm `pages/state.rs`). Entry: `Value` 112, `RtType` 27, `RecordState` 368, `Instance` 1063, `DotNetObject` 237.
+- `value.rs` (1660): Runtime values (ADR-010). The state of a page is not here (ADR-072: al-vm `pages/state.rs`). Entry: `Value` 112, `RtType` 27, `RecordState` 368, `Instance` 1063, `DotNetObject` 237.
 - `version.rs` (33): The Version type. Entry: `native_for` 20.
 - `wsac.rs` (119): `WebServiceActionContext`. Entry: `native_for` 104.
 - `xml/mod.rs` (252): XmlDocument, XmlElement, XmlAttribute, XmlText, XmlCData, XmlComment, XmlProcessingInstruction, XmlDeclaration, XmlNode,. Submodules: `dom` (node store), `parse`, `write`, `write_to`, `xpath`, `select`, `queries`, `read`, `read_tree`, `tree`, `edit`, `attrs`, `names`, `node_types`, `lists`, `manager`. Entry: `native_for` (mod.rs), `XmlCell`, `XData` (dom.rs), `escape_text`, `escape_attr` (write.rs).
