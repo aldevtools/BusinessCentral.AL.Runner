@@ -1924,7 +1924,6 @@
 95997 R7144_FieldCaption_Dutch
 95997 R7144_FieldRefCaption_Dutch
 96073 R7169_Test_ReadsPublishedAsOfDependency
-96140 PG6889RS_Step4_EmptyPartFilteredHostTypeResetsFields
 96205 WcPageOpen_UndisplayedFieldOfTheSameTable
 96249 WF3_Card_Line2_Action
 96249 WF3_Card_Line3_Action
@@ -2012,15 +2011,6 @@
 97910 ECR_TestFields_2067
 97910 ECR_ViewWords_1033
 97910 ECR_ViewWords_2067
-97950 XTT_AfterOnlyPreset_Export
-97950 XTT_AfterOnly_Export
-97950 XTT_BothTableValue_Export
-97950 XTT_BothValueTable_Export
-97950 XTT_FieldInnerTriggers_Export
-97950 XTT_RootTableAfterOnly_Export
-97950 XTT_RootTableValue_Export
-97950 XTT_RowDirect_Export
-97950 XTT_TableTriggers_Export
 99786 CardControlCaptions_PlainExpressions_KindItem
 99786 CardControlCaptions_PlainExpressions_KindResource
 99786 CountCard_AsIntegerExpression_RunsAtOpen
@@ -2044,8 +2034,6 @@
 99926 Y7403_List_F4_SetTwice_And_SameValue
 99926 Y7403_List_F5
 99926 Y7403_List_F5_SetTwice_And_SameValue
-99943 Y7409_StatementForm_HiddenAndShownRow
-99962 Y7412_Run0_StatementForm
 99983 Y7428_Action_AssignOnly
 99983 Y7428_Action_AssignSave
 99983 Y7428_Action_AssignUpdateTrue

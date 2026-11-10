@@ -1040,6 +1040,8 @@ impl Session {
         let r = self.action_invoke_body(st, idx);
         st.borrow_mut().view_before_action = outer_view;
         let r = match r {
+            // The part read the rows the action left (`land_empty_tree_part_after_action`).
+            Ok(v) if std::mem::take(&mut st.borrow_mut().empty_tree_part_landed) => Ok(v),
             Ok(_) if empty_tree_part_in_key && self.view_row_count(st)? > 0 => self.refuse_empty_tree_part_action(),
             Ok(v) => self.settle_rows_after_action(st, view_before).map(|()| v),
             e => e,
@@ -1359,6 +1361,7 @@ impl Session {
             let stored_before = !st.borrow().never_stored;
             st.borrow_mut().save_record_called = false;
             st.borrow_mut().refresh_update_false = false;
+            let empty_tree_part = self.empty_tree_part_in_key(st);
             let empty_view = self.empty_list_view(st)?;
             let empty = self.empty_page_shape(st)?;
             let held_before = (empty.is_none()
@@ -1416,6 +1419,10 @@ impl Session {
                 st.borrow_mut().refresh = false;
             }
             r?;
+            if empty_tree_part && self.view_row_count(st)? > 0 {
+                self.land_empty_tree_part_after_action(st)?;
+                return Ok(Value::Null);
+            }
             if empty_view && self.update_on_empty_list_view(st)? {
                 return Ok(Value::Null);
             }

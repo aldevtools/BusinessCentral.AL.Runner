@@ -2631,7 +2631,7 @@ impl Session {
             s.cursor = before_cursor;
             s.draft = before_draft;
             drop(s);
-            if st.borrow().host.is_some() && !result_used {
+            if self.go_to_key_miss_raises(st, result_used) {
                 return Err(error_code("The row does not exist on the TestPage.", "TestRowNotFound"));
             }
         }
