@@ -2498,7 +2498,7 @@ impl Session {
                     && matches!((self.filter_text(&a.expr), self.filter_text(&b.expr)), (Ok(x), Ok(y)) if x == y)
             });
         if same {
-            return Ok(false);
+            return self.same_filters_on_empty_new_line(st, without_curr, without_parts);
         }
         match (self.declares(st, "onfindrecord"), self.declares(st, "onnextrecord")) {
             (true, true) if st.borrow().cursor == Cursor::Row && !st.borrow().view_left => {
@@ -2508,7 +2508,7 @@ impl Session {
             (false, false) => {}
             _ => return Ok(false),
         }
-        let Some(on_row) = self.validate_refresh_start(st)? else {
+        let Some(on_row) = self.validate_refresh_start(st, without_curr)? else {
             return Ok(false);
         };
         let curr = |this: &mut Self| -> Result<(), Signal> {
@@ -2539,21 +2539,7 @@ impl Session {
                 if without_curr {
                     return Ok(false);
                 }
-                {
-                    let mut s = st.borrow_mut();
-                    s.window = Vec::new();
-                    s.focus = None;
-                    s.focus_in_row = false;
-                }
-                let r = (|| {
-                    self.land_on_new_line(st)?;
-                    self.land_on_new_line(st)
-                })();
-                self.torn_down_on_error(st, r)?;
-                st.borrow_mut().refresh = false;
-                if !without_parts {
-                    self.sync_parts(st)?;
-                }
+                self.show_new_line_of_empty_view(st, without_parts)?;
                 return Ok(true);
             }
             // No row left: a blank row, its key from a single-valued filter, and OnAfterGetCurrRecord on it (RZ_PlainWs_B_Empty

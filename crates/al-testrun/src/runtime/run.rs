@@ -97,17 +97,16 @@ pub fn run_codeunit_limited(
 /// corpus CI on 27.5, 28.5 and 29.0, where the lines are the same). The runner's own app is
 /// `Test Runner by Microsoft`; its version is the loaded app's, else the run's BC version.
 ///
-/// The frames follow the routing of the test codeunit (session-system/callstack/CallstackRunnerFrames.al, every
-/// `Plain` and `Handler` case, BC 27.5, 28.5 and 29.0): a codeunit with handlers (`[HandlerFunctions]`) runs through
-/// Microsoft's runner on every version and shows the six frames; one without shows them on BC 27 and none on BC 28 and
-/// later (its runner adds no AL frame), so the text ends at the separator. The same test of the handlers as `corpus.rs`.
-pub(crate) fn runner_frames(program: &al_ir::Program, engine: &Engine, object: usize) -> String {
-    let handlers = program.objects[object].routines.iter().any(|r| {
-        r.attributes
-            .iter()
-            .any(|a| a.name.eq_ignore_ascii_case("HandlerFunctions"))
-    });
-    if !handlers
+/// The frames follow the routing of the test codeunit: one BC runs on the TestRunnerHub (`hub_leg`, `corpus.rs` `on_hub`:
+/// on BC 28 and later a codeunit without `[HandlerFunctions]` and with `TestPermissions = Disabled`, or one with
+/// RequiredTestIsolation Function or Disabled) shows no runner frame from BC 28 on, so the text ends at the separator
+/// (session-system/callstack/CallstackRunnerFrames.al:17-20, every `Plain` case, BC 28.5 and 29.0; the hub adds no AL frame).
+/// Every other codeunit, and on BC 27 every codeunit, runs under Microsoft's runner 130450
+/// (codeunits/run-onrun/RqIsolationModes.al:9-12) and shows the six frames (CallstackRunnerFrames.al, every `Handler` case
+/// on BC 27.5, 28.5 and 29.0 and every `Plain` case on 27.5). A run without the corpus routing (`hub_leg` not set) shows
+/// the six frames, as before the hub leg was told apart.
+pub(crate) fn runner_frames(program: &al_ir::Program, engine: &Engine, hub_leg: bool) -> String {
+    if hub_leg
         && engine
             .target
             .as_ref()
@@ -758,7 +757,7 @@ fn run_codeunit_inner(
                         };
                         // Under a runner codeunit its own frames are on the call stack.
                         if !runner.is_al() {
-                            session.set_runner_frames(runner_frames(&lowered.program, engine, object));
+                            session.set_runner_frames(runner_frames(&lowered.program, engine, scratch.hub_leg));
                         }
                         session.start_sleep_budget(limit);
                         // A panic in the test is a runtime bug: it is caught here, so that it ends this codeunit and not

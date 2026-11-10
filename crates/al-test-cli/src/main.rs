@@ -1210,6 +1210,7 @@ fn run_version_inner(
         process_ends_after,
         // The corpus checks permissions where it pins them: a test that lowers its own is never run without them.
         ignore_permission_mock: false,
+        no_client: args.no_client,
         // The corpus run is the conformance result: an unpinned error text is never reported as a failure (issue 6487).
         report_unpinned_errors: false,
         permissions_off: false,

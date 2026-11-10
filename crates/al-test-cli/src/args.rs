@@ -34,6 +34,8 @@ pub struct Args {
     pub deps: Vec<PathBuf>,
     /// Run without dependency apps (the corpus alone).
     pub no_deps: bool,
+    /// `--no-client`: run the corpus as a session without a client (`RunOptions::no_client`).
+    pub no_client: bool,
     /// `--bc-version PREFIX`: which oracle to run (default: the newest).
     pub bc_version: Option<String>,
     /// `--all-versions`: run every version in `oracle.toml`, one after the other.
@@ -238,6 +240,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             "--no-ratchet" => a.no_ratchet = true,
             "--deps" | "--dep" => a.deps.push(text()?.into()),
             "--no-deps" => a.no_deps = true,
+            "--no-client" => a.no_client = true,
             "--test-runner" => {
                 let v = text()?;
                 a.test_runner =
@@ -369,6 +372,8 @@ INPUT
   --all-versions              run every version in the oracle table, then compare them
   --deps DIR, --dep DIR       extra directory of .app packages for the dependencies (repeatable)
   --no-deps                   run the corpus alone, without Microsoft's apps
+  --no-client                 run the tests as a session without a client (dialogs answer as in a page background task
+                              worker, calls not probed there are refused; as `al-runner test --no-client`)
   --test-runner R             builtin (default), microsoft (runner 130450 run as BcContainerHelper runs it;
                               not on the TestRunnerHub path of the newer majors) or a runner codeunit id (ADR-066)
   --no-download               never fetch a dependency app from the artifact feed
