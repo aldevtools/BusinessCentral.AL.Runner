@@ -2574,3 +2574,30 @@ fn count_into_a_decimal_flowfield_is_al0202_and_into_a_biginteger_compiles() {
     assert!(codes(&[doc, &flow("BigInteger")]).is_empty());
     assert!(codes(&[doc, &flow("Integer")]).is_empty());
 }
+
+// Must-not-compile case 3113 (al-runner issue 7519): a subscriber of OnBeforeActionEvent or OnAfterActionEvent for an action the
+// page does not have is AL0271; an action of the page, of a page extension, or a subscriber for every action compiles
+// (corpus events/page-events/PageActionEventsWithoutTrigger.al).
+#[test]
+fn an_action_event_subscriber_for_an_unknown_action_is_al0271() {
+    let page = r#"table 50000 "AS T" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+page 50000 "AS P" { PageType = Card; SourceTable = "AS T"; actions { area(Processing) { action(Existing) { } group(G) { action(Grouped) { } } } } }
+pageextension 50001 "AS PX" extends "AS P" { actions { addlast(Processing) { action(FromExt) { } } } }"#;
+    let sub = |event: &str, element: &str| {
+        format!(
+            "codeunit 50002 \"AS S\" {{ [EventSubscriber(ObjectType::Page, Page::\"AS P\", '{event}', '{element}', false, false)] local procedure S() begin end; }}"
+        )
+    };
+    assert_eq!(
+        codes(&[page, &sub("OnBeforeActionEvent", "NoSuchAction")]),
+        vec!["AL0271".to_string()]
+    );
+    assert_eq!(
+        codes(&[page, &sub("OnAfterActionEvent", "NoSuchAction")]),
+        vec!["AL0271".to_string()]
+    );
+    for ok in ["Existing", "Grouped", "FromExt", "existing"] {
+        assert!(codes(&[page, &sub("OnBeforeActionEvent", ok)]).is_empty(), "{ok}");
+    }
+    assert!(codes(&[page, &sub("OnBeforeActionEvent", "")]).is_empty());
+}
