@@ -361,6 +361,43 @@ pub struct TestResult {
     /// ADR-066 amendment 12, decision 2: a failed test of a default run (no `--strict-order`) that read first a
     /// SingleInstance global an earlier test codeunit would have left with another value on BC (`order_hint.rs`).
     pub order_hint: Option<OrderHint>,
+    /// With `RunOptions::cell_tap`: the `Expect` cells the test matched (`al_vm::observer_tap`); `None` when it did not use the fixture.
+    pub cells: Option<al_vm::observer_tap::CellRecord>,
+}
+
+impl TestResult {
+    /// A test with its outcome and nothing else recorded (a test that did not start).
+    pub(crate) fn bare(
+        suite: usize,
+        app: usize,
+        codeunit: u32,
+        codeunit_name: String,
+        test: String,
+        outcome: Outcome,
+    ) -> Self {
+        TestResult {
+            suite,
+            app,
+            codeunit,
+            codeunit_name,
+            test,
+            outcome,
+            call_stack: String::new(),
+            assumptions: Vec::new(),
+            time: std::time::Duration::ZERO,
+            slept_ms: 0,
+            coverage: Vec::new(),
+            messages: Vec::new(),
+            captured: None,
+            impact: Vec::new(),
+            stubs: Vec::new(),
+            ui_answered: Vec::new(),
+            entered: Vec::new(),
+            dotnet: false,
+            order_hint: None,
+            cells: None,
+        }
+    }
 }
 
 /// Wall time of the phases of a run (`--timings`).
@@ -625,6 +662,8 @@ pub(crate) struct Scratch {
     stubbed: Vec<(String, Vec<String>)>,
     /// `--dev-endpoint-ui`: the UI calls answered for each test (`TestResult::ui_answered`).
     ui_answered: Vec<(String, Vec<String>)>,
+    /// `RunOptions::cell_tap`: the cells each test matched (`TestResult::cells`).
+    cells: Vec<(String, al_vm::observer_tap::CellRecord)>,
     /// The time each test that slept asked `Sleep` for (`TestResult::slept_ms`).
     slept: Vec<(String, u64)>,
     /// With `trace`: the workspace objects each test entered and whether it ran DotNet (`TestResult::entered`).

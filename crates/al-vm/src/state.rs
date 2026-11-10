@@ -339,6 +339,7 @@ pub(crate) struct EventState {
 pub(crate) type ViewFilterKey = (usize, i32, String);
 
 /// Code coverage recording.
+#[derive(Default)]
 pub(crate) struct CoverageState {
     /// `CodeCoverageLog` is recording.
     pub(crate) code_coverage: bool,
@@ -352,6 +353,8 @@ pub(crate) struct CoverageState {
     pub(crate) impact: std::cell::RefCell<Option<crate::impact::Touches>>,
     /// `impact` is on: the one branch a note costs when it is off.
     pub(crate) impact_on: bool,
+    /// The cell tap of the observer fixture (`observer_tap.rs`). `None` when off: one branch per routine call.
+    pub(crate) cells: Option<Box<crate::observer_tap::Tap>>,
     /// `al-runner test --profile`: the session's call tree (`profile.rs`). `None` when off: one branch per statement,
     /// call, builtin return and record method.
     pub(crate) profiler: Option<Box<crate::profile::Profiler>>,

@@ -9,6 +9,7 @@ pub(super) struct SessionFlags {
     permissions_off: bool,
     dev_endpoint_ui: bool,
     no_client: bool,
+    cell_tap: bool,
 }
 
 impl SessionFlags {
@@ -18,6 +19,7 @@ impl SessionFlags {
             permissions_off: o.permissions_off,
             dev_endpoint_ui: o.dev_endpoint_ui,
             no_client: o.no_client,
+            cell_tap: o.cell_tap,
         }
     }
 
@@ -26,5 +28,8 @@ impl SessionFlags {
         s.permissions_off = self.permissions_off;
         s.set_dev_endpoint_ui(self.dev_endpoint_ui);
         s.set_clientless_session(self.no_client);
+        if self.cell_tap {
+            s.enable_cell_tap();
+        }
     }
 }
