@@ -253,8 +253,8 @@ mod test_end;
 mod typed_handler_temp;
 pub(crate) use shown::ShownNote;
 pub(crate) use state::{
-    ClosedBy, ControlRef, ControlTarget, Cursor, PageMode, PageState, ReadBackwards, WindowRow, control_of, into_st,
-    page_value, st_of, test_control,
+    ClosedBy, ControlRef, ControlTarget, Cursor, LookupKind, PageMode, PageState, ReadBackwards, WindowRow, control_of,
+    into_st, page_value, st_of, test_control,
 };
 
 impl Session {

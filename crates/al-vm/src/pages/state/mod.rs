@@ -58,11 +58,29 @@ pub(crate) fn register_closed_page() {
 }
 
 /// How a page was opened by the test client.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PageMode {
+    #[default]
     View,
     Edit,
     New,
+}
+
+/// What put a page into lookup mode. `PageState::lookup` says whether the mode is on (a page's code can switch it with
+/// `LookupMode`); this says who asked for it first. The pins differ by kind, so a reader names the kinds it is pinned for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LookupKind {
+    /// Nothing did: the page is not a lookup.
+    #[default]
+    None,
+    /// `LookupMode(..)` was called on the page variable or on `CurrPage` (the mode it set is `PageState::lookup`).
+    Variable,
+    /// The static `Page.RunModal(Id, Rec)` or `Page.RunModal(0, Rec)` with its return value used: the call sets the mode, not
+    /// `LookupMode(true)` on a page variable. Called as a statement the page is not a lookup
+    /// (pages/triggers/BeRunModalOnLookup.al:916).
+    StaticRunModal,
+    /// `TestField.Lookup()` opened the page over a TableRelation.
+    Relation,
 }
 
 /// A row a repeater has populated: its primary key, the fields as stored when it was read and as
@@ -77,9 +95,10 @@ pub struct WindowRow {
 }
 
 /// Where the test client's cursor stands on a page (ADR-012).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Cursor {
     /// No row: an empty view.
+    #[default]
     None,
     /// On a stored row (or, for a new record, the row being typed).
     Row,
@@ -125,7 +144,8 @@ pub enum ClosedBy {
 }
 
 /// The test client's state for one page (ADR-012). Fields grow with the
-/// behaviours the corpus pins.
+/// behaviours the corpus pins. A new field starts at its type's default (`PageState::closed`).
+#[derive(Default)]
 pub struct PageState {
     /// Object index of the page.
     pub object: u32,
@@ -353,7 +373,10 @@ pub struct PageState {
     /// The level of each row of a tree whose IndentationColumn is a page variable, by primary key: the variable's value after
     /// OnAfterGetRecord last ran for the row (`pages/open/tree_var.rs`).
     pub tree_levels: Vec<(Vec<Value>, i32)>,
+    /// The page is in lookup mode (what `LookupMode()` answers). What put it there is `lookup_kind`.
     pub lookup: bool,
+    /// What put the page into lookup mode; it stays when the page's code switches the mode off with `LookupMode(false)`.
+    pub lookup_kind: LookupKind,
     /// The `Action` the page closed with, once it has.
     pub result: Option<String>,
     /// `TestPage.Trap()` was called on this variable and no page has been caught yet.
@@ -469,9 +492,6 @@ pub struct PageState {
     /// The fields the page's server-side Rec still has after the test client moved onto a row it holds without running a read
     /// trigger (`Session::note_server_row_lag`): a procedure called through a held `Page` variable reads this row.
     pub server_lag: Option<Vec<Value>>,
-    /// The page was run by the static `Page.RunModal` with its return value used (lookup mode set by the call, not by
-    /// `LookupMode(true)` on a page variable).
-    pub static_lookup: bool,
     /// The static `Page.RunModal(0, Rec)` found the page from the table's LookupPageId.
     pub lookup_page_from_table: bool,
     /// Page triggers (the page's or an extension's) run on this page so far.
@@ -697,9 +717,6 @@ pub struct PageState {
     /// A page whose rowset OnFindRecord/OnNextRecord serve was refreshed: which row the client
     /// settles on is not modelled, so Rec-bound controls are not read until the cursor moves.
     pub stale: bool,
-    /// The page is a lookup without the new-row line: `LookupMode(true)` was called on this variable, or
-    /// `Page.RunModal(Id, Rec)` / `Page.RunModal(0, Rec)` had its return value used.
-    pub lookup_set: bool,
     /// `Page.RunModal(Id, Rec)` called as a statement: not a lookup (pages/triggers/BeRunModalOnLookup.al:916),
     /// and whether `Rec` takes the row the page closed on is not pinned: a later use of `Rec` refuses when that row differs.
     pub statement_run: bool,
@@ -763,241 +780,30 @@ impl std::fmt::Debug for PageState {
 }
 
 impl PageState {
+    /// The platform runs the page as a lookup of `kind`: the static `Page.RunModal` whose return value is used, or a
+    /// TableRelation lookup.
+    pub(crate) fn open_as_lookup(&mut self, kind: LookupKind) {
+        self.lookup = true;
+        self.lookup_kind = kind;
+    }
+
+    /// `LookupMode(on)` called from AL, on the page variable or on `CurrPage`. A page the platform opened as a lookup
+    /// (`open_as_lookup`) keeps its kind, also when its code switches the mode off.
+    pub(crate) fn set_lookup_mode(&mut self, on: bool) {
+        self.lookup = on;
+        if self.lookup_kind == LookupKind::None {
+            self.lookup_kind = LookupKind::Variable;
+        }
+    }
+
+    /// A page that was never opened. Every field starts at its type's default except these (`mode` and `cursor`
+    /// name their starting variant with `#[default]`). A new field needs no line here.
     pub fn closed(object: u32) -> PageState {
         PageState {
             object,
             request_editable: true,
-            request_lookup_mode: false,
-            open: false,
-            ran: false,
-            mode: PageMode::View,
-            instance: None,
-            cursor: Cursor::None,
-            new_line: false,
-            draft: false,
-            dirty: false,
-            save_aborted: false,
-            frozen_visible: Vec::new(),
-            open_language: None,
-            control_captions: Vec::new(),
-            caption_refusals: Vec::new(),
-            field_captions: Vec::new(),
-            field_captions_opened: false,
-            field_captions_settled: false,
-            field_captions_row: None,
-            field_captions_quiet: false,
-            field_captions_pinned_move: false,
-            moving_next: false,
-            field_captions_fill_first: false,
-            field_captions_link_refill: false,
-            chain_refill: 0,
-            field_captions_action_save: 0,
-            window: Vec::new(),
-            window_from_start: false,
-            window_eof: false,
-            window_whole: false,
-            view_read_to_end: false,
-            window_read_up: false,
-            window_held_above: None,
-            window_top_unread: false,
-            moved_rec_open_partial: None,
-            read_up_from_last: None,
-            landing_first: false,
-            open_reads_above: false,
-            opened_on_moved_rec: false,
-            refreshed_after_gone_move: false,
-            action_ran: false,
-            gone_row_settled: false,
-            part_on_host_row: false,
-            onopenpage_kept_rec: false,
-            handed_rec_moved_by_onopenpage: false,
-            data_caption_value: None,
-            data_caption_pending: Vec::new(),
-            data_caption_due: false,
-            lookup_held_row: false,
-            open_rec_unpinned: None,
-            run_page_link_opened: false,
-            run_page_link_open_moved: false,
-            open_rec_fill: None,
-            temp_reads_once_more: false,
-            reads_once_more_in: None,
-            open_read: false,
-            blank_on_open: false,
-            read_backwards: None,
-            selection_on_rec: false,
-            focus: None,
-            focus_in_row: false,
-            deferred_overlong: None,
-            errors: Vec::new(),
-            values_allowed_refused_row: None,
-            trigger_errors: Vec::new(),
-            saved_before_run_object: false,
-            set_value_held: false,
-            modify_vetoed: None,
-            inserted_before_host_action: false,
-            save_failure_depth: None,
-            save_failed: false,
-            refused: false,
-            close_error: false,
-            close_save_failed: false,
-            close_vetoed: false,
-            test_close_vetoed: false,
-            test_closed_in_handler: false,
-            run_static: None,
-            selection: None,
-            pending: None,
-            modal: false,
-            last_run_modal: None,
-            expanded: Vec::new(),
-            tree_shown: Vec::new(),
-            tree_hidden: Vec::new(),
-            tree_levels: Vec::new(),
-            lookup: false,
-            result: None,
-            trapping: false,
-            refresh: false,
-            save_record_called: false,
-            validating_control: false,
-            refresh_without_curr: false,
-            refresh_without_parts: false,
-            read_keeps_xrec: false,
-            xrec_after_validate: None,
-            rec_before_var_validate: None,
-            view_left: false,
-            marked_only_unshown: false,
-            marked_only_unpinned: false,
-            lookup_refresh_deferred: false,
-            lookup_part_touched: false,
-            lookup_setting_value: false,
-            lookup_value_set: false,
-            lookup_refresh_used: false,
-            lookup_next_refresh: false,
-            lookup_move_refresh: false,
-            lookup_next_plain: false,
-            host_followed_part: false,
-            marked_only_by_action: false,
-            marking_action: false,
-            marked_rows_held: false,
-            empty_after_action: false,
-            view_before_action: None,
-            unmarking_action: false,
-            shown_until_next_call: None,
-            go_to_want: None,
-            marked_only_read_unbuilt: false,
-            marked_refill_in_key: None,
-            read_after_goto: false,
-            read_after_goto_doubt: false,
-            read_after_goto_quiet: false,
-            read_after_goto_set: false,
-            read_after_goto_prev: false,
-            empty_list_row_behind: false,
-            action_landed_on_new_row: false,
-            empty_tree_part_landed: false,
-            validate_refresh_unheld: false,
-            action_refresh_unheld: false,
-            server_lag: None,
-            static_lookup: false,
-            lookup_page_from_table: false,
-            triggers_run: 0,
-            refresh_read_done: false,
-            action_shown_row: None,
-            rec_moved_other: false,
-            close_restored_row: false,
-            gone_closed_on_row: false,
-            split_starts_low: false,
-            save_after_first_read: false,
-            walk_synced_parts: false,
-            empty_part_xrec: None,
-            blank_after_empty_last: false,
-            gone_blank_no_new_line: false,
-            list_view_switched: false,
-            list_edit_back: false,
-            gone_blank_shows_line: false,
-            gone_view_list: false,
-            gone_temp_list: false,
-            link_validate_failed: false,
-            settled_first_row: false,
-            caption_assigned_closed: false,
-            draft_stored: false,
-            insert_vetoed_by_ext: None,
-            new_row_inserted_by_trigger: false,
-            test_opened_new: false,
-            opened_by_test: false,
-            closed_by: None,
-            typed_before_key: false,
-            unpinned_state: None,
-            unpinned_close: false,
-            add_in_reread: false,
-            after_new: None,
-            opening: false,
-            editable_off: false,
-            editable_off_in_open: false,
-            editable_set_later: None,
-            in_action: false,
-            set_controls: Vec::new(),
-            agr_row: None,
-            agr_rows: Vec::new(),
-            row_vars: Vec::new(),
-            row_prop_vars: Vec::new(),
-            row_exprs: Vec::new(),
-            fn_rows: Vec::new(),
-            fn_open_skipped: false,
-            fn_skip_agr: false,
-            lookup_cancelled: false,
-            row_exprs_live: false,
-            agr_xrec: None,
-            agcr_xrec: None,
-            agcr_started: None,
-            agcr_after_new: false,
-            shows_sibling_save: None,
-            part_accessed: false,
-            new_host_part_rows: false,
-            request_new_blank: false,
-            host_stored_blank_key: false,
-            part_insert_swallowed: false,
-            blank_key_edit_reread: false,
-            editable_preset: None,
-            caption: None,
-            parts: Vec::new(),
-            closed_parts: Vec::new(),
-            hidden_parts: Vec::new(),
-            lower_key: None,
-            placeholder_line: false,
-            split_burned: false,
-            or_group_dropped: false,
-            or_group_handed: false,
-            unpinned_filter_fields: Vec::new(),
-            set_record: None,
-            set_view: false,
-            new_by_call: false,
-            typed_handler: false,
-            typed_run_handler: false,
-            handler_set_record: false,
-            never_stored: false,
-            host: None,
-            ext_instances: Vec::new(),
-            parameters_wanted: false,
-            request_seed: None,
-            areas: String::new(),
-            permission_roles: Vec::new(),
-            hidden_flowfields: Vec::new(),
-            inited: false,
-            stale: false,
-            lookup_set: false,
-            statement_run: false,
-            field_run: false,
-            refresh_pinned: false,
-            expr_set_no_source: false,
-            refresh_by_update: false,
-            refresh_update_false: false,
-            filters_before_validate: None,
-            bg_tasks: Default::default(),
             bg_next_id: 1,
-            shown_exprs: Vec::new(),
-            shown_current: false,
-            shown_doubts: 0,
-            shown_doubt_call: None,
-            caught_by_trap: false,
+            ..Default::default()
         }
     }
 }
@@ -1114,5 +920,22 @@ mod tests {
         let taken = into_st(handle);
         assert_eq!(Rc::strong_count(&page), 2);
         assert!(Rc::ptr_eq(&taken, &page));
+    }
+
+    #[test]
+    fn a_closed_page_starts_from_the_defaults_except_five_values() {
+        // The five initial values that are not the type's default.
+        let s = PageState::closed(9);
+        assert_eq!(s.object, 9);
+        assert!(s.request_editable);
+        assert_eq!(s.bg_next_id, 1);
+        assert_eq!(s.mode, PageMode::View);
+        assert_eq!(s.cursor, Cursor::None);
+        // Five of the others, one of each kind.
+        assert!(!s.open);
+        assert!(s.instance.is_none());
+        assert!(s.window.is_empty());
+        assert_eq!(s.triggers_run, 0);
+        assert_eq!(s.areas, "");
     }
 }

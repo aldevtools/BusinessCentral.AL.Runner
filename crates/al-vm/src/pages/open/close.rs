@@ -493,7 +493,7 @@ impl Session {
     pub(in crate::pages) fn lookup_ok_on_no_row(&mut self, st: &St) -> Result<bool, Signal> {
         let (modal, lookup, static_lookup) = {
             let s = st.borrow();
-            (s.modal, s.lookup, s.static_lookup)
+            (s.modal, s.lookup, s.lookup_kind == LookupKind::StaticRunModal)
         };
         if !modal || !lookup || self.is_request_page(st) || !self.has_source(st) {
             return Ok(false);
