@@ -15,6 +15,20 @@ use al_builtins::page_op::PageOp;
 
 type Inst = Rc<RefCell<al_builtins::value::Instance>>;
 
+/// The start of a parameters string whose root has no name and id (see `apply_request_parameters`).
+const PARAMETERS_BARE_ROOT: &str = "<?xml version=\"1.0\" standalone=\"yes\"?><ReportParameters>";
+
+/// The call that hands a report its parameters string: what each one does with a part the request page does not have.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ParamsCall {
+    /// `Report.SaveAs`.
+    SaveAs,
+    /// `Report.Execute`: skips an unknown field or data item name and applies a view the page hides.
+    Execute,
+    /// `Report.RunRequestPage(Id, Parameters)`: the seed of the request page.
+    RunRequestPage,
+}
+
 /// How the request page closed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RequestClosed {
@@ -1014,8 +1028,9 @@ impl Session {
         exts: &[(usize, Inst)],
         object: usize,
         xml: &str,
-        skip_unknown: bool,
+        call: ParamsCall,
     ) -> Result<(), Signal> {
+        let skip_unknown = call == ParamsCall::Execute;
         let engine = self.engine();
         let o = &engine.program.objects[object];
         let page = o.page.as_ref().expect("a request page");
@@ -1051,7 +1066,13 @@ impl Session {
         if head.strip_suffix("\">").is_some_and(|h| xml == format!("{h}\" />")) {
             return Ok(());
         }
-        if !xml.starts_with(&head) || !xml.ends_with("</ReportParameters>") {
+        // A root without name and id, after the XML declaration, is this report's parameters: SaveAs applies its Field
+        // (reports/layouts-saveas/AMRdlcOutput.al:153 with :394-408 TextRdlc_SaveAsXml_DoesNotRender `req=Yes`;
+        // AMReportOutputTests.al:24 with :250 `request_value_in_sheet1`), Execute runs with it (reports/extensions/
+        // Y64XappRunOrder.al:156). As the seed of RunRequestPage it is not pinned; without the declaration BC raises an
+        // error whose text the corpus does not have (al-runner issue 7590).
+        let bare = xml.starts_with(PARAMETERS_BARE_ROOT) && call != ParamsCall::RunRequestPage;
+        if !(xml.starts_with(&head) || bare) || !xml.ends_with("</ReportParameters>") {
             return unsupported(
                 "a parameters string this runtime did not produce for this report (its format is not pinned)",
             );
@@ -1099,6 +1120,13 @@ impl Session {
                     })
             }) else {
                 if skip_unknown {
+                    continue;
+                }
+                // SaveAs ignores it too, as the reporter measured on BC 29.0 (al-runner issue 7590; not in the corpus yet).
+                if call == ParamsCall::SaveAs {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::ReportSaveAsUnknownFieldIgnored,
+                    );
                     continue;
                 }
                 return unsupported(format!(

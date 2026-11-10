@@ -19,7 +19,8 @@
 //! A task of the open transaction has its row in the Scheduled Task table: Get answers Yes, a filter on ID counts it, and
 //! CancelTask removes it (session-system/WdScheduledTaskGet.al, corpus branch al-runtime-rs-staging-1030c, al-runner issue
 //! 6315). Its User ID, User Name, Company, Run Codeunit and Is Ready (No for a task created not ready) are pinned by
-//! session-system/CnSessionLeads.al:23-46; every other column is refused when read (`platform::unknown`).
+//! session-system/CnSessionLeads.al:23-46; Company with a company argument is an assumption (`task_company`); every other
+//! column is refused when read (`platform::unknown`).
 
 use crate::Session;
 use al_builtins::builtin_id::ids;
@@ -162,8 +163,8 @@ impl Session {
                 Value::Boolean(!matches!(args.get(2), Some(Value::Boolean(false)))),
             );
         }
-        if args.len() < 4 {
-            set("Company", Value::Text(self.cx.company.clone().into()));
+        if let Some(company) = self.task_company(args.get(3)) {
+            set("Company", company);
         }
         // Y43TaskAfterCommit.al:139-148 (blank without one), :302-317 (the value given).
         match args.get(4) {
@@ -173,6 +174,28 @@ impl Session {
         }
         let cx = self.cx.clone();
         let _ = al_data::Store::insert(&mut self.store, &cx, &t, row);
+    }
+
+    /// The Company of a task's row, or `None` while it is not known. Without a company argument: the current company
+    /// (session-system/CnSessionLeads.al:34, :42). With one that names the session's own company: the argument as given, so
+    /// an upper-cased CompanyName() stays upper case; a blank one: the current company (al-runner issue 7589, the reporter's
+    /// measurement on BC 29.0, not in the corpus yet). Another company, existing or not, is not measured.
+    fn task_company(&self, arg: Option<&Value>) -> Option<Value> {
+        let current = &self.cx.company;
+        let Some(arg) = arg else {
+            return Some(Value::Text(current.clone().into()));
+        };
+        let given = al_builtins::native::text_of(arg)?;
+        let given = given.as_str();
+        let value = if given.is_empty() {
+            &current[..]
+        } else if given.eq_ignore_ascii_case(current) {
+            given
+        } else {
+            return None;
+        };
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ScheduledTaskCompanyArgument);
+        Some(Value::Text(value.into()))
     }
 
     fn remove_task_row(&mut self, id: [u8; 16]) {
