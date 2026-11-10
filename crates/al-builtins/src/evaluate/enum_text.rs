@@ -51,7 +51,13 @@ pub(super) fn enum_text(c: &mut dyn Ctx, id: &u32, text: &crate::text::Txt) -> R
                 .iter()
                 // A blank member matches the blank text (types/TestBlankEnumInitTests.Codeunit.al:
                 // EvaluateMatchesBlankMemberAndRejectsNonMember).
-                .find(|(_, n)| n.trim().eq_ignore_ascii_case(text))
+                // A value named `""` reads the blank text only while no Caption replaces its (empty) name; a value named `" "`
+                // reads it with or without a Caption (format-evaluate/format-matrix/FMOptionBlankEnum.al EnumBlank_FQCap_Evaluate
+                // `ev_empty` No, EnumBlank_QS2Cap_Evaluate `ev_empty` Yes|2).
+                .find(|(o, n)| {
+                    n.trim().eq_ignore_ascii_case(text)
+                        && (!n.is_empty() || !captions.iter().any(|(co, cap)| co == o && !cap.is_empty()))
+                })
                 .map(|(o, _)| *o)
         })
         .or_else(|| {

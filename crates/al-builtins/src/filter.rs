@@ -1182,7 +1182,17 @@ impl Parser<'_> {
             {
                 Some(i) => Value::Option(i as i32, m.clone()),
                 None => Value::Option(
-                    text.parse().map_err(|_| format!("`{text}` is not an option member"))?,
+                    text.parse().map_err(|_| {
+                        if matches!(text.trim(), "\" \"" | "\"\"") {
+                            format!(
+                                "{FILTER_SYNTAX}'{}' is not an option. The existing options are: {}",
+                                text.trim(),
+                                m.join(",")
+                            )
+                        } else {
+                            format!("`{text}` is not an option member")
+                        }
+                    })?,
                     m.clone(),
                 ),
             },
@@ -1434,6 +1444,10 @@ impl Parser<'_> {
                             crate::value::RtType::Time | crate::value::RtType::Date | crate::value::RtType::DateTime
                         ) =>
                     {
+                        return Err(format!("{FILTER_SYNTAX}A value is expected after the '<>'."));
+                    }
+                    // The same on an Option field (FMOptionBlankField.al `flt_neg`, all eleven tables).
+                    None if op == "<>" && matches!(self.ty, crate::value::RtType::Option(_)) => {
                         return Err(format!("{FILTER_SYNTAX}A value is expected after the '<>'."));
                     }
                     None => return Err(format!("value expected after `{op}`")),

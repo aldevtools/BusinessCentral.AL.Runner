@@ -9,6 +9,7 @@ mod datetime_forms;
 mod duration;
 mod enum_text;
 use duration::duration;
+mod option_text;
 mod platform_options;
 use crate::describe::Describe;
 use crate::format::day_from_civil;
@@ -2165,6 +2166,8 @@ fn pinned_number(number: i64, target: &Value, variable_option: bool) -> Option<i
         // An Option variable reads number 2 as 0 (format-evaluate/OptionEvaluateCaptions.al:270 FormatNumber
         // `var 2 lower`).
         || (number == 2 && variable_option && matches!(target, Value::Option(..)))
+        // An Enum reads number 2 as 0 (format-evaluate/format-matrix/FMOptionBlankEnum.al:127 `evf2_empty`, :133, :139).
+        || (number == 2 && matches!(target, Value::Enum(..)))
         // So do the platform's option types (format-evaluate/SoEvaluateSystemOptions.al:264 Format9 `f2 1`).
         || (number == 2 && matches!(target, Value::Option(_, m) if crate::system_option_eval::reads(m)))
         // Number 10 is the bookmark of a RecordId (`into_record_id`).
@@ -2285,76 +2288,8 @@ fn evaluate_with_max(
         }
         Value::Enum(id, _) => enum_text::enum_text(c, id, &text)?,
         Value::Option(_, members) if platform_options::reads(members) => platform_options::read(c, members, &text)?,
-        // An Option reads an ordinal or a member name (types/PROptionInteger.al:Option_InCaseAndLoopBounds: `1` is B, `C` is C).
-        // A variable: an ordinal of any size is kept (`3` of three members formats as `3`), a text that is neither an ordinal
-        // nor a member name is rejected, and the error names the members (P86Eval.al, codeunit "LT P86 Eval Option").
-        Value::Option(_, members) if variable_option => {
-            // NUL alone reads as the empty text (format-evaluate/format-matrix/FMEvalOption.al:222-224, corpus PR 1256).
-            let t = if text.as_str() == "\0" { "" } else { text.trim() };
-            // The empty text and a blank name a first member declared as " " (format-evaluate/format-matrix/FMEvalOption.al:64-69,
-            // :262-267, corpus PR 1256), and no member declared as "" at the end (types/decimal-integer/ScT70062.al:
-            // Option_EvaluateByName `empty`). The syntax keeps both as one space (`TypeRef::option_members`), so only the first
-            // place reads: a blank member at another place is the pinned `""` case.
-            let by_name = if t.is_empty() {
-                members.first().is_some_and(|m| m == " ").then_some(0)
-            } else {
-                members.iter().position(|m| m.eq_ignore_ascii_case(t))
-            };
-            let ordinal = if t.starts_with(|ch: char| ch.is_ascii_digit() || ch == '+') {
-                t.parse::<u64>().ok()
-            } else {
-                None
-            };
-            match (ordinal, by_name) {
-                (Some(n), _) => match i32::try_from(n) {
-                    Ok(n) => Parsed::Value(Value::Option(n, members.clone())),
-                    Err(_) => {
-                        return unsupported(format!("Evaluate of the ordinal `{text}` into an Option (not pinned)"));
-                    }
-                },
-                (None, Some(n)) => Parsed::Value(Value::Option(n as i32, members.clone())),
-                _ if c.ret_used() => return Ok(Value::Boolean(false)),
-                // A TAB shows as `\t` in the error (format-evaluate/OptionEvaluateCaptions.al:330
-                // ResultUnused_Errors `var tab`); the other control characters are not pinned.
-                _ if text.chars().any(|ch| ch.is_control() && ch != '\t') => {
-                    return unsupported(
-                        "Evaluate into an Option variable failing with the result unused, of a text with a control character other than TAB (not pinned)",
-                    );
-                }
-                _ => {
-                    return crate::native::raise(
-                        format!(
-                            "'{}' is not an option. The existing options are: {}",
-                            text.replace('\t', "\\t"),
-                            members.join(",")
-                        ),
-                        "InvalidOptionString",
-                    );
-                }
-            }
-        }
-        Value::Option(_, members) => {
-            let t = text.trim();
-            let by_name = members.iter().position(|m| m.eq_ignore_ascii_case(t));
-            match (t.parse::<usize>().ok().filter(|n| *n < members.len()), by_name) {
-                (Some(n), _) | (None, Some(n)) => Parsed::Value(Value::Option(n as i32, members.clone())),
-                // A platform option without an OptionCaption rejects a number past its members, as far as measured:
-                // TableConnectionType 5 to 10 (format-evaluate/W5TableConnections.al:117-136, TableConnectionType_Members), ExecutionMode
-                // 2 to 12 (format-evaluate/PnC11SystemEnums.al:13-52, ExecutionMode_Members). Larger numbers are not pinned.
-                _ if crate::sysenum::rejected_number_past_members(members)
-                    .is_some_and(|last| t.parse::<usize>().is_ok_and(|n| (members.len()..=last).contains(&n))) =>
-                {
-                    Parsed::Rejected
-                }
-                // An OptionCaption may name it (recordref-fieldref/fieldref/TestPrecompiledFieldOptionCaption.al:Evaluate_Caption_SelectsThatMember);
-                // the value does not carry the captions.
-                _ => {
-                    return unsupported(format!(
-                        "Evaluate of `{text}` into an Option: neither an ordinal nor a member name (an OptionCaption could name it, not pinned)"
-                    ));
-                }
-            }
-        }
+        Value::Option(_, members) if variable_option => option_text::variable(c, members, &text)?,
+        Value::Option(_, members) => option_text::field(c, members, &text)?,
         // The blank-like texts store the empty formula; garbage fails and leaves the value
         // (types/TestDateFormulaDurationFormatContracts.al:28-74, TestDateFormulaEvaluateLeftoversContracts.al).
         // The letters of the global language (format-evaluate/Y62DateFormulaFormat.al, `date_formula_language`).

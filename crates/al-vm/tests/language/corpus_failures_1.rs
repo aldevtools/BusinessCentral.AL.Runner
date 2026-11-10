@@ -35,13 +35,14 @@ fn copy_array_raises_when_the_length_is_not_the_destination_length() {
 }
 
 #[test]
-fn an_unquoted_empty_option_member_shows_its_number_and_a_quoted_one_a_space() {
-    // text/P69OptionInText.al:Option_StrSubstNo, types/decimal-integer/ScT70053.al:Option_Format
+fn an_unquoted_empty_option_member_shows_its_number_and_so_does_a_quoted_one() {
+    // text/P69OptionInText.al:Option_StrSubstNo, types/decimal-integer/ScT70053.al:Option_Format (`blank_len` 1 is the length of the
+    // ordinal `3`); `""` is the same nameless member as the unquoted empty one (format-evaluate/format-matrix/FMOptionBlankVar.al).
     let r = text(
         "O: Option Zero,,Two,\"\"; R: Text;",
         "O := 1; R := '[' + Format(O) + ']'; O := 3; exit(R + '[' + Format(O) + ']');",
     );
-    assert_eq!(r, "[1][ ]");
+    assert_eq!(r, "[1][3]");
 }
 
 #[test]

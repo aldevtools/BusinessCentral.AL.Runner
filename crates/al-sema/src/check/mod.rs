@@ -1458,6 +1458,7 @@ fn system_option_of_property(base: &SyntaxNode, member: &str) -> Option<(&'stati
     Some((enum_name, i))
 }
 
+mod blank_member;
 mod calls;
 pub(crate) use calls::BARE_REPORT_MEMBERS;
 mod conv;

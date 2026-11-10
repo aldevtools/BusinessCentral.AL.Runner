@@ -40,7 +40,12 @@ impl Session {
                 RtType::Boolean => ("Boolean", "NavBoolean", false),
                 // `abc` into an Option field that has no such member (same test; the split by version is
                 // record/table-properties/UTableCdsOrdinals.al:170,175).
-                RtType::Option(m) if !m.iter().any(|x| x.eq_ignore_ascii_case(s)) => ("Option", "NavOption", false),
+                // Any text that is not all digits fails, a member name and a blank one too (format-evaluate/format-matrix/
+                // FMOptionBlankField.al `fr_empty`, `fr_sp`, `fr_A` in every OptionBlank_*_Field_Evaluate; UTableCdsOrdinals.al
+                // `fieldref_set_alpha` names a member as well).
+                RtType::Option(_) if !(!s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())) => {
+                    ("Option", "NavOption", true)
+                }
                 _ => ("", "", false),
             };
             // A text of letters into a Date field: the date format error with code Evaluate:Conversion from BC 28,
@@ -68,7 +73,7 @@ impl Session {
                     },
                 )));
             }
-            if !ty.is_empty() && (letters || s.is_empty()) {
+            if !ty.is_empty() && (letters || s.is_empty() || ty == "Option") {
                 if s.is_empty() && !empty_pinned {
                     return unsupported(format!("FieldRef.Value := '' on a {ty} field (not pinned)"));
                 }

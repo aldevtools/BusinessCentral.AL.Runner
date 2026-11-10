@@ -1902,7 +1902,7 @@ impl Session {
                         return Err(Signal::Error(Box::new(AlError {
                             message: format!(
                                 "The filter \"{}\" is not valid for the {} field on the {} table. {inner}",
-                                text.trim(),
+                                text,
                                 self.field_caption(&t, pos),
                                 self.caption(&t)
                             ),
