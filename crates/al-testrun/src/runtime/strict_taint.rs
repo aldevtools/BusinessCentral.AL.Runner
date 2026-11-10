@@ -8,7 +8,7 @@
 //! too. Tables count only when the stopped codeunit's database changes stay (a Disabled or OnRun
 //! carry member); under Codeunit isolation the rollback undoes them as it does on BC. A stopped codeunit whose reach is
 //! not fully known may have changed anything, so every later codeunit is flagged, and so does one that dropped the single
-//! instances of the session (a panic, a codeunit that is not run). After a test refused while it ran the single instances
+//! instances of the session (a panic, a codeunit refused as a whole after its session started, a codeunit that is not run). After a test refused while it ran the single instances
 //! move on (`Scratch::singles_past_stop`): what ran before the stop ran on BC too. A flagged codeunit may have written
 //! wrong values itself, so its reach joins what the later codeunits are checked against.
 
@@ -24,8 +24,9 @@ pub(super) struct Taint {
     rolled_back: Option<ReachFacts>,
     /// Changes that stay in the database (tables count).
     kept: Option<ReachFacts>,
-    /// The single instances the session held were dropped (a codeunit panicked, or a codeunit that is not run sat
-    /// between): whatever a later codeunit reads of them may differ from BC's, so every later codeunit is flagged.
+    /// The single instances the session held were dropped (a codeunit or one of its tests panicked, a codeunit was refused
+    /// as a whole after its session started, or a codeunit that is not run sat between): whatever a later codeunit reads of
+    /// them may differ from BC's, so every later codeunit is flagged.
     lost: bool,
 }
 

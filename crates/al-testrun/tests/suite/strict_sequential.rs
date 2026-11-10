@@ -474,3 +474,59 @@ codeunit 60696 "Seq Unknown Reader"
     assert_eq!(result(&rt, "ReadsThroughAnUnknownId").outcome, Outcome::Pass);
     assert!(flagged(&rt, "ReadsThroughAnUnknownId"));
 }
+
+/// A test codeunit of the hub leg (RequiredTestIsolation = Function) whose only test passes when it is the `rank`th that
+/// bumped the shared count.
+fn hub_ranked(id: u32, rank: u32) -> String {
+    ranked(id, rank).replace(
+        "    Subtype = Test;\n",
+        "    Subtype = Test;\n    RequiredTestIsolation = Function;\n",
+    )
+}
+
+/// Second review of the draft (finding A): a codeunit refused as a whole after its session started (here a Disabled
+/// codeunit next to a Company Triggers subscriber that writes when the test session opens the company, `run.rs`) drops the
+/// single instances it was handed. The codeunit after it starts with fresh ones, though on BC it sees what the codeunit
+/// before set, so it must be flagged (or right).
+#[test]
+fn a_codeunit_refused_as_a_whole_after_its_session_started_flags_the_later_ones() {
+    let writer = r#"
+codeunit 60697 "Seq Company Open Writer"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Company Triggers", 'OnCompanyOpenCompleted', '', false, false)]
+    local procedure Writes()
+    var R: Record "Seq Row"; N: Integer;
+    begin
+        if R.FindLast() then N := R."No.";
+        R."No." := N + 1;
+        R.Insert();
+    end;
+}
+codeunit 60698 "Seq Disabled Refused"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure IsRefusedAsAWhole() begin end;
+}
+"#;
+    let src = [hub_ranked(60690, 1), writer.to_string(), hub_ranked(60699, 2)].concat();
+    let rt = run(
+        &src,
+        &RunOptions {
+            required_isolation: true,
+            ..sequential()
+        },
+    );
+    assert!(
+        matches!(&result(&rt, "IsRefusedAsAWhole").outcome, Outcome::NotRun(m) if m.contains("Company Triggers")),
+        "{:?}",
+        rt.results()
+    );
+    assert_eq!(result(&rt, "Rank60690").outcome, Outcome::Pass, "{:?}", rt.results());
+    let after = result(&rt, "Rank60699");
+    assert!(
+        flagged(&rt, "Rank60699"),
+        "the single instances were dropped, so it must be flagged: {:?}",
+        after
+    );
+}

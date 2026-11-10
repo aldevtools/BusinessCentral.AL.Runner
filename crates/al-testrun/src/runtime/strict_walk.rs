@@ -47,22 +47,27 @@ pub(super) fn flag_after_refused(r: &mut UnitResult) {
     }
 }
 
+/// Whether the walk's slot holds single instances to hand to the next unit (`run.rs` `LANE_SINGLES`).
+pub(super) fn singles_held() -> bool {
+    super::run::LANE_SINGLES.with(|c| matches!(*c.borrow(), Some(Some(_))))
+}
+
 /// A unit of a sequential walk ran (`r`): flags it when it can read what the stopped or flagged units before it could have
-/// changed (`strict_taint.rs`), and notes it there when it stopped the session or was flagged.
+/// changed (`strict_taint.rs`), and notes it there when it stopped the session or was flagged. `dropped`: the unit was
+/// handed single instances and handed none on ([`singles_held`] before and after its run). That happens when it panicked,
+/// when a test of it panicked (`Scratch::hands_on_none`), and when it was refused as a whole after its session started (the
+/// early returns of `run.rs` `run_codeunit_inner`; second review, findings A and B): every later unit is flagged.
 pub(super) fn after_run(
     taint: &mut super::strict_taint::Taint,
     engine: &Arc<al_vm::Engine>,
     lowered: &al_sema::lower::Lowered,
     u: &Unit,
     r: &mut UnitResult,
+    dropped: bool,
 ) {
-    let stops = stops_session(r);
+    let stops = stops_session(r) || dropped;
     if !stops && !taint.active() {
         return;
-    }
-    // A panic ends the run of the unit before `run.rs` hands its single instances on: they are gone (review finding 1).
-    if r.result.is_err() {
-        taint.singles_lost();
     }
     let facts = super::strict_taint::unit_facts(engine, lowered, u.oi);
     let flagged = taint.active() && taint.reaches(&facts, lowered);
@@ -71,6 +76,10 @@ pub(super) fn after_run(
     }
     if stops || flagged {
         taint.add(&facts, !leaves_nothing(u));
+    }
+    // After the unit's own check: a unit does not flag itself.
+    if dropped {
+        taint.singles_lost();
     }
 }
 
@@ -227,4 +236,32 @@ impl StrictRun<'_> {
 
 fn clone_items(items: &[Item]) -> Vec<Item> {
     items.iter().map(|(a, b, c, l)| (*a, *b, *c, l.clone())).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{Ends, Scratch};
+
+    fn scratch(past_stop: bool, refused_mid_run: bool, test_panicked: bool) -> Scratch {
+        let mut s = Scratch {
+            singles_past_stop: past_stop,
+            ..Default::default()
+        };
+        s.note_ended(Ends {
+            unfinished_after_start: refused_mid_run || test_panicked,
+            refused_mid_run,
+            test_panicked,
+        });
+        s
+    }
+
+    /// Second review of the draft (finding B): in the sequential walk the single instances move on past a refusal or a
+    /// time-limit stop, but not past a panic in a test method; the lane hands nothing on after either.
+    #[test]
+    fn a_panic_in_a_test_drops_the_single_instances_in_the_sequential_walk() {
+        assert!(!scratch(true, true, false).hands_on_none(), "a refusal: they move on");
+        assert!(scratch(true, true, true).hands_on_none(), "a panic: they are dropped");
+        assert!(scratch(false, true, false).hands_on_none(), "the lane, R3");
+        assert!(!scratch(true, false, false).hands_on_none());
+    }
 }

@@ -673,6 +673,9 @@ pub(crate) struct Scratch {
     /// A test of the codeunit was refused while it ran, or stopped by the time limit (`Ended::RefusedMidRun`): what it left
     /// is not what BC's run of it to its end would have left (ADR-070: the later codeunits of a strict session are flagged).
     pub(crate) refused_mid_run: bool,
+    /// A test method panicked (a runtime bug, caught as a refusal while it ran): the session was unwound in the middle
+    /// of a VM operation, so its single instances may hold a state no AL statement made (ADR-070: a panic drops them).
+    pub(crate) test_panicked: bool,
     /// The tests that started and did not run to their end (as for `unfinished_after_start`), each with the number
     /// `Session::single_test_begins` gave it (from 1) and its name (ADR-066 amendment 7, option 1).
     pub(crate) unfinished_at: Vec<(u32, String)>,
@@ -680,11 +683,27 @@ pub(crate) struct Scratch {
     pub(crate) order_hints: Vec<(String, OrderHint)>,
 }
 
+/// How the tests of a codeunit ended (`Scratch::note_ended`).
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Ends {
+    pub(crate) unfinished_after_start: bool,
+    pub(crate) refused_mid_run: bool,
+    pub(crate) test_panicked: bool,
+}
+
 impl Scratch {
-    /// How the codeunit's tests ended (`unfinished_after_start`, `refused_mid_run`).
-    pub(crate) fn note_ended(&mut self, unfinished_after_start: bool, refused_mid_run: bool) {
-        self.unfinished_after_start = unfinished_after_start;
-        self.refused_mid_run = refused_mid_run;
+    /// How the codeunit's tests ended (`unfinished_after_start`, `refused_mid_run`, `test_panicked`).
+    pub(crate) fn note_ended(&mut self, e: Ends) {
+        self.unfinished_after_start = e.unfinished_after_start;
+        self.refused_mid_run = e.refused_mid_run;
+        self.test_panicked = e.test_panicked;
+    }
+
+    /// The codeunit hands no single instances to the next one (`run.rs` `singles_out`): a test panicked (ADR-070, second
+    /// review, finding B), or a test was refused while it ran or stopped by the time limit outside the sequential strict
+    /// run (R3 of ADR-066 amendment 3; `singles_past_stop`).
+    pub(crate) fn hands_on_none(&self) -> bool {
+        self.test_panicked || (self.refused_mid_run && !self.singles_past_stop)
     }
 }
 

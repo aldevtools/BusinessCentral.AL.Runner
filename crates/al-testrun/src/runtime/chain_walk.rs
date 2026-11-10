@@ -188,6 +188,7 @@ impl ChainWalk<'_> {
                     // The walk's own run counts as a running codeunit (ADR-066 amendment 10): its growth is the cost of
                     // a thread. The walk's thread never ends for memory.
                     let running = (!self.sequential).then(|| self.pool.enter());
+                    let held = self.sequential && super::strict_walk::singles_held();
                     let mut r = if keep && !keep_member {
                         without_kept_singles(|| run_unit(engine, lowered, start, &u, trace, self.limit))
                     } else {
@@ -197,7 +198,8 @@ impl ChainWalk<'_> {
                     let mut left = super::run::CARRIED.with(|c| c.borrow_mut().take());
                     let plain = self.sequential && super::strict_walk::leaves_nothing(&units[k]);
                     if self.sequential {
-                        super::strict_walk::after_run(&mut taint, engine, lowered, &units[k], &mut r);
+                        let dropped = held && !super::strict_walk::singles_held();
+                        super::strict_walk::after_run(&mut taint, engine, lowered, &units[k], &mut r, dropped);
                         // A codeunit whose tests roll back and whose OnRun cannot write leaves nothing in the database even
                         // when it was not run: the later codeunits are flagged when they can read what it changed, not refused.
                         if plain && left.is_none() {
@@ -205,7 +207,7 @@ impl ChainWalk<'_> {
                         }
                     }
                     let reads = if keep_member {
-                        singles.left(k, &r, self.sequential, report)
+                        singles.left(k, &r, self.sequential && super::strict_walk::singles_held(), report)
                     } else {
                         Vec::new()
                     };

@@ -54,8 +54,9 @@ Two modes. No speculation in either.
    flagged codeunit may have written wrong values itself, so its reach counts as changed for the codeunits after it too.
    After review (2026-11-10): the single instances move on past a test refused while it ran or stopped by the time limit,
    as what ran before the stop ran on BC too (only the stopped codeunit's reach differs, and that is what is checked); a
-   later codeunit whose own reach is not fully known is flagged; a panic or a codeunit that is not run drops the single
-   instances, so every later codeunit of the session is flagged.
+   later codeunit whose own reach is not fully known is flagged; a panic (of a codeunit or of one of its tests), a codeunit
+   refused as a whole after its session started, or a codeunit that is not run drops the single instances, so every later
+   codeunit of the session is flagged.
    Measured with the narrowing (2026-11-10): the flag count did not fall, 1,481 of 1,483 passes on Tests-ERM-Purchase and
    23,333 of 26,012 on the whole corpus (23,220 of 25,758 before). Every one of the 23 stopped codeunits of Tests-ERM-Purchase
    reaches a routine the runtime refuses (a `RunOnClient` variable, a page that is not in the program), so its reach is
