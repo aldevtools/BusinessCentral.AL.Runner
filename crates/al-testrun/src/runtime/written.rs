@@ -112,6 +112,10 @@ pub(crate) struct ReachFacts {
     /// Tables a reached routine writes: Insert, Modify, Delete, DeleteAll, ModifyAll and Rename on a record of a known
     /// table, and the source table of a page variable.
     pub writes: BTreeSet<u32>,
+    /// The tables of `writes` a reached routine can add a row to: Insert on a record of a known table, and the source
+    /// table of a page variable (the page client inserts). Modify, Delete, DeleteAll, ModifyAll and Rename need a row
+    /// that is already there (`login.rs`).
+    pub inserts: BTreeSet<u32>,
     /// A write whose table is not known statically (a `RecordRef`, an xmlport import, media): it may write any table.
     pub writes_any: bool,
     /// Global variables of codeunits (object, slot) a reached routine names.
@@ -342,6 +346,27 @@ pub(crate) fn union_reach_facts_skipping(
     skip: &[(usize, usize)],
 ) -> ReachFacts {
     let mut walk = Walk::new(events, lowered, index);
+    for &(o, r) in skip {
+        walk.first_visit(o, r);
+    }
+    walk.stack.extend(roots.iter().rev().copied());
+    walk.run(&|_| false);
+    walk.out
+}
+
+/// The facts of what the routines `roots` reach through calls alone, one walk of the union: the routines they call, those
+/// they call, and what their page, report and xmlport variables drive (`Lowered::calls_into`), without the routines
+/// `skip`. As [`call_reach_facts`], it leaves out the table triggers, the subscribers of every event and the objects run by
+/// id. What a test does itself, apart from what any write or event brings into its reach (`login.rs`).
+pub(crate) fn union_call_reach_facts(
+    events: &al_vm::events::Registry,
+    lowered: &Lowered,
+    index: &ReachIndex,
+    roots: &[(usize, usize)],
+    skip: &[(usize, usize)],
+) -> ReachFacts {
+    let mut walk = Walk::new(events, lowered, index);
+    walk.calls_only = true;
     for &(o, r) in skip {
         walk.first_visit(o, r);
     }
@@ -872,11 +897,14 @@ impl<'a> Walk<'a> {
         self.events(o);
     }
 
-    fn note_table_write(&mut self, table: Option<u32>) {
+    fn note_table_write(&mut self, table: Option<u32>, insert: bool) {
         match table {
             _ if !self.facts => {}
             Some(t) => {
                 self.out.writes.insert(t);
+                if insert {
+                    self.out.inserts.insert(t);
+                }
             }
             None => self.out.writes_any = true,
         }
@@ -930,7 +958,7 @@ impl<'a> Walk<'a> {
                 Step::Events(t) => self.events(*t),
                 Step::TableOps(t, ops) => self.table_ops(*t, *ops),
                 Step::Run(x) => self.run_object(*x),
-                Step::Write(t) => self.note_table_write(*t),
+                Step::Write(t, insert) => self.note_table_write(*t, *insert),
             }
         }
     }
@@ -965,8 +993,8 @@ enum Step {
     TableOps(usize, u8),
     /// [`Walk::run_object`].
     Run(usize),
-    /// [`Walk::note_table_write`].
-    Write(Option<u32>),
+    /// [`Walk::note_table_write`]: the table, and whether the write can add a row.
+    Write(Option<u32>, bool),
 }
 
 /// Records a routine's [`Summary`]: the analysis of its body, with the steps that depend on the walk deferred.
@@ -1048,7 +1076,12 @@ impl Rec<'_> {
     }
 
     fn note_table_write(&mut self, table: Option<u32>) {
-        self.step(Step::Write(table));
+        self.step(Step::Write(table, false));
+    }
+
+    /// A write that can add a row to `table` ([`ReachFacts::inserts`]).
+    fn note_table_insert(&mut self, table: u32) {
+        self.step(Step::Write(Some(table), true));
     }
 
     /// The object of `kind` with id `id`, run; unknown when there is none.
@@ -1111,7 +1144,7 @@ impl Rec<'_> {
                 match page.rec_slot.map(|i| &page.globals[i].ty) {
                     Some(RtType::Record(t, _)) => {
                         self.out.touched.insert(*t);
-                        self.note_table_write(Some(*t));
+                        self.note_table_insert(*t);
                         // The page client inserts, modifies, deletes and validates with the triggers.
                         self.table_ops(*t as usize, ops::ALL);
                     }
@@ -1290,8 +1323,10 @@ impl Rec<'_> {
                         Some(RtType::Record(t, _)) => Some(t),
                         _ => None,
                     };
-                    if op != ops::VALIDATE {
-                        self.note_table_write(table);
+                    match table {
+                        Some(t) if op == ops::INSERT => self.note_table_insert(t),
+                        _ if op != ops::VALIDATE => self.note_table_write(table),
+                        _ => {}
                     }
                     if ops::runs_triggers(method, args) {
                         match table {

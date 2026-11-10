@@ -342,3 +342,114 @@ codeunit 1991 "Guided Experience Events"
         ]
     );
 }
+
+// The standard wizard (post-merge review of al-runner issue 7574): its Finish action calls
+// `Guided Experience.CompleteAssistedSetup`, which modifies the row the login registered (System Application: FindSet,
+// then ModifyAll(Completed, true)). A Modify cannot create the row, so the test still has it only from the login:
+// LgnLoginChecklistTests.al:137-138 pins that it is there before the first test.
+const FINISH_WIZARD: &str = r#"
+page 51150 "Repro Finish Wizard"
+{
+    PageType = NavigatePage;
+    layout { area(Content) { group(Step1) { InstructionalText = 'Step 1'; } } }
+    actions
+    {
+        area(Processing)
+        {
+            action(ActionFinish)
+            {
+                InFooterBar = true;
+                trigger OnAction()
+                var G: Codeunit "Guided Experience";
+                begin
+                    G.CompleteAssistedSetup(51150);
+                    CurrPage.Close();
+                end;
+            }
+        }
+    }
+    trigger OnQueryClosePage(CloseAction: Action): Boolean
+    var G: Codeunit "Guided Experience";
+    begin
+        if CloseAction = Action::OK then
+            if G.AssistedSetupExistsAndIsNotComplete(51150) then
+                exit(Confirm('Setup is not complete. Exit anyway?', false));
+    end;
+}
+codeunit 51150 "Repro Finish Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterAssistedSetup', '', false, false)]
+    local procedure HandleOnRegisterAssistedSetup()
+    var G: Codeunit "Guided Experience";
+    begin
+        G.InsertAssistedSetup(51150);
+    end;
+}
+codeunit 51151 "Repro Finish Wizard Test"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    [HandlerFunctions('ConfirmHandler')]
+    procedure ClosingTheWizardAsksToConfirm()
+    var Wizard: TestPage "Repro Finish Wizard";
+    begin
+        Wizard.OpenEdit();
+        Wizard.Close();
+    end;
+
+    [Test]
+    procedure FinishCompletesTheRow()
+    var Wizard: TestPage "Repro Finish Wizard"; G: Codeunit "Guided Experience";
+    begin
+        Wizard.OpenEdit();
+        Wizard.ActionFinish.Invoke();
+        if not G.Exists(51150) then
+            Error('The assisted setup row does not exist after Finish.');
+        if G.AssistedSetupExistsAndIsNotComplete(51150) then
+            Error('The assisted setup is still not complete.');
+    end;
+
+    [ConfirmHandler]
+    procedure ConfirmHandler(Question: Text; var Reply: Boolean)
+    begin
+        Reply := true;
+    end;
+}
+"#;
+
+/// `DEP` with `CompleteAssistedSetup` and `Exists` on "Guided Experience", in the shape of System Application's code.
+fn dep_with_complete() -> String {
+    let dep = DEP.replace(
+        "    procedure Register() begin OnRegisterAssistedSetup(); end;\n",
+        r#"    procedure CompleteAssistedSetup(ObjectID: Integer)
+    var G: Record "Guided Experience Item";
+    begin
+        G.SetRange("Object ID", ObjectID);
+        if G.FindSet() then
+            G.ModifyAll(Completed, true);
+    end;
+    procedure Exists(ObjectID: Integer): Boolean
+    var G: Record "Guided Experience Item";
+    begin
+        exit(G.Get(ObjectID));
+    end;
+    procedure Register() begin OnRegisterAssistedSetup(); end;
+"#,
+    );
+    assert_ne!(dep, DEP);
+    dep
+}
+
+#[test]
+fn a_wizard_whose_finish_action_completes_the_row_sees_the_row_the_login_registered() {
+    let dep = format!("{}{DATABASE_SUBSCRIBER}", dep_with_complete());
+    assert_eq!(
+        super::tests::outcomes_over_dependency(FINISH_WIZARD, &dep),
+        vec![
+            ("ClosingTheWizardAsksToConfirm".to_string(), Outcome::Pass),
+            ("FinishCompletesTheRow".to_string(), Outcome::Pass)
+        ]
+    );
+}
