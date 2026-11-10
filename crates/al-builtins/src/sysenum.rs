@@ -48,15 +48,28 @@ pub fn members(name: &str) -> Option<&'static [&'static str]> {
         // Only passed to Session.LogSecurityAudit, which changes nothing AL can see. The members are
         // the ones Microsoft's source uses; their ordinals are not pinned and nothing may print them.
         "securityoperationresult" => Some(&["Success", "Failure"]),
+        // All 19 members with their ordinals, Other 0 to Euii 18
+        // (format-evaluate/ACAuditCategory.al:83-101 AC_AuditCategory_FormatOrdinal; names :42-60).
         "auditcategory" => Some(&[
-            "ApplicationManagement",
-            "CustomerFacing",
-            "EntitlementManagement",
-            "KeyManagement",
             "Other",
-            "PolicyManagement",
-            "RoleManagement",
             "UserManagement",
+            "GroupManagement",
+            "Authentication",
+            "Authorization",
+            "RoleManagement",
+            "ApplicationManagement",
+            "KeyManagement",
+            "DirectoryManagement",
+            "ResourceManagement",
+            "PolicyManagement",
+            "DeviceManagement",
+            "EntitlementManagement",
+            "PasswordManagement",
+            "IdentityProtection",
+            "ObjectManagement",
+            "ProvisioningManagement",
+            "CustomerFacing",
+            "Euii",
         ]),
         "dataclassification" => Some(&[
             "CustomerContent",
