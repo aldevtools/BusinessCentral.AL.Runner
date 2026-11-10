@@ -114,6 +114,10 @@ pub struct TestArgs {
     /// `--dev-endpoint-ui` (issue 3697): a UI call no handler takes gets the answer of Business Central's dev-endpoint
     /// test runner, for the measured shapes, with a warning per call; such a pass is flagged `dev-endpoint-ui`.
     pub dev_endpoint_ui: bool,
+    /// `--no-client` (issue 7564): the test session is a session without a client: GuiAllowed false, Message silent, Confirm,
+    /// StrMenu and a page that would open raise CallbackNotAllowed, calls not probed are not run. Such a pass is flagged
+    /// `no-client-session`.
+    pub no_client: bool,
     /// `--allow-write-in-try-functions` (al-runner issue 7143): run as a service tier whose setting DisableWriteInsideTryFunctions
     /// is off (Business Central online). Default: the setting's default, as a BC container: such a write raises TryFunctionWrite.
     pub allow_write_in_try_functions: bool,
@@ -675,6 +679,24 @@ selects only the tests both match)
                          measured on Business Central are answered; the others still fail. Each
                          answer prints a warning with the test, the call and the answer, and such a
                          test is a flagged pass, `dev-endpoint-ui`.
+    --no-client          Run the tests as a session without a client, as a web-service session is
+                         (for example a mutation-testing run compared with a web-service run on
+                         Business Central). Every dialog answers as it does in a page background
+                         task worker, and no handler of the test sees the call: GuiAllowed() is
+                         false; Message, Dialog.Open, Hyperlink and RequestSessionUpdate(false)
+                         return; Notification.Send returns true; FilterPageBuilder.RunModal and
+                         UploadIntoStream return false; Confirm, StrMenu, Page.Run(Id),
+                         Page.RunModal and a static Report.Run or RunModal whose request page
+                         would open raise the CallbackNotAllowed error. Business Central is
+                         measured only for that worker, so a test that passes through one of
+                         these is a flagged pass, `no-client-session`. So is a test that opens a
+                         TestPage, and a read of the WorkDate that Base Application's login code
+                         would have set (it does not run without a client). A call that is not
+                         measured there is not run, with the reason: CurrentClientType, a page
+                         run with a record or of a page with triggers, a report run on a
+                         variable or with a RequestPageHandler, Xmlport.Run with its request
+                         page, Report.RunRequestPage, file download.
+                         In `serve`: the runTests field `noClient`.
     --dependencies-published-global
                          Show Published As of NAV App Installed App as Global, not Dev, for a
                          dependency app of a publisher other than Microsoft. Use it when your
@@ -1350,6 +1372,7 @@ fn parse_serve(args: Vec<String>) -> Result<Command, String> {
         || t.strict_environment
         || t.ignore_permission_mock
         || t.dev_endpoint_ui
+        || t.no_client
         || t.allow_write_in_try_functions
         || t.strict_order
         || t.max_replay.is_some()
@@ -1660,40 +1683,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
                     a.country = Some(al_deps::artifact::normalize_country(&v)?);
                 }
             }
-            "--company-data" => {
-                let v = text()?;
-                match v.as_str() {
-                    "bak" | "backup" => {
-                        a.company_package = false;
-                        a.company_demotool = false;
-                        a.company_contoso = None;
-                    }
-                    "package" | "rapidstart" => {
-                        a.company_package = true;
-                        a.company_demotool = false;
-                        a.company_contoso = None;
-                    }
-                    "demotool" => {
-                        a.company_demotool = true;
-                        a.company_package = false;
-                        a.company_contoso = None;
-                    }
-                    "contoso-setup" | "contoso-all" => {
-                        a.company_contoso = Some(if v == "contoso-all" {
-                            ContosoData::All
-                        } else {
-                            ContosoData::Setup
-                        });
-                        a.company_demotool = false;
-                        a.company_package = false;
-                    }
-                    other => {
-                        return Err(format!(
-                            "--company-data takes `bak`, `package`, `demotool`, `contoso-setup` or `contoso-all`, not `{other}`"
-                        ));
-                    }
-                }
-            }
+            "--company-data" => parse_company_data(&mut a, &text()?)?,
             "--package" => {
                 a.package_path = Some(text()?.into());
                 a.company_package = true;
@@ -1729,6 +1719,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--run-selected-only" => a.run_selected_only = true,
             "--ignore-permission-mock" => a.ignore_permission_mock = true,
             "--dev-endpoint-ui" => a.dev_endpoint_ui = true,
+            "--no-client" => a.no_client = true,
             "--allow-write-in-try-functions" => a.allow_write_in_try_functions = true,
             "--strict-order" => a.strict_order = true,
             "--max-replay" => a.max_replay = Some(number(&flag, &text()?)?),
@@ -2202,6 +2193,42 @@ pub(crate) fn parse_test_runner(v: &str) -> Result<al_testrun::runtime::TestRunn
         .parse::<u32>()
         .map(TestRunner::Codeunit)
         .map_err(|_| format!("--test-runner needs a codeunit id or builtin, got `{v}`"))
+}
+
+/// `--company-data KIND`: where the company's data comes from.
+fn parse_company_data(a: &mut TestArgs, v: &str) -> Result<(), String> {
+    match v {
+        "bak" | "backup" => {
+            a.company_package = false;
+            a.company_demotool = false;
+            a.company_contoso = None;
+        }
+        "package" | "rapidstart" => {
+            a.company_package = true;
+            a.company_demotool = false;
+            a.company_contoso = None;
+        }
+        "demotool" => {
+            a.company_demotool = true;
+            a.company_package = false;
+            a.company_contoso = None;
+        }
+        "contoso-setup" | "contoso-all" => {
+            a.company_contoso = Some(if v == "contoso-all" {
+                ContosoData::All
+            } else {
+                ContosoData::Setup
+            });
+            a.company_demotool = false;
+            a.company_package = false;
+        }
+        other => {
+            return Err(format!(
+                "--company-data takes `bak`, `package`, `demotool`, `contoso-setup` or `contoso-all`, not `{other}`"
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// `--isolation MODE` into `a`.

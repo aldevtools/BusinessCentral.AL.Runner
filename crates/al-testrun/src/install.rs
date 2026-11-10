@@ -1156,7 +1156,11 @@ pub(crate) fn test_session_company_open(lowered: &Lowered, session: &mut Session
 /// (errors/RlInstallUi.al:212, :240). The rest of the login code (language, user personalization,
 /// application areas) does not run here, as before. Without the codeunit, or in a session without a client, nothing changes.
 pub(crate) fn login_work_date(engine: &Engine, lowered: &Lowered, session: &mut Session) -> Result<(), String> {
-    if !session.has_interactive_client() {
+    // `--no-client`: the login code is skipped as in every session without a client, but that the session answers
+    // GuiAllowed with false is assumed (`no-client-session`): the session marks its WorkDate reads when there is login
+    // code that a session with a client would have run.
+    let clientless = session.is_clientless_session();
+    if !clientless && !session.has_interactive_client() {
         return Ok(());
     }
     let objs = &lowered.program.objects;
@@ -1172,6 +1176,10 @@ pub(crate) fn login_work_date(engine: &Engine, lowered: &Lowered, session: &mut 
     }) else {
         return Ok(());
     };
+    if clientless {
+        session.note_clientless_login_skipped();
+        return Ok(());
+    }
     let why =
         |what: String| format!("the login code that sets WorkDate when the test session opens the company: {what}");
     if let Some(reason) = crate::runtime::blocked_reason(lowered, object, routine) {

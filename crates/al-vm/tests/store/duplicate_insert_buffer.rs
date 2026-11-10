@@ -9,7 +9,35 @@ use al_builtins::native::Signal;
 use al_testkit::run_in;
 
 const SRC: &str = r#"
+table 50893 "DB Blob" { fields { field(1; Id; Integer) { } field(2; Data; Blob) { } } keys { key(PK; Id) { Clustered = true; } } }
 table 50891 "DB Row" { fields { field(1; Code; Code[10]) { } } keys { key(PK; Code) { Clustered = true; } } }
+codeunit 50892 "DB Count"
+{
+    SingleInstance = true;
+    var N: Integer;
+    procedure Add() begin N += 1; end;
+    procedure Rows(): Integer begin exit(N); end;
+}
+xmlport 50891 "DB Port"
+{
+    Format = Xml;
+    Direction = Import;
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(T; "DB Row")
+            {
+                fieldelement(Code; T.Code) { }
+                trigger OnBeforeInsertRecord()
+                var Count: Codeunit "DB Count";
+                begin
+                    Count.Add();
+                end;
+            }
+        }
+    }
+}
 codeunit 50891 C
 {
     local procedure Insert(First: Integer; Last: Integer)
@@ -62,6 +90,37 @@ codeunit 50891 C
         Insert(1, 4);
         asserterror R.Count();
         exit(GetLastErrorText());
+    end;
+    // K1, K2, K1 again (pending), then K3 and K4: K4 is the 5th queued row and is a valid row.
+    procedure ValidRowSends(): Text
+    var R: Record "DB Row";
+    begin
+        R.DeleteAll();
+        Commit();
+        Insert(1, 2);
+        Insert(1, 1);
+        asserterror Insert(3, 4);
+        exit(GetLastErrorText());
+    end;
+    // Seven rows through an XmlPort, the 5th a duplicate of the 1st: how many rows reached OnBeforeInsertRecord.
+    procedure PortImport(): Text
+    var R: Record "DB Row"; Count: Codeunit "DB Count"; TempBlob: Record "DB Blob"; OutStr: OutStream; InStr: InStream; Ok: Boolean;
+    begin
+        R.DeleteAll();
+        Commit();
+        TempBlob.Data.CreateOutStream(OutStr, TextEncoding::UTF8);
+        OutStr.WriteText('<Root><T><Code>K1</Code></T><T><Code>K2</Code></T><T><Code>K3</Code></T><T><Code>K4</Code></T>' +
+            '<T><Code>K1</Code></T><T><Code>K5</Code></T><T><Code>K6</Code></T></Root>');
+        TempBlob.Data.CreateInStream(InStr, TextEncoding::UTF8);
+        Ok := TryImport(InStr);
+        // The duplicate is pending after the import: the next read of the table raises it.
+        asserterror R.Count();
+        exit(Format(Count.Rows()) + '|' + Format(Ok) + '|' + GetLastErrorText());
+    end;
+    [TryFunction]
+    local procedure TryImport(var InStr: InStream)
+    begin
+        Xmlport.Import(Xmlport::"DB Port", InStr);
     end;
     procedure ReadBetween(): Text
     var R: Record "DB Row";
@@ -125,4 +184,23 @@ fn four_inserts_a_commit_and_the_same_four_keys_raise_at_the_next_read() {
 #[test]
 fn a_read_sends_the_queue() {
     assert_error("ReadBetween");
+}
+
+// Every measured cell has a duplicate as the Insert that sends the queue (Dup_5thInsert_OfFirstRow, Report_FourRowsTwice_NoRead,
+// Report_FiveRowsTwice_NoRead). A valid row that sends it while a duplicate is pending is not measured: whether the row stays.
+#[test]
+fn a_valid_row_that_sends_the_queue_with_a_duplicate_pending_is_refused() {
+    match run_in(SRC, "C", "ValidRowSends") {
+        Err(Signal::Unsupported(why)) => assert!(why.contains("a valid row"), "{why}"),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+// The probe measured the Insert statements of AL code. An XmlPort import saves its rows itself: its duplicate stays pending
+// as before the queue (xmlports/import/XpTImportBasic.al Import_DuplicateKeyWithinInput: it comes out when the guarded run
+// ends), and every row's trigger runs.
+#[test]
+fn an_xmlport_import_is_not_queued() {
+    let t = al_testkit::text(run_in(SRC, "C", "PortImport"));
+    assert!(t.starts_with("7|Yes|The record in table DB Row already exists"), "{t}");
 }

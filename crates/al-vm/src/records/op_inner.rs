@@ -662,7 +662,7 @@ impl Session {
                     }
                     Self::restore_row_version(rec, old_version);
                     Self::unstamp(rec, stamped);
-                    self.tx.deferred_insert.get_or_insert((t.object as usize, e));
+                    self.defer_insert(rec, t.object, e);
                     return Ok(Value::Boolean(true));
                 }
                 // A temporary table holds the record's own Blob object (streams/TestBlobUncommittedWriteIsolation.al:171); one
@@ -781,7 +781,7 @@ impl Session {
                         {
                             match self.fail(&t, &row, true) {
                                 Err(Signal::Error(e)) => {
-                                    self.tx.deferred_insert.get_or_insert((t.object as usize, *e));
+                                    self.defer_insert(rec, t.object, *e);
                                 }
                                 // A key whose format is not pinned stays a refusal.
                                 Err(other) => return Err(other),

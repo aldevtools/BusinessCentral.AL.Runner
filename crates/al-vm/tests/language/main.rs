@@ -139,6 +139,7 @@ mod json_text_as_decimal;
 mod json_text_as_number;
 mod json_time_milliseconds;
 mod json_typed_reads;
+mod json_used_return;
 mod json_write_with_secrets;
 mod keyword_variable_names;
 mod lane_bump28;

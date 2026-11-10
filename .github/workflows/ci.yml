@@ -129,8 +129,8 @@ jobs:
             exit 0
           fi
           read -r number head <<<"$pr"
-          # The newest successful pull_request run of the head commit that uploaded its tested tree. A run that
-          # skipped its jobs (a draft) has no artifact and is passed over.
+          # The newest successful pull_request run of the head commit that uploaded its tested tree. A run on a
+          # draft ran only the job `test`: it uploads no artifact (see `test`) and is passed over.
           runs=$(gh api "repos/$GH_REPO/actions/workflows/ci.yml/runs?event=pull_request&head_sha=$head&status=success&per_page=10" \
             --jq '.workflow_runs[].id')
           for run in $runs; do
@@ -214,14 +214,15 @@ jobs:
         with:
           components: rustfmt, clippy
       # The tree this pull request run tests (the merge commit checked out). The job merge-check of the push to main
-      # compares it with the tree of the new main commit (header, owner decision 2026-11-04).
+      # compares it with the tree of the new main commit (header, owner decision 2026-11-04). Not on a draft: a draft
+      # runs only this job, so its run did not test the tree with the full set and must not let main skip that set.
       - name: Record the tested tree
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && github.event.pull_request.draft != true
         run: |
           mkdir -p "$RUNNER_TEMP/tested-tree"
           git rev-parse 'HEAD^{tree}' > "$RUNNER_TEMP/tested-tree/tree.txt"
       - uses: actions/upload-artifact@v4
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && github.event.pull_request.draft != true
         with:
           name: tested-tree
           path: ${{ runner.temp }}/tested-tree/tree.txt

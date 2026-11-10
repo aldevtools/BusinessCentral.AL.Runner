@@ -61,6 +61,7 @@ impl Session {
     /// ends in `Unhandled UI: RequestPage <id>` (MissingUIHandler), inside a TryFunction too (Y40XmlPortRequestPage.al:383-423,
     /// log `init;`). A Quit in OnInitXmlPort there is not pinned.
     fn xp_run_request_window(&mut self, inst: &Inst, schema: &Schema) -> Result<Value, Signal> {
+        self.clientless_xmlport_window_guard(schema.name())?;
         Self::xp_run_use_request_page_refused(schema)?;
         if let Some(why) = schema.xp().run_unsupported.first() {
             return unsupported(format!("XmlPort \"{}\": {why}", schema.name()));

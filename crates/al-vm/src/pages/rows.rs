@@ -2907,6 +2907,7 @@ impl Session {
         st.borrow_mut().handler_set_record = false;
         let handed = record.clone();
         let object = st.borrow().object;
+        self.clientless_page_ui_guard()?;
         if let Some(refused) = self.install_page_run(object as usize, modal) {
             // Pinned for `Page.Run(Id)` and `Page.RunModal(Id)` alone (RlInstallUi.al:123, CmInstallObjects.al:109).
             if (record.is_some() || field) && matches!(refused, Signal::Error(_)) {
