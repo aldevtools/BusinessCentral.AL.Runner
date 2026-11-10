@@ -750,40 +750,6 @@ impl StrictOrder {
         s.only.dedup();
         Ok(s)
     }
-
-    /// Runs the listed codeunits alone with `--strict-order` over `input` (apps, kinds, .NET) and gives their cases
-    /// that run's outcomes. Nothing when none is listed (`input` is `None`).
-    #[allow(clippy::type_complexity)]
-    fn adopt(
-        &self,
-        rt: &mut runtime::CorpusRuntime,
-        input: Option<(
-            Vec<al_sema::workspace::AppSource>,
-            Vec<al_sema::AppKind>,
-            al_vm::dotnet::DotNetConfig,
-        )>,
-        (manifests, symbols, target): (
-            &[runtime::Manifest],
-            &std::collections::BTreeSet<String>,
-            Option<&al_version::Target>,
-        ),
-        runs: &[runtime::SuiteRun],
-        opts: &runtime::RunOptions,
-    ) -> Result<(), String> {
-        let Some((apps, kinds, dotnet)) = input else {
-            return Ok(());
-        };
-        let o = runtime::RunOptions {
-            strict_order: true,
-            only: Some(self.only.clone()),
-            process_ends_after: false,
-            ..opts.clone()
-        };
-        let strict =
-            runtime::CorpusRuntime::try_run_suites_with(apps, kinds, manifests, symbols, target, dotnet, runs, &o)?;
-        rt.adopt_cases(&strict, &self.listed);
-        Ok(())
-    }
 }
 
 /// The apps a pass compiles (`run_pass_compile`).
@@ -1268,7 +1234,12 @@ fn run_version_inner(
         &suite_data,
         &suite_cases_all,
     )?;
-    let strict_input = (!strict.only.is_empty()).then(|| (apps.clone(), kinds.clone(), dotnet.clone()));
+    // The runtime runs them once more over the compile of the pass (no second compile).
+    let mut opts = opts;
+    opts.strict_after = (!strict.only.is_empty()).then_some(runtime::StrictAfter {
+        only: strict.only,
+        listed: strict.listed,
+    });
     let compiled = PassApps {
         apps,
         kinds,
@@ -1276,8 +1247,7 @@ fn run_version_inner(
         symbols: &symbols,
         target,
     };
-    let mut rt = run_pass_compile(grow, pass.main, &own, compiled, dotnet, &runs, &opts, kept_out)?;
-    strict.adopt(&mut rt, strict_input, (&manifests, &symbols, target), &runs, &opts)?;
+    let rt = run_pass_compile(grow, pass.main, &own, compiled, dotnet, &runs, &opts, kept_out)?;
     // Nothing waits for the drop of the runtime after the report is written.
     let rt = runtime::Retiring::new(rt);
     let p = &rt.phases;

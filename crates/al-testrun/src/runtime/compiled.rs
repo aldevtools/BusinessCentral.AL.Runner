@@ -55,9 +55,22 @@ pub const MICROSOFT_ISOL_CODEUNIT: u32 = 130_450;
 /// Codeunit 130451 "Test Runner - Isol. Disabled".
 pub const MICROSOFT_ISOL_DISABLED: u32 = 130_451;
 
+/// Test codeunits that run once more in BC's order over the compile of the run (ADR-066 amendment 12, owner decision
+/// of 2026-11-09), and take the outcomes of that run (`CorpusRuntime::adopt_cases`).
+#[derive(Debug, Clone, Default)]
+pub struct StrictAfter {
+    /// As `RunOptions::only` numbers them: (app index, codeunit id).
+    pub only: Vec<(usize, u32)>,
+    /// (run name, codeunit id) of each, for `CorpusRuntime::adopt_cases`.
+    pub listed: BTreeSet<(String, u32)>,
+}
+
 /// What a run is asked to do beyond running everything.
 #[derive(Debug, Clone, Default)]
 pub struct RunOptions {
+    /// Codeunits that run again with `strict_order` after the run, over the same compile (no second compile). `None`
+    /// or empty `only`: no second run.
+    pub strict_after: Option<StrictAfter>,
     /// The test runner (ADR-066). Default: al-runner's own.
     pub test_runner: TestRunner,
     /// Only these test codeunits (app index of the compile, object id) are roots of the compile

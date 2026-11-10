@@ -178,22 +178,11 @@ impl CorpusRuntime {
                 Ok(c) => c,
                 Err(stopped) => return Ok((stopped, None)),
             };
-        // A lean run may be run again below: its engines are freed then, the process does not end after it.
-        let first_opts;
-        let first = if compiled.lean.is_some() && opts.process_ends_after {
-            first_opts = RunOptions {
-                process_ends_after: false,
-                ..opts.clone()
-            };
-            &first_opts
-        } else {
-            opts
-        };
-        let rt = Self::run_compiled(&compiled, target, dotnet.clone(), first);
+        let (rt, left_out) = Self::run_then_strict(&compiled, target, dotnet.clone(), opts);
         // A lean compile left out the workspace objects no selected test names (`Roots::lean`). A run that met one of
         // their routines was compiled for less than it needs: the apps are compiled completely and the tests run again,
         // so the outcomes are the complete compile's.
-        if compiled.lean.is_some() && rt.met_left_out() {
+        if compiled.lean.is_some() && left_out {
             let lean_time = rt.phases.compile + rt.phases.tests;
             let (apps, kinds) = compiled.into_apps();
             let compiled = match Self::compile_within_limit(
@@ -210,7 +199,7 @@ impl CorpusRuntime {
                 Ok(c) => c,
                 Err(stopped) => return Ok((stopped, None)),
             };
-            let mut rt = Self::run_compiled(&compiled, target, dotnet, opts);
+            let (mut rt, _) = Self::run_then_strict(&compiled, target, dotnet, opts);
             rt.phases.lean_redone = true;
             rt.phases.compile += lean_time;
             rt.phases.compiles += 1;
@@ -243,6 +232,46 @@ impl CorpusRuntime {
         // a tenth of the corpus, and nothing waits for it. When the process ends right after, they are not freed.
         retire_at_end(compiled, opts.process_ends_after);
         Ok((rt, None))
+    }
+
+    /// Runs `compiled` as `opts` says, then the codeunits of `opts.strict_after` once more with `strict_order` over the
+    /// same compile (its own install baseline, no second compile), whose outcomes the first run's cases take. Also says
+    /// whether either run met a routine a lean compile left out.
+    fn run_then_strict(
+        compiled: &Compiled,
+        target: Option<&al_version::Target>,
+        dotnet: al_vm::dotnet::DotNetConfig,
+        opts: &RunOptions,
+    ) -> (CorpusRuntime, bool) {
+        let strict = opts.strict_after.as_ref().filter(|s| !s.only.is_empty());
+        // A run that is run again keeps its engines: the process does not end after it.
+        let first_opts;
+        let first = if (strict.is_some() || compiled.lean.is_some()) && opts.process_ends_after {
+            first_opts = RunOptions {
+                process_ends_after: false,
+                strict_after: None,
+                ..opts.clone()
+            };
+            &first_opts
+        } else {
+            opts
+        };
+        let mut rt = Self::run_compiled(compiled, target, dotnet.clone(), first);
+        let mut left_out = rt.met_left_out();
+        if let Some(s) = strict {
+            let o = RunOptions {
+                strict_order: true,
+                only: Some(s.only.clone()),
+                strict_after: None,
+                ..opts.clone()
+            };
+            let second = Self::run_compiled(compiled, target, dotnet, &o);
+            left_out |= second.met_left_out();
+            rt.adopt_cases(&second, &s.listed);
+            rt.phases.baseline += second.phases.baseline;
+            rt.phases.tests += second.phases.tests;
+        }
+        (rt, left_out)
     }
 
     /// A stability run (ADR-058 section 7): one compile, then one run phase per variant `perturbs` names, one after

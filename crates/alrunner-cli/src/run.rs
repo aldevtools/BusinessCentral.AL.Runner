@@ -1595,7 +1595,8 @@ fn test_inner(
         dev_endpoint_ui: crate::dev_endpoint_ui::for_major(a.dev_endpoint_ui, chosen.target.bc.major)?, // issue 3697
         allow_write_in_try_functions: a.allow_write_in_try_functions,                                   // issue 7143
         dependencies_published_global: a.dependencies_published_global,                                 // issue 7169
-        strict_order: a.strict_order,  // `--strict-order` (ADR-066 amendment 12)
+        strict_order: a.strict_order, // `--strict-order` (ADR-066 amendment 12)
+        strict_after: None,
         replay_every_dependent: false, // only a stability run sets it (ADR-058 amendment 1)
         single_fresh_check: false,     // set per variant in stability mode (ADR-058 amendment 1)
         max_replay: a.max_replay,      // `--max-replay N` (ADR-066 amendment 7)

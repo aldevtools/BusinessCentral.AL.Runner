@@ -265,3 +265,23 @@ fn a_default_run_takes_the_outcomes_of_listed_codeunits_from_a_strict_run() {
     );
     assert_eq!(rt.outcome_in("", &case("SetsTheFlag", 60471)), Outcome::Pass);
 }
+
+/// The same over one compile: `RunOptions::strict_after` runs the listed codeunits again inside the run, so the pass
+/// compiles once and the listed cases take the strict outcomes.
+#[test]
+fn strict_after_runs_the_listed_codeunits_again_over_the_same_compile() {
+    let opts = RunOptions {
+        strict_after: Some(al_testrun::runtime::StrictAfter {
+            only: vec![(0, 60471), (0, 60472)],
+            listed: [(String::new(), 60471), (String::new(), 60472)].into(),
+        }),
+        ..Default::default()
+    };
+    let rt = run(PAIR, &opts);
+    let case = |name: &str, codeunit| al_testrun::CaseId {
+        codeunit,
+        name: name.into(),
+    };
+    assert_eq!(rt.outcome_in("", &case("ReadsTheFlag", 60472)), Outcome::Pass);
+    assert_eq!(rt.phases.compiles, 1);
+}

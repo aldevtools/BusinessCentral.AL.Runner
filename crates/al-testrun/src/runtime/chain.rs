@@ -149,6 +149,9 @@ pub struct ChainReport {
     pub numbers_order: Vec<super::NumbersOrder>,
 }
 
+/// The most `number order:` lines the run output prints before it prints one summary line.
+pub const NUMBERS_LINES_MAX: usize = 5;
+
 impl ChainReport {
     /// ADR-066 amendment 12, decision 3: the numbers list, one line per codeunit. The run output prints it with or
     /// without `--timings`.
@@ -160,8 +163,21 @@ impl ChainReport {
     /// option 2) and the numbers list.
     pub fn run_output_lines(&self) -> Vec<String> {
         let mut out = self.single_lane.skipped_lines();
-        out.extend(self.numbers_lines());
+        out.extend(self.numbers_summary());
         out
+    }
+
+    /// The numbers list for the run output: one line per codeunit up to [`NUMBERS_LINES_MAX`], else one summary line
+    /// (`--timings` and the JUnit property `numberSequenceOrder` keep the detail). Diagnostics only (ADR-009).
+    pub fn numbers_summary(&self) -> Vec<String> {
+        let n = self.numbers_order.len();
+        if n <= NUMBERS_LINES_MAX {
+            return self.numbers_lines();
+        }
+        vec![format!(
+            "number order: {n} test codeunits take NumberSequence numbers after another test codeunit took some on BC; \
+             --timings lists them, the JUnit property numberSequenceOrder marks their tests, --strict-order chains the numbers as on BC"
+        )]
     }
 
     /// The text for the tests of codeunit `codeunit` of run `suite` when it is on the numbers list.
@@ -382,6 +398,28 @@ mod tests {
             left: id == 2,
             ahead: id == 3,
         }
+    }
+
+    #[test]
+    fn a_long_numbers_list_is_one_summary_line_in_the_run_output() {
+        let order = |n: usize| ChainReport {
+            numbers_order: (0..n as u32)
+                .map(|i| super::super::NumbersOrder {
+                    suite: 0,
+                    codeunit: i,
+                    name: format!("C{i}"),
+                    after: (i + 1, "X".into()),
+                })
+                .collect(),
+            ..Default::default()
+        };
+        assert_eq!(order(NUMBERS_LINES_MAX).run_output_lines().len(), NUMBERS_LINES_MAX);
+        let long = order(NUMBERS_LINES_MAX + 1);
+        let out = long.run_output_lines();
+        assert_eq!(out.len(), 1, "{out:?}");
+        assert!(out[0].contains(&format!("number order: {} test codeunits", NUMBERS_LINES_MAX + 1)));
+        // `--timings` keeps the detail.
+        assert_eq!(long.numbers_lines().len(), NUMBERS_LINES_MAX + 1);
     }
 
     #[test]
