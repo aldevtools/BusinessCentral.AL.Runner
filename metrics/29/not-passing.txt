@@ -751,7 +751,6 @@
 72525 ReadText_Utf16
 72525 TO_ReadText_NonAscii_NoTerminator
 72551 ImportStream_ThreeArguments_ForComparison
-72601 PW_RequestWithoutContent_CopyAndStream
 72698 P107_CopyLinksErrors
 72701 P107_CreateTextAllArgs
 72702 P107_AddFieldFieldRef
@@ -1127,12 +1126,6 @@
 77504 PYD_IsDirty_Temporary
 77504 PYD_IsDirty_WriteWithSubscriber
 77504 PYD_IsDirty_WritesWithTriggers
-77512 AC_AuditCategory_Case
-77512 AC_AuditCategory_FormatNumber
-77512 AC_AuditCategory_FormatOrdinal
-77512 AC_AuditCategory_FormatText
-77512 AC_AuditCategory_Variable
-77513 AC_AuditCategory_Evaluate
 77513 AC_AuditCategory_EvaluateInvalidA
 77513 AC_AuditCategory_EvaluateInvalidB
 77513 AC_AuditCategory_EvaluateInvalidC
