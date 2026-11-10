@@ -165,6 +165,7 @@ mod option_decimal;
 mod option_to_decimal;
 mod pageworks_probes;
 mod partner_gaps_1;
+mod permission_dependency_reads;
 mod permission_moved_table;
 mod permission_system_grant;
 mod private_use_chars;

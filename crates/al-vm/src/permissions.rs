@@ -1588,9 +1588,12 @@ impl Session {
             // Customer under a set without Read and BC denies): the answer is not known.
             let heads = self.engine.program.objects.heads();
             let app = heads[t.object as usize].app as usize;
-            if self.engine.program.apps.get(app).is_none_or(|a| a.dependency) {
+            // With test data loaded (the restored company, ADR-020) the store holds the database's full content for every table
+            // the backup offers, so an empty table is empty in BC's database too: AEDependencyTableReads.al
+            // Read_StdCost_SetOwnOnly_Part1 and _Part2 (Standard Cost Worksheet, empty in Cronus): typed reads raise nothing.
+            if self.engine.program.apps.get(app).is_none_or(|a| a.dependency) && self.engine.test_data.is_none() {
                 return refuse(
-                    "a read of an empty table of a dependency app, which BC's database may fill with demo rows",
+                    "a read of an empty table of a dependency app, which BC's database may fill with demo rows (no test data is loaded)",
                 );
             }
             return Ok(());
@@ -1619,7 +1622,28 @@ impl Session {
             };
         }
         if method == R::GetBySystemId {
-            return refuse("GetBySystemId; Y24PermReads.al pins Get");
+            // An existing id is denied, a missing id raises nothing (AEDependencyTableReads.al `Customer_getbysystemid_existing`,
+            // `Customer_getbysystemid_missing`).
+            let Some(al_builtins::value::Value::Guid(g)) = args.first() else {
+                return refuse("GetBySystemId with an argument that is not a Guid");
+            };
+            let Some(i) = t.fields.iter().position(|f| f.id == 2_000_000_000) else {
+                return refuse("GetBySystemId on a table without SystemId");
+            };
+            let filters = [al_builtins::filter::FieldFilter {
+                lang: al_builtins::filter::filter_language(),
+                field: i,
+                expr: al_builtins::filter::FilterExpr::Eq(al_builtins::value::Value::Guid(*g)),
+                group: 0,
+            }];
+            let cx = self.cx_for(rec, &t)?;
+            let found = al_data::Store::count(&*self.store_for(rec), &cx, &t, &filters)
+                .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+            return if found > 0 && *g != [0; 16] {
+                Err(self.denial_error(access, "Read", "Read", by))
+            } else {
+                Ok(())
+            };
         }
         let exact = match args.first() {
             None => true,
@@ -1629,8 +1653,11 @@ impl Session {
         if method == R::Find && exact {
             return if self.row_exists(rec)? {
                 Err(self.denial_error(access, "Read", "Read", by))
+            } else if self.key_is_blank(rec, &t)? {
+                // A blank key finds no row and raises nothing (AEDependencyTableReads.al `Customer_find_eq`).
+                Ok(())
             } else {
-                refuse("Find('=') of a key that does not exist on a table with rows")
+                refuse("Find('=') of a non-blank key that does not exist on a table with rows")
             };
         }
         let (filters, flow_field_filters) = self.split_filters(rec);
@@ -1640,9 +1667,19 @@ impl Session {
         let n = al_data::Store::count(&*self.store_for(rec), &cx, &t, &filters)
             .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
         if n == 0 {
-            return refuse("a read that finds no row on a table that has rows");
+            // FindFirst with a filter that matches no row is denied (AEDependencyTableReads.al `Customer_filter_no_match`); the
+            // other methods are not pinned for it.
+            if method == R::FindFirst {
+                return Err(self.denial_error(access, "Read", "Read", by));
+            }
+            return refuse("a read other than FindFirst that finds no row on a table that has rows");
         }
         match method {
+            // Next on a fresh record: no filter and a blank key (`Customer_next`).
+            R::Next if !filters.is_empty() || !self.key_is_blank(rec, &t)? => {
+                refuse("Next on a record with a filter or a position")
+            }
+            R::Next => Err(self.denial_error(access, "Read", "Read", by)),
             R::Find | R::FindFirst | R::FindLast | R::FindSet | R::Count | R::CountApprox | R::IsEmpty => {
                 Err(self.denial_error(access, "Read", "Read", by))
             }
@@ -1683,6 +1720,17 @@ impl Session {
     fn session_read_level(&self, access: Access) -> u8 {
         // An unrestricted session (checked only for the license) holds Yes from its sets.
         self.permissions.as_ref().map_or(1, |e| e.level(access))
+    }
+
+    /// Whether every field of `rec`'s primary key holds its blank value.
+    fn key_is_blank(&mut self, rec: &crate::records::Rec, t: &al_data::TableDef) -> Result<bool, Signal> {
+        let r = rec.borrow();
+        for &i in &t.keys[0] {
+            if !crate::recmeta::is_blank(&r.fields[i])? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// Whether the row with `rec`'s primary key is stored.
