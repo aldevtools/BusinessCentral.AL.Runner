@@ -1098,7 +1098,9 @@ impl Session {
 
     /// The filters `GetFilters` prints: the runtime filters and the static ColumnFilter of each aggregated column without
     /// one (queries/flowfields-filters/Y78QueryOuterAggFilter.al:1363-1392, `SumQ: >0`). A static filter on an aggregated
-    /// column next to other filters is not pinned (the order of the pairs), and neither is one on a plain column.
+    /// column next to other filters is not pinned (the order of the pairs). A static filter on a plain column without a
+    /// runtime filter of its own is not pinned either (queries/TestQueryColumnFilter.al:40-100 pins the rows, no test
+    /// reads the getters): it refuses, as `GetFilter` of that column does (al-runner issue 5199).
     fn get_filters_list(
         &self,
         def: &ir::Query,
@@ -1106,7 +1108,15 @@ impl Session {
     ) -> Result<Vec<(usize, FilterExpr)>, Signal> {
         let mut out = filters.to_vec();
         for (ci, c) in def.columns.iter().enumerate() {
-            if c.method.is_none() || filters.iter().any(|(r, _)| *r == ci) {
+            if filters.iter().any(|(r, _)| *r == ci) {
+                continue;
+            }
+            if c.method.is_none() {
+                if c.static_filter.is_some() {
+                    return unsupported(
+                        "GetFilters of a query with a static ColumnFilter on a plain column (not pinned)",
+                    );
+                }
                 continue;
             }
             if let Some(e) = self.static_column_filter(c)? {

@@ -176,6 +176,7 @@ mod proc_assign;
 mod profile_frame_names;
 mod profiler_tree;
 mod qe_decimal_digits;
+mod query_getfilters_static_filter;
 mod quoted_this_variable;
 mod rec_field_by_var;
 mod record_bare_exit;
