@@ -8,13 +8,13 @@ pass rate is measured against: every `<testcase>` in it passed on real BC.
 | Field | Value |
 |---|---|
 | Corpus repo | aldevtools/BusinessCentral.AL.Language.Tests (until 2026-10-21 StefanMaron/BusinessCentral.AL.Language.Tests), branch `master` (the default branch; until 2026-10-19 the side branch `al-runtime-rs`, whose commits are all on `master`) |
-| Corpus pin | `f2853bf3aa24f7dbde48acf338c1b619d48ffe7f` (the `corpus` submodule, master merge of corpus PR 706; must equal `corpus_commit` in `oracle.toml`) |
+| Corpus pin | `1f550e893034e63cd924bbc2edbbfb3c9dc4054e` (the `corpus` submodule, master merge of corpus PR 706; must equal `corpus_commit` in `oracle.toml`) |
 
 | Major | Oracle leg | Corpus commit of the run | Workflow run | Artifact | Artifact id | Cases |
 |---|---|---|---|---|---|---|
-| 27 | 27.5 | `4e6c706` (full run; PR results on top, see below) | 42636820882 | `junit-test-results-27.5` | 13690326605 | 24793 |
-| 28 | 28.5 | `4e6c706` (full run; PR results on top, see below) | 42636820882 | `junit-test-results-28.5` | 13691077642 | 24934 (+26 `OnRun`) |
-| 29 | 29.0 | `4e6c706` (full run; PR results on top, see below) | 42636820882 | `junit-test-results-29.0` | 13689628302 | 25077 (+26 `OnRun`) |
+| 27 | 27.5 | `eabd825` (full run; PR results on top, see below) | 42715073374 | `junit-test-results-27.5` | 13720088531 | 25252 |
+| 28 | 28.5 | `eabd825` (full run; PR results on top, see below) | 42715073374 | `junit-test-results-28.5` | 13719829229 | 25393 (+26 `OnRun`) |
+| 29 | 29.0 | `eabd825` (full run; PR results on top, see below) | 42715073374 | `junit-test-results-29.0` | 13720923973 | 25536 (+26 `OnRun`) |
 
 The files come from the green full run of corpus PR 706 ("full run: the pull request has the label full-run"), whose head `f64dfd8` has the same tree
 (`cff97a3c`) as the pin `2be1140`.
@@ -94,6 +94,6 @@ replaced, in the JUnit files above, the codeunits that a corpus pull request's o
 results. The table above still names the last full run. The next bump from a green master run removes this
 section.
 
-- pin `7976f56` (was `4e6c706`): corpus PR 1233 (head `bd81655`, merge `7976f56`, run 42624859717: BC 27 2 codeunit(s) of junit.xml, BC 28 2 codeunit(s) of junit.xml, BC 29 2 codeunit(s) of junit.xml)
-- pin `f2853bf` (was `7976f56`): corpus PR 1236 (head `83f5e22`, merge `f2853bf`, run 42651534837: BC 27 6 codeunit(s) of junit.xml, BC 28 6 codeunit(s) of junit.xml, BC 29 6 codeunit(s) of junit.xml)
+- pin `2ee263b` (was `eabd825`): corpus PR 1261 (head `c785dd4`, merge `2ee263b`, run 42713627883: BC 27 5 codeunit(s) of junit.xml, BC 28 5 codeunit(s) of junit.xml, BC 29 5 codeunit(s) of junit.xml)
+- pin `1f550e8` (was `2ee263b`): corpus PR 1263 (head `4ac7740`, merge `1f550e8`, run 42713954511: BC 27 2 codeunit(s) of junit.xml, BC 28 2 codeunit(s) of junit.xml, BC 29 2 codeunit(s) of junit.xml)
 <!-- pr-results-bump:end -->
