@@ -831,6 +831,9 @@ ADR-071: a refusal carries a stable key and the probe its shape waits for. Each 
 <!-- refusal-keys:begin (generated from the refusal key lists; al-test-cli --refusals-doc or UPDATE_REFUSALS_DOC=1 on the test refusal_keys rewrites it) -->
 | Key | Area | Probe | Registered in |
 |---|---|---|---|
+| `runner.login.guarded-table-read` | runner | None: BC has the login's rows (events/platform-triggers/LgnLoginChecklistTests.al:137-138); the refusal goes away when the runner raises the login for the test codeunit. | `crates/al-vm/src/refusals/runner.login.guarded-table-read.rs` |
+| `runner.login.row-addressed` | runner | None: BC has the login's rows (events/platform-triggers/LgnLoginChecklistTests.al:137-138); the refusal goes away when the runner raises the login for the test codeunit. | `crates/al-vm/src/refusals/runner.login.row-addressed.rs` |
+| `runner.login.rows-unknown` | runner | None: the app's login subscribers did not run to their end alone; the refusal goes away when the runner raises the login for the test codeunit. | `crates/al-vm/src/refusals/runner.login.rows-unknown.rs` |
 | `xml.sibling.attribute-or-declaration` | xml | wanted (no probe written yet) | `crates/al-builtins/src/refusals/xml.sibling.attribute-or-declaration.rs` |
 <!-- refusal-keys:end -->
 

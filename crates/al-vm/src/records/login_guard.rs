@@ -24,6 +24,8 @@
 //! the app's own Company Triggers subscribers run before the guard is set.
 
 use super::*;
+use crate::refusal::keys;
+use al_builtins::refuse;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The rows of each table (object index) the login subscribers add, when they ran alone.
@@ -88,7 +90,7 @@ impl Session {
             if let Err(e) = copy.call_parameterless_subscriber(o, r) {
                 let obj = &self.engine.program.objects[o];
                 let why = match e {
-                    Signal::Unsupported(why) => why,
+                    Signal::Unsupported(why) => why.to_string(),
                     Signal::Error(e) => e.message,
                     _ => "it stopped".into(),
                 };
@@ -218,8 +220,10 @@ impl Session {
             return Ok(());
         }
         if self.guards.login.contains(&table) {
-            return unsupported(format!(
-                "{what} on {}: the login was not raised for this test codeunit, and a login subscriber of an app under test adds rows to this table that are not there (the test's reach did not show that it reads them)",
+            return unsupported(refuse!(
+                keys::RUNNER_LOGIN_GUARDED_TABLE_READ,
+                "{} on {}: the login was not raised for this test codeunit, and a login subscriber of an app under test adds rows to this table that are not there (the test's reach did not show that it reads them)",
+                what,
                 self.login_table_name(table)
             ));
         }
@@ -227,9 +231,12 @@ impl Session {
             return Ok(());
         }
         if let Some(why) = &self.guards.login_rows_unknown {
-            return unsupported(format!(
-                "{what} on {}: the login was not raised for this test codeunit, a login subscriber of an app under test adds rows to this table, and which rows is not known ({why})",
-                self.login_table_name(table)
+            return unsupported(refuse!(
+                keys::RUNNER_LOGIN_ROWS_UNKNOWN,
+                "{} on {}: the login was not raised for this test codeunit, a login subscriber of an app under test adds rows to this table, and which rows is not known ({})",
+                what,
+                self.login_table_name(table),
+                why.as_str()
             ));
         }
         let Some(rows) = self.guards.login_rows.get(&table) else {
@@ -273,8 +280,10 @@ impl Session {
         if !hit {
             return Ok(());
         }
-        unsupported(format!(
-            "{what} on {}: the login was not raised for this test codeunit, and the operation addresses a row a login subscriber of an app under test adds to this table, which is not there",
+        unsupported(refuse!(
+            keys::RUNNER_LOGIN_ROW_ADDRESSED,
+            "{} on {}: the login was not raised for this test codeunit, and the operation addresses a row a login subscriber of an app under test adds to this table, which is not there",
+            what,
             self.login_table_name(table)
         ))
     }
