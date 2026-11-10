@@ -51,7 +51,7 @@ fn the_action_names_the_builds_restores_the_cache_and_fetches() {
     before(&action, "actions/cache@v4", "--fetch-deps");
     assert!(action.contains("path: ~/.cache/al-runtime/artifacts"));
     // The key names the builds of the selection the job fetches, and other caches can use it.
-    assert!(action.contains("key: bc-artifacts-${{ steps.bc.outputs.key }}"));
+    assert!(action.contains("key: bc-artifacts-v2-${{ steps.bc.outputs.key }}"));
     assert!(action.contains("value: ${{ steps.bc.outputs.key }}"));
 }
 

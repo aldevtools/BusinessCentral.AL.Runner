@@ -40,7 +40,7 @@ runs:
     - uses: actions/cache@v4
       with:
         path: ~/.cache/al-runtime/artifacts
-        key: bc-artifacts-${{ steps.bc.outputs.key }}
+        key: bc-artifacts-v2-${{ steps.bc.outputs.key }}
     - name: Fetch dependency apps (warms the cache)
       shell: bash
       env:
