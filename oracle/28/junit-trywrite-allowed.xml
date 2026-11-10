@@ -1,39 +1,39 @@
 <?xml version='1.0' encoding='utf-8'?>
-<testsuites name="hybrid" tests="33" failures="0" errors="0" skipped="0" time="4.916" timestamp="2026-11-10T06:03:16Z"><testsuite name="Codeunit 81700" tests="23" failures="0" errors="0" skipped="0" time="13.327" timestamp="2026-11-10T06:03:15Z">
-    <testcase classname="Codeunit 81700" name="Insert_InTryFunction_Succeeds" time="0.045" />
-    <testcase classname="Codeunit 81700" name="Insert_InTryFunction_ErrorAfter" time="0.687" />
-    <testcase classname="Codeunit 81700" name="Modify_InTryFunction_Succeeds" time="0.884" />
-    <testcase classname="Codeunit 81700" name="Modify_InTryFunction_ErrorAfter" time="0.686" />
-    <testcase classname="Codeunit 81700" name="Delete_InTryFunction_Succeeds" time="0.635" />
-    <testcase classname="Codeunit 81700" name="Delete_InTryFunction_ErrorAfter" time="0.683" />
-    <testcase classname="Codeunit 81700" name="DeleteAll_InTryFunction_Succeeds" time="0.506" />
-    <testcase classname="Codeunit 81700" name="DeleteAll_InTryFunction_ErrorAfter" time="0.607" />
-    <testcase classname="Codeunit 81700" name="ModifyAll_InTryFunction_Succeeds" time="0.609" />
-    <testcase classname="Codeunit 81700" name="ModifyAll_InTryFunction_ErrorAfter" time="0.643" />
-    <testcase classname="Codeunit 81700" name="Rename_InTryFunction_Succeeds" time="0.262" />
-    <testcase classname="Codeunit 81700" name="Rename_InTryFunction_ErrorAfter" time="0.704" />
-    <testcase classname="Codeunit 81700" name="Commit_InTryFunction_Succeeds" time="0.558" />
-    <testcase classname="Codeunit 81700" name="RecRefInsert_InTryFunction_Succeeds" time="0.250" />
-    <testcase classname="Codeunit 81700" name="RecRefInsert_InTryFunction_ErrorAfter" time="0.358" />
-    <testcase classname="Codeunit 81700" name="RecRefModify_InTryFunction_Succeeds" time="0.786" />
-    <testcase classname="Codeunit 81700" name="RecRefModify_InTryFunction_ErrorAfter" time="0.658" />
-    <testcase classname="Codeunit 81700" name="RecRefDelete_InTryFunction_Succeeds" time="0.529" />
-    <testcase classname="Codeunit 81700" name="RecRefDelete_InTryFunction_ErrorAfter" time="0.654" />
-    <testcase classname="Codeunit 81700" name="RecRefDeleteAll_InTryFunction_Succeeds" time="0.499" />
-    <testcase classname="Codeunit 81700" name="RecRefDeleteAll_InTryFunction_ErrorAfter" time="0.703" />
-    <testcase classname="Codeunit 81700" name="RecRefRename_InTryFunction_Succeeds" time="0.702" />
-    <testcase classname="Codeunit 81700" name="RecRefRename_InTryFunction_ErrorAfter" time="0.679" />
+<testsuites name="hybrid" tests="33" failures="0" errors="0" skipped="0" time="6.006" timestamp="2026-11-10T21:40:06Z"><testsuite name="Codeunit 81700" tests="23" failures="0" errors="0" skipped="0" time="14.345" timestamp="2026-11-10T21:40:05Z">
+    <testcase classname="Codeunit 81700" name="Insert_InTryFunction_Succeeds" time="0.613" />
+    <testcase classname="Codeunit 81700" name="Insert_InTryFunction_ErrorAfter" time="0.847" />
+    <testcase classname="Codeunit 81700" name="Modify_InTryFunction_Succeeds" time="0.801" />
+    <testcase classname="Codeunit 81700" name="Modify_InTryFunction_ErrorAfter" time="0.321" />
+    <testcase classname="Codeunit 81700" name="Delete_InTryFunction_Succeeds" time="0.107" />
+    <testcase classname="Codeunit 81700" name="Delete_InTryFunction_ErrorAfter" time="0.757" />
+    <testcase classname="Codeunit 81700" name="DeleteAll_InTryFunction_Succeeds" time="0.563" />
+    <testcase classname="Codeunit 81700" name="DeleteAll_InTryFunction_ErrorAfter" time="0.653" />
+    <testcase classname="Codeunit 81700" name="ModifyAll_InTryFunction_Succeeds" time="0.671" />
+    <testcase classname="Codeunit 81700" name="ModifyAll_InTryFunction_ErrorAfter" time="0.691" />
+    <testcase classname="Codeunit 81700" name="Rename_InTryFunction_Succeeds" time="0.515" />
+    <testcase classname="Codeunit 81700" name="Rename_InTryFunction_ErrorAfter" time="0.771" />
+    <testcase classname="Codeunit 81700" name="Commit_InTryFunction_Succeeds" time="0.596" />
+    <testcase classname="Codeunit 81700" name="RecRefInsert_InTryFunction_Succeeds" time="0.607" />
+    <testcase classname="Codeunit 81700" name="RecRefInsert_InTryFunction_ErrorAfter" time="0.541" />
+    <testcase classname="Codeunit 81700" name="RecRefModify_InTryFunction_Succeeds" time="0.803" />
+    <testcase classname="Codeunit 81700" name="RecRefModify_InTryFunction_ErrorAfter" time="0.691" />
+    <testcase classname="Codeunit 81700" name="RecRefDelete_InTryFunction_Succeeds" time="0.545" />
+    <testcase classname="Codeunit 81700" name="RecRefDelete_InTryFunction_ErrorAfter" time="0.663" />
+    <testcase classname="Codeunit 81700" name="RecRefDeleteAll_InTryFunction_Succeeds" time="0.524" />
+    <testcase classname="Codeunit 81700" name="RecRefDeleteAll_InTryFunction_ErrorAfter" time="0.742" />
+    <testcase classname="Codeunit 81700" name="RecRefRename_InTryFunction_Succeeds" time="0.665" />
+    <testcase classname="Codeunit 81700" name="RecRefRename_InTryFunction_ErrorAfter" time="0.658" />
   </testsuite>
-  <testsuite name="Codeunit 81704" tests="10" failures="0" errors="0" skipped="0" time="6.197" timestamp="2026-11-10T06:03:16Z">
-    <testcase classname="Codeunit 81704" name="Install_ModifyInTryFunction_Kept" time="0.113" />
-    <testcase classname="Codeunit 81704" name="Install_ModifyInTryFunction_ErrorAfter_Kept" time="0.644" />
-    <testcase classname="Codeunit 81704" name="Install_InsertInTryFunction_Kept" time="0.635" />
-    <testcase classname="Codeunit 81704" name="Install_RecRefModifyInTryFunction_Kept" time="0.623" />
-    <testcase classname="Codeunit 81704" name="Install_ResourceThumbnailInTryFunction_Kept" time="0.871" />
-    <testcase classname="Codeunit 81704" name="Install_MissingResourceInTryFunction_NoWrite" time="0.663" />
-    <testcase classname="Codeunit 81704" name="Install_DeleteInTryFunction_Kept" time="0.636" />
-    <testcase classname="Codeunit 81704" name="Install_RenameInTryFunction_Kept" time="0.754" />
-    <testcase classname="Codeunit 81704" name="Install_ModifyAllInTryFunction_Kept" time="0.645" />
-    <testcase classname="Codeunit 81704" name="Install_DeleteAllInTryFunction_Kept" time="0.613" />
+  <testsuite name="Codeunit 81704" tests="10" failures="0" errors="0" skipped="0" time="7.747" timestamp="2026-11-10T21:40:06Z">
+    <testcase classname="Codeunit 81704" name="Install_ModifyInTryFunction_Kept" time="0.771" />
+    <testcase classname="Codeunit 81704" name="Install_ModifyInTryFunction_ErrorAfter_Kept" time="0.740" />
+    <testcase classname="Codeunit 81704" name="Install_InsertInTryFunction_Kept" time="0.719" />
+    <testcase classname="Codeunit 81704" name="Install_RecRefModifyInTryFunction_Kept" time="0.725" />
+    <testcase classname="Codeunit 81704" name="Install_ResourceThumbnailInTryFunction_Kept" time="0.968" />
+    <testcase classname="Codeunit 81704" name="Install_MissingResourceInTryFunction_NoWrite" time="0.693" />
+    <testcase classname="Codeunit 81704" name="Install_DeleteInTryFunction_Kept" time="0.684" />
+    <testcase classname="Codeunit 81704" name="Install_RenameInTryFunction_Kept" time="0.855" />
+    <testcase classname="Codeunit 81704" name="Install_ModifyAllInTryFunction_Kept" time="0.777" />
+    <testcase classname="Codeunit 81704" name="Install_DeleteAllInTryFunction_Kept" time="0.815" />
   </testsuite>
 </testsuites>

@@ -91,10 +91,10 @@ impl AllVersions {
 fn every_oracle_case_is_reported_and_attributed_to_an_area() {
     // BC 29: the version a run without `--bc-version` picks.
     let r = all_versions().json("29");
-    assert_eq!(r["overall"]["total"], 26012);
+    assert_eq!(r["overall"]["total"], 27085);
     assert_eq!(r["unmapped"].as_array().unwrap().len(), 0, "{}", r["unmapped"]);
-    assert_eq!(r["areas"]["json"]["total"], 554); // corpus bump to 833a01ce: the restructure moved JSON tests into json/
-    assert_eq!(r["areas"]["record"]["total"], 4012); // corpus bump to 833a01ce: the restructure merged records, filters, calcfields and system-fields into record/
+    assert_eq!(r["areas"]["json"]["total"], 597); // corpus bump to 833a01ce: the restructure moved JSON tests into json/
+    assert_eq!(r["areas"]["record"]["total"], 4195); // corpus bump to 833a01ce: the restructure merged records, filters, calcfields and system-fields into record/
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn oracle_pinned_to_a_different_corpus_commit_is_refused() {
     std::fs::write(
         &bad,
         t.replace(
-            "c4efa9eb1f21bd4c20fbb7b096dadb8927df8c86",
+            "2730e6321c415821a8b580c8b11117c63e323677",
             "0000000000000000000000000000000000000000",
         ),
     )
@@ -828,7 +828,7 @@ fn markdown_summary_is_written() {
     let shared = all_versions();
     assert_eq!(shared.code, 0, "{}", shared.err);
     let md = std::fs::read_to_string(shared.file("pass-rate", "29", "md")).unwrap();
-    assert!(md.starts_with("- BC 29.0: ") && md.contains(" of 26012 ("), "{md}");
+    assert!(md.starts_with("- BC 29.0: ") && md.contains(" of 27085 ("), "{md}");
     assert_eq!(md.lines().count(), 1, "one line per version: {md}");
     // ... and `--markdown` of a single-version run writes the file it is given.
     let dir = tempfile::tempdir().unwrap();
@@ -893,7 +893,7 @@ fn every_bc_major_has_an_oracle_with_the_same_cases() {
     // 28 and 29 come from the hybrid runner: its OnRun pseudo-cases must be skipped, or the
     // run stops with exit 2 (ADR-015 1.6).
     // All three are recorded for the pinned corpus commit.
-    for (v, total) in [("27", 25728), ("28", 25869), ("29", 26012)] {
+    for (v, total) in [("27", 26801), ("28", 26942), ("29", 27085)] {
         let r = all_versions().json(v);
         assert_eq!(r["overall"]["total"], total, "BC {v}");
         assert_eq!(r["unmapped"].as_array().unwrap().len(), 0, "BC {v}");
@@ -1072,7 +1072,7 @@ fn require_dotnet_turns_an_unusable_dotnet_into_a_setup_error() {
 #[test]
 fn the_other_test_apps_are_reported_apart_from_the_main_one() {
     let r = all_versions().json("28");
-    assert_eq!(r["overall"]["total"], 25869);
+    assert_eq!(r["overall"]["total"], 26942);
     let suites = r["suites"].as_array().unwrap();
     let get = |n: &str| {
         suites
@@ -1080,7 +1080,7 @@ fn the_other_test_apps_are_reported_apart_from_the_main_one() {
             .find(|s| s["name"] == n)
             .unwrap_or_else(|| panic!("no suite {n}"))
     };
-    assert_eq!(get("onprem")["counts"]["total"], 468);
+    assert_eq!(get("onprem")["counts"]["total"], 487);
     // Real BC fails T8 and T10 (a deferred duplicate-key Insert at the end of the test) under both runners,
     // and the runtime fails them too. The nightly of 2026-11-09 adds the DJ and SD isolation codeunits
     // (61306-61318), many of which fail on BC on purpose (readers of rows a runner keeps or rolls back).
