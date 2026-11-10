@@ -1,5 +1,6 @@
-//! Shapes of Provider-linked parts that testpage/parts/ProviderLinkedPartsMatrix.al pins but that are not implemented yet:
-//! the runner refuses them where its reads would differ from BC's, instead of running them with other trigger counts.
+//! Parts of a Provider chain that a Visible expression hid as the host opened (testpage/parts/ProviderLinkedPartsMatrix.al).
+//! What the runner reads for them is derived from that file's expectations; the shapes it does not pin are refused as the page
+//! opens, before the test observed anything.
 
 use super::*;
 
@@ -18,60 +19,212 @@ impl Session {
                 .any(|c| c.part_link.as_ref().is_some_and(|l| l.provider == Some(i)))
     }
 
-    /// A part of a Provider chain that a Visible expression hid as the host opened and that shows after the host's first row: BC reads
-    /// the linked parts once more before the rows, and in edit mode the Provider part twice on its blank line
-    /// (ProviderLinkedPartsMatrix.al:1213 Provider_BothVisible_OpenViewAndGoToKey `host-row(H1) | detail-row() | lines-row(10)`,
-    /// Provider_BothVisible_OpenEditNextPreviousGoToRecord `lines-row(0) | lines-row(0) | detail-row()`). Not implemented.
-    pub(super) fn refuse_provider_part_turning_visible(&mut self, st: &St) -> Result<(), Signal> {
-        // A new host record: the reads of its Provider chain (blank line reads of the Provider and of the linked parts, the
-        // snapshots of ProviderLinkedPartsMatrix.al Provider_*_OpenNewSetKeyClose, Provider_TwoLinkedParts_OpenNew) are pinned but
-        // not implemented. Refused as the page opens, before the test observed anything.
-        let (new_host, parts) = {
+    /// Whether `st` is a part declared in the host's `area(FactBoxes)` that is in a Provider chain: its blank line reads once, not
+    /// three times (testpage/parts/ProviderLinkedPartsMatrix.al Provider_PartsAddedByPageExtensionInFactBoxes_OpenNew
+    /// `lines-row(0) | detail-row()`, against three for a part of the Content area, Provider_BothVisible_OpenNewSetKeyClose).
+    pub(super) fn chain_part_in_factbox(&self, st: &St) -> bool {
+        let Some((host, idx)) = st
+            .borrow()
+            .host
+            .as_ref()
+            .and_then(|(h, c)| h.upgrade().map(|h| (h, *c)))
+        else {
+            return false;
+        };
+        let engine = self.engine();
+        page_of(&engine, &host).controls[idx].factbox && self.part_in_provider_chain(&host, idx)
+    }
+
+    /// The FactBox parts of a Provider chain that the refill after the host's insert skipped read their blank line now, as the key
+    /// typed into the host reaches them (Provider_PartsAddedByPageExtensionInFactBoxes_OpenNew `keyed` `lines-row(0)`).
+    pub(super) fn read_chain_parts_skipped_at_refill(&mut self, st: &St) -> Result<(), Signal> {
+        let pending: Vec<(usize, St)> = Self::open_parts_with_hidden(st)
+            .into_iter()
+            .filter(|(_, c)| c.borrow().chain_refill == 2)
+            .collect();
+        for (i, c) in pending {
+            c.borrow_mut().chain_refill = 0;
+            let linked = {
+                let engine = self.engine();
+                page_of(&engine, st).controls[i]
+                    .part_link
+                    .as_ref()
+                    .is_some_and(|l| l.provider.is_some())
+                    && self.link_by_fields_only(st, i)
+            };
+            // A linked part whose Provider's row did not change keeps what it shows.
+            self.part_sync_keeps_same_link = linked.then_some(true);
+            let r = self.sync_part(st, i, &c);
+            self.part_sync_keeps_same_link = None;
+            r?;
+        }
+        Ok(())
+    }
+
+    /// Whether the SubPageLink of part `i` has only `field` terms: a `field(filter(...))` or `const` term with a blank value sets no
+    /// filter, and the part reads again whatever the Provider's row was (pages/link-filter/Y37LinkFilterTests.al:316
+    /// LT_C311_Provider_RecordIdFilter_Blank `EP.c 1` twice).
+    pub(super) fn link_by_fields_only(&self, st: &St, i: usize) -> bool {
+        let engine = self.engine();
+        page_of(&engine, st).controls[i]
+            .part_link
+            .as_ref()
+            .is_some_and(|l| l.entries.iter().all(|e| matches!(e, ir::LinkEntry::Field(..))))
+    }
+
+    /// The shapes where "a FactBox part of a Provider chain reads one blank row" and "a part a page extension added reads one blank
+    /// row" disagree: a Provider part declared in the FactBoxes area of the host page itself, and a chain part a page extension
+    /// added outside FactBoxes. The corpus pins only the case where both hold (Provider_PartsAddedByPageExtensionInFactBoxes_OpenNew),
+    /// so these are refused as the page opens (probe spec: probe-provider-factbox-vs-extension).
+    pub(super) fn refuse_factbox_vs_extension_chain(&self, st: &St) -> Result<(), Signal> {
+        let (parts, object) = {
             let s = st.borrow();
             (
-                s.draft && s.host.is_none(),
                 s.parts
                     .iter()
                     .chain(s.hidden_parts.iter())
                     .map(|(i, _)| *i)
                     .collect::<Vec<_>>(),
+                s.object as usize,
             )
         };
-        if new_host && parts.into_iter().any(|i| self.part_in_provider_chain(st, i)) {
-            return unsupported(
-                "a new host record with a Provider chain of parts (BC's blank reads of the chain are pinned but not implemented)",
-            );
-        }
-        let hidden = st.borrow().hidden_parts.clone();
-        let card = self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::Card);
-        for (i, c) in hidden {
-            // On a Card host the parts that stay hidden are refused too: a later GoToKey back to a row reads the parts in an order
-            // that is pinned (Provider_BothHidden_OpenViewAndGoToKey `h1_again`) but not implemented, and a refusal that late
-            // would leave the observations of the test behind. Refused as the page opens.
-            if c.borrow().open
-                && !self.part_eliminated(st, i)
-                && self.part_in_provider_chain(st, i)
-                && (card || self.control_visible(st, i)?)
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        for i in parts {
+            let c = &page.controls[i];
+            let extension = c.owner.is_some_and(|o| o != object);
+            if self.part_in_provider_chain(st, i)
+                && ((c.factbox && !extension && self.part_is_provider(st, i)) || (extension && !c.factbox))
             {
                 return unsupported(
-                    "a part of a Provider chain that a Visible expression hid as the host opened and that shows after its first row (BC's extra reads are pinned but not implemented)",
+                    "a Provider-chain part that is a Provider declared in the base page's FactBoxes, or added by a page extension outside FactBoxes (open question: whether BC's one blank read follows the FactBoxes area or the page extension; probe pending)",
                 );
             }
         }
         Ok(())
     }
 
-    /// A part of a Provider chain hidden by an expression that shows no row and is read again after a host move: BC reads its rows
-    /// last to first and then from the first (ProviderLinkedPartsMatrix.al Provider_BothHidden_OpenViewAndGoToKey `h1_again`
-    /// `lines-row(20) | detail-row(twenty) | lines-row(10)`). Not implemented.
-    pub(super) fn refuse_provider_part_back_walk(&self, st: &St, i: usize, child: &St) -> Result<(), Signal> {
-        let hidden = st.borrow().hidden_parts.iter().any(|(h, _)| *h == i);
-        if hidden && child.borrow().open && child.borrow().cursor == Cursor::None && self.part_in_provider_chain(st, i)
-        {
-            return unsupported(
-                "a Provider-chain part hidden by a Visible expression that shows no row, read again after a host move (BC reads its rows last to first; pinned but not implemented)",
-            );
+    /// Whether part `i` is the Provider of another part.
+    fn part_is_provider(&self, st: &St, i: usize) -> bool {
+        let engine = self.engine();
+        page_of(&engine, st)
+            .controls
+            .iter()
+            .any(|c| c.part_link.as_ref().is_some_and(|l| l.provider == Some(i)))
+    }
+
+    /// Parts of a Provider chain that a Visible expression hid as the host opened and that show after its first row. When the
+    /// Provider part turns visible too, BC reads blank before it reads the rows: the Provider part its blank line twice on an
+    /// editable host (three times on a new host), then each linked part that turns visible one blank row
+    /// (ProviderLinkedPartsMatrix.al Provider_BothVisible_OpenViewAndGoToKey `host-row(H1) | detail-row() | lines-row(10)`,
+    /// Provider_BothVisible_OpenEditNextPreviousGoToRecord `lines-row(0) | lines-row(0) | detail-row() | lines-row(10)`,
+    /// Provider_OnlyLinkedHidden_OpenEditNextPreviousGoToRecord `lines-row(0) | lines-row(0) | lines-row(10)`,
+    /// Provider_TwoLinkedParts_OpenViewAndEmptyProvider `detail-row() | detail-row() | lines-row(10)`,
+    /// Provider_PageRun_OnRowWithoutLines `lines-row(0) | lines-row(0) | detail-row() | lines-row(0) | lines-row(0) | lines-row(0)`,
+    /// Provider_BothVisible_OpenNewSetKeyClose `lines-row(0) x3 | detail-row() | lines-row(0) x6`). A Provider part that stays hidden,
+    /// or a linked part that turns visible without it, reads nothing extra (Provider_OnlyProviderHidden_OpenViewAndGoToKey).
+    pub(super) fn read_blank_before_parts_turning_visible(&mut self, st: &St) -> Result<(), Signal> {
+        let hidden = st.borrow().hidden_parts.clone();
+        let mut turning: Vec<(usize, St)> = Vec::new();
+        for (i, c) in hidden {
+            if c.borrow().open
+                && !self.part_eliminated(st, i)
+                && self.part_in_provider_chain(st, i)
+                && self.control_visible(st, i)?
+            {
+                turning.push((i, c));
+            }
+        }
+        turning.sort_by_key(|(i, _)| *i);
+        let providers: Vec<usize> = turning
+            .iter()
+            .map(|(i, _)| *i)
+            .filter(|i| self.part_is_provider(st, *i))
+            .collect();
+        if providers.is_empty() {
+            return Ok(());
+        }
+        let new_host = {
+            let s = st.borrow();
+            s.draft && s.host.is_none()
+        };
+        let engine = self.engine();
+        let provider_of = |i: usize| {
+            page_of(&engine, st).controls[i]
+                .part_link
+                .as_ref()
+                .and_then(|l| l.provider)
+        };
+        for (i, child) in &turning {
+            if providers.contains(i) {
+                if child.borrow().new_line {
+                    self.blank_runs_of_part(child, if new_host { 3 } else { 2 })?;
+                }
+            } else if provider_of(*i).is_some_and(|p| providers.contains(&p)) {
+                self.sync_part(st, *i, child)?;
+            }
         }
         Ok(())
+    }
+
+    /// Runs the blank line of `child` `runs` times and leaves it unloaded, as the refill of the part finds it.
+    fn blank_runs_of_part(&mut self, child: &St, runs: usize) -> Result<(), Signal> {
+        let saved = {
+            let s = child.borrow();
+            (
+                s.placeholder_line,
+                s.split_burned,
+                s.typed_before_key,
+                s.split_starts_low,
+                s.empty_part_xrec.clone(),
+            )
+        };
+        let r = self.land_on_part_open_line_runs(child, runs);
+        let mut s = child.borrow_mut();
+        s.cursor = Cursor::None;
+        s.draft = false;
+        s.dirty = false;
+        s.window = Vec::new();
+        (
+            s.placeholder_line,
+            s.split_burned,
+            s.typed_before_key,
+            s.split_starts_low,
+            s.empty_part_xrec,
+        ) = saved;
+        drop(s);
+        r
+    }
+
+    /// A Provider part that showed no row and is read again after the host moved onto a row: BC reads its rows last to first, so
+    /// it stands on its last row, and the linked parts follow (ProviderLinkedPartsMatrix.al Provider_BothHidden_OpenViewAndGoToKey
+    /// `h1_again` `lines-row(20) | detail-row(twenty) | lines-row(10)`, Provider_BothVisible_OpenEditNextPreviousGoToRecord
+    /// `previous`).
+    pub(super) fn chain_part_back_walk(&self, st: &St, i: usize, child: &St) -> bool {
+        child.borrow().open
+            && child.borrow().cursor == Cursor::None
+            && self.part_is_provider(st, i)
+            && !(self.declares(child, "onfindrecord") || self.declares(child, "onnextrecord"))
+    }
+
+    /// Whether part `st` takes its link from a Provider part that stands on no row.
+    pub(super) fn provider_shows_no_row(&self, st: &St) -> bool {
+        let Some((host, idx)) = st
+            .borrow()
+            .host
+            .as_ref()
+            .and_then(|(h, c)| h.upgrade().map(|h| (h, *c)))
+        else {
+            return false;
+        };
+        let engine = self.engine();
+        let has_provider = page_of(&engine, &host).controls[idx]
+            .part_link
+            .as_ref()
+            .is_some_and(|l| l.provider.is_some());
+        has_provider
+            && self
+                .link_page(&host, idx)
+                .is_some_and(|p| !matches!(p.borrow().cursor, Cursor::Row))
     }
 }
