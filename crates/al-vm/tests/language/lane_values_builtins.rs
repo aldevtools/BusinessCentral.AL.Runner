@@ -751,6 +751,17 @@ codeunit 50220 C
         exit('ran');
     end;
 
+    procedure StreamUsedIntoAUsedStream(): Text
+    var
+        Req: HttpRequestMessage;
+        Other: HttpContent;
+        Ins: InStream;
+    begin
+        Other.WriteFrom('old');
+        Other.ReadAs(Ins);
+        exit(Format(Req.Content.ReadAs(Ins)));
+    end;
+
     procedure CopyGetHeadersUsed(): Text
     var
         Req: HttpRequestMessage;
@@ -782,7 +793,13 @@ fn read_as_of_an_uninitialized_content_runs_the_pinned_shapes() {
     assert_eq!(r("StreamUsed"), "No");
     assert_eq!(r("CopyStreamUsed"), "No");
     assert_eq!(r("StreamStatement"), not_initialized);
-    // Not pinned: ReadAs(InStream) as a statement on a copy, and GetHeaders on a copy with the result used.
+    // Not pinned: ReadAs(InStream) as a statement on a copy, GetHeaders on a copy with the result used, and ReadAs(InStream)
+    // into a stream variable that already holds a stream (the old stream would stay readable).
+    assert!(
+        r("StreamUsedIntoAUsedStream").starts_with("refused:"),
+        "{}",
+        r("StreamUsedIntoAUsedStream")
+    );
     assert!(
         r("CopyStreamStatement").starts_with("refused:"),
         "{}",

@@ -61,7 +61,7 @@ pub(super) fn write_from_stream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut 
 }
 
 /// `ReadAs(var Text)` gives the body back, UTF-8 decoded; a content nobody wrote to reads as an empty text and
-/// answers true (json/W4XmlJsonHttp.al:ReadAs_FreshContent). On the content a request has when none was set, three shapes are
+/// answers true (json/W4XmlJsonHttp.al:ReadAs_FreshContent). On the content a request has when none was set, four shapes are
 /// pinned:
 /// - `Req.Content.ReadAs(Txt)` with its result used answers false and leaves the text (http/HttpRequest.al:220,
 ///   FreshRequestContent);
@@ -164,8 +164,9 @@ pub(super) fn read_as(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
 /// On the content a request has when none was set (http/PnE12HttpContent.al:213-241 with :251-270,
 /// PW_RequestWithoutContent_CopyAndStream): `Req.Content.ReadAs(InStream)` with its result used answers false and raises
 /// nothing (`streamUsed`), and so does a copy of it in a variable (`copyStreamUsed`); `Req.Content.ReadAs(InStream)` as a
-/// statement raises `NotInitialized` (`streamStatement`). The stream variable is left as it was (the pin does not read it).
-/// A copy called as a statement is not pinned and refuses.
+/// statement raises `NotInitialized` (`streamStatement`). The stream variable is not touched; one that already
+/// holds a stream would stay readable, which no test pins, so that call refuses. A copy called as a statement is not
+/// pinned and refuses.
 pub(super) fn read_as_stream(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let mut r = r;
     // On a secret content the stream is left not initialized (P97ContentSecret.al:40-51: its EOS raises NotInitialized); what the
@@ -184,7 +185,14 @@ pub(super) fn read_as_stream(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
         (out, false, s.copied)
     })?;
     if uninit {
+        let holds_stream = match a.first() {
+            Some(Value::Library(_, h)) => !matches!(*h.borrow(), LibraryValue::Empty),
+            _ => true,
+        };
         return match (c.ret_used(), copied) {
+            (true, _) if holds_stream => unsupported(
+                "HttpContent.ReadAs(InStream) on the content of a request that has none, into a stream variable that already holds a stream (not pinned)",
+            ),
             (true, _) => Ok(Value::Boolean(false)),
             (false, false) => raise(
                 "Microsoft.Dynamics.Nav.Runtime.NavHttpContent variable not initialized.",
