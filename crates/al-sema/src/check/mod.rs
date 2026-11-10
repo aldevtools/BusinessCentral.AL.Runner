@@ -639,29 +639,48 @@ fn check_inner(
         kept_codes: roots.keep_demand.then_some(kept_codes),
         diag_index: Default::default(),
     };
-    // The context rules that need what the check resolved. They count as the checker's (`from_checker`): an
-    // incremental compile resolves the changed objects only and keeps the earlier findings of the other files.
-    if !contexts.is_empty() {
-        let mut more = Vec::new();
-        // A grown check: what these rules found in the kept apps is among the checker's findings it kept.
-        for (app, ctx) in contexts.iter().filter(|(app, _)| *app >= n_old_apps) {
-            more.extend(crate::alcodes::check_resolved_scope(ws, *app, ctx, &result));
-            // What the selection left out is still compiled by alc (al-runner issue 5602).
-            if let Some(r) = &left_out_resolutions {
-                more.extend(crate::alcodes::resolved_scope(ws, *app, ctx, r));
-            }
-        }
-        more.sort_by_key(|d| (d.file.clone(), d.offset, d.code));
-        more.dedup_by(|a, b| a.file == b.file && a.offset == b.offset && a.code == b.code);
-        if !more.is_empty() {
-            result.from_checker.extend(more.iter().cloned());
-            result.diagnostics.extend(more);
-            result
-                .diagnostics
-                .sort_by_key(|d| (positions.get(d.file.as_str()).copied(), d.offset));
+    resolved_scope_findings(
+        ws,
+        &mut result,
+        &contexts,
+        n_old_apps,
+        left_out_resolutions.as_ref(),
+        &positions,
+    );
+    result
+}
+
+/// The context rules that need what the check resolved. They count as the checker's (`from_checker`): an incremental
+/// compile resolves the changed objects only and keeps the earlier findings of the other files.
+fn resolved_scope_findings(
+    ws: &Workspace,
+    result: &mut CheckResult,
+    contexts: &[(usize, crate::alcodes::AppContext)],
+    n_old_apps: usize,
+    left_out_resolutions: Option<&PosMap<Res>>,
+    positions: &HashMap<&str, usize>,
+) {
+    if contexts.is_empty() {
+        return;
+    }
+    let mut more = Vec::new();
+    // A grown check: what these rules found in the kept apps is among the checker's findings it kept.
+    for (app, ctx) in contexts.iter().filter(|(app, _)| *app >= n_old_apps) {
+        more.extend(crate::alcodes::check_resolved_scope(ws, *app, ctx, result));
+        // What the selection left out is still compiled by alc (al-runner issue 5602).
+        if let Some(r) = left_out_resolutions {
+            more.extend(crate::alcodes::resolved_scope(ws, *app, ctx, r));
         }
     }
-    result
+    more.sort_by_key(|d| (d.file.clone(), d.offset, d.code));
+    more.dedup_by(|a, b| a.file == b.file && a.offset == b.offset && a.code == b.code);
+    if !more.is_empty() {
+        result.from_checker.extend(more.iter().cloned());
+        result.diagnostics.extend(more);
+        result
+            .diagnostics
+            .sort_by_key(|d| (positions.get(d.file.as_str()).copied(), d.offset));
+    }
 }
 
 /// The compile errors of the workspace code a selection left out of the check (`Roots::only_tests`): test codeunits it
