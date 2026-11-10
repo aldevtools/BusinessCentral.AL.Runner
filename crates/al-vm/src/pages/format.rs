@@ -942,7 +942,7 @@ impl Session {
                             }
                             Value::Decimal(d) => Value::Text(
                                 al_builtins::format::try_format(&Value::Decimal(d.normalize()), 0, 0, self)
-                                    .map_err(Signal::Unsupported)?
+                                    .map_err(Signal::unsupported)?
                                     .into(),
                             ),
                             _ => unreachable!(),

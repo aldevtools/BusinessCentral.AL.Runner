@@ -75,9 +75,10 @@ pub fn raise_redacted<T>(message: impl Into<String>, code: &str, redacted: impl 
     })))
 }
 
-/// Refuses what the runtime does not implement (ADR-071 decision 4: the one helper; do not add a private copy).
-pub fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
+/// Refuses what the runtime does not implement (ADR-071 decision 4: the one helper; do not add a private copy). Takes
+/// free text (key `legacy`) or a keyed refusal: `unsupported(refuse!(keys::NAME, "text {}", value))`.
+pub fn unsupported<T>(what: impl Into<Refusal>) -> Result<T, Signal> {
+    Err(Signal::unsupported(what))
 }
 
 /// Raises an AL error with a pinned text and code.
@@ -107,14 +108,15 @@ pub enum Signal {
     Continue,
     /// Behaviour the runtime does not implement yet, met at run time (an edge
     /// case no corpus test pins). The runner reports the test as not run.
-    Unsupported(String),
+    /// ADR-071: the refusal carries a key (`legacy` for free text) and the text.
+    Unsupported(Refusal),
 }
 
 impl Signal {
-    /// A refusal from free text (ADR-071 decision 5: the key `legacy`).
+    /// A refusal from free text (ADR-071 decision 5: the key `legacy`) or a keyed `Refusal`.
     #[cold]
     #[inline(never)]
-    pub fn unsupported(what: impl Into<String>) -> Signal {
+    pub fn unsupported(what: impl Into<Refusal>) -> Signal {
         Signal::Unsupported(what.into())
     }
 }

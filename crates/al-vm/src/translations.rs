@@ -473,7 +473,7 @@ impl Session {
             return Ok(None);
         };
         self.app_translation(index, xliff, &|| what.to_string())
-            .map_err(Signal::Unsupported)
+            .map_err(Signal::unsupported)
     }
 }
 

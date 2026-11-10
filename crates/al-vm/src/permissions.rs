@@ -1141,7 +1141,7 @@ impl Session {
                 "the permission sets changed while a page with AccessByPermission was open (not pinned, ADR-062 probe P21)".into(),
             ));
         }
-        let g = crate::platform::parse_guard(&self.engine, guard).map_err(Signal::Unsupported)?;
+        let g = crate::platform::parse_guard(&self.engine, guard).map_err(Signal::unsupported)?;
         let ops = [Op::Read, Op::Insert, Op::Modify, Op::Delete, Op::Execute];
         // The control is there when the session holds at least one letter of the mask at level Yes; a level of Indirect does
         // not count (Y84PermAbp.al Y84_Abp_LettersA/B: guard RIMD under a set with only R is there, an indirect-only session

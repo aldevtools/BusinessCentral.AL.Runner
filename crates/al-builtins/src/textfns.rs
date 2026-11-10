@@ -1042,7 +1042,7 @@ pub fn tb_append_field_value(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
             | Value::Blob(_)
             | Value::Library(L::Media | L::MediaSet | L::RecordId, _)),
         ) => {
-            let t = crate::format::try_format(v, 0, 0, &*c).map_err(Signal::Unsupported)?;
+            let t = crate::format::try_format(v, 0, 0, &*c).map_err(Signal::unsupported)?;
             a[0] = Value::Text(t.into());
             tb_append(c, r, a)
         }

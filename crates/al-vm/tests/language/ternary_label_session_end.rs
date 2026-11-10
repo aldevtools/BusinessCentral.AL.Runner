@@ -48,7 +48,7 @@ codeunit 69970 Held
 
 fn reason(routine: &str) -> String {
     match run_with(SRC, "Held", routine, vec![Value::Boolean(true)]) {
-        Err(Signal::Unsupported(s)) => s,
+        Err(Signal::Unsupported(s)) => s.into_reason(),
         other => format!("not refused: {other:?}"),
     }
 }

@@ -63,7 +63,7 @@ fn run(body: &str) -> Result<Value, Signal> {
 
 fn unsupported(r: Result<Value, Signal>) -> String {
     match r {
-        Err(Signal::Unsupported(s)) => s,
+        Err(Signal::Unsupported(s)) => s.into_reason(),
         other => panic!("expected a refusal, got {other:?}"),
     }
 }

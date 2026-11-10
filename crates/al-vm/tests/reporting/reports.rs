@@ -752,7 +752,7 @@ fn f(vars_and_body: &str) -> String {
 
 fn refusal(vars_and_body: &str) -> String {
     match run_model(&format!("procedure F(): Text {vars_and_body}"), TxModel::AutoCommit) {
-        Err(Signal::Unsupported(r)) => r,
+        Err(Signal::Unsupported(r)) => r.into_reason(),
         other => panic!("expected a refusal, got {other:?}"),
     }
 }

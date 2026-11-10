@@ -557,7 +557,7 @@ impl al_builtins::native::Ctx for Session {
                         }
                         Err(format!("the caption of field {} is a CaptionClass", f.name))
                     }
-                    Err(Signal::Unsupported(why)) => Err(why),
+                    Err(Signal::Unsupported(why)) => Err(why.into_reason()),
                     Err(_) => Err(format!("the caption of field {}", f.name)),
                 };
                 let options = match &f.ty {
@@ -565,7 +565,7 @@ impl al_builtins::native::Ctx for Session {
                         match self.members_of_field(&def, pos) {
                             Ok(Some((_, members))) => Ok(Some(members)),
                             Ok(None) => Err(format!("the members of Option field {}", f.name)),
-                            Err(Signal::Unsupported(why)) => Err(why),
+                            Err(Signal::Unsupported(why)) => Err(why.into_reason()),
                             Err(_) => Err(format!("the members of Option field {}", f.name)),
                         }
                     }

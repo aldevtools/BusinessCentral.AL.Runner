@@ -142,14 +142,14 @@ impl Session {
         // a time with milliseconds is not pinned.
         if let Value::Time(t) = v {
             if *t != 0 && (t - 1) % 1000 == 0 {
-                return al_builtins::format::try_format(v, 0, 0, self).map_err(Signal::Unsupported);
+                return al_builtins::format::try_format(v, 0, 0, self).map_err(Signal::unsupported);
             }
             // A time with milliseconds shows them as standard format 1 writes it (`12:00:00.123 PM`, `>= 9:05:07.5 AM`), and a
             // view writes it on a 24-hour clock as format 9 does (`T=FILTER(23:59:59.999)`) (events/table-events/
             // BdFilterEvents.al:BdFilter_TimeMilliseconds, BdFilter_TimeMillisecondsView).
             if *t != 0 {
                 let standard = if iso { 9 } else { 1 };
-                return al_builtins::format::try_format(v, 0, standard, self).map_err(Signal::Unsupported);
+                return al_builtins::format::try_format(v, 0, standard, self).map_err(Signal::unsupported);
             }
             // The undefined Time shows as `''` in GetFilter(s), given as `''`, as `%1` or by SetRange (corpus
             // master 3eb812ed, record/filters/TimeFilterEmptyText.al:113-126). In a view it is not pinned.
@@ -162,12 +162,12 @@ impl Session {
         // (record/filters/P130DateFilters.al:211, `03/24/24 11:59:59.999 PM`; a whole minute stays `12:00 AM`).
         if let Value::DateTime(d) = v {
             if *d != 0 && (d - 1) % 1000 != 0 {
-                return al_builtins::format::try_format(v, 0, 1, self).map_err(Signal::Unsupported);
+                return al_builtins::format::try_format(v, 0, 1, self).map_err(Signal::unsupported);
             }
             // The last second of a day, the end of a date-alone filter, shows its seconds (`01/15/25 11:59:59 PM`, P136Filter.al
             // UN_DateTimeFilter_DateAlone types/P136Filter.al:447-586).
             if *d != 0 && (d - 1) % 86_400_000 == 86_399_000 {
-                return al_builtins::format::try_format(v, 0, 1, self).map_err(Signal::Unsupported);
+                return al_builtins::format::try_format(v, 0, 1, self).map_err(Signal::unsupported);
             }
             // Other seconds without milliseconds: not pinned.
             if *d != 0 && (d - 1) / 1000 % 60 != 0 {

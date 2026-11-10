@@ -230,7 +230,7 @@ fn text(v: Result<Value, Signal>) -> String {
 
 fn why(v: Result<Value, Signal>) -> String {
     match v {
-        Err(Signal::Unsupported(s)) => s,
+        Err(Signal::Unsupported(s)) => s.into_reason(),
         other => panic!("expected Unsupported, got {other:?}"),
     }
 }

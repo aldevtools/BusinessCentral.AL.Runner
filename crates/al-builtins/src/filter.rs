@@ -164,7 +164,7 @@ impl FilterExpr {
                 _ => None,
             },
             FilterExpr::AtSignAlone(_) | FilterExpr::EmptyViewValue => None,
-            FilterExpr::UnpinnedMatch(..) => self.unpinned_match().map(Signal::Unsupported),
+            FilterExpr::UnpinnedMatch(..) => self.unpinned_match().map(Signal::unsupported),
             FilterExpr::Or(xs) | FilterExpr::And(xs) => xs.iter().find_map(|x| x.compare_error(v)),
             FilterExpr::NumCode(inner) => match code_number(v) {
                 Some(n) => inner.compare_error(&Value::BigInteger(n)),

@@ -834,7 +834,7 @@ fn text(vars: &str, body: &str) -> String {
 
 fn refusal(vars: &str, body: &str) -> String {
     match run(vars, body) {
-        Err(Signal::Unsupported(r)) => r,
+        Err(Signal::Unsupported(r)) => r.into_reason(),
         other => panic!("expected a refusal, got {other:?}"),
     }
 }

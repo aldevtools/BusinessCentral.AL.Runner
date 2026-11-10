@@ -28,7 +28,7 @@ fn yn(src: &str) -> String {
 
 fn refused(src: &str) -> String {
     match run(&with(src), "Probe") {
-        Err(al_builtins::native::Signal::Unsupported(why)) => why,
+        Err(al_builtins::native::Signal::Unsupported(why)) => why.into_reason(),
         other => panic!("expected a refusal, got {other:?}"),
     }
 }

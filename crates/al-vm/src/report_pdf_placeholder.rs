@@ -125,7 +125,7 @@ impl Session {
 
     /// Writes a file a save produced; a write over a path that was pending ends the mark, as a write by AL does.
     pub(crate) fn write_save_file(&mut self, name: &str, bytes: &[u8]) -> Result<(), Signal> {
-        al_builtins::native::Ctx::fs_write(self, name, bytes).map_err(Signal::Unsupported)
+        al_builtins::native::Ctx::fs_write(self, name, bytes).map_err(Signal::unsupported)
     }
 
     /// Whether a Pdf save of the report writes the placeholder: its default layout is RDLC or Word, and no subscriber the

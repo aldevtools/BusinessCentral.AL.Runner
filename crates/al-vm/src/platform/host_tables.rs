@@ -1323,7 +1323,7 @@ fn license_exact_passes(row: &Row, filters: &[FieldFilter]) -> Result<bool, Stor
 /// A filter's refusal (`FilterExpr::matches`) as the store's.
 fn signal_refused(s: al_builtins::native::Signal) -> StoreError {
     match s {
-        al_builtins::native::Signal::Unsupported(why) => super::refused(why),
+        al_builtins::native::Signal::Unsupported(why) => super::refused(why.into_reason()),
         // `matches` refuses only with Unsupported.
         _ => super::refused("a filter whose matching is not pinned"),
     }

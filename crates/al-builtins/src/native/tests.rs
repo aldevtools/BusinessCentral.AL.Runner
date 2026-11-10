@@ -445,13 +445,15 @@ const RESULT_UNIT_SIGNAL_SIZE: usize = 40;
 #[test]
 fn the_size_of_a_signal_is_pinned() {
     use std::mem::size_of;
-    assert_eq!(
-        (
-            size_of::<Signal>(),
-            size_of::<Result<Value, Signal>>(),
-            size_of::<Result<(), Signal>>()
-        ),
-        (SIGNAL_SIZE, RESULT_VALUE_SIGNAL_SIZE, RESULT_UNIT_SIGNAL_SIZE)
+    // Not larger than on main before ADR-071 step 1 (40, 48, 40 bytes); the Refusal payload is one pointer.
+    let now = (
+        size_of::<Signal>(),
+        size_of::<Result<Value, Signal>>(),
+        size_of::<Result<(), Signal>>(),
+    );
+    assert!(
+        now.0 <= SIGNAL_SIZE && now.1 <= RESULT_VALUE_SIGNAL_SIZE && now.2 <= RESULT_UNIT_SIGNAL_SIZE,
+        "{now:?}"
     );
 }
 

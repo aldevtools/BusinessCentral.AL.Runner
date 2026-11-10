@@ -65,7 +65,7 @@ fn text(vars: &str, body: &str) -> String {
 
 fn refused(vars: &str, body: &str) -> String {
     match run_on(MemFileSystem::default(), vars, body).0 {
-        Err(Signal::Unsupported(m)) => m,
+        Err(Signal::Unsupported(m)) => m.into_reason(),
         other => panic!("expected a refusal, got {other:?}"),
     }
 }

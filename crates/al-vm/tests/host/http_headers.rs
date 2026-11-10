@@ -300,7 +300,7 @@ fn refused_naming_the_probe(r: Result<al_builtins::value::Value, al_builtins::na
     match r {
         Err(al_builtins::native::Signal::Unsupported(why)) => {
             assert!(why.contains("http-get-values-missing-error"), "{why}");
-            why
+            why.into_reason()
         }
         other => panic!("expected a refusal, got {other:?}"),
     }

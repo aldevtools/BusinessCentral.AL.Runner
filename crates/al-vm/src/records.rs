@@ -544,7 +544,7 @@ impl Session {
     pub(crate) fn identification(&self, t: &TableDef, fields: &[Value]) -> Result<String, Signal> {
         let mut parts = Vec::new();
         for &i in &t.keys[0] {
-            let v = al_builtins::format::try_format(&fields[i], 0, 0, self).map_err(Signal::Unsupported)?;
+            let v = al_builtins::format::try_format(&fields[i], 0, 0, self).map_err(Signal::unsupported)?;
             // The field's caption names it (recordref-fieldref/recordref + records/lt-record-meta: `Code Caption='A1'`).
             parts.push(format!("{}='{}'", self.field_caption(t, i), v));
         }
@@ -1370,7 +1370,7 @@ impl Session {
         // record/TestCalcFieldsTruncateUniqueContracts.al:UniqueIndex_Violation_FullTextAndCode_...).
         let mut parts = Vec::new();
         for &i in &t.keys[key] {
-            let v = al_builtins::format::try_format(&row[i], 0, 0, self).map_err(Signal::Unsupported)?;
+            let v = al_builtins::format::try_format(&row[i], 0, 0, self).map_err(Signal::unsupported)?;
             parts.push(format!("{}='{}'", t.fields[i].name, v));
         }
         Err(Signal::Error(Box::new(AlError {
@@ -1782,7 +1782,7 @@ impl Session {
             return Ok(());
         }
         let id = rec.borrow().fields[i].clone();
-        let shown = al_builtins::format::try_format(&id, 0, 0, self).map_err(Signal::Unsupported)?;
+        let shown = al_builtins::format::try_format(&id, 0, 0, self).map_err(Signal::unsupported)?;
         Err(Signal::Error(Box::new(AlError {
             // record/TestSystemFieldStampsContracts.al:153 (SystemId_Duplicate_And_ModifyAll_Texts;
             // the caption of the field is "System ID").

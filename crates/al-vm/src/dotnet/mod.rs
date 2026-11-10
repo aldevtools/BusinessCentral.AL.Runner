@@ -689,7 +689,7 @@ impl Session {
         let bytes = match al_builtins::native::Ctx::fs_read(self, path) {
             Ok(Some(b)) => b,
             Ok(None) => return Err("the file does not exist in the in-memory file system".into()),
-            Err(Signal::Unsupported(why)) => return Err(why),
+            Err(Signal::Unsupported(why)) => return Err(why.into_reason()),
             Err(_) => return Err("the file cannot be read".into()),
         };
         values[0] = lib(

@@ -553,7 +553,7 @@ fn a_tableno_codeunit_that_changes_rec_changes_the_callers_record() {
 
 fn refused(r: Result<Value, Signal>) -> String {
     match r {
-        Err(Signal::Unsupported(m)) => m,
+        Err(Signal::Unsupported(m)) => m.into_reason(),
         other => panic!("expected a refusal, got {other:?}"),
     }
 }

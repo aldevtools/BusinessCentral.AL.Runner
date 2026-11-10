@@ -546,8 +546,8 @@ impl Session {
         self.host
             .files
             .write(&parameters_file, &parameters)
-            .map_err(Signal::Unsupported)?;
-        self.host.files.write(&data_file, &data).map_err(Signal::Unsupported)?;
+            .map_err(Signal::unsupported)?;
+        self.host.files.write(&data_file, &data).map_err(Signal::unsupported)?;
         st.borrow_mut().result = Some("SaveAsXml".into());
         // SaveValues: the close stores the values of the page and of its extensions; the next run opens with them (al-language-onprem/
         // reports/layouts-saveas/Y60ReportExtSaveAsXml.al ReportExt_SaveValues_SaveAsXml_NextRun).
@@ -874,7 +874,7 @@ impl Session {
             Value::Boolean(b) => b.to_string(),
             // An option travels as its ordinal.
             Value::Option(n, _) | Value::Enum(_, n) => n.to_string(),
-            other => al_builtins::format::try_format(other, 0, 9, self).map_err(Signal::Unsupported)?,
+            other => al_builtins::format::try_format(other, 0, 9, self).map_err(Signal::unsupported)?,
         })
     }
 

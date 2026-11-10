@@ -403,7 +403,7 @@ fn const_cond_holds(value: &Value, c: &ir::Const, relation: impl Fn() -> String)
 /// The refusal of a TableRelation condition of `relation` (table.field) whose comparison failed with `e`.
 fn cond_refusal<T>(e: Signal, relation: &str) -> Result<T, Signal> {
     let why = match e {
-        Signal::Unsupported(why) => why,
+        Signal::Unsupported(why) => why.into_reason(),
         Signal::Error(e) => e.message,
         _ => "the comparison did not give an order".to_string(),
     };

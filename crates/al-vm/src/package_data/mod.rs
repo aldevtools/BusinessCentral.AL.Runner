@@ -31,8 +31,8 @@ use reader::Column;
 const SYSTEM_FIELD_BASE: u32 = 2_000_000_000;
 const SYSTEM_ID: u32 = 2_000_000_000;
 
-fn refuse<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
+fn refuse<T>(what: impl Into<al_builtins::refusal::Refusal>) -> Result<T, Signal> {
+    Err(Signal::unsupported(what))
 }
 
 impl Session {

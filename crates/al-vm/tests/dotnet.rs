@@ -276,7 +276,7 @@ fn run(host: &Fake, vars: &str, body: &str, ret: &str) -> Ran {
 
 fn unsupported(r: &Ran) -> String {
     match &r.result {
-        Err(Signal::Unsupported(s)) => s.clone(),
+        Err(Signal::Unsupported(s)) => s.to_string(),
         other => panic!("expected Unsupported, got {other:?}"),
     }
 }
@@ -877,7 +877,7 @@ fn arg_of(vars: &str, setup: &str) -> Result<DotNetValue, String> {
             }
             other => Err(format!("{other:?}")),
         },
-        Err(Signal::Unsupported(s)) => Err(s),
+        Err(Signal::Unsupported(s)) => Err(s.into_reason()),
         Err(other) => Err(format!("{other:?}")),
     }
 }

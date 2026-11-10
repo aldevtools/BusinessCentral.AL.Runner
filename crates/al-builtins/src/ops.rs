@@ -251,7 +251,7 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
                     String::new()
                 }
             }
-            let text = crate::format::try_format(&v, 0, 0, &NoEnums).map_err(Signal::Unsupported)?;
+            let text = crate::format::try_format(&v, 0, 0, &NoEnums).map_err(Signal::unsupported)?;
             match t {
                 T::Text(max) => Value::Text(fit_txt(text.into(), *max)?),
                 _ => {
@@ -1397,7 +1397,7 @@ pub fn compare_order(l: &Value, r: &Value) -> Result<Ordering, Signal> {
     }
     if let (Value::Text(_) | Value::Code(_), Value::Text(_) | Value::Code(_)) = (l, r) {
         if let (Some(a), Some(b)) = (crate::native::text_of(l), crate::native::text_of(r)) {
-            return crate::collation::compare(&a, &b).map_err(Signal::Unsupported);
+            return crate::collation::compare(&a, &b).map_err(Signal::unsupported);
         }
     }
     compare(l, r)

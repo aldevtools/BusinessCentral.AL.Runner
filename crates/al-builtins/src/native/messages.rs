@@ -106,7 +106,7 @@ pub(super) fn substitute_with(
                 };
                 let n: usize = rest[..digits].parse().unwrap_or(0);
                 match args.get(n.wrapping_sub(1)).filter(|_| digits > 0 && n >= 1) {
-                    Some(v) => out.push_str(&try_format(v, 0, 0, ctx).map_err(Signal::Unsupported)?),
+                    Some(v) => out.push_str(&try_format(v, 0, 0, ctx).map_err(Signal::unsupported)?),
                     None => {
                         out.push('%');
                         out.push_str(&rest[..digits]);
@@ -139,7 +139,7 @@ pub(super) fn substitute_with(
                 };
                 out.push_str(&template[lit..start]);
                 let width = i - start;
-                let text = try_format(v, 0, 0, ctx).map_err(Signal::Unsupported)?;
+                let text = try_format(v, 0, 0, ctx).map_err(Signal::unsupported)?;
                 let len = text.encode_utf16().count();
                 if len > width {
                     out.extend(std::iter::repeat_n('*', width));

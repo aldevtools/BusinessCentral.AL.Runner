@@ -512,7 +512,7 @@ fn run_codeunit_inner(
                     }
                 }
                 Err(Signal::Unsupported(r)) if r.starts_with(TIME_LIMIT_REASON) => {
-                    return Err(on_run_refused(r));
+                    return Err(on_run_refused(r.into_reason()));
                 }
                 Err(Signal::Unsupported(r)) => return Err(on_run_refused(format!("OnRun: {r}"))),
                 Err(Signal::Error(e)) => {
@@ -932,7 +932,7 @@ fn run_codeunit_inner(
                                 else {
                                     unreachable!("an unpinned error is refused")
                                 };
-                                Outcome::NotRun(r)
+                                Outcome::NotRun(r.into_reason())
                             }
                             Err(Signal::Error(e)) => {
                                 session.rollback_transaction();
@@ -1516,10 +1516,10 @@ fn watched_stop(execute: bool) -> Option<Arc<std::sync::atomic::AtomicBool>> {
 }
 
 /// The reason of a test refused with `r`: the run's memory limit when the run stopped there and stopped this test.
-fn not_run_reason(r: String) -> String {
+fn not_run_reason(r: Refusal) -> String {
     match crate::events::halted() {
         Some(why) if r == al_vm::STOPPED => why,
-        _ => r,
+        _ => r.into_reason(),
     }
 }
 

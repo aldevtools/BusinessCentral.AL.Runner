@@ -271,7 +271,7 @@ fn rename_equal(a: &Value, b: &Value) -> Result<bool, Signal> {
 
 fn rename_refusal(e: Signal) -> Signal {
     let why = match e {
-        Signal::Unsupported(why) => why,
+        Signal::Unsupported(why) => why.into_reason(),
         Signal::Error(e) => e.message,
         _ => "the comparison did not give an order".to_string(),
     };

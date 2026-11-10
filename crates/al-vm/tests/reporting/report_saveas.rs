@@ -740,7 +740,7 @@ fn f(body: &str) -> String {
 
 fn refusal(body: &str) -> String {
     match run(body) {
-        Err(Signal::Unsupported(r)) => r,
+        Err(Signal::Unsupported(r)) => r.into_reason(),
         other => panic!("expected a refusal, got {other:?}"),
     }
 }

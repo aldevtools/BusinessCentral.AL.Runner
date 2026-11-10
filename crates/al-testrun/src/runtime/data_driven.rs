@@ -276,7 +276,7 @@ pub(crate) fn list(session: &mut Session, lowered: &Lowered, object: usize, rout
         }
         Err(Signal::Unsupported(why)) => {
             session.rollback_transaction();
-            return decided(Outcome::NotRun(why));
+            return decided(Outcome::NotRun(why.into_reason()));
         }
         Err(other) => return decided(Outcome::NotRun(format!("ListTestCases: {}", other.describe()))),
     };

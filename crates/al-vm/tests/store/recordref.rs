@@ -129,7 +129,7 @@ fn err(r: Result<Value, Signal>) -> String {
 
 fn unsupported(r: Result<Value, Signal>) -> String {
     match r {
-        Err(Signal::Unsupported(m)) => m,
+        Err(Signal::Unsupported(m)) => m.into_reason(),
         other => panic!("expected Unsupported, got {other:?}"),
     }
 }

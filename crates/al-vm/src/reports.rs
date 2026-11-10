@@ -4227,7 +4227,7 @@ impl Session {
                 }
             }
             Value::Option(..) | Value::Enum(..) | Value::Duration(_) => {
-                dataset::escape(&al_builtins::format::try_format(&value, 0, 0, self).map_err(Signal::Unsupported)?)?
+                dataset::escape(&al_builtins::format::try_format(&value, 0, 0, self).map_err(Signal::unsupported)?)?
             }
             Value::Blob(b) => self.blob_column_text(c, rec, b)?,
             // An empty Media or MediaSet field is an empty element (reports/layouts-saveas/BcXmlBlob.al:102); one with content holds a
@@ -4242,7 +4242,7 @@ impl Session {
                 String::new()
             }
             Value::Guid(_) => {
-                let g = al_builtins::format::try_format(&value, 0, 0, self).map_err(Signal::Unsupported)?;
+                let g = al_builtins::format::try_format(&value, 0, 0, self).map_err(Signal::unsupported)?;
                 // Lower case, braces dropped (streams/TestReportSaveAsColumnDetailsContracts.al:
                 // UndefinedTimesGuidsHoursAndDecimalPlaces, streams/PWReportSaveAsColumns.al:
                 // Undefined_TimeDateTime_SingleDigitHour_GuidWithHexLetters); the null Guid is zeros, not blank.

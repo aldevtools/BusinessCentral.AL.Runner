@@ -569,7 +569,7 @@ impl Session {
             );
         }
         let values: Vec<&Value> = key.iter().map(|&p| &r.fields[p]).collect();
-        let (size, data) = al_builtins::bookmark::encode(table_id, &shape, &values).map_err(Signal::Unsupported)?;
+        let (size, data) = al_builtins::bookmark::encode(table_id, &shape, &values).map_err(Signal::unsupported)?;
         let b64 = base64(&data)
             .replace('+', "%2b")
             .replace('/', "%2f")
