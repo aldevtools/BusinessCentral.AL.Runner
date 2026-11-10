@@ -22,6 +22,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "test",
     "excludeTests",
     "testIsolation",
+    "testRunner",
     "captureValues",
     "iterationTracking",
     "announceStart",
