@@ -245,6 +245,7 @@ mod rows_client;
 mod runobject;
 mod server_row_lag;
 mod shown;
+mod state;
 mod table_values_allowed;
 mod test_end;
 mod typed_handler_temp;
