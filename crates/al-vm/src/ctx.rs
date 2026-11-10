@@ -336,7 +336,7 @@ impl al_builtins::native::Ctx for Session {
         Some((format!("{} by {} {}", app.name, app.publisher, app.version), resources))
     }
     fn runner_call_stack(&self) -> String {
-        self.runner_frames.clone()
+        self.runner_text_frames()
     }
     fn calling_app_publisher(&self) -> Option<String> {
         let objects = &self.engine.program.objects;

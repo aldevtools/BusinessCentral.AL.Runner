@@ -1,6 +1,6 @@
 # ADR-010: Value model
 
-- Status: Accepted (project owner, 2026-10-13)
+- Status: Accepted (project owner, 2026-10-13); decision 1 amended by ADR-072 (`Value` lives in `al_value`; page state leaves the value crate)
 - Date: 2026-10-13
 
 ## Context

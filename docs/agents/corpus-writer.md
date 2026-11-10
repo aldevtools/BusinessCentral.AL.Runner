@@ -6,6 +6,8 @@ For an agent that writes probe tests for the corpus without the context of the p
 
 al-runtime-rs may only implement AL behaviour that a corpus test pins (CLAUDE.md, hard rules 3 and 4). A "probe" is a test in the corpus repo that was **measured on real Business Central** and asserts exactly what BC did. You write probes for the open rows of `docs/probes-needed.md`, or for a whole topic (all members of a type with their edge cases and error texts).
 
+**Rules.** Never `pkill` or `killall`, never `git stash`, never `git commit -a` or `git add -A`. Never wait more than 20 minutes on a container or CI: write `RESUME.md` in your scratch folder and hand back WAITING. Commit messages end with the session attribution line your task gives you. Put nothing local (host names, URLs, user names, home paths, partner names) in a commit or pull request. Extend the existing topic: check for duplicates first, add tests to the existing codeunits of the area, never edit existing assertions or inputs. The first line of your report is `[corpus / <task> / DONE | WAITING | BLOCKED]`. Your hand-over names the local object reason line: why each object id and name you added is free (checked as in "Object ids and names").
+
 You never change al-runtime-rs code. You write AL in the corpus repo, measure it on a local BC 29 container, make it green there, and hand the branch over.
 
 ## Repos and branches
@@ -159,19 +161,9 @@ When everything is green locally on BC 29 and the gates pass:
 
 The publisher merges your branch into staging, runs the matrix (the bump pull request to `master`, see above) and answers with failures. A 27 or 28 difference found there is fixed with a version guard, not by dropping the probe, unless it is a runner artefact (rule 2).
 
-## Running the GitHub CI yourself
+## CI
 
-CI is only the final check for 27 and 28; you are green on 29 locally first.
-
-Local writers do not dispatch `ci.yml` themselves: they queue their pushed commit with the CI batcher (`~/.cache/al-runtime/orchestration/tools/ci-batch/`, README there), which merges many writer commits onto `al-runtime-rs-staging` and runs one CI run per leg for all of them. The laptop writer, which has no batcher, dispatches one leg at a time:
-
-```bash
-gh workflow run ci.yml -R aldevtools/BusinessCentral.AL.Language.Tests --ref <your branch> -f bc_version=29.0
-gh run list -R aldevtools/BusinessCentral.AL.Language.Tests --branch <your branch> --limit 3
-python3 tools/corpus-writer/ci-failures.py <run id>    # failing tests per BC version from the junit artifacts
-```
-
-Without `bc_version` the run has three legs (27.5, 28.5, 29.0) for each of the three test jobs (Cloud, OnPrem, OnPrem DotNet). **Concurrency is per ref**: starting a new run on a branch cancels the run still going on the same branch (observed); runs on different branches run in parallel. So push, dispatch once, wait for the result, then fix.
+You never dispatch a workflow (`gh workflow run`, `gh run rerun`, API dispatch) on any repo. Observe BC behavior locally with the orchestrator's observe tool. CI is only the run of your own pull request. A cell that depends on the handler routing of Microsoft's test runner (page 130455) cannot be observed locally: it needs the PR CI run, so list it in your handover under "needs CI observation". Look at failures with `python3 tools/corpus-writer/ci-failures.py <run id>`.
 
 ## Where the facts go
 

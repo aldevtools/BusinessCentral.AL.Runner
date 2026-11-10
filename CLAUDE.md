@@ -9,7 +9,12 @@ before you open a source file.
 
 1. **Red/green TDD, no exceptions.** Every behaviour starts as a failing test;
    every bug fix starts with a test that reproduces it. Show the red run before
-   the green one. Nothing merges with `cargo test` red. Corpus cases that are
+   the green one. When a corpus case pins the behaviour, that case is the test:
+   run it with `--file` or `--codeunit`, show it red before and green after, and
+   prune its line from the not-passing list. Write a Rust test only for logic
+   the corpus cannot reach (internal tooling, CLI and report formats,
+   memory and threads, refusal plumbing, regressions that need a minimal
+   reproduction). Owner decision, 2026-11-10. Nothing merges with `cargo test` red. Corpus cases that are
    not yet implemented are tracked by the pass-rate report, not by tests.
 2. **Never weaken an oracle.** Never edit the corpus submodule or `oracle/`,
    and never add a line to `metrics/<major>/not-passing*.txt` for a case the oracle
@@ -33,6 +38,12 @@ before you open a source file.
    relies on an unprobed assumption"), counted apart from clean passes. The
    assumptions are registered in the runtime code itself (one registry, ids
    checked by the compiler and a test), not only in a document.
+   Second exception (owner, 2026-11-10): a behavior an outside reporter's own repro shows (the
+   reporter's test passes on real BC and needs exactly this behavior) may be implemented before a
+   probe exists, under the same conditions: cite the repro or issue in the code comment, add the
+   `docs/probes-needed.md` row, queue the probe, mark the path through the assumption registry
+   (flagged pass), and the probe wins. Partner test suites do not qualify. Error texts still come
+   only from the corpus.
 4. **Unsupported is refused explicitly, never run silently.** Refuse
    statically wherever possible: a lowering reason, or a diagnostic in
    `al-sema`, so the runner reports the test as not run before it starts.
@@ -83,7 +94,7 @@ before you open a source file.
      `--file SUFFIX` (repeatable, union). Only the selected test codeunits are compiled and run,
      and only the selected cases are checked against the lists. Add `--no-deps` for a run of about half a
      second when the test needs no Microsoft app.
-  4. Before committing, one run with `--baseline-diff` on the newest major only (about 20 s): it lists,
+  4. Before committing, one run with `--baseline-diff` on each of BC 27, 28 and 29 (`--bc-version N`, about 20 s each; owner, 2026-11-10): it lists,
      by area, the regressions, the stale lines, the cases still listed and the cases without an
      outcome. Then `--prune-not-passing` deletes the stale lines (it refuses while a selection is active).
   5. `--timings` says where a run spent its time (load, compile, install baseline, tests).
@@ -95,9 +106,12 @@ before you open a source file.
   `--all-versions` corpus run locally before a pull request: on this shared machine they cost up to an
   hour, and PR CI runs the full corpus on every major in about 6 to 12 minutes. Locally run
   `cargo test -p` and `cargo clippy -p ... -- -D warnings` for the crates you touched, and `cargo fmt --all`.
-  Open the pull request as a draft and without auto-merge (owner, 2026-11-09): CI runs no job on a draft,
-  so it takes no place in the CI queue. The orchestrator reviews it and lands it in a merge train, whose
-  pull request runs CI once for several drafts; it fixes or hands back what that run reports. `./check.sh` (fmt, clippy, all tests, the lists) stays for a person who
+  Open the pull request as a draft and without auto-merge (owner, 2026-11-09): CI runs only the `test` job on a draft (owner, 2026-11-10),
+  so it takes little of the CI queue. The orchestrator reviews it. A single reviewed PR is marked ready
+  with auto-merge and lands on its own (owner, 2026-11-10); a merge train is used only when two or more
+  PRs are ready, and its pull request runs CI once for all of them. The orchestrator fixes or hands back
+  what that run reports. Agents never run `pkill`, `git stash`, `git commit -a` / `git add -A`, or start a
+  workflow run; observation runs are local, and CI is only the PR's own run. `./check.sh` (fmt, clippy, all tests, the lists) stays for a person who
   wants the full check on their own machine.
 - **Corpus bumps**: `tools/corpus_bump.sh RUN_ID` takes the oracle from a green corpus master run.
   `tools/corpus_bump.sh --from-pr N[,N...]` (owner, 2026-11-05) does not wait for that run (about 55
@@ -105,7 +119,10 @@ before you open a source file.
   CI runs ran get those runs' results; every other case keeps the current oracle. It refuses when a run is
   not green, a BC version is missing, a shared fixture changed, or it cannot show the run tested the merged
   files. `--dry-run` shows what it would take, `--body FILE` writes the pull request body (which runs the
-  oracle came from). The next bump from a master run corrects anything only master shows.
+  oracle came from). The next bump from a master run corrects anything only master shows. After the oracle, a
+  bump also regenerates the golden files (`pinned_columns.rs`, `expected-unresolved.txt`; commit them with the bump),
+  prunes the lists again, runs `cargo test -p al-version`, and prints what a person must fix (a regression, a case
+  without an outcome, a gate to extend) as a to-do list before it exits 1.
 - Perf budgets (cold compile of the corpus ≤ 695 000 instructions per KiB of corpus source; the full corpus run with Microsoft's apps ≤ 83.2 G instructions for the Microsoft apps plus 4 210 000 per KiB of the corpus source it compiles; wall time printed for information only; parser ≥ 50 MB/s) are
   `#[ignore]`d tests that need release:
   `cargo test --release --no-fail-fast -p al-syntax --test perf_parse_throughput -p al-test-cli --test perf_budget -p al-test-cli --test perf_vm -p al-data --lib -- --ignored --nocapture`.

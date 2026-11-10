@@ -616,3 +616,18 @@ functions or methods; the file is in the module list above.
 `al-test-cli --explain TEST` (explain.rs) shows the outcome, the reason and, with `Session::trace_faults`
 (al-vm/faultsite.rs), the call stack the error or refusal left from, each frame with `file:line:col`
 (`Program::positions`, docs/architecture.md "Source positions").
+
+## Test layout (moved from the agent brief)
+
+- **Tests of the interpreter use `al-testkit`** (`crates/al-testkit`, a dev-dependency): `al_testkit::run(src, routine)`,
+  `run_in(src, object, routine)`, `Built` for several calls on one session, and `text`/`int`/`boolean`/`error_message` to
+  read a result. Do not write another compile-and-call helper. The tests of `al-vm` are five area binaries
+  (`tests/{store,pages_ui,reporting,language,host}/main.rs` with one module per file) plus two that need a process of
+  their own (`dotnet.rs`; `base_access_refused.rs` sets an environment variable): a new test file is a module of its area.
+  The tests of `al-test-cli` and `al-testrun` are one binary each (`tests/suite/main.rs`); a new test file is a module
+  there unless it must run by name (`--test NAME`), needs a feature, or needs a process of its own (see the head of
+  each `main.rs`).
+- **Keep files small.** `file_size_ratchet` (part of `cargo test -p al-test-cli`) fails when a Rust file under
+  `crates/*/src` passes 3,000 lines, or when a file listed in `metrics/file-sizes.toml` grows past its cap.
+  Put new code in a new module, not in a listed file. Never raise a cap or add a row: split the file (see
+  `docs/codemap.md`) and lower the cap. Generated files and `crates/*/tests` are exempt.
