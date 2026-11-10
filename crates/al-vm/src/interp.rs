@@ -1403,7 +1403,7 @@ impl Session {
                 if let Some(why) = rc
                     .borrow()
                     .unpinned_buffer
-                    .filter(|w| !crate::records::run_page_link_fields_read(w))
+                    .filter(|w| !crate::records::run_page_link_fields_read(w) && *w != crate::records::HELD_PART_REC)
                 {
                     if why == crate::records::RUN_PAGE_LINK_OPEN {
                         return Err(Signal::unsupported(format!("a read of a field of Rec {why}")));

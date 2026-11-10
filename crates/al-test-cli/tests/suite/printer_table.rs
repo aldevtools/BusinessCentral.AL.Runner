@@ -1,7 +1,7 @@
 //! The Printer system table (2000000039) has no rows (metadata/platform-tables/Y21EnvColumns.al:30-40 Y21_Printer_NoRows;
 //! al-runner issue 6916). RecordRef.Open stays refused in a Cloud app (Y21EnvColumns.al:42-50 Y21_Printer_RecordRefRefused).
 //!
-//! Needs the `corpus` submodule, including its `.alpackages` (`System.app`).
+//! Needs `System.app` of the pinned build in the artifact cache (`al_testfiles`).
 
 use super::y48_platform_probes::outcomes;
 use al_test_cli::report::Outcome;
@@ -31,8 +31,7 @@ fn printer_is_an_empty_table() {
 #[test]
 fn printer_read_is_refused_on_an_onprem_server() {
     use al_sema::workspace::{AppKind, AppSource};
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/tests/al-language/.alpackages");
-    let system = al_deps::package::read_package(&std::fs::read(dir.join("System.app")).unwrap())
+    let system = al_deps::package::read_package(&std::fs::read(al_testfiles::system_app()).unwrap())
         .unwrap()
         .1;
     let app = |id: &str, name: &str, files: Vec<(String, String)>| AppSource {

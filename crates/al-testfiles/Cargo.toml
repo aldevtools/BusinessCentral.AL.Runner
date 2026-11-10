@@ -1,0 +1,12 @@
+[package]
+name = "al-testfiles"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Microsoft's files for the tests of the workspace: the pinned build's apps in the artifact cache (ADR-013 amendment of 2026-11-10). A dev-dependency only."
+publish = false
+
+[dependencies]
+al-deps.workspace = true
+toml.workspace = true

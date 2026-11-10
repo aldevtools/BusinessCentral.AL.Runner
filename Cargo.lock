@@ -80,6 +80,7 @@ dependencies = [
  "al-ir",
  "al-sema",
  "al-syntax",
+ "al-testfiles",
  "crc32fast",
  "flate2",
  "quick-xml",
@@ -169,6 +170,7 @@ dependencies = [
  "al-ir",
  "al-sema",
  "al-syntax",
+ "al-testfiles",
  "al-testkit",
  "al-testrun",
  "al-version",
@@ -180,6 +182,14 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "toml",
+]
+
+[[package]]
+name = "al-testfiles"
+version = "3.0.0-alpha.14"
+dependencies = [
+ "al-deps",
  "toml",
 ]
 
@@ -206,6 +216,7 @@ dependencies = [
  "al-ir",
  "al-sema",
  "al-syntax",
+ "al-testfiles",
  "al-version",
  "al-vm",
  "libc",

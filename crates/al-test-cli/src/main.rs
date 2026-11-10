@@ -1032,7 +1032,8 @@ fn run_version_inner(
             local_artifacts: None,
             country: String::new(),
         };
-        let deps = deps::load_with_extra(
+        // ADR-013 amendment of 2026-11-10: the corpus tree's `.alpackages` is not searched (`deps::load_corpus`).
+        let deps = deps::load_corpus(
             &root.join(&cfg.corpus_app),
             &corpus_deps,
             &args.deps,
@@ -1058,7 +1059,7 @@ fn run_version_inner(
                     &u.build,
                 )?;
             }
-            None => println!("bc build: none needed (every dependency came from .alpackages or --deps)"),
+            None => println!("bc build: none needed (every dependency came from --deps)"),
         }
         kinds.extend(deps.apps.iter().map(|_| al_sema::AppKind::Dependency));
         layout_sources = deps.layout_sources();
@@ -1728,10 +1729,11 @@ fn report_check(t: &Target, path: &Path, c: &not_passing::Check, pruned: bool) {
     }
     if !pruned && c.stale().next().is_some() {
         eprintln!(
-            "BC {}: {} stale line(s) in {}: delete them with `al-test-cli --root . --prune-not-passing`:",
+            "BC {}: {} stale line(s) in {}: delete them with `al-test-cli --root . --prune-not-passing --bc-version {}`:",
             t.label,
             c.stale_passing.len() + c.stale_gone.len(),
-            path.display()
+            path.display(),
+            t.major
         );
         for x in &c.stale_passing {
             eprintln!("  {} {}  [passes]", x.codeunit, x.name);

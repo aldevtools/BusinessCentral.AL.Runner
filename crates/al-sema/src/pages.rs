@@ -78,6 +78,10 @@ pub enum ClientExpr {
     /// A BigInteger literal (`0L`): the client compile fails on BC 27 (`Not a valid number`) and runs from BC 28
     /// (testpage/CcPageLeads.al:801-808, Expr_BigIntegerLiteral_Enabled, `#if BC28PLUS`).
     BigIntegerLiteral(String),
+    /// A qualified value through a member of a variable (`E.Mode::Beta`): BC replaces it by its constant before the client
+    /// compile when `E` is a global Record variable and `Mode` an Enum field (testpage/CcPageLeads.al:1051, :1118, :1185,
+    /// :1386). It runs only where the lowering confirms those types; the text is the refusal reason for when it cannot.
+    QualifiedThroughMember(String),
 }
 
 /// The name of the procedure when `value` is a call with no arguments and nothing else (`IsAllowed()`, `"Is Allowed"()`).
@@ -101,11 +105,17 @@ pub fn bare_call_name(value: &str) -> Option<String> {
 /// index and a rewritten expression whose rule is not pinned, so these are refused, not raised. A call, a time or datetime
 /// literal and a member of anything but `Rec`, `xRec` or `this` are refused with them: their client compile is not pinned
 /// (Base Application and the System Application use none of them).
+///
+/// One member of something else passes the scan: a qualified value through one member of a variable (`E.Mode::Beta`,
+/// `E."Mode Two"::"Gamma Delta"`), as [`ClientExpr::QualifiedThroughMember`]. BC compiles and runs it for an Enum field of
+/// a global Record variable (testpage/CcPageLeads.al:1051, :1118, :1185, :1386, VisibleExpr_V1 to V6); the lowering checks
+/// those types (`lower/page_client_expr.rs`) and refuses every other case.
 pub fn client_expression(value: &str) -> Option<ClientExpr> {
     let b: Vec<char> = value.chars().collect();
     let mut i = 0;
     let mut prev_word: Option<String> = None;
     let mut big = None;
+    let mut through_member = false;
     let refuse = |what: &str| {
         Some(ClientExpr::Refused(format!(
             "{what} in the dynamic control expression `{}` (BC compiles it on the client when the page opens; not pinned)",
@@ -185,6 +195,7 @@ pub fn client_expression(value: &str) -> Option<ClientExpr> {
             }
             '.' if b.get(i + 1) != Some(&'.') => match &prev_word {
                 Some(w) if ["rec", "xrec", "this"].contains(&w.trim_matches('"').to_ascii_lowercase().as_str()) => {}
+                Some(_) if member_then_scope(&b, i + 1) => through_member = true,
                 _ => return refuse("a member access"),
             },
             ':' if b.get(i + 1) == Some(&':') => {
@@ -212,7 +223,49 @@ pub fn client_expression(value: &str) -> Option<ClientExpr> {
         prev_word = None;
         i += 1;
     }
-    big
+    match (big, through_member) {
+        // A BigInteger literal together with a qualified value through a member: the mix is not pinned.
+        (Some(_), true) => refuse("a BigInteger literal with a qualified value through a member"),
+        (Some(big), false) => Some(big),
+        (None, true) => Some(ClientExpr::QualifiedThroughMember(format!(
+            "a qualified value through a member that is not an Enum field of a global Record variable in the dynamic control \
+             expression `{}` (BC compiles it on the client when the page opens; pinned only for an Enum field of a global Record \
+             variable, testpage/CcPageLeads.al:1051)",
+            value.trim()
+        ))),
+        (None, false) => None,
+    }
+}
+
+/// Whether `b[i..]` is one name (plain or quoted) and then `::`, spaces allowed around both: the `Mode::` of `E.Mode::Beta`.
+fn member_then_scope(b: &[char], mut i: usize) -> bool {
+    let skip_spaces = |mut i: usize| {
+        while i < b.len() && b[i].is_whitespace() {
+            i += 1;
+        }
+        i
+    };
+    i = skip_spaces(i);
+    let start = i;
+    if b.get(i) == Some(&'"') {
+        i += 1;
+        while i < b.len() && b[i] != '"' {
+            i += 1;
+        }
+        if i >= b.len() || i == start + 1 {
+            return false;
+        }
+        i += 1;
+    } else {
+        while i < b.len() && (b[i].is_alphanumeric() || b[i] == '_') {
+            i += 1;
+        }
+        if i == start || b[start].is_ascii_digit() {
+            return false;
+        }
+    }
+    i = skip_spaces(i);
+    b.get(i) == Some(&':') && b.get(i + 1) == Some(&':')
 }
 
 /// Name of the synthetic routine for property `prop` of the node at `offset`
@@ -2035,6 +2088,26 @@ mod tests {
         ] {
             assert_eq!(client_expression(ok), None, "{ok}");
         }
+        // A qualified value through a member of a variable: runs only where the lowering confirms an Enum field of a global
+        // Record (testpage/CcPageLeads.al:1051, :1118, :1185, :1386).
+        for through in [
+            "Dir = E.Mode::Beta",
+            "Rec.Kind = E.Mode::Beta",
+            "E.Mode::Beta = Rec.Kind",
+            "Dir = E.\"Mode Two\"::\"Gamma Delta\"",
+            "Dir = E . Mode :: Beta",
+        ] {
+            assert!(
+                matches!(client_expression(through), Some(ClientExpr::QualifiedThroughMember(_))),
+                "{through}"
+            );
+        }
+        // Still refused: an array element, a nested member, a member read, a BigInteger literal with the new form.
+        assert!(refused("E[1].Mode::Beta = Dir"));
+        assert!(refused("A.B.C::V = Dir"));
+        assert!(refused("E.Mode = Dir"));
+        assert!(refused("0L <> Rec.Big and (Dir = E.Mode::Beta)"));
+        assert!(refused("(Dir = E.Mode::Beta) and GetRow().Flag"));
     }
 
     #[test]

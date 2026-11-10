@@ -227,7 +227,7 @@ fn root_page(st: &St) -> St {
 
 /// The references to `st` from outside its own page tree, plus the caller's own one: the `CurrPage` globals of its
 /// instances do not count.
-fn page_outside_refs(st: &St) -> usize {
+pub(crate) fn page_outside_refs(st: &St) -> usize {
     let mut own = 0;
     for inst in tree_instances(st) {
         for g in &inst.borrow().globals {

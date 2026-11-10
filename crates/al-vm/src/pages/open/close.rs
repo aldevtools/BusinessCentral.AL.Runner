@@ -102,7 +102,7 @@ impl Session {
                     al_builtins::native::unpinned_error()
                 };
             }
-            self.mark_closed(st);
+            self.mark_closed_by_test(st);
         }
         r
     }
@@ -470,7 +470,14 @@ impl Session {
             let fields = self.page_rec(st).borrow().fields.clone();
             st.borrow_mut().selection = Some(fields);
         }
-        self.mark_closed(st);
+        let by = if test_close {
+            ClosedBy::TestClose
+        } else if via_action {
+            ClosedBy::Action
+        } else {
+            ClosedBy::Platform
+        };
+        self.mark_closed_as(st, by);
         st.borrow_mut().result = Some(action.to_string());
         Ok(Value::Null)
     }

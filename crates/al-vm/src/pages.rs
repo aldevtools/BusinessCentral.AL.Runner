@@ -208,6 +208,7 @@ mod gone_after_action;
 mod gone_new_line;
 mod gone_read_only_list;
 mod gotokey_find;
+mod held_page_part;
 mod host_follows;
 mod inserted_rows;
 mod list_refresh;
@@ -248,8 +249,8 @@ mod test_end;
 mod typed_handler_temp;
 pub(crate) use shown::ShownNote;
 pub(crate) use state::{
-    ControlRef, ControlTarget, Cursor, LookupKind, PageMode, PageState, ReadBackwards, WindowRow, control_of, into_st,
-    page_value, st_of, test_control,
+    ClosedBy, ControlRef, ControlTarget, Cursor, LookupKind, PageMode, PageState, ReadBackwards, WindowRow, control_of,
+    into_st, page_value, st_of, test_control,
 };
 
 impl Session {
