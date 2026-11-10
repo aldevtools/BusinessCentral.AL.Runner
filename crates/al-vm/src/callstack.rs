@@ -14,7 +14,7 @@
 //! ```
 //!
 //! One frame per line, innermost first (`SessionInformation.Callstack` and `GetLastErrorCallStack`
-//! show a backslash after each frame instead of the line feed kept here; corpus
+//! show a backslash after each frame instead of the line feed kept here, `ErrorInfo.Callstack` of a collected error a CR LF; corpus
 //! session-system/TestSessionInformationCallstackContracts.al:12-14); a trigger is `OnRun(Trigger)`; `line` is the line of the
 //! statement that was running minus the line of the `procedure` or `trigger` keyword. A frame the
 //! format is not known for (an object type that has not been measured, a routine
@@ -26,9 +26,13 @@ use al_builtins::native::{AlError, UNTRACKED_CALL_STACK};
 use al_ir as ir;
 
 impl Session {
-    /// Adds the frame at the top of the call stack to the error's stack. No frame, no change.
+    /// Adds the frame at the top of the call stack to the error's stack, then the frames below it. Called where an error is caught
+    /// (`asserterror`, a TryFunction call, a guarded `Codeunit.Run`): BC keeps the whole stack of the raise, so the text of
+    /// `GetLastErrorCallStack` after it also holds the frames of the catcher's callers, down to the test procedure
+    /// (session-system/callstack/CallstackFullText.al, `lasttry` and `lastassert` of every context: own=3 in a test
+    /// procedure, 4 in a Codeunit.Run, 6 in an event subscriber, 4 in a page trigger). No frame, no change.
     pub(crate) fn add_top_frame(&self, e: &mut AlError) {
-        if let (Some(&object), Some(&frame)) = (self.frames.last(), self.call_stack.last()) {
+        for (&object, &frame) in self.frames.iter().zip(&self.call_stack).rev() {
             self.add_frame(e, object, frame);
         }
     }
@@ -58,30 +62,42 @@ impl Session {
             out.push_str(&frame_line(&self.engine.program, object, frame)?);
             out.push('\\');
         }
-        out.push_str(&self.runner_frames);
+        out.push_str(&self.runner_text_frames());
         Some(out)
     }
 
-    /// `ErrorInfo.Callstack` of an error collected now: the live frames, innermost first, a line feed between them, then
-    /// `UNTRACKED_CALL_STACK`. The corpus keeps only the lines of its own app after it drops CR and splits at LF
-    /// (errors/PnBErrorsCollections.al:282-306 and :329-358, RO_CollectedErrorInfo_Internal_And_Client), so
-    /// the rest of the text (the test runner's frames, which writer RO saw on BC 27.5 and not on 28.5 or 29.0, CR, a trailing
-    /// separator) is not pinned: with the mark the stack is not empty and no text function reads it.
+    /// The frames of the test runner below the test in a call stack text, with a backslash after each. BC 27.5 shows six
+    /// (session-system/callstack/CallstackFullText.al:116-122). On 28.5 and 29.0 the main corpus app counts none of
+    /// "Test Runner by Microsoft" (the same file), yet finds (CodeUnit 130450) and (CodeUnit 130454) in the text
+    /// (permissions/testpermissions/BaTpEnv.al:32, BaTpHelper.al:60-80, which the baseline passes on 28.5 and 29.0), and the text of
+    /// those frames is not pinned: the frames stay on every version, so CallstackFullText.al passes on 27.5 only. The two
+    /// corpus files disagree about 28.5 and 29.0 (docs/probes-needed.md has no row: the owner opens the corpus issue).
+    pub(crate) fn runner_text_frames(&self) -> String {
+        self.runner_frames.clone()
+    }
+
+    /// `ErrorInfo.Callstack` of an error collected now: the live frames, innermost first, a CR LF after each, then the runner's
+    /// frames, CR LF after each (session-system/callstack/CallstackFullText.al:204-208, :231-236, :257-262, :283-288: the
+    /// text ends with the last frame of the test app and CR LF, and the runner's frames follow, see `runner_text_frames`).
+    /// A frame whose format is not pinned stands as `UNTRACKED_CALL_STACK`, so no text function reads past it; inside an
+    /// event of an unpinned kind the text is the mark alone.
     pub(crate) fn collected_call_stack(&self) -> String {
         if self.events.unpinned_event_depth > 0 {
             return UNTRACKED_CALL_STACK.to_string();
         }
-        let mut lines: Vec<String> = self
-            .frames
-            .iter()
-            .zip(&self.call_stack)
-            .rev()
-            .map(|(&object, &frame)| {
-                frame_line(&self.engine.program, object, frame).unwrap_or_else(|| UNTRACKED_CALL_STACK.to_string())
-            })
-            .collect();
-        lines.push(UNTRACKED_CALL_STACK.to_string());
-        lines.join("\n")
+        let mut out = String::new();
+        for (&object, &frame) in self.frames.iter().zip(&self.call_stack).rev() {
+            match frame_line(&self.engine.program, object, frame) {
+                Some(line) => out.push_str(&line),
+                None => {
+                    out.push_str(UNTRACKED_CALL_STACK);
+                    return out;
+                }
+            }
+            out.push_str("\r\n");
+        }
+        out.push_str(&self.runner_text_frames().replace('\\', "\r\n"));
+        out
     }
 
     /// Adds the line of routine `frame` of `object` to the error's stack.
