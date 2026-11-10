@@ -68,6 +68,7 @@ mod gone_only_row_view_list_tree;
 mod gone_only_row_y80;
 mod gone_row_key_filter_relation;
 mod gone_row_rec_on_unheld_key;
+mod hidden_part_plain_sync;
 mod journal_batch_switch;
 mod listpart_table_validate_empty_error;
 mod lookup_empty_error;

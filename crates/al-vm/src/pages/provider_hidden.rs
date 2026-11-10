@@ -6,7 +6,7 @@ use super::*;
 
 impl Session {
     /// Whether part `i` of the host page takes its link from a Provider or is the Provider of another part.
-    fn part_in_provider_chain(&self, st: &St, i: usize) -> bool {
+    pub(super) fn part_in_provider_chain(&self, st: &St, i: usize) -> bool {
         let engine = self.engine();
         let page = page_of(&engine, st);
         page.controls[i]

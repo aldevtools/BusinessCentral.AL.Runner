@@ -573,11 +573,13 @@ impl Session {
             .any(|c| c.part_link.as_ref().is_some_and(|l| l.provider.is_some()));
         if opening || matches!(how, Sync::Move { .. }) || provider_page {
             let hidden = st.borrow().hidden_parts.clone();
-            parts.extend(
-                hidden
-                    .into_iter()
-                    .filter(|(i, c)| !self.part_eliminated(st, *i) && (opening || c.borrow().open)),
-            );
+            parts.extend(hidden.into_iter().filter(|(i, c)| {
+                // On a sync that is not an open or a move, only a hidden part of a Provider chain follows: the corpus pins
+                // those (ProviderLinkedPartsMatrix.al), and no test pins a hidden part outside every chain there. Such a
+                // part ran no trigger on a key typed on a new host before (issue 6924, Data Check factbox; probe pending).
+                let follows = opening || matches!(how, Sync::Move { .. }) || self.part_in_provider_chain(st, *i);
+                follows && !self.part_eliminated(st, *i) && (opening || c.borrow().open)
+            }));
             parts.sort_by_key(|(i, _)| *i);
         }
         if opening {
