@@ -5,8 +5,9 @@
 //! codeunit whose static reach says it can see those rows (`al-testrun` `login.rs`), because Microsoft's login code
 //! cannot run on every database. That rule is a guess about what the test will read. Where it says no, the front end
 //! hands over the tables the login subscribers add rows to and the test's own calls cannot insert into; the first read
-//! of one of them by the test session is refused. A wrong "no" then costs a test that is not run, never a read of a
-//! table without the rows BC has there.
+//! of one of them by the test session through a record method is refused, so a wrong "no" costs a test that is not
+//! run there. Not covered yet (follow-up issue): tables the test's own calls can insert into, FlowField, TableRelation
+//! and query reads, `RecordRef.Next`, and login subscriber writes through `Codeunit.Run` or a table trigger.
 
 use super::*;
 

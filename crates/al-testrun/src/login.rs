@@ -32,8 +32,10 @@ pub(crate) enum Login {
     Raise,
     /// The login is not raised. The tables hold rows only the login would add: those the apps under test's login
     /// subscribers insert into and the test codeunit's own calls cannot. The static reach did not show that the test
-    /// reads them; if it does while it runs, the read is refused (`al_vm` `records/login_guard.rs`), so a wrong answer
-    /// here costs a test that is not run and never a read of a table without the login's rows.
+    /// reads them; if it does through a record method while it runs, the read is refused (`al_vm`
+    /// `records/login_guard.rs`). Known limits, where a wrong answer can still give a wrong result: a table the test's
+    /// own calls can insert into is not guarded; FlowField, TableRelation and query reads and `RecordRef.Next` are not
+    /// guarded; what a login subscriber writes through `Codeunit.Run` or a table trigger is not seen. Follow-up issue.
     Skip(BTreeSet<u32>),
 }
 
