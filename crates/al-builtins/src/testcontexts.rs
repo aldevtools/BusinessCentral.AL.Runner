@@ -25,7 +25,7 @@ fn handed<T>(r: &mut Option<&mut Value>, read: impl FnOnce(&mut HandlerContext) 
 fn fresh(r: Option<&mut Value>, ty: &str) -> Result<(), Signal> {
     match r {
         Some(Value::Library(_, cell)) if matches!(&*cell.borrow(), LibraryValue::Empty) => Ok(()),
-        other => Err(Signal::Unsupported(format!(
+        other => Err(Signal::unsupported(format!(
             "{ty} method on a value the test framework handed over ({})",
             other.map(|v| v.describe()).unwrap_or_else(|| "no receiver".into())
         ))),

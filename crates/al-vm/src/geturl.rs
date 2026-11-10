@@ -9,12 +9,8 @@
 use crate::Session;
 use crate::records::Rec;
 use al_builtins::describe::Describe;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::{LibraryValue, RtType, Value};
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 /// `http://host[:port]/path` with the port set to `port`.
 fn with_port(base: &str, port: u16) -> String {
@@ -573,7 +569,7 @@ impl Session {
             );
         }
         let values: Vec<&Value> = key.iter().map(|&p| &r.fields[p]).collect();
-        let (size, data) = al_builtins::bookmark::encode(table_id, &shape, &values).map_err(Signal::Unsupported)?;
+        let (size, data) = al_builtins::bookmark::encode(table_id, &shape, &values).map_err(Signal::unsupported)?;
         let b64 = base64(&data)
             .replace('+', "%2b")
             .replace('/', "%2f")

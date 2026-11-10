@@ -22,7 +22,7 @@ pub(crate) fn copy_source_record(arg: Option<&Value>, dst: &Rec) -> Result<Rec, 
         Some(Value::Record(_)) => Err(Signal::Unsupported(
             "RecordRef.Copy from a temporary Record into a non-temporary RecordRef (not pinned)".into(),
         )),
-        other => Err(Signal::Unsupported(format!(
+        other => Err(Signal::unsupported(format!(
             "RecordRef.Copy from {} (not pinned)",
             other.describe()
         ))),

@@ -10,7 +10,7 @@
 //! after three writes of the codeunit, open or committed, is below LastUsedRowVersion() + 1 and the last row is above it
 //! (codeunit 97990 at lines 208-246, 97991 at lines 248-287). A new test codeunit takes a new value.
 
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::Value;
 
 use crate::Session;
@@ -27,10 +27,6 @@ pub(crate) struct IsoMin {
     held: bool,
     /// A background session committed rows after the value was taken: what the value is then is not pinned.
     unpinned: bool,
-}
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
 }
 
 impl Session {

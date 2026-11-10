@@ -12,7 +12,7 @@ fn run(body: &str) -> Result<Value, Signal> {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
     let engine = Engine::new(l.program, blocked);
@@ -60,7 +60,7 @@ fn run_page(body: &str) -> Result<Value, Signal> {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
     let engine = Engine::new(l.program, blocked);
@@ -116,7 +116,7 @@ fn run_src(src: &str) -> Result<Value, Signal> {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
     let engine = Engine::new(l.program, blocked);
@@ -218,7 +218,7 @@ fn copy_links_from_a_record_without_links_raises_nothing() {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
     let engine = Engine::new(l.program, blocked);

@@ -15,14 +15,14 @@ use std::rc::Rc;
 #[cold]
 pub fn record_into_recordref(v: &Value) -> Result<Value, Signal> {
     let Value::Record(rec) = v else {
-        return Err(Signal::Unsupported(format!(
+        return Err(Signal::unsupported(format!(
             "conversion of {} to RecordRef",
             v.describe()
         )));
     };
     let rec = rec.borrow();
     if rec.temporary || rec.unpinned_buffer.is_some() {
-        return Err(Signal::Unsupported(format!(
+        return Err(Signal::unsupported(format!(
             "conversion of a temporary Record, or one in an unpinned state, of table object {} to RecordRef (not pinned)",
             rec.table
         )));

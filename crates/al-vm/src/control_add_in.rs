@@ -23,7 +23,7 @@ impl Session {
     /// (testpage/AoTests.al:795), so the call refuses there.
     pub(crate) fn control_add_in_call(&mut self, control: &str, page: &str) -> Signal {
         if !self.has(al_version::Gate::ControlAddInNotInstantiatedErrorFrom28) {
-            return Signal::Unsupported(format!(
+            return Signal::unsupported(format!(
                 "a call of a procedure of control add-in `{control}` on page `{page}`: what BC does with it before the major the gate names is not pinned"
             ));
         }

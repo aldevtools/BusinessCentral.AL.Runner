@@ -216,7 +216,7 @@ impl Describe for Signal {
             Signal::Exit(_) => "an Exit".into(),
             Signal::Break => "a Break".into(),
             Signal::Continue => "a Continue".into(),
-            Signal::Unsupported(why) => why.clone(),
+            Signal::Unsupported(why) => why.reason().to_string(),
         }
     }
 }

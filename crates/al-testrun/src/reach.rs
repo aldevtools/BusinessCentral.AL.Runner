@@ -409,7 +409,7 @@ pub fn report(ws: &Workspace, lowered: &Lowered) -> String {
             || first.starts_with("table element `")
             || first.starts_with("variable `")
         {
-            let e = by_object.entry(o).or_insert((0, first.clone()));
+            let e = by_object.entry(o).or_insert((0, first.to_string()));
             e.0 += 1;
         }
     }
@@ -519,8 +519,8 @@ fn group_refused(lowered: &Lowered, g: &Graph, routines: Vec<usize>) -> Vec<(Str
             continue;
         }
         let (o, r) = g.at[i];
-        let reason = lowered.unsupported[o][r].first().cloned().unwrap_or_default();
-        by.entry(crate::refusals::normalise_reason(&reason))
+        let reason = lowered.unsupported[o][r].first().map_or("", |r| r.reason());
+        by.entry(crate::refusals::normalise_reason(reason))
             .or_default()
             .push(label(lowered, g, i));
     }

@@ -518,7 +518,7 @@ impl Session {
         // Card page variable with LookupMode(true) over a view filtered to no row (pages/run-modal/
         // Y68LookupGetRecord.al:425 Q3_TestPageHandler_OK_NoRow_Card, corpus master 0d01b0cc).
         if !self.is_list_page(st) && page_type != "card" {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "OK of a {page_type} page in lookup mode that shows no row (only a list page is pinned)"
             )));
         }

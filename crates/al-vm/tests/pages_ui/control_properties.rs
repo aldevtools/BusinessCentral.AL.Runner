@@ -268,7 +268,7 @@ codeunit 69982 C
 
 fn refused(prop: &str) -> String {
     match al_testkit::run_in(&expr_src(prop), "C", "Open") {
-        Err(Signal::Unsupported(why)) => why,
+        Err(Signal::Unsupported(why)) => why.into_reason(),
         other => panic!("expected a refusal for `{prop}`, got {other:?}"),
     }
 }

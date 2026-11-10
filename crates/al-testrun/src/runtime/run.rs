@@ -512,7 +512,7 @@ fn run_codeunit_inner(
                     }
                 }
                 Err(Signal::Unsupported(r)) if r.starts_with(TIME_LIMIT_REASON) => {
-                    return Err(on_run_refused(r));
+                    return Err(on_run_refused(r.into_reason()));
                 }
                 Err(Signal::Unsupported(r)) => return Err(on_run_refused(format!("OnRun: {r}"))),
                 Err(Signal::Error(e)) => {
@@ -764,7 +764,7 @@ fn run_codeunit_inner(
                         // the process (a server must outlive it). The session is not trusted after it.
                         let called = match reset {
                             // A refused or failed reset: the test does not run, and what the reset changed stays.
-                            Err(why) => Ok(Err(Signal::Unsupported(why))),
+                            Err(why) => Ok(Err(Signal::unsupported(why))),
                             Ok(()) => std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                                 // A debugging aid: the named test panics here, to show that a panic ends one codeunit and not the
                                 // process (tests of `al-runner serve`). Not documented for users.
@@ -806,7 +806,7 @@ fn run_codeunit_inner(
                                     .cloned()
                                     .or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()))
                                     .unwrap_or_default();
-                                Err(Signal::Unsupported(format!("runtime panic (bug): {msg}")))
+                                Err(Signal::unsupported(format!("runtime panic (bug): {msg}")))
                             }
                         };
                         let result = runner.rows_touched(session, result);
@@ -836,12 +836,12 @@ fn run_codeunit_inner(
                         // The reason names the limit; the VM only knows that it was stopped. Both reasons start with the
                         // same words, which the outputs turn into the timeout row (`Test exceeded <N>s timeout.`).
                         let result = match result {
-                            Err(Signal::Unsupported(_)) if slept_out => Err(Signal::Unsupported(format!(
+                            Err(Signal::Unsupported(_)) if slept_out => Err(Signal::unsupported(format!(
                                 "the test used more than the time limit of {} s and was stopped (--test-timeout-secs): its Sleep calls asked to wait {} ms in total (Sleep does not wait here; the time it asks for counts toward the limit)",
                                 limit.map_or(0, |l| l.as_secs()),
                                 session.slept_in_test_ms()
                             ))),
-                            Err(Signal::Unsupported(_)) if timed_out => Err(Signal::Unsupported(format!(
+                            Err(Signal::Unsupported(_)) if timed_out => Err(Signal::unsupported(format!(
                                 "the test used more than the time limit of {} s of CPU time and was stopped (--test-timeout-secs); BC may have ended it differently or not at all",
                                 limit.map_or(0, |l| l.as_secs())
                             ))),
@@ -851,7 +851,7 @@ fn run_codeunit_inner(
                         // access since that the gate refused, is not run either: no access kind is enforced yet.
                         let result = match result {
                             Ok(_) | Err(Signal::Error(_)) => match session.permissions_lowered_at_end() {
-                                Some(why) => Err(Signal::Unsupported(why)),
+                                Some(why) => Err(Signal::unsupported(why)),
                                 None => result,
                             },
                             r => r,
@@ -863,7 +863,7 @@ fn run_codeunit_inner(
                         let result = match result {
                             Ok(_) if model != al_vm::TxModel::AutoRollback && unexecuted.is_empty() => {
                                 match session.inconsistent_table() {
-                                    Some(t) => Err(Signal::Unsupported(format!(
+                                    Some(t) => Err(Signal::unsupported(format!(
                                         "the test ends while Consistent(false) marks table {t}: the runner's commit is not pinned"
                                     ))),
                                     None => result,
@@ -885,7 +885,7 @@ fn run_codeunit_inner(
                                     e.call_stack.clear();
                                     Err(Signal::Error(Box::new(e)))
                                 }
-                                Some(t) => Err(Signal::Unsupported(format!(
+                                Some(t) => Err(Signal::unsupported(format!(
                                     "the test ends while the error of a duplicate-key Insert into table {t} is deferred: whether the test runner raises it at the end of the test is measured only for the default TransactionModel"
                                 ))),
                                 None => result,
@@ -932,7 +932,7 @@ fn run_codeunit_inner(
                                 else {
                                     unreachable!("an unpinned error is refused")
                                 };
-                                Outcome::NotRun(r)
+                                Outcome::NotRun(r.into_reason())
                             }
                             Err(Signal::Error(e)) => {
                                 session.rollback_transaction();
@@ -1516,10 +1516,10 @@ fn watched_stop(execute: bool) -> Option<Arc<std::sync::atomic::AtomicBool>> {
 }
 
 /// The reason of a test refused with `r`: the run's memory limit when the run stopped there and stopped this test.
-fn not_run_reason(r: String) -> String {
+fn not_run_reason(r: Refusal) -> String {
     match crate::events::halted() {
         Some(why) if r == al_vm::STOPPED => why,
-        _ => r,
+        _ => r.into_reason(),
     }
 }
 
@@ -1718,11 +1718,11 @@ fn on_run_time_limit<T>(
     let slept_ms = session.slept_in_test_ms();
     session.end_sleep_budget();
     match ran {
-        Err(Signal::Unsupported(_)) if slept_out => Err(Signal::Unsupported(format!(
+        Err(Signal::Unsupported(_)) if slept_out => Err(Signal::unsupported(format!(
             "the test used more than the time limit of {} s and was stopped (--test-timeout-secs) in the test codeunit's OnRun trigger, before its tests: its Sleep calls asked to wait {slept_ms} ms in total (Sleep does not wait here; the time it asks for counts toward the limit)",
             limit.map_or(0, |l| l.as_secs())
         ))),
-        Err(Signal::Unsupported(_)) if timed_out => Err(Signal::Unsupported(format!(
+        Err(Signal::Unsupported(_)) if timed_out => Err(Signal::unsupported(format!(
             "the test used more than the time limit of {} s of CPU time and was stopped (--test-timeout-secs) in the test codeunit's OnRun trigger, before its tests; BC may have ended it differently or not at all",
             limit.map_or(0, |l| l.as_secs())
         ))),

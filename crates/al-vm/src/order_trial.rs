@@ -245,7 +245,7 @@ impl Session {
             return Ok(());
         };
         self.note_order_unknown_hit(app);
-        Err(al_builtins::native::Signal::Unsupported(format!(
+        Err(al_builtins::native::Signal::unsupported(format!(
             "a write to {} by code of app {} while an app installs that it has no dependency path to; the install order of \
              the two is not known",
             objects.get(table as usize).map_or("?", |o| o.name.as_str()),

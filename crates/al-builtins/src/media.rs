@@ -8,7 +8,7 @@
 //! so an import that was not followed by `Modify` is not seen by the next `Get`.
 
 use crate::describe::Describe;
-use crate::native::{Ctx, NativeFn, Signal};
+use crate::native::{Ctx, NativeFn, Signal, unsupported};
 use crate::value::{LibraryValue, Value};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -115,10 +115,6 @@ pub struct MediaStore {
 }
 
 type Out = Result<Value, Signal>;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 fn id_of(r: &Option<&mut Value>) -> Result<Id, Signal> {
     match r {

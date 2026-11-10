@@ -258,7 +258,7 @@ impl Handlers {
                         e.message
                     ));
                 }
-                Err(Signal::Unsupported(why)) => return Err(why),
+                Err(Signal::Unsupported(why)) => return Err(why.into_reason()),
                 Err(other) => {
                     return Err(format!(
                         "{} of test handler {}: {}",
@@ -323,7 +323,7 @@ pub(crate) fn around(
     if handlers.is_empty() {
         return body(session);
     }
-    let refuse = |why: String| Err(Signal::Unsupported(why));
+    let refuse = |why: String| Err(Signal::unsupported(why));
     handlers.mark_after_codeunit(lowered);
     match case {
         None => {

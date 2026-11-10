@@ -507,7 +507,7 @@ impl Session {
             let stored = self
                 .store_for(rec)
                 .get(&cx, &t, &pk)
-                .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+                .map_err(|e| Signal::unsupported(format!("{e}")))?;
             if let Some(row) = stored {
                 // An unloaded field the record did not assign is not compared.
                 let have = if partial {
@@ -533,7 +533,7 @@ impl Session {
 const SYSTEM_ID: u32 = 2_000_000_000;
 
 fn refuse<T>(why: &str) -> Result<T, Signal> {
-    Err(Signal::Unsupported(format!("Record.IsDirty {why}")))
+    Err(Signal::unsupported(format!("Record.IsDirty {why}")))
 }
 
 fn lose_reason(method: RecordOp) -> &'static str {

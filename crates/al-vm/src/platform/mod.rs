@@ -470,7 +470,7 @@ impl Providers {
                     else {
                         unreachable!("render_pending_error is a refusal")
                     };
-                    return mat::Entry::poisoned(row, why);
+                    return mat::Entry::poisoned(row, why.into_reason());
                 }
                 row[pos(t, 2)] = Value::Text(description.into());
                 let blob = al_builtins::stream::new_blob();

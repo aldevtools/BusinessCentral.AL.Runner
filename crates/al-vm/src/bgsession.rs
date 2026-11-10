@@ -48,7 +48,7 @@ impl Session {
         timeout_ms: Option<i64>,
     ) -> Result<i32, Signal> {
         let refuse = |why: &str| {
-            Err(Signal::Unsupported(format!(
+            Err(Signal::unsupported(format!(
                 "StartSession under Disabled test isolation: {why} (not pinned)"
             )))
         };
@@ -195,7 +195,7 @@ impl Session {
     /// probe measures what it holds there.
     pub(crate) fn refuse_in_background_session(&self, what: &str) -> Result<(), Signal> {
         if self.background_session {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "{what} in a session StartSession started (what a new session holds is not pinned)"
             )));
         }

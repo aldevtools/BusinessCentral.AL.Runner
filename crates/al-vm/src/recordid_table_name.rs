@@ -45,7 +45,7 @@ impl Session {
             .copied();
         match (by_id, by_name) {
             (Some(a), Some(b)) if a == b => Ok(vec![a]),
-            _ => Err(Signal::Unsupported(format!(
+            _ => Err(Signal::unsupported(format!(
                 "Evaluate into a RecordId of `{name}`, a prefix of several table names whose lowest id is not the first name (not pinned)"
             ))),
         }

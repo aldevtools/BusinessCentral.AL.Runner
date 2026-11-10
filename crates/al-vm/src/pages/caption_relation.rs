@@ -81,7 +81,7 @@ impl Session {
                 },
             )
         };
-        let Some(row) = found.map_err(|e| Signal::Unsupported(format!("{e}")))? else {
+        let Some(row) = found.map_err(|e| Signal::unsupported(format!("{e}")))? else {
             return Ok(None);
         };
         let names = engine.program.objects[target]

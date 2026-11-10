@@ -8,11 +8,7 @@
 //!
 //! Core code: no OS access (ADR-006). The writer builds a string; the caller writes the bytes.
 
-use al_builtins::native::Signal;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
+use al_builtins::native::{Signal, unsupported};
 
 /// The name of a data item or column as the dataset spells it. A name made of letters, digits
 /// and underscores is written as it is (text/TestReportSaveAsDatasetContracts.al: `P`,
@@ -790,7 +786,7 @@ impl Dataset {
             .or(self.culture_unpinned)
             .or(self.language_wants_region)
         {
-            return Err(Signal::Unsupported(why));
+            return Err(Signal::unsupported(why));
         }
         let mut out = String::new();
         // The header names the run's language and region as the data items do (reports/runtime/BdRegionTests.al:809,

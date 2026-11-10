@@ -5,7 +5,7 @@
 //! Resources, entitlements and archive data of an app are not here.
 
 use crate::describe::Describe;
-use crate::native::{AlError, Ctx, ModuleLookup, NativeFn, Signal};
+use crate::native::{AlError, Ctx, ModuleLookup, NativeFn, Signal, unsupported};
 use crate::signature::Signature;
 use crate::value::{LibraryValue, ModuleInfoState, Value};
 use std::cell::RefCell;
@@ -120,10 +120,6 @@ fn is_unlicensed(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out
         return Ok(Value::Boolean(false));
     }
     unsupported("NavApp.IsUnlicensed of another installed app (not pinned)")
-}
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
 }
 
 fn module_value(m: ModuleInfoState) -> Value {

@@ -75,6 +75,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `collation.rs` (135): Text order for `<`, `>`, `<=` and `>=`. Entry: `compare` 74.
 - `collections.rs` (286): List and Dictionary methods.
 - `describe.rs` (330): How a value or type reads in a refusal reason or internal error (AL type and a short value, never a debug dump). Entry: `Describe` 12.
+- `refusal.rs` (490): Typed refusals (ADR-071): `Refusal` (a key and a text, the size of a `String`; free text converts with the key `legacy` and reads, prints and stores as the `String` did), `refuse!` (arguments through `Describe`, positional or `name = value`; a name read from the scope does not compile), `Shown`, `Probe`, `AREAS`, and `refusal_keys!`, which turns this crate's list `src/refusals/<key>.rs` (one file per key, collected by `build.rs`) into `keys` and `ALL`. Entry: `Refusal`, `refuse!`, `refusal_keys!`, `placeholders_passed`.
 - `datatransfer.rs` (74): DataTransfer (install and upgrade code only). Entry: `native_for` 58.
 - `datefns.rs` (769): Date, Time and DateTime builtins. Entry: `formula_text` 237, `check_formula` 323.
 - `datefns/brackets.rs` (95): angle brackets inside a term of a date formula (`-62<D>`, `1<>D`, `C<M>`). Entry: `open`, `close`.
@@ -96,7 +97,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `media.rs` (197): `Media` and `MediaSet` fields (corpus media/). Entry: `Id` 14, `MediaObject` 18, `MediaStore` 26.
 - `media_export.rs` (~35): Which media `Media.ExportStream` gives back byte for byte (non-picture content). Entry: `exports_unchanged`.
 - `moduleinfo.rs` (287): `NavApp.GetCurrentModuleInfo` and friends, and the `ModuleInfo` type. Entry: `native_for` 169.
-- `native/mod.rs` (42): Native builtin implementations, registered by catalog overload id (ADR-008); re-exports every public item, so callers use `native::name`. Submodules: `error` (`AlError`, `Signal`, `raise`), `ctx` (the `Ctx` trait), `registry` (id tables, `lookup`, `by_id`), `unpinned` (marks of unpinned error texts), `args` (`text_of`, `int_arg`), `error_fns` (GetLastError*, Error), `messages` (Message, Confirm, `substitute`), `format_fns` (Format), `strings` (StrLen, CopyStr, StrSubstNo, case), `session_fns` (StartSession, LogMessage, ExecutionContext), `enum_fns`, `values` (Abs, Clear, ToText), `dialog`, `tests`.
+- `native/mod.rs` (42): Native builtin implementations, registered by catalog overload id (ADR-008); re-exports every public item, so callers use `native::name`. Submodules: `error` (`AlError`, `Signal`, `raise`, `unsupported`: the one refusal helper, ADR-071), `ctx` (the `Ctx` trait), `registry` (id tables, `lookup`, `by_id`), `unpinned` (marks of unpinned error texts), `args` (`text_of`, `int_arg`), `error_fns` (GetLastError*, Error), `messages` (Message, Confirm, `substitute`), `format_fns` (Format), `strings` (StrLen, CopyStr, StrSubstNo, case), `session_fns` (StartSession, LogMessage, ExecutionContext), `enum_fns`, `values` (Abs, Clear, ToText), `dialog`, `tests`.
 - `ops.rs` (650): Value operations: conversion, arithmetic, comparison, truthiness. Entry: `convert` 16, `arith` 180, `compare_order` 301, `truthy` 384.
 - `conv/` (~630 + generated `rows.rs`): Implicit conversions at run time from the run matrix of corpus writer Y31
   (`types/operators-expressions/`). `rows.rs` is the table of its cells (family, source kind, target kind, what BC gave),
@@ -199,6 +200,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `lower/mod.rs` (352): Lowers resolved syntax to the typed IR (ADR-011). Anything inexpressible becomes a refusal reason on the routine. Holds `Lowered`, the `Lowerer` state and the module list. Entry: `Lowered` 26, `Lowerer` 127.
 - `lower/assemble.rs` (1162): Lowering a whole workspace: drives the objects (in parallel), builds the shared data, relowers the objects an edit touched. Entry: `lower_with_positions` 114, `build_shared` 168, `lower_core` 763, `relower_objects` 1008.
 - `lower/localize.rs` (267): From a lowered object (positions) to a symbolic one (keys): routine keys from the syntax, the walk that moves every reference into the object's tables. Entry: `localize`, `routine_keys`, `Keys`.
+- `lower/routine_lists.rs` (234): What `Lowered` holds per object and routine, read from the cached facts for an object the compile cache supplies: `Refusals` (per routine, the `Refusal`s that keep it from running) and `Calls`. Entry: `Refusals`, `Calls`.
 - `lower/shared.rs` (880): What the lowering of an object reads (`Shared`) and the per-object state (`Nodes`, `Local`, `Seq`), `lower_object`, the constants and literal helpers. Entry: `Shared` 6, `make_lowerer` 173, `lower_object` 211.
 - `lower/tables.rs` (518): Table schemas: relations, field triggers, CalcFormulas. Entry: `table_schema` 311, `relation_arms` 10, `lower_calc` 445.
 - `lower/pages.rs` (458): Page control trees, `RunObject`, part links. Entry: `page` 8, `run_object` 292.
@@ -253,6 +255,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `drift.rs` (119): Comparing case sets across BC versions (ADR-015 3.6). Entry: `differences` 11, `common` 26, `restrict` 39, `table` 46.
 - `mnc.rs` (300): The must-not-compile corpus (`--must-not-compile [DIR]`): parse a case header, compile it alone, compare the ALnnnn codes, report match / mismatch / not checked / skipped. Entry: `parse_case`, `read_cases`, `run_case`, `render`.
 - `insight.rs` (62): --top-refusals (folded reason ranking). Entry: `top_refusals`.
+- `refusal_keys.rs` (76): The refusal key lists of every crate that refuses, together (ADR-071, `LISTS`), and the generated table of `docs/probes-needed.md` (`--refusals-doc`; the suite test `refusal_keys` checks the lists and the table). Entry: `LISTS`, `all`, `probes_needed_doc`.
 - `not_passing.rs` (~450): ADR-065, the lists of the cases the runtime does not pass yet and the CI rule over them (regressions, stale lines, cases without an outcome), `--list-new-cases`, `--list-changes`, `--baseline-diff`. Entry: `check`, `decide`, `new_cases`, `list_change`, `render_diff`.
 - `base_oracle.rs` (~100): The base branch's oracle and lists, read with `git show REV:PATH` (`--list-new-cases`, `--list-changes`). Entry: `Base`.
 - `lib.rs` (22): Runs the corpus's `[Test]` codeunits and reports them against the oracle.

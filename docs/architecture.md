@@ -19,8 +19,9 @@ AL source
 Anything the pipeline cannot handle is refused. Lowering records a reason per
 routine, and the runner reports a test as **not run** if anything it can reach
 statically is refused. What can only be discovered while running raises
-`Signal::Unsupported`, which is also reported as not run. Nothing unsupported
-runs with a guessed behaviour.
+`Signal::Unsupported`, which is also reported as not run. Both carry a `Refusal`
+(ADR-071): the text for the user and a stable key (`legacy` for free text).
+Nothing unsupported runs with a guessed behaviour.
 
 The IR is compiled to register bytecode per routine on its first call (ADR-034); the bytecode is the only executor
 (the tree walker was retired on 2026-10-16).

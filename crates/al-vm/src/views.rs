@@ -9,17 +9,13 @@
 use crate::Session;
 use al_builtins::describe::Describe;
 use al_builtins::filter::{FieldFilter, FilterExpr};
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::{RecordState, RtType, Value};
 use al_data::TableDef;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 type Rec = Rc<RefCell<RecordState>>;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 /// Characters whose presence in a text value makes `GetFilter` quote the whole value (record/
 /// TestSetFilterSpecialTextContracts.al, record/filters/W4Filters.al:174-191), and `..`.
@@ -146,14 +142,14 @@ impl Session {
         // a time with milliseconds is not pinned.
         if let Value::Time(t) = v {
             if *t != 0 && (t - 1) % 1000 == 0 {
-                return al_builtins::format::try_format(v, 0, 0, self).map_err(Signal::Unsupported);
+                return al_builtins::format::try_format(v, 0, 0, self).map_err(Signal::unsupported);
             }
             // A time with milliseconds shows them as standard format 1 writes it (`12:00:00.123 PM`, `>= 9:05:07.5 AM`), and a
             // view writes it on a 24-hour clock as format 9 does (`T=FILTER(23:59:59.999)`) (events/table-events/
             // BdFilterEvents.al:BdFilter_TimeMilliseconds, BdFilter_TimeMillisecondsView).
             if *t != 0 {
                 let standard = if iso { 9 } else { 1 };
-                return al_builtins::format::try_format(v, 0, standard, self).map_err(Signal::Unsupported);
+                return al_builtins::format::try_format(v, 0, standard, self).map_err(Signal::unsupported);
             }
             // The undefined Time shows as `''` in GetFilter(s), given as `''`, as `%1` or by SetRange (corpus
             // master 3eb812ed, record/filters/TimeFilterEmptyText.al:113-126). In a view it is not pinned.
@@ -166,12 +162,12 @@ impl Session {
         // (record/filters/P130DateFilters.al:211, `03/24/24 11:59:59.999 PM`; a whole minute stays `12:00 AM`).
         if let Value::DateTime(d) = v {
             if *d != 0 && (d - 1) % 1000 != 0 {
-                return al_builtins::format::try_format(v, 0, 1, self).map_err(Signal::Unsupported);
+                return al_builtins::format::try_format(v, 0, 1, self).map_err(Signal::unsupported);
             }
             // The last second of a day, the end of a date-alone filter, shows its seconds (`01/15/25 11:59:59 PM`, P136Filter.al
             // UN_DateTimeFilter_DateAlone types/P136Filter.al:447-586).
             if *d != 0 && (d - 1) % 86_400_000 == 86_399_000 {
-                return al_builtins::format::try_format(v, 0, 1, self).map_err(Signal::Unsupported);
+                return al_builtins::format::try_format(v, 0, 1, self).map_err(Signal::unsupported);
             }
             // Other seconds without milliseconds: not pinned.
             if *d != 0 && (d - 1) / 1000 % 60 != 0 {
@@ -585,17 +581,17 @@ impl Session {
                     for item in items {
                         let (field, cond) = item
                             .split_once('=')
-                            .ok_or_else(|| Signal::Unsupported(format!("view condition `{item}`")))?;
+                            .ok_or_else(|| Signal::unsupported(format!("view condition `{item}`")))?;
                         let Some(pos) = self.view_where_field(t, field.trim(), cond, runtime, alone)? else {
                             continue;
                         };
                         let cond = cond.trim();
                         let open = cond
                             .find('(')
-                            .ok_or_else(|| Signal::Unsupported(format!("view condition `{item}`")))?;
+                            .ok_or_else(|| Signal::unsupported(format!("view condition `{item}`")))?;
                         let kind = cond[..open].trim().to_ascii_uppercase();
                         let (value, tail) = balanced(&cond[open..])
-                            .ok_or_else(|| Signal::Unsupported(format!("view condition `{item}`")))?;
+                            .ok_or_else(|| Signal::unsupported(format!("view condition `{item}`")))?;
                         if !tail.trim().is_empty() || !matches!(kind.as_str(), "FILTER" | "CONST" | "0" | "1") {
                             return unsupported(format!("view condition `{item}`"));
                         }
@@ -669,7 +665,7 @@ impl Session {
                             Some(e) => e,
                             None => {
                                 al_builtins::filter::with_date_context(date_ctx, || self.parse_filter_text(value, &ty))
-                                    .map_err(|e| Signal::Unsupported(format!("SetView: {e}")))?
+                                    .map_err(|e| Signal::unsupported(format!("SetView: {e}")))?
                             }
                         };
                         filters.retain(|f| f.field != pos);

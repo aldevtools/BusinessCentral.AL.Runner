@@ -50,15 +50,15 @@ impl Session {
     /// to the field's type). Nothing is written.
     pub fn record_with(&mut self, table: usize, values: &[(u32, Value)]) -> Result<Value, Signal> {
         let Value::Record(rec) = self.default_value(&RtType::Record(table as u32, false)) else {
-            return Err(Signal::Unsupported(format!("object {table} is not a table")));
+            return Err(Signal::unsupported(format!("object {table} is not a table")));
         };
         let t = self.table(&rec)?;
         for (id, v) in values {
             let Some(at) = t.fields.iter().position(|f| f.id == *id) else {
-                return Err(Signal::Unsupported(format!("table {} has no field {id}", t.name)));
+                return Err(Signal::unsupported(format!("table {} has no field {id}", t.name)));
             };
             let v = ops::convert(v.clone(), &t.fields[at].ty)
-                .map_err(|_| Signal::Unsupported(format!("field {id} of table {}: a value of another type", t.name)))?;
+                .map_err(|_| Signal::unsupported(format!("field {id} of table {}: a value of another type", t.name)))?;
             rec.borrow_mut().fields[at] = v;
         }
         Ok(Value::Record(rec))

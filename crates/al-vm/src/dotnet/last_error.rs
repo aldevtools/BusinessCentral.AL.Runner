@@ -19,7 +19,7 @@ use al_builtins::dotnet_sigs::{
     AL_EXCEPTION, AL_INNER_EXCEPTION, DIVIDE_BY_ZERO_EXCEPTION, NCL_DIALOG_EXCEPTION, NCL_EVALUATE_EXCEPTION,
     NULL_EXCEPTION, RECORD_NOT_FOUND_EXCEPTION, RUNTIME_TYPE, TEST_FIELD_EXCEPTION,
 };
-use al_builtins::native::{EXC_CALL_STACK, EXC_MESSAGE, Signal, UNTRACKED_CALL_STACK};
+use al_builtins::native::{EXC_CALL_STACK, EXC_MESSAGE, Signal, UNTRACKED_CALL_STACK, unsupported};
 use al_builtins::value::{DotNetKind, DotNetObject, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -28,10 +28,6 @@ const PIN: &str = "tests/al-language-onprem-dotnet/dotnet/dotnet-interop/GetLast
 
 fn pin() -> Pin {
     Pin::Corpus(PIN.into())
-}
-
-fn unsupported<T>(why: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(why.into()))
 }
 
 fn parts(this: Option<&Rc<DotNetObject>>) -> Result<(&str, Value, Value), Signal> {

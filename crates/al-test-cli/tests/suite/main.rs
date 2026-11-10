@@ -147,6 +147,7 @@ mod r1b_page_moves;
 mod readable_messages;
 mod reapply_marks_other_key;
 mod recall_never_sent;
+mod refusal_keys;
 mod refusal_reason_texts;
 mod report_handler;
 mod report_request_page_save_as_pdf;

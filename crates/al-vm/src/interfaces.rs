@@ -51,7 +51,7 @@ impl Session {
             }
             Value::Null if cast => Err(unable()),
             Value::Null => Ok(Value::Boolean(false)),
-            other => Err(Signal::Unsupported(format!("`is` or `as` on {}", other.describe()))),
+            other => Err(Signal::unsupported(format!("`is` or `as` on {}", other.describe()))),
         }
     }
 
@@ -81,7 +81,7 @@ impl Session {
                         }
                     }
                     Some((o, r)) => Ok((*o, *r, self.shared_instance(i))),
-                    None => Err(Signal::Unsupported(format!(
+                    None => Err(Signal::unsupported(format!(
                         "interface call on an instance of `{}`, which the interface does not list",
                         self.engine.program.objects[object].name
                     ))),
@@ -90,7 +90,7 @@ impl Session {
             // codeunits/TestInterfaceRuntimeContracts.al:76
             // (Interface_CallOnUnassignedVariable_Throws_InterfaceNotInitialized).
             Value::Null => Err(not_initialized()),
-            other => Err(Signal::Unsupported(format!("interface call on {}", other.describe()))),
+            other => Err(Signal::unsupported(format!("interface call on {}", other.describe()))),
         }
     }
 
@@ -104,7 +104,7 @@ impl Session {
         unknown: Option<usize>,
     ) -> Result<Value, Signal> {
         let Value::Enum(id, ordinal) = value else {
-            return Err(Signal::Unsupported(format!("enum cast of {}", value.describe())));
+            return Err(Signal::unsupported(format!("enum cast of {}", value.describe())));
         };
         self.note_enum(id);
         let object = match by_ordinal.iter().find(|(o, _)| *o == ordinal) {
