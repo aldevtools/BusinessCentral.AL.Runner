@@ -100,8 +100,9 @@ What was built, and where it differs from the text above. None of this changes a
   (`tests/suite/refusal_keys.rs`) checks all lists together (unique keys, lower case and dotted, known area, no `legacy`
   entry, one file per key, every key used as `keys::NAME`) and that the generated table in `docs/probes-needed.md` is
   current (`al-test-cli --refusals-doc` rewrites it). A crate that starts a list adds it to
-  `al-test-cli/src/refusal_keys.rs` `LISTS`. Reason: a new key in the bottom crate rebuilds every crate; a key in
-  `al-vm` rebuilds five. A key that lowering and the VM both use sits in `al-builtins`. Step 1 has one list
+  `al-test-cli/src/refusal_keys.rs` `LISTS`; the test fails for a crate with a `src/refusals/` folder and no row. A
+  missing folder is an empty list (git keeps no empty folder), in `build.rs` and in the test. Reason: a new key in the bottom crate rebuilds every crate; a key in
+  `al-vm` rebuilds five. A key that two crates use sits in the lowest crate both depend on. Step 1 has one list
   (`al-builtins`) with one key.
 - **`Refusal`** (`al-builtins/src/refusal.rs`) is the size of a `String`: free text is stored as its `String` (no
   allocation more than before), a keyed refusal as a `Box` of key and text. `Signal` does not grow (a test pins `Signal`
@@ -119,8 +120,10 @@ What was built, and where it differs from the text above. None of this changes a
 - **Serialization.** postcard (the compile cache): the pair (key, text). JSON: a legacy refusal is its plain text and a
   keyed one `{"key", "reason"}`, so `compile_dump` of `main` and of the branch are identical.
 - **`refuse!` and decision 3.** `format!` reads a named placeholder (`{x:?}`) from the scope, past any wrapper. `refuse!`
-  therefore takes positional placeholders only, checked at compile time (`positional_only` in a `const` assertion);
-  each argument is wrapped in `Shown`, which has `Display` through `Describe` and no `Debug`. Three `compile_fail` doc
+  therefore takes positional placeholders and named ones whose value is passed as `name = value`
+  (`refuse!(K, "Get on {what}", what = what)`, so a migrated site keeps its text literal byte for byte); a name not
+  passed fails at compile time (`placeholders_passed` in a `const` assertion). Each argument is wrapped in `Shown`,
+  which has `Display` through `Describe` and no `Debug`. Three `compile_fail` doc
   tests show it (a `{:?}`, a `Debug`-only argument, a named placeholder). The `readable_messages` scan stays until the
   last step.
 - **Decision 4, one helper.** `al_builtins::native::unsupported` takes free text or a keyed refusal. The 67 private

@@ -19,6 +19,7 @@ fn a_free_text_refusal_has_the_key_legacy_and_reads_as_before() {
         assert!(r.is_legacy());
         assert_eq!(r.reason(), text);
         assert_eq!(r.to_string(), text);
+        assert_eq!(format!("[{r:>55}|{r:.6}]"), format!("[{text:>55}|{text:.6}]"));
         assert_eq!(format!("{r:?}"), format!("{text:?}"));
         assert!(r.contains("sibling") && r.starts_with("a "), "Deref to str");
         let owned = String::from(text);
@@ -39,6 +40,10 @@ fn refuse_builds_the_reason_from_described_arguments() {
     // Width and positions are kept; `{{` is an escape.
     let r = crate::refuse!(TEST_KEY, "[{1:>4}|{0}] {{x}}", 7, 12);
     assert_eq!(r.reason(), "[  12|7] {x}");
+    // A literal that names its values stays as it is: `name = value`, each through Describe.
+    let what = Value::Integer(6);
+    let r = crate::refuse!(TEST_KEY, "Get on {what} at {pos:>3}, {}", "x", what = what, pos = 7);
+    assert_eq!(r.reason(), "Get on Integer 6 at   7, x");
 }
 
 #[test]
@@ -79,6 +84,9 @@ fn positional_only_rejects_a_named_placeholder() {
     for bad in ["{name}", "{x:?}", "{} {why}", "{{{name}}}", "{_x}"] {
         assert!(!positional_only(bad), "{bad}");
     }
+    assert!(placeholders_passed("{why} and {} {why:>3}", &["why"]));
+    assert!(!placeholders_passed("{why} and {wh}", &["why"]));
+    assert!(!placeholders_passed("{whyy}", &["why"]));
 }
 
 #[test]

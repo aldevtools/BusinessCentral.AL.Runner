@@ -9,7 +9,7 @@
 //! - Keys are registered, one file per key, in a list per crate that refuses (owner decision 2026-11-10, recorded in
 //!   ADR-071's implementation notes). This crate's list is `src/refusals/<key>.rs`, collected by `build.rs` into one
 //!   [`refusal_keys!`](crate::refusal_keys) call that makes [`keys`] and [`ALL`]. One test in `al-test-cli`
-//!   (`tests/refusal_keys.rs`) checks all lists together and the generated table of `docs/probes-needed.md`.
+//!   (`tests/suite/refusal_keys.rs`) checks all lists together and the generated table of `docs/probes-needed.md`.
 //!
 //! The text of a refusal is its `Display` (and `Deref<Target = str>`, a shim for readers written against the `String`
 //! that goes away with `From<String>` in the last migration step).
@@ -205,9 +205,10 @@ impl<S: Into<String>> From<S> for Refusal {
     }
 }
 
+/// The text; width and precision apply as they do to a `String`.
 impl fmt::Display for Refusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.reason())
+        f.pad(self.reason())
     }
 }
 
@@ -347,6 +348,13 @@ impl<T: Describe + ?Sized> fmt::Display for Shown<'_, T> {
 /// Whether every placeholder of `fmt` is positional (`{}`, `{0}`, `{:>5}`); `{{` and `}}` are escapes. A named
 /// placeholder (`{x}`, `{x:?}`) would be read from the scope by `format!` and skip [`Shown`].
 pub const fn positional_only(fmt: &str) -> bool {
+    placeholders_passed(fmt, &[])
+}
+
+/// Whether every placeholder of `fmt` is positional or names one of `names` (the `name = value` arguments of
+/// [`refuse!`](crate::refuse)). A name that is not passed would be read from the scope by `format!` and skip
+/// [`Shown`].
+pub const fn placeholders_passed(fmt: &str, names: &[&str]) -> bool {
     let b = fmt.as_bytes();
     let mut i = 0;
     while i < b.len() {
@@ -355,13 +363,16 @@ pub const fn positional_only(fmt: &str) -> bool {
                 i += 2;
                 continue;
             }
-            // The argument part: up to `:` or `}`; it must be empty or digits.
+            // The argument part: up to `:` or `}`; empty or digits is positional, anything else a name.
             i += 1;
+            let start = i;
+            let mut digits = true;
             while i < b.len() && b[i] != b':' && b[i] != b'}' {
-                if !b[i].is_ascii_digit() {
-                    return false;
-                }
+                digits = digits && b[i].is_ascii_digit();
                 i += 1;
+            }
+            if !digits && !is_one_of(b, start, i, names) {
+                return false;
             }
             while i < b.len() && b[i] != b'}' {
                 i += 1;
@@ -372,13 +383,35 @@ pub const fn positional_only(fmt: &str) -> bool {
     true
 }
 
-/// A keyed refusal: `refuse!(keys::NAME, "text {} and {}", a, b)`. Each argument is formatted through `Describe`.
+/// Whether `b[start..end]` equals one of `names`.
+const fn is_one_of(b: &[u8], start: usize, end: usize, names: &[&str]) -> bool {
+    let mut n = 0;
+    while n < names.len() {
+        let name = names[n].as_bytes();
+        if name.len() == end - start {
+            let mut k = 0;
+            while k < name.len() && name[k] == b[start + k] {
+                k += 1;
+            }
+            if k == name.len() {
+                return true;
+            }
+        }
+        n += 1;
+    }
+    false
+}
+
+/// A keyed refusal: `refuse!(keys::NAME, "text {} and {}", a, b)` or, keeping a text literal that names its values,
+/// `refuse!(keys::NAME, "Get on {what}", what = what)`. Each argument is formatted through `Describe`.
 ///
 /// ```
 /// # use al_builtins::refusal::{KeyInfo, Probe, RefusalKey};
 /// # const KEY: RefusalKey = RefusalKey::new(&KeyInfo { name: "KEY", key: "xml.doc.example", probe: Probe::Wanted });
 /// let v = al_builtins::value::Value::Integer(5);
 /// let r = al_builtins::refuse!(KEY, "assigning {} to {}", v, "a Code[10]");
+/// assert_eq!(r.reason(), "assigning Integer 5 to a Code[10]");
+/// let r = al_builtins::refuse!(KEY, "assigning {v} to {}", "a Code[10]", v = v);
 /// assert_eq!(r.reason(), "assigning Integer 5 to a Code[10]");
 /// ```
 ///
@@ -400,7 +433,7 @@ pub const fn positional_only(fmt: &str) -> bool {
 /// let r = al_builtins::refuse!(KEY, "assigning {} to {}", v, "a Code[10]");
 /// ```
 ///
-/// Nor a named placeholder, which `format!` would read from the scope past `Describe`:
+/// Nor a named placeholder whose value is not passed, which `format!` would read from the scope past `Describe`:
 ///
 /// ```compile_fail
 /// # use al_builtins::refusal::{KeyInfo, Probe, RefusalKey};
@@ -410,13 +443,26 @@ pub const fn positional_only(fmt: &str) -> bool {
 /// ```
 #[macro_export]
 macro_rules! refuse {
-    ($key:expr, $fmt:literal $(, $arg:expr)* $(,)?) => {{
+    // `name = value`: collected apart, passed to `format!` as a named argument.
+    (@args $key:expr, $fmt:literal, [$($p:expr,)*] [$($n:ident = $v:expr,)*] $name:ident = $val:expr $(, $($rest:tt)*)?) => {
+        $crate::refuse!(@args $key, $fmt, [$($p,)*] [$($n = $v,)* $name = $val,] $($($rest)*)?)
+    };
+    (@args $key:expr, $fmt:literal, [$($p:expr,)*] [$($n:ident = $v:expr,)*] $arg:expr $(, $($rest:tt)*)?) => {
+        $crate::refuse!(@args $key, $fmt, [$($p,)* $arg,] [$($n = $v,)*] $($($rest)*)?)
+    };
+    (@args $key:expr, $fmt:literal, [$($p:expr,)*] [$($n:ident = $v:expr,)*]) => {{
         const _: () = assert!(
-            $crate::refusal::positional_only($fmt),
-            "refuse!: a named placeholder is read from the scope and skips Describe; pass the value as an argument"
+            $crate::refusal::placeholders_passed($fmt, &[$(stringify!($n)),*]),
+            "refuse!: a placeholder names a value not passed as `name = value`; format! would read it from the scope and skip Describe"
         );
-        $crate::refusal::Refusal::keyed($key, format!($fmt $(, $crate::refusal::Shown(&$arg))*))
+        $crate::refusal::Refusal::keyed(
+            $key,
+            format!($fmt $(, $crate::refusal::Shown(&$p))* $(, $n = $crate::refusal::Shown(&$v))*),
+        )
     }};
+    ($key:expr, $fmt:literal $(, $($args:tt)*)?) => {
+        $crate::refuse!(@args $key, $fmt, [] [] $($($args)*)?)
+    };
 }
 
 /// One crate's list of refusal keys: `pub mod keys` with a constant per entry, and `ALL`. Each crate that refuses

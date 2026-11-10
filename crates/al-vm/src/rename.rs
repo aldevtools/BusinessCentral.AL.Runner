@@ -270,10 +270,11 @@ fn rename_equal(a: &Value, b: &Value) -> Result<bool, Signal> {
 }
 
 fn rename_refusal(e: Signal) -> Signal {
-    let why = match e {
-        Signal::Unsupported(why) => why.into_reason(),
-        Signal::Error(e) => e.message,
-        _ => "the comparison did not give an order".to_string(),
+    // A refusal keeps its key behind the prefix (ADR-071).
+    let why: al_builtins::refusal::Refusal = match e {
+        Signal::Unsupported(why) => why,
+        Signal::Error(e) => e.message.into(),
+        _ => "the comparison did not give an order".into(),
     };
-    Signal::unsupported(format!("a rename cannot evaluate a TableRelation condition: {why}"))
+    Signal::Unsupported(why.map_reason(|why| format!("a rename cannot evaluate a TableRelation condition: {why}")))
 }

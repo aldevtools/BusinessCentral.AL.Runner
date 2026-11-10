@@ -1671,7 +1671,7 @@ fn host_target(t: &Target) -> DotNetTarget {
 
 fn prefix(e: Signal, shown: &str) -> Signal {
     match e {
-        Signal::Unsupported(s) => Signal::unsupported(format!("DotNet {shown}: {s}")),
+        Signal::Unsupported(s) => Signal::Unsupported(s.map_reason(|s| format!("DotNet {shown}: {s}"))),
         other => other,
     }
 }

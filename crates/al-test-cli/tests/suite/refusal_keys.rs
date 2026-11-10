@@ -50,15 +50,38 @@ fn no_entry_is_named_legacy() {
     }
 }
 
+/// The key files of one crate's list; a missing folder is an empty list (git keeps no empty folder).
+fn key_files(krate: &str) -> Vec<String> {
+    let dir = repo().join("crates").join(krate).join("src/refusals");
+    match std::fs::read_dir(&dir) {
+        Ok(rd) => rd
+            .flatten()
+            .filter_map(|e| e.file_name().to_str()?.strip_suffix(".rs").map(String::from))
+            .collect(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => panic!("{}: {e}", dir.display()),
+    }
+}
+
+#[test]
+fn every_crate_with_a_key_folder_has_its_list_in_lists() {
+    let mut missing = Vec::new();
+    for e in std::fs::read_dir(repo().join("crates")).expect("crates/").flatten() {
+        let krate = e.file_name().to_string_lossy().into_owned();
+        if !key_files(&krate).is_empty() && !LISTS.iter().any(|(c, _)| *c == krate) {
+            missing.push(krate);
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "crates with src/refusals/ but no row in al-test-cli/src/refusal_keys.rs LISTS: {missing:?}"
+    );
+}
+
 #[test]
 fn every_file_of_a_list_is_named_by_its_key() {
     for (krate, list) in LISTS {
-        let dir = repo().join("crates").join(krate).join("src/refusals");
-        let mut files: Vec<String> = std::fs::read_dir(&dir)
-            .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
-            .flatten()
-            .filter_map(|e| e.file_name().to_str()?.strip_suffix(".rs").map(String::from))
-            .collect();
+        let mut files = key_files(krate);
         files.sort();
         let mut keys: Vec<String> = list.iter().map(|k| k.key().to_string()).collect();
         keys.sort();
