@@ -2047,15 +2047,6 @@
 97910 ECR_TestFields_2067
 97910 ECR_ViewWords_1033
 97910 ECR_ViewWords_2067
-97950 XTT_AfterOnlyPreset_Export
-97950 XTT_AfterOnly_Export
-97950 XTT_BothTableValue_Export
-97950 XTT_BothValueTable_Export
-97950 XTT_FieldInnerTriggers_Export
-97950 XTT_RootTableAfterOnly_Export
-97950 XTT_RootTableValue_Export
-97950 XTT_RowDirect_Export
-97950 XTT_TableTriggers_Export
 99786 CardControlCaptions_PlainExpressions_KindItem
 99786 CardControlCaptions_PlainExpressions_KindResource
 99786 CountCard_AsIntegerExpression_RunsAtOpen
