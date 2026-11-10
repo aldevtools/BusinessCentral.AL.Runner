@@ -53,7 +53,7 @@ impl Describe for Value {
             Value::Guid(_) => "Guid".into(),
             Value::DateFormula(s) => format!("DateFormula {}", quoted(s)),
             Value::Option(ord, names) => match usize::try_from(*ord).ok().and_then(|i| names.get(i)) {
-                Some(name) => format!("Option member {}", quoted(name)),
+                Some(name) => format!("Option member {}", quoted(crate::optname::listed(name))),
                 None => format!("Option member {ord}"),
             },
             Value::Enum(_, ord) => format!("Enum value {ord}"),

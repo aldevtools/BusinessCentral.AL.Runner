@@ -150,6 +150,9 @@ impl Session {
                     .control_field(st, idx)
                     .is_some_and(|f| prop_of(&f, "OptionCaption").is_none()) =>
             {
+                if al_builtins::optname::has_quoted_empty(members) {
+                    return al_builtins::optname::refuse("ValuesAllowed on a control of an Option");
+                }
                 members.iter().enumerate().map(|(i, m)| (i as i32, m.clone())).collect()
             }
             _ => {
@@ -334,6 +337,9 @@ impl Session {
             }
             let values: Vec<(i32, String)> = match &ty {
                 RtType::Enum(id) => self.engine().program.objects[*id as usize].enum_values.clone(),
+                RtType::Option(members) if al_builtins::optname::has_quoted_empty(members) => {
+                    return al_builtins::optname::refuse("ValuesAllowed on a control of an Option");
+                }
                 RtType::Option(members) => members.iter().enumerate().map(|(i, m)| (i as i32, m.clone())).collect(),
                 _ => return Ok(None),
             };

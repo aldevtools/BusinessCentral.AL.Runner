@@ -20,6 +20,11 @@ pub fn fieldref_value_into_text(
                 crate::describe::Describe::describe(t)
             ))));
         };
+        if caption == crate::optname::QUOTED_EMPTY {
+            return Some(crate::optname::refuse(
+                "FieldRef.Value of an Option member declared as \"\" into a text",
+            ));
+        }
         return Some(crate::ops::convert(Value::Text(caption.as_str().into()), t));
     }
     crate::ops::number_into_text_field(v, t, ctx)

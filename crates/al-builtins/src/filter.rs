@@ -1176,6 +1176,10 @@ impl Parser<'_> {
             },
             // The matcher trims both sides and skips zero-length member names (corpus
             // types/TestEnumBlankOptionFilterTests.Codeunit.al:122,188).
+            // A member declared `""` is not pinned for a blank filter text (probe OPTBLANK, `crate::optname`).
+            T::Option(m) if text.trim().is_empty() && crate::optname::has_quoted_empty(m) => {
+                return Err("a blank filter text on an Option with a member declared as \"\" (not pinned)".into());
+            }
             T::Option(m) => match m
                 .iter()
                 .position(|x| !x.is_empty() && x.trim().eq_ignore_ascii_case(text.trim()))

@@ -408,6 +408,17 @@ Found by Tests-ERM with test data (issue 8). The lowering refuses each with the 
 | `Record.SetPermissionFilter()`, `RecordRef.SetPermissionFilter()` | 54 | Both are a no-op here, because permission enforcement is not modelled (`ReadPermission()` is true, `Permissions Mock` is refused). Pinned: `Record.SetPermissionFilter` does not throw (record/TestRecordFilter.al:406-413). The RecordRef call is the same assumption, and the effect of the filter on a user without read permission is not pinned: probe a table with a security filter and a limited user |
 | `RecordRef.GetBySystemId` on a RecordRef that is not open with the result unused | - | The Record form is pinned by record/PnD04_GetBySystemId.al:36-47 and :111-124 (the same text and code as the RecordRef form, also for the null Guid; implemented). The RecordRef form is pinned on BC 27.5 (corpus branch al-runtime-rs-staging ae3fe88, types/PXEnumRecordRef.al:199-301): found loads the row whatever the filters, a miss answers false and keeps the buffer, a miss with the result unused raises "The <table> does not exist. Identification fields and values: {x}" / DB:RecordNotFound, a RecordRef never opened answers false. Open: a never-opened RecordRef with the result unused, and the text between the braces (the probe masks it; written as `Format(Guid)`, upper case) |
 
+## Blank option members (OPTBLANK)
+
+The syntax keeps an option member declared as `""` apart from one declared as `" "` (`TypeRef::option_member_forms`,
+`al_builtins::optname`). Pinned: a lone first member `" "` reads the empty text, a blank text and NUL as ordinal 0
+(format-evaluate/format-matrix/FMEvalOption.al:64-69, :262-267); a last member `""` reads none of them
+(types/decimal-integer/ScT70062.al:Option_EvaluateByName `empty`) and its `Format` is one character long
+(ScT70053.al:Option_Format `blank_len`). REFUSED: Evaluate of a blank text into any other layout (`""` first or in the
+middle, `" "` in the middle or last, two blank members), `Format` of a `""` member that is not last, and the member list
+of a field with a `""` member (FieldRef OptionMembers, OptionString, virtual table columns). Probe spec:
+`probe-option-blank-members.md` of the collector folder.
+
 ## SessionInformation.Callstack
 
 PINNED (session-system/TestSessionInformationCallstackContracts.al, BC 27.5; the runner frames are the same on 28.5 and 29.0
