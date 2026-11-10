@@ -684,7 +684,7 @@ fn run_request_page_takes_the_parameters_it_gave_out_as_a_seed() {
     ));
 }
 
-// A parameters string this runtime did not produce is refused (docs/probes-needed.md)
+// A parameters string this runtime did not produce is refused (docs/probes-needed.md); this one has no XML declaration
 #[test]
 fn a_foreign_seed_is_refused() {
     let why = refused(&format!(
@@ -694,7 +694,7 @@ fn a_foreign_seed_is_refused() {
             Seed(); Param := Probe.RunRequestPage('<ReportParameters/>'); end;
         [RequestPageHandler] procedure Cancel(var RP: TestRequestPage \"RQ Report\") begin RP.Cancel().Invoke(); end;"
     ));
-    assert!(why.contains("did not produce"), "{why}");
+    assert!(why.contains("without the XML declaration"), "{why}");
 }
 
 // reports/TestRequestPageControlErrorName.al:SourceReportExtension_Control_AssertEquals_*,

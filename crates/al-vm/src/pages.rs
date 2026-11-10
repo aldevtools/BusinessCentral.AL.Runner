@@ -184,7 +184,7 @@ use text_control_value::TextConv;
 pub(crate) mod request;
 mod request_expr_params;
 pub(crate) mod request_options;
-pub(crate) use request::RequestClosed;
+pub(crate) use request::{ParamsCall, RequestClosed};
 mod access_by_permission;
 mod action_blob_change;
 mod actions;
