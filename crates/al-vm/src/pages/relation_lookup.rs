@@ -3,6 +3,15 @@
 use super::*;
 
 impl Session {
+    /// The closed state of the lookup page a relation opens, in lookup mode. The lookup list has no new-row line: Next from
+    /// its last row answers false (testpage/P133RelationLookups.al:271-284).
+    pub(super) fn relation_lookup_page(page_object: usize) -> St {
+        let related = Rc::new(RefCell::new(PageState::closed(page_object as u32)));
+        related.borrow_mut().lookup = true;
+        related.borrow_mut().lookup_set = true;
+        related
+    }
+
     /// The arm of the relation of `field` (the source field of control `idx`) that applies to the page's row, for
     /// `TestField.Lookup`: `if (Kind = const(1)) A else if (Kind = const(2)) B` opens the lookup page of the table whose
     /// condition holds for the row as the page shows it, also after a SetValue on the condition field

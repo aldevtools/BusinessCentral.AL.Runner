@@ -649,9 +649,7 @@ impl Session {
             return Ok(Value::Null);
         };
         let (Some(table), Some(wheres)) = (arm.table, &arm.wheres) else {
-            return unsupported(
-                "Lookup over a TableRelation into a table outside the workspace or with a where() that is not understood",
-            );
+            return unsupported("Lookup over a TableRelation into a table outside the workspace");
         };
         // The page is the related table's LookupPageId, else its DrillDownPageId; a table with
         // neither still shows a form, which nobody can answer (testpage/TestPageFieldRelationLookup_Tests.al:253).
@@ -823,10 +821,7 @@ impl Session {
             std::slice::from_ref(&current),
             std::slice::from_ref(&Value::default_for(&field.ty)),
         );
-        let related = Rc::new(RefCell::new(PageState::closed(page_object as u32)));
-        related.borrow_mut().lookup = true;
-        // The lookup list has no new-row line: Next from its last row answers false (testpage/P133RelationLookups.al:271-284).
-        related.borrow_mut().lookup_set = true;
+        let related = Self::relation_lookup_page(page_object);
         self.page_instance(&related)?;
         // A field that holds a value: the lookup page opens on the related row that holds it, a value that is no row opens on the
         // first row like a blank field (pages/run-modal/Y80LookupHoldsValue.al Y80_LK_Card_HoldsMiddle, _HoldsNoRow,
