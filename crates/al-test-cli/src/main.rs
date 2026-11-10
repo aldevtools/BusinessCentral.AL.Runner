@@ -1028,7 +1028,8 @@ fn run_version_inner(
             local_artifacts: None,
             country: String::new(),
         };
-        let deps = deps::load_with_extra(
+        // ADR-013 amendment of 2026-11-10: the corpus tree's `.alpackages` is not searched (`deps::load_corpus`).
+        let deps = deps::load_corpus(
             &root.join(&cfg.corpus_app),
             &corpus_deps,
             &args.deps,
@@ -1054,7 +1055,7 @@ fn run_version_inner(
                     &u.build,
                 )?;
             }
-            None => println!("bc build: none needed (every dependency came from .alpackages or --deps)"),
+            None => println!("bc build: none needed (every dependency came from --deps)"),
         }
         kinds.extend(deps.apps.iter().map(|_| al_sema::AppKind::Dependency));
         layout_sources = deps.layout_sources();

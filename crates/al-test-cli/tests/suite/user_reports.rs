@@ -1635,8 +1635,7 @@ fn run_over_system(
     main: &str,
 ) -> Vec<(String, Outcome)> {
     use al_deps::package::read_package;
-    let packages = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/tests/al-language/.alpackages");
-    let system = read_package(&std::fs::read(packages.join("System.app")).expect("corpus submodule checked out"))
+    let system = read_package(&std::fs::read(al_testfiles::system_app()).unwrap())
         .expect("System.app reads")
         .1;
     let app = |id: &str, deps: Vec<String>, files: Vec<(String, String)>| AppSource {

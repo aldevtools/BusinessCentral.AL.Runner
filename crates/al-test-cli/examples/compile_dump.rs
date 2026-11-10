@@ -5,7 +5,8 @@
 //!
 //! `cargo run --release -p al-test-cli --example compile_dump -- ROOT OUT.txt [deps]`
 //!
-//! With `deps`, the Microsoft apps of the corpus's `.alpackages` are compiled too, the way a
+//! With `deps`, the Microsoft apps of the pinned build (from the artifact cache, filled by
+//! `al-test-cli --root . --all-versions --fetch-deps`) are compiled too, the way a
 //! run does (demand-driven, with the install baseline as a root). The output is then one line
 //! per object with a hash of its lowered form (the full program would be gigabytes), plus the
 //! hashes of the call graph, the refusals and the program's other parts.
@@ -45,7 +46,7 @@ fn main() {
     apps.push(runtime::load_app(&tests.join("al-language")).unwrap());
     let syms = al_version::corpus_symbols(27);
     if std::env::args().nth(3).is_some_and(|a| a == "deps") {
-        return dump_with_deps(&tests, apps, &syms, &out);
+        return dump_with_deps(&root, apps, &syms, &out);
     }
     let ws = al_sema::workspace::Workspace::load(apps, &syms);
     let members = al_sema::members::build(&ws);
@@ -117,16 +118,15 @@ fn hash_of<T: serde::Serialize + ?Sized>(v: &T) -> u64 {
 
 /// The pipeline of a run with dependencies, summarised by hashes.
 fn dump_with_deps(
-    tests: &std::path::Path,
+    root: &std::path::Path,
     mut apps: Vec<al_sema::workspace::AppSource>,
     syms: &std::collections::BTreeSet<String>,
     out: &str,
 ) {
     let mut kinds = vec![al_sema::AppKind::Workspace; apps.len()];
-    let deps = al_test_cli::deps::load(
-        &tests.join("al-language"),
-        &al_test_cli::deps::corpus_publish_dirs(&tests.join("al-language")).unwrap(),
-        &[],
+    let deps = al_test_cli::coverage::corpus_dependencies(
+        root,
+        &al_test_cli::deps::corpus_publish_dirs(&root.join("corpus/tests/al-language")).unwrap(),
     )
     .unwrap();
     kinds.extend(deps.apps.iter().map(|_| al_sema::AppKind::Dependency));
