@@ -38,7 +38,13 @@ impl Session {
         }
         pages.reverse();
         for st in pages {
-            match self.page_close(&st) {
+            let closed = self.page_close(&st);
+            // Not `TestPage.Close()`: what the page's code reaches through a part afterwards is not measured
+            // (`pages/held_page_part.rs`).
+            if !st.borrow().open {
+                st.borrow_mut().closed_by = Some(ClosedBy::Other);
+            }
+            match closed {
                 Ok(_) => {}
                 // An error of OnQueryClosePage (a Confirm with no ConfirmHandler, an AL Error with no MessageHandler) stops the
                 // close and the test passes; OnClosePage does not run (corpus CI of branch al-runtime-rs-staging-y65,

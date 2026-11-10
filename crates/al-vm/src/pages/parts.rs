@@ -31,15 +31,21 @@ enum Sync {
 }
 
 impl Session {
-    /// Sets `open = false` on `st` and on the pages it shows as parts.
+    /// Sets `open = false` on `st` and on the pages it shows as parts, shown or hidden (a part a Visible expression hid
+    /// opened with its host and closes with it, its close triggers included: pages/W1Parts.al:408-411); the shown ones move
+    /// to `closed_parts`, where the page's own code may still reach them (`held_page_part.rs`). Called again on a closed
+    /// page (`page_close` after `close_with`), it keeps them. The close counts as `ClosedBy::Other` unless the caller names
+    /// the cause (`mark_closed_as`).
     pub(super) fn mark_closed(&mut self, st: &St) {
         st.borrow_mut().open = false;
+        st.borrow_mut().closed_by = Some(ClosedBy::Other);
         self.prune_page_held();
         let parts = std::mem::take(&mut st.borrow_mut().parts);
-        for (_, child) in &parts {
+        let hidden = st.borrow().hidden_parts.clone();
+        for (_, child) in parts.iter().chain(&hidden) {
             self.mark_closed(child);
         }
-        st.borrow_mut().closed_parts = parts;
+        st.borrow_mut().closed_parts.extend(parts);
     }
 
     /// Creates the page of every part control, before the host's own triggers run: the host's
@@ -117,6 +123,21 @@ impl Session {
             } else {
                 hidden.push((i, child));
             }
+        }
+        // A new row on a host with a part a Visible expression hid, whose page declares OnAfterGetCurrRecord, and no part linked
+        // through a Provider: BC runs that trigger on the new row and again around the first action (pages/parts/
+        // HeldSenderPartAccess.al HS07, HS09: `f4.open;sub.curr;f4.curr(0)`, staging branch
+        // al-runtime-rs-staging-probe-train-1110b); the runtime does not. With a Provider link the hidden parts read as BC
+        // reads them (testpage/parts/ProviderLinkedPartsMatrix.al:1232 Provider_BothHidden_OpenNewSetKeyClose).
+        if st.borrow().mode == PageMode::New
+            && !self.has_provider_link(st)
+            && hidden
+                .iter()
+                .any(|(_, c)| self.declares_or_ext_declares(c, "onaftergetcurrrecord"))
+        {
+            return unsupported(
+                "a new row on a page with a part hidden by a Visible expression that declares OnAfterGetCurrRecord (BC runs it on the new row; not implemented)",
+            );
         }
         st.borrow_mut().parts = kept.clone();
         st.borrow_mut().hidden_parts = hidden.clone();
@@ -362,81 +383,14 @@ impl Session {
     pub(super) fn part_page(&mut self, st: &St, control: usize, runtime: bool) -> Result<St, Signal> {
         // A Page variable's procedure that reaches a part before the page ever ran (Check Credit Limit.PopulateDataOnNotification,
         // which Cust-Check Cr. Limit calls on a Page variable to fill a notification) gets the part page created and not opened, as
-        // a hidden part is (pages/parts/NeverRanReadRec.al, NeverRanUpdate.al, NeverRanGetRecord.al, NeverRanSetRecord.al); after the page ran and closed it stays refused.
+        // a hidden part is (pages/parts/NeverRanReadRec.al, NeverRanUpdate.al, NeverRanGetRecord.al, NeverRanSetRecord.al); after the page ran and closed, `closed_page_part` decides.
         let never_ran = runtime && !st.borrow().open && !st.borrow().ran;
         if never_ran {
         } else {
             match self.require_open(st) {
-                // The page's own code reaching a part after the page ran and closed is not a TestPage the test closed (Posted Purchase
-                // Document Lines.CopyLineToDoc reads `CurrPage.PostedRcpts.PAGE` after its RunModal returned): refused, as the other
-                // calls of such a page are (see test_page_op).
-                // After its RunModal returned, the page's code reaches a part that was shown: a procedure of the part reads the
-                // rows the part's record holds, after OK and after Cancel alike (pages/parts/WdPartAfterRunModal.al:75-100
-                // WD_Part_ReadAfterRunModalOK `count` 1 `value` A, WD_Part_ReadAfterRunModalCancel `count` 1 `value` B;
-                // corpus branch al-runtime-rs-staging-1030c, al-runner issue 6321). Pinned for a page that ran modally and
-                // a part that was created while it was open; anything else stays refused.
-                Err(Signal::Error(e))
-                    if runtime
-                        && e.code == "TestPageNotOpened"
-                        && st.borrow().ran
-                        && st.borrow().last_run_modal == Some(true) =>
-                {
-                    let kept = st
-                        .borrow()
-                        .closed_parts
-                        .iter()
-                        .find(|(i, _)| *i == control)
-                        .map(|(_, c)| c.clone());
-                    if let Some(c) = kept {
-                        return Ok(c);
-                    }
-                    // A part a Visible expression hid while the page was open (it opened with the page) hands out its row at
-                    // close too (pages/parts/Y37PartAfterClose.al:376-395 LT_C314_AfterRunModalOK_OtherPartShown:
-                    // part A, hidden when an option switched to part B, gives its row 10000).
-                    let hidden = st
-                        .borrow()
-                        .hidden_parts
-                        .iter()
-                        .find(|(i, _)| *i == control)
-                        .map(|(_, c)| c.clone())
-                        .filter(|_| !(self.part_eliminated(st, control) || self.off_page(st, control)));
-                    if let Some(c) = hidden {
-                        return Ok(c);
-                    }
-                    return unsupported(
-                        "a part of a page that is not open, reached by the code of that page (what it does then is not pinned)",
-                    );
-                }
-                // A page that closed itself with CurrPage.Close in a trigger or an action, opened by a TestPage, and whose code
-                // goes on to call a procedure of a part it showed: the part answers, its globals as its OnClosePage left them
-                // (pages/parts/Y37PartAfterClose.al:652 CLP_AGCR_CloseAllowed_PartAccess_Observe, :668
-                // CLP_Action_CloseAllowed_PartAccess_Observe: `PART.CLOSE;PARENT.CLOSE;AFTER.CLOSE;BEFORE.PART;PART.TOUCH:1042:1`,
-                // corpus PR 1205).
-                Err(Signal::Error(e))
-                    if runtime
-                        && e.code == "TestPageNotOpened"
-                        && st.borrow().ran
-                        && st.borrow().last_run_modal != Some(true) =>
-                {
-                    let kept = st
-                        .borrow()
-                        .closed_parts
-                        .iter()
-                        .find(|(i, _)| *i == control)
-                        .map(|(_, c)| c.clone());
-                    match kept {
-                        Some(c) => return Ok(c),
-                        None => {
-                            return unsupported(
-                                "a part of a page that is not open, reached by the code of that page (what it does then is not pinned)",
-                            );
-                        }
-                    }
-                }
+                // The page ran and is closed: what its code reaches through the part (`held_page_part.rs`).
                 Err(Signal::Error(e)) if runtime && e.code == "TestPageNotOpened" => {
-                    return unsupported(
-                        "a part of a page that is not open, reached by the code of that page (what it does then is not pinned)",
-                    );
+                    return self.closed_page_part(st, control);
                 }
                 r => r?,
             }
@@ -558,6 +512,15 @@ impl Session {
         self.sync_parts_with(st, Sync::Stayed)
     }
 
+    /// Whether a part of `st`'s page is linked through a Provider.
+    fn has_provider_link(&self, st: &St) -> bool {
+        let engine = self.engine();
+        page_of(&engine, st)
+            .controls
+            .iter()
+            .any(|c| c.part_link.as_ref().is_some_and(|l| l.provider.is_some()))
+    }
+
     fn sync_parts_with(&mut self, st: &St, how: Sync) -> Result<(), Signal> {
         let engine = self.engine();
         let page = page_of(&engine, st);
@@ -567,10 +530,7 @@ impl Session {
         // GoToRecord too (testpage/parts/ProviderLinkedPartsMatrix.al Provider_BothHidden_OpenViewAndGoToKey `h2` after GoToKey:
         // `lines-row(0) | detail-row()`). Without a Provider link in the page the older rule stays, which pinned no hidden part
         // for the other moves.
-        let provider_page = page
-            .controls
-            .iter()
-            .any(|c| c.part_link.as_ref().is_some_and(|l| l.provider.is_some()));
+        let provider_page = self.has_provider_link(st);
         if opening || matches!(how, Sync::Move { .. }) || provider_page {
             let hidden = st.borrow().hidden_parts.clone();
             parts.extend(

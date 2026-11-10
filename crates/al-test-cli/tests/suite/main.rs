@@ -65,6 +65,7 @@ mod flowfield_view_find;
 mod global_filter_group_page;
 mod gone_card_modal_close_action;
 mod gone_card_no_query_modal;
+mod held_page_part_after_close;
 mod http_handlers;
 mod http_windows_auth;
 mod inconsistent_at_test_end;
