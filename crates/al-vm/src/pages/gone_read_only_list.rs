@@ -165,7 +165,7 @@ impl Session {
             .properties
             .iter()
             .any(|(k, v)| k.eq_ignore_ascii_case("Editable") && v.trim().eq_ignore_ascii_case("false"));
-        let lookup = st.borrow().lookup_set && st.borrow().lookup;
+        let lookup = self.lookup_list(st);
         let denied = |p: &str| {
             engine.program.objects[object]
                 .properties

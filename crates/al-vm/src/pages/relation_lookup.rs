@@ -1,15 +1,31 @@
-//! Which arm of a conditional TableRelation a TestPage `Lookup()` opens.
+//! `TestField.Lookup()` over a TableRelation: which arm of a conditional relation applies, the lookup page it opens and the
+//! write-back of the picked row.
 
 use super::*;
 
 impl Session {
-    /// The closed state of the lookup page a relation opens, in lookup mode. The lookup list has no new-row line: Next from
-    /// its last row answers false (testpage/P133RelationLookups.al:271-284).
+    /// The closed state of the lookup page a relation opens, in lookup mode, of the kind `LookupKind::Relation`. What is pinned
+    /// for that kind: the lookup list has no new-row line, Next from its last row answers false
+    /// (testpage/P133RelationLookups.al:271-284; `lookup_list`).
     pub(super) fn relation_lookup_page(page_object: usize) -> St {
         let related = Rc::new(RefCell::new(PageState::closed(page_object as u32)));
-        related.borrow_mut().lookup = true;
-        related.borrow_mut().lookup_set = true;
+        related.borrow_mut().open_as_lookup(LookupKind::Relation);
         related
+    }
+
+    /// A relation lookup onto a list page with OnFindRecord: the `Which` its open is asked is not pinned. `=>` is pinned for
+    /// `LookupMode(true)` on a page variable (pages/list-order/QgGoToKeyNextCall.al:629) and for the static Page.RunModal
+    /// (pages/run-modal/StaticRunModalFindRecordLookup.al), `=><` for a page that is no lookup
+    /// (pages/extensions/PCCurrRecordReads.al FindList_OnFindRecordAndOnNextRecord); the one corpus file with a relation lookup
+    /// next to OnFindRecord (testpage/AnTestPageTests.al:444) logs no trigger. A page that does `Rec.Find(Which)` on a filtered
+    /// view finds another row with one than with the other, so the lookup is refused before the page opens.
+    fn refuse_relation_lookup_onto_find_list(&self, related: &St) -> Result<(), Signal> {
+        if self.is_list(related) && self.declares(related, "onfindrecord") {
+            return unsupported(
+                "Lookup over a TableRelation onto a list page with OnFindRecord (which rows its open asks for is not pinned)",
+            );
+        }
+        Ok(())
     }
 
     /// The arm of the relation of `field` (the source field of control `idx`) that applies to the page's row, for
@@ -175,6 +191,7 @@ impl Session {
         );
         let related = Self::relation_lookup_page(page_object);
         self.page_instance(&related)?;
+        self.refuse_relation_lookup_onto_find_list(&related)?;
         // A field that holds a value: the lookup page opens on the related row that holds it, a value that is no row opens on the
         // first row like a blank field (pages/run-modal/Y80LookupHoldsValue.al Y80_LK_Card_HoldsMiddle, _HoldsNoRow,
         // _HoldsBlank, _HoldsLowerCase, _AltHoldsMiddle; P82Lookups.al:247 Lookup_TableRelation_Ok for the first row). Pinned for a
