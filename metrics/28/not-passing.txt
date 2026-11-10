@@ -451,7 +451,6 @@
 71138 QueryMetadata_NonApi
 71138 ReportDataItems_Columns
 71139 PageAction_Rows
-71163 Option_FormatAndConcat
 71177 PartPage_ControlNamedPage
 71203 AssertEquals_Failing_Texts
 71203 Properties_DynamicVisible_And_ShowMandatory
@@ -584,7 +583,6 @@
 72505 NumberTextsRoundtrip
 72505 ObjectDuplicateAndOrder
 72505 TokenReadFromScalars
-72509 Format_Text_Code_Char
 72512 Error_ErrorInfo
 72516 PYC_ForDownto_BigIntegerBoundOnInteger
 72522 DateTimePlusDecimal_Overflow

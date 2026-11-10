@@ -316,7 +316,8 @@ fn date2dmy(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
         // Date2DWY_PartsOutOfRange `undefinedDmy`; corpus master types/date-time/DateFuncs.al:507-530,
         // Date2DMY_UndefinedDate_DayMonthYear_RaiseDateInvalid) and the same for 0 and 4 (types/date-time/DateFuncs.al
         // Date2DMY_Invalid `0D what 0`, `0D what 4`).
-        Value::Date(0, _) if matches!(int_of(a.get(1)), Some(0..=4)) => {
+        // Part 5 too (format-evaluate/format-matrix/FMDateTime.al:4000, :4013, corpus PR 1250).
+        Value::Date(0, _) if matches!(int_of(a.get(1)), Some(0..=5)) => {
             return raise("The date is not valid.", "DateInvalid");
         }
         Value::Date(0, _) => {
