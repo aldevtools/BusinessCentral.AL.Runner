@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<testsuites name="hybrid" tests="25562" failures="0" errors="0" skipped="0" time="2959.518" timestamp="2026-11-09T23:48:11Z"><testsuite name="Codeunit 68422" tests="2" failures="0" errors="0" skipped="0" time="1.902" timestamp="2026-11-09T23:09:02Z">
+<testsuites name="hybrid" tests="25569" failures="0" errors="0" skipped="0" time="2960.245" timestamp="2026-11-09T23:48:11Z"><testsuite name="Codeunit 68422" tests="2" failures="0" errors="0" skipped="0" time="1.902" timestamp="2026-11-09T23:09:02Z">
     <testcase classname="Codeunit 68422" name="Label_IsATestPageMember_WithItsCaption" time="1.831" />
     <testcase classname="Codeunit 68422" name="ActionWithoutAnOnActionTrigger_IsNotOnTheTestPage" time="0.071" />
   </testsuite>
@@ -24155,8 +24155,8 @@
     <testcase classname="Codeunit 92981" name="SetView_DoubleEquals_TwoFields" time="0.013" />
     <testcase classname="Codeunit 92981" name="SetView_DoubleEquals_RoundTrip" time="0.046" />
   </testsuite>
-  <testsuite name="Codeunit 93011" tests="1" failures="0" errors="0" skipped="0" time="0.240" timestamp="2026-11-09T22:53:31Z">
-    <testcase classname="Codeunit 93011" name="RequestOptionsPage_InRequestPageCode_Compiles" time="0.240" />
+  <testsuite name="Codeunit 93011" tests="1" failures="0" errors="0" skipped="0" time="0.357" timestamp="2026-11-09T23:30:34Z">
+    <testcase classname="Codeunit 93011" name="RequestOptionsPage_InRequestPageCode_Compiles" time="0.357" />
   </testsuite>
 <testsuite name="Codeunit 93241" tests="7" failures="0" errors="0" skipped="0" time="0.407" timestamp="2026-11-09T23:33:38Z">
     <testcase classname="Codeunit 93241" name="G612_Composite_ViewIsDestination_SetRecordOk" time="0.093" />
@@ -32416,5 +32416,14 @@
     <testcase classname="Codeunit 68356" name="FixedAndGrid_Fields_ReadAndTakeSetValueLikeListFields" time="0.230" />
     <testcase classname="Codeunit 68356" name="FixedWithRepeater_MovesBetweenRowsLikeAList" time="0.080" />
     <testcase classname="Codeunit 68356" name="PartPage_WithACueGroup_ReadsAndRunsItsAction" time="0.087" />
+  </testsuite>
+<testsuite name="Codeunit 67423" tests="7" failures="0" errors="0" skipped="0" time="0.610" timestamp="2026-11-09T23:30:28Z">
+    <testcase classname="Codeunit 67423" name="CodeunitRun_FailedRun_RecordByForm" time="0.208" />
+    <testcase classname="Codeunit 67423" name="CodeunitRun_FailedRun_FieldChanges" time="0.065" />
+    <testcase classname="Codeunit 67423" name="CodeunitRun_FailedRun_KeyChanges" time="0.119" />
+    <testcase classname="Codeunit 67423" name="CodeunitRun_FailedRun_FilterChanges" time="0.111" />
+    <testcase classname="Codeunit 67423" name="CodeunitRun_FailedRun_KindOfFailure" time="0.049" />
+    <testcase classname="Codeunit 67423" name="CodeunitRun_FailedRun_CodeunitVariableState" time="0.019" />
+    <testcase classname="Codeunit 67423" name="CodeunitRun_FailedRun_TemporaryRecord" time="0.039" />
   </testsuite>
 </testsuites>

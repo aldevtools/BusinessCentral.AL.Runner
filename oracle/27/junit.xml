@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<testsuites name="DEFAULT" tests="25245" failures="0" errors="0" skipped="0" time="2751.550" timestamp="2026-11-09T23:46:25Z"><testsuite name="Codeunit 68392" tests="1" failures="0" errors="0" skipped="0" time="103.444" timestamp="2026-11-09T23:20:08Z">
+<testsuites name="DEFAULT" tests="25252" failures="0" errors="0" skipped="0" time="2752.391" timestamp="2026-11-09T23:46:25Z"><testsuite name="Codeunit 68392" tests="1" failures="0" errors="0" skipped="0" time="103.444" timestamp="2026-11-09T23:20:08Z">
     <testcase classname="Codeunit 68392" name="Rename_TakesTheData_AndDeleteDropsIt" time="103.444" />
   </testsuite>
   <testsuite name="Codeunit 68393" tests="3" failures="0" errors="0" skipped="0" time="0.026" timestamp="2026-11-09T23:22:06Z">
@@ -15696,8 +15696,8 @@
     <testcase classname="Codeunit 92983" name="RecRefCopy_RecordIntoTemporary_ShareTableTrue" time="0.033" />
     <testcase classname="Codeunit 92983" name="RecRefCopy_RecordRefIntoTemporary_InsertFalse" time="0.027" />
   </testsuite>
-  <testsuite name="Codeunit 93011" tests="1" failures="0" errors="0" skipped="0" time="0.004" timestamp="2026-11-09T22:46:36Z">
-    <testcase classname="Codeunit 93011" name="RequestOptionsPage_InRequestPageCode_Compiles" time="0.004" />
+  <testsuite name="Codeunit 93011" tests="1" failures="0" errors="0" skipped="0" time="0.003" timestamp="2026-11-09T23:29:08Z">
+    <testcase classname="Codeunit 93011" name="RequestOptionsPage_InRequestPageCode_Compiles" time="0.003" />
   </testsuite>
 <testsuite name="Codeunit 93104" tests="7" failures="0" errors="0" skipped="0" time="0.113" timestamp="2026-11-09T23:34:45Z">
     <testcase classname="Codeunit 93104" name="ByteChar_Codes_128_159" time="0.024" />
@@ -32024,4 +32024,13 @@
     <testcase classname="Codeunit 86889" name="RP_SharedState_TestCodeChangesState" time="0.050" />
     <testcase classname="Codeunit 86889" name="RP_SharedState_MainAction" time="0.054" />
   </testsuite>
-</testsuites>
+<testsuite name="Codeunit 67423" tests="7" failures="0" errors="0" skipped="0" time="0.842" timestamp="2026-11-09T23:29:07Z">
+    <testcase classname="Codeunit 67423" name="CodeunitRun_FailedRun_RecordByForm" time="0.520" />
+    <testcase classname="Codeunit 67423" name="CodeunitRun_FailedRun_FieldChanges" time="0.053" />
+    <testcase classname="Codeunit 67423" name="CodeunitRun_FailedRun_KeyChanges" time="0.103" />
+    <testcase classname="Codeunit 67423" name="CodeunitRun_FailedRun_FilterChanges" time="0.060" />
+    <testcase classname="Codeunit 67423" name="CodeunitRun_FailedRun_KindOfFailure" time="0.050" />
+    <testcase classname="Codeunit 67423" name="CodeunitRun_FailedRun_CodeunitVariableState" time="0.020" />
+    <testcase classname="Codeunit 67423" name="CodeunitRun_FailedRun_TemporaryRecord" time="0.036" />
+  </testsuite>
+  </testsuites>

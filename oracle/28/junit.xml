@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<testsuites name="hybrid" tests="25419" failures="0" errors="0" skipped="0" time="10718.710" timestamp="2026-11-09T23:36:02Z"><testsuite name="Codeunit 69519" tests="2" failures="0" errors="0" skipped="0" time="1.369" timestamp="2026-11-09T23:06:02Z">
+<testsuites name="hybrid" tests="25426" failures="0" errors="0" skipped="0" time="10722.575" timestamp="2026-11-09T23:36:02Z"><testsuite name="Codeunit 69519" tests="2" failures="0" errors="0" skipped="0" time="1.369" timestamp="2026-11-09T23:06:02Z">
     <testcase classname="Codeunit 69519" name="EventSubscription_TableTriggerEvents_AllRows" time="0.702" />
     <testcase classname="Codeunit 69519" name="FieldTable_RelationTableNo_OfConditionalRelations" time="0.667" />
   </testsuite>
@@ -22768,8 +22768,8 @@
     <testcase classname="Codeunit 92981" name="SetView_DoubleEquals_TwoFields" time="0.020" />
     <testcase classname="Codeunit 92981" name="SetView_DoubleEquals_RoundTrip" time="0.053" />
   </testsuite>
-  <testsuite name="Codeunit 93011" tests="1" failures="0" errors="0" skipped="0" time="0.186" timestamp="2026-11-09T22:53:55Z">
-    <testcase classname="Codeunit 93011" name="RequestOptionsPage_InRequestPageCode_Compiles" time="0.186" />
+  <testsuite name="Codeunit 93011" tests="1" failures="0" errors="0" skipped="0" time="0.110" timestamp="2026-11-09T23:26:04Z">
+    <testcase classname="Codeunit 93011" name="RequestOptionsPage_InRequestPageCode_Compiles" time="0.110" />
   </testsuite>
 <testsuite name="Codeunit 93241" tests="7" failures="0" errors="0" skipped="0" time="0.721" timestamp="2026-11-09T23:31:47Z">
     <testcase classname="Codeunit 93241" name="G612_Composite_ViewIsDestination_SetRecordOk" time="0.207" />
@@ -32225,5 +32225,14 @@
     <testcase classname="Codeunit 69387" name="PageRunByName" time="0.110" />
     <testcase classname="Codeunit 69387" name="PageRunModalOk" time="0.070" />
     <testcase classname="Codeunit 69387" name="PageRunModalCancel" time="0.030" />
+  </testsuite>
+<testsuite name="Codeunit 67423" tests="7" failures="0" errors="0" skipped="0" time="3.941" timestamp="2026-11-09T23:25:59Z">
+    <testcase classname="Codeunit 67423" name="CodeunitRun_FailedRun_RecordByForm" time="0.989" />
+    <testcase classname="Codeunit 67423" name="CodeunitRun_FailedRun_FieldChanges" time="0.864" />
+    <testcase classname="Codeunit 67423" name="CodeunitRun_FailedRun_KeyChanges" time="0.161" />
+    <testcase classname="Codeunit 67423" name="CodeunitRun_FailedRun_FilterChanges" time="0.721" />
+    <testcase classname="Codeunit 67423" name="CodeunitRun_FailedRun_KindOfFailure" time="0.319" />
+    <testcase classname="Codeunit 67423" name="CodeunitRun_FailedRun_CodeunitVariableState" time="0.399" />
+    <testcase classname="Codeunit 67423" name="CodeunitRun_FailedRun_TemporaryRecord" time="0.488" />
   </testsuite>
 </testsuites>
