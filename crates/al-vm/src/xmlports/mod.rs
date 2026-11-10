@@ -39,6 +39,7 @@ mod text;
 mod text_columns;
 mod text_nested;
 mod value;
+mod value_forms;
 mod wraps;
 
 use self::container_tree::*;

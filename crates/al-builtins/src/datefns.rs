@@ -942,6 +942,16 @@ pub fn is_garbage_formula(text: &str) -> bool {
         .any(|b| b.is_ascii_alphabetic() && !matches!(b.to_ascii_uppercase(), b'C' | b'D' | b'W' | b'M' | b'Q' | b'Y'))
 }
 
+/// The "should include a time unit" error of a formula text with a letter no formula uses (`<1T>`: `1T`), which `evaluate_formula`
+/// rejects without a message. xmlports/PWXmlPortFormatEvaluateMoreTypes.al:Import_Xml_DateFormula `df_localized_german` pins
+/// this text for an XmlPort import; the statement form of Evaluate is not pinned for such a text.
+pub fn time_unit_error(text: &str) -> Option<String> {
+    match parse_formula(text) {
+        Err(Signal::Error(e)) if e.message.contains("should include a time unit") => Some(e.message),
+        _ => None,
+    }
+}
+
 /// What `Evaluate` makes of a text for a DateFormula.
 pub enum Evaluated {
     /// The formula to store, in the normal form `<TERMS>` (empty for the empty formula).

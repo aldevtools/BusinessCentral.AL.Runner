@@ -2619,3 +2619,16 @@ fn al0132_blank_member_names_after_the_scope_operator() {
         .is_empty()
     );
 }
+
+// Must-not-compile case 3112 (al-runner issue 7522): a table field of type Char or Byte is AL0156, in field order.
+#[test]
+fn a_table_field_of_type_char_or_byte_is_al0156() {
+    let t = |ty: &str| {
+        format!(
+            r#"table 50000 "MNC Ch" {{ fields {{ field(1; Id; Integer) {{ }} field(2; F; {ty}) {{ }} }} keys {{ key(PK; Id) {{ }} }} }}"#
+        )
+    };
+    assert_eq!(codes(&[&t("Char")]), vec!["AL0156".to_string()]);
+    assert_eq!(codes(&[&t("byte")]), vec!["AL0156".to_string()]);
+    assert!(codes(&[&t("BigInteger")]).is_empty());
+}
