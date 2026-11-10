@@ -525,17 +525,16 @@ fn get_resource_as_json(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value])
     let name = name_arg(a)?;
     let bytes = resource(c, &name)?;
     let text = encoding_arg(a, 1, &name, &bytes)?.decode(&bytes);
-    match crate::json::object_from_text(&text)? {
-        Some(v) => Ok(v),
-        // A text that is no JSON at all fails as ReadFrom does (session-system/W5NavAppResources.al:67-80
-        // GetResourceAsJson_NotJson: `Hello from packaged resource`, code InvalidJsonData).
-        None if crate::json::parse(&text)?.is_none() => Err(Signal::Error(Box::new(AlError {
-            message: "The data does not represent a valid JSON token.".into(),
-            code: "InvalidJsonData".into(),
-            call_stack: String::new(),
-            ..Default::default()
-        }))),
-        None => unsupported(format!(
+    match crate::json::read_object(&text)? {
+        crate::json::ObjectRead::Object(v) => Ok(v),
+        // An ASCII text that is no JSON at all fails as ReadFrom does (session-system/W5NavAppResources.al:67-80
+        // GetResourceAsJson_NotJson: `Hello from packaged resource`, code InvalidJsonData). Other bytes (a byte order
+        // mark, a non-ASCII character) are not pinned.
+        crate::json::ObjectRead::NotJson if bytes.is_ascii() => Err(crate::json::invalid_json()),
+        crate::json::ObjectRead::NotJson => unsupported(format!(
+            "resource `{name}` holds bytes that are not ASCII and do not read as JSON (not pinned)"
+        )),
+        crate::json::ObjectRead::OtherKind => unsupported(format!(
             "resource `{name}` is JSON but not a JSON object (error text not pinned)"
         )),
     }

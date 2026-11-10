@@ -600,7 +600,7 @@ impl Parser<'_> {
 }
 
 /// `Ok(None)`: not valid JSON.
-pub(crate) fn parse(text: &str) -> Result<Option<Handle>, Signal> {
+fn parse(text: &str) -> Result<Option<Handle>, Signal> {
     let mut p = Parser {
         s: text.as_bytes(),
         i: 0,
@@ -625,12 +625,35 @@ pub(crate) fn parse(text: &str) -> Result<Option<Handle>, Signal> {
 
 /// A JsonObject value holding `text`, or `None` when the text is not a JSON object.
 pub fn object_from_text(text: &str) -> Result<Option<Value>, Signal> {
-    let Some(h) = parse(text)? else { return Ok(None) };
-    if with_node(&h, |n| matches!(n, JsonNode::Object(_))) {
-        Ok(Some(Value::Library("JsonObject".into(), h)))
-    } else {
-        Ok(None)
+    match read_object(text)? {
+        ObjectRead::Object(v) => Ok(Some(v)),
+        ObjectRead::OtherKind | ObjectRead::NotJson => Ok(None),
     }
+}
+
+/// What a text read as a JSON object holds.
+pub(crate) enum ObjectRead {
+    /// A JSON object, as a `JsonObject` value.
+    Object(Value),
+    /// Valid JSON of another kind (an array or a value).
+    OtherKind,
+    /// No JSON at all.
+    NotJson,
+}
+
+pub(crate) fn read_object(text: &str) -> Result<ObjectRead, Signal> {
+    let Some(h) = parse(text)? else { return Ok(ObjectRead::NotJson) };
+    if with_node(&h, |n| matches!(n, JsonNode::Object(_))) {
+        Ok(ObjectRead::Object(Value::Library("JsonObject".into(), h)))
+    } else {
+        Ok(ObjectRead::OtherKind)
+    }
+}
+
+/// The error the statement form of `ReadFrom` raises for a text that is no JSON at all
+/// (json/TestJsonRuntimeContracts.al:JsonObject_ReadFrom_InvalidJson_ReturnsFalse_AndStatementFormThrows).
+pub(crate) fn invalid_json() -> Signal {
+    error("The data does not represent a valid JSON token.", "InvalidJsonData")
 }
 
 // ---------------------------------------------------------------- writing
@@ -1843,11 +1866,7 @@ fn read_text_into(ret_used: bool, r: Option<&mut Value>, text: &str, want: Optio
         return if ret_used {
             Ok(Value::Boolean(false))
         } else if syntax.is_none() {
-            // json/TestJsonRuntimeContracts.al:JsonObject_ReadFrom_InvalidJson_ReturnsFalse_AndStatementFormThrows
-            Err(error(
-                "The data does not represent a valid JSON token.",
-                "InvalidJsonData",
-            ))
+            Err(invalid_json())
         } else {
             // json/TestProbeJsonContracts.al:ReadFrom_ArrayIntoObject_Statement, ReadFrom_ObjectIntoArray_Statement.
             // A scalar names its own type (json/PnAJsonReadKinds.al:StatementForm_WrongKind: Integer, String,

@@ -2638,19 +2638,12 @@ impl Session {
             Some(Value::Text(s) | Value::Code(s)) => s.to_string(),
             other => return unsupported(format!("{id} with the file name {}", other.describe())),
         };
-        // With a record argument only the Html save an RDLC layout refuses is pinned: the same error, and no file
-        // (al-language-onprem/reports/layouts-saveas/AMRdlcSaveAs.al:454-469 `static html filtered`).
-        let record = args.get(at + 1).is_some();
-        let refused = || unsupported(format!("{id} with a record argument (what it filters is not pinned)"));
-        if record && format != "Html" {
-            return refused();
+        // With a record argument only the Html save an RDLC layout refuses is pinned (`html_record_save_is_pinned`).
+        if args.get(at + 1).is_some() && !(by_number && format == "Html" && self.html_record_save_is_pinned(id, args)?) {
+            return unsupported(format!("{id} with a record argument (what it filters is not pinned)"));
         }
         let target = SaveTarget::File(name);
-        let answer = self.report_save_core(id, receiver, args, at, String::new().into(), format, target, None)?;
-        if record && !(matches!(answer, Value::Boolean(false)) && self.last_error.code == "ReportUnsupportedFormat") {
-            return refused();
-        }
-        Ok(answer)
+        self.report_save_core(id, receiver, args, at, String::new().into(), format, target, None)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -4680,6 +4673,7 @@ mod execute_args;
 pub(crate) mod format_region;
 #[cfg(test)]
 mod header_tests;
+mod html_record;
 mod request_caption;
 mod running;
 mod word_xml_part;
