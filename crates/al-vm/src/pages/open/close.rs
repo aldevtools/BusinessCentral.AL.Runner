@@ -55,7 +55,7 @@ impl Session {
         // shown as an unhandled message (testpage/CcPageLeads.al:611-621 TriggerError_OnQueryClosePage).
         let r = match r {
             Err(Signal::Error(e)) if st.borrow().close_error => {
-                self.mark_closed(st);
+                self.mark_closed_by_test(st);
                 Err(Signal::Error(e))
             }
             // An error of OnClosePage comes wrapped, with the code TestWrapped, and the page is closed (CcPageLeads.al:624-633
@@ -63,7 +63,7 @@ impl Session {
             // Error (code Dialog) and for a control add-in call (testpage/ACControlAddIn.al TZ_CallInOnClosePage_TestPageClose,
             // BC28PLUS); another error's text and code cannot be read.
             Err(Signal::Error(e)) if origin.as_deref() == Some("onclosepage") => {
-                self.mark_closed(st);
+                self.mark_closed_by_test(st);
                 if e.code != "Dialog" && e.code != crate::control_add_in::NOT_CREATED {
                     return Err(Signal::Error(Box::new(al_builtins::native::unpinned_error())));
                 }
@@ -102,7 +102,7 @@ impl Session {
                     al_builtins::native::unpinned_error()
                 };
             }
-            self.mark_closed(st);
+            self.mark_closed_by_test(st);
         }
         r
     }

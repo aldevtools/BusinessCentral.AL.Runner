@@ -802,6 +802,12 @@ pub struct PageState {
     pub new_row_inserted_by_trigger: bool,
     /// TestPage.OpenNew is reading the page's first row (cleared once it is read).
     pub test_opened_new: bool,
+    /// The last open was the test's own `TestPage.OpenEdit`, `OpenView` or `OpenNew` (not a run by AL code).
+    pub opened_by_test: bool,
+    /// The last close was the test client's (`TestPage.Close` or the close at the end of the test), not the page's own
+    /// code (`CurrPage.Close`): the number of the test method it closed in. Reset when the page opens. Decides what the
+    /// page's code reaches through a part after the close (al-vm `pages/held_page_part.rs`).
+    pub closed_by_test: Option<u32>,
     /// On a new row whose key fields were still blank, a field outside the key was typed.
     pub typed_before_key: bool,
     /// The page reached a state whose behavior is not pinned: every later call on it or its parts except Close is refused
@@ -885,8 +891,8 @@ pub struct PageState {
     /// The pages shown by the part controls of this page: (control index, child page). Only parts
     /// that are in the control tree at open have one.
     pub parts: Vec<(usize, Rc<RefCell<PageState>>)>,
-    /// The parts of the last run, kept when the page closed after a RunModal: the page's own code reaches them after its
-    /// RunModal returned (`parts.rs`, `part_page`).
+    /// The shown parts of the last run, kept when the page closed: the page's own code reaches them after the close
+    /// (al-vm `pages/held_page_part.rs`). Hidden parts stay in `hidden_parts`.
     pub closed_parts: Vec<(usize, Rc<RefCell<PageState>>)>,
     /// Parts dropped at open because their `Visible` came out false: the page's own code still reaches them
     /// (`CurrPage.<Part>.Page`), the test client does not.
@@ -1172,6 +1178,8 @@ impl PageState {
             insert_vetoed_by_ext: None,
             new_row_inserted_by_trigger: false,
             test_opened_new: false,
+            opened_by_test: false,
+            closed_by_test: None,
             typed_before_key: false,
             unpinned_state: None,
             unpinned_close: false,

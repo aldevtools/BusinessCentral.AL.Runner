@@ -51,6 +51,13 @@ fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
 /// (set in pages/runobject.rs, its methods in [`Session::run_page_link_open_op`]).
 pub(crate) const RUN_PAGE_LINK_OPEN: &str = "in the OnOpenPage of a page an action opens through RunPageLink: real BC fills the linked fields of Rec and GetFilters() reads '' there, the runtime holds the link as a filter (corpus issue 712)";
 
+/// The `RecordState::unpinned_buffer` reason of Rec of a part page reached through a page the test client closed in an earlier
+/// test (set in pages/held_page_part.rs): BC still hands out the part's row, but its `Count()` there is 0 while the row is
+/// in the table (pages/parts/HeldSenderPartAccess.al HS02, staging branch al-runtime-rs-staging-probe-train-1110b), so every
+/// method of the record refuses; its fields read.
+pub(crate) const HELD_PART_LATER_TEST: &str =
+    "on Rec of a part of a page the test client closed in an earlier test: real BC answers Count() 0 there with the row in the table (not understood)";
+
 /// The `RecordState::unpinned_buffer` reason of a table element record after an export under `SourceTableView` (set in
 /// xmlports.rs `xp_export_table`). The export order is pinned (xmlports/shapes-properties/RaXmlPortExport.al:416, :448, :474,
 /// metadata/platform-tables/AgXmlPortImport.al:312); the key, order, filters and position the record has afterwards are not,
@@ -2146,8 +2153,8 @@ impl Session {
         if why == RUN_PAGE_LINK_COPY || why == RUN_PAGE_LINK_OPEN_COPY {
             return self.run_page_link_copy_op(method, rec, args, why);
         }
-        if why == RUN_PAGE_LINK_VARIANT {
-            return unsupported(format!("Record.{}(): {RUN_PAGE_LINK_VARIANT}", method.name()));
+        if why == RUN_PAGE_LINK_VARIANT || why == HELD_PART_LATER_TEST {
+            return unsupported(format!("Record.{}(): {why}", method.name()));
         }
         if why == MEDIA_KEY || why == FLOWFIELD_KEY {
             return self.media_key_op(method, rec, args, why);

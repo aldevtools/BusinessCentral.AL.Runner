@@ -254,6 +254,9 @@ pub(crate) struct PageClients {
     pub(crate) run_page_link_opening: u32,
     /// The close that starts next is a TestPage's own Close() (taken by `close_with`).
     pub(crate) test_close: bool,
+    /// How many test methods this session started (`Session::start_test_method`): tells a page the test client closed in an
+    /// earlier test (`PageState::closed_by_test`, `pages/held_page_part.rs`).
+    pub(crate) test_methods: u32,
     /// The save of the close running now failed with an AL Error (`pages/close_save_failed.rs`).
     pub(crate) close_save_error: bool,
     /// The TestPage calls running now, innermost last: the root page of the call's page tree and what the pages' own code

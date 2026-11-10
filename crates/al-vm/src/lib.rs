@@ -1405,6 +1405,7 @@ impl Session {
                 run_page_link_open_moved: false,
                 run_page_link_opening: 0,
                 test_close: false,
+                test_methods: 0,
                 close_save_error: false,
             },
             events: EventState {
@@ -1461,6 +1462,7 @@ impl Session {
         self.runner_permission_sets = runner;
         self.shadow_roles = shadow_roles;
         self.shadow_begin();
+        self.pages.test_methods += 1;
         self.application_areas.clear();
         self.isolated_set_in_test.clear();
         self.demo_written.clear();

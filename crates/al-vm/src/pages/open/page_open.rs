@@ -304,6 +304,8 @@ impl Session {
             s.draft = false;
             s.new_row_inserted_by_trigger = false;
             s.test_opened_new = test_open && mode == PageMode::New;
+            s.opened_by_test = test_open;
+            s.closed_by_test = None;
             s.never_stored = false;
             s.dirty = false;
             s.frozen_visible = Vec::new();
