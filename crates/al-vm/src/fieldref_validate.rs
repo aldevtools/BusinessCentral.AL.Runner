@@ -38,7 +38,7 @@ impl Session {
         let pos = match args.first() {
             Some(Value::Integer(p)) => *p as usize,
             other => {
-                return Err(Signal::Unsupported(format!(
+                return Err(Signal::unsupported(format!(
                     "Record.Validate field argument {}",
                     other.map_or("none".into(), |v| v.describe())
                 )));

@@ -16,7 +16,12 @@ fn reasons(src: &str) -> Vec<String> {
     }];
     let (ws, l) = al_sema::lower::compile(apps, &Default::default());
     assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
-    l.unsupported.iter().flatten().flatten().cloned().collect()
+    l.unsupported
+        .iter()
+        .flatten()
+        .flatten()
+        .map(|r| r.to_string())
+        .collect()
 }
 
 const PAGE: &str = r#"

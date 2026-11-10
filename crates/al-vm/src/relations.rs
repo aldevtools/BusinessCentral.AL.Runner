@@ -8,7 +8,7 @@
 
 use crate::Session;
 use al_builtins::filter::{FieldFilter, FilterExpr};
-use al_builtins::native::{AlError, Signal};
+use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::value::{RecordState, Value};
 use al_data::{Store, TableDef};
@@ -23,10 +23,6 @@ type Rec = Rc<RefCell<RecordState>>;
 const USER_TABLE: i32 = 2_000_000_120;
 const SYSTEM_CREATED_BY: u32 = 2_000_000_002;
 const SYSTEM_MODIFIED_BY: u32 = 2_000_000_004;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 impl Session {
     fn is_flow_field(&self, table: u32, pos: usize) -> bool {
@@ -169,7 +165,7 @@ impl Session {
         let language = al_builtins::format::FormatCtx::language(self);
         let enums = |id: u32| crate::views::enum_filter_members(&engine.program.objects[id as usize], language);
         let expr = al_builtins::filter::parse_filter_with(text, &[], &t.fields[c.field].ty, &enums).map_err(|e| {
-            Signal::Unsupported(format!(
+            Signal::unsupported(format!(
                 "the filter condition `{text}` of the TableRelation of {}.{field_name}: {e}",
                 t.name
             ))
@@ -282,7 +278,7 @@ impl Session {
                     field: *p,
                     expr: self
                         .parse_filter_text(text, &related.fields[*p].ty)
-                        .map_err(|e| Signal::Unsupported(format!("where() of a relation: {e}")))?,
+                        .map_err(|e| Signal::unsupported(format!("where() of a relation: {e}")))?,
                     group: 0,
                 },
                 ir::RelationWhere::Field { related: p, own } => FieldFilter {
@@ -315,7 +311,7 @@ impl Session {
         let found = if flow_field_filters.is_empty() {
             self.store
                 .count(&cx, &related, &filters)
-                .map_err(|e| Signal::Unsupported(format!("{e}")))?
+                .map_err(|e| Signal::unsupported(format!("{e}")))?
         } else {
             self.count_passing_flow_fields(&cx, &related, &filters, &flow_field_filters)?
         };
@@ -406,14 +402,15 @@ fn const_cond_holds(value: &Value, c: &ir::Const, relation: impl Fn() -> String)
 
 /// The refusal of a TableRelation condition of `relation` (table.field) whose comparison failed with `e`.
 fn cond_refusal<T>(e: Signal, relation: &str) -> Result<T, Signal> {
-    let why = match e {
+    // A refusal keeps its key behind the prefix (ADR-071).
+    let why: al_builtins::refusal::Refusal = match e {
         Signal::Unsupported(why) => why,
-        Signal::Error(e) => e.message,
-        _ => "the comparison did not give an order".to_string(),
+        Signal::Error(e) => e.message.into(),
+        _ => "the comparison did not give an order".into(),
     };
-    unsupported(format!(
-        "a condition of the TableRelation of {relation} cannot be evaluated: {why}"
-    ))
+    unsupported(
+        why.map_reason(|why| format!("a condition of the TableRelation of {relation} cannot be evaluated: {why}")),
+    )
 }
 
 /// Whether every condition of a relation's `where()` is on a primary key field of the related table and, with the related field

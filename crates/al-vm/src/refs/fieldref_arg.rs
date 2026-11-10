@@ -32,7 +32,7 @@ impl Session {
                 (Value::Boolean(b), Some(RtType::Integer)) => *arg = Value::Integer(i32::from(*b)),
                 // A Date into a Text or Code field is its Format text (`date_to_text`, 01/15/24).
                 (Value::Date(..), Some(RtType::Text(_) | RtType::Code(_))) => {
-                    let text = al_builtins::format::try_format(arg, 0, 0, &*self).map_err(Signal::Unsupported)?;
+                    let text = al_builtins::format::try_format(arg, 0, 0, &*self).map_err(Signal::unsupported)?;
                     *arg = Value::Text(text.into());
                 }
                 _ => {}

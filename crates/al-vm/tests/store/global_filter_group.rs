@@ -61,7 +61,7 @@ codeunit 70951 C
 
 fn unsupported(r: Result<al_builtins::value::Value, Signal>) -> String {
     match r {
-        Err(Signal::Unsupported(why)) => why,
+        Err(Signal::Unsupported(why)) => why.into_reason(),
         other => panic!("expected a refusal, got {other:?}"),
     }
 }

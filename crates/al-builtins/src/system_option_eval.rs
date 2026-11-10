@@ -15,7 +15,7 @@
 //!   code InvalidOptionString (:208-260, SoEvaluateSystemOptionsHidden.al:68);
 //! - format numbers 0, 2 and 9 read alike (:264-289).
 
-use crate::native::{Ctx, Signal};
+use crate::native::{Ctx, Signal, unsupported};
 use crate::value::Value;
 
 /// A member as Evaluate reads it: name, platform ordinal, whether AL can name it (`ObjectType::Form` is not in the member list
@@ -184,10 +184,6 @@ fn position_of(members: &[String], table: &[Member], ordinal: i32) -> Option<i32
         .iter()
         .position(|m| m.eq_ignore_ascii_case(name))
         .and_then(|p| i32::try_from(p).ok())
-}
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
 }
 
 /// `Evaluate(V, text)` into a platform option of these members: the new value, or `None` when the text is rejected (the

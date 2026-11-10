@@ -17,17 +17,13 @@
 use super::registry::{MemberKind, Pin, RegistryMember, RegistryType};
 use crate::Session;
 use al_builtins::dotnet_sigs::{DIRECTORY_INFO, STAGED_FILE_ARRAY, STAGED_FILE_ENUMERATOR, STAGED_FILE_INFO};
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::{DotNetKind, DotNetObject, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 
 const PIN: &str = "tests/al-language-onprem-dotnet/dotnet/dotnet/QxDotNetDemoShapes.al:97 (Exists); \
     the listing: windows-check-results 2026-10-22 QX 14, a staged folder only (no test sees it)";
-
-fn unsupported<T>(why: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(why.into()))
-}
 
 fn object(type_name: &str, state: Vec<Value>) -> Value {
     Value::DotNet(Rc::new(DotNetObject::new(DotNetKind::Internal {

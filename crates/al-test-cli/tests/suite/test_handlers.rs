@@ -474,7 +474,7 @@ fn run_named_apps(apps: &[(&str, String)], codeunit: &str) -> Vec<(String, Outco
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = al_vm::Engine::new(l.program.clone(), blocked);
     al_test_cli::runtime::run_codeunit(&engine, &l, oi)

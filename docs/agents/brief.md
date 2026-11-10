@@ -58,6 +58,16 @@ Your task prompt holds only the task. Read both files from YOUR worktree: the ma
 16. **Commit messages** say what changed and why, in plain American English. End them with the
     session attribution line the orchestrator gives in your prompt.
 
+## Refusals (ADR-071)
+A refusal from free text: `unsupported(text)` or `Signal::unsupported(text)`.
+`Signal::Unsupported(format!(..))` does not compile. Do not add a private `fn unsupported`.
+A new refusal may take a key: one file in `src/refusals/` of the crate that refuses (owner decision: one list per
+crate; the file name is the key), then `unsupported(refuse!(keys::NAME, "text {name}", name = value))`, and
+`al-test-cli --root . --refusals-doc`. Only `al-builtins` has a list today: a crate that starts one copies the
+`refusal_keys` part of `al-builtins/build.rs`, calls `al_builtins::refusal_keys!`, and adds its row to `LISTS` in
+`al-test-cli/src/refusal_keys.rs` (a test fails without it). A key that two crates use sits in the lowest crate both
+depend on.
+
 ## Before you hand back, in this order
 1. `git fetch && git merge origin/main`.
 2. `./target/release/al-test-cli --root . --baseline-diff --bc-version N` for N = 27, 28 and 29

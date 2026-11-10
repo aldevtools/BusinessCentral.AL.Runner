@@ -29,7 +29,7 @@ pub(super) fn validation_signal(
                 .map(|entry| (head.to_string(), entry.to_string()))
         });
         let Some((head, entry)) = reason else {
-            return Signal::Unsupported(format!(
+            return Signal::unsupported(format!(
                 "a page validation error under GlobalLanguage 1043 (the platform's Dutch text for '{msg}' is not pinned)"
             ));
         };

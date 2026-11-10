@@ -191,7 +191,7 @@ pub(super) fn module_execution_context(
             return unsupported("GetModuleExecutionContext(AppId) inside install code (not pinned)");
         }
         let Value::Guid(g) = id else {
-            return unsupported(&format!("GetModuleExecutionContext with {}", id.describe()));
+            return unsupported(format!("GetModuleExecutionContext with {}", id.describe()));
         };
         if !matches!(c.module_by_id(g), ModuleLookup::Found(_)) {
             return unsupported("GetModuleExecutionContext of an app the workspace does not hold (not pinned)");

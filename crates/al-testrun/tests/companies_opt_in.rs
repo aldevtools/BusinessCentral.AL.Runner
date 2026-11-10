@@ -54,7 +54,7 @@ fn outcomes_with_data(
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let mut engine = Engine::new(l.program.clone(), blocked);
     Arc::get_mut(&mut engine).expect("a new engine").test_data = data.map(al_host::testdata::TestData::new);

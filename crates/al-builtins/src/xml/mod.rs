@@ -11,7 +11,7 @@
 
 use crate::describe::Describe;
 use crate::json::Handle;
-use crate::native::{Ctx, NativeFn, Signal};
+use crate::native::{Ctx, NativeFn, Signal, unsupported};
 use crate::signature::Signature;
 use crate::value::{LibraryValue, Value};
 use std::cell::RefCell;
@@ -72,7 +72,7 @@ pub(super) fn arg_text(a: &[Value], i: usize) -> Result<String, Signal> {
     a.get(i)
         .and_then(crate::native::text_of)
         .map(String::from)
-        .ok_or_else(|| Signal::Unsupported(format!("XML argument {i} is not text")))
+        .ok_or_else(|| Signal::unsupported(format!("XML argument {i} is not text")))
 }
 
 /// The implementation of one catalog overload, if the corpus pins enough of it.

@@ -17,7 +17,7 @@
 //!   exception (Y6TenantReportLayoutRows.al:11-13).
 
 use crate::Session;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{RecordState, Value};
 use al_data::TableDef;
@@ -32,10 +32,6 @@ const RDLC: i32 = 0;
 const WORD: i32 = 1;
 const EXCEL: i32 = 2;
 const CUSTOM: i32 = 3;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 impl Session {
     pub(crate) fn tenant_report_layout_check(

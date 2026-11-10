@@ -43,7 +43,7 @@ fn run(src: &str, body: &str) -> Result<Value, Signal> {
     let blocked: Vec<Vec<Option<String>>> = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
     let ri = l.program.objects[oi]
@@ -66,7 +66,13 @@ fn reasons(src: &str, apps: usize) -> Vec<String> {
         let (a, b) = src.split_once("//--app1\n").expect("a marker");
         compile(vec![("app0", a.into()), ("app1", b.into())])
     };
-    let mut out: Vec<String> = l.unsupported.iter().flatten().flatten().cloned().collect();
+    let mut out: Vec<String> = l
+        .unsupported
+        .iter()
+        .flatten()
+        .flatten()
+        .map(|r| r.to_string())
+        .collect();
     for o in &l.program.objects {
         if let Some(r) = &o.report {
             out.extend(r.unsupported.iter().cloned());

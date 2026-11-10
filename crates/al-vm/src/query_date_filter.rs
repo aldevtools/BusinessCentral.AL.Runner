@@ -43,7 +43,7 @@ pub(crate) fn static_text<'a>(text: &'a str, ty: &RtType) -> Result<Cow<'a, str>
         .split(|c: char| !c.is_ascii_alphanumeric())
         .any(|t| t.eq_ignore_ascii_case("0D"))
     {
-        return Err(Signal::Unsupported(format!(
+        return Err(Signal::unsupported(format!(
             "query filter `{text}` with 0D in this form on a Date field (not pinned)"
         )));
     }

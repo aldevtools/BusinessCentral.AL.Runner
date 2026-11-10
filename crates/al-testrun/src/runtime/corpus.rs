@@ -1036,7 +1036,7 @@ impl CorpusRuntime {
         let blocked: Vec<Vec<Option<String>>> = lowered
             .unsupported
             .iter()
-            .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+            .map(|o| o.iter().map(|r| r.first().map(|r| r.reason().to_owned())).collect())
             .collect();
         let limit = opts.test_time_limit;
         // A debugged run is one thread, so the tests stop one at a time (ADR-048 decision 3); the memory budget may cut.

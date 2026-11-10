@@ -56,7 +56,7 @@ impl Session {
             .iter()
             .any(|w| w.table == t.object && w.company == *company && same_key(&w.pk, pk));
         if buffer_commits + 1 != self.commits || !self.writes_all_noted() || self.tx.rolled_back {
-            return Err(Signal::Unsupported(format!(
+            return Err(Signal::unsupported(format!(
                 "a stale {} buffer from TransferFields, several Commits later or after a rollback (not pinned)",
                 t.name
             )));
@@ -70,7 +70,7 @@ impl Session {
         if !contact {
             return Ok(StaleVerdict::Refused);
         }
-        Err(Signal::Unsupported(format!(
+        Err(Signal::unsupported(format!(
             "a stale {} buffer from TransferFields after the new transaction locked or wrote the table in a way no test pins",
             t.name
         )))

@@ -204,7 +204,7 @@ impl Session {
             .upgrade()
             .map(|p| program.objects[p.borrow().object as usize].name.clone())
             .unwrap_or_default();
-        Err(Signal::Unsupported(format!(
+        Err(Signal::unsupported(format!(
             "a manual subscription of codeunit {} bound through the globals of page {page} would receive an event, and \
              whether that page still holds it is not pinned (a Page variable after its non-modal Run; al-runner issue \
              6924)",

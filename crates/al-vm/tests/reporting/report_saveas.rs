@@ -710,7 +710,7 @@ fn run_on(bc: Option<&str>, body: &str) -> Result<Value, Signal> {
     let blocked: Vec<Vec<Option<String>>> = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
     let ri = l.program.objects[oi]
@@ -719,7 +719,7 @@ fn run_on(bc: Option<&str>, body: &str) -> Result<Value, Signal> {
         .position(|r| r.name == "F")
         .unwrap();
     if let Some(Some(r)) = blocked.get(oi).and_then(|o| o.get(ri)) {
-        return Err(Signal::Unsupported(r.clone()));
+        return Err(Signal::unsupported(r.clone()));
     }
     let engine = Engine::with_target(l.program, blocked, target);
     let mut s = Session::new(engine);
@@ -740,7 +740,7 @@ fn f(body: &str) -> String {
 
 fn refusal(body: &str) -> String {
     match run(body) {
-        Err(Signal::Unsupported(r)) => r,
+        Err(Signal::Unsupported(r)) => r.into_reason(),
         other => panic!("expected a refusal, got {other:?}"),
     }
 }

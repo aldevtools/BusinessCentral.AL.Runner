@@ -1,16 +1,12 @@
 //! `InStream.Read(Text, Length)`: what one read takes from the stream, per encoding (al-runner issue 7113).
 
-use crate::native::Signal;
+use crate::native::{Signal, unsupported};
 use crate::stream::{Encoding, InState};
 
 /// What one `Read(Text, Length)` gave: the text and the count the call answers.
 pub(crate) struct LenRead {
     pub text: String,
     pub count: usize,
-}
-
-fn unsupported<T>(what: &str) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
 }
 
 fn invalid_data() -> Signal {

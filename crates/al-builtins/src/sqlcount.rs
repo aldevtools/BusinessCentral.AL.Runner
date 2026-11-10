@@ -38,7 +38,7 @@ use std::cmp::Ordering;
 
 /// The refusal for a use the pins do not decide.
 pub fn refusal(what: &str) -> Signal {
-    Signal::Unsupported(refusal_text(what))
+    Signal::unsupported(refusal_text(what))
 }
 
 /// The text of [`refusal`].

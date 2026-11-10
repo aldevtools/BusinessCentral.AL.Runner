@@ -107,7 +107,7 @@ codeunit 50930 C
 
 fn refused(routine: &str) -> String {
     match run_in(SRC, "C", routine) {
-        Err(Signal::Unsupported(why)) => why,
+        Err(Signal::Unsupported(why)) => why.into_reason(),
         other => panic!("{routine}: expected a refusal, got {other:?}"),
     }
 }

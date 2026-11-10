@@ -9,7 +9,7 @@
 use crate::Session;
 use al_builtins::describe::Describe;
 use al_builtins::filter::{FieldFilter, FilterExpr, parse_filter_with};
-use al_builtins::native::{AlError, Signal, text_of};
+use al_builtins::native::{AlError, Signal, text_of, unsupported};
 use al_builtins::ops;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{RecordState, RtType, Value};
@@ -48,10 +48,6 @@ fn key_ordered_by(t: &TableDef, filters: &[FieldFilter], field: usize) -> bool {
             )
         )
     })
-}
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
 }
 
 /// A runtime error with a message the corpus pins and, where it is pinned, a code.
@@ -551,7 +547,7 @@ impl Session {
                         after: None,
                     },
                 )
-                .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+                .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
             // The next entry number after the last row (DiFwWriteTests.al:812 `101` after `100`); an empty table is not pinned.
             let Some(Value::Integer(last)) = last.map(|r| r[key].clone()) else {
                 return refuse("an empty source table");
@@ -598,7 +594,7 @@ impl Session {
         let n = self
             .store
             .count(&cx, &src_t, &filters)
-            .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+            .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
         Ok(n > 0)
     }
 
@@ -639,7 +635,7 @@ impl Session {
             self.permission_gate_flowfield(rec, calc.table)?;
         }
         let cx = self.cx_for(rec, &src_t)?;
-        let store_err = |e: al_data::StoreError| Signal::Unsupported(format!("store error {e}"));
+        let store_err = |e: al_data::StoreError| Signal::unsupported(format!("store error {e}"));
         use ir::CalcMethod as M;
         // A condition on a FlowField of the source table compares each source row's calculated value: count, exist and
         // lookup are pinned (record/flowfields/CalcFormulaDateLiteral.al:76-95, :243-280
@@ -921,7 +917,7 @@ impl Session {
         let enums = |id: u32| crate::views::enum_filter_members(&engine.program.objects[id as usize], language);
         let parse = |text: &str, ty: &RtType| {
             parse_filter_with(text, &[], ty, &enums)
-                .map_err(|e| Signal::Unsupported(format!("CalcFormula filter: {e}")))
+                .map_err(|e| Signal::unsupported(format!("CalcFormula filter: {e}")))
         };
         // The flow filter the caller set on field `q`, if any.
         let flow = |q: usize| {
@@ -1111,7 +1107,7 @@ impl Session {
                         after: after.as_deref(),
                     },
                 )
-                .map_err(|e| Signal::Unsupported(format!("store error {e}")))?;
+                .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
             let Some(row) = next else { return Ok(()) };
             f(&row)?;
             after = Some(position(t, 0, &row));
@@ -1295,7 +1291,7 @@ impl Session {
 
 /// Why a Sum cannot add a value: a column a platform row leaves unknown, or not a number.
 fn non_number(v: &Value) -> Signal {
-    Signal::Unsupported(
+    Signal::unsupported(
         v.unknown()
             .map_or_else(|| "sum over a non-number".to_string(), str::to_string),
     )

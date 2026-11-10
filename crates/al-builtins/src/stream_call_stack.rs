@@ -42,7 +42,7 @@ pub(crate) fn bytes_hold_mark(b: &[u8]) -> bool {
 /// `Blob.Length` and `InStream.Length` of content that holds the mark: StrLen of the untracked frames is not known.
 pub(crate) fn refuse_length(b: &[u8], what: &str) -> Result<(), Signal> {
     if bytes_hold_mark(b) {
-        return Err(Signal::Unsupported(format!(
+        return Err(Signal::unsupported(format!(
             "{what} of a stream that holds a call stack text (the length of its untracked frames is not known)"
         )));
     }
@@ -51,7 +51,7 @@ pub(crate) fn refuse_length(b: &[u8], what: &str) -> Result<(), Signal> {
 
 /// The byte count a stream function returns for a text that holds the mark.
 pub(crate) fn refuse_count(what: &str) -> Result<(), Signal> {
-    Err(Signal::Unsupported(format!(
+    Err(Signal::unsupported(format!(
         "the byte count {what} returns for a call stack text (the length of its untracked frames is not known)"
     )))
 }
@@ -65,7 +65,7 @@ pub(crate) fn position_unknown(s: &InState) -> bool {
 /// EOS, Position, ReadText and Read where `position_unknown`.
 pub(crate) fn refuse_position(s: &InState, what: &str) -> Result<(), Signal> {
     if position_unknown(s) {
-        return Err(Signal::Unsupported(format!(
+        return Err(Signal::unsupported(format!(
             "InStream.{what} at the untracked frames of a call stack text (how many lines they hold is not known)"
         )));
     }

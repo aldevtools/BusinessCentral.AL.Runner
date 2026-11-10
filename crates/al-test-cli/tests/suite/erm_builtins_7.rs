@@ -23,7 +23,7 @@ fn why_not_run(test: &str) -> String {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
     let o = run_codeunit(&engine, &l, oi);
@@ -46,7 +46,7 @@ fn find_first_on_an_empty_set_without_the_result_raises_the_table_is_empty_error
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
     let o = run_codeunit(&engine, &l, oi);
@@ -73,7 +73,7 @@ fn test_field_of_an_empty_blob_fails_with_the_usual_error() {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
     let o = run_codeunit(&engine, &l, oi);
@@ -92,7 +92,7 @@ fn test_field_of_a_blob_written_through_a_stream_passes() {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
     let o = run_codeunit(&engine, &l, oi);
@@ -111,7 +111,7 @@ fn test_field_of_a_stored_blob_not_fetched_with_calcfields_passes() {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
     let o = run_codeunit(&engine, &l, oi);

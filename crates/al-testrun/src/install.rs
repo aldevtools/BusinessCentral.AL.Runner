@@ -1013,7 +1013,7 @@ fn run_subscribers(lowered: &Lowered, session: &mut Session, subs: &[(usize, usi
         }
         match session.call_parameterless_subscriber(o, r) {
             Ok(()) => {}
-            Err(Signal::Unsupported(r)) => return Err(r),
+            Err(Signal::Unsupported(r)) => return Err(r.into_reason()),
             Err(Signal::Error(e)) => return Err(format!("failed (behaviour not pinned): {}", e.message)),
             Err(_) => return Ok(()),
         }
@@ -1313,7 +1313,7 @@ fn finish(
             Ok(())
         }
         Ok((other, _)) => Err(why(format!("GetDefaultWorkDate answered {}", other.describe()))),
-        Err(Signal::Unsupported(r)) => Err(why(r)),
+        Err(Signal::Unsupported(r)) => Err(why(r.into_reason())),
         Err(Signal::Error(e)) => Err(why(format!("failed (not pinned): {}", e.message))),
         Err(_) => Err(why("stopped (not pinned)".into())),
     }
@@ -1522,7 +1522,7 @@ fn run_routine(lowered: &Lowered, session: &mut Session, oi: usize, ri: usize) -
     };
     match called {
         Ok(()) => None,
-        Err(Signal::Unsupported(r)) => Some(r),
+        Err(Signal::Unsupported(r)) => Some(r.into_reason()),
         Err(Signal::Error(e)) => Some(format!("failed (behaviour not pinned): {}", e.message)),
         Err(_) => None,
     }

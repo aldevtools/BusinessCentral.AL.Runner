@@ -25,7 +25,7 @@ pub(super) fn get_last_error_text_without_customer_content(
     match e.origin {
         ErrorOrigin::SameText => Ok(Value::Text(e.message.into())),
         ErrorOrigin::Redacted(t) => Ok(Value::Text(t.into())),
-        ErrorOrigin::Unknown => unsupported(&format!(
+        ErrorOrigin::Unknown => unsupported(format!(
             "GetLastErrorText(true) of an error raised in a way the corpus does not pin for the flag (code {})",
             e.code
         )),
@@ -84,7 +84,7 @@ pub(super) fn get_last_error_object(
         ExceptionKind::Unknown if e.code == "Evaluate" => NCL_EVALUATE_EXCEPTION,
         ExceptionKind::Unknown if e.code == "DB:RecordNotFound" => RECORD_NOT_FOUND_EXCEPTION,
         ExceptionKind::Unknown | ExceptionKind::Cleared => {
-            return unsupported(&format!(
+            return unsupported(format!(
                 "GetLastErrorObject after an error of code '{}' (the .NET exception BC holds for it is not pinned; only Error() with a text, Get without a row and a division by zero are)",
                 if e.code == UNPINNED_ERROR {
                     "unpinned"

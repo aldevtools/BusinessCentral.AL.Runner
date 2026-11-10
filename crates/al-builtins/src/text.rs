@@ -100,7 +100,7 @@ pub fn check_unaudited() -> Result<(), crate::native::Signal> {
 #[inline(never)]
 fn unaudited_signal() -> crate::native::Signal {
     let at = take_unaudited_read().expect("pending");
-    crate::native::Signal::Unsupported(unaudited_reason(at))
+    crate::native::Signal::unsupported(unaudited_reason(at))
 }
 
 /// The refusal for an unaudited read at `at` (ADR-068 item 3).

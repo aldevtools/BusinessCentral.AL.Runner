@@ -8,6 +8,7 @@ use crate::{CaseId, Outcome};
 use al_builtins::assumptions::Assumption;
 use al_builtins::describe::Describe;
 use al_builtins::native::{AlError, Signal};
+use al_builtins::refusal::Refusal;
 use al_sema::lower::Lowered;
 use al_vm::{Engine, Session, UiKind};
 use std::collections::BTreeSet;

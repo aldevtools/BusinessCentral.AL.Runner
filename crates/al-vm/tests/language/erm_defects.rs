@@ -19,7 +19,7 @@ fn run(body: &str) -> Result<Value, Signal> {
     let blocked = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect::<Vec<Vec<Option<String>>>>();
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
     let ri = l.program.objects[oi]
@@ -28,7 +28,7 @@ fn run(body: &str) -> Result<Value, Signal> {
         .position(|r| r.name == "F")
         .unwrap();
     if let Some(Some(r)) = blocked.get(oi).and_then(|o| o.get(ri)) {
-        return Err(Signal::Unsupported(r.clone()));
+        return Err(Signal::unsupported(r.clone()));
     }
     let engine = Engine::new(l.program, blocked);
     let mut s = Session::new(engine);

@@ -21,14 +21,10 @@
 use crate::Session;
 use crate::records::Rec;
 use al_builtins::describe::Describe;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{Buffer, FieldSet, Value};
 use al_data::{Store, TableDef};
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 fn positions(args: &[Value]) -> Result<Vec<usize>, Signal> {
     let mut out: Vec<usize> = Vec::new();
@@ -251,7 +247,7 @@ impl Session {
         let stored = self
             .store_for(rec)
             .get(&cx, &t, &pk)
-            .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+            .map_err(|e| Signal::unsupported(format!("{e}")))?;
         let Some(stored) = stored else {
             if key_changed {
                 return unsupported(

@@ -213,7 +213,7 @@ fn compile(
     let blocked: Vec<Vec<Option<String>>> = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
     let ri = l.program.objects[oi]
@@ -233,7 +233,7 @@ fn run_setup(cfg: DotNetConfig, vars: &str, body: &str, ret: &str, setup: impl F
     let (program, blocked, oi, ri) = compile(vars, body, ret);
     if let Some(Some(r)) = blocked.get(oi).and_then(|o| o.get(ri)) {
         return Ran {
-            result: Err(Signal::Unsupported(r.clone())),
+            result: Err(Signal::unsupported(r.clone())),
             session: None,
         };
     }
@@ -276,7 +276,7 @@ fn run(host: &Fake, vars: &str, body: &str, ret: &str) -> Ran {
 
 fn unsupported(r: &Ran) -> String {
     match &r.result {
-        Err(Signal::Unsupported(s)) => s.clone(),
+        Err(Signal::Unsupported(s)) => s.to_string(),
         other => panic!("expected Unsupported, got {other:?}"),
     }
 }
@@ -877,7 +877,7 @@ fn arg_of(vars: &str, setup: &str) -> Result<DotNetValue, String> {
             }
             other => Err(format!("{other:?}")),
         },
-        Err(Signal::Unsupported(s)) => Err(s),
+        Err(Signal::Unsupported(s)) => Err(s.into_reason()),
         Err(other) => Err(format!("{other:?}")),
     }
 }
@@ -3424,7 +3424,7 @@ codeunit 50100 C {{ procedure F(): Text var T: DotNet NavTenantSettingsHelper; V
     let blocked: Vec<Vec<Option<String>>> = l
         .unsupported
         .iter()
-        .map(|o| o.iter().map(|r| r.first().cloned()).collect())
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
     let ri = l.program.objects[oi]
@@ -3449,7 +3449,7 @@ fn run_as_with(bc: &str, host: &Fake, vars: &str, body: &str, ret: &str) -> Ran 
     let (program, blocked, oi, ri) = compile(vars, body, ret);
     if let Some(Some(r)) = blocked.get(oi).and_then(|o| o.get(ri)) {
         return Ran {
-            result: Err(Signal::Unsupported(r.clone())),
+            result: Err(Signal::unsupported(r.clone())),
             session: None,
         };
     }

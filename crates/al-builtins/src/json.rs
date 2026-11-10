@@ -8,7 +8,7 @@
 //! duplicate keys, out-of-range indexes) raises `Signal::Unsupported`.
 
 use crate::describe::Describe;
-use crate::native::{Ctx, NativeFn, Signal};
+use crate::native::{Ctx, NativeFn, Signal, unsupported};
 use crate::signature::Signature;
 use crate::value::{LibraryValue, Value};
 use rust_decimal::Decimal;
@@ -48,10 +48,6 @@ pub enum Scalar {
     /// A number the way .NET writes it, when no AL value holds it: an exponent form, `-0.0`, an integer beyond a
     /// Decimal (json/TestProbeJsonContracts.al:ExponentNumbers_ReadAndWrite). Written as it is; no AL read of it is pinned.
     Raw(String),
-}
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
 }
 
 fn error(message: impl Into<String>, code: &str) -> Signal {

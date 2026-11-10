@@ -32,7 +32,7 @@ const BASE_APPLICATION_APP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
 const SEED: &[(&str, bool, bool)] = &[("O365 SALES", false, true), ("ORDER PROCESSOR", false, false)];
 
 fn unsupported<T>(what: &str) -> Result<T, Signal> {
-    Err(Signal::Unsupported(format!("Tenant Profile Setting: {what}")))
+    Err(Signal::unsupported(format!("Tenant Profile Setting: {what}")))
 }
 
 /// The two linked values of a setting: (Default Role Center, Disable Personalization).
@@ -97,7 +97,7 @@ impl Session {
         let mut key = vec![super::option(&m, 1, 1), app.clone(), profile.clone()];
         key[2] = al_builtins::ops::convert(key[2].clone(), &m.fields[pos(&m, 3)].ty)?;
         let cx = self.cx.clone();
-        let store_err = |e| Signal::Unsupported(format!("{e}"));
+        let store_err = |e| Signal::unsupported(format!("{e}"));
         let Some(mut row) = self.store.get(&cx, &m, &key).map_err(store_err)? else {
             return Ok(());
         };
@@ -144,7 +144,7 @@ impl Session {
         let stored = self
             .store
             .get(&cx, t, &t.primary_key(&fields))
-            .map_err(|e| Signal::Unsupported(format!("{e}")))?;
+            .map_err(|e| Signal::unsupported(format!("{e}")))?;
         match method {
             // A duplicate Insert answers false and changes nothing.
             RecordOp::Insert if stored.is_none() => self.link_profile(
@@ -207,7 +207,7 @@ impl Session {
         Ok(self
             .store
             .get(&cx, &m, &key)
-            .map_err(|e| Signal::Unsupported(format!("{e}")))?
+            .map_err(|e| Signal::unsupported(format!("{e}")))?
             .is_some())
     }
 
