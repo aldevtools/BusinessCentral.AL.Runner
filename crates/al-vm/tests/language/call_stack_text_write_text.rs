@@ -23,8 +23,25 @@ codeunit 50100 C
     var
         Stack: Text;
 
-    [ErrorBehavior(ErrorBehavior::Collect)]
     procedure Collected(): Text
+    begin
+        exit("Hop-Collected"());
+    end;
+
+    // The hyphen in the name is a frame format the corpus has not measured: the call stack of the collected error ends
+    // with the untracked mark below this frame.
+    local procedure "Hop-Collected"(): Text
+    begin
+        exit(CollectedMid());
+    end;
+
+    local procedure CollectedMid(): Text
+    begin
+        exit(CollectedRaw());
+    end;
+
+    [ErrorBehavior(ErrorBehavior::Collect)]
+    local procedure CollectedRaw(): Text
     var
         E: ErrorInfo;
         S: Text;
@@ -292,7 +309,7 @@ fn read_text_returns_the_first_line_and_the_stream_goes_on() {
     for mode in MODES {
         let line = text(call("FirstLine", vec![Value::Integer(mode)]));
         assert!(
-            line.starts_with("\"C\"(CodeUnit 50100).Collected line "),
+            line.starts_with("\"C\"(CodeUnit 50100).CollectedRaw line "),
             "mode {mode}: {line:?}"
         );
         assert!(

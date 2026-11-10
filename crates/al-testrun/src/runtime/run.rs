@@ -96,7 +96,20 @@ pub fn run_codeunit_limited(
 /// (corpus session-system/TestSessionInformationCallstackContracts.al:89-97 and the failure texts of the
 /// corpus CI on 27.5, 28.5 and 29.0, where the lines are the same). The runner's own app is
 /// `Test Runner by Microsoft`; its version is the loaded app's, else the run's BC version.
-pub(crate) fn runner_frames(program: &al_ir::Program, engine: &Engine) -> String {
+///
+/// The frames follow the routing of the test codeunit (session-system/callstack/CallstackRunnerFrames.al, every
+/// `Plain` and `Handler` case, BC 27.5, 28.5 and 29.0): a codeunit with handlers (`[HandlerFunctions]`) runs through
+/// Microsoft's runner on every version and shows the six frames; one without shows them on BC 27 and none on BC 28 and
+/// later (its runner adds no AL frame), so the text ends at the separator. The same test of the handlers as `corpus.rs`.
+pub(crate) fn runner_frames(program: &al_ir::Program, engine: &Engine, object: usize) -> String {
+    let handlers = program.objects[object].routines.iter().any(|r| {
+        r.attributes
+            .iter()
+            .any(|a| a.name.eq_ignore_ascii_case("HandlerFunctions"))
+    });
+    if !handlers && engine.target.as_ref().is_some_and(|t| t.bc.major >= 28) {
+        return String::new();
+    }
     let version = program
         .apps
         .iter()
@@ -740,7 +753,7 @@ fn run_codeunit_inner(
                         };
                         // Under a runner codeunit its own frames are on the call stack.
                         if !runner.is_al() {
-                            session.set_runner_frames(runner_frames(&lowered.program, engine));
+                            session.set_runner_frames(runner_frames(&lowered.program, engine, object));
                         }
                         session.start_sleep_budget(limit);
                         // A panic in the test is a runtime bug: it is caught here, so that it ends this codeunit and not
