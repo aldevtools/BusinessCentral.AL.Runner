@@ -2119,8 +2119,7 @@ impl CorpusRuntime {
         self.suites
             .iter()
             .position(|s| s == suite)
-            .and_then(|si| self.outcomes.get(&(si, case.codeunit, case.name.to_lowercase())))
-            .cloned()
+            .and_then(|si| super::case_lookup::find(&self.outcomes, si, case.codeunit, &case.name.to_lowercase()))
     }
 }
 
@@ -2159,9 +2158,7 @@ impl CorpusRuntime {
 
     /// The outcome the first run recorded for `case`, `None` when it recorded none.
     pub fn first_recorded(&self, case: &CaseId) -> Option<Outcome> {
-        self.outcomes
-            .get(&(0, case.codeunit, case.name.to_lowercase()))
-            .cloned()
+        super::case_lookup::find(&self.outcomes, 0, case.codeunit, &case.name.to_lowercase())
     }
 }
 
