@@ -819,6 +819,15 @@ Owner rule of 2026-10-15 (CLAUDE.md hard rule 3): behavior a Microsoft test need
 | `xmlport-self-closed-leaf-assign-twice` | XmlPort import of a leaf text element (no attributes or elements in the schema) written `<x />` runs its OnAfterAssignVariable twice, the variable set to the empty text before each run; `<x></x>`, `<x> </x>` and `<x>v</x>` run it once, and white space alone (`<x> </x>`) gives the empty text. Pinned below the root, below a table element and inside a text element below a table element (xmlports/shapes-properties/QrXpContainerOccurs.al TR_EmptyLeaf_Import); assumed also for leaf text elements inside deeper text elements read the same way. Whether the variable is set again before the second run is not pinned (the corpus triggers only read it). | No Microsoft test: a partner app's SOAP XmlPorts import replies with empty leaf elements whose triggers log or count. | TR_EmptyLeaf_Import with the leaf two text elements deep, and a trigger that changes its own variable on the first run. |
 <!-- assumptions:end -->
 
+## Refusal keys (generated from the registry)
+
+ADR-071: a refusal carries a stable key and the probe its shape waits for. Each crate that refuses keeps its list, one file per key in `crates/<crate>/src/refusals/<key>.rs`; `al-test-cli`'s test `refusal_keys` checks all lists together. This table is generated from them (do not edit it by hand: `al-test-cli --root . --refusals-doc` rewrites it). A refusal from free text has the key `legacy` and is not listed.
+
+<!-- refusal-keys:begin (generated from the refusal key lists; al-test-cli --refusals-doc or UPDATE_REFUSALS_DOC=1 on the test refusal_keys rewrites it) -->
+| Key | Area | Probe | Registered in |
+|---|---|---|---|
+<!-- refusal-keys:end -->
+
 ## Must-not-compile checks (alcodes.rs)
 
 Each check rejects only the shape a corpus case pins. The wider rule is not guessed. A probe is a new case in `tests/must-not-compile` of the corpus repo.

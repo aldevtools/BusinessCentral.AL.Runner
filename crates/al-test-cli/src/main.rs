@@ -113,15 +113,19 @@ fn run() -> Result<ExitCode, String> {
         al_test_cli::host::set_files_dir(dir.clone());
     }
     let root = args.root.clone().unwrap_or_else(|| PathBuf::from("."));
-    if args.assumptions_doc {
+    if args.assumptions_doc || args.refusals_doc {
         let path = root.join("docs/probes-needed.md");
         let text = read(&path)?;
-        let new = al_builtins::assumptions::probes_needed_doc(&text)?;
+        let (new, what) = if args.assumptions_doc {
+            (al_builtins::assumptions::probes_needed_doc(&text)?, "assumptions")
+        } else {
+            (al_test_cli::refusal_keys::probes_needed_doc(&text)?, "refusal keys")
+        };
         if new != text {
             write(&path, &new)?;
         }
         println!(
-            "{}: assumptions table {}",
+            "{}: {what} table {}",
             path.display(),
             if new == text { "current" } else { "rewritten" }
         );
