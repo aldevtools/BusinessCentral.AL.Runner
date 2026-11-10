@@ -1003,12 +1003,7 @@ impl Lowerer<'_> {
     fn report_item_same_name_refusal(&self, node: &SyntaxNode) -> L<()> {
         let path = &self.ws.files[self.file].path;
         let at: usize = node.text_range().start().into();
-        match self
-            .checked
-            .diagnostics
-            .iter()
-            .find(|d| d.code == "AR1006" && d.offset == at && &d.file == path)
-        {
+        match self.checked.diagnostic_at(path, at, &["AR1006"]) {
             Some(d) => Err(d.message.clone()),
             None => Ok(()),
         }
@@ -1020,12 +1015,7 @@ impl Lowerer<'_> {
     fn proc_call_refusal(&mut self, node: &SyntaxNode, object: usize, offset: usize) -> L<()> {
         let path = &self.ws.files[self.file].path;
         let at: usize = node.text_range().start().into();
-        let here = |code: &str| {
-            self.checked
-                .diagnostics
-                .iter()
-                .find(|d| d.code == code && d.offset == at && &d.file == path)
-        };
+        let here = |code: &str| self.checked.diagnostic_at(path, at, &[code]);
         if let Some(d) = here("AR1008") {
             return Err(d.message.clone());
         }
@@ -1042,9 +1032,7 @@ impl Lowerer<'_> {
         let path = &self.ws.files[self.file].path;
         let at: usize = node.text_range().start().into();
         self.checked
-            .diagnostics
-            .iter()
-            .find(|d| matches!(d.code, "AL0666" | "AR1007") && d.offset == at && &d.file == path)
+            .diagnostic_at(path, at, &["AL0666", "AR1007"])
             .map(|d| format!("{} {}", d.code, d.message))
     }
 }
