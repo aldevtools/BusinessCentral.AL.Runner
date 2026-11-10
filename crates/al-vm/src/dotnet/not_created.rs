@@ -1,6 +1,7 @@
 //! The error of a member of a DotNet variable that holds no object (code `DotNetVariableNotCreated`), where it is pinned.
 
 use super::registry::MemberKind;
+use super::system_environment;
 use crate::{Frame, Session};
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
@@ -34,6 +35,13 @@ impl Session {
             }
             (MemberKind::Get, "System.IO.Compression.ZipArchive") if is("Entries") => {
                 "System.IO.Compression.ZipArchive.Entries"
+            }
+            // BC 29.0 reads NewLine of a variable never constructed; BC 27.5 and 28.5 raise
+            // (Y58ServerHelpers.al SystemEnvironment_NewLine_WithoutConstructor, `#if BC29PLUS`).
+            (MemberKind::Call | MemberKind::Get, system_environment::TYPE)
+                if is("NewLine") && self.engine.target.as_ref().map_or(29, |t| t.bc.major) < 29 =>
+            {
+                system_environment::NEW_LINE
             }
             _ => return None,
         };

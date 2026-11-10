@@ -24,6 +24,7 @@ pub mod registry;
 pub mod server_classes;
 mod server_helpers;
 mod staged_dir;
+mod system_environment;
 mod xml_errors;
 mod zip_entry_streams;
 
@@ -1169,6 +1170,9 @@ impl Session {
             // A last-error exception: Format is ToString (GetLastErrorObject.al:85).
             DotNetKind::Internal { type_name, .. } if last_error::is_exception(type_name) => {
                 last_error::exception_text(self, o)
+            }
+            DotNetKind::Internal { type_name, .. } if type_name == al_builtins::dotnet_sigs::SYSTEM_ENVIRONMENT => {
+                Ok(type_name.clone())
             }
             DotNetKind::Internal { type_name, .. } => unsupported(format!("Format of a runtime-provided {type_name}")),
             DotNetKind::Host { handle, clr_type } => {
