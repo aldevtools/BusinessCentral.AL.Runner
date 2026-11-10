@@ -223,8 +223,11 @@ impl Session {
                     let mut s = st.borrow_mut();
                     s.run_static = Some(true);
                     s.lookup = used;
-                    s.lookup_set = used;
-                    s.static_lookup = used;
+                    s.lookup_kind = if used {
+                        LookupKind::StaticRunModal
+                    } else {
+                        LookupKind::None
+                    };
                     s.lookup_page_from_table = n == 0;
                     s.statement_run = !used && record.is_some();
                     s.field_run = used && record.is_some() && field;
@@ -945,8 +948,13 @@ impl Session {
             }
             PageMethod::LookupMode => match args.first() {
                 Some(v) => {
-                    st.borrow_mut().lookup = ops::truthy(v)?;
-                    st.borrow_mut().lookup_set = true;
+                    let on = ops::truthy(v)?;
+                    let mut s = st.borrow_mut();
+                    s.lookup = on;
+                    // A page the static Page.RunModal or a TableRelation lookup opened keeps its kind.
+                    if s.lookup_kind == LookupKind::None {
+                        s.lookup_kind = LookupKind::Variable;
+                    }
                     Ok(Value::Null)
                 }
                 None => Ok(Value::Boolean(st.borrow().lookup)),

@@ -3018,7 +3018,7 @@ impl Session {
             Err(Signal::Error(e))
                 if e.code == "TestActionNotFound"
                     && e.message.starts_with("The built-in action = OK ")
-                    && st.borrow().static_lookup =>
+                    && st.borrow().lookup_kind == LookupKind::StaticRunModal =>
             {
                 // Page.RunModal(0, Rec) over the table's LookupPageId with a FilterGroup 2 filter and a view on the key leaves the
                 // record's filters as they were (ui-handlers/Y14LookupNoRow.al:148 `rows rows` 0, corpus master). Which of

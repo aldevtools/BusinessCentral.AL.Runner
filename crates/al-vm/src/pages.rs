@@ -11,7 +11,9 @@ use al_builtins::describe::Describe;
 use al_builtins::native::{AlError, Signal};
 use al_builtins::ops;
 use al_builtins::pagefmt::{self, Blank, ControlFormat};
-use al_builtins::value::{ControlRef, ControlTarget, Cursor, PageMode, PageState, RecordState, RtType, Value};
+use al_builtins::value::{
+    ControlRef, ControlTarget, Cursor, LookupKind, PageMode, PageState, RecordState, RtType, Value,
+};
 use al_data::Store as _;
 use al_ir as ir;
 use rust_decimal::prelude::ToPrimitive;

@@ -86,6 +86,7 @@ mod lookup_global_record_field;
 mod lookup_holds_value;
 mod lookup_ok_no_row;
 mod lookup_relation_arms;
+mod lookup_relation_find_record;
 mod lookup_three_field_link_row_triggers;
 mod lookup_two_field_link;
 mod lookup_two_field_link_row_triggers;

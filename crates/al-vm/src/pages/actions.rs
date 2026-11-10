@@ -3275,7 +3275,7 @@ impl Session {
             .properties
             .iter()
             .any(|(k, v)| k.eq_ignore_ascii_case("Editable") && v.trim().eq_ignore_ascii_case("false"));
-        let lookup_list = st.borrow().lookup_set && st.borrow().lookup && self.is_list_page(st);
+        let lookup_list = self.lookup_list(st);
         if read_only || lookup_list {
             return Ok(false);
         }
