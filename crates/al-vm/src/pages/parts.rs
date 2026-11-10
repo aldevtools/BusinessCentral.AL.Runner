@@ -581,6 +581,7 @@ impl Session {
             parts.sort_by_key(|(i, _)| *i);
         }
         if opening {
+            self.refuse_factbox_vs_extension_chain(st)?;
             self.read_blank_before_parts_turning_visible(st)?;
         }
         if let Sync::Move { .. } = how {

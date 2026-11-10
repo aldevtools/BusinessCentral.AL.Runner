@@ -72,6 +72,38 @@ impl Session {
             .is_some_and(|l| l.entries.iter().all(|e| matches!(e, ir::LinkEntry::Field(..))))
     }
 
+    /// The shapes where "a FactBox part of a Provider chain reads one blank row" and "a part a page extension added reads one blank
+    /// row" disagree: a Provider part declared in the FactBoxes area of the host page itself, and a chain part a page extension
+    /// added outside FactBoxes. The corpus pins only the case where both hold (Provider_PartsAddedByPageExtensionInFactBoxes_OpenNew),
+    /// so these are refused as the page opens (probe spec: probe-provider-factbox-vs-extension).
+    pub(super) fn refuse_factbox_vs_extension_chain(&self, st: &St) -> Result<(), Signal> {
+        let (parts, object) = {
+            let s = st.borrow();
+            (
+                s.parts
+                    .iter()
+                    .chain(s.hidden_parts.iter())
+                    .map(|(i, _)| *i)
+                    .collect::<Vec<_>>(),
+                s.object as usize,
+            )
+        };
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        for i in parts {
+            let c = &page.controls[i];
+            let extension = c.owner.is_some_and(|o| o != object);
+            if self.part_in_provider_chain(st, i)
+                && ((c.factbox && !extension && self.part_is_provider(st, i)) || (extension && !c.factbox))
+            {
+                return unsupported(
+                    "a Provider-chain part that is a Provider declared in the base page's FactBoxes, or added by a page extension outside FactBoxes (open question: whether BC's one blank read follows the FactBoxes area or the page extension; probe pending)",
+                );
+            }
+        }
+        Ok(())
+    }
+
     /// Whether part `i` is the Provider of another part.
     fn part_is_provider(&self, st: &St, i: usize) -> bool {
         let engine = self.engine();
