@@ -44,6 +44,7 @@ pub mod fieldref_value_text;
 pub mod fieldref_variant_cells;
 pub mod file;
 pub mod filter;
+pub mod filter_blob;
 mod filter_boolean_words;
 pub mod format;
 mod format_json;
