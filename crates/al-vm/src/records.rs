@@ -55,8 +55,7 @@ pub(crate) const RUN_PAGE_LINK_OPEN: &str = "in the OnOpenPage of a page an acti
 /// test (set in pages/held_page_part.rs): BC still hands out the part's row, but its `Count()` there is 0 while the row is
 /// in the table (pages/parts/HeldSenderPartAccess.al HS02, staging branch al-runtime-rs-staging-probe-train-1110b), so every
 /// method of the record refuses; its fields read.
-pub(crate) const HELD_PART_LATER_TEST: &str =
-    "on Rec of a part of a page the test client closed in an earlier test: real BC answers Count() 0 there with the row in the table (not understood)";
+pub(crate) const HELD_PART_LATER_TEST: &str = "on Rec of a part of a page the test client closed in an earlier test: real BC answers Count() 0 there with the row in the table (not understood)";
 
 /// The `RecordState::unpinned_buffer` reason of a table element record after an export under `SourceTableView` (set in
 /// xmlports.rs `xp_export_table`). The export order is pinned (xmlports/shapes-properties/RaXmlPortExport.al:416, :448, :474,

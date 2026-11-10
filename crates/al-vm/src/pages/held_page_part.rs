@@ -22,7 +22,12 @@ impl Session {
             "a part of a page that is not open, reached by the code of that page (what it does then is not pinned)";
         let (ran, modal_run, by_test, test_opened) = {
             let s = st.borrow();
-            (s.ran, s.last_run_modal == Some(true), s.closed_by_test, s.opened_by_test)
+            (
+                s.ran,
+                s.last_run_modal == Some(true),
+                s.closed_by_test,
+                s.opened_by_test,
+            )
         };
         if !ran {
             return unsupported(REFUSED);
@@ -74,9 +79,7 @@ impl Session {
         // corpus PR 1205).
         shown.map_or_else(|| unsupported(REFUSED), Ok)
     }
-}
 
-impl Session {
     /// In a test after the one that closed its host, the part's row and globals answer as they were (HS02 `next-test.touch`
     /// 3, `read` id=1 name=one; HS07 `f2.refresh(id=1,n=2)`), but its Rec counts 0 rows with the row in the table (HS02
     /// `count=0`): every method of the part's Rec refuses there (`records::HELD_PART_LATER_TEST`).
