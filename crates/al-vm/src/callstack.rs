@@ -66,12 +66,10 @@ impl Session {
         Some(out)
     }
 
-    /// The frames of the test runner below the test in a call stack text, with a backslash after each. BC 27.5 shows six
-    /// (session-system/callstack/CallstackFullText.al:116-122). On 28.5 and 29.0 the main corpus app counts none of
-    /// "Test Runner by Microsoft" (the same file), yet finds (CodeUnit 130450) and (CodeUnit 130454) in the text
-    /// (permissions/testpermissions/BaTpEnv.al:32, BaTpHelper.al:60-80, which the baseline passes on 28.5 and 29.0), and the text of
-    /// those frames is not pinned: the frames stay on every version, so CallstackFullText.al passes on 27.5 only. The two
-    /// corpus files disagree about 28.5 and 29.0 (docs/probes-needed.md has no row: the owner opens the corpus issue).
+    /// The frames of the test runner below the test in a call stack text, with a backslash after each. The run sets them
+    /// per test codeunit by its routing (`al-testrun` `runner_frames`): six where Microsoft's runner runs the codeunit (it has
+    /// handlers, or BC 27), none on BC 28 and later without handlers (session-system/callstack/CallstackRunnerFrames.al,
+    /// CallstackFullText.al:116-122).
     pub(crate) fn runner_text_frames(&self) -> String {
         self.runner_frames.clone()
     }
