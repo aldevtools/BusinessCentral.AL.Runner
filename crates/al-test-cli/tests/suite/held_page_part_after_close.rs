@@ -463,3 +463,29 @@ fn opennew_with_a_hidden_factbox_that_has_onaftergetcurrrecord_is_refused() {
         );
     }
 }
+
+// A reopen through a helper that takes the TestPage by value or by var, or a plain reopen, with no Page variable holding the
+// page: the copies share one page and the caller's variable is open afterwards (as Microsoft's helpers do,
+// SalesStockout OpenSalesOrderPageByNo).
+#[test]
+fn reopen_through_a_helper_copy_keeps_the_callers_variable_open() {
+    let o = run_simple(
+        "local procedure OpenByValue(TP: TestPage \"LT HS Host\") begin TP.OpenEdit(); end;
+        local procedure OpenByVar(var TP: TestPage \"LT HS Host\") begin TP.OpenEdit(); end;
+        [Test] procedure R1_ByValue() var TP: TestPage \"LT HS Host\"; begin
+            H.Seed(); Holder.Setup(false, false); TP.OpenEdit(); TP.Close(); OpenByValue(TP); H.Check('1', TP.IdF.Value); TP.Close();
+        end;
+        [Test] procedure R2_ByVar() var TP: TestPage \"LT HS Host\"; begin
+            H.Seed(); Holder.Setup(false, false); TP.OpenEdit(); TP.Close(); OpenByVar(TP); H.Check('1', TP.IdF.Value); TP.Close();
+        end;
+        [Test] procedure R3_FirstOpenByValue() var TP: TestPage \"LT HS Host\"; begin
+            H.Seed(); Holder.Setup(false, false); OpenByValue(TP); H.Check('1', TP.IdF.Value); TP.Close();
+        end;
+        [Test] procedure R4_Plain() var TP: TestPage \"LT HS Host\"; begin
+            H.Seed(); Holder.Setup(false, false); TP.OpenEdit(); TP.Close(); TP.OpenEdit(); H.Check('1', TP.IdF.Value); TP.Close();
+        end;
+",
+    );
+    assert_eq!(o.len(), 4, "{o:?}");
+    assert_all_pass(&o);
+}

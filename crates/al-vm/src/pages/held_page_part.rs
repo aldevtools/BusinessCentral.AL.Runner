@@ -133,10 +133,13 @@ impl Session {
         Ok(())
     }
 
-    /// TestPage.OpenEdit, OpenView or OpenNew on a variable whose page another value still holds (a SingleInstance
-    /// subscriber kept the page's sender) after the page closed: BC opens a new page instance for the variable and the holder
-    /// keeps the old one with its parts (HeldSenderPartAccess.al HS07 and HS09 measure it with another TestPage variable:
-    /// `h1.upd;f2.refresh(id=1,n=2)` while `h3` is open). The variable gets a fresh page, as `Clear` gives it.
+    /// TestPage.OpenEdit, OpenView or OpenNew on a variable whose page a Page variable of a SingleInstance codeunit still
+    /// holds (a subscriber kept the page's sender) after TestPage.Close(): BC opens a new page instance for the variable and
+    /// the holder keeps the old one with its parts (HeldSenderPartAccess.al HS07 and HS09 measure it with another TestPage
+    /// variable: `h1.upd;f2.refresh(id=1,n=2)` while `h3` is open). The variable gets a fresh page, as `Clear` gives it.
+    /// Only such a holder counts: a copy of the TestPage value (a by-value parameter of a helper that opens it, as
+    /// Microsoft's SalesStockout OpenSalesOrderPageByNo does) shares the page with the caller's variable. With a holder, a
+    /// reopen through such a copy gives only the copy the new page (not measured; listed in the assumption).
     pub(super) fn fresh_page_for_held_reopen(
         &mut self,
         method: PageOp,
@@ -148,7 +151,7 @@ impl Session {
         ) {
             return;
         }
-        let st = st_of(page);
+        let st = st_of(page).clone();
         let object = {
             let s = st.borrow();
             if s.open || !s.ran || s.trapping || s.host.is_some() || s.closed_by != Some(ClosedBy::TestClose) {
@@ -156,11 +159,27 @@ impl Session {
             }
             s.object
         };
-        if crate::page_held_bindings::page_outside_refs(st) <= 1 {
+        if !self.held_by_single_instance_page_var(&st) {
             return;
         }
         assume(Assumption::HeldPagePartAfterTestPageClose);
         *page = state::closed_page(object);
+    }
+
+    /// Whether a Page-typed global of one of the session's SingleInstance codeunits holds the page `st`.
+    fn held_by_single_instance_page_var(&self, st: &St) -> bool {
+        let program = &self.engine.program;
+        self.singletons.iter().any(|(object, inst)| {
+            let inst = inst.borrow();
+            program.objects[*object]
+                .globals
+                .iter()
+                .zip(inst.globals.iter())
+                .any(|(slot, g)| {
+                    matches!(slot.ty, al_builtins::value::RtType::Page(_))
+                        && matches!(g, Value::TestPage(h) if Rc::ptr_eq(st_of(h), st))
+                })
+        })
     }
 }
 
