@@ -213,9 +213,74 @@ pub fn microsoft_calls(ws: &Workspace, checked: &CheckResult, catalog: &Catalog)
 /// OnPrem DotNet app (items only a `Target = OnPrem` app can name are pinned there), plus the corpus apps they depend on.
 pub const CORPUS_TEST_APPS: [&str; 3] = ["al-language", "al-language-onprem", "al-language-onprem-dotnet"];
 
+/// The command that fills the artifact cache with the Microsoft builds `oracle/oracle.toml` pins.
+pub const FETCH_DEPS_COMMAND: &str = "./target/release/al-test-cli --root . --all-versions --fetch-deps";
+
+/// The Microsoft apps the corpus app `al-language` depends on, for everything that reads the corpus outside a run (the
+/// coverage maps, the golden files, the examples): the build `oracle/oracle.toml` pins for the oldest BC major, from
+/// the artifact cache. `source_dirs` are the corpus apps the caller loads from source.
+///
+/// It never downloads, and the corpus tree's `.alpackages` is not searched (ADR-013 amendment of 2026-11-10). It is an
+/// error when the platform's System app or Base Application is not loaded: a map or a golden file made without
+/// Microsoft's apps looks complete and is wrong (every call on a Microsoft type is missing from the map, every
+/// reference to a Microsoft object is in the list of unresolved references).
+pub fn corpus_dependencies(
+    root: &std::path::Path,
+    source_dirs: &[std::path::PathBuf],
+) -> Result<crate::deps::Dependencies, String> {
+    corpus_dependencies_in(root, source_dirs, None)
+}
+
+/// [`corpus_dependencies`] with the cache root chosen (`--cache-dir`); `None` is the environment's.
+pub fn corpus_dependencies_in(
+    root: &std::path::Path,
+    source_dirs: &[std::path::PathBuf],
+    cache_dir: Option<&std::path::Path>,
+) -> Result<crate::deps::Dependencies, String> {
+    let path = root.join("oracle/oracle.toml");
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let oracle = crate::config::OracleFile::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    let version = oracle
+        .versions
+        .iter()
+        .find(|v| v.major == al_version::MIN_BC_MAJOR)
+        .ok_or_else(|| format!("{}: no version with major {}", path.display(), al_version::MIN_BC_MAJOR))?;
+    let build = version
+        .bc_build
+        .as_deref()
+        .ok_or_else(|| format!("{}: BC {} pins no bc_build", path.display(), version.major))?;
+    let provision = crate::deps::Provision {
+        cache_dir: cache_dir.map(std::path::Path::to_path_buf),
+        download: false,
+        query: al_deps::build::BuildQuery::new(Some(build), version.major, None),
+        local_artifacts: None,
+        country: String::new(),
+    };
+    let dependencies = crate::deps::load_corpus(
+        &root.join("corpus/tests/al-language"),
+        source_dirs,
+        &[],
+        Some(&provision),
+        &[],
+    )?;
+    let loaded = |id: &str| dependencies.apps.iter().any(|a| a.id.eq_ignore_ascii_case(id));
+    for (name, id) in [
+        ("System", al_sema::workspace::PLATFORM_APP_ID),
+        ("Base Application", al_sema::workspace::BASE_APPLICATION_APP_ID),
+    ] {
+        if !loaded(id) {
+            return Err(format!(
+                "Microsoft's {name} app of BC build {build} is not in the artifact cache, and nothing is downloaded here. Fill the cache once: {FETCH_DEPS_COMMAND}\n{}",
+                dependencies.log.join("\n")
+            ));
+        }
+    }
+    Ok(dependencies)
+}
+
 /// The workspace both coverage maps check: the corpus apps `al-language` depends on (the fixture and the cross-app
-/// fixtures, in dependency order) and every app of `CORPUS_TEST_APPS` as workspace apps, then the dependency apps of
-/// the corpus's `.alpackages`.
+/// fixtures, in dependency order) and every app of `CORPUS_TEST_APPS` as workspace apps, then the Microsoft apps of
+/// the pinned build ([`corpus_dependencies`]; an error when they are not in the artifact cache).
 pub fn corpus_workspace(root: &std::path::Path) -> Result<Workspace, String> {
     let tests = root.join("corpus/tests");
     let corpus_deps = crate::deps::corpus_publish_dirs(&tests.join("al-language"))?;
@@ -227,7 +292,7 @@ pub fn corpus_workspace(root: &std::path::Path) -> Result<Workspace, String> {
         apps.push(crate::runtime::load_app(&tests.join(name))?);
     }
     let mut kinds = vec![al_sema::AppKind::Workspace; apps.len()];
-    let dependencies = crate::deps::load(&tests.join("al-language"), &corpus_deps, &[])?;
+    let dependencies = corpus_dependencies(root, &corpus_deps)?;
     kinds.extend(dependencies.apps.iter().map(|_| al_sema::AppKind::Dependency));
     apps.extend(dependencies.apps);
     Ok(Workspace::load_apps(
@@ -238,7 +303,7 @@ pub fn corpus_workspace(root: &std::path::Path) -> Result<Workspace, String> {
 }
 
 /// The map of the pinned corpus under `root` (the repository root): the corpus's test apps
-/// and the fixture, with the dependency apps of the corpus's `.alpackages` so that calls on Microsoft's
+/// and the fixture, with the Microsoft apps of the pinned build so that calls on Microsoft's
 /// types resolve, checked with the preprocessor symbol of BC 27 and the whole catalog.
 pub fn corpus_coverage(root: &std::path::Path, corpus_commit: &str) -> Result<Coverage, String> {
     let ws = corpus_workspace(root)?;

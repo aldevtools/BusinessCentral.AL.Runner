@@ -53,6 +53,13 @@ fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
 /// (set in pages/runobject.rs, its methods in [`Session::run_page_link_open_op`]).
 pub(crate) const RUN_PAGE_LINK_OPEN: &str = "in the OnOpenPage of a page an action opens through RunPageLink: real BC fills the linked fields of Rec and GetFilters() reads '' there, the runtime holds the link as a filter (corpus issue 712)";
 
+/// The `RecordState::unpinned_buffer` reason of Rec of a part page reached through a page the test client closed (set in
+/// pages/held_page_part.rs): its fields read and `Count()` counts (pages/parts/HeldSenderPartAccess.al HS01, HS02, staging
+/// branch al-runtime-rs-staging-probe-train-1110b, assumption `held-page-part-after-testpage-close`); no other method of it
+/// is measured there, so they refuse.
+pub(crate) const HELD_PART_REC: &str =
+    "on Rec of a part of a page the test client closed: only its fields and Count() are measured there";
+
 /// The `RecordState::unpinned_buffer` reason of a table element record after an export under `SourceTableView` (set in
 /// xmlports.rs `xp_export_table`). The export order is pinned (xmlports/shapes-properties/RaXmlPortExport.al:416, :448, :474,
 /// metadata/platform-tables/AgXmlPortImport.al:312); the key, order, filters and position the record has afterwards are not,
@@ -2151,6 +2158,15 @@ impl Session {
         }
         if why == RUN_PAGE_LINK_VARIANT {
             return unsupported(format!("Record.{}(): {RUN_PAGE_LINK_VARIANT}", method.name()));
+        }
+        if why == HELD_PART_REC {
+            if method != RecordOp::Count || !args.is_empty() {
+                return unsupported(format!("Record.{}(): {HELD_PART_REC}", method.name()));
+            }
+            let flag = rec.borrow_mut().unpinned_buffer.take();
+            let r = self.record_op_inner(method, rec, args);
+            rec.borrow_mut().unpinned_buffer = flag;
+            return r;
         }
         if why == MEDIA_KEY || why == FLOWFIELD_KEY {
             return self.media_key_op(method, rec, args, why);

@@ -208,6 +208,7 @@ pub(crate) struct UiState {
 }
 
 /// What the TestPage client keeps between calls.
+#[derive(Default)]
 pub(crate) struct PageClients {
     /// The TestPage variables whose `Trap()` waits for the next plain `Page.Run` of their page (ADR-012). Several wait at
     /// once, one per page: a test traps the preview page and, inside it, the entries page its action opens.

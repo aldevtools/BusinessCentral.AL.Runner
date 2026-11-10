@@ -76,9 +76,6 @@
 61261 PlatformTable_PerformanceProfileScheduler
 61261 PlatformTable_ReportLayoutList
 61261 PlatformTable_UserPersonalization
-61262 Logo_GuidedExperienceSequence_OfThisAppAndMicrosoftApps
-61262 TenantId_OfCorpusAndMicrosoftApps
-61262 TenantVisible_Installed_AndDescription_OfWellKnownApps
 61263 P110_CloseTwiceAndName
 61263 P110_Closed_File_Never_Opened
 61263 P110_CreateCloseExists
@@ -172,7 +169,6 @@
 98453 ApiWebhookEntity_RowOfOwnApiPage
 98453 MovedTable_TableInformation
 98453 PerformanceProfileScheduler_RowsInsertDelete
-98453 PublishedApplication_TenantId
 98550 PY_NoBaseAddress_Paths_1
 98550 PY_NoBaseAddress_Paths_2
 98550 PY_ReasonPhrase_1
@@ -201,7 +197,6 @@
 98660 Y21_TableInformation_Sizes
 98702 PA_AppJsonFields_ReachTheRow
 98702 PA_ApplicationRow_Columns
-98702 PA_ApplicationRow_PackageIds
 98702 PA_ApplicationRow_Writes
 98702 PA_ExtensionSettingsColumns_CorpusAndMicrosoftApps
 98890 Y76_Patch_Delete_RelativePaths

@@ -22,6 +22,7 @@ al-data        Store trait and the in-memory store         al-host   clock, iden
 al-ir          the typed IR (plain data)                   al-version  BC versions, run target, gates
 al-syntax      lexer, preprocessor, parser, rowan tree, AST views, cheap declaration scan
 al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, package/zip reading
+al-testkit     dev only: compile AL from a string and run a routine     al-testfiles  dev only: Microsoft's files of the pinned build, for tests
 ```
 
 ## Crates and modules
@@ -201,6 +202,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `lower/shared.rs` (880): What the lowering of an object reads (`Shared`) and the per-object state (`Nodes`, `Local`, `Seq`), `lower_object`, the constants and literal helpers. Entry: `Shared` 6, `make_lowerer` 173, `lower_object` 211.
 - `lower/tables.rs` (518): Table schemas: relations, field triggers, CalcFormulas. Entry: `table_schema` 311, `relation_arms` 10, `lower_calc` 445.
 - `lower/pages.rs` (458): Page control trees, `RunObject`, part links. Entry: `page` 8, `run_object` 292.
+- `lower/page_client_expr.rs` (86): the client-compile check of a Boolean control expression (refused forms, BigInteger literal, the typed check of a qualified value through a member). Entry: `client_expr_reasons`.
 - `lower/convert.rs` (359): Name resolution helpers, runtime types, conversion of a value to a target type. Entry: `rt` 67, `convert_to` 186.
 - `lower/copy_array.rs` (30): The array arguments of `CopyArray`: a procedure result as the source (al-runner issue 6658). Entry: `ref_arg`.
 - `lower/conv_matrix.rs` (~160): The run matrix cells (`al_builtins::conv`) in the lowering: the false branch of `?:` converts to
@@ -417,6 +419,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `pages/background.rs` (420): Page background tasks under the test client; the worker runs in a child session (own `SessionId()`, fresh SingleInstance state, no manual bindings; al-runner issue 7342). Entry: `BgWorker` 11.
 - `pages/filter.rs` (135): `TestPage.Filter` / `TestPart.Filter` (the `TestFilter` handle).
 - `pages/parts.rs` (324): Page parts (ADR-012 follow-up).
+- `pages/held_page_part.rs`: What the code of a page that ran and is closed reaches through `CurrPage.<part>.Page`: its own part instances (`PageState::closed_parts`, `hidden_parts`), by what closed the page (`PageState::closed_by`, `ClosedBy`, set at the close sites): a modal run closed by an action, `CurrPage.Close`, and `TestPage.Close()` of a page the test opened (al-runner issue 6924, assumption `held-page-part-after-testpage-close`; inside such a part a page method and Rec methods other than Count refuse, `records::HELD_PART_REC`); every other close refuses. Also the reopen of a TestPage variable whose page another value holds (`fresh_page_for_held_reopen`). Entry: `closed_page_part` (by `part_page`), `mark_closed_as`, `mark_closed_by_test` (by `page_close`).
 - `pages/request.rs` (571): The request page of a report. Entry: `RequestClosed` 18, `action_id` 532.
 - `pages/runobject.rs` (321): `RunObject` actions (ADR-012 follow-up).
 - `pages/dirty_step.rs`: What the client saves before the next step (an action, a RunObject, a part's New) and a page that holds a failed save or a refused entry (corpus pages/actions). Entry: `save_before_action`, `test_page_op_held`, `test_control_op_held`.
@@ -476,8 +479,9 @@ functions or methods; the file is in the module list above.
 1. `main` (al-test-cli/main.rs) starts a thread with a large stack and calls `run`.
 2. `run`: `args::parse` -> `config::OracleFile::parse` (oracle/oracle.toml) -> per BC version `run_version`.
 3. `run_version`: `pin::check` -> `oracle::parse_junit` (cases of real BC) -> `corpus::discover` ->
-   `select::Selection::filter` / `find_explained` -> `runtime::load_app` per app -> `deps::load_with`
-   (Microsoft apps from `.alpackages`, `--deps` or the artifact feed) -> `CorpusRuntime::run_suites_with`.
+   `select::Selection::filter` / `find_explained` -> `runtime::load_app` per app -> `deps::load_corpus`
+   (Microsoft apps from `--deps` or the artifact cache of the pinned build; the corpus tree's `.alpackages` is not
+   searched, ADR-013 amendment of 2026-11-10) -> `CorpusRuntime::run_suites_with`.
 4. `run_suites_with`: `al_sema::lower::compile_apps_with` (compile pipeline below) -> `Engine::with_config`
    (`events::Registry::build`) -> `global_triggers_find_unavailable` -> `baseline::run` (install roots, once) ->
    for each test codeunit `run_codeunit_isolated` -> `run_codeunit_observed`. Test codeunits run on worker threads
@@ -624,6 +628,12 @@ functions or methods; the file is in the module list above.
 
 ## Test layout (moved from the agent brief)
 
+- **Tests that need a file Microsoft ships use `al-testfiles`** (`crates/al-testfiles`, a dev-dependency):
+  `al_testfiles::system_app()` is the path of the platform's `System.app`, `file(NAME)` of any file of the pinned BC 27
+  build in the artifact cache, `sources(NAME)` its AL files. A test never downloads and never reads the corpus tree for
+  a Microsoft file; a missing file fails the test with the command that fills the cache
+  (`./target/release/al-test-cli --root . --all-versions --fetch-deps`). Outside tests, `al-test-cli`
+  `coverage::corpus_dependencies` loads the same build (coverage maps, golden files, the examples).
 - **Tests of the interpreter use `al-testkit`** (`crates/al-testkit`, a dev-dependency): `al_testkit::run(src, routine)`,
   `run_in(src, object, routine)`, `Built` for several calls on one session, and `text`/`int`/`boolean`/`error_message` to
   read a result. Do not write another compile-and-call helper. The tests of `al-vm` are five area binaries
