@@ -300,6 +300,41 @@ impl Session {
         Ok(text)
     }
 
+    /// The caption a page control over field `field` shows for the text `class` its CaptionClass expression gave: an empty
+    /// text and `3,` read as the empty text (QdCaptionClassAreas.al Page_ControlCaptions `exprEmpty`, `expr3`), the rest as on a
+    /// table read (`recmeta::ExprCaption`).
+    pub(super) fn control_expression_caption(&mut self, field: &str, class: &str) -> Result<String, Signal> {
+        use crate::recmeta::ExprCaption;
+        match crate::recmeta::expression_class(class) {
+            ExprCaption::FieldCaption => Ok(String::new()),
+            ExprCaption::Text(c) => self.expression_text_caption(class, c),
+            ExprCaption::Translate => self.caption_class_translate(class),
+            ExprCaption::Plain => self.expression_plain_caption(field, class),
+        }
+    }
+
+    /// The caption of field `field` whose CaptionClass expression gave `class`, a text with no comma or with an area that is
+    /// not a number: the text as it is, on a table read and on a Card or List control, also over a Caption property (corpus
+    /// record/captions/CaptionExpressionPlainText.al:238-262 FieldCaption and FieldRef.Caption `asint=All|plainformat=Item|
+    /// plainlabel=Plain label text|...|nonnumeric=Zed,some text|withcaption=Item`, :280 inside the Error of OnInsert `Already
+    /// there. Resource = .`, :296-344 the Card and List controls; BC 27.5, 28.5 and 29.0; al-runner issue 7382).
+    /// The text goes to the translation as a literal of the same shape does: a text with no comma raises no event
+    /// (types/PSCaptionClass.al:5-8), or OnAfterCaptionClassResolve once per session while a subscriber listens
+    /// (record/captions/WcExtFieldAfterResolve.al WcExtField_NoComma_FieldCaption; the corpus run that pins the captions above
+    /// has that static subscriber, WcExtFieldAfterResolve.al:248); an area that is not a number raises OnResolveCaptionClass
+    /// (record/captions/R6985FieldCaptionArea.al:88-151, with the static subscriber at :61). That an expression result raises
+    /// them as a literal does only a subscriber's log can tell (docs/probes-needed.md). A caption a subscriber changed is not
+    /// pinned for an expression (al-runner issue 7431): refused.
+    pub(crate) fn expression_plain_caption(&mut self, field: &str, class: &str) -> Result<String, Signal> {
+        let caption = self.caption_class_translate(class)?;
+        if caption != class {
+            return unsupported(format!(
+                "the caption of field {field} whose CaptionClass expression gives `{class}`, a text with no comma or with an area that is not a number, which a subscriber resolves (not pinned for an expression, al-runner issue 7431)"
+            ));
+        }
+        Ok(caption)
+    }
+
     /// A text other than the one the control resolved before, at a fill other than the one after SetValue
     /// (`refresh_caption_classes`, testpage/W2CaptionClass.al:174-178): whether BC resolves it there (after an action, on
     /// the next row) is not pinned.
