@@ -367,6 +367,63 @@ fn the_default_store_is_in_the_cache_folder() {
     assert_eq!(stored.len(), 1);
 }
 
+/// A stored result made without `option` is not reused by a run with it, and the other way round (al-runner issue
+/// 7610): the option changes test outcomes, so the run is a full one and says why.
+fn an_option_that_changes_outcomes_is_a_full_run(name: &str, option: &[&str]) {
+    let dir = scratch(name);
+    write_app(&dir, false);
+    assert_eq!(code(&run(&dir, &[])), 0);
+    let (doc, o) = json_run(&dir, option);
+    assert_eq!(code(&o), 0, "{}", text(&o));
+    let sel = &doc["selection"];
+    assert_eq!(sel["forcedFull"], true, "with {option:?}: {doc:#}");
+    assert_eq!(sel["ran"], 2, "with {option:?}: {doc:#}");
+    assert_eq!(sel["skipped"], 0, "with {option:?}: {doc:#}");
+    // The same options again: nothing changed, nothing runs.
+    let (doc, o) = json_run(&dir, option);
+    assert_eq!(code(&o), 0, "{}", text(&o));
+    assert_eq!(doc["selection"]["ran"], 0, "again with {option:?}: {doc:#}");
+    // Back without the option: the result stored with it is not this run's either.
+    let (doc, o) = json_run(&dir, &[]);
+    assert_eq!(code(&o), 0, "{}", text(&o));
+    assert_eq!(doc["selection"]["forcedFull"], true, "without {option:?}: {doc:#}");
+    assert_eq!(doc["selection"]["ran"], 2, "without {option:?}: {doc:#}");
+}
+
+#[test]
+fn allow_write_in_try_functions_is_a_full_run() {
+    an_option_that_changes_outcomes_is_a_full_run("opt_write_in_try", &["--allow-write-in-try-functions"]);
+}
+
+#[test]
+fn dependencies_published_global_is_a_full_run() {
+    an_option_that_changes_outcomes_is_a_full_run("opt_published_global", &["--dependencies-published-global"]);
+}
+
+#[test]
+fn dev_endpoint_ui_is_a_full_run() {
+    an_option_that_changes_outcomes_is_a_full_run("opt_dev_endpoint_ui", &["--dev-endpoint-ui"]);
+}
+
+#[test]
+fn another_test_runner_is_a_full_run() {
+    an_option_that_changes_outcomes_is_a_full_run("opt_test_runner", &["--test-runner", "builtin"]);
+}
+
+#[test]
+fn other_companies_are_a_full_run() {
+    an_option_that_changes_outcomes_is_a_full_run("opt_companies", &["--companies", "all"]);
+}
+
+/// A replay without `--stability` is a normal run with one variant's values; the values change what a test answers.
+#[test]
+fn a_stability_replay_is_a_full_run() {
+    an_option_that_changes_outcomes_is_a_full_run(
+        "opt_stability_replay",
+        &["--stability-replay", "company.name=Other Company"],
+    );
+}
+
 #[test]
 fn flags_that_cannot_go_with_affected_are_refused() {
     let dir = scratch("refused");
