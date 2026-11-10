@@ -1725,10 +1725,11 @@ fn report_check(t: &Target, path: &Path, c: &not_passing::Check, pruned: bool) {
     }
     if !pruned && c.stale().next().is_some() {
         eprintln!(
-            "BC {}: {} stale line(s) in {}: delete them with `al-test-cli --root . --prune-not-passing`:",
+            "BC {}: {} stale line(s) in {}: delete them with `al-test-cli --root . --prune-not-passing --bc-version {}`:",
             t.label,
             c.stale_passing.len() + c.stale_gone.len(),
-            path.display()
+            path.display(),
+            t.major
         );
         for x in &c.stale_passing {
             eprintln!("  {} {}  [passes]", x.codeunit, x.name);
