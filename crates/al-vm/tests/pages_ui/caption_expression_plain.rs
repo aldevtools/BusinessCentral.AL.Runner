@@ -108,3 +108,28 @@ codeunit 50789 T {{ procedure F(): Text var R: Record Row; begin exit(R.FieldCap
         "{r:?}"
     );
 }
+
+/// `Enum.AsInteger` in the table's own CaptionClass expression leaves nothing behind (al-runner issue 7379; the corpus cases
+/// CaptionExpressionPlainText.al:296-398 are the test). The same call inside a codeunit the expression calls is not pinned yet:
+/// the page open stays refused where the number of empty-record runs is not pinned (two expressions with different texts).
+#[test]
+fn as_integer_in_a_codeunit_the_caption_expression_calls_is_still_refused() {
+    let src = r#"
+enum 50790 Kind { value(0; Item) { } value(1; Resource) { } }
+codeunit 50791 Helper { procedure Number(K: Enum Kind): Integer begin exit(K.AsInteger()); end; }
+table 50790 Row
+{
+    fields { field(1; Id; Integer) { } field(2; Kind; Enum Kind) { } field(3; Amount; Decimal) { CaptionClass = Cc(); } field(4; Other; Decimal) { CaptionClass = Cc2(); } }
+    keys { key(PK; Id) { } }
+    procedure Cc(): Text[80] var H: Codeunit Helper; begin if H.Number(Kind) = 0 then exit('3,All'); exit('3,Some'); end;
+    procedure Cc2(): Text[80] begin exit('3,Other'); end;
+}
+page 50792 RowCard { PageType = Card; SourceTable = Row; layout { area(Content) { field(Amount; Rec.Amount) { } } } }
+codeunit 50793 T { procedure F(): Text var P: TestPage RowCard; begin P.OpenView(); exit(P.Amount.Caption()); end; }
+"#;
+    let r = al_testkit::run_in(src, "T", "F");
+    assert!(
+        matches!(&r, Err(Signal::Unsupported(w)) if w.contains("calls Enum.AsInteger")),
+        "{r:?}"
+    );
+}
