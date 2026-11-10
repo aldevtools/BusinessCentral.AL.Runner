@@ -389,3 +389,62 @@ fn what_depends_on_the_tail_stays_refused() {
         refused(r);
     }
 }
+
+const RUNNER_SRC: &str = r#"
+codeunit 50101 R
+{
+    // The tail of a call stack text on BC 28.5 and later: a known prefix, then the unpinned runner frames.
+    local procedure Tail(): Text
+    var
+        Mark: Char;
+    begin
+        Mark := 64976;
+        exit('"R"(CodeUnit 50101).Entry line 2 - App by Pub version 1.0.0.0\' + Format(Mark) + 'the runner frames of BC 28 and later');
+    end;
+
+    procedure InTail(): Boolean
+    begin
+        exit(Tail().Contains('(CodeUnit 130450)') and Tail().Contains('(CodeUnit 130454)'));
+    end;
+
+    procedure NotInTail(): Boolean
+    begin
+        exit(Tail().Contains('(CodeUnit 130451)') or Tail().Contains('(CodeUnit 99903)') or Tail().Contains('Test Runner by Microsoft'));
+    end;
+
+    procedure PositionOfAbsent(): Integer
+    begin
+        exit(StrPos(Tail(), 'Test Runner by Microsoft'));
+    end;
+
+    procedure PositionOfPresent(): Integer
+    begin
+        exit(Tail().IndexOf('(CodeUnit 130450)'));
+    end;
+
+    procedure UnrelatedNeedle(): Boolean
+    begin
+        exit(Tail().Contains('RunTests'));
+    end;
+
+    procedure Length(): Integer
+    begin
+        exit(StrLen(Tail()));
+    end;
+}
+"#;
+
+/// The runner frames of BC 28.5 and later: (CodeUnit 130450) and (CodeUnit 130454) are in the text, 130451, 99903 and
+/// "Test Runner by Microsoft" are not (BaTpEnv.al:32, CallstackFullText.al:116-122); a position, any other needle and the length stay refused.
+#[test]
+fn the_unpinned_runner_frames_answer_only_what_the_corpus_pins() {
+    assert!(boolean(run_in(RUNNER_SRC, "R", "InTail")));
+    assert!(!boolean(run_in(RUNNER_SRC, "R", "NotInTail")));
+    assert_eq!(int(run_in(RUNNER_SRC, "R", "PositionOfAbsent")), 0);
+    for r in ["PositionOfPresent", "UnrelatedNeedle", "Length"] {
+        match run_in(RUNNER_SRC, "R", r) {
+            Err(Signal::Unsupported(_)) => {}
+            other => panic!("{r}: expected a refusal, got {other:?}"),
+        }
+    }
+}

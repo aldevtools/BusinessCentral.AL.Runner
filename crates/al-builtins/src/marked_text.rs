@@ -20,7 +20,7 @@
 //! on the tail), `Format` with a length, a range that reaches into the tail where BC may raise, an `IndexOf` that finds nothing
 //! in P. The pinned behavior of the tail itself is a probe (docs/probes-needed.md).
 
-use crate::native::{CALL_STACK_MARK, CARRIED_TEXT_MARK, Ctx, SQL_COUNT_TEXT_MARK, Signal};
+use crate::native::{CALL_STACK_MARK, CARRIED_TEXT_MARK, Ctx, RUNNER_FRAMES_UNPINNED, SQL_COUNT_TEXT_MARK, Signal};
 use crate::text::Txt;
 use crate::value::Value;
 
@@ -71,6 +71,25 @@ fn prefix_of(v: Option<&Value>) -> Option<Txt> {
     Some(head.to_string().into())
 }
 
+/// Whether the text ends with the unpinned runner frames of BC 28 and later (`RUNNER_FRAMES_UNPINNED`) after a known prefix.
+fn runner_tail(v: Option<&Value>) -> bool {
+    matches!(v, Some(Value::Text(t) | Value::Code(t)) if t.as_str().matches(CALL_STACK_MARK).count() == 1
+        && t.as_str().ends_with(RUNNER_FRAMES_UNPINNED))
+}
+
+/// What the corpus pins about the runner frames of BC 28 and later: the code units 130450 and 130454 are in the call stack of the
+/// corpus's test apps (permissions/testpermissions/BaTpEnv.al:32 and BaTpHelper.al:60-80; test-framework/testpermissions/
+/// BiTpEnv.al:32 and BiTpHelper.al:67-85, BC 27, 28 and 29), 130451 and 99903 are not, and the text "Test Runner by Microsoft" is
+/// not (session-system/callstack/CallstackFullText.al:116-122, `runnerframes` 0 where 27.5 has 6). `Some(true)` for a needle
+/// that is in the tail, `Some(false)` for one that is not, `None` for any other (refused).
+fn runner_fact(needle: &str) -> Option<bool> {
+    match needle {
+        "(CodeUnit 130450)" | "(CodeUnit 130454)" => Some(true),
+        "(CodeUnit 130451)" | "(CodeUnit 99903)" | "Test Runner by Microsoft" => Some(false),
+        _ => None,
+    }
+}
+
 fn refuse() -> NResult {
     Err(Signal::Unsupported(REASON.to_string()))
 }
@@ -99,11 +118,11 @@ pub(crate) fn dispatch(
     recv: &Option<&mut Value>,
     args: &mut [Value],
 ) -> Option<NResult> {
-    let (head, offset) = match at {
-        At::Receiver => (prefix_of(recv.as_deref())?, 0),
-        At::Arg0 => (prefix_of(args.first())?, 1),
+    let (head, offset, runner) = match at {
+        At::Receiver => (prefix_of(recv.as_deref())?, 0, runner_tail(recv.as_deref())),
+        At::Arg0 => (prefix_of(args.first())?, 1, runner_tail(args.first())),
     };
-    Some(run(kind, f, ctx, &head, offset, args))
+    Some(run(kind, f, ctx, &head, offset, args, runner))
 }
 
 /// `SelectStr(n, T)`: the text is the second argument.
@@ -119,7 +138,7 @@ pub(crate) fn dispatch_select_str(f: Native, ctx: &mut dyn Ctx, args: &mut [Valu
     Some(f(ctx, None, &mut call))
 }
 
-fn run(kind: Kind, f: Native, ctx: &mut dyn Ctx, head: &Txt, offset: usize, args: &[Value]) -> NResult {
+fn run(kind: Kind, f: Native, ctx: &mut dyn Ctx, head: &Txt, offset: usize, args: &[Value], runner: bool) -> NResult {
     // `a` holds what follows the text; the text itself is replaced by the prefix.
     let rest: Vec<Value> = args[offset..].to_vec();
     let len = head.utf16_len() as i64;
@@ -142,13 +161,18 @@ fn run(kind: Kind, f: Native, ctx: &mut dyn Ctx, head: &Txt, offset: usize, args
         Some(Value::Text(t) | Value::Code(t)) if !t.has_marker() => Some(t.clone()),
         _ => None,
     };
+    // A needle the pinned facts about the runner frames decide, when it is not in the known prefix.
+    let fact = || runner.then(|| needle().and_then(|n| runner_fact(n.as_str()))).flatten();
     match kind {
         Kind::Find => match call(ctx, &rest) {
             Ok(Value::Integer(n)) if n > 0 || needle_empty() => Ok(Value::Integer(n)),
+            // Not found in the prefix: a needle known to be absent from the tail is not found (position 0).
+            Ok(Value::Integer(0)) if fact() == Some(false) => Ok(Value::Integer(0)),
             _ => refuse(),
         },
         Kind::Contains => match call(ctx, &rest) {
             Ok(Value::Boolean(true)) => Ok(Value::Boolean(true)),
+            Ok(Value::Boolean(false)) => fact().map_or_else(refuse, |b| Ok(Value::Boolean(b))),
             _ => refuse(),
         },
         Kind::StartsWith => match call(ctx, &rest) {

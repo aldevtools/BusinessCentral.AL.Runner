@@ -66,14 +66,20 @@ impl Session {
         Some(out)
     }
 
-    /// The frames of the test runner below the test in a call stack text, with a backslash after each. BC 27.5 shows six
-    /// (session-system/callstack/CallstackFullText.al:116-122). On 28.5 and 29.0 the main corpus app counts none of
-    /// "Test Runner by Microsoft" (the same file), yet finds (CodeUnit 130450) and (CodeUnit 130454) in the text
-    /// (permissions/testpermissions/BaTpEnv.al:32, BaTpHelper.al:60-80, which the baseline passes on 28.5 and 29.0), and the text of
-    /// those frames is not pinned: the frames stay on every version, so CallstackFullText.al passes on 27.5 only. The two
-    /// corpus files disagree about 28.5 and 29.0 (docs/probes-needed.md has no row: the owner opens the corpus issue).
+    /// The frames of the test runner below the test in a call stack text. BC 27.5 shows six, with a backslash after each
+    /// (session-system/callstack/CallstackFullText.al:116-122). On 28.5 and 29.0 the text counts none of "Test Runner by
+    /// Microsoft" (the same file), yet holds (CodeUnit 130450) and (CodeUnit 130454) (permissions/testpermissions/BaTpEnv.al:32,
+    /// BaTpHelper.al:60-80, passing on 28.5 and 29.0): the frames are there and their text is not pinned, so the tail is
+    /// `RUNNER_FRAMES_UNPINNED`, which a Text method reads only through the facts of `marked_text`. `runner_frames` itself
+    /// (the module list of `Session.GetCallerModuleInfo`) does not depend on the version.
     pub(crate) fn runner_text_frames(&self) -> String {
-        self.runner_frames.clone()
+        if self.runner_frames.is_empty() {
+            return String::new();
+        }
+        match self.engine.target.as_ref() {
+            Some(t) if t.bc.major >= 28 => al_builtins::native::RUNNER_FRAMES_UNPINNED.to_string(),
+            _ => self.runner_frames.clone(),
+        }
     }
 
     /// `ErrorInfo.Callstack` of an error collected now: the live frames, innermost first, a CR LF after each, then the runner's

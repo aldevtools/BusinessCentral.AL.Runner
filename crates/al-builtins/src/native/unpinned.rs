@@ -17,6 +17,14 @@ pub const SQL_COUNT_TEXT_MARK: char = '\u{FDD3}';
 /// Stands for a call stack that exists in BC but is not tracked here.
 pub const UNTRACKED_CALL_STACK: &str = "\u{FDD0}";
 
+/// What stands below the test's own frames in a call stack text on BC 28.5 and later: the frames of the test runner. The first is
+/// the one of "Test Runner - Mgt", code unit 130454 (the corpus tests that cut a call stack at `"Test Runner - Mgt"` pass on real BC
+/// 28.5 and 29.0 and assert the own frames only, and BaTpEnv.al:32 finds `(CodeUnit 130454)` in the text), written as BC writes
+/// the start of a frame; the rest of the text is not pinned and starts with the mark. A Text method reads past it only through
+/// the facts of `marked_text` (code unit 130450 is in the text; 130451, 99903 and "Test Runner by Microsoft" are not).
+pub const RUNNER_FRAMES_UNPINNED: &str =
+    "\"Test Runner - Mgt\"(CodeUnit 130454)\u{FDD0}the runner frames of BC 28 and later";
+
 /// Stands for the text and code of an error BC raises but whose wording the corpus does not pin.
 /// `GetLastErrorText` and `GetLastErrorCode` refuse to answer while it is the last error, so a
 /// test that reads it is not run, and one that only needs the call to fail still passes.
