@@ -27,6 +27,7 @@ Your task prompt holds only the task. Read both files from YOUR worktree: the ma
    Refuse at the start of the shape, never after the test has already observed values.
    A case that was not run before and fails now is a regression.
 4. **Red first.** Write the failing test, run it, keep the output for your report.
+   A corpus case that pins the behaviour is the test: show it red, then green, and prune its not-passing line (CLAUDE.md rule 1).
    For an outside issue the first test is the reporter's repro, unchanged.
    Reproduce the reporter's own repro before you write `Fixes`.
 5. **Leave existing tests alone.** Do not change the input or the expected value of an existing test
