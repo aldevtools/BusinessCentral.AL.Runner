@@ -511,6 +511,10 @@ pub(crate) fn is_property_setter(receiver: &str, name: &str) -> bool {
                 "UseRequestPage" | "Language" | "FormatRegion" | "PrintOnlyIfDetail"
             )
             | ("System", "WorkDate")
+            // `ApplicationArea := '#All,#Basic'` (al-runner issue 7597, the reporter's repro on real BC; assumption
+            // `application-area-assign-is-call`): the call form is pinned by
+            // pages/application-area/TestPageApplicationAreaControlRemoval.al:87-93.
+            | ("Session", "ApplicationArea")
             | ("HttpRequestMessage", "Method" | "Content")
             | (
                 "TestHttpResponseMessage",
@@ -571,6 +575,16 @@ pub(crate) fn is_assign_call(receiver: &str, name: &str) -> bool {
 
 fn sig_tokens(n: &SyntaxNode) -> Vec<ast::GreenTok<'_>> {
     ast::significant_green_tokens(n).collect()
+}
+
+/// Whether the assignment statement `n` is a compound assignment (`+=`, `-=`, `*=`, `/=`).
+fn is_compound_assign(n: &SyntaxNode) -> bool {
+    sig_tokens(n).iter().any(|t| {
+        matches!(
+            t.kind(),
+            SyntaxKind::PlusAssign | SyntaxKind::MinusAssign | SyntaxKind::StarAssign | SyntaxKind::SlashAssign
+        )
+    })
 }
 
 mod assemble;

@@ -6,7 +6,7 @@
 //! page would open is refused: request pages arrive with the page work.
 
 use crate::dataset::{self, Column, Dataset};
-use crate::pages::{RequestClosed, into_st, st_of};
+use crate::pages::{ParamsCall, RequestClosed, into_st, st_of};
 use crate::transactions::TxModel;
 use crate::ui::UiKind;
 use crate::{Session, Signal};
@@ -1907,10 +1907,10 @@ impl Session {
             }
         }
         if let Some(xml) = save_as.filter(|x| !x.is_empty()) {
-            self.apply_run_parameters(inst, schema, &run, xml, false)?;
+            self.apply_run_parameters(inst, schema, &run, xml, ParamsCall::SaveAs)?;
         } else if let Some(xml) = &execute_parameters {
             // An Execute skips a field name no control has (WdReportExecuteParams.al:69-77 WD_ReportExecute_UnknownField).
-            self.apply_run_parameters(inst, schema, &run, xml, true)?;
+            self.apply_run_parameters(inst, schema, &run, xml, ParamsCall::Execute)?;
             // The values land after the request page's OnInit; its OnOpenPage and OnClosePage follow (no OnQueryClosePage), and a
             // control the parameters do not name keeps OnInit's value (reports/request-page/Y12ExecuteOnInit.al:117-143,
             // corpus branch al-runtime-rs-staging-y12, al-runner issue 6446; RptRequestPage.al:878-893). An empty string runs
@@ -3750,15 +3750,15 @@ impl Session {
 
     /// Loads the parameters string of a `SaveAs` into the data items' records, the way a request
     /// page does before the run (reports/TestReportRunRequestPage.al:TestReport_CapturedParameters_
-    /// ReplayThroughSaveAs_FilterTheDataset). Only the text this runtime's `RunRequestPage` hands out
-    /// is understood (`apply_request_parameters`).
+    /// ReplayThroughSaveAs_FilterTheDataset), or of an `Execute`. Which forms of the text are understood,
+    /// per call: `apply_request_parameters` and `ParamsCall`.
     fn apply_run_parameters(
         &mut self,
         inst: &Inst,
         schema: &Schema,
         run: &Run,
         xml: &str,
-        skip_unknown: bool,
+        call: ParamsCall,
     ) -> Result<(), Signal> {
         let engine = self.engine.clone();
         let Some(page) = engine.program.objects[schema.object].page.as_ref() else {
@@ -3778,7 +3778,7 @@ impl Session {
             };
             exts.push((e, ext));
         }
-        self.apply_request_parameters(inst, &exts, schema.object, xml, skip_unknown)
+        self.apply_request_parameters(inst, &exts, schema.object, xml, call)
     }
 
     /// A column bound to a FlowField of the data item's table is calculated for every row before

@@ -5,17 +5,115 @@
 use super::*;
 use al_builtins::describe::Describe;
 
+/// The XML declaration a parameters string starts with: RunRequestPage writes it, and a string without it is not read as XML
+/// by BC (al-runner issue 7590: BC raises an error whose text the corpus does not have).
+pub(crate) const PARAMETERS_DECLARATION: &str = "<?xml version=\"1.0\" standalone=\"yes\"?>";
+
+/// The call that hands a report its parameters string. Each rule that differs between the calls is a method here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ParamsCall {
+    /// `Report.SaveAs`.
+    SaveAs,
+    /// `Report.Execute`.
+    Execute,
+    /// `Report.RunRequestPage(Id, Parameters)`: the seed of the request page.
+    RunRequestPage,
+}
+
+/// What a call does with a `Field` that names no variable a control of the request page shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UnknownField {
+    /// Skipped.
+    Skip,
+    /// Skipped through the assumption `report-saveas-unknown-field-ignored`.
+    SkipAssumed,
+    /// Refused.
+    Refuse,
+}
+
+impl ParamsCall {
+    /// The AL method, for a refusal text.
+    pub(crate) fn method_name(self) -> &'static str {
+        match self {
+            ParamsCall::SaveAs => "Report.SaveAs",
+            ParamsCall::Execute => "Report.Execute",
+            ParamsCall::RunRequestPage => "Report.RunRequestPage",
+        }
+    }
+
+    /// Whether a root without name and id (after the declaration, holding one `<Options>`) is this report's parameters.
+    /// SaveAs: pinned (reports/layouts-saveas/AMRdlcOutput.al:153 with :350 and :372 `REQ:AMREQ42`; AMReportOutputTests.al:24
+    /// with :250 `request_value_in_sheet1`). Execute and RunRequestPage: not pinned (Y64XappRunOrder.al:156 only shows the
+    /// Execute runs; corpus probe ReportParametersBareRoot.al queued).
+    pub(crate) fn accepts_root_without_name(self) -> bool {
+        self == ParamsCall::SaveAs
+    }
+
+    /// Execute skips the name (reports/WdReportExecuteParams.al:69-77 WD_ReportExecute_UnknownField). SaveAs with a root
+    /// without name and id skips it as the reporter measured (al-runner issue 7590, assumed). Everything else is refused.
+    pub(crate) fn unknown_field(self, root_without_name: bool) -> UnknownField {
+        match self {
+            ParamsCall::Execute => UnknownField::Skip,
+            ParamsCall::SaveAs if root_without_name => UnknownField::SkipAssumed,
+            _ => UnknownField::Refuse,
+        }
+    }
+
+    /// Execute skips a data item name the report does not have (corpus PR 886: ExecuteParamsTwiceAndViews.al:217).
+    pub(crate) fn skips_unknown_data_item(self) -> bool {
+        self == ParamsCall::Execute
+    }
+
+    /// Execute applies a view also where the request page hides the filters (session-system/company/Y22CopyCompany.al:301-323:
+    /// report 357 "Copy Company" has `ShowFilter = false` and copies only the company its parameters' view names).
+    pub(crate) fn applies_hidden_view(self) -> bool {
+        self == ParamsCall::Execute
+    }
+}
+
+/// The Options text of a parameters string whose root has no name and id, `None` for a string in another form. Only the form
+/// the corpus and the reporter show is read: the declaration, the bare root holding exactly one `<Options>` element. A data item
+/// view under such a root, or other content, is refused (not pinned).
+pub(crate) fn bare_root_options(xml: &str) -> Option<Result<&str, String>> {
+    let body = xml
+        .strip_prefix(PARAMETERS_DECLARATION)?
+        .strip_prefix("<ReportParameters>")?
+        .strip_suffix("</ReportParameters>")?;
+    if body.contains("<DataItems") {
+        return Some(Err(
+            "a data item view in a parameters string whose root has no name and id (not pinned)".into(),
+        ));
+    }
+    let options = body
+        .strip_prefix("<Options>")
+        .and_then(|b| b.strip_suffix("</Options>"))
+        .filter(|o| !o.contains("<Options"));
+    Some(options.ok_or_else(|| {
+        "a parameters string whose root has no name and id and does not hold exactly one Options element (not pinned)".into()
+    }))
+}
+
 /// The `Field` elements of an Options text, as (name, text). `<Field name="X" />` and `<Field name="X"></Field>` both give an
-/// empty text (Y68SelfClosingParams.al:263-343: RunRequestPage writes the first form for an empty value). Text after the
-/// last element this reads, or an element in another form, ends the list (as before: such texts are not pinned).
-pub(crate) fn option_fields(options: &str) -> Vec<(String, String)> {
+/// empty text (Y68SelfClosingParams.al:263-343: RunRequestPage writes the first form for an empty value). Anything else
+/// between or after the elements (another element, a Field in another form such as single quotes or a second attribute) is
+/// refused, not dropped: no corpus test pins how BC reads it.
+pub(crate) fn option_fields(options: &str) -> Result<Vec<(String, String)>, String> {
     const OPEN: &str = "<Field name=\"";
     const CLOSE: &str = "</Field>";
+    let unread = |rest: &str| {
+        let cut: String = rest.trim().chars().take(60).collect();
+        format!("a part of the parameters Options this runtime cannot read: {cut} (not pinned)")
+    };
     let mut out = Vec::new();
     let mut rest = options;
     while let Some(at) = rest.find(OPEN) {
+        if !rest[..at].trim().is_empty() {
+            return Err(unread(rest));
+        }
         let after = &rest[at + OPEN.len()..];
-        let Some(q) = after.find('"') else { break };
+        let Some(q) = after.find('"') else {
+            return Err(unread(rest));
+        };
         let name = super::request::xml_unescape(&after[..q]);
         let tail = &after[q + 1..];
         if let Some(more) = tail.strip_prefix(" />").or_else(|| tail.strip_prefix("/>")) {
@@ -23,12 +121,22 @@ pub(crate) fn option_fields(options: &str) -> Vec<(String, String)> {
             rest = more;
             continue;
         }
-        let Some(body) = tail.strip_prefix('>') else { break };
-        let Some(end) = body.find(CLOSE) else { break };
+        let Some(body) = tail.strip_prefix('>') else {
+            return Err(unread(rest));
+        };
+        let Some(end) = body.find(CLOSE) else {
+            return Err(unread(rest));
+        };
+        if body[..end].contains('<') {
+            return Err(unread(rest));
+        }
         out.push((name, super::request::xml_unescape(&body[..end])));
         rest = &body[end + CLOSE.len()..];
     }
-    out
+    if !rest.trim().is_empty() {
+        return Err(unread(rest));
+    }
+    Ok(out)
 }
 
 fn is_number(text: &str) -> bool {
