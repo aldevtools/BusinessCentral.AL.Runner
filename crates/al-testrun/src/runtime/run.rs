@@ -337,9 +337,6 @@ fn run_codeunit_inner(
             }
         }
     }
-    // From here until the runner writes its rows for this codeunit (ADR-066 decision 2), AL code that touches the two
-    // tables makes the session's start depend on what they held (`suite_rows::take_unseen`).
-    let rows = super::suite_rows::watch_before(&mut session, scratch.runner, execute || !data_driven.is_empty());
     // What publishing the app does first: run its install codeunits, then commit.
     let skipped_installs = match baseline.and_then(|b| b.workspace_installs.clone()) {
         // Already run once for the whole run, with the baseline.
@@ -390,7 +387,6 @@ fn run_codeunit_inner(
             }
         }
     };
-    super::suite_rows::seen_before(&mut session, rows);
     // SingleInstance state an earlier test codeunit left (ADR-066 amendment 2): notes from here on, and in the lane the
     // single instances of the codeunit before are moved in.
     start_singles(&mut session, execute, moved, scratch.watch);

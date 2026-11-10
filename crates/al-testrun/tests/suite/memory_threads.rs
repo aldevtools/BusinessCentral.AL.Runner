@@ -24,17 +24,16 @@ codeunit 50272 "Memory Threads Count"
 }
 "#;
 
-/// Chain members whose runs ahead are never taken: the OnRun of each takes a number of the install code's sequence (so
+/// Chain members that use SingleInstance state: the OnRun of each takes a number of the install code's sequence (so
 /// it is in the carry chain and keeps the walk's single instances, ADR-066 amendment 8; a member whose tests take the
-/// number runs with fresh ones, amendment 11) and its test reads and writes a SingleInstance global (so the walk cannot
-/// take a run ahead of it).
-fn never_ahead(n: u32) -> String {
+/// number runs with fresh ones, amendment 11) and its test reads and writes a SingleInstance global.
+fn single_chain(n: u32) -> String {
     (0..n)
         .map(|i| {
             let id = 60300 + i;
             format!(
                 r#"
-codeunit {id} "Never Ahead {id}"
+codeunit {id} "Single Chain {id}"
 {{
     Subtype = Test;
     trigger OnRun() var N: BigInteger; begin N := NumberSequence.Next('SHARED'); end;
@@ -51,7 +50,7 @@ codeunit {id} "Never Ahead {id}"
         .collect()
 }
 
-/// Chain members whose runs ahead can be taken (they take numbers only from a sequence of their own), and codeunits
+/// Chain members that take numbers only from a sequence of their own, and codeunits
 /// outside the chain (the parallel part), some of whose tests fail.
 fn mixed() -> String {
     let mut src = String::new();
@@ -166,14 +165,6 @@ fn run(src: &str, opts: &RunOptions) -> CorpusRuntime {
     .expect("the run starts")
 }
 
-/// The test threads the run may use (`AL_TEST_THREADS`, else one per core).
-fn workers() -> usize {
-    std::env::var("AL_TEST_THREADS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get()))
-}
-
 /// A budget of `limit` MB whose resident memory is what `rss` says, in MB, at each read.
 fn budget(limit: u64, hard: bool, rss: impl Fn() -> u64 + Send + Sync + 'static) -> Option<MemoryBudget> {
     Some(MemoryBudget {
@@ -194,18 +185,15 @@ fn outcomes(rt: &CorpusRuntime) -> Vec<(u32, String, String)> {
     v
 }
 
-/// Decision 4: a chain whose runs ahead are never taken gets one helper, which ends once its suite is no longer run
-/// ahead; no second helper starts.
+/// The chain walk runs on one thread: a chain of members that use SingleInstance state starts no second thread.
 #[test]
-fn a_chain_whose_runs_ahead_are_never_taken_uses_at_most_one_helper() {
-    let rt = run(&never_ahead(30), &RunOptions::default());
+fn a_serial_chain_uses_one_thread() {
+    let rt = run(&single_chain(30), &RunOptions::default());
     for r in rt.results() {
         assert_eq!(r.outcome, Outcome::Pass, "{}", r.test);
     }
-    let chain = &rt.phases.chain;
-    assert!(chain.members.iter().all(|m| !m.ahead), "{:?}", chain.members);
     let memory = &rt.phases.memory;
-    assert!(memory.most <= 2, "the walk and one helper at most: {memory:?}");
+    assert!(memory.most <= 1, "the walk's thread only: {memory:?}");
     assert_eq!(memory.at_end, 1, "{memory:?}");
 }
 
@@ -261,10 +249,11 @@ fn outcomes_are_the_same_with_no_budget_one_thread_and_threads_that_end_and_star
     assert_eq!(outcomes(&free), outcomes(&flapping));
     assert_eq!(outcomes(&free), outcomes(&often));
     assert_eq!(free.results().len(), 8 + 2 + 24);
-    if workers() > 2 {
-        let m = &flapping.phases.memory;
-        assert!(m.most > 1 && m.ended > 0, "threads started and ended: {m:?}");
-    }
+    // Whether threads start and end again here used to show in `most` and `ended`, because the chain's helper threads
+    // started and ended with the flapping reads. The chain walk has no helpers any more (ADR-070, step 1), and the
+    // parallel part's few codeunits learn their cost from one early spike, so which threads start is not stable here.
+    // `memory.rs` and `threads.rs` unit tests pin when a thread starts and ends; the memory ADR (ADR-070, step 5)
+    // re-specifies this run.
 }
 
 /// Decision 6: a hard limit stops the run before the resident memory passes it. Tests that finished keep their

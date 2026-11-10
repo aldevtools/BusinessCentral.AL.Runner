@@ -1,19 +1,14 @@
-//! ADR-066 amendment 8: the carry chain's walk keeps the SingleInstance state from member to member, so it takes a run
-//! ahead (fresh single instances, another thread) only when that run read and wrote no watched global. In a chain whose
-//! members all use a SingleInstance global, every run ahead is dropped and the member runs again on the walk's thread.
-//! Such runs only cost: the helper threads hold their own copy of the install baseline and run a session each next to
-//! the walk's (the edge gate measured +10 to +20 % peak memory on Microsoft's SCM and ERM suites). The walk stops
-//! running a suite ahead once it dropped more such runs than it took, as it does for wrong predictions (`MISSES`).
+//! ADR-066 amendment 8: the carry chain's walk keeps the SingleInstance state from member to member (serial, ADR-070).
 //!
 //! ADR-066 amendment 11, option 1: a member that is in the chain only because its tests take numbers
-//! (`ChainWhy::TestsTakeNumbers`) runs with fresh single instances, in the walk and ahead, as codeunits outside the chain
-//! do. Its runs ahead are taken whatever SingleInstance state they read, and its order dependence is flagged and run
-//! again in the lane as amendments 4, 5 and 7 say. A member whose OnRun takes the number keeps amendment 8.
+//! (`ChainWhy::TestsTakeNumbers`) runs with fresh single instances in the walk, as codeunits outside the chain do. Its
+//! order dependence is flagged and run again in the lane as amendments 4, 5 and 7 say. A member whose OnRun takes the
+//! number keeps amendment 8.
 
 use al_builtins::assumptions::Assumption;
 use al_sema::workspace::AppSource;
 use al_testrun::Outcome;
-use al_testrun::runtime::{ChainWhy, CorpusRuntime, Manifest, RunOptions, SerialWhy, SuiteRun};
+use al_testrun::runtime::{ChainWhy, CorpusRuntime, Manifest, RunOptions, SuiteRun};
 
 const BASE: &str = r#"
 codeunit 50261 SinglesAheadInstaller
@@ -38,7 +33,7 @@ codeunit 50263 "Singles Ahead Flag"
 
 /// Chain members: each takes a number of the install code's sequence (so it is in the carry chain and hands the number
 /// on) and reads and writes the SingleInstance count. Each passes in any order. With `in_onrun` the OnRun trigger takes
-/// the number (`ChainWhy::OnRunWritesState`: the walk keeps the single instances, so no run ahead of it can be taken);
+/// the number (`ChainWhy::OnRunWritesState`: the walk keeps the single instances);
 /// otherwise the test does (`ChainWhy::TestsTakeNumbers`: fresh single instances, amendment 11).
 const MEMBERS: u32 = 40;
 
@@ -63,8 +58,6 @@ codeunit {id} "Singles Ahead {id}"
     [Test] procedure Bumps{id}()
     var I: Integer; N: BigInteger; W: BigInteger; S: Codeunit "Singles Ahead Count";
     begin
-        // Some work, so that the helper threads have time to run ahead of the walk.
-        for I := 1 to 50000 do W += I;
         {take}
         S.Bump();
     end;
@@ -119,16 +112,8 @@ fn manifest(p: &str) -> Manifest {
     }
 }
 
-/// The test threads the run uses (`AL_TEST_THREADS`, else one per core).
-fn workers() -> usize {
-    std::env::var("AL_TEST_THREADS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get()))
-}
-
 #[test]
-fn a_chain_whose_runs_ahead_read_single_instance_state_stops_running_ahead() {
+fn a_chain_whose_members_use_single_instance_state_keeps_it_from_member_to_member() {
     let rt = run(
         &source(true),
         &RunOptions {
@@ -151,38 +136,18 @@ fn a_chain_whose_runs_ahead_read_single_instance_state_stops_running_ahead() {
         chain.members
     );
     assert_eq!(chain.singles_kept, MEMBERS as usize, "{:?}", chain);
-    // No run ahead can be taken: each read and wrote the count.
-    assert!(chain.members.iter().all(|m| !m.ahead), "{:?}", chain.members);
-    if workers() > 2 {
-        let dropped = chain
-            .not_ahead
-            .iter()
-            .filter(|m| m.why == SerialWhy::NotRebuilt)
-            .count();
-        assert!(
-            chain.not_ahead.iter().any(|m| m.why == SerialWhy::GaveUp),
-            "the helpers ran every member ahead ({dropped} runs dropped): {:?}",
-            chain.not_ahead.iter().map(|m| (m.id, m.why)).collect::<Vec<_>>()
-        );
-    }
 }
 
-/// ADR-066 amendment 11, option 1: members that are in the chain only for the numbers their tests take run ahead
-/// although they read and write SingleInstance state. Waiting for the helpers, every member after the first runs ahead
-/// (as in `chain_speculate.rs`). Each first access of the count is `Count += 1`, a write under amendment 3, R1, so no
+/// ADR-066 amendment 11, option 1: members that are in the chain only for the numbers their tests take run with fresh
+/// single instances although they read and write SingleInstance state. Each first access of the count is `Count += 1`, a write under amendment 3, R1, so no
 /// member is order dependent: none is flagged and none runs again (the SingleInstance handling of codeunits outside
 /// the chain, not amendment 8's).
 #[test]
-fn numbers_only_members_run_ahead_although_they_read_single_instance_state() {
-    if workers() < 2 {
-        // No helper thread.
-        return;
-    }
+fn numbers_only_members_run_with_fresh_single_instances_although_they_read_single_instance_state() {
     let rt = run(
         &source(false),
         &RunOptions {
             strict_order: true,
-            chain_wait_for_runs_ahead: true,
             ..Default::default()
         },
     );
@@ -200,8 +165,6 @@ fn numbers_only_members_run_ahead_although_they_read_single_instance_state() {
         "{:?}",
         chain.members
     );
-    let serial: Vec<(u32, SerialWhy)> = chain.not_ahead.iter().map(|m| (m.id, m.why)).collect();
-    assert_eq!(serial, vec![(60260, SerialWhy::Closed)], "{:?}", chain.lines());
     assert_eq!(chain.single_lane.rerun, 0, "{:?}", chain.single_lane);
     let flagged = rt
         .results()
