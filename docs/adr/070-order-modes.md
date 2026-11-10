@@ -43,9 +43,20 @@ Two modes. No speculation in either.
    defines: the suite and hub leg, or each line of `--test-suites`. Its codeunits run one after the other on one thread,
    in BC's order. SingleInstance state, database rows, sequence values and isolated storage move from codeunit to
    codeunit. Different BC sessions run in parallel with each other; that is the only parallelism, as on BC. The result is
-   exact by construction (P7, `al-language/codeunits/TestCuP7BReader.al:24-37`). It needs no flag on passes. A later codeunit
-   of a session that ran after a refused test, or after a test stopped by the time limit, is marked as a flagged pass
-   ("state is not BC's"), because that session's state is no longer BC's. Documented: `--strict-order` runs each BC session
+   exact by construction (P7, `al-language/codeunits/TestCuP7BReader.al:24-37`). It needs no flag on passes. A session stops being exactly BC's when
+   a test is refused while it ran, a time limit stops a test, no test of a codeunit ran, or a codeunit panics (the last two
+   added by the owner, 2026-11-10; a test refused before it started is a static refusal and does not stop the session). A
+   later codeunit of that session is then marked as a flagged pass ("state is not BC's") only when its static reach can
+   read what the stopped codeunit's reach could have changed (`ReachFacts::changes_read_by`, the analysis a failure after a
+   refused test already uses; owner, 2026-11-10: "narrow the flag by reach"). Tables count only for a stopped codeunit whose
+   database changes stay (Disabled isolation or an OnRun carry); under Codeunit isolation the rollback undoes them, as on BC.
+   A stopped codeunit whose reach is not fully known may have changed anything, so every later codeunit is flagged. A
+   flagged codeunit may have written wrong values itself, so its reach counts as changed for the codeunits after it too.
+   Measured with the narrowing (2026-11-10): the flag count did not fall, 1,481 of 1,483 passes on Tests-ERM-Purchase and
+   23,333 of 26,012 on the whole corpus (23,220 of 25,758 before). Every one of the 23 stopped codeunits of Tests-ERM-Purchase
+   reaches a routine the runtime refuses (a `RunOnClient` variable, a page that is not in the program), so its reach is
+   unknown and flags every later codeunit. A test refused while it ran has this by construction.
+   Documented: `--strict-order` runs each BC session
    on one thread. The run states its mode (`orderMode: bc`).
 
 ### The eight decisions

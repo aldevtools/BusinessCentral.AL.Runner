@@ -250,42 +250,119 @@ fn each_test_suites_line_is_a_session_in_the_files_order() {
     assert_eq!(rt.results().len(), 6, "each codeunit is reported once");
 }
 
-/// A test refused while it ran leaves state BC would not have: the later codeunits of its session are flagged, the
-/// earlier ones and other sessions are not.
-#[test]
-fn codeunits_after_a_test_refused_while_it_ran_are_flagged_in_that_session_only() {
-    let refusing = r#"
+/// A codeunit with one test that sets the SingleInstance flag and then is refused while it runs (`Sleep(-1)`).
+const REFUSING: &str = r#"
 codeunit 60652 "Seq Refusing"
 {
     Subtype = Test;
     [Test] procedure PassesFirst() var S: Codeunit "Seq State"; begin S.SetFlag('x'); end;
-    [Test] procedure IsRefusedWhileItRuns() begin Sleep(-1); end;
+    [Test] procedure IsRefusedWhileItRuns() var S: Codeunit "Seq State"; begin S.SetFlag('y'); Sleep(-1); end;
 }
 "#;
-    let lenient = |id: u32| {
-        format!(
-            r#"
+
+fn lenient(id: u32) -> String {
+    format!(
+        r#"
 codeunit {id} "Seq Lenient {id}"
 {{
     Subtype = Test;
     [Test] procedure Lenient{id}() begin end;
 }}
 "#
-        )
-    };
-    let src = [lenient(60651), refusing.to_string(), lenient(60653), lenient(60654)].concat();
-    let rt = run(&src, &suites("A: 60651 60652 60653\nB: 60654\n"));
+    )
+}
+
+/// A codeunit whose test reads the flag and bumps the count of the SingleInstance codeunit.
+fn flag_reader(id: u32) -> String {
+    format!(
+        r#"
+codeunit {id} "Seq Flag Reader {id}"
+{{
+    Subtype = Test;
+    [Test] procedure Reads{id}() var S: Codeunit "Seq State"; N: Integer; begin if S.GetFlag() = 'never' then Error('no'); N := S.Bump(); end;
+}}
+"#
+    )
+}
+
+fn flagged(rt: &CorpusRuntime, t: &str) -> bool {
+    result(rt, t).assumptions.contains(&Assumption::StrictAfterRefused)
+}
+
+/// A test refused while it ran may have left state BC would not have: a later codeunit of its session whose reach can read
+/// what the refused test could have changed is flagged. One that cannot, earlier ones and other sessions are not.
+#[test]
+fn only_codeunits_that_can_read_what_the_refused_test_changed_are_flagged_in_that_session() {
+    let src = [
+        lenient(60651),
+        REFUSING.to_string(),
+        flag_reader(60653),
+        flag_reader(60654),
+        lenient(60655),
+    ]
+    .concat();
+    let rt = run(&src, &suites("A: 60651 60652 60653 60655\nB: 60654\n"));
     assert!(
         matches!(result(&rt, "IsRefusedWhileItRuns").outcome, Outcome::NotRun(_)),
         "{:?}",
         rt.results()
     );
-    let flagged = |t: &str| result(&rt, t).assumptions.contains(&Assumption::StrictAfterRefused);
-    assert!(!flagged("Lenient60651"), "before the refused test");
-    assert!(!flagged("PassesFirst"), "the codeunit of the refused test itself");
-    assert!(flagged("Lenient60653"), "after it, same session");
-    assert_eq!(result(&rt, "Lenient60653").outcome, Outcome::Pass);
-    assert!(!flagged("Lenient60654"), "another session");
+    assert!(!flagged(&rt, "Lenient60651"), "before the refused test");
+    assert!(!flagged(&rt, "PassesFirst"), "the codeunit of the refused test itself");
+    assert!(flagged(&rt, "Reads60653"), "it reads the flag the refused test sets");
+    assert_eq!(result(&rt, "Reads60653").outcome, Outcome::Pass);
+    assert!(
+        !flagged(&rt, "Lenient60655"),
+        "it reads nothing the refused test could change"
+    );
+    assert!(!flagged(&rt, "Reads60654"), "another session");
+}
+
+/// What a flagged codeunit writes may be wrong too, so a later codeunit that reads it is flagged: the flag reader bumps the
+/// count, and a codeunit that only bumps the count is flagged after it, though the refused test never touched the count.
+#[test]
+fn a_flagged_codeunit_taints_what_it_writes() {
+    let bumper = r#"
+codeunit 60662 "Seq Bumper"
+{
+    Subtype = Test;
+    [Test] procedure OnlyBumps() var S: Codeunit "Seq State"; N: Integer; begin N := S.Bump(); end;
+}
+"#;
+    let src = [
+        REFUSING.to_string(),
+        flag_reader(60653),
+        bumper.to_string(),
+        lenient(60663),
+    ]
+    .concat();
+    let rt = run(&src, &sequential());
+    assert!(flagged(&rt, "Reads60653"));
+    assert!(
+        flagged(&rt, "OnlyBumps"),
+        "it reads the count the flagged codeunit wrote"
+    );
+    assert!(!flagged(&rt, "Lenient60663"));
+}
+
+/// A refused test whose reach is not known (a codeunit run by an id known only at run time) may have changed anything:
+/// every later codeunit of its session is flagged.
+#[test]
+fn a_refused_test_with_an_unknown_reach_flags_every_later_codeunit() {
+    let refusing = r#"
+codeunit 60672 "Seq Unknown Reach"
+{
+    Subtype = Test;
+    [Test] procedure RunsAnythingThenIsRefused() var Id: Integer; begin Id := 50000; if Id = 1 then Codeunit.Run(Id); Sleep(-1); end;
+}
+"#;
+    let src = [refusing.to_string(), lenient(60673)].concat();
+    let rt = run(&src, &sequential());
+    assert!(matches!(
+        result(&rt, "RunsAnythingThenIsRefused").outcome,
+        Outcome::NotRun(_)
+    ));
+    assert!(flagged(&rt, "Lenient60673"));
 }
 
 /// The default of `strict_order` is unchanged: without the internal option the chain holds only what it did before.
@@ -309,12 +386,12 @@ fn codeunits_after_a_test_stopped_by_the_time_limit_are_flagged() {
 codeunit 60671 "Seq Slow"
 {
     Subtype = Test;
-    [Test] procedure RunsOutOfTime() begin Sleep(5000); end;
+    [Test] procedure RunsOutOfTime() var S: Codeunit "Seq State"; begin S.SetFlag('slow'); Sleep(5000); end;
 }
 codeunit 60672 "Seq After Slow"
 {
     Subtype = Test;
-    [Test] procedure RunsAfterTheTimeLimitStop() begin end;
+    [Test] procedure RunsAfterTheTimeLimitStop() var S: Codeunit "Seq State"; begin if S.GetFlag() = 'never' then Error('no'); end;
 }
 "#;
     let rt = run(
@@ -342,7 +419,7 @@ fn a_plain_codeunit_that_is_not_run_as_a_whole_flags_the_later_ones_but_does_not
 codeunit 60681 "Seq Not Run"
 {
     Subtype = Test;
-    [Test] procedure RefusedAsAWhole() begin Sleep(-1); end;
+    [Test] procedure RefusedAsAWhole() var N: BigInteger; begin N := NumberSequence.Next('SEQ'); Sleep(-1); end;
 }
 codeunit 60682 "Seq Reads Numbers After"
 {

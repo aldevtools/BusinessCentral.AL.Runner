@@ -143,9 +143,10 @@ impl ChainWalk<'_> {
         let mut carried: Vec<Carry> = Vec::new();
         let keep = self.keep_singles;
         let mut singles = KeptSingles::default();
-        // Sequential: an earlier member of the session stopped (a test refused while it ran, a time-limit stop, a codeunit
-        // not run as a whole): the state the later members start from is not BC's (`strict_walk::stops_session`).
-        let mut unsure = false;
+        // Sequential: what the members that stopped (a test refused while it ran, a time-limit stop, a codeunit not run as
+        // a whole) and the ones flagged after them could have changed: a later member that can read it is flagged
+        // (`strict_taint.rs`).
+        let mut taint = super::strict_taint::Taint::default();
         super::run::CARRIED.with(|c| c.borrow_mut().take());
         if keep {
             super::run::LANE_SINGLES.with(|c| *c.borrow_mut() = Some(None));
@@ -193,16 +194,12 @@ impl ChainWalk<'_> {
                     let mut left = super::run::CARRIED.with(|c| c.borrow_mut().take());
                     let plain = self.sequential && super::strict_walk::leaves_nothing(&units[k]);
                     if self.sequential {
-                        if unsure {
-                            super::strict_walk::flag_after_refused(&mut r);
-                        }
-                        let stops = super::strict_walk::stops_session(&r);
+                        super::strict_walk::after_run(&mut taint, engine, lowered, &units[k], &mut r);
                         // A codeunit whose tests roll back and whose OnRun cannot write leaves nothing in the database even
-                        // when it was not run: the later codeunits are flagged (`unsure`), not refused.
+                        // when it was not run: the later codeunits are flagged when they can read what it changed, not refused.
                         if plain && left.is_none() {
                             left = Some(super::run::Carried::nothing());
                         }
-                        unsure |= stops;
                     }
                     let reads = if keep_member {
                         singles.left(k, &r, report)
@@ -252,7 +249,9 @@ impl ChainWalk<'_> {
                     })
                 }
                 Link::Refused(oi, why) => {
-                    unsure = true;
+                    if self.sequential {
+                        taint.add(&super::strict_taint::unit_facts(engine, lowered, oi), true);
+                    }
                     report.members.push(super::ChainEntry {
                         id,
                         name: name_of(oi),

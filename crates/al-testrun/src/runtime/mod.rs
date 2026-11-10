@@ -1006,6 +1006,7 @@ mod runner_reset;
 mod session_flags;
 mod single_fresh;
 mod single_lane;
+mod strict_taint;
 mod strict_walk;
 mod suite_rows;
 #[cfg(test)]

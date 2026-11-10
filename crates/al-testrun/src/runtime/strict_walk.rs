@@ -47,6 +47,29 @@ pub(super) fn flag_after_refused(r: &mut UnitResult) {
     }
 }
 
+/// A unit of a sequential walk ran (`r`): flags it when it can read what the stopped or flagged units before it could have
+/// changed (`strict_taint.rs`), and notes it there when it stopped the session or was flagged.
+pub(super) fn after_run(
+    taint: &mut super::strict_taint::Taint,
+    engine: &Arc<al_vm::Engine>,
+    lowered: &al_sema::lower::Lowered,
+    u: &Unit,
+    r: &mut UnitResult,
+) {
+    let stops = stops_session(r);
+    if !stops && !taint.active() {
+        return;
+    }
+    let facts = super::strict_taint::unit_facts(engine, lowered, u.oi);
+    let flagged = taint.active() && taint.reaches(&facts, lowered);
+    if flagged {
+        flag_after_refused(r);
+    }
+    if stops || flagged {
+        taint.add(&facts, !leaves_nothing(u));
+    }
+}
+
 /// The walks of a run, one per BC session: each `Item` list is in BC's order. `refused` are the codeunits with
 /// RequiredTestIsolation = Disabled that are not run (`Link::Refused`), at their place in the hub leg of their suite.
 pub(super) fn groups(
