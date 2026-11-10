@@ -185,7 +185,7 @@ impl Session {
         let Some(Value::TestControl(c)) = args.first() else {
             return unsupported(format!("TestRequestPage.{how} without a control"));
         };
-        let ControlTarget::Control(idx) = c.target else {
+        let ControlTarget::Control(idx) = control_of(c).target else {
             return unsupported(format!("TestRequestPage.{how} on a built-in control"));
         };
         let wanted = args.get(1).cloned().unwrap_or(Value::Null);
@@ -326,7 +326,7 @@ impl Session {
         if self.request_page_init_done(inst) {
             st.borrow_mut().inited = true;
         }
-        inst.borrow_mut().globals[page.curr_page_slot] = Value::TestPage(st.clone());
+        inst.borrow_mut().globals[page.curr_page_slot] = page_value(&st);
         // Each reportextension that extends the request page runs on an instance of its own: the
         // one the run uses when it is the extension that changes the run, so that what a handler
         // writes into the extension's variables is what its triggers read.
@@ -354,7 +354,7 @@ impl Session {
         // (reports/TestProbeReportContracts.al:RequestPage_TableWriteInsideHandler; reports/TestReportInstanceRunReqPage.al
         // writes a log row from OnOpenPage).
         let outer = std::mem::replace(&mut self.report.request_only_page, want_parameters);
-        let handled = self.call(hobject, hroutine, hinst, vec![Value::TestPage(st.clone())]);
+        let handled = self.call(hobject, hroutine, hinst, vec![page_value(&st)]);
         self.report.request_only_page = outer;
         self.ui_state.page_handler_depth -= 1;
         if let Err(e) = handled {

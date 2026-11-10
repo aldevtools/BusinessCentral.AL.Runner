@@ -178,12 +178,14 @@ pub trait Ctx: FormatCtx {
     fn xrec_holds_blob(&self, _b: &crate::stream::BlobRef) -> bool {
         false
     }
-    /// `Clear` of a TestPage variable that is open or waits for `Trap()`: closes it without running anything and drops its
-    /// trap, or refuses the shapes that are not pinned (al-vm `pages/clear_test_page.rs`).
+    /// `Clear` of a TestPage or Page variable: the fresh, closed page of the same object the variable holds afterwards. A
+    /// page that is open or waits for `Trap()` is closed first without running anything and loses its trap, or the shapes
+    /// that are not pinned are refused (al-vm `pages/clear_test_page.rs`). The page state belongs to the VM (ADR-072
+    /// decision 3): a context without a page client refuses.
     fn clear_test_page(
         &mut self,
-        _st: &std::rc::Rc<std::cell::RefCell<crate::value::PageState>>,
-    ) -> Result<(), Signal> {
+        _page: &crate::page_handle::PageHandle,
+    ) -> Result<crate::page_handle::PageHandle, Signal> {
         Err(Signal::Unsupported(
             "Clear of a TestPage that is open, trapping or a part (not pinned)".into(),
         ))
