@@ -427,6 +427,12 @@ impl Engine {
                         .map(|(i, _)| i)
                         .collect()
                 }),
+                insert_unqueued: o.table.as_ref().is_none_or(|t| {
+                    t.fields.iter().any(|f| {
+                        f.auto_increment
+                            || matches!(f.ty, RtType::Library(al_builtins::library_kind::LibraryKind::Blob))
+                    })
+                }),
                 code_sql_type: o.table.as_ref().is_some_and(|t| {
                     t.fields.iter().any(|f| {
                         matches!(f.ty, RtType::Code(_))
@@ -2745,6 +2751,8 @@ pub(crate) struct TableFacts {
     pub(crate) sql_timestamp: Vec<usize>,
     /// Some Code field declares an `SQLDataType` other than `Varchar`: a write checks its value.
     pub(crate) code_sql_type: bool,
+    /// The table has a Blob field or an AutoIncrement field: its Inserts are not queued (`records/insert_buffer.rs`).
+    pub(crate) insert_unqueued: bool,
 }
 
 /// The shared storage of an array value.
