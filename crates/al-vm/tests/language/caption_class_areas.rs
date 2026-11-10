@@ -148,17 +148,14 @@ fn an_expression_runs_per_read_and_its_result_is_resolved() {
     );
 }
 
-/// An expression result whose area is not a number is not pinned: refused.
+/// An expression result whose area is not a number, and that no subscriber resolves, stays as written
+/// (record/captions/CaptionExpressionPlainText.al:238 `nonnumeric=Zed,some text`).
 #[test]
-fn an_expression_result_with_an_area_that_is_not_a_number_is_refused() {
+fn an_expression_result_with_an_area_that_is_not_a_number_stays_as_written() {
     let src = format!(
         "{OBJECTS}\ncodeunit 50409 T {{ procedure F(): Text var R: Record CapRow; begin exit(R.FieldCaption(ExprArea)); end; }}"
     );
-    let r = al_testkit::run_in(&src, "T", "F");
-    assert!(
-        matches!(&r, Err(al_builtins::native::Signal::Unsupported(w)) if w.contains("not a number")),
-        "{r:?}"
-    );
+    assert_eq!(text(al_testkit::run_in(&src, "T", "F")), "AB,x");
 }
 
 /// Every such open marks page-open-caption-class-empty-record-count: the number of empty-record runs is no oracle (owner 2026-10-21).

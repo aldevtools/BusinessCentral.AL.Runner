@@ -470,7 +470,7 @@ impl Session {
                 // The getter answers what the next Run does; the setter overrides the report's own
                 // property in both directions (reports/TestReportRuntimeContracts.al:416-440).
                 let Some(Value::Boolean(b)) = args.first() else {
-                    return Ok(Value::Boolean(Self::report_shows_page(&inst, &schema)?));
+                    return self.use_request_page_getter(&inst, &schema);
                 };
                 inst.borrow_mut().globals[slot] = Value::Integer(if *b { REQUEST_PAGE_ON } else { REQUEST_PAGE_OFF });
                 Ok(Value::Null)
@@ -582,7 +582,7 @@ impl Session {
                 // For the static RunModal only `true` on a report that shows its page, and `false` hiding the page, are
                 // pinned (reports/TestReportRequestPageSaveValues.al:211, reports/runtime/TestReportRunExecution.al:152). `true` on a
                 // report declaring `UseRequestPage = false` is refused, and what `CurrReport.UseRequestPage()` answers in a
-                // run of `RunModal(id, false)` is not pinned: the getter is refused there.
+                // run of `RunModal(id, false)` is pinned in OnPreReport only (`use_request_page_getter`).
                 if id == ids::REPORT_RUNMODAL_3
                     && explicit == Some(true)
                     && schema.report().use_request_page == Some(false)
@@ -4684,7 +4684,7 @@ mod ignored_output_tests;
 /// property decides.
 const REQUEST_PAGE_ON: i32 = 1;
 const REQUEST_PAGE_OFF: i32 = 2;
-/// The page is hidden, but what the getter answers is not pinned (a static `RunModal(id, false)`): the getter is refused.
+/// The page is hidden by a static `RunModal(id, false)`: the getter is pinned in OnPreReport only, and refused elsewhere.
 const REQUEST_PAGE_OFF_UNPINNED_GETTER: i32 = 3;
 /// After an `Execute` of a variable whose `UseRequestPage` was set: what the getter answers is not pinned
 /// (reports/PnH2UseRp.al:389 pins only the variable never set), so it is refused.

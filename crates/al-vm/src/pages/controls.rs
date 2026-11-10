@@ -311,7 +311,8 @@ impl Session {
         self.save_parts_before_host_edit(st)?;
         self.save_host_before_part_edit(st)?;
         // OnBefore/AfterValidate of `modify` wrap the control's OnValidate on a field-bound control (pageextensiontrigger/TestModified
-        // ControlValidateTriggers_Tests.al); on a variable-bound request page control OnAfterValidate alone (6651, Y64LocalProcNames.al:445).
+        // ControlValidateTriggers_Tests.al); on a variable-bound request page control OnAfterValidate alone (6651, Y64LocalProcNames.al:445);
+        // on a variable-bound control of a Card both (`ext_validate_on_variable_pinned`).
         let ext_validate = |name: &str| -> Vec<(usize, usize)> {
             ctl.ext_triggers
                 .iter()
@@ -320,7 +321,10 @@ impl Session {
                 .collect()
         };
         let (ext_before, ext_after) = (ext_validate("onbeforevalidate"), ext_validate("onaftervalidate"));
-        if !rec_bound && unpinned_ext_validate(&ext_before, &ext_after, self.is_request_page(st)) {
+        if !rec_bound
+            && !self.ext_validate_on_variable_pinned(st)
+            && unpinned_ext_validate(&ext_before, &ext_after, self.is_request_page(st))
+        {
             return unsupported("OnBeforeValidate/OnAfterValidate on a control bound to a variable (not pinned)");
         }
         // With a table OnValidate: the table's validation (its events and OnValidate) first, then the page's
@@ -1947,6 +1951,20 @@ fn unpinned_ext_validate(before: &[(usize, usize)], after: &[(usize, usize)], re
 }
 
 impl Session {
+    /// OnBeforeValidate and OnAfterValidate of `modify` blocks on a control bound to a page variable, on a Card opened as a
+    /// TestPage: the extensions' OnBeforeValidate in extension order, the control's own OnValidate when it has one, then the
+    /// extensions' OnAfterValidate (corpus pages/extensions/W2ExtModify.al:367-386 Validate_VariableControl `low.before.VarName(first);
+    /// high.before.VarName(first);page.VarName(first);low.after.VarName(first);high.after.VarName(first);`, :388-401
+    /// Validate_VariableControlWithoutOwnTrigger; BC 27.5, 28.5 and 29.0; al-runner issue 7372). A page run modally (the
+    /// StandardDialog of the issue, set from a ModalPageHandler), a part and every other page type are not pinned yet (corpus
+    /// probe pages/extensions/ModifyVariableControlOnDialog.al).
+    fn ext_validate_on_variable_pinned(&self, st: &St) -> bool {
+        let s = st.borrow();
+        !s.modal
+            && s.host.is_none()
+            && self.engine.object_facts[s.object as usize].page_type == Some(al_ir::PageType::Card)
+    }
+
     /// Cancel of a list with OnFindRecord that the static Page.RunModal opened in lookup mode finds the current row again (`=`) and
     /// reads it before it closes; the record is left on that row (corpus branch al-runtime-rs-staging-r6962,
     /// pages/run-modal/StaticRunModalFindRecordLookup.al StaticRunModalZero_FilteredNotPositioned_Cancel

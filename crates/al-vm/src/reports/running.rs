@@ -24,3 +24,24 @@ impl Session {
         ))
     }
 }
+
+impl Session {
+    /// The `UseRequestPage()` getter: what the next Run does (`report_shows_page`). Read in OnPreReport, or in a procedure it
+    /// calls, of a report a static `RunModal(id, false)` runs: false, for the two and the three argument form (corpus reports/request-page/P147UseRequestPagePreGet.al:93-131
+    /// PW_Urp_PreGet_RunModalWithoutRequestPage `trace 1` and `trace 2` = `OnInitReport;OnPreReport;get=No;`; BC 27, 28 and 29;
+    /// al-runner issue 7413). The static Run and a variable's `UseRequestPage(false)` answer false through the flag itself
+    /// (:65-80, `trace 3`; reports/bare-report-member/Y36BareReportMember.al:220-282). In every other trigger of that run the
+    /// read is not pinned (corpus probe reports/bare-report-member/UseRequestPageReadInTriggers.al).
+    pub(super) fn use_request_page_getter(&self, inst: &Inst, schema: &Schema) -> Result<Value, Signal> {
+        let slot = schema.report().request_flag_slot;
+        if matches!(self.report.report_trigger, Some((_, TrigKind::Pre)))
+            && matches!(
+                inst.borrow().globals[slot],
+                Value::Integer(REQUEST_PAGE_OFF_UNPINNED_GETTER)
+            )
+        {
+            return Ok(Value::Boolean(false));
+        }
+        Ok(Value::Boolean(Self::report_shows_page(inst, schema)?))
+    }
+}
