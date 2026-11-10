@@ -320,11 +320,6 @@ impl Session {
         }
         // A related table the baseline could not fill may hold the row in BC.
         self.unseeded_read(&related, false, "the TableRelation check")?;
-        self.login_guard_table(
-            related.object,
-            "the TableRelation check",
-            crate::records::Addressed::Filters(&filters),
-        )?;
         Err(Signal::Error(Box::new(AlError {
             message: format!(
                 "The field {} of table {} contains a value ({}) that cannot be found in the related table ({}).",

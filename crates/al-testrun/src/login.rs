@@ -10,12 +10,34 @@
 //! test registering it (:137-138, :146-147, :161, :164), the checklist counts as set up (:139, :148), and the second test
 //! sees no further raise (:159-163).
 //!
-//! The runtime raises the login by running the dependency apps' Company Triggers `OnCompanyOpenCompleted` subscribers
-//! with the apps under test's own (`install::test_session_company_open`), the real code of Microsoft's apps. It does so
-//! for a test codeunit that can see what an app under test's subscriber to one of the two events leaves
-//! ([`decide`]); otherwise those subscribers stay out of the test session, as before, and a read of a table the login
-//! would add rows to is refused (`Login::Skip`). What the login writes stays
-//! in the session, committed before the first test. Microsoft's code that cannot run here refuses the codeunit.
+//! The runtime models the login in one of three ways ([`decide`]), before the first test, and what it writes stays in the
+//! session, committed:
+//! - **Raise**: for a test codeunit that can see what an app under test's login subscriber leaves, the dependency apps'
+//!   Company Triggers `OnCompanyOpenCompleted` subscribers run with the apps under test's own
+//!   (`install::test_session_company_open`): the real code of Microsoft's apps, which raises both events. Microsoft's
+//!   code that cannot run here refuses the codeunit.
+//! - **Own**: otherwise, in the session the pin measured (a Web client with GuiAllowed), the apps under test's own
+//!   subscribers to the two events run in the test session itself, in the order the login raises them, where
+//!   "System Initialization Impl." would raise the login ([`LOGIN_RAISER`]). What they leave is there in every form (rows,
+//!   AutoIncrement counters, number sequences, isolated storage, the session language, SingleInstance state, what the
+//!   events they raise leave), as in BC. A subscriber that cannot run refuses the codeunit, as on the Raise path.
+//! - **Own, watched**: in a session the pin does not cover, the same subscribers run, and what BC does there is not
+//!   known: a session without a client (`--no-client`), where which login events BC raises is not pinned, and
+//!   RequiredTestIsolation = Disabled, where how the login's writes meet what an earlier codeunit left is not pinned
+//!   (the reason `run.rs` does not run such a codeunit whose session raised the login). A test that reads or writes a
+//!   table they wrote, through any path, is not run (the store's watch, `install::CompanyOpenWrites`); when they changed
+//!   the session language, WorkDate, a number sequence or isolated storage, the codeunit is not run.
+//!
+//! What is still not modelled, in one list:
+//! - What Microsoft's own login code adds around the app's subscribers (the rows of Microsoft's own subscribers to the two
+//!   events, the checklist setup, `SystemInitialization.IsInProgress()` answering true inside the login) is there only
+//!   on the Raise path. [`decide`] raises the login for a test codeunit whose static reach can see the tables or the
+//!   state the app's subscribers leave; another one that reads what only Microsoft's login code leaves runs without it.
+//! - Own: that the subscribers leave alone what they leave inside the login (another subscriber of the same event can
+//!   change what they find) is a documentation-only premise (docs/probes-needed.md).
+//! - Own, watched, in a session without a client: SingleInstance state the subscribers leave is refused only where
+//!   [`decide`] sees the test codeunit read a global of a codeunit they hold (the login is then raised, and Microsoft's
+//!   login code refuses there: it asks CurrentClientType).
 
 use crate::runtime::written::{
     ReachIndex, login_subscriber_reach_facts, union_call_reach_facts, union_reach_facts_skipping,
@@ -26,44 +48,44 @@ use al_vm::Engine;
 use al_vm::events::Registry;
 use std::collections::BTreeSet;
 
-/// Whether the test session of a test codeunit raises the login ([`decide`]).
+/// How the test session of a test codeunit models the login ([`decide`]).
 pub(crate) enum Login {
-    /// The login is raised before the first test.
+    /// No app under test subscribes to a login event: nothing to model.
+    None,
+    /// The login is raised before the first test, through Microsoft's code.
     Raise,
-    /// The login is not raised. The static reach did not show that the test reads the rows the login would add
-    /// (`al_vm` `records/login_guard.rs` checks that while it runs).
-    Skip {
-        /// The tables the apps under test's login subscribers insert into and the test codeunit's own calls cannot: they
-        /// hold rows only the login would add, and a read of one is refused.
-        guarded: BTreeSet<u32>,
-        /// The tables the login subscribers insert into and the test codeunit's own calls can insert into too: an
-        /// operation on one of them is refused when it addresses a row the login subscribers add when they run alone
-        /// ([`login_subscribers`], `Session::login_rows_alone`). Raising the login for them loses the passes of tests
-        /// that register their own row where Microsoft's login code cannot run, and refusing every operation on them
-        /// loses those passes too (al-runner issue 7717).
-        assumed: BTreeSet<u32>,
+    /// The apps under test's own login subscribers (object, routine) run in the test session before the first test, in
+    /// this order. `watched`: why what BC does in this session is not known ([`NO_CLIENT`], [`DISABLED`]); a test that
+    /// touches a table they wrote is then not run.
+    Own {
+        subscribers: Vec<(usize, usize)>,
+        watched: Option<&'static str>,
     },
 }
 
-impl Login {
-    /// No app under test subscribes to the login: nothing is guarded.
-    pub(crate) fn skip_unguarded() -> Login {
-        Login::Skip {
-            guarded: BTreeSet::new(),
-            assumed: BTreeSet::new(),
-        }
-    }
-}
-
-/// The publishers of the login events an app under test can subscribe to: (codeunit id, name, event in lower case).
+/// The publishers of the login events an app under test can subscribe to: (codeunit id, name, event in lower case), in
+/// the order the login raises them: "Guided Experience".`OnRegisterAssistedSetup` before "System Initialization".
+/// `OnAfterLogin` (LgnLoginChecklistTests.al:131-134 note them in that order).
 const LOGIN_EVENTS: &[(u32, &str, &str)] = &[
-    (150, "System Initialization", "onafterlogin"),
     (1990, "Guided Experience", "onregisterassistedsetup"),
+    (150, "System Initialization", "onafterlogin"),
 ];
 
-/// What the apps under test's login subscribers leave: the tables they write through their own calls, the objects they
-/// run and the table triggers those run ([`login_subscriber_reach_facts`]), those of them they add rows to, and the
-/// codeunits of the apps under test whose state they keep. Made once per engine.
+/// The id of System Application's "System Initialization Impl.", whose Company Triggers `OnCompanyOpenCompleted`
+/// subscriber `InitCompany` raises the login: the apps under test's own login subscribers run where it runs, among the
+/// `OnCompanyOpenCompleted` subscribers in codeunit id order, the order the Raise path runs them in
+/// (`install::test_session_company_open`).
+pub(crate) const LOGIN_RAISER: u32 = 151;
+
+/// Why what the login does in a session without a client is not known ([`Login::Own`]).
+pub(crate) const NO_CLIENT: &str = "the login was not raised for this test codeunit, and which login events BC raises in a session without a client (--no-client) is not pinned";
+
+/// Why what the login does under RequiredTestIsolation = Disabled is not known ([`Login::Own`]).
+pub(crate) const DISABLED: &str = "the login was not raised for this test codeunit, and under RequiredTestIsolation = Disabled how what the login writes meets what an earlier codeunit left is not pinned";
+
+/// What the apps under test's login subscribers leave: the tables they write through their own code
+/// ([`login_subscriber_reach_facts`]), those of them they add rows to, and the codeunits of the apps under test whose
+/// state they keep. Made once per engine.
 #[derive(Default)]
 struct LoginLeaves {
     writes: BTreeSet<u32>,
@@ -72,7 +94,8 @@ struct LoginLeaves {
     state: BTreeSet<usize>,
 }
 
-/// The automatic subscribers of the apps under test to the login events (object, routine).
+/// The automatic subscribers of the apps under test to the login events (object, routine), in the order the login
+/// raises the events and, for one event, in the order the session runs its subscribers.
 fn workspace_subscribers(lowered: &Lowered, events: &Registry) -> Vec<(usize, usize)> {
     let objects = &lowered.program.objects;
     let mut out = Vec::new();
@@ -95,41 +118,26 @@ fn workspace_subscribers(lowered: &Lowered, events: &Registry) -> Vec<(usize, us
     out
 }
 
-/// The automatic subscribers of the apps under test to the login events, in the order the login raises the events:
-/// "Guided Experience".`OnRegisterAssistedSetup` before "System Initialization".`OnAfterLogin` (LgnLoginChecklistTests.al:
-/// 131-134 note them in that order).
-pub(crate) fn login_subscribers(lowered: &Lowered, events: &Registry) -> Vec<(usize, usize)> {
-    let mut subs = workspace_subscribers(lowered, events);
-    subs.reverse();
-    subs
-}
-
-/// Whether the test session of test codeunit `test` raises the login: an app under test has an automatic subscriber to
-/// "System Initialization".`OnAfterLogin` or "Guided Experience".`OnRegisterAssistedSetup`, and the test codeunit's reach
-/// can see what those subscribers leave: it touches a table they write through their own calls (with the objects they
-/// run and the table triggers, [`login_subscriber_reach_facts`]) and does not write itself (in its whole reach, or in
-/// its reach without the subscribers of the database events), or touches through its
-/// own calls a table they add rows to and that its reach cannot insert into, or reads a global of the subscriber's
-/// codeunit or of an app under test's codeunit the subscriber's codeunit holds in a variable (the
-/// state of a SingleInstance codeunit, LgnLoginChecklistTests.al:19-64). The subscribers of the events raised inside
-/// the login subscribers' calls and the database events do not count: in Microsoft's apps that
-/// fan-out writes most of Base Application (Guided Experience's telemetry reaches every telemetry logger subscriber),
-/// and a test codeunit that only reads what it writes is not one the login is modelled for (corpus
-/// Y64InstallSubscribers.al reads a table a telemetry logger subscriber of a cross-app fixture writes, guarded so that
-/// the login writes nothing). Another test codeunit runs as before, without the login: whatever Microsoft's login code
-/// leaves that no app under test subscribes to is not modelled in the test session (Microsoft's login subscribers read
-/// the corpus database's demo rows, al-runner issue 7343).
+/// How the test session of test codeunit `test` models the login ([`Login`]); `watched` is why what BC does in this
+/// session is not known ([`NO_CLIENT`], [`DISABLED`]), `None` in the session the pin measured.
 ///
-/// A wrong "no" can still give a wrong result in these known cases: a write of a guarded table is not refused (a
-/// RecordRef that modifies or inserts the login's row); what a login subscriber leaves through an event it raises is not
-/// seen; the app's own Company Triggers subscribers run before the guard is set; and for a table the test's own calls
-/// can insert into, the rows the login subscribers add alone are taken for the rows they add inside the login
-/// (docs/probes-needed.md).
-pub(crate) fn decide(engine: &Engine, lowered: &Lowered, test: usize) -> Login {
+/// The login is raised when an app under test has an automatic subscriber to "System Initialization".`OnAfterLogin` or
+/// "Guided Experience".`OnRegisterAssistedSetup`, and the test codeunit's reach can see what those subscribers leave: it
+/// touches a table they write through their own code ([`login_subscriber_reach_facts`]) and does not write itself (in
+/// its whole reach, or in its reach without the subscribers of the database events), or touches through its own calls a
+/// table they add rows to and that its reach cannot insert into, or reads a global of the subscriber's codeunit or of an
+/// app under test's codeunit the subscriber's codeunit holds in a variable (the state of a SingleInstance codeunit,
+/// LgnLoginChecklistTests.al:19-64). The subscribers of the events raised inside the login subscribers' calls in
+/// Microsoft's apps and the database events do not count: in Microsoft's apps that fan-out writes most of Base
+/// Application (Guided Experience's telemetry reaches every telemetry logger subscriber), and a test codeunit that only
+/// reads what it writes is not one the login is modelled for (corpus Y64InstallSubscribers.al reads a table a telemetry
+/// logger subscriber of a cross-app fixture writes, guarded so that the login writes nothing). Another test codeunit gets
+/// the apps' own subscribers (Own).
+pub(crate) fn decide(engine: &Engine, lowered: &Lowered, test: usize, watched: Option<&'static str>) -> Login {
     let events = &engine.events;
     let subs = workspace_subscribers(lowered, events);
     if subs.is_empty() {
-        return Login::skip_unguarded();
+        return Login::None;
     }
     let index = engine.derived(|| ReachIndex::new(events, lowered));
     let left = engine.derived(|| {
@@ -189,20 +197,18 @@ pub(crate) fn decide(engine: &Engine, lowered: &Lowered, test: usize) -> Login {
     // table's event subscribers into the wider reach, and somewhere in them Microsoft's code inserts into the Guided
     // Experience tables (a wizard whose Finish action reads Customer then looked like one that registers itself). A
     // table the subscribers only modify or delete in holds no row of theirs. A record declared temporary and a page over
-    // a temporary source insert nothing. A test that inserts the row itself runs without the login, as before; its
-    // operations on that table that address the login's rows are refused (`Login::Skip`, `assumed`; al-runner issue 7717).
-    //
-    // The answer is still a guess about what the test will read. The tables the guess leaves out go to the session,
-    // which refuses a read of them, or for those the test's own calls can insert into, an operation that addresses one of
-    // the login's rows (`Login::Skip`).
+    // a temporary source insert nothing.
     let calls = union_call_reach_facts(events, lowered, &index, &roots, &subs);
-    let theirs: BTreeSet<u32> = left.inserts.difference(&calls.inserts).copied().collect();
-    if calls.touched.iter().any(|t| theirs.contains(t)) {
+    if calls
+        .touched
+        .iter()
+        .any(|t| left.inserts.contains(t) && !calls.inserts.contains(t))
+    {
         return Login::Raise;
     }
-    Login::Skip {
-        guarded: theirs,
-        assumed: left.inserts.intersection(&calls.inserts).copied().collect(),
+    Login::Own {
+        subscribers: subs,
+        watched,
     }
 }
 

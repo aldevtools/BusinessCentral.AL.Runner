@@ -1808,11 +1808,6 @@ impl Session {
     /// (record/PnD04_GetBySystemId.al:36-47, :111-124 the null Guid) and a RecordRef
     /// (types/PXEnumRecordRef.al:199-301).
     pub(crate) fn get_by_system_id(&mut self, rec: &Rec, t: &TableDef, args: &[Value]) -> Result<Value, Signal> {
-        // Record and RecordRef GetBySystemId both read here (`records/login_guard.rs`).
-        if !rec.borrow().temporary {
-            let id = args.first().cloned().unwrap_or(Value::Null);
-            self.login_guard_table(t.object, "GetBySystemId", crate::records::Addressed::SystemId(&id))?;
-        }
         let Some(i) = t.fields.iter().position(|f| f.id == 2_000_000_000) else {
             return unsupported("GetBySystemId on a table without SystemId");
         };

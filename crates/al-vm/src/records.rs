@@ -22,9 +22,7 @@ mod boolean_filter_error;
 mod delete_all_flow;
 mod flowfield_key;
 mod insert_buffer;
-mod login_guard;
 pub(crate) use insert_buffer::{InsertKind, InsertQueue};
-pub(crate) use login_guard::{Addressed, ReadGuards};
 mod nested_validate;
 mod op_inner;
 mod own_rolled_back_modify;
@@ -1698,7 +1696,6 @@ impl Session {
         let key = rec.borrow().key;
         // Filters on FlowFilter fields drop out; those on FlowFields are checked per row.
         let (filters, flow_field_filters) = self.split_filters(rec);
-        self.login_guard_scan(t.object, temporary, &filters)?;
         let marked_only = rec.borrow().marked_only;
         let cx = self.cx_for(rec, t)?;
         let mut after = after;
@@ -2334,7 +2331,6 @@ impl Session {
     /// (isdirty.rs).
     pub(crate) fn record_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         self.note_task_table_read(method, rec);
-        self.login_guard_read(method, rec, args)?;
         if self.coverage.profiler.is_some() {
             return self.record_op_profiled(method, rec, args);
         }

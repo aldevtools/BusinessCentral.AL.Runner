@@ -314,11 +314,11 @@ fn a_test_that_reads_the_row_only_through_the_page_it_opens_sees_it() {
 }
 
 // A test codeunit that inserts the row itself before the page reads it runs without the login: here the dependency's
-// login code stops with an error, so a codeunit that raised the login would not run. Its first read asks for the key
-// the login registers (object 51140), which BC finds from the login and the runner would not: that read is refused
-// (al-runner issue 7717). Until that issue this test passed, against a table without the login's row.
+// login code stops with an error, so a codeunit that raised the login would not run. The app's own login subscriber
+// registered the row before the first test (LgnLoginChecklistTests.al:137-138), so the test finds it and does not
+// insert it again.
 #[test]
-fn a_test_that_registers_the_logins_own_row_itself_is_refused_where_it_reads_that_row() {
+fn a_test_that_registers_the_row_itself_before_the_page_reads_it_runs_without_the_login() {
     let dep = format!(
         r#"{DEP}{DATABASE_SUBSCRIBER}
 codeunit 1991 "Guided Experience Events"
@@ -336,10 +336,13 @@ codeunit 1991 "Guided Experience Events"
         "    var Wizard: TestPage \"Repro Plain Wizard\"; G: Codeunit \"Guided Experience\";\n    begin\n        if not G.AssistedSetupExistsAndIsNotComplete(51140) then G.InsertAssistedSetup(51140);\n",
     );
     assert_ne!(main, WIZARD);
-    let o = super::tests::outcomes_over_dependency(&main, &dep);
-    assert_eq!(o.len(), 2, "{o:?}");
-    refused_on_login_row(&o, "ClosingTheWizardAsksToConfirm");
-    refused_on_login_row(&o, "AnActionOfTheWizardSeesTheRow");
+    assert_eq!(
+        super::tests::outcomes_over_dependency(&main, &dep),
+        vec![
+            ("ClosingTheWizardAsksToConfirm".to_string(), Outcome::Pass),
+            ("AnActionOfTheWizardSeesTheRow".to_string(), Outcome::Pass)
+        ]
+    );
 }
 
 // The standard wizard (al-runner issue 7605, and the review of issue 7574 before it): its Finish action calls
@@ -562,10 +565,11 @@ fn a_temporary_record_or_page_source_of_the_login_table_keeps_the_login() {
     );
 }
 
-// The guard: a test that reads and completes the row only in the subscriber of an event it raises. Its own calls do not
-// touch the table and its reach writes it, so the login is not raised; the read is refused, it does not find an empty table.
+// A test that reads and completes the row only in the subscriber of an event it raises. Its own calls do not touch the
+// table and its reach writes it, so the login is not raised; the app's own login subscriber ran in the test session, so
+// the row is there (LgnLoginChecklistTests.al:137-138). Until al-runner issue 7717 this read was refused.
 #[test]
-fn a_read_of_the_login_table_without_the_login_is_refused() {
+fn a_test_that_reads_the_row_only_in_an_event_subscriber_sees_it_without_the_login() {
     let main = r#"
 codeunit 51160 "Guard Registration"
 {
@@ -603,14 +607,10 @@ codeunit 51163 "Guard Test"
     end;
 }
 "#;
-    let got = super::tests::outcomes_over_dependency(main, &dep_with_fan_out());
-    match got.as_slice() {
-        [(name, Outcome::NotRun(why))] if name == "TheSubscriberSeesTheRow" => assert!(
-            why.contains("the login was not raised") && why.contains("Guided Experience Item"),
-            "{why}"
-        ),
-        other => panic!("expected a refusal, got {other:?}"),
-    }
+    assert_eq!(
+        super::tests::outcomes_over_dependency(main, &dep_with_fan_out()),
+        vec![("TheSubscriberSeesTheRow".to_string(), Outcome::Pass)]
+    );
 }
 
 // al-runner issue 7717: the cases where a wrong "no login" decision still gave a wrong result, from the variant apps of
@@ -621,9 +621,6 @@ codeunit 51163 "Guard Test"
 fn outcomes_and_hits(main: &str, dep: &str, codeunit: &str) -> super::tests::OutcomesAndHits {
     super::tests::outcomes_and_hits_of_apps(&[("main", &["dep"], main), ("dep", &[], dep)], codeunit)
 }
-
-/// The refusal of an operation that addresses a row the login would add.
-const ADDRESSES_LOGIN_ROW: &str = "addresses a row a login subscriber of an app under test adds";
 
 /// An app under test whose `OnRegisterAssistedSetup` subscriber registers object 51200, and `tests`.
 fn registration_and(tests: &str) -> String {
@@ -642,24 +639,12 @@ codeunit 51200 "Own Insert Registration"
     )
 }
 
-/// Asserts that test `name` of `o` is not run because it addressed the login's row.
-fn refused_on_login_row(o: &[(String, Outcome)], name: &str) {
-    match o.iter().find(|(n, _)| n == name) {
-        Some((_, Outcome::NotRun(why))) => assert!(
-            why.contains(ADDRESSES_LOGIN_ROW) && why.contains("Guided Experience Item"),
-            "{name}: {why}"
-        ),
-        other => panic!("{name}: expected a refusal, got {other:?}"),
-    }
-}
-
 // Gap 1: tests of the codeunit insert into the table the login adds rows to, so the codeunit runs without the login.
-// The rows the app's login subscriber adds when it runs alone are known (object 51200): an operation that addresses
-// one of them is refused, as it would read or write that row on BC (LgnLoginChecklistTests.al:137-138); one that
-// addresses only the test's own rows runs, and passes clean. On main the first test failed, and the count and the
-// insert of the login's key passed although both fail on BC.
+// The app's login subscriber ran in the test session, so its row (object 51200) is there, as on BC
+// (LgnLoginChecklistTests.al:137-138): the count is 3 (the login's row and two of the codeunit's own) and the insert of the login's key fails, as they do on BC. On main
+// the first test failed, and the count and the insert of the login's key passed.
 #[test]
-fn an_operation_on_the_login_table_that_addresses_the_logins_row_is_refused() {
+fn a_test_codeunit_that_inserts_into_the_login_table_itself_sees_the_logins_row() {
     let main = registration_and(
         r#"
 codeunit 51201 "Own Insert Tests"
@@ -703,18 +688,26 @@ codeunit 51201 "Own Insert Tests"
     );
     let (o, hits) = outcomes_and_hits(&main, DEP, "Own Insert Tests");
     assert_eq!(o.len(), 4, "{o:?}");
-    refused_on_login_row(&o, "ReadsTheRowOfTheLogin");
-    refused_on_login_row(&o, "CountAfterOwnInsertIsOne");
-    refused_on_login_row(&o, "InsertsTheKeyOfTheLoginRow");
+    assert_eq!(o[0], ("ReadsTheRowOfTheLogin".to_string(), Outcome::Pass));
     assert_eq!(o[1], ("InsertsARowOfItsOwn".to_string(), Outcome::Pass));
+    assert_eq!(
+        o[2],
+        (
+            "CountAfterOwnInsertIsOne".to_string(),
+            Outcome::Fail("Count is 3".into())
+        )
+    );
+    assert!(
+        matches!(&o[3], (n, Outcome::Fail(m)) if n == "InsertsTheKeyOfTheLoginRow" && m.contains("already exists")),
+        "{o:?}"
+    );
     assert!(hits.iter().all(|(_, h)| h.is_empty()), "{hits:?}");
 }
 
 // Gap 1 across two tests (review probe "PB Cross Test"): the first test keeps what it read of the login's row in a
-// SingleInstance codeunit, the second fails on what was kept. The first is refused, so the second's failure is not
-// trusted; the test that registers its own row passes.
+// SingleInstance codeunit, the second reads what was kept. The row is there, so all three pass, as on BC.
 #[test]
-fn a_failure_that_rests_on_a_refused_read_of_the_logins_row_is_not_run() {
+fn a_test_that_keeps_what_the_logins_row_says_for_a_later_test_passes() {
     let main = registration_and(
         r#"
 codeunit 51203 "Own Insert State"
@@ -752,18 +745,13 @@ codeunit 51204 "Own Insert Cross Test"
 "#,
     );
     let (o, _) = outcomes_and_hits(&main, DEP, "Own Insert Cross Test");
-    refused_on_login_row(&o, "KeepsWhatTheRowSays");
-    assert!(
-        matches!(&o[1].1, Outcome::NotRun(why) if why.contains("not trusted")),
-        "{o:?}"
-    );
-    assert_eq!(o[2], ("RegistersItsOwnRow".to_string(), Outcome::Pass));
+    assert_all_pass(&o);
 }
 
-// Gap 1, fallback: when the login subscriber does not run to its end alone, the rows it adds are not known, and every
-// operation on the table is refused, also one on the test's own row.
+// A login subscriber that does not run to its end: what BC does then is not pinned, so the codeunit is not run, as on
+// the Raise path.
 #[test]
-fn every_operation_on_the_login_table_is_refused_when_the_subscriber_cannot_run_alone() {
+fn a_login_subscriber_that_fails_refuses_the_codeunit() {
     let main = r#"
 codeunit 51205 "Failing Registration"
 {
@@ -789,7 +777,7 @@ codeunit 51206 "Failing Registration Test"
     let (o, _) = outcomes_and_hits(main, DEP, "Failing Registration Test");
     match o.as_slice() {
         [(_, Outcome::NotRun(why))] => assert!(
-            why.contains("which rows is not known") && why.contains("The registration stops here."),
+            why.contains("login subscriber") && why.contains("The registration stops here."),
             "{why}"
         ),
         other => panic!("expected a refusal, got {other:?}"),
@@ -797,8 +785,7 @@ codeunit 51206 "Failing Registration Test"
 }
 
 /// Gap 2: an app under test whose `OnAfterLogin` subscriber adds a row to "H Login Row", tables that read it other than
-/// through a record method, and one test codeunit per read whose own calls never touch it (no login, the table is
-/// guarded).
+/// through a record method, and one test codeunit per read whose own calls never touch it (the login is not raised).
 const READS_PAST_THE_GUARD: &str = r#"
 table 51250 "H Login Row"
 {
@@ -1025,14 +1012,21 @@ codeunit 51269 "H Read 10"
 }
 "#;
 
-// Gap 2: each read is refused, none finds an empty table (on main: 8 wrong failures and 1 wrong pass of these 10).
+// Gap 2: each read finds the login's row (on main: 8 wrong failures and 1 wrong pass of these 10). The filter on the
+// FlowField finds the status row, so that test fails, as it does on BC.
 #[test]
-fn reads_of_the_login_table_that_are_not_record_methods_are_refused_without_the_login() {
+fn reads_of_the_login_table_that_are_not_record_methods_see_the_logins_row() {
     for n in 1..=10 {
         let (o, _) = outcomes_and_hits(READS_PAST_THE_GUARD, DEP, &format!("H Read {n}"));
-        match o.as_slice() {
-            [(_, Outcome::NotRun(why))] if why.contains("the login was not raised") && why.contains("H Login Row") => {}
-            other => panic!("H Read {n}: expected a refusal, got {other:?}"),
+        match n {
+            4 => assert_eq!(
+                o,
+                vec![(
+                    "FilterOnFlowFieldFindsNothing".to_string(),
+                    Outcome::Fail("A status row has the login row.".into())
+                )]
+            ),
+            _ => assert_all_pass(&o),
         }
     }
 }
@@ -1110,4 +1104,332 @@ fn a_test_sees_what_the_login_subscriber_wrote_through_codeunit_run_and_a_table_
         let (o, _) = outcomes_and_hits(SUBSCRIBER_RUNS_AND_TRIGGERS, DEP, codeunit);
         assert_eq!(o, vec![(test.to_string(), Outcome::Pass)]);
     }
+}
+
+// Round three of the review of issue 7717: the cases where the round-two design (the login subscribers alone in a copy
+// of the session, operations that address their rows refused) still gave a wrong result, from the review's probe apps.
+// The app's login subscribers run in the test session itself before the first test (LgnLoginChecklistTests.al:131-147:
+// both events, in the test session, before the first test; their row is there in both tests), so what they leave is
+// there in every form: rows, AutoIncrement counters, the session language, what an event they raise leaves.
+
+/// The outcomes of test codeunit `codeunit` of `main` over the dependency `dep`, under `isolation`, in a session without
+/// a client when `no_client` (`--no-client`).
+fn outcomes_in(
+    main: &str,
+    dep: &str,
+    codeunit: &str,
+    isolation: TestIsolation,
+    no_client: bool,
+) -> Vec<(String, Outcome)> {
+    let (ws, l) = al_sema::lower::compile_apps(
+        [("main", vec!["dep".to_string()], main), ("dep", vec![], dep)]
+            .into_iter()
+            .map(|(id, dependencies, src)| al_sema::workspace::AppSource {
+                id: id.into(),
+                name: id.into(),
+                dependencies,
+                files: vec![(format!("{id}.al"), src.into())],
+            })
+            .collect(),
+        vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
+        &Default::default(),
+    );
+    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+    let blocked = l
+        .unsupported
+        .iter()
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
+        .collect();
+    let engine = Engine::new(l.program.clone(), blocked);
+    let oi = l.program.objects.iter().position(|o| o.name == codeunit).unwrap();
+    let mut scratch = Scratch {
+        flags: super::session_flags::SessionFlags::of(&RunOptions {
+            no_client,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    run_codeunit_core(
+        &engine,
+        &l,
+        oi,
+        None,
+        isolation,
+        None,
+        &mut Vec::new(),
+        &mut Vec::new(),
+        &mut Vec::new(),
+        &mut scratch,
+        None,
+        false,
+    )
+}
+
+/// Asserts that every test of `o` passed.
+fn assert_all_pass(o: &[(String, Outcome)]) {
+    assert!(!o.is_empty());
+    for (n, r) in o {
+        assert_eq!(*r, Outcome::Pass, "{n}: {o:?}");
+    }
+}
+
+/// An app under test whose `OnAfterLogin` subscriber sets the session language to Turkish and adds a row, a row with a
+/// Blob and an amount, a row of a table with an AutoIncrement key, and raises an event of its own app whose subscriber
+/// adds a row too (review round two, probe apps p1, p3 and p4).
+const LOGIN_LEAVES: &str = r#"
+table 51700 "Q Row"
+{
+    fields { field(1; Code; Code[20]) { } field(2; Name; Text[50]) { } field(3; Pic; Blob) { } field(4; Amount; Decimal) { } }
+    keys { key(PK; Code) { Clustered = true; } }
+}
+table 51701 "Q Auto"
+{
+    fields { field(1; "Entry No."; Integer) { AutoIncrement = true; } field(2; Name; Text[50]) { } }
+    keys { key(PK; "Entry No.") { Clustered = true; } }
+}
+table 51702 "Q Event Row" { fields { field(1; Code; Code[20]) { } } keys { key(PK; Code) { Clustered = true; } } }
+codeunit 51700 "Q Login"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"System Initialization", 'OnAfterLogin', '', false, false)]
+    local procedure HandleOnAfterLogin()
+    var
+        Row: Record "Q Row";
+        Auto: Record "Q Auto";
+        OutS: OutStream;
+    begin
+        GlobalLanguage(1055);
+        Row.Code := 'LOGIN';
+        Row.Name := 'from login';
+        Row.Amount := 5;
+        Row.Pic.CreateOutStream(OutS);
+        OutS.WriteText('picture');
+        Row.Insert();
+        Auto.Name := 'from login';
+        Auto.Insert();
+        OnQLogin();
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnQLogin() begin end;
+}
+codeunit 51701 "Q Event Sub"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Q Login", 'OnQLogin', '', false, false)]
+    local procedure HandleOnQLogin()
+    var Row: Record "Q Event Row";
+    begin
+        Row.Code := 'LOGIN';
+        Row.Insert();
+    end;
+}
+// The tests insert into the login's tables themselves, so the static rule does not raise the login (p3, p4 "RA").
+codeunit 51710 "Q Own Inserts"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    // p3: the language the login set is the session's, and Code conversion follows it.
+    [Test]
+    procedure L1_TheLanguageTheLoginSet()
+    var C: Code[10];
+    begin
+        C := 'i';
+        if GlobalLanguage() <> 1055 then
+            Error('GlobalLanguage is %1', GlobalLanguage());
+        if C <> 'İ' then
+            Error('Code of i is %1', C);
+    end;
+
+    // p4 A3: the login's row took entry 1.
+    [Test]
+    procedure A3_AutoIncrementAfterTheLoginRow()
+    var Auto: Record "Q Auto";
+    begin
+        Auto.Name := 'own';
+        Auto.Insert();
+        if Auto."Entry No." <> 2 then
+            Error('Entry No. is %1', Auto."Entry No.");
+    end;
+
+    // p4 A4: the Blob of the login's row, by a key set by hand.
+    [Test]
+    procedure A4_CalcFieldsOfABlobByAKeySetByHand()
+    var Row: Record "Q Row";
+    begin
+        Row.Code := 'LOGIN';
+        Row.CalcFields(Pic);
+        if not Row.Pic.HasValue() then
+            Error('The Blob of the login row is empty.');
+    end;
+
+    // p4 B4: the insert of the login's key fails.
+    [Test]
+    procedure B4_InsertOfTheLoginKey()
+    var Row: Record "Q Row";
+    begin
+        Row.Code := 'LOGIN';
+        if Row.Insert() then
+            Error('The insert of the login key worked.');
+    end;
+
+    // p4 B5: an OR filter group finds the own row by its code and the login's row by its name.
+    [Test]
+    procedure B5_OrGroupThatLetsTheLoginRowIn()
+    var Row: Record "Q Row";
+    begin
+        Row.Code := 'OWN';
+        Row.Name := 'own';
+        Row.Insert();
+        Row.Reset();
+        Row.FilterGroup(-1);
+        Row.SetRange(Code, 'OWN');
+        Row.SetRange(Name, 'from login');
+        if Row.Count() <> 2 then
+            Error('Count is %1', Row.Count());
+    end;
+}
+// No test touches the login's tables through its own calls: p4 "RE" (writes through a RecordRef) and p1 E1.
+codeunit 51711 "Q Ref Writes"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure E1_RecordRefModifyOfTheLoginRow()
+    var Ref: RecordRef;
+    begin
+        Ref.Open(TableNo());
+        Ref.Field(1).Value := 'LOGIN';
+        Ref.Get(Ref.RecordId());
+        Ref.Field(2).Value := 'changed';
+        Ref.Modify();
+    end;
+
+    [Test]
+    procedure E2_RecordRefInsertOfTheLoginKey()
+    var Ref: RecordRef;
+    begin
+        Ref.Open(TableNo());
+        Ref.Field(1).Value := 'LOGIN';
+        if Ref.Insert() then
+            Error('The insert of the login key worked.');
+    end;
+
+    [Test]
+    procedure E3_RecordRefDeleteOfTheLoginRow()
+    var Ref: RecordRef;
+    begin
+        Ref.Open(TableNo());
+        Ref.Field(1).Value := 'LOGIN';
+        if not Ref.Delete() then
+            Error('The login row could not be deleted.');
+    end;
+
+    local procedure TableNo(): Integer
+    var N: Integer;
+    begin
+        Evaluate(N, '51700');
+        exit(N);
+    end;
+}
+codeunit 51712 "Q Own Event"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure E1_ReadsTheRowAnOwnEventSubscriberLeft()
+    var Row: Record "Q Event Row";
+    begin
+        Row.Get('LOGIN');
+    end;
+}
+codeunit 51713 "Q Untouched"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure TouchesNothingOfTheLogin()
+    begin
+        if 1 + 1 <> 2 then
+            Error('arithmetic');
+    end;
+}
+"#;
+
+// The round-two wrong results (p3 language, p4 A3 and A4, RecordRef writes, p1 E1) give BC's result.
+#[test]
+fn what_the_apps_own_login_subscribers_leave_is_there_in_every_form() {
+    for codeunit in ["Q Own Inserts", "Q Ref Writes", "Q Own Event", "Q Untouched"] {
+        assert_all_pass(&outcomes_in(
+            LOGIN_LEAVES,
+            DEP,
+            codeunit,
+            TestIsolation::Codeunit,
+            false,
+        ));
+    }
+}
+
+/// Whether `o` is a refusal because what the login does in this session is not known.
+fn refused_unmodelled(o: &Outcome, what: &str) -> bool {
+    matches!(o, Outcome::NotRun(why) if why.contains("login") && why.contains(what))
+}
+
+// A session without a client (`--no-client`): which login events BC raises there is not pinned. The app's login
+// subscribers run, watched: when they set the session language, the codeunit is refused; a test that touches a table
+// they wrote, through any path, is not run; one that touches none passes.
+#[test]
+fn without_a_client_what_the_login_would_leave_is_refused() {
+    let o = outcomes_in(LOGIN_LEAVES, DEP, "Q Untouched", TestIsolation::Codeunit, true);
+    assert!(
+        refused_unmodelled(&o[0].1, "session without a client")
+            && matches!(&o[0].1, Outcome::NotRun(w) if w.contains("language")),
+        "{o:?}"
+    );
+    let rows_only = LOGIN_LEAVES.replace("        GlobalLanguage(1055);\n", "");
+    // The table of a RecordRef is not known statically: the login is not raised, and the watch refuses each write.
+    let o = outcomes_in(&rows_only, DEP, "Q Ref Writes", TestIsolation::Codeunit, true);
+    for (n, r) in &o {
+        assert!(refused_unmodelled(r, "session without a client"), "{n}: {o:?}");
+    }
+    // A test that inserts into the login's tables is not run; one that only reads them raises the login, which refuses
+    // there (Microsoft's login code asks CurrentClientType). The test of the language touches no table: it runs (the login
+    // of this variant leaves the language alone).
+    for codeunit in ["Q Own Inserts", "Q Own Event"] {
+        let o = outcomes_in(&rows_only, DEP, codeunit, TestIsolation::Codeunit, true);
+        for (n, r) in o.iter().filter(|(n, _)| n != "L1_TheLanguageTheLoginSet") {
+            assert!(
+                matches!(r, Outcome::NotRun(w) if w.contains("session without a client")),
+                "{n}: {o:?}"
+            );
+        }
+    }
+    assert_all_pass(&outcomes_in(
+        &rows_only,
+        DEP,
+        "Q Untouched",
+        TestIsolation::Codeunit,
+        true,
+    ));
+}
+
+// RequiredTestIsolation = Disabled: what the login writes would meet what an earlier codeunit left, which is not pinned
+// (the same reason a codeunit whose session raised the login is not run there, `run.rs`). The subscribers run, watched:
+// a test that touches a table they wrote is not run, one that touches none passes.
+#[test]
+fn under_disabled_isolation_what_the_login_would_leave_is_refused() {
+    let rows_only = LOGIN_LEAVES.replace("        GlobalLanguage(1055);\n", "");
+    let o = outcomes_in(&rows_only, DEP, "Q Ref Writes", TestIsolation::Disabled, false);
+    for (n, r) in &o {
+        assert!(refused_unmodelled(r, "Disabled"), "{n}: {o:?}");
+    }
+    assert_all_pass(&outcomes_in(
+        &rows_only,
+        DEP,
+        "Q Untouched",
+        TestIsolation::Disabled,
+        false,
+    ));
 }

@@ -7,10 +7,7 @@
 use al_builtins::refusal::RefusalKey;
 
 /// Per crate that refuses: its folder under `crates/` and its list.
-pub const LISTS: &[(&str, &[RefusalKey])] = &[
-    ("al-builtins", al_builtins::refusal::ALL),
-    ("al-vm", al_vm::refusal::ALL),
-];
+pub const LISTS: &[(&str, &[RefusalKey])] = &[("al-builtins", al_builtins::refusal::ALL)];
 
 /// Every key with the folder of its crate, sorted by key.
 pub fn all() -> Vec<(&'static str, RefusalKey)> {

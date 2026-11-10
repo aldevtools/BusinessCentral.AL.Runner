@@ -390,7 +390,7 @@ fn run_codeunit_inner(
         if let Err(why) = crate::install::login_work_date(engine, lowered, &mut session) {
             return all(Outcome::NotRun(why));
         }
-        match crate::install::test_session_company_open(lowered, &mut session) {
+        match crate::install::test_session_company_open(lowered, &mut session, isolation == TestIsolation::Disabled) {
             Err(why) => return all(Outcome::NotRun(why)),
             Ok(wrote) => {
                 session.commit_transaction();
@@ -689,7 +689,7 @@ fn run_codeunit_inner(
                         began = true;
                         session
                             .store_mut()
-                            .watch(company_open.tables.union(&leak).copied().collect());
+                            .watch(company_open.watched().union(&leak).copied().collect());
                         session.last_error = Default::default();
                         al_builtins::assumptions::clear_hits();
                         if on_run_shape_assumed {
@@ -989,12 +989,11 @@ fn run_codeunit_inner(
             // cannot seed the sequence with `Randomize(n)`.
             let drew_carried = session.carried_random_draws() > carried_before;
             // A test that read or wrote, while it ran, a table a Company Triggers subscriber wrote before the first test
-            // (al-runner issue 5641): what it found there is not pinned.
-            let outcome = match session.store_mut().watch_hit() {
-                Some(t) if began && company_open.tables.contains(&t) => {
-                    Outcome::NotRun(company_open.touched(t, lowered))
-                }
-                Some(t) if began && leak.contains(&t) => {
+            // (al-runner issue 5641), or one an Unmodelled login would write (`login.rs`): what it found there is not pinned.
+            let hit = session.store_mut().watch_hit().filter(|_| began);
+            let outcome = match (hit, hit.and_then(|t| company_open.touched(t, lowered))) {
+                (_, Some(why)) => Outcome::NotRun(why),
+                (Some(t), None) if leak.contains(&t) => {
                     scratch.leak_hit = true;
                     outcome
                 }

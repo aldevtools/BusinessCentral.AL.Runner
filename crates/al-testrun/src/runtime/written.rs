@@ -339,10 +339,11 @@ pub(crate) fn call_reach_facts(
 
 /// What a login subscriber (routine `routine` of `object`) leaves through its own code (`login.rs`): its calls, the
 /// objects it runs by a constant id or through a codeunit variable (login code that runs in a codeunit of its own, so an
-/// error cannot stop the login), and the triggers of the tables those write, without the subscribers of any event.
-/// The test side asks its own calls with the objects run ([`union_call_reach_facts`]); the table triggers are followed
-/// here too because what a subscriber's insert leaves in another table through its OnInsert trigger is there before the
-/// first test as well (al-runner issue 7717).
+/// error cannot stop the login), the triggers of the tables those write, and the subscribers in apps under test of the
+/// events of apps under test those raise, without the subscribers of Microsoft's events (their fan-out writes most of
+/// Base Application). The test side asks its own calls with the objects run ([`union_call_reach_facts`]); the table triggers
+/// and the app's own subscribers are followed here too because what they leave is there before the first test as well
+/// (al-runner issue 7717).
 pub(crate) fn login_subscriber_reach_facts(
     events: &al_vm::events::Registry,
     lowered: &Lowered,
@@ -353,7 +354,7 @@ pub(crate) fn login_subscriber_reach_facts(
     let mut walk = Walk::new(events, lowered, index);
     walk.calls_only = true;
     walk.runs_in_calls = true;
-    walk.triggers_in_calls = true;
+    walk.login = true;
     walk.stack.push((object, routine));
     walk.run(&|_| false);
     walk.out
@@ -748,9 +749,9 @@ struct Walk<'a> {
     calls_only: bool,
     /// Whether a walk of calls only also enters the routines of the objects run ([`union_call_reach_facts`]).
     runs_in_calls: bool,
-    /// Whether a walk of calls only also enters the table triggers, without the table's events
-    /// ([`login_subscriber_reach_facts`]).
-    triggers_in_calls: bool,
+    /// Whether a walk of calls only also enters the table triggers, without the table's events, and the subscribers in
+    /// apps under test of the events raised ([`login_subscriber_reach_facts`]).
+    login: bool,
 }
 
 impl<'a> Walk<'a> {
@@ -770,7 +771,7 @@ impl<'a> Walk<'a> {
             facts: true,
             calls_only: false,
             runs_in_calls: false,
-            triggers_in_calls: false,
+            login: false,
         }
     }
 
@@ -960,9 +961,26 @@ impl<'a> Walk<'a> {
     /// then its steps in the order the body takes them, so the walk pushes and enters exactly what a walk of the body
     /// would.
     fn routine(&mut self, o: usize, r: usize) {
-        // A walk of calls only does not raise events: a publisher's body is empty, its steps are its subscribers.
-        if self.calls_only && self.events.publishers.contains_key(&(o, r)) {
-            return;
+        // A walk of calls only does not raise events: a publisher's body is empty, its steps are its subscribers. The walk
+        // of a login subscriber enters those in apps under test of an event published in an app under test (an event of
+        // Microsoft's apps reaches telemetry subscribers of the apps under test too, corpus Y64InstallSubscribers.al).
+        if self.calls_only {
+            if let Some(p) = self.events.publishers.get(&(o, r)) {
+                let lowered = self.lowered;
+                if self.login && !lowered.dependency.get(o).copied().unwrap_or(true) {
+                    let subs = self
+                        .events
+                        .subscribers
+                        .get(&(p.object, p.event.clone()))
+                        .into_iter()
+                        .flatten();
+                    self.stack.extend(
+                        subs.filter(|s| !s.manual && !lowered.dependency.get(s.object).copied().unwrap_or(true))
+                            .map(|s| (s.object, s.routine)),
+                    );
+                }
+                return;
+            }
         }
         let index = self.index;
         let fresh;
@@ -996,7 +1014,7 @@ impl<'a> Walk<'a> {
                     }
                 }
                 Step::Run(x) if self.calls_only && self.runs_in_calls => self.run_object(*x),
-                Step::TableOps(t, ops) if self.calls_only && self.triggers_in_calls => self.table_triggers(*t, *ops),
+                Step::TableOps(t, ops) if self.calls_only && self.login => self.table_triggers(*t, *ops),
                 Step::Events(_) | Step::TableOps(..) | Step::Run(_) if self.calls_only => {}
                 Step::Events(t) => self.events(*t),
                 Step::TableOps(t, ops) => self.table_ops(*t, *ops),

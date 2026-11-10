@@ -61,17 +61,6 @@ impl Session {
         let key = ops::convert(value.clone(), &related.fields[at].ty)?;
         let cx = self.cx_for(rec, &related)?;
         self.unseeded_read(&related, false, "the caption of a list")?;
-        let eq = [al_builtins::filter::FieldFilter {
-            lang: al_builtins::filter::filter_language(),
-            field: at,
-            expr: al_builtins::filter::FilterExpr::Eq(key.clone()),
-            group: 0,
-        }];
-        self.login_guard_table(
-            related.object,
-            "the caption of a list",
-            crate::records::Addressed::Filters(&eq),
-        )?;
         let found = if one_key {
             self.store.get(&cx, &related, std::slice::from_ref(&key))
         } else {

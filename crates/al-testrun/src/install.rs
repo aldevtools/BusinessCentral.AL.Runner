@@ -1021,14 +1021,6 @@ fn run_subscribers(lowered: &Lowered, session: &mut Session, subs: &[(usize, usi
     Ok(())
 }
 
-/// The test session raises Company Triggers OnCompanyOpen, then OnCompanyOpenCompleted, once, before the first test of a
-/// codeunit, and not again for later tests (ADR-046 amendment 1, A4 item 10; events/platform-triggers/BfCompanyOpenTests.al:19-38,
-/// :40-50; events/platform-triggers/PeVTests.al:297). Here the subscribers of the apps under test run. What the runner
-/// does with the database writes of a subscriber is not pinned: the tables they wrote while they ran are returned, and a
-/// test that can read one is not run (`CompanyOpenWrites::refuses` before it starts, `CompanyOpenWrites::touched` after it
-/// ran; al-runner issues 5606, 5641). A subscriber that did not run to its end refuses the codeunit. The subscribers of
-/// dependency apps do not run here (A4 item 10 names the apps under test only), except the OnCompanyOpenCompleted ones
-/// when the session raises the login (`login.rs`, al-runner issue 7343).
 /// The tables the Company Triggers subscribers of the test session wrote ([`test_session_company_open`]).
 #[derive(Debug, Default)]
 pub(crate) struct CompanyOpenWrites {
@@ -1037,6 +1029,9 @@ pub(crate) struct CompanyOpenWrites {
     pub tables: BTreeSet<u32>,
     /// The first subscriber of the login (a dependency app's, `login.rs`) that wrote: its writes stay in the session.
     pub login: Option<String>,
+    /// The apps under test's own login subscribers ran where what BC's login does is not known (`login::Login::Own`):
+    /// the tables they wrote, and why.
+    pub watched_login: Option<(BTreeSet<u32>, &'static str)>,
 }
 
 impl CompanyOpenWrites {
@@ -1053,7 +1048,8 @@ impl CompanyOpenWrites {
 
     /// Why a routine whose static reach is `facts` is not run: its reach can read a table a subscriber wrote. `None` when
     /// no subscriber wrote, the routine cannot see the writes, or its reach is not known: then the routine runs with the
-    /// written tables watched, and [`CompanyOpenWrites::touched`] decides after it ran.
+    /// written tables watched, and [`CompanyOpenWrites::touched`] decides after it ran. The tables of `watched_login` are
+    /// only watched: in Microsoft's apps the static reach of nearly every write reaches them (`login.rs`).
     pub fn refuses(&self, facts: &crate::runtime::written::ReachFacts, lowered: &Lowered) -> Option<String> {
         self.who.as_ref()?;
         if facts.unknown.is_some() {
@@ -1063,46 +1059,95 @@ impl CompanyOpenWrites {
         Some(self.reason(&format!("this test can read table {}", Self::table_name(lowered, *t))))
     }
 
-    /// Why a test that read or wrote table `t`, which a subscriber wrote, while it ran is not run.
-    pub fn touched(&self, t: u32, lowered: &Lowered) -> String {
-        self.reason(&format!(
-            "this test read or wrote table {} while it ran",
-            Self::table_name(lowered, t)
+    /// The tables whose reads and writes a test is watched for: those a subscriber wrote, and those of `watched_login`.
+    pub fn watched(&self) -> BTreeSet<u32> {
+        let mut out = self.tables.clone();
+        out.extend(self.watched_login.iter().flat_map(|(t, _)| t.iter().copied()));
+        out
+    }
+
+    /// Why a test that read or wrote table `t` while it ran is not run: `None` when `t` is not watched.
+    pub fn touched(&self, t: u32, lowered: &Lowered) -> Option<String> {
+        let name = Self::table_name(lowered, t);
+        if self.tables.contains(&t) {
+            return Some(self.reason(&format!("this test read or wrote table {name} while it ran")));
+        }
+        let (_, why) = self.watched_login.as_ref().filter(|(tables, _)| tables.contains(&t))?;
+        Some(format!(
+            "{why}: the login subscribers of the apps under test ran before the first test and wrote table {name}, which this test read or wrote"
         ))
     }
 }
 
-pub(crate) fn test_session_company_open(lowered: &Lowered, session: &mut Session) -> Result<CompanyOpenWrites, String> {
+/// The test session raises Company Triggers OnCompanyOpen, then OnCompanyOpenCompleted, once, before the first test of a
+/// codeunit, and not again for later tests (ADR-046 amendment 1, A4 item 10; events/platform-triggers/BfCompanyOpenTests.al:19-38,
+/// :40-50; events/platform-triggers/PeVTests.al:297). Here the subscribers of the apps under test run. What the runner
+/// does with the database writes of a subscriber is not pinned: the tables they wrote while they ran are returned, and a
+/// test that can read one is not run (`CompanyOpenWrites::refuses` before it starts, `CompanyOpenWrites::touched` after it
+/// ran; al-runner issues 5606, 5641). A subscriber that did not run to its end refuses the codeunit. The subscribers of
+/// dependency apps do not run here (A4 item 10 names the apps under test only), except the OnCompanyOpenCompleted ones
+/// when the session raises the login; otherwise the apps under test's own login subscribers run among them, watched
+/// under RequiredTestIsolation = Disabled (`disabled`) and in a session without a client (`login.rs`, al-runner issues
+/// 7343, 7717).
+pub(crate) fn test_session_company_open(
+    lowered: &Lowered,
+    session: &mut Session,
+    disabled: bool,
+) -> Result<CompanyOpenWrites, String> {
     let engine = session.engine.clone();
     let objs = &lowered.program.objects;
     let mut wrote = CompanyOpenWrites::default();
-    let mut subs = Vec::new();
-    // The login (`login.rs`, al-runner issue 7343): the dependency apps' OnCompanyOpenCompleted subscribers raise
-    // "System Initialization".OnAfterLogin, in codeunit id order with the apps under test's own, for a test codeunit that
-    // can see what the login leaves (`login::decide`).
-    let decision = session.test_object.map_or(crate::login::Login::skip_unguarded(), |t| {
-        crate::login::decide(&engine, lowered, t)
+    // The login (`login.rs`, al-runner issue 7343): raised through the dependency apps' OnCompanyOpenCompleted
+    // subscribers, in codeunit id order with the apps under test's own, for a test codeunit that can see what the login
+    // leaves; else the apps under test's own login subscribers run where the login is raised, watched in a session the
+    // pin does not cover (`login::decide`).
+    let watched = if session.is_clientless_session() {
+        Some(crate::login::NO_CLIENT)
+    } else if disabled {
+        Some(crate::login::DISABLED)
+    } else {
+        None
+    };
+    let decision = session.test_object.map_or(crate::login::Login::None, |t| {
+        crate::login::decide(&engine, lowered, t, watched)
     });
-    let login = matches!(decision, crate::login::Login::Raise);
+    let raise = matches!(decision, crate::login::Login::Raise);
+    let (own, watched): (&[(usize, usize)], _) = match &decision {
+        crate::login::Login::Own { subscribers, watched } => (subscribers, *watched),
+        _ => (&[], None),
+    };
+    // (object, routine, whether it is a login subscriber of an app under test).
+    let mut subs = Vec::new();
     for event in ["oncompanyopen", "oncompanyopencompleted"] {
-        let mut of_event: Vec<(usize, usize)> = engine
+        let mut of_event: Vec<(u32, usize, usize, bool)> = engine
             .events
             .subscribers
             .get(&(al_vm::events::COMPANY_TRIGGERS, event.to_string()))
             .into_iter()
             .flatten()
-            .filter(|s| !s.manual && (!lowered.dependency[s.object] || (login && event == "oncompanyopencompleted")))
-            .map(|s| (s.object, s.routine))
+            .filter(|s| !s.manual && (!lowered.dependency[s.object] || (raise && event == "oncompanyopencompleted")))
+            .map(|s| (objs[s.object].id.unwrap_or(0), s.object, s.routine, false))
             .collect();
-        of_event.sort_by_key(|&(o, _)| objs[o].id.unwrap_or(0));
-        subs.extend(of_event);
+        if event == "oncompanyopencompleted" {
+            of_event.extend(own.iter().map(|&(o, r)| (crate::login::LOGIN_RAISER, o, r, true)));
+        }
+        of_event.sort_by_key(|&(id, ..)| id);
+        subs.extend(of_event.into_iter().map(|(_, o, r, own)| (o, r, own)));
     }
-    for (o, r) in subs {
-        let who = label(lowered, o, r);
+    // What the session held besides rows before the apps' own login subscribers ran, when they are watched.
+    let mut before = None;
+    let mut own_wrote = BTreeSet::new();
+    for (i, &(o, r, own)) in subs.iter().enumerate() {
+        if own && watched.is_some() && before.is_none() {
+            before = Some(session.state_stamp());
+        }
+        let name = label(lowered, o, r);
+        let who = match own {
+            true => format!("login subscriber of an app under test {name}"),
+            false => format!("Company Triggers OnCompanyOpen(Completed) subscriber {name}"),
+        };
         if let Some(reason) = crate::runtime::blocked_reason(lowered, o, r) {
-            return Err(format!(
-                "Company Triggers OnCompanyOpen(Completed) subscriber {who} before the first test: {reason}"
-            ));
+            return Err(format!("{who} before the first test: {reason}"));
         }
         // The subscriber runs here, so what it wrote is what it wrote while it ran, not what its static reach could write:
         // code it did not run (a routine refused at lowering, a run by an id known only at run time, behind a branch that
@@ -1110,52 +1155,51 @@ pub(crate) fn test_session_company_open(lowered: &Lowered, session: &mut Session
         let since = session.store_mut().change_counter();
         match session.call_parameterless_subscriber(o, r) {
             Ok(()) => {}
-            Err(Signal::Unsupported(why)) => {
-                return Err(format!(
-                    "Company Triggers OnCompanyOpen(Completed) subscriber {who} before the first test: {why}"
-                ));
-            }
+            Err(Signal::Unsupported(why)) => return Err(format!("{who} before the first test: {why}")),
             Err(Signal::Error(e)) => {
                 return Err(format!(
-                    "Company Triggers OnCompanyOpen(Completed) subscriber {who} failed before the first test (behaviour not pinned): {}",
+                    "{who} failed before the first test (behaviour not pinned): {}",
                     e.message
                 ));
             }
-            Err(_) => {
-                return Err(format!(
-                    "Company Triggers OnCompanyOpen(Completed) subscriber {who} stopped before the first test (not pinned)"
-                ));
-            }
+            Err(_) => return Err(format!("{who} stopped before the first test (not pinned)")),
         }
         let store = session.store_mut();
         // A change to a computed (platform) table is not a stored row the watch can follow.
         if store.virtual_write_pending() {
             return Err(format!(
-                "Company Triggers OnCompanyOpen(Completed) subscriber {who} changed a platform table in the test session before the first test: what the test runner does with the change is not pinned (ADR-046 amendment 1, A4 item 10)"
+                "{who} changed a platform table in the test session before the first test: what the test runner does with the change is not pinned (ADR-046 amendment 1, A4 item 10)"
             ));
         }
         let changed = store.tables_changed_since(since);
+        if own {
+            // What the apps' own login subscribers wrote is the login's, there for every test of the codeunit
+            // (LgnLoginChecklistTests.al:137-138, :161). Where what BC's login does is not known, a test that touches
+            // what they wrote is not run, and a change of the session's state other than rows refuses the codeunit.
+            own_wrote.extend(changed);
+            let last = !subs.get(i + 1).is_some_and(|s| s.2);
+            if let (true, Some(why), Some(b)) = (last, watched, &before) {
+                if let Some(what) = b.changed(&session.state_stamp()) {
+                    return Err(format!(
+                        "{why}: the login subscribers of the apps under test ran before the first test and changed {what}"
+                    ));
+                }
+            }
+            continue;
+        }
         if changed.is_empty() {
             continue;
         }
         // What the login wrote is in the session for every test of the codeunit (LgnLoginChecklistTests.al:137-138,
         // :161): it is not refused, only noted for the carry rule of Disabled isolation (`run.rs`).
         if lowered.dependency[o] {
-            wrote.login.get_or_insert(who);
+            wrote.login.get_or_insert(name);
         } else {
             wrote.tables.extend(changed);
-            wrote.who.get_or_insert(who);
+            wrote.who.get_or_insert(name);
         }
     }
-    // Without the login, a read of a table its subscribers add rows to is refused from here on, and for a table the test's
-    // own calls can insert into, an operation that addresses a row they add when they run alone (`login::Login::Skip`).
-    if let crate::login::Login::Skip { guarded, assumed } = decision {
-        session.guard_login_tables(guarded);
-        if !assumed.is_empty() {
-            let rows = session.login_rows_alone(&crate::login::login_subscribers(lowered, &engine.events), &assumed);
-            session.guard_login_rows(assumed, rows);
-        }
-    }
+    wrote.watched_login = watched.map(|why| (own_wrote, why));
     Ok(wrote)
 }
 

@@ -47,6 +47,7 @@ pub use profile::{
     DbStat, PosStat, ProfFrame, ProfNode, ProfileMode, ProfileTree, reaches_database,
     routine_label as profile_routine_label,
 };
+pub use state_stamp::StateStamp;
 pub use test_runner_host::TestCodeunitHost;
 mod callstack;
 mod clear_all_page_ext;
@@ -113,7 +114,6 @@ mod recordref_load_fields;
 mod recordref_variant;
 mod records;
 mod refs;
-pub mod refusal;
 mod relations;
 mod rename;
 mod report_handler_unshown;
@@ -129,6 +129,7 @@ mod sqlcount;
 mod sqltime;
 mod stale_buffer_origin;
 mod stale_own_modify;
+mod state_stamp;
 mod tasks;
 mod tenant_layout_cfg;
 mod tenant_layouts;
@@ -830,8 +831,9 @@ pub struct Session {
     /// The session's data comes from a baseline in which the company data codeunit built the company to its end
     /// (`Baseline::company_built`).
     pub(crate) company_built: bool,
-    /// What decides whether a read of a table is refused (`records/login_guard.rs`).
-    guards: records::ReadGuards,
+    /// The `Engine::demo_tables` the running test's own code (not install code) wrote to (`records/op_inner.rs`): a read of
+    /// one of the others is refused before the session's own code wrote it.
+    demo_written: std::collections::HashSet<u32>,
     /// The running test's own code (not install code) wrote General Ledger Setup (table 98), before any caption of areas 1 or 101
     /// was resolved (`setup_caption_read_early`): such captions read the test's row (`refuse_setup_caption`).
     pub(crate) gl_setup_written: bool,
@@ -1324,7 +1326,7 @@ impl Session {
             sessions_started: 0,
             install_without_client: false,
             company_built: false,
-            guards: Default::default(),
+            demo_written: Default::default(),
             gl_setup_written: false,
             setup_caption_read_early: false,
             sequences,
@@ -1442,7 +1444,7 @@ impl Session {
         self.shadow_begin();
         self.application_areas.clear();
         self.isolated_set_in_test.clear();
-        self.guards.demo_written.clear();
+        self.demo_written.clear();
         self.gl_setup_written = false;
         self.tx.transaction_type = 0;
         self.tx.tx_phase = crate::transactions::TX_FRESH;
