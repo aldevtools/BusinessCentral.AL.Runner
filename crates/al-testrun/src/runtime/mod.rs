@@ -991,6 +991,8 @@ mod not_run_link;
 mod numbers_taken;
 mod order_hint;
 mod run;
+#[cfg(test)]
+mod run_on_client_reach_tests;
 mod runner_reset;
 mod session_flags;
 mod single_fresh;

@@ -66,6 +66,20 @@ pub(super) fn enum_text(c: &mut dyn Ctx, id: &u32, text: &crate::text::Txt) -> R
                 .find(|(_, n)| !text.is_empty() && n.eq_ignore_ascii_case(text))
                 .map(|(o, _)| *o)
         });
+    // A blank text into an enum whose member has a name and a blank caption (`value(0; None) { Caption = ' '; }`) matched nothing
+    // above. Real BC reads it as that member (al-runner issue 6924, a partner test), but no corpus test pins this shape yet (the
+    // pinned blank members are named " " or "": EvalLanguageBoolean.al WA_BlankEnum1-3). Refused until the probe (corpus pull
+    // request 1283, EvalNamedBlankCaption.al) lands.
+    if found.is_none()
+        && text.is_empty()
+        && captions.iter().any(|(o, cap)| {
+            !cap.is_empty() && cap.trim().is_empty() && members.iter().any(|(mo, n)| mo == o && !n.trim().is_empty())
+        })
+    {
+        return unsupported(
+            "Evaluate of a blank text into an Enum whose member has a name and a blank caption (not pinned)",
+        );
+    }
     Ok(match found {
         Some(o) => Parsed::Value(Value::Enum(*id, o)),
         None if c.ret_used() => Parsed::Rejected,

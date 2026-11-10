@@ -71,6 +71,19 @@ codeunit 51533 C
         W.Close();
         exit(s + '|' + Format(Line.Count()));
     end;
+    local procedure SwitchFromEmpty(Batch: Code[10]): Text
+    var W: TestPage "JB Ws"; L: Codeunit "JB Log"; Line: Record "JB Line"; s: Text;
+    begin
+        Line.DeleteAll();
+        Add('B2', 10000, 'B');
+        W.OpenEdit(); L.Take();
+        W.CurrentBatch.SetValue(Batch);
+        s := L.Take() + '|' + W."Line No."."Value"();
+        W.Close();
+        exit(s);
+    end;
+    procedure EmptyToEmpty(): Text begin exit(SwitchFromEmpty('B3')); end;
+    procedure EmptyToRows(): Text begin exit(SwitchFromEmpty('B2')); end;
     procedure ToRows(): Text begin exit(Switch('B2')); end;
     procedure ToEmpty(): Text begin exit(Switch('B3')); end;
 }
@@ -94,5 +107,26 @@ fn a_switch_to_an_empty_batch_shows_the_new_row_line() {
     assert_eq!(
         run("ToEmpty"),
         "V:start 20000;V:done 20000;N:B3/0 below=Yes;C:B3/0;N:B3/0 below=Yes;C:B3/0;|0/|No/0:|5"
+    );
+}
+
+/// From the untouched new-row line of an empty batch to another empty batch: the corpus pins the switch from a stored row to an empty
+/// batch (Y17JournalBatchSwitch.al:485) and from the line to a batch with rows (Y50UpdateFromNewLine.al:556), not this one. Reading
+/// Rec after it would give the buffer of the old batch, so it is refused (al-runner issue 6924: a page action read Rec after
+/// such a switch of Movement Worksheet).
+#[test]
+fn a_switch_from_the_new_row_line_of_an_empty_batch_to_another_empty_batch_is_refused() {
+    let r = al_testkit::run_in(SRC, "C", "EmptyToEmpty");
+    match r {
+        Err(al_builtins::native::Signal::Unsupported(why)) => assert!(why.contains("new-row line"), "{why}"),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_switch_from_the_new_row_line_of_an_empty_batch_to_a_batch_with_rows_still_reads_them() {
+    assert_eq!(
+        run("EmptyToRows"),
+        "V:start 0;V:done 10000;R:B2/10000;R:B2/10000;C:B2/10000;|10000"
     );
 }
