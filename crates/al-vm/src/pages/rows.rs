@@ -559,7 +559,7 @@ impl Session {
             if let Some(controls) = &row_exprs {
                 self.note_row_exprs(st, key.clone(), controls)?;
             }
-            keys.push(al_builtins::value::WindowRow {
+            keys.push(crate::pages::WindowRow {
                 key,
                 stored,
                 shown: rec.borrow().fields.clone(),
@@ -636,7 +636,7 @@ impl Session {
                     let key = self.row_key(&rec)?;
                     let stored = rec.borrow().fields.clone();
                     self.populate_current(st)?;
-                    above.push(al_builtins::value::WindowRow {
+                    above.push(crate::pages::WindowRow {
                         key,
                         stored,
                         shown: rec.borrow().fields.clone(),
@@ -712,7 +712,7 @@ impl Session {
                     let key = self.row_key(&rec)?;
                     let stored = rec.borrow().fields.clone();
                     self.populate_current(st)?;
-                    above.push(al_builtins::value::WindowRow {
+                    above.push(crate::pages::WindowRow {
                         key,
                         stored,
                         shown: rec.borrow().fields.clone(),
@@ -875,7 +875,7 @@ impl Session {
     fn read_rows_up_from_the_landed_last_row(
         &mut self,
         st: &St,
-        mut keys: Vec<al_builtins::value::WindowRow>,
+        mut keys: Vec<crate::pages::WindowRow>,
         start: Vec<Value>,
     ) -> Result<(), Signal> {
         let rec = self.page_rec(st);
@@ -884,7 +884,7 @@ impl Session {
             let key = self.row_key(&rec)?;
             let stored = rec.borrow().fields.clone();
             self.populate_current(st)?;
-            above.push(al_builtins::value::WindowRow {
+            above.push(crate::pages::WindowRow {
                 key,
                 stored,
                 shown: rec.borrow().fields.clone(),
@@ -957,10 +957,10 @@ impl Session {
             up.push(probe.borrow().fields.clone());
         }
         let table = self.table(&rec)?;
-        let mut rows: Vec<al_builtins::value::WindowRow> = up
+        let mut rows: Vec<crate::pages::WindowRow> = up
             .iter()
             .rev()
-            .map(|f| al_builtins::value::WindowRow {
+            .map(|f| crate::pages::WindowRow {
                 key: table.primary_key(f),
                 stored: f.clone(),
                 shown: f.clone(),
@@ -995,11 +995,7 @@ impl Session {
     /// row it opened on, asks OnFindRecord(`=`) and reads it again; OnAfterGetCurrRecord follows (misc/lt-probes-needed-6/
     /// PnF06FindListMoves.al:304 FindList_Descending_3Rows `F(=><);R1;N(1);N(-1);R2;N(-1);R3;N(-1);R1;F(=);R1;C`, :318
     /// _25Rows `...;R20;N(-1);R21;R1;F(=);R1;C`). The window holds the rows in client order, the cursor on its last row.
-    fn read_rows_up_from_the_last(
-        &mut self,
-        st: &St,
-        forward: Vec<al_builtins::value::WindowRow>,
-    ) -> Result<(), Signal> {
+    fn read_rows_up_from_the_last(&mut self, st: &St, forward: Vec<crate::pages::WindowRow>) -> Result<(), Signal> {
         let rec = self.page_rec(st);
         let mut above = Vec::new();
         let mut whole = true;
@@ -1008,7 +1004,7 @@ impl Session {
                 let key = self.row_key(&rec)?;
                 let stored = rec.borrow().fields.clone();
                 self.populate_current(st)?;
-                above.push(al_builtins::value::WindowRow {
+                above.push(crate::pages::WindowRow {
                     key,
                     stored,
                     shown: rec.borrow().fields.clone(),
@@ -1067,7 +1063,7 @@ impl Session {
             let key = self.row_key(&rec)?;
             let stored = rec.borrow().fields.clone();
             self.populate_current(st)?;
-            new_rows.push(al_builtins::value::WindowRow {
+            new_rows.push(crate::pages::WindowRow {
                 key,
                 stored,
                 shown: rec.borrow().fields.clone(),
@@ -1118,7 +1114,7 @@ impl Session {
             let key = self.row_key(&rec)?;
             let stored = rec.borrow().fields.clone();
             self.populate_current(st)?;
-            new_rows.push(al_builtins::value::WindowRow {
+            new_rows.push(crate::pages::WindowRow {
                 key,
                 stored,
                 shown: rec.borrow().fields.clone(),
@@ -1156,7 +1152,7 @@ impl Session {
     fn read_rows_before_the_first(
         &mut self,
         st: &St,
-        forward: Vec<al_builtins::value::WindowRow>,
+        forward: Vec<crate::pages::WindowRow>,
         full: bool,
     ) -> Result<(), Signal> {
         // A ListPart with a full first window reads as a page of its own (testpage/PnF06FindListMoves.al:1968
@@ -1181,7 +1177,7 @@ impl Session {
             let key = self.row_key(&rec)?;
             let stored = rec.borrow().fields.clone();
             self.populate_current(st)?;
-            before.push(al_builtins::value::WindowRow {
+            before.push(crate::pages::WindowRow {
                 key,
                 stored,
                 shown: rec.borrow().fields.clone(),
@@ -1223,7 +1219,7 @@ impl Session {
             let key = self.row_key(&rec)?;
             let stored = rec.borrow().fields.clone();
             self.populate_current(st)?;
-            let row = al_builtins::value::WindowRow {
+            let row = crate::pages::WindowRow {
                 key: key.clone(),
                 stored,
                 shown: rec.borrow().fields.clone(),
@@ -1872,7 +1868,7 @@ impl Session {
                 let shown = rec.borrow().fields.clone();
                 st.borrow_mut()
                     .window
-                    .push(al_builtins::value::WindowRow { key, stored, shown });
+                    .push(crate::pages::WindowRow { key, stored, shown });
                 new_rows += 1;
             }
             let mut s = st.borrow_mut();
@@ -1928,7 +1924,7 @@ impl Session {
                 let key = s.row_key(&rec)?;
                 let stored = rec.borrow().fields.clone();
                 s.populate_current(st)?;
-                new_rows.push(al_builtins::value::WindowRow {
+                new_rows.push(crate::pages::WindowRow {
                     key,
                     stored,
                     shown: rec.borrow().fields.clone(),
@@ -2029,7 +2025,7 @@ impl Session {
             let shown = rec.borrow().fields.clone();
             st.borrow_mut()
                 .window
-                .push(al_builtins::value::WindowRow { key, stored, shown });
+                .push(crate::pages::WindowRow { key, stored, shown });
             new_rows += 1;
             if new_rows == Self::WINDOW {
                 return unsupported(
@@ -2144,7 +2140,7 @@ impl Session {
         while self.nav_next(st, 1)? {
             let key = self.row_key(&rec)?;
             let stored = rec.borrow().fields.clone();
-            st.borrow_mut().window.push(al_builtins::value::WindowRow {
+            st.borrow_mut().window.push(crate::pages::WindowRow {
                 key,
                 stored: stored.clone(),
                 shown: stored,
@@ -2192,7 +2188,7 @@ impl Session {
                 let shown = rec.borrow().fields.clone();
                 st.borrow_mut()
                     .window
-                    .push(al_builtins::value::WindowRow { key, stored, shown });
+                    .push(crate::pages::WindowRow { key, stored, shown });
                 new_rows += 1;
             }
             if new_rows < Self::WINDOW {
@@ -2645,7 +2641,7 @@ impl Session {
         let Some(Value::TestControl(c)) = args.first() else {
             return unsupported(format!("{how} without a control"));
         };
-        let ControlTarget::Control(idx) = c.target else {
+        let ControlTarget::Control(idx) = control_of(c).target else {
             return unsupported(format!("{how} on a built-in control"));
         };
         let wanted = args.get(1).cloned().unwrap_or(Value::Null);
@@ -2709,7 +2705,7 @@ impl Session {
             let mut handed_back = false;
             for (i, v) in frame.locals.iter().enumerate() {
                 if let Value::TestPage(st) = v {
-                    if Rc::ptr_eq(st, &trap) {
+                    if Rc::ptr_eq(st_of(st), &trap) {
                         local_holders += 1;
                         if i < params && by_var.get(i).copied().unwrap_or(false) {
                             handed_back = true;
@@ -2745,7 +2741,7 @@ impl Session {
             let mut handed_back = false;
             for (i, v) in frame.locals.iter().enumerate() {
                 if let Value::TestPage(st) = v {
-                    if Rc::ptr_eq(st, &page) {
+                    if Rc::ptr_eq(st_of(st), &page) {
                         local_holders += 1;
                         if i < params && by_var.get(i).copied().unwrap_or(false) {
                             handed_back = true;
@@ -2763,7 +2759,7 @@ impl Session {
                     i.borrow()
                         .globals
                         .iter()
-                        .filter(|v| matches!(v, Value::TestPage(p) if Rc::ptr_eq(p, &page)))
+                        .filter(|v| matches!(v, Value::TestPage(p) if Rc::ptr_eq(st_of(p), &page)))
                         .count()
                 };
                 s.instance.iter().map(held).sum::<usize>() + s.ext_instances.iter().map(|(_, i)| held(i)).sum::<usize>()
@@ -2786,7 +2782,7 @@ impl Session {
     }
 
     /// The `Trap()` waiting for page `object`, taken out of the list.
-    pub(crate) fn take_trap(&mut self, object: u32) -> Option<Rc<RefCell<al_builtins::value::PageState>>> {
+    pub(crate) fn take_trap(&mut self, object: u32) -> Option<Rc<RefCell<crate::pages::PageState>>> {
         let at = self.pages.traps.iter().position(|t| t.borrow().object == object)?;
         Some(self.pages.traps.remove(at))
     }
@@ -3108,7 +3104,7 @@ impl Session {
         }
         let (hobject, hroutine, hinst) = handler;
         self.ui_state.page_handler_depth += 1;
-        let handled = self.call(hobject, hroutine, hinst, vec![Value::TestPage(st.clone())]);
+        let handled = self.call(hobject, hroutine, hinst, vec![page_value(st)]);
         self.ui_state.page_handler_depth -= 1;
         {
             let mut s = st.borrow_mut();
@@ -3167,7 +3163,7 @@ impl Session {
             hobject,
             hroutine,
             hinst,
-            vec![Value::TestPage(st.clone()), Value::Option(none, members)],
+            vec![page_value(st), Value::Option(none, members)],
         );
         self.ui_state.page_handler_depth -= 1;
         {
@@ -3270,7 +3266,7 @@ impl Session {
         st.borrow_mut().test_close_vetoed = false;
         st.borrow_mut().test_closed_in_handler = false;
         self.ui_state.page_handler_depth += 1;
-        let handled = self.call(hobject, hroutine, hinst, vec![Value::TestPage(st.clone())]);
+        let handled = self.call(hobject, hroutine, hinst, vec![page_value(&st)]);
         self.ui_state.page_handler_depth -= 1;
         if let Err(e) = handled {
             if modal && matches!(e, Signal::Error(_)) && st.borrow().open {

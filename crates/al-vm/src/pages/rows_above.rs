@@ -41,7 +41,7 @@ impl Session {
             let key = self.row_key(&rec)?;
             let stored = rec.borrow().fields.clone();
             self.populate_current(st)?;
-            above.push(al_builtins::value::WindowRow {
+            above.push(crate::pages::WindowRow {
                 key,
                 stored,
                 shown: rec.borrow().fields.clone(),

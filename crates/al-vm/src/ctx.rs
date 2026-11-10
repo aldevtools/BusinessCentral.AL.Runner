@@ -149,9 +149,9 @@ impl al_builtins::native::Ctx for Session {
     }
     fn clear_test_page(
         &mut self,
-        st: &std::rc::Rc<std::cell::RefCell<al_builtins::value::PageState>>,
-    ) -> Result<(), Signal> {
-        Session::clear_test_page(self, st)
+        page: &al_builtins::page_handle::PageHandle,
+    ) -> Result<al_builtins::page_handle::PageHandle, Signal> {
+        self.cleared_test_page(page)
     }
     fn now_unix_millis(&self) -> Option<i64> {
         Some(self.now_millis())

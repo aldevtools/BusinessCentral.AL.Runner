@@ -639,7 +639,7 @@ impl Session {
                         continue;
                     }
                     if opening && self.view_names_link_field(st, *i, child)? {
-                        child.borrow_mut().read_backwards = Some(al_builtins::value::ReadBackwards::AtOpen);
+                        child.borrow_mut().read_backwards = Some(crate::pages::ReadBackwards::AtOpen);
                     }
                     if let Sync::Move { backward: true } = how {
                         // The pinned parts walk the table backwards. A part with its own OnFindRecord or OnNextRecord reads as after
@@ -647,7 +647,7 @@ impl Session {
                         // SH_FindRecordPart_HostFirstAfterGoToKey `first part log`, SH_FindRecordPart_HostNextLastPrevious
                         // `previous part log`).
                         if !(self.declares(child, "onfindrecord") || self.declares(child, "onnextrecord")) {
-                            child.borrow_mut().read_backwards = Some(al_builtins::value::ReadBackwards::AfterMove);
+                            child.borrow_mut().read_backwards = Some(crate::pages::ReadBackwards::AfterMove);
                         }
                     }
                     // A FactBox part of a Provider chain does not read again when the host it stands on is inserted by the first
@@ -657,7 +657,7 @@ impl Session {
                         continue;
                     }
                     if how == Sync::Plain && self.chain_part_back_walk(st, *i, child) {
-                        child.borrow_mut().read_backwards = Some(al_builtins::value::ReadBackwards::AfterMove);
+                        child.borrow_mut().read_backwards = Some(crate::pages::ReadBackwards::AfterMove);
                     }
                     // Such a part reads nothing on a host move that keeps its link values, forward or back (PartReadsOpen.al
                     // SH_FindRecordPart_HostNextLastPrevious `next x3 part log`: one read for three moves, two of them inside
@@ -836,7 +836,7 @@ impl Session {
         view.extend(after);
         let window = view
             .into_iter()
-            .map(|stored| al_builtins::value::WindowRow {
+            .map(|stored| crate::pages::WindowRow {
                 key: table.primary_key(&stored),
                 shown: if Self::same_key(&table.primary_key(&stored), &key) {
                     shown_current.clone()

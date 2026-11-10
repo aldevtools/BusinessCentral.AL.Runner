@@ -9,10 +9,7 @@ use al_builtins::page_op::PageMethod;
 
 impl Session {
     pub(super) fn filter_handle(&self, st: &St) -> Value {
-        Value::TestControl(Rc::new(ControlRef {
-            page: st.clone(),
-            target: ControlTarget::Filter,
-        }))
+        test_control(st.clone(), ControlTarget::Filter)
     }
 
     /// The `TestFilter.*` methods on the page `st`.

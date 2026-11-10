@@ -145,20 +145,9 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
         Value::Blob(_) => Value::Blob(crate::stream::new_blob()),
         // A cleared TestPage or Page variable is a fresh, closed one (corpus
         // testpage/TestPageEditable_Tests.al:93 EditableBoundToPageVariable_FollowsTheRow). A page that is open or waits for
-        // Trap() is closed and loses its trap first (`Ctx::clear_test_page`), which refuses a part of a host.
-        Value::TestPage(st) => {
-            let busy = {
-                let s = st.borrow();
-                s.open || s.trapping || s.host.is_some()
-            };
-            if busy {
-                ctx.clear_test_page(st)?;
-            }
-            let object = st.borrow().object;
-            Value::TestPage(std::rc::Rc::new(std::cell::RefCell::new(
-                crate::value::PageState::closed(object),
-            )))
-        }
+        // Trap() is closed and loses its trap first, which refuses a part of a host. The VM owns the page state and does
+        // both (`Ctx::clear_test_page`, ADR-072 decision 3).
+        Value::TestPage(page) => Value::TestPage(ctx.clear_test_page(page)?),
         // A cleared Query is a fresh one: no filters, no row cap, not open
         // (queries/TestQueryRuntimeContracts.al:Query_GetFilters_ThreeFilters_OrderIsNotColumnOrder).
         Value::Query(q) => {

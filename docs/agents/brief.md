@@ -90,6 +90,12 @@ then `unsupported(refuse!(keys::NAME, "text {}", value))`, and `al-test-cli --ro
 - Decisions you took without the owner.
 Under 200 words plus the table.
 
+## Moved code
+- **Page state** (ADR-072): `PageState`, `PageMode`, `WindowRow`, `Cursor`, `ReadBackwards`, `ControlRef` and `ControlTarget`
+  live in `crates/al-vm/src/pages/state.rs`, not in `crates/al-builtins/src/value.rs`. A branch that added a field in
+  `value.rs`: after you merge `main`, put the field and its `closed` line into `state.rs`. `Value::TestPage` and
+  `Value::TestControl` hold a handle: read it with `st_of` / `control_of`, build a value with `page_value` / `test_control`.
+
 ## Other files
 - `docs/agents/assumptions.md`: register an unprobed behavior.
 - `docs/agents/checks.md`: checks by area, listing new failures.
