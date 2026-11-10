@@ -89,6 +89,7 @@ mod run_request_page_static_view;
 mod runner_isolation;
 mod runner_permission_sets;
 mod runner_reset;
+mod selection_install_roots;
 mod single_instance_lane;
 mod single_instance_test_codeunit;
 mod skip_after_timeout;
