@@ -1,7 +1,7 @@
 //! The insert queue of a table: a duplicate-key Insert that is pending raises when the queue is sent (al-runner issue 7407).
 //!
-//! BC queues the statement-form Inserts of a table without a Blob or AutoIncrement field and sends the queue with its 5th row, with
-//! a Commit and with the next access to the table. A duplicate key shows when the queue is sent. Measured on BC 27.5, 28.5 and
+//! BC queues the statement-form Inserts AL code makes into a table without a Blob or AutoIncrement field and sends the queue with
+//! its 5th row, with a Commit and with the next access to the table. A duplicate key shows when the queue is sent. Measured on BC 27.5, 28.5 and
 //! 29.0 (corpus pull request 1279, record/duplicate-insert/Y7407DuplicateInsertBuffer.al): a duplicate that is the 5th insert after
 //! 4 queued rows raises at that Insert (Dup_5thInsert_OfFirstRow); a duplicate that is the 6th insert after 5 inserts, the 7th
 //! after 6, and one right after a Commit is pending until the next access (Dup_6thInsert_*, Dup_7thInsert_*,
@@ -9,6 +9,13 @@
 //! again, raise inside the asserterror at the first of the second four (Report_FourRowsTwice_NoRead), five and five at the
 //! last of the second five (Report_FiveRowsTwice_NoRead), and four, a Commit and the same four keys raise nothing before the next
 //! read (Report_FourRowsTwice_CommitBetween).
+//!
+//! Not measured, and so outside the queue or refused:
+//! - an Insert the platform makes itself (an XmlPort import, the row of a page, of a FlowField, a record link): it is not
+//!   counted, sends nothing and raises nothing here. Its duplicate key stays pending as before the queue (an XmlPort import:
+//!   xmlports/import/XpTImportBasic.al Import_DuplicateKeyExisting, Import_DuplicateKeyWithinInput);
+//! - a valid row that sends the queue while a duplicate is pending (`K1, K2, K1, K3, K4`): in every measured cell the Insert
+//!   that sends the queue is itself a duplicate. Whether the valid row stays written is not known: refused.
 
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
@@ -23,6 +30,18 @@ pub(crate) struct InsertQueue {
     company: Option<String>,
     rows: usize,
     sent: bool,
+}
+
+/// What an Insert is to the insert queue (`Session::note_insert_buffer`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum InsertKind {
+    /// A statement-form Insert of AL code into a table BC queues.
+    Queued,
+    /// An Insert the platform makes itself: outside the queue.
+    Platform,
+    /// Every other record method, and an Insert of AL code that is not queued (its result is used, a temporary or CRM
+    /// record, a table with a Blob or AutoIncrement field, the page client).
+    Other,
 }
 
 /// The methods that read or write the table and so send its queue (the ones that also raise a deferred duplicate, `record_op_inner`).
@@ -50,50 +69,74 @@ fn sends_queue(method: RecordOp) -> bool {
 }
 
 impl Session {
-    /// Whether an unguarded Insert into `rec`'s table is queued by the platform: a database table without a Blob or AutoIncrement
-    /// field, outside the page client and XmlPort imports (which raise a duplicate at once).
-    pub(super) fn insert_is_queued(&mut self, rec: &Rec) -> bool {
-        if rec.borrow().temporary || rec.borrow().crm || self.tx.immediate_errors {
-            return false;
-        }
-        match self.table(rec) {
-            Ok(t) => !self.has_blob_field(&t) && matches!(self.auto_increment_field(&t), Ok(None)),
-            Err(_) => false,
-        }
+    /// [`Session::record_op`] for a method AL code calls on a Record or a RecordRef: its Insert may go into the insert queue
+    /// (`TxState::insert_from_al`).
+    pub(crate) fn record_op_of_al(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
+        self.tx.insert_from_al = method == RecordOp::Insert;
+        self.record_op(method, rec, args)
     }
 
-    /// Follows the insert queue of `rec`'s table after `method` ran (`Session::record_op`). `queued` says the Insert was a statement
-    /// form that BC queues. The 5th queued row sends the queue: a duplicate-key Insert pending for the table raises here.
+    /// Leaves the error of a duplicate-key Insert of `rec` into table `object` pending, unless one is pending already, and notes
+    /// which record's Insert it was (`TxState::deferred_by`).
+    pub(super) fn defer_insert(&mut self, rec: &Rec, object: u32, e: AlError) {
+        self.tx.deferred_insert.get_or_insert((object as usize, e));
+        self.tx.deferred_by = Some(Rc::as_ptr(rec) as usize);
+    }
+
+    /// Whether an unguarded Insert of AL code into `rec`'s table is queued by the platform: a database table without a Blob or
+    /// AutoIncrement field (`TableFacts::insert_unqueued`), outside the page client (which raises a duplicate at once).
+    pub(super) fn insert_is_queued(&mut self, rec: &Rec) -> bool {
+        let r = rec.borrow();
+        !r.temporary
+            && !r.crm
+            && !self.tx.immediate_errors
+            && !self.engine.table_facts[r.table as usize].insert_unqueued
+    }
+
+    /// Follows the insert queue of `rec`'s table after `method` ran (`Session::record_op`). `insert` says what an Insert is to
+    /// the queue. The 5th queued row sends the queue: a duplicate-key Insert pending for the table raises here.
     pub(crate) fn note_insert_buffer(
         &mut self,
         method: RecordOp,
         rec: &Rec,
-        queued: bool,
+        insert: InsertKind,
         r: Result<Value, Signal>,
     ) -> Result<Value, Signal> {
-        if rec.borrow().temporary || (method != RecordOp::Insert && !sends_queue(method)) {
+        // Whether this Insert left its own duplicate key pending (`TxState::deferred_by`).
+        let own = Rc::as_ptr(rec) as usize;
+        let duplicate = method == RecordOp::Insert && self.tx.deferred_by == Some(own);
+        if duplicate {
+            self.tx.deferred_by = None;
+        }
+        // Nothing is queued in this transaction: a read or a write has nothing to send.
+        if insert != InsertKind::Queued && self.tx.insert_buffer.is_empty() {
             return r;
         }
-        let (table, company) = {
+        if insert == InsertKind::Platform
+            || rec.borrow().temporary
+            || (method != RecordOp::Insert && !sends_queue(method))
+        {
+            return r;
+        }
+        let at = {
             let s = rec.borrow();
-            (s.table, s.company.clone())
+            self.tx
+                .insert_buffer
+                .iter()
+                .position(|q| q.table == s.table && q.company == s.company)
         };
-        let at = self
-            .tx
-            .insert_buffer
-            .iter()
-            .position(|q| q.table == table && q.company == company);
-        if method != RecordOp::Insert || r.is_err() || !queued {
+        if insert != InsertKind::Queued || r.is_err() {
             // A read or a write of the table, a guarded Insert or a failed one sends what is queued.
             if let Some(i) = at {
                 self.tx.insert_buffer[i].rows = 0;
             }
             return r;
         }
+        let table = rec.borrow().table;
         let i = at.unwrap_or_else(|| {
             self.tx.insert_buffer.push(InsertQueue {
                 table,
-                company,
+                company: rec.borrow().company.clone(),
                 rows: 0,
                 sent: false,
             });
@@ -117,9 +160,18 @@ impl Session {
         if !pending {
             return r;
         }
+        let t = self.table(rec)?;
+        // In every measured cell the Insert that sends the queue is itself a duplicate (Dup_5thInsert_OfFirstRow,
+        // Report_FourRowsTwice_NoRead, Report_FiveRowsTwice_NoRead). A valid row that sends it is written by now: whether BC
+        // keeps it when the pending error comes out is not measured.
+        if !duplicate {
+            return unsupported(format!(
+                "an Insert of a valid row into {} that sends the insert queue (its 5th row) while a duplicate-key Insert is pending: not pinned (probes-needed: insert-queue-sent-at-fifth-row)",
+                t.name
+            ));
+        }
         assume(Assumption::InsertQueueSentAtFifthRow);
         // The After event and trigger of the Insert that sent the queue: whether they run is not measured.
-        let t = self.table(rec)?;
         if self.listened(&t, "onafterinsertevent", None)? || !self.ext_triggers(&t, "OnAfterInsert").is_empty() {
             return unsupported(format!(
                 "a duplicate-key Insert into {} sent with the 5th queued row, with an OnAfterInsert subscriber or trigger: not pinned",

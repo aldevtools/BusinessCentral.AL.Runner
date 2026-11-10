@@ -105,6 +105,7 @@ mod xmlport_text_value_nested_text;
 mod xmlport_text_wrap;
 mod xmlport_time_ms_xml;
 mod xmlport_tree_in_table;
+mod xmlport_type_forms_unpinned;
 mod xmlport_udn_default;
 mod xmlport_udn_prefixes;
 mod xmlport_unbound_text;
