@@ -9,7 +9,7 @@
 use crate::Session;
 use al_builtins::describe::Describe;
 use al_builtins::filter::{FieldFilter, FilterExpr, parse_filter_with};
-use al_builtins::native::{AlError, Signal, text_of};
+use al_builtins::native::{AlError, Signal, text_of, unsupported};
 use al_builtins::ops;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{RecordState, RtType, Value};
@@ -48,10 +48,6 @@ fn key_ordered_by(t: &TableDef, filters: &[FieldFilter], field: usize) -> bool {
             )
         )
     })
-}
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
 }
 
 /// A runtime error with a message the corpus pins and, where it is pinned, a code.

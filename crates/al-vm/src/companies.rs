@@ -8,7 +8,7 @@
 use crate::Session;
 use crate::records::Rec;
 use al_builtins::describe::Describe;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::value::Value;
 use al_data::{AccessContext, Store, TableDef};
@@ -29,10 +29,6 @@ const COMPANY_INFORMATION: u32 = 79;
 /// Information, General Ledger Setup, Source Code Setup, Sales & Receivables Setup, CDS Connection Setup, CRM Connection
 /// Setup.
 const EMPTY_IN_CORPUS_OTHER_COMPANY: [u32; 6] = [79, 98, 242, 311, 5330, 7200];
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 impl Session {
     /// The Company table, if the program compiled it.

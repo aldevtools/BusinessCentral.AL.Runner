@@ -108,7 +108,7 @@ pub(super) fn copystr(c: &mut dyn Ctx, r: Option<&mut Value>, args: &mut [Value]
             Some(Value::Decimal(d)) => crate::textfns::decimal_as_int(d).map(Some),
             Some(v) => match int_arg(args, i) {
                 Some(n) => Ok(Some(n)),
-                None => unsupported(&format!("CopyStr with an argument {i} of type {}", v.describe())),
+                None => unsupported(format!("CopyStr with an argument {i} of type {}", v.describe())),
             },
         }
     };
@@ -202,7 +202,7 @@ pub(super) fn strsubstno(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [V
 pub(super) fn textconst_text(language: i32, args: &[Value]) -> Result<Value, Signal> {
     const KNOWN: [(&str, i32); 3] = [("ENU", 1033), ("DEU", 1031), ("FRA", 1036)];
     if !KNOWN.iter().any(|(_, id)| *id == language) {
-        return unsupported(&format!(
+        return unsupported(format!(
             "a TextConst read in language {language}: only 1033, 1031 and 1036 are pinned (docs/probes-needed.md \"TextConst\")"
         ));
     }

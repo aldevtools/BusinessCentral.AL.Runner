@@ -6,14 +6,10 @@
 //! are not implemented, so no code path here has to model them.
 
 use crate::Session;
-use al_builtins::native::{AlError, Signal};
+use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::value::{RtType, Value};
 use al_data::TableDef;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 fn number(v: &Value) -> Option<i64> {
     match v {

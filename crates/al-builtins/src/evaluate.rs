@@ -13,7 +13,7 @@ mod option_text;
 mod platform_options;
 use crate::describe::Describe;
 use crate::format::day_from_civil;
-use crate::native::{Ctx, Signal};
+use crate::native::{Ctx, Signal, unsupported};
 use crate::value::Value;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
@@ -54,10 +54,6 @@ fn rejected_characters(text: &str) -> bool {
                 | '\u{A0}' | '\u{202F}' | '\u{FF10}'..='\u{FF19}' | '\u{0660}'..='\u{0669}'
         ) || (!c.is_ascii() && c.is_alphabetic())
     })
-}
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
 }
 
 /// What parsing one text produced.

@@ -10,16 +10,12 @@
 
 use crate::Session;
 use al_builtins::filter::{FieldFilter, FilterExpr};
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::value::Value;
 use al_data::{RenameOutcome, Scan, Store, TableDef, WriteOutcome, position};
 use al_ir as ir;
 use std::cmp::Ordering;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 /// A field (of table object `table`, at `pos`) whose relation arm `arm` points at the renamed table.
 pub(crate) struct RenameRef {

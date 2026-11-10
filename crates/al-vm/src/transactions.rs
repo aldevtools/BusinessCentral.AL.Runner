@@ -9,6 +9,7 @@
 
 use crate::{AlError, Session, Signal};
 use al_builtins::builtin_id::ids;
+use al_builtins::native::unsupported;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::Value;
 
@@ -140,10 +141,6 @@ pub(crate) fn al_error_code(message: &str, code: &str) -> Signal {
         call_stack: String::new(),
         ..Default::default()
     }))
-}
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
 }
 
 /// The emit version BC reports in a missing-object error. Only the measured builds are known

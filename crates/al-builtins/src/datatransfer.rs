@@ -4,7 +4,7 @@
 //! code. Inside install code each staging and copying call goes to the VM (`Ctx::ref_op`, al-vm `datatransfer`), which keeps
 //! the staged [`Plan`] in the variable and runs the copy (install-upgrade/AsDtInstaller.al, AsDtInstallRead.al).
 
-use crate::native::{AlError, Ctx, NativeFn, Signal};
+use crate::native::{AlError, Ctx, NativeFn, Signal, unsupported};
 use crate::signature::Signature;
 use crate::value::{LibraryValue, Value};
 
@@ -41,10 +41,6 @@ macro_rules! in_install {
             }
         }) as NativeFn
     };
-}
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
 }
 
 /// A staging or copying call on a variable `SetTables` has not staged (or `Clear` reset).

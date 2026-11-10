@@ -8,7 +8,7 @@
 
 use crate::{Engine, Session, UiKind};
 use al_builtins::describe::Describe;
-use al_builtins::native::{AlError, Signal};
+use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::pagefmt::{self, Blank, ControlFormat};
 use al_builtins::value::{ControlRef, ControlTarget, Cursor, PageMode, PageState, RecordState, RtType, Value};
@@ -66,10 +66,6 @@ fn error_code(message: impl Into<String>, code: &str) -> Signal {
 /// `Ignore Status on Service Docs.` of page extension 6478 (1790009997).
 pub(crate) fn control_id(object_id: u32, name: &str) -> i64 {
     request::action_id(object_id, name)
-}
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
 }
 
 fn page_of<'a>(engine: &'a Engine, st: &St) -> &'a ir::Page {

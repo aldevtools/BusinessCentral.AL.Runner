@@ -13,13 +13,10 @@
 //! is not reproduced.
 
 use crate::{Session, Signal};
+use al_builtins::native::unsupported;
 use al_builtins::value::Value;
 use al_ir as ir;
 use std::io::Read;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 /// A layout found for a row: the app that holds its file, its name, the file's path in the app and its type (`word`, ...).
 struct Found {

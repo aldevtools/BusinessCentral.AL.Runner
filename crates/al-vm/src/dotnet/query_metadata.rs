@@ -16,17 +16,13 @@ use super::registry::{MemberKind, Pin, RegistryMember, RegistryType};
 use crate::Session;
 use al_builtins::dotnet_sigs::{QUERY_FIELDS, QUERY_FIELDS_LIST, QUERY_METADATA_READER};
 use al_builtins::library_kind::LibraryKind;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::{DotNetKind, DotNetObject, LibraryValue, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 
 const PIN: &str = "tests/al-language-onprem-dotnet/dotnet/dotnet/ReQueryMetadataShapes.al:99-145, :171-182; \
     dotnet/dotnet/QxDotNetDemoShapes.al:150-182";
-
-fn unsupported<T>(why: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(why.into()))
-}
 
 fn object(type_name: &str, state: Vec<Value>) -> Value {
     Value::DotNet(Rc::new(DotNetObject::new(DotNetKind::Internal {

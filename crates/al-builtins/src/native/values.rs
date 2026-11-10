@@ -32,7 +32,7 @@ pub(super) fn abs(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) ->
 pub(super) fn abs_other(v: &Value) -> Result<Value, Signal> {
     match v {
         Value::Duration(ms) => Ok(Value::BigInteger(ms.abs())),
-        other => unsupported(&format!("Abs of {}", other.describe())),
+        other => unsupported(format!("Abs of {}", other.describe())),
     }
 }
 
@@ -41,7 +41,7 @@ pub(super) fn abs_other(v: &Value) -> Result<Value, Signal> {
 pub(super) fn variant_2_date(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
     match args.first() {
         Some(d @ Value::Date(..)) => Ok(d.clone()),
-        other => unsupported(&format!(
+        other => unsupported(format!(
             "Variant2Date of {other} (the conversion error is not pinned)",
             other = other.describe()
         )),
@@ -52,7 +52,7 @@ pub(super) fn variant_2_date(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut 
 pub(super) fn variant_2_time(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
     match args.first() {
         Some(t @ Value::Time(_)) => Ok(t.clone()),
-        other => unsupported(&format!(
+        other => unsupported(format!(
             "Variant2Time of {other} (the conversion error is not pinned)",
             other = other.describe()
         )),
@@ -197,7 +197,7 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
             match a.borrow().first() {
                 Some(Value::Library(name, _)) if name.as_str() == "JsonObject" => return Ok(Value::Null),
                 Some(Value::Library(name, _)) if matches!(name.as_str(), "JsonArray" | "JsonValue" | "JsonToken") => {
-                    return unsupported(&format!("Clear of an array of {} (not pinned)", name.as_str()));
+                    return unsupported(format!("Clear of an array of {} (not pinned)", name.as_str()));
                 }
                 _ => {}
             }
@@ -244,7 +244,7 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
                 crate::value::DotNetKind::Enum { clr_type, .. } => clr_type.as_str(),
                 crate::value::DotNetKind::Internal { type_name, .. } => type_name.as_str(),
             };
-            return unsupported(&format!(
+            return unsupported(format!(
                 "Clear of a DotNet variable that holds a {ty}: whether BC disposes the object is not pinned"
             ));
         }
@@ -331,7 +331,7 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
             name.clone(),
             std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::Version([0; 4]))),
         ),
-        other => return unsupported(&format!("Clear of a {} value", value_kind(other))),
+        other => return unsupported(format!("Clear of a {} value", value_kind(other))),
     };
     Ok(Value::Null)
 }

@@ -75,6 +75,11 @@ pub fn raise_redacted<T>(message: impl Into<String>, code: &str, redacted: impl 
     })))
 }
 
+/// Refuses what the runtime does not implement (ADR-071 decision 4: the one helper; do not add a private copy).
+pub fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
+    Err(Signal::Unsupported(what.into()))
+}
+
 /// Raises an AL error with a pinned text and code.
 pub fn raise<T>(message: impl Into<String>, code: &str) -> Result<T, Signal> {
     // A division by zero carries no customer content: the flag leaves its text (P86LastError.al:RuntimeError_Other `div_excl`).

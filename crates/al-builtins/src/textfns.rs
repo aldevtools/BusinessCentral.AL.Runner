@@ -7,17 +7,13 @@
 //! error whose text is not pinned, raise `Signal::Unsupported`.
 
 use crate::describe::Describe;
-use crate::native::{Ctx, NativeFn, Signal, raise, text_of};
+use crate::native::{Ctx, NativeFn, Signal, raise, text_of, unsupported};
 use crate::signature::Signature;
 use crate::value::{LibraryValue, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 
 type NResult = Result<Value, Signal>;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 fn u16s(s: &str) -> Vec<u16> {
     s.encode_utf16().collect()

@@ -11,7 +11,7 @@ use crate::Session;
 use al_builtins::collation;
 use al_builtins::describe::Describe;
 use al_builtins::filter::{FieldFilter, FilterExpr};
-use al_builtins::native::{AlError, Signal, text_of};
+use al_builtins::native::{AlError, Signal, text_of, unsupported};
 use al_builtins::ops;
 use al_builtins::value::{QueryRow, QueryRun, QueryState, RtType, Value};
 use al_data::TableDef;
@@ -27,10 +27,6 @@ type Qs = Rc<RefCell<QueryState>>;
 type JoinedRow = Vec<Vec<Value>>;
 /// (table object, version) of each table a query reads.
 type Stamps = Vec<(u32, u64)>;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 thread_local! {
     /// Set when a sort compared texts that have no pinned collation order.

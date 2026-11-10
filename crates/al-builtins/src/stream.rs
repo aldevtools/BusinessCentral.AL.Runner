@@ -13,7 +13,7 @@
 //! Windows-1252 unless an encoding says otherwise (:WriteText_DefaultEncodingIsWindows1252_NotUtf8).
 
 use crate::describe::Describe;
-use crate::native::{Ctx, NativeFn, Signal, raise};
+use crate::native::{Ctx, NativeFn, Signal, raise, unsupported};
 use crate::signature::Signature;
 use crate::value::{LibraryValue, Value};
 use std::cell::RefCell;
@@ -919,10 +919,6 @@ impl InState {
 }
 
 type NResult = Result<Value, Signal>;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 fn blob_of(r: Option<&mut Value>) -> Result<BlobRef, Signal> {
     match r {

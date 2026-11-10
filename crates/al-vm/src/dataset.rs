@@ -8,11 +8,7 @@
 //!
 //! Core code: no OS access (ADR-006). The writer builds a string; the caller writes the bytes.
 
-use al_builtins::native::Signal;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
+use al_builtins::native::{Signal, unsupported};
 
 /// The name of a data item or column as the dataset spells it. A name made of letters, digits
 /// and underscores is written as it is (text/TestReportSaveAsDatasetContracts.al: `P`,

@@ -9,12 +9,8 @@
 use crate::Session;
 use crate::records::Rec;
 use al_builtins::describe::Describe;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::{LibraryValue, RtType, Value};
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 /// `http://host[:port]/path` with the port set to `port`.
 fn with_port(base: &str, port: u16) -> String {

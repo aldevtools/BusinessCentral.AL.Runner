@@ -61,10 +61,6 @@ pub enum XData {
     },
 }
 
-pub(super) fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
-
 /// `Exception of type 'Microsoft.Dynamics.Nav.Types.Exceptions.NavNCLArgumentException' was thrown.` (code `Argument`).
 pub(super) fn nav_argument() -> Signal {
     error(

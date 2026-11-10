@@ -2,18 +2,14 @@
 //! (ADR-010: conversions live next to the value model).
 
 use crate::describe::Describe;
-use crate::native::Signal;
 use crate::native::raise;
+use crate::native::{Signal, unsupported};
 use crate::value::{LibraryValue, RtType, Value};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::rc::Rc;
-
-fn unsupported<T>(what: String) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what))
-}
 
 /// [`convert`] with a value of the plain type it goes into handled here: what every argument, return value and typed
 /// assignment of ordinary code meets, without the call. The same result as `convert` (a Decimal of more than 18
@@ -1365,7 +1361,7 @@ pub fn compare_operator(l: &Value, r: &Value, ordered: bool) -> Result<Ordering,
         if over_18_digits(big) {
             if !d.fract().is_zero() {
                 return unsupported(
-                    "comparing a BigInteger of more than 18 digits with a fractional Decimal (not pinned)".into(),
+                    "comparing a BigInteger of more than 18 digits with a fractional Decimal (not pinned)",
                 );
             }
             let big = keep_18_digits(big);

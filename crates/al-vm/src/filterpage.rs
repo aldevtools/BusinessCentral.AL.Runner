@@ -7,17 +7,13 @@ use crate::Session;
 use al_builtins::builtin_id::ids;
 use al_builtins::describe::Describe;
 use al_builtins::filter::FieldFilter;
-use al_builtins::native::{AlError, Signal};
+use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::value::{FilterControl, FilterPageState, LibraryValue, RtType, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 
 type Lib = Rc<RefCell<LibraryValue>>;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 /// An argument error: code `Argument` (pages/filterpagebuilder/W3FilterPageBuilder.al, BC 27.5 and 29.0).
 fn arg_error(message: String) -> Signal {

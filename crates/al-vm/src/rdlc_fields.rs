@@ -10,12 +10,8 @@
 //! (not pinned for this stream), a name with other characters is renamed by BC (how is not pinned): the stream is then refused.
 
 use crate::Session;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::RtType;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 impl Session {
     /// The bytes of the `Report.RdlcLayout` stream of report `object` when its layout file is `file`: the file with the data set

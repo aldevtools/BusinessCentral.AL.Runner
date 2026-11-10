@@ -25,7 +25,7 @@
 use crate::Session;
 use crate::platform::{blank, pos};
 use crate::user_email::{EmailProblem, normalise_email};
-use al_builtins::native::{AlError, Ctx, Signal};
+use al_builtins::native::{AlError, Ctx, Signal, unsupported};
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::Value;
 use al_data::{AccessContext, Row, Scan, Store, TableDef, WriteOutcome};
@@ -52,10 +52,6 @@ const ENABLED: i32 = 0;
 const INVALID_EMAIL: &str = "You must specify a valid email address";
 const EMAIL_TAKEN: &str = "is already being used by another user";
 const NAME_TAKEN: &str = "The user name must be unique";
-
-fn unsupported<T>(why: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(why.into()))
-}
 
 /// An error the server raises from the User table trigger whose full text and code are not pinned: the fragment the corpus
 /// matches, with no code (kept from before the full texts were probed; see `user_checks`).

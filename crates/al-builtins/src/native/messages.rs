@@ -23,7 +23,7 @@ pub(super) fn confirm(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Valu
     let default = match args.get(1) {
         None => false,
         Some(Value::Boolean(b)) => *b,
-        Some(other) => return unsupported(&format!("Confirm default {}", other.describe())),
+        Some(other) => return unsupported(format!("Confirm default {}", other.describe())),
     };
     Ok(Value::Boolean(ctx.ui_confirm(question.to_string(), default)?))
 }

@@ -12,6 +12,7 @@ use crate::ui::UiKind;
 use crate::{Session, Signal};
 use al_builtins::builtin_id::ids;
 use al_builtins::describe::Describe;
+use al_builtins::native::unsupported;
 use al_builtins::ops;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{Instance, Value};
@@ -25,10 +26,6 @@ use std::sync::Arc;
 
 type Inst = Rc<RefCell<Instance>>;
 type Rec = Rc<RefCell<al_builtins::value::RecordState>>;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 /// What a report trigger asked for with `CurrReport.Skip`, `Break` or `Quit`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

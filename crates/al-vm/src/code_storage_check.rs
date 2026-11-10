@@ -1,17 +1,13 @@
 //! The values a Code field the database stores as a number (`SQLDataType`) takes on Insert, Modify and Rename.
 
 use crate::Session;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::{RtType, Value};
 use al_data::{Store, TableDef};
 use std::cell::RefCell;
 use std::rc::Rc;
 
 type Rec = Rc<RefCell<al_builtins::value::RecordState>>;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 impl Session {
     /// The fields a position of key `key` is made of: the key's, then the primary key's.

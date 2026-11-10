@@ -23,7 +23,7 @@
 
 use crate::Session;
 use al_builtins::describe::Describe;
-use al_builtins::native::{AlError, Signal};
+use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::value::{Instance, Value};
 use std::cell::RefCell;
@@ -59,10 +59,6 @@ fn binding_error(id: u32, why: &str) -> Signal {
         call_stack: String::new(),
         ..Default::default()
     }))
-}
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
 }
 
 impl Session {

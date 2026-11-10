@@ -9,17 +9,13 @@
 use crate::Session;
 use al_builtins::describe::Describe;
 use al_builtins::filter::{FieldFilter, FilterExpr};
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::{RecordState, RtType, Value};
 use al_data::TableDef;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 type Rec = Rc<RefCell<RecordState>>;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 /// Characters whose presence in a text value makes `GetFilter` quote the whole value (record/
 /// TestSetFilterSpecialTextContracts.al, record/filters/W4Filters.al:174-191), and `..`.

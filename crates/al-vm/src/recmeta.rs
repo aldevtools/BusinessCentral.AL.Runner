@@ -4,7 +4,7 @@
 
 use crate::Session;
 use al_builtins::describe::Describe;
-use al_builtins::native::{AlError, Signal};
+use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{RecordState, RtType, Value};
@@ -14,10 +14,6 @@ use std::cmp::Ordering;
 use std::rc::Rc;
 
 type Rec = Rc<RefCell<RecordState>>;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 /// [`error`] with the text `GetLastErrorText(true)` answers for it.
 fn error_redacted(message: String, code: &str, redacted: String) -> Signal {

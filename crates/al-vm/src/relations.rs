@@ -8,7 +8,7 @@
 
 use crate::Session;
 use al_builtins::filter::{FieldFilter, FilterExpr};
-use al_builtins::native::{AlError, Signal};
+use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::value::{RecordState, Value};
 use al_data::{Store, TableDef};
@@ -23,10 +23,6 @@ type Rec = Rc<RefCell<RecordState>>;
 const USER_TABLE: i32 = 2_000_000_120;
 const SYSTEM_CREATED_BY: u32 = 2_000_000_002;
 const SYSTEM_MODIFIED_BY: u32 = 2_000_000_004;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 impl Session {
     fn is_flow_field(&self, table: u32, pos: usize) -> bool {

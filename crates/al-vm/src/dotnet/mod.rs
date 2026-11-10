@@ -30,7 +30,7 @@ mod zip_entry_streams;
 
 use crate::{Frame, Session};
 use al_builtins::describe::Describe;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::stream::BlobRef;
 
@@ -159,10 +159,6 @@ struct StreamBook {
     /// consumed counts from there).
     ins: Vec<(usize, Rc<RefCell<LibraryValue>>, usize)>,
     outs: Vec<(usize, BlobRef)>,
-}
-
-fn unsupported<T>(why: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(why.into()))
 }
 
 /// What a `var` parameter gets in place of a `[RunOnClient]` variable (`ir::DotNetOp::ClientNull`).

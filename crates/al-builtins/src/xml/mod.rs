@@ -11,7 +11,7 @@
 
 use crate::describe::Describe;
 use crate::json::Handle;
-use crate::native::{Ctx, NativeFn, Signal};
+use crate::native::{Ctx, NativeFn, Signal, unsupported};
 use crate::signature::Signature;
 use crate::value::{LibraryValue, Value};
 use std::cell::RefCell;

@@ -19,7 +19,7 @@
 
 use super::registry::{MemberKind, Pin, RegistryMember, RegistryType};
 use crate::Session;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::{DotNetObject, Value};
 use std::rc::Rc;
 
@@ -30,10 +30,6 @@ const FILE: &str = "tests/al-language-onprem-dotnet/dotnet/server-helpers/Y58Ser
 /// The non-alphanumeric characters a password draws from (:112-205, 'non-alphanumerics seen (sorted)').
 const SYMBOLS: &[u8; 25] = b"!#$%&()*+-./:;=>?@[]^_{|}";
 const ALPHANUMERIC: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-
-fn unsupported<T>(why: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(why.into()))
-}
 
 fn argument_error<T>(message: &str) -> Result<T, Signal> {
     al_builtins::native::raise(

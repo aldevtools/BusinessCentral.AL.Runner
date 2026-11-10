@@ -17,7 +17,7 @@
 use super::registry::{MemberKind, Pin, RegistryMember, RegistryType};
 use crate::Session;
 use al_builtins::dotnet_sigs::{COMPRESSION_MODE, GZIP_STREAM};
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::stream::{drain_in, new_blob, write_bytes, write_raw_bytes};
 use al_builtins::value::{DotNetKind, DotNetObject, LibraryValue, Value};
 use flate2::Compression;
@@ -38,10 +38,6 @@ const S_DISPOSED: usize = 3;
 
 const DECOMPRESS: i64 = 0;
 const COMPRESS: i64 = 1;
-
-fn unsupported<T>(why: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(why.into()))
-}
 
 fn pin() -> Pin {
     Pin::Corpus(PIN.into())

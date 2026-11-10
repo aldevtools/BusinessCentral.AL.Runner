@@ -9,14 +9,10 @@ use crate::Session;
 use al_builtins::builtin_id::ids;
 use al_builtins::describe::Describe;
 use al_builtins::format::day_from_civil;
-use al_builtins::native::Signal;
+use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::Value;
 
 const MS_PER_DAY: i64 = 86_400_000;
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 /// Day number (1 = 0001-01-01) of 1970-01-01.
 fn unix_epoch_day() -> i64 {

@@ -8,7 +8,7 @@ use crate::globaltriggers::GlobalOp;
 use al_builtins::date_filter_forms::datetime_rejected as dt_rejected;
 use al_builtins::describe::Describe;
 use al_builtins::filter::{FieldFilter, FilterExpr, key_cmp};
-use al_builtins::native::{AlError, Signal};
+use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{Instance, RecordState, RtType, Value};
@@ -42,10 +42,6 @@ pub(crate) const REPEATABLE_READ_ASSIGNED_AGAIN: &str =
 
 /// BC's line break inside error texts: a carriage return and a backslash.
 pub(crate) const BR: &str = "\\";
-
-fn unsupported<T>(what: impl Into<String>) -> Result<T, Signal> {
-    Err(Signal::Unsupported(what.into()))
-}
 
 /// The `RecordState::unpinned_buffer` reason of Rec while the OnOpenPage of a page an action opens through `RunPageLink` runs
 /// (set in pages/runobject.rs, its methods in [`Session::run_page_link_open_op`]).
