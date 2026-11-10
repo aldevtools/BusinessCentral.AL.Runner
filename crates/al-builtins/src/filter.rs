@@ -76,6 +76,9 @@ impl FilterExpr {
         // A text of spaces only is blank to a filter: `SetRange(Txt, ' ')` finds the rows holding '', ' ' and '  ', and
         // `<> ' '` finds the others (record/filters/W4Filters.al:BlankOnlyFilterValues_MatchOnlyBlankRows, BC 27.5 and 29.0).
         // Other trailing spaces are not pinned.
+        if let Value::Blob(b) = v {
+            return crate::filter_blob::matches(self, b);
+        }
         let v = &*blank_if_spaces(v);
         let cmp = |x: &Value| {
             let x = blank_if_spaces(x);
@@ -649,6 +652,10 @@ pub fn parse_filter_with(
         })
     {
         return Err(format!("{INVALID_GUID}{text}"));
+    }
+    // A Blob field: see `filter_blob`. With placeholders the text falls through and is refused.
+    if crate::filter_blob::is_blob(ty) && args.is_empty() && !text.trim().is_empty() {
+        return crate::filter_blob::parse(text);
     }
     // A DateFormula field takes no formula in angle brackets (`<1M>`, `<-CM+2D>`: the lexer does not expect the closing `>`), a text
     // of letters with one that is no unit needs a time unit, and `*M` needs a number (types/P136Filter.al:241-258
@@ -1227,6 +1234,12 @@ impl Parser<'_> {
             // The empty text is the empty formula: `''` keeps the row without a formula, `<>''` the rows with one
             // (record/Y70Probes.al:218-262, FilterDateFormula_EmptyText `filter_two_quotes`, `filter_ne_two_quotes`).
             T::DateFormula if text.trim().is_empty() => Value::DateFormula(String::new()),
+            // The empty text on a RecordId field is the empty RecordId: `''` keeps the rows without one, `<>''` the rows with one
+            // (recordref-fieldref/fieldref/FieldRefFilterEmptyText.al:153-190, `neq_text_same_field`, `eq_text_same_field`;
+            // al-runner issue 7437).
+            T::Library(crate::library_kind::LibraryKind::RecordId) if text.trim().is_empty() => {
+                Value::default_for(self.ty)
+            }
             // A formula without brackets is the stored formula: `1M` keeps the row of `<1M>`, `<=1M` and `<>1M` compare the
             // stored texts (record/filters/DateFormulaOperatorFilterText.al:116-134, staging r6980). Pinned for a number and an
             // upper-case unit.

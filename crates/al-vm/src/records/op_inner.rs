@@ -1694,6 +1694,7 @@ impl Session {
                 let pos = arg_pos(args, 0)?;
                 let ty = t.fields[pos].ty.clone();
                 let or_flowfield = self.is_flowfield(&t, pos);
+                self.blob_setrange_check(&ty, &args[1..])?;
                 let mut r = rec.borrow_mut();
                 r.position = None;
                 let group = r.filter_group;
@@ -2167,9 +2168,11 @@ impl Session {
                 // A FlowField (record/flowfields/DiFwWriteTests.al): flowfields.rs `validate_flowfield` raises or refuses
                 // what is not a Decimal Sum; for that one the value goes in, OnValidate runs, then `write_sum_difference`.
                 let sum_flowfield = !field.stored && !field.flow_filter && field.id < 2_000_000_000;
+                // The error of a FlowField that is no Decimal, raised after OnValidate ran (FfmOperations.al:520-566).
+                let mut flowfield_error = None;
                 if sum_flowfield {
                     let value = args.get(1).cloned();
-                    self.validate_flowfield(rec, &t, pos, value.as_ref())?;
+                    flowfield_error = self.validate_flowfield(rec, &t, pos, value.as_ref())?;
                 }
                 // A Validate nested in an OnValidate of the same record keeps the outer call's
                 // before-image as xRec (corpus record/TestXRecContracts.al:133).
@@ -2230,13 +2233,7 @@ impl Session {
                 }
                 r?;
                 if sum_flowfield {
-                    let target = ops::convert(args.get(1).cloned().unwrap_or(old_value), &field.ty)?;
-                    if ops::compare(&rec.borrow().fields[pos], &target).ok() != Some(std::cmp::Ordering::Equal) {
-                        return unsupported(
-                            "an OnValidate that changes the value of the Sum FlowField it validates (not pinned)",
-                        );
-                    }
-                    self.write_sum_difference(rec, &t, pos, target)?;
+                    self.finish_flowfield_validate(rec, &t, pos, flowfield_error, args.get(1).cloned(), old_value)?;
                 }
                 Ok(Value::Null)
             }

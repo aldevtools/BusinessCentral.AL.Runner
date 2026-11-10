@@ -645,11 +645,11 @@ impl Session {
             return Ok(Value::Null);
         }
         let engine = self.engine();
-        let [arm] = field.relation_arms.as_slice() else {
-            return unsupported("Lookup over a TableRelation with several arms or an unreadable one (not pinned)");
+        let Some(arm) = self.lookup_relation_arm(st, idx, &field)? else {
+            return Ok(Value::Null);
         };
-        let (Some(table), true, Some(wheres)) = (arm.table, arm.conditions.is_empty(), &arm.wheres) else {
-            return unsupported("Lookup over a conditional TableRelation or one into a table outside the workspace");
+        let (Some(table), Some(wheres)) = (arm.table, &arm.wheres) else {
+            return unsupported("Lookup over a TableRelation into a table outside the workspace");
         };
         // The page is the related table's LookupPageId, else its DrillDownPageId; a table with
         // neither still shows a form, which nobody can answer (testpage/TestPageFieldRelationLookup_Tests.al:253).
@@ -821,8 +821,7 @@ impl Session {
             std::slice::from_ref(&current),
             std::slice::from_ref(&Value::default_for(&field.ty)),
         );
-        let related = Rc::new(RefCell::new(PageState::closed(page_object as u32)));
-        related.borrow_mut().lookup = true;
+        let related = Self::relation_lookup_page(page_object);
         self.page_instance(&related)?;
         // A field that holds a value: the lookup page opens on the related row that holds it, a value that is no row opens on the
         // first row like a blank field (pages/run-modal/Y80LookupHoldsValue.al Y80_LK_Card_HoldsMiddle, _HoldsNoRow,
