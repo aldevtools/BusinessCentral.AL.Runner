@@ -436,3 +436,41 @@ codeunit 60682 "Seq Reads Numbers After"
     assert_eq!(after.outcome, Outcome::Pass, "{:?}", after.outcome);
     assert!(after.assumptions.contains(&Assumption::StrictAfterRefused));
 }
+
+/// Review of the draft (finding 1): what ran before a test was refused ran on BC too, so the single instances move on
+/// past the stop. Only the stopped codeunit's reach differs from BC's, and that is what the later codeunits are checked
+/// against. The refused codeunit sets the flag only; the codeunit after it counts on the count the one before it bumped:
+/// on BC it is the second bumper, and here it passes, unflagged, as it reads nothing the refused codeunit can change.
+#[test]
+fn the_single_instances_move_on_past_a_test_refused_while_it_ran() {
+    let src = [ranked(60640, 1), REFUSING.to_string(), ranked(60695, 2)].concat();
+    let rt = run(&src, &sequential());
+    assert!(
+        matches!(result(&rt, "IsRefusedWhileItRuns").outcome, Outcome::NotRun(_)),
+        "{:?}",
+        rt.results()
+    );
+    let after = result(&rt, "Rank60695");
+    assert_eq!(after.outcome, Outcome::Pass, "{:?}", rt.results());
+    assert!(
+        !flagged(&rt, "Rank60695"),
+        "it reads only the count, which the refused codeunit does not change"
+    );
+}
+
+/// Review of the draft (finding 2): a later codeunit whose own reach is not known (a codeunit run by an id known only at
+/// run time) may read anything the stopped codeunit changed, so it is flagged.
+#[test]
+fn a_later_codeunit_with_an_unknown_reach_is_flagged() {
+    let reader = r#"
+codeunit 60696 "Seq Unknown Reader"
+{
+    Subtype = Test;
+    [Test] procedure ReadsThroughAnUnknownId() var Id: Integer; begin Id := 50000; if Id = 1 then Codeunit.Run(Id); end;
+}
+"#;
+    let src = [REFUSING.to_string(), reader.to_string()].concat();
+    let rt = run(&src, &sequential());
+    assert_eq!(result(&rt, "ReadsThroughAnUnknownId").outcome, Outcome::Pass);
+    assert!(flagged(&rt, "ReadsThroughAnUnknownId"));
+}

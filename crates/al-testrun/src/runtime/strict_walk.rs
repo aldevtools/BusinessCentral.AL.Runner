@@ -60,6 +60,10 @@ pub(super) fn after_run(
     if !stops && !taint.active() {
         return;
     }
+    // A panic ends the run of the unit before `run.rs` hands its single instances on: they are gone (review finding 1).
+    if r.result.is_err() {
+        taint.singles_lost();
+    }
     let facts = super::strict_taint::unit_facts(engine, lowered, u.oi);
     let flagged = taint.active() && taint.reaches(&facts, lowered);
     if flagged {

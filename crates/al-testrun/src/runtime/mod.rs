@@ -596,6 +596,8 @@ pub(crate) struct Unit {
     runner: Option<usize>,
     /// The session watches the single instances it makes (`single_lane.rs`).
     watch: bool,
+    /// See `Scratch::singles_past_stop`.
+    singles_past_stop: bool,
     /// ADR-066 amendment 12, decision 3: by default its tests can take NumberSequence numbers but it is not in the
     /// carry chain for that (`ChainWhy::TestsTakeNumbers` without `--strict-order`): it is on the numbers list when
     /// it comes after another such codeunit (`order_hint::numbers_order`).
@@ -657,6 +659,11 @@ pub(crate) struct Scratch {
     pub(crate) runner: Option<usize>,
     /// See `Unit::watch`.
     watch: bool,
+    /// The sequential strict run (ADR-070 step 2, review finding 1): after a test refused while it ran or stopped by the
+    /// time limit, the single instances still move to the next codeunit (`run.rs` `singles_out`). What ran before the stop
+    /// ran on BC too; the part that did not run is the stopped codeunit's reach, which `strict_taint.rs` checks the later
+    /// codeunits against. Off: R3 of ADR-066 amendment 3, the next codeunit starts without single instances.
+    singles_past_stop: bool,
     /// What this codeunit did with the watched single instances (`al_vm::single_track`).
     pub(crate) singles_out: Option<al_vm::single_track::SingleOut>,
     /// A test of the codeunit started and did not run to its end: it failed (also a failure judged not trusted) or was
@@ -787,6 +794,7 @@ fn run_unit(
             run_seed: u.run_seed,
             runner: u.runner,
             watch: u.watch,
+            singles_past_stop: u.singles_past_stop,
             ..Default::default()
         };
         if u.coverage {
@@ -874,6 +882,46 @@ fn run_unit(
         result,
         took,
         sidecar_start,
+    }
+}
+
+/// The unit of a scratch run (`RunOptions::execute`): the `OnRun` trigger of codeunit `oi` of suite `si`, as the one test.
+fn scratch_unit(
+    lowered: &Lowered,
+    si: usize,
+    oi: usize,
+    opts: &RunOptions,
+    order: &Arc<Vec<usize>>,
+    hooks: &crate::events::Hooks,
+) -> Unit {
+    Unit {
+        si,
+        oi,
+        id: lowered.program.objects[oi].id.unwrap_or(0),
+        isolation: TestIsolation::default(),
+        without_baseline: false,
+        coverage: opts.coverage,
+        execute: true,
+        capture: opts.capture,
+        order: order.clone(),
+        hooks: hooks.clone(),
+        clock_start: None,
+        impact: opts.impact_trace,
+        run_only: None,
+        hub: false,
+        hub_leg: false,
+        carry: None,
+        leak: None,
+        on_run_rows: OnRunRows::PerTest,
+        flags: Default::default(),
+        report_unpinned_errors: false,
+        skip_after_timeout: false,
+        perturb: Default::default(),
+        run_seed: opts.run_seed,
+        runner: None,
+        watch: false,
+        takes_numbers: false,
+        singles_past_stop: false,
     }
 }
 

@@ -1431,34 +1431,7 @@ impl CorpusRuntime {
                 if opts.execute {
                     // A scratch run: the `OnRun` trigger of one codeunit of the suite's app.
                     if let Some(oi) = on_run_target(lowered, suite.app) {
-                        units.push(Unit {
-                            si,
-                            oi,
-                            id: lowered.program.objects[oi].id.unwrap_or(0),
-                            isolation: TestIsolation::default(),
-                            without_baseline: false,
-                            coverage: opts.coverage,
-                            execute: true,
-                            capture: opts.capture,
-                            order: order_arc.clone(),
-                            hooks: pass.hooks.clone(),
-                            clock_start: None,
-                            impact: opts.impact_trace,
-                            run_only: None,
-                            hub: false,
-                            hub_leg: false,
-                            carry: None,
-                            leak: None,
-                            on_run_rows: OnRunRows::PerTest,
-                            flags: Default::default(),
-                            report_unpinned_errors: false,
-                            skip_after_timeout: false,
-                            perturb: Default::default(),
-                            run_seed: opts.run_seed,
-                            runner: None,
-                            watch: false,
-                            takes_numbers: false,
-                        });
+                        units.push(scratch_unit(lowered, si, oi, opts, &order_arc, &pass.hooks));
                     }
                     continue;
                 }
@@ -1515,6 +1488,7 @@ impl CorpusRuntime {
                             runner: *runner,
                             watch: false,
                             takes_numbers: false,
+                            singles_past_stop: false,
                         }),
                         Err(why) => {
                             if suite.runner.is_none()

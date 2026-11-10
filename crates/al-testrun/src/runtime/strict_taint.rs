@@ -4,9 +4,12 @@
 //! Once a test of a BC session was refused while it ran, a time limit stopped it, no test of its codeunit ran, or its codeunit
 //! panicked, the state the session holds is not BC's. A later codeunit is flagged only when its static reach can read
 //! what the stopped codeunit's reach could have changed: [`ReachFacts::changes_read_by`], the analysis a failure after a
-//! refused test uses (`run.rs`). Tables count only when the stopped codeunit's database changes stay (a Disabled or OnRun
+//! refused test uses (`run.rs`); a later codeunit whose own reach is not fully known may read anything, so it is flagged
+//! too. Tables count only when the stopped codeunit's database changes stay (a Disabled or OnRun
 //! carry member); under Codeunit isolation the rollback undoes them as it does on BC. A stopped codeunit whose reach is
-//! not fully known may have changed anything, so every later codeunit is flagged. A flagged codeunit may have written
+//! not fully known may have changed anything, so every later codeunit is flagged, and so does one that dropped the single
+//! instances of the session (a panic, a codeunit that is not run). After a test refused while it ran the single instances
+//! move on (`Scratch::singles_past_stop`): what ran before the stop ran on BC too. A flagged codeunit may have written
 //! wrong values itself, so its reach joins what the later codeunits are checked against.
 
 use super::written::{ReachFacts, ReachIndex, union_reach_facts_skipping};
@@ -21,12 +24,20 @@ pub(super) struct Taint {
     rolled_back: Option<ReachFacts>,
     /// Changes that stay in the database (tables count).
     kept: Option<ReachFacts>,
+    /// The single instances the session held were dropped (a codeunit panicked, or a codeunit that is not run sat
+    /// between): whatever a later codeunit reads of them may differ from BC's, so every later codeunit is flagged.
+    lost: bool,
 }
 
 impl Taint {
     /// Whether a codeunit stopped or was flagged before.
     pub fn active(&self) -> bool {
-        self.rolled_back.is_some() || self.kept.is_some()
+        self.rolled_back.is_some() || self.kept.is_some() || self.lost
+    }
+
+    /// Notes that the single instances of the session were dropped.
+    pub fn singles_lost(&mut self) {
+        self.lost = true;
     }
 
     /// Notes a stopped or flagged codeunit whose reach is `facts`; `database_stays`: what it writes to tables stays.
@@ -41,6 +52,10 @@ impl Taint {
 
     /// Whether a codeunit whose reach is `later` can read what the noted codeunits could have changed.
     pub fn reaches(&self, later: &ReachFacts, lowered: &Lowered) -> bool {
+        // A later codeunit whose own reach is not fully known may read anything (review finding 2).
+        if self.lost || later.unknown.is_some() {
+            return true;
+        }
         let settled = BTreeSet::new();
         let hit = |f: &Option<ReachFacts>, tables: bool| {
             f.as_ref()
@@ -63,4 +78,32 @@ pub(super) fn unit_facts(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usi
         .map(|r| (oi, r))
         .collect();
     union_reach_facts_skipping(&engine.events, lowered, &index, &roots, &[])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Review finding 1: once the single instances of a session were dropped (a panic, a codeunit that is not run), every
+    /// later codeunit is flagged, even one whose reach is known and reads nothing a stopped codeunit could change.
+    #[test]
+    fn dropped_single_instances_flag_every_later_codeunit() {
+        let lowered = al_sema::lower::compile(
+            vec![al_sema::workspace::AppSource {
+                id: "a".into(),
+                name: "a".into(),
+                dependencies: vec![],
+                files: vec![("f.al".into(), "codeunit 50100 C { }".into())],
+            }],
+            &Default::default(),
+        )
+        .1;
+        let mut taint = Taint::default();
+        assert!(!taint.active());
+        taint.add(&ReachFacts::default(), false);
+        assert!(taint.active());
+        assert!(!taint.reaches(&ReachFacts::default(), &lowered));
+        taint.singles_lost();
+        assert!(taint.reaches(&ReachFacts::default(), &lowered));
+    }
 }

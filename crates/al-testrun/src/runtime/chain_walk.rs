@@ -89,10 +89,12 @@ impl KeptSingles {
     /// Member run `r` of unit `k` ended. Counts a member that read first a global an earlier member of its session wrote, and returns the globals
     /// it read with a carried value that differs from a fresh instance's, each with its last writer (ADR-058 amendment
     /// 1, decision 2: a suspect).
+    /// `past_stop`: the single instances moved on past a test refused while it ran (`Scratch::singles_past_stop`).
     fn left(
         &mut self,
         k: usize,
         r: &UnitResult,
+        past_stop: bool,
         report: &mut super::ChainReport,
     ) -> Vec<(al_vm::single_track::GlobalKey, usize)> {
         report.singles_kept += 1;
@@ -110,7 +112,7 @@ impl KeptSingles {
             self.fresh.entry(*g).or_insert_with(|| f.clone());
         }
         let reads = super::single_fresh::carried_reads(&o.observed, &self.last, &self.fresh);
-        if o.refused {
+        if o.refused && !past_stop {
             // `run.rs` `singles_out` handed nothing on (R3): the next member starts fresh.
             self.last.clear();
             self.fresh.clear();
@@ -177,6 +179,7 @@ impl ChainWalk<'_> {
                     };
                     let mut u = units[k].clone();
                     u.leak = before.map(|(_, _, _, c)| Arc::new(c.tables.clone()));
+                    u.singles_past_stop = self.sequential;
                     // `--explain` names where a test of the chain failed too (al-runner issue 6924).
                     let mut observe = |name: &str, _: &Outcome, seen: &Observed| {
                         details.insert((si, id, name.to_lowercase()), observed_detail(lowered, seen));
@@ -202,7 +205,7 @@ impl ChainWalk<'_> {
                         }
                     }
                     let reads = if keep_member {
-                        singles.left(k, &r, report)
+                        singles.left(k, &r, self.sequential, report)
                     } else {
                         Vec::new()
                     };
@@ -250,7 +253,9 @@ impl ChainWalk<'_> {
                 }
                 Link::Refused(oi, why) => {
                     if self.sequential {
+                        // `KeptSingles::enter(None)` dropped the single instances the session held (review finding 1).
                         taint.add(&super::strict_taint::unit_facts(engine, lowered, oi), true);
+                        taint.singles_lost();
                     }
                     report.members.push(super::ChainEntry {
                         id,

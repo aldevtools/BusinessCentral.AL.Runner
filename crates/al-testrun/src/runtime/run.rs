@@ -1249,8 +1249,8 @@ fn run_codeunit_inner(
         &refuse,
         &mut inner,
     );
-    scratch.singles_out = ended(&mut session, lowered, object, times, execute, refused_mid_run.get());
     scratch.note_ended(unfinished_after_start.get(), refused_mid_run.get());
+    scratch.singles_out = ended(&mut session, lowered, object, times, execute, scratch);
     let out = match ran {
         Ok(out) => out,
         Err(early) => return early,
@@ -1379,10 +1379,11 @@ fn ended(
     object: usize,
     times: &[(String, std::time::Duration)],
     execute: bool,
-    refused_mid_run: bool,
+    scratch: &Scratch,
 ) -> Option<al_vm::single_track::SingleOut> {
     crate::profiling::end(session, &lowered.program, object, times);
-    singles_out(session, execute, refused_mid_run)
+    let refused = scratch.refused_mid_run;
+    singles_out(session, execute, refused, refused && !scratch.singles_past_stop)
 }
 
 /// A codeunit's session from the install baseline; in the lane with the single instances of the codeunit before.
@@ -1430,9 +1431,14 @@ fn start_singles(session: &mut Session, execute: bool, moved: Option<al_vm::sing
 
 /// What the session did with the watched single instances; in the lane, hands the instances to the next codeunit.
 /// `refused`: a test of the codeunit was refused while it ran, so what it left is not what BC's run to the end would
-/// have left (ADR-066 amendment 3, R3): it is no change for the decision, and in the lane it hands nothing on (the next
-/// codeunit starts without single instances).
-fn singles_out(session: &mut Session, execute: bool, refused: bool) -> Option<al_vm::single_track::SingleOut> {
+/// have left (ADR-066 amendment 3, R3): it is no change for the decision. `hands_on_none`: in the lane it hands nothing
+/// on (the next codeunit starts without single instances); not in the sequential strict run (`Scratch::singles_past_stop`).
+fn singles_out(
+    session: &mut Session,
+    execute: bool,
+    refused: bool,
+    hands_on_none: bool,
+) -> Option<al_vm::single_track::SingleOut> {
     let out = session
         .single_out()
         .map(|o| al_vm::single_track::SingleOut { refused, ..o });
@@ -1441,7 +1447,7 @@ fn singles_out(session: &mut Session, execute: bool, refused: bool) -> Option<al
     }
     LANE_SINGLES.with(|c| {
         if let Some(slot) = c.borrow_mut().as_mut() {
-            *slot = (!refused).then(|| session.take_single_instances());
+            *slot = (!hands_on_none).then(|| session.take_single_instances());
         }
     });
     out
