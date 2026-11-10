@@ -1608,3 +1608,41 @@ codeunit 50100 C
         );
     }
 }
+
+// metadata/platform-tables/GetUrlObjects.al (corpus PR 1248; al-runner issues 7370 and 7429):
+// GetUrl_DefaultClientTypeFunction_PageRecord_1-3 (Windows, the company of the corpus, a page with a record and UseFilters true;
+// a report with a record) and GetUrl_ObjectIdZero_Record_1-2 (page 0 or less with a record), CY_GetUrl_ServiceClients_UseFilters_
+// And_TypeWithoutId (a service type with UseFilters true, an object type without an id).
+#[test]
+fn geturl_windows_with_filters_and_the_forms_without_an_address() {
+    let call_f = call;
+    let with_rec = |call: &str| {
+        let (engine, oi) = compile(&format!(
+            "procedure F(): Text var R: Record \"ALT T\"; begin R.SetRange(\"No.\", 1, 5); exit({call}); end;"
+        ));
+        call_f(&mut Session::with_host(engine, al_host::Host::deterministic()), oi, "F")
+    };
+    let windows = with_rec("GetUrl(DefaultClientType(), 'CRONUS International Ltd.', ObjectType::Page, 21, R, true)");
+    assert!(
+        matches!(&windows, Ok(Value::Text(t)) if t.ends_with("/CRONUS%20International%20Ltd./runpage?page=21&$filter=%27No.%27%20IS%20%271..5%27")),
+        "{windows:?}"
+    );
+    for call in [
+        "GetUrl(ClientType::Windows, CompanyName(), ObjectType::Report, 101, R, true)",
+        "GetUrl(ClientType::Windows, CompanyName(), ObjectType::Report, 101, R, false)",
+        "GetUrl(ClientType::Web, CompanyName(), ObjectType::Page, 0, R, true)",
+        "GetUrl(ClientType::Web, CompanyName(), ObjectType::Page, -1, R, false)",
+        "GetUrl(ClientType::Default, CompanyName(), ObjectType::Page, 0, R, true)",
+        "GetUrl(ClientType::Windows, CompanyName(), ObjectType::Page, 0, R, true)",
+        "GetUrl(ClientType::ODataV4, CompanyName(), ObjectType::Page, 0, R, true)",
+        "GetUrl(ClientType::SOAP, CompanyName(), ObjectType::Page, 0, R, false)",
+        "GetUrl(ClientType::OData, CompanyName(), ObjectType::Page, 21, R, true)",
+        "GetUrl(ClientType::Api, CompanyName(), ObjectType::Page, 21, R, true)",
+        "GetUrl(ClientType::OData, CompanyName(), ObjectType::Table, 18)",
+        "GetUrl(ClientType::Web, CompanyName(), ObjectType::Page)",
+        "GetUrl(ClientType::SOAP, CompanyName(), ObjectType::Page)",
+    ] {
+        let r = with_rec(call);
+        assert!(matches!(&r, Ok(Value::Text(t)) if t.is_empty()), "{call}: {r:?}");
+    }
+}

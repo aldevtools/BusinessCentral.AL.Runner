@@ -56,6 +56,14 @@ impl Session {
         if matches!(v, Value::Date(0, false) | Value::DateTime(0)) {
             return Ok("''".into());
         }
+        // The zero Duration in GetFilter(s) (recordref-fieldref/fieldref/TestFieldRefFilter.al FieldRef_SetFilter_Zero_Duration, corpus
+        // PR 1248: `''`, `<>''`, `''..41 days 16 hours`); in a view it is not pinned.
+        if matches!(v, Value::Duration(0)) {
+            if iso {
+                return unsupported("the view text of the zero Duration (not pinned)");
+            }
+            return Ok("''".into());
+        }
         // A view writes a Boolean as `true` or `false` (:GetView_Field_Types `bool`).
         if let (true, Value::Boolean(b)) = (iso, v) {
             return Ok(b.to_string());

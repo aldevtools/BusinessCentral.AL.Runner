@@ -141,9 +141,12 @@ impl Session {
                 // al-runtime-rs-staging-r6985, session-system/session/R7002GetUrlDefaultCompany.al:
                 // Default_CompanyNames_Punctuation, `cronus` 'CRONUS%20International%20Ltd./'). Windows is not probed beyond
                 // letters, digits and space.
+                // Windows: the corpus company `CRONUS International Ltd.` too (GetUrlObjects.al
+                // GetUrl_DefaultClientTypeFunction_PageRecord_*, CompanyName(); al-runner issue 7370).
                 let probed = |c: char| {
                     c.is_ascii_alphanumeric()
                         || c == ' '
+                        || (windows && c == '.')
                         || (!windows && (" .-_,&'/()+#%?=:".contains(c) || (!c.is_ascii() && c.is_alphabetic())))
                 };
                 if !t.chars().all(probed) {
@@ -160,6 +163,17 @@ impl Session {
         if args.len() > 2 {
             let id = match args.get(3) {
                 Some(Value::Integer(n)) if *n > 0 => *n,
+                // Page 0 with a record and UseFilters true has no address (GetUrlObjects.al GetUrl_ObjectIdZero_Record_2
+                // `default_page0_true`, `windows_page0_true`).
+                Some(Value::Integer(n))
+                    if *n <= 0
+                        && args.len() == 6
+                        && member(args.get(2)).as_deref() == Some("Page")
+                        && matches!(args.get(5), Some(Value::Boolean(true))) =>
+                {
+                    record_arg(args.get(4))?;
+                    return Ok(Value::Text("".into()));
+                }
                 other => {
                     return unsupported(format!(
                         "GetUrl(ClientType::Default) with object id {} (only a positive id is pinned)",
@@ -180,8 +194,10 @@ impl Session {
                 }
                 // UseFilters true: nothing without a filter, else `&$filter=` and the encoded filter text of the Web form
                 // (R7002GetUrlDefaultCompany.al: Default_Cronus_PageRecord_UseFilters `record true no filter`, `record true
-                // filter`, `empty company true filter`, `recordref true`). Not probed for Windows.
-                (Some("Page"), 6) if !windows && matches!(args.get(5), Some(Value::Boolean(true))) => {
+                // filter`, `empty company true filter`, `recordref true`). Windows the same, with a filter (GetUrlObjects.al
+                // GetUrl_DefaultClientTypeFunction_PageRecord_1, _2: a Record and a RecordRef, DefaultClientType() and
+                // ClientType::Windows).
+                (Some("Page"), 6) if matches!(args.get(5), Some(Value::Boolean(true))) => {
                     let rec = record_arg(args.get(4))?;
                     url.push_str(&format!("runpage?page={id}"));
                     if let Some(part) = self.url_record_part(&rec, true)? {
@@ -191,6 +207,12 @@ impl Session {
                         url.push_str("&$filter=");
                         url.push_str(filter);
                     }
+                }
+                // A report with a record has no address for Windows, UseFilters true and false (GetUrlObjects.al
+                // GetUrl_DefaultClientTypeFunction_PageRecord_3 `fn_report_recref_true`, `_false`); not probed for Default.
+                (Some("Report"), 6) if windows && matches!(args.get(5), Some(Value::Boolean(_))) => {
+                    record_arg(args.get(4))?;
+                    return Ok(Value::Text("".into()));
                 }
                 (kind, n) => {
                     return unsupported(format!(
@@ -277,21 +299,31 @@ impl Session {
         };
         if args.len() > 2 {
             let object = member(args.get(2));
-            if !matches!(args.get(3), Some(Value::Integer(n)) if *n > 0) {
-                return refuse("an object id that is not positive");
-            }
-            let pinned = match (object.as_deref(), args.len()) {
-                (Some("Page") | Some("Report"), 4) => true,
-                (Some("Codeunit"), 4) => kind == "SOAP" || kind == "ODataV4",
-                (Some("Query"), 4) => kind == "ODataV4",
-                (Some("Page"), 6) => {
-                    record_arg(args.get(4))?;
-                    matches!(args.get(5), Some(Value::Boolean(false)))
-                }
+            let id = match args.get(3) {
+                Some(Value::Integer(n)) => Some(*n),
+                None => None,
+                Some(_) => return refuse("an object id that is no Integer"),
+            };
+            // A page id of zero or less, with a record and UseFilters true or false, has no address for every service type
+            // (GetUrlObjects.al GetUrl_ObjectIdZero_Record_1); so has a page with a record and UseFilters true, a page without an
+            // id (CY_GetUrl_ServiceClients_UseFilters_And_TypeWithoutId) and an OData table (GetUrl_Object_Types_OtherClients
+            // `odata_table`).
+            let pinned = match (object.as_deref(), id, args.len()) {
+                (Some("Page"), Some(n), 6) if n <= 0 => true,
+                (_, Some(n), _) if n <= 0 => return refuse("an object id that is not positive"),
+                (Some("Page") | Some("Report"), _, 4) => true,
+                (Some("Page"), None, 3) => kind == "SOAP",
+                (Some("Codeunit"), _, 4) => kind == "SOAP" || kind == "ODataV4",
+                (Some("Query"), _, 4) => kind == "ODataV4",
+                (Some("Table"), _, 4) => kind == "OData",
+                (Some("Page"), _, 6) => matches!(args.get(5), Some(Value::Boolean(_))),
                 _ => false,
             };
             if !pinned {
                 return refuse("this object type or argument list");
+            }
+            if args.len() > 4 {
+                record_arg(args.get(4))?;
             }
             return Ok(Value::Text("".into()));
         }
@@ -322,6 +354,17 @@ impl Session {
     /// 195-199 (CompanyName()) and session-system/server-system-functions/PGetUrl.al:68-73 (a company and page 99999). Every other form
     /// is refused.
     fn get_url_mobile(&mut self, args: &[Value]) -> Result<Value, Signal> {
+        // Tablet, page 0 with a record and UseFilters true: no address (GetUrlObjects.al GetUrl_ObjectIdZero_Record_2
+        // `tablet_page0_true`, corpus PR 1248). Phone and Desktop are not probed with it.
+        if member(args.first()).as_deref() == Some("Tablet")
+            && args.len() == 6
+            && member(args.get(2)).as_deref() == Some("Page")
+            && matches!(args.get(3), Some(Value::Integer(n)) if *n <= 0)
+            && matches!(args.get(5), Some(Value::Boolean(true)))
+        {
+            record_arg(args.get(4))?;
+            return Ok(Value::Text("".into()));
+        }
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GetUrlClientHostPort);
         if let Some(company) = args.get(1) {
             mobile_company(company)?;
@@ -380,6 +423,11 @@ impl Session {
             let kind = member(args.get(2));
             let id = match args.get(3) {
                 Some(Value::Integer(n)) => *n,
+                // An object type without an id has no address (GetUrlObjects.al CY_GetUrl_ServiceClients_UseFilters_And_TypeWithoutId
+                // `web_page_no_id`, `web_report_no_id`).
+                None if args.len() == 3 && matches!(kind.as_deref(), Some("Page" | "Report")) => {
+                    return Ok(Value::Text("".into()));
+                }
                 other => return unsupported(format!("GetUrl with object id {}", other.describe())),
             };
             let key = match kind.as_deref() {
@@ -429,8 +477,10 @@ impl Session {
                 if key != "page" {
                     return Ok(Value::Text("".into()));
                 }
+                // Page 0 or a negative page with a record has no address, with UseFilters true and false
+                // (GetUrlObjects.al GetUrl_ObjectIdZero_Record_2 `web_page0_true`, `web_page0_false`, `web_pageneg1_true`).
                 if id <= 0 {
-                    return unsupported("GetUrl of page 0 or a negative page with a record (not pinned)");
+                    return Ok(Value::Text("".into()));
                 }
                 let use_filters = match args.get(5) {
                     None => false,

@@ -552,6 +552,10 @@ impl Lowerer<'_> {
         let (aft, expr) = (prop("AutoFormatType"), prop("AutoFormatExpression"));
         match (aft.as_deref(), expr.as_deref()) {
             (None | Some("0"), None) | (Some("1"), Some("''")) => None,
+            // An amount or a unit amount without an expression, or a unit amount with a blank one: the AutoFormat wins too
+            // (format-evaluate/format-matrix/FMFields.al StrSubstNo_Format_DecimalField_DecAf1Places, _DecAf2Places, _DecAf2Expr,
+            // corpus PR 1256; al-runner issue 7404).
+            (Some("1" | "2"), None) | (Some("2"), Some("''")) => None,
             // A unit amount whose expression is no text: the AutoFormat wins (text/text-methods/SaUnitAmountSubst.al
             // `A2Dp`, DecimalPlaces 0:1: `1,234.5000` with a currency of 4:4 unit-amount places).
             (Some("2"), Some(e)) if !e.starts_with('\'') => None,
@@ -593,6 +597,18 @@ impl Lowerer<'_> {
         // An amount AutoFormat with a blank expression wins over DecimalPlaces (RwDecimalFieldPlaces.al:83 `Dp33Amt1`: `70.00`).
         if prop("AutoFormatType").as_deref() == Some("1") && prop("AutoFormatExpression").as_deref() == Some("''") {
             return Some(("2:2".into(), 0));
+        }
+        // An amount without an expression and a unit amount with a blank one win over DecimalPlaces as they do without it
+        // (FMFields.al StrSubstNo_Format_DecimalField_DecAf1Places: 2:2 from BC 28, every digit on 27.5; _DecAf2Expr: 2:5).
+        if prop("DecimalPlaces").is_some() {
+            match (
+                prop("AutoFormatType").as_deref(),
+                prop("AutoFormatExpression").as_deref(),
+            ) {
+                (Some("1"), None) => return Some(("2:2".into(), 1)),
+                (Some("2"), Some("''")) => return Some(("2:5".into(), 0)),
+                _ => {}
+            }
         }
         // A unit amount whose expression is no text: its places come from the expression when it runs, DecimalPlaces beside it
         // or not (`auto_format_expression_field`; SaUnitAmountSubst.al `A2Dp`). The same for an amount (types/
@@ -642,7 +658,12 @@ impl Lowerer<'_> {
             Some("5") => 5,
             _ => return None,
         };
-        if !matches!(f.ty, Ty::Decimal) || prop("DecimalPlaces").is_some() || prop("AutoFormatExpression").is_some() {
+        // A unit amount with DecimalPlaces beside it takes the setup's places all the same (format-evaluate/format-matrix/
+        // FMFields.al StrSubstNo_Format_DecimalField_DecAf2Places, corpus PR 1256); for types 4 and 5 that is not pinned.
+        if !matches!(f.ty, Ty::Decimal)
+            || (prop("DecimalPlaces").is_some() && kind != 2)
+            || prop("AutoFormatExpression").is_some()
+        {
             return None;
         }
         match self.place(arg).ok()? {

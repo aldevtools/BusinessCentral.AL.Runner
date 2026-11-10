@@ -1093,7 +1093,6 @@
 74644 Duration_BytesWritten
 74644 Duration_RoundTrip_PastEnd
 74644 Time_RoundTrip_PastEnd
-74645 Char_BytesWritten
 74646 Text_ReadIntoBoundedTypes
 74646 Text_ReadWithLength
 74657 P143_LocalizedFormulas_Arithmetic_BQ
