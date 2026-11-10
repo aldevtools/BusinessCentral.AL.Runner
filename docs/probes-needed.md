@@ -826,6 +826,7 @@ ADR-071: a refusal carries a stable key and the probe its shape waits for. Each 
 <!-- refusal-keys:begin (generated from the refusal key lists; al-test-cli --refusals-doc or UPDATE_REFUSALS_DOC=1 on the test refusal_keys rewrites it) -->
 | Key | Area | Probe | Registered in |
 |---|---|---|---|
+| `xml.sibling.attribute-or-declaration` | xml | wanted (no probe written yet) | `crates/al-builtins/src/refusals/xml.sibling.attribute-or-declaration.rs` |
 <!-- refusal-keys:end -->
 
 ## Must-not-compile checks (alcodes.rs)
