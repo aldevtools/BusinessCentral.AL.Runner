@@ -51,14 +51,18 @@ codeunit 69973 T
     begin
         D."Entry No." := 1; D.Owner := 'H1'; D.Amt := 10.5; D.Insert();
         D."Entry No." := 2; D.Owner := 'H1'; D.Amt := 20; D.Insert();
+        D."Entry No." := 3; D.Owner := 'H0'; D.Amt := 4; D.Insert();
+        D."Entry No." := 4; D.Owner := 'H0'; D.Amt := -4; D.Insert();
         H.Code := 'H1'; H.Insert();
+        H.Code := 'H0'; H.Insert();
     end;
 
+    // The sum of H0 is 0.
     procedure WithValue(): Text
     var H: Record "NS Header"; D: Record "NS Detail"; L: Codeunit "NS Log"; R: Text;
     begin
         Seed();
-        H.Get('H1');
+        H.Get('H0');
         H.CalcFields(NSumF);
         R := Format(H.NSumF) + '|';
         H.Validate(NSumF, 5.5);
@@ -68,6 +72,7 @@ codeunit 69973 T
         exit(R + Format(H.NSumF) + '|' + Format(D."Entry No.") + ' ' + D.Owner + ' ' + Format(D.Amt));
     end;
 
+    // H1 holds 30.5: the FlowField is -30.5, and Validate without a value after Get takes 0.
     procedure WithoutValue(): Text
     var H: Record "NS Header"; D: Record "NS Detail"; L: Codeunit "NS Log"; R: Text;
     begin
@@ -78,6 +83,14 @@ codeunit 69973 T
         H.CalcFields(NSumF);
         D.FindLast();
         exit(R + Format(H.NSumF) + '|' + Format(D.Amt));
+    end;
+
+    procedure BothNotZero()
+    var H: Record "NS Header";
+    begin
+        Seed();
+        H.Get('H1');
+        H.Validate(NSumF, 5.5);
     end;
 
     [TryFunction]
@@ -139,11 +152,18 @@ codeunit 69973 T
 }
 "#;
 
-// FfmOperations.al:381-390, :433-437: the value is held, OnValidate sees it, and CalcFields gives it afterwards: the new row
-// takes the difference with the sign turned (-30.5 before, 5.5 after: a row of -36).
+// FfmOperations.al:381-390, :433-437: with the sum at 0 the value is held, OnValidate sees it, and CalcFields gives it
+// afterwards: the new row takes the value with the sign turned.
 #[test]
 fn validate_with_a_value_writes_the_difference_with_the_sign_turned() {
-    assert_eq!(text(run_in(SRC, "T", "WithValue")), "-30.5|5.5|5.5;|5.5|3 H1 -36");
+    assert_eq!(text(run_in(SRC, "T", "WithValue")), "0|5.5|5.5;|5.5|5 H0 -5.5");
+}
+
+// A sum and a value that are both not 0 are not pinned.
+#[test]
+fn a_value_on_a_negated_sum_that_is_not_zero_is_refused() {
+    let r = run_in(SRC, "T", "BothNotZero");
+    assert!(matches!(r, Err(al_builtins::native::Signal::Unsupported(_))), "{r:?}");
 }
 
 // FfmOperations.al:391-397, :438-439: Validate without a value takes the value the variable holds, 0 after Get.

@@ -526,6 +526,11 @@ impl Session {
         // A negated sum holds the value too: the new row takes the difference with the sign turned, so `-sum` is the value
         // afterwards (record/flowfields/FfmOperations.al:381-399, :433-441 NSumF: Validate with 5.5, CalcFields gives 5.5;
         // al-runner issue 7422).
+        // Pinned with the sum at 0 (Validate with 5.5) and with the value 0 (Validate without a value while the FlowField is
+        // 5.5: CalcFields gives 0, :391-399, :438-441). A value and a sum that are both not 0 are not pinned.
+        if calc.negate && !cur.is_zero() && !target.is_zero() {
+            return refuse("a negated sum whose current value and new value are both not 0");
+        }
         let diff = if calc.negate { *cur - *target } else { *target - *cur };
         // No row when the value is the sum already (DiFwWriteTests.al:816 `p1 same src`).
         if !diff.is_zero() {
