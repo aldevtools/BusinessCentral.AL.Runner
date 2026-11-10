@@ -2574,3 +2574,48 @@ fn count_into_a_decimal_flowfield_is_al0202_and_into_a_biginteger_compiles() {
     assert!(codes(&[doc, &flow("BigInteger")]).is_empty());
     assert!(codes(&[doc, &flow("Integer")]).is_empty());
 }
+
+// must-not-compile 3126-3131: a blank member name after `::`. `""` and an unquoted empty member are the nameless member, which
+// has no name to write; `" "` names the member `" "` only where one exists.
+#[test]
+fn al0132_blank_member_names_after_the_scope_operator() {
+    let cu = |var: &str, stmt: &str| format!("codeunit 50031 C {{ procedure P() var {var}; begin {stmt} end; }}");
+    assert_eq!(
+        messages(&cu("O: Option A,B,\"\"", "O := O::\"\";")),
+        vec!["AL0132 'O' does not contain a definition for ''"]
+    );
+    assert_eq!(
+        messages(&cu("O: Option ,A,B", "O := O::\"\";")),
+        vec!["AL0132 'O' does not contain a definition for ''"]
+    );
+    assert_eq!(
+        messages(&cu("O: Option \" \",A,B", "O := O::\"\";")),
+        vec!["AL0132 'O' does not contain a definition for ''"]
+    );
+    assert_eq!(
+        messages(&cu("O: Option \"\",A,B", "O := O::\" \";")),
+        vec!["AL0132 'O' does not contain a definition for ' '"]
+    );
+    assert!(codes(&[&cu("O: Option \" \",A,B", "O := O::\" \";")]).is_empty());
+    let t = "table 50032 T { fields { field(1; PK; Integer) { } field(2; Opt; Option) { OptionMembers = A,B,\"\"; } } keys { key(PK; PK) { Clustered = true; } } }";
+    assert_eq!(
+        messages(&format!(
+            "{t} codeunit 50033 C {{ procedure P() var R: Record T; begin R.Opt := R.Opt::\"\"; end; }}"
+        )),
+        vec!["AL0132 'Opt' does not contain a definition for ''"]
+    );
+    let e = "enum 50034 E { value(0; \"\") { } value(1; A) { } }";
+    let use_e = |v: &str| format!("codeunit 50035 C {{ procedure P() var X: Enum E; begin X := X::{v}; end; }}");
+    assert_eq!(
+        messages(&format!("{e} {}", use_e("\"\""))),
+        vec!["AL0132 'X' does not contain a definition for ''"]
+    );
+    let sp = "enum 50036 E2 { value(0; \" \") { } value(1; A) { } }";
+    assert!(
+        codes(&[
+            sp,
+            "codeunit 50037 C { procedure P() var X: Enum E2; begin X := X::\" \"; end; }"
+        ])
+        .is_empty()
+    );
+}

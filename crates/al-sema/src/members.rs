@@ -645,13 +645,9 @@ fn split_option_members(text: &str) -> Vec<String> {
             c => out.last_mut().expect("non-empty").0.push(c),
         }
     }
+    // `""` and an unquoted empty member are the same nameless member (see `TypeRef::option_members`); `" "` keeps its space.
     out.into_iter()
-        .map(|(name, quoted)| match (quoted, name.is_empty()) {
-            // `""` is one space, an unquoted empty member stays empty (see `TypeRef::option_members`).
-            (true, true) => " ".to_string(),
-            (true, false) => name,
-            _ => name.trim().to_string(),
-        })
+        .map(|(name, quoted)| if quoted { name } else { name.trim().to_string() })
         .collect()
 }
 
@@ -819,6 +815,10 @@ tableextension 50901 "ALT Ext" extends "ALT Universal"
         );
         // A quoted name keeps its spaces: a member named with one space is not a blank one.
         assert_eq!(m.field("Sp").unwrap().ty, Ty::Option(vec![" ".into(), "Draft".into()]));
+        // `""` is the nameless member, the same as an unquoted empty one (corpus FMOptionBlankObjects.al, must-not-compile 3126).
+        assert_eq!(split_option_members("A,\"\",B"), vec!["A", "", "B"]);
+        assert_eq!(split_option_members("A,,B"), vec!["A", "", "B"]);
+        assert_eq!(split_option_members("A,\" \",B"), vec!["A", " ", "B"]);
     }
 
     // corpus _fixtures/tables/ALTRelationParentChild.al:49-96: every arm of a conditional

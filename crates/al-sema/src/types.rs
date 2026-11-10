@@ -277,6 +277,9 @@ mod tests {
     fn option_label_variant_and_library_types() {
         assert_eq!(ty("Option A,\"B C\""), Ty::Option(vec!["A".into(), "B C".into()]));
         assert_eq!(ty("Option ,A"), Ty::Option(vec!["".into(), "A".into()]));
+        // `""` is the nameless member as well; `" "` is a member of its own.
+        assert_eq!(ty("Option A,\"\""), Ty::Option(vec!["A".into(), "".into()]));
+        assert_eq!(ty("Option A,\" \""), Ty::Option(vec!["A".into(), " ".into()]));
         assert_eq!(ty("Label 'x', Locked = true"), Ty::Label);
         assert_eq!(ty("Variant"), Ty::Variant);
         assert_eq!(ty("JsonObject"), Ty::Builtin("JsonObject".into()));

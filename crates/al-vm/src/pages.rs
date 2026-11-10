@@ -235,6 +235,7 @@ mod part_filter_unsaved_host;
 mod part_host_update;
 mod part_insert_swallowed;
 mod part_visible_gate;
+mod provider_hidden;
 mod refill;
 mod refresh_new_line;
 mod rows;

@@ -993,15 +993,10 @@ impl TypeRef {
             match t.kind() {
                 SyntaxKind::Comma => out.push(String::new()),
                 SyntaxKind::Ident | SyntaxKind::QuotedIdent | SyntaxKind::Integer => {
-                    // A quoted empty name (`""`) shows as one space; an unquoted empty member shows its number
-                    // (types/decimal-integer/ScT70053.al:Option_Format `blank_len` against text/P69OptionInText.al:
-                    // Option_StrSubstNo `subst_2`). The two are told apart by keeping the quoted one as a space.
-                    let name = unquote_ident(t.text);
-                    *out.last_mut().expect("non-empty") = if name.is_empty() && t.kind() == SyntaxKind::QuotedIdent {
-                        " ".into()
-                    } else {
-                        name
-                    }
+                    // A quoted empty name (`""`) and an unquoted empty member are the same nameless member: it shows its
+                    // ordinal in Format and has no name to write after `O::` (format-evaluate/format-matrix/FMOptionBlankVar.al,
+                    // must-not-compile 3126-3127). A member named `" "` is a different one and shows as a space.
+                    *out.last_mut().expect("non-empty") = unquote_ident(t.text);
                 }
                 _ => {}
             }
