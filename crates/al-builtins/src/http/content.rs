@@ -61,16 +61,16 @@ pub(super) fn write_from_stream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut 
 }
 
 /// `ReadAs(var Text)` gives the body back, UTF-8 decoded; a content nobody wrote to reads as an empty text and
-/// answers true (json/W4XmlJsonHttp.al:ReadAs_FreshContent). On the content a request has when none was set, three shapes are
+/// answers true (json/W4XmlJsonHttp.al:ReadAs_FreshContent). On the content a request has when none was set, four shapes are
 /// pinned:
 /// - `Req.Content.ReadAs(Txt)` with its result used answers false and leaves the text (http/HttpRequest.al:220,
 ///   FreshRequestContent);
 /// - `Req.Content.ReadAs(Txt)` as a statement raises `NotInitialized` (http/PnE12HttpContent.al:192,
 ///   RequestWithoutContent, under asserterror);
 /// - a copy of it in a variable (`Content := Req.Content`), called as a statement, raises `NotInitialized`
-///   (json/W4XmlJsonHttp.al:342-343, RequestWithoutContent_ReadAs, through a TryFunction).
-///
-/// A copy with the result used is refused. Probe wanted (docs/probes-needed.md).
+///   (json/W4XmlJsonHttp.al:342-343, RequestWithoutContent_ReadAs, through a TryFunction);
+/// - a copy with the result used answers false and leaves the text (http/PnE12HttpContent.al:203-211 with :248-263,
+///   PW_RequestWithoutContent_CopyAndStream `copyTextUsed`: `Yes answer=No text=kept`, no error).
 pub(super) fn read_as(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let mut r = r;
     // A secret content does not read as text: with the result used the call answers false and leaves the text
@@ -83,7 +83,7 @@ pub(super) fn read_as(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
             "HttpContent.ReadAs(Text) as a statement on a content written from a SecretText (not pinned)",
         );
     }
-    let (data, uninit, copied, charset, taken) = with_content(r, |s| {
+    let (data, uninit, charset, taken) = with_content(r, |s| {
         let charset = s
             .headers
             .borrow()
@@ -112,18 +112,16 @@ pub(super) fn read_as(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
             }
         }
         let taken = s.stream_taken && (s.copied || s.from_stream);
-        (s.data.clone(), s.uninitialized, s.copied, charset, taken)
+        (s.data.clone(), s.uninitialized, charset, taken)
     })?;
     if uninit {
-        return match (copied, c.ret_used()) {
-            (false, true) => Ok(Value::Boolean(false)),
-            (_, false) => raise(
+        return if c.ret_used() {
+            Ok(Value::Boolean(false))
+        } else {
+            raise(
                 "Microsoft.Dynamics.Nav.Runtime.NavHttpContent variable not initialized.",
                 "NotInitialized",
-            ),
-            (true, true) => unsupported(
-                "HttpContent.ReadAs with its result used, on a copy of the content of a request that has none (not pinned)",
-            ),
+            )
         };
     }
     // Once the body was handed out as a stream, whether that stream was read to its end, in part or not at all: a copy of a
@@ -162,7 +160,14 @@ pub(super) fn read_as(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
 
 /// `ReadAs(var InStream)` hands the body out once: a second read gets an empty stream
 /// (http/content/HttpContent.al:ReadAsInStreamTwice).
-pub(super) fn read_as_stream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
+///
+/// On the content a request has when none was set (http/PnE12HttpContent.al:213-241 with :251-270,
+/// PW_RequestWithoutContent_CopyAndStream): `Req.Content.ReadAs(InStream)` with its result used answers false and raises
+/// nothing (`streamUsed`), and so does a copy of it in a variable (`copyStreamUsed`); `Req.Content.ReadAs(InStream)` as a
+/// statement raises `NotInitialized` (`streamStatement`). The stream variable is not touched; one that already
+/// holds a stream would stay readable, which no test pins, so that call refuses. A copy called as a statement is not
+/// pinned and refuses.
+pub(super) fn read_as_stream(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let mut r = r;
     // On a secret content the stream is left not initialized (P97ContentSecret.al:40-51: its EOS raises NotInitialized); what the
     // call answers is not pinned.
@@ -171,14 +176,32 @@ pub(super) fn read_as_stream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
             "HttpContent.ReadAs(InStream) on a content written from a SecretText (its result is not pinned)",
         );
     }
-    let (data, uninit) = with_content(r, |s| {
+    let (data, uninit, copied) = with_content(r, |s| {
+        if s.uninitialized {
+            return (Vec::new(), true, s.copied);
+        }
         let out = if s.stream_taken { Vec::new() } else { s.data.clone() };
         s.stream_taken = true;
-        (out, s.uninitialized)
+        (out, false, s.copied)
     })?;
-    // On the content of a request that has none, only ReadAs(Text) is pinned (see `read_as`). Probe wanted (docs/probes-needed.md).
     if uninit {
-        return unsupported("HttpContent.ReadAs(InStream) on the content of a request that has none (not pinned)");
+        let holds_stream = match a.first() {
+            Some(Value::Library(_, h)) => !matches!(*h.borrow(), LibraryValue::Empty),
+            _ => true,
+        };
+        return match (c.ret_used(), copied) {
+            (true, _) if holds_stream => unsupported(
+                "HttpContent.ReadAs(InStream) on the content of a request that has none, into a stream variable that already holds a stream (not pinned)",
+            ),
+            (true, _) => Ok(Value::Boolean(false)),
+            (false, false) => raise(
+                "Microsoft.Dynamics.Nav.Runtime.NavHttpContent variable not initialized.",
+                "NotInitialized",
+            ),
+            (false, true) => unsupported(
+                "HttpContent.ReadAs(InStream) as a statement, on a copy of the content of a request that has none (not pinned)",
+            ),
+        };
     }
     let stream = crate::stream::InState::snapshot(data, crate::stream::Encoding::Utf8);
     crate::stream::set_stream(&a[0], LibraryValue::InStream(stream))?;

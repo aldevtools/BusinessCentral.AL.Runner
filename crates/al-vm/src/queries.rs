@@ -313,6 +313,7 @@ impl Session {
             "GetFilter" => {
                 let col = arg_col(args, 0)?;
                 let q = qs.borrow();
+                Self::refuse_plain_static_filter(&def.columns[col], "GetFilter")?;
                 match q.filters.iter().find(|(c, _)| *c == col) {
                     Some((_, e)) => self.filter_text(e).map(|s| Value::Text(s.into())),
                     // The static ColumnFilter of an aggregated column reads back as its filter text
@@ -322,9 +323,6 @@ impl Session {
                             Some(e) => self.filter_text(&e).map(|s| Value::Text(s.into())),
                             None => Ok(Value::Text(String::new().into())),
                         }
-                    }
-                    None if def.columns[col].static_filter.is_some() => {
-                        unsupported("GetFilter of a column with a static ColumnFilter (not pinned)")
                     }
                     None => Ok(Value::Text(String::new().into())),
                 }
@@ -1096,9 +1094,23 @@ impl Session {
         })
     }
 
+    /// Refuses a filter getter that would have to print a column or filter element that is not aggregated and has a static
+    /// ColumnFilter: no corpus test reads `GetFilter` or `GetFilters` on such a query, with or without a runtime filter on
+    /// that column (queries/TestQueryColumnFilter.al:40-100 pins the rows only; al-runner issue 5199,
+    /// docs/probes-needed.md). The one rule both getters use.
+    fn refuse_plain_static_filter(c: &ir::QueryColumn, getter: &str) -> Result<(), Signal> {
+        if c.method.is_none() && c.static_filter.is_some() {
+            return unsupported(format!(
+                "{getter} on a query column or filter element that is not aggregated and has a static ColumnFilter (not pinned)"
+            ));
+        }
+        Ok(())
+    }
+
     /// The filters `GetFilters` prints: the runtime filters and the static ColumnFilter of each aggregated column without
     /// one (queries/flowfields-filters/Y78QueryOuterAggFilter.al:1363-1392, `SumQ: >0`). A static filter on an aggregated
-    /// column next to other filters is not pinned (the order of the pairs), and neither is one on a plain column.
+    /// column next to other filters is not pinned (the order of the pairs). A static filter on a column that is not
+    /// aggregated refuses (`refuse_plain_static_filter`).
     fn get_filters_list(
         &self,
         def: &ir::Query,
@@ -1106,6 +1118,7 @@ impl Session {
     ) -> Result<Vec<(usize, FilterExpr)>, Signal> {
         let mut out = filters.to_vec();
         for (ci, c) in def.columns.iter().enumerate() {
+            Self::refuse_plain_static_filter(c, "GetFilters")?;
             if c.method.is_none() || filters.iter().any(|(r, _)| *r == ci) {
                 continue;
             }

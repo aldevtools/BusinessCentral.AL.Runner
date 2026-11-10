@@ -900,6 +900,10 @@ impl Session {
         let mut added = 0;
         let same = Rc::ptr_eq(callee, &f.instance);
         for (i, a) in args.iter().enumerate() {
+            // Only an argument that names a variable can be watched; a value needs no look at the parameter.
+            if matches!(a, ir::Arg::Value(_)) {
+                continue;
+            }
             let by_var = self.engine.program.objects[object].routines[routine]
                 .by_var
                 .get(i)
