@@ -102,6 +102,12 @@ pub struct PrevCheck {
 pub const LEFT_OUT: &str =
     "not compiled: the compile for the selected tests left this object out, as no selected test names it";
 
+/// Why a routine nothing reached does not run: a dependency routine the demand did not reach, a test codeunit a selection
+/// leaves out (`Roots::only_tests`), a procedure no selected test names (`Roots::reach_only`). In a compile for a
+/// selection (`Lowered::narrowed`) a run that meets it may have been compiled for less than the full run compiles: the
+/// runner compiles as the full run does and runs the selected tests again (al-testrun `runtime/corpus.rs`, `Narrowing`).
+pub const NOT_REACHED: &str = "not compiled: no code reached it while compiling the workspace's dependencies (ADR-013)";
+
 /// The routine offset of a [`CheckResult::panicked`] entry that covers every routine of the object.
 pub const ANY_ROUTINE: usize = usize::MAX;
 
@@ -396,13 +402,6 @@ fn check_inner(
                 skipped
             }
         },
-    };
-    // The install code runs before every test, so a test codeunit it runs by a computed id stays (issue 6924).
-    let skipped: Vec<bool> = match &roots.only_tests {
-        Some(_) if skipped.iter().any(|s| *s) && install_dynamic::install_runs_by_computed_id(ws, &skipped) => {
-            vec![false; ws.objects.len()]
-        }
-        _ => skipped,
     };
     // A lean compile also leaves out the workspace objects no selected test names (`Roots::lean`); a test codeunit
     // the selection left out keeps its own reason.
@@ -1473,7 +1472,6 @@ mod enum_overload;
 pub(crate) use enum_overload::EnumFit;
 mod fit;
 mod infer;
-mod install_dynamic;
 mod member;
 mod object;
 pub(crate) mod posmap;

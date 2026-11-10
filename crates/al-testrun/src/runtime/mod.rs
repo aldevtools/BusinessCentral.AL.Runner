@@ -411,6 +411,9 @@ pub struct Phases {
     /// A lean run met a routine the lean compile had left out, so the tests ran again on the complete compile; the
     /// outcomes are the second run's.
     pub lean_redone: bool,
+    /// A run on the compile for the selection met a routine nothing reached there, so the selected tests ran again on the
+    /// full run's compile (every test codeunit a root; `narrowing.rs`); the outcomes are that run's.
+    pub full_redone: bool,
     /// How many times the apps were compiled for the run: 2 when a compile without the baseline was thrown away
     /// because the rule said "may observe", or when a lean run ran again.
     pub compiles: usize,
@@ -468,6 +471,12 @@ impl Phases {
     /// One line for `--timings` about a lean compile or a compile that was done twice, `None` when there was one
     /// complete compile.
     pub fn compile_line(&self) -> Option<String> {
+        if self.full_redone {
+            return Some(
+                "compile: for the selection, and a selected test or the install code before it met a routine that compile did not compile, so the tests ran again on the full run's compile"
+                    .into(),
+            );
+        }
         match (self.lean, self.lean_redone) {
             (_, true) => Some(
                 "compile: lean, and a selected test met an object the lean compile left out, so the tests ran again on the complete compile"
@@ -991,6 +1000,7 @@ mod login_tests;
 pub mod memory;
 #[cfg(test)]
 mod min_row_version_tests;
+mod narrowing;
 mod not_run_link;
 mod numbers_taken;
 mod order_hint;

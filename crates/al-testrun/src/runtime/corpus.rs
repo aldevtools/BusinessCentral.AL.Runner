@@ -1,4 +1,5 @@
 //! `CorpusRuntime`: compiling suites of apps and running them.
+use super::narrowing::{Met, Narrowing};
 use super::*;
 
 impl CorpusRuntime {
@@ -178,31 +179,43 @@ impl CorpusRuntime {
                 Ok(c) => c,
                 Err(stopped) => return Ok((stopped, None)),
             };
-        let (rt, left_out) = Self::run_then_strict(&compiled, target, dotnet.clone(), opts);
-        // A lean compile left out the workspace objects no selected test names (`Roots::lean`). A run that met one of
-        // their routines was compiled for less than it needs: the apps are compiled completely and the tests run again,
-        // so the outcomes are the complete compile's.
-        if compiled.lean.is_some() && left_out {
-            let lean_time = rt.phases.compile + rt.phases.tests;
-            let (apps, kinds) = compiled.into_apps();
-            let compiled = match Self::compile_within_limit(
-                apps,
-                kinds,
-                manifests,
-                symbols,
-                target,
-                suites,
-                opts,
-                false,
-                &mut Grow::Off,
-            )? {
-                Ok(c) => c,
-                Err(stopped) => return Ok((stopped, None)),
-            };
-            let (mut rt, _) = Self::run_then_strict(&compiled, target, dotnet, opts);
-            rt.phases.lean_redone = true;
-            rt.phases.compile += lean_time;
-            rt.phases.compiles += 1;
+        let (rt, met) = Self::run_then_strict(&compiled, target, dotnet.clone(), opts);
+        // A compile for a selection left things out. A run that met one of their routines was compiled for less than it
+        // needs: the apps are compiled with less left out and the tests run again, so the outcomes are those of a compile
+        // that has what they need, up to the full run's (`narrowing.rs`).
+        let mut narrowing = Narrowing::of(compiled.lowered.narrowed(), compiled.lean.is_some());
+        if narrowing.next(met).is_some() {
+            let started_lean = narrowing == Narrowing::Lean;
+            let (mut rt, mut met) = (rt, met);
+            let (mut earlier, mut compiles) = (std::time::Duration::ZERO, 0);
+            while let Some(next) = narrowing.next(met) {
+                earlier += rt.phases.compile + rt.phases.tests;
+                compiles += rt.phases.compiles;
+                let (apps, kinds) = compiled.into_apps();
+                compiled = match Self::compile_within_limit(
+                    apps,
+                    kinds,
+                    manifests,
+                    symbols,
+                    target,
+                    suites,
+                    &next.compile_options(opts),
+                    false,
+                    &mut Grow::Off,
+                )? {
+                    Ok(c) => c,
+                    Err(stopped) => return Ok((stopped, None)),
+                };
+                (rt, met) = Self::run_then_strict(&compiled, target, dotnet.clone(), opts);
+                narrowing = match next {
+                    Narrowing::Full => Narrowing::Full,
+                    _ => Narrowing::of(compiled.lowered.narrowed(), false),
+                };
+                rt.phases.full_redone = next == Narrowing::Full;
+            }
+            rt.phases.lean_redone = started_lean;
+            rt.phases.compile += earlier;
+            rt.phases.compiles += compiles;
             rt.phases.work.compiles = rt.phases.compiles;
             retire_at_end(compiled, opts.process_ends_after);
             return Ok((rt, None));
@@ -236,13 +249,13 @@ impl CorpusRuntime {
 
     /// Runs `compiled` as `opts` says, then the codeunits of `opts.strict_after` once more with `strict_order` over the
     /// same compile (its own install baseline, no second compile), whose outcomes the first run's cases take. Also says
-    /// whether either run met a routine a lean compile left out.
+    /// what either run met that the compile did not compile.
     fn run_then_strict(
         compiled: &Compiled,
         target: Option<&al_version::Target>,
         dotnet: al_vm::dotnet::DotNetConfig,
         opts: &RunOptions,
-    ) -> (CorpusRuntime, bool) {
+    ) -> (CorpusRuntime, Met) {
         let strict = opts.strict_after.as_ref().filter(|s| !s.only.is_empty());
         // A run that is run again keeps its engines: the process does not end after it.
         let first_opts;
@@ -257,7 +270,7 @@ impl CorpusRuntime {
             opts
         };
         let mut rt = Self::run_compiled(compiled, target, dotnet.clone(), first);
-        let mut left_out = rt.met_left_out();
+        let mut met = Met::of(&rt);
         if let Some(s) = strict {
             let o = RunOptions {
                 strict_order: true,
@@ -266,12 +279,12 @@ impl CorpusRuntime {
                 ..opts.clone()
             };
             let second = Self::run_compiled(compiled, target, dotnet, &o);
-            left_out |= second.met_left_out();
+            met = met.or(Met::of(&second));
             rt.adopt_cases(&second, &s.listed);
             rt.phases.baseline += second.phases.baseline;
             rt.phases.tests += second.phases.tests;
         }
-        (rt, left_out)
+        (rt, met)
     }
 
     /// A stability run (ADR-058 section 7): one compile, then one run phase per variant `perturbs` names, one after
@@ -371,7 +384,7 @@ impl CorpusRuntime {
 
     /// [`compile_suites`](Self::compile_suites); with `lean`, selected tests that are free of data are compiled without
     /// the workspace objects they do not name (`al_sema::check::Roots::lean`). Only a caller that runs the tests again
-    /// on a complete compile when they meet what was left out (`CorpusRuntime::met_left_out`) may ask for it.
+    /// on a complete compile when they meet what was left out (`narrowing::Met`) may ask for it.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn compile_suites_with(
         apps: Vec<al_sema::workspace::AppSource>,
@@ -1966,9 +1979,7 @@ impl CorpusRuntime {
                 source_index,
                 slowest: codeunit_times,
                 lean: *lean,
-                lean_redone: false,
                 compiles: *compiles,
-                warm_compile: None,
                 baseline_source,
                 passes: pass_times,
                 install_snapshot: snapshot_once.line(&lowered.program),
@@ -1997,6 +2008,8 @@ impl CorpusRuntime {
                     baseline_rows,
                     tests_run: list.iter().filter(|r| !matches!(r.outcome, Outcome::NotRun(_))).count(),
                 },
+                // Not redone, not warm: the caller sets them.
+                ..Default::default()
             },
             details,
             results: list,
@@ -2013,15 +2026,6 @@ impl CorpusRuntime {
 }
 
 impl CorpusRuntime {
-    /// Whether a test met a routine a lean compile left out (`al_sema::check::LEFT_OUT`): refused for it, before it
-    /// started (its static calls) or while it ran, also inside the test runner's codeunits.
-    pub(crate) fn met_left_out(&self) -> bool {
-        self.results.iter().any(|r| match &r.outcome {
-            Outcome::NotRun(why) | Outcome::Fail(why) => why.contains(al_sema::check::LEFT_OUT),
-            Outcome::Pass => false,
-        })
-    }
-
     /// With `RunOptions::impact_trace`: the keys that `TestResult::impact` numbers.
     pub fn impact_keys(&self) -> &[String] {
         &self.impact_keys

@@ -751,10 +751,7 @@ impl Lowerer<'_> {
     /// A routine of a dependency app that nothing reached: its name and attributes (so event
     /// subscribers stay registered), no body, and a reason that refuses anything that runs it.
     pub(crate) fn stub(&mut self, r: &ast::Routine) -> ir::Routine {
-        self.refused(
-            r,
-            "not compiled: no code reached it while compiling the workspace's dependencies (ADR-013)".into(),
-        )
+        self.refused(r, crate::check::NOT_REACHED.into())
     }
 
     /// A routine without a body, and `reason` that refuses anything that runs it.

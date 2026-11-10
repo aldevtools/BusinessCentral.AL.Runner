@@ -1,6 +1,8 @@
 //! al-runner issue 6924: a selection (`--explain`, `--codeunit`, `--test`) runs under the same installed state as the full
-//! run. The install code of another app may run a test codeunit by a computed id; before the fix the selection left that
-//! codeunit out of the compile ("not compiled: no code reached it while compiling the workspace's dependencies").
+//! run. The install code of another app may run a test codeunit by an id no text of the workspace shows, also through a
+//! dependency app's code; the selection left that codeunit out of the compile ("not compiled: no code reached it while
+//! compiling the workspace's dependencies"). The run sees it and runs the selection again on the full run's compile
+//! (al-testrun `runtime/narrowing.rs`).
 
 use al_sema::workspace::AppSource;
 use al_testrun::runtime::{CorpusRuntime, Manifest, RunOptions};
@@ -207,4 +209,114 @@ fn a_selection_compiles_the_test_codeunit_an_install_routine_runs_by_a_computed_
     };
     assert_eq!(outcome(None), Outcome::Pass, "full run");
     assert_eq!(outcome(Some(vec![(0, 50410)])), Outcome::Pass, "selected codeunit");
+}
+
+const RUNNER_LIB: &str = r#"
+codeunit 50300 "SI Runner"
+{
+    procedure RunById(Id: Integer)
+    begin
+        Codeunit.Run(Id);
+    end;
+}
+"#;
+
+const TEST_MANAGEMENT: &str = r#"
+codeunit 50430 "SI Test Mgt Install"
+{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany()
+    var
+        Runner: Codeunit "SI Runner";
+    begin
+        // The id reaches a dependency app's code, which runs the codeunit: nothing in the workspace's text runs it.
+        Runner.RunById(50431);
+    end;
+}
+
+codeunit 50431 "SI Replacement Tests"
+{
+    Subtype = Test;
+
+    trigger OnRun()
+    var
+        S: Record "SI Setting";
+    begin
+        S.Code := 'SEEDED';
+        S.Value := 'yes';
+        S.Insert();
+    end;
+
+    [Test]
+    procedure Replacement()
+    begin
+    end;
+}
+"#;
+
+/// The install code of a test-management app hands an id to a dependency app, whose code runs the test codeunit of that
+/// id (as Microsoft's Test Runner app runs test codeunits by the ids in its tables). The full run compiles every test
+/// codeunit; a selection of another app's test must give the same outcome, so it may not run the install code over a
+/// compile that left that test codeunit out (al-runner issue 6924, `--explain` on edge 8c658cf4f).
+#[test]
+fn a_selection_runs_install_code_that_runs_a_test_codeunit_through_a_dependency_app() {
+    let outcome = |only: Option<Vec<(usize, u32)>>| {
+        let lib = "33333333-3333-3333-3333-333333369241";
+        let apps = vec![
+            AppSource {
+                id: TEST_ID.into(),
+                name: "SI Tests".into(),
+                dependencies: Vec::new(),
+                files: vec![(
+                    "t.al".into(),
+                    format!("{}{TESTS}", &DEP[..DEP.find("codeunit 50400").unwrap()]),
+                )],
+            },
+            AppSource {
+                id: DEP_ID.into(),
+                name: "SI Test Mgt".into(),
+                dependencies: vec![TEST_ID.into(), lib.into()],
+                files: vec![("m.al".into(), TEST_MANAGEMENT.to_string())],
+            },
+            AppSource {
+                id: lib.into(),
+                name: "SI Runner Lib".into(),
+                dependencies: Vec::new(),
+                files: vec![("l.al".into(), RUNNER_LIB.to_string())],
+            },
+        ];
+        let kinds = vec![
+            al_sema::AppKind::Workspace,
+            al_sema::AppKind::Workspace,
+            al_sema::AppKind::Dependency,
+        ];
+        let opts = RunOptions {
+            only,
+            ..Default::default()
+        };
+        let rt = CorpusRuntime::run_suites_with(
+            apps,
+            kinds,
+            &vec![Manifest::default(); 3],
+            &Default::default(),
+            None,
+            Default::default(),
+            &[al_testrun::runtime::SuiteRun::everything()],
+            &opts,
+        );
+        let outcome = rt.first_outcome(&CaseId {
+            codeunit: 50410,
+            name: "ReadsInstalledRow".into(),
+        });
+        (outcome, rt.phases.full_redone)
+    };
+    assert_eq!(outcome(None), (Outcome::Pass, false), "full run");
+    // The compile for the selection leaves the replacement tests out; the install code meets them, and the selection runs
+    // again on the full run's compile.
+    assert_eq!(
+        outcome(Some(vec![(0, 50410)])),
+        (Outcome::Pass, true),
+        "selected codeunit"
+    );
 }
