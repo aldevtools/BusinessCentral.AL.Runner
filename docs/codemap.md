@@ -104,6 +104,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
   cells `ops::arith` and `ops::compare_operator` ask first; `variant.rs` is `Variant.Into#1`, which the lowering puts around a
   conversion from a Variant so that the Variant cells apply only there. Entry: `convert_cell`, `arith_cell`, `compare_cell`,
   `variant_into`, `verdict`.
+- `page_handle.rs` (~170): The opaque handles `Value::TestPage` and `Value::TestControl` hold (ADR-072 decision 3). The page state itself is in al-vm (`pages/state.rs`); this crate stores, clones, drops and prints the handle, and never adds a reference to the page. Entry: `PageHandle` (`new`, `get`, `into_inner`, `closed`), `ControlHandle`, `set_closed_page` (al-vm registers how a closed page is built, for `Value::default_for`).
 - `pagebuiltins.rs` (123): `TestPage`, `TestPart`, `TestField`, `TestAction` and `TestFilter` methods (ADR-012).
 - `pagefmt.rs` (683): The text a page control shows for a value (ADR-012), en-US. Entry: `Blank` 11, `ControlFormat` 37, `parse_decimal_places` 50, `parse_precision` 62.
 - `platform.rs` (259): The registry of platform tables that have a native row provider (ADR-013 decision 7, ADR-019). Entry: `Provider` 14, `Virtual` 23, `provider` 157, `virtual_table` 162.
@@ -116,7 +117,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `stream.rs` (549): In-memory streams over Blob fields, plus the array helpers that share their corpus folder (`streams/`). Entry: `BlobBuf` 23, `BlobRef` 33, `new_blob` 35, `copy_blob` 44.
 - `sysenum.rs` (119): Platform option types whose values AL writes `FieldClass::Normal`. Entry: `members` 9, `option_members` 116.
 - `textfns.rs` (724): Text functions and methods, TextBuilder and BigText. Entry: `secret_or_text` 493, `native_for` 679.
-- `value.rs` (859): Runtime values (ADR-010). Entry: `Value` 70, `RtType` 26, `Instance` 605, `DotNetObject` 133.
+- `value.rs` (1660): Runtime values (ADR-010). The state of a page is not here (ADR-072: al-vm `pages/state.rs`). Entry: `Value` 112, `RtType` 27, `RecordState` 368, `Instance` 1063, `DotNetObject` 237.
 - `version.rs` (33): The Version type. Entry: `native_for` 20.
 - `wsac.rs` (119): `WebServiceActionContext`. Entry: `native_for` 104.
 - `xml/mod.rs` (252): XmlDocument, XmlElement, XmlAttribute, XmlText, XmlCData, XmlComment, XmlProcessingInstruction, XmlDeclaration, XmlNode,. Submodules: `dom` (node store), `parse`, `write`, `write_to`, `xpath`, `select`, `queries`, `read`, `read_tree`, `tree`, `edit`, `attrs`, `names`, `node_types`, `lists`, `manager`. Entry: `native_for` (mod.rs), `XmlCell`, `XData` (dom.rs), `escape_text`, `escape_attr` (write.rs).
@@ -394,6 +395,7 @@ al-deps        dependency apps: .alpackages, Microsoft artifact feed, cache, pac
 - `single_track.rs` (~330): The notes of a session that watches SingleInstance codeunits (ADR-066 amendment 2): per global the fingerprint at its first read, after the refill and at the end (`SingleOut`), hooks `single_read`/`single_wrote`/`single_replaced` (a write in place, amendment 3 R1; the VM emits `Op::SingleWrite` before such a builtin or `var` argument)/`single_written`/`single_made`, and `single_test_begins` (numbers the test methods; `SingleOut::read_in` gives the test each global was first read in, ADR-066 amendment 7), `take_single_instances`/`adopt_single_instances`, which move the single instances, temporary tables and manual bindings from one codeunit's session to the next in the serial lane.
 - `state.rs` (117): Sub-states of `Session`: `TxState`, `UiState`, `PageClients`, `EventState`, `CoverageState`, `ReportState` (the .NET host state is `dotnet::DotNetState`).
 - `pages.rs` (432): The page test client (ADR-012): shared helpers, page triggers and events, the handle to a control. The rest is split by topic into `pages/`.
+- `pages/state.rs` (~1090): The test client's state of one page (`PageState`, about 230 fields; `PageState::closed`), its helper types (`PageMode`, `WindowRow`, `Cursor`, `ReadBackwards`, `ControlRef`, `ControlTarget`) and the bridge to the handles in a `Value` (ADR-072 decision 3; moved here from `al-builtins/src/value.rs`). Entry: `st_of` (borrow the page of a `Value::TestPage`, no new reference), `into_st`, `page_value`, `control_of`, `test_control`, `closed_page`, `register_closed_page` (called by `Engine::with_config`).
 - `pages/pageops.rs` (538): The `TestPage.*` and `TestField.*` methods. Entry: `page_op`, `test_page_op`.
 - `pages/open/mod.rs` (20): Opening and closing a page, rows loaded on open. Submodules: `page_open`, `close`, `landing`, `or_group`, `part_links`, `record_refusals`, `temp_list_key`, `tree`, `values`. Entry: `page_open`, `open_page_as` (page_open.rs), `page_close`, `close_with` (close.rs).
 - `pages/rows.rs` (976): The row window, navigation, `GoToKey`, `Find`, modal answers. Entry: `populate_window`, `page_move`, `page_go_to_key`.

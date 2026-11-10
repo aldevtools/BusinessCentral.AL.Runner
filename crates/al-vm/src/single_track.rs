@@ -118,7 +118,7 @@ fn same(a: &Value, b: &Value) -> bool {
         (Value::Array(x), Value::Array(y)) => Rc::ptr_eq(x, y),
         (Value::Codeunit(x), Value::Codeunit(y)) => Rc::ptr_eq(x, y),
         (Value::Library(_, x), Value::Library(_, y)) => Rc::ptr_eq(x, y),
-        (Value::TestPage(x), Value::TestPage(y)) => Rc::ptr_eq(x, y),
+        (Value::TestPage(x), Value::TestPage(y)) => Rc::ptr_eq(crate::pages::st_of(x), crate::pages::st_of(y)),
         (Value::Query(x), Value::Query(y)) => Rc::ptr_eq(x, y),
         (Value::DotNet(x), Value::DotNet(y)) => Rc::ptr_eq(x, y),
         (Value::Null, Value::Null) => true,

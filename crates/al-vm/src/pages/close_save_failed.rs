@@ -38,7 +38,7 @@ impl Session {
         let Err(Signal::Error(e)) = r else { return None };
         let pinned = {
             let s = st.borrow();
-            !s.modal && s.host.is_none() && s.parts.is_empty() && s.mode != al_builtins::value::PageMode::New
+            !s.modal && s.host.is_none() && s.parts.is_empty() && s.mode != crate::pages::PageMode::New
         } && self.is_card(st)
             && self.ui_state.page_handler_depth == 0;
         if !pinned {
