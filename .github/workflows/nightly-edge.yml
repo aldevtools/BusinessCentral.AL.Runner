@@ -1,8 +1,14 @@
 name: Nightly edge
 
 # Fast-forward `release` to a commit of main that passed CI, then build and publish `edge` from it (edge.yml, called as a reusable workflow). Nothing
-# happens when `release` already contains that commit. Owner decision 2026-10-20: edge is a
+# happens when the published `edge` tag already contains that commit. Owner decision 2026-10-20: edge is a
 # nightly build; numbered alphas stay manual (docs/releasing.md).
+#
+# "Nothing new" is decided against the `edge` tag (what is published), not against `release`. On
+# 2026-11-10 (run 42845780913) the publish failed after `release` had already moved; the next run
+# saw `release` containing the commit and skipped, so that build could never be published. Now a
+# run whose commit is already the head of `release` but not yet on `edge` builds and publishes it
+# again without pushing `release`.
 #
 # The push to `release` uses GITHUB_TOKEN, so it does not start CI or edge.yml a second time.
 # That is wanted: the commit already passed CI on main. A person's push to `release` still
@@ -88,14 +94,30 @@ jobs:
           echo "CI event trusted: $ci_event"
           echo "Commit to publish: $sha"
           git fetch origin release
+          # The published tag; absent before the first edge build.
+          git fetch --no-tags origin "+refs/tags/edge:refs/tags/edge" || true
           if ! git merge-base --is-ancestor "$sha" origin/main; then
             echo "::error::$sha is not on main"
             exit 1
           fi
-          if git merge-base --is-ancestor "$sha" origin/release; then
-            echo "release already contains $sha. Nothing new."
+          edge="$(git rev-parse -q --verify 'refs/tags/edge^{commit}' || true)"
+          if [ -n "$edge" ] && git merge-base --is-ancestor "$sha" "$edge"; then
+            echo "The edge tag ($edge) already contains $sha. Nothing new."
             echo "build=false" >> "$GITHUB_OUTPUT"
             exit 0
+          fi
+          release="$(git rev-parse origin/release)"
+          if [ "$release" = "$sha" ]; then
+            # An earlier run moved release here but did not publish (for example a failed tag push).
+            echo "release is already at $sha but edge is not. Publishing it without pushing release."
+            echo "sha=$sha" >> "$GITHUB_OUTPUT"
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git merge-base --is-ancestor "$sha" origin/release; then
+            # edge.yml publishes only the head of release, so an older commit cannot be published.
+            echo "::error::release ($release) is ahead of $sha and edge is not published there. Run again with sha=$release."
+            exit 1
           fi
           if ! git merge-base --is-ancestor origin/release "$sha"; then
             echo "::error::release has commits that main lacks (a hotfix without merge-back). See docs/releasing.md, section 3."
