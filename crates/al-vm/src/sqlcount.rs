@@ -988,6 +988,12 @@ fn pick<T>(counter: SqlCounter, (statements, rows): (T, T)) -> T {
     }
 }
 
+/// Whether two primary keys are the same ([`al_builtins::ops::compare_keys`]); `None` when they do not compare, which leaves
+/// the cost or the segment unknown instead of guessing "different keys" (al-runner issue 7644).
+fn same_key(a: &[Value], b: &[Value]) -> Option<bool> {
+    al_builtins::ops::compare_keys(a, b).ok()
+}
+
 /// The N the sizes were measured for (SqlCounters.al:261-267).
 const SIZED_N: [usize; 5] = [1, 2, 5, 10, 20];
 /// Statements of N inserts, and of N inserts and a Count, into an empty table (SqlCounters.al:323-332): inserts are buffered.
@@ -1001,12 +1007,6 @@ const INSERT_COUNT_STATEMENTS: [i64; 5] = [2, 3, 2, 3, 5];
 /// - N Gets of distinct rows: N/N; N Gets of one row: 1/1; a FindSet with Next to the end: 1/(N+1);
 /// - N times Get and Modify of distinct rows: 2N/2N; Get and Delete: 2N/N; a DeleteAll: 1/0; a Count: 1/1.
 ///
-/// Whether two primary keys are the same ([`al_builtins::ops::compare_keys`]); `None` when they do not compare, which leaves
-/// the cost or the segment unknown instead of guessing "different keys" (al-runner issue 7644).
-fn same_key(a: &[Value], b: &[Value]) -> Option<bool> {
-    al_builtins::ops::compare_keys(a, b).ok()
-}
-
 /// Every event is a method that succeeded, without RunTrigger and without AL code inside, on one table of the measured
 /// shape ([`Event::rows_before`]). Anything else (another N, order, mix, table or record state) is not sized.
 fn sized(seg: &[Event]) -> Option<(i64, i64)> {

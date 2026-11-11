@@ -55,21 +55,49 @@ fn pos(t: &TableDef, no: i32) -> Result<usize, Signal> {
         )
 }
 
-/// The positions of the fields of an `AddJoin`. Only a join of two Code[20] fields is pinned (install-upgrade/
-/// AsDtInstaller.al:163, :195 and record/Y47DtInstall.al:350, read back by AsDtInstallRead.al and Y47DtInstallRead.al); any
-/// other pair of field types is refused before a row is written (al-runner issue 7644: a Guid against a Code that holds no
-/// Guid counted as no match). How the database matches other types (a Text's collation, a Guid against its text) is not
-/// pinned.
+/// The positions of the fields of an `AddJoin`. A join of two fields of the same scalar type (for Code and Text, of any
+/// length) matches by value equality, as the joins of two Code[20] fields pin (install-upgrade/AsDtInstaller.al:163, :195
+/// and record/Y47DtInstall.al:350, read back by AsDtInstallRead.al and Y47DtInstallRead.al); the other same-type pairs keep
+/// that path by orchestrator decision (review of al-runner issue 7644) until the join matrix probe in
+/// docs/probes-needed.md lands. A pair of different field types is refused before a row is written (issue 7644: a Guid
+/// against a Code that holds no Guid counted as no match).
 fn join_fields(st: &TableDef, s: i32, dt: &TableDef, d: i32) -> Result<(usize, usize), Signal> {
     let (sp, dp) = (pos(st, s)?, pos(dt, d)?);
-    let (a, b) = (&st.fields[sp].ty, &dt.fields[dp].ty);
-    if *a != RtType::Code(Some(20)) || a != b {
+    if !same_scalar_type(&st.fields[sp].ty, &dt.fields[dp].ty) {
         return refuse(format!(
-            "DataTransfer.AddJoin of {} field {} with {} field {} (only a join of two Code[20] fields is pinned)",
+            "DataTransfer.AddJoin of {} field {} with {} field {} (a join of two fields of different types is not pinned)",
             st.name, st.fields[sp].name, dt.name, dt.fields[dp].name
         ));
     }
     Ok((sp, dp))
+}
+
+/// Whether two field types are the same scalar type for a join: Code with Code and Text with Text of any length, an enum
+/// with the same enum, an option with an option, and every other scalar type with itself.
+fn same_scalar_type(a: &RtType, b: &RtType) -> bool {
+    use RtType as T;
+    match (a, b) {
+        (T::Code(_), T::Code(_)) | (T::Text(_), T::Text(_)) | (T::Option(_), T::Option(_)) => true,
+        (T::Enum(x), T::Enum(y)) => x == y,
+        _ => {
+            a == b
+                && matches!(
+                    a,
+                    T::Boolean
+                        | T::Integer
+                        | T::BigInteger
+                        | T::Decimal
+                        | T::Byte
+                        | T::Char
+                        | T::Date
+                        | T::Time
+                        | T::DateTime
+                        | T::Duration
+                        | T::Guid
+                        | T::DateFormula
+                )
+        }
+    }
 }
 
 /// Whether the source row `s` matches the destination row `d` on every join field. Two values that do not compare refuse:

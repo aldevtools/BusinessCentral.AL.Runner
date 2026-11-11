@@ -423,7 +423,6 @@ impl Session {
         Ok(parts.join(", "))
     }
 
-    /// `ReadIsolation` and `SecurityFiltering`, read (no argument) or set (an option member).
     /// Where the record's marks hold the primary key `pk`. A mark whose key does not compare with it refuses (al-runner
     /// issue 7644).
     fn mark_index(rec: &Rec, pk: &[Value]) -> Result<Option<usize>, Signal> {
@@ -435,6 +434,7 @@ impl Session {
         Ok(None)
     }
 
+    /// `ReadIsolation` and `SecurityFiltering`, read (no argument) or set (an option member).
     fn isolation_or_security_filtering(
         &mut self,
         method: RecordOp,

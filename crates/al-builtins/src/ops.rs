@@ -1771,6 +1771,7 @@ pub fn compare_keys(a: &[Value], b: &[Value]) -> Result<bool, Signal> {
 /// [`compare_key_value`] and counts a comparison that fails as equal, so it takes only values whose comparison with any other
 /// value of the same field answers: the scalar kinds a key field holds, a text without a marker and a RecordId of such values.
 /// Anything else (a text holding a marker, an unknown column, any other kind) is refused where it would enter a key.
+#[inline]
 pub fn key_orderable(v: &Value) -> Result<(), String> {
     use Value as V;
     match v {
@@ -1787,8 +1788,16 @@ pub fn key_orderable(v: &Value) -> Result<(), String> {
         | V::Option(..)
         | V::Enum(..) => Ok(()),
         V::Text(t) | V::Code(t) if !t.has_marker() => Ok(()),
-        V::Unknown(why) => Err(why.to_string()),
-        V::Library(_, l) => match &*l.borrow() {
+        _ => key_orderable_rest(v),
+    }
+}
+
+/// [`key_orderable`] for the values that are not plainly a scalar: kept out of line, a store write checks every key field.
+#[cold]
+fn key_orderable_rest(v: &Value) -> Result<(), String> {
+    match v {
+        Value::Unknown(why) => Err(why.to_string()),
+        Value::Library(_, l) => match &*l.borrow() {
             LibraryValue::Empty => Ok(()),
             LibraryValue::RecordId { key, .. } => key.iter().try_for_each(key_orderable),
             _ => Err(format!("{} in a key (its order is not pinned)", v.describe())),

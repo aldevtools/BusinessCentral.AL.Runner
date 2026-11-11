@@ -5,6 +5,7 @@
 use super::*;
 use crate::contract::{cx, row, table};
 use crate::{Scan, Store};
+use al_builtins::filter::FieldFilter;
 
 fn marked() -> Value {
     Value::Code(format!("Z{}", al_builtins::native::CALL_STACK_MARK).as_str().into())
@@ -62,4 +63,63 @@ fn rows_with_a_value_no_key_order_places_make_no_table() {
     r[0] = marked();
     assert!(Rows::from_rows(&t, vec![row("A", 1, 1), r]).is_err());
     assert!(Rows::from_rows(&t, vec![row("A", 1, 1), row("B", 2, 1)]).is_ok());
+}
+
+fn scan_after<'a>(filters: &'a [FieldFilter], after: Option<&'a [Value]>, key: usize) -> Scan<'a> {
+    Scan {
+        key,
+        filters,
+        ascending: true,
+        after,
+    }
+}
+
+#[test]
+fn a_scan_from_a_position_no_key_order_places_is_refused() {
+    // Find('>') and Next from a buffer whose key holds a marked text or an unknown column: the position is compared in the key
+    // order, where a value that does not compare counts as equal.
+    let (c, t) = (cx("C"), table());
+    let mut s = MemStore::default();
+    for n in ["A", "B", "C"] {
+        s.insert(&c, &t, row(n, 1, 1)).unwrap();
+    }
+    let at = [marked()];
+    assert!(refused(s.next(&c, &t, &scan_after(&[], Some(&at), 0))));
+    // Key (Group, Amount) then the primary key.
+    let at = [
+        Value::Integer(1),
+        Value::Unknown("a column nothing pins".into()),
+        Value::Code("A".into()),
+    ];
+    assert!(refused(s.next(&c, &t, &scan_after(&[], Some(&at), 1))));
+    // A position of values that compare is answered.
+    let at = [Value::Code("A".into())];
+    let next = s.next(&c, &t, &scan_after(&[], Some(&at), 0)).unwrap().expect("a row");
+    assert!(matches!(&next[0], Value::Code(n) if n.as_str() == "B"), "{next:?}");
+}
+
+#[test]
+fn a_filter_value_no_key_order_places_bounds_no_scan() {
+    // A filter on the primary key with a marked text gives no bound in the key order: the rows are tested one by one, and a
+    // row is only found by passing the filter.
+    let (c, t) = (cx("C"), table());
+    let mut s = MemStore::default();
+    for n in ["A", "B", "C"] {
+        s.insert(&c, &t, row(n, 1, 1)).unwrap();
+    }
+    let f = [FieldFilter {
+        lang: al_builtins::filter::filter_language(),
+        field: 0,
+        expr: al_builtins::filter::FilterExpr::Ge(marked()),
+        group: 0,
+    }];
+    let found = s.next(&c, &t, &scan_after(&f, None, 0));
+    assert!(
+        Seek::of(&t, 0, &f, Some(&row("A", 1, 1))).is_none(),
+        "a marked text made a bound"
+    );
+    assert!(
+        !matches!(found, Ok(Some(ref r)) if matches!(&r[0], Value::Code(n) if n.as_str() == "A")),
+        "{found:?}"
+    );
 }

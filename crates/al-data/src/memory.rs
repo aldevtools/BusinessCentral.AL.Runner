@@ -298,9 +298,13 @@ pub struct Seek {
     points: Vec<bool>,
 }
 
-/// A filter value a bound can be made of: not a blank text (the filter reads a text of spaces as '', which the key
-/// order does not), and not a value that does not compare.
+/// A filter value a bound can be made of: a value the key order can place ([`al_builtins::ops::key_orderable`], the check
+/// every value that enters a key passes), not a blank text (the filter reads a text of spaces as '', which the key order does
+/// not), and of a kind whose filter order is the key order.
 fn usable_bound(v: &Value) -> bool {
+    if al_builtins::ops::key_orderable(v).is_err() {
+        return false;
+    }
     match v {
         Value::Text(_) | Value::Code(_) => al_builtins::native::text_of(v).is_some_and(|t| !t.trim().is_empty()),
         Value::Integer(_)
@@ -1625,6 +1629,9 @@ impl Store for MemStore {
 
     fn next(&self, cx: &AccessContext, t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError> {
         bump();
+        if let Some(at) = scan.after {
+            t.check_position(scan.key, at)?;
+        }
         if let Some(v) = self.virtual_of(t) {
             return v.next(self, cx, t, scan);
         }
