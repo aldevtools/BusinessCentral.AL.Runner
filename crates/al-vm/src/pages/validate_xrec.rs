@@ -49,6 +49,11 @@ pub(crate) struct ValidateStep {
     save_xrec: Vec<Value>,
     /// `CurrPage.Update(false)` ran in the step.
     update_false: bool,
+    /// The step is the pinned edit of a temporary Worksheet whose rows a procedure set before the open
+    /// (`temp_ws_edit_begin`): `CurrPage.Update(false)` in it drops the edit (pages/run-modal/PageVarOpenRow.al:946
+    /// TempWs_SecondaryKeyView_FilledBeforeRun_Run `row edited` `B|name B`, :974 run modally, :1002). The xRec rules of a
+    /// pinned page do not apply to it.
+    temp_ws_preloaded: bool,
 }
 
 impl Session {
@@ -123,6 +128,7 @@ impl Session {
         if pinned && changed {
             self.set_xrec_fields(st, before.to_vec());
         }
+        let temp_ws_preloaded = self.temp_ws_edit_begin(st, pos, was_dirty)?;
         st.borrow_mut().validate_step = Some(ValidateStep {
             pinned,
             ext_after: ext_after.to_vec(),
@@ -131,6 +137,7 @@ impl Session {
             held,
             before: before.to_vec(),
             update_false: false,
+            temp_ws_preloaded,
         });
         Ok(())
     }
@@ -180,7 +187,7 @@ impl Session {
             // On a row that held an unsaved edit before the step the edit stays, as before this rule: what real BC keeps of the
             // earlier edit is not pinned (a probe is queued), and the passing case that reaches it observes neither
             // (pages/currpage/TestPageUpdateGoneRow.al:538 UnsavedKeyedRow_OnValidateUpdateFalse_Trace).
-            step.update_false = step.pinned && !step.was_dirty;
+            step.update_false = (step.pinned || step.temp_ws_preloaded) && !step.was_dirty;
         }
     }
 
@@ -229,10 +236,9 @@ impl Session {
         let Some(step) = st.borrow_mut().validate_step.take() else {
             return Ok(None);
         };
-        if !step.pinned {
-            return Ok(None);
+        if step.pinned {
+            self.set_xrec_fields(st, step.held);
         }
-        self.set_xrec_fields(st, step.held);
         if !step.update_false {
             return Ok(None);
         }

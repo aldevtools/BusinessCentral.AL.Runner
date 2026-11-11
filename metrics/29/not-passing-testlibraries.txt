@@ -21,7 +21,6 @@
 81599 BiTs_Z_Rows[alpha]
 81599 BiTs_Z_Rows[beta]
 81599 BiTs_Z_Rows[gamma]
-81611 BiDd_Resource_TextEncodings
 81641 Y24_P23_TestTables
 81641 Y24_P24_FullAccess
 81642 Y24_P25_Restrictive

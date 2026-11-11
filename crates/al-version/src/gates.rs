@@ -51,6 +51,49 @@ const REPORT_SAVE_AS_INHERENT_PERMISSIONS_EVIDENCE: &[Evidence] = &[
     },
 ];
 
+/// Evidence of [`Gate::ReportSaveAsDataItemIdentity`]; a constant so `Gate::evidence` stays under its length cap.
+const REPORT_SAVE_AS_DATA_ITEM_IDENTITY_EVIDENCE: &[Evidence] = &[
+    Evidence {
+        file: "reports/AqTests.al",
+        lines: "170,232",
+    },
+    Evidence {
+        file: "reports/layouts-saveas/BcXmlBlob.al",
+        lines: "101,118,148,224",
+    },
+    Evidence {
+        file: "text/TestReportSaveAsDatasetContracts.al",
+        lines: "299",
+    },
+    Evidence {
+        file: "reports/W3ReportDataset.al",
+        lines: "294,314",
+    },
+    // Data items whose names start with a digit, and a report run under another language and format region (corpus bump to
+    // 2d500123). A data item over the virtual table Integer carries the tableId and no systemId.
+    Evidence {
+        file: "reports/dataset/DataItemNamesLeadingDigit.al",
+        lines: "83",
+    },
+    Evidence {
+        file: "reports/runtime/ReportLanguageNotRunFormats.al",
+        lines: "244,269,294,321",
+    },
+];
+
+/// Evidence of [`Gate::ReportLayoutListColumnsFrom28`]; a constant so `Gate::evidence` stays under its length cap.
+const REPORT_LAYOUT_LIST_COLUMNS_EVIDENCE: &[Evidence] = &[
+    Evidence {
+        file: "metadata/platform-tables/UgReportLayoutList.al",
+        lines: "116,119,150,153",
+    },
+    // Report Layout List rows of user-defined layouts: column 18 from BC 28, 19 to 21 from BC 29 (corpus bump to 2d500123).
+    Evidence {
+        file: "reports/layouts-saveas/UserDefinedLayoutAppIdAndNames.al",
+        lines: "228,230,264,266,273,275",
+    },
+];
+
 /// Evidence of [`Gate::LegacyStatisticsActionGoneFrom29`]; a constant so `Gate::evidence` stays under its length cap.
 const LEGACY_STATISTICS_EVIDENCE: &[Evidence] = &[Evidence {
     file: "pages/statistics-compatibility/TestStatisticsCompatibility.al",
@@ -285,7 +328,9 @@ pub enum Gate {
     /// fields word the failing value differently on BC 27 (recordref-fieldref/fieldref/FieldRefFilterMatrix.al:440,
     /// FieldRefFilterEmptyText.al:235). Corpus bump 1111b: a card edited and left open at the end of a
     /// test, whose OnClosePage asks a Confirm nobody handles, fails that test on BC 27 and not from BC 28
-    /// (pages/close-errors/CemTestPageCloseTests.al:869). Not consumed yet.
+    /// (pages/close-errors/CemTestPageCloseTests.al:869). Corpus bump to 2d500123: Query.SetRange of a Date column from a
+    /// text that is no date raises another error on BC 27 (queries/read-lifecycle/QueryMinMaxNoRowsAndFailedSetRange.al:218).
+    /// Not consumed yet.
     ProbedValuesDifferFrom28,
     /// A BigInteger literal in a Boolean control expression (`Enabled = 0L <> Rec.Big`) compiles on the client and runs.
     /// Before, the page fails to open ("Error compiling dynamic control expression ... Not a valid number."); the runtime
@@ -780,10 +825,7 @@ impl Gate {
                 file: "errors/last-error/FindEmptyTableExcludeFlag.al",
                 lines: "76",
             }],
-            Gate::ReportLayoutListColumnsFrom28 => &[Evidence {
-                file: "metadata/platform-tables/UgReportLayoutList.al",
-                lines: "116,119,150,153",
-            }],
+            Gate::ReportLayoutListColumnsFrom28 => REPORT_LAYOUT_LIST_COLUMNS_EVIDENCE,
             Gate::MarkedSecondaryKeyMovesFrom28 | Gate::MarkedSecondaryKeyMovesAgainFrom29 => &[Evidence {
                 file: "testpage/Y15ReapplyMarksSecondaryKey.al",
                 lines: "336",
@@ -1064,24 +1106,7 @@ impl Gate {
                 file: "record/TestFieldLenAndFeatureKeyContracts.al",
                 lines: "97",
             }],
-            Gate::ReportSaveAsDataItemIdentity => &[
-                Evidence {
-                    file: "reports/AqTests.al",
-                    lines: "170,232",
-                },
-                Evidence {
-                    file: "reports/layouts-saveas/BcXmlBlob.al",
-                    lines: "101,118,148,224",
-                },
-                Evidence {
-                    file: "text/TestReportSaveAsDatasetContracts.al",
-                    lines: "299",
-                },
-                Evidence {
-                    file: "reports/W3ReportDataset.al",
-                    lines: "294,314",
-                },
-            ],
+            Gate::ReportSaveAsDataItemIdentity => REPORT_SAVE_AS_DATA_ITEM_IDENTITY_EVIDENCE,
         }
     }
 
@@ -1215,6 +1240,12 @@ impl Gate {
                 Evidence {
                     file: "text/text-methods/SaUnitAmountSubst.al",
                     lines: "193,199,204,216",
+                },
+                // The same amount field with DecimalPlaces 0:3: Format and the decimalformatter of its SaveAs Xml column
+                // (corpus bump to 2d500123).
+                Evidence {
+                    file: "reports/dataset/ReportColumnFormatsHeaderRest.al",
+                    lines: "122,127",
                 },
             ],
             Gate::DocxMediaRezippedFrom29 => &[Evidence {
@@ -1640,6 +1671,12 @@ const PROBED_VALUES_DIFFER_FROM_28: &[Evidence] = &[
     Evidence {
         file: "pages/close-errors/CemTestPageCloseTests.al",
         lines: "869",
+    },
+    // Corpus bump to 2d500123: Query.SetRange of a Date column from a text that is no date raises the Evaluate error
+    // (code Evaluate:Conversion) from BC 28 and `Unable to convert from ... NavText to System.DateTime.` (Conversion) on BC 27.
+    Evidence {
+        file: "queries/read-lifecycle/QueryMinMaxNoRowsAndFailedSetRange.al",
+        lines: "218,223",
     },
 ];
 

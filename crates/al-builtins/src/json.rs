@@ -1291,6 +1291,15 @@ fn array_remove_at(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> R
             set_parent(&child, None);
             Ok(Value::Boolean(true))
         }
+        // GetLastErrorText(true) leaves the text of an index past the end (errors/last-error/LastErrorFlagRuntimeCodes.al:192,
+        // :197); a negative index is not measured.
+        None if i >= 0 => {
+            let mut e = index_out_of_bounds();
+            if let Signal::Error(err) = &mut e {
+                err.origin = crate::native::ErrorOrigin::SameText;
+            }
+            used_return::failed(c, e)
+        }
         None => used_return::failed(c, index_out_of_bounds()),
     }
 }
@@ -1432,8 +1441,12 @@ fn in_language(language: i32, result: Result<Value, Signal>) -> Result<Value, Si
     }
 }
 
+/// `JsonValue.AsX` of a JSON null (read from text, never assigned, or after `SetValueToNull`) raises the conversion error
+/// into the getter's .NET type, `$null` below, on BC 27.5, 28.5 and 29.0 (json/JsonNullGetters.al:NullFromText_EveryGetter,
+/// NeverAssigned_EveryGetter, SetValueToNull_EveryGetter). Only the JsonValue getters are measured: `GetX` of a null
+/// property or element goes on to the getter's own rule (GetText reads the empty text, the others stay refused there).
 macro_rules! typed_getters {
-    ($($obj:ident, $arr:ident, $val:ident => $coerce:path;)*) => {$(
+    ($($obj:ident, $arr:ident, $val:ident => $coerce:path, $null:expr;)*) => {$(
         fn $obj(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
             in_language(c.language(), object_typed(r, a, $coerce))
         }
@@ -1443,24 +1456,28 @@ macro_rules! typed_getters {
         #[allow(dead_code)]
         fn $val(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Result<Value, Signal> {
             let h = recv(r)?;
-            in_language(c.language(), $coerce(&scalar_of(&h)?))
+            let s = scalar_of(&h)?;
+            if matches!(s, Scalar::Null) {
+                return in_language(c.language(), Err(conversion(NAV_JSON_VALUE, $null)));
+            }
+            in_language(c.language(), $coerce(&s))
         }
     )*};
 }
 
 typed_getters! {
-    obj_boolean, arr_boolean, val_boolean => as_boolean;
-    obj_integer, arr_integer, val_integer => as_integer;
-    obj_biginteger, arr_biginteger, val_biginteger => as_biginteger;
-    obj_byte, arr_byte, val_byte => as_byte;
-    obj_option, arr_option, val_option => as_option;
-    obj_duration, arr_duration, val_duration => as_duration;
-    obj_decimal, arr_decimal, val_decimal => as_decimal;
-    obj_text, arr_text, val_text => as_text;
-    obj_char, arr_char, val_char => as_char;
-    obj_date, arr_date, val_date => as_date;
-    obj_datetime, arr_datetime, val_datetime => as_datetime;
-    obj_time, arr_time, val_time => as_time;
+    obj_boolean, arr_boolean, val_boolean => as_boolean, "System.Boolean";
+    obj_integer, arr_integer, val_integer => as_integer, "System.Int32";
+    obj_biginteger, arr_biginteger, val_biginteger => as_biginteger, "Microsoft.Dynamics.Nav.Runtime.NavBigInteger";
+    obj_byte, arr_byte, val_byte => as_byte, "System.Byte";
+    obj_option, arr_option, val_option => as_option, "Microsoft.Dynamics.Nav.Runtime.NavOption";
+    obj_duration, arr_duration, val_duration => as_duration, "Microsoft.Dynamics.Nav.Runtime.NavDuration";
+    obj_decimal, arr_decimal, val_decimal => as_decimal, "Microsoft.Dynamics.Nav.Runtime.Decimal18";
+    obj_text, arr_text, val_text => as_text, "Microsoft.Dynamics.Nav.Runtime.NavText";
+    obj_char, arr_char, val_char => as_char, "System.Char";
+    obj_date, arr_date, val_date => as_date, "Microsoft.Dynamics.Nav.Runtime.NavDate";
+    obj_datetime, arr_datetime, val_datetime => as_datetime, "Microsoft.Dynamics.Nav.Runtime.NavDateTime";
+    obj_time, arr_time, val_time => as_time, "Microsoft.Dynamics.Nav.Runtime.NavTime";
 }
 
 /// `JsonValue.AsText` of a Boolean is `true` or `false`, where `GetText` of a property or an element says `True`

@@ -1,0 +1,24 @@
+View45_T	ran	open[1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 1 ] last=Yes on 45 [20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 ] prev=Yes on 44 [] first=Yes on 1 [] next=Yes on 2 []
+Tree60View_T	ran	open on 1 [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 1 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 ] walk=12 on 56 []
+Tree60Last_T	ran	open on 1 [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 1 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 ] last=Yes on 56 [] expand, next=Yes on 57 []
+PinKeyNext_T	ran	on P2 [O:P2 C:P2 ] next=Yes [N C: ] | on : P1=preloaded;P2=preloaded;
+WsUpdOffFirstRow_T	refused	CurrPage.Update on a temporary Worksheet whose rows were set before it opened, off its first row (not pinned)
+NLastTwice45_T	ran	open[1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 1 ] last=Yes on 45 [20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 ] first=Yes [] last=Yes on 45 []
+NView41_T	ran	open[1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 1 ] last=Yes on 41 [20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 ] prev=Yes on 40 [] first=Yes on 1 [] next=Yes on 2 []
+NView100_T	ran	open[1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 1 ] last=Yes on 100 [20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 ] prev=Yes on 99 [] first=Yes on 1 [] next=Yes on 2 []
+NPick2Pin_T	ran	on P2 [O:P2 C:P2 ] next=Yes on /new [N C: ] | on : P1=preloaded;P2=preloaded; log X
+NPick2After_T	refused	a call of the test on a list run by CurrPage.Run() after the page dropped a key typed into a stored row (not pinned)
+CWs2Pin_T	ran	open on C4 [R:C4 R:C4 R:C3 R:C2 R:C1 R:C4 ] first on C4 [] after on C4/n4/ [R:C4 R:C4 R:C3 R:C2 R:C1 R:C4 ] | on :
+CWs2DirtyThenUpd_T	ran	open on C4 [R:C4 R:C4 R:C3 R:C2 R:C1 R:C4 ] first on C4 [] after on C4/edited/q [R:C4 ] | on :
+CWs2SecondRow_T	refused	CurrPage.Update on a temporary Worksheet whose rows were set before it opened, off its first row (not pinned)
+CWs2EditTwice_T	ran	open on C4 [R:C4 R:C4 R:C3 R:C2 R:C1 R:C4 ] first on C4 [] mid on C4/n4 [R:C4 R:C4 R:C3 R:C2 R:C1 R:C4 ] after on C4/again/ [R:C4 ] | on :
+CWs2EditThenWalk_T	ran	open on C4 [R:C4 R:C4 R:C3 R:C2 R:C1 R:C4 ] first on C4 [] mid [R:C4 R:C4 R:C3 R:C2 R:C1 R:C4 ] next=Yes on C3 [] last=Yes after on C1/n1/ [] | on C4:
+CWs2NoteNext_T	ran	open on C4 [R:C4 R:C4 R:C3 R:C2 R:C1 R:C4 ] first on C4 [] next=Yes after on C3/n3/ [] | on C4:
+CWs2MPin_T	ran	open on C4 [R:C4 R:C4 R:C3 R:C2 R:C1 R:C4 ] after on C4/n4/ [R:C4 R:C4 R:C3 R:C2 R:C1 R:C4 ] | on C4: C4=n4/;C3=n3/;C2=n2/;C1=n1/; log
+CWs2MDirtyThenUpd_T	ran	open on C4 [R:C4 R:C4 R:C3 R:C2 R:C1 R:C4 ] after on C4/edited/q [R:C4 ] | on C4: C4=n4/;C3=n3/;C2=n2/;C1=n1/; log
+CWs2MDirtyThenUpdNext_T	ran	open on C4 [R:C4 R:C4 R:C3 R:C2 R:C1 R:C4 ] mid edited/q [R:C4 ] next=Yes after on C3/n3/ [] | on C4: C4=n4/;C3=n3/;C2=n2/;C1=n1/; log
+CWs2Rows2_T	ran	open on C2 [R:C2 R:C2 R:C1 R:C2 ] first on C2 [] after on C2/n2/ [R:C2 R:C2 R:C1 R:C2 ] | on :
+View61_T	ran	open[1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 1 ] last=Yes on 61 [20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 ] prev=Yes on 60 [] first=Yes on 1 [] next=Yes on 2 []
+Edit100_T	ran	open[1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 1 ] last=Yes on 100 [20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 ] prev=Yes on 99 [] first=Yes on 1 [] next=Yes on 2 []
+LookupVar45_T	ran	open[1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 1 ] last=Yes on 45 [20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 ] LookupOK rec 45
+StaticModal100_T	ran	open[1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 1 ] last=Yes on 100 [20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 ] LookupOK rec 100

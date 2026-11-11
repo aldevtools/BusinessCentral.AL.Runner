@@ -2446,3 +2446,82 @@ codeunit 50000 T { Subtype = Test;
         );
     }
 }
+
+/// Issue 7769: the source FlowFilter probe (RelationWhereFlowFilter.al) measures an
+/// unset or exact value. The remaining shapes and the unmeasured error code refuse.
+#[test]
+fn issue_7769_source_flowfilter_refuses_unmeasured_shapes() {
+    let fixtures = r#"
+table 69500 Target {
+    fields { field(1; Id; Integer) { } field(2; Kind; Code[10]) { } }
+    keys { key(PK; Id) { Clustered = true; } }
+}
+table 69501 Source {
+    fields {
+        field(1; Id; Integer) { }
+        field(2; "Kind Filter"; Code[10]) { FieldClass = FlowFilter; }
+        field(3; Link; Integer) { TableRelation = Target.Id where(Kind = field("Kind Filter")); }
+    }
+    keys { key(PK; Id) { Clustered = true; } }
+}
+"#;
+    for (filter, tail, refusal) in [
+        (
+            "SetRange(\"Kind Filter\", 'K1', 'K3');",
+            "",
+            "one exact source FlowFilter",
+        ),
+        (
+            "SetFilter(\"Kind Filter\", 'K1|K2');",
+            "",
+            "one exact source FlowFilter",
+        ),
+        ("SetFilter(\"Kind Filter\", '<>K2');", "", "one exact source FlowFilter"),
+        ("SetFilter(\"Kind Filter\", 'K*');", "", "one exact source FlowFilter"),
+        (
+            "FilterGroup(2); Rec.SetRange(\"Kind Filter\", 'K1'); Rec.FilterGroup(0);",
+            "",
+            "default group",
+        ),
+        (
+            "SetRange(\"Kind Filter\", 'K1'); Rec.FilterGroup(2); Rec.SetRange(\"Kind Filter\", 'K1'); Rec.FilterGroup(0);",
+            "",
+            "default group",
+        ),
+        ("SetRange(\"Kind Filter\", 'K2');", "", ""),
+        ("\"Kind Filter\" := 'K2';", "", ""),
+        (
+            "SetRange(\"Kind Filter\", 'K2');",
+            "if GetLastErrorCode() = '' then Error('Missing code');",
+            "GetLastErrorCode",
+        ),
+    ] {
+        let validate = if tail.is_empty() && !refusal.is_empty() {
+            "Rec.Validate(Link, 1);"
+        } else {
+            "asserterror Rec.Validate(Link, 1);"
+        };
+        let test = format!(
+            r#"
+{fixtures}
+codeunit 69502 T {{ Subtype = Test;
+    [Test] procedure P() var Row: Record Target; Rec: Record Source; begin
+        Row.Id := 1; Row.Kind := 'K1'; Row.Insert();
+        Rec.{filter}
+        {validate}
+        {tail}
+    end;
+}}
+"#
+        );
+        let outcomes = run_with_deps(&[], &test);
+        if refusal.is_empty() {
+            assert_eq!(outcomes[0].1, Outcome::Pass, "{filter}");
+        } else {
+            assert!(
+                matches!(&outcomes[0].1, Outcome::NotRun(why) if why.contains(refusal)),
+                "{filter}: {outcomes:?}"
+            );
+        }
+    }
+}

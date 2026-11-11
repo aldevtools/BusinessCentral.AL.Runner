@@ -207,10 +207,10 @@ fn selection_flags_repeat_and_make_a_union() {
         .count() as u64;
     assert_eq!(total_of(&["--test", &name.to_uppercase()]), by_name);
     // --area and --codeunit together: the area, plus the codeunit when it is outside it.
-    assert_eq!(total_of(&["--area", "json"]), 597); // corpus bump to bbfbf855 six more json cases; corpus bump to 833a01ce: 40 more (the restructure moved JSON tests into json/); corpus bump to 21a41286: six more (JsonValueGetters.al); corpus bump 29: 22 more json cases on BC 29; the multi-app bump one more; bump to 86a98479 seven more; bump to 84ebf506 one more (FormatOfEmptyJsonArrays); bump to 55ad94c3 one more (Sq_DigitText_BigIntegerByteOption); bump to 92031e20 seven more (json/json/Y44FormatJsonValue.al); bump to 7f7cdc2a four more (the Y47_* tests of json/DbJPathLeads.al); bump to 4b6013d0 four more (Y65 tests of json/JsonValueGetters.al); bump to eccb1330 ten more (SelectToken paths of json/DbJPathLeads.al, corpus PR 1120); bump to e89f0e53 three more (json/management-properties/TestJsonProperty.Codeunit.al and QW_Add_CharAndText_ThroughVariant of json/JsonObjectBasics.al); bump to 662b1028 43 more (json/json/JsonObjectUsedReturn.al and JsonArrayTokenUsedReturn.al)
+    assert_eq!(total_of(&["--area", "json"]), 600); // corpus bump to bbfbf855 six more json cases; corpus bump to 833a01ce: 40 more (the restructure moved JSON tests into json/); corpus bump to 21a41286: six more (JsonValueGetters.al); corpus bump 29: 22 more json cases on BC 29; the multi-app bump one more; bump to 86a98479 seven more; bump to 84ebf506 one more (FormatOfEmptyJsonArrays); bump to 55ad94c3 one more (Sq_DigitText_BigIntegerByteOption); bump to 92031e20 seven more (json/json/Y44FormatJsonValue.al); bump to 7f7cdc2a four more (the Y47_* tests of json/DbJPathLeads.al); bump to 4b6013d0 four more (Y65 tests of json/JsonValueGetters.al); bump to eccb1330 ten more (SelectToken paths of json/DbJPathLeads.al, corpus PR 1120); bump to e89f0e53 three more (json/management-properties/TestJsonProperty.Codeunit.al and QW_Add_CharAndText_ThroughVariant of json/JsonObjectBasics.al); bump to 662b1028 43 more (json/json/JsonObjectUsedReturn.al and JsonArrayTokenUsedReturn.al); bump to 2d500123 three more (the *_EveryGetter tests of json/JsonNullGetters.al)
     assert_eq!(
         total_of(&["--area", "json", "--codeunit", &SMALL_CU.to_string()]),
-        597 + in_cu(SMALL_CU)
+        600 + in_cu(SMALL_CU)
     );
 }
 

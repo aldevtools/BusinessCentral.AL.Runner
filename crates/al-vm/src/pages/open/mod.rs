@@ -18,6 +18,8 @@ mod record_refusals;
 mod repeater_new_line;
 pub(in crate::pages) use repeater_new_line::RepeaterLine;
 mod temp_list_key;
+mod temp_ws_preloaded;
+pub(in crate::pages) use temp_ws_preloaded::TempWsEdit;
 mod tree;
 mod tree_var;
 mod values;

@@ -230,6 +230,15 @@ pub struct PageState {
     pub window_eof: bool,
     /// The window holds every row of the view, read by `Last` past a full window (see `last_past_the_window`).
     pub window_whole: bool,
+    /// The page opened as a temporary Worksheet whose rows a procedure set before the open (`open_temp_ws_preloaded`).
+    pub temp_ws_preloaded: bool,
+    /// The control validation that runs is an edit of that page the corpus pins, noted with the number of moves and writes
+    /// the test had made (`temp_ws_edit_begin`).
+    pub temp_ws_edit: Option<(usize, crate::pages::open::TempWsEdit)>,
+    /// The page runs from `CurrPage.Run()` in its own procedure (`run_page_var`), not from a Page variable's `Run()`.
+    pub run_by_currpage: bool,
+    /// The page dropped a key the test typed into a stored row (`typed_key_dropped_on_currpage_run`).
+    pub typed_key_dropped: bool,
     /// A read of a list that serves its rows from OnFindRecord and OnNextRecord ran to the end of the view (an open whose view
     /// ends inside the window, a GoToKey that read on to the end): Next on the last row then answers false without asking the
     /// page (see `move_in_client_rows`).
@@ -519,6 +528,12 @@ pub struct PageState {
     /// The key of the row a `Next` that started `server_lag` just moved onto, on the page `held_row_page_pinned` names, and
     /// the store's write mark then (`next_held_row_read`). Any other call on the page or its controls clears it.
     pub next_held_row: Option<(Vec<Value>, (i64, u64))>,
+    /// The calls the test client made on the page since it opened, the running one last (`pinned_shape.rs`).
+    pub test_calls: Vec<crate::pages::pinned_shape::TestCall>,
+    /// The test made more calls than `test_calls` keeps.
+    pub test_calls_overflow: bool,
+    /// The test called `First()` on the page since it opened (`next_held_row_read`; set and cleared by `test_page_op_held`).
+    pub first_since_open: bool,
     /// The static `Page.RunModal(0, Rec)` found the page from the table's LookupPageId.
     pub lookup_page_from_table: bool,
     /// Page triggers (the page's or an extension's) run on this page so far.
@@ -846,6 +861,25 @@ impl PageState {
 
     /// A page that was never opened. Every field starts at its type's default except these (`mode` and `cursor`
     /// name their starting variant with `#[default]`). A new field needs no line here.
+    /// The page opens: what the rules pinned for one scenario noted on its last run is gone (`pinned_shape.rs`).
+    pub(crate) fn forget_pinned_scenario(&mut self) {
+        self.test_calls = Vec::new();
+        self.test_calls_overflow = false;
+        self.typed_key_dropped = false;
+        self.temp_ws_edit = None;
+        self.temp_ws_preloaded = false;
+    }
+
+    /// The page opens: the field captions of its last run are gone.
+    pub(crate) fn forget_field_captions(&mut self) {
+        self.field_captions = Vec::new();
+        self.field_captions_opened = false;
+        self.field_captions_settled = false;
+        self.field_captions_row = None;
+        self.field_captions_quiet = false;
+        self.field_captions_pinned_move = false;
+    }
+
     pub fn closed(object: u32) -> PageState {
         PageState {
             object,

@@ -579,7 +579,11 @@ fn the_bump_fetches_microsofts_apps_before_the_lists_and_the_golden_files() {
         + script[finish..]
             .find("cargo build --release -q")
             .expect("finish builds");
-    let fetch = at("./target/release/al-test-cli --root . --all-versions --fetch-deps \\\n    || die ");
+    // The fetch's output is kept so a stale suite oracle can be explained (explain_setup_error); a failure still stops.
+    let fetch =
+        at("./target/release/al-test-cli --root . --all-versions --fetch-deps 2>&1 | tee \"$fetch_log\" \\\n    || { ");
+    let stop = &script[fetch..fetch + script[fetch..].find('\n').unwrap() + 400];
+    assert!(stop.contains("die \""), "{stop}");
     let lists = at("list_pass --list-new-cases HEAD --prune-not-passing");
     let golden = at("UPDATE_GOLDEN=1 cargo test --release -q -p al-test-cli --test corpus_resolve_deps -- --ignored");
     assert!(build < fetch && fetch < lists && lists < golden);
@@ -704,4 +708,50 @@ fn a_new_pin_adds_the_trywrite_allowed_suite_with_its_server_setting() {
         assert_eq!(s.len(), 1);
         assert_eq!(s[0]["workflow_run"].as_integer(), Some(1000));
     }
+}
+
+/// A failed artifact download (GitHub answered HTTP 502 on 2026-11-11) is reported as a download error with gh's
+/// message, not as an artifact that "holds no known JUnit file".
+#[test]
+fn a_failed_artifact_download_is_reported_as_a_download_error() {
+    let f = fixture();
+    let d = f.dir.path();
+    let gh = fake_gh(
+        d,
+        &run_json("success", &f.on_branch),
+        &artifacts(&["27.5", "28.5", "29.0"], 4),
+    );
+    std::fs::write(
+        &gh,
+        format!(
+            "#!/bin/sh\ncase \"$*\" in\n  *\"run view\"*) cat {dd}/run.json;;\n  */zip*) echo 'gh: Server Error (HTTP 502)' >&2; exit 1;;\n  *artifacts*) cat {dd}/artifacts.json;;\n  *) echo \"unexpected gh $*\" >&2; exit 9;;\nesac\n",
+            dd = d.display()
+        ),
+    )
+    .unwrap();
+    let (code, out) = bump(&f, &gh, &["--dry-run", "123"]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("HTTP 502"), "{out}");
+    assert!(out.contains("downloading artifact"), "{out}");
+    assert!(!out.contains("holds no known JUnit file"), "{out}");
+}
+
+/// The CLI refuses a suite oracle recorded for an older corpus commit whose app the pin changed (src/pin.rs). For the
+/// isolation probe (Windows nightly only) the bump points to tools/record_windows_oracle.sh instead of blaming the
+/// artifact feed, on both paths that run the CLI: the fetch of Microsoft's apps and a list pass.
+#[test]
+fn a_stale_suite_oracle_points_to_record_windows_oracle() {
+    let script = std::fs::read_to_string(root().join("tools/corpus_bump.sh")).unwrap();
+    let helper = script
+        .find("explain_setup_error() {")
+        .expect("the helper that explains a setup error");
+    let body = &script[helper..helper + script[helper..].find("\n}\n").unwrap()];
+    assert!(body.contains("the oracle is recorded for corpus commit"), "{body}");
+    assert!(body.contains("tools/record_windows_oracle.sh"), "{body}");
+    let fetch = script.find("--all-versions --fetch-deps").unwrap();
+    let after_fetch = &script[fetch..fetch + 600];
+    assert!(after_fetch.contains("explain_setup_error"), "{after_fetch}");
+    let list = script.find("list_pass() {").unwrap();
+    let list_body = &script[list..list + script[list..].find("\n}\n").unwrap()];
+    assert!(list_body.contains("explain_setup_error"), "{list_body}");
 }

@@ -461,7 +461,10 @@ impl Session {
         // Pinned by pages/run-modal/TwTreeExpandTriggers.al (was assumption `tree-expand-runs-no-row-trigger`).
         if st.borrow().landing_first
             && self.tree_expand_all_with_row_triggers(st)
-            && self.read_tree_rows_whole(st, |this| this.populate_window_in_view(st))?
+            && self.read_tree_rows_whole(st, |this| {
+                this.populate_window_in_view(st)?;
+                this.tree_open_reads_on(st)
+            })?
         {
             return Ok(());
         }
@@ -1939,73 +1942,6 @@ impl Session {
         };
         self.read_client_row(st, target)?;
         Ok(true)
-    }
-
-    /// `Last` on a list whose window of 20 rows is full: the client reads the last row it holds again, then the rows after it in
-    /// one block, and settles on the last of them (a page with OnFindRecord asks `=` for it). Pinned for 25 rows by
-    /// testpage/PnF06FindListMoves.al:FindList_Ascending_25Rows `asc25_last`
-    /// (`R20;N(1);R21;...;N(1);R25;N(1);F(=);R25;C`) and FindList_PlainDescending `plain25_last` (`R6;R5;R4;R3;R2;R1;R1;C`). A
-    /// block of 20 new rows, a descending view of a page with OnFindRecord, and a list with the blank line are not pinned.
-    fn last_past_the_window(&mut self, st: &St, find_page: bool) -> Result<Option<bool>, Signal> {
-        let rec = self.page_rec(st);
-        if st.borrow().new_line || st.borrow().window_eof || (find_page && !rec.borrow().ascending) {
-            return Ok(None);
-        }
-        let before = self.xrec_before_move(st);
-        self.read_block_past_the_window(st, find_page)?;
-        // Without OnAfterGetCurrRecord the move ends with the block: `=` is not asked and the row is not read again
-        // (pages/list-order/AiListOrderTests.al:958 Paging_Last_Nav `last_log` ends `R:R1025;N:1=0`).
-        if !self.declares(st, "onaftergetcurrrecord") {
-            return Ok(Some(true));
-        }
-        if find_page {
-            self.nav_find(st, "=")?;
-        }
-        self.populate_current(st)?;
-        // In a key other than the primary key the row is read once more (SgListKeyMovesTests.al SG_Key_ThirtyRows_Moves `last`:
-        // the block, then R01 three times; corpus bump PR 738).
-        if self.still_reads_once_more(st) {
-            self.populate_current(st)?;
-        }
-        self.current_record_trigger(st, before)?;
-        Ok(Some(true))
-    }
-
-    /// The client reads the last row it holds again, then the rows after it in one block (up to 20, the failing last call of
-    /// OnNextRecord included) and ends on the last of them with the window holding the whole view. Used by `Last` and by `New` on a
-    /// list longer than a window (testpage/ListRowsActionNew.al:NewRowThenAction_Ping30Rows_ReadsLogged: 12 reads
-    /// after `New()` on 30 rows, the last row of the window, the ten rows after it, and the blank line). A second full block, and a view
-    /// of exactly one window, are refused.
-    pub(super) fn read_block_past_the_window(&mut self, st: &St, _find_page: bool) -> Result<(), Signal> {
-        let rec = self.page_rec(st);
-        let last = st.borrow().window[Self::WINDOW - 1].stored.clone();
-        rec.borrow_mut().fields = last;
-        self.populate_current(st)?;
-        let mut new_rows = 0;
-        loop {
-            if !self.nav_next(st, 1)? {
-                break;
-            }
-            let key = self.row_key(&rec)?;
-            let stored = rec.borrow().fields.clone();
-            self.populate_current(st)?;
-            let shown = rec.borrow().fields.clone();
-            st.borrow_mut()
-                .window
-                .push(crate::pages::WindowRow { key, stored, shown });
-            new_rows += 1;
-            if new_rows == Self::WINDOW {
-                return unsupported(
-                    "a list with a second full block of rows past the window (the reads are not pinned)",
-                );
-            }
-        }
-        st.borrow_mut().window_eof = true;
-        st.borrow_mut().window_whole = true;
-        if new_rows == 0 {
-            return unsupported("a list of exactly one window (the reads past it are not pinned)");
-        }
-        Ok(())
     }
 
     /// A plain list (no OnFindRecord or OnNextRecord, with OnAfterGetRecord and OnAfterGetCurrRecord) on a page of its own whose

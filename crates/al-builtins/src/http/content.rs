@@ -186,7 +186,7 @@ pub(super) fn read_as_stream(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
     })?;
     if uninit {
         let holds_stream = match a.first() {
-            Some(Value::Library(_, h)) => !matches!(*h.borrow(), LibraryValue::Empty),
+            Some(Value::Library(_, h)) => !crate::stream_cleared::holds_no_stream(&h.borrow()),
             _ => true,
         };
         return match (c.ret_used(), copied) {
