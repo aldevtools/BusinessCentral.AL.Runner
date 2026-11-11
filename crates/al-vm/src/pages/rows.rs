@@ -2374,11 +2374,7 @@ impl Session {
             Err(Signal::Error(_)) => return self.go_to_key_miss(st, result_used),
             Err(e) => return Err(e),
         };
-        if let Some(found) = off_new_line
-            .then(|| self.go_to_key_off_untouched_new_line(st, &want))
-            .transpose()?
-            .flatten()
-        {
+        if let Some(found) = self.go_to_key_off_untouched_new_line(st, off_new_line, &want)? {
             return Ok(Value::Boolean(found));
         }
         st.borrow_mut().go_to_want = Some(want.clone());

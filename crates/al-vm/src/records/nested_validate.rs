@@ -1,6 +1,8 @@
-//! The xRec of a Validate nested in a Validate of the same record (`RecordOp::Validate`).
+//! The xRec a Validate hands its triggers (`RecordOp::Validate`): nested in a Validate of the same record, in a plain table
+//! procedure call, in a page's OnModifyRecord, else the record before the call.
 
 use crate::Session;
+use crate::records::Rec;
 use al_builtins::value::Value;
 use al_ir::ObjKind;
 
@@ -22,5 +24,25 @@ impl Session {
                 || (objects[o].kind == ObjKind::TableExtension && objects[o].extends_id == objects[table_object].id)
         });
         (own || self.stamp_validating.contains(&handle)).then(|| before.clone())
+    }
+
+    /// The before-image a Validate of `rec` (at `handle`) hands its triggers as xRec, `outer` being `outer_validate_before`.
+    /// In a table procedure that no operation of the record called (a plain call, whose xRec is a blank record:
+    /// `enter_record`), a Validate of the procedure's own Rec passes that xRec, not the record as it is
+    /// (types/operators-expressions/UpThisField.al:175 UP_This_ValidateTestFieldCompound: `this.Validate(Qty, 5)` after
+    /// Qty := 3 sees old=0, and `this.Qty := 7; this.Validate(this.Qty)` sees old=0). In the page's own OnModifyRecord a Validate
+    /// of the page's Rec passes the page's xRec (`pages/modify_record_xrec.rs`). Called from other code, the xRec is the record
+    /// before the call (record/TestXRecContracts.al:190, record/TestTableEventSequenceContracts.al).
+    pub(crate) fn validate_before_image(&self, handle: usize, outer: Option<Vec<Value>>, rec: &Rec) -> Vec<Value> {
+        if let Some(b) = outer {
+            return b;
+        }
+        let depth = self.call_stack.len();
+        self.plain_proc_xrec
+            .last()
+            .filter(|(h, d, _)| *h == handle && *d == depth)
+            .map(|(_, _, x)| x.borrow().fields.clone())
+            .or_else(|| self.modify_record_validate_xrec(handle))
+            .unwrap_or_else(|| rec.borrow().fields.clone())
     }
 }

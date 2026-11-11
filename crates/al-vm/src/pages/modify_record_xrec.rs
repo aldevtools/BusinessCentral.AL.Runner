@@ -4,12 +4,12 @@
 //! the trigger calls on the page's own Rec hands the field's OnValidate that same xRec, not Rec as it was before the call: the
 //! table's trigger reads `xrec=1+1` while Rec holds `2+4+1` (pages/currpage/Y7428OnModifyRecordAfterUpdate.al:203 Y7428_T0, :225
 //! T1, :269 T3, :291 T4 and :313 Direct, the row saved by a move, CurrPage.Update, CurrPage.SaveRecord and a table-bound
-//! control; :345 Action_AssignUpdateTrue, :389 AssignSave, :433 ValidateUpdateTrue and :447 AssignOnly, the change made by an
-//! action; :469 TypedTwice_And_SameValue, the second save sees the first save's row; al-runner issue 7428).
+//! control; :337 Action_AssignUpdateTrue, :381 AssignSave, :425 ValidateUpdateTrue and :447 AssignOnly, the change made by an
+//! action; :471 TypedTwice_And_SameValue, the second save sees the first save's row; al-runner issue 7428).
 //!
 //! Only the page's own OnModifyRecord trigger is pinned. A Validate of the page's Rec in any other page code (an action, a control's
 //! OnValidate, another row trigger, a page extension's trigger) or in code the trigger calls keeps the rule of every other record:
-//! xRec is the record before the call (`records/op_inner.rs` Validate).
+//! xRec is the record before the call (`records/nested_validate.rs` `validate_before_image`).
 
 use super::*;
 

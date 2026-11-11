@@ -2135,24 +2135,7 @@ impl Session {
                 // record can get the address while it is on the stack (tests/store/xrec.rs).
                 let handle = Rc::as_ptr(rec) as usize;
                 let outer = self.outer_validate_before(handle, t.object as usize);
-                // In a table procedure that no operation of the record called (a plain call, whose xRec is a blank record:
-                // `enter_record`), a Validate of the procedure's own Rec passes that xRec, not the record as it is
-                // (types/operators-expressions/UpThisField.al:175 UP_This_ValidateTestFieldCompound: `this.Validate(Qty, 5)` after
-                // Qty := 3 sees old=0, and `this.Qty := 7; this.Validate(this.Qty)` sees old=0). Called from other code, the
-                // xRec is the record before the call (record/TestXRecContracts.al:190, record/TestTableEventSequenceContracts.al).
-                let depth = self.call_stack.len();
-                let proc_xrec = self
-                    .plain_proc_xrec
-                    .last()
-                    .filter(|(h, d, _)| *h == handle && *d == depth)
-                    .map(|(_, _, x)| x.borrow().fields.clone());
-                // In the page's own OnModifyRecord a Validate of the page's Rec takes the page's xRec (pages/modify_record_xrec.rs).
-                let before = match outer.clone() {
-                    Some(b) => b,
-                    None => proc_xrec
-                        .or_else(|| self.modify_record_validate_xrec(handle))
-                        .unwrap_or_else(|| rec.borrow().fields.clone()),
-                };
+                let before = self.validate_before_image(handle, outer.clone(), rec);
                 let old_value = rec.borrow().fields[pos].clone();
                 let snapshot = rec.borrow().fields.clone();
                 let new_value = match args.get(1) {

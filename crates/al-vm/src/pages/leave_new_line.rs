@@ -75,9 +75,17 @@ impl Session {
         Ok(Some(false))
     }
 
-    /// GoToKey onto a stored row of the view off the untouched new-row line, once the caller found the move pinned
-    /// (`off_new_line_pinned` before the GoToKey's save); `None` for a key no row of the view has.
-    pub(super) fn go_to_key_off_untouched_new_line(&mut self, st: &St, want: &[Value]) -> Result<Option<bool>, Signal> {
+    /// GoToKey onto a stored row of the view off the untouched new-row line, when the caller found the move `pinned`
+    /// (`off_new_line_pinned` before the GoToKey's save); `None` otherwise and for a key no row of the view has.
+    pub(super) fn go_to_key_off_untouched_new_line(
+        &mut self,
+        st: &St,
+        pinned: bool,
+        want: &[Value],
+    ) -> Result<Option<bool>, Signal> {
+        if !pinned {
+            return Ok(None);
+        }
         let rec = self.page_rec(st);
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
         {
