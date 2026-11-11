@@ -272,6 +272,44 @@ impl Session {
             } else {
                 &mut filters
             };
+            // FIELD(SourceFlowFilter) uses the value selected by SetRange, not the buffer's default.
+            // An unset filter adds no condition. Measured on BC 27.5, 28.5, and 29.0 by
+            // record/filters/RelationWhereFlowFilter.al:398, :426, :444 (unset, exact match, and mismatch).
+            if let ir::RelationWhere::Field { own, .. } = w
+                && self.is_flow_filter(t.object, *own)
+            {
+                let source = rec.borrow();
+                let mut terms = source.filters.iter().filter(|filter| filter.field == *own);
+                let Some(term) = terms.next() else {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::ExactSourceFlowFilterRelation,
+                    );
+                    continue;
+                };
+                if terms.next().is_none() {
+                    let exact = match &term.expr {
+                        FilterExpr::Eq(value) => Some(value),
+                        FilterExpr::Range(Some(lower), Some(upper))
+                            if ops::compare(lower, upper).is_ok_and(|order| order.is_eq()) =>
+                        {
+                            Some(lower)
+                        }
+                        _ => None,
+                    };
+                    if let Some(value) = exact {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::ExactSourceFlowFilterRelation,
+                        );
+                        target.push(FieldFilter {
+                            lang: al_builtins::filter::filter_language(),
+                            field: related_pos,
+                            expr: FilterExpr::Eq(ops::convert(value.clone(), &related.fields[related_pos].ty)?),
+                            group: 0,
+                        });
+                        continue;
+                    }
+                }
+            }
             target.push(match w {
                 ir::RelationWhere::Value { related: p, text } => FieldFilter {
                     lang: al_builtins::filter::filter_language(),
