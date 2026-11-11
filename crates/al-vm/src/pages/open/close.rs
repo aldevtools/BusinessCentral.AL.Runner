@@ -59,7 +59,9 @@ impl Session {
                 Err(Signal::Error(e))
             }
             // An error of OnClosePage comes wrapped, with the code TestWrapped, and the page is closed (CcPageLeads.al:624-633
-            // TriggerError_OnClosePage `One or more errors occurred while closing the page.\n\n<text>`). Pinned for an AL
+            // TriggerError_OnClosePage `One or more errors occurred while closing the page.\\<text>`: the two CR LF between
+            // the parts show as one backslash each in the error text, as `Error` shows a CR LF, CcPageLeads.al:634,
+            // ChReportLeads.al:82, ACControlAddIn.al:250). Pinned for an AL
             // Error (code Dialog) and for a control add-in call (testpage/ACControlAddIn.al TZ_CallInOnClosePage_TestPageClose,
             // BC28PLUS); another error's text and code cannot be read.
             Err(Signal::Error(e)) if origin.as_deref() == Some("onclosepage") => {
@@ -69,7 +71,7 @@ impl Session {
                 }
                 // Pinned by testpage/ACControlAddIn.al TZ_CallInOnAfterGetRecord_TestPageOpen, TZ_CallInOnAfterGetCurrRecord_TestPageOpen, TZ_CallInOnClosePage_TestPageClose, TZ_TwoProceduresFromActions_PageStaysUsable (was assumption `control-add-in-call-trigger-contexts`).
                 Err(error_code(
-                    format!("One or more errors occurred while closing the page.\n\n{}", e.message),
+                    format!("One or more errors occurred while closing the page.\\\\{}", e.message),
                     "TestWrapped",
                 ))
             }

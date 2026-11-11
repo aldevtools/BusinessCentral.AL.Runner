@@ -830,16 +830,8 @@ impl Session {
                         None => unsupported(format!("a Modify of a {} row that does not exist (not pinned)", t.name)),
                     };
                 }
-                // A buffer older than a committed change to its row cannot be saved
-                // (record/TestRecordStaleBufferWrite.al); before a commit the last writer wins.
-                if let (Some(row), Some(i)) = (&stored, t.fields.iter().position(|f| f.id == 2_000_000_005)) {
-                    let (mine, theirs) = (rec.borrow().fields[i].clone(), row[i].clone());
-                    let version = |v: &Value| if let Value::BigInteger(n) = v { *n } else { 0 };
-                    self.refuse_stale_modify(&t, rec, &cx, &pk, run, (version(&mine), version(&theirs)))?;
-                    let v = (version(&mine), version(&theirs));
-                    if let Some(answer) = self.modify_own_rolled_back_write(&t, rec, i, v, run)? {
-                        return Ok(answer);
-                    }
+                if let Some(answer) = self.modify_version_checks(&t, rec, &cx, &pk, run, stored.as_deref())? {
+                    return Ok(answer);
                 }
                 // Modify never changes the stored SystemId, whatever the buffer carries
                 // (corpus record/TestRecordSystemId.al:176-215, :285-330).

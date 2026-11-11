@@ -518,9 +518,8 @@ pub(crate) fn is_property_setter(receiver: &str, name: &str) -> bool {
                 "UseRequestPage" | "Language" | "FormatRegion" | "PrintOnlyIfDetail"
             )
             | ("System", "WorkDate")
-            // `ApplicationArea := '#All,#Basic'` (al-runner issue 7597, the reporter's repro on real BC; assumption
-            // `application-area-assign-is-call`): the call form is pinned by
-            // pages/application-area/TestPageApplicationAreaControlRemoval.al:87-93.
+            // `ApplicationArea := <text>` is the call form (al-runner issue 7597): pinned by
+            // pages/application-area/ApplicationAreaAssignForm.al:36-107 (literal, append, blank, in another codeunit).
             | ("Session", "ApplicationArea")
             | ("HttpRequestMessage", "Method" | "Content")
             | (

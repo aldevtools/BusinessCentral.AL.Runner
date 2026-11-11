@@ -867,9 +867,7 @@ impl Session {
                 self.global_group_check(rec, table, &format!("RecordRef.{method}"))?;
             }
         }
-        let was = self.variant_refs.before(lib);
         let r = self.recordref_op_inner(method, lib, args);
-        self.variant_refs.after(lib, was);
         // What the ref read or wrote is what IsDirty compares with. A read that found nothing leaves the buffer alone.
         let snapshot = match (&r, method) {
             (Ok(Value::Boolean(false)), _) | (Ok(Value::Integer(0)), "Next") => None,

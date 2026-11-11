@@ -10,7 +10,7 @@ impl Session {
         recv: Option<&mut Value>,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
-        if self.ui_state.clientless {
+        if self.without_client() {
             self.clientless_page_guard(method, recv.as_deref(), args)?;
         }
         // CurrPage calls from the page's own code do not count as the test code touching the page.

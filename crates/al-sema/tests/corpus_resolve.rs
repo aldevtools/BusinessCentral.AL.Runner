@@ -152,6 +152,10 @@ const KNOWN_GAP_FILES: &[(&str, &str)] = &[
         "the checker does not resolve the assignment form of a call (`Sleep := 1`, `Target.SetCounter := 7`) (corpus bump to 92031e20)",
     ),
     (
+        "reports/bare-report-member/UseRequestPageReadInTriggers.al",
+        "the checker does not resolve a bare report method named without parentheses (`UseRequestPage`); the lowering refuses it (corpus bump to 662b1028)",
+    ),
+    (
         "format-evaluate/format-matrix/FMEnum.al",
         "the enum `Warehouse Activity Type` is a Base Application enum, outside the workspace this test resolves against (corpus bump e01709f4)",
     ),

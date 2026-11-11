@@ -795,16 +795,12 @@ impl Session {
     }
 
     pub(crate) fn ui_str_menu(&mut self, options: String, default: i32, instruction: String) -> Result<i32, Signal> {
-        if self.pages.bg_worker.is_some() {
-            return Err(Signal::Unsupported(
-                "StrMenu in a page background task worker (not pinned)".into(),
-            ));
-        }
-        // `--no-client`: CallbackNotAllowed with and without an instruction, and no StrMenuHandler sees the call (pages/
-        // background-tasks/BjNoClientDialogs.al `01 StrMenu with instruction`, `02 StrMenu without instruction`, corpus pull
-        // request 1286), assumed for a web-service session (`no-client-session`).
-        if self.ui_state.clientless && !self.install_without_client {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NoClientSession);
+        // A page background task worker raises CallbackNotAllowed with and without an instruction, and no StrMenuHandler sees
+        // the call (pages/background-tasks/BjNoClientDialogs.al:185-186 `01 StrMenu with instruction`, `02 StrMenu without
+        // instruction`, :257 `handlers after the task` empty). `--no-client` answers the same, assumed for a web-service
+        // session (`no-client-session`).
+        if self.pages.bg_worker.is_some() || (self.ui_state.clientless && !self.install_without_client) {
+            self.note_no_client_answer();
             return Err(self.callback_not_allowed(&format!("show a selection menu: {instruction}"), true));
         }
         if self.ui_state.scope.is_none() && self.install_without_client {

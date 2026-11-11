@@ -5,12 +5,14 @@
 //! - a modal run closed by an action (OK, Cancel) or by the platform after its handler: pages/parts/WdPartAfterRunModal.al,
 //!   Y37PartAfterClose.al, NeverRanReadRec.al;
 //! - the page's own `CurrPage.Close`: Y37PartAfterClose.al;
-//! - `TestPage.Close()` of a page the test opened: assumption `held-page-part-after-testpage-close` (al-runner issue 6924).
+//! - `TestPage.Close()` of a page the test opened: pages/parts/HeldSenderPartAccess.al (al-runner issue 6924).
 //!
 //! Every other close is refused: the close at the end of the test, a refused or failed `TestPage.Close()`, the built-in OK
 //! action on a TestPage the test opened, a modal page closed after its handler raised an error.
 //! Inside a part reached after `TestPage.Close()` only what the probe measured runs: the part's procedures, its globals, the
-//! fields of its Rec and `Rec.Count()`; a page method on the part and any other method of its Rec refuse.
+//! fields of its Rec and `Rec.Count()`; a page method on the part, any other method of its Rec and its xRec refuse. A field
+//! write on its Rec runs and marks the assumption `held-page-part-after-testpage-close`, as does a reopen of the same TestPage
+//! variable while a SingleInstance codeunit holds the page (`fresh_page_for_held_reopen`).
 
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
@@ -68,14 +70,13 @@ impl Session {
         let found = match by {
             // A page the test opened and closed with TestPage.Close(), held in a variable (the sender of its own event a
             // subscriber kept): BC raises no error and the call reaches the page's own part instance, its row and its globals
-            // as they were, in the same test and in a later test of the codeunit; a part a Visible expression hid answers the
-            // same (corpus branch al-runtime-rs-staging-probe-train-1110b, pages/parts/HeldSenderPartAccess.al HS01, HS02,
-            // HS08, HS12, the held page's part in HS07 and HS09, measured on the three supported BC majors; al-runner issue
-            // 6924).
+            // as they were, in the same test and in a later test of the codeunit, also from a factbox event while another
+            // TestPage of the same page opens; a part a Visible expression hid answers the same (pages/parts/
+            // HeldSenderPartAccess.al:286-307 HS01 `closed.touch` 2, `closed.read`, `closed.mark`; :311-323 HS02; :328-346
+            // HS03; :762-789 HS08 and :881-908 HS12, hidden and shown part).
             Some(ClosedBy::TestClose) => {
                 let found = shown.or_else(hidden);
                 if let Some(c) = &found {
-                    assume(Assumption::HeldPagePartAfterTestPageClose);
                     self.mark_held_part_rec(c);
                 }
                 found
@@ -102,15 +103,27 @@ impl Session {
         found.map_or_else(|| unsupported(REFUSED), Ok)
     }
 
-    /// The part's Rec answers its fields and `Count()` only (`records::HELD_PART_REC`).
+    /// The part's Rec answers its fields and `Count()` only (`records::HELD_PART_REC`); its xRec answers nothing
+    /// (`records::HELD_PART_XREC`).
     fn mark_held_part_rec(&mut self, part: &St) {
-        if part.borrow().instance.is_none() || !self.has_source(part) {
+        let Some(inst) = part.borrow().instance.clone() else {
+            return;
+        };
+        if !self.has_source(part) {
             return;
         }
-        let rec = self.page_rec(part);
-        let mut r = rec.borrow_mut();
-        if r.unpinned_buffer.is_none() {
-            r.unpinned_buffer = Some(crate::records::HELD_PART_REC);
+        let o = &self.engine.program.objects[part.borrow().object as usize];
+        for (slot, why) in [
+            (o.rec_slot, crate::records::HELD_PART_REC),
+            (o.xrec_slot, crate::records::HELD_PART_XREC),
+        ] {
+            let Some(slot) = slot else { continue };
+            if let Value::Record(r) = &inst.borrow().globals[slot] {
+                let mut r = r.borrow_mut();
+                if r.unpinned_buffer.is_none() {
+                    r.unpinned_buffer = Some(why);
+                }
+            }
         }
     }
 
@@ -135,8 +148,10 @@ impl Session {
 
     /// TestPage.OpenEdit, OpenView or OpenNew on a variable whose page a Page variable of a SingleInstance codeunit still
     /// holds (a subscriber kept the page's sender) after TestPage.Close(): BC opens a new page instance for the variable and
-    /// the holder keeps the old one with its parts (HeldSenderPartAccess.al HS07 and HS09 measure it with another TestPage
-    /// variable: `h1.upd;f2.refresh(id=1,n=2)` while `h3` is open). The variable gets a fresh page, as `Clear` gives it.
+    /// the holder keeps the old one with its parts (HeldSenderPartAccess.al:734-752 HS07 and :793-818 HS09 measure it with
+    /// another TestPage variable: `h1.upd;f2.refresh(id=1,n=2)` while `h3` is open; :328-346 HS03 reopens the same variable
+    /// but does not tell the two pages apart). For the same variable this is the assumption
+    /// `held-page-part-after-testpage-close`. The variable gets a fresh page, as `Clear` gives it.
     /// Only such a holder counts: a copy of the TestPage value (a by-value parameter of a helper that opens it, as
     /// Microsoft's SalesStockout OpenSalesOrderPageByNo does) shares the page with the caller's variable. With a holder, a
     /// reopen through such a copy gives only the copy the new page (not measured; listed in the assumption).

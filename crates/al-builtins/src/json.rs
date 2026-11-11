@@ -1582,7 +1582,7 @@ fn array_insert(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Resu
             kids.insert(i as usize, child);
         }
     });
-    Ok(used_return::done(c))
+    Ok(used_return::done())
 }
 
 /// `Set(Index, Value)`: the value replaces the one at that index; an index from 0 to the count minus one is allowed
@@ -1605,7 +1605,7 @@ fn array_set(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<
     if let Some(old) = old {
         set_parent(&old, None);
     }
-    Ok(used_return::done(c))
+    Ok(used_return::done())
 }
 
 /// `IndexOf(Value)`: the index of the first element that is the value, -1 when there is none. A typed value compares by value
@@ -1742,7 +1742,8 @@ fn array_get(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<
 /// the operation was not successful"; no corpus test feeds invalid JSON, see probes-needed.md).
 fn read_from(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value], want: Option<&str>) -> Result<Value, Signal> {
     // ReadFrom(InStream) reads the rest of the stream and parses it like the text form.
-    let text = if matches!(&a[0], Value::Library(_, h) if matches!(&*h.borrow(), LibraryValue::InStream(_))) {
+    let from_stream = matches!(&a[0], Value::Library(_, h) if matches!(&*h.borrow(), LibraryValue::InStream(_)));
+    let text = if from_stream {
         let text = crate::stream::read_serialised_text(&mut a[0])?;
         // A stream whose first token is a string (what is left after a partial read of `{"a":2}`)
         // is refused by the token reader (streams/ProbeJsonAndInStreamBytes.al:ReadFrom_InStream_AfterPartialRead_ReadsTheRest).
@@ -1772,7 +1773,18 @@ fn read_from(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value], want: Opti
             _ => return unsupported("ReadFrom with an argument that is not text"),
         }
     };
-    read_text_into(c.ret_used(), r, &text, want)
+    let used = c.ret_used();
+    let answer = read_text_into(used, r, &text, want)?;
+    // A text that is no JSON at all, with the result used: false, and the statement's error "The data does not represent a
+    // valid JSON token." (InvalidJsonData) is left as the last error without raising it (json/json/JsonObjectUsedReturn.al:594-595;
+    // JsonArrayTokenUsedReturn.al:543-544, :606-607, :740-741 for a JsonArray, JsonToken
+    // and JsonValue). Only the text argument is pinned: a stream keeps the answer it had.
+    if used && !from_stream && matches!(answer, Value::Boolean(false)) && parse(&text)?.is_none() {
+        if let Signal::Error(e) = invalid_json() {
+            c.set_last_error(*e);
+        }
+    }
+    Ok(answer)
 }
 
 /// Whether every marker (`CALL_STACK_MARK`, `CARRIED_TEXT_MARK`) of `text` sits inside a JSON string that is a value, not
@@ -2410,7 +2422,9 @@ fn select_token(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Resu
     };
     let used = c.ret_used();
     // A path the platform cannot read answers false when the result is used (json/JsonObjectBasics.al:329 `select_bad`, an
-    // unclosed indexer) and raises "The requested operation cannot be performed in this context." (InvalidOperation) as a
+    // unclosed indexer), with the last error "The requested operation cannot be performed in this context."
+    // (InvalidOperation) set without raising it (json/json/JsonObjectUsedReturn.al:526-527, JsonArrayTokenUsedReturn.al:475-476),
+    // and raises "The requested operation cannot be performed in this context." (InvalidOperation) as a
     // statement (:369-380). A bad index, a trailing dot or a blank in a name with the result used: false and the same last
     // error without raising (json/DbJPathLeads.al:665 `index_letters_used`, :465 `trailing_dot`).
     let invalid_op = || {
@@ -2421,8 +2435,7 @@ fn select_token(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Resu
     };
     let segs = match parse_path(&p) {
         Ok(s) => s,
-        Err(PathErr::Unclosed) if used => return Ok(Value::Boolean(false)),
-        Err(PathErr::BadIndex) if used => return Ok(filter::invalid(c)),
+        Err(PathErr::Unclosed | PathErr::BadIndex) if used => return Ok(filter::invalid(c)),
         Err(PathErr::InvalidFilter) if used => return Ok(filter::invalid(c)),
         Err(PathErr::DoubleQuoted) if used => return Ok(Value::Boolean(false)),
         // A name in double quotes as a statement raises the same error (DbJPathLeads.al:785 `stmt_double_quoted`).
