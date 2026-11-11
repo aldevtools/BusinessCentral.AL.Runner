@@ -203,8 +203,18 @@ impl super::Lowerer<'_> {
     /// `value`, of type Variant, wrapped in `Variant.Into#1` when it goes into a slot of a kind the matrix tries from a
     /// Variant (`al_builtins::conv::variant_into`): the cells pinned for a Variant apply to it, and to no other dynamic value.
     pub(super) fn variant_into(&self, target: &Ty, value: al_ir::Expr) -> super::L<al_ir::Expr> {
-        let Some(code) = kind(target).and_then(al_builtins::conv::kind_code) else {
-            return Ok(value);
+        // A RecordId, RecordRef or Record slot takes the errors pinned for a Variant too (`conv::record_slot_code`).
+        let code = match kind(target).and_then(al_builtins::conv::kind_code) {
+            Some(code) => code,
+            None => match self
+                .rt(target)
+                .ok()
+                .as_ref()
+                .and_then(al_builtins::conv::record_slot_code)
+            {
+                Some(code) => code,
+                None => return Ok(value),
+            },
         };
         Ok(al_ir::Expr::Builtin {
             id: super::call::builtin_id("Variant.Into#1")?,

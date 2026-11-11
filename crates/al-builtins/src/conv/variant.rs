@@ -4,6 +4,7 @@
 //! (recordref-fieldref/fieldref/FieldRefTestFieldWrongType.al, types/CxScalars.al).
 
 use super::Kind;
+use crate::describe::Describe;
 use crate::native::{Ctx, NativeFn, Signal};
 
 use crate::value::{RtType, Value};
@@ -55,12 +56,13 @@ fn target_of(code: i32) -> Option<RtType> {
 
 fn into(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
     let v = a.first().cloned().unwrap_or(Value::Null);
-    match a
-        .get(1)
-        .and_then(|c| if let Value::Integer(c) = c { target_of(*c) } else { None })
-    {
+    let code = match a.get(1) {
+        Some(Value::Integer(c)) => *c,
+        _ => return Ok(v),
+    };
+    match target_of(code) {
         Some(t) => variant_into(v, &t),
-        None => Ok(v),
+        None => super::variant_records::into_record_slot(v, code),
     }
 }
 
@@ -73,6 +75,22 @@ pub fn variant_into(v: Value, t: &RtType) -> Result<Value, Signal> {
         Value::TextConst(s) => Value::Text(s),
         other => other,
     };
+    // An unassigned Variant into an Integer or a Boolean raises; into a Text it is the empty text
+    // (types/variant/VariantRecordIdConversions.al:UnassignedVariant_Uses `integer`, `boolean`, `text`). Other slots: not pinned.
+    if matches!(v, Value::Null) {
+        return match t {
+            RtType::Integer | RtType::Boolean => Err(crate::xml::uninitialized("Variant")),
+            RtType::Text(_) => Ok(v),
+            _ => Err(Signal::unsupported(format!(
+                "an unassigned Variant into {} (not pinned)",
+                t.describe()
+            ))),
+        };
+    }
+    // A RecordId, Record or RecordRef into a Code, Text, Integer or Guid (`variant_records`).
+    if let Some(r) = super::variant_records::record_into_scalar(&v, t) {
+        return r;
+    }
     // A value of a kind the matrix does not try (a SQL counter, a record, a list) goes on as it is.
     if super::engine::kind_of_value(&v).is_none() {
         return Ok(v);

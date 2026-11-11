@@ -25,10 +25,14 @@ pub(super) fn get_last_error_text_without_customer_content(
     match e.origin {
         ErrorOrigin::SameText => Ok(Value::Text(e.message.into())),
         ErrorOrigin::Redacted(t) => Ok(Value::Text(t.into())),
-        ErrorOrigin::Unknown => unsupported(format!(
-            "GetLastErrorText(true) of an error raised in a way the corpus does not pin for the flag (code {})",
-            e.code
-        )),
+        // No origin from the raise site: the rules by code and text (`flag_text`), else refused.
+        ErrorOrigin::Unknown => match super::flag_text::flag_text(&e) {
+            Some(t) => Ok(Value::Text(t.into())),
+            None => unsupported(format!(
+                "GetLastErrorText(true) of an error raised in a way the corpus does not pin for the flag (code {})",
+                e.code
+            )),
+        },
     }
 }
 

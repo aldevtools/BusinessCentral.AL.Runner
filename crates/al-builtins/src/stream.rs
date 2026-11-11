@@ -1376,6 +1376,7 @@ fn in_eos(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult 
 }
 
 fn in_eos_plain(r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+    crate::stream_cleared::refuse_cleared(r.as_deref())?;
     // EOS of a stream a Report layout call found no layout for: the variable was never initialized
     // (reports/request-page/P105LytRdlc.al:76, P105LytWord.al:76, P105LytExcel.al:76).
     if let Some(Value::Library(_, h)) = r.as_deref()
@@ -1455,6 +1456,7 @@ fn in_position(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
             Ok(Value::Null)
         });
     }
+    crate::stream_cleared::refuse_cleared(r.as_deref())?;
     with_in(r, |s| {
         if s.len0_over_mark && s.pos == 0 {
             return unsupported("InStream.Position after Read(Text, 0) at a UTF-8 byte order mark (not pinned)");
@@ -1622,6 +1624,18 @@ fn is_unit(u: &[u8], c: u8) -> bool {
 /// InOutStream_Write_Integer_ReadInteger) or a Byte (one byte: the HexOf helper of
 /// streams/TestStreamsRuntimeContracts.al reads a stream byte by byte). Other types are not pinned.
 fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    // A BigInteger length into a Text reads as the same Integer length (streams/instream-outstream/StreamUncreatedUse.al:
+    // InStreamRead_TextWithBigIntegerLength: 3, 0 and 10 on a six-byte stream). A negative one is not pinned.
+    if let (2, Value::Text(_) | Value::Code(_), Some(Value::BigInteger(n))) = (a.len(), &a[0], a.get(1))
+        && let Ok(n) = i32::try_from(*n)
+        && n >= 0
+    {
+        a[1] = Value::Integer(n);
+    }
+    // Read(Text) of a stream that holds none raises (StreamUncreatedUse.al:UncreatedInStream_EveryMethod `in_read`).
+    if a.len() == 1 && matches!(a[0], Value::Text(_) | Value::Code(_)) {
+        crate::stream_cleared::refuse_cleared(r.as_deref())?;
+    }
     // `Read(Text, Length)`: per encoding in `stream_read_len` (UTF-8 and the single-byte encodings); UTF-16 is not pinned beyond
     // streams/W7StreamRead.al:375 ReadTextWithLength_Utf16_WhatIsConsumed and stays refused.
     if let (2, Value::Text(_) | Value::Code(_), Some(Value::Integer(n))) = (a.len(), &a[0], a.get(1)) {
@@ -2025,6 +2039,9 @@ fn write_text_length(enc: Encoding, a: &[Value]) -> Result<Option<usize>, Signal
 /// `WriteText(Text)` writes the text in the stream's encoding and no terminator; `WriteText()` writes
 /// CR LF (:OutStream_WriteText_WithoutArgument_WritesCarriageReturnLineFeed).
 fn out_write_text(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    if crate::stream_cleared::holds_none(r.as_deref()) {
+        return crate::stream_cleared::uncreated_result(c.ret_used(), "OutStream", Value::Integer(0));
+    }
     let (b, enc) = out_buf(r)?;
     let cut = write_text_length(enc, a)?;
     let text = match a.first() {
@@ -2140,6 +2157,9 @@ fn decimal_from_bytes(b: &[u8]) -> Result<rust_decimal::Decimal, Signal> {
 /// (:OutStream_Write_BinaryFormsOfEachType, all little endian), a Date 4 and a Decimal 12 (see
 /// [`date_bytes`], [`decimal_bytes`]).
 fn out_write(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    if crate::stream_cleared::holds_none(r.as_deref()) {
+        return crate::stream_cleared::uncreated_result(c.ret_used(), "OutStream", Value::Integer(0));
+    }
     let (b, enc) = out_buf(r.as_deref_mut())?;
     // A Record or a RecordId cannot be written to a stream of a Blob or a Temp Blob, with a length or without one: the error
     // is raised and nothing is written (streams/media/P102WriteRecord.al:26 and :45, streams/instream-outstream/
@@ -2347,6 +2367,19 @@ fn copy_stream(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NRe
     }
     if a.len() > 2 {
         return copy_stream_count(ctx, a);
+    }
+    match (
+        crate::stream_cleared::holds_none(Some(&a[0])),
+        crate::stream_cleared::holds_none(Some(&a[1])),
+    ) {
+        (true, true) => return unsupported("CopyStream between two streams that were never created (not pinned)"),
+        (true, false) => {
+            return crate::stream_cleared::uncreated_result(ctx.ret_used(), "OutStream", Value::Boolean(false));
+        }
+        (false, true) => {
+            return crate::stream_cleared::uncreated_result(ctx.ret_used(), "InStream", Value::Boolean(false));
+        }
+        (false, false) => {}
     }
     // Content carried unread in the company build (owner decision 2026-10-23 "Carry bytes unread", `is_carried_mark`): the
     // target becomes an opaque copy; the source has no bytes to drain.
