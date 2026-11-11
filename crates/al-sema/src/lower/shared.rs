@@ -394,29 +394,20 @@ pub(crate) fn lower_object<'a>(
             }
             lw.globals.insert(key, globals.len());
             match ty {
-                Ok(rt) => globals.push(ir::Slot {
-                    name: n.name.clone(),
-                    ty: rt,
-                }),
+                Ok(rt) => globals.push(ir::Slot::new(n.name.clone(), rt)),
                 Err(e) => {
                     global_reasons.push(format!(
                         "{} `{}`: {e}",
                         if table { "table element" } else { "variable" },
                         n.name
                     ));
-                    globals.push(ir::Slot {
-                        name: n.name.clone(),
-                        ty: RtType::Variant,
-                    });
+                    globals.push(ir::Slot::new(n.name.clone(), RtType::Variant));
                 }
             }
         }
         for name in ["__source", "__destination"] {
             let ty = if name == "__source" { "InStream" } else { "OutStream" };
-            globals.push(ir::Slot {
-                name: name.into(),
-                ty: RtType::Library(ty.into()),
-            });
+            globals.push(ir::Slot::new(name, RtType::Library(ty.into())));
         }
     }
     if let Some(l) = seq.report(oi) {
@@ -431,23 +422,14 @@ pub(crate) fn lower_object<'a>(
             });
             lw.globals.insert(key, globals.len());
             match ty {
-                Ok(rt) => globals.push(ir::Slot {
-                    name: i.name.clone(),
-                    ty: rt,
-                }),
+                Ok(rt) => globals.push(ir::Slot::new(i.name.clone(), rt)),
                 Err(e) => {
                     global_reasons.push(format!("dataitem `{}`: {e}", i.name));
-                    globals.push(ir::Slot {
-                        name: i.name.clone(),
-                        ty: RtType::Variant,
-                    });
+                    globals.push(ir::Slot::new(i.name.clone(), RtType::Variant));
                 }
             }
         }
-        globals.push(ir::Slot {
-            name: "__userequestpage".into(),
-            ty: RtType::Integer,
-        });
+        globals.push(ir::Slot::new("__userequestpage", RtType::Integer));
     }
     // A reportextension that changes a run names the base items' records first (the run points
     // them at the report's own), then the items it adds.
@@ -464,16 +446,10 @@ pub(crate) fn lower_object<'a>(
             });
             lw.globals.insert(key, globals.len());
             match ty {
-                Ok(rt) => globals.push(ir::Slot {
-                    name: i.name.clone(),
-                    ty: rt,
-                }),
+                Ok(rt) => globals.push(ir::Slot::new(i.name.clone(), rt)),
                 Err(e) => {
                     global_reasons.push(format!("dataitem `{}`: {e}", i.name));
-                    globals.push(ir::Slot {
-                        name: i.name.clone(),
-                        ty: RtType::Variant,
-                    });
+                    globals.push(ir::Slot::new(i.name.clone(), RtType::Variant));
                 }
             }
         }
@@ -483,9 +459,18 @@ pub(crate) fn lower_object<'a>(
         let label = v.type_ref().as_ref().and_then(label_text);
         let refusal = v.type_ref().as_ref().and_then(textconst_refusal);
         let attrs = var_attribute_names(&v);
+        // A codeunit's global record keeps its declared SecurityFiltering value (al-language/reports/runtime/ACAttributes.al:
+        // 427-480); a global of any other object is not pinned.
+        let declared = declared_security_filtering(&v, &attrs, || {
+            o.kind == ObjKind::Codeunit && matches!(lw.rt(&ty), Ok(RtType::Record(..)))
+        });
         for n in v.names() {
             if !attrs.is_empty() {
-                lw.global_var_attrs.insert(n.to_lowercase(), attrs.clone());
+                lw.global_var_attrs
+                    .insert(n.to_lowercase(), attrs_left(&attrs, &declared));
+            }
+            if let Some(Err(e)) = &declared {
+                global_reasons.push(format!("global `{n}`: {e}"));
             }
             if let Some(l) = &label {
                 lw.global_labels.insert(n.to_lowercase(), l.clone());
@@ -514,7 +499,9 @@ pub(crate) fn lower_object<'a>(
             match lw.rt(&ty) {
                 Ok(rt) => {
                     lw.globals.insert(n.to_lowercase(), globals.len());
-                    globals.push(ir::Slot { name: n, ty: rt });
+                    let mut slot = ir::Slot::new(n, rt);
+                    slot.security_filtering = declared.clone().and_then(Result::ok);
+                    globals.push(slot);
                 }
                 Err(e) => global_reasons.push(format!("global `{n}`: {e}")),
             }
@@ -528,10 +515,7 @@ pub(crate) fn lower_object<'a>(
             match lw.rt(&ty) {
                 Ok(rt) => {
                     lw.request_page_globals.insert(n.to_lowercase(), globals.len());
-                    globals.push(ir::Slot {
-                        name: format!("requestpage.{n}"),
-                        ty: rt,
-                    });
+                    globals.push(ir::Slot::new(format!("requestpage.{n}"), rt));
                 }
                 Err(e) => global_reasons.push(format!("request page variable `{n}`: {e}")),
             }
@@ -546,10 +530,10 @@ pub(crate) fn lower_object<'a>(
             }
             *slot = Some(globals.len());
             lw.globals.insert(name.to_lowercase(), globals.len());
-            globals.push(ir::Slot {
-                name: name.into(),
-                ty: RtType::Record(t as u32, lw.is_temporary_table(t) || page_temporary[oi]),
-            });
+            globals.push(ir::Slot::new(
+                name,
+                RtType::Record(t as u32, lw.is_temporary_table(t) || page_temporary[oi]),
+            ));
         }
     }
     // A query's own code runs on the query it was called on: its state sits in a hidden slot
@@ -559,19 +543,13 @@ pub(crate) fn lower_object<'a>(
         // `CurrQuery` in the query's triggers and procedures
         // (queries/TestQueryOnBeforeOpenVariablesContracts.al:75-77).
         lw.globals.insert("currquery".into(), globals.len());
-        globals.push(ir::Slot {
-            name: "__query".into(),
-            ty: RtType::Query(oi as u32),
-        });
+        globals.push(ir::Slot::new("__query", RtType::Query(oi as u32)));
     }
     lw.rec_slot = rec_slot;
     if o.kind == ObjKind::Report {
         // `CurrPage` of the request page. Typed Variant: the test client puts the page there
         // when it opens, and AL code cannot name it.
-        globals.push(ir::Slot {
-            name: "CurrPage".into(),
-            ty: RtType::Variant,
-        });
+        globals.push(ir::Slot::new("CurrPage", RtType::Variant));
     }
     // The page an extension extends, when it is in the workspace.
     let extended_page = (o.kind == ObjKind::PageExtension)
@@ -579,10 +557,10 @@ pub(crate) fn lower_object<'a>(
         .flatten();
     if o.kind == ObjKind::Page || extended_page.is_some() {
         lw.globals.insert("currpage".into(), globals.len());
-        globals.push(ir::Slot {
-            name: "CurrPage".into(),
-            ty: RtType::TestPage(extended_page.unwrap_or(oi) as u32),
-        });
+        globals.push(ir::Slot::new(
+            "CurrPage",
+            RtType::TestPage(extended_page.unwrap_or(oi) as u32),
+        ));
     }
     if extended_page.is_some() {
         debug_assert!(
@@ -1242,6 +1220,45 @@ pub(crate) fn var_attribute_names(v: &ast::VarDecl) -> Vec<String> {
         .map(|a| a.name().to_ascii_lowercase())
         .filter(|n| matches!(n.as_str(), "runonclient" | "withevents" | "securityfiltering"))
         .collect()
+}
+
+/// The SecurityFiltering value `[SecurityFiltering(SecurityFilter::X)]` declares (the member index of X), for a variable
+/// whose `attrs` ([`var_attribute_names`]) name it and that `keeps` it (a record variable the runtime keeps the value of:
+/// al-ir `Slot::security_filtering`). `None` otherwise: the read of the value then stays refused
+/// (`Lowerer::security_filtering_read_refusal`). An error for an argument that names no member of SecurityFilter.
+pub(crate) fn declared_security_filtering(
+    v: &ast::VarDecl,
+    attrs: &[String],
+    keeps: impl FnOnce() -> bool,
+) -> Option<Result<i32, String>> {
+    if !attrs.iter().any(|a| a == "securityfiltering") || !keeps() {
+        return None;
+    }
+    use al_syntax::ast::NodeText;
+    let attr = v
+        .attributes()
+        .into_iter()
+        .find(|a| a.name().eq_ignore_ascii_case("SecurityFiltering"))?;
+    let text = attr.args().map(|a| a.text_string()).unwrap_or_default();
+    let inner = text.trim().trim_start_matches('(').trim_end_matches(')').trim();
+    let member = inner.rsplit("::").next().unwrap_or("").trim().trim_matches('"');
+    let members = al_builtins::sysenum::option_members("SecurityFilter").expect("known");
+    Some(
+        members
+            .iter()
+            .position(|m| m.eq_ignore_ascii_case(member))
+            .map(|i| i as i32)
+            .ok_or_else(|| format!("the attribute SecurityFiltering({inner}) is not understood")),
+    )
+}
+
+/// The attributes the lowering still reads for a variable with `attrs`: SecurityFiltering drops out when its value is kept.
+pub(crate) fn attrs_left(attrs: &[String], declared: &Option<Result<i32, String>>) -> Vec<String> {
+    let mut attrs = attrs.to_vec();
+    if declared.is_some() {
+        attrs.retain(|a| a != "securityfiltering");
+    }
+    attrs
 }
 
 /// [`over_max_length`] of object `oi`, without a walk of its properties when its file names no `MaxLength` at all (nearly

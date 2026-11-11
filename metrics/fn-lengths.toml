@@ -17,9 +17,8 @@
 "crates/al-sema/src/lower/call.rs::call" = 682
 "crates/al-sema/src/lower/expr.rs::expr_raw" = 421
 "crates/al-sema/src/lower/pages.rs::page" = 482
-"crates/al-sema/src/lower/shared.rs::lower_object" = 478
+"crates/al-sema/src/lower/shared.rs::lower_object" = 450
 "crates/al-sema/src/lower/stmt.rs::assign" = 407
-"crates/al-sema/src/lower/stmt.rs::routine" = 275
 "crates/al-test-cli/src/main.rs::run_version_inner" = 736
 "crates/al-testrun/src/impact_static.rs::build" = 332
 "crates/al-testrun/src/reach.rs::report" = 315
@@ -35,9 +34,9 @@
 "crates/al-vm/src/pages/open/page_open.rs::open_page_as_inner" = 311
 "crates/al-vm/src/pages/pageops.rs::test_page_op" = 276
 "crates/al-vm/src/pages/pageops.rs::test_page_op_inner" = 564
-"crates/al-vm/src/recmeta.rs::record_meta_op" = 492
-"crates/al-vm/src/records/op_inner.rs::record_op_inner" = 2062
-"crates/al-vm/src/refs.rs::recordref_op_inner" = 446
+"crates/al-vm/src/recmeta.rs::record_meta_op" = 445
+"crates/al-vm/src/records/op_inner.rs::record_op_inner" = 2029
+"crates/al-vm/src/refs.rs::recordref_op_inner" = 373
 "crates/al-vm/src/reports.rs::report_builtin" = 509
 "crates/al-vm/src/reports.rs::report_save_core" = 371
 "crates/al-vm/src/sessionops.rs::session_op" = 312
