@@ -91,7 +91,7 @@ impl AllVersions {
 fn every_oracle_case_is_reported_and_attributed_to_an_area() {
     // BC 29: the version a run without `--bc-version` picks.
     let r = all_versions().json("29");
-    assert_eq!(r["overall"]["total"], 27135);
+    assert_eq!(r["overall"]["total"], 27418);
     assert_eq!(r["unmapped"].as_array().unwrap().len(), 0, "{}", r["unmapped"]);
     assert_eq!(r["areas"]["json"]["total"], 597); // corpus bump to 833a01ce: the restructure moved JSON tests into json/
     assert_eq!(r["areas"]["record"]["total"], 4229); // corpus bump to 833a01ce: the restructure merged records, filters, calcfields and system-fields into record/
@@ -106,7 +106,7 @@ fn oracle_pinned_to_a_different_corpus_commit_is_refused() {
     std::fs::write(
         &bad,
         t.replace(
-            "662b102825ee3eb6dd2f76ad04aae3e53a2a7f5a",
+            "f2d5ea33998230298a683ead0620d67b5d3865cc",
             "0000000000000000000000000000000000000000",
         ),
     )
@@ -828,7 +828,7 @@ fn markdown_summary_is_written() {
     let shared = all_versions();
     assert_eq!(shared.code, 0, "{}", shared.err);
     let md = std::fs::read_to_string(shared.file("pass-rate", "29", "md")).unwrap();
-    assert!(md.starts_with("- BC 29.0: ") && md.contains(" of 27135 ("), "{md}");
+    assert!(md.starts_with("- BC 29.0: ") && md.contains(" of 27418 ("), "{md}");
     assert_eq!(md.lines().count(), 1, "one line per version: {md}");
     // ... and `--markdown` of a single-version run writes the file it is given.
     let dir = tempfile::tempdir().unwrap();
@@ -893,7 +893,7 @@ fn every_bc_major_has_an_oracle_with_the_same_cases() {
     // 28 and 29 come from the hybrid runner: its OnRun pseudo-cases must be skipped, or the
     // run stops with exit 2 (ADR-015 1.6).
     // All three are recorded for the pinned corpus commit.
-    for (v, total) in [("27", 26851), ("28", 26992), ("29", 27135)] {
+    for (v, total) in [("27", 27132), ("28", 27275), ("29", 27418)] {
         let r = all_versions().json(v);
         assert_eq!(r["overall"]["total"], total, "BC {v}");
         assert_eq!(r["unmapped"].as_array().unwrap().len(), 0, "BC {v}");
@@ -967,7 +967,9 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // Corpus bump to master c8bb6694 makes it 298: the Y90 BC28PLUS guards (gate PermissionShapeProbesFrom28) and the other new cases.
     // Corpus bump to master eccb1330 makes it 300: the two tests of codeunits/interfaces/R6924dThisInDefaultBody.al (`#if BC29PLUS`;
     // gate DefaultInterfaceMethodsFrom29) run on BC 29 only.
-    assert!(out.contains("oracle: 300 case(s) differ between versions"), "{out}");
+    // Corpus bump to master f2d5ea33 makes it 302: Card_LeftOpenAtTestEnd_ClosePageConfirmUnhandled_Write and _Read of
+    // pages/close-errors/CemTestPageCloseTests.al (`#if BC28PLUS`; gate ProbedValuesDifferFrom28) run on BC 28 and 29 only.
+    assert!(out.contains("oracle: 302 case(s) differ between versions"), "{out}");
     // The known BC 29 differences are gated (ADR-015 3.4), so the runtime passes the same cases on every version, among the
     // cases every oracle has. One difference is known and open (corpus bump 10, backlog): the runtime passes
     // 71500 Get_Uses_Primary_Key_Not_Current_Key on BC 27 only. A new difference would be listed here.
@@ -1072,7 +1074,7 @@ fn require_dotnet_turns_an_unusable_dotnet_into_a_setup_error() {
 #[test]
 fn the_other_test_apps_are_reported_apart_from_the_main_one() {
     let r = all_versions().json("28");
-    assert_eq!(r["overall"]["total"], 26992);
+    assert_eq!(r["overall"]["total"], 27275);
     let suites = r["suites"].as_array().unwrap();
     let get = |n: &str| {
         suites
