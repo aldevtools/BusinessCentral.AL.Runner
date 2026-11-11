@@ -2135,7 +2135,7 @@ impl Session {
                 // record can get the address while it is on the stack (tests/store/xrec.rs).
                 let handle = Rc::as_ptr(rec) as usize;
                 let outer = self.outer_validate_before(handle, t.object as usize);
-                let before = self.validate_before_image(handle, outer.clone(), rec);
+                let before = self.validate_before_image(handle, outer.clone(), rec, args.get(1).is_some())?;
                 let old_value = rec.borrow().fields[pos].clone();
                 let snapshot = rec.borrow().fields.clone();
                 let new_value = match args.get(1) {

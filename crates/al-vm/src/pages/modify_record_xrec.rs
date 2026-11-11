@@ -7,16 +7,23 @@
 //! control; :337 Action_AssignUpdateTrue, :381 AssignSave, :425 ValidateUpdateTrue and :447 AssignOnly, the change made by an
 //! action; :471 TypedTwice_And_SameValue, the second save sees the first save's row; al-runner issue 7428).
 //!
-//! Only the page's own OnModifyRecord trigger is pinned. A Validate of the page's Rec in any other page code (an action, a control's
-//! OnValidate, another row trigger, a page extension's trigger) or in code the trigger calls keeps the rule of every other record:
-//! xRec is the record before the call (`records/nested_validate.rs` `validate_before_image`).
+//! Pinned: the page's own OnModifyRecord trigger of a ListPlus calls `Rec.Validate(Field)` (no value) on the page's Rec. Where the
+//! page's xRec and Rec before the call differ, every other Validate of the page's Rec while OnModifyRecord runs is refused: from
+//! another page type, with a value (`Rec.Validate(Field, Value)`), from a page extension's OnModifyRecord, from a procedure of
+//! the page the trigger calls, or from a codeunit that takes Rec by var (which xRec real BC passes there is not pinned;
+//! docs/probes-needed.md). Where both are the same row, it does not matter which one is passed. Outside OnModifyRecord a Validate
+//! keeps the rule of every other record: xRec is the record before the call (`records/nested_validate.rs`
+//! `validate_before_image`).
 
 use super::*;
 
-/// The page's Rec (by address) whose OnModifyRecord runs now, the page object and the page's xRec record.
+/// The page's Rec (by address) whose OnModifyRecord runs now, the page object, its OnModifyRecord routine, whether the page is of the
+/// pinned type (ListPlus), and the page's xRec record.
 pub(crate) struct ModifyRecordXRec {
     rec: usize,
     page: usize,
+    trigger: Option<usize>,
+    list_plus: bool,
     xrec: Rec,
 }
 
@@ -27,9 +34,17 @@ impl Session {
         st: &St,
         f: impl FnOnce(&mut Self) -> Result<T, Signal>,
     ) -> Result<T, Signal> {
+        let engine = self.engine();
+        let page = st.borrow().object as usize;
         let entry = self.page_xrec_record(st).map(|xrec| ModifyRecordXRec {
             rec: Rc::as_ptr(&self.page_rec(st)) as usize,
-            page: st.borrow().object as usize,
+            page,
+            trigger: page_of(&engine, st)
+                .triggers
+                .iter()
+                .find(|(n, _)| n == "onmodifyrecord")
+                .map(|(_, r)| *r),
+            list_plus: matches!(engine.object_facts[page].page_type, Some(al_ir::PageType::ListPlus)),
             xrec,
         });
         let Some(entry) = entry else {
@@ -41,13 +56,37 @@ impl Session {
         r
     }
 
-    /// The before-image a `Validate` of record `handle` (its address) takes: the page's xRec when `handle` is the Rec of the page
-    /// whose OnModifyRecord runs now and the call comes from that page's own code (see the module comment).
-    pub(crate) fn modify_record_validate_xrec(&self, handle: usize) -> Option<Vec<Value>> {
-        let e = self.pages.modify_record_xrec.last()?;
-        (e.rec == handle && self.frames.last() == Some(&e.page)).then(|| e.xrec.borrow().fields.clone())
+    /// The before-image a `Validate` of record `handle` (its address) takes while the page's OnModifyRecord runs: `Ok(Some)` the
+    /// page's xRec for the pinned call, `Ok(None)` when `handle` is not that page's Rec or the page's xRec is the row `before`
+    /// already holds; any other Validate of the page's Rec there is refused (see the module comment). `with_value`: the Validate
+    /// hands a new value.
+    pub(crate) fn modify_record_validate_xrec(
+        &self,
+        handle: usize,
+        before: &[Value],
+        with_value: bool,
+    ) -> Result<Option<Vec<Value>>, Signal> {
+        let Some(e) = self.pages.modify_record_xrec.last() else {
+            return Ok(None);
+        };
+        if e.rec != handle {
+            return Ok(None);
+        }
+        let xrec = e.xrec.borrow().fields.clone();
+        if Self::same_values(&xrec, before) {
+            return Ok(None);
+        }
+        let own_trigger = self.frames.last() == Some(&e.page)
+            && e.trigger.is_some()
+            && self.call_stack.last().map(|c| c.routine) == e.trigger;
+        if own_trigger && e.list_plus && !with_value {
+            return Ok(Some(xrec));
+        }
+        unsupported(
+            "a Validate of the page's Rec while OnModifyRecord runs, other than Rec.Validate(Field) in the OnModifyRecord trigger of a \
+             ListPlus (which xRec it passes is not pinned)",
+        )
     }
-
     /// The page's xRec record, `None` on a page without a source table.
     fn page_xrec_record(&self, st: &St) -> Option<Rec> {
         if !self.has_source(st) {

@@ -1356,11 +1356,11 @@ impl Session {
         if !self.has_source(st) {
             return unsupported(format!("{how}() on a page without a source table"));
         }
-        if self.open_new_list_untouched(st) {
-            return self.move_on_open_new_list(how);
-        }
         if let Some(moved) = self.move_off_untouched_new_line(st, how)? {
             return Ok(Value::Boolean(moved));
+        }
+        if self.open_new_list_untouched(st) {
+            return self.move_on_open_new_list(how);
         }
         if st.borrow().read_up_from_last.is_some() {
             return unsupported(format!(
@@ -1590,12 +1590,12 @@ impl Session {
         Ok(found && !next_is_saved)
     }
 
-    /// A list page of its own opened with OpenNew whose cursor still stands on the untouched new row it opened on (a line `New()`
-    /// started below a row the page saved moves as in `leave_new_line.rs`).
+    /// A list page of its own opened with OpenNew whose cursor still stands on an untouched new row (the pinned moves off a line
+    /// `New()` started below a row the page saved are in `leave_new_line.rs`, which runs first).
     pub(super) fn open_new_list_untouched(&self, st: &St) -> bool {
         let untouched = {
             let s = st.borrow();
-            s.mode == PageMode::New && s.host.is_none() && s.draft && !s.dirty && s.after_new.is_none()
+            s.mode == PageMode::New && s.host.is_none() && s.draft && !s.dirty
         };
         untouched && self.is_list(st)
     }
@@ -2344,7 +2344,7 @@ impl Session {
                 ));
             }
         }
-        let off_new_line = self.off_new_line_pinned(st, false)?;
+        let off_new_line = self.off_new_line_pinned(st, PageMethod::GoToKey)?;
         self.save_row(st)?;
         // The cursor leaves the new row: the row it was started below no longer decides where Next goes.
         st.borrow_mut().after_new = None;
