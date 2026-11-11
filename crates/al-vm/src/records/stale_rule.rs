@@ -331,7 +331,7 @@ impl Session {
         };
         let (table, company) = {
             let r = rec.borrow();
-            (r.table as u32, r.company.clone())
+            (r.table, r.company.clone())
         };
         self.tx.reads_after_rollback.push((table, company, key));
     }
