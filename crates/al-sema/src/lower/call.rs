@@ -4,9 +4,10 @@ use al_syntax::ast::NodeText;
 
 impl Lowerer<'_> {
     /// `Rec.SecurityFiltering()` read on a variable declared with `[SecurityFiltering(...)]` answers the declared value on
-    /// BC (al-language/reports/runtime/ACAttributes.al:176-191); the runtime keeps it for a local record and a codeunit's
-    /// global record (`shared::declared_security_filtering`), so the read is refused on anything else (a global of another
-    /// kind of object, an array of records: not pinned).
+    /// BC (al-language/reports/runtime/ACAttributes.al:176-191); the runtime keeps it for a local record, a local
+    /// one-dimension array of records and a global record of a codeunit, a table, a page or a report
+    /// (`shared::declared_security_filtering`), so the read is refused on anything else (a global of another kind of object,
+    /// a global array, an array of more dimensions: not pinned). An element `X[i]` is judged by its array `X`.
     fn security_filtering_read_refusal(&self, callee: &SyntaxNode, args: &[SyntaxNode]) -> L<()> {
         if !args.is_empty() || callee.kind() != SyntaxKind::MemberExpr {
             return Ok(());
@@ -23,6 +24,13 @@ impl Lowerer<'_> {
         {
             return Ok(());
         }
+        let mut recv = recv;
+        while recv.kind() == SyntaxKind::IndexExpr {
+            let Some(base) = recv.children().next() else {
+                return Ok(());
+            };
+            recv = base;
+        }
         let attrs = match self.res(&recv) {
             Some(Res::Local(n)) => self.local_var_attrs.get(n),
             Some(Res::Global(n)) => self.global_var_attrs.get(n),
@@ -32,6 +40,38 @@ impl Lowerer<'_> {
             return Err(format!(
                 "SecurityFiltering() of `{}`, declared with the attribute SecurityFiltering: the declared value is not kept",
                 recv.text_string().trim()
+            ));
+        }
+        Ok(())
+    }
+
+    /// `n` names a whole array declared with `[SecurityFiltering(...)]` in an array assignment (`what`) or a CopyArray. The
+    /// probe al-language/reports/runtime/SFSecurityFilteringFlow.al:429-459 reads the elements of such an array only directly
+    /// (and after Clear of an element and of the array); what an element reads after the array was assigned or copied, in
+    /// either direction, is not measured, so the routine is refused.
+    pub(crate) fn security_filtering_array_refusal(&self, n: &SyntaxNode, what: &str) -> L<()> {
+        let n = match n.kind() {
+            SyntaxKind::ParenExpr => match n.children().next() {
+                Some(inner) => inner,
+                None => return Ok(()),
+            },
+            _ => n.clone(),
+        };
+        if n.kind() != SyntaxKind::NameRef || !matches!(self.ty_ref(&n), crate::types::Ty::Array(..)) {
+            return Ok(());
+        }
+        let attrs = match self.res(&n) {
+            Some(Res::Local(name)) => self.local_var_attrs.get(name),
+            Some(Res::Global(name)) => self.global_var_attrs.get(name),
+            _ => None,
+        };
+        if attrs.is_some_and(|a| {
+            a.iter()
+                .any(|a| a == "securityfiltering" || a == SECURITY_FILTERING_KEPT)
+        }) {
+            return Err(format!(
+                "{what} of the array `{}`, declared with the attribute SecurityFiltering: what its elements read is not pinned",
+                n.text_string().trim()
             ));
         }
         Ok(())
@@ -140,6 +180,11 @@ impl Lowerer<'_> {
             return self.dotnet_member(node, callee, &name, op, args);
         }
         self.security_filtering_read_refusal(callee, args)?;
+        if callee.kind() == SyntaxKind::NameRef && callee.text_string().trim().eq_ignore_ascii_case("CopyArray") {
+            for a in args.iter().take(2) {
+                self.security_filtering_array_refusal(a, "CopyArray")?;
+            }
+        }
         // A control add-in as an argument (`BusinessChartBuffer.UpdateChart(CurrPage.BusinessChart)`, by `var` or by value)
         // refuses when the call runs, as a call of its methods does below: Base Application's chart pages make it on a path a
         // flag guards. Control add-ins are not modelled; no corpus test passes one.

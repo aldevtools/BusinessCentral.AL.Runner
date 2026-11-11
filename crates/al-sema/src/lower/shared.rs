@@ -482,10 +482,14 @@ pub(crate) fn lower_object<'a>(
         let label = v.type_ref().as_ref().and_then(label_text);
         let refusal = v.type_ref().as_ref().and_then(textconst_refusal);
         let attrs = var_attribute_names(&v);
-        // A codeunit's global record keeps its declared SecurityFiltering value (al-language/reports/runtime/ACAttributes.al:
-        // 427-480); a global of any other object is not pinned.
+        // A global record of a codeunit keeps its declared SecurityFiltering value (al-language/reports/runtime/ACAttributes.al:
+        // 427-480), and so does one of a table, a page and a report, also through ClearAll after a SecurityFiltering(x) call
+        // (al-language/reports/runtime/SFSecurityFilteringFlow.al:406-424). A global of any other object is not pinned.
         let declared = declared_security_filtering(&v, &attrs, || {
-            o.kind == ObjKind::Codeunit && matches!(lw.rt(&ty), Ok(RtType::Record(..)))
+            matches!(
+                o.kind,
+                ObjKind::Codeunit | ObjKind::Table | ObjKind::Page | ObjKind::Report
+            ) && matches!(lw.rt(&ty), Ok(RtType::Record(..)))
         });
         for n in v.names() {
             if !attrs.is_empty() {
@@ -507,6 +511,7 @@ pub(crate) fn lower_object<'a>(
                     lw.globals.insert(n.to_lowercase(), globals.len());
                     let mut slot = ir::Slot::new(n, rt);
                     slot.security_filtering = declared.clone().and_then(Result::ok);
+                    slot.security_filtering_not_kept = security_filtering_not_kept(&attrs, &declared);
                     globals.push(slot);
                 }
                 Err(e) => global_reasons.push(format!("global `{n}`: {e}")),
@@ -1258,13 +1263,26 @@ pub(crate) fn declared_security_filtering(
     )
 }
 
-/// The attributes the lowering still reads for a variable with `attrs`: SecurityFiltering drops out when its value is kept.
+/// The attributes the lowering still reads for a variable with `attrs`: SecurityFiltering becomes [`SECURITY_FILTERING_KEPT`]
+/// when its value is kept.
 pub(crate) fn attrs_left(attrs: &[String], declared: &Option<Result<i32, String>>) -> Vec<String> {
     let mut attrs = attrs.to_vec();
     if declared.is_some() {
-        attrs.retain(|a| a != "securityfiltering");
+        for a in attrs.iter_mut().filter(|a| *a == "securityfiltering") {
+            *a = SECURITY_FILTERING_KEPT.into();
+        }
     }
     attrs
+}
+
+/// The name [`attrs_left`] gives the attribute SecurityFiltering of a variable whose declared value the runtime keeps: its
+/// read is not refused, an array assignment or CopyArray of it is (`Lowerer::security_filtering_array_refusal`).
+pub(crate) const SECURITY_FILTERING_KEPT: &str = "securityfiltering-kept";
+
+/// Whether a variable with the attribute names `attrs` ([`var_attribute_names`]) was declared with SecurityFiltering, but
+/// the runtime does not keep its declared value (al-ir `Slot::security_filtering_not_kept`).
+pub(crate) fn security_filtering_not_kept(attrs: &[String], declared: &Option<Result<i32, String>>) -> bool {
+    declared.is_none() && attrs.iter().any(|a| a == "securityfiltering")
 }
 
 /// [`over_max_length`] of object `oi`, without a walk of its properties when its file names no `MaxLength` at all (nearly

@@ -87,7 +87,14 @@ impl Lowerer<'_> {
             let label = v.type_ref().as_ref().and_then(label_text);
             let refusal = v.type_ref().as_ref().and_then(textconst_refusal);
             let attrs = var_attribute_names(&v);
-            let declared = declared_security_filtering(&v, &attrs, || matches!(self.rt(&ty), Ok(RtType::Record(..))));
+            // A local record, also a temporary one, and every element of a local one-dimension array of records start with
+            // the declared value and go back to it on Clear of the element and of the array
+            // (al-language/reports/runtime/SFSecurityFilteringFlow.al:429-459).
+            let declared = declared_security_filtering(&v, &attrs, || match self.rt(&ty) {
+                Ok(RtType::Record(..)) => true,
+                Ok(RtType::Array(dims, e)) => dims.len() == 1 && matches!(*e, RtType::Record(..)),
+                _ => false,
+            });
             for n in v.names() {
                 if !attrs.is_empty() {
                     self.local_var_attrs
@@ -117,9 +124,11 @@ impl Lowerer<'_> {
                 if let Some(why) = refusal {
                     self.reasons.push(format!("`{n}`: {why}"));
                 }
+                let before = locals.len();
                 add(self, n, ty.clone(), &mut locals);
-                if let (Some(Ok(m)), Some(slot)) = (&declared, locals.last_mut()) {
-                    slot.security_filtering = Some(*m);
+                if let Some(slot) = locals.get_mut(before) {
+                    slot.security_filtering = declared.clone().and_then(Result::ok);
+                    slot.security_filtering_not_kept = security_filtering_not_kept(&attrs, &declared);
                 }
             }
         }
@@ -1257,6 +1266,9 @@ impl Lowerer<'_> {
     pub(crate) fn assign(&mut self, n: &SyntaxNode, kids: &[SyntaxNode]) -> L<ir::Stmt> {
         if self.bare_this_of_record(&kids[0]) {
             return Err("assignment to `this` of a table (not pinned)".into());
+        }
+        for k in kids.iter().take(2) {
+            self.security_filtering_array_refusal(k, "an array assignment")?;
         }
         // `CurrFieldNo := FieldNo(X)` in table code sets the field number of the implicit Rec. Base Application's
         // `SelltoContactLookup` does it before it validates a field. The corpus pins reading CurrFieldNo
