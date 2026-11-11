@@ -431,45 +431,7 @@ impl Session {
                 }
                 Ok(Value::Null)
             }
-            RecordOp::Clear => {
-                // Clear resets the buffer, the filters and the keys but does not empty the table of a
-                // temporary record: its rows stay and it stays temporary
-                // (types/ProbeTypeFormsAndFilters.al:Clear_TemporaryRecordWithRows_ThenCount, BC 27.5).
-                let fresh = self.initial_fields(t.object as usize);
-                let old_row_id = Some(crate::partial::row_id(&t, &rec.borrow().fields));
-                // Clear sets the table's globals back to their initial values (ADR-021 decision 4;
-                // corpus probe TableGlobals_Clear_WhatHappensToTheGlobals).
-                self.reset_table_globals(rec);
-                let mut r = rec.borrow_mut();
-                r.fields = fresh;
-                r.assigned = false;
-                r.inserted = false;
-                r.filters.clear();
-                r.filter_group = 0;
-                r.marks.clear();
-                r.marked_only = false;
-                r.key = 0;
-                r.adhoc = None;
-                r.ascending = true;
-                r.field_descending = 0;
-                r.position = None;
-                // Clear sets ReadIsolation back to Default (record/CvReadIsolationState.al:58, :64).
-                r.read_isolation = 0;
-                // A Clear leaves the record's record of what it fetched: the fields in hand stay loaded for a later
-                // partial fetch (session-system/TestProbeSessionMiscContracts.al:PartialRecords_AreFieldsLoaded: a full Get,
-                // Clear, SetLoadFields(Cd) and Get still reports Txt loaded).
-                let (mut buffer, partial) = (r.load.buffer.take(), r.load.partial);
-                if let Some(b) = buffer.as_mut() {
-                    if b.row.is_none() {
-                        b.row = old_row_id.clone();
-                    }
-                    b.cleared = true;
-                }
-                r.load = Default::default();
-                r.load.buffer = buffer;
-                r.load.partial = partial;
-                Ok(Value::Null)
-            }
+            RecordOp::Clear => self.clear_record(&t, rec),
             RecordOp::Insert => {
                 if !rec.borrow().temporary {
                     self.page_metadata_before_insert(&t, &rec.borrow().fields)?;
@@ -2516,5 +2478,60 @@ impl Session {
             }
         }
         fresh
+    }
+
+    /// `Clear` of a record variable.
+    fn clear_record(&mut self, t: &TableDef, rec: &Rec) -> Result<Value, Signal> {
+        // Clear resets the buffer, the filters and the keys but does not empty the table of a
+        // temporary record: its rows stay and it stays temporary
+        // (types/ProbeTypeFormsAndFilters.al:Clear_TemporaryRecordWithRows_ThenCount, BC 27.5).
+        let fresh = self.initial_fields(t.object as usize);
+        let old_row_id = Some(crate::partial::row_id(t, &rec.borrow().fields));
+        // Clear sets the table's globals back to their initial values (ADR-021 decision 4;
+        // corpus probe TableGlobals_Clear_WhatHappensToTheGlobals).
+        self.reset_table_globals(rec);
+        let mut r = rec.borrow_mut();
+        r.fields = fresh;
+        r.assigned = false;
+        r.inserted = false;
+        r.filters.clear();
+        r.filter_group = 0;
+        r.marks.clear();
+        r.marked_only = false;
+        r.key = 0;
+        r.adhoc = None;
+        r.ascending = true;
+        r.field_descending = 0;
+        r.position = None;
+        // Clear sets ReadIsolation back to Default (record/CvReadIsolationState.al:58, :64).
+        r.read_isolation = 0;
+        // Clear sets SecurityFiltering back to the value the variable was declared with, also after a SecurityFiltering(x) call
+        // (al-language/reports/runtime/ACAttributes.al:373-374, :388-396; a codeunit's global: :434-435, :466-469). On a copy
+        // whose declared value is not pinned (`RecordState::copy_as_new_variable`) the value is not pinned either.
+        match r.declared_security_filtering {
+            Some(x) => {
+                r.security_filtering = x;
+                r.security_filtering_unpinned = None;
+            }
+            None => {
+                r.security_filtering_unpinned = Some(
+                    "after Clear of a copy (a by-value parameter) of a record declared with another SecurityFiltering",
+                )
+            }
+        }
+        // A Clear leaves the record's record of what it fetched: the fields in hand stay loaded for a later
+        // partial fetch (session-system/TestProbeSessionMiscContracts.al:PartialRecords_AreFieldsLoaded: a full Get,
+        // Clear, SetLoadFields(Cd) and Get still reports Txt loaded).
+        let (mut buffer, partial) = (r.load.buffer.take(), r.load.partial);
+        if let Some(b) = buffer.as_mut() {
+            if b.row.is_none() {
+                b.row = old_row_id.clone();
+            }
+            b.cleared = true;
+        }
+        r.load = Default::default();
+        r.load.buffer = buffer;
+        r.load.partial = partial;
+        Ok(Value::Null)
     }
 }

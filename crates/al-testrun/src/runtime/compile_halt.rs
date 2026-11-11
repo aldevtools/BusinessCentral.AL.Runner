@@ -184,5 +184,6 @@ fn halted(
         tdd_stubs: Default::default(),
         compile_errors: Vec::new(),
         entries: Vec::new(),
+        met: Default::default(),
     }
 }

@@ -747,6 +747,9 @@ fn refuse(
 ) {
     let ((oi, ri), why) = what;
     let engine = session.engine.clone();
+    // A routine the compile for a selection left out: the run is redone on the full run's compile, whatever the tests
+    // touch (al-runner issue 6924).
+    crate::runtime::narrowing::note_install(&engine, &why);
     if in_company.is_empty() || in_company == session_company {
         skipped.push((touched(&engine, lowered, oi, ri), why));
         return;

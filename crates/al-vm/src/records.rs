@@ -1570,20 +1570,14 @@ impl Session {
     /// not touched (ADR-021 decision 4 and 5).
     pub(crate) fn reset_table_globals(&mut self, rec: &Rec) {
         let instances = rec.borrow().globals.instances();
+        let engine = self.engine.clone();
         for (object, inst) in instances {
-            let (rs, xs, tys) = {
-                let o = &self.engine.program.objects[object as usize];
-                (
-                    o.rec_slot,
-                    o.xrec_slot,
-                    o.globals.iter().map(|g| g.ty.clone()).collect::<Vec<_>>(),
-                )
-            };
-            for (i, ty) in tys.iter().enumerate() {
-                if Some(i) == rs || Some(i) == xs {
+            let o = &engine.program.objects[object as usize];
+            for (i, slot) in o.globals.iter().enumerate() {
+                if Some(i) == o.rec_slot || Some(i) == o.xrec_slot {
                     continue;
                 }
-                let v = self.default_value(ty);
+                let v = self.slot_default(slot);
                 inst.borrow_mut().globals[i] = v;
             }
         }

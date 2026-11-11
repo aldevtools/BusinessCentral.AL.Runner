@@ -50,8 +50,7 @@ impl Session {
             .chain(bo.xrec_slot)
             .chain(bo.page.as_ref().map(|p| p.curr_page_slot))
             .collect();
-        let tys: Vec<RtType> = bo.globals.iter().map(|g| g.ty.clone()).collect();
-        let fresh: Vec<Value> = tys.iter().map(|t| self.default_value(t)).collect();
+        let fresh = self.slot_defaults(&bo.globals);
         let mut b = base.borrow_mut();
         for (g, v) in fresh.into_iter().enumerate() {
             if keep.contains(&g) {
