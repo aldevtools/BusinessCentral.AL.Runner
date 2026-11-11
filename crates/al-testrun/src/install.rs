@@ -747,8 +747,11 @@ fn refuse(
 ) {
     let ((oi, ri), why) = what;
     let engine = session.engine.clone();
+    // A routine the compile for a selection left out: the run is redone on the full run's compile, whatever the tests
+    // touch (al-runner issue 6924).
+    crate::runtime::narrowing::note_install(&engine, &why);
     if in_company.is_empty() || in_company == session_company {
-        skipped.push((touched_or_all(&engine, lowered, oi, ri, &why), why));
+        skipped.push((touched(&engine, lowered, oi, ri), why));
         return;
     }
     let mut written = crate::baseline::tables_written(lowered, oi, ri);
@@ -1529,23 +1532,6 @@ fn run_routine(lowered: &Lowered, session: &mut Session, oi: usize, ri: usize) -
 }
 
 /// The tables a routine that could not run touches, with those of the event subscribers it would have set off.
-/// The tables a test may not touch because install routine `oi`.`ri` could not run (`why`): those it touches
-/// ([`touched`]). In a compile for a selection (`Lowered::narrowed`), a routine that stopped at one the compile did not
-/// compile (`al_sema::check::NOT_REACHED`, `LEFT_OUT`) may have gone where the static reach does not see (a codeunit run by
-/// an id the code computes, in a dependency app too): every table, so each test that touches one is refused with `why`
-/// and the runner runs the selection again on the full run's compile (al-runner issue 6924; `runtime/corpus.rs`).
-fn touched_or_all(engine: &Engine, lowered: &Lowered, oi: usize, ri: usize, why: &str) -> BTreeSet<u32> {
-    if lowered.narrowed() && (why.contains(al_sema::check::NOT_REACHED) || why.contains(al_sema::check::LEFT_OUT)) {
-        let heads = lowered.program.objects.heads();
-        return (0..heads.len() as u32)
-            .filter(|&t| {
-                heads[t as usize].kind == al_ir::ObjKind::Table && !crate::runtime::listed_from_objects(lowered, t)
-            })
-            .collect();
-    }
-    touched(engine, lowered, oi, ri)
-}
-
 fn touched(engine: &Engine, lowered: &Lowered, oi: usize, ri: usize) -> BTreeSet<u32> {
     let mut t = crate::runtime::tables_touched(lowered, oi, ri);
     // The tables it writes include those of a `NavApp.LoadPackageData` with a constant table id, which names no record

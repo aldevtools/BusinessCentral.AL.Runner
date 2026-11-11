@@ -664,6 +664,10 @@ pub(crate) fn lower_object<'a>(
             }
         } else if checked.is_left_out(oi) {
             lw.refused(r, crate::check::LEFT_OUT.into())
+        } else if !ws.is_dependency(oi) {
+            // A workspace routine is compiled unless the selection left it out: a test codeunit it does not keep, or a
+            // procedure no selected test names (`Roots::reach_only`).
+            lw.refused(r, crate::check::UNSELECTED.into())
         } else {
             lw.stub(r)
         };

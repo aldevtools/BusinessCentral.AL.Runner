@@ -255,67 +255,150 @@ codeunit 50431 "SI Replacement Tests"
 }
 "#;
 
+/// The apps of the test-management shape: the tests (`tests`, with the `SI Setting` table), the test-management app
+/// (`management`: its install code and its replacement tests) and the dependency app that runs a codeunit by id.
+fn management_apps(tests: &str, management: &str) -> (Vec<AppSource>, Vec<al_sema::AppKind>, Vec<Manifest>) {
+    let lib = "33333333-3333-3333-3333-333333369241";
+    let apps = vec![
+        AppSource {
+            id: TEST_ID.into(),
+            name: "SI Tests".into(),
+            dependencies: Vec::new(),
+            files: vec![(
+                "t.al".into(),
+                format!("{}{tests}", &DEP[..DEP.find("codeunit 50400").unwrap()]),
+            )],
+        },
+        AppSource {
+            id: DEP_ID.into(),
+            name: "SI Test Mgt".into(),
+            dependencies: vec![TEST_ID.into(), lib.into()],
+            files: vec![("m.al".into(), management.to_string())],
+        },
+        AppSource {
+            id: lib.into(),
+            name: "SI Runner Lib".into(),
+            dependencies: Vec::new(),
+            files: vec![("l.al".into(), RUNNER_LIB.to_string())],
+        },
+    ];
+    let kinds = vec![
+        al_sema::AppKind::Workspace,
+        al_sema::AppKind::Workspace,
+        al_sema::AppKind::Dependency,
+    ];
+    (apps, kinds, vec![Manifest::default(); 3])
+}
+
+/// The outcome of `case` and whether the selection ran again on the full run's compile, in a one-shot run.
+fn management_run(
+    tests: &str,
+    management: &str,
+    only: Option<Vec<(usize, u32)>>,
+    case: (u32, &str),
+) -> (Outcome, bool) {
+    let (apps, kinds, manifests) = management_apps(tests, management);
+    let opts = RunOptions {
+        only,
+        ..Default::default()
+    };
+    let rt = CorpusRuntime::run_suites_with(
+        apps,
+        kinds,
+        &manifests,
+        &Default::default(),
+        None,
+        Default::default(),
+        &[al_testrun::runtime::SuiteRun::everything()],
+        &opts,
+    );
+    let outcome = rt.first_outcome(&CaseId {
+        codeunit: case.0,
+        name: case.1.into(),
+    });
+    (outcome, rt.phases.full_redone)
+}
+
 /// The install code of a test-management app hands an id to a dependency app, whose code runs the test codeunit of that
 /// id (as Microsoft's Test Runner app runs test codeunits by the ids in its tables). The full run compiles every test
 /// codeunit; a selection of another app's test must give the same outcome, so it may not run the install code over a
 /// compile that left that test codeunit out (al-runner issue 6924, `--explain` on edge 8c658cf4f).
 #[test]
 fn a_selection_runs_install_code_that_runs_a_test_codeunit_through_a_dependency_app() {
-    let outcome = |only: Option<Vec<(usize, u32)>>| {
-        let lib = "33333333-3333-3333-3333-333333369241";
-        let apps = vec![
-            AppSource {
-                id: TEST_ID.into(),
-                name: "SI Tests".into(),
-                dependencies: Vec::new(),
-                files: vec![(
-                    "t.al".into(),
-                    format!("{}{TESTS}", &DEP[..DEP.find("codeunit 50400").unwrap()]),
-                )],
-            },
-            AppSource {
-                id: DEP_ID.into(),
-                name: "SI Test Mgt".into(),
-                dependencies: vec![TEST_ID.into(), lib.into()],
-                files: vec![("m.al".into(), TEST_MANAGEMENT.to_string())],
-            },
-            AppSource {
-                id: lib.into(),
-                name: "SI Runner Lib".into(),
-                dependencies: Vec::new(),
-                files: vec![("l.al".into(), RUNNER_LIB.to_string())],
-            },
-        ];
-        let kinds = vec![
-            al_sema::AppKind::Workspace,
-            al_sema::AppKind::Workspace,
-            al_sema::AppKind::Dependency,
-        ];
-        let opts = RunOptions {
-            only,
-            ..Default::default()
-        };
-        let rt = CorpusRuntime::run_suites_with(
-            apps,
-            kinds,
-            &vec![Manifest::default(); 3],
+    let case = (50410, "ReadsInstalledRow");
+    assert_eq!(
+        management_run(TESTS, TEST_MANAGEMENT, None, case),
+        (Outcome::Pass, false),
+        "full run"
+    );
+    // The compile for the selection leaves the replacement tests out; the install code meets them, and the selection runs
+    // again on the full run's compile.
+    assert_eq!(
+        management_run(TESTS, TEST_MANAGEMENT, Some(vec![(0, 50410)]), case),
+        (Outcome::Pass, true),
+        "selected codeunit"
+    );
+}
+
+/// The same through a warm server (`al-runner serve`, `Warm`): a request that selects one test gets the full run's
+/// outcome too.
+#[test]
+fn a_warm_server_request_runs_install_code_that_runs_a_test_codeunit_through_a_dependency_app() {
+    let opts = RunOptions {
+        only: Some(vec![(0, 50410)]),
+        ..Default::default()
+    };
+    let mut warm = al_testrun::runtime::Warm::new();
+    let (rt, _) = warm
+        .run(
+            "management",
+            &[],
+            || management_apps(TESTS, TEST_MANAGEMENT),
             &Default::default(),
             None,
             Default::default(),
             &[al_testrun::runtime::SuiteRun::everything()],
             &opts,
-        );
-        let outcome = rt.first_outcome(&CaseId {
-            codeunit: 50410,
-            name: "ReadsInstalledRow".into(),
-        });
-        (outcome, rt.phases.full_redone)
-    };
-    assert_eq!(outcome(None), (Outcome::Pass, false), "full run");
-    // The compile for the selection leaves the replacement tests out; the install code meets them, and the selection runs
-    // again on the full run's compile.
+        )
+        .expect("the request runs");
+    let outcome = rt.first_outcome(&CaseId {
+        codeunit: 50410,
+        name: "ReadsInstalledRow".into(),
+    });
+    assert_eq!((outcome, rt.phases.full_redone), (Outcome::Pass, true));
+}
+
+const SEQUENCE_TESTS: &str = r#"
+codeunit 50410 "SI Tests A"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure ReadsInstalledSequence()
+    begin
+        if not NumberSequence.Exists('SINSTALLED') then
+            Error('no sequence');
+    end;
+}
+"#;
+
+/// The install code leaves state that is not a table (a NumberSequence), through a test codeunit the selection leaves
+/// out. The selected test touches no table, so no refused table tells the runner; the install run itself must.
+#[test]
+fn a_selection_reruns_when_install_code_met_what_it_left_out_and_the_test_touches_no_table() {
+    let management = TEST_MANAGEMENT.replace(
+        "        S.Code := 'SEEDED';\n        S.Value := 'yes';\n        S.Insert();",
+        "        if not NumberSequence.Exists('SINSTALLED') then\n            NumberSequence.Insert('SINSTALLED', 1, 1);",
+    );
+    assert!(management.contains("NumberSequence.Insert"));
+    let case = (50410, "ReadsInstalledSequence");
     assert_eq!(
-        outcome(Some(vec![(0, 50410)])),
+        management_run(SEQUENCE_TESTS, &management, None, case),
+        (Outcome::Pass, false),
+        "full run"
+    );
+    assert_eq!(
+        management_run(SEQUENCE_TESTS, &management, Some(vec![(0, 50410)]), case),
         (Outcome::Pass, true),
         "selected codeunit"
     );

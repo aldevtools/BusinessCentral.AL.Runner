@@ -252,6 +252,9 @@ pub struct CorpusRuntime {
     compile_errors: Vec<CompileError>,
     /// With `RunOptions::entries`: the results of each entry, as a range of `results`, in the order of the entries.
     pub entries: Vec<std::ops::Range<usize>>,
+    /// What the run's install code (and a strict-order run over the same compile) met that the compile left out, besides
+    /// the reasons in `results` (`narrowing::Met::of`).
+    pub(crate) met: narrowing::Met,
 }
 
 /// An error in the code of an app under test: one the AL compiler gives (an `AL` code from `al_sema::alcodes` or the
@@ -411,7 +414,7 @@ pub struct Phases {
     /// A lean run met a routine the lean compile had left out, so the tests ran again on the complete compile; the
     /// outcomes are the second run's.
     pub lean_redone: bool,
-    /// A run on the compile for the selection met a routine nothing reached there, so the selected tests ran again on the
+    /// A run on the compile for the selection met a routine the selection left out, so the selected tests ran again on the
     /// full run's compile (every test codeunit a root; `narrowing.rs`); the outcomes are that run's.
     pub full_redone: bool,
     /// How many times the apps were compiled for the run: 2 when a compile without the baseline was thrown away
@@ -473,7 +476,7 @@ impl Phases {
     pub fn compile_line(&self) -> Option<String> {
         if self.full_redone {
             return Some(
-                "compile: for the selection, and a selected test or the install code before it met a routine that compile did not compile, so the tests ran again on the full run's compile"
+                "compile: for the selection, and a selected test or the install code before it met a routine the selection left out, so the tests ran again on the full run's compile"
                     .into(),
             );
         }
@@ -1001,7 +1004,7 @@ mod login_tests;
 pub mod memory;
 #[cfg(test)]
 mod min_row_version_tests;
-mod narrowing;
+pub(crate) mod narrowing;
 mod not_run_link;
 mod numbers_taken;
 mod order_hint;

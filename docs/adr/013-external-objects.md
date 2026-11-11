@@ -1283,8 +1283,8 @@ Changes:
 2. **A lean run is checked.** The lean compile only runs tests the rule calls pure: their static reach has no record,
    page, event publisher or run by id, so only what they name runs. If a test still meets a routine the lean compile
    left out (a refusal that carries `LEFT_OUT`, before or while it runs, also in the test runner's codeunits), the apps are
-   compiled completely and every selected test runs again; the second run's outcomes count (`CorpusRuntime::met_left_out`,
-   `Compiled::into_apps`). A workspace codeunit with one of the ids the test runner runs (130301, ...) is such a case: no
+   compiled for the selection without the lean step and every selected test runs again; the second run's outcomes count
+   (`runtime/narrowing.rs`, `Compiled::into_apps`; see the note of 2026-11-11 at the end). A workspace codeunit with one of the ids the test runner runs (130301, ...) is such a case: no
    test names it.
 3. **An install codeunit the lean compile left out does not run** in the test's session (`run_install_codeunits`). The
    tests are pure, so they cannot read what it writes; and BC runs install code in the session that publishes the app, so
@@ -1527,3 +1527,32 @@ dependency apps are looked up") and the corpus bullet of decision 2 that names t
 
 **Not a seam change.** `Dependencies`, `Provision`, `Request` and the search-list order of `al-deps` stay as they are; the
 corpus front end passes one entry less.
+
+## Note 2026-11-11 (branch `rt-explain-install-roots-2`, al-runner issue 6924): a selection is redone on the full run's compile
+
+Not a seam change; it changes when a selection compiles a second time.
+
+**Why.** A compile for a selection (`--explain`, `--codeunit`, `--test`, a warm server's request) leaves out the test
+codeunits it does not keep and the procedures no selected test names. Install code of an app under test runs before
+every test and can reach one of them by an id no workspace text shows, for example through a dependency app's code
+that runs a codeunit by an id from a table, as Microsoft's Test Runner app does. The selection then gave another outcome
+than the full run (a refusal, or a wrong result when the test read what the install code would have written). A static
+rule that scanned the workspace's text (`check/install_dynamic.rs`, 2026-11-10) did not see the path through dependency
+code and is removed.
+
+**Decision.**
+
+1. A workspace routine a selection leaves out refuses with its own reason, `check::UNSELECTED`; a dependency routine the
+   demand did not reach keeps `check::NOT_REACHED`, which the full run gives as well.
+2. `runtime/narrowing.rs` owns the step: a run on a narrowed compile (`Lowered::narrowed`) that met `UNSELECTED` or
+   `LEFT_OUT`, in a test's reason or in install code of an app under test (noted on the engine whatever the tests touch,
+   `narrowing::note_install`), runs again with less left out: the lean compile goes to the selection's compile when it met
+   only `LEFT_OUT`; anything that met `UNSELECTED` goes to the full run's compile, where every test codeunit is a root and
+   only the selected tests run. `CorpusRuntime::try_run_suites_inner` and `Warm::run` both use `narrowing::settle`.
+3. A run whose second run would repeat effects outside it (a debugger, `--files-dir`) compiles as the full run does from
+   the start and is never redone.
+4. A run that may be redone keeps its engines and frees them, so the next compile does not stand beside leaked engines
+   (`--max-memory`).
+
+**Cost.** One more compile, of the whole workspace, for a selection that met what it left out. `NOT_REACHED` alone starts
+none.

@@ -102,11 +102,15 @@ pub struct PrevCheck {
 pub const LEFT_OUT: &str =
     "not compiled: the compile for the selected tests left this object out, as no selected test names it";
 
-/// Why a routine nothing reached does not run: a dependency routine the demand did not reach, a test codeunit a selection
-/// leaves out (`Roots::only_tests`), a procedure no selected test names (`Roots::reach_only`). In a compile for a
-/// selection (`Lowered::narrowed`) a run that meets it may have been compiled for less than the full run compiles: the
-/// runner compiles as the full run does and runs the selected tests again (al-testrun `runtime/corpus.rs`, `Narrowing`).
+/// Why a dependency routine the demand did not reach does not run (ADR-013). The full run gives it as well, so meeting it
+/// does not make the runner compile again.
 pub const NOT_REACHED: &str = "not compiled: no code reached it while compiling the workspace's dependencies (ADR-013)";
+
+/// Why a workspace routine a compile for a selection left out does not run: a test codeunit the selection does not keep
+/// (`Roots::only_tests`), or a procedure no selected test names (`Roots::reach_only`). The full run compiles it, so a run
+/// that meets it, in a test or in the install code before it, runs the selection again on the full run's compile
+/// (al-testrun `runtime/narrowing.rs`).
+pub const UNSELECTED: &str = "not compiled: the compile for the selected tests left it out (a test codeunit they do not keep, or a procedure they do not name)";
 
 /// The routine offset of a [`CheckResult::panicked`] entry that covers every routine of the object.
 pub const ANY_ROUTINE: usize = usize::MAX;

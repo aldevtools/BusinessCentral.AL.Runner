@@ -185,7 +185,7 @@ impl Lowered {
 
     /// Whether the compile was made for a selection and left workspace objects out of it: test codeunits the selection
     /// does not keep (`check::Roots::only_tests`) or objects a lean compile leaves out (`check::Roots::lean`). A run on it
-    /// that meets a routine it did not compile (`check::NOT_REACHED`, `check::LEFT_OUT`) is not the full run's answer.
+    /// that meets a routine it left out (`check::UNSELECTED`, `check::LEFT_OUT`) is not the full run's answer.
     pub fn narrowed(&self) -> bool {
         self.skipped.iter().any(|s| *s)
     }
