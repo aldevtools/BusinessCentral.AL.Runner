@@ -623,9 +623,16 @@ impl Session {
                 init = Some(i);
             }
         }
-        // A guarded static Import that BC turns into false for a pending write runs no object trigger (`xp_static_import_blocked`).
-        // With an OnInitXmlPort it is not pinned and keeps the order below.
-        if dir == Dir::Import && static_form && ret_used && init.is_none() && self.xp_static_import_blocked()? {
+        // A guarded static Import of an Xml port that BC turns into false for a pending write runs no object trigger
+        // (`xp_static_import_blocked`). With an OnInitXmlPort, and for a text port (whose source is read before OnPreXmlPort, and
+        // an empty one fails first as before), it is not pinned and keeps the order below.
+        if dir == Dir::Import
+            && static_form
+            && ret_used
+            && init.is_none()
+            && schema.xp().format == ir::XmlFormat::Xml
+            && self.xp_static_import_blocked()?
+        {
             return Ok(Value::Boolean(false));
         }
         Self::xp_clear_flow(inst);
@@ -659,7 +666,7 @@ impl Session {
                     "XmlPortData",
                 ));
             }
-            import_encoding::stash_raw(inst, &bytes);
+            import_encoding::stash_raw(inst, &bytes)?;
         } else if dir == Dir::Import && schema.xp().format != ir::XmlFormat::Xml {
             let text = match self.xp_read_source(inst, schema.xp()) {
                 // A table-rooted text port fails with the root error whatever the bytes are, also ones that are no UTF-8 or

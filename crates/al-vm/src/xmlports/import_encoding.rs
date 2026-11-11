@@ -39,7 +39,7 @@ pub(super) fn text_import_encoding(inst: &Inst, xp: &ir::XmlPort) -> Result<Opti
 /// five bytes code page 1252 leaves undefined, are not pinned and refused. (UTF-8 is read by `xp_read_source` as before, with
 /// U+FFFD for each byte that is not UTF-8.)
 pub(super) fn decode_windows_source(bytes: &[u8]) -> Result<String, Signal> {
-    if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) || bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]) {
+    if has_byte_order_mark(bytes) {
         return unsupported(
             "a VariableText import under TextEncoding = WINDOWS of a source with a byte order mark (not pinned)",
         );
@@ -63,17 +63,55 @@ pub(super) fn defers_decoding(xp: &ir::XmlPort) -> bool {
     xp.format == ir::XmlFormat::VariableText && xp.text_encoding.as_deref() == Some("windows")
 }
 
-/// Keeps the source `bytes` of a `defers_decoding` import until `take_raw`.
-pub(super) fn stash_raw(inst: &Inst, bytes: &[u8]) {
+/// The `Instance::xp_text` kind that holds the encoding set (`assigned::set_encoding`, empty for none) when `take_raw_decoded`
+/// decoded the source.
+const DECODED_WITH: u8 = 19;
+
+/// Keeps the source `bytes` of a `defers_decoding` import until `take_raw`. It runs after OnInitXmlPort, before OnPreXmlPort: an
+/// encoding set on the variable before Import (XpVarTextWindowsImport.al:457) or in OnPreXmlPort (:337, :349, :385) is pinned, one
+/// set in OnInitXmlPort is not and refused.
+pub(super) fn stash_raw(inst: &Inst, bytes: &[u8]) -> Result<(), Signal> {
+    if assigned::set_in_run(inst).is_some() {
+        return unsupported(
+            "a VariableText import into a port that declares WINDOWS with TextEncoding set in OnInitXmlPort (not pinned)",
+        );
+    }
     let mut i = inst.borrow_mut();
-    i.xp_text.retain(|(k, _)| *k != RAW_SOURCE);
+    i.xp_text.retain(|(k, _)| *k != RAW_SOURCE && *k != DECODED_WITH);
     i.xp_text
         .push((RAW_SOURCE, bytes.iter().map(|&b| char::from(b)).collect()));
+    Ok(())
 }
 
 /// Drops the source bytes `stash_raw` kept (a run that ends before its import).
 pub(super) fn drop_raw(inst: &Inst) {
-    inst.borrow_mut().xp_text.retain(|(k, _)| *k != RAW_SOURCE);
+    inst.borrow_mut()
+        .xp_text
+        .retain(|(k, _)| *k != RAW_SOURCE && *k != DECODED_WITH);
+}
+
+/// Whether this run decoded its source in `take_raw_decoded`, with the encoding set in force then: an encoding set before that
+/// is pinned (`stash_raw`).
+pub(super) fn decoded_in_run(inst: &Inst) -> bool {
+    inst.borrow().xp_text.iter().any(|(k, _)| *k == DECODED_WITH)
+}
+
+/// Refuses an import whose triggers set another encoding after `take_raw_decoded` decoded the source (in OnAfterInitRecord, say):
+/// whether BC decodes the rest of the source again is not pinned. Checked after each OnAfterInitRecord and when the records end.
+pub(super) fn encoding_unchanged_since_decoding(inst: &Inst) -> Result<(), Signal> {
+    let then = inst
+        .borrow()
+        .xp_text
+        .iter()
+        .find(|(k, _)| *k == DECODED_WITH)
+        .map(|(_, v)| v.clone());
+    let now = assigned::set_encoding(inst).map_or(String::new(), |e| e.to_string());
+    match then {
+        Some(then) if then != now => unsupported(
+            "a VariableText import into a port that declares WINDOWS with TextEncoding set after the source was decoded (not pinned)",
+        ),
+        _ => Ok(()),
+    }
 }
 
 /// The source bytes `stash_raw` kept, decoded with the encoding in force now (`text_import_encoding`).
@@ -88,10 +126,12 @@ pub(super) fn take_raw_decoded(inst: &Inst, xp: &ir::XmlPort) -> Result<Option<S
     };
     // Every char of `raw` is one byte (`stash_raw`).
     let bytes: Vec<u8> = raw.chars().map(|c| c as u8).collect();
+    let set = assigned::set_encoding(inst).map_or(String::new(), |e| e.to_string());
+    inst.borrow_mut().xp_text.push((DECODED_WITH, set));
     match text_import_encoding(inst, xp)? {
         Some(Encoding::Windows) => decode_windows_source(&bytes).map(Some),
         Some(Encoding::Utf8) => {
-            if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+            if has_byte_order_mark(&bytes) {
                 return unsupported(
                     "a VariableText import under TextEncoding UTF8 set over a declared WINDOWS of a source with a byte order mark (not pinned)",
                 );
@@ -101,4 +141,10 @@ pub(super) fn take_raw_decoded(inst: &Inst, xp: &ir::XmlPort) -> Result<Option<S
         }
         _ => unsupported("a VariableText import into a port that declares WINDOWS decoded otherwise (not pinned)"),
     }
+}
+
+/// Whether `bytes` start with a byte order mark: UTF-8 (EF BB BF), UTF-16 little endian (FF FE) or big endian (FE FF). No import
+/// under WINDOWS, or under UTF8 set over it, pins one.
+fn has_byte_order_mark(bytes: &[u8]) -> bool {
+    bytes.starts_with(&[0xEF, 0xBB, 0xBF]) || bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF])
 }

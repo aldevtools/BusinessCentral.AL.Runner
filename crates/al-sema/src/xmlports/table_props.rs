@@ -51,7 +51,7 @@ pub(super) fn lower(
 /// XpLinkTableForceInsertUnlinked.al:734 ForceOnUnlinked_Export, :751 ForceOnUnlinked_Export_OtherPorts, :768
 /// ForceOnTableElement_VariableText `text export`). An import is the same as without it for `true` on a linked table element
 /// (Y68XmlPortShapes.al:717 Q6_LinkTableForceInsert_Import: the parent is inserted before its children either way) and for
-/// `true` on an unlinked one whose table elements right below it are all linked to it (XpLinkTableForceInsertUnlinked.al:551,
+/// `true` on an unlinked one with one table element right below it, linked to it with LinkFields (XpLinkTableForceInsertUnlinked.al:551,
 /// :568, :586, :603 against the control :699, :716). Other imports are refused: `false` on a linked one stores the children before
 /// their parent (:667 ForceFalse_Import) and a failed insert of an unlinked one without linked children fails only at the next
 /// read of the table (:621 ForceOnUnlinkedNestedChild_Import, :651 ForceOnUnlinkedParent_NoChildTable_Import); neither is
@@ -76,24 +76,25 @@ fn force_insert(layout: &Layout, i: usize, reasons: &mut Vec<String>, import_rea
             }
         }
         (Some(true), al_ir::XmlFormat::Xml) if linked => {}
-        (Some(true), al_ir::XmlFormat::Xml) if children_all_linked(layout, i) => {}
+        (Some(true), al_ir::XmlFormat::Xml) if one_linked_child(layout, i) => {}
         (Some(_), al_ir::XmlFormat::Xml) => {
             import_reasons.push(refuse(
-                "false, or on an unlinked table element without table elements linked to it below, in an import",
+                "false, or on an unlinked table element without exactly one table element below it linked with LinkFields, in an import",
             ));
         }
     }
 }
 
-/// Whether table node `i` has table elements right below it and every one names it in LinkTable.
-fn children_all_linked(layout: &Layout, i: usize) -> bool {
-    let mut kids = (0..layout.nodes.len())
+/// Whether table node `i` has exactly one table element right below it, and that one names it in LinkTable and has LinkFields
+/// (the pinned ports XpLinkTableForceInsertUnlinked.al:22 "LT XLF Root Force" and :86 "LT XLF Root Force Plain"). Several table
+/// elements below it, or one linked without LinkFields, are not pinned.
+fn one_linked_child(layout: &Layout, i: usize) -> bool {
+    let kids: Vec<usize> = (0..layout.nodes.len())
         .filter(|&k| layout.nodes[k].parent == Some(i) && layout.nodes[k].kind == al_ir::XmlNodeKind::Table)
-        .peekable();
-    kids.peek().is_some()
-        && kids.all(|k| {
-            layout
-                .property(k, "LinkTable")
-                .is_some_and(|t| crate::scan::unquote_xmlport(&t).eq_ignore_ascii_case(&layout.nodes[i].name))
-        })
+        .collect();
+    let [k] = kids[..] else { return false };
+    layout.property(k, "LinkFields").is_some()
+        && layout
+            .property(k, "LinkTable")
+            .is_some_and(|t| crate::scan::unquote_xmlport(&t).eq_ignore_ascii_case(&layout.nodes[i].name))
 }

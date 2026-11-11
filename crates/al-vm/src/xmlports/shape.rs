@@ -339,7 +339,10 @@ pub(super) fn childless_table_root(schema: &Schema, top: usize) -> bool {
         }
         _ => false,
     };
+    // Every pinned port declares Encoding = UTF8 (:17-150) and reads a real table; a UTF-16 port or UseTemporary is not pinned.
     schema.xp().format == ir::XmlFormat::Xml
+        && schema.xp().xml_utf8
+        && !n.use_temporary
         && n.kind == ir::XmlNodeKind::Table
         && n.parent.is_none()
         && n.link_node.is_none()

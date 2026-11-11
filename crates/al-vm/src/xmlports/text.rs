@@ -119,10 +119,10 @@ impl Session {
         text: &str,
     ) -> Result<(), Signal> {
         let xp = schema.xp();
-        // An encoding the triggers set on an import is pinned for a port that declares WINDOWS (`import_encoding`; the source was
-        // decoded with it, XpVarTextWindowsImport.al:337, :349, :385); for other ports it is not (Y67XpSeparators.al pins it on an
-        // export only).
-        if assigned::set_in_run(inst).is_some() && xp.text_encoding.as_deref() != Some("windows") {
+        // An encoding the triggers set on an import is pinned for a port that declares WINDOWS, set in OnPreXmlPort before the source
+        // was decoded with it (`import_encoding`, XpVarTextWindowsImport.al:337, :349, :385); for other ports it is not
+        // (Y67XpSeparators.al pins it on an export only).
+        if assigned::set_in_run(inst).is_some() && !import_encoding::decoded_in_run(inst) {
             return unsupported("a VariableText import whose TextEncoding the program set (not pinned)");
         }
         let record_sep = non_empty(assigned::separator(inst, 2, xp.record_separator.as_deref(), "\r\n")?)?;
@@ -171,23 +171,27 @@ impl Session {
                     return unsupported("an empty line in a VariableText import (not pinned)");
                 }
             }
-            let values: Vec<String> = if let Some(p) = &presplit {
-                p[line_no].clone()
+            // `quoted`: which values of a VariableText line stood in the field delimiter (`text_element_value`).
+            let (values, quoted): (Vec<String>, Vec<bool>) = if let Some(p) = &presplit {
+                (p[line_no].clone(), Vec::new())
             } else if variable {
-                split_variable(line, &fsep, &fdelim)
+                split_variable_marked(line, &fsep, &fdelim).into_iter().unzip()
             } else {
-                let chars: Vec<char> = line.chars().collect();
-                let mut at = 0;
-                fields
-                    .iter()
-                    .map(|&f| {
-                        let w = schema.node(f).width.expect("checked by xp_text_layout");
-                        let end = (at + w).min(chars.len());
-                        let v: String = chars[at.min(end)..end].iter().collect();
-                        at = end;
-                        v
-                    })
-                    .collect()
+                let values = {
+                    let chars: Vec<char> = line.chars().collect();
+                    let mut at = 0;
+                    fields
+                        .iter()
+                        .map(|&f| {
+                            let w = schema.node(f).width.expect("checked by xp_text_layout");
+                            let end = (at + w).min(chars.len());
+                            let v: String = chars[at.min(end)..end].iter().collect();
+                            at = end;
+                            v
+                        })
+                        .collect()
+                };
+                (values, Vec::new())
             };
             // A TAB inside a value: the evaluate error of such a value shows the TAB as a space (XpSeparatorTokens.al
             // VariableText_Import_SepTabLower_Plain, corpus branch al-runtime-rs-staging-r6963, `1 Alpha`); where BC changes it is not
@@ -210,13 +214,15 @@ impl Session {
             let fresh = self.initial_fields(tbl);
             rec.borrow_mut().fields = fresh;
             self.xp_run_trigger(inst, schema, table, "onafterinitrecord")?;
+            import_encoding::encoding_unchanged_since_decoding(inst)?;
             // Fields are read as the values come; which line lengths are pinned: `line_length_pinned`.
             let length_pinned = line_length_pinned(schema, fields, values.len(), variable);
             let mut assigned = Vec::new();
             let mut broke = false;
-            for (&f, v) in fields.iter().zip(&values) {
+            for (k, (&f, v)) in fields.iter().zip(&values).enumerate() {
                 if schema.node(f).kind == ir::XmlNodeKind::Text {
-                    self.xp_assign_variable(inst, schema, f, text_element_value(xp, variable, v))?;
+                    let v = text_element_value(inst, xp, variable, v, quoted.get(k) == Some(&true))?;
+                    self.xp_assign_variable(inst, schema, f, v)?;
                     continue;
                 }
                 let is_text = {
@@ -263,8 +269,9 @@ impl Session {
             }
             // The unbound text element (the last column) takes the values after the others (`unbound_column`).
             if let Some(f) = unbound.filter(|_| !broke) {
-                for v in values.iter().skip(fields.len()) {
-                    self.xp_assign_variable(inst, schema, f, text_element_value(xp, variable, v))?;
+                for (k, v) in values.iter().enumerate().skip(fields.len()) {
+                    let v = text_element_value(inst, xp, variable, v, quoted.get(k) == Some(&true))?;
+                    self.xp_assign_variable(inst, schema, f, v)?;
                 }
             }
             // A line with fewer values than the port has columns fails at the first missing column that must occur, a field
@@ -300,7 +307,7 @@ impl Session {
                 break;
             }
         }
-        Ok(())
+        import_encoding::encoding_unchanged_since_decoding(inst)
     }
 
     pub(super) fn xp_export_text(&mut self, inst: &Inst, schema: &Schema, top: usize) -> Result<Vec<u8>, Signal> {
@@ -521,26 +528,33 @@ pub(super) fn text_separator(value: Option<&str>, default: &str) -> Result<Strin
     Ok(out)
 }
 
-/// The text a text element of a VariableText import gets for `v`: the spaces around it are dropped, as a field element's value
-/// drops them (`xp_assign_field_flow_in`): `"say ""hi"""` gives `say`, not `say ` (xmlports/import/XpVarTextWindowsImport.al:409
-/// VTW_Columns_WindowsFile_Semicolon_Quotes_Import `1/3=[say {}]`). With PreserveWhiteSpace, and in a FixedText import, the value
-/// stays as it was.
-fn text_element_value(xp: &ir::XmlPort, variable: bool, v: &str) -> String {
-    if variable && !xp.preserve_whitespace {
-        v.trim_matches(' ').to_string()
-    } else {
-        v.to_string()
+/// The text a text element of a VariableText import gets for `v` (`quoted`: it stood in the field delimiter). A port without
+/// TextEncoding keeps the value as it is, spaces too, as before. A port that declares WINDOWS (no encoding set, no PreserveWhiteSpace) drops the
+/// one space at the end of a quoted value: `"say ""hi"""` gives `say`, not `say ` (xmlports/import/XpVarTextWindowsImport.al:409
+/// VTW_Columns_WindowsFile_Semicolon_Quotes_Import `1/3=[say {}]`). Other spaces around a value of a WINDOWS port are not pinned
+/// and refused. A FixedText import keeps the value as it was.
+fn text_element_value(inst: &Inst, xp: &ir::XmlPort, variable: bool, v: &str, quoted: bool) -> Result<String, Signal> {
+    let spaced = v.starts_with(' ') || v.ends_with(' ');
+    if !variable || !spaced || xp.text_encoding.as_deref() != Some("windows") {
+        return Ok(v.to_string());
     }
+    let one_trailing = !v.starts_with(' ') && !v.ends_with("  ");
+    if quoted && one_trailing && !xp.preserve_whitespace && assigned::set_encoding(inst).is_none() {
+        return Ok(v[..v.len() - 1].to_string());
+    }
+    unsupported(
+        "a text element value with spaces around it in a VariableText import under TextEncoding = WINDOWS, other than one space at the end of a quoted value (not pinned)",
+    )
 }
 
 /// Splits a VariableText record at `sep`. A value that starts with the delimiter runs to the next
 /// delimiter and may hold the separator; a doubled delimiter is not an escape, so the text after
 /// the closing delimiter starts the next value
-/// (xmlports/TestXmlPortTextFormatsContracts.al:VariableText_Import_DoubledQuoteInsideAQuotedValue_IsNotAnEscape,
-/// corpus: .
-pub(super) fn split_variable(line: &str, sep: &str, delim: &str) -> Vec<String> {
+/// (xmlports/TestXmlPortTextFormatsContracts.al:VariableText_Import_DoubledQuoteInsideAQuotedValue_IsNotAnEscape).
+/// Each value comes with whether it stood in the delimiter.
+pub(super) fn split_variable_marked(line: &str, sep: &str, delim: &str) -> Vec<(String, bool)> {
     if delim.is_empty() {
-        return line.split(sep).map(str::to_string).collect();
+        return line.split(sep).map(|v| (v.to_string(), false)).collect();
     }
     let mut out = Vec::new();
     let mut rest = line;
@@ -548,7 +562,7 @@ pub(super) fn split_variable(line: &str, sep: &str, delim: &str) -> Vec<String> 
         if let Some(after) = rest.strip_prefix(delim) {
             match after.find(delim) {
                 Some(end) => {
-                    out.push(after[..end].to_string());
+                    out.push((after[..end].to_string(), true));
                     rest = &after[end + delim.len()..];
                     match rest.strip_prefix(sep) {
                         Some(r) => rest = r,
@@ -560,18 +574,18 @@ pub(super) fn split_variable(line: &str, sep: &str, delim: &str) -> Vec<String> 
                     }
                 }
                 None => {
-                    out.push(after.to_string());
+                    out.push((after.to_string(), false));
                     return out;
                 }
             }
         } else {
             match rest.find(sep) {
                 Some(end) => {
-                    out.push(rest[..end].to_string());
+                    out.push((rest[..end].to_string(), false));
                     rest = &rest[end + sep.len()..];
                 }
                 None => {
-                    out.push(rest.to_string());
+                    out.push((rest.to_string(), false));
                     return out;
                 }
             }
