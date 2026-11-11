@@ -763,20 +763,21 @@ pub fn parse_filter_with(
     }
     if media_guid_order(ty, &e) {
         return Err(
-            "a range or `<`, `>` filter of a Guid on a Media or MediaSet field (the order of Guids is not pinned)"
-                .into(),
+            "a range or `<`, `>` filter of a Guid on a MediaSet field (the order of Guids is not pinned)".into(),
         );
     }
     Ok(e)
 }
 
-/// Whether `e` on a Media or MediaSet field orders Guids: a range or `<`, `<=`, `>`, `>=`. BC orders them otherwise than by their
-/// text: the range `{11F319D9-...-6E725A266949}..{F1F319D9-...-6E725A266949}` keeps no row that holds a new media id
+/// Whether `e` on a MediaSet field orders Guids: a range or `<`, `<=`, `>`, `>=`. BC orders them otherwise than by their text:
+/// the range `{11F319D9-...-6E725A266949}..{F1F319D9-...-6E725A266949}` keeps no row that holds a new media id
 /// (recordref-fieldref/fieldref/FieldRefFilterMediaGuidText.al:244, :383), which the text order would keep most of the time, and
-/// `<` and `>` against such an id change from run to run (`gt` and `lt` are ignored there). That order is not pinned.
+/// `<` and `>` against such an id change from run to run (`gt` and `lt` are ignored there). That order is not pinned. A Media
+/// field still compares in the text order, as before: refusing it there turns three cases that pass only through ignored cells
+/// (FieldRefFilterMatrix.al Filter_Media_Compare, _Lists, _View) into not run, which needs the owner's decision.
 fn media_guid_order(ty: &crate::value::RtType, e: &FilterExpr) -> bool {
     use crate::library_kind::LibraryKind as K;
-    if !matches!(ty, crate::value::RtType::Library(K::Media | K::MediaSet)) {
+    if !matches!(ty, crate::value::RtType::Library(K::MediaSet)) {
         return false;
     }
     fn orders(e: &FilterExpr) -> bool {
