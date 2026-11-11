@@ -157,13 +157,14 @@ const MEMO_MAX_SETS: usize = 256;
 pub(crate) struct SharedMat(Mat);
 
 impl SharedMat {
-    /// The listing for sharing, or `None` when a row holds a handle (a provider listed
+    /// The listing for sharing, or the listing back when a row holds a handle (a provider listed
     /// something that cannot be shared between threads).
-    pub(crate) fn try_new(m: Mat) -> Option<SharedMat> {
-        m.rows
-            .iter()
-            .all(|row| row.iter().all(Value::is_plain))
-            .then_some(SharedMat(m))
+    pub(crate) fn try_new(m: Mat) -> Result<SharedMat, Box<Mat>> {
+        if m.rows.iter().all(|row| row.iter().all(Value::is_plain)) {
+            Ok(SharedMat(m))
+        } else {
+            Err(Box::new(m))
+        }
     }
 }
 
@@ -1144,13 +1145,13 @@ mod shared_tests {
         let t = def(RtType::Integer);
         let m = Mat::new(&t, vec![Entry::ok(vec![Value::Integer(1)])]);
         fn is_send_sync<T: Send + Sync>(_: &T) {}
-        is_send_sync(&SharedMat::try_new(m).expect("plain"));
+        is_send_sync(&SharedMat::try_new(m).ok().expect("plain"));
     }
 
     #[test]
     fn a_listing_holding_a_handle_cannot_be_shared() {
         let t = def(RtType::Integer);
         let handle = Value::List(Default::default());
-        assert!(SharedMat::try_new(Mat::new(&t, vec![Entry::ok(vec![handle])])).is_none());
+        assert!(SharedMat::try_new(Mat::new(&t, vec![Entry::ok(vec![handle])])).is_err());
     }
 }

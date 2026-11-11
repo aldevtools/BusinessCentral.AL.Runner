@@ -951,7 +951,8 @@ impl Session {
             .iter()
             .filter(|(_, subs)| !subs.is_empty())
             .map(|((o, ev), _)| (o, ev))
-            .chain(engine.events.missing.keys().map(|(o, ev)| (o, ev)));
+            .chain(engine.events.missing.keys().map(|(o, ev)| (o, ev)))
+            .filter(|(o, _)| **o == object);
         // Hash order must not pick which refusal reason is reported (`outcomes_do_not_depend_on_threads_or_home`).
         let mut declared: Vec<_> = declared.collect();
         declared.sort();
