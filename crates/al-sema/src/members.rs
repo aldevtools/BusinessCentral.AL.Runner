@@ -21,8 +21,6 @@ pub struct FieldInfo {
     pub declared_in: Option<usize>,
     /// A `modify` block of a table extension sets `Caption` or `CaptionML` of the field.
     pub caption_modified: bool,
-    /// A `modify` block of a table extension sets `OptionCaption` or `OptionCaptionML` of the field.
-    pub option_caption_modified: bool,
     /// The `InitValue` property as written.
     pub init_value: Option<String>,
     pub auto_increment: bool,
@@ -237,9 +235,6 @@ fn merged_members(ws: &Workspace, i: usize) -> Members {
                 for (k, v) in props {
                     if k.eq_ignore_ascii_case("Caption") || k.eq_ignore_ascii_case("CaptionML") {
                         field.caption_modified = true;
-                    }
-                    if k.eq_ignore_ascii_case("OptionCaption") || k.eq_ignore_ascii_case("OptionCaptionML") {
-                        field.option_caption_modified = true;
                     }
                     // A modify block that sets TableRelation gives the field a relation (record/ table extension: misc/
                     // lt-object-properties-runtime-effect/TableExtModifyTableRelation.al: Validate of the field finds the related table, and
@@ -473,7 +468,6 @@ fn own_members(ws: &Workspace, i: usize) -> Members {
                     properties: f.properties().map(|p| (p.name(), p.value_text())).collect(),
                     relation_scopes: Vec::new(),
                     caption_modified: false,
-                    option_caption_modified: false,
                 });
             }
         } else if name == "value" {
@@ -539,7 +533,6 @@ fn own_members(ws: &Workspace, i: usize) -> Members {
                 },
                 relation_scopes: Vec::new(),
                 caption_modified: false,
-                option_caption_modified: false,
             });
         }
         if ws.user_name_fields() {
@@ -564,7 +557,6 @@ fn own_members(ws: &Workspace, i: usize) -> Members {
                     ],
                     relation_scopes: Vec::new(),
                     caption_modified: false,
-                    option_caption_modified: false,
                 });
             }
         }

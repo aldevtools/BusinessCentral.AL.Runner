@@ -386,9 +386,11 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
             }
             [
                 value,
-                Value::Text(app),
+                Value::Text(_),
                 Value::Text(what),
-                Value::Text(xliff),
+                Value::Integer(table),
+                Value::Integer(field),
+                Value::Text(source),
                 Value::Boolean(true),
                 members @ ..,
             ] if members.len() <= 1 => {
@@ -396,7 +398,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
                     Some(Value::Text(m)) => Some(m.as_str()),
                     _ => None,
                 };
-                return translated_option(c, value, (app, what, xliff), members);
+                return translated_option(c, value, (what, *table, *field, source), members);
             }
             [value, Value::Text(app), Value::Text(what), Value::Text(xliff)] => {
                 return Ok(match c.translated_app_text(app, what, xliff)? {
@@ -641,18 +643,20 @@ pub fn registered_ids() -> Vec<&'static str> {
         .collect()
 }
 
-/// An OptionCaption read through `System.TranslatedText#1` with its XLIFF unit id (ADR-053 step 2): with no unit text in the
-/// language in force `value` stays. With one, an Option value takes the translated captions (TaXliff.al:217-218, Format
-/// `Tweede` and `Derde` under 1043); with the field's `members`, `value` is the text an Evaluate reads: a translated caption
-/// becomes its member's name, a member name stays (TaXliff.al:219-220: `Tweede` true|1, `Alpha` true|0). Refused: a caption
-/// list of another length than the members, and any other text (the source caption, an ordinal: not pinned).
+/// An OptionCaption read through `System.TranslatedText#1` with its field (ADR-053 step 2): the captions a translation file
+/// gives in the language in force come from `Ctx::translated_option_caption` (the one owner); with none, `value` stays. With
+/// one, an Option value takes the translated captions (TaXliff.al:217-218, Format `Tweede` and `Derde` under 1043); with the
+/// field's `members`, `value` is the text an Evaluate reads: a translated caption becomes its member's name, and a member
+/// name that is also its source caption stays (TaXliff.al:219-220: `Tweede` true|1, `Alpha` true|0). Refused: a caption
+/// list of another length than the members, and any other text (a member name that is not its source caption, the source
+/// caption, an ordinal: not pinned).
 fn translated_option(
     c: &mut dyn Ctx,
     value: &Value,
-    (app, what, xliff): (&str, &str, &str),
+    (what, table, field, source): (&str, i32, i32, &str),
     members: Option<&str>,
 ) -> Result<Value, Signal> {
-    let Some(list) = c.translated_app_text(app, what, xliff)? else {
+    let Some(list) = c.translated_option_caption(table, field)? else {
         return Ok(value.clone());
     };
     let captions: Vec<String> = list.split(',').map(str::to_string).collect();
@@ -670,7 +674,8 @@ fn translated_option(
         }
         (Value::Text(text), Some(members)) => {
             let names: Vec<&str> = members.split(',').collect();
-            if captions.len() != names.len() {
+            let source: Vec<&str> = source.split(',').collect();
+            if captions.len() != names.len() || source.len() != names.len() {
                 return length();
             }
             let t = text.trim();
@@ -678,10 +683,9 @@ fn translated_option(
             let by_name = names.iter().position(|n| !t.is_empty() && n.eq_ignore_ascii_case(t));
             match (by_caption, by_name) {
                 (Some(i), None) => Ok(Value::Text(names[i].to_string().into())),
-                (None, Some(_)) => Ok(value.clone()),
-                (Some(i), Some(j)) if i == j => Ok(value.clone()),
+                (None, Some(j)) if names[j].eq_ignore_ascii_case(source[j]) => Ok(value.clone()),
                 _ => unsupported(format!(
-                    "Evaluate of `{t}` into an Option field whose OptionCaption a translation file changes (only a translated caption or a member name is pinned)"
+                    "Evaluate of `{t}` into an Option field whose OptionCaption a translation file changes (only a translated caption, or a member name that is its source caption, is pinned)"
                 )),
             }
         }

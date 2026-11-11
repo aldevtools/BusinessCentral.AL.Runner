@@ -518,8 +518,13 @@ fn run_translated(
 
 /// The tests of the second app, whose app has manifest `m`.
 fn run_with(m: Manifest) -> Vec<(String, Outcome, Vec<al_testrun::assumptions::Assumption>)> {
+    run_src(APP2, TESTS2, m)
+}
+
+/// The tests `tests` of an app with source `src` and manifest `m`.
+fn run_src(src: &str, tests: &str, m: Manifest) -> Vec<(String, Outcome, Vec<al_testrun::assumptions::Assumption>)> {
     let rt = CorpusRuntime::try_run_suites_with(
-        vec![app("tests", &["app"], TESTS2), app("app", &[], APP2)],
+        vec![app("tests", &["app"], tests), app("app", &[], src)],
         vec![al_sema::AppKind::Workspace, al_sema::AppKind::Workspace],
         &[manifest(false), m],
         &Default::default(),
@@ -621,28 +626,148 @@ fn a_package_gives_its_translation_files_on_demand() {
 }
 
 #[test]
-fn a_unit_with_state_translated_is_flagged_and_another_state_is_refused() {
+fn a_unit_with_any_state_gives_its_target_flagged() {
     let mut file = dutch();
     file.states = file
         .units
         .iter()
         .map(|(k, _)| {
             if k.starts_with("Enum ") {
-                al_ir::UnitState::Other("needs-translation".into())
+                al_ir::UnitState::Other("needs-review-translation".into())
             } else {
                 al_ir::UnitState::Translated
             }
         })
         .collect();
     let got = run_translated(vec![file]);
+    // Every state gives the target as main did (ADR-053 decision 1), flagged until corpus probe TlTranslationCells.al
+    // TL_UnitForms_Dutch pins the states.
+    for test in ["Label_UsesDutchText", "Format_Enum_UsesDutchCaption"] {
+        let (_, outcome, assumed) = find(&got, test);
+        assert_eq!(outcome, &Outcome::Pass, "{test}: {got:?}");
+        assert_eq!(
+            assumed,
+            &[al_testrun::assumptions::Assumption::XliffUnitState],
+            "{test}"
+        );
+    }
+}
+
+#[test]
+fn the_exact_culture_file_wins_over_a_sibling_file_that_has_the_unit() {
+    let mut sibling = dutch();
+    sibling.name = "Translations/AL Runner Repros.nl-NL.xlf".into();
+    sibling.target_language = "nl-NL".into();
+    for (_, t) in &mut sibling.units {
+        *t = format!("{t} NL");
+    }
+    let got = run_translated(vec![dutch(), sibling]);
     let (_, outcome, assumed) = find(&got, "Label_UsesDutchText");
     assert_eq!(outcome, &Outcome::Pass, "{got:?}");
-    assert_eq!(assumed, &[al_testrun::assumptions::Assumption::XliffStateTranslated]);
-    let (_, outcome, _) = find(&got, "Format_Enum_UsesDutchCaption");
-    assert!(
-        matches!(outcome, Outcome::NotRun(why) if why.contains("state is needs-translation")),
-        "{outcome:?}"
+    assert_eq!(
+        assumed,
+        &[al_testrun::assumptions::Assumption::XliffExactCultureOverSibling]
     );
+}
+
+const OPT_APP: &str = r#"
+table 50790 "ALR Opt"
+{
+    Caption = 'Opt';
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Kind; Option) { OptionMembers = Alpha,Beta,Gamma; OptionCaption = 'Alpha,Second,Third'; }
+    }
+    keys { key(PK; "No.") { } }
+}
+table 50791 "ALR Opt Base"
+{
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+    }
+    keys { key(PK; "No.") { } }
+}
+tableextension 50792 "ALR Opt Ext" extends "ALR Opt Base"
+{
+    fields { field(50792; ExtKind; Option) { OptionMembers = One,Two; OptionCaption = 'One,Two'; } }
+}
+"#;
+
+const OPT_TESTS: &str = r#"
+codeunit 50793 "ALR Opt Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure MemberNameEqualToItsCaption()
+    var
+        R: Record "ALR Opt";
+    begin
+        GlobalLanguage(1043);
+        if not Evaluate(R.Kind, 'Alpha') then Error('no');
+        GlobalLanguage(1033);
+        if R.Kind <> R.Kind::Alpha then Error('wrong');
+    end;
+
+    [Test]
+    procedure MemberNameOtherThanItsCaption()
+    var
+        R: Record "ALR Opt";
+    begin
+        GlobalLanguage(1043);
+        if Evaluate(R.Kind, 'Gamma') then;
+    end;
+
+    [Test]
+    procedure FormatOfAnExtensionOptionField()
+    var
+        R: Record "ALR Opt Base";
+    begin
+        R.ExtKind := R.ExtKind::Two;
+        GlobalLanguage(1043);
+        Error(Format(R.ExtKind));
+    end;
+}
+"#;
+
+#[test]
+fn option_captions_run_only_in_the_pinned_shapes() {
+    let mut m = manifest(true);
+    m.translation_files = vec![al_ir::TranslationFile {
+        name: "Translations/App.nl-NL.xlf".into(),
+        target_language: "nl-NL".into(),
+        units: {
+            let mut u = vec![
+                (
+                    unit(&[("Table", "ALR Opt"), ("Field", "Kind"), ("Property", "OptionCaption")]),
+                    "Eerste,Tweede,Derde".to_string(),
+                ),
+                (
+                    unit(&[
+                        ("TableExtension", "ALR Opt Ext"),
+                        ("Field", "ExtKind"),
+                        ("Property", "OptionCaption"),
+                    ]),
+                    "Een,Twee".to_string(),
+                ),
+            ];
+            u.sort();
+            u
+        },
+        error: None,
+        states: Vec::new(),
+    }];
+    let got = run_src(OPT_APP, OPT_TESTS, m);
+    // TaXliff.al:220: a member name that is also its source caption evaluates.
+    let (_, outcome, _) = find(&got, "MemberNameEqualToItsCaption");
+    assert_eq!(outcome, &Outcome::Pass, "{got:?}");
+    // Not pinned: a member name that differs from its source caption, and a field a table extension declares.
+    for test in ["MemberNameOtherThanItsCaption", "FormatOfAnExtensionOptionField"] {
+        let (_, outcome, _) = find(&got, test);
+        assert!(matches!(outcome, Outcome::NotRun(_)), "{test}: {outcome:?}");
+    }
 }
 
 #[test]

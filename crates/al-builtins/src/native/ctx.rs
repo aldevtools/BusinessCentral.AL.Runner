@@ -94,6 +94,13 @@ pub trait Ctx: FormatCtx {
         Ok(None)
     }
 
+    /// The OptionCaption list of field `field` of table `table` in the language in force, when a translation file gives one
+    /// (ADR-053 step 2); `None` keeps the source captions. A context without a program has none.
+    fn translated_option_caption(&self, table: i32, field: i32) -> Result<Option<String>, Signal> {
+        let _ = (table, field);
+        Ok(None)
+    }
+
     fn last_error(&self) -> AlError;
     fn set_last_error(&mut self, e: AlError);
     /// Whether the run has the newer behaviour of `gate` (ADR-015 3.4); a context with no target has every gate.

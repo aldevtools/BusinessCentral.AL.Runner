@@ -142,8 +142,8 @@ impl Session {
     /// ([`PINNED_FALLBACKS`]: the nl-NL file under 2067). The files come from an app folder or, read on the first ask, from a package (`al_ir::AppInfo::translation_heads`).
     /// Refused: an app whose files cannot be listed (a wrapper package); two files for one culture; a file that could not be
     /// read; a unit only another culture's file has while the culture's own file exists, or that several files of other
-    /// cultures have (which one BC uses is not pinned: corpus probe TlTranslationCells.al, ADR-053 P3); and a unit whose state
-    /// is not pinned ([`unit_text`]).
+    /// cultures have (which one BC uses is not pinned: corpus probe TlTranslationCells.al, ADR-053 P3). A unit's state is
+    /// read by [`unit_text`].
     pub(crate) fn app_translation(
         &self,
         app: usize,
@@ -205,25 +205,36 @@ impl Session {
                     .any(|c| c.eq_ignore_ascii_case(&f.target_language));
             }
         }
-        let file = match (own.as_slice(), others_with_unit.as_slice()) {
-            ([_, _, ..], _) => {
-                return refuse(&format!(
-                    "two translation files for {culture}, or one that could not be read"
-                ));
+        match (own.as_slice(), others_with_unit.as_slice()) {
+            ([_, _, ..], _) => refuse(&format!(
+                "two translation files for {culture}, or one that could not be read"
+            )),
+            ([i], others) => {
+                let file = a.translation_file(*i);
+                if let Some(e) = &file.error {
+                    return refuse(&format!("the translation file {} could not be read: {e}", file.name));
+                }
+                let unit = file.unit(xliff);
+                if !others.is_empty() {
+                    // The culture's own file wins when it has the unit (assumption `xliff-exact-culture-over-sibling`, as
+                    // the runtime did before); a unit only another culture's file has is not pinned.
+                    if unit.is_none() {
+                        return refuse(&format!(
+                            "the unit is only in a translation file of the same language for another culture than {culture}"
+                        ));
+                    }
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::XliffExactCultureOverSibling,
+                    );
+                }
+                unit_text(unit)
             }
-            ([i], []) => a.translation_file(*i),
-            ([], []) => return Ok(None),
-            ([], [unit]) if fallback => return unit_text(Some(*unit), &refuse),
-            (_, _) => {
-                return refuse(&format!(
-                    "the app ships a translation file of the same language for another culture than {culture} with this unit"
-                ));
-            }
-        };
-        if let Some(e) = &file.error {
-            return refuse(&format!("the translation file {} could not be read: {e}", file.name));
+            ([], []) => Ok(None),
+            ([], [unit]) if fallback => unit_text(Some(*unit)),
+            ([], _) => refuse(&format!(
+                "the app ships a translation file of the same language for another culture than {culture} with this unit"
+            )),
         }
-        unit_text(file.unit(xliff), &refuse)
     }
 
     /// Whether an extension of object `object` exists: the texts it adds or changes (`modify`) are the extension's units, or
@@ -525,7 +536,8 @@ impl Session {
     /// The OptionCaption of field `pos` of `t` in the language in force, for a read step 1 refuses with `why`: `Ok(None)` for
     /// the source captions. The unit `Table <table> - Field <field> - Property OptionCaption` of the table's app gives the list
     /// (localization/app-xliff/TaXliff.al:222 FieldRef.OptionCaption `Eerste,Tweede,Derde` under 1043; :243 the source under
-    /// 1031). Refused: a field with OptionCaptionML, a field a table extension declares, and a table an extension extends.
+    /// 1031). Refused: a field with OptionCaptionML that has a unit, a field a table extension declares, and a table an
+    /// extension extends.
     pub(crate) fn option_caption_translation(
         &self,
         t: &al_data::TableDef,
@@ -536,11 +548,7 @@ impl Session {
         let Some(o) = self.engine.program.objects.get(object) else {
             return Err(why);
         };
-        if o.kind != al_ir::ObjKind::Table
-            || self.declaring_extension(t, pos).is_some()
-            || self.extended(object)
-            || self.field_property(t, pos, "OptionCaptionML").is_some()
-        {
+        if o.kind != al_ir::ObjKind::Table || self.declaring_extension(t, pos).is_some() || self.extended(object) {
             return Err(why);
         }
         let xliff = format!(
@@ -549,9 +557,39 @@ impl Session {
             al_ir::xliff_part("Field", &t.fields[pos].name),
             al_ir::xliff_part("Property", "OptionCaption")
         );
-        self.app_translation(o.app as usize, &xliff, &|| {
+        let unit = self.app_translation(o.app as usize, &xliff, &|| {
             format!("the OptionCaption of field {} of table {}", t.fields[pos].name, t.name)
-        })
+        })?;
+        // OptionCaptionML keeps its own text of the language when the file has no unit for the field
+        // (format-evaluate/EvalLanguageBoolean.al EL_Option_NLB_2067, EL_Option_NLD_1043); with a unit it is not pinned.
+        if unit.is_some() && self.field_property(t, pos, "OptionCaptionML").is_some() {
+            return Err(why);
+        }
+        Ok(unit)
+    }
+
+    /// [`Self::option_caption_translation`] of field number `field` of table number `table`, for Format and Evaluate: `None`
+    /// keeps the source captions (1033, an app without a file of the language).
+    pub(crate) fn translated_option_caption(&self, table: i32, field: i32) -> Result<Option<String>, Signal> {
+        let t = u32::try_from(table).ok().and_then(|n| self.table_def(n));
+        let Some(t) = t else {
+            return Err(Signal::unsupported(format!(
+                "the OptionCaption of a field of table {table}: the table is not known"
+            )));
+        };
+        let Some(pos) = t.fields.iter().position(|f| i64::from(f.id) == i64::from(field)) else {
+            return Err(Signal::unsupported(format!(
+                "the OptionCaption of field {field} of table {}: no such field",
+                t.name
+            )));
+        };
+        let Some(why) = self.translated_read_refusal(t.object as usize, || {
+            format!("the OptionCaption of field {} of table {}", t.fields[pos].name, t.name)
+        }) else {
+            return Ok(None);
+        };
+        self.option_caption_translation(&t, pos, why)
+            .map_err(Signal::unsupported)
     }
 
     /// A Label of app `app` whose XLIFF unit is `xliff`, in the language in force (`System.TranslatedText#1` with an id).
@@ -571,22 +609,16 @@ impl Session {
 }
 
 /// The text unit `unit` gives (`None`: no unit, the source text stays). A unit without a state gives its target
-/// (TaXliff.al:170); one with `state="translated"` does too, unpinned (assumption `xliff-state-translated`); any other state
-/// is refused (`refuse`): which ones BC applies is not pinned (corpus probe TlTranslationCells.al TL_UnitForms_Dutch).
-fn unit_text(
-    unit: Option<(&str, &al_ir::UnitState)>,
-    refuse: &dyn Fn(&str) -> Result<Option<String>, String>,
-) -> Result<Option<String>, String> {
+/// (TaXliff.al:170); one with any `state` gives it too, as ADR-053 decision 1 says, flagged until the corpus probe
+/// TlTranslationCells.al TL_UnitForms_Dutch pins the states (assumption `xliff-unit-state`).
+fn unit_text(unit: Option<(&str, &al_ir::UnitState)>) -> Result<Option<String>, String> {
     use al_builtins::assumptions::{Assumption, assume};
-    match unit {
-        None => Ok(None),
-        Some((text, al_ir::UnitState::Absent)) => Ok(Some(text.to_string())),
-        Some((text, al_ir::UnitState::Translated)) => {
-            assume(Assumption::XliffStateTranslated);
-            Ok(Some(text.to_string()))
+    Ok(unit.map(|(text, state)| {
+        if *state != al_ir::UnitState::Absent {
+            assume(Assumption::XliffUnitState);
         }
-        Some((_, al_ir::UnitState::Other(state))) => refuse(&format!("the unit's state is {state}")),
-    }
+        text.to_string()
+    }))
 }
 
 fn refusal(what: &str, language: i32) -> String {
