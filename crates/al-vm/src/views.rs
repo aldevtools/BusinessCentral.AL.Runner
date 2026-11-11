@@ -8,7 +8,7 @@
 
 use crate::Session;
 use al_builtins::describe::Describe;
-use al_builtins::filter::{FieldFilter, FilterExpr};
+use al_builtins::filter::{FieldFilter, FilterExpr, needs_quotes};
 use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::{RecordState, RtType, Value};
 use al_data::TableDef;
@@ -17,10 +17,16 @@ use std::rc::Rc;
 
 type Rec = Rc<RefCell<RecordState>>;
 
-/// Characters whose presence in a text value makes `GetFilter` quote the whole value (record/
-/// TestSetFilterSpecialTextContracts.al, record/filters/W4Filters.al:174-191), and `..`.
-fn needs_quotes(s: &str) -> bool {
-    s.contains(['|', '&', '<', '>', '=', '(', ')']) || s.contains("..")
+/// `=` before a literal text that `filter_value_with` quotes for its `*` or `?` alone, so it does not read as a pattern.
+fn equal_sign(v: &Value) -> &'static str {
+    match v {
+        Value::Text(s) | Value::Code(s)
+            if s.contains(['*', '?']) && !s.contains('"') && !s.starts_with('@') && !needs_quotes(s) =>
+        {
+            "="
+        }
+        _ => "",
+    }
 }
 
 impl Session {
@@ -133,9 +139,22 @@ impl Session {
                 return Ok("'@'".into());
             }
             // A double quote is shown as it is (W4Filters.al SetFilterPercent1_GreaterThanAndDoubleQuote `x"y`, `"y`, `"`,
-            // SetFilterPercent1_WildcardTogetherWithOperators `*"*`); a lone `*` is not pinned here (see the `Eq` case of `filter_text_with`).
-            if (s.contains(['*', '?']) && !s.contains('"')) || s.starts_with('@') {
+            // SetFilterPercent1_WildcardTogetherWithOperators `*"*`).
+            if s.starts_with('@') {
                 return unsupported("a filter value that needs quoting");
+            }
+            // A literal text with `*` or `?` (from `=%1`, `>%1`, `<=%1`, a range end, SetRange, or `*` and `?` alone) is shown in
+            // single quotes (record/filters/PlaceholderWildcardValue.al:249-298, :300-325 `'A*B'..AXB`, :401-419; al-runner issue
+            // 7460; `*` alone: WildcardGetFilter.al:196, W4Filters.al `star_alone`). With an apostrophe it is not pinned.
+            if s.contains(['*', '?']) && !s.contains('"') {
+                // In a view the text is not pinned (except `*` alone, as before).
+                if iso && &**s != "*" {
+                    return unsupported("the view text of a literal filter value with a wildcard (not pinned)");
+                }
+                if s.contains('\'') {
+                    return unsupported("a filter value with a wildcard and an apostrophe (not pinned)");
+                }
+                return Ok(format!("'{s}'"));
             }
         }
         // A Time reads as Format gives it (events/platform-triggers/PtObserve.al:Filter_DateTime_Time `>=12:00:00 PM`, Bad_Time m3);
@@ -195,7 +214,8 @@ impl Session {
         Ok(match e {
             FilterExpr::Range(Some(a), Some(b)) => {
                 if al_builtins::ops::compare(a, b).ok() == Some(std::cmp::Ordering::Equal) {
-                    self.filter_value_with(a, iso)?
+                    // SetRange of one wildcard text reads back as `='A*B'` (PlaceholderWildcardValue.al:413-417, :622-626).
+                    format!("{}{}", equal_sign(a), self.filter_value_with(a, iso)?)
                 } else {
                     format!(
                         "{}..{}",
@@ -207,10 +227,10 @@ impl Session {
             FilterExpr::Range(Some(a), None) => format!("{}..", self.filter_value_with(a, iso)?),
             FilterExpr::Range(None, Some(b)) => format!("..{}", self.filter_value_with(b, iso)?),
             FilterExpr::Range(None, None) => return unsupported("an unbounded range filter"),
-            // The text `*` from `SetFilter(F, '%1', '*')` is the literal text, shown `='*'` (record/filters/W4Filters.al
-            // SetFilterPercent1_WildcardTogetherWithOperators `star_alone`).
-            FilterExpr::Eq(Value::Text(s) | Value::Code(s)) if &**s == "*" => "='*'".to_string(),
-            FilterExpr::Eq(v) => self.filter_value_with(v, iso)?,
+            // A literal wildcard text is shown after `=`: the text `*` from `SetFilter(F, '%1', '*')` as `='*'` (record/filters/
+            // W4Filters.al SetFilterPercent1_WildcardTogetherWithOperators `star_alone`), `?` and `=%1` with `A*B` as `='?'` and
+            // `='A*B'` (PlaceholderWildcardValue.al:236, :249-262).
+            FilterExpr::Eq(v) => format!("{}{}", equal_sign(v), self.filter_value_with(v, iso)?),
             // The blank DateTime of a quoted empty text alone (see the parser) shows `''..''` in GetFilter(s) and in a view
             // (record/filters/TimeFilterEmptyText.al:161 `empty`; record/views/Y71SetViewDateTime.al:125-127 dt_empty_or).
             FilterExpr::RangeSame(Value::DateTime(0)) => "''..''".to_string(),
@@ -218,8 +238,8 @@ impl Session {
                 let t = self.filter_value_with(v, iso)?;
                 format!("{t}..{t}")
             }
-            // `<>%1` with the text `*` reads back quoted (record/filters/WildcardGetFilter.al:196, :199).
-            FilterExpr::Ne(Value::Text(s) | Value::Code(s)) if &**s == "*" => "<>'*'".to_string(),
+            // `<>%1` with the text `*` or `?` reads back quoted (record/filters/WildcardGetFilter.al:196, :199;
+            // PlaceholderWildcardValue.al:226), as `filter_value_with` writes a literal wildcard text.
             FilterExpr::Ne(v) => format!("<>{}", self.filter_value_with(v, iso)?),
             FilterExpr::Lt(v) => format!("<{}", self.filter_value_with(v, iso)?),
             FilterExpr::Le(v) => format!("<={}", self.filter_value_with(v, iso)?),
@@ -238,6 +258,11 @@ impl Session {
             FilterExpr::AtSignAlone(negated) => if *negated { "<>@" } else { "@" }.to_string(),
             FilterExpr::EmptyViewValue => "==".to_string(),
             FilterExpr::UnpinnedMatch(inner, _) => self.filter_text_with(inner, iso)?,
+            FilterExpr::UnpinnedText(_) => {
+                return unsupported(
+                    "the text of a filter with a wildcard text written as a literal value (not pinned)",
+                );
+            }
             FilterExpr::NumCode(inner) => self.filter_text_with(inner, iso)?,
             // The parts of an OR list each show as alone: a quoted empty text on a DateTime field as `''..''` (record/views/
             // Y71SetViewDateTime.al:125-127 dt_empty_or, :207-209 sca_empty_or), the blank DateTime given as %1 as `''`
@@ -824,7 +849,7 @@ fn ordinals(e: &FilterExpr) -> FilterExpr {
         FilterExpr::NotLike(p, ci) => FilterExpr::NotLike(p.clone(), *ci),
         FilterExpr::AtSignAlone(n) => FilterExpr::AtSignAlone(*n),
         FilterExpr::EmptyViewValue => FilterExpr::EmptyViewValue,
-        FilterExpr::UnpinnedMatch(..) => e.clone(),
+        FilterExpr::UnpinnedMatch(..) | FilterExpr::UnpinnedText(_) => e.clone(),
         FilterExpr::NumCode(e) => FilterExpr::NumCode(e.clone()),
     }
 }

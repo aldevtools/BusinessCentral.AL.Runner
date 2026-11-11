@@ -1825,6 +1825,12 @@ fn table_filter_value(f: &crate::native::TableFilterField, value: &str) -> Resul
         ))
     };
     let v = value.trim();
+    // Chains of values with spaces on a Code or Text field, `''|A` too (crate::evaluate_table_filter_forms::spaced_chain_form).
+    if v == value {
+        if let Some(stored) = crate::evaluate_table_filter_forms::spaced_chain_form(&f.ty, v) {
+            return Ok(Ok(stored));
+        }
+    }
     if v.starts_with('\'') && (v.len() < 2 || !v.ends_with('\'')) {
         return Ok(Err("An single quote (') is missing.".into()));
     }

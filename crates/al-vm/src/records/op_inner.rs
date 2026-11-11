@@ -1522,14 +1522,8 @@ impl Session {
                 if group == al_builtins::filter::OR_GROUP && or_flowfield {
                     return Ok(Value::Null);
                 }
-                if let Some(from) = args.get(1) {
-                    let from = ops::convert(from.clone(), &ty)?;
-                    let to = match args.get(2) {
-                        Some(v) => ops::convert(v.clone(), &ty)?,
-                        None => from.clone(),
-                    };
-                    r.filters
-                        .push(FieldFilter::new(pos, FilterExpr::Range(Some(from), Some(to)), group));
+                if let Some(range) = super::setrange_filter::setrange_filter(&ty, &args[1..])? {
+                    r.filters.push(FieldFilter::new(pos, range, group));
                 }
                 Ok(Value::Null)
             }
