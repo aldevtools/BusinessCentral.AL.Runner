@@ -294,8 +294,11 @@ impl Session {
         }
         self.rename_changed_key_at_close(st, action)?;
         let host_saves = st.borrow().dirty || st.borrow().draft;
-        self.refuse_part_triggers_at_new_host_close(st)?;
+        let quiet = self.quiet_parts_at_new_host_close(st)?;
         let save = self.close_denied_modify(st).and_then(|()| self.close_save_row(st));
+        for c in quiet {
+            c.borrow_mut().quiet_at_close = false;
+        }
         match save {
             Err(Signal::Error(e)) if swallow_save_errors => {
                 al_builtins::native::refuse_unpinned_text(&e, "The error list of a page row")?;
@@ -318,9 +321,11 @@ impl Session {
         // (testpage/parts/TestPartCloseLinkEditableContracts.al:
         // Parts_CloseTriggers_AllPartsQueryClose_ThenHost_ThenPartsClose_ThenHost).
         // A part hidden by a Visible expression opened with the host and closes with it; one a literal `Visible = false` left
-        // out never opened (pages/W1Parts.al:408-411). The order of a hidden part's close triggers among shown parts is not
-        // pinned: refused when the hidden part declares them.
-        let (open_parts, mixed_order) = {
+        // out never opened (pages/W1Parts.al:408-411). When no shown part runs close code, a hidden part's close triggers run
+        // as with no shown part (testpage/parts/HiddenPartExtensionVariable.al:535 Hidden_OpenEdit_HostActions `closed`
+        // `[fb-query fb-close]`, its shown part Lines has none). Their order among shown parts that do run close code is not
+        // pinned: refused.
+        let open_parts = {
             let s = st.borrow();
             let mut all: Vec<(usize, St, bool)> = s
                 .parts
@@ -330,21 +335,19 @@ impl Session {
                 .filter(|(_, c, _)| c.borrow().open)
                 .collect();
             all.sort_by_key(|(i, _, _)| *i);
-            let shown = all.iter().any(|(_, _, h)| !h);
-            let hidden: Vec<St> = all.iter().filter(|(_, _, h)| *h).map(|(_, c, _)| c.clone()).collect();
-            let parts: Vec<St> = all.into_iter().map(|(_, c, _)| c).collect();
-            (parts, if shown { hidden } else { Vec::new() })
+            all
         };
-        for hidden in &mixed_order {
-            if ["onqueryclosepage", "onclosepage"]
+        let observes = |hidden: bool| {
+            open_parts
                 .iter()
-                .any(|t| self.declares(hidden, t))
-            {
-                return unsupported(
-                    "closing a host with a shown part and a part hidden by a Visible expression that has close triggers (order not pinned)",
-                );
-            }
+                .any(|(_, c, h)| *h == hidden && self.runs_close_code(c))
+        };
+        if observes(true) && observes(false) {
+            return unsupported(
+                "closing a host with a shown part and a part hidden by a Visible expression that both have close triggers (order not pinned)",
+            );
         }
+        let open_parts: Vec<St> = open_parts.into_iter().map(|(_, c, _)| c).collect();
         let none_ordinal = al_builtins::value::ACTION_MEMBERS
             .iter()
             .position(|m| *m == "None")
@@ -601,5 +604,17 @@ impl Session {
             (_, "Cancel") => false,
             _ => true,
         }
+    }
+
+    /// Whether closing part page `st` runs AL code: its or a page extension's OnQueryClosePage or OnClosePage, or a subscriber
+    /// of their events.
+    fn runs_close_code(&self, st: &St) -> bool {
+        let object = st.borrow().object as usize;
+        ["onqueryclosepage", "onclosepage"]
+            .iter()
+            .any(|t| self.declares_or_ext_declares(st, t))
+            || ["onqueryclosepageevent", "onclosepageevent"]
+                .iter()
+                .any(|t| self.engine().events.is_subscribed(object, t))
     }
 }
