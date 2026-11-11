@@ -259,9 +259,7 @@ impl Session {
             FilterExpr::EmptyViewValue => "==".to_string(),
             FilterExpr::UnpinnedMatch(inner, _) => self.filter_text_with(inner, iso)?,
             FilterExpr::UnpinnedText(_) => {
-                return unsupported(
-                    "the text of a filter with a wildcard text written as a literal value (not pinned)",
-                );
+                return unsupported("the text of a filter with a written wildcard text whose read-back is not pinned");
             }
             FilterExpr::NumCode(inner) => self.filter_text_with(inner, iso)?,
             // The parts of an OR list each show as alone: a quoted empty text on a DateTime field as `''..''` (record/views/
