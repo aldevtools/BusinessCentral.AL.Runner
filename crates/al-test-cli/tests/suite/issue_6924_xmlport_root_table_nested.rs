@@ -40,6 +40,12 @@ table 50302 "RT Line"
     keys { key(PK; "Entry No.") { Clustered = true; } }
 }
 
+table 50304 "RT Pending"
+{
+    fields { field(1; Id; Integer) { } }
+    keys { key(PK; Id) { Clustered = true; } }
+}
+
 table 50303 "RT Blob"
 {
     fields
@@ -562,6 +568,21 @@ codeunit 50300 "RT Tests"
         Check('last error after', GetLastErrorText(), 'an earlier error');
         Check('dump', Port.Dump(), 'roots=1/0 headers=5/C5/[];6/C6/[];');
     end;
+
+    // Not pinned: the static form returns false without reading the document while the caller holds an uncommitted write; whether
+    // OnPostXmlPort runs then is not measured (the pin of the skip, XpRootTableNested.al:604, is a failed read). Last: it writes.
+    [Test]
+    procedure Full_StaticWithPendingWrite_Refused()
+    var
+        Src: Record "RT Blob" temporary;
+        Pending: Record "RT Pending";
+        InS: InStream;
+    begin
+        WriteSource(Src, IssueDoc(), TextEncoding::Windows, InS);
+        Pending.Id := 1;
+        Pending.Insert();
+        if not Xmlport.Import(Xmlport::"RT Full", InS) then;
+    end;
 }
 "#;
 
@@ -597,5 +618,9 @@ fn a_root_table_element_holding_a_nested_table_element_imports_as_bc_does() {
             ),
         ),
     );
+    want.push((
+        "Full_StaticWithPendingWrite_Refused".to_string(),
+        al_testrun::Outcome::NotRun("OnPostXmlPort after a guarded run that returned false (not pinned)".to_string()),
+    ));
     assert_eq!(outcomes, want);
 }

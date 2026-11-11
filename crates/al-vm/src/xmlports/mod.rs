@@ -717,9 +717,11 @@ impl Session {
         // returned false it is not pinned.
         if let Some(r) = post {
             if matches!(result, Value::Boolean(false)) {
-                // A guarded import of a `root_holding_table` port that returned false does not run it (al-runner issue 6924;
-                // xmlports/shapes-properties/XpRootTableNested.al:604, :622, :640, the log ends before `post`).
-                if dir == Dir::Import && port_with_root_holding_table(&schema) {
+                // A guarded import of a `root_holding_table` port whose read of the document failed does not run it (al-runner
+                // issue 6924; xmlports/shapes-properties/XpRootTableNested.al:604, :622, :640, the log ends before `post`). A false
+                // without a read (the static form with a pending write, `xp_import`) is not pinned.
+                let read_failed = inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_IMPORT_FAILED);
+                if dir == Dir::Import && read_failed && port_with_root_holding_table(&schema) {
                     mark_root_table_nested();
                     return Ok(result);
                 }
