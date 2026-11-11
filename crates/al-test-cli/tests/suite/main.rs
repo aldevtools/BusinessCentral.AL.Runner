@@ -203,6 +203,7 @@ mod values_allowed_setvalue;
 mod with_statement;
 mod worksheet_validate_temp_part;
 mod xmlport_request_page;
+mod xmlport_windows_import_refusals;
 mod xrec_table_procedure_from_onvalidate;
 mod y14_pins;
 mod y17_expr_refresh;

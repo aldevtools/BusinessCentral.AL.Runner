@@ -1045,6 +1045,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
     let layout = cx.layout;
     let mut run_reasons = layout.run_reasons.clone();
     let mut export_reasons = layout.export_reasons.clone();
+    let mut import_reasons: Vec<String> = Vec::new();
     let mut nodes: Vec<ir::XmlNode> = Vec::new();
     for (i, raw) in layout.nodes.iter().enumerate() {
         let sec = &raw.section;
@@ -1165,7 +1166,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                         raw.name
                     ));
                 }
-                table_props::lower(cx, layout, i, &mut node, &mut reasons);
+                table_props::lower(cx, layout, i, &mut node, &mut reasons, &mut import_reasons);
                 let link_table = layout
                     .property(i, "LinkTable")
                     .map(|v| crate::scan::unquote_xmlport(&v));
@@ -1300,6 +1301,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
         unsupported: reasons,
         run_unsupported: run_reasons,
         export_unsupported: export_reasons,
+        import_unsupported: import_reasons,
         // A linked table element with MaxOccurs = Unbounded and a root text element with MinOccurs = Once are pinned by
         // xmlports/shapes-properties/QrXpContainerOccurs.al TS_Linked_Unbounded_* and TS_RootOnce_* (were assumptions
         // `xmlport-linked-max-unbounded`, `xmlport-root-min-occurs-once`); no layout rests on an assumption now.
