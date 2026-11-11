@@ -14,8 +14,6 @@ use al_sema::workspace::Workspace;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write;
 
-const STUB: &str = "not compiled: no code reached it";
-
 struct Graph {
     /// First flat index of each object's routines.
     base: Vec<usize>,
@@ -60,7 +58,9 @@ fn build(lowered: &Lowered) -> Graph {
         let (o, r) = g.at[i];
         let reasons = &lowered.unsupported[o][r];
         // A stub's reason comes after the object's global reasons, if it has any.
-        let stub = reasons.iter().any(|s| s.starts_with(STUB));
+        let stub = reasons
+            .iter()
+            .any(|s| s.starts_with(al_sema::check::NOT_REACHED) || s.starts_with(al_sema::check::UNSELECTED));
         g.reached[i] = !stub;
         g.refused[i] = !stub && !reasons.is_empty();
         g.dep[i] = lowered.dependency[o];

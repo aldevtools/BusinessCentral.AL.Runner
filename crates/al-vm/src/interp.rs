@@ -217,7 +217,8 @@ impl Session {
     /// kind is refused.
     pub(crate) fn clear_all(&mut self, f: &Frame) -> Result<Value, Signal> {
         let object = f.instance.borrow().object as usize;
-        let o = &self.engine.program.objects[object];
+        let engine = self.engine.clone();
+        let o = &engine.program.objects[object];
         let keep: Vec<usize> = match o.kind {
             al_ir::ObjKind::Codeunit | al_ir::ObjKind::Table => o.rec_slot.into_iter().collect(),
             // A table extension keeps its record, fields and filters, as a table does (pages/extensions/CyClearAllExtensions.al:
@@ -248,12 +249,11 @@ impl Session {
         };
         let table_like = matches!(o.kind, al_ir::ObjKind::Table | al_ir::ObjKind::TableExtension);
         let page_ext = o.kind == al_ir::ObjKind::PageExtension;
-        let tys: Vec<RtType> = o.globals.iter().map(|g| g.ty.clone()).collect();
         self.alias_any(f)?;
         let globals = f.instance.borrow().globals.clone();
         let bound = self.clear_all_bound_globals(&globals, &keep, true)?;
         let keep: Vec<usize> = keep.into_iter().chain(bound).collect();
-        let fresh: Vec<Value> = tys.iter().map(|t| self.default_value(t)).collect();
+        let fresh = self.slot_defaults(&o.globals);
         let mut inst = f.instance.borrow_mut();
         for (i, v) in fresh.into_iter().enumerate() {
             if !keep.contains(&i) {
@@ -302,10 +302,9 @@ impl Session {
                         .chain(eo.xrec_slot)
                         .chain(eo.globals.iter().position(|g| g.name == "CurrPage"))
                         .collect();
-                    let tys: Vec<RtType> = eo.globals.iter().map(|g| g.ty.clone()).collect();
                     let ext_globals = ext.borrow().globals.clone();
                     self.clear_all_bound_globals(&ext_globals, &keep, false)?;
-                    let fresh: Vec<Value> = tys.iter().map(|t| self.default_value(t)).collect();
+                    let fresh = self.slot_defaults(&eo.globals);
                     let mut ei = ext.borrow_mut();
                     for (i, v) in fresh.into_iter().enumerate() {
                         if keep.contains(&i) {
@@ -355,7 +354,8 @@ impl Session {
                 return refuse();
             }
             let object = rc.borrow().object as usize;
-            let o = &self.engine.program.objects[object];
+            let engine = self.engine.clone();
+            let o = &engine.program.objects[object];
             if o.rec_slot.is_some() {
                 return Err(Signal::Unsupported(
                     "ClearAll of a global codeunit variable whose bound instance has a TableNo record (not pinned)"
@@ -368,8 +368,7 @@ impl Session {
                         .into(),
                 ));
             }
-            let tys: Vec<RtType> = o.globals.iter().map(|g| g.ty.clone()).collect();
-            let fresh: Vec<Value> = tys.iter().map(|t| self.default_value(t)).collect();
+            let fresh = self.slot_defaults(&o.globals);
             let mut b = rc.borrow_mut();
             for (k, nv) in fresh.into_iter().enumerate() {
                 if k < b.globals.len() {
@@ -418,8 +417,7 @@ impl Session {
         }
         for (o, inst) in others {
             let keep = slots(o);
-            let tys: Vec<RtType> = objects[o].globals.iter().map(|g| g.ty.clone()).collect();
-            let fresh: Vec<Value> = tys.iter().map(|t| self.default_value(t)).collect();
+            let fresh = self.slot_defaults(&objects[o].globals);
             let mut i = inst.borrow_mut();
             for (g, v) in fresh.into_iter().enumerate() {
                 if keep.contains(&g) {
@@ -845,6 +843,11 @@ impl Session {
             self.events.next_var_lens.clear();
         } else if facts.publisher {
             self.events.publisher_var_lens.clear();
+        }
+        if facts.publisher {
+            // A publisher call refused before `publish` took them leaves them behind; the next event must not alias this
+            // caller's globals (al-runner issue 7615).
+            self.events.var_origins.clear();
         }
         for (slot, inst, g) in &f.aliases {
             f.locals[*slot] = inst.borrow().globals[*g].clone();
@@ -1509,7 +1512,8 @@ impl Session {
             ),
             v => v,
         };
-        // `:=` between records copies the fields into the target record (ADR-010).
+        // `:=` between records copies the fields into the target record (ADR-010); the target keeps its own SecurityFiltering
+        // (al-language/reports/runtime/ACAttributes.al:379-384).
         if let Value::Record(src) = &v {
             // A Variant that holds a record takes the new value whole, whatever table it comes from: it is no record variable
             // (Library - Variable Storage.Dequeue into one `RecVar` that held a Contact, then a Segment Header; Tests-Marketing).
