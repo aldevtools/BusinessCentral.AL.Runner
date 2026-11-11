@@ -1882,6 +1882,37 @@ fn field_arguments_become_field_positions() {
     assert_eq!(args[0], ir::Arg::Value(ir::Expr::Const(ir::Const::FieldPos(1))));
 }
 
+/// `RecRef.Field(FieldName: Text)` and `RecRef.FieldExist(FieldName: Text)` take the name the field HOLDS, not the
+/// field itself (al-runner issue 7616); `SetCurrentKey(Field1, Field2..)` still names fields.
+#[test]
+fn a_field_passed_for_a_text_field_name_is_its_value() {
+    let src = format!(
+        "{TABLE}\ncodeunit 50100 C {{ procedure P() var R: Record \"ALT T\"; RR: RecordRef; begin \
+         if RR.FieldExist(R.\"No.\") then; RR.Field(R.\"No.\"); R.SetCurrentKey(\"No.\", Amount); end; }}"
+    );
+    let (_, l) = lower_src(&src);
+    let p = l.program.objects[1].routines.iter().find(|r| r.name == "P").unwrap();
+    let field_pos = |a: &ir::Arg| matches!(a, ir::Arg::Value(ir::Expr::Const(ir::Const::FieldPos(_))));
+    let ir::Stmt::If(ir::Expr::Builtin { id, args, .. }, _, _) = &p.body[0] else {
+        panic!("{:?}", p.body[0])
+    };
+    assert!(
+        id.name() == "RecordRef.FieldExist#1" && !field_pos(&args[0]),
+        "{id:?} {args:?}"
+    );
+    let ir::Stmt::Expr(ir::Expr::Builtin { id, args, .. }) = &p.body[1] else {
+        panic!("{:?}", p.body[1])
+    };
+    assert!(
+        id.name() == "RecordRef.Field#1" && !field_pos(&args[0]),
+        "{id:?} {args:?}"
+    );
+    let ir::Stmt::Expr(ir::Expr::Builtin { args, .. }) = &p.body[2] else {
+        panic!("{:?}", p.body[2])
+    };
+    assert!(args.iter().all(field_pos), "{args:?}");
+}
+
 #[test]
 fn table_procedures_run_on_the_record() {
     let src = format!(
