@@ -143,6 +143,7 @@ fn map_expr(e: &E, field: &str, variant: bool) -> Result<E, StoreError> {
                 (lo, hi) => E::NumCode(Box::new(E::Range(lo.flatten(), hi.flatten()))),
             }
         }
+        E::UnpinnedText(inner) => E::UnpinnedText(Box::new(map_expr(inner, field, variant)?)),
         E::Or(xs) => E::Or(
             xs.iter()
                 .map(|x| map_expr(x, field, variant))
@@ -164,6 +165,7 @@ fn map_expr(e: &E, field: &str, variant: bool) -> Result<E, StoreError> {
 fn compares_numbers(e: &E) -> bool {
     match e {
         E::Or(xs) | E::And(xs) => xs.iter().any(compares_numbers),
+        E::UnpinnedText(inner) => compares_numbers(inner),
         E::Like(..) | E::NotLike(..) | E::AtSignAlone(_) | E::EmptyViewValue | E::UnpinnedMatch(..) => false,
         _ => true,
     }
@@ -174,6 +176,7 @@ fn reaches_texts(e: &E) -> bool {
     match e {
         E::Lt(_) | E::Le(_) | E::Ne(_) | E::Range(None, _) => true,
         E::Or(xs) | E::And(xs) => xs.iter().any(reaches_texts),
+        E::UnpinnedText(inner) => reaches_texts(inner),
         _ => false,
     }
 }

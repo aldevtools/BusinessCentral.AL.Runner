@@ -66,6 +66,7 @@ fn round_expr(e: &FilterExpr) -> FilterExpr {
         F::Ge(v) => F::Ge(rounded(v)),
         F::Or(es) => F::Or(es.iter().map(round_expr).collect()),
         F::And(es) => F::And(es.iter().map(round_expr).collect()),
+        F::UnpinnedText(inner) => F::UnpinnedText(Box::new(round_expr(inner))),
         F::Like(..) | F::NotLike(..) | F::AtSignAlone(_) | F::EmptyViewValue | F::NumCode(_) | F::UnpinnedMatch(..) => {
             e.clone()
         }

@@ -4,7 +4,7 @@
 # the limit in the same file. A function may not grow past its cap. When one shrinks, lower its cap;
 # at 250 lines or fewer, delete the row. Never raise a cap or add a row: extract steps into functions
 # of their own. Owner decides otherwise.
-"crates/al-builtins/src/format.rs::format_value" = 295
+"crates/al-builtins/src/format.rs::format_value" = 294
 "crates/al-builtins/src/ops.rs::arith_general" = 294
 "crates/al-deps/src/artifact.rs::load_with_artifacts" = 432
 "crates/alrunner-cli/src/args.rs::parse" = 472
@@ -25,7 +25,7 @@
 "crates/al-testrun/src/runtime/corpus.rs::compile_suites_once" = 446
 "crates/al-testrun/src/runtime/corpus.rs::run_compiled_kept" = 894
 "crates/al-testrun/src/runtime/run.rs::run_codeunit_inner" = 829
-"crates/al-version/src/gates.rs::evidence" = 460
+"crates/al-version/src/gates.rs::evidence" = 453
 "crates/al-vm/src/exec/compile.rs::expr_into" = 318
 "crates/al-vm/src/exec/run.rs::run_range" = 340
 "crates/al-vm/src/pages/actions.rs::action_invoke_body" = 451
