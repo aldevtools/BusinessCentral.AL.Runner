@@ -212,8 +212,12 @@ pub struct PageState {
     /// The new row is the one TestPage.OpenNew started (not a later New() or a filter's new row): its parts' blank reads are
     /// pinned (`card_part_new_host.rs`).
     pub draft_from_open: bool,
-    /// A part a Visible expression hid at open that an action's body made visible once (`provider_hidden.rs`).
-    pub turned_visible: bool,
+    /// A part a Visible expression hid at open has been visible since (`provider_hidden.rs`).
+    pub seen_visible: bool,
+    /// Such a part was visible at its host's last refill (`provider_hidden.rs`).
+    pub visible_at_sync: bool,
+    /// A TestPage SetValue on this page is validating (`provider_hidden.rs`: a part it turns visible is refused).
+    pub in_set_value: bool,
     /// Where an action of a Document page stands that saved a SetValue of the host before its trigger: 0 none, 1 that save's
     /// refresh is running, 2 the save is done and a CurrPage.Update in the trigger has not refreshed yet, 3 it has
     /// (record/captions/QdCaptionClassAreas.al:1015-1049 QO_Doc_OpenEdit_HostSteps `update`).

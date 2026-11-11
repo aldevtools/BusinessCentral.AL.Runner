@@ -13,15 +13,24 @@ use super::*;
 impl Session {
     /// Whether `st` is a part of a top-level Card or Document page.
     pub(super) fn part_on_card_or_document_host(&self, st: &St) -> bool {
-        let Some(host) = st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade()) else {
+        let host = st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade());
+        host.is_some_and(|h| self.top_card_or_document(&h))
+    }
+
+    /// Whether part `st` is linked to its host by a SubPageLink.
+    pub(super) fn part_linked(&self, st: &St) -> bool {
+        let Some((host, control)) = st
+            .borrow()
+            .host
+            .as_ref()
+            .and_then(|(h, c)| h.upgrade().map(|h| (h, *c)))
+        else {
             return false;
         };
-        let h = host.borrow();
-        h.host.is_none()
-            && matches!(
-                self.engine.object_facts[h.object as usize].page_type,
-                Some(al_ir::PageType::Card | al_ir::PageType::Document)
-            )
+        page_of(&self.engine(), &host).controls[control]
+            .part_link
+            .as_ref()
+            .is_some_and(|l| !l.entries.is_empty())
     }
 
     /// Whether page `st` has a repeater.
@@ -36,23 +45,20 @@ impl Session {
     /// new row TestPage.OpenNew started and nobody stored yet. Every pin is that shape; after a New() on an open host the part
     /// reads as before (not pinned).
     pub(super) fn card_part_of_new_host(&self, st: &St) -> bool {
-        let Some((host, control)) = st
+        let new_host = st
             .borrow()
             .host
             .as_ref()
-            .and_then(|(h, c)| h.upgrade().map(|h| (h, *c)))
-        else {
-            return false;
-        };
-        let new_host = {
-            let h = host.borrow();
-            h.draft && !h.draft_stored && h.draft_from_open
-        };
-        let linked = page_of(&self.engine(), &host).controls[control]
-            .part_link
-            .as_ref()
-            .is_some_and(|l| !l.entries.is_empty());
-        new_host && linked && self.part_on_card_or_document_host(st) && self.has_source(st) && !self.has_repeater(st)
+            .and_then(|(h, _)| h.upgrade())
+            .is_some_and(|h| {
+                let h = h.borrow();
+                h.draft && !h.draft_stored && h.draft_from_open
+            });
+        new_host
+            && self.part_linked(st)
+            && self.part_on_card_or_document_host(st)
+            && self.has_source(st)
+            && !self.has_repeater(st)
     }
 
     /// The blank record of such a part: Rec is blank, and its OnAfterGetCurrRecord and that event's subscribers run once
@@ -76,7 +82,7 @@ impl Session {
     }
 
     /// A new row on a page without a Provider link, with a part a Visible expression hid that declares OnAfterGetCurrRecord,
-    /// with a repeater or on a host other than a top-level Card or Document page: what BC runs for it is not measured (a hidden
+    /// with a repeater, without a SubPageLink or on a host other than a top-level Card or Document page: what BC runs for it is not measured (a hidden
     /// ListPart reads its blank line fewer times than its shown twin inside a Provider chain, testpage/parts/
     /// ProviderLinkedPartsMatrix.al:1225 against :1244). Refused before the parts open. With a Provider link the hidden parts read
     /// as ProviderLinkedPartsMatrix.al pins.
@@ -90,10 +96,10 @@ impl Session {
         }
         for (_, c) in hidden {
             if self.declares_or_ext_declares(c, "onaftergetcurrrecord")
-                && (self.has_repeater(c) || !self.part_on_card_or_document_host(c))
+                && (self.has_repeater(c) || !self.part_on_card_or_document_host(c) || !self.part_linked(c))
             {
                 return unsupported(
-                    "a new row on a page with a part hidden by a Visible expression that declares OnAfterGetCurrRecord, a part with a repeater or on a host other than a Card or Document page (not pinned)",
+                    "a new row on a page with a part hidden by a Visible expression that declares OnAfterGetCurrRecord, a part with a repeater, without a SubPageLink or on a host other than a Card or Document page (not pinned)",
                 );
             }
         }

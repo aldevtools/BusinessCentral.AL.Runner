@@ -4,6 +4,9 @@
 
 use super::*;
 
+/// The refusal of a part a Visible expression hid that a field's OnValidate turns visible.
+const VALIDATE_TURN: &str = "an OnValidate that makes a part hidden by a Visible expression visible (not pinned)";
+
 impl Session {
     /// Whether part `i` of the host page takes its link from a Provider or is the Provider of another part.
     fn part_in_provider_chain(&self, st: &St, i: usize) -> bool {
@@ -244,12 +247,12 @@ impl Session {
     }
 
     /// A part that the action's body made visible (its Visible expression false before the body, true after it). Pinned: the
-    /// first turn of a part without a repeater that a Visible expression hid at open, on a top-level Card or Document page that
-    /// stands on a stored row: it reads its row once more before the host's refresh (testpage/parts/
+    /// first time a part without a repeater that a Visible expression hid at open shows (`PageState::seen_visible`), on a
+    /// top-level Document page that stands on a stored row: it reads its row once more before the host's refresh (testpage/parts/
     /// HiddenPartExtensionVariable.al:632 Hidden_OpenEdit_FlipTheVariable_ThenActions `flip` `act-flip(Yes) fb-agr(H1) fb-agcr(H1)
-    /// host-agcr(H1) ext-agcr(H1) fb-agr(H1) fb-agcr(H1)`). Every other turn is refused: a second turn, a part shown at open, a
-    /// part with a repeater, another host, a host on a new or no row. A Visible value the host's own triggers or an OnValidate
-    /// change is not this shape (`note_hidden_part_found_visible`).
+    /// host-agcr(H1) ext-agcr(H1) fb-agr(H1) fb-agcr(H1)`). Every other turn is refused: a part that showed before, a part shown
+    /// at open, a part with a repeater, another host (a Card too: the pin is a Document page), a host on a new or no row. A
+    /// Visible value the host's own triggers change is `note_hidden_part_found_visible`.
     pub(super) fn read_hidden_parts_the_action_showed(
         &mut self,
         st: &St,
@@ -265,44 +268,74 @@ impl Session {
                 .iter()
                 .find(|(h, _)| *h == i)
                 .map(|(_, c)| c.clone());
-            let host_on_stored_row = {
+            let document_on_stored_row = {
                 let s = st.borrow();
-                s.cursor == Cursor::Row && !s.draft
+                s.cursor == Cursor::Row
+                    && !s.draft
+                    && s.host.is_none()
+                    && self.engine.object_facts[s.object as usize].page_type == Some(al_ir::PageType::Document)
             };
             let pinned = hidden.filter(|c| {
-                c.borrow().open
-                    && !c.borrow().turned_visible
-                    && host_on_stored_row
-                    && self.part_on_card_or_document_host(c)
-                    && !self.has_repeater(c)
+                c.borrow().open && !c.borrow().seen_visible && document_on_stored_row && !self.has_repeater(c)
             });
             let Some(child) = pinned else {
                 return unsupported(
-                    "an action that makes a part visible again, a part shown at open, with a repeater, on a host other than a Card or Document page, or on a host without a stored row (not pinned)",
+                    "an action that makes a part visible that showed before, a part shown at open, with a repeater, on a host other than a Document page, or on a host without a stored row (not pinned)",
                 );
             };
-            child.borrow_mut().turned_visible = true;
+            {
+                let mut c = child.borrow_mut();
+                c.seen_visible = true;
+                c.visible_at_sync = true;
+            }
             self.sync_part(st, i, &child)?;
         }
         Ok(())
     }
 
-    /// A part a Visible expression hid at open, on a page without a Provider link, found visible at a later sync without the
-    /// action's read (its host's trigger or an OnValidate set the expression): it reads like a shown part, which no probe pins
-    /// for that turn. Marks the assumption `hidden-part-shown-outside-action`.
+    /// A part a Visible expression hid at open, on a page without a Provider link, that runs record triggers and was hidden at
+    /// the host's last refill but is visible now, without the action's read: its host's own trigger set the expression (the
+    /// Customer Card's Pending Approval FactBox, `Visible = OpenApprovalEntriesExistCurrUser`, set by the card's
+    /// OnAfterGetCurrRecord: Tests-Workflow WF Demo Customer Approval, 134205). It reads like a shown part, which no probe pins
+    /// for that turn: marks the assumption `hidden-part-shown-outside-action`. A turn made inside a SetValue (a field's
+    /// OnValidate) is needed by no cited test: refused, here and after the SetValue (`refuse_hidden_part_shown_by_validate`).
     pub(super) fn note_hidden_part_found_visible(&mut self, st: &St, parts: &[(usize, St)]) -> Result<(), Signal> {
         if st.borrow().hidden_parts.is_empty() || self.page_has_provider_link(st) {
             return Ok(());
         }
         for (i, c) in parts {
             let hidden = st.borrow().hidden_parts.iter().any(|(_, h)| Rc::ptr_eq(h, c));
-            if hidden
-                && c.borrow().open
-                && !c.borrow().turned_visible
-                && self.runs_record_triggers(c)
-                && self.control_visible(st, *i)?
-            {
+            if !hidden || !c.borrow().open || !self.runs_record_triggers(c) {
+                continue;
+            }
+            let visible = self.control_visible(st, *i)?;
+            if visible && !c.borrow().visible_at_sync {
+                if st.borrow().in_set_value {
+                    return unsupported(VALIDATE_TURN);
+                }
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::HiddenPartShownOutsideAction);
+            }
+            let mut c = c.borrow_mut();
+            c.visible_at_sync = visible;
+            c.seen_visible |= visible;
+        }
+        Ok(())
+    }
+
+    /// After a TestPage SetValue on `st`: a part a Visible expression hid that the validation turned visible is refused
+    /// (see `note_hidden_part_found_visible`).
+    pub(super) fn refuse_hidden_part_shown_by_validate(&mut self, st: &St) -> Result<(), Signal> {
+        if st.borrow().hidden_parts.is_empty() || self.page_has_provider_link(st) {
+            return Ok(());
+        }
+        let hidden = st.borrow().hidden_parts.clone();
+        for (i, c) in hidden {
+            if c.borrow().open
+                && !c.borrow().visible_at_sync
+                && self.runs_record_triggers(&c)
+                && self.control_visible(st, i)?
+            {
+                return unsupported(VALIDATE_TURN);
             }
         }
         Ok(())

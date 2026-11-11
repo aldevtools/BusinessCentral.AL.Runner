@@ -388,30 +388,18 @@ impl Session {
     /// action (HiddenPartExtensionVariable.al:502 Hidden_OpenNew_ActionsBeforeTheKey `plain` `2 [act-plain]`) and runs as before;
     /// so does a card without parts (`plain_card_draft`).
     fn refuse_action_on_new_host_with_parts(&mut self, st: &St) -> Result<(), Signal> {
-        let start = {
+        let new_row = {
             let s = st.borrow();
-            if !(s.open && s.host.is_none() && s.draft && !s.draft_stored && s.dirty) {
-                return Ok(());
-            }
-            s.draft_start.clone()
+            s.open && s.draft && !s.draft_stored && s.dirty
         };
-        let card_or_document = matches!(
-            self.engine.object_facts[st.borrow().object as usize].page_type,
-            Some(al_ir::PageType::Card | al_ir::PageType::Document)
-        );
-        let Some(start) = start else { return Ok(()) };
-        if !card_or_document || Self::open_parts_with_hidden(st).is_empty() || !self.has_source(st) {
+        if !new_row
+            || !self.top_card_or_document(st)
+            || Self::open_parts_with_hidden(st).is_empty()
+            || !self.has_source(st)
+        {
             return Ok(());
         }
-        let rec = self.page_rec(st);
-        let table = self.table(&rec)?;
-        let key_typed = table.keys[0].iter().any(|&k| {
-            !Self::same_values(
-                std::slice::from_ref(&rec.borrow().fields[k]),
-                std::slice::from_ref(&start[k]),
-            )
-        });
-        if key_typed {
+        if self.key_typed_since_draft_start(st)? {
             return unsupported(
                 "an action on a new row whose key was typed, on a page with parts (BC stores the row first and reads the page again; not implemented)",
             );

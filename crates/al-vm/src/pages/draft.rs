@@ -779,43 +779,64 @@ impl Session {
         Ok(())
     }
 
+    /// Whether `st` is a top-level Card or Document page: the host type of every new-row part pin (testpage/parts/
+    /// HiddenPartOutsideChain.al, a Card; HiddenPartExtensionVariable.al and PartLineBeforeHostKey.al, a Document).
+    pub(super) fn top_card_or_document(&self, st: &St) -> bool {
+        st.borrow().host.is_none()
+            && matches!(
+                self.engine.object_facts[st.borrow().object as usize].page_type,
+                Some(al_ir::PageType::Card | al_ir::PageType::Document)
+            )
+    }
+
+    /// Whether a SetValue typed the key of the new row: its key differs from the one it started with (`PageState::draft_start`,
+    /// after the filters stamped it and OnNewRecord ran). False for a row `start_draft` did not start.
+    pub(super) fn key_typed_since_draft_start(&mut self, st: &St) -> Result<bool, Signal> {
+        let Some(start) = st.borrow().draft_start.clone() else {
+            return Ok(false);
+        };
+        let rec = self.page_rec(st);
+        let table = self.table(&rec)?;
+        let r = rec.borrow();
+        Ok(table.keys[0]
+            .iter()
+            .any(|&k| !Self::same_values(std::slice::from_ref(&r.fields[k]), std::slice::from_ref(&start[k]))))
+    }
+
     /// Close inserts a new host whose key was typed, over a part that shows no row, declares OnNewRecord or OnAfterGetCurrRecord
     /// and that the test never called: the part does not read again after the insert, so neither trigger runs (pages/parts/
     /// PartLineBeforeHostKey.al:1702 QH_EmptyPart_OpenNew_KeyTyped, a Document host with a list part, `close` =
     /// `[H.OnInsert:Q1]`; testpage/parts/HiddenPartOutsideChain.al:335 Chain_FbShown_OpenNewTypeKey, a Card host with a CardPart
     /// whose link finds the inserted row, `closed` `docs=3 log=[]`, hidden or shown, with or without a Provider link: :321, :349,
-    /// :363). Pinned for a top-level Card or Document page whose key a SetValue changed since the row started
-    /// (`PageState::draft_start`): those parts, shown and hidden, are returned marked `quiet_at_close`, and the caller clears the
-    /// mark. On another page, or with a key the row started with (from a filter or OnNewRecord), such a part is refused. A part
+    /// :363). Every pin is the row TestPage.OpenNew started (`PageState::draft_from_open`) on a top-level Card or Document page,
+    /// with a key a SetValue typed: those parts, shown and hidden, are returned marked `quiet_at_close`, and the caller clears
+    /// the mark. Any other such part is refused (a New() on an open host, another page type, a key the row started with). A part
     /// the test called or a typed line relinks as before.
     pub(super) fn quiet_parts_at_new_host_close(&mut self, st: &St) -> Result<Vec<St>, Signal> {
-        let start = {
+        {
             let s = st.borrow();
             if !(s.draft && s.dirty && s.host.is_none()) {
                 return Ok(Vec::new());
             }
-            s.draft_start.clone()
-        };
+        }
         let parts: Vec<St> = Self::open_parts_with_hidden(st).into_iter().map(|(_, c)| c).collect();
         if parts.is_empty() {
             return Ok(Vec::new());
         }
         let rec = self.page_rec(st);
-        let table = self.table(&rec)?;
-        let differs = |base: &[Value]| {
+        let key_set = {
+            let initial = self.initial_fields(rec.borrow().table as usize);
+            let table = self.table(&rec)?;
             let r = rec.borrow();
             table.keys[0]
                 .iter()
-                .any(|&p| al_builtins::ops::compare(&r.fields[p], &base[p]).ok() != Some(std::cmp::Ordering::Equal))
+                .any(|&p| al_builtins::ops::compare(&r.fields[p], &initial[p]).ok() != Some(std::cmp::Ordering::Equal))
         };
-        if !differs(&self.initial_fields(rec.borrow().table as usize)) {
+        if !key_set {
             return Ok(Vec::new());
         }
-        let card_or_document = matches!(
-            self.engine.object_facts[st.borrow().object as usize].page_type,
-            Some(al_ir::PageType::Card | al_ir::PageType::Document)
-        );
-        let pinned = card_or_document && start.as_deref().is_some_and(differs);
+        let pinned =
+            st.borrow().draft_from_open && self.top_card_or_document(st) && self.key_typed_since_draft_start(st)?;
         let mut quiet = Vec::new();
         for c in parts {
             if c.borrow().part_accessed || (c.borrow().draft && c.borrow().dirty) {

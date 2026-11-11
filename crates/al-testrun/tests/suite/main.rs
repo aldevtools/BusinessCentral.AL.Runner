@@ -29,6 +29,7 @@ mod failure_after_refused_test;
 mod failure_after_unfinished_test;
 mod fieldref_calcfield_blob;
 mod filter_page_caption_assign;
+mod hidden_part_turns;
 mod impact_static;
 mod impact_trace;
 mod incremental;
