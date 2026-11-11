@@ -95,6 +95,21 @@ fn engine_and_session_start_make_no_object_and_a_call_makes_what_it_runs() {
     assert!(objects.made() < objects.len());
 }
 
+/// Review of the cell tap (finding 1): turning the tap on reads object heads only; it makes no object.
+#[test]
+fn turning_the_cell_tap_on_makes_no_object() {
+    let mut lowered = al_testkit::compile(SRC);
+    let eager = lowered.program.clone();
+    lowered.program = Arc::new(lazy(&eager));
+    let mut built = Built::new(lowered);
+    built.session.enable_cell_tap();
+    assert_eq!(
+        built.session.engine.program.objects.made(),
+        0,
+        "the cell tap made objects"
+    );
+}
+
 /// Sorted debug lines of a map, so two maps compare whatever their hash order.
 fn lines<K: std::fmt::Debug, V: std::fmt::Debug>(m: &std::collections::HashMap<K, V>) -> Vec<String> {
     let mut v: Vec<String> = m.iter().map(|e| format!("{e:?}")).collect();

@@ -137,6 +137,23 @@ pub(crate) struct ReachFacts {
 }
 
 impl ReachFacts {
+    /// Adds what `other` holds: the reach of two routines taken together (the first reason of `unknown` stays).
+    pub fn absorb(&mut self, other: &ReachFacts) {
+        self.touched.extend(other.touched.iter().copied());
+        self.writes.extend(other.writes.iter().copied());
+        self.writes_any |= other.writes_any;
+        self.globals_read.extend(other.globals_read.iter().copied());
+        self.globals_written.extend(other.globals_written.iter().copied());
+        self.state_reads |= other.state_reads;
+        self.state_writes |= other.state_writes;
+        if self.unknown.is_none() {
+            self.unknown.clone_from(&other.unknown);
+        }
+        if self.report_cannot_run.is_none() {
+            self.report_cannot_run.clone_from(&other.report_cannot_run);
+        }
+    }
+
     /// Whether the reach can draw from or reseed the session's `Random` sequence.
     pub fn random(&self) -> bool {
         self.state_writes & state::RANDOM != 0 || self.unknown.is_some()

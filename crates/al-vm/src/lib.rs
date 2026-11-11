@@ -92,6 +92,7 @@ mod load_fields_request;
 mod media_orphans;
 mod min_row_version;
 mod native_rows;
+pub mod observer_tap;
 mod pages;
 mod partial;
 mod permission_shadow;
@@ -1411,14 +1412,7 @@ impl Session {
                 trial: Default::default(),
                 global_setups: Default::default(),
             },
-            coverage: CoverageState {
-                code_coverage: false,
-                coverage_counts: None,
-                recorder: Default::default(),
-                impact: Default::default(),
-                impact_on: false,
-                profiler: None,
-            },
+            coverage: CoverageState::default(),
             report: ReportState::default(),
         };
         session.seed_platform_rows(&ident);
@@ -2340,6 +2334,9 @@ impl Session {
         let aliases = std::mem::take(&mut self.events.next_aliases);
         self.events.next_is_subscriber = false;
         self.note_routine(object, routine);
+        if self.coverage.cells.is_some() {
+            self.tap_cells(object, routine, &instance);
+        }
         self.first_use(&instance)?;
         self.note_caller_writes(&instance, object, routine)?;
         let engine = self.engine.clone();

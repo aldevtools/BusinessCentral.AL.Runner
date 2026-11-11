@@ -23,6 +23,9 @@ pub enum ChainWhy {
     TestsTakeNumbers,
     /// It has RequiredTestIsolation = Disabled and is not run: the chain notes what it may have left.
     NotRun,
+    /// The sequential strict run (ADR-070): it leaves nothing the later codeunits can see, and runs in its place in BC's
+    /// order for the single instances it takes over from the one before it and hands to the next.
+    InOrder,
 }
 
 impl ChainWhy {
@@ -33,6 +36,7 @@ impl ChainWhy {
             ChainWhy::OnRunWritesState => "OnRun can change isolated storage or a number sequence",
             ChainWhy::TestsTakeNumbers => "tests can take NumberSequence numbers",
             ChainWhy::NotRun => "isolation Disabled, not run",
+            ChainWhy::InOrder => "in BC's order (sequential strict run)",
         }
     }
 }
@@ -93,6 +97,15 @@ pub struct ChainReport {
 pub const NUMBERS_LINES_MAX: usize = 5;
 
 impl ChainReport {
+    /// Adds what another walk found (the sequential strict run's BC sessions each report on their own thread).
+    pub(super) fn absorb(&mut self, other: ChainReport) {
+        self.members.extend(other.members);
+        self.reruns.extend(other.reruns);
+        self.carried.extend(other.carried);
+        self.singles_kept += other.singles_kept;
+        self.singles_read_carried += other.singles_read_carried;
+    }
+
     /// ADR-066 amendment 12, decision 3: the numbers list, one line per codeunit. The run output prints it with or
     /// without `--timings`.
     pub fn numbers_lines(&self) -> Vec<String> {

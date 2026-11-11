@@ -16,6 +16,9 @@ impl Scratch {
         if !answered.is_empty() {
             self.ui_answered.push((name.to_string(), answered.clone()));
         }
+        if let Some(c) = session.take_cell_record() {
+            self.cells.push((name.to_string(), c));
+        }
         (reached, answered)
     }
 
@@ -33,6 +36,9 @@ impl Scratch {
         };
         if let Some(i) = self.stubbed.iter().position(|(n, _)| n == name) {
             r.stubs = std::mem::take(&mut self.stubbed[i].1);
+        }
+        if let Some(i) = self.cells.iter().position(|(n, _)| n == name) {
+            r.cells = Some(self.cells.swap_remove(i).1);
         }
         if let Some(i) = self.ui_answered.iter().position(|(n, _)| n == name) {
             r.ui_answered = std::mem::take(&mut self.ui_answered[i].1);
