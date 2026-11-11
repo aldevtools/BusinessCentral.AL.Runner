@@ -48,8 +48,10 @@ codeunit 1990 "Guided Experience"
         if not G.Get(ObjectID) then exit(false);
         exit(not G.Completed);
     end;
-    procedure Register() begin OnRegisterAssistedSetup(); end;
+    procedure Register() begin OnRegisterAssistedSetup(); OnRegisterManualSetup(); OnRegisterGuidedExperienceItem(); end;
     [IntegrationEvent(false, false)] local procedure OnRegisterAssistedSetup() begin end;
+    [IntegrationEvent(false, false)] local procedure OnRegisterManualSetup() begin end;
+    [IntegrationEvent(false, false)] local procedure OnRegisterGuidedExperienceItem() begin end;
 }
 codeunit 1997 "Checklist Events"
 {
@@ -454,7 +456,7 @@ codeunit 51151 "Repro Finish Wizard Test"
 /// `DEP` with `CompleteAssistedSetup` and `Exists` on "Guided Experience", in the shape of System Application's code.
 fn dep_with_complete() -> String {
     let dep = DEP.replace(
-        "    procedure Register() begin OnRegisterAssistedSetup(); end;\n",
+        "    procedure Register() begin OnRegisterAssistedSetup(); OnRegisterManualSetup(); OnRegisterGuidedExperienceItem(); end;\n",
         r#"    procedure CompleteAssistedSetup(ObjectID: Integer)
     var G: Record "Guided Experience Item";
     begin
@@ -467,7 +469,7 @@ fn dep_with_complete() -> String {
     begin
         exit(G.Get(ObjectID));
     end;
-    procedure Register() begin OnRegisterAssistedSetup(); end;
+    procedure Register() begin OnRegisterAssistedSetup(); OnRegisterManualSetup(); OnRegisterGuidedExperienceItem(); end;
 "#,
     );
     assert_ne!(dep, DEP);
@@ -712,7 +714,12 @@ codeunit 51201 "Own Insert Tests"
         matches!(&o[3], (n, Outcome::Fail(m)) if n == "InsertsTheKeyOfTheLoginRow" && m.contains("already exists")),
         "{o:?}"
     );
-    assert!(hits.iter().all(|(_, h)| h.is_empty()), "{hits:?}");
+    // Each test touches the table the app's login subscriber wrote alone: `login-own-registration-reads-alone`.
+    assert!(
+        hits.iter()
+            .all(|(_, h)| h == &vec!["login-own-registration-reads-alone"]),
+        "{hits:?}"
+    );
 }
 
 // Gap 1 across two tests (review probe "PB Cross Test"): the first test keeps what it read of the login's row in a
@@ -1646,4 +1653,182 @@ fn under_disabled_isolation_state_the_login_leaves_besides_rows_is_refused() {
     ));
     let o = outcomes_in(WATCHED_BINDING, DEP, "WA Test", TestIsolation::Disabled, false);
     assert!(refused_unmodelled(&o[0].1, "bind a manual event subscriber"), "{o:?}");
+}
+
+// Round five (review of issue 7717, round four).
+
+/// HIGH 1 (probes p12, p12b): the app subscribes to the registration events Microsoft's code raises after
+/// OnRegisterAssistedSetup at login. Their raise is not pinned, so the login is raised through Microsoft's code.
+fn registration_events(with_assisted: bool) -> String {
+    let assisted = if with_assisted {
+        "    [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Guided Experience\", 'OnRegisterAssistedSetup', '', false, false)]\n    local procedure A() begin Log('ASSISTED'); end;\n"
+    } else {
+        ""
+    };
+    let expected = if with_assisted {
+        "ASSISTED;MANUAL;ITEM;"
+    } else {
+        "MANUAL;ITEM;"
+    };
+    format!(
+        r#"
+table 51940 "X Log" {{ fields {{ field(1; No; Integer) {{ AutoIncrement = true; }} field(2; Txt; Text[30]) {{ }} }} keys {{ key(PK; No) {{ Clustered = true; }} }} }}
+codeunit 51940 "X Login"
+{{
+    local procedure Log(T: Text) var L: Record "X Log"; begin L.Txt := T; L.Insert(); end;
+{assisted}    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure M() begin Log('MANUAL'); end;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterGuidedExperienceItem', '', false, false)]
+    local procedure I() begin Log('ITEM'); end;
+}}
+codeunit 51941 "XA Reads Only"
+{{
+    Subtype = Test;
+    [Test]
+    procedure A1() var L: Record "X Log"; T: Text; begin if L.FindSet() then repeat T += L.Txt + ';'; until L.Next() = 0; if T <> '{expected}' then Error('LOG %1', T); end;
+}}
+codeunit 51942 "XB Inserts"
+{{
+    Subtype = Test;
+    [Test]
+    procedure B1() var L: Record "X Log"; T: Text; begin L.Txt := 'OWN'; L.Insert(); L.Reset(); L.SetFilter(Txt, '<>OWN'); if L.FindSet() then repeat T += L.Txt + ';'; until L.Next() = 0; if T <> '{expected}' then Error('LOG %1', T); end;
+}}
+"#
+    )
+}
+
+// Both codeunits see the rows of all three registration events, with and without an OnRegisterAssistedSetup subscriber.
+#[test]
+fn subscribers_of_the_later_registration_events_get_the_login_raised() {
+    for with_assisted in [true, false] {
+        let main = registration_events(with_assisted);
+        for codeunit in ["XA Reads Only", "XB Inserts"] {
+            let o = outcomes_in(&main, DEP, codeunit, TestIsolation::Codeunit, false);
+            assert!(
+                o.iter().all(|(_, r)| *r == Outcome::Pass),
+                "{with_assisted} {codeunit}: {o:?}"
+            );
+        }
+    }
+}
+
+/// HIGH 2 (probe p10): the dependency registers its own wizard (object 1803) at login. The app's
+/// OnRegisterAssistedSetup subscriber registers the app's own wizard (keyed on its own object), and its OnAfterLogin
+/// subscriber asks whether the dependency's row exists.
+const READS_MICROSOFTS_ROW: &str = r#"
+table 51950 "Y Note" { fields { field(1; Code; Code[20]) { } field(2; Txt; Text[50]) { } } keys { key(PK; Code) { Clustered = true; } } }
+page 51950 "Y Wizard" { PageType = NavigatePage; layout { area(Content) { group(S) { InstructionalText = 'Step 1'; } } } }
+codeunit 51950 "Y Login"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterAssistedSetup', '', false, false)]
+    local procedure Register() var G: Codeunit "Guided Experience"; begin G.InsertAssistedSetup(Page::"Y Wizard"); end;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"System Initialization", 'OnAfterLogin', '', false, false)]
+    local procedure AfterLogin() var G: Codeunit "Guided Experience"; N: Record "Y Note";
+    begin
+        N.Code := 'AFTER';
+        N.Txt := 'MsItem=' + Format(G.AssistedSetupExistsAndIsNotComplete(1803));
+        N.Insert();
+    end;
+}
+codeunit 51951 "YA Reads Only"
+{
+    Subtype = Test;
+    [Test]
+    procedure A1() var N: Record "Y Note"; begin N.Get('AFTER'); if N.Txt <> 'MsItem=Yes' then Error('SAW %1', N.Txt); end;
+}
+codeunit 51952 "YB Inserts"
+{
+    Subtype = Test;
+    [Test]
+    procedure B1() var N: Record "Y Note"; begin N.Code := 'OWN'; N.Insert(); N.Get('AFTER'); if N.Txt <> 'MsItem=Yes' then Error('SAW %1', N.Txt); end;
+}
+"#;
+
+/// The dependency's own registration at login.
+const DEP_REGISTRATION: &str = r#"
+codeunit 1998 "Dep Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterAssistedSetup', '', false, false)]
+    local procedure Register() var G: Codeunit "Guided Experience"; begin G.InsertAssistedSetup(1803); end;
+}
+"#;
+
+// A subscriber that reads a row the dependency's login code writes, from a table it writes itself, gets the login
+// raised: both codeunits see the dependency's row.
+#[test]
+fn a_subscriber_that_reads_the_dependencys_registration_gets_the_login_raised() {
+    let dep = format!("{DEP}{DEP_REGISTRATION}");
+    for codeunit in ["YA Reads Only", "YB Inserts"] {
+        assert_all_pass(&outcomes_in(
+            READS_MICROSOFTS_ROW,
+            &dep,
+            codeunit,
+            TestIsolation::Codeunit,
+            false,
+        ));
+    }
+}
+
+// A registration keyed on the app's own object stays Own, and a test that touches the table it wrote is a flagged pass
+// (`login-own-registration-reads-alone`).
+#[test]
+fn a_test_that_touches_what_the_own_subscribers_wrote_is_flagged() {
+    let main = READS_MICROSOFTS_ROW.replace(
+        "G.AssistedSetupExistsAndIsNotComplete(1803)",
+        "G.AssistedSetupExistsAndIsNotComplete(Page::\"Y Wizard\")",
+    );
+    let dep = format!("{DEP}{DEP_REGISTRATION}");
+    let (o, hits) = outcomes_and_hits(&main, &dep, "YB Inserts");
+    assert_eq!(o, vec![("B1".to_string(), Outcome::Pass)], "{hits:?}");
+    assert!(
+        hits.iter()
+            .any(|(_, h)| h.contains(&"login-own-registration-reads-alone")),
+        "{hits:?}"
+    );
+}
+
+/// MEDIUM 1 (probe p9b): the OnRegisterAssistedSetup subscriber writes, then an OnAfterLogin subscriber fails. On BC the
+/// registration commits with the Checklist Events subscriber before the app's OnAfterLogin subscriber runs, so the
+/// failing subscriber is rolled back alone.
+const REGISTERS_THEN_FAILS: &str = r#"
+table 51960 "Z Row" { fields { field(1; Code; Code[20]) { } } keys { key(PK; Code) { Clustered = true; } } }
+codeunit 51960 "Z Login"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterAssistedSetup', '', false, false)]
+    local procedure Register() var R: Record "Z Row"; begin R.Code := 'REG'; R.Insert(); end;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"System Initialization", 'OnAfterLogin', '', false, false)]
+    local procedure AfterLogin() var R: Record "Z Row"; begin R.Code := 'AFTER'; R.Insert(); Error('Z Login fails'); end;
+}
+codeunit 51961 "ZA Reads Only"
+{
+    Subtype = Test;
+    [Test]
+    procedure A1() var R: Record "Z Row"; begin R.Get('REG'); if R.Get('AFTER') then Error('AFTER is there'); end;
+}
+codeunit 51962 "ZB Inserts"
+{
+    Subtype = Test;
+    [Test]
+    procedure B1() var R: Record "Z Row"; begin R.Code := 'OWN'; R.Insert(); R.Get('REG'); if R.Get('AFTER') then Error('AFTER is there'); end;
+}
+codeunit 51963 "ZC Unrelated"
+{
+    Subtype = Test;
+    [Test]
+    procedure C1() begin if UpperCase('a') <> 'A' then Error('text'); end;
+}
+"#;
+
+// The registration's row stays, the failing subscriber's row is rolled back, and every codeunit runs.
+#[test]
+fn a_failing_after_login_subscriber_is_rolled_back_alone_after_a_registration() {
+    for codeunit in ["ZA Reads Only", "ZB Inserts", "ZC Unrelated"] {
+        assert_all_pass(&outcomes_in(
+            REGISTERS_THEN_FAILS,
+            DEP,
+            codeunit,
+            TestIsolation::Codeunit,
+            false,
+        ));
+    }
 }

@@ -377,6 +377,30 @@ pub(crate) fn login_subscriber_reach_facts(
     walk.out
 }
 
+/// [`login_subscriber_reach_facts`] of the login subscribers `roots` together, without entering the routines of the
+/// objects `skip` (`login.rs` asks the calls into those itself), and the routines the walk visited.
+pub(crate) fn login_subscribers_reach_without(
+    events: &al_vm::events::Registry,
+    lowered: &Lowered,
+    index: &ReachIndex,
+    roots: &[(usize, usize)],
+    skip: &[usize],
+) -> (ReachFacts, Vec<(usize, usize)>) {
+    let mut walk = Walk::new(events, lowered, index);
+    walk.calls_only = true;
+    walk.runs_in_calls = true;
+    walk.login = true;
+    walk.visited = Some(Vec::new());
+    for &o in skip {
+        for r in 0..lowered.program.objects[o].routines.len() {
+            walk.first_visit(o, r);
+        }
+    }
+    walk.stack.extend(roots.iter().rev().copied());
+    walk.run(&|_| false);
+    (walk.out, walk.visited.unwrap_or_default())
+}
+
 /// The facts of the joined reach of the routines `roots`, one walk of the union of their reaches, that does not enter
 /// the routines `skip` (nor what only they reach).
 pub(crate) fn union_reach_facts_skipping(
@@ -769,6 +793,8 @@ struct Walk<'a> {
     /// Whether a walk of calls only also enters the table triggers, without the table's events, and the subscribers in
     /// apps under test of the events raised ([`login_subscriber_reach_facts`]).
     login: bool,
+    /// The routines visited, when kept ([`login_subscribers_reach_without`]).
+    visited: Option<Vec<(usize, usize)>>,
 }
 
 impl<'a> Walk<'a> {
@@ -789,6 +815,7 @@ impl<'a> Walk<'a> {
             calls_only: false,
             runs_in_calls: false,
             login: false,
+            visited: None,
         }
     }
 
@@ -799,6 +826,9 @@ impl<'a> Walk<'a> {
                 break;
             }
             if self.first_visit(o, r) {
+                if let Some(v) = &mut self.visited {
+                    v.push((o, r));
+                }
                 self.routine(o, r);
             }
         }

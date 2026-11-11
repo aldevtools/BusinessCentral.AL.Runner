@@ -229,6 +229,8 @@ pub struct MemStore {
 struct Watch {
     tables: std::collections::BTreeSet<u32>,
     hit: Option<u32>,
+    /// Every watched table that was read or written ([`MemStore::watch_hits`]).
+    hits: std::collections::BTreeSet<u32>,
     window: Option<(std::collections::BTreeSet<u32>, Option<u32>)>,
 }
 
@@ -797,6 +799,11 @@ impl MemStore {
         self.watch.as_ref().and_then(|w| w.borrow().hit)
     }
 
+    /// Every watched table that was read or written since [`MemStore::watch`].
+    pub fn watch_hits(&self) -> std::collections::BTreeSet<u32> {
+        self.watch.as_ref().map(|w| w.borrow().hits.clone()).unwrap_or_default()
+    }
+
     /// Opens a window on `tables`: [`MemStore::watch_window_end`] says which of them was accessed first while it is
     /// open. The watch ([`MemStore::watch`]) goes on as it was, and an access the watch noted before does not count.
     pub fn watch_window(&mut self, tables: std::collections::BTreeSet<u32>) {
@@ -820,8 +827,9 @@ impl MemStore {
     fn seen(&self, object: u32) {
         if let Some(w) = &self.watch {
             let mut w = w.borrow_mut();
-            if w.hit.is_none() && w.tables.contains(&object) {
-                w.hit = Some(object);
+            if w.tables.contains(&object) {
+                w.hit.get_or_insert(object);
+                w.hits.insert(object);
             }
             if let Some((tables, hit @ None)) = &mut w.window {
                 if tables.contains(&object) {
@@ -838,6 +846,7 @@ impl MemStore {
             if w.hit.is_none() {
                 w.hit = w.tables.iter().next().copied();
             }
+            w.hits = w.tables.clone();
             if let Some((tables, hit @ None)) = &mut w.window {
                 *hit = tables.iter().next().copied();
             }

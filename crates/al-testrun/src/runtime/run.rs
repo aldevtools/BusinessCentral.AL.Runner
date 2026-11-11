@@ -988,8 +988,8 @@ fn run_codeunit_inner(
             // cannot seed the sequence with `Randomize(n)`.
             let drew_carried = session.carried_random_draws() > carried_before;
             // A test that read or wrote, while it ran, a table a Company Triggers subscriber wrote before the first test
-            // (al-runner issue 5641), or one an Unmodelled login would write (`login.rs`): what it found there is not pinned.
-            let hit = session.store_mut().watch_hit().filter(|_| began);
+            // (al-runner issue 5641), or one a watched login wrote (`login.rs`): what it found there is not pinned.
+            let hit = company_open.watch_hit(session, began);
             let outcome = match (hit, hit.and_then(|t| company_open.touched(t, lowered))) {
                 (_, Some(why)) => Outcome::NotRun(why),
                 (Some(t), None) if leak.contains(&t) => {

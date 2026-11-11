@@ -1032,6 +1032,9 @@ pub(crate) struct CompanyOpenWrites {
     /// The apps under test's own login subscribers ran where what BC's login does is not known (`login::Login::Own`):
     /// the tables they wrote, and why.
     pub watched_login: Option<(BTreeSet<u32>, &'static str)>,
+    /// The tables the apps under test's own login subscribers wrote in the session the pin measured
+    /// (`login::Login::Own`): a test that touches one relies on `login-own-registration-reads-alone`.
+    pub own_login: BTreeSet<u32>,
 }
 
 impl CompanyOpenWrites {
@@ -1059,11 +1062,29 @@ impl CompanyOpenWrites {
         Some(self.reason(&format!("this test can read table {}", Self::table_name(lowered, *t))))
     }
 
-    /// The tables whose reads and writes a test is watched for: those a subscriber wrote, and those of `watched_login`.
+    /// The tables whose reads and writes a test is watched for: those a subscriber wrote, those of `watched_login`, and
+    /// `own_login`.
     pub fn watched(&self) -> BTreeSet<u32> {
         let mut out = self.tables.clone();
         out.extend(self.watched_login.iter().flat_map(|(t, _)| t.iter().copied()));
+        out.extend(self.own_login.iter().copied());
         out
+    }
+
+    /// After a test that `began`: the watched table it touched that decides its outcome ([`CompanyOpenWrites::touched`]),
+    /// else the first one it touched. A test that touched a table of `own_login` marks
+    /// `login-own-registration-reads-alone`.
+    pub fn watch_hit(&self, session: &mut Session, began: bool) -> Option<u32> {
+        if !began {
+            return None;
+        }
+        let hits = session.store_mut().watch_hits();
+        if !self.own_login.is_disjoint(&hits) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LoginOwnRegistrationReadsAlone);
+        }
+        let deciding = (hits.iter())
+            .find(|t| self.tables.contains(t) || self.watched_login.as_ref().is_some_and(|(w, _)| w.contains(t)));
+        deciding.copied().or_else(|| session.store_mut().watch_hit())
     }
 
     /// Why a test that read or wrote table `t` while it ran is not run: `None` when `t` is not watched.
@@ -1191,7 +1212,10 @@ pub(crate) fn test_session_company_open(
             wrote.who.get_or_insert(name);
         }
     }
-    wrote.watched_login = watched.map(|why| (own_wrote, why));
+    match watched {
+        Some(why) => wrote.watched_login = Some((own_wrote, why)),
+        None => wrote.own_login = own_wrote,
+    }
     Ok(wrote)
 }
 
@@ -1232,6 +1256,13 @@ fn own_login(
                 ));
             }
             Err(_) => return Err(format!("{what} stopped before the first test (not pinned)")),
+        }
+        // On BC the registration events are raised inside Base Application's "Checklist Events" subscriber of the
+        // isolated OnAfterLogin, whose own transaction commits before the app's OnAfterLogin subscribers run; an isolated
+        // event isolates a subscriber only when nothing is pending (codeunits/TestIsolatedEventSubscriberError.al:5-11,
+        // :59-72, :74-88).
+        if e.event != "onafterlogin" {
+            session.commit_transaction();
         }
     }
     let store = session.store_mut();

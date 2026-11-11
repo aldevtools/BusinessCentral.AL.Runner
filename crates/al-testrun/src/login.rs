@@ -15,9 +15,12 @@
 //! - **Raise**: the dependency apps' Company Triggers `OnCompanyOpenCompleted` subscribers run with the apps under test's
 //!   own (`install::test_session_company_open`): the real code of Microsoft's apps, which raises both events. Microsoft's
 //!   code that cannot run here refuses the codeunit. Used for a test codeunit that can see what an app under test's login
-//!   subscriber leaves; when those subscribers read what Microsoft's login code writes before them (the checklist setup,
-//!   `SystemInitialization.IsInProgress()`, a table it writes and they do not); and when the checklist is already set up,
-//!   where Microsoft's code does not raise `OnRegisterAssistedSetup` (the pin's header, :10, does not measure that case).
+//!   subscriber leaves; when those subscribers read what the dependency apps' login code writes ([`reads_microsofts_login`]:
+//!   the checklist setup, `SystemInitialization.IsInProgress()`, a Guided Experience row other than through a call keyed
+//!   on the app's own object); when an app under test subscribes to `OnRegisterManualSetup` or
+//!   `OnRegisterGuidedExperienceItem`, whose raise at login no corpus test pins ([`RAISE_ONLY`]); and when the checklist is
+//!   already set up, where Microsoft's code does not raise `OnRegisterAssistedSetup` (the pin's header, :10, does not
+//!   measure that case).
 //! - **Own**: otherwise, in the session the pin measured (a Web client with GuiAllowed), the two events are raised to the
 //!   apps under test's own subscribers only, in the order the login raises them (:140), where "System Initialization
 //!   Impl." would raise the login ([`LOGIN_RAISER`]). The event code runs them, so `OnAfterLogin` stays an isolated event:
@@ -32,19 +35,22 @@
 //!     static reach binds a manual subscriber, reseeds `Random`, or writes a codeunit global the test codeunit reads.
 //!
 //! What is still not modelled, in one list:
-//! - What Microsoft's own login code adds around the app's subscribers (the rows of Microsoft's own subscribers to the two
-//!   events, the checklist setup) is there only on the Raise path. [`decide`] raises the login for a test codeunit whose
-//!   static reach can see the tables or the state the app's subscribers leave; another one that reads what only
-//!   Microsoft's login code leaves runs without it.
-//! - Own: a subscriber that reads a table Microsoft's login code writes and that it writes too (Guided Experience Item,
-//!   which every registration of an assisted setup reads) gets Own; that it finds the same rows there as inside the login
-//!   is a documentation-only premise (docs/probes-needed.md).
+//! - What the dependency apps' login code adds around the app's subscribers (Microsoft's and any other dependency app's
+//!   subscribers to the events, the checklist setup) is there only on the Raise path. [`decide`] raises the login for a
+//!   test codeunit whose static reach can see the tables or the state the app's subscribers leave; another one that
+//!   reads what only the dependency apps' login code leaves runs without it.
+//! - Own: the subscribers leave alone what they leave inside the login. Registered as the assumption
+//!   `login-own-registration-reads-alone`, marked when a test touches a table they wrote.
+//! - Own: whether the checklist is set up is asked before the app's own Company Triggers subscribers run; one that marks
+//!   it done there would change what Microsoft's code does at the login.
+//! - Own: a subscriber of an app under test that was not compiled is not refused by the raise (`Session::raise_to`
+//!   leaves out the not-compiled check, whose entries do not say their app).
 //! - Own: an application area a subscriber sets is cleared when the first test starts, as for every test (not pinned
 //!   either way).
 
 use crate::runtime::written::{
-    ReachFacts, ReachIndex, login_subscriber_reach_facts, state, union_call_reach_facts, union_reach_facts_skipping,
-    union_reach_facts_without_database_events,
+    ReachFacts, ReachIndex, login_subscriber_reach_facts, login_subscribers_reach_without, state,
+    union_call_reach_facts, union_reach_facts_skipping, union_reach_facts_without_database_events,
 };
 use al_sema::lower::Lowered;
 use al_vm::Engine;
@@ -82,10 +88,23 @@ pub(crate) struct OwnEvent {
 /// The publishers of the login events an app under test can subscribe to: (codeunit id, name, event in lower case), in
 /// the order the login raises them: "Guided Experience".`OnRegisterAssistedSetup` before "System Initialization".
 /// `OnAfterLogin` (LgnLoginChecklistTests.al:140, the expected entries).
+/// `OnRegisterManualSetup` and `OnRegisterGuidedExperienceItem` follow the first in Microsoft's
+/// `Checklist.InitializeGuidedExperienceItems`; the pin covers only the first ([`RAISE_ONLY`]).
 const LOGIN_EVENTS: &[(u32, &str, &str)] = &[
     (1990, "Guided Experience", "onregisterassistedsetup"),
+    (1990, "Guided Experience", "onregistermanualsetup"),
+    (1990, "Guided Experience", "onregisterguidedexperienceitem"),
     (150, "System Initialization", "onafterlogin"),
 ];
+
+/// The login events whose raise at login no corpus test pins (review of al-runner issue 7717, round four, probes p12,
+/// p12b): a subscriber of an app under test to one of them gets the login raised through Microsoft's code, which
+/// decides. A probe next to LgnLoginChecklistTests.al can let Own raise them (docs/probes-needed.md).
+const RAISE_ONLY: &[&str] = &["onregistermanualsetup", "onregisterguidedexperienceitem"];
+
+/// Microsoft's facade codeunits whose procedures read the rows of the object they are given
+/// ([`reads_microsofts_login`]): "Guided Experience" and "Checklist" (System Application).
+const KEYED_FACADES: &[(u32, &str)] = &[(1990, "Guided Experience"), (1992, "Checklist")];
 
 /// The id of System Application's "System Initialization Impl.", whose Company Triggers `OnCompanyOpenCompleted`
 /// subscriber `InitCompany` raises the login: the apps under test's own login subscribers run where it runs, among the
@@ -100,13 +119,13 @@ pub(crate) const NO_CLIENT: &str = "the login was not raised for this test codeu
 pub(crate) const DISABLED: &str = "the login was not raised for this test codeunit, and under RequiredTestIsolation = Disabled how what the login writes meets what an earlier codeunit left is not pinned";
 
 /// What the apps under test's login subscribers leave: the facts of their reach ([`login_subscriber_reach_facts`]), and
-/// the codeunits of the apps under test whose state they keep; and whether they read what Microsoft's login code writes
+/// the codeunits of the apps under test whose state they keep; and whether they read what the dependency apps' login code writes
 /// before them. Made once per engine.
 #[derive(Default)]
 struct LoginLeaves {
     facts: ReachFacts,
     state: BTreeSet<usize>,
-    /// Why the subscribers read what Microsoft's login code writes before them ([`reads_microsofts_login`]).
+    /// Why the subscribers read what the dependency apps' login code writes before them ([`reads_microsofts_login`]).
     reads_microsoft: Option<String>,
 }
 
@@ -152,23 +171,28 @@ fn own_events(lowered: &Lowered, events: &Registry) -> Vec<OwnEvent> {
     out
 }
 
-/// Why the apps under test's login subscribers, whose reach is `own`, read what Microsoft's login code writes before
-/// they run, so that alone they would see other state than inside the login (review of al-runner issue 7717, round
-/// three: a subscriber that asks `Checklist.ShouldInitializeChecklist` or `SystemInitialization.IsInProgress()` sees No
-/// and Yes inside the login, Yes and No alone). Microsoft's login code is what [`LOGIN_RAISER`]'s Company Triggers
-/// subscriber runs and the subscribers in Microsoft's apps to the two events, through their own code
-/// ([`login_subscriber_reach_facts`]). A table both write is not counted: every registration of an assisted setup reads
-/// and writes Guided Experience Item, which Microsoft's login code writes too (the premise in docs/probes-needed.md).
+/// Why the apps under test's login subscribers `subs` read what the dependency apps' login code writes before they run,
+/// so that alone they would see other state than inside the login (review of al-runner issue 7717, rounds three and
+/// four: alone, a subscriber that asks `Checklist.ShouldInitializeChecklist`, `SystemInitialization.IsInProgress()` or
+/// whether Microsoft's own assisted setup row exists gets other answers than inside the login). The dependency apps'
+/// login code is what [`LOGIN_RAISER`]'s Company Triggers subscriber runs and their subscribers to the login events,
+/// through their own code ([`login_subscriber_reach_facts`]). Every table the subscribers touch counts, also one they
+/// write themselves, except through a call to a procedure of a [`KEYED_FACADES`] codeunit whose object id argument is a
+/// constant naming an object of an app under test: that call reads only the rows of that object (System Application's
+/// Guided Experience reads filter on the object's type and id or on the code built from it), and the dependency apps'
+/// login code registers none of the apps' objects. That those calls read alone what they read inside the login is the
+/// registered assumption `login-own-registration-reads-alone`.
 fn reads_microsofts_login(
     events: &Registry,
     lowered: &Lowered,
     index: &ReachIndex,
-    own: &ReachFacts,
+    subs: &[(usize, usize)],
 ) -> Option<String> {
     let objects = &lowered.program.objects;
+    let dependency = |i: usize| lowered.dependency.get(i).copied().unwrap_or(false);
     let mut ms = ReachFacts::default();
     let raiser = (objects.heads().iter().enumerate())
-        .filter(|(i, o)| lowered.dependency.get(*i).copied().unwrap_or(false) && o.id == Some(LOGIN_RAISER))
+        .filter(|(i, o)| dependency(*i) && o.id == Some(LOGIN_RAISER))
         .map(|(i, _)| i);
     let roots: Vec<(usize, usize)> = raiser
         .flat_map(|i| {
@@ -187,22 +211,80 @@ fn reads_microsofts_login(
         ms.writes.extend(f.writes);
         ms.globals_written.extend(f.globals_written);
     }
+    let facades: Vec<usize> = (0..objects.len())
+        .filter(|&i| {
+            dependency(i)
+                && objects[i].is_kind(al_ir::ObjKind::Codeunit)
+                && KEYED_FACADES
+                    .iter()
+                    .any(|&(id, name)| objects[i].id == Some(id) && objects[i].name.eq_ignore_ascii_case(name))
+        })
+        .collect();
+    let (mut own, visited) = login_subscribers_reach_without(events, lowered, index, subs, &facades);
+    for (o, r) in facade_calls(lowered, &visited, &facades) {
+        let f = login_subscriber_reach_facts(events, lowered, index, o, r);
+        own.touched.extend(f.touched);
+        own.globals_read.extend(f.globals_read);
+    }
     let name = |t: u32| objects.get(t as usize).map_or("?", |o| o.name.as_str()).to_string();
-    if let Some(t) = own
-        .touched
-        .iter()
-        .find(|t| ms.writes.contains(t) && !own.writes.contains(t))
-    {
+    if let Some(t) = own.touched.iter().find(|t| ms.writes.contains(t)) {
         return Some(format!(
-            "they read table {}, which Microsoft's login code writes before them",
+            "they touch table {}, which the dependency apps' login code writes",
             name(*t)
         ));
     }
     let g = (own.globals_read.iter()).find(|g| ms.globals_written.contains(g) && single_instance(lowered, g.0))?;
     Some(format!(
-        "they read a global of SingleInstance codeunit {} that Microsoft's login code sets",
+        "they read a global of SingleInstance codeunit {} that the dependency apps' login code sets",
         objects.get(g.0).map_or("?", |o| o.name.as_str())
     ))
+}
+
+/// The procedures of the codeunits `facades` that the routines `visited` call other than with a constant object id
+/// naming an object of an app under test ([`reads_microsofts_login`]).
+fn facade_calls(lowered: &Lowered, visited: &[(usize, usize)], facades: &[usize]) -> BTreeSet<(usize, usize)> {
+    let objects = &lowered.program.objects;
+    let mut out = BTreeSet::new();
+    for &(o, r) in visited {
+        let Some(routine) = objects.get(o).and_then(|x| x.routines.get(r)) else {
+            continue;
+        };
+        al_ir::types::for_each_expr_post(routine.body.stmts(), &mut |e| {
+            if let al_ir::Expr::Call {
+                object, routine, args, ..
+            } = e
+            {
+                if facades.contains(object) && !keyed_on_own_object(lowered, *object, *routine, args) {
+                    out.insert((*object, *routine));
+                }
+            }
+        });
+    }
+    out
+}
+
+/// Whether a call of routine `routine` of `object` passes, for a parameter whose name holds "ObjectID", a constant
+/// naming an object of an app under test.
+fn keyed_on_own_object(lowered: &Lowered, object: usize, routine: usize, args: &[al_ir::Arg]) -> bool {
+    let objects = &lowered.program.objects;
+    let callee = &objects[object].routines[routine];
+    let Some(at) = (callee.locals[..callee.params].iter()).position(|p| p.name.to_lowercase().contains("objectid"))
+    else {
+        return false;
+    };
+    let mut arg = match args.get(at) {
+        Some(al_ir::Arg::Value(e)) => e,
+        _ => return false,
+    };
+    while let al_ir::Expr::Convert(_, inner) = arg {
+        arg = inner;
+    }
+    let al_ir::Expr::Const(al_ir::Const::Integer(id)) = arg else {
+        return false;
+    };
+    (0..objects.len()).any(|i| {
+        !lowered.dependency.get(i).copied().unwrap_or(true) && objects[i].id.is_some_and(|x| i64::from(x) == *id as i64)
+    })
 }
 
 /// Whether object `o` is a SingleInstance codeunit: only its globals outlive the call that set them.
@@ -213,7 +295,7 @@ fn single_instance(lowered: &Lowered, o: usize) -> bool {
             .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"))
 }
 
-/// The automatic subscribers in Microsoft's apps to the two login events (object, routine).
+/// The automatic subscribers of the dependency apps (Microsoft's and any other) to the login events (object, routine).
 fn own_events_of_microsoft(lowered: &Lowered, events: &Registry) -> Vec<(usize, usize)> {
     let objects = &lowered.program.objects;
     let mut out = Vec::new();
@@ -249,7 +331,7 @@ fn own_events_of_microsoft(lowered: &Lowered, events: &Registry) -> Vec<(usize, 
 /// Application (Guided Experience's telemetry reaches every telemetry logger subscriber), and a test codeunit that only
 /// reads what it writes is not one the login is modelled for (corpus Y64InstallSubscribers.al reads a table a telemetry
 /// logger subscriber of a cross-app fixture writes, guarded so that the login writes nothing). Every test codeunit gets
-/// the login raised when the subscribers read what Microsoft's login code writes before them ([`reads_microsofts_login`],
+/// the login raised when the subscribers read what the dependency apps' login code writes before them ([`reads_microsofts_login`],
 /// once per engine). Another test codeunit gets the apps' own subscribers (Own); in a watched session it is refused when
 /// it can see what they leave besides rows ([`watched_state`]).
 pub(crate) fn decide(engine: &Engine, lowered: &Lowered, test: usize, watched: Option<&'static str>) -> Login {
@@ -276,10 +358,10 @@ pub(crate) fn decide(engine: &Engine, lowered: &Lowered, test: usize, watched: O
             left.state.insert(o);
             left.state.extend(held_codeunits(lowered, o));
         }
-        left.reads_microsoft = reads_microsofts_login(events, lowered, &index, &left.facts);
+        left.reads_microsoft = reads_microsofts_login(events, lowered, &index, &subs);
         left
     });
-    if left.reads_microsoft.is_some() {
+    if left.reads_microsoft.is_some() || own_events.iter().any(|e| RAISE_ONLY.contains(&e.event)) {
         return Login::Raise;
     }
     let writes = &left.facts.writes;
@@ -351,13 +433,17 @@ pub(crate) fn decide(engine: &Engine, lowered: &Lowered, test: usize, watched: O
 /// What the login subscribers, whose reach is `left`, leave besides rows that a test codeunit whose whole reach is `mine`
 /// can see, in a watched session (review of al-runner issue 7717, round three, probe p7): a manual subscriber they bind
 /// (any event can reach it), a `Random` sequence they reseed (it goes on past the run seed's restart of each test,
-/// ADR-061), or a global of a SingleInstance codeunit they write that the test codeunit reads (also through a helper
-/// codeunit).
+/// ADR-061), code the analysis does not follow (`state::OTHER`), or a global of a SingleInstance codeunit they write that
+/// the test codeunit reads (also through a helper codeunit).
 fn watched_state(lowered: &Lowered, left: &ReachFacts, mine: &ReachFacts) -> Option<&'static str> {
     if left.state_writes & state::BINDING != 0 {
         Some("bind a manual event subscriber")
     } else if left.state_writes & state::RANDOM_SEED != 0 {
         Some("reseed the Random sequence")
+    } else if left.state_writes & state::OTHER != 0 {
+        Some(
+            "run code the analysis does not follow (a .NET object, a background session or task, an unclassified builtin)",
+        )
     } else if (left.globals_written.iter()).any(|g| mine.globals_read.contains(g) && single_instance(lowered, g.0)) {
         Some("write a codeunit global this test codeunit reads")
     } else {
