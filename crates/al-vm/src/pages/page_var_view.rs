@@ -160,6 +160,46 @@ impl Session {
         ))
     }
 
+    /// An action on a filtered modal Worksheet with InsertAllowed = false and no current row selects the default key.
+    /// Measured by the pending corpus probe pages/currpage/SelectionFilterNoRow.al:346.
+    pub(super) fn empty_modal_worksheet_selection(
+        &mut self,
+        st: &St,
+        src: &Rec,
+        dst: &Rec,
+        initial: &[Value],
+    ) -> Result<bool, Signal> {
+        let object = {
+            let page = st.borrow();
+            if !page.open || !page.modal || !page.in_action || page.host.is_some() || page.cursor != Cursor::None {
+                return Ok(false);
+            }
+            page.object as usize
+        };
+        if self.engine.object_facts[object].page_type != Some(ir::PageType::Worksheet)
+            || self.ui_state.page_handler_depth == 0
+            || !flag_denied(&self.engine, object, "InsertAllowed")?
+        {
+            return Ok(false);
+        }
+        let source = src.borrow();
+        let destination = dst.borrow();
+        if source.temporary
+            || destination.temporary
+            || !destination.filters.is_empty()
+            || destination.filter_group != 0
+            || !source.filters.iter().any(|filter| filter.group == 2)
+        {
+            return Ok(false);
+        }
+        let table = self.table(src)?;
+        if !Self::same_key(&table.primary_key(&source.fields), &table.primary_key(initial)) {
+            return Ok(false);
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::EmptyModalWorksheetSelection);
+        Ok(true)
+    }
+
     /// A TestPage whose own filter shows no row of a table that has rows hands the record that filter
     /// (pages/currpage/SelectionFilterNoRow.al:TestPage_FilteredToNothing: the page filter
     /// `Id: 99` on key field Id, `Count` 0, `Id: 99`). Only that shape (one range of one value on the first key

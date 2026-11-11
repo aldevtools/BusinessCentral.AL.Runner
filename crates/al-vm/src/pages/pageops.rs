@@ -1050,6 +1050,7 @@ impl Session {
                 // pages/parts/SelectionFilterLinkedPartNoRow.al SetSelectionFilter_LinkedPartOnNoRow_TableHasOtherRows, _TableEmpty
                 // `rec=95656/A/0 count=0 filters=Table ID: 95656, No.: A, Line No.: 0`; issue 6964). Marks are not pinned: none is set.
                 let linked_no_row = self.linked_part_on_no_row(st, &src, dst);
+                let mut empty_modal_worksheet = false;
                 if st.borrow().cursor != Cursor::Row && !linked_no_row && !self.closed_on_handler_set_record(st) {
                     // A page on no row because its table is empty selects nothing, and the record keeps no filter
                     // (pages/run-modal/P82CurrPage.al:SetSelectionFilter_EmptyPage: `sel=0 filter=''`). A page on no row
@@ -1099,7 +1100,9 @@ impl Session {
                         s.set_record.is_none() && !s.set_view
                     };
                     let held = blank_rec && (st.borrow().host.is_some() || unopened_var || self.on_open_new_row(st));
-                    if !(plain_dst && (held || self.on_list_new_line_blank_key(st, &src)?)) {
+                    empty_modal_worksheet =
+                        plain_dst && self.empty_modal_worksheet_selection(st, &src, dst, &initial)?;
+                    if !(plain_dst && (held || empty_modal_worksheet || self.on_list_new_line_blank_key(st, &src)?)) {
                         return unsupported(
                             "Page.SetSelectionFilter of a page on no row of a table that has rows (not pinned)",
                         );
@@ -1127,7 +1130,8 @@ impl Session {
                 // takes the filter on the blank key and keeps its marks and MarkedOnly as they were, with no mark added
                 // (pages/currpage/SelectionFilterNoRow.al:Marks_WithoutMarkedOnly, MarkedOnly_WithoutMarks,
                 // Mark_OnSelectedRow, MarkedOnly_MarkOnOtherRow: `Id: 0`, `Marked: Yes, Id: 0`, count 0).
-                let blank_row = self.is_blank_row(&src) || self.on_list_new_line_blank_key(st, &src)?;
+                let blank_row =
+                    empty_modal_worksheet || self.is_blank_row(&src) || self.on_list_new_line_blank_key(st, &src)?;
                 if !blank_row
                     && ((marked_only && !marked)
                         // A record whose only mark is the selected row (an earlier call on it left that mark) ends as it was
