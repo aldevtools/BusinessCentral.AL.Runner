@@ -49,8 +49,8 @@ pub(crate) struct ValidateStep {
     save_xrec: Vec<Value>,
     /// `CurrPage.Update(false)` ran in the step.
     update_false: bool,
-    /// The page is a temporary Worksheet whose rows a procedure set before the open (`open_temp_ws_preloaded`): only
-    /// `CurrPage.Update(false)` in the step is pinned there, and it drops the edit (pages/run-modal/PageVarOpenRow.al:946
+    /// The step is the pinned edit of a temporary Worksheet whose rows a procedure set before the open
+    /// (`temp_ws_edit_begin`): `CurrPage.Update(false)` in it drops the edit (pages/run-modal/PageVarOpenRow.al:946
     /// TempWs_SecondaryKeyView_FilledBeforeRun_Run `row edited` `B|name B`, :974 run modally, :1002). The xRec rules of a
     /// pinned page do not apply to it.
     temp_ws_preloaded: bool,
@@ -128,7 +128,7 @@ impl Session {
         if pinned && changed {
             self.set_xrec_fields(st, before.to_vec());
         }
-        let temp_ws_preloaded = st.borrow().temp_ws_preloaded;
+        let temp_ws_preloaded = self.temp_ws_edit_begin(st, pos, was_dirty)?;
         st.borrow_mut().validate_step = Some(ValidateStep {
             pinned,
             ext_after: ext_after.to_vec(),

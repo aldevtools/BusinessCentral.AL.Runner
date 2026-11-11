@@ -497,7 +497,7 @@ impl Session {
             && !self.declares(st, "onfindrecord")
             && !self.declares(st, "onnextrecord");
         if reads_on {
-            self.read_block_past_the_window(st, false)?;
+            self.read_block_past_the_window(st, None)?;
         }
         let last_held = {
             let s = st.borrow();

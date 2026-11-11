@@ -232,6 +232,7 @@ mod next_held_row_read;
 mod no_source_events;
 use no_source_events::NoSourceNew;
 mod open;
+pub(crate) mod pinned_shape;
 mod ui_caption_translate;
 mod update_refresh_card;
 pub(crate) mod validate_xrec;
