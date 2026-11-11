@@ -36,7 +36,7 @@ impl Session {
                 s.view_read_to_end,
             )
         };
-        if !at_start || draft || dirty {
+        if !at_start || draft || dirty || !self.find_list_part(st) {
             return Ok(None);
         }
         // The filter left no row: First answers No and reads nothing (PartFilterExpressionControl.al:785

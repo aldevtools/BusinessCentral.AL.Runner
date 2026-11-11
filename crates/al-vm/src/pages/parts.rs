@@ -1976,15 +1976,10 @@ impl Session {
         if at == Some(0) {
             return Ok(false);
         }
-        let host_document = st
-            .borrow()
-            .host
-            .as_ref()
-            .and_then(|(h, _)| h.upgrade())
-            .is_some_and(|h| {
-                self.engine.object_facts[h.borrow().object as usize].page_type == Some(al_ir::PageType::Document)
-            });
-        if !self.is_list(st) || !host_document || self.declares(st, "onfindrecord") || self.declares(st, "onnextrecord")
+        if !self.is_list(st)
+            || !self.list_part_on_document_host(st)
+            || self.declares(st, "onfindrecord")
+            || self.declares(st, "onnextrecord")
         {
             return unsupported(
                 "a part's CurrPage.Update in a control's OnValidate on a row other than its first, other than a list part on a Document host without OnFindRecord (which row it shows then is not pinned)",
@@ -2000,7 +1995,7 @@ impl Session {
                 "a part's CurrPage.Update in a control's OnValidate on a row other than its first of a view longer than a window (not pinned)",
             );
         }
-        if self.part_update_unsettled(st, rows.len(), at) {
+        if self.part_update_unsettled(st, &rows, at)? {
             self.read_part_rows_unsettled(st, &rows, at)?;
         } else {
             self.read_part_rows_around(st, &rows, at)?;
@@ -2008,13 +2003,19 @@ impl Session {
         Ok(true)
     }
 
-    /// The shape `read_part_rows_unsettled` pins: `CurrPage.Update()` (it saves), a part without OnAfterGetCurrRecord (declared
-    /// or subscribed) on the last row of a view of two.
-    fn part_update_unsettled(&self, st: &St, len: usize, at: usize) -> bool {
-        let object = st.borrow().object as usize;
-        let observes_curr = self.declares(st, "onaftergetcurrrecord")
-            || self.engine().events.is_subscribed(object, "onaftergetcurrrecordevent");
-        !observes_curr && !st.borrow().refresh_update_false && (len, at) == (2, 1)
+    /// The page is a ListPart shown in a Document page.
+    pub(super) fn list_part_on_document_host(&self, st: &St) -> bool {
+        let engine = self.engine();
+        let own = &engine.object_facts[st.borrow().object as usize].page_type;
+        matches!(own, Some(al_ir::PageType::Other(o)) if o == "listpart")
+            && st
+                .borrow()
+                .host
+                .as_ref()
+                .and_then(|(h, _)| h.upgrade())
+                .is_some_and(|h| {
+                    engine.object_facts[h.borrow().object as usize].page_type == Some(al_ir::PageType::Document)
+                })
     }
 
     /// A new part row whose code changed the host's stored row and ran `CurrPage.Update(false)`, UpdatePropagation SubPart or not
@@ -2724,19 +2725,7 @@ impl Session {
             // page of its own (pages/modify-denied/Y80ModifyDenied.al Y80_MD_Doc_PartSet_HostNext `close`; needs corpus bump).
             if child.borrow().open {
                 self.close_denied_modify(&child)?;
-                if std::mem::take(&mut child.borrow_mut().reread_at_close) {
-                    // The read keeps what was typed on the row since: the save after it stores it (`read_part_rows_unsettled`).
-                    let rec = self.page_rec(&child);
-                    let (typed, dirty, x) = (
-                        rec.borrow().fields.clone(),
-                        child.borrow().dirty,
-                        self.page_xrec_fields(&child),
-                    );
-                    self.populate_current(&child)?;
-                    rec.borrow_mut().fields = typed;
-                    child.borrow_mut().dirty = dirty;
-                    self.set_xrec_fields(&child, x);
-                }
+                self.reread_part_at_close(&child)?;
                 self.save_row(&child)?;
             }
         }

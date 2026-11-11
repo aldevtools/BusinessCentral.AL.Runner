@@ -71,6 +71,24 @@ codeunit 69995 C
         AddLine(20001, 4);
         P.OpenEdit(); P.GoToKey('H1'); P.Lines.First(); P.Lines.New(); P.Lines.Descr.SetValue('x'); P.Close();
     end;
+
+    // Not pinned: a TestPart filter hides every row of the part, then New().
+    [Test]
+    procedure T_FilterHidesAllRows()
+    var P: TestPage "SV Card";
+    begin
+        Seed(10000, 20000, 30000);
+        P.OpenEdit(); P.GoToKey('H1'); P.Lines.Filter.SetFilter(Descr, 'zzz'); P.Lines.New(); P.Lines.Descr.SetValue('x'); P.Close();
+    end;
+
+    // Not pinned: a TestPart filter hides the row after the one the line is started below.
+    [Test]
+    procedure T_FilterHidesNextRow()
+    var P: TestPage "SV Card";
+    begin
+        Seed(10000, 20000, 30000);
+        P.OpenEdit(); P.GoToKey('H1'); P.Lines.Filter.SetFilter("Seq No.", '<>2'); P.Lines.First(); P.Lines.New(); P.Lines.Descr.SetValue('x'); P.Close();
+    end;
 }
 "#;
 
@@ -103,4 +121,12 @@ fn a_negative_number_next_to_the_line_is_refused() {
 fn a_taken_number_without_room_after_it_is_refused() {
     let why = not_run("T_TakenNoRoom");
     assert!(why.contains("no number is free after it"), "{why}");
+}
+
+#[test]
+fn a_part_read_in_another_order_with_a_test_part_filter_is_refused() {
+    for name in ["T_FilterHidesAllRows", "T_FilterHidesNextRow"] {
+        let why = not_run(name);
+        assert!(why.contains("not read in primary key order"), "{name}: {why}");
+    }
 }

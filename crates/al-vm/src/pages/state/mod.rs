@@ -257,6 +257,9 @@ pub struct PageState {
     /// The landing read started with OnFindRecord(`-`) after a TestPart filter (`find_list_part`): the window starts
     /// at the first row of the view, so the open read's tail does not step back with OnNextRecord(-1).
     pub landed_from_view_start: bool,
+    /// `TestPage.Filter.SetCurrentKey` or `Ascending` changed the order of the page's rows since it opened: a find ListPart then
+    /// reads as any list (`find_list_part`).
+    pub test_view_reordered: bool,
     /// The window the page holds starts at the first row of the view: such a landing read, or the open read of the same part
     /// whose OnNextRecord(-1) answered 0 (`part_filter_find.rs`); cleared by the next window read.
     pub find_window_at_view_start: bool,

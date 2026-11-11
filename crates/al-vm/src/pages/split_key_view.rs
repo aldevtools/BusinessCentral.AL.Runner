@@ -26,12 +26,16 @@ impl Session {
 
     /// The pinned shape: a ListPart with AutoSplitKey on a Card host, its rows filtered by a field link, a stored (not
     /// temporary) table whose last primary-key field is an Integer (PartSplitKeyOtherSortKey.al pages 62613..62621: SubPageLink
-    /// `"Head Code" = field(Code)`, with and without DelayedInsert, SubPageView or the part's SourceTableView).
+    /// `"Head Code" = field(Code)`, with and without DelayedInsert, SubPageView or the part's SourceTableView). Every fact is
+    /// required: no TestPart filter (filter group 0) on the part, whose hidden rows the grid neighbours would not show, and
+    /// neither page with a page extension or an event subscriber.
     pub(in crate::pages) fn auto_split_part_pinned(&mut self, st: &St, rec: &Rec) -> Result<bool, Signal> {
         let engine = self.engine();
         let object = st.borrow().object as usize;
         if engine.object_facts[object].page_type != Some(al_ir::PageType::Other("listpart".into()))
             || rec.borrow().temporary
+            || rec.borrow().filters.iter().any(|f| f.group == 0)
+            || !self.unextended_unsubscribed(st)
         {
             return Ok(false);
         }
@@ -44,7 +48,9 @@ impl Session {
             return Ok(false);
         };
         let host_object = host.borrow().object as usize;
-        if engine.object_facts[host_object].page_type != Some(al_ir::PageType::Card) {
+        if engine.object_facts[host_object].page_type != Some(al_ir::PageType::Card)
+            || !self.unextended_unsubscribed(&host)
+        {
             return Ok(false);
         }
         let field_link = page_of(&engine, &host).controls[idx]
@@ -163,7 +169,7 @@ impl Session {
         let step = D::from(10000);
         let number = match (lower, upper) {
             _ if from_placeholder => None,
-            (None, _) => Some(D::from(20000)),
+            (None, _) => Some(self.split_view_free(rec, D::from(20000))?),
             (Some(l), None) if l >= D::ZERO => Some(self.split_view_free(rec, l + step)?),
             (Some(l), Some(u)) if l >= D::ZERO && u > l => {
                 let half = ((u - l) / D::from(2)).trunc();

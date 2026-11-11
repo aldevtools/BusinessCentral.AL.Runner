@@ -380,13 +380,16 @@ impl Session {
 
     /// A ListPart without OnAfterGetCurrRecord on the last row of a view of two, after its control's OnValidate ran
     /// `CurrPage.Update()` on a Document host whose row did not change: it reads the row and the row before it, nothing more; it
-    /// reads its row once more when the host closes, before it saves (pages/parts/PartNewRowPageVariable.al:1218
+    /// reads its row once more when the host closes, before it saves (`part_unsettled.rs`; pages/parts/PartNewRowPageVariable.al:1218
     /// Split_NewRow_RecordFieldsThenVariableWithUpdate `... AGR 20000 | AGR 10000`, `closed` `[AGR 20000]`; :1248 the line inserted
     /// by the update, `closed` `[AGR 20000 | MOD 20000 1 | T-M 20000 1]`; :1470, :1500, :1722, :1752 with DelayedInsert).
-    pub(super) fn read_part_rows_unsettled(&mut self, st: &St, rows: &[Vec<Value>], at: usize) -> Result<(), Signal> {
-        self.read_refilled_rows_as(st, rows, at, Walk::PartUnsettled)?;
-        st.borrow_mut().reread_at_close = true;
-        Ok(())
+    pub(super) fn read_part_rows_unsettled_walk(
+        &mut self,
+        st: &St,
+        rows: &[Vec<Value>],
+        at: usize,
+    ) -> Result<(), Signal> {
+        self.read_refilled_rows_as(st, rows, at, Walk::PartUnsettled)
     }
 
     fn read_refilled_rows_as(&mut self, st: &St, rows: &[Vec<Value>], at: usize, walk: Walk) -> Result<(), Signal> {

@@ -144,7 +144,7 @@ impl Session {
                 // SF_TestFilter_SetFilterTwoSpaces).
                 if text.trim().is_empty() {
                     rec.borrow_mut().filters.retain(|f| !(f.field == pos && f.group == 0));
-                    self.filter_changed(st)?;
+                    self.filter_changed(st, true)?;
                     return Ok(Value::Null);
                 }
                 let expr = self
@@ -166,7 +166,7 @@ impl Session {
                         }),
                     }
                 }
-                self.filter_changed(st)?;
+                self.filter_changed(st, true)?;
                 Ok(Value::Null)
             }
             PageMethod::CurrentKey => {
@@ -187,13 +187,15 @@ impl Session {
                     return unsupported("TestFilter.SetCurrentKey without a matching key (error text not pinned)");
                 };
                 rec.borrow_mut().key = key;
-                self.filter_changed(st)?;
+                st.borrow_mut().test_view_reordered = true;
+                self.filter_changed(st, false)?;
                 Ok(Value::Null)
             }
             PageMethod::Ascending => match args.first() {
                 Some(v) => {
                     rec.borrow_mut().ascending = ops::truthy(v)?;
-                    self.filter_changed(st)?;
+                    st.borrow_mut().test_view_reordered = true;
+                    self.filter_changed(st, false)?;
                     Ok(Value::Null)
                 }
                 None => Ok(Value::Boolean(rec.borrow().ascending)),
@@ -204,8 +206,9 @@ impl Session {
 
     /// The page reads its rows again after the filter or the key changed, and stands on the first
     /// match (corpus testpage/TestPageFilterPosition_Tests.al:SetFilter_ExcludingTheCurrentRow_*,
-    /// SetFilter_EvenWhenCurrentRowStillQualifies_RepositionsToTheFirstMatch).
-    fn filter_changed(&mut self, st: &St) -> Result<(), Signal> {
+    /// SetFilter_EvenWhenCurrentRowStillQualifies_RepositionsToTheFirstMatch). `set_filter`: the change came from
+    /// `Filter.SetFilter` (not `SetCurrentKey` or `Ascending`).
+    fn filter_changed(&mut self, st: &St, set_filter: bool) -> Result<(), Signal> {
         // A list that reads each row once more in a key other than its primary key refills as it opens, the first row three times
         // before OnAfterGetCurrRecord (`populate_window`; pages/onopenpage-moves-rec/SuRefillKey.al:299 Name_Filter_Refill
         // `filter` `4:R4;R2;R3;R4;R4;R4;C4;`, SyKeyMoves.al:209 Name_FilterMoves `filter` `4:R4;R2;R1;R4;R4;R4;C4;`).
@@ -227,7 +230,7 @@ impl Session {
         // DCE_TestPage_OpenView_Rows `OnFindRecord(-)`, DCE_TestPage_OpenEdit_Rows, DCE_TestPage_OpenView_Empty); a list keeps `=><`.
         let r = if !self.is_list(st) && self.declares(st, "onfindrecord") {
             self.page_first_row_from(st, "-", false)
-        } else if self.find_list_part(st) {
+        } else if set_filter && self.find_list_part(st) {
             st.borrow_mut().landed_from_view_start = true;
             let r = self.page_first_row_from(st, "-", false);
             let mut s = st.borrow_mut();
@@ -241,7 +244,7 @@ impl Session {
             self.page_first_row(st)
         };
         self.torn_down_on_error(st, r)?;
-        if self.part_filter_runs_fn_on_new_line(st) {
+        if set_filter && self.part_filter_runs_fn_on_new_line(st) {
             self.run_fn_controls_on_new_line(st)?;
         }
         // A page the filter left without a row shows a blank one, its key pre-filled from a

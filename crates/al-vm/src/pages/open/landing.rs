@@ -94,6 +94,13 @@ impl Session {
         page.triggers.iter().any(|(n, _)| n == name) || page.ext_triggers.iter().any(|(n, _, _)| n == name)
     }
 
+    /// The page has no page extension and no event subscriber: nothing outside its own code observes or changes its triggers.
+    pub(in crate::pages) fn unextended_unsubscribed(&self, st: &St) -> bool {
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        page_of(&engine, st).extensions.is_empty() && !engine.events.any_subscriber_of(object)
+    }
+
     /// Whether the page declares trigger `name` (lower case) of its own.
     pub(in crate::pages) fn declares(&self, st: &St, name: &str) -> bool {
         let engine = self.engine();
