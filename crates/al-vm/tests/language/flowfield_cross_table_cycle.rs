@@ -40,7 +40,9 @@ codeunit 69612 C
 #[test]
 fn a_flowfield_cycle_across_two_tables_is_refused() {
     match al_testkit::run_in(SRC, "C", "F") {
-        Err(Signal::Unsupported(text)) => assert!(text.contains("needs itself through the condition FlowField"), "{text}"),
+        Err(Signal::Unsupported(text)) => {
+            assert!(text.contains("needs itself through the condition FlowField"), "{text}")
+        }
         other => panic!("expected a refusal, got {other:?}"),
     }
 }
