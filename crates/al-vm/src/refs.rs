@@ -1969,15 +1969,25 @@ impl Session {
                 // A table field's OptionCaptionML gives the captions of the session language (record/table-properties/
                 // XTablePropsTests.al:219-232).
                 let ml = self.field_property(t, pos, "OptionCaptionML");
-                // An OptionCaption a translation file of its app could change in the language in force (ADR-053 step 1).
+                // An OptionCaption a translation file of its app could change in the language in force (ADR-053 step 1); FieldRef.
+                // OptionCaption reads the file's unit (step 2, `option_caption_translation`).
+                let mut translated = None;
                 if ml.is_some() || self.field_property(t, pos, "OptionCaption").is_some() {
                     if let Some(why) = self.translated_read_refusal(t.object as usize, || {
                         format!("the OptionCaption of field {} of table {}", t.fields[pos].name, t.name)
                     }) {
-                        return unsupported(why);
+                        if !session_language {
+                            return unsupported(why);
+                        }
+                        translated = self
+                            .option_caption_translation(t, pos, why)
+                            .map_err(Signal::unsupported)?;
                     }
                 }
                 let captions: Vec<String> = match (ml, self.field_property(t, pos, "OptionCaption")) {
+                    (None, Some(_)) if translated.is_some() => {
+                        translated.unwrap_or_default().split(',').map(str::to_string).collect()
+                    }
                     (Some(ml), _) if session_language => {
                         let language = al_builtins::format::FormatCtx::language(self);
                         al_builtins::format::ml_text_in_language(&ml, language)

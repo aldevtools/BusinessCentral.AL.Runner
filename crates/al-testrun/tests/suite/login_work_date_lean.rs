@@ -88,6 +88,7 @@ fn run(main: &str, base: &str, cache: Option<&std::path::Path>) -> CorpusRuntime
         package_data: false,
         package_data_files: Vec::new(),
         translation_files: Vec::new(),
+        translation_source: None,
         runtime: None,
         app_json_keys: Vec::new(),
         symbols: vec![],

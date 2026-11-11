@@ -1356,6 +1356,9 @@ impl Session {
         if !self.has_source(st) {
             return unsupported(format!("{how}() on a page without a source table"));
         }
+        if let Some(moved) = self.move_off_untouched_new_line(st, how)? {
+            return Ok(Value::Boolean(moved));
+        }
         if self.open_new_list_untouched(st) {
             return self.move_on_open_new_list(how);
         }
@@ -1587,7 +1590,8 @@ impl Session {
         Ok(found && !next_is_saved)
     }
 
-    /// A list page of its own opened with OpenNew whose cursor still stands on the untouched new row.
+    /// A list page of its own opened with OpenNew whose cursor still stands on an untouched new row (the pinned moves off a line
+    /// `New()` started below a row the page saved are in `leave_new_line.rs`, which runs first).
     pub(super) fn open_new_list_untouched(&self, st: &St) -> bool {
         let untouched = {
             let s = st.borrow();
@@ -2282,27 +2286,8 @@ impl Session {
             PageMethod::Previous => match cursor {
                 Cursor::NewLine => {
                     let found = self.nav_find(st, "+")?;
-                    // A list opened on the row its OnOpenPage left Rec on goes back from the new line to the last row it holds as a
-                    // move between its rows does: the row read twice, then OnAfterGetCurrRecord (corpus
-                    // pages/onopenpage-moves-rec/QrMovedTests.al:585 QR_TempList_PageRun_NoMove `previous log` =
-                    // `R:D;R:D;C:D;`, :615 QR_List_RunModal_FindLast). Other lists keep the earlier move.
-                    if found
-                        && (st.borrow().opened_on_moved_rec || st.borrow().refreshed_after_gone_move)
-                        && st.borrow().host.is_none()
-                    {
-                        let key = self.row_key(&self.page_rec(st))?;
-                        let last = st.borrow().window.len().checked_sub(1);
-                        if let Some(at) = last.filter(|&at| Self::same_key(&st.borrow().window[at].key, &key)) {
-                            {
-                                let mut s = st.borrow_mut();
-                                s.cursor = Cursor::Row;
-                                s.draft = false;
-                                s.stale = false;
-                            }
-                            st.borrow_mut().refreshed_after_gone_move = false;
-                            self.read_client_row(st, at)?;
-                            return Ok(true);
-                        }
+                    if let Some(moved) = self.previous_off_new_line_onto_held_row(st, found)? {
+                        return Ok(moved);
                     }
                     found
                 }
@@ -2359,6 +2344,7 @@ impl Session {
                 ));
             }
         }
+        let off_new_line = self.off_new_line_pinned(st, PageMethod::GoToKey)?;
         self.save_row(st)?;
         // The cursor leaves the new row: the row it was started below no longer decides where Next goes.
         st.borrow_mut().after_new = None;
@@ -2388,6 +2374,9 @@ impl Session {
             Err(Signal::Error(_)) => return self.go_to_key_miss(st, result_used),
             Err(e) => return Err(e),
         };
+        if let Some(found) = self.go_to_key_off_untouched_new_line(st, off_new_line, &want)? {
+            return Ok(Value::Boolean(found));
+        }
         st.borrow_mut().go_to_want = Some(want.clone());
         if st.borrow().marked_refill_in_key.is_some() {
             return self.go_to_record_after_marked_refill(st, &want);
