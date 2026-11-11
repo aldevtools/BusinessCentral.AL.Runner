@@ -97,6 +97,7 @@ mod tests {
             entered: Vec::new(),
             dotnet: false,
             order_hint: None,
+            cells: None,
         }
     }
 

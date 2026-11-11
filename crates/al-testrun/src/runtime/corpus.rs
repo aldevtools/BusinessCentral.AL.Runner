@@ -1427,34 +1427,7 @@ impl CorpusRuntime {
                 if opts.execute {
                     // A scratch run: the `OnRun` trigger of one codeunit of the suite's app.
                     if let Some(oi) = on_run_target(lowered, suite.app) {
-                        units.push(Unit {
-                            si,
-                            oi,
-                            id: lowered.program.objects[oi].id.unwrap_or(0),
-                            isolation: TestIsolation::default(),
-                            without_baseline: false,
-                            coverage: opts.coverage,
-                            execute: true,
-                            capture: opts.capture,
-                            order: order_arc.clone(),
-                            hooks: pass.hooks.clone(),
-                            clock_start: None,
-                            impact: opts.impact_trace,
-                            run_only: None,
-                            hub: false,
-                            hub_leg: false,
-                            carry: None,
-                            leak: None,
-                            on_run_rows: OnRunRows::PerTest,
-                            flags: Default::default(),
-                            report_unpinned_errors: false,
-                            skip_after_timeout: false,
-                            perturb: Default::default(),
-                            run_seed: opts.run_seed,
-                            runner: None,
-                            watch: false,
-                            takes_numbers: false,
-                        });
+                        units.push(scratch_unit(lowered, si, oi, opts, &order_arc, &pass.hooks));
                     }
                     continue;
                 }
@@ -1511,6 +1484,7 @@ impl CorpusRuntime {
                             runner: *runner,
                             watch: false,
                             takes_numbers: false,
+                            singles_past_stop: false,
                         }),
                         Err(why) => {
                             if suite.runner.is_none()
@@ -1526,27 +1500,9 @@ impl CorpusRuntime {
                                     }
                                 }
                                 outcomes.insert((si, id, r.name.to_lowercase()), Outcome::NotRun(why.clone()));
-                                list.push(TestResult {
-                                    suite: si,
-                                    app: order[o.app as usize],
-                                    codeunit: id,
-                                    codeunit_name: o.name.clone(),
-                                    test: r.name.clone(),
-                                    outcome: Outcome::NotRun(why.clone()),
-                                    call_stack: String::new(),
-                                    assumptions: Vec::new(),
-                                    time: std::time::Duration::ZERO,
-                                    coverage: Vec::new(),
-                                    messages: Vec::new(),
-                                    captured: None,
-                                    impact: Vec::new(),
-                                    stubs: Vec::new(),
-                                    ui_answered: Vec::new(),
-                                    slept_ms: 0,
-                                    entered: Vec::new(),
-                                    dotnet: false,
-                                    order_hint: None,
-                                });
+                                let not_run = Outcome::NotRun(why.clone());
+                                let (app, name) = (order[o.app as usize], o.name.clone());
+                                list.push(TestResult::bare(si, app, id, name, r.name.clone(), not_run));
                             }
                         }
                     }
@@ -1601,8 +1557,8 @@ impl CorpusRuntime {
                 })
                 .chain(
                     refused_disabled
-                        .into_iter()
-                        .map(|(si, id, oi, why)| (si, 0, id, Link::Refused(oi, why))),
+                        .iter()
+                        .map(|(si, id, oi, why)| (*si, 0, *id, Link::Refused(*oi, why.clone()))),
                 )
                 .collect();
             // `order.codeunits` of a stability run (ADR-058): under al-runner's `--isolation disabled` the runner picks the
@@ -1656,8 +1612,10 @@ impl CorpusRuntime {
             // ADR-066 amendment 12, decision 1: by default every test codeunit starts with fresh single instances; the walk
             // keeps them only under `--strict-order`.
             let keep_singles = opts.strict_order && chain_report.single_lane.watched > 0 && opts.test_suites.is_none();
+            // ADR-070 step 2 (`RunOptions::strict_sequential`): the sequential strict run walks every BC session on a thread of its
+            // own (`strict_walk.rs`) and leaves nothing for `note_leaks`, the parallel part and the lane to do.
             #[rustfmt::skip]
-            let carried = super::chain_walk::ChainWalk { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, trace: opts.trace, limit, pool: memory.pool(), keep_singles, fresh_check: opts.single_fresh_check }.walk(chain, &mut slots, &mut details, &mut chain_report);
+            let carried = { let walk = super::chain_walk::ChainWalk { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, trace: opts.trace, limit, pool: memory.pool(), keep_singles: keep_singles || opts.sequential_strict(), fresh_check: opts.single_fresh_check && !opts.sequential_strict(), sequential: opts.sequential_strict() }; if opts.sequential_strict() { super::strict_walk::StrictRun { walk, place: &place, suites: opts.test_suites.as_deref(), refused: &refused_disabled, workers, copies: baseline.is_none() || baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline }.run(&mut slots, &mut details, &mut chain_report); Vec::new() } else { walk.walk(chain, &mut |k, r| slots[k] = Some(r), &mut details, &mut chain_report) } };
             // The other codeunits run as before; one that comes after a Disabled codeunit notes whether it reads a table that
             // codeunit left rows in, and then runs again below, from what it left.
             note_leaks(&mut units, &carried, &sees);
@@ -1735,7 +1693,7 @@ impl CorpusRuntime {
             }
             #[rustfmt::skip]
             let lane = super::single_lane::Lane { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, carried: &carried, sees: &sees, place: &place, limit, bc_order: opts.strict_order, strict: opts.replay_every_dependent, max_replay: opts.max_replay, suites: opts.test_suites.as_deref(), workers, install_copies: baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline, kept_chain: keep_singles, pool: memory.pool(), fresh_check: opts.single_fresh_check };
-            lane.run(&mut slots, &mut chain_report.single_lane);
+            (!opts.sequential_strict()).then(|| lane.run(&mut slots, &mut chain_report.single_lane));
             let results: Vec<UnitResult> = slots.into_iter().flatten().collect();
             for r in results {
                 suite_work.push((r.si, r.took));
@@ -1776,6 +1734,7 @@ impl CorpusRuntime {
                         entered: Vec::new(),
                         dotnet: false,
                         order_hint: None,
+                        cells: None,
                     })
                 };
                 match r.result {
@@ -2124,6 +2083,11 @@ impl CorpusRuntime {
         self.outcomes.retain(|(si, cu, _), _| !picked(&suites, *si, *cu));
         self.times.retain(|(si, cu, _), _| !picked(&suites, *si, *cu));
         self.marks.retain(|(si, cu, _), _| !picked(&suites, *si, *cu));
+        // The cells of a picked case came from the run whose outcome it no longer shows (review of the cell tap, finding 4).
+        self.results
+            .iter_mut()
+            .filter(|r| picked(&suites, r.suite, r.codeunit))
+            .for_each(|r| r.cells = None);
         let to = |si: usize| suites.iter().position(|s| Some(s) == from.suites.get(si));
         for ((si, cu, name), o) in &from.outcomes {
             if let (true, Some(mine)) = (picked(&from.suites, *si, *cu), to(*si)) {

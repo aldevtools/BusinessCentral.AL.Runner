@@ -76,6 +76,18 @@ pub fn junit_with(
     assumptions: &dyn Fn(&CaseId) -> Vec<Assumption>,
     bc_build: Option<&str>,
 ) -> String {
+    junit_with_properties(oracle, outcome, time, assumptions, &|_| Vec::new(), bc_build)
+}
+
+/// `junit_with`, and further properties of each test (the cell counts, `cell_report::properties`).
+pub fn junit_with_properties(
+    oracle: &[OracleCase],
+    outcome: &dyn Fn(&CaseId) -> Outcome,
+    time: &dyn Fn(&CaseId) -> f64,
+    assumptions: &dyn Fn(&CaseId) -> Vec<Assumption>,
+    properties: &dyn Fn(&CaseId) -> Vec<(String, String)>,
+    bc_build: Option<&str>,
+) -> String {
     type Row<'a> = (&'a CaseId, Outcome, Vec<Assumption>);
     let mut by_cu: std::collections::BTreeMap<u32, Vec<Row>> = Default::default();
     for c in oracle.iter().filter(|c| !c.bc_failed) {
@@ -104,7 +116,7 @@ pub fn junit_with(
                     assumptions: marks,
                     stack: String::new(),
                     disabled: false,
-                    properties: Vec::new(),
+                    properties: properties(id),
                 })
                 .collect(),
         })
