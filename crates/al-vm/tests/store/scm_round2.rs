@@ -254,12 +254,9 @@ codeunit 69342 C
 "#;
     // No zone: any bin of the location (B1 and B2 exist). Zone Z1: the bins of that zone only (B2).
     assert_eq!(text(run(src, "F")), "okok|ok");
-    // A failing check with a key and a non-key where() condition inside an if() arm is refused: the error code is pinned for a
-    // plain relation only (record/table-relation/RelationWhereMulti.al:214-236).
-    assert!(matches!(
-        run(src, "G"),
-        Err(al_builtins::native::Signal::Unsupported(_))
-    ));
+    // A failing check with a key and a non-key where() condition inside an if() arm fails the validation
+    // (record/table-relation/RelationWhereKeyCoverage.al:224).
+    assert_eq!(text(run(src, "G")), "no");
 }
 
 // A failing TableRelation check with several where() conditions, none on a primary key field of the related table, answers
@@ -350,12 +347,8 @@ codeunit 69344 C
         text(run(src, "F")),
         "ok DB:NothingInsideFilter DB:NothingInsideFilter DB:NothingInsideFilter |ok DB:NothingInsideFilter |ok DB:RecordNotFound "
     );
-    // Inside an if() arm the code of this mix is not pinned (the reported shape of al-runner issue 7438 waits for the probe
-    // record/table-relation/RelationWhereKeyCoverage.al).
-    assert!(matches!(
-        run(src, "InArm"),
-        Err(al_builtins::native::Signal::Unsupported(_))
-    ));
+    // Inside an if() arm the same mix answers DB:NothingInsideFilter (record/table-relation/RelationWhereKeyCoverage.al:224).
+    assert_eq!(text(run(src, "InArm")), "ok DB:NothingInsideFilter ");
 }
 
 #[test]

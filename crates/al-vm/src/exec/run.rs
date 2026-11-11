@@ -462,7 +462,7 @@ impl Session {
             }))),
             Ok(at) => Ok(at),
             Err(Signal::Error(mut e)) => {
-                self.rollback_in_run()?;
+                self.assert_error_rollback(&e)?;
                 // The statements the error left open are closed.
                 self.cap_stmt_truncate(open);
                 self.add_top_frame(&mut e);

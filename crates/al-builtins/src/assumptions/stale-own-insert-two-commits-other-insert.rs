@@ -1,6 +1,0 @@
-StaleOwnInsertTwoCommitsOtherInsert => {
-    id: "stale-own-insert-two-commits-other-insert",
-    assumed: "A stale buffer from the variable's own Insert, or its own Modify after it, made in the transaction before the last Commit or the one before it, is written whole (the stale buffer wins) when the transaction after the last Commit inserted another row of the table and wrote beside that Insert something no test pins: more than one of a Delete, a Rename and an Insert into another table, a write of another table other than an Insert, a ModifyAll or DeleteAll, or an Insert into another table at one Commit. Pinned and not marked: Inserts and a Modify of other rows of the table alone (record/crud/SbStaleOwnModify.al:666-745, :2484-2580), and one Delete of another row at one, two and three Commits, one Rename of another row at one and two, one Insert into another table at two and three (Y76StaleBuffers.al Y76_Part2_*).",
-    tests: "No Microsoft test: a partner app's tests (Library - Manufacturing.RefreshProdOrder commits before and after Refresh Production Order).",
-    probe: "The Y76_Part2 shapes with two of a Delete, a Rename and an Insert into another table beside the Insert of another row, a ModifyAll beside it, and an Insert into another table at one Commit for an own Insert without the Modify.",
-}
