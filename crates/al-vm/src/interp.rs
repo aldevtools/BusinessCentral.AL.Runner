@@ -1664,7 +1664,9 @@ impl Session {
         // A record assigned to a Variant is a by-value copy: a temporary record's copy is an empty table of its own
         // (recordref-fieldref/recordref/PWRecordMisc.al:TempRecord_AssignedToVariantVariable and :TempRecord_VariantModifiedAfterAssign).
         let v = match &v {
-            Value::Record(rc) if matches!(self.place_type(p, f), RtType::Variant) => self.record_by_value(rc),
+            Value::Record(rc) if matches!(self.place_type(p, f), RtType::Variant) => {
+                self.record_by_value_unmeasured(rc)
+            }
             // A RecordRef assigned to a Variant or to another RecordRef: a RecordRef of its own on the same buffer
             // (`recordref_variant.rs`). A builtin's write-back of the receiver keeps its handle.
             Value::Library(al_builtins::library_kind::LibraryKind::RecordRef, h)
