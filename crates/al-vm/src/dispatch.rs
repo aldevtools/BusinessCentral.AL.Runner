@@ -440,7 +440,13 @@ impl Session {
         let engine = self.engine.clone();
         // A subscriber BC would run and this program has no code for: running the event without it
         // would be a wrong answer (ADR-013 decision 6, hard rule 4).
-        if let Some(m) = engine.events.missing_for(object, event, element) {
+        // A raise to some subscribers only (`Session::raise_to`) does not reach the others, compiled or not.
+        let only = self.events.only_targets.take();
+        if let Some(m) = engine
+            .events
+            .missing_for(object, event, element)
+            .filter(|_| only.is_none())
+        {
             return unsupported(format!(
                 "event {event}: {} subscribes to it and was not compiled (no code the workspace reaches uses it)",
                 m.subscriber
@@ -453,6 +459,9 @@ impl Session {
         self.prune_page_held();
         let mut targets = Vec::new();
         for s in subs {
+            if only.as_ref().is_some_and(|o| !o.contains(&(s.object, s.routine))) {
+                continue;
+            }
             if self
                 .events
                 .not_installed_apps

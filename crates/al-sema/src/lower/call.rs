@@ -684,12 +684,9 @@ impl Lowerer<'_> {
                             continue;
                         }
                     }
-                    // A parameter named Field... that is an Integer takes the number as a VALUE (`RecRef.Field(Buf."Field No.")`,
-                    // `RecRef.FieldExist(R.Number)`); a field reference is passed for a parameter that names a field.
-                    let field_param = (p.name.to_ascii_lowercase().starts_with("field") && p.ty != "Integer")
-                        || p.name.eq_ignore_ascii_case("FromField")
-                        || p.name.to_ascii_lowercase().starts_with("column");
-                    match (field_param, self.res(a).cloned()) {
+                    // A field reference is passed for a parameter that names a field (`Param::names_field`); every other
+                    // parameter takes the field's VALUE (`RecRef.Field(Buf."Field No.")`, `RecRef.FieldExist(Buf.Name)`).
+                    match (p.names_field(), self.res(a).cloned()) {
                         // `Page.RunModal(Id, Rec, Rec."Field")` names the field by its NUMBER (the runtime checks the table has it, errors/
                         // P106RunErrors.al: a literal 999 is "supplied field number '999' cannot be found"); a field position would be wrong
                         // for a table whose numbers have gaps (Segment Line."Contact Via" is field 34, position 30).
