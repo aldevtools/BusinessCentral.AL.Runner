@@ -53,7 +53,27 @@ fn new_origin() -> u64 {
 }
 
 /// The first bytes of a snapshot: what it is and which layout it has. A change of the layout changes the last digit.
-const MAGIC: &[u8; 8] = b"ALBASE\0\x04";
+const MAGIC: &[u8; 8] = b"ALBASE\0\x05";
+
+/// The order of a table's keys (`al_data::memory::PkStorage`): the count of its key fields (0 for text order), then one
+/// byte per field.
+fn put_pk_storage(out: &mut Vec<u8>, storage: &al_data::memory::PkStorage) {
+    let fields = storage.as_deref().unwrap_or_default();
+    out.push(fields.len() as u8);
+    out.extend(fields.iter().map(|&s| al_data::code_storage::storage_byte(s)));
+}
+
+/// The order [`put_pk_storage`] wrote; `None` for bytes it did not write.
+fn read_pk_storage(r: &mut al_builtins::value_codec::Reader<'_>) -> Option<al_data::memory::PkStorage> {
+    let n = r.u8()?;
+    if n == 0 {
+        return Some(None);
+    }
+    let fields = (0..n)
+        .map(|_| al_data::code_storage::storage_from_byte(r.u8()?))
+        .collect::<Option<std::sync::Arc<[_]>>>()?;
+    Some(Some(fields))
+}
 
 impl Baseline {
     /// The baseline as bytes, to keep on disk or to hand to another thread (a `Baseline` holds `Rc`s and cannot go
@@ -67,6 +87,7 @@ impl Baseline {
         for t in &tables {
             put_str(&mut out, &t.company);
             put_u32(&mut out, t.object);
+            put_pk_storage(&mut out, &t.pk_storage);
             put_u32(&mut out, t.rows.len() as u32);
             for (key, row) in &t.rows {
                 if !encode_row(key, &mut out) || !encode_row(row, &mut out) {
@@ -151,6 +172,7 @@ impl Baseline {
         for _ in 0..n_tables {
             let company = r.str()?;
             let object = r.u32()?;
+            let pk_storage = read_pk_storage(&mut r)?;
             let n_rows = r.u32()? as usize;
             let mut rows = Vec::with_capacity(n_rows.min(1 << 16));
             for _ in 0..n_rows {
@@ -158,7 +180,12 @@ impl Baseline {
                 let row = decode_row(&mut r)?;
                 rows.push((key, row));
             }
-            tables.push(al_data::memory::ExportedTable { company, object, rows });
+            tables.push(al_data::memory::ExportedTable {
+                company,
+                object,
+                pk_storage,
+                rows,
+            });
         }
         let next_guid = r.u64()?;
         let next_row_version = r.i64()?;
@@ -486,6 +513,7 @@ mod tests {
 
     pub(super) fn sample() -> Baseline {
         let table = ExportedTable {
+            pk_storage: None,
             company: "CRONUS".into(),
             object: 311,
             rows: vec![(
