@@ -119,8 +119,10 @@ impl Session {
         text: &str,
     ) -> Result<(), Signal> {
         let xp = schema.xp();
-        // An encoding the triggers set on an import is not pinned (Y67XpSeparators.al pins it on an export only).
-        if assigned::set_in_run(inst).is_some() {
+        // An encoding the triggers set on an import is pinned for a port that declares WINDOWS (`import_encoding`; the source was
+        // decoded with it, XpVarTextWindowsImport.al:339, :351, :387); for other ports it is not (Y67XpSeparators.al pins it on an
+        // export only).
+        if assigned::set_in_run(inst).is_some() && xp.text_encoding.as_deref() != Some("windows") {
             return unsupported("a VariableText import whose TextEncoding the program set (not pinned)");
         }
         let record_sep = non_empty(assigned::separator(inst, 2, xp.record_separator.as_deref(), "\r\n")?)?;
@@ -214,7 +216,7 @@ impl Session {
             let mut broke = false;
             for (&f, v) in fields.iter().zip(&values) {
                 if schema.node(f).kind == ir::XmlNodeKind::Text {
-                    self.xp_assign_variable(inst, schema, f, v.clone())?;
+                    self.xp_assign_variable(inst, schema, f, text_element_value(xp, variable, v))?;
                     continue;
                 }
                 let is_text = {
@@ -262,7 +264,7 @@ impl Session {
             // The unbound text element (the last column) takes the values after the others (`unbound_column`).
             if let Some(f) = unbound.filter(|_| !broke) {
                 for v in values.iter().skip(fields.len()) {
-                    self.xp_assign_variable(inst, schema, f, v.clone())?;
+                    self.xp_assign_variable(inst, schema, f, text_element_value(xp, variable, v))?;
                 }
             }
             // A line with fewer values than the port has columns fails at the first missing column that must occur, a field
@@ -517,6 +519,18 @@ pub(super) fn text_separator(value: Option<&str>, default: &str) -> Result<Strin
     }
     out.push_str(rest);
     Ok(out)
+}
+
+/// The text a text element of a VariableText import gets for `v`: the spaces around it are dropped, as a field element's value
+/// drops them (`xp_assign_field_flow_in`): `"say ""hi"""` gives `say`, not `say ` (xmlports/import/XpVarTextWindowsImport.al:397
+/// VTW_Columns_WindowsFile_Semicolon_Quotes_Import `1/3=[say {}]`). With PreserveWhiteSpace, and in a FixedText import, the value
+/// stays as it was.
+fn text_element_value(xp: &ir::XmlPort, variable: bool, v: &str) -> String {
+    if variable && !xp.preserve_whitespace {
+        v.trim_matches(' ').to_string()
+    } else {
+        v.to_string()
+    }
 }
 
 /// Splits a VariableText record at `sep`. A value that starts with the delimiter runs to the next
