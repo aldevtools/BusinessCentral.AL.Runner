@@ -216,7 +216,7 @@ const TESTS: &[(u32, &str, &str)] = &[
         "Seed.Seed(); Log.Reset(false); Doc.OpenEdit(); Doc.GoToKey('H1');
          Doc.ArmHost.Invoke(); Doc.DisarmHide.Invoke(); Doc.Flip.Invoke();",
     ),
-    // A field's OnValidate turns the part visible: no test needs it, refused.
+    // A field's OnValidate turns the part visible: flagged (Microsoft's tests need it).
     (
         71106,
         "DocTurnByOnValidate",
@@ -324,10 +324,7 @@ fn hidden_part_turns_and_new_row_shapes() {
         ("DocShownAtOpenTurnedAgain", Want::Refused(turn)),
         ("DocActionTurnAfterHostTriggerTurn", Want::Refused(turn)),
         ("CardTurnByAction", Want::Refused(turn)),
-        (
-            "DocTurnByOnValidate",
-            Want::Refused("an OnValidate that makes a part hidden by a Visible expression visible"),
-        ),
+        ("DocTurnByOnValidate", Want::Pass { flagged: true }),
         // New() on an open host keeps main's behavior: no trigger of the part, and main's refusal at Close.
         ("CardNewOnOpenHostAsMain", Want::Pass { flagged: false }),
         (

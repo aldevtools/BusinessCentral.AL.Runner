@@ -1,11 +1,8 @@
-//! Parts of a Provider chain that a Visible expression hid as the host opened (testpage/parts/ProviderLinkedPartsMatrix.al).
-//! What the runner reads for them is derived from that file's expectations; the shapes it does not pin are refused as the page
-//! opens, before the test observed anything.
+//! Parts a Visible expression hid as the host opened. Inside a Provider chain (testpage/parts/ProviderLinkedPartsMatrix.al) what
+//! the runner reads is derived from that file's expectations; the shapes it does not pin are refused as the page opens. Outside
+//! every chain: the turns to visible (`read_hidden_parts_the_action_showed`, `note_hidden_part_found_visible`).
 
 use super::*;
-
-/// The refusal of a part a Visible expression hid that a field's OnValidate turns visible.
-const VALIDATE_TURN: &str = "an OnValidate that makes a part hidden by a Visible expression visible (not pinned)";
 
 impl Session {
     /// Whether part `i` of the host page takes its link from a Provider or is the Provider of another part.
@@ -294,11 +291,13 @@ impl Session {
     }
 
     /// A part a Visible expression hid at open, on a page without a Provider link, that runs record triggers and was hidden at
-    /// the host's last refill but is visible now, without the action's read: its host's own trigger set the expression (the
-    /// Customer Card's Pending Approval FactBox, `Visible = OpenApprovalEntriesExistCurrUser`, set by the card's
-    /// OnAfterGetCurrRecord: Tests-Workflow WF Demo Customer Approval, 134205). It reads like a shown part, which no probe pins
-    /// for that turn: marks the assumption `hidden-part-shown-outside-action`. A turn made inside a SetValue (a field's
-    /// OnValidate) is needed by no cited test: refused, here and after the SetValue (`refuse_hidden_part_shown_by_validate`).
+    /// the host's last refill but is visible now, without the action's read: the host's own trigger or a field's OnValidate set
+    /// the expression. Microsoft's tests need both turns: the Customer Card's Pending Approval FactBox (`Visible =
+    /// OpenApprovalEntriesExistCurrUser`, set by the card's OnAfterGetCurrRecord; Tests-Workflow WF Demo Customer Approval,
+    /// 134205) and a Name OnValidate that a workflow reverts (Tests-Workflow Workflow Additional Scenarios
+    /// CustomerCardNameFieldRevertedByWorkflow, VendorCardNameFieldRevertedByWorkflow; WF Demo General Journal Batch
+    /// RequestorCancelsPaymentRequestToDirectApprover). The part reads like a shown part, which no probe pins for these turns:
+    /// marks the assumption `hidden-part-shown-outside-action`.
     pub(super) fn note_hidden_part_found_visible(&mut self, st: &St, parts: &[(usize, St)]) -> Result<(), Signal> {
         if st.borrow().hidden_parts.is_empty() || self.page_has_provider_link(st) {
             return Ok(());
@@ -310,33 +309,11 @@ impl Session {
             }
             let visible = self.control_visible(st, *i)?;
             if visible && !c.borrow().visible_at_sync {
-                if st.borrow().in_set_value {
-                    return unsupported(VALIDATE_TURN);
-                }
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::HiddenPartShownOutsideAction);
             }
             let mut c = c.borrow_mut();
             c.visible_at_sync = visible;
             c.seen_visible |= visible;
-        }
-        Ok(())
-    }
-
-    /// After a TestPage SetValue on `st`: a part a Visible expression hid that the validation turned visible is refused
-    /// (see `note_hidden_part_found_visible`).
-    pub(super) fn refuse_hidden_part_shown_by_validate(&mut self, st: &St) -> Result<(), Signal> {
-        if st.borrow().hidden_parts.is_empty() || self.page_has_provider_link(st) {
-            return Ok(());
-        }
-        let hidden = st.borrow().hidden_parts.clone();
-        for (i, c) in hidden {
-            if c.borrow().open
-                && !c.borrow().visible_at_sync
-                && self.runs_record_triggers(&c)
-                && self.control_visible(st, i)?
-            {
-                return unsupported(VALIDATE_TURN);
-            }
         }
         Ok(())
     }

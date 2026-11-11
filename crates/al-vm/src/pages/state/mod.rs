@@ -216,8 +216,6 @@ pub struct PageState {
     pub seen_visible: bool,
     /// Such a part was visible at its host's last refill (`provider_hidden.rs`).
     pub visible_at_sync: bool,
-    /// A TestPage SetValue on this page is validating (`provider_hidden.rs`: a part it turns visible is refused).
-    pub in_set_value: bool,
     /// Where an action of a Document page stands that saved a SetValue of the host before its trigger: 0 none, 1 that save's
     /// refresh is running, 2 the save is done and a CurrPage.Update in the trigger has not refreshed yet, 3 it has
     /// (record/captions/QdCaptionClassAreas.al:1015-1049 QO_Doc_OpenEdit_HostSteps `update`).

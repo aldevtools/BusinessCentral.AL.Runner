@@ -26,10 +26,7 @@ impl Session {
         .transpose()?;
         // The rows of a tree the client had expanded: putting the cut back after OnValidate may expand the parent of Rec's row.
         let expanded = st.borrow().expanded.clone();
-        let in_set_value = std::mem::replace(&mut st.borrow_mut().in_set_value, true);
         let r = self.control_set_value_now(st, idx, args);
-        st.borrow_mut().in_set_value = in_set_value;
-        let r = r.and_then(|v| self.refuse_hidden_part_shown_by_validate(st).map(|()| v));
         if let (Ok(_), Some(held)) = (&r, refill_held) {
             if !st.borrow().refresh && self.temp_refill_shape_or_tree(st) && self.held_rows_changed(st)? {
                 self.reread_after_refill_by_validate(st, &held, expanded)?;
