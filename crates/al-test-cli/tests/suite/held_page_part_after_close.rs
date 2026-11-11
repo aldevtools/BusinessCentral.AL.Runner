@@ -7,7 +7,7 @@
 //! the Probe Observer replaced by a text check.
 //!
 //! Not here: the second test of each shape codeunit (HS07, HS09, HS11, HS13: OpenNew with a hidden or shown factbox,
-//! SetValue on the key, an action). The corpus file runs them; the runtime refuses the action on that new row.
+//! SetValue on the key, an action). The runtime refuses the action on that new row (`new_row_action_shapes_are_refused`).
 
 use al_test_cli::report::Outcome;
 use al_testkit::outcomes_in;
@@ -135,6 +135,28 @@ codeunit 99633 "LT HS Shape Run"
         ShapeLog.Setup(Visible, UseTry);
         Host.OpenEdit();
         ShapeLog.Add('T:opened');
+        Host.Close();
+        ShapeLog.Add('T:closed');
+        if UseTry then
+            if Subs.TryUpdate(Returned) then
+                ShapeLog.Add('direct=' + Format(Returned))
+            else
+                ShapeLog.Add('direct-error');
+        exit(ShapeLog.TakeLog());
+    end;
+
+    // The probe's second test (HS07, HS09, HS11, HS13): OpenNew, the key set with SetValue, an action invoked, Close. Refused at
+    // the action (see `new_row_action_shapes_are_refused`).
+    procedure SecondTest(UseTry: Boolean): Text
+    var ShapeLog: Codeunit "LT HS Shape Log"; Subs: Codeunit "LT HS Shape Subs"; Host: TestPage "LT HS Shape Host"; Returned: Integer;
+    begin
+        ShapeLog.TakeLog();
+        Host.OpenNew();
+        ShapeLog.Add('T:opened');
+        Host.IdF.SetValue(2);
+        ShapeLog.Add('T:set');
+        Host.Touch.Invoke();
+        ShapeLog.Add('T:acted');
         Host.Close();
         ShapeLog.Add('T:closed');
         if UseTry then
@@ -415,6 +437,34 @@ fn unmeasured_calls_inside_the_held_part_refuse() {
         refused(&o[1], "only its fields and Count() are measured there"),
         "{o:?}"
     );
+}
+
+// HS07, HS09, HS11 and HS13: OpenNew, the key set with SetValue, an action, hidden or shown factbox. BC stores the row before
+// the action and reads the host twice after it (HeldSenderPartAccess.al:750); the runtime does not model that and refuses the
+// action. The not-passing lists cannot tell a refusal from a failure, so this keeps the shape refused.
+#[test]
+fn new_row_action_shapes_are_refused() {
+    for visible in [false, true] {
+        for use_try in [false, true] {
+            let src = format!(
+                "{SRC}\ncodeunit 99634 T {{ Subtype = Test; TestPermissions = Disabled;
+                var Run: Codeunit \"LT HS Shape Run\";
+                [Test] procedure First() begin Run.FirstTest({visible}, {use_try}); end;
+                [Test] procedure Second() begin Run.SecondTest({use_try}); end;
+                }}"
+            );
+            let o = outcomes_in(&src, "T");
+            assert_eq!(o.len(), 2, "{o:?}");
+            assert!(matches!(o[0].1, Outcome::Pass), "{o:?}");
+            assert!(
+                refused(
+                    &o[1],
+                    "an action on a new row whose key was typed, on a page with parts"
+                ),
+                "{o:?}"
+            );
+        }
+    }
 }
 
 // A reopen through a helper that takes the TestPage by value or by var, or a plain reopen, with no Page variable holding the

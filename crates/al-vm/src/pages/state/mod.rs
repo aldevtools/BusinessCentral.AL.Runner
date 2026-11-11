@@ -206,6 +206,9 @@ pub struct PageState {
     pub chain_refill: u8,
     /// The part does not read again when Close inserts its new host row (`draft.rs` `quiet_parts_at_new_host_close`).
     pub quiet_at_close: bool,
+    /// The fields of the new row once it started (after the filters stamped it and OnNewRecord ran): what the test typed since
+    /// is what differs from it (`dirty_step.rs` `refuse_action_on_new_host_with_parts`).
+    pub draft_start: Option<Vec<Value>>,
     /// Where an action of a Document page stands that saved a SetValue of the host before its trigger: 0 none, 1 that save's
     /// refresh is running, 2 the save is done and a CurrPage.Update in the trigger has not refreshed yet, 3 it has
     /// (record/captions/QdCaptionClassAreas.al:1015-1049 QO_Doc_OpenEdit_HostSteps `update`).

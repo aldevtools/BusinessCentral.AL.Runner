@@ -379,27 +379,36 @@ impl Session {
         }
     }
 
-    /// An action on a new host row whose key was typed and that is not stored, on a page with a part: BC stores the row before
-    /// the action and reads the host and its parts again in an order of its own (testpage/parts/HiddenPartExtensionVariable.al:454
+    /// An action on a new row of a top-level Card or Document page with a part, whose key a SetValue typed (the key differs from
+    /// the one the row started with, `PageState::draft_start`) and that is not stored: BC stores the row before the action and
+    /// reads the host and its parts again in an order of its own (testpage/parts/HiddenPartExtensionVariable.al:454
     /// Hidden_OpenNew_Key_HostActions `plain` `3 [act-plain host-agcr(H3) ext-agcr(H3) fb-agr(H3) fb-agcr(H3)]`, shown the same;
-    /// pages/parts/HeldSenderPartAccess.al:750 HS07 `T:set;h3.getrec(2);sub.hold;action(2);h3.getrec(2);sub.hold;h3.getrec(2)`).
-    /// Not implemented: refused before the action saves anything. A card without parts keeps its pinned shape
-    /// (`plain_card_draft`).
+    /// pages/parts/HeldSenderPartAccess.al:743 HS07 `T:set;h3.getrec(2);sub.hold;action(2);h3.getrec(2);sub.hold;h3.getrec(2)`).
+    /// Not implemented: refused before the action saves anything. A new row whose key nobody typed is not stored before the
+    /// action (HiddenPartExtensionVariable.al:502 Hidden_OpenNew_ActionsBeforeTheKey `plain` `2 [act-plain]`) and runs as before;
+    /// so does a card without parts (`plain_card_draft`).
     fn refuse_action_on_new_host_with_parts(&mut self, st: &St) -> Result<(), Signal> {
-        let new_host = {
+        let start = {
             let s = st.borrow();
-            s.open && s.host.is_none() && s.draft && !s.draft_stored
+            if !(s.open && s.host.is_none() && s.draft && !s.draft_stored && s.dirty) {
+                return Ok(());
+            }
+            s.draft_start.clone()
         };
-        if !new_host || Self::open_parts_with_hidden(st).is_empty() || !self.has_source(st) {
+        let card_or_document = matches!(
+            self.engine.object_facts[st.borrow().object as usize].page_type,
+            Some(al_ir::PageType::Card | al_ir::PageType::Document)
+        );
+        let Some(start) = start else { return Ok(()) };
+        if !card_or_document || Self::open_parts_with_hidden(st).is_empty() || !self.has_source(st) {
             return Ok(());
         }
         let rec = self.page_rec(st);
-        let initial = self.initial_fields(rec.borrow().table as usize);
         let table = self.table(&rec)?;
         let key_typed = table.keys[0].iter().any(|&k| {
             !Self::same_values(
                 std::slice::from_ref(&rec.borrow().fields[k]),
-                std::slice::from_ref(&initial[k]),
+                std::slice::from_ref(&start[k]),
             )
         });
         if key_typed {

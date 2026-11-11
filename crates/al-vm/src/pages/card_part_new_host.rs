@@ -4,32 +4,43 @@
 //! Chain_FbHidden_OpenNewTypeKey `new` `host-open | fb-open() | host-row() | fb-row()`, the same for the shown part and on a page
 //! without a Provider link, :333, :347, :361; testpage/parts/HiddenPartExtensionVariable.al:430 `host-agcr() ext-agcr() fb-agcr()`;
 //! pages/parts/HeldSenderPartAccess.al:750 HS07 `sub.curr;f4.curr(0)`). It runs no OnAfterGetRecord. Whether it runs OnNewRecord
-//! is not measured there: a part that declares it or has a subscriber of its event is refused.
+//! is not measured there: a part that declares it or has a subscriber of its event is refused. Pinned for a top-level Card or
+//! Document host; a hidden part on another host, or with a repeater, is refused as the new row opens
+//! (`refuse_unpinned_hidden_part_on_new_host`).
 
 use super::*;
 
 impl Session {
-    /// Whether `st` is a part without a repeater whose host is a top-level Card or Document page on a new, unsaved row.
-    pub(super) fn card_part_of_new_host(&self, st: &St) -> bool {
+    /// Whether `st` is a part of a top-level Card or Document page.
+    pub(super) fn part_on_card_or_document_host(&self, st: &St) -> bool {
         let Some(host) = st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade()) else {
             return false;
         };
-        let new_host = {
-            let h = host.borrow();
-            h.host.is_none()
-                && h.draft
-                && !h.draft_stored
-                && matches!(
-                    self.engine.object_facts[h.object as usize].page_type,
-                    Some(al_ir::PageType::Card | al_ir::PageType::Document)
-                )
-        };
-        new_host
-            && self.has_source(st)
-            && !page_of(&self.engine(), st)
-                .controls
-                .iter()
-                .any(|c| c.kind == ir::ControlKind::Repeater)
+        let h = host.borrow();
+        h.host.is_none()
+            && matches!(
+                self.engine.object_facts[h.object as usize].page_type,
+                Some(al_ir::PageType::Card | al_ir::PageType::Document)
+            )
+    }
+
+    /// Whether page `st` has a repeater.
+    pub(super) fn has_repeater(&self, st: &St) -> bool {
+        page_of(&self.engine(), st)
+            .controls
+            .iter()
+            .any(|c| c.kind == ir::ControlKind::Repeater)
+    }
+
+    /// Whether `st` is a part without a repeater whose host is a top-level Card or Document page on a new, unsaved row.
+    pub(super) fn card_part_of_new_host(&self, st: &St) -> bool {
+        let new_host = st
+            .borrow()
+            .host
+            .as_ref()
+            .and_then(|(h, _)| h.upgrade())
+            .is_some_and(|h| h.borrow().draft && !h.borrow().draft_stored);
+        new_host && self.part_on_card_or_document_host(st) && self.has_source(st) && !self.has_repeater(st)
     }
 
     /// The blank record of such a part: its OnAfterGetCurrRecord and that event's subscribers run once.
@@ -45,6 +56,31 @@ impl Session {
         self.populate_expressions(st)?;
         self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
         self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
+        Ok(())
+    }
+
+    /// A new row on a page without a Provider link, with a part a Visible expression hid that declares OnAfterGetCurrRecord,
+    /// with a repeater or on a host other than a top-level Card or Document page: what BC runs for it is not measured (a hidden
+    /// ListPart reads its blank line fewer times than its shown twin inside a Provider chain, testpage/parts/
+    /// ProviderLinkedPartsMatrix.al:1225 against :1244). Refused before the parts open. With a Provider link the hidden parts read
+    /// as ProviderLinkedPartsMatrix.al pins.
+    pub(super) fn refuse_unpinned_hidden_part_on_new_host(
+        &self,
+        st: &St,
+        hidden: &[(usize, St)],
+    ) -> Result<(), Signal> {
+        if st.borrow().mode != PageMode::New || self.page_has_provider_link(st) {
+            return Ok(());
+        }
+        for (_, c) in hidden {
+            if self.declares_or_ext_declares(c, "onaftergetcurrrecord")
+                && (self.has_repeater(c) || !self.part_on_card_or_document_host(c))
+            {
+                return unsupported(
+                    "a new row on a page with a part hidden by a Visible expression that declares OnAfterGetCurrRecord, a part with a repeater or on a host other than a Card or Document page (not pinned)",
+                );
+            }
+        }
         Ok(())
     }
 }

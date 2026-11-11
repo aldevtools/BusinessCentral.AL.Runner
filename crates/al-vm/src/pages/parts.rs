@@ -124,6 +124,7 @@ impl Session {
                 hidden.push((i, child));
             }
         }
+        self.refuse_unpinned_hidden_part_on_new_host(st, &hidden)?;
         st.borrow_mut().parts = kept.clone();
         st.borrow_mut().hidden_parts = hidden.clone();
         let mut all: Vec<(usize, St)> = kept.into_iter().chain(hidden).collect();
@@ -517,8 +518,6 @@ impl Session {
         if opening {
             self.refuse_factbox_vs_extension_chain(st)?;
             self.read_blank_before_parts_turning_visible(st)?;
-        } else {
-            self.refuse_unchained_part_turning_visible(st, &parts)?;
         }
         if let Sync::Move { .. } = how {
             let mut linked = Vec::new();

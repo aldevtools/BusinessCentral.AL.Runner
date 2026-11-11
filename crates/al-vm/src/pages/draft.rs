@@ -564,6 +564,7 @@ impl Session {
         st.borrow_mut().new_row_inserted_by_trigger = false;
         self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
         self.page_event(st, "onnewrecordevent", None, Some(true))?;
+        st.borrow_mut().draft_start = Some(rec.borrow().fields.clone());
         // A card opened with OpenNew whose OnNewRecord inserts the new row itself still holds it as a new row: the next write to
         // a field outside the key inserts it again (corpus testpage/CfPageLeads.al:241-289
         // Card_OnNewRecordInserts_OpenNewSetClose: `OnInsertRecord:DOC1,Doc.OnInsert:DOC1` at SetValue). Only that shape is

@@ -1203,9 +1203,8 @@ impl Session {
             if let Some(shape) = empty {
                 self.empty_page_before_action(st, shape)?;
             }
-            // Subscribers to the action's events: before the trigger (what they write to Rec the trigger reads and the
-            // page saves, because `before` was taken first), after it when it did not fail
-            // (events/platform-triggers/P114PageActionEvents.al).
+            // Subscribers to the action's events (`run_action_body`): what they write to Rec the trigger reads and the page
+            // saves, because `before` was taken first.
             let element = page_of(&engine, st).controls[idx].name.clone();
             let shown_outer = {
                 let shown = if self.is_list(st) && st.borrow().host.is_none() {
@@ -1215,22 +1214,7 @@ impl Session {
                 };
                 std::mem::replace(&mut st.borrow_mut().action_shown_row, shown)
             };
-            let r = match self
-                .page_action_event(st, "onbeforeactionevent", &element)
-                .and_then(|()| self.run_ext_after_action(st, &before_ext))
-            {
-                Ok(()) => self.in_page_trigger(st, "onaction", |s| s.control_routine(st, idx, r)),
-                err => err.map(|()| Value::Null),
-            };
-            let r = match r {
-                Ok(v) => self.run_ext_after_action(st, &after).map(|()| v),
-                err => err,
-            };
-            st.borrow_mut().action_shown_row = shown_outer;
-            let r = match r {
-                Ok(v) => self.page_action_event(st, "onafteractionevent", &element).map(|()| v),
-                err => err,
-            };
+            let r = self.run_action_body(st, idx, r, &element, &before_ext, &after, shown_outer);
             // An error an action raises comes out of the test page's Invoke with the test framework's prefix on its code.
             let r = match r {
                 Err(Signal::Error(mut e)) => {
