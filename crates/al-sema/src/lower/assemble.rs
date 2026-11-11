@@ -892,7 +892,7 @@ fn foreign_request_control<'a>(
 }
 
 /// The heads, positions, drivers and (with `export`) the blocks of a cache layer, from the objects as linked
-/// (`lower_core`). A block holds a copy of its object, so this doubles the program for a moment: a hard memory limit
+/// (`lower_core`). A block shares its object with the program (no copy); its positions are copied. A hard memory limit
 /// stops it at the next object (`halt.rs`).
 fn export_blocks(
     set: &mut crate::provided::DepSet,
@@ -902,9 +902,9 @@ fn export_blocks(
     prov: &dyn Fn(usize) -> bool,
 ) {
     set.heads = program.objects.iter().map(ir::ObjectHead::of).collect();
-    for (oi, o) in program.objects.iter().enumerate() {
+    for (oi, &(start, len)) in pos_ranges.iter().enumerate().take(program.objects.len()) {
         crate::halt::check();
-        let (start, len) = pos_ranges[oi];
+        let o = program.objects.get_shared(oi).expect("in range");
         let facts = &mut set.facts[oi];
         facts.positions = len;
         facts.drivers = o
@@ -919,7 +919,7 @@ fn export_blocks(
             crate::provided::DepBlock::placeholder()
         } else {
             crate::provided::DepBlock {
-                object: Some(o.clone()),
+                object: Some(std::sync::Arc::clone(o)),
                 pos_start: start,
                 positions: (start..start + len).map(|id| program.positions[id as usize]).collect(),
             }

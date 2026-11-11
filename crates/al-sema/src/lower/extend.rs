@@ -130,11 +130,11 @@ impl DepSource for KeptProgram {
         let o = self
             .program
             .objects
-            .get(object)
+            .get_shared(object)
             .ok_or_else(|| format!("the kept program has no object {object}"))?;
         let (start, len) = self.kept.pos_ranges[object];
         Ok(DepBlock {
-            object: Some(o.clone()),
+            object: Some(std::sync::Arc::clone(o)),
             pos_start: start,
             positions: (start..start + len)
                 .map(|id| self.program.positions[id as usize])
@@ -692,6 +692,11 @@ codeunit 80001 SBad { procedure P() var R: Record T; begin R.AlsoNoField := 1; e
         assert!(
             grown.provided[unused],
             "an object nothing changed is taken from the kept compile"
+        );
+        // ... and shared with the kept compile's program, not copied.
+        assert!(
+            std::ptr::eq(&grown.program.objects[unused], &main_pass.program.objects[unused]),
+            "an object taken from the kept compile is the kept program's object"
         );
         // The work ratchet counts them apart from what a compile cache supplies.
         assert_eq!(
