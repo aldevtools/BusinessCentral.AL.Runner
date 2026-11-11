@@ -8,7 +8,7 @@
 
 use crate::Session;
 use al_builtins::describe::Describe;
-use al_builtins::filter::{FieldFilter, FilterExpr};
+use al_builtins::filter::{FieldFilter, FilterExpr, needs_quotes};
 use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::{RecordState, RtType, Value};
 use al_data::TableDef;
@@ -16,12 +16,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 type Rec = Rc<RefCell<RecordState>>;
-
-/// Characters whose presence in a text value makes `GetFilter` quote the whole value (record/
-/// TestSetFilterSpecialTextContracts.al, record/filters/W4Filters.al:174-191), and `..`.
-fn needs_quotes(s: &str) -> bool {
-    s.contains(['|', '&', '<', '>', '=', '(', ')']) || s.contains("..")
-}
 
 /// `=` before a literal text that `filter_value_with` quotes for its `*` or `?` alone, so it does not read as a pattern.
 fn equal_sign(v: &Value) -> &'static str {
@@ -264,6 +258,11 @@ impl Session {
             FilterExpr::AtSignAlone(negated) => if *negated { "<>@" } else { "@" }.to_string(),
             FilterExpr::EmptyViewValue => "==".to_string(),
             FilterExpr::UnpinnedMatch(inner, _) => self.filter_text_with(inner, iso)?,
+            FilterExpr::UnpinnedText(_) => {
+                return unsupported(
+                    "the text of a filter with a wildcard text written as a literal value (not pinned)",
+                );
+            }
             FilterExpr::NumCode(inner) => self.filter_text_with(inner, iso)?,
             // The parts of an OR list each show as alone: a quoted empty text on a DateTime field as `''..''` (record/views/
             // Y71SetViewDateTime.al:125-127 dt_empty_or, :207-209 sca_empty_or), the blank DateTime given as %1 as `''`
@@ -850,7 +849,7 @@ fn ordinals(e: &FilterExpr) -> FilterExpr {
         FilterExpr::NotLike(p, ci) => FilterExpr::NotLike(p.clone(), *ci),
         FilterExpr::AtSignAlone(n) => FilterExpr::AtSignAlone(*n),
         FilterExpr::EmptyViewValue => FilterExpr::EmptyViewValue,
-        FilterExpr::UnpinnedMatch(..) => e.clone(),
+        FilterExpr::UnpinnedMatch(..) | FilterExpr::UnpinnedText(_) => e.clone(),
         FilterExpr::NumCode(e) => FilterExpr::NumCode(e.clone()),
     }
 }

@@ -96,6 +96,7 @@ mod fieldref_number_into_text_variable;
 mod fieldref_option_ordinal_arg;
 mod fieldref_testfield_number_on_text;
 mod fieldref_text_into_integer;
+mod filter_unpinned_neighbors;
 mod filtergroup_assign;
 mod find_filtered_miss;
 mod flowfield_cross_table_cycle;

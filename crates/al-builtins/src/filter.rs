@@ -41,6 +41,16 @@ pub enum FilterExpr {
     /// master record/crud/RcAFilters.al:996-1027 pins only SetFilter and GetFilter). The text is the filter as given. A store
     /// refuses a read that selects rows through it ([`FilterExpr::unpinned_match`]).
     UnpinnedMatch(Box<FilterExpr>, String),
+    /// A filter that selects rows as `inner` does, but whose text (GetFilter, GetFilters, a view) is not pinned: a wildcard text
+    /// written as a literal value (`=A*B`, `>A*B`, `A*B..AXB`, `..A*`). Only the placeholder and SetRange forms of such a value
+    /// read back pinned (record/filters/PlaceholderWildcardValue.al:249-262, :300-325, :413).
+    UnpinnedText(Box<FilterExpr>),
+}
+
+/// Characters whose presence in a text value makes `GetFilter` quote the whole value (record/
+/// TestSetFilterSpecialTextContracts.al, record/filters/W4Filters.al:174-191), and `..`.
+pub fn needs_quotes(s: &str) -> bool {
+    s.contains(['|', '&', '<', '>', '=', '(', ')']) || s.contains("..")
 }
 
 /// The number a Code text of plain digits is.
@@ -119,6 +129,7 @@ impl FilterExpr {
             },
             // Refused by `matches` and by a store before it asks (see `matches_checked`).
             FilterExpr::UnpinnedMatch(..) => false,
+            FilterExpr::UnpinnedText(inner) => inner.matches_checked(v),
         }
     }
 
@@ -129,7 +140,7 @@ impl FilterExpr {
                 "a read through the filter `{text}`, an unclosed quote after `@`: its matching not pinned"
             )),
             FilterExpr::Or(xs) | FilterExpr::And(xs) => xs.iter().find_map(FilterExpr::unpinned_match),
-            FilterExpr::NumCode(inner) => inner.unpinned_match(),
+            FilterExpr::NumCode(inner) | FilterExpr::UnpinnedText(inner) => inner.unpinned_match(),
             _ => None,
         }
     }
@@ -166,6 +177,7 @@ impl FilterExpr {
             FilterExpr::AtSignAlone(_) | FilterExpr::EmptyViewValue => None,
             FilterExpr::UnpinnedMatch(..) => self.unpinned_match().map(Signal::unsupported),
             FilterExpr::Or(xs) | FilterExpr::And(xs) => xs.iter().find_map(|x| x.compare_error(v)),
+            FilterExpr::UnpinnedText(inner) => inner.compare_error(v),
             FilterExpr::NumCode(inner) => match code_number(v) {
                 Some(n) => inner.compare_error(&Value::BigInteger(n)),
                 None => inner.compare_error(v),
@@ -695,13 +707,28 @@ pub fn parse_filter_with(
     } else {
         text
     };
+    // `<>` as the whole filter on a Code or Text field raises the filter error (recordref-fieldref/fieldref/
+    // FieldRefFilterMatrix.al:1140 `bare.Code`, :1310 `bare.Text`). With blank space around it the filter is not pinned.
+    if matches!(ty, crate::value::RtType::Text(_) | crate::value::RtType::Code(_)) && text.trim() == "<>" {
+        return Err(if text == "<>" {
+            format!("{FILTER_SYNTAX}A value is expected after the '<>'.")
+        } else {
+            "`<>` with blank space around it as the whole filter (not pinned)".into()
+        });
+    }
     let mut kept_placeholder = false;
     let mut at_placeholder = false;
     let mut missing_placeholder = None;
     let mut unclosed_after_at = false;
+    // The text `?` alone in a placeholder is the literal text only where the corpus pins it: `%1`, `=%1`, `<>%1`, `>%1` and
+    // `<=%1` as the whole filter on a Text or Code field (record/filters/PlaceholderWildcardValue.al:225, :242, :259, :276,
+    // :293, :434-502; FieldRef :650). Elsewhere it stays a wildcard, as before.
+    let question_literal = matches!(ty, crate::value::RtType::Text(_) | crate::value::RtType::Code(_))
+        && matches!(text, "%1" | "=%1" | "<>%1" | ">%1" | "<=%1");
     let toks = tokenize(
         text,
         args,
+        question_literal,
         &mut kept_placeholder,
         &mut at_placeholder,
         &mut missing_placeholder,
@@ -748,8 +775,17 @@ pub fn parse_filter_with(
             }
         }
     }
-    let mut p = Parser { toks, i: 0, ty, enums };
-    let e = p.or()?;
+    let mut p = Parser {
+        toks,
+        i: 0,
+        written_wildcard: false,
+        ty,
+        enums,
+    };
+    let mut e = p.or()?;
+    if p.written_wildcard {
+        e = FilterExpr::UnpinnedText(Box::new(e));
+    }
     if p.i != p.toks.len() {
         if matches!(ty, crate::value::RtType::Text(_)) && matches!(p.toks[p.i], Tok::Op(")")) {
             return Err(did_not_expect(")"));
@@ -763,21 +799,22 @@ pub fn parse_filter_with(
     }
     if media_guid_order(ty, &e) {
         return Err(
-            "a range or `<`, `>` filter of a Guid on a MediaSet field (the order of Guids is not pinned)".into(),
+            "a range or `<`, `>` filter of a Guid on a Media or MediaSet field (the order of Guids is not pinned)"
+                .into(),
         );
     }
     Ok(e)
 }
 
-/// Whether `e` on a MediaSet field orders Guids: a range or `<`, `<=`, `>`, `>=`. BC orders them otherwise than by their text:
-/// the range `{11F319D9-...-6E725A266949}..{F1F319D9-...-6E725A266949}` keeps no row that holds a new media id
-/// (recordref-fieldref/fieldref/FieldRefFilterMediaGuidText.al:244, :383), which the text order would keep most of the time, and
-/// `<` and `>` against such an id change from run to run (`gt` and `lt` are ignored there). That order is not pinned. A Media
-/// field still compares in the text order, as before: refusing it there turns three cases that pass only through ignored cells
-/// (FieldRefFilterMatrix.al Filter_Media_Compare, _Lists, _View) into not run, which needs the owner's decision.
-fn media_guid_order(ty: &crate::value::RtType, e: &FilterExpr) -> bool {
+/// Whether `e` on a Media or MediaSet field orders Guids: a range or `<`, `<=`, `>`, `>=`. BC orders them otherwise than by
+/// their text: on a MediaSet field the range `{11F319D9-...-6E725A266949}..{F1F319D9-...-6E725A266949}` keeps no row that
+/// holds a new media id (recordref-fieldref/fieldref/FieldRefFilterMediaGuidText.al:244, :383), which the text order would keep
+/// most of the time, and `<` and `>` against such an id change from run to run (`gt` and `lt` are ignored there). That order is
+/// not pinned, so it is refused on both types until it is probed (owner decision 2026-11-11; Record.SetRange with two values
+/// is refused for the same reason, al-vm records/op_inner.rs).
+pub fn media_guid_order(ty: &crate::value::RtType, e: &FilterExpr) -> bool {
     use crate::library_kind::LibraryKind as K;
-    if !matches!(ty, crate::value::RtType::Library(K::MediaSet)) {
+    if !matches!(ty, crate::value::RtType::Library(K::Media | K::MediaSet)) {
         return false;
     }
     fn orders(e: &FilterExpr) -> bool {
@@ -851,6 +888,7 @@ fn unclosed_quote(rest: &[char], out: &[Tok]) -> Result<Option<String>, String> 
 fn tokenize(
     text: &str,
     args: &[Value],
+    question_literal: bool,
     kept_placeholder: &mut bool,
     at_placeholder: &mut bool,
     missing_placeholder: &mut Option<String>,
@@ -1015,9 +1053,9 @@ fn tokenize(
                         "placeholder %{n} holds a text with the filter character `@`: how BC quotes it is not pinned"
                     ));
                 }
-                // The text `?` alone is the literal text too: `%1` reads back `='?'` and keeps only the row `?`, `<>%1` reads
-                // back `<>'?'` (record/filters/PlaceholderWildcardValue.al:226, :236, :262; FieldRef :650).
-                if t == "*" || t == "?" {
+                // The text `?` alone is the literal text too in the pinned shapes (`question_literal`): `%1` reads back `='?'`
+                // and keeps only the row `?`, `<>%1` reads back `<>'?'` (record/filters/PlaceholderWildcardValue.al:225, :242).
+                if t == "*" || (t == "?" && question_literal) {
                     out.push(Tok::Typed(arg.clone()));
                     i += 2;
                     continue;
@@ -1050,6 +1088,8 @@ fn tokenize(
 struct Parser<'a> {
     toks: Vec<Tok>,
     i: usize,
+    /// A wildcard text written as a literal value was read (see [`FilterExpr::UnpinnedText`]).
+    written_wildcard: bool,
     ty: &'a crate::value::RtType,
     enums: &'a dyn Fn(u32) -> Result<Vec<(i32, String)>, String>,
 }
@@ -1117,8 +1157,9 @@ impl Parser<'_> {
         }
     }
 
-    fn typed(&self, t: Tok) -> Result<Value, String> {
+    fn typed(&mut self, t: Tok) -> Result<Value, String> {
         use crate::value::RtType as T;
+        let from_arg = matches!(t, Tok::Arg(_));
         let text = match t {
             // An Enum value given for an Option column through SetFilter's %1 filters by its ordinal and shows under the Enum's own name
             // (types/duration/B_EnumOptionVariant.al:Filter_OptionColumn_SetRange_EnumValue, `filter_green_filter`
@@ -1145,6 +1186,16 @@ impl Parser<'_> {
             Tok::Raw(s) | Tok::Quoted(s) | Tok::Arg(s) => s,
             Tok::Op(o) => return Err(format!("operator `{o}` where a value was expected")),
         };
+        // A written wildcard text as a literal value reads back as it did before the placeholder forms were pinned: refused,
+        // unless it is quoted for a filter operator in it or holds a double quote (see `FilterExpr::UnpinnedText`).
+        if !from_arg
+            && matches!(self.ty, T::Text(_) | T::Code(_))
+            && text.contains(['*', '?'])
+            && !text.contains('"')
+            && !needs_quotes(&text)
+        {
+            self.written_wildcard = true;
+        }
         Ok(match self.ty {
             T::Text(_) => Value::Text(text.into()),
             T::Code(_) => Value::Code(filter_upper(text.trim())?.into()),
@@ -1302,10 +1353,16 @@ impl Parser<'_> {
             // empty row (streams/media/SoMediaFilter.al:246-250, SO_MediaSetFilter_NullGuidForms). Any other Guid, braced, bare,
             // in lower case or quoted, with `=`, `<>`, `|`, `..` and `&`, the id of the stored set and that of the item inside it,
             // which matches no row (recordref-fieldref/fieldref/FieldRefFilterMediaGuidText.al:227-251, :288-365;
-            // al-runner issue 7461). GetFilter writes the Guid braced in upper case. A text that is no Guid is not pinned on a
-            // MediaSet field: refused below.
+            // al-runner issue 7461). GetFilter writes the Guid braced in upper case. A text that is no Guid, and a Guid other than
+            // the null Guid in a text placeholder argument (`SetFilter(MS, '%1', Format(G))`; the FieldRef form raises the
+            // conversion error, FieldRefFilterMediaGuidText.al:258-296), are not pinned on a MediaSet field: refused.
             T::Library(crate::library_kind::LibraryKind::MediaSet) if !text.trim().starts_with('(') => {
                 match crate::evaluate::read_text(&T::Guid, text.trim()) {
+                    Some(Value::Guid(g)) if from_arg && g != [0; 16] => {
+                        return Err(format!(
+                            "a text placeholder argument `{text}` on a MediaSet field (not pinned)"
+                        ));
+                    }
                     Some(v @ Value::Guid(_)) => v,
                     _ => {
                         return Err(format!("text filter value `{text}` for MediaSet: not pinned"));
@@ -1496,16 +1553,9 @@ impl Parser<'_> {
                     self.i += 1;
                     return Ok(FilterExpr::Lt(day_start(day)));
                 }
+                let before = self.written_wildcard;
                 let v = match self.value() {
                     Some(v) => self.typed(v)?,
-                    // `<>` as the whole filter on a Code or Text field raises the filter error (recordref-fieldref/fieldref/
-                    // FieldRefFilterMatrix.al:1140 `bare.Code`, :1310 `bare.Text`).
-                    None if op == "<>"
-                        && self.toks.len() == 1
-                        && matches!(self.ty, crate::value::RtType::Text(_) | crate::value::RtType::Code(_)) =>
-                    {
-                        return Err(format!("{FILTER_SYNTAX}A value is expected after the '<>'."));
-                    }
                     None if matches!(self.ty, crate::value::RtType::Text(_) | crate::value::RtType::Code(_)) => {
                         Value::Text(String::new().into())
                     }
@@ -1527,6 +1577,10 @@ impl Parser<'_> {
                     }
                     None => return Err(format!("value expected after `{op}`")),
                 };
+                // `=*` keeps the read-back `='*'` it had, the text of `%1` with `*` (record/filters/W4Filters.al `star_alone`).
+                if op == "=" && matches!(&v, Value::Text(t) | Value::Code(t) if &**t == "*") {
+                    self.written_wildcard = before;
+                }
                 Ok(match op {
                     "<>" => FilterExpr::Ne(v),
                     "<=" => FilterExpr::Le(v),

@@ -1528,8 +1528,14 @@ impl Session {
                         Some(v) => ops::convert(v.clone(), &ty)?,
                         None => from.clone(),
                     };
-                    r.filters
-                        .push(FieldFilter::new(pos, FilterExpr::Range(Some(from), Some(to)), group));
+                    let range = FilterExpr::Range(Some(from), Some(to));
+                    // Two Guids on a Media or MediaSet field order them, which is not pinned (`filter::media_guid_order`).
+                    if args.len() > 2 && al_builtins::filter::media_guid_order(&ty, &range) {
+                        return Err(Signal::unsupported(
+                            "SetRange with two Guids on a Media or MediaSet field (the order of Guids is not pinned)",
+                        ));
+                    }
+                    r.filters.push(FieldFilter::new(pos, range, group));
                 }
                 Ok(Value::Null)
             }
