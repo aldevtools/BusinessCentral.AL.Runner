@@ -701,24 +701,12 @@ impl Session {
                 // A table procedure runs with the record as its Rec, on the record
                 // variable's own globals (ADR-021).
                 Value::Record(rc) => {
-                    // `Rec.InitType()` in a page's code: the table procedure's xRec is the page's own xRec, as the page's triggers see it
-                    // (Sales Invoice Subform.OnNewRecord calls Rec.InitType, which copies xRec.Type; pages/xrec-in-table-procedure/
-                    // XRecTableProcedure.al `proc xRec=2/22/two`).
-                    let page_xrec = {
-                        let fi = f.instance.borrow();
-                        let o = &self.engine.program.objects[fi.object as usize];
-                        match (o.kind == al_ir::ObjKind::Page, o.rec_slot, o.xrec_slot) {
-                            (true, Some(r), Some(x)) => match (&fi.globals[r], &fi.globals[x]) {
-                                (Value::Record(pr), Value::Record(px)) if Rc::ptr_eq(pr, &rc) => Some(px.clone()),
-                                _ => None,
-                            },
-                            _ => None,
-                        }
-                    };
+                    // The caller's xRec the procedure shares (`table_proc_xrec`: the page's or the field trigger's), else none.
+                    let caller_xrec = self.table_proc_xrec(object, &rc, f);
                     let handle = Rc::as_ptr(&rc) as usize;
-                    let (inst, saved) = self.enter_record(object, rc, page_xrec.as_ref())?;
+                    let (inst, saved) = self.enter_record(object, rc, caller_xrec.as_ref())?;
                     // A plain call: the procedure's xRec is the blank record `enter_record` made (`plain_proc_xrec`).
-                    let plain = page_xrec.is_none().then(|| {
+                    let plain = caller_xrec.is_none().then(|| {
                         let slot = self.engine.program.objects[object].xrec_slot?;
                         match &inst.borrow().globals[slot] {
                             Value::Record(x) => Some(x.clone()),
