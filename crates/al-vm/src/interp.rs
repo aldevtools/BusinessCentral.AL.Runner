@@ -844,6 +844,11 @@ impl Session {
         } else if facts.publisher {
             self.events.publisher_var_lens.clear();
         }
+        if facts.publisher {
+            // A publisher call refused before `publish` took them leaves them behind; the next event must not alias this
+            // caller's globals (al-runner issue 7615).
+            self.events.var_origins.clear();
+        }
         for (slot, inst, g) in &f.aliases {
             f.locals[*slot] = inst.borrow().globals[*g].clone();
         }
