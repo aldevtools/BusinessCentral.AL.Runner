@@ -233,5 +233,6 @@ mod issue_6918_no_source_global_record_set_value;
 mod issue_6919_xmlport_set_table_view_later_element;
 mod issue_6922_record_substitution_arg;
 mod issue_6924_record_copy_blob;
+mod no_source_page_neighbors;
 mod pageext_temp_worksheet_set_before_open;
 mod read_only_temp_list_gone_row;

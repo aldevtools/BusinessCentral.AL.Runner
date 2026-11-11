@@ -86,3 +86,149 @@ fn set_value_after_next_reads_the_held_row_first() {
     assert_eq!(text(run_in(SRC, "R918 DF Tests", "TermEnteredOnEachLineIsKept")), "ok");
     assert!(take_hits().contains(&Assumption::NextHeldRowReadBeforeSetValue));
 }
+
+/// A Worksheet like the reporter's, with a Rec field control, logging each read (`R:<id>`) and each OnValidate (`V:<id>/<term>`).
+const NEIGHBORS: &str = r#"
+table 50172 "R918 NB Line"
+{
+    fields { field(1; Id; Integer) { } field(2; Stored; Integer) { } field(3; Name; Text[30]) { } }
+    keys { key(PK; Id) { } }
+}
+codeunit 50173 "R918 NB Log"
+{
+    SingleInstance = true;
+    var L: Text;
+    procedure Add(T: Text) begin L += T + ' '; end;
+    procedure Get(): Text begin exit(L); end;
+    procedure Clear() begin L := ''; end;
+}
+page 50172 "R918 NB Worksheet"
+{
+    PageType = Worksheet;
+    SourceTable = "R918 NB Line";
+    InsertAllowed = false;
+    layout
+    {
+        area(Content)
+        {
+            repeater(Lines)
+            {
+                field(Id; Rec.Id) { }
+                field(NameCtrl; Rec.Name) { }
+                field(TermCtrl; Term)
+                {
+                    trigger OnValidate()
+                    begin
+                        Log.Add(StrSubstNo('V:%1/%2', Rec.Id, Term));
+                        TempStore.Stored := Term;
+                        TempStore.Modify(false);
+                        CurrPage.Update(false);
+                    end;
+                }
+            }
+        }
+    }
+    trigger OnAfterGetRecord()
+    begin
+        Log.Add(StrSubstNo('R:%1', Rec.Id));
+        if not TempStore.Get(Rec.Id) then begin
+            TempStore.Init();
+            TempStore.Id := Rec.Id;
+            TempStore.Insert();
+        end;
+        Term := TempStore.Stored;
+    end;
+    var
+        TempStore: Record "R918 NB Line" temporary;
+        Log: Codeunit "R918 NB Log";
+        Term: Integer;
+}
+codeunit 50174 "R918 NB Tests"
+{
+    var Log: Codeunit "R918 NB Log";
+
+    local procedure Seed()
+    var L: Record "R918 NB Line";
+    begin
+        L.DeleteAll();
+        L.Id := 1; L.Name := 'a'; L.Insert();
+        L.Id := 2; L.Name := 'b'; L.Insert();
+        L.Id := 3; L.Name := 'c'; L.Insert();
+    end;
+
+    local procedure Report(): Text
+    var L: Record "R918 NB Line"; T: Text;
+    begin
+        if L.FindSet() then repeat T += StrSubstNo('%1=%2 ', L.Id, L.Name); until L.Next() = 0;
+        exit(Log.Get() + '| DB ' + T);
+    end;
+
+    procedure NameThenTermAfterNext(): Text
+    var Sheet: TestPage "R918 NB Worksheet";
+    begin
+        Seed();
+        Sheet.OpenEdit(); Sheet.First(); Sheet.Next();
+        Log.Clear();
+        Sheet.NameCtrl.SetValue('X');
+        Sheet.TermCtrl.SetValue(5);
+        Sheet.Close();
+        exit(Report());
+    end;
+
+    procedure TermAfterNextNextPrevious(): Text
+    var Sheet: TestPage "R918 NB Worksheet";
+    begin
+        Seed();
+        Sheet.OpenEdit(); Sheet.First(); Sheet.Next(); Sheet.Next(); Sheet.Previous();
+        Log.Clear();
+        Sheet.TermCtrl.SetValue(5);
+        Sheet.Close();
+        exit(Report());
+    end;
+
+    procedure TermAfterNextGoToKey(): Text
+    var Sheet: TestPage "R918 NB Worksheet";
+    begin
+        Seed();
+        Sheet.OpenEdit(); Sheet.First(); Sheet.Next(); Sheet.GoToKey(3);
+        Log.Clear();
+        Sheet.TermCtrl.SetValue(5);
+        Sheet.Close();
+        exit(Report());
+    end;
+
+    procedure TermAfterNextFirst(): Text
+    var Sheet: TestPage "R918 NB Worksheet";
+    begin
+        Seed();
+        Sheet.OpenEdit(); Sheet.First(); Sheet.Next(); Sheet.First();
+        Log.Clear();
+        Sheet.TermCtrl.SetValue(5);
+        Sheet.Close();
+        exit(Report());
+    end;
+}
+"#;
+
+/// The neighbors of the reporter's shape keep the earlier behavior: no read before the SetValue, and the assumption is not hit.
+/// A Rec field changed on the row first (al-runner PR 7787 review: the read cleared the change, and Close no longer saved `X`);
+/// a Previous, a GoToKey or a First after the Next (the read ran on a row no Next had reached).
+#[test]
+fn set_value_neighbors_of_the_held_row_read_keep_the_earlier_behavior() {
+    use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+    let mut wrong = Vec::new();
+    for (routine, want) in [
+        ("NameThenTermAfterNext", "V:2/5 R:2 | DB 1=a 2=X 3=c "),
+        ("TermAfterNextNextPrevious", "V:2/5 R:2 | DB 1=a 2=b 3=c "),
+        ("TermAfterNextGoToKey", "V:3/5 R:3 | DB 1=a 2=b 3=c "),
+        ("TermAfterNextFirst", "V:1/5 R:1 | DB 1=a 2=b 3=c "),
+    ] {
+        clear_hits();
+        let got = text(run_in(NEIGHBORS, "R918 NB Tests", routine));
+        let read = take_hits().contains(&Assumption::NextHeldRowReadBeforeSetValue);
+        if got != want || read {
+            wrong.push(format!("{routine}: {got} (assumption hit: {read})"));
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}

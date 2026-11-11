@@ -777,10 +777,9 @@ impl Session {
     /// `TestAction.Invoke`: runs the action's OnAction when it is enabled; a disabled action does nothing and raises nothing
     /// (corpus testpage/TestPageActionEnabledSourceField_Tests.al, TPAE_ActionEnabledBoolField_FalseRow_IsDisabledAndItsTriggerIsSkipped).
     pub(super) fn action_invoke(&mut self, st: &St, idx: usize) -> Result<Value, Signal> {
-        // A Card and the page types `no_source_action_refresh_pinned` names run OnAfterGetCurrRecord after the action and read their
-        // expression controls live (pages/W1Controls.al:424 TempRecordControl_SetValue `buf_log` = `buf=changed;AGCR;`,
-        // testpage/no-source-controls/NoSourceArrayAndWizard.al:302 Wizard_SetValues_ThenNextAction_EnabledAndVisible on a NavigatePage).
-        if st.borrow().expr_set_no_source && !self.no_source_action_refresh_pinned(st) {
+        // A Card and a NavigatePage run OnAfterGetCurrRecord after the action and read their expression controls live
+        // (`no_source_expr_set_action_pinned`; pages/W1Controls.al:424 TempRecordControl_SetValue `buf_log` = `buf=changed;AGCR;`).
+        if st.borrow().expr_set_no_source && !self.no_source_expr_set_action_pinned(st) {
             return unsupported(
                 "an action after a SetValue on a control bound to an expression of a page with no source table (the refresh after the action is not modelled)",
             );

@@ -3176,7 +3176,7 @@ impl Session {
         // Kept, not pinned: a page without open parts closes without its close triggers, as before (handlers/
         // TestPageModalQueryClose_Tests.al PlainModal_HasNoBuiltInCancelAction, codeunit 60338's dialog cases,
         // TestPageQueryCloseError_Tests.al ErrorInQueryClosePage_*, P106RunInstance.al P106_Inst_RunModal_List pass through it).
-        if parts.is_empty() && self.no_source_type_pinned(st) {
+        if parts.is_empty() && self.no_source_handler_error_close_pinned(st) {
             return self.close_no_source_modal_after_handler_error(st);
         }
         let asks = self.declares(st, "onqueryclosepage") || parts.iter().any(|p| self.declares(p, "onqueryclosepage"));

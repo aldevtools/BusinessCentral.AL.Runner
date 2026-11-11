@@ -176,13 +176,17 @@ impl Session {
                 {
                     DOUBT_FIND_FIELD
                 }
-                // An action of a page over no table without parts, of a page type whose refresh after an action is pinned: the
+                // An action of a Card or a NavigatePage over no table without parts (`no_source_expr_set_action_pinned`): the
                 // page refreshes, also after an action that raised, and its expression controls read as they are now
                 // (testpage/no-source-controls/NoSourceArrayAndWizard.al:302 Wizard_SetValues_ThenNextAction_EnabledAndVisible
                 // `after next` ContactNo=C1, DocDescription=first document; :333 after a failed action; pages/W1Controls.al:424
                 // TempRecordControl_SetValue on a Card).
                 PageMethod::Invoke
-                    if is_p && on_root && on_control && tree.len() == 1 && self.no_source_action_refresh_pinned(st) =>
+                    if is_p
+                        && on_root
+                        && on_control
+                        && tree.len() == 1
+                        && self.no_source_expr_set_action_pinned(st) =>
                 {
                     0
                 }

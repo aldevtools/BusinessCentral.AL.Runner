@@ -26,7 +26,8 @@ impl Session {
         .transpose()?;
         // The rows of a tree the client had expanded: putting the cut back after OnValidate may expand the parent of Rec's row.
         let expanded = st.borrow().expanded.clone();
-        self.read_held_row_before_set_value(st, idx)?;
+        // A control write ends the shape `next_held_row_read` reads in (`set_value_reading_held_row` read before this).
+        st.borrow_mut().next_held_row = None;
         let r = self.control_set_value_now(st, idx, args);
         if let (Ok(_), Some(held)) = (&r, refill_held) {
             if !st.borrow().refresh && self.temp_refill_shape_or_tree(st) && self.held_rows_changed(st)? {
@@ -1791,7 +1792,7 @@ impl Session {
             PageMethod::SetValue if self.read_only_expression_control(st, idx) => Ok(Value::Null),
             PageMethod::SetValue => {
                 let before = self.has_source(st).then(|| self.page_rec(st).borrow().fields.clone());
-                let r = self.control_set_value(st, idx, args)?;
+                let r = self.set_value_reading_held_row(st, idx, args)?;
                 self.resync_parts_linked_by(st, idx, before.as_deref())?;
                 self.refresh_host_after_part_edit(st)?;
                 Ok(r)

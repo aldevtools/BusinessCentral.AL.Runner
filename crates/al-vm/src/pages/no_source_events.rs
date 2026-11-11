@@ -2,8 +2,9 @@
 //! events/page-events/NoSourcePageEvents.al with its fixtures NoSourcePageFixtures.al). Such a page raises only OnOpenPageEvent,
 //! OnAfterGetCurrRecordEvent, OnQueryClosePageEvent and OnClosePageEvent, each after the page's own trigger of that name; the
 //! record events never fire (there is no record), and a subscriber cannot take Rec or xRec (AL0441). Pinned for these page
-//! types: Card, List, Worksheet, ListPlus, StandardDialog, NavigatePage, CardPart, ListPart and Role Center; every other page type
-//! is refused at the open.
+//! types: Card, List, Worksheet, ListPlus, StandardDialog, NavigatePage, CardPart and ListPart; every other page type (a Role
+//! Center among them) is refused at the open. Each further rule below names the page types and the shape its pins cover; a
+//! neighbor keeps the earlier behavior or is refused.
 
 use super::*;
 use al_builtins::page_op::PageMethod;
@@ -27,8 +28,17 @@ const PINNED_TYPES: [&str; 9] = [
 /// :1942-:2010 Worksheet, :2046-:2114 ListPlus, :2258-:2326 NavigatePage; the card also testpage/P146PageExprSetValue.al:351).
 const ACTION_TYPES: [&str; 6] = ["", "card", "list", "worksheet", "listplus", "navigatepage"];
 
-/// The page types on which New, Next, Previous, First and Last are pinned (NoSourcePageEvents.al:3062-:3363).
+/// The page types on which New, Next, Previous, First and Last are pinned, each after OpenEdit (NoSourcePageEvents.al:3062-:3363).
 const NAVIGATE_TYPES: [&str; 4] = ["", "card", "list", "worksheet"];
+
+/// The page types on which an action after a SetValue on an expression control is pinned: the page refreshes after the action
+/// and the expression controls read as they are now (pages/W1Controls.al:424 TempRecordControl_SetValue on a Card,
+/// testpage/no-source-controls/NoSourceArrayAndWizard.al:302 Wizard_SetValues_ThenNextAction_EnabledAndVisible on a NavigatePage).
+const EXPR_SET_ACTION_TYPES: [&str; 3] = ["", "card", "navigatepage"];
+
+/// The page types on which a ModalPageHandler error closes the page with its close triggers (NoSourcePageEvents.al:1149
+/// NavigatePage, :1349 CardPart, :1549 ListPart).
+const HANDLER_ERROR_CLOSE_TYPES: [&str; 3] = ["navigatepage", "cardpart", "listpart"];
 
 /// The page types on which Cancel of a modal run in lookup mode runs OnAfterGetCurrRecord before it closes
 /// (NoSourcePageEvents.al:163 NoSourceCard_RunModal_Cancel_EventLog, :361 List, :559 Worksheet, :757 ListPlus, :954 StandardDialog).
@@ -70,25 +80,44 @@ impl Session {
         self.no_source_of(st, &ACTION_TYPES)
     }
 
+    /// A page over no table on which an action after a SetValue on an expression control is pinned (`EXPR_SET_ACTION_TYPES`).
+    pub(in crate::pages) fn no_source_expr_set_action_pinned(&self, st: &St) -> bool {
+        self.no_source_of(st, &EXPR_SET_ACTION_TYPES)
+    }
+
+    /// A page over no table that a ModalPageHandler error closes with its close triggers (`HANDLER_ERROR_CLOSE_TYPES`).
+    pub(in crate::pages) fn no_source_handler_error_close_pinned(&self, st: &St) -> bool {
+        self.no_source_of(st, &HANDLER_ERROR_CLOSE_TYPES)
+    }
+
+    /// A page over no table of a `NAVIGATE_TYPES` type that the test opened with OpenEdit, as every navigation pin does.
+    fn no_source_navigate_pinned(&self, st: &St) -> bool {
+        let edit = {
+            let s = st.borrow();
+            s.mode == PageMode::Edit && !s.modal && s.host.is_none()
+        };
+        edit && self.no_source_of(st, &NAVIGATE_TYPES)
+    }
+
     /// TestPage.New() on a page over no table is denied as InsertAllowed = false denies it, with the same text and code
     /// (NoSourcePageEvents.al:3062 NoSourceCard_Navigate_New_EventLog `New method failed because Insert is not allowed. Page = LT
-    /// PNS Card, Id = 97610.`, DB:ClientInsertDenied, nothing runs; :3164 List, :3266 Worksheet).
+    /// PNS Card, Id = 97610.`, DB:ClientInsertDenied, nothing runs; :3164 List, :3266 Worksheet; all after OpenEdit).
     pub(in crate::pages) fn no_source_new_denied(&self, st: &St) -> bool {
-        self.no_source_of(st, &NAVIGATE_TYPES)
+        self.no_source_navigate_pinned(st)
     }
 
     /// Next, Previous, First and Last on a page over no table (`page_move` sends such a page here, `result_used` the use of the
     /// answer). Next, Previous and First run OnAfterGetCurrRecord and its event, Last runs nothing, and none fails
     /// (NoSourcePageEvents.al:3084 NoSourceCard_Navigate_Next_EventLog, :3104 Previous, :3124 First, :3144 Last `log after Last`
-    /// empty; the same for a List, :3186-:3246, and a Worksheet, :3288-:3348). The Boolean they answer is not observed there:
-    /// a call that uses it is refused, as is another page type.
+    /// empty; the same for a List, :3186-:3246, and a Worksheet, :3288-:3348; all after OpenEdit). The Boolean they answer is not
+    /// observed there: a call that uses it is refused, as is another page type or open mode.
     pub(in crate::pages) fn no_source_move(
         &mut self,
         st: &St,
         how: PageMethod,
         result_used: bool,
     ) -> Result<Value, Signal> {
-        if !self.no_source_of(st, &NAVIGATE_TYPES) || result_used {
+        if !self.no_source_navigate_pinned(st) || result_used {
             return unsupported(format!("{how}() on a page without a source table (not pinned)"));
         }
         match how {
@@ -263,10 +292,10 @@ impl Session {
     /// The order the parts of a Card over no table are asked and closed in: the last declared first, in both rounds
     /// (NoSourcePageEvents.al:2964 NoSourceHostCard_OpenView_PartsAndHostLog, a CardPart then a ListPart declared: `ListPart.page.
     /// OnQueryClosePage;...;CardPart.page.OnQueryClosePage;...;Host.OnQueryClosePageEvent;ListPart.page.OnClosePage;...;CardPart.
-    /// page.OnClosePage;...`). Pinned for two parts that run close code; more of them is refused, and a host with a source table
-    /// keeps the declared order.
+    /// page.OnClosePage;...`). Pinned for two parts over no table that run close code; more of them is refused, and a host with
+    /// a source table or a part with one keeps the declared order.
     pub(in crate::pages) fn no_source_host_part_close_order(&self, st: &St, parts: &mut [St]) -> Result<(), Signal> {
-        if !self.no_source_of(st, &PINNED_TYPES) {
+        if !self.no_source_of(st, &PINNED_TYPES) || parts.iter().any(|p| self.has_source(p)) {
             return Ok(());
         }
         let object = st.borrow().object as usize;

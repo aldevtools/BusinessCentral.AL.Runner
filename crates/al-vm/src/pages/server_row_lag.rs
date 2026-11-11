@@ -14,6 +14,7 @@ use al_builtins::page_op::PageMethod;
 impl Session {
     /// `page_move_inner`, noting the row the server keeps when a `Next` ran no trigger.
     pub(super) fn page_move_noting_server_row(&mut self, st: &St, how: PageMethod) -> Result<bool, Signal> {
+        st.borrow_mut().next_held_row = None;
         let lagging = how == PageMethod::Next
             && st.borrow().server_lag.is_none()
             && st.borrow().instance.is_some()
@@ -25,7 +26,11 @@ impl Session {
             st.borrow_mut().server_lag = Some(before);
         }
         // A trigger that runs during the move clears the lag (`page_call`).
-        self.page_move_inner(st, how)
+        let moved = self.page_move_inner(st, how)?;
+        if lagging {
+            self.note_next_held_row(st)?;
+        }
+        Ok(moved)
     }
 
     /// Whether OnAfterGetRecord, in the page or an extension, is the only read trigger the page and its extensions declare.

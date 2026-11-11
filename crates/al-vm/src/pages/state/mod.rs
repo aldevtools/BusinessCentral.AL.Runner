@@ -507,6 +507,9 @@ pub struct PageState {
     /// The fields the page's server-side Rec still has after the test client moved onto a row it holds without running a read
     /// trigger (`Session::note_server_row_lag`): a procedure called through a held `Page` variable reads this row.
     pub server_lag: Option<Vec<Value>>,
+    /// The fields of the row a `Next` that started `server_lag` just reached on a Worksheet (`next_held_row_read`). Any other
+    /// TestPage method, move or control write clears it.
+    pub next_held_row: Option<Vec<Value>>,
     /// The static `Page.RunModal(0, Rec)` found the page from the table's LookupPageId.
     pub lookup_page_from_table: bool,
     /// Page triggers (the page's or an extension's) run on this page so far.
