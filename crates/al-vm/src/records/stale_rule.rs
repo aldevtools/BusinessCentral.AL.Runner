@@ -95,6 +95,12 @@ impl Session {
                     t.name
                 )),
             },
+            // Rule step 1 is measured without a rollback since the last Commit only (StaleRuleMatrix.al Rollback has own-write
+            // buffers only).
+            Some(_) if self.tx.rolled_back => unsupported(format!(
+                "a stale committed-read {} buffer after a rollback (not pinned)",
+                t.name
+            )),
             // Rule step 1 (TestRecordStaleBufferWrite.al:604, :623, :642; StaleRuleMatrix.al CommittedRead_1C, _2C, _More).
             Some(_) => Ok(StaleVerdict::Refused),
             // Not pinned; Microsoft's tests need it (assumption stale-buffer-other-origin-written): the last writer wins, as
@@ -243,10 +249,11 @@ impl Session {
         o.commits + 4 == self.commits && tx.locked_tables.is_empty() && tx.writes.iter().all(|w| w.table != t.object)
     }
 
-    /// The open transaction began at a rollback. Measured after a rollback by `asserterror Error(...)` of a transaction that held
-    /// no lock (StaleRuleMatrix.al Rollback): nothing after it refuses (rm_rb_1c, rm_rb_2c, om_rb_2c: contact before the
-    /// rollback does not count), a Modify of the row after it writes (rm_rb_rm_2c). Any other rollback or anything else after it
-    /// is not measured (corpus PR 1313 StaleEdge_LockThenRollback, StaleEdge_DatabaseErrorRollback, StaleEdge_FailedGuardedRun).
+    /// The open transaction began at a rollback. Measured after a rollback by `asserterror Error('literal')` of a transaction that
+    /// held no lock (StaleRuleMatrix.al:206 Rollback): nothing after it refuses (rm_rb_1c, rm_rb_2c, om_rb_2c: contact before the
+    /// rollback does not count), a Get and Modify of the row after it writes (rm_rb_rm_2c). Any other rollback or anything else
+    /// after it (a Get alone, a Find, another read) is not measured (corpus PR 1313 StaleEdge_LockThenRollback,
+    /// StaleEdge_DatabaseErrorRollback, StaleEdge_FailedGuardedRun; docs/probes-needed.md).
     fn after_rollback(
         tx: &crate::state::TxState,
         t: &TableDef,
@@ -259,16 +266,20 @@ impl Session {
             return Err(why);
         }
         let no_lock = !tx.lock_tx && tx.locked_tables.is_empty() && !read_lock;
-        if no_lock && tx.writes.is_empty() && tx.rows_touched.is_empty() {
+        let reads = &tx.reads_after_rollback;
+        if no_lock && tx.writes.is_empty() && tx.rows_touched.is_empty() && reads.is_empty() {
             return Ok(Contact::Nothing);
         }
         let row_modified_only = tx.writes.iter().all(|w| {
             w.kind == TxWriteKind::Modify && w.table == t.object && w.company == *company && same_key(&w.pk, pk)
         });
-        if no_lock && row_touched && row_modified_only {
+        let row_got_only = reads
+            .iter()
+            .all(|(o, c, k)| *o == t.object && c == company && k.as_deref().is_some_and(|k| same_key(k, pk)));
+        if no_lock && row_touched && row_modified_only && row_got_only {
             return Ok(Contact::Row);
         }
-        Err("after a rollback, then a write or a lock other than a Modify of its row")
+        Err("after a rollback, then a read, a write or a lock other than a Get and Modify of its row")
     }
 
     /// A rollback ends the open transaction (`rollback_transaction` calls this first): the stale-buffer rule knows it only when it
@@ -284,20 +295,45 @@ impl Session {
         tx.rollback_unpinned = tx.rollback_unpinned.or(Some(why));
     }
 
-    /// The rollback of an `asserterror` whose body raised `e`. An `Error` statement (`ExceptionKind::Dialog`, written with a
-    /// literal or another text) in a transaction that held no lock is the rollback StaleRuleMatrix.al measures (`rb`).
+    /// The rollback of an `asserterror` whose body raised `e`. An `Error` statement written with a literal (`ExceptionKind::Dialog`)
+    /// in a transaction that held no lock is the rollback StaleRuleMatrix.al:206 measures (`rb`). An `Error` with a Label, a
+    /// variable or StrSubstNo (`DialogComputed`) is not measured (docs/probes-needed.md).
     pub(crate) fn assert_error_rollback(&mut self, e: &al_builtins::native::AlError) -> Result<(), Signal> {
         use al_builtins::native::ExceptionKind;
         let before = self.tx.rollback_unpinned;
         let held_lock = self.tx.lock_tx || !self.tx.locked_tables.is_empty() || self.tx.lock_unpinned.is_some();
         self.rollback_in_run()?;
-        if before.is_none()
-            && !held_lock
-            && matches!(e.exception, ExceptionKind::Dialog | ExceptionKind::DialogComputed)
-        {
+        if before.is_none() && !held_lock && e.exception == ExceptionKind::Dialog {
             self.tx.rollback_unpinned = None;
         }
         Ok(())
+    }
+
+    /// Notes a database read of `rec` while the open transaction began at a rollback (`after_rollback` reads it): a Get with the
+    /// key it named, any other read without one.
+    pub(crate) fn note_read_after_rollback(&mut self, method: RecordOp, rec: &Rec, args: &[Value]) {
+        if !self.tx.rolled_back || rec.borrow().temporary {
+            return;
+        }
+        let key = match method {
+            RecordOp::Get => Some(args.to_vec()),
+            RecordOp::GetBySystemId
+            | RecordOp::Find
+            | RecordOp::FindFirst
+            | RecordOp::FindLast
+            | RecordOp::FindSet
+            | RecordOp::Next
+            | RecordOp::Count
+            | RecordOp::IsEmpty
+            | RecordOp::CalcFields
+            | RecordOp::CalcSums => None,
+            _ => return,
+        };
+        let (table, company) = {
+            let r = rec.borrow();
+            (r.table as u32, r.company.clone())
+        };
+        self.tx.reads_after_rollback.push((table, company, key));
     }
 
     /// Whether the open transaction's only writes are Modifies of the row `pk` of `t`, with no rollback and no lock of any kind

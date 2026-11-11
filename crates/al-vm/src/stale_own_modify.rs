@@ -117,9 +117,20 @@ impl Session {
         versions: (i64, i64),
     ) -> Result<(), Signal> {
         let after_failed_insert = rec.borrow().failed_insert.is_some_and(|v| v != 0 && v == versions.0);
-        if self.stale_verdict(t, rec, cx, pk, versions.1)? == crate::records::StaleVerdict::Refused
-            && !after_failed_insert
-        {
+        // A committed-read buffer refused with OnModify first is measured for a Get buffer only (StaleRuleMatrix.al CommittedRead_*
+        // `get_committed`); Y89StaleFind.al writes Find buffers with Modify(false) and Delete only (docs/probes-needed.md).
+        let find_buffer = rec
+            .borrow()
+            .row_origin
+            .is_some_and(|o| o.version == versions.0 && !o.own_write && o.from_find);
+        let refused = self.stale_verdict(t, rec, cx, pk, versions.1)? == crate::records::StaleVerdict::Refused;
+        if refused && run && find_buffer {
+            return al_builtins::native::unsupported(format!(
+                "Modify(true) of a stale committed-read {} buffer from a Find (not pinned)",
+                t.name
+            ));
+        }
+        if refused && !after_failed_insert {
             return Err(self.stale_own_insert_modify_refused(t, rec, run, pk, versions.1)?);
         }
         Ok(())

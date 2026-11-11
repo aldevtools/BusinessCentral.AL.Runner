@@ -1470,6 +1470,7 @@ impl Session {
         self.tx.insert_buffer.clear();
         self.tx.commit_counter = self.store.change_counter();
         self.tx.rolled_back = false;
+        self.tx.reads_after_rollback.clear();
         self.tx.rollback_unpinned = None;
         // A transaction a lock opened counts as one that wrote: MinimumActiveRowVersion after it is not pinned.
         self.tx.last_commit_wrote = self.tx.tx_phase == crate::transactions::TX_WRITE || self.tx.lock_tx;
@@ -1573,6 +1574,7 @@ impl Session {
         self.tx.insert_buffer.clear();
         self.tx.commit_counter = self.store.change_counter();
         self.tx.rolled_back = true;
+        self.tx.reads_after_rollback.clear();
         self.isolated_storage = self.isolated_committed.clone();
         // What SaveValues pages stored is kept in the database: a rollback takes back what was stored since the last commit. An
         // asserterror under TestIsolation = Codeunit (one transaction for the codeunit) takes back what an earlier test stored

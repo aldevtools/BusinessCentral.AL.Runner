@@ -285,11 +285,24 @@ impl Lowerer<'_> {
                         // content is not measured, so both stay refused (al-runner issue 6924;
                         // record/table-relation/TableRelationQuotes.al:1188-1189 conditional arm, :1203-1204 extension and
                         // own field, :1225 `''`, :1221 `<>'''`; objects TableRelationExtFieldFilter.Objects.al:57-66).
+                        // `=''` is built only on the types RelationWhereEmptyValueFilter.al:47-79 pins it for; on any other type
+                        // (Enum, an Option with a blank first member, RecordId, ...) it stays refused.
                         crate::relation::ParsedWhere::QuotedFilter { related, text }
                             if matches!(text.as_str(), "<>''" | "''" | "=''") =>
                         {
-                            Some(ir::RelationWhere::Value {
-                                related: field_pos(&self.members[t], related)?,
+                            let p = field_pos(&self.members[t], related)?;
+                            let equal_empty_pinned = matches!(
+                                self.members[t].fields[p].ty,
+                                Ty::Date
+                                    | Ty::Time
+                                    | Ty::DateTime
+                                    | Ty::Code(_)
+                                    | Ty::Text(_)
+                                    | Ty::Duration
+                                    | Ty::DateFormula
+                            );
+                            (text != "=''" || equal_empty_pinned).then(|| ir::RelationWhere::Value {
+                                related: p,
                                 text: text.clone(),
                             })
                         }

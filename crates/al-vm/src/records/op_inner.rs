@@ -2214,7 +2214,7 @@ impl Session {
                 match outcome {
                     RenameOutcome::Renamed => {
                         // A Rename of another key with nothing written before it (no trigger write) is noted as one write of the
-                        // row (`stale_neighbour_shape`). Fields of other tables that relate to the table do not matter while no row
+                        // row (`table_writes_known`). Fields of other tables that relate to the table do not matter while no row
                         // follows the rename: the rows of ALT Universal, which fields of other tables relate to, are renamed this way
                         // (record/crud/SbStaleOwnModify.al TE_*_RenameOtherRow_*). A row that follows is a store
                         // write nobody notes, which `writes_all_noted` sees.

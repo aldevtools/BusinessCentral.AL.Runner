@@ -336,7 +336,8 @@ impl Session {
 
     /// The error code of a failed TableRelation check of field `pos` of `t` against `related` (the related field `rel_pos`, the
     /// where() conditions `wheres`). Where the corpus does not pin it, the code is `UNPINNED_ERROR`: `GetLastErrorCode` then
-    /// refuses, while the text, which is pinned for every shape, stays readable (al-runner issue 7438).
+    /// refuses, while the text stays readable (al-runner issue 7438). The text is one template in all 12 shapes measured
+    /// (RelationWhereKeyCoverage.al:232-427); that the shapes with an unpinned code use it too is not measured (docs/probes-needed.md).
     fn relation_error_code(
         &self,
         t: &TableDef,

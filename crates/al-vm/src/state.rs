@@ -42,6 +42,9 @@ pub(crate) struct TxState {
     /// Why a rollback since the last Commit is not one the stale-buffer rule knows (`Session::note_rollback_for_stale_rule`);
     /// `None` without a rollback or after rollbacks the rule knows only.
     pub(crate) rollback_unpinned: Option<&'static str>,
+    /// The database reads (table object, company, the key a Get named; `None` for any other read) since the last rollback, while
+    /// the transaction then open began at it (`Session::note_read_after_rollback`).
+    pub(crate) reads_after_rollback: Vec<(u32, Option<String>, Option<Vec<Value>>)>,
     /// The last `Commit` made writes durable (the transaction it ended had written): `MinimumActiveRowVersion` is then not pinned.
     pub(crate) last_commit_wrote: bool,
     /// A duplicate-key Insert into a table without a Blob field does not fail where it is
@@ -171,6 +174,7 @@ impl TxState {
             writes: Vec::new(),
             isolation_lock: false,
             rolled_back: false,
+            reads_after_rollback: Vec::new(),
             rollback_unpinned: None,
             last_commit_wrote: false,
             deferred_insert: None,
