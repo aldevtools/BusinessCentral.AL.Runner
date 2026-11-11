@@ -9,10 +9,14 @@
 //! CardVariableRunModal and ListVariableRunModal cells of the same name): RunModal fails with the error's own text and the code
 //! TestWrapped; OnQueryClosePage and OnClosePage do not run.
 //!
-//! A TestField error (the reporter's, from a codeunit OnModifyRecord runs) keeps its text and its code, and the save runs once
-//! more first, as real BC showed in the queued probe; under the assumption `modal-close-save-error-code` until it is pinned.
-//! Other codes are refused. A new row's insert at close, a Document or any page with parts (pages/close-errors/CemDocumentTests.al pins another
-//! error there), a Page variable in LookupMode, and every other page type keep the refusal.
+//! Pinned by pages/close-errors/ModalCloseSaveErrorShapes.al (BC 27.5, 28.5, 29.0) on pages without OnQueryClosePage: on a List
+//! and a Card a TestField error (from a codeunit the page's OnModifyRecord runs, the al-runner issue 7400 report, or directly)
+//! keeps its text and the code TestField, and the save runs once more first (:250, :271, :314, :336, `log` twice); an Error()
+//! gets the code TestWrapped (:292, :356), also on a Worksheet (:376) and on a List run by a Page variable in LookupMode (:419),
+//! where only Error() is measured.
+//! A new row's insert at close (:398 measures one, but the runtime inserts the row at SetValue and no corpus case shows when a
+//! List without DelayedInsert inserts it in a TestPage), a Document or any page with parts (pages/close-errors/CemDocumentTests.al
+//! pins another error there), another error code and every other page type keep the refusal.
 
 use super::*;
 
@@ -30,18 +34,16 @@ impl Session {
         if !raised {
             return Ok(());
         }
-        let Some(e) = saved.filter(|_| pinned) else {
+        let Some((e, codes)) = saved.zip(pinned) else {
             return unsupported(
-                "an error raised while the page saved its edited row as the platform closed it after the handler returned, on a page other than a Card or List without parts saving an existing row (not pinned)",
+                "an error raised while the page saved its edited row as the platform closed it after the handler returned, on a page other than a Card, List or Worksheet without parts saving an existing row (not pinned)",
             );
         };
         let mut wrapped = e.clone();
         if e.code == "Dialog" {
             wrapped.code = "TestWrapped".into();
-        } else if e.code == "TestField" {
-            // Observed on real BC (corpus PR 1323 ModalCloseSaveErrorShapes.al, not merged yet): a TestField error keeps its
-            // code and the save runs once more before RunModal fails (`log` M-list NEW twice). Assumption until the pin lands.
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ModalCloseSaveErrorCode);
+        } else if e.code == "TestField" && codes == PinnedCodes::DialogAndTestField {
+            // The save runs once more and raises the TestField error again (ModalCloseSaveErrorShapes.al:250 `log` M-list NEW twice).
             match self.save_row(st) {
                 Err(Signal::Error(again)) if again.code == "TestField" => wrapped = (*again).clone(),
                 Err(Signal::Error(_)) | Ok(_) => {
@@ -53,7 +55,7 @@ impl Session {
             }
         } else {
             return unsupported(format!(
-                "an error with the code {} raised while a modal page saved its edited row as the platform closed it after the handler returned (only Dialog is pinned)",
+                "an error with the code {} raised while a modal page saved its edited row as the platform closed it after the handler returned (not pinned for this page)",
                 e.code
             ));
         }
@@ -66,24 +68,40 @@ impl Session {
         Err(Signal::Error(Box::new(wrapped)))
     }
 
-    /// The shape whose save error is pinned: a modal Card or List with no parts, in lookup mode only as a static
-    /// `Page.RunModal(Id, Rec)` puts it there, holding an edited row that exists (no new row, no pending insert).
-    fn modal_close_save_pinned(&self, st: &St) -> bool {
+    /// The shape whose save error is pinned, and the error codes pinned on it: a modal Card, List or Worksheet with no parts,
+    /// holding an edited row that exists (no new row, no pending insert). A Card or List not in lookup mode, or in lookup mode as
+    /// a static `Page.RunModal(Id, Rec)` puts it there: Dialog and TestField. A Worksheet in lookup mode as a static
+    /// `Page.RunModal(Id, Rec)` puts it there, and a List in lookup mode by `LookupMode(true)` on its Page variable: Dialog.
+    fn modal_close_save_pinned(&self, st: &St) -> Option<PinnedCodes> {
         let s = st.borrow();
-        s.modal
-            && matches!(
-                self.engine.object_facts[s.object as usize].page_type,
-                Some(al_ir::PageType::Card | al_ir::PageType::List)
-            )
+        let row_shape = s.modal
             && s.parts.is_empty()
             && s.hidden_parts.is_empty()
             && s.host.is_none()
-            && (!s.lookup || s.lookup_kind == LookupKind::StaticRunModal)
             && s.dirty
             && !s.draft
             && s.pending.is_none()
             && s.cursor == Cursor::Row
             && s.mode != PageMode::New
-            && s.errors.is_empty()
+            && s.errors.is_empty();
+        if !row_shape {
+            return None;
+        }
+        let page_type = self.engine.object_facts[s.object as usize].page_type.clone();
+        match (page_type, s.lookup.then_some(s.lookup_kind)) {
+            (Some(al_ir::PageType::Card | al_ir::PageType::List), None | Some(LookupKind::StaticRunModal)) => {
+                Some(PinnedCodes::DialogAndTestField)
+            }
+            (Some(al_ir::PageType::Worksheet), Some(LookupKind::StaticRunModal))
+            | (Some(al_ir::PageType::List), Some(LookupKind::Variable)) => Some(PinnedCodes::Dialog),
+            _ => None,
+        }
     }
+}
+
+/// The error codes of a save at close that the corpus pins on a page shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PinnedCodes {
+    Dialog,
+    DialogAndTestField,
 }
