@@ -465,7 +465,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `records/delete_all.rs`: `DeleteAll`, row by row or in one step in the store. Entry: `delete_all`.
 - `records/flowfield_key.rs` (130): the rows of a record keyed on a row-dependent sum or count FlowField, sorted by its value. Entry: `runs`, `scan_flowfield_key`.
 - `refs.rs` (637): `RecordRef`, `FieldRef` and `KeyRef` on the VM. Entry: `record_ref_value` 42.
-- `relations.rs` (179): TableRelation: lookups and Validate checks. Entry: `field_relation` 70, `validate_relation` 94.
+- `relations.rs` (~480): TableRelation: lookups, Validate checks and the error code of a failed check (one rule, `UNPINNED_ERROR` where the corpus does not pin it). Entry: `field_relation`, `validate_relation`, `relation_error_code`.
 - `rename.rs` (214): Rename propagation to related tables. Entry: `rename_references` 33, `propagate_rename` 86.
 - `reports.rs` (1209): Report objects at run time: dataset walk, triggers, request page, `Report.SaveAs` and the dataset rows. Entry: `report_builtin` 80, `first_use` 314, `report_save_as` 936, `dataset_begin` 1109.
 - `report_pdf_placeholder.rs`: the output of a rendering save (`write_save_output`: dataset, nothing, or the placeholder PDF of the ADR-040 amendment of 2026-11-08), and when a Pdf save writes the placeholder (`pdf_placeholder`: RDLC or Word default layout, no layout-event subscriber a test can see).
