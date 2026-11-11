@@ -1309,7 +1309,7 @@ impl Session {
                 // (corpus queries/TestQueryFlowFieldColumn.al:37-200, queries/TestQueryJoinFlowFieldGroupBy.al).
                 self.check_calc_field(item.table, field)?;
                 let probe = self.probe(item.table, row, &plan.flow[c.item]);
-                self.calc_value(&probe, field, &mut Vec::new())?
+                self.calc_value(&probe, field)?
             };
             if c.reverse_sign {
                 // Corpus queries/TestQueryReverseSign.al:36-77.
@@ -1383,7 +1383,7 @@ impl Session {
                 {
                     continue;
                 }
-                out.push(self.calc_value(&probe, field, &mut Vec::new())?);
+                out.push(self.calc_value(&probe, field)?);
             }
         }
         Ok(out)
