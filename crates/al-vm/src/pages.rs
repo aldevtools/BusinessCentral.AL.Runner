@@ -226,6 +226,7 @@ mod never_run_update;
 mod open;
 mod ui_caption_translate;
 mod update_refresh_card;
+pub(crate) mod validate_xrec;
 mod validation_text;
 pub(crate) use open::written_by_routine;
 mod action_body;
