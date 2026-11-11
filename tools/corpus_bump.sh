@@ -41,6 +41,18 @@ legs="27.5 28.5 29.0"
 
 usage() { echo "usage: tools/corpus_bump.sh [--dry-run] RUN_ID | [--dry-run] [--body FILE] --from-pr N[,N...]" >&2; exit 2; }
 die() { echo "corpus_bump: refused: $*" >&2; exit 1; }
+# A setup error of al-test-cli (its output in $1) that is a suite oracle recorded for an older corpus commit whose app
+# the pin changed (src/pin.rs): the isolation probe's oracle comes from the corpus Windows nightly, which this script
+# does not read, so point to the tool that records it. Prints nothing for any other error.
+explain_setup_error() {
+  printf '%s\n' "$1" | grep -q "the oracle is recorded for corpus commit" || return 0
+  echo "a suite oracle is recorded for an older corpus commit whose app the pin changed (above)." >&2
+  if printf '%s\n' "$1" | grep -q "tests/al-language-isolation-probe/"; then
+    echo "the isolation suites take their oracle from the corpus Windows nightly: record it with" >&2
+    echo "  tools/record_windows_oracle.sh [--dry-run] RUN_ID   (a green 'Nightly Windows' run whose commit is an ancestor of the pin)" >&2
+    echo "then run this bump again." >&2
+  fi
+}
 
 dry=0
 run=""
@@ -95,7 +107,7 @@ list_pass() {
     rc=0
     out="$(./target/release/al-test-cli --root . --baseline-diff "$@" --bc-version "$major" 2>&1)" || rc=$?
     printf '%s\n' "$out" | grep -E "^BC [0-9.]+[: ]" || true
-    if [ "$rc" -gt 1 ]; then printf '%s\n' "$out" >&2; die "not-passing lists for BC $major (exit $rc)"; fi
+    if [ "$rc" -gt 1 ]; then printf '%s\n' "$out" >&2; explain_setup_error "$out"; die "not-passing lists for BC $major (exit $rc)"; fi
     if [ "$rc" = 1 ]; then
       printf '%s\n' "$out" | grep -vE "^BC [0-9.]+[: ]" || true
       list_rc=1
@@ -109,8 +121,10 @@ if [ "${CORPUS_BUMP_LISTS:-1}" != 0 ]; then
   # of 2026-11-10: the corpus tree holds none and its .alpackages is not searched). Fill the cache before the lists and
   # the golden files: a list pass on a cache without them would record every case that needs a Microsoft app.
   echo "fetching Microsoft's apps of the pinned builds into the artifact cache:"
-  ./target/release/al-test-cli --root . --all-versions --fetch-deps \
-    || die "Microsoft's apps could not be fetched (output above; is the artifact feed reachable?). Nothing was listed and no golden file was written. Run again when ./target/release/al-test-cli --root . --all-versions --fetch-deps passes"
+  fetch_log="$(mktemp)"
+  ./target/release/al-test-cli --root . --all-versions --fetch-deps 2>&1 | tee "$fetch_log" \
+    || { explain_setup_error "$(cat "$fetch_log")"; rm -f "$fetch_log"; die "./target/release/al-test-cli --root . --all-versions --fetch-deps failed (output above: the artifact feed, or the oracle and the pin disagree). Nothing was listed and no golden file was written. Run again when it passes"; }
+  rm -f "$fetch_log"
 
   # Lines for the new cases that do not pass, stale lines deleted. A pass that exits 1 is not final: the golden files
   # below change what the runtime compiles, so the lists are pruned again after them.
@@ -225,7 +239,7 @@ trap 'rm -rf "$tmp"' EXIT
 xml_of() {
   local d="$tmp/role-$1"
   mkdir -p "$d"
-  "$gh" api "repos/$repo/actions/artifacts/$1/zip" > "$d/a.zip"
+  "$gh" api "repos/$repo/actions/artifacts/$1/zip" > "$d/a.zip" || return 1
   unzip -Z1 "$d/a.zip" | grep '\.xml$' | head -n 1
 }
 declare -A oracle_id onprem_id dotnet_id testlib_id isol_id tryw_id
@@ -249,7 +263,9 @@ else:
     # The role is the XML file each artifact holds; per role the newest artifact is the rerun's.
     big=0 mid=0 small=0 tl=0 isol=0 tw=0
     while read -r id; do
-      case "$(xml_of "$id")" in
+      # A command substitution cannot stop the script: a failed download is caught here (gh printed its error).
+      xml="$(xml_of "$id")" || die "downloading artifact $id of junit-test-results-$leg failed (the gh error is above)"
+      case "$xml" in
         junit-al-language.xml) [ "$big" != 0 ] || big=$id ;;
         junit-al-language-onprem.xml) [ "$mid" != 0 ] || mid=$id ;;
         junit-al-language-onprem-dotnet.xml) [ "$small" != 0 ] || small=$id ;;
@@ -324,7 +340,7 @@ git -C "$corpus" checkout -q "$sha"
 fetch_xml() { # artifact id, destination
   local id="$1" dest="$2" d="$tmp/$1"
   mkdir -p "$d"
-  "$gh" api "repos/$repo/actions/artifacts/$id/zip" > "$d/a.zip"
+  "$gh" api "repos/$repo/actions/artifacts/$id/zip" > "$d/a.zip" || die "downloading artifact $id failed (the gh error is above)"
   (cd "$d" && unzip -q a.zip)
   local xml
   xml="$(find "$d" -name '*.xml' | head -n 2)"

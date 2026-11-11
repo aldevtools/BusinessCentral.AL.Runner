@@ -1313,7 +1313,10 @@ impl Session {
                             // (format-evaluate/P86LastError.al:339-353, not guarded).
                             let pinned = self.has(al_version::Gate::EmptyTableFindExcludeFlagFrom28)
                                 || matches!(method, RecordOp::FindFirst | RecordOp::FindLast);
-                            let origin = if !rec.borrow().temporary && pinned {
+                            // A temporary record: FindFirst (errors/last-error/LastErrorFlagRuntimeCodes.al:146 `empty_true`).
+                            let origin = if (!rec.borrow().temporary && pinned)
+                                || (rec.borrow().temporary && method == RecordOp::FindFirst)
+                            {
                                 al_builtins::native::ErrorOrigin::SameText
                             } else {
                                 al_builtins::native::ErrorOrigin::Unknown
@@ -1411,14 +1414,11 @@ impl Session {
                                 t.name
                             ));
                         }
-                        // The flag hides the filters (errors/last-error/FindEmptyTableExcludeFlag.al:148,
-                        // :152, :156: FindFirst, FindLast and FindSet of a table with rows). An empty table is not pinned.
-                        let empty = self
-                            .store_for(rec)
-                            .count(&cx, &t, &[])
-                            .map_err(|e| Signal::unsupported(format!("{e}")))?
-                            == 0;
-                        let origin = if rec.borrow().temporary || empty {
+                        // The flag hides the filters: FindFirst, FindLast and FindSet of a table with rows (errors/last-error/
+                        // FindEmptyTableExcludeFlag.al:148, :152, :156), Find('-') and Find('+') of one and all five on an empty table
+                        // (LastErrorFlagRuntimeCodes.al:NothingInsideFilter_EmptyTable_ExcludeFlag, _FindMinusPlus_TableWithRows_);
+                        // FindFirst of a temporary record, with rows or empty (_TemporaryRecord_ExcludeFlag). Other temporary finds: not pinned.
+                        let origin = if rec.borrow().temporary && method != RecordOp::FindFirst {
                             al_builtins::native::ErrorOrigin::Unknown
                         } else {
                             al_builtins::native::ErrorOrigin::Redacted(format!(

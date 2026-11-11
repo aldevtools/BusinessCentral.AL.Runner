@@ -141,6 +141,7 @@ impl Describe for RtType {
 impl Describe for LibraryValue {
     fn describe(&self) -> String {
         match self {
+            LibraryValue::ClearedStream => "a cleared stream".into(),
             LibraryValue::Empty => "an untouched handle".into(),
             LibraryValue::HandedContext => "a context the test framework handed over".into(),
             LibraryValue::HandlerContext(_) => "a TestHandlerContext the test runner handed over".into(),

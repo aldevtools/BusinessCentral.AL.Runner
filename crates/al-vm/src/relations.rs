@@ -252,6 +252,7 @@ impl Session {
             expr: FilterExpr::Eq(ops::convert(value.clone(), &related.fields[rel_pos].ty)?),
             group: 0,
         }];
+        let mut used_source_flowfilter = false;
         for w in wheres {
             // A condition on a FlowFilter field of the related table is a flow filter: it selects no row. Not pinned;
             // Item Journal Line's "Bin Code" relation names the Bin's "Item Filter" and "Variant Filter"
@@ -272,6 +273,21 @@ impl Session {
             } else {
                 &mut filters
             };
+            if let ir::RelationWhere::Field { own, .. } = w
+                && self.is_flow_filter(t.object, *own)
+                && let Some(exact) = self.source_relation_flowfilter(rec, t, *own)?
+            {
+                used_source_flowfilter = true;
+                if let Some(value) = exact {
+                    target.push(FieldFilter {
+                        lang: al_builtins::filter::filter_language(),
+                        field: related_pos,
+                        expr: FilterExpr::Eq(ops::convert(value, &related.fields[related_pos].ty)?),
+                        group: 0,
+                    });
+                }
+                continue;
+            }
             target.push(match w {
                 ir::RelationWhere::Value { related: p, text } => FieldFilter {
                     lang: al_builtins::filter::filter_language(),
@@ -328,10 +344,54 @@ impl Session {
                 self.message_value(&value)?,
                 self.relation_error_caption(&related)
             ),
-            code: self.relation_error_code(t, pos, &related, rel_pos, wheres),
+            code: if used_source_flowfilter {
+                al_builtins::native::UNPINNED_ERROR.into()
+            } else {
+                self.relation_error_code(t, pos, &related, rel_pos, wheres)
+            },
             call_stack: String::new(),
             ..Default::default()
         })))
+    }
+
+    /// A source FlowFilter with a default buffer contributes no condition when unset
+    /// (record/filters/RelationWhereFlowFilter.al:398-412), or one equality for an exact
+    /// filter in group 0 (RelationWhereFlowFilter.al:426-441 accepts a match, :444-459
+    /// rejects a mismatch; BC 27, 28, 29). The outer None preserves the existing
+    /// buffer-based comparison for a field assigned without a filter.
+    fn source_relation_flowfilter(
+        &self,
+        rec: &Rec,
+        table: &TableDef,
+        field: usize,
+    ) -> Result<Option<Option<Value>>, Signal> {
+        let default = Value::default_for(&table.fields[field].ty);
+        let source = rec.borrow();
+        let default_buffer = ops::compare(&source.fields[field], &default)?.is_eq();
+        let mut filters = source.filters.iter().filter(|filter| filter.field == field);
+        let exact = match (filters.next(), filters.next()) {
+            (None, _) if !default_buffer => return Ok(None),
+            (None, _) if source.filter_group == 0 => None,
+            (Some(filter), None) if default_buffer && filter.group == 0 && source.filter_group == 0 => {
+                match &filter.expr {
+                    FilterExpr::Eq(value) => Some(value.clone()),
+                    FilterExpr::Range(Some(lower), Some(upper)) if ops::compare(lower, upper)?.is_eq() => {
+                        Some(lower.clone())
+                    }
+                    _ => {
+                        return unsupported(
+                            "TableRelation validation requires one exact source FlowFilter value (not pinned)",
+                        );
+                    }
+                }
+            }
+            _ => {
+                return unsupported(
+                    "TableRelation validation with a source FlowFilter outside the default group or with an assigned buffer value (not pinned)",
+                );
+            }
+        };
+        Ok(Some(exact))
     }
 
     /// The error code of a failed TableRelation check of field `pos` of `t` against `related` (the related field `rel_pos`, the

@@ -550,11 +550,20 @@ fn substring(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult
     let start = int(a, 0)?;
     let count = if a.len() > 1 { Some(int(a, 1)?) } else { None };
     if start > len as i64 + 1 {
-        // types/TestFormatEvaluateTextContracts.al:Text_OutOfRangeArguments.
-        return raise(
+        // types/TestFormatEvaluateTextContracts.al:Text_OutOfRangeArguments. GetLastErrorText(true) of `Substring(Start)`: the
+        // text for an error without a privacy classification (errors/last-error/LastErrorFlagRuntimeCodes.al:164, :171); with
+        // a length it is not measured.
+        let r = raise(
             "startIndex cannot be larger than length of string. (Parameter 'startIndex')",
             "ArgumentOutOfRange",
         );
+        return match count {
+            None => crate::native::with_origin(
+                r,
+                crate::native::ErrorOrigin::Redacted(crate::native::NOT_CLASSIFIED.into()),
+            ),
+            Some(_) => r,
+        };
     }
     if start < 1 {
         return Err(start_error("startIndex", start - 1));
@@ -586,9 +595,19 @@ fn pad(r: &Option<&mut Value>, a: &[Value], left: bool) -> NResult {
     };
     // text/text-methods/Edit1.Codeunit.al:41-63,114-136; text/textconst-label/P103TextConstEdit.al:98-126.
     if width < 0 {
-        return Err(out_of_range(&format!(
+        let e = Err(out_of_range(&format!(
             "totalWidth ('{width}') must be a non-negative value. (Parameter 'totalWidth')\\Actual value was {width}."
         )));
+        // GetLastErrorText(true) of PadLeft: the text for an error without a privacy classification
+        // (errors/last-error/LastErrorFlagRuntimeCodes.al:166, :174). PadRight is not measured.
+        return if left {
+            crate::native::with_origin(
+                e,
+                crate::native::ErrorOrigin::Redacted(crate::native::NOT_CLASSIFIED.into()),
+            )
+        } else {
+            e
+        };
     }
     let have = Value::text_len(&s);
     let missing = (width as usize).saturating_sub(have);

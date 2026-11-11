@@ -2778,7 +2778,7 @@ impl Session {
             return Ok(());
         }
         let rec = self.page_rec(st);
-        if self.stored_row(&rec)?.is_none() {
+        if self.stored_row(&rec)?.is_none() || (by_update && self.refresh_temp_ws_preloaded(st)?) {
             return Ok(());
         }
         // A list whose filters no longer hold the row it stands on, when CurrPage.Update asked for the refresh: which row it

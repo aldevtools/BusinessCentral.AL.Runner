@@ -40,7 +40,12 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
     }),
     ("List.Get#1", |_, r, a| {
         let i = index(&a[0])?;
-        read_list(r, |l| l.get(i).cloned().map_or_else(list_get_error, Ok))
+        // GetLastErrorText(true) of this site: the text for an error without a privacy classification
+        // (errors/last-error/LastErrorFlagRuntimeCodes.al:161, :168). The `Get(Index, var Value)` form is not measured.
+        crate::native::with_origin(
+            read_list(r, |l| l.get(i).cloned().map_or_else(list_get_error, Ok)),
+            not_classified(),
+        )
     }),
     ("List.Get#2", |c, r, a| {
         // An index below 1 answers false like one past the end (collections/ListInt.al:Int_AddCountGet `get 0 ret`).
@@ -208,7 +213,11 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
                 return if ret_used {
                     Ok(Value::Boolean(false))
                 } else {
-                    error_code("An item with the same key has already been added.", "Argument")
+                    // GetLastErrorText(true) leaves the text (LastErrorFlagRuntimeCodes.al:213, :218).
+                    crate::native::with_origin(
+                        error_code("An item with the same key has already been added.", "Argument"),
+                        crate::native::ErrorOrigin::SameText,
+                    )
                 };
             }
             dict_insert(d, a[0].clone(), a[1].clone());
@@ -226,7 +235,11 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
             live(d)
                 .find(|(_, (k, _))| eq(k, &a[0]))
                 .map(|(_, (_, v))| v.clone())
-                .map_or_else(key_not_found, Ok)
+                .map_or_else(
+                    // GetLastErrorText(true): LastErrorFlagRuntimeCodes.al:210, :215. The `Get(Key, var Value)` form is not measured.
+                    || crate::native::with_origin(key_not_found(), not_classified()),
+                    Ok,
+                )
         })
     }),
     ("Dictionary.Get#2", |c, r, a| {
@@ -398,6 +411,10 @@ fn error_code<T>(message: &str, code: &str) -> Result<T, Signal> {
         call_stack: String::new(),
         ..Default::default()
     })))
+}
+
+fn not_classified() -> crate::native::ErrorOrigin {
+    crate::native::ErrorOrigin::Redacted(crate::native::NOT_CLASSIFIED.into())
 }
 
 const LIST_INVALID: &str = "An invalid argument was passed to a 'List' data type method.";

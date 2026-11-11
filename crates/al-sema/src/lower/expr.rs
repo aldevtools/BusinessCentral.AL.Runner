@@ -737,10 +737,14 @@ impl Lowerer<'_> {
                     "-" => ir::UnOp::Neg,
                     _ => ir::UnOp::Plus,
                 };
-                Ok(ir::Expr::Unary(
-                    op,
-                    Box::new(self.operand(&kids[0], ir::OperandUse::Value)?),
-                ))
+                let operand = self.operand(&kids[0], ir::OperandUse::Value)?;
+                // `not V` of a Variant: V as a condition (`variant_condition`).
+                let operand = if op == ir::UnOp::Not && matches!(self.ty_of(&kids[0]), Ty::Variant) {
+                    self.variant_condition(operand)?
+                } else {
+                    operand
+                };
+                Ok(ir::Expr::Unary(op, Box::new(operand)))
             }
             BinExpr if matches!(sig_tokens(n)[0].text().to_ascii_lowercase().as_str(), "is" | "as") => {
                 self.interface_test(n, &kids)
@@ -1376,6 +1380,8 @@ impl Lowerer<'_> {
         let e = self.expr(n)?;
         Ok(match self.ty_of(n) {
             Ty::DotNet(a) if a.is_empty() => ir::Expr::DotNetCoerce(RtType::Boolean, Box::new(e)),
+            // A Variant as a condition (`variant_condition`).
+            Ty::Variant => self.variant_condition(e)?,
             _ => e,
         })
     }

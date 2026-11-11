@@ -605,6 +605,8 @@ impl Session {
                     message: "Collection was modified; enumeration operation may not execute.".into(),
                     code: "AL:InvalidOperation".into(),
                     call_stack: String::new(),
+                    // GetLastErrorText(true) leaves the text (errors/last-error/LastErrorFlagRuntimeCodes.al:262-263, :278).
+                    origin: al_builtins::native::ErrorOrigin::SameText,
                     ..Default::default()
                 })));
             }
