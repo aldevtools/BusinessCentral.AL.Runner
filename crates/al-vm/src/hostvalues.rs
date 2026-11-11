@@ -39,7 +39,14 @@ impl Session {
     /// One reading of the clock, in milliseconds since the Unix epoch, plus the time `Sleep` has
     /// waited.
     pub(crate) fn now_millis(&self) -> i64 {
+        self.note_clock_read(false);
         self.host.clock.now_utc_millis() + self.waited_ms
+    }
+
+    /// Today as a day number, a read of the clock that depends on the day only (`Touches::clock_day`).
+    fn today_from_clock(&self) -> i32 {
+        self.note_clock_read(true);
+        ((self.host.clock.now_utc_millis() + self.waited_ms).div_euclid(MS_PER_DAY) + unix_epoch_day()) as i32
     }
 
     /// One reading of the clock by AL code (`Today`, `Time`, `CurrentDateTime`, the .NET clock
@@ -54,7 +61,7 @@ impl Session {
 
     /// Today as a day number.
     pub(crate) fn today_day_number(&self) -> i32 {
-        (self.now_millis().div_euclid(MS_PER_DAY) + unix_epoch_day()) as i32
+        self.today_from_clock()
     }
 
     /// The instant for a system stamp: the clock, but always later than the previous stamp and a value the column holds, so
@@ -314,10 +321,7 @@ impl Session {
         if self.work_date.is_none() {
             self.clientless_work_date_read();
         }
-        Some(
-            self.work_date
-                .unwrap_or_else(|| (self.now_millis().div_euclid(MS_PER_DAY) + unix_epoch_day()) as i32),
-        )
+        Some(self.work_date.unwrap_or_else(|| self.today_from_clock()))
     }
 
     fn work_date_op(&mut self, args: &mut [Value]) -> Result<Value, Signal> {

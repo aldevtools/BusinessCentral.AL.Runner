@@ -111,6 +111,15 @@ impl LoginCounts {
     }
 }
 
+/// The counts of the login start on the engines of a pass (the tests' engine and a spare one).
+pub fn counts_of<'a>(engines: impl IntoIterator<Item = Option<&'a Arc<Engine>>>) -> LoginCounts {
+    let mut all = LoginCounts::default();
+    for e in engines.into_iter().flatten() {
+        all.add(&counts(e));
+    }
+    all
+}
+
 /// The counts of the login start on `engine`.
 pub fn counts(engine: &Engine) -> LoginCounts {
     let starts = engine.derived(LoginStarts::default);

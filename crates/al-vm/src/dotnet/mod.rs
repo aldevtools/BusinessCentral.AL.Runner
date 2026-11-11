@@ -324,6 +324,23 @@ impl Session {
         })
     }
 
+    /// Notes a .NET use for the impact trace, except a member that answers from its arguments and the engine alone: no
+    /// input a recorded run must key on (ADR-073 decision 5, `server_classes::SETTLED`).
+    fn note_dotnet_unless_settled(&self, op: &ir::DotNetOp, ty: Option<usize>) {
+        let settled = match (op, ty) {
+            (ir::DotNetOp::Call(m) | ir::DotNetOp::Get(m), Some(i)) => {
+                let t = &self.engine.program.dotnet_types[i].type_name;
+                server_classes::SETTLED
+                    .iter()
+                    .any(|(st, sm)| st == t && sm.eq_ignore_ascii_case(m))
+            }
+            _ => false,
+        };
+        if !settled {
+            self.note_dotnet();
+        }
+    }
+
     pub(crate) fn dotnet_apply(
         &mut self,
         ty: Option<usize>,
@@ -340,7 +357,7 @@ impl Session {
             ir::DotNetOp::ClientCall(why) => return unsupported(why.clone()),
             _ => {}
         }
-        self.note_dotnet();
+        self.note_dotnet_unless_settled(op, ty);
         self.dotnet.null_string = false;
         let declared = |i: usize| {
             let d = &self.engine.program.dotnet_types[i];

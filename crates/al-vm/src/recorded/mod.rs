@@ -3,8 +3,8 @@
 //! al-testrun's login (`install.rs`) uses it and owns only its key.
 //!
 //! AL code the VM runs is a function of what it reads. Its inputs here are:
-//! - the session's image before the run ([`SessionImage`], `image.rs`: every field of `Session` has a class), and no
-//!   SingleInstance codeunit exists yet;
+//! - the session's image before the run ([`SessionImage`], `image.rs`: every field of `Session` has a class), and the
+//!   images of its SingleInstance codeunits (an earlier step of the same start can leave some, `globals.rs`);
 //! - the rows: the caller's key (the baseline the session started from with no table changed since, and who offers the
 //!   rows of the untouched tables; `install.rs` `memo_key`);
 //! - the engine, which is immutable while sessions run.
@@ -20,7 +20,7 @@
 //! keep their counts relative to it, `sqlcount.rs` `SqlImage`). The others are scoped to one call or are tooling.
 //!
 //! A session that notes the code it runs (coverage, the impact trace, value capture, the debugger) never records and
-//! never takes a replay (decision 6): its image check fails on `coverage`, `capture` or `debug`.
+//! never takes a replay (decision 6): `notes_code_run`, and its image check fails on `coverage`, `capture` or `debug`.
 
 mod globals;
 mod image;
@@ -47,8 +47,6 @@ pub enum RecordedRunsMode {
 pub enum NotRecorded {
     /// The session notes the code it runs (decision 6).
     NotesCode,
-    /// A SingleInstance codeunit existed before the run.
-    SingleInstanceBefore,
     /// A must-be-untouched field did not hold what a new session holds.
     Untouched(&'static str),
     /// A value has no plain image.
@@ -63,7 +61,6 @@ impl std::fmt::Display for NotRecorded {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             NotRecorded::NotesCode => write!(f, "the session notes the code it runs"),
-            NotRecorded::SingleInstanceBefore => write!(f, "a SingleInstance codeunit existed before"),
             NotRecorded::Untouched(what) => write!(f, "{what}"),
             NotRecorded::Value(what) => write!(f, "{what} has no image"),
             NotRecorded::Used(what) => write!(f, "the run used {what}"),
@@ -75,6 +72,7 @@ impl std::fmt::Display for NotRecorded {
 /// A run being recorded ([`Session::start_recording`]).
 pub struct Recording {
     before: SessionImage,
+    singles_before: Vec<globals::SingleImage>,
     store: al_data::memory::MemStore,
     counter: u64,
     hits_before: al_builtins::assumptions::HitBits,
@@ -84,11 +82,16 @@ pub struct Recording {
 #[derive(Clone)]
 pub struct RecordedRun {
     before: SessionImage,
+    /// The SingleInstance codeunits before the run (an earlier step of the same start can leave some): part of the key.
+    singles_before: Vec<globals::SingleImage>,
     after: SessionImage,
     singles: Vec<globals::SingleImage>,
     rows: Option<crate::baseline::EncodedChanges>,
     hits: al_builtins::assumptions::HitBits,
     touches: crate::impact::Touches,
+    /// The run read neither the clock nor a platform table (whose identity rows hold the login instant): its images
+    /// leave the host's instant out, so sessions whose clocks start at other instants take it.
+    clock_free: bool,
 }
 
 // The result goes to other test threads (ADR-073 decision 1, kept on the engine behind a lock).
@@ -169,14 +172,13 @@ impl Session {
         if self.notes_code_run() {
             return Err(NotRecorded::NotesCode);
         }
-        if !self.singletons.is_empty() {
-            return Err(NotRecorded::SingleInstanceBefore);
-        }
         let before = image::image_of(self)?;
+        let singles_before = globals::singles_image(&self.singletons)?;
         let hits_before = al_builtins::assumptions::take_hit_bits();
         self.enable_impact_trace();
         Ok(Recording {
             before,
+            singles_before,
             store: self.store.clone(),
             counter: self.store.change_counter(),
             hits_before,
@@ -222,6 +224,11 @@ impl Session {
             before.forget_test_object();
             after.forget_test_object();
         }
+        let clock_free = !touches.clock && touches.tables.iter().all(|&t| self.table_stamp(t).is_some());
+        if clock_free {
+            before.forget_clock(touches.clock_day);
+            after.forget_clock(touches.clock_day);
+        }
         let singles = globals::singles_image(&self.singletons)?;
         let rows = if self.store.change_counter() == r.counter {
             None
@@ -237,18 +244,20 @@ impl Session {
         };
         Ok(RecordedRun {
             before,
+            singles_before: r.singles_before,
             after,
             singles,
             rows,
             hits,
             touches,
+            clock_free,
         })
     }
 
-    /// Whether this session may take `run`'s result now: it notes no code, has no SingleInstance codeunit, and its image
-    /// equals the image `run` started from. The caller has checked the rows (its key).
+    /// Whether this session may take `run`'s result now: it notes no code, and its image and its SingleInstance
+    /// codeunits equal those `run` started from. The caller has checked the rows (its key).
     pub fn replay_applies(&self, run: &RecordedRun) -> bool {
-        if self.notes_code_run() || !self.singletons.is_empty() {
+        if self.notes_code_run() {
             return false;
         }
         let Ok(mut now) = image::image_of(self) else {
@@ -257,7 +266,10 @@ impl Session {
         if !run.touches.test_object {
             now.forget_test_object();
         }
-        now == run.before
+        if run.clock_free {
+            now.forget_clock(run.touches.clock_day);
+        }
+        now == run.before && globals::singles_image(&self.singletons).is_ok_and(|s| s == run.singles_before)
     }
 
     /// Why this session may not take `run`'s result now, for diagnosis: the first field of the image that differs, or
@@ -266,8 +278,12 @@ impl Session {
         if self.notes_code_run() {
             return Some(NotRecorded::NotesCode.to_string());
         }
-        if !self.singletons.is_empty() {
-            return Some(NotRecorded::SingleInstanceBefore.to_string());
+        let singles = match globals::singles_image(&self.singletons) {
+            Ok(singles) => singles,
+            Err(why) => return Some(why.to_string()),
+        };
+        if let Some(d) = first_difference(&run.singles_before, &singles) {
+            return Some(format!("the SingleInstance codeunits differ: {d}"));
         }
         let mut now = match image::image_of(self) {
             Ok(now) => now,
@@ -275,6 +291,9 @@ impl Session {
         };
         if !run.touches.test_object {
             now.forget_test_object();
+        }
+        if run.clock_free {
+            now.forget_clock(run.touches.clock_day);
         }
         first_difference(&run.before, &now).map(|d| format!("the session image differs in {d}"))
     }
@@ -291,6 +310,7 @@ impl Session {
                 .ok_or(NotRecorded::Rows)?;
             self.store = store;
         }
+        self.singletons.clear();
         globals::restore_singles(self, &run.singles);
         image::restore(self, &run.after);
         al_builtins::assumptions::add_hit_bits(run.hits);

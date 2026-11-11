@@ -124,3 +124,36 @@ fn login_code_that_changes_a_record_global_is_replayed_with_it() {
     }
     assert_eq!(super::tests::login_replays(&engine), 1);
 }
+
+/// The WorkDate step leaves LogInManagement's single instance; the company-open step after it is still recorded and
+/// replayed, with that instance's image as part of its key, and a later session sees both steps' state.
+#[test]
+fn the_company_open_step_after_the_work_date_step_is_replayed_with_both_steps_state() {
+    let login = "codeunit 40 LogInManagement { SingleInstance = true;
+        var LogInWorkDate: Date;
+        procedure GetDefaultWorkDate(): Date var E: Record Entry; begin
+            if E.FindFirst() then begin LogInWorkDate := E.D; exit(E.D); end; exit(WorkDate()); end;
+        procedure LoginDate(): Date begin exit(LogInWorkDate); end; }";
+    let check = "if K.Before() <> 1 then Error('before %1', K.Before());";
+    let src = format!("{OPEN_SRC}\n{login}").replace(
+        check,
+        &format!("{check} if WorkDate() <> 20240115D then Error('WorkDate %1', WorkDate()); if L.LoginDate() <> 20240115D then Error('login %1', L.LoginDate());"),
+    ).replace("var K: Codeunit Keeper;", "var K: Codeunit Keeper; L: Codeunit LogInManagement;");
+    let (engine, l) = engine_of(&src, al_vm::RecordedRunsMode::On);
+    let mut session = al_vm::Session::new(engine.clone());
+    let s = object_named(&l, "Seed");
+    let on_run = l.program.objects[s]
+        .routines
+        .iter()
+        .position(|r| r.name == "OnRun")
+        .unwrap();
+    let inst = session.instance(s);
+    assert!(session.call(s, on_run, inst, Vec::new()).is_ok());
+    let baseline = session.capture_baseline();
+    for t in ["T1", "T2", "T1"] {
+        let o = run_codeunit_from(&engine, &l, object_named(&l, t), Some(&baseline));
+        assert_eq!(o, vec![("SeesTheOpenState".to_string(), Outcome::Pass)], "{t}");
+    }
+    let c = counts(&engine);
+    assert_eq!((c.work_date.replayed, c.company_open.replayed), (2, 2), "{c:?}");
+}

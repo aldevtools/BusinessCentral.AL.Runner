@@ -550,23 +550,33 @@ impl PageClients {
 }
 
 impl CoverageState {
-    pub(crate) fn holds_nothing(&self) -> bool {
+    /// The first part that holds something, by name (`recorded/image.rs` names it as the reason a run is not recorded).
+    pub(crate) fn held(&self) -> Option<&'static str> {
         let CoverageState {
             code_coverage,
             coverage_counts,
             recorder,
             impact,
             impact_on,
-            cells,
+            cells: _, // the cell tap counts fixture calls only; its record is imaged (`recorded/image.rs`)
             profiler,
         } = self;
-        !code_coverage
-            && coverage_counts.is_none()
-            && *recorder == platform::coverage::Recorder::default()
-            && impact.borrow().is_none()
-            && !impact_on
-            && cells.is_none()
-            && profiler.is_none()
+        [
+            (*code_coverage, "coverage.code_coverage"),
+            (coverage_counts.is_some(), "coverage.coverage_counts"),
+            (
+                *recorder != platform::coverage::Recorder::default(),
+                "coverage.recorder (the Code Coverage recorder)",
+            ),
+            (
+                impact.borrow().is_some() || *impact_on,
+                "coverage.impact (the impact trace)",
+            ),
+            (profiler.is_some(), "coverage.profiler"),
+        ]
+        .into_iter()
+        .find(|(held, _)| *held)
+        .map(|(_, what)| what)
     }
 }
 

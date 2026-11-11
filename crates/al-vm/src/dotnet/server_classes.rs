@@ -54,6 +54,25 @@ macro_rules! config_flag {
     };
 }
 
+/// The members whose answer is a function of their arguments and the engine alone (constants, the instance object, the
+/// engine's target): a recorded run that called only these is still recorded (ADR-073 decision 5; `dotnet_apply`). The
+/// object `Instance` returns cannot outlive the run in a recorded one: a SingleInstance global holding it has no image.
+pub(crate) const SETTLED: &[(&str, &str)] = &[
+    (AL_CONFIG_SETTINGS, "Instance"),
+    (AL_CONFIG_SETTINGS, "EnableSaasExtensionInstallConfigSetting"),
+    (AL_CONFIG_SETTINGS, "IsSaasExcelAddinEnabled"),
+    (AL_CONFIG_SETTINGS, "EnableEntraGroupsOnPrem"),
+    (AL_CONFIG_SETTINGS, "ApiServicesEnabled"),
+    (AL_CONFIG_SETTINGS, "ApiSubscriptionsEnabled"),
+    (AL_CONFIG_SETTINGS, "ApiSubscriptionSendingNotificationTimeout"),
+    (AL_CONFIG_SETTINGS, "ApiSubscriptionMaxNumberOfNotifications"),
+    (AL_CONFIG_SETTINGS, "ApiSubscriptionDelayTime"),
+    (AL_CONFIG_SETTINGS, "TestAutomationEnabled"),
+    (AL_CONFIG_SETTINGS, "UsePermissionsFromExtensions"),
+    (AL_CONFIG_SETTINGS, "IsSaaS"),
+    (USER_ACCOUNT_HELPER, "IsAzure"),
+];
+
 fn al_config_instance(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "ALConfigSettings.Instance")?;
     Ok(Value::DotNet(Rc::new(DotNetObject::new(DotNetKind::Internal {

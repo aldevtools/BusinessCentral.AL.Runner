@@ -1622,13 +1622,7 @@ fn test_inner(
         test_suites,                        // `--test-suites FILE` (ADR-066 amendment 6)
         memory: crate::memory_budget::budget(a.max_memory, warm.is_none() && debug.is_none()), // `--max-memory`
         private_baseline: std::env::var_os("AL_PRIVATE_BASELINE").is_some(), // ADR-069 decision 11
-        recorded_runs: if std::env::var_os("AL_NO_RECORDED_RUNS").is_some() {
-            al_vm::RecordedRunsMode::Off // ADR-073 decision 8
-        } else if std::env::var_os("AL_RECORDED_RUNS_CHECK").is_some() {
-            al_vm::RecordedRunsMode::Check // ADR-073, Conformance: the state check
-        } else {
-            al_vm::RecordedRunsMode::On
-        },
+        recorded_runs: recorded_runs_mode(), // ADR-073 decision 8 and the state check
         strict_sequential: std::env::var_os("AL_STRICT_SEQUENTIAL").is_some(), // ADR-070 step 2 (internal)
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
         run_only: run_only_picks(a, &selection, &found),
@@ -2736,5 +2730,17 @@ mod selection_tests {
         assert!(s.picks(50650, "PassesToo") && s.picks(1, "Other"));
         let s = sel(&[], &["Codeunit50650.Passes", "Codeunit1.Other"]);
         assert!(s.picks(50650, "Passes") && s.picks(1, "Other") && !s.picks(50650, "PassesToo"));
+    }
+}
+
+/// The ADR-073 switches, read here (ADR-006): `AL_NO_RECORDED_RUNS=1` is the off switch (decision 8),
+/// `AL_RECORDED_RUNS_CHECK=1` the state check (Conformance).
+fn recorded_runs_mode() -> al_vm::RecordedRunsMode {
+    if std::env::var_os("AL_NO_RECORDED_RUNS").is_some() {
+        al_vm::RecordedRunsMode::Off
+    } else if std::env::var_os("AL_RECORDED_RUNS_CHECK").is_some() {
+        al_vm::RecordedRunsMode::Check
+    } else {
+        al_vm::RecordedRunsMode::On
     }
 }

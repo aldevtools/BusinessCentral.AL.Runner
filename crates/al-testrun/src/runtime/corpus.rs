@@ -1083,12 +1083,7 @@ impl CorpusRuntime {
             );
             global_triggers_find_unavailable(&mut engine, lowered);
             if let Some(e) = Arc::get_mut(&mut engine) {
-                (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
-                e.recorded_runs = opts.recorded_runs;
-                e.license = opts.license.clone();
-                e.write_in_try_allowed = opts.allow_write_in_try_functions;
-                e.dependencies_published_global = opts.dependencies_published_global;
-                e.skipped_apps = opts.skipped_dependencies.clone();
+                apply_run_options(e, opts);
             }
             engine
         };
@@ -1097,12 +1092,7 @@ impl CorpusRuntime {
         let sibling_of = |engine: &Arc<Engine>| {
             let mut sibling = engine.sibling();
             if let Some(e) = Arc::get_mut(&mut sibling) {
-                (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
-                e.recorded_runs = opts.recorded_runs;
-                e.license = opts.license.clone();
-                e.write_in_try_allowed = opts.allow_write_in_try_functions;
-                e.dependencies_published_global = opts.dependencies_published_global;
-                e.skipped_apps = opts.skipped_dependencies.clone();
+                apply_run_options(e, opts);
             }
             sibling
         };
@@ -1908,10 +1898,7 @@ impl CorpusRuntime {
         } else {
             Vec::new()
         };
-        let mut login = crate::login_start::counts(&engine);
-        if let Some(spare) = &spare_engine {
-            login.add(&crate::login_start::counts(spare));
-        }
+        let login = crate::login_start::counts_of([Some(&engine), spare_engine.as_ref()]);
         let install_met = keep_or_retire_engines(
             (engine, baseline_engine, spare_engine),
             baseline.as_ref().and_then(|b| b.workspace_installs.as_deref()),
@@ -2263,12 +2250,7 @@ fn take_kept_engines(
         // Every field a run sets, back to what `Engine::with_config` makes; then what `make_engine` sets.
         e.reset_run_state();
         e.dotnet = dotnet.clone();
-        (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
-        e.recorded_runs = opts.recorded_runs;
-        e.license = opts.license.clone();
-        e.write_in_try_allowed = opts.allow_write_in_try_functions;
-        e.dependencies_published_global = opts.dependencies_published_global;
-        e.skipped_apps = opts.skipped_dependencies.clone();
+        apply_run_options(e, opts);
         Some(engine)
     };
     let install = reset(k.install);
@@ -2535,4 +2517,15 @@ fn note_leaks(units: &mut [Unit], carried: &[super::chain_walk::Carry], sees: &d
             }
         }
     }
+}
+
+/// What a run's options set on each engine it makes: the first, its sibling for the tests, and a kept engine reset for
+/// a warm server's next request.
+fn apply_run_options(e: &mut Engine, opts: &RunOptions) {
+    (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
+    e.recorded_runs = opts.recorded_runs;
+    e.license = opts.license.clone();
+    e.write_in_try_allowed = opts.allow_write_in_try_functions;
+    e.dependencies_published_global = opts.dependencies_published_global;
+    e.skipped_apps = opts.skipped_dependencies.clone();
 }

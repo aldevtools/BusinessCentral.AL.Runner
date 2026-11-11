@@ -91,6 +91,9 @@ fn host_image(h: &al_host::Host) -> HostImage {
 /// The transaction state that lasts past a commit (the rest must be what a commit leaves).
 #[derive(Clone, PartialEq, Debug)]
 struct TxImage {
+    /// Whether the store is unchanged since the last Commit or rollback: with no write noted since, all that
+    /// `commit_counter` tells (`Session::writes_all_noted`). A session that started from a baseline has not committed.
+    commit_current: bool,
     commit_behavior: crate::transactions::CommitBehavior,
     tx_phase: u8,
     transaction_type: i32,
@@ -134,8 +137,8 @@ fn closed_rows_of(rows: &ClosedRowsImage) -> ClosedRows {
 }
 
 /// `tx`: what lasts past a commit is imaged; every part a commit clears, and every part that only exists while code
-/// runs, must be as a commit left it. `commit_counter` is the store's counter at the commit: equal to the store's
-/// counter now (the caller replays the rows, which moves it).
+/// runs, must be as a commit left it. `commit_counter` is the store's counter at the commit: imaged as whether it is the
+/// store's counter now (the caller replays the rows, which moves it).
 fn tx_image(tx: &crate::state::TxState, store_counter: u64) -> Result<TxImage, NotRecorded> {
     let crate::state::TxState {
         tx_world,
@@ -175,36 +178,48 @@ fn tx_image(tx: &crate::state::TxState, store_counter: u64) -> Result<TxImage, N
         isolation_lock_tables,
         locking_read_tx_unpinned,
     } = tx;
-    let committed = *commit_counter == store_counter
-        && *tx_world == 0
-        && rows_touched.is_empty()
-        && tables_inserted.is_empty()
-        && locked_tables.is_empty()
-        && writes.is_empty()
-        && find_set_tables.is_empty()
-        && !isolation_lock
-        && !rolled_back
-        && deferred_insert.is_none()
-        && insert_buffer.is_empty()
-        && !insert_from_al
-        && deferred_by.is_none()
-        && *deferred_raised == 0
-        && *try_depth == 0
-        && used_tries.is_empty()
-        && guarded_runs.is_empty()
-        && row_versions.pending_inserts.is_empty()
-        && row_versions.sent == 0
-        && row_versions.handed_out == row_versions.accounted
-        && row_versions.unpinned.is_none()
-        && xp_export_try_world.is_none()
-        && !lock_tx
-        && !recref_lock_tx
-        && isolation_lock_tables.is_empty()
-        && !locking_read_tx_unpinned;
-    if !committed {
-        return Err(NotRecorded::Untouched("tx (a transaction is open)"));
+    // Every part a commit clears, and every part that only exists while code runs: the first that is not as a commit
+    // left it names the reason.
+    let open = [
+        (*tx_world == 0, "tx.tx_world"),
+        (rows_touched.is_empty(), "tx.rows_touched"),
+        (tables_inserted.is_empty(), "tx.tables_inserted"),
+        (locked_tables.is_empty(), "tx.locked_tables"),
+        (writes.is_empty(), "tx.writes"),
+        (find_set_tables.is_empty(), "tx.find_set_tables"),
+        (!isolation_lock, "tx.isolation_lock"),
+        (!rolled_back, "tx.rolled_back"),
+        (deferred_insert.is_none(), "tx.deferred_insert"),
+        (insert_buffer.is_empty(), "tx.insert_buffer"),
+        (!insert_from_al, "tx.insert_from_al"),
+        (deferred_by.is_none(), "tx.deferred_by"),
+        (*deferred_raised == 0, "tx.deferred_raised"),
+        (*try_depth == 0, "tx.try_depth"),
+        (used_tries.is_empty(), "tx.used_tries"),
+        (guarded_runs.is_empty(), "tx.guarded_runs"),
+        (
+            row_versions.pending_inserts.is_empty(),
+            "tx.row_versions.pending_inserts",
+        ),
+        (row_versions.sent == 0, "tx.row_versions.sent"),
+        (
+            row_versions.handed_out == row_versions.accounted,
+            "tx.row_versions.handed_out",
+        ),
+        (row_versions.unpinned.is_none(), "tx.row_versions.unpinned"),
+        (xp_export_try_world.is_none(), "tx.xp_export_try_world"),
+        (!lock_tx, "tx.lock_tx"),
+        (!recref_lock_tx, "tx.recref_lock_tx"),
+        (isolation_lock_tables.is_empty(), "tx.isolation_lock_tables"),
+        (!locking_read_tx_unpinned, "tx.locking_read_tx_unpinned"),
+    ]
+    .into_iter()
+    .find(|(committed, _)| !committed);
+    if let Some((_, what)) = open {
+        return Err(NotRecorded::Untouched(what));
     }
     Ok(TxImage {
+        commit_current: *commit_counter == store_counter,
         commit_behavior: *commit_behavior,
         tx_phase: *tx_phase,
         transaction_type: *transaction_type,
@@ -352,7 +367,7 @@ fn ui_image(ui: &crate::state::UiState) -> UiImage {
 }
 
 /// The state of a session outside the database rows and the SingleInstance codeunits, as plain data (see the module
-/// comment). Two sessions with equal images, the same rows and no SingleInstance codeunit run the same code the same way.
+/// comment). Two sessions with equal images, the same rows and equal SingleInstance codeunits run the same code the same way.
 #[derive(Clone, PartialEq, Debug)]
 pub struct SessionImage {
     last_error: al_builtins::native::AlError,
@@ -430,7 +445,8 @@ pub struct SessionImage {
     encrypted: Vec<(String, String)>,
     encryption_key: crate::EncryptionKey,
     temp_files: u32,
-    last_stamp: i64,
+    /// `None`: left out with the clock ([`SessionImage::forget_clock`]).
+    last_stamp: Option<i64>,
     clock_key: u64,
     clock_draws: u64,
     work_date: Option<i32>,
@@ -440,6 +456,8 @@ pub struct SessionImage {
     tx: TxImage,
     ui: UiImage,
     events: EventImage,
+    /// The cell tap's record (`al-test-cli --junit`), when the tap is on: what a run's calls of the fixture added.
+    cells: Option<crate::observer_tap::CellRecord>,
 }
 
 impl SessionImage {
@@ -451,6 +469,19 @@ impl SessionImage {
     /// This image keyed without the test codeunit (a run that did not read it, `Touches::test_object`).
     pub(super) fn forget_test_object(&mut self) {
         self.test_object = None;
+    }
+
+    /// This image keyed without the host's instant (a run that read neither the clock nor a platform table), or with
+    /// the day only (`day`: a run that read today's date and nothing finer).
+    /// The last system stamp goes with it: only a stamp reads it, and a stamp reads the clock. [`restore`] then keeps
+    /// the session's own.
+    pub(super) fn forget_clock(&mut self, day: bool) {
+        self.host.now = if day {
+            (self.host.now + self.waited_ms).div_euclid(86_400_000)
+        } else {
+            0
+        };
+        self.last_stamp = None;
     }
 
     /// The WorkDate the image holds (`None`: today).
@@ -618,7 +649,7 @@ pub(super) fn image_of(s: &Session) -> Result<SessionImage, NotRecorded> {
         ui_state,   // imaged: the notifications and client marks; the handlers untouched
         pages: _,   // untouched: check_untouched
         events,     // imaged: setup answers and marks; bindings untouched (`event_image`)
-        coverage: _, // untouched: check_untouched (decision 6)
+        coverage,   // untouched: check_untouched (decision 6), but for the cell tap's record (imaged)
         report: _,  // untouched: check_untouched
     } = s;
     check_untouched(s)?;
@@ -700,7 +731,7 @@ pub(super) fn image_of(s: &Session) -> Result<SessionImage, NotRecorded> {
         encrypted: sorted(encrypted),
         encryption_key: *encryption_key,
         temp_files: *temp_files,
-        last_stamp: *last_stamp,
+        last_stamp: Some(*last_stamp),
         clock_key: *clock_key,
         clock_draws: *clock_draws,
         work_date: *work_date,
@@ -709,6 +740,7 @@ pub(super) fn image_of(s: &Session) -> Result<SessionImage, NotRecorded> {
         ui_caption_translated: ui_caption_translated.clone(),
         tx: tx_image(tx, store.change_counter())?,
         ui: ui_image(ui_state),
+        cells: coverage.cells.as_ref().map(|t| t.record.clone()),
         events: event_image(events)?,
     })
 }
@@ -846,7 +878,9 @@ fn check_untouched(s: &Session) -> Result<(), NotRecorded> {
     untouched(render_pending_files.is_empty(), "render_pending_files")?;
     untouched(!get_load && !sysid_load && !find_load, "a record load running")?;
     untouched(pages.holds_nothing(), "pages (open pages)")?;
-    untouched(coverage.holds_nothing(), "coverage, impact trace or profiler")?;
+    if let Some(what) = coverage.held() {
+        return Err(NotRecorded::Untouched(what));
+    }
     untouched(report.holds_nothing(), "report (a report runs)")?;
     let crate::state::UiState {
         scope,
@@ -947,6 +981,7 @@ pub(super) fn restore(s: &mut Session, image: &SessionImage) {
         tx,
         ui,
         events,
+        cells,
     } = image;
     s.last_error = last_error.clone();
     s.runner_frames = runner_frames.clone();
@@ -1023,7 +1058,9 @@ pub(super) fn restore(s: &mut Session, image: &SessionImage) {
     s.encrypted = encrypted.iter().cloned().collect();
     s.encryption_key = *encryption_key;
     s.temp_files = *temp_files;
-    s.last_stamp = *last_stamp;
+    if let Some(stamp) = last_stamp {
+        s.last_stamp = *stamp;
+    }
     s.clock_key = *clock_key;
     s.clock_draws = *clock_draws;
     s.work_date = *work_date;
@@ -1035,12 +1072,16 @@ pub(super) fn restore(s: &mut Session, image: &SessionImage) {
     s.ui_caption_translated = ui_caption_translated.clone();
     restore_tx(s, tx);
     restore_ui(s, ui);
+    if let (Some(tap), Some(record)) = (s.coverage.cells.as_mut(), cells) {
+        tap.record = record.clone();
+    }
     restore_events(s, events);
 }
 
 /// The transaction part of [`restore`]: what lasts past a commit; `commit_counter` is the store's counter now.
 fn restore_tx(s: &mut Session, tx: &TxImage) {
     let TxImage {
+        commit_current,
         commit_behavior,
         tx_phase,
         transaction_type,
@@ -1068,7 +1109,13 @@ fn restore_tx(s: &mut Session, tx: &TxImage) {
     s.tx.immediate_errors = *immediate_errors;
     s.tx.inconsistent = inconsistent.clone();
     s.tx.lock_unpinned = *lock_unpinned;
-    s.tx.commit_counter = s.store.change_counter();
+    // Unchanged since the commit: the store's counter now (the replayed rows moved it); else a counter no later write
+    // starts from, so `writes_all_noted` stays false as in the real run.
+    s.tx.commit_counter = if *commit_current {
+        s.store.change_counter()
+    } else {
+        u64::MAX
+    };
 }
 
 /// The UI part of [`restore`]: the notifications and client marks (the handlers are untouched).

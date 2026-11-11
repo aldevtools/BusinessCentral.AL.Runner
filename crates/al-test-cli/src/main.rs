@@ -1224,13 +1224,7 @@ fn run_version_inner(
         allow_write_in_try_functions: pass.settings.allow_write_in_try_functions,
         // `dev_endpoint_ui` stays off: the corpus runs as Microsoft's Test Runner app does, so unhandled UI is an error.
         private_baseline: std::env::var_os("AL_PRIVATE_BASELINE").is_some(), // ADR-069 decision 11
-        recorded_runs: if std::env::var_os("AL_NO_RECORDED_RUNS").is_some() {
-            al_vm::RecordedRunsMode::Off // ADR-073 decision 8
-        } else if std::env::var_os("AL_RECORDED_RUNS_CHECK").is_some() {
-            al_vm::RecordedRunsMode::Check // ADR-073, Conformance: the state check
-        } else {
-            al_vm::RecordedRunsMode::On
-        },
+        recorded_runs: recorded_runs_mode(),                                 // ADR-073 decision 8 and the state check
         // Internal, for the ADR-070 step 2 comparison: the whole corpus in BC's order (`AL_STRICT_ORDER_ALL`), and the
         // sequential strict run (`AL_STRICT_SEQUENTIAL`).
         strict_order: std::env::var_os("AL_STRICT_ORDER_ALL").is_some(),
@@ -1324,9 +1318,6 @@ fn run_version_inner(
             eprintln!("{line}");
         }
         if let Some(line) = p.compile_line() {
-            eprintln!("{line}");
-        }
-        if let Some(line) = p.login.line() {
             eprintln!("{line}");
         }
         if p.cache.is_some() {
@@ -1946,5 +1937,18 @@ fn slowest_and_chain_lines(p: &al_testrun::runtime::Phases) -> Vec<String> {
         .collect();
     let mut lines = vec![format!("slowest test codeunits: {}", slowest.join("; "))];
     lines.extend(p.chain.lines());
+    lines.extend(p.login.line()); // ADR-073 phase 1: the login start
     lines
+}
+
+/// The ADR-073 switches, read here (ADR-006): `AL_NO_RECORDED_RUNS=1` is the off switch (decision 8),
+/// `AL_RECORDED_RUNS_CHECK=1` the state check (Conformance).
+fn recorded_runs_mode() -> al_vm::RecordedRunsMode {
+    if std::env::var_os("AL_NO_RECORDED_RUNS").is_some() {
+        al_vm::RecordedRunsMode::Off
+    } else if std::env::var_os("AL_RECORDED_RUNS_CHECK").is_some() {
+        al_vm::RecordedRunsMode::Check
+    } else {
+        al_vm::RecordedRunsMode::On
+    }
 }

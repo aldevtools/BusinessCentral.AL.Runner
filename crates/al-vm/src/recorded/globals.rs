@@ -369,7 +369,7 @@ pub(super) fn singles_image(
 }
 
 /// Makes the session's SingleInstance codeunits those of `images`: each a fresh instance with its imaged globals put
-/// in. The session had none (the key).
+/// in. The caller removed the session's own (whose images were part of the key).
 pub(super) fn restore_singles(s: &mut crate::Session, images: &[SingleImage]) {
     for i in images {
         let inst = s.instance(i.object);

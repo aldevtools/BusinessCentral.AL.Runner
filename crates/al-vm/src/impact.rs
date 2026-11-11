@@ -45,6 +45,11 @@ pub struct Touches {
     /// AL code's run read which test codeunit runs (`Session::test_object_read`): a recorded run that did not is keyed
     /// without it (ADR-073). Not part of [`Touches::is_empty`].
     pub test_object: bool,
+    /// AL code's run read the clock (`Session::now_millis`): a recorded run that did not, and read no platform table, is
+    /// keyed without the host's instant (ADR-073 decision 4). Not part of [`Touches::is_empty`].
+    pub clock: bool,
+    /// AL code's run read the clock for today's date only (`Today`, an unset WorkDate): keyed by the day, not the instant.
+    pub clock_day: bool,
 }
 
 impl Touches {
@@ -150,6 +155,20 @@ impl crate::Session {
         }
         if let Some(t) = self.coverage.impact.borrow_mut().as_mut() {
             t.test_object = true;
+        }
+    }
+
+    #[inline]
+    pub(crate) fn note_clock_read(&self, day_only: bool) {
+        if !self.coverage.impact_on {
+            return;
+        }
+        if let Some(t) = self.coverage.impact.borrow_mut().as_mut() {
+            if day_only {
+                t.clock_day = true;
+            } else {
+                t.clock = true;
+            }
         }
     }
 
