@@ -1637,8 +1637,9 @@ impl Session {
                     read_isolation: 0,
                     // A record in a test run is Validated (corpus record/TestSecurityFilteringContracts.al:161-175).
                     security_filtering: 0,
-                    declared_security_filtering: Some(0),
-                    security_filtering_unpinned: None,
+                    declared_security_filtering: 0,
+                    declared_security_filtering_assumed: false,
+                    security_filtering_assumed: false,
                     key: 0,
                     adhoc: None,
                     ascending: true,
