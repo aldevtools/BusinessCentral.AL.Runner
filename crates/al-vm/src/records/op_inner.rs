@@ -1238,7 +1238,7 @@ impl Session {
                         "AL:ToManyKeyFields",
                     ));
                 }
-                let key = self.get_key(&t, args)?;
+                let key = self.get_key(rec, &t, args, from_id.is_some())?;
                 let mut pk = key.pk.clone();
                 // A Time or DateTime key value the SQL column rounds looks for the rounded row: Get('A', 10:00:00.001) and
                 // Get('A', 10:00:00) find the row stored from 10:00:00.001, Get('A', 10:00:00.002) does not, as it looks for

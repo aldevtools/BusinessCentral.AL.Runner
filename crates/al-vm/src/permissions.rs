@@ -1603,7 +1603,7 @@ impl Session {
             {
                 return refuse("Get with a RecordId or more values than the primary key has fields");
             }
-            let key = self.get_key(&t, args)?;
+            let key = self.get_key(rec, &t, args, false)?;
             if key.given < key.pk.len() {
                 return refuse("Get with fewer values than the primary key has fields");
             }

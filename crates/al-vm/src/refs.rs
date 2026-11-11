@@ -1128,6 +1128,9 @@ impl Session {
                 // Ref_SetLoadFieldsCntThenGet `YesYesYesYesYesYes` against Rec_SetLoadFieldsNameThenGet `YesYesNoYesYesYes`;
                 // record/W4PlatformAndMeta.al:497-516 `recref_loaded_txt` Yes). What a later fetch loads is not pinned: the
                 // request is kept for it.
+                // A RecordId with fewer values than the key: the omitted fields it may hold are checked where the Get key is
+                // built (`get_key_value.rs`).
+                self.record_id_omitted_fields(&t, key.len())?;
                 let mut a = key;
                 let request = rec.borrow_mut().load.request.take();
                 // RecordRef.Get(RecordId) of an existing row is a denied read like Record.Get (AEDependencyTableReads.al
