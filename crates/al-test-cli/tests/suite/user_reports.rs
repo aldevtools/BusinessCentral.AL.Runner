@@ -2446,3 +2446,9 @@ codeunit 50000 T { Subtype = Test;
         );
     }
 }
+
+// Local real-BC WorksheetRefresh.al probe and its explicit First() control.
+#[test]
+fn measured_empty_worksheet_update_makes_imported_row_selectable() {
+    all_pass(run_with_deps(&[], include_str!("../fixtures/worksheet-refresh.al")));
+}
