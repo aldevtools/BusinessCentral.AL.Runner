@@ -2506,9 +2506,19 @@ impl Session {
         // Clear sets ReadIsolation back to Default (record/CvReadIsolationState.al:58, :64).
         r.read_isolation = 0;
         // Clear sets SecurityFiltering back to the value the variable was declared with, also after a SecurityFiltering(x) call
-        // (al-language/reports/runtime/ACAttributes.al:373-374, :388-396; a codeunit's global: :434-435, :466-469).
-        r.security_filtering = r.declared_security_filtering;
-        r.security_filtering_unpinned = false;
+        // (al-language/reports/runtime/ACAttributes.al:373-374, :388-396; a codeunit's global: :434-435, :466-469). On a copy
+        // whose declared value is not pinned (`RecordState::copy_as_new_variable`) the value is not pinned either.
+        match r.declared_security_filtering {
+            Some(x) => {
+                r.security_filtering = x;
+                r.security_filtering_unpinned = None;
+            }
+            None => {
+                r.security_filtering_unpinned = Some(
+                    "after Clear of a copy (a by-value parameter) of a record declared with another SecurityFiltering",
+                )
+            }
+        }
         // A Clear leaves the record's record of what it fetched: the fields in hand stay loaded for a later
         // partial fetch (session-system/TestProbeSessionMiscContracts.al:PartialRecords_AreFieldsLoaded: a full Get,
         // Clear, SetLoadFields(Cd) and Get still reports Txt loaded).

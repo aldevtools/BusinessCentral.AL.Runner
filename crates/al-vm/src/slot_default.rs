@@ -1,6 +1,6 @@
 //! The value a variable starts with, from its slot (al-ir `Slot`): the default of its type, and for a record declared with
 //! `[SecurityFiltering(x)]` that value. Every place that makes a routine's locals or an object's globals, or sets them back
-//! with `ClearAll`, goes through here.
+//! (`ClearAll`, and `Clear` of a record for its table's globals), goes through here.
 
 use super::*;
 
@@ -14,7 +14,7 @@ impl Session {
         if let (Some(x), Value::Record(r)) = (s.security_filtering, &v) {
             let mut r = r.borrow_mut();
             r.security_filtering = x;
-            r.declared_security_filtering = x;
+            r.declared_security_filtering = Some(x);
         }
         v
     }

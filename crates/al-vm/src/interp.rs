@@ -354,7 +354,8 @@ impl Session {
                 return refuse();
             }
             let object = rc.borrow().object as usize;
-            let o = &self.engine.program.objects[object];
+            let engine = self.engine.clone();
+            let o = &engine.program.objects[object];
             if o.rec_slot.is_some() {
                 return Err(Signal::Unsupported(
                     "ClearAll of a global codeunit variable whose bound instance has a TableNo record (not pinned)"
@@ -367,8 +368,7 @@ impl Session {
                         .into(),
                 ));
             }
-            let tys: Vec<RtType> = o.globals.iter().map(|g| g.ty.clone()).collect();
-            let fresh: Vec<Value> = tys.iter().map(|t| self.default_value(t)).collect();
+            let fresh = self.slot_defaults(&o.globals);
             let mut b = rc.borrow_mut();
             for (k, nv) in fresh.into_iter().enumerate() {
                 if k < b.globals.len() {

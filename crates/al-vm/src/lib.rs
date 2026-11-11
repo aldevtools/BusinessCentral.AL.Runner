@@ -1632,8 +1632,8 @@ impl Session {
                     read_isolation: 0,
                     // A record in a test run is Validated (corpus record/TestSecurityFilteringContracts.al:161-175).
                     security_filtering: 0,
-                    declared_security_filtering: 0,
-                    security_filtering_unpinned: false,
+                    declared_security_filtering: Some(0),
+                    security_filtering_unpinned: None,
                     key: 0,
                     adhoc: None,
                     ascending: true,
@@ -2147,7 +2147,7 @@ impl Session {
     /// gets an independent, empty table of its own (corpus
     /// record/TestTempTableContracts.al:TempVar_PassedByValue_CallerNotAffected).
     pub(crate) fn record_by_value(&mut self, rc: &Rc<RefCell<RecordState>>) -> Value {
-        let mut st = rc.borrow().clone();
+        let mut st = rc.borrow().copy_as_new_variable();
         if st.temporary {
             st.temp_id = Some(self.new_temp_id());
         }
@@ -2372,7 +2372,7 @@ impl Session {
                 // Assigning the record to a Variant variable is a by-value copy
                 // (:TempRecord_AssignedToVariantVariable).
                 (Value::Record(rc), false) if matches!(r.locals[i].ty, RtType::Variant) && rc.borrow().temporary => {
-                    let st = rc.borrow().clone();
+                    let st = rc.borrow().copy_as_new_variable();
                     Value::Record(Rc::new(RefCell::new(st)))
                 }
                 // A temporary record handed by value to a parameter that is NOT declared temporary gives the callee a record of the
@@ -2385,7 +2385,7 @@ impl Session {
                     if rc.borrow().temporary
                         && matches!(r.locals[i].ty, RtType::Record(t, false) if !self.engine.object_facts[t as usize].temporary()) =>
                 {
-                    let mut st = rc.borrow().clone();
+                    let mut st = rc.borrow().copy_as_new_variable();
                     st.temporary = false;
                     st.temp_id = None;
                     Value::Record(Rc::new(RefCell::new(st)))
@@ -2409,7 +2409,7 @@ impl Session {
                         || (rc.borrow().temporary
                             && matches!(r.locals[i].ty, RtType::Record(t, false) if self.engine.object_facts[t as usize].temporary())) =>
                 {
-                    let mut st = rc.borrow().clone();
+                    let mut st = rc.borrow().copy_as_new_variable();
                     st.key = 0;
                     st.adhoc = None;
                     st.ascending = true;
@@ -2428,7 +2428,7 @@ impl Session {
                 (Value::Record(rc), false)
                     if matches!(r.locals[i].ty, RtType::Variant) && rc.borrow().run_page_link.is_some() =>
                 {
-                    let mut st = rc.borrow().clone();
+                    let mut st = rc.borrow().copy_as_new_variable();
                     st.run_page_link = None;
                     st.unpinned_buffer = Some(crate::records::RUN_PAGE_LINK_VARIANT);
                     Value::Record(Rc::new(RefCell::new(st)))

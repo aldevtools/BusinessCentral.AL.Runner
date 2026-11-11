@@ -72,6 +72,12 @@ fn a_local_record_declared_with_security_filtering_starts_with_the_declared_valu
         procedure M4(): Text var [SecurityFiltering(SecurityFilter::Filtered)] R: Record T; P: Record T; begin R.Copy(P); exit(Format(R.SecurityFiltering())); end; \
         procedure M5(): Text var [SecurityFiltering(SecurityFilter::Filtered)] R: Record T; begin R.TransferFields(R); exit(Format(R.SecurityFiltering())); end; \
         procedure N(): Text var U: Record U; begin exit(U.L2()); end; \
+        procedure M6(): Text var [SecurityFiltering(SecurityFilter::Filtered)] R: Record T; RR: RecordRef; begin RR.Open(50100); RR.SetTable(R); exit(Format(R.SecurityFiltering())); end; \
+        procedure M7(): Text var [SecurityFiltering(SecurityFilter::Ignored)] R: Record T; begin exit(ClearByValue(R)); end; \
+        procedure M8(): Text var P: Record T; begin exit(ClearByValue(P)); end; \
+        procedure M9(): Text var [SecurityFiltering(SecurityFilter::Ignored)] R: Record T; begin exit(ReadByValue(R)); end; \
+        procedure ClearByValue(X: Record T): Text begin Clear(X); exit(Format(X.SecurityFiltering())); end; \
+        procedure ReadByValue(X: Record T): Text begin exit(Format(X.SecurityFiltering())); end; \
         procedure Pass(var X: Record T) begin end; \
         procedure Two(N: Integer; var X: Record T) begin end; } \
         table 50101 U { fields { field(1; Id; Integer) { } } var [SecurityFiltering(SecurityFilter::Filtered)] GU: Record T; \
@@ -87,4 +93,12 @@ fn a_local_record_declared_with_security_filtering_starts_with_the_declared_valu
     }
     refused(al_testkit::run_in(src, "C", "M5"), "TransferFields");
     refused(al_testkit::run_in(src, "C", "N"), "SecurityFiltering");
+    // RecordRef.SetTable into the record: whether SecurityFiltering passes is not pinned (ReadIsolation does,
+    // recordref-fieldref/recordref/P92ReadIsolation.al:ReadIsolation_FromRecordAndToRecord), so the read refuses.
+    refused(al_testkit::run_in(src, "C", "M6"), "SetTable");
+    // A by-value parameter reads the argument's value (ACAttributes.al:397, :411-414); Clear of it goes back to a value
+    // the corpus does not pin when the argument was declared with another value than Validated, so the read refuses.
+    refused(al_testkit::run_in(src, "C", "M7"), "Clear");
+    assert_eq!(al_testkit::text(al_testkit::run_in(src, "C", "M8")), "Validated");
+    assert_eq!(al_testkit::text(al_testkit::run_in(src, "C", "M9")), "Ignored");
 }

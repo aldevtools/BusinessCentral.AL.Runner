@@ -439,8 +439,8 @@ impl Session {
         match args.first() {
             None => {
                 let r = rec.borrow();
-                if !is_iso && r.security_filtering_unpinned {
-                    return unsupported("SecurityFiltering() of a record after a TransferFields into it (not pinned)");
+                if let (false, Some(why)) = (is_iso, r.security_filtering_unpinned) {
+                    return unsupported(format!("SecurityFiltering() of a record {why} (not pinned)"));
                 }
                 let i = if is_iso { r.read_isolation } else { r.security_filtering };
                 Ok(Value::Option(i, members.into()))
@@ -477,7 +477,7 @@ impl Session {
                     }
                 } else {
                     r.security_filtering = *i;
-                    r.security_filtering_unpinned = false;
+                    r.security_filtering_unpinned = None;
                 }
                 Ok(Value::Null)
             }
@@ -1433,7 +1433,7 @@ impl Session {
             Some(v) => ops::truthy(v)?,
             None => false,
         };
-        rec.borrow_mut().security_filtering_unpinned = true;
+        rec.borrow_mut().security_filtering_unpinned = Some("after a TransferFields into it");
         if Rc::ptr_eq(src, rec) {
             return Ok(Value::Null);
         }

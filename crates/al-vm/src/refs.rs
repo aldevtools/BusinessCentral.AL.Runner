@@ -1412,6 +1412,8 @@ impl Session {
                 // permanent on the table's rows, a permanent one set into a temporary record leaves it temporary and empty of them; only the
                 // current record and the filters pass (recordref-fieldref/recordref/SetTableTemporaryToPermanent.al:
                 // SetTable_TempIntoPermanent_State, _Insert, _ModifyDelete, _FilteredSource, SetTable_PermanentIntoTemporary_State).
+                // Whether SecurityFiltering passes is not pinned (ReadIsolation does, below): the next read of it refuses.
+                dst.borrow_mut().security_filtering_unpinned = Some("after a RecordRef.SetTable into it");
                 if !Rc::ptr_eq(&rec, dst) {
                     let s = rec.borrow();
                     // SetTable does not move the target either (:123-127); GetTable takes the company.
