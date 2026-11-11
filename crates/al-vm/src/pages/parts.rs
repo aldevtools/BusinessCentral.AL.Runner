@@ -1293,6 +1293,18 @@ impl Session {
                             let p = src_page.borrow();
                             p.host.is_none() && p.draft && !p.draft_stored
                         };
+                        // A Provider that shows no row: on BC the linked part shows no row, also where a row holds the blank
+                        // link value (ProviderPartOutsideFactBoxes.al `h2`, `next-host`: `detail=` with a `Line Ref` 0 row in the
+                        // table; corpus pull request 1324). The runner links to the blank value instead, so on the chains that
+                        // probe admits beyond the pinned ones the read is refused.
+                        if link.provider.is_some()
+                            && src_page.borrow().cursor == Cursor::None
+                            && self.chain_outside_pinned_areas(host)
+                        {
+                            return unsupported(
+                                "a part linked through a Provider part that shows no row, on a Provider chain declared in the base page's FactBoxes or added by a page extension outside FactBoxes (BC shows no row; not modelled)",
+                            );
+                        }
                         let value = if src_page.borrow().cursor == Cursor::None || unsaved_host {
                             let host_ty = engine.program.objects[*src_table]
                                 .table
