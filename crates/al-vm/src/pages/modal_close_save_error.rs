@@ -9,9 +9,9 @@
 //! CardVariableRunModal and ListVariableRunModal cells of the same name): RunModal fails with the error's own text and the code
 //! TestWrapped; OnQueryClosePage and OnClosePage do not run.
 //!
-//! An error with a code other than Dialog (the reporter's TestField error from a codeunit OnModifyRecord runs) comes out with its
-//! own text and a code that is not pinned, under the assumption `modal-close-save-error-code` (issue 7400's repro needs the
-//! text). A new row's insert at close, a Document or any page with parts (pages/close-errors/CemDocumentTests.al pins another
+//! A TestField error (the reporter's, from a codeunit OnModifyRecord runs) keeps its text and its code, and the save runs once
+//! more first, as real BC showed in the queued probe; under the assumption `modal-close-save-error-code` until it is pinned.
+//! Other codes are refused. A new row's insert at close, a Document or any page with parts (pages/close-errors/CemDocumentTests.al pins another
 //! error there), a Page variable in LookupMode, and every other page type keep the refusal.
 
 use super::*;
@@ -38,9 +38,24 @@ impl Session {
         let mut wrapped = e.clone();
         if e.code == "Dialog" {
             wrapped.code = "TestWrapped".into();
-        } else {
+        } else if e.code == "TestField" {
+            // Observed on real BC (corpus PR 1323 ModalCloseSaveErrorShapes.al, not merged yet): a TestField error keeps its
+            // code and the save runs once more before RunModal fails (`log` M-list NEW twice). Assumption until the pin lands.
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ModalCloseSaveErrorCode);
-            wrapped.code = al_builtins::native::UNPINNED_ERROR.into();
+            match self.save_row(st) {
+                Err(Signal::Error(again)) if again.code == "TestField" => wrapped = (*again).clone(),
+                Err(Signal::Error(_)) | Ok(_) => {
+                    return unsupported(
+                        "the second save at a modal page's close after a TestField error, which did not raise the TestField error again (not pinned)",
+                    );
+                }
+                Err(other) => return Err(other),
+            }
+        } else {
+            return unsupported(format!(
+                "an error with the code {} raised while a modal page saved its edited row as the platform closed it after the handler returned (only Dialog is pinned)",
+                e.code
+            ));
         }
         {
             let mut s = st.borrow_mut();
