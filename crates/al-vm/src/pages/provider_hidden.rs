@@ -227,4 +227,34 @@ impl Session {
                 .link_page(&host, idx)
                 .is_some_and(|p| !matches!(p.borrow().cursor, Cursor::Row))
     }
+
+    /// A part a Visible expression hid, outside every Provider chain, that shows at a later refill: BC reads it once more before
+    /// the host's refresh (testpage/parts/HiddenPartExtensionVariable.al:632 Hidden_OpenEdit_FlipTheVariable_ThenActions `flip`
+    /// `act-flip(Yes) fb-agr(H1) fb-agcr(H1) host-agcr(H1) ...`). Not implemented: refused when the part runs record triggers.
+    pub(super) fn refuse_unchained_part_turning_visible(&mut self, st: &St, parts: &[(usize, St)]) -> Result<(), Signal> {
+        for (i, c) in parts {
+            let hidden = st.borrow().hidden_parts.iter().any(|(_, h)| Rc::ptr_eq(h, c));
+            if !hidden || !c.borrow().open || self.part_in_provider_chain(st, *i) || !self.runs_record_triggers(c) {
+                continue;
+            }
+            if self.control_visible(st, *i)? {
+                return unsupported(
+                    "a part hidden by a Visible expression that shows at a later refill (BC reads it once more first; not implemented)",
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether part page `st` runs AL code when it reads a row: its or a page extension's OnAfterGetRecord or
+    /// OnAfterGetCurrRecord, or a subscriber of their events.
+    pub(super) fn runs_record_triggers(&self, st: &St) -> bool {
+        let object = st.borrow().object as usize;
+        ["onaftergetrecord", "onaftergetcurrrecord"]
+            .iter()
+            .any(|t| self.declares_or_ext_declares(st, t))
+            || ["onaftergetrecordevent", "onaftergetcurrrecordevent"]
+                .iter()
+                .any(|t| self.engine().events.is_subscribed(object, t))
+    }
 }

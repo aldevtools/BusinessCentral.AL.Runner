@@ -774,17 +774,23 @@ impl Session {
         Ok(())
     }
 
-    /// Close inserts a new Document or Card host whose key was typed, over a part that shows no row, declares OnNewRecord or
-    /// OnAfterGetCurrRecord and that the test never called: BC runs neither trigger then (pages/parts/
-    /// PartLineBeforeHostKey.al:1687 QH_EmptyPart_OpenNew_KeyTyped, `close` = `[H.OnInsert:Q1]`), the relink after the insert does.
-    /// Refused until the relink is told apart. A key given by the table's OnInsert, a part the test called or a typed line relinks
-    /// as before.
-    pub(super) fn refuse_part_triggers_at_new_host_close(&mut self, st: &St) -> Result<(), Signal> {
+    /// Close inserts a new host whose key was typed, over a part that shows no row, declares OnNewRecord or OnAfterGetCurrRecord
+    /// and that the test never called: the part does not read again after the insert, so neither trigger runs (pages/parts/
+    /// PartLineBeforeHostKey.al:1702 QH_EmptyPart_OpenNew_KeyTyped, a list part, `close` = `[H.OnInsert:Q1]`; testpage/parts/
+    /// HiddenPartOutsideChain.al:335 Chain_FbShown_OpenNewTypeKey, a CardPart whose link finds the inserted row, `closed`
+    /// `docs=3 log=[]`, hidden or shown, with or without a Provider link: :321, :349, :363). Returns those parts, shown and
+    /// hidden, marked `quiet_at_close`; the caller clears the mark. A key given by the table's OnInsert, a part the test called
+    /// or a typed line relinks as before.
+    pub(super) fn quiet_parts_at_new_host_close(&mut self, st: &St) -> Result<Vec<St>, Signal> {
         {
             let s = st.borrow();
-            if !(s.draft && s.dirty && s.host.is_none() && !s.parts.is_empty()) {
-                return Ok(());
+            if !(s.draft && s.dirty && s.host.is_none()) {
+                return Ok(Vec::new());
             }
+        }
+        let parts: Vec<St> = Self::open_parts_with_hidden(st).into_iter().map(|(_, c)| c).collect();
+        if parts.is_empty() {
+            return Ok(Vec::new());
         }
         let rec = self.page_rec(st);
         let key_typed = {
@@ -796,27 +802,26 @@ impl Session {
                 .any(|&p| al_builtins::ops::compare(&r.fields[p], &initial[p]).ok() != Some(std::cmp::Ordering::Equal))
         };
         if !key_typed {
-            return Ok(());
+            return Ok(Vec::new());
         }
-        let parts: Vec<St> = st.borrow().parts.iter().map(|(_, c)| c.clone()).collect();
-        for c in &parts {
+        let mut quiet = Vec::new();
+        for c in parts {
             if c.borrow().part_accessed || (c.borrow().draft && c.borrow().dirty) {
                 continue;
             }
             let object = c.borrow().object as usize;
             let observes = ["onnewrecord", "onaftergetcurrrecord"]
                 .iter()
-                .any(|t| self.declares(c, t))
+                .any(|t| self.declares(&c, t))
                 || ["onnewrecordevent", "onaftergetcurrrecordevent"]
                     .iter()
                     .any(|t| self.engine().events.is_subscribed(object, t));
-            if observes && c.borrow().cursor != Cursor::Row && self.has_source(c) {
-                return unsupported(
-                    "closing a new host row while a part that shows no row declares OnNewRecord or OnAfterGetCurrRecord (BC runs neither, the relink does; not implemented)",
-                );
+            if observes && c.borrow().cursor != Cursor::Row && self.has_source(&c) {
+                c.borrow_mut().quiet_at_close = true;
+                quiet.push(c);
             }
         }
-        Ok(())
+        Ok(quiet)
     }
 
     /// OnInsertRecord decides whether the typed record is inserted at all (corpus

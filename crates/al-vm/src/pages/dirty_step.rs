@@ -20,6 +20,7 @@ impl Session {
     /// CardPart_SetLine_Action `lpM ...;lM ...;R H1;act H1 ... l1=new`, :1748 Doc_Existing_NewLine_Action, :1778
     /// CardPart_Existing_NewLine_Action `lpI 30000 nl;eBIL nl;lI ...;R H1;act`).
     pub(super) fn save_before_action(&mut self, st: &St, idx: usize) -> Result<(), Signal> {
+        self.refuse_action_on_new_host_with_parts(st)?;
         let host = st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade());
         if let Some(host) = host {
             if host.borrow().open && host.borrow().dirty && !host.borrow().draft && host.borrow().cursor == Cursor::Row
@@ -376,5 +377,33 @@ impl Session {
                 .map(|()| Value::Null),
             other => other,
         }
+    }
+
+    /// An action on a new host row whose key was typed and that is not stored, on a page with a part: BC stores the row before
+    /// the action and reads the host and its parts again in an order of its own (testpage/parts/HiddenPartExtensionVariable.al:454
+    /// Hidden_OpenNew_Key_HostActions `plain` `3 [act-plain host-agcr(H3) ext-agcr(H3) fb-agr(H3) fb-agcr(H3)]`, shown the same;
+    /// pages/parts/HeldSenderPartAccess.al:750 HS07 `T:set;h3.getrec(2);sub.hold;action(2);h3.getrec(2);sub.hold;h3.getrec(2)`).
+    /// Not implemented: refused before the action saves anything. A card without parts keeps its pinned shape
+    /// (`plain_card_draft`).
+    fn refuse_action_on_new_host_with_parts(&mut self, st: &St) -> Result<(), Signal> {
+        let new_host = {
+            let s = st.borrow();
+            s.open && s.host.is_none() && s.draft && !s.draft_stored
+        };
+        if !new_host || Self::open_parts_with_hidden(st).is_empty() || !self.has_source(st) {
+            return Ok(());
+        }
+        let rec = self.page_rec(st);
+        let initial = self.initial_fields(rec.borrow().table as usize);
+        let table = self.table(&rec)?;
+        let key_typed = table.keys[0]
+            .iter()
+            .any(|&k| !Self::same_values(std::slice::from_ref(&rec.borrow().fields[k]), std::slice::from_ref(&initial[k])));
+        if key_typed {
+            return unsupported(
+                "an action on a new row whose key was typed, on a page with parts (BC stores the row first and reads the page again; not implemented)",
+            );
+        }
+        Ok(())
     }
 }

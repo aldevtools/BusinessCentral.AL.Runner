@@ -204,6 +204,8 @@ pub struct PageState {
     /// A FactBox part of a Provider chain at the refill after its host was inserted by the first call on a part: 1 while the refill
     /// skips it, 2 until the key typed into the host reads it (`provider_hidden.rs`).
     pub chain_refill: u8,
+    /// The part does not read again when Close inserts its new host row (`draft.rs` `quiet_parts_at_new_host_close`).
+    pub quiet_at_close: bool,
     /// Where an action of a Document page stands that saved a SetValue of the host before its trigger: 0 none, 1 that save's
     /// refresh is running, 2 the save is done and a CurrPage.Update in the trigger has not refreshed yet, 3 it has
     /// (record/captions/QdCaptionClassAreas.al:1015-1049 QO_Doc_OpenEdit_HostSteps `update`).

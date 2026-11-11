@@ -294,8 +294,11 @@ impl Session {
         }
         self.rename_changed_key_at_close(st, action)?;
         let host_saves = st.borrow().dirty || st.borrow().draft;
-        self.refuse_part_triggers_at_new_host_close(st)?;
+        let quiet = self.quiet_parts_at_new_host_close(st)?;
         let save = self.close_denied_modify(st).and_then(|()| self.close_save_row(st));
+        for c in quiet {
+            c.borrow_mut().quiet_at_close = false;
+        }
         match save {
             Err(Signal::Error(e)) if swallow_save_errors => {
                 al_builtins::native::refuse_unpinned_text(&e, "The error list of a page row")?;

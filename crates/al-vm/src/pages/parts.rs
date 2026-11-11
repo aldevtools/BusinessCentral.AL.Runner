@@ -124,21 +124,6 @@ impl Session {
                 hidden.push((i, child));
             }
         }
-        // A new row on a host with a part a Visible expression hid, whose page declares OnAfterGetCurrRecord, and no part linked
-        // through a Provider: BC runs that trigger on the new row and again around the first action (pages/parts/
-        // HeldSenderPartAccess.al HS07, HS09: `f4.open;sub.curr;f4.curr(0)`, staging branch
-        // al-runtime-rs-staging-probe-train-1110b); the runtime does not. With a Provider link the hidden parts read as BC
-        // reads them (testpage/parts/ProviderLinkedPartsMatrix.al:1232 Provider_BothHidden_OpenNewSetKeyClose).
-        if st.borrow().mode == PageMode::New
-            && !self.has_provider_link(st)
-            && hidden
-                .iter()
-                .any(|(_, c)| self.declares_or_ext_declares(c, "onaftergetcurrrecord"))
-        {
-            return unsupported(
-                "a new row on a page with a part hidden by a Visible expression that declares OnAfterGetCurrRecord (BC runs it on the new row; not implemented)",
-            );
-        }
         st.borrow_mut().parts = kept.clone();
         st.borrow_mut().hidden_parts = hidden.clone();
         let mut all: Vec<(usize, St)> = kept.into_iter().chain(hidden).collect();
@@ -512,15 +497,6 @@ impl Session {
         self.sync_parts_with(st, Sync::Stayed)
     }
 
-    /// Whether a part of `st`'s page is linked through a Provider.
-    fn has_provider_link(&self, st: &St) -> bool {
-        let engine = self.engine();
-        page_of(&engine, st)
-            .controls
-            .iter()
-            .any(|c| c.part_link.as_ref().is_some_and(|l| l.provider.is_some()))
-    }
-
     fn sync_parts_with(&mut self, st: &St, how: Sync) -> Result<(), Signal> {
         let engine = self.engine();
         let page = page_of(&engine, st);
@@ -541,6 +517,8 @@ impl Session {
         if opening {
             self.refuse_factbox_vs_extension_chain(st)?;
             self.read_blank_before_parts_turning_visible(st)?;
+        } else {
+            self.refuse_unchained_part_turning_visible(st, &parts)?;
         }
         if let Sync::Move { .. } = how {
             let mut linked = Vec::new();
@@ -573,7 +551,7 @@ impl Session {
         };
         for pass in [false, true] {
             for (i, child) in &parts {
-                if has_provider(*i) == pass {
+                if has_provider(*i) == pass && !child.borrow().quiet_at_close {
                     // A GoToKey of a Document host onto the row it stands on reads the host again, not its parts (pages/
                     // lt-qj-part-propagation/QjPartPropagation.al:485 QJ_Both_PartModifiesHost_ThenHostSave `log-open`, :714
                     // QJ_SubformSaveRecord_StoredRow `log-open = S.AGCR(10000 r=1 x=0)`). So does a Card or ListPlus host
@@ -667,7 +645,7 @@ impl Session {
         };
         for pass in [false, true] {
             for (i, child) in &parts {
-                if has_provider(*i) == pass {
+                if has_provider(*i) == pass && !child.borrow().quiet_at_close {
                     self.sync_part(st, *i, child)?;
                 }
             }
@@ -1495,7 +1473,10 @@ impl Session {
         // and parts without rows (:181-183); what the page does after that is not understood (the shape conflicts with
         // pages/parts/PartLineBeforeHostKey.al:401, a Document page that stores nothing). The row is
         // stored, and every later call on the page or its parts but Close is refused.
-        let linked_on_key = parts_linked_on(page, &st.borrow().parts, pos);
+        // A part a Visible expression hid reads again like a shown one (testpage/parts/HiddenPartOutsideChain.al:320
+        // Chain_FbHidden_OpenNewTypeKey `keyed` `[fb-row()]`, as its shown twin :334; :348 and :362 on a Card without a Provider).
+        let parts = Self::open_parts_with_hidden(st);
+        let linked_on_key = parts_linked_on(page, &parts, pos);
         let new_card = {
             let s = st.borrow();
             s.host.is_none() && s.draft && !s.draft_stored && s.cursor != Cursor::None
@@ -1526,7 +1507,6 @@ impl Session {
             );
             return Ok(());
         }
-        let parts = st.borrow().parts.clone();
         for (i, child) in &parts {
             if key_of_stored_row
                 && page.controls[*i]

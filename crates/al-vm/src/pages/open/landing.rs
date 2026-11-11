@@ -432,6 +432,8 @@ impl Session {
                 self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
                 self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
                 rec.borrow_mut().fields = fresh;
+            } else if self.card_part_of_new_host(st) {
+                self.card_part_blank_on_new_host(st)?;
             } else if self.has_source(st) && st.borrow().host.is_some() && st.borrow().mode == PageMode::Edit {
                 // A part of a host that moved to a row without lines holds no row of the old link: Rec is blank, so the part's
                 // action sees no Line No. (pages/parts/R6889RealShape.al:1213 RunStep4, :1406 PG6889RS_Step4_ `ACT;CU;T.INS(10);...`,
