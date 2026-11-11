@@ -8,19 +8,43 @@ impl Session {
     /// The initial value of slot `s`. A record declared with `[SecurityFiltering(x)]` starts with x
     /// (al-language/reports/runtime/ACAttributes.al:176-179; a codeunit's global: :432, :451-458) and keeps x as the value
     /// `Clear` sets back (`clear_record`). A plain record starts Validated (`default_value`). ClearAll gives a codeunit's
-    /// globals these values again (:436-438, :471-479).
+    /// globals these values again (:436-438, :471-479), and a table's, a page's and a report's
+    /// (al-language/reports/runtime/SFSecurityFilteringFlow.al:406-424).
     pub fn slot_default(&mut self, s: &al_ir::Slot) -> Value {
         let v = self.default_value(&s.ty);
-        if let (Some(x), Value::Record(r)) = (s.security_filtering, &v) {
-            let mut r = r.borrow_mut();
+        if s.security_filtering_not_kept {
+            for_each_record(&v, |r| r.security_filtering_not_measured());
+            return v;
+        }
+        let Some(x) = s.security_filtering else {
+            return v;
+        };
+        // Every element of an array of records declared with the attribute starts with x and keeps it as the value Clear of
+        // the element and of the array sets back (al-language/reports/runtime/SFSecurityFilteringFlow.al:429-459).
+        let in_array = matches!(v, Value::Array(_));
+        for_each_record(&v, |r| {
             r.security_filtering = x;
             r.declared_security_filtering = x;
-        }
+            r.security_filtering_array = in_array;
+        });
         v
     }
 
     /// The initial values of `slots`, in order.
     pub(crate) fn slot_defaults(&mut self, slots: &[al_ir::Slot]) -> Vec<Value> {
         slots.iter().map(|s| self.slot_default(s)).collect()
+    }
+}
+
+/// Calls `f` on the record `v` holds, or on every record element of the array `v` holds.
+fn for_each_record(v: &Value, mut f: impl FnMut(&mut RecordState)) {
+    match v {
+        Value::Array(a) => a.borrow().iter().for_each(|e| {
+            if let Value::Record(r) = e {
+                f(&mut r.borrow_mut());
+            }
+        }),
+        Value::Record(r) => f(&mut r.borrow_mut()),
+        _ => {}
     }
 }
